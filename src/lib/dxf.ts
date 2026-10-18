@@ -63,6 +63,8 @@ export interface DxfText {
   anchor: "start" | "middle" | "end";
   /** Where the first line sits relative to (x, y). */
   valign: "baseline" | "bottom" | "middle" | "top";
+  /** Aligned / Fit TEXT (72 = 3 / 5): the width it is stretched to fill, drawing units. */
+  fitWidth?: number;
 }
 export interface DxfFill {
   kind: "fill";
@@ -88,7 +90,11 @@ export interface DxfDrawing {
   notes: string[];
 }
 
-export const DXF_LIMITS = { bytes: 30 * 1024 * 1024, items: 200_000, depth: 16, array: 10_000 };
+/**
+ * Caps that keep a small file from freezing Word: bytes read, items drawn, block depth, copies in
+ * one array, entities visited while expanding blocks (work), and points in flattened curves.
+ */
+export const DXF_LIMITS = { bytes: 30 * 1024 * 1024, items: 200_000, depth: 16, array: 10_000, work: 2_000_000, points: 500_000 };
 /** Curves are flattened to within this fraction of the drawing's size. */
 export const FLAT_TOL = 1e-4;
 
@@ -146,11 +152,16 @@ interface Ent {
   type: string;
   pairs: Pair[];
 }
+/** A group code's number; the default when absent; NaN when present but unreadable (skipped and counted, never read as 0). */
 const num = (e: Ent, code: number, dflt = 0): number => {
   const p = e.pairs.find((q) => q[0] === code);
-  const v = p ? Number(p[1]) : dflt;
-  return Number.isFinite(v) ? v : dflt;
+  if (!p) return dflt;
+  const v = Number(p[1]);
+  return Number.isFinite(v) ? v : NaN;
 };
+const TAU = 2 * Math.PI;
+/** a mod m into [0, m). */
+const mod = (a: number, m: number): number => ((a % m) + m) % m;
 const str = (e: Ent, code: number, dflt = ""): string => e.pairs.find((q) => q[0] === code)?.[1] ?? dflt;
 const all = (e: Ent, code: number): string[] => e.pairs.filter((q) => q[0] === code).map((q) => q[1]);
 
@@ -287,6 +298,7 @@ export function dxfText(raw: string, mtext: boolean): string[] {
   let t = raw.replace(/\\U\+([0-9A-Fa-f]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
   t = t.replace(/%%([cCdDpP%])/g, (_, k: string) => ({ c: "Ø", d: "°", p: "±", "%": "%" })[k.toLowerCase() as "c"] ?? "");
   t = t.replace(/%%\d{3}/g, (m) => String.fromCharCode(Number(m.slice(2))));
+  t = xmlSafe(t);
   if (!mtext) return [t];
   const BS = "\\";
   let out = "";
@@ -323,6 +335,30 @@ export function dxfText(raw: string, mtext: boolean): string[] {
   return out.split("\n");
 }
 
+/**
+ * Drops what XML 1.0 cannot carry (control characters other than tab and line breaks, U+FFFE/FFFF,
+ * unpaired surrogates): `\U+0002` or `%%001` in a note would otherwise make the picture invalid.
+ */
+export function xmlSafe(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) {
+        out += s[i] + s[i + 1];
+        i++;
+      }
+      continue;
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) continue;
+    if (c < 0x20 && c !== 9 && c !== 10 && c !== 13) continue;
+    if (c === 0xfffe || c === 0xffff) continue;
+    out += s[i];
+  }
+  return out;
+}
+
 // ---- the reader -------------------------------------------------------------------------------
 
 export type ReadResult = { ok: true; drawing: DxfDrawing } | { ok: false; reason: string };
@@ -355,8 +391,18 @@ export function readDxf(text: string): ReadResult {
   const top = space === "model" ? model : paper;
 
   // Extent of everything, for the flattening tolerance (curves to within FLAT_TOL of the drawing).
+  // Every coordinate of every entity (fit and control points too; block contents as written).
   let span = 0;
-  for (const e of p.entities) for (const c of [10, 11]) span = Math.max(span, Math.abs(num(e, c)), Math.abs(num(e, c + 10)));
+  const scan = (es: Ent[]): void => {
+    for (const e of es)
+      for (const [c, v] of e.pairs)
+        if (c >= 10 && c <= 28) {
+          const a = Math.abs(Number(v));
+          if (Number.isFinite(a) && a > span) span = a;
+        }
+  };
+  scan(p.entities);
+  for (const b of p.blocks.values()) scan(b.ents);
   const tol = Math.max(span, 1) * FLAT_TOL;
 
   const dashFor = (e: Ent, layer: string, inherited: { ltype: string }): number[] => {
@@ -373,10 +419,28 @@ export function readDxf(text: string): ReadResult {
     return w > 0 ? w / 100 : null;
   };
 
-  const push = (shape: DxfShape, e: Ent, layer: string, inh: { ltype: string }): void => {
+  let points = 0, work = 0, tooMuchWork = false, tooManyPoints = false;
+  /** Every number of a shape finite, and its sizes positive: otherwise it is skipped and counted. */
+  const sound = (s: DxfShape): boolean => {
+    const fin = (...v: number[]): boolean => v.every(Number.isFinite);
+    if (s.kind === "line") return fin(s.x1, s.y1, s.x2, s.y2);
+    if (s.kind === "arc") return fin(s.cx, s.cy, s.r, s.a0, s.a1) && s.r > 0;
+    if (s.kind === "text") return fin(s.x, s.y, s.h, s.rot) && s.h > 0 && (s.fitWidth === undefined || (Number.isFinite(s.fitWidth) && s.fitWidth > 0));
+    return s.pts.every(([x, y]) => fin(x, y));
+  };
+  const push = (shape: DxfShape | null, e: Ent, layer: string, inh: { ltype: string }): void => {
+    if (!shape) return bump("degenerate");
+    if (!sound(shape)) return bump("badNumber");
     if (items.length >= DXF_LIMITS.items) {
       tooMany = true;
       return;
+    }
+    if (shape.kind === "poly" || shape.kind === "fill") {
+      points += shape.pts.length;
+      if (points > DXF_LIMITS.points) {
+        tooManyPoints = true;
+        return;
+      }
     }
     items.push({ ...shape, layer, dash: shape.kind === "text" || shape.kind === "fill" ? [] : dashFor(e, layer, inh), weightMm: weightFor(e, layer) } as DxfItem);
   };
@@ -397,9 +461,9 @@ export function readDxf(text: string): ReadResult {
     const s = similarity(m);
     if (s === null) {
       bump("unevenArc");
-      let a0 = (d0 * Math.PI) / 180, a1 = (d1 * Math.PI) / 180;
-      if (full) [a0, a1] = [0, 2 * Math.PI];
-      else while (a1 <= a0) a1 += 2 * Math.PI;
+      // Reduced, never looped up to: an angle of 1e20 in the file must not stall the reader.
+      const a0 = full ? 0 : mod((d0 * Math.PI) / 180, TAU);
+      const a1 = full ? TAU : a0 + (mod((d1 - d0) * (Math.PI / 180), TAU) || TAU);
       return { kind: "poly", pts: flatten((t) => [cx + r * Math.cos(t), cy + r * Math.sin(t)], a0, a1, m, r), closed: full };
     }
     const [X, Y] = ap(m, cx, cy);
@@ -410,19 +474,18 @@ export function readDxf(text: string): ReadResult {
     if (full) return { kind: "arc", cx: X, cy: Y, r: r * s, a0: 0, a1: 2 * Math.PI, full: true };
     // A mirror turns counter-clockwise into clockwise: the arc then runs from the old end to the old start.
     const [b0, b1] = det(m) < 0 ? [dir(d1), dir(d0)] : [dir(d0), dir(d1)];
-    let a1 = b1;
-    while (a1 <= b0) a1 += 2 * Math.PI;
-    return { kind: "arc", cx: X, cy: Y, r: r * s, a0: b0, a1, full: false };
+    return { kind: "arc", cx: X, cy: Y, r: r * s, a0: b0, a1: b0 + (mod(b1 - b0, TAU) || TAU), full: false };
   };
 
   /** A bulged segment from (x1, y1) to (x2, y2) in OCS, through m. */
-  const bulgeSeg = (x1: number, y1: number, x2: number, y2: number, bulge: number, m: M): DxfShape => {
+  const bulgeSeg = (x1: number, y1: number, x2: number, y2: number, bulge: number, m: M): DxfShape | null => {
     if (Math.abs(bulge) < 1e-12) {
       const [a, b] = ap(m, x1, y1), [c, d] = ap(m, x2, y2);
       return { kind: "line", x1: a, y1: b, x2: c, y2: d };
     }
     const theta = 4 * Math.atan(bulge); // included angle, signed (+ counter-clockwise)
     const chord = Math.hypot(x2 - x1, y2 - y1);
+    if (!(chord > 0)) return null; // a repeated vertex with a bulge: no arc to draw
     const r = chord / (2 * Math.sin(Math.abs(theta) / 2));
     // Centre: from the chord's midpoint along its normal, on the side the arc turns about.
     const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
@@ -434,7 +497,12 @@ export function readDxf(text: string): ReadResult {
   };
 
   const draw = (e: Ent, m0: M, depth: number, inh: { ltype: string; layer: string }): void => {
-    if (tooMany) return;
+    if (tooMany || tooMuchWork || tooManyPoints) return;
+    // Every entity visited counts, drawn or not: arrays of arrays of points must not run for hours.
+    if (++work > DXF_LIMITS.work) {
+      tooMuchWork = true;
+      return;
+    }
     let layer = str(e, 8, "0");
     if (layer === "0" && inh.layer) layer = inh.layer;
     const lay = p.layers.get(layer);
@@ -455,18 +523,24 @@ export function readDxf(text: string): ReadResult {
       }
       case "CIRCLE":
         return push(arcThrough(num(e, 10), num(e, 20), num(e, 40), 0, 360, true, m), e, layer, inh);
-      case "ARC":
-        return push(arcThrough(num(e, 10), num(e, 20), num(e, 40), num(e, 50), num(e, 51), false, m), e, layer, inh);
+      case "ARC": {
+        const sw = mod(num(e, 51) - num(e, 50), 360);
+        const full = sw < 1e-9 || 360 - sw < 1e-9; // start = end: the whole circle
+        return push(arcThrough(num(e, 10), num(e, 20), num(e, 40), num(e, 50), num(e, 51), full, m), e, layer, inh);
+      }
       case "LWPOLYLINE": {
-        const xs = all(e, 10).map(Number), ys = all(e, 20).map(Number);
-        // Bulges belong to the vertex before them: walk the pairs in order.
-        const bulges: number[] = [];
+        // Each vertex is a 10, its 20 and any 42 (bulge) after it: walk the pairs in order, so a
+        // vertex missing its 20 is NaN (skipped, counted) instead of taking the next vertex's y.
+        const xs: number[] = [], ys: number[] = [], bulges: number[] = [];
         let v = -1;
         for (const [c, val] of e.pairs) {
           if (c === 10) {
             v++;
+            xs[v] = Number(val);
+            ys[v] = NaN;
             bulges[v] = 0;
-          } else if (c === 42 && v >= 0) bulges[v] = Number(val) || 0;
+          } else if (c === 20 && v >= 0) ys[v] = Number(val);
+          else if (c === 42 && v >= 0) bulges[v] = Number(val) || 0;
         }
         const closed = (num(e, 70) & 1) === 1;
         const n = xs.length;
@@ -493,14 +567,19 @@ export function readDxf(text: string): ReadResult {
         if (num(e, 210) !== 0 || num(e, 220) !== 0) return bump("offPlane");
         const flip = num(e, 230, 1) < 0 ? -1 : 1; // an ellipse's own plane: (0,0,−1) runs its parameter clockwise
         const ax = Math.hypot(mx, my), ux = mx / ax, uy = my / ax;
-        let t0 = num(e, 41, 0), t1 = num(e, 42, 2 * Math.PI);
-        while (t1 <= t0) t1 += 2 * Math.PI;
+        if (!(ax > 0) || !(ratio > 0)) return bump("degenerate");
+        // Reduced, never looped up to (a parameter of 1e20 in the file must not stall the reader).
+        const t0 = mod(num(e, 41, 0), TAU), t1 = t0 + (mod(num(e, 42, TAU) - num(e, 41, 0), TAU) || TAU);
         const f = (t: number): [number, number] => [cx + ax * Math.cos(t) * ux - flip * ratio * ax * Math.sin(t) * uy, cy + ax * Math.cos(t) * uy + flip * ratio * ax * Math.sin(t) * ux];
         bump("ellipse");
         return push({ kind: "poly", pts: flatten(f, t0, t1, m, ax), closed: Math.abs(t1 - t0 - 2 * Math.PI) < 1e-9 }, e, layer, inh);
       }
       case "SPLINE": {
-        const pts = splinePoints(e, tol);
+        const pts = splinePoints(e, tol, DXF_LIMITS.points - points);
+        if (pts === "tooMany") {
+          tooManyPoints = true;
+          return;
+        }
         if (!pts) return bump("badSpline");
         bump("spline");
         return push({ kind: "poly", pts: pts.map(([x, y]) => ap(m, x, y)), closed: (num(e, 70) & 1) === 1 }, e, layer, inh);
@@ -509,6 +588,17 @@ export function readDxf(text: string): ReadResult {
       case "ATTRIB": {
         if (e.type === "ATTRIB" && (num(e, 70) & 1)) return; // an invisible attribute
         const h72 = num(e, 72), v73 = num(e, e.type === "ATTRIB" ? 74 : 73);
+        if (h72 === 3 || h72 === 5) {
+          // Aligned (3) and Fit (5): the text runs from point 10 to point 11 on its baseline. Fit keeps
+          // the height and stretches the width; Aligned scales both (height from the width).
+          const [x, y] = ap(m, num(e, 10), num(e, 20)), [x2, y2] = ap(m, num(e, 11), num(e, 21));
+          const w = Math.hypot(x2 - x, y2 - y);
+          const lines = dxfText(str(e, 1), false);
+          const s = similarity(m) ?? Math.sqrt(Math.abs(det(m)));
+          const chars = Math.max(1, lines[0].length);
+          const h = h72 === 5 ? num(e, 40, 2.5) * s : w / (chars * TEXT_EM_PER_CHAR / 0.716);
+          return push({ kind: "text", x, y, h, rot: (Math.atan2(y2 - y, x2 - x) * 180) / Math.PI, lines, anchor: "start", valign: "baseline", fitWidth: w }, e, layer, inh);
+        }
         const aligned = h72 !== 0 || v73 !== 0;
         const [x, y] = ap(m, num(e, aligned ? 11 : 10), num(e, aligned ? 21 : 20));
         const s = similarity(m) ?? Math.sqrt(Math.abs(det(m)));
@@ -527,7 +617,11 @@ export function readDxf(text: string): ReadResult {
         const s = similarity(m) ?? Math.sqrt(Math.abs(det(m)));
         const anchor = att % 3 === 2 ? "middle" : att % 3 === 0 ? "end" : "start";
         const valign = att <= 3 ? "top" : att <= 6 ? "middle" : "bottom";
-        return push({ kind: "text", x, y, h: num(e, 40, 2.5) * s, rot: (Math.atan2(wy, wx) * 180) / Math.PI, lines: dxfText(raw, true), anchor, valign }, e, layer, inh);
+        const h = num(e, 40, 2.5) * s;
+        // Wrapped to its box width (41), as CAD programs draw it; the width per character is an estimate.
+        const box = num(e, 41, 0) * s;
+        const lines = box > 0 && h > 0 ? wrapLines(dxfText(raw, true), Math.max(1, Math.floor(box / ((TEXT_EM_PER_CHAR / 0.716) * h)))) : dxfText(raw, true);
+        return push({ kind: "text", x, y, h, rot: (Math.atan2(wy, wx) * 180) / Math.PI, lines, anchor, valign }, e, layer, inh);
       }
       case "SOLID":
       case "TRACE": {
@@ -535,7 +629,13 @@ export function readDxf(text: string): ReadResult {
         return push({ kind: "fill", pts: c }, e, layer, inh);
       }
       case "LEADER": {
-        const xs = all(e, 10).map(Number), ys = all(e, 20).map(Number);
+        const xs: number[] = [], ys: number[] = [];
+        for (const [c, val] of e.pairs) {
+          if (c === 10) {
+            xs.push(Number(val));
+            ys.push(NaN);
+          } else if (c === 20 && xs.length) ys[ys.length - 1] = Number(val);
+        }
         for (let k = 0; k + 1 < xs.length; k++) {
           const [a, b] = ap(m, xs[k], ys[k]), [c, d] = ap(m, xs[k + 1], ys[k + 1]);
           push({ kind: "line", x1: a, y1: b, x2: c, y2: d }, e, layer, inh);
@@ -598,6 +698,8 @@ export function readDxf(text: string): ReadResult {
 
   for (const e of groupPolylines(top)) draw(e, ID, 0, { ltype: "CONTINUOUS", layer: "" });
   if (tooMany) return { ok: false, reason: `the drawing has more than ${DXF_LIMITS.items.toLocaleString("en-US")} items once its blocks are expanded — this importer stops there` };
+  if (tooMuchWork) return { ok: false, reason: `expanding the drawing's blocks takes more than ${DXF_LIMITS.work.toLocaleString("en-US")} steps (arrays of blocks inside arrays) — this importer stops there` };
+  if (tooManyPoints) return { ok: false, reason: `the drawing's curves need more than ${DXF_LIMITS.points.toLocaleString("en-US")} points to draw — this importer stops there` };
 
   // Notes, by count, for what was not drawn exactly as the file has it.
   const notes: string[] = [];
@@ -625,6 +727,8 @@ export function readDxf(text: string): ReadResult {
   say(c("deepBlock"), "1 block nested deeper than 16 levels was not drawn.", "# blocks nested deeper than 16 levels were not drawn.");
   say(c("hugeArray"), "1 block array of more than 10 000 copies was not drawn.", "# block arrays of more than 10 000 copies were not drawn.");
   say(c("badSpline"), "1 spline could not be read and was skipped.", "# splines could not be read and were skipped.");
+  say(c("badNumber"), "1 item with a number that could not be read (or a size of zero or less) was skipped.", "# items with numbers that could not be read (or sizes of zero or less) were skipped.");
+  say(c("degenerate"), "1 item with no size (a repeated vertex, an ellipse with no axis) was skipped.", "# items with no size (repeated vertices, ellipses with no axis) were skipped.");
   const others = [...counts.keys()].filter((k) => k.startsWith("other:")).map((k) => `${k.slice(6)} (${counts.get(k)})`);
   if (others.length) notes.push(`Not drawn (not supported yet): ${others.join(", ")}.`);
 
@@ -658,7 +762,7 @@ function groupPolylines(es: Ent[]): Ent[] {
 }
 
 /** A (rational) B-spline's points, flattened; fit points when it has no control points; null if damaged. */
-function splinePoints(e: Ent, tol: number): Array<[number, number]> | null {
+function splinePoints(e: Ent, tol: number, budget: number): Array<[number, number]> | null | "tooMany" {
   const deg = num(e, 71, 3);
   const knots = all(e, 40).map(Number);
   const cx = all(e, 10).map(Number), cy = all(e, 20).map(Number);
@@ -670,7 +774,7 @@ function splinePoints(e: Ent, tol: number): Array<[number, number]> | null {
     const fx = all(e, 11).map(Number), fy = all(e, 21).map(Number);
     if (fx.length < 2 || fx.length !== fy.length || [...fx, ...fy].some((v) => !Number.isFinite(v))) return null;
     const tan = (c: number): [number, number] | null => (e.pairs.some((q) => q[0] === c) ? unit(num(e, c), num(e, c + 10)) : null);
-    return fitSpline(fx.map((x, i) => [x, fy[i]] as [number, number]), tan(12), tan(13), tol);
+    return fitSpline(fx.map((x, i) => [x, fy[i]] as [number, number]), tan(12), tan(13), tol, budget) ?? "tooMany";
   }
   const n = cx.length;
   if (knots.length !== n + deg + 1 || deg < 1 || deg > 11 || [...knots, ...cx, ...cy].some((v) => !Number.isFinite(v))) return null;
@@ -698,6 +802,7 @@ function splinePoints(e: Ent, tol: number): Array<[number, number]> | null {
   let polyLen = 0;
   for (let i = 1; i < n; i++) polyLen += Math.hypot(cx[i] - cx[i - 1], cy[i] - cy[i - 1]);
   const samples = Math.max(16, Math.min(4096, Math.ceil(Math.sqrt(polyLen / tol) * 4)));
+  if (samples + 1 > budget) return "tooMany";
   const pts: Array<[number, number]> = [];
   for (let s = 0; s <= samples; s++) pts.push(at(t0 + ((t1 - t0) * s) / samples));
   return pts;
@@ -712,7 +817,10 @@ const unit = (x: number, y: number): [number, number] | null => {
  * The C² cubic through points p over cumulative chord-length parameters: natural ends, or
  * clamped to unit derivatives where an end tangent is given. Sampled to within tol.
  */
-export function fitSpline(p: Array<[number, number]>, t0: [number, number] | null, t1: [number, number] | null, tol: number): Array<[number, number]> {
+export function fitSpline(p: Array<[number, number]>, t0: [number, number] | null, t1: [number, number] | null, tol: number): Array<[number, number]>;
+export function fitSpline(p: Array<[number, number]>, t0: [number, number] | null, t1: [number, number] | null, tol: number, budget: number): Array<[number, number]> | null;
+/** (With a budget: null once more than `budget` points would be made — checked before they are.) */
+export function fitSpline(p: Array<[number, number]>, t0: [number, number] | null, t1: [number, number] | null, tol: number, budget = Infinity): Array<[number, number]> | null {
   const n = p.length - 1;
   const t: number[] = [0];
   for (let i = 1; i <= n; i++) t.push(t[i - 1] + (Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]) || 1e-12));
@@ -753,9 +861,13 @@ export function fitSpline(p: Array<[number, number]>, t0: [number, number] | nul
     const hi = h(i), a = (t[i + 1] - u) / hi, b = (u - t[i]) / hi;
     return a * p[i][k] + b * p[i + 1][k] + ((a * a * a - a) * M[i] + (b * b * b - b) * M[i + 1]) * (hi * hi) / 6;
   };
+  const stepsOf = (i: number): number => Math.max(8, Math.min(512, Math.ceil(Math.sqrt(h(i) / tol))));
+  let total = 1;
+  for (let i = 0; i < n && total <= budget; i++) total += stepsOf(i);
+  if (total > budget) return null;
   const out: Array<[number, number]> = [p[0]];
   for (let i = 0; i < n; i++) {
-    const steps = Math.max(8, Math.min(512, Math.ceil(Math.sqrt(h(i) / tol))));
+    const steps = stepsOf(i);
     for (let s = 1; s <= steps; s++) {
       const u = t[i] + (h(i) * s) / steps;
       out.push([at(i, u, 0, Mx), at(i, u, 1, My)]);
@@ -785,4 +897,25 @@ function boundsOf(items: DxfItem[]): DxfDrawing["bounds"] {
     else add(it.x, it.y);
   }
   return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+}
+
+/** Width of a character in em, for laying text out without measuring it (Arial's capitals ≈ 0.67–0.94). */
+export const TEXT_EM_PER_CHAR = 0.6;
+
+/** Lines word-wrapped to at most `max` characters (a word longer than that keeps its own line). */
+export function wrapLines(lines: string[], max: number): string[] {
+  const out: string[] = [];
+  for (const ln of lines) {
+    let cur = "";
+    for (const w of ln.split(" ")) {
+      if (!cur) cur = w;
+      else if (cur.length + 1 + w.length <= max) cur += " " + w;
+      else {
+        out.push(cur);
+        cur = w;
+      }
+    }
+    out.push(cur);
+  }
+  return out;
 }

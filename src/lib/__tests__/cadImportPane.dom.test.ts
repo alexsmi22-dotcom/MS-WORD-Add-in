@@ -165,6 +165,47 @@ describe("Import DXF… in the pane", () => {
     expect(last(status)).toEqual(["Another insert is still running; press Insert again when it finishes.", "error"]);
     release();
   });
+  it("review 10: during an imported insert, Close and Import are off, a picked file is refused, and the status names the file inserted", async () => {
+    let release!: () => void;
+    const { $, status, host } = setup();
+    (host.insertPicture as jest.Mock).mockImplementationOnce(() => new Promise<void>((r) => (release = r)));
+    await pickFile($, status, "plate.dxf", rectDxf(4));
+    $<HTMLButtonElement>("cad-import-insert").click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect($<HTMLButtonElement>("cad-import-close").disabled).toBe(true);
+    expect($<HTMLButtonElement>("cad-import").disabled).toBe(true);
+    $<HTMLButtonElement>("cad-import-close").click(); // ignored
+    await pickFile($, status, "other.dxf", rectDxf(4));
+    expect(last(status)).toEqual(["An insert is still running; import the file when it finishes.", "error"]);
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last(status)[0]).toMatch(/^Imported drawing inserted — plate.dxf./);
+    expect($<HTMLButtonElement>("cad-import-close").disabled).toBe(false);
+    expect($<HTMLElement>("cad-import-panel").hidden).toBe(false);
+  });
+  it("review 11: Edit as a sketch while the large window is open keeps its refusal", async () => {
+    const openLarge = jest.fn(() => new Promise<null>(() => undefined)); // never closes
+    const { $, status } = setup({ openLarge, largeAvailable: () => true });
+    await pickFile($, status, "plate.dxf", rectDxf(4));
+    $<HTMLButtonElement>("cad-import-sketch").click();
+    $<HTMLButtonElement>("cad-import-sketch").click();
+    expect(openLarge).toHaveBeenCalledTimes(1);
+    expect(last(status)).toEqual(["The drawing is open in the large canvas — sketch there, or close it first.", "error"]);
+  });
+  it("the large window failing opens the imported sketch here", async () => {
+    const openLarge = jest.fn(async () => "failed" as const);
+    const { pane, $, status } = setup({ openLarge, largeAvailable: () => true });
+    await pickFile($, status, "plate.dxf", rectDxf(4));
+    $<HTMLButtonElement>("cad-import-sketch").click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pane.isSketching()).toBe(true);
+  });
+  it("an unsound starting sketch is refused by name, never opened", () => {
+    const { pane, status } = setup();
+    pane.startSketch(null, { points: [{ id: "a", x: NaN, y: 0 }], entities: [], constraints: [] });
+    expect(pane.isSketching()).toBe(false);
+    expect(last(status)).toEqual([expect.stringMatching(/^The imported sketch cannot be opened: the sketch is damaged/), "error"]);
+  });
   it("Close import hides the panel", async () => {
     const { $, status } = setup();
     await pickFile($, status, "plate.dxf", rectDxf(4));

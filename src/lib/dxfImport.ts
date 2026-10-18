@@ -35,7 +35,9 @@ const mb = (n: number): string => String(+(n / (1024 * 1024)).toFixed(1));
 
 /** A file past the size cap, refused by its size before it is read (or null). */
 export function sizeRefusal(fileName: string, size: number): string | null {
-  return size > DXF_LIMITS.bytes ? `${fileName}: the file is ${mb(size)} MB — this importer reads DXF files up to ${mb(DXF_LIMITS.bytes)} MB` : null;
+  // Rounded up, so a file just over the limit never reads "30 MB … up to 30 MB".
+  const up = Math.ceil((size / (1024 * 1024)) * 10) / 10;
+  return size > DXF_LIMITS.bytes ? `${fileName}: the file is ${up} MB — this importer reads DXF files up to ${mb(DXF_LIMITS.bytes)} MB` : null;
 }
 
 export type OpenResult = { ok: true; drawing: DxfDrawing } | { ok: false; reason: string };
@@ -107,7 +109,18 @@ export function importedSketch(d: DxfDrawing, mmPerUnit: number): { ok: true; sk
   }
   const r = dxfSketch(d, mmPerUnit);
   if (!r.ok) return r;
-  const dx = d.bounds ? d.bounds.minX * mmPerUnit : 0, dy = d.bounds ? d.bounds.minY * mmPerUnit : 0;
+  // The outline's own lower-left corner (circles by their extent; text is not part of it).
+  let dx = Infinity, dy = Infinity;
+  for (const p of r.sketch.points) {
+    dx = Math.min(dx, p.x);
+    dy = Math.min(dy, p.y);
+  }
+  for (const e of r.sketch.entities) {
+    if (e.kind !== "circle") continue;
+    const c = r.sketch.points.find((p) => p.id === e.c)!;
+    dx = Math.min(dx, c.x - e.r);
+    dy = Math.min(dy, c.y - e.r);
+  }
   const sketch: Sketch = { ...r.sketch, points: r.sketch.points.map((p) => ({ ...p, x: p.x - dx, y: p.y - dy })) };
   const notes = [...r.notes];
   const open = openEnds(sketch);

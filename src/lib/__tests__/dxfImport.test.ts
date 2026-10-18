@@ -72,7 +72,7 @@ describe("opening a file: refused by name with the route", () => {
   });
   it("a file over the size cap is refused before it is read", () => {
     const r = openDxfFile("big.dxf", new Uint8Array(DXF_LIMITS.bytes + 1));
-    expect(!r.ok && r.reason).toBe("big.dxf: the file is 30 MB — this importer reads DXF files up to 30 MB");
+    expect(!r.ok && r.reason).toBe("big.dxf: the file is 30.1 MB — this importer reads DXF files up to 30 MB");
   });
   it("a .dxf that is not a DXF says so, with its name", () => {
     const r = openDxfFile("x.dxf", bytes("hello"));

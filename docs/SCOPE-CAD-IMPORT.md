@@ -43,7 +43,7 @@ A Solid Edge draft saved as DXF is a whole sheet: several views, dimensions, not
 - arcs in world coordinates;
 - 200 samples of a spline and 64 of an ellipse, which must lie within 0.02 mm of the drawn curve.
 
-**Still to validate:** real Solid Edge exports. The user has been asked for a typical draft saved as DXF, and a part as STEP and STL.
+**Shipped in v2.150.0** (Import DXF… in the Drawing pane; `src/lib/dxfImport.ts`). **Still to validate:** real Solid Edge exports. The user has been asked for a typical draft saved as DXF, and a part as STEP and STL.
 
 ## R3b — 3D (planned)
 

@@ -42,6 +42,7 @@ import { lineTypesFor } from "../lib/cadLineTypes";
 import { DxfDrawing } from "../lib/dxf";
 import { IMPORTED_ALT_PREFIX, IMPORT_UNITS, importedFigure, importedSketch, openDxfFile, sizeRefusal } from "../lib/dxfImport";
 import type { Sketch } from "../lib/sketch";
+import { parseSketch } from "../lib/sketchDoc";
 
 /**
  * Engineering sheets go into Word fitted to a page's text column (PRODUCT: 159 × 229 mm fits
@@ -624,27 +625,48 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       host.sketchClosed?.(false);
     },
   });
-  const openSketch = (target: number | null, seed?: Sketch): void => {
-    if (!sketchPanel) return;
-    if (sketching()) return host.setStatus("A sketch is already open — press Done or Cancel first.", "error");
-    if (largeOpen) return host.setStatus("The drawing is open in the large canvas — sketch there, or close it first.", "error");
+  /** Opens a sketch (on a part, or a new one from `seed`); false when it was refused (the status says why). */
+  const openSketch = (target: number | null, seed?: Sketch): boolean => {
+    if (!sketchPanel) return false;
+    if (sketching()) {
+      host.setStatus("A sketch is already open — press Done or Cancel first.", "error");
+      return false;
+    }
+    if (largeOpen) {
+      host.setStatus("The drawing is open in the large canvas — sketch there, or close it first.", "error");
+      return false;
+    }
     const p = target !== null ? doc.parts[target] : undefined;
     // Room to draw: where the large window can open, the sketch opens there (90 % of the screen);
     // Done brings the part back here. Without it (the pop-out itself, or no dialogs), it opens here.
     if (host.openLarge && (host.largeAvailable?.() ?? true)) {
       void openLargeWith(seed && !p ? { sketch: "new", seed: JSON.stringify(seed) } : { sketch: p ? p.id : "new" });
-      return;
+      return true;
     }
-    sketchHere(p ? p.id : null, seed);
+    return sketchHere(p ? p.id : null, seed);
   };
   /** The sketch editor in this window, on a part (by id) or a new one. */
-  function sketchHere(partId: string | null, seed?: Sketch): void {
-    if (!sketchPanel) return;
+  function sketchHere(partId: string | null, seed?: Sketch): boolean {
+    if (!sketchPanel) return false;
     const p = partId === null ? undefined : doc.parts.find((q) => q.id === partId);
-    if (partId !== null && !p) return host.setStatus("That part is no longer in the drawing — its sketch cannot be opened.", "error");
+    if (partId !== null && !p) {
+      host.setStatus("That part is no longer in the drawing — its sketch cannot be opened.", "error");
+      return false;
+    }
+    // A starting sketch is read field by field, as a saved one is: nothing unsound reaches the solver.
+    let start = p ? p.sketch : undefined;
+    if (!p && seed) {
+      const r = parseSketch(seed);
+      if (!r.ok) {
+        host.setStatus(`The imported sketch cannot be opened: ${r.reason}.`, "error");
+        return false;
+      }
+      start = r.sketch;
+    }
     sketchTarget = p ? p.id : null;
     section?.classList.add("cad-sketching");
-    sketchPanel.open(p ? p.sketch : seed, p?.op);
+    sketchPanel.open(start, p?.op);
+    return true;
   }
 
   // New drawing: the first click arms it, the second clears every part and callout; the button
@@ -1046,14 +1068,16 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       ...drawing.notes,
     ];
     // No units: the reader's own note already asks for them.
-    if (!(mm > 0) && drawing.units.mmPerUnit) lines.push("Choose the drawing's units to size it.");
-    else if (typeof fig === "string") lines.push(fig.charAt(0).toUpperCase() + fig.slice(1) + ".");
+    if (typeof fig === "string") lines.push(fig.charAt(0).toUpperCase() + fig.slice(1) + ".");
     else if (fig) lines.push(fig.note);
     importInfo.textContent = lines.join(" ");
     importInfo.className = typeof fig === "string" ? "build-readout warn" : "build-readout";
     const ready = !!fig && typeof fig !== "string";
     if (importInsertBtn) importInsertBtn.disabled = !ready || inserting;
     if (importSketchBtn) importSketchBtn.disabled = !(mm > 0);
+    // While an imported drawing is going in, the file and the panel stay as they are.
+    if (importBtn) importBtn.disabled = inserting;
+    if (importCloseBtn) importCloseBtn.disabled = inserting;
   }
   function useImport(name: string, drawing: DxfDrawing): void {
     imported = { name, drawing };
@@ -1069,13 +1093,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     host.setStatus(drawing.units.mmPerUnit ? `${name} read — check the preview, then Insert or Edit as a sketch.` : `${name} read. The file does not say its units: choose them below.`, "");
   }
   importBtn?.addEventListener("click", () => {
-    if (!importFile) return;
+    if (!importFile || inserting) return;
     importFile.value = ""; // the same file picked again still reads
     importFile.click();
   });
   importFile?.addEventListener("change", () => {
     const file = importFile.files?.[0];
     if (!file) return;
+    if (inserting) return host.setStatus("An insert is still running; import the file when it finishes.", "error");
     const big = sizeRefusal(file.name, file.size);
     if (big) return host.setStatus(big, "error");
     host.setStatus(`Reading ${file.name}…`, "");
@@ -1093,20 +1118,25 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   });
   importUnits?.addEventListener("change", showImport);
   importCloseBtn?.addEventListener("click", () => {
+    if (inserting) return;
     imported = null;
     showImport();
   });
   importInsertBtn?.addEventListener("click", async () => {
     if (!imported) return;
     if (inserting) return host.setStatus("Another insert is still running; press Insert again when it finishes.", "error");
-    const fig = importedFigure(imported.drawing, importMm(), imported.name, FIT_MM);
+    // What goes in, and what the status names, are fixed now: nothing done during the insert changes them.
+    const name = imported.name;
+    const fig = importedFigure(imported.drawing, importMm(), name, FIT_MM);
     if (typeof fig === "string") return host.setStatus(fig.charAt(0).toUpperCase() + fig.slice(1) + ".", "error");
     inserting = true;
     importInsertBtn.disabled = true;
     insertBtn.disabled = true;
+    if (importBtn) importBtn.disabled = true;
+    if (importCloseBtn) importCloseBtn.disabled = true;
     try {
       await host.insertPicture(fig.svg, fig.widthPx, fig.heightPx, fig.alt);
-      host.setStatus(`Imported drawing inserted — ${imported.name}. ${fig.note} It is a picture of the file: import it again to change it.`, "success");
+      host.setStatus(`Imported drawing inserted — ${name}. ${fig.note} It is a picture of the file: import it again to change it.`, "success");
     } catch (e) {
       host.setStatus(`Could not insert the imported drawing: ${(e as Error).message}`, "error");
     } finally {
@@ -1120,8 +1150,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (sketching()) return host.setStatus("A sketch is already open — press Done or Cancel first.", "error");
     const r = importedSketch(imported.drawing, importMm());
     if (!r.ok) return host.setStatus(`${imported.name}: ${r.reason}.`, "error");
+    if (!openSketch(null, r.sketch)) return; // refused: its status stands
     resetNewBtn();
-    openSketch(null, r.sketch);
     host.setStatus(`${imported.name} opened as a sketch${r.notes.length ? " — " + r.notes.join(" ") : "."} Done makes it a part.`, r.notes.some((n) => /must be closed/.test(n)) ? "error" : "");
   });
 
@@ -1137,7 +1167,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
         // The window could not open (the host said why): a sketch opens here instead (review D11).
         if (opts?.sketch) {
           largeOpen = false;
-          sketchHere(opts.sketch === "new" ? null : opts.sketch, opts.seed ? (JSON.parse(opts.seed) as Sketch) : undefined);
+          sketchHere(opts.sketch === "new" ? null : opts.sketch, opts.seed ? (JSON.parse(opts.seed) as Sketch) : undefined); // checked by parseSketch there
         }
         return;
       }

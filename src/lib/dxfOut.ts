@@ -6,7 +6,7 @@
  *   - a SKETCH: lines, arcs and circles as editable sketch geometry, for a single
  *     profile or a flat pattern; refused by name for what a sketch cannot hold.
  */
-import type { DxfDrawing, DxfItem } from "./dxf";
+import { xmlSafe, type DxfDrawing, type DxfItem } from "./dxf";
 import { MAX_POINTS, type Sketch } from "./sketch";
 
 const PX_PER_MM = 96 / 25.4;
@@ -22,7 +22,7 @@ export interface DxfFigure {
   heightMm: number;
 }
 
-const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const esc = (t: string): string => xmlSafe(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
 
 type DxfTextItem = Extract<DxfItem, { kind: "text" }>;
@@ -34,12 +34,20 @@ function firstBaseline(it: DxfTextItem): number {
 }
 
 /**
- * The corners of a text's box in drawing units (y up), rotated with it. Widths are estimated at
- * 0.65 em a character (wider than Arial's average, so the box errs on the side of room).
+ * A line's width in em, estimated from Arial's advance widths and rounded up: capitals and digits
+ * 0.8 (W is 0.94, M 0.83, most 0.67–0.72), a space 0.28, anything else 0.6.
  */
+function lineEm(l: string): number {
+  let w = 0;
+  for (const ch of l) w += /[A-Z0-9@%&#]/.test(ch) ? 0.8 : ch === " " ? 0.28 : 0.6;
+  return w;
+}
+
+/** The corners of a text's box in drawing units (y up), rotated with it; widths err on the side of room. */
 function textCorners(it: DxfTextItem): Array<[number, number]> {
   const cap = it.h, em = cap / 0.716, n = it.lines.length;
-  const w = Math.max(0, ...it.lines.map((l) => l.length)) * 0.65 * em;
+  let w = it.fitWidth ?? 0;
+  if (it.fitWidth === undefined) for (const l of it.lines) w = Math.max(w, lineEm(l) * em);
   const first = firstBaseline(it);
   const top = -(first - cap * 1.1), bottom = -(first + ((n - 1) * cap * 5) / 3 + 0.21 * em);
   const x0 = it.anchor === "middle" ? -w / 2 : it.anchor === "end" ? -w : 0;
@@ -108,7 +116,9 @@ export function dxfFigure(d: DxfDrawing, mmPerUnit: number): DxfFigure | string 
       const x = X(it.x), y = Y(it.y);
       const first = firstBaseline(it) * k;
       const anchor = it.anchor === "middle" ? "middle" : it.anchor === "end" ? "end" : "start";
-      const body = it.lines.map((ln, i) => `<tspan x="${f2(x)}" y="${f2(y + first + (i * capPx * 5) / 3)}">${esc(ln)}</tspan>`).join("");
+      // Aligned / Fit text is stretched to its width, as CAD programs draw it.
+      const fit = it.fitWidth !== undefined ? ` textLength="${f2(it.fitWidth * k)}" lengthAdjust="spacingAndGlyphs"` : "";
+      const body = it.lines.map((ln, i) => `<tspan x="${f2(x)}" y="${f2(y + first + (i * capPx * 5) / 3)}"${fit}>${esc(ln)}</tspan>`).join("");
       texts.push(`<text text-anchor="${anchor}" font-family="Arial, Helvetica, sans-serif" font-size="${f2(fs)}" fill="#000"${it.rot ? ` transform="rotate(${f2(-it.rot)} ${f2(x)} ${f2(y)})"` : ""}>${body}</text>`);
     }
   }
@@ -134,7 +144,17 @@ export function dxfSketch(d: DxfDrawing, mmPerUnit: number): { ok: true; sketch:
   if (curves) return { ok: false, reason: `the drawing has ${curves} ellipse${curves === 1 ? "" : "s"} or spline${curves === 1 ? "" : "s"} — a sketch holds lines, arcs and circles; insert it as a drawing instead` };
   const geo = d.items.filter((i) => i.kind === "line" || i.kind === "arc");
   if (!geo.length) return { ok: false, reason: "the drawing has no lines, arcs or circles to sketch" };
-  const span = d.bounds ? Math.max(d.bounds.maxX - d.bounds.minX, d.bounds.maxY - d.bounds.minY) * mmPerUnit : 1;
+  // The geometry's own extent (text insertion points are not part of the outline).
+  let gx0 = Infinity, gy0 = Infinity, gx1 = -Infinity, gy1 = -Infinity;
+  for (const it of geo) {
+    const xs = it.kind === "line" ? [it.x1, it.x2] : [it.cx - it.r, it.cx + it.r];
+    const ys = it.kind === "line" ? [it.y1, it.y2] : [it.cy - it.r, it.cy + it.r];
+    gx0 = Math.min(gx0, ...xs);
+    gx1 = Math.max(gx1, ...xs);
+    gy0 = Math.min(gy0, ...ys);
+    gy1 = Math.max(gy1, ...ys);
+  }
+  const span = Math.max(gx1 - gx0, gy1 - gy0) * mmPerUnit;
   // Ends within a millionth of the drawing meet: arc ends are recomputed from angles an exporter
   // may round to six decimals, and must still close on the lines they were drawn to.
   const tol = Math.max(span, 1) * 1e-6;
@@ -147,29 +167,38 @@ export function dxfSketch(d: DxfDrawing, mmPerUnit: number): { ok: true; sketch:
     sk.points.push({ id, x, y });
     return id;
   };
+  // A line or arc whose ends merge into one point is smaller than the tolerance: left out and
+  // counted (kept, an arc from a point to itself would be read as a full circle).
   let zero = 0;
   for (const it of geo) {
     if (it.kind === "line") {
-      if (Math.hypot(it.x2 - it.x1, it.y2 - it.y1) * mmPerUnit <= tol) {
+      const a = point(it.x1 * mmPerUnit, it.y1 * mmPerUnit), b = point(it.x2 * mmPerUnit, it.y2 * mmPerUnit);
+      if (a === b) zero++;
+      else sk.entities.push({ id: `L${seq++}`, kind: "line", a, b });
+    } else if (it.kind === "arc") {
+      if (it.r * mmPerUnit <= tol) {
         zero++;
         continue;
       }
-      sk.entities.push({ id: `L${seq++}`, kind: "line", a: point(it.x1 * mmPerUnit, it.y1 * mmPerUnit), b: point(it.x2 * mmPerUnit, it.y2 * mmPerUnit) });
-    } else if (it.kind === "arc") {
       const c = point(it.cx * mmPerUnit, it.cy * mmPerUnit);
       if (it.full) sk.entities.push({ id: `C${seq++}`, kind: "circle", c, r: it.r * mmPerUnit });
       else {
         const a = point((it.cx + it.r * Math.cos(it.a0)) * mmPerUnit, (it.cy + it.r * Math.sin(it.a0)) * mmPerUnit);
         const b = point((it.cx + it.r * Math.cos(it.a1)) * mmPerUnit, (it.cy + it.r * Math.sin(it.a1)) * mmPerUnit);
-        sk.entities.push({ id: `A${seq++}`, kind: "arc", c, a, b });
+        if (a === b || a === c || b === c) zero++;
+        else sk.entities.push({ id: `A${seq++}`, kind: "arc", c, a, b });
       }
     }
     if (sk.points.length > MAX_POINTS) return { ok: false, reason: `the drawing has more than ${MAX_POINTS} points — a sketch holds ${MAX_POINTS}; insert it as a drawing instead, or a smaller part of it` };
   }
+  // Points only a left-out item used go too.
+  const used = new Set(sk.entities.flatMap((e) => (e.kind === "circle" ? [e.c] : e.kind === "arc" ? [e.c, e.a, e.b] : [e.a, e.b])));
+  sk.points = sk.points.filter((p) => used.has(p.id));
+  if (!sk.entities.length) return { ok: false, reason: "every line and arc in the drawing is too small to sketch" };
   const notes: string[] = [];
   const texts = d.items.filter((i) => i.kind === "text").length, fills = d.items.filter((i) => i.kind === "fill").length;
   if (texts) notes.push(`${texts} text item${texts === 1 ? " was" : "s were"} left out of the sketch.`);
   if (fills) notes.push(`${fills} filled shape${fills === 1 ? " was" : "s were"} left out of the sketch.`);
-  if (zero) notes.push(`${zero} line${zero === 1 ? "" : "s"} of zero length ${zero === 1 ? "was" : "were"} left out.`);
+  if (zero) notes.push(`${zero} line${zero === 1 ? " or arc" : "s or arcs"} too small to keep (its ends meet) ${zero === 1 ? "was" : "were"} left out.`);
   return { ok: true, sketch: sk, notes };
 }

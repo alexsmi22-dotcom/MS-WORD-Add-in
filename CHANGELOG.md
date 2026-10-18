@@ -6,6 +6,60 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.150.0] — 2026-10-18 — Drawing (CAD): import DXF drawings (Solid Edge, AutoCAD)
+
+The firm uses Solid Edge for most drawings: "we would want the ability to import solid edge and cad files".
+Solid Edge's own files cannot be read by anything but Solid Edge, so this release reads what it exports — DXF
+(`docs/SCOPE-CAD-IMPORT.md` R3a). STEP and STL parts are next.
+
+### Added
+- **Import DXF…** in Home ▸ Drawing (CAD). ASCII DXF from R12 to 2018: Solid Edge (Save As → DXF), AutoCAD,
+  and anything else that writes DXF.
+  - **A preview first.** Below it: how many items were read, from model or paper space, and what was not drawn,
+    by count (hatching, images, 3D solids, layers switched off).
+  - **Units.** Taken from the file. A file that does not say has no size until you choose millimetres, inches
+    and so on. Millimetres are never assumed.
+  - **Insert imported drawing.** The drawing as a picture, at its true size, or fitted to the page when it is
+    larger; the status gives the true size. Line types and weights are the file's own, and Ø, ° and ± print
+    as such. The picture is not re-editable, and Edit drawing at cursor says so by name.
+  - **Edit as a sketch.** Lines, arcs and circles become a new part's sketch, in the large window, for one
+    outline or a flat pattern. It is moved to the origin. If the outline does not close, the status says how
+    many ends are open and the largest gap. Ellipses and splines are refused by name.
+- **Refused by name, with the way round:**
+  - Solid Edge parts and drafts (.par, .psm, .asm, .dft): save as STEP or DXF from Solid Edge.
+  - DWG: save as DXF.
+  - Binary DXF: save as ASCII DXF.
+  - STEP and STL parts: not imported yet.
+  - Files over 30 MB.
+
+### Verified
+- The reader is checked against ezdxf's own reading of each fixture: extents, block arcs (including mirrored
+  blocks), OCS mirroring, bulges, units, 200 spline and 64 ellipse samples within 0.02 mm.
+- In a real browser: a 190 000-line drawing reads in 0.6 s, and is previewed and inserted in under 1 s.
+- Not yet tried on a real Solid Edge export. Sample files have been requested.
+
+### Fixed (found in the browser before release)
+- A note set below its insertion point (a two-line MTEXT) was cut off at the picture's bottom edge. The picture
+  now grows to hold every text.
+
+### Fixed before release (independent review: 11 defects, each pinned by a test)
+- **Small files that could freeze Word.** Three such files now return at once:
+  - an ellipse or arc angle of 1e20;
+  - arrays of blocks inside arrays (now under a work budget);
+  - a spline with tens of thousands of fit points (now under a points budget, and the flattening tolerance
+    reads every point).
+- **Unreadable or degenerate numbers.** These are skipped and counted, never drawn as NaN or moved to 0:
+  - comma decimals, a vertex missing its y, 1e400, a repeated vertex with a bulge, an ellipse with no axis;
+  - a zero or negative size.
+- **A 0°–360° arc** is a whole circle; before, it was not drawn at all.
+- **In a sketch**, a tiny arc never becomes a full circle when its ends merge.
+- **Aligned and Fit text** runs between its two points.
+- **MTEXT wraps to its box width.** One long note no longer shrinks the whole drawing.
+- **Control characters in a note** no longer make the picture invalid.
+- **During an import insert**, Close and Import are locked, and the status names the file inserted.
+- **Edit as a sketch** keeps its refusal when the large window is already open.
+- **An imported sketch** is checked field by field before it opens.
+
 ## [2.149.0] — 2026-10-18 — Drawing (CAD): draw like Solid Edge; drawing sheets, title blocks, line types
 
 This follows a user test of v2.148.0: "it's not user intuitive. if i want to draw a box, it's very challenging.

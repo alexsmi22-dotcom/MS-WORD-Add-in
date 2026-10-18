@@ -10,6 +10,26 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cn. New in v2.150.0 — Drawing (CAD): import DXF drawings
+
+Home ▸ **Drawing (CAD)** ▸ **Import DXF…** (under New drawing). For a test file, open a Solid Edge draft and
+**Save As → DXF**, or use any DXF you have.
+
+- [ ] ★ **A Solid Edge draft.** Import the DXF: a preview appears with a line such as "… 412 items from its model
+  space", what was not drawn (e.g. hatching), and the units. **Insert imported drawing**: the drawing goes into
+  the document, fitted to the page if larger, and the status gives its true size. Compare it with the draft in
+  Solid Edge: views, dimensions, notes, Ø / ° / ± symbols, dashed hidden and centre lines.
+- [ ] **No units in the file.** (AutoCAD "unitless" drawings.) The status says the file does not say its units;
+  Insert is off until **Units** is chosen. Choose **inches**: the true size in the status is 25.4 × larger than
+  with millimetres.
+- [ ] **Edit as a sketch.** Import a single flat outline (Solid Edge: a flat pattern saved as DXF, or a part
+  outline). **Edit as a sketch**: the large window opens with the outline; **Done** adds it as a part (extruded
+  10 mm). A full draft with splines is refused by name; an outline with a gap says how many ends are open.
+- [ ] **Refusals.** Pick a .par or .dft file: "… can only be read by Solid Edge — in Solid Edge, use Save As …".
+  A .dwg: "save the drawing as DXF".
+- [ ] **Edit drawing at cursor** on an imported picture: it says the picture is an imported DXF drawing, not
+  "not made by the Drawing tool".
+
 ## 0cm. New in v2.149.0 — Drawing (CAD): draw like Solid Edge; drawing sheets, title blocks, line types
 
 Home ▸ **Drawing (CAD)**. In the shape list choose **Sketch (draw your own)** and press **Add part**: the sketch

@@ -75,3 +75,19 @@ describe("what is drawn", () => {
     expect(ops.filter((o) => o.op !== "text" && o.style === "pending")).toHaveLength(4);
   });
 });
+
+describe("labels sit beside their line, not on it", () => {
+  it("the bottom edge's dimension is drawn below it (outside); its H glyph above it (inside)", () => {
+    let st = rect();
+    const r = applyDimension({ ...st, selection: ["L5"] }, "60");
+    if (!r.ok) throw new Error(r.reason);
+    st = r.state;
+    const v = frameSketch(st.sketch, 400, 300);
+    const ops = sketchOps(st.sketch, v);
+    const bottomY = toCanvas(v, 0, 0)[1];
+    const dim = ops.find((o) => o.op === "text" && o.kind === "dimension") as { y: number };
+    const glyph = ops.find((o) => o.op === "text" && o.kind === "glyph" && o.id === st.sketch.constraints.find((c) => c.kind === "horizontal" && "line" in c && c.line === "L5")!.id) as { y: number };
+    expect(dim.y).toBeGreaterThan(bottomY + 8); // canvas y grows downward: below the edge
+    expect(glyph.y).toBeLessThan(bottomY); // above it, inside the rectangle
+  });
+});

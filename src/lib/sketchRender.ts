@@ -93,21 +93,42 @@ export function sketchOps(sk: Sketch, v: SketchView, opts: { selection?: string[
     const [x, y] = toCanvas(v, p.x, p.y);
     ops.push({ op: "point", x, y, style: sel.has(p.id) ? "selected" : "defined", id: p.id });
   }
-  // Dimensions: their display text, near what they measure.
+  // Dimensions: their display text beside what they measure, OUTSIDE the shape; relation
+  // glyphs on the inside — so neither sits on its line or on the other.
+  const cxs = sk.points.map((p) => p.x), cys = sk.points.map((p) => p.y);
+  const centre = cxs.length ? toCanvas(v, (Math.min(...cxs) + Math.max(...cxs)) / 2, (Math.min(...cys) + Math.max(...cys)) / 2) : [v.ox, v.oy];
+  /** Unit normal (canvas) of the line a relation is on, pointing away from the sketch's centre. */
+  const outward = (c: SConstraint, x: number, y: number): [number, number] => {
+    const lineId = "line" in c ? c.line : "l1" in c ? c.l1 : null;
+    const e = lineId ? sk.entities.find((q) => q.id === lineId) : undefined;
+    if (!e || e.kind !== "line") {
+      const dx = x - centre[0], dy = y - centre[1], l = Math.hypot(dx, dy) || 1;
+      return [dx / l, dy / l];
+    }
+    const [ax, ay] = toCanvas(v, P(e.a).x, P(e.a).y), [bx, by] = toCanvas(v, P(e.b).x, P(e.b).y);
+    let nx = -(by - ay), ny = bx - ax;
+    const l = Math.hypot(nx, ny) || 1;
+    [nx, ny] = [nx / l, ny / l];
+    return nx * (x - centre[0]) + ny * (y - centre[1]) >= 0 ? [nx, ny] : [-nx, -ny];
+  };
   for (const c of sk.constraints) {
     if (DIMENSION_KINDS.has(c.kind)) {
       const at = anchorOf(sk, c);
       if (!at) continue;
       const [x, y] = toCanvas(v, at[0], at[1]);
+      const [nx, ny] = outward(c, x, y);
       const driven = "driven" in c && !!c.driven;
       const value = driven ? measure(sk, c) : (c as { value: number }).value;
-      ops.push({ op: "text", x, y: y - 6, text: driven ? `(${formatDimension(c, value)})` : formatDimension(c, value), kind: driven ? "driven" : "dimension", id: c.id });
+      const text = driven ? `(${formatDimension(c, value)})` : formatDimension(c, value);
+      // Text is anchored at its left: centre it on the offset point.
+      ops.push({ op: "text", x: x + nx * 16 - 3.5 * text.length, y: y + ny * 16 + 4, text, kind: driven ? "driven" : "dimension", id: c.id });
     } else {
       const g = GLYPH[c.kind];
       const at = g ? anchorOf(sk, c) : null;
       if (g && at && c.kind !== "coincident") {
         const [x, y] = toCanvas(v, at[0], at[1]);
-        ops.push({ op: "text", x: x + 8, y: y + 12, text: g, kind: "glyph", id: c.id });
+        const [nx, ny] = outward(c, x, y);
+        ops.push({ op: "text", x: x - nx * 12 - 3, y: y - ny * 12 + 4, text: g, kind: "glyph", id: c.id });
       }
     }
   }

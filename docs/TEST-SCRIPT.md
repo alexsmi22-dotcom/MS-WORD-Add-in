@@ -10,6 +10,47 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cm. New in v2.149.0 — Drawing (CAD): draw like Solid Edge; drawing sheets, title blocks, line types
+
+Home ▸ **Drawing (CAD)**. In the shape list choose **Sketch (draw your own)** and press **Add part**: the sketch
+now opens in a **large window** (90 % of the screen). **Done** brings the part back to the pane; **Cancel** closes
+the window.
+
+- [ ] ★ **The box in five actions.** Press **R**, type `40`, **Tab**, `20`, click on the canvas: a 40 × 20
+  rectangle, both sizes shown as dimensions; the status says "Fully defined apart from position". **Ctrl+Z**
+  takes it back in one step.
+- [ ] **Click a corner, then type.** **R**, click a corner, type `30` **Tab** `15`, **Enter**: the rectangle goes
+  toward the cursor. A **Line**: click, type the length (**Tab**: the angle), **Enter**; the chain continues; Esc
+  or right-click ends it. A **Circle**: type the diameter, click the centre.
+- [ ] **The grid.** A plain click-click rectangle lands on round numbers (the grid spacing shows beside **Grid
+  snap**, in mm, and follows the zoom). The cursor locks onto existing corners and line midpoints; green guides
+  show when it lines up with a point already drawn. **G** turns the snap off.
+- [ ] ★ **Smart Dimension.** **D**, click an edge: its length is offered; type a new value, **Enter** — the edge
+  changes. Click an edge that already has a dimension: it edits that one (no conflict message). Two parallel
+  edges: the distance between them. Two edges at an angle: the angle.
+- [ ] **Keys and view.** S, L, R, C, A, P, T, D pick tools; **Esc** twice returns to Select; the wheel zooms;
+  middle-drag (or Space + drag) pans; **F** fits the sketch. Select and Trim act exactly where you click, even
+  zoomed in, whatever the grid.
+- [ ] **Done is at the top** (with Extrude / Revolve and the depth), the prompt line above the canvas says what to
+  click next, and the value box sits above the canvas.
+- [ ] ★ **A framed ISO sheet.** Standard **ISO**, **Sheet A3**: the drawing gets a frame (20 mm filing margin),
+  grid references (numbers along the top and bottom, letters down the sides, no I or O), centring marks, the size
+  "A3" bottom right, and the ISO 7200 title block bottom right. Open **Title block**, fill Title, Identification
+  number, Created by …: they appear in the block; the readout names the required fields still empty.
+- [ ] **ASME sheet.** Standard **ASME**, **Sheet B**: border with zones (A1 at the lower right), the title block
+  with SCALE filled in. **Sheet A** offers **Portrait (vertical)**.
+- [ ] **Patent drawings stay unframed.** Standard **USPTO**: the Sheet list is off and says why (37 CFR 1.84(g)).
+- [ ] **Layers and line types.** Untick **Frame and grid**, **Title block**, **Callouts** or **View titles**: each
+  leaves the preview and the inserted picture. **Line types** lists each line with its standard designation,
+  width and dash pattern.
+- [ ] ★ **Insert fits the page.** Insert an A3 sheet: it fits the page width, and the status says "The A3 sheet is
+  inserted at 38 % to fit the page; SCALE … holds when it is printed on A3". An unframed ASME drawing is fitted
+  too (it used to go in 254 mm wide). **Save sheet (SVG, true size)** downloads the sheet at its real size.
+- [ ] **Re-open.** **Edit drawing at cursor** on the inserted sheet brings back the sheet, title block and layers.
+- [ ] **Mac.** Repeat the box, Smart Dimension and the A3 sheet on Word for Mac (the large window included).
+
+---
+
 ## 0cl. New in v2.148.0 — Drawing (CAD): sketch your own parts, the full toolset, New drawing, PowerPoint
 
 Home ▸ **Drawing (CAD)**. In the shape list choose **Sketch (draw your own)** and press **Add part**: the sketch

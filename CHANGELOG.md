@@ -6,6 +6,91 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.149.0] — 2026-10-18 — Drawing (CAD): draw like Solid Edge; drawing sheets, title blocks, line types
+
+This follows a user test of v2.148.0: "it's not user intuitive. if i want to draw a box, it's very challenging.
+then the canvas for drawing is small. we use solid edge for most drawings." The sketcher was reworked around
+that box, and the drawing sheet gained real formats (`docs/SCOPE-CAD-R2.md` R2b).
+
+### Changed — the sketcher, the Solid Edge way
+- **A box in five actions.** Rectangle (**R**), type the width, **Tab**, the height, click. The rectangle is
+  exact, and both sizes become its driving dimensions, in one undo step. A line takes its length and angle the
+  same way, and a circle its diameter. Start typing a number and it goes straight into the size box.
+- **Room to draw.** A sketch opens in a large window (90 % of the screen), and **Done** brings the part back.
+  Where Word cannot open that window, the sketch opens in the pane, on a much taller canvas.
+- **Grid snap**, on by default. The spacing is a round number of mm that follows the zoom, and is shown.
+  **Inference:** the cursor locks onto corners and line midpoints, with green guides when it lines up with
+  points already drawn. A live readout shows the size under the cursor.
+- **Smart Dimension (D).**
+  - Click an edge, type the value, **Enter**.
+  - An edge that already has a dimension is edited, not given a second, conflicting one.
+  - Two parallel edges give the distance between them; two lines at an angle give the angle.
+- **Solid Edge keys:** S, L, R, C, A, P, T and D pick tools; **Esc** twice returns to Select; right-click ends a
+  line chain; **Ctrl+Z** undoes; the wheel zooms; middle-drag or Space + drag pans; **F** fits; **G** toggles the
+  grid snap.
+- **A ribbon:** Draw, Dimension, Modify and View, with the relations folded away and a prompt line saying what
+  to click next. **Done**, **Cancel** and Extrude / Revolve are at the top, and the value box sits above the
+  canvas.
+
+### Added — drawing sheets (validated against ISO 5457, ISO 7200 and ISO 128-20 in their own text)
+- **ISO sheets A4 to A0** (ISO 5457):
+  - A0–A3 landscape, A4 portrait only;
+  - a 20 mm filing margin and 10 mm borders, with a 0.7 mm frame;
+  - grid references every 50 mm from the centre lines, with numbers along the top and bottom, letters down the
+    sides, and no I or O;
+  - centring marks, and the size designation bottom right.
+- **The ISO 7200 title block:** 180 mm wide, holding each field's recommended length in capitals. Empty
+  required fields are named, never filled in for you. The scale and the projection symbol sit outside the block,
+  as ISO 7200 says.
+- **ANSI sheets A to E:**
+  - A can be vertical;
+  - margins from the Y14.1 formats in DOD-STD-100D;
+  - zones with A1 at the lower right;
+  - a title block with SCALE filled in.
+
+  The ASME layout dimensions are marked as product choices.
+- **Patent drawings stay unframed:** 37 CFR 1.84(g) forbids frames around the sight, and the pane says so.
+- **Line types as style objects:**
+  - ISO 128-20 types 01, 02, 04 and 05, with their exact element lengths (dash 12d, gap 3d, long dash 24d,
+    dot ≤ 0.5d) and butt caps;
+  - each listed with its designation, width and pattern.
+- **Layers:** frame, title block, callouts and view titles. A layer switched off is left out of the inserted
+  picture, and takes no room on the sheet.
+- **Save sheet (SVG, true size):** the sheet at its real printed size.
+
+### Changed — how engineering drawings go into Word
+- An ISO or ASME drawing is now inserted **fitted to the page width** (159 × 229 mm, which fits Letter and A4
+  with 1-inch margins). The status and alt text say what the stated scale then means, e.g. "The A3 sheet is
+  inserted at 38 % to fit the page; SCALE 1:2 holds when it is printed on A3".
+- Unframed ASME drawings used to go in 254 mm wide, wider than any portrait page; they are fitted too.
+- Patent, journal and plain figures go in as before.
+- The PowerPoint export keeps big sheets under 4000 px.
+
+### Fixed (found by four independent review rounds and by driving the sketcher in a real browser)
+- Found in the browser, invisible to the automated tests:
+  - **Done** was below the fold;
+  - the prompt was unreadable on the dark theme;
+  - a click moved the typing focus away from the value box;
+  - Smart Dimension refused to change an existing size.
+- Select and Trim act exactly where you click; the grid snap never moves them.
+- A typed size is kept exactly: not rounded, never overridden by an automatic horizontal or vertical, and
+  bounded to ±1 000 000 mm. A size that cannot be applied refuses the whole shape, by name.
+- Panning never gets stuck, and **Enter** after the pointer leaves the canvas aims where it last was.
+- If the large window cannot open, the sketch opens in the pane. Closing that window without **Done** says the
+  sketch was not kept.
+- Sheet formats:
+  - a damaged or hostile sheet in a saved drawing is refused by name;
+  - text with control characters is refused;
+  - title fields from one drawing never come back in another;
+  - centring marks stay clear of the title block and the symbol.
+
+### Honest limits
+- A title block field filled to its length with the widest letters (W, M, @) can exceed its cell; it is refused
+  by name, never drawn over the line.
+- ASME zone counts and the A-size margins come from secondary sources, and the title block layout is a product
+  choice; ASME Y14.1 itself was not read.
+- Hatching, and dimensions on the drawing views, come in R2c.
+
 ## [2.148.0] — 2026-10-17 — Drawing (CAD): sketch your own parts, New drawing, export to PowerPoint
 
 From `docs/SCOPE-CAD-R2.md` (R2a). Before this release a part could only come from the preset catalogue. Now you

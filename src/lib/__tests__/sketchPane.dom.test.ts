@@ -1,0 +1,128 @@
+/**
+ * @jest-environment jsdom
+ */
+// The sketch editor inside the Drawing (CAD) pane, over the pane's real markup:
+// a sketched part is drawn, dimensioned, made a solid on Done, inserted, re-opened.
+import * as fs from "fs";
+import * as path from "path";
+import { initCadPane, CadPaneHost } from "../../taskpane/cadPane";
+import { parseDoc } from "../cadShapes";
+import { frameSketch, toCanvas } from "../sketchRender";
+
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value: () => null });
+
+const PANE_HTML = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.html"), "utf8");
+const SECTION = /<section id="cad-section">[\s\S]*?<\/section>/.exec(PANE_HTML)![0];
+
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+};
+
+function setup() {
+  document.body.innerHTML = SECTION;
+  const inserted: string[] = [];
+  const host: CadPaneHost = {
+    setStatus: jest.fn(),
+    nextNumeral: () => 10,
+    insertPicture: jest.fn(async (_svg: string, _w: number, _h: number, alt: string) => {
+      inserted.push(alt);
+    }),
+  };
+  const pane = initCadPane(host);
+  pane.show();
+  const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+  const canvas = $<HTMLCanvasElement>("cad-sketch-canvas");
+  // jsdom: the canvas has no size, so the editor frames a 380 × 320 view: sketch (0, 0) at canvas (190, 160), 8/3 px per unit.
+  const toCanvas = (x: number, y: number): [number, number] => [190 + (x * 8) / 3, 160 - (y * 8) / 3];
+  const tap = (x: number, y: number): void => {
+    const [cx, cy] = toCanvas(x, y);
+    canvas.dispatchEvent(new MouseEvent("pointerdown", { clientX: cx, clientY: cy, bubbles: true }));
+  };
+  const toolBtn = (t: string): HTMLButtonElement => document.querySelector<HTMLButtonElement>(`[data-sk-tool="${t}"]`)!;
+  return { pane, host, inserted, $, tap, toolBtn };
+}
+
+describe("a sketched part, end to end in the pane", () => {
+  it("Sketch (draw your own) opens the editor; a dimensioned rectangle made a 10-deep solid on Done; it inserts with its sketch", async () => {
+    const t = setup();
+    const shape = t.$<HTMLSelectElement>("cad-shape");
+    shape.value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    expect(t.$<HTMLElement>("cad-sketch").hidden).toBe(false);
+    expect(t.$<HTMLElement>("cad-section").classList.contains("cad-sketching")).toBe(true);
+
+    t.toolBtn("rectangle").click();
+    t.tap(0, 0);
+    t.tap(30, 20);
+    expect(t.$<HTMLElement>("cad-sketch-status").textContent).toMatch(/^4 degrees of freedom left/);
+
+    // Dimension the bottom edge: select it, type 50, Dimension.
+    t.toolBtn("select").click();
+    t.tap(15, 0);
+    t.$<HTMLInputElement>("cad-sketch-dim").value = "50";
+    t.$<HTMLButtonElement>("cad-sketch-dimension").click();
+    expect(t.$<HTMLElement>("cad-sketch-msg").textContent).toBe("");
+
+    t.$<HTMLInputElement>("cad-sketch-depth").value = "10";
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    expect(t.$<HTMLElement>("cad-sketch").hidden).toBe(true);
+
+    const doc = parseDoc(t.pane.getDoc());
+    if (!doc.ok) throw new Error(doc.reason);
+    const part = doc.doc.parts.find((p) => p.shape === "sketch")!;
+    expect(part.op).toEqual({ kind: "extrude", depth: 10 });
+    expect(part.sketch!.constraints.some((c) => c.kind === "length" && c.value === 50)).toBe(true);
+
+    await t.pane.insert();
+    await flush();
+    expect(t.inserted.at(-1)).toContain('"shape":"sketch"');
+  });
+
+  it("Done on an open outline is refused by name and the editor stays open; Cancel leaves the drawing as it was", () => {
+    const t = setup();
+    const before = t.pane.getDoc();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("line").click();
+    t.tap(0, 0);
+    t.tap(20, 0);
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    expect(t.$<HTMLElement>("cad-sketch").hidden).toBe(false);
+    expect(t.$<HTMLElement>("cad-sketch-msg").textContent).toMatch(/^the outline is open at \(/);
+    t.$<HTMLButtonElement>("cad-sketch-cancel").click();
+    expect(t.$<HTMLElement>("cad-sketch").hidden).toBe(true);
+    expect(t.pane.getDoc()).toBe(before);
+  });
+
+  it("Edit sketch re-opens a sketched part on its own sketch, and Done replaces it", () => {
+    const t = setup();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("circle").click();
+    t.tap(0, 0);
+    t.tap(10, 0);
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    const edit = Array.from(document.querySelectorAll<HTMLButtonElement>("#cad-editor button")).find((b) => b.textContent === "Edit sketch")!;
+    expect(edit).toBeTruthy();
+    const saved = parseDoc(t.pane.getDoc());
+    if (!saved.ok) throw new Error(saved.reason);
+    const own = saved.doc.parts.find((p) => p.shape === "sketch")!.sketch!;
+    edit.click();
+    expect(t.$<HTMLElement>("cad-sketch").hidden).toBe(false);
+    // Re-opened, the editor frames the sketch itself: click on the circle through that view.
+    const v = frameSketch(own, 380, 320);
+    const circle = own.entities[0] as { r: number; c: string };
+    const ctr = own.points.find((p) => p.id === circle.c)!;
+    const [cx, cy] = toCanvas(v, ctr.x + circle.r, ctr.y);
+    t.toolBtn("select").click();
+    document.getElementById("cad-sketch-canvas")!.dispatchEvent(new MouseEvent("pointerdown", { clientX: cx, clientY: cy, bubbles: true }));
+    t.$<HTMLInputElement>("cad-sketch-dim").value = "Ø30";
+    t.$<HTMLButtonElement>("cad-sketch-dimension").click();
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    const doc = parseDoc(t.pane.getDoc());
+    if (!doc.ok) throw new Error(doc.reason);
+    const sketched = doc.doc.parts.filter((p) => p.shape === "sketch");
+    expect(sketched).toHaveLength(1);
+    expect(sketched[0].sketch!.entities[0]).toMatchObject({ kind: "circle", r: expect.closeTo(15, 9) });
+  });
+});

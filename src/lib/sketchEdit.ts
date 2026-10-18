@@ -451,16 +451,5 @@ export function statusLine(sk: Sketch): string {
   return `${f.dof} degree${f.dof === 1 ? "" : "s"} of freedom left — still free: ${names || "position"}. Add relations or dimensions, or drag to see.`;
 }
 
-/** Every dimension with its display text, for drawing on the canvas and listing. */
-export function dimensionLabels(sk: Sketch): Array<{ id: string; text: string; driven: boolean; what: string }> {
-  return sk.constraints
-    .filter((c) => DIMENSION_KINDS.has(c.kind))
-    .map((c) => {
-      const driven = "driven" in c && !!c.driven;
-      const value = driven ? measure(sk, c) : (c as { value: number }).value;
-      return { id: c.id, text: driven ? `(${formatDimension(c, value)})` : formatDimension(c, value), driven, what: describe(sk, c) };
-    });
-}
-
 /** The sketch's size, for scaling snaps and glyphs on the canvas. */
 export const sizeOf = sketchScale;

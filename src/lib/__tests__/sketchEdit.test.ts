@@ -1,7 +1,14 @@
 // The sketch canvas's decisions (docs/SCOPE-CAD-R2.md, R2a): tools, snapping, relations
 // and dimensions on a selection, dimension text (display is a contract), delete, status.
-import { startEdit, click, applyRelation, applyDimension, editDimension, deleteSelection, statusLine, parseDimension, formatDimension, dimensionLabels, EditState, SketchTool, drag } from "../sketchEdit";
+import { startEdit, click, applyRelation, applyDimension, editDimension, deleteSelection, statusLine, parseDimension, formatDimension, EditState, SketchTool, drag } from "../sketchEdit";
 import { Sketch } from "../sketch";
+import { sketchOps, frameSketch } from "../sketchRender";
+
+/** The dimension texts the canvas draws (driven ones in parentheses). */
+const dimensionLabels = (s: Sketch) =>
+  sketchOps(s, frameSketch(s, 400, 300))
+    .filter((o) => o.op === "text" && o.kind !== "glyph")
+    .map((o) => ({ text: (o as { text: string }).text, driven: (o as { kind: string }).kind === "driven" }));
 import { sketchToProfile } from "../sketchProfile";
 
 const tool = (st: EditState, t: SketchTool): EditState => ({ ...st, tool: t, pending: [] });

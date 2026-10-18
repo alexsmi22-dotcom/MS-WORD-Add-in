@@ -1124,6 +1124,52 @@
         <button id="cad-popout" class="draw-pop-btn" type="button" title="The same drawing in its own large window: a big 3D view beside the sheet">
           Open large canvas ⤢
         </button>
+        <div id="cad-sketch" class="cad-sketch" hidden tabindex="-1" aria-label="Sketch editor">
+          <div class="cad-sketch-tools" role="toolbar" aria-label="Sketch tools">
+            <button type="button" class="insert-btn secondary" data-sk-tool="select" title="Select, and drag points">Select</button>
+            <button type="button" class="insert-btn secondary" data-sk-tool="line" title="Lines: click, click — the next starts where the last ended">Line</button>
+            <button type="button" class="insert-btn secondary" data-sk-tool="rectangle" title="Two opposite corners">Rectangle</button>
+            <button type="button" class="insert-btn secondary" data-sk-tool="circle" title="Centre, then a point on it">Circle</button>
+            <button type="button" class="insert-btn secondary" data-sk-tool="arc" title="Centre, start, then the end (counter-clockwise)">Arc</button>
+            <button type="button" class="insert-btn secondary" data-sk-tool="point" title="A point">Point</button>
+            <label class="cad-sketch-check"><input type="checkbox" id="cad-sketch-construction" /> Construction</label>
+          </div>
+          <canvas id="cad-sketch-canvas" class="cad-sketch-canvas" aria-label="Sketch: click with a tool; in Select, drag points; wheel zooms"></canvas>
+          <p id="cad-sketch-status" class="build-readout" role="status"></p>
+          <div class="cad-sketch-rels" role="toolbar" aria-label="Relations for the selection">
+            <button type="button" class="insert-btn secondary" data-sk-rel="horizontal" title="Horizontal (a line)">H</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="vertical" title="Vertical (a line)">V</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="parallel" title="Parallel (two lines)">∥</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="perpendicular" title="Perpendicular (two lines)">⊥</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="tangent" title="Tangent (a line and a circle / arc, or two circles / arcs)">Tangent</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="equal" title="Equal (two lines, or two circles / arcs)">=</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="concentric" title="Concentric (two circles / arcs)">◎</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="coincident" title="Coincident (two points)">Join</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="onCurve" title="A point on a line, circle or arc">On</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="midpoint" title="A point at the middle of a line">Mid</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="symmetric" title="Two points symmetric about a line (select the line last)">Sym</button>
+            <button type="button" class="insert-btn secondary" data-sk-rel="fix" title="Fix a point where it is">Fix</button>
+          </div>
+          <div class="cad-sketch-row">
+            <input id="cad-sketch-dim" class="rgroup-input" type="text" placeholder="20, Ø20, R5, 45°" aria-label="Dimension value" />
+            <button id="cad-sketch-dimension" type="button" class="insert-btn secondary" title="Dimension the selection (or change the selected dimension)">Dimension</button>
+            <label class="cad-sketch-check" title="Shown, but not solved for (a reference dimension)"><input type="checkbox" id="cad-sketch-driven" /> Driven</label>
+            <button id="cad-sketch-delete" type="button" class="insert-btn secondary">Delete</button>
+            <button id="cad-sketch-undo" type="button" class="insert-btn secondary">Undo</button>
+          </div>
+          <div id="cad-sketch-msg" class="build-readout" aria-live="polite"></div>
+          <div class="cad-sketch-row">
+            <select id="cad-sketch-op" class="lib-select" aria-label="Make the solid by">
+              <option value="extrude">Extrude</option>
+              <option value="revolve">Revolve about the selected line</option>
+            </select>
+            <label class="cad-field"><span>Depth</span><input id="cad-sketch-depth" class="rgroup-input" type="text" value="10" /></label>
+          </div>
+          <div class="cad-sketch-row">
+            <button id="cad-sketch-done" type="button" class="insert-btn">Done</button>
+            <button id="cad-sketch-cancel" type="button" class="insert-btn secondary">Cancel</button>
+          </div>
+        </div>
         <div class="cad-view-btns">
           <button type="button" class="insert-btn secondary" data-cad-view="front">Front</button>
           <button type="button" class="insert-btn secondary" data-cad-view="top">Top</button>

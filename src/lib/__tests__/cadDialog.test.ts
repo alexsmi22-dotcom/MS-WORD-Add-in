@@ -8,7 +8,8 @@ import { nextFreeNumeral, parseDoc, serializeDoc, starterDoc, CadDoc } from "../
 
 const SRC = path.join(__dirname, "..", "..");
 const read = (...p: string[]): string => fs.readFileSync(path.join(SRC, ...p), "utf8");
-const CONTROLLER = read("taskpane", "cadPane.ts");
+// The CAD controller and the sketch editor it opens (both run on both pages).
+const CONTROLLER = read("taskpane", "cadPane.ts") + read("taskpane", "sketchPane.ts");
 const DIALOG_TS = read("caddialog", "caddialog.ts");
 const DIALOG_HTML = read("caddialog", "caddialog.html");
 const PANE_HTML = read("taskpane", "taskpane.html");

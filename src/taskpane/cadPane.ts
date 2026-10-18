@@ -37,6 +37,7 @@ import {
   starterDoc,
 } from "../lib/cadShapes";
 import type { Callout } from "../lib/cadSheet";
+import { initSketchPanel } from "./sketchPane";
 
 export interface CadPaneHost {
   setStatus(text: string, kind?: "success" | "error" | ""): void;
@@ -95,6 +96,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
 
   for (const id of Object.keys(DRAWING_STANDARDS) as StandardId[]) standardSel.add(new Option(DRAWING_STANDARDS[id].name, id));
   for (const id of SHAPE_IDS) shapeSel.add(new Option(SHAPES[id].name, id));
+  // R2a: a part from a sketch of your own (lines, arcs, relations, dimensions).
+  shapeSel.add(new Option("Sketch (draw your own)", "sketch"));
 
   let doc: CadDoc = initial ?? starterDoc(DEFAULT_STANDARD);
   standardSel.value = doc.standard;
@@ -382,6 +385,19 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
         }, pd.integer ? "1" : "any"),
       );
     }
+    if (p.shape === "sketch") {
+      // A sketched part: what makes it, and the way back into its sketch.
+      const info = document.createElement("p");
+      info.className = "build-readout";
+      info.textContent = p.op?.kind === "revolve" ? `Revolved about ${p.op.axis}.` : `Extruded ${p.op?.kind === "extrude" ? +p.op.depth.toFixed(4) : "?"} deep.`;
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "insert-btn secondary";
+      edit.textContent = "Edit sketch";
+      const idx = selected;
+      edit.addEventListener("click", () => openSketch(idx));
+      editorEl.append(info, edit);
+    }
     const place = document.createElement("div");
     place.className = "cad-place";
     (["X", "Y", "Z"] as const).forEach((ax, k) => {
@@ -452,21 +468,65 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       if (mesh) paint(true);
     }, 100);
   });
-  addBtn.addEventListener("click", () => {
-    const shape = shapeSel.value as ShapeId;
-    // A new part sits beside the drawing so it is never hidden inside what is there.
+  /** Where a new part goes: beside the drawing, so it is never hidden inside what is there. */
+  const besideX = (): number => {
+    if (!mesh || !doc.parts.length) return 0;
     let x = 0;
-    if (mesh) {
-      const P = mesh.positions;
-      for (let i = 0; i < P.length; i += 3) x = Math.max(x, P[i]);
-      x += 10;
-    }
+    const P = mesh.positions;
+    for (let i = 0; i < P.length; i += 3) x = Math.max(x, P[i]);
+    return x + 10;
+  };
+
+  // The sketch editor: a new sketched part is added only on Done, when its sketch makes a solid.
+  let sketchTarget: number | null = null; // the part being re-sketched; null = a new part
+  const section = document.getElementById("cad-section");
+  const sketchPanel = initSketchPanel({
+    done: (sketch, op) => {
+      section?.classList.remove("cad-sketching");
+      if (sketchTarget !== null && doc.parts[sketchTarget]) {
+        doc.parts[sketchTarget] = { ...doc.parts[sketchTarget], sketch, op };
+        selected = sketchTarget;
+      } else {
+        doc.parts.push({
+          id: `p${Date.now().toString(36)}${seq++}`,
+          name: `Part ${doc.parts.length + 1}`,
+          shape: "sketch",
+          params: {},
+          placement: { translate: [besideX(), 0, 0], rotateDeg: [0, 0, 0] },
+          sketch,
+          op,
+        });
+        selected = doc.parts.length - 1;
+      }
+      sketchTarget = null;
+      renderParts();
+      renderEditor();
+      rebuild();
+    },
+    cancelled: () => {
+      section?.classList.remove("cad-sketching");
+      sketchTarget = null;
+      paint(true);
+    },
+  });
+  const openSketch = (target: number | null): void => {
+    if (!sketchPanel) return;
+    sketchTarget = target;
+    section?.classList.add("cad-sketching");
+    const p = target !== null ? doc.parts[target] : undefined;
+    sketchPanel.open(p?.sketch, p?.op);
+  };
+
+  addBtn.addEventListener("click", () => {
+    if (shapeSel.value === "sketch") return openSketch(null);
+    const shape = shapeSel.value as ShapeId;
+    const x = besideX();
     const part: CadPart = {
       id: `p${Date.now().toString(36)}${seq++}`,
       name: `Part ${doc.parts.length + 1}`,
       shape,
       params: defaultParams(shape),
-      placement: { translate: [doc.parts.length ? x : 0, 0, 0], rotateDeg: [0, 0, 0] },
+      placement: { translate: [x, 0, 0], rotateDeg: [0, 0, 0] },
     };
     doc.parts.push(part);
     selected = doc.parts.length - 1;

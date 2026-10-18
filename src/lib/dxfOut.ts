@@ -25,11 +25,49 @@ export interface DxfFigure {
 const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
 
+type DxfTextItem = Extract<DxfItem, { kind: "text" }>;
+
+/** How far below the insertion point the first line's baseline sits (drawing units; negative = above). */
+function firstBaseline(it: DxfTextItem): number {
+  const cap = it.h, n = it.lines.length, em = cap / 0.716;
+  return it.valign === "top" ? cap : it.valign === "middle" ? cap / 2 - ((n - 1) * cap * 5) / 6 : it.valign === "bottom" ? -0.21 * em - ((n - 1) * cap * 5) / 3 : 0;
+}
+
+/**
+ * The corners of a text's box in drawing units (y up), rotated with it. Widths are estimated at
+ * 0.65 em a character (wider than Arial's average, so the box errs on the side of room).
+ */
+function textCorners(it: DxfTextItem): Array<[number, number]> {
+  const cap = it.h, em = cap / 0.716, n = it.lines.length;
+  const w = Math.max(0, ...it.lines.map((l) => l.length)) * 0.65 * em;
+  const first = firstBaseline(it);
+  const top = -(first - cap * 1.1), bottom = -(first + ((n - 1) * cap * 5) / 3 + 0.21 * em);
+  const x0 = it.anchor === "middle" ? -w / 2 : it.anchor === "end" ? -w : 0;
+  const t = ((it.rot ?? 0) * Math.PI) / 180, c = Math.cos(t), sn = Math.sin(t);
+  return [
+    [x0, top],
+    [x0 + w, top],
+    [x0, bottom],
+    [x0 + w, bottom],
+  ].map(([u, v]) => [it.x + u * c - v * sn, it.y + u * sn + v * c] as [number, number]);
+}
+
 /** The drawing at true size (mmPerUnit: the file's units, or the ones the user chose). */
 export function dxfFigure(d: DxfDrawing, mmPerUnit: number): DxfFigure | string {
   if (!(mmPerUnit > 0)) return "choose the drawing's units first";
   if (!d.bounds || !d.items.length) return "the file has nothing this importer can draw";
-  const { minX, minY, maxX, maxY } = d.bounds;
+  // The geometry's bounds, grown to hold every text's box: a note set below or beside its
+  // insertion point must not be cut off at the picture's edge.
+  let { minX, minY, maxX, maxY } = d.bounds;
+  for (const it of d.items) {
+    if (it.kind !== "text") continue;
+    for (const [x, y] of textCorners(it)) {
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  }
   const k = mmPerUnit * PX_PER_MM;
   const wMm = (maxX - minX) * mmPerUnit + 2 * MARGIN_MM, hMm = (maxY - minY) * mmPerUnit + 2 * MARGIN_MM;
   if (wMm > 5000 || hMm > 5000) return `at ${f2(mmPerUnit)} mm per unit the drawing is ${f2(wMm / 1000)} × ${f2(hMm / 1000)} m — check its units`;
@@ -68,8 +106,7 @@ export function dxfFigure(d: DxfDrawing, mmPerUnit: number): DxfFigure | string 
       // Text: the file's height is the capitals' (Arial caps ≈ 0.716 em); lines 5/3 of it apart.
       const capPx = it.h * k, fs = capPx / 0.716;
       const x = X(it.x), y = Y(it.y);
-      const n = it.lines.length;
-      const first = it.valign === "top" ? capPx : it.valign === "middle" ? capPx / 2 - ((n - 1) * capPx * 5) / 6 : it.valign === "bottom" ? -0.21 * fs - (n - 1) * (capPx * 5) / 3 : 0;
+      const first = firstBaseline(it) * k;
       const anchor = it.anchor === "middle" ? "middle" : it.anchor === "end" ? "end" : "start";
       const body = it.lines.map((ln, i) => `<tspan x="${f2(x)}" y="${f2(y + first + (i * capPx * 5) / 3)}">${esc(ln)}</tspan>`).join("");
       texts.push(`<text text-anchor="${anchor}" font-family="Arial, Helvetica, sans-serif" font-size="${f2(fs)}" fill="#000"${it.rot ? ` transform="rotate(${f2(-it.rot)} ${f2(x)} ${f2(y)})"` : ""}>${body}</text>`);
@@ -94,11 +131,13 @@ export function dxfFigure(d: DxfDrawing, mmPerUnit: number): DxfFigure | string 
 export function dxfSketch(d: DxfDrawing, mmPerUnit: number): { ok: true; sketch: Sketch; notes: string[] } | { ok: false; reason: string } {
   if (!(mmPerUnit > 0)) return { ok: false, reason: "choose the drawing's units first" };
   const curves = d.items.filter((i) => i.kind === "poly").length;
-  if (curves) return { ok: false, reason: `the drawing has ${curves} ellipse${curves === 1 ? "" : "s"} or spline${curves === 1 ? "" : "s"} — a sketch holds lines, arcs and circles; import it as a drawing instead` };
+  if (curves) return { ok: false, reason: `the drawing has ${curves} ellipse${curves === 1 ? "" : "s"} or spline${curves === 1 ? "" : "s"} — a sketch holds lines, arcs and circles; insert it as a drawing instead` };
   const geo = d.items.filter((i) => i.kind === "line" || i.kind === "arc");
   if (!geo.length) return { ok: false, reason: "the drawing has no lines, arcs or circles to sketch" };
   const span = d.bounds ? Math.max(d.bounds.maxX - d.bounds.minX, d.bounds.maxY - d.bounds.minY) * mmPerUnit : 1;
-  const tol = Math.max(span, 1) * 1e-7;
+  // Ends within a millionth of the drawing meet: arc ends are recomputed from angles an exporter
+  // may round to six decimals, and must still close on the lines they were drawn to.
+  const tol = Math.max(span, 1) * 1e-6;
   const sk: Sketch = { points: [], entities: [], constraints: [] };
   let seq = 1;
   const point = (x: number, y: number): string => {
@@ -125,7 +164,7 @@ export function dxfSketch(d: DxfDrawing, mmPerUnit: number): { ok: true; sketch:
         sk.entities.push({ id: `A${seq++}`, kind: "arc", c, a, b });
       }
     }
-    if (sk.points.length > MAX_POINTS) return { ok: false, reason: `the drawing has more than ${MAX_POINTS} points — a sketch holds ${MAX_POINTS}; import it as a drawing instead, or a smaller part of it` };
+    if (sk.points.length > MAX_POINTS) return { ok: false, reason: `the drawing has more than ${MAX_POINTS} points — a sketch holds ${MAX_POINTS}; insert it as a drawing instead, or a smaller part of it` };
   }
   const notes: string[] = [];
   const texts = d.items.filter((i) => i.kind === "text").length, fills = d.items.filter((i) => i.kind === "fill").length;

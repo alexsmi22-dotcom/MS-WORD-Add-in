@@ -607,7 +607,10 @@ export function readDxf(text: string): ReadResult {
   };
   if (space === "paper") notes.push("The drawing is in paper space (the model space is empty); paper space was read.");
   else if (paper.some((e) => e.type !== "VIEWPORT")) notes.push("The model space was read; the paper space layout was not.");
-  if (mmPerUnit === null) notes.push(`The file does not say its units ($INSUNITS ${ucode === 0 ? "is 0" : "is missing"}) — choose them before it is sized.`);
+  if (mmPerUnit === null) {
+    const why = hv("$INSUNITS", 70) === undefined ? "it has no $INSUNITS" : ucode === 0 ? "$INSUNITS is 0, unitless" : `$INSUNITS ${ucode} is not a unit this importer knows`;
+    notes.push(`The file does not say its units (${why}) — choose them before it is sized.`);
+  }
   say(c("hatch"), "1 hatch pattern (section hatching) is not drawn yet.", "# hatch patterns (section hatching) are not drawn yet.");
   say(c("spline"), "1 spline was drawn as a line within 0.01 % of the curve.", "# splines were drawn as lines within 0.01 % of the curve.");
   say(c("ellipse"), "1 ellipse was drawn as a line within 0.01 % of the curve.", "# ellipses were drawn as lines within 0.01 % of the curve.");

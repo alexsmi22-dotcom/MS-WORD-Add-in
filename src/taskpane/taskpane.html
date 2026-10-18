@@ -1117,6 +1117,20 @@
           <button id="cad-add" class="insert-btn secondary" type="button">Add part</button>
         </div>
         <button id="cad-new" class="draw-pop-btn" type="button" title="Clear every part and callout for a blank drawing (click twice; Undo afterwards)">New drawing</button>
+        <button id="cad-import" class="draw-pop-btn" type="button" title="Open a DXF drawing (Solid Edge: Save As → DXF) to insert it, or to edit its outline as a sketch">Import DXF…</button>
+        <input id="cad-import-file" type="file" accept=".dxf,.dft,.par,.psm,.asm,.dwg,.stp,.step,.igs,.iges,.stl" hidden />
+        <div id="cad-import-panel" class="cad-import-panel" hidden>
+          <p id="cad-import-info" class="build-readout" role="status"></p>
+          <label class="field-label" for="cad-import-units">Units</label>
+          <select id="cad-import-units" class="lib-select"></select>
+          <div class="preview-wrap">
+            <span class="preview-label">Imported drawing</span>
+            <div id="cad-import-preview" class="preview cad-import-preview"></div>
+          </div>
+          <button id="cad-import-insert" class="insert-btn" type="button" disabled>Insert imported drawing</button>
+          <button id="cad-import-sketch" class="insert-btn secondary" type="button" disabled title="Lines, arcs and circles become a new part's sketch (for one outline or a flat pattern)">Edit as a sketch</button>
+          <button id="cad-import-close" class="insert-btn secondary" type="button">Close import</button>
+        </div>
         <div id="cad-parts" class="cad-parts" aria-label="Parts"></div>
         <div id="cad-editor" class="cad-editor"></div>
         <div class="cad-canvas-wrap">

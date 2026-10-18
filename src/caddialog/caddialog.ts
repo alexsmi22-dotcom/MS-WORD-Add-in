@@ -13,6 +13,8 @@
  */
 import { initCadPane, CadPaneApi } from "../taskpane/cadPane";
 import { parseDoc, nextFreeNumeral } from "../lib/cadShapes";
+import { parseSketch } from "../lib/sketchDoc";
+import type { Sketch } from "../lib/sketch";
 
 // Delivery marker for the offline gate (scripts/check-offline.js): proves this
 // bundle was served and executed with the network cut. Module scope on purpose —
@@ -53,7 +55,7 @@ Office.onReady(() => {
   });
 
   /** Starts the editor on the pane's model — never on a blank one ("Use" would replace the pane's drawing). */
-  const start = (json: string | null): void => {
+  const start = (json: string | null, seed?: Sketch): void => {
     if (pane) return;
     const r = json ? parseDoc(json) : null;
     if (!r || !r.ok) {
@@ -83,14 +85,36 @@ Office.onReady(() => {
       r.doc,
     );
     pane.show();
-    if (sketchParam) pane.startSketch(sketchParam === "new" ? null : sketchParam);
+    if (sketchParam) pane.startSketch(sketchParam === "new" ? null : sketchParam, sketchParam === "new" ? seed : undefined);
     useBtn.disabled = false;
   };
 
   if (params.get("wait")) {
     Office.context.ui.addHandlerAsync(
       Office.EventType.DialogParentMessageReceived,
-      (arg: { message?: string }) => start(typeof arg.message === "string" ? arg.message : null),
+      (arg: { message?: string }) => {
+        const msg = typeof arg.message === "string" ? arg.message : null;
+        if (!params.get("seed") || msg === null) return start(msg);
+        // {doc, seed}: the model, and a new sketch's starting geometry (an imported DXF), read field by field.
+        let w: { doc?: unknown; seed?: unknown } = {};
+        try {
+          w = JSON.parse(msg);
+        } catch {
+          /* refused below */
+        }
+        let sk: ReturnType<typeof parseSketch> = { ok: false, reason: "missing" };
+        try {
+          sk = parseSketch(typeof w.seed === "string" ? JSON.parse(w.seed) : null);
+        } catch {
+          /* refused below */
+        }
+        if (!sk.ok) {
+          showError(`The imported sketch could not be carried into this window (${sk.reason}). Close it with Cancel; the drawing in the pane is unchanged.`);
+          insertBtn.disabled = true;
+          return;
+        }
+        start(typeof w.doc === "string" ? w.doc : null, sk.sketch);
+      },
       (res) => {
         if (res.status === Office.AsyncResultStatus.Succeeded) send({ ready: true });
         else showError("This version of Word cannot hand a drawing this large to a window. Close it with Cancel; the drawing in the pane is unchanged.");

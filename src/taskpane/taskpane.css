@@ -2467,3 +2467,22 @@ select {
 .cad-sketch > .sk-relations { order: 1; }
 /* The message line keeps its place, so the canvas does not jump when a message appears. */
 .cad-sketch > #cad-sketch-msg { min-height: 1.4em; }
+
+/* R3a: an imported DXF, previewed before it is inserted or sketched. */
+.cad-import-panel {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+}
+.cad-import-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin: 0 auto;
+  background: #fff;
+}
+.cad-import-panel .build-readout {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}

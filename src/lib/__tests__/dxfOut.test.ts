@@ -25,13 +25,34 @@ const fig = (d: DxfDrawing, mm = 1) => {
 };
 
 describe("the figure", () => {
-  it("is the drawing at its true size (105 × 70.14 mm of geometry + 2 mm margins), well-formed SVG", () => {
+  it("is the drawing at its true size (its extent + 2 mm margins), well-formed SVG", () => {
     const f = fig(load("basic"));
     const b = load("basic").bounds!;
-    expect(f.widthMm).toBeCloseTo(b.maxX - b.minX + 4, 9);
-    expect(f.heightMm).toBeCloseTo(b.maxY - b.minY + 4, 9);
+    // basic has notes whose lines run below and beside their insertion points: the picture grows to hold them.
+    expect(f.widthMm).toBeGreaterThanOrEqual(b.maxX - b.minX + 4 - 1e-9);
+    expect(f.heightMm).toBeGreaterThanOrEqual(b.maxY - b.minY + 4 - 1e-9);
+    // Without text, exactly the geometry plus the margins.
+    const g = fig(load("profile"));
+    const pb = load("profile").bounds!;
+    expect(g.widthMm).toBeCloseTo(pb.maxX - pb.minX + 4, 9);
+    expect(g.heightMm).toBeCloseTo(pb.maxY - pb.minY + 4, 9);
     const doc = new DOMParser().parseFromString(f.svg, "image/svg+xml");
     expect(doc.getElementsByTagName("parsererror")).toHaveLength(0);
+  });
+  it("no line of text runs off the picture (the browser found a two-line note cut off at the bottom)", () => {
+    const f = fig(load("basic"));
+    const doc = new DOMParser().parseFromString(f.svg, "image/svg+xml");
+    const H = f.heightPx;
+    const texts = Array.from(doc.getElementsByTagName("text"));
+    expect(texts.length).toBeGreaterThan(1);
+    for (const t of texts) {
+      const fsz = Number(t.getAttribute("font-size"));
+      for (const sp of Array.from(t.getElementsByTagName("tspan"))) {
+        const y = Number(sp.getAttribute("y"));
+        expect(y + 0.21 * fsz).toBeLessThanOrEqual(H);
+        expect(y - 0.716 * fsz).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
   it("prints text as the characters it means (Ø, °, ±)", () => {
     expect(fig(load("basic")).svg).toContain(">Ø20 Ø20 45° ±0.1</tspan>");
@@ -71,12 +92,12 @@ describe("the sketch", () => {
     expect(sketchBody(sk, { kind: "extrude", depth: 5 }).ok).toBe(true);
   });
   it("ellipses and splines are refused by name, with the way forward", () => {
-    expect(dxfSketch(load("basic"), 1)).toEqual({ ok: false, reason: "the drawing has 2 ellipses or splines — a sketch holds lines, arcs and circles; import it as a drawing instead" });
+    expect(dxfSketch(load("basic"), 1)).toEqual({ ok: false, reason: "the drawing has 2 ellipses or splines — a sketch holds lines, arcs and circles; insert it as a drawing instead" });
   });
   it("a drawing past the sketch's 150 points is refused by name", () => {
     const d = load("blocks");
     const many: DxfDrawing = { ...d, items: Array.from({ length: 200 }, (_, i) => ({ kind: "line", x1: i, y1: 0, x2: i, y2: 1, layer: "0", dash: [], weightMm: null }) as never) };
-    expect(dxfSketch(many, 1)).toEqual({ ok: false, reason: "the drawing has more than 150 points — a sketch holds 150; import it as a drawing instead, or a smaller part of it" });
+    expect(dxfSketch(many, 1)).toEqual({ ok: false, reason: "the drawing has more than 150 points — a sketch holds 150; insert it as a drawing instead, or a smaller part of it" });
   });
   it("text and fills are named as left out", () => {
     const r = dxfSketch(load("r12"), 1);

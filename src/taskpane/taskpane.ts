@@ -29707,7 +29707,7 @@ async function exportCadPpt(svg: string, widthPx: number, heightPx: number, titl
  * is told so — the canvas never opens blank, because "Use this drawing" from
  * a blank canvas would replace the pane's model.
  */
-function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ doc: string; insert: boolean } | null | "failed"> {
+function openCadDialog(docJson: string, opts?: { sketch?: string; seed?: string }): Promise<{ doc: string; insert: boolean } | null | "failed"> {
   // "failed": the window never opened (the reason is in the status); null: closed or cancelled.
   return new Promise((resolve) => {
     let settled = false;
@@ -29728,7 +29728,9 @@ function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ d
     // Opened to sketch: the window starts in the sketch editor ("new", or the part's id).
     const sk = opts?.sketch ? `&sketch=${encodeURIComponent(opts.sketch)}` : "";
     const seeded = `${base}?n0=${n0}${sk}&doc=${encodeURIComponent(docJson)}`;
-    const url = seeded.length < 1800 ? seeded : `${base}?n0=${n0}${sk}&wait=1`;
+    // A sketch's starting geometry (an imported DXF) always goes by message, beside the model: {doc, seed}.
+    const url = opts?.seed ? `${base}?n0=${n0}${sk}&wait=1&seed=1` : seeded.length < 1800 ? seeded : `${base}?n0=${n0}${sk}&wait=1`;
+    const payload = opts?.seed ? JSON.stringify({ doc: docJson, seed: opts.seed }) : docJson;
     docHost.openDialog(url, { height: 90, width: 90 }, {
       failed: (error) => {
         setStatus(`Could not open the large canvas: ${error?.message ?? "unknown error"}`, "error");
@@ -29743,7 +29745,7 @@ function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ d
           /* not ours: treated as a cancel below */
         }
         if (data.ready) {
-          if (!dialog.messageChild(docJson)) {
+          if (!dialog.messageChild(payload)) {
             dialog.close();
             setStatus("This drawing is too large to carry into the large canvas on this version of Word.", "error");
             done(null);

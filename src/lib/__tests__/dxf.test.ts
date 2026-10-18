@@ -101,7 +101,13 @@ describe("text, units, spaces, notes", () => {
     expect(load("inches").units.mmPerUnit).toBe(25.4);
     const n = load("nounits");
     expect(n.units.mmPerUnit).toBeNull();
-    expect(n.notes).toContain("The file does not say its units ($INSUNITS is 0) — choose them before it is sized.");
+    expect(n.notes).toContain("The file does not say its units ($INSUNITS is 0, unitless) — choose them before it is sized.");
+  });
+  it("…and the note says why: no $INSUNITS at all, or a code this importer does not know", () => {
+    const ents = ["0", "SECTION", "2", "ENTITIES", "0", "LINE", "8", "0", "10", "0", "20", "0", "11", "1", "21", "0", "0", "ENDSEC", "0", "EOF"].join("\r\n") + "\r\n";
+    const none = readDxf(ents), odd = readDxf(["0", "SECTION", "2", "HEADER", "9", "$INSUNITS", "70", "99", "0", "ENDSEC"].join("\r\n") + "\r\n" + ents);
+    expect(none.ok && none.drawing.notes).toContain("The file does not say its units (it has no $INSUNITS) — choose them before it is sized.");
+    expect(odd.ok && odd.drawing.notes).toContain("The file does not say its units ($INSUNITS 99 is not a unit this importer knows) — choose them before it is sized.");
   });
   it("a drawing only in paper space is read from there, and the note says so", () => {
     const d = load("paper");

@@ -2506,3 +2506,16 @@ select {
 #cad-preview.cad-marking { cursor: crosshair; touch-action: none; user-select: none; }
 /* Placing callouts is a mode that stays on: it must look on. */
 .cad-view-btns #cad-callout.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
+
+/* Open ChemDraw file…: the page as ChemDraw draws it, and what is selected on it. */
+.chemdraw-panel { margin-top: 8px; }
+.chemdraw-bar { display: flex; gap: 6px; align-items: center; margin: 4px 0; font-size: 12px; }
+.chemdraw-preview {
+  max-height: 480px;
+  overflow: auto;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.chemdraw-preview svg { display: block; }

@@ -28,6 +28,8 @@ const cross = (a: Pt, b: Pt): number => a[0] * b[1] - a[1] * b[0];
 export interface RenderOptions {
   /** Only these top-level objects (by id); all when omitted. */
   objects?: ReadonlySet<string>;
+  /** Filled with each drawn object's box (document points), by id: one pass for the whole page. */
+  boxes?: Map<string, Box>;
   /** Margin around the drawing, points. */
   pad?: number;
 }
@@ -49,11 +51,19 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   const st = doc.style;
   const prims: Prim[] = [];
   let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  // The box of the object being drawn, for RenderOptions.boxes.
+  let cur: Box | null = null;
   const grow = (p: Pt, m = 0): void => {
     l = Math.min(l, p[0] - m);
     r = Math.max(r, p[0] + m);
     t = Math.min(t, p[1] - m);
     b = Math.max(b, p[1] + m);
+    if (cur) {
+      cur[0] = Math.min(cur[0], p[0] - m);
+      cur[1] = Math.min(cur[1], p[1] - m);
+      cur[2] = Math.max(cur[2], p[0] + m);
+      cur[3] = Math.max(cur[3], p[1] + m);
+    }
   };
   const fontName = (id: number): string => {
     const n = doc.fonts.get(id);
@@ -298,8 +308,9 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       } else if (order === "hydrogen" || order === "0.5") parts.push(line(p0, p1, lw, dash));
       else styled(p0, p1, disp);
       prims.push({ z: bd.z, svg: parts.join("") });
-      grow(p0, lw);
-      grow(p1, lw);
+      // The line's own half-width beyond its ends (wedges and offset lines lie within a bond length).
+      grow(p0, Math.max(lw / 2, /Wedge|Bold|Hash/.test(disp) ? st.boldWidth * 0.75 : 0, order === "1" ? 0 : gap));
+      grow(p1, Math.max(lw / 2, /Wedge|Bold|Hash/.test(disp) ? st.boldWidth * 0.75 : 0, order === "1" ? 0 : gap));
     }
     for (const nd of fr.nodes) {
       grow(nd.p);
@@ -465,7 +476,13 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
     }
   };
 
-  for (const ob of doc.objects) if (!o.objects || o.objects.has(ob.id)) for (const it of ob.items) drawItem(it);
+  for (const ob of doc.objects) {
+    if (o.objects && !o.objects.has(ob.id)) continue;
+    cur = o.boxes ? [Infinity, Infinity, -Infinity, -Infinity] : null;
+    for (const it of ob.items) drawItem(it);
+    if (o.boxes && cur && cur[0] <= cur[2]) o.boxes.set(ob.id, cur);
+  }
+  cur = null;
   if (!(l <= r)) return null;
   const pad = o.pad ?? 4;
   const bx: Box = [l, t, r, b];

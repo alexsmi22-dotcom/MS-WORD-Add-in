@@ -280,6 +280,28 @@
             <button id="reset-canvas-btn" class="draw-pop-btn" type="button">
               Reset canvas
             </button>
+            <button id="chemdraw-open" class="draw-pop-btn" type="button" title="Open a ChemDraw XML file (.cdxml): see it as ChemDraw draws it and insert its structures">
+              Open ChemDraw file…
+            </button>
+          </div>
+          <input type="file" id="chemdraw-file" accept=".cdxml,.cdx" hidden />
+          <div id="chemdraw-panel" class="chemdraw-panel" hidden>
+            <p id="chemdraw-info" class="build-readout"></p>
+            <div class="chemdraw-bar">
+              <label for="chemdraw-zoom">Zoom</label>
+              <select id="chemdraw-zoom">
+                <option value="1">Fit width</option>
+                <option value="2">2×</option>
+                <option value="3">3×</option>
+              </select>
+            </div>
+            <div id="chemdraw-preview" class="chemdraw-preview" aria-label="ChemDraw page — click a structure to select it"></div>
+            <p class="build-draw-hint">Click a structure to select it with its brackets, labels and charges; Shift+click adds or removes one object.</p>
+            <div class="draw-btn-row">
+              <button id="chemdraw-insert" class="insert-btn" type="button" disabled>Insert selected</button>
+              <button id="chemdraw-insert-all" class="insert-btn secondary" type="button">Insert whole page</button>
+              <button id="chemdraw-close" class="insert-btn secondary" type="button">Close</button>
+            </div>
           </div>
           <p id="draw-compliance" class="draw-compliance" role="status" aria-live="polite"></p>
           <p class="build-draw-hint">

@@ -5,6 +5,7 @@ import { CadDoc, CadPart, defaultParams, docToAssembly, parseDoc, resolveCallout
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../cadExplode";
 import { clipPolyline, detailDrawing, nextDetailLetter } from "../cadDetail";
 import { layoutSheet, ViewSpec } from "../cadSheet";
+import { STANDARD_SCALES } from "../cadStandards";
 import { drawLines, STANDARD_VIEWS } from "../cadLines";
 
 const box = (id: string, w: number, d: number, h: number, t: Vec3): CadPart => ({ id, name: id, shape: "box", params: { ...defaultParams("box"), w, d, h }, placement: { translate: t, rotateDeg: [0, 0, 0] } });
@@ -113,16 +114,21 @@ describe("detail views", () => {
     expect(sh.labels).toEqual(["FIG. 1", "FIG. 2"]);
     expect(sh.svg.match(/>FIG\. 2</g)).toHaveLength(2); // under the detail, and beside its circle
   });
-  test("ASME: DETAIL A with its own scale; the circle is lettered A", () => {
+  test("ASME: DETAIL A over SCALE k, k the standard scale nearest the enlargement asked; the circle is lettered A", () => {
     const sh = withDetail("asme");
     const scale = sh.scaleMmPerUnit;
     expect(sh.labels[0]).toBe("FRONT");
     expect(sh.labels[1]).toMatch(/^DETAIL A SCALE /);
-    // The detail's scale is the sheet's, three times larger.
-    const k = sh.labels[1].replace("DETAIL A SCALE ", "");
-    const [a, b] = k.split(":").map(Number);
-    expect(a / b).toBeCloseTo(scale * 3, 6);
+    const [a, b] = sh.labels[1].replace("DETAIL A SCALE ", "").split(":").map(Number);
+    // A standard scale (ASME's 1-2-5 series), larger than the sheet's.
+    expect(STANDARD_SCALES.some((x) => Math.abs(x - a / b) < 1e-9)).toBe(true);
+    expect(a / b).toBeGreaterThan(scale);
+    // Two lines under the view, as ASME writes them.
+    expect(sh.svg).toContain(">DETAIL A</text>");
+    expect(sh.svg).toMatch(/>SCALE [\d.]+:[\d.]+<\/text>/);
     expect(sh.svg).toContain(">A</text>");
+    // When that is not the enlargement asked, the sheet says so.
+    if (Math.abs(a / b / scale - 3) > 1e-9) expect(sh.notes.join(" ")).toMatch(/^Detail A is drawn at /);
   });
   test("ISO: A (k:1)", () => {
     expect(withDetail("iso").labels[1]).toMatch(/^A \([\d.]+:[\d.]+\)$/);

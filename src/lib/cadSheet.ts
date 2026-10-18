@@ -94,6 +94,8 @@ export interface SheetOptions {
    * moved with its part (parallel to `callouts`), and the trail lines (world).
    */
   exploded?: { mesh: Mesh; anchors: Vec3[]; trails: Array<[Vec3, Vec3]> };
+  /** Internal: the details' enlargements are already the standard ones (the second layout pass). */
+  detailScalesSet?: boolean;
 }
 
 /** Where a view was put: sheet px = (ox + (x − minX)·k, oyBottom − (y − minY)·k); its cell, px. */
@@ -303,7 +305,21 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     else if (spec.kind === "exploded") {
       const view = viewOf(spec);
       const base = drawLines(o.exploded!.mesh, view);
-      const trails: Polyline[] = o.exploded!.trails.map(([a, b]) => [project(view, a), project(view, b)]);
+      // A trail is drawn only where it is not behind a part (sampled along its length).
+      const trails: Polyline[] = [];
+      const STEPS = 48;
+      for (const [a, b] of o.exploded!.trails) {
+        let run: Polyline = [];
+        for (let i = 0; i <= STEPS; i++) {
+          const t = i / STEPS;
+          const p: Vec3 = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+          if (pointHidden(o.exploded!.mesh, view, p)) {
+            if (run.length > 1) trails.push([run[0], run[run.length - 1]]);
+            run = [];
+          } else run.push(project(view, p));
+        }
+        if (run.length > 1) trails.push([run[0], run[run.length - 1]]);
+      }
       const bd = { ...base.bounds };
       for (const l of trails) for (const [x, y] of l) (bd.minX = Math.min(bd.minX, x)), (bd.maxX = Math.max(bd.maxX, x)), (bd.minY = Math.min(bd.minY, y)), (bd.maxY = Math.max(bd.maxY, y));
       d = { ...base, bounds: bd, trails };
@@ -329,7 +345,11 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     let cell: [number, number];
     if (ORTHO.has(spec.kind)) cell = cellsFor[spec.kind as OrthoKind];
     // A detail goes in a row below every other view: read after the figure it enlarges (1.84(u)(1)).
-    else if (spec.kind === "detail") cell = [0, 3];
+    else if (spec.kind === "detail") {
+      const parent = views.find((v) => viewKey(v) === spec.of);
+      const pc = parent ? (ORTHO.has(parent.kind) ? cellsFor[parent.kind as OrthoKind] : cellsFor.pic) : cellsFor.front;
+      cell = [pc[0], 3];
+    }
     else cell = cellsFor.pic;
     // A second pictorial view (or a repeat) goes to the next free cell along the top row.
     let key = cell.join(",");
@@ -424,13 +444,18 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     if (std.viewLabels !== "name") return "";
     if (it.spec.kind !== "detail") return viewName(it.spec);
     const k = scaleLabel(sc * it.spec.factor);
-    return o.standard === "iso" ? `${it.spec.letter} (${k})` : `DETAIL ${it.spec.letter} SCALE ${k}`;
+    // ASME writes the scale on a second line under the view's name.
+    return o.standard === "iso" ? `${it.spec.letter} (${k})` : `DETAIL ${it.spec.letter}\nSCALE ${k}`;
   };
 
   const textMm = ptToMm(std.textPt);
   const headingMm = ptToMm(std.headingPt);
   const titlesOn = o.layers?.titles !== false;
-  const labelMm = std.viewLabels === "none" || !titlesOn ? 0 : headingMm * 2.2;
+  // Room for the titles under each row; a row holding a two-line title (an ASME detail's name and scale) gets a second line.
+  const labelRowMm = rows.map((r) =>
+    std.viewLabels === "none" || !titlesOn ? 0 : headingMm * (items.some((it) => it.cell[1] === r && labelOf(it).includes("\n")) ? 3.4 : 2.2),
+  );
+  const labelsMm = labelRowMm.reduce((a, b) => a + b, 0);
   // A callout column beside a view: 5 mm of leader, then the balloon (or the
   // numeral). Two views share every gap, so it holds two columns.
   const balloonMm = Math.max(textMm * 0.95, 4);
@@ -483,7 +508,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     );
   let needMm = needOf();
   // (A detail's scale is not known yet: room for the longest, "10:1" or "1:200".)
-  const titleMm = cols.map((c) => (titlesOn ? Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => (labelOf(it).length + (it.spec.kind === "detail" ? 3 : 0)) * 0.62 * headingMm)) : 0));
+  const titleMm = cols.map((c) => (titlesOn ? Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => (Math.max(...labelOf(it).split("\n").map((l) => l.length)) + (it.spec.kind === "detail" ? 3 : 0)) * 0.62 * headingMm)) : 0));
 
   // Horizontal room: every gap between two views holds two callout columns,
   // an outer edge holds one. Vertical room needs only the view title.
@@ -498,7 +523,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   const edgesMm = (): [number, number] => (frame ? [6 + (sideHas(0, false) ? calloutMm : 0), 6 + (sideHas(cols.length - 1, true) ? calloutMm : 0)] : [edgeMm, edgeMm]);
   const horizMm = (): number => (frame ? edgesMm()[0] + edgesMm()[1] + gapsMm().reduce((a, b) => a + b, 0) : 2 * edgeMm + gapMm * (cols.length - 1));
   let availW = area.w - horizMm();
-  const availH = area.h - (rowGapMm + labelMm) * rows.length - rowGapMm;
+  const availH = area.h - rowGapMm * rows.length - labelsMm - rowGapMm;
   // One scale for every view, so the orthographic views stay true to each other:
   // the largest at which the drawings, their titles and their callout stacks all fit.
   const colMm = (sc: number): number[] => colW.map((w, i) => Math.max(w * sc, titleMm[i]));
@@ -545,10 +570,28 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     return refuse(`The drawing does not fit the sheet at any standard scale (the smallest is ${scaleLabel(STANDARD_SCALES[STANDARD_SCALES.length - 1])}).`);
   }
   const s = std.standardScale ? snapScale(fitS) : fitS;
+  // A detail on a sheet of standard scales is drawn at the standard scale nearest its enlargement (one
+  // larger than the sheet's): "SCALE 2:1", never "1.5:1". Laid out once more with those enlargements.
+  if (std.standardScale && !o.detailScalesSet && items.some((i) => i.spec.kind === "detail")) {
+    const adjusted = o.views.map((v) => {
+      if (v.kind !== "detail") return v;
+      const want = s * v.factor;
+      const above = STANDARD_SCALES.filter((x) => x > s * (1 + 1e-9));
+      const best = above.reduce((a, x) => (Math.abs(Math.log(x / want)) < Math.abs(Math.log(a / want)) ? x : a), above[above.length - 1] ?? want);
+      return { ...v, factor: best / s };
+    });
+    const sheet = layoutCore(mesh, { ...o, views: adjusted, detailScalesSet: true }, textUnitsIn, info);
+    for (const v of adjusted) {
+      const asked = o.views.find((q) => q.kind === "detail" && v.kind === "detail" && q.letter === v.letter);
+      if (v.kind === "detail" && asked?.kind === "detail" && Math.abs(v.factor - asked.factor) > 1e-9 && sheet.svg)
+        sheet.notes.push(`Detail ${v.letter} is drawn at ${scaleLabel(s * v.factor)}, the standard scale nearest ${asked.factor}× this sheet's ${scaleLabel(s)}.`);
+    }
+    return sheet;
+  }
   const cwMm = colMm(s), chMm = rowMm(s);
 
   const W = (frame ? frame.W : area.w) * PX_PER_MM;
-  const totalH = sum(chMm) + (rowGapMm + labelMm) * rows.length + rowGapMm;
+  const totalH = sum(chMm) + rowGapMm * rows.length + labelsMm + rowGapMm;
   const H = (frame ? frame.H : Math.min(area.h, totalH)) * PX_PER_MM;
   const usedW = sum(cwMm) + horizMm();
   const x0 = (area.x + Math.max(0, (area.w - usedW) / 2)) * PX_PER_MM;
@@ -572,7 +615,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const ri = rows.indexOf(it.cell[1]);
     // Cell origin (top-left), px.
     const cellX = x0 + (frame ? edgesMm()[0] + sum(gapsMm().slice(0, ci)) + sum(cwMm.slice(0, ci)) : edgeMm + gapMm * ci + sum(cwMm.slice(0, ci))) * PX_PER_MM;
-    const cellY = y0 + ((rowGapMm + labelMm) * ri + rowGapMm + sum(chMm.slice(0, ri))) * PX_PER_MM;
+    const cellY = y0 + (rowGapMm * ri + sum(labelRowMm.slice(0, ri)) + rowGapMm + sum(chMm.slice(0, ri))) * PX_PER_MM;
     const b = it.d.bounds;
     const vw = (b.maxX - b.minX) * s * PX_PER_MM;
     const vh = (b.maxY - b.minY) * s * PX_PER_MM;
@@ -675,14 +718,14 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     }
 
     const label = labelOf(it, s);
-    labels.push(label);
+    labels.push(label.replace("\n", " "));
     parts = layer.titles;
     if (label) {
-      const ly = cellY + chh + labelMm * 0.75 * PX_PER_MM;
+      const ly = cellY + chh + headingMm * 2.2 * 0.75 * PX_PER_MM;
       // Centred under the view, but kept inside its own column (sized to hold it).
       const half = (titleMm[ci] / 2) * PX_PER_MM;
       const tx = Math.max(cellX + half, Math.min(cellX + cw - half, ox + vw / 2));
-      parts.push(`<text x="${fmt(tx)}" y="${fmt(ly)}" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(headingPx)}" fill="#000">${esc(label)}</text>`);
+      label.split("\n").forEach((line, li) => parts.push(`<text x="${fmt(tx)}" y="${fmt(ly + li * headingPx * 1.2)}" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(headingPx)}" fill="#000">${esc(line)}</text>`));
     }
   }
 

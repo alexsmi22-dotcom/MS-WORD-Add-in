@@ -319,3 +319,107 @@ describe("the work bound", () => {
     expect(Date.now() - t0).toBeLessThan(10000);
   });
 });
+
+describe("solver review — every finding pinned", () => {
+  it("B2a: a triangle with a tail line still refuses the mirror image (the loop test missed nodes of degree 3)", () => {
+    const t = sk([pt("A", 0, 0), pt("B", 10, 0), pt("C", 5, -3), pt("T", -5, -5)], [line("ab", "A", "B"), line("bc", "B", "C"), line("ca", "C", "A"), line("tail", "A", "T")], [
+      { id: "fA", kind: "fix", p: "A", x: 0, y: 0 },
+      { id: "fB", kind: "fix", p: "B", x: 10, y: 0 },
+      { id: "pl", kind: "pointLine", p: "C", line: "ab", value: 3, side: 1 },
+    ]);
+    expect(solve(t)).toMatchObject({ ok: false, reason: "that would turn an outline inside out — the shape cannot take those values" });
+  });
+  it("B2b: a rectangle with a drawn diagonal refuses being mirrored across its base", () => {
+    const r = sk([pt("A", 0, 0), pt("B", 10, 0), pt("C", 10, -3), pt("D", 0, -3)], [line("1", "A", "B"), line("2", "B", "C"), line("3", "C", "D"), line("4", "D", "A"), line("dg", "A", "C")], [
+      { id: "fA", kind: "fix", p: "A", x: 0, y: 0 },
+      { id: "fB", kind: "fix", p: "B", x: 10, y: 0 },
+      { id: "v", kind: "vertical", line: "2" },
+      { id: "v4", kind: "vertical", line: "4" },
+      { id: "pc", kind: "pointLine", p: "C", line: "1", value: 3, side: 1 },
+      { id: "pd", kind: "pointLine", p: "D", line: "1", value: 3, side: 1 },
+    ]);
+    expect(solve(r)).toMatchObject({ ok: false });
+  });
+  it("D1: internal tangency keeps which circle is larger — growing the inner one past the outer is refused, not swapped", () => {
+    let s = sk([pt("o1", 0, 0), pt("o2", 3, 0)], [{ id: "C1", kind: "circle", c: "o1", r: 5 }, { id: "C2", kind: "circle", c: "o2", r: 2 }], [
+      { id: "f", kind: "fix", p: "o1", x: 0, y: 0 },
+      { id: "r1", kind: "radius", curve: "C1", value: 5 },
+      { id: "r2", kind: "radius", curve: "C2", value: 2 },
+    ]);
+    const t = addConstraint(s, { id: "t", kind: "tangent", e1: "C1", e2: "C2" });
+    if (!t.ok) throw new Error(t.reason);
+    expect(t.sketch.constraints.find((c) => c.id === "t")).toMatchObject({ inner: true, larger: 1 });
+    s = t.sketch;
+    expect(setDimension(s, "r2", 8).ok).toBe(false);
+    expect(setDimension(s, "r2", 4).ok).toBe(true);
+  });
+  it("D2: a line–circle tangent made without a side keeps the circle on the side it is drawn", () => {
+    const s = sk([pt("a", -5, 0), pt("b", 5, 0), pt("o", 0, -2.2)], [line("L", "a", "b"), { id: "C", kind: "circle", c: "o", r: 2 }], [
+      { id: "fa", kind: "fix", p: "a", x: -5, y: 0 },
+      { id: "fb", kind: "fix", p: "b", x: 5, y: 0 },
+    ]);
+    const r = addConstraint(s, { id: "t", kind: "tangent", e1: "L", e2: "C" });
+    if (!r.ok) throw new Error(r.reason);
+    const o = P(r.sketch, "o"), rr = (r.sketch.entities.find((e) => e.id === "C") as { r: number }).r;
+    expect(o.y).toBeCloseTo(-rr, 9);
+  });
+  it("D3: apart from position, by the rank of the rigid motions: a lone circle is NOT (its radius is free); a lone point and dimensioned concentric circles are", () => {
+    expect(freedom(sk([pt("o", 2, 3)], [{ id: "C", kind: "circle", c: "o", r: 2 }]))).toMatchObject({ dof: 3, rigidOnly: false });
+    expect(freedom(sk([pt("p", 2, 3)]))).toMatchObject({ dof: 2, rigidOnly: true });
+    const cc = sk([pt("o", 2, 3)], [{ id: "C1", kind: "circle", c: "o", r: 2 }, { id: "C2", kind: "circle", c: "o", r: 4 }], [
+      { id: "r1", kind: "radius", curve: "C1", value: 2 },
+      { id: "r2", kind: "radius", curve: "C2", value: 4 },
+    ]);
+    expect(freedom(cc)).toMatchObject({ dof: 2, rigidOnly: true });
+  });
+  it("D4: a relation that holds only by coincidence (at a tangent point) is not called redundant", () => {
+    const s = sk([pt("o", 0, 0), pt("A", -10, 5), pt("B", 0, 5)], [{ id: "C", kind: "circle", c: "o", r: 5 }, line("AB", "A", "B")], [
+      { id: "fo", kind: "fix", p: "o", x: 0, y: 0 },
+      { id: "rr", kind: "radius", curve: "C", value: 5 },
+      { id: "fA", kind: "fix", p: "A", x: -10, y: 5 },
+      { id: "on", kind: "onCircle", p: "B", curve: "C" },
+    ]);
+    // Accepted, not called redundant. (Its DOF count stays first order at this singular,
+    // tangent configuration — rank cannot see a double root — so the count is not asserted.)
+    const r = addConstraint(s, { id: "h", kind: "horizontal", line: "AB" });
+    expect(r.ok).toBe(true);
+  });
+  it("D5: running out of solver steps says so; a real conflict names the relation being added", () => {
+    expect(solve(rect(10, 6, 2), { maxIterations: 1 })).toMatchObject({ ok: false, reason: "the sketch did not settle within the solver's limit — change the value in smaller steps" });
+    const t = sk([pt("A", 0, 0), pt("B", 3, 0), pt("C", 0, 4)], [line("a", "A", "B"), line("b", "B", "C"), line("c", "C", "A")], [
+      { id: "la", kind: "length", line: "a", value: 3 },
+      { id: "lb", kind: "length", line: "b", value: 5 },
+      { id: "lc", kind: "length", line: "c", value: 4 },
+    ]);
+    const r = addConstraint(t, { id: "x", kind: "distance", p: "A", q: "B", value: 8 });
+    expect(r).toMatchObject({ ok: false, kind: "conflict", reason: "the 8 distance between A and B conflicts with the sketch's other relations" });
+  });
+  it("D6: dragging a point that lives on a circle toward a spot off it lands on the circle, nearest the cursor", () => {
+    const s = sk([pt("o", 0, 0), pt("p", 5, 0)], [{ id: "C", kind: "circle", c: "o", r: 5 }], [
+      { id: "fo", kind: "fix", p: "o", x: 0, y: 0 },
+      { id: "rr", kind: "radius", curve: "C", value: 5 },
+      { id: "on", kind: "onCircle", p: "p", curve: "C" },
+    ]);
+    const r = dragPoint(s, "p", 0, 8);
+    if (!r.ok) throw new Error(r.reason);
+    const q = P(r.sketch, "p");
+    expect(Math.hypot(q.x, q.y)).toBeCloseTo(5, 9);
+    expect(q.y).toBeGreaterThan(4.5);
+  });
+  it("D7: a value that would make the outline cross itself is refused", () => {
+    const s = sk([pt("A", 0, 0), pt("B", 10, 0), pt("C", 10, 8), pt("D", 5, 5)], [line("1", "A", "B"), line("2", "B", "C"), line("3", "C", "D"), line("4", "D", "A")], [
+      { id: "fA", kind: "fix", p: "A", x: 0, y: 0 },
+      { id: "fB", kind: "fix", p: "B", x: 10, y: 0 },
+      { id: "fC", kind: "fix", p: "C", x: 10, y: 8 },
+      { id: "vx", kind: "hdist", p: "A", q: "D", value: 5, side: 1 },
+    ]);
+    const withDist = addConstraint(s, { id: "cd", kind: "distance", p: "C", q: "D", value: Math.hypot(5, 3) });
+    if (!withDist.ok) throw new Error(withDist.reason);
+    expect(setDimension(withDist.sketch, "cd", 12).ok).toBe(false);
+  });
+  it("nit: a 0.1 rectangle 100 000 from the origin solves (the precision floor follows the coordinates)", () => {
+    const r0 = rect(0.1, 0.06, 0.005);
+    const far: Sketch = { ...r0, points: r0.points.map((p) => ({ ...p, x: p.x + 1e5, y: p.y + 1e5 })), constraints: [...r0.constraints, { id: "w", kind: "length", line: "L1", value: 0.1 }, { id: "hh", kind: "length", line: "L2", value: 0.06 }] };
+    expect(solve(far).ok).toBe(true);
+  });
+});

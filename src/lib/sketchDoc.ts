@@ -39,7 +39,7 @@ const SHAPES: Record<SConstraint["kind"], Record<string, (v: unknown) => boolean
   vertical: { line: isStr },
   parallel: { l1: isStr, l2: isStr },
   perpendicular: { l1: isStr, l2: isStr },
-  tangent: { e1: isStr, e2: isStr, side: (v) => v === undefined || isSide(v), inner: optBool },
+  tangent: { e1: isStr, e2: isStr, side: (v) => v === undefined || isSide(v), inner: optBool, larger: (v) => v === undefined || v === 1 || v === 2 },
   equal: { e1: isStr, e2: isStr },
   concentric: { e1: isStr, e2: isStr },
   onLine: { p: isStr, line: isStr },

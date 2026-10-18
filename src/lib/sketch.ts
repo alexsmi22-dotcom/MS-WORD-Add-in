@@ -44,8 +44,12 @@ export type SConstraint =
   | { id: string; kind: "vertical"; line: string }
   | { id: string; kind: "parallel"; l1: string; l2: string }
   | { id: string; kind: "perpendicular"; l1: string; l2: string }
-  /** Line–curve: `side` is which side of the line the centre lies (+1 left of a→b). Curve–curve: `inner` = internal tangency. */
-  | { id: string; kind: "tangent"; e1: string; e2: string; side?: 1 | -1; inner?: boolean }
+  /**
+   * Line–curve: `side` is which side of the line the centre lies (+1 left of a→b).
+   * Curve–curve: `inner` = internal tangency, `larger` = which curve (1 or 2) is the larger.
+   * All three are fixed from the drawing when the relation is made (addConstraint).
+   */
+  | { id: string; kind: "tangent"; e1: string; e2: string; side?: 1 | -1; inner?: boolean; larger?: 1 | 2 }
   | { id: string; kind: "equal"; e1: string; e2: string }
   | { id: string; kind: "concentric"; e1: string; e2: string }
   | { id: string; kind: "onLine"; p: string; line: string }
@@ -336,8 +340,11 @@ export function residuals(sk: Sketch, vm: VarMap, x: Float64Array): Row[] {
           const L = new Local(ctx, [...k1.vars, ...k2.vars]);
           const a = k1.get(L), b = k2.get(L);
           const dist = hypot2(dsub(a.cx, b.cx), dsub(a.cy, b.cy));
-          // Internal: |c1c2| = |r1 − r2|, with the larger circle as created; external: r1 + r2.
-          const target = c.inner ? (a.r.v >= b.r.v ? dsub(a.r, b.r) : dsub(b.r, a.r)) : dadd(a.r, b.r);
+          // Internal: |c1c2| = r_big − r_small with the larger curve fixed as made (smooth, and the
+          // two can never swap roles: that would need a negative distance, so it is refused);
+          // external: r1 + r2.
+          const big = c.larger ?? (a.r.v >= b.r.v ? 1 : 2);
+          const target = c.inner ? (big === 1 ? dsub(a.r, b.r) : dsub(b.r, a.r)) : dadd(a.r, b.r);
           push(L, dsub(dist, target), c.id, true);
         }
         break;
@@ -625,11 +632,21 @@ export function sketchScale(sk: Sketch): number {
 }
 
 /** Levenberg–Marquardt with minimum-norm steps: δ = −Jᵀ (J Jᵀ + λI)⁻¹ r. */
-function lm(sk: Sketch, opts: SolveOptions): { x: Float64Array; vm: VarMap; it: number; worst: number; rows: Row[] } {
+/**
+ * The residual tolerance actually reachable: the asked-for one, but never below what
+ * float coordinates far from the origin can resolve (a 0.1 rectangle at x = 1e5).
+ */
+function effectiveTol(sk: Sketch, tol: number): number {
+  let far = 0;
+  for (const p of sk.points) far = Math.max(far, Math.abs(p.x), Math.abs(p.y));
+  return Math.max(tol, (1e-14 * far) / sketchScale(sk));
+}
+
+function lm(sk: Sketch, opts: SolveOptions): { x: Float64Array; vm: VarMap; it: number; worst: number; rows: Row[]; capped: boolean } {
   const vm = varMap(sk);
   const scale = sketchScale(sk);
-  const tol = opts.tol ?? 1e-12;
-  const maxIt = opts.maxIterations ?? 100;
+  const tol = effectiveTol(sk, opts.tol ?? 1e-12);
+  const maxIt = opts.maxIterations ?? 300;
   let x = toVector(sk, vm);
   const evalAt = (v: Float64Array) => {
     const rows = residuals(sk, vm, v);
@@ -682,21 +699,66 @@ function lm(sk: Sketch, opts: SolveOptions): { x: Float64Array; vm: VarMap; it: 
     }
     if (!improved) break;
   }
-  return { x, vm, it, worst: cur.worst, rows: cur.rows };
+  return { x, vm, it, worst: cur.worst, rows: cur.rows, capped: it >= maxIt && cur.worst > tol };
 }
 
-/** Signed area of every closed loop of the sketch's non-construction lines (point ids in order). */
-function loopSigns(sk: Sketch): number[] {
-  return closedLoops(sk).map((loop) => Math.sign(signedArea(loop.map((id) => P(sk, id)))));
-}
-
-function signedArea(pts: Array<{ x: number; y: number }>): number {
-  let s = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i], b = pts[(i + 1) % pts.length];
-    s += a.x * b.y - b.x * a.y;
+/**
+ * The turning direction at every corner of the drawn (non-construction) geometry:
+ * for each node, each pair of pieces leaving it (lines by their direction, arcs by
+ * their tangent), the sign of the cross product. A MIRROR flips several of these at
+ * once; a single corner turning concave is a real shape change. Covers loops with
+ * arcs and nodes where three or more pieces meet (the loop-area test did not).
+ */
+function cornerTurns(sk: Sketch): Map<string, number> {
+  const root = unionCoincident(sk);
+  const leaving = new Map<string, Array<{ id: string; d: [number, number] }>>();
+  const add = (node: string, id: string, d: [number, number]): void => {
+    const n = root(node);
+    (leaving.get(n) ?? leaving.set(n, []).get(n)!).push({ id, d });
+  };
+  for (const e of sk.entities) {
+    if (e.construction) continue;
+    if (e.kind === "line") {
+      const a = P(sk, e.a), b = P(sk, e.b);
+      add(e.a, e.id + ">", [b.x - a.x, b.y - a.y]);
+      add(e.b, e.id + "<", [a.x - b.x, a.y - b.y]);
+    } else if (e.kind === "arc") {
+      const c = P(sk, e.c), a = P(sk, e.a), b = P(sk, e.b);
+      // Leaving a counter-clockwise; leaving b clockwise (back along the arc).
+      add(e.a, e.id + ">", [-(a.y - c.y), a.x - c.x]);
+      add(e.b, e.id + "<", [b.y - c.y, -(b.x - c.x)]);
+    }
   }
-  return s / 2;
+  const out = new Map<string, number>();
+  for (const [node, list] of leaving) {
+    if (list.length < 2) continue;
+    const sorted = [...list].sort((p, q) => (p.id < q.id ? -1 : 1));
+    for (let i = 0; i < sorted.length; i++)
+      for (let j = i + 1; j < sorted.length; j++) {
+        const [u, v] = [sorted[i].d, sorted[j].d];
+        const cr = (u[0] * v[1] - u[1] * v[0]) / (Math.hypot(...u) * Math.hypot(...v) || 1);
+        out.set(`${node}|${sorted[i].id}|${sorted[j].id}`, Math.abs(cr) < 1e-9 ? 0 : Math.sign(cr));
+      }
+  }
+  return out;
+}
+
+/** Pairs of drawn lines that cross (not at a shared end), as "L1|L2". */
+function lineCrossings(sk: Sketch): Set<string> {
+  const root = unionCoincident(sk);
+  const lines = sk.entities.filter((e): e is Extract<SEntity, { kind: "line" }> => e.kind === "line" && !e.construction);
+  const o = (a: SPoint, b: SPoint, c: SPoint): number => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const out = new Set<string>();
+  for (let i = 0; i < lines.length; i++)
+    for (let j = i + 1; j < lines.length; j++) {
+      const L = lines[i], M = lines[j];
+      const ends = [root(L.a), root(L.b)];
+      if (ends.includes(root(M.a)) || ends.includes(root(M.b))) continue;
+      const a = P(sk, L.a), b = P(sk, L.b), c = P(sk, M.a), d = P(sk, M.b);
+      const d1 = o(c, d, a), d2 = o(c, d, b), d3 = o(a, b, c), d4 = o(a, b, d);
+      if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) out.add(`${L.id}|${M.id}`);
+    }
+  return out;
 }
 
 /** Each arc's counter-clockwise sweep from a to b, in (0, 2π]. */
@@ -711,45 +773,6 @@ function arcSweeps(sk: Sketch): Map<string, number> {
     out.set(e.id, s);
   }
   return out;
-}
-
-/** Closed polygonal loops of non-construction LINES only (for flip checks): one point id per corner, in order. */
-function closedLoops(sk: Sketch): string[][] {
-  const root = unionCoincident(sk);
-  const lines = sk.entities.filter((e): e is Extract<SEntity, { kind: "line" }> => e.kind === "line" && !e.construction);
-  const at = new Map<string, Array<Extract<SEntity, { kind: "line" }>>>();
-  for (const l of lines) {
-    if (root(l.a) === root(l.b)) continue;
-    for (const n of [root(l.a), root(l.b)]) (at.get(n) ?? at.set(n, []).get(n)!).push(l);
-  }
-  const used = new Set<string>();
-  const loops: string[][] = [];
-  for (const first of lines) {
-    if (used.has(first.id) || root(first.a) === root(first.b)) continue;
-    const start = root(first.a);
-    const loop: string[] = [];
-    const seen: string[] = [];
-    let line = first, node = start, ok = true;
-    for (let guard = 0; guard <= lines.length; guard++) {
-      const here = root(line.a) === node ? line.a : line.b;
-      const there = here === line.a ? line.b : line.a;
-      loop.push(here);
-      seen.push(line.id);
-      node = root(there);
-      if (node === start) break;
-      const nexts = (at.get(node) ?? []).filter((l) => l.id !== line.id);
-      if ((at.get(node) ?? []).length !== 2 || nexts.length !== 1) {
-        ok = false;
-        break;
-      }
-      line = nexts[0];
-    }
-    if (ok && node === start && (at.get(start) ?? []).length === 2) {
-      seen.forEach((id) => used.add(id));
-      loops.push(loop);
-    }
-  }
-  return loops;
 }
 
 /** Point ids joined by coincident relations share one representative. */
@@ -825,7 +848,7 @@ export function sketchProblems(sk: Sketch): string[] {
  * Solves the sketch: every relation and driving dimension held, VERIFIED and
  * FLIP-CHECKED against the starting sketch; refused by name otherwise.
  */
-export function solve(sk: Sketch, opts: SolveOptions = {}): SolveResult {
+export function solve(sk: Sketch, opts: SolveOptions = {}, reference: Sketch = sk): SolveResult {
   const bad = sketchProblems(sk);
   if (bad.length) return { ok: false, reason: bad[0] };
   let res: ReturnType<typeof lm>;
@@ -835,7 +858,7 @@ export function solve(sk: Sketch, opts: SolveOptions = {}): SolveResult {
     return { ok: false, reason: (e as Error).message };
   }
   const scale = sketchScale(sk);
-  const tol = opts.tol ?? 1e-12;
+  const tol = effectiveTol(sk, opts.tol ?? 1e-12);
   const out = fromVector(sk, res.vm, res.x);
   // Verify: the ORIGINAL residuals, unscaled, recomputed at the answer.
   const rows = residuals(out, res.vm, res.x);
@@ -845,6 +868,7 @@ export function solve(sk: Sketch, opts: SolveOptions = {}): SolveResult {
     if (v > worst) [worst, worstRow] = [v, r];
   }
   if (!(worst <= tol * 100)) {
+    if (res.capped) return { ok: false, reason: "the sketch did not settle within the solver's limit — change the value in smaller steps" };
     const c = worstRow && sk.constraints.find((k) => k.id === worstRow!.source);
     return { ok: false, reason: `these relations cannot all hold — ${describe(sk, c)} could not be met`, source: worstRow?.source };
   }
@@ -855,13 +879,18 @@ export function solve(sk: Sketch, opts: SolveOptions = {}): SolveResult {
       if (Math.hypot(b.x - a.x, b.y - a.y) <= 1e-9 * scale) return { ok: false, reason: `${e.id} would shrink to nothing` };
     } else if (radiusOf(out, e.id) <= 1e-9 * scale) return { ok: false, reason: `${e.id} would shrink to a point` };
   }
-  // Flips: loops keep their turning direction, arcs keep their side.
-  const s0 = loopSigns(sk), s1 = loopSigns(out);
-  if (s0.length === s1.length && s0.some((s, i) => s !== 0 && s1[i] !== s)) return { ok: false, reason: "that would turn an outline inside out — the shape cannot take those values" };
-  const a0 = arcSweeps(sk), a1 = arcSweeps(out);
+  // Flips: corners keep their turning direction (two or more turning over = a mirror image).
+  const t0 = cornerTurns(reference), t1 = cornerTurns(out);
+  let flipped = 0;
+  for (const [k, v] of t0) if (v !== 0 && t1.has(k) && t1.get(k) !== 0 && t1.get(k) !== v) flipped++;
+  if (flipped >= 2) return { ok: false, reason: "that would turn an outline inside out — the shape cannot take those values" };
+  // No new crossings: an outline that starts clean stays clean.
+  const x0 = lineCrossings(reference);
+  for (const k of lineCrossings(out)) if (!x0.has(k)) return { ok: false, reason: `that would make ${k.replace("|", " cross ")} — the shape cannot take those values` };
+  const a0 = arcSweeps(reference), a1 = arcSweeps(out);
   for (const [id, sw] of a0) {
-    const nw = a1.get(id)!;
-    if (Math.abs(nw - sw) > Math.PI) return { ok: false, reason: `that would flip ${id} to its other side — the shape cannot take those values` };
+    const nw = a1.get(id);
+    if (nw !== undefined && Math.abs(nw - sw) > Math.PI) return { ok: false, reason: `that would flip ${id} to its other side — the shape cannot take those values` };
   }
   return { ok: true, sketch: out, iterations: res.it, maxResidual: worst };
 }
@@ -902,9 +931,16 @@ export function freedom(sk: Sketch): Freedom {
   });
   // A rigid motion lies in the null space when J·v = 0.
   const inNull = (v: Float64Array): boolean => J.every((row) => Math.abs(row.reduce((s, a, k) => s + a * v[k], 0)) <= 1e-7 * Math.max(1, Math.hypot(...v)));
-  // Each rigid motion that is free removes one degree from what the sketch itself leaves open.
-  const rigidFree = rigid.filter(inNull).length;
-  const rigidOnly = dof > 0 && dof === rigidFree;
+  // "Apart from position": every freedom left is a rigid motion — the free rigid motions
+  // span as many dimensions as there are degrees of freedom (counted by RANK: for a single
+  // point, turning about the origin is just a translation).
+  // Unit length first: with a single point the sketch size is tiny and the turn would swamp the rank test.
+  const rigidIn = rigid.filter(inNull).map((v) => {
+    const l = Math.hypot(...v) || 1;
+    return v.map((x) => x / l);
+  });
+  const rigidRank = rigidIn.length ? rankAndNullSpace(rigidIn, vm.n).rank : 0;
+  const rigidOnly = dof > 0 && dof === rigidRank;
   // Free variables: a component in the null space, beyond the rigid motions when those are the freedom.
   const freeVar = new Float64Array(vm.n);
   for (const v of nullSpace) for (let i = 0; i < vm.n; i++) freeVar[i] += v[i] * v[i];
@@ -937,7 +973,49 @@ export type AddResult =
  * REDUNDANT (the rank does not rise: the sketch already fixes it) or CONFLICTS
  * (the residual cannot reach zero); a dimension so refused may be added driven.
  */
-export function addConstraint(sk: Sketch, c: SConstraint, opts: SolveOptions = {}): AddResult {
+/** A tangent relation with its side / inner / larger taken from the drawing as it stands. */
+function asDrawn(sk: Sketch, c: SConstraint): SConstraint {
+  if (c.kind !== "tangent") return c;
+  const e1 = sk.entities.find((e) => e.id === c.e1), e2 = sk.entities.find((e) => e.id === c.e2);
+  if (!e1 || !e2) return c;
+  if (e1.kind === "line" || e2.kind === "line") {
+    if (c.side) return c;
+    const [l, k] = (e1.kind === "line" ? [e1, e2] : [e2, e1]) as [Extract<SEntity, { kind: "line" }>, Extract<SEntity, { kind: "circle" | "arc" }>];
+    const a = P(sk, l.a), b = P(sk, l.b), o = P(sk, k.c);
+    return { ...c, side: (b.x - a.x) * (o.y - a.y) - (b.y - a.y) * (o.x - a.x) >= 0 ? 1 : -1 };
+  }
+  const r1 = radiusOf(sk, c.e1), r2 = radiusOf(sk, c.e2);
+  const o1 = P(sk, (e1 as { c: string }).c), o2 = P(sk, (e2 as { c: string }).c);
+  const inner = c.inner ?? Math.hypot(o1.x - o2.x, o1.y - o2.y) < Math.max(r1, r2);
+  return { ...c, inner, ...(inner ? { larger: c.larger ?? (r1 >= r2 ? 1 : 2) } : {}) };
+}
+
+/**
+ * Does the relation still hold after the sketch moves a little along its other
+ * relations? Two seeded perturbations: a relation that holds only by coincidence
+ * at this geometry (a tangent point) fails one; an implied one holds in both.
+ */
+function impliedAfterWiggle(sk: Sketch, c: SConstraint): boolean {
+  const scale = sketchScale(sk);
+  let seed = 12345;
+  const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  for (let trial = 0; trial < 2; trial++) {
+    const moved: Sketch = {
+      ...sk,
+      points: sk.points.map((p) => ({ ...p, x: p.x + 1e-3 * scale * rnd(), y: p.y + 1e-3 * scale * rnd() })),
+      entities: sk.entities.map((e) => (e.kind === "circle" ? { ...e, r: e.r * (1 + 1e-3 * rnd()) } : e)),
+    };
+    const r = solve(moved, { maxIterations: 100 }, moved);
+    if (!r.ok) continue; // could not wiggle: no evidence either way
+    const vm = varMap({ ...r.sketch, constraints: [c] });
+    const own = residuals({ ...r.sketch, constraints: [c] }, vm, toVector(r.sketch, vm));
+    if (own.some((row) => Math.abs(row.value) / (row.isLength ? scale : 1) > 1e-7)) return false;
+  }
+  return true;
+}
+
+export function addConstraint(sk: Sketch, c0: SConstraint, opts: SolveOptions = {}): AddResult {
+  const c = asDrawn(sk, c0);
   const isDim = DIMENSION_KINDS.has(c.kind);
   if ("driven" in c && c.driven) {
     const next = { ...sk, constraints: [...sk.constraints, c] };
@@ -957,13 +1035,18 @@ export function addConstraint(sk: Sketch, c: SConstraint, opts: SolveOptions = {
   const holds = own.every((r) => Math.abs(r.value) / (r.isLength ? scale : 1) <= 1e-9);
   if (holds) {
     const f = freedom(next);
-    if (f.dof === before.dof) {
+    // First order says nothing new; confirm by moving the sketch along its relations.
+    if (f.dof === before.dof && impliedAfterWiggle(sk, c)) {
       return { ok: false, reason: `${describe(next, c)} is already fixed by the sketch's other relations`, kind: "redundant", canDrive: isDim };
     }
     return { ok: true, sketch: next, freedom: f };
   }
   const solved = solveToward(sk, next, c, opts);
-  if (!solved.ok) return { ok: false, reason: solved.reason, kind: "conflict", canDrive: isDim };
+  if (!solved.ok) {
+    // Name the relation being added: it is the one that does not fit (unless the solver ran out of steps).
+    const why = solved.reason.startsWith("these relations cannot all hold") ? `${describe(next, c)} conflicts with the sketch's other relations` : solved.reason;
+    return { ok: false, reason: why, kind: "conflict", canDrive: isDim };
+  }
   const f = freedom(solved.sketch);
   if (f.dof === before.dof) {
     // Held after solving but removed no freedom: it duplicates what is there (e.g. a second equal length).
@@ -992,14 +1075,17 @@ function stepped(prev: Sketch, next: Sketch, c: SConstraint & { value: number },
   const ratio = from > 0 ? Math.abs(to - from) / Math.max(from, to) : 1;
   const steps = !Number.isFinite(from) || ratio < 0.2 ? 1 : Math.min(16, Math.ceil(ratio / 0.2));
   let cur: Sketch = prev;
+  let iterations = 0, maxResidual = 0;
   for (let k = 1; k <= steps; k++) {
     const v = from + ((to - from) * k) / steps;
     const trial: Sketch = { ...cur, constraints: [...prev.constraints, { ...c, value: k === steps ? to : v } as SConstraint] };
     const r = solve(trial, opts);
     if (!r.ok) return r;
+    iterations += r.iterations;
+    maxResidual = Math.max(maxResidual, r.maxResidual);
     cur = { ...r.sketch, constraints: next.constraints };
   }
-  return { ok: true, sketch: cur, iterations: 0, maxResidual: 0 };
+  return { ok: true, sketch: cur, iterations, maxResidual };
 }
 
 /** Changes a dimension's value (driving) and re-solves in steps; refused by name, the old sketch kept. */
@@ -1022,8 +1108,12 @@ export function setDimension(sk: Sketch, id: string, value: number, opts: SolveO
 /** Moves a point toward (x, y) as far as the relations allow (a drag): the solver keeps every relation. */
 export function dragPoint(sk: Sketch, id: string, x: number, y: number, opts: SolveOptions = {}): SolveResult {
   const pin: SConstraint = { id: "__drag__", kind: "fix", p: id, x, y };
-  const pulled = solve({ ...sk, constraints: [...sk.constraints, pin] }, opts);
+  const pulled = solve({ ...sk, constraints: [...sk.constraints, pin] }, opts, sk);
   if (pulled.ok) return { ...pulled, sketch: { ...pulled.sketch, constraints: sk.constraints } };
-  // The point cannot reach there: stay where the relations put it.
-  return { ok: false, reason: `that point cannot go there without breaking a relation` };
+  // It cannot reach the cursor exactly (a point on a circle dragged off it): put it there and
+  // let the relations pull it back — the minimum-norm solve lands it as near as they allow.
+  const moved: Sketch = { ...sk, points: sk.points.map((p) => (p.id === id ? { ...p, x, y } : p)) };
+  const near = solve(moved, opts, sk);
+  if (near.ok) return near;
+  return { ok: false, reason: "that point cannot go there without breaking a relation" };
 }

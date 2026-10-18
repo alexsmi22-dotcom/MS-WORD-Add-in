@@ -92,10 +92,11 @@ function toLoop(
   lp: { steps: Step[] } | { circle: Extract<SEntity, { kind: "circle" }> },
   map: (p: { x: number; y: number }) => Pt2,
   mirrored: boolean,
+  mapCentre: (p: { x: number; y: number }) => Pt2 = map,
 ): Loop {
   const P = (id: string): SPoint => sk.points.find((q) => q.id === id)!;
   if ("circle" in lp) {
-    const c = map(P(lp.circle.c)), r = lp.circle.r;
+    const c = mapCentre(P(lp.circle.c)), r = lp.circle.r;
     // Start on the circle in the mapped plane; two half arcs counter-clockwise.
     return { start: [c[0] + r, c[1]], segs: [{ kind: "arc", to: [c[0] - r, c[1]], center: c }, { kind: "arc", to: [c[0] + r, c[1]], center: c }] };
   }
@@ -107,7 +108,7 @@ function toLoop(
     // The arc runs counter-clockwise a → b in the sketch; travelled backwards it is clockwise;
     // a mirrored map turns both round.
     const cw = s.reversed !== mirrored;
-    return { kind: "arc", to, center: map(P(s.piece.c)), cw };
+    return { kind: "arc", to, center: mapCentre(P(s.piece.c)), cw };
   });
   return { start, segs };
 }
@@ -222,7 +223,8 @@ export function sketchToRevolve(sk: Sketch, axis: string): ProfileResult {
   const side = (p: { x: number; y: number }): number => ux * (p.y - A.y) - uy * (p.x - A.x); // + left of the axis
   const used = body.entities.filter((e) => !e.construction).flatMap((e) => (e.kind === "line" ? [e.a, e.b] : e.kind === "arc" ? [e.a, e.b] : [e.c]));
   const sides = used.map((id) => side(body.points.find((p) => p.id === id)!));
-  // An arc bulges away from its ends: its middle counts too (a half disc has both ends on the axis).
+  // An arc bulges away from its ends: sample it all along (a half disc has both ends on the
+  // axis; a long arc can dip across it between its ends and its middle).
   for (const e of body.entities) if (e.kind === "arc" && !e.construction) {
     const P = (id: string) => body.points.find((p) => p.id === id)!;
     const c = P(e.c), pa = P(e.a), pb = P(e.b);
@@ -230,8 +232,10 @@ export function sketchToRevolve(sk: Sketch, axis: string): ProfileResult {
     const t0 = Math.atan2(pa.y - c.y, pa.x - c.x);
     let t1 = Math.atan2(pb.y - c.y, pb.x - c.x);
     while (t1 <= t0) t1 += 2 * Math.PI;
-    const tm = (t0 + t1) / 2;
-    sides.push(side({ x: c.x + r * Math.cos(tm), y: c.y + r * Math.sin(tm) }));
+    for (let k = 1; k < 64; k++) {
+      const t = t0 + ((t1 - t0) * k) / 64;
+      sides.push(side({ x: c.x + r * Math.cos(t), y: c.y + r * Math.sin(t) }));
+    }
   }
   // Circles reach r beyond their centre.
   for (const e of body.entities) if (e.kind === "circle" && !e.construction) {
@@ -244,7 +248,13 @@ export function sketchToRevolve(sk: Sketch, axis: string): ProfileResult {
   if (!pos && !neg) return { ok: false, reason: "the profile lies on the axis — it has nothing to revolve" };
   const sg = pos ? 1 : -1;
   // (r, z): r = sg·(left distance), z = along the axis. det of [[−sg·uy, sg·ux], [ux, uy]] = −sg: mirrored when sg = +1.
-  const map = (p: { x: number; y: number }): Pt2 => [Math.max(0, sg * side(p)), ux * (p.x - A.x) + uy * (p.y - A.y)];
+  // Profile points: a hair below zero (rounding) is ON the axis. Arc CENTRES are mapped as
+  // they are — a shallow arc's centre can lie across the axis (clamping it changed the arc).
+  const mapPoint = (p: { x: number; y: number }): Pt2 => {
+    const rr = sg * side(p);
+    return [Math.abs(rr) <= tol ? 0 : rr, ux * (p.x - A.x) + uy * (p.y - A.y)];
+  };
+  const mapCentre = (p: { x: number; y: number }): Pt2 => [sg * side(p), ux * (p.x - A.x) + uy * (p.y - A.y)];
   const mirrored = sg === 1;
-  return assemble(r.loops.map((lp) => toLoop(body, lp, map, mirrored)), false);
+  return assemble(r.loops.map((lp) => toLoop(body, lp, mapPoint, mirrored, mapCentre)), false);
 }

@@ -159,3 +159,28 @@ describe("revolve profiles", () => {
     expect(sketchToRevolve(half(1), "nope")).toEqual({ ok: false, reason: "choose a line of the sketch as the axis to revolve about" });
   });
 });
+
+describe("revolve review findings", () => {
+  it("B1: a shallow arc whose centre lies across the axis keeps its true radius (area 76.25, not 55.5)", () => {
+    const s = sk([pt("ax1", 0, -50), pt("ax2", 0, 50), pt("a", 2, 0), pt("b", 10, 0), pt("c", 10, 10), pt("d", 2, 10), pt("o", -20, 5)], [
+      line("axis", "ax1", "ax2", true),
+      line("1", "a", "b"),
+      line("2", "b", "c"),
+      line("3", "c", "d"),
+      { id: "A", kind: "arc", c: "o", a: "a", b: "d" },
+    ]);
+    const r = sketchToRevolve(s, "axis");
+    if (!r.ok) throw new Error(r.reason);
+    expect(areaOf(r.profile, 1e-6)).toBeCloseTo(76.25, 1);
+    body(r.profile, "revolve");
+  });
+  it("D8: a long arc that dips across the axis between its ends is refused by name", () => {
+    // Centre (2.5, 0), radius 4.61: the long way round from a to b reaches x = −2.1, across the axis.
+    const s = sk([pt("ax1", 0, -50), pt("ax2", 0, 50), pt("a", 6, 3), pt("b", 6, -3), pt("o", 2.5, 0)], [
+      line("axis", "ax1", "ax2", true),
+      line("chord", "b", "a"),
+      { id: "A", kind: "arc", c: "o", a: "a", b: "b" },
+    ]);
+    expect(sketchToRevolve(s, "axis")).toEqual({ ok: false, reason: "the profile crosses the axis — it must lie on one side of it (touching is fine)" });
+  });
+});

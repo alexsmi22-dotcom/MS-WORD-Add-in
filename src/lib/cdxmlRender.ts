@@ -69,6 +69,8 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   };
   const fontName = (id: number): string => {
     const n = doc.fonts.get(id);
+    // Text set in the Symbol font arrives as real Greek and signs (cdx.ts maps it): drawn in a text face.
+    if (n && /^symbol$/i.test(n.trim())) return "Times New Roman, Times, serif";
     return n ? `${n}, Arial, Helvetica, sans-serif` : "Arial, Helvetica, sans-serif";
   };
   const color = (i: number): string => cssColor(doc, i);
@@ -169,6 +171,8 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
     const byId = new Map(fr.nodes.map((n) => [n.id, n]));
     const nbrs = new Map<string, string[]>();
     for (const bd of fr.bonds) {
+      // A bond to an atom that is not in the structure (a damaged file) joins nothing.
+      if (!byId.has(bd.b) || !byId.has(bd.e)) continue;
       (nbrs.get(bd.b) ?? nbrs.set(bd.b, []).get(bd.b)!).push(bd.e);
       (nbrs.get(bd.e) ?? nbrs.set(bd.e, []).get(bd.e)!).push(bd.b);
     }

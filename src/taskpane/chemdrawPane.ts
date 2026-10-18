@@ -167,7 +167,18 @@ export function initChemdrawPane(host: ChemdrawHost): void {
       setButtons();
       return;
     }
-    const r = renderCdx(doc, { pad: 6 });
+    let r: ReturnType<typeof renderCdx> = null;
+    try {
+      r = renderCdx(doc, { pad: 6 });
+    } catch (e) {
+      // A damaged document must never leave the pane half-set: say so and close it.
+      host.setStatus(`${name}: the drawing could not be drawn (${(e as Error).message}).`, "error");
+      doc = null;
+      panel.hidden = true;
+      preview.textContent = "";
+      setButtons();
+      return;
+    }
     if (!r) {
       preview.textContent = "";
       info.textContent = `${name}: the page is empty.`;
@@ -262,7 +273,12 @@ export function initChemdrawPane(host: ChemdrawHost): void {
     reader.onload = () => {
       // Yield once so "Reading…" is painted before a large file is drawn.
       window.setTimeout(() => {
-        const r = openChemdrawFile(file.name, new Uint8Array(reader.result as ArrayBuffer));
+        let r: ReturnType<typeof openChemdrawFile>;
+        try {
+          r = openChemdrawFile(file.name, new Uint8Array(reader.result as ArrayBuffer));
+        } catch (e) {
+          return host.setStatus(`${file.name}: the file could not be read (${(e as Error).message}).`, "error");
+        }
         if (!r.ok) return host.setStatus(r.reason, "error");
         load(r.doc, file.name);
         host.setStatus(`${file.name} opened — click a structure to select it (with its brackets, labels and charges), then Insert selected; the tools above the page edit it.`, "success");

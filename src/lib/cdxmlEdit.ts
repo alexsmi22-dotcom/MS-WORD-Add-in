@@ -381,8 +381,19 @@ export function deleteInStructure(doc: CdxDoc, id: string): string | null {
 
 /** Re-sets a labelled element atom's hydrogens after its bonds changed (generic and text labels stay). */
 function relabel(doc: CdxDoc, node: XNode): void {
-  const z = node.attrs.Element;
-  if (!z || node.attrs.NodeType || !node.children.some((c) => c.name === "t")) return;
+  // A labelled carbon (CH3, no Element attribute) re-counts too.
+  const z = node.attrs.Element ?? "6";
+  if (node.attrs.NodeType || !node.children.some((c) => c.name === "t")) return;
+  if (z === "6") {
+    // A labelled carbon keeps its label, with its hydrogens re-counted (CH3 → CH2).
+    const frag = fragmentOf(doc.root, node.attrs.id ?? "")?.frag;
+    if (!frag) return;
+    const h = implicitH("C", Number(node.attrs.Charge ?? 0) || 0, bondOrderSum(frag, node.attrs.id ?? "")) ?? 0;
+    node.attrs.NumHydrogens = String(h);
+    node.children = node.children.filter((c) => c.name !== "t");
+    node.children.push(labelText(doc, node, "C" + (h ? "H" + (h > 1 ? h : "") : "")));
+    return;
+  }
   const sym = symbolFor(Number(z));
   if (sym && VALENCE[sym] !== undefined) setAtomLabel(doc, node.attrs.id ?? "", sym);
 }
@@ -433,7 +444,7 @@ const posOf = (n: XNode): P2 => (n.attrs.p ?? "0 0").split(/\s+/).map(Number) as
  * and one closing onto an existing atom joins it), and adds the bonds that are not already there.
  * Benzene alternates double bonds where neither atom already has one.
  */
-function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: string[] = []): string[] {
+function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: string[] = []): string | null {
   const id = nextIdFrom(doc.root);
   const L = doc.style.bondLength;
   const atoms = frag.children.filter((c) => c.name === "n");
@@ -453,6 +464,7 @@ function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: 
   const bondBetween = (a: string, b: string): XNode | undefined =>
     frag.children.find((c) => c.name === "b" && ((c.attrs.B === a && c.attrs.E === b) || (c.attrs.B === b && c.attrs.E === a)));
   const hasDouble = (a: string): boolean => frag.children.some((c) => c.name === "b" && (c.attrs.B === a || c.attrs.E === a) && c.attrs.Order === "2");
+  const before = frag.children.length;
   for (let i = 0; i < ids.length; i++) {
     const a = ids[i], b = ids[(i + 1) % ids.length];
     let bd = bondBetween(a, b);
@@ -461,6 +473,20 @@ function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: 
       frag.children.push(bd);
     }
   }
+  if (frag.children.length === before) return "that ring is already there";
+  /** Can this atom take one more bond order (a double instead of a single)? Generic labels cannot. */
+  const canDouble = (a: string): boolean => {
+    const n = atoms.find((x) => x.attrs.id === a);
+    if (!n) return false;
+    if (n.attrs.NodeType && n.attrs.NodeType !== "Element") return false;
+    const sym = n.attrs.Element ? symbolFor(Number(n.attrs.Element)) : "C";
+    const vals = sym ? VALENCE[sym] : undefined;
+    if (!vals) return false;
+    const q = Number(n.attrs.Charge ?? 0) || 0;
+    const max = Math.max(...vals) + (sym === "C" ? -Math.abs(q) : sym === "B" ? -q : q);
+    return bondOrderSum(frag, a) + 1 <= max;
+  };
+  let placed = false;
   if (kind === "benzene") {
     // Alternate double bonds round the ring. A bond of the plan may already be double, or have both
     // ends free of one; a bond the ring shares with a structure already there may also have both
@@ -468,18 +494,22 @@ function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: 
     for (let start = 0; start < 2; start++) {
       const plan = [0, 2, 4].map((k) => [ids[(k + start) % 6], ids[(k + start + 1) % 6]]);
       const shared = (a: string, b: string): boolean => keep.includes(a) && keep.includes(b);
-      const ok = plan.every(([a, b]) => bondBetween(a, b)!.attrs.Order === "2" || (!hasDouble(a) && !hasDouble(b)) || (shared(a, b) && hasDouble(a) && hasDouble(b)));
+      const free = (a: string, b: string): boolean => !hasDouble(a) && !hasDouble(b) && canDouble(a) && canDouble(b);
+      const ok = plan.every(([a, b]) => bondBetween(a, b)!.attrs.Order === "2" || free(a, b) || (shared(a, b) && hasDouble(a) && hasDouble(b)));
       if (ok) {
-        for (const [a, b] of plan) if (!hasDouble(a) && !hasDouble(b)) bondBetween(a, b)!.attrs.Order = "2";
+        for (const [a, b] of plan) if (free(a, b)) bondBetween(a, b)!.attrs.Order = "2";
+        placed = true;
         break;
       }
     }
+    // A "benzene" with no alternating double bonds would be a cyclohexane drawn under the wrong name.
+    if (!placed) return "a benzene ring cannot go there: its double bonds cannot alternate with the bonds already there — choose Cyclohexane, or change the neighbouring bonds first";
   }
   for (const a of new Set(ids)) {
     const n = atoms.find((x) => x.attrs.id === a);
     if (n) relabel(doc, n);
   }
-  return ids;
+  return null;
 }
 
 /** The vertices of a regular ring with side A→B, on the side `sign` (+1 right of A→B, y down). */
@@ -515,8 +545,7 @@ export function addRingOnBond(doc: CdxDoc, bondId: string, kind: RingKind): stri
     s += Math.sign(d[0] * (p[1] - a[1]) - d[1] * (p[0] - a[0]));
   }
   const sign = s > 0 ? -1 : 1;
-  placeRing(doc, frag, ringVerts(a, b, RING_SIZE[kind], sign), kind, [na.attrs.id!, nb.attrs.id!]);
-  return null;
+  return placeRing(doc, frag, ringVerts(a, b, RING_SIZE[kind], sign), kind, [na.attrs.id!, nb.attrs.id!]);
 }
 
 /** Attaches a ring to an atom by a new single bond, pointing away from the atom's other bonds. */
@@ -532,8 +561,7 @@ export function addRingAtAtom(doc: CdxDoc, nodeId: string, kind: RingKind): stri
   const L = doc.style.bondLength;
   const dir = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]) - (Math.PI / 2 - Math.PI / size);
   const second: P2 = [p1[0] + L * Math.cos(dir), p1[1] + L * Math.sin(dir)];
-  placeRing(doc, hit.frag, ringVerts(p1, second, size, 1), kind, [r.nodeId]);
-  return null;
+  return placeRing(doc, hit.frag, ringVerts(p1, second, size, 1), kind, [r.nodeId]);
 }
 
 /** A new ring as a structure of its own, centred on a page point. */
@@ -552,6 +580,5 @@ export function addRingAt(doc: CdxDoc, at: P2, kind: RingKind): string | null {
     const a = -Math.PI / 2 + Math.PI / size + (2 * Math.PI * i) / size;
     verts.push([at[0] + R * Math.cos(a), at[1] + R * Math.sin(a)]);
   }
-  placeRing(doc, frag, verts, kind);
-  return null;
+  return placeRing(doc, frag, verts, kind);
 }

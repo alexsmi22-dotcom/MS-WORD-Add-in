@@ -111,8 +111,11 @@ for tag in sorted(prop_enum):
 
 # ---- types: the header's own comments first ("// 0x0012 … (CDXObjectID)"), then the 2010 table.
 hdr_types = {}
-for m in re.finditer(r"(kCDXProp_\w+)[^\n]*//\s*0x([0-9A-Fa-f]{4})[^\n]*\(([A-Za-z0-9_ ]+)\)\s*$", const, flags=re.M):
-    hdr_types[int(m.group(2), 16)] = m.group(3).strip()
+# Keyed by the property's NAME (its enum value), not the hex in the comment: the header's comments
+# number two properties "0x0011", which shifts every comment after them in that block.
+for m in re.finditer(r"(kCDXProp_\w+)[^\n]*//[^\n]*\(([A-Za-z0-9_ ]+)\)\s*$", const, flags=re.M):
+    if m.group(1) in values:
+        hdr_types[values[m.group(1)]] = m.group(2).strip()
 old_types = {int(l.split()[0], 16): l.split()[1] for l in open(os.path.join(D, "types.txt")) if l.strip()}
 def norm(t):
     t = t.replace(" ", "")
@@ -120,6 +123,12 @@ def norm(t):
 types = {}
 for tag in attr:
     types[tag] = norm(hdr_types.get(tag, old_types.get(tag, "")))
+# Where Revvity's reader disagrees with its header comment, the reader wins.
+types[values["kCDXProp_Bracket_RepeatCount"]] = "FLOAT64"  # CDXBracketedGroup.cpp reads an 8-byte float
+types[values["kCDXProp_Atom_Charge"]] = "INT8"  # 4-byte form (charge × 2^24) handled in cdx.ts
+if "kCDXProp_UTF8Text" in values:
+    attr[values["kCDXProp_UTF8Text"]] = ("kCDXProp_UTF8Text", "UTF8Text")
+    types[values["kCDXProp_UTF8Text"]] = "CDXString"
 missing = sorted(t for t in attr if not types[t])
 print("no type:", [(hex(t), attr[t][1]) for t in missing])
 print("type kinds:", sorted(set(types.values())))

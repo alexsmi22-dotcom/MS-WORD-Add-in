@@ -11,7 +11,11 @@ import { renderCdx } from "./cdxmlRender";
 /** The drawn box of every top-level object (document points). */
 export function objectBoxes(doc: CdxDoc): Map<string, Box> {
   const out = new Map<string, Box>();
-  renderCdx(doc, { boxes: out, pad: 0 });
+  try {
+    renderCdx(doc, { boxes: out, pad: 0 });
+  } catch {
+    // A damaged document: the boxes measured so far (the pane reports the drawing failure itself).
+  }
   return out;
 }
 

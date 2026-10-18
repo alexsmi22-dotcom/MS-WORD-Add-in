@@ -25,10 +25,25 @@ const coord = (v: number): string => fmt(v / 65536);
 const CODEPAGE: Record<number, string> = {
   1250: "windows-1250", 1251: "windows-1251", 1252: "windows-1252", 1253: "windows-1253", 1254: "windows-1254",
   1255: "windows-1255", 1256: "windows-1256", 1257: "windows-1257", 1258: "windows-1258", 874: "windows-874",
-  932: "shift_jis", 936: "gbk", 949: "euc-kr", 950: "big5", 10000: "macintosh", 65001: "utf-8",
+  932: "shift_jis", 936: "gbk", 949: "euc-kr", 950: "big5", 1200: "utf-16le", 1201: "utf-16be", 10000: "macintosh",
+  10007: "x-mac-cyrillic", 65001: "utf-8",
 };
+/** The Symbol font's encoding: its letters are Greek, a few bytes are maths signs (as ChemDraw's text shows them). */
+const SYMBOL: Record<number, string> = (() => {
+  const t: Record<number, string> = {};
+  const up = "ΑΒΧΔΕΦΓΗΙϑΚΛΜΝΟΠΘΡΣΤΥςΩΞΨΖ", lo = "αβχδεφγηιϕκλμνοπθρστυϖωξψζ";
+  for (let i = 0; i < 26; i++) {
+    t[0x41 + i] = up[i];
+    t[0x61 + i] = lo[i];
+  }
+  Object.assign(t, { 0x22: "∀", 0x24: "∃", 0x27: "∋", 0x2d: "−", 0xa2: "′", 0xa3: "≤", 0xa5: "∞", 0xac: "←", 0xad: "↑", 0xae: "→", 0xaf: "↓", 0xb0: "°", 0xb1: "±", 0xb2: "″", 0xb3: "≥", 0xb4: "×", 0xb6: "∂", 0xb7: "•", 0xb8: "÷", 0xb9: "≠", 0xba: "≡", 0xbb: "≈", 0xc4: "⊗", 0xc5: "⊕", 0xd6: "√", 0xe5: "∑", 0xf2: "∫" });
+  return t;
+})();
+/** C0 controls other than tab and line breaks cannot be written in XML: they are dropped. */
+const clean = (t: string): string => t.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, "");
 const decoders = new Map<string, TextDecoder>();
-function decode(bytes: Uint8Array, codepage: number): string {
+function decode(bytes: Uint8Array, codepage: number, symbolFont = false): string {
+  if (symbolFont) return clean([...bytes].map((b) => SYMBOL[b] ?? String.fromCharCode(b)).join(""));
   const label = CODEPAGE[codepage] ?? "windows-1252";
   let d = decoders.get(label);
   if (!d) {
@@ -39,7 +54,7 @@ function decode(bytes: Uint8Array, codepage: number): string {
     }
     decoders.set(label, d);
   }
-  return d.decode(bytes).replace(/\r\n?/g, "\n");
+  return clean(d.decode(bytes));
 }
 
 /** An enum value as CDXML names it: its name, or the names of its bits for a flag enum, or the number. */
@@ -79,6 +94,7 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
   let objects = 0;
   // Fonts by id: their code page decodes text set in them.
   const fontCodepage = new Map<number, number>();
+  const symbolFonts = new Set<number>();
   // A Document object may wrap the contents, or (as in some ChemDraw files) be implicit.
   if (end - pos >= 6 && dv.getUint16(pos, true) === 0x8000) pos += 6;
 
@@ -153,6 +169,7 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
         const name = decode(d.subarray(k, k + nl), cs);
         k += nl;
         fontCodepage.set(id, cs);
+        if (/^symbol$/i.test(name.trim())) symbolFonts.add(id);
         ft.children.push(el("font", { id: String(id), ...(cs === 1252 ? { charset: "iso-8859-1" } : {}), name }));
       }
       root.children.unshift(ft);
@@ -202,13 +219,18 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
       case "UINT8":
       case "UINT16":
       case "UINT32": {
-        const n = int(type.startsWith("INT"));
+        // Flag enums (BondOrder: 0x8000 is "threecenter") are read unsigned.
+        const n = int(type.startsWith("INT") && !(en && CDX_FLAG_ENUMS.has(en)));
         if (n === null) return `${name} values of an unexpected size`;
+        // Bond order all-ones = "any" (CDXBond.cpp): CDXML omits it.
+        if (tag === 0x0600 && ((d.length === 1 && n === 0xff) || (d.length === 2 && n === 0xffff))) return null;
+        // A 4-byte charge is the charge × 2^24 (fractional charges, CDXNode.cpp).
+        if (tag === 0x0421 && d.length === 4) return set(fmt(v.getInt32(0, true) / 16777216));
         // Units CDX and CDXML write differently (as Revvity's own writer converts them).
         if (tag === 0x0803) return set(fmt(d.length === 2 ? n / 10 : n / 65536)); // ChainAngle: degrees × 65536 (old files: tenths)
-        if (tag === 0x0205 || tag === 0x0d07) return set(fmt(n / 65536)); // RotationAngle, PositioningAngle
+        if (tag === 0x0d07) return set(fmt(n / 65536)); // PositioningAngle in degrees (RotationAngle is written raw, as ChemDraw does)
         if (tag === 0x0804 || tag === 0x0a21) return set(fmt(n / 10)); // BondSpacing (‰ → %), AngularSize (tenths of a degree)
-        if (tag === 0x0702 || tag === 0x0706 || tag === 0x0707) return set(n === 0 ? "variable" : n === 1 ? "auto" : fmt(n / 20)); // line heights, 1/20 pt
+        if (tag === 0x0702 || tag === 0x0706 || tag === 0x0707) return set(n === 0 ? "variable" : n === 1 ? "auto" : d.length === 4 ? coord(n) : fmt(n / 20)); // line heights: 1/20 pt (4-byte: a coordinate)
         return set(en ? enumName(en, n) : String(n));
       }
       case "CDXCoordinate": {
@@ -220,7 +242,8 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
         return set(`${coord(v.getInt32(4, true))} ${coord(v.getInt32(0, true))}`);
       case "CDXPoint3D":
         if (d.length < 12) return `damaged ${name} points`;
-        return set(`${coord(v.getInt32(8, true))} ${coord(v.getInt32(4, true))} ${coord(v.getInt32(0, true))}`);
+        // Unlike a 2D point (y then x), a 3D point is stored x, y, z (Revvity's CDXIO.h, CDXArrow.cpp).
+        return set(`${coord(v.getInt32(0, true))} ${coord(v.getInt32(4, true))} ${coord(v.getInt32(8, true))}`);
       case "CDXRectangle":
         if (d.length < 16) return `damaged ${name} boxes`;
         return set([4, 0, 12, 8].map((k) => coord(v.getInt32(k, true))).join(" "));
@@ -243,7 +266,7 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
       }
       case "FLOAT64": {
         if (d.length >= 8) return set(String(v.getFloat64(0, true)));
-        // RepeatCount: a float in the SDK's table, a 16-bit integer in ChemDraw's own files.
+        // A short form (an integer) is read as one, rather than dropped.
         const n = int(true);
         return n === null ? `damaged ${name} numbers` : set(String(n));
       }
@@ -267,7 +290,7 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
         for (let i = 0; i < n; i++) {
           const o = 2 + i * per;
           if (per === 8) out.push(coord(v.getInt32(o + 4, true)), coord(v.getInt32(o, true)));
-          else out.push(coord(v.getInt32(o + 8, true)), coord(v.getInt32(o + 4, true)), coord(v.getInt32(o, true)));
+          else out.push(coord(v.getInt32(o, true)), coord(v.getInt32(o + 4, true)), coord(v.getInt32(o + 8, true)));
         }
         return set(out.join(" "));
       }
@@ -286,22 +309,33 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
           } else runs = [];
         }
         const raw = d.subarray(textAt);
-        if (tag === 0x0700) {
-          // A text object's words: one <s> per style run, each decoded in its font's code page.
+        if (tag === 0x0700 || tag === 0x0709) {
+          // A text object's words: one <s> per style run, each decoded in its font's code page — or,
+          // for the UTF-8 form ChemDraw also writes (0x0709), as UTF-8, replacing the legacy text.
+          const utf8 = tag === 0x0709;
+          if (utf8) owner.children = owner.children.filter((c) => c.name !== "s");
+          else if (owner.children.some((c) => c.name === "s" && c.attrs["data-utf8"] !== undefined)) return null; // the UTF-8 text came first: it stands
+          const dec = (b: Uint8Array, font: number): string => (utf8 ? decode(b, 65001) : decode(b, fontCodepage.get(font) ?? 1252, symbolFonts.has(font)));
+          const push = (s: XNode): void => {
+            if (utf8) s.attrs["data-utf8"] = "";
+            owner.children.push(s);
+          };
           if (!runs.length) {
-            owner.children.push({ ...el("s"), text: decode(raw, 1252) });
+            push({ ...el("s"), text: dec(raw, -1) });
             return null;
           }
+          // Text before the first run is kept, unstyled (as Revvity's writer does).
+          if (runs[0].start > 0) push({ ...el("s"), text: dec(raw.subarray(0, Math.min(runs[0].start, raw.length)), -1) });
           runs.forEach((run, i) => {
             const stop = i + 1 < runs.length ? runs[i + 1].start : raw.length;
             const part = raw.subarray(Math.min(run.start, raw.length), Math.min(Math.max(stop, run.start), raw.length));
             const s = el("s", { font: String(run.font), size: fmt(run.size / 20), ...(run.face ? { face: String(run.face) } : {}), ...(run.color !== 3 ? { color: String(run.color) } : {}) });
-            s.text = decode(part, fontCodepage.get(run.font) ?? 1252);
-            owner.children.push(s);
+            s.text = dec(part, run.font);
+            push(s);
           });
           return null;
         }
-        return set(decode(raw, runs.length ? (fontCodepage.get(runs[0].font) ?? 1252) : 1252).replace(/\n/g, " "));
+        return set(decode(raw, runs.length ? (fontCodepage.get(runs[0].font) ?? 1252) : 1252, runs.length > 0 && symbolFonts.has(runs[0].font)).replace(/\n/g, " "));
       }
       case "Unformatted":
         // Print settings and embedded pictures (PNG/EMF/OLE…): not drawn here.
@@ -310,5 +344,10 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
         return `${name} values (${type || "of a kind this release does not read"}) were not read`;
     }
   }
+  const unmark = (n: XNode): void => {
+    if (n.name === "s") delete n.attrs["data-utf8"];
+    n.children.forEach(unmark);
+  };
+  unmark(root);
   return { ok: true, root, notes: [...notes].map(([k, n]) => (n > 1 ? `${n} × ${k}` : k)) };
 }

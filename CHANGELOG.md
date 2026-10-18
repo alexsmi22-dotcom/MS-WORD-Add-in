@@ -25,6 +25,22 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   the ring onto it (on the side away from the structure; a benzene fused onto a benzene's single bond gives a
   correct Kekulé naphthalene), an atom to attach it by a new bond, or empty paper to place it.
 
+### Fixed before release (adversarial review of .cdx and rings: 11 findings, each pinned in cdxReview.test.ts)
+- 3D points (arrow ends, oval centres) were read z, y, x as the 2010 SDK pages say; ChemDraw stores them x, y, z
+  (Revvity's CDXIO.h), so every arrow in a .cdx was drawn at x = 0.
+- The generated types were taken from header comments by their hex, and the header numbers two properties
+  "0x0011" — so SupersededBy was read as yes / no and every replaced arrow was drawn twice. Types are now keyed
+  by property name; RepeatCount is an 8-byte float, as ChemDraw's reader takes it.
+- ChemDraw's UTF-8 text (0x0709) is read and replaces the legacy text ("α-pinene", not "?-pinene").
+- A 4-byte charge (charge × 2^24) drew as "16777216+"; bond order 0x8000 (threecenter) read as a negative number;
+  "any" order is left out; RotationAngle is written as ChemDraw writes it.
+- Text before the first style run was dropped; the Symbol font's Greek and signs (′, ±, →) are read as such;
+  UTF-16 fonts decode; control bytes that would make a saved .cdxml unreadable are dropped.
+- A damaged structure (a bond to a missing atom) crashed the drawing and left the pane stuck; it now draws, and
+  any failure to draw closes the panel with the reason.
+- Ring tool: a benzene that could not alternate was silently drawn as a cyclohexane, or put a double bond on a
+  saturated N — both refused by name now; a ring already there is refused; a labelled CH3 re-counts (CH2).
+
 ## [2.152.0] — 2026-10-18 — Open and edit ChemDraw files
 
 "Open chemdraw files in jurislab with the ability to be able to edit those files and not have to use chemdraw"

@@ -550,6 +550,9 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
     const cx = (v: number): number => Math.max(0, Math.min(n - 1, Math.floor((v - x0) / sx)));
     const cy = (v: number): number => Math.max(0, Math.min(n - 1, Math.floor((v - y0) / sy)));
     for (const t of tris) {
+      // A wall seen edge-on from below cannot meet a vertical ray: leave it out of the grid.
+      const pa = V(T[3 * t]), pb = V(T[3 * t + 1]), pc = V(T[3 * t + 2]);
+      if (Math.abs((pb[0] - pa[0]) * (pc[1] - pa[1]) - (pc[0] - pa[0]) * (pb[1] - pa[1])) < 1e-300) continue;
       for (let i = cx(tlo[3 * t]); i <= cx(thi[3 * t]); i++) for (let j = cy(tlo[3 * t + 1]); j <= cy(thi[3 * t + 1]); j++) cells[j * n + i].push(t);
     }
     g = { cells, n, x0, y0, sx, sy };
@@ -590,7 +593,7 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
     const cap = 0.25 * Math.min(bodySize(A), bodySize(B));
     const probes: Vec3[] = [];
     for (const [da, db] of [[eA, eA + eB], [eA + eB, eB]]) {
-      for (const k of [1, 4, 16, 64]) {
+      for (const k of [1, 4, 16]) {
         const a = Math.min(cap, k * da), b = Math.min(cap, k * db);
         probes.push([mid[0] - a * nA[0] - b * nB[0], mid[1] - a * nA[1] - b * nB[1], mid[2] - a * nA[2] - b * nB[2]]);
       }
@@ -603,7 +606,7 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
       const tg: Vec3 = [-n2[0] + d * n1[0], -n2[1] + d * n1[1], -n2[2] + d * n1[2]];
       const lt = Math.hypot(...tg);
       if (lt < 1e-6) continue; // the surfaces face straight at each other: no slant to follow
-      for (const k of [1, 2, 4, 16]) {
+      for (const k of [1, 4]) {
         // Slide far enough to be (e1 + e2) deep in the other part, and step back in by the
         // first surface's fall-away over that slide (b²κ/2), so the probe follows it.
         const b = Math.min(cap, (k * (e1 + e2)) / lt);
@@ -615,25 +618,28 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
     const L = Math.hypot(...bis);
     if (L > 1e-6) {
       const h = L / 2; // a point ρ along the bisector is ρ·h from each surface
-      for (const k of [1, 4, 16, 64]) {
+      for (const k of [1, 4, 16]) {
         const r = Math.min(cap, (k * Math.max(eA, eB)) / h);
         probes.push([mid[0] - (r * bis[0]) / L, mid[1] - (r * bis[1]) / L, mid[2] - (r * bis[2]) / L]);
       }
     }
-    return probes.some((q) => inside(A, q) && inside(B, q));
+    return probes.some((q) => inside(B, q) && inside(A, q));
   };
   /** Do points just inside A's faces (a sample of them, near B) lie inside B? */
   const sampledOverlap = (A: number, B: number, tris: number[]): boolean => {
-    const step = Math.max(1, Math.floor(tris.length / 64));
+    const step = Math.max(1, Math.floor(tris.length / 24));
     for (let i = 0; i < tris.length; i += step) {
       const k = tris[i];
       const a = V(T[3 * k]), b = V(T[3 * k + 1]), c = V(T[3 * k + 2]);
       const n = cross3(sub3(b, a), sub3(c, a));
       const ln = Math.hypot(...n);
       if (!(ln > 0)) continue;
-      const e = 1e-3 * triSize(k) + 2 * facetShape(k).sag + tol;
+      // Past this face's own facet error AND the other part's: a revolved shank sitting exactly
+      // in an extruded bore is faceted finer than the bore, whose chords sit inside the true
+      // circle by the bore's error (seventh review).
+      const e = 1e-3 * triSize(k) + 2 * facetShape(k).sag + 2 * (m.bodySag[B] ?? 0) + tol;
       const g: Vec3 = [(a[0] + b[0] + c[0]) / 3 - (e * n[0]) / ln, (a[1] + b[1] + c[1]) / 3 - (e * n[1]) / ln, (a[2] + b[2] + c[2]) / 3 - (e * n[2]) / ln];
-      if (inside(A, g) && inside(B, g)) return true;
+      if (inside(B, g) && inside(A, g)) return true;
     }
     return false;
   };
@@ -650,7 +656,12 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
       if (lo.some((v, k) => v > hi[k])) continue;
       const inBox = (t: number): boolean => [0, 1, 2].every((k) => tlo[3 * t + k] <= hi[k] && thi[3 * t + k] >= lo[k]);
       const ta = byBody[A].filter(inBox), tb = byBody[B].filter(inBox);
-      if (!ta.length || !tb.length) continue;
+      if (!ta.length || !tb.length) {
+        // No faces near each other, yet the boxes overlap: one part may sit wholly inside the
+        // other (seventh review: a block inside a block was never named, unless turned).
+        if (sampledOverlap(A, B, byBody[A]) || sampledOverlap(B, A, byBody[B])) m.overlaps.push([A, B]);
+        continue;
+      }
       // 3D grid over the overlap box holding B's triangles.
       const res = Math.max(1, Math.min(48, Math.round(Math.cbrt(tb.length))));
       const size = [0, 1, 2].map((k) => (hi[k] - lo[k]) / res || 1);
@@ -663,6 +674,15 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
       }
       const stamp = new Int32Array(ntri).fill(-1);
       let crossed = false;
+      const volCache = new Map<string, boolean>();
+      /** The flat triangle's plane (rounded), with the other triangle's index. */
+      const planeKey = (flat: number, other: number): string => {
+        const a = V(T[3 * flat]), b = V(T[3 * flat + 1]), c = V(T[3 * flat + 2]);
+        const n = cross3(sub3(b, a), sub3(c, a));
+        const l = Math.hypot(...n) || 1;
+        const q = (v: number): number => Math.round(v * 1e6);
+        return `${other}|${q(n[0] / l)},${q(n[1] / l)},${q(n[2] / l)},${Math.round(dot3(n, a) / l / (tol * 10))}`;
+      };
       for (const s of ta) {
         const [x0, y0, z0] = [0, 1, 2].map((k) => cell(tlo[3 * s + k], k));
         const [x1, y1, z1] = [0, 1, 2].map((k) => cell(thi[3 * s + k], k));
@@ -707,8 +727,17 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
                 if (similar) {
                   const cosA = Math.min(1, Math.abs(dot3(nS, nT)));
                   if (Math.acos(cosA) / Math.max(fs_.curv, ft_.curv) <= sagSum + tol) continue;
-                } else if (!sharesVolume(A, B, mid, nS, nT, fs_.sag + floor, ft_.sag + floor, fs_.curv, ft_.curv)) {
-                  continue;
+                } else {
+                  // One answer per facet crossing a flat face (a pin's wall facet meets the plate's
+                  // face in many slivers of its triangulation): cached by facet and plane.
+                  const flatT = ft_.curv === 0, flatS = fs_.curv === 0;
+                  const key = flatT ? planeKey(t, s) : flatS ? planeKey(s, t) : "";
+                  let real = key ? volCache.get(key) : undefined;
+                  if (real === undefined) {
+                    real = sharesVolume(A, B, mid, nS, nT, fs_.sag + floor, ft_.sag + floor, fs_.curv, ft_.curv);
+                    if (key) volCache.set(key, real);
+                  }
+                  if (!real) continue;
                 }
                 crossed = true; // a real crossing, not contact along an edge already drawn
                 const q = (p: Vec3): string => p.map((v) => Math.round(v / (tol * 10))).join(",");
@@ -753,6 +782,17 @@ export function triTriSegment(a: Vec3[], b: Vec3[], tol: number): [Vec3, Vec3] |
   const nb = cross3(sub3(b[1], b[0]), sub3(b[2], b[0]));
   const la = Math.hypot(...na), lb = Math.hypot(...nb);
   if (la < tol * tol || lb < tol * tol) return null;
+  // Early out (Möller): one triangle wholly on one side of the other's plane cannot meet it.
+  const side = (n: number[], l: number, o: Vec3, t: Vec3[]): boolean => {
+    let pos = 0, neg = 0;
+    for (const p of t) {
+      const d = (n[0] * (p[0] - o[0]) + n[1] * (p[1] - o[1]) + n[2] * (p[2] - o[2])) / l;
+      if (d > tol) pos++;
+      else if (d < -tol) neg++;
+    }
+    return pos === 3 || neg === 3;
+  };
+  if (side(nb, lb, b[0], a) || side(na, la, a[0], b)) return null;
   const ua: Vec3 = [na[0] / la, na[1] / la, na[2] / la], ub: Vec3 = [nb[0] / lb, nb[1] / lb, nb[2] / lb];
   const D = cross3(ua, ub);
   if (Math.hypot(...D) < 1e-9) return null; // parallel or coplanar: no crossing line

@@ -623,3 +623,46 @@ describe("overlap means a point inside both solids (sixth review)", () => {
     expect(m.overlaps).toEqual([[0, 1]]);
   });
 });
+
+describe("naming overlaps without a crossing line (seventh review)", () => {
+  it.each([2, 5, 10, 20])("a flanged revolved shaft sitting exactly in an extruded bore, plate %p thick: contact, not overlap", (t) => {
+    const plate: BodySpec = { kind: "extrude", profile: { outer: rectLoop(-100, -100, 200, 200), holes: [circleLoop(0, 0, 10, true)] }, depth: t };
+    const pts: Array<[number, number]> = [[10, 0], [10, t], [60, t], [60, t + 5], [0, t + 5], [0, 0]];
+    const shaft: BodySpec = { kind: "revolve", profile: { outer: { start: [0, 0], segs: pts.map((to) => ({ kind: "line" as const, to })) }, holes: [] } };
+    const m = meshOf(asm(body(plate), body(shaft)));
+    expect(m.overlaps).toEqual([]);
+  });
+
+  it.each([
+    ["a small block inside a big one", box(100, 100, 100), box(5, 5, 5), [40, 40, 40]],
+    ["a small block on a cylinder's axis, inside it", cylinder(50, 100), box(2, 2, 2), [-1, -1, 40]],
+    ["a small cylinder inside a block", box(200, 200, 20), cylinder(3, 10), [100, 100, 5]],
+  ] as Array<[string, BodySpec, BodySpec, [number, number, number]]>)("%s: named, square or turned", (_n, big, small, at) => {
+    for (const turn of [0, 45]) {
+      const m = meshOf(asm(body(big, { translate: [0, 0, 0], rotateDeg: [0, 0, turn] }), body(small, { translate: at, rotateDeg: [0, 0, turn] })));
+      expect({ turn, overlaps: m.overlaps }).toEqual({ turn, overlaps: [[0, 1]] });
+    }
+  });
+
+  it("a pin inside a tube's empty bore (not touching): not an overlap", () => {
+    const m = meshOf(asm(body(tube(20, 10, 30)), body(cylinder(5, 10), { translate: [0, 0, 10], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([]);
+  });
+
+  // 0.2 mm: above the resolution (0.1 mm is the two facets' combined error at r10, and is a limit).
+  // 50 here keeps the bound honest under a loaded test run; 200 takes about 4–5 s alone (the plate's
+  // long cap slivers each meet many pin facets — a better cap triangulation is the remedy, not a tolerance).
+  it("50 holes with 50 pins 0.2 mm over size: all 50 named, inside a freeze budget (a bound, not a speed claim)", () => {
+    const holes = [], pins = [];
+    for (let r = 0; r < 5; r++)
+      for (let c = 0; c < 10; c++) {
+        holes.push(circleLoop(40 + c * 48, 40 + r * 57, 10, true));
+        pins.push(body(cylinder(10.2, 30), { translate: [40 + c * 48, 40 + r * 57, -10], rotateDeg: [0, 0, 0] }));
+      }
+    const t0 = Date.now();
+    const m = meshOf(asm(body({ kind: "extrude", profile: { outer: rectLoop(0, 0, 500, 300), holes }, depth: 8 }), ...pins));
+    const ms = Date.now() - t0;
+    expect(m.overlaps).toHaveLength(50);
+    expect(ms).toBeLessThan(20000);
+  }, 60_000); // jest's own 5 s default is not the budget: 20 s is, with room for a loaded machine
+});

@@ -10,6 +10,18 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cu. New in v2.157.0 — atom properties on the canvas
+
+- [ ] ★ **Stereo group.** Draw alanine with a wedge at its centre. **Properties**, click the centre, choose
+  Stereo: AND (racemic) group: "&1" appears beside it. Insert; Save as .cdxml and open it in ChemDraw (Show
+  Stereochemistry on): ChemDraw shows the same AND group.
+- [ ] **Query features.** Properties, click an atom, Substituents: exactly 2; Ring bonds: 2: "s2,rb2" beside it;
+  the readout says generic structure. Click a bond, tick double as well: "S/D" on the bond.
+- [ ] **Atom list.** Atom tool, type [N,O], click an atom: the label reads [N,O] and the status says it is a query.
+- [ ] **Radical.** Make an atom N (NH₂), Properties, Radical •: the label becomes NH with a dot above.
+- [ ] **Reopen.** An older document's structure that had an AND group or a query atom (inserted from the old
+  editor): Edit in Draw opens it on the canvas with them, instead of refusing.
+
 ## 0ct. New in v2.156.0 — one chemistry canvas
 
 - [ ] ★ **Draw from scratch.** Structure ▸ Draw: the page is blank, Bond ready. Click: a bond. Drag from its end:

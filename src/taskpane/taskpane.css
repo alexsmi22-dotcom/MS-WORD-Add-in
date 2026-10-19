@@ -2531,6 +2531,11 @@ select {
 .chem-canvas-tools .insert-btn.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
 .chem-canvas-options input { flex: 1 1 10em; min-width: 8em; }
 .chem-canvas-options select { flex: 1 1 8em; }
+.chem-canvas-props { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%; }
+.chem-canvas-props[hidden], .chem-canvas-props-atom[hidden], .chem-canvas-props-bond[hidden] { display: none; }
+.chem-canvas-props-atom, .chem-canvas-props-bond { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chem-canvas-props input[type="number"] { flex: 0 0 4em; min-width: 4em; }
+.chem-canvas-check { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .chem-canvas-options select:disabled, .chem-canvas-options input:disabled { opacity: 0.45; }
 .chem-canvas-surface {
   min-height: 260px;

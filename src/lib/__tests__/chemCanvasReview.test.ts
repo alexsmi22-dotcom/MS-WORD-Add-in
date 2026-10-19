@@ -81,7 +81,7 @@ test("5. an abbreviation with more bonds than connection points on different ato
   expect(formula(page(split))).toBe("“VO” has 3 bonds but 2 connection points in its structure, so where each bond goes is not in the file");
 });
 
-test("7. an AND (racemic) stereo group is refused, never turned absolute", () => {
+test("7. an AND (racemic) stereo group is kept as its group, never turned absolute (v2.157.0: drawn as &1)", () => {
   const m = Molecule.fromSmiles("C[C@H](N)C(=O)O");
   m.inventCoordinates();
   m.ensureHelperArrays(Molecule.cHelperParities);
@@ -89,7 +89,10 @@ test("7. an AND (racemic) stereo group is refused, never turned absolute", () =>
   const d = readCdxml(blankPageCdxml());
   if (!d.ok) throw new Error(d.reason);
   const r = moleculeToPage(d.doc, m);
-  expect(r).toEqual({ ok: false, reason: "a stereocentre belongs to an AND / OR (relative or racemic) stereo group, which this page cannot draw yet — it would read as absolute" });
+  expect(r.ok).toBe(true);
+  const again = readCdxmlTree(d.doc.root);
+  const back = again.ok ? pageToMolecule(again.doc) : null;
+  expect(back && back.ok && back.value.mol.getIDCode()).toBe(m.getIDCode());
 });
 
 test("8. a valence taken from the drawn hydrogens is said in the notes", () => {
@@ -135,6 +138,8 @@ test("13. D and T are hydrogen's isotopes; 13C an isotope label", () => {
 });
 
 test("15. query bond orders and lone group labels are refused by name", () => {
-  expect(formula(page('<n id="1" p="0 0"/><n id="2" p="30 0"/><b id="3" B="1" E="2" Order="1 2"/>'))).toBe("a query bond (order “1 2”: any of several) has no single formula");
+  // v2.157.0: a query bond reads as a query structure (no formula is claimed for it).
+  const q = pageToMolecule(page('<n id="1" p="0 0"/><n id="2" p="30 0"/><b id="3" B="1" E="2" Order="1 2"/>'));
+  expect(q.ok && q.value.query).toBe(true);
   expect(formula(page('<n id="1" p="0 0" NodeType="Unspecified"><t p="0 0"><s font="3" size="10">OMe</s></t></n>'))).toBe("“OMe” stands for a group bonded to something; alone it has no single formula");
 });

@@ -13,6 +13,7 @@ import type { CdxDoc } from "./cdxml";
 import { atomicNumber, symbolFor } from "./periodic";
 import { Molecule } from "openchemlib/full";
 import { groupSmilesBySide, isGroupLabel, leftwardOf, rightwardOf } from "./labelExpand";
+import { elementListLabel, parseElementList } from "./cdxQuery";
 
 // ---- the tree --------------------------------------------------------------------------------
 
@@ -244,6 +245,9 @@ function labelText(doc: CdxDoc, node: XNode, text: string, rightAligned = false)
   };
 }
 
+/** ChemDraw's Radical values as OCL radical states. */
+const RADICAL_STATE: Record<string, number> = { Singlet: Molecule.cAtomRadicalStateS, Doublet: Molecule.cAtomRadicalStateD, Triplet: Molecule.cAtomRadicalStateT };
+
 /** Group names that are also element symbols: in a structure drawing they are the group (ChemDraw's reading). */
 const GROUP_OVER_ELEMENT = new Set(["Ac", "Pr", "Ts", "Bu"]);
 
@@ -251,13 +255,15 @@ const GROUP_OVER_ELEMENT = new Set(["Ac", "Pr", "Ts", "Bu"]);
 function hydrogensFor(z: number, charge: number, frag: XNode, nodeId: string): number | null {
   const sym = symbolFor(z);
   if (!sym) return null;
-  if (z === 1) return charge ? 0 : Math.max(0, 1 - bondOrderSum(frag, nodeId));
-  const known = implicitH(sym, charge, bondOrderSum(frag, nodeId));
+  const radical = RADICAL_STATE[frag.children.find((c) => c.name === "n" && c.attrs.id === nodeId)?.attrs.Radical ?? ""] ?? 0;
+  if (z === 1) return charge || radical ? 0 : Math.max(0, 1 - bondOrderSum(frag, nodeId));
+  const known = radical ? null : implicitH(sym, charge, bondOrderSum(frag, nodeId));
   if (known !== null) return known;
   try {
     const m = new Molecule(8, 8);
     const a = m.addAtom(z);
     if (charge) m.setAtomCharge(a, charge);
+    if (radical) m.setAtomRadical(a, radical);
     for (const b of frag.children) {
       if (b.name !== "b" || (b.attrs.B !== nodeId && b.attrs.E !== nodeId)) continue;
       const w = (b.attrs.Order ?? "1").split(/\s+/)[0];
@@ -292,9 +298,18 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
   if (!t) return { ok: false, reason: "type an element symbol or a label" };
   if (t.length > 40 || /[\u0000-\u001f]/.test(t)) return { ok: false, reason: "that label is too long or contains a control character" };
   const { frag, node } = hit;
-  for (const k of ["Element", "NumHydrogens", "NodeType", "GenericNickname", "NeedsClean", "Warning", "Isotope"]) delete node.attrs[k];
+  for (const k of ["Element", "NumHydrogens", "NodeType", "GenericNickname", "NeedsClean", "Warning", "Isotope", "ElementList", "GenericList"]) delete node.attrs[k];
   node.children = node.children.filter((c) => c.name !== "t" && c.name !== "fragment");
   const charge = Number(node.attrs.Charge ?? 0) || 0;
+  // "[N,O]" or "NOT [F,Cl]": an atom list (any one of those elements, or any but them) — a query structure.
+  if (/^(NOT\s*)?\[[^\]]*,[^\]]*\]$|^NOT\s*\[[^\]]+\]$/.test(t)) {
+    const lst = parseElementList(undefined, t, atomicNumber);
+    if (typeof lst === "string") return { ok: false, reason: lst };
+    node.attrs.NodeType = "ElementList";
+    node.attrs.ElementList = `${lst.not ? "NOT " : ""}${lst.list.join(" ")}`;
+    node.children.push(labelText(doc, node, elementListLabel(lst.list, lst.not, (z) => symbolFor(z) ?? "?")));
+    return { ok: true, note: `An atom list: ${lst.not ? "any element but" : "any one of"} ${lst.list.map((z) => symbolFor(z)).join(", ")} — the structure is a query (no single formula).` };
+  }
   // D and T: hydrogen's isotopes, drawn as D and T.
   if (t === "D" || t === "T") {
     node.attrs.Element = "1";
@@ -483,7 +498,6 @@ export function deleteInStructure(doc: CdxDoc, id: string): string | null {
  */
 function relabel(doc: CdxDoc, node: XNode): void {
   if (node.attrs.NodeType && node.attrs.NodeType !== "Element") return;
-  if (node.attrs.Radical) return;
   const t = node.children.find((c) => c.name === "t");
   if (!t) return;
   const sym = symbolFor(Number(node.attrs.Element ?? 6));
@@ -544,6 +558,86 @@ export function setCharge(doc: CdxDoc, nodeId: string, charge: number): string |
     } else if (s.parent) s.parent.children = s.parent.children.filter((c) => c !== s.el); // drawn by the atom instead
   }
   relabel(doc, hit.node);
+  return null;
+}
+
+/** An atom's properties beyond element and charge, as the canvas's Properties panel sets them ("" clears). */
+export interface AtomProps {
+  radical?: "" | "Doublet" | "Singlet" | "Triplet";
+  /** Enhanced-stereo group: Absolute (none), And n, Or n. */
+  stereo?: { type: "Absolute" | "And" | "Or"; group: number };
+  /** e0–e3 exactly, u1–u3 up to, f0 no more than drawn. */
+  substituents?: "" | "e0" | "e1" | "e2" | "e3" | "u1" | "u2" | "u3" | "f0";
+  ringBonds?: "" | "NoRingBonds" | "SimpleRing" | "Fusion" | "SpiroOrHigher" | "AsDrawn";
+  unsaturation?: "" | "MustBeAbsent" | "MustBePresent";
+}
+
+/** Sets an atom's radical, stereo group and query properties (ChemDraw's attributes); its hydrogens follow. */
+export function setAtomProps(doc: CdxDoc, nodeId: string, p: AtomProps): string | null {
+  const hit = fragmentOf(doc.root, nodeId);
+  if (!hit) return "that atom is no longer in the document";
+  const a = hit.node.attrs;
+  const type = a.NodeType ?? "Element";
+  if (type !== "Element" && type !== "ElementList") return "only an element atom or an atom list takes these properties (not a label or abbreviation)";
+  if (p.radical !== undefined) {
+    if (p.radical && type !== "Element") return "a radical belongs on an element atom";
+    if (p.radical) a.Radical = p.radical;
+    else delete a.Radical;
+  }
+  if (p.stereo) {
+    if (p.stereo.type === "Absolute") delete a.EnhancedStereoType, delete a.EnhancedStereoGroupNum;
+    else {
+      if (!(Number.isInteger(p.stereo.group) && p.stereo.group >= 1 && p.stereo.group <= 32)) return "a stereo group is numbered 1 to 32";
+      a.EnhancedStereoType = p.stereo.type;
+      a.EnhancedStereoGroupNum = String(p.stereo.group);
+    }
+  }
+  if (p.substituents !== undefined) {
+    delete a.SubstituentsExactly, delete a.SubstituentsUpTo, delete a.FreeSites;
+    const m = /^([euf])(\d)$/.exec(p.substituents);
+    if (m) a[m[1] === "e" ? "SubstituentsExactly" : m[1] === "u" ? "SubstituentsUpTo" : "FreeSites"] = m[2];
+  }
+  if (p.ringBonds !== undefined) {
+    if (p.ringBonds) a.RingBondCount = p.ringBonds;
+    else delete a.RingBondCount;
+  }
+  if (p.unsaturation !== undefined) {
+    if (p.unsaturation) a.UnsaturatedBonds = p.unsaturation;
+    else delete a.UnsaturatedBonds;
+  }
+  const query = ["SubstituentsExactly", "SubstituentsUpTo", "FreeSites", "RingBondCount", "UnsaturatedBonds"].some((k) => a[k] !== undefined);
+  // ChemDraw draws query marks and stereo-group labels when the document says to show them.
+  if (query) doc.root.attrs.ShowAtomQuery ??= "yes";
+  if (a.EnhancedStereoType) doc.root.attrs.ShowAtomEnhancedStereo ??= "yes";
+  relabel(doc, hit.node);
+  return null;
+}
+
+/** A bond's query properties: the orders it may be (several make it a query bond) and ring / chain. */
+export function setBondProps(doc: CdxDoc, bondId: string, p: { orders?: string[]; topology?: "" | "Ring" | "Chain" }): string | null {
+  const hit = findById(doc.root, bondId);
+  if (!hit || hit.el.name !== "b") return "that bond is no longer in the document";
+  const b = hit.el;
+  if (p.orders !== undefined) {
+    const ok = ["1", "2", "3", "1.5"];
+    const orders = ok.filter((o) => p.orders!.includes(o));
+    if (!orders.length || orders.length !== p.orders.length) return "choose at least one of single, double, triple, aromatic";
+    if (orders.length > 1 && /Wedge|Hash/.test(b.attrs.Display ?? "")) return "a wedged bond cannot be a query bond — make it plain first (Bond tool)";
+    if (orders.length === 1 && orders[0] === "1") delete b.attrs.Order;
+    else b.attrs.Order = orders.join(" ");
+    if (orders.length > 1) doc.root.attrs.ShowBondQuery ??= "yes";
+  }
+  if (p.topology !== undefined) {
+    if (p.topology) b.attrs.Topology = p.topology;
+    else delete b.attrs.Topology;
+    if (p.topology) doc.root.attrs.ShowBondQuery ??= "yes";
+  }
+  // The atoms' hydrogens follow the bond's (first) order.
+  const frag = fragmentOf(doc.root, b.attrs.B ?? "");
+  for (const id of [b.attrs.B, b.attrs.E]) {
+    const n = frag?.frag.children.find((c) => c.name === "n" && c.attrs.id === id);
+    if (n) relabel(doc, n);
+  }
   return null;
 }
 

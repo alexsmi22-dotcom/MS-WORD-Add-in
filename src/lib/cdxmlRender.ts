@@ -10,6 +10,7 @@
  * own output for the same file.
  */
 import { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxGraphic, CdxItem, CdxNode, CdxRun, CdxText, cssColor, Pt } from "./cdxml";
+import { atomQueryMarks, bondQueryMarks, stereoGroupMark } from "./cdxQuery";
 
 const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
 /** Hash marks or wave segments on one bond, at most. */
@@ -167,6 +168,24 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   for (const ob of doc.objects)
     for (const it of ob.items)
       if (it.kind === "graphic") for (const c of it.v.el.children) if (c.name === "represent" && c.attrs.attribute === "Charge" && c.attrs.object) chargeDrawn.add(c.attrs.object);
+  /** Atoms whose radical a symbol on the page already draws. */
+  const radicalDrawn = new Set<string>();
+  for (const ob of doc.objects)
+    for (const it of ob.items)
+      if (it.kind === "graphic") for (const c of it.v.el.children) if (c.name === "represent" && c.attrs.attribute === "Radical" && c.attrs.object) radicalDrawn.add(c.attrs.object);
+  // ChemDraw draws query marks and stereo-group labels when the document says to show them (shown unless "no").
+  const showAtomQuery = doc.root.attrs.ShowAtomQuery !== "no";
+  const showBondQuery = doc.root.attrs.ShowBondQuery !== "no";
+  const showStereoGroups = doc.root.attrs.ShowAtomEnhancedStereo !== "no";
+  /** A small mark beside an atom or bond (query marks, &1 / or1), at 75 % of the label size. */
+  const mark = (at: Pt, txt: string, anchor: "start" | "middle" | "end", z: number, italic = false): void => {
+    const size = st.labelSize * 0.75;
+    prims.push({ z, svg: `<text x="${f2(at[0])}" y="${f2(at[1])}" text-anchor="${anchor}" font-family="${esc(fontName(st.labelFont))}" font-size="${f2(size)}"${italic ? ' font-style="italic"' : ""} fill="#000">${esc(txt)}</text>` });
+    const w = txt.length * size * 0.6;
+    const x0 = anchor === "start" ? at[0] : anchor === "end" ? at[0] - w : at[0] - w / 2;
+    grow([x0, at[1] - size], 0);
+    grow([x0 + w, at[1]], 0);
+  };
   const drawFragment = (fr: CdxFragment): void => {
     const byId = new Map(fr.nodes.map((n) => [n.id, n]));
     const nbrs = new Map<string, string[]>();
@@ -328,6 +347,16 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       } else if (order === "hydrogen" || order === "0.5") parts.push(line(p0, p1, lw, dash));
       else styled(p0, p1, disp);
       prims.push({ z: bd.z, svg: parts.join("") });
+      if (showBondQuery) {
+        const marks = bondQueryMarks(bd.el.attrs);
+        if (marks.length) {
+          const mid: Pt = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
+          const off = st.bondLength * 0.3;
+          // On the side away from the structure's other atoms where one is clear; else above.
+          const at: Pt = [mid[0] - n[0] * off, mid[1] - n[1] * off + st.labelSize * 0.25];
+          mark(at, marks.join(" "), "middle", bd.z + 0.4);
+        }
+      }
       // The line's own half-width beyond its ends (wedges and offset lines lie within a bond length).
       grow(p0, Math.max(lw / 2, /Wedge|Bold|Hash/.test(disp) ? st.boldWidth * 0.75 : 0, order === "1" ? 0 : gap));
       grow(p1, Math.max(lw / 2, /Wedge|Bold|Hash/.test(disp) ? st.boldWidth * 0.75 : 0, order === "1" ? 0 : gap));
@@ -344,6 +373,26 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         const at: Pt = bx ? [bx[2] + size * 0.1, bx[1] + size * 0.6] : [nd.p[0] + st.bondLength * 0.25, nd.p[1] - st.bondLength * 0.2];
         prims.push({ z: nd.z + 0.6, svg: `<text x="${f2(at[0])}" y="${f2(at[1])}" font-family="${esc(fontName(st.labelFont))}" font-size="${f2(size)}" fill="#000">${txt}</text>` });
         grow(at, size);
+      }
+      const bx = nd.label?.box;
+      const rad = nd.el.attrs.Radical;
+      if (rad && !radicalDrawn.has(nd.id)) {
+        // A doublet as one dot, a singlet or triplet as two, above the atom (its label).
+        const r = st.labelSize * 0.09;
+        const cx = bx ? (bx[0] + bx[2]) / 2 : nd.p[0];
+        const cy = (bx ? bx[1] : nd.p[1] - st.labelSize * 0.3) - r * 2.5;
+        const dots = rad === "Doublet" ? [cx] : [cx - r * 1.8, cx + r * 1.8];
+        prims.push({ z: nd.z + 0.6, svg: dots.map((x) => `<circle cx="${f2(x)}" cy="${f2(cy)}" r="${f2(r)}" fill="#000"/>`).join("") });
+        grow([cx, cy], r * 3);
+      }
+      const below = (bx ? bx[3] : nd.p[1]) + st.labelSize * 0.8;
+      if (showStereoGroups) {
+        const g = stereoGroupMark(nd.el.attrs);
+        if (g) mark([(bx ? bx[2] : nd.p[0]) + st.labelSize * 0.15, below], g, "start", nd.z + 0.6, true);
+      }
+      if (showAtomQuery) {
+        const q = atomQueryMarks(nd.el.attrs);
+        if (q.length) mark([(bx ? bx[0] : nd.p[0]) - st.labelSize * 0.15, below], q.join(","), "end", nd.z + 0.6);
       }
       else if (nd.nodeType === "ExternalConnectionPoint") {
         // A small diamond where no other mark is given.

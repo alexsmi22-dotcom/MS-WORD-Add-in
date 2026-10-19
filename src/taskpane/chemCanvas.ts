@@ -15,12 +15,13 @@ import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from
 import {
   addArrow, addAtomAt, addBondAt, addBondBetween, addBondFrom, addBondToward, addBrackets, addCaption, addChain, addRingAt, addRingAtAtom, addRingOnBond,
   ArrowKind, blankPageCdxml, chainLength, chainPath, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, RingKind,
-  namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml,
+  namesTiedTo, setAtomLabel, setAtomProps, setBond, setBondProps, setCharge, setText, writeCdxml, type AtomProps,
 } from "../lib/cdxmlEdit";
 import { moleculeToPage, pageToMolecule } from "../lib/cdxmlMol";
+import { atomQueryMarks, bondQueryMarks, stereoGroupMark } from "../lib/cdxQuery";
 import type { XNode } from "../lib/xmlLite";
 
-export type CanvasTool = "select" | "atom" | "bond" | "chain" | "ring" | "charge+" | "charge-" | "bracket" | "arrow" | "text" | "erase";
+export type CanvasTool = "select" | "atom" | "bond" | "chain" | "ring" | "charge+" | "charge-" | "bracket" | "arrow" | "text" | "erase" | "props";
 
 export interface ChemCanvasHost {
   setStatus(text: string, kind?: "success" | "error" | ""): void;
@@ -83,6 +84,7 @@ const TOOL_HELP: Record<CanvasTool, string> = {
   arrow: "Arrow: drag from the tail to the head.",
   text: "Text: type the words in the box, then click empty paper for a new caption, or a caption to change it.",
   erase: "Erase: click an atom, a bond, or anything else on the page.",
+  props: "Properties: click an atom for its radical, stereo group (AND / OR) and query features, or a bond for its query orders and ring / chain. For an atom list, type [N,O] or NOT [F,Cl] with the Atom tool.",
 };
 const DRAG_TOOLS = new Set<CanvasTool>(["bond", "chain", "bracket", "arrow"]);
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -109,6 +111,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     ["select", "Select", "Select and move"], ["atom", "Atom", "Place or change atoms"], ["bond", "Bond", "Draw bonds; change a bond"], ["chain", "Chain", "Drag a zig-zag chain"],
     ["ring", "Ring", "Rings"], ["charge+", "+", "Raise a charge"], ["charge-", "−", "Lower a charge"], ["bracket", "Brackets", "Polymer brackets"],
     ["arrow", "Arrow", "Reaction arrows"], ["text", "Text", "Captions"], ["erase", "Erase", "Remove"],
+    ["props", "Properties", "Atom and bond properties: radical, stereo group, query features"],
   ];
   for (const [t, label, title] of toolNames) {
     const b = el("button", { type: "button", class: "insert-btn secondary", "data-chem-tool": t, "aria-pressed": "false", title }, label);
@@ -143,6 +146,35 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   arrowSel.add(new Option("Reaction arrow", "reaction"));
   arrowSel.add(new Option("Equilibrium arrow", "equilibrium"));
   opts.append(palette, valueIn, ringSel, styleSel, arrowSel);
+  // The Properties panel: what ChemDraw's Atom / Bond Properties set, for the atom or bond clicked.
+  const selectOf = (label: string, key: string, options: Array<[string, string]>): HTMLSelectElement => {
+    const s = el("select", { "aria-label": label, [`data-chem-prop`]: key }) as HTMLSelectElement;
+    for (const [v, t] of options) s.add(new Option(t, v));
+    return s;
+  };
+  const propsBox = el("div", { class: "chem-canvas-props", hidden: "" });
+  const propsWhat = el("span", { class: "hint", "data-chem-prop-target": "" }, "Click an atom or a bond.");
+  const atomProps = el("div", { class: "chem-canvas-props-atom", hidden: "" });
+  const radSel = selectOf("Radical", "radical", [["", "No radical"], ["Doublet", "Radical • (doublet)"], ["Singlet", "Carbene : (singlet)"], ["Triplet", "Carbene : (triplet)"]]);
+  const stereoSel = selectOf("Stereo group", "stereo", [["Absolute", "Stereo: absolute"], ["And", "Stereo: AND (racemic) group"], ["Or", "Stereo: OR (relative) group"]]);
+  const groupIn = el("input", { type: "number", min: "1", max: "32", value: "1", class: "formula-input", "aria-label": "Stereo group number", "data-chem-prop": "group" }) as HTMLInputElement;
+  const subSel = selectOf("Substituents", "substituents", [["", "Substituents: any"], ["e0", "exactly 0"], ["e1", "exactly 1"], ["e2", "exactly 2"], ["e3", "exactly 3"], ["u1", "up to 1"], ["u2", "up to 2"], ["u3", "up to 3"], ["f0", "no more than drawn"]]);
+  const ringBSel = selectOf("Ring bonds", "ringbonds", [["", "Ring bonds: any"], ["NoRingBonds", "none (chain atom)"], ["SimpleRing", "2 (simple ring)"], ["Fusion", "3 (fusion)"], ["SpiroOrHigher", "4 or more (spiro)"], ["AsDrawn", "as drawn"]]);
+  const unsatSel = selectOf("Unsaturation", "unsaturation", [["", "Unsaturation: any"], ["MustBeAbsent", "saturated (no multiple bonds)"], ["MustBePresent", "unsaturated (has a multiple bond)"]]);
+  atomProps.append(radSel, stereoSel, groupIn, subSel, ringBSel, unsatSel);
+  const bondProps = el("div", { class: "chem-canvas-props-bond", hidden: "" });
+  const orderBoxes: Array<[string, HTMLInputElement]> = [];
+  for (const [v, t] of [["1", "single"], ["2", "double"], ["3", "triple"], ["1.5", "aromatic"]] as const) {
+    const lab = el("label", { class: "chem-canvas-check" });
+    const box = el("input", { type: "checkbox", "data-chem-prop-order": v }) as HTMLInputElement;
+    lab.append(box, document.createTextNode(` ${t}`));
+    orderBoxes.push([v, box]);
+    bondProps.append(lab);
+  }
+  const topoSel = selectOf("Ring or chain", "topology", [["", "Ring or chain: either"], ["Ring", "in a ring"], ["Chain", "in a chain"]]);
+  bondProps.append(topoSel);
+  propsBox.append(propsWhat, atomProps, bondProps);
+  opts.append(propsBox);
   const surface = el("div", { class: "chem-canvas-surface", tabindex: "0", "aria-label": "Drawing page" });
   mount.append(bar, opts, surface);
 
@@ -161,6 +193,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   const START_VIEW: Box = [0, 0, 180, 120];
   let view: Box = [...START_VIEW] as Box;
   let suppressClick = false;
+  /** The atom or bond the Properties panel is showing. */
+  let propTarget: { kind: "atom" | "bond"; id: string } | null = null;
   let pageName = "drawing";
   /** Changed by the user since it was loaded (Save names an edited file so). */
   let edited = false;
@@ -285,6 +319,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     ringSel.disabled = t !== "ring";
     styleSel.disabled = t !== "bond";
     arrowSel.disabled = t !== "arrow";
+    propsBox.hidden = t !== "props";
+    if (t !== "props") propTarget = null;
     host.setStatus(TOOL_HELP[t], "");
   }
 
@@ -515,6 +551,11 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     }
     const atom = atomAt(doc, p, L() * 0.3);
     const bond = atom ? null : bondAt(doc, p, L() * 0.2);
+    if (tool === "props") {
+      if (!atom && !bond) return host.setStatus("Click an atom or a bond.", "error");
+      showProps(atom ? { kind: "atom", id: atom } : { kind: "bond", id: bond! });
+      return;
+    }
     if (tool === "atom") {
       const v = valueIn.value.trim() || "C";
       if (atom) {
@@ -570,6 +611,57 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       edit(() => (deleteObjects(doc, [id]), null));
     }
   });
+
+  /** Fills the Properties panel from the atom or bond's attributes (as ChemDraw keeps them). */
+  function showProps(t: { kind: "atom" | "bond"; id: string } | null): void {
+    propTarget = t;
+    const node = t ? findById(doc.root, t.id)?.el : undefined;
+    if (!t || !node) {
+      propTarget = null;
+      atomProps.hidden = bondProps.hidden = true;
+      propsWhat.textContent = "Click an atom or a bond.";
+      return;
+    }
+    const a = node.attrs;
+    atomProps.hidden = t.kind !== "atom";
+    bondProps.hidden = t.kind !== "bond";
+    if (t.kind === "atom") {
+      const words = node.children.find((c) => c.name === "t")?.children.map((s) => s.text).join("") || "C";
+      propsWhat.textContent = `Atom ${words}:`;
+      radSel.value = a.Radical ?? "";
+      stereoSel.value = a.EnhancedStereoType === "And" || a.EnhancedStereoType === "Or" ? a.EnhancedStereoType : "Absolute";
+      groupIn.value = a.EnhancedStereoGroupNum ?? "1";
+      groupIn.disabled = stereoSel.value === "Absolute";
+      subSel.value = a.SubstituentsExactly !== undefined ? `e${a.SubstituentsExactly}` : a.SubstituentsUpTo !== undefined ? `u${a.SubstituentsUpTo}` : a.FreeSites === "0" ? "f0" : "";
+      ringBSel.value = a.RingBondCount ?? "";
+      unsatSel.value = a.UnsaturatedBonds ?? "";
+      radSel.disabled = (a.NodeType ?? "Element") !== "Element";
+    } else {
+      propsWhat.textContent = "Bond — may be:";
+      const orders = (a.Order ?? "1").trim().split(/\s+/);
+      for (const [v, box] of orderBoxes) box.checked = orders.includes(v);
+      topoSel.value = a.Topology === "Ring" || a.Topology === "Chain" ? a.Topology : "";
+    }
+  }
+  function applyProps(): void {
+    const t = propTarget;
+    if (!t) return;
+    if (t.kind === "atom") {
+      const p: AtomProps = {
+        radical: radSel.disabled ? undefined : (radSel.value as AtomProps["radical"]),
+        stereo: { type: stereoSel.value as "Absolute" | "And" | "Or", group: Math.round(Number(groupIn.value)) || 1 },
+        substituents: subSel.value as AtomProps["substituents"],
+        ringBonds: ringBSel.value as AtomProps["ringBonds"],
+        unsaturation: unsatSel.value as AtomProps["unsaturation"],
+      };
+      if (edit(() => setAtomProps(doc, t.id, p))) host.setStatus("Atom properties set — Undo takes them back.", "success");
+    } else {
+      const orders = orderBoxes.filter(([, b]) => b.checked).map(([v]) => v);
+      if (edit(() => setBondProps(doc, t.id, { orders, topology: topoSel.value as "" | "Ring" | "Chain" }))) host.setStatus("Bond properties set — Undo takes them back.", "success");
+    }
+    showProps(t);
+  }
+  for (const c of [radSel, stereoSel, groupIn, subSel, ringBSel, unsatSel, topoSel, ...orderBoxes.map(([, b]) => b)]) c.addEventListener("change", applyProps);
 
   surface.addEventListener("keydown", (e) => {
     if ((e.key === "Delete" || e.key === "Backspace") && selected.size) {
@@ -654,7 +746,9 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       return { ok: false, reason: `the structure could not be read as chemistry (${(e as Error).message})` };
     }
     if (!r.ok) return r;
-    r.value.mol.setFragment(fragmentFlag);
+    // A page with query features or atom lists is a query structure whatever the Markush box says (clearing
+    // OCL's flag would delete them).
+    r.value.mol.setFragment(fragmentFlag || r.value.query);
     return { ok: true, mol: r.value.mol, notes: r.value.notes };
   };
   const api: ChemCanvas = {
@@ -767,10 +861,13 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
         if (scope && !scope.has(o.id)) continue;
         for (const it of o.items) {
           if (it.kind === "text") for (const r of it.v.runs) if (r.text.trim()) min = Math.min(min, runSize(r));
+          if (it.kind === "fragment" && doc.root.attrs.ShowBondQuery !== "no" && it.v.bonds.some((bd) => bondQueryMarks(bd.el.attrs).length)) min = Math.min(min, doc.style.labelSize * 0.75);
           if (it.kind === "fragment")
             for (const nd of it.v.nodes) {
               for (const r of stackedRuns(nd.label) ?? nd.label?.runs ?? []) if (r.text.trim()) min = Math.min(min, runSize(r));
               if (nd.charge && !chargeDrawn.has(nd.id)) min = Math.min(min, doc.style.labelSize * 0.75);
+              // Stereo-group labels (&1, or1) and query marks are drawn at 75 % of the label size.
+              if ((doc.root.attrs.ShowAtomEnhancedStereo !== "no" && stereoGroupMark(nd.el.attrs)) || (doc.root.attrs.ShowAtomQuery !== "no" && atomQueryMarks(nd.el.attrs).length)) min = Math.min(min, doc.style.labelSize * 0.75);
             }
         }
       }

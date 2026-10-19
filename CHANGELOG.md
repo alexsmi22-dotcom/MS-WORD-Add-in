@@ -6,6 +6,31 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.157.0] — 2026-10-18 — Atom properties on the chemistry canvas
+
+### Added
+- **Properties tool** on the Structure ▸ Draw canvas (and the large canvas): click an atom to set its radical
+  (doublet •, singlet or triplet carbene :), its enhanced-stereo group (AND n — racemic, OR n — relative;
+  drawn &1 / or1 as ChemDraw does) and its query features (substituents exactly 0–3, up to 1–3 or no more
+  than drawn; ring bonds none / 2 / 3 / 4 or more / as drawn; saturated or unsaturated), or a bond to set the
+  orders it may be (single / double / triple / aromatic — several make a query bond, marked S/D …) and whether
+  it lies in a ring or a chain. Each is written as ChemDraw's own attribute (RingBondCount, SubstituentsExactly,
+  SubstituentsUpTo, FreeSites, UnsaturatedBonds, EnhancedStereoType / EnhancedStereoGroupNum, Topology, an Order
+  listing several orders — the CDX SDK property reference), so a saved .cdxml opens in ChemDraw with them.
+- **Atom lists**: type [N,O] (any one of) or NOT [F,Cl,Br] (any but) with the Atom tool — ChemDraw's element-list
+  node.
+- ChemDraw files carrying any of these now open with them, and structures inserted from the old editor with an
+  AND / OR group, an atom list or a query feature reopen on the canvas with it (v2.156.0 refused them).
+
+### Rules
+- A structure with an atom list or a query feature is a query structure: the readout says generic structure,
+  never a formula, whatever the Markush box says.
+- What ChemDraw has no form for (aromatic / not aromatic, hydrogen-count and charge queries, ring sizes, an
+  excluded group, several ring-bond counts at once) is refused by name, never dropped: every structure put on
+  the page is read back and must give the same idcode.
+- A radical changes a labelled atom's hydrogens (NH₂ made a radical shows NH); the marks are lettering, so the
+  USPTO sizing counts them (75 % of the label size).
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed
@@ -37,8 +62,8 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 Not yet: the large canvas takes structures only (a page with brackets, arrows, text or group labels is edited
 in the pane, and it says so); Clean lays out pages of structures only. The canvas has no way yet to set a
 radical, an atom list, a query feature or an AND / OR stereo group (the old editor's atom properties); a
-structure carrying one is refused by name rather than redrawn without it. Isotopes are typed as labels
-(13C, D, T).
+structure carrying one is refused by name rather than redrawn without it (added in v2.157.0). Isotopes are
+typed as labels (13C, D, T).
 
 ### Fixed before release (adversarial review: 15 findings, pinned in chemCanvasReview.test.ts)
 - Second review of the fix round (9 findings + 1 found while checking, pinned in chemCanvasReview2.test.ts):

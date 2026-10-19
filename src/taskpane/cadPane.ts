@@ -16,7 +16,7 @@
  */
 import { tessellate, Mesh, Placement, Vec3 } from "../lib/cadModel";
 import { faceAt, FaceHit, mate } from "../lib/cadMate";
-import { drawLines, STANDARD_VIEWS, CadView } from "../lib/cadLines";
+import { drawLines, LINE_WORK_BUDGET, LineWorkExceeded, STANDARD_VIEWS, CadView } from "../lib/cadLines";
 import { fitView, previewOps, paintPreview, pickAt, orbit, Fit, Pick as FacePick } from "../lib/cadPreview";
 import { DetailSpec, layoutSheet, SheetFrame, SheetOptions, ViewSpec } from "../lib/cadSheet";
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../lib/cadExplode";
@@ -308,7 +308,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       lineTimer = window.setTimeout(() => paint(true), 180);
       return;
     }
-    const d = drawLines(mesh, view);
+    let d: ReturnType<typeof drawLines>;
+    try {
+      d = drawLines(mesh, view, { left: LINE_WORK_BUDGET / 4 }); // the live overlay: a quarter of a sheet's budget
+    } catch (e) {
+      // Too many lines to work out in time: the shaded view stands alone (the sheet below says why).
+      if (e instanceof LineWorkExceeded) return paintCallouts(ctx, fit);
+      throw e;
+    }
     ctx.strokeStyle = "#111";
     ctx.lineWidth = 1.2;
     ctx.lineCap = "round";
@@ -1720,9 +1727,11 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const r = readStl(bytes);
     if (!r.ok) return host.setStatus(`${name}: ${r.reason}.`, "error");
     const hash = stlHash(bytes);
+    const missing = !hasStl(hash);
     rememberStl(hash, r.stl);
-    // A part already in the drawing from these very bytes (re-opened in a new session): put back.
-    const back = doc.parts.filter((p) => p.shape === "mesh" && p.mesh?.hash === hash);
+    // A part waiting for these very bytes (re-opened in a new session): put back. A file already
+    // open opens to be added again — a second copy of the part.
+    const back = missing ? doc.parts.filter((p) => p.shape === "mesh" && p.mesh?.hash === hash) : [];
     if (back.length) {
       imported = null;
       importedStl = null;
@@ -1786,7 +1795,13 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     reader.readAsArrayBuffer(file);
   });
   importUnits?.addEventListener("change", showImport);
-  importCrease?.addEventListener("input", showImport);
+  // Each value builds the part again: once typing pauses (review), and Add waits for it.
+  let creaseTimer = 0;
+  importCrease?.addEventListener("input", () => {
+    window.clearTimeout(creaseTimer);
+    if (importPartBtn) importPartBtn.disabled = true;
+    creaseTimer = window.setTimeout(showImport, 250);
+  });
   importCloseBtn?.addEventListener("click", () => {
     if (inserting) return;
     imported = null;

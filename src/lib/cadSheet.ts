@@ -23,7 +23,7 @@
  * what inserts is what shows.
  */
 import type { Mesh, Vec3 } from "./cadModel";
-import { baryIn, drawLines, LineDrawing, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
+import { baryIn, drawLines, LINE_WORK_BUDGET, LineDrawing, LineWorkExceeded, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
 import { DRAWING_STANDARDS, DrawingStandard, StandardId, STANDARD_SCALES, snapScale, scaleLabel } from "./cadStandards";
 import { ptToMm } from "./figureStyle";
 import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues } from "./cadFormats";
@@ -199,9 +199,19 @@ export function pointHidden(mesh: Mesh, view: CadView, p: Vec3): boolean {
  * not fit its figure's cell even so is refused by name.
  */
 export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
+  try {
+    return layoutSheetWithin(mesh, o);
+  } catch (e) {
+    // Every view's hidden lines share one budget: past it the sheet is refused, never left to run on.
+    if (e instanceof LineWorkExceeded) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [e.message[0].toUpperCase() + e.message.slice(1) + "."] };
+    throw e;
+  }
+}
+
+function layoutSheetWithin(mesh: Mesh, o: SheetOptions): Sheet {
   const std = DRAWING_STANDARDS[o.standard];
   const room = ptToMm(std.textPt) * 1.15; // mm of paper per em of text, with a margin
-  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map() };
+  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map(), work: { left: LINE_WORK_BUDGET } };
   const first = layoutCore(mesh, o, undefined, info);
   if (!info.textUnits) return first; // no hand-drawn text or numerals to make room for
   const fitAt = (s: number): number => {
@@ -255,6 +265,8 @@ interface LayoutInfo {
   fitS: number;
   /** Each view's line drawing, drawn on the first pass. */
   drawn: Map<string, LineDrawing>;
+  /** The hidden-line work left for the whole sheet (cadLines LINE_WORK_BUDGET). */
+  work: { left: number };
 }
 
 function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined, info: LayoutInfo): Sheet {
@@ -314,7 +326,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     if (spec.kind === "detail") d = detailDrawing(drawingOf({ kind: spec.of }), spec.at, spec.r, spec.factor);
     else if (spec.kind === "exploded") {
       const view = viewOf(spec);
-      const base = drawLines(o.exploded!.mesh, view);
+      const base = drawLines(o.exploded!.mesh, view, info.work);
       // A trail is drawn only where it is not behind a part (sampled along its length).
       const trails: Polyline[] = [];
       const STEPS = 48;
@@ -333,7 +345,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       const bd = { ...base.bounds };
       for (const l of trails) for (const [x, y] of l) (bd.minX = Math.min(bd.minX, x)), (bd.maxX = Math.max(bd.maxX, x)), (bd.minY = Math.min(bd.minY, y)), (bd.maxY = Math.max(bd.maxY, y));
       d = { ...base, bounds: bd, trails };
-    } else d = drawLines(mesh, viewOf(spec));
+    } else d = drawLines(mesh, viewOf(spec), info.work);
     info.drawn.set(key, d);
     return d;
   };

@@ -57,6 +57,10 @@ export interface StlFacets {
   count: number;
   /** Facets left out because a number could not be read. */
   unreadable: number;
+  /** A text file: the coarsest last printed digit of any coordinate (7.00 → 0.01), in the file's units. */
+  step?: number;
+  /** A text file: the most significant digits any coordinate was printed with. */
+  sig?: number;
 }
 
 const n0 = (v: number): string => v.toLocaleString("en-US");
@@ -69,7 +73,8 @@ export function readStl(bytes: Uint8Array): { ok: true; stl: StlFacets } | { ok:
   const dv = new DataView(bytes.buffer, bytes.byteOffset, len);
   const stated = len >= 84 ? dv.getUint32(80, true) : -1;
   const binarySize = stated >= 0 && 84 + 50 * stated === len;
-  const head = latin1(bytes.subarray(0, Math.min(len, 4096)));
+  // A text file saved with a UTF-8 byte-order mark (EF BB BF) reads as text all the same.
+  const head = latin1(bytes.subarray(0, Math.min(len, 4096))).replace(/^\u00ef\u00bb\u00bf/, "");
   const textStart = /^\s*solid\b/i.test(head) && /\bfacet\b/i.test(head);
   // Both can hold: a binary header that starts "solid …". Text after the 84-byte header settles it.
   const printable = (): boolean => {
@@ -117,7 +122,8 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
   // matches "facet" (no word boundary before its f).
   const re = /\b(endfacet\b|facet\s+normal\b|vertex\s+(\S+)\s+(\S+)\s+(\S+))/gi;
   const corners: number[] = [];
-  let facet = 0, inFacet = false, seen = 0, bad = false, unreadable = 0;
+  let facet = 0, inFacet = false, seen = 0, bad = false, unreadable = 0, step = 0, sig = 0;
+  const digits = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
   const cur: number[] = [];
   for (let m = re.exec(text); m; m = re.exec(text)) {
     const w = m[1].slice(0, 5).toLowerCase();
@@ -143,6 +149,12 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
           const v = Number(t);
           if (!Number.isFinite(v)) bad = true;
           cur.push(v);
+          // Where its last digit falls: "128.457" rounds to 0.001, "1.28457e+02" to 0.001 too.
+          const d = digits.exec(t);
+          if (d) {
+            step = Math.max(step, 10 ** (Number(d[3] ?? 0) - (d[2]?.length ?? 0)));
+            sig = Math.max(sig, (d[1] + (d[2] ?? "")).replace(/^0+/, "").length);
+          }
         }
       }
     }
@@ -150,7 +162,68 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
   if (inFacet) return { ok: false, reason: `facet ${n0(facet)} has no "endfacet" (the file is cut short)` };
   if (!facet) return { ok: false, reason: "it has no facets" };
   if (!corners.length) return { ok: false, reason: "none of its facets has readable numbers" };
-  return { ok: true, stl: { format: "text", corners: Float64Array.from(corners), count: corners.length / 9, unreadable } };
+  return { ok: true, stl: { format: "text", corners: Float64Array.from(corners), count: corners.length / 9, unreadable, step, sig } };
+}
+
+/**
+ * How many other closed pieces each closed piece lies inside (null: too many pieces, or too much
+ * work, to find out). A ray from one corner of the piece, in a direction no facet of an exported
+ * part lies along, crosses a piece holding it an odd number of times.
+ */
+function closedNesting(pieces: number, piece: Int32Array, closed: Uint8Array, tris: Int32Array, nt: number, P: (i: number, k: number) => number): Int32Array | null {
+  const depth = new Int32Array(pieces);
+  let many = 0;
+  for (let p = 0; p < pieces; p++) many += closed[p];
+  if (many < 2) return depth;
+  if (many > 2000) return null;
+  const lo = new Float64Array(3 * pieces).fill(Infinity), hi = new Float64Array(3 * pieces).fill(-Infinity);
+  const first = new Int32Array(pieces).fill(-1);
+  const byPiece: number[][] = Array.from({ length: pieces }, () => []);
+  for (let t = 0; t < nt; t++) {
+    const p = piece[t];
+    if (!closed[p]) continue;
+    byPiece[p].push(t);
+    if (first[p] < 0) first[p] = tris[3 * t];
+    for (let c = 0; c < 3; c++)
+      for (let k = 0; k < 3; k++) {
+        const v = P(tris[3 * t + c], k);
+        if (v < lo[3 * p + k]) lo[3 * p + k] = v;
+        if (v > hi[3 * p + k]) hi[3 * p + k] = v;
+      }
+  }
+  const D = [1, Math.SQRT2 * 1e-3, Math.sqrt(3) * 1e-3];
+  let work = 0;
+  for (let a = 0; a < pieces; a++) {
+    if (!closed[a]) continue;
+    const o = [P(first[a], 0), P(first[a], 1), P(first[a], 2)];
+    for (let b = 0; b < pieces; b++) {
+      if (b === a || !closed[b]) continue;
+      let inside = true;
+      for (let k = 0; k < 3; k++) if (!(lo[3 * b + k] <= lo[3 * a + k] && hi[3 * a + k] <= hi[3 * b + k])) inside = false;
+      if (!inside) continue;
+      work += byPiece[b].length;
+      if (work > 20_000_000) return null;
+      let hits = 0;
+      for (const t of byPiece[b]) {
+        // Möller–Trumbore, counting crossings ahead of the corner.
+        const i = tris[3 * t], j = tris[3 * t + 1], k = tris[3 * t + 2];
+        const e1 = [P(j, 0) - P(i, 0), P(j, 1) - P(i, 1), P(j, 2) - P(i, 2)];
+        const e2 = [P(k, 0) - P(i, 0), P(k, 1) - P(i, 1), P(k, 2) - P(i, 2)];
+        const q = [D[1] * e2[2] - D[2] * e2[1], D[2] * e2[0] - D[0] * e2[2], D[0] * e2[1] - D[1] * e2[0]];
+        const det = e1[0] * q[0] + e1[1] * q[1] + e1[2] * q[2];
+        if (det === 0) continue;
+        const s = [o[0] - P(i, 0), o[1] - P(i, 1), o[2] - P(i, 2)];
+        const u = (s[0] * q[0] + s[1] * q[1] + s[2] * q[2]) / det;
+        if (u < 0 || u > 1) continue;
+        const r = [s[1] * e1[2] - s[2] * e1[1], s[2] * e1[0] - s[0] * e1[2], s[0] * e1[1] - s[1] * e1[0]];
+        const v = (D[0] * r[0] + D[1] * r[1] + D[2] * r[2]) / det;
+        if (v < 0 || u + v > 1) continue;
+        if ((e2[0] * r[0] + e2[1] * r[1] + e2[2] * r[2]) / det > 0) hits++;
+      }
+      if (hits % 2) depth[a]++;
+    }
+  }
+  return depth;
 }
 
 export interface StlBody {
@@ -246,20 +319,22 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
   const edgeStart: number[] = [];
   const edgeList = new Int32Array(nh);
   let ne = 0, put = 0;
-  for (let v = 0; v < nv; v++)
-    for (let i = start[v]; i < start[v + 1]; i++) {
-      const h = byLow[i];
-      if (edgeOf[h] >= 0) continue;
+  // Each vertex's sides sorted by their other end, so the sides of one edge are adjacent: a fan of
+  // facets round one corner (a cone's apex) is n log n, not n² (review).
+  for (let v = 0; v < nv; v++) {
+    const bucket = byLow.subarray(start[v], start[v + 1]);
+    if (bucket.length > 1) bucket.sort((p, q) => highV[p] - highV[q] || p - q);
+    for (let i = 0; i < bucket.length; ) {
       edgeStart.push(put);
-      for (let j = i; j < start[v + 1]; j++) {
-        const g = byLow[j];
-        if (edgeOf[g] < 0 && highV[g] === highV[h]) {
-          edgeOf[g] = ne;
-          edgeList[put++] = g;
-        }
+      let j = i;
+      while (j < bucket.length && highV[bucket[j]] === highV[bucket[i]]) {
+        edgeOf[bucket[j]] = ne;
+        edgeList[put++] = bucket[j++];
       }
       ne++;
+      i = j;
     }
+  }
   edgeStart.push(put);
   const count = (e: number): number => edgeStart[e + 1] - edgeStart[e];
   /** Does half-edge h run from its edge's lower vertex to its higher one? */
@@ -293,8 +368,10 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
       }
     }
   }
+  // Open only where a side has one facet. An edge shared by more than two (two cubes touching
+  // along an edge) stops the turning above, but leaves each piece closed (review).
   const closed = new Uint8Array(pieces).fill(1);
-  for (let e = 0; e < ne; e++) if (count(e) !== 2) closed[piece[(edgeList[edgeStart[e]] / 3) | 0]] = 0;
+  for (let e = 0; e < ne; e++) if (count(e) === 1) closed[piece[(edgeList[edgeStart[e]] / 3) | 0]] = 0;
   const vol = new Float64Array(pieces);
   const triVol = (a: number, b: number, c: number): number =>
     P(a, 0) * (P(b, 1) * P(c, 2) - P(b, 2) * P(c, 1)) - P(a, 1) * (P(b, 0) * P(c, 2) - P(b, 2) * P(c, 0)) + P(a, 2) * (P(b, 0) * P(c, 1) - P(b, 1) * P(c, 0));
@@ -302,9 +379,16 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
     const v = triVol(tris[3 * t], tris[3 * t + 1], tris[3 * t + 2]);
     vol[piece[t]] += flip[t] ? -v : v;
   }
+  // A closed piece faces out when it lies inside an even number of the others (a part, or an
+  // island inside a cavity), and in when inside an odd number (a cavity: its facets face the void).
+  // Nesting is counted by a ray from one of its corners through the pieces whose box holds it.
+  const depth = new Int32Array(pieces);
+  const nesting = closedNesting(pieces, piece, closed, tris, nt, P);
+  if (nesting) depth.set(nesting);
   let turned = 0;
   for (let t = 0; t < nt; t++) {
-    const over = closed[piece[t]] === 1 && vol[piece[t]] < 0;
+    const p = piece[t];
+    const over = closed[p] === 1 && (vol[p] < 0) !== (depth[p] % 2 === 1);
     if ((flip[t] === 1) !== over) {
       turned++;
       const b = tris[3 * t + 1];
@@ -325,11 +409,14 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
     }
   const diag = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
   // How far a corner may be from where the exporter meant it: float32 holds 24 bits (half an ulp
-  // each way, doubled for the subtraction to the origin); a text file, its printed digits (six
-  // significant, as most exporters print, unless more are seen).
+  // each way, doubled for the subtraction to the origin). A text file, half its last printed digit,
+  // doubled likewise (review: six significant digits near 128 round by 5e-4): the coarser of the
+  // decimal places seen (fixed-point printing) — unless the significant digits seen say finer
+  // (%g drops trailing zeros: "10" may be 10.0000) — and never coarser than six significant digits.
   let far = 0;
   for (let i = 0; i < 3 * nv; i++) far = Math.max(far, Math.abs(raw[i]));
-  const noise = far * mmPerUnit * (stl.format === "binary" ? 2 ** -23 : 1e-6);
+  const textNoise = Math.min(stl.step ?? Infinity, far * 10 ** (1 - (stl.sig || 1)), far * 1e-5);
+  const noise = mmPerUnit * (stl.format === "binary" ? far * 2 ** -23 : textNoise);
   if (!(diag > 0)) return { ok: false, reason: "it has no size" };
   const fn = new Float64Array(3 * nt); // raw (area-weighted)
   const un = new Float64Array(3 * nt); // unit, or 0 for a sliver
@@ -462,6 +549,7 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
   if (open) notes.push(`${s(open, "edge is", "edges are")} open — the surface has gaps there, drawn as edges.`);
   if (many) notes.push(`${s(many, "edge is", "edges are")} shared by more than two facets (drawn as edges).`);
   if (disagree) notes.push(`${s(disagree, "pair", "pairs")} of facets could not be turned to agree (a one-sided surface).`);
+  if (!nesting) notes.push("It has too many closed pieces to look for cavities inside one another: each piece was turned to face out.");
   if (turned) notes.push(`${s(turned, "facet was", "facets were")} wound the wrong way and turned.`);
   return {
     ok: true,

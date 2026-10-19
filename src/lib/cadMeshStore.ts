@@ -25,13 +25,22 @@ export interface MeshRef {
   size: Vec3;
 }
 
+/** The files read this session, the most recently used last; at most FILES (each up to ~7 MB). */
 const files = new Map<string, StlFacets>();
+const FILES = 6;
 /** Bodies built for a units / edge-angle pair; the last few only (each is several MB). */
 const bodies = new Map<string, SolidMesh>();
 const BODY_CACHE = 4;
 
 export function rememberStl(hash: string, stl: StlFacets): void {
+  files.delete(hash);
   files.set(hash, stl);
+  // The oldest goes: a part still naming it says to import its file again (never drawn as nothing).
+  while (files.size > FILES) {
+    const old = files.keys().next().value as string;
+    files.delete(old);
+    for (const k of [...bodies.keys()]) if (k.startsWith(old + "|")) bodies.delete(k);
+  }
 }
 
 export function hasStl(hash: string): boolean {
@@ -41,6 +50,10 @@ export function hasStl(hash: string): boolean {
 /** The body for an imported part, or why it cannot be drawn (no file name: the caller adds the part's). */
 export function meshFor(ref: MeshRef): { ok: true; mesh: SolidMesh } | { ok: false; reason: string } {
   const stl = files.get(ref.hash);
+  if (stl) {
+    files.delete(ref.hash); // most recently used last
+    files.set(ref.hash, stl);
+  }
   if (!stl) return { ok: false, reason: `its file ${ref.file} is not open — import ${ref.file} again (Import DXF / STL…) to put it back` };
   const key = `${ref.hash}|${ref.mmPerUnit}|${ref.creaseDeg}`;
   const had = bodies.get(key);

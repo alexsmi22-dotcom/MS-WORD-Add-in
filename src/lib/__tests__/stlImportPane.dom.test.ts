@@ -146,6 +146,34 @@ describe("Import DXF / STL… — an STL becomes a part", () => {
     expect($<HTMLButtonElement>("cad-insert").disabled).toBe(false);
   });
 
+  it("review 6: the same file imported again (its part present) opens to add a second copy, not 'put back'", async () => {
+    const { $, status, pane } = setup();
+    await pick($, status, "bolt.stl", blockStl(10, 10, 40));
+    chooseUnits($, "1");
+    $<HTMLButtonElement>("cad-import-part").click();
+    await pick($, status, "bolt.stl", blockStl(10, 10, 40));
+    expect(last(status)[0]).toMatch(/^bolt\.stl read\./);
+    expect($("cad-import-panel").hidden).toBe(false);
+    chooseUnits($, "1");
+    $<HTMLButtonElement>("cad-import-part").click();
+    expect(JSON.parse(pane.getDoc()).parts.filter((p: { shape: string }) => p.shape === "mesh")).toHaveLength(2);
+  });
+
+  it("review 2: typing an edge angle builds once typing pauses; Add waits for it", async () => {
+    const { $, status } = setup();
+    await pick($, status, "block.stl", blockStl(40, 30, 20));
+    chooseUnits($, "1");
+    const c = $<HTMLInputElement>("cad-import-crease");
+    for (const v of ["4", "45"]) {
+      c.value = v;
+      c.dispatchEvent(new Event("input"));
+    }
+    expect($<HTMLButtonElement>("cad-import-part").disabled).toBe(true);
+    await new Promise((r) => setTimeout(r, 300));
+    expect($("cad-import-info").textContent).toBe("block.stl: 12 facets (binary STL). 12 edges drawn at 45°.");
+    expect($<HTMLButtonElement>("cad-import-part").disabled).toBe(false);
+  });
+
   it("the large canvas refuses a drawing with an imported part by name (its facets stay in the pane)", async () => {
     const openLarge = jest.fn(async () => null);
     const { $, status } = setup({ openLarge });
@@ -175,6 +203,7 @@ describe("Import DXF / STL… — an STL becomes a part", () => {
     const c = $<HTMLInputElement>("cad-import-crease");
     c.value = "0";
     c.dispatchEvent(new Event("input"));
+    await new Promise((r) => setTimeout(r, 300));
     expect($("cad-import-info").textContent).toBe("block.stl: 12 facets (binary STL). The edge angle must be between 0° and 180°.");
     expect($<HTMLButtonElement>("cad-import-part").disabled).toBe(true);
   });

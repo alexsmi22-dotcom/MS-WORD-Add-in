@@ -1,7 +1,7 @@
 // R3b: an STL as a part of the drawing. The oracle needs no outside file: catalogue parts are
 // tessellated by the engine, written out as STL (binary, float32, as exporters write; and text),
 // read back, and drawn — the drawing must match the analytic part's own.
-import { apply3, Mesh, rotationMatrix, tessellate } from "../cadModel";
+import { apply3, Mesh, rotationMatrix, SolidMesh, tessellate } from "../cadModel";
 import { drawLines, Polyline, viewFromDegrees } from "../cadLines";
 import { faceAt } from "../cadMate";
 import { hasStl, MeshRef, meshFor, rememberStl } from "../cadMeshStore";
@@ -351,5 +351,169 @@ describe("an imported part takes callouts and explodes like any part", () => {
     const sh = layoutSheet(t.mesh, { standard: "asme", views: [{ kind: "front" }, { kind: "exploded" }], callouts: res.callouts, exploded: { mesh: et.mesh, anchors: explodedAnchors(doc, res.callouts, offsets), trails: explodeTrails(doc, t.mesh, offsets) } });
     expect(sh.svg).toMatch(/<svg/);
     expect(sh.notes.join(" ")).not.toMatch(/not drawn|cannot/i);
+  });
+});
+
+// ---- review round 1 ----------------------------------------------------------------------------
+type P3 = [number, number, number];
+const bin = (tris: P3[][]): Uint8Array => {
+  const b = new Uint8Array(84 + 50 * tris.length);
+  const dv = new DataView(b.buffer);
+  dv.setUint32(80, tris.length, true);
+  tris.forEach((t, f) => t.forEach((p, c) => p.forEach((v, k) => dv.setFloat32(84 + 50 * f + 12 + 12 * c + 4 * k, v, true))));
+  return b;
+};
+function cubeAt(o: P3, s: number, inward = false): P3[][] {
+  const q = (a: number[], b: number[], c: number[], d: number[]): P3[][] => [[a, b, c], [a, c, d]].map((t) => t.map((p) => p.map((v, k) => o[k] + v * s) as P3));
+  const f = [
+    ...q([0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]), ...q([0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]),
+    ...q([0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]), ...q([0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 0]),
+    ...q([0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]), ...q([1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]),
+  ];
+  return inward ? f.map((t) => [t[0], t[2], t[1]]) : f;
+}
+const bodyOf = (b: Uint8Array) => {
+  const r = readStl(b);
+  if (!r.ok) throw new Error(r.reason);
+  const s = stlBody(r.stl, 1);
+  if (!s.ok) throw new Error(s.reason);
+  return s.body;
+};
+const meshBody = (mesh: SolidMesh, name = "S") => ({ id: name, name, spec: { kind: "mesh" as const, mesh }, placement: { translate: [0, 0, 0] as P3, rotateDeg: [0, 0, 0] as P3 } });
+
+describe("review round 1", () => {
+  it("1. a gear-like prism (1,950 teeth, within every facet and edge limit) is refused by name in seconds, not drawn for 49 s", () => {
+    const star = (n: number): P3[][] => {
+      const pts: Array<[number, number]> = [];
+      for (let i = 0; i < n; i++) {
+        const r = i % 2 ? 40 : 46, a = (2 * Math.PI * i) / n;
+        pts.push([r * Math.cos(a), r * Math.sin(a)]);
+      }
+      const t: P3[][] = [];
+      for (let i = 0; i < n; i++) {
+        const a = pts[i], b = pts[(i + 1) % n];
+        t.push([[a[0], a[1], 0], [b[0], b[1], 0], [b[0], b[1], 20]], [[a[0], a[1], 0], [b[0], b[1], 20], [a[0], a[1], 20]]);
+        t.push([[0, 0, 0], [b[0], b[1], 0], [a[0], a[1], 0]], [[0, 0, 20], [a[0], a[1], 20], [b[0], b[1], 20]]);
+      }
+      return t;
+    };
+    const t = tessellate({ version: 1, bodies: [meshBody(bodyOf(bin(star(1950))).mesh)] });
+    if (!t.ok) throw new Error(t.reason);
+    const t0 = Date.now();
+    const sh = layoutSheet(t.mesh, { standard: "asme", views: [{ kind: "front" }, { kind: "top" }, { kind: "right" }, { kind: "iso" }] });
+    expect(Date.now() - t0).toBeLessThan(8000);
+    expect(sh.svg).toBe("");
+    expect(sh.notes).toEqual(["The drawing has too many lines crossing one another on the page to work out in time — raise an imported part's edge angle, use fewer or simpler parts, or show fewer views."]);
+    // A modest one still draws.
+    const small = tessellate({ version: 1, bodies: [meshBody(bodyOf(bin(star(120))).mesh)] });
+    if (!small.ok) throw new Error(small.reason);
+    expect(layoutSheet(small.mesh, { standard: "asme", views: [{ kind: "front" }, { kind: "iso" }] }).svg).toMatch(/<svg/);
+  }, 30000);
+
+  it("2. a fan of 99,000 facets round one apex is read in n log n (was 15 s before its refusal)", () => {
+    const n = 99_000;
+    const tris: P3[][] = [];
+    const p = (i: number): P3 => [10 * Math.cos((2 * Math.PI * i) / n), 10 * Math.sin((2 * Math.PI * i) / n), 0];
+    for (let i = 0; i < n; i++) tris.push([[0, 0, 5], p(i), p((i + 1) % n)]);
+    const r = readStl(bin(tris));
+    if (!r.ok) throw new Error(r.reason);
+    const t0 = Date.now();
+    stlBody(r.stl, 1, 30);
+    expect(Date.now() - t0).toBeLessThan(4000);
+  }, 30000);
+
+  it("3. a cavity wound into the void stays a cavity: volume 1000 − 64, no facet turned, and a pin's crossings at its walls are drawn", () => {
+    const b = bodyOf(bin([...cubeAt([0, 0, 0], 10), ...cubeAt([3, 3, 3], 4, true)]));
+    const P = b.mesh.positions, T = b.mesh.triangles;
+    let v = 0;
+    for (let t = 0; t < T.length / 3; t++) {
+      const [x, y, z] = [T[3 * t], T[3 * t + 1], T[3 * t + 2]].map((i) => [P[3 * i], P[3 * i + 1], P[3 * i + 2]]);
+      v += x[0] * (y[1] * z[2] - y[2] * z[1]) - x[1] * (y[0] * z[2] - y[2] * z[0]) + x[2] * (y[0] * z[1] - y[1] * z[0]);
+    }
+    expect(v / 6).toBeCloseTo(936, 6);
+    expect(b.notes).toEqual([]);
+    // Wound out (wrongly) instead: turned in, and said so.
+    const w = bodyOf(bin([...cubeAt([0, 0, 0], 10), ...cubeAt([3, 3, 3], 4)]));
+    expect(w.notes).toEqual(["12 facets were wound the wrong way and turned."]);
+    // A pin through the block along x, at y, z 4.5–5.5 (through the cavity).
+    const pinStl = bin(cubeAt([0, 0, 0], 1).map((t) => t.map((p) => [p[0] * 16 - 3, p[1] + 4.5, p[2] + 4.5] as P3)));
+    const t = tessellate({ version: 1, bodies: [meshBody(b.mesh, "Hollow"), { ...meshBody(bodyOf(pinStl).mesh, "Pin"), placement: { translate: [-3, 4.5, 4.5] as P3, rotateDeg: [0, 0, 0] as P3 } }] });
+    if (!t.ok) throw new Error(t.reason);
+    const atX = (x: number): number => t.mesh.crossings.filter((c) => Math.abs(c.a[0] - x) < 1e-3 && Math.abs(c.b[0] - x) < 1e-3).length;
+    expect(atX(3)).toBeGreaterThan(0);
+    expect(atX(7)).toBeGreaterThan(0);
+  });
+
+  it("4. a text STL printed with six significant digits (%g): a mate finds the whole face (centre within 0.01 mm)", () => {
+    const doc: CadDoc = { ...starterDoc("asme"), parts: [{ id: "a", name: "A", shape: "box", params: { ...defaultParams("box"), w: 33.3, d: 21.7, h: 9.1 }, placement: { translate: [101.1, 57.3, 13.9], rotateDeg: [17, 29, 41] } }] };
+    const a = docToAssembly(doc);
+    if (!a.ok) throw new Error(a.reason);
+    const t = tessellate(a.assembly);
+    if (!t.ok) throw new Error(t.reason);
+    const g = (x: number): string => String(Number(x.toPrecision(6)));
+    const lines = ["solid part"];
+    const Tm = t.mesh.triangles, Pm = t.mesh.positions;
+    for (let k = 0; k < Tm.length / 3; k++) {
+      lines.push("facet normal 0 0 0", "outer loop");
+      for (let c = 0; c < 3; c++) lines.push(`vertex ${[0, 1, 2].map((q) => g(Pm[3 * Tm[3 * k + c] + q])).join(" ")}`);
+      lines.push("endloop", "endfacet");
+    }
+    lines.push("endsolid part");
+    const m = imported(Uint8Array.from(lines.join("\n"), (ch) => ch.charCodeAt(0)));
+    const P = m.positions, T = m.triangles;
+    // Every face of the block (one triangle per distinct normal), clicked a little off its centre.
+    const seenN: number[][] = [];
+    for (let best = 0; best < T.length / 3; best++) {
+      const n0 = [0, 1, 2].map((j) => m.cornerNormals[9 * best + j]);
+      if (seenN.some((n) => n[0] * n0[0] + n[1] * n0[1] + n[2] * n0[2] > 0.99999)) continue;
+      seenN.push(n0);
+      const corners = new Map<number, number[]>();
+      for (let k = 0; k < T.length / 3; k++) {
+        const n = [0, 1, 2].map((j) => m.cornerNormals[9 * k + j]);
+        if (n[0] * n0[0] + n[1] * n0[1] + n[2] * n0[2] > 0.99999) for (let j = 0; j < 3; j++) corners.set(T[3 * k + j], [0, 1, 2].map((q) => P[3 * T[3 * k + j] + q]));
+      }
+      const pts = [...corners.values()];
+      expect(pts.length).toBe(4);
+      const cx = [0, 1, 2].map((q) => pts.reduce((s, p) => s + p[q], 0) / 4) as P3;
+      // Off the centre, in the face's plane.
+      const u = [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1], pts[1][2] - pts[0][2]];
+      const ul = Math.hypot(u[0], u[1], u[2]);
+      const click = [0, 1, 2].map((q) => cx[q] + (0.3 * u[q]) / ul) as P3;
+      const f = faceAt(m, best, click, 1);
+      expect([seenN.length, f.ok && f.hit.snap]).toEqual([seenN.length, "centre"]);
+      for (let q = 0; q < 3; q++) expect(Math.abs((f.ok ? f.hit.point[q] : 99) - cx[q])).toBeLessThan(0.01);
+    }
+    expect(seenN.length).toBe(6);
+  });
+
+  it("5. two closed cubes sharing one edge are closed (no 'gaps' claimed)", () => {
+    const b = bodyOf(bin([...cubeAt([0, 0, 0], 10), ...cubeAt([10, 10, 0], 10)]));
+    expect(b.mesh.closed).toBe(true);
+    expect(b.notes.join(" ")).not.toMatch(/open/);
+    expect(b.notes.join(" ")).toMatch(/shared by more than two facets/);
+  });
+
+  it("7. a text STL saved with a UTF-8 byte-order mark reads", () => {
+    const raw = toStl(atOrigin(analytic("box")), "text");
+    const withBom = new Uint8Array(raw.length + 3);
+    withBom.set([0xef, 0xbb, 0xbf]);
+    withBom.set(raw, 3);
+    const r = readStl(withBom);
+    expect(r.ok && r.stl.count).toBe(12);
+  });
+
+  it("memory: the store keeps the last six files; a part naming an older one says to import it again", () => {
+    const refs: MeshRef[] = [];
+    for (let i = 0; i < 7; i++) {
+      const bytes = bin(cubeAt([0, 0, 0], 10 + i));
+      const r = readStl(bytes);
+      if (!r.ok) throw new Error(r.reason);
+      const hash = stlHash(bytes);
+      rememberStl(hash, r.stl);
+      refs.push({ file: `c${i}.stl`, hash, facets: 12, mmPerUnit: 1, creaseDeg: 30, size: [1, 1, 1] });
+    }
+    expect(meshFor(refs[0]).ok).toBe(false);
+    expect(meshFor(refs[1]).ok).toBe(true);
+    expect(meshFor(refs[6]).ok).toBe(true);
   });
 });

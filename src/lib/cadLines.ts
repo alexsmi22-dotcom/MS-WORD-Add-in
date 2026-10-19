@@ -121,7 +121,29 @@ export function baryIn(x1: number, y1: number, x2: number, y2: number, x3: numbe
 }
 
 /** Draws the mesh from the view. */
-export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
+/**
+ * The hidden-line work a drawing may take (grid tests, counted), shared by every view of one sheet.
+ * Lines that overlap one another on the page — hundreds of long parallel edges seen side on, as a
+ * gear's or a knurl's teeth are — split each other into pieces that grow as the square of their
+ * number, so no count of edges bounds the time. This does: past it the drawing is refused by name
+ * (Word's pane must never freeze). Measured (star-shaped prisms, the reviewers' gear case): one unit
+ * costs 65–115 ns, so this budget is about 2–3.5 s for a whole sheet.
+ */
+export const LINE_WORK_BUDGET = 30_000_000;
+
+/** Thrown when a drawing's lines need more work than its budget (layoutSheet turns it into a refusal). */
+export class LineWorkExceeded extends Error {
+  constructor() {
+    super("the drawing has too many lines crossing one another on the page to work out in time — raise an imported part's edge angle, use fewer or simpler parts, or show fewer views");
+    this.name = "LineWorkExceeded";
+  }
+}
+
+export function drawLines(mesh: Mesh, view: CadView, work: { left: number } = { left: LINE_WORK_BUDGET }): LineDrawing {
+  const spend = (n: number): void => {
+    work.left -= n;
+    if (work.left < 0) throw new LineWorkExceeded();
+  };
   const R = view.rot;
   const P = mesh.positions;
   const nv = P.length / 3;
@@ -234,7 +256,7 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
     let ring = new Set<number>([src.tri]);
     for (let k = 0; k < 2; k++) {
       const next = new Set<number>(ring);
-      for (const t of ring) for (let c = 0; c < 3; c++) for (const u of vertTris[T[3 * t + c]]) next.add(u);
+      for (const t of ring) for (let c = 0; c < 3; c++) for (const u of (spend(vertTris[T[3 * t + c]].length + 1), vertTris[T[3 * t + c]])) next.add(u);
       ring = next;
     }
     return ring;
@@ -249,6 +271,7 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
   const degen = span * span * 1e-14;
   const covered = (x: number, y: number, z: number, skip: Set<number>): boolean => {
     const list = triGrid[gy(y) * cells + gx(x)];
+    spend(list.length + 1);
     for (const t of list) {
       if (skip.has(t)) continue;
       const a = T[3 * t], b = T[3 * t + 1], c = T[3 * t + 2];
@@ -281,7 +304,7 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
     const y0 = gy(Math.min(s.ay, s.by)), y1 = gy(Math.max(s.ay, s.by));
     for (let u = x0; u <= x1; u++)
       for (let w = y0; w <= y1; w++)
-        for (const m of segGrid[w * cells + u]) {
+        for (const m of (spend(segGrid[w * cells + u].length + 1), segGrid[w * cells + u])) {
           if (m === k || seen[m] === k) continue;
           seen[m] = k;
           const o = segs[m];
@@ -300,7 +323,7 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
       const stamp = new Set<number>();
       for (let u = x0; u <= x1; u++)
         for (let w = y0; w <= y1; w++)
-          for (const t of triGrid[w * cells + u]) {
+          for (const t of (spend(triGrid[w * cells + u].length + 1), triGrid[w * cells + u])) {
             if (stamp.has(t) || !into.has(mesh.triBody[t])) continue;
             stamp.add(t);
             const a = T[3 * t], b = T[3 * t + 1], c = T[3 * t + 2];
@@ -343,6 +366,7 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
   });
   const onTol = span * 1e-7;
   const onVisible = (x: number, y: number): boolean => {
+    spend(visGrid[gy(y) * cells + gx(x)].length + 1);
     for (const k of visGrid[gy(y) * cells + gx(x)]) {
       const [ax, ay, bx, by] = visible[k];
       const dx = bx - ax, dy = by - ay;

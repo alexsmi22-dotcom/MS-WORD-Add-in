@@ -30,7 +30,7 @@ import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues 
 import { LineType, lineTypesFor, strokeAttrs } from "./cadLineTypes";
 import { markSvg, marksExtent, SheetMark } from "./cadMarks";
 import { circlePolyline, detailDrawing } from "./cadDetail";
-import { cutMesh, hatchRegions, sectionPlane, sectionView, SectionPlane } from "./cadSection";
+import { cutMesh, CutRegion, hatchRegions, sectionPlane, sectionView, SectionPlane } from "./cadSection";
 import { MAPPED_VIEW, PERSPECTIVE_DISTANCE, perspectiveMesh } from "./cadPerspective";
 
 /** The sheet's layers. The user may switch off frame, titleBlock, callouts and titles. */
@@ -266,8 +266,16 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   }
 }
 
-/** A section of a model: its lines, hatching and the cut mesh (callouts are tested on it), or why it has none. */
-type SectionCut = { lines: LineDrawing; hatch: Polyline[]; mesh: Mesh; plane: SectionPlane; view: CadView } | { reason: string };
+/**
+ * The closest hatch lines may be on the sheet, mm (PRODUCT choice): 1.5 mm is 1 mm after the 2/3 reduction of 1.84(k),
+ * several thin-line widths of white between strokes.
+ */
+export const HATCH_MIN_GAP_MM = 1.5;
+/**
+ * A section of a model: its lines, its cut faces (hatched once the sheet's scale is known, each closest spacing kept)
+ * and the cut mesh (callouts are tested on it), or why it has none.
+ */
+type SectionCut = { lines: LineDrawing; regions: CutRegion[]; hatchAt: Map<number, Polyline[]>; mesh: Mesh; plane: SectionPlane; view: CadView } | { reason: string };
 /**
  * Each section of a model object, by its plane. The cut mesh is a new object every time, so the per-mesh lines cache
  * would never hit for it: the whole section is kept here instead, keyed on what places the plane (view, both ends,
@@ -289,7 +297,7 @@ function sectionFor(mesh: Mesh, spec: SectionSpec, budget: LineBudget): SectionC
     if (!cut.ok) c = { reason: cut.reason };
     // A plane that cuts nothing would draw the plain view and title it a section.
     else if (!cut.regions.length) c = { reason: "its cutting line does not cross the part — take it again across the part" };
-    else c = { lines: drawLines(cut.mesh, view, budget), hatch: hatchRegions(cut.regions, budget).lines, mesh: cut.mesh, plane, view };
+    else c = { lines: drawLines(cut.mesh, view, budget), regions: cut.regions, hatchAt: new Map(), mesh: cut.mesh, plane, view };
   }
   // (A sheet run out of time throws above, and nothing is kept: the next sheet tries again.)
   m.set(k, c);
@@ -384,7 +392,8 @@ function layoutSheetWithin(mesh: Mesh, o: SheetOptions): Sheet {
 type SheetDrawing = LineDrawing & {
   trails?: Polyline[];
   boundary?: Polyline;
-  hatch?: Polyline[];
+  /** The hatching, its lines no closer than `minSpacing` model units (the sheet's scale decides what reads on paper). */
+  hatch?: (minSpacing: number, budget: LineBudget) => Polyline[];
   cut?: { mesh: Mesh; plane: SectionPlane };
   persp?: { mesh: Mesh; map: (p: Vec3) => Vec3 };
 };
@@ -496,7 +505,15 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       if ("reason" in c) {
         info.why.set(key, c.reason);
         d = NO_LINES();
-      } else d = { ...c.lines, hatch: c.hatch, cut: { mesh: c.mesh, plane: c.plane } };
+      } else {
+        const { regions, hatchAt } = c;
+        const hatch = (minSpacing: number, budget: LineBudget): Polyline[] => {
+          let h = hatchAt.get(minSpacing);
+          if (!h) hatchAt.set(minSpacing, (h = hatchRegions(regions, budget, minSpacing).lines));
+          return h;
+        };
+        d = { ...c.lines, hatch, cut: { mesh: c.mesh, plane: c.plane } };
+      }
     } else if (spec.kind === "perspective") {
       // Not kept across sheets (a distance seldom repeats, and the mapped mesh is as large as the model): the map
       // and the hidden lines spend this sheet's work.
@@ -917,17 +934,21 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       }
     }
 
-    // A section is an orthographic view (it is laid out like a detail, but takes the orthographic hidden-line rule).
-    const pictorialRule = it.spec.kind === "detail" ? !ORTHO.has(it.spec.of) : it.spec.kind === "section" ? false : it.pictorial;
-    const showHidden = o.showHidden ?? (pictorialRule ? std.hiddenInPictorial : std.hiddenInOrthographic);
+    const pictorialRule = it.spec.kind === "detail" ? !ORTHO.has(it.spec.of) : it.pictorial;
+    // A section shows what the cut lays open: hidden lines behind the cutting plane are left out (ASME Y14.3 and
+    // ISO 128 practice — dashes across the hatching only confuse it) unless the user asks for them on every view.
+    const showHidden = o.showHidden ?? (it.spec.kind === "section" ? false : pictorialRule ? std.hiddenInPictorial : std.hiddenInOrthographic);
     if (showHidden && it.d.hidden.length) layer.hidden.push(`<path d="${path(it.d.hidden)}" ${strokeAttrs(types.hidden, PX_PER_MM)}/>`);
     if (it.d.visible.length) layer.visible.push(`<path d="${path(it.d.visible)}" ${strokeAttrs(types.visible, PX_PER_MM)}/>`);
     // Trail lines of an exploded view: phantom lines (ASME Y14.2 / ISO 128 type 05: alternate positions).
     if (it.d.trails?.length) layer.visible.push(`<path d="${path(it.d.trails)}" ${strokeAttrs(types.phantom, PX_PER_MM)}/>`);
     const thin = { ...types.hidden, dashMm: [], cap: "round" as const };
     if (it.d.boundary) layer.visible.push(`<path d="${path([it.d.boundary])}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
-    // 1.84(h)(3) hatching: thin lines, so the cut face's outline still reads as the outline.
-    if (it.d.hatch?.length) layer.visible.push(`<path data-hatch="1" d="${path(it.d.hatch)}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
+    // 1.84(h)(3) hatching: thin lines, so the cut face's outline still reads as the outline; "spaced sufficiently
+    // apart to enable the lines to be distinguished without difficulty" — at this sheet's scale, and after the 2/3
+    // reduction 1.84(k) allows for: never under HATCH_MIN_GAP_MM on paper.
+    const hatch = it.d.hatch?.(HATCH_MIN_GAP_MM / s, info.work);
+    if (hatch?.length) layer.visible.push(`<path data-hatch="1" d="${path(hatch)}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
     // The cutting line of each section taken from this view, arrows toward the direction of sight, each end named:
     // USPTO by the section's FIG number (1.84(h)(3): "numerals corresponding to the view number of the sectional
     // view"), ASME / ISO by its letter.

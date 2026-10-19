@@ -1,8 +1,8 @@
 // Section and perspective views on the sheet (docs/SCOPE-CAD-VIEWS.md §B, §C): the section view with its hatching,
 // the cutting line on the view it is cut from (1.84(h)(3): broken line, arrows, ends named by the view number), the
 // refusals as notes; the perspective view and its callouts; and both through the document's parse/serialize.
-import { Assembly, Body, BodySpec, box, IDENTITY_PLACEMENT, Mesh, Placement, tessellate } from "../cadModel";
-import { layoutSheet, Sheet, SheetOptions, ViewSpec } from "../cadSheet";
+import { Assembly, Body, BodySpec, box, IDENTITY_PLACEMENT, Mesh, Placement, tessellate, tube } from "../cadModel";
+import { HATCH_MIN_GAP_MM, layoutSheet, Sheet, SheetOptions, ViewSpec } from "../cadSheet";
 import { defaultParams, parseDoc, serializeDoc, CadDoc } from "../cadShapes";
 
 let seq = 0;
@@ -118,6 +118,30 @@ describe("a section view on the sheet", () => {
     const numerals = (s: Sheet): number => count(/<g data-layer="callouts">.*?<\/g>/.exec(s.svg)![0], /<text/g);
     expect(numerals(alone)).toBe(1);
     expect(numerals(both)).toBe(1);
+  });
+
+  test("hatching on a part drawn small never closes up: the lines stay at least 1.5 mm apart on paper", () => {
+    // A 1000 mm ring with a 2 mm wall, cut across: from its area alone the spacing would print at about 1 mm.
+    const m = meshOf(body(tube(500, 498, 100)));
+    const s = sheet(m, { views: [front, sec([-600, 50], [600, 50])] });
+    expect(s.notes).toEqual([]);
+    const d = /data-hatch="1" d="([^"]*)"/.exec(s.svg)![1];
+    const cs = [...d.matchAll(/M([\d.]+) ([\d.]+)/g)].map((q) => (Number(q[1]) + Number(q[2])) / Math.SQRT2); // across 45° lines, px
+    // One lane per hatch line (a line crosses the ring twice; its two pieces agree to the SVG's 0.01 px rounding).
+    const lanes: number[] = [];
+    for (const c of [...cs].sort((a, b) => a - b)) if (!lanes.length || c - lanes[lanes.length - 1] > 0.5) lanes.push(c);
+    expect(lanes.length).toBeGreaterThan(10);
+    const gapMm = Math.min(...lanes.slice(1).map((c, i) => c - lanes[i])) / (96 / 25.4);
+    expect(gapMm).toBeGreaterThanOrEqual(HATCH_MIN_GAP_MM - 0.01);
+  });
+
+  test("hidden lines behind the cutting plane are left out of the section unless asked for", () => {
+    // A small block on the base, behind the post's cut face: hidden in the section.
+    const m = meshOf(body(box(40, 20, 10)), body(box(10, 10, 20), at(0, 0, 10)), body(box(4, 4, 4), at(20, 2, 10)));
+    const hiddenPaths = (sh: Sheet): number => count(/<g data-layer="hidden">.*?<\/g>/.exec(sh.svg)?.[0] ?? "", /<path/g);
+    const asme = sheet(m, { standard: "asme", views: [front, cutAcrossPost] });
+    const asked = sheet(m, { standard: "asme", views: [front, cutAcrossPost], showHidden: true });
+    expect(hiddenPaths(asked)).toBe(hiddenPaths(asme) + 1);
   });
 
   test("a sheet with no section or perspective is drawn as before (no cutting line, no hatching)", () => {

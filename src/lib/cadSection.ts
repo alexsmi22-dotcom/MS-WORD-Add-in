@@ -341,9 +341,11 @@ const MAX_LINES_PER_BODY = 400;
  * The hatching of the cut regions: one style per body ("the various parts of a cross section of the same item
  * should be hatched in the same manner"), juxtaposed bodies given different styles (greedy, over bodies whose cuts'
  * boxes touch), lines on a grid fixed to the view so a body cut into pieces is hatched as one. Spacing from the total
- * cut area ("chosen on the basis of the total area to be hatched").
+ * cut area ("chosen on the basis of the total area to be hatched"), but never closer than `minSpacing` (model units)
+ * for any style — the sheet passes what still reads on paper ("spaced sufficiently apart to enable the lines to be
+ * distinguished without difficulty"); the base spacing is raised, so the styles keep their ratios and stay distinct.
  */
-export function hatchRegions(regions: CutRegion[], budget?: LineBudget): { lines: Polyline[]; styleOf: Map<number, number>; spacing: number } {
+export function hatchRegions(regions: CutRegion[], budget?: LineBudget, minSpacing = 0): { lines: Polyline[]; styleOf: Map<number, number>; spacing: number } {
   const lines: Polyline[] = [];
   const styleOf = new Map<number, number>();
   if (!regions.length) return { lines, styleOf, spacing: 0 };
@@ -353,8 +355,10 @@ export function hatchRegions(regions: CutRegion[], budget?: LineBudget): { lines
   const ringsOf = (r: CutRegion): Pt2[][] => [r.outer, ...r.holes];
   let total = 0;
   for (const r of regions) total += Math.abs(area2(r.outer)) - r.holes.reduce((s, h) => s + Math.abs(area2(h)), 0);
-  const spacing = Math.sqrt(Math.max(total, 0)) / 14;
-  if (!(spacing > 0)) return { lines, styleOf, spacing: 0 };
+  const kMin = Math.min(...HATCH_STYLES.map((s) => s.k));
+  const fromArea = Math.sqrt(Math.max(total, 0)) / 14;
+  if (!(fromArea > 0)) return { lines, styleOf, spacing: 0 };
+  const spacing = minSpacing > 0 && Number.isFinite(minSpacing) ? Math.max(fromArea, minSpacing / kMin) : fromArea;
   // Boxes per body, and which bodies touch.
   const bodies = [...new Set(regions.map((r) => r.body))].sort((a, b) => a - b);
   const box = new Map<number, [number, number, number, number]>();
@@ -363,7 +367,7 @@ export function hatchRegions(regions: CutRegion[], budget?: LineBudget): { lines
     for (const [x, y] of r.outer) (b[0] = Math.min(b[0], x)), (b[1] = Math.min(b[1], y)), (b[2] = Math.max(b[2], x)), (b[3] = Math.max(b[3], y));
     box.set(r.body, b);
   }
-  const eps = spacing * 1e-3;
+  const eps = fromArea * 1e-3;
   const touch = (a: number, b: number): boolean => {
     const p = box.get(a)!, q = box.get(b)!;
     return p[0] <= q[2] + eps && q[0] <= p[2] + eps && p[1] <= q[3] + eps && q[1] <= p[3] + eps;

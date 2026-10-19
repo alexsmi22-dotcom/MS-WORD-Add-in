@@ -61,9 +61,20 @@ const isComplexMetal = (z: number): boolean => (z >= 21 && z <= 30) || (z >= 39 
 export function labelSide(f: XNode, n: XNode): "left" | "right" | null {
   // The label's justification says which letter sits on the atom (ChemDraw's own rule): left-justified,
   // the first (read as written right of a bond); right-justified, the last.
-  const just = n.children.find((c) => c.name === "t")?.attrs.LabelJustification;
+  const t = n.children.find((c) => c.name === "t");
+  const just = t?.attrs.LabelJustification;
   if (just === "Left") return "right";
   if (just === "Right") return "left";
+  // A label stacked above or below its atom (as cdxmlRender draws it): a one-line label is split at its element
+  // symbol, which sits on the atom — bonded at its first letter; in a multi-line label the line on the atom is the
+  // last (Above) or the first (Below), bonded there when that line is an element symbol. Not the bond's side.
+  const stack = just === "Above" || just === "Below" ? just : t?.attrs.LabelAlignment === "Above" || t?.attrs.LabelAlignment === "Below" ? t.attrs.LabelAlignment : "";
+  if (stack && t) {
+    const lines = t.children.filter((c) => c.name === "s").map((c) => c.text).join("").split(/\r\n|\r|\n/);
+    if (lines.length === 1) return "right";
+    if (stack === "Above" && /^[A-Z][a-z]?$/.test(lines[lines.length - 1].trim())) return "left";
+    if (stack === "Below" && /^[A-Z][a-z]?$/.test(lines[0].trim())) return "right";
+  }
   const b = f.children.find((q) => q.name === "b" && (q.attrs.B === n.attrs.id || q.attrs.E === n.attrs.id));
   if (!b) return null;
   const other = f.children.find((c) => c.name === "n" && c.attrs.id === (b.attrs.B === n.attrs.id ? b.attrs.E : b.attrs.B));

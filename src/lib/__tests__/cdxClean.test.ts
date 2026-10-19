@@ -298,17 +298,31 @@ describe("review of Clean (round 8)", () => {
   });
   test("2. a stacked label (Me / O, Above) is left exactly as drawn", () => {
     const d = page('<fragment id="10"><n id="101" p="105 160"/><n id="102" p="130 145"/><n id="103" p="155 160" NodeType="Unspecified"><t p="155 160" LabelJustification="Above"><s font="3" size="10">Me\nO</s></t></n><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/></fragment>'.replace("Me\nO", "Me\nO"));
-    const r = cleanStructures(d);
+    expect(cleanStructures(d)).toBeNull();
     const t = findById(d.root, "103")!.el.children.find((c) => c.name === "t")!;
-    if (r === null) {
       expect(t.attrs.LabelJustification).toBe("Above");
       expect(t.children.map((s) => s.text).join("")).toBe("Me\nO");
-    }
   });
   test("3. a bold OMe rewritten for its new side stays bold, with the formula style for its digits", () => {
     const d = chain("OMe", "Left", ' face="1"');
     expect(cleanStructures(d)).toBeNull();
     const run = findById(d.root, "104")!.el.children.find((c) => c.name === "t")!.children[0];
     if (run.text !== "OMe") expect(Number(run.attrs.face) & 0x61).toBe(0x61);
+  });
+});
+
+describe("review of Clean (round 9)", () => {
+  test("1. a label already drawn across its bond and kept on the same side is not refused (its reading does not change)", () => {
+    const d = page('<fragment id="10"><n id="101" p="205 160"/><n id="102" p="180 145"/><n id="103" p="155 160"/><n id="104" p="130 145" NodeType="Unspecified"><t p="130 145" LabelJustification="Left"><s font="3" size="10">MeO</s></t></n><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/><b id="107" B="103" E="104"/></fragment>');
+    const r = cleanStructures(d);
+    const n = findById(d.root, "104")!.el;
+    const dx = Number(findById(d.root, "103")!.el.attrs.p.split(" ")[0]) - Number(n.attrs.p.split(" ")[0]);
+    if (dx > 1) expect(r).toBeNull();
+  });
+  test("3. a label with a colour on part of it only does not spread that colour when rewritten", () => {
+    const d = page('<fragment id="10"><n id="101" p="105 160"/><n id="102" p="130 145"/><n id="103" p="155 160"/><n id="104" p="180 145" NodeType="Unspecified"><t p="180 145" LabelJustification="Left"><s font="3" size="10" color="5">O</s><s font="3" size="10">Me</s></t></n><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/><b id="107" B="103" E="104"/></fragment>');
+    expect(cleanStructures(d)).toBeNull();
+    const runs = findById(d.root, "104")!.el.children.find((c) => c.name === "t")!.children;
+    if (runs.map((s) => s.text).join("") === "MeO") expect(runs.every((s) => s.attrs.color === undefined)).toBe(true);
   });
 });

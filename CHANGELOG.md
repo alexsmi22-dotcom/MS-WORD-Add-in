@@ -104,6 +104,11 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   where it reads as isothiocyanate) makes Clean refuse, never keep it drawn across its bond; stacked and centred
   labels are left exactly as drawn; a rewritten label keeps its own bold / italic.
 
+### Fixed before release (review: 2 false refusals + 2 small)
+- A label stacked above or below its atom is read by the line on the atom (as it is drawn), not the side of its
+  bond, so Clean keeps a stacked Me / O methoxy without refusing; a label already drawn across its bond and left on
+  the same side is not refused; a rewritten label takes only the style all its parts share.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

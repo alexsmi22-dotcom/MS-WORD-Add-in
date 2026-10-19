@@ -211,12 +211,17 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
     const keepOwnAttrs = (id: string, old: XNode): void => {
       const t1 = findById(doc.root, id)?.el.children.find((c) => c.name === "t");
       if (!t1) return;
-      const oldRun = old.children.find((q) => q.name === "s")?.attrs ?? {};
+      // The style the label's runs share (a colour or bold on part of it only is not spread over the rest).
+      const runs = old.children.filter((q) => q.name === "s").map((q) => q.attrs);
+      const oldRun: Record<string, string> = {};
+      for (const k of new Set(runs.flatMap((r) => Object.keys(r)))) if (k !== "face" && runs.every((r) => r[k] === runs[0][k])) oldRun[k] = runs[0][k];
+      const faces = runs.map((r) => Number(r.face ?? doc.root.attrs.LabelFace ?? 0) || 0);
+      if (runs.length) oldRun.face = String(faces.reduce((m, f) => m & f, 0x1f));
       t1.attrs = { ...old.attrs, p: t1.attrs.p, BoundingBox: t1.attrs.BoundingBox, LabelJustification: t1.attrs.LabelJustification };
       if (old.attrs.LabelAlignment) t1.attrs.LabelAlignment = t1.attrs.LabelJustification ?? "Left";
       const r1 = t1.children.find((q) => q.name === "s");
       // Its own bold / italic kept, with the formula style that sets its digits as subscripts.
-      const ownFace = Number(oldRun.face ?? doc.root.attrs.LabelFace ?? 0) || 0;
+      const ownFace = Number(oldRun.face ?? 0) || 0;
       if (r1) r1.attrs = { ...oldRun, face: String((ownFace & 0x1f) | 0x60) };
     };
     // Labels after the move. An element's label is turned for its new side, its hydrogens as drawn (OH ↔ HO).
@@ -246,7 +251,7 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       if (!meant) {
         // It read as no group. Read from its other end it is a group (L ≠ R): now on that side, a reader would see
         // that group — refused. Still on its side (or straight above / below), its reading is kept.
-        if (after && after !== was) return "laying this structure out again would change what it reads as (a label that would read as another group on its new side) — it keeps its layout; move its atoms by hand";
+        if (after && after !== was && after !== before) return "laying this structure out again would change what it reads as (a label that would read as another group on its new side) — it keeps its layout; move its atoms by hand";
         if ((labelSide(frag, nd) ?? "right") !== was) realignLabel(doc, id, was === "left");
         continue;
       }

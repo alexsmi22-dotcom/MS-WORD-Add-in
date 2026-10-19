@@ -20,7 +20,7 @@ import type { XNode } from "./xmlLite";
 import { findById, nextIdFrom, setAtomLabel } from "./cdxmlEdit";
 import { symbolFor } from "./periodic";
 import { groupSmilesBySide } from "./labelExpand";
-import { applyAtomQuery, applyBondQuery, ATOM_QUERY_ATTRS, atomQueryAttrs, baseBondType, bondQueryAttrs, elementListLabel, isQueryOrder, parseElementList, queryOrders, stereoGroupOf } from "./cdxQuery";
+import { applyAtomQuery, applyBondQuery, atomQueryAttrs, atomQueryConstrains, baseBondType, bondQueryAttrs, bondQueryConstrains, comparableCopy, elementListLabel, hasStereoGroup, isQueryOrder, parseElementList, queryOrders, stereoGroupOf } from "./cdxQuery";
 import { atomicNumber } from "./periodic";
 
 const elementSymbol = (z: number): string => symbolFor(z) ?? `element ${z}`;
@@ -113,7 +113,7 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         if (q) mol.setAtomCharge(a, q);
         const iso = Number(n.attrs.Isotope ?? 0);
         if (iso) mol.setAtomMass(a, iso);
-        if (n.attrs.Radical) {
+        if (n.attrs.Radical && n.attrs.Radical !== "None") {
           const r = RADICAL_TO_OCL[n.attrs.Radical];
           if (r === undefined) return { ok: false, reason: `a ${n.attrs.Radical} radical has no exact form in a structure` };
           mol.setAtomRadical(a, r);
@@ -122,7 +122,7 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         atomIds.push(n.attrs.id);
         const sg = stereoGroupOf(n.attrs);
         if (typeof sg === "string") return { ok: false, reason: sg };
-        if (sg || ATOM_QUERY_ATTRS.some((k) => n.attrs[k] !== undefined)) atomProps.push({ id: n.attrs.id, attrs: n.attrs });
+        if (sg || atomQueryConstrains(n.attrs)) atomProps.push({ id: n.attrs.id, attrs: n.attrs });
         continue;
       }
       if (type === "ElementList") {
@@ -130,8 +130,14 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         if (n.attrs.GenericList) return { ok: false, reason: "an atom list naming generic groups has no exact form in a structure" };
         const lst = parseElementList(n.attrs.ElementList, labelWords(n), atomicNumber);
         if (typeof lst === "string") return { ok: false, reason: lst };
+        if (n.attrs.Isotope) return { ok: false, reason: "an atom list with an isotope has no exact form here" };
+        if (n.attrs.Radical && n.attrs.Radical !== "None") return { ok: false, reason: "an atom list with a radical has no exact form here" };
+        const sgl = stereoGroupOf(n.attrs);
+        if (typeof sgl === "string") return { ok: false, reason: sgl };
         // The list says which elements; the atom under it is a carbon, as OCL's own lists are.
         const a = mol.addAtom(6);
+        const ql = Number(n.attrs.Charge ?? 0);
+        if (ql) mol.setAtomCharge(a, ql);
         mol.setAtomX(a, x / L);
         mol.setAtomY(a, y / L);
         index.set(n.attrs.id, a);
@@ -139,6 +145,8 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         atomProps.push({ id: n.attrs.id, attrs: n.attrs, list: lst });
         continue;
       }
+      if (atomQueryConstrains(n.attrs) || hasStereoGroup(n.attrs))
+        return { ok: false, reason: `${quoted(labelWords(n) || n.attrs.GenericNickname || "a label")} carries a query feature or a stereo group, which has no form on a ${type === "GenericNickname" ? "generic atom" : "label"} here` };
       if (type === "GenericNickname") {
         const nick = n.attrs.GenericNickname ?? labelWords(n);
         const m = /^R(\d{0,2})$/.exec(nick);
@@ -213,6 +221,7 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
             continue;
           }
           if (c.attrs.NodeType && c.attrs.NodeType !== "Element") return { ok: false, reason: `${quoted(words)} holds an atom this cannot read (${c.attrs.NodeType})` };
+          if (atomQueryConstrains(c.attrs) || hasStereoGroup(c.attrs)) return { ok: false, reason: `${quoted(words)} holds an atom with a query feature or a stereo group, which has no form inside an abbreviation here` };
           const a = mol.addAtom(Number(c.attrs.Element ?? 6));
           innerPos.set(a, posOf(c));
           const q = Number(c.attrs.Charge ?? 0);
@@ -226,6 +235,7 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
           if (b.name !== "b") continue;
           const ia = map.get(b.attrs.B), ib = map.get(b.attrs.E);
           if (ia === undefined || ib === undefined) continue; // a bond to the connection point
+          if (bondQueryConstrains(b.attrs)) return { ok: false, reason: `${quoted(words)} holds a query bond, which has no form inside an abbreviation here` };
           const why = addBondOf(mol, ia, ib, b, wavy);
           if (why) return { ok: false, reason: `${quoted(words)}: ${why}` };
         }
@@ -282,11 +292,12 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
       if (ia === undefined || ib === undefined) return { ok: false, reason: "a bond joins an atom that is not in the structure" };
       const why = addBondOf(mol, ia, ib, b, wavy);
       if (why) return { ok: false, reason: why };
-      if (isQueryOrder(b.attrs.Order) || (b.attrs.Topology && b.attrs.Topology !== "Unspecified")) bondProps.push({ a0: ia, a1: ib, attrs: b.attrs });
+      if (bondQueryConstrains(b.attrs)) bondProps.push({ a0: ia, a1: ib, attrs: b.attrs });
     }
   }
   // Aromatic bonds (drawn as such) become alternating single and double bonds before anything is counted.
-  const arom = resolveAromatic(mol, frags, index);
+  const listAtoms = new Set(atomProps.filter((p) => p.list).map((p) => index.get(p.id)!).filter((a) => a !== undefined));
+  const arom = resolveAromatic(mol, frags, index, listAtoms);
   if (arom) return { ok: false, reason: arom };
   // OCL moves hydrogen atoms (and their bonds) to the end when it builds its helper arrays: each atom is
   // tagged first, so the page's ids — and the wavy bonds — still name their own atoms afterwards.
@@ -358,7 +369,7 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         if (p.list) mol.setAtomList(a, p.list.list, p.list.not);
         return applyAtomQuery(mol, a, p.attrs, () => rb);
       });
-      if (p.list || ATOM_QUERY_ATTRS.some((k) => p.attrs[k] !== undefined && p.attrs[k] !== "Unspecified")) query = true;
+      if (p.list || atomQueryConstrains(p.attrs)) query = true;
     }
     for (const p of bondProps) {
       const a0 = moved.get(p.a0), a1 = moved.get(p.a1);
@@ -381,7 +392,7 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
  * that gives a lone pair instead (a pyrrole NH, the O of a furan, a charged carbon as in C₅H₅⁻ or C₇H₇⁺)
  * may stay single. No such pattern: refused by name. Bounded search (AROMATIC_STEPS). Null when done.
  */
-function resolveAromatic(mol: Molecule, frags: XNode[], index: Map<string, number>): string | null {
+function resolveAromatic(mol: Molecule, frags: XNode[], index: Map<string, number>, listAtoms: ReadonlySet<number> = new Set()): string | null {
   const nb = mol.getAllBonds();
   const deloc: number[] = [];
   for (let b = 0; b < nb; b++) if ((mol.getBondType(b) & Molecule.cBondTypeMaskSimple) === Molecule.cBondTypeDelocalized) deloc.push(b);
@@ -412,7 +423,9 @@ function resolveAromatic(mol: Molecule, frags: XNode[], index: Map<string, numbe
     const used = edges.length + (otherOrder.get(a) ?? 0) + (h ?? 0);
     const max = z === 6 ? 4 : z === 7 || z === 15 ? 3 + Math.sign(q) : z === 8 || z === 16 || z === 34 || z === 52 ? 2 + Math.sign(q) : Infinity;
     let r: Role;
-    if (used + 1 > max) r = "forbidden"; // no room for a double bond (2-pyridone's C=O carbon, an N⁺ with four bonds)
+    // An atom list (a query: [N,O,S] in a heteroaryl ring) may take a double bond or give a lone pair.
+    if (listAtoms.has(a)) r = "optional";
+    else if (used + 1 > max) r = "forbidden"; // no room for a double bond (2-pyridone's C=O carbon, an N⁺ with four bonds)
     else if (z === 6) r = q === 0 ? "required" : "optional";
     else if (z === 7 || z === 15) r = q > 0 ? "required" : q < 0 ? "forbidden" : h === 0 ? "required" : "optional";
     else if (z === 8 || z === 16 || z === 34 || z === 52) r = q > 0 ? "required" : "forbidden";
@@ -669,7 +682,7 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
   const back = readCdxmlTree(doc.root);
   const read = back.ok ? pageToMolecule(back.doc, new Set([frag.attrs.id])) : null;
   if (read?.ok && mol.isFragment() && !read.value.mol.isFragment()) read.value.mol.setFragment(true);
-  if (!read?.ok || read.value.mol.getIDCode() !== mol.getIDCode()) {
+  if (!read?.ok || comparableCopy(read.value.mol).getIDCode() !== comparableCopy(mol).getIDCode()) {
     page.children = page.children.filter((c) => c !== frag);
     return { ok: false, reason: read && !read.ok ? read.reason : "the structure carries something this page cannot keep exactly (a query feature ChemDraw has no form for) — it is not redrawn without it" };
   }

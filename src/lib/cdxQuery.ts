@@ -52,8 +52,10 @@ export function queryOrders(order: string): string[] | string {
   return parts;
 }
 
-/** A query bond's base type (the first order listed) for OCL's addBond. */
-export const baseBondType = (orders: string[]): number => BOND_TYPE[orders[0]];
+/** The fixed sequence query orders are written and read in (OCL matches the listed orders only; the bond's own type is the first of them). */
+const ORDER_SEQ = ["1", "2", "3", "1.5"];
+/** A query bond's base type: the first of its orders in the fixed sequence (never aromatic beside another order), whatever order they are listed in. */
+export const baseBondType = (orders: string[]): number => BOND_TYPE[ORDER_SEQ.find((o) => orders.includes(o)) ?? orders[0]];
 
 /** The ElementList attribute (or the label text "[N,O]", "NOT [F,Cl]") as atomic numbers. */
 export function parseElementList(attr: string | undefined, label: string, atomicNumber: (s: string) => number | null): { list: number[]; not: boolean } | string {
@@ -206,11 +208,39 @@ export function bondQueryAttrs(mol: Molecule, b: number, ownOrder: string): Attr
   else if (q.notRing) out.Topology = "Chain";
   const listed = [["1", q.single], ["2", q.double], ["3", q.triple], ["1.5", q.delocalized]].filter(([, on]) => on).map(([o]) => o as string);
   if (listed.length) {
-    // The orders OCL lists are the ones the bond may be; its own order leads where it is one of them.
-    const orders = listed.includes(ownOrder) ? [ownOrder, ...listed.filter((o) => o !== ownOrder)] : listed;
+    // The orders OCL lists are the ones the bond may be (its own type is not one unless listed), in the fixed sequence.
+    const orders = ORDER_SEQ.filter((o) => listed.includes(o));
     if (orders.length > 1 || orders[0] !== ownOrder) out.Order = orders.join(" ");
   }
   return out;
+}
+
+/** Whether a node's attributes set a query feature (a value meaning "unspecified" does not). */
+export function atomQueryConstrains(a: Attrs): boolean {
+  const rb = a.RingBondCount, un = a.UnsaturatedBonds;
+  return (!!rb && rb !== "Unspecified" && rb !== "-1") || a.SubstituentsExactly !== undefined || a.SubstituentsUpTo !== undefined || a.FreeSites !== undefined || (!!un && un !== "Unspecified" && un !== "0");
+}
+/** Whether a node names an AND / OR stereo group. */
+export const hasStereoGroup = (a: Attrs): boolean => ["Or", "And", "3", "4"].includes(a.EnhancedStereoType ?? "");
+/** Whether a bond's attributes set a query feature (several orders, or ring / chain). */
+export function bondQueryConstrains(a: Attrs): boolean {
+  const t = a.Topology;
+  return isQueryOrder(a.Order) || (!!t && t !== "Unspecified" && t !== "RingOrChain" && t !== "0" && t !== "3");
+}
+/** Whether ChemDraw shows a node's (or bond's) marks: its own Show… attribute, else the document's ("no" hides). */
+export const showsMarks = (own: Attrs, doc: Attrs, key: "ShowAtomQuery" | "ShowAtomEnhancedStereo" | "ShowBondQuery"): boolean => (own[key] ?? doc[key]) !== "no";
+
+/**
+ * A copy of a query structure with what neither side records exactly made alike, for comparing idcodes: an
+ * atom list's atom is a carbon (the list says which elements; the page keeps no atom under it).
+ */
+export function comparableCopy(mol: Molecule): Molecule {
+  const c = mol.getCompactCopy();
+  for (let a = 0; a < c.getAllAtoms(); a++) {
+    const list = c.getAtomList(a);
+    if (list && list.length && c.getAtomicNo(a) !== 6) c.setAtomicNo(a, 6);
+  }
+  return c;
 }
 
 /** Short marks for a node's query attributes, as drawn beside the atom (MDL's s / rb / u notation). */

@@ -7,6 +7,7 @@ import { TextDecoder as NodeTextDecoder } from "util";
 import { Molecule } from "openchemlib/full";
 import { createChemCanvas } from "../../taskpane/chemCanvas";
 import { findById } from "../cdxmlEdit";
+import { readCdxml } from "../cdxml";
 
 (globalThis as unknown as { TextDecoder: unknown }).TextDecoder ??= NodeTextDecoder;
 
@@ -140,4 +141,43 @@ test("setMolecule with an AND group and a query atom (as the pane reopens a stru
   t.c.setMolecule(m);
   const chem = t.c.chemistry();
   expect(chem.ok && chem.mol.getIDCode()).toBe(want);
+});
+
+describe("review of the Properties panel", () => {
+  test("6. after Undo the panel shows the page as it is: the next change does not bring back what was undone", () => {
+    const t = setup();
+    t.click(100, 100);
+    t.tool("props");
+    const a = t.atoms()[0];
+    t.click(...a.p);
+    t.set("stereo", "And");
+    document.querySelector<HTMLButtonElement>('[data-chem-action="undo"]')!.click();
+    expect(t.prop<HTMLSelectElement>("stereo").value).toBe("Absolute");
+    t.set("unsaturation", "MustBeAbsent");
+    const attrs = findById(t.c.page().root, a.id)!.el.attrs;
+    expect(attrs.EnhancedStereoType).toBeUndefined();
+    expect(attrs.UnsaturatedBonds).toBe("MustBeAbsent");
+  });
+  test("12. a stereo group number out of range is said, never quietly made 1", () => {
+    const t = setup();
+    t.click(100, 100);
+    t.tool("props");
+    const a = t.atoms()[0];
+    t.click(...a.p);
+    t.set("stereo", "Or");
+    t.set("group", "0");
+    expect(t.last()).toEqual(["A stereo group is numbered 1 to 32.", "error"]);
+    expect(findById(t.c.page().root, a.id)!.el.attrs.EnhancedStereoGroupNum).toBe("1");
+  });
+  test("11. a dative bond keeps its order; its ring / chain can still be set", () => {
+    const t = setup();
+    const d = readCdxml('<CDXML BondLength="30"><page id="900"><fragment id="10"><n id="101" p="100 100"/><n id="102" p="130 100" Element="26"/><b id="103" B="101" E="102" Order="dative"/></fragment></page></CDXML>');
+    if (!d.ok) throw new Error(d.reason);
+    t.c.loadPage(d.doc);
+    t.tool("props");
+    t.click(115, 100);
+    expect(document.querySelector<HTMLInputElement>('[data-chem-prop-order="1"]')!.disabled).toBe(true);
+    t.set("topology", "Chain");
+    expect(findById(t.c.page().root, "103")!.el.attrs).toMatchObject({ Order: "dative", Topology: "Chain" });
+  });
 });

@@ -10,7 +10,7 @@
  * own output for the same file.
  */
 import { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxGraphic, CdxItem, CdxNode, CdxRun, CdxText, cssColor, Pt } from "./cdxml";
-import { atomQueryMarks, bondQueryMarks, stereoGroupMark } from "./cdxQuery";
+import { atomQueryMarks, bondQueryMarks, showsMarks, stereoGroupMark } from "./cdxQuery";
 
 const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
 /** Hash marks or wave segments on one bond, at most. */
@@ -173,10 +173,8 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   for (const ob of doc.objects)
     for (const it of ob.items)
       if (it.kind === "graphic") for (const c of it.v.el.children) if (c.name === "represent" && c.attrs.attribute === "Radical" && c.attrs.object) radicalDrawn.add(c.attrs.object);
-  // ChemDraw draws query marks and stereo-group labels when the document says to show them (shown unless "no").
-  const showAtomQuery = doc.root.attrs.ShowAtomQuery !== "no";
-  const showBondQuery = doc.root.attrs.ShowBondQuery !== "no";
-  const showStereoGroups = doc.root.attrs.ShowAtomEnhancedStereo !== "no";
+  // ChemDraw draws query marks and stereo-group labels where the node (else the document) says to show them.
+  const docAttrs = doc.root.attrs;
   /** A small mark beside an atom or bond (query marks, &1 / or1), at 75 % of the label size. */
   const mark = (at: Pt, txt: string, anchor: "start" | "middle" | "end", z: number, italic = false): void => {
     const size = st.labelSize * 0.75;
@@ -347,7 +345,7 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       } else if (order === "hydrogen" || order === "0.5") parts.push(line(p0, p1, lw, dash));
       else styled(p0, p1, disp);
       prims.push({ z: bd.z, svg: parts.join("") });
-      if (showBondQuery) {
+      if (showsMarks(bd.el.attrs, docAttrs, "ShowBondQuery")) {
         const marks = bondQueryMarks(bd.el.attrs);
         if (marks.length) {
           const mid: Pt = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
@@ -378,7 +376,7 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       }
       const bx = nd.label?.box;
       const rad = nd.el.attrs.Radical;
-      if (rad && !radicalDrawn.has(nd.id)) {
+      if (rad && rad !== "None" && !radicalDrawn.has(nd.id)) {
         // A doublet as one dot, a singlet or triplet as two, above the atom (its label).
         const r = st.labelSize * 0.09;
         const cx = bx ? (bx[0] + bx[2]) / 2 : nd.p[0];
@@ -388,8 +386,8 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         grow([cx, cy], r * 3);
       }
       // Stereo-group label and query marks on the side of the atom away from its bonds (one line each).
-      const g = showStereoGroups ? stereoGroupMark(nd.el.attrs) : null;
-      const q = showAtomQuery ? atomQueryMarks(nd.el.attrs) : [];
+      const g = showsMarks(nd.el.attrs, docAttrs, "ShowAtomEnhancedStereo") ? stereoGroupMark(nd.el.attrs) : null;
+      const q = showsMarks(nd.el.attrs, docAttrs, "ShowAtomQuery") ? atomQueryMarks(nd.el.attrs) : [];
       if (g || q.length) {
         let dx = 0, dy = 0;
         for (const k of nbrs.get(nd.id) ?? []) {
@@ -412,7 +410,7 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         }
         if (q.length) mark(at, q.join(","), anchor, nd.z + 0.6);
       }
-      else if (nd.nodeType === "ExternalConnectionPoint") {
+      if (nd.nodeType === "ExternalConnectionPoint" && !(nd.charge && !chargeDrawn.has(nd.id))) {
         // A small diamond where no other mark is given.
         const s = st.boldWidth;
         prims.push({ z: nd.z, svg: `<path d="M${f2(nd.p[0])} ${f2(nd.p[1] - s)}L${f2(nd.p[0] + s)} ${f2(nd.p[1])}L${f2(nd.p[0])} ${f2(nd.p[1] + s)}L${f2(nd.p[0] - s)} ${f2(nd.p[1])}Z" fill="#000"/>` });

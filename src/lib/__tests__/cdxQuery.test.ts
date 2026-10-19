@@ -6,6 +6,7 @@ import { Molecule } from "openchemlib/full";
 import { readCdxml, readCdxmlTree, CdxDoc } from "../cdxml";
 import { blankPageCdxml, findById, setAtomLabel, setAtomProps, setBondProps } from "../cdxmlEdit";
 import { moleculeToPage, pageToMolecule } from "../cdxmlMol";
+import { renderCdx } from "../cdxmlRender";
 
 const blank = (): CdxDoc => {
   const r = readCdxml(blankPageCdxml());
@@ -204,4 +205,79 @@ test("regression (v2.156.0): a structure inserted from the old editor with an AN
 test("a feature OCL holds but does not show (an excluded group) is caught by the read-back check and refused, never dropped", () => {
   const m = query("CCCN", (q) => q.setAtomQueryFeature(1, Molecule.cAtomQFExcludeGroup, true));
   expect(roundTrip(m)).toBe("REFUSED: the structure carries something this page cannot keep exactly (a query feature ChemDraw has no form for) — it is not redrawn without it");
+});
+
+describe("review of the atom properties (13 findings)", () => {
+  const read = (inner: string) => {
+    const d = readCdxml(`<CDXML BondLength="30"><page id="900">${inner}</page></CDXML>`);
+    if (!d.ok) throw new Error(d.reason);
+    return pageToMolecule(d.doc);
+  };
+  test("1. a query bond inside an abbreviation is refused, never read as its first order", () => {
+    const et = '<fragment id="10"><n id="101" p="0 0"/><n id="102" p="30 0" NodeType="Nickname"><fragment id="20"><n id="21" p="0 0"/><n id="22" p="10 0"/><n id="23" p="-10 0" NodeType="ExternalConnectionPoint"/><b id="31" B="21" E="22" Order="1 2"/><b id="32" B="21" E="23"/></fragment><t p="30 0"><s font="3" size="10">Et</s></t></n><b id="103" B="101" E="102"/></fragment>';
+    expect(read(et)).toEqual({ ok: false, reason: "“Et” holds a query bond, which has no form inside an abbreviation here" });
+  });
+  test("2. an atom list keeps its charge; an isotope or radical on it is refused by name", () => {
+    const base = (extra: string) => `<fragment id="10"><n id="101" p="0 0"/><n id="102" p="30 0" NodeType="ElementList" ElementList="7 8" ${extra}/><b id="103" B="101" E="102"/></fragment>`;
+    const plain = read(base("")), charged = read(base('Charge="1"'));
+    expect(plain.ok && charged.ok && plain.value.mol.getIDCode() !== charged.value.mol.getIDCode()).toBe(true);
+    expect(read(base('Isotope="15"'))).toEqual({ ok: false, reason: "an atom list with an isotope has no exact form here" });
+    expect(read(base('Radical="Doublet"'))).toEqual({ ok: false, reason: "an atom list with a radical has no exact form here" });
+  });
+  test("3. a query feature on an R-group or on an atom inside an abbreviation is refused, never dropped", () => {
+    expect(read('<fragment id="10"><n id="101" p="0 0"/><n id="102" p="30 0" NodeType="GenericNickname" GenericNickname="R1" SubstituentsExactly="1"/><b id="103" B="101" E="102"/></fragment>')).toMatchObject({ ok: false });
+    const inner = '<fragment id="10"><n id="101" p="0 0"/><n id="102" p="30 0" NodeType="Nickname"><fragment id="20"><n id="21" p="0 0" UnsaturatedBonds="MustBePresent"/><n id="22" p="10 0"/><n id="23" p="-10 0" NodeType="ExternalConnectionPoint"/><b id="31" B="21" E="22"/><b id="32" B="21" E="23"/></fragment><t p="30 0"><s font="3" size="10">Et</s></t></n><b id="103" B="101" E="102"/></fragment>';
+    expect(read(inner)).toEqual({ ok: false, reason: "“Et” holds an atom with a query feature or a stereo group, which has no form inside an abbreviation here" });
+  });
+  test("4. an OCL atom list on an O (or N) atom is written, not falsely refused", () => {
+    const m = query("CCO", (q) => q.setAtomList(2, [7, 8], false));
+    expect(roundTrip(m)).not.toMatch(/^REFUSED/);
+  });
+  test("7. an aromatic five-ring with an atom list ([O,S] furan / thiophene) reads as a query", () => {
+    let s = "";
+    for (let i = 0; i < 5; i++) s += `<n id="${101 + i}" p="${(30 * Math.cos((2 * Math.PI * i) / 5)).toFixed(2)} ${(30 * Math.sin((2 * Math.PI * i) / 5)).toFixed(2)}"${i === 0 ? ' NodeType="ElementList" ElementList="8 16"' : ""}/>`;
+    for (let i = 0; i < 5; i++) s += `<b id="${201 + i}" B="${101 + i}" E="${101 + ((i + 1) % 5)}" Order="1.5"/>`;
+    const r = read(`<fragment id="10">${s}</fragment>`);
+    expect(r.ok && r.value.query).toBe(true);
+  });
+  test("8. values meaning 'unspecified' set no query (the structure keeps its formula)", () => {
+    const r = read('<fragment id="10"><n id="101" p="0 0" UnsaturatedBonds="0" RingBondCount="-1"/><n id="102" p="30 0"/><b id="103" B="101" E="102" Topology="RingOrChain"/></fragment>');
+    expect(r.ok && r.value.query).toBe(false);
+    expect(r.ok && r.value.mol.getMolecularFormula().formula).toBe("C2H6");
+  });
+  test("9. Radical=\"None\" (as the .cdx reader writes 0) is no radical", () => {
+    const r = read('<fragment id="10"><n id="101" p="0 0" Radical="None"/><n id="102" p="30 0"/><b id="103" B="101" E="102"/></fragment>');
+    expect(r.ok && r.value.mol.getMolecularFormula().formula).toBe("C2H6");
+  });
+  test("10. the listing order of a query bond's orders does not change the structure", () => {
+    const ring = (o: string): string => {
+      let s = "";
+      for (let i = 0; i < 6; i++) s += `<n id="${101 + i}" p="${(30 * Math.cos((2 * Math.PI * i) / 6)).toFixed(2)} ${(30 * Math.sin((2 * Math.PI * i) / 6)).toFixed(2)}"/>`;
+      for (let i = 0; i < 6; i++) s += `<b id="${201 + i}" B="${101 + i}" E="${101 + ((i + 1) % 6)}" Order="${i === 0 ? o : "1.5"}"/>`;
+      return `<fragment id="10">${s}</fragment>`;
+    };
+    const a = read(ring("1.5 2")), b = read(ring("2 1.5"));
+    expect(a.ok && b.ok && a.value.mol.getIDCode()).toBe(b.ok && b.value.mol.getIDCode());
+  });
+});
+
+describe("review: rendering", () => {
+  const svgOf = (inner: string, rootAttrs = ""): string => {
+    const d = readCdxml(`<CDXML BondLength="30" LabelSize="10"${rootAttrs}><page id="900">${inner}</page></CDXML>`);
+    if (!d.ok) throw new Error(d.reason);
+    return renderCdx(d.doc)!.svg;
+  };
+  test("5. a connection point keeps its diamond (also beside a mark)", () => {
+    expect(svgOf('<fragment id="10"><n id="101" p="0 0"/><n id="102" p="30 0" NodeType="ExternalConnectionPoint"/><b id="103" B="101" E="102"/></fragment>')).toMatch(/<path d="M30 -/);
+  });
+  test("13. a node's own ShowAtomQuery=\"no\" hides its marks; the document's \"no\" hides all, a node's \"yes\" shows its own", () => {
+    const frag = (show: string) => `<fragment id="10"><n id="101" p="0 0" SubstituentsExactly="2"${show}/><n id="102" p="30 0"/><b id="103" B="101" E="102"/></fragment>`;
+    expect(svgOf(frag(""))).toContain(">s2<");
+    expect(svgOf(frag(' ShowAtomQuery="no"'))).not.toContain(">s2<");
+    expect(svgOf(frag(""), ' ShowAtomQuery="no"')).not.toContain(">s2<");
+    expect(svgOf(frag(' ShowAtomQuery="yes"'), ' ShowAtomQuery="no"')).toContain(">s2<");
+  });
+  test("9. Radical=\"None\" draws no dots", () => {
+    expect(svgOf('<fragment id="10"><n id="101" p="0 0" Radical="None"/><n id="102" p="30 0"/><b id="103" B="101" E="102"/></fragment>')).not.toContain("<circle");
+  });
 });

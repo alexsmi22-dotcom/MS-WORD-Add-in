@@ -19,7 +19,7 @@ import {
 } from "../lib/cdxmlEdit";
 import { moleculeToPage, pageToMolecule } from "../lib/cdxmlMol";
 import { cleanStructures } from "../lib/cdxClean";
-import { atomQueryMarks, bondQueryMarks, stereoGroupMark } from "../lib/cdxQuery";
+import { atomQueryMarks, bondQueryMarks, showsMarks, stereoGroupMark } from "../lib/cdxQuery";
 import type { XNode } from "../lib/xmlLite";
 
 export type CanvasTool = "select" | "atom" | "bond" | "chain" | "ring" | "charge+" | "charge-" | "bracket" | "arrow" | "text" | "erase" | "props";
@@ -233,6 +233,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   };
 
   function draw(): void {
+    // The Properties panel shows the page as it is (after Undo / Redo too): never stale values to resubmit.
+    if (propTarget) showProps(propTarget);
     const r = (() => {
       try {
         return renderCdx(doc, { pad: 0 });
@@ -643,9 +645,13 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       unsatSel.value = a.UnsaturatedBonds ?? "";
       radSel.disabled = (a.NodeType ?? "Element") !== "Element";
     } else {
-      propsWhat.textContent = "Bond — may be:";
       const orders = (a.Order ?? "1").trim().split(/\s+/);
-      for (const [v, box] of orderBoxes) box.checked = orders.includes(v);
+      const plainOrders = orders.every((o) => ["1", "2", "3", "1.5"].includes(o));
+      propsWhat.textContent = plainOrders ? "Bond — may be:" : `Bond (order ${orders.join(" ")}, kept):`;
+      for (const [v, box] of orderBoxes) {
+        box.checked = orders.includes(v);
+        box.disabled = !plainOrders;
+      }
       topoSel.value = a.Topology === "Ring" || a.Topology === "Chain" ? a.Topology : "";
     }
   }
@@ -653,16 +659,23 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     const t = propTarget;
     if (!t) return;
     if (t.kind === "atom") {
+      const gnum = Number(groupIn.value);
+      if (stereoSel.value !== "Absolute" && !(Number.isInteger(gnum) && gnum >= 1 && gnum <= 32)) {
+        host.setStatus("A stereo group is numbered 1 to 32.", "error");
+        showProps(t);
+        return;
+      }
       const p: AtomProps = {
         radical: radSel.disabled ? undefined : (radSel.value as AtomProps["radical"]),
-        stereo: { type: stereoSel.value as "Absolute" | "And" | "Or", group: Math.round(Number(groupIn.value)) || 1 },
+        stereo: { type: stereoSel.value as "Absolute" | "And" | "Or", group: stereoSel.value === "Absolute" ? 1 : gnum },
         substituents: subSel.value as AtomProps["substituents"],
         ringBonds: ringBSel.value as AtomProps["ringBonds"],
         unsaturation: unsatSel.value as AtomProps["unsaturation"],
       };
       if (edit(() => setAtomProps(doc, t.id, p))) host.setStatus("Atom properties set — Undo takes them back.", "success");
     } else {
-      const orders = orderBoxes.filter(([, b]) => b.checked).map(([v]) => v);
+      const plain = !orderBoxes[0][1].disabled;
+      const orders = plain ? orderBoxes.filter(([, b]) => b.checked).map(([v]) => v) : undefined;
       if (edit(() => setBondProps(doc, t.id, { orders, topology: topoSel.value as "" | "Ring" | "Chain" }))) host.setStatus("Bond properties set — Undo takes them back.", "success");
     }
     showProps(t);
@@ -876,13 +889,13 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
         if (scope && !scope.has(o.id)) continue;
         for (const it of o.items) {
           if (it.kind === "text") for (const r of it.v.runs) if (r.text.trim()) min = Math.min(min, runSize(r));
-          if (it.kind === "fragment" && doc.root.attrs.ShowBondQuery !== "no" && it.v.bonds.some((bd) => bondQueryMarks(bd.el.attrs).length)) min = Math.min(min, doc.style.labelSize * 0.75);
+          if (it.kind === "fragment" && it.v.bonds.some((bd) => showsMarks(bd.el.attrs, doc.root.attrs, "ShowBondQuery") && bondQueryMarks(bd.el.attrs).length)) min = Math.min(min, doc.style.labelSize * 0.75);
           if (it.kind === "fragment")
             for (const nd of it.v.nodes) {
               for (const r of stackedRuns(nd.label) ?? nd.label?.runs ?? []) if (r.text.trim()) min = Math.min(min, runSize(r));
               if (nd.charge && !chargeDrawn.has(nd.id)) min = Math.min(min, doc.style.labelSize * 0.75);
               // Stereo-group labels (&1, or1) and query marks are drawn at 75 % of the label size.
-              if ((doc.root.attrs.ShowAtomEnhancedStereo !== "no" && stereoGroupMark(nd.el.attrs)) || (doc.root.attrs.ShowAtomQuery !== "no" && atomQueryMarks(nd.el.attrs).length)) min = Math.min(min, doc.style.labelSize * 0.75);
+              if ((showsMarks(nd.el.attrs, doc.root.attrs, "ShowAtomEnhancedStereo") && stereoGroupMark(nd.el.attrs)) || (showsMarks(nd.el.attrs, doc.root.attrs, "ShowAtomQuery") && atomQueryMarks(nd.el.attrs).length)) min = Math.min(min, doc.style.labelSize * 0.75);
             }
         }
       }

@@ -45,6 +45,16 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 - A radical changes a labelled atom's hydrogens (NH₂ made a radical shows NH); the marks are lettering, so the
   USPTO sizing counts them (75 % of the label size).
 
+### Fixed before release (adversarial review of the atom properties: 13 findings, pinned in cdxQuery.test.ts and chemCanvasProps.dom.test.ts)
+- A query bond, query feature or stereo group inside an abbreviation, or on an R-group, is refused by name (it was
+  read as a plain structure); an atom list keeps its charge, and an isotope or radical on one is refused.
+- An OCL atom list on an O or N atom is written (it was falsely refused); an aromatic ring with an atom list reads.
+- Values meaning "unspecified" set no query; Radical="None" is no radical; the listing order of a query bond's
+  orders no longer changes the structure.
+- The Properties panel follows Undo / Redo (it resubmitted undone values); a dative bond keeps its order; a stereo
+  group number out of range is said. A connection point keeps its diamond; ChemDraw's per-atom Show settings hide
+  or show that atom's marks.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

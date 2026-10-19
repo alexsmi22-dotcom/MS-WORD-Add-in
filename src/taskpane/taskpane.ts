@@ -8616,7 +8616,7 @@ function updateFinancePreview(): void {
   // Carry the assumptions into the DOCUMENT too. A number that leaves the pane
   // without them is the same defect one step further downstream — and the
   // document is where it gets relied on. pkaAsText already does this.
-  currentFinText = insertable ? [text, ...listNotes, ...(calc.assumes ? [`Assumes: ${calc.assumes}`] : [])].join("\n") : "";
+  currentFinText = insertable ? [text, ...listNotes.map((n) => `Note: ${n}`), ...(calc.assumes ? [`Assumes: ${calc.assumes}`] : [])].join("\n") : "";
   finInsertBtn.disabled = !insertable;
 
   // THE FIGURE, under the number and the assumptions.
@@ -8676,7 +8676,8 @@ const statCommaLog = new Map<string, string>();
  * call receives: a whole list field, one group, or one row.
  */
 function statList(s: string, cells = false): number[] {
-  const r = readNumberList(s, { cells });
+  // A forced cell keeps the field's ruling: a three-digit "1,250" in a decimal-comma field is 1.25.
+  const r = readNumberList(s, { cells, decimalField: cells });
   // The note is numberList's own sentence for THIS reading (decimalCommaNote),
   // so whatever the shared reader says it did is exactly what the user reads.
   const note = decimalCommaNote(r);

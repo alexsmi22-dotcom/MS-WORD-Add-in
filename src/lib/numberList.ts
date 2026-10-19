@@ -56,9 +56,11 @@ const SPACED_SCI = /(\d)[ \t]*([×xX·])[ \t]*10[ \t]*(?=\^|[⁻⁺⁰¹²³⁴�
 /**
  * `cells`: the comma's role was already decided for a larger field (one group or row of a Stats field read
  * as decimal commas), so this text is read as cells even when it is one run — "3,5" alone is 3.5, not 3
- * and 5. (A lone group or a one-column table in a decimal-comma field split in two: v2.160.0.)
+ * and 5. (A lone group in a decimal-comma field split in two: v2.160.0.) `decimalField`: that larger field
+ * proved a decimal comma, so a three-digit "1,250" here is 1.25 as it would be in the field — read alone it
+ * was 1250, silently (v2.160.0 review).
  */
-export function readNumberList(text: string, opts: { cells?: boolean } = {}): NumberListReading {
+export function readNumberList(text: string, opts: { cells?: boolean; decimalField?: boolean } = {}): NumberListReading {
   const runs = text
     .replace(SPACED_SCI, (_m, d: string, times: string) => `${d}${times}10`)
     .replace(/\^[ \t]+/g, "^")
@@ -74,7 +76,7 @@ export function readNumberList(text: string, opts: { cells?: boolean } = {}): Nu
   // commas. Said through `reread`.
   // A scientific-notation token's comma is its MANTISSA's ("1,5×10⁻⁵").
   const mantissa = (t: string): string => t.trim().replace(SCI_TAIL, "");
-  const decimalField = !commaListing && tokens.some((t) => isDecimalComma(mantissa(t)));
+  const decimalField = !commaListing && (!!opts.decimalField || tokens.some((t) => isDecimalComma(mantissa(t))));
   const THOUSANDS_SHAPE = /^([-−–]?\d{1,3}),(\d{3})(%?)$/;
   const GERMAN = /^[-−–]?\d{1,3}(\.\d{3})+,\d+%?$/;
   const values: number[] = [];
@@ -110,11 +112,13 @@ export function decimalCommaNote(r: NumberListReading): string {
   const first = reread.includes(r.example) ? r.example.trim().replace(",", ".") : r.example;
   // "1,5×10⁻⁵ → 1.5×10⁻⁵": String() of the value would print 1.5e-7 for a small one.
   const ex = r.example.trim();
-  const shown = SCI_TAIL.test(ex) && !ex.replace(SCI_TAIL, "").includes(".") ? r.example.trim().replace(",", ".") : String(parseCellNumber(first));
+  // Plain digits, never String()'s exponent ("0,0000001 → 1e-7"), and a true minus (the note goes into documents).
+  const plain = (v: number): string => trueMinus(v.toLocaleString("en-US", { useGrouping: false, maximumSignificantDigits: 15 }));
+  const shown = SCI_TAIL.test(ex) && !ex.replace(SCI_TAIL, "").includes(".") ? trueMinus(r.example.trim().replace(",", ".")) : plain(parseCellNumber(first));
   return (
     `${n} decimal comma${n === 1 ? "" : "s"} read as decimal${n === 1 ? "" : "s"} (${r.example} → ${shown}).` +
     (reread.length
-      ? ` ${reread.join(", ")} read as ${reread.map((t) => parseCellNumber(t.trim().replace(",", "."))).join(", ")}, not thousands, ` +
+      ? ` ${reread.join(", ")} read as ${reread.map((t) => plain(parseCellNumber(t.trim().replace(",", ".")))).join(", ")}, not thousands, ` +
         "because this field writes decimal commas."
       : "")
   );

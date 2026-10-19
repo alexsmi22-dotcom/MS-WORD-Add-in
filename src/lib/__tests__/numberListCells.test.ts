@@ -1,7 +1,7 @@
 // A group or row of one value in a Stats field that PROVES decimal commas is a cell ("4,5" is 4.5) — read alone
 // it was a comma list, 4 and 5. A field that proves nothing keeps each piece a comma list (numberList.ts
 // `cells`, statFields.ts statFieldProvesDecimalCommas).
-import { readNumberList } from "../numberList";
+import { decimalCommaNote, readNumberList } from "../numberList";
 import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../statFields";
 
 /** What statGroups / statTable do with a field (taskpane.ts): the comma's role decided once, each piece read under it. */
@@ -9,7 +9,7 @@ const pieces = (field: string, split: RegExp): number[][] => {
   const sep = statFieldCommasAreSeparators(field);
   const parts = field.split(split);
   const cells = !sep && statFieldProvesDecimalCommas(parts);
-  return parts.map((g) => readNumberList(sep ? g.replace(/,/g, " ") : g, { cells }).values).filter((g) => g.length > 0);
+  return parts.map((g) => readNumberList(sep ? g.replace(/,/g, " ") : g, { cells, decimalField: cells }).values).filter((g) => g.length > 0);
 };
 const groups = (field: string): number[][] => pieces(field, /\n\s*\n|;/);
 const table = (field: string): number[][] => pieces(field, /\n|;/);
@@ -52,5 +52,28 @@ describe("without `cells` nothing changes", () => {
   it("one run is still a comma list", () => {
     expect(readNumberList("3,5").values).toEqual([3, 5]);
     expect(readNumberList("1,2,3").values).toEqual([1, 2, 3]);
+  });
+});
+
+describe("a forced cell keeps the field's decimal ruling (v2.160.0 review 2)", () => {
+  const tableDec = (field: string): number[][] => {
+    const sep = statFieldCommasAreSeparators(field);
+    const rows = field.split(/\n|;/);
+    const cells = !sep && statFieldProvesDecimalCommas(rows);
+    return rows.map((g) => readNumberList(sep ? g.replace(/,/g, " ") : g, { cells, decimalField: cells }).values).filter((g) => g.length > 0);
+  };
+  it("a lone three-digit comma in a decimal-comma field is a decimal, said", () => {
+    expect(tableDec("1,5 2,5\n1,250")).toEqual([[1.5, 2.5], [1.25]]);
+    expect(tableDec("1,250 2,5\n100,200")).toEqual([[1.25, 2.5], [100.2]]);
+    const r = readNumberList("1,250", { cells: true, decimalField: true });
+    expect(r.reread).toEqual(["1,250"]);
+    expect(r.decimalCommas).toBe(1);
+  });
+});
+
+describe("the decimal-comma note is typeset (it goes into documents: v2.160.0 review 2)", () => {
+  it("no exponent, a true minus", () => {
+    expect(decimalCommaNote(readNumberList("0,0000001 2,5"))).toBe("2 decimal commas read as decimals (0,0000001 → 0.0000001).");
+    expect(decimalCommaNote(readNumberList("-0,5 2,5"))).toBe("2 decimal commas read as decimals (-0,5 → −0.5).");
   });
 });

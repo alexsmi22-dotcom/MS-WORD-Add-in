@@ -31,7 +31,7 @@ function statGroups(s: string): number[][] {
   const sep = statFieldCommasAreSeparators(s);
   const groups = s.split(/\n\s*\n|;/);
   const cells = !sep && statFieldProvesDecimalCommas(groups);
-  return groups.map((g) => readNumberList(sep ? g.replace(/,/g, " ") : g, { cells }).values).filter((g) => g.length > 0);
+  return groups.map((g) => readNumberList(sep ? g.replace(/,/g, " ") : g, { cells, decimalField: cells }).values).filter((g) => g.length > 0);
 }
 
 /** Decodes the TypeScript string-literal escapes that appear in defaults. */
@@ -123,7 +123,7 @@ describe("Stats calculator defaults produce a result, not a validation error", (
     expect(PANE).toContain("function statGroups(s: string): number[][] {");
     expect(PANE).toContain(".split(/\\n\\s*\\n|;/)");
     // statList delegates to the shared reader — no second comma rule in the pane.
-    expect(PANE).toContain("const r = readNumberList(s, { cells });");
+    expect(PANE).toContain("const r = readNumberList(s, { cells, decimalField: cells });");
     expect(PANE).toContain("const cells = !sep && statFieldProvesDecimalCommas(groups);");
     expect(PANE).not.toMatch(/function statList[^}]*split\(\/\[\\s,\]\+\//);
   });

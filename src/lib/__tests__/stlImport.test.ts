@@ -756,3 +756,26 @@ describe("review round 4", () => {
     expect(second).toBeLessThan(first / 3);
   }, 30000);
 });
+
+describe("review round 5", () => {
+  it("5-1. a refusal for time is the same whatever the layers or title block (they change no line)", () => {
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i < 1950; i++) {
+      const r = i % 2 ? 40 : 46, a = (2 * Math.PI * i) / 1950;
+      pts.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+    const tris: P3[][] = [];
+    for (let i = 0; i < 1950; i++) {
+      const a = pts[i], b = pts[(i + 1) % 1950];
+      tris.push([[a[0], a[1], 0], [b[0], b[1], 0], [b[0], b[1], 20]], [[a[0], a[1], 0], [b[0], b[1], 20], [a[0], a[1], 20]]);
+      tris.push([[0, 0, 0], [b[0], b[1], 0], [a[0], a[1], 0]], [[0, 0, 20], [a[0], a[1], 20], [b[0], b[1], 20]]);
+    }
+    const t = tessellate({ version: 1, bodies: [meshBody(bodyOf(bin(tris)).mesh)] });
+    if (!t.ok) throw new Error(t.reason);
+    const o = { standard: "asme" as const, views: [{ kind: "front" as const }, { kind: "iso" as const }], lineBudgetMs: 700 };
+    expect(layoutSheet(t.mesh, o).svg).toBe("");
+    const t0 = Date.now();
+    expect(layoutSheet(t.mesh, { ...o, layers: { titles: false } }).svg).toBe("");
+    expect(Date.now() - t0).toBeLessThan(200);
+  }, 30000);
+});

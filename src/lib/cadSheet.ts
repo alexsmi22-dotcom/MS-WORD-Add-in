@@ -214,8 +214,9 @@ let nextId = 0;
 const idOf = (x: object): number => ids.get(x) ?? (ids.set(x, ++nextId), nextId);
 
 export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
-  // What the sheet's time depends on: its views, callout points, marks, exploded model and clock.
-  const key = JSON.stringify([o.standard, o.views, (o.callouts ?? []).map((c) => c.anchor), o.marks ?? [], o.exploded ? idOf(o.exploded.mesh) : 0, o.lineBudgetMs ?? 0, o.format ?? null, o.layers ?? null]);
+  // What the sheet's time depends on, and nothing else (a layer or a title changes no line: fifth
+  // review): its standard, views, callout points, marks, exploded model and clock.
+  const key = JSON.stringify([o.standard, o.views, (o.callouts ?? []).map((c) => c.anchor), o.marks ?? [], o.exploded ? idOf(o.exploded.mesh) : 0, o.lineBudgetMs ?? 0]);
   const refused = refusedOf.get(mesh)?.get(key);
   const refuse = (why: string): Sheet => ({ svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [why] });
   if (refused) return refuse(refused);
@@ -235,6 +236,8 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
 
 /** A view's lines of a model, worked out once for every sheet of that model object. */
 function linesFor(mesh: Mesh, spec: ViewSpec, view: CadView, budget: LineBudget): LineDrawing {
+  // An orbit view's angle seldom repeats: kept, every drag would hold another drawing (fifth review).
+  if (spec.kind === "orbit") return drawLines(mesh, view, budget);
   let m = linesOf.get(mesh);
   if (!m) linesOf.set(mesh, (m = new Map()));
   const k = JSON.stringify(spec) + "|" + view.rot.join(",");

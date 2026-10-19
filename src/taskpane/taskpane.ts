@@ -337,6 +337,9 @@ import {
 } from "../lib/stats2";
 import { rankTestLines } from "../lib/exactRank";
 import { readNumberList, decimalCommaNote, fieldNumber, trueMinus } from "../lib/numberList";
+import { ListTokenError, readCalcList } from "../lib/calcList";
+import { readSvgDims, svgNaturalSize } from "../lib/svgSize";
+import { solveFunctionSvg } from "../lib/solveFigure";
 import type { CoxInput } from "../lib/cox";
 import { rmAnovaCalc, rmFieldText, coxCalc } from "../lib/statsBatchCalcs";
 import { tukeyHSD } from "../lib/tukey";
@@ -5133,7 +5136,7 @@ function ensureDrawEditor(): void {
       // A programmatic change (Clean, the large canvas's return, Edit in Draw, a ChemDraw file) keeps
       // the status that path just set. Worked out once drawing pauses (the formula and SMILES of a
       // large page take a good part of a second): clicks stay quick, Insert works it out first.
-      scheduleDrawPreview(!event.isUserEvent);
+      scheduleDrawPreview(!event.isUserEvent || !!event.keepStatus);
     });
   } catch (error) {
     drawEditor = null;
@@ -7333,12 +7336,13 @@ interface FinCalc {
   assumes?: string;
 }
 
+/** The decimal-comma sentences of the list fields read by the calculator now computing (shown under its result). */
+const calcListNotes = new Set<string>();
+/** A Finance list field, under the product comma rule (lib/calcList.ts): a non-number is refused by name. */
 function finList(s: string): number[] {
-  return s
-    .split(/[\s,;]+/)
-    .filter(Boolean)
-    .map(Number)
-    .filter((n) => !Number.isNaN(n));
+  const r = readCalcList(s);
+  if (r.note) calcListNotes.add(r.note);
+  return r.values;
 }
 
 const FIN_CALCS: FinCalc[] = [
@@ -8597,6 +8601,8 @@ function updateFinancePreview(): void {
   }
   let text = "";
   let svg = "";
+  let refusal = "";
+  calcListNotes.clear();
   try {
     const out = calc.compute(read);
     if (typeof out === "string") {
@@ -8605,10 +8611,13 @@ function updateFinancePreview(): void {
       text = out.text;
       svg = out.svg ?? "";
     }
-  } catch {
+  } catch (error) {
     text = "";
     svg = "";
+    // A list holding a non-number says which (it used to be dropped without a word).
+    if (error instanceof ListTokenError) refusal = error.message;
   }
+  const listNotes = [...calcListNotes];
   // A belt-and-braces gate. finMoney/finPct/finFixed all render a non-finite
   // value as "—", but any calculator that formats a number by some other route
   // can still produce these, and a document is the wrong place to find out.
@@ -8617,8 +8626,16 @@ function updateFinancePreview(): void {
   const insertable = insertableResultText(text) && !text.includes("no solution");
   if (!text) {
     finResult.innerHTML = '<span class="hint">Enter values to compute.</span>';
+    if (refusal) finResult.firstElementChild!.textContent = refusal;
   } else {
     finResult.textContent = text;
+    // How a typed decimal comma was read, as Stats says it.
+    for (const n of listNotes) {
+      const note = document.createElement("div");
+      note.className = "ms-note";
+      note.textContent = "• " + n;
+      finResult.appendChild(note);
+    }
     // Show the model's assumptions with the number, not buried in the source.
     // A Black-Scholes price for an American put is simply wrong, and nothing on
     // screen said so — the whole gap #5 named.
@@ -10634,12 +10651,6 @@ async function insertFinanceResult(): Promise<void> {
 }
 
 /** The width/height an SVG declares on its own root element. */
-function svgNaturalSize(svg: string): { width: number; height: number } {
-  const w = Number(/^<svg[^>]*\swidth="([\d.]+)"/.exec(svg.trim())?.[1] ?? 300);
-  const h = Number(/^<svg[^>]*\sheight="([\d.]+)"/.exec(svg.trim())?.[1] ?? 190);
-  return { width: w, height: h };
-}
-
 async function insertStatsChart(): Promise<boolean> {
   if (!currentStatsSvg) {
     setStatus("No chart available for this result.", "error");
@@ -30062,119 +30073,6 @@ const extractEquation = extractSingleEquation;
 
 /** Computes and renders the current solve request. */
 /**
- * Plots one or two expressions over a window, optionally marking points.
- *
- * WHY SOLVE NEEDS THIS AT ALL. Solve was the last mode in the product with no
- * figure of any kind: it had the plumbing (`currentSolveSvg` is rasterised and
- * inserted) but only the topology barcode ever filled it. A root is a place
- * where a curve crosses zero, a derivative is a slope, and an integral is an
- * area — three things that are pictures by nature and were arriving as text.
- *
- * THE WINDOW IS ALWAYS BOUNDED AND NEVER TAKEN RAW FROM USER INPUT. It is
- * derived from the marked points when there are any, and is a fixed [-10, 10]
- * otherwise; the sample count is a constant. This runs on every keystroke, so
- * an unbounded window here would not be a bad chart, it would be a frozen Word.
- *
- * `evalFormula` is the same evaluator the rest of the pane uses, so the curve
- * is the same arithmetic that produced the answer rather than a second reading
- * of the user's expression. Anything it cannot evaluate yields no figure at
- * all — a plot with a silent hole in it would be worse than none.
- */
-function solveFunctionSvg(o: {
-  exprs: { expr: string; label: string; color: string }[];
-  variable: string;
-  window?: { lo: number; hi: number };
-  marks?: { x: number; y: number; label: string }[];
-  shadeBetween?: { lo: number; hi: number };
-  title: string;
-}): string | null {
-  const marks = (o.marks ?? []).filter((m) => Number.isFinite(m.x) && Number.isFinite(m.y));
-  let lo: number;
-  let hi: number;
-  if (o.window && Number.isFinite(o.window.lo) && Number.isFinite(o.window.hi) && o.window.hi > o.window.lo) {
-    lo = o.window.lo;
-    hi = o.window.hi;
-  } else if (marks.length) {
-    // Span the marked points with a margin, so every root is comfortably
-    // inside the frame rather than sitting on its edge.
-    let mlo = Infinity;
-    let mhi = -Infinity;
-    for (const m of marks) {
-      if (m.x < mlo) mlo = m.x;
-      if (m.x > mhi) mhi = m.x;
-    }
-    const pad = Math.max(1, (mhi - mlo) * 0.6);
-    lo = mlo - pad;
-    hi = mhi + pad;
-  } else {
-    lo = -10;
-    hi = 10;
-  }
-  // Clamped hard: the span can still come from a root at 1e300.
-  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo)) return null;
-  const span = hi - lo;
-  if (!Number.isFinite(span) || span > 1e12) return null;
-
-  const N = 200;
-  const series: Series[] = [];
-  for (const e of o.exprs) {
-    const pts: Point[] = [];
-    for (let i = 0; i <= N; i++) {
-      const x = lo + (span * i) / N;
-      let y: number;
-      try {
-        y = evalFormula(e.expr, { [o.variable]: x });
-      } catch {
-        return null;
-      }
-      // buildPlotSvg drops non-finite points at the door, but a pole would
-      // otherwise join across the discontinuity as a near-vertical line that
-      // looks like a real feature.
-      if (Number.isFinite(y)) pts.push({ x, y });
-    }
-    if (pts.length < 2) return null;
-    series.push({ points: pts, type: "line", color: e.color, label: e.label });
-  }
-  if (o.shadeBetween) {
-    // The integrated interval drawn as its own segment of the curve. Not a
-    // filled polygon: `buildPlotSvg` draws lines and scatters, and a fake fill
-    // assembled here would be a second renderer to keep in step with the first.
-    const a = Math.max(lo, o.shadeBetween.lo);
-    const b = Math.min(hi, o.shadeBetween.hi);
-    if (b > a) {
-      const pts: Point[] = [];
-      for (let i = 0; i <= 60; i++) {
-        const x = a + ((b - a) * i) / 60;
-        try {
-          const y = evalFormula(o.exprs[0].expr, { [o.variable]: x });
-          if (Number.isFinite(y)) pts.push({ x, y });
-        } catch {
-          break;
-        }
-      }
-      if (pts.length > 1) {
-        series.push({ points: pts, type: "line", color: "#b91c1c", label: "integrated" });
-      }
-    }
-  }
-  if (marks.length) {
-    series.push({
-      points: marks.map((m) => ({ x: m.x, y: m.y })),
-      type: "scatter",
-      color: "#b91c1c",
-      label: marks[0].label,
-    });
-  }
-  return buildPlotSvg(series, {
-    width: 380,
-    height: 250,
-    title: o.title,
-    xlabel: o.variable,
-    ylabel: "value",
-  });
-}
-
-/**
  * Solve's chemistry answer (v2.137.0): a balanced equation, half-reaction or
  * redox pair from balance.ts, its conservation rows and the conservation
  * chart — or the named refusal (with the independent reactions drawn when the
@@ -31750,13 +31648,9 @@ interface AssayCalc {
   compute: (read: (k: string) => string) => AssayOutput;
 }
 
-/** Parses a whitespace/comma/semicolon-separated list of numbers. */
+/** A Bio/Assay list field, under the same rule as Finance's (finList). */
 function assayList(s: string): number[] {
-  return s
-    .split(/[\s,;]+/)
-    .filter(Boolean)
-    .map(Number)
-    .filter((n) => !Number.isNaN(n));
+  return finList(s);
 }
 const ASSAY_CALCS: AssayCalc[] = [
   {
@@ -32691,11 +32585,14 @@ function updateAssayPreview(): void {
   }
 
   let out: AssayOutput;
+  calcListNotes.clear();
   try {
     out = calc.compute(read);
-  } catch {
-    out = { text: "Could not compute — check the inputs.", ok: false };
+  } catch (error) {
+    // A list holding a non-number says which (it used to be dropped without a word).
+    out = { text: error instanceof ListTokenError ? error.message : "Could not compute — check the inputs.", ok: false };
   }
+  const assayListNotes = [...calcListNotes];
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.
   const insertable = out.ok !== false && insertableResultText(out.text);
@@ -32708,6 +32605,8 @@ function updateAssayPreview(): void {
   if (insertable && out.caveats?.length) {
     assayResult.appendChild(specCaveats(out.caveats));
   }
+  // How a typed decimal comma was read, as Stats says it.
+  if (insertable && assayListNotes.length) assayResult.appendChild(specCaveats(assayListNotes));
 
   // Draw the calculator's own figure, or the fitted curve over its raw data.
   //
@@ -33656,14 +33555,6 @@ async function updateBibliography(forceAll: boolean): Promise<void> {
 }
 
 /** Reads an SVG's intrinsic width/height (px), falling back to the given box. */
-function readSvgDims(svg: string, fallbackW: number, fallbackH: number): { w: number; h: number } {
-  const wm = svg.match(/\bwidth="([\d.]+)/);
-  const hm = svg.match(/\bheight="([\d.]+)/);
-  const w = wm ? parseFloat(wm[1]) : NaN;
-  const h = hm ? parseFloat(hm[1]) : NaN;
-  return { w: w > 0 ? w : fallbackW, h: h > 0 ? h : fallbackH };
-}
-
 /** Rasterises at the supersampled size. Pair with figurePoints() sizing at the insert (lib/figures.ts). */
 async function renderFigurePng(svg: string, width: number, height: number): Promise<string> {
   // A PIXEL BUDGET IS NOT A BYTE BUDGET.

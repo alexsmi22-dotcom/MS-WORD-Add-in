@@ -38,6 +38,7 @@ import * as units from "../units";
 import * as numberList from "../numberList";
 import * as mechchart from "../mechchart";
 import * as plot from "../plot";
+import * as svgSize from "../svgSize";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -94,7 +95,6 @@ function buildRegistry(): Record<string, any> {
     slice("function avPlot(", "\n}\n"),
     slice("function avNumbers(", "\n}\n"),
     slice("function avDb(", "\n}\n"),
-    slice("function readSvgDims(", "\n}\n"),
     slice("function plainDashes(", "\n}\n"),
   ].join("\n");
   const src = `${helpers}\nreturn [\n${IDS.map(entry).join(",\n")}\n];`;
@@ -102,7 +102,7 @@ function buildRegistry(): Record<string, any> {
     .transpileModule(src, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.None, removeComments: true } })
     .outputText.replace(/^"use strict";/, "");
   const scope: Record<string, any> = {};
-  for (const lib of [audio, loudness, video, timecode, photometry, colourspace, avFigures, units, numberList, mechchart, plot]) {
+  for (const lib of [audio, loudness, video, timecode, photometry, colourspace, avFigures, units, numberList, mechchart, plot, svgSize]) {
     Object.assign(scope, lib);
   }
   scope.avFmt = (audio as any).fmtNum;

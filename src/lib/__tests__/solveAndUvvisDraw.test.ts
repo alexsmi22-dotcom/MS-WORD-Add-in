@@ -22,6 +22,8 @@ import * as path from "path";
 import { predictUvVis } from "../uvvis";
 
 const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
+// The Solve plotter moved to lib/solveFigure.ts (host-adapter scope §E); its bounds are checked there.
+const FIG = fs.readFileSync(path.join(__dirname, "..", "solveFigure.ts"), "utf8");
 
 /**
  * The `uvvis` branch of `buildSpectrumSvg`, matched by braces.
@@ -138,9 +140,9 @@ describe("Solve draws for every kind that has something to draw", () => {
     // This runs on every keystroke. The window is derived from the marked
     // points or a fixed span, and clamped — an unbounded one here is a frozen
     // Word, not a slow chart.
-    const at = PANE.indexOf("function solveFunctionSvg(");
+    const at = FIG.indexOf("function solveFunctionSvg(");
     expect(at).toBeGreaterThan(0);
-    const helper = PANE.slice(at, at + 4000);
+    const helper = FIG.slice(at, at + 4000);
     expect(helper).toMatch(/span > 1e12/);
     expect(helper).toMatch(/const N = 200;/);
   });

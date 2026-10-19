@@ -33,6 +33,8 @@ export interface ChemCanvasHost {
 /** Why the canvas changed: a user edit, or a programmatic load (the pane keeps its status for the latter). */
 export interface CanvasChange {
   isUserEvent: boolean;
+  /** The canvas reported a problem during this change (a page it could not draw, an edit it undid): keep that message. */
+  keepStatus?: boolean;
 }
 
 export interface ChemCanvas {
@@ -244,7 +246,13 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     return m;
   };
 
-  const fire = (isUserEvent: boolean): void => onChange?.({ isUserEvent });
+  // A problem reported while the change was made: the pane's status clear must not wipe it (review).
+  let reported = false;
+  const fire = (isUserEvent: boolean): void => {
+    const keepStatus = reported;
+    reported = false;
+    onChange?.(keepStatus ? { isUserEvent, keepStatus } : { isUserEvent });
+  };
   const contentBox = (): Box | null => {
     let b: Box | null = null;
     for (const v of boxes.values()) b = b ? [Math.min(b[0], v[0]), Math.min(b[1], v[1]), Math.max(b[2], v[2]), Math.max(b[3], v[3])] : [...v] as Box;
@@ -271,6 +279,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
         return renderCdx(doc, { pad: 0 });
       } catch (e) {
         host.setStatus(`The page could not be drawn (${(e as Error).message}).`, "error");
+        reported = true;
         return null;
       }
     })();
@@ -309,6 +318,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     if (!r.ok) {
       if (undo.length) doc.root = undo.pop()!.root;
       host.setStatus(`The edit left the page unreadable (${r.reason}) — it was undone.`, "error");
+      reported = true;
       const again = readCdxmlTree(doc.root);
       if (!again.ok) return;
       doc = again.doc;
@@ -320,6 +330,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   }
   /** Runs an edit with an undo step; a refusal (string) leaves the page as it was and says why. */
   function edit(f: () => string | null, layoutOnly = false): boolean {
+    reported = false; // only what THIS change reports is kept
     const step = snapshot();
     const before = step.root;
     const sigBefore = signatures();
@@ -736,6 +747,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   });
   function doUndo(): void {
     if (!undo.length) return;
+    reported = false;
     redo.push(snapshot());
     const u = undo.pop()!;
     doc.root = u.root;
@@ -747,6 +759,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   }
   function doRedo(): void {
     if (!redo.length) return;
+    reported = false;
     undo.push(snapshot());
     const u = redo.pop()!;
     doc.root = u.root;
@@ -843,6 +856,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       fire(false);
     },
     clearAll: () => {
+      reported = false;
       undo.push(snapshot());
       if (undo.length > UNDO_DEPTH) undo.shift();
       redo = [];

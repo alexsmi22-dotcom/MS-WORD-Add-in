@@ -9,7 +9,7 @@
  * (getMolecule, setMolecule, clearAll, moleculeChanged, setOnChangeListener), plus the page itself.
  */
 import { Molecule } from "openchemlib/full";
-import { readCdxml, readCdxmlTree, CdxDoc, Box, Pt } from "../lib/cdxml";
+import { readCdxml, readCdxmlTree, CdxDoc, CdxRun, CdxText, Box, Pt } from "../lib/cdxml";
 import { renderCdx } from "../lib/cdxmlRender";
 import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from "../lib/cdxmlSelect";
 import {
@@ -746,6 +746,15 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
         const shifted = (r.face & 0x60) !== 0 && (r.face & 0x60) !== 0x60 ? true : (r.face & 0x60) === 0x60 && r.text.split(/\r\n|\r|\n/).some((ln) => /\d|[+\-−]$/.test(ln));
         return shifted ? r.size * 0.75 : r.size;
       };
+      // A one-line label stacked Below / Above is redrawn in its first run's style, split at the element
+      // symbol (cdxmlRender drawText): measured the same way.
+      const stackedRuns = (tx: CdxText | null | undefined): CdxRun[] | null => {
+        if (!tx || (tx.align !== "Below" && tx.align !== "Above") || !tx.runs.length) return null;
+        const all = tx.runs.map((q) => q.text).join("");
+        const m = /^([A-Z][a-z]?)(.+)$/.exec(all);
+        if (!m || /\r|\n/.test(all)) return null;
+        return [{ ...tx.runs[0], text: m[1] }, { ...tx.runs[0], text: m[2] }];
+      };
       // A charge ChemDraw draws as a symbol (tied by a represent element) is not set as text (cdxmlRender).
       const chargeDrawn = new Set<string>();
       for (const o of doc.objects)
@@ -757,7 +766,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
           if (it.kind === "text") for (const r of it.v.runs) if (r.text.trim()) min = Math.min(min, runSize(r));
           if (it.kind === "fragment")
             for (const nd of it.v.nodes) {
-              for (const r of nd.label?.runs ?? []) if (r.text.trim()) min = Math.min(min, runSize(r));
+              for (const r of stackedRuns(nd.label) ?? nd.label?.runs ?? []) if (r.text.trim()) min = Math.min(min, runSize(r));
               if (nd.charge && !chargeDrawn.has(nd.id)) min = Math.min(min, doc.style.labelSize * 0.75);
             }
         }

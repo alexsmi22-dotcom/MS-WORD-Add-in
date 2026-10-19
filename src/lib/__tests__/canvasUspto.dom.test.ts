@@ -107,6 +107,11 @@ describe("review: lettering measured as it is drawn", () => {
     expect(load('<t id="5" p="0 0"><s font="3" size="12" face="96">Na+\nCl</s></t>').smallestTextPt(false)).toBe(9);
     expect(load('<t id="5" p="0 0"><s font="3" size="12" face="96">Na+ </s></t>').smallestTextPt(false)).toBe(12);
   });
+  test("a one-line label stacked below its atom is measured as drawn: in its first run's style (NH₂ with a formula-face N: the 2 at 75 %)", () => {
+    const c = load('<fragment id="10"><n id="1" p="0 0" Element="7" NumHydrogens="2"><t p="0 0" LabelAlignment="Below"><s font="3" size="10" face="96">N</s><s font="3" size="10" face="0">H2</s></t></n><n id="2" p="30 0"/><b id="3" B="1" E="2"/></fragment>');
+    expect(c.page().objects[0].items.some((it) => it.kind === "fragment" && it.v.nodes.some((n) => n.label?.align === "Below"))).toBe(true);
+    expect(c.smallestTextPt(false)).toBe(7.5);
+  });
   test("a charge ChemDraw draws as a symbol is not counted as 75 % text", () => {
     const c = load('<fragment id="10"><n id="1" p="0 0" Charge="1"/><n id="2" p="30 0"/><b id="3" B="1" E="2"/></fragment><graphic id="20" SymbolType="Plus" BoundingBox="5 -5 10 0"><represent attribute="Charge" object="1"/></graphic>');
     expect(c.smallestTextPt(false)).toBeNull();

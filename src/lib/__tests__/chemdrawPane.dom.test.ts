@@ -56,7 +56,7 @@ describe("fitting a drawing on the page", () => {
     expect(chemdrawFit(936, 100)).toEqual({ ok: true, k: 0.5, note: "It is inserted at 50 % to fit the page." });
     expect(chemdrawFit(1066, 8144)).toEqual({
       ok: false,
-      reason: "that is 14.8 × 113.1 in — on a page it would be drawn at 8 %, too small to read. Select fewer structures (click one, Shift+click to add)",
+      reason: "that is 14.8 × 113.1 in — on a page it would be drawn at 7 %, too small to read. Select fewer structures (click one, Shift+click to add)",
     });
   });
 });

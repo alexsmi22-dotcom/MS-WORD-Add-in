@@ -50,7 +50,11 @@ export function openDialog(url: string, opts: { height: number; width: number },
       close: (): void => dialog.close(),
       messageChild: (message: string): boolean => {
         if (Office.context.requirements.isSetSupported("DialogApi", "1.2") !== true || typeof dialog.messageChild !== "function") return false;
-        dialog.messageChild(message);
+        try {
+          dialog.messageChild(message);
+        } catch {
+          return false; // a host that lists the API but cannot deliver: the caller's fallback runs
+        }
         return true;
       },
     };

@@ -5314,10 +5314,7 @@ function updateDrawPreview(preserveStatus = false): void {
  */
 /** The page as compact ChemDraw XML for the large canvas (no declaration, no indentation: more fits in a URL). */
 function compactPage(): string {
-  return writeCdxml(drawEditor!.page().root)
-    .replace(/^<\?xml[^>]*>\s*/, "")
-    .replace(/^<!DOCTYPE[^>]*>\s*/, "")
-    .replace(/>\n\s*</g, "><");
+  return writeCdxml(drawEditor!.page().root, true);
 }
 
 function openDrawDialog(molOnly?: string): void {
@@ -5342,31 +5339,34 @@ function openDrawDialog(molOnly?: string): void {
     },
     message: (arg, dialog) => {
       const msg = (arg as { message?: string }).message;
-      let data: { ready?: boolean; page?: unknown; frag?: unknown; mol?: string; mol3d?: Draw3dPayload; cancel?: boolean } = {};
+      let data: { ready?: boolean; needMol?: boolean; page?: unknown; frag?: unknown; mol?: string; mol3d?: Draw3dPayload; cancel?: boolean } = {};
       try {
         data = JSON.parse(msg ?? "{}");
       } catch {
         /* not ours: treated as a cancel below */
       }
-      if (data.ready) {
-        if (!dialog.messageChild(payload)) {
-          dialog.close();
-          openDrawDialogBtn.disabled = false;
-          // This Word cannot message the window. One plain structure can still go as its structure.
-          const chem = drawEditor?.chemistry();
-          const plain = !!drawEditor && !drawEditor.hasDrawing() && chem?.ok && chem.mol.getAllAtoms() > 0 && !drawEditor.page().objects.some((o) => o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => nd.nodeType === "Unspecified" || nd.nodeType === "Nickname" || nd.nodeType === "Fragment")));
-          if (plain && chem?.ok) {
-            const enc = chem.mol.getIDCodeAndCoordinates();
-            const seed = `${enc.idCode} ${enc.coordinates}`;
-            if (`${base}?mol=${encodeURIComponent(seed)}`.length < 1800) {
-              setStatus("This version of Word carries only a plain structure into the large canvas — opening it with the structure alone (its layout and labels as drawn are kept here until you bring it back).", "");
-              // The window just closed: Word needs a moment before another opens.
-              window.setTimeout(() => openDrawDialog(seed), 800);
-              return;
-            }
+      // The window could not take the page by message (an older Word): one plain structure still goes, as its
+      // structure in the address — the window is opened again with it.
+      const reopenWithStructure = (): void => {
+        dialog.close();
+        const chem = drawEditor?.chemistry();
+        const plain = !!drawEditor && !drawEditor.hasDrawing() && chem?.ok && chem.mol.getAllAtoms() > 0 && !drawEditor.page().objects.some((o) => o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => nd.nodeType === "Unspecified" || nd.nodeType === "Nickname" || nd.nodeType === "Fragment")));
+        if (plain && chem?.ok && !molOnly) {
+          const enc = chem.mol.getIDCodeAndCoordinates();
+          const seed = `${enc.idCode} ${enc.coordinates}`;
+          if (`${base}?mol=${encodeURIComponent(seed)}`.length < 1800) {
+            setStatus("This version of Word carries only a plain structure into the large canvas — opening it with the structure alone (its layout and labels as drawn are kept here until you bring it back).", "");
+            // The window just closed: Word needs a moment before another opens. The button stays off till then.
+            window.setTimeout(() => openDrawDialog(seed), 800);
+            return;
           }
-          setStatus("This drawing is too large to carry into the large canvas on this version of Word — edit it here (drag the canvas's corner to make it taller).", "error");
         }
+        openDrawDialogBtn.disabled = false;
+        setStatus("This drawing is too large to carry into the large canvas on this version of Word — edit it here (drag the canvas's corner to make it taller).", "error");
+      };
+      if (data.needMol) return reopenWithStructure();
+      if (data.ready) {
+        if (!dialog.messageChild(payload)) reopenWithStructure();
         return;
       }
       dialog.close();

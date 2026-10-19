@@ -146,3 +146,46 @@ describe("review of Clean (round 2)", () => {
     expect(findById(d.root, "104")!.el.attrs.Display).toBe("Hash");
   });
 });
+
+describe("review of Clean (round 3)", () => {
+  test("1. veratrole with both groups labelled OMe cleans at every rotation (labels meaning the same group are one kind)", () => {
+    for (let k = 0; k < 12; k++) {
+      const rot = (k * Math.PI) / 6;
+      const pt = (x: number, y: number): string => `${(150 + x * Math.cos(rot) - y * Math.sin(rot)).toFixed(2)} ${(150 + x * Math.sin(rot) + y * Math.cos(rot)).toFixed(2)}`;
+      let s = "";
+      for (let i = 0; i < 6; i++) s += `<n id="${101 + i}" p="${pt(30 * Math.cos((Math.PI / 3) * i), 30 * Math.sin((Math.PI / 3) * i))}"/>`;
+      // Each label as ChemDraw writes it for its side: MeO (right-justified) left of its bond, OMe right of it.
+      const label = (id: number, at: [number, number], ring: [number, number]): string => {
+        const left = Number(pt(...ring).split(" ")[0]) > Number(pt(...at).split(" ")[0]);
+        return `<n id="${id}" p="${pt(...at)}" NodeType="Unspecified"><t p="${pt(...at)}" LabelJustification="${left ? "Right" : "Left"}"><s font="3" size="10">${left ? "MeO" : "OMe"}</s></t></n>`;
+      };
+      s += label(111, [55, 0], [30, 0]);
+      s += label(112, [27, 47], [15, 26]);
+      for (let i = 0; i < 6; i++) s += `<b id="${201 + i}" B="${101 + i}" E="${101 + ((i + 1) % 6)}" Order="${i % 2 ? "1" : "2"}"/>`;
+      s += '<b id="211" B="101" E="111"/><b id="212" B="102" E="112"/>';
+      const d = page(`<fragment id="10">${s}</fragment>`);
+      const before = idcodeOf(d, "10");
+      expect([k, cleanStructures(d)]).toEqual([k, null]);
+      expect(idcodeOf(reread(d), "10")).toBe(before);
+    }
+  });
+  test("3/5. a CH3 label and an unusual NH keep their drawn hydrogens when Clean turns them for the other side", () => {
+    const d = page('<fragment id="10"><n id="101" p="100 100" NumHydrogens="3"><t p="100 100"><s font="3" size="10" face="96">CH3</s></t></n><n id="102" p="70 120"/><n id="103" p="40 100"/><n id="104" p="10 120" Element="7" NumHydrogens="1"><t p="10 120"><s font="3" size="10" face="96">NH</s></t></n><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/><b id="107" B="103" E="104"/></fragment>');
+    const before = idcodeOf(d, "10");
+    expect(cleanStructures(d)).toBeNull();
+    const words = (id: string): string => findById(d.root, id)!.el.children.find((c) => c.name === "t")!.children.map((s) => s.text).join("");
+    expect(["CH3", "H3C"]).toContain(words("101"));
+    expect(["NH", "HN"]).toContain(words("104"));
+    expect(findById(d.root, "101")!.el.attrs.NumHydrogens).toBe("3");
+    expect(findById(d.root, "104")!.el.attrs.NumHydrogens).toBe("1");
+    expect(idcodeOf(reread(d), "10")).toBe(before);
+  });
+  test("2. an abbreviation (Nickname with its own structure) is never rewritten by Clean", () => {
+    const d = page('<fragment id="10"><n id="101" p="100 100"/><n id="102" p="130 100"/><n id="103" p="160 100" NodeType="Nickname"><fragment id="20"><n id="21" p="0 0"/><n id="22" p="10 0"/><n id="23" p="-10 0" NodeType="ExternalConnectionPoint"/><b id="31" B="21" E="22"/><b id="32" B="21" E="23"/></fragment><t p="160 100"><s font="3" size="10">Et</s></t></n><b id="104" B="101" E="102"/><b id="105" B="102" E="103"/></fragment>');
+    const r = cleanStructures(d);
+    expect(r === null || /would change/.test(r)).toBe(true);
+    const n = findById(d.root, "103")!.el;
+    expect(n.attrs.NodeType).toBe("Nickname");
+    expect(n.children.some((c) => c.name === "fragment")).toBe(true);
+  });
+});

@@ -22,10 +22,11 @@ const escAttr = (v: string): string =>
 const escText = (v: string): string => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** The tree as a CDXML file. Text is written only where it carries content (in `s` elements). */
-export function writeCdxml(root: XNode): string {
-  const out: string[] = ['<?xml version="1.0" encoding="UTF-8" ?>\n<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n'];
+export function writeCdxml(root: XNode, compact = false): string {
+  // Compact (for the large canvas's address): no declaration, no indentation — text written exactly as ever.
+  const out: string[] = compact ? [] : ['<?xml version="1.0" encoding="UTF-8" ?>\n<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n'];
   const write = (n: XNode, depth: number): void => {
-    const pad = depth < 12 ? "\n" + " ".repeat(depth) : "";
+    const pad = compact ? "" : depth < 12 ? "\n" + " ".repeat(depth) : "";
     const attrs = Object.entries(n.attrs).map(([k, v]) => ` ${k}="${escAttr(v)}"`).join("");
     // A style run's text is written exactly (a run of one space is a space); elsewhere only content.
     const text = n.name === "s" ? escText(n.text) : n.text.trim() ? escText(n.text) : "";
@@ -39,7 +40,7 @@ export function writeCdxml(root: XNode): string {
     out.push(`${n.children.length ? pad : ""}</${n.name}>`);
   };
   write(root, 0);
-  return out.join("") + "\n";
+  return out.join("") + (compact ? "" : "\n");
 }
 
 /** A deep copy (the editor's undo keeps whole trees: a document is small next to its drawing). */
@@ -347,7 +348,8 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
     if (h !== null) node.attrs.NumHydrogens = String(h);
     // Left of its bond, its hydrogens come first, right-aligned on the atom (HO, H2N), as ChemDraw writes it.
     const hs = h ? "H" + (h > 1 ? h : "") : "";
-    const left = !!hs && sideOf(frag, node) === "left";
+    const oneBond = frag.children.filter((b) => b.name === "b" && (b.attrs.B === nodeId || b.attrs.E === nodeId)).length === 1;
+    const left = !!hs && oneBond && sideOf(frag, node) === "left";
     node.children.push(labelText(doc, node, left ? hs + sym : sym + hs, left));
     return { ok: true, note: null };
   }
@@ -642,6 +644,34 @@ export function setBondProps(doc: CdxDoc, bondId: string, p: { orders?: string[]
     if (n) relabel(doc, n);
   }
   return null;
+}
+
+/**
+ * An element label written for the side of its one bond, its drawn hydrogens kept (CH3 ↔ H3C, OH ↔ HO,
+ * NH2 ↔ H2N): the text order and justification only. False when the label is not that simple form.
+ */
+export function turnLabelForSide(doc: CdxDoc, nodeId: string): boolean {
+  const hit = fragmentOf(doc.root, nodeId);
+  if (!hit) return false;
+  const { frag, node } = hit;
+  if ((node.attrs.NodeType ?? "Element") !== "Element" || node.attrs.Isotope) return false;
+  if (frag.children.filter((b) => b.name === "b" && (b.attrs.B === nodeId || b.attrs.E === nodeId)).length !== 1) return false;
+  const t = node.children.find((c) => c.name === "t");
+  const runs = t?.children.filter((c) => c.name === "s") ?? [];
+  if (!t || runs.length !== 1) return false;
+  const sym = symbolFor(Number(node.attrs.Element ?? 6));
+  const m = sym ? new RegExp(`^(?:(H\\d*)${sym}|${sym}(H\\d*))$`).exec(runs[0].text) : null;
+  if (!m) return false;
+  const hs = m[1] ?? m[2];
+  if (!hs) return false;
+  const left = sideOf(frag, node) === "left";
+  const text = left ? hs + sym : sym + hs;
+  if (text === runs[0].text && (t.attrs.LabelJustification === "Right") === left) return true;
+  const fresh = labelText(doc, node, text, left);
+  // The run keeps its own style (font, size, face) from the file.
+  fresh.children[0].attrs = { ...runs[0].attrs };
+  node.children = node.children.map((c) => (c === t ? fresh : c));
+  return true;
 }
 
 // ---- ChemDraw-computed names ------------------------------------------------------------------

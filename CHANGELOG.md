@@ -63,6 +63,13 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 - The large canvas on a Word that cannot message a window: the page travels more compactly in the address
   (a benzene fits), and one plain structure still goes as its structure.
 
+### Fixed before release (review of the Clean fixes: 7 findings)
+- Clean turns a label for its new side in place, its drawn hydrogens kept (CH3 ↔ H3C, OH ↔ HO — carbon labels were
+  being deleted, unusual H counts recomputed); abbreviations keep their own structure; labels meaning the same group
+  (OMe, MeO) lay out as one kind, so a dimethoxy ring cleans at any angle. An atom with two bonds keeps NH as typed.
+- The large canvas's compact page keeps a caption's line breaks; on a Word that cannot message a window the window
+  asks the pane for the plain structure, and the button stays off until it reopens.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

@@ -19,7 +19,7 @@ const BODY = /<body>([\s\S]*)<\/body>/.exec(HTML)![1];
 
 type Sent = Record<string, unknown>;
 
-async function open(search: string): Promise<{ sent: Sent[]; parentSays: (m: string) => void }> {
+async function open(search: string, messagingFails = false): Promise<{ sent: Sent[]; parentSays: (m: string) => void }> {
   jest.resetModules();
   document.body.innerHTML = BODY;
   window.history.replaceState(null, "", `/drawdialog.html${search}`);
@@ -35,7 +35,7 @@ async function open(search: string): Promise<{ sent: Sent[]; parentSays: (m: str
         messageParent: (m: string) => sent.push(JSON.parse(m)),
         addHandlerAsync: (_t: string, h: (arg: { message?: string }) => void, done: (r: { status: string }) => void) => {
           handler = h;
-          done({ status: "succeeded" });
+          done({ status: messagingFails ? "failed" : "succeeded" });
         },
       },
     },
@@ -136,5 +136,13 @@ describe("the page in the URL as its own parameter (more fits than JSON)", () =>
     const back = sent[0] as { page: string; frag: boolean };
     expect(textsOf(back.page)).toEqual(["Scheme 1"]);
     expect(back.frag).toBe(true);
+  });
+});
+
+describe("an older Word that cannot message a window", () => {
+  it("the window asks the pane for the structure the older way (needMol) instead of waiting for a page that cannot come", async () => {
+    const { sent } = await open("?wait=1", true);
+    expect(sent).toEqual([{ needMol: true }]);
+    expect(document.body.textContent).toMatch(/cannot hand a drawing this large/);
   });
 });

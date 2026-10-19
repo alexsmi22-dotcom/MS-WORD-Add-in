@@ -4,7 +4,7 @@
 // refused by name, never dropped.
 import { Molecule } from "openchemlib/full";
 import { readCdxml, readCdxmlTree, CdxDoc } from "../cdxml";
-import { blankPageCdxml, findById, setAtomLabel, setAtomProps, setBondProps } from "../cdxmlEdit";
+import { blankPageCdxml, findById, setAtomLabel, setAtomProps, setBondProps, writeCdxml } from "../cdxmlEdit";
 import { moleculeToPage, pageToMolecule } from "../cdxmlMol";
 import { renderCdx } from "../cdxmlRender";
 
@@ -289,4 +289,22 @@ test("an element typed on a left-hand chain end is written with its hydrogens fi
   const t = findById(d.doc.root, "102")!.el.children.find((c) => c.name === "t")!;
   expect(t.children.map((s) => s.text).join("")).toBe("HO");
   expect(t.attrs.LabelJustification).toBe("Right");
+});
+
+test("review: an N with two bonds is written NH whichever bond is listed first (H first only for one bond, left of it)", () => {
+  for (const bonds of ['<b id="104" B="101" E="102"/><b id="105" B="102" E="103"/>', '<b id="105" B="102" E="103"/><b id="104" B="101" E="102"/>']) {
+    const d = readCdxml(`<CDXML BondLength="30"><page id="900"><fragment id="10"><n id="101" p="0 0"/><n id="102" p="30 0"/><n id="103" p="60 0"/>${bonds}</fragment></page></CDXML>`);
+    if (!d.ok) throw new Error(d.reason);
+    expect(setAtomLabel(d.doc, "102", "N").ok).toBe(true);
+    const t = findById(d.doc.root, "102")!.el.children.find((c) => c.name === "t")!;
+    expect(t.children.map((s) => s.text).join("")).toBe("NH");
+  }
+});
+
+test("review: the compact form keeps a caption's line break (written, never stripped after)", () => {
+  const d = readCdxml('<CDXML BondLength="30"><page id="900"><t id="20" p="0 0"><s font="3" size="10">Title</s><s font="3" size="10">\n</s><s font="3" size="10">Body</s></t></page></CDXML>');
+  if (!d.ok) throw new Error(d.reason);
+  const again = readCdxml(writeCdxml(d.doc.root, true));
+  expect(again.ok && again.doc.objects[0].items[0].kind === "text" && again.doc.objects[0].items[0].v.runs.map((r) => r.text).join("")).toBe("Title\nBody");
+  expect(writeCdxml(d.doc.root, true).startsWith("<CDXML")).toBe(true);
 });

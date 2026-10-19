@@ -122,7 +122,11 @@ Office.onReady(() => {
       (arg: { message?: string }) => loadSeed(typeof arg.message === "string" ? arg.message : null),
       (res) => {
         if (res.status === Office.AsyncResultStatus.Succeeded) send({ ready: true });
-        else showError("This version of Word cannot hand a drawing this large to a window — this canvas starts blank, and “Use this drawing” would REPLACE the pane's drawing. Cancel to keep it.");
+        else {
+          // This Word cannot message a window: the pane is asked for the structure the older way (in the address).
+          showError("This version of Word cannot hand a drawing this large to a window — this canvas starts blank, and “Use this drawing” would REPLACE the pane's drawing. Cancel to keep it.");
+          send({ needMol: true });
+        }
       },
     );
   } else if (params.get("page") !== null) loadSeed(JSON.stringify({ page: params.get("page"), frag: params.get("frag") === "1" }));

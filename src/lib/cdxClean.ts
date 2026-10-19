@@ -10,10 +10,9 @@
 import { Molecule } from "openchemlib/full";
 import { readCdxmlTree, type CdxDoc } from "./cdxml";
 import type { XNode } from "./xmlLite";
-import { findById, setAtomLabel } from "./cdxmlEdit";
+import { findById, setAtomLabel, turnLabelForSide } from "./cdxmlEdit";
 import { pageToMolecule } from "./cdxmlMol";
-import { groupSmilesBySide } from "./labelExpand";
-import { symbolFor } from "./periodic";
+import { groupSmilesBySide, leftwardOf, rightwardOf } from "./labelExpand";
 
 type P2 = [number, number];
 const posOf = (n: XNode): P2 => {
@@ -64,7 +63,9 @@ function layoutMolecule(doc: CdxDoc, frag: XNode, id: string, L: number): { mol:
     const type = n.attrs.NodeType ?? "Element";
     let z = type === "Element" ? Number(n.attrs.Element ?? 6) : 0;
     if (!z) {
-      const key = `${type}:${n.attrs.GenericNickname ?? ""}:${n.attrs.ElementList ?? ""}:${n.children.find((c) => c.name === "t")?.children.map((q) => q.text).join("") ?? ""}`;
+      const words = (n.children.find((c) => c.name === "t")?.children.map((q) => q.text).join("") ?? "").replace(/\s+/g, "");
+      const meaning = groupSmilesBySide(words, "right") ?? groupSmilesBySide(words, "left") ?? words;
+      const key = `${n.attrs.GenericNickname ?? ""}:${n.attrs.ElementList ?? ""}:${meaning}`;
       if (!standIn.has(key)) standIn.set(key, next > 60 ? next-- : 6);
       z = standIn.get(key)!;
     }
@@ -198,15 +199,16 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       const after = sideOf(frag, nd);
       const type = nd.attrs.NodeType ?? "Element";
       if (!before || !after || before === after) continue;
-      // An element with hydrogens (OH, NH2) written for its new side (HO, H2N on the left).
-      if (type === "Element" && !nd.attrs.Isotope && nd.attrs.NumHydrogens && nd.attrs.NumHydrogens !== "0") {
-        const sym = symbolFor(Number(nd.attrs.Element ?? 6));
-        if (sym) setAtomLabel(doc, id, sym);
+      // An element with hydrogens (OH, CH3) turned for its new side (HO, H3C), its hydrogens as drawn.
+      if (type === "Element") {
+        turnLabelForSide(doc, id);
         continue;
       }
-      if (type !== "Unspecified" && type !== "Nickname") continue;
+      // A group label (OMe ↔ MeO) rewritten only when its side form differs; an abbreviation keeps its own.
+      if (type !== "Unspecified") continue;
       const words = nd.children.find((c) => c.name === "t")?.children.filter((s) => s.name === "s").map((s) => s.text).join("") ?? "";
-      if (words && (groupSmilesBySide(words, "left") || groupSmilesBySide(words, "right"))) setAtomLabel(doc, id, words);
+      const turned = after === "left" ? leftwardOf(words) : rightwardOf(words);
+      if (words && turned && turned !== words) setAtomLabel(doc, id, words);
     }
     // Symbols ChemDraw ties to an atom (a charge drawn as ⊕) move with it.
     const walk = (x: XNode): void => {
@@ -231,7 +233,7 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
     };
     let ok = same();
     // A drawn H placed back where it reads as the other centre: tried round its atom until it reads as drawn.
-    if (!ok && dropped.length && dropped.length <= 8) {
+    if (!ok && dropped.length && dropped.length <= 4) {
       for (const h of dropped) {
         if (ok) break;
         for (let step = 1; step < 12 && !ok; step++) {
@@ -242,7 +244,7 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
         if (!ok) place(h.node, [h.parent[0] + Math.cos(h.ang) * L, h.parent[1] + Math.sin(h.ang) * L]);
       }
     }
-    if (!ok) return "laying this structure out again would change it (its stereo could not be kept) — it keeps its layout; move its atoms by hand";
+    if (!ok) return "laying this structure out again would change what it reads as (its stereo, or a label) — it keeps its layout; move its atoms by hand";
   }
   return null;
 }

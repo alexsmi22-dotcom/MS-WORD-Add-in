@@ -71,8 +71,3 @@ export function isMeshRef(v: unknown): v is MeshRef {
   );
 }
 
-/** For tests: forget every file. */
-export function clearMeshStore(): void {
-  files.clear();
-  bodies.clear();
-}

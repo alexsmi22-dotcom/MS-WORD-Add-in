@@ -8,7 +8,6 @@ import * as fs from "fs";
 import * as path from "path";
 import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from "util";
 import { initCadPane, CadPaneHost } from "../../taskpane/cadPane";
-import { clearMeshStore } from "../cadMeshStore";
 import { starterDoc } from "../cadShapes";
 
 (globalThis as unknown as { TextDecoder: unknown }).TextDecoder ??= NodeTextDecoder;
@@ -27,7 +26,7 @@ function blockStl(w: number, d: number, h: number): Uint8Array {
   return new Uint8Array(dv.buffer);
 }
 
-function setup(extra: Partial<CadPaneHost> = {}) {
+function setup(extra: Partial<CadPaneHost> = {}, init: typeof initCadPane = initCadPane) {
   document.body.innerHTML = SECTION;
   const status: Array<[string, string | undefined]> = [];
   const host: CadPaneHost = {
@@ -37,7 +36,7 @@ function setup(extra: Partial<CadPaneHost> = {}) {
     readSelectedAlt: async () => null,
     ...extra,
   };
-  const pane = initCadPane(host, starterDoc("asme"));
+  const pane = init(host, starterDoc("asme"));
   pane.show();
   const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
   return { pane, host, status, $ };
@@ -59,8 +58,6 @@ function chooseUnits($: <T extends HTMLElement>(id: string) => T, mm: string): v
   u.value = mm;
   u.dispatchEvent(new Event("change"));
 }
-
-beforeEach(clearMeshStore);
 
 describe("Import DXF / STL… — an STL becomes a part", () => {
   it("the button says both, and the picker offers .stl", () => {
@@ -124,8 +121,12 @@ describe("Import DXF / STL… — an STL becomes a part", () => {
     first.$<HTMLButtonElement>("cad-import-part").click();
     const json = first.pane.getDoc();
 
-    clearMeshStore(); // a later session
-    const { $, status, pane } = setup();
+    // A later session: the pane (and the store of imported files) loaded afresh.
+    let fresh: typeof initCadPane = initCadPane;
+    jest.isolateModules(() => {
+      fresh = (require("../../taskpane/cadPane") as typeof import("../../taskpane/cadPane")).initCadPane;
+    });
+    const { $, status, pane } = setup({}, fresh);
     expect(pane.load(json)).toBeNull();
     expect($("cad-msg").textContent).toBe("block: its file block.stl is not open — import block.stl again (Import DXF / STL…) to put it back");
     expect($<HTMLButtonElement>("cad-insert").disabled).toBe(true);

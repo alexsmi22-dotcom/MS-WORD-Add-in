@@ -4,7 +4,7 @@
 import { apply3, Mesh, rotationMatrix, tessellate } from "../cadModel";
 import { drawLines, Polyline, viewFromDegrees } from "../cadLines";
 import { faceAt } from "../cadMate";
-import { clearMeshStore, hasStl, MeshRef, meshFor, rememberStl } from "../cadMeshStore";
+import { hasStl, MeshRef, meshFor, rememberStl } from "../cadMeshStore";
 import { attachCallout, CadDoc, CadPart, defaultParams, docToAssembly, parseDoc, partProblems, resolveCallouts, serializeDoc, ShapeId, starterDoc } from "../cadShapes";
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../cadExplode";
 import { layoutSheet } from "../cadSheet";
@@ -173,7 +173,6 @@ describe("limits, refused by name before the work", () => {
 });
 
 describe("the drawing names its file; the facets stay in this session", () => {
-  beforeEach(clearMeshStore);
   const bytes = toStl(atOrigin(analytic("cylinder")), "binary");
   const hash = stlHash(bytes);
   const ref = (over: Partial<MeshRef> = {}): MeshRef => ({ file: "pin.stl", hash, facets: readStl(bytes).ok ? (readStl(bytes) as { stl: { count: number } }).stl.count : 0, mmPerUnit: 1, creaseDeg: 30, size: [20, 20, 40], ...over });
@@ -189,6 +188,10 @@ describe("the drawing names its file; the facets stay in this session", () => {
   });
 
   it("not open in this session: the part names its file to import again (never drawn as nothing)", () => {
+    // (A file this session never read: the store is shared by the tests in this file.)
+    const never = stlHash(bytes.slice(0, bytes.length - 50));
+    expect(hasStl(never)).toBe(false);
+    const part = (): CadPart => ({ id: "m1", name: "Pin", shape: "mesh", params: {}, placement: place, mesh: ref({ hash: never }) });
     expect(partProblems(part())).toEqual(["its file pin.stl is not open — import pin.stl again (Import DXF / STL…) to put it back"]);
     const a = docToAssembly(docWith(part()));
     expect(!a.ok && a.reason).toBe("Pin: its file pin.stl is not open — import pin.stl again (Import DXF / STL…) to put it back");
@@ -315,7 +318,6 @@ describe("imported parts touching flush (faces within float32 rounding)", () => 
 });
 
 describe("an imported part takes callouts and explodes like any part", () => {
-  beforeEach(clearMeshStore);
   it("a callout on it resolves to its surface; the exploded view draws it moved apart", () => {
     const bytes = toStl(atOrigin(analytic("cylinder")), "binary");
     const r = readStl(bytes);

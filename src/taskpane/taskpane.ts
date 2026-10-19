@@ -8675,8 +8675,8 @@ const statCommaLog = new Map<string, string>();
  * data nobody had (§A WRONG 8). The comma's role is decided for the text this
  * call receives: a whole list field, one group, or one row.
  */
-function statList(s: string): number[] {
-  const r = readNumberList(s);
+function statList(s: string, cells = false): number[] {
+  const r = readNumberList(s, { cells });
   // The note is numberList's own sentence for THIS reading (decimalCommaNote),
   // so whatever the shared reader says it did is exactly what the user reads.
   const note = decimalCommaNote(r);
@@ -8706,7 +8706,8 @@ function statGroups(s: string): number[][] {
   const sep = statFieldCommasAreSeparators(s);
   return s
     .split(/\n\s*\n|;/)
-    .map((g) => statList(sep ? g.replace(/,/g, " ") : g))
+    // A decimal-comma field reads each group as cells, even a group of one value ("3,5" is 3.5).
+    .map((g) => statList(sep ? g.replace(/,/g, " ") : g, !sep))
     .filter((g) => g.length > 0);
 }
 /** Parses a numeric table: one row per line, entries space/comma separated. */
@@ -8714,7 +8715,7 @@ function statTable(s: string): number[][] {
   const sep = statFieldCommasAreSeparators(s);
   return s
     .split(/\n|;/)
-    .map((line) => statList(sep ? line.replace(/,/g, " ") : line))
+    .map((line) => statList(sep ? line.replace(/,/g, " ") : line, !sep))
     .filter((row) => row.length > 0);
 }
 

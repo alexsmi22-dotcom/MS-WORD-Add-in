@@ -53,14 +53,19 @@ const SEP = /,?[ \t\r\n\f\v;]+,?|,(?=[ \t\r\n\f\v])/;
  */
 const SPACED_SCI = /(\d)[ \t]*([×xX·])[ \t]*10[ \t]*(?=\^|[⁻⁺⁰¹²³⁴⁵⁶⁷⁸⁹])/g;
 
-export function readNumberList(text: string): NumberListReading {
+/**
+ * `cells`: the comma's role was already decided for a larger field (one group or row of a Stats field read
+ * as decimal commas), so this text is read as cells even when it is one run — "3,5" alone is 3.5, not 3
+ * and 5. (A lone group or a one-column table in a decimal-comma field split in two: v2.160.0.)
+ */
+export function readNumberList(text: string, opts: { cells?: boolean } = {}): NumberListReading {
   const runs = text
     .replace(SPACED_SCI, (_m, d: string, times: string) => `${d}${times}10`)
     .replace(/\^[ \t]+/g, "^")
     .split(SEP)
     .map((t) => t.replace(/^,+|,+$/g, ""))
     .filter((t) => t !== "");
-  const commaListing = runs.length <= 1 || runs.some((t) => (t.match(/,/g) ?? []).length >= 2);
+  const commaListing = !opts.cells && (runs.length <= 1 || runs.some((t) => (t.match(/,/g) ?? []).length >= 2));
   const tokens = commaListing ? runs.flatMap((t) => t.split(",")).filter((t) => t !== "") : runs;
   // WHOLE-FIELD decision (the independent review: "1,250 2,5 3,75" was read
   // as [1250, 2.5, 3.75]). Once any value PROVES the comma is decimal (2,5 —

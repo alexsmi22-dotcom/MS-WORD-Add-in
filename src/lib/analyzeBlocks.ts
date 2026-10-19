@@ -16,8 +16,8 @@ export interface StatOutput {
    *
    * IT IS NO LONGER DISPLAY ONLY. This said "Display only: `text` remains what
    * gets inserted", and that was true when the field was added and false once
-   * "Insert chart" shipped: `currentStatsSvg` (:840) feeds `insertStatsChart()`
-   * (:7712) behind its own button (:1432). The comment outlived the behaviour,
+   * "Insert chart" shipped: `currentStatsSvg` (taskpane.ts) feeds `insertStatsChart()`
+   * behind its own button. The comment outlived the behaviour,
    * and an audit read it as evidence that Stats figures could never reach a
    * document — which is exactly the cost of a stale comment.
    *

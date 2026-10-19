@@ -359,7 +359,10 @@ import {
 // The full OCL build (aliased over "openchemlib" in webpack, so this adds no
 // second copy) — the only build that ships the interactive canvas editor.
 import { Molecule as OclMolecule } from "openchemlib/full";
-import { createChemCanvas, ChemCanvas } from "./chemCanvas";
+import { createChemCanvas, ChemCanvas, type CanvasChange } from "./chemCanvas";
+import { createStructureEditor, type StructureEditor } from "./structureEditor";
+import { pageStructures, subsetPage, type PageStructure } from "../lib/chemdrawPick";
+import type { CdxDoc } from "../lib/cdxml";
 import { readCdxml } from "../lib/cdxml";
 import { writeCdxml } from "../lib/cdxmlEdit";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
@@ -881,6 +884,9 @@ let buildTab: "draw" | "text" = "draw";
 let drawEditor: ChemCanvas | null = null;
 /** The Draw page came from a ChemDraw picture in the document (whose drawing the replacement picture will not carry). */
 let drawFromPicture = false;
+/** The two editors behind drawEditor: the structure editor (the default) and the page canvas (a ChemDraw page). */
+let structureEditor: StructureEditor | null = null;
+let pageEditor: ChemCanvas | null = null;
 
 /** While true, an empty structure does NOT wipe stored R-group definitions —
  *  set around transient refreshes (tab peeks, mid-drawing states) where the
@@ -1817,19 +1823,7 @@ Office.onReady((info) => {
   alignInsertBtn = document.getElementById("align-insert") as HTMLButtonElement;
   seqmapSection = document.getElementById("seqmap-section") as HTMLElement;
   cadSection = document.getElementById("cad-section") as HTMLElement;
-  initChemdrawOpen({ setStatus: (t, k) => setStatus(t, k ?? ""), readSelectionOoxml: () => docHost.readSelectionOoxml(), openPage: (page, name) => {
-    // One canvas: a ChemDraw file or picture opens on the Draw page itself.
-    setMode("build");
-    setBuildTab("draw");
-    ensureDrawEditor();
-    if (!drawEditor) return false;
-    drawEditor.loadPage(page);
-    drawEditor.setName(name);
-    drawFromPicture = name === "The ChemDraw picture";
-    const notShown = page.notes.length ? ` Not shown: ${page.notes.join("; ")}.` : "";
-    setStatus(`${name} opened on the canvas — edit it with the tools above; Insert puts it in as drawn; Save as .cdxml keeps it editable.${notShown}`, notShown ? "" : "success");
-    return true;
-  }, openIdcode: (idcode) => {
+  initChemdrawOpen({ setStatus: (t, k) => setStatus(t, k ?? ""), readSelectionOoxml: () => docHost.readSelectionOoxml(), openPage: (page, name) => openChemdrawPage(page, name), openIdcode: (idcode) => {
     // The decoded structure must encode back to the same idcode: a damaged code decodes to a confident
     // invented molecule (OCL), and that is never put on the page.
     let mol: OclMolecule;
@@ -1842,7 +1836,7 @@ Office.onReady((info) => {
     mol.inventCoordinates();
     setMode("build");
     setBuildTab("draw");
-    ensureDrawEditor();
+    useStructureEditor();
     if (!drawEditor) return false;
     drawEditor.setMolecule(mol);
     drawFromPicture = false;
@@ -2009,6 +2003,23 @@ Office.onReady((info) => {
   insertBuildBtn.addEventListener("click", insertBuild);
   document.getElementById("draw-insert-selected")?.addEventListener("click", () => void insertDrawingOnly(true));
   document.getElementById("draw-replace-picture")?.addEventListener("click", () => void insertDrawingOnly(!!drawEditor?.selection().size, true));
+  // The ChemDraw gallery and the page canvas's way back.
+  document.getElementById("chemdraw-gallery-close")?.addEventListener("click", closeChemdrawGallery);
+  document.getElementById("chemdraw-gallery-page")?.addEventListener("click", () => {
+    if (!galleryDoc) return;
+    const doc = galleryDoc, name = galleryName;
+    const pc = usePageCanvas();
+    if (!pc) return;
+    pc.loadPage(doc);
+    pc.setName(name);
+    const notShown = doc.notes.length ? ` Not shown: ${doc.notes.join("; ")}.` : "";
+    setStatus(`${name} opened whole on the page canvas — Insert puts it in as drawn; for editing a structure, pick it from the list above.${notShown}`, notShown ? "" : "success");
+  });
+  document.getElementById("build-page-back")?.addEventListener("click", () => {
+    useStructureEditor();
+    updateDrawPreview();
+    setStatus("Back to the structure editor.", "");
+  });
   // The Draw tab's insert size: ChemDraw's by default, remembered once changed.
   const sizeSel = document.getElementById("draw-insert-size") as HTMLSelectElement | null;
   if (sizeSel) {
@@ -5109,20 +5120,27 @@ function setBuildTab(tab: "draw" | "text"): void {
 
 /** Creates the canvas editor on first use (it measures its host, so the host
  *  must be visible). If the webview can't host it, falls back to the Text tab. */
+/** Both editors report changes the same way: a programmatic change keeps the status its path just set. */
+function onDrawChange(event: CanvasChange): void {
+  // Worked out once drawing pauses (the formula and SMILES of a large drawing take a good part of a second):
+  // clicks stay quick, Insert works it out first.
+  scheduleDrawPreview(!event.isUserEvent || !!event.keepStatus);
+}
+
+const drawEditorHost = { setStatus: (m: string, k?: "success" | "error" | "") => setStatus(m, k ?? ""), downloadFile: (blob: Blob, name: string) => triggerDownload(blob, name) };
+
 function ensureDrawEditor(): void {
   if (drawEditor) return;
   const host = document.getElementById("build-editor") as HTMLElement;
   try {
-    // JurisLab's own canvas (chemCanvas.ts): structures, brackets, arrows and text on one page.
-    drawEditor = createChemCanvas(host, { setStatus: (m, k) => setStatus(m, k ?? ""), downloadFile: (blob, name) => triggerDownload(blob, name) });
-    drawEditor.setOnChangeListener((event) => {
-      // A programmatic change (Clean, the large canvas's return, Edit in Draw, a ChemDraw file) keeps
-      // the status that path just set. Worked out once drawing pauses (the formula and SMILES of a
-      // large page take a good part of a second): clicks stay quick, Insert works it out first.
-      scheduleDrawPreview(!event.isUserEvent || !!event.keepStatus);
-    });
+    // The structure editor (OpenChemLib's ChemDraw-like editor): it blocks what cannot be drawn and corrects the
+    // drawing as it goes. It was replaced by the page canvas in v2.156 and brought back after a live demo.
+    structureEditor = createStructureEditor(host, drawEditorHost);
+    structureEditor.setOnChangeListener(onDrawChange);
+    drawEditor = structureEditor;
   } catch (error) {
     drawEditor = null;
+    structureEditor = null;
     // The constructor appends its root element before the steps that can throw —
     // clear it so a retried click doesn't stack dead editor shells in the host.
     host.replaceChildren();
@@ -5131,6 +5149,126 @@ function ensureDrawEditor(): void {
     setBuildTab("text");
     setStatus(`Drawing canvas unavailable here: ${(error as Error).message}`, "error");
   }
+}
+
+/** Shows the structure editor (the default) and makes it the one the pane reads. */
+function useStructureEditor(): void {
+  ensureDrawEditor();
+  if (!structureEditor) return;
+  structureEditor.element.hidden = false;
+  (document.getElementById("build-page") as HTMLElement).hidden = true;
+  (document.getElementById("build-page-bar") as HTMLElement).hidden = true;
+  drawEditor = structureEditor;
+}
+
+/** Shows the page canvas (a ChemDraw page: brackets, arrows, captions) and makes it the one the pane reads. */
+function usePageCanvas(): ChemCanvas | null {
+  ensureDrawEditor();
+  const host = document.getElementById("build-page") as HTMLElement;
+  host.hidden = false;
+  if (!pageEditor) {
+    try {
+      pageEditor = createChemCanvas(host, drawEditorHost);
+      pageEditor.setOnChangeListener(onDrawChange);
+    } catch (error) {
+      host.hidden = true;
+      setStatus(`The page canvas is unavailable here: ${(error as Error).message}`, "error");
+      return null;
+    }
+  }
+  if (structureEditor) structureEditor.element.hidden = true;
+  (document.getElementById("build-page-bar") as HTMLElement).hidden = false;
+  drawEditor = pageEditor;
+  return pageEditor;
+}
+
+/** The ChemDraw file the gallery is showing, and its name. */
+let galleryDoc: CdxDoc | null = null;
+let galleryName = "";
+
+function closeChemdrawGallery(): void {
+  (document.getElementById("chemdraw-gallery") as HTMLElement).hidden = true;
+  (document.getElementById("chemdraw-gallery-grid") as HTMLElement).replaceChildren();
+  galleryDoc = null;
+}
+
+/** Opens one picked structure: in the structure editor when it is exactly a molecule, else on its own on the page canvas. */
+function openPickedStructure(doc: CdxDoc, name: string, st: PageStructure, n: number, total: number): void {
+  const of = total > 1 ? `structure ${n} of ${total} from ${name}` : name;
+  if (st.mol) {
+    useStructureEditor();
+    if (!drawEditor) return;
+    const mol = st.mol.getCompactCopy();
+    drawEditor.setMolecule(mol);
+    drawEditor.setName(name);
+    drawFromPicture = false;
+    setStatus(`Opened ${of} in the structure editor — edit it, then Insert.`, "success");
+  } else {
+    const sub = subsetPage(doc, st.ids);
+    const pc = sub ? usePageCanvas() : null;
+    if (!sub || !pc) return void setStatus(`Could not open ${of}.`, "error");
+    pc.loadPage(sub);
+    pc.setName(name);
+    drawFromPicture = false;
+    setStatus(`Opened ${of} on the page canvas — it is not a single molecule the structure editor can hold (${st.reason}).`, "");
+  }
+  document.getElementById("build-draw-wrap")?.scrollIntoView({ block: "start" });
+}
+
+/** A ChemDraw file or picture: one plain structure opens to edit at once; anything more is a gallery to pick from. */
+function openChemdrawPage(page: CdxDoc, name: string): boolean {
+  setMode("build");
+  setBuildTab("draw");
+  ensureDrawEditor();
+  if (!drawEditor) return false;
+  const { structures, more } = pageStructures(page);
+  const extras = page.objects.some((o) => o.items.some((it) => it.kind !== "fragment")) || page.brackets.length > 0;
+  if (structures.length === 1 && !extras && !more) {
+    closeChemdrawGallery();
+    openPickedStructure(page, name, structures[0], 1, 1);
+    drawFromPicture = name === "The ChemDraw picture";
+    return true;
+  }
+  if (!structures.length) {
+    // Captions and arrows only: the page canvas, as drawn.
+    const pc = usePageCanvas();
+    if (!pc) return false;
+    pc.loadPage(page);
+    pc.setName(name);
+    setStatus(`${name} has no structures — it opened on the page canvas as drawn.`, "");
+    return true;
+  }
+  galleryDoc = page;
+  galleryName = name;
+  const grid = document.getElementById("chemdraw-gallery-grid") as HTMLElement;
+  grid.replaceChildren();
+  structures.forEach((st, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chemdraw-pick" + (st.mol ? "" : " page-only");
+    b.setAttribute("role", "listitem");
+    b.title = st.mol ? `Structure ${i + 1}: open it in the structure editor` : `Structure ${i + 1}: opens on the page canvas (${st.reason})`;
+    // The page's own renderer drew it (its text is escaped there): shown as is.
+    b.innerHTML = st.svg;
+    const cap = document.createElement("span");
+    cap.className = "chemdraw-pick-n";
+    cap.textContent = String(i + 1);
+    b.appendChild(cap);
+    b.addEventListener("click", () => openPickedStructure(page, name, st, i + 1, structures.length));
+    grid.appendChild(b);
+  });
+  const molCount = structures.filter((st) => st.mol).length;
+  (document.getElementById("chemdraw-gallery-title") as HTMLElement).textContent =
+    `${name}: ${structures.length + more} structure${structures.length + more === 1 ? "" : "s"}` + (more ? ` (the first ${structures.length} shown)` : "");
+  (document.getElementById("chemdraw-gallery") as HTMLElement).hidden = false;
+  document.getElementById("chemdraw-gallery")?.scrollIntoView({ block: "start" });
+  setStatus(
+    `${name} opened — click a structure to edit it. ${molCount} of ${structures.length} open in the structure editor` +
+      (molCount < structures.length ? "; the others (generic atoms, nicknames) open on their own on the page canvas." : "."),
+    "success",
+  );
+  drawFromPicture = name === "The ChemDraw picture";
+  return true;
 }
 
 /** Refreshes whichever Build-mode surface is active (used at mode entry). */
@@ -5349,17 +5487,30 @@ function openDrawDialog(molOnly?: string): void {
     return;
   }
   const base = new URL("drawdialog.html", window.location.href).href;
+  // The structure editor's drawing travels as its structure (idcode and layout): the window opens it in the same
+  // ChemDraw-like editor. Only a ChemDraw page on the page canvas travels as a page.
+  if (!molOnly && drawEditor && drawEditor === structureEditor) {
+    const m = structureEditor.getMolecule();
+    if (m.getAllAtoms()) {
+      const enc = m.getIDCodeAndCoordinates();
+      molOnly = `${enc.idCode} ${enc.coordinates}`;
+    } else molOnly = "";
+  }
   // The whole page travels — structures, brackets, arrows, text, group labels, as ChemDraw keeps them —
   // in the URL when short enough, else by message once the window says it is ready (as the CAD window does).
   flushDrawPreview();
-  const hasPage = !!drawEditor && drawEditor.page().objects.length > 0;
+  const hasPage = molOnly === undefined && !!drawEditor && drawEditor.page().objects.length > 0;
   const payload = hasPage ? JSON.stringify({ page: compactPage(), frag: drawEditor!.isFragment() || !!currentBuild?.generic }) : "";
   // In the URL the page goes as its own parameter (no JSON escaping: more fits); by message, as JSON.
   const inUrl = hasPage ? `${base}?frag=${drawEditor!.isFragment() || currentBuild?.generic ? 1 : 0}&page=${encodeURIComponent(compactPage())}` : base;
   // A Word that cannot message a window: one plain structure still goes, as its structure (the older way).
   const url = molOnly ? `${base}?mol=${encodeURIComponent(molOnly)}` : !hasPage ? base : inUrl.length < 1800 ? inUrl : `${base}?wait=1`;
+  if (molOnly && url.length >= 1800) {
+    setStatus("This structure is too large to carry into the large canvas — edit it here (drag the editor's bottom edge to make it taller).", "error");
+    return;
+  }
   openDrawDialogBtn.disabled = true;
-  docHost.openDialog(url, { height: 85, width: 85 }, {
+  docHost.openDialog(url, { height: 75, width: 70 }, {
     failed: (error) => {
       openDrawDialogBtn.disabled = false;
       setStatus(`Could not open the large canvas: ${error?.message ?? "unknown error"}`, "error");
@@ -5406,7 +5557,11 @@ function openDrawDialog(molOnly?: string): void {
       setBuildTab("draw");
       if (!drawEditor) return;
       try {
-        if (typeof data.page === "string") {
+        if (data.mol && drawEditor === structureEditor) {
+          // The structure editor takes the structure itself (idcode and layout): exact, as drawn in the window.
+          const [idcode, coords] = data.mol.split(/\s+/);
+          drawEditor.setMolecule(coords ? OclMolecule.fromIDCode(idcode, coords) : OclMolecule.fromIDCode(idcode));
+        } else if (typeof data.page === "string") {
           const r = readCdxml(data.page);
           if (!r.ok) throw new Error(r.reason);
           // One edit in the pane: Undo returns to the page as it was before the large canvas.
@@ -5442,7 +5597,7 @@ function openDrawForReaction(): void {
   }
   const url = new URL("drawdialog.html", window.location.href).href;
   reactionDrawBtn.disabled = true;
-  docHost.openDialog(url, { height: 85, width: 85 }, {
+  docHost.openDialog(url, { height: 75, width: 70 }, {
     failed: (error) => {
       reactionDrawBtn.disabled = false;
       setStatus(`Could not open the drawing canvas: ${error?.message ?? "unknown error"}`, "error");
@@ -5582,6 +5737,7 @@ function openInDraw(): void {
   if (!s) return;
   setMode("build");
   setBuildTab("draw");
+  useStructureEditor();
   if (!drawEditor) return; // canvas unavailable — already fell back to Text
   try {
     // The ID code is the canonical structure (stereo and all); it carries no

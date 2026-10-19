@@ -15,6 +15,7 @@
 
 import { Molecule } from "openchemlib/full";
 import { createChemCanvas, ChemCanvas } from "../taskpane/chemCanvas";
+import { createStructureEditor } from "../taskpane/structureEditor";
 import { readCdxml } from "../lib/cdxml";
 import { writeCdxml } from "../lib/cdxmlEdit";
 import { rgroupLabels } from "../lib/builder";
@@ -48,18 +49,20 @@ declare const __APP_VERSION__: string;
 document.documentElement.dataset.jurislabVersion = __APP_VERSION__;
 
 Office.onReady(() => {
+  const params = new URLSearchParams(window.location.search);
+  // A ChemDraw page (brackets, arrows, captions) comes as a page and opens on the page canvas; anything else — a
+  // structure, or a blank window for a reaction component — opens in the structure editor, the ChemDraw-like editor
+  // that corrects the drawing as it goes (restored after a live demo, 2026-10-19).
+  const pageMode = params.get("page") !== null || !!params.get("wait");
   let editor: ChemCanvas;
   try {
-    editor = createChemCanvas(byId<HTMLElement>("editor"), {
-      // The window's one message line: refusals show; tool help stays quiet.
-      setStatus: (m, k) => (k === "error" ? showError(m) : clearError()),
-    });
+    // The window's one message line: refusals show; tool help stays quiet.
+    const host = { setStatus: (m: string, k?: "success" | "error" | "") => (k === "error" ? showError(m) : clearError()) };
+    editor = pageMode ? createChemCanvas(byId<HTMLElement>("editor"), host) : createStructureEditor(byId<HTMLElement>("editor"), host);
   } catch (error) {
     showError(`The drawing canvas could not start here: ${(error as Error).message}`);
     return;
   }
-
-  const params = new URLSearchParams(window.location.search);
 
   // The pane refuses to carry an oversized structure in the URL; say so
   // rather than presenting a blank canvas as a fresh start ("Use this

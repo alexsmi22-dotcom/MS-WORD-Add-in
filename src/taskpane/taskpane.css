@@ -718,18 +718,46 @@ h1 {
   margin-bottom: -1px;
 }
 
-/* The chemistry canvas (chemCanvas.ts): its toolbar, options and page. It takes the height its contents need —
-   the page inside is the part that resizes (drag its bottom edge). A fixed 400 px box with overflow hidden was the
-   old editor's; around this canvas it cut the bottom ~95 px of the page off, so a structure loaded by Edit in Draw
-   showed only its top half (demo walkthrough 2026-10-19). */
+/* The structure editor (OpenChemLib's CanvasEditor): it needs real dimensions when it is created (it is created
+   only while visible) and draws its own toolbar inside. Drag the bottom edge to make it taller. */
 #build-editor {
+  width: 100%;
+  height: 420px;
+  resize: vertical;
+  min-height: 260px;
+  max-height: 760px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+  /* The editor draws with pointer gestures — don't let the pane scroll them. */
+  touch-action: none;
+}
+#build-editor[hidden] { display: none; }
+
+/* The page canvas (chemCanvas.ts), shown for a ChemDraw page: it takes the height its toolbar and page need (the
+   page inside resizes). A fixed box with overflow hidden cut the bottom of its page off (walkthrough 2026-10-19). */
+#build-page {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--paper);
-  /* The canvas draws with pointer gestures — don't let the pane scroll them. */
   touch-action: none;
 }
+#build-page[hidden], .build-page-bar[hidden], .chemdraw-gallery[hidden] { display: none; }
+.build-page-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; font-size: 12px; color: var(--ink-2); }
+
+/* A ChemDraw file's structures to pick from (chemdrawPick.ts). */
+.chemdraw-gallery { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; background: var(--paper); }
+.chemdraw-gallery-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.chemdraw-gallery-title { font-weight: 600; }
+.chemdraw-gallery-hint { margin: 4px 0 6px; font-size: 12px; color: var(--ink-2); }
+.chemdraw-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; max-height: 340px; overflow-y: auto; }
+.chemdraw-pick { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; border: 1px solid var(--rule); border-radius: 4px; background: #fff; cursor: pointer; min-height: 92px; }
+.chemdraw-pick:hover, .chemdraw-pick:focus-visible { border-color: var(--cyan); outline: none; }
+.chemdraw-pick svg { max-width: 100%; max-height: 72px; width: auto; height: auto; }
+.chemdraw-pick-n { font-size: 10px; color: #445; }
+.chemdraw-pick.page-only .chemdraw-pick-n::after { content: " · page"; color: #8a5a00; }
 
 .draw-btn-row {
   display: flex;

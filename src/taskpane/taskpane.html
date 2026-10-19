@@ -266,10 +266,28 @@
           </button>
         </div>
 
-        <!-- JurisLab's own drawing page (chemCanvas.ts): structures, brackets, arrows and text as
-             ChemDraw keeps them; ChemDraw files and pictures open on it. -->
+        <!-- The structure editor (OpenChemLib's ChemDraw-like editor, structureEditor.ts) draws and edits
+             structures. A ChemDraw file's structures are picked from a gallery and open in it one at a time;
+             the page canvas (chemCanvas.ts) holds what a molecule cannot (a ChemDraw page's brackets, arrows,
+             captions) and is shown only when one is opened. -->
         <div id="build-draw-wrap">
+          <div id="chemdraw-gallery" class="chemdraw-gallery" hidden>
+            <div class="chemdraw-gallery-head">
+              <span id="chemdraw-gallery-title" class="chemdraw-gallery-title"></span>
+              <button id="chemdraw-gallery-close" class="draw-pop-btn" type="button">Close</button>
+            </div>
+            <p class="chemdraw-gallery-hint">Click a structure to edit it.</p>
+            <div id="chemdraw-gallery-grid" class="chemdraw-gallery-grid" role="list"></div>
+            <button id="chemdraw-gallery-page" class="draw-pop-btn" type="button" title="The whole ChemDraw page — structures, arrows, brackets and captions — on the page canvas, to insert as drawn">
+              Open the whole page as a drawing
+            </button>
+          </div>
           <div id="build-editor" aria-label="Structure drawing canvas"></div>
+          <div id="build-page" aria-label="ChemDraw page canvas" hidden></div>
+          <div id="build-page-bar" class="build-page-bar" hidden>
+            <span>A ChemDraw page — edited with the page tools above.</span>
+            <button id="build-page-back" class="draw-pop-btn" type="button">Back to the structure editor</button>
+          </div>
           <div class="draw-btn-row">
             <button id="open-draw-dialog-btn" class="draw-pop-btn" type="button" title="Large drawing canvas with a 3D model view (rotatable MMFF94s conformer; ball-and-stick, stick, space-filling)">
               Open large canvas / 3D ⤢
@@ -290,11 +308,8 @@
           <input type="file" id="chemdraw-file" accept=".cdxml,.cdx" hidden />
           <p id="draw-compliance" class="draw-compliance" role="status" aria-live="polite"></p>
           <p class="build-draw-hint">
-            <b>Pick a tool above the page, then click or drag on it.</b>
-            Bond: click empty paper for a bond, drag from an atom to grow the structure (to another
-            atom to close a ring); click a bond to make it double or triple. Atom: pick an element,
-            click an atom. Open ChemDraw file… puts a ChemDraw drawing on this page to edit. Drag the
-            page's bottom edge to make it taller.
+            <b>Draw as in ChemDraw:</b> pick a tool on the editor's toolbar, then click or drag. Open
+            ChemDraw file… shows the file's structures — click one to edit it here.
           </p>
           <label class="build-markush-toggle" for="build-draw-fragment">
             <input type="checkbox" id="build-draw-fragment" />

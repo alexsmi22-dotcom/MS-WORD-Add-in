@@ -779,3 +779,31 @@ describe("review round 5", () => {
     expect(Date.now() - t0).toBeLessThan(200);
   }, 30000);
 });
+
+describe("review round 6", () => {
+  it("6-1. a sheet refused for its callouts' time is drawn once the callouts layer is switched off (they are not tested then)", () => {
+    const nu = 100, nv = 80;
+    const tris: P3[][] = [];
+    const S = (i: number, j: number): P3 => {
+      const u = (2 * Math.PI * i) / nu, v = (Math.PI * j) / nv;
+      return [30 * Math.sin(v) * Math.cos(u), 30 * Math.sin(v) * Math.sin(u), 30 * Math.cos(v)];
+    };
+    for (let i = 0; i < nu; i++)
+      for (let j = 0; j < nv; j++) {
+        if (j > 0) tris.push([S(i, j), S(i + 1, j), S(i + 1, j + 1)]);
+        if (j < nv - 1) tris.push([S(i, j), S(i + 1, j + 1), S(i, j + 1)]);
+      }
+    const t = tessellate({ version: 1, bodies: [meshBody(bodyOf(bin(tris)).mesh)] });
+    if (!t.ok) throw new Error(t.reason);
+    const views = [{ kind: "front" as const }];
+    // The view's lines, worked out once on a generous clock (later sheets reuse them).
+    expect(layoutSheet(t.mesh, { standard: "asme", views, lineBudgetMs: 10000 }).svg).not.toBe("");
+    const callouts = Array.from({ length: 400 }, (_, k) => {
+      const a = (2 * Math.PI * k) / 400;
+      return { anchor: [30 * Math.cos(a), 30 * Math.sin(a), 0] as P3, label: String(10 + 2 * k) };
+    });
+    const o = { standard: "asme" as const, views, callouts, lineBudgetMs: 1 };
+    expect(layoutSheet(t.mesh, o).svg).toBe("");
+    expect(layoutSheet(t.mesh, { ...o, layers: { callouts: false } }).svg).not.toBe("");
+  }, 30000);
+});

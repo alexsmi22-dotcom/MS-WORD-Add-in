@@ -215,8 +215,11 @@ const idOf = (x: object): number => ids.get(x) ?? (ids.set(x, ++nextId), nextId)
 
 export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   // What the sheet's time depends on, and nothing else (a layer or a title changes no line: fifth
-  // review): its standard, views, callout points, marks, exploded model and clock.
-  const key = JSON.stringify([o.standard, o.views, (o.callouts ?? []).map((c) => c.anchor), o.marks ?? [], o.exploded ? idOf(o.exploded.mesh) : 0, o.lineBudgetMs ?? 0]);
+  // review): its standard, views, callout points, marks, exploded model and clock. Callouts switched
+  // off are not tested for visibility, so they cost no time (sixth review: a refusal with them on
+  // was kept after switching them off).
+  const callouts = o.layers?.callouts === false ? [] : (o.callouts ?? []);
+  const key = JSON.stringify([o.standard, o.views, callouts.map((c) => c.anchor), o.marks ?? [], o.exploded ? idOf(o.exploded.mesh) : 0, o.lineBudgetMs ?? 0]);
   const refused = refusedOf.get(mesh)?.get(key);
   const refuse = (why: string): Sheet => ({ svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [why] });
   if (refused) return refuse(refused);

@@ -512,7 +512,8 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
         const hatch = (minSpacing: number, budget: LineBudget): Polyline[] => {
           const eff = hatchSpacing(regions, minSpacing);
           if (!(eff > 0)) return [];
-          const key = Math.round(Math.log(eff) / Math.log(1.02));
+          // Rounded UP: a step may only widen the spacing, never take it under the paper floor (second review).
+          const key = Math.ceil(Math.log(eff) / Math.log(1.02) - 1e-9);
           let h = hatchAt.get(key);
           if (!h) {
             if (hatchAt.size >= 16) hatchAt.clear();

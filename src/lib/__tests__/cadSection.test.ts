@@ -220,3 +220,36 @@ describe("review fixes", () => {
     expect(new Set(degs).size).toBe(3);
   });
 });
+
+describe("review fixes, second round", () => {
+  it("an open IMPORTED part is refused even when its own sag estimate is coarse (its gap is not joined)", () => {
+    const m = meshOf(body(box(10, 10, 10)));
+    // Take away one triangle of the face at y = 0 that the plane x = 3 crosses, and mark the part as imported with
+    // a coarse sag (a 12-facet curved STL estimates ~0.3 of 10).
+    let drop = -1;
+    for (let t = 0; t < m.triangles.length / 3 && drop < 0; t++) {
+      const vs = [0, 1, 2].map((c) => m.triangles[3 * t + c]);
+      const ys = vs.map((v) => m.positions[3 * v + 1]), xs = vs.map((v) => m.positions[3 * v]);
+      if (ys.every((y) => Math.abs(y) < 1e-9) && Math.min(...xs) < 3 && Math.max(...xs) > 3) drop = t;
+    }
+    expect(drop).toBeGreaterThanOrEqual(0);
+    const keep = (a: number[], per: number): number[] => a.filter((_, i) => Math.floor(i / per) !== drop);
+    const open: Mesh = { ...m, triangles: keep(m.triangles, 3), cornerNormals: keep(m.cornerNormals, 9), triBody: keep(m.triBody, 1), bodySag: [20], bodyNoise: [1e-6] };
+    const pl = sectionPlane(front, [3, -5], [3, 15])!;
+    const r = cutMesh(open, pl, sectionView(front, pl, "A"), lineBudget(60000));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/not a closed solid.*or repair the file$/);
+    // The same gap on a GENERATED part with that flattening is joined: the test discriminates.
+    const asGenerated = cutMesh({ ...open, bodyNoise: [0] }, pl, sectionView(front, pl, "A"), lineBudget(60000));
+    expect(asGenerated.ok).toBe(true);
+  });
+
+  it("a part taken away entirely leaves nothing behind, not even its face on the plane", () => {
+    const m = meshOf(body(box(40, 20, 10)));
+    const pl = sectionPlane(front, [0, -5], [0, 15], true)!;
+    const r = cutMesh(m, pl, sectionView(front, pl, "A"), lineBudget(60000));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.mesh.triangles).toHaveLength(0);
+    expect(r.mesh.edges).toHaveLength(0);
+  });
+});

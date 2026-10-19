@@ -212,10 +212,17 @@ export function cutMesh(mesh: Mesh, plane: SectionPlane, view: CadView, budget?:
     else m.set(key, [a, b]);
   };
 
+  // Which bodies reach strictly beyond the plane: only those are kept and cut. A plane lying on a face with the part
+  // on the viewer's side takes the whole part away — no cut face to hatch, and no outline of that face left behind
+  // (reviews).
+  const beyond = new Set<number>();
+  for (let t = 0; t < nt; t++) for (let c = 0; c < 3; c++) if (d[T[3 * t + c]] > 0) beyond.add(mesh.triBody[t]);
+  spend(nt);
+
   for (let t = 0; t < nt; t++) {
     const v = [T[3 * t], T[3 * t + 1], T[3 * t + 2]];
     const k = v.map(kept);
-    if (!k[0] && !k[1] && !k[2]) continue;
+    if ((!k[0] && !k[1] && !k[2]) || !beyond.has(mesh.triBody[t])) continue;
     const corner = (c: number): Vec3 => [N[9 * t + 3 * c], N[9 * t + 3 * c + 1], N[9 * t + 3 * c + 2]];
     if (k[0] && k[1] && k[2]) {
       triFrom[t] = tris.length / 3;
@@ -253,6 +260,7 @@ export function cutMesh(mesh: Mesh, plane: SectionPlane, view: CadView, budget?:
 
   const edges: Mesh["edges"] = [];
   for (const e of mesh.edges) {
+    if (!beyond.has(e.body)) continue;
     const ka = kept(e.a), kb = kept(e.b);
     if (ka && kb) edges.push({ ...e, a: keepVertex(e.a), b: keepVertex(e.b) });
     else if (ka || kb) {
@@ -268,10 +276,6 @@ export function cutMesh(mesh: Mesh, plane: SectionPlane, view: CadView, budget?:
   const to2 = (p: Vec3): Pt2 => [R[0] * p[0] + R[1] * p[1] + R[2] * p[2], R[3] * p[0] + R[4] * p[1] + R[5] * p[2]];
   const regions: CutRegion[] = [];
   const capNormal: Vec3 = [-plane.sight[0], -plane.sight[1], -plane.sight[2]];
-  // Which bodies reach strictly beyond the plane: only those are cut (a plane lying on a face with the part on the
-  // viewer's side takes the whole part away — it has no cut face to hatch: review).
-  const beyond = new Set<number>();
-  for (let t = 0; t < nt; t++) for (let c = 0; c < 3; c++) if (d[T[3 * t + c]] > 0) beyond.add(mesh.triBody[t]);
   for (const body of [...segs.keys()].sort((a, b) => a - b)) {
     const m = segs.get(body)!;
     if (!m.size || !beyond.has(body)) continue;
@@ -282,7 +286,8 @@ export function cutMesh(mesh: Mesh, plane: SectionPlane, view: CadView, budget?:
       (adj.get(b) ?? adj.set(b, []).get(b)!).push(a);
     }
     spend(m.size);
-    joinLooseEnds(adj, index.pts, Math.max(mesh.bodySag[body] ?? 0, (mesh.bodyNoise?.[body] ?? 0) * 4, 1e-6 * mesh.diag));
+    const noise = mesh.bodyNoise?.[body] ?? 0;
+    joinLooseEnds(adj, index.pts, noise > 0 ? Math.max(noise * 4, 1e-6 * mesh.diag) : Math.max(mesh.bodySag[body] ?? 0, 1e-6 * mesh.diag));
     for (const nb of adj.values()) {
       if (nb.length !== 2) {
         const imported = (mesh.bodyNoise?.[body] ?? 0) > 0;

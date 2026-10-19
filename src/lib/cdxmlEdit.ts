@@ -12,7 +12,7 @@ import type { XNode } from "./xmlLite";
 import type { CdxDoc } from "./cdxml";
 import { atomicNumber, symbolFor } from "./periodic";
 import { Molecule } from "openchemlib/full";
-import { isGroupLabel, leftwardOf } from "./labelExpand";
+import { groupSmilesBySide, isGroupLabel, leftwardOf, rightwardOf } from "./labelExpand";
 
 // ---- the tree --------------------------------------------------------------------------------
 
@@ -251,6 +251,7 @@ const GROUP_OVER_ELEMENT = new Set(["Ac", "Pr", "Ts", "Bu"]);
 function hydrogensFor(z: number, charge: number, frag: XNode, nodeId: string): number | null {
   const sym = symbolFor(z);
   if (!sym) return null;
+  if (z === 1) return charge ? 0 : Math.max(0, 1 - bondOrderSum(frag, nodeId));
   const known = implicitH(sym, charge, bondOrderSum(frag, nodeId));
   if (known !== null) return known;
   try {
@@ -340,10 +341,11 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
   }
   node.attrs.NodeType = "Unspecified";
   if (isGroupLabel(t)) {
-    // Written for its side of the bond, as ChemDraw writes it (OMe on the left reads MeO).
+    // Written for its side of the bond, as ChemDraw writes it (OMe on the left reads MeO, MeO on the right
+    // OMe), justified so the letter that bonds sits on the atom: the last for a leftward form, else the first.
     const left = sideOf(frag, node) === "left";
-    const shown = left ? leftwardOf(t) ?? t : t;
-    node.children.push(labelText(doc, node, shown, left && shown !== t));
+    const shown = left ? leftwardOf(t) ?? t : groupSmilesBySide(t, "right") ? t : rightwardOf(t) ?? t;
+    node.children.push(labelText(doc, node, shown, !groupSmilesBySide(shown, "right") && !!groupSmilesBySide(shown, "left")));
     return { ok: true, note: groupFirst ? `${t} is read as the group (${t === "Ac" ? "acetyl" : t === "Pr" ? "propyl" : t === "Ts" ? "tosyl" : "butyl"}); for the element, type [${t}].` : null };
   }
   node.children.push(labelText(doc, node, t));
@@ -475,13 +477,23 @@ export function deleteInStructure(doc: CdxDoc, id: string): string | null {
  */
 function relabel(doc: CdxDoc, node: XNode): void {
   if (node.attrs.NodeType && node.attrs.NodeType !== "Element") return;
-  if (node.attrs.Isotope || node.attrs.Radical) return;
+  if (node.attrs.Radical) return;
   const t = node.children.find((c) => c.name === "t");
   if (!t) return;
   const sym = symbolFor(Number(node.attrs.Element ?? 6));
   if (!sym) return;
   const runs = t.children.filter((c) => c.name === "s");
   if (!runs.length) return;
+  if (node.attrs.Isotope) {
+    // "13CH3" as setAtomLabel writes it: the mass number, then the symbol and its hydrogens.
+    if (runs.length !== 2 || runs[0].text !== node.attrs.Isotope || !new RegExp(`^${sym}(H\\d*)?$`).test(runs[1].text)) return;
+    const f = fragmentOf(doc.root, node.attrs.id ?? "")?.frag;
+    const hi = f ? hydrogensFor(Number(node.attrs.Element ?? 6), Number(node.attrs.Charge ?? 0) || 0, f, node.attrs.id ?? "") : null;
+    if (hi === null) return;
+    node.attrs.NumHydrogens = String(hi);
+    runs[1].text = sym + (hi ? "H" + (hi > 1 ? hi : "") : "");
+    return;
+  }
   const text = runs.map((r) => r.text).join("");
   const flat = text.replace(/\n/g, "");
   const m = new RegExp(`^(H\\d*)?${sym}(H\\d*)?$`).exec(flat);

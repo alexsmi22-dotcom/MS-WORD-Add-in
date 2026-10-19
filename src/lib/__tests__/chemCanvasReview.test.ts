@@ -36,7 +36,7 @@ describe("1. aromatic bonds (Order 1.5) resolve into the right structure", () =>
     expect(formula(page(inner))).toBe(f);
   });
   test("a ring that cannot alternate (five neutral carbons) is refused by name", () => {
-    expect(formula(page(ring(5, "1.5")))).toBe("the bonds drawn as aromatic cannot be given alternating single and double bonds — as drawn, that ring is not aromatic (check its atoms, charges and hydrogens)");
+    expect(formula(page(ring(5, "1.5")))).toBe("the bonds drawn as aromatic cannot be given alternating single and double bonds — as drawn, those atoms are not aromatic (check their atoms, charges and hydrogens)");
   });
 });
 
@@ -71,10 +71,14 @@ test("4. Ac, Pr, Ts typed on an atom are the groups (acetyl, propyl, tosyl), sai
   expect(findById(d.root, "2")!.el.attrs.Element).toBe("89");
 });
 
-test("5. an abbreviation with more bonds than connection points is refused (the bonds would pile onto one point)", () => {
+test("5. an abbreviation with more bonds than connection points on different atoms is refused (the bonds would pile onto one point)", () => {
   const vo = `<n id="1" p="0 0" NodeType="Nickname"><fragment id="20"><n id="21" p="0 0" Element="23"/><n id="22" p="0 10" Element="8"/><n id="23" p="-10 0" NodeType="ExternalConnectionPoint"/><n id="24" p="10 0" NodeType="ExternalConnectionPoint"/><b id="31" B="21" E="22" Order="2"/><b id="32" B="21" E="23"/><b id="33" B="21" E="24"/></fragment><t p="0 0"><s font="3" size="10">VO</s></t></n>
 <n id="2" p="-30 0"/><n id="3" p="30 0"/><n id="4" p="0 30"/><b id="5" B="1" E="2"/><b id="6" B="1" E="3"/><b id="7" B="1" E="4"/>`;
-  expect(formula(page(vo))).toBe("“VO” has 3 bonds but 2 connection points in its structure, so where each bond goes is not in the file");
+  // Both points on the V: all three bonds meet the V — exact (the fix round's review, finding 3).
+  expect(formula(page(vo))).not.toMatch(/connection point/);
+  // Points on different atoms: which bond goes where is not in the file.
+  const split = vo.replace('<b id="33" B="21" E="24"/>', '<b id="33" B="22" E="24"/>');
+  expect(formula(page(split))).toBe("“VO” has 3 bonds but 2 connection points in its structure, so where each bond goes is not in the file");
 });
 
 test("7. an AND (racemic) stereo group is refused, never turned absolute", () => {

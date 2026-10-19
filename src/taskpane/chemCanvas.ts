@@ -645,7 +645,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       return { ok: false, reason: "a reaction (an arrow on the page) has no single formula — select one structure (Select tool) to read its formula" };
     const bracketed = new Set(doc.brackets.flatMap((g) => g.objectIds));
     const inPolymer = doc.objects.some((o) => inScope(o.id) && o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => bracketed.has(nd.id))));
-    if (inPolymer) return { ok: false, reason: "a polymer drawn with brackets has no single formula (its repeat unit repeats n times)" };
+    if (inPolymer) return { ok: false, reason: "a structure in brackets (a polymer's repeat unit, or a salt or charge bracket) has no single formula here — select a structure outside them (Select tool) to read its formula" };
     let r: ReturnType<typeof pageToMolecule>;
     try {
       r = pageToMolecule(doc, selectionOnly && selected.size ? selected : undefined);

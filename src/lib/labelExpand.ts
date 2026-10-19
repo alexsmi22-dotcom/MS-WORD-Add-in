@@ -99,6 +99,15 @@ export function leftwardOf(label: string): string | null {
   return null;
 }
 
+/** The same group written for the right of a bond (MeO → OMe, SCN → NCS), or null when it has none. */
+export function rightwardOf(label: string): string | null {
+  const key = label.replace(/\s+/g, "");
+  if (!Object.prototype.hasOwnProperty.call(LEFTWARD, key)) return null;
+  const smi = LEFTWARD[key];
+  for (const [k, v] of Object.entries(GROUPS)) if (v === smi && !NAMED.has(k)) return k;
+  return null;
+}
+
 /** Whether a label is a group this table knows, on either side (a typed label is checked with this). */
 export function isGroupLabel(label: string): boolean {
   return groupSmiles(label) !== null;

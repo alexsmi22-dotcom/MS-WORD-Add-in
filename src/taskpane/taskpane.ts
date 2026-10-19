@@ -5254,12 +5254,13 @@ function updateDrawPreview(preserveStatus = false): void {
   // through every transient state of the drawing.
   keepRgroupValues = true;
   try {
-    if (!pageEmpty && drawn && (!chem?.ok || !mol || mol.getAllAtoms() === 0 || drawEditor?.hasDrawing())) {
-      // A page that is more than its structures (captions, brackets, arrows), or whose structures have no
-      // single formula: it inserts as drawn, and says why there is no formula (or gives the structures').
+    if (!pageEmpty && drawn && (!chem?.ok || !mol || mol.getAllAtoms() === 0)) {
+      // A page whose structures have no single formula (or that has none): it inserts as drawn, and says why
+      // there is no formula. (A page of structures with captions takes the structure path below: its
+      // R-group legend, SMILES and compliance notes stay; it inserts as drawn.)
       buildFragmentToggle.checked = !!drawEditor?.isFragment();
       buildPreviewEl.innerHTML = drawn.svg;
-      buildFormulaEl.textContent = chem && !chem.ok ? `— (${chem.reason})` : chem?.ok && mol && mol.getAllAtoms() ? safeFormula(mol) : "—";
+      buildFormulaEl.textContent = chem && !chem.ok ? `— (${chem.reason})` : "—";
       buildSmilesEl.textContent = "—";
       renderRgroupInputs([]);
       renderCompliance([]);
@@ -5345,7 +5346,7 @@ function openDrawDialog(): void {
   if (drawEditor && drawEditor.page().objects.length) {
     const chem = drawEditor.chemistry();
     if (!chem.ok) {
-      setStatus(`The large canvas takes a structure it can read exactly — this one has no single formula (${chem.reason}). Edit it here.`, "error");
+      setStatus(`The large canvas takes a structure it can read exactly — here, ${chem.reason}. Edit it here.`, "error");
       return;
     }
     const labels = pageGroupLabels();
@@ -5816,7 +5817,11 @@ async function insertBuild(): Promise<void> {
     }
     const base64 = await renderFigurePng(molecule.svg, d.w, d.h);
     const label = molecule.formula || "molecule";
-    const alt = provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
+    // The reopen code (OCL-ID) only for a page that is its structures: one with captions would reopen without them.
+    const alt =
+      buildTab === "draw" && drawEditor?.hasDrawing()
+        ? `Structure drawing (JurisLab) — ${molecule.formula}; SMILES ${molecule.smiles}`
+        : provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
     const entries = currentLegendEntries();
     const legendLine = buildLegendText(entries);
     const legendTable = legendFormat === "table" ? buildLegendTableHtml(entries) : "";
@@ -29990,15 +29995,6 @@ function pageGroupLabels(): string[] {
       if (it.kind === "fragment")
         for (const n of it.v.nodes) if (n.nodeType === "Unspecified" || n.nodeType === "Nickname" || n.nodeType === "Fragment") out.add(n.label?.runs.map((r) => r.text).join("") || "a label");
   return [...out];
-}
-
-/** A structure's formula for the readout (never throws). */
-function safeFormula(mol: OclMolecule): string {
-  try {
-    return mol.getMolecularFormula().formula;
-  } catch {
-    return "—";
-  }
 }
 
 /** Formats a number for the pane: up to 8 significant digits, no trailing zeros. */

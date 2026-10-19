@@ -40,6 +40,14 @@ structure carrying one is refused by name rather than redrawn without it. Isotop
 (13C, D, T).
 
 ### Fixed before release (adversarial review: 15 findings, pinned in chemCanvasReview.test.ts)
+- Second review of the fix round (9 findings + 1 found while checking, pinned in chemCanvasReview2.test.ts):
+  H typed on an atom no longer reads HH₃; a 13C label's hydrogens follow new bonds; an abbreviation whose
+  connection points all sit on one atom (Cl₂Zr, CrCl₃, VO) takes its bonds there; a typed group reads on
+  either side of its bond (MeO right of a bond is written OMe; SCN left of a bond is N-bonded), and a ChemDraw
+  label's justification decides which letter bonds; aromatic rings resolve by valence (2-pyridone reads,
+  an N⁺ with four bonds is refused, tetrazole with no H drawn is CH₂N₄); a structure with a caption keeps its
+  R-group legend and notes; drawn hydrogens stay on their own atom when the page has explicit H atoms
+  (OCL reorders them — two USPTO structures read two H short); a hydrogen drawn with several bonds is refused.
 - ChemDraw's aromatic bonds were counted as single (benzene read C₆H₁₂): they are now resolved into
   alternating single and double bonds, a ring atom that gives a lone pair instead (pyrrole NH, furan O,
   C₅H₅⁻, C₇H₇⁺) kept single; a ring that cannot alternate is refused by name.

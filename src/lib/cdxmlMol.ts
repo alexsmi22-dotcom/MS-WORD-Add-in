@@ -52,6 +52,11 @@ export interface PageMolecule {
 
 /** Which side of its one bond a label is written on: left when its neighbour lies to its right. */
 function labelSide(f: XNode, n: XNode): "left" | "right" | null {
+  // The label's justification says which letter sits on the atom (ChemDraw's own rule): left-justified,
+  // the first (read as written right of a bond); right-justified, the last.
+  const just = n.children.find((c) => c.name === "t")?.attrs.LabelJustification;
+  if (just === "Left") return "right";
+  if (just === "Right") return "left";
   const b = f.children.find((q) => q.name === "b" && (q.attrs.B === n.attrs.id || q.attrs.E === n.attrs.id));
   if (!b) return null;
   const other = f.children.find((c) => c.name === "n" && c.attrs.id === (b.attrs.B === n.attrs.id ? b.attrs.E : b.attrs.B));
@@ -204,9 +209,11 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
           return { num: cp.num, atom: b ? map.get(b.attrs.B === cp.id ? b.attrs.E : b.attrs.B) : undefined };
         });
         if (!attach.length || attach.some((v) => v.atom === undefined)) return { ok: false, reason: `${quoted(words)} does not say where it is bonded` };
-        // Its outer bonds must meet its connection points one to one (a bond to a point beyond the last
-        // would pile onto it — a wrong structure); with several, the file must number them.
-        if (degree !== attach.length) return { ok: false, reason: `${quoted(words)} has ${degree} bond${degree === 1 ? "" : "s"} but ${attach.length} connection point${attach.length === 1 ? "" : "s"} in its structure, so where each bond goes is not in the file` };
+        // Every point on one inner atom (Cl₂Zr, CrCl₃): all its bonds meet that atom — exact, however many.
+        if (attach.every((v) => v.atom === attach[0].atom)) attach.splice(1);
+        // Otherwise its outer bonds must meet its connection points one to one (a bond to a point beyond the
+        // last would pile onto it — a wrong structure); with several, the file must number them.
+        else if (degree !== attach.length) return { ok: false, reason: `${quoted(words)} has ${degree} bond${degree === 1 ? "" : "s"} but ${attach.length} connection point${attach.length === 1 ? "" : "s"} in its structure, so where each bond goes is not in the file` };
         // Its atoms are laid out in their own frame: moved so the atom that bonds sits where the label is.
         const at = innerPos.get(attach[0].atom!)!;
         for (const [a, [ix, iy]] of innerPos) {
@@ -248,10 +255,23 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
   // Aromatic bonds (drawn as such) become alternating single and double bonds before anything is counted.
   const arom = resolveAromatic(mol, frags, index);
   if (arom) return { ok: false, reason: arom };
+  // OCL moves hydrogen atoms (and their bonds) to the end when it builds its helper arrays: each atom is
+  // tagged first, so the page's ids — and the wavy bonds — still name their own atoms afterwards.
+  const wavyEnds = wavy.map((b) => [mol.getBondAtom(0, b), mol.getBondAtom(1, b)]);
+  for (let a = 0; a < mol.getAllAtoms(); a++) mol.setAtomMapNo(a, a + 1, false);
+  mol.ensureHelperArrays(Molecule.cHelperRings);
+  const moved = new Map<number, number>(); // index before → after
+  for (let a = 0; a < mol.getAllAtoms(); a++) {
+    moved.set(mol.getAtomMapNo(a) - 1, a);
+    mol.setAtomMapNo(a, 0, false);
+  }
+  for (const [id, a] of index) index.set(id, moved.get(a)!);
+  const idsBefore = atomIds.slice();
+  for (const [was, now] of moved) atomIds[now] = idsBefore[was];
   // A wavy single bond means the geometry of the double bond it meets is not known.
-  if (wavy.length) {
+  if (wavyEnds.length) {
     mol.ensureHelperArrays(Molecule.cHelperRings);
-    for (const wb of wavy)
+    for (const wb of wavyEnds.map(([a0, a1]) => mol.getBond(moved.get(a0)!, moved.get(a1)!)))
       for (const end of [0, 1] as const) {
         const a = mol.getBondAtom(end, wb);
         for (let k = 0; k < mol.getConnAtoms(a); k++) {
@@ -278,8 +298,13 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
       const sym = elementSymbol(Number(n.attrs.Element ?? 6));
       const has = mol.getImplicitHydrogens(a);
       if (has !== drawn) return { ok: false, reason: `${quoted(labelWords(n) || sym)} is drawn with ${drawn} H, which no valence of ${sym} with its bonds and charge gives — the formula would not be the one drawn` };
-      notes.push(`${labelWords(n) || sym} is drawn with ${drawn} H on ${bonds} bond${bonds === 1 ? "" : "s"} — an unusual valence for ${sym}, taken as drawn`);
+      if (bonds) notes.push(`${labelWords(n) || sym} is drawn with ${drawn} H on ${bonds} bond${bonds === 1 ? "" : "s"} — an unusual valence for ${sym}, taken as drawn`);
     }
+  // Hydrogen takes one bond: one drawn with more (bonds piled onto it) is no structure.
+  const hBonds = new Map<number, number>();
+  for (let b = 0; b < mol.getAllBonds(); b++)
+    for (const a of [mol.getBondAtom(0, b), mol.getBondAtom(1, b)]) if (mol.getAtomicNo(a) === 1) hBonds.set(a, (hBonds.get(a) ?? 0) + 1);
+  for (const k of hBonds.values()) if (k > 1) return { ok: false, reason: `a hydrogen atom is drawn with ${k} bonds — hydrogen takes one` };
   return { ok: true, value: { mol, atomIds, notes } };
 }
 
@@ -311,19 +336,50 @@ function resolveAromatic(mol: Molecule, frags: XNode[], index: Map<string, numbe
   }
   type Role = "required" | "optional" | "forbidden";
   const role = new Map<number, Role>();
+  // Atoms whose hydrogens the file leaves open (an N with no NumHydrogens): given a double bond where the
+  // ring allows one — the most double bonds — so only the atoms that must be NH are (1H-tetrazole CH₂N₄).
+  const open: number[] = [];
   for (const [a, edges] of adj) {
     const z = mol.getAtomicNo(a), q = mol.getAtomCharge(a), h = drawnH.get(a);
-    const sigma = edges.length + (otherOrder.get(a) ?? 0) + (h ?? 0);
+    // Valence already used: ring σ bonds, the other bonds by order (an exocyclic C=O counts 2), drawn H.
+    const used = edges.length + (otherOrder.get(a) ?? 0) + (h ?? 0);
+    const max = z === 6 ? 4 : z === 7 || z === 15 ? 3 + Math.sign(q) : z === 8 || z === 16 || z === 34 || z === 52 ? 2 + Math.sign(q) : Infinity;
     let r: Role;
-    if (z === 6) r = q === 0 ? "required" : "optional";
-    else if (z === 7 || z === 15) r = q > 0 ? "required" : q < 0 ? "forbidden" : sigma >= 3 ? "forbidden" : h === 0 ? "required" : "optional";
+    if (used + 1 > max) r = "forbidden"; // no room for a double bond (2-pyridone's C=O carbon, an N⁺ with four bonds)
+    else if (z === 6) r = q === 0 ? "required" : "optional";
+    else if (z === 7 || z === 15) r = q > 0 ? "required" : q < 0 ? "forbidden" : h === 0 ? "required" : "optional";
     else if (z === 8 || z === 16 || z === 34 || z === 52) r = q > 0 ? "required" : "forbidden";
     else r = "optional";
     role.set(a, r);
+    if (r === "optional" && h === undefined && (z === 7 || z === 15)) open.push(a);
   }
   const matched = new Map<number, number>(); // atom → bond
   let steps = 0;
   const required = [...role].filter(([, r]) => r === "required").map(([a]) => a);
+  let best: Map<number, number> | null = null;
+  let bestScore = -1;
+  // With every required atom matched: the open atoms, each matched where it can be or left single; the
+  // matching with the most of them matched is kept. True stops the search (all matched).
+  const extend = (i: number): boolean | null => {
+    if (++steps > AROMATIC_STEPS) return null;
+    if (i === open.length) {
+      const score = open.filter((a) => matched.has(a)).length;
+      if (score > bestScore) (bestScore = score), (best = new Map(matched));
+      return score === open.length;
+    }
+    const a = open[i];
+    if (!matched.has(a))
+      for (const e of adj.get(a)!) {
+        if (matched.has(e.other) || role.get(e.other) === "forbidden") continue;
+        matched.set(a, e.bond);
+        matched.set(e.other, e.bond);
+        const r = extend(i + 1);
+        matched.delete(a);
+        matched.delete(e.other);
+        if (r !== false) return r;
+      }
+    return extend(i + 1);
+  };
   const solve = (): boolean | null => {
     if (++steps > AROMATIC_STEPS) return null;
     // The unmatched required atom with the fewest ways to be matched.
@@ -334,7 +390,7 @@ function resolveAromatic(mol: Molecule, frags: XNode[], index: Map<string, numbe
       if (ways < best) (best = ways), (pick = a);
       if (!ways) return false;
     }
-    if (pick < 0) return true;
+    if (pick < 0) return extend(0);
     for (const e of adj.get(pick)!) {
       if (matched.has(e.other) || role.get(e.other) === "forbidden") continue;
       matched.set(pick, e.bond);
@@ -348,8 +404,8 @@ function resolveAromatic(mol: Molecule, frags: XNode[], index: Map<string, numbe
   };
   const ok = solve();
   if (ok === null) return "the aromatic bonds are too many to resolve here — draw them as single and double bonds";
-  if (!ok) return "the bonds drawn as aromatic cannot be given alternating single and double bonds — as drawn, that ring is not aromatic (check its atoms, charges and hydrogens)";
-  const doubles = new Set(matched.values());
+  if (!best) return "the bonds drawn as aromatic cannot be given alternating single and double bonds — as drawn, those atoms are not aromatic (check their atoms, charges and hydrogens)";
+  const doubles = new Set((best as Map<number, number>).values());
   for (const b of deloc) mol.setBondType(b, doubles.has(b) ? Molecule.cBondTypeDouble : Molecule.cBondTypeSingle);
   return null;
 }

@@ -345,7 +345,10 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
     const sym = symbolFor(z)!;
     const h = hydrogensFor(z, charge, frag, nodeId);
     if (h !== null) node.attrs.NumHydrogens = String(h);
-    node.children.push(labelText(doc, node, sym + (h ? "H" + (h > 1 ? h : "") : "")));
+    // Left of its bond, its hydrogens come first, right-aligned on the atom (HO, H2N), as ChemDraw writes it.
+    const hs = h ? "H" + (h > 1 ? h : "") : "";
+    const left = !!hs && sideOf(frag, node) === "left";
+    node.children.push(labelText(doc, node, left ? hs + sym : sym + hs, left));
     return { ok: true, note: null };
   }
   if (GENERIC.test(t)) {

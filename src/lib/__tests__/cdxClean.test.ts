@@ -46,7 +46,9 @@ test("a structure with a caption and an arrow: laid out at the page's bond lengt
   expect(findById(d.root, "30")!.el.attrs.Head3D).toBe("300 100 0");
   // The OH label moved with its atom.
   const t = findById(d.root, "104")!.el.children.find((c) => c.name === "t")!;
-  expect(t.attrs.p).toBe(findById(d.root, "104")!.el.attrs.p);
+  const [ax, ay] = findById(d.root, "104")!.el.attrs.p.split(" ").map(Number);
+  const box = (t.attrs.BoundingBox ?? `${t.attrs.p} ${t.attrs.p}`).split(" ").map(Number);
+  expect(box[0] - 1 <= ax && ax <= box[2] + 1 && box[1] - 1 <= ay && ay <= box[3] + 1).toBe(true);
 });
 
 test("stereo is kept: a wedged centre drawn badly comes back with the same idcode (wedges drawn again)", () => {
@@ -103,4 +105,19 @@ test("a wedged structure with a label this cannot read is refused, never laid ou
 
 test("an empty page: nothing to clean", () => {
   expect(cleanStructures(page(caption))).toBe("there is no structure to clean");
+});
+
+test("browser check: an OH that Clean moves to the left of its bond is written HO, right-aligned on the atom", () => {
+  const d = page(crooked);
+  expect(cleanStructures(d)).toBeNull();
+  const n = findById(d.root, "104")!.el;
+  const t = n.children.find((c) => c.name === "t")!;
+  const words = t.children.map((s) => s.text).join("");
+  const otherX = Number(findById(d.root, "103")!.el.attrs.p.split(" ")[0]);
+  const x = Number(n.attrs.p.split(" ")[0]);
+  if (otherX > x) {
+    expect(words).toBe("HO");
+    expect(t.attrs.LabelJustification).toBe("Right");
+  } else expect(words).toBe("OH");
+  expect(idcodeOf(reread(d), "10")).toBe(idcodeOf(page(crooked), "10"));
 });

@@ -281,3 +281,12 @@ describe("review: rendering", () => {
     expect(svgOf('<fragment id="10"><n id="101" p="0 0" Radical="None"/><n id="102" p="30 0"/><b id="103" B="101" E="102"/></fragment>')).not.toContain("<circle");
   });
 });
+
+test("an element typed on a left-hand chain end is written with its hydrogens first (HO), right-aligned", () => {
+  const d = readCdxml('<CDXML BondLength="30"><page id="900"><fragment id="10"><n id="101" p="30 0"/><n id="102" p="0 0"/><b id="103" B="101" E="102"/></fragment></page></CDXML>');
+  if (!d.ok) throw new Error(d.reason);
+  expect(setAtomLabel(d.doc, "102", "O").ok).toBe(true);
+  const t = findById(d.doc.root, "102")!.el.children.find((c) => c.name === "t")!;
+  expect(t.children.map((s) => s.text).join("")).toBe("HO");
+  expect(t.attrs.LabelJustification).toBe("Right");
+});

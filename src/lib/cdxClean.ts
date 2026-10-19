@@ -13,6 +13,7 @@ import type { XNode } from "./xmlLite";
 import { findById, setAtomLabel } from "./cdxmlEdit";
 import { pageToMolecule } from "./cdxmlMol";
 import { groupSmilesBySide } from "./labelExpand";
+import { symbolFor } from "./periodic";
 
 type P2 = [number, number];
 const posOf = (n: XNode): P2 => {
@@ -139,7 +140,14 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       const nd = nodes.find((q) => q.attrs.id === id)!;
       const after = sideOf(frag, nd);
       const type = nd.attrs.NodeType ?? "Element";
-      if (!before || !after || before === after || (type !== "Unspecified" && type !== "Nickname")) continue;
+      if (!before || !after || before === after) continue;
+      // An element with hydrogens (OH, NH2) written for its new side (HO, H2N on the left).
+      if (type === "Element" && !nd.attrs.Isotope && nd.attrs.NumHydrogens && nd.attrs.NumHydrogens !== "0") {
+        const sym = symbolFor(Number(nd.attrs.Element ?? 6));
+        if (sym) setAtomLabel(doc, id, sym);
+        continue;
+      }
+      if (type !== "Unspecified" && type !== "Nickname") continue;
       const words = nd.children.find((c) => c.name === "t")?.children.filter((s) => s.name === "s").map((s) => s.text).join("") ?? "";
       if (words && (groupSmilesBySide(words, "left") || groupSmilesBySide(words, "right"))) setAtomLabel(doc, id, words);
     }

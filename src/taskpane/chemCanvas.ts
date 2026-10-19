@@ -18,6 +18,7 @@ import {
   namesTiedTo, setAtomLabel, setAtomProps, setBond, setBondProps, setCharge, setText, writeCdxml, type AtomProps,
 } from "../lib/cdxmlEdit";
 import { moleculeToPage, pageToMolecule } from "../lib/cdxmlMol";
+import { cleanStructures } from "../lib/cdxClean";
 import { atomQueryMarks, bondQueryMarks, stereoGroupMark } from "../lib/cdxQuery";
 import type { XNode } from "../lib/xmlLite";
 
@@ -52,6 +53,10 @@ export interface ChemCanvas {
   /** The page, and loading one (a ChemDraw file or picture). */
   page(): CdxDoc;
   loadPage(doc: CdxDoc): void;
+  /** Replaces the page as one edit (undoable; names ChemDraw computed for changed structures are flagged): the large canvas's page coming back. */
+  replacePage(doc: CdxDoc): boolean;
+  /** Lays the page's structures (the selected ones, if any) out again in place, as one edit; everything else keeps its place. False when refused (said in the status). */
+  clean(): boolean;
   /** Whether the page holds more than structures (brackets, arrows, text): it inserts as the drawing then. */
   hasDrawing(): boolean;
   /** The page (or the selection) drawn for insertion. */
@@ -281,7 +286,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     draw();
   }
   /** Runs an edit with an undo step; a refusal (string) leaves the page as it was and says why. */
-  function edit(f: () => string | null): boolean {
+  function edit(f: () => string | null, layoutOnly = false): boolean {
     const step = snapshot();
     const before = step.root;
     const sigBefore = signatures();
@@ -301,7 +306,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     // A name ChemDraw computed for a structure that changed (or went) no longer describes it.
     const sigAfter = signatures();
     const changed = [...sigBefore.keys()].filter((id) => sigAfter.get(id) !== sigBefore.get(id));
-    for (const id of namesTiedTo({ ...doc, root: before, properties: propsBefore } as CdxDoc, changed)) stale.add(id);
+    // A layout change (Clean) leaves every structure what it was: the names ChemDraw computed still hold.
+    if (!layoutOnly) for (const id of namesTiedTo({ ...doc, root: before, properties: propsBefore } as CdxDoc, changed)) stale.add(id);
     stale = new Set([...stale].filter((id) => !!findById(doc.root, id)));
     fire(true);
     return true;
@@ -821,6 +827,15 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       draw();
       fire(false);
     },
+    clean: () => {
+      const scope = selected.size ? new Set(selected) : undefined;
+      return edit(() => cleanStructures(doc, scope), true);
+    },
+    replacePage: (d) =>
+      edit(() => {
+        doc.root = d.root;
+        return null;
+      }),
     hasDrawing: () => doc.objects.some((o) => o.items.some((it) => it.kind !== "fragment")) || doc.brackets.length > 0,
     render: (selectionOnly) => {
       if (selectionOnly && !selected.size) return null;

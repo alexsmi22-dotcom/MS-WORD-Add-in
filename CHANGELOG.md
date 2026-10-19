@@ -22,6 +22,16 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 - ChemDraw files carrying any of these now open with them, and structures inserted from the old editor with an
   AND / OR group, an atom list or a query feature reopen on the canvas with it (v2.156.0 refused them).
 
+### Changed
+- **The large canvas takes the whole page**: brackets, arrows, captions and group labels go into it and come back
+  exactly as drawn (the page travels as ChemDraw XML — in the window's address when short, by message when not).
+  Bringing it back is one edit in the pane: Undo returns to the page as it was. The 3D tab says why a page has no
+  3D model (a reaction, a polymer) instead of asking for a molecule.
+- **Clean works on any page**: each structure (the selected ones, if any) is laid out again in place — its centre
+  kept, at the page's bond length, its stereo kept (wedges drawn again) — while captions, arrows and the other
+  structures stay where they are. Group labels stay labels. A structure inside brackets, or one with wedges whose
+  stereo cannot be read, is refused by name.
+
 ### Rules
 - A structure with an atom list or a query feature is a query structure: the readout says generic structure,
   never a formula, whatever the Markush box says.
@@ -62,8 +72,8 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 Not yet: the large canvas takes structures only (a page with brackets, arrows, text or group labels is edited
 in the pane, and it says so); Clean lays out pages of structures only. The canvas has no way yet to set a
 radical, an atom list, a query feature or an AND / OR stereo group (the old editor's atom properties); a
-structure carrying one is refused by name rather than redrawn without it (added in v2.157.0). Isotopes are
-typed as labels (13C, D, T).
+structure carrying one is refused by name rather than redrawn without it (all three lifted in v2.157.0).
+Isotopes are typed as labels (13C, D, T).
 
 ### Fixed before release (adversarial review: 15 findings, pinned in chemCanvasReview.test.ts)
 - Second review of the fix round (9 findings + 1 found while checking, pinned in chemCanvasReview2.test.ts):

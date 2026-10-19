@@ -15,7 +15,9 @@
 
 import { Molecule } from "openchemlib/full";
 import { createChemCanvas, ChemCanvas } from "../taskpane/chemCanvas";
-import { rgroupLabels, cleanedCopy } from "../lib/builder";
+import { readCdxml } from "../lib/cdxml";
+import { writeCdxml } from "../lib/cdxmlEdit";
+import { rgroupLabels } from "../lib/builder";
 import {
   generate3d, isMol3dError, Mol3dModel, Mol3dView, Mol3dStyle, DrawOp,
   defaultMol3dView, rotateView, projectScene, paintOps, hitTest,
@@ -68,18 +70,26 @@ Office.onReady(() => {
     );
   }
 
-  // Seed with the pane's molecule, if one was passed.
-  const seed = params.get("mol");
-  if (seed) {
+  // Seed with the pane's page — structures, brackets, arrows, text, group labels, as ChemDraw keeps them —
+  // from the URL (?page=), or, when too long for a URL, by message once this window says it is ready.
+  const send = (o: unknown): void => Office.context.ui.messageParent(JSON.stringify(o));
+  const loadSeed = (text: string | null): void => {
+    if (!text) return;
+    let w: { page?: unknown; frag?: unknown } = {};
     try {
-      const [idcode, coordinates] = seed.split(/\s+/);
-      const mol = coordinates ? Molecule.fromIDCode(idcode, coordinates) : Molecule.fromIDCode(idcode);
-      if (mol.getAllAtoms() > 0) editor.setMolecule(mol);
+      w = JSON.parse(text);
     } catch {
-      // A bad seed just means starting from a blank canvas.
+      /* refused below */
     }
-  }
-
+    const r = typeof w.page === "string" ? readCdxml(w.page) : null;
+    if (!r || !r.ok) {
+      showError(`The pane's drawing could not be read here${r && !r.ok ? ` (${r.reason})` : ""} — this canvas starts blank, and “Use this drawing” would REPLACE the pane's drawing. Cancel to keep it.`);
+      return;
+    }
+    editor.loadPage(r.doc);
+    editor.setFragment(w.frag === true);
+    updateInfo();
+  };
   const info = byId<HTMLElement>("info");
   // Same display contract as the pane: an R-group makes the structure a genus
   // whatever the fragment flag says — never show a formula counting R at mass
@@ -104,6 +114,30 @@ Office.onReady(() => {
   }
   updateInfo();
   editor.setOnChangeListener(() => updateInfo());
+
+  // The pane's drawing arrives once the readout above exists (loadSeed updates it).
+  if (params.get("wait")) {
+    Office.context.ui.addHandlerAsync(
+      Office.EventType.DialogParentMessageReceived,
+      (arg: { message?: string }) => loadSeed(typeof arg.message === "string" ? arg.message : null),
+      (res) => {
+        if (res.status === Office.AsyncResultStatus.Succeeded) send({ ready: true });
+        else showError("This version of Word cannot hand a drawing this large to a window — this canvas starts blank, and “Use this drawing” would REPLACE the pane's drawing. Cancel to keep it.");
+      },
+    );
+  } else loadSeed(params.get("seed"));
+  // An older pane's seed (a structure's idcode).
+  const seed = params.get("mol");
+  if (seed) {
+    try {
+      const [idcode, coordinates] = seed.split(/\s+/);
+      const mol = coordinates ? Molecule.fromIDCode(idcode, coordinates) : Molecule.fromIDCode(idcode);
+      if (mol.getAllAtoms() > 0) editor.setMolecule(mol);
+    } catch {
+      // A bad seed just means starting from a blank canvas.
+    }
+  }
+
 
   // -------------------------------------------------------------------------
   // 3D model tab
@@ -196,11 +230,13 @@ Office.onReady(() => {
    *  changed. Generation is synchronous and can take seconds for flexible
    *  molecules — the note says so BEFORE the thread blocks. */
   function refresh3d(): void {
-    const mol = editor.getMolecule();
+    const chem = editor.chemistry();
+    const mol = chem.ok ? chem.mol : editor.getMolecule();
     if (mol.getAllAtoms() === 0) {
       model3d = null;
       model3dIdcode = "";
-      note3d.textContent = "Draw a molecule in the 2D editor first.";
+      // A page with no single structure (a reaction, a polymer, a label with no formula) says why.
+      note3d.textContent = chem.ok || !editor.page().objects.length ? "Draw a molecule in the 2D editor first." : `No 3D model: ${chem.reason}.`;
       use3dBtn.disabled = true;
       const ctx = canvas3d.getContext("2d");
       if (ctx) ctx.clearRect(0, 0, canvas3d.width, canvas3d.height);
@@ -510,58 +546,34 @@ Office.onReady(() => {
   // Buttons
   // -------------------------------------------------------------------------
   cleanBtn.addEventListener("click", () => {
-    if (editor.hasDrawing()) {
-      showError("Clean lays out a page of structures only — this one also has brackets, arrows or text.");
-      return;
-    }
-    const chem = editor.chemistry();
-    if (!chem.ok) {
-      showError(`Clean needs the structure as chemistry: ${chem.reason}.`);
-      return;
-    }
-    const mol = chem.mol;
-    if (mol.getAllAtoms() === 0) {
+    if (!editor.page().objects.length) {
       showError("Nothing to clean — the canvas is empty.");
       return;
     }
     clearError();
     try {
-      // setMolecule stores an undo state, so the hand-drawn layout is one
-      // Ctrl+Z away if the machine layout is worse.
-      editor.setMolecule(cleanedCopy(mol));
-      updateInfo();
+      // Each structure laid out again in place (one Undo step); everything else keeps its place.
+      if (editor.clean()) updateInfo();
     } catch (error) {
       showError(`Could not clean the structure: ${(error as Error).message}`);
     }
   });
 
   useBtn.addEventListener("click", () => {
-    // This window hands back a structure (its idcode): what it cannot carry is refused by name, never dropped.
-    if (editor.hasDrawing()) {
-      showError("This window brings back structures only — the brackets, arrows or text on it would be lost. Remove them here (Erase), or draw them in the pane.");
+    // The page goes back whole, as ChemDraw keeps it. Beside it, the structure (its idcode) when the page is
+    // exactly one readable set of structures — what Reaction mode's "Draw a component" needs.
+    if (!editor.page().objects.length) {
+      showError("Nothing drawn yet — draw something, or Cancel.");
       return;
     }
+    const out: { page: string; frag: boolean; mol?: string } = { page: writeCdxml(editor.page().root), frag: editor.isFragment() };
     const chem = editor.chemistry();
-    if (!chem.ok) {
-      showError(`This drawing has no exact structure to bring back: ${chem.reason}.`);
-      return;
+    const groupLabel = editor.page().objects.some((o) => o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => nd.nodeType === "Unspecified" || nd.nodeType === "Nickname" || nd.nodeType === "Fragment")));
+    if (chem.ok && chem.mol.getAllAtoms() > 0 && !editor.hasDrawing() && !groupLabel) {
+      const enc = chem.mol.getIDCodeAndCoordinates();
+      out.mol = `${enc.idCode} ${enc.coordinates}`;
     }
-    // Group labels (OMe, Ph …) would come back to the pane as their atoms: said, not done.
-    const labels = new Set<string>();
-    for (const o of editor.page().objects)
-      for (const it of o.items)
-        if (it.kind === "fragment") for (const nd of it.v.nodes) if (nd.nodeType === "Unspecified" || nd.nodeType === "Nickname" || nd.nodeType === "Fragment") labels.add(nd.label?.runs.map((r) => r.text).join("") || "a label");
-    if (labels.size) {
-      showError(`${[...labels].slice(0, 4).join(", ")} would come back to the pane as ${labels.size === 1 ? "its" : "their"} atoms — draw ${labels.size === 1 ? "that label" : "those labels"} in the pane instead.`);
-      return;
-    }
-    const mol = chem.mol;
-    if (mol.getAllAtoms() === 0) {
-      showError("Nothing drawn yet — draw a structure, or Cancel.");
-      return;
-    }
-    const enc = mol.getIDCodeAndCoordinates();
-    Office.context.ui.messageParent(JSON.stringify({ mol: `${enc.idCode} ${enc.coordinates}` }));
+    send(out);
   });
 
   use3dBtn.addEventListener("click", () => {

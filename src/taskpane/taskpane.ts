@@ -344,7 +344,6 @@ import {
   build,
   BuildFormat,
   BuildResult,
-  cleanedCopy,
   reactionComponentSmiles,
   ComplianceIssue,
   complianceIssues,
@@ -354,6 +353,8 @@ import {
 // second copy) — the only build that ships the interactive canvas editor.
 import { Molecule as OclMolecule } from "openchemlib/full";
 import { createChemCanvas, ChemCanvas } from "./chemCanvas";
+import { readCdxml } from "../lib/cdxml";
+import { writeCdxml } from "../lib/cdxmlEdit";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
   buildSt26Xml,
@@ -5177,36 +5178,13 @@ function onResetCanvas(): void {
  */
 function onCleanStructure(): void {
   if (!drawEditor) return;
-  // Clean lays out the structures again; a page that also holds brackets, arrows or text keeps its layout.
-  if (drawEditor.hasDrawing()) {
-    setStatus("Clean lays out a page of structures only — this page also has brackets, arrows or text, which keep their places. Move the structures by hand (Select, then drag).", "error");
-    return;
-  }
-  const chem = drawEditor.chemistry();
-  if (!chem.ok) {
-    setStatus(`Clean needs the structure as chemistry: ${chem.reason}.`, "error");
-    return;
-  }
-  // Clean lays the structure out again from its chemistry: labels standing for groups (OMe, Ph …) would
-  // become their atoms. Refused by name rather than rewriting what the drawing says.
-  const groupLabels = pageGroupLabels();
-  if (groupLabels.length) {
-    setStatus(`Clean would replace ${[...new Set(groupLabels)].slice(0, 4).join(", ")} with ${groupLabels.length === 1 ? "its" : "their"} atoms, so it is not done — move atoms by hand (Select, then drag).`, "error");
-    return;
-  }
-  const mol = chem.mol;
-  if (mol.getAllAtoms() === 0) {
+  if (!drawEditor.page().objects.length) {
     setStatus("Nothing to clean — the canvas is empty.", "error");
     return;
   }
-  try {
-    // setMolecule stores an undo state, so the hand-drawn layout is one
-    // Ctrl+Z away if the machine layout is worse.
-    drawEditor.setMolecule(cleanedCopy(mol));
-  } catch (error) {
-    setStatus(`Could not clean the structure: ${(error as Error).message}`, "error");
-    return;
-  }
+  // Each structure (the selected ones, if any) is laid out again in place; captions, arrows and the other
+  // structures keep their places; group labels stay labels. One Undo step.
+  if (!drawEditor.clean()) return;
   updateDrawPreview();
   let remaining = false;
   try {
@@ -5338,47 +5316,13 @@ function openDrawDialog(): void {
     setStatus("This Word host does not support pop-out dialog windows.", "error");
     return;
   }
-  let url = new URL("drawdialog.html", window.location.href).href;
-  if (drawEditor?.hasDrawing()) {
-    setStatus("The large canvas takes structures only for now — this page also has brackets, arrows or text, which would be lost there. Edit it here (drag the canvas's corner to make it taller).", "error");
-    return;
-  }
-  if (drawEditor && drawEditor.page().objects.length) {
-    const chem = drawEditor.chemistry();
-    if (!chem.ok) {
-      setStatus(`The large canvas takes a structure it can read exactly — here, ${chem.reason}. Edit it here.`, "error");
-      return;
-    }
-    const labels = pageGroupLabels();
-    if (labels.length) {
-      setStatus(`The large canvas would bring ${labels.slice(0, 4).join(", ")} back as ${labels.length === 1 ? "its" : "their"} atoms — edit this page here (drag the canvas's corner to make it taller).`, "error");
-      return;
-    }
-  }
-  if (drawEditor) {
-    const mol = drawEditor.getMolecule();
-    if (mol.getAllAtoms() > 0) {
-      try {
-        // Seed the same generic-forced encoding the insert path records, so a
-        // never-ticked drawn genus arrives in the dialog correctly flagged.
-        const forSeed = mol.getCompactCopy();
-        if (currentBuild?.generic) forSeed.setFragment(true);
-        const enc = forSeed.getIDCodeAndCoordinates();
-        const seeded = `${url}?mol=${encodeURIComponent(`${enc.idCode} ${enc.coordinates}`)}`;
-        // Dialog URLs have host-dependent length limits; a molecule too big to
-        // fit opens a blank large canvas — with both windows saying so, since
-        // "Use this drawing" from a blank canvas REPLACES the pane's molecule.
-        if (seeded.length < 1800) {
-          url = seeded;
-        } else {
-          url = `${url}?tooLarge=1`;
-          setStatus("Structure too large to carry into the large canvas — it opens blank.", "error");
-        }
-      } catch {
-        /* open blank */
-      }
-    }
-  }
+  const base = new URL("drawdialog.html", window.location.href).href;
+  // The whole page travels — structures, brackets, arrows, text, group labels, as ChemDraw keeps them —
+  // in the URL when short enough, else by message once the window says it is ready (as the CAD window does).
+  const hasPage = !!drawEditor && drawEditor.page().objects.length > 0;
+  const payload = hasPage ? JSON.stringify({ page: writeCdxml(drawEditor!.page().root), frag: drawEditor!.isFragment() || !!currentBuild?.generic }) : "";
+  const inUrl = `${base}?seed=${encodeURIComponent(payload)}`;
+  const url = !hasPage ? base : inUrl.length < 1800 ? inUrl : `${base}?wait=1`;
   openDrawDialogBtn.disabled = true;
   docHost.openDialog(url, { height: 85, width: 85 }, {
     failed: (error) => {
@@ -5386,25 +5330,43 @@ function openDrawDialog(): void {
       setStatus(`Could not open the large canvas: ${error?.message ?? "unknown error"}`, "error");
     },
     message: (arg, dialog) => {
+      const msg = (arg as { message?: string }).message;
+      let data: { ready?: boolean; page?: unknown; frag?: unknown; mol?: string; mol3d?: Draw3dPayload; cancel?: boolean } = {};
+      try {
+        data = JSON.parse(msg ?? "{}");
+      } catch {
+        /* not ours: treated as a cancel below */
+      }
+      if (data.ready) {
+        if (!dialog.messageChild(payload)) {
+          dialog.close();
+          openDrawDialogBtn.disabled = false;
+          setStatus("This drawing is too large to carry into the large canvas on this version of Word — edit it here (drag the canvas's corner to make it taller).", "error");
+        }
+        return;
+      }
       dialog.close();
       openDrawDialogBtn.disabled = false;
-      const msg = (arg as { message?: string }).message;
-      if (!msg) return;
+      if (data.cancel || !msg) return;
+      if (data.mol3d) {
+        void insertDraw3d(data.mol3d);
+        return;
+      }
+      setBuildTab("draw");
+      if (!drawEditor) return;
       try {
-        const data = JSON.parse(msg) as { mol?: string; mol3d?: Draw3dPayload; cancel?: boolean };
-        if (data.cancel) return;
-        if (data.mol3d) {
-          void insertDraw3d(data.mol3d);
-          return;
-        }
-        if (!data.mol) return;
-        const [idcode, coords] = data.mol.split(/\s+/);
-        const mol = coords ? OclMolecule.fromIDCode(idcode, coords) : OclMolecule.fromIDCode(idcode);
-        setBuildTab("draw");
-        if (!drawEditor) return;
-        drawEditor.setMolecule(mol);
+        if (typeof data.page === "string") {
+          const r = readCdxml(data.page);
+          if (!r.ok) throw new Error(r.reason);
+          // One edit in the pane: Undo returns to the page as it was before the large canvas.
+          if (!drawEditor.replacePage(r.doc)) return;
+          drawEditor.setFragment(data.frag === true);
+        } else if (data.mol) {
+          const [idcode, coords] = data.mol.split(/\s+/);
+          drawEditor.setMolecule(coords ? OclMolecule.fromIDCode(idcode, coords) : OclMolecule.fromIDCode(idcode));
+        } else return;
         updateDrawPreview();
-        setStatus("Drawing brought back from the large canvas.", "success");
+        setStatus("Drawing brought back from the large canvas (Undo returns to the page as it was).", "success");
       } catch (error) {
         setStatus(`Could not read the drawing back: ${(error as Error).message}`, "error");
       }
@@ -5440,12 +5402,16 @@ function openDrawForReaction(): void {
       const msg = (arg as { message?: string }).message;
       if (!msg) return;
       try {
-        const data = JSON.parse(msg) as { mol?: string; mol3d?: Draw3dPayload; cancel?: boolean };
+        const data = JSON.parse(msg) as { page?: string; mol?: string; mol3d?: Draw3dPayload; cancel?: boolean };
         if (data.cancel) return;
         // Either button in the dialog identifies the molecule — "Use this
         // drawing" sends idcode+coords, "Insert 3D picture" sends the idcode.
         const idcode = data.mol ? data.mol.split(/\s+/)[0] : data.mol3d?.idcode;
-        if (!idcode) return;
+        if (!idcode) {
+          // A page that is not one readable structure (arrows, brackets, text, group labels, no single formula).
+          if (data.page) setStatus("A reaction component is one structure — draw it without arrows, brackets, captions or group labels (OMe, Ph …), so its SMILES is exact.", "error");
+          return;
+        }
         const mol = OclMolecule.fromIDCode(idcode);
         const r = reactionComponentSmiles(mol);
         if (r.error || !r.smiles) {
@@ -29985,16 +29951,6 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
 function canvasInsertSize(r: { widthPt: number; heightPt: number }, selectionOnly: boolean): { ok: true; w: number; h: number; note: string } | { ok: false; reason: string } {
   const z = usptoInsertSize(r.widthPt, r.heightPt, drawEditor?.smallestTextPt(selectionOnly) ?? null, USPTO_REQUIRED_FONT_PT);
   return z.ok ? { ok: true, w: (z.widthPt * 96) / 72, h: (z.heightPt * 96) / 72, note: z.note } : z;
-}
-
-/** The group labels (OMe, Ph …) and abbreviations on the Draw page: what Clean or the large canvas would expand into atoms. */
-function pageGroupLabels(): string[] {
-  const out = new Set<string>();
-  for (const o of drawEditor?.page().objects ?? [])
-    for (const it of o.items)
-      if (it.kind === "fragment")
-        for (const n of it.v.nodes) if (n.nodeType === "Unspecified" || n.nodeType === "Nickname" || n.nodeType === "Fragment") out.add(n.label?.runs.map((r) => r.text).join("") || "a label");
-  return [...out];
 }
 
 /** Formats a number for the pane: up to 8 significant digits, no trailing zeros. */

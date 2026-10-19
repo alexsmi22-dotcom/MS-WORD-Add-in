@@ -21,6 +21,11 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Radical.** Make an atom N (NH₂), Properties, Radical •: the label becomes NH with a dot above.
 - [ ] **Reopen.** An older document's structure that had an AND group or a query atom (inserted from the old
   editor): Edit in Draw opens it on the canvas with them, instead of refusing.
+- [ ] ★ **Large canvas, whole page.** Open a ChemDraw scheme with arrows and captions (or draw one with a caption
+  and an OMe), Open large canvas / 3D: all of it is there. Change something, Use this drawing: the pane shows it
+  exactly; Undo once returns to the page as it was before.
+- [ ] **Clean in place.** On a page with two crooked structures and a caption, select one structure, Clean: only
+  it is tidied, in the same place; the caption and the other structure have not moved. Undo restores it.
 
 ## 0ct. New in v2.156.0 — one chemistry canvas
 

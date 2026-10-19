@@ -16,7 +16,7 @@
  */
 import { tessellate, Mesh, Placement, Vec3 } from "../lib/cadModel";
 import { faceAt, FaceHit, mate } from "../lib/cadMate";
-import { drawLines, LINE_WORK_BUDGET, LineWorkExceeded, STANDARD_VIEWS, CadView } from "../lib/cadLines";
+import { drawLines, LineWorkExceeded, STANDARD_VIEWS, CadView } from "../lib/cadLines";
 import { fitView, previewOps, paintPreview, pickAt, orbit, Fit, Pick as FacePick } from "../lib/cadPreview";
 import { DetailSpec, layoutSheet, SheetFrame, SheetOptions, ViewSpec } from "../lib/cadSheet";
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../lib/cadExplode";
@@ -47,7 +47,7 @@ import { lineTypesFor } from "../lib/cadLineTypes";
 import { DxfDrawing } from "../lib/dxf";
 import { CONTROL_CHAR, MARK_LIMITS, markDistance, MarkPt, MarkStyle, roundPt, SheetMark, simplifyStroke } from "../lib/cadMarks";
 import { IMPORTED_ALT_PREFIX, IMPORT_UNITS, importedFigure, importedSketch, openDxfFile, sizeRefusal } from "../lib/dxfImport";
-import { hasStl, meshFor, rememberStl } from "../lib/cadMeshStore";
+import { hasStl, MeshRef, meshFor, rememberStl, retainMeshes } from "../lib/cadMeshStore";
 import { DEFAULT_CREASE_DEG, readStl, stlHash, STL_LIMITS, StlFacets } from "../lib/stl";
 import type { Sketch } from "../lib/sketch";
 import { parseSketch } from "../lib/sketchDoc";
@@ -207,8 +207,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
 
   // ---- the model -> mesh -> canvas + sheet --------------------------------------------
 
+  /** The imported files the drawing and its Undo name (the store keeps these, whatever else it forgets). */
+  function liveMeshRefs(): MeshRef[] {
+    return [...doc.parts, ...(undoDoc?.parts ?? [])].flatMap((p) => (p.shape === "mesh" && p.mesh ? [p.mesh] : []));
+  }
+
   function rebuild(): void {
     pending = false;
+    retainMeshes(liveMeshRefs());
     // No parts: a sheet of blank figures can still be drawn on by hand.
     if (!doc.parts.length && viewSpecs().some((v) => v.kind === "blank")) {
       mesh = EMPTY_MESH;
@@ -310,10 +316,13 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     let d: ReturnType<typeof drawLines>;
     try {
-      d = drawLines(mesh, view, { left: LINE_WORK_BUDGET / 4 }); // the live overlay: a quarter of a sheet's budget
+      d = drawLines(mesh, view);
     } catch (e) {
-      // Too many lines to work out in time: the shaded view stands alone (the sheet below says why).
-      if (e instanceof LineWorkExceeded) return paintCallouts(ctx, fit);
+      // Too many lines to work out in time: the shaded view stands alone, and says so (review).
+      if (e instanceof LineWorkExceeded) {
+        host.setStatus("The 3D view's lines take too long to work out from this angle — it shows the parts shaded only.", "");
+        return paintCallouts(ctx, fit);
+      }
       throw e;
     }
     ctx.strokeStyle = "#111";
@@ -1729,6 +1738,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const hash = stlHash(bytes);
     const missing = !hasStl(hash);
     rememberStl(hash, r.stl);
+    retainMeshes(liveMeshRefs());
     // A part waiting for these very bytes (re-opened in a new session): put back. A file already
     // open opens to be added again — a second copy of the part.
     const back = missing ? doc.parts.filter((p) => p.shape === "mesh" && p.mesh?.hash === hash) : [];

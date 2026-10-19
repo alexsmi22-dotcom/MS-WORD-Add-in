@@ -120,29 +120,45 @@ export function baryIn(x1: number, y1: number, x2: number, y2: number, x3: numbe
   return [l1, l2, l3];
 }
 
-/** Draws the mesh from the view. */
 /**
- * The hidden-line work a drawing may take (grid tests, counted), shared by every view of one sheet.
- * Lines that overlap one another on the page — hundreds of long parallel edges seen side on, as a
- * gear's or a knurl's teeth are — split each other into pieces that grow as the square of their
- * number, so no count of edges bounds the time. This does: past it the drawing is refused by name
- * (Word's pane must never freeze). Measured (star-shaped prisms, the reviewers' gear case): one unit
- * costs 65–115 ns, so this budget is about 2–3.5 s for a whole sheet.
+ * The time a drawing's hidden lines may take, shared by every view of one sheet. Lines that overlap
+ * one another on the page — hundreds of long parallel edges seen side on, as a gear's or a knurl's
+ * teeth are — split each other into pieces that grow as the square of their number, so no count of
+ * edges bounds the time; and the cost of one grid test varies 3.5× with the view (measured: 55–190
+ * ns), so no count of tests does either. The clock does: past it the drawing is refused by name
+ * (Word's pane must never freeze). The catalogue's heaviest drawing (a plate of 200 holes, four
+ * views) takes 3.4–6 s, which drew before and must still draw on a slower machine; the reviewers'
+ * 1,950-tooth gear took 49 s, and a sheet like it now stops here.
  */
-export const LINE_WORK_BUDGET = 30_000_000;
+export const LINE_TIME_BUDGET_MS = 15000;
 
-/** Thrown when a drawing's lines need more work than its budget (layoutSheet turns it into a refusal). */
+/** A budget: the time it runs out, and the tests counted since the clock was last read. */
+export interface LineBudget {
+  until: number;
+  n: number;
+}
+const clock = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+/** A fresh budget of `ms` from now. */
+export function lineBudget(ms = LINE_TIME_BUDGET_MS): LineBudget {
+  return { until: clock() + ms, n: 0 };
+}
+
+/** Thrown when a drawing's lines take longer than their budget (layoutSheet turns it into a refusal). */
 export class LineWorkExceeded extends Error {
   constructor() {
-    super("the drawing has too many lines crossing one another on the page to work out in time — raise an imported part's edge angle, use fewer or simpler parts, or show fewer views");
+    super("the drawing has too many lines crossing one another on the page to work out in time — use fewer or simpler parts or fewer views, or raise an imported part's edge angle");
     this.name = "LineWorkExceeded";
   }
 }
 
-export function drawLines(mesh: Mesh, view: CadView, work: { left: number } = { left: LINE_WORK_BUDGET }): LineDrawing {
+/** Draws the mesh from the view, within `budget` (a fresh one when none is given). */
+export function drawLines(mesh: Mesh, view: CadView, budget: LineBudget = lineBudget()): LineDrawing {
+  // The clock is read every 2^15 grid tests (well under a millisecond of work).
   const spend = (n: number): void => {
-    work.left -= n;
-    if (work.left < 0) throw new LineWorkExceeded();
+    budget.n += n;
+    if (budget.n < 32768) return;
+    budget.n = 0;
+    if (clock() > budget.until) throw new LineWorkExceeded();
   };
   const R = view.rot;
   const P = mesh.positions;

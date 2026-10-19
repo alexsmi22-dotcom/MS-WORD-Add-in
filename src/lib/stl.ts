@@ -368,10 +368,21 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
       }
     }
   }
-  // Open only where a side has one facet. An edge shared by more than two (two cubes touching
-  // along an edge) stops the turning above, but leaves each piece closed (review).
+  // A piece is closed when it gives exactly two of its own facets to every edge it touches: two
+  // cubes touching along an edge are each closed (two facets each there), while a wall shared by
+  // two boxes (each box gives it one) or a shell written twice (every facet its own piece) is not
+  // (second review).
   const closed = new Uint8Array(pieces).fill(1);
-  for (let e = 0; e < ne; e++) if (count(e) === 1) closed[piece[(edgeList[edgeStart[e]] / 3) | 0]] = 0;
+  const tally = new Map<number, number>();
+  for (let e = 0; e < ne; e++) {
+    if (count(e) === 2) continue; // its two facets were joined into one piece above
+    tally.clear();
+    for (let i = edgeStart[e]; i < edgeStart[e + 1]; i++) {
+      const p = piece[(edgeList[i] / 3) | 0];
+      tally.set(p, (tally.get(p) ?? 0) + 1);
+    }
+    for (const [p, k] of tally) if (k !== 2) closed[p] = 0;
+  }
   const vol = new Float64Array(pieces);
   const triVol = (a: number, b: number, c: number): number =>
     P(a, 0) * (P(b, 1) * P(c, 2) - P(b, 2) * P(c, 1)) - P(a, 1) * (P(b, 0) * P(c, 2) - P(b, 2) * P(c, 0)) + P(a, 2) * (P(b, 0) * P(c, 1) - P(b, 1) * P(c, 0));
@@ -412,10 +423,12 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
   // each way, doubled for the subtraction to the origin). A text file, half its last printed digit,
   // doubled likewise (review: six significant digits near 128 round by 5e-4): the coarser of the
   // decimal places seen (fixed-point printing) — unless the significant digits seen say finer
-  // (%g drops trailing zeros: "10" may be 10.0000) — and never coarser than six significant digits.
+  // (%g drops trailing zeros: "10" may be 10.0000) — never coarser than six significant digits,
+  // and never finer than float32 (most exporters work in it, whatever digits they print: Blender's
+  // six decimals of a float32 corner are only as exact as the float32 — second review).
   let far = 0;
   for (let i = 0; i < 3 * nv; i++) far = Math.max(far, Math.abs(raw[i]));
-  const textNoise = Math.min(stl.step ?? Infinity, far * 10 ** (1 - (stl.sig || 1)), far * 1e-5);
+  const textNoise = Math.max(Math.min(stl.step ?? Infinity, far * 10 ** (1 - (stl.sig || 1)), far * 1e-5), far * 2 ** -22);
   const noise = mmPerUnit * (stl.format === "binary" ? far * 2 ** -23 : textNoise);
   if (!(diag > 0)) return { ok: false, reason: "it has no size" };
   const fn = new Float64Array(3 * nt); // raw (area-weighted)

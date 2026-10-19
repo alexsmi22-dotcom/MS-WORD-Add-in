@@ -51,7 +51,8 @@ export interface ShapeDef {
   params: ParamDef[];
   /** Why these dimensions cannot make the shape (null = fine). Checked before build. */
   check(p: Record<string, number>): string | null;
-  build(p: Record<string, number>): BodySpec;
+  /** A catalogue shape is made from a profile (never an imported mesh). */
+  build(p: Record<string, number>): Exclude<BodySpec, { kind: "mesh" }>;
   /** The shape's own orientation (cadModel Body.frame); omitted = as built. */
   frame?: number[];
 }

@@ -16,16 +16,27 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   editable under the part, and mates, callouts, exploded and detail views work on it as on any part.
 - The drawing **names the file** (its name and a fingerprint of its bytes) and never carries the triangles, so the
   inserted picture's alt text stays small. Re-opened in a later session, the part says which file to import again,
-  and only the same bytes are taken back.
+  and only the same bytes are taken back. The pane keeps every file the drawing (or its Undo) names, and forgets
+  files only looked at beyond the last two. Importing a file already in the drawing adds a second copy.
 
 ### Changed
 - STEP and IGES files, and Solid Edge's own .par / .asm / .psm, are still refused — the route given is now
   Save As → STL (it pointed at STEP, which is not imported).
 
+- **Every sheet's hidden lines now have a time limit** (15 s for the whole sheet, all views together; the
+  catalogue's heaviest drawing, a plate of 200 holes, takes 3–6 s). Lines that overlap on the page — a gear's or
+  a knurl's hundreds of teeth seen side on — split one another into pieces that grow as the square of their
+  number, and no count of edges or of tests bounds the time (one test's cost varies 3.5× with the view); a
+  sheet past the limit is refused by name ("too many lines crossing one another…") instead of holding Word for
+  most of a minute (review: a 1,950-tooth prism within every other limit took 49 s). The live 3D view then
+  shows the parts shaded, and says so.
+
 ### Limits (refused by name)
-- Up to **100,000 facets** and **6,000 drawn edges**: measured, a smooth 100,000-facet part takes about 2 s from
-  file to a four-view sheet, and the sheet's work grows with the edges (19,000 took 4 s, 152,000 took 32 s).
-  Past either, the refusal says to raise the edge angle or export with a coarser tolerance.
+- Up to **100,000 facets** and **6,000 drawn edges** a part: measured, a smooth 100,000-facet part takes about
+  2 s from file to a four-view sheet. Past either, the refusal says to raise the edge angle or export with a
+  coarser tolerance.
+- Cavities are kept as cavities: a closed piece inside another faces into the void (counted by ray parity, for
+  up to 2,000 closed pieces; past that each faces out, and the notes say so).
 - A part whose surface has gaps (not watertight) is drawn alone, but not where another part overlaps it: inside
   and outside are unknown there.
 - The large canvas does not yet open a drawing with an imported part (its facets stay in the pane): it says so.

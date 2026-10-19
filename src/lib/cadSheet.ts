@@ -23,7 +23,7 @@
  * what inserts is what shows.
  */
 import type { Mesh, Vec3 } from "./cadModel";
-import { baryIn, drawLines, LINE_WORK_BUDGET, LineDrawing, LineWorkExceeded, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
+import { baryIn, drawLines, LineBudget, lineBudget, LineDrawing, LineWorkExceeded, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
 import { DRAWING_STANDARDS, DrawingStandard, StandardId, STANDARD_SCALES, snapScale, scaleLabel } from "./cadStandards";
 import { ptToMm } from "./figureStyle";
 import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues } from "./cadFormats";
@@ -98,6 +98,8 @@ export interface SheetOptions {
   detailAsked?: Record<string, number>;
   /** Internal: the sheet scale this pass must use (the detail-scale search). */
   forceScale?: number;
+  /** The time the sheet's hidden lines may take (ms); omitted = cadLines LINE_TIME_BUDGET_MS. */
+  lineBudgetMs?: number;
 }
 
 /** Where a view was put: sheet px = (ox + (x − minX)·k, oyBottom − (y − minY)·k); its cell, px. */
@@ -211,7 +213,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
 function layoutSheetWithin(mesh: Mesh, o: SheetOptions): Sheet {
   const std = DRAWING_STANDARDS[o.standard];
   const room = ptToMm(std.textPt) * 1.15; // mm of paper per em of text, with a margin
-  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map(), work: { left: LINE_WORK_BUDGET } };
+  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map(), work: lineBudget(o.lineBudgetMs) };
   const first = layoutCore(mesh, o, undefined, info);
   if (!info.textUnits) return first; // no hand-drawn text or numerals to make room for
   const fitAt = (s: number): number => {
@@ -265,8 +267,8 @@ interface LayoutInfo {
   fitS: number;
   /** Each view's line drawing, drawn on the first pass. */
   drawn: Map<string, LineDrawing>;
-  /** The hidden-line work left for the whole sheet (cadLines LINE_WORK_BUDGET). */
-  work: { left: number };
+  /** The hidden-line time left for the whole sheet (cadLines LINE_TIME_BUDGET_MS). */
+  work: LineBudget;
 }
 
 function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined, info: LayoutInfo): Sheet {

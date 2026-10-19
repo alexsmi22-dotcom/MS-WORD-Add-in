@@ -25,47 +25,67 @@ export interface MeshRef {
   size: Vec3;
 }
 
-/** The files read this session, the most recently used last; at most FILES (each up to ~7 MB). */
+/**
+ * The files read this session and the bodies built from them, the most recently used last. What
+ * the drawing (or its Undo) names is kept, with the two others used last (retainMeshes); the rest
+ * goes, so a session that opens many files does not hold them all (each up to ~7 MB, and a body
+ * several more).
+ */
 const files = new Map<string, StlFacets>();
-const FILES = 6;
-/** Bodies built for a units / edge-angle pair; the last few only (each is several MB). */
 const bodies = new Map<string, SolidMesh>();
-const BODY_CACHE = 4;
+/** A units / edge-angle pair that cannot be drawn, and why (built once, not on every rebuild). */
+const refused = new Map<string, string>();
+const SPARE = 2;
+
+const touch = <V>(m: Map<string, V>, k: string, v: V): void => {
+  m.delete(k);
+  m.set(k, v);
+};
+const keyOf = (r: MeshRef): string => `${r.hash}|${r.mmPerUnit}|${r.creaseDeg}`;
 
 export function rememberStl(hash: string, stl: StlFacets): void {
-  files.delete(hash);
-  files.set(hash, stl);
-  // The oldest goes: a part still naming it says to import its file again (never drawn as nothing).
-  while (files.size > FILES) {
-    const old = files.keys().next().value as string;
-    files.delete(old);
-    for (const k of [...bodies.keys()]) if (k.startsWith(old + "|")) bodies.delete(k);
-  }
+  touch(files, hash, stl);
 }
 
 export function hasStl(hash: string): boolean {
   return files.has(hash);
 }
 
+/**
+ * Keeps the files and bodies these references name (the drawing's, and its Undo's), and the two
+ * others used last of each; forgets the rest. A part never loses its file to a file merely looked at.
+ */
+export function retainMeshes(refs: MeshRef[]): void {
+  const hashes = new Set(refs.map((r) => r.hash)), keys = new Set(refs.map(keyOf));
+  const prune = <V>(m: Map<string, V>, keep: (k: string) => boolean): void => {
+    const spare = [...m.keys()].filter((k) => !keep(k));
+    for (const k of spare.slice(0, Math.max(0, spare.length - SPARE))) m.delete(k);
+  };
+  prune(files, (k) => hashes.has(k));
+  prune(bodies, (k) => keys.has(k));
+  for (const k of [...bodies.keys()]) if (!files.has(k.slice(0, k.indexOf("|")))) bodies.delete(k);
+  for (const k of [...refused.keys()]) if (!files.has(k.slice(0, k.indexOf("|")))) refused.delete(k);
+}
+
 /** The body for an imported part, or why it cannot be drawn (no file name: the caller adds the part's). */
 export function meshFor(ref: MeshRef): { ok: true; mesh: SolidMesh } | { ok: false; reason: string } {
   const stl = files.get(ref.hash);
-  if (stl) {
-    files.delete(ref.hash); // most recently used last
-    files.set(ref.hash, stl);
-  }
   if (!stl) return { ok: false, reason: `its file ${ref.file} is not open — import ${ref.file} again (Import DXF / STL…) to put it back` };
-  const key = `${ref.hash}|${ref.mmPerUnit}|${ref.creaseDeg}`;
+  touch(files, ref.hash, stl);
+  const key = keyOf(ref);
+  const why = refused.get(key);
+  if (why) return { ok: false, reason: why };
   const had = bodies.get(key);
   if (had) {
-    bodies.delete(key); // most recently used last
-    bodies.set(key, had);
+    touch(bodies, key, had);
     return { ok: true, mesh: had };
   }
   const r = stlBody(stl, ref.mmPerUnit, ref.creaseDeg);
-  if (!r.ok) return r;
+  if (!r.ok) {
+    refused.set(key, r.reason);
+    return r;
+  }
   bodies.set(key, r.body.mesh);
-  while (bodies.size > BODY_CACHE) bodies.delete(bodies.keys().next().value as string);
   return { ok: true, mesh: r.body.mesh };
 }
 

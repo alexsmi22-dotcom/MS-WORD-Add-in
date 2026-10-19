@@ -4,7 +4,7 @@
 import { apply3, Mesh, rotationMatrix, SolidMesh, tessellate } from "../cadModel";
 import { drawLines, Polyline, viewFromDegrees } from "../cadLines";
 import { faceAt } from "../cadMate";
-import { hasStl, MeshRef, meshFor, rememberStl } from "../cadMeshStore";
+import { hasStl, MeshRef, meshFor, rememberStl, retainMeshes } from "../cadMeshStore";
 import { attachCallout, CadDoc, CadPart, defaultParams, docToAssembly, parseDoc, partProblems, resolveCallouts, serializeDoc, ShapeId, starterDoc } from "../cadShapes";
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../cadExplode";
 import { layoutSheet } from "../cadSheet";
@@ -399,16 +399,29 @@ describe("review round 1", () => {
     };
     const t = tessellate({ version: 1, bodies: [meshBody(bodyOf(bin(star(1950))).mesh)] });
     if (!t.ok) throw new Error(t.reason);
+    // (A short budget keeps the test quick; the default is LINE_TIME_BUDGET_MS.)
     const t0 = Date.now();
-    const sh = layoutSheet(t.mesh, { standard: "asme", views: [{ kind: "front" }, { kind: "top" }, { kind: "right" }, { kind: "iso" }] });
-    expect(Date.now() - t0).toBeLessThan(8000);
+    const sh = layoutSheet(t.mesh, { standard: "asme", views: [{ kind: "front" }, { kind: "top" }, { kind: "right" }, { kind: "iso" }], lineBudgetMs: 1000 });
+    expect(Date.now() - t0).toBeLessThan(4000);
     expect(sh.svg).toBe("");
-    expect(sh.notes).toEqual(["The drawing has too many lines crossing one another on the page to work out in time — raise an imported part's edge angle, use fewer or simpler parts, or show fewer views."]);
+    expect(sh.notes).toEqual(["The drawing has too many lines crossing one another on the page to work out in time — use fewer or simpler parts or fewer views, or raise an imported part's edge angle."]);
     // A modest one still draws.
     const small = tessellate({ version: 1, bodies: [meshBody(bodyOf(bin(star(120))).mesh)] });
     if (!small.ok) throw new Error(small.reason);
     expect(layoutSheet(small.mesh, { standard: "asme", views: [{ kind: "front" }, { kind: "iso" }] }).svg).toMatch(/<svg/);
   }, 30000);
+
+  it("review 2-1: the catalogue's heaviest plate (200 holes, four views) is not refused by a count of work — only the clock bounds it", () => {
+    const doc: CadDoc = { ...starterDoc("asme"), parts: [{ id: "a", name: "A", shape: "plate", params: { ...defaultParams("plate"), n: 20, rows: 10, w: 400, d: 200 }, placement: place }] };
+    const a = docToAssembly(doc);
+    if (!a.ok) throw new Error(a.reason);
+    const t = tessellate(a.assembly);
+    if (!t.ok) throw new Error(t.reason);
+    // A generous clock (this machine may be loaded): what is pinned is that nothing but time refuses it.
+    const sh = layoutSheet(t.mesh, { standard: "asme", views: [{ kind: "front" }, { kind: "top" }, { kind: "right" }, { kind: "iso" }], lineBudgetMs: 60000 });
+    expect(sh.notes.join(" ")).not.toMatch(/too many lines/);
+    expect(sh.svg).toMatch(/<svg/);
+  }, 60000);
 
   it("2. a fan of 99,000 facets round one apex is read in n log n (was 15 s before its refusal)", () => {
     const n = 99_000;
@@ -444,13 +457,16 @@ describe("review round 1", () => {
     expect(atX(7)).toBeGreaterThan(0);
   });
 
-  it("4. a text STL printed with six significant digits (%g): a mate finds the whole face (centre within 0.01 mm)", () => {
+  it.each([
+    ["six significant digits (%g)", (x: number): string => String(Number(x.toPrecision(6)))],
+    ["float32 corners with six decimals (Blender)", (x: number): string => Math.fround(x).toFixed(6)],
+    ["float32 corners printed in full", (x: number): string => String(Math.fround(x))],
+  ])("4. a text STL printed as %s: a mate finds every whole face (centre within 0.01 mm)", (_w, g) => {
     const doc: CadDoc = { ...starterDoc("asme"), parts: [{ id: "a", name: "A", shape: "box", params: { ...defaultParams("box"), w: 33.3, d: 21.7, h: 9.1 }, placement: { translate: [101.1, 57.3, 13.9], rotateDeg: [17, 29, 41] } }] };
     const a = docToAssembly(doc);
     if (!a.ok) throw new Error(a.reason);
     const t = tessellate(a.assembly);
     if (!t.ok) throw new Error(t.reason);
-    const g = (x: number): string => String(Number(x.toPrecision(6)));
     const lines = ["solid part"];
     const Tm = t.mesh.triangles, Pm = t.mesh.positions;
     for (let k = 0; k < Tm.length / 3; k++) {
@@ -502,18 +518,63 @@ describe("review round 1", () => {
     expect(r.ok && r.stl.count).toBe(12);
   });
 
-  it("memory: the store keeps the last six files; a part naming an older one says to import it again", () => {
+  it("review 2-5: every file the drawing names is kept (seven parts, seven files); a file only looked at never evicts one in use", () => {
     const refs: MeshRef[] = [];
     for (let i = 0; i < 7; i++) {
-      const bytes = bin(cubeAt([0, 0, 0], 10 + i));
+      const bytes = bin(cubeAt([0, 0, 0], 20 + i));
       const r = readStl(bytes);
       if (!r.ok) throw new Error(r.reason);
       const hash = stlHash(bytes);
       rememberStl(hash, r.stl);
       refs.push({ file: `c${i}.stl`, hash, facets: 12, mmPerUnit: 1, creaseDeg: 30, size: [1, 1, 1] });
+      retainMeshes(refs);
     }
-    expect(meshFor(refs[0]).ok).toBe(false);
-    expect(meshFor(refs[1]).ok).toBe(true);
-    expect(meshFor(refs[6]).ok).toBe(true);
+    for (let i = 0; i < 5; i++) {
+      // Five files looked at in the panel, never added.
+      const bytes = bin(cubeAt([0, 0, 0], 40 + i));
+      const r = readStl(bytes);
+      if (!r.ok) throw new Error(r.reason);
+      rememberStl(stlHash(bytes), r.stl);
+      retainMeshes(refs);
+    }
+    for (const ref of refs) expect(meshFor(ref).ok).toBe(true);
+    // Of the files looked at, the last two are kept, the rest forgotten.
+    const looked = [40, 41, 42, 43, 44].map((s) => stlHash(bin(cubeAt([0, 0, 0], s))));
+    expect(looked.map(hasStl)).toEqual([false, false, false, true, true]);
+  });
+
+  it("review 2-6: five parts' bodies are built once, not on every rebuild", () => {
+    const refs: MeshRef[] = [];
+    for (let i = 0; i < 5; i++) {
+      const bytes = bin(cubeAt([0, 0, 0], 60 + i));
+      const r = readStl(bytes);
+      if (!r.ok) throw new Error(r.reason);
+      rememberStl(stlHash(bytes), r.stl);
+      refs.push({ file: `d${i}.stl`, hash: stlHash(bytes), facets: 12, mmPerUnit: 1, creaseDeg: 30, size: [1, 1, 1] });
+    }
+    retainMeshes(refs);
+    const first = refs.map((r) => (meshFor(r) as { mesh: SolidMesh }).mesh);
+    retainMeshes(refs);
+    const again = refs.map((r) => (meshFor(r) as { mesh: SolidMesh }).mesh);
+    again.forEach((m, i) => expect(m).toBe(first[i]));
+  });
+
+  it("review 2-3: two boxes sharing one wall (written once) are not closed, and no facet is turned", () => {
+    // Box A: x 0–10 without its +x face; box B: x 10–20 without its −x face; the shared wall once.
+    const box = cubeAt([100, 0, 0], 10).concat(cubeAt([110, 0, 0], 10));
+    const isWall = (t: P3[], x: number): boolean => t.every((p) => Math.abs(p[0] - x) < 1e-9);
+    const a = cubeAt([100, 0, 0], 10).filter((t) => !isWall(t, 110));
+    const b2 = cubeAt([110, 0, 0], 10).filter((t) => !isWall(t, 110));
+    const wall = cubeAt([100, 0, 0], 10).filter((t) => isWall(t, 110));
+    expect(box.length).toBe(24);
+    const b = bodyOf(bin([...a, ...wall, ...b2]));
+    expect(b.mesh.closed).toBe(false);
+    expect(b.notes.join(" ")).not.toMatch(/turned/);
+  });
+
+  it("review 2-3: a shell written twice is not a closed solid (refused where it overlaps another part)", () => {
+    const b = bodyOf(bin([...cubeAt([0, 0, 0], 10), ...cubeAt([0, 0, 0], 10)]));
+    expect(b.mesh.closed).toBe(false);
+    expect(b.notes.join(" ")).not.toMatch(/turned|too many closed pieces/);
   });
 });

@@ -742,9 +742,14 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       let min = Infinity;
       const runSize = (r: { text: string; size: number; face: number }): number => {
         // Sub- and superscripts (and a formula label's digits) are drawn at 75 % (cdxmlRender).
-        const shifted = (r.face & 0x60) !== 0 && (r.face & 0x60) !== 0x60 ? true : (r.face & 0x60) === 0x60 && /\d/.test(r.text);
+        const shifted = (r.face & 0x60) !== 0 && (r.face & 0x60) !== 0x60 ? true : (r.face & 0x60) === 0x60 && /\d|[+\-−]$/.test(r.text.trim());
         return shifted ? r.size * 0.75 : r.size;
       };
+      // A charge ChemDraw draws as a symbol (tied by a represent element) is not set as text (cdxmlRender).
+      const chargeDrawn = new Set<string>();
+      for (const o of doc.objects)
+        for (const it of o.items)
+          if (it.kind === "graphic") for (const c of it.v.el.children) if (c.name === "represent" && c.attrs.attribute === "Charge" && c.attrs.object) chargeDrawn.add(c.attrs.object);
       for (const o of doc.objects) {
         if (scope && !scope.has(o.id)) continue;
         for (const it of o.items) {
@@ -752,9 +757,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
           if (it.kind === "fragment")
             for (const nd of it.v.nodes) {
               for (const r of nd.label?.runs ?? []) if (r.text.trim()) min = Math.min(min, runSize(r));
-              if (nd.charge) min = Math.min(min, doc.style.labelSize * 0.75);
+              if (nd.charge && !chargeDrawn.has(nd.id)) min = Math.min(min, doc.style.labelSize * 0.75);
             }
-          if (it.kind === "graphic") for (const tag of it.v.el.children) if (tag.name === "objecttag") min = Math.min(min, doc.style.captionSize * 0.75);
         }
       }
       return Number.isFinite(min) ? min : null;

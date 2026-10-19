@@ -99,10 +99,14 @@ export function leftwardOf(label: string): string | null {
   return null;
 }
 
+/** Leftward labels that, read from their first letter, are a different group (a linkage isomer). */
+const LINKAGE = new Set(["SCN", "NC", "OCN"]);
+
 /** The same group written for the right of a bond (MeO → OMe, SCN → NCS), or null when it has none. */
 export function rightwardOf(label: string): string | null {
   const key = label.replace(/\s+/g, "");
-  if (!Object.prototype.hasOwnProperty.call(LEFTWARD, key)) return null;
+  // SCN, NC, OCN read from their first letter are other groups (thiocyanate, isocyanide, cyanate): kept as typed.
+  if (!Object.prototype.hasOwnProperty.call(LEFTWARD, key) || LINKAGE.has(key)) return null;
   const smi = LEFTWARD[key];
   for (const [k, v] of Object.entries(GROUPS)) if (v === smi && !NAMED.has(k)) return k;
   return null;

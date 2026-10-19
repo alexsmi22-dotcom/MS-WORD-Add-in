@@ -6,6 +6,7 @@
 // reaches the required size, never reduced, and refused by name when that would not fit the page.
 import { TextDecoder as NodeTextDecoder } from "util";
 import { createChemCanvas } from "../../taskpane/chemCanvas";
+import { readCdxml } from "../cdxml";
 import { PAGE_PT, usptoInsertSize } from "../../taskpane/chemdrawPane";
 import { USPTO_REQUIRED_FONT_PT } from "../figureStyle";
 
@@ -21,11 +22,21 @@ describe("usptoInsertSize", () => {
     expect(z.heightPt).toBeCloseTo(50 * z.k, 9);
     expect(z.note).toBe("Enlarged 139 % so its letters meet the USPTO's 1/8-inch minimum (37 CFR 1.84(p)(3)).");
   });
-  test("lettering already large enough, or no lettering at all, is never reduced", () => {
-    for (const s of [20, null, 0]) {
-      const z = usptoInsertSize(100, 50, s, USPTO_REQUIRED_FONT_PT);
-      expect(z).toEqual({ ok: true, k: 1, widthPt: 100, heightPt: 50, note: "Its letters already meet the USPTO's 1/8-inch minimum." });
-    }
+  test("lettering already large enough stays at ChemDraw's size; no lettering, the same, with nothing to say", () => {
+    expect(usptoInsertSize(100, 50, 20, USPTO_REQUIRED_FONT_PT)).toEqual({ ok: true, k: 1, widthPt: 100, heightPt: 50, note: "Its letters already meet the USPTO's 1/8-inch minimum." });
+    for (const s of [null, 0]) expect(usptoInsertSize(100, 50, s, USPTO_REQUIRED_FONT_PT)).toEqual({ ok: true, k: 1, widthPt: 100, heightPt: 50, note: "" });
+  });
+  test("review: a skeleton with no letters wider than the page is fitted to it, never refused", () => {
+    const z = usptoInsertSize(600, 100, null, USPTO_REQUIRED_FONT_PT);
+    expect(z.ok && [z.k, z.note]).toEqual([PAGE_PT.w / 600, "Reduced to 78 % to fit the page."]);
+  });
+  test("review: large lettering a little too wide for the page is reduced, its letters still at the minimum", () => {
+    const z = usptoInsertSize(PAGE_PT.w * 1.1, 100, 20, USPTO_REQUIRED_FONT_PT);
+    expect(z.ok).toBe(true);
+    if (!z.ok) return;
+    expect(z.widthPt).toBeCloseTo(PAGE_PT.w, 6);
+    expect(20 * z.k).toBeGreaterThanOrEqual(USPTO_REQUIRED_FONT_PT);
+    expect(z.note).toBe("Reduced to 91 % to fit the page; its letters still meet the USPTO's 1/8-inch minimum.");
   });
   test("a drawing too large for the page at the required size is refused, never shrunk below the rule", () => {
     const z = usptoInsertSize(PAGE_PT.w, 100, 7.5, USPTO_REQUIRED_FONT_PT);
@@ -72,5 +83,23 @@ describe("the canvas's smallest lettering", () => {
     t.btn('[data-chem-tool="charge+"]');
     t.click(...t.atoms()[0]);
     expect(t.c.smallestTextPt(false)).toBe(7.5);
+  });
+});
+
+describe("review: lettering measured as it is drawn", () => {
+  const load = (inner: string) => {
+    document.body.innerHTML = '<div id="mount"></div>';
+    const c = createChemCanvas(document.getElementById("mount")!, { setStatus: () => undefined });
+    const d = readCdxml(`<CDXML BondLength="30" LabelSize="10" CaptionSize="12" LabelFont="3"><fonttable><font id="3" name="Arial"/></fonttable><page id="1">${inner}</page></CDXML>`);
+    if (!d.ok) throw new Error(d.reason);
+    c.loadPage(d.doc);
+    return c;
+  };
+  test("a formula caption ending in a charge (Na+) counts its sign at 75 %", () => {
+    expect(load('<t id="5" p="0 0"><s font="3" size="12" face="96">Na+</s></t>').smallestTextPt(false)).toBe(9);
+  });
+  test("a charge ChemDraw draws as a symbol is not counted as 75 % text", () => {
+    const c = load('<fragment id="10"><n id="1" p="0 0" Charge="1"/><n id="2" p="30 0"/><b id="3" B="1" E="2"/></fragment><graphic id="20" SymbolType="Plus" BoundingBox="5 -5 10 0"><represent attribute="Charge" object="1"/></graphic>');
+    expect(c.smallestTextPt(false)).toBeNull();
   });
 });

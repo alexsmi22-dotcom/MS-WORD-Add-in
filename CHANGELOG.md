@@ -30,8 +30,9 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 - **Inserts meet the USPTO's lettering rule** (37 CFR 1.84(p)(3): letters at least 0.32 cm, 1/8 inch, high): a
   drawing from the canvas goes into Word enlarged until its smallest lettering — subscripts and charge signs,
   which ChemDraw draws at 75 %, included — reaches 13.94 pt (3.2 mm capitals plus a 10 % margin); the status
-  says by how much. It is never reduced, and a drawing too large for the page at that size is refused by name
-  (insert fewer structures with Insert selected, or split it into figures) rather than shrunk below the rule.
+  says by how much. A drawing larger than the page is reduced to fit only while its letters stay at the
+  minimum (one with no letters is fitted as before); one too large for the page at that size is refused by
+  name (insert fewer structures with Insert selected, or split it into figures) rather than shrunk below the rule.
 
 Not yet: the large canvas takes structures only (a page with brackets, arrows, text or group labels is edited
 in the pane, and it says so); Clean lays out pages of structures only. The canvas has no way yet to set a
@@ -48,6 +49,12 @@ structure carrying one is refused by name rather than redrawn without it. Isotop
   an N⁺ with four bonds is refused, tetrazole with no H drawn is CH₂N₄); a structure with a caption keeps its
   R-group legend and notes; drawn hydrogens stay on their own atom when the page has explicit H atoms
   (OCL reorders them — two USPTO structures read two H short); a hydrogen drawn with several bonds is refused.
+- Third review (5 findings, pinned in chemCanvasReview2.test.ts and canvasUspto.dom.test.ts): an abbreviation
+  with one connection point takes exactly one bond, and several points on one atom take more bonds than points
+  only on a metal (a VO bonded four times at its O is refused); SCN, NC and OCN typed right of a bond are never
+  rewritten as their linkage isomers; each aromatic system is resolved on its own (twenty imidazoles read);
+  inserts are reduced to fit the page when their letters allow it; lettering is measured as drawn (a formula
+  caption's trailing charge at 75 %, a charge drawn as a symbol not counted as text).
 - ChemDraw's aromatic bonds were counted as single (benzene read C₆H₁₂): they are now resolved into
   alternating single and double bonds, a ring atom that gives a lone pair instead (pyrrole NH, furan O,
   C₅H₅⁻, C₇H₇⁺) kept single; a ring that cannot alternate is refused by name.

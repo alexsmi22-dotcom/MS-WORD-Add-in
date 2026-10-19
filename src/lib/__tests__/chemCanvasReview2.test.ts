@@ -88,14 +88,21 @@ describe("4. a group typed on either side of its bond reads as that group", () =
     expect(labelOf(l, "2")).toBe("MeO");
     expect(formula(reread(l))).toBe("C2H6O");
   });
-  test("SCN left of its bond is N-bonded (isothiocyanate), as ChemDraw reads it; right of it, written NCS", () => {
+  test("SCN left of its bond is N-bonded (isothiocyanate), as ChemDraw reads it; right of it, thiocyanate — kept, never rewritten as its isomer", () => {
     const l = ethaneLeft();
     expect(setAtomLabel(l, "2", "SCN").ok).toBe(true);
     const m = pageToMolecule(reread(l));
     expect(m.ok && m.value.mol.getIDCode()).toBe(Molecule.fromSmiles("CN=C=S").getIDCode());
     const r = ethane();
-    expect(setAtomLabel(r, "2", "SCN").ok).toBe(true);
-    expect(labelOf(r, "2")).toBe("NCS");
+    expect(setAtomLabel(r, "2", "SCN")).toEqual({ ok: true, note: "SCN written right of its bond reads from its first letter — not a group this knows that way (thiocyanate), so the structure has no single formula." });
+    expect(labelOf(r, "2")).toBe("SCN");
+    expect(formula(reread(r))).not.toMatch(/^C/);
+    for (const iso of ["NC", "OCN"]) {
+      const q = ethane();
+      expect(setAtomLabel(q, "2", iso).ok).toBe(true);
+      expect(labelOf(q, "2")).toBe(iso);
+      expect(formula(reread(q))).not.toMatch(/^C/);
+    }
   });
   test("a ChemDraw label's justification says which letter bonds: right-justified SCN right of its bond is still N-bonded", () => {
     const d = page('<n id="1" p="0 0"/><n id="2" p="30 0" NodeType="Unspecified"><t p="0 0" LabelJustification="Right"><s font="3" size="10">SCN</s></t></n><b id="3" B="1" E="2"/>');
@@ -148,4 +155,28 @@ test("an explicit H drawn before the other atoms: drawn hydrogens still apply to
   expect(r.ok && r.value.mol.getMolecularFormula().formula).toBe("CH6S");
   expect(r.ok && r.value.atomIds.filter(Boolean).sort()).toEqual(["1", "2", "3"]);
   expect(r.ok && r.value.mol.getAtomicNo(r.value.atomIds.indexOf("3"))).toBe(16);
+});
+
+describe("third review", () => {
+  const ome = (bonds: number): string => {
+    let s = '<n id="1" p="0 0" NodeType="Nickname"><fragment id="20"><n id="21" p="0 0" Element="8"/><n id="22" p="10 0"/><n id="23" p="-10 0" NodeType="ExternalConnectionPoint"/><b id="31" B="21" E="22"/><b id="32" B="21" E="23"/></fragment><t p="0 0"><s font="3" size="10">OMe</s></t></n>';
+    for (let i = 0; i < bonds; i++) s += `<n id="${50 + i}" p="${-30} ${i * 20}"/><b id="${60 + i}" B="1" E="${50 + i}"/>`;
+    return s;
+  };
+  test("an abbreviation with one connection point takes exactly one bond: two refused, none refused", () => {
+    expect(formula(page(ome(1)))).toBe("C2H6O");
+    expect(formula(page(ome(2)))).toBe("“OMe” has 2 bonds but 1 connection point in its structure, so where each bond goes is not in the file");
+    expect(formula(page(ome(0)))).toMatch(/^“OMe” has 0 bonds/);
+  });
+  test("several points on one main-group atom take no more bonds than points", () => {
+    const two = '<n id="1" p="0 0" NodeType="Nickname"><fragment id="20"><n id="21" p="0 0" Element="8"/><n id="23" p="-10 0" NodeType="ExternalConnectionPoint"/><n id="24" p="10 0" NodeType="ExternalConnectionPoint"/><b id="32" B="21" E="23"/><b id="33" B="21" E="24"/></fragment><t p="0 0"><s font="3" size="10">O</s></t></n><n id="2" p="-30 0"/><n id="3" p="30 0"/><n id="4" p="0 30"/><b id="5" B="1" E="2"/><b id="6" B="1" E="3"/><b id="7" B="1" E="4"/>';
+    expect(formula(page(two))).toMatch(/has 3 bonds but 2 connection points/);
+  });
+  test("twenty separate imidazoles with no hydrogens drawn each resolve (one NH apiece)", () => {
+    let s = "";
+    for (let k = 0; k < 20; k++)
+      for (let i = 0; i < 5; i++) s += `<n id="${k * 10 + i + 1}" p="${(k * 100 + 30 * Math.cos((2 * Math.PI * i) / 5)).toFixed(2)} ${(30 * Math.sin((2 * Math.PI * i) / 5)).toFixed(2)}"${i === 0 || i === 2 ? ' Element="7"' : ""}/>`;
+    for (let k = 0; k < 20; k++) for (let i = 0; i < 5; i++) s += `<b id="${1000 + k * 10 + i}" B="${k * 10 + i + 1}" E="${k * 10 + ((i + 1) % 5) + 1}" Order="1.5"/>`;
+    expect(formula(page(s))).toBe("C60H80N40");
+  });
 });

@@ -344,8 +344,14 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
     // Written for its side of the bond, as ChemDraw writes it (OMe on the left reads MeO, MeO on the right
     // OMe), justified so the letter that bonds sits on the atom: the last for a leftward form, else the first.
     const left = sideOf(frag, node) === "left";
+    const side = left ? "left" : "right";
     const shown = left ? leftwardOf(t) ?? t : groupSmilesBySide(t, "right") ? t : rightwardOf(t) ?? t;
-    node.children.push(labelText(doc, node, shown, !groupSmilesBySide(shown, "right") && !!groupSmilesBySide(shown, "left")));
+    // Right-aligned (the last letter on the atom) only where the label reads leftward; a label with no
+    // leftward reading (OPr) stays left-aligned and reads from its first letter wherever it sits.
+    const rightAligned = left && !!groupSmilesBySide(shown, "left");
+    node.children.push(labelText(doc, node, shown, rightAligned));
+    if (!groupSmilesBySide(shown, rightAligned ? "left" : "right"))
+      return { ok: true, note: `${t} written ${side} of its bond reads from its ${rightAligned ? "last" : "first"} letter — not a group this knows that way (${t === "SCN" ? "thiocyanate" : t === "NC" ? "isocyanide" : t === "OCN" ? "cyanate" : "draw its atoms"}), so the structure has no single formula.` };
     return { ok: true, note: groupFirst ? `${t} is read as the group (${t === "Ac" ? "acetyl" : t === "Pr" ? "propyl" : t === "Ts" ? "tosyl" : "butyl"}); for the element, type [${t}].` : null };
   }
   node.children.push(labelText(doc, node, t));

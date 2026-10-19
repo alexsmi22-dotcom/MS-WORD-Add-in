@@ -99,7 +99,7 @@ describe("atoms and bonds", () => {
     expect(setAtomLabel(d, "13", "R3")).toEqual({ ok: true, note: null });
     expect(attr(d, "13", "NodeType")).toBe("GenericNickname");
     expect(setAtomLabel(d, "13", "Ar")).toEqual({ ok: true, note: "Ar is read as a generic label (aryl), not argon." });
-    expect(setAtomLabel(d, "13", "OMe")).toEqual({ ok: true, note: "OMe is drawn as a label; ChemDraw will read it as text, not as the group it names." });
+    expect(setAtomLabel(d, "13", "OMe")).toEqual({ ok: true, note: null /* a group label: read as methoxy for the formula (labelExpand) */ });
     expect(attr(d, "13", "NodeType")).toBe("Unspecified");
   });
   test("bonds: order, style, flip; an order this editor does not set is refused", () => {

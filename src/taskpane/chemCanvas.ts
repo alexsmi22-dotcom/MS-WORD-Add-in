@@ -36,8 +36,8 @@ export interface CanvasChange {
 export interface ChemCanvas {
   /** The page's structures as one OCL Molecule (empty when there are none, or when they cannot be one — see chemistry()). */
   getMolecule(): Molecule;
-  /** The page's structures (or the selection's) as a Molecule, or why they have no exact Molecule form. */
-  chemistry(selectionOnly?: boolean): { ok: true; mol: Molecule } | { ok: false; reason: string };
+  /** The page's structures (or the selection's) as a Molecule (with what was read as drawn but unusual), or why they have no single formula. */
+  chemistry(selectionOnly?: boolean): { ok: true; mol: Molecule; notes: string[] } | { ok: false; reason: string };
   /** Replaces the page with this structure. */
   setMolecule(mol: Molecule): void;
   /** Empties the page (one undo step). */
@@ -149,8 +149,10 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   let boxes = new Map<string, Box>();
   let selected = new Set<string>();
   let tool: CanvasTool = "bond";
-  let undo: XNode[] = [];
-  let redo: XNode[] = [];
+  type Step = { root: XNode; frag: boolean };
+  let undo: Step[] = [];
+  let redo: Step[] = [];
+  const snapshot = (): Step => ({ root: cloneTree(doc.root), frag: fragmentFlag });
   let fragmentFlag = false;
   let onChange: ((e: CanvasChange) => void) | null = null;
   /** The page area in view (points). It only grows to take in what is drawn, so the page never jumps under the mouse. */
@@ -231,7 +233,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   function reread(): void {
     const r = readCdxmlTree(doc.root);
     if (!r.ok) {
-      if (undo.length) doc.root = undo.pop()!;
+      if (undo.length) doc.root = undo.pop()!.root;
       host.setStatus(`The edit left the page unreadable (${r.reason}) — it was undone.`, "error");
       const again = readCdxmlTree(doc.root);
       if (!again.ok) return;
@@ -244,7 +246,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   }
   /** Runs an edit with an undo step; a refusal (string) leaves the page as it was and says why. */
   function edit(f: () => string | null): boolean {
-    const before = cloneTree(doc.root);
+    const step = snapshot();
+    const before = step.root;
     const sigBefore = signatures();
     const propsBefore = doc.properties;
     const why = f();
@@ -253,7 +256,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       host.setStatus(why.charAt(0).toUpperCase() + why.slice(1) + ".", "error");
       return false;
     }
-    undo.push(before);
+    undo.push(step);
     if (undo.length > UNDO_DEPTH) undo.shift();
     redo = [];
     reread();
@@ -584,8 +587,10 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   });
   function doUndo(): void {
     if (!undo.length) return;
-    redo.push(cloneTree(doc.root));
-    doc.root = undo.pop()!;
+    redo.push(snapshot());
+    const u = undo.pop()!;
+    doc.root = u.root;
+    fragmentFlag = u.frag;
     reread();
     edited = true;
     saved = false;
@@ -593,8 +598,10 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   }
   function doRedo(): void {
     if (!redo.length) return;
-    undo.push(cloneTree(doc.root));
-    doc.root = redo.pop()!;
+    undo.push(snapshot());
+    const u = redo.pop()!;
+    doc.root = u.root;
+    fragmentFlag = u.frag;
     reread();
     edited = true;
     saved = false;
@@ -628,7 +635,15 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   );
 
   // ---- API ------------------------------------------------------------------------------------
-  const chemistry = (selectionOnly = false): { ok: true; mol: Molecule } | { ok: false; reason: string } => {
+  const chemistry = (selectionOnly = false): { ok: true; mol: Molecule; notes: string[] } | { ok: false; reason: string } => {
+    const scope = selectionOnly && selected.size ? selected : null;
+    const inScope = (id: string): boolean => !scope || scope.has(id);
+    // A reaction scheme (an arrow) or a polymer (brackets) is not one structure: its parts are read one at a time.
+    if (doc.objects.some((o) => inScope(o.id) && o.items.some((it) => it.kind === "arrow")))
+      return { ok: false, reason: "a reaction (an arrow on the page) has no single formula — select one structure (Select tool) to read its formula" };
+    const bracketed = new Set(doc.brackets.flatMap((g) => g.objectIds));
+    const inPolymer = doc.objects.some((o) => inScope(o.id) && o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => bracketed.has(nd.id))));
+    if (inPolymer) return { ok: false, reason: "a polymer drawn with brackets has no single formula (its repeat unit repeats n times)" };
     let r: ReturnType<typeof pageToMolecule>;
     try {
       r = pageToMolecule(doc, selectionOnly && selected.size ? selected : undefined);
@@ -638,7 +653,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     }
     if (!r.ok) return r;
     r.value.mol.setFragment(fragmentFlag);
-    return { ok: true, mol: r.value.mol };
+    return { ok: true, mol: r.value.mol, notes: r.value.notes };
   };
   const api: ChemCanvas = {
     getMolecule: () => {
@@ -650,7 +665,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     },
     chemistry,
     setMolecule: (mol) => {
-      const before = cloneTree(doc.root);
+      const before = snapshot();
       const fresh = blankDoc();
       // The page keeps its own style (a ChemDraw file's bond length, fonts): only its content is replaced.
       if (doc.objects.length) {
@@ -677,7 +692,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       fire(false);
     },
     clearAll: () => {
-      undo.push(cloneTree(doc.root));
+      undo.push(snapshot());
       if (undo.length > UNDO_DEPTH) undo.shift();
       redo = [];
       doc = blankDoc();
@@ -696,7 +711,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     isFragment: () => fragmentFlag,
     page: () => doc,
     loadPage: (d) => {
-      undo.push(cloneTree(doc.root));
+      undo.push(snapshot());
       if (undo.length > UNDO_DEPTH) undo.shift();
       redo = [];
       doc = d;
@@ -712,6 +727,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     },
     hasDrawing: () => doc.objects.some((o) => o.items.some((it) => it.kind !== "fragment")) || doc.brackets.length > 0,
     render: (selectionOnly) => {
+      if (selectionOnly && !selected.size) return null;
       const r = renderCdx(doc, { ...(selectionOnly && selected.size ? { objects: new Set(selected) } : {}), pad: doc.style.lineWidth * 2 });
       return r ? { svg: r.svg, widthPt: r.widthPt, heightPt: r.heightPt } : null;
     },

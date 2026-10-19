@@ -64,3 +64,42 @@ export function groupSmiles(label: string): string | null {
 export function groupLabels(): string[] {
   return [...Object.keys(GROUPS), ...Object.keys(LEFTWARD)];
 }
+
+/**
+ * Names that are not written atom by atom (Me, Ph, Boc, TMS …): they mean the same group whichever side
+ * of the bond they are written on. Every other label is a formula read from the bonded atom outward, so
+ * which side of the bond it sits on decides its reading (SCN right of a bond is thiocyanate, S-bonded;
+ * left of a bond it would be read N-bonded).
+ */
+const NAMED = new Set([
+  "Me", "Et", "Pr", "nPr", "n-Pr", "iPr", "i-Pr", "Bu", "nBu", "n-Bu", "iBu", "i-Bu", "sBu", "s-Bu", "tBu", "t-Bu", "Ph", "Bn", "Bzl", "Cy", "Vinyl",
+  "Ac", "Bz", "Boc", "Cbz", "Fmoc", "Ts", "Tos", "Ms", "Tf", "TMS", "TBS", "TBDMS", "TIPS", "TBDPS", "PMB", "THP", "MOM", "SEM",
+]);
+
+/**
+ * The structure a label stands for, read by the side of the bond it is written on: `left` = the label is
+ * written to the left of its bond (its LAST atom is bonded), `right` = to the right (its first atom).
+ * A named group reads the same either side; a formula only in its own side's table; null otherwise.
+ */
+export function groupSmilesBySide(label: string, side: "left" | "right"): string | null {
+  const key = label.replace(/\s+/g, "");
+  if (!key) return null;
+  const own = side === "left" ? LEFTWARD : GROUPS;
+  if (Object.prototype.hasOwnProperty.call(own, key)) return own[key];
+  if (NAMED.has(key) && Object.prototype.hasOwnProperty.call(GROUPS, key)) return GROUPS[key];
+  return null;
+}
+
+/** The same group written for the left of a bond (OMe → MeO, CO2H → HO2C), or null (a named group, or none). */
+export function leftwardOf(label: string): string | null {
+  const key = label.replace(/\s+/g, "");
+  if (NAMED.has(key) || !Object.prototype.hasOwnProperty.call(GROUPS, key)) return null;
+  const smi = GROUPS[key];
+  for (const [k, v] of Object.entries(LEFTWARD)) if (v === smi) return k;
+  return null;
+}
+
+/** Whether a label is a group this table knows, on either side (a typed label is checked with this). */
+export function isGroupLabel(label: string): boolean {
+  return groupSmiles(label) !== null;
+}

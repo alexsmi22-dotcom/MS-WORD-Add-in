@@ -1817,8 +1817,9 @@ Office.onReady((info) => {
     if (!drawEditor) return false;
     drawEditor.loadPage(page);
     drawEditor.setName(name);
-    drawFromPicture = /picture/i.test(name);
-    setStatus(`${name} opened on the canvas — edit it with the tools above; Insert puts it in as drawn; Save as .cdxml keeps it editable.`, "success");
+    drawFromPicture = name === "The ChemDraw picture";
+    const notShown = page.notes.length ? ` Not shown: ${page.notes.join("; ")}.` : "";
+    setStatus(`${name} opened on the canvas — edit it with the tools above; Insert puts it in as drawn; Save as .cdxml keeps it editable.${notShown}`, notShown ? "" : "success");
     return true;
   }, openIdcode: (idcode) => {
     // The decoded structure must encode back to the same idcode: a damaged code decodes to a confident
@@ -5188,11 +5189,7 @@ function onCleanStructure(): void {
   }
   // Clean lays the structure out again from its chemistry: labels standing for groups (OMe, Ph …) would
   // become their atoms. Refused by name rather than rewriting what the drawing says.
-  const groupLabels: string[] = [];
-  for (const o of drawEditor.page().objects)
-    for (const it of o.items)
-      if (it.kind === "fragment")
-        for (const n of it.v.nodes) if (n.nodeType === "Unspecified" || n.nodeType === "Nickname" || n.nodeType === "Fragment") groupLabels.push(n.label?.runs.map((r) => r.text).join("") || "a label");
+  const groupLabels = pageGroupLabels();
   if (groupLabels.length) {
     setStatus(`Clean would replace ${[...new Set(groupLabels)].slice(0, 4).join(", ")} with ${groupLabels.length === 1 ? "its" : "their"} atoms, so it is not done — move atoms by hand (Select, then drag).`, "error");
     return;
@@ -5257,12 +5254,12 @@ function updateDrawPreview(preserveStatus = false): void {
   // through every transient state of the drawing.
   keepRgroupValues = true;
   try {
-    if (!pageEmpty && drawn && (!chem?.ok || !mol || mol.getAllAtoms() === 0)) {
-      // A page with no structure as chemistry (only arrows and text, or labels with no exact form): it
-      // inserts as drawn, and says why there is no formula.
+    if (!pageEmpty && drawn && (!chem?.ok || !mol || mol.getAllAtoms() === 0 || drawEditor?.hasDrawing())) {
+      // A page that is more than its structures (captions, brackets, arrows), or whose structures have no
+      // single formula: it inserts as drawn, and says why there is no formula (or gives the structures').
       buildFragmentToggle.checked = !!drawEditor?.isFragment();
       buildPreviewEl.innerHTML = drawn.svg;
-      buildFormulaEl.textContent = chem && !chem.ok ? `— (${chem.reason})` : "—";
+      buildFormulaEl.textContent = chem && !chem.ok ? `— (${chem.reason})` : chem?.ok && mol && mol.getAllAtoms() ? safeFormula(mol) : "—";
       buildSmilesEl.textContent = "—";
       renderRgroupInputs([]);
       renderCompliance([]);
@@ -5305,7 +5302,8 @@ function updateDrawPreview(preserveStatus = false): void {
       renderRgroupInputs(result.rgroups);
       // The compliance note must never take the preview down with it.
       try {
-        renderCompliance(complianceIssues(mol));
+        // The converter's own notes (a valence taken as drawn) beside OCL's.
+        renderCompliance([...complianceIssues(mol), ...(chem?.ok ? chem.notes.map((m) => ({ kind: "valence" as const, severity: "note" as const, fixableByClean: false, message: m.charAt(0).toUpperCase() + m.slice(1) + "." })) : [])] as ComplianceIssue[]);
       } catch {
         renderCompliance([]);
       }
@@ -5343,6 +5341,18 @@ function openDrawDialog(): void {
   if (drawEditor?.hasDrawing()) {
     setStatus("The large canvas takes structures only for now — this page also has brackets, arrows or text, which would be lost there. Edit it here (drag the canvas's corner to make it taller).", "error");
     return;
+  }
+  if (drawEditor && drawEditor.page().objects.length) {
+    const chem = drawEditor.chemistry();
+    if (!chem.ok) {
+      setStatus(`The large canvas takes a structure it can read exactly — this one has no single formula (${chem.reason}). Edit it here.`, "error");
+      return;
+    }
+    const labels = pageGroupLabels();
+    if (labels.length) {
+      setStatus(`The large canvas would bring ${labels.slice(0, 4).join(", ")} back as ${labels.length === 1 ? "its" : "their"} atoms — edit this page here (drag the canvas's corner to make it taller).`, "error");
+      return;
+    }
   }
   if (drawEditor) {
     const mol = drawEditor.getMolecule();
@@ -29923,19 +29933,21 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
   const fit = chemdrawFit(r.widthPt, r.heightPt);
   if (!fit.ok) return setStatus(`${selectionOnly ? "The selection" : "The page"}: ${fit.reason}.`, "error");
   const chem = drawEditor.chemistry(selectionOnly);
-  let alt = "Structure drawing.";
+  let alt = "Structure drawing (JurisLab).";
   let label = "drawing";
   let generic = false;
   if (chem.ok && chem.mol.getAllAtoms()) {
     try {
       const res = resultFromMolecule(chem.mol, STRUCTURE_W, STRUCTURE_H);
-      alt = provenanceAltText(`2D structure (${res.formula || "molecule"})`, res.formula, res.mw, res.smiles, res.idcode);
+      // The reopen code (OCL-ID) only for a page that is its structures: one with captions would reopen without them.
+      const whole = selectionOnly || !drawEditor.hasDrawing();
+      alt = whole ? provenanceAltText(`2D structure (${res.formula || "molecule"})`, res.formula, res.mw, res.smiles, res.idcode) : `Structure drawing (JurisLab) — ${res.formula}; SMILES ${res.smiles}`;
       label = res.formula || label;
       generic = res.generic;
     } catch {
       /* the drawing alone */
     }
-  } else if (!chem.ok) alt = `Structure drawing (no single formula: ${chem.reason}).`;
+  } else if (!chem.ok) alt = `Structure drawing (JurisLab) — no single formula: ${chem.reason}.`;
   const w = (r.widthPt * 96 * fit.k) / 72, h = (r.heightPt * 96 * fit.k) / 72;
   try {
     const base64 = await renderFigurePng(r.svg, w, h);
@@ -29955,6 +29967,25 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
     }
   } catch (error) {
     setStatus(`Could not ${replace ? "replace the picture" : "insert the drawing"}: ${(error as Error).message}`, "error");
+  }
+}
+
+/** The group labels (OMe, Ph …) and abbreviations on the Draw page: what Clean or the large canvas would expand into atoms. */
+function pageGroupLabels(): string[] {
+  const out = new Set<string>();
+  for (const o of drawEditor?.page().objects ?? [])
+    for (const it of o.items)
+      if (it.kind === "fragment")
+        for (const n of it.v.nodes) if (n.nodeType === "Unspecified" || n.nodeType === "Nickname" || n.nodeType === "Fragment") out.add(n.label?.runs.map((r) => r.text).join("") || "a label");
+  return [...out];
+}
+
+/** A structure's formula for the readout (never throws). */
+function safeFormula(mol: OclMolecule): string {
+  try {
+    return mol.getMolecularFormula().formula;
+  } catch {
+    return "—";
   }
 }
 

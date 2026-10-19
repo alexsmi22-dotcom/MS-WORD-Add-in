@@ -3,7 +3,7 @@
 // the group it names — TMS on CH3 is tetramethylsilane C4H12Si, NO2 on CH3 nitromethane CH3NO2 …).
 import { readCdxml } from "../cdxml";
 import { pageToMolecule } from "../cdxmlMol";
-import { groupLabels, groupSmiles } from "../labelExpand";
+import { groupLabels, groupSmiles, groupSmilesBySide, leftwardOf } from "../labelExpand";
 
 const ON_METHYL: Record<string, string> = {
   "Me": "C2H6",
@@ -163,6 +163,13 @@ const ON_METHYL: Record<string, string> = {
 };
 
 const formulaOf = (label: string, nodeType: string): string => {
+  // A label written for the left of a bond is drawn left of its methyl (its neighbour to its right).
+  if (!groupSmilesBySide(label, "right") && groupSmilesBySide(label, "left")) {
+    const d2 = readCdxml(`<CDXML BondLength="30"><page id="1"><fragment id="10"><n id="1" p="30 0"/><n id="2" p="0 0" NodeType="${nodeType}"><t p="0 0"><s font="3" size="10">${label}</s></t></n><b id="3" B="1" E="2"/></fragment></page></CDXML>`);
+    if (!d2.ok) throw new Error(d2.reason);
+    const r2 = pageToMolecule(d2.doc);
+    return r2.ok ? r2.value.mol.getMolecularFormula().formula : r2.reason;
+  }
   const d = readCdxml(`<CDXML BondLength="30"><page id="1"><fragment id="10"><n id="1" p="0 0"/><n id="2" p="30 0" NodeType="${nodeType}"><t p="30 0"><s font="3" size="10">${label}</s></t></n><b id="3" B="1" E="2"/></fragment></page></CDXML>`);
   if (!d.ok) throw new Error(d.reason);
   const r = pageToMolecule(d.doc);
@@ -177,9 +184,21 @@ test("an abbreviation node (Nickname) with no structure inside is expanded the s
   expect(formulaOf("Boc", "Nickname")).toBe("C6H12O2");
 });
 test("labels not in the table are refused by name, never parsed by rule; a group drawn with two bonds is refused", () => {
-  expect(formulaOf("CH2CH2OH", "Unspecified")).toBe("CH2CH2OH is text this does not know as a group — its structure is not in the file");
+  expect(formulaOf("CH2CH2OH", "Unspecified")).toBe("“CH2CH2OH” is not an element, an R-group or a group label this knows (OMe, Ph, Boc, CO2H …)");
   expect(groupSmiles("__proto__")).toBeNull();
   const d = readCdxml('<CDXML BondLength="30"><page id="1"><fragment id="10"><n id="1" p="0 0"/><n id="2" p="30 0" NodeType="Unspecified"><t p="30 0"><s font="3" size="10">OMe</s></t></n><n id="4" p="60 0"/><b id="3" B="1" E="2"/><b id="5" B="2" E="4"/></fragment></page></CDXML>');
   const r = d.ok ? pageToMolecule(d.doc) : null;
-  expect(r && !r.ok && r.reason).toBe("OMe stands for a group with one bond, but it is drawn with 2");
+  expect(r && !r.ok && r.reason).toBe("“OMe” stands for a group with one bond, but it is drawn with 2");
+});
+
+test("a formula label is read by the side of its bond (review: SCN right of a bond is thiocyanate, not isothiocyanate); named groups read either side", () => {
+  // Right of the bond: bonded at its first letter.
+  expect(groupSmilesBySide("SCN", "right")).toBeNull(); // thiocyanate is not in the table: refused, never the wrong isomer
+  expect(groupSmilesBySide("NCS", "right")).toBe("N=C=S");
+  expect(groupSmilesBySide("SCN", "left")).toBe("N=C=S"); // written left of a bond, SCN is N-bonded: isothiocyanate
+  expect(groupSmilesBySide("CN", "right")).toBe("C#N");
+  expect(groupSmilesBySide("CN", "left")).toBeNull();
+  expect(groupSmilesBySide("Ph", "left")).toBe("c1ccccc1");
+  expect(leftwardOf("OMe")).toBe("MeO");
+  expect(leftwardOf("Ph")).toBeNull();
 });

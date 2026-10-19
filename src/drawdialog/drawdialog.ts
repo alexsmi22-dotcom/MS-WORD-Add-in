@@ -481,6 +481,17 @@ Office.onReady(() => {
     const smiles = select.value;
     select.value = "";
     if (!smiles) return;
+    // A template joins the structure: what it cannot carry (brackets, arrows, text; a structure with no
+    // single formula) is refused by name, never dropped.
+    if (editor.hasDrawing()) {
+      showError("A template joins a page of structures only — this one also has brackets, arrows or text.");
+      return;
+    }
+    if (editor.page().objects.length && !editor.chemistry().ok) {
+      const r0 = editor.chemistry();
+      showError(`A template needs the structure as chemistry: ${r0.ok ? "" : r0.reason}.`);
+      return;
+    }
     const current = editor.getMolecule();
     const r = addTemplate(current.getAllAtoms() > 0 ? current : null, smiles);
     if (r.error) {
@@ -533,6 +544,15 @@ Office.onReady(() => {
     const chem = editor.chemistry();
     if (!chem.ok) {
       showError(`This drawing has no exact structure to bring back: ${chem.reason}.`);
+      return;
+    }
+    // Group labels (OMe, Ph …) would come back to the pane as their atoms: said, not done.
+    const labels = new Set<string>();
+    for (const o of editor.page().objects)
+      for (const it of o.items)
+        if (it.kind === "fragment") for (const nd of it.v.nodes) if (nd.nodeType === "Unspecified" || nd.nodeType === "Nickname" || nd.nodeType === "Fragment") labels.add(nd.label?.runs.map((r) => r.text).join("") || "a label");
+    if (labels.size) {
+      showError(`${[...labels].slice(0, 4).join(", ")} would come back to the pane as ${labels.size === 1 ? "its" : "their"} atoms — draw ${labels.size === 1 ? "that label" : "those labels"} in the pane instead.`);
       return;
     }
     const mol = chem.mol;

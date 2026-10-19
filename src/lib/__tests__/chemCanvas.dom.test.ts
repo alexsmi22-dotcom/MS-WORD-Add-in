@@ -167,7 +167,12 @@ describe("what is new: brackets, arrows, captions", () => {
     t.click(100, 160);
     expect(t.c.hasDrawing()).toBe(true);
     expect(t.c.render(false)!.svg).toContain(">Scheme 1<");
-    expect(t.formula()).toBe("C2H6");
+    // A reaction has no single formula (review); one structure selected has its own.
+    expect(t.formula()).toBe("a reaction (an arrow on the page) has no single formula — select one structure (Select tool) to read its formula");
+    t.tool("select");
+    t.click(...t.atoms()[0].p);
+    const sel = t.c.chemistry(true);
+    expect(sel.ok && sel.mol.getMolecularFormula().formula).toBe("C2H6");
   });
   test("a refused edit says why and changes nothing (a fifth bond on a carbon)", () => {
     const t = setup();

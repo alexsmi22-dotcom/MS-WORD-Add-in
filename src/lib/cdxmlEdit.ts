@@ -11,6 +11,8 @@
 import type { XNode } from "./xmlLite";
 import type { CdxDoc } from "./cdxml";
 import { atomicNumber, symbolFor } from "./periodic";
+import { Molecule } from "openchemlib/full";
+import { isGroupLabel, leftwardOf } from "./labelExpand";
 
 // ---- the tree --------------------------------------------------------------------------------
 
@@ -224,47 +226,108 @@ function fragmentOf(root: XNode, nodeId: string): { frag: XNode; node: XNode } |
 }
 
 /** A label's text object, placed as ChemDraw places it: the first character centred on the atom. */
-function labelText(doc: CdxDoc, node: XNode, text: string): XNode {
+function labelText(doc: CdxDoc, node: XNode, text: string, rightAligned = false): XNode {
   const st = doc.style;
   const [x, y] = (node.attrs.p ?? "0 0").split(/\s+/).map(Number);
   const size = st.labelSize;
-  const firstW = /^[A-Z]/.test(text) ? 0.72 * size : 0.56 * size;
-  const width = [...text].reduce((w, ch) => w + (/[A-Z]/.test(ch) ? 0.72 : /\d/.test(ch) ? 0.42 : 0.56) * size, 0);
-  const left = x - firstW / 2;
+  const charW = (ch: string): number => (/[A-Z]/.test(ch) ? 0.72 : /\d/.test(ch) ? 0.42 : 0.56) * size;
+  const width = [...text].reduce((w, ch) => w + charW(ch), 0);
+  // Left-aligned: the first letter centred on the atom; right-aligned (written left of its bond): the last.
+  const left = rightAligned ? x - (width - charW(text[text.length - 1] ?? "C") / 2) : x - charW(text[0] ?? "C") / 2;
   const s: XNode = { name: "s", attrs: { font: String(st.labelFont), size: fmt(size), face: String(st.labelFace) }, children: [], text, line: 0 };
   return {
     name: "t",
-    attrs: { p: `${fmt(left)} ${fmt(y + 0.35 * size)}`, BoundingBox: `${fmt(left)} ${fmt(y - 0.5 * size)} ${fmt(left + width)} ${fmt(y + 0.5 * size)}`, LabelJustification: "Left" },
+    attrs: { p: `${fmt(left)} ${fmt(y + 0.35 * size)}`, BoundingBox: `${fmt(left)} ${fmt(y - 0.5 * size)} ${fmt(left + width)} ${fmt(y + 0.5 * size)}`, LabelJustification: rightAligned ? "Right" : "Left" },
     children: [s],
     text: "",
     line: 0,
   };
 }
 
+/** Group names that are also element symbols: in a structure drawing they are the group (ChemDraw's reading). */
+const GROUP_OVER_ELEMENT = new Set(["Ac", "Pr", "Ts", "Bu"]);
+
+/** The hydrogens an element atom shows with these bonds and charge: VALENCE where known, else OCL's own count. */
+function hydrogensFor(z: number, charge: number, frag: XNode, nodeId: string): number | null {
+  const sym = symbolFor(z);
+  if (!sym) return null;
+  const known = implicitH(sym, charge, bondOrderSum(frag, nodeId));
+  if (known !== null) return known;
+  try {
+    const m = new Molecule(8, 8);
+    const a = m.addAtom(z);
+    if (charge) m.setAtomCharge(a, charge);
+    for (const b of frag.children) {
+      if (b.name !== "b" || (b.attrs.B !== nodeId && b.attrs.E !== nodeId)) continue;
+      const w = (b.attrs.Order ?? "1").split(/\s+/)[0];
+      const c = m.addAtom(6);
+      const bond = m.addBond(a, c);
+      m.setBondType(bond, w === "2" ? Molecule.cBondTypeDouble : w === "3" ? Molecule.cBondTypeTriple : Molecule.cBondTypeSingle);
+    }
+    m.ensureHelperArrays(Molecule.cHelperNeighbours);
+    return m.getImplicitHydrogens(a);
+  } catch {
+    return null;
+  }
+}
+
+/** Which side of its one bond a label sits on: "left" when its neighbour lies to its right. */
+function sideOf(frag: XNode, node: XNode): "left" | "right" {
+  const b = frag.children.find((q) => q.name === "b" && (q.attrs.B === node.attrs.id || q.attrs.E === node.attrs.id));
+  const other = b ? frag.children.find((c) => c.name === "n" && c.attrs.id === (b.attrs.B === node.attrs.id ? b.attrs.E : b.attrs.B)) : undefined;
+  return other && posOf(other)[0] - posOf(node)[0] > 1e-6 ? "left" : "right";
+}
+
 /**
- * Sets what an atom is: an element symbol ("N", "Cl"; "C" makes it a bare vertex again), a generic
- * label (R1, X, Ar …) or other text (OMe), which is kept as a label ChemDraw treats as text — said
- * in the returned note, never passed off as the group it names.
+ * Sets what an atom is: an element symbol ("N", "Cl"; "C" makes it a bare vertex again; "[Ac]" the element
+ * where the name is also a group's), an isotope ("13C", D, T), a generic label (R1, X, Ar …), a group label
+ * (OMe, Ph, Boc …: read as its group for the formula, written the way ChemDraw writes it on its side of the
+ * bond — MeO on the left), or other text, kept as a label with no formula (said in the note).
  */
 export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: true; note: string | null } | { ok: false; reason: string } {
   const hit = fragmentOf(doc.root, nodeId);
   if (!hit) return { ok: false, reason: "that atom is no longer in the document" };
-  const t = label.trim();
+  let t = label.trim();
   if (!t) return { ok: false, reason: "type an element symbol or a label" };
   if (t.length > 40 || /[\u0000-\u001f]/.test(t)) return { ok: false, reason: "that label is too long or contains a control character" };
   const { frag, node } = hit;
-  for (const k of ["Element", "NumHydrogens", "NodeType", "GenericNickname", "NeedsClean", "Warning"]) delete node.attrs[k];
+  for (const k of ["Element", "NumHydrogens", "NodeType", "GenericNickname", "NeedsClean", "Warning", "Isotope"]) delete node.attrs[k];
   node.children = node.children.filter((c) => c.name !== "t" && c.name !== "fragment");
+  const charge = Number(node.attrs.Charge ?? 0) || 0;
+  // D and T: hydrogen's isotopes, drawn as D and T.
+  if (t === "D" || t === "T") {
+    node.attrs.Element = "1";
+    node.attrs.Isotope = t === "D" ? "2" : "3";
+    node.children.push(labelText(doc, node, t));
+    return { ok: true, note: null };
+  }
+  // "13C", "15N": an isotope.
+  const iso = /^(\d{1,3})([A-Z][a-z]?)$/.exec(t);
+  if (iso && atomicNumber(iso[2]) !== null) {
+    const z = atomicNumber(iso[2])!;
+    node.attrs.Element = String(z);
+    node.attrs.Isotope = iso[1];
+    const h = hydrogensFor(z, charge, frag, nodeId) ?? 0;
+    node.attrs.NumHydrogens = String(h);
+    const lt = labelText(doc, node, iso[2] + (h ? "H" + (h > 1 ? h : "") : ""));
+    const s0 = lt.children[0];
+    lt.children.unshift({ name: "s", attrs: { ...s0.attrs, face: String(0x20) }, children: [], text: iso[1], line: 0 });
+    node.children.push(lt);
+    return { ok: true, note: null };
+  }
+  // "[Ac]": the element itself, where its symbol is also a group's name.
+  const forced = /^\[([A-Z][a-z]?)\]$/.exec(t);
+  if (forced) t = forced[1];
+  const groupFirst = !forced && GROUP_OVER_ELEMENT.has(t);
   // "Ar" and "Y" are argon and yttrium, but in a structure drawing they are aryl and a variable:
   // read as generic labels, and said so.
-  const ambiguous = t === "Ar" || t === "Y";
-  const z = ambiguous ? null : atomicNumber(t);
+  const ambiguous = !forced && (t === "Ar" || t === "Y");
+  const z = ambiguous || groupFirst ? null : atomicNumber(t);
   if (z !== null) {
     if (z !== 6) node.attrs.Element = String(z);
     if (z === 6) return { ok: true, note: null }; // a carbon: a bare vertex
     const sym = symbolFor(z)!;
-    const charge = Number(node.attrs.Charge ?? 0) || 0;
-    const h = implicitH(sym, charge, bondOrderSum(frag, nodeId));
+    const h = hydrogensFor(z, charge, frag, nodeId);
     if (h !== null) node.attrs.NumHydrogens = String(h);
     node.children.push(labelText(doc, node, sym + (h ? "H" + (h > 1 ? h : "") : "")));
     return { ok: true, note: null };
@@ -276,8 +339,15 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
     return { ok: true, note: ambiguous ? `${t} is read as a generic label (${t === "Ar" ? "aryl" : "a variable"}), not ${t === "Ar" ? "argon" : "yttrium"}.` : null };
   }
   node.attrs.NodeType = "Unspecified";
+  if (isGroupLabel(t)) {
+    // Written for its side of the bond, as ChemDraw writes it (OMe on the left reads MeO).
+    const left = sideOf(frag, node) === "left";
+    const shown = left ? leftwardOf(t) ?? t : t;
+    node.children.push(labelText(doc, node, shown, left && shown !== t));
+    return { ok: true, note: groupFirst ? `${t} is read as the group (${t === "Ac" ? "acetyl" : t === "Pr" ? "propyl" : t === "Ts" ? "tosyl" : "butyl"}); for the element, type [${t}].` : null };
+  }
   node.children.push(labelText(doc, node, t));
-  return { ok: true, note: `${t} is drawn as a label; ChemDraw will read it as text, not as the group it names.` };
+  return { ok: true, note: `${t} is drawn as text — not an element, an R-group or a group this knows (OMe, Ph, Boc …), so the structure has no single formula.` };
 }
 
 /** Sets a bond's order (1, 2, 3, 1.5) or its style (Solid, WedgeBegin, WedgedHashBegin, Wavy, Bold, Dash …). */
@@ -382,7 +452,16 @@ export function deleteInStructure(doc: CdxDoc, id: string): string | null {
   dropReferences(doc.root, gone);
   for (const e of ends) {
     const n = frag.children.find((c) => c.name === "n" && c.attrs.id === e);
-    if (n) relabel(doc, n);
+    if (!n) continue;
+    relabel(doc, n);
+    // An unlabelled carbon left with no bonds would be invisible yet still counted: it is shown, as
+    // ChemDraw shows a lone carbon (CH₄).
+    const lone = !frag.children.some((b) => b.name === "b" && (b.attrs.B === e || b.attrs.E === e));
+    if (lone && !n.children.some((c) => c.name === "t") && (!n.attrs.NodeType || n.attrs.NodeType === "Element") && (n.attrs.Element ?? "6") === "6") {
+      const h = Math.max(0, 4 - Math.abs(Number(n.attrs.Charge ?? 0) || 0));
+      n.attrs.NumHydrogens = String(h);
+      n.children.push(labelText(doc, n, "C" + (h ? "H" + (h > 1 ? h : "") : "")));
+    }
   }
   return null;
 }
@@ -400,7 +479,7 @@ function relabel(doc: CdxDoc, node: XNode): void {
   const t = node.children.find((c) => c.name === "t");
   if (!t) return;
   const sym = symbolFor(Number(node.attrs.Element ?? 6));
-  if (!sym || VALENCE[sym] === undefined) return;
+  if (!sym) return;
   const runs = t.children.filter((c) => c.name === "s");
   if (!runs.length) return;
   const text = runs.map((r) => r.text).join("");
@@ -409,7 +488,7 @@ function relabel(doc: CdxDoc, node: XNode): void {
   if (!m || (m[1] && m[2])) return;
   const frag = fragmentOf(doc.root, node.attrs.id ?? "")?.frag;
   if (!frag) return;
-  const h = implicitH(sym, Number(node.attrs.Charge ?? 0) || 0, bondOrderSum(frag, node.attrs.id ?? ""));
+  const h = hydrogensFor(Number(node.attrs.Element ?? 6), Number(node.attrs.Charge ?? 0) || 0, frag, node.attrs.id ?? "");
   if (h === null) return;
   const hs = h ? "H" + (h > 1 ? h : "") : "";
   const hFirst = !!m[1] || (!m[2] && t.attrs.LabelJustification === "Right");

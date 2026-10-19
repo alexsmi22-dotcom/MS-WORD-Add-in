@@ -4,20 +4,22 @@
  * formula, SMILES, idcode, Markush, Clean, 3D — is computed by OCL from the Molecule these give. So the
  * mapping is exact or refused by name, never approximate:
  *
- *   elements, charges, isotopes, radicals, explicit H, bond orders (aromatic = delocalized), wedges
- *   (ChemDraw's narrow end at B for …Begin, at E for …End ↔ OCL up/down from bond atom 0), generic
- *   atoms R1–R16 (OCL atomic numbers 142, 143, 144 for R1–R3 and 129–141 for R4–R16), abbreviations
- *   expanded from the fragment ChemDraw keeps inside them (Ph, OMe, Boc …).
+ *   elements, charges, isotopes, radicals, explicit H, bond orders (aromatic bonds resolved into
+ *   alternating single and double bonds, or refused when they cannot be), wedges (ChemDraw's narrow end
+ *   at B for …Begin, at E for …End ↔ OCL up/down from bond atom 0), wavy bonds (the double bond they meet
+ *   has unknown geometry), generic atoms R1–R16 (OCL 142, 143, 144 for R1–R3 and 129–141 for R4–R16),
+ *   group labels read by the side of the bond they are written on (labelExpand), abbreviations expanded
+ *   from the fragment ChemDraw keeps inside them, bonded at their numbered connection points.
  *
  * A labelled atom keeps the hydrogens it is drawn with (its valence set to match when OCL's usual one
- * differs); one no valence can give is refused: the formula would not be the one drawn.
+ * differs, and said in the notes); one no valence can give is refused.
  */
 import { Molecule } from "openchemlib/full";
 import type { CdxDoc } from "./cdxml";
 import type { XNode } from "./xmlLite";
 import { findById, nextIdFrom, setAtomLabel } from "./cdxmlEdit";
 import { symbolFor } from "./periodic";
-import { groupSmiles } from "./labelExpand";
+import { groupSmilesBySide } from "./labelExpand";
 
 const elementSymbol = (z: number): string => symbolFor(z) ?? `element ${z}`;
 
@@ -33,13 +35,30 @@ const Z_TO_R = (z: number): number | null => (z >= 142 && z <= 144 ? z - 141 : z
 const RADICAL_TO_OCL: Record<string, number> = { Singlet: Molecule.cAtomRadicalStateS, Doublet: Molecule.cAtomRadicalStateD, Triplet: Molecule.cAtomRadicalStateT };
 const OCL_TO_RADICAL = new Map(Object.entries(RADICAL_TO_OCL).map(([k, v]) => [v, k]));
 
+/** Search steps allowed to resolve one page's aromatic bonds (a work bound: never freeze Word). */
+const AROMATIC_STEPS = 200_000;
+
 const posOf = (n: XNode): P2 => (n.attrs.p ?? "0 0").trim().split(/\s+/).map(Number) as P2;
 const labelWords = (n: XNode): string => n.children.find((c) => c.name === "t")?.children.filter((c) => c.name === "s").map((c) => c.text).join("").replace(/\s+/g, "") ?? "";
+const quoted = (s: string): string => `“${s}”`;
 
 export interface PageMolecule {
   mol: Molecule;
   /** Which page atom (node id) each Molecule atom came from ("" for atoms of an expanded abbreviation). */
   atomIds: string[];
+  /** What the reading took as drawn but is unusual (a valence the drawn hydrogens force). */
+  notes: string[];
+}
+
+/** Which side of its one bond a label is written on: left when its neighbour lies to its right. */
+function labelSide(f: XNode, n: XNode): "left" | "right" | null {
+  const b = f.children.find((q) => q.name === "b" && (q.attrs.B === n.attrs.id || q.attrs.E === n.attrs.id));
+  if (!b) return null;
+  const other = f.children.find((c) => c.name === "n" && c.attrs.id === (b.attrs.B === n.attrs.id ? b.attrs.E : b.attrs.B));
+  if (!other) return null;
+  const dx = posOf(other)[0] - posOf(n)[0];
+  // A label straight above or below its bond reads left to right, bonded at its first atom.
+  return dx > 1e-6 ? "left" : "right";
 }
 
 /**
@@ -49,20 +68,25 @@ export interface PageMolecule {
 export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { ok: true; value: PageMolecule } | { ok: false; reason: string } {
   const mol = new Molecule(32, 32);
   const atomIds: string[] = [];
+  const notes: string[] = [];
   const L = doc.style.bondLength || 30;
   const index = new Map<string, number>();
   const frags: XNode[] = [];
+  /** Generic atom names seen (R and R1 are different groups: never merged). */
+  const generics = new Set<string>();
+  const wavy: number[] = [];
   for (const o of doc.objects) {
     if (objectIds && !objectIds.has(o.id)) continue;
     for (const it of o.items) if (it.kind === "fragment") frags.push(it.v.el);
   }
   for (const f of frags) {
     // Atoms first.
-    const expanded = new Map<string, { inner: Map<string, number>; attach: string[] }>();
+    const expanded = new Map<string, { attach: Array<{ num: number | null; atom: number }>; words: string; bondOrder: string[] }>();
     for (const n of f.children) {
       if (n.name !== "n" || !n.attrs.id) continue;
       const type = n.attrs.NodeType ?? "Element";
       const [x, y] = posOf(n);
+      const degree = f.children.filter((b) => b.name === "b" && (b.attrs.B === n.attrs.id || b.attrs.E === n.attrs.id)).length;
       if (type === "Element") {
         const z = Number(n.attrs.Element ?? 6);
         if (!Number.isInteger(z) || z < 1 || z > 118) return { ok: false, reason: `an atom has element number ${n.attrs.Element}, which is not an element` };
@@ -86,7 +110,9 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         const nick = n.attrs.GenericNickname ?? labelWords(n);
         const m = /^R(\d{0,2})$/.exec(nick);
         const k = m ? (m[1] ? Number(m[1]) : 1) : 0;
-        if (!(k >= 1 && k <= 16)) return { ok: false, reason: `the generic atom ${nick || "(unnamed)"} has no exact form in a structure (R1 to R16 do)` };
+        if (!(k >= 1 && k <= 16)) return { ok: false, reason: `the generic atom ${quoted(nick || "(unnamed)")} has no single formula — R1 to R16 are read as R-groups; others (X, A, M …) make the structure generic` };
+        generics.add(nick);
+        if (generics.has("R") && generics.has("R1")) return { ok: false, reason: "R and R1 are both on the page — they are different groups, but read as R-groups they would be the same one; rename R as R2 (or R1 as R)" };
         const a = mol.addAtom(R_TO_Z(k));
         mol.setAtomX(a, x / L);
         mol.setAtomY(a, y / L);
@@ -95,17 +121,27 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         continue;
       }
       if ((type === "Unspecified" || type === "Nickname" || type === "Fragment") && !n.children.some((c) => c.name === "fragment")) {
-        // A label standing for a group (OMe, CO₂H, Ph …): its structure from the table, one bond to the rest.
+        // A label standing for a group (OMe, CO₂H, Ph …): its structure from the table, one bond to the rest,
+        // read by the side of the bond it is written on.
         const words = labelWords(n);
-        const smi = groupSmiles(words);
-        if (!smi) return { ok: false, reason: `${words || "a label"} is ${type === "Unspecified" ? "text" : "an abbreviation"} this does not know as a group — its structure is not in the file` };
-        const degree = f.children.filter((b) => b.name === "b" && (b.attrs.B === n.attrs.id || b.attrs.E === n.attrs.id)).length;
-        if (degree > 1) return { ok: false, reason: `${words} stands for a group with one bond, but it is drawn with ${degree}` };
+        if (!degree) return { ok: false, reason: `${quoted(words || "a label")} stands for a group bonded to something; alone it has no single formula` };
+        if (degree > 1) return { ok: false, reason: `${quoted(words)} stands for a group with one bond, but it is drawn with ${degree}` };
+        const side = labelSide(f, n) ?? "right";
+        const smi = groupSmilesBySide(words, side);
+        if (!smi) {
+          const other = groupSmilesBySide(words, side === "left" ? "right" : "left");
+          return {
+            ok: false,
+            reason: other
+              ? `${quoted(words)} is written to the ${side} of its bond, where it reads from its ${side === "left" ? "last" : "first"} letter — ChemDraw writes this group the other way round there; retype it (Atom tool) and it is written for its side`
+              : `${quoted(words)} is not an element, an R-group or a group label this knows (OMe, Ph, Boc, CO2H …)`,
+          };
+        }
         let g: Molecule;
         try {
           g = Molecule.fromSmiles(smi);
         } catch {
-          return { ok: false, reason: `${words}: its group could not be built` };
+          return { ok: false, reason: `${quoted(words)}: its group could not be built` };
         }
         g.inventCoordinates();
         const map = mol.addMolecule(g);
@@ -134,15 +170,16 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         const inner = n.children.find((c) => c.name === "fragment")!;
         const words = labelWords(n) || "an abbreviation";
         const map = new Map<string, number>();
-        const attach: string[] = [];
+        const points: Array<{ id: string; num: number | null }> = [];
         const innerPos = new Map<number, P2>();
         for (const c of inner.children) {
           if (c.name !== "n" || !c.attrs.id) continue;
           if (c.attrs.NodeType === "ExternalConnectionPoint") {
-            attach.push(c.attrs.id);
+            const num = Number(c.attrs.ExternalConnectionNum);
+            points.push({ id: c.attrs.id, num: Number.isFinite(num) ? num : null });
             continue;
           }
-          if (c.attrs.NodeType && c.attrs.NodeType !== "Element") return { ok: false, reason: `${words} holds an atom this cannot read (${c.attrs.NodeType})` };
+          if (c.attrs.NodeType && c.attrs.NodeType !== "Element") return { ok: false, reason: `${quoted(words)} holds an atom this cannot read (${c.attrs.NodeType})` };
           const a = mol.addAtom(Number(c.attrs.Element ?? 6));
           innerPos.set(a, posOf(c));
           const q = Number(c.attrs.Charge ?? 0);
@@ -156,48 +193,76 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
           if (b.name !== "b") continue;
           const ia = map.get(b.attrs.B), ib = map.get(b.attrs.E);
           if (ia === undefined || ib === undefined) continue; // a bond to the connection point
-          const why = addBondOf(mol, ia, ib, b);
-          if (why) return { ok: false, reason: `${words}: ${why}` };
+          const why = addBondOf(mol, ia, ib, b, wavy);
+          if (why) return { ok: false, reason: `${quoted(words)}: ${why}` };
         }
-        // Each connection point: the inner atom bonded to it.
-        const inAt = attach.map((cp) => {
-          const b = inner.children.find((q) => q.name === "b" && (q.attrs.B === cp || q.attrs.E === cp));
-          return b ? map.get(b.attrs.B === cp ? b.attrs.E : b.attrs.B) : undefined;
+        // Each connection point: the inner atom bonded to it — in the fragment's ConnectionOrder when it gives one.
+        const order = (inner.attrs.ConnectionOrder ?? "").split(/\s+/).filter(Boolean);
+        if (order.length === points.length && order.every((id) => points.some((p) => p.id === id))) points.sort((p, q) => order.indexOf(p.id) - order.indexOf(q.id));
+        const attach = points.map((cp) => {
+          const b = inner.children.find((q) => q.name === "b" && (q.attrs.B === cp.id || q.attrs.E === cp.id));
+          return { num: cp.num, atom: b ? map.get(b.attrs.B === cp.id ? b.attrs.E : b.attrs.B) : undefined };
         });
-        if (!attach.length || inAt.some((v) => v === undefined)) return { ok: false, reason: `${words} does not say where it is bonded` };
+        if (!attach.length || attach.some((v) => v.atom === undefined)) return { ok: false, reason: `${quoted(words)} does not say where it is bonded` };
+        // Its outer bonds must meet its connection points one to one (a bond to a point beyond the last
+        // would pile onto it — a wrong structure); with several, the file must number them.
+        if (degree !== attach.length) return { ok: false, reason: `${quoted(words)} has ${degree} bond${degree === 1 ? "" : "s"} but ${attach.length} connection point${attach.length === 1 ? "" : "s"} in its structure, so where each bond goes is not in the file` };
         // Its atoms are laid out in their own frame: moved so the atom that bonds sits where the label is.
-        const at = innerPos.get(inAt[0]!)!;
+        const at = innerPos.get(attach[0].atom!)!;
         for (const [a, [ix, iy]] of innerPos) {
           mol.setAtomX(a, (ix - at[0] + x) / L);
           mol.setAtomY(a, (iy - at[1] + y) / L);
         }
-        expanded.set(n.attrs.id, { inner: map, attach: inAt.map(String) });
+        expanded.set(n.attrs.id, { attach: attach.map((v) => ({ num: v.num, atom: v.atom! })), words, bondOrder: (n.attrs.BondOrdering ?? "").split(/\s+/).filter(Boolean) });
         continue;
       }
       return { ok: false, reason: `an atom drawn as ${type} has no exact form in a structure` };
     }
-    // Bonds: to an abbreviation, the bond goes to its connection atom (in order, for several bonds).
-    const used = new Map<string, number>();
-    const atomFor = (id: string): number | undefined => {
+    // Bonds: to an abbreviation, each bond at the connection point it names (BeginExternalNum /
+    // EndExternalNum), or — with one point — at that point.
+    const used = new Map<string, Set<number>>();
+    const atomFor = (id: string, b: XNode, end: "B" | "E"): number | string | undefined => {
       if (index.has(id)) return index.get(id);
       const e = expanded.get(id);
       if (!e) return undefined;
-      const k = used.get(id) ?? 0;
-      used.set(id, k + 1);
-      const v = e.attach[Math.min(k, e.attach.length - 1)];
-      return v === undefined ? undefined : Number(v);
+      if (e.attach.length === 1) return e.attach[0].atom;
+      // ChemDraw's rule: the node's BondOrdering lists its bonds in the order of the fragment's connection
+      // points (ConnectionOrder). Without it, which bond goes to which point is not in the file.
+      const k = e.bondOrder.indexOf(b.attrs.id ?? "");
+      if (e.bondOrder.length !== e.attach.length || k < 0) return `${quoted(e.words)} is bonded at ${e.attach.length} points, but the file does not say which bond goes to which`;
+      const seen = used.get(id) ?? used.set(id, new Set()).get(id)!;
+      if (seen.has(k)) return `two bonds of ${quoted(e.words)} name the same connection point`;
+      seen.add(k);
+      return e.attach[k].atom;
     };
     for (const b of f.children) {
       if (b.name !== "b") continue;
-      const ia = atomFor(b.attrs.B), ib = atomFor(b.attrs.E);
+      const ia = atomFor(b.attrs.B, b, "B"), ib = atomFor(b.attrs.E, b, "E");
+      if (typeof ia === "string") return { ok: false, reason: ia };
+      if (typeof ib === "string") return { ok: false, reason: ib };
       if (ia === undefined || ib === undefined) return { ok: false, reason: "a bond joins an atom that is not in the structure" };
-      const why = addBondOf(mol, ia, ib, b);
+      const why = addBondOf(mol, ia, ib, b, wavy);
       if (why) return { ok: false, reason: why };
     }
   }
+  // Aromatic bonds (drawn as such) become alternating single and double bonds before anything is counted.
+  const arom = resolveAromatic(mol, frags, index);
+  if (arom) return { ok: false, reason: arom };
+  // A wavy single bond means the geometry of the double bond it meets is not known.
+  if (wavy.length) {
+    mol.ensureHelperArrays(Molecule.cHelperRings);
+    for (const wb of wavy)
+      for (const end of [0, 1] as const) {
+        const a = mol.getBondAtom(end, wb);
+        for (let k = 0; k < mol.getConnAtoms(a); k++) {
+          const cb = mol.getConnBond(a, k);
+          if (cb !== wb && mol.getBondOrder(cb) === 2 && !(mol.isRingBond(cb) && mol.getBondRingSize(cb) < 8)) mol.setBondType(cb, Molecule.cBondTypeCross);
+        }
+      }
+  }
   // Drawn hydrogens are the ones the structure has: where OCL's usual valence gives another count
   // (a hypervalent S or P drawn with its H), the atom takes the valence drawn — the formula is the one
-  // drawn, and the pane's valence note still says when that valence is unusual.
+  // drawn, and the notes say the valence is unusual.
   mol.ensureHelperArrays(Molecule.cHelperNeighbours);
   for (const f of frags)
     for (const n of f.children) {
@@ -210,18 +275,90 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
       for (let k = 0; k < mol.getConnAtoms(a); k++) bonds += mol.getConnBondOrder(a, k);
       mol.setAtomAbnormalValence(a, bonds + drawn);
       mol.ensureHelperArrays(Molecule.cHelperNeighbours);
+      const sym = elementSymbol(Number(n.attrs.Element ?? 6));
       const has = mol.getImplicitHydrogens(a);
-      if (has !== drawn) {
-        const sym = elementSymbol(Number(n.attrs.Element ?? 6));
-        return { ok: false, reason: `${labelWords(n) || sym} is drawn with ${drawn} H, which no valence of ${sym} with its bonds and charge gives — the formula would not be the one drawn` };
-      }
+      if (has !== drawn) return { ok: false, reason: `${quoted(labelWords(n) || sym)} is drawn with ${drawn} H, which no valence of ${sym} with its bonds and charge gives — the formula would not be the one drawn` };
+      notes.push(`${labelWords(n) || sym} is drawn with ${drawn} H on ${bonds} bond${bonds === 1 ? "" : "s"} — an unusual valence for ${sym}, taken as drawn`);
     }
-  return { ok: true, value: { mol, atomIds } };
+  return { ok: true, value: { mol, atomIds, notes } };
+}
+
+/**
+ * Aromatic (delocalized) bonds resolved into alternating single and double bonds: a ring atom that must
+ * take a double bond (a neutral carbon, a pyridine-type N, an N⁺ or O⁺) is matched to one neighbour; one
+ * that gives a lone pair instead (a pyrrole NH, the O of a furan, a charged carbon as in C₅H₅⁻ or C₇H₇⁺)
+ * may stay single. No such pattern: refused by name. Bounded search (AROMATIC_STEPS). Null when done.
+ */
+function resolveAromatic(mol: Molecule, frags: XNode[], index: Map<string, number>): string | null {
+  const nb = mol.getAllBonds();
+  const deloc: number[] = [];
+  for (let b = 0; b < nb; b++) if ((mol.getBondType(b) & Molecule.cBondTypeMaskSimple) === Molecule.cBondTypeDelocalized) deloc.push(b);
+  if (!deloc.length) return null;
+  // Drawn hydrogens per atom (labelled atoms only).
+  const drawnH = new Map<number, number>();
+  for (const f of frags)
+    for (const n of f.children)
+      if (n.name === "n" && n.attrs.id && n.attrs.NumHydrogens !== undefined && index.has(n.attrs.id)) drawnH.set(index.get(n.attrs.id)!, Number(n.attrs.NumHydrogens));
+  const adj = new Map<number, Array<{ bond: number; other: number }>>();
+  const otherOrder = new Map<number, number>();
+  for (let b = 0; b < nb; b++) {
+    const a0 = mol.getBondAtom(0, b), a1 = mol.getBondAtom(1, b);
+    const isDeloc = deloc.includes(b);
+    for (const [a, o] of [[a0, a1], [a1, a0]]) {
+      if (isDeloc) (adj.get(a) ?? adj.set(a, []).get(a)!).push({ bond: b, other: o });
+      else otherOrder.set(a, (otherOrder.get(a) ?? 0) + (mol.getAtomicNo(o) === 1 ? 1 : mol.getBondOrder(b)));
+    }
+  }
+  type Role = "required" | "optional" | "forbidden";
+  const role = new Map<number, Role>();
+  for (const [a, edges] of adj) {
+    const z = mol.getAtomicNo(a), q = mol.getAtomCharge(a), h = drawnH.get(a);
+    const sigma = edges.length + (otherOrder.get(a) ?? 0) + (h ?? 0);
+    let r: Role;
+    if (z === 6) r = q === 0 ? "required" : "optional";
+    else if (z === 7 || z === 15) r = q > 0 ? "required" : q < 0 ? "forbidden" : sigma >= 3 ? "forbidden" : h === 0 ? "required" : "optional";
+    else if (z === 8 || z === 16 || z === 34 || z === 52) r = q > 0 ? "required" : "forbidden";
+    else r = "optional";
+    role.set(a, r);
+  }
+  const matched = new Map<number, number>(); // atom → bond
+  let steps = 0;
+  const required = [...role].filter(([, r]) => r === "required").map(([a]) => a);
+  const solve = (): boolean | null => {
+    if (++steps > AROMATIC_STEPS) return null;
+    // The unmatched required atom with the fewest ways to be matched.
+    let pick = -1, best = Infinity;
+    for (const a of required) {
+      if (matched.has(a)) continue;
+      const ways = adj.get(a)!.filter((e) => !matched.has(e.other) && role.get(e.other) !== "forbidden").length;
+      if (ways < best) (best = ways), (pick = a);
+      if (!ways) return false;
+    }
+    if (pick < 0) return true;
+    for (const e of adj.get(pick)!) {
+      if (matched.has(e.other) || role.get(e.other) === "forbidden") continue;
+      matched.set(pick, e.bond);
+      matched.set(e.other, e.bond);
+      const r = solve();
+      if (r !== false) return r;
+      matched.delete(pick);
+      matched.delete(e.other);
+    }
+    return false;
+  };
+  const ok = solve();
+  if (ok === null) return "the aromatic bonds are too many to resolve here — draw them as single and double bonds";
+  if (!ok) return "the bonds drawn as aromatic cannot be given alternating single and double bonds — as drawn, that ring is not aromatic (check its atoms, charges and hydrogens)";
+  const doubles = new Set(matched.values());
+  for (const b of deloc) mol.setBondType(b, doubles.has(b) ? Molecule.cBondTypeDouble : Molecule.cBondTypeSingle);
+  return null;
 }
 
 /** One page bond into the Molecule; a refusal (string) for an order or style with no exact form. */
-function addBondOf(mol: Molecule, ia: number, ib: number, b: XNode): string | null {
-  const order = (b.attrs.Order ?? "1").split(/\s+/)[0];
+function addBondOf(mol: Molecule, ia: number, ib: number, b: XNode, wavy: number[]): string | null {
+  const raw = (b.attrs.Order ?? "1").trim();
+  if (/\s/.test(raw)) return `a query bond (order ${quoted(raw)}: any of several) has no single formula`;
+  const order = raw;
   const display = b.attrs.Display ?? "Solid";
   const wedge = /^Wedge(Begin|End)$/.exec(display), hash = /^WedgedHash(Begin|End)$/.exec(display);
   // The narrow end is bond atom 0 in OCL.
@@ -233,29 +370,39 @@ function addBondOf(mol: Molecule, ia: number, ib: number, b: XNode): string | nu
       return null;
     }
     mol.setBondType(bond, Molecule.cBondTypeSingle);
+    if (display === "Wavy") wavy.push(bond);
     return null;
   }
   if (wedge || hash) return "a wedge on a double or triple bond has no meaning";
   if (order === "2") return mol.setBondType(bond, b.attrs[EITHER] === "yes" ? Molecule.cBondTypeCross : Molecule.cBondTypeDouble), null;
   if (order === "3") return mol.setBondType(bond, Molecule.cBondTypeTriple), null;
   if (order === "1.5") return mol.setBondType(bond, Molecule.cBondTypeDelocalized), null;
-  return `a bond of order "${order}" has no exact form in a structure`;
+  return `a bond of order ${quoted(order)} has no exact form in a structure`;
 }
 
 /**
  * The Molecule as a new structure on the page (a fragment appended to the page), bond length `L` points,
  * placed with its top-left at `origin`. Refused by name for what a page cannot draw exactly (query
- * features, atom lists, custom atom labels).
+ * features, atom lists, custom atom labels, enhanced-stereo groups).
  */
 export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]): { ok: true; fragmentId: string } | { ok: false; reason: string } {
   const page = doc.root.children.find((c) => c.name === "page");
   if (!page) return { ok: false, reason: "the document has no page" };
-  mol.ensureHelperArrays(Molecule.cHelperNeighbours);
+  mol.ensureHelperArrays(Molecule.cHelperParities);
   const n = mol.getAllAtoms(), nb = mol.getAllBonds();
   for (let a = 0; a < n; a++) {
     if (mol.getAtomList(a)) return { ok: false, reason: "an atom stands for a list of elements, which this page cannot draw yet" };
-    if (mol.getAtomCustomLabel(a)) return { ok: false, reason: `an atom carries the text label "${mol.getAtomCustomLabel(a)}", which this page cannot draw as chemistry` };
+    if (mol.getAtomCustomLabel(a)) return { ok: false, reason: `an atom carries the text label ${quoted(mol.getAtomCustomLabel(a))}, which this page cannot draw as chemistry` };
+    const qf = mol.getAtomQueryFeaturesObject(a) as unknown as Record<string, unknown>;
+    if (qf && Object.values(qf).some((v) => v === true || (typeof v === "number" && v !== 0))) return { ok: false, reason: "an atom carries query features (a search pattern), which this page cannot draw yet" };
+    if (mol.isAtomStereoCenter(a) && mol.getAtomESRType(a) !== Molecule.cESRTypeAbs) return { ok: false, reason: "a stereocentre belongs to an AND / OR (relative or racemic) stereo group, which this page cannot draw yet — it would read as absolute" };
   }
+  for (let b = 0; b < nb; b++) if (mol.getBondQueryFeatures(b)) return { ok: false, reason: "a bond carries query features (a search pattern), which this page cannot draw yet" };
+  // Hydrogens are counted as for a structure, whatever the Markush flag (OCL counts none on a query).
+  const counted = mol.getCompactCopy();
+  counted.setFragment(false);
+  counted.ensureHelperArrays(Molecule.cHelperNeighbours);
+  const sameAtoms = counted.getAllAtoms() === n;
   const L = doc.style.bondLength || 30;
   const avg = n > 1 ? mol.getAverageBondLength(true) || 1 : 1;
   const k = L / avg;
@@ -318,11 +465,12 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
     const mass = mol.getAtomMass(a);
     const unusual = mol.getAtomAbnormalValence(a) !== -1;
     if (z === 6 && !mass && !node.attrs.Radical && !unusual) continue;
-    const r = setAtomLabel(doc, nodeIds[a], elementSymbol(z));
+    const r = setAtomLabel(doc, nodeIds[a], z === 1 && mass === 2 ? "D" : z === 1 && mass === 3 ? "T" : elementSymbol(z));
     if (!r.ok) return { ok: false, reason: r.reason };
     const fresh = findById(doc.root, nodeIds[a])!.el;
+    if (z === 1 && (mass === 2 || mass === 3)) continue; // D / T: their own label
     // The hydrogens are the Molecule's own (an atom of unusual valence keeps its count), in the label too.
-    const h = mol.getImplicitHydrogens(a);
+    const h = sameAtoms ? counted.getImplicitHydrogens(a) : mol.getImplicitHydrogens(a);
     if (fresh.attrs.NumHydrogens !== String(h)) {
       fresh.attrs.NumHydrogens = String(h);
       const t = fresh.children.find((c) => c.name === "t");

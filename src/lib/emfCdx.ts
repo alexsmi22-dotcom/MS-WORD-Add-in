@@ -165,7 +165,7 @@ export function fromBase64(s: string): Uint8Array | null {
  * a ChemDraw drawing in them.
  */
 /** Alt texts JurisLab writes on the pictures it draws (structures and ChemDraw drawings). */
-const JURISLAB_ALT = /^(ChemDraw drawing from |2D structure \(|Structure drawing)/;
+const JURISLAB_ALT = /^(ChemDraw drawing from |2D structure \(|Structure drawing \(JurisLab\))/;
 
 /** The structure's idcode a JurisLab structure picture carries in its alt text (OCL-ID …), or null. */
 export function idcodeFromAlt(alt: string): string | null {

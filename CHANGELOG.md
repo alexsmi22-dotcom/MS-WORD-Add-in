@@ -28,8 +28,30 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   ChemDraw's Expand Label does, so a ChemDraw drawing's formula is the one drawn; every group's formula is
   pinned. A hypervalent atom keeps the hydrogens it is drawn with.
 
-Not yet: the large canvas takes structures only (a page with brackets, arrows or text is edited in the pane,
-and it says so); Clean lays out pages of structures only.
+Not yet: the large canvas takes structures only (a page with brackets, arrows, text or group labels is edited
+in the pane, and it says so); Clean lays out pages of structures only. The canvas has no way yet to set a
+radical, an atom list, a query feature or an AND / OR stereo group (the old editor's atom properties); a
+structure carrying one is refused by name rather than redrawn without it. Isotopes are typed as labels
+(13C, D, T).
+
+### Fixed before release (adversarial review: 15 findings, pinned in chemCanvasReview.test.ts)
+- ChemDraw's aromatic bonds were counted as single (benzene read C₆H₁₂): they are now resolved into
+  alternating single and double bonds, a ring atom that gives a lone pair instead (pyrrole NH, furan O,
+  C₅H₅⁻, C₇H₇⁺) kept single; a ring that cannot alternate is refused by name.
+- A wavy bond now means the geometry of the double bond it meets is unknown. A Markush structure kept its
+  heteroatoms' hydrogens off the page (CCO came back C₂H₅O). Ac, Pr and Ts typed on an atom made actinium,
+  praseodymium and tennessine — they are acetyl, propyl and tosyl now ([Ac] for the element). An abbreviation
+  with more bonds than connection points piled them onto one (vanadyl's O with four neighbours): bonds go to
+  the connection points in ChemDraw's own order, or the structure is refused. Group labels are read by the
+  side of the bond they are written on (SCN right of a bond is S-bonded) and written for their side (MeO).
+  AND / OR stereo groups and query features are refused, never turned absolute or dropped.
+- A valence forced by drawn hydrogens is now said under the canvas; a polymer or a reaction no longer reports
+  one combined formula (select one structure for its formula); erasing a bond no longer leaves invisible
+  atoms that still counted; elements outside the valence table (As, Al, Te …) show the hydrogens they have;
+  R and R1 together are refused (they would merge); D, T and 13C labels; Insert selected with nothing
+  selected inserts nothing; the large canvas and its templates refuse a page they cannot carry back (no
+  single formula, group labels, brackets, arrows, text) instead of dropping it; ChemDraw's "not shown" notes
+  reach the status line; Undo restores the Markush flag; query bond orders and lone group labels are refused.
 
 ## [2.155.1] — 2026-10-18 — Drawing (CAD): drawing on the sheet in the large canvas
 

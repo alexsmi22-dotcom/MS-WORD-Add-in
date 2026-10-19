@@ -108,8 +108,8 @@ describe("what the page holds that a Molecule cannot, refused by name", () => {
     expect(one('<n id="1" p="0 0" Element="16" NumHydrogens="2"/><n id="2" p="30 0"/><n id="4" p="-30 0"/><b id="3" B="1" E="2"/><b id="5" B="1" E="4"/>')).toBe("ok C2H8S");
   });
   test("generic atoms other than R1–R16; bond orders with no exact form", () => {
-    expect(one('<n id="1" p="0 0" NodeType="GenericNickname" GenericNickname="X"/>')).toBe("the generic atom X has no exact form in a structure (R1 to R16 do)");
-    expect(one('<n id="1" p="0 0"/><n id="2" p="30 0" Element="26"/><b id="3" B="1" E="2" Order="dative"/>')).toBe('a bond of order "dative" has no exact form in a structure');
+    expect(one('<n id="1" p="0 0" NodeType="GenericNickname" GenericNickname="X"/>')).toBe("the generic atom “X” has no single formula — R1 to R16 are read as R-groups; others (X, A, M …) make the structure generic");
+    expect(one('<n id="1" p="0 0"/><n id="2" p="30 0" Element="26"/><b id="3" B="1" E="2" Order="dative"/>')).toBe("a bond of order “dative” has no exact form in a structure");
   });
   test("R1 is OCL's R1 (atomic number 142)", () => {
     const d = readCdxml('<CDXML BondLength="30"><page id="1"><fragment id="10"><n id="1" p="0 0" NodeType="GenericNickname" GenericNickname="R1"/><n id="2" p="30 0"/><b id="3" B="1" E="2"/></fragment></page></CDXML>');
@@ -119,7 +119,7 @@ describe("what the page holds that a Molecule cannot, refused by name", () => {
   test("an abbreviation is expanded from the structure ChemDraw keeps inside it: Ph-OH is phenol", () => {
     const ph = `<n id="1" p="0 0" NodeType="Nickname"><fragment id="20"><n id="21" p="0 0" NodeType="ExternalConnectionPoint"/><n id="22" p="30 0"/><n id="23" p="45 26"/><n id="24" p="75 26"/><n id="25" p="90 0"/><n id="26" p="75 -26"/><n id="27" p="45 -26"/><b id="31" B="21" E="22"/><b id="32" B="22" E="23" Order="2"/><b id="33" B="23" E="24"/><b id="34" B="24" E="25" Order="2"/><b id="35" B="25" E="26"/><b id="36" B="26" E="27" Order="2"/><b id="37" B="27" E="22"/></fragment><t p="0 0"><s font="3" size="10">Ph</s></t></n>`;
     expect(one(ph + '<n id="2" p="30 0" Element="8"/><b id="3" B="1" E="2"/>')).toBe("ok C6H6O");
-    expect(one('<n id="1" p="0 0" NodeType="Nickname"><t p="0 0"><s font="3" size="10">Xyz</s></t></n>')).toBe("Xyz is an abbreviation this does not know as a group — its structure is not in the file");
+    expect(one('<n id="1" p="0 0" NodeType="Nickname"><t p="0 0"><s font="3" size="10">Xyz</s></t></n><n id="2" p="30 0"/><b id="3" B="1" E="2"/>')).toBe("“Xyz” is not an element, an R-group or a group label this knows (OMe, Ph, Boc, CO2H …)");
   });
 });
 

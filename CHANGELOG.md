@@ -109,6 +109,11 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   bond, so Clean keeps a stacked Me / O methoxy without refusing; a label already drawn across its bond and left on
   the same side is not refused; a rewritten label takes only the style all its parts share.
 
+### Fixed before release (review: 5 small)
+- A stacked label's line on the atom counts as an element only if it is one (Me / O is read by its side); a label
+  stacks by its alignment only when it has several lines; blank trailing lines are ignored; a label aligned
+  above or below is split only where ChemDraw's own box shows it stacked; a rewritten label keeps its font and size.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

@@ -68,12 +68,15 @@ export function labelSide(f: XNode, n: XNode): "left" | "right" | null {
   // A label stacked above or below its atom (as cdxmlRender draws it): a one-line label is split at its element
   // symbol, which sits on the atom — bonded at its first letter; in a multi-line label the line on the atom is the
   // last (Above) or the first (Below), bonded there when that line is an element symbol. Not the bond's side.
-  const stack = just === "Above" || just === "Below" ? just : t?.attrs.LabelAlignment === "Above" || t?.attrs.LabelAlignment === "Below" ? t.attrs.LabelAlignment : "";
-  if (stack && t) {
-    const lines = t.children.filter((c) => c.name === "s").map((c) => c.text).join("").split(/\r\n|\r|\n/);
+  const text = t ? t.children.filter((c) => c.name === "s").map((c) => c.text).join("") : "";
+  const lines = text.split(/\r\n|\r|\n/).filter((l, i, all) => l.trim() !== "" || i < all.length - 1 && all.slice(i + 1).some((r) => r.trim() !== ""));
+  // Stacked by its justification, or — for a label of several lines — by its alignment.
+  const stack = just === "Above" || just === "Below" ? just : lines.length > 1 && (t?.attrs.LabelAlignment === "Above" || t?.attrs.LabelAlignment === "Below") ? t!.attrs.LabelAlignment : "";
+  if (stack) {
+    const isElement = (l: string | undefined): boolean => !!l && symbolFor(atomicNumber(l.trim()) ?? 0) === l.trim();
     if (lines.length === 1) return "right";
-    if (stack === "Above" && /^[A-Z][a-z]?$/.test(lines[lines.length - 1].trim())) return "left";
-    if (stack === "Below" && /^[A-Z][a-z]?$/.test(lines[0].trim())) return "right";
+    if (stack === "Above" && isElement(lines[lines.length - 1])) return "left";
+    if (stack === "Below" && isElement(lines[0])) return "right";
   }
   const b = f.children.find((q) => q.name === "b" && (q.attrs.B === n.attrs.id || q.attrs.E === n.attrs.id));
   if (!b) return null;

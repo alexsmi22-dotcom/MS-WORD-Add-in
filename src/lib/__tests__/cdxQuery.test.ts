@@ -349,3 +349,21 @@ test("review: a stereo-group mark stays beside its own atom, never nearer anothe
   const [x, y] = [Number(m[1]), Number(m[2])];
   expect(Math.hypot(x - 100, y - 100)).toBeLessThan(Math.hypot(x - 100, y - 118));
 });
+
+describe("review round 10: stacked labels", () => {
+  const read = (label: string, just: string, align = "", left = true) => {
+    const x = left ? 0 : 60;
+    const d = readCdxml(`<CDXML BondLength="30" LabelSize="10"><page id="900"><fragment id="10"><n id="101" p="30 0"/><n id="102" p="${x} 0" NodeType="Unspecified"><t p="${x} 0" LabelJustification="${just}"${align ? ` LabelAlignment="${align}"` : ""}><s font="3" size="10">${label}</s></t></n><b id="103" B="101" E="102"/></fragment></page></CDXML>`);
+    if (!d.ok) throw new Error(d.reason);
+    return { d: d.doc, r: pageToMolecule(d.doc) };
+  };
+  test("a group abbreviation on the atom's line (Me / O, Below) is not taken for an element: read by its side (methoxy)", () => {
+    const { r } = read("Me\nO", "Below");
+    expect(r.ok && r.value.mol.getIDCode()).toBe(Molecule.fromSmiles("COC").getIDCode());
+  });
+  test("a label aligned Above whose box is one line tall (as ChemDraw drew it) is drawn on one line, not split", () => {
+    const d = readCdxml('<CDXML BondLength="30" LabelSize="10"><page id="900"><fragment id="10"><n id="101" p="30 0"/><n id="102" p="60 0" NodeType="Unspecified"><t p="56 3.5" BoundingBox="56 -5 75 5" LabelJustification="Right" LabelAlignment="Above"><s font="3" size="10">NC</s></t></n><b id="103" B="101" E="102"/></fragment></page></CDXML>');
+    if (!d.ok) throw new Error(d.reason);
+    expect(renderCdx(d.doc)!.svg).toMatch(/>NC</);
+  });
+});

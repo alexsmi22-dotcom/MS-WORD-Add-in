@@ -212,9 +212,12 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       const t1 = findById(doc.root, id)?.el.children.find((c) => c.name === "t");
       if (!t1) return;
       // The style the label's runs share (a colour or bold on part of it only is not spread over the rest).
-      const runs = old.children.filter((q) => q.name === "s").map((q) => q.attrs);
+      // (Only the runs with text count: an empty run's font or size is not the label's.)
+      const runs = old.children.filter((q) => q.name === "s" && q.text.trim() !== "").map((q) => q.attrs);
       const oldRun: Record<string, string> = {};
       for (const k of new Set(runs.flatMap((r) => Object.keys(r)))) if (k !== "face" && runs.every((r) => r[k] === runs[0][k])) oldRun[k] = runs[0][k];
+      // Font and size are the label's own even where a subscript run is smaller: the first text run's.
+      for (const k of ["font", "size"]) if (oldRun[k] === undefined && runs[0]?.[k] !== undefined) oldRun[k] = runs[0][k];
       const faces = runs.map((r) => Number(r.face ?? doc.root.attrs.LabelFace ?? 0) || 0);
       if (runs.length) oldRun.face = String(faces.reduce((m, f) => m & f, 0x1f));
       t1.attrs = { ...old.attrs, p: t1.attrs.p, BoundingBox: t1.attrs.BoundingBox, LabelJustification: t1.attrs.LabelJustification };

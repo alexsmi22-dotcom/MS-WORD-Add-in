@@ -389,15 +389,18 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       const g = showsMarks(nd.el.attrs, docAttrs, "ShowAtomEnhancedStereo") ? stereoGroupMark(nd.el.attrs) : null;
       const q = showsMarks(nd.el.attrs, docAttrs, "ShowAtomQuery") ? atomQueryMarks(nd.el.attrs) : [];
       if (g || q.length) {
-        let dx = 0, dy = 0;
-        for (const k of nbrs.get(nd.id) ?? []) {
-          const o = byId.get(k);
-          if (!o) continue;
-          const v = sub(o.p, nd.p), l = len(v) || 1;
-          (dx -= v[0] / l), (dy -= v[1] / l);
+        // The middle of the widest gap between the atom's bonds (straight down for a lone atom).
+        const angs = (nbrs.get(nd.id) ?? []).map((k) => byId.get(k)).filter((o): o is CdxNode => !!o).map((o) => Math.atan2(o.p[1] - nd.p[1], o.p[0] - nd.p[0])).sort((a, b) => a - b);
+        let dir: Pt = [0, 1];
+        if (angs.length === 1) dir = [-Math.cos(angs[0]), -Math.sin(angs[0])];
+        else if (angs.length > 1) {
+          let best = -1, mid = 0;
+          for (let i = 0; i < angs.length; i++) {
+            const a0 = angs[i], a1 = i + 1 < angs.length ? angs[i + 1] : angs[0] + 2 * Math.PI;
+            if (a1 - a0 > best) (best = a1 - a0), (mid = (a0 + a1) / 2);
+          }
+          dir = [Math.cos(mid), Math.sin(mid)];
         }
-        const dl = Math.hypot(dx, dy);
-        const dir: Pt = dl > 0.2 ? [dx / dl, dy / dl] : [0, 1];
         const reach = st.bondLength * 0.45 + (bx ? Math.max(bx[2] - bx[0], bx[3] - bx[1]) / 2 : 0);
         const size = st.labelSize * 0.75;
         const anchor = dir[0] > 0.35 ? "start" : dir[0] < -0.35 ? "end" : "middle";

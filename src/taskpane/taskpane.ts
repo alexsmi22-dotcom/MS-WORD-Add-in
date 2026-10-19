@@ -2015,6 +2015,16 @@ Office.onReady((info) => {
     const notShown = doc.notes.length ? ` Not shown: ${doc.notes.join("; ")}.` : "";
     setStatus(`${name} opened whole on the page canvas — Insert puts it in as drawn; for editing a structure, pick it from the list above.${notShown}`, notShown ? "" : "success");
   });
+  // Save as .cdxml from the structure editor (the page canvas has its own on its toolbar): the drawing as a
+  // ChemDraw page, the same writer as the page canvas's.
+  document.getElementById("draw-save-cdxml")?.addEventListener("click", () => {
+    if (!drawEditor) return;
+    const mol = drawEditor.getMolecule();
+    if (!mol.getAllAtoms()) return setStatus("Nothing to save — draw a structure first.", "error");
+    const xml = writeCdxml(drawEditor.page().root);
+    triggerDownload(new Blob([xml], { type: "chemical/x-cdxml" }), "structure.cdxml");
+    setStatus("Saved as structure.cdxml — ChemDraw opens it.", "success");
+  });
   document.getElementById("build-page-back")?.addEventListener("click", () => {
     useStructureEditor();
     updateDrawPreview();
@@ -5158,6 +5168,7 @@ function useStructureEditor(): void {
   structureEditor.element.hidden = false;
   (document.getElementById("build-page") as HTMLElement).hidden = true;
   (document.getElementById("build-page-bar") as HTMLElement).hidden = true;
+  (document.getElementById("draw-save-cdxml") as HTMLElement).hidden = false;
   drawEditor = structureEditor;
 }
 
@@ -5178,6 +5189,7 @@ function usePageCanvas(): ChemCanvas | null {
   }
   if (structureEditor) structureEditor.element.hidden = true;
   (document.getElementById("build-page-bar") as HTMLElement).hidden = false;
+  (document.getElementById("draw-save-cdxml") as HTMLElement).hidden = true;
   drawEditor = pageEditor;
   return pageEditor;
 }

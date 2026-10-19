@@ -53,7 +53,7 @@ Office.onReady(() => {
   // A ChemDraw page (brackets, arrows, captions) comes as a page and opens on the page canvas; anything else — a
   // structure, or a blank window for a reaction component — opens in the structure editor, the ChemDraw-like editor
   // that corrects the drawing as it goes (restored after a live demo, 2026-10-19).
-  const pageMode = params.get("page") !== null || !!params.get("wait");
+  const pageMode = params.get("page") !== null || !!params.get("wait") || params.get("seed") !== null;
   let editor: ChemCanvas;
   try {
     // The window's one message line: refusals show; tool help stays quiet.

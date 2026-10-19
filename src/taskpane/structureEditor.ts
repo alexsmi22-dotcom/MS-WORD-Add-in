@@ -66,6 +66,25 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
     stale = true;
     onChange?.({ isUserEvent: event.isUserEvent });
   });
+  // Shown again after being hidden (another tool, the page canvas, the Text tab), the editor keeps the scale it fitted
+  // to a zero-size page: Edit in Draw switched tools and loaded ibuprofen in one step, and the editor showed an empty
+  // page under a correct formula (walkthrough 2026-10-19). Coming back from zero size, the structure is fitted again.
+  let wasHidden = !mount.clientWidth || !mount.clientHeight;
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => {
+      const hidden = !mount.clientWidth || !mount.clientHeight;
+      if (wasHidden && !hidden) {
+        // A frame later, after the editor has resized its own page: the same molecule laid out for that page (the
+        // change event it fires is not a user edit).
+        requestAnimationFrame(() => {
+          const mol = editor.getMolecule();
+          if (mol.getAllAtoms()) editor.setMolecule(mol.getCompactCopy());
+        });
+      }
+      wasHidden = hidden;
+    }).observe(mount);
+  }
+
   /** The page model drawn for just the selection, then back to the whole drawing. */
   const withSelection = <T>(read: (m: ChemCanvas) => T): T | null => {
     const part = selectedPart(editor.getMolecule());

@@ -12,6 +12,37 @@ import { readCdxml } from "../cdxml";
 import { writeCdxml } from "../cdxmlEdit";
 
 (globalThis as unknown as { TextDecoder: unknown }).TextDecoder ??= NodeTextDecoder;
+
+// OpenChemLib's CanvasEditor needs constructable stylesheets, which jsdom lacks: a stand-in with its molecule API, so
+// the window's structure-editor path (a blank window, a ?mol= structure) is tested here; the real editor is walked in a
+// browser (TEST-SCRIPT §0cz).
+jest.mock("openchemlib/full", () => {
+  const actual = jest.requireActual("openchemlib/full");
+  class StandInEditor {
+    mol = new actual.Molecule(0, 0);
+    cb: ((e: { type: string; isUserEvent: boolean }) => void) | null = null;
+    constructor(el: HTMLElement) {
+      const d = document.createElement("div");
+      d.className = "stand-in-ocl-editor";
+      el.appendChild(d);
+    }
+    getMolecule() {
+      return this.mol;
+    }
+    setMolecule(m: unknown) {
+      this.mol = m;
+      this.cb?.({ type: "molecule", isUserEvent: false });
+    }
+    setOnChangeListener(cb: (e: { type: string; isUserEvent: boolean }) => void) {
+      this.cb = cb;
+    }
+    moleculeChanged() {}
+    clearAll() {
+      this.mol = new actual.Molecule(0, 0);
+    }
+  }
+  return { ...actual, CanvasEditor: StandInEditor };
+});
 Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value: () => null });
 
 const HTML = fs.readFileSync(path.join(__dirname, "..", "..", "drawdialog", "drawdialog.html"), "utf8");
@@ -109,6 +140,29 @@ describe("the large chemistry canvas carries the whole page", () => {
     if (!r.ok) throw new Error(r.reason);
     const again = readCdxml(writeCdxml(r.doc.root));
     expect(again.ok && textsOf(writeCdxml(again.doc.root))).toEqual(["Scheme 1"]);
+  });
+});
+
+describe("which editor the window opens (restored after a live demo, 2026-10-19)", () => {
+  it("a blank window (Draw a component) opens the structure editor", async () => {
+    await open("");
+    expect(document.querySelector("#editor .stand-in-ocl-editor")).not.toBeNull();
+  });
+  it("a structure (?mol=) opens the structure editor, and Use sends that structure back exactly", async () => {
+    const { Molecule } = jest.requireActual("openchemlib/full");
+    const m = Molecule.fromSmiles("CCO");
+    m.inventCoordinates();
+    const enc = m.getIDCodeAndCoordinates();
+    const { sent } = await open(`?mol=${encodeURIComponent(`${enc.idCode} ${enc.coordinates}`)}`);
+    expect(document.querySelector("#editor .stand-in-ocl-editor")).not.toBeNull();
+    $<HTMLButtonElement>("use-btn").click();
+    const back = sent[0] as { mol?: string };
+    expect(back.mol?.split(" ")[0]).toBe(enc.idCode);
+  });
+  it("a page (?seed=, ?page=, ?wait=) opens the page canvas, never the structure editor", async () => {
+    await open(`?seed=${encodeURIComponent(seedOf(ethane + caption))}`);
+    expect(document.querySelector("#editor .stand-in-ocl-editor")).toBeNull();
+    expect(document.querySelector("#editor .chem-canvas-tools")).not.toBeNull();
   });
 });
 

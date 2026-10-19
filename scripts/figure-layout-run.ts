@@ -80,6 +80,7 @@ import { buildLinearMapSvg } from "../src/lib/seqmap";
 import { buildCircularMapSvg } from "../src/lib/seqmapcirc";
 import { parseGenBank } from "../src/lib/seqio";
 import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
+import { solveFunctionSvg } from "../src/lib/solveFigure";
 import { parseDaeSystem } from "../src/lib/daeParse";
 import { solveDaeAuto } from "../src/lib/daeIndex";
 import { tryGraph } from "../src/lib/graphs";
@@ -1747,6 +1748,13 @@ ORIGIN
   }
   figures.push(["persistence barcode", barcodeSvg(persistentHomology(pts, { maxDim: 1 }))]);
 }
+
+// --- v2.160.0: Solve's curve (lib/solveFigure.ts) ------------------------------------
+//
+// The root plot of an equation typed with an implicit product (it drew nothing before
+// v2.160.0), and the integral's shaded stretch: the two shapes the pane inserts most.
+figures.push(["solve roots", solveFunctionSvg({ exprs: [{ expr: "(x^2 - 5x + 6) - (0)", label: "f", color: "#2563eb" }], variable: "x", marks: [2, 3].map((x) => ({ x, y: 0, label: "root" })), title: "Where the function crosses zero" }) ?? ""]);
+figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", label: "f", color: "#94a3b8" }], variable: "x", window: { lo: -1, hi: 4 }, shadeBetween: { lo: 0, hi: 3 }, title: "Area from 0 to 3" }) ?? ""]);
 
 // --- v2.138.0: the 𝔽₂ | 𝔽₃ compare barcode -----------------------------------
 //

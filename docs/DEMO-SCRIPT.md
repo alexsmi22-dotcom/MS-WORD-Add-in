@@ -18,7 +18,8 @@ real pane before this script was written; re-run it after each chemistry release
 
 ## 2. Edit it like ChemDraw (Build ▸ Draw) — 2 min
 1. Back in Chemical, **Edit in Draw**: ibuprofen opens in the drawing editor.
-2. Change it: pick **F** on the editor's toolbar, click a ring carbon → the formula updates (C₁₃H₁₇FO₂).
+2. Change it: pick an element on the editor's toolbar (**F**), click a ring carbon → the formula and SMILES below
+   update at once.
 3. **Clean structure** tidies the layout (Ctrl+Z restores the hand layout).
 4. **Insert 2D structure**. Show the **Size** choice: ChemDraw size, or **USPTO drawing sheet size** for a filing figure.
 

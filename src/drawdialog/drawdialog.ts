@@ -558,7 +558,7 @@ Office.onReady(() => {
   // Buttons
   // -------------------------------------------------------------------------
   cleanBtn.addEventListener("click", () => {
-    if (!editor.page().objects.length) {
+    if (!editor.page().objects.length && !editor.getMolecule().getAllAtoms()) {
       showError("Nothing to clean — the canvas is empty.");
       return;
     }
@@ -574,7 +574,7 @@ Office.onReady(() => {
   useBtn.addEventListener("click", () => {
     // The page goes back whole, as ChemDraw keeps it. Beside it, the structure (its idcode) when the page is
     // exactly one readable set of structures — what Reaction mode's "Draw a component" needs.
-    if (!editor.page().objects.length) {
+    if (!editor.page().objects.length && !editor.getMolecule().getAllAtoms()) {
       showError("Nothing drawn yet — draw something, or Cancel.");
       return;
     }

@@ -46,18 +46,33 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
   hidden.hidden = true;
   hidden.setAttribute("aria-hidden", "true");
   document.body.appendChild(hidden);
-  const model = createChemCanvas(hidden, { setStatus: () => {}, downloadFile: host.downloadFile });
+  // What the page writer refuses (a query the editor can draw and ChemDraw has no attribute for) is reported here.
+  let refused = "";
+  const model = createChemCanvas(hidden, { setStatus: (m, k) => void (k === "error" && (refused = m)), downloadFile: host.downloadFile });
   let name = "";
-  let fragment = false;
   /** The model is brought up to date only when something reads it (a click does not pay for a page it never uses). */
   let stale = true;
+  /**
+   * The model given this molecule — emptied FIRST: a molecule the page writer refuses left the model on the previous
+   * drawing, and that older picture was what inserted (review). Refused, the model stays empty and the pane draws the
+   * structure with OpenChemLib's own picture instead. True when the model holds it.
+   */
+  const put = (mol: Molecule): boolean => {
+    refused = "";
+    model.clearAll();
+    model.setFragment(mol.isFragment());
+    if (!mol.getAllAtoms()) return true;
+    model.setMolecule(mol.getCompactCopy());
+    if (!model.page().objects.length) {
+      refused ||= "the page writer cannot hold this structure";
+      return false;
+    }
+    return true;
+  };
   const sync = (): void => {
     if (!stale) return;
     stale = false;
-    const mol = editor.getMolecule();
-    model.setFragment(mol.isFragment());
-    if (mol.getAllAtoms()) model.setMolecule(mol.getCompactCopy());
-    else model.clearAll();
+    put(editor.getMolecule());
     if (name) model.setName(name);
   };
   let onChange: ((e: CanvasChange) => void) | null = null;
@@ -89,9 +104,9 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
   const withSelection = <T>(read: (m: ChemCanvas) => T): T | null => {
     const part = selectedPart(editor.getMolecule());
     if (!part) return null;
-    model.setMolecule(part);
     try {
-      return read(model);
+      // Refused, nothing of the model is read (it would be the whole drawing, or an older one).
+      return put(part) ? read(model) : null;
     } finally {
       stale = true;
       sync();
@@ -122,10 +137,10 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
     },
     setOnChangeListener: (cb) => void (onChange = cb),
     setFragment: (on) => {
-      fragment = on;
       editor.getMolecule().setFragment(on);
+      stale = true;
     },
-    isFragment: () => editor.getMolecule().isFragment() || fragment,
+    isFragment: () => editor.getMolecule().isFragment(),
     page: () => {
       sync();
       return model.page();
@@ -163,7 +178,8 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
     render: (selectionOnly) => {
       if (selectionOnly) return withSelection((m) => m.render(false));
       sync();
-      return model.render(false);
+      // Refused by the page writer: no page picture (the pane draws OpenChemLib's own).
+      return refused ? null : model.render(false);
     },
     selection: () => (selectedPart(editor.getMolecule()) ? new Set(["selection"]) : new Set()),
     // The editor has its own toolbar.
@@ -177,7 +193,7 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
     smallestTextPt: (selectionOnly) => {
       if (selectionOnly) return withSelection((m) => m.smallestTextPt(false));
       sync();
-      return model.smallestTextPt(false);
+      return refused ? null : model.smallestTextPt(false);
     },
   };
 }

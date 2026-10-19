@@ -41,3 +41,19 @@ describe("subsetPage", () => {
     expect(d.objects.length).toBe(3);
   });
 });
+
+describe("pageStructures — what belongs to a structure stays with it (review)", () => {
+  it("a polymer in brackets opens on the page canvas (the editor would drop its brackets)", () => {
+    const poly =
+      '<fragment id="10"><n id="11" p="0 0"/><n id="12" p="30 0"/><b id="13" B="11" E="12"/></fragment>' +
+      '<graphic id="20" BoundingBox="-10 -10 40 10" GraphicType="Bracket" BracketType="SquarePair"/>' +
+      '<bracketedgroup id="30" BracketUsage="SRU" BracketedObjectIDs="11 12"><bracketattachment id="31" GraphicID="20"/></bracketedgroup>';
+    const d = page(poly);
+    const { structures } = pageStructures(d);
+    expect(structures).toHaveLength(1);
+    expect(structures[0].mol).toBeNull();
+    expect(structures[0].reason).toMatch(/brackets or labels attached/);
+    // Its repeat unit is still on offer for the editor, said as what it is.
+    expect(structures[0].bare?.getMolecularFormula().formula).toBe("C2H6");
+  });
+});

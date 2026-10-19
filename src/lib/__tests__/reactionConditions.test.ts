@@ -29,6 +29,14 @@ describe("typesetConditions", () => {
     expect(typesetConditions("Route2B")).toBe("Route2B");
   });
 
+  it.each(["SN2 conditions", "Mg2+", "Fe3+ (cat.)", "Step B2", "compound C3"])("not a formula, left as typed (review): %s", (raw) => {
+    expect(typesetConditions(raw)).toBe(raw);
+  });
+
+  it("the lone formulas still lower their count: H2, O2, Cl2", () => {
+    expect(typesetConditions("H2, O2, Cl2")).toBe("H₂, O₂, Cl₂");
+  });
+
   it("hydrogen and mixed conditions", () => {
     expect(typesetConditions("H2 (1 atm), Pd/C")).toBe("H₂ (1 atm), Pd/C");
   });

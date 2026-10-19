@@ -25,6 +25,11 @@ export interface PageStructure {
   mol: Molecule | null;
   /** Why it is not a molecule (it opens on the page canvas instead). */
   reason: string;
+  /**
+   * The structure itself as a molecule, its brackets and attached labels left out (null when even that is not one):
+   * a polymer opens on the page canvas with its brackets, and this lets its repeat unit be edited in the editor.
+   */
+  bare: Molecule | null;
 }
 
 /** The gallery holds at most this many (a work bound: each is drawn once). */
@@ -48,10 +53,33 @@ export function pageStructures(doc: CdxDoc): { structures: PageStructure[]; more
     const own = withCompanions(doc, boxes, id);
     const pic = renderCdx(doc, { objects: own, pad: doc.style.lineWidth * 2 });
     if (!pic) continue;
-    const m = pageToMolecule(doc, new Set([id]));
-    structures.push({ id, ids: own, svg: pic.svg, mol: m.ok ? m.value.mol : null, reason: m.ok ? "" : m.reason });
+    // One structure the chemistry library cannot read is that structure's refusal, never the whole gallery's.
+    let m: ReturnType<typeof pageToMolecule>;
+    try {
+      m = pageToMolecule(doc, new Set([id]));
+    } catch (error) {
+      m = { ok: false, reason: `it could not be read (${(error as Error).message})` };
+    }
+    const bare = m.ok ? m.value.mol : null;
+    // Something belongs to it (polymer brackets, an attached label or a counter-ion): the page canvas keeps it — the
+    // structure editor would open the bare structure, a polymer's brackets silently gone (review). The bare structure
+    // stays on offer, said as what it is.
+    if (own.size > 1 || inBrackets(doc, id)) {
+      structures.push({ id, ids: own, svg: pic.svg, mol: null, reason: "it has brackets or labels attached, which the structure editor cannot hold", bare });
+      continue;
+    }
+    structures.push({ id, ids: own, svg: pic.svg, mol: bare, reason: m.ok ? "" : m.reason, bare });
   }
   return { structures, more: Math.max(0, ids.length - MAX_PICK) };
+}
+
+/** Whether a bracket group (a polymer's) encloses this structure or any of its atoms. */
+function inBrackets(doc: CdxDoc, id: string): boolean {
+  if (!doc.brackets.length) return false;
+  const obj = doc.objects.find((o) => o.id === id);
+  const ids = new Set<string>([id]);
+  for (const it of obj?.items ?? []) if (it.kind === "fragment") for (const n of it.v.nodes) ids.add(n.id);
+  return doc.brackets.some((b) => b.objectIds.some((x) => ids.has(x)));
 }
 
 /** A page holding only these objects (the rest deleted from a copy): one structure on the page canvas, at its size. */

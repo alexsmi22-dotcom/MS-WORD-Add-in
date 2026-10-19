@@ -20,8 +20,11 @@ would self correct."
 - **Open ChemDraw file… shows the file's structures to pick from.** A patent ChemDraw file is a document (the demo
   file held 93 structures, 229 arrows and lines and 149 captions on a page 29 × 290 cm); putting all of it on the
   canvas made every atom a few pixels across. Now each structure is drawn small in a list; click one and it opens on
-  its own, full size, in the editor. One that is not a single molecule (a generic atom such as X, a ChemDraw nickname)
-  opens on its own on the page canvas, and the status says why. "Open the whole page as a drawing" is still there.
+  its own, full size, in the editor. A structure that carries more than a molecule — polymer brackets and their n,
+  an attached label or counter-ion, a generic atom such as X — opens on its own on the page canvas, as drawn, and the
+  status says why; for a polymer, "Edit the structure in the structure editor" opens its repeat unit in the editor
+  (brackets and labels left out, said so). "Open the whole page as a drawing" is still there. A structure from the
+  editor inserts at ChemDraw's default (ACS) size.
 - **The large canvas window is smaller** (75 % × 70 % of the screen) and holds only what is being edited.
 
 ### Fixed

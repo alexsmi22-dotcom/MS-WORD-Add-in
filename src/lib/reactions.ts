@@ -120,9 +120,19 @@ const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
  * 2026-10-19). Only a token made wholly of element symbols, group abbreviations, digits and brackets, starting with a
  * capital, is touched; "0 °C", "2 h", "rt", "1,4-dioxane", "10 mol%" are left as typed.
  */
+/** Mechanism names, not formulas (SN2 is never S N₂). */
+const MECHANISMS = new Set(["SN1", "SN2", "E1", "E2", "SNAr", "SRN1", "SE2", "SE1"]);
+/** The elements written alone with a count in conditions (H₂, O₂ …); any other "letter + digits" (B2, C3) is a label. */
+const LONE_FORMULAS = new Set(["H2", "N2", "O2", "O3", "F2", "Cl2", "Br2", "I2", "S8", "P4"]);
+
 export function typesetConditions(text: string): string {
-  return text.replace(/[A-Z][A-Za-z0-9()]*/g, (tok) => {
+  return text.replace(/[A-Z][A-Za-z0-9()]*/g, (tok, at: number, all: string) => {
     if (!/[0-9]/.test(tok)) return tok;
+    // A charge follows (Mg2+, Fe3+): those digits are the charge's, not a count (review).
+    if (/^[+\-−]/.test(all.slice(at + tok.length))) return tok;
+    if (MECHANISMS.has(tok)) return tok;
+    // One element and a count only: a formula when it is one of the usual lone ones, else a label ("Step B2").
+    if (/^[A-Z][a-z]?[0-9]+$/.test(tok) && !LONE_FORMULAS.has(tok)) return tok;
     const words = tok.match(/[A-Z][a-z]*/g) ?? [];
     const bare = tok.replace(/[A-Z][a-z]*/g, "").replace(/[0-9()]/g, "");
     if (bare || !words.every((w) => atomicNumber(w) !== null || REAGENT_GROUPS.has(w))) return tok;

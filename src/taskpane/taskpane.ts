@@ -2025,6 +2025,14 @@ Office.onReady((info) => {
     triggerDownload(new Blob([xml], { type: "chemical/x-cdxml" }), "structure.cdxml");
     setStatus("Saved as structure.cdxml — ChemDraw opens it.", "success");
   });
+  document.getElementById("build-page-bare")?.addEventListener("click", () => {
+    if (!pickedBare) return;
+    const mol = pickedBare.getCompactCopy();
+    useStructureEditor();
+    if (!drawEditor) return;
+    drawEditor.setMolecule(mol);
+    setStatus("The structure is in the structure editor — its brackets, n and attached labels are left out here (the page canvas kept them).", "");
+  });
   document.getElementById("build-page-back")?.addEventListener("click", () => {
     useStructureEditor();
     updateDrawPreview();
@@ -5161,6 +5169,14 @@ function ensureDrawEditor(): void {
   }
 }
 
+/**
+ * Nothing drawn: no page objects AND no atoms. The structure editor's page can be empty under a real molecule (one the
+ * ChemDraw page writer refuses — a query it has no attribute for), and that is not an empty canvas (review).
+ */
+function drawingEmpty(): boolean {
+  return !drawEditor || (!drawEditor.page().objects.length && !drawEditor.getMolecule().getAllAtoms());
+}
+
 /** Shows the structure editor (the default) and makes it the one the pane reads. */
 function useStructureEditor(): void {
   ensureDrawEditor();
@@ -5168,6 +5184,7 @@ function useStructureEditor(): void {
   structureEditor.element.hidden = false;
   (document.getElementById("build-page") as HTMLElement).hidden = true;
   (document.getElementById("build-page-bar") as HTMLElement).hidden = true;
+  (document.getElementById("build-page-bare") as HTMLElement).hidden = true;
   (document.getElementById("draw-save-cdxml") as HTMLElement).hidden = false;
   drawEditor = structureEditor;
 }
@@ -5193,6 +5210,9 @@ function usePageCanvas(): ChemCanvas | null {
   drawEditor = pageEditor;
   return pageEditor;
 }
+
+/** The structure (brackets and labels left out) of what the page canvas is showing from the gallery, if any. */
+let pickedBare: OclMolecule | null = null;
 
 /** The ChemDraw file the gallery is showing, and its name. */
 let galleryDoc: CdxDoc | null = null;
@@ -5222,7 +5242,13 @@ function openPickedStructure(doc: CdxDoc, name: string, st: PageStructure, n: nu
     pc.loadPage(sub);
     pc.setName(name);
     drawFromPicture = false;
-    setStatus(`Opened ${of} on the page canvas — it is not a single molecule the structure editor can hold (${st.reason}).`, "");
+    pickedBare = st.bare;
+    (document.getElementById("build-page-bare") as HTMLElement).hidden = !st.bare;
+    setStatus(
+      `Opened ${of} on the page canvas, as drawn — ${st.reason}.` +
+        (st.bare ? " To change the structure itself, use “Edit the structure in the structure editor” below it." : ""),
+      "",
+    );
   }
   document.getElementById("build-draw-wrap")?.scrollIntoView({ block: "start" });
 }
@@ -5276,7 +5302,7 @@ function openChemdrawPage(page: CdxDoc, name: string): boolean {
   document.getElementById("chemdraw-gallery")?.scrollIntoView({ block: "start" });
   setStatus(
     `${name} opened — click a structure to edit it. ${molCount} of ${structures.length} open in the structure editor` +
-      (molCount < structures.length ? "; the others (generic atoms, nicknames) open on their own on the page canvas." : "."),
+      (molCount < structures.length ? "; the others (polymer brackets, attached labels, generic atoms such as X) open on their own on the page canvas, as drawn." : "."),
     "success",
   );
   drawFromPicture = name === "The ChemDraw picture";
@@ -5328,7 +5354,7 @@ function onResetCanvas(): void {
  */
 function onCleanStructure(): void {
   if (!drawEditor) return;
-  if (!drawEditor.page().objects.length) {
+  if (drawingEmpty()) {
     setStatus("Nothing to clean — the canvas is empty.", "error");
     return;
   }
@@ -5370,7 +5396,7 @@ function scheduleDrawPreview(preserveStatus: boolean): void {
   // ("Chain of 5 bonds drawn.") right after, and a clear 250 ms later would wipe it (review).
   if (!preserveStatus) setStatus("");
   // Insert is live at once on a page with something on it (Insert works the preview out first).
-  insertBuildBtn.disabled = !drawEditor?.page().objects.length;
+  insertBuildBtn.disabled = drawingEmpty();
   drawPreviewPending = true;
   window.clearTimeout(drawPreviewTimer);
   drawPreviewTimer = window.setTimeout(flushDrawPreview, 250);
@@ -5398,7 +5424,7 @@ function updateDrawPreview(preserveStatus = false): void {
   drawPreviewPending = false;
   currentBuild = null;
   insertBuildBtn.disabled = true;
-  const pageEmpty = !drawEditor || !drawEditor.page().objects.length;
+  const pageEmpty = drawingEmpty();
   const chem = drawEditor && !pageEmpty ? drawEditor.chemistry() : null;
   const mol = drawEditor ? (chem?.ok ? chem.mol : drawEditor.getMolecule()) : null;
   // What inserts from the Draw tab is the page as drawn; the preview shows it.

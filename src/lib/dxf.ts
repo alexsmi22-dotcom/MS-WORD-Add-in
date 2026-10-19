@@ -122,7 +122,7 @@ const UNIT_NAMES: Record<number, [string, number | null]> = {
 export function importRefusal(fileName: string, head: Uint8Array): string | null {
   const ext = (/\.([a-z0-9_]+)$/i.exec(fileName)?.[1] ?? "").toLowerCase();
   if (["par", "psm", "asm", "pwd"].includes(ext))
-    return `a Solid Edge ${ext === "asm" ? "assembly" : ext === "psm" ? "sheet metal part" : "part"} (.${ext}) can only be read by Solid Edge — in Solid Edge, use Save As → STEP (.stp) and import that`;
+    return `a Solid Edge ${ext === "asm" ? "assembly" : ext === "psm" ? "sheet metal part" : "part"} (.${ext}) can only be read by Solid Edge — in Solid Edge, use Save As → STL (.stl) and import that`;
   if (ext === "dft") return "a Solid Edge draft (.dft) can only be read by Solid Edge — in Solid Edge, use Save As → DXF (.dxf) and import that";
   if (ext === "dwg") return "DWG is a closed format this offline tool cannot read — save the drawing as DXF (.dxf) and import that";
   const sentinel = "AutoCAD Binary DXF";
@@ -719,7 +719,7 @@ export function readDxf(text: string): ReadResult {
   say(c("unevenArc"), "1 arc scaled unevenly by its block was drawn as a line within 0.01 % of the curve.", "# arcs scaled unevenly by their blocks were drawn as lines within 0.01 % of the curve.");
   say(c("offPlane"), "1 item outside the drawing plane was skipped.", "# items outside the drawing plane were skipped.");
   say(c("polyMesh"), "1 3D polyline or mesh was skipped.", "# 3D polylines or meshes were skipped.");
-  say(c("solid3d"), "1 3D solid or face was skipped (import 3D parts as STEP).", "# 3D solids or faces were skipped (import 3D parts as STEP).");
+  say(c("solid3d"), "1 3D solid or face was skipped (import 3D parts as STL).", "# 3D solids or faces were skipped (import 3D parts as STL).");
   say(c("point"), "1 point marker was not drawn.", "# point markers were not drawn.");
   say(c("image"), "1 image or OLE object was not drawn.", "# images or OLE objects were not drawn.");
   say(c("offLayer"), "1 item on a layer that is off or frozen was not drawn.", "# items on layers that are off or frozen were not drawn.");

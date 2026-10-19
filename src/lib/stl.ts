@@ -20,11 +20,32 @@
 import type { SolidMesh } from "./cadModel";
 
 export const STL_LIMITS = {
-  /** File size (a 200 000-facet text STL is about 50 MB). */
-  bytes: 60 * 1024 * 1024,
-  /** Facets: the drawing's own triangle limit (cadModel DEFAULT_TESS). */
-  facets: 200_000,
+  /** File size (a 100 000-facet text STL is about 25 MB). */
+  bytes: 30 * 1024 * 1024,
+  /**
+   * Facets. Measured: a smooth 100 000-facet part takes about 2 s from file to a four-view sheet,
+   * 200 000 twice that — and every later change to the drawing lays the sheet out again.
+   */
+  facets: 100_000,
+  /**
+   * Edges drawn (creases, open and shared sides). The sheet's hidden-line work grows with them:
+   * 19 000 took 4 s, 152 000 took 32 s. Past this the edge angle must be raised.
+   */
+  edges: 6_000,
 };
+
+/**
+ * A fingerprint of the file's bytes (two 32-bit FNV-1a hashes with different seeds, and the length):
+ * a drawing names its imported part's file by it, so the same file can be put back after re-opening.
+ */
+export function stlHash(bytes: Uint8Array): string {
+  let a = 0x811c9dc5, b = 0x9747b28c;
+  for (let i = 0; i < bytes.length; i++) {
+    a = Math.imul(a ^ bytes[i], 0x01000193);
+    b = Math.imul(b ^ bytes[i], 0x01000193) ^ (b >>> 13);
+  }
+  return `${(a >>> 0).toString(16).padStart(8, "0")}${(b >>> 0).toString(16).padStart(8, "0")}-${bytes.length}`;
+}
 
 /** Facets meeting at more than this are drawn as an edge (the user can change it). */
 export const DEFAULT_CREASE_DEG = 30;
@@ -303,6 +324,12 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
       if (v > hi[k]) hi[k] = v;
     }
   const diag = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  // How far a corner may be from where the exporter meant it: float32 holds 24 bits (half an ulp
+  // each way, doubled for the subtraction to the origin); a text file, its printed digits (six
+  // significant, as most exporters print, unless more are seen).
+  let far = 0;
+  for (let i = 0; i < 3 * nv; i++) far = Math.max(far, Math.abs(raw[i]));
+  const noise = far * mmPerUnit * (stl.format === "binary" ? 2 ** -23 : 1e-6);
   if (!(diag > 0)) return { ok: false, reason: "it has no size" };
   const fn = new Float64Array(3 * nt); // raw (area-weighted)
   const un = new Float64Array(3 * nt); // unit, or 0 for a sliver
@@ -339,14 +366,18 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
     if (a !== b) parent[a] = b;
   };
   const corner = (t: number, v: number): number => 3 * t + (tris[3 * t] === v ? 0 : tris[3 * t + 1] === v ? 1 : 2);
-  const edges: number[] = [];
+  const edges: number[] = []; // as corners (3t + c) of one facet beside the edge
   let open = 0, many = 0;
+  const tooManyEdges = (): string =>
+    `at a ${+creaseDeg.toFixed(1)}° edge angle it has more than ${n0(STL_LIMITS.edges)} edges to draw — a drawing of an imported part holds at most ${n0(STL_LIMITS.edges)}; raise the edge angle, or export it again with a coarser tolerance`;
   for (let e = 0; e < ne; e++) {
     const h0 = edgeList[edgeStart[e]];
     const a = lowV[h0], b = highV[h0];
     const n = count(e);
+    if (edges.length / 2 > STL_LIMITS.edges) return { ok: false, reason: tooManyEdges() };
+    const t0 = (h0 / 3) | 0;
     if (n !== 2) {
-      edges.push(a, b);
+      edges.push(corner(t0, a), corner(t0, b));
       if (n === 1) open++;
       else many++;
       continue;
@@ -355,21 +386,31 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
     const cos = un[3 * t1] * un[3 * t2] + un[3 * t1 + 1] * un[3 * t2 + 1] + un[3 * t1 + 2] * un[3 * t2 + 2];
     const sliver = (un[3 * t1] === 0 && un[3 * t1 + 1] === 0 && un[3 * t1 + 2] === 0) || (un[3 * t2] === 0 && un[3 * t2 + 1] === 0 && un[3 * t2 + 2] === 0);
     if (!sliver && cos < cosCrease) {
-      edges.push(a, b);
+      edges.push(corner(t0, a), corner(t0, b));
       continue;
     }
     join(corner(t1, a), corner(t2, a));
     join(corner(t1, b), corner(t2, b));
   }
 
+  if (edges.length / 2 > STL_LIMITS.edges) return { ok: false, reason: tooManyEdges() };
+
   // 6. Corner normals: each group of joined corners shares the area-weighted mean; a facet
   //    inside a flat face carries exactly its own normal (no outline is found inside it).
+  //    Each facet weighs by its angle at the corner (Thürmer & Wüthrich), not its area: a quad split
+  //    by its diagonal then pulls the same either side, so a faceted cylinder's corner normal is
+  //    radial and its outline falls where the engine's own cylinder puts it.
   const sum = new Float64Array(9 * nt);
   for (let i = 0; i < 3 * nt; i++) {
-    const r = find(i), t = (i / 3) | 0;
-    sum[3 * r] += fn[3 * t];
-    sum[3 * r + 1] += fn[3 * t + 1];
-    sum[3 * r + 2] += fn[3 * t + 2];
+    const r = find(i), t = (i / 3) | 0, c = i % 3;
+    const v = tris[i], p = tris[3 * t + ((c + 1) % 3)], q = tris[3 * t + ((c + 2) % 3)];
+    const ux = P(p, 0) - P(v, 0), uy = P(p, 1) - P(v, 1), uz = P(p, 2) - P(v, 2);
+    const wx = P(q, 0) - P(v, 0), wy = P(q, 1) - P(v, 1), wz = P(q, 2) - P(v, 2);
+    const cr = Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx);
+    const ang = Math.atan2(cr, ux * wx + uy * wy + uz * wz);
+    sum[3 * r] += un[3 * t] * ang;
+    sum[3 * r + 1] += un[3 * t + 1] * ang;
+    sum[3 * r + 2] += un[3 * t + 2] * ang;
   }
   const cornerNormals: number[] = new Array(9 * nt);
   for (let t = 0; t < nt; t++) {
@@ -396,9 +437,22 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
       if (Math.abs(s) / 8 > sag) sag = Math.abs(s) / 8;
     }
 
-  // 7. Moved so the lowest corner is at the origin.
-  const positions: number[] = new Array(3 * nv);
-  for (let i = 0; i < nv; i++) for (let k = 0; k < 3; k++) positions[3 * i + k] = pos[3 * i + k] - lo[k];
+  // 7. One vertex for each group of joined corners (as the engine's own bodies have: a vertex is
+  //    shared only along a smooth surface, never across an edge — the hidden-line test's "the
+  //    outline's own surface" stops at its edges), moved so the lowest corner is at the origin.
+  const vertexOf = new Int32Array(3 * nt).fill(-1);
+  const positions: number[] = [];
+  const out = new Array<number>(3 * nt);
+  for (let i = 0; i < 3 * nt; i++) {
+    const r = find(i);
+    if (vertexOf[r] < 0) {
+      vertexOf[r] = positions.length / 3;
+      const v = tris[i];
+      positions.push(pos[3 * v] - lo[0], pos[3 * v + 1] - lo[1], pos[3 * v + 2] - lo[2]);
+    }
+    out[i] = vertexOf[r];
+  }
+  for (let i = 0; i < edges.length; i++) edges[i] = out[edges[i]];
 
   const notes: string[] = [];
   const s = (n: number, one: string, many2: string): string => `${n0(n)} ${n === 1 ? one : many2}`;
@@ -412,7 +466,7 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
   return {
     ok: true,
     body: {
-      mesh: { positions, triangles: Array.from(tris), cornerNormals, edges, sag },
+      mesh: { positions, triangles: out, cornerNormals, edges, sag, noise, closed: closed.every((c) => c === 1) && !disagree },
       size: [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]],
       notes,
     },

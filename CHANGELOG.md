@@ -6,6 +6,32 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.158.0] — 2026-10-19 — Drawing (CAD): import STL parts
+
+### Added
+- **Import DXF / STL…** in Drawing (CAD) now reads **STL** parts (binary or text — Solid Edge: Save As → STL) and
+  adds each as a **part of the model**: drawn in every view with its hidden lines, its outline where curved
+  surfaces turn away, and an edge wherever its facets meet at more than the **edge angle** (30° unless changed).
+  An STL carries no units, so none is assumed: Add as a part waits until they are chosen. Units and edge angle stay
+  editable under the part, and mates, callouts, exploded and detail views work on it as on any part.
+- The drawing **names the file** (its name and a fingerprint of its bytes) and never carries the triangles, so the
+  inserted picture's alt text stays small. Re-opened in a later session, the part says which file to import again,
+  and only the same bytes are taken back.
+
+### Changed
+- STEP and IGES files, and Solid Edge's own .par / .asm / .psm, are still refused — the route given is now
+  Save As → STL (it pointed at STEP, which is not imported).
+
+### Limits (refused by name)
+- Up to **100,000 facets** and **6,000 drawn edges**: measured, a smooth 100,000-facet part takes about 2 s from
+  file to a four-view sheet, and the sheet's work grows with the edges (19,000 took 4 s, 152,000 took 32 s).
+  Past either, the refusal says to raise the edge angle or export with a coarser tolerance.
+- A part whose surface has gaps (not watertight) is drawn alone, but not where another part overlaps it: inside
+  and outside are unknown there.
+- The large canvas does not yet open a drawing with an imported part (its facets stay in the pane): it says so.
+- Not yet checked against a real Solid Edge STL export; the oracle is the engine's own parts written out as STL
+  (binary float32 and text, either winding) and drawn again — every view within 1 % of the original.
+
 ## [2.157.0] — 2026-10-19 — Atom properties, the whole page in the large canvas, Clean on any page
 
 ### Added

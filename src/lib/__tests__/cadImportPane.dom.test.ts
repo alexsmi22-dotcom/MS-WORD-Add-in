@@ -76,7 +76,7 @@ describe("Import DXF… in the pane", () => {
   it("a Solid Edge part is refused by name with the route; nothing opens", async () => {
     const { $, status } = setup();
     await pickFile($, status, "bracket.par", "not readable");
-    expect(last(status)).toEqual([expect.stringMatching(/^bracket\.par: a Solid Edge part \(\.par\) can only be read by Solid Edge — in Solid Edge, use Save As → STEP/), "error"]);
+    expect(last(status)).toEqual([expect.stringMatching(/^bracket\.par: a Solid Edge part \(\.par\) can only be read by Solid Edge — in Solid Edge, use Save As → STL/), "error"]);
     expect($<HTMLElement>("cad-import-panel").hidden).toBe(true);
   });
   it("no units in the file: the user must choose them before Insert; then it inserts at true size with alt text that says what it is", async () => {

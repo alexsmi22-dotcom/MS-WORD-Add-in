@@ -48,14 +48,15 @@ export function faceAt(mesh: Mesh, tri: number, point: Vec3, snapDist: number): 
   // The face: this body's triangles in the same plane facing the same way, CONNECTED to the one picked
   // (a U-shaped part's two arm tops are one plane but two faces: its centre is never in the gap).
   const d0 = dot(n, a);
-  const eps = Math.max(1e-9, mesh.diag * 1e-9);
+  // An imported part's corners are only as exact as its file's numbers (float32): the plane holds within that.
+  const eps = Math.max(1e-9, mesh.diag * 1e-9, 4 * (mesh.bodyNoise?.[body] ?? 0));
   const cand: number[] = [];
   for (let t = 0; t < T.length / 3; t++) {
     if (mesh.triBody[t] !== body) continue;
     const p = v(T[3 * t]), q = v(T[3 * t + 1]), r = v(T[3 * t + 2]);
     const m = cross(sub(q, p), sub(r, p));
     const ml = norm(m);
-    if (!(ml > 0) || dot(m, n) / ml < 1 - 1e-9) continue;
+    if (!(ml > 0) || dot(m, n) / ml < 1 - (eps > mesh.diag * 1e-9 ? 1e-6 : 1e-9)) continue;
     if (Math.abs(dot(n, p) - d0) > eps || Math.abs(dot(n, q) - d0) > eps || Math.abs(dot(n, r) - d0) > eps) continue;
     cand.push(t);
   }

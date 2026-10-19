@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.157.0)
+# JurisLab — Manual Test Script (v2.158.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0cv. New in v2.158.0 — Drawing (CAD): import STL parts
+
+- [ ] ★ **STL part.** In Solid Edge, open a part and Save As → STL. In Drawing (CAD), Import DXF / STL…, pick it:
+  the panel asks for units (none is chosen for you). Choose millimetres: it reports the facets and edges drawn.
+  Add as a part: it appears in the parts list as "Imported STL" and in every view, hidden lines dashed, holes
+  and fillets outlined. Insert.
+- [ ] **Edge angle.** Under the part, set the edge angle to 10°: more edges are drawn (tangent fillets may now
+  show); back to 30°.
+- [ ] **Re-open.** Close and reopen Word, click the inserted drawing, Edit drawing at cursor: the part says
+  "import <file> again". Import the same file: "put back", and the drawing is as it was.
+- [ ] **Mate.** Add a Block, Mate faces: click a flat face of the STL part, then the block's top: it sits flush.
+- [ ] **Large canvas.** Open large canvas with the STL part present: it says it cannot yet, by name.
 
 ## 0cu. New in v2.157.0 — atom properties on the canvas
 

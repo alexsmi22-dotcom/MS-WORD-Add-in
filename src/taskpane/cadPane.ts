@@ -37,6 +37,7 @@ import {
   partProblems,
   resolveCallouts,
   shapeName,
+  partFrame,
   serializeDoc,
   starterDoc,
 } from "../lib/cadShapes";
@@ -46,6 +47,8 @@ import { lineTypesFor } from "../lib/cadLineTypes";
 import { DxfDrawing } from "../lib/dxf";
 import { CONTROL_CHAR, MARK_LIMITS, markDistance, MarkPt, MarkStyle, roundPt, SheetMark, simplifyStroke } from "../lib/cadMarks";
 import { IMPORTED_ALT_PREFIX, IMPORT_UNITS, importedFigure, importedSketch, openDxfFile, sizeRefusal } from "../lib/dxfImport";
+import { hasStl, meshFor, rememberStl } from "../lib/cadMeshStore";
+import { DEFAULT_CREASE_DEG, readStl, stlHash, STL_LIMITS, StlFacets } from "../lib/stl";
 import type { Sketch } from "../lib/sketch";
 import { parseSketch } from "../lib/sketchDoc";
 
@@ -169,6 +172,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const importInsertBtn = el<HTMLButtonElement>("cad-import-insert") as HTMLButtonElement | null;
   const importSketchBtn = el<HTMLButtonElement>("cad-import-sketch") as HTMLButtonElement | null;
   const importCloseBtn = el<HTMLButtonElement>("cad-import-close") as HTMLButtonElement | null;
+  const importPartBtn = el<HTMLButtonElement>("cad-import-part") as HTMLButtonElement | null;
+  const importCrease = el<HTMLInputElement>("cad-import-crease") as HTMLInputElement | null;
+  const importCreaseRow = el<HTMLElement>("cad-import-crease-row") as HTMLElement | null;
+  const importPreviewWrap = el<HTMLElement>("cad-import-preview-wrap") as HTMLElement | null;
   // Each window shows only what it can do: the pop-out cannot read the document or pop out again.
   if (!host.readSelectedAlt) openBtn.hidden = true;
   if (popBtn && !host.openLarge) popBtn.hidden = true;
@@ -459,7 +466,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (!doc.explode || !Object.keys(doc.explode).length) return undefined;
     const offsets = doc.explode;
     const key = JSON.stringify([doc.parts, offsets, placed.callouts]);
-    if (explodedCache?.key === key) return explodedCache.data ?? undefined;
+    // (A failure is not kept: an imported part's file put back later must draw.)
+    if (explodedCache?.key === key && explodedCache.data) return explodedCache.data;
     let data: SheetOptions["exploded"] | null = null;
     const a = docToAssembly(explodedDoc(doc, offsets));
     if (a.ok) {
@@ -881,7 +889,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       nameTimer = window.setTimeout(renderSheet, 300);
     });
     editorEl.appendChild(nameIn);
-    for (const pd of p.shape === "sketch" ? [] : SHAPES[p.shape].params) {
+    for (const pd of p.shape === "sketch" || p.shape === "mesh" ? [] : SHAPES[p.shape].params) {
       editorEl.appendChild(
         numberField(pd.label, p.params[pd.key], (v) => {
           p.params[pd.key] = v;
@@ -896,6 +904,42 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
           }
           rebuildSoon();
         }, pd.integer ? "1" : "any"),
+      );
+    }
+    if (p.shape === "mesh" && p.mesh) {
+      // An imported part: its file, and the two things the file does not say (units, edge angle).
+      const ref = p.mesh;
+      const info = document.createElement("p");
+      info.className = "build-readout";
+      const sz = ref.size.map((v) => fmtMm(v)).join(" × ");
+      info.textContent = `From ${ref.file}: ${ref.facets.toLocaleString("en-US")} facets, ${sz} mm.${hasStl(ref.hash) ? "" : ` The file is not open — import ${ref.file} again to put it back.`}`;
+      const units = document.createElement("select");
+      units.className = "lib-select";
+      units.setAttribute("aria-label", "Units of the STL file");
+      for (const u of IMPORT_UNITS) units.add(new Option(`File units: ${u.name}`, String(u.mm)));
+      if (!IMPORT_UNITS.some((u) => u.mm === ref.mmPerUnit)) units.add(new Option(`File units: ${ref.mmPerUnit} mm`, String(ref.mmPerUnit)));
+      units.value = String(ref.mmPerUnit);
+      units.addEventListener("change", () => {
+        const mm = Number(units.value);
+        if (!(mm > 0)) return;
+        const k = mm / ref.mmPerUnit;
+        ref.mmPerUnit = mm;
+        ref.size = ref.size.map((v) => v * k) as Vec3;
+        renderEditor();
+        rebuild();
+      });
+      editorEl.append(info, units);
+      editorEl.appendChild(
+        numberField("Edge angle °", ref.creaseDeg, (v) => {
+          if (!(v > 0 && v < 180)) {
+            msgEl.className = "build-readout warn";
+            msgEl.textContent = `${p.name}: the edge angle must be between 0° and 180°`;
+            insertBtn.disabled = true;
+            return;
+          }
+          ref.creaseDeg = v;
+          rebuildSoon();
+        }),
       );
     }
     if (p.shape === "sketch") {
@@ -1079,7 +1123,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const p = target !== null ? doc.parts[target] : undefined;
     // Room to draw: where the large window can open, the sketch opens there (90 % of the screen);
     // Done brings the part back here. Without it (the pop-out itself, or no dialogs), it opens here.
-    if (host.openLarge && (host.largeAvailable?.() ?? true)) {
+    // (Not with an imported part in the drawing: its facets stay in this pane.)
+    if (host.openLarge && (host.largeAvailable?.() ?? true) && !doc.parts.some((q) => q.shape === "mesh")) {
       void openLargeWith(seed && !p ? { sketch: "new", seed: JSON.stringify(seed) } : { sketch: p ? p.id : "new" });
       return true;
     }
@@ -1252,7 +1297,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const first = mateFirst;
     const part = doc.parts[first.body];
     if (!part) return setMateMode(false);
-    const frame = part.shape === "sketch" ? undefined : SHAPES[part.shape].frame;
+    const frame = partFrame(part);
     const r = mate(first, f.hit, part.placement, frame);
     if (!r.ok) {
       mateFirst = null;
@@ -1607,11 +1652,21 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   // The file is read once; the units chooser re-sizes it. Insert puts the drawing into Word as a
   // picture (fitted to the page); Edit as a sketch opens its lines, arcs and circles as a new part's
   // sketch. Neither touches the drawing being built above.
+  // An STL is a part, not a drawing: it is added to the model (cadMeshStore keeps its facets).
   let imported: { name: string; drawing: DxfDrawing } | null = null;
+  let importedStl: { name: string; stl: StlFacets; hash: string } | null = null;
   const importMm = (): number => Number(importUnits?.value ?? "") || 0;
+  const importCreaseDeg = (): number => Number(importCrease?.value ?? "") || 0;
   function showImport(): void {
     if (!importPanel || !importInfo || !importUnits || !importPreview) return;
-    importPanel.hidden = !imported;
+    importPanel.hidden = !imported && !importedStl;
+    const stl = !!importedStl;
+    if (importCreaseRow) importCreaseRow.hidden = !stl;
+    if (importPartBtn) importPartBtn.hidden = !stl;
+    if (importPreviewWrap) importPreviewWrap.hidden = stl;
+    if (importInsertBtn) importInsertBtn.hidden = stl;
+    if (importSketchBtn) importSketchBtn.hidden = stl;
+    if (importedStl) return showStlImport(importedStl);
     if (!imported) return;
     const { name, drawing } = imported;
     const mm = importMm();
@@ -1639,7 +1694,57 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (importBtn) importBtn.disabled = inserting;
     if (importCloseBtn) importCloseBtn.disabled = inserting;
   }
+  /** The STL's panel: facets, the size in the units chosen, and what the edge angle draws. */
+  function showStlImport(s: { name: string; stl: StlFacets; hash: string }): void {
+    const mm = importMm(), crease = importCreaseDeg();
+    const lines = [`${s.name}: ${s.stl.count.toLocaleString("en-US")} facets (${s.stl.format} STL).`];
+    let ok = false;
+    if (!(mm > 0)) lines.push("An STL file does not say its units: choose them.");
+    else if (!(crease > 0 && crease < 180)) lines.push("The edge angle must be between 0° and 180°.");
+    else {
+      const r = meshFor({ file: s.name, hash: s.hash, facets: s.stl.count, mmPerUnit: mm, creaseDeg: crease, size: [0, 0, 0] });
+      if (!r.ok) lines.push(r.reason.charAt(0).toUpperCase() + r.reason.slice(1) + ".");
+      else {
+        ok = true;
+        lines.push(`${(r.mesh.edges.length / 2).toLocaleString("en-US")} edges drawn at ${+crease.toFixed(1)}°.`);
+        if (!r.mesh.closed) lines.push("Its surface is not closed (it has gaps): it can be drawn alone, but not where another part overlaps it.");
+      }
+    }
+    importInfo!.textContent = lines.join(" ");
+    importInfo!.className = ok || !(mm > 0) ? "build-readout" : "build-readout warn";
+    if (importPartBtn) importPartBtn.disabled = !ok || inserting || sketching();
+    if (importBtn) importBtn.disabled = inserting;
+    if (importCloseBtn) importCloseBtn.disabled = inserting;
+  }
+  function useStl(name: string, bytes: Uint8Array): void {
+    const r = readStl(bytes);
+    if (!r.ok) return host.setStatus(`${name}: ${r.reason}.`, "error");
+    const hash = stlHash(bytes);
+    rememberStl(hash, r.stl);
+    // A part already in the drawing from these very bytes (re-opened in a new session): put back.
+    const back = doc.parts.filter((p) => p.shape === "mesh" && p.mesh?.hash === hash);
+    if (back.length) {
+      imported = null;
+      importedStl = null;
+      showImport();
+      renderEditor();
+      rebuild();
+      return host.setStatus(`${name} put back into ${back.map((p) => p.name).join(", ")}.`, "success");
+    }
+    imported = null;
+    importedStl = { name, stl: r.stl, hash };
+    if (importUnits) {
+      importUnits.textContent = "";
+      importUnits.add(new Option("Choose the units…", ""));
+      for (const u of IMPORT_UNITS) importUnits.add(new Option(u.name, String(u.mm)));
+      importUnits.value = "";
+    }
+    if (importCrease) importCrease.value = String(DEFAULT_CREASE_DEG);
+    showImport();
+    host.setStatus(`${name} read. An STL file does not say its units: choose them below, then Add as a part.`, "");
+  }
   function useImport(name: string, drawing: DxfDrawing): void {
+    importedStl = null;
     imported = { name, drawing };
     if (importUnits) {
       importUnits.textContent = "";
@@ -1661,7 +1766,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const file = importFile.files?.[0];
     if (!file) return;
     if (inserting) return host.setStatus("An insert is still running; import the file when it finishes.", "error");
-    const big = sizeRefusal(file.name, file.size);
+    const isStl = /\.stl$/i.test(file.name);
+    const big = isStl
+      ? file.size > STL_LIMITS.bytes ? `${file.name}: the file is ${Math.ceil((file.size / 1048576) * 10) / 10} MB — this importer reads STL files up to ${STL_LIMITS.bytes / 1048576} MB` : null
+      : sizeRefusal(file.name, file.size);
     if (big) return host.setStatus(big, "error");
     host.setStatus(`Reading ${file.name}…`, "");
     const reader = new FileReader();
@@ -1669,6 +1777,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     reader.onload = () => {
       // Yield once so "Reading…" is painted before a large file is parsed.
       window.setTimeout(() => {
+        if (isStl) return useStl(file.name, new Uint8Array(reader.result as ArrayBuffer));
         const r = openDxfFile(file.name, new Uint8Array(reader.result as ArrayBuffer));
         if (!r.ok) return host.setStatus(r.reason, "error"); // it starts with the file's name
         useImport(file.name, r.drawing);
@@ -1677,10 +1786,39 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     reader.readAsArrayBuffer(file);
   });
   importUnits?.addEventListener("change", showImport);
+  importCrease?.addEventListener("input", showImport);
   importCloseBtn?.addEventListener("click", () => {
     if (inserting) return;
     imported = null;
+    importedStl = null;
     showImport();
+  });
+  importPartBtn?.addEventListener("click", () => {
+    const s = importedStl;
+    if (!s || inserting) return;
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
+    const ref = { file: s.name, hash: s.hash, facets: s.stl.count, mmPerUnit: importMm(), creaseDeg: importCreaseDeg(), size: [0, 0, 0] as Vec3 };
+    const r = meshFor(ref);
+    if (!r.ok) return host.setStatus(`${s.name}: ${r.reason}.`, "error");
+    const P3 = r.mesh.positions;
+    for (let i = 0; i < P3.length; i += 3) for (let k = 0; k < 3; k++) ref.size[k] = Math.max(ref.size[k], P3[i + k]);
+    resetNewBtn(); // the drawing changes: an Undo clear would now throw this part away
+    const part: CadPart = {
+      id: `p${Date.now().toString(36)}${seq++}`,
+      name: s.name.replace(/\.stl$/i, "") || `Part ${doc.parts.length + 1}`,
+      shape: "mesh",
+      params: {},
+      placement: { translate: [besideX(), 0, 0], rotateDeg: [0, 0, 0] },
+      mesh: ref,
+    };
+    doc.parts.push(part);
+    selected = doc.parts.length - 1;
+    importedStl = null;
+    showImport();
+    renderParts();
+    renderEditor();
+    rebuild();
+    host.setStatus(`${s.name} added as ${part.name}. Move or turn it under the parts list; it is drawn with the edges where its facets meet at more than ${+ref.creaseDeg.toFixed(1)}°.`, "success");
   });
   importInsertBtn?.addEventListener("click", async () => {
     if (!imported) return;
@@ -1719,6 +1857,15 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   // into a sketch (opts.sketch: a part id, or "new").
   async function openLargeWith(opts?: { sketch?: string; seed?: string }): Promise<void> {
     if (!host.openLarge || largeOpen) return;
+    const meshes = doc.parts.filter((p) => p.shape === "mesh");
+    if (meshes.length) {
+      // An imported part's facets are held by this pane: the large window would open without them.
+      if (opts?.sketch) {
+        sketchHere(opts.sketch === "new" ? null : opts.sketch, opts.seed ? (JSON.parse(opts.seed) as Sketch) : undefined);
+        return;
+      }
+      return host.setStatus(`The large canvas cannot open a drawing with an imported STL part yet (${meshes.map((p) => p.name).join(", ")}) — work on it here in the pane.`, "error");
+    }
     if (popBtn) popBtn.disabled = true;
     largeOpen = true;
     try {

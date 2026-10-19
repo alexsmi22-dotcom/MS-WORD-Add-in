@@ -45,6 +45,8 @@ A Solid Edge draft saved as DXF is a whole sheet: several views, dimensions, not
 
 **Shipped in v2.150.0** (Import DXF… in the Drawing pane; `src/lib/dxfImport.ts`). **Still to validate:** real Solid Edge exports. The user has been asked for a typical draft saved as DXF, and a part as STEP and STL.
 
-## R3b — 3D (planned)
+## R3b — 3D
 
-STEP / IGES through occt-import-js: tessellated to the mesh the hidden-line engine already draws. STL directly. Decide first: wasm size, licence text shipped, offline behaviour (precache, or refuse by name when offline).
+**STL shipped in v2.158.0** (`src/lib/stl.ts`, `src/lib/cadMeshStore.ts`; Import DXF / STL… adds it as a part). Read: binary or text by the file's size; corners joined where their numbers are identical; facets turned to agree; a closed piece that comes out inside out turned; an edge where facets meet beyond the edge angle, open, or shared by more than two; corner normals angle-weighted across the rest; one vertex per smooth group (never shared across an edge, as the engine's own bodies). The drawing stores only {file, hash, facets, units, edge angle, size}. Limits measured: 100,000 facets, 6,000 drawn edges. Open surfaces may not overlap another part. Not yet validated on a real Solid Edge export.
+
+STEP / IGES (still planned) through occt-import-js: tessellated to the mesh the hidden-line engine already draws. Decide first: wasm size, licence text shipped, offline behaviour (precache, or refuse by name when offline).

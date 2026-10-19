@@ -55,11 +55,11 @@ const sweep = (s: Sketch): number => {
 
 describe("opening a file: refused by name with the route", () => {
   it.each([
-    ["bracket.par", /^bracket\.par: a Solid Edge part \(\.par\) can only be read by Solid Edge — in Solid Edge, use Save As → STEP/],
+    ["bracket.par", /^bracket\.par: a Solid Edge part \(\.par\) can only be read by Solid Edge — in Solid Edge, use Save As → STL/],
     ["sheet.dft", /^sheet\.dft: a Solid Edge draft \(\.dft\) can only be read by Solid Edge — in Solid Edge, use Save As → DXF/],
     ["plan.dwg", /^plan\.dwg: DWG is a closed format/],
-    ["part.stp", /^part\.stp: STP parts are not imported yet — this release reads DXF drawings/],
-    ["part.STL", /^part\.STL: STL parts are not imported yet/],
+    ["part.stp", /^part\.stp: STP parts are not imported yet — save the part as STL \(in Solid Edge, Save As → STL\) and import that/],
+    ["part.STL", /^part\.STL: an STL is a 3D part — it is added to the model as a part/],
     ["notes.txt", /^notes\.txt: this is not a DXF file — choose a \.dxf/],
   ])("%s", (name, why) => {
     const r = openDxfFile(name, bytes("0\r\nSECTION\r\n"));

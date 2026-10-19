@@ -3,7 +3,7 @@
  * decisions the pane's Import button needs, kept here where they can be tested.
  *
  *   - openDxfFile: a picked file → the drawing, or a refusal that names the file
- *     and the route (native Solid Edge, DWG, binary DXF, too large, not yet STEP/STL).
+ *     and the route (native Solid Edge, DWG, binary DXF, too large, not yet STEP; an STL is a part).
  *   - importedFigure: the drawing as a picture for Word — true size, fitted to the
  *     page when larger, with the sentence that says so. Not re-editable, and its alt
  *     text says so (the Edit button names it, rather than "not made by this tool").
@@ -48,8 +48,9 @@ export function openDxfFile(fileName: string, bytes: Uint8Array): OpenResult {
   const native = importRefusal(fileName, bytes.subarray(0, 32));
   if (native) return no(native);
   const ext = (/\.([a-z0-9_]+)$/i.exec(fileName)?.[1] ?? "").toLowerCase();
-  if (["stp", "step", "igs", "iges", "stl"].includes(ext))
-    return no(`${ext.toUpperCase()} parts are not imported yet — this release reads DXF drawings (in Solid Edge, save the draft as DXF)`);
+  if (ext === "stl") return no("an STL is a 3D part — it is added to the model as a part, not opened as a drawing");
+  if (["stp", "step", "igs", "iges"].includes(ext))
+    return no(`${ext.toUpperCase()} parts are not imported yet — save the part as STL (in Solid Edge, Save As → STL) and import that, or save a draft as DXF`);
   if (ext !== "dxf") return no("this is not a DXF file — choose a .dxf (in Solid Edge or AutoCAD, Save As → DXF)");
   const big = sizeRefusal(fileName, bytes.length);
   if (big) return { ok: false, reason: big };

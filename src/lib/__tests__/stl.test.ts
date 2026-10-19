@@ -76,9 +76,10 @@ const asm = (mesh: SolidMesh, extra: Assembly["bodies"] = []): Assembly => ({
 });
 
 describe("reading STL files", () => {
-  test("a binary cube: corners joined, the 12 real edges drawn, the face diagonals not", () => {
+  test("a binary cube: corners joined within each face (not across its edges), the 12 real edges drawn, the face diagonals not", () => {
     const b = body(binary(cube()));
-    expect(b.mesh.positions.length / 3).toBe(8);
+    // 6 faces × 4 corners: a corner is shared along a face, never across an edge (as the engine's own box).
+    expect(b.mesh.positions.length / 3).toBe(24);
     expect(b.mesh.triangles.length / 3).toBe(12);
     expect(b.mesh.edges.length / 2).toBe(12);
     expect(b.size).toEqual([10, 10, 10]);
@@ -197,12 +198,12 @@ describe("refusals, by name", () => {
     expect(readStl(b).ok).toBe(true); // ten zero facets: read, then refused below for having no area
     const big = new Uint8Array(84 + 50 * (STL_LIMITS.facets + 1));
     new DataView(big.buffer).setUint32(80, STL_LIMITS.facets + 1, true);
-    expect(readStl(big)).toEqual({ ok: false, reason: "it has more than 200,000 facets — this importer reads up to 200,000; export it again with a coarser tolerance" });
+    expect(readStl(big)).toEqual({ ok: false, reason: "it has more than 100,000 facets — this importer reads up to 100,000; export it again with a coarser tolerance" });
   });
 
   test("a file larger than the size limit", () => {
     const r = readStl(new Uint8Array(STL_LIMITS.bytes + 1));
-    expect(r).toEqual({ ok: false, reason: "the file is 60.1 MB — this importer reads STL files up to 60 MB" });
+    expect(r).toEqual({ ok: false, reason: "the file is 30.1 MB — this importer reads STL files up to 30 MB" });
   });
 
   test("text: a facet with four corners, a cut-off file, no facets", () => {

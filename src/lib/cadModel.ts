@@ -70,6 +70,13 @@ export interface SolidMesh {
   edges: number[];
   /** The largest chord error estimated for its smooth regions (from the corner normals). */
   sag: number;
+  /**
+   * Every piece encloses a volume (each side shared by exactly two facets that agree). Inside and
+   * outside are known only then: an open one may not share space with another part.
+   */
+  closed: boolean;
+  /** How far a corner may sit from where the file meant it (its numbers' rounding: float32, or printed digits). */
+  noise: number;
 }
 
 export interface Body {
@@ -200,7 +207,7 @@ export function modelProblems(a: Assembly): ModelProblem[] {
 function meshProblem(m: SolidMesh): string | null {
   const nv = m.positions.length / 3, nt = m.triangles.length / 3;
   if (!nt || !Number.isInteger(nv) || !Number.isInteger(nt)) return "it has no triangles";
-  if (m.cornerNormals.length !== 9 * nt || m.edges.length % 2) return "its triangles are damaged";
+  if (m.cornerNormals.length !== 9 * nt || m.edges.length % 2 || typeof m.closed !== "boolean" || !(m.noise >= 0)) return "its triangles are damaged";
   if (!m.positions.every(Number.isFinite) || !m.cornerNormals.every(Number.isFinite)) return "it has a point that is not a number";
   const inRange = (i: number): boolean => Number.isInteger(i) && i >= 0 && i < nv;
   if (!m.triangles.every(inRange) || !m.edges.every(inRange)) return "its triangles are damaged";
@@ -377,6 +384,8 @@ export interface Mesh {
   overlaps: Array<[number, number]>;
   /** Per body: the largest chord error its curved surfaces were flattened to (0 = all flat). */
   bodySag: number[];
+  /** Per body: how far its corners may be from where they were meant (an imported file's rounding); absent = 0. */
+  bodyNoise?: number[];
 }
 
 export interface TessOptions {
@@ -453,7 +462,7 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
   if (problems.length) return { ok: false, reason: problems.map((p) => `${p.body}: ${p.reason}`).join("; ") };
   const diag = assemblyDiag(a);
   const tol = diag * opts.relTol;
-  const m: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag, crossings: [], overlaps: [], bodySag: [] };
+  const m: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag, crossings: [], overlaps: [], bodySag: [], bodyNoise: [] };
   for (const [bi, b] of a.bodies.entries()) {
     const R = b.frame ? mul3(rotationMatrix(b.placement.rotateDeg), b.frame) : rotationMatrix(b.placement.rotateDeg);
     const T = b.placement.translate;
@@ -477,6 +486,7 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
       : b.spec.kind === "extrude" ? tessExtrude(b.spec, ft, put, tri, edge)
       : tessRevolve(b.spec, ft, put, tri, edge);
     m.bodySag.push(ft.sag);
+    m.bodyNoise!.push(b.spec.kind === "mesh" ? b.spec.mesh.noise : 0);
     if (r) return { ok: false, reason: `${b.name || b.id}: ${r}` };
     if (m.triangles.length / 3 > opts.maxTriangles) {
       return {
@@ -485,6 +495,9 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
       };
     }
   }
+  // Overlaps are found by which side of a surface a point lies on: a surface with gaps has no inside.
+  const open = openMeshClash(m, a);
+  if (open) return { ok: false, reason: open };
   const bad = findCrossings(m, a.bodies.length, opts.maxPairTests ?? 4_000_000);
   if (bad) {
     const nm = (i: number): string => a.bodies[i].name || a.bodies[i].id;
@@ -494,6 +507,35 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
     };
   }
   return { ok: true, mesh: m };
+}
+
+/** An imported body with gaps in its surface whose box meets another body's (or null). */
+function openMeshClash(m: Mesh, a: Assembly): string | null {
+  const n = a.bodies.length;
+  const lo = Array.from({ length: n }, () => [Infinity, Infinity, Infinity]);
+  const hi = Array.from({ length: n }, () => [-Infinity, -Infinity, -Infinity]);
+  const T = m.triangles, P = m.positions;
+  for (let t = 0; t < T.length / 3; t++) {
+    const b = m.triBody[t];
+    for (let c = 0; c < 3; c++)
+      for (let k = 0; k < 3; k++) {
+        const v = P[3 * T[3 * t + c] + k];
+        if (v < lo[b][k]) lo[b][k] = v;
+        if (v > hi[b][k]) hi[b][k] = v;
+      }
+  }
+  const nm = (i: number): string => a.bodies[i].name || a.bodies[i].id;
+  for (let A = 0; A < n; A++) {
+    const s = a.bodies[A].spec;
+    if (s.kind !== "mesh" || s.mesh.closed) continue;
+    for (let B = 0; B < n; B++) {
+      if (B === A) continue;
+      const tol = m.diag * 1e-9;
+      if ([0, 1, 2].every((k) => lo[A][k] <= hi[B][k] + tol && lo[B][k] <= hi[A][k] + tol))
+        return `${nm(A)} is not a closed solid (its surface has gaps), so where it meets ${nm(B)} cannot be worked out — move them apart, or export ${nm(A)} again as a closed (watertight) solid`;
+    }
+  }
+  return null;
 }
 
 // ---- where overlapping bodies cross ----------------------------------------------------------

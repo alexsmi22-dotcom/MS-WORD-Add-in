@@ -30,6 +30,7 @@ import {
 } from "./cadModel";
 import type { StandardId } from "./cadStandards";
 import type { Sketch } from "./sketch";
+import { isMeshRef, MeshRef, meshFor } from "./cadMeshStore";
 import { SketchOp, sketchBody, parseSketch, parseOp } from "./sketchDoc";
 import type { Callout, ViewSpec } from "./cadSheet";
 import { Orientation, SHEET_SIZES, SheetSizeId, sheetRefusal, TitleFieldId, TitleValues } from "./cadFormats";
@@ -263,17 +264,20 @@ export const SHAPE_IDS = Object.keys(SHAPES) as ShapeId[];
 export interface CadPart {
   id: string;
   name: string;
-  /** A catalogue shape, or "sketch": a part made from its own sketch (R2a). */
-  shape: ShapeId | "sketch";
+  /** A catalogue shape, "sketch": a part made from its own sketch (R2a), or "mesh": an imported STL (R3b). */
+  shape: ShapeId | "sketch" | "mesh";
   params: Record<string, number>;
   placement: Placement;
   /** A sketched part's sketch and how it becomes a solid. */
   sketch?: Sketch;
   op?: SketchOp;
+  /** An imported part's file (its triangles are held by cadMeshStore, never in the drawing). */
+  mesh?: MeshRef;
 }
 
 /** What a part is called in the parts list. */
 export function shapeName(p: CadPart): string {
+  if (p.shape === "mesh") return "Imported STL";
   return p.shape === "sketch" ? (p.op?.kind === "revolve" ? "Sketch, revolved" : "Sketch, extruded") : SHAPES[p.shape].name;
 }
 
@@ -366,6 +370,11 @@ export function defaultParams(shape: ShapeId): Record<string, number> {
 
 /** Every reason a part's dimensions cannot be drawn, in words. */
 export function partProblems(part: CadPart): string[] {
+  if (part.shape === "mesh") {
+    if (!part.mesh) return ["its file is missing"];
+    const r = meshFor(part.mesh);
+    return r.ok ? [] : [r.reason];
+  }
   if (part.shape === "sketch") {
     if (!part.sketch || !part.op) return ["the sketch is missing"];
     const r = sketchBody(part.sketch, part.op);
@@ -398,6 +407,11 @@ export function docToAssembly(doc: CadDoc): { ok: true; assembly: Assembly } | {
     assembly: {
       version: 1,
       bodies: doc.parts.map((p) => {
+        if (p.shape === "mesh") {
+          const r = meshFor(p.mesh!);
+          if (!r.ok) throw new Error(r.reason); // partProblems refused it above
+          return { id: p.id, name: p.name, spec: { kind: "mesh" as const, mesh: r.mesh }, placement: p.placement };
+        }
         if (p.shape === "sketch") {
           const r = sketchBody(p.sketch!, p.op!);
           if (!r.ok) throw new Error(r.reason); // partProblems refused it above
@@ -412,9 +426,14 @@ export function docToAssembly(doc: CadDoc): { ok: true; assembly: Assembly } | {
 
 // ---- callouts that belong to parts ------------------------------------------------------------
 
+/** A catalogue shape's own frame (none for a sketched or imported part). */
+export function partFrame(p: CadPart): number[] | undefined {
+  return p.shape === "sketch" || p.shape === "mesh" ? undefined : SHAPES[p.shape].frame;
+}
+
 /** The part's rotation (its shape's frame, then its turn) and translation: world = R·local + T. */
 function partTransform(p: CadPart): { R: number[]; T: Vec3 } {
-  const frame = p.shape === "sketch" ? undefined : SHAPES[p.shape].frame;
+  const frame = partFrame(p);
   const turn = rotationMatrix(p.placement.rotateDeg);
   return { R: frame ? mul3(turn, frame) : turn, T: p.placement.translate };
 }
@@ -543,7 +562,7 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
       if (ids.has(p.id)) return { ok: false, reason: "two parts in the drawing share one id" };
       ids.add(p.id);
     }
-    const known = p && (p.shape === "sketch" || Object.prototype.hasOwnProperty.call(SHAPES, p.shape));
+    const known = p && (p.shape === "sketch" || p.shape === "mesh" || Object.prototype.hasOwnProperty.call(SHAPES, p.shape));
     if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !known) return { ok: false, reason: "a part in the drawing is damaged" };
     if (!p.placement || !isVec(p.placement.translate) || !isVec(p.placement.rotateDeg)) return { ok: false, reason: `part ${p.name} has a damaged placement` };
     if (!p.params || typeof p.params !== "object") return { ok: false, reason: `part ${p.name} has no dimensions` };
@@ -555,6 +574,12 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
       if (!op) return { ok: false, reason: `part ${p.name} has a damaged extrude or revolve` };
       p.sketch = sk.sketch;
       p.op = op;
+    }
+    if (p.shape === "mesh") {
+      // Read field by field: the reference only (the triangles never travel in a drawing).
+      if (!isMeshRef(p.mesh)) return { ok: false, reason: `part ${p.name} has a damaged imported-file record` };
+      const m = p.mesh;
+      p.mesh = { file: m.file, hash: m.hash, facets: m.facets, mmPerUnit: m.mmPerUnit, creaseDeg: m.creaseDeg, size: [m.size[0], m.size[1], m.size[2]] };
     }
   }
   for (const c of d.callouts as DocCallout[]) {

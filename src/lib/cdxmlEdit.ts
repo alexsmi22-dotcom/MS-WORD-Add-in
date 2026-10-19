@@ -668,7 +668,9 @@ export function turnLabelForSide(doc: CdxDoc, nodeId: string): boolean {
   const text = left ? hs + sym : sym + hs;
   if (text === runs[0].text && (t.attrs.LabelJustification === "Right") === left) return true;
   const fresh = labelText(doc, node, text, left);
-  // The run keeps its own style (font, size, face) from the file.
+  // The label keeps its own attributes (colour, alignment, id …) and its run its style; only the geometry and
+  // justification are new.
+  fresh.attrs = { ...t.attrs, p: fresh.attrs.p, BoundingBox: fresh.attrs.BoundingBox, LabelJustification: fresh.attrs.LabelJustification };
   fresh.children[0].attrs = { ...runs[0].attrs };
   node.children = node.children.map((c) => (c === t ? fresh : c));
   return true;

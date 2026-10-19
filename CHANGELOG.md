@@ -70,6 +70,12 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 - The large canvas's compact page keeps a caption's line breaks; on a Word that cannot message a window the window
   asks the pane for the plain structure, and the button stays off until it reopens.
 
+### Fixed before release (review of the label fixes: 2 findings + 3 small)
+- Labels lay out as the group they read as on their own side (OMe = MeO, but CN ≠ NC, SCN ≠ NCS), so linkage
+  isomers on one alkene carbon keep their E / Z; up to eight drawn H are placed back as drawn again (artemisinin);
+  a turned label keeps its colour and other attributes; a near-vertical bond turns no label; a host without window
+  messaging asks for the plain structure.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

@@ -116,7 +116,11 @@ Office.onReady(() => {
   editor.setOnChangeListener(() => updateInfo());
 
   // The pane's drawing arrives once the readout above exists (loadSeed updates it).
-  if (params.get("wait")) {
+  if (params.get("wait") && typeof Office.context.ui.addHandlerAsync !== "function") {
+    // A host without window messaging at all: ask for the structure the older way.
+    showError("This version of Word cannot hand a drawing this large to a window — this canvas starts blank, and “Use this drawing” would REPLACE the pane's drawing. Cancel to keep it.");
+    send({ needMol: true });
+  } else if (params.get("wait")) {
     Office.context.ui.addHandlerAsync(
       Office.EventType.DialogParentMessageReceived,
       (arg: { message?: string }) => loadSeed(typeof arg.message === "string" ? arg.message : null),

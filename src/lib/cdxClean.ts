@@ -33,7 +33,10 @@ function sideOf(frag: XNode, n: XNode): "left" | "right" | null {
   const b = frag.children.find((q) => q.name === "b" && (q.attrs.B === n.attrs.id || q.attrs.E === n.attrs.id));
   const o = b ? frag.children.find((c) => c.name === "n" && c.attrs.id === (b.attrs.B === n.attrs.id ? b.attrs.E : b.attrs.B)) : undefined;
   if (!o) return null;
-  return posOf(o)[0] - posOf(n)[0] > 1e-6 ? "left" : "right";
+  const dx = posOf(o)[0] - posOf(n)[0];
+  // A bond within half a point of vertical has no side (a label is not turned for a rounding).
+  if (Math.abs(dx) < 0.5) return null;
+  return dx > 0 ? "left" : "right";
 }
 
 /** A stereo bond as the reader takes it (cdxmlMol addBondOf): a hashed or hollow plain bond is not one. */
@@ -64,7 +67,13 @@ function layoutMolecule(doc: CdxDoc, frag: XNode, id: string, L: number): { mol:
     let z = type === "Element" ? Number(n.attrs.Element ?? 6) : 0;
     if (!z) {
       const words = (n.children.find((c) => c.name === "t")?.children.map((q) => q.text).join("") ?? "").replace(/\s+/g, "");
-      const meaning = groupSmilesBySide(words, "right") ?? groupSmilesBySide(words, "left") ?? words;
+      // The group the label reads as on its own side (OMe right of a bond and MeO left of one are one group;
+      // CN and NC, SCN and NCS are not), else its words; an unlabelled node by its type.
+      // Read as the converter reads it: its justification first (the letter on the atom), then its side, then from
+      // its first letter (a label straight above or below its bond).
+      const just = n.children.find((c) => c.name === "t")?.attrs.LabelJustification;
+      const side = just === "Left" ? "right" : just === "Right" ? "left" : sideOf(frag, n) ?? "right";
+      const meaning = (words ? groupSmilesBySide(words, side) : null) ?? (words || type);
       const key = `${n.attrs.GenericNickname ?? ""}:${n.attrs.ElementList ?? ""}:${meaning}`;
       if (!standIn.has(key)) standIn.set(key, next > 60 ? next-- : 6);
       z = standIn.get(key)!;
@@ -233,7 +242,7 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
     };
     let ok = same();
     // A drawn H placed back where it reads as the other centre: tried round its atom until it reads as drawn.
-    if (!ok && dropped.length && dropped.length <= 4) {
+    if (!ok && dropped.length && dropped.length <= 8) {
       for (const h of dropped) {
         if (ok) break;
         for (let step = 1; step < 12 && !ok; step++) {

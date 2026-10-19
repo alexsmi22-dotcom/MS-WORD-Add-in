@@ -189,3 +189,21 @@ describe("review of Clean (round 3)", () => {
     expect(n.children.some((c) => c.name === "fragment")).toBe(true);
   });
 });
+
+describe("review of Clean (round 4)", () => {
+  test("1. linkage isomers on one alkene carbon (CN and NC) keep their E / Z: cleaned with the same isomer, or refused", () => {
+    for (let k = 0; k < 8; k++) {
+      const j = (v: number): string => (v + ((k * 7) % 5) - 2).toFixed(2);
+      const d = page(`<fragment id="10"><n id="101" p="${j(60)} 100"/><n id="102" p="85 ${j(85)}"/><n id="103" p="115 85"/><n id="104" p="140 ${j(60)}" NodeType="Unspecified"><t p="140 60"><s font="3" size="10">CN</s></t></n><n id="105" p="140 ${j(110)}" NodeType="Unspecified"><t p="140 110"><s font="3" size="10">NC</s></t></n><b id="106" B="101" E="102"/><b id="107" B="102" E="103" Order="2"/><b id="108" B="103" E="104"/><b id="109" B="103" E="105"/></fragment>`);
+      const before = idcodeOf(d, "10");
+      const r = cleanStructures(d);
+      if (r === null) expect(idcodeOf(reread(d), "10")).toBe(before);
+      else expect(r).toMatch(/would change/);
+    }
+  });
+  test("3. a label turned for its side keeps its own attributes (colour)", () => {
+    const d = page('<fragment id="10"><n id="101" p="100 100" NumHydrogens="3"><t p="100 100" color="5"><s font="3" size="10" face="96">CH3</s></t></n><n id="102" p="70 120"/><n id="103" p="40 100"/><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/></fragment>');
+    expect(cleanStructures(d)).toBeNull();
+    expect(findById(d.root, "101")!.el.children.find((c) => c.name === "t")!.attrs.color).toBe("5");
+  });
+});

@@ -29,12 +29,22 @@ describe("typesetConditions", () => {
     expect(typesetConditions("Route2B")).toBe("Route2B");
   });
 
-  it.each(["SN2 conditions", "Mg2+", "Fe3+ (cat.)", "Step B2", "compound C3"])("not a formula, left as typed (review): %s", (raw) => {
+  it.each(["SN2 conditions", "Step B2", "compound C3"])("not a formula, left as typed (review): %s", (raw) => {
     expect(typesetConditions(raw)).toBe(raw);
   });
 
   it("the lone formulas still lower their count: H2, O2, Cl2", () => {
     expect(typesetConditions("H2, O2, Cl2")).toBe("H₂, O₂, Cl₂");
+  });
+
+  it.each([
+    ["CH2Cl2-MeOH (9:1)", "CH₂Cl₂-MeOH (9:1)"],
+    ["H2O-THF", "H₂O-THF"],
+    ["NH4+", "NH₄⁺"],
+    ["Mg2+, Fe3+", "Mg²⁺, Fe³⁺"],
+    ["H2SO4−", "H₂SO₄⁻"],
+  ])("a hyphen is a mixture, a + or − is a charge (review): %s → %s", (raw, out) => {
+    expect(typesetConditions(raw)).toBe(out);
   });
 
   it("hydrogen and mixed conditions", () => {

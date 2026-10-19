@@ -83,7 +83,11 @@ function heldByPage(doc: CdxDoc, own: ReadonlySet<string>, id: string): boolean 
     if (x === id) continue;
     const o = doc.objects.find((q) => q.id === x);
     if (!o) return true; // a bracket group or anything that is not a plain object
-    if (o.items.some((it) => it.kind !== "text")) return true;
+    for (const it of o.items) {
+      if (it.kind === "fragment") return true; // a counter-ion
+      // A polymer's bracket, a drawn charge; a line, box or arrow drawn nearby is not chemistry.
+      if (it.kind === "graphic" && /^(Bracket|Symbol)$/.test(it.v.el.attrs.GraphicType ?? "")) return true;
+    }
   }
   return false;
 }

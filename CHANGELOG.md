@@ -16,7 +16,8 @@ would self correct."
 - **The original ChemDraw-like editor draws structures again** (Structure ▸ Draw and the large canvas): the editor
   JurisLab had before v2.156, which corrects the drawing as you go. The page canvas of v2.156–v2.161 is kept only for
   what a molecule cannot hold — a ChemDraw page's brackets, arrows and captions — and appears only when one is opened.
-  Insert, Insert selected, ChemDraw size / USPTO drawing sheet size and Save as .cdxml work from either.
+  Insert, Insert selected, ChemDraw size / USPTO drawing sheet size and Save as .cdxml work from either; a structure
+  with a query ChemDraw has no attribute for inserts with the editor's own picture, and the status says why.
 - **Open ChemDraw file… shows the file's structures to pick from.** A patent ChemDraw file is a document (the demo
   file held 93 structures, 229 arrows and lines and 149 captions on a page 29 × 290 cm); putting all of it on the
   canvas made every atom a few pixels across. Now each structure is drawn small in a list; click one and it opens on

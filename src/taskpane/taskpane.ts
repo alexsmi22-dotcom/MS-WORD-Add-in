@@ -2021,6 +2021,9 @@ Office.onReady((info) => {
     if (!drawEditor) return;
     const mol = drawEditor.getMolecule();
     if (!mol.getAllAtoms()) return setStatus("Nothing to save — draw a structure first.", "error");
+    // A structure the ChemDraw page cannot hold (a query it has no attribute for) is not saved as a blank page (review).
+    const why = structureEditor && drawEditor === structureEditor ? structureEditor.refusal() : "";
+    if (why || !drawEditor.page().objects.length) return setStatus(`This structure cannot be saved as a ChemDraw file: ${why || "the page writer could not hold it"}.`, "error");
     const xml = writeCdxml(drawEditor.page().root);
     triggerDownload(new Blob([xml], { type: "chemical/x-cdxml" }), "structure.cdxml");
     setStatus("Saved as structure.cdxml — ChemDraw opens it.", "success");
@@ -5206,6 +5209,9 @@ function usePageCanvas(): ChemCanvas | null {
   }
   if (structureEditor) structureEditor.element.hidden = true;
   (document.getElementById("build-page-bar") as HTMLElement).hidden = false;
+  // Shown again only by a gallery pick that has a structure to offer (it went stale on the whole page: review).
+  (document.getElementById("build-page-bare") as HTMLElement).hidden = true;
+  pickedBare = null;
   (document.getElementById("draw-save-cdxml") as HTMLElement).hidden = true;
   drawEditor = pageEditor;
   return pageEditor;
@@ -5242,7 +5248,7 @@ function openPickedStructure(doc: CdxDoc, name: string, st: PageStructure, n: nu
     pc.loadPage(sub);
     pc.setName(name);
     drawFromPicture = false;
-    pickedBare = st.bare;
+    pickedBare = st.bare; // after usePageCanvas, which clears it
     (document.getElementById("build-page-bare") as HTMLElement).hidden = !st.bare;
     setStatus(
       `Opened ${of} on the page canvas, as drawn — ${st.reason}.` +
@@ -30057,7 +30063,12 @@ async function insertCadDrawing(svg: string, widthPx: number, heightPx: number, 
 async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promise<void> {
   if (!drawEditor) return;
   const r = drawEditor.render(selectionOnly);
-  if (!r) return setStatus(selectionOnly ? "Nothing is selected — click a structure first." : "Nothing drawn to insert.", "error");
+  if (!r) {
+    // A structure the ChemDraw page writer refused has no page picture: say that, not "nothing drawn" (review).
+    const why = structureEditor && drawEditor === structureEditor && drawEditor.getMolecule().getAllAtoms() ? structureEditor.refusal() : "";
+    if (why) return setStatus(`This structure has no ChemDraw drawing to insert (${why}) — Insert 2D structure puts it in with the editor's own picture.`, "error");
+    return setStatus(selectionOnly ? "Nothing is selected — click a structure first." : "Nothing drawn to insert.", "error");
+  }
   const fit = canvasInsertSize(r, selectionOnly);
   if (!fit.ok) return setStatus(`${selectionOnly ? "The selection" : "The page"}: ${fit.reason}.`, "error");
   const chem = drawEditor.chemistry(selectionOnly);

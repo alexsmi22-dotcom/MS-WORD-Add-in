@@ -114,22 +114,30 @@ export interface ReactionConditions {
 const REAGENT_GROUPS = new Set(["Me", "Et", "Pr", "Bu", "Ph", "Bn", "Ac", "Bz", "Ts", "Ms", "Tf", "Boc", "Cbz", "Fmoc", "Tr", "Cy", "Ar", "Py", "Tol", "Mes"]);
 const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
 
+/** Mechanism names, not formulas (SN2 is never S N₂). */
+const MECHANISMS = new Set(["SN1", "SN2", "E1", "E2", "SNAr", "SRN1", "SE2", "SE1"]);
+/** The elements written alone with a count in conditions (H₂, O₂ …); any other "letter + digits" (B2, C3) is a label. */
+const LONE_FORMULAS = new Set(["H2", "N2", "O2", "O3", "F2", "Cl2", "Br2", "I2", "S8", "P4"]);
+
+const SUPER: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "−": "⁻", "-": "⁻" };
+
 /**
  * Reaction conditions as chemists write them: the digits of a reagent's formula lowered — "H2SO4" → H₂SO₄, "CH2Cl2"
  * → CH₂Cl₂, "Et3N" → Et₃N, "Pd(PPh3)4" → Pd(PPh₃)₄ (the display contract; the scheme showed H2SO4: demo walkthrough
  * 2026-10-19). Only a token made wholly of element symbols, group abbreviations, digits and brackets, starting with a
  * capital, is touched; "0 °C", "2 h", "rt", "1,4-dioxane", "10 mol%" are left as typed.
  */
-/** Mechanism names, not formulas (SN2 is never S N₂). */
-const MECHANISMS = new Set(["SN1", "SN2", "E1", "E2", "SNAr", "SRN1", "SE2", "SE1"]);
-/** The elements written alone with a count in conditions (H₂, O₂ …); any other "letter + digits" (B2, C3) is a label. */
-const LONE_FORMULAS = new Set(["H2", "N2", "O2", "O3", "F2", "Cl2", "Br2", "I2", "S8", "P4"]);
-
 export function typesetConditions(text: string): string {
-  return text.replace(/[A-Z][A-Za-z0-9()]*/g, (tok, at: number, all: string) => {
-    if (!/[0-9]/.test(tok)) return tok;
-    // A charge follows (Mg2+, Fe3+): those digits are the charge's, not a count (review).
-    if (/^[+\-−]/.test(all.slice(at + tok.length))) return tok;
+  // A charge right after a formula is + or − (a hyphen only at the end of a word: "CH2Cl2-MeOH" is a solvent mixture,
+  // not a charge — review): Mg2+ → Mg²⁺, NH4+ → NH₄⁺, H2SO4− → H₂SO₄⁻.
+  return text.replace(/([A-Z][A-Za-z0-9()]*)([+−]|-(?![A-Za-z0-9]))?/g, (whole, tok: string, charge: string | undefined) => {
+    if (charge) {
+      const ion = /^([A-Z][a-z]?)([0-9]+)$/.exec(tok);
+      if (ion && atomicNumber(ion[1]) !== null) return ion[1] + [...ion[2], charge].map((c) => SUPER[c]).join("");
+      const counted = typesetConditions(tok);
+      return counted === tok && !/^[A-Z][a-z]?$/.test(tok) && !counted.match(/[₀-₉]/) ? whole : counted + SUPER[charge];
+    }
+    if (!/[0-9]/.test(tok)) return whole;
     if (MECHANISMS.has(tok)) return tok;
     // One element and a count only: a formula when it is one of the usual lone ones, else a label ("Step B2").
     if (/^[A-Z][a-z]?[0-9]+$/.test(tok) && !LONE_FORMULAS.has(tok)) return tok;

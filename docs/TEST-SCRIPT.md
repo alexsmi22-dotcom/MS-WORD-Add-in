@@ -21,6 +21,11 @@ The steps from the 2026-10-19 demo, in Word:
 - [ ] **A generic structure** (marked "page" in the list, e.g. one with X): it opens on its own on the page canvas; the
   status says why. "Back to the structure editor" returns.
 - [ ] **R-groups.** A structure with R1 and R2: the SMILES shows both ([R1] and [R2]), not R1 twice.
+- [ ] **A polymer** (brackets with n, marked "page"): it opens on the page canvas with its brackets; "Edit the structure in
+  the structure editor" opens the repeat unit in the editor (the status says brackets are left out). Open the whole page:
+  that button is gone.
+- [ ] **Save as .cdxml** under the editor: ChemDraw opens the saved file with the same structure.
+- [ ] **Back and forth.** Draw something, switch to the Text tab and back, press Ctrl+Z: the last edit is undone.
 - [ ] ★ **Large canvas.** Open large canvas / 3D with a structure drawn: a smaller window, the same editor; draw, Use
   this drawing: it comes back exactly. Word stays responsive while the window is open.
 - [ ] **Dark mode** (Word in a dark theme): Insert name, Edit in Draw and the canvas buttons are clearly readable.

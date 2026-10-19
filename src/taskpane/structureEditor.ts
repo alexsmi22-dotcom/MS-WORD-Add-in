@@ -20,6 +20,8 @@ import { createChemCanvas, type CanvasChange, type ChemCanvas, type ChemCanvasHo
 export interface StructureEditor extends ChemCanvas {
   /** The editor's own element (OpenChemLib draws its toolbar and page inside). */
   element: HTMLElement;
+  /** Why the drawing has no ChemDraw page (the page writer refused it), or "" — the pane says it, never "nothing drawn". */
+  refusal(): string;
 }
 
 /**
@@ -84,11 +86,15 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
   // Shown again after being hidden (another tool, the page canvas, the Text tab), the editor keeps the scale it fitted
   // to a zero-size page: Edit in Draw switched tools and loaded ibuprofen in one step, and the editor showed an empty
   // page under a correct formula (walkthrough 2026-10-19). Coming back from zero size, the structure is fitted again.
+  // Only a structure GIVEN while hidden is fitted again — a refit is a setMolecule, which takes the editor's one undo
+  // step: refitting on every return to the Draw tab made Ctrl+Z forget the last edit (review).
   let wasHidden = !mount.clientWidth || !mount.clientHeight;
+  let givenWhileHidden = false;
   if (typeof ResizeObserver === "function") {
     new ResizeObserver(() => {
       const hidden = !mount.clientWidth || !mount.clientHeight;
-      if (wasHidden && !hidden) {
+      if (wasHidden && !hidden && givenWhileHidden) {
+        givenWhileHidden = false;
         // A frame later, after the editor has resized its own page: the same molecule laid out for that page (the
         // change event it fires is not a user edit).
         requestAnimationFrame(() => {
@@ -115,6 +121,10 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
 
   return {
     element: mount,
+    refusal: () => {
+      sync();
+      return refused;
+    },
     getMolecule: () => editor.getMolecule(),
     chemistry: (selectionOnly) => {
       if (selectionOnly) {
@@ -126,6 +136,7 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
     setMolecule: (mol) => {
       editor.setMolecule(mol);
       stale = true;
+      if (wasHidden) givenWhileHidden = true;
     },
     clearAll: () => {
       editor.clearAll();

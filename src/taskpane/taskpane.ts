@@ -5119,8 +5119,9 @@ function ensureDrawEditor(): void {
     drawEditor = createChemCanvas(host, { setStatus: (m, k) => setStatus(m, k ?? ""), downloadFile: (blob, name) => triggerDownload(blob, name) });
     drawEditor.setOnChangeListener((event) => {
       // A programmatic change (Clean, the large canvas's return, Edit in Draw, a ChemDraw file) keeps
-      // the status that path just set.
-      updateDrawPreview(!event.isUserEvent);
+      // the status that path just set. Worked out once drawing pauses (the formula and SMILES of a
+      // large page take a good part of a second): clicks stay quick, Insert works it out first.
+      scheduleDrawPreview(!event.isUserEvent);
     });
   } catch (error) {
     drawEditor = null;
@@ -5219,7 +5220,28 @@ function renderCompliance(issues: ComplianceIssue[]): void {
  * figure that will insert (the canvas itself is the editing view, not the
  * insert artifact).
  */
+let drawPreviewTimer = 0;
+let drawPreviewPending: { preserveStatus: boolean } | null = null;
+/** The Draw tab's formula, SMILES and checks, worked out once the drawing pauses (250 ms). */
+function scheduleDrawPreview(preserveStatus: boolean): void {
+  // Any user change among those waiting clears the status, as each would have.
+  drawPreviewPending = { preserveStatus: (drawPreviewPending?.preserveStatus ?? true) && preserveStatus };
+  window.clearTimeout(drawPreviewTimer);
+  drawPreviewTimer = window.setTimeout(flushDrawPreview, 250);
+}
+/** Works out a waiting Draw preview now (before Insert or anything else that reads it). */
+function flushDrawPreview(): void {
+  window.clearTimeout(drawPreviewTimer);
+  const p = drawPreviewPending;
+  drawPreviewPending = null;
+  // Only while the Draw tab is the one shown: the Text tab's build is its own.
+  if (p && buildTab === "draw") updateDrawPreview(p.preserveStatus);
+}
+
 function updateDrawPreview(preserveStatus = false): void {
+  // A direct refresh supersedes one waiting.
+  window.clearTimeout(drawPreviewTimer);
+  drawPreviewPending = null;
   currentBuild = null;
   insertBuildBtn.disabled = true;
   const pageEmpty = !drawEditor || !drawEditor.page().objects.length;
@@ -5269,7 +5291,7 @@ function updateDrawPreview(preserveStatus = false): void {
     }
 
     try {
-      let result = resultFromMolecule(mol, STRUCTURE_W, STRUCTURE_H);
+      let result = resultFromMolecule(mol, STRUCTURE_W, STRUCTURE_H, { picture: !drawn });
       currentBuild = result;
       // Reflect the result, not just the flag: a drawn R-group makes the
       // structure generic even when the user never ticked the box.
@@ -5325,6 +5347,7 @@ function openDrawDialog(molOnly?: string): void {
   const base = new URL("drawdialog.html", window.location.href).href;
   // The whole page travels — structures, brackets, arrows, text, group labels, as ChemDraw keeps them —
   // in the URL when short enough, else by message once the window says it is ready (as the CAD window does).
+  flushDrawPreview();
   const hasPage = !!drawEditor && drawEditor.page().objects.length > 0;
   const payload = hasPage ? JSON.stringify({ page: compactPage(), frag: drawEditor!.isFragment() || !!currentBuild?.generic }) : "";
   // In the URL the page goes as its own parameter (no JSON escaping: more fits); by message, as JSON.
@@ -5582,6 +5605,9 @@ function openInDraw(): void {
 
 /** Builds a molecule from the Build textarea and shows its structure, formula, and SMILES. */
 function updateBuildPreview(): void {
+  // A Draw refresh still waiting does not apply to the Text tab.
+  window.clearTimeout(drawPreviewTimer);
+  drawPreviewPending = null;
   const text = buildInput.value;
   currentBuild = null;
   insertBuildBtn.disabled = true;
@@ -5761,6 +5787,7 @@ function currentLegendEntries(): LegendEntry[] {
 
 /** Inserts the built molecule's structure as an inline picture, plus an R-group legend if defined. */
 async function insertBuild(): Promise<void> {
+  flushDrawPreview(); // the drawing as it is now, not as it was when it last paused
   // A drawn page with no structure as chemistry (arrows, text, labels with no exact form) inserts as drawn.
   if (!currentBuild && buildTab === "draw" && drawEditor?.page().objects.length) return insertDrawingOnly(false);
   const molecule = currentBuild;

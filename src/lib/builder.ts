@@ -314,11 +314,11 @@ export function rgroupLabels(mol: Molecule): string[] {
  * drawn structure inserts identically to a typed one. Editor molecules carry
  * their own coordinates, so none are invented.
  */
-export function resultFromMolecule(mol: Molecule, width = 300, height = 230): BuildResult {
+export function resultFromMolecule(mol: Molecule, width = 300, height = 230, opts: { picture?: boolean } = {}): BuildResult {
   if (mol.getAllAtoms() === 0) throw new Error("Nothing drawn yet.");
   // The caller (editor) owns and live-mutates this molecule — derive from a copy.
   const copy = mol.getCompactCopy();
-  return finish(copy, width, height, false, rgroupLabels(copy));
+  return finish(copy, width, height, false, rgroupLabels(copy), opts.picture !== false);
 }
 
 function uniqueSorted(values: string[]): string[] {
@@ -364,7 +364,7 @@ export function buildFromIdcode(text: string, width = 300, height = 230): BuildR
   return finish(mol, width, height, !coordinates, rgroupLabels(mol));
 }
 
-function finish(mol: Molecule, width: number, height: number, needCoords: boolean, rgroups: string[]): BuildResult {
+function finish(mol: Molecule, width: number, height: number, needCoords: boolean, rgroups: string[], picture = true): BuildResult {
   // An R-group attachment point makes the structure a genus whatever the
   // fragment flag says — a "concrete" formula/MW counting R at mass 0 would be
   // wrong. The typed atom/bond path already flags this; drawn and ID-code
@@ -381,13 +381,17 @@ function finish(mol: Molecule, width: number, height: number, needCoords: boolea
   // its natural drawn size with the surrounding whitespace trimmed. The stereo
   // R/S/"abs" text tags are suppressed (wedge bonds already show configuration;
   // the tags clutter dense structures) — query/R-group labels are unaffected.
-  const svg = mol.toSVG(width, height, undefined, {
-    autoCrop: true,
-    autoCropMargin: 8,
-    suppressChiralText: true,
-    suppressCIPParity: true,
-    suppressESR: true,
-  });
+  // (No picture when the caller draws its own: the canvas's page is what inserts. OCL's picture of
+  // a 200-atom page took half a second on every click, to be thrown away.)
+  const svg = picture
+    ? mol.toSVG(width, height, undefined, {
+        autoCrop: true,
+        autoCropMargin: 8,
+        suppressChiralText: true,
+        suppressCIPParity: true,
+        suppressESR: true,
+      })
+    : "";
   const generic = mol.isFragment();
   let smiles = "";
   try {

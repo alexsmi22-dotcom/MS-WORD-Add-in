@@ -753,7 +753,10 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
         const all = tx.runs.map((q) => q.text).join("");
         const m = /^([A-Z][a-z]?)(.+)$/.exec(all);
         if (!m || /\r|\n/.test(all)) return null;
-        return [{ ...tx.runs[0], text: m[1] }, { ...tx.runs[0], text: m[2] }];
+        // The style is the first run with text (the renderer drops empty runs).
+        const base = tx.runs.find((q) => q.text !== "");
+        if (!base) return null;
+        return [{ ...base, text: m[1] }, { ...base, text: m[2] }];
       };
       // A charge ChemDraw draws as a symbol (tied by a represent element) is not set as text (cdxmlRender).
       const chargeDrawn = new Set<string>();

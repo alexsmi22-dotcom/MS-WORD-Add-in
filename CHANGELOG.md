@@ -60,6 +60,7 @@ structure carrying one is refused by name rather than redrawn without it. Isotop
   abbreviation's connection points (Cl₂Ge, Cl₂Sn refused); a lone abbreviation is refused as having no single formula.
 - Fifth review (no new defects; 2 small items): a label stacked below or above its atom is measured in the style
   it is drawn in; the too-small refusal rounds its percentage down, so it never names an allowed size.
+- Sixth review (1 finding): a stacked label whose first style run is empty is measured in its first run with text.
 - ChemDraw's aromatic bonds were counted as single (benzene read C₆H₁₂): they are now resolved into
   alternating single and double bonds, a ring atom that gives a lone pair instead (pyrrole NH, furan O,
   C₅H₅⁻, C₇H₇⁺) kept single; a ring that cannot alternate is refused by name.

@@ -112,6 +112,14 @@ describe("review: lettering measured as it is drawn", () => {
     expect(c.page().objects[0].items.some((it) => it.kind === "fragment" && it.v.nodes.some((n) => n.label?.align === "Below"))).toBe(true);
     expect(c.smallestTextPt(false)).toBe(7.5);
   });
+  test("review: a stacked label whose first run is empty takes the style of its first run with text", () => {
+    const c = load('<fragment id="10"><n id="1" p="0 0" Element="7" NumHydrogens="2"><t p="0 0" LabelAlignment="Below"><s font="3" size="10" face="0"></s><s font="3" size="10" face="96">NH2</s></t></n><n id="2" p="30 0"/><b id="3" B="1" E="2"/></fragment>');
+    expect(c.smallestTextPt(false)).toBe(7.5);
+  });
+  test("review: a drawing far too large says under 1 %, never 0 %", () => {
+    const z = usptoInsertSize(PAGE_PT.w * 200, 100, null, USPTO_REQUIRED_FONT_PT);
+    expect(!z.ok && z.reason).toMatch(/drawn at under 1 %, too small to read/);
+  });
   test("a charge ChemDraw draws as a symbol is not counted as 75 % text", () => {
     const c = load('<fragment id="10"><n id="1" p="0 0" Charge="1"/><n id="2" p="30 0"/><b id="3" B="1" E="2"/></fragment><graphic id="20" SymbolType="Plus" BoundingBox="5 -5 10 0"><represent attribute="Charge" object="1"/></graphic>');
     expect(c.smallestTextPt(false)).toBeNull();

@@ -80,7 +80,7 @@ export function usptoInsertSize(widthPt: number, heightPt: number, smallestPt: n
   const pct = Math.round(k * 100);
   // Reduced past a quarter, its lines and spacing are too small to read whatever its letters (chemdrawFit's floor).
   if (k < MIN_FIT)
-    return { ok: false, reason: `that is ${(widthPt / 72).toFixed(1)} × ${(heightPt / 72).toFixed(1)} in — on a page it would be drawn at ${Math.floor(k * 100)} %, too small to read. Select fewer structures (click one, Shift+click to add)` };
+    return { ok: false, reason: `that is ${(widthPt / 72).toFixed(1)} × ${(heightPt / 72).toFixed(1)} in — on a page it would be drawn at ${k < 0.01 ? "under 1" : Math.floor(k * 100)} %, too small to read. Select fewer structures (click one, Shift+click to add)` };
   const note = !lettered
     ? pct < 100 ? `Reduced to ${pct} % to fit the page.` : ""
     : pct > 100 ? `Enlarged ${pct} % so its letters meet the USPTO's 1/8-inch minimum (37 CFR 1.84(p)(3)).`
@@ -95,7 +95,7 @@ export function chemdrawFit(widthPt: number, heightPt: number): { ok: true; k: n
   if (k < MIN_FIT) {
     return {
       ok: false,
-      reason: `that is ${(widthPt / 72).toFixed(1)} × ${(heightPt / 72).toFixed(1)} in — on a page it would be drawn at ${Math.floor(k * 100)} %, too small to read. Select fewer structures (click one, Shift+click to add)`,
+      reason: `that is ${(widthPt / 72).toFixed(1)} × ${(heightPt / 72).toFixed(1)} in — on a page it would be drawn at ${k < 0.01 ? "under 1" : Math.floor(k * 100)} %, too small to read. Select fewer structures (click one, Shift+click to add)`,
     };
   }
   return { ok: true, k, note: k < 1 ? `It is inserted at ${Math.round(k * 100)} % to fit the page.` : "It is inserted at ChemDraw's size." };

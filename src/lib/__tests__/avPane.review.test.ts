@@ -8,8 +8,9 @@
 // at module scope), so the registry entries are sliced out of the pane source,
 // transpiled with the TypeScript compiler and run against the real src/lib
 // modules. The helpers the entries call (engNum, engUnits, avDb, avPlot,
-// avNumbers, readSvgDims, plainDashes and the unit notes) are sliced from the
-// pane too, so the numbers, lines and figure sizes below are the pane's own.
+// avNumbers and the unit notes) are sliced from the pane too, and the ones that
+// moved to src/lib (readSvgDims, plainDashes) come from there, so the numbers,
+// lines and figure sizes below are the pane's own.
 // engReport is replaced by a stub that keeps the lines (em dashes made plain,
 // as the real one does) and the figure blocks.
 //
@@ -39,6 +40,7 @@ import * as numberList from "../numberList";
 import * as mechchart from "../mechchart";
 import * as plot from "../plot";
 import * as svgSize from "../svgSize";
+import * as engReportLib from "../engReport";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -95,16 +97,16 @@ function buildRegistry(): Record<string, any> {
     slice("function avPlot(", "\n}\n"),
     slice("function avNumbers(", "\n}\n"),
     slice("function avDb(", "\n}\n"),
-    slice("function plainDashes(", "\n}\n"),
   ].join("\n");
   const src = `${helpers}\nreturn [\n${IDS.map(entry).join(",\n")}\n];`;
   const js = ts
     .transpileModule(src, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.None, removeComments: true } })
     .outputText.replace(/^"use strict";/, "");
   const scope: Record<string, any> = {};
-  for (const lib of [audio, loudness, video, timecode, photometry, colourspace, avFigures, units, numberList, mechchart, plot, svgSize]) {
+  for (const lib of [audio, loudness, video, timecode, photometry, colourspace, avFigures, units, numberList, mechchart, plot, svgSize, engReportLib]) {
     Object.assign(scope, lib);
   }
+  // The real engReport came in with plainDashes; the stub below replaces it on purpose.
   scope.avFmt = (audio as any).fmtNum;
   scope.engReport = (lines: any[], extra: any[] = []) => ({
     lines: lines.map((l) => (typeof l === "string" ? l.replace(/—/g, "-") : l.fallback)),

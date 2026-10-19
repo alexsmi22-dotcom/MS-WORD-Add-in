@@ -19,6 +19,9 @@ import * as path from "path";
 const PANE = fs
   .readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8")
   .replace(/\r\n/g, "\n");
+// The result-block union and engReport moved to src/lib (host-adapter scope §E); they are read there.
+const BLOCKS = fs.readFileSync(path.join(__dirname, "..", "analyzeBlocks.ts"), "utf8").replace(/\r\n/g, "\n");
+const ENG_REPORT = fs.readFileSync(path.join(__dirname, "..", "engReport.ts"), "utf8").replace(/\r\n/g, "\n");
 
 function registrySource(name: string): string {
   const start = PANE.indexOf(`const ${name}`);
@@ -666,9 +669,11 @@ describe("every non-text block kind reaches the rich insert path", () => {
   test("every block kind in the union is either plain text or listed as rich", () => {
     // Parses the AnalyzeBlock union so a NEW kind cannot be added without either
     // being routed or being consciously left as text.
-    const start = PANE.indexOf("type AnalyzeBlock =");
-    const end = PANE.indexOf("interface AnalyzeOutput", start);
-    const union = PANE.slice(start, end);
+    const start = BLOCKS.indexOf("type AnalyzeBlock =");
+    expect(start).toBeGreaterThan(-1);
+    const end = BLOCKS.indexOf("interface AnalyzeOutput", start);
+    expect(end).toBeGreaterThan(start);
+    const union = BLOCKS.slice(start, end);
     const kinds = [...union.matchAll(/kind: "([a-z]+)"/g)].map((m) => m[1]);
     expect(kinds.length).toBeGreaterThanOrEqual(4);
     const richLine = PANE.slice(PANE.indexOf("const RICH_KINDS"), PANE.indexOf(";", PANE.indexOf("const RICH_KINDS")));
@@ -979,9 +984,9 @@ describe("the em-dash sentinel cannot disable Insert on an Engineering result", 
 
   test("engReport normalises every line and every formula fallback", () => {
     // The tools that delegate to it are only safe if it really does this.
-    const i = PANE.indexOf("function engReport(");
+    const i = ENG_REPORT.indexOf("function engReport(");
     expect(i).toBeGreaterThan(-1);
-    const body = PANE.slice(i, PANE.indexOf("\n}", i));
+    const body = ENG_REPORT.slice(i, ENG_REPORT.indexOf("\n}", i));
     // Once for the prose lines, once for the math fallbacks.
     expect(body.split("plainDashes").length - 1).toBeGreaterThanOrEqual(2);
   });
@@ -989,8 +994,8 @@ describe("the em-dash sentinel cannot disable Insert on an Engineering result", 
   test("the guard this defends is still in place", () => {
     // If the pane stops scanning for the sentinel, this suite is obsolete rather
     // than wrong — so pin the thing it is protecting.
-    expect(PANE).toContain("function plainDashes(");
-    expect(PANE).toContain("\\u2014");
+    expect(ENG_REPORT).toContain("function plainDashes(");
+    expect(ENG_REPORT).toContain("\\u2014");
   });
 });
 

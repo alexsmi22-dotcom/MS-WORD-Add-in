@@ -3709,3 +3709,12 @@ export function integrate(input: string, a: number, b: number, variable?: string
     caveats,
   };
 }
+
+/** Parses a bound expression like "0", "pi", or "pi/2" to a number, or NaN. */
+export function parseBound(s: string): number {
+  try {
+    return evalAst(parseExpr(s), {});
+  } catch {
+    return NaN;
+  }
+}

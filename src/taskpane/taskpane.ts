@@ -39,7 +39,10 @@ import {
   overlayPrediction,
   OverlaySource,
 } from "../lib/spectroPane";
-import { bracketedBoxPlot, BracketChoice, BracketFigure } from "../lib/statsBrackets";
+import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
+import { AnalyzeBlock, AnalyzeOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
+import { EngLine, engReport, plainDashes } from "../lib/engReport";
+import { statFieldCommasAreSeparators } from "../lib/statFields";
 import {
   HostCapability,
   FigurePresetChoice,
@@ -140,7 +143,7 @@ import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { resolveMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, deptBehaviour, DeptClass, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, predictHmbc, predictTocsy, Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "../lib/nmr2d";
-import { solveEquation, differentiate, integrate, antiderivative, parseExpr, evalAst } from "../lib/solve";
+import { solveEquation, differentiate, integrate, antiderivative, parseBound } from "../lib/solve";
 import { solveSystem, splitEquations } from "../lib/systems";
 import { limit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
 import { solveInequality } from "../lib/inequalities";
@@ -368,6 +371,7 @@ import {
   st26Exclusions,
   MolType,
   MOL_TYPE_OPTIONS,
+  guessMolType,
   St26Feature,
   SequenceEntry,
   SequenceListingMeta,
@@ -486,9 +490,8 @@ import {
 import {
   findPrecedingAuthority,
   citationRegister,
-  CitationRegister,
   parseToaPages,
-  toaEntryKey,
+  registerToText,
   findPrecedingSecondarySource,
 } from "../lib/toa";
 import {
@@ -565,7 +568,7 @@ import {
   buildPeriodicTableSvg,
   elementReport,
 } from "../lib/periodicChart";
-import { atomicNumber, symbolFor, atomicNumberByName, elementName } from "../lib/periodic";
+import { symbolFor, elementName, resolveElement } from "../lib/periodic";
 import {
   photonRelations,
   gaussianBeam,
@@ -3661,23 +3664,6 @@ function addSequenceCard(prefill?: { residues?: string; organism?: string; molTy
 }
 
 /**
- * Guesses ST.26's molecule type from the residues themselves.
- *
- * Deliberately conservative and stated in the result: DNA unless there is a U
- * with no T (RNA), or letters outside the nucleotide alphabet (protein). A
- * short peptide of only GATC-type letters is genuinely ambiguous — "CAT" is a
- * valid tripeptide and a valid codon — so it reads as DNA and the user changes
- * the dropdown. Guessing silently would be worse than guessing visibly.
- */
-function guessMolType(residues: string): MolType {
-  const r = residues.toUpperCase().replace(/[^A-Z]/g, "");
-  if (!r) return "DNA";
-  const nucleotide = /^[ACGTUNRYKMSWBDHV]+$/.test(r);
-  if (!nucleotide) return "AA";
-  return r.includes("U") && !r.includes("T") ? "RNA" : "DNA";
-}
-
-/**
  * Loads FASTA / GenBank files into sequence cards.
  *
  * Every record becomes its own card, because ST.26 lists sequences
@@ -3941,25 +3927,6 @@ function isRowKind(kind: RenderKind): kind is DiagramKind | "tablefigure" {
  * are listed as missing, because a reference that silently omits a property is
  * indistinguishable from one that has no data for that element.
  */
-/**
- * Resolves whatever was typed to an atomic number — a symbol, a number, or a NAME.
- *
- * Names are accepted because they are the thing most people reach for, and because the
- * tool now carries them: they are fetched and cross-checked rather than typed from
- * memory. Symbol first, since "C" is carbon rather than an abbreviation of anything,
- * and symbols are case-sensitive in chemistry — "CO" is carbon monoxide, "Co" is
- * cobalt, and quietly accepting either would be the wrong kind of helpful.
- */
-function resolveElement(raw: string): number | null {
-  const t = raw.trim();
-  if (!t) return null;
-  if (/^\d+$/.test(t)) {
-    const n = Number(t);
-    return symbolFor(n) === null ? null : n;
-  }
-  return atomicNumber(t) ?? atomicNumberByName(t);
-}
-
 function renderPeriodic(): void {
   const raw = periodicEl.value.trim();
   const view = periodicView.value;
@@ -8685,33 +8652,6 @@ interface StatField {
    */
   table?: TableShape;
 }
-interface StatOutput {
-  text: string;
-  /** False for a validation message (blocks insertion). */
-  ok?: boolean;
-  /**
-   * Optional diagram shown under the result — currently the regression residual
-   * and Q-Q plots, and the curve-fit plot.
-   *
-   * IT IS NO LONGER DISPLAY ONLY. This said "Display only: `text` remains what
-   * gets inserted", and that was true when the field was added and false once
-   * "Insert chart" shipped: `currentStatsSvg` (:840) feeds `insertStatsChart()`
-   * (:7712) behind its own button (:1432). The comment outlived the behaviour,
-   * and an audit read it as evidence that Stats figures could never reach a
-   * document — which is exactly the cost of a stale comment.
-   *
-   * `text` is still what the main Insert button writes; the figure is a second,
-   * separate insertion.
-   */
-  svg?: string;
-  /**
-   * v2.143.0: the same figure with significance brackets, built ONLY from this
-   * result's own engine object (lib/statsBrackets.ts). Present on the two-sample
-   * and paired t-tests, Mann–Whitney, Wilcoxon and Tukey HSD. `w` re-renders at a
-   * canvas width, for the figure styles.
-   */
-  brackets?: (choice: BracketChoice, w?: number) => BracketFigure;
-}
 interface StatCalc {
   id: string;
   name: string;
@@ -8762,14 +8702,6 @@ function statCommaNote(): string {
     "numbers; type 1, 5 (comma then space) for a list."
   );
 }
-/** The comma's role is decided over the WHOLE field, not per group: a field
- *  with "1,2,3" in one group and "4,5 6" in the next is comma-LISTING, so the
- *  second group is 4, 5, 6 — not 4.5, 6 (v2.134.0 integration review). In
- *  "cell" mode no group can hold a multi-comma run, so only this direction
- *  needs forcing. */
-function statFieldCommasAreSeparators(s: string): boolean {
-  return readNumberList(s).commaMode === "separator";
-}
 function statGroups(s: string): number[][] {
   const sep = statFieldCommasAreSeparators(s);
   return s
@@ -8815,18 +8747,6 @@ function statTwoWay(s: string): { cells: number[][][]; aLevels: string[]; bLevel
   return { cells, aLevels, bLevels };
 }
 
-
-/**
- * Swaps em dashes for hyphens in prose destined for a Stats result.
- *
- * An em dash in the result text is the NON-FINITE sentinel (formatNum, linalg.ts)
- * and blocks insertion. Library caveats are written with em dashes because they
- * are prose; this normalises them so a valid result stays insertable, changing
- * the punctuation and never the wording.
- */
-function plainDashes(text: string): string {
-  return text.replace(/\u2014/g, "-");
-}
 
 /**
  * Is this result text safe to put in a document?
@@ -10706,27 +10626,6 @@ interface AnalyzeField {
   rows?: number;
   options?: { value: string; label: string }[];
 }
-/** A piece of an Analyze result: a text line, a matrix (→ table), or a plot (→ image). */
-type AnalyzeBlock =
-  | { kind: "line"; text: string }
-  /**
-   * A line that IS a formula, written in the pane's math syntax and inserted as
-   * a real Word equation rather than as characters.
-   *
-   * This exists because a transfer function arriving in a document as
-   * "G(s) = (s^3 + 3s^2 + 2s + 1)/(s^2 + 2s + 5)" is ASCII with carets, not a
-   * formula — the same complaint that got Solve's derivations converted from
-   * flat text to OMML. `fallback` is what a reader gets if the expression will
-   * not parse, so an unusual result degrades to readable text rather than
-   * failing the whole insert.
-   */
-  | { kind: "math"; math: string; fallback: string }
-  | { kind: "matrix"; label?: string; m: Matrix }
-  | { kind: "plot"; svg: string; caption: string; alt: string; w: number; h: number };
-interface AnalyzeOutput extends StatOutput {
-  /** Structured blocks for rich insertion; when present, matrices go in as Word tables. */
-  blocks?: AnalyzeBlock[];
-}
 
 /** Parses "x = 1, y = 2" (comma/newline/semicolon separated) into names + values. */
 function parseAssignments(s: string): { names: string[]; values: number[] } {
@@ -10754,18 +10653,6 @@ function readMatrix(s: string): Matrix {
   const p = parseMatrix(s);
   if (!p.ok) throw new Error(p.error);
   return p.matrix;
-}
-
-/** Renders a block's text form (for the pane preview and the plain-text fallback). */
-function analyzeBlocksToText(blocks: AnalyzeBlock[]): string {
-  return blocks
-    .map((b) => {
-      if (b.kind === "line") return b.text;
-      if (b.kind === "math") return b.fallback;
-      if (b.kind === "plot") return b.caption;
-      return (b.label ? `${b.label}\n` : "") + formatMatrix(b.m);
-    })
-    .join("\n");
 }
 
 /** Rich preview HTML for a block list (matrices monospaced, plots inline). */
@@ -27561,35 +27448,6 @@ const ENG_CALCS: EngCalc[] = [
   },
 ];
 
-/**
- * One line of an Engineering report: prose, or a formula to be typeset.
- *
- * Marking the formulas rather than typesetting everything keeps the reports
- * readable — a result is mostly sentences with a few equations in it, and
- * pushing the prose through a math engine would be both wrong and ugly.
- */
-type EngLine = string | { math: string; fallback: string };
-
-/** Turns an Engineering report into blocks, typesetting the marked formulas. */
-function engReport(lines: EngLine[], extra: AnalyzeBlock[] = []): AnalyzeOutput {
-  const blocks: AnalyzeBlock[] = lines.map((l) =>
-    typeof l === "string"
-      ? { kind: "line" as const, text: plainDashes(l) }
-      : { kind: "math" as const, math: l.math, fallback: plainDashes(l.fallback) },
-  );
-  // A FIGURE'S CAPTION IS PART OF THE RESULT TEXT, and the insert guard scans
-  // the whole of it for the em dash it uses as the non-finite sentinel. The
-  // lines above were already cleaned and the captions were not, so one em dash
-  // in a caption disabled Insert for a tool whose numbers were all fine. Every
-  // caption every figure will ever carry goes through the same cleaning.
-  blocks.push(
-    ...extra.map((b) =>
-      b.kind === "plot" ? { ...b, caption: plainDashes(b.caption), alt: plainDashes(b.alt) } : b,
-    ),
-  );
-  return { blocks, text: analyzeBlocksToText(blocks) };
-}
-
 /** A transfer function as a typeset fraction, with a readable text fallback. */
 function tfLine(name: string, num: Rat[], den: Rat[]): EngLine {
   return {
@@ -30043,15 +29901,6 @@ function canvasInsertSize(r: { widthPt: number; heightPt: number }, selectionOnl
 function trimNum(v: number): string {
   if (Number.isInteger(v)) return String(v);
   return String(Number(v.toPrecision(8)));
-}
-
-/** Parses a bound expression like "0", "pi", or "pi/2" to a number, or NaN. */
-function parseBound(s: string): number {
-  try {
-    return evalAst(parseExpr(s), {});
-  } catch {
-    return NaN;
-  }
 }
 
 /**
@@ -33093,30 +32942,6 @@ async function buildTocHandler(): Promise<void> {
   } finally {
     tocBuildBtn.disabled = false;
   }
-}
-
-/** Plain-text rendering of a citation register (for display and copying). */
-function registerToText(reg: CitationRegister, pages: Map<string, string>): string {
-  const pg = (plain: string): string => {
-    const p = pages.get(toaEntryKey(plain));
-    return p ? `  — p. ${p}` : "";
-  };
-  const head = `Found ${reg.authorities} authorit${reg.authorities === 1 ? "y" : "ies"} in ${reg.citations} citation${reg.citations === 1 ? "" : "s"}.`;
-  const lines = [pages.size ? head : head + " (build the field-based TOA and press F9, then Find again to see pages)"];
-  if (reg.repeated.length) {
-    lines.push("", `Cited more than once (${reg.repeated.length}):`);
-    for (const e of reg.repeated) lines.push(`  ${e.plain}  ×${e.count}${pg(e.plain)}`);
-  }
-  let lastHeading = "";
-  lines.push("", "All authorities:");
-  for (const e of reg.entries) {
-    if (e.heading !== lastHeading) {
-      lines.push(`— ${e.heading} —`);
-      lastHeading = e.heading;
-    }
-    lines.push(`  ${e.plain}  ×${e.count}${pg(e.plain)}`);
-  }
-  return lines.join("\n");
 }
 
 /**

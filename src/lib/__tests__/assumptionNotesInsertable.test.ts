@@ -26,6 +26,8 @@ import { describeAssumptions } from "../diagnostics";
 import { assaySig } from "../assayFormat";
 
 const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
+// plainDashes moved to lib/engReport.ts (host-adapter scope §E); the pane imports it from there.
+const ENG_REPORT = fs.readFileSync(path.join(__dirname, "..", "engReport.ts"), "utf8");
 const EM_DASH = "—";
 
 describe("prose spliced into a result cannot disable Insert", () => {
@@ -50,7 +52,8 @@ describe("prose spliced into a result cannot disable Insert", () => {
     // If the reader stops blocking on the sentinel, this file is obsolete
     // rather than wrong. Pin the behaviour it defends.
     expect(PANE).toContain("function insertableResultText");
-    expect(PANE).toContain("function plainDashes");
+    expect(ENG_REPORT).toContain("export function plainDashes");
+    expect(PANE).toMatch(/import \{[^}]*\bplainDashes\b[^}]*\} from "\.\.\/lib\/engReport";/);
   });
 
   // THE GATE. Every call site, not the three that were broken — the point is

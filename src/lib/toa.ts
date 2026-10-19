@@ -1533,3 +1533,27 @@ function isIdHit(before: string, hit: string, after: string): boolean {
   if (/^id\./.test(hit) && ID_SIGNAL_BEFORE.test(before)) return isWholeCiteHit(before, hit, after);
   return false;
 }
+
+/** Plain-text rendering of a citation register (for display and copying). */
+export function registerToText(reg: CitationRegister, pages: Map<string, string>): string {
+  const pg = (plain: string): string => {
+    const p = pages.get(toaEntryKey(plain));
+    return p ? `  — p. ${p}` : "";
+  };
+  const head = `Found ${reg.authorities} authorit${reg.authorities === 1 ? "y" : "ies"} in ${reg.citations} citation${reg.citations === 1 ? "" : "s"}.`;
+  const lines = [pages.size ? head : head + " (build the field-based TOA and press F9, then Find again to see pages)"];
+  if (reg.repeated.length) {
+    lines.push("", `Cited more than once (${reg.repeated.length}):`);
+    for (const e of reg.repeated) lines.push(`  ${e.plain}  ×${e.count}${pg(e.plain)}`);
+  }
+  let lastHeading = "";
+  lines.push("", "All authorities:");
+  for (const e of reg.entries) {
+    if (e.heading !== lastHeading) {
+      lines.push(`— ${e.heading} —`);
+      lastHeading = e.heading;
+    }
+    lines.push(`  ${e.plain}  ×${e.count}${pg(e.plain)}`);
+  }
+  return lines.join("\n");
+}

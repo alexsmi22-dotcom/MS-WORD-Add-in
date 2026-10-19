@@ -325,3 +325,21 @@ export const ABSENT_PROPERTIES: ReadonlyArray<{ name: string; why: string }> = [
   },
 ];
 
+/**
+ * Resolves whatever was typed to an atomic number — a symbol, a number, or a NAME.
+ *
+ * Names are accepted because they are the thing most people reach for, and because the
+ * tool now carries them: they are fetched and cross-checked rather than typed from
+ * memory. Symbol first, since "C" is carbon rather than an abbreviation of anything,
+ * and symbols are case-sensitive in chemistry — "CO" is carbon monoxide, "Co" is
+ * cobalt, and quietly accepting either would be the wrong kind of helpful.
+ */
+export function resolveElement(raw: string): number | null {
+  const t = raw.trim();
+  if (!t) return null;
+  if (/^\d+$/.test(t)) {
+    const n = Number(t);
+    return symbolFor(n) === null ? null : n;
+  }
+  return atomicNumber(t) ?? atomicNumberByName(t);
+}

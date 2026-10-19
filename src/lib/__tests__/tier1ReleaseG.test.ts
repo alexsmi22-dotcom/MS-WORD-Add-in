@@ -57,8 +57,11 @@ describe("the import is wired into the Sequence panel", () => {
   });
 
   it("molecule type is guessed conservatively and visibly", () => {
-    const start = pane.indexOf("function guessMolType");
-    const body = pane.slice(start, pane.indexOf("\n}\n", start));
+    // guessMolType moved to lib/sequence.ts (host-adapter scope §E); its direct test is guessMolType.test.ts.
+    const seq = fs.readFileSync(path.join(ROOT, "src", "lib", "sequence.ts"), "utf8");
+    const start = seq.indexOf("function guessMolType");
+    expect(start).toBeGreaterThan(-1);
+    const body = seq.slice(start, seq.indexOf("\n}\n", start));
     expect(body).toMatch(/RNA/);
     expect(body).toMatch(/AA/);
   });

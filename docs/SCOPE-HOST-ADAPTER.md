@@ -123,18 +123,28 @@ A read-only audit found 345 top-level functions in `taskpane.ts`, of which 71 ar
 - **`lib/assayFormat.ts`:** `assaySig`, `assayValSE`, `assayPairXY`, `assayLineSvg`.
 - **Tests:** they are called directly in `paneMovedHelpers.test.ts`.
 
-**Queued, in dependency order:**
-1. `svgSize.ts` (`readSvgDims`, `svgNaturalSize`)
-2. `analyzeBlocks.ts`
-3. `engReport.ts`
-4. `statFields.ts`. It is stateful: the comma log must be returned rather than kept in a module Map.
-5. Single moves: `guessMolType`, `resolveElement`, `parseBound`, `registerToText`, `solveFunctionSvg`.
+**Moved in (b):** all moved unchanged. The pane imports them back.
+- **`lib/svgSize.ts`:** `readSvgDims`, `svgNaturalSize`.
+- **`lib/solveFigure.ts`:** `solveFunctionSvg`.
+- **`lib/analyzeBlocks.ts`:** `StatOutput`, `AnalyzeBlock`, `AnalyzeOutput`, `analyzeBlocksToText`.
+- **`lib/engReport.ts`:** `EngLine`, `engReport`, and `plainDashes`, which `engReport` needs. The Stats code imports `plainDashes` from here as well.
+- **`lib/statFields.ts`:** `statFieldCommasAreSeparators` only. See below.
+- **Single moves into existing modules:**
+  - `guessMolType` → `lib/sequence.ts`
+  - `resolveElement` → `lib/periodic.ts`
+  - `parseBound` → `lib/solve.ts`
+  - `registerToText` → `lib/toa.ts`
+- **Direct tests:** one file per move: `svgSize`, `solveFigure`, `analyzeBlocks`, `engReport`, `statFields`, `guessMolType`, `resolveElement`, `parseBound`, `registerToText` (`.test.ts`).
+- **Source-text tests retargeted to the lib files:** `engineeringRouting`, `assumptionNotesInsertable`, `avPane.review`, `tier1ReleaseG`, `solveAndUvvisDraw`.
 
-**Found during the audit, NOT changed, because each would be a behaviour change:**
-- **`finList` and `assayList`** split on commas. "1,5" becomes two values, which goes against the product's comma rule, and non-numbers are dropped silently.
-- **`readSvgDims` matches `\bwidth="`.** That also matches inside `stroke-width="` whenever a root `<svg>` has no width of its own.
+**Stayed in the pane: the stats readers that log commas.** These are `statList`, `logRowCommas`, `statGroups`, `statTable`, `statTwoWay` and `statCommaNote`, together with the `statCommaLog` Map.
+- `statList` alone has about 35 call sites, inside the compute closures of the Stats registry. Each of the other readers writes the log through it, or directly.
+- Returning the log instead of keeping it in a Map means changing every Stats compute to carry it back to `updateStatsPreview`. That is a large change across the whole registry, not a move.
+- So only the pure part moved. Returning the log belongs with a change that already touches the Stats computes.
 
-Both go to the user.
+**Found during the audit, both fixed in v2.160.0:**
+- **`finList` and `assayList`** split on commas, so "1,5" became two values, against the product's comma rule, and non-numbers were dropped silently. Both now read through `lib/calcList.ts` `readCalcList`, under the product comma rule, and refuse a non-number by name.
+- **`readSvgDims` matched `\bwidth="`.** That also matched inside `stroke-width="` whenever a root `<svg>` had no width of its own. It now reads the root tag only, then its viewBox.
 
 ## F. Releases
 

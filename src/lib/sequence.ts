@@ -577,3 +577,20 @@ export function buildSt26Xml(meta: SequenceListingMeta, entries: SequenceEntry[]
     "</ST26SequenceListing>\n"
   );
 }
+
+/**
+ * Guesses ST.26's molecule type from the residues themselves.
+ *
+ * Deliberately conservative and stated in the result: DNA unless there is a U
+ * with no T (RNA), or letters outside the nucleotide alphabet (protein). A
+ * short peptide of only GATC-type letters is genuinely ambiguous — "CAT" is a
+ * valid tripeptide and a valid codon — so it reads as DNA and the user changes
+ * the dropdown. Guessing silently would be worse than guessing visibly.
+ */
+export function guessMolType(residues: string): MolType {
+  const r = residues.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!r) return "DNA";
+  const nucleotide = /^[ACGTUNRYKMSWBDHV]+$/.test(r);
+  if (!nucleotide) return "AA";
+  return r.includes("U") && !r.includes("T") ? "RNA" : "DNA";
+}

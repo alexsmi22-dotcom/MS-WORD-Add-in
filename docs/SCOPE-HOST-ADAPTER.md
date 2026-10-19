@@ -123,9 +123,9 @@ A read-only audit found 345 top-level functions in `taskpane.ts`, of which 71 ar
 - **`lib/assayFormat.ts`:** `assaySig`, `assayValSE`, `assayPairXY`, `assayLineSvg`.
 - **Tests:** they are called directly in `paneMovedHelpers.test.ts`.
 
-**Moved in (b):** all moved unchanged. The pane imports them back.
-- **`lib/svgSize.ts`:** `readSvgDims`, `svgNaturalSize`.
-- **`lib/solveFigure.ts`:** `solveFunctionSvg`.
+**Moved in (b):** the pane imports them back. Everything moved unchanged except the first two, which were fixed as they moved (v2.160.0).
+- **`lib/svgSize.ts`:** `readSvgDims`, `svgNaturalSize`. `readSvgDims` now reads the root tag (see below).
+- **`lib/solveFigure.ts`:** `solveFunctionSvg`. It now plots implicit products.
 - **`lib/analyzeBlocks.ts`:** `StatOutput`, `AnalyzeBlock`, `AnalyzeOutput`, `analyzeBlocksToText`.
 - **`lib/engReport.ts`:** `EngLine`, `engReport`, and `plainDashes`, which `engReport` needs. The Stats code imports `plainDashes` from here as well.
 - **`lib/statFields.ts`:** `statFieldCommasAreSeparators` only. See below.

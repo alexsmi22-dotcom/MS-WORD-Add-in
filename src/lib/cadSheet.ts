@@ -30,6 +30,8 @@ import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues 
 import { LineType, lineTypesFor, strokeAttrs } from "./cadLineTypes";
 import { markSvg, marksExtent, SheetMark } from "./cadMarks";
 import { circlePolyline, detailDrawing } from "./cadDetail";
+import { cutMesh, hatchRegions, sectionPlane, sectionView, SectionPlane } from "./cadSection";
+import { MAPPED_VIEW, PERSPECTIVE_DISTANCE, perspectiveMesh } from "./cadPerspective";
 
 /** The sheet's layers. The user may switch off frame, titleBlock, callouts and titles. */
 export type LayerId = "visible" | "hidden" | "callouts" | "markup" | "titles" | "frame" | "titleBlock" | "info";
@@ -50,7 +52,26 @@ export type OrthoKind = "front" | "top" | "right" | "left" | "back" | "bottom";
 /** An orbit view carries either Euler degrees or the exact matrix the user dragged to. */
 /** "blank": a figure with no model in it, only what is drawn on it by hand (cadMarks). */
 /** "exploded": the isometric view of the exploded assembly (SheetOptions.exploded). */
-export type ViewSpec = { kind: OrthoKind | "iso" | "blank" | "exploded" } | { kind: "orbit"; deg?: Vec3; rot?: number[]; name?: string } | DetailSpec;
+export type ViewSpec = { kind: OrthoKind | "iso" | "blank" | "exploded" } | { kind: "orbit"; deg?: Vec3; rot?: number[]; name?: string } | DetailSpec | SectionSpec | PerspectiveSpec;
+/**
+ * A section view (cadSection, docs/SCOPE-CAD-VIEWS.md §B): the plane through the line a → b drawn on view `of` (that
+ * view's plane, model units), perpendicular to it, looking to the right of a → b (`flip`: to the left). `label` is a
+ * letter on every standard: the USPTO sheet shows the section's FIG number instead, worked out at layout, because FIG
+ * numbers change whenever a view is ticked.
+ */
+export interface SectionSpec {
+  kind: "section";
+  label: string;
+  of: OrthoKind;
+  a: [number, number];
+  b: [number, number];
+  flip?: boolean;
+}
+/** A perspective view (cadPerspective) from the isometric direction, the eye `distance` model diagonals away. */
+export interface PerspectiveSpec {
+  kind: "perspective";
+  distance?: number;
+}
 /**
  * A detail view (cadDetail): the circle of radius `r` about `at` on view `of` (in that view's plane,
  * model units), drawn again `factor` times larger, named by `letter`.
@@ -64,7 +85,7 @@ export interface DetailSpec {
   factor: number;
 }
 /** What names a view on the sheet (marks and frames): its kind, or "detail:A" for a detail. */
-export const viewKey = (v: ViewSpec): string => (v.kind === "detail" ? `detail:${v.letter}` : v.kind);
+export const viewKey = (v: ViewSpec): string => (v.kind === "detail" ? `detail:${v.letter}` : v.kind === "section" ? `section:${v.label}` : v.kind);
 
 export interface Callout {
   /** A world point ON the part (from pickAt). */
@@ -148,7 +169,12 @@ function viewOf(v: ViewSpec): CadView {
     return viewFromDegrees(v.deg ?? [0, 0, 0], v.name ?? "view");
   }
   if (v.kind === "detail") return v.of === "exploded" ? STANDARD_VIEWS.iso : STANDARD_VIEWS[v.of];
-  if (v.kind === "exploded") return STANDARD_VIEWS.iso;
+  if (v.kind === "exploded" || v.kind === "perspective") return STANDARD_VIEWS.iso;
+  if (v.kind === "section") {
+    const plane = sectionPlane(STANDARD_VIEWS[v.of], v.a, v.b, !!v.flip);
+    // (A line of no length has no plane: the sheet leaves that section out before it is drawn.)
+    return plane ? sectionView(STANDARD_VIEWS[v.of], plane, `section ${v.label}`) : STANDARD_VIEWS[v.of];
+  }
   return v.kind === "blank" ? STANDARD_VIEWS.front : STANDARD_VIEWS[v.kind];
 }
 
@@ -164,6 +190,9 @@ function viewName(v: ViewSpec): string {
     case "blank": return "";
     case "exploded": return "EXPLODED VIEW";
     case "detail": return `DETAIL ${v.letter}`;
+    // ASME Y14.3: the section is titled by the letters at the ends of its cutting line, en dash between.
+    case "section": return `SECTION ${v.label}–${v.label}`;
+    case "perspective": return "PERSPECTIVE";
     default: return (v.name ?? "VIEW").toUpperCase();
   }
 }
@@ -237,6 +266,60 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   }
 }
 
+/** A section of a model: its lines, hatching and the cut mesh (callouts are tested on it), or why it has none. */
+type SectionCut = { lines: LineDrawing; hatch: Polyline[]; mesh: Mesh; plane: SectionPlane; view: CadView } | { reason: string };
+/**
+ * Each section of a model object, by its plane. The cut mesh is a new object every time, so the per-mesh lines cache
+ * would never hit for it: the whole section is kept here instead, keyed on what places the plane (view, both ends,
+ * flip — the round-5/6 lessons: a cache key missing the plane drew the old section after a change).
+ */
+const sectionsOf = new WeakMap<Mesh, Map<string, SectionCut>>();
+function sectionFor(mesh: Mesh, spec: SectionSpec, budget: LineBudget): SectionCut {
+  let m = sectionsOf.get(mesh);
+  if (!m) sectionsOf.set(mesh, (m = new Map()));
+  const k = JSON.stringify([spec.of, spec.a, spec.b, !!spec.flip]);
+  let c = m.get(k);
+  if (c) return c;
+  const parent = STANDARD_VIEWS[spec.of];
+  const plane = sectionPlane(parent, spec.a, spec.b, !!spec.flip);
+  if (!plane) c = { reason: "its cutting line has no length — take it again with two different points" };
+  else {
+    const view = sectionView(parent, plane, "section");
+    const cut = cutMesh(mesh, plane, view, budget);
+    if (!cut.ok) c = { reason: cut.reason };
+    // A plane that cuts nothing would draw the plain view and title it a section.
+    else if (!cut.regions.length) c = { reason: "its cutting line does not cross the part — take it again across the part" };
+    else c = { lines: drawLines(cut.mesh, view, budget), hatch: hatchRegions(cut.regions, budget).lines, mesh: cut.mesh, plane, view };
+  }
+  // (A sheet run out of time throws above, and nothing is kept: the next sheet tries again.)
+  m.set(k, c);
+  return c;
+}
+
+/**
+ * A section's cutting line on its parent view (that view's plane, model units): the line through a and b, across the
+ * parent's whole drawing and a margin past it on both sides, so it reads beyond the part's outline; and at each end
+ * the tip of the arrow showing the direction of sight (1.84(h)(3): "arrows to indicate the direction of sight") — to
+ * the right of a → b, or the left when flipped, as cadSection.sectionPlane takes the sight. From the parent's OWN
+ * lines (never a box grown by marks), so drawing on the figure does not move the line.
+ */
+function cuttingLine(bounds: LineDrawing["bounds"], spec: SectionSpec): { line: [[number, number], [number, number]]; tips: [[number, number], [number, number]]; sight: [number, number] } {
+  const [ax, ay] = spec.a;
+  const dx = spec.b[0] - ax, dy = spec.b[1] - ay;
+  const len = Math.hypot(dx, dy) || 1;
+  const u: [number, number] = [dx / len, dy / len];
+  const s = spec.flip ? -1 : 1;
+  const sight: [number, number] = [s * u[1], -s * u[0]];
+  const corners: Array<[number, number]> = [[bounds.minX, bounds.minY], [bounds.maxX, bounds.minY], [bounds.maxX, bounds.maxY], [bounds.minX, bounds.maxY]];
+  const ts = corners.map(([x, y]) => (x - ax) * u[0] + (y - ay) * u[1]);
+  const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, 1e-9);
+  const margin = 0.08 * span, arrow = 0.1 * span;
+  const at = (t: number): [number, number] => [ax + u[0] * t, ay + u[1] * t];
+  const e1 = at(Math.min(...ts) - margin), e2 = at(Math.max(...ts) + margin);
+  const tip = (e: [number, number]): [number, number] => [e[0] + sight[0] * arrow, e[1] + sight[1] * arrow];
+  return { line: [e1, e2], tips: [tip(e1), tip(e2)], sight };
+}
+
 /** A view's lines of a model, worked out once for every sheet of that model object. */
 function linesFor(mesh: Mesh, spec: ViewSpec, view: CadView, budget: LineBudget): LineDrawing {
   // An orbit view's angle seldom repeats: kept, every drag would hold another drawing (fifth review).
@@ -252,7 +335,7 @@ function linesFor(mesh: Mesh, spec: ViewSpec, view: CadView, budget: LineBudget)
 function layoutSheetWithin(mesh: Mesh, o: SheetOptions): Sheet {
   const std = DRAWING_STANDARDS[o.standard];
   const room = ptToMm(std.textPt) * 1.15; // mm of paper per em of text, with a margin
-  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map(), work: lineBudget(o.lineBudgetMs), hidden: new Map() };
+  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map(), work: lineBudget(o.lineBudgetMs), hidden: new Map(), why: new Map() };
   const first = layoutCore(mesh, o, undefined, info);
   if (!info.textUnits) return first; // no hand-drawn text or numerals to make room for
   const fitAt = (s: number): number => {
@@ -293,8 +376,19 @@ function layoutSheetWithin(mesh: Mesh, o: SheetOptions): Sheet {
   return info.overflow ? { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [info.overflow] } : sheet;
 }
 
-/** A view's lines on the sheet: an exploded view adds its trail lines; a detail, its boundary circle. */
-type SheetDrawing = LineDrawing & { trails?: Polyline[]; boundary?: Polyline };
+/**
+ * A view's lines on the sheet: an exploded view adds its trail lines; a detail, its boundary circle; a section, its
+ * hatching and the cut mesh its callouts are tested on; a perspective, the mapped mesh and the map that takes a
+ * callout's point onto it.
+ */
+type SheetDrawing = LineDrawing & {
+  trails?: Polyline[];
+  boundary?: Polyline;
+  hatch?: Polyline[];
+  cut?: { mesh: Mesh; plane: SectionPlane };
+  persp?: { mesh: Mesh; map: (p: Vec3) => Vec3 };
+};
+const NO_LINES = (): LineDrawing => ({ visible: [], hidden: [], bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 }, stats: { triangles: 0, featureSegments: 0, pieces: 0 } });
 
 /** What one layout pass reports back, and the figures' lines it shares with the next pass. */
 interface LayoutInfo {
@@ -310,6 +404,8 @@ interface LayoutInfo {
   work: LineBudget;
   /** Whether each callout point is hidden in each view, worked out once for every pass. */
   hidden: Map<string, boolean>;
+  /** Why a section or perspective view could not be drawn (by its spec), so it is left out and said. */
+  why: Map<string, string>;
 }
 
 function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined, info: LayoutInfo): Sheet {
@@ -351,6 +447,13 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     notes.push(`Detail ${v.letter} is of the ${v.of === "iso" ? "isometric" : v.of} view, which is not on this sheet, so it is not drawn: tick that view too.`);
     return false;
   });
+  // 1.84(h)(3): "The plane upon which a sectional view is taken should be indicated on the view from which the
+  // section is cut" — a section of a view not on the sheet has nowhere to show its cutting line.
+  views = views.filter((v) => {
+    if (v.kind !== "section" || keys.has(v.of)) return true;
+    notes.push(`Section ${v.label} is cut from the ${v.of} view, which is not on this sheet, so it is not drawn: tick that view too.`);
+    return false;
+  });
   if (!views.length) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: notes.length ? notes : ["Add a part, or tick Blank figure to draw freehand."] };
   // A blank figure is as large as the largest model view (so marks keep their size when parts come
   // and go), or 100 × 70 units with no model.
@@ -388,11 +491,33 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       const bd = { ...base.bounds };
       for (const l of trails) for (const [x, y] of l) (bd.minX = Math.min(bd.minX, x)), (bd.maxX = Math.max(bd.maxX, x)), (bd.minY = Math.min(bd.minY, y)), (bd.maxY = Math.max(bd.maxY, y));
       d = { ...base, bounds: bd, trails };
+    } else if (spec.kind === "section") {
+      const c = sectionFor(mesh, spec, info.work);
+      if ("reason" in c) {
+        info.why.set(key, c.reason);
+        d = NO_LINES();
+      } else d = { ...c.lines, hatch: c.hatch, cut: { mesh: c.mesh, plane: c.plane } };
+    } else if (spec.kind === "perspective") {
+      // Not kept across sheets (a distance seldom repeats, and the mapped mesh is as large as the model): the map
+      // and the hidden lines spend this sheet's work.
+      spendBudget(info.work, mesh.positions.length / 3 + mesh.triangles.length / 3);
+      const p = perspectiveMesh(mesh, viewOf(spec), spec.distance ?? PERSPECTIVE_DISTANCE);
+      if (!p.ok) {
+        info.why.set(key, p.reason);
+        d = NO_LINES();
+      } else d = { ...drawLines(p.mesh, MAPPED_VIEW, info.work), persp: { mesh: p.mesh, map: p.map } };
     } else d = linesFor(mesh, spec, viewOf(spec), info.work);
     info.drawn.set(key, d);
     return d;
   };
   views = views.filter((v) => {
+    if (v.kind === "section" || v.kind === "perspective") {
+      drawingOf(v);
+      const why = info.why.get(JSON.stringify(v));
+      if (!why) return true;
+      notes.push(`${v.kind === "section" ? `Section ${v.label}` : "The perspective view"} is not drawn: ${why}.`);
+      return false;
+    }
     if (v.kind !== "detail") return true;
     const parent = drawingOf({ kind: v.of });
     const pb = parent.bounds, span = Math.max(pb.maxX - pb.minX, pb.maxY - pb.minY);
@@ -424,8 +549,9 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const d: SheetDrawing = drawings[vi] ?? (blankW > 0 ? { ...BLANK_EMPTY, bounds: { minX: 0, minY: 0, maxX: blankW, maxY: Math.max(blankH, blankW * 0.5) } } : { ...BLANK_EMPTY, bounds: { ...BLANK_EMPTY.bounds } });
     let cell: [number, number];
     if (ORTHO.has(spec.kind)) cell = cellsFor[spec.kind as OrthoKind];
-    // A detail goes in a row below every other view: read after the figure it enlarges (1.84(u)(1)).
-    else if (spec.kind === "detail") {
+    // A detail goes in a row below every other view: read after the figure it enlarges (1.84(u)(1)). A section
+    // likewise, after the view it is cut from.
+    else if (spec.kind === "detail" || spec.kind === "section") {
       const parent = views.find((v) => viewKey(v) === spec.of);
       const pc = parent ? (ORTHO.has(parent.kind) ? cellsFor[parent.kind as OrthoKind] : cellsFor.pic) : cellsFor.front;
       cell = [pc[0], 3];
@@ -448,6 +574,16 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     if (!parent) continue; // left out above
     const b = parent.d.bounds, [cx, cy] = dt.spec.at, r = dt.spec.r;
     parent.d.bounds = { minX: Math.min(b.minX, cx - r), minY: Math.min(b.minY, cy - r), maxX: Math.max(b.maxX, cx + r), maxY: Math.max(b.maxY, cy + r) };
+  }
+  // Each section's cutting line, arrows and labels are drawn on its parent view: its box holds them too.
+  const sections = items.filter((i): i is (typeof items)[number] & { spec: SectionSpec } => i.spec.kind === "section");
+  for (const sc of sections) {
+    const parent = items.find((i) => viewKey(i.spec) === sc.spec.of);
+    if (!parent) continue; // left out above
+    const c = cuttingLine(drawingOf({ kind: sc.spec.of }).bounds, sc.spec);
+    let b = parent.d.bounds;
+    for (const [x, y] of [...c.line, ...c.tips]) b = { minX: Math.min(b.minX, x), minY: Math.min(b.minY, y), maxX: Math.max(b.maxX, x), maxY: Math.max(b.maxY, y) };
+    parent.d.bounds = b;
   }
 
   // Compact the grid: only columns / rows that hold a view.
@@ -495,7 +631,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     }
     return true;
   });
-  for (const [v, n] of strays) notes.push(`${n} hand-drawn mark${n === 1 ? " belongs" : "s belong"} to ${v.startsWith("detail:") ? `detail ${v.slice(7)}` : `the ${v === "iso" ? "isometric" : v} view`}, which is not on this sheet.`);
+  for (const [v, n] of strays) notes.push(`${n} hand-drawn mark${n === 1 ? " belongs" : "s belong"} to ${v.startsWith("detail:") ? `detail ${v.slice(7)}` : v.startsWith("section:") ? `section ${v.slice(8)}` : `the ${v === "iso" ? "isometric" : v} view`}, which is not on this sheet.`);
   if (orbitMarks) notes.push(`${orbitMarks} hand-drawn mark${orbitMarks === 1 ? " is" : "s are"} on "This view", which turns with the model, so ${orbitMarks === 1 ? "it is" : "they are"} not drawn — draw on a standard view or the isometric.`);
   if (farMarks) notes.push(`${farMarks} hand-drawn mark${farMarks === 1 ? " lies" : "s lie"} far outside ${farMarks === 1 ? "its" : "their"} figure and ${farMarks === 1 ? "is" : "are"} not drawn.`);
   if (marks.length) {
@@ -532,6 +668,8 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   const labelOf = (it: (typeof items)[number], sc = 1): string => {
     if (std.viewLabels === "fig") return `FIG. ${figOf.get(it)}`;
     if (std.viewLabels !== "name") return "";
+    // A section at the sheet's own scale: ASME "SECTION A–A", ISO 128 the letters alone, "A–A".
+    if (it.spec.kind === "section") return o.standard === "iso" ? `${it.spec.label}–${it.spec.label}` : viewName(it.spec);
     if (it.spec.kind !== "detail") return viewName(it.spec);
     const k = scaleLabel(sc * it.spec.factor);
     // ASME writes the scale on a second line under the view's name.
@@ -560,17 +698,31 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const out: Array<{ n: number; x: number; y: number; right: boolean }> = [];
     const sp = it.spec;
     const ex = needsExploded(sp);
+    const { cut, persp } = it.d;
+    // What the hidden test is made against besides the view's turn: a section's plane (two parallel cuts share a
+    // turn) or a perspective's distance (the mapped view is the identity, as the top view is).
+    const tag = sp.kind === "section" ? `s${JSON.stringify([sp.of, sp.a, sp.b, !!sp.flip])}` : sp.kind === "perspective" ? `p${sp.distance ?? PERSPECTIVE_DISTANCE}` : ex ? "x" : "m";
     callouts.forEach((c, n) => {
       if (sp.kind === "blank") return;
       const anchor = ex ? (o.exploded!.anchors[n] ?? c.anchor) : c.anchor;
+      // A section shows only what lies beyond its plane: a point on the part taken away is not there to call out.
+      if (cut) {
+        const { point: q, sight: w } = cut.plane;
+        if ((anchor[0] - q[0]) * w[0] + (anchor[1] - q[1]) * w[1] + (anchor[2] - q[2]) * w[2] < -1e-9 * mesh.diag) return;
+      }
+      // A perspective view's point is where the map puts it, tested against the mapped mesh it is drawn from.
+      const p = persp ? persp.map(anchor) : anchor;
       // The same on every layout pass (the text-fit and detail-scale searches repeat the layout): worked
       // out once per view and point (third review: 40 callouts on a large part took 19.6 s).
-      const hk = `${ex ? "x" : "m"}|${it.view.rot.join(",")}|${anchor.join(",")}`;
+      const hk = `${tag}|${it.view.rot.join(",")}|${anchor.join(",")}`;
       let hid = info.hidden.get(hk);
-      if (hid === undefined) info.hidden.set(hk, (hid = pointHidden(ex ? o.exploded!.mesh : mesh, it.view, anchor, info.work)));
+      if (hid === undefined) {
+        hid = persp ? pointHidden(persp.mesh, MAPPED_VIEW, p, info.work) : pointHidden(cut ? cut.mesh : ex ? o.exploded!.mesh : mesh, it.view, anchor, info.work);
+        info.hidden.set(hk, hid);
+      }
       if (hid) return;
-      let x = R[0] * anchor[0] + R[1] * anchor[1] + R[2] * anchor[2];
-      let y = R[3] * anchor[0] + R[4] * anchor[1] + R[5] * anchor[2];
+      let x = persp ? p[0] : R[0] * anchor[0] + R[1] * anchor[1] + R[2] * anchor[2];
+      let y = persp ? p[1] : R[3] * anchor[0] + R[4] * anchor[1] + R[5] * anchor[2];
       if (sp.kind === "detail") {
         if (Math.hypot(x - sp.at[0], y - sp.at[1]) > sp.r) return;
         x = sp.at[0] + (x - sp.at[0]) * sp.factor;
@@ -587,7 +739,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   // figure is read on its own.
   if (std.callouts === "balloon") {
     const rank = (it: (typeof items)[number]): number =>
-      it.spec.kind === "detail" ? 99 : it.pictorial ? 0 : (["front", "top", "right", "left", "back", "bottom"] as string[]).indexOf(it.spec.kind) + 1;
+      it.spec.kind === "detail" || it.spec.kind === "section" ? 99 : it.pictorial ? 0 : (["front", "top", "right", "left", "back", "bottom"] as string[]).indexOf(it.spec.kind) + 1;
     const order = items.map((_, i) => i).sort((p, q) => rank(items[p]) - rank(items[q]) || p - q);
     const placed = new Set<number>();
     for (const i of order) {
@@ -765,7 +917,8 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       }
     }
 
-    const pictorialRule = it.spec.kind === "detail" ? !ORTHO.has(it.spec.of) : it.pictorial;
+    // A section is an orthographic view (it is laid out like a detail, but takes the orthographic hidden-line rule).
+    const pictorialRule = it.spec.kind === "detail" ? !ORTHO.has(it.spec.of) : it.spec.kind === "section" ? false : it.pictorial;
     const showHidden = o.showHidden ?? (pictorialRule ? std.hiddenInPictorial : std.hiddenInOrthographic);
     if (showHidden && it.d.hidden.length) layer.hidden.push(`<path d="${path(it.d.hidden)}" ${strokeAttrs(types.hidden, PX_PER_MM)}/>`);
     if (it.d.visible.length) layer.visible.push(`<path d="${path(it.d.visible)}" ${strokeAttrs(types.visible, PX_PER_MM)}/>`);
@@ -773,6 +926,35 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     if (it.d.trails?.length) layer.visible.push(`<path d="${path(it.d.trails)}" ${strokeAttrs(types.phantom, PX_PER_MM)}/>`);
     const thin = { ...types.hidden, dashMm: [], cap: "round" as const };
     if (it.d.boundary) layer.visible.push(`<path d="${path([it.d.boundary])}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
+    // 1.84(h)(3) hatching: thin lines, so the cut face's outline still reads as the outline.
+    if (it.d.hatch?.length) layer.visible.push(`<path data-hatch="1" d="${path(it.d.hatch)}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
+    // The cutting line of each section taken from this view, arrows toward the direction of sight, each end named:
+    // USPTO by the section's FIG number (1.84(h)(3): "numerals corresponding to the view number of the sectional
+    // view"), ASME / ISO by its letter.
+    for (const sc of sections) {
+      if (sc.spec.of !== viewKey(it.spec)) continue;
+      const c = cuttingLine(drawingOf({ kind: sc.spec.of }).bounds, sc.spec);
+      // No cutting-plane line type of its own (cadLineTypes): the phantom (chain) pattern at the visible width —
+      // ASME Y14.2 draws the cutting plane thick, and 1.84(h)(3) asks for "a broken line".
+      const cutting: LineType = { ...types.phantom, widthMm: types.visible.widthMm };
+      layer.visible.push(`<path data-cutting="${esc(sc.spec.label)}" d="${path([c.line])}" ${strokeAttrs(cutting, PX_PER_MM)}/>`);
+      const name = std.viewLabels === "fig" ? String(figOf.get(sc)) : sc.spec.label;
+      const nameW = name.length * fontPx * 0.62;
+      // On paper the sight points (sx, −sy): the sheet's y runs down.
+      const sx = c.sight[0], sy = -c.sight[1];
+      const head = fontPx * 0.8, half = head * 0.35;
+      for (let e = 0; e < 2; e++) {
+        const [ex0, ey0] = [X(c.line[e][0]), Y(c.line[e][1])];
+        const [tx, ty] = [X(c.tips[e][0]), Y(c.tips[e][1])];
+        const bx = tx - sx * head, by = ty - sy * head;
+        layer.visible.push(`<path data-arrow="${esc(sc.spec.label)}" d="M${fmt(ex0)} ${fmt(ey0)}L${fmt(bx)} ${fmt(by)}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
+        layer.visible.push(`<path data-arrow="${esc(sc.spec.label)}" d="M${fmt(tx)} ${fmt(ty)}L${fmt(bx - sy * half)} ${fmt(by + sx * half)}L${fmt(bx + sy * half)} ${fmt(by - sx * half)}Z" fill="#000" stroke="none"/>`);
+        // Beyond the arrow's point, kept inside the figure's cell.
+        const lx = Math.max(cellX + nameW / 2, Math.min(cellX + cw - nameW / 2, tx + sx * fontPx * 0.9));
+        const ly = Math.max(cellY + fontPx / 2, Math.min(cellY + chh - fontPx / 2, ty + sy * fontPx * 0.9));
+        layer.titles.push(`<text data-cutting-label="${esc(sc.spec.label)}" x="${fmt(lx)}" y="${fmt(ly)}" dy="0.35em" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">${esc(name)}</text>`);
+      }
+    }
     // The circle of each detail taken from this view, named as the detail is.
     for (const dt of details) {
       if (dt.spec.of !== viewKey(it.spec)) continue;

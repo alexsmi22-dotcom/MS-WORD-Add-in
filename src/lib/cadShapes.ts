@@ -14,6 +14,7 @@
  */
 import { parseMarks, SheetMark } from "./cadMarks";
 import { DETAIL_FACTORS } from "./cadDetail";
+import { PERSPECTIVE_DISTANCES } from "./cadPerspective";
 import {
   apply3,
   Assembly,
@@ -588,8 +589,9 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
     if ((c.part !== undefined || c.local !== undefined) && (typeof c.part !== "string" || !isVec(c.local))) return { ok: false, reason: "a callout in the drawing is damaged" };
     if (c.sag !== undefined && !(isNum(c.sag) && c.sag >= 0)) return { ok: false, reason: "a callout in the drawing is damaged" };
   }
-  const kinds = ["front", "top", "right", "left", "back", "bottom", "iso", "orbit", "blank", "exploded", "detail"];
+  const kinds = ["front", "top", "right", "left", "back", "bottom", "iso", "orbit", "blank", "exploded", "detail", "section", "perspective"];
   const letters = new Set<string>();
+  const sectionLabels = new Set<string>();
   for (const v of d.views as ViewSpec[]) {
     if (!v || typeof v !== "object" || !kinds.includes(String(v.kind))) return { ok: false, reason: "a view in the drawing is damaged" };
     if (v.kind === "orbit" && ((v.rot !== undefined && !isRotation(v.rot)) || (v.deg !== undefined && !isVec(v.deg)))) {
@@ -603,6 +605,20 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
         isNum(v.r) && v.r > 0 && v.r <= 1e7 && DETAIL_FACTORS.includes(v.factor);
       if (!ok) return { ok: false, reason: "a detail view in the drawing is damaged" };
       letters.add(v.letter);
+    }
+    if (v.kind === "section") {
+      const pt = (p: unknown): boolean => Array.isArray(p) && p.length === 2 && p.every(isNum) && Math.abs(p[0]) <= 1e7 && Math.abs(p[1]) <= 1e7;
+      const ok =
+        typeof v.label === "string" && /^[A-Za-z0-9]{1,4}$/.test(v.label) && !sectionLabels.has(v.label) &&
+        ["front", "top", "right", "left", "back", "bottom"].includes(String(v.of)) &&
+        pt(v.a) && pt(v.b) && (v.flip === undefined || typeof v.flip === "boolean");
+      // Named by its label when the label itself can be read.
+      if (!ok) return { ok: false, reason: `${typeof v.label === "string" && /^[A-Za-z0-9]{1,4}$/.test(v.label) ? `section view ${v.label}` : "a section view"} in the drawing is damaged` };
+      sectionLabels.add(v.label);
+    }
+    if (v.kind === "perspective" && v.distance !== undefined) {
+      const lo = Math.min(...PERSPECTIVE_DISTANCES), hi = Math.max(...PERSPECTIVE_DISTANCES);
+      if (!(isNum(v.distance) && v.distance >= lo && v.distance <= hi)) return { ok: false, reason: "the perspective view in the drawing is damaged" };
     }
   }
   if (d.explode !== undefined) {

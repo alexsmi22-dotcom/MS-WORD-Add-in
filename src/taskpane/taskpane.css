@@ -2366,6 +2366,11 @@ select {
   color: var(--muted);
   padding: 0 4px;
 }
+/* The perspective strength sits beside its box, not on a row of its own. */
+.cad-views .lib-select {
+  width: auto;
+  margin: 0;
+}
 /* .insert-btn is full-width by default; in these rows it sizes to its label. */
 .cad-add-row .insert-btn,
 .cad-view-btns .insert-btn {

@@ -223,3 +223,95 @@ describe("the large window while drawing on the sheet (in-Word report: arrow / t
     expect(DIALOG_HTML).toContain("#cad-section.cad-marking > .cad-col.canvas-col");
   });
 });
+
+describe("section views (docs/SCOPE-CAD-VIEWS.md §B)", () => {
+  test.each(["cad-cut", "cad-cuts", 'value="perspective"', "cad-perspective-distance"])("%s is on both pages", (id) => {
+    expect(PANE_HTML).toContain(id);
+    expect(DIALOG_HTML).toContain(id);
+  });
+  const click = (t: ReturnType<typeof setup>, x: number, y: number): void => void t.$("cad-preview").dispatchEvent(new MouseEvent("pointerdown", { clientX: x, clientY: y, button: 0, bubbles: true }));
+  /** The front figure's outline on the sheet, px: the first path drawn. */
+  const outline = (): { x0: number; x1: number; y0: number; y1: number } => {
+    const d = document.querySelector("#cad-preview path")!.getAttribute("d")!;
+    const pts = [...d.matchAll(/([\d.]+) ([\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    return { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])) };
+  };
+  test("Add section view, two clicks down through a leg on the front figure: section A, listed, its line named by its FIG number; Flip and Remove", () => {
+    const t = setup({ ...TABLE(), views: [{ kind: "front" }] });
+    t.$<HTMLButtonElement>("cad-cut").click();
+    expect(t.$("cad-cut").getAttribute("aria-pressed")).toBe("true");
+    expect(t.last()[0]).toBe("Click where the cutting line starts on a front, top or side figure in the drawing. Esc cancels.");
+    sizeSvg();
+    const o = outline();
+    const x = o.x0 + (o.x1 - o.x0) * 0.025; // through the first leg (x 0 to 5 of the table's 100)
+    click(t, x, o.y0 + 2);
+    expect(t.last()[0]).toMatch(/^Now click where the cutting line ends, on the same figure/);
+    click(t, x, o.y1 - 2);
+    expect(t.last()).toEqual(["Section A added: the cutting line on the figure shows where it is cut, its arrows the way it looks. Flip turns it round.", "success"]);
+    expect(t.$("cad-cut").getAttribute("aria-pressed")).toBe("false");
+    const s = t.doc().views.find((v) => v.kind === "section");
+    expect(s && s.kind === "section" && [s.label, s.of, s.flip]).toEqual(["A", "front", undefined]);
+    expect(t.$("cad-cuts").textContent).toContain("Section A (cut from the front view)");
+    const texts = Array.from(document.querySelectorAll("#cad-preview text")).map((q) => q.textContent);
+    expect(texts.filter((l) => l === "2")).toHaveLength(2); // both ends of the cutting line: FIG. 2's number
+    expect(texts).toContain("FIG. 2");
+    const [flip, remove] = Array.from(t.$("cad-cuts").querySelectorAll<HTMLButtonElement>("button"));
+    flip.click();
+    const f = t.doc().views.find((v) => v.kind === "section");
+    expect(f && f.kind === "section" && f.flip).toBe(true);
+    remove.click();
+    expect(t.doc().views.some((v) => v.kind === "section")).toBe(false);
+    expect(t.$("cad-cuts").textContent).toBe("");
+  });
+  test("a line of no length is refused, Esc cancels, and a click on the isometric is refused: nothing is kept", () => {
+    const t = setup({ ...TABLE(), views: [{ kind: "front" }, { kind: "iso" }] });
+    t.$<HTMLButtonElement>("cad-cut").click();
+    sizeSvg();
+    const o = outline();
+    // (A line that misses the part is refused by the sheet, by name: cadViewsSheet.test.ts. On the table's own front
+    // figure every line crosses a leg or the top.)
+    click(t, o.x0 + 2, o.y1 - 1);
+    click(t, o.x0 + 2, o.y1 - 1 + 0.01);
+    expect(t.last()).toEqual(["Click the end a little away from the start: a cutting line needs a length.", "error"]);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(t.$("cad-cut").getAttribute("aria-pressed")).toBe("false");
+    // The isometric figure: the last FIG title's cell.
+    t.$<HTMLButtonElement>("cad-cut").click();
+    const title = Array.from(document.querySelectorAll("#cad-preview text")).filter((q) => /^FIG\./.test(q.textContent ?? "")).pop()!;
+    click(t, Number(title.getAttribute("x")), Number(title.getAttribute("y")) - 30);
+    expect(t.last()).toEqual(["Click on a front, top or side figure: a section is cut from one of those.", "error"]);
+    expect(t.doc().views.some((v) => v.kind === "section")).toBe(false);
+  });
+  test("a detail and a section never share a letter", () => {
+    const d: CadDoc = { ...TABLE(), views: [{ kind: "front" }, { kind: "section", label: "A", of: "front", a: [2.5, 80], b: [2.5, -5] }] };
+    const t = setup(d);
+    t.$<HTMLButtonElement>("cad-detail").click();
+    sizeSvg();
+    const o = outline();
+    click(t, o.x0 + 2, o.y0 + 2);
+    const det = t.doc().views.find((v) => v.kind === "detail");
+    expect(det && det.kind === "detail" && det.letter).toBe("B");
+  });
+});
+
+describe("the perspective view", () => {
+  test("ticking Perspective adds it at the chosen strength; the strength select changes it", () => {
+    const t = setup({ ...TABLE(), views: [{ kind: "front" }] });
+    const sel = t.$<HTMLSelectElement>("cad-perspective-distance");
+    expect(Array.from(sel.options).map((o) => o.textContent)).toEqual(["Strong perspective", "Marked perspective", "Medium perspective", "Mild perspective", "Slight perspective"]);
+    expect(sel.value).toBe("3");
+    const box = t.$("cad-views").querySelector<HTMLInputElement>("input[value=perspective]")!;
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(t.doc().views).toContainEqual({ kind: "perspective", distance: 3 });
+    sel.value = "1.5";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(t.doc().views).toContainEqual({ kind: "perspective", distance: 1.5 });
+    expect(Array.from(document.querySelectorAll("#cad-preview text")).map((q) => q.textContent)).toContain("FIG. 2");
+  });
+  test("a saved perspective view opens with its box ticked and its strength chosen", () => {
+    const t = setup({ ...TABLE(), views: [{ kind: "front" }, { kind: "perspective", distance: 5 }] });
+    expect(t.$("cad-views").querySelector<HTMLInputElement>("input[value=perspective]")!.checked).toBe(true);
+    expect(t.$<HTMLSelectElement>("cad-perspective-distance").value).toBe("5");
+  });
+});

@@ -18,7 +18,8 @@ import { tessellate, Mesh, Placement, Vec3 } from "../lib/cadModel";
 import { faceAt, FaceHit, mate } from "../lib/cadMate";
 import { drawLines, lineBudget, LineWorkExceeded, STANDARD_VIEWS, CadView } from "../lib/cadLines";
 import { fitView, previewOps, paintPreview, pickAt, orbit, Fit, Pick as FacePick } from "../lib/cadPreview";
-import { DetailSpec, layoutSheet, SheetFrame, SheetOptions, ViewSpec } from "../lib/cadSheet";
+import { DetailSpec, layoutSheet, SectionSpec, SheetFrame, SheetOptions, ViewSpec } from "../lib/cadSheet";
+import { PERSPECTIVE_DISTANCE, PERSPECTIVE_DISTANCES } from "../lib/cadPerspective";
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../lib/cadExplode";
 import { DETAIL_FACTORS, nextDetailLetter } from "../lib/cadDetail";
 import { ptToMm } from "../lib/figureStyle";
@@ -49,6 +50,7 @@ import { CONTROL_CHAR, MARK_LIMITS, markDistance, MarkPt, MarkStyle, roundPt, Sh
 import { IMPORTED_ALT_PREFIX, IMPORT_UNITS, importedFigure, importedSketch, openDxfFile, sizeRefusal } from "../lib/dxfImport";
 import { hasStl, MeshRef, meshFor, rememberStl, retainMeshes } from "../lib/cadMeshStore";
 import { DEFAULT_CREASE_DEG, readStl, stlHash, STL_LIMITS, StlFacets } from "../lib/stl";
+import { readObj } from "../lib/obj";
 import type { Sketch } from "../lib/sketch";
 import { parseSketch } from "../lib/sketchDoc";
 
@@ -109,6 +111,8 @@ export function modelFromAlt(alt: string): string | null {
 }
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+/** What a part file is called in the messages: by its name, as the importer chose its reader. */
+const meshFormat = (file: string): "STL" | "OBJ" => (/\.obj$/i.test(file) ? "OBJ" : "STL");
 
 /** Millimetres as the pane shows them: up to two decimals, no trailing zeros. */
 const fmtMm = (v: number): string => String(+v.toFixed(2));
@@ -147,6 +151,12 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const mateUndoBtn = el<HTMLButtonElement>("cad-mate-undo") as HTMLButtonElement | null;
   const calloutsEl = el<HTMLElement>("cad-callouts");
   const viewsEl = el<HTMLElement>("cad-views");
+  // How strong the perspective view is: the eye's distance in model diagonals, nearer is stronger.
+  const perspSel = el<HTMLSelectElement>("cad-perspective-distance") as HTMLSelectElement | null;
+  if (perspSel && !perspSel.options.length) {
+    const PERSPECTIVE_NAMES: Record<number, string> = { 1.5: "Strong", 2: "Marked", 3: "Medium", 5: "Mild", 8: "Slight" };
+    for (const k of PERSPECTIVE_DISTANCES) perspSel.add(new Option(`${PERSPECTIVE_NAMES[k] ?? `${k}×`} perspective`, String(k), false, k === PERSPECTIVE_DISTANCE));
+  }
   const msgEl = el<HTMLElement>("cad-msg");
   const previewEl = el<HTMLElement>("cad-preview");
   const insertBtn = el<HTMLButtonElement>("cad-insert");
@@ -382,9 +392,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     for (const box of Array.from(viewsEl.querySelectorAll<HTMLInputElement>("input[type=checkbox]"))) {
       if (!box.checked) continue;
       if (box.value === "orbit") out.push({ kind: "orbit", rot: view.rot.slice(), name: "VIEW" });
+      else if (box.value === "perspective") {
+        const dist = Number(perspSel?.value);
+        out.push({ kind: "perspective", distance: PERSPECTIVE_DISTANCES.includes(dist) ? dist : PERSPECTIVE_DISTANCE });
+      }
       else out.push({ kind: box.value as ViewSpec["kind"] } as ViewSpec);
     }
-    return [...out, ...doc.views.filter((v): v is DetailSpec => v.kind === "detail")];
+    // Details and sections are kept in the document (the boxes above cannot hold them).
+    return [...out, ...doc.views.filter((v): v is DetailSpec | SectionSpec => v.kind === "detail" || v.kind === "section")];
   }
 
   let lastSheet: {
@@ -522,17 +537,22 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     host.setStatus(`${Object.keys(auto).length} part${Object.keys(auto).length === 1 ? "" : "s"} lifted apart for the exploded view; change any part's distance under the part.`, "success");
   });
   let detailMode = false;
+  /** Taking a section view (its two clicks): declared here, as every mode it switches off reads it. */
+  let cutMode = false;
   function setDetailMode(on: boolean): void {
     detailMode = on;
     if (!detailBtn) return;
     detailBtn.classList.toggle("active", on);
     detailBtn.setAttribute("aria-pressed", String(on));
-    previewEl.classList.toggle("cad-marking", on || markTool !== null);
-    sectionMarking(on || markTool !== null);
+    previewEl.classList.toggle("cad-marking", on || cutMode || markTool !== null);
+    sectionMarking(on || cutMode || markTool !== null);
     if (on) host.setStatus("Click the spot on a figure in the drawing that the detail view shows. Esc cancels.", "");
   }
   detailBtn?.addEventListener("click", () => {
-    if (!detailMode) setMarkTool(null);
+    if (!detailMode) {
+      setMarkTool(null);
+      if (cutMode) setCutMode(false);
+    }
     setDetailMode(!detailMode);
   });
   document.addEventListener("keydown", (e) => {
@@ -548,7 +568,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const f = sheetFrames.find((q) => p[0] >= q.cell.x && p[0] <= q.cell.x + q.cell.w && p[1] >= q.cell.y && p[1] <= q.cell.y + q.cell.h);
     if (!f || !DETAIL_OF.has(f.view)) return host.setStatus("Click on a front, top, side, isometric or exploded figure: a detail enlarges part of one of those.", "error");
     const at = toView(f, p[0], p[1]);
-    const letter = nextDetailLetter(doc.views.flatMap((v) => (v.kind === "detail" ? [v.letter] : [])));
+    const letter = nextDetailLetter(takenLetters());
     if (!letter) return host.setStatus("Every detail letter is in use: remove a detail view first.", "error");
     // A circle an eighth of the figure across to start with; its size can be changed in the list.
     const r = +((Math.min(f.cell.w, f.cell.h) / f.k) * 0.12).toPrecision(3);
@@ -614,6 +634,114 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
   }
 
+  // ---- section views (docs/SCOPE-CAD-VIEWS.md §B) ------------------------------------------
+  // Two clicks on one orthographic figure give the cutting line; the section looks to the right of it as drawn
+  // (cadSection.sectionPlane), and Flip turns it round. Its letter is the next one no detail or section uses: the
+  // USPTO sheet shows the section's FIG number at the line's ends instead, worked out as the sheet is laid out.
+  const cutBtn = el<HTMLButtonElement>("cad-cut") as HTMLButtonElement | null;
+  const cutsEl = el<HTMLElement>("cad-cuts") as HTMLElement | null;
+  let cutStart: { view: string; at: MarkPt } | null = null;
+  const takenLetters = (): string[] => doc.views.flatMap((v) => (v.kind === "detail" ? [v.letter] : v.kind === "section" ? [v.label] : []));
+  function setCutMode(on: boolean): void {
+    cutMode = on;
+    cutStart = null;
+    if (!cutBtn) return;
+    cutBtn.classList.toggle("active", on);
+    cutBtn.setAttribute("aria-pressed", String(on));
+    previewEl.classList.toggle("cad-marking", on || detailMode || markTool !== null);
+    sectionMarking(on || detailMode || markTool !== null);
+    if (on) host.setStatus("Click where the cutting line starts on a front, top or side figure in the drawing. Esc cancels.", "");
+  }
+  cutBtn?.addEventListener("click", () => {
+    if (!cutMode) {
+      setMarkTool(null);
+      if (detailMode) setDetailMode(false);
+    }
+    setCutMode(!cutMode);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && cutMode && !sketching()) {
+      setCutMode(false);
+      host.setStatus("", "");
+    }
+  });
+  const CUT_OF = new Set(["front", "top", "right", "left", "back", "bottom"]);
+  previewEl.addEventListener("pointerdown", (e) => {
+    if (!cutMode || e.button !== 0) return;
+    e.preventDefault();
+    if (!onSheet(e)) return;
+    const p = sheetPoint(e);
+    if (!p || !lastSheet) return host.setStatus("The drawing must be showing before a section can be cut from it.", "error");
+    const f = sheetFrames.find((q) => p[0] >= q.cell.x && p[0] <= q.cell.x + q.cell.w && p[1] >= q.cell.y && p[1] <= q.cell.y + q.cell.h);
+    if (!f || !CUT_OF.has(f.view)) return host.setStatus("Click on a front, top or side figure: a section is cut from one of those.", "error");
+    const at = toView(f, p[0], p[1]);
+    if (!cutStart) {
+      cutStart = { view: f.view, at };
+      return host.setStatus("Now click where the cutting line ends, on the same figure: the section looks to the right of the line as drawn (Flip turns it round). Esc cancels.", "");
+    }
+    if (f.view !== cutStart.view) return host.setStatus(`Click the end on the ${cutStart.view} figure, where the line started.`, "error");
+    if (Math.hypot(at[0] - cutStart.at[0], at[1] - cutStart.at[1]) * f.k < 3) return host.setStatus("Click the end a little away from the start: a cutting line needs a length.", "error");
+    const label = nextDetailLetter(takenLetters());
+    if (!label) return host.setStatus("Every letter is in use by a detail or section view: remove one first.", "error");
+    doc.views.push({ kind: "section", label, of: f.view as SectionSpec["of"], a: cutStart.at, b: at });
+    setCutMode(false);
+    renderSheet();
+    // The sheet refuses a section it cannot draw (the line misses the part, a part is not closed): say why, keep nothing.
+    if (!sheetFrames.some((q) => q.view === `section:${label}`)) {
+      const why = lastNotes.find((n) => n.startsWith(`Section ${label}`)) ?? (sheetFrames.length ? `Section ${label} could not be drawn on this sheet.` : lastNotes[0] ?? `Section ${label} could not be drawn on this sheet.`);
+      doc.views = doc.views.filter((v) => !(v.kind === "section" && v.label === label));
+      renderSheet();
+      return host.setStatus(why, "error");
+    }
+    renderSections();
+    host.setStatus(`Section ${label} added: the cutting line on the figure shows where it is cut, its arrows the way it looks. Flip turns it round.`, "success");
+  });
+  function renderSections(): void {
+    if (!cutsEl) return;
+    cutsEl.replaceChildren();
+    for (const v of doc.views) {
+      if (v.kind !== "section") continue;
+      const row = document.createElement("div");
+      row.className = "cad-part";
+      const name = document.createElement("span");
+      name.textContent = `Section ${v.label} (cut from the ${v.of} view)`;
+      const flip = document.createElement("button");
+      flip.type = "button";
+      flip.className = "insert-btn secondary";
+      flip.textContent = "Flip";
+      flip.title = "Look the other way along the cutting line";
+      flip.setAttribute("aria-label", `Flip section ${v.label}`);
+      flip.addEventListener("click", () => {
+        if (v.flip) delete v.flip;
+        else v.flip = true;
+        renderSheet();
+      });
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "insert-btn secondary";
+      del.textContent = "Remove";
+      del.setAttribute("aria-label", `Remove section ${v.label}`);
+      del.addEventListener("click", () => {
+        doc.views = doc.views.filter((q) => q !== v);
+        // Its marks go with it, and out of the undo history: a later section taking the letter must not inherit them.
+        const key = `section:${v.label}`;
+        if (doc.marks) {
+          doc.marks = doc.marks.filter((m) => m.view !== key);
+          if (!doc.marks.length) delete doc.marks;
+        }
+        for (let i = markUndo.length - 1; i >= 0; i--) {
+          const u = markUndo[i];
+          if (("add" in u ? u.add : u.erased).view === key) markUndo.splice(i, 1);
+        }
+        if (markUndoBtn) markUndoBtn.disabled = !markUndo.length;
+        renderSections();
+        renderSheet();
+      });
+      row.append(name, flip, del);
+      cutsEl.appendChild(row);
+    }
+  }
+
   // ---- drawing on the sheet: pencil, lines, arrows, numerals, text ----------------------
   // What the user draws is kept as drawn (cadMarks): no snapping, no profile rules. Each mark
   // belongs to the figure it was started on, in that view's own plane, so it follows the figure.
@@ -645,9 +773,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (markText) markText.hidden = t !== "text";
     previewEl.classList.toggle("cad-marking", t !== null);
     // The large window gives the sheet the 3D view's room while drawing on it (caddialog.html).
-    sectionMarking(t !== null || detailMode);
+    sectionMarking(t !== null || detailMode || cutMode);
     if (t && calloutMode) setCalloutMode(false, false);
     if (t && detailMode) setDetailMode(false);
+    if (t && cutMode) setCutMode(false);
     host.setStatus(t ? MARK_HELP[t] : "", "");
     if (t === "text") markText?.focus();
   }
@@ -948,7 +1077,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       info.textContent = `From ${ref.file}: ${ref.facets.toLocaleString("en-US")} facets, ${sz} mm.${hasStl(ref.hash) ? "" : ` The file is not open — import ${ref.file} again to put it back.`}`;
       const units = document.createElement("select");
       units.className = "lib-select";
-      units.setAttribute("aria-label", "Units of the STL file");
+      units.setAttribute("aria-label", `Units of the ${meshFormat(ref.file)} file`);
       for (const u of IMPORT_UNITS) units.add(new Option(`File units: ${u.name}`, String(u.mm)));
       if (!IMPORT_UNITS.some((u) => u.mm === ref.mmPerUnit)) units.add(new Option(`File units: ${ref.mmPerUnit} mm`, String(ref.mmPerUnit)));
       units.value = String(ref.mmPerUnit);
@@ -1169,6 +1298,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     // only if it was on, so a status just set (why the large window did not open) is not wiped.
     if (markTool !== null) setMarkTool(null);
     if (detailMode) setDetailMode(false);
+    if (cutMode) setCutMode(false);
     if (!sketchPanel) return false;
     const p = partId === null ? undefined : doc.parts.find((q) => q.id === partId);
     if (partId !== null && !p) {
@@ -1453,6 +1583,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const kinds = new Set(doc.views.map((v) => v.kind));
     for (const box of Array.from(viewsEl.querySelectorAll<HTMLInputElement>("input[type=checkbox]"))) box.checked = kinds.has(box.value as never);
     renderDetails();
+    renderSections();
+    const pd = doc.views.find((v) => v.kind === "perspective");
+    if (perspSel) perspSel.value = String(pd && pd.kind === "perspective" && pd.distance !== undefined ? pd.distance : PERSPECTIVE_DISTANCE);
     const orbitView = doc.views.find((v) => v.kind === "orbit" && "rot" in v && v.rot);
     if (orbitView && orbitView.kind === "orbit" && orbitView.rot) view = { name: "orbit", rot: orbitView.rot };
   }
@@ -1685,7 +1818,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   // The file is read once; the units chooser re-sizes it. Insert puts the drawing into Word as a
   // picture (fitted to the page); Edit as a sketch opens its lines, arcs and circles as a new part's
   // sketch. Neither touches the drawing being built above.
-  // An STL is a part, not a drawing: it is added to the model (cadMeshStore keeps its facets).
+  // An STL is a part, not a drawing: it is added to the model (cadMeshStore keeps its facets). An OBJ is read into
+  // the same facets (lib/obj.ts) and goes the same way; only what the messages call it differs.
   let imported: { name: string; drawing: DxfDrawing } | null = null;
   let importedStl: { name: string; stl: StlFacets; hash: string } | null = null;
   const importMm = (): number => Number(importUnits?.value ?? "") || 0;
@@ -1730,9 +1864,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   /** The STL's panel: facets, the size in the units chosen, and what the edge angle draws. */
   function showStlImport(s: { name: string; stl: StlFacets; hash: string }): void {
     const mm = importMm(), crease = importCreaseDeg();
-    const lines = [`${s.name}: ${s.stl.count.toLocaleString("en-US")} facets (${s.stl.format} STL).`];
+    const lines = [`${s.name}: ${s.stl.count.toLocaleString("en-US")} facets (${s.stl.format === "obj" ? "OBJ" : `${s.stl.format} STL`}).`];
     let ok = false;
-    if (!(mm > 0)) lines.push("An STL file does not say its units: choose them.");
+    if (!(mm > 0)) lines.push(`An ${meshFormat(s.name)} file does not say its units: choose them.`);
     else if (!(crease > 0 && crease < 180)) lines.push("The edge angle must be between 0° and 180°.");
     else {
       const r = meshFor({ file: s.name, hash: s.hash, facets: s.stl.count, mmPerUnit: mm, creaseDeg: crease, size: [0, 0, 0] });
@@ -1751,7 +1885,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (importCloseBtn) importCloseBtn.disabled = inserting;
   }
   function useStl(name: string, bytes: Uint8Array): void {
-    const r = readStl(bytes);
+    const r = meshFormat(name) === "OBJ" ? readObj(bytes) : readStl(bytes);
     if (!r.ok) return host.setStatus(`${name}: ${r.reason}.`, "error");
     const hash = stlHash(bytes);
     const missing = !hasStl(hash);
@@ -1778,7 +1912,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     if (importCrease) importCrease.value = String(DEFAULT_CREASE_DEG);
     showImport();
-    host.setStatus(`${name} read. An STL file does not say its units: choose them below, then Add as a part.`, "");
+    host.setStatus(`${name} read. An ${meshFormat(name)} file does not say its units: choose them below, then Add as a part.`, "");
   }
   function useImport(name: string, drawing: DxfDrawing): void {
     importedStl = null;
@@ -1803,9 +1937,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const file = importFile.files?.[0];
     if (!file) return;
     if (inserting) return host.setStatus("An insert is still running; import the file when it finishes.", "error");
-    const isStl = /\.stl$/i.test(file.name);
+    const isStl = /\.(stl|obj)$/i.test(file.name);
     const big = isStl
-      ? file.size > STL_LIMITS.bytes ? `${file.name}: the file is ${Math.ceil((file.size / 1048576) * 10) / 10} MB — this importer reads STL files up to ${STL_LIMITS.bytes / 1048576} MB` : null
+      ? file.size > STL_LIMITS.bytes ? `${file.name}: the file is ${Math.ceil((file.size / 1048576) * 10) / 10} MB — this importer reads ${meshFormat(file.name)} files up to ${STL_LIMITS.bytes / 1048576} MB` : null
       : sizeRefusal(file.name, file.size);
     if (big) return host.setStatus(big, "error");
     host.setStatus(`Reading ${file.name}…`, "");
@@ -1848,7 +1982,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     resetNewBtn(); // the drawing changes: an Undo clear would now throw this part away
     const part: CadPart = {
       id: `p${Date.now().toString(36)}${seq++}`,
-      name: s.name.replace(/\.stl$/i, "") || `Part ${doc.parts.length + 1}`,
+      name: s.name.replace(/\.(stl|obj)$/i, "") || `Part ${doc.parts.length + 1}`,
       shape: "mesh",
       params: {},
       placement: { translate: [besideX(), 0, 0], rotateDeg: [0, 0, 0] },

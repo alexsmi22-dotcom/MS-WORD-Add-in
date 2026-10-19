@@ -1134,8 +1134,8 @@
           <button id="cad-add" class="insert-btn secondary" type="button">Add part</button>
         </div>
         <button id="cad-new" class="draw-pop-btn" type="button" title="Clear every part and callout for a blank drawing (click twice; Undo afterwards)">New drawing</button>
-        <button id="cad-import" class="draw-pop-btn" type="button" title="Open a DXF drawing (Solid Edge: Save As → DXF) to insert it or edit its outline as a sketch, or an STL part (Save As → STL) to add it to the model">Import DXF / STL…</button>
-        <input id="cad-import-file" type="file" accept=".dxf,.dft,.par,.psm,.asm,.dwg,.stp,.step,.igs,.iges,.stl" hidden />
+        <button id="cad-import" class="draw-pop-btn" type="button" title="Open a DXF drawing (Solid Edge: Save As → DXF) to insert it or edit its outline as a sketch, or an STL or OBJ part (Save As → STL) to add it to the model">Import DXF / STL / OBJ…</button>
+        <input id="cad-import-file" type="file" accept=".dxf,.dft,.par,.psm,.asm,.dwg,.stp,.step,.igs,.iges,.stl,.obj" hidden />
         <div id="cad-import-panel" class="cad-import-panel" hidden>
           <p id="cad-import-info" class="build-readout" role="status"></p>
           <label class="field-label" for="cad-import-units">Units</label>
@@ -1264,8 +1264,10 @@
           <label><input type="checkbox" value="orbit" /> This view</label>
           <label title="A figure with no parts in it: draw on it with the tools above the drawing"><input type="checkbox" value="blank" /> Blank figure</label>
           <label title="The parts drawn apart, with phantom trail lines showing where each one goes"><input type="checkbox" value="exploded" /> Exploded</label>
+          <label title="A pictorial view from the isometric direction with the eye at a finite distance: near parts larger, parallel edges meeting"><input type="checkbox" value="perspective" /> Perspective</label>
+          <select id="cad-perspective-distance" class="lib-select" aria-label="How strong the perspective view is"></select>
         </fieldset>
-        <div class="cad-assembly-views" role="group" aria-label="Exploded and detail views">
+        <div class="cad-assembly-views" role="group" aria-label="Exploded, detail and section views">
           <button id="cad-explode-auto" type="button" class="insert-btn secondary" title="Lift the parts apart in levels (the lowest stay put); change any part's distance under the part">Auto explode</button>
           <button id="cad-detail" type="button" class="insert-btn secondary" aria-pressed="false" title="Then click a spot on a figure in the drawing: that part is drawn again, larger, as a detail view">Add detail view</button>
           <select id="cad-detail-factor" class="lib-select" aria-label="How much larger a new detail view is">
@@ -1276,6 +1278,8 @@
             <option value="10">10× larger</option>
           </select>
           <div id="cad-details" class="cad-parts" aria-label="Detail views"></div>
+          <button id="cad-cut" type="button" class="insert-btn secondary" aria-pressed="false" title="Then click two points on a front, top or side figure in the drawing: the part is cut along that line and drawn as a section view, hatched">Add section view</button>
+          <div id="cad-cuts" class="cad-parts" aria-label="Section views"></div>
         </div>
         <label class="field-label" for="cad-hidden">Hidden lines</label>
         <select id="cad-hidden" class="lib-select">

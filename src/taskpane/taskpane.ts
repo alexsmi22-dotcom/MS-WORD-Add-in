@@ -32550,11 +32550,9 @@ function updateAssayPreview(): void {
   // end of your data, not a measured midpoint" did not. These are the strongest
   // warnings in the mode and the document is where they matter most; Table→Chart
   // and the periodic table already carry their notes across.
-  currentAssayText = insertable
-    ? out.caveats?.length
-      ? `${out.text}\n${out.caveats.map((c) => `Note: ${c}`).join("\n")}`
-      : out.text
-    : "";
+  // The typed-comma note goes into the document with the caveats, as Finance and Stats carry theirs.
+  const assayNotes = [...(out.caveats ?? []), ...assayListNotes];
+  currentAssayText = insertable ? (assayNotes.length ? `${out.text}\n${assayNotes.map((c) => `Note: ${c}`).join("\n")}` : out.text) : "";
   assayInsertBtn.disabled = !insertable;
 }
 

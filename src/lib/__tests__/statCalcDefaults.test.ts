@@ -13,7 +13,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { readNumberList } from "../numberList";
-const parseNumberList = (s: string): number[] => readNumberList(s).values;
+import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../statFields";
 
 const PANE = fs.readFileSync(
   path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"),
@@ -22,15 +22,16 @@ const PANE = fs.readFileSync(
 
 /**
  * The real statGroups() from taskpane.ts, replayed. Each group goes through
- * the product comma rule (parseNumberList), which is what the pane's statList
+ * the product comma rule (readNumberList), which is what the pane's statList
  * delegates to since v2.134.0 — the old /[\s,]+/ token split here would pass
  * while measuring a rule the pane no longer uses.
  */
 function statGroups(s: string): number[][] {
-  return s
-    .split(/\n\s*\n|;/)
-    .map((g) => parseNumberList(g))
-    .filter((g) => g.length > 0);
+  // The whole-field comma decision, as the pane makes it (statFields.ts).
+  const sep = statFieldCommasAreSeparators(s);
+  const groups = s.split(/\n\s*\n|;/);
+  const cells = !sep && statFieldProvesDecimalCommas(groups);
+  return groups.map((g) => readNumberList(sep ? g.replace(/,/g, " ") : g, { cells }).values).filter((g) => g.length > 0);
 }
 
 /** Decodes the TypeScript string-literal escapes that appear in defaults. */
@@ -122,7 +123,8 @@ describe("Stats calculator defaults produce a result, not a validation error", (
     expect(PANE).toContain("function statGroups(s: string): number[][] {");
     expect(PANE).toContain(".split(/\\n\\s*\\n|;/)");
     // statList delegates to the shared reader — no second comma rule in the pane.
-    expect(PANE).toContain("const r = readNumberList(s);");
+    expect(PANE).toContain("const r = readNumberList(s, { cells });");
+    expect(PANE).toContain("const cells = !sep && statFieldProvesDecimalCommas(groups);");
     expect(PANE).not.toMatch(/function statList[^}]*split\(\/\[\\s,\]\+\//);
   });
 

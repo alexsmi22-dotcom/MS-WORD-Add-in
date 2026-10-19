@@ -200,4 +200,13 @@ describe("section and perspective views in the saved drawing", () => {
     const s = { kind: "section", label: "A", of: "front", a: [0, 0], b: [1, 1] };
     expect(parseDoc(doc([s, { ...s, a: [2, 2] }]))).toEqual({ ok: false, reason: "section view A in the drawing is damaged" });
   });
+  test("a section and a detail sharing a letter are damaged, either order (review: one A on a circle and a cutting line)", () => {
+    const s = { kind: "section", label: "A", of: "front", a: [0, 0], b: [1, 1] };
+    const dt = { kind: "detail", letter: "A", of: "front", at: [0, 0], r: 1, factor: 2 };
+    expect(parseDoc(doc([{ kind: "front" }, dt, s]))).toEqual({ ok: false, reason: "section view A in the drawing is damaged" });
+    expect(parseDoc(doc([{ kind: "front" }, s, dt]))).toEqual({ ok: false, reason: "a detail view in the drawing is damaged" });
+  });
+  test("a perspective strength the pane does not offer is damaged (it was drawn as the default, silently)", () => {
+    expect(parseDoc(doc([{ kind: "perspective", distance: 4 }]))).toEqual({ ok: false, reason: "the perspective view in the drawing is damaged" });
+  });
 });

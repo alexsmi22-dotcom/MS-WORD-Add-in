@@ -30,7 +30,7 @@ import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues 
 import { LineType, lineTypesFor, strokeAttrs } from "./cadLineTypes";
 import { markSvg, marksExtent, SheetMark } from "./cadMarks";
 import { circlePolyline, detailDrawing } from "./cadDetail";
-import { cutMesh, CutRegion, hatchRegions, sectionPlane, sectionView, SectionPlane } from "./cadSection";
+import { cutMesh, CutRegion, HATCH_K_MIN, hatchRegions, hatchSpacing, sectionPlane, sectionView, SectionPlane } from "./cadSection";
 import { MAPPED_VIEW, PERSPECTIVE_DISTANCE, perspectiveMesh } from "./cadPerspective";
 
 /** The sheet's layers. The user may switch off frame, titleBlock, callouts and titles. */
@@ -507,9 +507,17 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
         d = NO_LINES();
       } else {
         const { regions, hatchAt } = c;
+        // Keyed on the spacing actually used, in 2 % steps: the text-fit search runs the layout ~45 times at
+        // slightly different scales, and a key on the raw floor kept a new hatching for each (review).
         const hatch = (minSpacing: number, budget: LineBudget): Polyline[] => {
-          let h = hatchAt.get(minSpacing);
-          if (!h) hatchAt.set(minSpacing, (h = hatchRegions(regions, budget, minSpacing).lines));
+          const eff = hatchSpacing(regions, minSpacing);
+          if (!(eff > 0)) return [];
+          const key = Math.round(Math.log(eff) / Math.log(1.02));
+          let h = hatchAt.get(key);
+          if (!h) {
+            if (hatchAt.size >= 16) hatchAt.clear();
+            hatchAt.set(key, (h = hatchRegions(regions, budget, Math.pow(1.02, key) * HATCH_K_MIN).lines));
+          }
           return h;
         };
         d = { ...c.lines, hatch, cut: { mesh: c.mesh, plane: c.plane } };

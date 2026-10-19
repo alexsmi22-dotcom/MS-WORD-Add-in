@@ -33,6 +33,8 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 ### Not in this release (named limits)
 - Offset, aligned, half, broken-out and revolved sections; hatch patterns by material (one general pattern is
   used); a cutting line's ends cannot be moved after it is taken (Remove and take it again).
+- An OBJ face of more than three corners is split into triangles from its first corner, which is right for the
+  convex faces CAD exporters write; a concave face would be filled wrongly.
 
 ## [2.160.0] — 2026-10-19 — Loose ends: number lists, Solve's curve, figure sizes
 

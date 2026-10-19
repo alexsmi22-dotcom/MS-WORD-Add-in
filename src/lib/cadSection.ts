@@ -64,9 +64,13 @@ export function sectionView(parent: CadView, plane: SectionPlane, name: string):
     const along = dot(v, toEye);
     return [v[0] - along * toEye[0], v[1] - along * toEye[1], v[2] - along * toEye[2]];
   };
-  let up = flat([parent.rot[3], parent.rot[4], parent.rot[5]]);
-  // Less than half of the parent's up survives: the sight runs (nearly) along it.
-  if (Math.hypot(up[0], up[1], up[2]) < 0.5) up = flat([-parent.rot[6], -parent.rot[7], -parent.rot[8]]);
+  // The part stands as it stands: world up (+Z) when at least half of it survives the sight; else the parent's up;
+  // else (the sight runs along both) the parent's line of sight. Front and side cuts read as before; a cut across a
+  // top view no longer comes out upside down or on its side (review).
+  const len = (v: Vec3): number => Math.hypot(v[0], v[1], v[2]);
+  let up = flat([0, 0, 1]);
+  if (len(up) < 0.5) up = flat([parent.rot[3], parent.rot[4], parent.rot[5]]);
+  if (len(up) < 0.5) up = flat([-parent.rot[6], -parent.rot[7], -parent.rot[8]]);
   up = unit(up);
   const right = cross(up, toEye);
   return { name, rot: [...right, ...up, ...toEye] };
@@ -97,6 +101,30 @@ class PointIndex {
     if (cell) cell.push(id);
     else this.cells.set(k, [id]);
     return id;
+  }
+}
+
+/**
+ * Joins a cut's loose ends that lie within `tol` of each other (a cone's apex is a ring of microscopic radius, open
+ * at the tip: the cut through it ran off one side and on at the other). Only ends of degree 1, nearest first.
+ */
+function joinLooseEnds(adj: Map<number, number[]>, pts: Vec3[], tol: number): void {
+  const loose = [...adj.entries()].filter(([, nb]) => nb.length === 1).map(([id]) => id);
+  if (loose.length < 2 || loose.length > 64) return;
+  const dist = (a: number, b: number): number => Math.hypot(pts[a][0] - pts[b][0], pts[a][1] - pts[b][1], pts[a][2] - pts[b][2]);
+  const pairs: Array<[number, number, number]> = [];
+  for (let i = 0; i < loose.length; i++) for (let j = i + 1; j < loose.length; j++) {
+    const g = dist(loose[i], loose[j]);
+    if (g <= tol) pairs.push([g, loose[i], loose[j]]);
+  }
+  pairs.sort((x, y) => x[0] - y[0]);
+  const used = new Set<number>();
+  for (const [, a, b] of pairs) {
+    if (used.has(a) || used.has(b) || adj.get(a)!.includes(b)) continue;
+    used.add(a);
+    used.add(b);
+    adj.get(a)!.push(b);
+    adj.get(b)!.push(a);
   }
 }
 
@@ -151,6 +179,10 @@ export function cutMesh(mesh: Mesh, plane: SectionPlane, view: CadView, budget?:
   const crossAt = new Map<number, number>();
   const crossPoint = (i: number, j: number): { id: number; p: Vec3; t: number; lo: number; hi: number } => {
     const lo = Math.min(i, j), hi = Math.max(i, j);
+    // A kept end ON the plane is where the edge crosses it: that vertex, not a new one at the same place.
+    for (const [e, t] of [[lo, 0], [hi, 1]] as const) {
+      if (d[e] === 0) return { id: keepVertex(e), p: [P[3 * e], P[3 * e + 1], P[3 * e + 2]], t, lo, hi };
+    }
     const t = d[lo] / (d[lo] - d[hi]);
     const p: Vec3 = [P[3 * lo] + t * (P[3 * hi] - P[3 * lo]), P[3 * lo + 1] + t * (P[3 * hi + 1] - P[3 * lo + 1]), P[3 * lo + 2] + t * (P[3 * hi + 2] - P[3 * lo + 2])];
     const key = lo * nv + hi;
@@ -236,9 +268,13 @@ export function cutMesh(mesh: Mesh, plane: SectionPlane, view: CadView, budget?:
   const to2 = (p: Vec3): Pt2 => [R[0] * p[0] + R[1] * p[1] + R[2] * p[2], R[3] * p[0] + R[4] * p[1] + R[5] * p[2]];
   const regions: CutRegion[] = [];
   const capNormal: Vec3 = [-plane.sight[0], -plane.sight[1], -plane.sight[2]];
+  // Which bodies reach strictly beyond the plane: only those are cut (a plane lying on a face with the part on the
+  // viewer's side takes the whole part away — it has no cut face to hatch: review).
+  const beyond = new Set<number>();
+  for (let t = 0; t < nt; t++) for (let c = 0; c < 3; c++) if (d[T[3 * t + c]] > 0) beyond.add(mesh.triBody[t]);
   for (const body of [...segs.keys()].sort((a, b) => a - b)) {
     const m = segs.get(body)!;
-    if (!m.size) continue;
+    if (!m.size || !beyond.has(body)) continue;
     const adj = new Map<number, number[]>();
     for (const key of m.keys()) {
       const [a, b] = key.split("|").map(Number);
@@ -246,8 +282,12 @@ export function cutMesh(mesh: Mesh, plane: SectionPlane, view: CadView, budget?:
       (adj.get(b) ?? adj.set(b, []).get(b)!).push(a);
     }
     spend(m.size);
+    joinLooseEnds(adj, index.pts, Math.max(mesh.bodySag[body] ?? 0, (mesh.bodyNoise?.[body] ?? 0) * 4, 1e-6 * mesh.diag));
     for (const nb of adj.values()) {
-      if (nb.length !== 2) return { ok: false, reason: `part ${body + 1} is not a closed solid where the plane cuts it, so it has no cut face to hatch — cut where the part is closed, or repair the file` };
+      if (nb.length !== 2) {
+        const imported = (mesh.bodyNoise?.[body] ?? 0) > 0;
+        return { ok: false, reason: `part ${body + 1} is not a closed solid where the plane cuts it, so it has no cut face to hatch — cut where the part is closed${imported ? ", or repair the file" : ""}` };
+      }
     }
     // Walk the loops.
     const seen = new Set<number>();
@@ -329,10 +369,10 @@ export function cutMesh(mesh: Mesh, plane: SectionPlane, view: CadView, budget?:
 export const HATCH_STYLES: ReadonlyArray<{ deg: number; k: number }> = [
   { deg: 45, k: 1 },
   { deg: 135, k: 1 },
-  { deg: 45, k: 0.55 },
-  { deg: 135, k: 0.55 },
   { deg: 30, k: 1 },
   { deg: 150, k: 1 },
+  { deg: 45, k: 0.55 },
+  { deg: 135, k: 0.55 },
 ];
 /** At most this many hatch lines across one part's cut (a work bound; a part this wide gets wider spacing). */
 const MAX_LINES_PER_BODY = 400;
@@ -345,6 +385,18 @@ const MAX_LINES_PER_BODY = 400;
  * for any style — the sheet passes what still reads on paper ("spaced sufficiently apart to enable the lines to be
  * distinguished without difficulty"); the base spacing is raised, so the styles keep their ratios and stay distinct.
  */
+/** The narrowest style's spacing factor. */
+export const HATCH_K_MIN = Math.min(...HATCH_STYLES.map((s) => s.k));
+
+/** The base hatch spacing hatchRegions uses for these regions and floor (0 when there is no area). */
+export function hatchSpacing(regions: CutRegion[], minSpacing = 0): number {
+  let total = 0;
+  for (const r of regions) total += Math.abs(area2(r.outer)) - r.holes.reduce((s, h) => s + Math.abs(area2(h)), 0);
+  const fromArea = Math.sqrt(Math.max(total, 0)) / 14;
+  if (!(fromArea > 0)) return 0;
+  return minSpacing > 0 && Number.isFinite(minSpacing) ? Math.max(fromArea, minSpacing / HATCH_K_MIN) : fromArea;
+}
+
 export function hatchRegions(regions: CutRegion[], budget?: LineBudget, minSpacing = 0): { lines: Polyline[]; styleOf: Map<number, number>; spacing: number } {
   const lines: Polyline[] = [];
   const styleOf = new Map<number, number>();
@@ -353,12 +405,8 @@ export function hatchRegions(regions: CutRegion[], budget?: LineBudget, minSpaci
     if (budget) spendBudget(budget, n);
   };
   const ringsOf = (r: CutRegion): Pt2[][] => [r.outer, ...r.holes];
-  let total = 0;
-  for (const r of regions) total += Math.abs(area2(r.outer)) - r.holes.reduce((s, h) => s + Math.abs(area2(h)), 0);
-  const kMin = Math.min(...HATCH_STYLES.map((s) => s.k));
-  const fromArea = Math.sqrt(Math.max(total, 0)) / 14;
-  if (!(fromArea > 0)) return { lines, styleOf, spacing: 0 };
-  const spacing = minSpacing > 0 && Number.isFinite(minSpacing) ? Math.max(fromArea, minSpacing / kMin) : fromArea;
+  const spacing = hatchSpacing(regions, minSpacing);
+  if (!(spacing > 0)) return { lines, styleOf, spacing: 0 };
   // Boxes per body, and which bodies touch.
   const bodies = [...new Set(regions.map((r) => r.body))].sort((a, b) => a - b);
   const box = new Map<number, [number, number, number, number]>();
@@ -367,7 +415,7 @@ export function hatchRegions(regions: CutRegion[], budget?: LineBudget, minSpaci
     for (const [x, y] of r.outer) (b[0] = Math.min(b[0], x)), (b[1] = Math.min(b[1], y)), (b[2] = Math.max(b[2], x)), (b[3] = Math.max(b[3], y));
     box.set(r.body, b);
   }
-  const eps = fromArea * 1e-3;
+  const eps = hatchSpacing(regions) * 1e-3;
   const touch = (a: number, b: number): boolean => {
     const p = box.get(a)!, q = box.get(b)!;
     return p[0] <= q[2] + eps && q[0] <= p[2] + eps && p[1] <= q[3] + eps && q[1] <= p[3] + eps;

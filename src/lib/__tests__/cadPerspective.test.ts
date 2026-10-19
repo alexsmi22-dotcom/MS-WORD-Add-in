@@ -1,5 +1,5 @@
 // Perspective views (cadPerspective.ts): the projective map, drawn by the orthographic hidden-line engine.
-import { Assembly, Body, BodySpec, box, cylinder, IDENTITY_PLACEMENT, Mesh, Placement, tessellate } from "../cadModel";
+import { Assembly, Body, BodySpec, box, cylinder, IDENTITY_PLACEMENT, Mesh, Placement, sphere, tessellate } from "../cadModel";
 import { drawLines, lineBudget, STANDARD_VIEWS } from "../cadLines";
 import { MAPPED_VIEW, perspectiveMesh } from "../cadPerspective";
 
@@ -17,6 +17,20 @@ const boundsOf = (lines: Array<Array<[number, number]>>): { w: number; h: number
 };
 
 describe("perspectiveMesh", () => {
+  it("a sphere's outline is where the eye's lines of sight graze it: radius d·R / √(d² − R²), not R (review)", () => {
+    // Only the transformed normals put the outline there: with the parallel normals it would come out at R.
+    const m = meshOf(body(sphere(10)));
+    for (const [view, k] of [[STANDARD_VIEWS.front, 1.5], [STANDARD_VIEWS.iso, 2]] as const) {
+      const r = perspectiveMesh(m, view, k);
+      if (!r.ok) throw new Error(r.reason);
+      const d = k * m.diag;
+      const dr = drawLines(r.mesh, MAPPED_VIEW, lineBudget(60000));
+      const w = boundsOf(dr.visible).w;
+      expect(w / 2 / ((d * 10) / Math.sqrt(d * d - 100))).toBeCloseTo(1, 2);
+      expect(Math.abs(w / 2 - 10)).toBeGreaterThan(0.05);
+    }
+  });
+
   it("a cube seen straight on: the near face is larger than the far one, by exactly d / (d ∓ 5)", () => {
     const m = meshOf(body(box(10, 10, 10)));
     const r = perspectiveMesh(m, STANDARD_VIEWS.front, 3);

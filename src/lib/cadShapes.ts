@@ -600,7 +600,7 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
     }
     if (v.kind === "detail") {
       const ok =
-        typeof v.letter === "string" && /^[A-Z]$/.test(v.letter) && !letters.has(v.letter) &&
+        typeof v.letter === "string" && /^[A-Z]$/.test(v.letter) && !letters.has(v.letter) && !sectionLabels.has(v.letter) &&
         ["front", "top", "right", "left", "back", "bottom", "iso", "exploded"].includes(String(v.of)) &&
         Array.isArray(v.at) && v.at.length === 2 && v.at.every(isNum) && Math.abs(v.at[0]) <= 1e7 && Math.abs(v.at[1]) <= 1e7 &&
         isNum(v.r) && v.r > 0 && v.r <= 1e7 && DETAIL_FACTORS.includes(v.factor);
@@ -610,16 +610,15 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
     if (v.kind === "section") {
       const pt = (p: unknown): boolean => Array.isArray(p) && p.length === 2 && p.every(isNum) && Math.abs(p[0]) <= 1e7 && Math.abs(p[1]) <= 1e7;
       const ok =
-        typeof v.label === "string" && /^[A-Za-z0-9]{1,4}$/.test(v.label) && !sectionLabels.has(v.label) &&
+        typeof v.label === "string" && /^[A-Za-z0-9]{1,4}$/.test(v.label) && !sectionLabels.has(v.label) && !letters.has(v.label) &&
         ["front", "top", "right", "left", "back", "bottom"].includes(String(v.of)) &&
         pt(v.a) && pt(v.b) && (v.flip === undefined || typeof v.flip === "boolean");
       // Named by its label when the label itself can be read.
       if (!ok) return { ok: false, reason: `${typeof v.label === "string" && /^[A-Za-z0-9]{1,4}$/.test(v.label) ? `section view ${v.label}` : "a section view"} in the drawing is damaged` };
       sectionLabels.add(v.label);
     }
-    if (v.kind === "perspective" && v.distance !== undefined) {
-      const lo = Math.min(...PERSPECTIVE_DISTANCES), hi = Math.max(...PERSPECTIVE_DISTANCES);
-      if (!(isNum(v.distance) && v.distance >= lo && v.distance <= hi)) return { ok: false, reason: "the perspective view in the drawing is damaged" };
+    if (v.kind === "perspective" && v.distance !== undefined && !PERSPECTIVE_DISTANCES.includes(v.distance)) {
+      return { ok: false, reason: "the perspective view in the drawing is damaged" };
     }
   }
   if (d.explode !== undefined) {

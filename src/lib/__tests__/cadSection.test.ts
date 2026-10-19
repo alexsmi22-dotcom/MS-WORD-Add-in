@@ -1,5 +1,5 @@
 // Section views (cadSection.ts): the plane, the view, the cut, its caps and its hatching — 37 CFR 1.84(h)(3).
-import { Assembly, Body, BodySpec, box, IDENTITY_PLACEMENT, Mesh, Placement, tessellate, tube } from "../cadModel";
+import { Assembly, Body, BodySpec, box, cone, cylinder, IDENTITY_PLACEMENT, Mesh, Placement, tessellate, tube } from "../cadModel";
 import { drawLines, lineBudget, STANDARD_VIEWS } from "../cadLines";
 import { cutMesh, hatchRegions, HATCH_STYLES, sectionPlane, sectionView, CutRegion } from "../cadSection";
 
@@ -163,5 +163,60 @@ describe("hatchRegions", () => {
   it("touching parts are hatched at different angles; the same part in two pieces the same way", () => {
     const h = hatchRegions([square(0, 0, 10, 0), square(10, 0, 10, 1), square(40, 0, 10, 0)]);
     expect(HATCH_STYLES[h.styleOf.get(0)!].deg).not.toBe(HATCH_STYLES[h.styleOf.get(1)!].deg);
+  });
+});
+
+describe("review fixes", () => {
+  const top = STANDARD_VIEWS.top;
+  const r12 = (v: number[]): number[] => v.map((x) => +x.toFixed(12) + 0);
+
+  it("a cut across a top view stands the part upright (world +Z up), flipped or not", () => {
+    for (const [a, b] of [[[0, 0], [1, 0]], [[0, 0], [0, 1]]] as Array<[[number, number], [number, number]]>) {
+      for (const flip of [false, true]) {
+        const v = sectionView(top, sectionPlane(top, a, b, flip)!, "A");
+        expect(r12(v.rot.slice(3, 6))).toEqual([0, 0, 1]);
+      }
+    }
+  });
+
+  it("a plane on a face with the part on the viewer's side has no cut face (it hatched a false one)", () => {
+    const m = meshOf(body(box(40, 20, 10)));
+    const pl = sectionPlane(front, [0, -5], [0, 15], true)!; // x = 0 looking −X: the whole box is taken away
+    const r = cutMesh(m, pl, sectionView(front, pl, "A"), lineBudget(60000));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.regions).toHaveLength(0);
+    const c = meshOf(body(cylinder(5, 30)));
+    const up = sectionPlane(front, [10, 30], [-10, 30])!; // z = 30 looking up: the cylinder is all below
+    expect(up.sight[2]).toBeCloseTo(1, 12);
+    const rc = cutMesh(c, up, sectionView(front, up, "A"), lineBudget(60000));
+    if (!rc.ok) throw new Error(rc.reason);
+    expect(rc.regions).toHaveLength(0);
+  });
+
+  it("two boxes cut at their joint: the removed one leaves no cut face over the other", () => {
+    const m = meshOf(body(box(10, 10, 10)), body(box(10, 10, 10), { translate: [10, 0, 0], rotateDeg: [0, 0, 0] }));
+    const pl = sectionPlane(front, [10, -5], [10, 15])!; // x = 10 looking +X
+    const r = cutMesh(m, pl, sectionView(front, pl, "A"), lineBudget(60000));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.regions).toHaveLength(0);
+  });
+
+  it("a cone cut through its apex is cut, not refused (its tip is a ring of microscopic radius)", () => {
+    const m = meshOf(body(cone(10, 20)));
+    const pl = sectionPlane(front, [0, -5], [0, 25])!;
+    const r = cutMesh(m, pl, sectionView(front, pl, "A"), lineBudget(60000));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.regions.length).toBeGreaterThanOrEqual(1);
+    const area = r.regions.reduce((t, g) => t + areaOf(g), 0);
+    // The cone's whole profile through its axis: a triangle of base 20 and height 20, area 200, within the flattening.
+    expect(area / 200).toBeCloseTo(1, 2);
+  });
+
+  it("three touching parts take three different angles before any spacing variant", () => {
+    const sq = (x0: number, b: number): CutRegion => ({ body: b, outer: [[x0, 0], [x0 + 10, 0], [x0 + 10, 10], [x0, 10]], holes: [] });
+    // A middle part touching both others, and the two outer ones touching each other's corner region via a fourth.
+    const h = hatchRegions([sq(0, 0), sq(10, 1), sq(5, 2)]);
+    const degs = [0, 1, 2].map((b) => HATCH_STYLES[h.styleOf.get(b)!].deg);
+    expect(new Set(degs).size).toBe(3);
   });
 });

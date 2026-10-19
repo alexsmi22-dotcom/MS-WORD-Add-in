@@ -32,6 +32,11 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   structures stay where they are. Group labels stay labels. A structure inside brackets, or one with wedges whose
   stereo cannot be read, is refused by name.
 
+### Fixed
+- A drawing with a hashed wedge was written with one attribute twice (stroke-linecap) — malformed SVG, which an
+  image load refuses — so inserting it could fail (since the ChemDraw panel, v2.152.0, and on the canvas in
+  v2.156.0). Every element the renderer writes is now checked well-formed (cdxmlRenderWellFormed.test.ts).
+
 ### Removed
 - The old ChemDraw panel (v2.152–v2.155), which had not opened since the one canvas (v2.156.0): its code, markup
   and styles. Open ChemDraw file… and Open ChemDraw picture keep working — they open on the canvas.

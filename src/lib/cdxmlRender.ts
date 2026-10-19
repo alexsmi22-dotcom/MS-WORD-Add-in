@@ -249,7 +249,7 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       const n = right(d);
       const col = color(bd.color);
       const line = (a: Pt, c: Pt, w = lw, extra = ""): string =>
-        `<line x1="${f2(a[0])}" y1="${f2(a[1])}" x2="${f2(c[0])}" y2="${f2(c[1])}" stroke="${col}" stroke-width="${f2(w)}" stroke-linecap="${extra.includes("dash") ? "butt" : "round"}"${extra}/>`;
+        `<line x1="${f2(a[0])}" y1="${f2(a[1])}" x2="${f2(c[0])}" y2="${f2(c[1])}" stroke="${col}" stroke-width="${f2(w)}"${extra.includes("stroke-linecap") ? "" : ` stroke-linecap="${extra.includes("dash") ? "butt" : "round"}"`}${extra}/>`;
       const dash = ` stroke-dasharray="${f2(st.hashSpacing)} ${f2(st.hashSpacing)}"`;
       const parts: string[] = [];
       const styled = (a: Pt, c: Pt, disp: string): void => {

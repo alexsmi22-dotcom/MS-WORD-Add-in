@@ -62,10 +62,10 @@ function chooseUnits($: <T extends HTMLElement>(id: string) => T, mm: string): v
 }
 
 describe("Import DXF / STL… — an STL becomes a part", () => {
-  it("the button says both, and the picker offers .stl", () => {
+  it("the button says all three, and the picker offers .stl and .obj", () => {
     const { $ } = setup();
-    expect($("cad-import").textContent).toBe("Import DXF / STL…");
-    expect($<HTMLInputElement>("cad-import-file").accept.split(",")).toContain(".stl");
+    expect($("cad-import").textContent).toBe("Import DXF / STL / OBJ…");
+    expect($<HTMLInputElement>("cad-import-file").accept.split(",")).toEqual(expect.arrayContaining([".stl", ".obj"]));
   });
 
   it("read: no units are assumed — Add as a part waits for them; the drawing's buttons are hidden", async () => {
@@ -223,5 +223,28 @@ describe("Import DXF / STL… — an STL becomes a part", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect($("cad-import-info").textContent).toBe("block.stl: 12 facets (binary STL). The edge angle must be between 0° and 180°.");
     expect($<HTMLButtonElement>("cad-import-part").disabled).toBe(true);
+  });
+});
+
+describe("Import … — an OBJ goes the STL's way, and is called an OBJ", () => {
+  const CUBE_OBJ = ["# a 40 × 30 × 20 block, six quads", "v 0 0 0", "v 40 0 0", "v 40 30 0", "v 0 30 0", "v 0 0 20", "v 40 0 20", "v 40 30 20", "v 0 30 20", "f 1 4 3 2", "f 5 6 7 8", "f 1 2 6 5", "f 2 3 7 6", "f 3 4 8 7", "f 4 1 5 8", ""].join("\n");
+  it("read: OBJ says no units either; added as a part named after the file, listed as an imported OBJ", async () => {
+    const { $, status, pane } = setup();
+    await pick($, status, "block.obj", new NodeTextEncoder().encode(CUBE_OBJ));
+    expect(last(status)).toEqual(["block.obj read. An OBJ file does not say its units: choose them below, then Add as a part.", ""]);
+    expect($("cad-import-info").textContent).toBe("block.obj: 12 facets (OBJ). An OBJ file does not say its units: choose them.");
+    chooseUnits($, "1");
+    expect($("cad-import-info").textContent).toBe("block.obj: 12 facets (OBJ). 12 edges drawn at 30°.");
+    $<HTMLButtonElement>("cad-import-part").click();
+    expect(last(status)[0]).toMatch(/^block\.obj added as block\. /);
+    expect($("cad-parts").textContent).toContain("block — Imported OBJ");
+    expect($("cad-editor").querySelector("select[aria-label='Units of the OBJ file']")).not.toBeNull();
+    const part = JSON.parse(pane.getDoc()).parts.find((p: { shape: string }) => p.shape === "mesh");
+    expect([part.mesh.file, part.mesh.facets, part.mesh.size]).toEqual(["block.obj", 12, [40, 30, 20]]);
+  });
+  it("a bad line is refused with its number, by the file's name", async () => {
+    const { $, status } = setup();
+    await pick($, status, "bad.obj", new NodeTextEncoder().encode("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 9\n"));
+    expect(last(status)).toEqual(["bad.obj: line 4: corner 9 does not exist (3 corners so far).", "error"]);
   });
 });

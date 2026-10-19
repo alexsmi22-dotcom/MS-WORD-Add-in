@@ -279,7 +279,8 @@ export interface CadPart {
 
 /** What a part is called in the parts list. */
 export function shapeName(p: CadPart): string {
-  if (p.shape === "mesh") return "Imported STL";
+  // An OBJ goes through the STL pipeline, but is called what it is.
+  if (p.shape === "mesh") return /\.obj$/i.test(p.mesh?.file ?? "") ? "Imported OBJ" : "Imported STL";
   return p.shape === "sketch" ? (p.op?.kind === "revolve" ? "Sketch, revolved" : "Sketch, extruded") : SHAPES[p.shape].name;
 }
 

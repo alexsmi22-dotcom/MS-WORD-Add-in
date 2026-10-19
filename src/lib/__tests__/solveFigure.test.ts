@@ -45,3 +45,26 @@ describe("solveFunctionSvg", () => {
     expect(solveFunctionSvg({ exprs: [{ expr: "x(x-1)", label: "f", color: "#000" }], variable: "x", title: "t" })).toBeNull();
   });
 });
+
+describe("solveFunctionSvg reads every curve of a figure one way (v2.160.0 review)", () => {
+  it("f and f' together: one implicit product switches both to Solve's reader", () => {
+    const mixed = solveFunctionSvg({
+      exprs: [
+        { expr: "x^2", label: "f", color: "#000" },
+        { expr: "2x", label: "f'", color: "#b91c1c" },
+      ],
+      variable: "x",
+      title: "t",
+    });
+    const explicit = solveFunctionSvg({
+      exprs: [
+        { expr: "x^2", label: "f", color: "#000" },
+        { expr: "2*x", label: "f'", color: "#b91c1c" },
+      ],
+      variable: "x",
+      title: "t",
+    });
+    expect(hasCurve(mixed)).toBe(true);
+    expect(mixed).toBe(explicit);
+  });
+});

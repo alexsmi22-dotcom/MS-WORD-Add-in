@@ -42,7 +42,7 @@ import {
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { EngLine, engReport, plainDashes } from "../lib/engReport";
-import { statFieldCommasAreSeparators } from "../lib/statFields";
+import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
 import {
   HostCapability,
   FigurePresetChoice,
@@ -8616,7 +8616,7 @@ function updateFinancePreview(): void {
   // Carry the assumptions into the DOCUMENT too. A number that leaves the pane
   // without them is the same defect one step further downstream — and the
   // document is where it gets relied on. pkaAsText already does this.
-  currentFinText = insertable ? (calc.assumes ? `${text}\nAssumes: ${calc.assumes}` : text) : "";
+  currentFinText = insertable ? [text, ...listNotes, ...(calc.assumes ? [`Assumes: ${calc.assumes}`] : [])].join("\n") : "";
   finInsertBtn.disabled = !insertable;
 
   // THE FIGURE, under the number and the assumptions.
@@ -8704,19 +8704,17 @@ function statCommaNote(): string {
 }
 function statGroups(s: string): number[][] {
   const sep = statFieldCommasAreSeparators(s);
-  return s
-    .split(/\n\s*\n|;/)
-    // A decimal-comma field reads each group as cells, even a group of one value ("3,5" is 3.5).
-    .map((g) => statList(sep ? g.replace(/,/g, " ") : g, !sep))
-    .filter((g) => g.length > 0);
+  const groups = s.split(/\n\s*\n|;/);
+  // A field that proves decimal commas reads every group as cells, even a group of one value ("3,5" is 3.5).
+  const cells = !sep && statFieldProvesDecimalCommas(groups);
+  return groups.map((g) => statList(sep ? g.replace(/,/g, " ") : g, cells)).filter((g) => g.length > 0);
 }
 /** Parses a numeric table: one row per line, entries space/comma separated. */
 function statTable(s: string): number[][] {
   const sep = statFieldCommasAreSeparators(s);
-  return s
-    .split(/\n|;/)
-    .map((line) => statList(sep ? line.replace(/,/g, " ") : line, !sep))
-    .filter((row) => row.length > 0);
+  const rows = s.split(/\n|;/);
+  const cells = !sep && statFieldProvesDecimalCommas(rows);
+  return rows.map((line) => statList(sep ? line.replace(/,/g, " ") : line, cells)).filter((row) => row.length > 0);
 }
 
 /**

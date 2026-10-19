@@ -5,7 +5,8 @@
 
 /** The root <svg …> tag of a figure ("" when there is none). */
 function rootTag(svg: string): string {
-  return /<svg\b[^>]*>/i.exec(svg)?.[0] ?? "";
+  // Quote-aware: a ">" inside an attribute value (aria-label="a > b") does not end the tag.
+  return /<svg\b(?:[^>"']|"[^"]*"|'[^']*')*>/i.exec(svg)?.[0] ?? "";
 }
 
 /** A number-valued attribute of a tag ("127.3pt" → 127.3), or NaN. */

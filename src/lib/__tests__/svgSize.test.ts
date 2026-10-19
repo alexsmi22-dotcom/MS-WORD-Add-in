@@ -32,3 +32,9 @@ describe("svgNaturalSize (moved unchanged)", () => {
     expect(svgNaturalSize("<g/>")).toEqual({ width: 300, height: 190 });
   });
 });
+
+describe("readSvgDims, a quoted > in the root tag (v2.160.0 review)", () => {
+  it("does not end the tag", () => {
+    expect(readSvgDims('<svg aria-label="a > b" width="300" height="200"></svg>', 1, 1)).toEqual({ w: 300, h: 200 });
+  });
+});

@@ -14,12 +14,13 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   the figure without a word. The curve now reads the equation as Solve read it; what the plotter always read is
   drawn exactly as before. An ambiguous product (x(x−1): a function x, or x times?) is still no figure.
 - **Finance and Bio/Assay list fields follow the product's comma rule**, as Stats has since v2.134.0:
-  "1,5 2,3 3,1" is 1.5, 2.3, 3.1 (and the result says so), not six values. Anything in a list that is not a number
+  "1,5 2,3 3,1" is 1.5, 2.3, 3.1 (and the result says so, in the pane and in the document), not six values. Anything in a list that is not a number
   ("5OO" typed with letter O's) is refused by name — it used to vanish from the list, and an NPV or a fit was
   computed on values nobody typed. Every calculator's default reads exactly as before.
-- **Stats: a lone value in a decimal-comma field is one number.** In a field of groups typed with decimal commas,
-  a group (or table row) holding one value — "3,5" — was read as 3 and 5; a one-column table "1,5 / 2,5" became two
-  columns. It is 3.5, as the rest of the field decided.
+- **Stats: a lone value in a decimal-comma field is one number.** In a field typed with decimal commas ("1,5 2,5
+  3,5" in one group), a group or table row holding one value — "4,5" — was read as 4 and 5. It is 4.5, as the rest
+  of the field decided. A field that proves nothing (every row one comma run, like a table "10,20 / 30,40") is read
+  as before.
 - **A figure's size is read from its own outer tag.** A figure whose outer tag has no width (only a viewBox) could
   take a line thickness from inside it as its width (stroke-width="1.5" → inserted 1.5 px wide); it now uses its
   viewBox, then the default.

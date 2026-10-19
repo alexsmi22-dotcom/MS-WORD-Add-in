@@ -16,10 +16,11 @@ import { evalAst, parseExpr } from "./solve";
  * otherwise; the sample count is a constant. This runs on every keystroke, so
  * an unbounded window here would not be a bad chart, it would be a frozen Word.
  *
- * `evalFormula` is the same evaluator the rest of the pane uses, so the curve
- * is the same arithmetic that produced the answer rather than a second reading
- * of the user's expression. Anything it cannot evaluate yields no figure at
- * all — a plot with a silent hole in it would be worse than none.
+ * `evalFormula` is the evaluator the rest of the pane uses; an expression it
+ * refuses (an implicit product, "5x") is read by Solve's own parser instead, so
+ * the curve is the arithmetic that produced the answer. Anything neither can
+ * evaluate yields no figure at all — a plot with a silent hole in it would be
+ * worse than none.
  */
 export function solveFunctionSvg(o: {
   exprs: { expr: string; label: string; color: string }[];
@@ -58,6 +59,17 @@ export function solveFunctionSvg(o: {
 
   const N = 200;
   const series: Series[] = [];
+  // ONE reader for the whole figure: if the plotter's own reader refuses any expression (an implicit product,
+  // "5x"), every curve is read as Solve read it — f and f′ by two different readers could disagree where one
+  // gives NaN and the other a real value (x^(1/3) for x < 0: v2.160.0 review).
+  let solveReader = false;
+  for (const e of o.exprs) {
+    try {
+      evalFormula(e.expr, { [o.variable]: lo });
+    } catch {
+      solveReader = true;
+    }
+  }
   const readers: Array<(x: number) => number> = [];
   for (const e of o.exprs) {
     const pts: Point[] = [];
@@ -65,9 +77,7 @@ export function solveFunctionSvg(o: {
     // the figure was silently dropped: "x^2 - 5x + 6 = 0" inserted no curve (host-trace audit). What the
     // plotter reads it still reads; what it refuses is read as Solve read it.
     let read = (x: number): number => evalFormula(e.expr, { [o.variable]: x });
-    try {
-      read(lo);
-    } catch {
+    if (solveReader) {
       try {
         const ast = parseExpr(e.expr);
         read = (x) => evalAst(ast, { [o.variable]: x });

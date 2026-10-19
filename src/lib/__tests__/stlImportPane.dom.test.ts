@@ -9,6 +9,8 @@ import * as path from "path";
 import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from "util";
 import { initCadPane, CadPaneHost } from "../../taskpane/cadPane";
 import { starterDoc } from "../cadShapes";
+import { hasStl } from "../cadMeshStore";
+import { stlHash } from "../stl";
 
 (globalThis as unknown as { TextDecoder: unknown }).TextDecoder ??= NodeTextDecoder;
 Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value: () => null });
@@ -172,6 +174,21 @@ describe("Import DXF / STL… — an STL becomes a part", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect($("cad-import-info").textContent).toBe("block.stl: 12 facets (binary STL). 12 edges drawn at 45°.");
     expect($<HTMLButtonElement>("cad-import-part").disabled).toBe(false);
+  });
+
+  it("review 3-6: the pane keeps the file its part names, and forgets files only looked at beyond the last two", async () => {
+    const { $, status } = setup();
+    const used = blockStl(31, 30, 20);
+    await pick($, status, "used.stl", used);
+    chooseUnits($, "1");
+    $<HTMLButtonElement>("cad-import-part").click();
+    const looked = [32, 33, 34, 35].map((w) => blockStl(w, 30, 20));
+    for (const [i, b] of looked.entries()) {
+      await pick($, status, `look${i}.stl`, b);
+      $<HTMLButtonElement>("cad-import-close").click();
+    }
+    expect(hasStl(stlHash(used))).toBe(true);
+    expect(looked.map((b) => hasStl(stlHash(b)))).toEqual([false, false, true, true]);
   });
 
   it("the large canvas refuses a drawing with an imported part by name (its facets stay in the pane)", async () => {

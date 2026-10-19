@@ -61,6 +61,8 @@ export interface StlFacets {
   step?: number;
   /** A text file: the most significant digits any coordinate was printed with. */
   sig?: number;
+  /** A text file: every coordinate could be a float32 printed to its digits (an exporter working in float32). */
+  f32?: boolean;
 }
 
 const n0 = (v: number): string => v.toLocaleString("en-US");
@@ -122,7 +124,7 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
   // matches "facet" (no word boundary before its f).
   const re = /\b(endfacet\b|facet\s+normal\b|vertex\s+(\S+)\s+(\S+)\s+(\S+))/gi;
   const corners: number[] = [];
-  let facet = 0, inFacet = false, seen = 0, bad = false, unreadable = 0, step = 0, sig = 0;
+  let facet = 0, inFacet = false, seen = 0, bad = false, unreadable = 0, step = 0, sig = 0, f32 = true;
   const digits = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
   const cur: number[] = [];
   for (let m = re.exec(text); m; m = re.exec(text)) {
@@ -152,7 +154,10 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
           // Where its last digit falls: "128.457" rounds to 0.001, "1.28457e+02" to 0.001 too.
           const d = digits.exec(t);
           if (d) {
-            step = Math.max(step, 10 ** (Number(d[3] ?? 0) - (d[2]?.length ?? 0)));
+            const ulp = 10 ** (Number(d[3] ?? 0) - (d[2]?.length ?? 0));
+            step = Math.max(step, ulp);
+            // Could this number be a float32 printed to these digits? (Not once any could not.)
+            if (f32 && Number.isFinite(v) && Math.abs(Math.fround(v) - v) > ulp * 0.5 * (1 + 1e-9)) f32 = false;
             sig = Math.max(sig, (d[1] + (d[2] ?? "")).replace(/^0+/, "").length);
           }
         }
@@ -162,7 +167,7 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
   if (inFacet) return { ok: false, reason: `facet ${n0(facet)} has no "endfacet" (the file is cut short)` };
   if (!facet) return { ok: false, reason: "it has no facets" };
   if (!corners.length) return { ok: false, reason: "none of its facets has readable numbers" };
-  return { ok: true, stl: { format: "text", corners: Float64Array.from(corners), count: corners.length / 9, unreadable, step, sig } };
+  return { ok: true, stl: { format: "text", corners: Float64Array.from(corners), count: corners.length / 9, unreadable, step, sig, f32 } };
 }
 
 /**
@@ -368,20 +373,22 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
       }
     }
   }
-  // A piece is closed when it gives exactly two of its own facets to every edge it touches: two
-  // cubes touching along an edge are each closed (two facets each there), while a wall shared by
-  // two boxes (each box gives it one) or a shell written twice (every facet its own piece) is not
-  // (second review).
+  // A piece is closed when, along every edge it touches, as many of its facets (as turned) run one
+  // way as the other: two cubes touching along an edge give one each way each; a solid pinched
+  // against itself along an edge, two each way; a wall shared by two boxes (each box gives it one
+  // facet) or a shell written twice (every facet its own piece) do not balance (second and third
+  // reviews).
   const closed = new Uint8Array(pieces).fill(1);
   const tally = new Map<number, number>();
   for (let e = 0; e < ne; e++) {
-    if (count(e) === 2) continue; // its two facets were joined into one piece above
+    if (count(e) === 2) continue; // its two facets were joined into one piece above, agreeing
     tally.clear();
     for (let i = edgeStart[e]; i < edgeStart[e + 1]; i++) {
-      const p = piece[(edgeList[i] / 3) | 0];
-      tally.set(p, (tally.get(p) ?? 0) + 1);
+      const h = edgeList[i], t = (h / 3) | 0;
+      const p = piece[t];
+      tally.set(p, (tally.get(p) ?? 0) + (rising(h) !== (flip[t] === 1) ? 1 : -1));
     }
-    for (const [p, k] of tally) if (k !== 2) closed[p] = 0;
+    for (const [p, k] of tally) if (k !== 0) closed[p] = 0;
   }
   const vol = new Float64Array(pieces);
   const triVol = (a: number, b: number, c: number): number =>
@@ -423,12 +430,14 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
   // each way, doubled for the subtraction to the origin). A text file, half its last printed digit,
   // doubled likewise (review: six significant digits near 128 round by 5e-4): the coarser of the
   // decimal places seen (fixed-point printing) — unless the significant digits seen say finer
-  // (%g drops trailing zeros: "10" may be 10.0000) — never coarser than six significant digits,
-  // and never finer than float32 (most exporters work in it, whatever digits they print: Blender's
-  // six decimals of a float32 corner are only as exact as the float32 — second review).
+  // (%g drops trailing zeros: "10" may be 10.0000) — never coarser than six significant digits;
+  // and, when every number could be a float32 printed to its digits, never finer than float32
+  // (Blender's six decimals of a float32 corner are only as exact as the float32 — second review),
+  // while digits no float32 could give (500000.123456) are taken at their word (third review).
   let far = 0;
   for (let i = 0; i < 3 * nv; i++) far = Math.max(far, Math.abs(raw[i]));
-  const textNoise = Math.max(Math.min(stl.step ?? Infinity, far * 10 ** (1 - (stl.sig || 1)), far * 1e-5), far * 2 ** -22);
+  const printed = Math.min(stl.step ?? Infinity, far * 10 ** (1 - (stl.sig || 1)), far * 1e-5);
+  const textNoise = stl.f32 ? Math.max(printed, far * 2 ** -22) : printed;
   const noise = mmPerUnit * (stl.format === "binary" ? far * 2 ** -23 : textNoise);
   if (!(diag > 0)) return { ok: false, reason: "it has no size" };
   const fn = new Float64Array(3 * nt); // raw (area-weighted)

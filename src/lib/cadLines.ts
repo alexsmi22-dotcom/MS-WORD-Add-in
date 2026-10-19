@@ -143,6 +143,14 @@ export function lineBudget(ms = LINE_TIME_BUDGET_MS): LineBudget {
   return { until: clock() + ms, n: 0 };
 }
 
+/** Counts `n` tests against a budget, reading the clock every 2^15 (throws LineWorkExceeded when it has run out). */
+export function spendBudget(budget: LineBudget, n: number): void {
+  budget.n += n;
+  if (budget.n < 32768) return;
+  budget.n = 0;
+  if (clock() > budget.until) throw new LineWorkExceeded();
+}
+
 /** Thrown when a drawing's lines take longer than their budget (layoutSheet turns it into a refusal). */
 export class LineWorkExceeded extends Error {
   constructor() {
@@ -154,12 +162,7 @@ export class LineWorkExceeded extends Error {
 /** Draws the mesh from the view, within `budget` (a fresh one when none is given). */
 export function drawLines(mesh: Mesh, view: CadView, budget: LineBudget = lineBudget()): LineDrawing {
   // The clock is read every 2^15 grid tests (well under a millisecond of work).
-  const spend = (n: number): void => {
-    budget.n += n;
-    if (budget.n < 32768) return;
-    budget.n = 0;
-    if (clock() > budget.until) throw new LineWorkExceeded();
-  };
+  const spend = (n: number): void => spendBudget(budget, n);
   const R = view.rot;
   const P = mesh.positions;
   const nv = P.length / 3;

@@ -16,7 +16,7 @@
  */
 import { tessellate, Mesh, Placement, Vec3 } from "../lib/cadModel";
 import { faceAt, FaceHit, mate } from "../lib/cadMate";
-import { drawLines, LineWorkExceeded, STANDARD_VIEWS, CadView } from "../lib/cadLines";
+import { drawLines, lineBudget, LineWorkExceeded, STANDARD_VIEWS, CadView } from "../lib/cadLines";
 import { fitView, previewOps, paintPreview, pickAt, orbit, Fit, Pick as FacePick } from "../lib/cadPreview";
 import { DetailSpec, layoutSheet, SheetFrame, SheetOptions, ViewSpec } from "../lib/cadSheet";
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../lib/cadExplode";
@@ -129,6 +129,9 @@ export function fitNote(sheet: { standard: StandardId; wMm: number; hMm: number;
     : { k, note: `The drawing is inserted at ${pct} % to fit the page; SCALE ${scale} holds at full size (${fmtMm(sheet.wMm)} mm wide).` };
 }
 
+/** The live 3D view's lines: a short budget (they run on every click and pause), the sheet's is longer. */
+export const LIVE_LINE_BUDGET_MS = 1500;
+
 /** The model of a drawing with no parts (its blank figures are drawn on by hand). */
 const EMPTY_MESH: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag: 1, crossings: [], overlaps: [], bodySag: [] };
 
@@ -192,6 +195,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   let view: CadView = STANDARD_VIEWS.iso;
   let zoom = 1;
   let mesh: Mesh | null = null;
+  /** The model and view whose live lines ran out of time (shown shaded until either changes). */
+  let shadedOnly: { mesh: Mesh; view: string } | null = null;
   let calloutMode = false;
   let seq = 1;
   let lineTimer = 0;
@@ -314,12 +319,17 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       lineTimer = window.setTimeout(() => paint(true), 180);
       return;
     }
+    // The live view's lines run on every click, pause and rebuild: a short budget of their own, and a
+    // view that ran out is not worked out again for the same model (third review).
+    const viewKey = view.rot.join(",");
+    if (shadedOnly?.mesh === mesh && shadedOnly.view === viewKey) return paintCallouts(ctx, fit);
     let d: ReturnType<typeof drawLines>;
     try {
-      d = drawLines(mesh, view);
+      d = drawLines(mesh, view, lineBudget(LIVE_LINE_BUDGET_MS));
     } catch (e) {
-      // Too many lines to work out in time: the shaded view stands alone, and says so (review).
+      // Too many lines to work out in time: the shaded view stands alone, and says so.
       if (e instanceof LineWorkExceeded) {
+        shadedOnly = { mesh, view: viewKey };
         host.setStatus("The 3D view's lines take too long to work out from this angle — it shows the parts shaded only.", "");
         return paintCallouts(ctx, fit);
       }
@@ -1719,6 +1729,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     else if (!(crease > 0 && crease < 180)) lines.push("The edge angle must be between 0° and 180°.");
     else {
       const r = meshFor({ file: s.name, hash: s.hash, facets: s.stl.count, mmPerUnit: mm, creaseDeg: crease, size: [0, 0, 0] });
+      retainMeshes(liveMeshRefs()); // each angle or unit tried builds a body: only the last two are kept
       if (!r.ok) lines.push(r.reason.charAt(0).toUpperCase() + r.reason.slice(1) + ".");
       else {
         ok = true;

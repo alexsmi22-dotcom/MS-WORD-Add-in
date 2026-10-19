@@ -23,7 +23,7 @@
  * what inserts is what shows.
  */
 import type { Mesh, Vec3 } from "./cadModel";
-import { baryIn, drawLines, LineBudget, lineBudget, LineDrawing, LineWorkExceeded, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
+import { baryIn, drawLines, LineBudget, lineBudget, LineDrawing, LineWorkExceeded, spendBudget, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
 import { DRAWING_STANDARDS, DrawingStandard, StandardId, STANDARD_SCALES, snapScale, scaleLabel } from "./cadStandards";
 import { ptToMm } from "./figureStyle";
 import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues } from "./cadFormats";
@@ -169,10 +169,11 @@ function viewName(v: ViewSpec): string {
 }
 
 /** Is world point p hidden behind the mesh in this view? (A point ON a surface is not hidden by that surface.) */
-export function pointHidden(mesh: Mesh, view: CadView, p: Vec3): boolean {
+export function pointHidden(mesh: Mesh, view: CadView, p: Vec3, budget?: LineBudget): boolean {
   const R = view.rot;
   const P = mesh.positions;
   const T = mesh.triangles;
+  if (budget) spendBudget(budget, T.length / 3); // every triangle is tested: on the sheet's clock
   const x = R[0] * p[0] + R[1] * p[1] + R[2] * p[2];
   const y = R[3] * p[0] + R[4] * p[1] + R[5] * p[2];
   const z = R[6] * p[0] + R[7] * p[1] + R[8] * p[2];
@@ -213,7 +214,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
 function layoutSheetWithin(mesh: Mesh, o: SheetOptions): Sheet {
   const std = DRAWING_STANDARDS[o.standard];
   const room = ptToMm(std.textPt) * 1.15; // mm of paper per em of text, with a margin
-  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map(), work: lineBudget(o.lineBudgetMs) };
+  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map(), work: lineBudget(o.lineBudgetMs), hidden: new Map() };
   const first = layoutCore(mesh, o, undefined, info);
   if (!info.textUnits) return first; // no hand-drawn text or numerals to make room for
   const fitAt = (s: number): number => {
@@ -269,6 +270,8 @@ interface LayoutInfo {
   drawn: Map<string, LineDrawing>;
   /** The hidden-line time left for the whole sheet (cadLines LINE_TIME_BUDGET_MS). */
   work: LineBudget;
+  /** Whether each callout point is hidden in each view, worked out once for every pass. */
+  hidden: Map<string, boolean>;
 }
 
 function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined, info: LayoutInfo): Sheet {
@@ -337,7 +340,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
         for (let i = 0; i <= STEPS; i++) {
           const t = i / STEPS;
           const p: Vec3 = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-          if (pointHidden(o.exploded!.mesh, view, p)) {
+          if (pointHidden(o.exploded!.mesh, view, p, info.work)) {
             if (run.length > 1) trails.push([run[0], run[run.length - 1]]);
             run = [];
           } else run.push(project(view, p));
@@ -522,7 +525,12 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     callouts.forEach((c, n) => {
       if (sp.kind === "blank") return;
       const anchor = ex ? (o.exploded!.anchors[n] ?? c.anchor) : c.anchor;
-      if (pointHidden(ex ? o.exploded!.mesh : mesh, it.view, anchor)) return;
+      // The same on every layout pass (the text-fit and detail-scale searches repeat the layout): worked
+      // out once per view and point (third review: 40 callouts on a large part took 19.6 s).
+      const hk = `${ex ? "x" : "m"}|${it.view.rot.join(",")}|${anchor.join(",")}`;
+      let hid = info.hidden.get(hk);
+      if (hid === undefined) info.hidden.set(hk, (hid = pointHidden(ex ? o.exploded!.mesh : mesh, it.view, anchor, info.work)));
+      if (hid) return;
       let x = R[0] * anchor[0] + R[1] * anchor[1] + R[2] * anchor[2];
       let y = R[3] * anchor[0] + R[4] * anchor[1] + R[5] * anchor[2];
       if (sp.kind === "detail") {

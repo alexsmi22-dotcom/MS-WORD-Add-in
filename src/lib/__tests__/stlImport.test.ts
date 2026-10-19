@@ -2,7 +2,7 @@
 // tessellated by the engine, written out as STL (binary, float32, as exporters write; and text),
 // read back, and drawn — the drawing must match the analytic part's own.
 import { apply3, Mesh, rotationMatrix, SolidMesh, tessellate } from "../cadModel";
-import { drawLines, Polyline, viewFromDegrees } from "../cadLines";
+import { drawLines, LINE_TIME_BUDGET_MS, Polyline, viewFromDegrees } from "../cadLines";
 import { faceAt } from "../cadMate";
 import { hasStl, MeshRef, meshFor, rememberStl, retainMeshes } from "../cadMeshStore";
 import { attachCallout, CadDoc, CadPart, defaultParams, docToAssembly, parseDoc, partProblems, resolveCallouts, serializeDoc, ShapeId, starterDoc } from "../cadShapes";
@@ -576,5 +576,121 @@ describe("review round 1", () => {
     const b = bodyOf(bin([...cubeAt([0, 0, 0], 10), ...cubeAt([0, 0, 0], 10)]));
     expect(b.mesh.closed).toBe(false);
     expect(b.notes.join(" ")).not.toMatch(/turned|too many closed pieces/);
+  });
+});
+
+// ---- review round 3 ----------------------------------------------------------------------------
+describe("review round 3", () => {
+  it("3-2. a sheet's whole layout keeps to its clock: 40 callouts on a 99,500-facet part with a note (the text-fit search repeats the layout)", () => {
+    // A finely faceted sphere, as an STL.
+    const nu = 250, nv = 200;
+    const tris: P3[][] = [];
+    const S = (i: number, j: number): P3 => {
+      const u = (2 * Math.PI * i) / nu, v = (Math.PI * j) / nv;
+      return [30 * Math.sin(v) * Math.cos(u), 30 * Math.sin(v) * Math.sin(u), 30 * Math.cos(v)];
+    };
+    for (let i = 0; i < nu; i++)
+      for (let j = 0; j < nv; j++) {
+        if (j > 0) tris.push([S(i, j), S(i + 1, j), S(i + 1, j + 1)]);
+        if (j < nv - 1) tris.push([S(i, j), S(i + 1, j + 1), S(i, j + 1)]);
+      }
+    const body = bodyOf(bin(tris));
+    const t = tessellate({ version: 1, bodies: [meshBody(body.mesh)] });
+    if (!t.ok) throw new Error(t.reason);
+    const callouts = Array.from({ length: 40 }, (_, k) => {
+      const a = (2 * Math.PI * k) / 40;
+      return { anchor: [30 + 30 * Math.cos(a), 30 + 30 * Math.sin(a), 30] as P3, label: String(10 + 2 * k) };
+    });
+    const t0 = Date.now();
+    const sh = layoutSheet(t.mesh, {
+      standard: "asme",
+      views: [{ kind: "front" }, { kind: "top" }, { kind: "right" }, { kind: "iso" }],
+      callouts,
+      marks: [{ kind: "text", view: "front", at: [0, 0], text: "NOTE" }],
+      lineBudgetMs: 2000,
+    });
+    // Drawn or refused, it answers within its clock (plus the work after the last reading of it).
+    expect(Date.now() - t0).toBeLessThan(6000);
+    expect(typeof sh.svg).toBe("string");
+  }, 60000);
+
+  it("3-3. a solid pinched against itself along one edge (one shell: two cubes meeting edge to edge under a slab) is closed; inside out, it is turned", () => {
+    // Rectangles as two triangles, wound any way (the reader orients them).
+    const r = (a: P3, b: P3, c: P3, d: P3): P3[][] => [[a, b, c], [a, c, d]];
+    const f: P3[][] = [];
+    // Cube A: x 0–10, y 0–10, z 0–10; its top is inside the slab.
+    f.push(...r([0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]));
+    f.push(...r([0, 0, 0], [0, 10, 0], [0, 10, 10], [0, 0, 10]));
+    f.push(...r([0, 0, 0], [10, 0, 0], [10, 0, 10], [0, 0, 10]));
+    f.push(...r([10, 0, 0], [10, 10, 0], [10, 10, 10], [10, 0, 10]));
+    f.push(...r([0, 10, 0], [10, 10, 0], [10, 10, 10], [0, 10, 10]));
+    // Cube B: x 10–20, y 10–20, z 0–10; meets A only along the edge x = y = 10.
+    f.push(...r([10, 10, 0], [20, 10, 0], [20, 20, 0], [10, 20, 0]));
+    f.push(...r([20, 10, 0], [20, 20, 0], [20, 20, 10], [20, 10, 10]));
+    f.push(...r([10, 20, 0], [20, 20, 0], [20, 20, 10], [10, 20, 10]));
+    f.push(...r([10, 10, 0], [10, 20, 0], [10, 20, 10], [10, 10, 10]));
+    f.push(...r([10, 10, 0], [20, 10, 0], [20, 10, 10], [10, 10, 10]));
+    // Slab: x 0–20, y 0–20, z 10–12. Top; underside where no cube is; sides split where the cubes meet them.
+    for (const [x0, y0] of [[0, 0], [10, 0], [0, 10], [10, 10]]) f.push(...r([x0, y0, 12], [x0 + 10, y0, 12], [x0 + 10, y0 + 10, 12], [x0, y0 + 10, 12]));
+    f.push(...r([10, 0, 10], [20, 0, 10], [20, 10, 10], [10, 10, 10]));
+    f.push(...r([0, 10, 10], [10, 10, 10], [10, 20, 10], [0, 20, 10]));
+    for (const [y0, y1] of [[0, 10], [10, 20]]) {
+      f.push(...r([0, y0, 10], [0, y1, 10], [0, y1, 12], [0, y0, 12]));
+      f.push(...r([20, y0, 10], [20, y1, 10], [20, y1, 12], [20, y0, 12]));
+    }
+    for (const [x0, x1] of [[0, 10], [10, 20]]) {
+      f.push(...r([x0, 0, 10], [x1, 0, 10], [x1, 0, 12], [x0, 0, 12]));
+      f.push(...r([x0, 20, 10], [x1, 20, 10], [x1, 20, 12], [x0, 20, 12]));
+    }
+    const vol = (m: SolidMesh): number => {
+      const P = m.positions, T = m.triangles;
+      let v = 0;
+      for (let t = 0; t < T.length / 3; t++) {
+        const [x, y, z] = [T[3 * t], T[3 * t + 1], T[3 * t + 2]].map((i) => [P[3 * i], P[3 * i + 1], P[3 * i + 2]]);
+        v += x[0] * (y[1] * z[2] - y[2] * z[1]) - x[1] * (y[0] * z[2] - y[2] * z[0]) + x[2] * (y[0] * z[1] - y[1] * z[0]);
+      }
+      return v / 6;
+    };
+    const b = bodyOf(bin(f));
+    expect(b.mesh.closed).toBe(true);
+    expect(vol(b.mesh)).toBeCloseTo(1000 + 1000 + 800, 6);
+    expect(b.notes.join(" ")).toMatch(/shared by more than two facets/);
+    const inv = bodyOf(bin(f.map((t) => [t[0], t[2], t[1]])));
+    expect(inv.mesh.closed).toBe(true);
+    expect(vol(inv.mesh)).toBeCloseTo(2800, 6);
+  });
+
+  it("3-5. digits no float32 could give are taken at their word: a 0.15 mm step 500 m from the origin stays two faces", () => {
+    // A 2 × 2 × 1 block with a 0.15 mm step on half its top, at x = 500,000 mm, written with six decimals.
+    const X = 500000.123;
+    const q = (a: P3, b: P3, c: P3, d: P3): P3[][] => [[a, b, c], [a, c, d]];
+    const p = (x: number, y: number, z: number): P3 => [X + x, y, z];
+    const f: P3[][] = [];
+    f.push(...q(p(0, 0, 0), p(0, 2, 0), p(2, 2, 0), p(2, 0, 0))); // bottom
+    f.push(...q(p(0, 0, 1), p(1, 0, 1), p(1, 2, 1), p(0, 2, 1))); // lower top
+    f.push(...q(p(1, 0, 1.15), p(2, 0, 1.15), p(2, 2, 1.15), p(1, 2, 1.15))); // upper top
+    f.push(...q(p(1, 0, 1), p(1, 0, 1.15), p(1, 2, 1.15), p(1, 2, 1))); // riser (faces −x)
+    f.push(...q(p(0, 0, 0), p(2, 0, 0), p(2, 0, 1.15), p(0, 0, 1.15)).map((t) => t) as P3[][]);
+    // Front (y = 0) and back (y = 2) as polygons split in two rectangles each, then the ends.
+    f.splice(f.length - 2, 2);
+    f.push(...q(p(0, 0, 0), p(1, 0, 0), p(1, 0, 1), p(0, 0, 1)), ...q(p(1, 0, 0), p(2, 0, 0), p(2, 0, 1.15), p(1, 0, 1.15)));
+    f.push(...q(p(0, 2, 0), p(0, 2, 1), p(1, 2, 1), p(1, 2, 0)), ...q(p(1, 2, 0), p(1, 2, 1.15), p(2, 2, 1.15), p(2, 2, 0)));
+    f.push(...q(p(0, 0, 0), p(0, 0, 1), p(0, 2, 1), p(0, 2, 0)), ...q(p(2, 0, 0), p(2, 2, 0), p(2, 2, 1.15), p(2, 0, 1.15)));
+    const lines = ["solid step"];
+    for (const t of f) {
+      lines.push("facet normal 0 0 0", "outer loop");
+      for (const c of t) lines.push(`vertex ${c.map((v) => v.toFixed(6)).join(" ")}`);
+      lines.push("endloop", "endfacet");
+    }
+    lines.push("endsolid step");
+    const r = readStl(Uint8Array.from(lines.join("\n"), (ch) => ch.charCodeAt(0)));
+    if (!r.ok) throw new Error(r.reason);
+    const b = stlBody(r.stl, 1);
+    if (!b.ok) throw new Error(b.reason);
+    expect(b.body.mesh.noise).toBeLessThan(1e-4);
+  });
+
+  it("3-6. the default sheet clock is the one the catalogue's heaviest drawing was measured against", () => {
+    expect(LINE_TIME_BUDGET_MS).toBe(15000);
   });
 });

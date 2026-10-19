@@ -131,8 +131,8 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
     // A stacked atom label ("NH" with its H below, "H2C" above): the element symbol's line and the
     // rest, the element's line on the baseline at p (as ChemDraw places it on its atom).
     let elemLine = 0;
-    // (Only where ChemDraw stacked it: its box is taller than one line. A one-line box is drawn on one line.)
-    const oneLineBox = !!tx.box && tx.box[3] - tx.box[1] < size * 1.4;
+    // (Only where ChemDraw stacked it: its box is taller than one line — one-line boxes are under 1 × size, stacked ones about 1.45 ×.)
+    const oneLineBox = !!tx.box && tx.box[3] - tx.box[1] < size * 1.2;
     if (node && lines.length === 1 && (tx.align === "Below" || tx.align === "Above") && !oneLineBox) {
       const all = lines[0].map((q) => q.text).join("");
       const m = /^([A-Z][a-z]?)(.+)$/.exec(all);

@@ -73,7 +73,7 @@ export function labelSide(f: XNode, n: XNode): "left" | "right" | null {
   // Stacked by its justification, or — for a label of several lines — by its alignment.
   const stack = just === "Above" || just === "Below" ? just : lines.length > 1 && (t?.attrs.LabelAlignment === "Above" || t?.attrs.LabelAlignment === "Below") ? t!.attrs.LabelAlignment : "";
   if (stack) {
-    const isElement = (l: string | undefined): boolean => !!l && symbolFor(atomicNumber(l.trim()) ?? 0) === l.trim();
+    const isElement = (l: string | undefined): boolean => !!l && (l.trim() === "D" || l.trim() === "T" || symbolFor(atomicNumber(l.trim()) ?? 0) === l.trim());
     if (lines.length === 1) return "right";
     if (stack === "Above" && isElement(lines[lines.length - 1])) return "left";
     if (stack === "Below" && isElement(lines[0])) return "right";

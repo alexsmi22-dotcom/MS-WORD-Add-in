@@ -879,7 +879,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
         if (!tx || (tx.align !== "Below" && tx.align !== "Above") || !tx.runs.length) return null;
         // Drawn on one line where its box is one line tall (cdxmlRender).
         const sz = tx.runs.reduce((m, q) => Math.max(m, q.size), 1);
-        if (tx.box && tx.box[3] - tx.box[1] < sz * 1.4) return null;
+        if (tx.box && tx.box[3] - tx.box[1] < sz * 1.2) return null;
         const all = tx.runs.map((q) => q.text).join("");
         const m = /^([A-Z][a-z]?)(.+)$/.exec(all);
         if (!m || /\r|\n/.test(all)) return null;

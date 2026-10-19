@@ -10,6 +10,15 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cx. New in v2.160.0 — Loose ends
+
+- [ ] ★ **Solve's curve.** In Solve, type x^2 - 5x + 6 = 0 and Insert: the roots AND a plot with both roots marked
+  go into Word.
+- [ ] **Finance comma.** Net present value, cash flows "-1000 500,5 500,5": the result notes "2 decimal commas read
+  as decimals (500,5 → 500.5)". Change one flow to 5OO (letter O's): the result names "5OO" as not a number.
+- [ ] **Stats lone value.** Two-sample t-test (groups separated by a blank line) with group 1 "1,5 2,5 3,5" and group 2
+  "4,5": whatever the test reports, group 2 is the single value 4.5 (n = 1) — never two values, 4 and 5.
+
 ## 0cw. New in v2.159.0 — Chemistry canvas: size, speed, icons
 
 - [ ] ★ **No freeze.** In Chemical → Draw, draw a large structure (or open a ChemDraw file with several). Keep clicking

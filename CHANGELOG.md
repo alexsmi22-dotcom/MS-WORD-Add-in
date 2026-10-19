@@ -6,6 +6,31 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.160.0] — 2026-10-19 — Loose ends: number lists, Solve's curve, figure sizes
+
+### Fixed
+- **Solve drew no curve for an equation typed the natural way.** "x^2 - 5x + 6 = 0" inserted its roots and no
+  figure: the plotter could not read an implicit product (5x, 3sin(x)) that Solve itself had read, and dropped
+  the figure without a word. The curve now reads the equation as Solve read it; what the plotter always read is
+  drawn exactly as before. An ambiguous product (x(x−1): a function x, or x times?) is still no figure.
+- **Finance and Bio/Assay list fields follow the product's comma rule**, as Stats has since v2.134.0:
+  "1,5 2,3 3,1" is 1.5, 2.3, 3.1 (and the result says so), not six values. Anything in a list that is not a number
+  ("5OO" typed with letter O's) is refused by name — it used to vanish from the list, and an NPV or a fit was
+  computed on values nobody typed. Every calculator's default reads exactly as before.
+- **Stats: a lone value in a decimal-comma field is one number.** In a field of groups typed with decimal commas,
+  a group (or table row) holding one value — "3,5" — was read as 3 and 5; a one-column table "1,5 / 2,5" became two
+  columns. It is 3.5, as the rest of the field decided.
+- **A figure's size is read from its own outer tag.** A figure whose outer tag has no width (only a viewBox) could
+  take a line thickness from inside it as its width (stroke-width="1.5" → inserted 1.5 px wide); it now uses its
+  viewBox, then the default.
+- **Chemistry canvas:** "The page could not be drawn …" and "The edit left the page unreadable … it was undone" stay
+  on screen; the pane's status clear wiped them the moment they appeared.
+
+### Changed (no visible change)
+- The last pure helpers moved out of the task pane into tested library modules (host-adapter scope §E): figure
+  sizes, Solve's plotter, Finance/Assay lists, Analyze and Engineering report text, the Stats comma decision, and
+  four single helpers. The Stats readers that keep the comma log stay in the pane (the scope doc says why).
+
 ## [2.159.0] — 2026-10-19 — Chemistry canvas: ChemDraw-size inserts, no freeze while drawing, icon toolbar
 
 ### Changed

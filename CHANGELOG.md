@@ -27,6 +27,11 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 - Labels standing for groups (OMe, CO₂H, Ph, Boc, NO₂, CF₃ … 154 forms, leftward ones too) are expanded the way
   ChemDraw's Expand Label does, so a ChemDraw drawing's formula is the one drawn; every group's formula is
   pinned. A hypervalent atom keeps the hydrogens it is drawn with.
+- **Inserts meet the USPTO's lettering rule** (37 CFR 1.84(p)(3): letters at least 0.32 cm, 1/8 inch, high): a
+  drawing from the canvas goes into Word enlarged until its smallest lettering — subscripts and charge signs,
+  which ChemDraw draws at 75 %, included — reaches 13.94 pt (3.2 mm capitals plus a 10 % margin); the status
+  says by how much. It is never reduced, and a drawing too large for the page at that size is refused by name
+  (insert fewer structures with Insert selected, or split it into figures) rather than shrunk below the rule.
 
 Not yet: the large canvas takes structures only (a page with brackets, arrows, text or group labels is edited
 in the pane, and it says so); Clean lays out pages of structures only. The canvas has no way yet to set a

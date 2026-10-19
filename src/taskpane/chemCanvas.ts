@@ -63,6 +63,8 @@ export interface ChemCanvas {
   setName(name: string): void;
   /** Saved as .cdxml since it was loaded and not changed since. */
   wasSaved(): boolean;
+  /** The smallest lettering on the page (or the selection) as drawn, in points: subscripts and charges count at the 75 % they are drawn at. */
+  smallestTextPt(selectionOnly: boolean): number | null;
 }
 
 const UNDO_DEPTH = 100;
@@ -735,6 +737,28 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     setTool,
     staleNames: () => [...stale].map((id) => (findById(doc.root, id)?.el.children.filter((c) => c.name === "s").map((s) => s.text).join("") ?? "").trim()).filter(Boolean),
     wasSaved: () => saved,
+    smallestTextPt: (selectionOnly) => {
+      const scope = selectionOnly && selected.size ? selected : null;
+      let min = Infinity;
+      const runSize = (r: { text: string; size: number; face: number }): number => {
+        // Sub- and superscripts (and a formula label's digits) are drawn at 75 % (cdxmlRender).
+        const shifted = (r.face & 0x60) !== 0 && (r.face & 0x60) !== 0x60 ? true : (r.face & 0x60) === 0x60 && /\d/.test(r.text);
+        return shifted ? r.size * 0.75 : r.size;
+      };
+      for (const o of doc.objects) {
+        if (scope && !scope.has(o.id)) continue;
+        for (const it of o.items) {
+          if (it.kind === "text") for (const r of it.v.runs) if (r.text.trim()) min = Math.min(min, runSize(r));
+          if (it.kind === "fragment")
+            for (const nd of it.v.nodes) {
+              for (const r of nd.label?.runs ?? []) if (r.text.trim()) min = Math.min(min, runSize(r));
+              if (nd.charge) min = Math.min(min, doc.style.labelSize * 0.75);
+            }
+          if (it.kind === "graphic") for (const tag of it.v.el.children) if (tag.name === "objecttag") min = Math.min(min, doc.style.captionSize * 0.75);
+        }
+      }
+      return Number.isFinite(min) ? min : null;
+    },
     setName: (n) => void (pageName = n.replace(/\.(cdxml|cdx|xml)$/i, "") || "drawing"),
   };
   saveBtn.addEventListener("click", () => {

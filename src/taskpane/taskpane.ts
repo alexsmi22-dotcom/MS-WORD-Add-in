@@ -6,7 +6,7 @@ import { wordHost as docHost } from "../host/word";
 import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
-import { chemdrawFit, initChemdrawPane } from "./chemdrawPane";
+import { chemdrawFit, initChemdrawPane, usptoInsertSize } from "./chemdrawPane";
 import { nextFreeNumeral } from "../lib/cadShapes";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
@@ -54,7 +54,7 @@ import {
   composePanelFigure,
   PanelItem,
 } from "../lib/insertCapability";
-import { PresetWidth } from "../lib/figureStyle";
+import { PresetWidth, USPTO_REQUIRED_FONT_PT } from "../lib/figureStyle";
 import { solveBvp, BvpMethod } from "../lib/bvp";
 import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
 import { parseDaeSystem } from "../lib/daeParse";
@@ -5802,14 +5802,16 @@ async function insertBuild(): Promise<void> {
   setStatus("Inserting structure…");
 
   try {
-    // From the Draw tab the picture is the page as drawn, at ChemDraw's size (fitted to the page).
+    // From the Draw tab the picture is the page as drawn, enlarged until its letters meet the USPTO's minimum.
     let d = readSvgDims(molecule.svg, STRUCTURE_W, STRUCTURE_H);
+    let sizeNote = "";
     if (buildTab === "draw" && drawEditor) {
       const r = drawEditor.render(false);
       if (r) {
-        const fit = chemdrawFit(r.widthPt, r.heightPt);
-        if (!fit.ok) throw new Error(fit.reason);
-        d = { w: (r.widthPt * 96 * fit.k) / 72, h: (r.heightPt * 96 * fit.k) / 72 };
+        const size = canvasInsertSize(r, false);
+        if (!size.ok) throw new Error(size.reason);
+        d = { w: size.w, h: size.h };
+        sizeNote = ` ${size.note}`;
       }
     }
     const base64 = await renderFigurePng(molecule.svg, d.w, d.h);
@@ -5834,7 +5836,7 @@ async function insertBuild(): Promise<void> {
     });
     const staleNow = buildTab === "draw" && drawEditor ? drawEditor.staleNames() : [];
     const warnNow = staleNow.length ? ` Check ${staleNow.map((w) => `“${w}”`).join(", ")}: ChemDraw computed ${staleNow.length === 1 ? "that name" : "those names"} before the structure changed.` : "";
-    setStatus((hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.") + warnNow, warnNow ? "" : "success");
+    setStatus((hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.") + sizeNote + warnNow, warnNow ? "" : "success");
     recordInsert("build", recorded, label);
   } catch (error) {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");
@@ -29930,7 +29932,7 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
   if (!drawEditor) return;
   const r = drawEditor.render(selectionOnly);
   if (!r) return setStatus(selectionOnly ? "Nothing is selected — click a structure first." : "Nothing drawn to insert.", "error");
-  const fit = chemdrawFit(r.widthPt, r.heightPt);
+  const fit = canvasInsertSize(r, selectionOnly);
   if (!fit.ok) return setStatus(`${selectionOnly ? "The selection" : "The page"}: ${fit.reason}.`, "error");
   const chem = drawEditor.chemistry(selectionOnly);
   let alt = "Structure drawing (JurisLab).";
@@ -29948,7 +29950,7 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
       /* the drawing alone */
     }
   } else if (!chem.ok) alt = `Structure drawing (JurisLab) — no single formula: ${chem.reason}.`;
-  const w = (r.widthPt * 96 * fit.k) / 72, h = (r.heightPt * 96 * fit.k) / 72;
+  const w = fit.w, h = fit.h;
   try {
     const base64 = await renderFigurePng(r.svg, w, h);
     const pic = { base64, widthPt: figurePoints(w), heightPt: figurePoints(h), alt, selectAfter: !replace, tag: "formula-inserter:structure" };
@@ -29968,6 +29970,16 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
   } catch (error) {
     setStatus(`Could not ${replace ? "replace the picture" : "insert the drawing"}: ${(error as Error).message}`, "error");
   }
+}
+
+/**
+ * The size a canvas drawing goes into Word at: enlarged until its smallest lettering meets the USPTO's
+ * figure rule (37 CFR 1.84(p)(3): at least 0.32 cm — USPTO_REQUIRED_FONT_PT carries the style's margin),
+ * never reduced below it. One too large for the page at that size is refused by name, never shrunk.
+ */
+function canvasInsertSize(r: { widthPt: number; heightPt: number }, selectionOnly: boolean): { ok: true; w: number; h: number; note: string } | { ok: false; reason: string } {
+  const z = usptoInsertSize(r.widthPt, r.heightPt, drawEditor?.smallestTextPt(selectionOnly) ?? null, USPTO_REQUIRED_FONT_PT);
+  return z.ok ? { ok: true, w: (z.widthPt * 96) / 72, h: (z.heightPt * 96) / 72, note: z.note } : z;
 }
 
 /** The group labels (OMe, Ph …) and abbreviations on the Draw page: what Clean or the large canvas would expand into atoms. */

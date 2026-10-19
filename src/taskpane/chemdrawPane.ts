@@ -61,6 +61,21 @@ export function openChemdrawFile(name: string, bytes: Uint8Array): { ok: true; d
   return r;
 }
 
+/**
+ * The size a drawing goes into Word at under the USPTO's figure rule (37 CFR 1.84(p)(3): letters at least
+ * 0.32 cm high; `requiredPt` is the font size whose capitals clear it with the style's margin): enlarged
+ * until its smallest lettering (`smallestPt`, as drawn) reaches it, never reduced; one too large for the
+ * page at that size is refused by name, never shrunk below the rule.
+ */
+export function usptoInsertSize(widthPt: number, heightPt: number, smallestPt: number | null, requiredPt: number): { ok: true; k: number; widthPt: number; heightPt: number; note: string } | { ok: false; reason: string } {
+  const k = smallestPt && smallestPt > 0 ? Math.max(1, requiredPt / smallestPt) : 1;
+  const w = widthPt * k, h = heightPt * k;
+  if (w > PAGE_PT.w * (1 + 1e-9) || h > PAGE_PT.h * (1 + 1e-9))
+    return { ok: false, reason: `with its letters at the USPTO's 1/8-inch minimum it would be ${(w / 72).toFixed(1)} × ${(h / 72).toFixed(1)} in, larger than the page — insert fewer structures (Select, then Insert selected), or split it into figures` };
+  const note = k > 1 + 1e-9 ? `Enlarged ${Math.round(k * 100)} % so its letters meet the USPTO's 1/8-inch minimum (37 CFR 1.84(p)(3)).` : "Its letters already meet the USPTO's 1/8-inch minimum.";
+  return { ok: true, k, widthPt: w, heightPt: h, note };
+}
+
 /** How a set of objects goes into Word: the factor that fits it on the page (1 = ChemDraw's size), or a refusal. */
 export function chemdrawFit(widthPt: number, heightPt: number): { ok: true; k: number; note: string } | { ok: false; reason: string } {
   const k = Math.min(1, PAGE_PT.w / widthPt, PAGE_PT.h / heightPt);

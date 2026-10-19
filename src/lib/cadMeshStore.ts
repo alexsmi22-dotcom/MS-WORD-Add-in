@@ -70,7 +70,7 @@ export function retainMeshes(refs: MeshRef[]): void {
 /** The body for an imported part, or why it cannot be drawn (no file name: the caller adds the part's). */
 export function meshFor(ref: MeshRef): { ok: true; mesh: SolidMesh } | { ok: false; reason: string } {
   const stl = files.get(ref.hash);
-  if (!stl) return { ok: false, reason: `its file ${ref.file} is not open — import ${ref.file} again (Import DXF / STL…) to put it back` };
+  if (!stl) return { ok: false, reason: `its file ${ref.file} is not open — import ${ref.file} again (Import DXF / STL / OBJ…) to put it back` };
   touch(files, ref.hash, stl);
   const key = keyOf(ref);
   const why = refused.get(key);

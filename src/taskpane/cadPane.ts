@@ -2041,7 +2041,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
         sketchHere(opts.sketch === "new" ? null : opts.sketch, opts.seed ? (JSON.parse(opts.seed) as Sketch) : undefined);
         return;
       }
-      return host.setStatus(`The large canvas cannot open a drawing with an imported STL part yet (${meshes.map((p) => p.name).join(", ")}) — work on it here in the pane.`, "error");
+      const kinds = [...new Set(meshes.map((p) => meshFormat(p.mesh?.file ?? "")))].join(" or ");
+      return host.setStatus(`The large canvas cannot open a drawing with an imported ${kinds} part yet (${meshes.map((p) => p.name).join(", ")}) — work on it here in the pane.`, "error");
     }
     if (popBtn) popBtn.disabled = true;
     largeOpen = true;

@@ -130,7 +130,7 @@ describe("Import DXF / STL… — an STL becomes a part", () => {
     });
     const { $, status, pane } = setup({}, fresh);
     expect(pane.load(json)).toBeNull();
-    expect($("cad-msg").textContent).toBe("block: its file block.stl is not open — import block.stl again (Import DXF / STL…) to put it back");
+    expect($("cad-msg").textContent).toBe("block: its file block.stl is not open — import block.stl again (Import DXF / STL / OBJ…) to put it back");
     expect($<HTMLButtonElement>("cad-insert").disabled).toBe(true);
     [...$("cad-parts").querySelectorAll<HTMLButtonElement>(".cad-part-name")].find((b) => b.textContent === "block — Imported STL")!.click();
     expect($("cad-editor").textContent).toContain("The file is not open — import block.stl again to put it back.");

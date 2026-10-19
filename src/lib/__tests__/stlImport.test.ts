@@ -192,9 +192,9 @@ describe("the drawing names its file; the facets stay in this session", () => {
     const never = stlHash(bytes.slice(0, bytes.length - 50));
     expect(hasStl(never)).toBe(false);
     const part = (): CadPart => ({ id: "m1", name: "Pin", shape: "mesh", params: {}, placement: place, mesh: ref({ hash: never }) });
-    expect(partProblems(part())).toEqual(["its file pin.stl is not open — import pin.stl again (Import DXF / STL…) to put it back"]);
+    expect(partProblems(part())).toEqual(["its file pin.stl is not open — import pin.stl again (Import DXF / STL / OBJ…) to put it back"]);
     const a = docToAssembly(docWith(part()));
-    expect(!a.ok && a.reason).toBe("Pin: its file pin.stl is not open — import pin.stl again (Import DXF / STL…) to put it back");
+    expect(!a.ok && a.reason).toBe("Pin: its file pin.stl is not open — import pin.stl again (Import DXF / STL / OBJ…) to put it back");
   });
 
   it("open: the part is built, and the saved drawing carries only the reference (no triangles)", () => {

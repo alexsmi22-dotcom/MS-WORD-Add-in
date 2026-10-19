@@ -64,13 +64,28 @@ export function pageStructures(doc: CdxDoc): { structures: PageStructure[]; more
     // Something belongs to it (polymer brackets, an attached label or a counter-ion): the page canvas keeps it — the
     // structure editor would open the bare structure, a polymer's brackets silently gone (review). The bare structure
     // stays on offer, said as what it is.
-    if (own.size > 1 || inBrackets(doc, id)) {
-      structures.push({ id, ids: own, svg: pic.svg, mol: null, reason: "it has brackets or labels attached, which the structure editor cannot hold", bare });
+    if (heldByPage(doc, own, id) || inBrackets(doc, id)) {
+      structures.push({ id, ids: own, svg: pic.svg, mol: null, reason: "it has polymer brackets or a counter-ion with it, which the structure editor cannot hold", bare });
       continue;
     }
     structures.push({ id, ids: own, svg: pic.svg, mol: bare, reason: m.ok ? "" : m.reason, bare });
   }
   return { structures, more: Math.max(0, ids.length - MAX_PICK) };
+}
+
+/**
+ * Whether what belongs to a structure is part of the chemistry the editor would lose: brackets (a polymer's), a second
+ * structure (a counter-ion), a drawn charge symbol. A caption or label beside it is not — the structure opens in the
+ * editor and the caption stays on the page (83 of the demo file's 93 went to the page canvas for a caption alone).
+ */
+function heldByPage(doc: CdxDoc, own: ReadonlySet<string>, id: string): boolean {
+  for (const x of own) {
+    if (x === id) continue;
+    const o = doc.objects.find((q) => q.id === x);
+    if (!o) return true; // a bracket group or anything that is not a plain object
+    if (o.items.some((it) => it.kind !== "text")) return true;
+  }
+  return false;
 }
 
 /** Whether a bracket group (a polymer's) encloses this structure or any of its atoms. */

@@ -5302,7 +5302,7 @@ function openChemdrawPage(page: CdxDoc, name: string): boolean {
   document.getElementById("chemdraw-gallery")?.scrollIntoView({ block: "start" });
   setStatus(
     `${name} opened — click a structure to edit it. ${molCount} of ${structures.length} open in the structure editor` +
-      (molCount < structures.length ? "; the others (polymer brackets, attached labels, generic atoms such as X) open on their own on the page canvas, as drawn." : "."),
+      (molCount < structures.length ? "; the others (polymer brackets, counter-ions, generic atoms such as X) open on their own on the page canvas, as drawn." : "."),
     "success",
   );
   drawFromPicture = name === "The ChemDraw picture";

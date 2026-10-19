@@ -52,7 +52,7 @@ describe("pageStructures — what belongs to a structure stays with it (review)"
     const { structures } = pageStructures(d);
     expect(structures).toHaveLength(1);
     expect(structures[0].mol).toBeNull();
-    expect(structures[0].reason).toMatch(/brackets or labels attached/);
+    expect(structures[0].reason).toMatch(/polymer brackets or a counter-ion/);
     // Its repeat unit is still on offer for the editor, said as what it is.
     expect(structures[0].bare?.getMolecularFormula().formula).toBe("C2H6");
   });

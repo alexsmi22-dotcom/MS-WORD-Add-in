@@ -2,7 +2,7 @@
 // document itself, read back as ChemDraw would read it, and saved. Documents are written by hand;
 // the bracket form is the one ChemDraw writes (seen in ChemDraw files filed with USPTO patents).
 import { readCdxml, readCdxmlTree, CdxDoc } from "../cdxml";
-import { addArrow, addBondFrom, addBrackets, addChain, chainLength, chainPath, findById, fragmentsInBox, namesTiedTo, writeCdxml } from "../cdxmlEdit";
+import { addArrow, addBondFrom, addBrackets, addChain, chainLength, chainPath, findById, namesTiedTo, writeCdxml } from "../cdxmlEdit";
 import { renderCdx } from "../cdxmlRender";
 
 // Propane (11–12–13) beside an empty stretch of page.
@@ -152,8 +152,9 @@ describe("polymer brackets", () => {
   });
   test("bracketing a structure makes ChemDraw's computed name for it out of date (it named the monomer)", () => {
     const d = open(ROW.replace("</page>", '<t id="30" p="100 160"><s font="3" size="12">butane</s></t><chemicalproperty id="31" ChemicalPropertyDisplayID="30" ChemicalPropertyType="1" BasisObjects="10"/></page>'));
-    expect(fragmentsInBox(d, BOX)).toEqual(["10"]);
-    expect(namesTiedTo(d, fragmentsInBox(d, BOX))).toEqual(["30"]);
+    // The canvas flags names tied to a structure an edit changed (the bracket changes structure 10).
+    expect(addBrackets(d, BOX)).toBeNull();
+    expect(namesTiedTo(d, ["10"])).toEqual(["30"]);
   });
   test("a number label is the SRU's label; the repeat count stays ChemDraw's 2", () => {
     const d = open(ROW);

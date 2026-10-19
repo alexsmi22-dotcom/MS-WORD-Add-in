@@ -978,14 +978,6 @@ export function addChain(doc: CdxDoc, from: { nodeId: string } | { at: P2 }, tow
   return null;
 }
 
-/** The ids of the structures (top-level fragments) with an atom inside a page box: what a bracket changes. */
-export function fragmentsInBox(doc: CdxDoc, box: [number, number, number, number]): string[] {
-  const x0 = Math.min(box[0], box[2]), y0 = Math.min(box[1], box[3]), x1 = Math.max(box[0], box[2]), y1 = Math.max(box[1], box[3]);
-  return pageFragments(doc.root)
-    .filter((f) => f.children.some((c) => c.name === "n" && ((p) => p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1)(posOf(c))))
-    .map((f) => f.attrs.id ?? "");
-}
-
 /**
  * Polymer brackets round a repeat unit: the atoms of one structure inside a page box. Written as
  * ChemDraw writes them (checked against ChemDraw files in USPTO filings): a square bracket on the

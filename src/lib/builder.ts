@@ -516,18 +516,6 @@ export function complianceIssues(mol: Molecule): ComplianceIssue[] {
 }
 
 /**
- * A layout-cleaned copy of a drawn molecule: identical atoms, bonds, charges,
- * stereochemistry and query features, with fresh machine-generated 2D
- * coordinates (OCL's deterministic CoordinateInventor, which also rebuilds the
- * wedge/hash bonds from the recorded parities — drawn stereo survives).
- */
-export function cleanedCopy(mol: Molecule): Molecule {
-  const copy = mol.getCompactCopy();
-  copy.inventCoordinates();
-  return copy;
-}
-
-/**
  * The SMILES a drawn structure contributes to a reaction scheme, verified.
  *
  * The reaction DSL carries components as text, so the drawn molecule must

@@ -6,7 +6,8 @@ import { wordHost as docHost } from "../host/word";
 import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
-import { chemdrawFit, initChemdrawPane, usptoInsertSize } from "./chemdrawPane";
+import { initChemdrawOpen } from "./chemdrawOpen";
+import { usptoInsertSize } from "../lib/insertSize";
 import { nextFreeNumeral } from "../lib/cadShapes";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
@@ -1810,7 +1811,7 @@ Office.onReady((info) => {
   alignInsertBtn = document.getElementById("align-insert") as HTMLButtonElement;
   seqmapSection = document.getElementById("seqmap-section") as HTMLElement;
   cadSection = document.getElementById("cad-section") as HTMLElement;
-  initChemdrawPane({ setStatus: (t, k) => setStatus(t, k ?? ""), insertPicture: insertChemdrawDrawing, downloadFile: (blob, name) => triggerDownload(blob, name), readSelectionOoxml: () => docHost.readSelectionOoxml(), replacePicture: replaceWithChemdrawDrawing, openPage: (page, name) => {
+  initChemdrawOpen({ setStatus: (t, k) => setStatus(t, k ?? ""), readSelectionOoxml: () => docHost.readSelectionOoxml(), openPage: (page, name) => {
     // One canvas: a ChemDraw file or picture opens on the Draw page itself.
     setMode("build");
     setBuildTab("draw");
@@ -29871,17 +29872,6 @@ function openCadDialog(docJson: string, opts?: { sketch?: string; seed?: string 
  * PHYSICAL size (px at 96 per inch), so pinning the picture to figurePoints of
  * that size prints every line weight and text height at the standard's mm.
  */
-/** A drawing from a ChemDraw file (chemdrawPane), as a picture at the selection. */
-async function insertChemdrawDrawing(svg: string, widthPx: number, heightPx: number, alt: string): Promise<void> {
-  const base64 = await renderFigurePng(svg, widthPx, heightPx);
-  await docHost.insertPictureAtSelection({ base64, widthPt: figurePoints(widthPx), heightPt: figurePoints(heightPx), alt, selectAfter: true, tag: "formula-inserter:chemdraw" });
-}
-
-async function replaceWithChemdrawDrawing(svg: string, widthPx: number, heightPx: number, alt: string): Promise<boolean> {
-  const base64 = await renderFigurePng(svg, widthPx, heightPx);
-  return docHost.replaceSelectedPicture({ base64, widthPt: figurePoints(widthPx), heightPt: figurePoints(heightPx), alt, selectAfter: false, tag: "formula-inserter:chemdraw" });
-}
-
 async function insertCadDrawing(svg: string, widthPx: number, heightPx: number, alt: string): Promise<void> {
   const base64 = await renderFigurePng(svg, widthPx, heightPx);
   await docHost.insertPictureAtSelection({

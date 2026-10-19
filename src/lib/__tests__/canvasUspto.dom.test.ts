@@ -7,7 +7,7 @@
 import { TextDecoder as NodeTextDecoder } from "util";
 import { createChemCanvas } from "../../taskpane/chemCanvas";
 import { readCdxml } from "../cdxml";
-import { PAGE_PT, usptoInsertSize } from "../../taskpane/chemdrawPane";
+import { PAGE_PT, usptoInsertSize } from "../insertSize";
 import { USPTO_REQUIRED_FONT_PT } from "../figureStyle";
 
 (globalThis as unknown as { TextDecoder: unknown }).TextDecoder ??= NodeTextDecoder;

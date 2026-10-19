@@ -32,6 +32,10 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   structures stay where they are. Group labels stay labels. A structure inside brackets, or one with wedges whose
   stereo cannot be read, is refused by name.
 
+### Removed
+- The old ChemDraw panel (v2.152–v2.155), which had not opened since the one canvas (v2.156.0): its code, markup
+  and styles. Open ChemDraw file… and Open ChemDraw picture keep working — they open on the canvas.
+
 ### Rules
 - A structure with an atom list or a query feature is a query structure: the readout says generic structure,
   never a formula, whatever the Markush box says.

@@ -9,7 +9,14 @@
 // identical chemistry.
 
 import { Molecule } from "openchemlib";
-import { cleanedCopy, complianceIssues } from "../builder";
+import { complianceIssues } from "../builder";
+
+/** OCL's own fresh layout of a structure (the old editor's Clean; the canvas's Clean is cdxClean). */
+const cleanedCopy = (mol: Molecule): Molecule => {
+  const copy = mol.getCompactCopy();
+  copy.inventCoordinates();
+  return copy;
+};
 
 /** A molecule with sane invented coordinates. */
 function fromSmiles(smiles: string): Molecule {

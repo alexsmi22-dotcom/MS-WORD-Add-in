@@ -197,6 +197,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   let mesh: Mesh | null = null;
   /** The model and view whose live lines ran out of time (shown shaded until either changes). */
   let shadedOnly: { mesh: Mesh; view: string } | null = null;
+  let shadedSaid = false;
   let calloutMode = false;
   let seq = 1;
   let lineTimer = 0;
@@ -330,10 +331,16 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       // Too many lines to work out in time: the shaded view stands alone, and says so.
       if (e instanceof LineWorkExceeded) {
         shadedOnly = { mesh, view: viewKey };
+        shadedSaid = true;
         host.setStatus("The 3D view's lines take too long to work out from this angle — it shows the parts shaded only.", "");
         return paintCallouts(ctx, fit);
       }
       throw e;
+    }
+    // Lines drawn again: the "shaded only" line no longer describes the view (fourth review).
+    if (shadedSaid) {
+      shadedSaid = false;
+      host.setStatus("", "");
     }
     ctx.strokeStyle = "#111";
     ctx.lineWidth = 1.2;

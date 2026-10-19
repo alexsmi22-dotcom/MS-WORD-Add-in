@@ -694,3 +694,65 @@ describe("review round 3", () => {
     expect(LINE_TIME_BUDGET_MS).toBe(15000);
   });
 });
+
+// ---- review round 4 ----------------------------------------------------------------------------
+describe("review round 4", () => {
+  const starPrism = (n: number): P3[][] => {
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i < n; i++) {
+      const r = i % 2 ? 40 : 46, a = (2 * Math.PI * i) / n;
+      pts.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+    const t: P3[][] = [];
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n];
+      t.push([[a[0], a[1], 0], [b[0], b[1], 0], [b[0], b[1], 20]], [[a[0], a[1], 0], [b[0], b[1], 20], [a[0], a[1], 20]]);
+      t.push([[0, 0, 0], [b[0], b[1], 0], [a[0], a[1], 0]], [[0, 0, 20], [a[0], a[1], 20], [b[0], b[1], 20]]);
+    }
+    return t;
+  };
+
+  it("4-1. float32 corners printed with six decimals are recognised as float32, also where a seventh digit 5 rounds up (512.054688)", () => {
+    // 5,000 coordinates between 500 and 1000 mm, each a float32, printed as Blender prints them.
+    let seed = 7;
+    const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const tris: string[] = [];
+    for (let f = 0; f < 556; f++) {
+      tris.push("facet normal 0 0 0", "outer loop");
+      for (let c = 0; c < 3; c++) tris.push(`vertex ${[0, 1, 2].map(() => Math.fround(500 + 500 * rnd()).toFixed(6)).join(" ")}`);
+      tris.push("endloop", "endfacet");
+    }
+    tris.push("facet normal 0 0 0", "outer loop", "vertex 512.054688 700.007813 512.164063", "vertex 1 0 0", "vertex 0 1 0", "endloop", "endfacet");
+    const r = readStl(Uint8Array.from(["solid s", ...tris, "endsolid s"].join("\n"), (ch) => ch.charCodeAt(0)));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.stl.f32).toBe(true);
+  });
+
+  it("4-3. a sheet refused for time is not run to the clock again for the same model, views and marks", () => {
+    const t = tessellate({ version: 1, bodies: [meshBody(bodyOf(bin(starPrism(1950))).mesh)] });
+    if (!t.ok) throw new Error(t.reason);
+    const o = { standard: "asme" as const, views: [{ kind: "front" as const }, { kind: "iso" as const }], lineBudgetMs: 800 };
+    const first = layoutSheet(t.mesh, o);
+    expect(first.svg).toBe("");
+    const t0 = Date.now();
+    const again = layoutSheet(t.mesh, { ...o });
+    expect(Date.now() - t0).toBeLessThan(200);
+    expect(again.notes).toEqual(first.notes);
+  }, 30000);
+
+  it("4-3. a layer or hidden-line change redraws the sheet without working its lines out again", () => {
+    const t = tessellate({ version: 1, bodies: [meshBody(bodyOf(bin(starPrism(500))).mesh)] });
+    if (!t.ok) throw new Error(t.reason);
+    const views = [{ kind: "front" as const }, { kind: "top" as const }, { kind: "right" as const }, { kind: "iso" as const }];
+    let t0 = Date.now();
+    const a = layoutSheet(t.mesh, { standard: "asme", views });
+    const first = Date.now() - t0;
+    t0 = Date.now();
+    const b = layoutSheet(t.mesh, { standard: "asme", views, showHidden: false, layers: { titles: false } });
+    const second = Date.now() - t0;
+    expect(a.svg).toMatch(/<svg/);
+    expect(b.svg).toMatch(/<svg/);
+    expect(first).toBeGreaterThan(300); // the lines are real work here
+    expect(second).toBeLessThan(first / 3);
+  }, 30000);
+});

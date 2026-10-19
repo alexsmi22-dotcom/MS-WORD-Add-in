@@ -201,14 +201,46 @@ export function pointHidden(mesh: Mesh, view: CadView, p: Vec3, budget?: LineBud
  * audit caught it.) The figures' lines are drawn once and reused by every pass. A mark that does
  * not fit its figure's cell even so is refused by name.
  */
+/**
+ * Across sheets of one model (a mesh object is made afresh by every rebuild): each view's lines, and
+ * the sheets refused for time. A layer, a title or the hidden-line choice changed redraws the sheet
+ * without working its lines out again — and a sheet refused once is not run to the clock again
+ * (fourth review: each such click cost the full budget).
+ */
+const linesOf = new WeakMap<Mesh, Map<string, LineDrawing>>();
+const refusedOf = new WeakMap<Mesh, Map<string, string>>();
+const ids = new WeakMap<object, number>();
+let nextId = 0;
+const idOf = (x: object): number => ids.get(x) ?? (ids.set(x, ++nextId), nextId);
+
 export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
+  // What the sheet's time depends on: its views, callout points, marks, exploded model and clock.
+  const key = JSON.stringify([o.standard, o.views, (o.callouts ?? []).map((c) => c.anchor), o.marks ?? [], o.exploded ? idOf(o.exploded.mesh) : 0, o.lineBudgetMs ?? 0, o.format ?? null, o.layers ?? null]);
+  const refused = refusedOf.get(mesh)?.get(key);
+  const refuse = (why: string): Sheet => ({ svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [why] });
+  if (refused) return refuse(refused);
   try {
     return layoutSheetWithin(mesh, o);
   } catch (e) {
     // Every view's hidden lines share one budget: past it the sheet is refused, never left to run on.
-    if (e instanceof LineWorkExceeded) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [e.message[0].toUpperCase() + e.message.slice(1) + "."] };
+    if (e instanceof LineWorkExceeded) {
+      const why = e.message[0].toUpperCase() + e.message.slice(1) + ".";
+      if (!refusedOf.has(mesh)) refusedOf.set(mesh, new Map());
+      refusedOf.get(mesh)!.set(key, why);
+      return refuse(why);
+    }
     throw e;
   }
+}
+
+/** A view's lines of a model, worked out once for every sheet of that model object. */
+function linesFor(mesh: Mesh, spec: ViewSpec, view: CadView, budget: LineBudget): LineDrawing {
+  let m = linesOf.get(mesh);
+  if (!m) linesOf.set(mesh, (m = new Map()));
+  const k = JSON.stringify(spec) + "|" + view.rot.join(",");
+  let d = m.get(k);
+  if (!d) m.set(k, (d = drawLines(mesh, view, budget)));
+  return d;
 }
 
 function layoutSheetWithin(mesh: Mesh, o: SheetOptions): Sheet {
@@ -331,7 +363,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     if (spec.kind === "detail") d = detailDrawing(drawingOf({ kind: spec.of }), spec.at, spec.r, spec.factor);
     else if (spec.kind === "exploded") {
       const view = viewOf(spec);
-      const base = drawLines(o.exploded!.mesh, view, info.work);
+      const base = linesFor(o.exploded!.mesh, spec, view, info.work);
       // A trail is drawn only where it is not behind a part (sampled along its length).
       const trails: Polyline[] = [];
       const STEPS = 48;
@@ -350,7 +382,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       const bd = { ...base.bounds };
       for (const l of trails) for (const [x, y] of l) (bd.minX = Math.min(bd.minX, x)), (bd.maxX = Math.max(bd.maxX, x)), (bd.minY = Math.min(bd.minY, y)), (bd.maxY = Math.max(bd.maxY, y));
       d = { ...base, bounds: bd, trails };
-    } else d = drawLines(mesh, viewOf(spec), info.work);
+    } else d = linesFor(mesh, spec, viewOf(spec), info.work);
     info.drawn.set(key, d);
     return d;
   };

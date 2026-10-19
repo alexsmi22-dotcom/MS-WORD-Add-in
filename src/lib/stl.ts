@@ -157,7 +157,9 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
             const ulp = 10 ** (Number(d[3] ?? 0) - (d[2]?.length ?? 0));
             step = Math.max(step, ulp);
             // Could this number be a float32 printed to these digits? (Not once any could not.)
-            if (f32 && Number.isFinite(v) && Math.abs(Math.fround(v) - v) > ulp * 0.5 * (1 + 1e-9)) f32 = false;
+            // (A float32 whose next digit is exactly 5 prints half a step away; the parse adds its own
+            // rounding, so the slack is absolute — fourth review: 512.054688 is a float32 printed.)
+            if (f32 && Number.isFinite(v) && Math.abs(Math.fround(v) - v) > ulp * 0.5 + 4 * Number.EPSILON * Math.abs(v)) f32 = false;
             sig = Math.max(sig, (d[1] + (d[2] ?? "")).replace(/^0+/, "").length);
           }
         }

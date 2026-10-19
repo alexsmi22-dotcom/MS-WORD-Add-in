@@ -136,7 +136,7 @@ import {
 } from "../lib/finance";
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg } from "../lib/financeFigures";
 import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
-import { renderStructure, resolveStructure, lookupSmiles, typesetHill, nameForIdcode, StructureResult } from "../lib/structures";
+import { renderStructure, resolveStructure, resolveChemInput, lookupSmiles, typesetHill, nameForIdcode, StructureResult } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
 import { predictPka, PkaResult } from "../lib/pka";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
@@ -1973,6 +1973,9 @@ Office.onReady((info) => {
     if (e.key === "Enter") insertFormula();
   });
   modeSelect.addEventListener("change", () => {
+    // A new tool starts with a clear status: the last tool's message ("Structure loaded into the drawing canvas.")
+    // followed the user into Reaction and Spectra (demo walkthrough 2026-10-19).
+    setStatus("");
     updatePlaceholder();
     updateExamples();
     renderPalette();
@@ -2699,6 +2702,7 @@ function updateNumberLabel(): void {
 
 /** Switches mode programmatically (e.g. from search or history) and refreshes UI. */
 function setMode(mode: Mode): void {
+  setStatus(""); // callers that switch tools say what they did after switching
   modeSelect.value = mode;
   updatePlaceholder();
   updateExamples();
@@ -3426,6 +3430,17 @@ function updateChemValidation(): void {
     chemValidateEl.textContent =
       `✓ Valid — ${formatFormula(v.hill)}, M = ${v.mass!.toFixed(3)} g/mol${charge}` + (v.notes.length ? ` · ${v.notes.join(" ")}` : "");
   } else {
+    // A compound NAME or a SMILES string is not a malformed formula: "ibuprofen" listed every letter as an
+    // "Unexpected character" above its own correct structure (demo walkthrough 2026-10-19).
+    const as = resolveChemInput(raw, "auto", "structure");
+    if (as.kind === "dictionary" || as.kind === "smiles") {
+      chemValidateEl.className = "build-readout";
+      chemValidateEl.textContent =
+        as.kind === "dictionary"
+          ? `✓ “${raw}” is a compound name — its structure, formula and properties are below.`
+          : "✓ A SMILES string — its structure, formula and properties are below.";
+      return;
+    }
     chemValidateEl.className = "build-readout warn";
     chemValidateEl.textContent = `⚠ ${v.errors.join("; ")}`;
   }
@@ -4542,8 +4557,9 @@ function renderStructureInfo(
 ): void {
   structureInfo.replaceChildren();
   const bits: string[] = [];
-  if (formula) bits.push(`Formula: ${formula}`);
-  if (mw) bits.push(`MW: ${mw}`);
+  // Typeset, with its unit (the display contract: C₁₃H₁₈O₂, 206.28 g/mol — it read C13H18O2, MW: 206.28).
+  if (formula) bits.push(`Formula: ${formatFormula(formula)}`);
+  if (mw) bits.push(`MW: ${mw} g/mol`);
   if (smiles) bits.push(`SMILES: ${smiles}`);
   for (const b of bits) {
     const span = document.createElement("span");
@@ -4658,7 +4674,7 @@ function renderProperties(input: string): void {
     // The caveats must survive this early exit. An out-of-domain input is the
     // case that needs them MOST — it is the one where the numbers above mean
     // least — so returning before rendering them would be exactly backwards.
-    structurePropsEl.appendChild(specCaveats(p.caveats));
+    structurePropsEl.appendChild(aboutEstimates(p.caveats));
     insertPropsBtn.disabled = false;
     return;
   }
@@ -4691,7 +4707,7 @@ function renderProperties(input: string): void {
   // Same block the Spectra modes use. cLogP sitting bare next to a carefully
   // caveated NMR prediction taught the reader that a JurisLab number is
   // trustworthy by default — which is the opposite of the point.
-  structurePropsEl.appendChild(specCaveats(p.caveats));
+  structurePropsEl.appendChild(aboutEstimates(p.caveats));
 
   renderPka(input);
   insertPropsBtn.disabled = false;
@@ -4781,12 +4797,12 @@ function renderPka(input: string): void {
   block.className = "prop-rules";
   const head = document.createElement("div");
   head.className = "prop-name";
-  head.textContent = res.sites.length ? "Ionizable groups (estimated pKa)" : "No common ionizable groups detected";
+  head.textContent = res.sites.length ? "Ionizable groups (estimated pKₐ)" : "No common ionizable groups detected";
   block.appendChild(head);
   for (const s of res.sites) {
     const row = document.createElement("div");
     row.className = "prop-rule";
-    row.textContent = `${s.group} — ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKa" : "pKaH"} ≈ ${s.pka}`;
+    row.textContent = `${s.group} — ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKₐ" : "pKₐH"} ≈ ${s.pka}`;
     block.appendChild(row);
     // Show the derivation when a substituent correction was applied.
     if (s.note) {
@@ -4799,7 +4815,7 @@ function renderPka(input: string): void {
   if (res.sites.length) {
     const net = document.createElement("div");
     net.className = "prop-why";
-    net.textContent = `Est. net charge at pH 7.4: ${res.netChargeAt74 >= 0 ? "+" : ""}${res.netChargeAt74.toFixed(2)}`;
+    net.textContent = `Est. net charge at pH 7.4: ${res.netChargeAt74 >= 0 ? "+" : "−"}${Math.abs(res.netChargeAt74).toFixed(2)}`;
     block.appendChild(net);
   }
   const caveat = document.createElement("div");
@@ -4814,13 +4830,13 @@ function pkaAsText(res: PkaResult | null): string {
   if (!res || !res.sites.length) return "";
   const lines: string[] = [];
   for (const s of res.sites) {
-    lines.push(`  ${s.group}: ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKa" : "pKaH"} ≈ ${s.pka}`);
+    lines.push(`  ${s.group}: ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKₐ" : "pKₐH"} ≈ ${s.pka}`);
     if (s.note) lines.push(`    (${s.note})`);
   }
   return [
-    "Ionizable groups (estimated pKa; aromatic acids/bases and aliphatic acids are substituent-corrected):",
+    "Ionizable groups (estimated pKₐ; aromatic acids/bases and aliphatic acids are substituent-corrected):",
     ...lines,
-    `Estimated net charge at pH 7.4: ${res.netChargeAt74 >= 0 ? "+" : ""}${res.netChargeAt74.toFixed(2)}`,
+    `Estimated net charge at pH 7.4: ${res.netChargeAt74 >= 0 ? "+" : "−"}${Math.abs(res.netChargeAt74).toFixed(2)}`,
   ].join("\n");
 }
 
@@ -4829,7 +4845,7 @@ function propertiesAsText(p: PhysChemProperties | null): string {
   if (!p) return "";
   const est = p.druglikenessApplicable; // cLogP/logS QSAR estimates apply to organic small molecules only
   return [
-    `Physicochemical properties — ${p.formula} (MW ${p.mw} g/mol)`,
+    `Physicochemical properties — ${formatFormula(p.formula)} (MW ${p.mw} g/mol)`,
     `cLogP: ${est ? p.logP : "n/a (outside model domain)"}`,
     `logS: ${est ? `${p.logS} (log mol/L)` : "n/a (outside model domain)"}`,
     `Topological PSA: ${p.tpsa} Å²`,
@@ -5287,7 +5303,7 @@ function updateDrawPreview(preserveStatus = false): void {
       // The page as drawn is what inserts (the chemistry gives the formula, SMILES and alt text).
       if (drawn) currentBuild = result = { ...result, svg: drawn.svg };
       buildPreviewEl.innerHTML = result.svg;
-      buildFormulaEl.textContent = result.formula + (result.mw ? ` (MW ${result.mw})` : "");
+      buildFormulaEl.textContent = formatFormula(result.formula) + (result.mw ? ` (MW ${result.mw} g/mol)` : "");
       buildSmilesEl.textContent = result.smiles || "—";
       renderRgroupInputs(result.rgroups);
       // The compliance note must never take the preview down with it.
@@ -5585,6 +5601,8 @@ function openInDraw(): void {
     mol.inventCoordinates();
     drawEditor.setMolecule(mol);
     updateDrawPreview();
+    // Show the canvas the structure went to: the pane was left scrolled to the bottom, the canvas out of sight.
+    document.getElementById("build-editor")?.scrollIntoView({ block: "start" });
     setStatus("Structure loaded into the drawing canvas.", "success");
   } catch (error) {
     setStatus(`Could not load the structure into the canvas: ${(error as Error).message}`, "error");
@@ -5618,7 +5636,7 @@ function updateBuildPreview(): void {
     const result = build(text, format, STRUCTURE_W, STRUCTURE_H);
     currentBuild = result;
     buildPreviewEl.innerHTML = result.svg;
-    buildFormulaEl.textContent = result.formula + (result.mw ? ` (MW ${result.mw})` : "");
+    buildFormulaEl.textContent = formatFormula(result.formula) + (result.mw ? ` (MW ${result.mw} g/mol)` : "");
     buildSmilesEl.textContent = result.smiles || "—";
     renderRgroupInputs(result.rgroups);
     insertBuildBtn.disabled = false;
@@ -28470,6 +28488,21 @@ function specRow(cells: string[], className = "spec-row"): HTMLElement {
 }
 
 /** Renders the caveats block. Never omitted — it is what keeps this honest. */
+/**
+ * The properties panel's notes on its estimates, folded under one line: four paragraphs of method caveats under
+ * every structure out-shouted the numbers in a demo (walkthrough 2026-10-19). Still one click away, and still in the
+ * inserted text; a fit's warnings (specCaveats) stay open, because those say the result itself may not hold.
+ */
+function aboutEstimates(caveats: string[]): HTMLElement {
+  const box = document.createElement("details");
+  box.className = "ms-note about-estimates";
+  const sum = document.createElement("summary");
+  sum.textContent = "About these estimates";
+  box.appendChild(sum);
+  box.appendChild(specCaveats(caveats));
+  return box;
+}
+
 function specCaveats(caveats: string[]): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "ms-note";

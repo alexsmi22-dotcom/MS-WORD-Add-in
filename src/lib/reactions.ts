@@ -6,6 +6,8 @@
 //
 // Pure string logic — no Office.js, no OpenChemLib — so it is fully unit-testable.
 
+import { atomicNumber } from "./periodic";
+
 /** The arrow drawn between two stages. */
 export type ArrowType = "forward" | "reversible" | "retro";
 
@@ -108,6 +110,26 @@ export interface ReactionConditions {
   arrows?: ArrowType[];
 }
 
+/** Group abbreviations a reagent formula may carry (Et₃N, Boc₂O, Pd(PPh₃)₄, n-Bu₃SnH …). */
+const REAGENT_GROUPS = new Set(["Me", "Et", "Pr", "Bu", "Ph", "Bn", "Ac", "Bz", "Ts", "Ms", "Tf", "Boc", "Cbz", "Fmoc", "Tr", "Cy", "Ar", "Py", "Tol", "Mes"]);
+const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
+
+/**
+ * Reaction conditions as chemists write them: the digits of a reagent's formula lowered — "H2SO4" → H₂SO₄, "CH2Cl2"
+ * → CH₂Cl₂, "Et3N" → Et₃N, "Pd(PPh3)4" → Pd(PPh₃)₄ (the display contract; the scheme showed H2SO4: demo walkthrough
+ * 2026-10-19). Only a token made wholly of element symbols, group abbreviations, digits and brackets, starting with a
+ * capital, is touched; "0 °C", "2 h", "rt", "1,4-dioxane", "10 mol%" are left as typed.
+ */
+export function typesetConditions(text: string): string {
+  return text.replace(/[A-Z][A-Za-z0-9()]*/g, (tok) => {
+    if (!/[0-9]/.test(tok)) return tok;
+    const words = tok.match(/[A-Z][a-z]*/g) ?? [];
+    const bare = tok.replace(/[A-Z][a-z]*/g, "").replace(/[0-9()]/g, "");
+    if (bare || !words.every((w) => atomicNumber(w) !== null || REAGENT_GROUPS.has(w))) return tok;
+    return tok.replace(/([A-Za-z)])([0-9]+)/g, (_m, before: string, n: string) => before + [...n].map((d) => SUBSCRIPT[Number(d)]).join(""));
+  });
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -169,10 +191,10 @@ export function composeReactionScheme(stages: Rendered[][], cond: ReactionCondit
       );
     }
     if (over) {
-      parts.push(`<text x="${acx.toFixed(1)}" y="${(cy - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-family="sans-serif">${escapeXml(over)}</text>`);
+      parts.push(`<text x="${acx.toFixed(1)}" y="${(cy - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-family="sans-serif">${escapeXml(typesetConditions(over))}</text>`);
     }
     if (under) {
-      parts.push(`<text x="${acx.toFixed(1)}" y="${(cy + 15).toFixed(1)}" text-anchor="middle" font-size="11" font-family="sans-serif">${escapeXml(under)}</text>`);
+      parts.push(`<text x="${acx.toFixed(1)}" y="${(cy + 15).toFixed(1)}" text-anchor="middle" font-size="11" font-family="sans-serif">${escapeXml(typesetConditions(under))}</text>`);
     }
     x += ARROW_W;
   };

@@ -718,22 +718,16 @@ h1 {
   margin-bottom: -1px;
 }
 
-/* The interactive drawing surface. The editor draws its own toolbar inside;
-   it needs real dimensions at creation time (it is lazily created only while
-   visible). Height is generous — drawing needs room more than the pane does. */
+/* The chemistry canvas (chemCanvas.ts): its toolbar, options and page. It takes the height its contents need —
+   the page inside is the part that resizes (drag its bottom edge). A fixed 400 px box with overflow hidden was the
+   old editor's; around this canvas it cut the bottom ~95 px of the page off, so a structure loaded by Edit in Draw
+   showed only its top half (demo walkthrough 2026-10-19). */
 #build-editor {
   width: 100%;
-  height: 400px;
-  /* Drag the bottom-right corner to grow the drawing area — the editor
-     watches its container with a ResizeObserver and adapts live. */
-  resize: vertical;
-  min-height: 240px;
-  max-height: 720px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--paper);
-  overflow: hidden;
-  /* The editor pans/draws with pointer gestures — don't let the pane scroll them. */
+  /* The canvas draws with pointer gestures — don't let the pane scroll them. */
   touch-action: none;
 }
 
@@ -2553,3 +2547,7 @@ select {
 }
 .chem-canvas-surface svg { display: block; }
 .chem-canvas-surface:focus { outline: 2px solid var(--accent, #2563eb); outline-offset: 1px; }
+
+/* The properties panel's estimate notes, folded (aboutEstimates). */
+.about-estimates summary { cursor: pointer; font-weight: 600; }
+.about-estimates[open] summary { margin-bottom: 4px; }

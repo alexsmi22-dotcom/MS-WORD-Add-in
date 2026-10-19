@@ -45,7 +45,7 @@ Pick a tool from the home screen — **27 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v2.156.0 — production. Word on **Windows & macOS**,
+> **Status:** v2.157.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -81,7 +81,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**10,000+ unit tests** across **524 test files**), `npm run build` (production bundle),
+> `npm test` (**10,000+ unit tests** across **530 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool, and an

@@ -6,7 +6,7 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [2.157.0] — 2026-10-18 — Atom properties on the chemistry canvas
+## [2.157.0] — 2026-10-19 — Atom properties, the whole page in the large canvas, Clean on any page
 
 ### Added
 - **Properties tool** on the Structure ▸ Draw canvas (and the large canvas): click an atom to set its radical

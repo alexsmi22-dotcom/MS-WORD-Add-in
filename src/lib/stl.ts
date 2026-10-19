@@ -51,7 +51,8 @@ export function stlHash(bytes: Uint8Array): string {
 export const DEFAULT_CREASE_DEG = 30;
 
 export interface StlFacets {
-  format: "binary" | "text";
+  /** "obj": a Wavefront OBJ's faces (lib/obj.ts), read into the same facets. */
+  format: "binary" | "text" | "obj";
   /** 9 numbers a facet (three corners), in the file's units. */
   corners: Float64Array;
   count: number;
@@ -95,7 +96,7 @@ export function readStl(bytes: Uint8Array): { ok: true; stl: StlFacets } | { ok:
   };
 }
 
-function tooMany(count: number): string {
+export function tooMany(count: number): string {
   return `it has ${count > STL_LIMITS.facets ? "more than " + n0(STL_LIMITS.facets) : n0(count)} facets — this importer reads up to ${n0(STL_LIMITS.facets)}; export it again with a coarser tolerance`;
 }
 
@@ -119,13 +120,36 @@ function readBinary(dv: DataView, count: number): { ok: true; stl: StlFacets } |
   return { ok: true, stl: { format: "binary", corners: out.subarray(0, 9 * n), count: n, unreadable } };
 }
 
+/**
+ * How a text file printed its numbers: the coarsest last digit (step), the most significant digits (sig), and whether
+ * every number could be a float32 printed to its digits (f32). One rule for every text format (STL, OBJ).
+ */
+export class PrintedDigits {
+  step = 0;
+  sig = 0;
+  f32 = true;
+  private static digits = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
+  add(t: string, v: number): void {
+    // Where its last digit falls: "128.457" rounds to 0.001, "1.28457e+02" to 0.001 too.
+    const d = PrintedDigits.digits.exec(t);
+    if (!d) return;
+    const ulp = 10 ** (Number(d[3] ?? 0) - (d[2]?.length ?? 0));
+    this.step = Math.max(this.step, ulp);
+    // Could this number be a float32 printed to these digits? (Not once any could not.)
+    // (A float32 whose next digit is exactly 5 prints half a step away; the parse adds its own
+    // rounding, so the slack is absolute — fourth review: 512.054688 is a float32 printed.)
+    if (this.f32 && Number.isFinite(v) && Math.abs(Math.fround(v) - v) > ulp * 0.5 + 4 * Number.EPSILON * Math.abs(v)) this.f32 = false;
+    this.sig = Math.max(this.sig, (d[1] + (d[2] ?? "")).replace(/^0+/, "").length);
+  }
+}
+
 function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; reason: string } {
   // A facet starts "facet normal" (so a solid NAMED "facet" is not one); "endfacet" never
   // matches "facet" (no word boundary before its f).
   const re = /\b(endfacet\b|facet\s+normal\b|vertex\s+(\S+)\s+(\S+)\s+(\S+))/gi;
   const corners: number[] = [];
-  let facet = 0, inFacet = false, seen = 0, bad = false, unreadable = 0, step = 0, sig = 0, f32 = true;
-  const digits = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
+  let facet = 0, inFacet = false, seen = 0, bad = false, unreadable = 0;
+  const printed = new PrintedDigits();
   const cur: number[] = [];
   for (let m = re.exec(text); m; m = re.exec(text)) {
     const w = m[1].slice(0, 5).toLowerCase();
@@ -151,17 +175,7 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
           const v = Number(t);
           if (!Number.isFinite(v)) bad = true;
           cur.push(v);
-          // Where its last digit falls: "128.457" rounds to 0.001, "1.28457e+02" to 0.001 too.
-          const d = digits.exec(t);
-          if (d) {
-            const ulp = 10 ** (Number(d[3] ?? 0) - (d[2]?.length ?? 0));
-            step = Math.max(step, ulp);
-            // Could this number be a float32 printed to these digits? (Not once any could not.)
-            // (A float32 whose next digit is exactly 5 prints half a step away; the parse adds its own
-            // rounding, so the slack is absolute — fourth review: 512.054688 is a float32 printed.)
-            if (f32 && Number.isFinite(v) && Math.abs(Math.fround(v) - v) > ulp * 0.5 + 4 * Number.EPSILON * Math.abs(v)) f32 = false;
-            sig = Math.max(sig, (d[1] + (d[2] ?? "")).replace(/^0+/, "").length);
-          }
+          printed.add(t, v);
         }
       }
     }
@@ -169,7 +183,7 @@ function readText(text: string): { ok: true; stl: StlFacets } | { ok: false; rea
   if (inFacet) return { ok: false, reason: `facet ${n0(facet)} has no "endfacet" (the file is cut short)` };
   if (!facet) return { ok: false, reason: "it has no facets" };
   if (!corners.length) return { ok: false, reason: "none of its facets has readable numbers" };
-  return { ok: true, stl: { format: "text", corners: Float64Array.from(corners), count: corners.length / 9, unreadable, step, sig, f32 } };
+  return { ok: true, stl: { format: "text", corners: Float64Array.from(corners), count: corners.length / 9, unreadable, step: printed.step, sig: printed.sig, f32: printed.f32 } };
 }
 
 /**

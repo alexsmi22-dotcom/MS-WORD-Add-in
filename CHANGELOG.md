@@ -6,6 +6,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.161.0] — 2026-10-19 — Drawing (CAD): section views, perspective views, OBJ parts
+
+### Added
+- **Section views** (37 CFR 1.84(h)(3)). **Add section view**, then two clicks on a front, top or side figure: the
+  part is cut along that line, everything between the viewer and the cut taken away, and the cut faces hatched.
+  - On the figure the section is taken from: the **cutting line** across the part, an **arrow at each end** showing
+    the direction of sight, and its **name at each end** — the section's FIG number on a USPTO sheet, a letter on an
+    ASME or ISO sheet (titled "SECTION A–A" / "A–A").
+  - **Hatching** by the rule: regularly spaced oblique lines at 45°, every piece of one part hatched the same way,
+    parts that touch hatched at different angles, the spacing from the area cut (never under 1.5 mm on paper, so a
+    thin wall does not print black at two-thirds reduction, 1.84(k)). Holes stay clear.
+  - A cut face hides what lies behind it; hidden lines behind the plane are left out unless Hidden lines asks for
+    them. Flip looks the other way; Remove takes the section away. It is read after the figure it is cut from.
+  - Refused by name, never drawn wrong: a part that is not a closed solid where it is cut (an STL with gaps), a line
+    that misses the part, a section of a figure not on the sheet.
+- **Perspective view** — "the views may be plan, elevation, section, or perspective views" (1.84(h)). Tick
+  Perspective and choose its strength (Strong … Slight): the model from the isometric direction with the eye at a
+  finite distance, receding edges converging, hidden lines removed by the same engine as every other view, curved
+  outlines where the eye's lines of sight graze the surface. Callouts on it point at the right place.
+- **OBJ parts.** Import DXF / STL / OBJ… now reads Wavefront .obj files (faces of any number of corners; texture and
+  normal data, groups and materials ignored — a material file is never fetched). An OBJ goes through exactly what an
+  STL does: units asked (an OBJ does not say them), closedness checked, edge angle, the drawing names the file. A line
+  that cannot be read is refused with its line number.
+
+### Not in this release (named limits)
+- Offset, aligned, half, broken-out and revolved sections; hatch patterns by material (one general pattern is
+  used); a cutting line's ends cannot be moved after it is taken (Remove and take it again).
+
 ## [2.160.0] — 2026-10-19 — Loose ends: number lists, Solve's curve, figure sizes
 
 ### Fixed

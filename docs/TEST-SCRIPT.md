@@ -10,6 +10,19 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cy. New in v2.161.0 — Drawing (CAD): section views, perspective, OBJ
+
+- [ ] ★ **Section.** Drawing (CAD), USPTO standard, a part with a hole (or a tube). Add section view, then click two
+  points across the front figure through the hole. A new figure appears below: the cut part, hatched at 45°, the hole
+  clear. On the front figure: a broken line across the part, an arrow at each end, and at each end the new figure's
+  number. Insert: the same in Word.
+- [ ] **Two parts.** A shaft in a hole (two parts touching): the section hatches them at different angles.
+- [ ] **Flip / Remove.** Flip: the section looks from the other side (arrows turn). Remove: it goes, with its marks.
+- [ ] **ASME.** Switch the standard to ASME: the ends read A, the figure is titled "SECTION A–A".
+- [ ] **Perspective.** Tick Perspective: a pictorial view with converging edges; Strong vs Slight visibly differs.
+- [ ] **OBJ.** In Solid Edge (or any CAD), export a part as OBJ; Import DXF / STL / OBJ…, pick it, choose units, Add
+  as a part: it draws as an STL part does.
+
 ## 0cx. New in v2.160.0 — Loose ends
 
 - [ ] ★ **Solve's curve.** In Solve, type x^2 - 5x + 6 = 0 and Insert: the roots AND a plot with both roots marked

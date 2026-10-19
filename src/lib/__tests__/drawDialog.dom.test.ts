@@ -128,3 +128,13 @@ describe("the pane takes the page back as one edit", () => {
     expect(c.page().objects.length).toBe(1);
   });
 });
+
+describe("the page in the URL as its own parameter (more fits than JSON)", () => {
+  it("?frag=1&page=… opens the page with its Markush flag", async () => {
+    const { sent } = await open(`?frag=1&page=${encodeURIComponent(page(ethane + caption))}`);
+    $<HTMLButtonElement>("use-btn").click();
+    const back = sent[0] as { page: string; frag: boolean };
+    expect(textsOf(back.page)).toEqual(["Scheme 1"]);
+    expect(back.frag).toBe(true);
+  });
+});

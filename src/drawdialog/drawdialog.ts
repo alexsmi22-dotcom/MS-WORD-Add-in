@@ -125,7 +125,8 @@ Office.onReady(() => {
         else showError("This version of Word cannot hand a drawing this large to a window — this canvas starts blank, and “Use this drawing” would REPLACE the pane's drawing. Cancel to keep it.");
       },
     );
-  } else loadSeed(params.get("seed"));
+  } else if (params.get("page") !== null) loadSeed(JSON.stringify({ page: params.get("page"), frag: params.get("frag") === "1" }));
+  else loadSeed(params.get("seed"));
   // An older pane's seed (a structure's idcode).
   const seed = params.get("mol");
   if (seed) {

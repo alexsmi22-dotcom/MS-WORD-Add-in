@@ -8,7 +8,7 @@
  * lost).
  */
 import { Molecule } from "openchemlib/full";
-import type { CdxDoc } from "./cdxml";
+import { readCdxmlTree, type CdxDoc } from "./cdxml";
 import type { XNode } from "./xmlLite";
 import { findById, setAtomLabel } from "./cdxmlEdit";
 import { pageToMolecule } from "./cdxmlMol";
@@ -37,9 +37,58 @@ function sideOf(frag: XNode, n: XNode): "left" | "right" | null {
   return posOf(o)[0] - posOf(n)[0] > 1e-6 ? "left" : "right";
 }
 
+/** A stereo bond as the reader takes it (cdxmlMol addBondOf): a hashed or hollow plain bond is not one. */
+const STEREO_DISPLAY = /^(Wedge|WedgedHash)(Begin|End)$/;
+
+/**
+ * The molecule a structure is laid out from: its chemistry where the page reads exactly, atom for atom; else
+ * its skeleton, each label one atom of its own kind (a distinct stand-in element per distinct label text, so
+ * OMe and OEt on one alkene carbon keep their E / Z). Its stereo is from the drawing as it is.
+ */
+function layoutMolecule(doc: CdxDoc, frag: XNode, id: string, L: number): { mol: Molecule; idOf: string[]; chem: boolean } | string {
+  const nodes = frag.children.filter((c) => c.name === "n" && c.attrs.id);
+  const bonds = frag.children.filter((c) => c.name === "b");
+  const chem = pageToMolecule(doc, new Set([id]));
+  if (chem.ok && chem.value.atomIds.every((x) => x !== "")) {
+    chem.value.mol.ensureHelperArrays(Molecule.cHelperParities);
+    return { mol: chem.value.mol, idOf: chem.value.atomIds, chem: true };
+  }
+  if (bonds.some((b) => STEREO_DISPLAY.test(b.attrs.Display ?? ""))) return `a structure with wedges keeps its layout here, since its stereo could not be read (${chem.ok ? "it has labels standing for groups" : chem.reason}) — move its atoms by hand`;
+  const mol = new Molecule(nodes.length, bonds.length);
+  const idOf: string[] = [];
+  const at = new Map<string, number>();
+  // Stand-ins for labels: one element per distinct label, from the far end of the table (never a real atom here).
+  const standIn = new Map<string, number>();
+  let next = 118;
+  for (const n of nodes) {
+    const type = n.attrs.NodeType ?? "Element";
+    let z = type === "Element" ? Number(n.attrs.Element ?? 6) : 0;
+    if (!z) {
+      const key = `${type}:${n.attrs.GenericNickname ?? ""}:${n.attrs.ElementList ?? ""}:${n.children.find((c) => c.name === "t")?.children.map((q) => q.text).join("") ?? ""}`;
+      if (!standIn.has(key)) standIn.set(key, next > 60 ? next-- : 6);
+      z = standIn.get(key)!;
+    }
+    const a = mol.addAtom(Number.isInteger(z) && z >= 1 && z <= 118 ? z : 6);
+    const [x, y] = posOf(n);
+    mol.setAtomX(a, x / L);
+    mol.setAtomY(a, y / L);
+    at.set(n.attrs.id, a);
+    idOf.push(n.attrs.id);
+  }
+  for (const b of bonds) {
+    const a0 = at.get(b.attrs.B), a1 = at.get(b.attrs.E);
+    if (a0 === undefined || a1 === undefined || a0 === a1) continue;
+    mol.setBondType(mol.addBond(a0, a1), BOND_TYPE[(b.attrs.Order ?? "1").split(/\s+/)[0]] ?? Molecule.cBondTypeSingle);
+  }
+  // A skeleton's atoms take no hydrogens or valence checks: the layout is all that is used.
+  mol.setFragment(true);
+  mol.ensureHelperArrays(Molecule.cHelperParities);
+  return { mol, idOf, chem: false };
+}
+
 /**
  * Lays out the page's structures (or those among `objectIds`) again in place. Null when done; a refusal names
- * the structure that could not be.
+ * the structure that could not be (the caller restores the page: nothing is half done).
  */
 export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): string | null {
   const L = doc.style.bondLength || 30;
@@ -53,45 +102,22 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
     const bonds = frag.children.filter((c) => c.name === "b");
     if (nodes.some((n) => bracketed.has(n.attrs.id))) return "a structure inside brackets keeps its layout (the brackets would no longer fit it) — move its atoms by hand";
     if (nodes.length < 2) continue;
-    const wedged = bonds.some((b) => /Wedge|Hash/.test(b.attrs.Display ?? ""));
-    // The layout: from the chemistry where the page reads exactly, atom for atom; else the skeleton.
-    let mol: Molecule;
-    let idOf: string[];
-    const chem = pageToMolecule(doc, new Set([o.id]));
-    if (chem.ok && chem.value.atomIds.every((id) => id !== "")) {
-      mol = chem.value.mol;
-      idOf = chem.value.atomIds;
-    } else {
-      if (wedged) return `a structure with wedges keeps its layout here, since its stereo could not be read (${chem.ok ? "it has labels standing for groups" : chem.reason}) — move its atoms by hand`;
-      mol = new Molecule(nodes.length, bonds.length);
-      idOf = [];
-      const at = new Map<string, number>();
-      for (const n of nodes) {
-        const z = (n.attrs.NodeType ?? "Element") === "Element" ? Number(n.attrs.Element ?? 6) : 6;
-        const a = mol.addAtom(Number.isInteger(z) && z >= 1 && z <= 118 ? z : 6);
-        const [x, y] = posOf(n);
-        mol.setAtomX(a, x / L);
-        mol.setAtomY(a, y / L);
-        at.set(n.attrs.id, a);
-        idOf.push(n.attrs.id);
-      }
-      for (const b of bonds) {
-        const a0 = at.get(b.attrs.B), a1 = at.get(b.attrs.E);
-        if (a0 === undefined || a1 === undefined || a0 === a1) continue;
-        mol.setBondType(mol.addBond(a0, a1), BOND_TYPE[(b.attrs.Order ?? "1").split(/\s+/)[0]] ?? Molecule.cBondTypeSingle);
-      }
-      // A skeleton's atoms take no hydrogens or valence checks: the layout is all that is used.
-      mol.setFragment(true);
-    }
-    // The stereo, from the drawing as it is, before the atoms move.
-    mol.ensureHelperArrays(Molecule.cHelperParities);
+    const lay = layoutMolecule(doc, frag, o.id, L);
+    if (typeof lay === "string") return lay;
+    const { mol, chem } = lay;
+    // What the structure is before it moves: checked again after (the same reading), never changed by Clean.
+    const before = mol.getIDCode();
+    // Each atom tagged, so the page atoms still find theirs after OCL lays out (it drops drawn hydrogens).
+    for (let a = 0; a < mol.getAllAtoms(); a++) mol.setAtomMapNo(a, a + 1, false);
     try {
       mol.inventCoordinates();
     } catch (e) {
       return `the structure could not be laid out (${(e as Error).message})`;
     }
     const n = mol.getAllAtoms();
-    if (idOf.length !== n) return "the structure's atoms could not be matched to the page";
+    const idOf: string[] = [];
+    for (let a = 0; a < n; a++) idOf.push(lay.idOf[mol.getAtomMapNo(a) - 1] ?? "");
+    if (idOf.some((x) => !x)) return "the structure's atoms could not be matched to the page";
     const avg = n > 1 ? mol.getAverageBondLength(true) || 1 : 1;
     const k = L / avg;
     // The centre kept: the old atoms' centre, the new atoms' centre.
@@ -108,10 +134,7 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
     const sidesBefore = new Map<string, "left" | "right" | null>();
     for (const nd of nodes) if (nd.children.some((c) => c.name === "t")) sidesBefore.set(nd.attrs.id, sideOf(frag, nd));
     const moved = new Map<string, P2>(); // node id → how far it moved
-    for (let a = 0; a < n; a++) {
-      const nd = nodes.find((q) => q.attrs.id === idOf[a]);
-      if (!nd) continue;
-      const p: P2 = [ox + mol.getAtomX(a) * k - nx, oy + mol.getAtomY(a) * k - ny];
+    const place = (nd: XNode, p: P2): void => {
       const was = old.get(nd.attrs.id)!;
       const d: P2 = [p[0] - was[0], p[1] - was[1]];
       nd.attrs.p = `${fmt(p[0])} ${fmt(p[1])}`;
@@ -121,10 +144,44 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
         t.attrs.p = shiftPair(t.attrs.p, d)!;
         if (t.attrs.BoundingBox) t.attrs.BoundingBox = shiftPair(t.attrs.BoundingBox, d)!;
       }
+    };
+    const newPos = new Map<string, P2>();
+    for (let a = 0; a < n; a++) {
+      const nd = nodes.find((q) => q.attrs.id === idOf[a]);
+      if (!nd) continue;
+      const p: P2 = [ox + mol.getAtomX(a) * k - nx, oy + mol.getAtomY(a) * k - ny];
+      newPos.set(nd.attrs.id, p);
+      place(nd, p);
+    }
+    // Drawn atoms OCL dropped from its layout (plain hydrogens): beside their atom, away from its other bonds.
+    const nbrOf = (id: string): string[] => bonds.filter((b) => b.attrs.B === id || b.attrs.E === id).map((b) => (b.attrs.B === id ? b.attrs.E : b.attrs.B));
+    const spread = new Map<string, number>();
+    const dropped: Array<{ node: XNode; parent: P2; ang: number }> = [];
+    for (const nd of nodes) {
+      if (newPos.has(nd.attrs.id)) continue;
+      const parent = nbrOf(nd.attrs.id).find((q) => newPos.has(q));
+      // One with no laid-out neighbour (a lone H, H₂): stays where it was drawn.
+      if (!parent) continue;
+      const pp = newPos.get(parent)!;
+      let dx = 0, dy = 0;
+      for (const q of nbrOf(parent)) {
+        const qp = newPos.get(q);
+        if (!qp) continue;
+        const l = Math.hypot(qp[0] - pp[0], qp[1] - pp[1]) || 1;
+        (dx -= (qp[0] - pp[0]) / l), (dy -= (qp[1] - pp[1]) / l);
+      }
+      let ang = Math.hypot(dx, dy) > 0.2 ? Math.atan2(dy, dx) : -Math.PI / 2;
+      const k2 = spread.get(parent) ?? 0;
+      spread.set(parent, k2 + 1);
+      ang += (k2 % 2 ? -1 : 1) * Math.ceil(k2 / 2) * (Math.PI / 3);
+      const p: P2 = [pp[0] + Math.cos(ang) * L, pp[1] + Math.sin(ang) * L];
+      newPos.set(nd.attrs.id, p);
+      place(nd, p);
+      dropped.push({ node: nd, parent: pp, ang });
     }
     // The wedges drawn again from the stereo (the narrow end is OCL's bond atom 0).
-    if (chem.ok && mol === chem.value.mol) {
-      for (const b of bonds) if (/Wedge|Hash/.test(b.attrs.Display ?? "")) delete b.attrs.Display;
+    if (chem) {
+      for (const b of bonds) if (STEREO_DISPLAY.test(b.attrs.Display ?? "")) delete b.attrs.Display;
       for (let bi = 0; bi < mol.getAllBonds(); bi++) {
         const t = mol.getBondType(bi);
         if (t !== Molecule.cBondTypeUp && t !== Molecule.cBondTypeDown) continue;
@@ -166,6 +223,26 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       }
     };
     walk(doc.root);
+    // The same reading after the move: the structure (its E / Z and R / S included) must be what it was.
+    const same = (): boolean => {
+      const re = readCdxmlTree(doc.root);
+      const after = re.ok ? layoutMolecule(re.doc, findById(re.doc.root, o.id)!.el, o.id, L) : null;
+      return !!after && typeof after !== "string" && after.mol.getIDCode() === before;
+    };
+    let ok = same();
+    // A drawn H placed back where it reads as the other centre: tried round its atom until it reads as drawn.
+    if (!ok && dropped.length && dropped.length <= 8) {
+      for (const h of dropped) {
+        if (ok) break;
+        for (let step = 1; step < 12 && !ok; step++) {
+          const ang = h.ang + (step * Math.PI) / 6;
+          place(h.node, [h.parent[0] + Math.cos(ang) * L, h.parent[1] + Math.sin(ang) * L]);
+          ok = same();
+        }
+        if (!ok) place(h.node, [h.parent[0] + Math.cos(h.ang) * L, h.parent[1] + Math.sin(h.ang) * L]);
+      }
+    }
+    if (!ok) return "laying this structure out again would change it (its stereo could not be kept) — it keeps its layout; move its atoms by hand";
   }
   return null;
 }

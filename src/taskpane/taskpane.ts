@@ -2004,7 +2004,7 @@ Office.onReady((info) => {
   buildTabTextBtn.addEventListener("click", () => setBuildTab("text"));
   buildFragmentToggle.addEventListener("change", onFragmentToggle);
   editInDrawBtn.addEventListener("click", openInDraw);
-  openDrawDialogBtn.addEventListener("click", openDrawDialog);
+  openDrawDialogBtn.addEventListener("click", () => openDrawDialog());
   cleanStructureBtn.addEventListener("click", onCleanStructure);
   resetCanvasBtn.addEventListener("click", onResetCanvas);
 
@@ -5312,7 +5312,15 @@ function updateDrawPreview(preserveStatus = false): void {
  * rides along in the URL (idcode + coordinates, the full-fidelity encoding);
  * "Use this drawing" in the dialog hands the result back the same way.
  */
-function openDrawDialog(): void {
+/** The page as compact ChemDraw XML for the large canvas (no declaration, no indentation: more fits in a URL). */
+function compactPage(): string {
+  return writeCdxml(drawEditor!.page().root)
+    .replace(/^<\?xml[^>]*>\s*/, "")
+    .replace(/^<!DOCTYPE[^>]*>\s*/, "")
+    .replace(/>\n\s*</g, "><");
+}
+
+function openDrawDialog(molOnly?: string): void {
   if (!docHost.dialogsSupported()) {
     setStatus("This Word host does not support pop-out dialog windows.", "error");
     return;
@@ -5321,9 +5329,11 @@ function openDrawDialog(): void {
   // The whole page travels — structures, brackets, arrows, text, group labels, as ChemDraw keeps them —
   // in the URL when short enough, else by message once the window says it is ready (as the CAD window does).
   const hasPage = !!drawEditor && drawEditor.page().objects.length > 0;
-  const payload = hasPage ? JSON.stringify({ page: writeCdxml(drawEditor!.page().root), frag: drawEditor!.isFragment() || !!currentBuild?.generic }) : "";
-  const inUrl = `${base}?seed=${encodeURIComponent(payload)}`;
-  const url = !hasPage ? base : inUrl.length < 1800 ? inUrl : `${base}?wait=1`;
+  const payload = hasPage ? JSON.stringify({ page: compactPage(), frag: drawEditor!.isFragment() || !!currentBuild?.generic }) : "";
+  // In the URL the page goes as its own parameter (no JSON escaping: more fits); by message, as JSON.
+  const inUrl = hasPage ? `${base}?frag=${drawEditor!.isFragment() || currentBuild?.generic ? 1 : 0}&page=${encodeURIComponent(compactPage())}` : base;
+  // A Word that cannot message a window: one plain structure still goes, as its structure (the older way).
+  const url = molOnly ? `${base}?mol=${encodeURIComponent(molOnly)}` : !hasPage ? base : inUrl.length < 1800 ? inUrl : `${base}?wait=1`;
   openDrawDialogBtn.disabled = true;
   docHost.openDialog(url, { height: 85, width: 85 }, {
     failed: (error) => {
@@ -5342,6 +5352,19 @@ function openDrawDialog(): void {
         if (!dialog.messageChild(payload)) {
           dialog.close();
           openDrawDialogBtn.disabled = false;
+          // This Word cannot message the window. One plain structure can still go as its structure.
+          const chem = drawEditor?.chemistry();
+          const plain = !!drawEditor && !drawEditor.hasDrawing() && chem?.ok && chem.mol.getAllAtoms() > 0 && !drawEditor.page().objects.some((o) => o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => nd.nodeType === "Unspecified" || nd.nodeType === "Nickname" || nd.nodeType === "Fragment")));
+          if (plain && chem?.ok) {
+            const enc = chem.mol.getIDCodeAndCoordinates();
+            const seed = `${enc.idCode} ${enc.coordinates}`;
+            if (`${base}?mol=${encodeURIComponent(seed)}`.length < 1800) {
+              setStatus("This version of Word carries only a plain structure into the large canvas — opening it with the structure alone (its layout and labels as drawn are kept here until you bring it back).", "");
+              // The window just closed: Word needs a moment before another opens.
+              window.setTimeout(() => openDrawDialog(seed), 800);
+              return;
+            }
+          }
           setStatus("This drawing is too large to carry into the large canvas on this version of Word — edit it here (drag the canvas's corner to make it taller).", "error");
         }
         return;

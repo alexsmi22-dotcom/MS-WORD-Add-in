@@ -55,6 +55,14 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   group number out of range is said. A connection point keeps its diamond; ChemDraw's per-atom Show settings hide
   or show that atom's marks.
 
+### Fixed before release (review of the large canvas, Clean and the panel removal: 5 findings)
+- Clean never changes a structure: each one is read again after it moves and must be what it was (an alkene
+  carbon with OMe and OEt kept its E / Z only by luck — labels now lay out as distinct stand-ins); drawn H atoms
+  are laid out with their structure (they were refused), placed where they read as drawn; a hashed or hollow plain
+  bond keeps its style; a Clean refused part-way leaves the page and what is read exactly as before.
+- The large canvas on a Word that cannot message a window: the page travels more compactly in the address
+  (a benzene fits), and one plain structure still goes as its structure.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

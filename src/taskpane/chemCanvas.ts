@@ -295,7 +295,12 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     const propsBefore = doc.properties;
     const why = f();
     if (why) {
+      // The page as it was — parsed again, so nothing the refused edit half did lingers in what is read.
       doc.root = before;
+      const back = readCdxmlTree(doc.root);
+      if (back.ok) doc = back.doc;
+      boxes = objectBoxes(doc);
+      draw();
       host.setStatus(why.charAt(0).toUpperCase() + why.slice(1) + ".", "error");
       return false;
     }

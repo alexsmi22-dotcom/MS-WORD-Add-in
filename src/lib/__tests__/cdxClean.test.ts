@@ -121,3 +121,28 @@ test("browser check: an OH that Clean moves to the left of its bond is written H
   } else expect(words).toBe("OH");
   expect(idcodeOf(reread(d), "10")).toBe(idcodeOf(page(crooked), "10"));
 });
+
+describe("review of Clean (round 2)", () => {
+  test("1. E / Z kept when one alkene carbon carries two different group labels (OMe, OEt): laid out with the same isomer, or refused — never flipped", () => {
+    for (const [l1, l2] of [["OMe", "OEt"], ["OEt", "OMe"], ["Ph", "Bn"]]) {
+      const d = page(`<fragment id="10"><n id="101" p="60 100"/><n id="102" p="85 85"/><n id="103" p="115 85"/><n id="104" p="130 60" NodeType="Unspecified"><t p="130 60"><s font="3" size="10">${l1}</s></t></n><n id="105" p="130 110" NodeType="Unspecified"><t p="130 110"><s font="3" size="10">${l2}</s></t></n><b id="106" B="101" E="102"/><b id="107" B="102" E="103" Order="2"/><b id="108" B="103" E="104"/><b id="109" B="103" E="105"/></fragment>`);
+      const before = idcodeOf(d, "10");
+      const r = cleanStructures(d);
+      if (r === null) expect(idcodeOf(reread(d), "10")).toBe(before);
+      else expect(r).toMatch(/would change it/);
+    }
+  });
+  test("2. a drawn H on a wedged stereocentre: laid out with its H, the stereo unchanged", () => {
+    const d = page('<fragment id="10"><n id="101" p="100 100"/><n id="102" p="130 100"/><n id="103" p="145 75" Element="7" NumHydrogens="2"><t p="145 75"><s font="3" size="10" face="96">NH2</s></t></n><n id="104" p="145 125"/><n id="105" p="160 100" Element="1"><t p="160 100"><s font="3" size="10">H</s></t></n><n id="106" p="175 125" Element="8" NumHydrogens="1"><t p="175 125"><s font="3" size="10" face="96">OH</s></t></n><b id="107" B="101" E="102"/><b id="108" B="102" E="103"/><b id="109" B="102" E="104"/><b id="110" B="102" E="105" Display="WedgeBegin"/><b id="111" B="104" E="106"/></fragment>');
+    const before = idcodeOf(d, "10");
+    expect(cleanStructures(d)).toBeNull();
+    const after = reread(d);
+    expect(idcodeOf(after, "10")).toBe(before);
+    expect(findById(d.root, "105")).not.toBeNull();
+  });
+  test("4. a plain hashed bond (Display=\"Hash\") is not a wedge: kept, and no refusal for it", () => {
+    const d = page('<fragment id="10"><n id="101" p="100 100"/><n id="102" p="150 100"/><n id="103" p="155 111" NodeType="Unspecified"><t p="155 111"><s font="3" size="10">OMe</s></t></n><b id="104" B="101" E="102" Display="Hash"/><b id="105" B="102" E="103"/></fragment>');
+    expect(cleanStructures(d)).toBeNull();
+    expect(findById(d.root, "104")!.el.attrs.Display).toBe("Hash");
+  });
+});

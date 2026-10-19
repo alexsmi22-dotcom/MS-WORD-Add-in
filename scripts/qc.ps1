@@ -55,7 +55,9 @@ function Invoke-Step {
 }
 
 Invoke-Step "Type-check (tsc)"    { npm run lint }
-Invoke-Step "Unit tests (jest)"   { npm test }
+# Four workers, not one per core: a worker per core held several GB next to Word and Outlook and the
+# machine ran out of memory mid-gate (2026-10-19); the freeze-bound tests also flake less.
+Invoke-Step "Unit tests (jest)"   { npm test -- --maxWorkers=4 }
 # The compound dictionary feeds Chemical, Spectra, Mass Spec, pKa and properties.
 # A wrong entry there is a confident wrong answer in five modes at once, so it gets
 # its own gate. The structural check against PubChem runs inside jest above

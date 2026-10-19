@@ -308,3 +308,35 @@ test("review: the compact form keeps a caption's line break (written, never stri
   expect(again.ok && again.doc.objects[0].items[0].kind === "text" && again.doc.objects[0].items[0].v.runs.map((r) => r.text).join("")).toBe("Title\nBody");
   expect(writeCdxml(d.doc.root, true).startsWith("<CDXML")).toBe(true);
 });
+
+describe("review: marks clear of bonds", () => {
+  test.each([3, 4])("%i-bond centre with query marks and a stereo group, 24 rotations: the marks' box crosses no bond", (nb) => {
+    for (let k = 0; k < 24; k++) {
+      const rot = (k * Math.PI) / 12;
+      let s = '<n id="101" p="100 100" SubstituentsUpTo="3" RingBondCount="SimpleRing" UnsaturatedBonds="MustBeAbsent" EnhancedStereoType="And" EnhancedStereoGroupNum="1"/>';
+      const pts: Array<[number, number]> = [];
+      for (let i = 0; i < nb; i++) {
+        const a = rot + (2 * Math.PI * i) / nb;
+        const p: [number, number] = [100 + 30 * Math.cos(a), 100 + 30 * Math.sin(a)];
+        pts.push(p);
+        s += `<n id="${110 + i}" p="${p[0].toFixed(2)} ${p[1].toFixed(2)}"/><b id="${120 + i}" B="101" E="${110 + i}"/>`;
+      }
+      const d = readCdxml(`<CDXML BondLength="30" LabelSize="10"><page id="900"><fragment id="10">${s}</fragment></page></CDXML>`);
+      if (!d.ok) throw new Error(d.reason);
+      const svg = renderCdx(d.doc)!.svg;
+      for (const m of svg.matchAll(/<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(start|middle|end)"[^>]*font-size="([\d.]+)"[^>]*>([^<]+)<\/text>/g)) {
+        const [x, y, anchor, size, txt] = [Number(m[1]), Number(m[2]), m[3], Number(m[4]), m[5].replace(/&amp;/g, "&")];
+        const w = txt.length * size * 0.6;
+        const x0 = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2;
+        const box = [x0, y - size, x0 + w, y + size * 0.25];
+        for (const p of pts) {
+          // The bond from the centre to p, sampled: no point of it inside the box.
+          for (let t = 0.15; t <= 1; t += 0.05) {
+            const q = [100 + (p[0] - 100) * t, 100 + (p[1] - 100) * t];
+            expect([nb, k, txt, q[0] >= box[0] && q[0] <= box[2] && q[1] >= box[1] && q[1] <= box[3]]).toEqual([nb, k, txt, false]);
+          }
+        }
+      }
+    }
+  });
+});

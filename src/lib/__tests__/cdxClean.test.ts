@@ -219,7 +219,16 @@ describe("review of Clean (round 5)", () => {
         const readable = !/^“/.test(before) && !/ /.test(before);
         const r = cleanStructures(d);
         if (r === null && readable) expect([l1, l2, k, idcodeOf(reread(d), "10")]).toEqual([l1, l2, k, before]);
-        if (r === null && !readable) expect(true).toBe(true);
+        if (r !== null) expect(r).toMatch(/would change what it reads as/);
+        if (r === null) {
+          // As drawn: a side-dependent label off a clearly sideways bond has its bonded letter on the atom.
+          for (const id of ["104", "105"]) {
+            const n = findById(d.root, id)!.el;
+            const t = n.children.find((c) => c.name === "t")!;
+            const dx = Number(findById(d.root, "103")!.el.attrs.p.split(" ")[0]) - Number(n.attrs.p.split(" ")[0]);
+            if (Math.abs(dx) > 1) expect([l1, l2, k, id, t.attrs.LabelJustification]).toEqual([l1, l2, k, id, dx > 0 ? "Right" : "Left"]);
+          }
+        }
       }
     }
   });

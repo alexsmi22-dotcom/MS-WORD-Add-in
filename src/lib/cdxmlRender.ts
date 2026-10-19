@@ -389,29 +389,60 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       const g = showsMarks(nd.el.attrs, docAttrs, "ShowAtomEnhancedStereo") ? stereoGroupMark(nd.el.attrs) : null;
       const q = showsMarks(nd.el.attrs, docAttrs, "ShowAtomQuery") ? atomQueryMarks(nd.el.attrs) : [];
       if (g || q.length) {
-        // The middle of the widest gap between the atom's bonds (straight down for a lone atom).
+        // Candidate places: the middle of each gap between the atom's bonds, widest first, at growing distances;
+        // the first whose marks' box crosses no bond and no label is taken (else the first, as before).
         const angs = (nbrs.get(nd.id) ?? []).map((k) => byId.get(k)).filter((o): o is CdxNode => !!o).map((o) => Math.atan2(o.p[1] - nd.p[1], o.p[0] - nd.p[0])).sort((a, b) => a - b);
-        let dir: Pt = [0, 1];
-        if (angs.length === 1) dir = [-Math.cos(angs[0]), -Math.sin(angs[0])];
-        else if (angs.length > 1) {
-          let best = -1, mid = 0;
+        const gaps: Array<{ mid: number; width: number }> = [];
+        if (!angs.length) gaps.push({ mid: Math.PI / 2, width: 2 * Math.PI });
+        else if (angs.length === 1) gaps.push({ mid: angs[0] + Math.PI, width: 2 * Math.PI });
+        else
           for (let i = 0; i < angs.length; i++) {
             const a0 = angs[i], a1 = i + 1 < angs.length ? angs[i + 1] : angs[0] + 2 * Math.PI;
-            if (a1 - a0 > best) (best = a1 - a0), (mid = (a0 + a1) / 2);
+            gaps.push({ mid: (a0 + a1) / 2, width: a1 - a0 });
           }
-          dir = [Math.cos(mid), Math.sin(mid)];
-        }
-        const reach = st.bondLength * 0.45 + (bx ? Math.max(bx[2] - bx[0], bx[3] - bx[1]) / 2 : 0);
+        gaps.sort((x, y) => y.width - x.width);
         const size = st.labelSize * 0.75;
-        const anchor = dir[0] > 0.35 ? "start" : dir[0] < -0.35 ? "end" : "middle";
-        // Lines stack away from the atom: downward when the free side is below, upward when above.
-        const step = dir[1] < -0.35 ? -size * 1.1 : size * 1.1;
-        let at: Pt = [nd.p[0] + dir[0] * reach, nd.p[1] + dir[1] * reach + size * 0.35];
+        const lines = [g ? g : null, q.length ? q.join(",") : null].filter((v): v is string => !!v);
+        const textW = Math.max(...lines.map((v) => v.length * size * 0.6));
+        const base = st.bondLength * 0.45 + (bx ? Math.max(bx[2] - bx[0], bx[3] - bx[1]) / 2 : 0);
+        const segs: Array<[Pt, Pt]> = fr.bonds.map((bd) => [byId.get(bd.b)?.p, byId.get(bd.e)?.p]).filter((v): v is [Pt, Pt] => !!v[0] && !!v[1]);
+        const labelBoxes: Box[] = fr.nodes.map((o) => o.label?.box).filter((v): v is Box => !!v);
+        const crosses = (box: Box): boolean => {
+          const inBox = (p: Pt): boolean => p[0] >= box[0] && p[0] <= box[2] && p[1] >= box[1] && p[1] <= box[3];
+          const segHits = (p: Pt, r: Pt): boolean => {
+            if (inBox(p) || inBox(r)) return true;
+            const edges: Array<[Pt, Pt]> = [[[box[0], box[1]], [box[2], box[1]]], [[box[2], box[1]], [box[2], box[3]]], [[box[2], box[3]], [box[0], box[3]]], [[box[0], box[3]], [box[0], box[1]]]];
+            const cr = (o: Pt, u: Pt, v: Pt): number => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0]);
+            return edges.some(([e0, e1]) => cr(p, r, e0) * cr(p, r, e1) < 0 && cr(e0, e1, p) * cr(e0, e1, r) < 0);
+          };
+          return segs.some(([p, r]) => segHits(p, r)) || labelBoxes.some((lb) => lb[0] < box[2] && lb[2] > box[0] && lb[1] < box[3] && lb[3] > box[1]);
+        };
+        const place = (mid: number, reach: number) => {
+          const dir: Pt = [Math.cos(mid), Math.sin(mid)];
+          const anchor: "start" | "end" | "middle" = dir[0] > 0.35 ? "start" : dir[0] < -0.35 ? "end" : "middle";
+          // Lines stack away from the atom: downward when the free side is below, upward when above.
+          const step = dir[1] < -0.35 ? -size * 1.1 : size * 1.1;
+          const at: Pt = [nd.p[0] + dir[0] * reach, nd.p[1] + dir[1] * reach + size * 0.35];
+          const x0 = anchor === "start" ? at[0] : anchor === "end" ? at[0] - textW : at[0] - textW / 2;
+          const ys = lines.map((_, i) => at[1] + i * step);
+          const box: Box = [x0, Math.min(...ys) - size, x0 + textW, Math.max(...ys) + size * 0.25];
+          return { at, anchor, step, box };
+        };
+        let pick = place(gaps[0].mid, base);
+        search: for (const gp of gaps)
+          for (const k of [1, 1.5, 2.1]) {
+            const c = place(gp.mid, base * k);
+            if (!crosses(c.box)) {
+              pick = c;
+              break search;
+            }
+          }
+        let at = pick.at;
         if (g) {
-          mark(at, g, anchor, nd.z + 0.6, true);
-          at = [at[0], at[1] + step];
+          mark(at, g, pick.anchor, nd.z + 0.6, true);
+          at = [at[0], at[1] + pick.step];
         }
-        if (q.length) mark(at, q.join(","), anchor, nd.z + 0.6);
+        if (q.length) mark(at, q.join(","), pick.anchor, nd.z + 0.6);
       }
       if (nd.nodeType === "ExternalConnectionPoint" && !(nd.charge && !chargeDrawn.has(nd.id))) {
         // A small diamond where no other mark is given.

@@ -207,49 +207,60 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
         b.attrs.Display = `${kind}${b.attrs.B === narrow ? "Begin" : "End"}`;
       }
     }
-    // A group label now on the other side of its bond is written for that side (OMe on the left reads MeO).
-    const rewritten = new Set<string>();
-    for (const [id, before] of sidesBefore) {
-      const nd = nodes.find((q) => q.attrs.id === id)!;
-      const after = sideOf(frag, nd);
+    /** A rewritten label keeps its own attributes (colour, face …): only its text, geometry and justification are new. */
+    const keepOwnAttrs = (id: string, old: XNode): void => {
+      const t1 = findById(doc.root, id)?.el.children.find((c) => c.name === "t");
+      if (!t1) return;
+      const oldRun = old.children.find((q) => q.name === "s")?.attrs ?? {};
+      t1.attrs = { ...old.attrs, p: t1.attrs.p, BoundingBox: t1.attrs.BoundingBox, LabelJustification: t1.attrs.LabelJustification };
+      if (old.attrs.LabelAlignment) t1.attrs.LabelAlignment = t1.attrs.LabelJustification ?? "Left";
+      const r1 = t1.children.find((q) => q.name === "s");
+      if (r1) r1.attrs = { ...oldRun, ...(r1.attrs.face && !oldRun.face ? { face: r1.attrs.face } : {}) };
+    };
+    // Labels after the move. An element's label is turned for its new side, its hydrogens as drawn (OH ↔ HO).
+    // A group label whose meaning depends on its side (OMe / MeO, SCN / NCS) must still read as the group it
+    // did, with its bonded letter on the atom: kept if it does, rewritten for its side if a form reads the same,
+    // else Clean refuses. Labels that read the same on either side (Ph, an abbreviation with its own structure,
+    // a stacked or centred label, a generic R) are left exactly as they were.
+    for (const nd of nodes) {
+      const id = nd.attrs.id;
+      const t0 = nd.children.find((c) => c.name === "t");
+      if (!t0) continue;
       const type = nd.attrs.NodeType ?? "Element";
-      if (!before || !after || before === after) continue;
-      // An element with hydrogens (OH, CH3) turned for its new side (HO, H3C), its hydrogens as drawn.
+      const before = sidesBefore.get(id) ?? null, after = sideOf(frag, nd);
       if (type === "Element") {
-        if (turnLabelForSide(doc, id)) rewritten.add(id);
+        if (before && after && before !== after) turnLabelForSide(doc, id);
         continue;
       }
-      // A group label (OMe ↔ MeO) rewritten only when its side form differs; an abbreviation keeps its own.
       if (type !== "Unspecified") continue;
-      const t0 = nd.children.find((c) => c.name === "t");
-      const words = t0?.children.filter((s) => s.name === "s").map((s) => s.text).join("") ?? "";
-      const turned = after === "left" ? leftwardOf(words) : rightwardOf(words);
-      if (words && turned && turned !== words && t0) {
-        const oldT = { ...t0.attrs }, oldRun = { ...(t0.children.find((s) => s.name === "s")?.attrs ?? {}) };
-        setAtomLabel(doc, id, words);
-        // The rewritten label keeps its own attributes (colour, face …); only its text and geometry are new.
-        const t1 = findById(doc.root, id)?.el.children.find((c) => c.name === "t");
-        if (t1) {
-          t1.attrs = { ...oldT, p: t1.attrs.p, BoundingBox: t1.attrs.BoundingBox, LabelJustification: t1.attrs.LabelJustification };
-          if (oldT.LabelAlignment) t1.attrs.LabelAlignment = t1.attrs.LabelJustification ?? "Left";
-          const r1 = t1.children.find((s) => s.name === "s");
-          if (r1) r1.attrs = { ...oldRun, ...(r1.attrs.face && !oldRun.face ? { face: r1.attrs.face } : {}) };
-        }
-        rewritten.add(id);
+      const words = t0.children.filter((q) => q.name === "s").map((q) => q.text).join("");
+      const just = t0.attrs.LabelJustification ?? "";
+      if (/[\r\n]/.test(words) || ["Center", "Above", "Below"].includes(just)) continue;
+      const L = groupSmilesBySide(words, "left"), R = groupSmilesBySide(words, "right");
+      if (L === R) continue; // the same group either side (or no group at all)
+      const meant = groupSmilesBySide(words, readingBefore.get(id) ?? "right"); // what it read as (null: unreadable)
+      if (!after) {
+        // Straight above or below its bond: the reading kept by the justification (the letter on the atom).
+        const was = readingBefore.get(id) ?? "right";
+        if ((labelSide(frag, nd) ?? "right") !== was) t0.attrs.LabelJustification = was === "left" ? "Right" : "Left";
+        continue;
       }
-    }
-    // Any label whose reading would now change (its bond near-vertical, or untouched above) keeps its old reading:
-    // the converter reads the justification first, so the same letter stays on the atom.
-    for (const [id, was] of readingBefore) {
-      if (rewritten.has(id)) continue;
-      const nd = nodes.find((q) => q.attrs.id === id)!;
-      // An element's label reads as its element whatever its side: only group labels have a reading to keep.
-      if ((nd.attrs.NodeType ?? "Element") === "Element") continue;
-      if ((labelSide(frag, nd) ?? "right") === was) continue;
-      const t = nd.children.find((c) => c.name === "t");
-      if (!t) continue;
-      t.attrs.LabelJustification = was === "left" ? "Right" : "Left";
-      if (t.attrs.LabelAlignment) t.attrs.LabelAlignment = t.attrs.LabelJustification;
+      if (groupSmilesBySide(words, after) === meant) {
+        // It reads as before on its new side: its bonded letter put on the atom.
+        const want = after === "left" ? "Right" : "Left";
+        if (just !== want) {
+          setAtomLabel(doc, id, words);
+          keepOwnAttrs(id, t0);
+        }
+        continue;
+      }
+      const alt = after === "left" ? leftwardOf(words) : rightwardOf(words);
+      if (meant && alt && groupSmilesBySide(alt, after) === meant) {
+        setAtomLabel(doc, id, alt);
+        keepOwnAttrs(id, t0);
+        continue;
+      }
+      return "laying this structure out again would change what it reads as (a label that cannot be written for its new side) — it keeps its layout; move its atoms by hand";
     }
     // Symbols ChemDraw ties to an atom (a charge drawn as ⊕) move with it.
     const walk = (x: XNode): void => {

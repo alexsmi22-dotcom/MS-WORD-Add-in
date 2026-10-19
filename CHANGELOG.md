@@ -87,6 +87,12 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   refusals, no page left unreadable; the read-back compares each label's meaning as well as the structure; a
   turned label's alignment follows its justification, and a rewritten group label keeps its colour and style.
 
+### Fixed before release (review: 1 regression + 2)
+- After Clean a side-dependent group label (SCN, OMe …) still reads as the group it did with its bonded letter on
+  the atom — kept, rewritten for its side, or Clean refuses (a label was left reading across its own bond as the
+  other isomer); labels that read the same either side, abbreviations, stacked and centred labels are left as they
+  were. Stereo-group and query marks are placed where their box crosses no bond or label.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

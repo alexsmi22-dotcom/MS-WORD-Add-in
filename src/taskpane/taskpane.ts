@@ -5807,7 +5807,8 @@ function currentLegendEntries(): LegendEntry[] {
 async function insertBuild(): Promise<void> {
   flushDrawPreview(); // the drawing as it is now, not as it was when it last paused
   // A drawn page with no structure as chemistry (arrows, text, labels with no exact form) inserts as drawn.
-  if (!currentBuild && buildTab === "draw" && drawEditor?.page().objects.length) return insertDrawingOnly(false);
+  // (Unless the preview just worked out refused it: Insert is live before the pause, the refusal stands — review.)
+  if (!currentBuild && buildTab === "draw" && drawEditor?.page().objects.length) return insertBuildBtn.disabled ? undefined : insertDrawingOnly(false);
   const molecule = currentBuild;
   if (!molecule) {
     setStatus("Nothing built to insert.", "error");

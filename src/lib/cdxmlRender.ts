@@ -351,10 +351,12 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         const marks = bondQueryMarks(bd.el.attrs);
         if (marks.length) {
           const mid: Pt = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
-          const off = st.bondLength * 0.3;
-          // On the side away from the structure's other atoms where one is clear; else above.
-          const at: Pt = [mid[0] - n[0] * off, mid[1] - n[1] * off + st.labelSize * 0.25];
-          mark(at, marks.join(" "), "middle", bd.z + 0.4);
+          const size = st.labelSize * 0.75;
+          // Beside the bond's middle, on its upper side, the text running away from the bond.
+          const nn: Pt = n[1] > 0 ? [-n[0], -n[1]] : [n[0], n[1]];
+          const off = st.bondLength * 0.2;
+          const at: Pt = [mid[0] + nn[0] * off, mid[1] + nn[1] * off - size * 0.15];
+          mark(at, marks.join(" "), nn[0] > 0.35 ? "start" : nn[0] < -0.35 ? "end" : "middle", bd.z + 0.4);
         }
       }
       // The line's own half-width beyond its ends (wedges and offset lines lie within a bond length).
@@ -385,14 +387,30 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         prims.push({ z: nd.z + 0.6, svg: dots.map((x) => `<circle cx="${f2(x)}" cy="${f2(cy)}" r="${f2(r)}" fill="#000"/>`).join("") });
         grow([cx, cy], r * 3);
       }
-      const below = (bx ? bx[3] : nd.p[1]) + st.labelSize * 0.8;
-      if (showStereoGroups) {
-        const g = stereoGroupMark(nd.el.attrs);
-        if (g) mark([(bx ? bx[2] : nd.p[0]) + st.labelSize * 0.15, below], g, "start", nd.z + 0.6, true);
-      }
-      if (showAtomQuery) {
-        const q = atomQueryMarks(nd.el.attrs);
-        if (q.length) mark([(bx ? bx[0] : nd.p[0]) - st.labelSize * 0.15, below], q.join(","), "end", nd.z + 0.6);
+      // Stereo-group label and query marks on the side of the atom away from its bonds (one line each).
+      const g = showStereoGroups ? stereoGroupMark(nd.el.attrs) : null;
+      const q = showAtomQuery ? atomQueryMarks(nd.el.attrs) : [];
+      if (g || q.length) {
+        let dx = 0, dy = 0;
+        for (const k of nbrs.get(nd.id) ?? []) {
+          const o = byId.get(k);
+          if (!o) continue;
+          const v = sub(o.p, nd.p), l = len(v) || 1;
+          (dx -= v[0] / l), (dy -= v[1] / l);
+        }
+        const dl = Math.hypot(dx, dy);
+        const dir: Pt = dl > 0.2 ? [dx / dl, dy / dl] : [0, 1];
+        const reach = st.bondLength * 0.45 + (bx ? Math.max(bx[2] - bx[0], bx[3] - bx[1]) / 2 : 0);
+        const size = st.labelSize * 0.75;
+        const anchor = dir[0] > 0.35 ? "start" : dir[0] < -0.35 ? "end" : "middle";
+        // Lines stack away from the atom: downward when the free side is below, upward when above.
+        const step = dir[1] < -0.35 ? -size * 1.1 : size * 1.1;
+        let at: Pt = [nd.p[0] + dir[0] * reach, nd.p[1] + dir[1] * reach + size * 0.35];
+        if (g) {
+          mark(at, g, anchor, nd.z + 0.6, true);
+          at = [at[0], at[1] + step];
+        }
+        if (q.length) mark(at, q.join(","), anchor, nd.z + 0.6);
       }
       else if (nd.nodeType === "ExternalConnectionPoint") {
         // A small diamond where no other mark is given.

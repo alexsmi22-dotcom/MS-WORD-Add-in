@@ -162,7 +162,10 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
       if (atomQueryConstrains(n.attrs) || hasStereoGroup(n.attrs))
         return { ok: false, reason: `${quoted(labelWords(n) || n.attrs.GenericNickname || "a label")} carries a query feature or a stereo group, which has no form on a ${type === "GenericNickname" ? "generic atom" : "label"} here` };
       if (type === "GenericNickname") {
-        const nick = n.attrs.GenericNickname ?? labelWords(n);
+        // ChemDraw writes GenericNickname="R" on every R-group and keeps the NUMBER in the label ("R2"): read the
+        // label when it names an R-group, or R2, R3 … all came through as R1 (a client file, 2026-10-19).
+        const shown = labelWords(n);
+        const nick = /^R\d{1,2}$/.test(shown) ? shown : (n.attrs.GenericNickname ?? shown);
         const m = /^R(\d{0,2})$/.exec(nick);
         const k = m ? (m[1] ? Number(m[1]) : 1) : 0;
         if (!(k >= 1 && k <= 16)) return { ok: false, reason: `the generic atom ${quoted(nick || "(unnamed)")} has no single formula — R1 to R16 are read as R-groups; others (X, A, M …) make the structure generic` };

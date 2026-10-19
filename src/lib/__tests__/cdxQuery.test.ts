@@ -367,3 +367,26 @@ describe("review round 10: stacked labels", () => {
     expect(renderCdx(d.doc)!.svg).toMatch(/>NC</);
   });
 });
+
+describe("R-groups numbered in the label (ChemDraw writes GenericNickname=\"R\" on every one)", () => {
+  const read = (inner: string) => {
+    const d = readCdxml(`<CDXML BondLength="30"><page id="900">${inner}</page></CDXML>`);
+    if (!d.ok) throw new Error(d.reason);
+    return pageToMolecule(d.doc);
+  };
+  const rNode = (id: string, x: number, label: string): string =>
+    `<n id="${id}" p="${x} 0" NodeType="GenericNickname" GenericNickname="R"><t p="${x} 3"><s font="3" size="10">${label}</s></t></n>`;
+  test("R1, R2 and R3 stay three groups (they all read as R1)", () => {
+    const r = read(`<fragment id="10">${rNode("101", 0, "R1")}<n id="102" p="30 0"/>${rNode("103", 60, "R2")}<n id="104" p="30 30"/>${rNode("105", 30, "R3")}<b id="111" B="101" E="102"/><b id="112" B="102" E="103"/><b id="113" B="102" E="104"/></fragment>`);
+    if (!r.ok) throw new Error(r.reason);
+    const z: number[] = [];
+    for (let i = 0; i < r.value.mol.getAllAtoms(); i++) if (r.value.mol.getAtomicNo(i) >= 129) z.push(r.value.mol.getAtomicNo(i));
+    // OCL: 142 = R1, 143 = R2, 144 = R3.
+    expect(z.sort()).toEqual([142, 143, 144]);
+  });
+  test("a bare R (no number) is still R1", () => {
+    const r = read(`<fragment id="10">${rNode("101", 0, "R")}<n id="102" p="30 0"/><b id="111" B="101" E="102"/></fragment>`);
+    if (!r.ok) throw new Error(r.reason);
+    expect([0, 1].map((i) => r.value.mol.getAtomicNo(i)).sort()).toEqual([142, 6]);
+  });
+});

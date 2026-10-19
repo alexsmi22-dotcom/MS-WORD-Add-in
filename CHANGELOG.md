@@ -21,7 +21,7 @@ would self correct."
   file held 93 structures, 229 arrows and lines and 149 captions on a page 29 × 290 cm); putting all of it on the
   canvas made every atom a few pixels across. Now each structure is drawn small in a list; click one and it opens on
   its own, full size, in the editor. A structure that carries more than a molecule — polymer brackets and their n,
-  an attached label or counter-ion, a generic atom such as X — opens on its own on the page canvas, as drawn, and the
+  a counter-ion, a generic atom such as X — opens on its own on the page canvas, as drawn, and the
   status says why; for a polymer, "Edit the structure in the structure editor" opens its repeat unit in the editor
   (brackets and labels left out, said so). "Open the whole page as a drawing" is still there. A structure from the
   editor inserts at ChemDraw's default (ACS) size.

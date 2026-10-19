@@ -4,6 +4,7 @@ import { Molecule } from "openchemlib/full";
 import { readCdxml, readCdxmlTree, CdxDoc } from "../cdxml";
 import { addBrackets, findById } from "../cdxmlEdit";
 import { cleanStructures } from "../cdxClean";
+import { labelForSide } from "../labelExpand";
 import { moleculeToPage, pageToMolecule } from "../cdxmlMol";
 
 const page = (inner: string): CdxDoc => {
@@ -220,7 +221,7 @@ describe("review of Clean (round 5)", () => {
         const r = cleanStructures(d);
         if (r === null && readable) expect([l1, l2, k, idcodeOf(reread(d), "10")]).toEqual([l1, l2, k, before]);
         if (r !== null) expect(r).toMatch(/would change what it reads as/);
-        if (r === null) {
+        if (r === null && readable) {
           // As drawn: a side-dependent label off a clearly sideways bond has its bonded letter on the atom.
           for (const id of ["104", "105"]) {
             const n = findById(d.root, id)!.el;
@@ -237,5 +238,49 @@ describe("review of Clean (round 5)", () => {
     expect(cleanStructures(d)).toBeNull();
     const t = findById(d.root, "101")!.el.children.find((c) => c.name === "t")!;
     expect(t.attrs.LabelAlignment).toBe(t.attrs.LabelJustification);
+  });
+});
+
+describe("review of Clean (round 7)", () => {
+  const chainWith = (label: string, just: string, rot: number): CdxDoc => {
+    const pt = (x: number, y: number): string => `${(150 + x * Math.cos(rot) - y * Math.sin(rot)).toFixed(2)} ${(150 + x * Math.sin(rot) + y * Math.cos(rot)).toFixed(2)}`;
+    return page(`<fragment id="10"><n id="101" p="${pt(-45, 10)}"/><n id="102" p="${pt(-20, -5)}"/><n id="103" p="${pt(5, 10)}"/><n id="104" p="${pt(30, -5)}" NodeType="Unspecified"><t p="${pt(30, -5)}"${just ? ` LabelJustification="${just}"` : ""}><s font="3" size="10">${label}</s></t></n><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/><b id="107" B="103" E="104"/></fragment>`);
+  };
+  test("1. a label with no form for its new side (N3, OPr) is kept reading as before — cleaned, not refused", () => {
+    for (const label of ["N3", "OPr", "COMe", "SO2Cl"])
+      for (let k = 0; k < 12; k++) {
+        const d = chainWith(label, "Left", (k * Math.PI) / 6);
+        const before = idcodeOf(d, "10");
+        expect([label, k, cleanStructures(d)]).toEqual([label, k, null]);
+        expect(idcodeOf(reread(d), "10")).toBe(before);
+      }
+  });
+  test("1. the form of a group for each side, by what it means: isothiocyanate is NCS right of a bond, SCN left of one", () => {
+    expect(labelForSide("N=C=S", "right")).toBe("NCS");
+    expect(labelForSide("N=C=S", "left")).toBe("SCN");
+    expect(labelForSide("OC", "left")).toBe("MeO");
+    expect(labelForSide("c1ccccc1", "left", "Ph")).toBe("Ph");
+    // Isothiocyanate (right-justified SCN) after Clean: the same group, justified for the side it sits on.
+    for (let k = 0; k < 12; k++) {
+      const d = chainWith("SCN", "Right", (k * Math.PI) / 6);
+      const before = idcodeOf(d, "10");
+      expect(cleanStructures(d)).toBeNull();
+      expect(idcodeOf(reread(d), "10")).toBe(before);
+      const n = findById(d.root, "104")!.el;
+      const t = n.children.find((c) => c.name === "t")!;
+      const dx = Number(findById(d.root, "103")!.el.attrs.p.split(" ")[0]) - Number(n.attrs.p.split(" ")[0]);
+      if (Math.abs(dx) > 1) expect(t.attrs.LabelJustification).toBe(dx > 0 ? "Right" : "Left");
+    }
+  });
+  test("3. a label only re-aligned keeps its runs (CO₂Me's subscript 2 stays a subscript)", () => {
+    for (let k = 0; k < 12; k++) {
+      const pt = (x: number, y: number, rot = (k * Math.PI) / 6): string => `${(150 + x * Math.cos(rot) - y * Math.sin(rot)).toFixed(2)} ${(150 + x * Math.sin(rot) + y * Math.cos(rot)).toFixed(2)}`;
+      const d = page(`<fragment id="10"><n id="101" p="${pt(-45, 10)}"/><n id="102" p="${pt(-20, -5)}"/><n id="103" p="${pt(5, 10)}"/><n id="104" p="${pt(30, -5)}" NodeType="Unspecified"><t p="${pt(30, -5)}"><s font="3" size="10" face="0">CO</s><s font="3" size="10" face="32">2</s><s font="3" size="10" face="0">Me</s></t></n><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/><b id="107" B="103" E="104"/></fragment>`);
+      const r = cleanStructures(d);
+      if (r !== null) continue;
+      const runs = findById(d.root, "104")!.el.children.find((c) => c.name === "t")!.children;
+      const two = runs.find((s) => s.text === "2");
+      if (runs.map((s) => s.text).join("") === "CO2Me") expect([k, two?.attrs.face]).toEqual([k, "32"]);
+    }
   });
 });

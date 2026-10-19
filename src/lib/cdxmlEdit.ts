@@ -677,6 +677,22 @@ export function turnLabelForSide(doc: CdxDoc, nodeId: string): boolean {
   return true;
 }
 
+/**
+ * A label's justification (and its box) set for which letter sits on the atom — the first (left-justified) or
+ * the last (right-justified) — its text and style runs untouched (subscripts and colour kept).
+ */
+export function realignLabel(doc: CdxDoc, nodeId: string, rightAligned: boolean): void {
+  const node = findById(doc.root, nodeId)?.el;
+  const t = node?.children.find((c) => c.name === "t");
+  if (!node || !t) return;
+  const text = t.children.filter((c) => c.name === "s").map((c) => c.text).join("").replace(/[\r\n]/g, "");
+  const geo = labelText(doc, node, text, rightAligned);
+  t.attrs.p = geo.attrs.p;
+  t.attrs.BoundingBox = geo.attrs.BoundingBox;
+  t.attrs.LabelJustification = rightAligned ? "Right" : "Left";
+  if (t.attrs.LabelAlignment) t.attrs.LabelAlignment = t.attrs.LabelJustification;
+}
+
 // ---- ChemDraw-computed names ------------------------------------------------------------------
 
 /** The text objects showing a name or property ChemDraw computed from these objects (or anything inside them). */

@@ -428,11 +428,17 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
           const box: Box = [x0, Math.min(...ys) - size, x0 + textW, Math.max(...ys) + size * 0.25];
           return { at, anchor, step, box };
         };
+        const others = fr.nodes.filter((o) => o.id !== nd.id).map((o) => o.p);
+        // A mark belongs to the atom its anchored end is nearest (the end of the text that touches its atom).
+        const ownest = (at: Pt): boolean => {
+          const own = Math.hypot(at[0] - nd.p[0], at[1] - nd.p[1]);
+          return others.every((o) => Math.hypot(at[0] - o[0], at[1] - o[1]) > own);
+        };
         let pick = place(gaps[0].mid, base);
-        search: for (const gp of gaps)
-          for (const k of [1, 1.5, 2.1]) {
+        search: for (const k of [1, 1.5, 2.1])
+          for (const gp of gaps) {
             const c = place(gp.mid, base * k);
-            if (!crosses(c.box)) {
+            if (!crosses(c.box) && ownest(c.at)) {
               pick = c;
               break search;
             }

@@ -340,3 +340,12 @@ describe("review: marks clear of bonds", () => {
     }
   });
 });
+
+test("review: a stereo-group mark stays beside its own atom, never nearer another atom's label", () => {
+  const d = readCdxml('<CDXML BondLength="30" LabelSize="10"><page id="900"><fragment id="10"><n id="101" p="100 100" EnhancedStereoType="And" EnhancedStereoGroupNum="1"/><n id="102" p="70 100"/><n id="103" p="130 100"/><n id="104" p="100 70"/><n id="105" p="100 118" Element="17" NumHydrogens="0"><t p="100 118"><s font="3" size="10">Cl</s></t></n><b id="106" B="101" E="102"/><b id="107" B="101" E="103"/><b id="108" B="101" E="104"/><b id="109" B="102" E="105"/></fragment></page></CDXML>');
+  if (!d.ok) throw new Error(d.reason);
+  const svg = renderCdx(d.doc)!.svg;
+  const m = /<text x="([\d.-]+)" y="([\d.-]+)"[^>]*>&amp;1<\/text>/.exec(svg)!;
+  const [x, y] = [Number(m[1]), Number(m[2])];
+  expect(Math.hypot(x - 100, y - 100)).toBeLessThan(Math.hypot(x - 100, y - 118));
+});

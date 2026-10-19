@@ -10,9 +10,9 @@
 import { Molecule } from "openchemlib/full";
 import { readCdxmlTree, type CdxDoc } from "./cdxml";
 import type { XNode } from "./xmlLite";
-import { findById, setAtomLabel, turnLabelForSide } from "./cdxmlEdit";
+import { findById, realignLabel, setAtomLabel, turnLabelForSide } from "./cdxmlEdit";
 import { labelSide, pageToMolecule } from "./cdxmlMol";
-import { groupSmilesBySide, leftwardOf, rightwardOf } from "./labelExpand";
+import { groupSmilesBySide, labelForSide } from "./labelExpand";
 
 type P2 = [number, number];
 const posOf = (n: XNode): P2 => {
@@ -215,7 +215,7 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       t1.attrs = { ...old.attrs, p: t1.attrs.p, BoundingBox: t1.attrs.BoundingBox, LabelJustification: t1.attrs.LabelJustification };
       if (old.attrs.LabelAlignment) t1.attrs.LabelAlignment = t1.attrs.LabelJustification ?? "Left";
       const r1 = t1.children.find((q) => q.name === "s");
-      if (r1) r1.attrs = { ...oldRun, ...(r1.attrs.face && !oldRun.face ? { face: r1.attrs.face } : {}) };
+      if (r1) r1.attrs = { ...oldRun, face: r1.attrs.face ?? oldRun.face ?? "96" };
     };
     // Labels after the move. An element's label is turned for its new side, its hydrogens as drawn (OH ↔ HO).
     // A group label whose meaning depends on its side (OMe / MeO, SCN / NCS) must still read as the group it
@@ -233,34 +233,39 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
         continue;
       }
       if (type !== "Unspecified") continue;
-      const words = t0.children.filter((q) => q.name === "s").map((q) => q.text).join("");
-      const just = t0.attrs.LabelJustification ?? "";
-      if (/[\r\n]/.test(words) || ["Center", "Above", "Below"].includes(just)) continue;
+      // As the converter reads it: the words without line breaks (a stacked label reads as one line).
+      const words = t0.children.filter((q) => q.name === "s").map((q) => q.text).join("").replace(/[\r\n]/g, "");
       const L = groupSmilesBySide(words, "left"), R = groupSmilesBySide(words, "right");
       if (L === R) continue; // the same group either side (or no group at all)
-      const meant = groupSmilesBySide(words, readingBefore.get(id) ?? "right"); // what it read as (null: unreadable)
+      const was = readingBefore.get(id) ?? "right";
+      const meant = groupSmilesBySide(words, was); // what it read as
+      if (!meant) {
+        // It read as no group: it still must (its reading kept by the justification, so it does not start to).
+        if ((labelSide(frag, nd) ?? "right") !== was) realignLabel(doc, id, was === "left");
+        continue;
+      }
       if (!after) {
         // Straight above or below its bond: the reading kept by the justification (the letter on the atom).
-        const was = readingBefore.get(id) ?? "right";
-        if ((labelSide(frag, nd) ?? "right") !== was) t0.attrs.LabelJustification = was === "left" ? "Right" : "Left";
+        if ((labelSide(frag, nd) ?? "right") !== was) realignLabel(doc, id, was === "left");
         continue;
       }
-      if (groupSmilesBySide(words, after) === meant) {
-        // It reads as before on its new side: its bonded letter put on the atom.
-        const want = after === "left" ? "Right" : "Left";
-        if (just !== want) {
-          setAtomLabel(doc, id, words);
-          keepOwnAttrs(id, t0);
-        }
+      const reads = groupSmilesBySide(words, after);
+      if (reads === meant) {
+        // It reads as before on its new side: its bonded letter put on the atom (text and runs untouched).
+        if ((t0.attrs.LabelJustification ?? "") !== (after === "left" ? "Right" : "Left")) realignLabel(doc, id, after === "left");
         continue;
       }
-      const alt = after === "left" ? leftwardOf(words) : rightwardOf(words);
-      if (meant && alt && groupSmilesBySide(alt, after) === meant) {
+      // The form of the same group for its new side (OMe ↔ MeO, isothiocyanate SCN ↔ NCS), by what it means.
+      const alt = labelForSide(meant, after);
+      if (alt) {
         setAtomLabel(doc, id, alt);
         keepOwnAttrs(id, t0);
         continue;
       }
-      return "laying this structure out again would change what it reads as (a label that cannot be written for its new side) — it keeps its layout; move its atoms by hand";
+      // No form for this side. If read from the other end it would be another group, Clean refuses; else the
+      // reading is kept by the justification (no other group can be read from it).
+      if (reads) return "laying this structure out again would change what it reads as (a label that cannot be written for its new side) — it keeps its layout; move its atoms by hand";
+      realignLabel(doc, id, was === "left");
     }
     // Symbols ChemDraw ties to an atom (a charge drawn as ⊕) move with it.
     const walk = (x: XNode): void => {

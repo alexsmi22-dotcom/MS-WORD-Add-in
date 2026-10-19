@@ -99,6 +99,18 @@ export function leftwardOf(label: string): string | null {
   return null;
 }
 
+/**
+ * The label that reads as this group (SMILES, bonded atom first) on the given side of a bond: GROUPS on the
+ * right, LEFTWARD on the left (isothiocyanate is NCS on the right, SCN on the left); null when none does.
+ * A named group (Ph, Boc …) reads the same either side and is returned as itself.
+ */
+export function labelForSide(smiles: string, side: "left" | "right", named?: string): string | null {
+  if (named && NAMED.has(named) && GROUPS[named] === smiles) return named;
+  const table = side === "left" ? LEFTWARD : GROUPS;
+  for (const [k, v] of Object.entries(table)) if (v === smiles && !NAMED.has(k)) return k;
+  return null;
+}
+
 /** Leftward labels that, read from their first letter, are a different group (a linkage isomer). */
 const LINKAGE = new Set(["SCN", "NC", "OCN"]);
 

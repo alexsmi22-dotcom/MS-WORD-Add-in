@@ -93,6 +93,12 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   other isomer); labels that read the same either side, abbreviations, stacked and centred labels are left as they
   were. Stereo-group and query marks are placed where their box crosses no bond or label.
 
+### Fixed before release (review: 2 false refusals, 2 more)
+- Clean writes a group label for its new side by what it means (isothiocyanate SCN ↔ NCS, OMe ↔ MeO); one with
+  no form for that side keeps its reading by its justification, refused only where the other reading is another
+  group; stacked and unreadable labels keep their reading too. A label only re-aligned keeps its style runs
+  (CO₂Me's subscript). Marks are tried nearest first and stay beside their own atom.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

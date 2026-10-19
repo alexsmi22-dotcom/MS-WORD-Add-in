@@ -78,10 +78,13 @@ export function usptoInsertSize(widthPt: number, heightPt: number, smallestPt: n
   }
   const k = Math.max(need, fit);
   const pct = Math.round(k * 100);
+  // Reduced past a quarter, its lines and spacing are too small to read whatever its letters (chemdrawFit's floor).
+  if (k < MIN_FIT)
+    return { ok: false, reason: `that is ${(widthPt / 72).toFixed(1)} × ${(heightPt / 72).toFixed(1)} in — on a page it would be drawn at ${pct} %, too small to read. Select fewer structures (click one, Shift+click to add)` };
   const note = !lettered
-    ? k < 1 - 1e-9 ? `Reduced to ${pct} % to fit the page.` : ""
-    : k > 1 + 1e-9 ? `Enlarged ${pct} % so its letters meet the USPTO's 1/8-inch minimum (37 CFR 1.84(p)(3)).`
-    : k < 1 - 1e-9 ? `Reduced to ${pct} % to fit the page; its letters still meet the USPTO's 1/8-inch minimum.`
+    ? pct < 100 ? `Reduced to ${pct} % to fit the page.` : ""
+    : pct > 100 ? `Enlarged ${pct} % so its letters meet the USPTO's 1/8-inch minimum (37 CFR 1.84(p)(3)).`
+    : pct < 100 ? `Reduced to ${pct} % to fit the page; its letters still meet the USPTO's 1/8-inch minimum.`
     : "Its letters already meet the USPTO's 1/8-inch minimum.";
   return { ok: true, k, widthPt: widthPt * k, heightPt: heightPt * k, note };
 }

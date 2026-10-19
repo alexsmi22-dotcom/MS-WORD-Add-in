@@ -742,7 +742,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       let min = Infinity;
       const runSize = (r: { text: string; size: number; face: number }): number => {
         // Sub- and superscripts (and a formula label's digits) are drawn at 75 % (cdxmlRender).
-        const shifted = (r.face & 0x60) !== 0 && (r.face & 0x60) !== 0x60 ? true : (r.face & 0x60) === 0x60 && /\d|[+\-−]$/.test(r.text.trim());
+        // Formula face: per line, as cdxmlRender sets it — digits, and + / − ending the line (not trimmed).
+        const shifted = (r.face & 0x60) !== 0 && (r.face & 0x60) !== 0x60 ? true : (r.face & 0x60) === 0x60 && r.text.split(/\r\n|\r|\n/).some((ln) => /\d|[+\-−]$/.test(ln));
         return shifted ? r.size * 0.75 : r.size;
       };
       // A charge ChemDraw draws as a symbol (tied by a represent element) is not set as text (cdxmlRender).

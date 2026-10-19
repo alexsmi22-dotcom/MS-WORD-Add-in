@@ -166,7 +166,7 @@ describe("third review", () => {
   test("an abbreviation with one connection point takes exactly one bond: two refused, none refused", () => {
     expect(formula(page(ome(1)))).toBe("C2H6O");
     expect(formula(page(ome(2)))).toBe("“OMe” has 2 bonds but 1 connection point in its structure, so where each bond goes is not in the file");
-    expect(formula(page(ome(0)))).toMatch(/^“OMe” has 0 bonds/);
+    expect(formula(page(ome(0)))).toBe("“OMe” stands for a group bonded to something; alone it has no single formula");
   });
   test("several points on one main-group atom take no more bonds than points", () => {
     const two = '<n id="1" p="0 0" NodeType="Nickname"><fragment id="20"><n id="21" p="0 0" Element="8"/><n id="23" p="-10 0" NodeType="ExternalConnectionPoint"/><n id="24" p="10 0" NodeType="ExternalConnectionPoint"/><b id="32" B="21" E="23"/><b id="33" B="21" E="24"/></fragment><t p="0 0"><s font="3" size="10">O</s></t></n><n id="2" p="-30 0"/><n id="3" p="30 0"/><n id="4" p="0 30"/><b id="5" B="1" E="2"/><b id="6" B="1" E="3"/><b id="7" B="1" E="4"/>';
@@ -178,5 +178,21 @@ describe("third review", () => {
       for (let i = 0; i < 5; i++) s += `<n id="${k * 10 + i + 1}" p="${(k * 100 + 30 * Math.cos((2 * Math.PI * i) / 5)).toFixed(2)} ${(30 * Math.sin((2 * Math.PI * i) / 5)).toFixed(2)}"${i === 0 || i === 2 ? ' Element="7"' : ""}/>`;
     for (let k = 0; k < 20; k++) for (let i = 0; i < 5; i++) s += `<b id="${1000 + k * 10 + i}" B="${k * 10 + i + 1}" E="${k * 10 + ((i + 1) % 5) + 1}" Order="1.5"/>`;
     expect(formula(page(s))).toBe("C60H80N40");
+  });
+});
+
+describe("fourth review", () => {
+  const nick = (z: number, sym: string, points: number, bonds: number): string => {
+    let inner = `<n id="21" p="0 0" Element="${z}"/><n id="22" p="0 10" Element="17"/><n id="23" p="0 -10" Element="17"/><b id="31" B="21" E="22"/><b id="32" B="21" E="23"/>`;
+    for (let i = 0; i < points; i++) inner += `<n id="${40 + i}" p="${10 + i} 0" NodeType="ExternalConnectionPoint"/><b id="${45 + i}" B="21" E="${40 + i}"/>`;
+    let s = `<n id="1" p="0 0" NodeType="Nickname"><fragment id="20">${inner}</fragment><t p="0 0"><s font="3" size="10">Cl2${sym}</s></t></n>`;
+    for (let i = 0; i < bonds; i++) s += `<n id="${50 + i}" p="-30 ${i * 20}"/><b id="${60 + i}" B="1" E="${50 + i}"/>`;
+    return s;
+  };
+  test("more bonds than points only on a d- or f-block metal: Zr yes (one point or two), Ge and Sn no", () => {
+    expect(formula(page(nick(40, "Zr", 2, 4)))).toBe("C4H12Cl2Zr");
+    expect(formula(page(nick(40, "Zr", 1, 2)))).toBe("C2H6Cl2Zr");
+    expect(formula(page(nick(32, "Ge", 2, 4)))).toMatch(/has 4 bonds but 2 connection points/);
+    expect(formula(page(nick(50, "Sn", 2, 4)))).toMatch(/has 4 bonds but 2 connection points/);
   });
 });

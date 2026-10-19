@@ -43,6 +43,11 @@ describe("usptoInsertSize", () => {
     expect(z.ok).toBe(false);
     expect(!z.ok && z.reason).toMatch(/^with its letters at the USPTO's 1\/8-inch minimum it would be 12\.1 × 2\.6 in, larger than the page — insert fewer structures/);
   });
+  test("review: reduced below a quarter it is refused as too small to read; a factor that rounds to 100 % says nothing of reducing", () => {
+    const z = usptoInsertSize(PAGE_PT.w * 10, 100, null, USPTO_REQUIRED_FONT_PT);
+    expect(!z.ok && z.reason).toMatch(/drawn at 10 %, too small to read/);
+    expect(usptoInsertSize(PAGE_PT.w * 1.001, 100, null, USPTO_REQUIRED_FONT_PT)).toMatchObject({ ok: true, note: "" });
+  });
   test("exactly the page fits", () => {
     const z = usptoInsertSize(PAGE_PT.w / 2, PAGE_PT.h / 2, USPTO_REQUIRED_FONT_PT / 2, USPTO_REQUIRED_FONT_PT);
     expect(z.ok && [z.widthPt, z.heightPt]).toEqual([PAGE_PT.w, PAGE_PT.h]);
@@ -97,6 +102,10 @@ describe("review: lettering measured as it is drawn", () => {
   };
   test("a formula caption ending in a charge (Na+) counts its sign at 75 %", () => {
     expect(load('<t id="5" p="0 0"><s font="3" size="12" face="96">Na+</s></t>').smallestTextPt(false)).toBe(9);
+  });
+  test("each line of a formula caption is read as drawn: Na+ then Cl counts the sign at 75 %; a trailing space does not", () => {
+    expect(load('<t id="5" p="0 0"><s font="3" size="12" face="96">Na+\nCl</s></t>').smallestTextPt(false)).toBe(9);
+    expect(load('<t id="5" p="0 0"><s font="3" size="12" face="96">Na+ </s></t>').smallestTextPt(false)).toBe(12);
   });
   test("a charge ChemDraw draws as a symbol is not counted as 75 % text", () => {
     const c = load('<fragment id="10"><n id="1" p="0 0" Charge="1"/><n id="2" p="30 0"/><b id="3" B="1" E="2"/></fragment><graphic id="20" SymbolType="Plus" BoundingBox="5 -5 10 0"><represent attribute="Charge" object="1"/></graphic>');

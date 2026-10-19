@@ -55,6 +55,9 @@ structure carrying one is refused by name rather than redrawn without it. Isotop
   rewritten as their linkage isomers; each aromatic system is resolved on its own (twenty imidazoles read);
   inserts are reduced to fit the page when their letters allow it; lettering is measured as drawn (a formula
   caption's trailing charge at 75 %, a charge drawn as a symbol not counted as text).
+- Fourth review (4 findings): an insert reduced below a quarter is refused as too small to read (as before);
+  each line of a formula caption is measured as drawn; only d- and f-block metals take more bonds than an
+  abbreviation's connection points (Cl₂Ge, Cl₂Sn refused); a lone abbreviation is refused as having no single formula.
 - ChemDraw's aromatic bonds were counted as single (benzene read C₆H₁₂): they are now resolved into
   alternating single and double bonds, a ring atom that gives a lone pair instead (pyrrole NH, furan O,
   C₅H₅⁻, C₇H₇⁺) kept single; a ring that cannot alternate is refused by name.

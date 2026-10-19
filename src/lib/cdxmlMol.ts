@@ -51,8 +51,8 @@ export interface PageMolecule {
 }
 
 /** Which side of its one bond a label is written on: left when its neighbour lies to its right. */
-/** Elements that are not metals (H, He, B, C, N, O, F, Ne, Si, P, S, Cl, Ar, As, Se, Br, Kr, Te, I, Xe, At, Rn). */
-const NONMETALS = new Set([1, 2, 5, 6, 7, 8, 9, 10, 14, 15, 16, 17, 18, 33, 34, 35, 36, 52, 53, 54, 85, 86]);
+/** d- and f-block metals: the atoms a drawn complex may give more bonds than a main-group valence. */
+const isComplexMetal = (z: number): boolean => (z >= 21 && z <= 30) || (z >= 39 && z <= 48) || (z >= 57 && z <= 80) || (z >= 89 && z <= 112);
 
 function labelSide(f: XNode, n: XNode): "left" | "right" | null {
   // The label's justification says which letter sits on the atom (ChemDraw's own rule): left-justified,
@@ -213,10 +213,11 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         });
         if (!attach.length || attach.some((v) => v.atom === undefined)) return { ok: false, reason: `${quoted(words)} does not say where it is bonded` };
         // Several points on one inner atom: which bond meets which point does not matter — they meet that
-        // atom. More bonds than points only on a metal (Cl₂Zr, CrCl₃ drawn with their ligands); a main-group
+        // atom. More bonds than points only on a d- or f-block metal (Cl₂Zr, CrCl₃ with their ligands); a main-group
         // atom would be given bonds past its valence.
-        const oneAtom = attach.length > 1 && attach.every((v) => v.atom === attach[0].atom);
-        if (oneAtom && degree >= 1 && (degree === attach.length || !NONMETALS.has(mol.getAtomicNo(attach[0].atom!)))) attach.splice(1);
+        if (!degree) return { ok: false, reason: `${quoted(words || "a label")} stands for a group bonded to something; alone it has no single formula` };
+        const oneAtom = attach.every((v) => v.atom === attach[0].atom);
+        if (oneAtom && (degree === attach.length || isComplexMetal(mol.getAtomicNo(attach[0].atom!)))) attach.splice(1);
         // Otherwise its outer bonds must meet its connection points one to one (a bond to a point beyond the
         // last would pile onto it — a wrong structure); with several, the file must number them.
         else if (degree !== attach.length) return { ok: false, reason: `${quoted(words)} has ${degree} bond${degree === 1 ? "" : "s"} but ${attach.length} connection point${attach.length === 1 ? "" : "s"} in its structure, so where each bond goes is not in the file` };

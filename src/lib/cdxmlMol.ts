@@ -58,7 +58,7 @@ export interface PageMolecule {
 /** d- and f-block metals: the atoms a drawn complex may give more bonds than a main-group valence. */
 const isComplexMetal = (z: number): boolean => (z >= 21 && z <= 30) || (z >= 39 && z <= 48) || (z >= 57 && z <= 80) || (z >= 89 && z <= 112);
 
-function labelSide(f: XNode, n: XNode): "left" | "right" | null {
+export function labelSide(f: XNode, n: XNode): "left" | "right" | null {
   // The label's justification says which letter sits on the atom (ChemDraw's own rule): left-justified,
   // the first (read as written right of a bond); right-justified, the last.
   const just = n.children.find((c) => c.name === "t")?.attrs.LabelJustification;

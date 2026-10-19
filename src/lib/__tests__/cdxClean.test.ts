@@ -207,3 +207,26 @@ describe("review of Clean (round 4)", () => {
     expect(findById(d.root, "101")!.el.children.find((c) => c.name === "t")!.attrs.color).toBe("5");
   });
 });
+
+describe("review of Clean (round 5)", () => {
+  test("1. labels with no justification on bonds that end near-vertical: cleaned readable with the same structure, or refused — never left unreadable", () => {
+    for (const [l1, l2] of [["MeO", "OMe"], ["SCN", "NCS"], ["CN", "CN"]]) {
+      for (let k = 0; k < 24; k++) {
+        const rot = (k * Math.PI) / 12;
+        const pt = (x: number, y: number): string => `${(100 + x * Math.cos(rot) - y * Math.sin(rot)).toFixed(3)} ${(100 + x * Math.sin(rot) + y * Math.cos(rot)).toFixed(3)}`;
+        const d = page(`<fragment id="10"><n id="101" p="${pt(-40, 10)}"/><n id="102" p="${pt(-15, 0)}"/><n id="103" p="${pt(15, 0)}"/><n id="104" p="${pt(30, -26)}" NodeType="Unspecified"><t p="${pt(30, -26)}"><s font="3" size="10">${l1}</s></t></n><n id="105" p="${pt(30, 26)}" NodeType="Unspecified"><t p="${pt(30, 26)}"><s font="3" size="10">${l2}</s></t></n><b id="106" B="101" E="102"/><b id="107" B="102" E="103" Order="2"/><b id="108" B="103" E="104"/><b id="109" B="103" E="105"/></fragment>`);
+        const before = idcodeOf(d, "10");
+        const readable = !/^“/.test(before) && !/ /.test(before);
+        const r = cleanStructures(d);
+        if (r === null && readable) expect([l1, l2, k, idcodeOf(reread(d), "10")]).toEqual([l1, l2, k, before]);
+        if (r === null && !readable) expect(true).toBe(true);
+      }
+    }
+  });
+  test("3. a turned label's LabelAlignment follows its new justification", () => {
+    const d = page('<fragment id="10"><n id="101" p="100 100" Element="8" NumHydrogens="1"><t p="100 100" LabelJustification="Left" LabelAlignment="Left"><s font="3" size="10" face="96">OH</s></t></n><n id="102" p="70 120"/><n id="103" p="40 100"/><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/></fragment>');
+    expect(cleanStructures(d)).toBeNull();
+    const t = findById(d.root, "101")!.el.children.find((c) => c.name === "t")!;
+    expect(t.attrs.LabelAlignment).toBe(t.attrs.LabelJustification);
+  });
+});

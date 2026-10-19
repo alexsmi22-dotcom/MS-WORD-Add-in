@@ -11,7 +11,7 @@ import { Molecule } from "openchemlib/full";
 import { readCdxmlTree, type CdxDoc } from "./cdxml";
 import type { XNode } from "./xmlLite";
 import { findById, setAtomLabel, turnLabelForSide } from "./cdxmlEdit";
-import { pageToMolecule } from "./cdxmlMol";
+import { labelSide, pageToMolecule } from "./cdxmlMol";
 import { groupSmilesBySide, leftwardOf, rightwardOf } from "./labelExpand";
 
 type P2 = [number, number];
@@ -47,13 +47,13 @@ const STEREO_DISPLAY = /^(Wedge|WedgedHash)(Begin|End)$/;
  * its skeleton, each label one atom of its own kind (a distinct stand-in element per distinct label text, so
  * OMe and OEt on one alkene carbon keep their E / Z). Its stereo is from the drawing as it is.
  */
-function layoutMolecule(doc: CdxDoc, frag: XNode, id: string, L: number): { mol: Molecule; idOf: string[]; chem: boolean } | string {
+function layoutMolecule(doc: CdxDoc, frag: XNode, id: string, L: number): { mol: Molecule; idOf: string[]; chem: boolean; keys: Map<string, string> } | string {
   const nodes = frag.children.filter((c) => c.name === "n" && c.attrs.id);
   const bonds = frag.children.filter((c) => c.name === "b");
   const chem = pageToMolecule(doc, new Set([id]));
   if (chem.ok && chem.value.atomIds.every((x) => x !== "")) {
     chem.value.mol.ensureHelperArrays(Molecule.cHelperParities);
-    return { mol: chem.value.mol, idOf: chem.value.atomIds, chem: true };
+    return { mol: chem.value.mol, idOf: chem.value.atomIds, chem: true, keys: new Map() };
   }
   if (bonds.some((b) => STEREO_DISPLAY.test(b.attrs.Display ?? ""))) return `a structure with wedges keeps its layout here, since its stereo could not be read (${chem.ok ? "it has labels standing for groups" : chem.reason}) — move its atoms by hand`;
   const mol = new Molecule(nodes.length, bonds.length);
@@ -61,6 +61,7 @@ function layoutMolecule(doc: CdxDoc, frag: XNode, id: string, L: number): { mol:
   const at = new Map<string, number>();
   // Stand-ins for labels: one element per distinct label, from the far end of the table (never a real atom here).
   const standIn = new Map<string, number>();
+  const keys = new Map<string, string>();
   let next = 118;
   for (const n of nodes) {
     const type = n.attrs.NodeType ?? "Element";
@@ -69,12 +70,11 @@ function layoutMolecule(doc: CdxDoc, frag: XNode, id: string, L: number): { mol:
       const words = (n.children.find((c) => c.name === "t")?.children.map((q) => q.text).join("") ?? "").replace(/\s+/g, "");
       // The group the label reads as on its own side (OMe right of a bond and MeO left of one are one group;
       // CN and NC, SCN and NCS are not), else its words; an unlabelled node by its type.
-      // Read as the converter reads it: its justification first (the letter on the atom), then its side, then from
-      // its first letter (a label straight above or below its bond).
-      const just = n.children.find((c) => c.name === "t")?.attrs.LabelJustification;
-      const side = just === "Left" ? "right" : just === "Right" ? "left" : sideOf(frag, n) ?? "right";
+      // Read exactly as the converter reads it (labelSide: its justification, then its side, then its first letter).
+      const side = labelSide(frag, n) ?? "right";
       const meaning = (words ? groupSmilesBySide(words, side) : null) ?? (words || type);
       const key = `${n.attrs.GenericNickname ?? ""}:${n.attrs.ElementList ?? ""}:${meaning}`;
+      keys.set(n.attrs.id, key);
       if (!standIn.has(key)) standIn.set(key, next > 60 ? next-- : 6);
       z = standIn.get(key)!;
     }
@@ -93,7 +93,7 @@ function layoutMolecule(doc: CdxDoc, frag: XNode, id: string, L: number): { mol:
   // A skeleton's atoms take no hydrogens or valence checks: the layout is all that is used.
   mol.setFragment(true);
   mol.ensureHelperArrays(Molecule.cHelperParities);
-  return { mol, idOf, chem: false };
+  return { mol, idOf, chem: false, keys };
 }
 
 /**
@@ -142,7 +142,12 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
     for (let a = 0; a < n; a++) (nx += mol.getAtomX(a) * k), (ny += mol.getAtomY(a) * k);
     (nx /= n), (ny /= n);
     const sidesBefore = new Map<string, "left" | "right" | null>();
-    for (const nd of nodes) if (nd.children.some((c) => c.name === "t")) sidesBefore.set(nd.attrs.id, sideOf(frag, nd));
+    const readingBefore = new Map<string, "left" | "right">();
+    for (const nd of nodes)
+      if (nd.children.some((c) => c.name === "t")) {
+        sidesBefore.set(nd.attrs.id, sideOf(frag, nd));
+        readingBefore.set(nd.attrs.id, labelSide(frag, nd) ?? "right");
+      }
     const moved = new Map<string, P2>(); // node id → how far it moved
     const place = (nd: XNode, p: P2): void => {
       const was = old.get(nd.attrs.id)!;
@@ -203,6 +208,7 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       }
     }
     // A group label now on the other side of its bond is written for that side (OMe on the left reads MeO).
+    const rewritten = new Set<string>();
     for (const [id, before] of sidesBefore) {
       const nd = nodes.find((q) => q.attrs.id === id)!;
       const after = sideOf(frag, nd);
@@ -210,14 +216,40 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       if (!before || !after || before === after) continue;
       // An element with hydrogens (OH, CH3) turned for its new side (HO, H3C), its hydrogens as drawn.
       if (type === "Element") {
-        turnLabelForSide(doc, id);
+        if (turnLabelForSide(doc, id)) rewritten.add(id);
         continue;
       }
       // A group label (OMe ↔ MeO) rewritten only when its side form differs; an abbreviation keeps its own.
       if (type !== "Unspecified") continue;
-      const words = nd.children.find((c) => c.name === "t")?.children.filter((s) => s.name === "s").map((s) => s.text).join("") ?? "";
+      const t0 = nd.children.find((c) => c.name === "t");
+      const words = t0?.children.filter((s) => s.name === "s").map((s) => s.text).join("") ?? "";
       const turned = after === "left" ? leftwardOf(words) : rightwardOf(words);
-      if (words && turned && turned !== words) setAtomLabel(doc, id, words);
+      if (words && turned && turned !== words && t0) {
+        const oldT = { ...t0.attrs }, oldRun = { ...(t0.children.find((s) => s.name === "s")?.attrs ?? {}) };
+        setAtomLabel(doc, id, words);
+        // The rewritten label keeps its own attributes (colour, face …); only its text and geometry are new.
+        const t1 = findById(doc.root, id)?.el.children.find((c) => c.name === "t");
+        if (t1) {
+          t1.attrs = { ...oldT, p: t1.attrs.p, BoundingBox: t1.attrs.BoundingBox, LabelJustification: t1.attrs.LabelJustification };
+          if (oldT.LabelAlignment) t1.attrs.LabelAlignment = t1.attrs.LabelJustification ?? "Left";
+          const r1 = t1.children.find((s) => s.name === "s");
+          if (r1) r1.attrs = { ...oldRun, ...(r1.attrs.face && !oldRun.face ? { face: r1.attrs.face } : {}) };
+        }
+        rewritten.add(id);
+      }
+    }
+    // Any label whose reading would now change (its bond near-vertical, or untouched above) keeps its old reading:
+    // the converter reads the justification first, so the same letter stays on the atom.
+    for (const [id, was] of readingBefore) {
+      if (rewritten.has(id)) continue;
+      const nd = nodes.find((q) => q.attrs.id === id)!;
+      // An element's label reads as its element whatever its side: only group labels have a reading to keep.
+      if ((nd.attrs.NodeType ?? "Element") === "Element") continue;
+      if ((labelSide(frag, nd) ?? "right") === was) continue;
+      const t = nd.children.find((c) => c.name === "t");
+      if (!t) continue;
+      t.attrs.LabelJustification = was === "left" ? "Right" : "Left";
+      if (t.attrs.LabelAlignment) t.attrs.LabelAlignment = t.attrs.LabelJustification;
     }
     // Symbols ChemDraw ties to an atom (a charge drawn as ⊕) move with it.
     const walk = (x: XNode): void => {
@@ -238,7 +270,9 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
     const same = (): boolean => {
       const re = readCdxmlTree(doc.root);
       const after = re.ok ? layoutMolecule(re.doc, findById(re.doc.root, o.id)!.el, o.id, L) : null;
-      return !!after && typeof after !== "string" && after.mol.getIDCode() === before;
+      if (!after || typeof after === "string" || after.mol.getIDCode() !== before) return false;
+      for (const [id, k] of lay.keys) if (after.keys.get(id) !== k) return false;
+      return true;
     };
     let ok = same();
     // A drawn H placed back where it reads as the other centre: tried round its atom until it reads as drawn.

@@ -671,6 +671,7 @@ export function turnLabelForSide(doc: CdxDoc, nodeId: string): boolean {
   // The label keeps its own attributes (colour, alignment, id …) and its run its style; only the geometry and
   // justification are new.
   fresh.attrs = { ...t.attrs, p: fresh.attrs.p, BoundingBox: fresh.attrs.BoundingBox, LabelJustification: fresh.attrs.LabelJustification };
+  if (t.attrs.LabelAlignment) fresh.attrs.LabelAlignment = fresh.attrs.LabelJustification;
   fresh.children[0].attrs = { ...runs[0].attrs };
   node.children = node.children.map((c) => (c === t ? fresh : c));
   return true;

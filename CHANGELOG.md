@@ -81,6 +81,12 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   a turned label keeps its colour and other attributes; a near-vertical bond turns no label; a host without window
   messaging asks for the plain structure.
 
+### Fixed before release (review of that round: 1 regression + 3 small)
+- Clean matches labels by the converter's own reading (justification, then side), and a label whose reading
+  would change without its text being turned keeps its old reading by an explicit justification — no false
+  refusals, no page left unreadable; the read-back compares each label's meaning as well as the structure; a
+  turned label's alignment follows its justification, and a rewritten group label keeps its colour and style.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

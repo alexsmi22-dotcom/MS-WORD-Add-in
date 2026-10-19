@@ -100,6 +100,28 @@ function blankDoc(): CdxDoc {
   return r.doc;
 }
 
+/** The toolbar's icons (24-unit squares, drawn in the button's colour), keyed by tool or action. */
+const TOOL_ICONS: Record<string, string> = {
+  select: `<path d="M6 3l12 9-5.5 1L10 19z"/>`,
+  atom: `<text x="12" y="18" text-anchor="middle" font-size="17" font-weight="600" font-family="Arial, sans-serif" fill="currentColor" stroke="none">C</text>`,
+  bond: `<path d="M5 19L19 5"/>`,
+  chain: `<path d="M2.5 15.5l4.75-7 4.75 7 4.75-7 4.75 7"/>`,
+  ring: `<path d="M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z"/>`,
+  "charge+": `<circle cx="12" cy="12" r="8"/><path d="M8 12h8M12 8v8"/>`,
+  "charge-": `<circle cx="12" cy="12" r="8"/><path d="M8 12h8"/>`,
+  bracket: `<path d="M8 4H5v16h3M16 4h3v16h-3"/>`,
+  arrow: `<path d="M3 12h17M15 7l5 5-5 5"/>`,
+  text: `<path d="M5 5h14M12 5v14M9 19h6"/>`,
+  erase: `<path d="M14.5 4.5l5 5-9 9H6l-2.5-2.5z"/><path d="M9 10l5 5M11 18.5h9"/>`,
+  props: `<path d="M4 7h9M17 7h3M15 5v4M4 17h3M11 17h9M9 15v4"/>`,
+  undo: `<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>`,
+  redo: `<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>`,
+  "zoom-in": `<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21M7.5 10.5h6M10.5 7.5v6"/>`,
+  "zoom-out": `<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21M7.5 10.5h6"/>`,
+  fit: `<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>`,
+  save: `<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>`,
+};
+
 export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): ChemCanvas {
   // ---- DOM ------------------------------------------------------------------------------------
   mount.replaceChildren();
@@ -118,19 +140,28 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     ["arrow", "Arrow", "Reaction arrows"], ["text", "Text", "Captions"], ["erase", "Erase", "Remove"],
     ["props", "Properties", "Atom and bond properties: radical, stereo group, query features"],
   ];
+  // A compact row of icons, as ChemDraw's tool palette (a user missed the icons: the worded row took three
+  // lines of the pane). The name stays as the tooltip and for screen readers.
+  const iconButton = (attrs: Record<string, string>, label: string): HTMLButtonElement => {
+    const b = el("button", { type: "button", class: "insert-btn secondary chem-tool-icon", "aria-label": label, ...attrs });
+    const key = attrs["data-chem-tool"] ?? attrs["data-chem-action"];
+    b.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TOOL_ICONS[key] ?? ""}</svg>`;
+    b.appendChild(el("span", { class: "chem-tool-label" }, label));
+    return b;
+  };
   for (const [t, label, title] of toolNames) {
-    const b = el("button", { type: "button", class: "insert-btn secondary", "data-chem-tool": t, "aria-pressed": "false", title }, label);
+    const b = iconButton({ "data-chem-tool": t, "aria-pressed": "false", title }, label);
     b.addEventListener("click", () => setTool(t));
     toolBtns.set(t, b);
     bar.appendChild(b);
   }
-  const undoBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "undo", title: "Undo (Ctrl+Z)" }, "Undo");
-  const redoBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "redo", title: "Redo (Ctrl+Y)" }, "Redo");
-  const zoomInBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "zoom-in", title: "Zoom in (Ctrl+wheel)" }, "Zoom +");
-  const zoomOutBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "zoom-out", title: "Zoom out (Ctrl+wheel)" }, "Zoom −");
-  const fitBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "fit", title: "Fit the drawing in view" }, "Fit");
+  const undoBtn = iconButton({ "data-chem-action": "undo", title: "Undo (Ctrl+Z)" }, "Undo");
+  const redoBtn = iconButton({ "data-chem-action": "redo", title: "Redo (Ctrl+Y)" }, "Redo");
+  const zoomInBtn = iconButton({ "data-chem-action": "zoom-in", title: "Zoom in (Ctrl+wheel)" }, "Zoom in");
+  const zoomOutBtn = iconButton({ "data-chem-action": "zoom-out", title: "Zoom out (Ctrl+wheel)" }, "Zoom out");
+  const fitBtn = iconButton({ "data-chem-action": "fit", title: "Fit the drawing in view" }, "Fit");
   bar.append(undoBtn, redoBtn, zoomInBtn, zoomOutBtn, fitBtn);
-  const saveBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "save", title: "Download the page as a ChemDraw XML file (ChemDraw opens it)" }, "Save as .cdxml");
+  const saveBtn = iconButton({ "data-chem-action": "save", title: "Save as .cdxml — download the page as a ChemDraw XML file (ChemDraw opens it)" }, "Save as .cdxml");
   if (host.downloadFile) bar.append(saveBtn);
   const opts = el("div", { class: "chem-canvas-options" });
   const palette = el("div", { class: "chem-canvas-palette", role: "group", "aria-label": "Element" });

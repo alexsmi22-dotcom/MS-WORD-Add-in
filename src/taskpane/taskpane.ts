@@ -7,7 +7,7 @@ import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
 import { initChemdrawOpen } from "./chemdrawOpen";
-import { usptoInsertSize } from "../lib/insertSize";
+import { canvasInsertFit, type CanvasInsertMode } from "../lib/insertSize";
 import { nextFreeNumeral } from "../lib/cadShapes";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
@@ -2000,6 +2000,18 @@ Office.onReady((info) => {
   insertBuildBtn.addEventListener("click", insertBuild);
   document.getElementById("draw-insert-selected")?.addEventListener("click", () => void insertDrawingOnly(true));
   document.getElementById("draw-replace-picture")?.addEventListener("click", () => void insertDrawingOnly(!!drawEditor?.selection().size, true));
+  // The Draw tab's insert size: ChemDraw's by default, remembered once changed.
+  const sizeSel = document.getElementById("draw-insert-size") as HTMLSelectElement | null;
+  if (sizeSel) {
+    sizeSel.value = storedCanvasInsertMode();
+    sizeSel.addEventListener("change", () => {
+      try {
+        localStorage.setItem("formula-inserter.draw.insertSize", sizeSel.value);
+      } catch {
+        /* localStorage best-effort */
+      }
+    });
+  }
   buildTabDrawBtn.addEventListener("click", () => setBuildTab("draw"));
   buildTabTextBtn.addEventListener("click", () => setBuildTab("text"));
   buildFragmentToggle.addEventListener("change", onFragmentToggle);
@@ -5820,7 +5832,7 @@ async function insertBuild(): Promise<void> {
   setStatus("Inserting structure…");
 
   try {
-    // From the Draw tab the picture is the page as drawn, enlarged until its letters meet the USPTO's minimum.
+    // From the Draw tab the picture is the page as drawn, at the chosen size (ChemDraw's or the USPTO's).
     let d = readSvgDims(molecule.svg, STRUCTURE_W, STRUCTURE_H);
     let sizeNote = "";
     if (buildTab === "draw" && drawEditor) {
@@ -29983,13 +29995,29 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
   }
 }
 
+/** The Draw tab's chosen insert size (ChemDraw's unless the user picked the USPTO drawing sheet size). */
+function canvasInsertMode(): CanvasInsertMode {
+  const sel = document.getElementById("draw-insert-size") as HTMLSelectElement | null;
+  if (!sel) return storedCanvasInsertMode();
+  return sel.value === "uspto" ? "uspto" : "chemdraw";
+}
+
+/** The insert size the user last chose (ChemDraw's when none, or when storage is unavailable). */
+function storedCanvasInsertMode(): CanvasInsertMode {
+  try {
+    return localStorage.getItem("formula-inserter.draw.insertSize") === "uspto" ? "uspto" : "chemdraw";
+  } catch {
+    return "chemdraw";
+  }
+}
+
 /**
- * The size a canvas drawing goes into Word at: enlarged until its smallest lettering meets the USPTO's
- * figure rule (37 CFR 1.84(p)(3): at least 0.32 cm — USPTO_REQUIRED_FONT_PT carries the style's margin),
- * never reduced below it. One too large for the page at that size is refused by name, never shrunk.
+ * The size a canvas drawing goes into Word at: ChemDraw's (as drawn, reduced only to fit the page) or, when
+ * chosen, enlarged until its smallest lettering meets the USPTO's figure rule (37 CFR 1.84(p)(3): at least
+ * 0.32 cm — USPTO_REQUIRED_FONT_PT carries the style's margin). Refusals are by name, never a silent shrink.
  */
 function canvasInsertSize(r: { widthPt: number; heightPt: number }, selectionOnly: boolean): { ok: true; w: number; h: number; note: string } | { ok: false; reason: string } {
-  const z = usptoInsertSize(r.widthPt, r.heightPt, drawEditor?.smallestTextPt(selectionOnly) ?? null, USPTO_REQUIRED_FONT_PT);
+  const z = canvasInsertFit(canvasInsertMode(), r.widthPt, r.heightPt, drawEditor?.smallestTextPt(selectionOnly) ?? null, USPTO_REQUIRED_FONT_PT);
   return z.ok ? { ok: true, w: (z.widthPt * 96) / 72, h: (z.heightPt * 96) / 72, note: z.note } : z;
 }
 

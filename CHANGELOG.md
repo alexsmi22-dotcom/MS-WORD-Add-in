@@ -6,6 +6,25 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.159.0] — 2026-10-19 — Chemistry canvas: ChemDraw-size inserts, no freeze while drawing, icon toolbar
+
+### Changed
+- **Inserts go in at ChemDraw's size by default** — the drawing as drawn, reduced only to fit the page. A new
+  **Size** choice beside Insert selected offers **USPTO drawing sheet size** (the v2.156.0 behaviour: enlarged
+  until the smallest lettering meets 37 CFR 1.84(p)(3)'s 1/8-inch minimum). The choice is remembered. At
+  ChemDraw's size, a drawing whose letters fall under the USPTO minimum is inserted and the status says so,
+  naming the other choice. (A user found every structure inserted "so big, hard to use".)
+- **The canvas's tools are a compact row of icons** (select, atom, bond, chain, ring, charges, brackets, arrow,
+  text, erase, properties, undo/redo, zoom, fit, save) — the worded buttons took three lines of the pane. Each
+  icon's name is its tooltip and is read by screen readers. The large canvas window shows the same icons.
+
+### Fixed
+- **The canvas no longer freezes while drawing on a large page.** Every click worked out the page's formula and
+  SMILES and drew a picture of it that was then thrown away (half a second at 200 atoms, plus 0.3 s for the
+  SMILES). The picture is no longer drawn on the Draw path (the canvas's own page is what inserts), and the
+  formula, SMILES and checks are worked out once drawing pauses for a quarter-second — always up to date before
+  Insert, Insert selected and the large canvas.
+
 ## [2.158.0] — 2026-10-19 — Drawing (CAD): import STL parts
 
 ### Added

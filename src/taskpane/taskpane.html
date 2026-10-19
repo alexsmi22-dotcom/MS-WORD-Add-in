@@ -345,6 +345,12 @@
         <div class="draw-btn-row" id="draw-insert-more">
           <button id="draw-insert-selected" class="insert-btn secondary" type="button" title="Insert only what is selected on the canvas (Select tool, click a structure)">Insert selected</button>
           <button id="draw-replace-picture" class="insert-btn secondary" type="button" title="Put the drawing in place of the picture selected in the document (click the picture first)">Replace selected picture</button>
+          <label class="draw-insert-size" title="ChemDraw size inserts the drawing as drawn (reduced only to fit the page). USPTO drawing sheet size enlarges it until its letters meet 37 CFR 1.84(p)(3)'s 1/8-inch minimum.">Size
+            <select id="draw-insert-size">
+              <option value="chemdraw" selected>ChemDraw size</option>
+              <option value="uspto">USPTO drawing sheet size</option>
+            </select>
+          </label>
         </div>
 
         <span class="palette-group-label">Substituent gallery (drawn R-group alternatives)</span>

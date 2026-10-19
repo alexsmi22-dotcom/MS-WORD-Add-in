@@ -2514,6 +2514,13 @@ select {
 .chem-canvas-tools .insert-btn, .chem-canvas-palette .insert-btn { width: auto; flex: 0 0 auto; padding: 3px 9px; margin: 0; }
 .chem-canvas-palette .insert-btn { min-width: 2.2em; padding: 3px 5px; }
 .chem-canvas-tools .insert-btn.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
+/* Icon buttons: one compact row, the name as tooltip and for screen readers only. */
+.chem-canvas-tools { gap: 2px; }
+.chem-canvas-tools .insert-btn.chem-tool-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; }
+.chem-canvas-tools .chem-tool-icon svg { display: block; flex: none; }
+.chem-tool-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.draw-insert-size { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.draw-insert-size select { width: auto; }
 .chem-canvas-options input { flex: 1 1 10em; min-width: 8em; }
 .chem-canvas-options select { flex: 1 1 8em; }
 .chem-canvas-props { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%; }

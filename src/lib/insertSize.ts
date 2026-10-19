@@ -36,6 +36,23 @@ export function usptoInsertSize(widthPt: number, heightPt: number, smallestPt: n
   return { ok: true, k, widthPt: widthPt * k, heightPt: heightPt * k, note };
 }
 
+/** The two sizes a canvas drawing can go into Word at (the pane's choice; ChemDraw's is the default). */
+export type CanvasInsertMode = "chemdraw" | "uspto";
+
+/**
+ * The size a canvas drawing goes into Word at. "chemdraw": as drawn (ChemDraw's size), reduced only to fit
+ * the page, and told when its letters fall under the USPTO minimum. "uspto": usptoInsertSize. (A user found
+ * USPTO-size inserts of every structure "so big": a drawing for a filing is the exception, not the rule.)
+ */
+export function canvasInsertFit(mode: CanvasInsertMode, widthPt: number, heightPt: number, smallestPt: number | null, requiredPt: number): { ok: true; k: number; widthPt: number; heightPt: number; note: string } | { ok: false; reason: string } {
+  if (mode === "uspto") return usptoInsertSize(widthPt, heightPt, smallestPt, requiredPt);
+  const f = chemdrawFit(widthPt, heightPt);
+  if (!f.ok) return f;
+  const letters = smallestPt && smallestPt > 0 ? smallestPt * f.k : 0;
+  const small = letters > 0 && letters < requiredPt * (1 - 1e-9) ? ` Its smallest letters are ${letters.toFixed(1)} pt, under the USPTO's 1/8-inch minimum — for a filing figure choose “USPTO drawing sheet size”.` : "";
+  return { ok: true, k: f.k, widthPt: widthPt * f.k, heightPt: heightPt * f.k, note: f.note + small };
+}
+
 /** How a set of objects goes into Word: the factor that fits it on the page (1 = ChemDraw's size), or a refusal. */
 export function chemdrawFit(widthPt: number, heightPt: number): { ok: true; k: number; note: string } | { ok: false; reason: string } {
   const k = Math.min(1, PAGE_PT.w / widthPt, PAGE_PT.h / heightPt);

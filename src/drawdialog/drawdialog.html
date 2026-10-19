@@ -54,6 +54,11 @@
       .chem-canvas-tools button, .chem-canvas-palette button { padding: 3px 9px; border: 1px solid #bbb; border-radius: 4px; background: #f6f6f6; cursor: pointer; font: inherit; }
       .chem-canvas-tools button.active { background: #2563eb; border-color: #2563eb; color: #fff; }
       .chem-canvas-tools button:disabled { opacity: 0.45; cursor: default; }
+      .chem-canvas-tools { gap: 2px; }
+      .chem-canvas-tools button.chem-tool-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; color: #222; }
+      .chem-canvas-tools button.chem-tool-icon.active { color: #fff; }
+      .chem-canvas-tools .chem-tool-icon svg { display: block; flex: none; }
+      .chem-tool-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
       .chem-canvas-options input { flex: 1 1 12em; }
       .chem-canvas-props, .chem-canvas-props-atom, .chem-canvas-props-bond { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
       .chem-canvas-props { width: 100%; }

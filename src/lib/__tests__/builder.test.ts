@@ -364,3 +364,14 @@ describe("reactionComponentSmiles — the draw-to-reaction bridge (v2.120.0)", (
     expect(reactionComponentSmiles(new Molecule(4, 4)).error).toMatch(/empty/i);
   });
 });
+
+describe("resultFromMolecule without a picture (the Draw canvas draws its own)", () => {
+  it("gives the same formula, SMILES and flags, and no OCL picture", () => {
+    const mol = Molecule.fromSmiles("C[C@H](N)C(=O)O");
+    const full = resultFromMolecule(mol);
+    const bare = resultFromMolecule(mol, 300, 230, { picture: false });
+    expect(full.svg).toContain("<svg");
+    expect(bare.svg).toBe("");
+    expect({ ...bare, svg: "" }).toEqual({ ...full, svg: "" });
+  });
+});

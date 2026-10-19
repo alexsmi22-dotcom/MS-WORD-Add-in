@@ -10,6 +10,19 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cw. New in v2.159.0 — Chemistry canvas: size, speed, icons
+
+- [ ] ★ **No freeze.** In Chemical → Draw, draw a large structure (or open a ChemDraw file with several). Keep clicking
+  bonds quickly: each click appears at once; the formula and SMILES below update a moment after you stop.
+- [ ] ★ **ChemDraw size.** With Size on "ChemDraw size", Insert: the structure is the size ChemDraw would paste it,
+  not enlarged. The status says it was inserted at ChemDraw's size and, for 10 pt labels, that the letters are
+  under the USPTO minimum.
+- [ ] **USPTO size.** Switch Size to "USPTO drawing sheet size" and Insert: larger, status "Enlarged … %". Close and
+  reopen the pane: the choice is still USPTO.
+- [ ] **Icons.** The canvas tools are one or two rows of icons; hovering each shows its name. Open large canvas:
+  the same icons.
+- [ ] **Insert straight after drawing.** Draw a bond and click Insert at once: the inserted picture includes it.
+
 ## 0cv. New in v2.158.0 — Drawing (CAD): import STL parts
 
 - [ ] ★ **STL part.** In Solid Edge, open a part and Save As → STL. In Drawing (CAD), Import DXF / STL…, pick it:

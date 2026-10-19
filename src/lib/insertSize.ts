@@ -3,6 +3,8 @@
  * is too small to read, and the USPTO lettering rule (37 CFR 1.84(p)(3)) for canvas inserts.
  */
 
+import { USPTO_MIN_FONT_PT } from "./figureStyle";
+
 /** Room on a Word page for a picture: 6.5 × 9 in, in points. */
 export const PAGE_PT = { w: 468, h: 648 };
 /** Below this fraction of ChemDraw's size a structure is too small to read: refused, not shrunk. */
@@ -48,8 +50,10 @@ export function canvasInsertFit(mode: CanvasInsertMode, widthPt: number, heightP
   if (mode === "uspto") return usptoInsertSize(widthPt, heightPt, smallestPt, requiredPt);
   const f = chemdrawFit(widthPt, heightPt);
   if (!f.ok) return f;
+  // Warned against the rule itself (requiredPt adds the style's margin; letters between the two meet the rule).
+  // Rounded apart, so the two numbers never read as equal.
   const letters = smallestPt && smallestPt > 0 ? smallestPt * f.k : 0;
-  const small = letters > 0 && letters < requiredPt * (1 - 1e-9) ? ` Its smallest letters are ${letters.toFixed(1)} pt, under the USPTO's 1/8-inch minimum — for a filing figure choose “USPTO drawing sheet size”.` : "";
+  const small = letters > 0 && letters < USPTO_MIN_FONT_PT * (1 - 1e-9) ? ` Its smallest letters are ${(Math.floor(letters * 10) / 10).toFixed(1)} pt, under the USPTO's 1/8-inch minimum (${(Math.ceil(USPTO_MIN_FONT_PT * 10) / 10).toFixed(1)} pt) — for a filing figure choose “USPTO drawing sheet size”.` : "";
   return { ok: true, k: f.k, widthPt: widthPt * f.k, heightPt: heightPt * f.k, note: f.note + small };
 }
 

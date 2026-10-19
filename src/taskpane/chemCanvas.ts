@@ -136,7 +136,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   const toolBtns = new Map<CanvasTool, HTMLButtonElement>();
   const toolNames: Array<[CanvasTool, string, string]> = [
     ["select", "Select", "Select and move"], ["atom", "Atom", "Place or change atoms"], ["bond", "Bond", "Draw bonds; change a bond"], ["chain", "Chain", "Drag a zig-zag chain"],
-    ["ring", "Ring", "Rings"], ["charge+", "+", "Raise a charge"], ["charge-", "−", "Lower a charge"], ["bracket", "Brackets", "Polymer brackets"],
+    ["ring", "Ring", "Rings"], ["charge+", "Raise charge", "Raise a charge"], ["charge-", "Lower charge", "Lower a charge"], ["bracket", "Brackets", "Polymer brackets"],
     ["arrow", "Arrow", "Reaction arrows"], ["text", "Text", "Captions"], ["erase", "Erase", "Remove"],
     ["props", "Properties", "Atom and bond properties: radical, stereo group, query features"],
   ];

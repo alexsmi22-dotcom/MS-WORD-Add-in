@@ -64,7 +64,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   and Ctrl+wheel; Fit.
 - [ ] **Markush.** Draw with an R1 (Atom: type R1): the readout says generic; the box ticks.
 - [ ] **Large canvas.** Open large canvas / 3D: the same canvas, larger; Use this drawing brings it back.
-- [ ] ★ **USPTO lettering.** Draw ethylamine (an NH₂), Insert: the status says "Enlarged 186 % so its letters meet
+- [ ] ★ **USPTO lettering.** Set Size to "USPTO drawing sheet size". Draw ethylamine (an NH₂), Insert: the status says "Enlarged 186 % so its letters meet
   the USPTO's 1/8-inch minimum"; in Word, the H's subscript 2 measures at least 0.32 cm tall when printed.
   Open a large ChemDraw scheme and Insert: it is refused as larger than the page; Insert selected inserts one part.
 

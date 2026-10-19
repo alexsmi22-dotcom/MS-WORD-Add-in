@@ -5226,34 +5226,40 @@ function renderCompliance(issues: ComplianceIssue[]): void {
   drawComplianceEl.appendChild(document.createTextNode(issues.map((i) => i.message).join(" ")));
 }
 
-/**
- * Derives the insertable result from the drawn molecule — the same BuildResult
- * pipeline as the typed builder, so the preview below the canvas is exactly the
- * figure that will insert (the canvas itself is the editing view, not the
- * insert artifact).
- */
 let drawPreviewTimer = 0;
-let drawPreviewPending: { preserveStatus: boolean } | null = null;
+let drawPreviewPending = false;
 /** The Draw tab's formula, SMILES and checks, worked out once the drawing pauses (250 ms). */
 function scheduleDrawPreview(preserveStatus: boolean): void {
-  // Any user change among those waiting clears the status, as each would have.
-  drawPreviewPending = { preserveStatus: (drawPreviewPending?.preserveStatus ?? true) && preserveStatus };
+  // A user's change clears the status NOW, as the immediate refresh did: the canvas sets its own message
+  // ("Chain of 5 bonds drawn.") right after, and a clear 250 ms later would wipe it (review).
+  if (!preserveStatus) setStatus("");
+  // Insert is live at once on a page with something on it (Insert works the preview out first).
+  insertBuildBtn.disabled = !drawEditor?.page().objects.length;
+  drawPreviewPending = true;
   window.clearTimeout(drawPreviewTimer);
   drawPreviewTimer = window.setTimeout(flushDrawPreview, 250);
 }
 /** Works out a waiting Draw preview now (before Insert or anything else that reads it). */
 function flushDrawPreview(): void {
   window.clearTimeout(drawPreviewTimer);
-  const p = drawPreviewPending;
-  drawPreviewPending = null;
-  // Only while the Draw tab is the one shown: the Text tab's build is its own.
-  if (p && buildTab === "draw") updateDrawPreview(p.preserveStatus);
+  const pending = drawPreviewPending;
+  drawPreviewPending = false;
+  // Only while the Draw tab is the one shown: the Text tab's build is its own. The status was settled when
+  // the change was scheduled.
+  if (pending && buildTab === "draw") updateDrawPreview(true);
 }
+
+/**
+ * Derives the insertable result from the drawn molecule — the same BuildResult
+ * pipeline as the typed builder, so the preview below the canvas is exactly the
+ * figure that will insert (the canvas itself is the editing view, not the
+ * insert artifact).
+ */
 
 function updateDrawPreview(preserveStatus = false): void {
   // A direct refresh supersedes one waiting.
   window.clearTimeout(drawPreviewTimer);
-  drawPreviewPending = null;
+  drawPreviewPending = false;
   currentBuild = null;
   insertBuildBtn.disabled = true;
   const pageEmpty = !drawEditor || !drawEditor.page().objects.length;
@@ -5619,7 +5625,7 @@ function openInDraw(): void {
 function updateBuildPreview(): void {
   // A Draw refresh still waiting does not apply to the Text tab.
   window.clearTimeout(drawPreviewTimer);
-  drawPreviewPending = null;
+  drawPreviewPending = false;
   const text = buildInput.value;
   currentBuild = null;
   insertBuildBtn.disabled = true;

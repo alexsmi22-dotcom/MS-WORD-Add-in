@@ -1,7 +1,7 @@
 // The Draw tab's insert size: ChemDraw's by default (as drawn, reduced only to fit the page), the USPTO
 // drawing sheet size when chosen (a user found every insert at the USPTO size "so big").
 import { canvasInsertFit, chemdrawFit, PAGE_PT, usptoInsertSize } from "../insertSize";
-import { USPTO_REQUIRED_FONT_PT } from "../figureStyle";
+import { USPTO_MIN_FONT_PT, USPTO_REQUIRED_FONT_PT } from "../figureStyle";
 
 const R = USPTO_REQUIRED_FONT_PT;
 
@@ -40,5 +40,16 @@ describe("canvasInsertFit", () => {
     // Letters that meet the minimum as drawn but not once reduced to fit the page are warned about.
     const reduced = canvasInsertFit("chemdraw", PAGE_PT.w * 2, 100, R * 1.5, R);
     expect(reduced.ok && reduced.note).toContain("under the USPTO's 1/8-inch minimum");
+  });
+
+  it("letters that meet the rule itself, though under the style's margin, are not called under the minimum (review)", () => {
+    const between = (USPTO_MIN_FONT_PT + R) / 2;
+    const z = canvasInsertFit("chemdraw", 120, 80, between, R);
+    expect(z.ok && z.note).toBe("It is inserted at ChemDraw's size.");
+    // Just under the rule: the two numbers printed never read as equal.
+    const w = canvasInsertFit("chemdraw", 120, 80, USPTO_MIN_FONT_PT - 0.001, R);
+    if (!w.ok) throw new Error();
+    const [a, b] = [...w.note.matchAll(/(\d+\.\d) pt/g)].map((m) => Number(m[1]));
+    expect(a).toBeLessThan(b);
   });
 });

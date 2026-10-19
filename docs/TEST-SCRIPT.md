@@ -10,6 +10,21 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cz. New in v2.162.0 — Chemistry: the original editor back; ChemDraw files structure by structure
+
+The steps from the 2026-10-19 demo, in Word:
+- [ ] ★ **Draw.** Build ▸ Draw: the ChemDraw-like editor (toolbar down its left side), behaving as it did before
+  v2.156. Draw a ring and a chain, change an atom, undo: the formula and SMILES below follow each change.
+- [ ] ★ **Open a ChemDraw file.** Open ChemDraw file…, pick a multi-structure .cdxml: a list of its structures appears
+  (not the whole page). Click one: it opens full size in the editor. Change an atom (pick N, click a carbon): the
+  formula changes. Insert: it goes into Word at ChemDraw size.
+- [ ] **A generic structure** (marked "page" in the list, e.g. one with X): it opens on its own on the page canvas; the
+  status says why. "Back to the structure editor" returns.
+- [ ] **R-groups.** A structure with R1 and R2: the SMILES shows both ([R1] and [R2]), not R1 twice.
+- [ ] ★ **Large canvas.** Open large canvas / 3D with a structure drawn: a smaller window, the same editor; draw, Use
+  this drawing: it comes back exactly. Word stays responsive while the window is open.
+- [ ] **Dark mode** (Word in a dark theme): Insert name, Edit in Draw and the canvas buttons are clearly readable.
+
 ## 0cy. New in v2.161.0 — Drawing (CAD): section views, perspective, OBJ
 
 - [ ] ★ **Section.** Drawing (CAD), USPTO standard, a part with a hole (or a tube). Add section view, then click two

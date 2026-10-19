@@ -5422,7 +5422,7 @@ function updateDrawPreview(preserveStatus = false): void {
       const hint = document.createElement("span");
       hint.className = "hint";
       hint.textContent =
-        "Draw on the canvas above — click for a bond, drag from an atom to grow it; the toolbar has atoms, rings, chains, charges, brackets, arrows and text.";
+        "Draw in the editor above as in ChemDraw — pick a tool on its toolbar, then click or drag. Or Open ChemDraw file… to edit a structure from a file.";
       buildPreviewEl.appendChild(hint);
       buildFormulaEl.textContent = "—";
       buildSmilesEl.textContent = "—";

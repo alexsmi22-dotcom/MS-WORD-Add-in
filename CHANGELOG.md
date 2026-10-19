@@ -6,6 +6,37 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.162.0] — 2026-10-19 — Chemistry: the original drawing editor is back; ChemDraw files open structure by structure
+
+From a live demo: a ChemDraw file opened on the canvas "very large" and could not be edited; the large canvas made
+Word sputter; and drawing no longer corrected itself — "in the original editor, it behaved a lot like ChemDraw and
+would self correct."
+
+### Changed
+- **The original ChemDraw-like editor draws structures again** (Structure ▸ Draw and the large canvas): the editor
+  JurisLab had before v2.156, which corrects the drawing as you go. The page canvas of v2.156–v2.161 is kept only for
+  what a molecule cannot hold — a ChemDraw page's brackets, arrows and captions — and appears only when one is opened.
+  Insert, Insert selected, ChemDraw size / USPTO drawing sheet size and Save as .cdxml work from either.
+- **Open ChemDraw file… shows the file's structures to pick from.** A patent ChemDraw file is a document (the demo
+  file held 93 structures, 229 arrows and lines and 149 captions on a page 29 × 290 cm); putting all of it on the
+  canvas made every atom a few pixels across. Now each structure is drawn small in a list; click one and it opens on
+  its own, full size, in the editor. One that is not a single molecule (a generic atom such as X, a ChemDraw nickname)
+  opens on its own on the page canvas, and the status says why. "Open the whole page as a drawing" is still there.
+- **The large canvas window is smaller** (75 % × 70 % of the screen) and holds only what is being edited.
+
+### Fixed
+- **ChemDraw R-groups keep their numbers.** ChemDraw writes every R-group as "R" and keeps the number in the label;
+  R2, R3 … were read as R1 (wrong formulas and SMILES for any structure with more than one R-group). In the demo file,
+  all 77 structures that are molecules now carry exactly the R-groups on the page.
+- **Readable in dark mode:** outlined buttons (Insert name, Edit in Draw …) and canvas tools read as disabled (2.2:1
+  contrast) — now a proper colour, contrast-tested.
+- **Typing a compound name** in Chemical no longer lists every letter as an "Unexpected character" above its correct
+  structure; Build's Text tab takes a name or a SMILES string (a formula is refused: it has no single structure).
+- **Display:** formulas typeset (C₁₃H₁₈O₂, not C13H18O2) with g/mol; pKₐ; a true minus on net charge; reaction
+  conditions typeset (H₂SO₄, Et₃N, Pd(PPh₃)₄).
+- The properties panel's method notes fold under "About these estimates"; Edit in Draw scrolls to the editor; a
+  status message no longer follows you into the next tool.
+
 ## [2.161.0] — 2026-10-19 — Drawing (CAD): section views, perspective views, OBJ parts
 
 ### Added

@@ -215,7 +215,9 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
       t1.attrs = { ...old.attrs, p: t1.attrs.p, BoundingBox: t1.attrs.BoundingBox, LabelJustification: t1.attrs.LabelJustification };
       if (old.attrs.LabelAlignment) t1.attrs.LabelAlignment = t1.attrs.LabelJustification ?? "Left";
       const r1 = t1.children.find((q) => q.name === "s");
-      if (r1) r1.attrs = { ...oldRun, face: r1.attrs.face ?? oldRun.face ?? "96" };
+      // Its own bold / italic kept, with the formula style that sets its digits as subscripts.
+      const ownFace = Number(oldRun.face ?? doc.root.attrs.LabelFace ?? 0) || 0;
+      if (r1) r1.attrs = { ...oldRun, face: String((ownFace & 0x1f) | 0x60) };
     };
     // Labels after the move. An element's label is turned for its new side, its hydrogens as drawn (OH ↔ HO).
     // A group label whose meaning depends on its side (OMe / MeO, SCN / NCS) must still read as the group it
@@ -233,14 +235,18 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
         continue;
       }
       if (type !== "Unspecified") continue;
-      // As the converter reads it: the words without line breaks (a stacked label reads as one line).
-      const words = t0.children.filter((q) => q.name === "s").map((q) => q.text).join("").replace(/[\r\n]/g, "");
+      // A stacked or centred label is left exactly as drawn (re-justifying it would redraw it); the read-back
+      // decides whether the structure still reads the same.
+      const words = t0.children.filter((q) => q.name === "s").map((q) => q.text).join("");
+      if (/[\r\n]/.test(words) || ["Center", "Above", "Below"].includes(t0.attrs.LabelJustification ?? "")) continue;
       const L = groupSmilesBySide(words, "left"), R = groupSmilesBySide(words, "right");
       if (L === R) continue; // the same group either side (or no group at all)
       const was = readingBefore.get(id) ?? "right";
       const meant = groupSmilesBySide(words, was); // what it read as
       if (!meant) {
-        // It read as no group: it still must (its reading kept by the justification, so it does not start to).
+        // It read as no group. Read from its other end it is a group (L ≠ R): now on that side, a reader would see
+        // that group — refused. Still on its side (or straight above / below), its reading is kept.
+        if (after && after !== was) return "laying this structure out again would change what it reads as (a label that would read as another group on its new side) — it keeps its layout; move its atoms by hand";
         if ((labelSide(frag, nd) ?? "right") !== was) realignLabel(doc, id, was === "left");
         continue;
       }

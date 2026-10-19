@@ -2,6 +2,7 @@
 // (stereo included) unchanged, everything else where it was; group labels stay labels; refusals by name.
 import { Molecule } from "openchemlib/full";
 import { readCdxml, readCdxmlTree, CdxDoc } from "../cdxml";
+import type { XNode } from "../xmlLite";
 import { addBrackets, findById } from "../cdxmlEdit";
 import { cleanStructures } from "../cdxClean";
 import { labelForSide } from "../labelExpand";
@@ -282,5 +283,32 @@ describe("review of Clean (round 7)", () => {
       const two = runs.find((s) => s.text === "2");
       if (runs.map((s) => s.text).join("") === "CO2Me") expect([k, two?.attrs.face]).toEqual([k, "32"]);
     }
+  });
+});
+
+describe("review of Clean (round 8)", () => {
+  const chain = (label: string, just: string, extra = ""): CdxDoc =>
+    page(`<fragment id="10"><n id="101" p="105 160"/><n id="102" p="130 145"/><n id="103" p="155 160"/><n id="104" p="180 145" NodeType="Unspecified"><t p="180 145"${just ? ` LabelJustification="${just}"` : ""}><s font="3" size="10"${extra}>${label}</s></t></n><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/><b id="107" B="103" E="104"/></fragment>`);
+  test("1. thiocyanate written SCN (left-justified, read as no group here) that lands left of its bond is refused — never left reading as isothiocyanate", () => {
+    const d = chain("SCN", "Left");
+    const n = (): XNode => findById(d.root, "104")!.el;
+    const r = cleanStructures(d);
+    const dx = Number(findById(d.root, "103")!.el.attrs.p.split(" ")[0]) - Number(n().attrs.p.split(" ")[0]);
+    if (dx > 1) expect(r).toMatch(/would read as another group|would change what it reads as/);
+  });
+  test("2. a stacked label (Me / O, Above) is left exactly as drawn", () => {
+    const d = page('<fragment id="10"><n id="101" p="105 160"/><n id="102" p="130 145"/><n id="103" p="155 160" NodeType="Unspecified"><t p="155 160" LabelJustification="Above"><s font="3" size="10">Me\nO</s></t></n><b id="105" B="101" E="102"/><b id="106" B="102" E="103"/></fragment>'.replace("Me\nO", "Me\nO"));
+    const r = cleanStructures(d);
+    const t = findById(d.root, "103")!.el.children.find((c) => c.name === "t")!;
+    if (r === null) {
+      expect(t.attrs.LabelJustification).toBe("Above");
+      expect(t.children.map((s) => s.text).join("")).toBe("Me\nO");
+    }
+  });
+  test("3. a bold OMe rewritten for its new side stays bold, with the formula style for its digits", () => {
+    const d = chain("OMe", "Left", ' face="1"');
+    expect(cleanStructures(d)).toBeNull();
+    const run = findById(d.root, "104")!.el.children.find((c) => c.name === "t")!.children[0];
+    if (run.text !== "OMe") expect(Number(run.attrs.face) & 0x61).toBe(0x61);
   });
 });

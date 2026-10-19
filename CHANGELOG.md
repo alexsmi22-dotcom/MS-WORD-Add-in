@@ -99,6 +99,11 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   group; stacked and unreadable labels keep their reading too. A label only re-aligned keeps its style runs
   (CO₂Me's subscript). Marks are tried nearest first and stay beside their own atom.
 
+### Fixed before release (review: 2 + 1)
+- A label that read as no group but would read as another group on its new side (SCN as thiocyanate landing
+  where it reads as isothiocyanate) makes Clean refuse, never keep it drawn across its bond; stacked and centred
+  labels are left exactly as drawn; a rewritten label keeps its own bold / italic.
+
 ## [2.156.0] — 2026-10-18 — One chemistry canvas
 
 ### Changed

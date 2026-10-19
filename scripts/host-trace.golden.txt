@@ -57,7 +57,7 @@ RUN R5 {
 == chemical/insert-props-btn
 RUN R6 {
   #17 = R6.document.getSelection()
-  #18 = #17.insertText(s563:e14515c3, "after")
+  #18 = #17.insertText(s563:dade4f48, "after")
   #19 = #17.select("end")
   R6.sync()
 } R6
@@ -81,7 +81,7 @@ RUN R7 {
 } R7
    status: Structure inserted.
 == build/open-draw-dialog-btn
-OFFICE displayDialogAsync("drawdialog.html", {height:85,width:85})
+OFFICE displayDialogAsync("drawdialog.html", {height:75,width:70})
 OFFICE dialog.close()
 RUN R8 {
   #26 = R8.document.getSelection()
@@ -119,7 +119,7 @@ RUN R9 {
 } R9
    status: Inserted 2 substituent(s).
 == reaction/reaction-draw-btn
-OFFICE displayDialogAsync("drawdialog.html", {height:85,width:85})
+OFFICE displayDialogAsync("drawdialog.html", {height:75,width:70})
 OFFICE dialog.close()
    status: Drawn structure added to the reaction as SMILES.
 == reaction/reaction-insert-btn

@@ -39,6 +39,7 @@
 // another tool) is parsed directly.
 
 import { Molecule } from "openchemlib";
+import { lookupSmiles, resolveChemInput } from "./structures";
 
 export interface BuildResult {
   svg: string;
@@ -59,7 +60,7 @@ const SHORTHANDS: Record<string, string[]> = {
   X: ["F", "Cl", "Br", "I"], // halogen
 };
 
-export type BuildFormat = "auto" | "atombond" | "molfile" | "idcode";
+export type BuildFormat = "auto" | "name" | "atombond" | "molfile" | "idcode";
 
 const BOND_ORDER: Record<string, number> = { "-": 1, "=": 2, "#": 3 };
 
@@ -569,6 +570,43 @@ export function looksLikeIdcode(text: string): boolean {
   return /^idcode\s*:/i.test(text);
 }
 
+/** Does this text carry the atom / bond list's keywords ("atoms:", "bonds:")? */
+export function looksLikeAtomBondList(text: string): boolean {
+  return /^\s*(atoms|bonds)\s*:/im.test(text);
+}
+
+/**
+ * A compound name (the dictionary) or a SMILES string, read by the same rule as the Chemical tool
+ * (resolveChemInput), as a structure to build on. Null when the text is neither. A formula is refused by name:
+ * it has no single structure. (An organic chemist types "ibuprofen" or pastes a SMILES first — the Text tab
+ * took only atom lists and molfiles: demo walkthrough 2026-10-19.)
+ */
+export function buildFromNameOrSmiles(text: string, width = 300, height = 230): BuildResult | null {
+  const raw = text.trim();
+  const r = resolveChemInput(raw, "auto", "structure");
+  let smiles: string | null = null;
+  if (r.kind === "dictionary") {
+    // Only a NAME is a structure: the dictionary also maps formulas (C6H12O6 → glucose), and a formula names many
+    // isomers — building one of them would be a plausible wrong answer.
+    const hit = lookupSmiles(raw);
+    if (hit?.source === "formula") throw new Error(`“${raw}” is a formula, which has no single structure — type a name (aspirin) or a SMILES string to build on.`);
+    smiles = hit?.smiles ?? null;
+  }
+  else if (r.kind === "smiles" || r.kind === "ambiguous") smiles = r.smiles;
+  else if (r.kind === "formula") {
+    throw new Error(`“${raw}” is a formula, which has no single structure — type a name (aspirin) or a SMILES string to build on.`);
+  }
+  if (!smiles) return null;
+  let mol: Molecule;
+  try {
+    mol = Molecule.fromSmiles(smiles);
+  } catch {
+    return null;
+  }
+  if (mol.getAllAtoms() === 0) return null;
+  return finish(mol, width, height, true, rgroupLabels(mol));
+}
+
 /** Builds a molecule from text, choosing the parser by format (or auto-detecting). */
 export function build(text: string, format: BuildFormat, width = 300, height = 230): BuildResult {
   const trimmed = text.trim();
@@ -577,5 +615,12 @@ export function build(text: string, format: BuildFormat, width = 300, height = 2
     return buildFromIdcode(trimmed, width, height);
   }
   const useMolfile = format === "molfile" || (format === "auto" && looksLikeMolfile(trimmed));
-  return useMolfile ? buildFromMolfile(text, width, height) : buildFromAtomBondList(text, width, height);
+  if (useMolfile) return buildFromMolfile(text, width, height);
+  // A name or SMILES: chosen, or auto-detected when the text is not an atom / bond list.
+  if (format === "name" || (format === "auto" && !looksLikeAtomBondList(trimmed))) {
+    const named = buildFromNameOrSmiles(trimmed, width, height);
+    if (named) return named;
+    if (format === "name") throw new Error(`“${trimmed}” is not a name in the offline dictionary or a SMILES string JurisLab can read — try the Chemical tool's online name lookup (OPSIN), or draw it.`);
+  }
+  return buildFromAtomBondList(text, width, height);
 }

@@ -5604,7 +5604,7 @@ function updateBuildPreview(): void {
     buildPreviewEl.replaceChildren();
     const hint = document.createElement("span");
     hint.className = "hint";
-    hint.textContent = "Enter an atom/bond list or paste a molfile to build a structure.";
+    hint.textContent = "Type a name or a SMILES string, an atom / bond list, or paste a molfile to build a structure.";
     buildPreviewEl.appendChild(hint);
     buildFormulaEl.textContent = "—";
     buildSmilesEl.textContent = "—";

@@ -370,10 +370,16 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       b.setAttribute("aria-pressed", String(k === t));
     }
     valueIn.placeholder = t === "atom" ? "Element or label: N, Cl, R1, OMe …" : t === "text" ? "Words for a caption" : t === "bracket" ? "Bracket label (blank = n)" : "";
-    valueIn.disabled = t !== "atom" && t !== "text" && t !== "bracket";
-    ringSel.disabled = t !== "ring";
-    styleSel.disabled = t !== "bond";
-    arrowSel.disabled = t !== "arrow";
+    // Only the active tool's options are shown: three greyed-out pickers and an empty box beside them read as
+    // broken controls in a demo (walkthrough 2026-10-19). Hidden AND disabled, so no stray keypress reaches one.
+    const show = (e: HTMLInputElement | HTMLSelectElement, on: boolean): void => {
+      e.disabled = !on;
+      e.hidden = !on;
+    };
+    show(valueIn, t === "atom" || t === "text" || t === "bracket");
+    show(ringSel, t === "ring");
+    show(styleSel, t === "bond");
+    show(arrowSel, t === "arrow");
     propsBox.hidden = t !== "props";
     if (t !== "props") propTarget = null;
     host.setStatus(TOOL_HELP[t], "");

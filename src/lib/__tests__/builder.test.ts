@@ -375,3 +375,23 @@ describe("resultFromMolecule without a picture (the Draw canvas draws its own)",
     expect({ ...bare, svg: "" }).toEqual({ ...full, svg: "" });
   });
 });
+
+describe("build: a name or a SMILES string (the Text tab, demo walkthrough)", () => {
+  it("a dictionary name builds its structure", () => {
+    const r = build("ibuprofen", "auto");
+    expect(r.formula).toBe("C13H18O2");
+  });
+  it("a SMILES string builds, auto-detected or chosen", () => {
+    expect(build("CC(=O)Oc1ccccc1C(=O)O", "auto").formula).toBe("C9H8O4");
+    expect(build("c1ccccc1", "name").formula).toBe("C6H6");
+  });
+  it("a formula is refused by name (no single structure)", () => {
+    expect(() => build("C6H12O6", "auto")).toThrow("is a formula, which has no single structure");
+  });
+  it("an atom / bond list is still an atom / bond list", () => {
+    expect(build("atoms: C O O\nbonds: 1=2 1=3", "auto").formula).toBe(build("atoms: C O O\nbonds: 1=2 1=3", "atombond").formula);
+  });
+  it("text that is no name and no SMILES, chosen as a name, says where else to look", () => {
+    expect(() => build("notacompoundxyz", "name")).toThrow("not a name in the offline dictionary");
+  });
+});

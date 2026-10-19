@@ -65,6 +65,8 @@ const PAIRS: Array<{ name: string; fg: string; bg: string; min: number }> = [
   // filter chip shipped at 2.3:1 in dark — the same defect as the button.
   { name: "label on the primary button", fg: "--on-accent", bg: "--accent", min: 4.5 },
   { name: "label on the active filter chip", fg: "--on-accent", bg: "--chip-on", min: 4.5 },
+  // The outlined buttons (Insert name, Edit in Draw, every canvas tool icon) shipped at 2.2:1 in dark.
+  { name: "label on a secondary button", fg: "--btn2-ink", bg: "--paper", min: 4.5 },
 ];
 
 describe.each([

@@ -23,6 +23,7 @@
   --navy-900: #062231;
   --navy-800: #0a3a57;
   --navy-700: #0c4a6e;
+  --btn2-ink: var(--navy-700); /* label on a secondary (outlined) button */
   --mid: #0369a1;
   --cyan: #0ea5e9;
 
@@ -1918,7 +1919,9 @@ select {
 }
 .insert-btn.secondary {
   background: var(--paper);
-  color: var(--navy-700);
+  /* Its own token: dark kept the light theme's navy here — 2.2:1 on the dark card, so every secondary
+     button (and every canvas tool icon) read as disabled in a demo. */
+  color: var(--btn2-ink);
   border: 1px solid var(--rule);
   box-shadow: none;
 }
@@ -1975,6 +1978,7 @@ select {
     --mid: #56ccf8;
     --cyan: #7dd3fc;
     --navy-700: #1d5f85;
+    --btn2-ink: #7dd3fc;
     --navy-900: #e8f1f7;
 
     --on-accent: #04222f;
@@ -2008,6 +2012,7 @@ select {
   --mid: #56ccf8;
   --cyan: #7dd3fc;
   --navy-700: #1d5f85;
+  --btn2-ink: #7dd3fc;
   --navy-900: #e8f1f7;
 
   --on-accent: #04222f;

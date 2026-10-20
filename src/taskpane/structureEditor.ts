@@ -40,9 +40,96 @@ function selectedPart(mol: Molecule): Molecule | null {
   return part.getAllAtoms() ? part : null;
 }
 
+/** True when the molecule's atoms are not all on one point (a drawing worth keeping). */
+function spread(mol: Molecule): boolean {
+  for (let i = 1; i < mol.getAllAtoms(); i++) {
+    if (mol.getAtomX(i) !== mol.getAtomX(0) || mol.getAtomY(i) !== mol.getAtomY(0)) return true;
+  }
+  return false;
+}
+
 export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost): StructureEditor {
   mount.replaceChildren();
+  // Hidden (the 3D tab, the Text tab, another tool), the editor's page is 0 × 0 and OpenChemLib fits the drawing to it
+  // (a repaint it defers): every atom moved to one point, so the drawing came back blank and "Use this drawing" carried
+  // collapsed coordinates (user: 2D → 3D → 2D, blank canvas). So the drawing is kept as the editor goes hidden, and
+  // while hidden everything that reads it reads the kept copy. Shown again, the kept coordinates go back into the
+  // editor's own molecule (getMolecule() is live, so no undo step is spent) before OpenChemLib repaints at the real
+  // size — this observer is created before the editor's own, and observers run in creation order.
+  let wasHidden = !mount.clientWidth || !mount.clientHeight;
+  /** While hidden: the drawing as it was when the editor went hidden, or the structure given while hidden. */
+  let kept: Molecule | null = null;
+  /** Taken from the editor's own molecule as it went hidden: its coordinates and elements, atom by atom, to write back
+   *  (null for a structure given while hidden — the editor may reorder a given structure's atoms: hydrogens last). */
+  let keptAtoms: { xy: Float64Array; z: Int32Array } | null = null;
+  let givenWhileHidden = false;
+  /** The drawing as it stands — while hidden, a copy of the kept drawing (the editor's own may be collapsed). */
+  const current = (): Molecule => (kept ? kept.getCompactCopy() : editor.getMolecule());
+  /** The kept coordinates back into the editor's own molecule; false when its atoms are no longer the same atoms. */
+  const writeBack = (): boolean => {
+    const mol = editor.getMolecule();
+    const k = keptAtoms;
+    if (!k || k.z.length !== mol.getAllAtoms()) return false;
+    for (let i = 0; i < k.z.length; i++) if (mol.getAtomicNo(i) !== k.z[i]) return false;
+    for (let i = 0; i < k.z.length; i++) {
+      mol.setAtomX(i, k.xy[2 * i]);
+      mol.setAtomY(i, k.xy[2 * i + 1]);
+    }
+    return true;
+  };
+  // Shown again after being hidden (another tool, the page canvas, the Text tab), a structure GIVEN while hidden is
+  // fitted to the page: Edit in Draw switched tools and loaded ibuprofen in one step, and the editor showed an empty
+  // page under a correct formula (walkthrough 2026-10-19). Only then — a refit is a setMolecule, which takes the
+  // editor's one undo step: refitting on every return to the Draw tab made Ctrl+Z forget the last edit (review).
+  const watcher = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+    const hidden = !mount.clientWidth || !mount.clientHeight;
+    if (hidden && !wasHidden) {
+      const mol = editor.getMolecule();
+      if (mol.getAllAtoms() && spread(mol)) {
+        kept = mol.getCompactCopy();
+        const n = mol.getAllAtoms();
+        keptAtoms = { xy: new Float64Array(2 * n), z: new Int32Array(n) };
+        for (let i = 0; i < n; i++) {
+          keptAtoms.xy[2 * i] = mol.getAtomX(i);
+          keptAtoms.xy[2 * i + 1] = mol.getAtomY(i);
+          keptAtoms.z[i] = mol.getAtomicNo(i);
+        }
+      }
+    }
+    if (!hidden && wasHidden && kept) {
+      const back = kept;
+      if (givenWhileHidden) {
+        // A frame later, after the editor has resized its own page: the given structure laid out for that page (the
+        // change event it fires is not a user edit). Until then reads still get the kept copy.
+        requestAnimationFrame(() => {
+          if (kept !== back) return;
+          kept = null;
+          editor.setMolecule(back);
+        });
+      } else {
+        // Its atoms changed under it (never seen): the kept drawing goes back whole — correct, at one undo step.
+        if (!writeBack()) editor.setMolecule(back);
+        kept = null;
+      }
+    }
+    if (!hidden && wasHidden) {
+      givenWhileHidden = false;
+      keptAtoms = null;
+    }
+    wasHidden = hidden;
+  }) : null;
+  watcher?.observe(mount);
   const editor = new CanvasEditor(mount, { initialMode: "molecule" });
+  /** A structure into the editor. Given while hidden, it is fitted to a 0 × 0 page: it is kept as given until it is
+   *  shown and laid out for the page. */
+  const give = (mol: Molecule): void => {
+    editor.setMolecule(mol);
+    if (wasHidden) {
+      givenWhileHidden = true;
+      kept = mol.getAllAtoms() ? mol.getCompactCopy() : null;
+      keptAtoms = null;
+    }
+  };
   // The page model: a page canvas nobody sees, holding the editor's molecule as a ChemDraw page.
   const hidden = document.createElement("div");
   hidden.hidden = true;
@@ -74,7 +161,7 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
   const sync = (): void => {
     if (!stale) return;
     stale = false;
-    put(editor.getMolecule());
+    put(current());
     if (name) model.setName(name);
   };
   let onChange: ((e: CanvasChange) => void) | null = null;
@@ -83,32 +170,9 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
     stale = true;
     onChange?.({ isUserEvent: event.isUserEvent });
   });
-  // Shown again after being hidden (another tool, the page canvas, the Text tab), the editor keeps the scale it fitted
-  // to a zero-size page: Edit in Draw switched tools and loaded ibuprofen in one step, and the editor showed an empty
-  // page under a correct formula (walkthrough 2026-10-19). Coming back from zero size, the structure is fitted again.
-  // Only a structure GIVEN while hidden is fitted again — a refit is a setMolecule, which takes the editor's one undo
-  // step: refitting on every return to the Draw tab made Ctrl+Z forget the last edit (review).
-  let wasHidden = !mount.clientWidth || !mount.clientHeight;
-  let givenWhileHidden = false;
-  if (typeof ResizeObserver === "function") {
-    new ResizeObserver(() => {
-      const hidden = !mount.clientWidth || !mount.clientHeight;
-      if (wasHidden && !hidden && givenWhileHidden) {
-        givenWhileHidden = false;
-        // A frame later, after the editor has resized its own page: the same molecule laid out for that page (the
-        // change event it fires is not a user edit).
-        requestAnimationFrame(() => {
-          const mol = editor.getMolecule();
-          if (mol.getAllAtoms()) editor.setMolecule(mol.getCompactCopy());
-        });
-      }
-      wasHidden = hidden;
-    }).observe(mount);
-  }
-
   /** The page model drawn for just the selection, then back to the whole drawing. */
   const withSelection = <T>(read: (m: ChemCanvas) => T): T | null => {
-    const part = selectedPart(editor.getMolecule());
+    const part = selectedPart(current());
     if (!part) return null;
     try {
       // Refused, nothing of the model is read (it would be the whole drawing, or an older one).
@@ -125,21 +189,23 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
       sync();
       return refused;
     },
-    getMolecule: () => editor.getMolecule(),
+    getMolecule: () => current(),
     chemistry: (selectionOnly) => {
       if (selectionOnly) {
-        const part = selectedPart(editor.getMolecule());
+        const part = selectedPart(current());
         return part ? { ok: true, mol: part, notes: [] } : { ok: false, reason: "nothing is selected" };
       }
-      return { ok: true, mol: editor.getMolecule(), notes: [] };
+      return { ok: true, mol: current(), notes: [] };
     },
     setMolecule: (mol) => {
-      editor.setMolecule(mol);
+      give(mol);
       stale = true;
-      if (wasHidden) givenWhileHidden = true;
     },
     clearAll: () => {
       editor.clearAll();
+      kept = null;
+      keptAtoms = null;
+      givenWhileHidden = false;
       stale = true;
     },
     moleculeChanged: () => {
@@ -149,6 +215,7 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
     setOnChangeListener: (cb) => void (onChange = cb),
     setFragment: (on) => {
       editor.getMolecule().setFragment(on);
+      kept?.setFragment(on);
       stale = true;
     },
     isFragment: () => editor.getMolecule().isFragment(),
@@ -160,18 +227,18 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
       // A page's structures as one molecule (the pane routes pages that cannot be one to the page canvas).
       const r = pageToMolecule(doc);
       if (!r.ok) return host.setStatus(`This page cannot open in the structure editor: ${r.reason}.`, "error");
-      editor.setMolecule(r.value.mol);
+      give(r.value.mol);
       stale = true;
     },
     replacePage: (doc: CdxDoc) => {
       const r = pageToMolecule(doc);
       if (!r.ok) return false;
-      editor.setMolecule(r.value.mol);
+      give(r.value.mol);
       stale = true;
       return true;
     },
     clean: () => {
-      const mol = editor.getMolecule();
+      const mol = current();
       if (!mol.getAllAtoms()) {
         host.setStatus("Nothing to clean — the canvas is empty.", "error");
         return false;
@@ -180,7 +247,7 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
       // drawn stereo survives); setMolecule stores an undo state — the hand layout is one Ctrl+Z away.
       const copy = mol.getCompactCopy();
       copy.inventCoordinates();
-      editor.setMolecule(copy);
+      give(copy);
       stale = true;
       return true;
     },

@@ -11,20 +11,25 @@ import { TextDecoder as NodeTextDecoder } from "util";
 (globalThis as unknown as { TextDecoder: unknown }).TextDecoder ??= NodeTextDecoder;
 
 type Mol = import("openchemlib/full").Molecule;
-const stand = { setMoleculeCalls: 0, editor: null as null | { mol: Mol; collapse(): void } };
+const stand = { setMoleculeCalls: 0, refits: 0, editor: null as null | { mol: Mol; collapse(): void; undo(): void } };
 
+// As OpenChemLib 8.21 (dist/openchemlib-full.pretty.js): setMolecule keeps the caller's molecule as its live one and
+// stores the molecule it replaces as the ONE undo state (storeState), as clearAll does; undo puts that state back
+// without laying it out again; a repaint on a 0 × 0 page (deferred) fits the drawing to it — every atom on one point —
+// and its helper arrays move explicit hydrogens to the end; moleculeChanged lays the molecule out, storing nothing.
 jest.mock("openchemlib/full", () => {
   const actual = jest.requireActual("openchemlib/full");
   class StandInEditor {
     mol = new actual.Molecule(0, 0);
+    undoState: Mol | null = null;
     constructor(el: HTMLElement) {
       stand.editor = this;
-      // OpenChemLib's own observer: a 0 × 0 page collapses the molecule (later — its repaint is deferred).
       new ResizeObserver(() => {
         if (!el.clientWidth) pending.push(() => this.collapse());
       }).observe(el);
     }
     collapse() {
+      this.mol.ensureHelperArrays(31);
       for (let i = 0; i < this.mol.getAllAtoms(); i++) {
         this.mol.setAtomX(i, 0);
         this.mol.setAtomY(i, 0);
@@ -35,15 +40,19 @@ jest.mock("openchemlib/full", () => {
     }
     setMolecule(m: Mol) {
       stand.setMoleculeCalls++;
-      this.mol = m.getCompactCopy();
-      // As OpenChemLib: helper arrays move explicit hydrogens to the end (atom indices change).
-      this.mol.ensureHelperArrays(31);
-      // Given on a 0 × 0 page, the real editor fits it to that page too.
-      if (!width) this.collapse();
+      this.undoState = this.mol.getCompactCopy();
+      this.mol = m;
+      if (!width) pending.push(() => this.collapse());
+    }
+    undo() {
+      if (this.undoState) this.mol = this.undoState;
     }
     setOnChangeListener() {}
-    moleculeChanged() {}
+    moleculeChanged() {
+      stand.refits++;
+    }
     clearAll() {
+      this.undoState = this.mol.getCompactCopy();
       this.mol = new actual.Molecule(0, 0);
     }
   }
@@ -85,6 +94,7 @@ function make() {
   frames.length = 0;
   width = 400;
   stand.setMoleculeCalls = 0;
+  stand.refits = 0;
   const mount = document.createElement("div");
   Object.defineProperty(mount, "clientWidth", { get: () => width });
   Object.defineProperty(mount, "clientHeight", { get: () => (width ? 300 : 0) });
@@ -141,12 +151,18 @@ describe("the structure editor hidden and shown again (2D → 3D → 2D)", () =>
     resize(0);
     pending.splice(0).forEach((f) => f());
     const given = Molecule.fromSmiles("c1ccccc1C");
+    const want = xy(given);
     ed.setMolecule(given);
-    expect(xy(ed.getMolecule())).toBe(xy(given));
+    pending.splice(0).forEach((f) => f());
+    expect(xy(ed.getMolecule())).toBe(want);
+    const calls = stand.setMoleculeCalls;
     resize(400);
     runFrames();
     expect(stand.editor!.mol.getAllAtoms()).toBe(7);
-    expect(spread(stand.editor!.mol)).toBe(true);
+    expect(xy(stand.editor!.mol)).toBe(want);
+    // Laid out for the page by moleculeChanged (no undo state stored), not by another setMolecule.
+    expect(stand.refits).toBe(1);
+    expect(stand.setMoleculeCalls).toBe(calls);
   });
 
   it("given while hidden with an explicit H mid-molecule (the editor moves H last): every atom keeps its own place", () => {
@@ -163,6 +179,7 @@ describe("the structure editor hidden and shown again (2D → 3D → 2D)", () =>
     m.addBond(0, 2);
     m.addBond(0, 3);
     ed.setMolecule(m);
+    pending.splice(0).forEach((f) => f());
     const placeOf = (mol: Mol, z: number): string => {
       const i = Array.from({ length: mol.getAllAtoms() }, (_, k) => k).find((k) => mol.getAtomicNo(k) === z)!;
       return `${mol.getAtomX(i)},${mol.getAtomY(i)}`;
@@ -181,6 +198,47 @@ describe("the structure editor hidden and shown again (2D → 3D → 2D)", () =>
     resize(0);
     ed.setFragment(true);
     expect(ed.getMolecule().isFragment()).toBe(true);
+  });
+
+  it("review: an edit in the 3D tab, back to 2D, then Ctrl+Z — the drawing before the edit, at its own coordinates (never the collapsed one)", () => {
+    const ed = make();
+    ed.setMolecule(Molecule.fromSmiles("c1ccccc1"));
+    const before = xy(stand.editor!.mol);
+    resize(0);
+    pending.splice(0).forEach((f) => f());
+    ed.setMolecule(Molecule.fromSmiles("c1ccccc1C"));
+    pending.splice(0).forEach((f) => f());
+    resize(400);
+    runFrames();
+    stand.editor!.undo();
+    expect(stand.editor!.mol.getAllAtoms()).toBe(6);
+    expect(xy(stand.editor!.mol)).toBe(before);
+  });
+
+  it("review: Reset while hidden, then Ctrl+Z — the real drawing comes back", () => {
+    const ed = make();
+    ed.setMolecule(Molecule.fromSmiles("c1ccccc1O"));
+    const before = xy(stand.editor!.mol);
+    resize(0);
+    pending.splice(0).forEach((f) => f());
+    ed.clearAll();
+    resize(400);
+    runFrames();
+    stand.editor!.undo();
+    expect(xy(stand.editor!.mol)).toBe(before);
+  });
+
+  it("review: a structure given after showing but before the next frame stays (the one given while hidden never overwrites it)", () => {
+    const ed = make();
+    resize(0);
+    ed.setMolecule(Molecule.fromSmiles("c1ccccc1"));
+    pending.splice(0).forEach((f) => f());
+    resize(400);
+    ed.setMolecule(Molecule.fromSmiles("CCCCO"));
+    expect(ed.getMolecule().getAllAtoms()).toBe(5);
+    runFrames();
+    expect(stand.editor!.mol.getAllAtoms()).toBe(5);
+    expect(ed.getMolecule().getAllAtoms()).toBe(5);
   });
 
   it("cleared while hidden: nothing old comes back", () => {

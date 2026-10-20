@@ -4,7 +4,7 @@
 // document is the one output this suite exists to make impossible.
 
 import { Molecule } from "openchemlib/full";
-import { iupacName } from "../iupacName";
+import { iupacName, nameWithDescriptors } from "../iupacName";
 
 const nameOf = (smiles: string): string => {
   const r = iupacName(Molecule.fromSmiles(smiles));
@@ -84,8 +84,9 @@ describe("principal characteristic groups", () => {
   });
 
   test("acids, amides, nitriles", () => {
-    expect(nameOf("C(=O)O")).toBe("methanoic acid");
-    expect(nameOf("CC(=O)O")).toBe("ethanoic acid");
+    // v2.168.0: the retained PINs (P-65.1.1.1).
+    expect(nameOf("C(=O)O")).toBe("formic acid");
+    expect(nameOf("CC(=O)O")).toBe("acetic acid");
     expect(nameOf("CCCC(=O)O")).toBe("butanoic acid");
     expect(nameOf("OC(=O)CCCCC(=O)O")).toBe("hexanedioic acid");
     expect(nameOf("CCC(N)=O")).toBe("propanamide");
@@ -135,8 +136,10 @@ describe("rings", () => {
     expect(nameOf("C1CCCCC1")).toBe("cyclohexane");
     expect(nameOf("CC1CCCCC1")).toBe("methylcyclohexane");
     expect(nameOf("CC1CCCCC1C")).toBe("1,2-dimethylcyclohexane");
-    expect(nameOf("OC1CCCCC1")).toBe("cyclohexan-1-ol");
-    expect(nameOf("O=C1CCCCC1")).toBe("cyclohexan-1-one");
+    // v2.168.0: a lone principal group on a ring takes no locant (PIN cyclohexanol); with a prefix it does.
+    expect(nameOf("OC1CCCCC1")).toBe("cyclohexanol");
+    expect(nameOf("O=C1CCCCC1")).toBe("cyclohexanone");
+    expect(nameOf("CC1CCCCC1O")).toBe("2-methylcyclohexan-1-ol");
   });
 
   test("benzene with prefix substituents", () => {
@@ -154,13 +157,18 @@ describe("rings", () => {
 });
 
 describe("refusals — every boundary is NAMED", () => {
-  test("esters, by name", () => {
-    expect(refusalOf("CC(=O)OCC")).toMatch(/ester/i);
+  test("esters beyond v2.168.0's: lactones, two alcohols, anhydrides, an ester beside a free acid", () => {
+    expect(refusalOf("O=C1CCCO1")).toMatch(/Lactones/);
+    expect(refusalOf("CCOC(=O)CC(=O)OC")).toMatch(/two different alcohols/);
+    expect(refusalOf("CC(=O)OC(C)=O")).toMatch(/anhydride/i);
+    expect(refusalOf("CCOC(=O)CC(=O)O")).toMatch(/ester alongside a free acid/);
+    expect(refusalOf("CC(=O)OCCO")).toMatch(/alcohol part/);
   });
 
-  test("N-substituted amines and amides", () => {
-    expect(refusalOf("CCNCC")).toMatch(/amine/i);
-    expect(refusalOf("CC(=O)NC")).toMatch(/amide/i);
+  test("N-substituents beyond v2.168.0's", () => {
+    expect(refusalOf("CNCCNC")).toMatch(/Two substituted nitrogens/);
+    expect(refusalOf("CNCC(=O)O")).toMatch(/substituted amino group alongside a more senior group/);
+    expect(refusalOf("CN(CCO)CCO")).toMatch(/nitrogen/);
   });
 
   test("hetero and fused rings", () => {
@@ -168,9 +176,9 @@ describe("refusals — every boundary is NAMED", () => {
     expect(refusalOf("c1ccc2ccccc2c1")).toMatch(/ring/i);
   });
 
-  test("benzene principal groups defer to the dictionary's retained names", () => {
-    expect(refusalOf("Oc1ccccc1")).toMatch(/dictionary/i);
-    expect(refusalOf("Nc1ccccc1")).toMatch(/dictionary/i);
+  test("benzene principal groups beyond v2.168.0's", () => {
+    expect(refusalOf("OC(=O)c1ccc(C=O)cc1")).toMatch(/aldehyde group alongside a more senior group/i);
+    expect(refusalOf("OCc1ccc(cc1)C(=O)O")).toMatch(/carries its own group/);
   });
 
   test("other elements, charges, isotopes", () => {
@@ -256,4 +264,78 @@ describe("ADVERSARIAL PASS — wrong names made impossible, garbling made refusa
   test("cycloheptane itself still names", () => {
     expect(nameOf("C1CCCCCC1")).toBe("cycloheptane");
   });
+});
+
+describe("v2.168.0 — carbocycles with principal groups, esters, N-substituents (stage 1a)", () => {
+  test.each([
+    ["Oc1ccccc1", "phenol"],
+    ["Nc1ccccc1", "aniline"],
+    ["OC(=O)c1ccccc1", "benzoic acid"],
+    ["O=Cc1ccccc1", "benzaldehyde"],
+    ["N#Cc1ccccc1", "benzonitrile"],
+    ["NC(=O)c1ccccc1", "benzamide"],
+    ["Clc1ccc(O)cc1", "4-chlorophenol"],
+    ["Nc1ccc(O)cc1", "4-aminophenol"],
+    ["OC(=O)c1ccccc1O", "2-hydroxybenzoic acid"],
+    ["OC(=O)c1cccc(c1)[N+](=O)[O-]", "3-nitrobenzoic acid"],
+    ["Oc1ccccc1O", "benzene-1,2-diol"],
+    ["OC(=O)c1ccc(cc1)C(=O)O", "benzene-1,4-dicarboxylic acid"],
+    ["OC(=O)C1CCCCC1", "cyclohexanecarboxylic acid"],
+    ["O=CC1CCCCC1", "cyclohexanecarbaldehyde"],
+    ["CC1CCCC(C1)C(=O)O", "3-methylcyclohexane-1-carboxylic acid"],
+    ["OC1CCCCC1O", "cyclohexane-1,2-diol"],
+    ["ClCC(=O)O", "chloroacetic acid"],
+    ["OC(=O)Cc1ccccc1", "phenylacetic acid"],
+    ["CC(N)=O", "acetamide"],
+    ["CC(=O)OCC", "ethyl acetate"],
+    ["COC(=O)c1ccc(cc1)[N+](=O)[O-]", "methyl 4-nitrobenzoate"],
+    ["CC(=O)Oc1ccccc1", "phenyl acetate"],
+    ["CCOC(=O)CCC(=O)OCC", "diethyl butanedioate"],
+    ["CCOC(=O)CC(C)=O", "ethyl 3-oxobutanoate"],
+    ["CC(C)OC(=O)C", "propan-2-yl acetate"],
+    ["COC=O", "methyl formate"],
+    ["CNC", "N-methylmethanamine"],
+    ["CCN(CC)CC", "N,N-diethylethanamine"],
+    ["CN(C)c1ccccc1", "N,N-dimethylaniline"],
+    ["CNc1ccc(Cl)cc1", "4-chloro-N-methylaniline"],
+    ["CNC1CCCCC1", "N-methylcyclohexanamine"],
+    ["CC(=O)NC", "N-methylacetamide"],
+    ["CN(C)C=O", "N,N-dimethylformamide"],
+    ["CC(=O)Nc1ccccc1", "N-phenylacetamide"],
+    ["OCC1CCCCC1", "cyclohexylmethanol"],
+    ["CC(O)C1CCCCC1", "1-cyclohexylethan-1-ol"],
+    ["CCCCCCc1ccccc1", "hexylbenzene"],
+  ])("%s → %s", (smiles, name) => {
+    expect(nameOf(smiles)).toBe(name);
+  });
+});
+
+describe("v2.168.0 review round 1", () => {
+  test.each([
+    ["OC(=O)C(Cl)OC", "chloro(methoxy)acetic acid"],
+    ["OC(=O)C(Cl)c1ccccc1", "chloro(phenyl)acetic acid"],
+    ["OC(Cl)c1ccccc1", "chloro(phenyl)methanol"],
+    ["NC(OC)Cl", "chloro(methoxy)methanamine"],
+    ["CNCc1ccccc1", "N-methyl-1-phenylmethanamine"],
+    ["CNC(=O)CCN", "3-amino-N-methylpropanamide"],
+    ["CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C", "di-tert-butyl butanedioate"],
+    ["Cc1ccc(C(C)(C)C)cc1C(C)(C)C", "2,4-di-tert-butyl-1-methylbenzene"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+  test.each(["CNCCC(N)=O", "CNc1ccc(cc1)C(N)=O", "[13CH3]OC(C)=O", "CC(=O)O[CH2-]", "CC(=O)O[CH2]", "CN[13CH3]"])("%s is refused", (smiles) => {
+    expect(refusalOf(smiles)).toBeTruthy();
+  });
+  test("stereo in a part cut off for naming is said; descriptors go before an ester's acid part", () => {
+    const r = iupacName(Molecule.fromSmiles("CC[C@@H](C)OC(C)=O"));
+    expect(r.caveats.join(" ")).toMatch(/stereodescriptors/);
+    const e = iupacName(Molecule.fromSmiles("C[C@@H](Cl)C(=O)OC"));
+    expect(e.name).toBe("methyl 2-chloropropanoate");
+    expect(nameWithDescriptors(e.name!, "(2R)-", e.descriptorAt)).toBe("methyl (2R)-2-chloropropanoate");
+    expect(nameWithDescriptors("butan-2-ol", "(2R)-", undefined)).toBe("(2R)-butan-2-ol");
+  });
+});
+
+test("a name with no numbered positions takes its descriptor without a locant", () => {
+  expect(nameWithDescriptors("chloro(phenyl)acetic acid", "(2S)-")).toBe("(S)-chloro(phenyl)acetic acid");
+  expect(nameWithDescriptors("butan-2-ol", "(2R)-")).toBe("(2R)-butan-2-ol");
+  expect(nameWithDescriptors("methyl chlorofluoroacetate", "(2R)-", 7)).toBe("methyl (R)-chlorofluoroacetate");
 });

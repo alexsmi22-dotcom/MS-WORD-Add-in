@@ -421,7 +421,7 @@ import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest, isSeriesOr
 import { tryRadius, radiusSvg } from "../lib/radius";
 import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords, resolveTaskVerb } from "../lib/pasteMath";
 import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts, chargeSuperscript, Mol3dView, Mol3dStyle } from "../lib/mol3d";
-import { iupacName } from "../lib/iupacName";
+import { iupacName, nameWithDescriptors } from "../lib/iupacName";
 import { stereoText } from "../lib/cipText";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
@@ -4637,7 +4637,7 @@ function updateStructurePreview(): void {
         } catch {
           /* the name stands without descriptors */
         }
-        currentStructureName = st.prefix ? `${st.prefix}${sys.name}` : sys.name;
+        currentStructureName = st.prefix ? nameWithDescriptors(sys.name, st.prefix, sys.descriptorAt) : sys.name;
         const stereoNote =
           !st.prefix && sys.caveats.some((c) => /stereodescriptors/i.test(c))
             ? `; stereodescriptors not in the name — ${st.line ?? "not given"}`
@@ -5508,7 +5508,7 @@ function showBuildStereo(mol: OclMolecule | null, fromText = false): void {
     const lead = "Stereo (CIP): ";
     const body = st.line.startsWith(lead) ? st.line.slice(lead.length) : st.line;
     // The name carrying its descriptors says it all ((2R)-butan-2-ol); otherwise what is given and what is not.
-    text.textContent = st.prefix && sys.name ? `${st.prefix}${sys.name}` : body;
+    text.textContent = st.prefix && sys.name ? nameWithDescriptors(sys.name, st.prefix, sys.descriptorAt) : body;
     box.hidden = false;
   } catch {
     box.hidden = true;
@@ -34223,3 +34223,4 @@ function svgToPngBase64(svg: string, width: number, height: number): Promise<str
     img.src = `data:image/svg+xml;base64,${svgBase64}`;
   });
 }
+

@@ -24,8 +24,15 @@
 //   (3-methylidenehexane names here as 2-ethylpent-1-ene); every emitted
 //   name is unambiguous, correct general nomenclature.
 //
+//   v2.168.0 (stage 1a, docs/SCOPE-IUPAC-STAGES.md): benzene principal groups with their retained parents (phenol,
+//   aniline, benzoic acid, benzaldehyde, benzonitrile, benzamide), groups on carbocycles (cyclohexanecarboxylic acid,
+//   -carbaldehyde, -carbonitrile, -carboxamide; several of a kind), esters (ethyl acetate), N-substituted amines and
+//   amides (N,N-dimethylaniline), cycloalkyl substituents, retained formic/acetic acid, formamide/acetamide. Every
+//   name for the oracle corpus reads back to its structure through OPSIN (iupacOracle.test.ts).
+//
 //   REFUSED BY NAME (each with its reason)
-//   - esters, anhydrides, N-substituted amines/amides, sulfur and other
+//   - lactones, anhydrides, carbamates, esters of two alcohols, two substituted
+//     nitrogens, a substituted amino group beside a senior group, sulfur and other
 //     elements, charged species (except the internal nitro pair), isotopes,
 //     radicals, fused or hetero rings, ring unsaturation beyond benzene,
 //     complex branched substituents, chains beyond C12
@@ -55,6 +62,11 @@ export interface IupacNameResult {
   chain?: number[];
   /** The chain may be numbered from either end with the same name (locant L ↔ length + 1 − L). */
   reversible?: boolean;
+  /**
+   * Where stereodescriptors go in the name (an index into it): the start, unless a word comes first — an ester's
+   * alcohol: "methyl (2R)-2-chloropropanoate".
+   */
+  descriptorAt?: number;
 }
 
 const STEM = ["", "methan", "ethan", "propan", "butan", "pentan", "hexan", "heptan", "octan", "nonan", "decan", "undecan", "dodecan"];
@@ -85,9 +97,23 @@ const SENIORITY: Group["kind"][] = ["acid", "amide", "nitrile", "al", "one", "ol
 const SUFFIX: Record<Group["kind"], string> = {
   acid: "oic acid", amide: "amide", nitrile: "nitrile", al: "al", one: "one", ol: "ol", amine: "amine",
 };
+/** The group's class name in a refusal ("an aldehyde group", not "a al group"). */
+const GROUP_WORD: Record<Group["kind"], string> = {
+  acid: "a carboxylic acid", amide: "an amide", nitrile: "a nitrile", al: "an aldehyde", one: "a ketone", ol: "an alcohol", amine: "an amine",
+};
 const PREFIX_FORM: Partial<Record<Group["kind"], string>> = {
   one: "oxo", ol: "hydroxy", amine: "amino",
 };
+
+/** A name with its stereodescriptors where they belong: in front, or before an ester's acid part (`descriptorAt`). */
+export function nameWithDescriptors(name: string, prefix: string, at?: number): string {
+  const i = at && at > 0 && at < name.length ? at : 0;
+  const rest = name.slice(i);
+  // A part with no numbered positions takes its one descriptor without a locant: (S)-chloro(phenyl)acetic acid.
+  const one = /^\((\d+)([RSEZrs])\)-$/.exec(prefix);
+  const shown = one && !/\d/.test(rest) ? `(${one[2]})-` : prefix;
+  return `${name.slice(0, i)}${shown}${rest}`;
+}
 
 function refuse(why: string): IupacNameResult {
   return { refusal: why, caveats: [] };
@@ -107,24 +133,194 @@ export function iupacName(mol0: Molecule): IupacNameResult {
     // keep going with whatever we have
   }
   mol.ensureHelperArrays(Molecule.cHelperRings);
-  const n = mol.getAllAtoms();
 
   // Multiple fragments have no single substitutive name.
-  const fragNo = new Array(n);
+  const fragNo = new Array(mol.getAllAtoms());
   if (mol.getFragmentNumbers(fragNo, false, false) > 1) {
     return refuse("Two or more separate molecules — name each on its own.");
   }
 
-  // Element and per-atom screens (nitro's internal +/- pair is exempted later).
+  // Esters and N-substituents (v2.168.0) are named from a SIMPLER molecule: the ester's alcohol part and the
+  // nitrogen's extra carbon branches are cut off and named as words or N-prefixes, and the rest — an acid, a primary
+  // amine or an unsubstituted amide — is named by the core. Every cut atom is named, or the whole is refused.
+  // Every atom is screened BEFORE anything is cut off: an isotope, charge or radical in an ester's alcohol part or an
+  // N-substituent must refuse like one anywhere else (review: [13CH3]OC(C)=O came out "methyl acetate").
+  const screen = screenAtoms(mol);
+  if (screen) return refuse(screen);
+  const prep = prepare(mol);
+  if ("refusal" in prep) return refuse(prep.refusal);
+  const core = nameCore(prep.mol, prep.nPrefixes);
+  if (core.refusal) return core;
+  const name = core.name!;
+  if (prep.nPrefixes.length && core.principalKind !== "amine" && core.principalKind !== "amide") {
+    return refuse("A substituted amino group alongside a more senior group is outside the namer's subset.");
+  }
+  // The cut nitrogen must BE the principal group's nitrogen: N-methyl in "N-methylpropanamide" means the amide N. A
+  // methyl cut from an amino group elsewhere would be named onto the wrong atom (review: CNCCC(N)=O came out
+  // "3-amino-N-methylpropanamide", which is NCCC(=O)NC).
+  if (prep.cutN !== null && !cutNIsPrincipal(prep.mol, prep.cutN, core)) {
+    return refuse("A substituted amino group alongside a more senior group is outside the namer's subset.");
+  }
+  // Stereo anywhere in the molecule (also in a part cut off for naming) makes the name constitutional: said.
+  if (hasStereo(mol) && !core.caveats.some((c) => /stereodescriptors/i.test(c))) core.caveats.unshift(STEREO_CAVEAT);
+  if (prep.esters) {
+    const { alcohol, count } = prep.esters;
+    if (core.principalKind !== "acid" || core.principalCount !== count || !/ic acid$/.test(name)) {
+      return refuse("An ester alongside a free acid (or another senior group) is outside the namer's subset.");
+    }
+    const anion = name.replace(/ic acid$/, "ate");
+    const complex = /\d/.test(alcohol);
+    const multTable = complex ? MULT_COMPLEX : MULT;
+    if (count >= multTable.length) return refuse(`More than ${multTable.length - 1} ester groups is outside the namer's subset.`);
+    const word = count > 1 ? `${multTable[count]}${complex ? `(${alcohol})` : /^(tert|sec)-/.test(alcohol) ? `-${alcohol}` : alcohol}` : alcohol;
+    // Stereodescriptors belong to the acid part: methyl (2R)-2-chloropropanoate (P-93.1.1).
+    return { ...core, name: `${word} ${anion}`, descriptorAt: word.length + 1 };
+  }
+  return core;
+}
+
+const STEREO_CAVEAT =
+  "The structure carries stereochemistry; this name is CONSTITUTIONAL — its CIP stereodescriptors ((R/S), (E/Z)) are added from lib/cip.ts where every stereo element is given (stereoText).";
+
+function hasStereo(mol: Molecule): boolean {
+  for (let i = 0; i < mol.getAllAtoms(); i++) if (mol.getAtomParity(i) !== 0) return true;
+  for (let b = 0; b < mol.getAllBonds(); b++) if (mol.getBondParity(b) !== 0) return true;
+  return false;
+}
+
+/** Element, isotope, radical and charge screens over the whole molecule (nitro's internal +/- pair exempted). */
+function screenAtoms(mol: Molecule): string | null {
+  const n = mol.getAllAtoms();
   for (let i = 0; i < n; i++) {
     const z = mol.getAtomicNo(i);
-    if (![6, 7, 8, 9, 17, 35, 53].includes(z)) {
-      return refuse(`${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O and halogens only).`);
+    if (![6, 7, 8, 9, 17, 35, 53].includes(z)) return `${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O and halogens only).`;
+    if (mol.getAtomMass(i) !== 0) return "Isotope labels are outside the namer's subset.";
+    if (mol.getAtomRadical(i) !== 0) return "Radicals are outside the namer's subset.";
+  }
+  const g = graphOf(mol);
+  const { n: nitroN, sat: nitroSat } = nitroAtoms(g);
+  for (let i = 0; i < n; i++) {
+    if (mol.getAtomCharge(i) !== 0 && !nitroN.has(i) && !nitroSat.has(i)) return "Charged species are outside the namer's subset (ions carry their own nomenclature).";
+  }
+  return null;
+}
+
+/** The cut nitrogen (by its map number) is the satellite of the core's one principal amine or amide group. */
+function cutNIsPrincipal(mol: Molecule, mapNo: number, core: CoreResult): boolean {
+  if ((core.principalKind !== "amine" && core.principalKind !== "amide") || core.principalCount !== 1) return false;
+  let idx = -1;
+  for (let i = 0; i < mol.getAllAtoms(); i++) if (mol.getAtomMapNo(i) === mapNo) idx = i;
+  if (idx < 0) return false;
+  const g = graphOf(mol);
+  const { n: nitroN, sat: nitroSat } = nitroAtoms(g);
+  const det = detectGroups(g, nitroN, nitroSat);
+  return det.groups.some((gr) => gr.kind === core.principalKind && gr.satellites.includes(idx));
+}
+
+interface Prepared {
+  mol: Molecule;
+  /** The map number of the nitrogen whose branches were cut (N-prefixes), or null. */
+  cutN: number | null;
+  /** N-substituent prefixes (N-methyl, N-phenyl) for the core's principal amine or amide. */
+  nPrefixes: { name: string; key: string }[];
+  /** The ester's alcohol part (ethyl, phenyl) and how many ester groups carry it. */
+  esters?: { alcohol: string; count: number };
+}
+
+/** Atom sets cut off the molecule, each named; the rest goes to the core. */
+function prepare(mol: Molecule): Prepared | { refusal: string } {
+  const g0 = graphOf(mol);
+  const n = g0.n;
+  const remove = new Set<number>();
+  const nPrefixes: { name: string; key: string }[] = [];
+  const nitroN0 = nitroAtoms(g0).n;
+  const isCarbonyl = (c: number): boolean => g0.el[c] === 6 && g0.adj[c].some((e) => g0.el[e.to] === 8 && e.order === 2);
+
+  // Esters: C(=O)–O–R, with R a plain alkyl, phenyl or cycloalkyl (not a carbonyl: that is an anhydride).
+  const alcohols: string[] = [];
+  for (let o = 0; o < n; o++) {
+    if (g0.el[o] !== 8 || g0.adj[o].length !== 2 || g0.adj[o].some((e) => e.order !== 1)) continue;
+    const [a, b] = g0.adj[o].map((e) => e.to);
+    const acyl = isCarbonyl(a) ? a : isCarbonyl(b) ? b : null;
+    if (acyl === null) continue;
+    const r = acyl === a ? b : a;
+    if (g0.el[r] !== 6 || isCarbonyl(r)) continue; // an anhydride or a carbonate: the core refuses it by name
+    if (g0.inRing[o]) return { refusal: "Lactones (cyclic esters) are outside the namer's subset." };
+    // A carbonyl carbon with a second single-bonded O or N is a carbonate or carbamate, not an ester.
+    if (g0.adj[acyl].filter((e) => e.order === 1 && (g0.el[e.to] === 8 || g0.el[e.to] === 7)).length > 1) continue;
+    const cls = classifySub(g0, r, o, nitroN0);
+    if (typeof cls === "string") return { refusal: `The ester's alcohol part: ${cls.replace(/^This substituent/, "it")}` };
+    if (subtree(g0, r, o).includes(acyl)) return { refusal: "Lactones (cyclic esters) are outside the namer's subset." };
+    alcohols.push(cls.name);
+    for (const x of subtree(g0, r, o)) remove.add(x);
+  }
+  if (alcohols.length && new Set(alcohols).size > 1) return { refusal: "Esters of two different alcohols are outside the namer's subset." };
+
+  // N-substituents: an amide N, or an amine N with two or three carbon branches. The parent branch stays; the others
+  // become N-prefixes. Only one substituted nitrogen (N and N′ would need primes).
+  let substitutedN = 0;
+  let cutN: number | null = null;
+  for (let nn = 0; nn < n; nn++) {
+    // A ring nitrogen (piperidine) is the core's to refuse: its ring bonds are not substituents.
+    if (g0.el[nn] !== 7 || nitroN0.has(nn) || remove.has(nn) || g0.inRing[nn]) continue;
+    if (g0.adj[nn].some((e) => e.order !== 1)) continue; // C=N, C≡N: the core refuses or names them
+    const cs = g0.adj[nn].map((e) => e.to);
+    if (!cs.every((c) => g0.el[c] === 6)) continue; // N–O, N–N, N–halogen: the core refuses them
+    const acyls = cs.filter((c) => isCarbonyl(c));
+    let keep: number;
+    if (acyls.length === 1) {
+      if (cs.length === 1) continue;
+      keep = acyls[0];
+    } else if (acyls.length === 0 && cs.length >= 2) {
+      // The parent branch: an aromatic ring, then a ring, then the larger branch (2013: rings before chains).
+      // Every other branch must be a plain substituent.
+      const rank = (c: number): number[] => {
+        const t = subtree(g0, c, nn);
+        return [g0.aromatic[c] ? 1 : 0, g0.inRing[c] ? 1 : 0, t.length];
+      };
+      const plain = (c: number): boolean => typeof classifySub(g0, c, nn, nitroN0) !== "string";
+      const viable = cs.filter((c) => cs.every((d) => d === c || plain(d)));
+      if (!viable.length) return { refusal: "An amine whose nitrogen carries two or more elaborate groups is outside the namer's subset." };
+      viable.sort((p, q) => lexCompare(rank(q), rank(p)));
+      keep = viable[0];
+    } else continue; // imides and the like: the core refuses them by name
+    const others = cs.filter((c) => c !== keep);
+    if (!others.length) continue;
+    substitutedN++;
+    cutN = mol.getAtomMapNo(nn);
+    if (substitutedN > 1) return { refusal: "Two substituted nitrogens (N and N′ locants) are outside the namer's subset." };
+    for (const c of others) {
+      const cls = classifySub(g0, c, nn, nitroN0);
+      if (typeof cls === "string") return { refusal: `A substituent on nitrogen: ${cls}` };
+      if (subtree(g0, c, nn).includes(keep)) return { refusal: "A nitrogen in a ring is outside the namer's subset." };
+      nPrefixes.push(cls);
+      for (const x of subtree(g0, c, nn)) remove.add(x);
     }
-    if (mol.getAtomMass(i) !== 0) return refuse("Isotope labels are outside the namer's subset.");
-    if (mol.getAtomRadical(i) !== 0) return refuse("Radicals are outside the namer's subset.");
   }
 
+  if (!remove.size) return { mol, nPrefixes, cutN: null };
+  const copy = mol.getCompactCopy();
+  const del = [...remove].sort((x, y) => y - x);
+  for (const a of del) copy.markAtomForDeletion(a);
+  copy.deleteMarkedAtomsAndBonds();
+  copy.ensureHelperArrays(Molecule.cHelperRings);
+  // Accounting: the core sees exactly the atoms not cut off (each cut atom was named above).
+  if (copy.getAllAtoms() !== n - remove.size) return { refusal: "The structure could not be divided for naming." };
+  return { mol: copy, nPrefixes, cutN, ...(alcohols.length ? { esters: { alcohol: alcohols[0], count: alcohols.length } } : {}) };
+}
+
+const lexCompare = (a: number[], b: number[]): number => {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? -Infinity, y = b[i] ?? -Infinity;
+    if (x !== y) return x - y;
+  }
+  return 0;
+};
+
+/** The namer's graph of a molecule (hydrogens implicit). */
+function graphOf(mol: Molecule): G {
+  mol.ensureHelperArrays(Molecule.cHelperRings);
+  const n = mol.getAllAtoms();
   const g: G = {
     n,
     el: Array.from({ length: n }, (_, i) => mol.getAtomicNo(i)),
@@ -138,12 +334,14 @@ export function iupacName(mol0: Molecule): IupacNameResult {
     g.adj[a1].push({ to: a2, order });
     g.adj[a2].push({ to: a1, order });
   }
+  return g;
+}
 
-  // Nitro groups become a unit BEFORE the charge screen (they are commonly
-  // stored as an internal [N+][O-] pair whose charges cancel).
+/** Nitro groups as units (commonly stored as an internal [N+][O-] pair whose charges cancel). */
+function nitroAtoms(g: G): { n: Set<number>; sat: Set<number> } {
   const nitroN = new Set<number>();
   const nitroSat = new Set<number>();
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < g.n; i++) {
     if (g.el[i] !== 7) continue;
     const os = g.adj[i].filter((e) => g.el[e.to] === 8 && g.adj[e.to].length === 1);
     const cs = g.adj[i].filter((e) => g.el[e.to] === 6);
@@ -152,6 +350,28 @@ export function iupacName(mol0: Molecule): IupacNameResult {
       os.forEach((e) => nitroSat.add(e.to));
     }
   }
+  return { n: nitroN, sat: nitroSat };
+}
+
+interface CoreResult extends IupacNameResult {
+  principalKind?: Group["kind"];
+  principalCount?: number;
+}
+
+function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): CoreResult {
+  const n = mol.getAllAtoms();
+  // Element and per-atom screens (nitro's internal +/- pair is exempted later).
+  for (let i = 0; i < n; i++) {
+    const z = mol.getAtomicNo(i);
+    if (![6, 7, 8, 9, 17, 35, 53].includes(z)) {
+      return refuse(`${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O and halogens only).`);
+    }
+    if (mol.getAtomMass(i) !== 0) return refuse("Isotope labels are outside the namer's subset.");
+    if (mol.getAtomRadical(i) !== 0) return refuse("Radicals are outside the namer's subset.");
+  }
+
+  const g = graphOf(mol);
+  const { n: nitroN, sat: nitroSat } = nitroAtoms(g);
   for (let i = 0; i < n; i++) {
     const c = mol.getAtomCharge(i);
     if (c !== 0 && !nitroN.has(i) && !nitroSat.has(i)) {
@@ -182,18 +402,19 @@ export function iupacName(mol0: Molecule): IupacNameResult {
   }
   caveats.push("Systematic name from the offline subset namer — verify against your house style before filing.");
 
-  const finish = (name: string, chain?: number[], reversible?: boolean): IupacNameResult => {
-    if (!chain) return { name, caveats };
+  const finish = (r: CoreResult): CoreResult => {
+    const base = { name: r.name!, caveats, principalKind: r.principalKind, principalCount: r.principalCount };
+    if (!r.chain) return base;
     const locants = new Map<number, number>();
-    chain.forEach((a, i) => locants.set(mol.getAtomMapNo(a) - 1, i + 1));
-    return { name, caveats, locants, ...(reversible ? { reversible: true } : {}) };
+    r.chain.forEach((a, i) => locants.set(mol.getAtomMapNo(a) - 1, i + 1));
+    return { ...base, locants, ...(r.reversible ? { reversible: true } : {}) };
   };
 
   if (ringCount === 1) {
-    const size = rings.getRingSize(0);
     const members: number[] = Array.from(rings.getRingAtoms(0));
     const allC = members.every((a) => g.el[a] === 6);
     if (!allC) return refuse("Heteroatom rings are outside the namer's subset (the dictionary covers common ones).");
+    const size = members.length;
     const isBenzene = size === 6 && members.every((a) => g.aromatic[a]);
     if (!isBenzene) {
       for (const a of members) {
@@ -204,25 +425,39 @@ export function iupacName(mol0: Molecule): IupacNameResult {
         }
       }
     }
-    // A benzene ring on a chain that carries a principal group is a PHENYL
-    // SUBSTITUENT (2-phenylethan-1-ol), not the parent — route to the chain
-    // namer, which classifies the ring through isPlainPhenyl.
-    if (isBenzene) {
-      const det = detectGroups(g, nitroN, nitroSat);
-      // Only when every principal group sits on the CHAIN — a group on the
-      // ring itself (phenol, aniline) belongs to the ring path's retained-
-      // name refusal, not to a chain that does not exist.
-      if (!det.refusal && det.groups.length > 0 && det.groups.every((gr) => !g.inRing[gr.carbon])) {
-        const r = nameAcyclic(g, nitroN, nitroSat, null);
-        return r.refusal ? r : finish(r.name!, r.chain, r.reversible);
+    // The ring is the parent when it carries the principal group, or the group's carbon (COOH, CHO, CN, CONH₂)
+    // hangs on it directly (benzoic acid, cyclohexanecarboxylic acid). A principal group on a chain makes the ring a
+    // SUBSTITUENT (2-phenylethan-1-ol, cyclohexylmethanol).
+    const det = detectGroups(g, nitroN, nitroSat);
+    if (det.refusal) return refuse(det.refusal);
+    // detectGroups reads chain carbons only: a ring carbon's =O is the ring's ketone (cyclohexanone).
+    for (const a of members) {
+      for (const e of g.adj[a]) {
+        if (g.el[e.to] === 8 && e.order === 2 && !nitroSat.has(e.to)) det.groups.push({ kind: "one", carbon: a, satellites: [e.to], terminal: false });
       }
     }
-    const r = nameWithOneRing(g, members, isBenzene, nitroN, nitroSat);
-    return r.refusal ? r : finish(r.name!);
+    const principalKind = SENIORITY.find((k) => det.groups.some((gr) => gr.kind === k));
+    const memberSet = new Set(members);
+    const onRing = (gr: Group): boolean => memberSet.has(gr.carbon) || ringAttached(g, gr, memberSet);
+    const principal = det.groups.filter((gr) => gr.kind === principalKind);
+    if (principalKind && principal.every((gr) => !onRing(gr))) {
+      const r = nameAcyclic(g, nitroN, nitroSat, null, nPrefixes);
+      return r.refusal ? r : finish(r);
+    }
+    if (principal.some((gr) => !onRing(gr))) return refuse("The principal groups are split between the ring and a chain — outside the namer's subset.");
+    const r = nameWithOneRing(g, members, isBenzene, nitroN, nitroSat, det.groups, principalKind ?? null, nPrefixes);
+    return r.refusal ? r : finish(r);
   }
 
-  const r = nameAcyclic(g, nitroN, nitroSat, null);
-  return r.refusal ? r : finish(r.name!, r.chain, r.reversible);
+  const r = nameAcyclic(g, nitroN, nitroSat, null, nPrefixes);
+  return r.refusal ? r : finish(r);
+}
+
+/** A group whose own carbon (COOH, CHO, C≡N, CONH₂) sits OFF the ring, bonded to a ring atom and nothing else. */
+function ringAttached(g: G, gr: Group, ring: Set<number>): boolean {
+  if (!["acid", "amide", "nitrile", "al"].includes(gr.kind) || ring.has(gr.carbon)) return false;
+  const cs = g.adj[gr.carbon].filter((e) => g.el[e.to] === 6);
+  return cs.length === 1 && ring.has(cs[0].to) && cs[0].order === 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +516,12 @@ function classifySub(g: G, root: number, from: number, nitroN: Set<number>): Sub
   const atoms = subtree(g, root, from);
   if (atoms.some((a) => g.inRing[a])) {
     if (isPlainPhenyl(g, atoms, root)) return { name: "phenyl", key: "phenyl" };
-    return "Ring substituents other than plain phenyl are outside the namer's subset.";
+    // A plain saturated carbocycle attached by one of its own atoms: cyclopropyl … cycloheptyl.
+    if (g.inRing[root] && atoms.length >= 3 && atoms.length < STEM.length && atoms.every((a) => g.el[a] === 6 && g.inRing[a] && !g.aromatic[a]) && isPlainAlkane(g, atoms) && isOneCycle(g, atoms)) {
+      const nm = `cyclo${ALKYL[atoms.length]}`;
+      return { name: nm, key: nm };
+    }
+    return "Ring substituents other than plain phenyl and cycloalkyl are outside the namer's subset.";
   }
   if (!atoms.every((a) => g.el[a] === 6)) return "This substituent carries its own groups — outside the namer's subset.";
   if (!isPlainAlkane(g, atoms)) return "Unsaturated substituents are outside the namer's subset.";
@@ -293,6 +533,12 @@ function isPlainAlkane(g: G, atoms: number[]): boolean {
   return atoms.every((a) =>
     g.adj[a].every((e) => !set.has(e.to) || e.order === 1),
   );
+}
+
+/** The atoms form exactly one simple ring: each has two neighbours inside the set (no branch, no second ring). */
+function isOneCycle(g: G, atoms: number[]): boolean {
+  const set = new Set(atoms);
+  return atoms.every((a) => g.adj[a].filter((e) => set.has(e.to)).length === 2);
 }
 
 function isPlainPhenyl(g: G, atoms: number[], root: number): boolean {
@@ -327,37 +573,52 @@ function alkylName(g: G, root: number, from: number, atoms: number[]): Sub | str
 }
 
 const MULT_COMPLEX = ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis"];
+/** Prefixes that can themselves carry substituents (so "chloro" + "methoxy" could fuse into "chloromethoxy"). */
+// Any -yl, -oxy (but hydroxy) or amino prefix: ready for propoxy/phenoxy when classifySub learns them (review).
+const SUBSTITUTABLE = /(yl|(?<!hydr)oxy|amino)$/;
 
 /** Assembles "3-chloro-2,2-dimethyl…" from locant→name pairs, or a refusal
  *  when the multiplier tables run out (never a garbled "7-fold-"). Names
  *  that contain their own locants (propan-2-yl) get enclosing marks and
  *  bis/tris multipliers, per the rules. */
-function prefixString(subs: { loc: number | null; name: string; key: string }[]): string | { refusal: string } {
-  const byName = new Map<string, { locs: (number | null)[]; key: string }>();
+function prefixString(subs: { loc: number | string | null; name: string; key: string }[]): string | { refusal: string } {
+  const byName = new Map<string, { locs: (number | string | null)[]; key: string; enclose?: boolean }>();
   for (const s of subs) {
     const cur = byName.get(s.name) ?? { locs: [], key: s.key };
     cur.locs.push(s.loc);
     byName.set(s.name, cur);
   }
   const parts: string[] = [];
-  for (const [name, { locs }] of [...byName.entries()].sort((a, b) => a[1].key.localeCompare(b[1].key))) {
+  const entries = [...byName.entries()].sort((a, b) => a[1].key.localeCompare(b[1].key));
+  // With no locants, "chloromethoxy" reads as ONE substituent (ClCH₂O–): a later prefix that can itself carry
+  // substituents (an alkyl, alkoxy, phenyl, cycloalkyl, amino) is enclosed — chloro(methoxy)acetic acid,
+  // chloro(phenyl)methanol (P-16.5.1; review).
+  const noLocants = subs.every((x) => x.loc === null);
+  entries.forEach(([name, { locs }], idx) => {
+    void locs;
+    if (noLocants && idx > 0 && SUBSTITUTABLE.test(name)) byName.get(name)!.enclose = true;
+  });
+  for (const [name, { locs, enclose }] of entries) {
     const count = locs.length;
-    const complex = /\d/.test(name);
+    const complex = /\d/.test(name) || !!enclose;
     const multTable = complex ? MULT_COMPLEX : MULT;
     if (count >= multTable.length || (count > 1 && !multTable[count])) {
       return { refusal: `More than ${multTable.length - 1} identical substituents is outside the namer's subset.` };
     }
-    const mult = count > 1 ? multTable[count] : "";
+    // "di-tert-butyl": a multiplier before an italic prefix takes a hyphen.
+    const mult = count > 1 ? `${multTable[count]}${!complex && /^(tert|sec)-/.test(name) ? "-" : ""}` : "";
     const shown = complex ? `(${name})` : name;
-    const withLoc = locs.every((l) => l !== null)
-      ? `${(locs as number[]).sort((x, y) => x - y).join(",")}-`
-      : "";
+    // Letter locants first, then numbers: N,N-dimethyl, N,4-dimethyl (P-14.3.5).
+    const ordered = [...(locs as (number | string)[])].sort((x, y) =>
+      typeof x === typeof y ? (typeof x === "number" ? (x as number) - (y as number) : String(x).localeCompare(String(y))) : typeof x === "string" ? -1 : 1,
+    );
+    const withLoc = locs.every((l) => l !== null) ? `${ordered.join(",")}-` : "";
     parts.push(`${withLoc}${mult}${shown}`);
   }
-  // Hyphens separate locants from words; two word-parts join directly
+  // Hyphens separate locants from words; two word-parts join directly, an enclosed one too (chloro(methoxy)acetic acid)
   // (chlorodifluoromethane), a following locant re-introduces the hyphen
   // (3-chloro-2-methylpentane).
-  return parts.reduce((acc, p) => (acc === "" ? p : /^[0-9(]/.test(p) ? `${acc}-${p}` : `${acc}${p}`), "");
+  return parts.reduce((acc, p) => (acc === "" ? p : /^[0-9N]/.test(p) ? `${acc}-${p}` : `${acc}${p}`), "");
 }
 
 // ---------------------------------------------------------------------------
@@ -437,7 +698,8 @@ function nameAcyclic(
   nitroN: Set<number>,
   nitroSat: Set<number>,
   phenylOf: null,
-): IupacNameResult {
+  nPrefixes: { name: string; key: string }[] = [],
+): CoreResult {
   const det = detectGroups(g, nitroN, nitroSat);
   if (det.refusal) return refuse(det.refusal);
 
@@ -449,11 +711,12 @@ function nameAcyclic(
   const junior = det.groups.filter((gr) => gr.kind !== principalKind);
   for (const j of junior) {
     if (!PREFIX_FORM[j.kind]) {
-      return refuse(`A ${SUFFIX[j.kind]} group alongside a more senior group is outside the namer's subset.`);
+      return refuse(`${GROUP_WORD[j.kind].replace(/^a/, "A")} group alongside a more senior group is outside the namer's subset.`);
     }
   }
 
   const satAtoms = new Set(det.groups.flatMap((gr) => gr.satellites));
+  if (nPrefixes.length && principal.length > 1) return refuse("N-substituents with more than one principal group (N, N′) are outside the namer's subset.");
 
   // Candidate chains: carbon paths (the carbon skeleton is a tree here).
   const carbons: number[] = [];
@@ -668,22 +931,44 @@ function nameAcyclic(
   // Locant omission where positions are unambiguous: every locant on a
   // one-carbon parent (tetrachloromethane), or a lone substituent on a
   // two-carbon parent (chloroethane, methoxyethane).
-  const subList: { loc: number | null; name: string; key: string }[] =
+  const subList: { loc: number | string | null; name: string; key: string }[] =
     chosen.subs.map((s) => ({ loc: s.loc, name: s.name, key: s.key }));
-  if (len === 1) {
+  // Retained names (P-65.1.1.1, P-66.1.1.1, P-66.6.1.1): formic and acetic acid, formamide and acetamide. Acetic
+  // acid keeps its name when substituted on carbon, with no locant (only C2 can carry one): chloroacetic acid,
+  // phenylacetic acid. Unsaturated or otherwise numbered chains stay systematic.
+  let retained = false;
+  if (principalKind && chosen.unsat.length === 0 && chosen.suffixLocs.length === 1 && len <= 2) {
+    if (principalKind === "acid" && len === 1 && subList.length === 0) (name = "formic acid"), (retained = true);
+    else if (principalKind === "acid" && len === 2) (name = "acetic acid"), (retained = true);
+    else if (principalKind === "amide" && len === 1 && subList.length === 0) (name = "formamide"), (retained = true);
+    else if (principalKind === "amide" && len === 2 && subList.length === 0) (name = "acetamide"), (retained = true);
+  }
+  // A one-carbon parent drops its locants — unless N-prefixes are numbered too: N-methyl-1-phenylmethanamine, not
+  // "N-methylphenylmethanamine" (read as N-(methylphenyl)…; review).
+  if ((len === 1 || retained) && !nPrefixes.length) {
     for (const s of subList) s.loc = null;
   } else if (!principalKind && chosen.unsat.length === 0 && len <= 2 && subList.length === 1) {
     subList[0].loc = null;
   }
+  for (const p of nPrefixes) subList.push({ loc: "N", name: p.name, key: p.key });
   const prefixes = prefixString(subList);
   if (typeof prefixes !== "string") return refuse(prefixes.refusal);
   const full = prefixes ? `${prefixes}${/^[0-9]/.test(name) ? "-" : ""}${name}` : name;
-  return { name: full, caveats: [], chain: chosen.chain, reversible: chosen.reversible };
+  return { name: full, caveats: [], chain: chosen.chain, reversible: chosen.reversible, principalKind, principalCount: chosen.suffixLocs.length };
 }
 
 // ---------------------------------------------------------------------------
 // Single-ring naming (benzene + cycloalkanes)
 // ---------------------------------------------------------------------------
+
+/** Benzene parents with a retained name for ONE principal group (P-2013: phenol, aniline, benzoic acid …). */
+const BENZENE_RETAINED: Partial<Record<Group["kind"], string>> = {
+  ol: "phenol", amine: "aniline", acid: "benzoic acid", al: "benzaldehyde", nitrile: "benzonitrile", amide: "benzamide",
+};
+/** Suffixes for groups whose carbon hangs on the ring (cyclohexanecarboxylic acid, benzene-1,4-dicarbaldehyde). */
+const RING_ATTACHED_SUFFIX: Partial<Record<Group["kind"], string>> = {
+  acid: "carboxylic acid", al: "carbaldehyde", nitrile: "carbonitrile", amide: "carboxamide",
+};
 
 function nameWithOneRing(
   g: G,
@@ -691,9 +976,10 @@ function nameWithOneRing(
   isBenzene: boolean,
   nitroN: Set<number>,
   nitroSat: Set<number>,
-): IupacNameResult {
-  // Anything hanging off the ring must be a prefix substituent, or for
-  // cycloalkanes optionally ONE -ol/-one/-amine suffix.
+  groups: Group[],
+  principalKind: Group["kind"] | null,
+  nPrefixes: { name: string; key: string }[],
+): CoreResult {
   const memberSet = new Set(members);
   // Order members around the ring.
   const ring: number[] = [members[0]];
@@ -705,74 +991,99 @@ function nameWithOneRing(
   }
   if (ring.length !== members.length) return refuse("Could not walk the ring — outside the namer's subset.");
 
-  interface RingSub { idx: number; name: string; key: string; suffix?: "ol" | "one" | "amine" }
+  // Junior groups become prefixes; one without a prefix form (an aldehyde beside an acid) is refused by name.
+  for (const gr of groups) {
+    if (gr.kind !== principalKind && !PREFIX_FORM[gr.kind]) {
+      return refuse(`${GROUP_WORD[gr.kind].replace(/^a/, "A")} group alongside a more senior group is outside the namer's subset.`);
+    }
+  }
+  // Every atom bonded to the ring is: a principal group (or its carbon), a junior group in prefix form, or a
+  // substituent classifySub names — nothing falls through (the imine trap: an unclaimed atom drops out of the name).
+  const byAtom = new Map<number, Group>();
+  for (const gr of groups) {
+    for (const s of gr.satellites) byAtom.set(s, gr);
+    if (!memberSet.has(gr.carbon)) byAtom.set(gr.carbon, gr);
+  }
+  interface RingSub { idx: number; name: string; key: string; suffix?: boolean }
   const subs: RingSub[] = [];
   for (let i = 0; i < ring.length; i++) {
     const a = ring[i];
     for (const e of g.adj[a]) {
       if (memberSet.has(e.to)) continue;
-      if (!isBenzene && g.el[e.to] === 8 && e.order === 2) {
-        subs.push({ idx: i, name: "", key: "", suffix: "one" });
-        continue;
-      }
-      if (g.el[e.to] === 8 && e.order === 1 && g.adj[e.to].length === 1) {
-        if (isBenzene) return refuse("Phenols and other benzene principal groups are retained names — the dictionary covers common ones.");
-        subs.push({ idx: i, name: "", key: "", suffix: "ol" });
-        continue;
-      }
-      if (g.el[e.to] === 7 && !nitroN.has(e.to) && e.order === 1 && g.adj[e.to].length === 1) {
-        if (isBenzene) return refuse("Anilines and other benzene principal groups are retained names — the dictionary covers common ones.");
-        subs.push({ idx: i, name: "", key: "", suffix: "amine" });
+      const gr = byAtom.get(e.to);
+      if (gr && (gr.carbon === a || gr.carbon === e.to)) {
+        // A group on this ring atom: its O/N satellite (ol, amine, one), or its own carbon (acid, al, nitrile, amide).
+        if (gr.carbon === e.to && !ringAttached(g, gr, memberSet)) return refuse("A substituent that carries its own group (hydroxymethyl, aminoethyl …) is outside the namer's subset.");
+        if (gr.kind === principalKind) subs.push({ idx: i, name: "", key: "", suffix: true });
+        else {
+          const nm = PREFIX_FORM[gr.kind]!;
+          subs.push({ idx: i, name: nm, key: nm });
+        }
         continue;
       }
       // classifySub never sees bond orders — an exocyclic double bond
       // (methylidenecyclohexane) must not be read as a saturated alkyl.
-      if (e.order !== 1) {
-        return refuse("An exocyclic double bond on the ring is outside the namer's subset.");
-      }
+      if (e.order !== 1) return refuse("An exocyclic double bond on the ring is outside the namer's subset.");
       const cls = classifySub(g, e.to, a, nitroN);
       if (typeof cls === "string") return refuse(cls);
       subs.push({ idx: i, ...cls });
     }
   }
+  void nitroSat;
   const suffixSubs = subs.filter((s) => s.suffix);
-  if (suffixSubs.length > 1) return refuse("More than one principal group on a ring is outside the namer's subset.");
   const prefixSubs = subs.filter((s) => !s.suffix);
+  if (principalKind && suffixSubs.length !== groups.filter((gr) => gr.kind === principalKind).length) {
+    return refuse("The principal groups could not all be placed on the ring — outside the namer's subset.");
+  }
+  if (nPrefixes.length && suffixSubs.length > 1) return refuse("N-substituents with more than one principal group (N, N′) are outside the namer's subset.");
 
   const size = ring.length;
   if (size >= STEM.length) return refuse(`Rings beyond C${IUPAC_MAX_CHAIN} are outside the namer's subset.`);
-  const parent = isBenzene ? "benzene" : `cyclo${STEM[size]}e`;
-  if (subs.length === 0) return { name: parent, caveats: [] };
 
-  // Choose numbering: all rotations, both directions; suffix carbon gets 1.
-  let best: { locs: { loc: number; name: string; key: string }[]; sufLoc: number | null; key: number[] } | null = null;
-  const dirs = [1, -1];
-  for (const dir of dirs) {
+  // Numbering: all rotations, both directions — the principal groups take the lowest locants, then all prefixes,
+  // then the prefixes in alphabetical order (P-31.1.4).
+  let best: { locs: { loc: number; name: string; key: string }[]; sufLocs: number[]; key: number[] } | null = null;
+  for (const dir of [1, -1]) {
     for (let start = 0; start < size; start++) {
       const locOf = (idx: number): number => ((idx - start) * dir + size * 10) % size + 1;
-      const sufLoc = suffixSubs.length ? locOf(suffixSubs[0].idx) : null;
-      if (sufLoc !== null && sufLoc !== 1) continue;
+      const sufLocs = suffixSubs.map((s) => locOf(s.idx)).sort((x, y) => x - y);
       const locs = prefixSubs.map((s) => ({ loc: locOf(s.idx), name: s.name, key: s.key }));
-      const sorted = locs.map((l) => l.loc).sort((a, b) => a - b);
-      const alpha = [...locs].sort((a, b) => a.key.localeCompare(b.key)).map((l) => l.loc);
-      const key = [...sorted, 99, ...alpha];
-      if (!best || lexLessArr(key, best.key)) best = { locs, sufLoc, key };
+      const sorted = locs.map((l) => l.loc).sort((x, y) => x - y);
+      const alpha = [...locs].sort((x, y) => x.key.localeCompare(y.key) || x.loc - y.loc).map((l) => l.loc);
+      const key = [...sufLocs, 99, ...sorted, 99, ...alpha];
+      if (!best || lexLessArr(key, best.key)) best = { locs, sufLocs, key };
     }
   }
   if (!best) return refuse("Could not number the ring.");
+  const count = suffixSubs.length;
+  const kind = count ? principalKind : null;
+  const result = (name: string): CoreResult => ({ name, caveats: [], principalKind: kind ?? undefined, principalCount: count });
 
-  const prefixes = prefixString(best.locs);
+  // A monosubstituted ring, or one principal group and nothing else, needs no locant: chlorobenzene, phenol,
+  // cyclohexanol, cyclohexanecarboxylic acid. With anything else every position is numbered.
+  const allSubs = [...best.locs.map((l) => ({ loc: l.loc as number | string | null, name: l.name, key: l.key })), ...nPrefixes.map((p) => ({ loc: "N" as number | string | null, name: p.name, key: p.key }))];
+  const lone = (count === 1 && best.locs.length === 0) || (count === 0 && best.locs.length === 1);
+  if (lone) for (const s of allSubs) if (typeof s.loc === "number") s.loc = null;
+  const prefixes = prefixString(allSubs);
   if (typeof prefixes !== "string") return refuse(prefixes.refusal);
-  if (suffixSubs.length === 0) {
-    // Monosubstituted rings need no locant.
-    const clean = prefixSubs.length === 1 ? prefixes.replace(/^1-/, "") : prefixes;
-    return { name: `${clean}${parent}`, caveats: [] };
+  const join = (p: string, rest: string): string => (p ? `${p}${/^[0-9]/.test(rest) ? "-" : ""}${rest}` : rest);
+
+  if (!kind) return result(join(prefixes, isBenzene ? "benzene" : `cyclo${STEM[size]}e`));
+  if (count >= MULT.length) return refuse(`More than ${MULT.length - 1} identical principal groups is outside the namer's subset.`);
+  const mult = count > 1 ? MULT[count] : "";
+  const locStr = lone ? "" : `-${best.sufLocs.join(",")}-`;
+  if (isBenzene && count === 1 && BENZENE_RETAINED[kind]) {
+    // The retained parent carries its group at C1: 4-chlorophenol, N,N-dimethylaniline.
+    return result(join(prefixes, BENZENE_RETAINED[kind]!));
   }
-  const kind = suffixSubs[0].suffix!;
-  const stem = parent.slice(0, -1); // "cyclohexan"
-  const suffix = kind === "one" ? "-1-one" : kind === "ol" ? "-1-ol" : "-1-amine";
-  const name = `${typeof prefixes === "string" && prefixes ? prefixes : ""}${stem}${suffix}`;
-  return { name, caveats: [] };
+  if (isBenzene && (kind === "one")) return refuse("A ketone on a benzene ring is not a ring ketone — outside the namer's subset.");
+  const stem = isBenzene ? "benzen" : `cyclo${STEM[size]}`;
+  const suffixWord = RING_ATTACHED_SUFFIX[kind] && groups.some((gr) => gr.kind === kind && ringAttached(g, gr, memberSet)) ? RING_ATTACHED_SUFFIX[kind]! : SUFFIX[kind];
+  const suffixPart = `${locStr}${mult}${suffixWord}`;
+  // Final-e elision: the stem keeps its "e" before a consonant (cyclohexane-1,2-diol, cyclohexanecarboxylic acid)
+  // and drops it before a vowel (cyclohexanol, cyclohexanone, cyclohexanamine).
+  const body = /^[-0-9,]*[aeiouy]/.test(suffixPart) ? `${stem}${suffixPart}` : `${stem}e${suffixPart}`;
+  return result(join(prefixes, body));
 }
 
 const lexLessArr = (a: number[], b: number[]): boolean => {

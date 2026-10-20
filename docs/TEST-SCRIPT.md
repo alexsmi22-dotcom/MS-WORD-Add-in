@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.167.0)
+# JurisLab — Manual Test Script (v2.168.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dg. New in v2.168.0 — Chemistry: fuller IUPAC names (stage 1a)
+
+- [ ] ★ **Names from structures.** Chemical, type each SMILES (not in the dictionary, so the systematic namer
+  answers) → "Systematic name: …": `COC(=O)c1ccc(cc1)[N+](=O)[O-]` → methyl 4-nitrobenzoate;
+  `CNc1ccc(Cl)cc1` → 4-chloro-N-methylaniline; `OC(=O)C1CCCCC1` → cyclohexanecarboxylic acid;
+  `CC1CCCCC1O` → 2-methylcyclohexan-1-ol; `Oc1ccc(Br)cc1` → 4-bromophenol; `CCOC(=O)CC(C)=O` → ethyl 3-oxobutanoate.
+- [ ] **Drawn in Build.** Draw 4-chlorobenzoic acid in Build ▸ Draw → the readout's name is 4-chlorobenzoic acid.
+- [ ] **Refusals in words.** `c1ccncc1C(=O)O` → "No name: Heteroatom rings …"; `O=C1CCCO1` → "No name: Lactones …".
+- [ ] **Insert name** puts the systematic name in the document.
 
 ## 0df. New in v2.167.0 — Chemistry: compound numbers kept by the document
 

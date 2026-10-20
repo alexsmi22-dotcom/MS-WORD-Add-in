@@ -6,6 +6,40 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.168.0] — 2026-10-20 — Chemistry: fuller IUPAC names, stage 1a (carbocycles)
+
+Organic chemistry, item 4, first stage: systematic names for what organic patents draw most, each one proved by
+reading it back.
+
+### Added
+- **Benzene principal groups** with their retained parents: phenol, aniline, benzoic acid, benzaldehyde, benzonitrile,
+  benzamide (4-chlorophenol, 2-hydroxybenzoic acid, 3-nitrobenzoic acid); two of a kind as benzene-1,2-diol,
+  benzene-1,4-dicarboxylic acid.
+- **Groups on carbocycles**: cyclohexanecarboxylic acid, cyclohexanecarbaldehyde, -carbonitrile, -carboxamide,
+  2-methylcyclohexan-1-ol, cyclohexane-1,2-diol.
+- **Esters**: ethyl acetate, methyl 4-nitrobenzoate, phenyl acetate, diethyl butanedioate, ethyl 3-oxobutanoate.
+- **N-substituted amines and amides**: N-methylmethanamine, N,N-dimethylaniline, 4-chloro-N-methylaniline,
+  N-methylcyclohexanamine, N-methylacetamide, N,N-dimethylformamide, N-phenylacetamide.
+- **Cycloalkyl substituents**: cyclohexylmethanol, 1-cyclohexylethan-1-ol.
+- **Proved names**: every name the namer gives for its oracle corpus (generated structures, the whole compound
+  dictionary, drug-like ones and every case the review rounds raised — 700+ distinct names) was read back by OPSIN to
+  exactly that structure, and no name is given to two structures; names with stereodescriptors are checked with stereo
+  ("methyl (2R)-2-chloropropanoate"). A test gate, run offline from OPSIN's cached answers.
+- **Stereodescriptors in the right place**: before an ester's acid part (methyl (2R)-2-chloropropanoate), and without a
+  locant where the name has none ((S)-chloro(phenyl)acetic acid). Stereo in a part named as a word or N-prefix is said,
+  never given a wrong descriptor.
+
+### Changed
+- Retained names where current IUPAC recommendations use them: formic acid, acetic acid (chloroacetic acid,
+  phenylacetic acid), formamide, acetamide — not methanoic/ethanoic; benzoic acid, not "phenylmethanoic acid"; a lone
+  group on a ring takes no locant (cyclohexanol, cyclohexanone).
+- Refusals name the group in words ("An aldehyde group alongside a more senior group…", not "A al group").
+- Prefixes that lose their locants are enclosed where they could fuse: chloro(methoxy)acetic acid, chloro(phenyl)methanol
+  (never "chloromethoxyacetic acid", which is a different compound); di-tert-butyl, not "ditert-butyl".
+
+Still refused by name: heterocycles (pyridine, piperidine, morpholine — stage 1b, next), fused rings, ring assemblies,
+lactones, anhydrides, carbamates, esters of two different alcohols, two substituted nitrogens.
+
 ## [2.167.0] — 2026-10-20 — Chemistry: compound numbers kept by the document
 
 Organic chemistry, item 3 (second half): the numbers in a document's schemes and Examples are one numbering.

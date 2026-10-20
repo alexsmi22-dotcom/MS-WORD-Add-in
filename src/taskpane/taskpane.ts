@@ -365,6 +365,7 @@ import { pageStructures, subsetPage, type PageStructure } from "../lib/chemdrawP
 import type { CdxDoc } from "../lib/cdxml";
 import { readCdxml } from "../lib/cdxml";
 import { writeCdxml } from "../lib/cdxmlEdit";
+import { METALLOCENE_TEMPLATES, type MetalloceneTemplate } from "../lib/organometal";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
   buildSt26Xml,
@@ -2005,6 +2006,28 @@ Office.onReady((info) => {
   document.getElementById("draw-replace-picture")?.addEventListener("click", () => void insertDrawingOnly(!!drawEditor?.selection().size, true));
   // The ChemDraw gallery and the page canvas's way back.
   document.getElementById("chemdraw-gallery-close")?.addEventListener("click", closeChemdrawGallery);
+  // Organometallics, right in Build ▸ Draw: the canvas switches in place (an η-bond cannot be held by the structure
+  // editor), carrying over what is drawn.
+  const organoTpl = document.getElementById("build-organo-template") as HTMLSelectElement | null;
+  if (organoTpl) for (const t of METALLOCENE_TEMPLATES) organoTpl.add(new Option(t.label, t.id));
+  organoTpl?.addEventListener("change", () => {
+    const kind = organoTpl.value as MetalloceneTemplate;
+    organoTpl.value = "";
+    if (!kind) return;
+    organoCanvas()?.placeTemplate?.(kind);
+  });
+  document.getElementById("build-organo-hapto")?.addEventListener("click", () => {
+    const pc = organoCanvas();
+    if (!pc) return;
+    pc.setTool("hapto");
+    setStatus("η-bond: click a ring, then the metal it binds (label the metal first with the Atom tool: Zr, Hf, Ti, Fe …).", "");
+  });
+  document.getElementById("build-organo-cp")?.addEventListener("click", () => {
+    const pc = organoCanvas();
+    if (!pc) return;
+    pc.setRingKind?.("cyclopentadienyl");
+    setStatus("Cp ring: click empty paper for a new ring, or an atom to attach one.", "");
+  });
   document.getElementById("chemdraw-gallery-page")?.addEventListener("click", () => {
     if (!galleryDoc) return;
     const doc = galleryDoc, name = galleryName;
@@ -5215,6 +5238,28 @@ function usePageCanvas(): ChemCanvas | null {
   (document.getElementById("draw-save-cdxml") as HTMLElement).hidden = true;
   drawEditor = pageEditor;
   return pageEditor;
+}
+
+/**
+ * The canvas for organometallic drawing: the page canvas, switched to in place. Coming from the structure editor, what
+ * is drawn there comes along (the page canvas holds everything the editor does); already on the page canvas, it stays.
+ */
+function organoCanvas(): ChemCanvas | null {
+  if (pageEditor && drawEditor === pageEditor) return pageEditor;
+  const mol = structureEditor && structureEditor.getMolecule().getAllAtoms() ? structureEditor.getMolecule().getCompactCopy() : null;
+  const frag = structureEditor?.isFragment() ?? false;
+  const pc = usePageCanvas();
+  if (!pc) return null;
+  // An empty structure editor leaves the page canvas as it was (back from it, its drawing is still there — review).
+  if (mol) {
+    // A carried drawing replaces the page document; refused by the page writer, the page is the same object and
+    // its reason is the status — nothing is placed over it, on the old page or otherwise (review round 2).
+    const before = pc.page();
+    pc.setMolecule(mol);
+    if (pc.page() === before) return null;
+    pc.setFragment(frag);
+  }
+  return pc;
 }
 
 /** The structure (brackets and labels left out) of what the page canvas is showing from the gallery, if any. */

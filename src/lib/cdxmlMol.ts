@@ -282,6 +282,8 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         expanded.set(n.attrs.id, { attach: attach.map((v) => ({ num: v.num, atom: v.atom! })), words, bondOrder: (n.attrs.BondOrdering ?? "").split(/\s+/).filter(Boolean) });
         continue;
       }
+      // A metal bound to a whole ring (η⁵-Cp in a metallocene): no single-structure formula says that bond.
+      if (type === "MultiAttachment") return { ok: false, reason: "a metal bound to a whole ring (an η-bond, as in a metallocene) has no single structure formula — it is drawn and inserted as ChemDraw draws it" };
       return { ok: false, reason: `an atom drawn as ${type} has no exact form in a structure` };
     }
     // Bonds: to an abbreviation, each bond at the connection point it names (BeginExternalNum /

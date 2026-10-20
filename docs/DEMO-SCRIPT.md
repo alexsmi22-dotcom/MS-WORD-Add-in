@@ -23,6 +23,14 @@ real pane before this script was written; re-run it after each chemistry release
 3. **Clean structure** tidies the layout (Ctrl+Z restores the hand layout).
 4. **Insert 2D structure**. Show the **Size** choice: ChemDraw size, or **USPTO drawing sheet size** for a filing figure.
 
+## 2b. A metallocene (Build ▸ Draw) — 1 min
+1. Under the canvas, **Organometallic: Metallocene template… ▸ ansa-Metallocene (Me₂Si-bridged)**: the canvas switches
+   in place and the complex appears — Cp rings in perspective, η⁵-bonds to Zr, the Me₂Si bridge.
+2. Atom tool, type **Hf**, click the Zr label → hafnocene. Type **Z**, click Si → a generic bridge for a claim
+   ("Z = Si, C" as a caption with the Text tool).
+3. Erase one η-bond (Erase tool, click its line), then **η-bond**: click inside that ring, then Zr — the bond drawn by hand.
+4. **Insert 2D structure** (ChemDraw size). The readout says plainly why there is no single formula.
+
 ## 3. A ChemDraw file — 2 min
 1. **Open ChemDraw file…**, pick the file: its structures appear as a list (those marked "page" carry polymer brackets, a counter-ion or a generic atom).
 2. Click one → it opens in the editor, full size, editable. Change an atom; **Insert**.

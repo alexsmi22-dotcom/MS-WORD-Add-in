@@ -86,10 +86,12 @@ const POSITIONAL = ["p", "BoundingBox", "Head3D", "Tail3D", "Center3D", "MajorAx
 
 /** Moves top-level objects (by id) by (dx, dy) points: every position inside them, labels included. */
 export function moveObjects(doc: CdxDoc, ids: Iterable<string>, dx: number, dy: number): void {
+  const movedIds = new Set<string>();
   for (const id of new Set(ids)) {
     const top = findById(doc.root, id)?.el;
     if (!top) continue;
     walk(top, (x) => {
+      if (x.attrs.id) movedIds.add(x.attrs.id);
       for (const k of POSITIONAL) {
         const v = x.attrs[k];
         if (v === undefined) continue;
@@ -101,6 +103,46 @@ export function moveObjects(doc: CdxDoc, ids: Iterable<string>, dx: number, dy: 
       }
     });
   }
+  // Only the η-bonds whose ring atoms moved follow them (an imported centre a hair off its centroid is left alone).
+  syncHaptoCentres(doc.root, movedIds);
+}
+
+/**
+ * Puts every η-bond's centre (ChemDraw's MultiAttachment node) back at the centroid of the atoms it binds — where
+ * ChemDraw puts it — after some of those atoms moved. Returns how many centres moved.
+ */
+export function syncHaptoCentres(root: XNode, onlyFor?: ReadonlySet<string>): number {
+  let moved = 0;
+  walk(root, (f) => {
+    if (f.name !== "fragment") return;
+    const at = new Map<string, XNode>();
+    for (const c of f.children) if (c.name === "n" && c.attrs.id) at.set(c.attrs.id, c);
+    for (const c of f.children) {
+      if (c.name !== "n" || c.attrs.NodeType !== "MultiAttachment") continue;
+      const ids = (c.attrs.Attachments ?? "").split(/\s+/).filter(Boolean);
+      if (onlyFor && !ids.some((i) => onlyFor.has(i))) continue;
+      const pts = ids.map((i) => at.get(i)).filter((n): n is XNode => !!n).map(posOf);
+      if (!pts.length) continue;
+      const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+      const next = `${fmt(cx)} ${fmt(cy)}`;
+      if (c.attrs.p !== next) {
+        c.attrs.p = next;
+        moved++;
+      }
+    }
+  });
+  return moved;
+}
+
+/** True for an η-bond's centre (ChemDraw's MultiAttachment node): a point, not an atom. */
+export function isHaptoCentre(n: XNode): boolean {
+  return n.name === "n" && n.attrs.NodeType === "MultiAttachment";
+}
+const HAPTO_CENTRE = "that point is the centre of an η-bond (where the metal binds the ring), not an atom — click a ring atom or the metal";
+const HAPTO_BOND = "an η-bond is one plain line from the metal to the ring's centre (ChemDraw has no order or style for it) — erase it to remove it";
+/** True for the bond from an η-bond's centre to its metal. */
+function haptoBond(frag: XNode, b: XNode): boolean {
+  return frag.children.some((c) => isHaptoCentre(c) && (c.attrs.id === b.attrs.B || c.attrs.id === b.attrs.E));
 }
 
 /**
@@ -132,6 +174,21 @@ function dropReferences(root: XNode, gone: Set<string>): void {
   const list = (v: string | undefined): string[] => (v ?? "").split(/\s+/).filter(Boolean);
   const keep = (v: string | undefined): string => list(v).filter((i) => !gone.has(i)).join(" ");
   const removeIds = new Set<string>();
+  // First the η-bonds the deletion breaks — their centres and bonds are gone too, so every reference to them below
+  // goes with them (review: a polymer's BracketedObjectIDs kept a deleted centre's id). An η-bond whose ring lost an
+  // atom no longer says which atoms the metal binds; one whose bond to the metal was erased is a point bound to nothing.
+  walk(page, (f) => {
+    if (f.name !== "fragment") return;
+    for (const c of f.children) {
+      if (c.name !== "n" || c.attrs.NodeType !== "MultiAttachment" || gone.has(c.attrs.id ?? "")) continue;
+      const toIt = f.children.filter((b) => b.name === "b" && (b.attrs.B === c.attrs.id || b.attrs.E === c.attrs.id) && !gone.has(b.attrs.id ?? ""));
+      if (toIt.length && !list(c.attrs.Attachments).some((i) => gone.has(i))) continue;
+      for (const x of [c, ...toIt]) {
+        gone.add(x.attrs.id ?? "\u0000");
+        removeIds.add(x.attrs.id ?? "\u0000");
+      }
+    }
+  });
   walk(page, (x) => {
     if (x.name === "bracketedgroup") {
       x.children = x.children.filter((a) => {
@@ -219,7 +276,7 @@ function bondOrderSum(frag: XNode, nodeId: string): number {
   return s;
 }
 
-function fragmentOf(root: XNode, nodeId: string): { frag: XNode; node: XNode } | null {
+export function fragmentOf(root: XNode, nodeId: string): { frag: XNode; node: XNode } | null {
   let out: { frag: XNode; node: XNode } | null = null;
   walk(root, (x, p) => {
     if (!out && x.name === "n" && x.attrs.id === nodeId && p && p.name === "fragment") out = { frag: p, node: x };
@@ -248,6 +305,9 @@ function labelText(doc: CdxDoc, node: XNode, text: string, rightAligned = false)
 
 /** ChemDraw's Radical values as OCL radical states. */
 const RADICAL_STATE: Record<string, number> = { Singlet: Molecule.cAtomRadicalStateS, Doublet: Molecule.cAtomRadicalStateD, Triplet: Molecule.cAtomRadicalStateT };
+
+/** A tetrahydrido ligand as labelled: BH4, AlH4, GaH4 (hydrogens as drawn, not counted from valence). */
+const HYDRIDO = /^(B|Al|Ga)H4$/;
 
 /** Group names that are also element symbols: in a structure drawing they are the group (ChemDraw's reading). */
 const GROUP_OVER_ELEMENT = new Set(["Ac", "Pr", "Ts", "Bu"]);
@@ -299,6 +359,7 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
   if (!t) return { ok: false, reason: "type an element symbol or a label" };
   if (t.length > 40 || /[\u0000-\u001f]/.test(t)) return { ok: false, reason: "that label is too long or contains a control character" };
   const { frag, node } = hit;
+  if (isHaptoCentre(node)) return { ok: false, reason: HAPTO_CENTRE };
   for (const k of ["Element", "NumHydrogens", "NodeType", "GenericNickname", "NeedsClean", "Warning", "Isotope", "ElementList", "GenericList"]) delete node.attrs[k];
   node.children = node.children.filter((c) => c.name !== "t" && c.name !== "fragment");
   const charge = Number(node.attrs.Charge ?? 0) || 0;
@@ -335,6 +396,20 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
   // "[Ac]": the element itself, where its symbol is also a group's name.
   const forced = /^\[([A-Z][a-z]?)\]$/.exec(t);
   if (forced) t = forced[1];
+  // "BH4", "AlH4", "GaH4": a tetrahydrido ligand on a metal (borohydride, alanate, gallate), where valence does not say
+  // the count. Written as ChemDraw writes it — the element with NumHydrogens 4 — and kept as drawn when its bonds or
+  // charge change (relabel recognises the label itself: no attribute of JurisLab's own, so a ChemDraw file's BH4 is
+  // kept too). Only these three: a general "element + H count" rule gave NH3 on a carbon a confident wrong formula
+  // (review). Other hydrides (NH3, PH3, SiH4) read as before.
+  // A ligand: one bond at most (on a boron with two carbons, "BH4" would be a confident wrong count — review round 2).
+  const hydrido = !forced && frag.children.filter((b) => b.name === "b" && (b.attrs.B === nodeId || b.attrs.E === nodeId)).length <= 1 ? HYDRIDO.exec(t) : null;
+  if (hydrido) {
+    const hz = atomicNumber(hydrido[1])!;
+    node.attrs.Element = String(hz);
+    node.attrs.NumHydrogens = "4";
+    node.children.push(labelText(doc, node, `${hydrido[1]}H4`));
+    return { ok: true, note: `${hydrido[1]}H₄: ${hydrido[1]} with 4 hydrogens as drawn (a ${hydrido[1] === "B" ? "borohydride" : hydrido[1] === "Al" ? "alanate" : "gallate"} ligand; ChemDraw writes it the same way).` };
+  }
   const groupFirst = !forced && GROUP_OVER_ELEMENT.has(t);
   // "Ar" and "Y" are argon and yttrium, but in a structure drawing they are aryl and a variable:
   // read as generic labels, and said so.
@@ -383,6 +458,7 @@ export function setBond(doc: CdxDoc, bondId: string, change: { order?: string; d
   const hit = findById(doc.root, bondId);
   if (!hit || hit.el.name !== "b") return "that bond is no longer in the document";
   const b = hit.el;
+  if (hit.parent && haptoBond(hit.parent, b)) return HAPTO_BOND;
   if (change.order !== undefined) {
     if (!["1", "2", "3", "1.5"].includes(change.order)) return `bond order ${change.order} is not one this editor sets`;
     if (change.order === "1") delete b.attrs.Order;
@@ -503,6 +579,9 @@ export function deleteInStructure(doc: CdxDoc, id: string): string | null {
  */
 function relabel(doc: CdxDoc, node: XNode): void {
   if (node.attrs.NodeType && node.attrs.NodeType !== "Element") return;
+  // A tetrahydrido ligand (BH4 on a metal, from JurisLab or from ChemDraw) keeps its hydrogens as drawn.
+  const shown = node.children.find((c) => c.name === "t")?.children.filter((c) => c.name === "s").map((c) => c.text).join("") ?? "";
+  if (HYDRIDO.test(shown.trim()) && node.attrs.NumHydrogens === "4") return;
   const t = node.children.find((c) => c.name === "t");
   if (!t) return;
   const sym = symbolFor(Number(node.attrs.Element ?? 6));
@@ -550,6 +629,7 @@ function relabel(doc: CdxDoc, node: XNode): void {
 export function setCharge(doc: CdxDoc, nodeId: string, charge: number): string | null {
   const hit = fragmentOf(doc.root, nodeId);
   if (!hit) return "that atom is no longer in the document";
+  if (isHaptoCentre(hit.node)) return HAPTO_CENTRE;
   if (!Number.isInteger(charge) || Math.abs(charge) > 9) return "a charge is a whole number from −9 to 9";
   if (charge) hit.node.attrs.Charge = String(charge);
   else delete hit.node.attrs.Charge;
@@ -623,6 +703,7 @@ export function setBondProps(doc: CdxDoc, bondId: string, p: { orders?: string[]
   const hit = findById(doc.root, bondId);
   if (!hit || hit.el.name !== "b") return "that bond is no longer in the document";
   const b = hit.el;
+  if (hit.parent && haptoBond(hit.parent, b)) return HAPTO_BOND;
   if (p.orders !== undefined) {
     const ok = ["1", "2", "3", "1.5"];
     const orders = ok.filter((o) => p.orders!.includes(o));
@@ -707,8 +788,8 @@ export function namesTiedTo(doc: CdxDoc, objectIds: Iterable<string>): string[] 
 
 // ---- rings --------------------------------------------------------------------------------
 
-export type RingKind = "benzene" | "cyclohexane" | "cyclopentane" | "cyclopropane" | "cyclobutane" | "cycloheptane";
-const RING_SIZE: Record<RingKind, number> = { cyclopropane: 3, cyclobutane: 4, cyclopentane: 5, benzene: 6, cyclohexane: 6, cycloheptane: 7 };
+export type RingKind = "benzene" | "cyclohexane" | "cyclopentane" | "cyclopropane" | "cyclobutane" | "cycloheptane" | "cyclopentadienyl";
+const RING_SIZE: Record<RingKind, number> = { cyclopropane: 3, cyclobutane: 4, cyclopentane: 5, benzene: 6, cyclohexane: 6, cycloheptane: 7, cyclopentadienyl: 5 };
 
 type P2 = [number, number];
 const posOf = (n: XNode): P2 => (n.attrs.p ?? "0 0").split(/\s+/).map(Number) as P2;
@@ -775,6 +856,11 @@ function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: 
     return bondOrderSum(frag, a) + 1 <= max;
   };
   let placed = false;
+  // A cyclopentadienyl (Cp) ring, as ChemDraw draws one bound to a metal: five delocalised (1.5) bonds.
+  if (kind === "cyclopentadienyl") {
+    for (let i = 0; i < ids.length; i++) bondBetween(ids[i], ids[(i + 1) % ids.length])!.attrs.Order = "1.5";
+    placed = true;
+  }
   // Fused onto an aromatic (1.5) bond: the new ring is drawn aromatic too, as the structure it joins.
   const sharedBond = keep.length === 2 ? bondBetween(keep[0], keep[1]) : undefined;
   if (kind === "benzene" && sharedBond?.attrs.Order === "1.5") {
@@ -830,6 +916,11 @@ export function addRingOnBond(doc: CdxDoc, bondId: string, kind: RingKind): stri
   const na = frag.children.find((c) => c.name === "n" && c.attrs.id === hit.el.attrs.B);
   const nb = frag.children.find((c) => c.name === "n" && c.attrs.id === hit.el.attrs.E);
   if (!na || !nb) return "that bond's atoms are not in the document";
+  // Never onto the η-bond line (its centre would become a ring atom — review), and a Cp ring is not fused: its five
+  // delocalised bonds would overwrite the shared bond and overload its atoms (review). Fuse a benzene onto a Cp
+  // ring for an indenyl; attach a Cp ring at an atom.
+  if (haptoBond(frag, hit.el)) return "a ring cannot be fused onto an η-bond — click a ring bond or an atom";
+  if (kind === "cyclopentadienyl") return "a Cp ring is placed on its own (click empty paper) or attached at an atom — for an indenyl, fuse a Benzene onto the Cp ring";
   const a = posOf(na), b = posOf(nb);
   if (!(Math.hypot(b[0] - a[0], b[1] - a[1]) > 0)) return "that bond has no length";
   // Which side has more of the structure: the ring goes on the other.
@@ -895,6 +986,7 @@ const atomName = (sym: string, q: number): string => sym + (q ? (Math.abs(q) ===
  * ChemDraw files.
  */
 function bondRoomRefusal(frag: XNode, node: XNode): string | null {
+  if (isHaptoCentre(node)) return HAPTO_CENTRE;
   const id = node.attrs.id ?? "";
   const bonds = bondOrderSum(frag, id);
   const type = node.attrs.NodeType;
@@ -1073,6 +1165,17 @@ export function addBrackets(doc: CdxDoc, box: [number, number, number, number], 
   }
   if (throughEnds) return "a bond leaves the box through its top or bottom, where no bracket crosses it — make the box taller, so only its sides cut the bonds that leave the repeat unit";
   if (!crossings.length) return "no bond leaves the box — a repeat unit is bonded on, through the brackets";
+  writeBrackets(doc, page, [x0, y0, x1, y1], insideIds, crossings, text);
+  return null;
+}
+
+/**
+ * Polymer brackets as ChemDraw writes them: a left and a right bracket at the box's sides, the label (n) at the
+ * right one's foot, and the bracketed group — the repeat unit's atoms (which may reach beyond the brackets drawn: a
+ * pendant group hangs inside the unit) and the bonds each bracket crosses with their inner atoms.
+ */
+export function writeBrackets(doc: CdxDoc, page: XNode, box: [number, number, number, number], insideIds: string[], crossings: Array<{ bond: string; inner: string; left: boolean }>, text: string): void {
+  const [x0, y0, x1, y1] = box;
   const id = nextIdFrom(doc.root);
   const size = doc.style.captionSize * 0.75;
   const tx = x1 + size * 0.25, ty = y1 + size * 0.5;
@@ -1100,7 +1203,6 @@ export function addBrackets(doc: CdxDoc, box: [number, number, number, number], 
     group.children.push(att);
   }
   page.children.push(left, right, group);
-  return null;
 }
 
 export type ArrowKind = "reaction" | "equilibrium";

@@ -10,6 +10,22 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0db. New in v2.163.0 — Chemistry: metallocenes in Build ▸ Draw
+
+- [ ] ★ **Template.** Build ▸ Draw, draw anything (a bond), then **Organometallic: Metallocene template… ▸ Metallocene
+  dichloride**: the canvas switches in place, your bond is still there, Cp₂ZrCl₂ appears beside it (Cp rings in
+  perspective, η-bonds to Zr, two Cl clearly bonded).
+- [ ] **Every template**: ansa (Me₂Si bridge with two methyls), half-sandwich (three Cl), bis(borohydride) (BH₄ with
+  subscript 4), polymer-bound (brackets and n on the backbone) — each clear of the others.
+- [ ] **Edit.** Atom tool: **Hf** on the Zr label → Hf; **Z** on Si → Z. Erase a ring carbon → the η-bond to that ring
+  goes with it; Undo brings both back.
+- [ ] **η-bond by hand.** **Cp ring**, click the page; Atom tool **Fe** on empty paper; **η-bond**: click inside the
+  ring, then Fe → "η⁵-bond drawn".
+- [ ] **Insert 2D structure** (ChemDraw size): the metallocene goes into Word at the size of a ChemDraw picture,
+  rings and labels as on screen. Compare with a ChemDraw picture already in a document.
+- [ ] **Large canvas** from the page: the same tools; Use this drawing brings the metallocene back intact.
+- [ ] **Back to the structure editor** returns to the ChemDraw-like editor.
+
 ## 0da. New in v2.162.1 — Chemistry: the drawing survives the 3D tab
 
 - [ ] ★ **2D → 3D → 2D.** Build ▸ Draw a structure with a wedge (e.g. 2-butanol), Open large canvas / 3D ⤢, click

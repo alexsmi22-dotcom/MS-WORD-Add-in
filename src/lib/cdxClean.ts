@@ -111,6 +111,9 @@ export function cleanStructures(doc: CdxDoc, objectIds?: ReadonlySet<string>): s
     const nodes = frag.children.filter((c) => c.name === "n" && c.attrs.id);
     const bonds = frag.children.filter((c) => c.name === "b");
     if (nodes.some((n) => bracketed.has(n.attrs.id))) return "a structure inside brackets keeps its layout (the brackets would no longer fit it) — move its atoms by hand";
+    // A metal bound to a whole ring is not one graph the layout understands: it laid the η centre out as an atom off
+    // the metal, away from its ring (review). Refused, said in words.
+    if (nodes.some((n) => n.attrs.NodeType === "MultiAttachment")) return "a metallocene (a metal bound to a whole ring) keeps its layout — Clean would pull the rings away from the metal; move its parts by hand, or select the other structures and Clean those";
     if (nodes.length < 2) continue;
     const lay = layoutMolecule(doc, frag, o.id, L);
     if (typeof lay === "string") return lay;

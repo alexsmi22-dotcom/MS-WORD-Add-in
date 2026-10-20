@@ -345,7 +345,29 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         const tip = p1, back = addp(p1, mul(d, -st.bondLength * 0.25)), w = st.bondLength * 0.08;
         parts.push(`<path d="M${f2(tip[0])} ${f2(tip[1])}L${f2(back[0] + n[0] * w)} ${f2(back[1] + n[1] * w)}L${f2(back[0] - n[0] * w)} ${f2(back[1] - n[1] * w)}Z" fill="${col}"/>`);
       } else if (order === "hydrogen" || order === "0.5") parts.push(line(p0, p1, lw, dash));
-      else styled(p0, p1, disp);
+      else if ((!disp || disp === "Solid") && (nb.nodeType === "MultiAttachment" || ne.nodeType === "MultiAttachment")) {
+        // An η-bond runs to the ring's centre, behind the ring's front edge: broken where it passes under a bold or
+        // wedged edge, as ChemDraw draws it (a solid line through the black edge read as a blot — walkthrough).
+        const cuts: number[] = [];
+        const L = len(sub(p1, p0));
+        for (const o of fr.bonds) {
+          // In front of the page only: a bold edge or a solid wedge (a hashed wedge lies behind it).
+          if (o === bd || !/Bold|Wedge/.test(o.display) || /Hash/.test(o.display)) continue;
+          const qa = byId.get(o.b)?.p, qb = byId.get(o.e)?.p;
+          if (!qa || !qb) continue;
+          const r = sub(p1, p0), s = sub(qb, qa), den = cross(r, s);
+          if (Math.abs(den) < 1e-9) continue;
+          const t = cross(sub(qa, p0), s) / den, u = cross(sub(qa, p0), r) / den;
+          if (t > 0 && t < 1 && u >= 0 && u <= 1) cuts.push(t * L);
+        }
+        const half = st.boldWidth * 1.6;
+        let from = 0;
+        for (const c of cuts.sort((x, y) => x - y)) {
+          if (c - half > from + 0.3) parts.push(line(addp(p0, mul(d, from)), addp(p0, mul(d, c - half))));
+          from = Math.max(from, c + half);
+        }
+        if (L - from > 0.3) parts.push(line(addp(p0, mul(d, from)), p1));
+      } else styled(p0, p1, disp);
       prims.push({ z: bd.z, svg: parts.join("") });
       if (showsMarks(bd.el.attrs, docAttrs, "ShowBondQuery")) {
         const marks = bondQueryMarks(bd.el.attrs);

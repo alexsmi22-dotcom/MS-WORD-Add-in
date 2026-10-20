@@ -21,8 +21,9 @@ import { moleculeToPage, pageToMolecule } from "../lib/cdxmlMol";
 import { cleanStructures } from "../lib/cdxClean";
 import { atomQueryMarks, bondQueryMarks, showsMarks, stereoGroupMark } from "../lib/cdxQuery";
 import type { XNode } from "../lib/xmlLite";
+import { addHapto, addMetalloceneTemplate, METALLOCENE_TEMPLATES, ringContaining, ringThrough, type MetalloceneTemplate } from "../lib/organometal";
 
-export type CanvasTool = "select" | "atom" | "bond" | "chain" | "ring" | "charge+" | "charge-" | "bracket" | "arrow" | "text" | "erase" | "props";
+export type CanvasTool = "select" | "atom" | "bond" | "chain" | "ring" | "charge+" | "charge-" | "bracket" | "arrow" | "text" | "erase" | "props" | "hapto" | "metallocene";
 
 export interface ChemCanvasHost {
   setStatus(text: string, kind?: "success" | "error" | ""): void;
@@ -65,6 +66,10 @@ export interface ChemCanvas {
   render(selectionOnly: boolean): { svg: string; widthPt: number; heightPt: number } | null;
   selection(): Set<string>;
   setTool(t: CanvasTool): void;
+  /** Places a metallocene template beside what is drawn (or in view on an empty page), as one edit; false when refused. Page canvas only. */
+  placeTemplate?(kind: MetalloceneTemplate): boolean;
+  /** The Ring tool's ring (Cp for organometallics). Page canvas only. */
+  setRingKind?(kind: RingKind): void;
   /** Names ChemDraw computed for structures changed since (their words): to check before inserting. */
   staleNames(): string[];
   /** The name the page is saved under (a ChemDraw file's name). */
@@ -76,8 +81,9 @@ export interface ChemCanvas {
 }
 
 const UNDO_DEPTH = 100;
+const SUPER_DIGITS = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
 const ELEMENTS = ["C", "H", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
-const RINGS: Array<[RingKind, string]> = [["benzene", "Benzene"], ["cyclohexane", "Cyclohexane"], ["cyclopentane", "Cyclopentane"], ["cyclobutane", "Cyclobutane"], ["cyclopropane", "Cyclopropane"], ["cycloheptane", "Cycloheptane"]];
+const RINGS: Array<[RingKind, string]> = [["benzene", "Benzene"], ["cyclohexane", "Cyclohexane"], ["cyclopentane", "Cyclopentane"], ["cyclobutane", "Cyclobutane"], ["cyclopropane", "Cyclopropane"], ["cycloheptane", "Cycloheptane"], ["cyclopentadienyl", "Cyclopentadienyl (Cp)"]];
 const STYLES: Array<[string, string]> = [["", "Single → double → triple"], ["WedgeBegin", "Wedge"], ["WedgedHashBegin", "Hashed wedge"], ["Wavy", "Wavy"], ["Bold", "Bold"], ["Dash", "Dashed"]];
 const TOOL_HELP: Record<CanvasTool, string> = {
   select: "Select: click a structure; Shift+click adds; drag on empty paper to box-select; drag the selection to move it; Delete removes it.",
@@ -91,6 +97,8 @@ const TOOL_HELP: Record<CanvasTool, string> = {
   arrow: "Arrow: drag from the tail to the head.",
   text: "Text: type the words in the box, then click empty paper for a new caption, or a caption to change it.",
   erase: "Erase: click an atom, a bond, or anything else on the page.",
+  hapto: "η-bond: click inside a ring (a Cp ring), then the metal it binds — or the metal first, then the ring. Label the metal first (Zr, Hf, Ti, Fe …).",
+  metallocene: "Metallocene: choose a template, then click the page to place it. Change the metal, a ligand or the bridge with the Atom tool (Hf, BH4, C, Z …).",
   props: "Properties: click an atom for its radical, stereo group (AND / OR) and query features, or a bond for its query orders and ring / chain. For an atom list, type [N,O] or NOT [F,Cl] with the Atom tool.",
 };
 const DRAG_TOOLS = new Set<CanvasTool>(["bond", "chain", "bracket", "arrow"]);
@@ -112,6 +120,8 @@ const TOOL_ICONS: Record<string, string> = {
   "charge+": `<circle cx="12" cy="12" r="8"/><path d="M8 12h8M12 8v8"/>`,
   "charge-": `<circle cx="12" cy="12" r="8"/><path d="M8 12h8"/>`,
   bracket: `<path d="M8 4H5v16h3M16 4h3v16h-3"/>`,
+  hapto: `<text x="12" y="17" text-anchor="middle" font-size="17" font-style="italic" font-family="Times New Roman, serif" fill="currentColor" stroke="none">η</text>`,
+  metallocene: `<ellipse cx="12" cy="5" rx="7" ry="2.6"/><ellipse cx="12" cy="19" rx="7" ry="2.6"/><path d="M12 7.6v2.4M12 14v2.4"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/>`,
   arrow: `<path d="M3 12h17M15 7l5 5-5 5"/>`,
   text: `<path d="M5 5h14M12 5v14M9 19h6"/>`,
   erase: `<path d="M14.5 4.5l5 5-9 9H6l-2.5-2.5z"/><path d="M9 10l5 5M11 18.5h9"/>`,
@@ -138,7 +148,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   const toolBtns = new Map<CanvasTool, HTMLButtonElement>();
   const toolNames: Array<[CanvasTool, string, string]> = [
     ["select", "Select", "Select and move"], ["atom", "Atom", "Place or change atoms"], ["bond", "Bond", "Draw bonds; change a bond"], ["chain", "Chain", "Drag a zig-zag chain"],
-    ["ring", "Ring", "Rings"], ["charge+", "Raise charge", "Raise a charge"], ["charge-", "Lower charge", "Lower a charge"], ["bracket", "Brackets", "Polymer brackets"],
+    ["ring", "Ring", "Rings"], ["hapto", "η-bond", "η-bond: a metal bound to a whole ring (η⁵-Cp)"], ["metallocene", "Metallocene", "Metallocene templates (Cp₂ZrCl₂, ansa, half-sandwich, polymer-bound)"],
+    ["charge+", "Raise charge", "Raise a charge"], ["charge-", "Lower charge", "Lower a charge"], ["bracket", "Brackets", "Polymer brackets"],
     ["arrow", "Arrow", "Reaction arrows"], ["text", "Text", "Captions"], ["erase", "Erase", "Remove"],
     ["props", "Properties", "Atom and bond properties: radical, stereo group, query features"],
   ];
@@ -183,7 +194,9 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   const arrowSel = el("select", { "aria-label": "Arrow", "data-chem-arrow": "" }) as HTMLSelectElement;
   arrowSel.add(new Option("Reaction arrow", "reaction"));
   arrowSel.add(new Option("Equilibrium arrow", "equilibrium"));
-  opts.append(palette, valueIn, ringSel, styleSel, arrowSel);
+  const tplSel = el("select", { "aria-label": "Metallocene template", "data-chem-template": "" }) as HTMLSelectElement;
+  for (const t of METALLOCENE_TEMPLATES) tplSel.add(new Option(t.label, t.id));
+  opts.append(palette, valueIn, ringSel, tplSel, styleSel, arrowSel);
   // The Properties panel: what ChemDraw's Atom / Bond Properties set, for the atom or bond clicked.
   const selectOf = (label: string, key: string, options: Array<[string, string]>): HTMLSelectElement => {
     const s = el("select", { "aria-label": label, [`data-chem-prop`]: key }) as HTMLSelectElement;
@@ -221,6 +234,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   let boxes = new Map<string, Box>();
   let selected = new Set<string>();
   let tool: CanvasTool = "bond";
+  /** The η tool's first click: the ring or the metal, waiting for the other. */
+  let haptoPick: { ring?: string[]; metal?: string } | null = null;
   type Step = { root: XNode; frag: boolean };
   let undo: Step[] = [];
   let redo: Step[] = [];
@@ -248,7 +263,13 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
 
   // A problem reported while the change was made: the pane's status clear must not wipe it (review).
   let reported = false;
+  /** An η-bond's centre within a third of a bond length of a page point (it has no label to click, nor to draw over). */
+  const nearHaptoCentre = (p: Pt): boolean =>
+    doc.objects.some((o) => o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((n) => n.nodeType === "MultiAttachment" && Math.hypot(n.p[0] - p[0], n.p[1] - p[1]) < L() * 0.35)));
   const fire = (isUserEvent: boolean): void => {
+    // Any change to the drawing (an edit, undo, a page loaded) forgets the η tool's first click: its atom ids may now
+    // name other atoms (review: a stale pick bound a ring the user never chose).
+    haptoPick = null;
     const keepStatus = reported;
     reported = false;
     onChange?.(keepStatus ? { isUserEvent, keepStatus } : { isUserEvent });
@@ -378,6 +399,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     };
     show(valueIn, t === "atom" || t === "text" || t === "bracket");
     show(ringSel, t === "ring");
+    show(tplSel, t === "metallocene");
+    haptoPick = null;
     show(styleSel, t === "bond");
     show(arrowSel, t === "arrow");
     propsBox.hidden = t !== "props";
@@ -441,7 +464,14 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     const p = pagePoint(e);
     if (!p) return;
     if (DRAG_TOOLS.has(tool)) {
-      sketch = { tool, from: p, atom: tool === "bond" || tool === "chain" ? atomAt(doc, p, L() * 0.3) : null, to: p, moved: false };
+      const startAtom = tool === "bond" || tool === "chain" ? atomAt(doc, p, L() * 0.3) : null;
+      // A bond or chain is not started on an η-bond's centre (review: it put a new atom on top of it).
+      if ((tool === "bond" || tool === "chain") && !startAtom && nearHaptoCentre(p)) {
+        suppressClick = true;
+        host.setStatus("That is the centre of an η-bond, not an atom — start the bond from the metal or a ring atom.", "error");
+        return;
+      }
+      sketch = { tool, from: p, atom: startAtom, to: p, moved: false };
       surface.setPointerCapture?.(e.pointerId);
       e.preventDefault();
       return;
@@ -627,6 +657,9 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
           note = r.note;
           return null;
         }) && note) host.setStatus(note, "");
+      } else if (nearHaptoCentre(p)) {
+        // Not a new atom stacked on the η-bond's (invisible) centre (review).
+        host.setStatus("That is the centre of an η-bond, not an atom — click the metal or a ring atom to change it.", "error");
       } else edit(() => {
         const r = addAtomAt(doc, p, v);
         return r.ok ? null : r.reason;
@@ -638,6 +671,36 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       const n = findById(doc.root, atom)?.el;
       const q = (Number(n?.attrs.Charge ?? 0) || 0) + (tool === "charge+" ? 1 : -1);
       edit(() => setCharge(doc, atom, q));
+      return;
+    }
+    if (tool === "metallocene") {
+      const kind = tplSel.value as MetalloceneTemplate;
+      if (edit(() => addMetalloceneTemplate(doc, p, kind))) host.setStatus("Placed. Change the metal, a ligand or the bridge with the Atom tool (Hf, BH4, C, Z …); Undo takes it back.", "success");
+      return;
+    }
+    if (tool === "hapto") {
+      // A ring (an atom or bond of it) and a labelled atom, in either order.
+      // A ring atom or bond, or a click anywhere inside the ring.
+      // (A click near a bound ring's centre lands on its η line, which is in no ring: the ring round the point.)
+      const ring = (bond ? ringThrough(doc, bond) : atom ? ringThrough(doc, atom) : null) ?? (atom ? null : ringContaining(doc, p));
+      const node = atom ? findById(doc.root, atom)?.el : undefined;
+      const isMetal = !!node && node.children.some((c) => c.name === "t") && !ring;
+      if (!ring && !isMetal) {
+        // A miss keeps the first choice (re-picking the ring after a stray click was friction — walkthrough).
+        if (haptoPick) return host.setStatus(haptoPick.ring ? `Ring of ${haptoPick.ring.length} still chosen — click the metal (anywhere on its label).` : "Metal still chosen — click inside the ring.", "error");
+        return host.setStatus(atom ? "That atom is in no ring and has no label — click a ring, or label the metal first (Atom tool: Zr …)." : "Click inside a ring, or on the metal.", "error");
+      }
+      const pick = haptoPick;
+      if (!pick || (ring && pick.ring) || (isMetal && pick.metal)) {
+        haptoPick = ring ? { ring } : { metal: atom! };
+        return host.setStatus(ring ? `Ring of ${ring.length} chosen — now click the metal.` : "Metal chosen — now click the ring.", "");
+      }
+      haptoPick = null;
+      const ringIds = ring ?? pick.ring!, metalId = isMetal ? atom! : pick.metal!;
+      if (edit(() => {
+        const r = addHapto(doc, ringIds, metalId);
+        return r.ok ? null : r.reason;
+      })) host.setStatus(`η${SUPER_DIGITS[ringIds.length] ?? ringIds.length}-bond drawn — Undo takes it back.`, "success");
       return;
     }
     if (tool === "ring") {
@@ -913,6 +976,48 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     },
     selection: () => new Set(selected),
     setTool,
+    placeTemplate: (kind) => {
+      setTool("metallocene");
+      tplSel.value = kind;
+      // Placed, then moved so its own left edge clears what is drawn by two bond lengths (templates reach left by
+      // different amounts: an ansa bridge ran into the structure beside it — walkthrough).
+      const box = contentBox();
+      const ok = edit(() => {
+        const page = doc.root.children.find((c) => c.name === "page");
+        const before = new Set(page?.children ?? []);
+        const why = addMetalloceneTemplate(doc, [0, 0], kind);
+        if (why) return why;
+        // Everything the template added moves together: its structure and, for a polymer, its brackets (separate
+        // page objects — left behind at the drop point otherwise, walkthrough).
+        const added = (page?.children ?? []).filter((c) => !before.has(c) && c.attrs.id);
+        const frag = added.find((c) => c.name === "fragment");
+        if (!frag) return null;
+        const xs: number[] = [], ys: number[] = [];
+        const walkPts = (n: XNode): void => {
+          if (n.name === "n" && n.attrs.p) {
+            const [px, py] = n.attrs.p.split(/\s+/).map(Number);
+            xs.push(px);
+            ys.push(py);
+          }
+          n.children.forEach(walkPts);
+        };
+        walkPts(frag);
+        const target: Pt = box ? [box[2] + 2 * L(), (box[1] + box[3]) / 2] : [(view[0] + view[2]) / 2, (view[1] + view[3]) / 2];
+        const left = Math.min(...xs), midY = (Math.min(...ys) + Math.max(...ys)) / 2, midX = (left + Math.max(...xs)) / 2;
+        moveObjects(doc, added.map((c) => c.attrs.id!), box ? target[0] - left : target[0] - midX, target[1] - midY);
+        return null;
+      });
+      if (!ok) return false;
+      // In view whatever it was placed beside.
+      growView(true);
+      draw();
+      host.setStatus("Placed. Change the metal, a ligand or the bridge with the Atom tool (Hf, BH4, C, Z …); Undo takes it back.", "success");
+      return true;
+    },
+    setRingKind: (kind) => {
+      setTool("ring");
+      ringSel.value = kind;
+    },
     staleNames: () => [...stale].map((id) => (findById(doc.root, id)?.el.children.filter((c) => c.name === "s").map((s) => s.text).join("") ?? "").trim()).filter(Boolean),
     wasSaved: () => saved,
     smallestTextPt: (selectionOnly) => {

@@ -107,7 +107,13 @@ export function atomAt(doc: CdxDoc, p: Pt, r: number): string | null {
     for (const it of o.items) {
       if (it.kind !== "fragment") continue;
       for (const n of it.v.nodes) {
-        const d = Math.hypot(n.p[0] - p[0], n.p[1] - p[1]);
+        // An η-bond's centre is a point inside the ring, not an atom: a click there means the ring (or its bond).
+        if (n.nodeType === "MultiAttachment") continue;
+        let d = Math.hypot(n.p[0] - p[0], n.p[1] - p[1]);
+        // A click anywhere on an atom's label means that atom ("Zr", "BH4" reach well past the atom's point: a click
+        // on the r of Zr missed it — walkthrough). Counted as just inside the radius, so a nearer atom still wins.
+        const b = n.label?.box;
+        if (b && d >= bestD && p[0] >= b[0] && p[0] <= b[2] && p[1] >= b[1] && p[1] <= b[3]) d = r * 0.99;
         if (d < bestD) {
           bestD = d;
           best = n.id;

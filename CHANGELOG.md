@@ -6,7 +6,29 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [2.162.1] — 2026-10-19 — Chemistry: the drawing survives the 3D tab
+## [2.163.0] — 2026-10-19 — Chemistry: metallocenes and η-bonds in Build ▸ Draw
+
+User request: draw metallocene catalysts and polymer-bound metallocenes in the Build canvas.
+
+### Added
+- **Organometallic row under Build ▸ Draw**: a **Metallocene template…** menu — metallocene dichloride (Cp₂ZrCl₂),
+  ansa-metallocene (Me₂Si-bridged), half-sandwich (CpZrCl₃), bis(borohydride) (Cp₂Zr(BH₄)₂), polymer-bound
+  (–[CH₂CH]ₙ– backbone, the whole metallocene in the repeat unit) — plus **η-bond** and **Cp ring**. Using any of them
+  switches the canvas in place to the ChemDraw-style page canvas (the structure editor cannot hold a metal bound to a
+  whole ring), carrying over what was drawn; a template is placed beside it. "Back to the structure editor" returns.
+- **η-bond tool** (page canvas and large canvas): click inside a ring (or on a ring atom or bond), then the metal —
+  or the metal first. Written as ChemDraw writes it (a MultiAttachment centre at the ring's centroid, bonded to the
+  metal); η² to η⁸. Deleting a ring atom, erasing the bond or moving the ring keeps it valid; its centre is a point,
+  never an atom (no label, bond or charge goes on it).
+- **Cyclopentadienyl (Cp)** in the Ring tool's list: five delocalised bonds. Template rings are drawn in perspective
+  (front edge bold, side edges wedged).
+- **BH₄ as drawn**: "BH4" (and AlH4 …) on a metal is boron with four hydrogens, kept as drawn when its bonds change.
+- The readout says plainly why a metallocene has no single formula, and Insert puts it in as drawn.
+
+### Changed
+- On the page canvas a click anywhere on an atom's label picks that atom (aiming at the atom's point in "Zr" missed).
+
+
 
 User report: "when I go from 2D to 3D and back, the canvas is blank."
 

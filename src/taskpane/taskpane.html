@@ -289,6 +289,16 @@
             <button id="build-page-bare" class="draw-pop-btn" type="button" hidden title="The structure itself in the ChemDraw-like editor — its brackets, n and attached labels are left out">Edit the structure in the structure editor (brackets and labels left out)</button>
             <button id="build-page-back" class="draw-pop-btn" type="button">Back to the structure editor</button>
           </div>
+          <!-- Organometallics, right here: the canvas switches in place to the ChemDraw-style page canvas (an η-bond
+               cannot be held by the structure editor), carrying over what is drawn. -->
+          <div id="build-organo" class="build-organo-row" role="group" aria-label="Organometallic">
+            <span class="build-organo-label">Organometallic:</span>
+            <select id="build-organo-template" aria-label="Place a metallocene template">
+              <option value="">Metallocene template…</option>
+            </select>
+            <button id="build-organo-hapto" class="draw-pop-btn" type="button" title="η-bond: a metal bound to a whole ring — click the ring, then the metal">η-bond</button>
+            <button id="build-organo-cp" class="draw-pop-btn" type="button" title="A cyclopentadienyl (Cp) ring: click empty paper, or an atom to attach one">Cp ring</button>
+          </div>
           <div class="draw-btn-row">
             <button id="open-draw-dialog-btn" class="draw-pop-btn" type="button" title="Large drawing canvas with a 3D model view (rotatable MMFF94s conformer; ball-and-stick, stick, space-filling)">
               Open large canvas / 3D ⤢

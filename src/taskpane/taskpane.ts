@@ -421,6 +421,7 @@ import { tryRadius, radiusSvg } from "../lib/radius";
 import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords, resolveTaskVerb } from "../lib/pasteMath";
 import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts, chargeSuperscript, Mol3dView, Mol3dStyle } from "../lib/mol3d";
 import { iupacName } from "../lib/iupacName";
+import { stereoText } from "../lib/cipText";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { solveWithUnits } from "../lib/unitSolve";
@@ -4577,11 +4578,25 @@ function updateStructurePreview(): void {
     structureNameEl.textContent = `Name: ${currentStructureName}`;
   } else {
     try {
-      const sys = iupacName(OclMolecule.fromIDCode(result.idcode));
+      const named = OclMolecule.fromIDCode(result.idcode);
+      const sys = iupacName(named);
       if (sys.name) {
-        currentStructureName = sys.name;
-        const stereoNote = sys.caveats.some((c) => /stereodescriptors/i.test(c)) ? "; stereodescriptors omitted" : "";
-        structureNameEl.textContent = `Systematic name: ${sys.name} (subset namer — verify before filing${stereoNote})`;
+        // With its CIP stereodescriptors when every stereo element is given and has a locant ((2R)-butan-2-ol);
+        // otherwise the constitutional name, and why the descriptors are not in it.
+        let st: ReturnType<typeof stereoText> = { prefix: null, line: null };
+        try {
+          st = stereoText(named, sys.locants, { reversible: sys.reversible, fromText: true });
+        } catch {
+          /* the name stands without descriptors */
+        }
+        currentStructureName = st.prefix ? `${st.prefix}${sys.name}` : sys.name;
+        const stereoNote =
+          !st.prefix && sys.caveats.some((c) => /stereodescriptors/i.test(c))
+            ? `; stereodescriptors not in the name — ${st.line ?? "not given"}`
+            : st.prefix && st.line?.includes("lone-pair centre")
+              ? "; a lone-pair centre read from text — confirm its descriptor against the drawing"
+              : "";
+        structureNameEl.textContent = `Systematic name: ${currentStructureName} (subset namer — verify before filing${stereoNote})`;
       } else {
         structureNameEl.textContent = sys.refusal ? `No name: ${sys.refusal}` : "";
       }
@@ -5427,6 +5442,31 @@ function onCleanStructure(): void {
 }
 
 /** Renders the compliance note under the canvas (empty = nothing to report). */
+/**
+ * The Build readout's stereo line (CIP R/S, E/Z — lib/cip.ts): the systematic name with its stereodescriptors when the
+ * subset namer names the structure and every stereo element is given ("(2R)-butan-2-ol"), else what is given and what
+ * is not, and why. Hidden with no stereo element; never takes the preview down.
+ */
+function showBuildStereo(mol: OclMolecule | null, fromText = false): void {
+  const box = document.getElementById("build-stereo");
+  const text = document.getElementById("build-stereo-text");
+  if (!box || !text) return;
+  box.hidden = true;
+  if (!mol || !mol.getAllAtoms() || mol.isFragment()) return;
+  try {
+    const sys = iupacName(mol);
+    const st = stereoText(mol, sys.locants, { reversible: sys.reversible, fromText });
+    if (!st.line) return;
+    const lead = "Stereo (CIP): ";
+    const body = st.line.startsWith(lead) ? st.line.slice(lead.length) : st.line;
+    // The name carrying its descriptors says it all ((2R)-butan-2-ol); otherwise what is given and what is not.
+    text.textContent = st.prefix && sys.name ? `${st.prefix}${sys.name}` : body;
+    box.hidden = false;
+  } catch {
+    box.hidden = true;
+  }
+}
+
 function renderCompliance(issues: ComplianceIssue[]): void {
   drawComplianceEl.replaceChildren();
   drawComplianceEl.classList.remove("bad");
@@ -5494,6 +5534,7 @@ function updateDrawPreview(preserveStatus = false): void {
       buildPreviewEl.innerHTML = drawn.svg;
       buildFormulaEl.textContent = chem && !chem.ok ? `— (${chem.reason})` : "—";
       buildSmilesEl.textContent = "—";
+      showBuildStereo(null);
       renderRgroupInputs([]);
       renderCompliance([]);
       insertBuildBtn.disabled = false;
@@ -5515,6 +5556,7 @@ function updateDrawPreview(preserveStatus = false): void {
       buildPreviewEl.appendChild(hint);
       buildFormulaEl.textContent = "—";
       buildSmilesEl.textContent = "—";
+      showBuildStereo(null);
       renderRgroupInputs([]);
       renderCompliance([]);
       if (!preserveStatus) setStatus("");
@@ -5532,6 +5574,7 @@ function updateDrawPreview(preserveStatus = false): void {
       buildPreviewEl.innerHTML = result.svg;
       buildFormulaEl.textContent = formatFormula(result.formula) + (result.mw ? ` (MW ${result.mw} g/mol)` : "");
       buildSmilesEl.textContent = result.smiles || "—";
+      showBuildStereo(mol);
       renderRgroupInputs(result.rgroups);
       // The compliance note must never take the preview down with it.
       try {
@@ -5551,6 +5594,7 @@ function updateDrawPreview(preserveStatus = false): void {
       buildPreviewEl.appendChild(hint);
       buildFormulaEl.textContent = "—";
       buildSmilesEl.textContent = "—";
+      showBuildStereo(null);
       renderRgroupInputs([]);
       renderCompliance([]);
     }
@@ -5871,6 +5915,7 @@ function updateBuildPreview(): void {
     buildPreviewEl.appendChild(hint);
     buildFormulaEl.textContent = "—";
     buildSmilesEl.textContent = "—";
+    showBuildStereo(null);
     renderRgroupInputs([]);
     setStatus("");
     return;
@@ -5883,6 +5928,11 @@ function updateBuildPreview(): void {
     buildPreviewEl.innerHTML = result.svg;
     buildFormulaEl.textContent = formatFormula(result.formula) + (result.mw ? ` (MW ${result.mw} g/mol)` : "");
     buildSmilesEl.textContent = result.smiles || "—";
+    try {
+      showBuildStereo(result.idcode ? OclMolecule.fromIDCode(result.idcode) : null, true);
+    } catch {
+      showBuildStereo(null);
+    }
     renderRgroupInputs(result.rgroups);
     insertBuildBtn.disabled = false;
     setStatus("");
@@ -5894,6 +5944,7 @@ function updateBuildPreview(): void {
     buildPreviewEl.appendChild(hint);
     buildFormulaEl.textContent = "—";
     buildSmilesEl.textContent = "—";
+    showBuildStereo(null);
     renderRgroupInputs([]);
   }
 }

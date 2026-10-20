@@ -10,6 +10,15 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0dc. New in v2.164.0 — Chemistry: R/S and E/Z
+
+- [ ] ★ **Name with descriptors.** Chemical: type `CC[C@@H](C)O` → "Systematic name: (2R)-butan-2-ol". Edit in Draw →
+  the Build readout's **Stereo** line says (2R)-butan-2-ol. Flip the wedge in the editor → (2S).
+- [ ] **E/Z.** Build ▸ Text: `C/C=C/C` → (2E)-but-2-ene; `C/C=C\C` → (2Z).
+- [ ] **Refusals in words.** Text: `CC(C)Cc1ccc(cc1)C(C)C(=O)O` (ibuprofen, no wedge) → "1 stereocentre; not given:
+  unspecified — drawn without a wedge". `OC(=O)[C@H](O)[C@H](O)[C@H](O)C(=O)O` → C-3 not given (pseudo-asymmetric).
+- [ ] No stereo element (ethanol): no Stereo line.
+
 ## 0db. New in v2.163.0 — Chemistry: metallocenes in Build ▸ Draw
 
 - [ ] ★ **Template.** Build ▸ Draw, draw anything (a bond), then **Organometallic: Metallocene template… ▸ Metallocene

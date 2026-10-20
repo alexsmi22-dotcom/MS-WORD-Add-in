@@ -6,7 +6,25 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [2.163.0] — 2026-10-19 — Chemistry: metallocenes and η-bonds in Build ▸ Draw
+## [2.164.0] — 2026-10-19 — Chemistry: CIP stereodescriptors (R/S, E/Z)
+
+Organic chemistry, item 1: patent claims name stereoisomers by their CIP descriptors.
+
+### Added
+- **R/S and E/Z, computed by the CIP rules** from the drawn wedges and double-bond geometry. The Build readout's new
+  **Stereo** line and the Chemical name line give the systematic name with its descriptors — (2R)-butan-2-ol,
+  (2S)-2-aminopropanoic acid, (2R,3E)-hex-3-en-2-ol, rac-(2R)-… for an AND group, rel- for an OR group — when the subset
+  namer names the structure and every stereo element is given; otherwise what is given and, for each element not
+  given, why.
+- **Refused by name, never guessed**: pseudo-asymmetric centres (r/s), like/unlike pairs and other ties that need CIP
+  rules 3–5; axial chirality (allenes, biaryls — M/P not yet); a ranking that would depend on where a ring's double
+  bonds are drawn; a cumulene's cis/trans; a degenerate drawing (atoms on top of each other); a centre drawn without a wedge; a ranking too large to finish (a hard work limit — never a frozen
+  Word). A descriptor is shown only when JurisLab's own ranking and OpenChemLib's agree.
+- **Checked against the CIP Validation Suite** (Hanson et al., J. Chem. Inf. Model. 2018, 58, 1755; 300 structures):
+  0 wrong, 0 extra — 835 descriptors given from SMILES, 834 from wedged drawings, the rest refused by name
+  (`node scripts/cip-suite.js`; OpenChemLib on its own gives 117–129 wrong).
+
+ — 2026-10-19 — Chemistry: metallocenes and η-bonds in Build ▸ Draw
 
 User request: draw metallocene catalysts and polymer-bound metallocenes in the Build canvas.
 

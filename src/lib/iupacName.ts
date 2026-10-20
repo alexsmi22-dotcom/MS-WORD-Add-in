@@ -46,6 +46,15 @@ export interface IupacNameResult {
   name?: string;
   refusal?: string;
   caveats: string[];
+  /**
+   * The parent chain's locants, as caller atom index → locant (an acyclic name only): what a stereodescriptor needs
+   * to say where it is ((2R)-butan-2-ol). Absent for ring names and refusals.
+   */
+  locants?: Map<number, number>;
+  /** Internal: the chosen chain, in the namer's working copy. */
+  chain?: number[];
+  /** The chain may be numbered from either end with the same name (locant L ↔ length + 1 − L). */
+  reversible?: boolean;
 }
 
 const STEM = ["", "methan", "ethan", "propan", "butan", "pentan", "hexan", "heptan", "octan", "nonan", "decan", "undecan", "dodecan"];
@@ -90,6 +99,8 @@ export function iupacName(mol0: Molecule): IupacNameResult {
     return refuse("A generic structure (R-groups/query features) has no single name.");
   }
   const mol = mol0.getCompactCopy();
+  // The caller's atom numbers ride through the removal of explicit hydrogens (it renumbers): for the chain's locants.
+  for (let i = 0; i < mol.getAllAtoms(); i++) mol.setAtomMapNo(i, i + 1, false);
   try {
     mol.removeExplicitHydrogens(false);
   } catch {
@@ -166,12 +177,17 @@ export function iupacName(mol0: Molecule): IupacNameResult {
   for (let b = 0; b < mol.getAllBonds(); b++) if (mol.getBondParity(b) !== 0) stereo = true;
   if (stereo) {
     caveats.push(
-      "The structure carries stereochemistry; this name is CONSTITUTIONAL only — stereodescriptors ((R/S), (E/Z)) are outside the subset namer.",
+      "The structure carries stereochemistry; this name is CONSTITUTIONAL — its CIP stereodescriptors ((R/S), (E/Z)) are added from lib/cip.ts where every stereo element is given (stereoText).",
     );
   }
   caveats.push("Systematic name from the offline subset namer — verify against your house style before filing.");
 
-  const finish = (name: string): IupacNameResult => ({ name, caveats });
+  const finish = (name: string, chain?: number[], reversible?: boolean): IupacNameResult => {
+    if (!chain) return { name, caveats };
+    const locants = new Map<number, number>();
+    chain.forEach((a, i) => locants.set(mol.getAtomMapNo(a) - 1, i + 1));
+    return { name, caveats, locants, ...(reversible ? { reversible: true } : {}) };
+  };
 
   if (ringCount === 1) {
     const size = rings.getRingSize(0);
@@ -198,7 +214,7 @@ export function iupacName(mol0: Molecule): IupacNameResult {
       // name refusal, not to a chain that does not exist.
       if (!det.refusal && det.groups.length > 0 && det.groups.every((gr) => !g.inRing[gr.carbon])) {
         const r = nameAcyclic(g, nitroN, nitroSat, null);
-        return r.refusal ? r : finish(r.name!);
+        return r.refusal ? r : finish(r.name!, r.chain, r.reversible);
       }
     }
     const r = nameWithOneRing(g, members, isBenzene, nitroN, nitroSat);
@@ -206,7 +222,7 @@ export function iupacName(mol0: Molecule): IupacNameResult {
   }
 
   const r = nameAcyclic(g, nitroN, nitroSat, null);
-  return r.refusal ? r : finish(r.name!);
+  return r.refusal ? r : finish(r.name!, r.chain, r.reversible);
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +507,8 @@ function nameAcyclic(
     suffixLocs: number[];
     subs: { loc: number; name: string; key: string }[];
     scoreKey: number[];
+    /** Both numbering directions give the same name: the chain may be numbered from either end. */
+    reversible?: boolean;
   }
 
   const analyse = (chainIn: number[]): Scored | string => {
@@ -542,7 +560,9 @@ function nameAcyclic(
         if (subRefusal) break;
       }
       if (subRefusal) return subRefusal;
-      const alphaLocs = [...subs].sort((x, y) => x.key.localeCompare(y.key)).map((s) => s.loc);
+      // Alphabetical, and by locant within one name: identical groups listed in array order made the two directions of
+      // a symmetric chain (tartaric acid's two OH) score differently, so it was never seen as reversible (review).
+      const alphaLocs = [...subs].sort((x, y) => x.key.localeCompare(y.key) || x.loc - y.loc).map((s) => s.loc);
       const scoreKey = [
         ...suffixLocs,
         99, ...unsat.map((u) => u.loc).sort((x, y) => x - y),
@@ -555,7 +575,14 @@ function nameAcyclic(
         99, ...alphaLocs,
       ];
       const cand: Scored = { chain, unsat, suffixLocs, subs, scoreKey };
-      if (!best || lexLess(cand.scoreKey, best.scoreKey)) best = cand;
+      // The same name either way (a symmetric chain): IUPAC P-31.1.4.3.4 then lets the stereodescriptors choose.
+      const sameName = (p: Scored, q: Scored): boolean =>
+        p.scoreKey.join() === q.scoreKey.join() &&
+        JSON.stringify([...p.subs].map((x) => [x.loc, x.name]).sort()) === JSON.stringify([...q.subs].map((x) => [x.loc, x.name]).sort()) &&
+        JSON.stringify(p.unsat) === JSON.stringify(q.unsat) &&
+        p.suffixLocs.join() === q.suffixLocs.join();
+      if (best && sameName(cand, best)) best.reversible = true;
+      else if (!best || lexLess(cand.scoreKey, best.scoreKey)) best = cand;
     }
     return best!;
   };
@@ -651,7 +678,7 @@ function nameAcyclic(
   const prefixes = prefixString(subList);
   if (typeof prefixes !== "string") return refuse(prefixes.refusal);
   const full = prefixes ? `${prefixes}${/^[0-9]/.test(name) ? "-" : ""}${name}` : name;
-  return { name: full, caveats: [] };
+  return { name: full, caveats: [], chain: chosen.chain, reversible: chosen.reversible };
 }
 
 // ---------------------------------------------------------------------------

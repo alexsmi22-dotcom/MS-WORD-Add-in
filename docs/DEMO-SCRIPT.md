@@ -31,6 +31,12 @@ real pane before this script was written; re-run it after each chemistry release
 3. Erase one η-bond (Erase tool, click its line), then **η-bond**: click inside that ring, then Zr — the bond drawn by hand.
 4. **Insert 2D structure** (ChemDraw size). The readout says plainly why there is no single formula.
 
+## 2c. Stereo in the name (Build ▸ Draw) — 30 s
+1. With L-alanine or (R)-butan-2-ol drawn, the readout's **Stereo** line gives the claim-ready name: (2S)-2-aminopropanoic
+   acid / (2R)-butan-2-ol. Flip a wedge → the descriptor flips.
+2. (If asked) a centre JurisLab cannot decide is refused by name, never guessed — checked against the CIP Validation
+   Suite with zero wrong labels.
+
 ## 3. A ChemDraw file — 2 min
 1. **Open ChemDraw file…**, pick the file: its structures appear as a list (those marked "page" carry polymer brackets, a counter-ion or a generic atom).
 2. Click one → it opens in the editor, full size, editable. Change an atom; **Insert**.

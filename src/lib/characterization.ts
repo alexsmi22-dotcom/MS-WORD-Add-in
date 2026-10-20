@@ -107,7 +107,8 @@ export interface CharCompound {
 /** Hill order: C, H (then D), the rest alphabetical; with no carbon, all alphabetical. */
 function hillHtml(counts: Record<string, number>, labelled: CharCompound["labelled"]): string {
   const els = Object.keys(counts).filter((e) => counts[e] > 0);
-  for (const l of labelled) if (!els.includes(l.symbol) && !(l.symbol === "H" && l.A === 2)) els.push(l.symbol);
+  // Labelled atoms take their element's place (D and T at H: D₂O, not OD₂).
+  for (const l of labelled) if (!els.includes(l.symbol)) els.push(l.symbol);
   const hasC = els.includes("C") || labelled.some((l) => l.symbol === "C");
   const order = hasC
     ? ["C", "H", ...els.filter((e) => e !== "C" && e !== "H").sort()]

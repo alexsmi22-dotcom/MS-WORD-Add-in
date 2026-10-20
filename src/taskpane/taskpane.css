@@ -2613,6 +2613,13 @@ select {
 .scheme-notes li.scheme-error { border-left-color: var(--error); color: var(--error); }
 .scheme-notes li.scheme-warn { border-left-color: var(--warn); color: var(--warn); background: var(--warn-bg); }
 #reaction-open-canvas { margin-top: 6px; }
+.scheme-register { margin: 8px 0; font-size: 12px; }
+.scheme-register summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.scheme-register .hint { margin: 4px 0 6px; }
+.scheme-reg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; border-top: 1px solid var(--rule); }
+.scheme-reg-row b { min-width: 2.2em; }
+.scheme-reg-what { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; color: var(--ink-2); }
+.scheme-reg-row button { font-size: 11px; padding: 2px 8px; }
 #reaction-preview svg { max-width: 100%; height: auto; }
 /* The drawn scheme with its footnote under it (the preview is otherwise a centred row). */
 #reaction-preview.scheme-preview { flex-direction: column; gap: 6px; }

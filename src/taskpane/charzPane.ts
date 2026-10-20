@@ -30,6 +30,8 @@ export interface CharzPaneDeps {
   insertOoxml: (ooxml: string, label: string) => Promise<boolean>;
   /** The structure drawn in Build, as SMILES — null when there is none (or it is generic). */
   buildSmiles: () => string | null;
+  /** The document's compound register: what the Compound field reads ("compound 3" → its structure), and a note. */
+  compoundInput?: (text: string, readsOtherwise: boolean) => { input: string; note: string | null; label: string | null };
 }
 
 export interface CharzPaneApi {
@@ -84,7 +86,14 @@ export function initCharzPane(deps: CharzPaneDeps): CharzPaneApi {
     let refused = false;
     info.textContent = "";
     if (compoundIn.value.trim()) {
-      const r = resolveCompound(compoundIn.value);
+      // "compound 3" (or a bare 3 that reads as nothing else) is the document's compound 3.
+      let input = compoundIn.value;
+      if (deps.compoundInput) {
+        const pick = deps.compoundInput(input, !("refusal" in resolveCompound(input)));
+        input = pick.input;
+        if (pick.note) add("Compound", [{ level: "info", text: pick.note }]);
+      }
+      const r = resolveCompound(input);
       if ("refusal" in r) {
         refused = true;
         add("Compound", [{ level: "error", text: r.refusal }]);

@@ -472,6 +472,7 @@ import {
   differencesFromStandard,
 } from "../lib/geneticCode";
 import { auditDocument, AuditReport } from "../lib/audit";
+import { REGISTER_SETTING, typesetFormula, autoNumberer, checkAgainstRegister, compoundFieldInput, forgetCompound, mergeIntoRegister, readRegister, writeRegister, type CompoundRegister } from "../lib/compoundRegister";
 import { parseScheme, buildScheme, countSchemeCaptions, smallestFontPt, titleWithBoldLabels, type SchemeBuild, type SchemeWidth } from "../lib/scheme";
 import { inlineParagraphsOoxml, schemeCaptionOoxml } from "../lib/bibOoxml";
 import { formatSeqIdRef, formatSeqIdRefs } from "../lib/seqid";
@@ -974,6 +975,9 @@ let reactionCaptionCheck: HTMLInputElement;
 let reactionTitleInput: HTMLInputElement;
 let reactionNotesEl: HTMLElement;
 let reactionOpenCanvasBtn: HTMLButtonElement;
+let reactionAutonumCheck: HTMLInputElement;
+let reactionRegisterSummary: HTMLElement;
+let reactionRegisterList: HTMLElement;
 let auditSection: HTMLElement;
 let auditRunBtn: HTMLButtonElement;
 let auditResults: HTMLElement;
@@ -1734,6 +1738,9 @@ Office.onReady((info) => {
   reactionTitleInput = document.getElementById("reaction-title") as HTMLInputElement;
   reactionNotesEl = document.getElementById("reaction-notes") as HTMLElement;
   reactionOpenCanvasBtn = document.getElementById("reaction-open-canvas") as HTMLButtonElement;
+  reactionAutonumCheck = document.getElementById("reaction-autonum") as HTMLInputElement;
+  reactionRegisterSummary = document.getElementById("reaction-register-summary") as HTMLElement;
+  reactionRegisterList = document.getElementById("reaction-register-list") as HTMLElement;
   auditSection =document.getElementById("audit-section") as HTMLElement;
   auditRunBtn = document.getElementById("audit-run-btn") as HTMLButtonElement;
   auditResults = document.getElementById("audit-results") as HTMLElement;
@@ -1880,6 +1887,8 @@ Office.onReady((info) => {
     insertOoxml: insertRunsText,
     // The structure as Build holds it now — generic (R groups) has no formula, so none.
     buildSmiles: () => (currentBuild && !currentBuild.generic && currentBuild.smiles ? currentBuild.smiles : null),
+    // "compound 3": the document's compound register (filled by Reaction's scheme inserts).
+    compoundInput: (text, readsOtherwise) => compoundFieldInput(loadCompoundRegister().register, text, readsOtherwise),
   });
   seqmapOpenBtn = document.getElementById("seqmap-open") as HTMLButtonElement;
   seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
@@ -2175,6 +2184,7 @@ Office.onReady((info) => {
   reactionWidthSelect.addEventListener("change", updateReactionPreview);
   reactionConditionsSelect.addEventListener("change", updateReactionPreview);
   reactionOpenCanvasBtn.addEventListener("click", openSchemeInCanvas);
+  reactionAutonumCheck.addEventListener("change", updateReactionPreview);
 
   auditRunBtn.addEventListener("click", runAudit);
 
@@ -7053,15 +7063,22 @@ function updateReactionPreview(): void {
     updateReactionBalance(text);
     return;
   }
-  const built = buildScheme(parseScheme(text), {
+  const reg = loadCompoundRegister();
+  renderCompoundRegister(reg.register);
+  const parsed = parseScheme(text);
+  const typed = parsed.stages.flat().map((c) => c.label).filter((l): l is string => !!l);
+  const built = buildScheme(parsed, {
     width: (reactionWidthSelect.value as SchemeWidth) || "page",
     lettered: reactionConditionsSelect.value === "lettered",
+    numberFor: reactionAutonumCheck.checked ? autoNumberer(reg.register, typed) : undefined,
   });
   if (!built.ok) {
     reactionPreviewEl.replaceChildren();
     showReactionNotes(built.errors, built.notes);
     return;
   }
+  // The document's numbering, checked against this scheme (warnings: the numbers are the chemist's).
+  built.notes.push(...reg.notes, ...checkAgainstRegister(reg.register, built.compounds));
   // The page's own renderer drew it (its text is escaped there).
   reactionPreviewEl.innerHTML = built.svg;
   reactionPreviewEl.classList.add("scheme-preview");
@@ -7075,6 +7092,68 @@ function updateReactionPreview(): void {
   currentScheme = built;
   reactionInsertBtn.disabled = reactionInserting;
   reactionOpenCanvasBtn.disabled = false;
+}
+
+/** The document's compound register, read from its settings (empty where the host has none). */
+function loadCompoundRegister(): { register: CompoundRegister; notes: string[] } {
+  try {
+    return readRegister(docHost.getSetting(REGISTER_SETTING));
+  } catch {
+    // Not read is not empty: what is stored is never written over from here.
+    return { register: { entries: [], writable: false }, notes: ["The document's compound register could not be read here, so it is not used or changed."] };
+  }
+}
+
+/** Writes the register into the document's settings; resolves false (and says so) when the host could not save. */
+function saveCompoundRegister(reg: CompoundRegister): Promise<boolean> {
+  return new Promise((resolve) => {
+    // A stored register this version could not read is never written over.
+    if (reg.writable === false) return resolve(false);
+    try {
+      docHost.setSetting(REGISTER_SETTING, writeRegister(reg));
+      docHost.saveSettings((r) => resolve(r.succeeded));
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/** The "Compounds in this document" list: each number, its formula and what it was typed as; Insert number / Forget. */
+function renderCompoundRegister(reg: CompoundRegister): void {
+  reactionRegisterSummary.textContent = `Compounds in this document (${reg.entries.length})`;
+  reactionRegisterList.replaceChildren();
+  for (const e of reg.entries) {
+    const row = document.createElement("div");
+    row.className = "scheme-reg-row";
+    const b = document.createElement("b");
+    b.textContent = e.label;
+    const what = document.createElement("span");
+    what.className = "scheme-reg-what";
+    what.textContent = `${typesetFormula(e.formula)}${e.text && e.text !== e.formula ? ` — ${e.text.length > 48 ? `${e.text.slice(0, 48)}…` : e.text}` : ""}`;
+    const ins = document.createElement("button");
+    ins.type = "button";
+    ins.textContent = "Insert number";
+    ins.title = `Put a bold ${e.label} at the cursor`;
+    ins.addEventListener("click", () => void insertRunsText(inlineParagraphsOoxml([`<b>${esc(e.label)}</b>`]), `Compound ${e.label}`));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "Forget";
+    del.title = `Take ${e.label} out of this document's register (the document's text is not changed)`;
+    del.addEventListener("click", async () => {
+      const next = forgetCompound(loadCompoundRegister().register, e.label);
+      const ok = await saveCompoundRegister(next);
+      renderCompoundRegister(ok ? next : loadCompoundRegister().register);
+      updateReactionPreview();
+      setStatus(
+        ok
+          ? `Compound ${e.label} is no longer in this document's register; the text is unchanged — a bold ${e.label} already in the document still reads as it did, and Number new compounds may use ${e.label} again.`
+          : `Compound ${e.label} could not be taken out: Word did not save the change.`,
+        ok ? "success" : "error",
+      );
+    });
+    row.append(b, what, ins, del);
+    reactionRegisterList.appendChild(row);
+  }
 }
 
 /** The scheme's errors (it is not drawn) and notes (it is), beside the preview. */
@@ -7184,7 +7263,24 @@ async function insertReactionNow(): Promise<void> {
     const kept = await docHost.insertResultLayout(items);
     if (kept === 0) return setStatus("Word did not keep the scheme picture — try again with the cursor in a body paragraph.", "error");
     const parts = [n ? `Scheme ${n}` : "Reaction scheme", sc.footnote ? "with its Reagents and conditions footnote" : ""].filter(Boolean).join(" ");
-    setStatus(`${parts} inserted. ${fit.note}${n ? " Word renumbers Scheme captions when fields update (select all, F9)." : ""}`.trim(), "success");
+    // The numbers go into the document's register only once the scheme is in the document.
+    const merged = mergeIntoRegister(loadCompoundRegister().register, sc.compounds);
+    let regNote = "";
+    let regFailed = false;
+    if (merged.added.length || merged.kept.length) {
+      const saved = merged.added.length ? await saveCompoundRegister(merged.register) : true;
+      regFailed = !saved;
+      if (saved) renderCompoundRegister(merged.register);
+      if (merged.added.length)
+        regNote += saved
+          ? ` Compound${merged.added.length === 1 ? "" : "s"} ${merged.added.join(", ")} added to this document's register.`
+          : merged.register.writable === false
+            ? " The numbers were not registered: this document's compound register could not be read, and it is left as it is."
+            : " Word could not save the compound register.";
+      if (merged.kept.length)
+        regNote += ` ${merged.kept.join(", ")} ${merged.kept.length === 1 ? "stays" : "stay"} registered for the structure already there; this scheme's ${merged.kept.length === 1 ? "use is" : "uses are"} not recorded.`;
+    }
+    setStatus(`${parts} inserted.${regNote} ${fit.note}${n ? " Word renumbers Scheme captions when fields update (select all, F9)." : ""}`.trim(), regFailed ? "error" : merged.kept.length ? "" : "success");
   } catch (error) {
     setStatus(`Could not insert reaction scheme: ${(error as Error).message}`, "error");
   } finally {

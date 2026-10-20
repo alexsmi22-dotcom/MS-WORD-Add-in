@@ -22,6 +22,7 @@ import { renderCdx } from "./cdxmlRender";
 import { parseReaction, typesetConditions, type ArrowType } from "./reactions";
 import { duplicateRingClosure, lookupSmiles, resolveChemInput } from "./structures";
 import { textWidthPt } from "./arialMetrics";
+import { compoundFromMolecule } from "./characterization";
 import type { XNode } from "./xmlLite";
 
 export interface SchemeCompound {
@@ -63,7 +64,7 @@ function arrowTypeOf(token: string): ArrowType {
  * A compound number: 1, 2a, 10b, S3, SI-4, 3′, 3'', ent-3, rac-5. Letters before the digits are capitals
  * (S for a Supporting-Information compound), after them lowercase (a series), then up to two primes.
  */
-const NUMBER_LIKE = /^(?:(?:ent|rac|rel)-)?(?:[A-Z]{1,2}-?)?\d{1,4}[a-z]{0,2}(?:['′″]{1,2})?$/;
+export const NUMBER_LIKE = /^(?:(?:ent|rac|rel)-)?(?:[A-Z]{1,2}-?)?\d{1,4}[a-z]{0,2}(?:['′″]{1,2})?$/;
 
 /** A trailing " (label)" after a space: SMILES never hold a space, names keep their brackets unspaced. */
 const TRAILING_LABEL = /^(.*\S)\s+\(([^()]*)\)$/;
@@ -76,7 +77,8 @@ export function splitLabel(raw: string): { text: string; label: string | null; e
     if (/^\(([^()]*)\)$/.test(s)) return { text: "", label: null, error: `“${s}” is a compound number with no compound before it.` };
     return { text: s, label: null };
   }
-  const label = m[2].trim().replace(/''/g, "″").replace(/'/g, "′");
+  // Primes as typed or pasted from Word (' and ’), and a doubled prime, are the register's ′ and ″ (compoundRegister).
+  const label = m[2].trim().replace(/[’']/g, "′").replace(/′′/g, "″");
   if (!NUMBER_LIKE.test(label)) {
     return {
       text: m[1],
@@ -177,6 +179,11 @@ export interface SchemeOptions {
   width?: SchemeWidth;
   /** Letters (a), (b) on the arrows and a "Reagents and conditions" footnote, instead of text on the arrows. */
   lettered?: boolean;
+  /**
+   * "Number new compounds": the number for an unlabelled compound, from its structure (compoundRegister.autoNumberer:
+   * the document's own number when it has one, else the next free one). Absent: unlabelled compounds stay unnumbered.
+   */
+  numberFor?: (idcode: string) => string;
 }
 
 export interface SchemeCompoundOut {
@@ -291,6 +298,30 @@ const MAX_LETTERS = 26;
 /** How far an equilibrium arrow's upper shaft and half-head rise above the arrow line, in points. */
 const EQ_RISE = 3;
 
+const SUB_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
+const SUP_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+const subs = (d: string): string => [...d].map((c) => SUB_DIGITS[Number(c)]).join("");
+const sups = (d: string): string => [...d].map((c) => SUP_DIGITS[Number(c)]).join("");
+
+/**
+ * The molecular formula as printed: Hill order (C, H, then alphabetical; Na after C, H: C₂H₃NaO₂), counts lowered,
+ * D and T written as such, the net charge raised (C₄H₁₂N⁺, C₂H₃O₂⁻) — the formula Characterization prints.
+ */
+export function formulaText(mol: Molecule): string {
+  const c = compoundFromMolecule(mol);
+  if ("refusal" in c) {
+    try {
+      return mol.getMolecularFormula().formula.replace(/(\d+)/g, (d) => subs(d));
+    } catch {
+      return "";
+    }
+  }
+  let t = c.formulaHtml.replace(/<sub>(\d+)<\/sub>/g, (_m, d: string) => subs(d)).replace(/<sup>(\d+)<\/sup>/g, (_m, d: string) => sups(d));
+  const q = c.netCharge;
+  if (q) t += (Math.abs(q) > 1 ? sups(String(Math.abs(q))) : "") + (q > 0 ? "⁺" : "⁻");
+  return t;
+}
+
 const short = (t: string): string => (t.length > 40 ? `${t.slice(0, 40)}…` : t);
 
 /**
@@ -365,41 +396,48 @@ export function buildScheme(parsed: ParsedScheme, opts: SchemeOptions = {}): Sch
   }
   if (atoms > MAX_SCHEME_ATOMS) errors.push(`This scheme has ${atoms} atoms in all — one figure draws up to ${MAX_SCHEME_ATOMS}, so the pane stays quick; split it into two schemes.`);
   if (errors.length) return { ok: false, errors, notes };
+  // Every compound laid out and identified first: a number typed on any copy of a structure is that structure's
+  // number for its unlabelled copies too, wherever they stand in the scheme.
+  const ids = new Map<Molecule, string>();
+  const typedFor = new Map<string, string>();
+  for (const { c, r } of resolved.flat()) {
+    if (!r.ok) continue;
+    try {
+      r.mol.inventCoordinates();
+    } catch {
+      /* coordinates from the parser */
+    }
+    // After the layout: an idcode without coordinates carries no stereo ((R) and (S) would compare equal).
+    const idcode = r.mol.getIDCode();
+    ids.set(r.mol, idcode);
+    if (c.label && !typedFor.has(idcode)) typedFor.set(idcode, c.label);
+  }
   for (const stage of resolved) {
     const row: Array<{ id: string; label: string | null }> = [];
     for (const { c, r } of stage) {
       if (!r.ok) continue;
-      try {
-        r.mol.inventCoordinates();
-      } catch {
-        /* coordinates from the parser */
-      }
-      // After the layout: an idcode without coordinates carries no stereo ((R) and (S) would compare equal).
-      const idcode = r.mol.getIDCode();
-      if (c.label) {
-        const prev = byLabel.get(c.label);
-        if (prev && prev.idcode !== idcode) errors.push(`Compound ${c.label} is used twice in this scheme for different structures (“${prev.text}” and “${c.text}”).`);
-        else byLabel.set(c.label, { idcode, text: c.text });
+      const idcode = ids.get(r.mol) ?? r.mol.getIDCode();
+      const here = c.label ? undefined : (typedFor.get(idcode) ?? [...byLabel].find(([, v]) => v.idcode === idcode)?.[0]);
+      const label = c.label ?? (opts.numberFor ? (here ?? opts.numberFor(idcode)) : null);
+      if (label) {
+        const prev = byLabel.get(label);
+        if (prev && prev.idcode !== idcode) errors.push(`Compound ${label} is used twice in this scheme for different structures (“${prev.text}” and “${c.text}”).`);
+        else byLabel.set(label, { idcode, text: c.text });
       }
       const pageMol = moleculeToPage(doc0, r.mol, [0, 0]);
       if (!pageMol.ok) {
         errors.push(`“${c.text}” cannot be drawn on a scheme page: ${pageMol.reason}.`);
         continue;
       }
-      let formula = "";
-      try {
-        formula = r.mol.getMolecularFormula().formula;
-      } catch {
-        /* none */
-      }
+      const formula = formulaText(r.mol);
       let smiles = r.smiles;
       try {
         smiles = r.mol.toIsomericSmiles();
       } catch {
         /* as typed */
       }
-      compounds.push({ label: c.label, text: c.text, smiles, idcode, formula });
-      row.push({ id: pageMol.fragmentId, label: c.label });
+      compounds.push({ label, text: c.text, smiles, idcode, formula });
+      row.push({ id: pageMol.fragmentId, label });
     }
     placed.push(row);
   }

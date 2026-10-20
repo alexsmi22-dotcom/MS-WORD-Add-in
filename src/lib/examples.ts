@@ -403,6 +403,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><code>aspirin (1)</code> / <code>-&gt; NaOH, H2O ; 100 °C, 2 h</code> / <code>salicylic acid (2)</code> — numbers in bold under the structures, H₂O typeset.</li>
       <li>Number a compound with a space and its number in brackets: <code>(1)</code>, <code>(2a)</code>, <code>(S3)</code>, <code>(3′)</code>.</li>
       <li>The one-line form still works: <code>CCO + CC(=O)O &gt;&gt; CC(=O)OCC ; H2SO4 ; reflux</code>.</li>
+      <li>Inserted numbers are kept by the document (<strong>Compounds in this document</strong>): a number reused for another structure, or a skipped one, is flagged; <strong>Number new compounds</strong> fills in the next free numbers; Characterization reads <code>compound 3</code>.</li>
       <li><strong>Conditions ▸ Lettered</strong> puts (a), (b) on the arrows and a "Reagents and conditions" footnote under the scheme; <strong>Scheme caption</strong> adds "Scheme N." above it.</li>
       <li>Each component is a name or SMILES (e.g. <code>aspirin</code>, <code>c1ccccc1</code>).</li>
       <li><strong>Read as Formulas</strong> to balance instead of draw: <code>Fe + O2 -&gt; Fe2O3</code> → 4 Fe + 3 O₂ → 2 Fe₂O₃, with the conservation table and chart; ions as <code>MnO4^-</code>, electrons as <code>e-</code>. <code>C + O2 -&gt; CO + CO2</code> is refused: 2 independent balancings, both shown. The reading is chosen, never guessed — <code>CO</code> is methanol as SMILES and carbon monoxide as a formula.</li>

@@ -217,7 +217,8 @@ describe("Reaction mode: Structures | Formulas is an explicit toggle", () => {
     // v2.166.0: the Structures reading draws through the scheme engine (scheme.ts), whose components are read in
     // mode "smiles" and whose coefficient refusal runs only on components that FAILED to resolve: a name can start
     // with a locant (1-propanol) and must still draw.
-    expect(body).toMatch(/buildScheme\(parseScheme\(text\)/);
+    expect(body).toMatch(/const parsed = parseScheme\(text\)/);
+    expect(body).toMatch(/buildScheme\(parsed, \{/);
     const drawn = buildScheme(parseScheme("1-propanol >> CCC"));
     expect(drawn.ok).toBe(true);
     const coeff = buildScheme(parseScheme("3H2 + N2 >> 2NH3"));

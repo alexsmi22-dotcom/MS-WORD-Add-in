@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.166.0)
+# JurisLab — Manual Test Script (v2.167.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,21 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0df. New in v2.167.0 — Chemistry: compound numbers kept by the document
+
+- [ ] ★ **Register on insert.** Reaction: `aspirin (1)` / `-> NaOH ; 100 °C` / `salicylic acid (2)` → Insert → the status
+  says "Compounds 1, 2 added to this document's register"; **Compounds in this document (2)** lists 1 C₉H₈O₄ —
+  aspirin and 2 C₇H₆O₃ — salicylic acid. Save, close and reopen the document → the list is still there.
+- [ ] **Warnings.** Type `phenol (2)` → "Compound 2 is already in this document as C₇H₆O₃ (salicylic acid) — here it is
+  C₆H₆O (phenol)." Type `aspirin (5)` → "“aspirin” is compound 1 in this document — here it is numbered 5", and
+  "Compound 5 skips 3–4". The scheme still draws and inserts.
+- [ ] **Number new compounds.** Tick it; type `aspirin` / `-> x` / `phenol` → aspirin drawn as **1**, phenol as **3**.
+- [ ] **Insert number** on row 2 → a bold **2** at the cursor. **Forget** row 2 → gone from the list; the document's
+  text unchanged.
+- [ ] **Characterization.** Compound `compound 1` → C₉H₈O₄ and "Compound 1 of this document: C₉H₈O₄ (aspirin)" in the
+  checks. Register a scheme with `benzene (S3)`, then Compound `S3` → read as the formula S₃, with the note to write
+  `compound S3`; `compound S3` → benzene.
 
 ## 0de. New in v2.166.0 — Chemistry: numbered reaction schemes
 

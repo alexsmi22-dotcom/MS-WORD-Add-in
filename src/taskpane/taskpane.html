@@ -719,11 +719,17 @@
               <option value="lettered">Lettered (a), (b) with a footnote</option>
             </select>
           </div>
+          <label class="scheme-check"><input type="checkbox" id="reaction-autonum" /> Number new compounds (the next free numbers in this document)</label>
           <label class="scheme-check"><input type="checkbox" id="reaction-caption" /> Scheme caption above (Scheme 1. …)</label>
           <input id="reaction-title" class="build-input" type="text" spellcheck="true" placeholder="Title (optional), e.g. Synthesis of 2" />
         </div>
         <div id="reaction-preview" class="structure-preview" aria-live="polite"></div>
         <ul id="reaction-notes" class="scheme-notes" aria-live="polite"></ul>
+        <details id="reaction-register" class="scheme-register">
+          <summary id="reaction-register-summary">Compounds in this document (0)</summary>
+          <p class="hint">Filled as schemes are inserted: each number with its structure. Characterization reads them too (“compound 3”).</p>
+          <div id="reaction-register-list"></div>
+        </details>
         <button id="reaction-insert-btn" class="insert-btn" type="button" disabled>Insert reaction scheme</button>
         <button id="reaction-open-canvas" class="draw-pop-btn" type="button" disabled title="Open this scheme on the Build page canvas to move or edit anything by hand">Open in Build canvas</button>
       </section>

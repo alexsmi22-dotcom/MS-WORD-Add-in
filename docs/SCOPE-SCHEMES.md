@@ -67,7 +67,7 @@ v2.166.0: drawing, numbers, per-arrow conditions, wrapping, lettered footnote, c
 Open in Build canvas. v2.167.0: the document compound register and the Characterization
 link below (the larger correctness surface, reviewed on its own).
 
-## Compound register (in the document) — v2.167.0
+## Compound register (in the document) — v2.167.0 (built)
 
 A document setting (as the reference numerals are) maps each label to the structure
 (OCL idcode, canonical SMILES, formula). It is written on insert, not on preview.

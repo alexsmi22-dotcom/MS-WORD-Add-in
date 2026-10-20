@@ -122,3 +122,26 @@ describe("Characterization pane", () => {
     expect($("charz-preview").textContent).toContain("<img src=x onerror=alert(1)>");
   });
 });
+
+describe("Characterization reads the document's compound register (v2.167.0)", () => {
+  it("“compound 3” is the registered structure, and the check list says so", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { compoundFieldInput, mergeIntoRegister } = require("../compoundRegister");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { buildScheme, parseScheme } = require("../scheme");
+    const b = buildScheme(parseScheme("aspirin (3)"));
+    const register = mergeIntoRegister({ entries: [] }, b.compounds).register;
+    document.body.innerHTML = SECTION;
+    const api = initCharzPane({
+      setStatus: () => undefined,
+      insertOoxml: async () => true,
+      buildSmiles: () => null,
+      compoundInput: (t, reads) => compoundFieldInput(register, t, reads),
+    });
+    const c = document.getElementById("charz-compound") as HTMLInputElement;
+    c.value = "compound 3";
+    api.update();
+    expect($("charz-compound-info").textContent).toMatch(/C9H8O4|C₉H₈O₄/);
+    expect($("charz-checks").textContent).toMatch(/Compound 3 of this document: C₉H₈O₄ \(aspirin\)/);
+  });
+});

@@ -121,6 +121,7 @@ RUN R9 {
 == reaction/reaction-draw-btn
 OFFICE displayDialogAsync("drawdialog.html", {height:75,width:70})
 OFFICE dialog.close()
+OFFICE settings.get("jurislab.compounds") -> null
    status: Drawn structure added to the reaction as SMILES.
 == reaction/reaction-insert-btn
 RUN R10 {
@@ -144,6 +145,9 @@ RUN R11 {
 } R11
    status: Balanced equation and conservation chart inserted.
 == reaction/reaction-insert-btn#2
+OFFICE settings.get("jurislab.compounds") -> null
+OFFICE settings.get("jurislab.compounds") -> null
+OFFICE settings.get("jurislab.compounds") -> null
 RUN R12 {
   #45 = R12.document.body.inlinePictures.load("items")
   R12.sync()
@@ -160,7 +164,11 @@ RUN R12 {
   #52 = R12.document.body.inlinePictures.load("items")
   R12.sync()
 } R12
+OFFICE settings.get("jurislab.compounds") -> null
    status: Reaction scheme inserted. It is inserted at ChemDraw's size. Its smallest letters are 7.5 pt, under the USPTO's 1/8-inch minimum (12.7 pt) — for a filing figure
+== reaction/reaction-open-canvas
+OFFICE settings.get("jurislab.compounds") -> null
+   status: The scheme opened on the Build page canvas — move or edit anything, then Insert there.
 == massspec/ms-insert
 RUN R13 {
   #53 = R13.document.getSelection()
@@ -187,6 +195,11 @@ RUN R14 {
 } R14
    status: Isotope pattern inserted.
 == charz/charz-insert
+OFFICE settings.get("jurislab.compounds") -> null
+OFFICE settings.get("jurislab.compounds") -> null
+OFFICE settings.get("jurislab.compounds") -> null
+OFFICE settings.get("jurislab.compounds") -> null
+OFFICE settings.get("jurislab.compounds") -> null
 RUN R15 {
   #61 = R15.document.getSelection()
   #62 = #61.insertOoxml(s2183:ac4d1655, "after")

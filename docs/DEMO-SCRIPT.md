@@ -60,6 +60,8 @@ real pane before this script was written; re-run it after each chemistry release
    reagents above and conditions below each arrow (H₂O, H₂SO₄ typeset).
 3. Tick **Scheme caption above**, title `Synthesis of 3` → **Insert reaction scheme**: "**Scheme 1.** Synthesis of **3**"
    above the picture. Optional: Conditions ▸ **Lettered** → (a), (b) and a Reagents and conditions footnote.
+4. Open **Compounds in this document** → 1, 2, 3 with their formulas. Type `phenol (2)` → the warning that 2 is
+   already salicylic acid. In **Characterization**, Compound `compound 3` → methyl salicylate's formula.
 
 ## 5. Spectra and mass (Spectra, Mass Spec) — 2 min
 1. Tool ▸ **Spectra**, type **ibuprofen**: predicted ¹H NMR — shifts, multiplicities, J, assignments; the notes on

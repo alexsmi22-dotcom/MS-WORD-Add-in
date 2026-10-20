@@ -222,7 +222,7 @@ describe("drawing", () => {
   test("compounds are reported with their numbers and SMILES", () => {
     const b = buildScheme(parseScheme("aspirin (1)\n-> NaOH\nsalicylic acid (2)"));
     if (!b.ok) throw new Error(b.errors.join());
-    expect(b.compounds.map((c) => [c.label, c.formula])).toEqual([["1", "C9H8O4"], ["2", "C7H6O3"]]);
+    expect(b.compounds.map((c) => [c.label, c.formula])).toEqual([["1", "C₉H₈O₄"], ["2", "C₇H₆O₃"]]);
   });
   test("the drawing has no empty tspan undoing a shift (rasterisers skip it)", () => {
     const b = buildScheme(parseScheme("CCO\n-> LiAlH4, THF\nCC"));

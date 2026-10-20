@@ -6,6 +6,25 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.167.0] — 2026-10-20 — Chemistry: compound numbers kept by the document
+
+Organic chemistry, item 3 (second half): the numbers in a document's schemes and Examples are one numbering.
+
+### Added
+- **The document's compound register.** Each number used in an inserted scheme is kept in the document (its
+  settings, as the reference numerals are) with the structure it stands for. Reaction lists them under **Compounds in
+  this document**: number, formula, what it was typed as — **Insert number** puts a bold number at the cursor;
+  **Forget** takes one out (the document's text is not changed).
+- **Checks before you insert** (warnings — the numbering is yours): a number the document already uses for a
+  different structure ("Compound 2 is already in this document as C₇H₆O₃ (salicylic acid) — here it is C₆H₆O"); a
+  structure the document already numbers otherwise; a new number that skips ("Compound 7 skips 5–6"). Stereo counts:
+  (R) and (S) are different compounds. A number registered for another structure is never overwritten.
+- **Number new compounds** (Reaction): unnumbered compounds take the next free numbers in the document; one the
+  document already numbers keeps its number, and a compound drawn twice in one scheme gets one number.
+- **Characterization reads the register**: Compound `compound 3` (or `cpd 3`, or a bare `3`) is the document's
+  compound 3, said in the checks. A bare label that is also something else (`S3` is the formula S₃) is read as typed,
+  and the checks say to write `compound S3` for the register's.
+
 ## [2.166.0] — 2026-10-20 — Chemistry: numbered reaction schemes
 
 Organic chemistry, item 3: the scheme as a journal draws it.

@@ -675,8 +675,10 @@
       <!-- Reaction schemes: reactants → products with conditions over the arrow -->
       <section id="reaction-section">
         <p class="seq-disclaimer">
-          Reactants <code>+</code> reactants <code>&gt;&gt;</code> products, with optional
-          <code>; over ; under</code> conditions. Each component is a name or SMILES.
+          One compound line, then an arrow line, then the next compound line: an arrow line starts with
+          <code>-&gt;</code> (or <code>&lt;=&gt;</code>, <code>&lt;-</code>) and carries <code>reagents ; conditions</code>.
+          Number a compound with a space and its number in brackets: <code>aspirin (1)</code>, <code>CCO (2a)</code>.
+          The one-line form <code>A + B &gt;&gt; C ; over ; under</code> still works.
           Choose <strong>Formulas</strong> to balance an equation of formulas
           (<code>Fe + O2 -&gt; Fe2O3</code>, ions as <code>MnO4^-</code>, electrons as <code>e-</code>).
           Drafting aid — verify before filing.
@@ -692,17 +694,38 @@
         <textarea
           id="reaction-input"
           class="build-input"
-          rows="3"
+          rows="5"
           spellcheck="false"
-          placeholder="CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux"
+          placeholder="aspirin (1)&#10;-&gt; NaOH, H2O ; 100 °C, 2 h&#10;salicylic acid (2)"
         ></textarea>
         <div class="draw-btn-row">
           <button id="reaction-draw-btn" class="draw-pop-btn" type="button" title="Draw a structure on the large canvas; it comes back as SMILES at the cursor">
             Draw a component ⤢
           </button>
         </div>
+        <div id="reaction-scheme-opts" class="scheme-opts">
+          <div class="scheme-opt-row">
+            <label class="field-label" for="reaction-width">Wrap at</label>
+            <select id="reaction-width" class="lib-select">
+              <option value="page">Page width (6.5 in)</option>
+              <option value="acs1">ACS single column (3.25 in)</option>
+              <option value="acs2">ACS double column (7 in)</option>
+            </select>
+          </div>
+          <div class="scheme-opt-row">
+            <label class="field-label" for="reaction-conditions">Conditions</label>
+            <select id="reaction-conditions" class="lib-select">
+              <option value="arrows">On the arrows</option>
+              <option value="lettered">Lettered (a), (b) with a footnote</option>
+            </select>
+          </div>
+          <label class="scheme-check"><input type="checkbox" id="reaction-caption" /> Scheme caption above (Scheme 1. …)</label>
+          <input id="reaction-title" class="build-input" type="text" spellcheck="true" placeholder="Title (optional), e.g. Synthesis of 2" />
+        </div>
         <div id="reaction-preview" class="structure-preview" aria-live="polite"></div>
+        <ul id="reaction-notes" class="scheme-notes" aria-live="polite"></ul>
         <button id="reaction-insert-btn" class="insert-btn" type="button" disabled>Insert reaction scheme</button>
+        <button id="reaction-open-canvas" class="draw-pop-btn" type="button" disabled title="Open this scheme on the Build page canvas to move or edit anything by hand">Open in Build canvas</button>
       </section>
 
       <!-- Plotting: function + data charts -->

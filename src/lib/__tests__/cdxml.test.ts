@@ -104,11 +104,14 @@ describe("drawing it as ChemDraw does", () => {
     const svg = svgOf(`<fragment id="2"><n id="3" p="10 10" NumHydrogens="3"><t p="6 13.5" BoundingBox="6 4 26 16"><s font="3" size="10" face="96">CH3</s></t></n></fragment>
       <t id="9" p="60 60"><s font="3" size="12" face="96">NH4+</s></t>`);
     expect(svg).toContain('font-size="10">CH</tspan><tspan font-family="Arial, Arial, Helvetica, sans-serif" font-size="7.5" dy="2.5">3</tspan>');
-    expect(svg).toContain('font-size="9" dy="-4.8">+</tspan>');
+    // NH₄⁺: the 4 is lowered by 3, so the + rises 3 + 4.8 from there (the shift back rides on the next piece).
+    expect(svg).toContain('font-size="9" dy="-7.8">+</tspan>');
   });
   test("a caption's subscript run (face 0x20) is a subscript", () => {
     const svg = svgOf(`<t id="9" p="10 20"><s font="3" size="12">CH</s><s font="3" size="12" face="32">3</s><s font="3" size="12">I</s></t>`);
-    expect(svg).toMatch(/>CH<\/tspan><tspan[^>]*font-size="9" dy="3">3<\/tspan><tspan dy="-3"><\/tspan><tspan[^>]*font-size="12">I</);
+    expect(svg).toMatch(/>CH<\/tspan><tspan[^>]*font-size="9" dy="3">3<\/tspan><tspan[^>]*font-size="12" dy="-3">I</);
+    // No empty <tspan dy> to undo a shift: some rasterisers skip it and lower the rest of the line.
+    expect(svg).not.toMatch(/<tspan dy="[^"]*"><\/tspan>/);
   });
   test("a stacked label (H below N) puts the element's line at p and the H under it", () => {
     const svg = svgOf(`<fragment id="2"><n id="3" p="190 103.8" Element="7" NumHydrogens="1"><t p="186.39 107.7" BoundingBox="186.39 99.36 193.61 116.04" LabelJustification="Left" LabelAlignment="Below"><s font="3" size="10" face="96">NH</s></t></n></fragment>`);

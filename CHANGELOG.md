@@ -6,6 +6,35 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.166.0] — 2026-10-20 — Chemistry: numbered reaction schemes
+
+Organic chemistry, item 3: the scheme as a journal draws it.
+
+### Added
+- **Numbered compounds.** In Reaction (Structures), a compound followed by a space and its number in brackets —
+  `aspirin (1)`, `CCO (2a)`, `(S3)`, `(3′)` — is drawn with its number in bold under the structure, all numbers of a
+  row on one baseline. A bracket that is not a number (`(DIPEA)`, `copper (II)`) is refused by name, never drawn as one.
+  One number on two different structures is an error; one structure under two numbers is said.
+- **Conditions on every arrow.** One item per line: a compound line, an arrow line `-> reagents ; conditions`, the next
+  compound. Reagent formulas are typeset (H₂SO₄, LiAlH₄, Pd(PPh₃)₄) and long conditions wrap at their commas; an arrow
+  grows to fit its text. The one-line form `A + B >> C ; over ; under` is unchanged.
+- **Lettered conditions**: (a), (b) on the arrows and a "Reagents and conditions: (a) …; (b) …." paragraph under the
+  scheme.
+- **Multi-step schemes wrap** at the page width (6.5 in) or an ACS column (3.25 in / 7 in); each new row starts with its
+  arrow. A structure is never drawn smaller to fit — a row that cannot fit is said.
+- **Scheme caption** (optional) above the scheme, as ACS sets it: bold **Scheme N.** with a Word SEQ field (Word
+  renumbers on field update) and your title, with the scheme's compound numbers in it set bold.
+- **Open in Build canvas**: the scheme opens on the page canvas to move or edit anything by hand.
+
+### Changed
+- **ChemDraw-quality drawing.** The scheme is one ChemDraw page in the ACS Document 1996 style (bond 14.4 pt, Arial
+  10 pt), drawn by the Build canvas's own renderer, so every compound has the same bond length. Before, each structure
+  was fitted into its own box and bond lengths differed from compound to compound.
+
+### Fixed
+- Text after a subscript in a ChemDraw page (canvas, ChemDraw files, schemes) could stay lowered in some renderers
+  ("LiAlH₄, THF" with ", THF" below the line): the shift back to the baseline now rides on the next piece of text.
+
 ## [2.165.0] — 2026-10-20 — Chemistry: Characterization text for Example sections
 
 Organic chemistry, item 2: the characterization paragraph every Example carries, written from the chemist's own data.

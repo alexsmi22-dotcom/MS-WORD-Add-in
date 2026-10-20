@@ -472,7 +472,8 @@ import {
   differencesFromStandard,
 } from "../lib/geneticCode";
 import { auditDocument, AuditReport } from "../lib/audit";
-import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions";
+import { parseScheme, buildScheme, countSchemeCaptions, smallestFontPt, titleWithBoldLabels, type SchemeBuild, type SchemeWidth } from "../lib/scheme";
+import { inlineParagraphsOoxml, schemeCaptionOoxml } from "../lib/bibOoxml";
 import { formatSeqIdRef, formatSeqIdRefs } from "../lib/seqid";
 import { getPrefs, setPref, HomeFilter } from "../lib/prefs";
 import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
@@ -966,6 +967,13 @@ let reactionPreviewEl: HTMLElement;
 let reactionInsertBtn: HTMLButtonElement;
 /** Structures (names/SMILES, drawn) | Formulas (balanced) — never auto-detected. */
 let reactionReadSelect: HTMLSelectElement;
+let reactionSchemeOpts: HTMLElement;
+let reactionWidthSelect: HTMLSelectElement;
+let reactionConditionsSelect: HTMLSelectElement;
+let reactionCaptionCheck: HTMLInputElement;
+let reactionTitleInput: HTMLInputElement;
+let reactionNotesEl: HTMLElement;
+let reactionOpenCanvasBtn: HTMLButtonElement;
 let auditSection: HTMLElement;
 let auditRunBtn: HTMLButtonElement;
 let auditResults: HTMLElement;
@@ -1240,7 +1248,7 @@ let numeralEntries: NumeralEntry[] = [];
 /** ORFs from the most recent Find ORFs run, for table insertion. */
 let currentOrfs: Orf[] = [];
 /** The reaction-scheme SVG from the most recent preview, for insertion. */
-let currentReactionSvg: { svg: string; width: number; height: number } | null = null;
+let currentScheme: Extract<SchemeBuild, { ok: true }> | null = null;
 
 /** R-group label -> user-entered definition (e.g. "R1" -> "methyl, ethyl"). */
 const rgroupValues: Record<string, string> = {};
@@ -1719,6 +1727,13 @@ Office.onReady((info) => {
   reactionPreviewEl = document.getElementById("reaction-preview") as HTMLElement;
   reactionInsertBtn = document.getElementById("reaction-insert-btn") as HTMLButtonElement;
   reactionReadSelect = document.getElementById("reaction-read") as HTMLSelectElement;
+  reactionSchemeOpts = document.getElementById("reaction-scheme-opts") as HTMLElement;
+  reactionWidthSelect = document.getElementById("reaction-width") as HTMLSelectElement;
+  reactionConditionsSelect = document.getElementById("reaction-conditions") as HTMLSelectElement;
+  reactionCaptionCheck = document.getElementById("reaction-caption") as HTMLInputElement;
+  reactionTitleInput = document.getElementById("reaction-title") as HTMLInputElement;
+  reactionNotesEl = document.getElementById("reaction-notes") as HTMLElement;
+  reactionOpenCanvasBtn = document.getElementById("reaction-open-canvas") as HTMLButtonElement;
   auditSection =document.getElementById("audit-section") as HTMLElement;
   auditRunBtn = document.getElementById("audit-run-btn") as HTMLButtonElement;
   auditResults = document.getElementById("audit-results") as HTMLElement;
@@ -2149,10 +2164,17 @@ Office.onReady((info) => {
   dnaOrfInsert.addEventListener("click", insertOrfTable);
   dnaRestrictBtn.addEventListener("click", findRestrictionSites);
 
-  reactionInput.addEventListener("input", updateReactionPreview);
+  // Debounced: each keystroke would otherwise lay out every structure of the scheme again.
+  reactionInput.addEventListener("input", () => {
+    cancelReactionPreviewTimer();
+    reactionPreviewTimer = setTimeout(updateReactionPreview, 150);
+  });
   reactionReadSelect.addEventListener("change", updateReactionPreview);
   reactionDrawBtn.addEventListener("click", openDrawForReaction);
   reactionInsertBtn.addEventListener("click", insertReaction);
+  reactionWidthSelect.addEventListener("change", updateReactionPreview);
+  reactionConditionsSelect.addEventListener("change", updateReactionPreview);
+  reactionOpenCanvasBtn.addEventListener("click", openSchemeInCanvas);
 
   auditRunBtn.addEventListener("click", runAudit);
 
@@ -6950,9 +6972,6 @@ async function insertOrfTable(): Promise<void> {
 // Reaction schemes
 // ---------------------------------------------------------------------------
 
-const REACTION_CW = 130;
-const REACTION_CH = 110;
-
 /** The balanced (or refused) equation shown in Reaction mode's Formulas reading. */
 let currentReactionBalance: BalanceReport | null = null;
 
@@ -6985,14 +7004,38 @@ function updateReactionBalance(text: string): void {
   }
   if (rep.caveats.length) reactionPreviewEl.appendChild(specCaveats(rep.caveats));
   // A refusal is shown, not inserted: there is no equation to put in a document.
-  reactionInsertBtn.disabled = !rep.ok;
+  reactionInsertBtn.disabled = !rep.ok || reactionInserting;
+}
+
+/**
+ * An insert is running. A preview redrawn meanwhile (typing, a dropdown, a drawn component) must leave Insert
+ * disabled until it ends, or a second click inserts the scheme twice (review).
+ */
+let reactionInserting = false;
+
+/** The debounced preview after typing, if one is pending. */
+let reactionPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Insert and Open in Build canvas redraw from the box at once: a preview still pending from typing must not fire
+ * mid-insert and re-enable Insert (a second click would insert the scheme twice — review).
+ */
+function cancelReactionPreviewTimer(): void {
+  if (reactionPreviewTimer) clearTimeout(reactionPreviewTimer);
+  reactionPreviewTimer = null;
 }
 
 /** Renders each component and composes the live reaction-scheme preview. */
 function updateReactionPreview(): void {
-  currentReactionSvg = null;
+  currentScheme = null;
   currentReactionBalance = null;
   reactionInsertBtn.disabled = true;
+  reactionOpenCanvasBtn.disabled = true;
+  reactionNotesEl.replaceChildren();
+  // Wrap, conditions and caption are the drawn scheme's options: hidden for the Formulas reading.
+  reactionSchemeOpts.hidden = reactionReadSelect.value === "formulas";
+  reactionOpenCanvasBtn.hidden = reactionReadSelect.value === "formulas";
+  reactionPreviewEl.classList.remove("scheme-preview");
   const text = reactionInput.value.trim();
   const formulas = reactionReadSelect.value === "formulas";
   reactionInsertBtn.textContent = formulas ? "Insert balanced equation" : "Insert reaction scheme";
@@ -7002,7 +7045,7 @@ function updateReactionPreview(): void {
     hint.className = "hint";
     hint.textContent = formulas
       ? "Enter a reaction of formulas, e.g. Fe + O2 -> Fe2O3 or MnO4^- + Fe^2+ + H^+ -> Mn^2+ + Fe^3+ + H2O"
-      : "Enter a reaction, e.g. CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux";
+      : "Enter a scheme, one item per line, e.g. aspirin (1), then -> NaOH, H2O ; 100 °C, then salicylic acid (2).";
     reactionPreviewEl.appendChild(hint);
     return;
   }
@@ -7010,60 +7053,46 @@ function updateReactionPreview(): void {
     updateReactionBalance(text);
     return;
   }
-  const spec = parseReaction(text);
-  if (!spec.stages.length) {
-    reactionPreviewEl.innerHTML = '<span class="hint">Add at least one component.</span>';
+  const built = buildScheme(parseScheme(text), {
+    width: (reactionWidthSelect.value as SchemeWidth) || "page",
+    lettered: reactionConditionsSelect.value === "lettered",
+  });
+  if (!built.ok) {
+    reactionPreviewEl.replaceChildren();
+    showReactionNotes(built.errors, built.notes);
     return;
   }
-  const failed: string[] = [];
-  const render = (src: string): Rendered | null => {
-    // Structures reading: the legacy name → dictionary → SMILES order (mode
-    // "smiles"), so a component is never read as a bare formula here.
-    const res = resolveStructure(src, "smiles", REACTION_CW, REACTION_CH);
-    const r = res.kind === "ok" ? res.result : null;
-    if (!r) {
-      failed.push(src);
-      return null;
-    }
-    const d = readSvgDims(r.svg, REACTION_CW, REACTION_CH);
-    return { svg: r.svg, width: d.w, height: d.h };
-  };
-  const stages: Rendered[][] = spec.stages.map((stage) =>
-    stage.map(render).filter((x): x is Rendered => x !== null),
-  );
-  if (failed.length) {
-    // A leading COEFFICIENT (3H2, 2 NH3) is not a structure. Checked only on
-    // components that failed to resolve — a name can start with a locant
-    // (1-propanol, 1,3-butadiene) and must still draw.
-    const withCoefficient = failed.filter((c) => /^\d+\s*[A-Z([]/.test(c.trim()));
-    if (withCoefficient.length) {
-      reactionPreviewEl.innerHTML =
-        `<span class="hint">Coefficients are not drawn (${esc(withCoefficient.join(", "))}) — ` +
-        `switch the reading to Formulas to balance the equation.</span>`;
-      return;
-    }
-    reactionPreviewEl.innerHTML = `<span class="hint">Couldn't draw: ${esc(failed.join(", "))}. Use a name or SMILES.</span>`;
-    return;
+  // The page's own renderer drew it (its text is escaped there).
+  reactionPreviewEl.innerHTML = built.svg;
+  reactionPreviewEl.classList.add("scheme-preview");
+  if (built.footnote) {
+    const fn = document.createElement("div");
+    fn.className = "scheme-footnote";
+    fn.textContent = built.footnote.text;
+    reactionPreviewEl.appendChild(fn);
   }
-  const svg = composeReactionScheme(stages, { over: spec.over, under: spec.under, arrows: spec.arrows });
-  const dims = svg.match(/width="(\d+)" height="(\d+)"/);
-  reactionPreviewEl.innerHTML = svg;
-  // `arrowWarning` was computed and unit-tested and never read by anything, so
-  // "A ->> B" had its stray ">" stripped and drew as though the arrow were
-  // fine — the precise outcome the warning exists to prevent. The scheme still
-  // draws; the user is told what was ignored.
-  if (spec.arrowWarning) {
-    const warn = document.createElement("div");
-    warn.className = "hint";
-    warn.textContent = spec.arrowWarning;
-    reactionPreviewEl.appendChild(warn);
+  showReactionNotes([], built.notes);
+  currentScheme = built;
+  reactionInsertBtn.disabled = reactionInserting;
+  reactionOpenCanvasBtn.disabled = false;
+}
+
+/** The scheme's errors (it is not drawn) and notes (it is), beside the preview. */
+function showReactionNotes(errors: string[], notes: string[]): void {
+  reactionNotesEl.replaceChildren();
+  for (const [list, cls] of [[errors, "scheme-error"], [notes, "scheme-warn"]] as const) {
+    for (const t of list) {
+      const li = document.createElement("li");
+      li.className = cls;
+      li.textContent = t;
+      reactionNotesEl.appendChild(li);
+    }
   }
-  currentReactionSvg = {
-    svg,
-    width: dims ? parseInt(dims[1], 10) : 400,
-    height: dims ? parseInt(dims[2], 10) : 120,
-  };
-  reactionInsertBtn.disabled = false;
+}
+
+/** The title as html, its compound numbers bold where they are this scheme's numbers ("Synthesis of 5"). */
+function schemeTitleHtml(title: string, labels: string[]): string {
+  return titleWithBoldLabels(title, labels, esc);
 }
 
 /**
@@ -7103,33 +7132,82 @@ async function insertReactionBalance(): Promise<void> {
 
 /** Rasterizes the reaction scheme and inserts it as an inline picture. */
 async function insertReaction(): Promise<void> {
+  cancelReactionPreviewTimer();
+  if (reactionInserting) return;
+  reactionInserting = true;
+  try {
+    await insertReactionNow();
+  } finally {
+    reactionInserting = false;
+    reactionInsertBtn.disabled = reactionReadSelect.value === "formulas" ? !currentReactionBalance?.ok : !currentScheme;
+  }
+}
+
+async function insertReactionNow(): Promise<void> {
   if (reactionReadSelect.value === "formulas") {
     await insertReactionBalance();
     return;
   }
-  if (!currentReactionSvg) {
-    setStatus("Nothing to insert.", "error");
+  updateReactionPreview();
+  const sc = currentScheme;
+  if (!sc) {
+    setStatus("Nothing to insert — the scheme is not drawn (see the notes under it).", "error");
     return;
   }
+  // The smallest text drawn (a subscript in H₂SO₄ is 7.5 pt), read off the drawing itself for the USPTO check.
+  const smallest = smallestFontPt(sc.svg) ?? 10;
+  const fit = canvasInsertFit(canvasInsertMode(), sc.widthPt, sc.heightPt, smallest, USPTO_REQUIRED_FONT_PT);
+  if (!fit.ok) return setStatus(`The scheme: ${fit.reason}.`, "error");
+  const w = (fit.widthPt * 96) / 72, h = (fit.heightPt * 96) / 72;
   reactionInsertBtn.disabled = true;
   setStatus("Inserting reaction scheme…");
   try {
-    const { svg, width, height } = currentReactionSvg;
-    const base64 = await renderFigurePng(svg, width, height);
-    await docHost.insertPictureAtSelection({
-      base64: base64,
-      widthPt: figurePoints(width),
-      heightPt: figurePoints(height),
-      alt: `Reaction scheme: ${reactionInput.value.trim()}`,
-      selectAfter: true,
-      tag: "formula-inserter:reaction",
-    });
-    setStatus("Reaction scheme inserted.", "success");
+    const items: ResultLayoutItem[] = [];
+    let n = 0;
+    if (reactionCaptionCheck.checked) {
+      // The number Word shows until it updates the field: the Scheme captions already here, plus one.
+      let paras: string[] = [];
+      try {
+        paras = await docHost.readParagraphTexts();
+      } catch {
+        paras = [];
+      }
+      n = countSchemeCaptions(paras) + 1;
+      const labels = sc.compounds.map((c) => c.label).filter((l): l is string => !!l);
+      items.push({ kind: "ooxml", ooxml: schemeCaptionOoxml(n, schemeTitleHtml(reactionTitleInput.value, labels)) });
+    }
+    const base64 = await renderFigurePng(sc.svg, w, h);
+    const numbered = sc.compounds.filter((c) => c.label).map((c) => `${c.label} = ${c.smiles}`);
+    const alt = `Reaction scheme (JurisLab): ${reactionInput.value.trim().replace(/\s*\n\s*/g, "\n")}` + (numbered.length ? `. Compounds: ${numbered.join("; ")}` : "");
+    items.push({ kind: "picture", caption: "", base64, widthPt: figurePoints(w), heightPt: figurePoints(h), alt });
+    if (sc.footnote) items.push({ kind: "ooxml", ooxml: inlineParagraphsOoxml([sc.footnote.html]) });
+    const kept = await docHost.insertResultLayout(items);
+    if (kept === 0) return setStatus("Word did not keep the scheme picture — try again with the cursor in a body paragraph.", "error");
+    const parts = [n ? `Scheme ${n}` : "Reaction scheme", sc.footnote ? "with its Reagents and conditions footnote" : ""].filter(Boolean).join(" ");
+    setStatus(`${parts} inserted. ${fit.note}${n ? " Word renumbers Scheme captions when fields update (select all, F9)." : ""}`.trim(), "success");
   } catch (error) {
     setStatus(`Could not insert reaction scheme: ${(error as Error).message}`, "error");
   } finally {
     reactionInsertBtn.disabled = false;
   }
+}
+
+/** The scheme's page on the Build canvas, to move or edit anything by hand; Insert there puts it in as drawn. */
+function openSchemeInCanvas(): void {
+  cancelReactionPreviewTimer();
+  updateReactionPreview();
+  const sc = currentScheme;
+  if (!sc) return setStatus("Nothing to open — the scheme is not drawn.", "error");
+  setMode("build");
+  setBuildTab("draw");
+  ensureDrawEditor();
+  const pc = usePageCanvas();
+  if (!pc) return setStatus("The Build page canvas could not open.", "error");
+  pc.loadPage(sc.doc);
+  pc.setName("Scheme");
+  drawFromPicture = false;
+  setStatus("The scheme opened on the Build page canvas — move or edit anything, then Insert there.", "success");
+  document.getElementById("build-draw-wrap")?.scrollIntoView({ block: "start" });
 }
 
 // ---------------------------------------------------------------------------

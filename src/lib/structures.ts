@@ -91,6 +91,20 @@ function safeFromSmiles(smiles: string): Molecule | null {
 }
 
 /**
+ * A SMILES parse for READING only (validity, formula, charge): no 2D layout. The resolver below never draws the
+ * molecules it parses, and laying out a large one is what took minutes (a 5000-atom chain, scheme review).
+ * Its idcode carries NO stereo (no coordinates to perceive it from): never name, compare or draw from it.
+ */
+function parseSmilesOnly(smiles: string): Molecule | null {
+  try {
+    const mol = Molecule.fromSmiles(smiles, { noCoordinates: true });
+    return mol.getAllAtoms() > 0 ? mol : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Renders a 2D structure SVG for the given input, or returns null when the input
  * is neither a known name/formula nor a parseable SMILES string.
  */
@@ -453,7 +467,7 @@ function readAsSmiles(input: string): Molecule | null {
   const s = input.trim();
   if (!s || !aromaticAtomsCanBeInRings(s)) return null;
   if (duplicateRingClosure(s) !== null) return null;
-  return safeFromSmiles(s);
+  return parseSmilesOnly(s);
 }
 
 function netCharge(mol: Molecule): number {
@@ -499,7 +513,7 @@ export function resolveChemInput(
     // silently drop the duplicate bond and draw a different molecule (C6Cl6 → CH₃Cl).
     const dup = duplicateClosureRefusal(s);
     if (dup) return { kind: "none", message: dup };
-    return safeFromSmiles(s)
+    return parseSmilesOnly(s)
       ? { kind: "smiles", smiles: s }
       : { kind: "none", message: `“${s}” is not a SMILES string this tool can read.` };
   }
@@ -516,7 +530,7 @@ export function resolveChemInput(
     let note: string | undefined;
     if (mode === "auto" && looked.source === "formula") {
       const asSmiles = readAsSmiles(raw);
-      const dict = safeFromSmiles(looked.smiles);
+      const dict = parseSmilesOnly(looked.smiles);
       if (asSmiles && dict && !sameCounts(oclCounts(asSmiles.getMolecularFormula().formula), oclCounts(dict.getMolecularFormula().formula))) {
         note = `Read as the formula ${typesetHill(validateFormula(raw).hill)}. As SMILES, “${raw}” would be ${describeSmiles(asSmiles)} — write smiles:${raw} for that.`;
       }
@@ -527,7 +541,7 @@ export function resolveChemInput(
   if (mode === "smiles") {
     const dup = duplicateClosureRefusal(raw);
     if (dup) return { kind: "none", message: dup };
-    return safeFromSmiles(raw)
+    return parseSmilesOnly(raw)
       ? { kind: "smiles", smiles: raw }
       : { kind: "none", message: `“${raw}” is not a known name or a SMILES string this tool can read.` };
   }
@@ -567,10 +581,10 @@ export function resolveChemInput(
   if (f) {
     let note: string | undefined;
     const dup = duplicateRingClosure(raw);
-    if (dup !== null && safeFromSmiles(raw)) {
+    if (dup !== null && parseSmilesOnly(raw)) {
       note =
         `Read as a formula. “${raw}” is not valid SMILES: ring closure ${dup} would join two atoms that are already bonded.`;
-    } else if (safeFromSmiles(raw)) {
+    } else if (parseSmilesOnly(raw)) {
       note = `Read as a formula. “${raw}” is not valid SMILES: a lowercase (aromatic) atom must sit in a ring.`;
     }
     return { kind: "formula", formula: f, note };

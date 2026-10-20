@@ -416,14 +416,16 @@
         {in:"ATGGCC…", out:"reverse complement, mRNA, protein, ORF table"},
         {in:"primer sequence", out:"Tm (Wallace and GC% methods)"}
       ] },
-    reaction: { title:"Reaction", tagline:"Compose multi-step reaction schemes with conditions over the arrow, drawn from names or SMILES.",
+    reaction: { title:"Reaction", tagline:"Numbered reaction schemes, drawn like ChemDraw: compound numbers, reagents and conditions on every arrow, multi-step rows.",
       does:[
-        "reactants + reactants >> products, with optional conditions over/under the arrow.",
-        "<b>Multi-step</b> schemes — A -> B -> C draws an arrow between each stage.",
-        "Each component is a name or SMILES (formal charges kept); the scheme inserts as one image with provenance."
+        "One item per line: a compound, an arrow line <code>-&gt; reagents ; conditions</code>, the next compound. The one-line <code>A + B &gt;&gt; C ; over ; under</code> still works.",
+        "<b>Compound numbers</b> — <code>aspirin (1)</code>, <code>(2a)</code>, <code>(S3)</code> — bold under each structure; one number on two structures is refused.",
+        "Every compound at <b>one bond length</b> (ACS 1996 style), reagents typeset (H₂SO₄), arrows sized to their text; long schemes <b>wrap</b> at the page or an ACS column.",
+        "Optional <b>Scheme N.</b> caption (a Word field) and <b>lettered conditions</b> with a Reagents and conditions footnote; <b>Open in Build canvas</b> for hand edits."
       ],
       examples:[
-        {in:"benzene + HNO3 >> nitrobenzene ; H2SO4", out:"a reaction scheme with H₂SO₄ over the arrow"}
+        {in:"aspirin (1) / -> NaOH, H2O ; 100 °C / salicylic acid (2)", out:"1 → 2 with NaOH, H₂O above and 100 °C below the arrow"},
+        {in:"benzene + HNO3 >> nitrobenzene ; H2SO4", out:"the one-line form: H₂SO₄ over the arrow"}
       ] },
     audit: { title:"Audit", tagline:"One pass over the whole document runs every consistency check at once — a pre-filing sweep.",
       does:[

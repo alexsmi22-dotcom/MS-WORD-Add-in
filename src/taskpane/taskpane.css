@@ -2600,3 +2600,20 @@ select {
 .charz-check.charz-warn { border-left-color: var(--warn); color: var(--warn); background: var(--warn-bg); }
 .charz-ea .rgroup-input.charz-short { flex: 1 1 36px; max-width: 64px; }
 .charz-source { font-size: 11px; color: var(--ink-3); margin: 6px 0 0; }
+
+/* Reaction schemes (v2.166.0) */
+.scheme-opts { margin: 6px 0; }
+.scheme-opt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; }
+.scheme-opt-row .field-label { margin: 0; min-width: 72px; }
+.scheme-opt-row .lib-select { flex: 1 1 160px; min-width: 0; }
+.scheme-check { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 6px 0 4px; }
+#reaction-title { width: 100%; box-sizing: border-box; }
+.scheme-notes { list-style: none; margin: 6px 0; padding: 0; font-size: 12px; }
+.scheme-notes li { padding: 3px 6px; border-left: 3px solid var(--rule); margin: 2px 0; color: var(--ink-2); }
+.scheme-notes li.scheme-error { border-left-color: var(--error); color: var(--error); }
+.scheme-notes li.scheme-warn { border-left-color: var(--warn); color: var(--warn); background: var(--warn-bg); }
+#reaction-open-canvas { margin-top: 6px; }
+#reaction-preview svg { max-width: 100%; height: auto; }
+/* The drawn scheme with its footnote under it (the preview is otherwise a centred row). */
+#reaction-preview.scheme-preview { flex-direction: column; gap: 6px; }
+.scheme-footnote { align-self: stretch; font: 11px/1.35 Arial, Helvetica, sans-serif; color: #000; text-align: left; }

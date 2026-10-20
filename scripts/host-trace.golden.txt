@@ -145,150 +145,151 @@ RUN R11 {
    status: Balanced equation and conservation chart inserted.
 == reaction/reaction-insert-btn#2
 RUN R12 {
-  #45 = R12.document.getSelection()
-  #46 = #45.insertInlinePictureFromBase64(s26644:ab7a5fdb, "after")
-  set #46.width = 260.25
-  set #46.height = 48
-  set #46.altTextDescription = "Reaction scheme: CH4 + O2 -> CO2 + H2O"
-  #47 = #45.select("end")
+  #45 = R12.document.body.inlinePictures.load("items")
   R12.sync()
-  #48 = #46.getRange()
-  #49 = #48.insertContentControl()
-  set #49.tag = "formula-inserter:reaction"
-  set #49.title = "JurisLab"
-  set #49.appearance = "hidden"
+  #46 = R12.document.getSelection()
+  #47 = #46.getRange("end")
+  #48 = #47.insertParagraph("", "after")
+  #49 = #48.insertInlinePictureFromBase64(s14756:87cdd2af, "end")
+  set #49.width = 175.89000000000004
+  set #49.height = 19.6
+  set #49.altTextDescription = s49:59a19390
+  #50 = #48.getRange("end")
+  #51 = #50.select("end")
+  R12.sync()
+  #52 = R12.document.body.inlinePictures.load("items")
   R12.sync()
 } R12
-   status: Reaction scheme inserted.
+   status: Reaction scheme inserted. It is inserted at ChemDraw's size. Its smallest letters are 7.5 pt, under the USPTO's 1/8-inch minimum (12.7 pt) — for a filing figure
 == massspec/ms-insert
 RUN R13 {
-  #50 = R13.document.getSelection()
-  #51 = #50.insertText(s750:67b68fd8, "after")
-  #52 = #50.select("end")
+  #53 = R13.document.getSelection()
+  #54 = #53.insertText(s750:67b68fd8, "after")
+  #55 = #53.select("end")
   R13.sync()
 } R13
    status: MS data inserted. Ctrl/⌘+Z undoes it.
 == massspec/ms-insert-chart
 RUN R14 {
-  #53 = R14.document.getSelection()
-  #54 = #53.insertInlinePictureFromBase64(s263940:6cba95a7, "after")
-  set #54.width = 403.5
-  set #54.height = 237
-  set #54.altTextDescription = s107:2a688e42
-  #55 = #53.select("end")
+  #56 = R14.document.getSelection()
+  #57 = #56.insertInlinePictureFromBase64(s263940:6cba95a7, "after")
+  set #57.width = 403.5
+  set #57.height = 237
+  set #57.altTextDescription = s107:2a688e42
+  #58 = #56.select("end")
   R14.sync()
-  #56 = #54.getRange()
-  #57 = #56.insertContentControl()
-  set #57.tag = "formula-inserter:spectrum"
-  set #57.title = "JurisLab"
-  set #57.appearance = "hidden"
+  #59 = #57.getRange()
+  #60 = #59.insertContentControl()
+  set #60.tag = "formula-inserter:spectrum"
+  set #60.title = "JurisLab"
+  set #60.appearance = "hidden"
   R14.sync()
 } R14
    status: Isotope pattern inserted.
 == charz/charz-insert
 RUN R15 {
-  #58 = R15.document.getSelection()
-  #59 = #58.insertOoxml(s2183:ac4d1655, "after")
-  #60 = #58.select("end")
+  #61 = R15.document.getSelection()
+  #62 = #61.insertOoxml(s2183:ac4d1655, "after")
+  #63 = #61.select("end")
   R15.sync()
 } R15
    status: Characterization text inserted. Ctrl/⌘+Z undoes it.
 == spectra/spec-insert
 RUN R16 {
-  #61 = R16.document.getSelection()
-  #62 = #61.insertHtml(s1189:51ed8f13, "after")
-  #63 = #61.select("end")
+  #64 = R16.document.getSelection()
+  #65 = #64.insertHtml(s1189:51ed8f13, "after")
+  #66 = #64.select("end")
   R16.sync()
-  #64 = #62.insertContentControl()
-  set #64.tag = "formula-inserter:spectrum-data"
-  set #64.title = "JurisLab"
-  set #64.appearance = "hidden"
+  #67 = #65.insertContentControl()
+  set #67.tag = "formula-inserter:spectrum-data"
+  set #67.title = "JurisLab"
+  set #67.appearance = "hidden"
   R16.sync()
 } R16
    status: Spectrum data inserted.
 == spectra/spec-insert-chart
 RUN R17 {
-  #65 = R17.document.getSelection()
-  #66 = #65.insertInlinePictureFromBase64(s118988:e1cb23b5, "after")
-  set #66.width = 285
-  set #66.height = 180
-  set #66.altTextDescription = s64:91412e05
-  #67 = #65.select("end")
+  #68 = R17.document.getSelection()
+  #69 = #68.insertInlinePictureFromBase64(s118988:e1cb23b5, "after")
+  set #69.width = 285
+  set #69.height = 180
+  set #69.altTextDescription = s64:91412e05
+  #70 = #68.select("end")
   R17.sync()
-  #68 = #66.getRange()
-  #69 = #68.insertContentControl()
-  set #69.tag = "formula-inserter:spectrum"
-  set #69.title = "JurisLab"
-  set #69.appearance = "hidden"
+  #71 = #69.getRange()
+  #72 = #71.insertContentControl()
+  set #72.tag = "formula-inserter:spectrum"
+  set #72.title = "JurisLab"
+  set #72.appearance = "hidden"
   R17.sync()
 } R17
    status: Spectrum inserted.
 == spectra/jcamp-insert
 RUN R18 {
-  #70 = R18.document.getSelection()
-  #71 = #70.insertText(s62832:e1bd4d97, "after")
-  #72 = #70.select("end")
+  #73 = R18.document.getSelection()
+  #74 = #73.insertText(s62832:e1bd4d97, "after")
+  #75 = #73.select("end")
   R18.sync()
 } R18
    status: measured spectrum data inserted. Ctrl/⌘+Z undoes it.
 == spectra/jcamp-insert-chart
 RUN R19 {
-  #73 = R19.document.getSelection()
-  #74 = #73.insertInlinePictureFromBase64(s130432:107ce3b6, "after")
-  set #74.width = 285
-  set #74.height = 180
-  set #74.altTextDescription = s67:f028f441
-  #75 = #73.select("end")
+  #76 = R19.document.getSelection()
+  #77 = #76.insertInlinePictureFromBase64(s130432:107ce3b6, "after")
+  set #77.width = 285
+  set #77.height = 180
+  set #77.altTextDescription = s67:f028f441
+  #78 = #76.select("end")
   R19.sync()
-  #76 = #74.getRange()
-  #77 = #76.insertContentControl()
-  set #77.tag = "formula-inserter:spectrum"
-  set #77.title = "JurisLab"
-  set #77.appearance = "hidden"
+  #79 = #77.getRange()
+  #80 = #79.insertContentControl()
+  set #80.tag = "formula-inserter:spectrum"
+  set #80.title = "JurisLab"
+  set #80.appearance = "hidden"
   R19.sync()
 } R19
    status: Measured spectrum inserted.
 == spectra/spec-overlay-insert
 RUN R20 {
-  #78 = R20.document.getSelection()
-  #79 = #78.insertText(s582:989e3025, "after")
-  #80 = #78.select("end")
+  #81 = R20.document.getSelection()
+  #82 = #81.insertText(s582:989e3025, "after")
+  #83 = #81.select("end")
   R20.sync()
 } R20
    status: match table inserted. Ctrl/⌘+Z undoes it.
 == spectra/spec-overlay-insert-chart
 RUN R21 {
-  #81 = R21.document.getSelection()
-  #82 = #81.insertInlinePictureFromBase64(s249864:e7f59896, "after")
-  set #82.width = 424.5
-  set #82.height = 225
-  set #82.altTextDescription = s164:30f7cd97
-  #83 = #81.select("end")
+  #84 = R21.document.getSelection()
+  #85 = #84.insertInlinePictureFromBase64(s249864:e7f59896, "after")
+  set #85.width = 424.5
+  set #85.height = 225
+  set #85.altTextDescription = s164:30f7cd97
+  #86 = #84.select("end")
   R21.sync()
-  #84 = #82.getRange()
-  #85 = #84.insertContentControl()
-  set #85.tag = "formula-inserter:spectrum"
-  set #85.title = "JurisLab"
-  set #85.appearance = "hidden"
+  #87 = #85.getRange()
+  #88 = #87.insertContentControl()
+  set #88.tag = "formula-inserter:spectrum"
+  set #88.title = "JurisLab"
+  set #88.appearance = "hidden"
   R21.sync()
 } R21
    status: Overlay chart inserted.
 == math/insert-btn
 RUN R22 {
-  #86 = R22.document.getSelection()
-  #87 = #86.insertOoxml(s1383:1de484e2, "replace")
+  #89 = R22.document.getSelection()
+  #90 = #89.insertOoxml(s1383:1de484e2, "replace")
   R22.sync()
-  #88 = #87.insertContentControl()
-  set #88.tag = "formula-inserter:equation"
-  set #88.title = "JurisLab"
-  set #88.appearance = "hidden"
+  #91 = #90.insertContentControl()
+  set #91.tag = "formula-inserter:equation"
+  set #91.title = "JurisLab"
+  set #91.appearance = "hidden"
   R22.sync()
 } R22
    status: Equation inserted.
 == math/insert-periodic-btn
 RUN R23 {
-  #89 = R23.document.getSelection()
-  #90 = #89.insertText(s2434:19db63dc, "after")
+  #92 = R23.document.getSelection()
+  #93 = #92.insertText(s2434:19db63dc, "after")
   R23.sync()
 } R23
    status: Iron (Fe) — summary inserted.
@@ -297,692 +298,692 @@ OFFICE displayDialogAsync("solvedialog.html", {height:75,width:70})
    status: Could not open the equation canvas: harness: no dialogs
 == solve/solve-insert
 RUN R24 {
-  #91 = R24.document.getSelection()
-  #92 = #91.insertOoxml(s3596:8a400a95, "after")
-  #93 = #91.select("end")
+  #94 = R24.document.getSelection()
+  #95 = #94.insertOoxml(s3596:8a400a95, "after")
+  #96 = #94.select("end")
   R24.sync()
-  #94 = #92.insertContentControl()
-  set #94.tag = "formula-inserter:solution"
-  set #94.title = "JurisLab"
-  set #94.appearance = "hidden"
+  #97 = #95.insertContentControl()
+  set #97.tag = "formula-inserter:solution"
+  set #97.title = "JurisLab"
+  set #97.appearance = "hidden"
   R24.sync()
 } R24
 RUN R25 {
-  #95 = R25.document.getSelection()
-  #96 = #95.insertInlinePictureFromBase64(s144120:0904134b, "after")
-  set #96.width = 330
-  set #96.height = 187.5
-  set #96.altTextDescription = s104:5c8a101a
+  #98 = R25.document.getSelection()
+  #99 = #98.insertInlinePictureFromBase64(s144120:0904134b, "after")
+  set #99.width = 330
+  set #99.height = 187.5
+  set #99.altTextDescription = s104:5c8a101a
   R25.sync()
 } R25
    status: Solution and figure inserted. Ctrl/⌘+Z undoes it — press it more than once.
 == solve/solve-insert#2
 RUN R26 {
-  #97 = R26.document.getSelection()
-  #98 = #97.insertOoxml(s2787:a97eeccd, "after")
-  #99 = #97.select("end")
+  #100 = R26.document.getSelection()
+  #101 = #100.insertOoxml(s2787:a97eeccd, "after")
+  #102 = #100.select("end")
   R26.sync()
-  #100 = #98.insertContentControl()
-  set #100.tag = "formula-inserter:solution"
-  set #100.title = "JurisLab"
-  set #100.appearance = "hidden"
+  #103 = #101.insertContentControl()
+  set #103.tag = "formula-inserter:solution"
+  set #103.title = "JurisLab"
+  set #103.appearance = "hidden"
   R26.sync()
 } R26
 RUN R27 {
-  #101 = R27.document.getSelection()
-  #102 = #101.insertInlinePictureFromBase64(s97404:f3e40755, "after")
-  set #102.width = 345
-  set #102.height = 225
-  set #102.altTextDescription = s106:f663b056
+  #104 = R27.document.getSelection()
+  #105 = #104.insertInlinePictureFromBase64(s97404:f3e40755, "after")
+  set #105.width = 345
+  set #105.height = 225
+  set #105.altTextDescription = s106:f663b056
   R27.sync()
 } R27
    status: Solution and figure inserted. Ctrl/⌘+Z undoes it — press it more than once.
 == solve/solve-insert#3
 RUN R28 {
-  #103 = R28.document.getSelection()
-  #104 = #103.insertOoxml(s3344:8075c176, "after")
-  #105 = #103.select("end")
+  #106 = R28.document.getSelection()
+  #107 = #106.insertOoxml(s3344:8075c176, "after")
+  #108 = #106.select("end")
   R28.sync()
-  #106 = #104.insertContentControl()
-  set #106.tag = "formula-inserter:solution"
-  set #106.title = "JurisLab"
-  set #106.appearance = "hidden"
+  #109 = #107.insertContentControl()
+  set #109.tag = "formula-inserter:solution"
+  set #109.title = "JurisLab"
+  set #109.appearance = "hidden"
   R28.sync()
 } R28
 RUN R29 {
-  #107 = R29.document.getSelection()
-  #108 = #107.insertInlinePictureFromBase64(s138720:aa6168ec, "after")
-  set #108.width = 330
-  set #108.height = 187.5
-  set #108.altTextDescription = s99:a1daff28
+  #110 = R29.document.getSelection()
+  #111 = #110.insertInlinePictureFromBase64(s138720:aa6168ec, "after")
+  set #111.width = 330
+  set #111.height = 187.5
+  set #111.altTextDescription = s99:a1daff28
   R29.sync()
 } R29
    status: Solution and figure inserted. Ctrl/⌘+Z undoes it — press it more than once.
 == units/unit-insert
 RUN R30 {
-  #109 = R30.document.getSelection()
-  #110 = #109.insertHtml("9.81&#8201;m/s²", "replace")
-  #111 = #110.select("end")
+  #112 = R30.document.getSelection()
+  #113 = #112.insertHtml("9.81&#8201;m/s²", "replace")
+  #114 = #113.select("end")
   R30.sync()
-  #112 = #110.insertContentControl()
-  set #112.tag = "formula-inserter:quantity"
-  set #112.title = "JurisLab"
-  set #112.appearance = "hidden"
+  #115 = #113.insertContentControl()
+  set #115.tag = "formula-inserter:quantity"
+  set #115.title = "JurisLab"
+  set #115.appearance = "hidden"
   R30.sync()
 } R30
    status: Quantity inserted.
 == units/conv-insert
 RUN R31 {
-  #113 = R31.document.getSelection()
-  #114 = #113.insertHtml("27.78&#8201;m/s", "replace")
-  #115 = #114.select("end")
+  #116 = R31.document.getSelection()
+  #117 = #116.insertHtml("27.78&#8201;m/s", "replace")
+  #118 = #117.select("end")
   R31.sync()
-  #116 = #114.insertContentControl()
-  set #116.tag = "formula-inserter:quantity"
-  set #116.title = "JurisLab"
-  set #116.appearance = "hidden"
+  #119 = #117.insertContentControl()
+  set #119.tag = "formula-inserter:quantity"
+  set #119.title = "JurisLab"
+  set #119.appearance = "hidden"
   R31.sync()
 } R31
    status: Result inserted.
 == plot/plot-insert
 RUN R32 {
-  #117 = R32.document.getSelection()
-  #118 = #117.select("end")
+  #120 = R32.document.getSelection()
+  #121 = #120.select("end")
   R32.sync()
-  #119 = R32.document.body.inlinePictures.load(s49:5f068b3d)
+  #122 = R32.document.body.inlinePictures.load(s49:5f068b3d)
   R32.sync()
 } R32
 OFFICE setSelectedDataAsync(s5113:7920aea4, {coercionType:"XmlSvg"})
 RUN R33 {
-  #120 = R33.document.body.inlinePictures.load(s49:5f068b3d)
+  #123 = R33.document.body.inlinePictures.load(s49:5f068b3d)
   R33.sync()
   set R33.document.body.inlinePictures[15].width = 285
   set R33.document.body.inlinePictures[15].height = 202.5
   set R33.document.body.inlinePictures[15].altTextDescription = "Plot: sin(x)/x"
-  #121 = R33.document.body.inlinePictures[15].load("imageFormat")
-  #122 = R33.document.body.inlinePictures[15].getRange("end")
-  #123 = #122.select("end")
+  #124 = R33.document.body.inlinePictures[15].load("imageFormat")
+  #125 = R33.document.body.inlinePictures[15].getRange("end")
+  #126 = #125.select("end")
   R33.sync()
-  #124 = R33.document.body.inlinePictures[15].getRange()
-  #125 = #124.insertContentControl()
-  set #125.tag = "formula-inserter:plot"
-  set #125.title = "JurisLab"
-  set #125.appearance = "hidden"
+  #127 = R33.document.body.inlinePictures[15].getRange()
+  #128 = #127.insertContentControl()
+  set #128.tag = "formula-inserter:plot"
+  set #128.title = "JurisLab"
+  set #128.appearance = "hidden"
   R33.sync()
   R33.sync()
 } R33
    status: Plot inserted as vector SVG — but Word reports it stored the picture as Png.
 == stats/stats-insert
 RUN R34 {
-  #126 = R34.document.getSelection()
-  #127 = #126.insertText(s151:31c45883, "after")
-  #128 = #126.select("end")
+  #129 = R34.document.getSelection()
+  #130 = #129.insertText(s151:31c45883, "after")
+  #131 = #129.select("end")
   R34.sync()
 } R34
 RUN R35 {
-  #129 = R35.document.getSelection()
-  #130 = #129.insertInlinePictureFromBase64(s245292:6a9ed41a, "after")
-  set #130.width = 285
-  set #130.height = 210
-  set #130.altTextDescription = "Statistics figure: Descriptive statistics"
-  #131 = #129.select("end")
+  #132 = R35.document.getSelection()
+  #133 = #132.insertInlinePictureFromBase64(s245292:6a9ed41a, "after")
+  set #133.width = 285
+  set #133.height = 210
+  set #133.altTextDescription = "Statistics figure: Descriptive statistics"
+  #134 = #132.select("end")
   R35.sync()
-  #132 = #130.getRange()
-  #133 = #132.insertContentControl()
-  set #133.tag = "formula-inserter:stats-chart"
-  set #133.title = "JurisLab"
-  set #133.appearance = "hidden"
+  #135 = #133.getRange()
+  #136 = #135.insertContentControl()
+  set #136.tag = "formula-inserter:stats-chart"
+  set #136.title = "JurisLab"
+  set #136.appearance = "hidden"
   R35.sync()
   R35.sync()
 } R35
    status: Result and chart inserted.
 == stats/stats-insert-chart
 RUN R36 {
-  #134 = R36.document.getSelection()
-  #135 = #134.insertInlinePictureFromBase64(s245292:6a9ed41a, "after")
-  set #135.width = 285
-  set #135.height = 210
-  set #135.altTextDescription = "Statistics figure: Descriptive statistics"
-  #136 = #134.select("end")
+  #137 = R36.document.getSelection()
+  #138 = #137.insertInlinePictureFromBase64(s245292:6a9ed41a, "after")
+  set #138.width = 285
+  set #138.height = 210
+  set #138.altTextDescription = "Statistics figure: Descriptive statistics"
+  #139 = #137.select("end")
   R36.sync()
-  #137 = #135.getRange()
-  #138 = #137.insertContentControl()
-  set #138.tag = "formula-inserter:stats-chart"
-  set #138.title = "JurisLab"
-  set #138.appearance = "hidden"
+  #140 = #138.getRange()
+  #141 = #140.insertContentControl()
+  set #141.tag = "formula-inserter:stats-chart"
+  set #141.title = "JurisLab"
+  set #141.appearance = "hidden"
   R36.sync()
   R36.sync()
 } R36
    status: Chart inserted as PNG at 768 dpi.
 == analyze/analyze-insert
 RUN R37 {
-  #139 = R37.document.body.inlinePictures.load("items")
+  #142 = R37.document.body.inlinePictures.load("items")
   R37.sync()
-  #140 = R37.document.getSelection()
-  #141 = #140.getRange("end")
-  #142 = #141.insertParagraph("Solution x =", "after")
-  #143 = #142.getRange("after")
-  #144 = #143.insertTable(2, 1, "after", [["2"],["1"]])
-  #145 = #144.getCell(0, 0)
-  #146 = #145.body.paragraphs.getFirst()
-  set #146.alignment = "right"
-  #147 = #144.getCell(1, 0)
-  #148 = #147.body.paragraphs.getFirst()
-  set #148.alignment = "right"
-  #149 = #144.getRange("after")
-  #150 = #149.insertParagraph("Solution vector", "after")
-  #151 = #150.insertInlinePictureFromBase64(s37020:e8fc993e, "end")
-  set #151.width = 270
-  set #151.height = 81
-  set #151.altTextDescription = "Each unknown in the solution"
-  #152 = #150.getRange("end")
-  #153 = #152.select("end")
+  #143 = R37.document.getSelection()
+  #144 = #143.getRange("end")
+  #145 = #144.insertParagraph("Solution x =", "after")
+  #146 = #145.getRange("after")
+  #147 = #146.insertTable(2, 1, "after", [["2"],["1"]])
+  #148 = #147.getCell(0, 0)
+  #149 = #148.body.paragraphs.getFirst()
+  set #149.alignment = "right"
+  #150 = #147.getCell(1, 0)
+  #151 = #150.body.paragraphs.getFirst()
+  set #151.alignment = "right"
+  #152 = #147.getRange("after")
+  #153 = #152.insertParagraph("Solution vector", "after")
+  #154 = #153.insertInlinePictureFromBase64(s37020:e8fc993e, "end")
+  set #154.width = 270
+  set #154.height = 81
+  set #154.altTextDescription = "Each unknown in the solution"
+  #155 = #153.getRange("end")
+  #156 = #155.select("end")
   R37.sync()
-  #154 = R37.document.body.inlinePictures.load("items")
+  #157 = R37.document.body.inlinePictures.load("items")
   R37.sync()
 } R37
    status: Analysis inserted — 1 figure.
 == engineering/engineering-insert
 RUN R38 {
-  #155 = R38.document.body.inlinePictures.load("items")
+  #158 = R38.document.body.inlinePictures.load("items")
   R38.sync()
-  #156 = R38.document.getSelection()
-  #157 = #156.getRange("end")
-  #158 = #157.insertParagraph("Beam analysis, span 8 m", "after")
-  #159 = #158.getRange("after")
-  #160 = #159.insertParagraph(s65:ebfc767e, "after")
-  #161 = #160.getRange("after")
-  #162 = #161.insertParagraph("", "after")
-  #163 = #162.getRange("after")
-  #164 = #163.insertParagraph("Reactions", "after")
-  #165 = #164.getRange("after")
-  #166 = #165.insertParagraph("  pin at x = 0 m: 27.5 kN up", "after")
-  #167 = #166.getRange("after")
-  #168 = #167.insertParagraph("  roller at x = 8 m: 42.5 kN up", "after")
-  #169 = #168.getRange("after")
-  #170 = #169.insertParagraph("", "after")
-  #171 = #170.getRange("after")
-  #172 = #171.insertParagraph("Equilibrium check", "after")
-  #173 = #172.getRange("after")
-  #174 = #173.insertParagraph("  Total applied load  70 kN down", "after")
-  #175 = #174.getRange("after")
-  #176 = #175.insertParagraph("  Sum of reactions    70 kN up", "after")
-  #177 = #176.getRange("after")
-  #178 = #177.insertParagraph("  Balance             exact", "after")
-  #179 = #178.getRange("after")
-  #180 = #179.insertParagraph("", "after")
-  #181 = #180.getRange("after")
-  #182 = #181.insertParagraph("Max shear: -42.5 kN at x = 8 m", "after")
-  #183 = #182.getRange("after")
-  #184 = #183.insertParagraph("Max moment: 75.63 kN·m at x = 5.5 m", "after")
-  #185 = #184.getRange("after")
-  #186 = #185.insertParagraph("", "after")
-  #187 = #186.getRange("after")
-  #188 = #187.insertParagraph(s82:af522bbe, "after")
-  #189 = #188.getRange("after")
-  #190 = #189.insertParagraph(s261:1982d072, "after")
-  #191 = #190.getRange("after")
-  #192 = #191.insertParagraph("Shear force and bending moment diagrams", "after")
-  #193 = #192.insertInlinePictureFromBase64(s172568:ce772256, "end")
-  set #193.width = 315
-  set #193.height = 259.5
-  set #193.altTextDescription = s63:f4e10e29
-  #194 = #192.getRange("end")
-  #195 = #194.select("end")
+  #159 = R38.document.getSelection()
+  #160 = #159.getRange("end")
+  #161 = #160.insertParagraph("Beam analysis, span 8 m", "after")
+  #162 = #161.getRange("after")
+  #163 = #162.insertParagraph(s65:ebfc767e, "after")
+  #164 = #163.getRange("after")
+  #165 = #164.insertParagraph("", "after")
+  #166 = #165.getRange("after")
+  #167 = #166.insertParagraph("Reactions", "after")
+  #168 = #167.getRange("after")
+  #169 = #168.insertParagraph("  pin at x = 0 m: 27.5 kN up", "after")
+  #170 = #169.getRange("after")
+  #171 = #170.insertParagraph("  roller at x = 8 m: 42.5 kN up", "after")
+  #172 = #171.getRange("after")
+  #173 = #172.insertParagraph("", "after")
+  #174 = #173.getRange("after")
+  #175 = #174.insertParagraph("Equilibrium check", "after")
+  #176 = #175.getRange("after")
+  #177 = #176.insertParagraph("  Total applied load  70 kN down", "after")
+  #178 = #177.getRange("after")
+  #179 = #178.insertParagraph("  Sum of reactions    70 kN up", "after")
+  #180 = #179.getRange("after")
+  #181 = #180.insertParagraph("  Balance             exact", "after")
+  #182 = #181.getRange("after")
+  #183 = #182.insertParagraph("", "after")
+  #184 = #183.getRange("after")
+  #185 = #184.insertParagraph("Max shear: -42.5 kN at x = 8 m", "after")
+  #186 = #185.getRange("after")
+  #187 = #186.insertParagraph("Max moment: 75.63 kN·m at x = 5.5 m", "after")
+  #188 = #187.getRange("after")
+  #189 = #188.insertParagraph("", "after")
+  #190 = #189.getRange("after")
+  #191 = #190.insertParagraph(s82:af522bbe, "after")
+  #192 = #191.getRange("after")
+  #193 = #192.insertParagraph(s261:1982d072, "after")
+  #194 = #193.getRange("after")
+  #195 = #194.insertParagraph("Shear force and bending moment diagrams", "after")
+  #196 = #195.insertInlinePictureFromBase64(s172568:ce772256, "end")
+  set #196.width = 315
+  set #196.height = 259.5
+  set #196.altTextDescription = s63:f4e10e29
+  #197 = #195.getRange("end")
+  #198 = #197.select("end")
   R38.sync()
-  #196 = R38.document.body.inlinePictures.load("items")
+  #199 = R38.document.body.inlinePictures.load("items")
   R38.sync()
 } R38
    status: Engineering result inserted — 1 figure.
 == engineering/engineering-insert#2
 RUN R39 {
-  #197 = R39.document.body.inlinePictures.load("items")
+  #200 = R39.document.body.inlinePictures.load("items")
   R39.sync()
-  #198 = R39.document.getSelection()
-  #199 = #198.getRange("end")
-  #200 = #199.insertOoxml(s3655:4420ba72, "after")
-  #201 = #200.getRange("after")
-  #202 = #201.insertParagraph(s51:389173d4, "after")
-  #203 = #202.insertInlinePictureFromBase64(s86388:94b8a178, "end")
-  set #203.width = 255
-  set #203.height = 225
-  set #203.altTextDescription = s55:3b1cadb7
-  #204 = #202.getRange("end")
-  #205 = #204.select("end")
+  #201 = R39.document.getSelection()
+  #202 = #201.getRange("end")
+  #203 = #202.insertOoxml(s3655:4420ba72, "after")
+  #204 = #203.getRange("after")
+  #205 = #204.insertParagraph(s51:389173d4, "after")
+  #206 = #205.insertInlinePictureFromBase64(s86388:94b8a178, "end")
+  set #206.width = 255
+  set #206.height = 225
+  set #206.altTextDescription = s55:3b1cadb7
+  #207 = #205.getRange("end")
+  #208 = #207.select("end")
   R39.sync()
-  #206 = R39.document.body.inlinePictures.load("items")
+  #209 = R39.document.body.inlinePictures.load("items")
   R39.sync()
 } R39
    status: Engineering result inserted — 1 figure.
 == ppt/ppt-load
 RUN R40 {
-  #207 = R40.document.getSelection()
-  #208 = #207.tables.load("items")
-  #209 = #207.parentTableOrNullObject.load("isNullObject")
+  #210 = R40.document.getSelection()
+  #211 = #210.tables.load("items")
+  #212 = #210.parentTableOrNullObject.load("isNullObject")
   R40.sync()
-  #210 = #207.tables.items[0].load("values")
+  #213 = #210.tables.items[0].load("values")
   R40.sync()
 } R40
    status: Numeric data across 3 categories — drawn as a column chart. Switch “Show as” for another view.
 == ppt/ppt-insert-fig
 RUN R41 {
-  #211 = R41.document.getSelection()
-  #212 = #211.insertInlinePictureFromBase64(s57056:ba0b44ea, "after")
-  set #212.width = 285
-  set #212.height = 195
-  set #212.altTextDescription = "column of table (4 rows)"
-  #213 = #211.select("end")
+  #214 = R41.document.getSelection()
+  #215 = #214.insertInlinePictureFromBase64(s57056:ba0b44ea, "after")
+  set #215.width = 285
+  set #215.height = 195
+  set #215.altTextDescription = "column of table (4 rows)"
+  #216 = #214.select("end")
   R41.sync()
-  #214 = #212.getRange("end")
-  #215 = #214.select("end")
+  #217 = #215.getRange("end")
+  #218 = #217.select("end")
   R41.sync()
-  #216 = #212.getRange()
-  #217 = #216.insertContentControl()
-  set #217.tag = "formula-inserter:tablechart"
-  set #217.title = "JurisLab"
-  set #217.appearance = "hidden"
+  #219 = #215.getRange()
+  #220 = #219.insertContentControl()
+  set #220.tag = "formula-inserter:tablechart"
+  set #220.title = "JurisLab"
+  set #220.appearance = "hidden"
   R41.sync()
   R41.sync()
 } R41
    status: Figure inserted as PNG at 384 dpi.
 == ppt/ppt-insert-fig#2
 RUN R42 {
-  #218 = R42.document.getSelection()
-  #219 = #218.insertInlinePictureFromBase64(s57056:ba0b44ea, "after")
-  set #219.width = 285
-  set #219.height = 195
-  set #219.altTextDescription = "column of table (4 rows)"
-  #220 = #218.select("end")
+  #221 = R42.document.getSelection()
+  #222 = #221.insertInlinePictureFromBase64(s57056:ba0b44ea, "after")
+  set #222.width = 285
+  set #222.height = 195
+  set #222.altTextDescription = "column of table (4 rows)"
+  #223 = #221.select("end")
   R42.sync()
-  #221 = #219.getRange("end")
-  #222 = #221.insertParagraph("", "after")
-  #223 = #222.getRange("after")
-  #224 = #223.insertTable(4, 2, "after", [["x","y"],["1","2.1"],["2","3.9"],["3","6.2"]])
-  #225 = #224.getCell(0, 0)
-  set #225.body.font.bold = true
-  set #225.shadingColor = "#E7EEF6"
-  #226 = #224.getCell(0, 1)
-  set #226.body.font.bold = true
-  set #226.shadingColor = "#E7EEF6"
-  #227 = #224.getCell(1, 0)
-  #228 = #227.body.paragraphs.getFirst()
-  set #228.alignment = "right"
-  #229 = #224.getCell(1, 1)
-  #230 = #229.body.paragraphs.getFirst()
-  set #230.alignment = "right"
-  #231 = #224.getCell(2, 0)
-  #232 = #231.body.paragraphs.getFirst()
-  set #232.alignment = "right"
-  #233 = #224.getCell(2, 1)
-  #234 = #233.body.paragraphs.getFirst()
-  set #234.alignment = "right"
-  #235 = #224.getCell(3, 0)
-  #236 = #235.body.paragraphs.getFirst()
-  set #236.alignment = "right"
-  #237 = #224.getCell(3, 1)
-  #238 = #237.body.paragraphs.getFirst()
-  set #238.alignment = "right"
-  #239 = #224.getRange("after")
-  #240 = #239.select("end")
+  #224 = #222.getRange("end")
+  #225 = #224.insertParagraph("", "after")
+  #226 = #225.getRange("after")
+  #227 = #226.insertTable(4, 2, "after", [["x","y"],["1","2.1"],["2","3.9"],["3","6.2"]])
+  #228 = #227.getCell(0, 0)
+  set #228.body.font.bold = true
+  set #228.shadingColor = "#E7EEF6"
+  #229 = #227.getCell(0, 1)
+  set #229.body.font.bold = true
+  set #229.shadingColor = "#E7EEF6"
+  #230 = #227.getCell(1, 0)
+  #231 = #230.body.paragraphs.getFirst()
+  set #231.alignment = "right"
+  #232 = #227.getCell(1, 1)
+  #233 = #232.body.paragraphs.getFirst()
+  set #233.alignment = "right"
+  #234 = #227.getCell(2, 0)
+  #235 = #234.body.paragraphs.getFirst()
+  set #235.alignment = "right"
+  #236 = #227.getCell(2, 1)
+  #237 = #236.body.paragraphs.getFirst()
+  set #237.alignment = "right"
+  #238 = #227.getCell(3, 0)
+  #239 = #238.body.paragraphs.getFirst()
+  set #239.alignment = "right"
+  #240 = #227.getCell(3, 1)
+  #241 = #240.body.paragraphs.getFirst()
+  set #241.alignment = "right"
+  #242 = #227.getRange("after")
+  #243 = #242.select("end")
   R42.sync()
-  #241 = #224.getRange()
-  #242 = #241.paragraphs.load("items")
+  #244 = #227.getRange()
+  #245 = #244.paragraphs.load("items")
   R42.sync()
-  set #241.paragraphs.items[0].styleBuiltIn = "normal"
-  set #241.paragraphs.items[1].styleBuiltIn = "normal"
-  set #241.paragraphs.items[2].styleBuiltIn = "normal"
-  set #241.paragraphs.items[3].styleBuiltIn = "normal"
-  set #241.paragraphs.items[4].styleBuiltIn = "normal"
-  set #241.paragraphs.items[5].styleBuiltIn = "normal"
-  set #241.paragraphs.items[6].styleBuiltIn = "normal"
-  set #241.paragraphs.items[7].styleBuiltIn = "normal"
-  set #241.paragraphs.items[8].styleBuiltIn = "normal"
-  set #241.paragraphs.items[9].styleBuiltIn = "normal"
-  set #241.paragraphs.items[10].styleBuiltIn = "normal"
+  set #244.paragraphs.items[0].styleBuiltIn = "normal"
+  set #244.paragraphs.items[1].styleBuiltIn = "normal"
+  set #244.paragraphs.items[2].styleBuiltIn = "normal"
+  set #244.paragraphs.items[3].styleBuiltIn = "normal"
+  set #244.paragraphs.items[4].styleBuiltIn = "normal"
+  set #244.paragraphs.items[5].styleBuiltIn = "normal"
+  set #244.paragraphs.items[6].styleBuiltIn = "normal"
+  set #244.paragraphs.items[7].styleBuiltIn = "normal"
+  set #244.paragraphs.items[8].styleBuiltIn = "normal"
+  set #244.paragraphs.items[9].styleBuiltIn = "normal"
+  set #244.paragraphs.items[10].styleBuiltIn = "normal"
   R42.sync()
-  #243 = #241.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
-  #244 = #241.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
-  #245 = #241.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
-  #246 = #241.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
-  #247 = #241.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
-  #248 = #241.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
-  #249 = #241.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
-  #250 = #241.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
-  #251 = #241.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
-  #252 = #241.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
-  #253 = #241.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
+  #246 = #244.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #247 = #244.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #248 = #244.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #249 = #244.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #250 = #244.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #251 = #244.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #252 = #244.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #253 = #244.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #254 = #244.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #255 = #244.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #256 = #244.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R42.sync()
-  #254 = #219.getRange()
-  #255 = #254.insertContentControl()
-  set #255.tag = "formula-inserter:tablechart"
-  set #255.title = "JurisLab"
-  set #255.appearance = "hidden"
+  #257 = #222.getRange()
+  #258 = #257.insertContentControl()
+  set #258.tag = "formula-inserter:tablechart"
+  set #258.title = "JurisLab"
+  set #258.appearance = "hidden"
   R42.sync()
   R42.sync()
 } R42
    status: Figure + editable table inserted as PNG at 384 dpi.
 == ppt/ppt-insert-table
 RUN R43 {
-  #256 = R43.document.getSelection()
-  #257 = #256.insertTable(4, 2, "after", [["x","y"],["1","2.1"],["2","3.9"],["3","6.2"]])
-  #258 = #257.getCell(0, 0)
-  set #258.body.font.bold = true
-  set #258.shadingColor = "#E7EEF6"
-  #259 = #257.getCell(0, 1)
-  set #259.body.font.bold = true
-  set #259.shadingColor = "#E7EEF6"
-  #260 = #257.getCell(1, 0)
-  #261 = #260.body.paragraphs.getFirst()
-  set #261.alignment = "right"
-  #262 = #257.getCell(1, 1)
-  #263 = #262.body.paragraphs.getFirst()
-  set #263.alignment = "right"
-  #264 = #257.getCell(2, 0)
-  #265 = #264.body.paragraphs.getFirst()
-  set #265.alignment = "right"
-  #266 = #257.getCell(2, 1)
-  #267 = #266.body.paragraphs.getFirst()
-  set #267.alignment = "right"
-  #268 = #257.getCell(3, 0)
-  #269 = #268.body.paragraphs.getFirst()
-  set #269.alignment = "right"
-  #270 = #257.getCell(3, 1)
-  #271 = #270.body.paragraphs.getFirst()
-  set #271.alignment = "right"
-  #272 = #257.getRange("after")
-  #273 = #272.select("end")
+  #259 = R43.document.getSelection()
+  #260 = #259.insertTable(4, 2, "after", [["x","y"],["1","2.1"],["2","3.9"],["3","6.2"]])
+  #261 = #260.getCell(0, 0)
+  set #261.body.font.bold = true
+  set #261.shadingColor = "#E7EEF6"
+  #262 = #260.getCell(0, 1)
+  set #262.body.font.bold = true
+  set #262.shadingColor = "#E7EEF6"
+  #263 = #260.getCell(1, 0)
+  #264 = #263.body.paragraphs.getFirst()
+  set #264.alignment = "right"
+  #265 = #260.getCell(1, 1)
+  #266 = #265.body.paragraphs.getFirst()
+  set #266.alignment = "right"
+  #267 = #260.getCell(2, 0)
+  #268 = #267.body.paragraphs.getFirst()
+  set #268.alignment = "right"
+  #269 = #260.getCell(2, 1)
+  #270 = #269.body.paragraphs.getFirst()
+  set #270.alignment = "right"
+  #271 = #260.getCell(3, 0)
+  #272 = #271.body.paragraphs.getFirst()
+  set #272.alignment = "right"
+  #273 = #260.getCell(3, 1)
+  #274 = #273.body.paragraphs.getFirst()
+  set #274.alignment = "right"
+  #275 = #260.getRange("after")
+  #276 = #275.select("end")
   R43.sync()
-  #274 = #257.getRange()
-  #275 = #274.paragraphs.load("items")
+  #277 = #260.getRange()
+  #278 = #277.paragraphs.load("items")
   R43.sync()
-  set #274.paragraphs.items[0].styleBuiltIn = "normal"
-  set #274.paragraphs.items[1].styleBuiltIn = "normal"
-  set #274.paragraphs.items[2].styleBuiltIn = "normal"
-  set #274.paragraphs.items[3].styleBuiltIn = "normal"
-  set #274.paragraphs.items[4].styleBuiltIn = "normal"
-  set #274.paragraphs.items[5].styleBuiltIn = "normal"
-  set #274.paragraphs.items[6].styleBuiltIn = "normal"
-  set #274.paragraphs.items[7].styleBuiltIn = "normal"
-  set #274.paragraphs.items[8].styleBuiltIn = "normal"
-  set #274.paragraphs.items[9].styleBuiltIn = "normal"
-  set #274.paragraphs.items[10].styleBuiltIn = "normal"
+  set #277.paragraphs.items[0].styleBuiltIn = "normal"
+  set #277.paragraphs.items[1].styleBuiltIn = "normal"
+  set #277.paragraphs.items[2].styleBuiltIn = "normal"
+  set #277.paragraphs.items[3].styleBuiltIn = "normal"
+  set #277.paragraphs.items[4].styleBuiltIn = "normal"
+  set #277.paragraphs.items[5].styleBuiltIn = "normal"
+  set #277.paragraphs.items[6].styleBuiltIn = "normal"
+  set #277.paragraphs.items[7].styleBuiltIn = "normal"
+  set #277.paragraphs.items[8].styleBuiltIn = "normal"
+  set #277.paragraphs.items[9].styleBuiltIn = "normal"
+  set #277.paragraphs.items[10].styleBuiltIn = "normal"
   R43.sync()
-  #276 = #274.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
-  #277 = #274.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
-  #278 = #274.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
-  #279 = #274.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
-  #280 = #274.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
-  #281 = #274.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
-  #282 = #274.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
-  #283 = #274.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
-  #284 = #274.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
-  #285 = #274.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
-  #286 = #274.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
+  #279 = #277.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #280 = #277.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #281 = #277.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #282 = #277.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #283 = #277.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #284 = #277.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #285 = #277.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #286 = #277.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #287 = #277.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #288 = #277.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #289 = #277.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R43.sync()
 } R43
    status: Editable Word table inserted — the text can be edited normally.
 == ppt/ppt-insert-table#2
 RUN R44 {
-  #287 = R44.document.getSelection()
-  #288 = #287.insertTable(4, 2, "after", [["x","y"],["1","2.1"],["2","3.9"],["3","6.2"]])
-  #289 = #288.getCell(0, 0)
-  set #289.body.font.bold = true
-  set #289.shadingColor = "#E7EEF6"
-  #290 = #288.getCell(0, 1)
-  set #290.body.font.bold = true
-  set #290.shadingColor = "#E7EEF6"
-  #291 = #288.getCell(1, 0)
-  #292 = #291.body.paragraphs.getFirst()
-  set #292.alignment = "right"
-  #293 = #288.getCell(1, 1)
-  #294 = #293.body.paragraphs.getFirst()
-  set #294.alignment = "right"
-  #295 = #288.getCell(2, 0)
-  #296 = #295.body.paragraphs.getFirst()
-  set #296.alignment = "right"
-  #297 = #288.getCell(2, 1)
-  #298 = #297.body.paragraphs.getFirst()
-  set #298.alignment = "right"
-  #299 = #288.getCell(3, 0)
-  #300 = #299.body.paragraphs.getFirst()
-  set #300.alignment = "right"
-  #301 = #288.getCell(3, 1)
-  #302 = #301.body.paragraphs.getFirst()
-  set #302.alignment = "right"
-  #303 = #288.getRange("after")
-  #304 = #303.insertParagraph("FIG. 1", "after")
-  set #304.alignment = "centered"
-  set #304.styleBuiltIn = "normal"
-  #305 = #304.getRange("after")
-  #306 = #305.select("end")
+  #290 = R44.document.getSelection()
+  #291 = #290.insertTable(4, 2, "after", [["x","y"],["1","2.1"],["2","3.9"],["3","6.2"]])
+  #292 = #291.getCell(0, 0)
+  set #292.body.font.bold = true
+  set #292.shadingColor = "#E7EEF6"
+  #293 = #291.getCell(0, 1)
+  set #293.body.font.bold = true
+  set #293.shadingColor = "#E7EEF6"
+  #294 = #291.getCell(1, 0)
+  #295 = #294.body.paragraphs.getFirst()
+  set #295.alignment = "right"
+  #296 = #291.getCell(1, 1)
+  #297 = #296.body.paragraphs.getFirst()
+  set #297.alignment = "right"
+  #298 = #291.getCell(2, 0)
+  #299 = #298.body.paragraphs.getFirst()
+  set #299.alignment = "right"
+  #300 = #291.getCell(2, 1)
+  #301 = #300.body.paragraphs.getFirst()
+  set #301.alignment = "right"
+  #302 = #291.getCell(3, 0)
+  #303 = #302.body.paragraphs.getFirst()
+  set #303.alignment = "right"
+  #304 = #291.getCell(3, 1)
+  #305 = #304.body.paragraphs.getFirst()
+  set #305.alignment = "right"
+  #306 = #291.getRange("after")
+  #307 = #306.insertParagraph("FIG. 1", "after")
+  set #307.alignment = "centered"
+  set #307.styleBuiltIn = "normal"
+  #308 = #307.getRange("after")
+  #309 = #308.select("end")
   R44.sync()
-  #307 = #288.getRange()
-  #308 = #307.paragraphs.load("items")
+  #310 = #291.getRange()
+  #311 = #310.paragraphs.load("items")
   R44.sync()
-  set #307.paragraphs.items[0].styleBuiltIn = "normal"
-  set #307.paragraphs.items[1].styleBuiltIn = "normal"
-  set #307.paragraphs.items[2].styleBuiltIn = "normal"
-  set #307.paragraphs.items[3].styleBuiltIn = "normal"
-  set #307.paragraphs.items[4].styleBuiltIn = "normal"
-  set #307.paragraphs.items[5].styleBuiltIn = "normal"
-  set #307.paragraphs.items[6].styleBuiltIn = "normal"
-  set #307.paragraphs.items[7].styleBuiltIn = "normal"
-  set #307.paragraphs.items[8].styleBuiltIn = "normal"
-  set #307.paragraphs.items[9].styleBuiltIn = "normal"
-  set #307.paragraphs.items[10].styleBuiltIn = "normal"
+  set #310.paragraphs.items[0].styleBuiltIn = "normal"
+  set #310.paragraphs.items[1].styleBuiltIn = "normal"
+  set #310.paragraphs.items[2].styleBuiltIn = "normal"
+  set #310.paragraphs.items[3].styleBuiltIn = "normal"
+  set #310.paragraphs.items[4].styleBuiltIn = "normal"
+  set #310.paragraphs.items[5].styleBuiltIn = "normal"
+  set #310.paragraphs.items[6].styleBuiltIn = "normal"
+  set #310.paragraphs.items[7].styleBuiltIn = "normal"
+  set #310.paragraphs.items[8].styleBuiltIn = "normal"
+  set #310.paragraphs.items[9].styleBuiltIn = "normal"
+  set #310.paragraphs.items[10].styleBuiltIn = "normal"
   R44.sync()
-  #309 = #307.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
-  #310 = #307.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
-  #311 = #307.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
-  #312 = #307.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
-  #313 = #307.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
-  #314 = #307.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
-  #315 = #307.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
-  #316 = #307.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
-  #317 = #307.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
-  #318 = #307.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
-  #319 = #307.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
+  #312 = #310.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #313 = #310.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #314 = #310.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #315 = #310.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #316 = #310.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #317 = #310.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #318 = #310.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #319 = #310.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #320 = #310.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #321 = #310.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #322 = #310.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R44.sync()
 } R44
    status: Editable Word table inserted — the text can be edited normally.
 == finance/fin-insert
 RUN R45 {
-  #320 = R45.document.getSelection()
-  #321 = #320.insertText("FV = 1,628.89", "after")
-  #322 = #320.select("end")
+  #323 = R45.document.getSelection()
+  #324 = #323.insertText("FV = 1,628.89", "after")
+  #325 = #323.select("end")
   R45.sync()
 } R45
 RUN R46 {
-  #323 = R46.document.getSelection()
-  #324 = #323.insertInlinePictureFromBase64(s352620:83a9a4f9, "after")
-  set #324.width = 320.25
-  set #324.height = 180
-  set #324.altTextDescription = "Finance chart: Future value (TVM)"
-  #325 = #323.select("end")
+  #326 = R46.document.getSelection()
+  #327 = #326.insertInlinePictureFromBase64(s352620:83a9a4f9, "after")
+  set #327.width = 320.25
+  set #327.height = 180
+  set #327.altTextDescription = "Finance chart: Future value (TVM)"
+  #328 = #326.select("end")
   R46.sync()
-  #326 = #324.getRange()
-  #327 = #326.insertContentControl()
-  set #327.tag = "formula-inserter:finance-chart"
-  set #327.title = "JurisLab"
-  set #327.appearance = "hidden"
+  #329 = #327.getRange()
+  #330 = #329.insertContentControl()
+  set #330.tag = "formula-inserter:finance-chart"
+  set #330.title = "JurisLab"
+  set #330.appearance = "hidden"
   R46.sync()
   R46.sync()
 } R46
    status: Result and chart inserted (chart as PNG at 768 dpi).
 == sequence/seq-ref-insert
 RUN R47 {
-  #328 = R47.document.getSelection()
-  #329 = #328.insertText("SEQ ID NO: 1", "after")
-  #330 = #328.select("end")
+  #331 = R47.document.getSelection()
+  #332 = #331.insertText("SEQ ID NO: 1", "after")
+  #333 = #331.select("end")
   R47.sync()
 } R47
    status: SEQ ID reference inserted. Ctrl/⌘+Z undoes it.
 == dna/dna-revcomp-insert
 RUN R48 {
-  #331 = R48.document.getSelection()
-  #332 = #331.insertText(s93:2e58239d, "after")
-  #333 = #331.select("end")
+  #334 = R48.document.getSelection()
+  #335 = #334.insertText(s93:2e58239d, "after")
+  #336 = #334.select("end")
   R48.sync()
 } R48
    status: Reverse complement inserted. Ctrl/⌘+Z undoes it.
 == dna/dna-mrna-insert
 RUN R49 {
-  #334 = R49.document.getSelection()
-  #335 = #334.insertText(s93:031d894e, "after")
-  #336 = #334.select("end")
+  #337 = R49.document.getSelection()
+  #338 = #337.insertText(s93:031d894e, "after")
+  #339 = #337.select("end")
   R49.sync()
 } R49
    status: mRNA inserted. Ctrl/⌘+Z undoes it.
 == dna/dna-protein-insert
 RUN R50 {
-  #337 = R50.document.getSelection()
-  #338 = #337.insertText("MASKGEELFTGVVPILVELDGDVNGHKFSV*", "after")
-  #339 = #337.select("end")
+  #340 = R50.document.getSelection()
+  #341 = #340.insertText("MASKGEELFTGVVPILVELDGDVNGHKFSV*", "after")
+  #342 = #340.select("end")
   R50.sync()
 } R50
    status: Protein inserted. Ctrl/⌘+Z undoes it.
 == dna/dna-orf-insert
 RUN R51 {
-  #340 = R51.document.getSelection()
-  #341 = #340.insertHtml(s851:679cad16, "replace")
-  #342 = #341.select("end")
+  #343 = R51.document.getSelection()
+  #344 = #343.insertHtml(s851:679cad16, "replace")
+  #345 = #344.select("end")
   R51.sync()
-  #343 = #341.insertContentControl()
-  set #343.tag = "formula-inserter:orf-table"
-  set #343.title = "JurisLab"
-  set #343.appearance = "hidden"
+  #346 = #344.insertContentControl()
+  set #346.tag = "formula-inserter:orf-table"
+  set #346.title = "JurisLab"
+  set #346.appearance = "hidden"
   R51.sync()
 } R51
    status: ORF table inserted.
 == dna/digest-insert-btn
 RUN R52 {
-  #344 = R52.document.getSelection()
-  #345 = #344.insertText(s132:89d4dc1f, "after")
-  #346 = #344.select("end")
+  #347 = R52.document.getSelection()
+  #348 = #347.insertText(s132:89d4dc1f, "after")
+  #349 = #347.select("end")
   R52.sync()
 } R52
    status: Digest inserted. Ctrl/⌘+Z undoes it.
 == assay/assay-insert
 RUN R53 {
-  #347 = R53.document.getSelection()
-  #348 = #347.insertText(s858:8a54f55f, "after")
-  #349 = #347.select("end")
+  #350 = R53.document.getSelection()
+  #351 = #350.insertText(s858:8a54f55f, "after")
+  #352 = #350.select("end")
   R53.sync()
 } R53
 RUN R54 {
-  #350 = R54.document.getSelection()
-  #351 = #350.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
-  set #351.width = 330
-  set #351.height = 202.5
-  set #351.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
-  #352 = #350.select("end")
+  #353 = R54.document.getSelection()
+  #354 = #353.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
+  set #354.width = 330
+  set #354.height = 202.5
+  set #354.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
+  #355 = #353.select("end")
   R54.sync()
-  #353 = #351.getRange()
-  #354 = #353.insertContentControl()
-  set #354.tag = "formula-inserter:assay"
-  set #354.title = "JurisLab"
-  set #354.appearance = "hidden"
+  #356 = #354.getRange()
+  #357 = #356.insertContentControl()
+  set #357.tag = "formula-inserter:assay"
+  set #357.title = "JurisLab"
+  set #357.appearance = "hidden"
   R54.sync()
   R54.sync()
 } R54
    status: Result and fit plot inserted.
 == assay/assay-insert-plot
 RUN R55 {
-  #355 = R55.document.getSelection()
-  #356 = #355.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
-  set #356.width = 330
-  set #356.height = 202.5
-  set #356.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
-  #357 = #355.select("end")
+  #358 = R55.document.getSelection()
+  #359 = #358.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
+  set #359.width = 330
+  set #359.height = 202.5
+  set #359.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
+  #360 = #358.select("end")
   R55.sync()
-  #358 = #356.getRange()
-  #359 = #358.insertContentControl()
-  set #359.tag = "formula-inserter:assay"
-  set #359.title = "JurisLab"
-  set #359.appearance = "hidden"
+  #361 = #359.getRange()
+  #362 = #361.insertContentControl()
+  set #362.tag = "formula-inserter:assay"
+  set #362.title = "JurisLab"
+  set #362.appearance = "hidden"
   R55.sync()
   R55.sync()
 } R55
    status: Fit plot inserted as PNG at 384 dpi.
 == peptide/pep-insert
 RUN R56 {
-  #360 = R56.document.getSelection()
-  #361 = #360.insertInlinePictureFromBase64(s85072:46f08ee0, "after")
-  set #361.width = 237
-  set #361.height = 84.75
-  set #361.altTextDescription = s302:9b34922e
-  #362 = #360.select("end")
+  #363 = R56.document.getSelection()
+  #364 = #363.insertInlinePictureFromBase64(s85072:46f08ee0, "after")
+  set #364.width = 237
+  set #364.height = 84.75
+  set #364.altTextDescription = s302:9b34922e
+  #365 = #363.select("end")
   R56.sync()
-  #363 = #361.getRange()
-  #364 = #363.insertContentControl()
-  set #364.tag = "formula-inserter:peptide"
-  set #364.title = "JurisLab"
-  set #364.appearance = "hidden"
+  #366 = #364.getRange()
+  #367 = #366.insertContentControl()
+  set #367.tag = "formula-inserter:peptide"
+  set #367.title = "JurisLab"
+  set #367.appearance = "hidden"
   R56.sync()
 } R56
    status: Peptide structure inserted.
 == botanical/bot-name-insert
 RUN R57 {
-  #365 = R57.document.getSelection()
-  #366 = #365.insertHtml("<i>Quercus</i> <i>alba</i> L.", "replace")
-  #367 = #366.select("end")
+  #368 = R57.document.getSelection()
+  #369 = #368.insertHtml("<i>Quercus</i> <i>alba</i> L.", "replace")
+  #370 = #369.select("end")
   R57.sync()
 } R57
    status: Name inserted.
 == botanical/bot-traits-insert
 RUN R58 {
-  #368 = R58.document.getSelection()
-  #369 = #368.insertHtml(s651:3df0bfb8, "replace")
-  #370 = #369.select("end")
+  #371 = R58.document.getSelection()
+  #372 = #371.insertHtml(s651:3df0bfb8, "replace")
+  #373 = #372.select("end")
   R58.sync()
 } R58
    status: Characteristics table inserted.
 == seqmap/seqmap-insert
 RUN R59 {
-  #371 = R59.document.getSelection()
-  #372 = #371.insertInlinePictureFromBase64(s48996:2432549f, "after")
-  set #372.width = 480
-  set #372.height = 48
-  set #372.altTextDescription = s51:52c6660e
-  #373 = #371.select("end")
+  #374 = R59.document.getSelection()
+  #375 = #374.insertInlinePictureFromBase64(s48996:2432549f, "after")
+  set #375.width = 480
+  set #375.height = 48
+  set #375.altTextDescription = s51:52c6660e
+  #376 = #374.select("end")
   R59.sync()
-  #374 = #372.getRange()
-  #375 = #374.insertContentControl()
-  set #375.tag = "formula-inserter:seqmap"
-  set #375.title = "JurisLab"
-  set #375.appearance = "hidden"
+  #377 = #375.getRange()
+  #378 = #377.insertContentControl()
+  set #378.tag = "formula-inserter:seqmap"
+  set #378.title = "JurisLab"
+  set #378.appearance = "hidden"
   R59.sync()
 } R59
    status: Map inserted.
 == align/align-insert
 RUN R60 {
-  #376 = R60.document.getSelection()
-  #377 = #376.insertHtml(s798:e350917e, "replace")
-  #378 = #376.select("end")
+  #379 = R60.document.getSelection()
+  #380 = #379.insertHtml(s798:e350917e, "replace")
+  #381 = #379.select("end")
   R60.sync()
 } R60
    status: Alignment inserted.
 == cad/cad-open
 RUN R61 {
-  #379 = R61.document.getSelection()
-  #380 = #379.inlinePictures.load("items/altTextDescription")
+  #382 = R61.document.getSelection()
+  #383 = #382.inlinePictures.load("items/altTextDescription")
   R61.sync()
 } R61
    status: That picture was not made by the Drawing tool, so there is no model to open.
 == cad/cad-insert
 RUN R62 {
-  #381 = R62.document.getSelection()
-  #382 = #381.insertInlinePictureFromBase64(s221724:7e869ad1, "after")
-  set #382.width = 450.7086614173229
-  set #382.height = 227.9894049154022
-  set #382.altTextDescription = s470:723c92d7
-  #383 = #381.select("end")
+  #384 = R62.document.getSelection()
+  #385 = #384.insertInlinePictureFromBase64(s221724:7e869ad1, "after")
+  set #385.width = 450.7086614173229
+  set #385.height = 227.9894049154022
+  set #385.altTextDescription = s470:723c92d7
+  #386 = #384.select("end")
   R62.sync()
-  #384 = #382.getRange()
-  #385 = #384.insertContentControl()
-  set #385.tag = "formula-inserter:cad"
-  set #385.title = "JurisLab"
-  set #385.appearance = "hidden"
+  #387 = #385.getRange()
+  #388 = #387.insertContentControl()
+  set #388.tag = "formula-inserter:cad"
+  set #388.title = "JurisLab"
+  set #388.appearance = "hidden"
   R62.sync()
 } R62
    status: Drawing inserted — Engineering drawing — ASME (third-angle). The drawing is inserted at 63 % to fit the page; SCALE 1:1 holds at full size (254 mm wide).
@@ -990,18 +991,18 @@ RUN R62 {
 OFFICE displayDialogAsync("caddialog.html", {height:90,width:90})
 OFFICE dialog.close()
 RUN R63 {
-  #386 = R63.document.getSelection()
-  #387 = #386.insertInlinePictureFromBase64(s133776:2a691b26, "after")
-  set #387.width = 450.7086614173229
-  set #387.height = 285.47383379077814
-  set #387.altTextDescription = s382:8bb7b0af
-  #388 = #386.select("end")
+  #389 = R63.document.getSelection()
+  #390 = #389.insertInlinePictureFromBase64(s133776:2a691b26, "after")
+  set #390.width = 450.7086614173229
+  set #390.height = 285.47383379077814
+  set #390.altTextDescription = s382:8bb7b0af
+  #391 = #389.select("end")
   R63.sync()
-  #389 = #387.getRange()
-  #390 = #389.insertContentControl()
-  set #390.tag = "formula-inserter:cad"
-  set #390.title = "JurisLab"
-  set #390.appearance = "hidden"
+  #392 = #390.getRange()
+  #393 = #392.insertContentControl()
+  set #393.tag = "formula-inserter:cad"
+  set #393.title = "JurisLab"
+  set #393.appearance = "hidden"
   R63.sync()
 } R63
    status: Drawing inserted — Engineering drawing — ASME (third-angle). The drawing is inserted at 63 % to fit the page; SCALE 2:1 holds at full size (254 mm wide).
@@ -1011,7 +1012,7 @@ OFFICE settings.saveAsync()
    status: 
 == numerals/num-scan-btn
 RUN R64 {
-  #391 = R64.document.body.load("text")
+  #394 = R64.document.body.load("text")
   R64.sync()
 } R64
    status: Scan complete.
@@ -1021,55 +1022,55 @@ OFFICE settings.saveAsync()
 OFFICE settings.set("formula-inserter.numerals", s64:844daa0a)
 OFFICE settings.saveAsync()
 RUN R65 {
-  #392 = R65.document.getSelection()
-  #393 = #392.insertText("(10)", "replace")
-  #394 = #393.select("end")
+  #395 = R65.document.getSelection()
+  #396 = #395.insertText("(10)", "replace")
+  #397 = #396.select("end")
   R65.sync()
-  #395 = #393.insertContentControl()
-  set #395.tag = "formula-inserter:callout:10"
-  set #395.title = "JurisLab"
-  set #395.appearance = "hidden"
+  #398 = #396.insertContentControl()
+  set #398.tag = "formula-inserter:callout:10"
+  set #398.title = "JurisLab"
+  set #398.appearance = "hidden"
   R65.sync()
 } R65
 RUN R66 {
-  #396 = R66.document.getSelection()
-  #397 = #396.insertParagraph("List of Reference Numerals", "before")
-  set #397.styleBuiltIn = undefined
-  #398 = #396.insertParagraph("", "before")
-  #399 = #398.getRange()
-  #400 = #399.insertHtml(s358:c5224305, "replace")
+  #399 = R66.document.getSelection()
+  #400 = #399.insertParagraph("List of Reference Numerals", "before")
+  set #400.styleBuiltIn = undefined
+  #401 = #399.insertParagraph("", "before")
+  #402 = #401.getRange()
+  #403 = #402.insertHtml(s358:c5224305, "replace")
   R66.sync()
-  #401 = #400.insertContentControl()
-  set #401.tag = "formula-inserter:numeral-list"
-  set #401.title = "JurisLab"
-  set #401.appearance = "hidden"
+  #404 = #403.insertContentControl()
+  set #404.tag = "formula-inserter:numeral-list"
+  set #404.title = "JurisLab"
+  set #404.appearance = "hidden"
   R66.sync()
 } R66
    status: List of Reference Numerals inserted.
 == numerals/para-preview-btn
 RUN R67 {
-  #402 = R67.document.body.paragraphs.load("items/text")
+  #405 = R67.document.body.paragraphs.load("items/text")
   R67.sync()
 } R67
    status: 
 == numerals/para-apply-btn
 RUN R68 {
-  #403 = R68.document.body.paragraphs.load("items/text")
+  #406 = R68.document.body.paragraphs.load("items/text")
   R68.sync()
 } R68
 RUN R69 {
-  #404 = R69.document.body.paragraphs.load("items/text")
+  #407 = R69.document.body.paragraphs.load("items/text")
   R69.sync()
-  #405 = R69.document.body.paragraphs.items[1].insertText("[0001] ", "start")
-  #406 = R69.document.body.paragraphs.items[2].insertText("[0002] ", "start")
-  #407 = R69.document.body.paragraphs.items[3].insertText("[0003] ", "start")
-  #408 = R69.document.body.paragraphs.items[4].insertText("[0004] ", "start")
-  #409 = R69.document.body.paragraphs.items[5].insertText("[0005] ", "start")
-  #410 = R69.document.body.paragraphs.items[6].insertText("[0006] ", "start")
-  #411 = R69.document.body.paragraphs.items[7].insertText("[0007] ", "start")
-  #412 = R69.document.body.paragraphs.items[8].insertText("[0008] ", "start")
-  #413 = R69.document.body.paragraphs.items[9].insertText("[0009] The invention relates to housings.", "replace")
-  #414 = R69.document.body.paragraphs.items[10].insertText("[0010] The lid 12 is hinged.", "replace")
+  #408 = R69.document.body.paragraphs.items[1].insertText("[0001] ", "start")
+  #409 = R69.document.body.paragraphs.items[2].insertText("[0002] ", "start")
+  #410 = R69.document.body.paragraphs.items[3].insertText("[0003] ", "start")
+  #411 = R69.document.body.paragraphs.items[4].insertText("[0004] ", "start")
+  #412 = R69.document.body.paragraphs.items[5].insertText("[0005] ", "start")
+  #413 = R69.document.body.paragraphs.items[6].insertText("[0006] ", "start")
+  #414 = R69.document.body.paragraphs.items[7].insertText("[0007] ", "start")
+  #415 = R69.document.body.paragraphs.items[8].insertText("[0008] ", "start")
+  #416 = R69.document.body.paragraphs.items[9].insertText("[0009] The invention relates to housings.", "replace")
+  #417 = R69.document.body.paragraphs.items[10].insertText("[0010] The lid 12 is hinged.", "replace")
   R69.sync()
 } R69
    status: 
@@ -1079,17 +1080,17 @@ OFFICE settings.saveAsync()
    status: 
 == refs/ref-insert-caption
 RUN R70 {
-  #415 = R70.document.getSelection()
-  #416 = #415.insertParagraph("Figure 1", "after")
-  set #416.styleBuiltIn = "caption"
-  #417 = #416.getRange()
-  #418 = #417.select("end")
+  #418 = R70.document.getSelection()
+  #419 = #418.insertParagraph("Figure 1", "after")
+  set #419.styleBuiltIn = "caption"
+  #420 = #419.getRange()
+  #421 = #420.select("end")
   R70.sync()
-  #419 = #416.getRange()
-  #420 = #419.insertContentControl()
-  set #420.tag = "formula-inserter:caption:figure"
-  set #420.title = "JurisLab"
-  set #420.appearance = "hidden"
+  #422 = #419.getRange()
+  #423 = #422.insertContentControl()
+  set #423.tag = "formula-inserter:caption:figure"
+  set #423.title = "JurisLab"
+  set #423.appearance = "hidden"
   R70.sync()
 } R70
 OFFICE settings.set("formula-inserter.refs", "{\"figure\":2,\"table\":1}")
@@ -1097,109 +1098,109 @@ OFFICE settings.saveAsync()
    status: Inserted "Figure 1".
 == refs/ref-insert-xref
 RUN R71 {
-  #421 = R71.document.getSelection()
-  #422 = #421.insertText("Fig. 1", "after")
-  #423 = #421.select("end")
+  #424 = R71.document.getSelection()
+  #425 = #424.insertText("Fig. 1", "after")
+  #426 = #424.select("end")
   R71.sync()
 } R71
    status: Cross-reference inserted. Ctrl/⌘+Z undoes it.
 == refs/ref-check
 RUN R72 {
-  #424 = R72.document.body.load("text")
+  #427 = R72.document.body.load("text")
   R72.sync()
 } R72
    status: Check complete.
 == code/insert-code-btn
 RUN R73 {
-  #425 = R73.document.getSelection()
-  #426 = #425.insertHtml(s996:ceb8597c, "replace")
-  #427 = #426.select("end")
+  #428 = R73.document.getSelection()
+  #429 = #428.insertHtml(s996:ceb8597c, "replace")
+  #430 = #429.select("end")
   R73.sync()
 } R73
    status: Block inserted.
 == audit/audit-run-btn
 RUN R74 {
-  #428 = R74.document.body.load("text")
+  #431 = R74.document.body.load("text")
   R74.sync()
 } R74
    status: Audit complete.
 == citations/cite-insert
 RUN R75 {
-  #429 = R75.document.getSelection()
-  #430 = #429.insertHtml(s49:b967615d, "replace")
-  #431 = #430.select("end")
+  #432 = R75.document.getSelection()
+  #433 = #432.insertHtml(s49:b967615d, "replace")
+  #434 = #433.select("end")
   R75.sync()
-  #432 = #430.insertContentControl()
-  set #432.tag = "formula-inserter:citation"
-  set #432.title = "JurisLab"
-  set #432.appearance = "hidden"
+  #435 = #433.insertContentControl()
+  set #435.tag = "formula-inserter:citation"
+  set #435.title = "JurisLab"
+  set #435.appearance = "hidden"
   R75.sync()
 } R75
    status: Citation inserted.
 == citations/toa-build
 RUN R76 {
-  #433 = R76.document.body.load("text")
+  #436 = R76.document.body.load("text")
   R76.sync()
-  #434 = R76.document.contentControls.getByTag("jurislab:toafield")
-  #435 = #434.load("items")
+  #437 = R76.document.contentControls.getByTag("jurislab:toafield")
+  #438 = #437.load("items")
   R76.sync()
-  #436 = R76.document.getSelection()
-  #437 = #436.insertOoxml(s4663:131d388c, "replace")
-  #438 = #437.select("end")
+  #439 = R76.document.getSelection()
+  #440 = #439.insertOoxml(s4663:131d388c, "replace")
+  #441 = #440.select("end")
   R76.sync()
-  #439 = #437.insertContentControl()
-  set #439.tag = "formula-inserter:toa"
-  set #439.title = "JurisLab"
-  set #439.appearance = "hidden"
+  #442 = #440.insertContentControl()
+  set #442.tag = "formula-inserter:toa"
+  set #442.title = "JurisLab"
+  set #442.appearance = "hidden"
   R76.sync()
 } R76
    status: Formatted Table of Authorities inserted.
 == citations/toa-native
 RUN R77 {
-  #440 = R77.document.body.footnotes.load("items")
-  #441 = R77.document.body.endnotes.load("items")
+  #443 = R77.document.body.footnotes.load("items")
+  #444 = R77.document.body.endnotes.load("items")
   R77.sync()
-  #442 = R77.document.body.load("text")
-  #443 = R77.document.body.footnotes.items[0].body.load("text")
+  #445 = R77.document.body.load("text")
+  #446 = R77.document.body.footnotes.items[0].body.load("text")
   R77.sync()
-  #444 = R77.document.body.fields.load("items/code")
-  #445 = R77.document.body.footnotes.items[0].body.fields.load("items/code")
+  #447 = R77.document.body.fields.load("items/code")
+  #448 = R77.document.body.footnotes.items[0].body.fields.load("items/code")
   R77.sync()
-  #446 = R77.document.body.fields.items[0].delete()
-  #447 = R77.document.body.footnotes.items[0].body.fields.items[0].delete()
+  #449 = R77.document.body.fields.items[0].delete()
+  #450 = R77.document.body.footnotes.items[0].body.fields.items[0].delete()
   THREW n.load is not a function
 } R77
    status: Could not build the field-based Table of Authorities: n.load is not a function
 == citations/toa-clearmarks
 RUN R78 {
-  #448 = R78.document.body.fields.load("items/code")
+  #451 = R78.document.body.fields.load("items/code")
   R78.sync()
-  #449 = R78.document.body.fields.items[0].delete()
+  #452 = R78.document.body.fields.items[0].delete()
   R78.sync()
 } R78
    status: Removed 1 citation marks.
 == citations/toa-cleartables
 RUN R79 {
-  #450 = R79.document.body.fields.load("items/code")
+  #453 = R79.document.body.fields.load("items/code")
   R79.sync()
-  #451 = R79.document.body.fields.items[1].delete()
-  #452 = R79.document.body.fields.items[2].delete()
+  #454 = R79.document.body.fields.items[1].delete()
+  #455 = R79.document.body.fields.items[2].delete()
   R79.sync()
 } R79
    status: Removed 2 table fields.
 == citations/toc-build
 RUN R80 {
-  #453 = R80.document.getSelection()
-  #454 = #453.insertOoxml(s2056:901fd238, "replace")
+  #456 = R80.document.getSelection()
+  #457 = #456.insertOoxml(s2056:901fd238, "replace")
   R80.sync()
-  #455 = R80.document.getStyles()
-  #456 = #455.load("items/nameLocal")
+  #458 = R80.document.getStyles()
+  #459 = #458.load("items/nameLocal")
   R80.sync()
 } R80
    status: Table of Contents (field) inserted — press F9 to update.
 == citations/toa-find
 RUN R81 {
-  #457 = R81.document.body.load("text")
+  #460 = R81.document.body.load("text")
   R81.sync()
 } R81
    status: Found 3 authorities in 3 citations.
@@ -1212,26 +1213,26 @@ OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 RUN R82 {
-  #458 = R82.document.getSelection()
-  #459 = #458.parentContentControlOrNullObject.load("tag")
+  #461 = R82.document.getSelection()
+  #462 = #461.parentContentControlOrNullObject.load("tag")
   R82.sync()
-  #460 = #458.insertText("…", "end")
-  #461 = #460.insertContentControl()
-  set #461.tag = "formula-inserter:cite:1"
-  set #461.title = "JurisLab citation"
+  #463 = #461.insertText("…", "end")
+  #464 = #463.insertContentControl()
+  set #464.tag = "formula-inserter:cite:1"
+  set #464.title = "JurisLab citation"
   R82.sync()
-  #462 = R82.document.body.contentControls.load("items/tag,items/text")
+  #465 = R82.document.body.contentControls.load("items/tag,items/text")
   R82.sync()
-  #463 = R82.document.body.footnotes.load("items")
+  #466 = R82.document.body.footnotes.load("items")
   R82.sync()
-  #464 = R82.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  #467 = R82.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
   R82.sync()
-  #465 = R82.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #465.font.superscript = false
-  set #465.font.subscript = false
-  set #465.font.italic = false
-  set #465.font.bold = false
-  #466 = R82.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  #468 = R82.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #468.font.superscript = false
+  set #468.font.subscript = false
+  set #468.font.italic = false
+  set #468.font.bold = false
+  #469 = R82.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
   R82.sync()
 } R82
 OFFICE settings.set("jurislab.bib.v1", s504:c0513ad2)
@@ -1240,44 +1241,44 @@ OFFICE settings.saveAsync()
 == citations/bib-update
 OFFICE settings.get("jurislab.bib.v1") -> s504:c0513ad2
 RUN R83 {
-  #467 = R83.document.body.contentControls.load("items/tag,items/text")
+  #470 = R83.document.body.contentControls.load("items/tag,items/text")
   R83.sync()
-  #468 = R83.document.body.footnotes.load("items")
+  #471 = R83.document.body.footnotes.load("items")
   R83.sync()
-  #469 = R83.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  #472 = R83.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
   R83.sync()
-  #470 = R83.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #470.font.superscript = false
-  set #470.font.subscript = false
-  set #470.font.italic = false
-  set #470.font.bold = false
-  #471 = R83.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  #473 = R83.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #473.font.superscript = false
+  set #473.font.subscript = false
+  set #473.font.italic = false
+  set #473.font.bold = false
+  #474 = R83.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
   R83.sync()
 } R83
    status: 
 == (hidden)/cite-iddetect
 RUN R84 {
-  #472 = R84.document.getSelection()
-  #473 = R84.document.body.getRange("start")
-  #474 = #473.expandTo(#472)
-  #475 = #474.load("text")
+  #475 = R84.document.getSelection()
+  #476 = R84.document.body.getRange("start")
+  #477 = #476.expandTo(#475)
+  #478 = #477.load("text")
   R84.sync()
-  #476 = #472.insertHtml("<i>Id.</i>", "replace")
-  #477 = #476.select("end")
+  #479 = #475.insertHtml("<i>Id.</i>", "replace")
+  #480 = #479.select("end")
   R84.sync()
-  #478 = #476.insertContentControl()
-  set #478.tag = "formula-inserter:citation"
-  set #478.title = "JurisLab"
-  set #478.appearance = "hidden"
+  #481 = #479.insertContentControl()
+  set #481.tag = "formula-inserter:citation"
+  set #481.title = "JurisLab"
+  set #481.appearance = "hidden"
   R84.sync()
 } R84
    status: Id. inserted.
 == (hidden)/cite-supradetect
 RUN R85 {
-  #479 = R85.document.getSelection()
-  #480 = R85.document.body.getRange("start")
-  #481 = #480.expandTo(#479)
-  #482 = #481.load("text")
+  #482 = R85.document.getSelection()
+  #483 = R85.document.body.getRange("start")
+  #484 = #483.expandTo(#482)
+  #485 = #484.load("text")
   R85.sync()
 } R85
    status: Earlier source detected.

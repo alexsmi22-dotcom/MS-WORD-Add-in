@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.165.0)
+# JurisLab — Manual Test Script (v2.166.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,26 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0de. New in v2.166.0 — Chemistry: numbered reaction schemes
+
+- [ ] ★ **Numbered scheme.** Tool ▸ **Reaction** (Structures). Type on three lines: `aspirin (1)`,
+  `-> NaOH, H2O ; 100 °C, 2 h`, `salicylic acid (2)` → both structures at the same bond length, **1** and **2** bold
+  under them on one line, "NaOH, H₂O" above and "100 °C, 2 h" below the arrow, the 2 of H₂O lowered and the text after
+  it back on the line. **Insert reaction scheme** → the same picture in Word, at ChemDraw's size.
+- [ ] **Caption.** Tick **Scheme caption above**, title `Synthesis of 2` → Insert → a Caption-style paragraph
+  "**Scheme 1.** Synthesis of **2**" ABOVE the picture. Insert a second scheme lower down → "Scheme 2.". Select all,
+  F9 → the numbers stay in document order.
+- [ ] **Lettered.** Conditions ▸ **Lettered** → "(a)" on the arrow; Insert → the paragraph "Reagents and conditions:
+  (a) NaOH, H₂O, 100 °C, 2 h." UNDER the picture, H₂O with a real subscript.
+- [ ] **Wrap.** Four steps (`c1ccccc1Br (1)`, `-> Mg, THF ; reflux`, `c1ccccc1C(C)(C)O (2)`, `-> TsOH, toluene ; 110 °C`,
+  `C=C(C)c1ccccc1 (3)`, `-> H2, Pd/C ; MeOH`, `CC(C)c1ccccc1 (4)`), Wrap at ▸ ACS single column → several rows, each
+  new row starting with its arrow; nothing overlaps.
+- [ ] **Refusals.** `CCO (1)` / `-> x` / `CCC (1)` → error: compound 1 on two structures. `ethanol (DIPEA)` → error,
+  "not a compound number". The old one-line `CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux` still draws.
+- [ ] **Open in Build canvas** → the scheme on the Build page canvas; move a label, Insert from there.
+- [ ] Reading ▸ **Formulas**: the wrap/conditions/caption options and Open in Build canvas are hidden; `Fe + O2 -> Fe2O3`
+  balances as before.
 
 ## 0dd. New in v2.165.0 — Chemistry: Characterization text
 

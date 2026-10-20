@@ -468,7 +468,11 @@ describe("wiring — library fixes that a user can actually reach", () => {
   });
 
   it("the reaction scheme surfaces its stray-arrow warning", () => {
-    expect(pane).toMatch(/spec\.arrowWarning/);
+    // v2.166.0: the scheme engine carries it as a note, and the pane lists every note beside the drawing.
+    const scheme = require("fs").readFileSync(require("path").join(__dirname, "..", "scheme.ts"), "utf8");
+    expect(scheme).toMatch(/spec\.arrowWarning\) out\.notes\.push/);
+    expect(pane).toMatch(/showReactionNotes\(\[\], built\.notes\)/);
+    expect(require("../scheme").parseScheme("CCO ->> CC").notes.join(" ")).toMatch(/not one this tool recognises/);
   });
 });
 

@@ -53,9 +53,13 @@ real pane before this script was written; re-run it after each chemistry release
 3. (If asked) **Open the whole page as a drawing** puts the whole ChemDraw page — arrows, captions — on the page canvas,
    to insert as drawn.
 
-## 4. A reaction scheme (Reaction) — 1 min
-1. Tool ▸ **Reaction**. Type: `ethanol + acetic acid >> ethyl acetate + water ; H2SO4 ; reflux`
-2. The scheme draws itself, conditions over and under the arrow (H₂SO₄ typeset). **Insert reaction scheme**.
+## 4. A numbered scheme (Reaction) — 1 min
+1. Tool ▸ **Reaction**. Type, one per line:
+   `aspirin (1)` / `-> NaOH, H2O ; 100 °C, 2 h` / `salicylic acid (2)` / `-> MeOH, H2SO4 ; reflux` / `COC(=O)c1ccccc1O (3)` (methyl salicylate — not in the dictionary, so typed as SMILES)
+2. The scheme draws itself as ChemDraw would: every structure at one bond length, **1**, **2**, **3** bold under them,
+   reagents above and conditions below each arrow (H₂O, H₂SO₄ typeset).
+3. Tick **Scheme caption above**, title `Synthesis of 3` → **Insert reaction scheme**: "**Scheme 1.** Synthesis of **3**"
+   above the picture. Optional: Conditions ▸ **Lettered** → (a), (b) and a Reagents and conditions footnote.
 
 ## 5. Spectra and mass (Spectra, Mass Spec) — 2 min
 1. Tool ▸ **Spectra**, type **ibuprofen**: predicted ¹H NMR — shifts, multiplicities, J, assignments; the notes on

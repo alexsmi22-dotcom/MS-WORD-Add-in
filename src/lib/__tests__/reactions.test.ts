@@ -1,4 +1,4 @@
-import { parseReaction, composeReactionScheme, Rendered } from "../reactions";
+import { parseReaction } from "../reactions";
 
 describe("parseReaction", () => {
   it("parses stages and conditions", () => {
@@ -33,32 +33,3 @@ describe("parseReaction", () => {
   });
 });
 
-describe("composeReactionScheme", () => {
-  const r: Rendered = { svg: '<svg id="r1"></svg>', width: 40, height: 40 };
-  const r2: Rendered = { svg: '<svg id="r2"></svg>', width: 40, height: 40 };
-  const p: Rendered = { svg: '<svg id="p1"></svg>', width: 40, height: 40 };
-
-  it("embeds components, a plus separator, an arrow, and conditions", () => {
-    const svg = composeReactionScheme([[r, r2], [p]], { over: "cat", under: "heat" });
-    expect(svg.startsWith("<svg")).toBe(true);
-    expect(svg).toContain('id="r1"');
-    expect(svg).toContain('id="r2"');
-    expect(svg).toContain('id="p1"');
-    expect(svg).toContain(">+<"); // plus between the two reactants
-    expect(svg).toContain("<line");
-    expect(svg).toContain("<polygon");
-    expect(svg).toContain("cat");
-    expect(svg).toContain("heat");
-  });
-
-  it("draws an arrow between each stage of a multi-step scheme", () => {
-    const svg = composeReactionScheme([[r], [r2], [p]]);
-    // 3 stages → 2 arrows → 2 arrowhead polygons.
-    expect((svg.match(/<polygon/g) || []).length).toBe(2);
-  });
-
-  it("escapes condition text", () => {
-    const svg = composeReactionScheme([[r], [p]], { over: "<x>" });
-    expect(svg).toContain("&lt;x&gt;");
-  });
-});

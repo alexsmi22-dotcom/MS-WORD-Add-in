@@ -91,11 +91,13 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   };
   /**
    * One line of runs as tspans. Formula face (0x60) sets digits as subscripts and a trailing charge
-   * as a superscript; 0x20 / 0x40 are plain subscript / superscript. Shifts are by dy and undone
-   * after each piece, so the next piece sits on the baseline.
+   * as a superscript; 0x20 / 0x40 are plain subscript / superscript. Shifts are by dy, and the next
+   * piece's dy brings it back, so plain text sits on the baseline.
    */
   const tspans = (runs: CdxRun[]): string => {
     let out = "";
+    /** The current offset from the baseline (dy accumulates in SVG). */
+    let level = 0;
     for (const run of runs) {
       const pieces: Array<{ text: string; shift: 0 | 1 | -1 }> = [];
       const face = run.face & 0x60;
@@ -114,10 +116,13 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       for (const p of pieces) {
         if (!p.text) continue;
         const size = p.shift ? run.size * 0.75 : run.size;
-        const dy = p.shift === 1 ? run.size * 0.25 : p.shift === -1 ? -run.size * 0.4 : 0;
+        const want = p.shift === 1 ? run.size * 0.25 : p.shift === -1 ? -run.size * 0.4 : 0;
+        // The shift back to the baseline rides on the NEXT piece: an empty <tspan dy> undoing it is
+        // skipped by some rasterisers, which left the rest of the line lowered ("LiAlH₄, THF" — schemes).
+        const dy = want - level;
+        level = want;
         const fill = run.color !== 3 ? ` fill="${color(run.color)}"` : "";
-        out += `<tspan font-family="${esc(fontName(run.font))}" font-size="${f2(size)}"${weight}${italic}${under}${fill}${dy ? ` dy="${f2(dy)}"` : ""}>${esc(p.text)}</tspan>`;
-        if (dy) out += `<tspan dy="${f2(-dy)}"></tspan>`;
+        out += `<tspan font-family="${esc(fontName(run.font))}" font-size="${f2(size)}"${weight}${italic}${under}${fill}${Math.abs(dy) > 1e-9 ? ` dy="${f2(dy)}"` : ""}>${esc(p.text)}</tspan>`;
       }
     }
     return out;

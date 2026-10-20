@@ -396,15 +396,18 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
 
   reaction: `
     <p class="examples-note">
-      Compose a reaction scheme: reactants <code>+</code> reactants <code>&gt;&gt;</code>
-      products, with optional conditions over/under the arrow (separated by <code>;</code>).
+      A numbered reaction scheme, one item per line: a compound line, an arrow line
+      (<code>-&gt; reagents ; conditions</code>), the next compound line.
     </p>
     <ul>
-      <li><code>CCO + CC(=O)O &gt;&gt; CC(=O)OCC ; H2SO4 ; reflux</code></li>
+      <li><code>aspirin (1)</code> / <code>-&gt; NaOH, H2O ; 100 °C, 2 h</code> / <code>salicylic acid (2)</code> — numbers in bold under the structures, H₂O typeset.</li>
+      <li>Number a compound with a space and its number in brackets: <code>(1)</code>, <code>(2a)</code>, <code>(S3)</code>, <code>(3′)</code>.</li>
+      <li>The one-line form still works: <code>CCO + CC(=O)O &gt;&gt; CC(=O)OCC ; H2SO4 ; reflux</code>.</li>
+      <li><strong>Conditions ▸ Lettered</strong> puts (a), (b) on the arrows and a "Reagents and conditions" footnote under the scheme; <strong>Scheme caption</strong> adds "Scheme N." above it.</li>
       <li>Each component is a name or SMILES (e.g. <code>aspirin</code>, <code>c1ccccc1</code>).</li>
       <li><strong>Read as Formulas</strong> to balance instead of draw: <code>Fe + O2 -&gt; Fe2O3</code> → 4 Fe + 3 O₂ → 2 Fe₂O₃, with the conservation table and chart; ions as <code>MnO4^-</code>, electrons as <code>e-</code>. <code>C + O2 -&gt; CO + CO2</code> is refused: 2 independent balancings, both shown. The reading is chosen, never guessed — <code>CO</code> is methanol as SMILES and carbon monoxide as a formula.</li>
     </ul>
-    <p class="examples-note">Inserts as a single image with provenance — verify before filing.</p>`,
+    <p class="examples-note">Inserts as one picture at ChemDraw's size (alt text carries the scheme and its numbered SMILES) — verify before filing.</p>`,
 
   solve: `
     <p class="examples-note">

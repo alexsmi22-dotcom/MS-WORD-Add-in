@@ -153,6 +153,22 @@ export function inlineParagraphsOoxml(htmls: string[]): string {
 }
 
 /**
+ * A scheme's title paragraph, as ACS sets it above the scheme: bold "Scheme N." (N a Word
+ * SEQ Scheme field, so Word renumbers it on field update; `n` is its shown value until then),
+ * then the title html. Caption style, kept with the picture that follows it.
+ */
+export function schemeCaptionOoxml(n: number, titleHtml: string): string {
+  const num = Number.isInteger(n) && n > 0 ? n : 1;
+  const field =
+    '<w:fldSimple w:instr=" SEQ Scheme \\* ARABIC ">'
+    + `<w:r>${rPr({ ...PLAIN, b: true })}<w:t>${num}</w:t></w:r></w:fldSimple>`;
+  const title = titleHtml.trim() ? `${textRun(PLAIN, " ")}${htmlToRuns(titleHtml.trim())}` : "";
+  return wrapPackage(
+    `<w:p><w:pPr><w:pStyle w:val="Caption"/><w:keepNext/></w:pPr>${textRun({ ...PLAIN, b: true }, "Scheme ")}${field}${textRun({ ...PLAIN, b: true }, ".")}${title}</w:p>`,
+  );
+}
+
+/**
  * The bibliography block. `entries` is `RenumberPlan.entries` (refused records, whose
  * `formatted` is null, are skipped: the plan reports them) or a plain Formatted[].
  */

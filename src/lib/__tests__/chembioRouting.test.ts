@@ -25,6 +25,7 @@
  * taskpane.ts cannot be imported under jest (Office.js), so its wiring is
  * asserted on the source text, as computationRouting/algebraPaneRouting do.
  */
+import { buildScheme, parseScheme } from "../scheme";
 import * as fs from "fs";
 import * as path from "path";
 import { chemistryKindFor, balanceText } from "../balance";
@@ -213,11 +214,15 @@ describe("Reaction mode: Structures | Formulas is an explicit toggle", () => {
     const body = paneFn("updateReactionPreview");
     expect(body).toMatch(/reactionReadSelect\.value === "formulas"/);
     expect(body).toMatch(/updateReactionBalance\(text\)/);
-    expect(body).toMatch(/resolveStructure\(src, "smiles", REACTION_CW, REACTION_CH\)/);
-    expect(body).toMatch(/Coefficients are not drawn/);
-    // The coefficient check runs only on components that FAILED to resolve:
-    // a name can start with a locant (1-propanol) and must still draw.
-    expect(body.indexOf("const withCoefficient = failed.filter(")).toBeGreaterThan(body.indexOf("resolveStructure(src"));
+    // v2.166.0: the Structures reading draws through the scheme engine (scheme.ts), whose components are read in
+    // mode "smiles" and whose coefficient refusal runs only on components that FAILED to resolve: a name can start
+    // with a locant (1-propanol) and must still draw.
+    expect(body).toMatch(/buildScheme\(parseScheme\(text\)/);
+    const drawn = buildScheme(parseScheme("1-propanol >> CCC"));
+    expect(drawn.ok).toBe(true);
+    const coeff = buildScheme(parseScheme("3H2 + N2 >> 2NH3"));
+    expect(coeff.ok).toBe(false);
+    if (!coeff.ok) expect(coeff.errors.join(" ")).toMatch(/coefficients are not drawn — switch the reading to Formulas/);
     expect(resolveStructure("1-propanol", "smiles", 130, 110).kind).toBe("ok");
     expect(resolveStructure("3H2", "smiles", 130, 110).kind).toBe("none");
     expect(paneFn("updateReactionBalance")).toMatch(/balanceReport\(balanceReaction\(text\)\)/);

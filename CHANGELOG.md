@@ -6,7 +6,22 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [2.162.0] — 2026-10-19 — Chemistry: the original drawing editor is back; ChemDraw files open structure by structure
+## [2.162.1] — 2026-10-19 — Chemistry: the drawing survives the 3D tab
+
+User report: "when I go from 2D to 3D and back, the canvas is blank."
+
+### Fixed
+- **2D → 3D → 2D in the large canvas no longer blanks the drawing** (nor does Text → Draw in Build mode). Hidden,
+  the editor's page is 0 × 0 and OpenChemLib fitted the drawing to it — every atom moved to one point (measured:
+  benzene's six atoms all at 0, 0). The canvas came back empty and **"Use this drawing" carried the collapsed
+  coordinates**. The drawing is now kept as the editor is hidden, read from while hidden (the 3D model, Use this
+  drawing), and put back when shown — wedges and stereo unchanged (same idcode), Ctrl+Z still undoes the last edit,
+  quick back-and-forth included.
+- **An edit in the 3D tab, then Ctrl+Z back in 2D**, returns the drawing before the edit — never the collapsed one
+  (independent review: OpenChemLib stores the molecule as it is as its one undo state).
+- A structure handed to the editor while it is hidden (an edit in the 3D tab, Edit in Draw) is laid out for the page
+  when shown without using up the undo step.
+
 
 From a live demo: a ChemDraw file opened on the canvas "very large" and could not be edited; the large canvas made
 Word sputter; and drawing no longer corrected itself — "in the original editor, it behaved a lot like ChemDraw and

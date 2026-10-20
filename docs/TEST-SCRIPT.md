@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.162.0)
+# JurisLab — Manual Test Script (v2.162.1)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0da. New in v2.162.1 — Chemistry: the drawing survives the 3D tab
+
+- [ ] ★ **2D → 3D → 2D.** Build ▸ Draw a structure with a wedge (e.g. 2-butanol), Open large canvas / 3D ⤢, click
+  3D model, then 2D editor: the same drawing, same place, wedge kept. Repeat quickly a few times.
+- [ ] **Use this drawing** after that round trip: the pane shows the same structure (formula, wedge), and Insert
+  puts it into Word at normal size — not a dot.
+- [ ] **3D edit, then undo.** In 3D model add a template (Benzene), back to 2D editor: the benzene is there, drawn
+  normally; Ctrl+Z (click the canvas's undo arrow) returns the drawing before the edit, not a blank canvas.
+- [ ] **Text → Draw** in Build mode: the drawing is still there.
 
 ## 0cz. New in v2.162.0 — Chemistry: the original editor back; ChemDraw files structure by structure
 

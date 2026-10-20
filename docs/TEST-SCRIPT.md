@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.164.0)
+# JurisLab — Manual Test Script (v2.165.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,28 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dd. New in v2.165.0 — Chemistry: Characterization text
+
+- [ ] ★ **Paste and insert.** Tool ▸ **Characterization**. Compound `caffeine`. In ¹H NMR paste
+  `1H NMR (400 MHz, Chloroform-d) δ 7.51 (s, 1H), 3.99 (s, 3H), 3.57 (s, 3H), 3.40 (s, 3H).` → Text to insert reads
+  "¹H NMR (CDCl₃, 400 MHz): δ 7.51 (s, 1H), …" and the check says the integrations match the formula (10H). Click in
+  a Word paragraph, **Insert characterization text** → the same text in Word, in the paragraph's own font: the 1 raised,
+  the 3 of CDCl₃ lowered.
+- [ ] **HRMS.** Tick Include an HRMS line, ion [M + H]⁺, Found `195.0874` → "HRMS (ESI/TOF) *m*/*z*: [M + H]⁺ Calcd for
+  C₈H₁₁N₄O₂ 195.0877; Found 195.0874." with *m* and *z* in italics; the check says −1.3 ppm, within 0.003. Change
+  Found to `217.0696` → error, and "Found matches [M + Na]⁺".
+- [ ] **J values.** ¹H: `7.05 (dd, J = 8.0, 2.1 Hz, 1H)` → JOC puts 1H before the italic *J*; Style ▸ Common puts it
+  after. `7.05 (dd, J = 8.0 Hz, 1H)` → warning: dd needs 2 J values.
+- [ ] **Never dropped.** Add ` see SI` to the end of a list → an error names "see SI" as not read. Delete the comma
+  between two signals (`7.51 (s, 1H) 3.99 (s, 3H)`) → still two signals. Type `7,51 (s, 1H)` → refused: decimal commas.
+- [ ] **Salt.** Compound `formula:C8H10N4O2·HCl`, HRMS on → refused by name: enter the parent compound.
+- [ ] **¹³C.** `170.9, 136.0, 128.6, 128.3, 128.2, 66.3, 21.1` with compound `CC(=O)OCc1ccccc1` → "¹³C{¹H} NMR …" and
+  "matching the structure's 7 symmetry-distinct carbons".
+- [ ] **Yield.** Yield, mp, R_f: colorless oil, 139 mg, 1.00 mmol, R_f 0.45, hexanes/EtOAc 4:1 → "Obtained as a
+  colorless oil (139 mg, 0.926 mmol, 93%). *R*_f = 0.45 (hexanes/EtOAc 4:1)."
+- [ ] **From Build.** Draw a structure in Build, come back, **From Build** → the compound line shows its formula.
+- [ ] Dark mode: the warnings and errors in the check list are readable.
 
 ## 0dc. New in v2.164.0 — Chemistry: R/S and E/Z
 

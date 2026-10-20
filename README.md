@@ -9,12 +9,13 @@ citations, and more — and inserts it at the cursor. Everything runs **entirely
 content is sent anywhere** (the one exception is the strictly opt-in online
 name→structure lookup, which prompts before sending).
 
-Pick a tool from the home screen — **27 tools** (grouped STEM + legal):
+Pick a tool from the home screen — **28 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
 | **Chemical** | formulas (`H2O`→H₂O, `SO4^2-`→SO₄²⁻), 2D structures from name/formula/SMILES, structure→name lookup, **physicochemical properties & druglikeness** (cLogP, tPSA, Lipinski/Veber), **pKa group estimation** + net charge at pH 7.4, opt-in **online IUPAC name→structure** (OPSIN) |
 | **Mass Spec** | monoisotopic & average mass, theoretical **isotope pattern**, and common **adduct m/z** ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…) |
+| **Characterization** | the chemist's **measured** data in journal form for an Example section: **¹H / ¹³C NMR** lists (MestReNova paragraph, journal-style list, or one signal per line), **HRMS** (Calcd computed, Found yours), yield (mg, mmol, %), mp, R_f, elemental analysis; **JOC** (ACS) or **Common** style; checks beside the text that warn, never block (integrations vs the formula's ¹H count, multiplicity vs J count, unread segments named, ¹³C count vs distinct carbons, HRMS within 0.003, EA within 0.4 %, yield over 100 %). Nothing is predicted or filled in |
 | **Spectra** | predicted spectra from structure, offline: **¹H / ¹³C NMR** (shift, integration, n+1 multiplicity, assignment), **IR** group frequencies + simulated transmittance trace, **UV-Vis λmax** (Woodward–Fieser, with the arithmetic shown), and **EI-MS fragmentation** (α-cleavage, benzylic/tropylium, McLafferty, neutral losses). Estimates from published additivity rules — labelled as such, never presented as acquired spectra |
 | **Bio/Assay** | offline curve fitting: **enzyme kinetics** (Michaelis–Menten, Hill), **dose–response** (IC50/EC50, 4PL), **binding** (Kd/Bmax), plus lab calculators (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280) |
 | **Peptide** | 2D structure from a one- or three-letter amino-acid sequence, with formula & MW |
@@ -45,7 +46,7 @@ Pick a tool from the home screen — **27 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v2.164.0 — production. Word on **Windows & macOS**,
+> **Status:** v2.165.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -64,7 +65,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
 
 ## Documentation
 
-- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 27 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
+- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 28 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
 - [Features](FEATURES.md) — the in-repo reference for what every mode does
 - [Install (Windows & macOS)](install/README.md) — for end users
 - [Manual test script](docs/TEST-SCRIPT.md) — in-Word QA checklist
@@ -81,7 +82,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**10,000+ unit tests** across **558 test files**), `npm run build` (production bundle),
+> `npm test` (**10,000+ unit tests** across **561 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool, and an

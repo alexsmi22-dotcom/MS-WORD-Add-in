@@ -76,6 +76,7 @@ describe("the user-facing docs are not allowed to rot", () => {
       chemical: "chemical", math: "math", units: "units", reaction: "reaction",
       analyze: "analyze", build: "build", code: "code", sequence: "st.26",
       botanical: "botanical", numerals: "numerals", audit: "audit", refs: "refs",
+      charz: "characterization",
     };
     const missing = modes().filter((m) => {
       const needle = NAMES[m] ?? m;
@@ -169,7 +170,7 @@ describe("the user-facing docs are not allowed to rot", () => {
     const NAMES: Record<string, string> = {
       ppt: "table \u2192 chart", seqmap: "sequence map", massspec: "mass spec",
       assay: "bio/assay", sequence: "sequence", align: "align", solve: "solve",
-      cad: "drawing (cad)",
+      cad: "drawing (cad)", charz: "characterization",
     };
     const missing = modes().filter((m) => !rows.includes(NAMES[m] ?? m));
     expect(missing).toEqual([]);

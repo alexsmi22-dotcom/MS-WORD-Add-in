@@ -26,6 +26,7 @@ export const ALL_MODES = [
   "finance",
   "assay",
   "massspec",
+  "charz",
   "spectra",
   "seqmap",
   "align",

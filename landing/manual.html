@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JurisLab — User Manual</title>
-  <meta name="description" content="How to use JurisLab: the core loop, then a full breakdown of all 27 tools with worked examples, exact capabilities, honest limits, and troubleshooting." />
+  <meta name="description" content="How to use JurisLab: the core loop, then a full breakdown of all 28 tools with worked examples, exact capabilities, honest limits, and troubleshooting." />
   <link rel="icon" href="assets/icon-32-v2.png" />
   <style>
     :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --warn:#8a5a00; --warnbg:#fff8e6; }
@@ -59,7 +59,7 @@
     <div class="wrap">
       <a class="home" href="index.html">← JurisLab</a>
       <h1>User Manual</h1>
-      <p class="tag">How JurisLab works, then a full breakdown of each of the 27 tools — what it does, every option, a worked example, and what it deliberately doesn’t do. Everything runs on your machine.</p>
+      <p class="tag">How JurisLab works, then a full breakdown of each of the 28 tools — what it does, every option, a worked example, and what it deliberately doesn’t do. Everything runs on your machine.</p>
     </div>
   </header>
 
@@ -71,7 +71,7 @@
         <li><a href="#start">Getting started</a></li>
         <li><a href="#loop">The core loop</a></li>
         <li><a href="#everywhere">Things that work everywhere</a></li>
-        <li><a href="#chemistry">Chemistry &amp; structures (5)</a></li>
+        <li><a href="#chemistry">Chemistry &amp; structures (6)</a></li>
         <li><a href="#mathunits">Math &amp; units (6)</a></li>
         <li><a href="#engineering">Engineering (1)</a></li>
         <li><a href="#drawing">Drawing (1)</a></li>
@@ -123,7 +123,7 @@
     <ol class="steps">
       <li><b>Fully quit Word</b> — every window (on Mac use <b>⌘-Q</b>, not just the red dot). Word only notices a new add-in on a cold start; this is the single most common reason it seems “not installed”.</li>
       <li>Reopen Word and go to the <b>Insert</b> tab → <b>Add-ins</b> (the <i>My Add-ins</i> dropdown) → click <b>JurisLab</b>. On Windows it may sit under <b>Developer Add-ins</b>.</li>
-      <li>The pane opens on the side, on the <b>Home</b> screen showing all 27 tools as cards, grouped by area.</li>
+      <li>The pane opens on the side, on the <b>Home</b> screen showing all 28 tools as cards, grouped by area.</li>
     </ol>
 
     <h3>Step 4 — Run it (a 10-second test)</h3>
@@ -162,7 +162,7 @@
 
     <!-- ============================ CHEMISTRY ============================ -->
     <h2 id="chemistry">Chemistry &amp; structures</h2>
-    <p class="lead">Five tools — Chemical, Build, Reaction, Mass Spec, Spectra.</p>
+    <p class="lead">Six tools — Chemical, Build, Reaction, Mass Spec, Characterization, Spectra.</p>
 
     <h3>Chemical — formulas, 2D structures, properties &amp; pKa</h3>
     <p>Two things in one panel. <b>Type a formula</b> and it typesets itself: <code>H2O</code> → H₂O, <code>Ca(OH)2</code> → Ca(OH)₂, <code>2H2O</code> keeps the coefficient full-size, <code>SO4^2-</code> → SO₄²⁻, <code>Na+</code> → Na⁺, <code>[Fe(CN)6]3-</code> → the bracketed ion. <b>Type a name, formula or SMILES</b> and it resolves a 2D structure with a full readout.</p>
@@ -208,6 +208,27 @@
     </ul>
     <div class="try"><b>Try it:</b> <code>glucose</code> → monoisotopic 180.0423, average 180.159; [M+H]⁺ 181.0495, [M+Na]⁺ 203.0315, [M−H]⁻ 179.0350. A chlorinated compound shows the tell-tale ~32% M+2 peak.</div>
     <p class="out"><b>Inserts:</b> a text summary (masses, pattern with %, adducts). An element with no natural isotopic composition (for example Tc, Pm, Po, Rn and Ra, and everything beyond U) is refused by name — no pattern and no mass is invented.</p>
+
+    <h3>Characterization — Example-section NMR, HRMS, yield text</h3>
+    <p>Writes the data <b>you measured</b> in journal form for the Example section of a patent or paper. Pick the compound by name, formula or SMILES, or press <b>From Build</b> to use the structure you drew, then enter or paste what you have:</p>
+    <ul>
+      <li><b>¹H and ¹³C NMR</b> — paste MestReNova’s paragraph, a journal/RSC-style list, or type one signal per line.</li>
+      <li><b>HRMS</b> — choose the ion and enter Found: “HRMS (ESI/TOF) <i>m/z</i>: [M + H]⁺ Calcd for C₈H₁₁N₄O₂ 195.0877; Found 195.0874.”</li>
+      <li><b>Yield</b> (mg, mmol, %), <b>mp</b>, <b>R<sub>f</sub></b>, and <b>elemental analysis</b> — “Anal. Calcd for …: C, …; H, …; N, …. Found: …”.</li>
+      <li><b>Style</b>: <b>JOC</b> follows the ACS author guidelines — solvent before frequency, integration before <i>J</i>, ¹H to 0.01 ppm, ¹³C{¹H} to 0.1 ppm. <b>Common</b> keeps MestReNova’s order and your values exactly as typed.</li>
+    </ul>
+    <p><b>Checks</b> are shown beside the text. They warn and never block:</p>
+    <ul>
+      <li>Integrations against the formula’s ¹H count — OH and NH protons are named, and are expected to be absent in D₂O or CD₃OD; deuterium is not counted as ¹H.</li>
+      <li>Multiplicity against the number of <i>J</i> values (a dd needs two).</li>
+      <li>Every pasted segment is either read or named as unread — nothing is silently dropped.</li>
+      <li>The ¹³C signal count against the symmetry-distinct carbons.</li>
+      <li>HRMS Found within 0.003 <i>m/z</i> of Calcd (ppm shown), and if it is not, which other ion it does match.</li>
+      <li>Elemental analysis within 0.4%, and a yield over 100%.</li>
+    </ul>
+    <div class="try"><b>Try it:</b> <code>caffeine</code>, [M + H]⁺, Found <code>195.0874</code> → Calcd 195.0877, −1.3 ppm, within 0.003. <code>CC(=O)OCc1ccccc1</code> (benzyl acetate), 139 mg from 1.00 mmol → (139 mg, 0.926 mmol, 93%).</div>
+    <p class="out"><b>Inserts:</b> formatted text — italic <i>J</i> and <i>m/z</i>, real subscripts and superscripts.</p>
+    <div class="note"><b>Nothing is predicted or filled in.</b> Only the Calcd values and the yield arithmetic are computed; every measured number is yours. Not yet covered: an IR line, optical rotation, HPLC purity, and ¹⁹F/³¹P lists. HRMS is refused for a hydrate or salt formula (·0.5H₂O, ·HCl — enter the parent), for a salt drawn as two ions (enter the ion), and for an adduct of an already-charged structure (choose [M], which takes the structure's own charge).</div>
 
     <h3>Spectra — predicted NMR, 2D, IR, UV-Vis &amp; MS fragmentation</h3>
     <p>Pick a spectrum type, type a name or SMILES, and get a prediction with an assignment for every signal. Seven kinds:</p>

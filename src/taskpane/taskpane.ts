@@ -6,6 +6,7 @@ import { wordHost as docHost } from "../host/word";
 import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
+import { initCharzPane, CharzPaneApi } from "./charzPane";
 import { initChemdrawOpen } from "./chemdrawOpen";
 import { canvasInsertFit, type CanvasInsertMode } from "../lib/insertSize";
 import { nextFreeNumeral } from "../lib/cadShapes";
@@ -1077,6 +1078,8 @@ let finInputs: HTMLElement;
 let finResult: HTMLElement;
 let finInsertBtn: HTMLButtonElement;
 let massspecSection: HTMLElement;
+let charzSection: HTMLElement;
+let charzPane: CharzPaneApi;
 let msInput: HTMLInputElement;
 let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
@@ -1856,6 +1859,13 @@ Office.onReady((info) => {
     exportPpt: exportCadPpt,
     downloadFile: (blob, name) => triggerDownload(blob, name),
   });
+  charzSection = document.getElementById("charz-section") as HTMLElement;
+  charzPane = initCharzPane({
+    setStatus: (t, k) => setStatus(t, k ?? ""),
+    insertOoxml: insertRunsText,
+    // The structure as Build holds it now — generic (R groups) has no formula, so none.
+    buildSmiles: () => (currentBuild && !currentBuild.generic && currentBuild.smiles ? currentBuild.smiles : null),
+  });
   seqmapOpenBtn = document.getElementById("seqmap-open") as HTMLButtonElement;
   seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
   seqmapInput = document.getElementById("seqmap-input") as HTMLTextAreaElement;
@@ -2532,6 +2542,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "build", audience: ["science", "legal"], label: "Build", desc: "Draw structures on canvas; Markush" },
       { mode: "reaction", audience: ["science"], label: "Reaction", desc: "Reaction schemes" },
       { mode: "massspec", audience: ["science"], label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
+      { mode: "charz", audience: ["science", "legal"], label: "Characterization", desc: "Example-section NMR, HRMS, yield text" },
       { mode: "spectra", audience: ["science"], label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
     ],
   },
@@ -3297,6 +3308,7 @@ function onInputChanged(): void {
   financeSection.style.display = mode === "finance" ? "block" : "none";
   assaySection.style.display = mode === "assay" ? "block" : "none";
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
+  charzSection.style.display = mode === "charz" ? "block" : "none";
   spectraSection.style.display = mode === "spectra" ? "block" : "none";
   solveSection.style.display = mode === "solve" ? "block" : "none";
   alignSection.style.display = mode === "align" ? "block" : "none";
@@ -3342,6 +3354,10 @@ function onInputChanged(): void {
   }
   if (mode === "massspec") {
     updateMassSpec();
+    return;
+  }
+  if (mode === "charz") {
+    charzPane.update();
     return;
   }
   if (mode === "spectra") {
@@ -6768,6 +6784,29 @@ async function insertPlainText(text: string, label: string): Promise<boolean> {
     // every other insert in the product appends. Losing a selected word to a
     // button labelled "Insert" is not a trade anyone agreed to.
     await docHost.insertAtSelection({ kind: "text", content: text, at: "after", select: "selection" });
+    setStatus(`${label} inserted. Ctrl/⌘+Z undoes it.`, "success");
+    return true;
+  } catch (error) {
+    setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
+    return false;
+  } finally {
+    insertTextBusy = false;
+  }
+}
+
+/**
+ * Formatted text (an OOXML package of runs: italics, sub/superscripts) after the selection —
+ * the Characterization tool's insert. Same busy guard and status wording as insertPlainText.
+ */
+async function insertRunsText(ooxml: string, label: string): Promise<boolean> {
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return false;
+  }
+  insertTextBusy = true;
+  setStatus(`Inserting ${label.toLowerCase()}…`);
+  try {
+    await docHost.insertAtSelection({ kind: "ooxml", content: ooxml, at: "after", select: "selection" });
     setStatus(`${label} inserted. Ctrl/⌘+Z undoes it.`, "success");
     return true;
   } catch (error) {

@@ -2582,3 +2582,21 @@ select {
 /* The properties panel's estimate notes, folded (aboutEstimates). */
 .about-estimates summary { cursor: pointer; font-weight: 600; }
 .about-estimates[open] summary { margin-bottom: 4px; }
+
+/* Characterization (Example-section text) */
+.charz-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; }
+.charz-row .rgroup-input { flex: 1 1 160px; min-width: 0; }
+.charz-row .charz-short, .charz-short { flex: 0 1 90px; max-width: 120px; }
+.charz-row .field-label { margin: 0; }
+.charz-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; }
+.charz-grid .field-label { margin: 0; }
+.charz-group { border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px 8px; margin: 8px 0; background: var(--paper); }
+.charz-group > summary { cursor: pointer; font-weight: 600; color: var(--ink); padding: 4px 0; }
+.charz-preview .charz-text { margin: 0; line-height: 1.5; color: var(--ink); font-size: 14px; }
+.charz-info { font-size: 12px; color: var(--ink-2); margin: 2px 0 6px; min-height: 1em; }
+.charz-checks { list-style: none; margin: 6px 0; padding: 0; font-size: 12px; }
+.charz-check { padding: 3px 6px; border-left: 3px solid var(--rule); margin: 2px 0; color: var(--ink-2); }
+.charz-check.charz-error { border-left-color: var(--error); color: var(--error); }
+.charz-check.charz-warn { border-left-color: var(--warn); color: var(--warn); background: var(--warn-bg); }
+.charz-ea .rgroup-input.charz-short { flex: 1 1 36px; max-width: 64px; }
+.charz-source { font-size: 11px; color: var(--ink-3); margin: 6px 0 0; }

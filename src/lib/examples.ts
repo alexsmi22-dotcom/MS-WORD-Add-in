@@ -607,6 +607,24 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       with no stable isotope (Tc, Pm) is refused unless you name the isotope (<code>[99Tc]</code>).
       Analysis aid — verify before relying.
     </p>`,
+  charz: `
+    <p class="examples-note">
+      <strong>Characterization text</strong> for an Example section — your measured data, written in
+      journal form and checked against the compound. Nothing is predicted or filled in: only the Calcd
+      values and the yield arithmetic are computed.
+    </p>
+    <ul>
+      <li><strong>¹H NMR</strong> — paste MestReNova's paragraph (<code>1H NMR (400 MHz, Chloroform-d) δ 7.36 – 7.27 (m, 5H), 5.12 (s, 2H), 2.10 (s, 3H).</code>) or type one signal per line (<code>7.26 d 8.0 2H</code>). JOC style gives <em>¹H NMR (CDCl₃, 400 MHz): δ 7.36–7.27 (m, 5H), …</em> with an italic <em>J</em></li>
+      <li><strong>Checks</strong> — integrations against the formula's ¹H count (OH/NH named; expected absent in D₂O or CD₃OD), dd with one J, a segment that could not be read (named, never dropped), ¹³C count against symmetry-distinct carbons</li>
+      <li><strong>¹³C NMR</strong> — <code>170.9, 136.0, 128.6, 128.3 (2C), …</code>; JOC style writes ¹³C{¹H} and rounds to 0.1 ppm without merging close peaks; C–F doublets as <code>162.4 (d, J = 246.0 Hz)</code></li>
+      <li><strong>HRMS</strong> — <code>caffeine</code>, [M + H]⁺, Found <code>195.0874</code> → <em>HRMS (ESI/TOF) m/z: [M + H]⁺ Calcd for C₈H₁₁N₄O₂ 195.0877; Found 195.0874.</em> Outside 0.003 m/z it says so and names the ion the value does match ([M + Na]⁺?)</li>
+      <li><strong>Yield, mp, R<sub>f</sub>, elemental analysis</strong> — 139 mg of benzyl acetate from 1.00 mmol → (139 mg, 0.926 mmol, 93%); C/H/N Found within 0.4 %</li>
+      <li><strong>From Build</strong> — takes the structure you drew as the compound</li>
+    </ul>
+    <p class="examples-note">
+      Format and tolerances from the J. Org. Chem. author guidelines; the Common style keeps
+      MestReNova's order and your digits exactly as typed. Inserted as formatted Word text.
+    </p>`,
   spectra: `
     <p class="examples-note">
       <strong>Predicted spectra</strong> from a structure — type a name, formula, or SMILES.

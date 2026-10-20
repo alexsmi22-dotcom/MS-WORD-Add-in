@@ -79,6 +79,7 @@
             <option value="build">Build</option>
             <option value="reaction">Reaction</option>
             <option value="massspec">Mass Spec</option>
+            <option value="charz">Characterization</option>
             <option value="spectra">Spectra</option>
           </optgroup>
           <optgroup label="Math &amp; units">
@@ -963,6 +964,114 @@
           <button id="ms-overlay-insert" class="insert-btn" type="button" disabled>Insert match table</button>
           <button id="ms-overlay-insert-chart" class="insert-btn" type="button" disabled>Insert overlay chart</button>
         </div>
+      </section>
+
+      <!-- Characterization: Example-section NMR / HRMS / yield text from measured data -->
+      <section id="charz-section">
+        <p class="seq-disclaimer">
+          Your measured data written in journal form for an Example: <sup>1</sup>H and <sup>13</sup>C lists, HRMS,
+          yield, mp, <i>R</i><sub>f</sub> and elemental analysis — checked against the compound. Every value
+          printed is yours; only the Calcd values and the yield arithmetic are computed.
+        </p>
+        <label class="field-label" for="charz-compound">Compound (name / formula / SMILES)</label>
+        <div class="charz-row">
+          <input id="charz-compound" type="text" class="rgroup-input" autocomplete="off" placeholder="e.g. aspirin, C9H8O4, or a SMILES" />
+          <button id="charz-from-build" class="draw-pop-btn" type="button" title="Use the structure drawn in Build">From Build</button>
+        </div>
+        <div id="charz-compound-info" class="charz-info" aria-live="polite"></div>
+        <div class="charz-row">
+          <label class="field-label" for="charz-style">Style</label>
+          <select id="charz-style" class="lib-select">
+            <option value="joc" selected>JOC (ACS guidelines)</option>
+            <option value="common">Common (MestReNova order, as typed)</option>
+          </select>
+          <label class="field-label" for="charz-solvent">Solvent</label>
+          <select id="charz-solvent" class="lib-select">
+            <option value="">From header</option>
+          </select>
+        </div>
+
+        <details class="charz-group" open>
+          <summary><sup>1</sup>H NMR</summary>
+          <label class="field-label" for="charz-h-freq">Frequency (MHz)</label>
+          <input id="charz-h-freq" type="text" class="rgroup-input charz-short" autocomplete="off" placeholder="400" />
+          <label class="field-label" for="charz-h-list">Signals — paste from MestReNova, or one per line</label>
+          <textarea id="charz-h-list" class="build-input" rows="4" spellcheck="false"
+            placeholder="1H NMR (400 MHz, Chloroform-d) δ 7.36 – 7.27 (m, 5H), 5.12 (s, 2H), 2.10 (s, 3H)&#10;— or —&#10;7.26 d 8.0 2H"></textarea>
+        </details>
+
+        <details class="charz-group" open>
+          <summary><sup>13</sup>C NMR</summary>
+          <label class="field-label" for="charz-c-freq">Frequency (MHz)</label>
+          <input id="charz-c-freq" type="text" class="rgroup-input charz-short" autocomplete="off" placeholder="101" />
+          <label class="field-label" for="charz-c-list">Signals</label>
+          <textarea id="charz-c-list" class="build-input" rows="3" spellcheck="false"
+            placeholder="170.9, 136.0, 128.6, 128.3, 128.3, 66.3, 21.1"></textarea>
+        </details>
+
+        <details class="charz-group" open>
+          <summary>HRMS</summary>
+          <label class="omml-option"><input type="checkbox" id="charz-ms-on" /> Include an HRMS line</label>
+          <div class="charz-row">
+            <select id="charz-ms-source" class="lib-select" aria-label="Ionization">
+              <option value="ESI" selected>ESI</option>
+              <option value="APCI">APCI</option>
+              <option value="EI">EI</option>
+              <option value="CI">CI</option>
+              <option value="MALDI">MALDI</option>
+              <option value="FAB">FAB</option>
+              <option value="DART">DART</option>
+              <option value="">(no source)</option>
+            </select>
+            <select id="charz-ms-analyzer" class="lib-select" aria-label="Analyzer">
+              <option value="TOF" selected>TOF</option>
+              <option value="Q-TOF">Q-TOF</option>
+              <option value="Orbitrap">Orbitrap</option>
+              <option value="FT-ICR">FT-ICR</option>
+              <option value="magnetic sector">magnetic sector</option>
+              <option value="">(no analyzer)</option>
+            </select>
+            <select id="charz-ms-ion" class="lib-select" aria-label="Ion"></select>
+          </div>
+          <label class="field-label" for="charz-ms-found">Found (m/z)</label>
+          <input id="charz-ms-found" type="text" class="rgroup-input charz-short" autocomplete="off" placeholder="e.g. 173.0573" />
+        </details>
+
+        <details class="charz-group">
+          <summary>Yield, mp, <i>R</i><sub>f</sub></summary>
+          <div class="charz-grid">
+            <label class="field-label" for="charz-state">Appearance</label>
+            <input id="charz-state" type="text" class="rgroup-input" autocomplete="off" placeholder="white solid" />
+            <label class="field-label" for="charz-mass">Mass obtained (mg)</label>
+            <input id="charz-mass" type="text" class="rgroup-input" autocomplete="off" placeholder="139" />
+            <label class="field-label" for="charz-scale">Limiting reagent (mmol)</label>
+            <input id="charz-scale" type="text" class="rgroup-input" autocomplete="off" placeholder="1.00" />
+            <label class="field-label" for="charz-mp">mp (°C)</label>
+            <input id="charz-mp" type="text" class="rgroup-input" autocomplete="off" placeholder="123–125" />
+            <label class="field-label" for="charz-rf">R<sub>f</sub></label>
+            <input id="charz-rf" type="text" class="rgroup-input" autocomplete="off" placeholder="0.45" />
+            <label class="field-label" for="charz-eluent">Eluent</label>
+            <input id="charz-eluent" type="text" class="rgroup-input" autocomplete="off" placeholder="hexanes/EtOAc 4:1" />
+          </div>
+        </details>
+
+        <details class="charz-group">
+          <summary>Elemental analysis (Found, %)</summary>
+          <div class="charz-row charz-ea">
+            <label class="field-label" for="charz-ea-c">C</label><input id="charz-ea-c" type="text" class="rgroup-input charz-short" autocomplete="off" />
+            <label class="field-label" for="charz-ea-h">H</label><input id="charz-ea-h" type="text" class="rgroup-input charz-short" autocomplete="off" />
+            <label class="field-label" for="charz-ea-n">N</label><input id="charz-ea-n" type="text" class="rgroup-input charz-short" autocomplete="off" />
+            <label class="field-label" for="charz-ea-s">S</label><input id="charz-ea-s" type="text" class="rgroup-input charz-short" autocomplete="off" />
+          </div>
+        </details>
+
+        <div class="preview-wrap">
+          <span class="preview-label">Text to insert</span>
+          <div id="charz-preview" class="preview charz-preview" aria-live="polite"></div>
+        </div>
+        <ul id="charz-checks" class="charz-checks" aria-live="polite"></ul>
+        <button id="charz-insert" class="insert-btn" type="button" disabled>Insert characterization text</button>
+        <p id="charz-source" class="charz-source"></p>
       </section>
 
       <!-- Spectra: predicted 1H/13C NMR, IR, UV-Vis, MS fragmentation -->

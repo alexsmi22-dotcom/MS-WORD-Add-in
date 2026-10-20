@@ -37,6 +37,16 @@ real pane before this script was written; re-run it after each chemistry release
 2. (If asked) a centre JurisLab cannot decide is refused by name, never guessed — checked against the CIP Validation
    Suite with zero wrong labels.
 
+## 2d. The Example paragraph (Characterization) — 1 min
+1. Tool ▸ **Characterization**, compound `caffeine`. Paste a MestReNova ¹H line (`1H NMR (400 MHz, Chloroform-d) δ 7.51
+   (s, 1H), 3.99 (s, 3H), 3.57 (s, 3H), 3.40 (s, 3H).`) → the journal form appears, with "integrations add up to 10H,
+   matching the formula".
+2. Tick HRMS, Found `195.0874` → "[M + H]⁺ Calcd for C₈H₁₁N₄O₂ 195.0877; Found 195.0874", −1.3 ppm.
+3. **Insert characterization text** → formatted text in Word (italic *J* and *m*/*z*, subscripts). Point out: nothing
+   is predicted — only the Calcd values are computed; the checks are what a referee or examiner would ask.
+   (Keep to SMILES or dictionary names for the compound — a name like "benzyl acetate" that is not in the dictionary
+   is refused by name.)
+
 ## 3. A ChemDraw file — 2 min
 1. **Open ChemDraw file…**, pick the file: its structures appear as a list (those marked "page" carry polymer brackets, a counter-ion or a generic atom).
 2. Click one → it opens in the editor, full size, editable. Change an atom; **Insert**.

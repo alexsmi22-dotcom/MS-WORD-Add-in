@@ -143,6 +143,16 @@ function wrapPackage(body: string): string {
 }
 
 /**
+ * Plain paragraphs from formatted html fragments (<i>, <b>, <sub>, <sup>), with no paragraph
+ * properties: they take the style of the paragraph they land in. The Characterization tool's
+ * insert, so the text in Word is the text its preview showed.
+ */
+export function inlineParagraphsOoxml(htmls: string[]): string {
+  const paras = htmls.filter((h) => h.trim()).map((h) => `<w:p>${htmlToRuns(h)}</w:p>`);
+  return wrapPackage(paras.length ? paras.join("") : "<w:p/>");
+}
+
+/**
  * The bibliography block. `entries` is `RenumberPlan.entries` (refused records, whose
  * `formatted` is null, are skipped: the plan reports them) or a plain Formatted[].
  */

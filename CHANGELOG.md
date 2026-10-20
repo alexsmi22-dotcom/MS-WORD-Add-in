@@ -6,6 +6,36 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.165.0] — 2026-10-20 — Chemistry: Characterization text for Example sections
+
+Organic chemistry, item 2: the characterization paragraph every Example carries, written from the chemist's own data.
+
+### Added
+- **Characterization** (Chemistry & structures; a new tool): paste MestReNova's paragraph, a journal or RSC list
+  (δH (400 MHz; CDCl₃) 7.26 (2H, d, J 8.4)), or one signal per line (7.26 d 8.0 2H), and get the ¹H and ¹³C lines in
+  journal form; add HRMS, yield (mg, mmol, %), mp, R_f and elemental analysis. Inserted as formatted Word text —
+  italic *J* and *m*/*z*, CDCl₃, DMSO-*d*₆, real superscripts — exactly the text the preview shows.
+- **Two styles.** JOC, from the J. Org. Chem. author guidelines: ¹H NMR (CDCl₃, 400 MHz): δ 7.05 (dd, 1H, J = 8.0,
+  2.1 Hz); ¹³C{¹H}; ¹H to 0.01 ppm and ¹³C to 0.1 ppm (rounded by digits, never padded, close peaks never merged);
+  HRMS (ESI/TOF) m/z: [M + H]⁺ Calcd for C₈H₁₁N₄O₂ 195.0877; Found 195.0874. Common: MestReNova's order, every value as
+  typed.
+- **Calcd values from the formula**: HRMS for [M + H]⁺, [M + Na]⁺ (Na written last, as JOC writes it), [M + K]⁺,
+  [M + NH₄]⁺, [M + 2H]²⁺, [M] for a structure drawn as an ion (its own charge: [M]⁺, [M]⁻, [M]²⁺), [M]⁺• for EI and the negative ions, electron mass included (agrees
+  with Mass Spec's adduct table); elemental analysis C/H/N/S; mmol and yield. Compound by name, formula or SMILES, or
+  **From Build** (the structure drawn).
+- **Checks beside the text** (they warn, never block): integrations against the formula's ¹H count — OH/NH/SH named,
+  expected absent in D₂O or CD₃OD, deuterium not counted as ¹H; a dd with one J; a segment that could not be read
+  (named, never dropped — including a missing comma between signals, decimal commas and a second list pasted in the
+  same box); header items such as TMS or 353 K kept as typed; ¹³C signals against symmetry-distinct carbons (diastereotopic carbons kept apart) and the
+  carbon count; Found outside 0.003 m/z, and the ion it does match ("Found matches [M + Na]⁺"); EA outside 0.4 %; a
+  yield over 100 %; ¹H data in the ¹³C box; a header for the other nucleus.
+- **Refused by name**: HRMS for a hydrate written with a fraction, for a salt or solvate (·HCl, ·H₂O — enter the
+  parent) or a salt drawn as two ions (enter the ion), adduct ions of an already-charged structure, [M − H]⁻ with no hydrogen; elemental analysis of a labelled compound.
+
+### Fixed
+- CHANGELOG: the 2.162.0, 2.162.1 and 2.163.0 sections had lost their headings (their notes read as part of the
+  release above); restored, and a test now fails on a dated line with no version.
+
 ## [2.164.0] — 2026-10-19 — Chemistry: CIP stereodescriptors (R/S, E/Z)
 
 Organic chemistry, item 1: patent claims name stereoisomers by their CIP descriptors.
@@ -24,7 +54,7 @@ Organic chemistry, item 1: patent claims name stereoisomers by their CIP descrip
   0 wrong, 0 extra — 835 descriptors given from SMILES, 834 from wedged drawings, the rest refused by name
   (`node scripts/cip-suite.js`; OpenChemLib on its own gives 117–129 wrong).
 
- — 2026-10-19 — Chemistry: metallocenes and η-bonds in Build ▸ Draw
+## [2.163.0] — 2026-10-19 — Chemistry: metallocenes and η-bonds in Build ▸ Draw
 
 User request: draw metallocene catalysts and polymer-bound metallocenes in the Build canvas.
 
@@ -47,6 +77,7 @@ User request: draw metallocene catalysts and polymer-bound metallocenes in the B
 - On the page canvas a click anywhere on an atom's label picks that atom (aiming at the atom's point in "Zr" missed).
 
 
+## [2.162.1] — 2026-10-19 — Chemistry: the drawing survives the 3D tab
 
 User report: "when I go from 2D to 3D and back, the canvas is blank."
 
@@ -62,6 +93,7 @@ User report: "when I go from 2D to 3D and back, the canvas is blank."
 - A structure handed to the editor while it is hidden (an edit in the 3D tab, Edit in Draw) is laid out for the page
   when shown without using up the undo step.
 
+## [2.162.0] — 2026-10-19 — Chemistry: the original drawing editor is back; ChemDraw files open structure by structure
 
 From a live demo: a ChemDraw file opened on the canvas "very large" and could not be edited; the large canvas made
 Word sputter; and drawing no longer corrected itself — "in the original editor, it behaved a lot like ChemDraw and

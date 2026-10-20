@@ -1036,6 +1036,22 @@ function diastereotopicFor(mol: Molecule): DiastereotopicAnalysis | null {
   return analyseDiastereotopicity(mol);
 }
 
+/**
+ * How many ¹³C signals the structure can give: its carbon symmetry classes, split by
+ * diastereotopicity exactly as predictNmr splits them — but counted whether or not a
+ * shift can be predicted for each (predictNmr leaves out environments it has no honest
+ * shift for). Used to check a MEASURED carbon list's length (characterization.ts).
+ */
+export function carbonEnvironmentCount(mol: Molecule): number {
+  mol.ensureHelperArrays(Molecule.cHelperRings);
+  const carbons: number[] = [];
+  for (let a = 0; a < mol.getAllAtoms(); a++) if (mol.getAtomicNo(a) === 6) carbons.push(a);
+  if (!carbons.length) return 0;
+  const classes = symmetryClasses(mol, carbons);
+  const dia = diastereotopicFor(mol);
+  return dia ? refineClasses(classes, dia).length : classes.length;
+}
+
 const MIRROR_CAVEAT =
   "Groups related by the molecule's own mirror symmetry (the two halves of a meso compound) are " +
   "ENANTIOTOPIC, and enantiotopic nuclei are isochronous in an achiral solvent, so each such pair is " +

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.170.0)
+# JurisLab — Manual Test Script (v2.171.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,18 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dj. New in v2.171.0 — Diagrams
+
+- [ ] ★ **Block diagram.** Tool ▸ **Diagrams**, Kind Block diagram, **Example**, FIG. `1`, Figure numeral `100` → four
+  boxes with underlined numerals, arrows into the control circuit and on to the diffuser, "100" with its arrow, "FIG. 1".
+  **Insert diagram** → the same figure in Word; measure a capital letter: at least 3.2 mm high.
+- [ ] **Flowchart.** Kind Flowchart, Example → Start, step 405, decision 410 (diamond) with "yes" down to 415 and "no"
+  looping back up the right side to 405, End.
+- [ ] **The other kinds.** State, Sequence, Timing and Schematic examples each draw cleanly (no text over lines).
+- [ ] **Numerals outside.** Numerals ▸ Outside, with a lead line → each numeral beside its box on a curved line.
+- [ ] **Refusals.** Block: `104 Sensor` and `104 -> 999` → "refers to “999”, which is not defined"; Insert stays off.
+- [ ] **Too wide.** Six long boxes all fed from one → a note giving the width over 17.0 cm; the lettering is not shrunk.
 
 ## 0di. New in v2.170.0 — Chemistry: fuller IUPAC names (stage 2, fused rings)
 

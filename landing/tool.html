@@ -291,6 +291,17 @@
         {in:"sin(x)/x", out:"function chart over your x-range"},
         {in:"x^2 ; exp(-x^2)", out:"two curves with a legend"}
       ] },
+    diagram: { title:"Diagrams", tagline:"Patent figures from a few lines of text — block diagrams, flowcharts, state and sequence diagrams, timing diagrams and schematics — in USPTO style.",
+      does:[
+        "<b>Block diagrams</b> and <b>flowcharts</b> laid out for you: boxes, decisions, loops back up the side, orthogonal arrows.",
+        "<b>State</b> and <b>sequence diagrams</b> for software and protocol claims; digital <b>timing diagrams</b> for chips; electrical <b>schematics</b> on a grid.",
+        "Reference numerals in the box (underlined) or on curved <b>lead lines</b>; the figure's own numeral with its arrow; <b>FIG. n</b>.",
+        "Lettering never under 1/8 in (37 CFR 1.84(p)(3)); a figure too wide for the sheet is said, never shrunk."
+      ],
+      examples:[
+        {in:"104 Sensor / 112 Control circuit / 104 -> 112", out:"a two-box block diagram with an arrow and underlined numerals"},
+        {in:"start / 405 Detect / ? 410 Asleep? / 410 yes -> 415 / 410 no -> 405 / 415 Release / end", out:"a flowchart with a decision and a loop"}
+      ] },
     tablechart: { title:"Table → Chart", tagline:"Turn a Word table into a chart, flowchart, block diagram, or clean table figure — patent-ready black-and-white or an editable PowerPoint.",
       does:[
         "Click inside a table, <b>Read selected table</b>, and the add-in auto-picks the best representation and tells you why.",
@@ -540,7 +551,7 @@
       ] }
   };
 
-  const ORDER = ["analyze","engineering","chemical","massspec","charz","spectra","bioassay","peptide","stats","math","solve","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","seqmap","align","cad","reaction","audit"];
+  const ORDER = ["analyze","engineering","chemical","massspec","charz","spectra","bioassay","peptide","stats","math","solve","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","seqmap","align","cad","reaction","audit","diagram"];
 
   const params = new URLSearchParams(location.search);
   const id = params.get("tool");
@@ -553,7 +564,7 @@
   if (!t) {
     titleEl.textContent = "Tool not found";
     tagEl.textContent = "";
-    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 28 tools →</a></p></div>';
+    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 29 tools →</a></p></div>';
   } else {
     document.title = t.title + " — JurisLab";
     titleEl.textContent = t.title;

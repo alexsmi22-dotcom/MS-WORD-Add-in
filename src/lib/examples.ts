@@ -611,6 +611,20 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       with no stable isotope (Tc, Pm) is refused unless you name the isotope (<code>[99Tc]</code>).
       Analysis aid — verify before relying.
     </p>`,
+  diagram: `
+    <p class="examples-note">
+      Patent figures from short text, in USPTO style — press <strong>Example</strong> for each kind.
+    </p>
+    <ul>
+      <li><strong>Block diagram</strong>: <code>104 Physiological sensor</code>, <code>112 Control circuit</code>, <code>104 -&gt; 112</code></li>
+      <li><strong>Flowchart</strong>: <code>start</code>, <code>405 Detect a parameter</code>, <code>? 410 Asleep?</code>, <code>410 yes -&gt; 415</code>, <code>410 no -&gt; 405</code>, <code>end</code></li>
+      <li><strong>State diagram</strong>: <code>[*] -&gt; Idle</code>, <code>Idle -&gt; Active : start</code></li>
+      <li><strong>Sequence diagram</strong>: <code>participant 102 Client</code>, <code>102 -&gt; 104 : request</code>, <code>104 --&gt; 102 : response</code></li>
+      <li><strong>Timing diagram</strong>: <code>CLK: clock 8</code>, <code>DATA: x x A0 A0 D1 D1 x x</code></li>
+      <li><strong>Schematic</strong>: <code>R1 resistor 0,0 2,0 10k</code>, <code>C1 capacitor 2,0 2,-2</code>, <code>GND ground 2,-2</code>, <code>wire 0,0 0,-2</code></li>
+    </ul>
+    <p class="examples-note">Numerals in the box (underlined) or outside with lead lines; a FIG label and the figure's own numeral (100). Lettering ≥ 1/8 in.</p>`,
+
   charz: `
     <p class="examples-note">
       <strong>Characterization text</strong> for an Example section — your measured data, written in

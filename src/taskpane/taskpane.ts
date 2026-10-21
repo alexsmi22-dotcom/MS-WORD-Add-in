@@ -7,6 +7,7 @@ import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
 import { initCharzPane, CharzPaneApi } from "./charzPane";
+import { initDiagramPane, DiagramPaneApi } from "./diagramPane";
 import { initChemdrawOpen } from "./chemdrawOpen";
 import { canvasInsertFit, type CanvasInsertMode } from "../lib/insertSize";
 import { nextFreeNumeral } from "../lib/cadShapes";
@@ -1092,6 +1093,8 @@ let finInsertBtn: HTMLButtonElement;
 let massspecSection: HTMLElement;
 let charzSection: HTMLElement;
 let charzPane: CharzPaneApi;
+let diagramSection: HTMLElement;
+let diagramPane: DiagramPaneApi;
 let msInput: HTMLInputElement;
 let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
@@ -1881,6 +1884,11 @@ Office.onReady((info) => {
     exportPpt: exportCadPpt,
     downloadFile: (blob, name) => triggerDownload(blob, name),
   });
+  diagramSection = document.getElementById("diagram-section") as HTMLElement;
+  diagramPane = initDiagramPane({
+    setStatus: (t, k) => setStatus(t, k ?? ""),
+    insertPicture: insertDiagramPicture,
+  });
   charzSection = document.getElementById("charz-section") as HTMLElement;
   charzPane = initCharzPane({
     setStatus: (t, k) => setStatus(t, k ?? ""),
@@ -2623,6 +2631,7 @@ const HOME_GROUPS: HomeGroup[] = [
     title: "Data & figures",
     items: [
       { mode: "ppt", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
+      { mode: "diagram", audience: ["science", "legal"], label: "Diagrams", desc: "Patent block diagrams, flowcharts, timing diagrams, schematics" },
       // NO audience tag, deliberately. This was tagged ["legal"], which hid TVM,
       // DCF, bonds, options and Greeks from anyone using the science chip —
       // damages models, royalty rates and NPV are legal work, but so is every
@@ -3341,6 +3350,7 @@ function onInputChanged(): void {
   assaySection.style.display = mode === "assay" ? "block" : "none";
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
   charzSection.style.display = mode === "charz" ? "block" : "none";
+  diagramSection.style.display = mode === "diagram" ? "block" : "none";
   spectraSection.style.display = mode === "spectra" ? "block" : "none";
   solveSection.style.display = mode === "solve" ? "block" : "none";
   alignSection.style.display = mode === "align" ? "block" : "none";
@@ -3386,6 +3396,10 @@ function onInputChanged(): void {
   }
   if (mode === "massspec") {
     updateMassSpec();
+    return;
+  }
+  if (mode === "diagram") {
+    diagramPane.update();
     return;
   }
   if (mode === "charz") {
@@ -6823,6 +6837,22 @@ async function insertPlainText(text: string, label: string): Promise<boolean> {
     return false;
   } finally {
     insertTextBusy = false;
+  }
+}
+
+/**
+ * The Diagrams tool's insert: the figure's own SVG rasterised at its natural size (sized in px = pt × 96/72 by the
+ * engine), so the lettering keeps the height the engine drew it at (≥ 1/8 in, 1.84(p)(3)).
+ */
+async function insertDiagramPicture(svg: string, widthPt: number, heightPt: number, alt: string): Promise<boolean> {
+  const w = (widthPt * 96) / 72, h = (heightPt * 96) / 72;
+  try {
+    const base64 = await renderFigurePng(svg, w, h);
+    await docHost.insertPictureAtSelection({ base64, widthPt: figurePoints(w), heightPt: figurePoints(h), alt, selectAfter: true, tag: "formula-inserter:diagram" });
+    return true;
+  } catch (error) {
+    setStatus(`Could not insert the diagram: ${(error as Error).message}`, "error");
+    return false;
   }
 }
 

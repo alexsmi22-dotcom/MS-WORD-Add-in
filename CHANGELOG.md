@@ -6,6 +6,30 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.171.0] — 2026-10-21 — Diagrams: patent figures from text
+
+Gap item 1: the line figures almost every utility patent carries.
+
+### Added
+- **Diagrams** (a new tool, Data & figures): type a few lines, get a figure in USPTO style (37 CFR 1.84) — black lines,
+  lettering never under 1/8 in, reference numerals, the figure's own numeral (100) with its arrow, "FIG. n".
+  - **Block diagrams** (`104 Physiological sensor`, `104 -> 112`) and **flowcharts** (`start`, steps, `? 410` decisions,
+    `410 yes -> 415`, `end`), laid out in layers with orthogonal arrows; loops go back up the right side.
+  - **State diagrams** (`[*] -> Idle`, `Idle -> Active : start`) and **sequence diagrams** (participants, messages,
+    dashed replies, self-messages).
+  - **Timing diagrams**: clocks, 0/1 levels, x (unknown, hatched), z (high impedance), labelled bus values on a time grid.
+  - **Schematics** on a grid: resistor, capacitor, inductor, diode, LED, battery, voltage and current sources, switch,
+    fuse, ground, supply, NPN/PNP, NMOS/PMOS, op-amp, wires, net labels; junction dots where three or more ends meet.
+  - Numerals in the box (underlined, as "Control circuit 112") or outside on curved lead lines.
+- Inserted at its drawn size; a figure wider than the 17.0 cm sheet is said, never shrunk. Refused by name: an arrow to
+  an undefined box, a numeral used twice, a decision without two exits, an unknown symbol, a figure over 3 sheets, a
+  schematic point off the grid; a floating terminal, an unconnected box and an undeclared participant are noted.
+- Clean lines, by construction and by test: no arrow through a box; arrows from different sources never share a line
+  (each gets its own entry point and arrowhead, on a diamond's slanted side if need be); return loops leave and enter
+  through a box's right side and nest without crossing; a decision's exits never cross; every arrowhead lands on its
+  box's outline (rounded corners, stadium ends, circles included); labels are placed where they touch no box, line,
+  numeral or other label; two self-loops on one box take opposite sides; `<->` is one line with two arrowheads.
+
 ## [2.170.0] — 2026-10-20 — Chemistry: fuller IUPAC names, stage 2 (fused rings)
 
 Organic chemistry, item 4, stage 2: the fused ring systems drug-like structures are built on.

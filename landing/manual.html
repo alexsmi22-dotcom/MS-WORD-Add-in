@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JurisLab — User Manual</title>
-  <meta name="description" content="How to use JurisLab: the core loop, then a full breakdown of all 28 tools with worked examples, exact capabilities, honest limits, and troubleshooting." />
+  <meta name="description" content="How to use JurisLab: the core loop, then a full breakdown of all 29 tools with worked examples, exact capabilities, honest limits, and troubleshooting." />
   <link rel="icon" href="assets/icon-32-v2.png" />
   <style>
     :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --warn:#8a5a00; --warnbg:#fff8e6; }
@@ -59,7 +59,7 @@
     <div class="wrap">
       <a class="home" href="index.html">← JurisLab</a>
       <h1>User Manual</h1>
-      <p class="tag">How JurisLab works, then a full breakdown of each of the 28 tools — what it does, every option, a worked example, and what it deliberately doesn’t do. Everything runs on your machine.</p>
+      <p class="tag">How JurisLab works, then a full breakdown of each of the 29 tools — what it does, every option, a worked example, and what it deliberately doesn’t do. Everything runs on your machine.</p>
     </div>
   </header>
 
@@ -75,7 +75,7 @@
         <li><a href="#mathunits">Math &amp; units (6)</a></li>
         <li><a href="#engineering">Engineering (1)</a></li>
         <li><a href="#drawing">Drawing (1)</a></li>
-        <li><a href="#datafig">Data &amp; figures (2)</a></li>
+        <li><a href="#datafig">Data &amp; figures (3)</a></li>
         <li><a href="#biology">Biology (7)</a></li>
         <li><a href="#patent">Patent drafting (4)</a></li>
         <li><a href="#legal">Legal citations (1)</a></li>
@@ -123,7 +123,7 @@
     <ol class="steps">
       <li><b>Fully quit Word</b> — every window (on Mac use <b>⌘-Q</b>, not just the red dot). Word only notices a new add-in on a cold start; this is the single most common reason it seems “not installed”.</li>
       <li>Reopen Word and go to the <b>Insert</b> tab → <b>Add-ins</b> (the <i>My Add-ins</i> dropdown) → click <b>JurisLab</b>. On Windows it may sit under <b>Developer Add-ins</b>.</li>
-      <li>The pane opens on the side, on the <b>Home</b> screen showing all 28 tools as cards, grouped by area.</li>
+      <li>The pane opens on the side, on the <b>Home</b> screen showing all 29 tools as cards, grouped by area.</li>
     </ol>
 
     <h3>Step 4 — Run it (a 10-second test)</h3>
@@ -439,7 +439,20 @@
     <p class="out"><b>Inserts:</b> the whole sheet as one picture. Engineering sheets are fitted to the page width, and the status says what the stated scale then means (e.g. "SCALE 1:2 holds when it is printed on A3"); <b>Save sheet (SVG, true size)</b> gives the sheet at its real size to print. Patent figures go in at their physical size.</p>
 
     <h2 id="datafig">Data &amp; figures</h2>
-    <p class="lead">Two tools — Table → Chart, Finance.</p>
+    <p class="lead">Three tools — Table → Chart, Diagrams, Finance.</p>
+
+    <h3>Diagrams — patent figures from text</h3>
+    <p>Choose a <b>Kind</b>, type a few lines (or press <b>Example</b>), and the figure draws itself in USPTO style (37 CFR 1.84): black lines, lettering at least 1/8 in high, a “FIG. n” label and, if you give one, the figure’s own numeral (100) with its arrow.</p>
+    <ul>
+      <li><b>Block diagram:</b> <code>104 Physiological sensor</code> is a box with its numeral; <code>104 -&gt; 112</code> an arrow, <code>104 -- 112</code> a plain line, <code>104 &lt;-&gt; 112</code> both ways.</li>
+      <li><b>Flowchart:</b> <code>start</code>, steps (<code>405 Detect a parameter</code>), decisions (<code>? 410 Asleep?</code>), <code>end</code>; steps follow in order, and a decision’s exits are written <code>410 yes -&gt; 415</code>, <code>410 no -&gt; 405</code> — a loop goes back up the right side.</li>
+      <li><b>State diagram:</b> <code>[*] -&gt; Idle</code>, <code>Idle -&gt; Active : start</code>. <b>Sequence diagram:</b> <code>participant 102 Client</code>, <code>102 -&gt; 104 : request</code>, replies dashed with <code>--&gt;</code>.</li>
+      <li><b>Timing diagram:</b> <code>CLK: clock 8</code>, <code>EN: 0 1 1 1 0</code>, <code>DATA: x x A0 A0 D1</code> — 0, 1, x (unknown, hatched), z (high impedance), or a bus value.</li>
+      <li><b>Schematic:</b> parts on a grid (x right, y up): <code>R1 resistor 0,0 2,0 10k</code>, <code>C1 capacitor 2,0 2,-2</code>, <code>Q1 npn 3,1</code>, <code>U1 opamp 5,0</code>, <code>GND ground 2,-2</code>, <code>wire 0,0 0,-2</code>, <code>label VOUT 4,0</code>; <code>#210</code> adds a reference numeral. Junction dots appear where three or more ends meet.</li>
+      <li><b>Numerals:</b> in the box and underlined (as “Control circuit 112”), or outside with a curved lead line.</li>
+    </ul>
+    <p class="out"><b>Inserts:</b> the figure as one picture at its drawn size, so the lettering keeps its height. A figure wider than the 17.0 cm sheet is said, never shrunk.</p>
+    <div class="note"><b>Refused by name:</b> an arrow to a box never defined, a numeral used twice, a decision without two exits, an unknown symbol. A terminal connected to nothing is noted.</div>
 
     <h3>Table → Chart — turn a Word table into a graphic</h3>
     <p>Click inside a Word table, press <b>Read selected table</b>, and it auto-picks the best representation (you can override with <b>Show as</b>).</p>

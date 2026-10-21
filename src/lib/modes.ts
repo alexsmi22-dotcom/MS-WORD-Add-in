@@ -27,6 +27,7 @@ export const ALL_MODES = [
   "assay",
   "massspec",
   "charz",
+  "diagram",
   "spectra",
   "seqmap",
   "align",

@@ -95,6 +95,7 @@
           </optgroup>
           <optgroup label="Data &amp; figures">
             <option value="ppt">Table → Chart</option>
+            <option value="diagram">Diagrams</option>
             <option value="finance">Finance</option>
           </optgroup>
           <optgroup label="Biology">
@@ -993,6 +994,48 @@
           <button id="ms-overlay-insert" class="insert-btn" type="button" disabled>Insert match table</button>
           <button id="ms-overlay-insert-chart" class="insert-btn" type="button" disabled>Insert overlay chart</button>
         </div>
+      </section>
+
+      <!-- Diagrams: patent figures from text (block, flowchart, state, sequence, timing, schematic) -->
+      <section id="diagram-section">
+        <p class="seq-disclaimer">
+          Patent figures from short text, in USPTO style (37 CFR 1.84): block diagrams, flowcharts, state and sequence
+          diagrams, timing diagrams and schematics, with reference numerals and a FIG label. Lettering stays at least
+          1/8 in high; a figure too wide for the sheet is said, never shrunk.
+        </p>
+        <div class="scheme-opt-row">
+          <label class="field-label" for="diagram-kind">Kind</label>
+          <select id="diagram-kind" class="lib-select">
+            <option value="block">Block diagram</option>
+            <option value="flowchart">Flowchart</option>
+            <option value="state">State diagram</option>
+            <option value="sequence">Sequence diagram</option>
+            <option value="timing">Timing diagram</option>
+            <option value="schematic">Schematic</option>
+          </select>
+        </div>
+        <p id="diagram-help" class="hint"></p>
+        <label class="field-label" for="diagram-input">Diagram</label>
+        <textarea id="diagram-input" class="build-input" rows="7" spellcheck="false" placeholder="104 Physiological sensor&#10;112 Control circuit&#10;104 -> 112"></textarea>
+        <div class="draw-btn-row">
+          <button id="diagram-example" class="draw-pop-btn" type="button">Example</button>
+        </div>
+        <div class="scheme-opt-row">
+          <label class="field-label" for="diagram-numerals">Numerals</label>
+          <select id="diagram-numerals" class="lib-select">
+            <option value="inside">In the box, underlined (Control circuit 112)</option>
+            <option value="lead">Outside, with a lead line</option>
+          </select>
+        </div>
+        <div class="scheme-opt-row">
+          <label class="field-label" for="diagram-fig">FIG.</label>
+          <input id="diagram-fig" class="build-input diagram-short" type="text" placeholder="1" />
+          <label class="field-label" for="diagram-fignum">Figure numeral</label>
+          <input id="diagram-fignum" class="build-input diagram-short" type="text" placeholder="100" />
+        </div>
+        <div id="diagram-preview" class="structure-preview diagram-preview" aria-live="polite"></div>
+        <ul id="diagram-notes" class="scheme-notes" aria-live="polite"></ul>
+        <button id="diagram-insert" class="insert-btn" type="button" disabled>Insert diagram</button>
       </section>
 
       <!-- Characterization: Example-section NMR / HRMS / yield text from measured data -->

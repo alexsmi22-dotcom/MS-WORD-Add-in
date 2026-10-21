@@ -2621,6 +2621,9 @@ select {
 .scheme-reg-what { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; color: var(--ink-2); }
 .scheme-reg-row button { font-size: 11px; padding: 2px 8px; }
 #reaction-preview svg { max-width: 100%; height: auto; }
+/* Diagrams (v2.171.0) */
+.diagram-preview svg { max-width: 100%; height: auto; }
+.diagram-short { flex: 0 1 80px; max-width: 100px; }
 /* The drawn scheme with its footnote under it (the preview is otherwise a centred row). */
 #reaction-preview.scheme-preview { flex-direction: column; gap: 6px; }
 .scheme-footnote { align-self: stretch; font: 11px/1.35 Arial, Helvetica, sans-serif; color: #000; text-align: left; }

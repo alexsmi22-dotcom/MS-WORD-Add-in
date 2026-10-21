@@ -105,6 +105,10 @@ function generatedCorpus(): string[] {
       return null;
     }
   };
+  // Fused parents (v2.170.0): each with every substituent kind at every substitutable atom, and as substituents.
+  const FUSED = ["c1ccc2ccccc2c1", "c1ccc2ncccc2c1", "c1ccc2cnccc2c1", "c1ccc2ncncc2c1", "c1ccc2nccnc2c1", "c1ccc2[nH]ccc2c1", "c1ccc2[nH]ncc2c1", "c1ccc2[nH]cnc2c1", "c1ccc2occc2c1", "c1ccc2sccc2c1", "c1ccc2ocnc2c1", "c1ccc2scnc2c1", "Cn1ccc2ccccc21", "Cn1cnc2ccccc21"];
+  HETERO.push(...FUSED);
+  for (const r of ["c1ccc2ccccc2c1", "c1c[nH]c2ccccc12", "c1ccc2ncccc2c1"]) for (const head of ["OCC", "NCC", "OC(=O)C", "CC(=O)O", "OC(=O)CC"]) out.add(`${head}${r}`);
   for (const h of HETERO) {
     out.add(h);
     const n = Molecule.fromSmiles(h).getAllAtoms();
@@ -154,6 +158,8 @@ const REVIEW_CASES = [
   "CC(=O)NC1CC2CC1N2", "CC(=O)NC1CC2CC2N1", "CC(=O)OC1CC2CCN12", "CC(=O)NC1C2CC2NC1", "CC(=O)NC1CN2CC1C2",
   "CC(=O)NC1CCC2NC12", "CC(=O)NC1C2CCN1C2", "CC(=O)NC1C2NC2C1", "CC(=O)OC1NC2CC12", "CC(=O)OC1C2COC1C2", "CC(=O)NC1COC2CC12",
   // N-aryl amines drawn either way round must get one name.
+  "c1ccnc(c1)Nc1nccs1", "c1ccnc(c1)Nc1ncco1", "c1ccc2ncccc2c1Nc1nc2ccccc2o1", "c1ccc2sc(Nc3ncco3)nc2c1", "c1coc(c1)NC1CCOCC1", "C1CCCCCC1Nc1ccccc1", "CC(C)(C)CNCCCC",
+  "c1ccc(o1)Nc1cccs1", "c1ccc(s1)Nc1ccco1", "C1COCC1Nc1cccs1", "c1coc(Nc2cc3ccccc3s2)c1", "c1ccc(Nc2ccc3ccccc3c2)cc1",
   "c1ccc(cc1)Nc1ccccn1", "c1ccnc(c1)Nc1ccccc1", "n1ccccc1Nc1ccccc1",
   // Impossible valences (an uncharged O or N with a bond too many): must refuse, never drop the rest (1b oracle).
   "C=Oc1ccncc1", "C#Nc1ccncc1", "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C", "Cc1ccc(C(C)(C)C)cc1C(C)(C)C",

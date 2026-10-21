@@ -6,6 +6,30 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.170.0] — 2026-10-20 — Chemistry: fuller IUPAC names, stage 2 (fused rings)
+
+Organic chemistry, item 4, stage 2: the fused ring systems drug-like structures are built on.
+
+### Added
+- **Fused bicyclic parents with their peripheral numbering** (fusion atoms 4a/8a, 3a/7a): naphthalene, quinoline,
+  isoquinoline, quinazoline, quinoxaline, 1H-indole, 1H-indazole, 1H-benzimidazole, 1-benzofuran, 1-benzothiophene,
+  1,3-benzoxazole, 1,3-benzothiazole — with substituents and a principal group (naphthalen-1-ol, quinolin-8-ol,
+  1H-indol-5-amine, 1-benzofuran-2-carboxylic acid, 1,3-benzothiazol-2-amine, 1-methyl-1H-indole).
+- **Tautomers as drawn**: 5-methyl- and 6-methyl-1H-benzimidazole are the two tautomers, each named for the hydrogen drawn.
+- **As substituents**: 2-(1H-indol-3-yl)ethan-1-amine (tryptamine), 2-(naphthalen-2-yl)ethan-1-ol, naphthalen-2-yl acetate.
+- Every new name passed the OPSIN round-trip oracle (now 1,900+ names, 0 wrong, 0 collisions).
+
+### Changed
+- **The parent of an N-substituted amine follows seniority**: rings before chains, then a nitrogenous ring, then (only
+  when neither has nitrogen) O before S, then more rings, then more ring atoms, then aromatic; between chains, the
+  longer chain (N-phenylnaphthalen-2-amine, N-(thiophen-2-yl)furan-2-amine, N-(1,3-thiazol-2-yl)pyridin-2-amine,
+  N-(furan-2-yl)oxan-4-amine, N-phenylcycloheptanamine). When the senior branch's partner cannot be a plain N-prefix
+  (a substituted phenyl, an undecyl, a 2,2-dimethylpropyl), the name is refused rather than built on the junior branch.
+
+Still refused by name: partly saturated fused systems (indoline, tetralin, decalin), three or more fused rings
+(phenanthrene), bridged and spiro systems, quinolinones and other ring C=O in aromatic systems, two separate ring
+systems in the parent.
+
 ## [2.169.0] — 2026-10-20 — Chemistry: fuller IUPAC names, stage 1b (heterocycles)
 
 Organic chemistry, item 4, second stage: the heterocycles drug-like structures are built from.

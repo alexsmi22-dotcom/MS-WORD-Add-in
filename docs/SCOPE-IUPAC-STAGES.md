@@ -65,7 +65,7 @@ Today these are refused:
 
 **1b shipped as v2.169.0** (the heteromonocycles of item 2, with heteroaryl substituents of item 5).
 
-## Stage 2 (later)
+## Stage 2 — fused parents shipped as v2.170.0; ring assemblies, sulfonamides and carbamates still later
 
 Fused parents (naphthalene, indole, quinoline, isoquinoline, benzimidazole, benzofuran, benzothiophene) with
 fixed numbering; biphenyl and ring assemblies; sulfonamides and sulfones; Boc/Cbz carbamates as such.

@@ -172,8 +172,10 @@ describe("refusals — every boundary is NAMED", () => {
   });
 
   test("fused rings, and heterorings beyond stage 1b's", () => {
-    expect(refusalOf("c1ccc2ccccc2c1")).toMatch(/Fused or multiple rings/);
-    expect(refusalOf("c1ccc2ncccc2c1")).toMatch(/Fused or multiple rings/);
+    // v2.170.0: naphthalene and quinoline are named; decalin, phenanthrene and bridged systems are not.
+    expect(refusalOf("C1CCC2CCCCC2C1")).toMatch(/ring system is outside/);
+    expect(refusalOf("c1ccc2c(c1)ccc1ccccc12")).toMatch(/ring system is outside/);
+    expect(refusalOf("C1CC2CCC1C2")).toMatch(/ring system is outside/);
     expect(refusalOf("C1CCSC1")).toMatch(/heteroatom ring is outside/);
     expect(refusalOf("C1=CCNCC1")).toMatch(/heteroatom ring is outside/);
     expect(refusalOf("O=C1CCCN1")).toMatch(/Lactams and lactones/);
@@ -384,7 +386,7 @@ describe("v2.169.0 — heteromonocycles (stage 1b)", () => {
 
 describe("v2.169.0 review round 1", () => {
   test.each(["CC(=O)NC1CC2CC1N2", "CC(=O)OC1CC2CCN12", "CC(=O)OC1C2COC1C2", "CC(=O)NC1C2NC2C1"])("a bicyclic part cut off for naming is refused: %s", (smiles) => {
-    expect(refusalOf(smiles)).toMatch(/Fused or multiple rings/);
+    expect(refusalOf(smiles)).toMatch(/ring system/);
   });
   test("an N-aryl amine has one name however it is drawn", () => {
     const names = ["c1ccc(cc1)Nc1ccccn1", "c1ccnc(c1)Nc1ccccc1", "n1ccccc1Nc1ccccc1"].map(nameOf);
@@ -397,12 +399,73 @@ describe("v2.169.0 review round 2", () => {
   test.each([
     ["c1ccnc(n1)Nc1ccccn1", "c1ccnc(c1)Nc1ncccn1"],
     ["c1ccc(nc1)Nc1cccnc1", "c1cncc(c1)Nc1ccccn1"],
-    ["c1ccc(o1)Nc1cccs1", "c1ccc(s1)Nc1ccco1"],
   ])("tied heteroaryl branches on one N are refused either way round: %s / %s", (a, b) => {
     expect(refusalOf(a)).toMatch(/equal seniority on one nitrogen/);
     expect(refusalOf(b)).toMatch(/equal seniority on one nitrogen/);
   });
   test("identical branches still name: N-phenylaniline", () => {
     expect(nameOf("c1ccc(cc1)Nc1ccccc1")).toBe("N-phenylaniline");
+  });
+});
+
+describe("v2.170.0 — fused bicyclic parents (stage 2)", () => {
+  test.each([
+    ["c1ccc2ccccc2c1", "naphthalene"],
+    ["Oc1cccc2ccccc12", "naphthalen-1-ol"],
+    ["OC(=O)c1ccc2ccccc2c1", "naphthalene-2-carboxylic acid"],
+    ["Clc1ccc2ccccc2c1Cl", "1,2-dichloronaphthalene"],
+    ["c1ccc2ncccc2c1", "quinoline"],
+    ["Oc1cccc2cccnc12", "quinolin-8-ol"],
+    ["c1ccc2cnccc2c1", "isoquinoline"],
+    ["c1ccc2ncncc2c1", "quinazoline"],
+    ["c1ccc2nccnc2c1", "quinoxaline"],
+    ["c1ccc2[nH]ccc2c1", "1H-indole"],
+    ["Cn1ccc2ccccc21", "1-methyl-1H-indole"],
+    ["Nc1ccc2[nH]ccc2c1", "1H-indol-5-amine"],
+    ["NCCc1c[nH]c2ccccc12", "2-(1H-indol-3-yl)ethan-1-amine"],
+    ["c1ccc2[nH]ncc2c1", "1H-indazole"],
+    ["c1ccc2[nH]cnc2c1", "1H-benzimidazole"],
+    ["Cc1ccc2[nH]cnc2c1", "5-methyl-1H-benzimidazole"],
+    ["Cc1ccc2nc[nH]c2c1", "6-methyl-1H-benzimidazole"],
+    ["OC(=O)c1cc2ccccc2o1", "1-benzofuran-2-carboxylic acid"],
+    ["c1ccc2sccc2c1", "1-benzothiophene"],
+    ["c1ccc2ocnc2c1", "1,3-benzoxazole"],
+    ["Nc1nc2ccccc2s1", "1,3-benzothiazol-2-amine"],
+    ["OCCc1ccc2ccccc2c1", "2-(naphthalen-2-yl)ethan-1-ol"],
+    ["CC(=O)Oc1ccc2ccccc2c1", "naphthalen-2-yl acetate"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+  test("a quinolinone (ring C=O) and a partly saturated system are refused", () => {
+    expect(refusalOf("O=c1ccc2ccccc2[nH]1")).toBeTruthy();
+    expect(refusalOf("C1Cc2ccccc2N1")).toMatch(/ring system is outside/);
+  });
+});
+
+describe("v2.170.0 review round 1", () => {
+  test.each(["Cc1ccc(Nc2ccc3ccccc3c2)cc1", "CCCc1ccc(Nc2ccc3[nH]ccc3c2)nc1", "CC(C)(C)c1ccc(Nc2ccc3ncccc3c2)cc1", "CCCCCCCCCCCNc1ccc2ccccc2c1"])("a substituted junior branch never takes the parent: %s refused", (smiles) => {
+    expect(refusalOf(smiles)).toBeTruthy();
+  });
+  test("O before S, and a fused pair before one ring, choose the parent", () => {
+    expect(nameOf("C1COCC1Nc1cccs1")).toBe("N-(thiophen-2-yl)oxolan-3-amine");
+    expect(nameOf("c1coc(Nc2cc3ccccc3s2)c1")).toBe("N-(1-benzothiophen-2-yl)furan-2-amine");
+    expect(nameOf("c1ccc(Nc2ccc3ccccc3c2)cc1")).toBe("N-phenylnaphthalen-2-amine");
+  });
+});
+
+test("furan before thiophene (O before S): one name either way round", () => {
+  expect(nameOf("c1ccc(o1)Nc1cccs1")).toBe("N-(thiophen-2-yl)furan-2-amine");
+  expect(nameOf("c1ccc(s1)Nc1ccco1")).toBe("N-(thiophen-2-yl)furan-2-amine");
+});
+
+describe("v2.170.0 review round 2", () => {
+  test.each([
+    ["c1ccnc(c1)Nc1nccs1", "N-(1,3-thiazol-2-yl)pyridin-2-amine"],
+    ["c1ccnc(c1)Nc1ncco1", "N-(1,3-oxazol-2-yl)pyridin-2-amine"],
+    ["c1ccc2ncccc2c1Nc1nc2ccccc2o1", "N-(1,3-benzoxazol-2-yl)quinolin-5-amine"],
+    ["c1ccc2sc(Nc3ncco3)nc2c1", "N-(1,3-oxazol-2-yl)-1,3-benzothiazol-2-amine"],
+    ["c1coc(c1)NC1CCOCC1", "N-(furan-2-yl)oxan-4-amine"],
+    ["C1CCCCCC1Nc1ccccc1", "N-phenylcycloheptanamine"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+  test("the longer chain is the parent; a 2,2-dimethylpropyl prefix is beyond the subset, so refused, never inverted", () => {
+    expect(refusalOf("CC(C)(C)CNCCCC")).toMatch(/Complex branched substituents|plain N-prefix/);
   });
 });

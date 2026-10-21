@@ -34,6 +34,10 @@
 //   furan, thiophene, 1H-pyrrole, 1H-imidazole, 1H-pyrazole, 1,3-/1,2-oxazole, 1,3-thiazole, piperidine, piperazine,
 //   morpholine, pyrrolidine, oxolane, oxane (indicated hydrogen where drawn) — and as substituents (pyridin-2-yl).
 //
+//   v2.170.0 (stage 2): ortho-fused aromatic bicycles with peripheral numbering — naphthalene, quinoline,
+//   isoquinoline, quinazoline, quinoxaline, 1H-indole, 1H-indazole, 1H-benzimidazole, 1-benzofuran,
+//   1-benzothiophene, 1,3-benzoxazole, 1,3-benzothiazole — as parents and as substituents.
+//
 //   REFUSED BY NAME (each with its reason)
 //   - lactones, anhydrides, carbamates, esters of two alcohols, two substituted
 //     nitrogens, a substituted amino group beside a senior group, sulfur and other
@@ -159,13 +163,9 @@ export function iupacName(mol0: Molecule): IupacNameResult {
   // Separate rings may be cut off as a word or an N-prefix (phenyl benzoate, N-phenylaniline); rings that SHARE atoms
   // (fused, bridged, spiro) never may.
   {
-    const rs = mol.getRingSet();
-    const seen = new Set<number>();
-    for (let r = 0; r < rs.getSize(); r++) {
-      for (const a of Array.from(rs.getRingAtoms(r))) {
-        if (seen.has(a)) return refuse("Fused or multiple rings are outside the namer's subset.");
-        seen.add(a);
-      }
+    const g0 = graphOf(mol);
+    for (const sys of ringSystems(mol)) {
+      if (sys.rings > 1 && !matchHetero(g0, sys.atoms)) return refuse(FUSED_REFUSAL);
     }
   }
   const prep = prepare(mol);
@@ -301,29 +301,41 @@ function prepare(mol: Molecule): Prepared | { refusal: string } {
     } else if (acyls.length === 0 && cs.length >= 2) {
       // The parent branch: an aromatic ring, then a ring, then the larger branch (2013: rings before chains).
       // Every other branch must be a plain substituent.
+      // The parent branch by seniority (P-44.1.2.2, P-44.2.1.2 — the parts this namer applies): rings before chains;
+      // then a nitrogenous ring; then, only when neither has nitrogen, O before S; then more rings (a fused pair);
+      // then more ring atoms; then aromatic; for chains, the longer chain from the nitrogen. So the parent never depends
+      // on drawing order.
       const rank = (c: number): number[] => {
         const t = subtree(g0, c, nn);
-        // Heterocycles before carbocycles (nitrogen first), then aromatic, then rings before chains, then size — so the
-        // parent never depends on drawing order (N-phenylpyridin-2-amine either way round; review).
-        const ringAtoms = t.filter((x) => g0.inRing[x]);
-        const hasN = g0.inRing[c] && ringAtoms.some((x) => g0.el[x] === 7);
-        const hasHetero = g0.inRing[c] && ringAtoms.some((x) => g0.el[x] !== 6);
-        return [hasN ? 1 : 0, hasHetero ? 1 : 0, g0.aromatic[c] ? 1 : 0, g0.inRing[c] ? 1 : 0, t.length];
+        const ringAtoms = g0.inRing[c] ? t.filter((x) => g0.inRing[x]) : [];
+        const hasN = ringAtoms.some((x) => g0.el[x] === 7);
+        const hetero = hasN ? 0 : ringAtoms.some((x) => g0.el[x] === 8) ? 3 : ringAtoms.some((x) => g0.el[x] === 16) ? 2 : 0;
+        const fusedPair = ringAtoms.some((x) => g0.adj[x].filter((e) => g0.inRing[e.to] && ringAtoms.includes(e.to)).length === 3) ? 1 : 0;
+        // The longest carbon path from the attachment (a chain's length, not its atom count: butyl beats neopentyl).
+        const tset = new Set(t);
+        const depth = (a: number, from: number): number => 1 + Math.max(0, ...g0.adj[a].filter((e) => e.to !== from && tset.has(e.to) && g0.el[e.to] === 6 && !g0.inRing[e.to]).map((e) => depth(e.to, a)));
+        const chainLen = g0.inRing[c] ? 0 : depth(c, nn);
+        // Last, the larger branch (benzyl over methyl: N-methyl-1-phenylmethanamine).
+        return [g0.inRing[c] ? 1 : 0, hasN ? 1 : 0, hetero, fusedPair, ringAtoms.length, g0.aromatic[c] ? 1 : 0, chainLen, t.length];
       };
       const plain = (c: number): boolean => typeof classifySub(g0, c, nn, nitroN0) !== "string";
-      const viable = cs.filter((c) => cs.every((d) => d === c || plain(d)));
-      if (!viable.length) return { refusal: "An amine whose nitrogen carries two or more elaborate groups is outside the namer's subset." };
-      viable.sort((p, q) => lexCompare(rank(q), rank(p)));
-      // Two DIFFERENT branches of equal rank (pyridin-2-yl and pyrimidin-2-yl, furan-2-yl and thiophen-2-yl): the
-      // choice needs heteroatom-count, element-order and locant rules this stage does not carry — refused by name,
-      // never decided by drawing order (review). Identical ones (two phenyls: N-phenylaniline) are one name either way.
-      if (viable.length > 1 && lexCompare(rank(viable[0]), rank(viable[1])) === 0) {
-        const n0 = classifySub(g0, viable[0], nn, nitroN0), n1 = classifySub(g0, viable[1], nn, nitroN0);
+      const ranked = [...cs].sort((p, q) => lexCompare(rank(q), rank(p)));
+      // Two DIFFERENT branches of equal rank (pyridin-2-yl and pyrimidin-2-yl): the choice needs heteroatom-count and
+      // locant rules this stage does not carry — refused by name, never decided by drawing order. Identical ones (two
+      // phenyls: N-phenylaniline) are one name either way.
+      if (ranked.length > 1 && lexCompare(rank(ranked[0]), rank(ranked[1])) === 0) {
+        const n0 = classifySub(g0, ranked[0], nn, nitroN0), n1 = classifySub(g0, ranked[1], nn, nitroN0);
         if (typeof n0 === "string" || typeof n1 === "string" || n0.name !== n1.name) {
           return { refusal: "Two different groups of equal seniority on one nitrogen (which is the parent?) are outside the namer's subset." };
         }
       }
-      keep = viable[0];
+      // The senior branch IS the parent; when the others cannot all be named as plain N-prefixes (a substituted
+      // phenyl, an undecyl), the name is refused — never handed to a junior branch (review: "4-methyl-N-(naphthalen-
+      // 2-yl)aniline" for what is N-(4-methylphenyl)naphthalen-2-amine).
+      keep = ranked[0];
+      if (!cs.every((d) => d === keep || plain(d))) {
+        return { refusal: "A group on this nitrogen that is not a plain N-prefix beside the parent branch (a substituted ring, a group carrying its own OH, NH₂ or COOH) is outside the namer's subset." };
+      }
     } else continue; // imides and the like: the core refuses them by name
     const others = cs.filter((c) => c !== keep);
     if (!others.length) continue;
@@ -357,6 +369,27 @@ const lexCompare = (a: number[], b: number[]): number => {
   }
   return 0;
 };
+
+const FUSED_REFUSAL =
+  "This ring system is outside the namer's subset — fused parents named: naphthalene, quinoline, isoquinoline, quinazoline, quinoxaline, 1H-indole, 1H-indazole, 1H-benzimidazole, 1-benzofuran, 1-benzothiophene, 1,3-benzoxazole, 1,3-benzothiazole (fully aromatic, as drawn); bridged, spiro and larger systems are refused.";
+
+/** Rings grouped into systems: rings that share an atom are one system. */
+function ringSystems(mol: Molecule): Array<{ atoms: number[]; rings: number }> {
+  const rs = mol.getRingSet();
+  const sets: Array<{ atoms: Set<number>; rings: number }> = [];
+  for (let r = 0; r < rs.getSize(); r++) {
+    const atoms = new Set<number>(Array.from(rs.getRingAtoms(r)));
+    const hit = sets.filter((x) => [...atoms].some((a) => x.atoms.has(a)));
+    const merged = { atoms, rings: 1 };
+    for (const h of hit) {
+      for (const a of h.atoms) merged.atoms.add(a);
+      merged.rings += h.rings;
+      sets.splice(sets.indexOf(h), 1);
+    }
+    sets.push(merged);
+  }
+  return sets.map((x) => ({ atoms: [...x.atoms], rings: x.rings }));
+}
 
 /** The namer's graph of a molecule (hydrogens implicit). */
 function graphOf(mol: Molecule): G {
@@ -431,7 +464,9 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
   // Ring routing.
   const rings = mol.getRingSet();
   const ringCount = rings.getSize();
-  if (ringCount > 1) return refuse("Fused or multiple rings are outside the namer's subset.");
+  const systems = ringSystems(mol);
+  if (systems.length > 1) return refuse("Two or more separate ring systems in the parent are outside the namer's subset.");
+  if (systems.length === 1 && systems[0].rings > 1 && !matchHetero(g, systems[0].atoms)) return refuse(FUSED_REFUSAL);
   // OCL's ring set only perceives rings up to 7 atoms — larger rings leave
   // ring-flagged atoms with ringCount 0, and pretending they are chains
   // would misname them (adversarial pass: cyclooctane read "no carbon
@@ -459,10 +494,11 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
     return { ...base, locants, ...(r.reversible ? { reversible: true } : {}) };
   };
 
-  if (ringCount === 1) {
-    const members: number[] = Array.from(rings.getRingAtoms(0));
+  if (systems.length === 1) {
+    const members: number[] = systems[0].atoms;
     const allC = members.every((a) => g.el[a] === 6);
-    const hetero = allC ? null : matchHetero(g, members);
+    const fused = systems[0].rings > 1;
+    const hetero = allC && !fused ? null : matchHetero(g, members);
     if (!allC && !hetero) {
       return refuse(
         "This heteroatom ring is outside the namer's subset — it names pyridine, pyrimidine, pyrazine, pyridazine, furan, thiophene, pyrrole, imidazole, pyrazole, oxazole, isoxazole, thiazole, piperidine, piperazine, morpholine, pyrrolidine, oxolane and oxane, as drawn (aromatic, or fully saturated).",
@@ -578,10 +614,10 @@ function classifySub(g: G, root: number, from: number, nitroN: Set<number>): Sub
   const atoms = subtree(g, root, from);
   if (atoms.some((a) => g.inRing[a])) {
     if (isPlainPhenyl(g, atoms, root)) return { name: "phenyl", key: "phenyl" };
-    if (g.inRing[root] && atoms.every((a) => g.inRing[a]) && atoms.some((a) => g.el[a] !== 6)) {
+    if (g.inRing[root] && atoms.every((a) => g.inRing[a]) && (atoms.some((a) => g.el[a] !== 6) || !isOneCycle(g, atoms))) {
       const hs = heteroSubstituent(g, root, atoms);
       if (hs) return hs;
-      return "This heterocyclic substituent is outside the namer's subset (only unsubstituted stage-1b rings: pyridin-2-yl, morpholin-4-yl …).";
+      return "This ring substituent is outside the namer's subset (only unsubstituted parents: pyridin-2-yl, morpholin-4-yl, naphthalen-2-yl, 1H-indol-3-yl …).";
     }
     // A plain saturated carbocycle attached by one of its own atoms: cyclopropyl … cycloheptyl.
     if (g.inRing[root] && atoms.length >= 3 && atoms.length < STEM.length && atoms.every((a) => g.el[a] === 6 && g.inRing[a] && !g.aromatic[a]) && isPlainAlkane(g, atoms) && isOneCycle(g, atoms)) {
@@ -1169,9 +1205,14 @@ function nameWithOneRing(
  */
 interface HeteroParent {
   name: string;
-  pattern: Array<"C" | "N" | "O" | "S" | "H">;
+  /** Atoms in locant order around the ring (a fused system: its periphery; F = a fusion carbon, 4a/8a). */
+  pattern: Array<"C" | "N" | "O" | "S" | "H" | "F">;
   aromatic: boolean;
+  /** Locants by position (a fused system's periphery: 1, 2, 3, 4, 4a, 5 … 8a); 1…n when absent. */
+  labels?: string[];
 }
+const NAPH = ["1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"];
+const INDOLE = ["1", "2", "3", "3a", "4", "5", "6", "7", "7a"];
 const HETERO_PARENTS: HeteroParent[] = [
   { name: "pyridine", pattern: ["N", "C", "C", "C", "C", "C"], aromatic: true },
   { name: "pyrimidine", pattern: ["N", "C", "N", "C", "C", "C"], aromatic: true },
@@ -1191,7 +1232,57 @@ const HETERO_PARENTS: HeteroParent[] = [
   { name: "pyrrolidine", pattern: ["N", "C", "C", "C", "C"], aromatic: false },
   { name: "oxolane", pattern: ["O", "C", "C", "C", "C"], aromatic: false },
   { name: "oxane", pattern: ["O", "C", "C", "C", "C", "C"], aromatic: false },
+  // Stage 2 (v2.170.0): ortho-fused bicyclic parents, peripheral numbering (P-25.2.1, P-25.3.1.3).
+  { name: "naphthalene", pattern: ["C", "C", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: NAPH },
+  { name: "quinoline", pattern: ["N", "C", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: NAPH },
+  { name: "isoquinoline", pattern: ["C", "N", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: NAPH },
+  { name: "quinazoline", pattern: ["N", "C", "N", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: NAPH },
+  { name: "quinoxaline", pattern: ["N", "C", "C", "N", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: NAPH },
+  { name: "1H-indole", pattern: ["H", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
+  { name: "1H-indazole", pattern: ["H", "N", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
+  { name: "1H-benzimidazole", pattern: ["H", "C", "N", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
+  { name: "1-benzofuran", pattern: ["O", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
+  { name: "1-benzothiophene", pattern: ["S", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
+  { name: "1,3-benzoxazole", pattern: ["O", "C", "N", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
+  { name: "1,3-benzothiazole", pattern: ["S", "C", "N", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
 ];
+
+/** A ring atom's locant in a numbering (the parent's label), as a number — null for a fusion atom (4a, 8a). */
+function locNum(parent: HeteroParent, order: number[], a: number): number | null {
+  const k = order.indexOf(a);
+  const label = parent.labels ? parent.labels[k] : String(k + 1);
+  return /^\d+$/.test(label) ? Number(label) : null;
+}
+
+/**
+ * The atoms of a ring system in a cyclic order to match patterns against: one simple ring walked round, or an
+ * ortho-fused bicycle's periphery (two fusion atoms, bonded, each with three ring neighbours; every other atom two).
+ * Null for anything else (bridged, spiro, three rings): no parent here is drawn that way.
+ */
+function ringPeriphery(g: G, members: number[]): { order: number[]; fusion: Set<number> } | null {
+  const set = new Set(members);
+  const deg = (a: number): number => g.adj[a].filter((e) => set.has(e.to)).length;
+  if (isOneCycle(g, members)) {
+    const ring = walkRing(g, members);
+    return ring ? { order: ring, fusion: new Set() } : null;
+  }
+  const fusion = members.filter((a) => deg(a) === 3);
+  if (fusion.length !== 2 || members.some((a) => !fusion.includes(a) && deg(a) !== 2)) return null;
+  const [f1, f2] = fusion;
+  if (!g.adj[f1].some((e) => e.to === f2)) return null;
+  // Walk the periphery: never along the fusion bond.
+  const order = [f1];
+  let prev = -1, cur = f1;
+  while (order.length < members.length) {
+    const next = g.adj[cur].map((e) => e.to).find((x) => set.has(x) && x !== prev && !order.includes(x) && !((cur === f1 && x === f2) || (cur === f2 && x === f1)));
+    if (next === undefined) return null;
+    order.push(next);
+    prev = cur;
+    cur = next;
+  }
+  if (!g.adj[cur].some((e) => e.to === f1)) return null;
+  return { order, fusion: new Set(fusion) };
+}
 const SYMBOL: Record<number, "C" | "N" | "O" | "S"> = { 6: "C", 7: "N", 8: "O", 16: "S" };
 
 /** The ring atoms in walking order (members unordered as OCL gives them), or null. */
@@ -1215,14 +1306,16 @@ function walkRing(g: G, members: number[]): number[] | null {
  * (all aromatic, or all single bonds) and where its hydrogen is (1H-imidazole: the NH is N1).
  */
 function matchHetero(g: G, members: number[]): { parent: HeteroParent; numberings: number[][] } | null {
-  const ring = walkRing(g, members);
-  if (!ring) return null;
+  const per = ringPeriphery(g, members);
+  if (!per) return null;
+  const ring = per.order;
   const size = ring.length;
   const memberSet = new Set(ring);
   const allAromatic = ring.every((a) => g.aromatic[a]);
   const allSingle = ring.every((a) => g.adj[a].every((e) => !memberSet.has(e.to) || e.order === 1));
   for (const parent of HETERO_PARENTS) {
     if (parent.pattern.length !== size) continue;
+    if (parent.pattern.includes("F") !== per.fusion.size > 0) continue;
     if (parent.aromatic ? !allAromatic : !allSingle) continue;
     const numberings: number[][] = [];
     for (const dir of [1, -1]) {
@@ -1231,6 +1324,9 @@ function matchHetero(g: G, members: number[]): { parent: HeteroParent; numbering
         const ok = order.every((a, k) => {
           const want = parent.pattern[k];
           const sym = SYMBOL[g.el[a]];
+          // Fusion atoms sit exactly at the parent's fusion positions (4a/8a, 3a/7a), and are carbons.
+          if ((want === "F") !== per.fusion.has(a)) return false;
+          if (want === "F") return sym === "C";
           if (want === "H") return sym === "N" && (g.h[a] > 0 || g.adj[a].some((e) => !memberSet.has(e.to)));
           if (sym !== want) return false;
           // In an aromatic parent a plain N is pyridine-type: no hydrogen, nothing on it.
@@ -1250,7 +1346,6 @@ const heteroStem = (name: string): string => name.replace(/e$/, "");
 
 /** A heteroring as a SUBSTITUENT attached by one of its own atoms, unsubstituted: pyridin-2-yl, morpholin-4-yl. */
 function heteroSubstituent(g: G, root: number, atoms: number[]): Sub | null {
-  if (!isOneCycle(g, atoms)) return null;
   const m = matchHetero(g, atoms);
   if (!m) return null;
   const set = new Set(atoms);
@@ -1258,7 +1353,9 @@ function heteroSubstituent(g: G, root: number, atoms: number[]): Sub | null {
   const exits = atoms.flatMap((a) => g.adj[a].filter((e) => !set.has(e.to)).map(() => a));
   if (exits.length !== 1 || exits[0] !== root) return null;
   // The attachment takes the lowest locant the fixed numbering allows (indicated H first: 1H-pyrrol-1-yl).
-  const loc = Math.min(...m.numberings.map((o) => o.indexOf(root) + 1));
+  const locs = m.numberings.map((o) => locNum(m.parent, o, root)).filter((x): x is number => x !== null);
+  if (!locs.length) return null; // attached at a fusion atom: not possible for these aromatic parents
+  const loc = Math.min(...locs);
   const nm = `${heteroStem(m.parent.name)}-${loc}-yl`;
   return { name: nm, key: nm.replace(/^[0-9,H-]+-/, "").replace(/-\d+-yl$/, "yl") };
 }
@@ -1314,7 +1411,7 @@ function nameHeteroRing(
   // prefix cited first in alphabetical order (P-31.1.4).
   let best: { order: number[]; key: number[] } | null = null;
   for (const order of m.numberings) {
-    const loc = (a: number): number => order.indexOf(a) + 1;
+    const loc = (a: number): number => locNum(m.parent, order, a) ?? 999;
     const suf = suffixSubs.map((s) => loc(s.atom)).sort((x, y) => x - y);
     const pre = prefixSubs.map((s) => loc(s.atom)).sort((x, y) => x - y);
     const alpha = [...prefixSubs].sort((x, y) => x.key.localeCompare(y.key) || loc(x.atom) - loc(y.atom)).map((s) => loc(s.atom));
@@ -1322,7 +1419,8 @@ function nameHeteroRing(
     if (!best || lexLessArr(key, best.key)) best = { order, key };
   }
   if (!best) return refuse("Could not number the ring.");
-  const loc = (a: number): number => best!.order.indexOf(a) + 1;
+  if (subs.some((x) => locNum(m.parent, best!.order, x.atom) === null)) return refuse("A substituent on a fusion atom is outside the namer's subset.");
+  const loc = (a: number): number => locNum(m.parent, best!.order, a)!;
   const count = suffixSubs.length;
   const kind = count ? principalKind : null;
   const prefixes = prefixString([

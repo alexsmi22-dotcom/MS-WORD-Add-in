@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.169.0)
+# JurisLab — Manual Test Script (v2.170.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,15 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0di. New in v2.170.0 — Chemistry: fuller IUPAC names (stage 2, fused rings)
+
+- [ ] ★ **Fused rings.** Chemical, type each SMILES → "Systematic name: …": `Oc1cccc2cccnc12` → quinolin-8-ol;
+  `Nc1ccc2[nH]ccc2c1` → 1H-indol-5-amine; `NCCc1c[nH]c2ccccc12` → 2-(1H-indol-3-yl)ethan-1-amine;
+  `Nc1nc2ccccc2s1` → 1,3-benzothiazol-2-amine; `OC(=O)c1ccc2ccccc2c1` → naphthalene-2-carboxylic acid.
+- [ ] **Tautomers.** `Cc1ccc2[nH]cnc2c1` → 5-methyl-1H-benzimidazole; `Cc1ccc2nc[nH]c2c1` → 6-methyl-1H-benzimidazole.
+- [ ] **Refusals in words.** `C1Cc2ccccc2N1` (indoline) and `c1ccc2c(c1)ccc1ccccc12` (phenanthrene) → "No name: This
+  ring system is outside …".
 
 ## 0dh. New in v2.169.0 — Chemistry: fuller IUPAC names (stage 1b, heterocycles)
 

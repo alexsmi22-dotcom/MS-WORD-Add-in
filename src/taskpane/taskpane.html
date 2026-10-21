@@ -190,7 +190,7 @@
           spellcheck="false"
         />
 
-        <div id="palette" class="palette" aria-label="Insert symbols"></div>
+        <div id="palette" class="palette" role="group" aria-label="Insert symbols"></div>
 
         <div class="preview-wrap">
           <span class="preview-label">Preview</span>
@@ -286,8 +286,8 @@
               Open the whole page as a drawing
             </button>
           </div>
-          <div id="build-editor" aria-label="Structure drawing canvas"></div>
-          <div id="build-page" aria-label="ChemDraw page canvas" hidden></div>
+          <div id="build-editor" role="group" aria-label="Structure drawing canvas"></div>
+          <div id="build-page" role="group" aria-label="ChemDraw page canvas" hidden></div>
           <div id="build-page-bar" class="build-page-bar" hidden>
             <span>A ChemDraw page — edited with the page tools above.</span>
             <button id="build-page-bare" class="draw-pop-btn" type="button" hidden title="The structure itself in the ChemDraw-like editor — its brackets, n and attached labels are left out">Edit the structure in the structure editor (brackets and labels left out)</button>
@@ -1515,7 +1515,7 @@
           <button id="cad-import-part" class="insert-btn" type="button" disabled hidden>Add as a part</button>
           <button id="cad-import-close" class="insert-btn secondary" type="button">Close import</button>
         </div>
-        <div id="cad-parts" class="cad-parts" aria-label="Parts"></div>
+        <div id="cad-parts" class="cad-parts" role="group" aria-label="Parts"></div>
         <div id="cad-editor" class="cad-editor"></div>
         <div class="cad-canvas-wrap">
           <canvas id="cad-canvas" class="cad-canvas" aria-label="3D view: drag to turn, wheel to zoom, click a part to edit it"></canvas>
@@ -1523,9 +1523,9 @@
         <button id="cad-popout" class="draw-pop-btn" type="button" title="The same drawing in its own large window: a big 3D view beside the sheet">
           Open large canvas ⤢
         </button>
-        <div id="cad-sketch" class="cad-sketch" hidden tabindex="-1" aria-label="Sketch editor">
+        <div id="cad-sketch" class="cad-sketch" role="group" hidden tabindex="-1" aria-label="Sketch editor">
           <div class="cad-sketch-ribbon" role="toolbar" aria-label="Sketch tools">
-            <div class="sk-group" aria-label="Draw">
+            <div class="sk-group" role="group" aria-label="Draw">
               <span class="sk-group-name">Draw</span>
               <button type="button" class="insert-btn secondary" data-sk-tool="select" title="Select (S): click to select, drag a point to move it">Select</button>
               <button type="button" class="insert-btn secondary" data-sk-tool="line" title="Line (L): click, click — the chain continues; type the length and angle; right-click or Esc ends it">Line</button>
@@ -1540,7 +1540,7 @@
               <button type="button" class="insert-btn secondary" data-sk-tool="point" title="Point (P)">Point</button>
               <label class="cad-sketch-check" title="New geometry is construction (thin, dashed; not part of the solid)"><input type="checkbox" id="cad-sketch-construction" /> Construction</label>
             </div>
-            <div class="sk-group" aria-label="Dimension">
+            <div class="sk-group" role="group" aria-label="Dimension">
               <span class="sk-group-name">Dimension</span>
               <button type="button" class="insert-btn secondary" data-sk-tool="dimension" title="Smart Dimension (D): click a line, circle or arc (or two lines for an angle), type the value, Enter">Smart Dimension</button>
             </div>
@@ -1556,7 +1556,7 @@
               <button id="cad-sketch-circular" type="button" class="insert-btn secondary" title="Copy the selection round a selected point (total angle in the value box; empty = 360°)">Circular</button>
               <button id="cad-sketch-clear" type="button" class="insert-btn secondary" title="Empty the sketch (Undo brings it back)">Clear sketch</button>
             </div>
-            <div class="sk-group" aria-label="View">
+            <div class="sk-group" role="group" aria-label="View">
               <span class="sk-group-name">View</span>
               <button id="cad-sketch-fit" type="button" class="insert-btn secondary" title="Fit (F): the whole sketch in view">Fit</button>
               <label class="cad-sketch-check" title="Snap to the grid (G); points and alignments still win"><input type="checkbox" id="cad-sketch-grid" checked /> Grid snap</label>
@@ -1616,7 +1616,7 @@
           <button id="cad-mate" type="button" class="insert-btn secondary" aria-pressed="false" title="Click a flat face of the part to move, then the face it goes against: flush, corners and centres snap together">Mate faces</button>
           <button id="cad-mate-undo" type="button" class="insert-btn secondary" disabled>Undo mate</button>
         </div>
-        <div id="cad-callouts" class="cad-parts" aria-label="Callouts"></div>
+        <div id="cad-callouts" class="cad-parts" role="group" aria-label="Callouts"></div>
         <fieldset id="cad-views" class="cad-views">
           <legend>Views on the sheet</legend>
           <label><input type="checkbox" value="front" checked /> Front</label>
@@ -1639,9 +1639,9 @@
             <option value="5">5× larger</option>
             <option value="10">10× larger</option>
           </select>
-          <div id="cad-details" class="cad-parts" aria-label="Detail views"></div>
+          <div id="cad-details" class="cad-parts" role="group" aria-label="Detail views"></div>
           <button id="cad-cut" type="button" class="insert-btn secondary" aria-pressed="false" title="Then click two points on a front, top or side figure in the drawing: the part is cut along that line and drawn as a section view, hatched">Add section view</button>
-          <div id="cad-cuts" class="cad-parts" aria-label="Section views"></div>
+          <div id="cad-cuts" class="cad-parts" role="group" aria-label="Section views"></div>
         </div>
         <label class="field-label" for="cad-hidden">Hidden lines</label>
         <select id="cad-hidden" class="lib-select">
@@ -1726,7 +1726,7 @@
 
         <span class="palette-group-label">Cross-reference</span>
         <div class="dna-controls">
-          <select id="ref-xref-kind" class="lib-select">
+          <select id="ref-xref-kind" class="lib-select" aria-label="Cross-reference kind">
             <option value="figure">Fig.</option>
             <option value="table">Table</option>
             <option value="equation">Eq.</option>

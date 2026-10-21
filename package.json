@@ -1,6 +1,6 @@
 {
   "name": "word-chem-formula",
-  "version": "2.181.0",
+  "version": "2.182.0",
   "description": "Word add-in for STEM authoring: chemical & math formulas, 2D structures, units, plotting, finance, DNA/sequence tools, and patent-drafting aids.",
   "private": true,
   "license": "MIT",
@@ -28,7 +28,8 @@
     "fuzz:extreme": "node scripts/fuzz-exports.js --extreme",
     "pane-shot": "node scripts/pane-shot.js",
     "verify:compounds": "node scripts/verify-compounds-pubchem.mjs --offline",
-    "check:offline": "node scripts/check-offline.js"
+    "check:offline": "node scripts/check-offline.js",
+    "check:a11y": "node scripts/a11y-check.js"
   },
   "dependencies": {
     "core-js": "^3.36.0",
@@ -38,6 +39,7 @@
   "devDependencies": {
     "@types/jest": "^29.5.12",
     "@types/office-js": "^1.0.377",
+    "axe-core": "4.13.0",
     "copy-webpack-plugin": "^12.0.2",
     "html-loader": "^5.0.0",
     "html-webpack-plugin": "^5.6.0",

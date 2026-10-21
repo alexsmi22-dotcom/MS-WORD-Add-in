@@ -106,7 +106,7 @@ const H = BEAM_CHART_SIZE.h;
 
   const parts: string[] = [];
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto" role="img">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto" role="img" aria-label="Beam diagram: the loaded beam with its shear force and bending moment diagrams">`,
   );
   parts.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
   parts.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);

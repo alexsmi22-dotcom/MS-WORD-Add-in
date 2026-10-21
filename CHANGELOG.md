@@ -6,6 +6,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.182.0] — 2026-10-21 — Accessibility gate; sequence listings that pass WIPO's DTD
+
+Hit-list #14.
+
+### Fixed
+- **ST.26 sequence listings with two or more sequences, or a sequence with a feature, failed WIPO's DTD**: every
+  feature numbered its qualifier ids from q1, and the DTD declares them XML IDs, unique in the whole document
+  ("ID q1 already defined"). They are now numbered q1…qN across the listing. **Regenerate any multi-sequence listing
+  exported before this version.**
+- **A listing with neither the applicant's file reference nor the application's office code and number** was exported
+  although the DTD requires one of them; it is now refused by name until one is given (and an application
+  identification needs both the office code and the number).
+- **Accessibility faults in the pane**: eleven labelled containers carried a label without a role (the symbol palette,
+  the drawing and page canvases, the CAD parts, callout, detail and section lists, the sketch editor and its groups); the Sequence molecule-type and References cross-reference selects had no name; the beam
+  diagram had no text alternative; a disabled Insert button's text was 2.4:1 on its grey (now 5.2:1, light and dark).
+
+### Added
+- **An accessibility gate in QC** (18 gates): axe-core checks Home and every tool, light and dark, in the same headless
+  Chromium as the render check — zero WCAG 2.1 A/AA violations (and no "needs review" use of a prohibited ARIA
+  attribute), with a canary that proves the checker ran.
+- **A DTD gate for sequence listings**: every listing the builder writes is validated against WIPO's ST.26 DTD (V1_3,
+  vendored from wipo.int), by a validator whose verdicts match libxml2's on every listing the builder writes and on one
+  broken listing per kind of error (39 of 39). A refused build now also clears the previous listing, so nothing stale
+  can be downloaded. DTD validity is necessary, not sufficient: open the file in WIPO Sequence
+  before filing, which also applies the standard's business rules.
+- The structure round trip from a picture's alt text (punch list #8) was already in place: JurisLab's structure
+  pictures reopen on the canvas from the OCL-ID they carry.
+
 ## [2.181.0] — 2026-10-21 — Chemistry: partly saturated rings named
 
 IUPAC stage 3e, the last of stage 3 (docs/SCOPE-IUPAC-STAGES.md); forms from P-31.2 read verbatim.

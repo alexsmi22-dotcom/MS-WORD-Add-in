@@ -384,6 +384,7 @@ import {
   featureWarnings,
   featureNotes,
   st26Exclusions,
+  st26MetaProblems,
   MolType,
   MOL_TYPE_OPTIONS,
   guessMolType,
@@ -3762,6 +3763,7 @@ function addSequenceCard(prefill?: { residues?: string; organism?: string; molTy
 
   const moltype = document.createElement("select");
   moltype.className = "lib-select seq-moltype";
+  moltype.setAttribute("aria-label", "Molecule type");
   for (const [val, text] of [
     ["DNA", "DNA"],
     ["RNA", "RNA"],
@@ -3991,6 +3993,12 @@ function todayIso(): string {
 
 /** Validates inputs, builds the ST.26 XML, and shows it with any warnings. */
 function generateSequenceXml(): void {
+  // A refused build must not leave the PREVIOUS listing on screen and downloadable (#14 review): cleared first,
+  // filled again only when this build succeeds.
+  seqXml = "";
+  seqOutput.value = "";
+  seqDownloadBtn.disabled = true;
+  seqCopyBtn.disabled = true;
   const applicantName = val("seq-applicant");
   const inventionTitle = val("seq-title");
   const entries = readSequenceEntries();
@@ -4049,6 +4057,13 @@ function generateSequenceXml(): void {
     productionDate: todayIso(),
   };
 
+  // The header WIPO's DTD requires (#14 DTD gate): refused by name, never exported invalid.
+  const metaProblems = st26MetaProblems(meta);
+  if (metaProblems.length) {
+    seqWarningsEl.className = "seq-warnings error";
+    seqWarningsEl.textContent = metaProblems.join(" ");
+    return;
+  }
   seqXml = buildSt26Xml(meta, entries);
   seqOutput.value = seqXml;
   seqDownloadBtn.disabled = false;

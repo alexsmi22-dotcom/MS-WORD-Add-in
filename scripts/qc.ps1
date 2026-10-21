@@ -9,7 +9,7 @@
 #   4c. Figure labels                four calculator registries)
 #                                8c. Host trace (every Word call, diffed)
 #
-# (17 Invoke-Step gates — 8c Host trace added in v2.144.0, 4c Figure labels in v2.143.0. This list has now gone stale TWICE — it named eight
+# (18 Invoke-Step gates — Accessibility added in v2.182.0; — 8c Host trace added in v2.144.0, 4c Figure labels in v2.143.0. This list has now gone stale TWICE — it named eight
 # steps for a file that ran eleven, was corrected to twelve, and was left at
 # twelve on the day a thirteenth and fourteenth were added, in the very comment
 # that congratulates itself for catching drift. Count the Invoke-Step lines
@@ -67,6 +67,9 @@ Invoke-Step "Compound vs PubChem" { npm run verify:compounds }
 Invoke-Step "Production build"     { npm run build }
 Invoke-Step "Manifest validation" { npx office-addin-manifest validate manifest.xml }
 Invoke-Step "Render check"        { node scripts/render-check.js }
+# Accessibility (hit-list #14): axe-core over Home and every tool, light and dark, in the same headless
+# Chromium as the render check. Zero WCAG 2.1 A/AA violations, and a canary proves axe actually ran.
+Invoke-Step "Accessibility"       { node scripts/a11y-check.js }
 # The landing page is the most public artefact here and the least covered by jest:
 # a leader line through a label, a feature name printed over a tick, and a stats
 # table silently losing two columns below 940px all shipped because the markup

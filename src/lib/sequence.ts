@@ -63,6 +63,25 @@ export interface SequenceListingMeta {
   fileName?: string;
 }
 
+/**
+ * What the listing's header lacks for WIPO's DTD (#14 DTD gate), each in words; empty = nothing. The DTD requires the
+ * applicant's file reference, or the application identification — and that identification, when given, needs BOTH
+ * the office code and the application number. A listing exported without them was invalid against the DTD although
+ * the pane said "Generated".
+ */
+export function st26MetaProblems(meta: SequenceListingMeta): string[] {
+  const problems: string[] = [];
+  const has = (v?: string): boolean => !!v && v.trim() !== "";
+  const anyApp = has(meta.ipOfficeCode) || has(meta.applicationNumber) || has(meta.filingDate);
+  if (anyApp && !(has(meta.ipOfficeCode) && has(meta.applicationNumber))) {
+    problems.push("The application identification needs both the office code (e.g. US) and the application number.");
+  }
+  if (!has(meta.applicantFileReference) && !anyApp) {
+    problems.push("ST.26 needs the applicant's file reference, or the application's office code and number.");
+  }
+  return problems;
+}
+
 // Allowed residue alphabets (lowercase for nucleotides, uppercase for amino acids).
 const DNA = "acgtryswkmbdhvn";
 const RNA = "acguryswkmbdhvn";
@@ -198,10 +217,18 @@ function el(tag: string, value: string): string {
   return `<${tag}>${escapeXml(value)}</${tag}>`;
 }
 
-/** One `<INSDQualifier>` element (id unique within its feature). */
-function qual(id: number, name: string, value: string): string {
+/**
+ * The next qualifier id. The DTD declares INSDQualifier/@id as an XML ID, which must be unique in the whole
+ * DOCUMENT: ids restarted at q1 in every feature, so any listing with a second sequence or feature repeated q1 and
+ * failed WIPO's DTD (#14 DTD gate). Numbered q1…qN across the listing; buildSt26Xml resets it.
+ */
+let qualCount = 0;
+
+/** One `<INSDQualifier>` element, its id unique in the listing. */
+function qual(name: string, value: string): string {
+  qualCount++;
   return (
-    `<INSDQualifier id="q${id}">` +
+    `<INSDQualifier id="q${qualCount}">` +
     el("INSDQualifier_name", name) +
     el("INSDQualifier_value", value) +
     "</INSDQualifier>"
@@ -218,8 +245,8 @@ function sourceFeatureInner(moltype: MolType, length: number, organism: string, 
     el("INSDFeature_key", "source") +
     el("INSDFeature_location", `1..${length}`) +
     "<INSDFeature_quals>" +
-    qual(1, "mol_type", molType) +
-    qual(2, "organism", org) +
+    qual("mol_type", molType) +
+    qual("organism", org) +
     "</INSDFeature_quals></INSDFeature>"
   );
 }
@@ -414,7 +441,7 @@ function featureInner(feature: St26Feature, moltype: MolType, residues: string):
     }
   }
   const qualsXml = quals.length
-    ? "<INSDFeature_quals>" + quals.map((q, i) => qual(i + 1, q.name, q.value)).join("") + "</INSDFeature_quals>"
+    ? "<INSDFeature_quals>" + quals.map((q) => qual(q.name, q.value)).join("") + "</INSDFeature_quals>"
     : "";
   return "<INSDFeature>" + el("INSDFeature_key", key) + el("INSDFeature_location", location) + qualsXml + "</INSDFeature>";
 }
@@ -513,6 +540,8 @@ export function featureNotes(entry: SequenceEntry): string[] {
 
 function sequenceData(entry: SequenceEntry, idNumber: number): string {
   const { residues, length } = cleanResidues(entry.moltype, entry.residues);
+  // The source feature first, then the others: qualifier ids are numbered in document order (q1 is the source's).
+  const source = sourceFeatureInner(entry.moltype, length, entry.organism ?? "", entry.sourceMolType);
   const features = (entry.features ?? []).map((f) => featureInner(f, entry.moltype, residues)).join("");
   return (
     `<SequenceData sequenceIDNumber="${idNumber}"><INSDSeq>` +
@@ -520,7 +549,7 @@ function sequenceData(entry: SequenceEntry, idNumber: number): string {
     el("INSDSeq_moltype", entry.moltype) +
     el("INSDSeq_division", "PAT") +
     "<INSDSeq_feature-table>" +
-    sourceFeatureInner(entry.moltype, length, entry.organism ?? "", entry.sourceMolType) +
+    source +
     features +
     "</INSDSeq_feature-table>" +
     el("INSDSeq_sequence", residues) +
@@ -539,17 +568,19 @@ export function buildSt26Xml(meta: SequenceListingMeta, entries: SequenceEntry[]
     ` softwareVersion="${escapeXml(meta.softwareVersion || "1.0.0")}"` +
     ` productionDate="${escapeXml(meta.productionDate)}"`;
 
+  // Whitespace-only fields count as empty, as st26MetaProblems counts them (an IPOfficeCode of "  " was written).
+  const t = (v?: string): string => (v ?? "").trim();
   const appId =
-    meta.ipOfficeCode || meta.applicationNumber || meta.filingDate
+    t(meta.ipOfficeCode) || t(meta.applicationNumber) || t(meta.filingDate)
       ? "<ApplicationIdentification>" +
-        (meta.ipOfficeCode ? el("IPOfficeCode", meta.ipOfficeCode) : "") +
-        (meta.applicationNumber ? el("ApplicationNumberText", meta.applicationNumber) : "") +
-        (meta.filingDate ? el("FilingDate", meta.filingDate) : "") +
+        (t(meta.ipOfficeCode) ? el("IPOfficeCode", t(meta.ipOfficeCode)) : "") +
+        (t(meta.applicationNumber) ? el("ApplicationNumberText", t(meta.applicationNumber)) : "") +
+        (t(meta.filingDate) ? el("FilingDate", t(meta.filingDate)) : "") +
         "</ApplicationIdentification>"
       : "";
 
-  const fileRef = meta.applicantFileReference
-    ? el("ApplicantFileReference", meta.applicantFileReference)
+  const fileRef = t(meta.applicantFileReference)
+    ? el("ApplicantFileReference", t(meta.applicantFileReference))
     : "";
 
   // Sequences below the ST.26 minimum are EXCLUDED — not numbered, not counted.
@@ -560,6 +591,7 @@ export function buildSt26Xml(meta: SequenceListingMeta, entries: SequenceEntry[]
   // produces a filable document; the cost is renumbering, which is exactly what
   // `st26Exclusions` exists to make the caller confront BEFORE it builds.
   const listed = entries.filter((e) => !belowSt26Minimum(e));
+  qualCount = 0;
 
   const body =
     appId +

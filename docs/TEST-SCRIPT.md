@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.181.0)
+# JurisLab — Manual Test Script (v2.182.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,17 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0du. New in v2.182.0 — Accessibility; sequence listings that pass WIPO's DTD
+
+- [ ] ★ **Two sequences.** Tool ▸ **Sequence**: applicant, title, file reference `AB-1`, two sequences (a DNA and a
+  protein) → Generate → **Download**. Open the file in **WIPO Sequence** → it opens and validates (no "ID already
+  defined" error).
+- [ ] **Header refused.** Clear the file reference (no office code or number) → Generate → "ST.26 needs the applicant's
+  file reference, or the application's office code and number."; nothing is generated. Number `17/227,176` without an
+  office code → "…needs both the office code (e.g. US) and the application number."
+- [ ] **Screen reader (optional).** With Narrator on, open CAD → the callout / detail / section lists are announced as
+  groups with their names; Sequence's molecule-type list is announced as "Molecule type".
 
 ## 0dt. New in v2.181.0 — Chemistry: partly saturated rings named
 

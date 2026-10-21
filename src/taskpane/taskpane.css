@@ -44,6 +44,7 @@
   --on-accent: #ffffff;      /* text ON an accent fill */
   --accent-soft: #e6eef8;    /* pressed/selected wash */
   --disabled: #a6a6a6;
+  --on-disabled: #333333;    /* text ON a disabled fill: 5.2:1 (white was 2.4:1) */
   --error: #b00020;
   --success: #197a48;
   --success-bg: #e7f5ec;
@@ -646,6 +647,7 @@ h1 {
 
 .insert-btn:disabled {
   background: var(--disabled);
+  color: var(--on-disabled);
   cursor: default;
 }
 
@@ -2009,6 +2011,7 @@ select {
     --on-accent: #04222f;
     --accent-soft: #16323f;
     --disabled: #47606e;
+    --on-disabled: #e2e8ee;
     --error: #ff8080;
     --success: #6ee0a8;
     --success-bg: #10322a;
@@ -2043,6 +2046,7 @@ select {
   --on-accent: #04222f;
   --accent-soft: #16323f;
   --disabled: #47606e;
+  --on-disabled: #e2e8ee;  /* 5.37:1 on the dark disabled fill (the accent text was 2.48:1: a11y gate) */
   --error: #ff8080;
   --success: #6ee0a8;
   --success-bg: #10322a;

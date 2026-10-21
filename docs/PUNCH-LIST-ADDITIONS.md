@@ -241,7 +241,7 @@ input, and Build's atom-and-bond-list entry becomes the fallback, not the primar
 
 ---
 
-### [ ] 8. Structure round-trip from alt text (S–M) — *the sleeper*
+### [x] 8. Structure round-trip from alt text (S–M) — *the sleeper* — DONE (JurisLab structure pictures reopen on the canvas from the OCL-ID in their alt text; confirmed 2026-10-21)
 
 `provenanceAltText()` already writes label, formula, MW, SMILES and idcode into
 the alt text of every inserted structure. **Nothing reads it back.** Most of a
@@ -412,7 +412,7 @@ first how many users would rather validate in the official tool, since it is fre
 coefficients but does not balance. Balancing, limiting reagent, theoretical and
 percent yield is standard bench arithmetic and a natural fit beside Reaction.
 
-### [ ] 21. Accessibility pass (S–M)
+### [x] 21. Accessibility pass (S–M) — DONE v2.182.0: axe-core QC gate over every tool, light and dark; six faults fixed
 59 aria attributes and 56 labels across a 1,025-line pane is a good baseline.
 **Zero `alt` attributes**, and no explicit focus management. Worth one pass with a
 screen reader, since the audience lives in these tools all day.

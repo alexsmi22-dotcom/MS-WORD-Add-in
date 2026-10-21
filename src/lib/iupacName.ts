@@ -53,6 +53,10 @@
 //   4-(pyridin-2-yl)benzoic acid, cyclohexylbenzene) by P-44.1.1 then ringRank (P-44.2.1 (a)–(g), P-44.4.1); ring
 //   assemblies of identical rings and rings joined through an atom are refused.
 //
+//   v2.181.0 (stage 3e): partly saturated benzo-fused parents with fixed hydro locants — 2,3-dihydro-1H-indole,
+//   1,2,3,4-tetrahydroquinoline, 1,2,3,4-tetrahydroisoquinoline, 2,3-dihydro-1-benzofuran, 2,3-dihydro-1-benzothiophene,
+//   2,3-dihydro-1H-indene (hydro prefixes before indicated hydrogen, after the alphabetized prefixes, P-31.2.1).
+//
 //   REFUSED BY NAME (each with its reason)
 //   - lactones and lactams of rings the namer does not number (4-, 7-membered, oxazolidine), aromatic pyridinones,
 //     thiolactones, N-acyl lactams (an N-Boc lactam is the ring-N carboxylate: tert-butyl 2-oxopiperidine-1-carboxylate),
@@ -428,6 +432,11 @@ function prepare(mol: Molecule): Prepared | { refusal: string } {
       // Two DIFFERENT branches of equal rank (pyridin-2-yl and pyrimidin-2-yl): the choice needs heteroatom-count and
       // locant rules this stage does not carry — refused by name, never decided by drawing order. Identical ones (two
       // phenyls: N-phenylaniline) are one name either way.
+      // Two ring branches whose skeletons differ but tie except for hydrogenation: not decided by saturation (hydroOnlyTie).
+      const sysAtoms = (c: number): number[] => (g0.inRing[c] ? systems0.find((sy) => sy.atoms.includes(c))?.atoms ?? [] : []);
+      if (ranked.length > 1 && sysAtoms(ranked[0]).length && sysAtoms(ranked[1]).length && hydroOnlyTie(g0, sysAtoms(ranked[0]), sysAtoms(ranked[1]))) {
+        return { refusal: "Two different groups of equal seniority on one nitrogen (which is the parent?) are outside the namer's subset." };
+      }
       if (ranked.length > 1 && lexCompare(rank(ranked[0]), rank(ranked[1])) === 0) {
         const n0 = classifySub(g0, ranked[0], nn, nitroN0), n1 = classifySub(g0, ranked[1], nn, nitroN0);
         if (typeof n0 === "string" || typeof n1 === "string" || n0.name !== n1.name) {
@@ -476,7 +485,7 @@ const lexCompare = (a: number[], b: number[]): number => {
 };
 
 const FUSED_REFUSAL =
-  "This ring system is outside the namer's subset — fused parents named: naphthalene, quinoline, isoquinoline, quinazoline, quinoxaline, 1H-indole, 1H-indazole, 1H-benzimidazole, 1-benzofuran, 1-benzothiophene, 1,3-benzoxazole, 1,3-benzothiazole (fully aromatic, as drawn); bridged, spiro and larger systems are refused.";
+  "This ring system is outside the namer's subset — fused parents named: naphthalene, quinoline, isoquinoline, quinazoline, quinoxaline, 1H-indole, 1H-indazole, 1H-benzimidazole, 1-benzofuran, 1-benzothiophene, 1,3-benzoxazole, 1,3-benzothiazole (fully aromatic, as drawn), and 2,3-dihydro-1H-indole, 1,2,3,4-tetrahydroquinoline, 1,2,3,4-tetrahydroisoquinoline, 2,3-dihydro-1-benzofuran, 2,3-dihydro-1-benzothiophene and 2,3-dihydro-1H-indene; bridged, spiro and larger systems are refused.";
 
 /** Rings grouped into systems: rings that share an atom are one system. */
 function ringSystems(mol: Molecule): Array<{ atoms: number[]; rings: number }> {
@@ -651,6 +660,8 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
     for (const a of members) {
       for (const e of g.adj[a]) {
         if (g.el[e.to] === 8 && e.order === 2 && !nitroSat.has(e.to)) {
+          // A ring C=O on a hydro parent needs ADDED hydrogen (1,3-dihydro-2H-indol-2-one, quinolin-2(1H)-one): stage 3e refuses it.
+          if (hetero && hetero.parent.hydro) return refuse("A ring C=O on a partly saturated ring (an oxindole, a 3,4-dihydroquinolin-2(1H)-one) needs added hydrogen — outside the namer's subset.");
           if (hetero && hetero.parent.aromatic) return refuse("A ring C=O in an aromatic heterocycle (a pyridinone, an oxazolone) needs added hydrogen — outside the namer's subset.");
           // Beside a ring N or O of a SATURATED parent the namer numbers, it is a lactam, lactone or imide, named as
           // the heterocycle's ketone — the 2013 form (P-66.1.4.1, P-65.6.3.5): pyrrolidin-2-one, oxolan-2-one,
@@ -708,6 +719,24 @@ function ringRank(g: G, atoms: number[]): number[] {
   return [het.length ? 1 : 0, hasN ? 1 : 0, c, rings, atoms.length, het.length, count(8), count(16), count(7), multiple, double];
 }
 
+/**
+ * Two DIFFERENT ring skeletons that tie on everything but hydrogenation (tetrahydroquinoline against isoquinoline):
+ * P-44.4.1 (multiple bonds) applies only when P-44.1–P-44.3 decide nothing, and P-44.2.2.2.3 ranks such fused systems
+ * by their skeletons (quinoline > isoquinoline), which ringRank does not carry — so the saturation must not decide;
+ * refused as a tie (stage 3e review). The same skeleton in two states (pyridine against piperidine) is decided by
+ * P-44.4.1.1 as before.
+ */
+function hydroOnlyTie(g: G, a: number[], b: number[], samePrincipal = true): boolean {
+  if (!samePrincipal) return false;
+  const ra = ringRank(g, a), rb = ringRank(g, b);
+  if (lexCompare(ra.slice(0, -2), rb.slice(0, -2)) !== 0) return false;
+  const skeleton = (atoms: number[]): string => {
+    const m = matchHetero(g, atoms);
+    return m ? (m.parent.base ?? m.parent.name).replace(/^(piperidine|piperazine|pyrrolidine|oxolane)$/, (x) => ({ piperidine: "pyridine", piperazine: "pyrazine", pyrrolidine: "1H-pyrrole", oxolane: "furan" })[x]!) : `C${atoms.length}`;
+  };
+  return skeleton(a) !== skeleton(b);
+}
+
 /** What a ring system IS as a parent hydride, for the ring-assembly test: pyridine, benzene, cyclohexane, naphthalene. */
 function ringIdentity(g: G, atoms: number[]): string {
   const hetero = matchHetero(g, atoms);
@@ -737,6 +766,8 @@ function pickParentRing(g: G, systems: Array<{ atoms: number[]; rings: number }>
   // two cyclohexanes is a hydro terphenyl (P-31.2.3.3.5.1). (Stage 3d review.)
   const ids = systems.map((s) => ringIdentity(g, s.atoms));
   const HYDRO_OF: Record<string, string> = { piperidine: "pyridine", piperazine: "pyrazine", pyrrolidine: "1H-pyrrole", oxolane: "furan", benzene: "C6", "C6=": "C6" };
+  // The hydro fused parents (stage 3e) are their mancude parents too: indoline on indole is a hydro assembly.
+  for (const p of HETERO_PARENTS) if (p.base) HYDRO_OF[p.name] = p.base;
   const base = (id: string): string => HYDRO_OF[id] ?? id;
   const bonded = (i: number): number[] => external[i].map((e) => sysOf.get(e.to)).filter((j): j is number => j !== undefined);
   for (let i = 0; i < systems.length; i++) {
@@ -775,7 +806,7 @@ function pickParentRing(g: G, systems: Array<{ atoms: number[]; rings: number }>
   // one carrying the other groups' ring), the name would put the wrong ring first — "1-methyl-4-(pyridin-4-yl)benzene"
   // for what is 4-(4-methylphenyl)pyridine — so it is refused (stage 3d).
   const ranked = systems.map((_, p) => p).sort((p, q) => lexCompare(score(q), score(p)));
-  if (lexCompare(score(ranked[0]), score(ranked[1])) === 0) {
+  if (lexCompare(score(ranked[0]), score(ranked[1])) === 0 || hydroOnlyTie(g, systems[ranked[0]].atoms, systems[ranked[1]].atoms, principalOn(systems[ranked[0]]) === principalOn(systems[ranked[1]]))) {
     return "Two different ring systems of equal seniority (which is the parent?) are outside the namer's subset.";
   }
   if (!candidates.includes(ranked[0])) return "The senior ring here carries a ring that has its own substituents (4-(4-methylphenyl)pyridine) — outside the namer's subset.";
@@ -1080,10 +1111,13 @@ function detectGroups(g: G, nitroN: Set<number>, nitroSat: Set<number>): { group
   const claimed = new Set(groups.flatMap((gr) => gr.satellites));
   for (let i = 0; i < g.n; i++) {
     if (claimed.has(i) || nitroSat.has(i) || nitroN.has(i)) continue;
-    if (g.el[i] === 8 && g.adj[i].length === 1 && g.adj[i][0].order === 1 && g.el[g.adj[i][0].to] === 6) {
+    // On a carbon, or (stage 3e review) on a RING nitrogen, where it is the ring's suffix too: "piperidin-1-ol (PIN)"
+    // (P-63.1.3, not 1-hydroxypiperidine) and "piperidin-1-amine (PIN)" (P-62.2.1.3). The anchor is then that N.
+    const anchorOk = (a: number): boolean => g.el[a] === 6 || (g.el[a] === 7 && g.inRing[a] && !nitroN.has(a));
+    if (g.el[i] === 8 && g.adj[i].length === 1 && g.adj[i][0].order === 1 && anchorOk(g.adj[i][0].to)) {
       groups.push({ kind: "ol", carbon: g.adj[i][0].to, satellites: [i], terminal: false });
     }
-    if (g.el[i] === 7 && g.adj[i].length === 1 && g.adj[i][0].order === 1 && g.el[g.adj[i][0].to] === 6) {
+    if (g.el[i] === 7 && !g.inRing[i] && g.adj[i].length === 1 && g.adj[i][0].order === 1 && anchorOk(g.adj[i][0].to)) {
       groups.push({ kind: "amine", carbon: g.adj[i][0].to, satellites: [i], terminal: false });
     }
   }
@@ -1500,6 +1534,14 @@ interface HeteroParent {
   aromatic: boolean;
   /** Locants by position (a fused system's periphery: 1, 2, 3, 4, 4a, 5 … 8a); 1…n when absent. */
   labels?: string[];
+  /**
+   * Stage 3e: a partly saturated (hydro) parent — the positions (indices into `pattern`) that are saturated, every other
+   * position aromatic. The heteroatom or the indicated hydrogen fixes which ring is saturated, so the hydro locants
+   * are fixed by the name ("2,3-dihydro-1H-indole (PIN)": hydro prefixes before indicated hydrogen, P-31.2.1).
+   */
+  hydro?: number[];
+  /** The mancude parent a hydro parent is a hydrogenated form of (the ring-assembly test). */
+  base?: string;
 }
 const NAPH = ["1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"];
 const INDOLE = ["1", "2", "3", "3a", "4", "5", "6", "7", "7a"];
@@ -1535,6 +1577,14 @@ const HETERO_PARENTS: HeteroParent[] = [
   { name: "1-benzothiophene", pattern: ["S", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
   { name: "1,3-benzoxazole", pattern: ["O", "C", "N", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
   { name: "1,3-benzothiazole", pattern: ["S", "C", "N", "F", "C", "C", "C", "C", "F"], aromatic: true, labels: INDOLE },
+  // Stage 3e: the benzo-fused parents with their hetero ring saturated (P-31.2; examples "2,3-dihydro-1H-indole (PIN)",
+  // "1,2,3,4-tetrahydroisoquinoline-3-carboxylic acid (PIN)", "2,3-dihydro-1H-indene (PIN)" — not indoline or indane).
+  { name: "2,3-dihydro-1H-indole", pattern: ["H", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: false, labels: INDOLE, hydro: [0, 1, 2], base: "1H-indole" },
+  { name: "2,3-dihydro-1-benzofuran", pattern: ["O", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: false, labels: INDOLE, hydro: [0, 1, 2], base: "1-benzofuran" },
+  { name: "2,3-dihydro-1-benzothiophene", pattern: ["S", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: false, labels: INDOLE, hydro: [0, 1, 2], base: "1-benzothiophene" },
+  { name: "2,3-dihydro-1H-indene", pattern: ["C", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: false, labels: INDOLE, hydro: [0, 1, 2], base: "1H-indene" },
+  { name: "1,2,3,4-tetrahydroquinoline", pattern: ["H", "C", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: false, labels: NAPH, hydro: [0, 1, 2, 3], base: "quinoline" },
+  { name: "1,2,3,4-tetrahydroisoquinoline", pattern: ["C", "H", "C", "C", "F", "C", "C", "C", "C", "F"], aromatic: false, labels: NAPH, hydro: [0, 1, 2, 3], base: "isoquinoline" },
 ];
 
 /** A ring atom's locant in a numbering (the parent's label), as a number — null for a fusion atom (4a, 8a). */
@@ -1606,7 +1656,7 @@ function matchHetero(g: G, members: number[]): { parent: HeteroParent; numbering
   for (const parent of HETERO_PARENTS) {
     if (parent.pattern.length !== size) continue;
     if (parent.pattern.includes("F") !== per.fusion.size > 0) continue;
-    if (parent.aromatic ? !allAromatic : !allSingle) continue;
+    if (!parent.hydro && (parent.aromatic ? !allAromatic : !allSingle)) continue;
     const numberings: number[][] = [];
     for (const dir of [1, -1]) {
       for (let start = 0; start < size; start++) {
@@ -1616,6 +1666,11 @@ function matchHetero(g: G, members: number[]): { parent: HeteroParent; numbering
           const sym = SYMBOL[g.el[a]];
           // Fusion atoms sit exactly at the parent's fusion positions (4a/8a, 3a/7a), and are carbons.
           if ((want === "F") !== per.fusion.has(a)) return false;
+          // A hydro parent: its saturated positions sp3 (not aromatic, single ring bonds only), every other aromatic.
+          if (parent.hydro) {
+            const sat = parent.hydro.includes(k);
+            if (sat ? g.aromatic[a] || g.adj[a].some((e) => memberSet.has(e.to) && e.order !== 1) : !g.aromatic[a]) return false;
+          }
           if (want === "F") return sym === "C";
           if (want === "H") return sym === "N" && (g.h[a] > 0 || g.adj[a].some((e) => !memberSet.has(e.to)));
           if (sym !== want) return false;
@@ -1679,6 +1734,9 @@ function nameHeteroRing(
       const gr = byAtom.get(e.to);
       if (gr && (gr.carbon === a || gr.carbon === e.to)) {
         if (gr.carbon === e.to && !ringAttached(g, gr, memberSet)) return refuse("A substituent that carries its own group (hydroxymethyl, aminoethyl …) is outside the namer's subset.");
+        // A group on the ring N of a hydro parent (a Boc-tetrahydroisoquinoline): its form (…-2(1H)-carboxylate with added
+        // hydrogen, or …-2-carboxylate) is not confirmed — refused (stage 3e).
+        if (gr.carbon === e.to && g.el[a] === 7 && m.parent.hydro) return refuse("A carboxy, ester or cyano group on the ring nitrogen of a partly saturated ring (a Boc-tetrahydroisoquinoline) is outside the namer's subset (its added-hydrogen form is not confirmed).");
         if (gr.kind === principalKind) subs.push({ atom: a, name: "", key: "", suffix: true });
         else subs.push({ atom: a, name: PREFIX_FORM[gr.kind]!, key: PREFIX_FORM[gr.kind]! });
         continue;

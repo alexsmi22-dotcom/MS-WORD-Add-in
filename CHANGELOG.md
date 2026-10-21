@@ -6,6 +6,27 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.181.0] — 2026-10-21 — Chemistry: partly saturated rings named
+
+IUPAC stage 3e, the last of stage 3 (docs/SCOPE-IUPAC-STAGES.md); forms from P-31.2 read verbatim.
+
+- **Indolines, tetrahydroquinolines and the like by their 2013 names**: 2,3-dihydro-1H-indole (not indoline),
+  1,2,3,4-tetrahydroquinoline, 1,2,3,4-tetrahydroisoquinoline, 2,3-dihydro-1-benzofuran, 2,3-dihydro-1-benzothiophene,
+  2,3-dihydro-1H-indene (not indane), with substituents and principal groups — 5-chloro-2,3-dihydro-1H-indole,
+  1,2,3,4-tetrahydroisoquinoline-3-carboxylic acid (the recommendations' own example), 2,3-dihydro-1H-inden-1-ol,
+  1-phenyl-2,3-dihydro-1H-indole. The hydro prefixes stand before the indicated hydrogen and after the alphabetized
+  prefixes (P-31.2.1).
+- Still refused by name: a ring C=O on these rings (oxindoles, 3,4-dihydroquinolin-2(1H)-ones need added hydrogen), a
+  carboxy, ester or cyano group on their ring nitrogen (a Boc-tetrahydroisoquinoline), and tetralin (its hydro locants
+  follow the suffix), and two different ring skeletons that only hydrogenation tells apart (tetrahydroquinoline on
+  isoquinoline). Every new name reads back through OPSIN (371 added, 0 wrong); one independent review round pinned.
+
+### Fixed
+- **OH or NH₂ on a ring nitrogen is the ring's suffix**, the 2013 form: piperidin-1-ol, piperidin-1-amine,
+  morpholin-4-amine, 1H-pyrrol-1-ol, pyrrolidine-1,2-diol (P-63.1.3, P-62.2.1.3). v2.180.0 and earlier wrote
+  "1-hydroxypiperidine" and "1-aminopiperidine", which read back to the right structure but are not the preferred names;
+  with a senior group it stays a prefix (1-hydroxypiperidine-2-carboxylic acid).
+
 ## [2.180.0] — 2026-10-21 — Chemistry: a ring on a ring named
 
 IUPAC stage 3d (docs/SCOPE-IUPAC-STAGES.md), seniority from the 2013 recommendations read verbatim (P-44.1.1,

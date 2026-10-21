@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.180.0)
+# JurisLab — Manual Test Script (v2.181.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,12 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dt. New in v2.181.0 — Chemistry: partly saturated rings named
+
+- [ ] ★ **Hydro rings.** Chemical, type each SMILES → "Systematic name: …": `Clc1ccc2NCCc2c1` → 5-chloro-2,3-dihydro-1H-indole;
+  `OC(=O)C1Cc2ccccc2CN1` → 1,2,3,4-tetrahydroisoquinoline-3-carboxylic acid; `OC1CCc2ccccc21` → 2,3-dihydro-1H-inden-1-ol.
+- [ ] **Refusals in words.** `O=C1Cc2ccccc2N1` (oxindole) and `C1CCc2ccccc2C1` (tetralin) → "No name: …".
 
 ## 0ds. New in v2.180.0 — Chemistry: a ring on a ring named
 

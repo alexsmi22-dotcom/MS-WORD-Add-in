@@ -114,7 +114,11 @@ iupacOracle.test.ts) proved no existing name changed except the two Fixed entrie
 
 **3e — partly saturated rings.** Hydro prefixes with indicated hydrogen on the fused parents: 2,3-dihydro-1H-indole,
 1,2,3,4-tetrahydroquinoline, 1,2,3,4-tetrahydroisoquinoline, 2,3-dihydro-1-benzofuran (placement per P-31.1.4).
-Highest risk; the oracle catches wrong hydro positions.
+Highest risk; the oracle catches wrong hydro positions. As shipped (v2.181.0): the parents whose heteroatom or indicated hydrogen fixes the
+saturated ring (indoline, tetrahydroquinoline, tetrahydroisoquinoline, dihydrobenzofuran, dihydrobenzothiophene, indane);
+P-31.2.1 read verbatim (hydro prefixes detachable but not alphabetized, before indicated hydrogen). Not yet: tetralin
+(5,6,7,8-tetrahydronaphthalen-2-amine — the hydro locants follow the suffix), ring ketones needing added hydrogen, groups
+on the hydro ring's N.
 
 ## Pane
 

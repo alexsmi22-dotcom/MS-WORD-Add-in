@@ -107,6 +107,10 @@ function generatedCorpus(): string[] {
   };
   // Fused parents (v2.170.0): each with every substituent kind at every substitutable atom, and as substituents.
   const FUSED = ["c1ccc2ccccc2c1", "c1ccc2ncccc2c1", "c1ccc2cnccc2c1", "c1ccc2ncncc2c1", "c1ccc2nccnc2c1", "c1ccc2[nH]ccc2c1", "c1ccc2[nH]ncc2c1", "c1ccc2[nH]cnc2c1", "c1ccc2occc2c1", "c1ccc2sccc2c1", "c1ccc2ocnc2c1", "c1ccc2scnc2c1", "Cn1ccc2ccccc21", "Cn1cnc2ccccc21"];
+  // Stage 3e: the hydro fused parents (indoline, tetrahydroquinoline, tetrahydroisoquinoline, dihydrobenzofuran,
+  // dihydrobenzothiophene, indane), each with every substituent kind at every atom; near-misses below.
+  FUSED.push("C1Cc2ccccc2N1", "C1CNc2ccccc2C1", "C1Cc2ccccc2CN1", "C1Cc2ccccc2O1", "C1Cc2ccccc2S1", "C1Cc2ccccc2C1");
+  for (const near of ["O=C1Cc2ccccc2N1", "O=C1CCc2ccccc2N1", "CC(C)(C)OC(=O)N1CCc2ccccc2C1", "C1CCc2ccccc2C1", "C1=Cc2ccccc2N1C", "C1CCc2ccccc2N1", "N#CN1CCc2ccccc21"]) out.add(near);
   HETERO.push(...FUSED);
   for (const r of ["c1ccc2ccccc2c1", "c1c[nH]c2ccccc12", "c1ccc2ncccc2c1"]) for (const head of ["OCC", "NCC", "OC(=O)C", "CC(=O)O", "OC(=O)CC"]) out.add(`${head}${r}`);
   for (const h of HETERO) {

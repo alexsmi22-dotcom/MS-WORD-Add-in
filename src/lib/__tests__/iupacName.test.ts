@@ -442,7 +442,8 @@ describe("v2.170.0 — fused bicyclic parents (stage 2)", () => {
   ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
   test("a quinolinone (ring C=O) and a partly saturated system are refused", () => {
     expect(refusalOf("O=c1ccc2ccccc2[nH]1")).toBeTruthy();
-    expect(refusalOf("C1Cc2ccccc2N1")).toMatch(/ring system is outside/);
+    // Stage 3e names indoline (2,3-dihydro-1H-indole); a partly saturated system it does not number still refuses.
+    expect(refusalOf("C1CCc2ccccc2C1")).toMatch(/ring system is outside/);
   });
 });
 
@@ -671,4 +672,50 @@ describe("stage 3d review", () => {
   test("an NH between pyridine and piperidine: pyridine is the parent by P-44.4.1.1 (not an assembly: not bonded directly)", () => {
     expect(nameOf("c1ccc(nc1)NC1CCCCN1")).toBe("N-(piperidin-2-yl)pyridin-2-amine");
   });
+});
+
+describe("stage 3e — partly saturated fused rings (P-31.2: hydro prefixes before indicated hydrogen, not alphabetized)", () => {
+  test.each([
+    ["C1Cc2ccccc2N1", "2,3-dihydro-1H-indole"],
+    ["CN1CCc2ccccc21", "1-methyl-2,3-dihydro-1H-indole"],
+    ["Clc1ccc2NCCc2c1", "5-chloro-2,3-dihydro-1H-indole"],
+    ["Nc1ccc2NCCc2c1", "2,3-dihydro-1H-indol-5-amine"],
+    ["C1CNc2ccccc2C1", "1,2,3,4-tetrahydroquinoline"],
+    ["C1Cc2ccccc2CN1", "1,2,3,4-tetrahydroisoquinoline"],
+    // The Blue Book's own PIN example (P-93): 1,2,3,4-tetrahydroisoquinoline-3-carboxylic acid.
+    ["OC(=O)C1Cc2ccccc2CN1", "1,2,3,4-tetrahydroisoquinoline-3-carboxylic acid"],
+    ["C1Cc2ccccc2O1", "2,3-dihydro-1-benzofuran"],
+    ["C1Cc2ccccc2C1", "2,3-dihydro-1H-indene"],
+    ["OC1CCc2ccccc21", "2,3-dihydro-1H-inden-1-ol"],
+    ["c1ccc2c(c1)CCN2c1ccccc1", "1-phenyl-2,3-dihydro-1H-indole"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+
+  test.each([
+    ["an oxindole (a ring C=O needs added hydrogen)", "O=C1Cc2ccccc2N1"],
+    ["a 3,4-dihydroquinolin-2(1H)-one", "O=C1CCc2ccccc2N1"],
+    ["a Boc-tetrahydroisoquinoline (added-hydrogen form not confirmed)", "CC(C)(C)OC(=O)N1CCc2ccccc2C1"],
+    ["tetralin (its hydro locants follow the suffix: not yet)", "C1CCc2ccccc2C1"],
+    ["indoline on indoline (a ring assembly)", "C1Cc2ccccc2N1c1ccc2NCCc2c1"],
+  ])("%s is refused by name", (_why, smiles) => expect(refusalOf(smiles)).toMatch(/outside the namer's subset/));
+});
+
+describe("stage 3e review", () => {
+  test("tetrahydroquinoline against isoquinoline: the skeletons differ and only saturation tells them apart — refused", () => {
+    expect(refusalOf("C1CCc2ccccc2N1c1cccc2cnccc12")).toMatch(/equal seniority/);
+    expect(refusalOf("c1ccc2NCCCc2c1-c1ccc2cnccc2c1")).toMatch(/equal seniority/);
+    expect(refusalOf("c1ccc2NCCCc2c1Nc1cccc2cnccc12")).toMatch(/equal seniority/);
+  });
+  test.each([
+    // OH or NH₂ on a ring N is the ring's suffix (P-63.1.3 "piperidin-1-ol (PIN)", P-62.2.1.3 "piperidin-1-amine (PIN)"):
+    // v2.180.0 wrote 1-hydroxypiperidine / 1-aminopiperidine.
+    ["ON1CCCCC1", "piperidin-1-ol"],
+    ["NN1CCCCC1", "piperidin-1-amine"],
+    ["ON1CCc2ccccc21", "2,3-dihydro-1H-indol-1-ol"],
+    ["ON1CCc2cc(N)ccc21", "5-amino-2,3-dihydro-1H-indol-1-ol"],
+    ["ON1CCCC1O", "pyrrolidine-1,2-diol"],
+    ["On1cccc1", "1H-pyrrol-1-ol"],
+    // A senior group keeps it a prefix.
+    ["OC(=O)C1CCCCN1O", "1-hydroxypiperidine-2-carboxylic acid"],
+    ["NN1C(=O)CCCC1=O", "1-aminopiperidine-2,6-dione"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
 });

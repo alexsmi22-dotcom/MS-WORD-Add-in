@@ -732,6 +732,28 @@
           <summary id="reaction-register-summary">Compounds in this document (0)</summary>
           <p class="hint">Filled as schemes are inserted: each number with its structure. Characterization reads them too (“compound 3”).</p>
           <div id="reaction-register-list"></div>
+          <div class="ct-block">
+            <p class="field-label">Compound table</p>
+            <p class="hint">The numbered compounds as a Word table, structures drawn as the schemes draw them. Names come from the offline namer (“—” where it has none); add columns of your own to fill in.</p>
+            <div class="ct-cols">
+              <label><input id="ct-col-structure" type="checkbox" checked /> Structure</label>
+              <label><input id="ct-col-name" type="checkbox" checked /> Name</label>
+              <label><input id="ct-col-formula" type="checkbox" checked /> Formula</label>
+              <label><input id="ct-col-mw" type="checkbox" checked /> MW</label>
+              <label><input id="ct-col-exact" type="checkbox" /> Exact mass</label>
+              <label><input id="ct-col-mh" type="checkbox" /> [M + H]⁺</label>
+              <label><input id="ct-col-smiles" type="checkbox" /> SMILES</label>
+            </div>
+            <label class="field-label" for="ct-select">Compounds</label>
+            <input id="ct-select" class="build-input" type="text" placeholder="All — or 1–5, 7, 2a" />
+            <label class="field-label" for="ct-extra">Your own columns</label>
+            <input id="ct-extra" class="build-input" type="text" placeholder="IC50 (nM), Yield (%)" />
+            <label class="field-label" for="ct-caption">Caption</label>
+            <input id="ct-caption" class="build-input" type="text" placeholder="Table 1. Compounds of the Examples" />
+            <p id="ct-summary" class="hint" aria-live="polite"></p>
+            <ul id="ct-notes" class="scheme-notes" aria-live="polite"></ul>
+            <button id="ct-insert" class="insert-btn" type="button" disabled>Insert compound table</button>
+          </div>
         </details>
         <button id="reaction-insert-btn" class="insert-btn" type="button" disabled>Insert reaction scheme</button>
         <button id="reaction-open-canvas" class="draw-pop-btn" type="button" disabled title="Open this scheme on the Build page canvas to move or edit anything by hand">Open in Build canvas</button>

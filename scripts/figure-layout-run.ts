@@ -163,6 +163,8 @@ import { bracketedBoxPlot } from "../src/lib/statsBrackets";
 import { tukeyHSD } from "../src/lib/tukey";
 import { twoSampleTTest } from "../src/lib/stats";
 import { kruskalWallis, dunnTest } from "../src/lib/nonparametric";
+// The compound table's structure cells (Reaction ▸ Compounds in this document), drawn as the pane draws them.
+import { structureSvg } from "../src/lib/compoundTable";
 
 const figures: [string, string][] = [];
 
@@ -175,6 +177,17 @@ const figures: [string, string][] = [];
   if (crowded) figures.push(["composite crowded cutouts", compositeShapeSvg(crowded)]);
   const lshape = solveComposite("rectangle 8 x 3 plus rectangle 3 x 5 plus semicircle r=1.5");
   if (lshape) figures.push(["composite additions", compositeShapeSvg(lshape)]);
+}
+
+// Compound-table structure cells: a small acyclic one, a ring with substituents, a charged one.
+for (const [name, smiles] of [
+  ["compound table cell butan-2-ol", "C[C@@H](O)CC"],
+  ["compound table cell aspirin", "CC(=O)Oc1ccccc1C(=O)O"],
+  ["compound table cell tetramethylammonium", "C[N+](C)(C)C"],
+] as [string, string][]) {
+  const d = structureSvg(smiles);
+  if (!d) throw new Error(`corpus: ${name}: not drawn`);
+  figures.push([name, d.svg]);
 }
 
 // Plain geometry figures (v2.106.0): each drawable kind at least once, plus the

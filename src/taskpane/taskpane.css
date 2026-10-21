@@ -2616,6 +2616,10 @@ select {
 .scheme-register { margin: 8px 0; font-size: 12px; }
 .scheme-register summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
 .scheme-register .hint { margin: 4px 0 6px; }
+/* Compound table (v2.174.0) */
+.ct-block { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
+.ct-cols { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0 6px; font-size: 12px; }
+.ct-cols label { display: inline-flex; align-items: center; gap: 4px; }
 .scheme-reg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; border-top: 1px solid var(--rule); }
 .scheme-reg-row b { min-width: 2.2em; }
 .scheme-reg-what { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; color: var(--ink-2); }

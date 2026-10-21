@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.173.0)
+# JurisLab — Manual Test Script (v2.174.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dm. New in v2.174.0 — Compound table
+
+- [ ] ★ **Table.** Tool ▸ **Reaction**, Read as structures, `aspirin + CH3OH -> CC(=O)Oc1ccccc1C(=O)OC`, tick **Number new
+  compounds**, **Insert reaction scheme**. Open **Compounds in this document** → the compound table block lists the
+  compounds. Caption `Table 1. Compounds of the Examples`, **Insert compound table** → the caption, then a Word table:
+  Compound | Structure | Name | Formula | MW (g/mol), a drawing in each Structure cell.
+- [ ] **Your columns.** Your own columns `IC50 (nM), Yield (%)` → two empty columns at the right, ready to type in.
+- [ ] **Selection.** Compounds `2` → one row; `9` → "There is no compound 9…", Insert stays off.
+- [ ] **Masses.** Tick Exact mass and [M + H]⁺ → aspirin 180.0423 and 181.0495; methanol 32.0262 and 33.0335.
 
 ## 0dl. New in v2.173.0 — Antibody
 

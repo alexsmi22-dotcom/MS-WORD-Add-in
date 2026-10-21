@@ -8,6 +8,7 @@ import { readBodyText, readParagraphTexts, readSelectedPictureAlt, readSelection
 import {
   capability,
   insertEditableTable,
+  insertPictureTable,
   insertFigurePng,
   insertFigureVector,
   insertPictureAtSelection,
@@ -44,6 +45,7 @@ export const wordHost: Host = {
   insertPictureWithLegend,
   insertPictureParagraphs,
   insertEditableTable,
+  insertPictureTable,
   insertResultLayout,
   insertFigurePng,
   insertFigureVector,

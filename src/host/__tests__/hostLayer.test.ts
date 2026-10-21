@@ -346,6 +346,24 @@ describe("pictures (v2.145.0)", () => {
     expect(log.some((l) => l.includes('.load("items")'))).toBe(true); // clearTableListFormatting ran
   });
 
+  it("a picture table: the caption above, then the grid, each picture in its own cell (centred, sized, with alt text)", async () => {
+    withRange();
+    reads["#3.getCell()"] = undefined;
+    await wordHost.insertPictureTable({
+      rows: [["Compound", "Structure"], ["1", { base64: "AAAA", widthPt: 72, heightPt: 54, alt: "Compound 1" }]],
+      label: "Table 1",
+    });
+    const pic = log.findIndex((l) => l.includes('insertInlinePictureFromBase64(') && l.includes('"Start"'));
+    expect(pic).toBeGreaterThan(log.findIndex((l) => l.includes(".insertTable(")));
+    const id = log[pic].split(" ")[0].slice(1);
+    expect(log).toContain(`set #${id}.width = 72`);
+    expect(log).toContain(`set #${id}.height = 54`);
+    expect(log).toContain(`set #${id}.altTextDescription = "Compound 1"`);
+    const cap = log.findIndex((l) => l.includes('insertParagraph("Table 1", "After")'));
+    expect(cap).toBeGreaterThanOrEqual(0);
+    expect(cap).toBeLessThan(log.findIndex((l) => l.includes(".insertTable(")));
+  });
+
   it("Table → Chart reads its rows INSIDE the batch, after the picture has synced (not when the insert began)", async () => {
     withRange();
     let readAt = -1;

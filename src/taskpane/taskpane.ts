@@ -476,6 +476,7 @@ import {
 } from "../lib/geneticCode";
 import { auditDocument, AuditReport } from "../lib/audit";
 import { SOLID_CHART_SIZE } from "../lib/solidformChart";
+import { initCompoundTablePane, CompoundTablePaneApi } from "./compoundTablePane";
 import { REGISTER_SETTING, typesetFormula, autoNumberer, checkAgainstRegister, compoundFieldInput, forgetCompound, mergeIntoRegister, readRegister, writeRegister, type CompoundRegister } from "../lib/compoundRegister";
 import { parseScheme, buildScheme, countSchemeCaptions, smallestFontPt, titleWithBoldLabels, type SchemeBuild, type SchemeWidth } from "../lib/scheme";
 import { inlineParagraphsOoxml, schemeCaptionOoxml } from "../lib/bibOoxml";
@@ -982,6 +983,7 @@ let reactionOpenCanvasBtn: HTMLButtonElement;
 let reactionAutonumCheck: HTMLInputElement;
 let reactionRegisterSummary: HTMLElement;
 let reactionRegisterList: HTMLElement;
+let compoundTablePane: CompoundTablePaneApi | undefined;
 let auditSection: HTMLElement;
 let auditRunBtn: HTMLButtonElement;
 let auditResults: HTMLElement;
@@ -1751,6 +1753,12 @@ Office.onReady((info) => {
   reactionAutonumCheck = document.getElementById("reaction-autonum") as HTMLInputElement;
   reactionRegisterSummary = document.getElementById("reaction-register-summary") as HTMLElement;
   reactionRegisterList = document.getElementById("reaction-register-list") as HTMLElement;
+  compoundTablePane = initCompoundTablePane({
+    setStatus: (t, k) => setStatus(t, k ?? ""),
+    loadRegister: () => loadCompoundRegister().register,
+    rasterize: (svg, w, h) => svgToPngBase64(svg, w, h),
+    insertPictureTable: (o) => docHost.insertPictureTable(o),
+  });
   auditSection =document.getElementById("audit-section") as HTMLElement;
   auditRunBtn = document.getElementById("audit-run-btn") as HTMLButtonElement;
   auditResults = document.getElementById("audit-results") as HTMLElement;
@@ -7222,6 +7230,7 @@ function renderCompoundRegister(reg: CompoundRegister): void {
     row.append(b, what, ins, del);
     reactionRegisterList.appendChild(row);
   }
+  compoundTablePane?.update();
 }
 
 /** The scheme's errors (it is not drawn) and notes (it is), beside the preview. */

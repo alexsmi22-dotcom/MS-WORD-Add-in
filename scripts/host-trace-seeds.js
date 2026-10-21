@@ -28,6 +28,8 @@ module.exports = {
   "reaction/reaction-draw-btn": [],
   "reaction/reaction-insert-btn": [["reaction-read", "formulas"], ["reaction-input", "Fe2O3 + CO -> Fe + CO2"]],
   "reaction/reaction-insert-btn#2": [["reaction-read", "structures"], ["reaction-input", "CH4 + O2 -> CO2 + H2O"]],
+  // The compound table needs numbered compounds: a structure scheme with Number new compounds fills the register.
+  "reaction/ct-insert": [["reaction-read", "structures"], ["reaction-input", "CH4 + O2 -> CO2 + H2O"], ["reaction-autonum", true], ["click", "reaction-insert-btn"]],
   "massspec/ms-insert": [["ms-input", "C6H12O6"]],
   "massspec/ms-insert-chart": [["ms-input", "C6H12O6"]],
   // Characterization: a list, an HRMS line with Found, and the From Build button left alone (Build is empty here).

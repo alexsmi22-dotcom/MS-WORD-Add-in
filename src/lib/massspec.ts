@@ -611,7 +611,8 @@ const joinNotes = (...n: (string | undefined)[]): string | undefined => {
   return kept.length ? kept.join(" ") : undefined;
 };
 
-function smilesSpec(smiles: string): MassSpecResult | string | null {
+/** The MS readout for a SMILES, parsed as SMILES only (no dictionary or formula lookup first). */
+export function smilesSpec(smiles: string): MassSpecResult | string | null {
   let mol: Molecule;
   try {
     mol = Molecule.fromSmiles(smiles);

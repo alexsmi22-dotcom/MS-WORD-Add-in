@@ -6,6 +6,20 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.174.0] — 2026-10-21 — Compound tables from the document's register
+
+Gap item 4: the table a medicinal-chemistry patent's Examples end with, built in one insert from the compounds the
+document's schemes have numbered.
+
+- **Reaction ▸ Compounds in this document ▸ Compound table.** Choose the columns (Structure, Name, Formula, MW on by
+  default; Exact mass, [M + H]⁺, SMILES), the compounds (all, or `1–5, 7, 2a`), your own columns (`IC50 (nM), Yield (%)`,
+  left empty to fill in) and a caption.
+- **One native Word table**, rows in compound-number order, each structure drawn as the schemes draw it (ACS 1996) and
+  placed in its cell at 300 dpi; the caption above, as patent tables carry it.
+- **Names** from the dictionary (in the case chemists write them: o-xylene, ATP) or the offline systematic namer with its
+  CIP descriptors, so two enantiomers are named alike; "—" with the reason where neither has one.
+- **Masses** from the stored structure itself; an ion's exact mass is its m/z; a salt's masses are left to you.
+
 ## [2.173.0] — 2026-10-21 — Antibody: numbering, CDRs, identity and claim text
 
 Gap item 3: antibody patents claim CDRs, and a CDR means nothing without its definition.

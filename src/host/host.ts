@@ -84,6 +84,20 @@ export interface EditableTableInsert {
   label: string;
 }
 
+/** A picture inside a table cell, sized in points (a compound table's structure). */
+export interface CellPicture {
+  base64: string;
+  widthPt: number;
+  heightPt: number;
+  alt: string;
+}
+
+/** An editable table whose cells hold text or a picture; the first row is the header. */
+export interface PictureTableInsert {
+  rows: Array<Array<string | CellPicture>>;
+  label: string;
+}
+
 /** One piece of a result report, in document order. */
 export type ResultLayoutItem =
   | { kind: "ooxml"; ooxml: string }
@@ -256,6 +270,8 @@ export interface Host {
   /** Pictures one per paragraph, each anchored at the END of the previous paragraph. */
   insertPictureParagraphs(items: GalleryItem[]): Promise<void>;
   insertEditableTable(o: EditableTableInsert): Promise<void>;
+  /** A native table with pictures in some cells, at the cursor, with an optional centred label after it. */
+  insertPictureTable(o: PictureTableInsert): Promise<void>;
   /** Returns how many pictures Word KEPT (null when it cannot say). */
   insertResultLayout(items: ResultLayoutItem[]): Promise<number | null>;
   insertFigurePng(o: FigureInsertWord & { base64: string }): Promise<void>;

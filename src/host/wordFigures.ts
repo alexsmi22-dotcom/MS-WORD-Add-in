@@ -7,6 +7,7 @@
  */
 import type {
   EditableTableInsert,
+  PictureTableInsert,
   FigureInsertWord,
   FigureVectorResult,
   GalleryItem,
@@ -182,6 +183,52 @@ export async function insertEditableTable(o: EditableTableInsert): Promise<void>
     tail.select(Word.SelectionMode.end);
     await context.sync();
     await clearTableListFormatting(context, table);
+  });
+}
+
+/**
+ * A native table with pictures in some cells (a compound table's structures). Its own grid, exactly as given — the
+ * text-table heuristics (row cap, section bands, a dropped first column) do not apply to it. The caption goes above,
+ * as patent tables carry it; the header row is bold and shaded; each picture sits centred in its (empty) cell at its
+ * size in points; the other cells are left-aligned except numbers, right-aligned.
+ */
+export async function insertPictureTable(o: PictureTableInsert): Promise<void> {
+  const nRows = o.rows.length, nCols = nRows ? o.rows[0].length : 0;
+  if (nRows < 2 || !nCols) throw new Error("The table is empty.");
+  if (o.rows.some((r) => r.length !== nCols)) throw new Error("The table's rows are not all the same length.");
+  const text = o.rows.map((r) => r.map((c) => (typeof c === "string" ? c : "")));
+  // A column of numbers ("—" allowed among them, but not a column of nothing else) is right-aligned, header included.
+  const numeric = text[0].map((_, j) => j > 0 && text.slice(1).every((r) => /^(—|[-+−]?\d+(\.\d+)?)$/.test(r[j])) && text.slice(1).some((r) => r[j] !== "—"));
+  await Word.run(async (context) => {
+    let anchor = context.document.getSelection().getRange(Word.RangeLocation.end);
+    if (o.label) {
+      const cap = anchor.insertParagraph(o.label, Word.InsertLocation.after);
+      cap.styleBuiltIn = Word.BuiltInStyleName.normal;
+      cap.alignment = Word.Alignment.left;
+      anchor = cap.getRange(Word.RangeLocation.end);
+    }
+    const table = anchor.insertTable(nRows, nCols, Word.InsertLocation.after, text);
+    await context.sync();
+    await clearTableListFormatting(context, table);
+    o.rows.forEach((r, i) =>
+      r.forEach((c, j) => {
+        const cell = table.getCell(i, j);
+        const para = cell.body.paragraphs.getFirst();
+        if (i === 0) {
+          cell.body.font.bold = true;
+          cell.shadingColor = "#E7EEF6";
+        }
+        if (typeof c !== "string") {
+          const pic = para.insertInlinePictureFromBase64(c.base64, Word.InsertLocation.start);
+          pic.width = c.widthPt;
+          pic.height = c.heightPt;
+          pic.altTextDescription = c.alt;
+          para.alignment = Word.Alignment.centered;
+        } else para.alignment = numeric[j] ? Word.Alignment.right : Word.Alignment.left;
+      }),
+    );
+    table.getRange(Word.RangeLocation.after).select(Word.SelectionMode.end);
+    await context.sync();
   });
 }
 

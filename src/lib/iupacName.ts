@@ -38,8 +38,13 @@
 //   isoquinoline, quinazoline, quinoxaline, 1H-indole, 1H-indazole, 1H-benzimidazole, 1-benzofuran,
 //   1-benzothiophene, 1,3-benzoxazole, 1,3-benzothiazole — as parents and as substituents.
 //
+//   v2.177.0 (stage 3a): lactams, lactones and imides of the saturated parents named as their ketones, the 2013 form —
+//   pyrrolidin-2-one, piperidin-2-one, morpholin-3-one, oxolan-2-one, oxan-2-one, pyrrolidine-2,5-dione — and cyclic
+//   anhydrides of those parents as their diones (oxolane-2,5-dione, P-65.7.7).
+//
 //   REFUSED BY NAME (each with its reason)
-//   - lactones, anhydrides, carbamates, esters of two alcohols, two substituted
+//   - lactones and lactams of rings the namer does not number (4-, 7-membered, oxazolidine), aromatic pyridinones,
+//     thiolactones, N-acyl lactams, open-chain anhydrides, carbamates, esters of two alcohols, two substituted
 //     nitrogens, a substituted amino group beside a senior group, sulfur and other
 //     elements, charged species (except the internal nitro pair), isotopes,
 //     radicals, fused or hetero rings, ring unsaturation beyond benzene,
@@ -271,13 +276,16 @@ function prepare(mol: Molecule): Prepared | { refusal: string } {
     const acyl = isCarbonyl(a) ? a : isCarbonyl(b) ? b : null;
     if (acyl === null) continue;
     const r = acyl === a ? b : a;
-    if (g0.el[r] !== 6 || isCarbonyl(r)) continue; // an anhydride or a carbonate: the core refuses it by name
-    if (g0.inRing[o]) return { refusal: "Lactones (cyclic esters) are outside the namer's subset." };
+    // An anhydride or a carbonate: the core refuses an open-chain one by name, and names a cyclic anhydride of a
+    // parent it numbers as the ring's dione (oxolane-2,5-dione: the P-65.7.7 pseudoketone form, stage 3a).
+    if (g0.el[r] !== 6 || isCarbonyl(r)) continue;
+    // A ring O (OCL marks ring atoms of every size): a lactone, named by the core as the ring's ketone (oxolan-2-one,
+    // stage 3a), or refused there by name. So the alcohol part below never reaches back to its own acyl carbon.
+    if (g0.inRing[o]) continue;
     // A carbonyl carbon with a second single-bonded O or N is a carbonate or carbamate, not an ester.
     if (g0.adj[acyl].filter((e) => e.order === 1 && (g0.el[e.to] === 8 || g0.el[e.to] === 7)).length > 1) continue;
     const cls = classifySub(g0, r, o, nitroN0);
     if (typeof cls === "string") return { refusal: `The ester's alcohol part: ${cls.replace(/^This substituent/, "it")}` };
-    if (subtree(g0, r, o).includes(acyl)) return { refusal: "Lactones (cyclic esters) are outside the namer's subset." };
     alcohols.push(cls.name);
     for (const x of subtree(g0, r, o)) remove.add(x);
   }
@@ -525,8 +533,12 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
       for (const e of g.adj[a]) {
         if (g.el[e.to] === 8 && e.order === 2 && !nitroSat.has(e.to)) {
           if (hetero && hetero.parent.aromatic) return refuse("A ring C=O in an aromatic heterocycle (a pyridinone, an oxazolone) needs added hydrogen — outside the namer's subset.");
-          // Beside a ring N, O or S it is a lactam, lactone or thiolactone, which have their own names.
-          if (g.adj[a].some((x) => members.includes(x.to) && g.el[x.to] !== 6)) return refuse("Lactams and lactones (a ring C=O beside the ring's heteroatom) are outside the namer's subset.");
+          // Beside a ring N or O of a SATURATED parent the namer numbers, it is a lactam, lactone or imide, named as
+          // the heterocycle's ketone — the 2013 form (P-66.1.4.1, P-65.6.3.5): pyrrolidin-2-one, oxolan-2-one,
+          // pyrrolidine-2,5-dione (stage 3a). Beside a ring S (a thiolactone) it stays refused.
+          if (g.adj[a].some((x) => members.includes(x.to) && g.el[x.to] !== 6) && (!hetero || g.adj[a].some((x) => members.includes(x.to) && g.el[x.to] === 16))) {
+            return refuse("This lactam or lactone ring is outside the namer's subset (named: the saturated rings pyrrolidine, piperidine, piperazine, morpholine, oxolane and oxane as their ketones — pyrrolidin-2-one, oxolan-2-one).");
+          }
           det.groups.push({ kind: "one", carbon: a, satellites: [e.to], terminal: false });
         }
       }

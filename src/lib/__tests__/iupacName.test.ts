@@ -158,7 +158,8 @@ describe("rings", () => {
 
 describe("refusals — every boundary is NAMED", () => {
   test("esters beyond v2.168.0's: lactones, two alcohols, anhydrides, an ester beside a free acid", () => {
-    expect(refusalOf("O=C1CCCO1")).toMatch(/Lactones/);
+    // Stage 3a names oxolan-2-one; a lactone ring that is not a parent still refuses.
+    expect(refusalOf("O=C1CCCCCO1")).toMatch(/ring is outside/);
     expect(refusalOf("CCOC(=O)CC(=O)OC")).toMatch(/two different alcohols/);
     expect(refusalOf("CC(=O)OC(C)=O")).toMatch(/anhydride/i);
     expect(refusalOf("CCOC(=O)CC(=O)O")).toMatch(/ester alongside a free acid/);
@@ -178,7 +179,8 @@ describe("refusals — every boundary is NAMED", () => {
     expect(refusalOf("C1CC2CCC1C2")).toMatch(/ring system is outside/);
     expect(refusalOf("C1CCSC1")).toMatch(/heteroatom ring is outside/);
     expect(refusalOf("C1=CCNCC1")).toMatch(/heteroatom ring is outside/);
-    expect(refusalOf("O=C1CCCN1")).toMatch(/Lactams and lactones/);
+    // Stage 3a names pyrrolidin-2-one; a lactam of a ring that is not a parent still refuses.
+    expect(refusalOf("O=C1CCN1")).toMatch(/ring is outside/);
     expect(refusalOf("O=c1cccc[nH]1")).toMatch(/ring/);
     expect(refusalOf("CSc1ccccc1")).toMatch(/Sulfur outside a thiophene or thiazole ring/);
     expect(refusalOf("CC(=O)N1CCCCC1")).toMatch(/N-substituted amides/);
@@ -467,5 +469,45 @@ describe("v2.170.0 review round 2", () => {
   ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
   test("the longer chain is the parent; a 2,2-dimethylpropyl prefix is beyond the subset, so refused, never inverted", () => {
     expect(refusalOf("CC(C)(C)CNCCCC")).toMatch(/Complex branched substituents|plain N-prefix/);
+  });
+});
+
+describe("stage 3a — lactams, lactones and imides as ketones of the saturated parents (P-66.1.4.1, P-65.6.3.5)", () => {
+  test.each([
+    ["O=C1CCCN1", "pyrrolidin-2-one"],
+    ["O=C1CCCCN1", "piperidin-2-one"],
+    ["CN1CCCC1=O", "1-methylpyrrolidin-2-one"],
+    ["O=C1COCCN1", "morpholin-3-one"],
+    ["O=C1CNCCN1", "piperazin-2-one"],
+    ["O=C1CCCO1", "oxolan-2-one"],
+    ["O=C1CCCCO1", "oxan-2-one"],
+    ["O=C1CCC(=O)N1", "pyrrolidine-2,5-dione"],
+    ["O=C1CCCC(=O)N1", "piperidine-2,6-dione"],
+    ["O=C1CCC(C)N1", "5-methylpyrrolidin-2-one"],
+    ["CC1(C)CC(=O)NC1", "4,4-dimethylpyrrolidin-2-one"],
+    ["O=C1CC(O)CO1", "4-hydroxyoxolan-2-one"],
+    ["O=C1CCC(C(=O)O)N1", "5-oxopyrrolidine-2-carboxylic acid"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+
+  test.each([
+    ["a 4-membered lactam (azetidine is not a parent)", "O=C1CCN1"],
+    ["a 7-membered lactam (azepane is not a parent)", "O=C1CCCCCN1"],
+    ["a cyclic carbamate (oxazolidine is not a parent)", "O=C1OCCN1"],
+    ["a cyclic urea", "O=C1NCCN1"],
+    ["a thiolactone", "O=C1CCS1"],
+    ["an aromatic pyridinone (added hydrogen)", "O=c1cccc[nH]1"],
+    ["an N-acyl lactam", "CC(=O)N1CCCC1=O"],
+  ])("%s is refused by name", (_why, smiles) => expect(refusalOf(smiles)).toMatch(/outside the namer's subset/));
+});
+
+describe("stage 3a review — cyclic anhydrides of the parents are their diones (P-65.7.7)", () => {
+  test.each([
+    ["O=C1CCC(=O)O1", "oxolane-2,5-dione"],
+    ["O=C1CCCC(=O)O1", "oxane-2,6-dione"],
+    ["CC1CC(=O)OC1=O", "3-methyloxolane-2,5-dione"],
+    ["O=C1COC(=O)CN1", "morpholine-2,5-dione"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+  test("an open-chain anhydride is still refused by name", () => {
+    expect(refusalOf("CC(=O)OC(C)=O")).toMatch(/anhydride/i);
   });
 });

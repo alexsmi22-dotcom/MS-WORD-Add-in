@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.176.1)
+# JurisLab — Manual Test Script (v2.177.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,13 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dp. New in v2.177.0 — Chemistry: lactams, lactones and imides named
+
+- [ ] ★ **Lactams.** Chemical, type each SMILES → "Systematic name: …": `CC1(C)CC(=O)NC1` → 4,4-dimethylpyrrolidin-2-one;
+  `O=C1CCC(C(=O)O)N1` → 5-oxopyrrolidine-2-carboxylic acid; `O=C1COCCN1` → morpholin-3-one.
+- [ ] **Lactones and imides.** `O=C1CC(O)CO1` → 4-hydroxyoxolan-2-one; `O=C1CCCC(=O)N1` → piperidine-2,6-dione.
+- [ ] **Refusals in words.** `O=C1CCN1` (a 4-membered lactam) and `O=c1cccc[nH]1` (a pyridinone) → "No name: …".
 
 ## 0do. New in v2.176.0 / v2.176.1 — "0,5;1,5;2,5" is asked
 

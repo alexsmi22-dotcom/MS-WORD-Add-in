@@ -70,6 +70,43 @@ Today these are refused:
 Fused parents (naphthalene, indole, quinoline, isoquinoline, benzimidazole, benzofuran, benzothiophene) with
 fixed numbering; biphenyl and ring assemblies; sulfonamides and sulfones; Boc/Cbz carbamates as such.
 
+## Stage 3 (directive 2026-10-21): the drug-like pieces still refused
+
+Five releases, each with its own oracle corpus (including near-misses that must still refuse), hand-pinned name
+FORMS taken from the 2013 recommendations' own examples (the oracle proves the structure, not the form), a PubChem
+sample comparison, and independent review rounds. Order:
+
+**3a — lactams, lactones and imides as heterocyclic ketones (P-66.1.4.1 / P-65.6.3.5).** The ring C=O beside the
+ring heteroatom is named as a ketone of the saturated heterocycle, which is the 2013 form for cyclic amides and
+esters: pyrrolidin-2-one, piperidin-2-one, 1-methylpyrrolidin-2-one, morpholin-3-one, oxolan-2-one, oxan-2-one,
+piperazin-2-one; imides as diones: pyrrolidine-2,5-dione, piperidine-2,6-dione; cyclic anhydrides of the same
+parents as their diones (oxolane-2,5-dione: the P-65.7.7 pseudoketone form — found by the review, kept and pinned). Lifts the "Lactams and lactones"
+refusals in nameCore and the two "Lactones" refusals in prepare()'s ester loop (only for rings the namer names;
+lactone rings it does not, such as a 4- or 8-membered ring, keep a refusal by name). Still refused: aromatic
+pyridinones and oxazolones (added hydrogen), retained trivial names (γ-butyrolactone, succinimide: the dictionary's
+job), a ring C=O beside a ring S (thiolactones), N-acyl lactams.
+
+**3b — sulfonamides, sulfones, sulfonic acids.** Suffixes -sulfonic acid and -sulfonamide in their 2013 seniority
+(below carboxylic acids and carboxamides respectively), N-substituted sulfonamides (prepare()'s N-cut extended to an
+S(=O)₂ acyl), sulfonyl prefixes for sulfones (form to be checked against P-63.6: "methanesulfonyl" vs
+"methylsulfonyl"). Sulfur screens loosen to S(=O)₂ only; thiols, thioethers, sulfoxides stay refused.
+
+**3c — carbamates.** Boc and Cbz as such: alkyl N-substituted carbamates on a chain N ("tert-butyl
+N-(2-hydroxyethyl)carbamate", form to check against P-66.1.1.4.3), and on a RING N, where the 2013 form is the ring's
+carboxylate ester ("tert-butyl piperidine-1-carboxylate") — to be confirmed in the recommendations before code.
+Benzyl as an alcohol part (Cbz) needs classifySub to name benzyl; if it cannot be added safely, Cbz is refused by
+name.
+
+**3d — ring-on-ring and ring assemblies.** A ring parent carrying another ring system directly (4-phenylpyridine,
+2-phenyl-1H-indole) lifts nameCore's "two or more separate ring systems" refusal; identical rings bonded directly
+are a ring ASSEMBLY (1,1′-biphenyl, 2,2′-bipyridine — P-28), never "phenylbenzene" or "2-(pyridin-2-yl)pyridine"
+(OPSIN reads those back correctly, so the oracle would not catch them: refused until named as assemblies). Primes
+are ′ (U+2032) in shown and inserted names; what OPSIN accepts is checked before the oracle depends on it.
+
+**3e — partly saturated rings.** Hydro prefixes with indicated hydrogen on the fused parents: 2,3-dihydro-1H-indole,
+1,2,3,4-tetrahydroquinoline, 1,2,3,4-tetrahydroisoquinoline, 2,3-dihydro-1-benzofuran (placement per P-31.1.4).
+Highest risk; the oracle catches wrong hydro positions.
+
 ## Pane
 
 No new UI. The Chemical and Build readouts show "Systematic name: … (subset namer — verify before filing)" as

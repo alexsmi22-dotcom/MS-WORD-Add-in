@@ -119,6 +119,20 @@ function generatedCorpus(): string[] {
       }
     }
   }
+  // Stage 3a: lactams, lactones and imides as ketones of the saturated parents — bare, with every substituent kind at
+  // every atom that has a hydrogen, and the near-misses that must still refuse (4-, 7-membered, aromatic, N-acyl).
+  const LACTAMS = ["O=C1CCCN1", "O=C1CCCCN1", "O=C1COCCN1", "O=C1CCOCN1", "O=C1CCCO1", "O=C1CCCCO1", "O=C1CNCCN1", "O=C1CCNCCN1", "O=C1CNCC(=O)N1", "O=C1CCC(=O)N1", "O=C1CCCC(=O)N1", "O=C1CNC(=O)CN1", "O=C1COCC(=O)N1", "O=C1OCCOC1", "O=C1CCOC(=O)C1", "O=C1NCCOC1"];
+  for (const h of LACTAMS) {
+    out.add(h);
+    const n = Molecule.fromSmiles(h).getAllAtoms();
+    for (let a = 0; a < n; a++) {
+      for (const kind of ["C", "Cl", "N", "O", "COOH", "CN", "CHO", "CONH2", "CCO"]) {
+        const smi = attach(h, a, kind);
+        if (smi) out.add(smi);
+      }
+    }
+  }
+  for (const near of ["O=C1CCN1", "O=C1CCCCCN1", "O=C1OCCN1", "O=C1CCS1", "O=c1cccc[nH]1", "CC(=O)N1CCCC1=O", "O=C1NCCN1", "O=C1CCCCCO1", "O=C1CCO1"]) out.add(near);
   for (const r of ["c1ccncc1", "c1ccsc1", "c1ccoc1"]) for (const head of ["OC(=O)", "O=C", "N#C", "NC(=O)", "OC", "OC(=O)C", "N"]) out.add(`${head}${r}`);
   for (const nring of ["N1CCOCC1", "N1CCCCC1", "N1CCCC1", "n1ccnc1", "n1cccc1", "N1CCN(C)CC1"]) for (const head of ["OCC", "OC(=O)C", "OC(=O)CC", "NCC", "CC(C)"]) out.add(`${head}${nring}`);
   return [...out];

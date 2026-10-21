@@ -6,6 +6,19 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.177.0] — 2026-10-21 — Chemistry: lactams, lactones and imides named
+
+IUPAC stage 3a (docs/SCOPE-IUPAC-STAGES.md).
+
+- **Lactams, lactones and imides of the saturated rings the namer numbers are named as the ring's ketones**, the
+  2013 form: pyrrolidin-2-one, 1-methylpyrrolidin-2-one, piperidin-2-one, piperazin-2-one, morpholin-3-one,
+  oxolan-2-one, oxan-2-one, pyrrolidine-2,5-dione, piperidine-2,6-dione, with substituents and with a senior group
+  (5-oxopyrrolidine-2-carboxylic acid); cyclic anhydrides of those parents as their diones (oxolane-2,5-dione).
+- Still refused by name: 4- and 7-membered rings, cyclic carbamates and ureas, thiolactones, aromatic pyridinones,
+  unsaturated lactones and maleimides, N-acyl lactams.
+- Every new name reads back to its structure through OPSIN (288 added to the oracle, 0 wrong); an independent review
+  checked 1,603 two-substituent structures for lowest locants and 20 against PubChem.
+
 ## [2.176.1] — 2026-10-21 — The "0,5;1,5" question, finished
 
 ### Fixed

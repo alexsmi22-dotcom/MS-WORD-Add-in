@@ -111,6 +111,7 @@ export const TOOL_ICONS: Record<Exclude<Mode, "home">, string> = {
   peptide: '<circle cx="5.2" cy="15" r="2.2"/><circle cx="12" cy="9" r="2.2"/><circle cx="18.8" cy="15" r="2.2"/><path d="M6.9 13.5 10.3 10.5M13.7 10.5l3.4 3"/>',
 
   // A leaf: plant nomenclature.
+  antibody: '<path d="M12 21v-8"/><path d="M12 13 6 5"/><path d="M12 13l6-8"/><path d="M4 7l3-3"/><path d="M20 7l-3-3"/>',
   botanical: '<path d="M20 4C10.5 4 4 9 4 15.8c0 2 .8 3.7.8 3.7s1.8-1 3.7-1C15.3 18.5 20 12.5 20 4z"/><path d="M5.2 19.5 14 10.7"/>',
 
   // A parenthesised numeral over a drawing edge — literally what this tool

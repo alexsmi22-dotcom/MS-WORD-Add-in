@@ -9,6 +9,7 @@ import { initCadPane, CadPaneApi } from "./cadPane";
 import { initCharzPane, CharzPaneApi } from "./charzPane";
 import { initDiagramPane, DiagramPaneApi } from "./diagramPane";
 import { initSolidformPane, SolidformPaneApi } from "./solidformPane";
+import { initAntibodyPane, AntibodyPaneApi } from "./antibodyPane";
 import { initChemdrawOpen } from "./chemdrawOpen";
 import { canvasInsertFit, type CanvasInsertMode } from "../lib/insertSize";
 import { nextFreeNumeral } from "../lib/cadShapes";
@@ -1099,6 +1100,8 @@ let diagramSection: HTMLElement;
 let diagramPane: DiagramPaneApi;
 let solidformSection: HTMLElement;
 let solidformPane: SolidformPaneApi;
+let antibodySection: HTMLElement;
+let antibodyPane: AntibodyPaneApi;
 let msInput: HTMLInputElement;
 let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
@@ -1889,6 +1892,13 @@ Office.onReady((info) => {
     downloadFile: (blob, name) => triggerDownload(blob, name),
   });
   diagramSection = document.getElementById("diagram-section") as HTMLElement;
+  antibodySection = document.getElementById("antibody-section") as HTMLElement;
+  antibodyPane = initAntibodyPane({
+    setStatus: (t, k) => setStatus(t, k ?? ""),
+    insertTable: (rows, label) => docHost.insertEditableTable({ rows, label }),
+    insertText: (text) => insertPlainText(text, "The claim text"),
+    insertHtml: (html) => docHost.insertAtSelection({ kind: "html", content: html, at: "after", select: "selection" }),
+  });
   solidformSection = document.getElementById("solidform-section") as HTMLElement;
   solidformPane = initSolidformPane({
     setStatus: (t, k) => setStatus(t, k ?? ""),
@@ -2663,6 +2673,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "assay", audience: ["science"], label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
       { mode: "peptide", audience: ["science"], label: "Peptide", desc: "Draw a peptide from its sequence" },
       { mode: "botanical", audience: ["science", "legal"], label: "Botanical", desc: "Plant nomenclature" },
+      { mode: "antibody", audience: ["science", "legal"], label: "Antibody", desc: "VH/VL numbering, CDRs, identity, claims" },
     ],
   },
   {
@@ -3364,6 +3375,7 @@ function onInputChanged(): void {
   charzSection.style.display = mode === "charz" ? "block" : "none";
   diagramSection.style.display = mode === "diagram" ? "block" : "none";
   solidformSection.style.display = mode === "solidform" ? "block" : "none";
+  antibodySection.style.display = mode === "antibody" ? "block" : "none";
   spectraSection.style.display = mode === "spectra" ? "block" : "none";
   solveSection.style.display = mode === "solve" ? "block" : "none";
   alignSection.style.display = mode === "align" ? "block" : "none";
@@ -3417,6 +3429,10 @@ function onInputChanged(): void {
   }
   if (mode === "solidform") {
     solidformPane.update();
+    return;
+  }
+  if (mode === "antibody") {
+    antibodyPane.update();
     return;
   }
   if (mode === "charz") {

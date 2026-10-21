@@ -6,6 +6,21 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.173.0] — 2026-10-21 — Antibody: numbering, CDRs, identity and claim text
+
+Gap item 3: antibody patents claim CDRs, and a CDR means nothing without its definition.
+
+- **New tool: Antibody** (Life science). Paste VH and VL sequences (κ or λ), a VHH, or an scFv (read as two domains);
+  signal peptides and constant regions are trimmed and said.
+- **Numbering** by Kabat, Chothia and IMGT for every residue, from the domain's conserved landmarks, with each scheme's
+  insertion positions. Checked against an independent numbering tool (AntPack): all 23 real therapeutic chains exact, and
+  157 of 161 chains overall (the rest are CDRs cut below natural lengths, where tools differ; a note says so).
+- **CDRs** by the Kabat, Chothia, IMGT or AbM definition, named wherever a CDR appears.
+- **% identity** between chains, aligned by IMGT position, over the V domain, the frameworks or the CDRs.
+- **Claim text** (six-CDR, VH/VL and percent-identity claims) numbered from the SEQ ID NO you choose; the **SEQ ID table**;
+  the sequences with their CDRs bold and underlined.
+- Not attempted: germline assignment, EU constant-region numbering, T-cell receptors.
+
 ## [2.172.0] — 2026-10-21 — Solid form: XRPD, DSC and TGA for polymorph claims
 
 Gap item 2: the data polymorph, salt and co-crystal patents rest on, from the user's own instrument exports.

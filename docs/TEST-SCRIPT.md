@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.172.0)
+# JurisLab — Manual Test Script (v2.173.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dl. New in v2.173.0 — Antibody
+
+- [ ] ★ **Example.** Tool ▸ **Antibody**, **Example** → trastuzumab and pertuzumab; the CDR table shows trastuzumab VH
+  Kabat CDRs DTYIH, RIYPTNGYTRYADSVKG, WGGDGFYAMDY and VL RASQDVNTAVA, SASFLYS, QQHYTTPPT.
+- [ ] **Definitions.** CDR definition ▸ IMGT → CDR-H3 becomes SRWGGDGFYAMDY; the claims name IMGT.
+- [ ] **Each insert.** CDR table, Regions, Numbering, Identity and SEQ ID table → editable Word tables; Sequences, CDRs
+  marked → fixed-width text with the CDRs bold and underlined; Claim text → the claims after the cursor. Ctrl/⌘+Z undoes each.
+- [ ] **SEQ ID NO.** First SEQ ID NO `21` → the claims and the SEQ ID table start at 21; `0` → a note, and Claim text
+  and SEQ ID table stay off.
+- [ ] **Pairing.** Paste the two VHs first, then the two VLs (each named “… VH” / “… VL”) → still one claim set per
+  antibody, each VH with its own VL.
+- [ ] **Refusal.** Type `>x` / `HELLO` → an error note; every insert button stays off.
 
 ## 0dk. New in v2.172.0 — Solid form (XRPD, DSC, TGA)
 

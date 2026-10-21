@@ -9,7 +9,7 @@ citations, and more — and inserts it at the cursor. Everything runs **entirely
 content is sent anywhere** (the one exception is the strictly opt-in online
 name→structure lookup, which prompts before sending).
 
-Pick a tool from the home screen — **30 tools** (grouped STEM + legal):
+Pick a tool from the home screen — **31 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
@@ -36,6 +36,7 @@ Pick a tool from the home screen — **30 tools** (grouped STEM + legal):
 | **Sequence Map** | open a **GenBank** (.gb/.gbk), **FASTA** or **SnapGene .dna** file, or paste one, and insert an **annotated map** at the cursor — a classic **circular plasmid map** or a linear one: features as strand-aware arrows, a joined CDS drawn per exon, a scale bar, and a **black-&-white line-art mode** for patent figures. Read entirely on your machine |
 | **Align** | pairwise sequence alignment — **Needleman–Wunsch** (global) and **Smith–Waterman** (local) with affine gaps, at the costs EMBOSS `needle`/`water` use (BLOSUM62, gap open 10 / extend 0.5 for protein; +5/−4 for DNA); accepts FASTA or plain sequence and auto-detects the type |
 | **Sequence** | WIPO **ST.26** biological sequence listings (DNA/RNA/protein) with CDS/gene annotation |
+| **Antibody** | VH/VL/VHH numbering by Kabat, Chothia and IMGT; CDRs by Kabat, Chothia, IMGT or AbM; % identity; claim text with SEQ ID NOs and the SEQ ID table |
 | **Botanical** | plant-patent scientific-name typesetting + varietal trait tables |
 | **Numerals** | reference-numeral management (callouts, collision/gap/orphan checks, list) |
 | **Refs** | auto-numbered figure/table captions and cross-references |
@@ -48,7 +49,7 @@ Pick a tool from the home screen — **30 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v2.172.0 — production. Word on **Windows & macOS**,
+> **Status:** v2.173.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -67,7 +68,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
 
 ## Documentation
 
-- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 30 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
+- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 31 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
 - [Features](FEATURES.md) — the in-repo reference for what every mode does
 - [Install (Windows & macOS)](install/README.md) — for end users
 - [Manual test script](docs/TEST-SCRIPT.md) — in-Word QA checklist
@@ -84,7 +85,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**10,000+ unit tests** across **572 test files**), `npm run build` (production bundle),
+> `npm test` (**10,000+ unit tests** across **576 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool, and an

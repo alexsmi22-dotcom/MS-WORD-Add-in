@@ -97,6 +97,7 @@
             <option value="ppt">Table → Chart</option>
             <option value="diagram">Diagrams</option>
             <option value="solidform">Solid form</option>
+            <option value="antibody">Antibody</option>
             <option value="finance">Finance</option>
           </optgroup>
           <optgroup label="Biology">
@@ -998,6 +999,59 @@
       </section>
 
       <!-- Diagrams: patent figures from text (block, flowchart, state, sequence, timing, schematic) -->
+      <section id="antibody-section">
+        <p class="seq-disclaimer">
+          Antibody variable domains: paste VH and VL sequences (or VHH, or an scFv) — each under a &gt;name line — to number
+          them by Kabat, Chothia and IMGT, find the CDRs by any of four definitions, compare chains, and write the claim
+          text and SEQ ID table. Everything is computed here from your sequences; nothing leaves your machine.
+        </p>
+        <label class="field-label" for="ab-input">Sequences</label>
+        <textarea id="ab-input" class="build-input" rows="7" spellcheck="false" placeholder="&gt;Antibody A VH&#10;EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIH…&#10;&gt;Antibody A VL&#10;DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVA…"></textarea>
+        <div class="draw-btn-row">
+          <button id="ab-example" class="draw-pop-btn" type="button">Example</button>
+        </div>
+        <div class="scheme-opt-row">
+          <label class="field-label" for="ab-def">CDR definition</label>
+          <select id="ab-def" class="lib-select">
+            <option value="kabat">Kabat</option>
+            <option value="chothia">Chothia</option>
+            <option value="imgt">IMGT</option>
+            <option value="abm">AbM</option>
+          </select>
+          <label class="field-label" for="ab-scheme">Numbering</label>
+          <select id="ab-scheme" class="lib-select">
+            <option value="kabat">Kabat</option>
+            <option value="chothia">Chothia</option>
+            <option value="imgt">IMGT</option>
+          </select>
+        </div>
+        <table id="ab-cdrs" class="solid-table ab-table"></table>
+        <div class="scheme-opt-row">
+          <label class="field-label" for="ab-scope">% identity over</label>
+          <select id="ab-scope" class="lib-select">
+            <option value="v">the V domain</option>
+            <option value="fr">the frameworks</option>
+            <option value="cdr">the CDRs</option>
+          </select>
+        </div>
+        <table id="ab-identity" class="solid-table ab-table"></table>
+        <div class="scheme-opt-row">
+          <label class="field-label" for="ab-seqid">First SEQ ID NO</label>
+          <input id="ab-seqid" class="build-input diagram-short" type="number" min="1" step="1" value="1" />
+          <label class="field-label" for="ab-spell"><input id="ab-spell" type="checkbox" /> write the CDR residues out</label>
+        </div>
+        <pre id="ab-claims" class="ab-claims" aria-live="polite"></pre>
+        <ul id="ab-notes" class="scheme-notes" aria-live="polite"></ul>
+        <div class="draw-btn-row ab-btns">
+          <button id="ab-insert-cdrs" class="insert-btn" type="button" disabled>CDR table</button>
+          <button id="ab-insert-regions" class="insert-btn" type="button" disabled>Regions</button>
+          <button id="ab-insert-numbering" class="insert-btn" type="button" disabled>Numbering</button>
+          <button id="ab-insert-identity" class="insert-btn" type="button" disabled>Identity</button>
+          <button id="ab-insert-annotated" class="insert-btn" type="button" disabled>Sequences, CDRs marked</button>
+          <button id="ab-insert-claims" class="insert-btn" type="button" disabled>Claim text</button>
+          <button id="ab-insert-seqids" class="insert-btn" type="button" disabled>SEQ ID table</button>
+        </div>
+      </section>
       <section id="solidform-section">
         <p class="seq-disclaimer">
           Solid-form data for polymorph and salt patents: an XRPD pattern or peak list, a DSC or a TGA thermogram, read from

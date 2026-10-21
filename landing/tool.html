@@ -381,6 +381,18 @@
       examples:[
         {in:"ATG…TAA + CDS 1..300", out:"ST.26 XML with /translation auto-filled"}
       ] },
+    antibody: { title:"Antibody", tagline:"VH and VL sequences numbered by Kabat, Chothia and IMGT, their CDRs by any of four definitions, chains compared, and the claim text and SEQ ID table written.",
+      does:[
+        "<b>Numbering</b> by Kabat, Chothia and IMGT for every residue — VH, VL (κ or λ), VHH, and an scFv read as two domains; signal peptides and constant regions trimmed and said.",
+        "<b>CDRs</b> by the Kabat, Chothia, IMGT or AbM definition, named wherever a CDR is.",
+        "<b>% identity</b> between chains aligned by IMGT position — over the V domain, the frameworks or the CDRs.",
+        "<b>Claim text</b> with SEQ ID NOs (six-CDR, VH/VL and percent-identity claims), the <b>SEQ ID table</b>, and the sequences with their CDRs marked.",
+        "Checked against an independent numbering tool on 23 therapeutic antibodies. Not attempted: germline assignment, EU numbering, T-cell receptors."
+      ],
+      examples:[
+        {in:"trastuzumab VH (Example)", out:"Kabat CDR-H1 DTYIH, H2 RIYPTNGYTRYADSVKG, H3 WGGDGFYAMDY"},
+        {in:"the same, IMGT", out:"CDR1 GFNIKDTY, CDR2 IYPTNGYT, CDR3 SRWGGDGFYAMDY"}
+      ] },
     botanical: { title:"Botanical", tagline:"Plant-patent scientific-name typesetting with correct nomenclature italics, plus a varietal characteristics table.",
       does:[
         "Genus/species/infraspecific epithets italic; rank connectors (subsp./var./f.), authors, hybrid ×, and cultivars ('Peace') roman.",
@@ -563,7 +575,7 @@
       ] }
   };
 
-  const ORDER = ["analyze","engineering","chemical","massspec","charz","solidform","spectra","bioassay","peptide","stats","math","solve","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","seqmap","align","cad","reaction","audit","diagram"];
+  const ORDER = ["analyze","engineering","chemical","massspec","charz","solidform","spectra","bioassay","peptide","stats","math","solve","units","plot","tablechart","finance","build","code","sequence","botanical","antibody","numerals","refs","citations","dna","seqmap","align","cad","reaction","audit","diagram"];
 
   const params = new URLSearchParams(location.search);
   const id = params.get("tool");
@@ -576,7 +588,7 @@
   if (!t) {
     titleEl.textContent = "Tool not found";
     tagEl.textContent = "";
-    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 30 tools →</a></p></div>';
+    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 31 tools →</a></p></div>';
   } else {
     document.title = t.title + " — JurisLab";
     titleEl.textContent = t.title;

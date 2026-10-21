@@ -991,423 +991,3074 @@ RUN R49 {
   R49.sync()
 } R49
    status: Sentence inserted.
-== finance/fin-insert
+== antibody/ab-insert-cdrs
 RUN R50 {
   #422 = R50.document.getSelection()
-  #423 = #422.insertText("FV = 1,628.89", "after")
-  #424 = #422.select("end")
+  #423 = #422.insertTable(5, 5, "after", [n5:f514210b])
+  #424 = #423.getCell(0, 0)
+  set #424.body.font.bold = true
+  set #424.shadingColor = "#E7EEF6"
+  #425 = #423.getCell(0, 1)
+  set #425.body.font.bold = true
+  set #425.shadingColor = "#E7EEF6"
+  #426 = #423.getCell(0, 2)
+  set #426.body.font.bold = true
+  set #426.shadingColor = "#E7EEF6"
+  #427 = #423.getCell(0, 3)
+  set #427.body.font.bold = true
+  set #427.shadingColor = "#E7EEF6"
+  #428 = #423.getCell(0, 4)
+  set #428.body.font.bold = true
+  set #428.shadingColor = "#E7EEF6"
+  #429 = #423.getCell(1, 0)
+  #430 = #423.getCell(1, 1)
+  #431 = #423.getCell(1, 2)
+  #432 = #423.getCell(1, 3)
+  #433 = #423.getCell(1, 4)
+  #434 = #423.getCell(2, 0)
+  #435 = #423.getCell(2, 1)
+  #436 = #423.getCell(2, 2)
+  #437 = #423.getCell(2, 3)
+  #438 = #423.getCell(2, 4)
+  #439 = #423.getCell(3, 0)
+  #440 = #423.getCell(3, 1)
+  #441 = #423.getCell(3, 2)
+  #442 = #423.getCell(3, 3)
+  #443 = #423.getCell(3, 4)
+  #444 = #423.getCell(4, 0)
+  #445 = #423.getCell(4, 1)
+  #446 = #423.getCell(4, 2)
+  #447 = #423.getCell(4, 3)
+  #448 = #423.getCell(4, 4)
+  #449 = #423.getRange("after")
+  #450 = #449.insertParagraph("CDRs (Kabat)", "after")
+  set #450.alignment = "centered"
+  set #450.styleBuiltIn = "normal"
+  #451 = #450.getRange("after")
+  #452 = #451.select("end")
+  R50.sync()
+  #453 = #423.getRange()
+  #454 = #453.paragraphs.load("items")
+  R50.sync()
+  set #453.paragraphs.items[0].styleBuiltIn = "normal"
+  set #453.paragraphs.items[1].styleBuiltIn = "normal"
+  set #453.paragraphs.items[2].styleBuiltIn = "normal"
+  set #453.paragraphs.items[3].styleBuiltIn = "normal"
+  set #453.paragraphs.items[4].styleBuiltIn = "normal"
+  set #453.paragraphs.items[5].styleBuiltIn = "normal"
+  set #453.paragraphs.items[6].styleBuiltIn = "normal"
+  set #453.paragraphs.items[7].styleBuiltIn = "normal"
+  set #453.paragraphs.items[8].styleBuiltIn = "normal"
+  set #453.paragraphs.items[9].styleBuiltIn = "normal"
+  set #453.paragraphs.items[10].styleBuiltIn = "normal"
+  R50.sync()
+  #455 = #453.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #456 = #453.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #457 = #453.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #458 = #453.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #459 = #453.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #460 = #453.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #461 = #453.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #462 = #453.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #463 = #453.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #464 = #453.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #465 = #453.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R50.sync()
 } R50
+   status: CDR table (Kabat) inserted.
+== antibody/ab-insert-regions
 RUN R51 {
-  #425 = R51.document.getSelection()
-  #426 = #425.insertInlinePictureFromBase64(s352620:83a9a4f9, "after")
-  set #426.width = 320.25
-  set #426.height = 180
-  set #426.altTextDescription = "Finance chart: Future value (TVM)"
-  #427 = #425.select("end")
+  #466 = R51.document.getSelection()
+  #467 = #466.insertTable(8, 4, "after", [n8:934135e9])
+  #468 = #467.getCell(0, 0)
+  set #468.body.font.bold = true
+  set #468.shadingColor = "#E7EEF6"
+  #469 = #467.getCell(0, 1)
+  set #469.body.font.bold = true
+  set #469.shadingColor = "#E7EEF6"
+  #470 = #467.getCell(0, 2)
+  set #470.body.font.bold = true
+  set #470.shadingColor = "#E7EEF6"
+  #471 = #467.getCell(0, 3)
+  set #471.body.font.bold = true
+  set #471.shadingColor = "#E7EEF6"
+  #472 = #467.getCell(1, 0)
+  #473 = #467.getCell(1, 1)
+  #474 = #473.body.paragraphs.getFirst()
+  set #474.alignment = "right"
+  #475 = #467.getCell(1, 2)
+  #476 = #467.getCell(1, 3)
+  #477 = #476.body.paragraphs.getFirst()
+  set #477.alignment = "right"
+  #478 = #467.getCell(2, 0)
+  #479 = #467.getCell(2, 1)
+  #480 = #479.body.paragraphs.getFirst()
+  set #480.alignment = "right"
+  #481 = #467.getCell(2, 2)
+  #482 = #467.getCell(2, 3)
+  #483 = #482.body.paragraphs.getFirst()
+  set #483.alignment = "right"
+  #484 = #467.getCell(3, 0)
+  #485 = #467.getCell(3, 1)
+  #486 = #485.body.paragraphs.getFirst()
+  set #486.alignment = "right"
+  #487 = #467.getCell(3, 2)
+  #488 = #467.getCell(3, 3)
+  #489 = #488.body.paragraphs.getFirst()
+  set #489.alignment = "right"
+  #490 = #467.getCell(4, 0)
+  #491 = #467.getCell(4, 1)
+  #492 = #491.body.paragraphs.getFirst()
+  set #492.alignment = "right"
+  #493 = #467.getCell(4, 2)
+  #494 = #467.getCell(4, 3)
+  #495 = #494.body.paragraphs.getFirst()
+  set #495.alignment = "right"
+  #496 = #467.getCell(5, 0)
+  #497 = #467.getCell(5, 1)
+  #498 = #497.body.paragraphs.getFirst()
+  set #498.alignment = "right"
+  #499 = #467.getCell(5, 2)
+  #500 = #467.getCell(5, 3)
+  #501 = #500.body.paragraphs.getFirst()
+  set #501.alignment = "right"
+  #502 = #467.getCell(6, 0)
+  #503 = #467.getCell(6, 1)
+  #504 = #503.body.paragraphs.getFirst()
+  set #504.alignment = "right"
+  #505 = #467.getCell(6, 2)
+  #506 = #467.getCell(6, 3)
+  #507 = #506.body.paragraphs.getFirst()
+  set #507.alignment = "right"
+  #508 = #467.getCell(7, 0)
+  #509 = #467.getCell(7, 1)
+  #510 = #509.body.paragraphs.getFirst()
+  set #510.alignment = "right"
+  #511 = #467.getCell(7, 2)
+  #512 = #467.getCell(7, 3)
+  #513 = #512.body.paragraphs.getFirst()
+  set #513.alignment = "right"
+  #514 = #467.getRange("after")
+  #515 = #514.insertParagraph("Trastuzumab VH: frameworks and CDRs (Kabat)", "after")
+  set #515.alignment = "centered"
+  set #515.styleBuiltIn = "normal"
+  #516 = #515.getRange("after")
+  #517 = #516.select("end")
   R51.sync()
-  #428 = #426.getRange()
-  #429 = #428.insertContentControl()
-  set #429.tag = "formula-inserter:finance-chart"
-  set #429.title = "JurisLab"
-  set #429.appearance = "hidden"
+  #518 = #467.getRange()
+  #519 = #518.paragraphs.load("items")
   R51.sync()
+  set #518.paragraphs.items[0].styleBuiltIn = "normal"
+  set #518.paragraphs.items[1].styleBuiltIn = "normal"
+  set #518.paragraphs.items[2].styleBuiltIn = "normal"
+  set #518.paragraphs.items[3].styleBuiltIn = "normal"
+  set #518.paragraphs.items[4].styleBuiltIn = "normal"
+  set #518.paragraphs.items[5].styleBuiltIn = "normal"
+  set #518.paragraphs.items[6].styleBuiltIn = "normal"
+  set #518.paragraphs.items[7].styleBuiltIn = "normal"
+  set #518.paragraphs.items[8].styleBuiltIn = "normal"
+  set #518.paragraphs.items[9].styleBuiltIn = "normal"
+  set #518.paragraphs.items[10].styleBuiltIn = "normal"
+  R51.sync()
+  #520 = #518.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #521 = #518.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #522 = #518.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #523 = #518.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #524 = #518.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #525 = #518.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #526 = #518.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #527 = #518.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #528 = #518.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #529 = #518.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #530 = #518.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R51.sync()
 } R51
-   status: Result and chart inserted (chart as PNG at 768 dpi).
-== sequence/seq-ref-insert
 RUN R52 {
-  #430 = R52.document.getSelection()
-  #431 = #430.insertText("SEQ ID NO: 1", "after")
-  #432 = #430.select("end")
+  #531 = R52.document.getSelection()
+  #532 = #531.insertTable(8, 4, "after", [n8:44b7cf7d])
+  #533 = #532.getCell(0, 0)
+  set #533.body.font.bold = true
+  set #533.shadingColor = "#E7EEF6"
+  #534 = #532.getCell(0, 1)
+  set #534.body.font.bold = true
+  set #534.shadingColor = "#E7EEF6"
+  #535 = #532.getCell(0, 2)
+  set #535.body.font.bold = true
+  set #535.shadingColor = "#E7EEF6"
+  #536 = #532.getCell(0, 3)
+  set #536.body.font.bold = true
+  set #536.shadingColor = "#E7EEF6"
+  #537 = #532.getCell(1, 0)
+  #538 = #532.getCell(1, 1)
+  #539 = #538.body.paragraphs.getFirst()
+  set #539.alignment = "right"
+  #540 = #532.getCell(1, 2)
+  #541 = #532.getCell(1, 3)
+  #542 = #541.body.paragraphs.getFirst()
+  set #542.alignment = "right"
+  #543 = #532.getCell(2, 0)
+  #544 = #532.getCell(2, 1)
+  #545 = #544.body.paragraphs.getFirst()
+  set #545.alignment = "right"
+  #546 = #532.getCell(2, 2)
+  #547 = #532.getCell(2, 3)
+  #548 = #547.body.paragraphs.getFirst()
+  set #548.alignment = "right"
+  #549 = #532.getCell(3, 0)
+  #550 = #532.getCell(3, 1)
+  #551 = #550.body.paragraphs.getFirst()
+  set #551.alignment = "right"
+  #552 = #532.getCell(3, 2)
+  #553 = #532.getCell(3, 3)
+  #554 = #553.body.paragraphs.getFirst()
+  set #554.alignment = "right"
+  #555 = #532.getCell(4, 0)
+  #556 = #532.getCell(4, 1)
+  #557 = #556.body.paragraphs.getFirst()
+  set #557.alignment = "right"
+  #558 = #532.getCell(4, 2)
+  #559 = #532.getCell(4, 3)
+  #560 = #559.body.paragraphs.getFirst()
+  set #560.alignment = "right"
+  #561 = #532.getCell(5, 0)
+  #562 = #532.getCell(5, 1)
+  #563 = #562.body.paragraphs.getFirst()
+  set #563.alignment = "right"
+  #564 = #532.getCell(5, 2)
+  #565 = #532.getCell(5, 3)
+  #566 = #565.body.paragraphs.getFirst()
+  set #566.alignment = "right"
+  #567 = #532.getCell(6, 0)
+  #568 = #532.getCell(6, 1)
+  #569 = #568.body.paragraphs.getFirst()
+  set #569.alignment = "right"
+  #570 = #532.getCell(6, 2)
+  #571 = #532.getCell(6, 3)
+  #572 = #571.body.paragraphs.getFirst()
+  set #572.alignment = "right"
+  #573 = #532.getCell(7, 0)
+  #574 = #532.getCell(7, 1)
+  #575 = #574.body.paragraphs.getFirst()
+  set #575.alignment = "right"
+  #576 = #532.getCell(7, 2)
+  #577 = #532.getCell(7, 3)
+  #578 = #577.body.paragraphs.getFirst()
+  set #578.alignment = "right"
+  #579 = #532.getRange("after")
+  #580 = #579.insertParagraph("Trastuzumab VL: frameworks and CDRs (Kabat)", "after")
+  set #580.alignment = "centered"
+  set #580.styleBuiltIn = "normal"
+  #581 = #580.getRange("after")
+  #582 = #581.select("end")
+  R52.sync()
+  #583 = #532.getRange()
+  #584 = #583.paragraphs.load("items")
+  R52.sync()
+  set #583.paragraphs.items[0].styleBuiltIn = "normal"
+  set #583.paragraphs.items[1].styleBuiltIn = "normal"
+  set #583.paragraphs.items[2].styleBuiltIn = "normal"
+  set #583.paragraphs.items[3].styleBuiltIn = "normal"
+  set #583.paragraphs.items[4].styleBuiltIn = "normal"
+  set #583.paragraphs.items[5].styleBuiltIn = "normal"
+  set #583.paragraphs.items[6].styleBuiltIn = "normal"
+  set #583.paragraphs.items[7].styleBuiltIn = "normal"
+  set #583.paragraphs.items[8].styleBuiltIn = "normal"
+  set #583.paragraphs.items[9].styleBuiltIn = "normal"
+  set #583.paragraphs.items[10].styleBuiltIn = "normal"
+  R52.sync()
+  #585 = #583.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #586 = #583.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #587 = #583.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #588 = #583.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #589 = #583.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #590 = #583.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #591 = #583.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #592 = #583.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #593 = #583.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #594 = #583.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #595 = #583.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R52.sync()
 } R52
-   status: SEQ ID reference inserted. Ctrl/⌘+Z undoes it.
-== dna/dna-revcomp-insert
 RUN R53 {
-  #433 = R53.document.getSelection()
-  #434 = #433.insertText(s93:2e58239d, "after")
-  #435 = #433.select("end")
+  #596 = R53.document.getSelection()
+  #597 = #596.insertTable(8, 4, "after", [n8:da79b8c1])
+  #598 = #597.getCell(0, 0)
+  set #598.body.font.bold = true
+  set #598.shadingColor = "#E7EEF6"
+  #599 = #597.getCell(0, 1)
+  set #599.body.font.bold = true
+  set #599.shadingColor = "#E7EEF6"
+  #600 = #597.getCell(0, 2)
+  set #600.body.font.bold = true
+  set #600.shadingColor = "#E7EEF6"
+  #601 = #597.getCell(0, 3)
+  set #601.body.font.bold = true
+  set #601.shadingColor = "#E7EEF6"
+  #602 = #597.getCell(1, 0)
+  #603 = #597.getCell(1, 1)
+  #604 = #603.body.paragraphs.getFirst()
+  set #604.alignment = "right"
+  #605 = #597.getCell(1, 2)
+  #606 = #597.getCell(1, 3)
+  #607 = #606.body.paragraphs.getFirst()
+  set #607.alignment = "right"
+  #608 = #597.getCell(2, 0)
+  #609 = #597.getCell(2, 1)
+  #610 = #609.body.paragraphs.getFirst()
+  set #610.alignment = "right"
+  #611 = #597.getCell(2, 2)
+  #612 = #597.getCell(2, 3)
+  #613 = #612.body.paragraphs.getFirst()
+  set #613.alignment = "right"
+  #614 = #597.getCell(3, 0)
+  #615 = #597.getCell(3, 1)
+  #616 = #615.body.paragraphs.getFirst()
+  set #616.alignment = "right"
+  #617 = #597.getCell(3, 2)
+  #618 = #597.getCell(3, 3)
+  #619 = #618.body.paragraphs.getFirst()
+  set #619.alignment = "right"
+  #620 = #597.getCell(4, 0)
+  #621 = #597.getCell(4, 1)
+  #622 = #621.body.paragraphs.getFirst()
+  set #622.alignment = "right"
+  #623 = #597.getCell(4, 2)
+  #624 = #597.getCell(4, 3)
+  #625 = #624.body.paragraphs.getFirst()
+  set #625.alignment = "right"
+  #626 = #597.getCell(5, 0)
+  #627 = #597.getCell(5, 1)
+  #628 = #627.body.paragraphs.getFirst()
+  set #628.alignment = "right"
+  #629 = #597.getCell(5, 2)
+  #630 = #597.getCell(5, 3)
+  #631 = #630.body.paragraphs.getFirst()
+  set #631.alignment = "right"
+  #632 = #597.getCell(6, 0)
+  #633 = #597.getCell(6, 1)
+  #634 = #633.body.paragraphs.getFirst()
+  set #634.alignment = "right"
+  #635 = #597.getCell(6, 2)
+  #636 = #597.getCell(6, 3)
+  #637 = #636.body.paragraphs.getFirst()
+  set #637.alignment = "right"
+  #638 = #597.getCell(7, 0)
+  #639 = #597.getCell(7, 1)
+  #640 = #639.body.paragraphs.getFirst()
+  set #640.alignment = "right"
+  #641 = #597.getCell(7, 2)
+  #642 = #597.getCell(7, 3)
+  #643 = #642.body.paragraphs.getFirst()
+  set #643.alignment = "right"
+  #644 = #597.getRange("after")
+  #645 = #644.insertParagraph("Pertuzumab VH: frameworks and CDRs (Kabat)", "after")
+  set #645.alignment = "centered"
+  set #645.styleBuiltIn = "normal"
+  #646 = #645.getRange("after")
+  #647 = #646.select("end")
+  R53.sync()
+  #648 = #597.getRange()
+  #649 = #648.paragraphs.load("items")
+  R53.sync()
+  set #648.paragraphs.items[0].styleBuiltIn = "normal"
+  set #648.paragraphs.items[1].styleBuiltIn = "normal"
+  set #648.paragraphs.items[2].styleBuiltIn = "normal"
+  set #648.paragraphs.items[3].styleBuiltIn = "normal"
+  set #648.paragraphs.items[4].styleBuiltIn = "normal"
+  set #648.paragraphs.items[5].styleBuiltIn = "normal"
+  set #648.paragraphs.items[6].styleBuiltIn = "normal"
+  set #648.paragraphs.items[7].styleBuiltIn = "normal"
+  set #648.paragraphs.items[8].styleBuiltIn = "normal"
+  set #648.paragraphs.items[9].styleBuiltIn = "normal"
+  set #648.paragraphs.items[10].styleBuiltIn = "normal"
+  R53.sync()
+  #650 = #648.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #651 = #648.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #652 = #648.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #653 = #648.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #654 = #648.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #655 = #648.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #656 = #648.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #657 = #648.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #658 = #648.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #659 = #648.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #660 = #648.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R53.sync()
 } R53
-   status: Reverse complement inserted. Ctrl/⌘+Z undoes it.
-== dna/dna-mrna-insert
 RUN R54 {
-  #436 = R54.document.getSelection()
-  #437 = #436.insertText(s93:031d894e, "after")
-  #438 = #436.select("end")
+  #661 = R54.document.getSelection()
+  #662 = #661.insertTable(8, 4, "after", [n8:baf029c9])
+  #663 = #662.getCell(0, 0)
+  set #663.body.font.bold = true
+  set #663.shadingColor = "#E7EEF6"
+  #664 = #662.getCell(0, 1)
+  set #664.body.font.bold = true
+  set #664.shadingColor = "#E7EEF6"
+  #665 = #662.getCell(0, 2)
+  set #665.body.font.bold = true
+  set #665.shadingColor = "#E7EEF6"
+  #666 = #662.getCell(0, 3)
+  set #666.body.font.bold = true
+  set #666.shadingColor = "#E7EEF6"
+  #667 = #662.getCell(1, 0)
+  #668 = #662.getCell(1, 1)
+  #669 = #668.body.paragraphs.getFirst()
+  set #669.alignment = "right"
+  #670 = #662.getCell(1, 2)
+  #671 = #662.getCell(1, 3)
+  #672 = #671.body.paragraphs.getFirst()
+  set #672.alignment = "right"
+  #673 = #662.getCell(2, 0)
+  #674 = #662.getCell(2, 1)
+  #675 = #674.body.paragraphs.getFirst()
+  set #675.alignment = "right"
+  #676 = #662.getCell(2, 2)
+  #677 = #662.getCell(2, 3)
+  #678 = #677.body.paragraphs.getFirst()
+  set #678.alignment = "right"
+  #679 = #662.getCell(3, 0)
+  #680 = #662.getCell(3, 1)
+  #681 = #680.body.paragraphs.getFirst()
+  set #681.alignment = "right"
+  #682 = #662.getCell(3, 2)
+  #683 = #662.getCell(3, 3)
+  #684 = #683.body.paragraphs.getFirst()
+  set #684.alignment = "right"
+  #685 = #662.getCell(4, 0)
+  #686 = #662.getCell(4, 1)
+  #687 = #686.body.paragraphs.getFirst()
+  set #687.alignment = "right"
+  #688 = #662.getCell(4, 2)
+  #689 = #662.getCell(4, 3)
+  #690 = #689.body.paragraphs.getFirst()
+  set #690.alignment = "right"
+  #691 = #662.getCell(5, 0)
+  #692 = #662.getCell(5, 1)
+  #693 = #692.body.paragraphs.getFirst()
+  set #693.alignment = "right"
+  #694 = #662.getCell(5, 2)
+  #695 = #662.getCell(5, 3)
+  #696 = #695.body.paragraphs.getFirst()
+  set #696.alignment = "right"
+  #697 = #662.getCell(6, 0)
+  #698 = #662.getCell(6, 1)
+  #699 = #698.body.paragraphs.getFirst()
+  set #699.alignment = "right"
+  #700 = #662.getCell(6, 2)
+  #701 = #662.getCell(6, 3)
+  #702 = #701.body.paragraphs.getFirst()
+  set #702.alignment = "right"
+  #703 = #662.getCell(7, 0)
+  #704 = #662.getCell(7, 1)
+  #705 = #704.body.paragraphs.getFirst()
+  set #705.alignment = "right"
+  #706 = #662.getCell(7, 2)
+  #707 = #662.getCell(7, 3)
+  #708 = #707.body.paragraphs.getFirst()
+  set #708.alignment = "right"
+  #709 = #662.getRange("after")
+  #710 = #709.insertParagraph("Pertuzumab VL: frameworks and CDRs (Kabat)", "after")
+  set #710.alignment = "centered"
+  set #710.styleBuiltIn = "normal"
+  #711 = #710.getRange("after")
+  #712 = #711.select("end")
+  R54.sync()
+  #713 = #662.getRange()
+  #714 = #713.paragraphs.load("items")
+  R54.sync()
+  set #713.paragraphs.items[0].styleBuiltIn = "normal"
+  set #713.paragraphs.items[1].styleBuiltIn = "normal"
+  set #713.paragraphs.items[2].styleBuiltIn = "normal"
+  set #713.paragraphs.items[3].styleBuiltIn = "normal"
+  set #713.paragraphs.items[4].styleBuiltIn = "normal"
+  set #713.paragraphs.items[5].styleBuiltIn = "normal"
+  set #713.paragraphs.items[6].styleBuiltIn = "normal"
+  set #713.paragraphs.items[7].styleBuiltIn = "normal"
+  set #713.paragraphs.items[8].styleBuiltIn = "normal"
+  set #713.paragraphs.items[9].styleBuiltIn = "normal"
+  set #713.paragraphs.items[10].styleBuiltIn = "normal"
+  R54.sync()
+  #715 = #713.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #716 = #713.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #717 = #713.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #718 = #713.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #719 = #713.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #720 = #713.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #721 = #713.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #722 = #713.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #723 = #713.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #724 = #713.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #725 = #713.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R54.sync()
 } R54
-   status: mRNA inserted. Ctrl/⌘+Z undoes it.
-== dna/dna-protein-insert
+   status: Region tables inserted.
+== antibody/ab-insert-numbering
 RUN R55 {
-  #439 = R55.document.getSelection()
-  #440 = #439.insertText("MASKGEELFTGVVPILVELDGDVNGHKFSV*", "after")
-  #441 = #439.select("end")
+  #726 = R55.document.getSelection()
+  #727 = #726.insertTable(40, 5, "after", [n40:b8524c14])
+  #728 = #727.getCell(0, 0)
+  set #728.body.font.bold = true
+  set #728.shadingColor = "#E7EEF6"
+  #729 = #727.getCell(0, 1)
+  set #729.body.font.bold = true
+  set #729.shadingColor = "#E7EEF6"
+  #730 = #727.getCell(0, 2)
+  set #730.body.font.bold = true
+  set #730.shadingColor = "#E7EEF6"
+  #731 = #727.getCell(0, 3)
+  set #731.body.font.bold = true
+  set #731.shadingColor = "#E7EEF6"
+  #732 = #727.getCell(0, 4)
+  set #732.body.font.bold = true
+  set #732.shadingColor = "#E7EEF6"
+  #733 = #727.getCell(1, 0)
+  #734 = #727.getCell(1, 1)
+  #735 = #734.body.paragraphs.getFirst()
+  set #735.alignment = "right"
+  #736 = #727.getCell(1, 2)
+  #737 = #736.body.paragraphs.getFirst()
+  set #737.alignment = "right"
+  #738 = #727.getCell(1, 3)
+  #739 = #738.body.paragraphs.getFirst()
+  set #739.alignment = "right"
+  #740 = #727.getCell(1, 4)
+  #741 = #727.getCell(2, 0)
+  #742 = #727.getCell(2, 1)
+  #743 = #742.body.paragraphs.getFirst()
+  set #743.alignment = "right"
+  #744 = #727.getCell(2, 2)
+  #745 = #744.body.paragraphs.getFirst()
+  set #745.alignment = "right"
+  #746 = #727.getCell(2, 3)
+  #747 = #746.body.paragraphs.getFirst()
+  set #747.alignment = "right"
+  #748 = #727.getCell(2, 4)
+  #749 = #727.getCell(3, 0)
+  #750 = #727.getCell(3, 1)
+  #751 = #750.body.paragraphs.getFirst()
+  set #751.alignment = "right"
+  #752 = #727.getCell(3, 2)
+  #753 = #752.body.paragraphs.getFirst()
+  set #753.alignment = "right"
+  #754 = #727.getCell(3, 3)
+  #755 = #754.body.paragraphs.getFirst()
+  set #755.alignment = "right"
+  #756 = #727.getCell(3, 4)
+  #757 = #727.getCell(4, 0)
+  #758 = #727.getCell(4, 1)
+  #759 = #758.body.paragraphs.getFirst()
+  set #759.alignment = "right"
+  #760 = #727.getCell(4, 2)
+  #761 = #760.body.paragraphs.getFirst()
+  set #761.alignment = "right"
+  #762 = #727.getCell(4, 3)
+  #763 = #762.body.paragraphs.getFirst()
+  set #763.alignment = "right"
+  #764 = #727.getCell(4, 4)
+  #765 = #727.getCell(5, 0)
+  #766 = #727.getCell(5, 1)
+  #767 = #766.body.paragraphs.getFirst()
+  set #767.alignment = "right"
+  #768 = #727.getCell(5, 2)
+  #769 = #768.body.paragraphs.getFirst()
+  set #769.alignment = "right"
+  #770 = #727.getCell(5, 3)
+  #771 = #770.body.paragraphs.getFirst()
+  set #771.alignment = "right"
+  #772 = #727.getCell(5, 4)
+  #773 = #727.getCell(6, 0)
+  #774 = #727.getCell(6, 1)
+  #775 = #774.body.paragraphs.getFirst()
+  set #775.alignment = "right"
+  #776 = #727.getCell(6, 2)
+  #777 = #776.body.paragraphs.getFirst()
+  set #777.alignment = "right"
+  #778 = #727.getCell(6, 3)
+  #779 = #778.body.paragraphs.getFirst()
+  set #779.alignment = "right"
+  #780 = #727.getCell(6, 4)
+  #781 = #727.getCell(7, 0)
+  #782 = #727.getCell(7, 1)
+  #783 = #782.body.paragraphs.getFirst()
+  set #783.alignment = "right"
+  #784 = #727.getCell(7, 2)
+  #785 = #784.body.paragraphs.getFirst()
+  set #785.alignment = "right"
+  #786 = #727.getCell(7, 3)
+  #787 = #786.body.paragraphs.getFirst()
+  set #787.alignment = "right"
+  #788 = #727.getCell(7, 4)
+  #789 = #727.getCell(8, 0)
+  #790 = #727.getCell(8, 1)
+  #791 = #790.body.paragraphs.getFirst()
+  set #791.alignment = "right"
+  #792 = #727.getCell(8, 2)
+  #793 = #792.body.paragraphs.getFirst()
+  set #793.alignment = "right"
+  #794 = #727.getCell(8, 3)
+  #795 = #794.body.paragraphs.getFirst()
+  set #795.alignment = "right"
+  #796 = #727.getCell(8, 4)
+  #797 = #727.getCell(9, 0)
+  #798 = #727.getCell(9, 1)
+  #799 = #798.body.paragraphs.getFirst()
+  set #799.alignment = "right"
+  #800 = #727.getCell(9, 2)
+  #801 = #800.body.paragraphs.getFirst()
+  set #801.alignment = "right"
+  #802 = #727.getCell(9, 3)
+  #803 = #802.body.paragraphs.getFirst()
+  set #803.alignment = "right"
+  #804 = #727.getCell(9, 4)
+  #805 = #727.getCell(10, 0)
+  #806 = #727.getCell(10, 1)
+  #807 = #806.body.paragraphs.getFirst()
+  set #807.alignment = "right"
+  #808 = #727.getCell(10, 2)
+  #809 = #808.body.paragraphs.getFirst()
+  set #809.alignment = "right"
+  #810 = #727.getCell(10, 3)
+  #811 = #810.body.paragraphs.getFirst()
+  set #811.alignment = "right"
+  #812 = #727.getCell(10, 4)
+  #813 = #727.getCell(11, 0)
+  #814 = #727.getCell(11, 1)
+  #815 = #814.body.paragraphs.getFirst()
+  set #815.alignment = "right"
+  #816 = #727.getCell(11, 2)
+  #817 = #816.body.paragraphs.getFirst()
+  set #817.alignment = "right"
+  #818 = #727.getCell(11, 3)
+  #819 = #818.body.paragraphs.getFirst()
+  set #819.alignment = "right"
+  #820 = #727.getCell(11, 4)
+  #821 = #727.getCell(12, 0)
+  #822 = #727.getCell(12, 1)
+  #823 = #822.body.paragraphs.getFirst()
+  set #823.alignment = "right"
+  #824 = #727.getCell(12, 2)
+  #825 = #824.body.paragraphs.getFirst()
+  set #825.alignment = "right"
+  #826 = #727.getCell(12, 3)
+  #827 = #826.body.paragraphs.getFirst()
+  set #827.alignment = "right"
+  #828 = #727.getCell(12, 4)
+  #829 = #727.getCell(13, 0)
+  #830 = #727.getCell(13, 1)
+  #831 = #830.body.paragraphs.getFirst()
+  set #831.alignment = "right"
+  #832 = #727.getCell(13, 2)
+  #833 = #832.body.paragraphs.getFirst()
+  set #833.alignment = "right"
+  #834 = #727.getCell(13, 3)
+  #835 = #834.body.paragraphs.getFirst()
+  set #835.alignment = "right"
+  #836 = #727.getCell(13, 4)
+  #837 = #727.getCell(14, 0)
+  #838 = #727.getCell(14, 1)
+  #839 = #838.body.paragraphs.getFirst()
+  set #839.alignment = "right"
+  #840 = #727.getCell(14, 2)
+  #841 = #840.body.paragraphs.getFirst()
+  set #841.alignment = "right"
+  #842 = #727.getCell(14, 3)
+  #843 = #842.body.paragraphs.getFirst()
+  set #843.alignment = "right"
+  #844 = #727.getCell(14, 4)
+  #845 = #727.getCell(15, 0)
+  #846 = #727.getCell(15, 1)
+  #847 = #846.body.paragraphs.getFirst()
+  set #847.alignment = "right"
+  #848 = #727.getCell(15, 2)
+  #849 = #848.body.paragraphs.getFirst()
+  set #849.alignment = "right"
+  #850 = #727.getCell(15, 3)
+  #851 = #850.body.paragraphs.getFirst()
+  set #851.alignment = "right"
+  #852 = #727.getCell(15, 4)
+  #853 = #727.getCell(16, 0)
+  #854 = #727.getCell(16, 1)
+  #855 = #854.body.paragraphs.getFirst()
+  set #855.alignment = "right"
+  #856 = #727.getCell(16, 2)
+  #857 = #856.body.paragraphs.getFirst()
+  set #857.alignment = "right"
+  #858 = #727.getCell(16, 3)
+  #859 = #858.body.paragraphs.getFirst()
+  set #859.alignment = "right"
+  #860 = #727.getCell(16, 4)
+  #861 = #727.getCell(17, 0)
+  #862 = #727.getCell(17, 1)
+  #863 = #862.body.paragraphs.getFirst()
+  set #863.alignment = "right"
+  #864 = #727.getCell(17, 2)
+  #865 = #864.body.paragraphs.getFirst()
+  set #865.alignment = "right"
+  #866 = #727.getCell(17, 3)
+  #867 = #866.body.paragraphs.getFirst()
+  set #867.alignment = "right"
+  #868 = #727.getCell(17, 4)
+  #869 = #727.getCell(18, 0)
+  #870 = #727.getCell(18, 1)
+  #871 = #870.body.paragraphs.getFirst()
+  set #871.alignment = "right"
+  #872 = #727.getCell(18, 2)
+  #873 = #872.body.paragraphs.getFirst()
+  set #873.alignment = "right"
+  #874 = #727.getCell(18, 3)
+  #875 = #874.body.paragraphs.getFirst()
+  set #875.alignment = "right"
+  #876 = #727.getCell(18, 4)
+  #877 = #727.getCell(19, 0)
+  #878 = #727.getCell(19, 1)
+  #879 = #878.body.paragraphs.getFirst()
+  set #879.alignment = "right"
+  #880 = #727.getCell(19, 2)
+  #881 = #880.body.paragraphs.getFirst()
+  set #881.alignment = "right"
+  #882 = #727.getCell(19, 3)
+  #883 = #882.body.paragraphs.getFirst()
+  set #883.alignment = "right"
+  #884 = #727.getCell(19, 4)
+  #885 = #727.getCell(20, 0)
+  #886 = #727.getCell(20, 1)
+  #887 = #886.body.paragraphs.getFirst()
+  set #887.alignment = "right"
+  #888 = #727.getCell(20, 2)
+  #889 = #888.body.paragraphs.getFirst()
+  set #889.alignment = "right"
+  #890 = #727.getCell(20, 3)
+  #891 = #890.body.paragraphs.getFirst()
+  set #891.alignment = "right"
+  #892 = #727.getCell(20, 4)
+  #893 = #727.getCell(21, 0)
+  #894 = #727.getCell(21, 1)
+  #895 = #894.body.paragraphs.getFirst()
+  set #895.alignment = "right"
+  #896 = #727.getCell(21, 2)
+  #897 = #896.body.paragraphs.getFirst()
+  set #897.alignment = "right"
+  #898 = #727.getCell(21, 3)
+  #899 = #898.body.paragraphs.getFirst()
+  set #899.alignment = "right"
+  #900 = #727.getCell(21, 4)
+  #901 = #727.getCell(22, 0)
+  #902 = #727.getCell(22, 1)
+  #903 = #902.body.paragraphs.getFirst()
+  set #903.alignment = "right"
+  #904 = #727.getCell(22, 2)
+  #905 = #904.body.paragraphs.getFirst()
+  set #905.alignment = "right"
+  #906 = #727.getCell(22, 3)
+  #907 = #906.body.paragraphs.getFirst()
+  set #907.alignment = "right"
+  #908 = #727.getCell(22, 4)
+  #909 = #727.getCell(23, 0)
+  #910 = #727.getCell(23, 1)
+  #911 = #910.body.paragraphs.getFirst()
+  set #911.alignment = "right"
+  #912 = #727.getCell(23, 2)
+  #913 = #912.body.paragraphs.getFirst()
+  set #913.alignment = "right"
+  #914 = #727.getCell(23, 3)
+  #915 = #914.body.paragraphs.getFirst()
+  set #915.alignment = "right"
+  #916 = #727.getCell(23, 4)
+  #917 = #727.getCell(24, 0)
+  #918 = #727.getCell(24, 1)
+  #919 = #918.body.paragraphs.getFirst()
+  set #919.alignment = "right"
+  #920 = #727.getCell(24, 2)
+  #921 = #920.body.paragraphs.getFirst()
+  set #921.alignment = "right"
+  #922 = #727.getCell(24, 3)
+  #923 = #922.body.paragraphs.getFirst()
+  set #923.alignment = "right"
+  #924 = #727.getCell(24, 4)
+  #925 = #727.getCell(25, 0)
+  #926 = #727.getCell(25, 1)
+  #927 = #926.body.paragraphs.getFirst()
+  set #927.alignment = "right"
+  #928 = #727.getCell(25, 2)
+  #929 = #928.body.paragraphs.getFirst()
+  set #929.alignment = "right"
+  #930 = #727.getCell(25, 3)
+  #931 = #930.body.paragraphs.getFirst()
+  set #931.alignment = "right"
+  #932 = #727.getCell(25, 4)
+  #933 = #727.getCell(26, 0)
+  #934 = #727.getCell(26, 1)
+  #935 = #934.body.paragraphs.getFirst()
+  set #935.alignment = "right"
+  #936 = #727.getCell(26, 2)
+  #937 = #936.body.paragraphs.getFirst()
+  set #937.alignment = "right"
+  #938 = #727.getCell(26, 3)
+  #939 = #938.body.paragraphs.getFirst()
+  set #939.alignment = "right"
+  #940 = #727.getCell(26, 4)
+  #941 = #727.getCell(27, 0)
+  #942 = #727.getCell(27, 1)
+  #943 = #942.body.paragraphs.getFirst()
+  set #943.alignment = "right"
+  #944 = #727.getCell(27, 2)
+  #945 = #944.body.paragraphs.getFirst()
+  set #945.alignment = "right"
+  #946 = #727.getCell(27, 3)
+  #947 = #946.body.paragraphs.getFirst()
+  set #947.alignment = "right"
+  #948 = #727.getCell(27, 4)
+  #949 = #727.getCell(28, 0)
+  #950 = #727.getCell(28, 1)
+  #951 = #950.body.paragraphs.getFirst()
+  set #951.alignment = "right"
+  #952 = #727.getCell(28, 2)
+  #953 = #952.body.paragraphs.getFirst()
+  set #953.alignment = "right"
+  #954 = #727.getCell(28, 3)
+  #955 = #954.body.paragraphs.getFirst()
+  set #955.alignment = "right"
+  #956 = #727.getCell(28, 4)
+  #957 = #727.getCell(29, 0)
+  #958 = #727.getCell(29, 1)
+  #959 = #958.body.paragraphs.getFirst()
+  set #959.alignment = "right"
+  #960 = #727.getCell(29, 2)
+  #961 = #960.body.paragraphs.getFirst()
+  set #961.alignment = "right"
+  #962 = #727.getCell(29, 3)
+  #963 = #962.body.paragraphs.getFirst()
+  set #963.alignment = "right"
+  #964 = #727.getCell(29, 4)
+  #965 = #727.getCell(30, 0)
+  #966 = #727.getCell(30, 1)
+  #967 = #966.body.paragraphs.getFirst()
+  set #967.alignment = "right"
+  #968 = #727.getCell(30, 2)
+  #969 = #968.body.paragraphs.getFirst()
+  set #969.alignment = "right"
+  #970 = #727.getCell(30, 3)
+  #971 = #970.body.paragraphs.getFirst()
+  set #971.alignment = "right"
+  #972 = #727.getCell(30, 4)
+  #973 = #727.getCell(31, 0)
+  #974 = #727.getCell(31, 1)
+  #975 = #974.body.paragraphs.getFirst()
+  set #975.alignment = "right"
+  #976 = #727.getCell(31, 2)
+  #977 = #976.body.paragraphs.getFirst()
+  set #977.alignment = "right"
+  #978 = #727.getCell(31, 3)
+  #979 = #978.body.paragraphs.getFirst()
+  set #979.alignment = "right"
+  #980 = #727.getCell(31, 4)
+  #981 = #727.getCell(32, 0)
+  #982 = #727.getCell(32, 1)
+  #983 = #982.body.paragraphs.getFirst()
+  set #983.alignment = "right"
+  #984 = #727.getCell(32, 2)
+  #985 = #984.body.paragraphs.getFirst()
+  set #985.alignment = "right"
+  #986 = #727.getCell(32, 3)
+  #987 = #986.body.paragraphs.getFirst()
+  set #987.alignment = "right"
+  #988 = #727.getCell(32, 4)
+  #989 = #727.getCell(33, 0)
+  #990 = #727.getCell(33, 1)
+  #991 = #990.body.paragraphs.getFirst()
+  set #991.alignment = "right"
+  #992 = #727.getCell(33, 2)
+  #993 = #992.body.paragraphs.getFirst()
+  set #993.alignment = "right"
+  #994 = #727.getCell(33, 3)
+  #995 = #994.body.paragraphs.getFirst()
+  set #995.alignment = "right"
+  #996 = #727.getCell(33, 4)
+  #997 = #727.getCell(34, 0)
+  #998 = #727.getCell(34, 1)
+  #999 = #998.body.paragraphs.getFirst()
+  set #999.alignment = "right"
+  #1000 = #727.getCell(34, 2)
+  #1001 = #1000.body.paragraphs.getFirst()
+  set #1001.alignment = "right"
+  #1002 = #727.getCell(34, 3)
+  #1003 = #1002.body.paragraphs.getFirst()
+  set #1003.alignment = "right"
+  #1004 = #727.getCell(34, 4)
+  #1005 = #727.getCell(35, 0)
+  #1006 = #727.getCell(35, 1)
+  #1007 = #1006.body.paragraphs.getFirst()
+  set #1007.alignment = "right"
+  #1008 = #727.getCell(35, 2)
+  #1009 = #1008.body.paragraphs.getFirst()
+  set #1009.alignment = "right"
+  #1010 = #727.getCell(35, 3)
+  #1011 = #1010.body.paragraphs.getFirst()
+  set #1011.alignment = "right"
+  #1012 = #727.getCell(35, 4)
+  #1013 = #727.getCell(36, 0)
+  #1014 = #727.getCell(36, 1)
+  #1015 = #1014.body.paragraphs.getFirst()
+  set #1015.alignment = "right"
+  #1016 = #727.getCell(36, 2)
+  #1017 = #1016.body.paragraphs.getFirst()
+  set #1017.alignment = "right"
+  #1018 = #727.getCell(36, 3)
+  #1019 = #1018.body.paragraphs.getFirst()
+  set #1019.alignment = "right"
+  #1020 = #727.getCell(36, 4)
+  #1021 = #727.getCell(37, 0)
+  #1022 = #727.getCell(37, 1)
+  #1023 = #1022.body.paragraphs.getFirst()
+  set #1023.alignment = "right"
+  #1024 = #727.getCell(37, 2)
+  #1025 = #1024.body.paragraphs.getFirst()
+  set #1025.alignment = "right"
+  #1026 = #727.getCell(37, 3)
+  #1027 = #1026.body.paragraphs.getFirst()
+  set #1027.alignment = "right"
+  #1028 = #727.getCell(37, 4)
+  #1029 = #727.getCell(38, 0)
+  #1030 = #727.getCell(38, 1)
+  #1031 = #1030.body.paragraphs.getFirst()
+  set #1031.alignment = "right"
+  #1032 = #727.getCell(38, 2)
+  #1033 = #1032.body.paragraphs.getFirst()
+  set #1033.alignment = "right"
+  #1034 = #727.getCell(38, 3)
+  #1035 = #1034.body.paragraphs.getFirst()
+  set #1035.alignment = "right"
+  #1036 = #727.getCell(38, 4)
+  #1037 = #727.getCell(39, 0)
+  #1038 = #727.getCell(39, 1)
+  #1039 = #1038.body.paragraphs.getFirst()
+  set #1039.alignment = "right"
+  #1040 = #727.getCell(39, 2)
+  #1041 = #1040.body.paragraphs.getFirst()
+  set #1041.alignment = "right"
+  #1042 = #727.getCell(39, 3)
+  #1043 = #1042.body.paragraphs.getFirst()
+  set #1043.alignment = "right"
+  #1044 = #727.getCell(39, 4)
+  #1045 = #727.getRange("after")
+  #1046 = #1045.insertParagraph("Trastuzumab VH: numbering", "after")
+  set #1046.alignment = "centered"
+  set #1046.styleBuiltIn = "normal"
+  #1047 = #1046.getRange("after")
+  #1048 = #1047.select("end")
+  R55.sync()
+  #1049 = #727.getRange()
+  #1050 = #1049.paragraphs.load("items")
+  R55.sync()
+  set #1049.paragraphs.items[0].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[1].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[2].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[3].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[4].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[5].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[6].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[7].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[8].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[9].styleBuiltIn = "normal"
+  set #1049.paragraphs.items[10].styleBuiltIn = "normal"
+  R55.sync()
+  #1051 = #1049.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #1052 = #1049.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #1053 = #1049.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #1054 = #1049.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #1055 = #1049.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #1056 = #1049.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #1057 = #1049.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #1058 = #1049.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #1059 = #1049.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #1060 = #1049.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #1061 = #1049.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R55.sync()
 } R55
-   status: Protein inserted. Ctrl/⌘+Z undoes it.
-== dna/dna-orf-insert
 RUN R56 {
-  #442 = R56.document.getSelection()
-  #443 = #442.insertHtml(s851:679cad16, "replace")
-  #444 = #443.select("end")
+  #1062 = R56.document.getSelection()
+  #1063 = #1062.insertTable(40, 5, "after", [n40:1b9821a6])
+  #1064 = #1063.getCell(0, 0)
+  set #1064.body.font.bold = true
+  set #1064.shadingColor = "#E7EEF6"
+  #1065 = #1063.getCell(0, 1)
+  set #1065.body.font.bold = true
+  set #1065.shadingColor = "#E7EEF6"
+  #1066 = #1063.getCell(0, 2)
+  set #1066.body.font.bold = true
+  set #1066.shadingColor = "#E7EEF6"
+  #1067 = #1063.getCell(0, 3)
+  set #1067.body.font.bold = true
+  set #1067.shadingColor = "#E7EEF6"
+  #1068 = #1063.getCell(0, 4)
+  set #1068.body.font.bold = true
+  set #1068.shadingColor = "#E7EEF6"
+  #1069 = #1063.getCell(1, 0)
+  #1070 = #1063.getCell(1, 1)
+  #1071 = #1070.body.paragraphs.getFirst()
+  set #1071.alignment = "right"
+  #1072 = #1063.getCell(1, 2)
+  #1073 = #1072.body.paragraphs.getFirst()
+  set #1073.alignment = "right"
+  #1074 = #1063.getCell(1, 3)
+  #1075 = #1074.body.paragraphs.getFirst()
+  set #1075.alignment = "right"
+  #1076 = #1063.getCell(1, 4)
+  #1077 = #1063.getCell(2, 0)
+  #1078 = #1063.getCell(2, 1)
+  #1079 = #1078.body.paragraphs.getFirst()
+  set #1079.alignment = "right"
+  #1080 = #1063.getCell(2, 2)
+  #1081 = #1080.body.paragraphs.getFirst()
+  set #1081.alignment = "right"
+  #1082 = #1063.getCell(2, 3)
+  #1083 = #1082.body.paragraphs.getFirst()
+  set #1083.alignment = "right"
+  #1084 = #1063.getCell(2, 4)
+  #1085 = #1063.getCell(3, 0)
+  #1086 = #1063.getCell(3, 1)
+  #1087 = #1086.body.paragraphs.getFirst()
+  set #1087.alignment = "right"
+  #1088 = #1063.getCell(3, 2)
+  #1089 = #1088.body.paragraphs.getFirst()
+  set #1089.alignment = "right"
+  #1090 = #1063.getCell(3, 3)
+  #1091 = #1090.body.paragraphs.getFirst()
+  set #1091.alignment = "right"
+  #1092 = #1063.getCell(3, 4)
+  #1093 = #1063.getCell(4, 0)
+  #1094 = #1063.getCell(4, 1)
+  #1095 = #1094.body.paragraphs.getFirst()
+  set #1095.alignment = "right"
+  #1096 = #1063.getCell(4, 2)
+  #1097 = #1096.body.paragraphs.getFirst()
+  set #1097.alignment = "right"
+  #1098 = #1063.getCell(4, 3)
+  #1099 = #1098.body.paragraphs.getFirst()
+  set #1099.alignment = "right"
+  #1100 = #1063.getCell(4, 4)
+  #1101 = #1063.getCell(5, 0)
+  #1102 = #1063.getCell(5, 1)
+  #1103 = #1102.body.paragraphs.getFirst()
+  set #1103.alignment = "right"
+  #1104 = #1063.getCell(5, 2)
+  #1105 = #1104.body.paragraphs.getFirst()
+  set #1105.alignment = "right"
+  #1106 = #1063.getCell(5, 3)
+  #1107 = #1106.body.paragraphs.getFirst()
+  set #1107.alignment = "right"
+  #1108 = #1063.getCell(5, 4)
+  #1109 = #1063.getCell(6, 0)
+  #1110 = #1063.getCell(6, 1)
+  #1111 = #1110.body.paragraphs.getFirst()
+  set #1111.alignment = "right"
+  #1112 = #1063.getCell(6, 2)
+  #1113 = #1112.body.paragraphs.getFirst()
+  set #1113.alignment = "right"
+  #1114 = #1063.getCell(6, 3)
+  #1115 = #1114.body.paragraphs.getFirst()
+  set #1115.alignment = "right"
+  #1116 = #1063.getCell(6, 4)
+  #1117 = #1063.getCell(7, 0)
+  #1118 = #1063.getCell(7, 1)
+  #1119 = #1118.body.paragraphs.getFirst()
+  set #1119.alignment = "right"
+  #1120 = #1063.getCell(7, 2)
+  #1121 = #1120.body.paragraphs.getFirst()
+  set #1121.alignment = "right"
+  #1122 = #1063.getCell(7, 3)
+  #1123 = #1122.body.paragraphs.getFirst()
+  set #1123.alignment = "right"
+  #1124 = #1063.getCell(7, 4)
+  #1125 = #1063.getCell(8, 0)
+  #1126 = #1063.getCell(8, 1)
+  #1127 = #1126.body.paragraphs.getFirst()
+  set #1127.alignment = "right"
+  #1128 = #1063.getCell(8, 2)
+  #1129 = #1128.body.paragraphs.getFirst()
+  set #1129.alignment = "right"
+  #1130 = #1063.getCell(8, 3)
+  #1131 = #1130.body.paragraphs.getFirst()
+  set #1131.alignment = "right"
+  #1132 = #1063.getCell(8, 4)
+  #1133 = #1063.getCell(9, 0)
+  #1134 = #1063.getCell(9, 1)
+  #1135 = #1134.body.paragraphs.getFirst()
+  set #1135.alignment = "right"
+  #1136 = #1063.getCell(9, 2)
+  #1137 = #1136.body.paragraphs.getFirst()
+  set #1137.alignment = "right"
+  #1138 = #1063.getCell(9, 3)
+  #1139 = #1138.body.paragraphs.getFirst()
+  set #1139.alignment = "right"
+  #1140 = #1063.getCell(9, 4)
+  #1141 = #1063.getCell(10, 0)
+  #1142 = #1063.getCell(10, 1)
+  #1143 = #1142.body.paragraphs.getFirst()
+  set #1143.alignment = "right"
+  #1144 = #1063.getCell(10, 2)
+  #1145 = #1144.body.paragraphs.getFirst()
+  set #1145.alignment = "right"
+  #1146 = #1063.getCell(10, 3)
+  #1147 = #1146.body.paragraphs.getFirst()
+  set #1147.alignment = "right"
+  #1148 = #1063.getCell(10, 4)
+  #1149 = #1063.getCell(11, 0)
+  #1150 = #1063.getCell(11, 1)
+  #1151 = #1150.body.paragraphs.getFirst()
+  set #1151.alignment = "right"
+  #1152 = #1063.getCell(11, 2)
+  #1153 = #1152.body.paragraphs.getFirst()
+  set #1153.alignment = "right"
+  #1154 = #1063.getCell(11, 3)
+  #1155 = #1154.body.paragraphs.getFirst()
+  set #1155.alignment = "right"
+  #1156 = #1063.getCell(11, 4)
+  #1157 = #1063.getCell(12, 0)
+  #1158 = #1063.getCell(12, 1)
+  #1159 = #1158.body.paragraphs.getFirst()
+  set #1159.alignment = "right"
+  #1160 = #1063.getCell(12, 2)
+  #1161 = #1160.body.paragraphs.getFirst()
+  set #1161.alignment = "right"
+  #1162 = #1063.getCell(12, 3)
+  #1163 = #1162.body.paragraphs.getFirst()
+  set #1163.alignment = "right"
+  #1164 = #1063.getCell(12, 4)
+  #1165 = #1063.getCell(13, 0)
+  #1166 = #1063.getCell(13, 1)
+  #1167 = #1166.body.paragraphs.getFirst()
+  set #1167.alignment = "right"
+  #1168 = #1063.getCell(13, 2)
+  #1169 = #1168.body.paragraphs.getFirst()
+  set #1169.alignment = "right"
+  #1170 = #1063.getCell(13, 3)
+  #1171 = #1170.body.paragraphs.getFirst()
+  set #1171.alignment = "right"
+  #1172 = #1063.getCell(13, 4)
+  #1173 = #1063.getCell(14, 0)
+  #1174 = #1063.getCell(14, 1)
+  #1175 = #1174.body.paragraphs.getFirst()
+  set #1175.alignment = "right"
+  #1176 = #1063.getCell(14, 2)
+  #1177 = #1176.body.paragraphs.getFirst()
+  set #1177.alignment = "right"
+  #1178 = #1063.getCell(14, 3)
+  #1179 = #1178.body.paragraphs.getFirst()
+  set #1179.alignment = "right"
+  #1180 = #1063.getCell(14, 4)
+  #1181 = #1063.getCell(15, 0)
+  #1182 = #1063.getCell(15, 1)
+  #1183 = #1182.body.paragraphs.getFirst()
+  set #1183.alignment = "right"
+  #1184 = #1063.getCell(15, 2)
+  #1185 = #1184.body.paragraphs.getFirst()
+  set #1185.alignment = "right"
+  #1186 = #1063.getCell(15, 3)
+  #1187 = #1186.body.paragraphs.getFirst()
+  set #1187.alignment = "right"
+  #1188 = #1063.getCell(15, 4)
+  #1189 = #1063.getCell(16, 0)
+  #1190 = #1063.getCell(16, 1)
+  #1191 = #1190.body.paragraphs.getFirst()
+  set #1191.alignment = "right"
+  #1192 = #1063.getCell(16, 2)
+  #1193 = #1192.body.paragraphs.getFirst()
+  set #1193.alignment = "right"
+  #1194 = #1063.getCell(16, 3)
+  #1195 = #1194.body.paragraphs.getFirst()
+  set #1195.alignment = "right"
+  #1196 = #1063.getCell(16, 4)
+  #1197 = #1063.getCell(17, 0)
+  #1198 = #1063.getCell(17, 1)
+  #1199 = #1198.body.paragraphs.getFirst()
+  set #1199.alignment = "right"
+  #1200 = #1063.getCell(17, 2)
+  #1201 = #1200.body.paragraphs.getFirst()
+  set #1201.alignment = "right"
+  #1202 = #1063.getCell(17, 3)
+  #1203 = #1202.body.paragraphs.getFirst()
+  set #1203.alignment = "right"
+  #1204 = #1063.getCell(17, 4)
+  #1205 = #1063.getCell(18, 0)
+  #1206 = #1063.getCell(18, 1)
+  #1207 = #1206.body.paragraphs.getFirst()
+  set #1207.alignment = "right"
+  #1208 = #1063.getCell(18, 2)
+  #1209 = #1208.body.paragraphs.getFirst()
+  set #1209.alignment = "right"
+  #1210 = #1063.getCell(18, 3)
+  #1211 = #1210.body.paragraphs.getFirst()
+  set #1211.alignment = "right"
+  #1212 = #1063.getCell(18, 4)
+  #1213 = #1063.getCell(19, 0)
+  #1214 = #1063.getCell(19, 1)
+  #1215 = #1214.body.paragraphs.getFirst()
+  set #1215.alignment = "right"
+  #1216 = #1063.getCell(19, 2)
+  #1217 = #1216.body.paragraphs.getFirst()
+  set #1217.alignment = "right"
+  #1218 = #1063.getCell(19, 3)
+  #1219 = #1218.body.paragraphs.getFirst()
+  set #1219.alignment = "right"
+  #1220 = #1063.getCell(19, 4)
+  #1221 = #1063.getCell(20, 0)
+  #1222 = #1063.getCell(20, 1)
+  #1223 = #1222.body.paragraphs.getFirst()
+  set #1223.alignment = "right"
+  #1224 = #1063.getCell(20, 2)
+  #1225 = #1224.body.paragraphs.getFirst()
+  set #1225.alignment = "right"
+  #1226 = #1063.getCell(20, 3)
+  #1227 = #1226.body.paragraphs.getFirst()
+  set #1227.alignment = "right"
+  #1228 = #1063.getCell(20, 4)
+  #1229 = #1063.getCell(21, 0)
+  #1230 = #1063.getCell(21, 1)
+  #1231 = #1230.body.paragraphs.getFirst()
+  set #1231.alignment = "right"
+  #1232 = #1063.getCell(21, 2)
+  #1233 = #1232.body.paragraphs.getFirst()
+  set #1233.alignment = "right"
+  #1234 = #1063.getCell(21, 3)
+  #1235 = #1234.body.paragraphs.getFirst()
+  set #1235.alignment = "right"
+  #1236 = #1063.getCell(21, 4)
+  #1237 = #1063.getCell(22, 0)
+  #1238 = #1063.getCell(22, 1)
+  #1239 = #1238.body.paragraphs.getFirst()
+  set #1239.alignment = "right"
+  #1240 = #1063.getCell(22, 2)
+  #1241 = #1240.body.paragraphs.getFirst()
+  set #1241.alignment = "right"
+  #1242 = #1063.getCell(22, 3)
+  #1243 = #1242.body.paragraphs.getFirst()
+  set #1243.alignment = "right"
+  #1244 = #1063.getCell(22, 4)
+  #1245 = #1063.getCell(23, 0)
+  #1246 = #1063.getCell(23, 1)
+  #1247 = #1246.body.paragraphs.getFirst()
+  set #1247.alignment = "right"
+  #1248 = #1063.getCell(23, 2)
+  #1249 = #1248.body.paragraphs.getFirst()
+  set #1249.alignment = "right"
+  #1250 = #1063.getCell(23, 3)
+  #1251 = #1250.body.paragraphs.getFirst()
+  set #1251.alignment = "right"
+  #1252 = #1063.getCell(23, 4)
+  #1253 = #1063.getCell(24, 0)
+  #1254 = #1063.getCell(24, 1)
+  #1255 = #1254.body.paragraphs.getFirst()
+  set #1255.alignment = "right"
+  #1256 = #1063.getCell(24, 2)
+  #1257 = #1256.body.paragraphs.getFirst()
+  set #1257.alignment = "right"
+  #1258 = #1063.getCell(24, 3)
+  #1259 = #1258.body.paragraphs.getFirst()
+  set #1259.alignment = "right"
+  #1260 = #1063.getCell(24, 4)
+  #1261 = #1063.getCell(25, 0)
+  #1262 = #1063.getCell(25, 1)
+  #1263 = #1262.body.paragraphs.getFirst()
+  set #1263.alignment = "right"
+  #1264 = #1063.getCell(25, 2)
+  #1265 = #1264.body.paragraphs.getFirst()
+  set #1265.alignment = "right"
+  #1266 = #1063.getCell(25, 3)
+  #1267 = #1266.body.paragraphs.getFirst()
+  set #1267.alignment = "right"
+  #1268 = #1063.getCell(25, 4)
+  #1269 = #1063.getCell(26, 0)
+  #1270 = #1063.getCell(26, 1)
+  #1271 = #1270.body.paragraphs.getFirst()
+  set #1271.alignment = "right"
+  #1272 = #1063.getCell(26, 2)
+  #1273 = #1272.body.paragraphs.getFirst()
+  set #1273.alignment = "right"
+  #1274 = #1063.getCell(26, 3)
+  #1275 = #1274.body.paragraphs.getFirst()
+  set #1275.alignment = "right"
+  #1276 = #1063.getCell(26, 4)
+  #1277 = #1063.getCell(27, 0)
+  #1278 = #1063.getCell(27, 1)
+  #1279 = #1278.body.paragraphs.getFirst()
+  set #1279.alignment = "right"
+  #1280 = #1063.getCell(27, 2)
+  #1281 = #1280.body.paragraphs.getFirst()
+  set #1281.alignment = "right"
+  #1282 = #1063.getCell(27, 3)
+  #1283 = #1282.body.paragraphs.getFirst()
+  set #1283.alignment = "right"
+  #1284 = #1063.getCell(27, 4)
+  #1285 = #1063.getCell(28, 0)
+  #1286 = #1063.getCell(28, 1)
+  #1287 = #1286.body.paragraphs.getFirst()
+  set #1287.alignment = "right"
+  #1288 = #1063.getCell(28, 2)
+  #1289 = #1288.body.paragraphs.getFirst()
+  set #1289.alignment = "right"
+  #1290 = #1063.getCell(28, 3)
+  #1291 = #1290.body.paragraphs.getFirst()
+  set #1291.alignment = "right"
+  #1292 = #1063.getCell(28, 4)
+  #1293 = #1063.getCell(29, 0)
+  #1294 = #1063.getCell(29, 1)
+  #1295 = #1294.body.paragraphs.getFirst()
+  set #1295.alignment = "right"
+  #1296 = #1063.getCell(29, 2)
+  #1297 = #1296.body.paragraphs.getFirst()
+  set #1297.alignment = "right"
+  #1298 = #1063.getCell(29, 3)
+  #1299 = #1298.body.paragraphs.getFirst()
+  set #1299.alignment = "right"
+  #1300 = #1063.getCell(29, 4)
+  #1301 = #1063.getCell(30, 0)
+  #1302 = #1063.getCell(30, 1)
+  #1303 = #1302.body.paragraphs.getFirst()
+  set #1303.alignment = "right"
+  #1304 = #1063.getCell(30, 2)
+  #1305 = #1304.body.paragraphs.getFirst()
+  set #1305.alignment = "right"
+  #1306 = #1063.getCell(30, 3)
+  #1307 = #1306.body.paragraphs.getFirst()
+  set #1307.alignment = "right"
+  #1308 = #1063.getCell(30, 4)
+  #1309 = #1063.getCell(31, 0)
+  #1310 = #1063.getCell(31, 1)
+  #1311 = #1310.body.paragraphs.getFirst()
+  set #1311.alignment = "right"
+  #1312 = #1063.getCell(31, 2)
+  #1313 = #1312.body.paragraphs.getFirst()
+  set #1313.alignment = "right"
+  #1314 = #1063.getCell(31, 3)
+  #1315 = #1314.body.paragraphs.getFirst()
+  set #1315.alignment = "right"
+  #1316 = #1063.getCell(31, 4)
+  #1317 = #1063.getCell(32, 0)
+  #1318 = #1063.getCell(32, 1)
+  #1319 = #1318.body.paragraphs.getFirst()
+  set #1319.alignment = "right"
+  #1320 = #1063.getCell(32, 2)
+  #1321 = #1320.body.paragraphs.getFirst()
+  set #1321.alignment = "right"
+  #1322 = #1063.getCell(32, 3)
+  #1323 = #1322.body.paragraphs.getFirst()
+  set #1323.alignment = "right"
+  #1324 = #1063.getCell(32, 4)
+  #1325 = #1063.getCell(33, 0)
+  #1326 = #1063.getCell(33, 1)
+  #1327 = #1326.body.paragraphs.getFirst()
+  set #1327.alignment = "right"
+  #1328 = #1063.getCell(33, 2)
+  #1329 = #1328.body.paragraphs.getFirst()
+  set #1329.alignment = "right"
+  #1330 = #1063.getCell(33, 3)
+  #1331 = #1330.body.paragraphs.getFirst()
+  set #1331.alignment = "right"
+  #1332 = #1063.getCell(33, 4)
+  #1333 = #1063.getCell(34, 0)
+  #1334 = #1063.getCell(34, 1)
+  #1335 = #1334.body.paragraphs.getFirst()
+  set #1335.alignment = "right"
+  #1336 = #1063.getCell(34, 2)
+  #1337 = #1336.body.paragraphs.getFirst()
+  set #1337.alignment = "right"
+  #1338 = #1063.getCell(34, 3)
+  #1339 = #1338.body.paragraphs.getFirst()
+  set #1339.alignment = "right"
+  #1340 = #1063.getCell(34, 4)
+  #1341 = #1063.getCell(35, 0)
+  #1342 = #1063.getCell(35, 1)
+  #1343 = #1342.body.paragraphs.getFirst()
+  set #1343.alignment = "right"
+  #1344 = #1063.getCell(35, 2)
+  #1345 = #1344.body.paragraphs.getFirst()
+  set #1345.alignment = "right"
+  #1346 = #1063.getCell(35, 3)
+  #1347 = #1346.body.paragraphs.getFirst()
+  set #1347.alignment = "right"
+  #1348 = #1063.getCell(35, 4)
+  #1349 = #1063.getCell(36, 0)
+  #1350 = #1063.getCell(36, 1)
+  #1351 = #1350.body.paragraphs.getFirst()
+  set #1351.alignment = "right"
+  #1352 = #1063.getCell(36, 2)
+  #1353 = #1352.body.paragraphs.getFirst()
+  set #1353.alignment = "right"
+  #1354 = #1063.getCell(36, 3)
+  #1355 = #1354.body.paragraphs.getFirst()
+  set #1355.alignment = "right"
+  #1356 = #1063.getCell(36, 4)
+  #1357 = #1063.getCell(37, 0)
+  #1358 = #1063.getCell(37, 1)
+  #1359 = #1358.body.paragraphs.getFirst()
+  set #1359.alignment = "right"
+  #1360 = #1063.getCell(37, 2)
+  #1361 = #1360.body.paragraphs.getFirst()
+  set #1361.alignment = "right"
+  #1362 = #1063.getCell(37, 3)
+  #1363 = #1362.body.paragraphs.getFirst()
+  set #1363.alignment = "right"
+  #1364 = #1063.getCell(37, 4)
+  #1365 = #1063.getCell(38, 0)
+  #1366 = #1063.getCell(38, 1)
+  #1367 = #1366.body.paragraphs.getFirst()
+  set #1367.alignment = "right"
+  #1368 = #1063.getCell(38, 2)
+  #1369 = #1368.body.paragraphs.getFirst()
+  set #1369.alignment = "right"
+  #1370 = #1063.getCell(38, 3)
+  #1371 = #1370.body.paragraphs.getFirst()
+  set #1371.alignment = "right"
+  #1372 = #1063.getCell(38, 4)
+  #1373 = #1063.getCell(39, 0)
+  #1374 = #1063.getCell(39, 1)
+  #1375 = #1374.body.paragraphs.getFirst()
+  set #1375.alignment = "right"
+  #1376 = #1063.getCell(39, 2)
+  #1377 = #1376.body.paragraphs.getFirst()
+  set #1377.alignment = "right"
+  #1378 = #1063.getCell(39, 3)
+  #1379 = #1378.body.paragraphs.getFirst()
+  set #1379.alignment = "right"
+  #1380 = #1063.getCell(39, 4)
+  #1381 = #1063.getRange("after")
+  #1382 = #1381.insertParagraph("Trastuzumab VL: numbering", "after")
+  set #1382.alignment = "centered"
+  set #1382.styleBuiltIn = "normal"
+  #1383 = #1382.getRange("after")
+  #1384 = #1383.select("end")
   R56.sync()
-  #445 = #443.insertContentControl()
-  set #445.tag = "formula-inserter:orf-table"
-  set #445.title = "JurisLab"
-  set #445.appearance = "hidden"
+  #1385 = #1063.getRange()
+  #1386 = #1385.paragraphs.load("items")
+  R56.sync()
+  set #1385.paragraphs.items[0].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[1].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[2].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[3].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[4].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[5].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[6].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[7].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[8].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[9].styleBuiltIn = "normal"
+  set #1385.paragraphs.items[10].styleBuiltIn = "normal"
+  R56.sync()
+  #1387 = #1385.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #1388 = #1385.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #1389 = #1385.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #1390 = #1385.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #1391 = #1385.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #1392 = #1385.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #1393 = #1385.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #1394 = #1385.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #1395 = #1385.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #1396 = #1385.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #1397 = #1385.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R56.sync()
 } R56
-   status: ORF table inserted.
-== dna/digest-insert-btn
 RUN R57 {
-  #446 = R57.document.getSelection()
-  #447 = #446.insertText(s132:89d4dc1f, "after")
-  #448 = #446.select("end")
+  #1398 = R57.document.getSelection()
+  #1399 = #1398.insertTable(40, 5, "after", [n40:86abda54])
+  #1400 = #1399.getCell(0, 0)
+  set #1400.body.font.bold = true
+  set #1400.shadingColor = "#E7EEF6"
+  #1401 = #1399.getCell(0, 1)
+  set #1401.body.font.bold = true
+  set #1401.shadingColor = "#E7EEF6"
+  #1402 = #1399.getCell(0, 2)
+  set #1402.body.font.bold = true
+  set #1402.shadingColor = "#E7EEF6"
+  #1403 = #1399.getCell(0, 3)
+  set #1403.body.font.bold = true
+  set #1403.shadingColor = "#E7EEF6"
+  #1404 = #1399.getCell(0, 4)
+  set #1404.body.font.bold = true
+  set #1404.shadingColor = "#E7EEF6"
+  #1405 = #1399.getCell(1, 0)
+  #1406 = #1399.getCell(1, 1)
+  #1407 = #1406.body.paragraphs.getFirst()
+  set #1407.alignment = "right"
+  #1408 = #1399.getCell(1, 2)
+  #1409 = #1408.body.paragraphs.getFirst()
+  set #1409.alignment = "right"
+  #1410 = #1399.getCell(1, 3)
+  #1411 = #1410.body.paragraphs.getFirst()
+  set #1411.alignment = "right"
+  #1412 = #1399.getCell(1, 4)
+  #1413 = #1399.getCell(2, 0)
+  #1414 = #1399.getCell(2, 1)
+  #1415 = #1414.body.paragraphs.getFirst()
+  set #1415.alignment = "right"
+  #1416 = #1399.getCell(2, 2)
+  #1417 = #1416.body.paragraphs.getFirst()
+  set #1417.alignment = "right"
+  #1418 = #1399.getCell(2, 3)
+  #1419 = #1418.body.paragraphs.getFirst()
+  set #1419.alignment = "right"
+  #1420 = #1399.getCell(2, 4)
+  #1421 = #1399.getCell(3, 0)
+  #1422 = #1399.getCell(3, 1)
+  #1423 = #1422.body.paragraphs.getFirst()
+  set #1423.alignment = "right"
+  #1424 = #1399.getCell(3, 2)
+  #1425 = #1424.body.paragraphs.getFirst()
+  set #1425.alignment = "right"
+  #1426 = #1399.getCell(3, 3)
+  #1427 = #1426.body.paragraphs.getFirst()
+  set #1427.alignment = "right"
+  #1428 = #1399.getCell(3, 4)
+  #1429 = #1399.getCell(4, 0)
+  #1430 = #1399.getCell(4, 1)
+  #1431 = #1430.body.paragraphs.getFirst()
+  set #1431.alignment = "right"
+  #1432 = #1399.getCell(4, 2)
+  #1433 = #1432.body.paragraphs.getFirst()
+  set #1433.alignment = "right"
+  #1434 = #1399.getCell(4, 3)
+  #1435 = #1434.body.paragraphs.getFirst()
+  set #1435.alignment = "right"
+  #1436 = #1399.getCell(4, 4)
+  #1437 = #1399.getCell(5, 0)
+  #1438 = #1399.getCell(5, 1)
+  #1439 = #1438.body.paragraphs.getFirst()
+  set #1439.alignment = "right"
+  #1440 = #1399.getCell(5, 2)
+  #1441 = #1440.body.paragraphs.getFirst()
+  set #1441.alignment = "right"
+  #1442 = #1399.getCell(5, 3)
+  #1443 = #1442.body.paragraphs.getFirst()
+  set #1443.alignment = "right"
+  #1444 = #1399.getCell(5, 4)
+  #1445 = #1399.getCell(6, 0)
+  #1446 = #1399.getCell(6, 1)
+  #1447 = #1446.body.paragraphs.getFirst()
+  set #1447.alignment = "right"
+  #1448 = #1399.getCell(6, 2)
+  #1449 = #1448.body.paragraphs.getFirst()
+  set #1449.alignment = "right"
+  #1450 = #1399.getCell(6, 3)
+  #1451 = #1450.body.paragraphs.getFirst()
+  set #1451.alignment = "right"
+  #1452 = #1399.getCell(6, 4)
+  #1453 = #1399.getCell(7, 0)
+  #1454 = #1399.getCell(7, 1)
+  #1455 = #1454.body.paragraphs.getFirst()
+  set #1455.alignment = "right"
+  #1456 = #1399.getCell(7, 2)
+  #1457 = #1456.body.paragraphs.getFirst()
+  set #1457.alignment = "right"
+  #1458 = #1399.getCell(7, 3)
+  #1459 = #1458.body.paragraphs.getFirst()
+  set #1459.alignment = "right"
+  #1460 = #1399.getCell(7, 4)
+  #1461 = #1399.getCell(8, 0)
+  #1462 = #1399.getCell(8, 1)
+  #1463 = #1462.body.paragraphs.getFirst()
+  set #1463.alignment = "right"
+  #1464 = #1399.getCell(8, 2)
+  #1465 = #1464.body.paragraphs.getFirst()
+  set #1465.alignment = "right"
+  #1466 = #1399.getCell(8, 3)
+  #1467 = #1466.body.paragraphs.getFirst()
+  set #1467.alignment = "right"
+  #1468 = #1399.getCell(8, 4)
+  #1469 = #1399.getCell(9, 0)
+  #1470 = #1399.getCell(9, 1)
+  #1471 = #1470.body.paragraphs.getFirst()
+  set #1471.alignment = "right"
+  #1472 = #1399.getCell(9, 2)
+  #1473 = #1472.body.paragraphs.getFirst()
+  set #1473.alignment = "right"
+  #1474 = #1399.getCell(9, 3)
+  #1475 = #1474.body.paragraphs.getFirst()
+  set #1475.alignment = "right"
+  #1476 = #1399.getCell(9, 4)
+  #1477 = #1399.getCell(10, 0)
+  #1478 = #1399.getCell(10, 1)
+  #1479 = #1478.body.paragraphs.getFirst()
+  set #1479.alignment = "right"
+  #1480 = #1399.getCell(10, 2)
+  #1481 = #1480.body.paragraphs.getFirst()
+  set #1481.alignment = "right"
+  #1482 = #1399.getCell(10, 3)
+  #1483 = #1482.body.paragraphs.getFirst()
+  set #1483.alignment = "right"
+  #1484 = #1399.getCell(10, 4)
+  #1485 = #1399.getCell(11, 0)
+  #1486 = #1399.getCell(11, 1)
+  #1487 = #1486.body.paragraphs.getFirst()
+  set #1487.alignment = "right"
+  #1488 = #1399.getCell(11, 2)
+  #1489 = #1488.body.paragraphs.getFirst()
+  set #1489.alignment = "right"
+  #1490 = #1399.getCell(11, 3)
+  #1491 = #1490.body.paragraphs.getFirst()
+  set #1491.alignment = "right"
+  #1492 = #1399.getCell(11, 4)
+  #1493 = #1399.getCell(12, 0)
+  #1494 = #1399.getCell(12, 1)
+  #1495 = #1494.body.paragraphs.getFirst()
+  set #1495.alignment = "right"
+  #1496 = #1399.getCell(12, 2)
+  #1497 = #1496.body.paragraphs.getFirst()
+  set #1497.alignment = "right"
+  #1498 = #1399.getCell(12, 3)
+  #1499 = #1498.body.paragraphs.getFirst()
+  set #1499.alignment = "right"
+  #1500 = #1399.getCell(12, 4)
+  #1501 = #1399.getCell(13, 0)
+  #1502 = #1399.getCell(13, 1)
+  #1503 = #1502.body.paragraphs.getFirst()
+  set #1503.alignment = "right"
+  #1504 = #1399.getCell(13, 2)
+  #1505 = #1504.body.paragraphs.getFirst()
+  set #1505.alignment = "right"
+  #1506 = #1399.getCell(13, 3)
+  #1507 = #1506.body.paragraphs.getFirst()
+  set #1507.alignment = "right"
+  #1508 = #1399.getCell(13, 4)
+  #1509 = #1399.getCell(14, 0)
+  #1510 = #1399.getCell(14, 1)
+  #1511 = #1510.body.paragraphs.getFirst()
+  set #1511.alignment = "right"
+  #1512 = #1399.getCell(14, 2)
+  #1513 = #1512.body.paragraphs.getFirst()
+  set #1513.alignment = "right"
+  #1514 = #1399.getCell(14, 3)
+  #1515 = #1514.body.paragraphs.getFirst()
+  set #1515.alignment = "right"
+  #1516 = #1399.getCell(14, 4)
+  #1517 = #1399.getCell(15, 0)
+  #1518 = #1399.getCell(15, 1)
+  #1519 = #1518.body.paragraphs.getFirst()
+  set #1519.alignment = "right"
+  #1520 = #1399.getCell(15, 2)
+  #1521 = #1520.body.paragraphs.getFirst()
+  set #1521.alignment = "right"
+  #1522 = #1399.getCell(15, 3)
+  #1523 = #1522.body.paragraphs.getFirst()
+  set #1523.alignment = "right"
+  #1524 = #1399.getCell(15, 4)
+  #1525 = #1399.getCell(16, 0)
+  #1526 = #1399.getCell(16, 1)
+  #1527 = #1526.body.paragraphs.getFirst()
+  set #1527.alignment = "right"
+  #1528 = #1399.getCell(16, 2)
+  #1529 = #1528.body.paragraphs.getFirst()
+  set #1529.alignment = "right"
+  #1530 = #1399.getCell(16, 3)
+  #1531 = #1530.body.paragraphs.getFirst()
+  set #1531.alignment = "right"
+  #1532 = #1399.getCell(16, 4)
+  #1533 = #1399.getCell(17, 0)
+  #1534 = #1399.getCell(17, 1)
+  #1535 = #1534.body.paragraphs.getFirst()
+  set #1535.alignment = "right"
+  #1536 = #1399.getCell(17, 2)
+  #1537 = #1536.body.paragraphs.getFirst()
+  set #1537.alignment = "right"
+  #1538 = #1399.getCell(17, 3)
+  #1539 = #1538.body.paragraphs.getFirst()
+  set #1539.alignment = "right"
+  #1540 = #1399.getCell(17, 4)
+  #1541 = #1399.getCell(18, 0)
+  #1542 = #1399.getCell(18, 1)
+  #1543 = #1542.body.paragraphs.getFirst()
+  set #1543.alignment = "right"
+  #1544 = #1399.getCell(18, 2)
+  #1545 = #1544.body.paragraphs.getFirst()
+  set #1545.alignment = "right"
+  #1546 = #1399.getCell(18, 3)
+  #1547 = #1546.body.paragraphs.getFirst()
+  set #1547.alignment = "right"
+  #1548 = #1399.getCell(18, 4)
+  #1549 = #1399.getCell(19, 0)
+  #1550 = #1399.getCell(19, 1)
+  #1551 = #1550.body.paragraphs.getFirst()
+  set #1551.alignment = "right"
+  #1552 = #1399.getCell(19, 2)
+  #1553 = #1552.body.paragraphs.getFirst()
+  set #1553.alignment = "right"
+  #1554 = #1399.getCell(19, 3)
+  #1555 = #1554.body.paragraphs.getFirst()
+  set #1555.alignment = "right"
+  #1556 = #1399.getCell(19, 4)
+  #1557 = #1399.getCell(20, 0)
+  #1558 = #1399.getCell(20, 1)
+  #1559 = #1558.body.paragraphs.getFirst()
+  set #1559.alignment = "right"
+  #1560 = #1399.getCell(20, 2)
+  #1561 = #1560.body.paragraphs.getFirst()
+  set #1561.alignment = "right"
+  #1562 = #1399.getCell(20, 3)
+  #1563 = #1562.body.paragraphs.getFirst()
+  set #1563.alignment = "right"
+  #1564 = #1399.getCell(20, 4)
+  #1565 = #1399.getCell(21, 0)
+  #1566 = #1399.getCell(21, 1)
+  #1567 = #1566.body.paragraphs.getFirst()
+  set #1567.alignment = "right"
+  #1568 = #1399.getCell(21, 2)
+  #1569 = #1568.body.paragraphs.getFirst()
+  set #1569.alignment = "right"
+  #1570 = #1399.getCell(21, 3)
+  #1571 = #1570.body.paragraphs.getFirst()
+  set #1571.alignment = "right"
+  #1572 = #1399.getCell(21, 4)
+  #1573 = #1399.getCell(22, 0)
+  #1574 = #1399.getCell(22, 1)
+  #1575 = #1574.body.paragraphs.getFirst()
+  set #1575.alignment = "right"
+  #1576 = #1399.getCell(22, 2)
+  #1577 = #1576.body.paragraphs.getFirst()
+  set #1577.alignment = "right"
+  #1578 = #1399.getCell(22, 3)
+  #1579 = #1578.body.paragraphs.getFirst()
+  set #1579.alignment = "right"
+  #1580 = #1399.getCell(22, 4)
+  #1581 = #1399.getCell(23, 0)
+  #1582 = #1399.getCell(23, 1)
+  #1583 = #1582.body.paragraphs.getFirst()
+  set #1583.alignment = "right"
+  #1584 = #1399.getCell(23, 2)
+  #1585 = #1584.body.paragraphs.getFirst()
+  set #1585.alignment = "right"
+  #1586 = #1399.getCell(23, 3)
+  #1587 = #1586.body.paragraphs.getFirst()
+  set #1587.alignment = "right"
+  #1588 = #1399.getCell(23, 4)
+  #1589 = #1399.getCell(24, 0)
+  #1590 = #1399.getCell(24, 1)
+  #1591 = #1590.body.paragraphs.getFirst()
+  set #1591.alignment = "right"
+  #1592 = #1399.getCell(24, 2)
+  #1593 = #1592.body.paragraphs.getFirst()
+  set #1593.alignment = "right"
+  #1594 = #1399.getCell(24, 3)
+  #1595 = #1594.body.paragraphs.getFirst()
+  set #1595.alignment = "right"
+  #1596 = #1399.getCell(24, 4)
+  #1597 = #1399.getCell(25, 0)
+  #1598 = #1399.getCell(25, 1)
+  #1599 = #1598.body.paragraphs.getFirst()
+  set #1599.alignment = "right"
+  #1600 = #1399.getCell(25, 2)
+  #1601 = #1600.body.paragraphs.getFirst()
+  set #1601.alignment = "right"
+  #1602 = #1399.getCell(25, 3)
+  #1603 = #1602.body.paragraphs.getFirst()
+  set #1603.alignment = "right"
+  #1604 = #1399.getCell(25, 4)
+  #1605 = #1399.getCell(26, 0)
+  #1606 = #1399.getCell(26, 1)
+  #1607 = #1606.body.paragraphs.getFirst()
+  set #1607.alignment = "right"
+  #1608 = #1399.getCell(26, 2)
+  #1609 = #1608.body.paragraphs.getFirst()
+  set #1609.alignment = "right"
+  #1610 = #1399.getCell(26, 3)
+  #1611 = #1610.body.paragraphs.getFirst()
+  set #1611.alignment = "right"
+  #1612 = #1399.getCell(26, 4)
+  #1613 = #1399.getCell(27, 0)
+  #1614 = #1399.getCell(27, 1)
+  #1615 = #1614.body.paragraphs.getFirst()
+  set #1615.alignment = "right"
+  #1616 = #1399.getCell(27, 2)
+  #1617 = #1616.body.paragraphs.getFirst()
+  set #1617.alignment = "right"
+  #1618 = #1399.getCell(27, 3)
+  #1619 = #1618.body.paragraphs.getFirst()
+  set #1619.alignment = "right"
+  #1620 = #1399.getCell(27, 4)
+  #1621 = #1399.getCell(28, 0)
+  #1622 = #1399.getCell(28, 1)
+  #1623 = #1622.body.paragraphs.getFirst()
+  set #1623.alignment = "right"
+  #1624 = #1399.getCell(28, 2)
+  #1625 = #1624.body.paragraphs.getFirst()
+  set #1625.alignment = "right"
+  #1626 = #1399.getCell(28, 3)
+  #1627 = #1626.body.paragraphs.getFirst()
+  set #1627.alignment = "right"
+  #1628 = #1399.getCell(28, 4)
+  #1629 = #1399.getCell(29, 0)
+  #1630 = #1399.getCell(29, 1)
+  #1631 = #1630.body.paragraphs.getFirst()
+  set #1631.alignment = "right"
+  #1632 = #1399.getCell(29, 2)
+  #1633 = #1632.body.paragraphs.getFirst()
+  set #1633.alignment = "right"
+  #1634 = #1399.getCell(29, 3)
+  #1635 = #1634.body.paragraphs.getFirst()
+  set #1635.alignment = "right"
+  #1636 = #1399.getCell(29, 4)
+  #1637 = #1399.getCell(30, 0)
+  #1638 = #1399.getCell(30, 1)
+  #1639 = #1638.body.paragraphs.getFirst()
+  set #1639.alignment = "right"
+  #1640 = #1399.getCell(30, 2)
+  #1641 = #1640.body.paragraphs.getFirst()
+  set #1641.alignment = "right"
+  #1642 = #1399.getCell(30, 3)
+  #1643 = #1642.body.paragraphs.getFirst()
+  set #1643.alignment = "right"
+  #1644 = #1399.getCell(30, 4)
+  #1645 = #1399.getCell(31, 0)
+  #1646 = #1399.getCell(31, 1)
+  #1647 = #1646.body.paragraphs.getFirst()
+  set #1647.alignment = "right"
+  #1648 = #1399.getCell(31, 2)
+  #1649 = #1648.body.paragraphs.getFirst()
+  set #1649.alignment = "right"
+  #1650 = #1399.getCell(31, 3)
+  #1651 = #1650.body.paragraphs.getFirst()
+  set #1651.alignment = "right"
+  #1652 = #1399.getCell(31, 4)
+  #1653 = #1399.getCell(32, 0)
+  #1654 = #1399.getCell(32, 1)
+  #1655 = #1654.body.paragraphs.getFirst()
+  set #1655.alignment = "right"
+  #1656 = #1399.getCell(32, 2)
+  #1657 = #1656.body.paragraphs.getFirst()
+  set #1657.alignment = "right"
+  #1658 = #1399.getCell(32, 3)
+  #1659 = #1658.body.paragraphs.getFirst()
+  set #1659.alignment = "right"
+  #1660 = #1399.getCell(32, 4)
+  #1661 = #1399.getCell(33, 0)
+  #1662 = #1399.getCell(33, 1)
+  #1663 = #1662.body.paragraphs.getFirst()
+  set #1663.alignment = "right"
+  #1664 = #1399.getCell(33, 2)
+  #1665 = #1664.body.paragraphs.getFirst()
+  set #1665.alignment = "right"
+  #1666 = #1399.getCell(33, 3)
+  #1667 = #1666.body.paragraphs.getFirst()
+  set #1667.alignment = "right"
+  #1668 = #1399.getCell(33, 4)
+  #1669 = #1399.getCell(34, 0)
+  #1670 = #1399.getCell(34, 1)
+  #1671 = #1670.body.paragraphs.getFirst()
+  set #1671.alignment = "right"
+  #1672 = #1399.getCell(34, 2)
+  #1673 = #1672.body.paragraphs.getFirst()
+  set #1673.alignment = "right"
+  #1674 = #1399.getCell(34, 3)
+  #1675 = #1674.body.paragraphs.getFirst()
+  set #1675.alignment = "right"
+  #1676 = #1399.getCell(34, 4)
+  #1677 = #1399.getCell(35, 0)
+  #1678 = #1399.getCell(35, 1)
+  #1679 = #1678.body.paragraphs.getFirst()
+  set #1679.alignment = "right"
+  #1680 = #1399.getCell(35, 2)
+  #1681 = #1680.body.paragraphs.getFirst()
+  set #1681.alignment = "right"
+  #1682 = #1399.getCell(35, 3)
+  #1683 = #1682.body.paragraphs.getFirst()
+  set #1683.alignment = "right"
+  #1684 = #1399.getCell(35, 4)
+  #1685 = #1399.getCell(36, 0)
+  #1686 = #1399.getCell(36, 1)
+  #1687 = #1686.body.paragraphs.getFirst()
+  set #1687.alignment = "right"
+  #1688 = #1399.getCell(36, 2)
+  #1689 = #1688.body.paragraphs.getFirst()
+  set #1689.alignment = "right"
+  #1690 = #1399.getCell(36, 3)
+  #1691 = #1690.body.paragraphs.getFirst()
+  set #1691.alignment = "right"
+  #1692 = #1399.getCell(36, 4)
+  #1693 = #1399.getCell(37, 0)
+  #1694 = #1399.getCell(37, 1)
+  #1695 = #1694.body.paragraphs.getFirst()
+  set #1695.alignment = "right"
+  #1696 = #1399.getCell(37, 2)
+  #1697 = #1696.body.paragraphs.getFirst()
+  set #1697.alignment = "right"
+  #1698 = #1399.getCell(37, 3)
+  #1699 = #1698.body.paragraphs.getFirst()
+  set #1699.alignment = "right"
+  #1700 = #1399.getCell(37, 4)
+  #1701 = #1399.getCell(38, 0)
+  #1702 = #1399.getCell(38, 1)
+  #1703 = #1702.body.paragraphs.getFirst()
+  set #1703.alignment = "right"
+  #1704 = #1399.getCell(38, 2)
+  #1705 = #1704.body.paragraphs.getFirst()
+  set #1705.alignment = "right"
+  #1706 = #1399.getCell(38, 3)
+  #1707 = #1706.body.paragraphs.getFirst()
+  set #1707.alignment = "right"
+  #1708 = #1399.getCell(38, 4)
+  #1709 = #1399.getCell(39, 0)
+  #1710 = #1399.getCell(39, 1)
+  #1711 = #1710.body.paragraphs.getFirst()
+  set #1711.alignment = "right"
+  #1712 = #1399.getCell(39, 2)
+  #1713 = #1712.body.paragraphs.getFirst()
+  set #1713.alignment = "right"
+  #1714 = #1399.getCell(39, 3)
+  #1715 = #1714.body.paragraphs.getFirst()
+  set #1715.alignment = "right"
+  #1716 = #1399.getCell(39, 4)
+  #1717 = #1399.getRange("after")
+  #1718 = #1717.insertParagraph("Pertuzumab VH: numbering", "after")
+  set #1718.alignment = "centered"
+  set #1718.styleBuiltIn = "normal"
+  #1719 = #1718.getRange("after")
+  #1720 = #1719.select("end")
+  R57.sync()
+  #1721 = #1399.getRange()
+  #1722 = #1721.paragraphs.load("items")
+  R57.sync()
+  set #1721.paragraphs.items[0].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[1].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[2].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[3].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[4].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[5].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[6].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[7].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[8].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[9].styleBuiltIn = "normal"
+  set #1721.paragraphs.items[10].styleBuiltIn = "normal"
+  R57.sync()
+  #1723 = #1721.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #1724 = #1721.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #1725 = #1721.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #1726 = #1721.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #1727 = #1721.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #1728 = #1721.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #1729 = #1721.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #1730 = #1721.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #1731 = #1721.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #1732 = #1721.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #1733 = #1721.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R57.sync()
 } R57
-   status: Digest inserted. Ctrl/⌘+Z undoes it.
-== assay/assay-insert
 RUN R58 {
-  #449 = R58.document.getSelection()
-  #450 = #449.insertText(s858:8a54f55f, "after")
-  #451 = #449.select("end")
+  #1734 = R58.document.getSelection()
+  #1735 = #1734.insertTable(40, 5, "after", [n40:bcc43995])
+  #1736 = #1735.getCell(0, 0)
+  set #1736.body.font.bold = true
+  set #1736.shadingColor = "#E7EEF6"
+  #1737 = #1735.getCell(0, 1)
+  set #1737.body.font.bold = true
+  set #1737.shadingColor = "#E7EEF6"
+  #1738 = #1735.getCell(0, 2)
+  set #1738.body.font.bold = true
+  set #1738.shadingColor = "#E7EEF6"
+  #1739 = #1735.getCell(0, 3)
+  set #1739.body.font.bold = true
+  set #1739.shadingColor = "#E7EEF6"
+  #1740 = #1735.getCell(0, 4)
+  set #1740.body.font.bold = true
+  set #1740.shadingColor = "#E7EEF6"
+  #1741 = #1735.getCell(1, 0)
+  #1742 = #1735.getCell(1, 1)
+  #1743 = #1742.body.paragraphs.getFirst()
+  set #1743.alignment = "right"
+  #1744 = #1735.getCell(1, 2)
+  #1745 = #1744.body.paragraphs.getFirst()
+  set #1745.alignment = "right"
+  #1746 = #1735.getCell(1, 3)
+  #1747 = #1746.body.paragraphs.getFirst()
+  set #1747.alignment = "right"
+  #1748 = #1735.getCell(1, 4)
+  #1749 = #1735.getCell(2, 0)
+  #1750 = #1735.getCell(2, 1)
+  #1751 = #1750.body.paragraphs.getFirst()
+  set #1751.alignment = "right"
+  #1752 = #1735.getCell(2, 2)
+  #1753 = #1752.body.paragraphs.getFirst()
+  set #1753.alignment = "right"
+  #1754 = #1735.getCell(2, 3)
+  #1755 = #1754.body.paragraphs.getFirst()
+  set #1755.alignment = "right"
+  #1756 = #1735.getCell(2, 4)
+  #1757 = #1735.getCell(3, 0)
+  #1758 = #1735.getCell(3, 1)
+  #1759 = #1758.body.paragraphs.getFirst()
+  set #1759.alignment = "right"
+  #1760 = #1735.getCell(3, 2)
+  #1761 = #1760.body.paragraphs.getFirst()
+  set #1761.alignment = "right"
+  #1762 = #1735.getCell(3, 3)
+  #1763 = #1762.body.paragraphs.getFirst()
+  set #1763.alignment = "right"
+  #1764 = #1735.getCell(3, 4)
+  #1765 = #1735.getCell(4, 0)
+  #1766 = #1735.getCell(4, 1)
+  #1767 = #1766.body.paragraphs.getFirst()
+  set #1767.alignment = "right"
+  #1768 = #1735.getCell(4, 2)
+  #1769 = #1768.body.paragraphs.getFirst()
+  set #1769.alignment = "right"
+  #1770 = #1735.getCell(4, 3)
+  #1771 = #1770.body.paragraphs.getFirst()
+  set #1771.alignment = "right"
+  #1772 = #1735.getCell(4, 4)
+  #1773 = #1735.getCell(5, 0)
+  #1774 = #1735.getCell(5, 1)
+  #1775 = #1774.body.paragraphs.getFirst()
+  set #1775.alignment = "right"
+  #1776 = #1735.getCell(5, 2)
+  #1777 = #1776.body.paragraphs.getFirst()
+  set #1777.alignment = "right"
+  #1778 = #1735.getCell(5, 3)
+  #1779 = #1778.body.paragraphs.getFirst()
+  set #1779.alignment = "right"
+  #1780 = #1735.getCell(5, 4)
+  #1781 = #1735.getCell(6, 0)
+  #1782 = #1735.getCell(6, 1)
+  #1783 = #1782.body.paragraphs.getFirst()
+  set #1783.alignment = "right"
+  #1784 = #1735.getCell(6, 2)
+  #1785 = #1784.body.paragraphs.getFirst()
+  set #1785.alignment = "right"
+  #1786 = #1735.getCell(6, 3)
+  #1787 = #1786.body.paragraphs.getFirst()
+  set #1787.alignment = "right"
+  #1788 = #1735.getCell(6, 4)
+  #1789 = #1735.getCell(7, 0)
+  #1790 = #1735.getCell(7, 1)
+  #1791 = #1790.body.paragraphs.getFirst()
+  set #1791.alignment = "right"
+  #1792 = #1735.getCell(7, 2)
+  #1793 = #1792.body.paragraphs.getFirst()
+  set #1793.alignment = "right"
+  #1794 = #1735.getCell(7, 3)
+  #1795 = #1794.body.paragraphs.getFirst()
+  set #1795.alignment = "right"
+  #1796 = #1735.getCell(7, 4)
+  #1797 = #1735.getCell(8, 0)
+  #1798 = #1735.getCell(8, 1)
+  #1799 = #1798.body.paragraphs.getFirst()
+  set #1799.alignment = "right"
+  #1800 = #1735.getCell(8, 2)
+  #1801 = #1800.body.paragraphs.getFirst()
+  set #1801.alignment = "right"
+  #1802 = #1735.getCell(8, 3)
+  #1803 = #1802.body.paragraphs.getFirst()
+  set #1803.alignment = "right"
+  #1804 = #1735.getCell(8, 4)
+  #1805 = #1735.getCell(9, 0)
+  #1806 = #1735.getCell(9, 1)
+  #1807 = #1806.body.paragraphs.getFirst()
+  set #1807.alignment = "right"
+  #1808 = #1735.getCell(9, 2)
+  #1809 = #1808.body.paragraphs.getFirst()
+  set #1809.alignment = "right"
+  #1810 = #1735.getCell(9, 3)
+  #1811 = #1810.body.paragraphs.getFirst()
+  set #1811.alignment = "right"
+  #1812 = #1735.getCell(9, 4)
+  #1813 = #1735.getCell(10, 0)
+  #1814 = #1735.getCell(10, 1)
+  #1815 = #1814.body.paragraphs.getFirst()
+  set #1815.alignment = "right"
+  #1816 = #1735.getCell(10, 2)
+  #1817 = #1816.body.paragraphs.getFirst()
+  set #1817.alignment = "right"
+  #1818 = #1735.getCell(10, 3)
+  #1819 = #1818.body.paragraphs.getFirst()
+  set #1819.alignment = "right"
+  #1820 = #1735.getCell(10, 4)
+  #1821 = #1735.getCell(11, 0)
+  #1822 = #1735.getCell(11, 1)
+  #1823 = #1822.body.paragraphs.getFirst()
+  set #1823.alignment = "right"
+  #1824 = #1735.getCell(11, 2)
+  #1825 = #1824.body.paragraphs.getFirst()
+  set #1825.alignment = "right"
+  #1826 = #1735.getCell(11, 3)
+  #1827 = #1826.body.paragraphs.getFirst()
+  set #1827.alignment = "right"
+  #1828 = #1735.getCell(11, 4)
+  #1829 = #1735.getCell(12, 0)
+  #1830 = #1735.getCell(12, 1)
+  #1831 = #1830.body.paragraphs.getFirst()
+  set #1831.alignment = "right"
+  #1832 = #1735.getCell(12, 2)
+  #1833 = #1832.body.paragraphs.getFirst()
+  set #1833.alignment = "right"
+  #1834 = #1735.getCell(12, 3)
+  #1835 = #1834.body.paragraphs.getFirst()
+  set #1835.alignment = "right"
+  #1836 = #1735.getCell(12, 4)
+  #1837 = #1735.getCell(13, 0)
+  #1838 = #1735.getCell(13, 1)
+  #1839 = #1838.body.paragraphs.getFirst()
+  set #1839.alignment = "right"
+  #1840 = #1735.getCell(13, 2)
+  #1841 = #1840.body.paragraphs.getFirst()
+  set #1841.alignment = "right"
+  #1842 = #1735.getCell(13, 3)
+  #1843 = #1842.body.paragraphs.getFirst()
+  set #1843.alignment = "right"
+  #1844 = #1735.getCell(13, 4)
+  #1845 = #1735.getCell(14, 0)
+  #1846 = #1735.getCell(14, 1)
+  #1847 = #1846.body.paragraphs.getFirst()
+  set #1847.alignment = "right"
+  #1848 = #1735.getCell(14, 2)
+  #1849 = #1848.body.paragraphs.getFirst()
+  set #1849.alignment = "right"
+  #1850 = #1735.getCell(14, 3)
+  #1851 = #1850.body.paragraphs.getFirst()
+  set #1851.alignment = "right"
+  #1852 = #1735.getCell(14, 4)
+  #1853 = #1735.getCell(15, 0)
+  #1854 = #1735.getCell(15, 1)
+  #1855 = #1854.body.paragraphs.getFirst()
+  set #1855.alignment = "right"
+  #1856 = #1735.getCell(15, 2)
+  #1857 = #1856.body.paragraphs.getFirst()
+  set #1857.alignment = "right"
+  #1858 = #1735.getCell(15, 3)
+  #1859 = #1858.body.paragraphs.getFirst()
+  set #1859.alignment = "right"
+  #1860 = #1735.getCell(15, 4)
+  #1861 = #1735.getCell(16, 0)
+  #1862 = #1735.getCell(16, 1)
+  #1863 = #1862.body.paragraphs.getFirst()
+  set #1863.alignment = "right"
+  #1864 = #1735.getCell(16, 2)
+  #1865 = #1864.body.paragraphs.getFirst()
+  set #1865.alignment = "right"
+  #1866 = #1735.getCell(16, 3)
+  #1867 = #1866.body.paragraphs.getFirst()
+  set #1867.alignment = "right"
+  #1868 = #1735.getCell(16, 4)
+  #1869 = #1735.getCell(17, 0)
+  #1870 = #1735.getCell(17, 1)
+  #1871 = #1870.body.paragraphs.getFirst()
+  set #1871.alignment = "right"
+  #1872 = #1735.getCell(17, 2)
+  #1873 = #1872.body.paragraphs.getFirst()
+  set #1873.alignment = "right"
+  #1874 = #1735.getCell(17, 3)
+  #1875 = #1874.body.paragraphs.getFirst()
+  set #1875.alignment = "right"
+  #1876 = #1735.getCell(17, 4)
+  #1877 = #1735.getCell(18, 0)
+  #1878 = #1735.getCell(18, 1)
+  #1879 = #1878.body.paragraphs.getFirst()
+  set #1879.alignment = "right"
+  #1880 = #1735.getCell(18, 2)
+  #1881 = #1880.body.paragraphs.getFirst()
+  set #1881.alignment = "right"
+  #1882 = #1735.getCell(18, 3)
+  #1883 = #1882.body.paragraphs.getFirst()
+  set #1883.alignment = "right"
+  #1884 = #1735.getCell(18, 4)
+  #1885 = #1735.getCell(19, 0)
+  #1886 = #1735.getCell(19, 1)
+  #1887 = #1886.body.paragraphs.getFirst()
+  set #1887.alignment = "right"
+  #1888 = #1735.getCell(19, 2)
+  #1889 = #1888.body.paragraphs.getFirst()
+  set #1889.alignment = "right"
+  #1890 = #1735.getCell(19, 3)
+  #1891 = #1890.body.paragraphs.getFirst()
+  set #1891.alignment = "right"
+  #1892 = #1735.getCell(19, 4)
+  #1893 = #1735.getCell(20, 0)
+  #1894 = #1735.getCell(20, 1)
+  #1895 = #1894.body.paragraphs.getFirst()
+  set #1895.alignment = "right"
+  #1896 = #1735.getCell(20, 2)
+  #1897 = #1896.body.paragraphs.getFirst()
+  set #1897.alignment = "right"
+  #1898 = #1735.getCell(20, 3)
+  #1899 = #1898.body.paragraphs.getFirst()
+  set #1899.alignment = "right"
+  #1900 = #1735.getCell(20, 4)
+  #1901 = #1735.getCell(21, 0)
+  #1902 = #1735.getCell(21, 1)
+  #1903 = #1902.body.paragraphs.getFirst()
+  set #1903.alignment = "right"
+  #1904 = #1735.getCell(21, 2)
+  #1905 = #1904.body.paragraphs.getFirst()
+  set #1905.alignment = "right"
+  #1906 = #1735.getCell(21, 3)
+  #1907 = #1906.body.paragraphs.getFirst()
+  set #1907.alignment = "right"
+  #1908 = #1735.getCell(21, 4)
+  #1909 = #1735.getCell(22, 0)
+  #1910 = #1735.getCell(22, 1)
+  #1911 = #1910.body.paragraphs.getFirst()
+  set #1911.alignment = "right"
+  #1912 = #1735.getCell(22, 2)
+  #1913 = #1912.body.paragraphs.getFirst()
+  set #1913.alignment = "right"
+  #1914 = #1735.getCell(22, 3)
+  #1915 = #1914.body.paragraphs.getFirst()
+  set #1915.alignment = "right"
+  #1916 = #1735.getCell(22, 4)
+  #1917 = #1735.getCell(23, 0)
+  #1918 = #1735.getCell(23, 1)
+  #1919 = #1918.body.paragraphs.getFirst()
+  set #1919.alignment = "right"
+  #1920 = #1735.getCell(23, 2)
+  #1921 = #1920.body.paragraphs.getFirst()
+  set #1921.alignment = "right"
+  #1922 = #1735.getCell(23, 3)
+  #1923 = #1922.body.paragraphs.getFirst()
+  set #1923.alignment = "right"
+  #1924 = #1735.getCell(23, 4)
+  #1925 = #1735.getCell(24, 0)
+  #1926 = #1735.getCell(24, 1)
+  #1927 = #1926.body.paragraphs.getFirst()
+  set #1927.alignment = "right"
+  #1928 = #1735.getCell(24, 2)
+  #1929 = #1928.body.paragraphs.getFirst()
+  set #1929.alignment = "right"
+  #1930 = #1735.getCell(24, 3)
+  #1931 = #1930.body.paragraphs.getFirst()
+  set #1931.alignment = "right"
+  #1932 = #1735.getCell(24, 4)
+  #1933 = #1735.getCell(25, 0)
+  #1934 = #1735.getCell(25, 1)
+  #1935 = #1934.body.paragraphs.getFirst()
+  set #1935.alignment = "right"
+  #1936 = #1735.getCell(25, 2)
+  #1937 = #1936.body.paragraphs.getFirst()
+  set #1937.alignment = "right"
+  #1938 = #1735.getCell(25, 3)
+  #1939 = #1938.body.paragraphs.getFirst()
+  set #1939.alignment = "right"
+  #1940 = #1735.getCell(25, 4)
+  #1941 = #1735.getCell(26, 0)
+  #1942 = #1735.getCell(26, 1)
+  #1943 = #1942.body.paragraphs.getFirst()
+  set #1943.alignment = "right"
+  #1944 = #1735.getCell(26, 2)
+  #1945 = #1944.body.paragraphs.getFirst()
+  set #1945.alignment = "right"
+  #1946 = #1735.getCell(26, 3)
+  #1947 = #1946.body.paragraphs.getFirst()
+  set #1947.alignment = "right"
+  #1948 = #1735.getCell(26, 4)
+  #1949 = #1735.getCell(27, 0)
+  #1950 = #1735.getCell(27, 1)
+  #1951 = #1950.body.paragraphs.getFirst()
+  set #1951.alignment = "right"
+  #1952 = #1735.getCell(27, 2)
+  #1953 = #1952.body.paragraphs.getFirst()
+  set #1953.alignment = "right"
+  #1954 = #1735.getCell(27, 3)
+  #1955 = #1954.body.paragraphs.getFirst()
+  set #1955.alignment = "right"
+  #1956 = #1735.getCell(27, 4)
+  #1957 = #1735.getCell(28, 0)
+  #1958 = #1735.getCell(28, 1)
+  #1959 = #1958.body.paragraphs.getFirst()
+  set #1959.alignment = "right"
+  #1960 = #1735.getCell(28, 2)
+  #1961 = #1960.body.paragraphs.getFirst()
+  set #1961.alignment = "right"
+  #1962 = #1735.getCell(28, 3)
+  #1963 = #1962.body.paragraphs.getFirst()
+  set #1963.alignment = "right"
+  #1964 = #1735.getCell(28, 4)
+  #1965 = #1735.getCell(29, 0)
+  #1966 = #1735.getCell(29, 1)
+  #1967 = #1966.body.paragraphs.getFirst()
+  set #1967.alignment = "right"
+  #1968 = #1735.getCell(29, 2)
+  #1969 = #1968.body.paragraphs.getFirst()
+  set #1969.alignment = "right"
+  #1970 = #1735.getCell(29, 3)
+  #1971 = #1970.body.paragraphs.getFirst()
+  set #1971.alignment = "right"
+  #1972 = #1735.getCell(29, 4)
+  #1973 = #1735.getCell(30, 0)
+  #1974 = #1735.getCell(30, 1)
+  #1975 = #1974.body.paragraphs.getFirst()
+  set #1975.alignment = "right"
+  #1976 = #1735.getCell(30, 2)
+  #1977 = #1976.body.paragraphs.getFirst()
+  set #1977.alignment = "right"
+  #1978 = #1735.getCell(30, 3)
+  #1979 = #1978.body.paragraphs.getFirst()
+  set #1979.alignment = "right"
+  #1980 = #1735.getCell(30, 4)
+  #1981 = #1735.getCell(31, 0)
+  #1982 = #1735.getCell(31, 1)
+  #1983 = #1982.body.paragraphs.getFirst()
+  set #1983.alignment = "right"
+  #1984 = #1735.getCell(31, 2)
+  #1985 = #1984.body.paragraphs.getFirst()
+  set #1985.alignment = "right"
+  #1986 = #1735.getCell(31, 3)
+  #1987 = #1986.body.paragraphs.getFirst()
+  set #1987.alignment = "right"
+  #1988 = #1735.getCell(31, 4)
+  #1989 = #1735.getCell(32, 0)
+  #1990 = #1735.getCell(32, 1)
+  #1991 = #1990.body.paragraphs.getFirst()
+  set #1991.alignment = "right"
+  #1992 = #1735.getCell(32, 2)
+  #1993 = #1992.body.paragraphs.getFirst()
+  set #1993.alignment = "right"
+  #1994 = #1735.getCell(32, 3)
+  #1995 = #1994.body.paragraphs.getFirst()
+  set #1995.alignment = "right"
+  #1996 = #1735.getCell(32, 4)
+  #1997 = #1735.getCell(33, 0)
+  #1998 = #1735.getCell(33, 1)
+  #1999 = #1998.body.paragraphs.getFirst()
+  set #1999.alignment = "right"
+  #2000 = #1735.getCell(33, 2)
+  #2001 = #2000.body.paragraphs.getFirst()
+  set #2001.alignment = "right"
+  #2002 = #1735.getCell(33, 3)
+  #2003 = #2002.body.paragraphs.getFirst()
+  set #2003.alignment = "right"
+  #2004 = #1735.getCell(33, 4)
+  #2005 = #1735.getCell(34, 0)
+  #2006 = #1735.getCell(34, 1)
+  #2007 = #2006.body.paragraphs.getFirst()
+  set #2007.alignment = "right"
+  #2008 = #1735.getCell(34, 2)
+  #2009 = #2008.body.paragraphs.getFirst()
+  set #2009.alignment = "right"
+  #2010 = #1735.getCell(34, 3)
+  #2011 = #2010.body.paragraphs.getFirst()
+  set #2011.alignment = "right"
+  #2012 = #1735.getCell(34, 4)
+  #2013 = #1735.getCell(35, 0)
+  #2014 = #1735.getCell(35, 1)
+  #2015 = #2014.body.paragraphs.getFirst()
+  set #2015.alignment = "right"
+  #2016 = #1735.getCell(35, 2)
+  #2017 = #2016.body.paragraphs.getFirst()
+  set #2017.alignment = "right"
+  #2018 = #1735.getCell(35, 3)
+  #2019 = #2018.body.paragraphs.getFirst()
+  set #2019.alignment = "right"
+  #2020 = #1735.getCell(35, 4)
+  #2021 = #1735.getCell(36, 0)
+  #2022 = #1735.getCell(36, 1)
+  #2023 = #2022.body.paragraphs.getFirst()
+  set #2023.alignment = "right"
+  #2024 = #1735.getCell(36, 2)
+  #2025 = #2024.body.paragraphs.getFirst()
+  set #2025.alignment = "right"
+  #2026 = #1735.getCell(36, 3)
+  #2027 = #2026.body.paragraphs.getFirst()
+  set #2027.alignment = "right"
+  #2028 = #1735.getCell(36, 4)
+  #2029 = #1735.getCell(37, 0)
+  #2030 = #1735.getCell(37, 1)
+  #2031 = #2030.body.paragraphs.getFirst()
+  set #2031.alignment = "right"
+  #2032 = #1735.getCell(37, 2)
+  #2033 = #2032.body.paragraphs.getFirst()
+  set #2033.alignment = "right"
+  #2034 = #1735.getCell(37, 3)
+  #2035 = #2034.body.paragraphs.getFirst()
+  set #2035.alignment = "right"
+  #2036 = #1735.getCell(37, 4)
+  #2037 = #1735.getCell(38, 0)
+  #2038 = #1735.getCell(38, 1)
+  #2039 = #2038.body.paragraphs.getFirst()
+  set #2039.alignment = "right"
+  #2040 = #1735.getCell(38, 2)
+  #2041 = #2040.body.paragraphs.getFirst()
+  set #2041.alignment = "right"
+  #2042 = #1735.getCell(38, 3)
+  #2043 = #2042.body.paragraphs.getFirst()
+  set #2043.alignment = "right"
+  #2044 = #1735.getCell(38, 4)
+  #2045 = #1735.getCell(39, 0)
+  #2046 = #1735.getCell(39, 1)
+  #2047 = #2046.body.paragraphs.getFirst()
+  set #2047.alignment = "right"
+  #2048 = #1735.getCell(39, 2)
+  #2049 = #2048.body.paragraphs.getFirst()
+  set #2049.alignment = "right"
+  #2050 = #1735.getCell(39, 3)
+  #2051 = #2050.body.paragraphs.getFirst()
+  set #2051.alignment = "right"
+  #2052 = #1735.getCell(39, 4)
+  #2053 = #1735.getRange("after")
+  #2054 = #2053.insertParagraph("Pertuzumab VL: numbering", "after")
+  set #2054.alignment = "centered"
+  set #2054.styleBuiltIn = "normal"
+  #2055 = #2054.getRange("after")
+  #2056 = #2055.select("end")
+  R58.sync()
+  #2057 = #1735.getRange()
+  #2058 = #2057.paragraphs.load("items")
+  R58.sync()
+  set #2057.paragraphs.items[0].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[1].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[2].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[3].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[4].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[5].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[6].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[7].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[8].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[9].styleBuiltIn = "normal"
+  set #2057.paragraphs.items[10].styleBuiltIn = "normal"
+  R58.sync()
+  #2059 = #2057.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #2060 = #2057.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #2061 = #2057.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #2062 = #2057.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #2063 = #2057.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #2064 = #2057.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #2065 = #2057.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #2066 = #2057.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #2067 = #2057.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #2068 = #2057.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #2069 = #2057.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R58.sync()
 } R58
+   status: Numbering tables inserted.
+== antibody/ab-insert-identity
 RUN R59 {
-  #452 = R59.document.getSelection()
-  #453 = #452.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
-  set #453.width = 330
-  set #453.height = 202.5
-  set #453.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
-  #454 = #452.select("end")
+  #2070 = R59.document.getSelection()
+  #2071 = #2070.insertTable(5, 5, "after", [n5:ee1f5c9f])
+  #2072 = #2071.getCell(0, 0)
+  set #2072.body.font.bold = true
+  set #2072.shadingColor = "#E7EEF6"
+  #2073 = #2071.getCell(0, 1)
+  set #2073.body.font.bold = true
+  set #2073.shadingColor = "#E7EEF6"
+  #2074 = #2071.getCell(0, 2)
+  set #2074.body.font.bold = true
+  set #2074.shadingColor = "#E7EEF6"
+  #2075 = #2071.getCell(0, 3)
+  set #2075.body.font.bold = true
+  set #2075.shadingColor = "#E7EEF6"
+  #2076 = #2071.getCell(0, 4)
+  set #2076.body.font.bold = true
+  set #2076.shadingColor = "#E7EEF6"
+  #2077 = #2071.getCell(1, 0)
+  #2078 = #2071.getCell(1, 1)
+  #2079 = #2071.getCell(1, 2)
+  #2080 = #2071.getCell(1, 3)
+  #2081 = #2071.getCell(1, 4)
+  #2082 = #2071.getCell(2, 0)
+  #2083 = #2071.getCell(2, 1)
+  #2084 = #2071.getCell(2, 2)
+  #2085 = #2071.getCell(2, 3)
+  #2086 = #2071.getCell(2, 4)
+  #2087 = #2071.getCell(3, 0)
+  #2088 = #2071.getCell(3, 1)
+  #2089 = #2071.getCell(3, 2)
+  #2090 = #2071.getCell(3, 3)
+  #2091 = #2071.getCell(3, 4)
+  #2092 = #2071.getCell(4, 0)
+  #2093 = #2071.getCell(4, 1)
+  #2094 = #2071.getCell(4, 2)
+  #2095 = #2071.getCell(4, 3)
+  #2096 = #2071.getCell(4, 4)
+  #2097 = #2071.getRange("after")
+  #2098 = #2097.insertParagraph("% identity (V domain; aligned by IMGT position)", "after")
+  set #2098.alignment = "centered"
+  set #2098.styleBuiltIn = "normal"
+  #2099 = #2098.getRange("after")
+  #2100 = #2099.select("end")
   R59.sync()
-  #455 = #453.getRange()
-  #456 = #455.insertContentControl()
-  set #456.tag = "formula-inserter:assay"
-  set #456.title = "JurisLab"
-  set #456.appearance = "hidden"
+  #2101 = #2071.getRange()
+  #2102 = #2101.paragraphs.load("items")
   R59.sync()
+  set #2101.paragraphs.items[0].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[1].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[2].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[3].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[4].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[5].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[6].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[7].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[8].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[9].styleBuiltIn = "normal"
+  set #2101.paragraphs.items[10].styleBuiltIn = "normal"
+  R59.sync()
+  #2103 = #2101.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #2104 = #2101.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #2105 = #2101.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #2106 = #2101.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #2107 = #2101.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #2108 = #2101.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #2109 = #2101.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #2110 = #2101.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #2111 = #2101.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #2112 = #2101.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #2113 = #2101.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R59.sync()
 } R59
-   status: Result and fit plot inserted.
-== assay/assay-insert-plot
+   status: Identity table inserted.
+== antibody/ab-insert-annotated
 RUN R60 {
-  #457 = R60.document.getSelection()
-  #458 = #457.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
-  set #458.width = 330
-  set #458.height = 202.5
-  set #458.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
-  #459 = #457.select("end")
-  R60.sync()
-  #460 = #458.getRange()
-  #461 = #460.insertContentControl()
-  set #461.tag = "formula-inserter:assay"
-  set #461.title = "JurisLab"
-  set #461.appearance = "hidden"
-  R60.sync()
+  #2114 = R60.document.getSelection()
+  #2115 = #2114.insertHtml(s1461:1e28e2de, "after")
+  #2116 = #2114.select("end")
   R60.sync()
 } R60
-   status: Fit plot inserted as PNG at 384 dpi.
-== peptide/pep-insert
+   status: Sequences inserted with their CDRs marked.
+== antibody/ab-insert-claims
 RUN R61 {
-  #462 = R61.document.getSelection()
-  #463 = #462.insertInlinePictureFromBase64(s85072:46f08ee0, "after")
-  set #463.width = 237
-  set #463.height = 84.75
-  set #463.altTextDescription = s302:9b34922e
-  #464 = #462.select("end")
-  R61.sync()
-  #465 = #463.getRange()
-  #466 = #465.insertContentControl()
-  set #466.tag = "formula-inserter:peptide"
-  set #466.title = "JurisLab"
-  set #466.appearance = "hidden"
+  #2117 = R61.document.getSelection()
+  #2118 = #2117.insertText(s2109:af5b4c95, "after")
+  #2119 = #2117.select("end")
   R61.sync()
 } R61
-   status: Peptide structure inserted.
-== botanical/bot-name-insert
+   status: Claim text inserted — review it before filing.
+== antibody/ab-insert-seqids
 RUN R62 {
-  #467 = R62.document.getSelection()
-  #468 = #467.insertHtml("<i>Quercus</i> <i>alba</i> L.", "replace")
-  #469 = #468.select("end")
+  #2120 = R62.document.getSelection()
+  #2121 = #2120.insertTable(17, 3, "after", [n17:33902c4a])
+  #2122 = #2121.getCell(0, 0)
+  set #2122.body.font.bold = true
+  set #2122.shadingColor = "#E7EEF6"
+  #2123 = #2121.getCell(0, 1)
+  set #2123.body.font.bold = true
+  set #2123.shadingColor = "#E7EEF6"
+  #2124 = #2121.getCell(0, 2)
+  set #2124.body.font.bold = true
+  set #2124.shadingColor = "#E7EEF6"
+  #2125 = #2121.getCell(1, 0)
+  #2126 = #2125.body.paragraphs.getFirst()
+  set #2126.alignment = "right"
+  #2127 = #2121.getCell(1, 1)
+  #2128 = #2121.getCell(1, 2)
+  #2129 = #2121.getCell(2, 0)
+  #2130 = #2129.body.paragraphs.getFirst()
+  set #2130.alignment = "right"
+  #2131 = #2121.getCell(2, 1)
+  #2132 = #2121.getCell(2, 2)
+  #2133 = #2121.getCell(3, 0)
+  #2134 = #2133.body.paragraphs.getFirst()
+  set #2134.alignment = "right"
+  #2135 = #2121.getCell(3, 1)
+  #2136 = #2121.getCell(3, 2)
+  #2137 = #2121.getCell(4, 0)
+  #2138 = #2137.body.paragraphs.getFirst()
+  set #2138.alignment = "right"
+  #2139 = #2121.getCell(4, 1)
+  #2140 = #2121.getCell(4, 2)
+  #2141 = #2121.getCell(5, 0)
+  #2142 = #2141.body.paragraphs.getFirst()
+  set #2142.alignment = "right"
+  #2143 = #2121.getCell(5, 1)
+  #2144 = #2121.getCell(5, 2)
+  #2145 = #2121.getCell(6, 0)
+  #2146 = #2145.body.paragraphs.getFirst()
+  set #2146.alignment = "right"
+  #2147 = #2121.getCell(6, 1)
+  #2148 = #2121.getCell(6, 2)
+  #2149 = #2121.getCell(7, 0)
+  #2150 = #2149.body.paragraphs.getFirst()
+  set #2150.alignment = "right"
+  #2151 = #2121.getCell(7, 1)
+  #2152 = #2121.getCell(7, 2)
+  #2153 = #2121.getCell(8, 0)
+  #2154 = #2153.body.paragraphs.getFirst()
+  set #2154.alignment = "right"
+  #2155 = #2121.getCell(8, 1)
+  #2156 = #2121.getCell(8, 2)
+  #2157 = #2121.getCell(9, 0)
+  #2158 = #2157.body.paragraphs.getFirst()
+  set #2158.alignment = "right"
+  #2159 = #2121.getCell(9, 1)
+  #2160 = #2121.getCell(9, 2)
+  #2161 = #2121.getCell(10, 0)
+  #2162 = #2161.body.paragraphs.getFirst()
+  set #2162.alignment = "right"
+  #2163 = #2121.getCell(10, 1)
+  #2164 = #2121.getCell(10, 2)
+  #2165 = #2121.getCell(11, 0)
+  #2166 = #2165.body.paragraphs.getFirst()
+  set #2166.alignment = "right"
+  #2167 = #2121.getCell(11, 1)
+  #2168 = #2121.getCell(11, 2)
+  #2169 = #2121.getCell(12, 0)
+  #2170 = #2169.body.paragraphs.getFirst()
+  set #2170.alignment = "right"
+  #2171 = #2121.getCell(12, 1)
+  #2172 = #2121.getCell(12, 2)
+  #2173 = #2121.getCell(13, 0)
+  #2174 = #2173.body.paragraphs.getFirst()
+  set #2174.alignment = "right"
+  #2175 = #2121.getCell(13, 1)
+  #2176 = #2121.getCell(13, 2)
+  #2177 = #2121.getCell(14, 0)
+  #2178 = #2177.body.paragraphs.getFirst()
+  set #2178.alignment = "right"
+  #2179 = #2121.getCell(14, 1)
+  #2180 = #2121.getCell(14, 2)
+  #2181 = #2121.getCell(15, 0)
+  #2182 = #2181.body.paragraphs.getFirst()
+  set #2182.alignment = "right"
+  #2183 = #2121.getCell(15, 1)
+  #2184 = #2121.getCell(15, 2)
+  #2185 = #2121.getCell(16, 0)
+  #2186 = #2185.body.paragraphs.getFirst()
+  set #2186.alignment = "right"
+  #2187 = #2121.getCell(16, 1)
+  #2188 = #2121.getCell(16, 2)
+  #2189 = #2121.getRange("after")
+  #2190 = #2189.insertParagraph("Sequences", "after")
+  set #2190.alignment = "centered"
+  set #2190.styleBuiltIn = "normal"
+  #2191 = #2190.getRange("after")
+  #2192 = #2191.select("end")
+  R62.sync()
+  #2193 = #2121.getRange()
+  #2194 = #2193.paragraphs.load("items")
+  R62.sync()
+  set #2193.paragraphs.items[0].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[1].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[2].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[3].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[4].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[5].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[6].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[7].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[8].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[9].styleBuiltIn = "normal"
+  set #2193.paragraphs.items[10].styleBuiltIn = "normal"
+  R62.sync()
+  #2195 = #2193.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #2196 = #2193.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #2197 = #2193.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #2198 = #2193.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #2199 = #2193.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #2200 = #2193.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #2201 = #2193.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #2202 = #2193.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #2203 = #2193.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #2204 = #2193.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #2205 = #2193.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R62.sync()
 } R62
-   status: Name inserted.
-== botanical/bot-traits-insert
+   status: SEQ ID table inserted.
+== finance/fin-insert
 RUN R63 {
-  #470 = R63.document.getSelection()
-  #471 = #470.insertHtml(s651:3df0bfb8, "replace")
-  #472 = #471.select("end")
+  #2206 = R63.document.getSelection()
+  #2207 = #2206.insertText("FV = 1,628.89", "after")
+  #2208 = #2206.select("end")
   R63.sync()
 } R63
-   status: Characteristics table inserted.
-== seqmap/seqmap-insert
 RUN R64 {
-  #473 = R64.document.getSelection()
-  #474 = #473.insertInlinePictureFromBase64(s48996:2432549f, "after")
-  set #474.width = 480
-  set #474.height = 48
-  set #474.altTextDescription = s51:52c6660e
-  #475 = #473.select("end")
+  #2209 = R64.document.getSelection()
+  #2210 = #2209.insertInlinePictureFromBase64(s352620:83a9a4f9, "after")
+  set #2210.width = 320.25
+  set #2210.height = 180
+  set #2210.altTextDescription = "Finance chart: Future value (TVM)"
+  #2211 = #2209.select("end")
   R64.sync()
-  #476 = #474.getRange()
-  #477 = #476.insertContentControl()
-  set #477.tag = "formula-inserter:seqmap"
-  set #477.title = "JurisLab"
-  set #477.appearance = "hidden"
+  #2212 = #2210.getRange()
+  #2213 = #2212.insertContentControl()
+  set #2213.tag = "formula-inserter:finance-chart"
+  set #2213.title = "JurisLab"
+  set #2213.appearance = "hidden"
+  R64.sync()
   R64.sync()
 } R64
-   status: Map inserted.
-== align/align-insert
+   status: Result and chart inserted (chart as PNG at 768 dpi).
+== sequence/seq-ref-insert
 RUN R65 {
-  #478 = R65.document.getSelection()
-  #479 = #478.insertHtml(s798:e350917e, "replace")
-  #480 = #478.select("end")
+  #2214 = R65.document.getSelection()
+  #2215 = #2214.insertText("SEQ ID NO: 1", "after")
+  #2216 = #2214.select("end")
   R65.sync()
 } R65
-   status: Alignment inserted.
-== cad/cad-open
+   status: SEQ ID reference inserted. Ctrl/⌘+Z undoes it.
+== dna/dna-revcomp-insert
 RUN R66 {
-  #481 = R66.document.getSelection()
-  #482 = #481.inlinePictures.load("items/altTextDescription")
+  #2217 = R66.document.getSelection()
+  #2218 = #2217.insertText(s93:2e58239d, "after")
+  #2219 = #2217.select("end")
   R66.sync()
 } R66
-   status: That picture was not made by the Drawing tool, so there is no model to open.
-== cad/cad-insert
+   status: Reverse complement inserted. Ctrl/⌘+Z undoes it.
+== dna/dna-mrna-insert
 RUN R67 {
-  #483 = R67.document.getSelection()
-  #484 = #483.insertInlinePictureFromBase64(s221724:7e869ad1, "after")
-  set #484.width = 450.7086614173229
-  set #484.height = 227.9894049154022
-  set #484.altTextDescription = s470:723c92d7
-  #485 = #483.select("end")
-  R67.sync()
-  #486 = #484.getRange()
-  #487 = #486.insertContentControl()
-  set #487.tag = "formula-inserter:cad"
-  set #487.title = "JurisLab"
-  set #487.appearance = "hidden"
+  #2220 = R67.document.getSelection()
+  #2221 = #2220.insertText(s93:031d894e, "after")
+  #2222 = #2220.select("end")
   R67.sync()
 } R67
+   status: mRNA inserted. Ctrl/⌘+Z undoes it.
+== dna/dna-protein-insert
+RUN R68 {
+  #2223 = R68.document.getSelection()
+  #2224 = #2223.insertText("MASKGEELFTGVVPILVELDGDVNGHKFSV*", "after")
+  #2225 = #2223.select("end")
+  R68.sync()
+} R68
+   status: Protein inserted. Ctrl/⌘+Z undoes it.
+== dna/dna-orf-insert
+RUN R69 {
+  #2226 = R69.document.getSelection()
+  #2227 = #2226.insertHtml(s851:679cad16, "replace")
+  #2228 = #2227.select("end")
+  R69.sync()
+  #2229 = #2227.insertContentControl()
+  set #2229.tag = "formula-inserter:orf-table"
+  set #2229.title = "JurisLab"
+  set #2229.appearance = "hidden"
+  R69.sync()
+} R69
+   status: ORF table inserted.
+== dna/digest-insert-btn
+RUN R70 {
+  #2230 = R70.document.getSelection()
+  #2231 = #2230.insertText(s132:89d4dc1f, "after")
+  #2232 = #2230.select("end")
+  R70.sync()
+} R70
+   status: Digest inserted. Ctrl/⌘+Z undoes it.
+== assay/assay-insert
+RUN R71 {
+  #2233 = R71.document.getSelection()
+  #2234 = #2233.insertText(s858:8a54f55f, "after")
+  #2235 = #2233.select("end")
+  R71.sync()
+} R71
+RUN R72 {
+  #2236 = R72.document.getSelection()
+  #2237 = #2236.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
+  set #2237.width = 330
+  set #2237.height = 202.5
+  set #2237.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
+  #2238 = #2236.select("end")
+  R72.sync()
+  #2239 = #2237.getRange()
+  #2240 = #2239.insertContentControl()
+  set #2240.tag = "formula-inserter:assay"
+  set #2240.title = "JurisLab"
+  set #2240.appearance = "hidden"
+  R72.sync()
+  R72.sync()
+} R72
+   status: Result and fit plot inserted.
+== assay/assay-insert-plot
+RUN R73 {
+  #2241 = R73.document.getSelection()
+  #2242 = #2241.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
+  set #2242.width = 330
+  set #2242.height = 202.5
+  set #2242.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
+  #2243 = #2241.select("end")
+  R73.sync()
+  #2244 = #2242.getRange()
+  #2245 = #2244.insertContentControl()
+  set #2245.tag = "formula-inserter:assay"
+  set #2245.title = "JurisLab"
+  set #2245.appearance = "hidden"
+  R73.sync()
+  R73.sync()
+} R73
+   status: Fit plot inserted as PNG at 384 dpi.
+== peptide/pep-insert
+RUN R74 {
+  #2246 = R74.document.getSelection()
+  #2247 = #2246.insertInlinePictureFromBase64(s85072:46f08ee0, "after")
+  set #2247.width = 237
+  set #2247.height = 84.75
+  set #2247.altTextDescription = s302:9b34922e
+  #2248 = #2246.select("end")
+  R74.sync()
+  #2249 = #2247.getRange()
+  #2250 = #2249.insertContentControl()
+  set #2250.tag = "formula-inserter:peptide"
+  set #2250.title = "JurisLab"
+  set #2250.appearance = "hidden"
+  R74.sync()
+} R74
+   status: Peptide structure inserted.
+== botanical/bot-name-insert
+RUN R75 {
+  #2251 = R75.document.getSelection()
+  #2252 = #2251.insertHtml("<i>Quercus</i> <i>alba</i> L.", "replace")
+  #2253 = #2252.select("end")
+  R75.sync()
+} R75
+   status: Name inserted.
+== botanical/bot-traits-insert
+RUN R76 {
+  #2254 = R76.document.getSelection()
+  #2255 = #2254.insertHtml(s651:3df0bfb8, "replace")
+  #2256 = #2255.select("end")
+  R76.sync()
+} R76
+   status: Characteristics table inserted.
+== seqmap/seqmap-insert
+RUN R77 {
+  #2257 = R77.document.getSelection()
+  #2258 = #2257.insertInlinePictureFromBase64(s48996:2432549f, "after")
+  set #2258.width = 480
+  set #2258.height = 48
+  set #2258.altTextDescription = s51:52c6660e
+  #2259 = #2257.select("end")
+  R77.sync()
+  #2260 = #2258.getRange()
+  #2261 = #2260.insertContentControl()
+  set #2261.tag = "formula-inserter:seqmap"
+  set #2261.title = "JurisLab"
+  set #2261.appearance = "hidden"
+  R77.sync()
+} R77
+   status: Map inserted.
+== align/align-insert
+RUN R78 {
+  #2262 = R78.document.getSelection()
+  #2263 = #2262.insertHtml(s798:e350917e, "replace")
+  #2264 = #2262.select("end")
+  R78.sync()
+} R78
+   status: Alignment inserted.
+== cad/cad-open
+RUN R79 {
+  #2265 = R79.document.getSelection()
+  #2266 = #2265.inlinePictures.load("items/altTextDescription")
+  R79.sync()
+} R79
+   status: That picture was not made by the Drawing tool, so there is no model to open.
+== cad/cad-insert
+RUN R80 {
+  #2267 = R80.document.getSelection()
+  #2268 = #2267.insertInlinePictureFromBase64(s221724:7e869ad1, "after")
+  set #2268.width = 450.7086614173229
+  set #2268.height = 227.9894049154022
+  set #2268.altTextDescription = s470:723c92d7
+  #2269 = #2267.select("end")
+  R80.sync()
+  #2270 = #2268.getRange()
+  #2271 = #2270.insertContentControl()
+  set #2271.tag = "formula-inserter:cad"
+  set #2271.title = "JurisLab"
+  set #2271.appearance = "hidden"
+  R80.sync()
+} R80
    status: Drawing inserted — Engineering drawing — ASME (third-angle). The drawing is inserted at 63 % to fit the page; SCALE 1:1 holds at full size (254 mm wide).
 == cad/cad-popout
 OFFICE displayDialogAsync("caddialog.html", {height:90,width:90})
 OFFICE dialog.close()
-RUN R68 {
-  #488 = R68.document.getSelection()
-  #489 = #488.insertInlinePictureFromBase64(s133776:2a691b26, "after")
-  set #489.width = 450.7086614173229
-  set #489.height = 285.47383379077814
-  set #489.altTextDescription = s382:8bb7b0af
-  #490 = #488.select("end")
-  R68.sync()
-  #491 = #489.getRange()
-  #492 = #491.insertContentControl()
-  set #492.tag = "formula-inserter:cad"
-  set #492.title = "JurisLab"
-  set #492.appearance = "hidden"
-  R68.sync()
-} R68
+RUN R81 {
+  #2272 = R81.document.getSelection()
+  #2273 = #2272.insertInlinePictureFromBase64(s133776:2a691b26, "after")
+  set #2273.width = 450.7086614173229
+  set #2273.height = 285.47383379077814
+  set #2273.altTextDescription = s382:8bb7b0af
+  #2274 = #2272.select("end")
+  R81.sync()
+  #2275 = #2273.getRange()
+  #2276 = #2275.insertContentControl()
+  set #2276.tag = "formula-inserter:cad"
+  set #2276.title = "JurisLab"
+  set #2276.appearance = "hidden"
+  R81.sync()
+} R81
    status: Drawing inserted — Engineering drawing — ASME (third-angle). The drawing is inserted at 63 % to fit the page; SCALE 2:1 holds at full size (254 mm wide).
 == numerals/num-add-btn
 OFFICE settings.set("formula-inserter.numerals", "[{\"numeral\":10,\"element\":\"\"}]")
 OFFICE settings.saveAsync()
    status: 
 == numerals/num-scan-btn
-RUN R69 {
-  #493 = R69.document.body.load("text")
-  R69.sync()
-} R69
+RUN R82 {
+  #2277 = R82.document.body.load("text")
+  R82.sync()
+} R82
    status: Scan complete.
 == numerals/num-insert-list-btn
 OFFICE settings.set("formula-inserter.numerals", s57:6803f055)
 OFFICE settings.saveAsync()
 OFFICE settings.set("formula-inserter.numerals", s64:844daa0a)
 OFFICE settings.saveAsync()
-RUN R70 {
-  #494 = R70.document.getSelection()
-  #495 = #494.insertText("(10)", "replace")
-  #496 = #495.select("end")
-  R70.sync()
-  #497 = #495.insertContentControl()
-  set #497.tag = "formula-inserter:callout:10"
-  set #497.title = "JurisLab"
-  set #497.appearance = "hidden"
-  R70.sync()
-} R70
-RUN R71 {
-  #498 = R71.document.getSelection()
-  #499 = #498.insertParagraph("List of Reference Numerals", "before")
-  set #499.styleBuiltIn = undefined
-  #500 = #498.insertParagraph("", "before")
-  #501 = #500.getRange()
-  #502 = #501.insertHtml(s358:c5224305, "replace")
-  R71.sync()
-  #503 = #502.insertContentControl()
-  set #503.tag = "formula-inserter:numeral-list"
-  set #503.title = "JurisLab"
-  set #503.appearance = "hidden"
-  R71.sync()
-} R71
+RUN R83 {
+  #2278 = R83.document.getSelection()
+  #2279 = #2278.insertText("(10)", "replace")
+  #2280 = #2279.select("end")
+  R83.sync()
+  #2281 = #2279.insertContentControl()
+  set #2281.tag = "formula-inserter:callout:10"
+  set #2281.title = "JurisLab"
+  set #2281.appearance = "hidden"
+  R83.sync()
+} R83
+RUN R84 {
+  #2282 = R84.document.getSelection()
+  #2283 = #2282.insertParagraph("List of Reference Numerals", "before")
+  set #2283.styleBuiltIn = undefined
+  #2284 = #2282.insertParagraph("", "before")
+  #2285 = #2284.getRange()
+  #2286 = #2285.insertHtml(s358:c5224305, "replace")
+  R84.sync()
+  #2287 = #2286.insertContentControl()
+  set #2287.tag = "formula-inserter:numeral-list"
+  set #2287.title = "JurisLab"
+  set #2287.appearance = "hidden"
+  R84.sync()
+} R84
    status: List of Reference Numerals inserted.
 == numerals/para-preview-btn
-RUN R72 {
-  #504 = R72.document.body.paragraphs.load("items/text")
-  R72.sync()
-} R72
+RUN R85 {
+  #2288 = R85.document.body.paragraphs.load("items/text")
+  R85.sync()
+} R85
    status: 
 == numerals/para-apply-btn
-RUN R73 {
-  #505 = R73.document.body.paragraphs.load("items/text")
-  R73.sync()
-} R73
-RUN R74 {
-  #506 = R74.document.body.paragraphs.load("items/text")
-  R74.sync()
-  #507 = R74.document.body.paragraphs.items[1].insertText("[0001] ", "start")
-  #508 = R74.document.body.paragraphs.items[2].insertText("[0002] ", "start")
-  #509 = R74.document.body.paragraphs.items[3].insertText("[0003] ", "start")
-  #510 = R74.document.body.paragraphs.items[4].insertText("[0004] ", "start")
-  #511 = R74.document.body.paragraphs.items[5].insertText("[0005] ", "start")
-  #512 = R74.document.body.paragraphs.items[6].insertText("[0006] ", "start")
-  #513 = R74.document.body.paragraphs.items[7].insertText("[0007] ", "start")
-  #514 = R74.document.body.paragraphs.items[8].insertText("[0008] ", "start")
-  #515 = R74.document.body.paragraphs.items[9].insertText("[0009] The invention relates to housings.", "replace")
-  #516 = R74.document.body.paragraphs.items[10].insertText("[0010] The lid 12 is hinged.", "replace")
-  R74.sync()
-} R74
+RUN R86 {
+  #2289 = R86.document.body.paragraphs.load("items/text")
+  R86.sync()
+} R86
+RUN R87 {
+  #2290 = R87.document.body.paragraphs.load("items/text")
+  R87.sync()
+  #2291 = R87.document.body.paragraphs.items[1].insertText("[0001] ", "start")
+  #2292 = R87.document.body.paragraphs.items[2].insertText("[0002] ", "start")
+  #2293 = R87.document.body.paragraphs.items[3].insertText("[0003] ", "start")
+  #2294 = R87.document.body.paragraphs.items[4].insertText("[0004] ", "start")
+  #2295 = R87.document.body.paragraphs.items[5].insertText("[0005] ", "start")
+  #2296 = R87.document.body.paragraphs.items[6].insertText("[0006] ", "start")
+  #2297 = R87.document.body.paragraphs.items[7].insertText("[0007] ", "start")
+  #2298 = R87.document.body.paragraphs.items[8].insertText("[0008] ", "start")
+  #2299 = R87.document.body.paragraphs.items[9].insertText("[0009] The invention relates to housings.", "replace")
+  #2300 = R87.document.body.paragraphs.items[10].insertText("[0010] The lid 12 is hinged.", "replace")
+  R87.sync()
+} R87
    status: 
 == refs/ref-reset
 OFFICE settings.set("formula-inserter.refs", "{\"figure\":1,\"table\":1}")
 OFFICE settings.saveAsync()
    status: 
 == refs/ref-insert-caption
-RUN R75 {
-  #517 = R75.document.getSelection()
-  #518 = #517.insertParagraph("Figure 1", "after")
-  set #518.styleBuiltIn = "caption"
-  #519 = #518.getRange()
-  #520 = #519.select("end")
-  R75.sync()
-  #521 = #518.getRange()
-  #522 = #521.insertContentControl()
-  set #522.tag = "formula-inserter:caption:figure"
-  set #522.title = "JurisLab"
-  set #522.appearance = "hidden"
-  R75.sync()
-} R75
+RUN R88 {
+  #2301 = R88.document.getSelection()
+  #2302 = #2301.insertParagraph("Figure 1", "after")
+  set #2302.styleBuiltIn = "caption"
+  #2303 = #2302.getRange()
+  #2304 = #2303.select("end")
+  R88.sync()
+  #2305 = #2302.getRange()
+  #2306 = #2305.insertContentControl()
+  set #2306.tag = "formula-inserter:caption:figure"
+  set #2306.title = "JurisLab"
+  set #2306.appearance = "hidden"
+  R88.sync()
+} R88
 OFFICE settings.set("formula-inserter.refs", "{\"figure\":2,\"table\":1}")
 OFFICE settings.saveAsync()
    status: Inserted "Figure 1".
 == refs/ref-insert-xref
-RUN R76 {
-  #523 = R76.document.getSelection()
-  #524 = #523.insertText("Fig. 1", "after")
-  #525 = #523.select("end")
-  R76.sync()
-} R76
+RUN R89 {
+  #2307 = R89.document.getSelection()
+  #2308 = #2307.insertText("Fig. 1", "after")
+  #2309 = #2307.select("end")
+  R89.sync()
+} R89
    status: Cross-reference inserted. Ctrl/⌘+Z undoes it.
 == refs/ref-check
-RUN R77 {
-  #526 = R77.document.body.load("text")
-  R77.sync()
-} R77
+RUN R90 {
+  #2310 = R90.document.body.load("text")
+  R90.sync()
+} R90
    status: Check complete.
 == code/insert-code-btn
-RUN R78 {
-  #527 = R78.document.getSelection()
-  #528 = #527.insertHtml(s996:ceb8597c, "replace")
-  #529 = #528.select("end")
-  R78.sync()
-} R78
+RUN R91 {
+  #2311 = R91.document.getSelection()
+  #2312 = #2311.insertHtml(s996:ceb8597c, "replace")
+  #2313 = #2312.select("end")
+  R91.sync()
+} R91
    status: Block inserted.
 == audit/audit-run-btn
-RUN R79 {
-  #530 = R79.document.body.load("text")
-  R79.sync()
-} R79
+RUN R92 {
+  #2314 = R92.document.body.load("text")
+  R92.sync()
+} R92
    status: Audit complete.
 == citations/cite-insert
-RUN R80 {
-  #531 = R80.document.getSelection()
-  #532 = #531.insertHtml(s49:b967615d, "replace")
-  #533 = #532.select("end")
-  R80.sync()
-  #534 = #532.insertContentControl()
-  set #534.tag = "formula-inserter:citation"
-  set #534.title = "JurisLab"
-  set #534.appearance = "hidden"
-  R80.sync()
-} R80
+RUN R93 {
+  #2315 = R93.document.getSelection()
+  #2316 = #2315.insertHtml(s49:b967615d, "replace")
+  #2317 = #2316.select("end")
+  R93.sync()
+  #2318 = #2316.insertContentControl()
+  set #2318.tag = "formula-inserter:citation"
+  set #2318.title = "JurisLab"
+  set #2318.appearance = "hidden"
+  R93.sync()
+} R93
    status: Citation inserted.
 == citations/toa-build
-RUN R81 {
-  #535 = R81.document.body.load("text")
-  R81.sync()
-  #536 = R81.document.contentControls.getByTag("jurislab:toafield")
-  #537 = #536.load("items")
-  R81.sync()
-  #538 = R81.document.getSelection()
-  #539 = #538.insertOoxml(s4663:131d388c, "replace")
-  #540 = #539.select("end")
-  R81.sync()
-  #541 = #539.insertContentControl()
-  set #541.tag = "formula-inserter:toa"
-  set #541.title = "JurisLab"
-  set #541.appearance = "hidden"
-  R81.sync()
-} R81
+RUN R94 {
+  #2319 = R94.document.body.load("text")
+  R94.sync()
+  #2320 = R94.document.contentControls.getByTag("jurislab:toafield")
+  #2321 = #2320.load("items")
+  R94.sync()
+  #2322 = R94.document.getSelection()
+  #2323 = #2322.insertOoxml(s4663:131d388c, "replace")
+  #2324 = #2323.select("end")
+  R94.sync()
+  #2325 = #2323.insertContentControl()
+  set #2325.tag = "formula-inserter:toa"
+  set #2325.title = "JurisLab"
+  set #2325.appearance = "hidden"
+  R94.sync()
+} R94
    status: Formatted Table of Authorities inserted.
 == citations/toa-native
-RUN R82 {
-  #542 = R82.document.body.footnotes.load("items")
-  #543 = R82.document.body.endnotes.load("items")
-  R82.sync()
-  #544 = R82.document.body.load("text")
-  #545 = R82.document.body.footnotes.items[0].body.load("text")
-  R82.sync()
-  #546 = R82.document.body.fields.load("items/code")
-  #547 = R82.document.body.footnotes.items[0].body.fields.load("items/code")
-  R82.sync()
-  #548 = R82.document.body.fields.items[0].delete()
-  #549 = R82.document.body.footnotes.items[0].body.fields.items[0].delete()
+RUN R95 {
+  #2326 = R95.document.body.footnotes.load("items")
+  #2327 = R95.document.body.endnotes.load("items")
+  R95.sync()
+  #2328 = R95.document.body.load("text")
+  #2329 = R95.document.body.footnotes.items[0].body.load("text")
+  R95.sync()
+  #2330 = R95.document.body.fields.load("items/code")
+  #2331 = R95.document.body.footnotes.items[0].body.fields.load("items/code")
+  R95.sync()
+  #2332 = R95.document.body.fields.items[0].delete()
+  #2333 = R95.document.body.footnotes.items[0].body.fields.items[0].delete()
   THREW n.load is not a function
-} R82
+} R95
    status: Could not build the field-based Table of Authorities: n.load is not a function
 == citations/toa-clearmarks
-RUN R83 {
-  #550 = R83.document.body.fields.load("items/code")
-  R83.sync()
-  #551 = R83.document.body.fields.items[0].delete()
-  R83.sync()
-} R83
+RUN R96 {
+  #2334 = R96.document.body.fields.load("items/code")
+  R96.sync()
+  #2335 = R96.document.body.fields.items[0].delete()
+  R96.sync()
+} R96
    status: Removed 1 citation marks.
 == citations/toa-cleartables
-RUN R84 {
-  #552 = R84.document.body.fields.load("items/code")
-  R84.sync()
-  #553 = R84.document.body.fields.items[1].delete()
-  #554 = R84.document.body.fields.items[2].delete()
-  R84.sync()
-} R84
+RUN R97 {
+  #2336 = R97.document.body.fields.load("items/code")
+  R97.sync()
+  #2337 = R97.document.body.fields.items[1].delete()
+  #2338 = R97.document.body.fields.items[2].delete()
+  R97.sync()
+} R97
    status: Removed 2 table fields.
 == citations/toc-build
-RUN R85 {
-  #555 = R85.document.getSelection()
-  #556 = #555.insertOoxml(s2056:901fd238, "replace")
-  R85.sync()
-  #557 = R85.document.getStyles()
-  #558 = #557.load("items/nameLocal")
-  R85.sync()
-} R85
+RUN R98 {
+  #2339 = R98.document.getSelection()
+  #2340 = #2339.insertOoxml(s2056:901fd238, "replace")
+  R98.sync()
+  #2341 = R98.document.getStyles()
+  #2342 = #2341.load("items/nameLocal")
+  R98.sync()
+} R98
    status: Table of Contents (field) inserted — press F9 to update.
 == citations/toa-find
-RUN R86 {
-  #559 = R86.document.body.load("text")
-  R86.sync()
-} R86
+RUN R99 {
+  #2343 = R99.document.body.load("text")
+  R99.sync()
+} R99
    status: Found 3 authorities in 3 citations.
 == citations/bib-insert
 OFFICE settings.get("jurislab.bib.v1") -> null
@@ -1417,73 +4068,73 @@ OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
-RUN R87 {
-  #560 = R87.document.getSelection()
-  #561 = #560.parentContentControlOrNullObject.load("tag")
-  R87.sync()
-  #562 = #560.insertText("…", "end")
-  #563 = #562.insertContentControl()
-  set #563.tag = "formula-inserter:cite:1"
-  set #563.title = "JurisLab citation"
-  R87.sync()
-  #564 = R87.document.body.contentControls.load("items/tag,items/text")
-  R87.sync()
-  #565 = R87.document.body.footnotes.load("items")
-  R87.sync()
-  #566 = R87.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
-  R87.sync()
-  #567 = R87.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #567.font.superscript = false
-  set #567.font.subscript = false
-  set #567.font.italic = false
-  set #567.font.bold = false
-  #568 = R87.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
-  R87.sync()
-} R87
+RUN R100 {
+  #2344 = R100.document.getSelection()
+  #2345 = #2344.parentContentControlOrNullObject.load("tag")
+  R100.sync()
+  #2346 = #2344.insertText("…", "end")
+  #2347 = #2346.insertContentControl()
+  set #2347.tag = "formula-inserter:cite:1"
+  set #2347.title = "JurisLab citation"
+  R100.sync()
+  #2348 = R100.document.body.contentControls.load("items/tag,items/text")
+  R100.sync()
+  #2349 = R100.document.body.footnotes.load("items")
+  R100.sync()
+  #2350 = R100.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  R100.sync()
+  #2351 = R100.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #2351.font.superscript = false
+  set #2351.font.subscript = false
+  set #2351.font.italic = false
+  set #2351.font.bold = false
+  #2352 = R100.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  R100.sync()
+} R100
 OFFICE settings.set("jurislab.bib.v1", s504:c0513ad2)
 OFFICE settings.saveAsync()
    status: 
 == citations/bib-update
 OFFICE settings.get("jurislab.bib.v1") -> s504:c0513ad2
-RUN R88 {
-  #569 = R88.document.body.contentControls.load("items/tag,items/text")
-  R88.sync()
-  #570 = R88.document.body.footnotes.load("items")
-  R88.sync()
-  #571 = R88.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
-  R88.sync()
-  #572 = R88.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #572.font.superscript = false
-  set #572.font.subscript = false
-  set #572.font.italic = false
-  set #572.font.bold = false
-  #573 = R88.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
-  R88.sync()
-} R88
+RUN R101 {
+  #2353 = R101.document.body.contentControls.load("items/tag,items/text")
+  R101.sync()
+  #2354 = R101.document.body.footnotes.load("items")
+  R101.sync()
+  #2355 = R101.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  R101.sync()
+  #2356 = R101.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #2356.font.superscript = false
+  set #2356.font.subscript = false
+  set #2356.font.italic = false
+  set #2356.font.bold = false
+  #2357 = R101.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  R101.sync()
+} R101
    status: 
 == (hidden)/cite-iddetect
-RUN R89 {
-  #574 = R89.document.getSelection()
-  #575 = R89.document.body.getRange("start")
-  #576 = #575.expandTo(#574)
-  #577 = #576.load("text")
-  R89.sync()
-  #578 = #574.insertHtml("<i>Id.</i>", "replace")
-  #579 = #578.select("end")
-  R89.sync()
-  #580 = #578.insertContentControl()
-  set #580.tag = "formula-inserter:citation"
-  set #580.title = "JurisLab"
-  set #580.appearance = "hidden"
-  R89.sync()
-} R89
+RUN R102 {
+  #2358 = R102.document.getSelection()
+  #2359 = R102.document.body.getRange("start")
+  #2360 = #2359.expandTo(#2358)
+  #2361 = #2360.load("text")
+  R102.sync()
+  #2362 = #2358.insertHtml("<i>Id.</i>", "replace")
+  #2363 = #2362.select("end")
+  R102.sync()
+  #2364 = #2362.insertContentControl()
+  set #2364.tag = "formula-inserter:citation"
+  set #2364.title = "JurisLab"
+  set #2364.appearance = "hidden"
+  R102.sync()
+} R102
    status: Id. inserted.
 == (hidden)/cite-supradetect
-RUN R90 {
-  #581 = R90.document.getSelection()
-  #582 = R90.document.body.getRange("start")
-  #583 = #582.expandTo(#581)
-  #584 = #583.load("text")
-  R90.sync()
-} R90
+RUN R103 {
+  #2365 = R103.document.getSelection()
+  #2366 = R103.document.body.getRange("start")
+  #2367 = #2366.expandTo(#2365)
+  #2368 = #2367.load("text")
+  R103.sync()
+} R103
    status: Earlier source detected.

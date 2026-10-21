@@ -333,6 +333,17 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       output in the WIPO Sequence tool before filing.</strong>
     </p>`,
 
+  antibody: `
+    <p class="examples-note">
+      Paste each chain under a <code>&gt;name</code> line — or press <strong>Example</strong> (trastuzumab and pertuzumab).
+    </p>
+    <ul>
+      <li><strong>Number</strong> a VH, VL (κ or λ), VHH or scFv by <strong>Kabat</strong>, <strong>Chothia</strong> and <strong>IMGT</strong></li>
+      <li><strong>CDRs</strong> by Kabat, Chothia, IMGT or AbM — trastuzumab CDR-H3 <code>WGGDGFYAMDY</code> (Kabat)</li>
+      <li><strong>% identity</strong> between chains, over the V domain, the frameworks or the CDRs</li>
+      <li><strong>Claim text</strong> with SEQ ID NOs, and the <strong>SEQ ID table</strong></li>
+    </ul>`,
+
   botanical: `
     <ul>
       <li><code>Rosa × hybrida 'Peace'</code> &rarr; <i>Rosa</i> × <i>hybrida</i> 'Peace'</li>

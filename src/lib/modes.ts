@@ -41,6 +41,7 @@ export const ALL_MODES = [
   "code",
   "sequence",
   "botanical",
+  "antibody",
   "numerals",
   "dna",
   "reaction",

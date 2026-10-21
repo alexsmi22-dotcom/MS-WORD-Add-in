@@ -76,7 +76,8 @@ real pane before this script was written; re-run it after each chemistry release
 - ChemDraw objects **embedded** in Word (the kind you double-click to open ChemDraw): not yet readable. ChemDraw
   *pictures* pasted into Word do open (Open ChemDraw picture).
 - **Systematic IUPAC names** cover chains, carbocycles and benzenes with their groups (phenols, anilines, benzoic
-  acids, esters, N-substituted amines and amides); heterocycles (pyridine, piperidine …) still answer "No name" until stage 1b.
+  acids, esters, N-substituted amines and amides) and single heterocycles (pyridine, piperidine, morpholine,
+  thiazole …); fused rings (indole, quinoline) still answer "No name".
   Use dictionary compounds (aspirin, ibuprofen, caffeine, paracetamol …) for name-based steps.
 - Typing a **formula** into Build's Text tab is refused on purpose (a formula has no single structure) — type a name
   or a SMILES.

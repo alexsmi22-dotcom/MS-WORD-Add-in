@@ -6,6 +6,33 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.169.0] — 2026-10-20 — Chemistry: fuller IUPAC names, stage 1b (heterocycles)
+
+Organic chemistry, item 4, second stage: the heterocycles drug-like structures are built from.
+
+### Added
+- **Heterocyclic parents with their fixed numbering**: pyridine, pyrimidine, pyrazine, pyridazine, furan, thiophene,
+  1H-pyrrole, 1H-imidazole, 1H-pyrazole, 1,3-oxazole, 1,2-oxazole, 1,3-thiazole; piperidine, piperazine, morpholine,
+  pyrrolidine, oxolane, oxane — with substituents (2-chloropyrimidine, 1-methylpiperidine, 4-methylmorpholine) and a
+  principal group (pyridin-2-amine, pyridine-3-carboxylic acid, furan-2-carbaldehyde, 1,3-thiazol-2-amine,
+  piperidin-4-one).
+- **The hydrogen as drawn decides the number**: 4-methyl-1H-imidazole and 5-methyl-1H-imidazole are the two tautomers,
+  each named for the one drawn.
+- **N-substituted heteroaryl amines and amides**: 5-chloro-N-methylpyridin-2-amine, N-phenylpyridin-2-amine (one name
+  however it is drawn: heterocycles rank before carbocycles), 6-chloro-N,N-dimethylpyridine-3-carboxamide.
+- **Heterocycles as substituents**: 2-(pyridin-2-yl)ethan-1-ol, 2-(morpholin-4-yl)ethan-1-ol,
+  3-(piperidin-1-yl)propanoic acid, 2-(1H-imidazol-1-yl)ethan-1-ol.
+- Every new name passed the OPSIN round-trip oracle (now 1,190+ names, 0 wrong, 0 collisions).
+
+### Fixed
+- A group's O or N carrying a further bond (or an atom with an impossible valence, as an uncharged O with three bonds)
+  is refused; before, the rest of the molecule could drop out of the name (found by the oracle while extending it).
+
+Still refused by name: fused rings (indole, quinoline — stage 2), lactams and lactones, pyridinones, partly saturated
+rings, other heterorings, sulfur outside thiophene and thiazole, an amide on a ring nitrogen, bicyclic parts cut off
+as an ester's alcohol or an N-substituent, and two different ring groups of equal seniority on one nitrogen (the
+parent would otherwise follow the drawing order).
+
 ## [2.168.0] — 2026-10-20 — Chemistry: fuller IUPAC names, stage 1a (carbocycles)
 
 Organic chemistry, item 4, first stage: systematic names for what organic patents draw most, each one proved by

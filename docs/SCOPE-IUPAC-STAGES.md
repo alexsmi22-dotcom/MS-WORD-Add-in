@@ -63,6 +63,8 @@ Today these are refused:
 - more than one kind of principal group with prefixes beyond the existing set;
 - carbamates, ureas, salts.
 
+**1b shipped as v2.169.0** (the heteromonocycles of item 2, with heteroaryl substituents of item 5).
+
 ## Stage 2 (later)
 
 Fused parents (naphthalene, indole, quinoline, isoquinoline, benzimidazole, benzofuran, benzothiophene) with

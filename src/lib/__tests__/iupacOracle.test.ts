@@ -75,6 +75,48 @@ function generatedCorpus(): string[] {
     out.add(`CN(C)${s}`);
     out.add(`Clc1ccc(cc1)N(C)${s}`);
   }
+  // Heteromonocycles (v2.169.0): each parent bare, with a substituent at every position, with each principal group at
+  // every carbon, and as a substituent on a chain.
+  const HETERO = ["c1ccncc1", "c1cncnc1", "c1cnccn1", "c1ccnnc1", "c1ccoc1", "c1ccsc1", "c1cc[nH]c1", "c1c[nH]cn1", "c1cn[nH]c1", "c1cocn1", "c1conc1", "c1cscn1", "C1CCNCC1", "C1CNCCN1", "C1COCCN1", "C1CCNC1", "C1CCOC1", "C1CCOCC1"];
+  /** The parent with one group on ring atom `a` (C, Cl, NH2, OH, COOH, CN, CHO, CONH2, CH2CH2OH). */
+  const attach = (smiles: string, a: number, kind: string): string | null => {
+    const m = Molecule.fromSmiles(smiles);
+    if (m.getAllHydrogens(a) === 0) return null;
+    const add = (z: number, to: number, order = 1): number => {
+      const x = m.addAtom(z);
+      m.setBondOrder(m.addBond(to, x), order);
+      return x;
+    };
+    if (kind === "Cl") add(17, a);
+    else if (kind === "N") add(7, a);
+    else if (kind === "O") add(8, a);
+    else if (kind === "C") add(6, a);
+    else {
+      const c = add(6, a);
+      if (kind === "COOH") (add(8, c, 2), add(8, c));
+      else if (kind === "CN") add(7, c, 3);
+      else if (kind === "CHO") add(8, c, 2);
+      else if (kind === "CONH2") (add(8, c, 2), add(7, c));
+      else if (kind === "CCO") add(8, add(6, c));
+    }
+    try {
+      return m.toIsomericSmiles();
+    } catch {
+      return null;
+    }
+  };
+  for (const h of HETERO) {
+    out.add(h);
+    const n = Molecule.fromSmiles(h).getAllAtoms();
+    for (let a = 0; a < n; a++) {
+      for (const kind of ["C", "Cl", "N", "O", "COOH", "CN", "CHO", "CONH2", "CCO"]) {
+        const smi = attach(h, a, kind);
+        if (smi) out.add(smi);
+      }
+    }
+  }
+  for (const r of ["c1ccncc1", "c1ccsc1", "c1ccoc1"]) for (const head of ["OC(=O)", "O=C", "N#C", "NC(=O)", "OC", "OC(=O)C", "N"]) out.add(`${head}${r}`);
+  for (const nring of ["N1CCOCC1", "N1CCCCC1", "N1CCCC1", "n1ccnc1", "n1cccc1", "N1CCN(C)CC1"]) for (const head of ["OCC", "OC(=O)C", "OC(=O)CC", "NCC", "CC(C)"]) out.add(`${head}${nring}`);
   return [...out];
 }
 
@@ -107,7 +149,14 @@ const REVIEW_CASES = [
   // Isotopes, charges and radicals in a cut part (must refuse).
   "[13CH3]OC(C)=O", "CC(=O)O[CH2-]", "CC(=O)O[CH2]", "[13CH3]NC(C)=O", "CN[13CH3]",
   // Stereo in the acid part and in the alcohol part; tert-/sec- multipliers.
-  "C[C@@H](Cl)C(=O)OC", "CC[C@@H](C)OC(C)=O", "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C", "Cc1ccc(C(C)(C)C)cc1C(C)(C)C",
+  "C[C@@H](Cl)C(=O)OC", "CC[C@@H](C)OC(C)=O",
+  // Bicyclic amines and ethers cut as substituents (were named as monocycles: 1b review) — must refuse.
+  "CC(=O)NC1CC2CC1N2", "CC(=O)NC1CC2CC2N1", "CC(=O)OC1CC2CCN12", "CC(=O)NC1C2CC2NC1", "CC(=O)NC1CN2CC1C2",
+  "CC(=O)NC1CCC2NC12", "CC(=O)NC1C2CCN1C2", "CC(=O)NC1C2NC2C1", "CC(=O)OC1NC2CC12", "CC(=O)OC1C2COC1C2", "CC(=O)NC1COC2CC12",
+  // N-aryl amines drawn either way round must get one name.
+  "c1ccc(cc1)Nc1ccccn1", "c1ccnc(c1)Nc1ccccc1", "n1ccccc1Nc1ccccc1",
+  // Impossible valences (an uncharged O or N with a bond too many): must refuse, never drop the rest (1b oracle).
+  "C=Oc1ccncc1", "C#Nc1ccncc1", "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C", "Cc1ccc(C(C)(C)C)cc1C(C)(C)C",
 ];
 
 /** Stereo-bearing structures named WITH their descriptors (as the pane shows them) and compared WITH stereo. */
@@ -164,7 +213,7 @@ describe("IUPAC namer oracle: every emitted name reads back to its structure (OP
   });
 
   test("the review cases that must refuse do refuse", () => {
-    for (const smi of ["CNCCC(N)=O", "CNCC(N)=O", "CN(C)CCC(=O)N", "CNc1ccc(cc1)C(N)=O", "[13CH3]OC(C)=O", "CC(=O)O[CH2-]", "CC(=O)O[CH2]", "[13CH3]NC(C)=O", "CN[13CH3]"]) {
+    for (const smi of ["CC(=O)NC1CC2CC1N2", "CC(=O)NC1CC2CC2N1", "CC(=O)OC1CC2CCN12", "CC(=O)NC1C2CC2NC1", "CC(=O)NC1CN2CC1C2", "CC(=O)NC1CCC2NC12", "CC(=O)NC1C2CCN1C2", "CC(=O)NC1C2NC2C1", "CC(=O)OC1NC2CC12", "CC(=O)OC1C2COC1C2", "CC(=O)NC1COC2CC12", "C=Oc1ccncc1", "C#Nc1ccncc1", "CNCCC(N)=O", "CNCC(N)=O", "CN(C)CCC(=O)N", "CNc1ccc(cc1)C(N)=O", "[13CH3]OC(C)=O", "CC(=O)O[CH2-]", "CC(=O)O[CH2]", "[13CH3]NC(C)=O", "CN[13CH3]"]) {
       expect([smi, iupacName(Molecule.fromSmiles(smi)).name]).toEqual([smi, undefined]);
     }
   });

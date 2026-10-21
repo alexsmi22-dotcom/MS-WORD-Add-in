@@ -30,6 +30,10 @@
 //   amides (N,N-dimethylaniline), cycloalkyl substituents, retained formic/acetic acid, formamide/acetamide. Every
 //   name for the oracle corpus reads back to its structure through OPSIN (iupacOracle.test.ts).
 //
+//   v2.169.0 (stage 1b): heteromonocyclic parents with fixed numbering — pyridine, pyrimidine, pyrazine, pyridazine,
+//   furan, thiophene, 1H-pyrrole, 1H-imidazole, 1H-pyrazole, 1,3-/1,2-oxazole, 1,3-thiazole, piperidine, piperazine,
+//   morpholine, pyrrolidine, oxolane, oxane (indicated hydrogen where drawn) — and as substituents (pyridin-2-yl).
+//
 //   REFUSED BY NAME (each with its reason)
 //   - lactones, anhydrides, carbamates, esters of two alcohols, two substituted
 //     nitrogens, a substituted amino group beside a senior group, sulfur and other
@@ -81,6 +85,8 @@ interface G {
   adj: { to: number; order: number }[][];
   aromatic: boolean[];
   inRing: boolean[];
+  /** Hydrogens on each atom (implicit and explicit): where an indicated hydrogen is (1H-imidazole). */
+  h: number[];
 }
 
 interface Group {
@@ -147,6 +153,21 @@ export function iupacName(mol0: Molecule): IupacNameResult {
   // N-substituent must refuse like one anywhere else (review: [13CH3]OC(C)=O came out "methyl acetate").
   const screen = screenAtoms(mol);
   if (screen) return refuse(screen);
+  // Rings are counted on the WHOLE molecule before anything is cut off: a bicyclic alcohol or amine cut as an ester's
+  // alcohol part or an N-substituent was named as a monocycle (review: CC(=O)NC1CC2CC1N2 came out
+  // "N-(piperidin-2-yl)acetamide").
+  // Separate rings may be cut off as a word or an N-prefix (phenyl benzoate, N-phenylaniline); rings that SHARE atoms
+  // (fused, bridged, spiro) never may.
+  {
+    const rs = mol.getRingSet();
+    const seen = new Set<number>();
+    for (let r = 0; r < rs.getSize(); r++) {
+      for (const a of Array.from(rs.getRingAtoms(r))) {
+        if (seen.has(a)) return refuse("Fused or multiple rings are outside the namer's subset.");
+        seen.add(a);
+      }
+    }
+  }
   const prep = prepare(mol);
   if ("refusal" in prep) return refuse(prep.refusal);
   const core = nameCore(prep.mol, prep.nPrefixes);
@@ -193,9 +214,15 @@ function screenAtoms(mol: Molecule): string | null {
   const n = mol.getAllAtoms();
   for (let i = 0; i < n; i++) {
     const z = mol.getAtomicNo(i);
-    if (![6, 7, 8, 9, 17, 35, 53].includes(z)) return `${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O and halogens only).`;
+    if (![6, 7, 8, 9, 16, 17, 35, 53].includes(z)) return `${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O, halogens, and S in thiophene or thiazole rings only).`;
     if (mol.getAtomMass(i) !== 0) return "Isotope labels are outside the namer's subset.";
     if (mol.getAtomRadical(i) !== 0) return "Radicals are outside the namer's subset.";
+  }
+  // An impossible valence (an uncharged O with three bonds, C=O–ring) is not a structure to name: the group reader
+  // assumes a carbonyl O ends there, and the rest of the molecule would drop out of the name (review oracle).
+  mol.ensureHelperArrays(Molecule.cHelperRings);
+  for (let i = 0; i < n; i++) {
+    if (mol.getAtomCharge(i) === 0 && mol.getOccupiedValence(i) > mol.getMaxValence(i)) return `The ${mol.getAtomLabel(i)} atom has more bonds than it can (an impossible valence) — check the structure.`;
   }
   const g = graphOf(mol);
   const { n: nitroN, sat: nitroSat } = nitroAtoms(g);
@@ -276,12 +303,26 @@ function prepare(mol: Molecule): Prepared | { refusal: string } {
       // Every other branch must be a plain substituent.
       const rank = (c: number): number[] => {
         const t = subtree(g0, c, nn);
-        return [g0.aromatic[c] ? 1 : 0, g0.inRing[c] ? 1 : 0, t.length];
+        // Heterocycles before carbocycles (nitrogen first), then aromatic, then rings before chains, then size — so the
+        // parent never depends on drawing order (N-phenylpyridin-2-amine either way round; review).
+        const ringAtoms = t.filter((x) => g0.inRing[x]);
+        const hasN = g0.inRing[c] && ringAtoms.some((x) => g0.el[x] === 7);
+        const hasHetero = g0.inRing[c] && ringAtoms.some((x) => g0.el[x] !== 6);
+        return [hasN ? 1 : 0, hasHetero ? 1 : 0, g0.aromatic[c] ? 1 : 0, g0.inRing[c] ? 1 : 0, t.length];
       };
       const plain = (c: number): boolean => typeof classifySub(g0, c, nn, nitroN0) !== "string";
       const viable = cs.filter((c) => cs.every((d) => d === c || plain(d)));
       if (!viable.length) return { refusal: "An amine whose nitrogen carries two or more elaborate groups is outside the namer's subset." };
       viable.sort((p, q) => lexCompare(rank(q), rank(p)));
+      // Two DIFFERENT branches of equal rank (pyridin-2-yl and pyrimidin-2-yl, furan-2-yl and thiophen-2-yl): the
+      // choice needs heteroatom-count, element-order and locant rules this stage does not carry — refused by name,
+      // never decided by drawing order (review). Identical ones (two phenyls: N-phenylaniline) are one name either way.
+      if (viable.length > 1 && lexCompare(rank(viable[0]), rank(viable[1])) === 0) {
+        const n0 = classifySub(g0, viable[0], nn, nitroN0), n1 = classifySub(g0, viable[1], nn, nitroN0);
+        if (typeof n0 === "string" || typeof n1 === "string" || n0.name !== n1.name) {
+          return { refusal: "Two different groups of equal seniority on one nitrogen (which is the parent?) are outside the namer's subset." };
+        }
+      }
       keep = viable[0];
     } else continue; // imides and the like: the core refuses them by name
     const others = cs.filter((c) => c !== keep);
@@ -327,6 +368,7 @@ function graphOf(mol: Molecule): G {
     adj: Array.from({ length: n }, () => []),
     aromatic: Array.from({ length: n }, (_, i) => mol.isAromaticAtom(i)),
     inRing: Array.from({ length: n }, (_, i) => mol.isRingAtom(i)),
+    h: Array.from({ length: n }, (_, i) => mol.getAllHydrogens(i)),
   };
   for (let b = 0; b < mol.getAllBonds(); b++) {
     const a1 = mol.getBondAtom(0, b), a2 = mol.getBondAtom(1, b);
@@ -363,14 +405,21 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
   // Element and per-atom screens (nitro's internal +/- pair is exempted later).
   for (let i = 0; i < n; i++) {
     const z = mol.getAtomicNo(i);
-    if (![6, 7, 8, 9, 17, 35, 53].includes(z)) {
-      return refuse(`${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O and halogens only).`);
+    if (![6, 7, 8, 9, 16, 17, 35, 53].includes(z)) {
+      return refuse(`${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O, halogens, and S in thiophene or thiazole rings only).`);
     }
     if (mol.getAtomMass(i) !== 0) return refuse("Isotope labels are outside the namer's subset.");
     if (mol.getAtomRadical(i) !== 0) return refuse("Radicals are outside the namer's subset.");
   }
 
   const g = graphOf(mol);
+  // Sulfur only as a ring atom of thiophene or thiazole (a thiol, a thioether, a sulfone are outside the subset); a
+  // sulfur ring that is neither is refused where the ring is matched.
+  for (let i = 0; i < n; i++) {
+    if (g.el[i] === 16 && (!g.inRing[i] || g.adj[i].some((e) => !g.inRing[e.to] || e.order !== 1 && !g.aromatic[i]))) {
+      return refuse("Sulfur outside a thiophene or thiazole ring (thiols, thioethers, sulfones, sulfonamides) is outside the namer's subset.");
+    }
+  }
   const { n: nitroN, sat: nitroSat } = nitroAtoms(g);
   for (let i = 0; i < n; i++) {
     const c = mol.getAtomCharge(i);
@@ -413,10 +462,15 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
   if (ringCount === 1) {
     const members: number[] = Array.from(rings.getRingAtoms(0));
     const allC = members.every((a) => g.el[a] === 6);
-    if (!allC) return refuse("Heteroatom rings are outside the namer's subset (the dictionary covers common ones).");
+    const hetero = allC ? null : matchHetero(g, members);
+    if (!allC && !hetero) {
+      return refuse(
+        "This heteroatom ring is outside the namer's subset — it names pyridine, pyrimidine, pyrazine, pyridazine, furan, thiophene, pyrrole, imidazole, pyrazole, oxazole, isoxazole, thiazole, piperidine, piperazine, morpholine, pyrrolidine, oxolane and oxane, as drawn (aromatic, or fully saturated).",
+      );
+    }
     const size = members.length;
     const isBenzene = size === 6 && members.every((a) => g.aromatic[a]);
-    if (!isBenzene) {
+    if (!isBenzene && !hetero) {
       for (const a of members) {
         for (const e of g.adj[a]) {
           if (g.inRing[e.to] && e.order !== 1) {
@@ -430,10 +484,15 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
     // SUBSTITUENT (2-phenylethan-1-ol, cyclohexylmethanol).
     const det = detectGroups(g, nitroN, nitroSat);
     if (det.refusal) return refuse(det.refusal);
-    // detectGroups reads chain carbons only: a ring carbon's =O is the ring's ketone (cyclohexanone).
+    // detectGroups reads chain carbons only: a ring carbon's =O is the ring's ketone (cyclohexanone, piperidin-4-one).
     for (const a of members) {
       for (const e of g.adj[a]) {
-        if (g.el[e.to] === 8 && e.order === 2 && !nitroSat.has(e.to)) det.groups.push({ kind: "one", carbon: a, satellites: [e.to], terminal: false });
+        if (g.el[e.to] === 8 && e.order === 2 && !nitroSat.has(e.to)) {
+          if (hetero && hetero.parent.aromatic) return refuse("A ring C=O in an aromatic heterocycle (a pyridinone, an oxazolone) needs added hydrogen — outside the namer's subset.");
+          // Beside a ring N, O or S it is a lactam, lactone or thiolactone, which have their own names.
+          if (g.adj[a].some((x) => members.includes(x.to) && g.el[x.to] !== 6)) return refuse("Lactams and lactones (a ring C=O beside the ring's heteroatom) are outside the namer's subset.");
+          det.groups.push({ kind: "one", carbon: a, satellites: [e.to], terminal: false });
+        }
       }
     }
     const principalKind = SENIORITY.find((k) => det.groups.some((gr) => gr.kind === k));
@@ -445,7 +504,9 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
       return r.refusal ? r : finish(r);
     }
     if (principal.some((gr) => !onRing(gr))) return refuse("The principal groups are split between the ring and a chain — outside the namer's subset.");
-    const r = nameWithOneRing(g, members, isBenzene, nitroN, nitroSat, det.groups, principalKind ?? null, nPrefixes);
+    const r = hetero
+      ? nameHeteroRing(g, members, hetero, nitroN, det.groups, principalKind ?? null, nPrefixes)
+      : nameWithOneRing(g, members, isBenzene, nitroN, nitroSat, det.groups, principalKind ?? null, nPrefixes);
     return r.refusal ? r : finish(r);
   }
 
@@ -507,7 +568,8 @@ function classifySub(g: G, root: number, from: number, nitroN: Set<number>): Sub
     }
     return "This oxygen arrangement is outside the namer's subset.";
   }
-  if (z === 7) {
+  // A ring nitrogen as the attachment is a heterocyclic substituent (morpholin-4-yl), read below with the rings.
+  if (z === 7 && !g.inRing[root]) {
     const others = g.adj[root].filter((e) => e.to !== from);
     if (others.length === 0 && g.adj[root][0].order === 1) return { name: "amino", key: "amino" };
     return "Substituted amines are outside the namer's subset.";
@@ -516,6 +578,11 @@ function classifySub(g: G, root: number, from: number, nitroN: Set<number>): Sub
   const atoms = subtree(g, root, from);
   if (atoms.some((a) => g.inRing[a])) {
     if (isPlainPhenyl(g, atoms, root)) return { name: "phenyl", key: "phenyl" };
+    if (g.inRing[root] && atoms.every((a) => g.inRing[a]) && atoms.some((a) => g.el[a] !== 6)) {
+      const hs = heteroSubstituent(g, root, atoms);
+      if (hs) return hs;
+      return "This heterocyclic substituent is outside the namer's subset (only unsubstituted stage-1b rings: pyridin-2-yl, morpholin-4-yl …).";
+    }
     // A plain saturated carbocycle attached by one of its own atoms: cyclopropyl … cycloheptyl.
     if (g.inRing[root] && atoms.length >= 3 && atoms.length < STEM.length && atoms.every((a) => g.el[a] === 6 && g.inRing[a] && !g.aromatic[a]) && isPlainAlkane(g, atoms) && isOneCycle(g, atoms)) {
       const nm = `cyclo${ALKYL[atoms.length]}`;
@@ -640,6 +707,11 @@ function detectGroups(g: G, nitroN: Set<number>, nitroSat: Set<number>): { group
     // adversarial pass) — the exact worst case for a patent tool.
     if (dblN.length > 0) {
       return { groups, refusal: "C=N groups (imines, oximes, amidines) are outside the namer's subset." };
+    }
+    // A group's own O or N ends there: one that carries anything else is not this group, and skipping its other
+    // bonds would drop atoms from the name (C=O–ring named "methanal" — review oracle).
+    if ([...tripleN, ...dblO].some((e) => g.adj[e.to].length !== 1)) {
+      return { groups, refusal: "A group atom with further bonds here is outside the namer's subset." };
     }
     if (tripleN.length === 1) {
       groups.push({ kind: "nitrile", carbon: c, satellites: [tripleN[0].to], terminal: true });
@@ -1083,6 +1155,194 @@ function nameWithOneRing(
   // Final-e elision: the stem keeps its "e" before a consonant (cyclohexane-1,2-diol, cyclohexanecarboxylic acid)
   // and drops it before a vowel (cyclohexanol, cyclohexanone, cyclohexanamine).
   const body = /^[-0-9,]*[aeiouy]/.test(suffixPart) ? `${stem}${suffixPart}` : `${stem}e${suffixPart}`;
+  return result(join(prefixes, body));
+}
+
+// ---------------------------------------------------------------------------
+// Heteromonocycles (v2.169.0, stage 1b): retained parents with FIXED numbering
+// ---------------------------------------------------------------------------
+
+/**
+ * One heteromonocyclic parent: the element at each locant 1…n (H marks the indicated-hydrogen nitrogen, which must
+ * carry H or a substituent; N alone is a pyridine-type nitrogen in an aromatic ring), aromatic or fully saturated.
+ * Retained names and their numbering, P-22.2.1 / P-22.2.2 (IUPAC 2013).
+ */
+interface HeteroParent {
+  name: string;
+  pattern: Array<"C" | "N" | "O" | "S" | "H">;
+  aromatic: boolean;
+}
+const HETERO_PARENTS: HeteroParent[] = [
+  { name: "pyridine", pattern: ["N", "C", "C", "C", "C", "C"], aromatic: true },
+  { name: "pyrimidine", pattern: ["N", "C", "N", "C", "C", "C"], aromatic: true },
+  { name: "pyrazine", pattern: ["N", "C", "C", "N", "C", "C"], aromatic: true },
+  { name: "pyridazine", pattern: ["N", "N", "C", "C", "C", "C"], aromatic: true },
+  { name: "furan", pattern: ["O", "C", "C", "C", "C"], aromatic: true },
+  { name: "thiophene", pattern: ["S", "C", "C", "C", "C"], aromatic: true },
+  { name: "1H-pyrrole", pattern: ["H", "C", "C", "C", "C"], aromatic: true },
+  { name: "1H-imidazole", pattern: ["H", "C", "N", "C", "C"], aromatic: true },
+  { name: "1H-pyrazole", pattern: ["H", "N", "C", "C", "C"], aromatic: true },
+  { name: "1,3-oxazole", pattern: ["O", "C", "N", "C", "C"], aromatic: true },
+  { name: "1,2-oxazole", pattern: ["O", "N", "C", "C", "C"], aromatic: true },
+  { name: "1,3-thiazole", pattern: ["S", "C", "N", "C", "C"], aromatic: true },
+  { name: "piperidine", pattern: ["N", "C", "C", "C", "C", "C"], aromatic: false },
+  { name: "piperazine", pattern: ["N", "C", "C", "N", "C", "C"], aromatic: false },
+  { name: "morpholine", pattern: ["O", "C", "C", "N", "C", "C"], aromatic: false },
+  { name: "pyrrolidine", pattern: ["N", "C", "C", "C", "C"], aromatic: false },
+  { name: "oxolane", pattern: ["O", "C", "C", "C", "C"], aromatic: false },
+  { name: "oxane", pattern: ["O", "C", "C", "C", "C", "C"], aromatic: false },
+];
+const SYMBOL: Record<number, "C" | "N" | "O" | "S"> = { 6: "C", 7: "N", 8: "O", 16: "S" };
+
+/** The ring atoms in walking order (members unordered as OCL gives them), or null. */
+function walkRing(g: G, members: number[]): number[] | null {
+  const memberSet = new Set(members);
+  const ring: number[] = [members[0]];
+  while (ring.length < members.length) {
+    const cur = ring[ring.length - 1];
+    const next = g.adj[cur].map((e) => e.to).find((a) => memberSet.has(a) && !ring.includes(a));
+    if (next === undefined) return null;
+    ring.push(next);
+  }
+  // A path through every atom is a ring only if it closes (a bicycle's atoms can be walked too).
+  if (!g.adj[ring[ring.length - 1]].some((e) => e.to === ring[0])) return null;
+  return ring;
+}
+
+/**
+ * The parent a heteroring is, with every numbering its fixed locants allow (each numbering lists the ring atoms in
+ * locant order 1…n). Null when the ring is not one of the stage-1b parents, as drawn: its atoms, its aromaticity
+ * (all aromatic, or all single bonds) and where its hydrogen is (1H-imidazole: the NH is N1).
+ */
+function matchHetero(g: G, members: number[]): { parent: HeteroParent; numberings: number[][] } | null {
+  const ring = walkRing(g, members);
+  if (!ring) return null;
+  const size = ring.length;
+  const memberSet = new Set(ring);
+  const allAromatic = ring.every((a) => g.aromatic[a]);
+  const allSingle = ring.every((a) => g.adj[a].every((e) => !memberSet.has(e.to) || e.order === 1));
+  for (const parent of HETERO_PARENTS) {
+    if (parent.pattern.length !== size) continue;
+    if (parent.aromatic ? !allAromatic : !allSingle) continue;
+    const numberings: number[][] = [];
+    for (const dir of [1, -1]) {
+      for (let start = 0; start < size; start++) {
+        const order = Array.from({ length: size }, (_, k) => ring[(start + dir * k + size * 2) % size]);
+        const ok = order.every((a, k) => {
+          const want = parent.pattern[k];
+          const sym = SYMBOL[g.el[a]];
+          if (want === "H") return sym === "N" && (g.h[a] > 0 || g.adj[a].some((e) => !memberSet.has(e.to)));
+          if (sym !== want) return false;
+          // In an aromatic parent a plain N is pyridine-type: no hydrogen, nothing on it.
+          if (parent.aromatic && want === "N") return g.h[a] === 0 && g.adj[a].every((e) => memberSet.has(e.to));
+          return true;
+        });
+        if (ok) numberings.push(order);
+      }
+    }
+    if (numberings.length) return { parent, numberings };
+  }
+  return null;
+}
+
+/** "pyridin", "1H-pyrrol", "furan": the parent's name without its final e (for -yl and vowel suffixes). */
+const heteroStem = (name: string): string => name.replace(/e$/, "");
+
+/** A heteroring as a SUBSTITUENT attached by one of its own atoms, unsubstituted: pyridin-2-yl, morpholin-4-yl. */
+function heteroSubstituent(g: G, root: number, atoms: number[]): Sub | null {
+  if (!isOneCycle(g, atoms)) return null;
+  const m = matchHetero(g, atoms);
+  if (!m) return null;
+  const set = new Set(atoms);
+  // Nothing else on the ring: the only bond leaving it is the attachment.
+  const exits = atoms.flatMap((a) => g.adj[a].filter((e) => !set.has(e.to)).map(() => a));
+  if (exits.length !== 1 || exits[0] !== root) return null;
+  // The attachment takes the lowest locant the fixed numbering allows (indicated H first: 1H-pyrrol-1-yl).
+  const loc = Math.min(...m.numberings.map((o) => o.indexOf(root) + 1));
+  const nm = `${heteroStem(m.parent.name)}-${loc}-yl`;
+  return { name: nm, key: nm.replace(/^[0-9,H-]+-/, "").replace(/-\d+-yl$/, "yl") };
+}
+
+function nameHeteroRing(
+  g: G,
+  members: number[],
+  m: { parent: HeteroParent; numberings: number[][] },
+  nitroN: Set<number>,
+  groups: Group[],
+  principalKind: Group["kind"] | null,
+  nPrefixes: { name: string; key: string }[],
+): CoreResult {
+  const memberSet = new Set(members);
+  for (const gr of groups) {
+    if (gr.kind !== principalKind && !PREFIX_FORM[gr.kind]) {
+      return refuse(`${GROUP_WORD[gr.kind].replace(/^a/, "A")} group alongside a more senior group is outside the namer's subset.`);
+    }
+  }
+  const byAtom = new Map<number, Group>();
+  for (const gr of groups) {
+    for (const s of gr.satellites) byAtom.set(s, gr);
+    if (!memberSet.has(gr.carbon)) byAtom.set(gr.carbon, gr);
+  }
+  // Every atom bonded to the ring is a principal group, a junior group as a prefix, or a substituent — or refused.
+  interface HSub { atom: number; name: string; key: string; suffix?: boolean }
+  const subs: HSub[] = [];
+  for (const a of members) {
+    for (const e of g.adj[a]) {
+      if (memberSet.has(e.to)) continue;
+      const gr = byAtom.get(e.to);
+      if (gr && (gr.carbon === a || gr.carbon === e.to)) {
+        if (gr.carbon === e.to && !ringAttached(g, gr, memberSet)) return refuse("A substituent that carries its own group (hydroxymethyl, aminoethyl …) is outside the namer's subset.");
+        if (gr.kind === principalKind) subs.push({ atom: a, name: "", key: "", suffix: true });
+        else subs.push({ atom: a, name: PREFIX_FORM[gr.kind]!, key: PREFIX_FORM[gr.kind]! });
+        continue;
+      }
+      if (e.order !== 1) return refuse("An exocyclic double bond on the ring is outside the namer's subset.");
+      const cls = classifySub(g, e.to, a, nitroN);
+      if (typeof cls === "string") return refuse(cls);
+      subs.push({ atom: a, ...cls });
+    }
+  }
+  const suffixSubs = subs.filter((s) => s.suffix);
+  const prefixSubs = subs.filter((s) => !s.suffix);
+  if (principalKind && suffixSubs.length !== groups.filter((gr) => gr.kind === principalKind).length) {
+    return refuse("The principal groups could not all be placed on the ring — outside the namer's subset.");
+  }
+  if (nPrefixes.length && suffixSubs.length > 1) return refuse("N-substituents with more than one principal group (N, N′) are outside the namer's subset.");
+  if (nPrefixes.length && suffixSubs.length === 0) return refuse("A substituted nitrogen that is not the principal group here is outside the namer's subset.");
+
+  // Among the numberings the parent allows: lowest locants to the principal groups, then to all prefixes, then to the
+  // prefix cited first in alphabetical order (P-31.1.4).
+  let best: { order: number[]; key: number[] } | null = null;
+  for (const order of m.numberings) {
+    const loc = (a: number): number => order.indexOf(a) + 1;
+    const suf = suffixSubs.map((s) => loc(s.atom)).sort((x, y) => x - y);
+    const pre = prefixSubs.map((s) => loc(s.atom)).sort((x, y) => x - y);
+    const alpha = [...prefixSubs].sort((x, y) => x.key.localeCompare(y.key) || loc(x.atom) - loc(y.atom)).map((s) => loc(s.atom));
+    const key = [...suf, 99, ...pre, 99, ...alpha];
+    if (!best || lexLessArr(key, best.key)) best = { order, key };
+  }
+  if (!best) return refuse("Could not number the ring.");
+  const loc = (a: number): number => best!.order.indexOf(a) + 1;
+  const count = suffixSubs.length;
+  const kind = count ? principalKind : null;
+  const prefixes = prefixString([
+    ...prefixSubs.map((s) => ({ loc: loc(s.atom) as number | string | null, name: s.name, key: s.key })),
+    ...nPrefixes.map((p) => ({ loc: "N" as number | string | null, name: p.name, key: p.key })),
+  ]);
+  if (typeof prefixes !== "string") return refuse(prefixes.refusal);
+  const parentName = m.parent.name;
+  // A prefix string before a name that starts with a locant ("1H-…", "1,3-…") takes a hyphen: 2-methyl-1H-imidazole.
+  const join = (p: string, rest: string): string => (p ? `${p}${/^[0-9]/.test(rest) ? "-" : ""}${rest}` : rest);
+  const result = (name: string): CoreResult => ({ name, caveats: [], principalKind: kind ?? undefined, principalCount: count });
+  if (!kind) return result(join(prefixes, parentName));
+  if (count >= MULT.length) return refuse(`More than ${MULT.length - 1} identical principal groups is outside the namer's subset.`);
+  const mult = count > 1 ? MULT[count] : "";
+  const sufLocs = suffixSubs.map((s) => loc(s.atom)).sort((x, y) => x - y);
+  const attached = RING_ATTACHED_SUFFIX[kind] && groups.some((gr) => gr.kind === kind && ringAttached(g, gr, memberSet));
+  const suffixWord = attached ? RING_ATTACHED_SUFFIX[kind]! : SUFFIX[kind];
+  // Heterocycles keep every locant (pyridin-2-amine): the position is never implied.
+  const suffixPart = `-${sufLocs.join(",")}-${mult}${suffixWord}`;
+  const body = /^[-0-9,]*[aeiouy]/.test(suffixPart) && parentName.endsWith("e") ? `${heteroStem(parentName)}${suffixPart}` : `${parentName}${suffixPart}`;
   return result(join(prefixes, body));
 }
 

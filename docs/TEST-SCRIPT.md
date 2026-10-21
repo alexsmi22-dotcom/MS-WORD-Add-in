@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.168.0)
+# JurisLab — Manual Test Script (v2.169.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dh. New in v2.169.0 — Chemistry: fuller IUPAC names (stage 1b, heterocycles)
+
+- [ ] ★ **Heterocycles.** Chemical, type each SMILES → "Systematic name: …": `Nc1ccccn1` → pyridin-2-amine;
+  `OC(=O)c1cccnc1` → pyridine-3-carboxylic acid; `CN1CCOCC1` → 4-methylmorpholine; `Nc1nccs1` → 1,3-thiazol-2-amine;
+  `OCCN1CCOCC1` → 2-(morpholin-4-yl)ethan-1-ol.
+- [ ] **Tautomers.** `Cc1c[nH]cn1` → 4-methyl-1H-imidazole; `Cc1cnc[nH]1` → 5-methyl-1H-imidazole.
+- [ ] **Refusals in words.** `O=C1CCCN1` → "No name: Lactams and lactones …"; `c1ccc2[nH]ccc2c1` (indole) →
+  "No name: Fused or multiple rings …".
+- [ ] **Drawn in Build.** Draw pyridine with an NH₂ at C2 → the readout says pyridin-2-amine.
 
 ## 0dg. New in v2.168.0 — Chemistry: fuller IUPAC names (stage 1a)
 

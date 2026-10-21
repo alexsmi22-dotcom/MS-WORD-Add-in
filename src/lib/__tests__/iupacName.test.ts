@@ -171,9 +171,15 @@ describe("refusals — every boundary is NAMED", () => {
     expect(refusalOf("CN(CCO)CCO")).toMatch(/nitrogen/);
   });
 
-  test("hetero and fused rings", () => {
-    expect(refusalOf("c1ccncc1")).toMatch(/ring/i);
-    expect(refusalOf("c1ccc2ccccc2c1")).toMatch(/ring/i);
+  test("fused rings, and heterorings beyond stage 1b's", () => {
+    expect(refusalOf("c1ccc2ccccc2c1")).toMatch(/Fused or multiple rings/);
+    expect(refusalOf("c1ccc2ncccc2c1")).toMatch(/Fused or multiple rings/);
+    expect(refusalOf("C1CCSC1")).toMatch(/heteroatom ring is outside/);
+    expect(refusalOf("C1=CCNCC1")).toMatch(/heteroatom ring is outside/);
+    expect(refusalOf("O=C1CCCN1")).toMatch(/Lactams and lactones/);
+    expect(refusalOf("O=c1cccc[nH]1")).toMatch(/ring/);
+    expect(refusalOf("CSc1ccccc1")).toMatch(/Sulfur outside a thiophene or thiazole ring/);
+    expect(refusalOf("CC(=O)N1CCCCC1")).toMatch(/N-substituted amides/);
   });
 
   test("benzene principal groups beyond v2.168.0's", () => {
@@ -338,4 +344,65 @@ test("a name with no numbered positions takes its descriptor without a locant", 
   expect(nameWithDescriptors("chloro(phenyl)acetic acid", "(2S)-")).toBe("(S)-chloro(phenyl)acetic acid");
   expect(nameWithDescriptors("butan-2-ol", "(2R)-")).toBe("(2R)-butan-2-ol");
   expect(nameWithDescriptors("methyl chlorofluoroacetate", "(2R)-", 7)).toBe("methyl (R)-chlorofluoroacetate");
+});
+
+describe("v2.169.0 — heteromonocycles (stage 1b)", () => {
+  test.each([
+    ["c1ccncc1", "pyridine"],
+    ["Cc1ccccn1", "2-methylpyridine"],
+    ["Nc1ccccn1", "pyridin-2-amine"],
+    ["OC(=O)c1cccnc1", "pyridine-3-carboxylic acid"],
+    ["Oc1ccccn1", "pyridin-2-ol"],
+    ["O=Cc1ccco1", "furan-2-carbaldehyde"],
+    ["OC(=O)c1cccs1", "thiophene-2-carboxylic acid"],
+    ["c1cc[nH]c1", "1H-pyrrole"],
+    ["Cn1cccc1", "1-methyl-1H-pyrrole"],
+    ["c1c[nH]cn1", "1H-imidazole"],
+    ["Cc1c[nH]cn1", "4-methyl-1H-imidazole"],
+    ["Cc1cnc[nH]1", "5-methyl-1H-imidazole"],
+    ["c1cn[nH]c1", "1H-pyrazole"],
+    ["c1cocn1", "1,3-oxazole"],
+    ["c1conc1", "1,2-oxazole"],
+    ["Nc1nccs1", "1,3-thiazol-2-amine"],
+    ["c1cnccn1", "pyrazine"],
+    ["c1ccnnc1", "pyridazine"],
+    ["Clc1ncccn1", "2-chloropyrimidine"],
+    ["C1CCNCC1", "piperidine"],
+    ["CN1CCCCC1", "1-methylpiperidine"],
+    ["O=C1CCNCC1", "piperidin-4-one"],
+    ["C1COCCN1", "morpholine"],
+    ["CN1CCOCC1", "4-methylmorpholine"],
+    ["CCN1CCN(C)CC1", "1-ethyl-4-methylpiperazine"],
+    ["C1CCOC1", "oxolane"],
+    ["C1CCOCC1", "oxane"],
+    ["OCCc1ccccn1", "2-(pyridin-2-yl)ethan-1-ol"],
+    ["OCCN1CCOCC1", "2-(morpholin-4-yl)ethan-1-ol"],
+    ["OC(=O)CCN1CCCCC1", "3-(piperidin-1-yl)propanoic acid"],
+    ["OCCn1ccnc1", "2-(1H-imidazol-1-yl)ethan-1-ol"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+});
+
+describe("v2.169.0 review round 1", () => {
+  test.each(["CC(=O)NC1CC2CC1N2", "CC(=O)OC1CC2CCN12", "CC(=O)OC1C2COC1C2", "CC(=O)NC1C2NC2C1"])("a bicyclic part cut off for naming is refused: %s", (smiles) => {
+    expect(refusalOf(smiles)).toMatch(/Fused or multiple rings/);
+  });
+  test("an N-aryl amine has one name however it is drawn", () => {
+    const names = ["c1ccc(cc1)Nc1ccccn1", "c1ccnc(c1)Nc1ccccc1", "n1ccccc1Nc1ccccc1"].map(nameOf);
+    expect(new Set(names).size).toBe(1);
+    expect(names[0]).toBe("N-phenylpyridin-2-amine");
+  });
+});
+
+describe("v2.169.0 review round 2", () => {
+  test.each([
+    ["c1ccnc(n1)Nc1ccccn1", "c1ccnc(c1)Nc1ncccn1"],
+    ["c1ccc(nc1)Nc1cccnc1", "c1cncc(c1)Nc1ccccn1"],
+    ["c1ccc(o1)Nc1cccs1", "c1ccc(s1)Nc1ccco1"],
+  ])("tied heteroaryl branches on one N are refused either way round: %s / %s", (a, b) => {
+    expect(refusalOf(a)).toMatch(/equal seniority on one nitrogen/);
+    expect(refusalOf(b)).toMatch(/equal seniority on one nitrogen/);
+  });
+  test("identical branches still name: N-phenylaniline", () => {
+    expect(nameOf("c1ccc(cc1)Nc1ccccc1")).toBe("N-phenylaniline");
+  });
 });

@@ -98,7 +98,10 @@ Shipped as v2.178.0.
 N-(2-hydroxyethyl)carbamate", form to check against P-66.1.1.4.3), and on a RING N, where the 2013 form is the ring's
 carboxylate ester ("tert-butyl piperidine-1-carboxylate") — to be confirmed in the recommendations before code.
 Benzyl as an alcohol part (Cbz) needs classifySub to name benzyl; if it cannot be added safely, Cbz is refused by
-name.
+name. Checked 2026-10-21: P-65.2.1.1's example "2-hydroxypropyl (2-aminoethyl)carbamate (PIN)" carries no N locant (so
+"tert-butyl methylcarbamate"); "pyrrolidine-1-carboxylic acid (PIN)" confirms the ring-N carboxylate form; benzyl as an
+ester part and the junior carbamate prefix (Boc-glycine) were not found verbatim, so both are refused by name. Shipped
+as v2.179.0.
 
 **3d — ring-on-ring and ring assemblies.** A ring parent carrying another ring system directly (4-phenylpyridine,
 2-phenyl-1H-indole) lifts nameCore's "two or more separate ring systems" refusal; identical rings bonded directly

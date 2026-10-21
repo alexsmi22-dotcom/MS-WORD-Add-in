@@ -144,6 +144,17 @@ function generatedCorpus(): string[] {
   for (const senior of ["C(=O)O", "C(N)=O", "C#N"]) for (const junior of ["S(O)(=O)=O", "S(N)(=O)=O", "S(C)(=O)=O"]) for (const pos of [2, 3, 4]) out.add(benzene({ 1: senior, [pos]: junior }));
   for (const sx of ["S(O)(=O)=O", "S(N)(=O)=O"]) for (const pos of [2, 3, 4]) out.add(benzene({ 1: sx, [pos]: sx }));
   for (const near of ["COS(=O)(=O)C", "ClS(=O)(=O)c1ccccc1", "CS(=O)c1ccccc1", "CSc1ccccc1", "CS(=O)(=O)N1CCCCC1", "OS(=O)(=O)O", "NS(=O)(=O)N", "CC(=O)NS(=O)(=O)c1ccccc1", "c1ccccc1S(=O)(=O)c1ccccc1", "CS(=O)(=O)OC", "CS(=O)(=O)S", "CS(=N)(=O)C", "OCCS(=O)(=O)CCO"]) out.add(near);
+  // Stage 3c: carbamates — on a saturated ring N as the ring's carboxylate ester (each alcohol part, each parent, every
+  // second substituent), on an open-chain N as "R carbamate"; near-misses (aromatic N, Cbz, Boc on a substituted chain).
+  for (const alc of ["C", "CC", "C(C)C", "C(C)(C)C", "c1ccccc1", "C1CCCCC1", ""]) {
+    for (const ringN of ["N1CCCCC1", "N1CCCC1", "N1CCOCC1", "N1CCNCC1", "N1CCN(C)CC1"]) out.add(`${alc ? `${alc}O` : "O"}C(=O)${ringN}`);
+    for (const nsub of ["", "C", "CC", "C(C)C", "c1ccccc1", "C1CCCCC1", "c1ccncc1"]) out.add(`${alc ? `${alc}O` : "O"}C(=O)N${nsub}`);
+    out.add(`${alc ? `${alc}O` : "O"}C(=O)N(C)C`);
+  }
+  const BOC_PIP = "CC(C)(C)OC(=O)N1CCCCC1";
+  const bocN = Molecule.fromSmiles(BOC_PIP).getAllAtoms();
+  for (let a = 0; a < bocN; a++) for (const kind of ["C", "Cl", "N", "O", "CN", "CHO", "CCO"]) { const smi = attach(BOC_PIP, a, kind); if (smi) out.add(smi); }
+  for (const near of ["CC(C)(C)OC(=O)n1ccc2ccccc21", "CC(C)(C)OC(=O)n1ccnc1", "O=C(NC1CCCCC1)OCc1ccccc1", "CC(C)(C)OC(=O)NCCO", "OC(=O)CNC(=O)OC(C)(C)C", "CC(C)(C)OC(=O)N1CCC(CC1)C(=O)O", "CC(C)(C)OC(=O)NC(=O)OC(C)(C)C", "COC(=O)NOC", "COC(=O)NN", "CC(C)(C)OC(=O)N1CCN(CC1)C(=O)OC(C)(C)C"]) out.add(near);
   for (const near of ["O=C1CCN1", "O=C1CCCCCN1", "O=C1OCCN1", "O=C1CCS1", "O=c1cccc[nH]1", "CC(=O)N1CCCC1=O", "O=C1NCCN1", "O=C1CCCCCO1", "O=C1CCO1"]) out.add(near);
   for (const r of ["c1ccncc1", "c1ccsc1", "c1ccoc1"]) for (const head of ["OC(=O)", "O=C", "N#C", "NC(=O)", "OC", "OC(=O)C", "N"]) out.add(`${head}${r}`);
   for (const nring of ["N1CCOCC1", "N1CCCCC1", "N1CCCC1", "n1ccnc1", "n1cccc1", "N1CCN(C)CC1"]) for (const head of ["OCC", "OC(=O)C", "OC(=O)CC", "NCC", "CC(C)"]) out.add(`${head}${nring}`);

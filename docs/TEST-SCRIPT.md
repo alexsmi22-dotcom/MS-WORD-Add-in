@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.178.0)
+# JurisLab — Manual Test Script (v2.179.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,15 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dr. New in v2.179.0 — Chemistry: Boc and other carbamates named
+
+- [ ] ★ **Boc rings.** Chemical, type each SMILES → "Systematic name: …": `CC(C)(C)OC(=O)N1CCC(=O)CC1` → tert-butyl
+  4-oxopiperidine-1-carboxylate; `CN1CCN(CC1)C(=O)OC(C)(C)C` → tert-butyl 4-methylpiperazine-1-carboxylate.
+- [ ] **Open-chain carbamates.** `COC(=O)Nc1ccccc1` → methyl phenylcarbamate; `CC(C)(C)OC(=O)NC` → tert-butyl
+  methylcarbamate.
+- [ ] **Refusals in words.** `CC(C)(C)OC(=O)n1ccc2ccccc21` (Boc-indole) and `O=C(NC1CCCCC1)OCc1ccccc1` (Cbz) →
+  "No name: …".
 
 ## 0dq. New in v2.178.0 — Chemistry: sulfonamides, sulfonic acids and sulfones named
 

@@ -564,3 +564,50 @@ describe("stage 3b review", () => {
     expect(nameOf("CC(C)S(=O)(=O)c1ccccc1S(=O)(=O)CCC")).toBe("1-(propane-1-sulfonyl)-2-(propane-2-sulfonyl)benzene");
   });
 });
+
+describe("stage 3c — carbamates (P-65.2.1, P-65.1.2.2.2, P-65.6.3.3.1)", () => {
+  test.each([
+    // On a saturated ring N: the ester of the ring's carboxylic acid (pyrrolidine-1-carboxylic acid is the PIN form).
+    ["CC(C)(C)OC(=O)N1CCCCC1", "tert-butyl piperidine-1-carboxylate"],
+    ["CC(C)(C)OC(=O)N1CCNCC1", "tert-butyl piperazine-1-carboxylate"],
+    ["CC(C)(C)OC(=O)N1CCC(=O)CC1", "tert-butyl 4-oxopiperidine-1-carboxylate"],
+    ["CC(C)(C)OC(=O)N1CCC(O)CC1", "tert-butyl 4-hydroxypiperidine-1-carboxylate"],
+    ["CN1CCN(CC1)C(=O)OC(C)(C)C", "tert-butyl 4-methylpiperazine-1-carboxylate"],
+    ["CC(C)(C)OC(=O)N1CCOCC1", "tert-butyl morpholine-4-carboxylate"],
+    ["CC(C)(C)OC(=O)N1CCN(CC1)C(=O)OC(C)(C)C", "di-tert-butyl piperazine-1,4-dicarboxylate"],
+    ["OC(=O)N1CCCC1", "pyrrolidine-1-carboxylic acid"],
+    // On an open-chain N: "R carbamate", N-substituents without a locant (P-65.2.1.1's own example has none).
+    ["CC(C)(C)OC(=O)NC", "tert-butyl methylcarbamate"],
+    ["COC(=O)Nc1ccccc1", "methyl phenylcarbamate"],
+    ["CCOC(N)=O", "ethyl carbamate"],
+    ["CN(C)C(=O)O", "dimethylcarbamic acid"],
+    ["CC(C)(C)OC(=O)NC1CCNCC1", "tert-butyl (piperidin-4-yl)carbamate"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+
+  test.each([
+    ["a Boc on an aromatic ring N (indicated hydrogen moves)", "CC(C)(C)OC(=O)n1ccc2ccccc21"],
+    ["Cbz (the benzyl ester's PIN form is not checked)", "O=C(NC1CCCCC1)OCc1ccccc1"],
+    ["Boc on a chain that carries its own group", "CC(C)(C)OC(=O)NCCO"],
+    ["Boc-glycine (a junior carbamate)", "OC(=O)CNC(=O)OC(C)(C)C"],
+    ["a Boc ring beside a free acid", "CC(C)(C)OC(=O)N1CCC(CC1)C(=O)O"],
+    ["an N-alkoxy carbamate", "COC(=O)NOC"],
+  ])("%s is refused by name", (_why, smiles) => expect(refusalOf(smiles)).toMatch(/outside the namer's subset/));
+});
+
+describe("stage 3c review", () => {
+  test.each([
+    // ringAttached now takes a ring N: the carbonitrile suffix on a ring N is the PIN (P-66.5.1.1.3). v2.178.0 wrote
+    // "(piperidin-1-yl)methanenitrile".
+    ["N#CN1CCCCC1", "piperidine-1-carbonitrile"],
+    ["N#CN1CCOCC1", "morpholine-4-carbonitrile"],
+    ["N#Cn1cccc1", "1H-pyrrole-1-carbonitrile"],
+    // An N-Boc lactam is the ring-N carboxylate (the acid outranks the ketone).
+    ["CC(C)(C)OC(=O)N1CCCCC1=O", "tert-butyl 2-oxopiperidine-1-carboxylate"],
+    // The carboxylate N takes locant 1; the rest follows lowest locants.
+    ["CC1CN(CCN1)C(=O)OC(C)(C)C", "tert-butyl 3-methylpiperazine-1-carboxylate"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+  test("two different N-substituents on a carbamate N are refused (form not confirmed)", () => {
+    expect(refusalOf("CCN(C)C(=O)OC")).toMatch(/two different substituents/);
+    expect(nameOf("CN(C)C(=O)OC")).toBe("methyl dimethylcarbamate");
+  });
+});

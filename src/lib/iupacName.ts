@@ -46,9 +46,13 @@
 //   N-substituted: 4-methyl-N-propylbenzene-1-sulfonamide), sulfo and sulfamoyl as junior prefixes, sulfones by the
 //   preferred acyl prefix ((methanesulfonyl)benzene) — sulfonyl S on carbon only.
 //
+//   v2.179.0 (stage 3c): carbamates — on a saturated ring N as the ester of the ring's carboxylic acid (tert-butyl
+//   piperidine-1-carboxylate), on an open-chain N whole (tert-butyl methylcarbamate, methyl phenylcarbamate).
+//
 //   REFUSED BY NAME (each with its reason)
 //   - lactones and lactams of rings the namer does not number (4-, 7-membered, oxazolidine), aromatic pyridinones,
-//     thiolactones, N-acyl lactams, open-chain anhydrides, carbamates, esters of two alcohols, two substituted
+//     thiolactones, N-acyl lactams (an N-Boc lactam is the ring-N carboxylate: tert-butyl 2-oxopiperidine-1-carboxylate),
+//     open-chain anhydrides, Cbz and junior carbamates, esters of two alcohols, two substituted
 //     nitrogens, a substituted amino group beside a senior group, sulfur and other
 //     elements, charged species (except the internal nitro pair), isotopes,
 //     radicals, fused or hetero rings, ring unsaturation beyond benzene,
@@ -191,6 +195,9 @@ export function iupacName(mol0: Molecule): IupacNameResult {
       if (sys.rings > 1 && !matchHetero(g0, sys.atoms)) return refuse(FUSED_REFUSAL);
     }
   }
+  // A carbamate on an open-chain nitrogen (stage 3c) is named whole: "tert-butyl methylcarbamate".
+  const carb = nameCarbamate(mol);
+  if (carb) return carb;
   const prep = prepare(mol);
   if ("refusal" in prep) return refuse(prep.refusal);
   const core = nameCore(prep.mol, prep.nPrefixes);
@@ -221,6 +228,64 @@ export function iupacName(mol0: Molecule): IupacNameResult {
     return { ...core, name: `${word} ${anion}`, descriptorAt: word.length + 1 };
   }
   return core;
+}
+
+/**
+ * A carbamate (or carbamic acid) on an OPEN-CHAIN nitrogen, named whole (stage 3c): the alcohol part as a word, the
+ * N-substituents as prefixes with no N locant, then "carbamate" — "tert-butyl methylcarbamate", "methyl
+ * phenylcarbamate", "ethyl carbamate", "dimethylcarbamic acid" (P-65.2.1.1, whose example "2-hydroxypropyl
+ * (2-aminoethyl)carbamate (PIN)" carries no N locant; P-65.6.3.3.1 "tert-butyl octanoate (PIN)"). Every other atom must
+ * be in the alcohol part or an N-substituent, each a plain substituent classifySub names; anything more (a Boc on a
+ * chain that carries its own group, a benzyl ester — Cbz — whose PIN form is not checked) is refused by name. Returns
+ * null when the molecule has no such carbamate.
+ */
+function nameCarbamate(mol: Molecule): IupacNameResult | null {
+  const g = graphOf(mol);
+  const { n: nitroN } = nitroAtoms(g);
+  const carbamates: { c: number; dO: number; o: number; nn: number }[] = [];
+  for (let c = 0; c < g.n; c++) {
+    if (g.el[c] !== 6 || g.inRing[c]) continue;
+    const dO = g.adj[c].filter((e) => g.el[e.to] === 8 && e.order === 2 && g.adj[e.to].length === 1);
+    const sO = g.adj[c].filter((e) => g.el[e.to] === 8 && e.order === 1);
+    const sN = g.adj[c].filter((e) => g.el[e.to] === 7 && e.order === 1 && !g.inRing[e.to] && !nitroN.has(e.to));
+    if (dO.length === 1 && sO.length === 1 && sN.length === 1 && g.adj[c].length === 3) carbamates.push({ c, dO: dO[0].to, o: sO[0].to, nn: sN[0].to });
+  }
+  if (!carbamates.length) return null;
+  if (carbamates.length > 1) return refuse("More than one carbamate group is outside the namer's subset.");
+  const { c, dO, o, nn } = carbamates[0];
+  const used = new Set<number>([c, dO, o, nn]);
+  let alcohol = "";
+  const oOthers = g.adj[o].filter((e) => e.to !== c);
+  if (oOthers.length === 1) {
+    const r = oOthers[0].to;
+    if (g.el[r] !== 6 || oOthers[0].order !== 1) return refuse("This carbamate's O–substituent is outside the namer's subset.");
+    const cls = classifySub(g, r, o, nitroN);
+    if (typeof cls === "string") return refuse(`The carbamate's alcohol part: ${cls.replace(/^This substituent/, "it")}`);
+    alcohol = cls.name;
+    for (const x of subtree(g, r, o)) used.add(x);
+  } else if (oOthers.length > 1) return refuse("This carbamate is outside the namer's subset.");
+  if (g.adj[nn].some((e) => e.order !== 1)) return refuse("This carbamate nitrogen is outside the namer's subset.");
+  const subs: { loc: null; name: string; key: string }[] = [];
+  for (const e of g.adj[nn]) {
+    if (e.to === c) continue;
+    if (g.el[e.to] !== 6) return refuse("A carbamate nitrogen bonded to N, O or S is outside the namer's subset.");
+    const cls = classifySub(g, e.to, nn, nitroN);
+    if (typeof cls === "string") return refuse(`A substituent on the carbamate nitrogen: ${cls.replace(/^This substituent/, "it")}`);
+    subs.push({ loc: null, ...cls });
+    for (const x of subtree(g, e.to, nn)) used.add(x);
+  }
+  // Accounting: the carbamate, its alcohol part and its N-substituents are the whole molecule.
+  if (used.size !== g.n) return refuse("A carbamate beside other groups (a protected amine on a substituted chain, a junior carbamate) is outside the namer's subset.");
+  // Two DIFFERENT N-substituents: the 2013 form (ethyl(methyl)carbamate or N-ethyl-N-methylcarbamate) is not
+  // confirmed in the recommendations — refused by name, not guessed (stage 3c review).
+  if (new Set(subs.map((x) => x.name)).size > 1) return refuse("A carbamate nitrogen with two different substituents is outside the namer's subset (its N-locant form is not confirmed).");
+  const nPart = prefixString(subs);
+  if (typeof nPart !== "string") return refuse(nPart.refusal);
+  const caveats: string[] = [];
+  if (hasStereo(mol)) caveats.push(STEREO_CAVEAT);
+  caveats.push("Systematic name from the offline subset namer — verify against your house style before filing.");
+  if (!alcohol) return { name: `${nPart}carbamic acid`, caveats };
+  return { name: `${alcohol} ${nPart}carbamate`, caveats, descriptorAt: alcohol.length + 1 };
 }
 
 const STEREO_CAVEAT =
@@ -300,8 +365,13 @@ function prepare(mol: Molecule): Prepared | { refusal: string } {
     // A ring O (OCL marks ring atoms of every size): a lactone, named by the core as the ring's ketone (oxolan-2-one,
     // stage 3a), or refused there by name. So the alcohol part below never reaches back to its own acyl carbon.
     if (g0.inRing[o]) continue;
-    // A carbonyl carbon with a second single-bonded O or N is a carbonate or carbamate, not an ester.
-    if (g0.adj[acyl].filter((e) => e.order === 1 && (g0.el[e.to] === 8 || g0.el[e.to] === 7)).length > 1) continue;
+    // A carbonyl carbon with a second single-bonded O or N is a carbonate or carbamate, not an ester — except a
+    // carbamate on a saturated ring N, which is the ester of the ring's carboxylic acid (tert-butyl
+    // piperidine-1-carboxylate, stage 3c). A carbamate on an open-chain N is named by nameCarbamate.
+    const acylHetero = g0.adj[acyl].filter((e) => e.order === 1 && (g0.el[e.to] === 8 || g0.el[e.to] === 7));
+    const ringNCarbamate =
+      acylHetero.length === 2 && acylHetero.some((e) => g0.el[e.to] === 7 && g0.inRing[e.to] && !g0.aromatic[e.to]) && !g0.adj[acyl].some((e) => g0.el[e.to] === 6);
+    if (acylHetero.length > 1 && !ringNCarbamate) continue;
     const cls = classifySub(g0, r, o, nitroN0);
     if (typeof cls === "string") return { refusal: `The ester's alcohol part: ${cls.replace(/^This substituent/, "it")}` };
     alcohols.push(cls.name);
@@ -600,8 +670,10 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
 /** A group whose own carbon (COOH, CHO, C≡N, CONH₂) sits OFF the ring, bonded to a ring atom and nothing else. */
 function ringAttached(g: G, gr: Group, ring: Set<number>): boolean {
   if (!["acid", "amide", "nitrile", "al"].includes(gr.kind) || ring.has(gr.carbon)) return false;
-  const cs = g.adj[gr.carbon].filter((e) => g.el[e.to] === 6);
-  return cs.length === 1 && ring.has(cs[0].to) && cs[0].order === 1;
+  // Its one bond besides the group's own atoms goes to the ring: a ring carbon, or (stage 3c) a saturated ring N —
+  // piperidine-1-carboxylic acid, the parent of tert-butyl piperidine-1-carboxylate (P-65.1.2.2.2).
+  const others = g.adj[gr.carbon].filter((e) => !gr.satellites.includes(e.to));
+  return others.length === 1 && ring.has(others[0].to) && others[0].order === 1 && (g.el[others[0].to] === 6 || g.el[others[0].to] === 7);
 }
 
 // ---------------------------------------------------------------------------
@@ -840,6 +912,18 @@ function detectGroups(g: G, nitroN: Set<number>, nitroSat: Set<number>): { group
     }
     if (cN.some((e) => e.order !== 1)) {
       return { groups, refusal: "Cumulated carbonyls (ketene-like C=C=O) are outside the namer's subset." };
+    }
+    // A carboxy group on a saturated RING nitrogen (stage 3c): the ring's carboxylic acid — pyrrolidine-1-carboxylic
+    // acid (PIN, P-65.1.2.2.2), and its esters (the Boc of tert-butyl piperidine-1-carboxylate, cut off by prepare()).
+    // On an aromatic ring N (a Boc-indole): no 2013 example confirms the form for a carboxy group there — refused by
+    // name. (A nitrile there is named, 1H-pyrrole-1-carbonitrile: P-66.5.1.1.3.)
+    if (singleO.length === 1 && nS.length === 1 && cN.length === 0 && g.inRing[nS[0].to]) {
+      const ringN = nS[0].to;
+      if (g.aromatic[ringN]) return { groups, refusal: "A carboxy group or carbamate ester on an aromatic ring nitrogen (an indole-1-carboxylate, a Boc-pyrrole) is outside the namer's subset." };
+      const o = singleO[0].to;
+      if (g.adj[o].length !== 1) return { groups, refusal: "Ester/anhydride linkages are outside the namer's subset." };
+      groups.push({ kind: "acid", carbon: c, satellites: [dblO[0].to, o], terminal: true });
+      continue;
     }
     if (singleO.length === 1 && nS.length === 0) {
       const o = singleO[0].to;

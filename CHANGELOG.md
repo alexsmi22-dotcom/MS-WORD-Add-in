@@ -6,6 +6,28 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.179.0] — 2026-10-21 — Chemistry: Boc and other carbamates named
+
+IUPAC stage 3c (docs/SCOPE-IUPAC-STAGES.md), forms from the 2013 recommendations (P-65.2.1, P-65.1.2.2.2).
+
+- **A carbamate on a saturated ring nitrogen is the ester of the ring's carboxylic acid**, the 2013 form: tert-butyl
+  piperidine-1-carboxylate, tert-butyl 4-oxopiperidine-1-carboxylate, tert-butyl 4-methylpiperazine-1-carboxylate,
+  tert-butyl morpholine-4-carboxylate, di-tert-butyl piperazine-1,4-dicarboxylate; the acid itself
+  (pyrrolidine-1-carboxylic acid).
+- **On an open-chain nitrogen**: tert-butyl methylcarbamate, methyl phenylcarbamate, ethyl carbamate,
+  tert-butyl (piperidin-4-yl)carbamate, dimethylcarbamic acid.
+- **An N-Boc lactam is named as the ring-N carboxylate** (tert-butyl 2-oxopiperidine-1-carboxylate: the acid outranks
+  the ketone).
+
+### Fixed
+- **A nitrile on a ring nitrogen has its 2013 form**: piperidine-1-carbonitrile, morpholine-4-carbonitrile,
+  1H-pyrrole-1-carbonitrile (P-66.5.1.1.3). v2.178.0 and earlier wrote "(piperidin-1-yl)methanenitrile", which reads
+  back to the right structure but is not the preferred form.
+- Still refused by name: a Boc on an aromatic ring nitrogen (Boc-indole), Cbz (the benzyl ester's form is not yet
+  checked), a Boc on a chain that carries its own group, Boc-amino acids (a junior carbamate), a Boc ring beside a free
+  acid, a carbamate N with two different substituents (its N-locant form is not confirmed). Every new name reads back
+  through OPSIN (136 added, 0 wrong); one independent review round pinned.
+
 ## [2.178.0] — 2026-10-21 — Chemistry: sulfonamides, sulfonic acids and sulfones named
 
 IUPAC stage 3b (docs/SCOPE-IUPAC-STAGES.md), forms from the 2013 recommendations (P-65.3, P-66.1.1.2, P-65.4.1).

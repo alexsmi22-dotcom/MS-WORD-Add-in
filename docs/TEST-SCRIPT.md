@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.175.0)
+# JurisLab — Manual Test Script (v2.176.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0do. New in v2.176.0 — "0,5;1,5;2,5" is asked
+
+- [ ] ★ **Stats.** Tool ▸ **Stats** ▸ **One-way ANOVA**, groups `0,5;1,5;2,5` → refused: "… can be read two ways: as the numbers
+  0.5; 1.5; 2.5, or as 3 groups (0, 5; 1, 5; 2, 5). Write 0.5 for the first reading, or a comma then a space (0, 5)
+  for the second." Nothing can be inserted. Type `0, 5; 1, 5; 2, 5` → computed as three groups of two.
+- [ ] **Finance.** **Net present value**, cash flows `-1000;500,5;500,5` → refused with the two readings; `-1000; 500.5;
+  500.5` → computed.
+- [ ] **Not asked.** Stats ▸ **Survival (Kaplan-Meier)**, data `5,1;6,1;6,0;8,1` → computed as before (times 5, 6, 6, 8; events
+  1, 1, 0, 1). NPV cash flows `-10,000; 2,500; 3,000` → −10000, 2500, 3000, as before. `1,5 2,5 3,5` in any list → 1.5, 2.5, 3.5 with the decimal-comma note, as before.
 
 ## 0dn. New in v2.175.0 — Engineering: frames, plate, shelf life, electrochemistry
 

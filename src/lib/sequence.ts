@@ -571,6 +571,9 @@ export function buildSt26Xml(meta: SequenceListingMeta, entries: SequenceEntry[]
 
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    // "Sequence Listing", not the DTD comment's "SEQUENCE LISTING": checked 2026-10-21 against WIPO's own
+    // ST.26 / WIPO Sequence training (PCT webinar 2025-24, "Document type (DOCTYPE) declaration"), which writes
+    // this line character for character. Do not "fix" the case to match Annex II's comment.
     `<!DOCTYPE ST26SequenceListing PUBLIC "-//WIPO//DTD Sequence Listing 1.3//EN" "ST26SequenceListing_${DTD_VERSION}.dtd">\n` +
     `<ST26SequenceListing ${rootAttrs}>` +
     body +

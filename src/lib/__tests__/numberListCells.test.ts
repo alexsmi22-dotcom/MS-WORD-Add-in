@@ -32,6 +32,8 @@ describe("a field that proves nothing keeps each piece a comma list (v2.160.0 re
   it("100,200 / 300,400 is four values, not 100200 and 300400", () => {
     expect(table("100,200\n300,400")).toEqual([[100, 200], [300, 400]]);
   });
+  // The reader's own rule. Since 2026-10-21 the pane never reaches it with this shape: semicolonCommaRefusal
+  // asks first (decimals or groups?) — semicolonComma.test.ts.
   it("groups 1,2;3,4 and 10,20;30,40;50,60 are groups of two", () => {
     expect(groups("1,2;3,4")).toEqual([[1, 2], [3, 4]]);
     expect(groups("10,20;30,40;50,60")).toEqual([[10, 20], [30, 40], [50, 60]]);

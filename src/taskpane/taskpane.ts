@@ -350,7 +350,7 @@ import {
   CorrectionMethod,
 } from "../lib/stats2";
 import { rankTestLines } from "../lib/exactRank";
-import { readNumberList, decimalCommaNote, fieldNumber, trueMinus } from "../lib/numberList";
+import { readNumberList, decimalCommaNote, fieldNumber, trueMinus, semicolonCommaRefusal } from "../lib/numberList";
 import { ListTokenError, readCalcList } from "../lib/calcList";
 import { readSvgDims, svgNaturalSize } from "../lib/svgSize";
 import { solveFunctionSvg } from "../lib/solveFigure";
@@ -11016,10 +11016,27 @@ function updateStatsPreview(): void {
   };
   let out: StatOutput;
   statCommaLog.clear();
-  try {
-    out = calc.compute(read);
-  } catch {
-    out = { text: "Could not compute — check the inputs.", ok: false };
+  // "0,5;1,5;2,5" is three decimals to a list reader and three groups of two to a group reader: asked, not
+  // guessed (user decision 2026-10-21; lib/numberList.ts semicolonCommaRefusal). Only where both readings can be
+  // meant: a list, or groups split at semicolons. A field whose rows need two or more values (survival time,event,
+  // regression rows, subjects, counts, Cox, two-way) has one reading, the pairs, and keeps it (v2.176.0 review).
+  const asksComma = (f: StatField): "numbers" | "groups" | null =>
+    f.kind === "list" ? "numbers" : f.kind === "groups" && (f.table === undefined || f.table === "groups") ? "groups" : null;
+  const ambiguous = calc.fields
+    .map((f) => {
+      const as = asksComma(f);
+      return as ? semicolonCommaRefusal(read(f.key), as) : "";
+    })
+    .map((msg, i) => (msg ? `${calc.fields[i].label}: ${msg}` : ""))
+    .find(Boolean);
+  if (ambiguous) {
+    out = { text: ambiguous, ok: false };
+  } else {
+    try {
+      out = calc.compute(read);
+    } catch {
+      out = { text: "Could not compute — check the inputs.", ok: false };
+    }
   }
   // A typed decimal comma is never read silently (§E4): "1,5 2,3" is 1.5 and
   // 2.3 under the product comma rule, and the result says so.

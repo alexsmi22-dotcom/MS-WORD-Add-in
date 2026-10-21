@@ -151,3 +151,81 @@ export function trueMinus<T>(line: T): T {
   if (typeof line !== "string") return line;
   return line.replace(/(^|[\s(=,;:[/×])-(?=\.?\d)/g, "$1−") as unknown as T;
 }
+
+/**
+ * A number in plain digits: the shortest form that reads back to it (String's), with any exponent written out,
+ * and a true minus (the refusal below shows numbers the user is told to type).
+ */
+function plainDigits(v: number): string {
+  let s = String(Math.abs(v));
+  const m = /^(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(s);
+  if (m) {
+    const digits = m[1] + (m[2] ?? "");
+    const e = Number(m[3]);
+    s = e < 0 ? `0.${"0".repeat(-e - 1)}${digits}` : digits + "0".repeat(Math.max(0, e - (m[2]?.length ?? 0)));
+  }
+  return (v < 0 || Object.is(v, -0) ? "−" : "") + s;
+}
+
+/**
+ * A field of semicolon-separated values with one comma each ("0,5;1,5;2,5") can be read two ways: as the
+ * decimal-comma numbers 0.5; 1.5; 2.5, or as values the commas separate (0 and 5; 1 and 5; 2 and 5). The readers
+ * disagreed in silence: a Stats group field took the pairs, a list field the decimals. The user chose to be asked
+ * (2026-10-21), so this returns the refusal that names both readings and how to type each, or "" when the field is
+ * not of that shape. `as`: "numbers" for a list field (the separated reading is one list), "groups" for a field of
+ * groups split at semicolons (each piece is a group; the decimals the user meant then go in one group, typed with
+ * points). Fields whose rows need two or more values (survival time,event rows, regression rows, subjects, counts)
+ * are NOT asked: the pairs are their only reading (the caller does not call this for them).
+ * Only semicolons decide: values separated by spaces or line breaks ("1,5 2,5") prove decimal commas, a comma then
+ * a space ("0, 5; 1, 5") is a separator, two commas in a piece ("1,2,3;4,5,6") is comma-listing, and a dot before
+ * the comma ("1.000,5") proves it decimal — none of those is asked about. A list of thousands ("-10,000; 2,500")
+ * is not asked either: semicolons are how a list of numbers with thousands commas is typed, and "000" is no value
+ * anyone types (v2.176.0 review 2).
+ */
+export function semicolonCommaRefusal(text: string, as: "numbers" | "groups"): string {
+  if (!text.includes(";")) return "";
+  const pieces = text
+    .split(";")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  // The comma is judged on the MANTISSA: "1,5%" and "1,5×10⁻³" are the same question as "1,5" (\s covers the
+  // no-break space the reader accepts before %).
+  const mant = (p: string): string => p.replace(SCI_TAIL, "").replace(/\s*%$/, "");
+  const tail = (p: string): string => p.slice(mant(p).length).trim();
+  const ONE_COMMA = /^[-−–]?\d+,\d+$/;
+  const PLAIN = /^[-−–]?(?:\d+\.?\d*|\.\d+)$/;
+  const oneComma = (p: string): boolean => ONE_COMMA.test(mant(p));
+  if (!pieces.length || !pieces.every((p) => oneComma(p) || PLAIN.test(mant(p))) || !pieces.some(oneComma)) return "";
+  const cells = readNumberList(text);
+  if (cells.dropped.length || cells.values.length !== pieces.length) return "";
+  if (as === "numbers" && cells.decimalCommas === 0) return "";
+  // The mantissas under the WHOLE field's comma ruling (a field that proves a decimal comma reads 1,250 as 1.25),
+  // each shown with its own tail: "1,5×10⁻³" is 1.5×10⁻³, never 0.0015 or a rounded 0.
+  const mantissas = readNumberList(pieces.map(mant).join(";"));
+  if (mantissas.values.length !== pieces.length) return "";
+  const asCell = (i: number): string => `${plainDigits(mantissas.values[i])}${tail(pieces[i])}`;
+  // A piece split at its comma, each part as the reader would read it ("0,05" → 0 and 5, "1,5%" → 1 and 5%).
+  const split = (p: string): string[] => {
+    const i = p.indexOf(",");
+    const parts = i < 0 ? [p] : [p.slice(0, i), p.slice(i + 1)];
+    return parts.map((x) => `${plainDigits(parseCellNumber(mant(x)))}${tail(x)}`);
+  };
+  const shown = (s: string[], sep: string): string => (s.length > 4 ? `${s.slice(0, 3).join(sep)}${sep}…` : s.join(sep));
+  const asCells = shown(pieces.map((_p, i) => asCell(i)), "; ");
+  const n = pieces.length;
+  const flat = text.trim().replace(/\s+/g, " ");
+  const typed = flat.length > 40 ? `${flat.slice(0, 37)}…` : flat;
+  const at = pieces.findIndex(oneComma);
+  const separated =
+    as === "numbers"
+      ? (() => {
+          const parts = pieces.flatMap(split);
+          return `${parts.length} separate values (${shown(parts, ", ")})`;
+        })()
+      : `${n} groups (${shown(pieces.map((p) => split(p).join(", ")), "; ")})`;
+  return (
+    `“${typed}” can be read two ways: as the numbers ${asCells}, or as ${separated}. ` +
+    `Write ${asCell(at)} for the first reading, or a comma then a space (${split(pieces[at]).join(", ")}) for the second.`
+  );
+}
+

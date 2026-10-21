@@ -7,7 +7,7 @@
  * nothing on screen to say so — an NPV on flows nobody typed. (Host-adapter audit, docs/SCOPE-HOST-ADAPTER.md §E.)
  * A token that is not a number is now refused by name, and a decimal comma read as one is said.
  */
-import { decimalCommaNote, readNumberList } from "./numberList";
+import { decimalCommaNote, readNumberList, semicolonCommaRefusal } from "./numberList";
 
 /** A list field holds something that is not a number (the message names it). */
 export class ListTokenError extends Error {
@@ -19,6 +19,9 @@ export class ListTokenError extends Error {
 
 /** The numbers of one list field and the sentence about its decimal commas ("" when none were read). */
 export function readCalcList(text: string): { values: number[]; note: string } {
+  // "0,5;1,5;2,5" is 0.5, 1.5, 2.5 or six values: asked, not guessed (user decision 2026-10-21).
+  const ambiguous = semicolonCommaRefusal(text, "numbers");
+  if (ambiguous) throw new ListTokenError(ambiguous);
   const r = readNumberList(text);
   if (r.dropped.length) {
     const shown = r.dropped.slice(0, 3).map((t) => `“${t}”`).join(", ") + (r.dropped.length > 3 ? ` and ${r.dropped.length - 3} more` : "");

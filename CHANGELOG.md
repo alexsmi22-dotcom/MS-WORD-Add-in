@@ -6,6 +6,19 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.176.0] — 2026-10-21 — "0,5;1,5;2,5" is asked, not guessed
+
+### Changed
+- **A field typed with semicolons and one comma per value ("0,5;1,5;2,5") is now refused with both readings named**
+  — three decimals (0.5; 1.5; 2.5) or values the commas separate (0, 5; 1, 5; 2, 5) — and how to type each. Before,
+  the readers disagreed in silence: a Stats group field read pairs, a list field read decimals. Applies to every
+  Stats list field, Stats group fields split at semicolons, and the Finance and Bio/Assay list fields; the same
+  question with % or ×10ⁿ ("1,5%;2,5%") is asked too. Fields whose rows need two values (Kaplan–Meier time and event,
+  regression rows, subjects, contingency counts, Cox, two-way) keep the pairs, their only reading. A list of thousands
+  ("-10,000; 2,500") is not asked — semicolons are how such a list is typed. Values separated
+  by spaces or line breaks ("1,5 2,5"), a comma then a space ("0, 5; 1, 5") and comma lists ("1,2,3;4,5,6") read as
+  before. Two independent review rounds pinned (semicolonComma.test.ts).
+
 ## [2.175.0] — 2026-10-21 — Engineering: plane frames, plate stress, shelf life, electrochemistry
 
 Gap item 5: six calculators, each drawing its figure (Engineering now 153 calculators).

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.182.0)
+# JurisLab — Manual Test Script (v2.183.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dv. New in v2.183.0 — Drawing (CAD): combine imported parts
+
+- [ ] ★ **Cut.** Tool ▸ **Drawing (CAD)**: Import DXF / STL / OBJ… a cube STL (mm) → Add as a part; import a rod (a
+  cylinder STL) → Add as a part. Move the rod into the cube (its Move X / Y). Select the cube → **Cut out of this** ·
+  the rod → **Combine** → "Combined: … − …"; the top view shows the hole as a circle, front and side views its hidden
+  lines. **Insert drawing** → the sheet in Word.
+- [ ] **Separate.** Select the combined part → **Separate** → the two parts are back where they were. Combine again,
+  move the combined part (Move X + 50) → Separate → both parts are where the combined part was drawn.
+- [ ] **Reopen.** Insert a drawing with a combined part; close and reopen Word; select it → **Edit** → it asks for the
+  first file; import it, then the second → each "…put back into…", and the drawing is back.
+- [ ] **Refusals in words.** Move the rod off the cube, Cut out → "…the parts do not overlap — nothing would be cut…".
+- [ ] **Offline.** After one combine, go offline (or close and reopen Word without a connection) → combining still works.
 
 ## 0du. New in v2.182.0 — Accessibility; sequence listings that pass WIPO's DTD
 

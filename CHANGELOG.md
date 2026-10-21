@@ -6,6 +6,25 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.183.0] — 2026-10-21 — Drawing (CAD): combine imported parts
+
+docs/SCOPE-MESH-BOOLEANS.md.
+
+- **Combine two imported STL or OBJ parts**: select one, choose Join to this, Cut out of this, or Keep only the overlap
+  with another, and Combine. The result is one part drawn like any imported part — a cube with a rod cut out of it
+  shows the circle on top and the bore's hidden lines in front and side views, with no seam where parts met.
+  Separate puts the two parts back, where the combined part is drawn now (moved or turned since, they move with it).
+  Callouts and exploded-view offsets move to the combined part, and the status line says which.
+- **The drawing carries the recipe, never the triangles**: a combined part re-opens like an imported one — import the
+  same files again, in any order, and each is put back into the combined part and the result computed again.
+  Combinations nest up to four deep.
+- Refused by name: a cut that misses the part ("move one part into the other first" — a small real cut, a 1 mm pin
+  hole in a 200 mm block, is a cut), a join of parts that do not make one piece, an overlap of parts that do not meet, an open surface, a result over the facet limit, catalogue and sketched
+  parts (not yet). A join where one part lies wholly inside the other says so.
+- The geometry engine is Manifold 3.5.4 (Apache-2.0), loaded only when parts are first combined, and available
+  offline. Checked against closed-form volumes and flush contact in the engine itself, and walked end to end in the
+  built pane.
+
 ## [2.182.0] — 2026-10-21 — Accessibility gate; sequence listings that pass WIPO's DTD
 
 Hit-list #14.

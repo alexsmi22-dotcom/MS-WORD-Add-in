@@ -157,6 +157,10 @@ module.exports = async (env, options) => {
       new CopyWebpackPlugin({
         patterns: [
           { from: "assets/*", to: "assets/[name][ext][query]" },
+          // The geometry engine for combining CAD parts, UNBUNDLED (src/taskpane/manifoldEngine.ts says why): beside the
+          // pane, loaded at run time, precached (scripts/sw-manifest.js takes .js and .wasm).
+          { from: "node_modules/manifold-3d/manifold.js", to: "manifold.js" },
+          { from: "node_modules/manifold-3d/manifold.wasm", to: "manifold.wasm" },
           // Publish a single installable manifest at the site root. In production,
           // stamp the production manifest with the live Pages host so the deployed
           // /manifest.xml points at the hosted files and matches what the install

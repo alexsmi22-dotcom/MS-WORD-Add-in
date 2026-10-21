@@ -42,6 +42,9 @@ describe("sw-manifest — which files the pane needs offline", () => {
     "3c9f82c79cca728ac296.css",
     "assets/icon-32-v2.png",
     "assets/logo.svg",
+    // The CAD geometry engine (combining parts), copied unbundled: its script and its wasm.
+    "manifold.js",
+    "manifold.wasm",
   ];
   const no = [
     "taskpane.11dbe936eeda3aa5c0cc.js.map",

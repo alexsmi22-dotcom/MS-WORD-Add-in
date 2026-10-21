@@ -19,7 +19,7 @@ const CDN_ORIGINS = ["https://appsforoffice.microsoft.com"];
  *
  * In: the four add-in pages, every JS chunk (hashed or not — lazy chunks
  * included, or the PPT export would be the one tool that breaks offline), the
- * extracted CSS, and the icons.
+ * extracted CSS, the icons, and WebAssembly (the CAD geometry engine).
  * Out: source maps (debug only, 20 MB), licence stubs, the website pages
  * (index/tool/science/students/legal/manual — those are the SITE, not the
  * add-in), the installable manifest, and the two files that must never be
@@ -35,6 +35,8 @@ function isPrecacheAsset(name) {
   if (name === "version.json" || name === "sw.js" || name === "manifest.xml") return false;
   if (name.endsWith(".html")) return ADDIN_PAGES.has(name) && !SITE_PAGES.has(name);
   if (name.endsWith(".js") || name.endsWith(".css")) return true;
+  // The geometry engine for combining CAD parts (manifold-3d: manifold.js + manifold.wasm, copied unbundled): offline like the rest.
+  if (name.endsWith(".wasm")) return true;
   if (name.startsWith("assets/")) return true;
   return false;
 }

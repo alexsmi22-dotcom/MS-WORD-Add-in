@@ -89,6 +89,34 @@ export function meshFor(ref: MeshRef): { ok: true; mesh: SolidMesh } | { ok: fal
   return { ok: true, mesh: r.body.mesh };
 }
 
+/** An imported part's body key: its file, units and edge angle (what a combined part's key is built from). */
+export function meshKey(ref: MeshRef): string {
+  return keyOf(ref);
+}
+
+/**
+ * Combined parts' results (docs/SCOPE-MESH-BOOLEANS.md), by combineKey: computed once by the pane's engine, read
+ * synchronously when the drawing is rebuilt. Kept like bodies — the drawing's and its Undo's, and two spare.
+ */
+const combined = new Map<string, { mesh: SolidMesh; notes: string[] }>();
+
+export function rememberCombined(key: string, value: { mesh: SolidMesh; notes: string[] }): void {
+  touch(combined, key, value);
+}
+
+export function combinedFor(key: string): { mesh: SolidMesh; notes: string[] } | undefined {
+  const v = combined.get(key);
+  if (v) touch(combined, key, v);
+  return v;
+}
+
+/** Keeps the combined results these keys name, and two others used last. */
+export function retainCombined(keys: string[]): void {
+  const keep = new Set(keys);
+  const spare = [...combined.keys()].filter((k) => !keep.has(k));
+  for (const k of spare.slice(0, Math.max(0, spare.length - SPARE))) combined.delete(k);
+}
+
 /** Is this a well-formed reference (read field by field from a saved drawing)? */
 export function isMeshRef(v: unknown): v is MeshRef {
   const r = v as MeshRef;

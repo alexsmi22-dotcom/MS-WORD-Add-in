@@ -36,6 +36,8 @@ import {
   overlapNotes,
   parseDoc,
   partProblems,
+  combineKey,
+  moveCallouts,
   resolveCallouts,
   shapeName,
   partFrame,
@@ -48,7 +50,10 @@ import { lineTypesFor } from "../lib/cadLineTypes";
 import { DxfDrawing } from "../lib/dxf";
 import { CONTROL_CHAR, MARK_LIMITS, markDistance, MarkPt, MarkStyle, roundPt, SheetMark, simplifyStroke } from "../lib/cadMarks";
 import { IMPORTED_ALT_PREFIX, IMPORT_UNITS, importedFigure, importedSketch, openDxfFile, sizeRefusal } from "../lib/dxfImport";
-import { hasStl, MeshRef, meshFor, rememberStl, retainMeshes } from "../lib/cadMeshStore";
+import { combinedFor, hasStl, MeshRef, meshFor, rememberStl, retainCombined, retainMeshes } from "../lib/cadMeshStore";
+import { combineTwo, ensureCombined, separatedOperands } from "../lib/combineParts";
+import { BOOL_OPS, type BoolOp } from "../lib/meshBoolean";
+import { loadManifoldEngine } from "./manifoldEngine";
 import { DEFAULT_CREASE_DEG, readStl, stlHash, STL_LIMITS, StlFacets } from "../lib/stl";
 import { readObj } from "../lib/obj";
 import type { Sketch } from "../lib/sketch";
@@ -225,12 +230,79 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
 
   /** The imported files the drawing and its Undo name (the store keeps these, whatever else it forgets). */
   function liveMeshRefs(): MeshRef[] {
-    return [...doc.parts, ...(undoDoc?.parts ?? [])].flatMap((p) => (p.shape === "mesh" && p.mesh ? [p.mesh] : []));
+    const refs = (p: CadPart): MeshRef[] => (p.shape === "mesh" && p.mesh ? [p.mesh] : p.shape === "combine" && p.combine ? p.combine.operands.flatMap(refs) : []);
+    return [...doc.parts, ...(undoDoc?.parts ?? [])].flatMap(refs);
+  }
+
+  /** The combined parts the drawing and its Undo name, nested ones too (their cached results are kept). */
+  function liveCombines(): CadPart[] {
+    const all = (p: CadPart): CadPart[] => (p.shape === "combine" && p.combine ? [p, ...p.combine.operands.flatMap(all)] : []);
+    return [...doc.parts, ...(undoDoc?.parts ?? [])].flatMap(all);
+  }
+
+  /** An engine failure in words: Emscripten can throw a bare number (a C++ exception), which says nothing. */
+  function engineError(e: unknown): string {
+    return e instanceof Error ? e.message : typeof e === "string" ? e : "an internal error";
+  }
+
+  /** Why a combined part could not be computed again (a new session, an evicted result), by its key. */
+  const combineFailed = new Map<string, string>();
+  let combining = false;
+
+  /**
+   * Combined parts whose result is not cached (a drawing re-opened, the cache evicted it) are computed again before
+   * the sheet is drawn — asynchronously, the engine loading on first use — never drawn as their operands side by side.
+   * True when that is under way (the caller shows "Combining…").
+   */
+  function recombineMissing(): boolean {
+    const missing = doc.parts.filter((p) => p.shape === "combine" && p.combine && !combinedFor(combineKey(p)) && !combineFailed.has(combineKey(p)));
+    if (!missing.length) return false;
+    if (combining) return true;
+    combining = true;
+    loadManifoldEngine()
+      .then((engine) => {
+        for (const p of missing) {
+          try {
+            const r = ensureCombined(engine, p);
+            if (!r.ok) combineFailed.set(combineKey(p), r.reason);
+          } catch (e) {
+            combineFailed.set(combineKey(p), `the geometry engine failed (${engineError(e)})`);
+          }
+        }
+      })
+      // Only the load lands here: a part's own failure is caught above.
+      .catch((e) => {
+        for (const p of missing) combineFailed.set(combineKey(p), `the geometry engine could not load (${engineError(e)})`);
+      })
+      .finally(() => {
+        combining = false;
+        rebuild();
+      });
+    return true;
   }
 
   function rebuild(): void {
     pending = false;
     retainMeshes(liveMeshRefs());
+    retainCombined(liveCombines().map(combineKey));
+    if (recombineMissing()) {
+      msgEl.className = "build-readout";
+      msgEl.textContent = "Combining parts…";
+      insertBtn.disabled = true;
+      lastSheet = null;
+      return;
+    }
+    const failed = doc.parts.find((p) => p.shape === "combine" && combineFailed.has(combineKey(p)));
+    if (failed) {
+      mesh = null;
+      msgEl.className = "build-readout warn";
+      msgEl.textContent = `${failed.name}: ${combineFailed.get(combineKey(failed))}`;
+      insertBtn.disabled = true;
+      lastSheet = null;
+      paintEmpty();
+      previewEl.replaceChildren();
+      return;
+    }
     // No parts: a sheet of blank figures can still be drawn on by hand.
     if (!doc.parts.length && viewSpecs().some((v) => v.kind === "blank")) {
       mesh = EMPTY_MESH;
@@ -1051,7 +1123,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       nameTimer = window.setTimeout(renderSheet, 300);
     });
     editorEl.appendChild(nameIn);
-    for (const pd of p.shape === "sketch" || p.shape === "mesh" ? [] : SHAPES[p.shape].params) {
+    for (const pd of p.shape === "sketch" || p.shape === "mesh" || p.shape === "combine" ? [] : SHAPES[p.shape].params) {
       editorEl.appendChild(
         numberField(pd.label, p.params[pd.key], (v) => {
           p.params[pd.key] = v;
@@ -1104,6 +1176,21 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
         }),
       );
     }
+    if (p.shape === "combine" && p.combine) {
+      const [a, b] = p.combine.operands;
+      const info = document.createElement("p");
+      info.className = "build-readout";
+      info.textContent = p.combine.op === "union" ? `${a.name} joined to ${b.name}.` : p.combine.op === "subtract" ? `${a.name} with ${b.name} cut out of it.` : `Where ${a.name} and ${b.name} overlap.`;
+      const sep = document.createElement("button");
+      sep.type = "button";
+      sep.className = "insert-btn secondary";
+      sep.textContent = "Separate";
+      sep.title = "Put the two parts back as they were";
+      const idx = selected;
+      sep.addEventListener("click", () => separate(idx));
+      editorEl.append(info, sep);
+    }
+    if (p.shape === "mesh" || p.shape === "combine") editorEl.appendChild(combineControls(selected));
     if (p.shape === "sketch") {
       // A sketched part: what makes it, and the way back into its sketch.
       const info = document.createElement("p");
@@ -1151,6 +1238,107 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       });
       editorEl.appendChild(ex);
     }
+  }
+
+  /** Combine with…: the other imported or combined parts, the operation, and the button (docs/SCOPE-MESH-BOOLEANS.md). */
+  function combineControls(idx: number): HTMLElement {
+    const box = document.createElement("div");
+    box.className = "cad-place";
+    const me = doc.parts[idx];
+    const others = doc.parts.filter((q, i) => i !== idx && (q.shape === "mesh" || q.shape === "combine"));
+    if (!others.length) {
+      const hint = document.createElement("p");
+      hint.className = "build-readout";
+      hint.textContent = "Import a second STL or OBJ part to join it to this one, cut it out of this one, or keep where they overlap.";
+      box.appendChild(hint);
+      return box;
+    }
+    const opSel = document.createElement("select");
+    opSel.className = "lib-select";
+    opSel.setAttribute("aria-label", "How to combine the parts");
+    const OP_LABEL: Record<BoolOp, string> = { union: "Join to this", subtract: "Cut out of this", intersect: "Keep only the overlap with" };
+    for (const op of BOOL_OPS) opSel.add(new Option(OP_LABEL[op], op));
+    const withSel = document.createElement("select");
+    withSel.className = "lib-select";
+    withSel.setAttribute("aria-label", "The part to combine with");
+    for (const q of others) withSel.add(new Option(q.name, q.id));
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "insert-btn secondary";
+    go.textContent = "Combine";
+    go.addEventListener("click", () => {
+      const other = doc.parts.find((q) => q.id === withSel.value);
+      if (!other) return;
+      void combineWith(me, other, opSel.value as BoolOp);
+    });
+    box.append(opSel, withSel, go);
+    return box;
+  }
+
+  /** Replaces two parts by their combination; their callouts and exploded offsets move to it, and the status says so. */
+  async function combineWith(a: CadPart, b: CadPart, op: BoolOp): Promise<void> {
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
+    host.setStatus("Combining parts…", "");
+    let engine;
+    try {
+      engine = await loadManifoldEngine();
+    } catch (e) {
+      return host.setStatus(`The geometry engine could not load (${engineError(e)}).`, "error");
+    }
+    const ia = doc.parts.indexOf(a), ib = doc.parts.indexOf(b);
+    if (ia < 0 || ib < 0) return host.setStatus("The drawing changed while the geometry engine loaded — choose the parts and Combine again.", "error");
+    const name = op === "union" ? `${a.name} + ${b.name}` : op === "subtract" ? `${a.name} − ${b.name}` : `${a.name} ∩ ${b.name}`;
+    let r: ReturnType<typeof combineTwo>;
+    try {
+      r = combineTwo(engine, op, a, b, `p${Date.now().toString(36)}${seq++}`, name);
+    } catch (e) {
+      return host.setStatus(`Cannot combine ${a.name} and ${b.name}: the geometry engine failed (${engineError(e)}).`, "error");
+    }
+    if (!r.ok) return host.setStatus(`Cannot combine ${a.name} and ${b.name}: ${r.reason}.`, "error");
+    const moved = moveCallouts(doc.callouts, [a, b], r.part);
+    // The combined part is exploded as the first operand was; the second's offset goes (it is no longer a part).
+    let dropped = false;
+    if (doc.explode) {
+      const off = doc.explode[a.id];
+      dropped = !!doc.explode[b.id];
+      delete doc.explode[a.id];
+      delete doc.explode[b.id];
+      if (off) doc.explode[r.part.id] = off;
+      if (!Object.keys(doc.explode).length) delete doc.explode;
+    }
+    doc.parts.splice(Math.min(ia, ib), 1, r.part);
+    doc.parts.splice(doc.parts.indexOf(ia < ib ? b : a), 1);
+    selected = doc.parts.indexOf(r.part);
+    renderParts();
+    renderEditor();
+    renderCallouts();
+    rebuild();
+    const notes = [
+      ...r.notes,
+      ...(moved.length ? [`Callout${moved.length > 1 ? "s" : ""} ${moved.join(", ")} moved to ${r.part.name}.`] : []),
+      ...(dropped ? [`${b.name}'s exploded offset is dropped (the combined part explodes as ${a.name} did).`] : []),
+    ];
+    host.setStatus(`Combined: ${r.part.name}.${notes.length ? " " + notes.join(" ") : ""} Separate puts the two parts back.`, "success");
+  }
+
+  /** Puts a combined part's two operands back, where the combined part is drawn; its callouts go to the first. */
+  function separate(idx: number): void {
+    const p = doc.parts[idx];
+    if (!p || p.shape !== "combine" || !p.combine) return;
+    // Put back where the combined part is drawn now (it may have been moved or turned since it was made).
+    const [a, b] = separatedOperands(p);
+    const moved = moveCallouts(doc.callouts, [p], a);
+    if (doc.explode?.[p.id]) {
+      doc.explode[a.id] = doc.explode[p.id];
+      delete doc.explode[p.id];
+    }
+    doc.parts.splice(idx, 1, a, b);
+    selected = idx;
+    renderParts();
+    renderEditor();
+    renderCallouts();
+    rebuild();
+    host.setStatus(`Separated ${p.name} into ${a.name} and ${b.name}.${moved.length ? ` Callout${moved.length > 1 ? "s" : ""} ${moved.join(", ")} now on ${a.name}.` : ""}`, "success");
   }
 
   function renderCallouts(): void {
@@ -1286,7 +1474,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     // Room to draw: where the large window can open, the sketch opens there (90 % of the screen);
     // Done brings the part back here. Without it (the pop-out itself, or no dialogs), it opens here.
     // (Not with an imported part in the drawing: its facets stay in this pane.)
-    if (host.openLarge && (host.largeAvailable?.() ?? true) && !doc.parts.some((q) => q.shape === "mesh")) {
+    if (host.openLarge && (host.largeAvailable?.() ?? true) && !doc.parts.some((q) => q.shape === "mesh" || q.shape === "combine")) {
       void openLargeWith(seed && !p ? { sketch: "new", seed: JSON.stringify(seed) } : { sketch: p ? p.id : "new" });
       return true;
     }
@@ -1601,6 +1789,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     mateUndo.length = 0;
     if (mateUndoBtn) mateUndoBtn.disabled = true;
     explodedCache = null;
+    // A combination that failed in another drawing (a file not open, the engine offline) is tried again.
+    combineFailed.clear();
     controlsFromDoc();
     selected = 0;
     renderParts();
@@ -1893,8 +2083,12 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     retainMeshes(liveMeshRefs());
     // A part waiting for these very bytes (re-opened in a new session): put back. A file already
     // open opens to be added again — a second copy of the part.
-    const back = missing ? doc.parts.filter((p) => p.shape === "mesh" && p.mesh?.hash === hash) : [];
+    // Inside a combined part too (review: the file of an operand opened as a new part, and the drawing stayed
+    // refused); its combination is then tried again.
+    const uses = (p: CadPart): boolean => (p.shape === "mesh" ? p.mesh?.hash === hash : p.shape === "combine" && !!p.combine?.operands.some(uses));
+    const back = missing ? doc.parts.filter(uses) : [];
     if (back.length) {
+      combineFailed.clear();
       imported = null;
       importedStl = null;
       showImport();
@@ -2034,14 +2228,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   // into a sketch (opts.sketch: a part id, or "new").
   async function openLargeWith(opts?: { sketch?: string; seed?: string }): Promise<void> {
     if (!host.openLarge || largeOpen) return;
-    const meshes = doc.parts.filter((p) => p.shape === "mesh");
+    const meshes = doc.parts.filter((p) => p.shape === "mesh" || p.shape === "combine");
     if (meshes.length) {
       // An imported part's facets are held by this pane: the large window would open without them.
       if (opts?.sketch) {
         sketchHere(opts.sketch === "new" ? null : opts.sketch, opts.seed ? (JSON.parse(opts.seed) as Sketch) : undefined);
         return;
       }
-      const kinds = [...new Set(meshes.map((p) => meshFormat(p.mesh?.file ?? "")))].join(" or ");
+      const kinds = [...new Set(meshes.map((p) => (p.shape === "combine" ? "combined" : meshFormat(p.mesh?.file ?? ""))))].join(" or ");
       return host.setStatus(`The large canvas cannot open a drawing with an imported ${kinds} part yet (${meshes.map((p) => p.name).join(", ")}) — work on it here in the pane.`, "error");
     }
     if (popBtn) popBtn.disabled = true;

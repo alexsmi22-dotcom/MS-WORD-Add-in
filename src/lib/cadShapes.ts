@@ -31,7 +31,8 @@ import {
 } from "./cadModel";
 import type { StandardId } from "./cadStandards";
 import type { Sketch } from "./sketch";
-import { isMeshRef, MeshRef, meshFor } from "./cadMeshStore";
+import { combinedFor, isMeshRef, MeshRef, meshFor, meshKey } from "./cadMeshStore";
+import { BOOL_OPS, type BoolOp } from "./meshBoolean";
 import { SketchOp, sketchBody, parseSketch, parseOp } from "./sketchDoc";
 import type { Callout, ViewSpec } from "./cadSheet";
 import { Orientation, SHEET_SIZES, SheetSizeId, sheetRefusal, TitleFieldId, TitleValues } from "./cadFormats";
@@ -266,8 +267,11 @@ export const SHAPE_IDS = Object.keys(SHAPES) as ShapeId[];
 export interface CadPart {
   id: string;
   name: string;
-  /** A catalogue shape, "sketch": a part made from its own sketch (R2a), or "mesh": an imported STL (R3b). */
-  shape: ShapeId | "sketch" | "mesh";
+  /**
+   * A catalogue shape, "sketch": a part made from its own sketch (R2a), "mesh": an imported STL (R3b), or "combine": two
+   * parts joined, one cut out of the other, or their overlap (docs/SCOPE-MESH-BOOLEANS.md).
+   */
+  shape: ShapeId | "sketch" | "mesh" | "combine";
   params: Record<string, number>;
   placement: Placement;
   /** A sketched part's sketch and how it becomes a solid. */
@@ -275,12 +279,31 @@ export interface CadPart {
   op?: SketchOp;
   /** An imported part's file (its triangles are held by cadMeshStore, never in the drawing). */
   mesh?: MeshRef;
+  /** A combined part's recipe: its two operands, nested (never its triangles: those are cached by combineKey). */
+  combine?: { op: BoolOp; operands: [CadPart, CadPart]; at: Vec3 };
+}
+
+/** How deep combined parts may nest (a combination of combinations…). */
+export const MAX_COMBINE_DEPTH = 4;
+
+/** How many combinations deep a part is (0 for a part that is not combined). */
+export function combineHeight(p: CadPart): number {
+  return p.shape === "combine" && p.combine ? 1 + Math.max(...p.combine.operands.map(combineHeight)) : 0;
+}
+
+/** The cache key of a combined part's result: its op and each operand's file (or recipe) and placement. */
+export function combineKey(p: CadPart): string {
+  const operand = (q: CadPart): string =>
+    `${q.shape === "mesh" && q.mesh ? meshKey(q.mesh) : q.shape === "combine" ? `(${combineKey(q)})` : q.shape}@${q.placement.translate.join(",")}/${q.placement.rotateDeg.join(",")}`;
+  const [a, b] = p.combine!.operands;
+  return `${p.combine!.op}[${operand(a)}|${operand(b)}]`;
 }
 
 /** What a part is called in the parts list. */
 export function shapeName(p: CadPart): string {
   // An OBJ goes through the STL pipeline, but is called what it is.
   if (p.shape === "mesh") return /\.obj$/i.test(p.mesh?.file ?? "") ? "Imported OBJ" : "Imported STL";
+  if (p.shape === "combine") return p.combine?.op === "union" ? "Joined parts" : p.combine?.op === "subtract" ? "Part with a cut" : "Overlap of parts";
   return p.shape === "sketch" ? (p.op?.kind === "revolve" ? "Sketch, revolved" : "Sketch, extruded") : SHAPES[p.shape].name;
 }
 
@@ -373,6 +396,13 @@ export function defaultParams(shape: ShapeId): Record<string, number> {
 
 /** Every reason a part's dimensions cannot be drawn, in words. */
 export function partProblems(part: CadPart): string[] {
+  if (part.shape === "combine") {
+    if (!part.combine) return ["its recipe is missing"];
+    const inner = part.combine.operands.flatMap((o) => partProblems(o).map((r) => `${o.name}: ${r}`));
+    if (inner.length) return inner;
+    // Computed by the pane's engine when the drawing is built; never drawn as the operands side by side.
+    return combinedFor(combineKey(part)) ? [] : ["it is being combined (or combine it again)"];
+  }
   if (part.shape === "mesh") {
     if (!part.mesh) return ["its file is missing"];
     const r = meshFor(part.mesh);
@@ -410,6 +440,11 @@ export function docToAssembly(doc: CadDoc): { ok: true; assembly: Assembly } | {
     assembly: {
       version: 1,
       bodies: doc.parts.map((p) => {
+        if (p.shape === "combine") {
+          const r = combinedFor(combineKey(p));
+          if (!r) throw new Error("not combined"); // partProblems refused it above
+          return { id: p.id, name: p.name, spec: { kind: "mesh" as const, mesh: r.mesh }, placement: p.placement };
+        }
         if (p.shape === "mesh") {
           const r = meshFor(p.mesh!);
           if (!r.ok) throw new Error(r.reason); // partProblems refused it above
@@ -431,7 +466,7 @@ export function docToAssembly(doc: CadDoc): { ok: true; assembly: Assembly } | {
 
 /** A catalogue shape's own frame (none for a sketched or imported part). */
 export function partFrame(p: CadPart): number[] | undefined {
-  return p.shape === "sketch" || p.shape === "mesh" ? undefined : SHAPES[p.shape].frame;
+  return p.shape === "sketch" || p.shape === "mesh" || p.shape === "combine" ? undefined : SHAPES[p.shape].frame;
 }
 
 /** The part's rotation (its shape's frame, then its turn) and translation: world = R·local + T. */
@@ -439,6 +474,28 @@ function partTransform(p: CadPart): { R: number[]; T: Vec3 } {
   const frame = partFrame(p);
   const turn = rotationMatrix(p.placement.rotateDeg);
   return { R: frame ? mul3(turn, frame) : turn, T: p.placement.translate };
+}
+
+/**
+ * Moves the callouts on parts `from` onto part `to`, keeping each where it points in the drawing: its anchor is taken
+ * to world coordinates through its old part, and back into `to`'s (combining parts, docs/SCOPE-MESH-BOOLEANS.md).
+ * Returns the labels moved, for the status line.
+ */
+export function moveCallouts(callouts: DocCallout[], from: CadPart[], to: CadPart): string[] {
+  const moved: string[] = [];
+  const dest = partTransform(to);
+  // A rotation's inverse is its transpose.
+  const Rt = [dest.R[0], dest.R[3], dest.R[6], dest.R[1], dest.R[4], dest.R[7], dest.R[2], dest.R[5], dest.R[8]];
+  for (const c of callouts) {
+    const src = from.find((p) => p.id === c.part);
+    if (!src || !c.local) continue;
+    const { R, T } = partTransform(src);
+    const w = apply3(R, c.local);
+    c.local = apply3(Rt, [w[0] + T[0] - dest.T[0], w[1] + T[1] - dest.T[1], w[2] + T[2] - dest.T[2]]);
+    c.part = to.id;
+    moved.push(c.label);
+  }
+  return moved;
 }
 
 /**
@@ -560,30 +617,56 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
   if (!d || typeof d !== "object" || d.v !== 1) return { ok: false, reason: "this drawing was saved by a version this release cannot read" };
   if (!Array.isArray(d.parts) || !Array.isArray(d.callouts) || !Array.isArray(d.views)) return { ok: false, reason: "the drawing is missing its parts, callouts or views" };
   const ids = new Set<string>();
-  for (const p of d.parts as CadPart[]) {
-    if (p && typeof p.id === "string") {
-      if (ids.has(p.id)) return { ok: false, reason: "two parts in the drawing share one id" };
-      ids.add(p.id);
-    }
-    const known = p && (p.shape === "sketch" || p.shape === "mesh" || Object.prototype.hasOwnProperty.call(SHAPES, p.shape));
-    if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !known) return { ok: false, reason: "a part in the drawing is damaged" };
-    if (!p.placement || !isVec(p.placement.translate) || !isVec(p.placement.rotateDeg)) return { ok: false, reason: `part ${p.name} has a damaged placement` };
-    if (!p.params || typeof p.params !== "object") return { ok: false, reason: `part ${p.name} has no dimensions` };
+  // One part, read field by field — a combined part's operands too, nested (docs/SCOPE-MESH-BOOLEANS.md).
+  const readPart = (p: CadPart, depth: number): string | null => {
+    const known = p && (p.shape === "sketch" || p.shape === "mesh" || p.shape === "combine" || Object.prototype.hasOwnProperty.call(SHAPES, p.shape));
+    if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !known) return "a part in the drawing is damaged";
+    if (!p.placement || !isVec(p.placement.translate) || !isVec(p.placement.rotateDeg)) return `part ${p.name} has a damaged placement`;
+    if (!p.params || typeof p.params !== "object") return `part ${p.name} has no dimensions`;
     if (p.shape === "sketch") {
       // Read field by field: a damaged sketch is refused here, never handed to the solver.
       const sk = parseSketch(p.sketch);
-      if (!sk.ok) return { ok: false, reason: `part ${p.name}: ${sk.reason}` };
+      if (!sk.ok) return `part ${p.name}: ${sk.reason}`;
       const op = parseOp(p.op, sk.sketch);
-      if (!op) return { ok: false, reason: `part ${p.name} has a damaged extrude or revolve` };
+      if (!op) return `part ${p.name} has a damaged extrude or revolve`;
       p.sketch = sk.sketch;
       p.op = op;
     }
     if (p.shape === "mesh") {
       // Read field by field: the reference only (the triangles never travel in a drawing).
-      if (!isMeshRef(p.mesh)) return { ok: false, reason: `part ${p.name} has a damaged imported-file record` };
+      if (!isMeshRef(p.mesh)) return `part ${p.name} has a damaged imported-file record`;
       const m = p.mesh;
       p.mesh = { file: m.file, hash: m.hash, facets: m.facets, mmPerUnit: m.mmPerUnit, creaseDeg: m.creaseDeg, size: [m.size[0], m.size[1], m.size[2]] };
     }
+    if (p.shape === "combine") {
+      const c = p.combine;
+      if (!c || !BOOL_OPS.includes(c.op) || !Array.isArray(c.operands) || c.operands.length !== 2) return `part ${p.name} has a damaged combination`;
+      if (depth >= MAX_COMBINE_DEPTH) return `part ${p.name} nests combinations deeper than ${MAX_COMBINE_DEPTH}`;
+      // Where the result was made (Separate carries later moves from it): required — without it a moved part would
+      // separate to the wrong place (review).
+      if (!isVec(c.at)) return `part ${p.name} has a damaged combination`;
+      for (const o of c.operands) {
+        if (!o || (o.shape !== "mesh" && o.shape !== "combine")) return `part ${p.name} combines a part that is not an imported or combined part`;
+        // Operands come back as parts on Separate: their ids are the drawing's too (review: a duplicate was
+        // accepted here, and the drawing refused at the next reopen after Separate).
+        if (typeof o.id === "string") {
+          if (ids.has(o.id)) return "two parts in the drawing share one id";
+          ids.add(o.id);
+        }
+        const why = readPart(o, depth + 1);
+        if (why) return why;
+      }
+      p.combine = { op: c.op, operands: [c.operands[0], c.operands[1]], at: [c.at[0], c.at[1], c.at[2]] };
+    }
+    return null;
+  };
+  for (const p of d.parts as CadPart[]) {
+    if (p && typeof p.id === "string") {
+      if (ids.has(p.id)) return { ok: false, reason: "two parts in the drawing share one id" };
+      ids.add(p.id);
+    }
+    const why = readPart(p, 0);
+    if (why) return { ok: false, reason: why };
   }
   for (const c of d.callouts as DocCallout[]) {
     if (!c || !isVec(c.anchor) || typeof c.label !== "string") return { ok: false, reason: "a callout in the drawing is damaged" };

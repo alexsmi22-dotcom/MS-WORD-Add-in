@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.176.0)
+# JurisLab — Manual Test Script (v2.176.1)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,11 +10,14 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0do. New in v2.176.0 — "0,5;1,5;2,5" is asked
+## 0do. New in v2.176.0 / v2.176.1 — "0,5;1,5;2,5" is asked
 
 - [ ] ★ **Stats.** Tool ▸ **Stats** ▸ **One-way ANOVA**, groups `0,5;1,5;2,5` → refused: "… can be read two ways: as the numbers
-  0.5; 1.5; 2.5, or as 3 groups (0, 5; 1, 5; 2, 5). Write 0.5 for the first reading, or a comma then a space (0, 5)
-  for the second." Nothing can be inserted. Type `0, 5; 1, 5; 2, 5` → computed as three groups of two.
+  0.5; 1.5; 2.5, or as 3 groups (0, 5; 1, 5; 2, 5). For the numbers, write them with points, spaces between the values
+  of a group and ; or a blank line between groups (for example 0.5 1.5 2.5; 3.5 4.5 5.5); for the groups, write a comma
+  then a space (0, 5)." Nothing can be inserted. Type `0, 5; 1, 5; 2, 5` → computed as three groups of two; type the
+  example `0.5 1.5 2.5; 3.5 4.5 5.5` → computed as two groups of three. (v2.176.1) `0,5`, blank line, `1,5`, blank line,
+  `2,5` → asked too, the blank lines shown as ⏎.
 - [ ] **Finance.** **Net present value**, cash flows `-1000;500,5;500,5` → refused with the two readings; `-1000; 500.5;
   500.5` → computed.
 - [ ] **Not asked.** Stats ▸ **Survival (Kaplan-Meier)**, data `5,1;6,1;6,0;8,1` → computed as before (times 5, 6, 6, 8; events

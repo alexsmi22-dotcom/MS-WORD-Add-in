@@ -51,7 +51,10 @@ const SEP = /,?[ \t\r\n\f\v;]+,?|,(?=[ \t\r\n\f\v])/;
  * when "10" is followed by an exponent (^ or a superscript), so "2 × 3" and
  * "2 x 10" stay apart.
  */
-const SPACED_SCI = /(\d)[ \t]*([×xX·])[ \t]*10[ \t]*(?=\^|[⁻⁺⁰¹²³⁴⁵⁶⁷⁸⁹])/g;
+/** A no-break or narrow no-break space before % (built from char codes: an invisible literal is unreviewable). */
+const NBSP_PERCENT = new RegExp(`[${String.fromCharCode(0xa0)}${String.fromCharCode(0x202f)}]+%`, "g");
+
+const SPACED_SCI =/(\d)[ \t]*([×xX·])[ \t]*10[ \t]*(?=\^|[⁻⁺⁰¹²³⁴⁵⁶⁷⁸⁹])/g;
 
 /**
  * `cells`: the comma's role was already decided for a larger field (one group or row of a Stats field read
@@ -62,6 +65,9 @@ const SPACED_SCI = /(\d)[ \t]*([×xX·])[ \t]*10[ \t]*(?=\^|[⁻⁺⁰¹²³⁴�
  */
 export function readNumberList(text: string, opts: { cells?: boolean; decimalField?: boolean } = {}): NumberListReading {
   const runs = text
+    // "1,5 %" with a no-break (or narrow no-break) space is the value 1,5%: joined first, so the comma decision sees
+    // the same token the cell reader reads ("9,350 2,5 %" was 9350, with the plain % 9.35: v2.176.1 review 4).
+    .replace(NBSP_PERCENT, "%")
     .replace(SPACED_SCI, (_m, d: string, times: string) => `${d}${times}10`)
     .replace(/\^[ \t]+/g, "^")
     .split(SEP)
@@ -167,65 +173,109 @@ function plainDigits(v: number): string {
   return (v < 0 || Object.is(v, -0) ? "−" : "") + s;
 }
 
+const SUPERSCRIPT: Record<string, string> = {
+  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "+": "⁺",
+};
+
+/** A typed tail as the display contract writes it: "x10^-3", " × 10 ^ 3" → "×10⁻³", "×10³"; " %" → "%". */
+function tidyTail(t: string): string {
+  const s = t.replace(/\s+/g, "");
+  const m = /^[×xX·]10(?:\^([-+−–]?\d+)|([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+))$/.exec(s);
+  if (!m) return s;
+  // A plus on an exponent is not written: ×10⁴, not ×10⁺⁴.
+  if (m[2]) return `×10${m[2].replace(/^⁺/, "")}`;
+  return `×10${[...m[1].replace(/^[−–]/, "-").replace(/^\+/, "")].map((c) => SUPERSCRIPT[c] ?? c).join("")}`;
+}
+
+/** A typed sign as the display contract's: "-0,5", "–0,5" → "−0,5". */
+const signed = (s: string): string => s.replace(/^[-–]/, "−");
+
 /**
  * A field of semicolon-separated values with one comma each ("0,5;1,5;2,5") can be read two ways: as the
  * decimal-comma numbers 0.5; 1.5; 2.5, or as values the commas separate (0 and 5; 1 and 5; 2 and 5). The readers
  * disagreed in silence: a Stats group field took the pairs, a list field the decimals. The user chose to be asked
  * (2026-10-21), so this returns the refusal that names both readings and how to type each, or "" when the field is
  * not of that shape. `as`: "numbers" for a list field (the separated reading is one list), "groups" for a field of
- * groups split at semicolons (each piece is a group; the decimals the user meant then go in one group, typed with
- * points). Fields whose rows need two or more values (survival time,event rows, regression rows, subjects, counts)
- * are NOT asked: the pairs are their only reading (the caller does not call this for them).
- * Only semicolons decide: values separated by spaces or line breaks ("1,5 2,5") prove decimal commas, a comma then
- * a space ("0, 5; 1, 5") is a separator, two commas in a piece ("1,2,3;4,5,6") is comma-listing, and a dot before
- * the comma ("1.000,5") proves it decimal — none of those is asked about. A list of thousands ("-10,000; 2,500")
- * is not asked either: semicolons are how a list of numbers with thousands commas is typed, and "000" is no value
- * anyone types (v2.176.0 review 2).
+ * groups, split as its reader (statGroups) splits: at semicolons and blank lines. Fields whose rows need two or more
+ * values (survival time,event rows, regression rows, subjects, counts) are NOT asked: the pairs are their only
+ * reading (the caller does not call this for them).
+ * Not asked: values separated by spaces or single line breaks ("1,5 2,5" proves decimal commas), a comma then a space
+ * ("0, 5; 1, 5" is a separator), two commas in a piece ("1,2,3;4,5,6" is comma-listing), a dot before the comma
+ * ("1.000,5" proves it decimal), and a LIST of thousands ("-10,000; 2,500": semicolons are how such a list is typed,
+ * and "000" is no value anyone types; v2.176.0 review 2).
+ * Every number in the message is shown as typed (the comma turned into a point), so no digit is lost or rounded;
+ * a ×10ⁿ or % tail is written as the display contract writes it (v2.176.1 review 3).
  */
 export function semicolonCommaRefusal(text: string, as: "numbers" | "groups"): string {
-  if (!text.includes(";")) return "";
+  const between = as === "groups" ? /\n\s*\n|;/ : /;/;
+  if (!between.test(text)) return "";
   const pieces = text
-    .split(";")
+    .split(between)
     .map((p) => p.trim())
     .filter((p) => p !== "");
   // The comma is judged on the MANTISSA: "1,5%" and "1,5×10⁻³" are the same question as "1,5" (\s covers the
   // no-break space the reader accepts before %).
   const mant = (p: string): string => p.replace(SCI_TAIL, "").replace(/\s*%$/, "");
-  const tail = (p: string): string => p.slice(mant(p).length).trim();
+  const tail = (p: string): string => tidyTail(p.slice(mant(p).length));
   const ONE_COMMA = /^[-−–]?\d+,\d+$/;
-  const PLAIN = /^[-−–]?(?:\d+\.?\d*|\.\d+)$/;
-  const oneComma = (p: string): boolean => ONE_COMMA.test(mant(p));
-  if (!pieces.length || !pieces.every((p) => oneComma(p) || PLAIN.test(mant(p))) || !pieces.some(oneComma)) return "";
-  const cells = readNumberList(text);
+  // "1.000,5" proves a decimal comma to the LIST reader (1000.5), but the group reader reads a one-value group as a
+  // comma list (1.000 and 5): in a group field it is the same question (v2.176.1 review 4).
+  const DOT_COMMA = /^[-−–]?\d{1,3}(\.\d{3})+,\d+$/;
+  const oneComma = (p: string): boolean => ONE_COMMA.test(mant(p)) || (as === "groups" && DOT_COMMA.test(mant(p)));
+  // Any other piece is a plain number in any shape the reader accepts (1e5, 10³, +2), with no comma and no space.
+  const plain = (p: string): boolean => !p.includes(",") && !/\s/.test(p) && Number.isFinite(parseCellNumber(p));
+  if (pieces.length < 2 || !pieces.every((p) => oneComma(p) || plain(p)) || !pieces.some(oneComma)) return "";
+  const cells = readNumberList(pieces.join(";"));
   if (cells.dropped.length || cells.values.length !== pieces.length) return "";
-  if (as === "numbers" && cells.decimalCommas === 0) return "";
-  // The mantissas under the WHOLE field's comma ruling (a field that proves a decimal comma reads 1,250 as 1.25),
-  // each shown with its own tail: "1,5×10⁻³" is 1.5×10⁻³, never 0.0015 or a rounded 0.
+  // The mantissas under the WHOLE field's comma ruling (a field that proves a decimal comma reads 1,250 as 1.25).
   const mantissas = readNumberList(pieces.map(mant).join(";"));
-  if (mantissas.values.length !== pieces.length) return "";
-  const asCell = (i: number): string => `${plainDigits(mantissas.values[i])}${tail(pieces[i])}`;
-  // A piece split at its comma, each part as the reader would read it ("0,05" → 0 and 5, "1,5%" → 1 and 5%).
+  if (mantissas.dropped.length || mantissas.values.length !== pieces.length) return "";
+  if (as === "numbers" && mantissas.decimalCommas === 0) return "";
+  // The decimal reading of piece i, as typed: "0,10" → 0.10, "1,250" in a decimal field → 1.250; thousands
+  // ("1,250" → 1250) and plain pieces in their plain digits.
+  const asCell = (i: number): string => {
+    const m = mant(pieces[i]);
+    const dotted = m.replace(",", ".");
+    const v = mantissas.values[i];
+    const shownM = m.includes(",") && Number(dotted.replace(/^[−–]/, "-")) === v ? signed(dotted) : plainDigits(v);
+    return `${shownM}${tail(pieces[i])}`;
+  };
+  // A piece split at its comma, each part as the reader reads it ("0,05" → 0 and 5, "1,5%" → 1 and 5%), in the
+  // digits typed (leading zeros dropped).
   const split = (p: string): string[] => {
     const i = p.indexOf(",");
-    const parts = i < 0 ? [p] : [p.slice(0, i), p.slice(i + 1)];
-    return parts.map((x) => `${plainDigits(parseCellNumber(mant(x)))}${tail(x)}`);
+    if (i < 0) {
+      const m = mant(p);
+      return [`${/^[-−–]?\d+(\.\d+)?$/.test(m) ? signed(m) : plainDigits(parseCellNumber(m))}${tail(p)}`];
+    }
+    // Integer parts in the digits typed (leading zeros dropped); a dotted part ("1.000" of "1.000,5") as read.
+    const int = (x: string): string =>
+      /^[-−–]?\d+$/.test(x) ? signed(x.replace(/^([-−–]?)0+(?=\d)/, "$1")) : plainDigits(parseCellNumber(x));
+    const rest = p.slice(i + 1);
+    return [int(p.slice(0, i)), `${int(mant(rest))}${tail(rest)}`];
   };
   const shown = (s: string[], sep: string): string => (s.length > 4 ? `${s.slice(0, 3).join(sep)}${sep}…` : s.join(sep));
   const asCells = shown(pieces.map((_p, i) => asCell(i)), "; ");
   const n = pieces.length;
-  const flat = text.trim().replace(/\s+/g, " ");
+  // A blank line between groups is shown, not flattened into the space that would read as one group.
+  const flat = text.trim().replace(/\n\s*\n/g, " ⏎ ").replace(/\s+/g, " ");
   const typed = flat.length > 40 ? `${flat.slice(0, 37)}…` : flat;
   const at = pieces.findIndex(oneComma);
-  const separated =
-    as === "numbers"
-      ? (() => {
-          const parts = pieces.flatMap(split);
-          return `${parts.length} separate values (${shown(parts, ", ")})`;
-        })()
-      : `${n} groups (${shown(pieces.map((p) => split(p).join(", ")), "; ")})`;
+  const pairs = `a comma then a space (${split(pieces[at]).join(", ")})`;
+  if (as === "groups") {
+    // Read as decimals, every group here holds ONE value — not what ANOVA, Tukey or Dunnett can be given — so the
+    // advice shows how decimals are typed in a group field, not a lone value (v2.176.1 reviews).
+    return (
+      `“${typed}” can be read two ways: as the numbers ${asCells}, or as ${n} groups ` +
+      `(${shown(pieces.map((p) => split(p).join(", ")), "; ")}). For the numbers, write them with points, spaces ` +
+      `between the values of a group and ; or a blank line between groups (for example 0.5 1.5 2.5; 3.5 4.5 5.5); ` +
+      `for the groups, write ${pairs}.`
+    );
+  }
+  const parts = pieces.flatMap(split);
   return (
-    `“${typed}” can be read two ways: as the numbers ${asCells}, or as ${separated}. ` +
-    `Write ${asCell(at)} for the first reading, or a comma then a space (${split(pieces[at]).join(", ")}) for the second.`
+    `“${typed}” can be read two ways: as the numbers ${asCells}, or as ${parts.length} separate values ` +
+    `(${shown(parts, ", ")}). For the numbers, write every one with a point (${asCells}); for the separate ` +
+    `values, write ${pairs}.`
   );
 }
-

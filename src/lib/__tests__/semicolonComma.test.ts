@@ -4,13 +4,13 @@
 // Assay lists (calcList.ts) and every Stats list and group field (taskpane.ts updateStatsPreview) refuse with it.
 import * as fs from "fs";
 import * as path from "path";
-import { semicolonCommaRefusal } from "../numberList";
+import { readNumberList, semicolonCommaRefusal } from "../numberList";
 import { ListTokenError, readCalcList } from "../calcList";
 
 const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
 
 describe("the ambiguous shape is asked about", () => {
-  it.each(["0,5;1,5;2,5", "0,5; 1,5; 2,5", "10,20;30,40", "1,250;2,5", "0,5;3;2,5", "−1,5;2,5", "0,5;\t1,5;"])("%s", (s) => {
+  it.each(["0,5;1,5;2,5", "0,5; 1,5; 2,5", "10,20;30,40", "1,250;2,5", "0,5;3;2,5", "−1,5;2,5", "0,5;\t1,5;", "1,5;1e5", "1,5;10³"])("%s", (s) => {
     expect(semicolonCommaRefusal(s, "numbers")).toMatch(/can be read two ways/);
     expect(semicolonCommaRefusal(s, "groups")).toMatch(/can be read two ways/);
   });
@@ -18,17 +18,35 @@ describe("the ambiguous shape is asked about", () => {
   it("a list field names the numbers and the separate values, with how to type each", () => {
     expect(semicolonCommaRefusal("0,5;1,5;2,5", "numbers")).toBe(
       "“0,5;1,5;2,5” can be read two ways: as the numbers 0.5; 1.5; 2.5, or as 6 separate values (0, 5, 1, …). " +
-        "Write 0.5 for the first reading, or a comma then a space (0, 5) for the second.",
+        "For the numbers, write every one with a point (0.5; 1.5; 2.5); for the separate values, write a comma then " +
+        "a space (0, 5).",
     );
   });
 
-  it("a group field names the numbers and the groups (groups of one value cannot be what ANOVA was given: review 2)", () => {
+  it("a group field names the numbers and the groups, and says how decimals are grouped (reviews 2 and 3)", () => {
     const m = semicolonCommaRefusal("0,5;1,5;2,5", "groups");
     expect(m).toBe(
       "“0,5;1,5;2,5” can be read two ways: as the numbers 0.5; 1.5; 2.5, or as 3 groups (0, 5; 1, 5; 2, 5). " +
-        "Write 0.5 for the first reading, or a comma then a space (0, 5) for the second.",
+        "For the numbers, write them with points, spaces between the values of a group and ; or a blank line between " +
+        "groups (for example 0.5 1.5 2.5; 3.5 4.5 5.5); for the groups, write a comma then a space (0, 5).",
     );
-    expect(m).not.toMatch(/groups of one/);
+    // Never a lone value (ANOVA refuses a group of one) nor one group (it refuses fewer than two groups).
+    expect(m).not.toMatch(/Write 0\.5 for/);
+    expect(m).not.toMatch(/\(0\.5 1\.5 2\.5\)/);
+  });
+
+  it("the example the group advice gives is read as two groups of decimals, not asked again", () => {
+    expect(semicolonCommaRefusal("0.5 1.5 2.5; 3.5 4.5 5.5", "groups")).toBe("");
+  });
+
+  it("a group field split at blank lines, with or without semicolons, is the same question (review 3)", () => {
+    const m = semicolonCommaRefusal("0,5;1,5;2,5\n\n3,5;4,5;5,5", "groups");
+    expect(m).toMatch(/^“0,5;1,5;2,5 ⏎ 3,5;4,5;5,5” can be read two ways/);
+    expect(m).toContain("6 groups (0, 5; 1, 5; 2, 5; …)");
+    expect(semicolonCommaRefusal("0,5\n\n1,5\n\n2,5", "groups")).toContain("3 groups (0, 5; 1, 5; 2, 5)");
+    // A list field's blank lines are whitespace (the list reader's rule), and a single line break proves decimals.
+    expect(semicolonCommaRefusal("0,5\n\n1,5\n\n2,5", "numbers")).toBe("");
+    expect(semicolonCommaRefusal("0,5\n1,5;2,5", "groups")).toBe("");
   });
 
   it("a list of thousands is not asked: semicolons are how such a list is typed (review 2)", () => {
@@ -38,43 +56,63 @@ describe("the ambiguous shape is asked about", () => {
     expect(semicolonCommaRefusal("1,250;2,500", "groups")).toContain("as the numbers 1250; 2500, or as 2 groups (1, 250; 2, 500)");
   });
 
-  it("a field that proves a decimal comma reads 1,250 as 1.25 — in the sentence AND the advice (review 1)", () => {
-    const m = semicolonCommaRefusal("1,250;2,5", "numbers");
-    expect(m).toContain("as the numbers 1.25; 2.5,");
-    expect(m).toContain("Write 1.25 for the first reading");
-  });
-
-  it.each([
-    ["percent", "1,5%;2,5%", "(1, 5%)"],
-    ["×10ⁿ", "1,5×10⁻³;2,5×10⁻³", "(1, 5×10⁻³)"],
-    ["a no-break space before %", `1,5;2,5${String.fromCharCode(160)}%`, "(1, 5)"],
-  ])("the %s variant is the same question (review 2)", (_k, s, part) => {
-    expect(semicolonCommaRefusal(s, "numbers")).toContain(part);
+  it("a no-break space before % is the same question in a list as in groups (review 3)", () => {
+    const s = `1,5${String.fromCharCode(160)}%;2,5${String.fromCharCode(160)}%`;
+    expect(semicolonCommaRefusal(s, "numbers")).toContain("as the numbers 1.5%; 2.5%,");
     expect(semicolonCommaRefusal(s, "groups")).toMatch(/can be read two ways/);
   });
 
-  it("a ×10ⁿ value is shown and advised as typed with a point, never rounded to 0 (review 2 blocker)", () => {
-    const m = semicolonCommaRefusal("6,626×10⁻³⁴;1,5", "numbers");
-    expect(m).toContain("as the numbers 6.626×10⁻³⁴; 1.5,");
-    expect(m).toContain("Write 6.626×10⁻³⁴ for the first reading");
-    expect(semicolonCommaRefusal("1,5×10⁻²⁰;2,5", "groups")).toContain("Write 1.5×10⁻²⁰ for");
-    expect(semicolonCommaRefusal("0,000000000000000000001;1,5", "numbers")).toContain("Write 0.000000000000000000001 for");
+  it("a field that proves a decimal comma shows 1,250 as the decimal it is read as, digits as typed (reviews 1, 3)", () => {
+    expect(semicolonCommaRefusal("1,250;2,5", "numbers")).toContain("as the numbers 1.250; 2.5,");
   });
 
-  it("the separate values are shown as the reader reads them, not as typed (review 5)", () => {
+  it("numbers are shown as typed: no digit lost, no trailing zero dropped, nothing rounded (reviews 2, 3)", () => {
+    expect(semicolonCommaRefusal("123456789012345678,5;1,5", "numbers")).toContain("as the numbers 123456789012345678.5; 1.5,");
+    expect(semicolonCommaRefusal("123456789012345678,5;1,5", "groups")).toContain("(123456789012345678, 5; 1, 5)");
+    expect(semicolonCommaRefusal("0,10;1,50", "numbers")).toContain("as the numbers 0.10; 1.50,");
+    expect(semicolonCommaRefusal("0,0000001;0,5", "numbers")).toContain("as the numbers 0.0000001; 0.5,");
+    expect(semicolonCommaRefusal("0,000000000000000000001;1,5", "numbers")).toContain("0.000000000000000000001; 1.5");
+  });
+
+  it("a ×10ⁿ or % tail is kept and written as the display contract writes it (reviews 2, 3)", () => {
+    expect(semicolonCommaRefusal("6,626×10⁻³⁴;1,5", "numbers")).toContain("as the numbers 6.626×10⁻³⁴; 1.5,");
+    expect(semicolonCommaRefusal("1,5x10^-3;2,5", "numbers")).toContain("as the numbers 1.5×10⁻³; 2.5,");
+    expect(semicolonCommaRefusal("1,5 x 10 ^ 3;2,5", "numbers")).toContain("as the numbers 1.5×10³; 2.5,");
+    expect(semicolonCommaRefusal("1,5%;2,5%", "numbers")).toContain("(1, 5%, 2, 5%)");
+    expect(semicolonCommaRefusal("1,5×10⁻³;2,5×10⁻³", "groups")).toContain("(1, 5×10⁻³; 2, 5×10⁻³)");
+    // Never "0x10^-3", which the reader refuses as a hexadecimal-looking literal.
+    // (The quoted field is the user's own text; only what the message SUGGESTS is checked.)
+    const m = semicolonCommaRefusal("-2,5; 123,000x10^-3", "numbers");
+    expect(m.slice(m.indexOf("” "))).not.toMatch(/0x10/);
+  });
+
+  it("the separate values are the integers the reader reads (0,05 → 0 and 5)", () => {
     expect(semicolonCommaRefusal("0,05;0,01", "groups")).toContain("2 groups (0, 5; 0, 1)");
     expect(semicolonCommaRefusal("1,000;2,000", "groups")).toContain("2 groups (1, 0; 2, 0)");
     expect(semicolonCommaRefusal("5%;1,5", "groups")).toContain("2 groups (5%; 1, 5)");
   });
 
-  it("every digit of the value read, and no binary noise (review 6)", () => {
-    expect(semicolonCommaRefusal("123456789012345,5;1,5", "numbers")).toContain("Write 123456789012345.5 for");
-    expect(semicolonCommaRefusal("0,0000001;0,5", "numbers")).toContain("as the numbers 0.0000001; 0.5,");
-    expect(semicolonCommaRefusal("0,3;1,1", "numbers")).toContain("as the numbers 0.3; 1.1,");
+  it("line breaks and tabs in the quoted field do not break the message", () => {
+    expect(semicolonCommaRefusal("0,5\r\n;\t1,5", "numbers")).toMatch(/^“0,5 ; 1,5” can be read/);
   });
 
-  it("line breaks and tabs in the quoted field do not break the message (review 7)", () => {
-    expect(semicolonCommaRefusal("0,5\r\n;\t1,5", "numbers")).toMatch(/^“0,5 ; 1,5” can be read/);
+  it("the list reader reads a no-break space before % as the plain % (review 4: 9,350 2,5 % was 9350)", () => {
+    const nb = String.fromCharCode(160);
+    expect(readNumberList(`9,350 2,5${nb}%`).values).toEqual(readNumberList("9,350 2,5%").values);
+    expect(readNumberList(`9,350 2,5${nb}%`).values).toEqual([9.35, 2.5]);
+    // and the message names what that reader reads
+    expect(semicolonCommaRefusal(`9,350;-89,2${nb}%`, "numbers")).toContain("as the numbers 9.350; −89.2%,");
+  });
+
+  it("a dotted decimal comma (1.000,5) is asked in a group field, whose reader splits it (review 4)", () => {
+    expect(semicolonCommaRefusal("1.000,5;2,5", "groups")).toContain("as the numbers 1000.5; 2.5, or as 2 groups (1, 5; 2, 5)");
+    expect(semicolonCommaRefusal("1.000,5\n\n2.000,5", "groups")).toMatch(/can be read two ways/);
+    // A list reads it as the decimal it proves: not asked.
+    expect(semicolonCommaRefusal("1.000,5;2,5", "numbers")).toBe("");
+  });
+
+  it("an exponent's plus is not written (×10⁴, not ×10⁺⁴)", () => {
+    expect(semicolonCommaRefusal("1,5x10^+4;2,5", "numbers")).toContain("as the numbers 1.5×10⁴; 2.5,");
   });
 
   it("a minus is the true minus in the message (display contract)", () => {
@@ -90,7 +128,6 @@ describe("shapes that already say what they mean are not asked about", () => {
     ["values separated by spaces prove decimal commas", "1,5 2,5"],
     ["a comma then a space is a separator", "0, 5; 1, 5"],
     ["two commas in a piece is comma-listing", "1,2,3;4,5,6"],
-    ["a dot before the comma proves it decimal", "1.000,5;2.000,5"],
     ["no comma at all", "0.5;1.5"],
     ["plain integers", "4;5;6"],
     ["no semicolon (newline tables keep their v2.160.0 reading)", "10,20\n30,40"],

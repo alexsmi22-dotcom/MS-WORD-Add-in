@@ -6,6 +6,22 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.176.1] — 2026-10-21 — The "0,5;1,5" question, finished
+
+### Fixed
+- **A Stats group field's advice now leads to a result.** For the decimal reading it said "Write 0.5", which in One-way
+  ANOVA, Tukey and Dunnett is a group of one value and the next refusal. It now says how decimals are typed in a group
+  field — points, spaces between the values of a group and ; or a blank line between groups — with an example that
+  computes.
+- **Groups separated by blank lines are asked too** ("0,5", a blank line, "1,5" …, with or without semicolons), as the
+  group reader splits them; the blank lines are shown (⏎) in the message. Pieces such as 1e5 or 10³ beside "1,5", and a
+  no-break space before %, no longer let the question slip.
+- **Every number in the message is shown as typed**, the comma turned into a point: no digit is rounded away (0.10 stays
+  0.10, an 18-digit value keeps its digits), and a ×10ⁿ tail typed as x10^-3 is written ×10⁻³.
+- **A no-break space before % no longer changes how a list is read** ("9,350 2,5 %" was 9350; it is 9.35, as with a
+  plain %), and a dotted decimal comma (1.000,5) in a group field — which that reader splits — is asked too.
+- Three further independent review rounds pinned (semicolonComma.test.ts).
+
 ## [2.176.0] — 2026-10-21 — "0,5;1,5;2,5" is asked, not guessed
 
 ### Changed

@@ -511,3 +511,56 @@ describe("stage 3a review — cyclic anhydrides of the parents are their diones 
     expect(refusalOf("CC(=O)OC(C)=O")).toMatch(/anhydride/i);
   });
 });
+
+describe("stage 3b — sulfonic acids, sulfonamides and sulfones (P-65.3, P-66.1.1.2, P-65.4.1)", () => {
+  test.each([
+    ["OS(=O)(=O)c1ccccc1", "benzenesulfonic acid"],
+    ["Cc1ccc(cc1)S(O)(=O)=O", "4-methylbenzene-1-sulfonic acid"],
+    ["CS(O)(=O)=O", "methanesulfonic acid"],
+    ["CCCS(O)(=O)=O", "propane-1-sulfonic acid"],
+    ["NS(=O)(=O)c1ccccc1", "benzenesulfonamide"],
+    ["CS(N)(=O)=O", "methanesulfonamide"],
+    ["Nc1ccc(cc1)S(N)(=O)=O", "4-aminobenzene-1-sulfonamide"],
+    ["CCCNS(=O)(=O)c1ccc(C)cc1", "4-methyl-N-propylbenzene-1-sulfonamide"],
+    ["CN(C)S(=O)(=O)C", "N,N-dimethylmethanesulfonamide"],
+    ["NS(=O)(=O)c1cccnc1", "pyridine-3-sulfonamide"],
+    ["NS(=O)(=O)c1ccc(Cl)c(c1)S(N)(=O)=O", "4-chlorobenzene-1,3-disulfonamide"],
+    ["NS(=O)(=O)CCN", "2-aminoethane-1-sulfonamide"],
+    // Sulfones: the preferred prefix is the acid's acyl name, enclosed (not methylsulfonyl).
+    ["CS(=O)(=O)c1ccccc1", "(methanesulfonyl)benzene"],
+    ["CCCS(=O)(=O)c1ccccc1", "(propane-1-sulfonyl)benzene"],
+    ["CS(=O)(=O)c1ccccc1C(=O)O", "2-(methanesulfonyl)benzoic acid"],
+    ["CS(=O)(=O)c1ccccc1S(C)(=O)=O", "1,2-bis(methanesulfonyl)benzene"],
+    // Junior: sulfo and sulfamoyl (the preselected prefix).
+    ["NS(=O)(=O)c1ccc(cc1)C(=O)O", "4-sulfamoylbenzoic acid"],
+    ["OC(=O)c1ccc(cc1)S(O)(=O)=O", "4-sulfobenzoic acid"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+
+  test.each([
+    ["a sulfonate ester", "COS(=O)(=O)C"],
+    ["a sulfonyl chloride", "ClS(=O)(=O)c1ccccc1"],
+    ["a sulfoxide", "CS(=O)c1ccccc1"],
+    ["a thioether", "CSc1ccccc1"],
+    ["a sulfonyl on a ring nitrogen", "CS(=O)(=O)N1CCCCC1"],
+    ["sulfuric acid", "OS(=O)(=O)O"],
+    ["a sulfamide", "NS(=O)(=O)N"],
+    ["an N-acyl sulfonamide", "CC(=O)NS(=O)(=O)c1ccccc1"],
+    ["a diaryl sulfone (two ring systems)", "c1ccccc1S(=O)(=O)c1ccccc1"],
+  ])("%s is refused by name", (_why, smiles) => expect(refusalOf(smiles)).toMatch(/outside the namer's subset/));
+});
+
+describe("stage 3b review", () => {
+  test.each([
+    // A carbonyl or nitrile carbon on the sulfonyl S was read without it: the sulfonyl dropped out ("benzaldehyde"),
+    // or became a different compound ("(methanesulfonyl)methanamide" reads as an N-sulfonyl formamide).
+    "CS(=O)(=O)C(=O)c1ccccc1", "CCS(=O)(=O)C(=O)c1ccccc1", "CS(=O)(=O)C(=O)c1ccncc1", "CS(=O)(=O)C(=O)C1CCCCC1",
+    "CS(=O)(=O)c1ccccc1C(=O)S(C)(=O)=O", "CS(=O)(=O)C(N)=O", "NS(=O)(=O)C(N)=O", "CS(=O)(=O)C(=O)C", "CS(=O)(=O)C(=O)O",
+    "OS(=O)(=O)C(=O)O", "CS(=O)(=O)C=O", "N#CS(=O)(=O)C", "CS(=O)(=O)C(=O)OC", "CC(=O)S(N)(=O)=O", "O=CS(N)(=O)=O",
+  ])("%s is refused by name", (smiles) => expect(refusalOf(smiles)).toMatch(/bonded to sulfur|outside the namer's subset/));
+
+  test("propane-1- and propane-2-sulfonyl: one name however the structure is drawn, the lower locant cited first", () => {
+    expect(nameOf("CCCS(=O)(=O)c1ccc(cc1)S(=O)(=O)C(C)C")).toBe("1-(propane-1-sulfonyl)-4-(propane-2-sulfonyl)benzene");
+    expect(nameOf("CC(C)S(=O)(=O)c1ccc(cc1)S(=O)(=O)CCC")).toBe("1-(propane-1-sulfonyl)-4-(propane-2-sulfonyl)benzene");
+    expect(nameOf("CC(C)S(=O)(=O)c1ccccc1S(=O)(=O)CCC")).toBe("1-(propane-1-sulfonyl)-2-(propane-2-sulfonyl)benzene");
+  });
+});

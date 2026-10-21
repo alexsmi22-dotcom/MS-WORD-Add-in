@@ -6,6 +6,20 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.178.0] — 2026-10-21 — Chemistry: sulfonamides, sulfonic acids and sulfones named
+
+IUPAC stage 3b (docs/SCOPE-IUPAC-STAGES.md), forms from the 2013 recommendations (P-65.3, P-66.1.1.2, P-65.4.1).
+
+- **Sulfonic acids and sulfonamides as the principal group**, below carboxylic acids and carboxamides in seniority:
+  benzenesulfonic acid, 4-methylbenzene-1-sulfonic acid, methanesulfonamide, 4-aminobenzene-1-sulfonamide,
+  pyridine-3-sulfonamide, 4-chlorobenzene-1,3-disulfonamide; N-substituted: N,N-dimethylmethanesulfonamide,
+  4-methyl-N-propylbenzene-1-sulfonamide.
+- **Sulfones by the preferred prefix**, enclosed: (methanesulfonyl)benzene, (propane-1-sulfonyl)benzene,
+  2-(methanesulfonyl)benzoic acid; junior groups as sulfo and sulfamoyl (4-sulfamoylbenzoic acid).
+- Still refused by name: sulfonate esters, sulfonyl halides, sulfoxides, thioethers and thiols, a sulfonyl on a ring
+  nitrogen, sulfuric acid and sulfamides, N-acyl sulfonamides, diaryl sulfones, and a carbonyl or nitrile carbon on
+  a sulfonyl S. Every new name reads back through OPSIN (296 added, 0 wrong); one independent review round pinned.
+
 ## [2.177.0] — 2026-10-21 — Chemistry: lactams, lactones and imides named
 
 IUPAC stage 3a (docs/SCOPE-IUPAC-STAGES.md).

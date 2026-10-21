@@ -132,6 +132,18 @@ function generatedCorpus(): string[] {
       }
     }
   }
+  // Stage 3b: sulfonic acids, sulfonamides (N-substituted too) and sulfones on benzene, heteroaryl rings, cycloalkanes
+  // and chains, with a second substituent at every position; junior sulfo/sulfamoyl beside senior groups; near-misses.
+  const SULFONYL = ["S(O)(=O)=O", "S(N)(=O)=O", "S(=O)(=O)NC", "S(=O)(=O)N(C)C", "S(=O)(=O)NCCC", "S(=O)(=O)Nc1ccccc1", "S(C)(=O)=O", "S(=O)(=O)CC", "S(=O)(=O)CCC", "S(=O)(=O)C(C)C"];
+  for (const sx of SULFONYL) {
+    out.add(`c1ccccc1${sx}`);
+    for (const sub of ["C", "Cl", "N", "O", "OC", "[N+](=O)[O-]"]) for (const pos of [2, 3, 4]) out.add(benzene({ 1: sx, [pos]: sub }));
+    for (const r of ["c1ccncc1", "c1cccnc1", "c1ccsc1", "C1CCCCC1", "C1CCOCC1"]) out.add(`${r}${sx}`.replace(/^([a-zA-Z])1/, "$11"));
+    for (const chain of ["C", "CC", "CCC", "CC(C)", "CCO", "CCN", "CCCl", "OCC", "CC(=O)O"]) out.add(`${chain}${sx}`);
+  }
+  for (const senior of ["C(=O)O", "C(N)=O", "C#N"]) for (const junior of ["S(O)(=O)=O", "S(N)(=O)=O", "S(C)(=O)=O"]) for (const pos of [2, 3, 4]) out.add(benzene({ 1: senior, [pos]: junior }));
+  for (const sx of ["S(O)(=O)=O", "S(N)(=O)=O"]) for (const pos of [2, 3, 4]) out.add(benzene({ 1: sx, [pos]: sx }));
+  for (const near of ["COS(=O)(=O)C", "ClS(=O)(=O)c1ccccc1", "CS(=O)c1ccccc1", "CSc1ccccc1", "CS(=O)(=O)N1CCCCC1", "OS(=O)(=O)O", "NS(=O)(=O)N", "CC(=O)NS(=O)(=O)c1ccccc1", "c1ccccc1S(=O)(=O)c1ccccc1", "CS(=O)(=O)OC", "CS(=O)(=O)S", "CS(=N)(=O)C", "OCCS(=O)(=O)CCO"]) out.add(near);
   for (const near of ["O=C1CCN1", "O=C1CCCCCN1", "O=C1OCCN1", "O=C1CCS1", "O=c1cccc[nH]1", "CC(=O)N1CCCC1=O", "O=C1NCCN1", "O=C1CCCCCO1", "O=C1CCO1"]) out.add(near);
   for (const r of ["c1ccncc1", "c1ccsc1", "c1ccoc1"]) for (const head of ["OC(=O)", "O=C", "N#C", "NC(=O)", "OC", "OC(=O)C", "N"]) out.add(`${head}${r}`);
   for (const nring of ["N1CCOCC1", "N1CCCCC1", "N1CCCC1", "n1ccnc1", "n1cccc1", "N1CCN(C)CC1"]) for (const head of ["OCC", "OC(=O)C", "OC(=O)CC", "NCC", "CC(C)"]) out.add(`${head}${nring}`);
@@ -176,6 +188,8 @@ const REVIEW_CASES = [
   "c1ccc(o1)Nc1cccs1", "c1ccc(s1)Nc1ccco1", "C1COCC1Nc1cccs1", "c1coc(Nc2cc3ccccc3s2)c1", "c1ccc(Nc2ccc3ccccc3c2)cc1",
   "c1ccc(cc1)Nc1ccccn1", "c1ccnc(c1)Nc1ccccc1", "n1ccccc1Nc1ccccc1",
   // Impossible valences (an uncharged O or N with a bond too many): must refuse, never drop the rest (1b oracle).
+  // Stage 3b review: an acyl or cyano carbon on a sulfonyl S (dropped the sulfonyl), and the propane-1/2-sulfonyl pair.
+  "CS(=O)(=O)C(=O)c1ccccc1", "CS(=O)(=O)C(N)=O", "CS(=O)(=O)C(=O)O", "N#CS(=O)(=O)C", "CS(=O)(=O)C=O", "CCCS(=O)(=O)c1ccc(cc1)S(=O)(=O)C(C)C", "CC(C)S(=O)(=O)c1ccccc1S(=O)(=O)CCC",
   "C=Oc1ccncc1", "C#Nc1ccncc1", "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C", "Cc1ccc(C(C)(C)C)cc1C(C)(C)C",
 ];
 

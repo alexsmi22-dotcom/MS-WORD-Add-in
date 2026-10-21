@@ -42,6 +42,10 @@
 //   pyrrolidin-2-one, piperidin-2-one, morpholin-3-one, oxolan-2-one, oxan-2-one, pyrrolidine-2,5-dione — and cyclic
 //   anhydrides of those parents as their diones (oxolane-2,5-dione, P-65.7.7).
 //
+//   v2.178.0 (stage 3b): sulfonic acids and sulfonamides as suffixes (benzenesulfonic acid, 4-methylbenzene-1-sulfonamide,
+//   N-substituted: 4-methyl-N-propylbenzene-1-sulfonamide), sulfo and sulfamoyl as junior prefixes, sulfones by the
+//   preferred acyl prefix ((methanesulfonyl)benzene) — sulfonyl S on carbon only.
+//
 //   REFUSED BY NAME (each with its reason)
 //   - lactones and lactams of rings the namer does not number (4-, 7-membered, oxazolidine), aromatic pyridinones,
 //     thiolactones, N-acyl lactams, open-chain anhydrides, carbamates, esters of two alcohols, two substituted
@@ -99,7 +103,7 @@ interface G {
 }
 
 interface Group {
-  kind: "acid" | "amide" | "nitrile" | "al" | "one" | "ol" | "amine";
+  kind: "acid" | "sulfonic" | "amide" | "sulfonamide" | "nitrile" | "al" | "one" | "ol" | "amine";
   /** The chain carbon that anchors the group. */
   carbon: number;
   /** Group atoms outside the chain (O, N…) — never re-read as substituents. */
@@ -108,17 +112,31 @@ interface Group {
   terminal: boolean;
 }
 
-const SENIORITY: Group["kind"][] = ["acid", "amide", "nitrile", "al", "one", "ol", "amine"];
+// Seniority of classes, P-41 Table 4.1 / P-43 Table 4.4 (IUPAC 2013): carboxylic before sulfonic acids, carboxamides
+// before sulfonamides (stage 3b).
+const SENIORITY: Group["kind"][] = ["acid", "sulfonic", "amide", "sulfonamide", "nitrile", "al", "one", "ol", "amine"];
 const SUFFIX: Record<Group["kind"], string> = {
-  acid: "oic acid", amide: "amide", nitrile: "nitrile", al: "al", one: "one", ol: "ol", amine: "amine",
+  acid: "oic acid", sulfonic: "sulfonic acid", amide: "amide", sulfonamide: "sulfonamide", nitrile: "nitrile", al: "al", one: "one", ol: "ol", amine: "amine",
 };
 /** The group's class name in a refusal ("an aldehyde group", not "a al group"). */
 const GROUP_WORD: Record<Group["kind"], string> = {
-  acid: "a carboxylic acid", amide: "an amide", nitrile: "a nitrile", al: "an aldehyde", one: "a ketone", ol: "an alcohol", amine: "an amine",
+  acid: "a carboxylic acid", sulfonic: "a sulfonic acid", amide: "an amide", sulfonamide: "a sulfonamide", nitrile: "a nitrile", al: "an aldehyde", one: "a ketone", ol: "an alcohol", amine: "an amine",
 };
+// Junior groups as prefixes: sulfo and sulfamoyl (P-65.3.2.3, P-66.1.1.4.2 — sulfamoyl is the preselected prefix).
 const PREFIX_FORM: Partial<Record<Group["kind"], string>> = {
-  one: "oxo", ol: "hydroxy", amine: "amino",
+  sulfonic: "sulfo", sulfonamide: "sulfamoyl", one: "oxo", ol: "hydroxy", amine: "amino",
 };
+
+/**
+ * A sulfonyl sulfur outside a ring: S with exactly two terminal =O and two single bonds (to C, O or N). The only
+ * sulfur the namer reads outside thiophene and thiazole (stage 3b): sulfonic acids, sulfonamides and sulfones.
+ */
+function isSulfonyl(g: G, s: number): boolean {
+  if (g.el[s] !== 16 || g.inRing[s]) return false;
+  const oxo = g.adj[s].filter((e) => g.el[e.to] === 8 && e.order === 2 && g.adj[e.to].length === 1);
+  const single = g.adj[s].filter((e) => e.order === 1 && [6, 7, 8].includes(g.el[e.to]));
+  return oxo.length === 2 && single.length === 2 && g.adj[s].length === 4;
+}
 
 /** A name with its stereodescriptors where they belong: in front, or before an ester's acid part (`descriptorAt`). */
 export function nameWithDescriptors(name: string, prefix: string, at?: number): string {
@@ -178,7 +196,7 @@ export function iupacName(mol0: Molecule): IupacNameResult {
   const core = nameCore(prep.mol, prep.nPrefixes);
   if (core.refusal) return core;
   const name = core.name!;
-  if (prep.nPrefixes.length && core.principalKind !== "amine" && core.principalKind !== "amide") {
+  if (prep.nPrefixes.length && core.principalKind !== "amine" && core.principalKind !== "amide" && core.principalKind !== "sulfonamide") {
     return refuse("A substituted amino group alongside a more senior group is outside the namer's subset.");
   }
   // The cut nitrogen must BE the principal group's nitrogen: N-methyl in "N-methylpropanamide" means the amide N. A
@@ -219,7 +237,7 @@ function screenAtoms(mol: Molecule): string | null {
   const n = mol.getAllAtoms();
   for (let i = 0; i < n; i++) {
     const z = mol.getAtomicNo(i);
-    if (![6, 7, 8, 9, 16, 17, 35, 53].includes(z)) return `${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O, halogens, and S in thiophene or thiazole rings only).`;
+    if (![6, 7, 8, 9, 16, 17, 35, 53].includes(z)) return `${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O, halogens, and S in thiophene or thiazole rings or in a sulfonyl group).`;
     if (mol.getAtomMass(i) !== 0) return "Isotope labels are outside the namer's subset.";
     if (mol.getAtomRadical(i) !== 0) return "Radicals are outside the namer's subset.";
   }
@@ -239,7 +257,7 @@ function screenAtoms(mol: Molecule): string | null {
 
 /** The cut nitrogen (by its map number) is the satellite of the core's one principal amine or amide group. */
 function cutNIsPrincipal(mol: Molecule, mapNo: number, core: CoreResult): boolean {
-  if ((core.principalKind !== "amine" && core.principalKind !== "amide") || core.principalCount !== 1) return false;
+  if ((core.principalKind !== "amine" && core.principalKind !== "amide" && core.principalKind !== "sulfonamide") || core.principalCount !== 1) return false;
   let idx = -1;
   for (let i = 0; i < mol.getAllAtoms(); i++) if (mol.getAtomMapNo(i) === mapNo) idx = i;
   if (idx < 0) return false;
@@ -300,8 +318,10 @@ function prepare(mol: Molecule): Prepared | { refusal: string } {
     if (g0.el[nn] !== 7 || nitroN0.has(nn) || remove.has(nn) || g0.inRing[nn]) continue;
     if (g0.adj[nn].some((e) => e.order !== 1)) continue; // C=N, C≡N: the core refuses or names them
     const cs = g0.adj[nn].map((e) => e.to);
-    if (!cs.every((c) => g0.el[c] === 6)) continue; // N–O, N–N, N–halogen: the core refuses them
-    const acyls = cs.filter((c) => isCarbonyl(c));
+    // A sulfonamide N's acyl is its sulfonyl S (stage 3b: 4-methyl-N-propylbenzene-1-sulfonamide).
+    const sulfonylS = (c: number): boolean => isSulfonyl(g0, c);
+    if (!cs.every((c) => g0.el[c] === 6 || sulfonylS(c))) continue; // N–O, N–N, N–halogen: the core refuses them
+    const acyls = cs.filter((c) => isCarbonyl(c) || sulfonylS(c));
     let keep: number;
     if (acyls.length === 1) {
       if (cs.length === 1) continue;
@@ -447,18 +467,33 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
   for (let i = 0; i < n; i++) {
     const z = mol.getAtomicNo(i);
     if (![6, 7, 8, 9, 16, 17, 35, 53].includes(z)) {
-      return refuse(`${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O, halogens, and S in thiophene or thiazole rings only).`);
+      return refuse(`${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O, halogens, and S in thiophene or thiazole rings or in a sulfonyl group).`);
     }
     if (mol.getAtomMass(i) !== 0) return refuse("Isotope labels are outside the namer's subset.");
     if (mol.getAtomRadical(i) !== 0) return refuse("Radicals are outside the namer's subset.");
   }
 
   const g = graphOf(mol);
-  // Sulfur only as a ring atom of thiophene or thiazole (a thiol, a thioether, a sulfone are outside the subset); a
-  // sulfur ring that is neither is refused where the ring is matched.
+  // Sulfur as a ring atom of thiophene or thiazole, or (stage 3b) a sulfonyl S on carbon: a sulfonic acid, a
+  // sulfonamide or a sulfone, each read by detectGroups or classifySub. A thiol, a thioether, a sulfoxide, a sulfonyl
+  // on a ring N or on O (a sulfonate ester, a sulfate) is outside the subset; a sulfur ring that is neither ring is
+  // refused where the ring is matched.
   for (let i = 0; i < n; i++) {
-    if (g.el[i] === 16 && (!g.inRing[i] || g.adj[i].some((e) => !g.inRing[e.to] || e.order !== 1 && !g.aromatic[i]))) {
-      return refuse("Sulfur outside a thiophene or thiazole ring (thiols, thioethers, sulfones, sulfonamides) is outside the namer's subset.");
+    if (g.el[i] !== 16) continue;
+    if (isSulfonyl(g, i)) {
+      const others = g.adj[i].filter((e) => e.order === 1);
+      const onC = others.filter((e) => g.el[e.to] === 6);
+      const o = others.find((e) => g.el[e.to] === 8);
+      const nn = others.find((e) => g.el[e.to] === 7);
+      const ok =
+        (onC.length === 2) ||
+        (onC.length === 1 && o !== undefined && g.adj[o.to].length === 1) ||
+        (onC.length === 1 && nn !== undefined && !g.inRing[nn.to] && g.adj[nn.to].length === 1);
+      if (!ok) return refuse("This sulfonyl group (a sulfonate ester, a sulfonyl on a ring nitrogen or an N-substituted one the namer cannot place, a sulfate, a sulfonyl halide) is outside the namer's subset.");
+      continue;
+    }
+    if (!g.inRing[i] || g.adj[i].some((e) => !g.inRing[e.to] || e.order !== 1 && !g.aromatic[i])) {
+      return refuse("Sulfur outside a thiophene or thiazole ring, other than a sulfonyl group (thiols, thioethers, sulfoxides), is outside the namer's subset.");
     }
   }
   const { n: nitroN, sat: nitroSat } = nitroAtoms(g);
@@ -616,6 +651,28 @@ function classifySub(g: G, root: number, from: number, nitroN: Set<number>): Sub
     }
     return "This oxygen arrangement is outside the namer's subset.";
   }
+  // A sulfonyl S: a sulfone's other side, named as the acyl prefix of its sulfonic acid — methanesulfonyl,
+  // ethanesulfonyl, propane-1-sulfonyl, propane-2-sulfonyl, benzenesulfonyl (P-65.3.2.2.2: the preferred prefixes,
+  // not methylsulfonyl). Anything else on the S is refused.
+  if (z === 16) {
+    if (!isSulfonyl(g, root)) return "This sulfur arrangement is outside the namer's subset.";
+    const rs = g.adj[root].filter((e) => e.order === 1 && e.to !== from);
+    if (rs.length !== 1 || g.el[rs[0].to] !== 6) return "A sulfonyl group carrying its own group (sulfamoyl, sulfo) here is outside the namer's subset.";
+    const r = rs[0].to;
+    const tail = subtree(g, r, root);
+    if (isPlainPhenyl(g, tail, r)) return { name: "benzenesulfonyl", key: "benzenesulfonyl" };
+    const named = "This sulfonyl substituent is outside the namer's subset (named: methane-, ethane-, propane-1-, propane-2- and benzenesulfonyl).";
+    if (tail.some((a) => g.inRing[a]) || !tail.every((a) => g.el[a] === 6) || !isPlainAlkane(g, tail)) return named;
+    const set = new Set(tail);
+    const degR = g.adj[r].filter((e) => set.has(e.to)).length;
+    if (tail.length === 1) return { name: "methanesulfonyl", key: "methanesulfonyl" };
+    if (tail.length === 2) return { name: "ethanesulfonyl", key: "ethanesulfonyl" };
+    // Same letters, so the locant decides the order (lower first) — one key for both made the name follow the
+    // drawing order (stage 3b review).
+    if (tail.length === 3 && degR === 1) return { name: "propane-1-sulfonyl", key: "propanesulfonyl1" };
+    if (tail.length === 3 && degR === 2) return { name: "propane-2-sulfonyl", key: "propanesulfonyl2" };
+    return named;
+  }
   // A ring nitrogen as the attachment is a heterocyclic substituent (morpholin-4-yl), read below with the rings.
   if (z === 7 && !g.inRing[root]) {
     const others = g.adj[root].filter((e) => e.to !== from);
@@ -715,7 +772,9 @@ function prefixString(subs: { loc: number | string | null; name: string; key: st
   });
   for (const [name, { locs, enclose }] of entries) {
     const count = locs.length;
-    const complex = /\d/.test(name) || !!enclose;
+    // A sulfonyl prefix is a compound prefix, always enclosed: (methanesulfonyl)benzene, 2-(methanesulfonyl)benzoic
+    // acid (P-65.4.1); two of them are bis(methanesulfonyl).
+    const complex = /\d/.test(name) || !!enclose || /sulfonyl$/.test(name);
     const multTable = complex ? MULT_COMPLEX : MULT;
     if (count >= multTable.length || (count > 1 && !multTable[count])) {
       return { refusal: `More than ${multTable.length - 1} identical substituents is outside the namer's subset.` };
@@ -755,6 +814,12 @@ function detectGroups(g: G, nitroN: Set<number>, nitroSat: Set<number>): { group
     // adversarial pass) — the exact worst case for a patent tool.
     if (dblN.length > 0) {
       return { groups, refusal: "C=N groups (imines, oximes, amidines) are outside the namer's subset." };
+    }
+    // A carbonyl or nitrile carbon on sulfur (an acyl sulfone, an acyl sulfonamide, a sulfonyl cyanide, a thioester) is
+    // not one of these groups: the counts below never see the S, so it would drop out of the name — "benzaldehyde" for
+    // CS(=O)(=O)C(=O)c1ccccc1 (stage 3b review).
+    if ((dblO.length > 0 || tripleN.length > 0) && g.adj[c].some((e) => g.el[e.to] === 16)) {
+      return { groups, refusal: "A carbonyl or nitrile carbon bonded to sulfur (an acyl sulfone, a sulfonyl cyanide, a thioester) is outside the namer's subset." };
     }
     // A group's own O or N ends there: one that carries anything else is not this group, and skipping its other
     // bonds would drop atoms from the name (C=O–ring named "methanal" — review oracle).
@@ -798,6 +863,19 @@ function detectGroups(g: G, nitroN: Set<number>, nitroSat: Set<number>): { group
       groups,
       refusal: "This carbonyl arrangement (carbonic acid, urea, carbamate…) is outside the namer's subset.",
     };
+  }
+  // Sulfonic acids and sulfonamides (stage 3b): a sulfonyl S on ONE carbon, with -OH or -NH2 (an N-substituent was cut
+  // off by prepare() and comes back as an N-prefix). The S, its two O and the OH/NH2 are the group; a sulfone (S on two
+  // carbons) is a substituent, named by classifySub.
+  for (let s = 0; s < g.n; s++) {
+    if (!isSulfonyl(g, s)) continue;
+    const single = g.adj[s].filter((e) => e.order === 1);
+    const cs = single.filter((e) => g.el[e.to] === 6);
+    if (cs.length !== 1) continue;
+    const other = single.find((e) => g.el[e.to] !== 6)!.to;
+    if (g.adj[other].length !== 1) return { groups, refusal: "This sulfonyl group (a sulfonate ester, a substituted sulfonamide the namer cannot place) is outside the namer's subset." };
+    const oxo = g.adj[s].filter((e) => e.order === 2).map((e) => e.to);
+    groups.push({ kind: g.el[other] === 8 ? "sulfonic" : "sulfonamide", carbon: cs[0].to, satellites: [s, ...oxo, other], terminal: false });
   }
   // -OH and -NH2 anchored on carbons not already claimed.
   const claimed = new Set(groups.flatMap((gr) => gr.satellites));
@@ -1043,7 +1121,8 @@ function nameAcyclic(
     // Final-e elision: the stem keeps its "e" before a consonant-initial
     // suffix (butanenitrile, pentane-2,4-dione) and drops it before a
     // vowel-initial one (butanal, propan-2-ol).
-    name = /^[-0-9,]*(d|n|t|h|p)/.test(suffixPart)
+    // (s: ethanesulfonic acid, ethane-1-sulfonamide — stage 3b.)
+    name = /^[-0-9,]*(d|n|t|h|p|s)/.test(suffixPart)
       ? `${parent}e${suffixPart}`
       : `${parent}${suffixPart}`;
   }

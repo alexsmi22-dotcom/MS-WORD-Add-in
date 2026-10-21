@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.177.0)
+# JurisLab — Manual Test Script (v2.178.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,14 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dq. New in v2.178.0 — Chemistry: sulfonamides, sulfonic acids and sulfones named
+
+- [ ] ★ **Sulfonamides.** Chemical, type each SMILES → "Systematic name: …": `CCCNS(=O)(=O)c1ccc(C)cc1` →
+  4-methyl-N-propylbenzene-1-sulfonamide; `NS(=O)(=O)c1cccnc1` → pyridine-3-sulfonamide.
+- [ ] **Sulfones and junior groups.** `CS(=O)(=O)c1ccccc1C(=O)O` → 2-(methanesulfonyl)benzoic acid;
+  `NS(=O)(=O)c1ccc(cc1)C(=O)O` → 4-sulfamoylbenzoic acid.
+- [ ] **Refusals in words.** `CS(=O)c1ccccc1` (a sulfoxide) and `COS(=O)(=O)C` (a sulfonate ester) → "No name: …".
 
 ## 0dp. New in v2.177.0 — Chemistry: lactams, lactones and imides named
 

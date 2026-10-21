@@ -88,8 +88,11 @@ job), a ring C=O beside a ring S (thiolactones), N-acyl lactams.
 
 **3b — sulfonamides, sulfones, sulfonic acids.** Suffixes -sulfonic acid and -sulfonamide in their 2013 seniority
 (below carboxylic acids and carboxamides respectively), N-substituted sulfonamides (prepare()'s N-cut extended to an
-S(=O)₂ acyl), sulfonyl prefixes for sulfones (form to be checked against P-63.6: "methanesulfonyl" vs
-"methylsulfonyl"). Sulfur screens loosen to S(=O)₂ only; thiols, thioethers, sulfoxides stay refused.
+S(=O)₂ acyl), sulfonyl prefixes for sulfones — checked: P-65.3.2.2.2 makes "benzenesulfonyl" the preferred prefix
+(phenylsulfonyl for general use) and P-65.4.1 gives "(propane-1-sulfonyl)benzene (PIN)" and "2-(methanesulfonyl)benzoic
+acid (PIN)"; sulfamoyl is the preselected prefix for -SO₂NH₂ (P-66.1.1.4.2). Sulfur screens loosen to S(=O)₂ on carbon
+only; thiols, thioethers, sulfoxides, sulfonate esters, sulfonyl halides and a sulfonyl on a ring N stay refused.
+Shipped as v2.178.0.
 
 **3c — carbamates.** Boc and Cbz as such: alkyl N-substituted carbamates on a chain N ("tert-butyl
 N-(2-hydroxyethyl)carbamate", form to check against P-66.1.1.4.3), and on a RING N, where the 2013 form is the ring's

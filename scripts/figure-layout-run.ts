@@ -66,6 +66,9 @@ import { predictUvVis } from "../src/lib/uvvis";
 import { parseJcamp, JcampSpectrum } from "../src/lib/jcamp";
 import { overlaySpectrum, displayUnits } from "../src/lib/spectrumOverlay";
 import { overlayChartSvg } from "../src/lib/overlayChart";
+import { analyzeSolid, solidExample, type SolidKind } from "../src/lib/solidformAnalyze";
+// solidformChart.ts builds every Solid form figure (analyzeSolid calls it); its size is checked below.
+import { SOLID_CHART_SIZE } from "../src/lib/solidformChart";
 import { isotopeChartSvg } from "../src/lib/isotopeChart";
 import { resolveMassSpec } from "../src/lib/massspec";
 import { overlayPrediction, parseReferencePeak, jcampDrawPoints, OverlaySource } from "../src/lib/spectroPane";
@@ -1622,6 +1625,19 @@ for (const [name, smiles, nucleus] of [
   const c2cl4 = resolveMassSpec("C2Cl4", "auto");
   if (c2cl4.kind !== "ok") throw new Error("corpus: C2Cl4 did not resolve");
   overlay("overlay ms isotope pattern C2Cl4", block(msC2Cl4), { kind: "isotopes", spec: c2cl4.result });
+
+  // The Solid form figures, built exactly as the pane builds them (analyzeSolid on each kind's Example, and a typed list).
+  for (const [name, kind, input] of [
+    ["solid form XRPD pattern", "xrpd", solidExample("xrpd")],
+    ["solid form XRPD peak list (sticks)", "xrpd", "6.8 100\n13.6 40\n17.2 80\n21.3 60"],
+    ["solid form DSC thermogram", "dsc", solidExample("dsc")],
+    ["solid form TGA thermogram", "tga", solidExample("tga")],
+  ] as [string, SolidKind, string][]) {
+    const r = analyzeSolid(kind, input);
+    if (!r.ok) throw new Error(`corpus: ${name}: ${r.errors.join(" ")}`);
+    if (!r.svg.includes(`width="${SOLID_CHART_SIZE.width}"`)) throw new Error(`corpus: ${name}: not drawn at its declared width`);
+    figures.push([name, r.svg]);
+  }
 
   // The isotope stick chart, built exactly as updateMassSpec builds it.
   for (const [name, input] of [

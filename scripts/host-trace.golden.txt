@@ -816,423 +816,598 @@ RUN R45 {
   R45.sync()
 } R45
    status: FIG. 1 inserted at its drawn size (lettering ≥ 1/8 in).
-== finance/fin-insert
+== solidform/solid-insert-fig
 RUN R46 {
   #328 = R46.document.getSelection()
-  #329 = #328.insertText("FV = 1,628.89", "after")
-  #330 = #328.select("end")
+  #329 = #328.select("end")
+  R46.sync()
+  #330 = R46.document.body.inlinePictures.load(s49:5f068b3d)
   R46.sync()
 } R46
+OFFICE setSelectedDataAsync(s25996:520c20d5, {coercionType:"XmlSvg"})
 RUN R47 {
-  #331 = R47.document.getSelection()
-  #332 = #331.insertInlinePictureFromBase64(s352620:83a9a4f9, "after")
-  set #332.width = 320.25
-  set #332.height = 180
-  set #332.altTextDescription = "Finance chart: Future value (TVM)"
-  #333 = #331.select("end")
+  #331 = R47.document.body.inlinePictures.load(s49:5f068b3d)
   R47.sync()
-  #334 = #332.getRange()
-  #335 = #334.insertContentControl()
-  set #335.tag = "formula-inserter:finance-chart"
-  set #335.title = "JurisLab"
-  set #335.appearance = "hidden"
+  set R47.document.body.inlinePictures[24].width = 315
+  set R47.document.body.inlinePictures[24].height = 202.5
+  set R47.document.body.inlinePictures[24].altTextDescription = s215:592ea5b3
+  #332 = R47.document.body.inlinePictures[24].load("imageFormat")
+  #333 = R47.document.body.inlinePictures[24].getRange("end")
+  #334 = #333.select("end")
+  R47.sync()
+  #335 = R47.document.body.inlinePictures[24].getRange()
+  #336 = #335.insertContentControl()
+  set #336.tag = "formula-inserter:solidform"
+  set #336.title = "JurisLab"
+  set #336.appearance = "hidden"
   R47.sync()
   R47.sync()
 } R47
-   status: Result and chart inserted (chart as PNG at 768 dpi).
-== sequence/seq-ref-insert
+   status: XRPD pattern inserted as vector SVG — but Word reports it stored the picture as Png.
+== solidform/solid-insert-table
 RUN R48 {
-  #336 = R48.document.getSelection()
-  #337 = #336.insertText("SEQ ID NO: 1", "after")
-  #338 = #336.select("end")
+  #337 = R48.document.getSelection()
+  #338 = #337.insertTable(11, 3, "after", [n11:c711557c])
+  #339 = #338.getCell(0, 0)
+  set #339.body.font.bold = true
+  set #339.shadingColor = "#E7EEF6"
+  #340 = #338.getCell(0, 1)
+  set #340.body.font.bold = true
+  set #340.shadingColor = "#E7EEF6"
+  #341 = #338.getCell(0, 2)
+  set #341.body.font.bold = true
+  set #341.shadingColor = "#E7EEF6"
+  #342 = #338.getCell(1, 0)
+  #343 = #342.body.paragraphs.getFirst()
+  set #343.alignment = "right"
+  #344 = #338.getCell(1, 1)
+  #345 = #344.body.paragraphs.getFirst()
+  set #345.alignment = "right"
+  #346 = #338.getCell(1, 2)
+  #347 = #346.body.paragraphs.getFirst()
+  set #347.alignment = "right"
+  #348 = #338.getCell(2, 0)
+  #349 = #348.body.paragraphs.getFirst()
+  set #349.alignment = "right"
+  #350 = #338.getCell(2, 1)
+  #351 = #350.body.paragraphs.getFirst()
+  set #351.alignment = "right"
+  #352 = #338.getCell(2, 2)
+  #353 = #352.body.paragraphs.getFirst()
+  set #353.alignment = "right"
+  #354 = #338.getCell(3, 0)
+  #355 = #354.body.paragraphs.getFirst()
+  set #355.alignment = "right"
+  #356 = #338.getCell(3, 1)
+  #357 = #356.body.paragraphs.getFirst()
+  set #357.alignment = "right"
+  #358 = #338.getCell(3, 2)
+  #359 = #358.body.paragraphs.getFirst()
+  set #359.alignment = "right"
+  #360 = #338.getCell(4, 0)
+  #361 = #360.body.paragraphs.getFirst()
+  set #361.alignment = "right"
+  #362 = #338.getCell(4, 1)
+  #363 = #362.body.paragraphs.getFirst()
+  set #363.alignment = "right"
+  #364 = #338.getCell(4, 2)
+  #365 = #364.body.paragraphs.getFirst()
+  set #365.alignment = "right"
+  #366 = #338.getCell(5, 0)
+  #367 = #366.body.paragraphs.getFirst()
+  set #367.alignment = "right"
+  #368 = #338.getCell(5, 1)
+  #369 = #368.body.paragraphs.getFirst()
+  set #369.alignment = "right"
+  #370 = #338.getCell(5, 2)
+  #371 = #370.body.paragraphs.getFirst()
+  set #371.alignment = "right"
+  #372 = #338.getCell(6, 0)
+  #373 = #372.body.paragraphs.getFirst()
+  set #373.alignment = "right"
+  #374 = #338.getCell(6, 1)
+  #375 = #374.body.paragraphs.getFirst()
+  set #375.alignment = "right"
+  #376 = #338.getCell(6, 2)
+  #377 = #376.body.paragraphs.getFirst()
+  set #377.alignment = "right"
+  #378 = #338.getCell(7, 0)
+  #379 = #378.body.paragraphs.getFirst()
+  set #379.alignment = "right"
+  #380 = #338.getCell(7, 1)
+  #381 = #380.body.paragraphs.getFirst()
+  set #381.alignment = "right"
+  #382 = #338.getCell(7, 2)
+  #383 = #382.body.paragraphs.getFirst()
+  set #383.alignment = "right"
+  #384 = #338.getCell(8, 0)
+  #385 = #384.body.paragraphs.getFirst()
+  set #385.alignment = "right"
+  #386 = #338.getCell(8, 1)
+  #387 = #386.body.paragraphs.getFirst()
+  set #387.alignment = "right"
+  #388 = #338.getCell(8, 2)
+  #389 = #388.body.paragraphs.getFirst()
+  set #389.alignment = "right"
+  #390 = #338.getCell(9, 0)
+  #391 = #390.body.paragraphs.getFirst()
+  set #391.alignment = "right"
+  #392 = #338.getCell(9, 1)
+  #393 = #392.body.paragraphs.getFirst()
+  set #393.alignment = "right"
+  #394 = #338.getCell(9, 2)
+  #395 = #394.body.paragraphs.getFirst()
+  set #395.alignment = "right"
+  #396 = #338.getCell(10, 0)
+  #397 = #396.body.paragraphs.getFirst()
+  set #397.alignment = "right"
+  #398 = #338.getCell(10, 1)
+  #399 = #398.body.paragraphs.getFirst()
+  set #399.alignment = "right"
+  #400 = #338.getCell(10, 2)
+  #401 = #400.body.paragraphs.getFirst()
+  set #401.alignment = "right"
+  #402 = #338.getRange("after")
+  #403 = #402.insertParagraph("XRPD peak list (Cu Kα1 (1.5406 Å))", "after")
+  set #403.alignment = "centered"
+  set #403.styleBuiltIn = "normal"
+  #404 = #403.getRange("after")
+  #405 = #404.select("end")
+  R48.sync()
+  #406 = #338.getRange()
+  #407 = #406.paragraphs.load("items")
+  R48.sync()
+  set #406.paragraphs.items[0].styleBuiltIn = "normal"
+  set #406.paragraphs.items[1].styleBuiltIn = "normal"
+  set #406.paragraphs.items[2].styleBuiltIn = "normal"
+  set #406.paragraphs.items[3].styleBuiltIn = "normal"
+  set #406.paragraphs.items[4].styleBuiltIn = "normal"
+  set #406.paragraphs.items[5].styleBuiltIn = "normal"
+  set #406.paragraphs.items[6].styleBuiltIn = "normal"
+  set #406.paragraphs.items[7].styleBuiltIn = "normal"
+  set #406.paragraphs.items[8].styleBuiltIn = "normal"
+  set #406.paragraphs.items[9].styleBuiltIn = "normal"
+  set #406.paragraphs.items[10].styleBuiltIn = "normal"
+  R48.sync()
+  #408 = #406.paragraphs.items[0].listItemOrNullObject.load("isNullObject")
+  #409 = #406.paragraphs.items[1].listItemOrNullObject.load("isNullObject")
+  #410 = #406.paragraphs.items[2].listItemOrNullObject.load("isNullObject")
+  #411 = #406.paragraphs.items[3].listItemOrNullObject.load("isNullObject")
+  #412 = #406.paragraphs.items[4].listItemOrNullObject.load("isNullObject")
+  #413 = #406.paragraphs.items[5].listItemOrNullObject.load("isNullObject")
+  #414 = #406.paragraphs.items[6].listItemOrNullObject.load("isNullObject")
+  #415 = #406.paragraphs.items[7].listItemOrNullObject.load("isNullObject")
+  #416 = #406.paragraphs.items[8].listItemOrNullObject.load("isNullObject")
+  #417 = #406.paragraphs.items[9].listItemOrNullObject.load("isNullObject")
+  #418 = #406.paragraphs.items[10].listItemOrNullObject.load("isNullObject")
   R48.sync()
 } R48
-   status: SEQ ID reference inserted. Ctrl/⌘+Z undoes it.
-== dna/dna-revcomp-insert
+   status: XRPD peak list (Cu Kα1 (1.5406 Å)) inserted (10 rows).
+== solidform/solid-insert-text
 RUN R49 {
-  #339 = R49.document.getSelection()
-  #340 = #339.insertText(s93:2e58239d, "after")
-  #341 = #339.select("end")
+  #419 = R49.document.getSelection()
+  #420 = #419.insertText(s190:ad148824, "after")
+  #421 = #419.select("end")
   R49.sync()
 } R49
-   status: Reverse complement inserted. Ctrl/⌘+Z undoes it.
-== dna/dna-mrna-insert
+   status: Sentence inserted.
+== finance/fin-insert
 RUN R50 {
-  #342 = R50.document.getSelection()
-  #343 = #342.insertText(s93:031d894e, "after")
-  #344 = #342.select("end")
+  #422 = R50.document.getSelection()
+  #423 = #422.insertText("FV = 1,628.89", "after")
+  #424 = #422.select("end")
   R50.sync()
 } R50
-   status: mRNA inserted. Ctrl/⌘+Z undoes it.
-== dna/dna-protein-insert
 RUN R51 {
-  #345 = R51.document.getSelection()
-  #346 = #345.insertText("MASKGEELFTGVVPILVELDGDVNGHKFSV*", "after")
-  #347 = #345.select("end")
+  #425 = R51.document.getSelection()
+  #426 = #425.insertInlinePictureFromBase64(s352620:83a9a4f9, "after")
+  set #426.width = 320.25
+  set #426.height = 180
+  set #426.altTextDescription = "Finance chart: Future value (TVM)"
+  #427 = #425.select("end")
+  R51.sync()
+  #428 = #426.getRange()
+  #429 = #428.insertContentControl()
+  set #429.tag = "formula-inserter:finance-chart"
+  set #429.title = "JurisLab"
+  set #429.appearance = "hidden"
+  R51.sync()
   R51.sync()
 } R51
-   status: Protein inserted. Ctrl/⌘+Z undoes it.
-== dna/dna-orf-insert
+   status: Result and chart inserted (chart as PNG at 768 dpi).
+== sequence/seq-ref-insert
 RUN R52 {
-  #348 = R52.document.getSelection()
-  #349 = #348.insertHtml(s851:679cad16, "replace")
-  #350 = #349.select("end")
-  R52.sync()
-  #351 = #349.insertContentControl()
-  set #351.tag = "formula-inserter:orf-table"
-  set #351.title = "JurisLab"
-  set #351.appearance = "hidden"
+  #430 = R52.document.getSelection()
+  #431 = #430.insertText("SEQ ID NO: 1", "after")
+  #432 = #430.select("end")
   R52.sync()
 } R52
-   status: ORF table inserted.
-== dna/digest-insert-btn
+   status: SEQ ID reference inserted. Ctrl/⌘+Z undoes it.
+== dna/dna-revcomp-insert
 RUN R53 {
-  #352 = R53.document.getSelection()
-  #353 = #352.insertText(s132:89d4dc1f, "after")
-  #354 = #352.select("end")
+  #433 = R53.document.getSelection()
+  #434 = #433.insertText(s93:2e58239d, "after")
+  #435 = #433.select("end")
   R53.sync()
 } R53
-   status: Digest inserted. Ctrl/⌘+Z undoes it.
-== assay/assay-insert
+   status: Reverse complement inserted. Ctrl/⌘+Z undoes it.
+== dna/dna-mrna-insert
 RUN R54 {
-  #355 = R54.document.getSelection()
-  #356 = #355.insertText(s858:8a54f55f, "after")
-  #357 = #355.select("end")
+  #436 = R54.document.getSelection()
+  #437 = #436.insertText(s93:031d894e, "after")
+  #438 = #436.select("end")
   R54.sync()
 } R54
+   status: mRNA inserted. Ctrl/⌘+Z undoes it.
+== dna/dna-protein-insert
 RUN R55 {
-  #358 = R55.document.getSelection()
-  #359 = #358.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
-  set #359.width = 330
-  set #359.height = 202.5
-  set #359.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
-  #360 = #358.select("end")
-  R55.sync()
-  #361 = #359.getRange()
-  #362 = #361.insertContentControl()
-  set #362.tag = "formula-inserter:assay"
-  set #362.title = "JurisLab"
-  set #362.appearance = "hidden"
-  R55.sync()
+  #439 = R55.document.getSelection()
+  #440 = #439.insertText("MASKGEELFTGVVPILVELDGDVNGHKFSV*", "after")
+  #441 = #439.select("end")
   R55.sync()
 } R55
-   status: Result and fit plot inserted.
-== assay/assay-insert-plot
+   status: Protein inserted. Ctrl/⌘+Z undoes it.
+== dna/dna-orf-insert
 RUN R56 {
-  #363 = R56.document.getSelection()
-  #364 = #363.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
-  set #364.width = 330
-  set #364.height = 202.5
-  set #364.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
-  #365 = #363.select("end")
+  #442 = R56.document.getSelection()
+  #443 = #442.insertHtml(s851:679cad16, "replace")
+  #444 = #443.select("end")
   R56.sync()
-  #366 = #364.getRange()
-  #367 = #366.insertContentControl()
-  set #367.tag = "formula-inserter:assay"
-  set #367.title = "JurisLab"
-  set #367.appearance = "hidden"
-  R56.sync()
+  #445 = #443.insertContentControl()
+  set #445.tag = "formula-inserter:orf-table"
+  set #445.title = "JurisLab"
+  set #445.appearance = "hidden"
   R56.sync()
 } R56
-   status: Fit plot inserted as PNG at 384 dpi.
-== peptide/pep-insert
+   status: ORF table inserted.
+== dna/digest-insert-btn
 RUN R57 {
-  #368 = R57.document.getSelection()
-  #369 = #368.insertInlinePictureFromBase64(s85072:46f08ee0, "after")
-  set #369.width = 237
-  set #369.height = 84.75
-  set #369.altTextDescription = s302:9b34922e
-  #370 = #368.select("end")
-  R57.sync()
-  #371 = #369.getRange()
-  #372 = #371.insertContentControl()
-  set #372.tag = "formula-inserter:peptide"
-  set #372.title = "JurisLab"
-  set #372.appearance = "hidden"
+  #446 = R57.document.getSelection()
+  #447 = #446.insertText(s132:89d4dc1f, "after")
+  #448 = #446.select("end")
   R57.sync()
 } R57
-   status: Peptide structure inserted.
-== botanical/bot-name-insert
+   status: Digest inserted. Ctrl/⌘+Z undoes it.
+== assay/assay-insert
 RUN R58 {
-  #373 = R58.document.getSelection()
-  #374 = #373.insertHtml("<i>Quercus</i> <i>alba</i> L.", "replace")
-  #375 = #374.select("end")
+  #449 = R58.document.getSelection()
+  #450 = #449.insertText(s858:8a54f55f, "after")
+  #451 = #449.select("end")
   R58.sync()
 } R58
-   status: Name inserted.
-== botanical/bot-traits-insert
 RUN R59 {
-  #376 = R59.document.getSelection()
-  #377 = #376.insertHtml(s651:3df0bfb8, "replace")
-  #378 = #377.select("end")
+  #452 = R59.document.getSelection()
+  #453 = #452.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
+  set #453.width = 330
+  set #453.height = 202.5
+  set #453.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
+  #454 = #452.select("end")
+  R59.sync()
+  #455 = #453.getRange()
+  #456 = #455.insertContentControl()
+  set #456.tag = "formula-inserter:assay"
+  set #456.title = "JurisLab"
+  set #456.appearance = "hidden"
+  R59.sync()
   R59.sync()
 } R59
-   status: Characteristics table inserted.
-== seqmap/seqmap-insert
+   status: Result and fit plot inserted.
+== assay/assay-insert-plot
 RUN R60 {
-  #379 = R60.document.getSelection()
-  #380 = #379.insertInlinePictureFromBase64(s48996:2432549f, "after")
-  set #380.width = 480
-  set #380.height = 48
-  set #380.altTextDescription = s51:52c6660e
-  #381 = #379.select("end")
+  #457 = R60.document.getSelection()
+  #458 = #457.insertInlinePictureFromBase64(s139044:5fcf39a3, "after")
+  set #458.width = 330
+  set #458.height = 202.5
+  set #458.altTextDescription = "Assay fit: Michaelis–Menten (enzyme kinetics)"
+  #459 = #457.select("end")
   R60.sync()
-  #382 = #380.getRange()
-  #383 = #382.insertContentControl()
-  set #383.tag = "formula-inserter:seqmap"
-  set #383.title = "JurisLab"
-  set #383.appearance = "hidden"
+  #460 = #458.getRange()
+  #461 = #460.insertContentControl()
+  set #461.tag = "formula-inserter:assay"
+  set #461.title = "JurisLab"
+  set #461.appearance = "hidden"
+  R60.sync()
   R60.sync()
 } R60
-   status: Map inserted.
-== align/align-insert
+   status: Fit plot inserted as PNG at 384 dpi.
+== peptide/pep-insert
 RUN R61 {
-  #384 = R61.document.getSelection()
-  #385 = #384.insertHtml(s798:e350917e, "replace")
-  #386 = #384.select("end")
+  #462 = R61.document.getSelection()
+  #463 = #462.insertInlinePictureFromBase64(s85072:46f08ee0, "after")
+  set #463.width = 237
+  set #463.height = 84.75
+  set #463.altTextDescription = s302:9b34922e
+  #464 = #462.select("end")
+  R61.sync()
+  #465 = #463.getRange()
+  #466 = #465.insertContentControl()
+  set #466.tag = "formula-inserter:peptide"
+  set #466.title = "JurisLab"
+  set #466.appearance = "hidden"
   R61.sync()
 } R61
-   status: Alignment inserted.
-== cad/cad-open
+   status: Peptide structure inserted.
+== botanical/bot-name-insert
 RUN R62 {
-  #387 = R62.document.getSelection()
-  #388 = #387.inlinePictures.load("items/altTextDescription")
+  #467 = R62.document.getSelection()
+  #468 = #467.insertHtml("<i>Quercus</i> <i>alba</i> L.", "replace")
+  #469 = #468.select("end")
   R62.sync()
 } R62
-   status: That picture was not made by the Drawing tool, so there is no model to open.
-== cad/cad-insert
+   status: Name inserted.
+== botanical/bot-traits-insert
 RUN R63 {
-  #389 = R63.document.getSelection()
-  #390 = #389.insertInlinePictureFromBase64(s221724:7e869ad1, "after")
-  set #390.width = 450.7086614173229
-  set #390.height = 227.9894049154022
-  set #390.altTextDescription = s470:723c92d7
-  #391 = #389.select("end")
-  R63.sync()
-  #392 = #390.getRange()
-  #393 = #392.insertContentControl()
-  set #393.tag = "formula-inserter:cad"
-  set #393.title = "JurisLab"
-  set #393.appearance = "hidden"
+  #470 = R63.document.getSelection()
+  #471 = #470.insertHtml(s651:3df0bfb8, "replace")
+  #472 = #471.select("end")
   R63.sync()
 } R63
+   status: Characteristics table inserted.
+== seqmap/seqmap-insert
+RUN R64 {
+  #473 = R64.document.getSelection()
+  #474 = #473.insertInlinePictureFromBase64(s48996:2432549f, "after")
+  set #474.width = 480
+  set #474.height = 48
+  set #474.altTextDescription = s51:52c6660e
+  #475 = #473.select("end")
+  R64.sync()
+  #476 = #474.getRange()
+  #477 = #476.insertContentControl()
+  set #477.tag = "formula-inserter:seqmap"
+  set #477.title = "JurisLab"
+  set #477.appearance = "hidden"
+  R64.sync()
+} R64
+   status: Map inserted.
+== align/align-insert
+RUN R65 {
+  #478 = R65.document.getSelection()
+  #479 = #478.insertHtml(s798:e350917e, "replace")
+  #480 = #478.select("end")
+  R65.sync()
+} R65
+   status: Alignment inserted.
+== cad/cad-open
+RUN R66 {
+  #481 = R66.document.getSelection()
+  #482 = #481.inlinePictures.load("items/altTextDescription")
+  R66.sync()
+} R66
+   status: That picture was not made by the Drawing tool, so there is no model to open.
+== cad/cad-insert
+RUN R67 {
+  #483 = R67.document.getSelection()
+  #484 = #483.insertInlinePictureFromBase64(s221724:7e869ad1, "after")
+  set #484.width = 450.7086614173229
+  set #484.height = 227.9894049154022
+  set #484.altTextDescription = s470:723c92d7
+  #485 = #483.select("end")
+  R67.sync()
+  #486 = #484.getRange()
+  #487 = #486.insertContentControl()
+  set #487.tag = "formula-inserter:cad"
+  set #487.title = "JurisLab"
+  set #487.appearance = "hidden"
+  R67.sync()
+} R67
    status: Drawing inserted — Engineering drawing — ASME (third-angle). The drawing is inserted at 63 % to fit the page; SCALE 1:1 holds at full size (254 mm wide).
 == cad/cad-popout
 OFFICE displayDialogAsync("caddialog.html", {height:90,width:90})
 OFFICE dialog.close()
-RUN R64 {
-  #394 = R64.document.getSelection()
-  #395 = #394.insertInlinePictureFromBase64(s133776:2a691b26, "after")
-  set #395.width = 450.7086614173229
-  set #395.height = 285.47383379077814
-  set #395.altTextDescription = s382:8bb7b0af
-  #396 = #394.select("end")
-  R64.sync()
-  #397 = #395.getRange()
-  #398 = #397.insertContentControl()
-  set #398.tag = "formula-inserter:cad"
-  set #398.title = "JurisLab"
-  set #398.appearance = "hidden"
-  R64.sync()
-} R64
+RUN R68 {
+  #488 = R68.document.getSelection()
+  #489 = #488.insertInlinePictureFromBase64(s133776:2a691b26, "after")
+  set #489.width = 450.7086614173229
+  set #489.height = 285.47383379077814
+  set #489.altTextDescription = s382:8bb7b0af
+  #490 = #488.select("end")
+  R68.sync()
+  #491 = #489.getRange()
+  #492 = #491.insertContentControl()
+  set #492.tag = "formula-inserter:cad"
+  set #492.title = "JurisLab"
+  set #492.appearance = "hidden"
+  R68.sync()
+} R68
    status: Drawing inserted — Engineering drawing — ASME (third-angle). The drawing is inserted at 63 % to fit the page; SCALE 2:1 holds at full size (254 mm wide).
 == numerals/num-add-btn
 OFFICE settings.set("formula-inserter.numerals", "[{\"numeral\":10,\"element\":\"\"}]")
 OFFICE settings.saveAsync()
    status: 
 == numerals/num-scan-btn
-RUN R65 {
-  #399 = R65.document.body.load("text")
-  R65.sync()
-} R65
+RUN R69 {
+  #493 = R69.document.body.load("text")
+  R69.sync()
+} R69
    status: Scan complete.
 == numerals/num-insert-list-btn
 OFFICE settings.set("formula-inserter.numerals", s57:6803f055)
 OFFICE settings.saveAsync()
 OFFICE settings.set("formula-inserter.numerals", s64:844daa0a)
 OFFICE settings.saveAsync()
-RUN R66 {
-  #400 = R66.document.getSelection()
-  #401 = #400.insertText("(10)", "replace")
-  #402 = #401.select("end")
-  R66.sync()
-  #403 = #401.insertContentControl()
-  set #403.tag = "formula-inserter:callout:10"
-  set #403.title = "JurisLab"
-  set #403.appearance = "hidden"
-  R66.sync()
-} R66
-RUN R67 {
-  #404 = R67.document.getSelection()
-  #405 = #404.insertParagraph("List of Reference Numerals", "before")
-  set #405.styleBuiltIn = undefined
-  #406 = #404.insertParagraph("", "before")
-  #407 = #406.getRange()
-  #408 = #407.insertHtml(s358:c5224305, "replace")
-  R67.sync()
-  #409 = #408.insertContentControl()
-  set #409.tag = "formula-inserter:numeral-list"
-  set #409.title = "JurisLab"
-  set #409.appearance = "hidden"
-  R67.sync()
-} R67
-   status: List of Reference Numerals inserted.
-== numerals/para-preview-btn
-RUN R68 {
-  #410 = R68.document.body.paragraphs.load("items/text")
-  R68.sync()
-} R68
-   status: 
-== numerals/para-apply-btn
-RUN R69 {
-  #411 = R69.document.body.paragraphs.load("items/text")
-  R69.sync()
-} R69
 RUN R70 {
-  #412 = R70.document.body.paragraphs.load("items/text")
+  #494 = R70.document.getSelection()
+  #495 = #494.insertText("(10)", "replace")
+  #496 = #495.select("end")
   R70.sync()
-  #413 = R70.document.body.paragraphs.items[1].insertText("[0001] ", "start")
-  #414 = R70.document.body.paragraphs.items[2].insertText("[0002] ", "start")
-  #415 = R70.document.body.paragraphs.items[3].insertText("[0003] ", "start")
-  #416 = R70.document.body.paragraphs.items[4].insertText("[0004] ", "start")
-  #417 = R70.document.body.paragraphs.items[5].insertText("[0005] ", "start")
-  #418 = R70.document.body.paragraphs.items[6].insertText("[0006] ", "start")
-  #419 = R70.document.body.paragraphs.items[7].insertText("[0007] ", "start")
-  #420 = R70.document.body.paragraphs.items[8].insertText("[0008] ", "start")
-  #421 = R70.document.body.paragraphs.items[9].insertText("[0009] The invention relates to housings.", "replace")
-  #422 = R70.document.body.paragraphs.items[10].insertText("[0010] The lid 12 is hinged.", "replace")
+  #497 = #495.insertContentControl()
+  set #497.tag = "formula-inserter:callout:10"
+  set #497.title = "JurisLab"
+  set #497.appearance = "hidden"
   R70.sync()
 } R70
+RUN R71 {
+  #498 = R71.document.getSelection()
+  #499 = #498.insertParagraph("List of Reference Numerals", "before")
+  set #499.styleBuiltIn = undefined
+  #500 = #498.insertParagraph("", "before")
+  #501 = #500.getRange()
+  #502 = #501.insertHtml(s358:c5224305, "replace")
+  R71.sync()
+  #503 = #502.insertContentControl()
+  set #503.tag = "formula-inserter:numeral-list"
+  set #503.title = "JurisLab"
+  set #503.appearance = "hidden"
+  R71.sync()
+} R71
+   status: List of Reference Numerals inserted.
+== numerals/para-preview-btn
+RUN R72 {
+  #504 = R72.document.body.paragraphs.load("items/text")
+  R72.sync()
+} R72
+   status: 
+== numerals/para-apply-btn
+RUN R73 {
+  #505 = R73.document.body.paragraphs.load("items/text")
+  R73.sync()
+} R73
+RUN R74 {
+  #506 = R74.document.body.paragraphs.load("items/text")
+  R74.sync()
+  #507 = R74.document.body.paragraphs.items[1].insertText("[0001] ", "start")
+  #508 = R74.document.body.paragraphs.items[2].insertText("[0002] ", "start")
+  #509 = R74.document.body.paragraphs.items[3].insertText("[0003] ", "start")
+  #510 = R74.document.body.paragraphs.items[4].insertText("[0004] ", "start")
+  #511 = R74.document.body.paragraphs.items[5].insertText("[0005] ", "start")
+  #512 = R74.document.body.paragraphs.items[6].insertText("[0006] ", "start")
+  #513 = R74.document.body.paragraphs.items[7].insertText("[0007] ", "start")
+  #514 = R74.document.body.paragraphs.items[8].insertText("[0008] ", "start")
+  #515 = R74.document.body.paragraphs.items[9].insertText("[0009] The invention relates to housings.", "replace")
+  #516 = R74.document.body.paragraphs.items[10].insertText("[0010] The lid 12 is hinged.", "replace")
+  R74.sync()
+} R74
    status: 
 == refs/ref-reset
 OFFICE settings.set("formula-inserter.refs", "{\"figure\":1,\"table\":1}")
 OFFICE settings.saveAsync()
    status: 
 == refs/ref-insert-caption
-RUN R71 {
-  #423 = R71.document.getSelection()
-  #424 = #423.insertParagraph("Figure 1", "after")
-  set #424.styleBuiltIn = "caption"
-  #425 = #424.getRange()
-  #426 = #425.select("end")
-  R71.sync()
-  #427 = #424.getRange()
-  #428 = #427.insertContentControl()
-  set #428.tag = "formula-inserter:caption:figure"
-  set #428.title = "JurisLab"
-  set #428.appearance = "hidden"
-  R71.sync()
-} R71
+RUN R75 {
+  #517 = R75.document.getSelection()
+  #518 = #517.insertParagraph("Figure 1", "after")
+  set #518.styleBuiltIn = "caption"
+  #519 = #518.getRange()
+  #520 = #519.select("end")
+  R75.sync()
+  #521 = #518.getRange()
+  #522 = #521.insertContentControl()
+  set #522.tag = "formula-inserter:caption:figure"
+  set #522.title = "JurisLab"
+  set #522.appearance = "hidden"
+  R75.sync()
+} R75
 OFFICE settings.set("formula-inserter.refs", "{\"figure\":2,\"table\":1}")
 OFFICE settings.saveAsync()
    status: Inserted "Figure 1".
 == refs/ref-insert-xref
-RUN R72 {
-  #429 = R72.document.getSelection()
-  #430 = #429.insertText("Fig. 1", "after")
-  #431 = #429.select("end")
-  R72.sync()
-} R72
-   status: Cross-reference inserted. Ctrl/⌘+Z undoes it.
-== refs/ref-check
-RUN R73 {
-  #432 = R73.document.body.load("text")
-  R73.sync()
-} R73
-   status: Check complete.
-== code/insert-code-btn
-RUN R74 {
-  #433 = R74.document.getSelection()
-  #434 = #433.insertHtml(s996:ceb8597c, "replace")
-  #435 = #434.select("end")
-  R74.sync()
-} R74
-   status: Block inserted.
-== audit/audit-run-btn
-RUN R75 {
-  #436 = R75.document.body.load("text")
-  R75.sync()
-} R75
-   status: Audit complete.
-== citations/cite-insert
 RUN R76 {
-  #437 = R76.document.getSelection()
-  #438 = #437.insertHtml(s49:b967615d, "replace")
-  #439 = #438.select("end")
-  R76.sync()
-  #440 = #438.insertContentControl()
-  set #440.tag = "formula-inserter:citation"
-  set #440.title = "JurisLab"
-  set #440.appearance = "hidden"
+  #523 = R76.document.getSelection()
+  #524 = #523.insertText("Fig. 1", "after")
+  #525 = #523.select("end")
   R76.sync()
 } R76
-   status: Citation inserted.
-== citations/toa-build
+   status: Cross-reference inserted. Ctrl/⌘+Z undoes it.
+== refs/ref-check
 RUN R77 {
-  #441 = R77.document.body.load("text")
-  R77.sync()
-  #442 = R77.document.contentControls.getByTag("jurislab:toafield")
-  #443 = #442.load("items")
-  R77.sync()
-  #444 = R77.document.getSelection()
-  #445 = #444.insertOoxml(s4663:131d388c, "replace")
-  #446 = #445.select("end")
-  R77.sync()
-  #447 = #445.insertContentControl()
-  set #447.tag = "formula-inserter:toa"
-  set #447.title = "JurisLab"
-  set #447.appearance = "hidden"
+  #526 = R77.document.body.load("text")
   R77.sync()
 } R77
-   status: Formatted Table of Authorities inserted.
-== citations/toa-native
+   status: Check complete.
+== code/insert-code-btn
 RUN R78 {
-  #448 = R78.document.body.footnotes.load("items")
-  #449 = R78.document.body.endnotes.load("items")
+  #527 = R78.document.getSelection()
+  #528 = #527.insertHtml(s996:ceb8597c, "replace")
+  #529 = #528.select("end")
   R78.sync()
-  #450 = R78.document.body.load("text")
-  #451 = R78.document.body.footnotes.items[0].body.load("text")
-  R78.sync()
-  #452 = R78.document.body.fields.load("items/code")
-  #453 = R78.document.body.footnotes.items[0].body.fields.load("items/code")
-  R78.sync()
-  #454 = R78.document.body.fields.items[0].delete()
-  #455 = R78.document.body.footnotes.items[0].body.fields.items[0].delete()
-  THREW n.load is not a function
 } R78
-   status: Could not build the field-based Table of Authorities: n.load is not a function
-== citations/toa-clearmarks
+   status: Block inserted.
+== audit/audit-run-btn
 RUN R79 {
-  #456 = R79.document.body.fields.load("items/code")
-  R79.sync()
-  #457 = R79.document.body.fields.items[0].delete()
+  #530 = R79.document.body.load("text")
   R79.sync()
 } R79
-   status: Removed 1 citation marks.
-== citations/toa-cleartables
+   status: Audit complete.
+== citations/cite-insert
 RUN R80 {
-  #458 = R80.document.body.fields.load("items/code")
+  #531 = R80.document.getSelection()
+  #532 = #531.insertHtml(s49:b967615d, "replace")
+  #533 = #532.select("end")
   R80.sync()
-  #459 = R80.document.body.fields.items[1].delete()
-  #460 = R80.document.body.fields.items[2].delete()
+  #534 = #532.insertContentControl()
+  set #534.tag = "formula-inserter:citation"
+  set #534.title = "JurisLab"
+  set #534.appearance = "hidden"
   R80.sync()
 } R80
-   status: Removed 2 table fields.
-== citations/toc-build
+   status: Citation inserted.
+== citations/toa-build
 RUN R81 {
-  #461 = R81.document.getSelection()
-  #462 = #461.insertOoxml(s2056:901fd238, "replace")
+  #535 = R81.document.body.load("text")
   R81.sync()
-  #463 = R81.document.getStyles()
-  #464 = #463.load("items/nameLocal")
+  #536 = R81.document.contentControls.getByTag("jurislab:toafield")
+  #537 = #536.load("items")
+  R81.sync()
+  #538 = R81.document.getSelection()
+  #539 = #538.insertOoxml(s4663:131d388c, "replace")
+  #540 = #539.select("end")
+  R81.sync()
+  #541 = #539.insertContentControl()
+  set #541.tag = "formula-inserter:toa"
+  set #541.title = "JurisLab"
+  set #541.appearance = "hidden"
   R81.sync()
 } R81
+   status: Formatted Table of Authorities inserted.
+== citations/toa-native
+RUN R82 {
+  #542 = R82.document.body.footnotes.load("items")
+  #543 = R82.document.body.endnotes.load("items")
+  R82.sync()
+  #544 = R82.document.body.load("text")
+  #545 = R82.document.body.footnotes.items[0].body.load("text")
+  R82.sync()
+  #546 = R82.document.body.fields.load("items/code")
+  #547 = R82.document.body.footnotes.items[0].body.fields.load("items/code")
+  R82.sync()
+  #548 = R82.document.body.fields.items[0].delete()
+  #549 = R82.document.body.footnotes.items[0].body.fields.items[0].delete()
+  THREW n.load is not a function
+} R82
+   status: Could not build the field-based Table of Authorities: n.load is not a function
+== citations/toa-clearmarks
+RUN R83 {
+  #550 = R83.document.body.fields.load("items/code")
+  R83.sync()
+  #551 = R83.document.body.fields.items[0].delete()
+  R83.sync()
+} R83
+   status: Removed 1 citation marks.
+== citations/toa-cleartables
+RUN R84 {
+  #552 = R84.document.body.fields.load("items/code")
+  R84.sync()
+  #553 = R84.document.body.fields.items[1].delete()
+  #554 = R84.document.body.fields.items[2].delete()
+  R84.sync()
+} R84
+   status: Removed 2 table fields.
+== citations/toc-build
+RUN R85 {
+  #555 = R85.document.getSelection()
+  #556 = #555.insertOoxml(s2056:901fd238, "replace")
+  R85.sync()
+  #557 = R85.document.getStyles()
+  #558 = #557.load("items/nameLocal")
+  R85.sync()
+} R85
    status: Table of Contents (field) inserted — press F9 to update.
 == citations/toa-find
-RUN R82 {
-  #465 = R82.document.body.load("text")
-  R82.sync()
-} R82
+RUN R86 {
+  #559 = R86.document.body.load("text")
+  R86.sync()
+} R86
    status: Found 3 authorities in 3 citations.
 == citations/bib-insert
 OFFICE settings.get("jurislab.bib.v1") -> null
@@ -1242,73 +1417,73 @@ OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
-RUN R83 {
-  #466 = R83.document.getSelection()
-  #467 = #466.parentContentControlOrNullObject.load("tag")
-  R83.sync()
-  #468 = #466.insertText("…", "end")
-  #469 = #468.insertContentControl()
-  set #469.tag = "formula-inserter:cite:1"
-  set #469.title = "JurisLab citation"
-  R83.sync()
-  #470 = R83.document.body.contentControls.load("items/tag,items/text")
-  R83.sync()
-  #471 = R83.document.body.footnotes.load("items")
-  R83.sync()
-  #472 = R83.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
-  R83.sync()
-  #473 = R83.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #473.font.superscript = false
-  set #473.font.subscript = false
-  set #473.font.italic = false
-  set #473.font.bold = false
-  #474 = R83.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
-  R83.sync()
-} R83
+RUN R87 {
+  #560 = R87.document.getSelection()
+  #561 = #560.parentContentControlOrNullObject.load("tag")
+  R87.sync()
+  #562 = #560.insertText("…", "end")
+  #563 = #562.insertContentControl()
+  set #563.tag = "formula-inserter:cite:1"
+  set #563.title = "JurisLab citation"
+  R87.sync()
+  #564 = R87.document.body.contentControls.load("items/tag,items/text")
+  R87.sync()
+  #565 = R87.document.body.footnotes.load("items")
+  R87.sync()
+  #566 = R87.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  R87.sync()
+  #567 = R87.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #567.font.superscript = false
+  set #567.font.subscript = false
+  set #567.font.italic = false
+  set #567.font.bold = false
+  #568 = R87.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  R87.sync()
+} R87
 OFFICE settings.set("jurislab.bib.v1", s504:c0513ad2)
 OFFICE settings.saveAsync()
    status: 
 == citations/bib-update
 OFFICE settings.get("jurislab.bib.v1") -> s504:c0513ad2
-RUN R84 {
-  #475 = R84.document.body.contentControls.load("items/tag,items/text")
-  R84.sync()
-  #476 = R84.document.body.footnotes.load("items")
-  R84.sync()
-  #477 = R84.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
-  R84.sync()
-  #478 = R84.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #478.font.superscript = false
-  set #478.font.subscript = false
-  set #478.font.italic = false
-  set #478.font.bold = false
-  #479 = R84.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
-  R84.sync()
-} R84
+RUN R88 {
+  #569 = R88.document.body.contentControls.load("items/tag,items/text")
+  R88.sync()
+  #570 = R88.document.body.footnotes.load("items")
+  R88.sync()
+  #571 = R88.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  R88.sync()
+  #572 = R88.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #572.font.superscript = false
+  set #572.font.subscript = false
+  set #572.font.italic = false
+  set #572.font.bold = false
+  #573 = R88.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  R88.sync()
+} R88
    status: 
 == (hidden)/cite-iddetect
-RUN R85 {
-  #480 = R85.document.getSelection()
-  #481 = R85.document.body.getRange("start")
-  #482 = #481.expandTo(#480)
-  #483 = #482.load("text")
-  R85.sync()
-  #484 = #480.insertHtml("<i>Id.</i>", "replace")
-  #485 = #484.select("end")
-  R85.sync()
-  #486 = #484.insertContentControl()
-  set #486.tag = "formula-inserter:citation"
-  set #486.title = "JurisLab"
-  set #486.appearance = "hidden"
-  R85.sync()
-} R85
+RUN R89 {
+  #574 = R89.document.getSelection()
+  #575 = R89.document.body.getRange("start")
+  #576 = #575.expandTo(#574)
+  #577 = #576.load("text")
+  R89.sync()
+  #578 = #574.insertHtml("<i>Id.</i>", "replace")
+  #579 = #578.select("end")
+  R89.sync()
+  #580 = #578.insertContentControl()
+  set #580.tag = "formula-inserter:citation"
+  set #580.title = "JurisLab"
+  set #580.appearance = "hidden"
+  R89.sync()
+} R89
    status: Id. inserted.
 == (hidden)/cite-supradetect
-RUN R86 {
-  #487 = R86.document.getSelection()
-  #488 = R86.document.body.getRange("start")
-  #489 = #488.expandTo(#487)
-  #490 = #489.load("text")
-  R86.sync()
-} R86
+RUN R90 {
+  #581 = R90.document.getSelection()
+  #582 = R90.document.body.getRange("start")
+  #583 = #582.expandTo(#581)
+  #584 = #583.load("text")
+  R90.sync()
+} R90
    status: Earlier source detected.

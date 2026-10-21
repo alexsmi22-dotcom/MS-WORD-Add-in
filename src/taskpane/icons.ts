@@ -43,6 +43,7 @@ export const TOOL_ICONS: Record<Exclude<Mode, "home">, string> = {
   reaction: '<path d="M3 15h15.5M15.5 11.5 19 15l-3.5 3.5"/><path d="M7 8h8"/>',
 
   // Stick spectrum: discrete m/z lines of differing intensity.
+  solidform: '<path d="M3 20h18"/><path d="M5 20V17M8 20V9M11 20V14M14 20V5M17 20V12M20 20v-3"/>',
   diagram: '<rect x="3" y="3" width="8" height="6"/><rect x="13" y="15" width="8" height="6"/><path d="M7 9v5h10v1"/>',
   charz: '<path d="M6 3h9l3 3v15H6z"/><path d="M9 10h6M9 14h6M9 18h4"/>',
   massspec: '<path d="M3 20h18"/><path d="M6 20V9M9.5 20v-5M13 20V5M16.5 20v-8M20 20v-3"/>',

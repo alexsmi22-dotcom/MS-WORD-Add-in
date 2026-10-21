@@ -32,6 +32,9 @@ module.exports = {
   "massspec/ms-insert-chart": [["ms-input", "C6H12O6"]],
   // Characterization: a list, an HRMS line with Found, and the From Build button left alone (Build is empty here).
   "diagram/diagram-insert": [["click", "diagram-example"]],
+  "solidform/solid-insert-fig": [["click", "solid-example"], ["figstyle-vector", true]],
+  "solidform/solid-insert-table": [["click", "solid-example"]],
+  "solidform/solid-insert-text": [["click", "solid-example"]],
   "charz/charz-insert": [["charz-compound", "caffeine"], ["charz-h-list", "1H NMR (400 MHz, Chloroform-d) δ 7.51 (s, 1H), 3.99 (s, 3H), 3.57 (s, 3H), 3.40 (s, 3H)."], ["charz-ms-on", true], ["charz-ms-found", "195.0874"]],
   "spectra/spec-insert": [["spec-kind", "ms"], ["spec-input", "CCO"]],
   "spectra/spec-insert-chart": [["spec-input", "CCO"]],

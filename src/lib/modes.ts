@@ -28,6 +28,7 @@ export const ALL_MODES = [
   "massspec",
   "charz",
   "diagram",
+  "solidform",
   "spectra",
   "seqmap",
   "align",

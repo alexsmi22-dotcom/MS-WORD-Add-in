@@ -9,7 +9,7 @@ citations, and more — and inserts it at the cursor. Everything runs **entirely
 content is sent anywhere** (the one exception is the strictly opt-in online
 name→structure lookup, which prompts before sending).
 
-Pick a tool from the home screen — **29 tools** (grouped STEM + legal):
+Pick a tool from the home screen — **30 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
@@ -26,6 +26,7 @@ Pick a tool from the home screen — **29 tools** (grouped STEM + legal):
 | **Solve** | equations, calculus & word problems, offline, on a **CAS core** (exact rational arithmetic — collect, expand, cancel, canonical equality): exact linear/quadratic roots, every root of any higher-degree polynomial (real **and complex**, repeated roots marked), **inequalities** (solved exactly by sign analysis on the critical points — nothing is multiplied through by an expression whose sign is unknown, so `1/x < 1` keeps the negative branch a naive multiply loses, and a pole is excluded even from a non-strict comparison), **systems of equations** (several equations, one per line: linear ones solved **exactly** by rational row reduction, and classified as one solution / none / **infinitely many** with the free variables named — never one arbitrary point passed off as *the* answer; nonlinear ones by Newton, every root substituted back), **symbolic rearrangement of formulas** (`F = m*a` solved for `a` → `F/m`, the quadratic formula symbolically, every introduced divisor's ≠ 0 condition stated, answers verified by back-substitution), **limits** (L'Hôpital where needed, each answer cross-checked numerically, and a two-sided limit that does not exist is *said* not to exist rather than reported from one side) and **Taylor/Maclaurin series** with exact rational coefficients, symbolic **derivatives** (canonically simplified — `d/dx sin(x)cos(x)` → `cos(x)² − sin(x)²`), **symbolic integration** (substitution, by parts, partial fractions — ∫x·eˣ dx = eˣ(x−1), ∫dx/(x²−1), ∫ln x dx — every antiderivative verified by differentiating it back), **definite integrals** exact where a closed form exists, showing F(x), and **word problems** — percentages, distance = rate × time, "a number …" sentences, and **successive-share problems** ("guest 1 takes 1%, guest 2 takes 2% of what's left …"), each with the working shown; and **geometry** — mensuration exact in π and surds, triangle solving including the **ambiguous SSA case** (which can have two answers, one, or none, and says which), analytic geometry with exact rational coordinates, and **conic classification** by invariants (rotate, translate, canonical form, foci, eccentricity — degenerate cases named, not dressed up as ellipses); and the **untyped λ-calculus** — β-reduction step by step with capture-avoiding α-renames shown, normal vs applicative order (K I Ω answers one way and provably diverges the other), Church numerals and booleans decoded **and independently verified**, divergence proven when the term cycles and otherwise an honest cap, and the principal simple type (plus η, SKI translation, combinatory reduction, Church lists and `let rec`); and **discrete mathematics** — number theory (gcd, modular powers and inverses, CRT, factoring, Miller–Rabin primality that says when it is a proof, primitive roots, Jacobi), combinatorics with word problems, linear recurrences solved exactly (Binet in ℚ(√5)) and the master theorem, propositional logic with entailment and Quine–McCluskey, finite automata and regular expressions, and graph algorithms — exact, cross-checked, with graphs and state diagrams drawn; **complex numbers on input** (`(2+3i)(1-i)` → 5 + i, exact on Gaussian rationals and cross-checked numerically; equations solved over ℂ with every root substituted back), **partial fractions** as a verb (recombined to confirm), and **parametric linear systems** solved for every value of the parameter with the special values classified. Results insert as **real, editable Word equations**, not flat text |
 | **Units** | SI typesetting (±, ×10ⁿ, µ/Ω/°), significant figures, unit conversion incl. compound units (`km/h → m/s`) |
 | **Plot** | offline function & data charts (multiple series + legend, error bars) |
+| **Solid form** | XRPD peaks picked from your pattern (or typed) with Bragg d-spacings and the "characterized by … peaks at 2θ angles of about …" text; DSC onsets (tangent method) and TGA weight-loss steps; figures in USPTO or journal style |
 | **Diagrams** | patent figures from text in USPTO style: block diagrams, flowcharts, state and sequence diagrams, timing diagrams, schematics; numerals in the box or on lead lines, FIG labels, lettering ≥ 1/8 in |
 | **Table → Chart** | charts (column/bar/line/area/scatter/stacked), flowcharts, block diagrams, table figures; B&W patent figures or editable PowerPoint |
 | **Finance** | 24 calculators — TVM / loan / NPV / IRR / DCF / Black–Scholes + Greeks / bond analytics, plus a finance equation library |
@@ -47,7 +48,7 @@ Pick a tool from the home screen — **29 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v2.171.0 — production. Word on **Windows & macOS**,
+> **Status:** v2.172.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -66,7 +67,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
 
 ## Documentation
 
-- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 29 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
+- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 30 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
 - [Features](FEATURES.md) — the in-repo reference for what every mode does
 - [Install (Windows & macOS)](install/README.md) — for end users
 - [Manual test script](docs/TEST-SCRIPT.md) — in-Word QA checklist
@@ -83,7 +84,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**10,000+ unit tests** across **566 test files**), `npm run build` (production bundle),
+> `npm test` (**10,000+ unit tests** across **572 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool, and an

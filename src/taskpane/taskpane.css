@@ -2621,6 +2621,12 @@ select {
 .scheme-reg-what { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; color: var(--ink-2); }
 .scheme-reg-row button { font-size: 11px; padding: 2px 8px; }
 #reaction-preview svg { max-width: 100%; height: auto; }
+/* Solid form (v2.172.0) */
+.solid-preview svg { max-width: 100%; height: auto; }
+.solid-table { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
+.solid-table th, .solid-table td { border: 1px solid #d0d0d0; padding: 2px 6px; text-align: right; }
+.solid-table th { background: #f4f4f4; }
+.solid-text { font-size: 12px; line-height: 1.4; }
 /* Diagrams (v2.171.0) */
 .diagram-preview svg { max-width: 100%; height: auto; }
 .diagram-short { flex: 0 1 80px; max-width: 100px; }

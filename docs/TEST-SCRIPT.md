@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.171.0)
+# JurisLab — Manual Test Script (v2.172.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,21 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dk. New in v2.172.0 — Solid form (XRPD, DSC, TGA)
+
+- [ ] ★ **XRPD.** Tool ▸ **Solid form**, Data XRPD, **Example** → a diffractogram, a 10-row peak table (17.2° 2θ,
+  d 5.15 Å, 100%) and "The crystalline form, characterized by an X-ray powder diffraction pattern comprising peaks at 2θ
+  angles of about 6.8°, 13.6°, 17.2°, 18.9° and 21.3° ± 0.2° 2θ, measured with Cu Kα1 radiation." Type a form name in
+  **The form described** → the sentence starts with it.
+- [ ] **Each insert.** **Insert figure** with Figure style ▸ USPTO → a black-and-white plot (no grid) at 170 mm;
+  **Insert table** → an editable Word table; **Insert sentence** → the sentence after the cursor. Ctrl/⌘+Z undoes each.
+- [ ] **Your own file.** Paste a real two-column export from your diffractometer (header lines are fine) → peaks match the
+  instrument software's within 0.05°.
+- [ ] **Peak list.** Type `6.8 100` / `13.6 40` / `17.2 80` → a stick plot and the three peaks cited.
+- [ ] **DSC / TGA.** Data DSC, Example → an endotherm, onset ≈ 182.6 °C, peak 186.0 °C, the axis saying "exo up". Data
+  TGA, Example → two steps (≈ 4.6% and ≈ 57.9%).
+- [ ] **Refusal.** XRPD, type `200` → "200° is not a 2θ angle between 0 and 180"; the insert buttons stay off.
 
 ## 0dj. New in v2.171.0 — Diagrams
 

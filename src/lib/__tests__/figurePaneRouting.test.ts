@@ -94,6 +94,7 @@ describe("the figure-style picker reaches prepareFigure", () => {
       stats: "insertStatsChart",
       finance: "insertFinanceResult",
       assay: "insertAssayPlot",
+      solidform: "insertSolidFigure",
     };
     const modes = figureStyleModes();
     expect(modes.sort()).toEqual(Object.keys(insertFnFor).sort());

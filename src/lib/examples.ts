@@ -611,6 +611,18 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       with no stable isotope (Tc, Pm) is refused unless you name the isotope (<code>[99Tc]</code>).
       Analysis aid — verify before relying.
     </p>`,
+  solidform: `
+    <p class="examples-note">
+      Your own instrument data — press <strong>Example</strong> for a synthetic pattern or thermogram.
+    </p>
+    <ul>
+      <li><strong>XRPD</strong>: two columns (2θ and counts) → peaks, d-spacings, and “characterized by … peaks at 2θ angles of about … ± 0.2° 2θ”</li>
+      <li><strong>Peak list</strong>: <code>6.8 100</code>, <code>13.6 40</code>, <code>17.2 80</code> — or <code>5.2, 10.4, 15.6</code></li>
+      <li><strong>DSC</strong>: temperature and heat flow → endotherm onset (tangent method) and peak</li>
+      <li><strong>TGA</strong>: temperature and weight (% or mg) → each weight-loss step</li>
+    </ul>
+    <p class="examples-note">Figures follow the pane's figure style (USPTO or a journal).</p>`,
+
   diagram: `
     <p class="examples-note">
       Patent figures from short text, in USPTO style — press <strong>Example</strong> for each kind.

@@ -6,6 +6,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.172.0] — 2026-10-21 — Solid form: XRPD, DSC and TGA for polymorph claims
+
+Gap item 2: the data polymorph, salt and co-crystal patents rest on, from the user's own instrument exports.
+
+### Added
+- **Solid form** (a new tool, Chemistry). Nothing is predicted: every number comes from the pasted data.
+  - **Reading**: any common text export — headers and metadata lines, tabs, commas, semicolons, decimal commas and
+    thousands separators (decided once for the whole file), and three-column thermal exports (time, temperature, signal) with the columns
+    chosen by header, stated, and changeable in the pane.
+  - **XRPD**: a measured pattern (any steady step) has its peaks picked — SNIP background (an amorphous halo or a steep
+    low-angle rise stays in the background), Savitzky–Golay smoothing scaled to the step, a noise floor measured from the
+    pattern itself (counts, cps or normalised), a prominence test, parabolic refinement; in an unstripped Cu Kα pattern,
+    Kα2 shoulders are left out and named; a pattern with only a broad halo is said to look amorphous, with no claim written. A typed list (`6.8 100`,
+    `6.8,100`, `5.2, 10.4, 15.6`, `5,2;10,4;15,6`, `6.8° 100%`, `5.2 ± 0.2`, or a `2θ d I` table, the d column found by
+    Bragg's law) is used as given, near-duplicates merged. Each peak gets its Bragg d-spacing (Cu Kα1, Cu Kα weighted,
+    Co Kα1, Mo Kα1) and relative intensity.
+  - The claim sentence: "…characterized by an X-ray powder diffraction pattern comprising peaks at 2θ angles of about
+    … ± 0.2° 2θ, measured with Cu Kα1 radiation", citing the N strongest peaks by angle; 2θ to 0.1° (0.01° under
+    ±0.1°); cited peaks closer than twice the tolerance are pointed out.
+  - **DSC**: endotherms and exotherms with their onset (the baseline before the event meets the tangent at the leading
+    edge's inflection, ASTM E794 / ISO 11357-1, from a local fit so noise does not move it) and peak; a glass transition
+    is a step at its half-height midpoint (ASTM E1356), never an endotherm; an onset that cannot lie inside its event is
+    not printed. **TGA**: weight-loss steps from the drift-corrected DTG, overlapping steps split at the DTG minimum,
+    each loss in % of the starting weight across its whole tail, the fastest-loss temperature; a gain is said; the
+    figure in % of initial.
+  - Figures through the pane's figure styles (USPTO, Nature, ACS …) and the multi-panel tray, drawn black and white
+    with no grid so the USPTO style takes them; tables as editable Word tables; the sentence as text.
+
 ## [2.171.0] — 2026-10-21 — Diagrams: patent figures from text
 
 Gap item 1: the line figures almost every utility patent carries.

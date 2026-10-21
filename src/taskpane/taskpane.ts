@@ -8,6 +8,7 @@ import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
 import { initCharzPane, CharzPaneApi } from "./charzPane";
 import { initDiagramPane, DiagramPaneApi } from "./diagramPane";
+import { initSolidformPane, SolidformPaneApi } from "./solidformPane";
 import { initChemdrawOpen } from "./chemdrawOpen";
 import { canvasInsertFit, type CanvasInsertMode } from "../lib/insertSize";
 import { nextFreeNumeral } from "../lib/cadShapes";
@@ -473,6 +474,7 @@ import {
   differencesFromStandard,
 } from "../lib/geneticCode";
 import { auditDocument, AuditReport } from "../lib/audit";
+import { SOLID_CHART_SIZE } from "../lib/solidformChart";
 import { REGISTER_SETTING, typesetFormula, autoNumberer, checkAgainstRegister, compoundFieldInput, forgetCompound, mergeIntoRegister, readRegister, writeRegister, type CompoundRegister } from "../lib/compoundRegister";
 import { parseScheme, buildScheme, countSchemeCaptions, smallestFontPt, titleWithBoldLabels, type SchemeBuild, type SchemeWidth } from "../lib/scheme";
 import { inlineParagraphsOoxml, schemeCaptionOoxml } from "../lib/bibOoxml";
@@ -1095,6 +1097,8 @@ let charzSection: HTMLElement;
 let charzPane: CharzPaneApi;
 let diagramSection: HTMLElement;
 let diagramPane: DiagramPaneApi;
+let solidformSection: HTMLElement;
+let solidformPane: SolidformPaneApi;
 let msInput: HTMLInputElement;
 let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
@@ -1885,6 +1889,13 @@ Office.onReady((info) => {
     downloadFile: (blob, name) => triggerDownload(blob, name),
   });
   diagramSection = document.getElementById("diagram-section") as HTMLElement;
+  solidformSection = document.getElementById("solidform-section") as HTMLElement;
+  solidformPane = initSolidformPane({
+    setStatus: (t, k) => setStatus(t, k ?? ""),
+    insertFigure: insertSolidFigure,
+    insertText: (text) => insertPlainText(text, "The sentence"),
+    insertTable: (rows, label) => docHost.insertEditableTable({ rows, label }),
+  });
   diagramPane = initDiagramPane({
     setStatus: (t, k) => setStatus(t, k ?? ""),
     insertPicture: insertDiagramPicture,
@@ -2583,6 +2594,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "reaction", audience: ["science"], label: "Reaction", desc: "Reaction schemes" },
       { mode: "massspec", audience: ["science"], label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
       { mode: "charz", audience: ["science", "legal"], label: "Characterization", desc: "Example-section NMR, HRMS, yield text" },
+      { mode: "solidform", audience: ["science", "legal"], label: "Solid form", desc: "XRPD peaks, DSC and TGA for polymorph claims" },
       { mode: "spectra", audience: ["science"], label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
     ],
   },
@@ -3351,6 +3363,7 @@ function onInputChanged(): void {
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
   charzSection.style.display = mode === "charz" ? "block" : "none";
   diagramSection.style.display = mode === "diagram" ? "block" : "none";
+  solidformSection.style.display = mode === "solidform" ? "block" : "none";
   spectraSection.style.display = mode === "spectra" ? "block" : "none";
   solveSection.style.display = mode === "solve" ? "block" : "none";
   alignSection.style.display = mode === "align" ? "block" : "none";
@@ -3400,6 +3413,10 @@ function onInputChanged(): void {
   }
   if (mode === "diagram") {
     diagramPane.update();
+    return;
+  }
+  if (mode === "solidform") {
+    solidformPane.update();
     return;
   }
   if (mode === "charz") {
@@ -6838,6 +6855,11 @@ async function insertPlainText(text: string, label: string): Promise<boolean> {
   } finally {
     insertTextBusy = false;
   }
+}
+
+/** The Solid form tool's figure: through the pane's figure styles (USPTO, journals) like every plot. */
+async function insertSolidFigure(o: { svg: string; render: (w: number) => string; alt: string; chartKind: string }): Promise<string> {
+  return await insertFigure({ svg: o.svg, fallbackW: SOLID_CHART_SIZE.width, fallbackH: SOLID_CHART_SIZE.height, alt: o.alt, tag: "formula-inserter:solidform", render: o.render, chartKind: o.chartKind });
 }
 
 /**
@@ -34027,7 +34049,7 @@ function currentBracketChoice(): BracketChoice {
  * change that routes its insert through insertFigure (figurePaneRouting.test.ts
  * pins the pairing).
  */
-const FIGURE_STYLE_MODES = new Set<string>(["plot", "ppt", "stats", "finance", "assay"]);
+const FIGURE_STYLE_MODES = new Set<string>(["plot", "ppt", "stats", "finance", "assay", "solidform"]);
 
 interface FigureInsert {
   svg: string;
@@ -34130,6 +34152,8 @@ function currentModeFigure(): PanelItem | null {
       return currentFinSvg ? { svg: currentFinSvg, source: "Finance" } : null;
     case "assay":
       return currentAssayPlotSvg ? { svg: currentAssayPlotSvg, source: "Bio/Assay" } : null;
+    case "solidform":
+      return solidformPane.currentFigure();
     default:
       return null;
   }
@@ -34139,7 +34163,7 @@ function updatePanelTray(): void {
   const n = figPanels.length;
   figPanelCount.textContent =
     n === 0
-      ? "No panels yet. Add figures from Plot, Table → Chart, Statistics, Finance or Bio/Assay, then insert them as one figure."
+      ? "No panels yet. Add figures from Plot, Table → Chart, Statistics, Finance, Bio/Assay or Solid form, then insert them as one figure."
       : `${n} panel${n === 1 ? "" : "s"}: ${figPanels.map((p, i) => `${i + 1}. ${p.source}`).join(" · ")}` +
         (n < 2 ? ". Add at least one more." : ".");
   figPanelInsertBtn.disabled = n < 2;

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JurisLab — User Manual</title>
-  <meta name="description" content="How to use JurisLab: the core loop, then a full breakdown of all 29 tools with worked examples, exact capabilities, honest limits, and troubleshooting." />
+  <meta name="description" content="How to use JurisLab: the core loop, then a full breakdown of all 30 tools with worked examples, exact capabilities, honest limits, and troubleshooting." />
   <link rel="icon" href="assets/icon-32-v2.png" />
   <style>
     :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --warn:#8a5a00; --warnbg:#fff8e6; }
@@ -59,7 +59,7 @@
     <div class="wrap">
       <a class="home" href="index.html">← JurisLab</a>
       <h1>User Manual</h1>
-      <p class="tag">How JurisLab works, then a full breakdown of each of the 29 tools — what it does, every option, a worked example, and what it deliberately doesn’t do. Everything runs on your machine.</p>
+      <p class="tag">How JurisLab works, then a full breakdown of each of the 30 tools — what it does, every option, a worked example, and what it deliberately doesn’t do. Everything runs on your machine.</p>
     </div>
   </header>
 
@@ -71,7 +71,7 @@
         <li><a href="#start">Getting started</a></li>
         <li><a href="#loop">The core loop</a></li>
         <li><a href="#everywhere">Things that work everywhere</a></li>
-        <li><a href="#chemistry">Chemistry &amp; structures (6)</a></li>
+        <li><a href="#chemistry">Chemistry &amp; structures (7)</a></li>
         <li><a href="#mathunits">Math &amp; units (6)</a></li>
         <li><a href="#engineering">Engineering (1)</a></li>
         <li><a href="#drawing">Drawing (1)</a></li>
@@ -123,7 +123,7 @@
     <ol class="steps">
       <li><b>Fully quit Word</b> — every window (on Mac use <b>⌘-Q</b>, not just the red dot). Word only notices a new add-in on a cold start; this is the single most common reason it seems “not installed”.</li>
       <li>Reopen Word and go to the <b>Insert</b> tab → <b>Add-ins</b> (the <i>My Add-ins</i> dropdown) → click <b>JurisLab</b>. On Windows it may sit under <b>Developer Add-ins</b>.</li>
-      <li>The pane opens on the side, on the <b>Home</b> screen showing all 29 tools as cards, grouped by area.</li>
+      <li>The pane opens on the side, on the <b>Home</b> screen showing all 30 tools as cards, grouped by area.</li>
     </ol>
 
     <h3>Step 4 — Run it (a 10-second test)</h3>
@@ -162,7 +162,7 @@
 
     <!-- ============================ CHEMISTRY ============================ -->
     <h2 id="chemistry">Chemistry &amp; structures</h2>
-    <p class="lead">Six tools — Chemical, Build, Reaction, Mass Spec, Characterization, Spectra.</p>
+    <p class="lead">Seven tools — Chemical, Build, Reaction, Mass Spec, Characterization, Solid form, Spectra.</p>
 
     <h3>Chemical — formulas, 2D structures, properties &amp; pKa</h3>
     <p>Two things in one panel. <b>Type a formula</b> and it typesets itself: <code>H2O</code> → H₂O, <code>Ca(OH)2</code> → Ca(OH)₂, <code>2H2O</code> keeps the coefficient full-size, <code>SO4^2-</code> → SO₄²⁻, <code>Na+</code> → Na⁺, <code>[Fe(CN)6]3-</code> → the bracketed ion. <b>Type a name, formula or SMILES</b> and it resolves a 2D structure with a full readout.</p>
@@ -231,6 +231,18 @@
     <div class="try"><b>Try it:</b> <code>caffeine</code>, [M + H]⁺, Found <code>195.0874</code> → Calcd 195.0877, −1.3 ppm, within 0.003. <code>CC(=O)OCc1ccccc1</code> (benzyl acetate), 139 mg from 1.00 mmol → (139 mg, 0.926 mmol, 93%).</div>
     <p class="out"><b>Inserts:</b> formatted text — italic <i>J</i> and <i>m/z</i>, real subscripts and superscripts.</p>
     <div class="note"><b>Nothing is predicted or filled in.</b> Only the Calcd values and the yield arithmetic are computed; every measured number is yours. Not yet covered: an IR line, optical rotation, HPLC purity, and ¹⁹F/³¹P lists. HRMS is refused for a hydrate or salt formula (·0.5H₂O, ·HCl — enter the parent), for a salt drawn as two ions (enter the ion), and for an adduct of an already-charged structure (choose [M], which takes the structure's own charge).</div>
+
+    <h3>Solid form — XRPD peaks, DSC and TGA for polymorph claims</h3>
+    <p>Choose <b>XRPD</b>, <b>DSC</b> or <b>TGA</b> and paste your instrument's text export (two columns), or press <b>Example</b> for synthetic data. Every number comes from your data; nothing is predicted.</p>
+    <ul>
+      <li><b>XRPD</b> — a measured pattern (2θ and counts on a fine step) has its peaks picked: background removed, smoothed, each peak refined to 0.01°, neighbours within 0.15° merged, anything under the <b>Smallest peak</b> threshold dropped. A typed peak list (<code>6.8 100</code>, or <code>5.2, 10.4, 15.6</code>) is used as given. Each peak gets its Bragg <b>d-spacing</b> for the chosen <b>radiation</b> (Cu Kα1, Cu Kα, Co Kα1, Mo Kα1) and its <b>relative intensity</b>.</li>
+      <li><b>Claim text</b> — the strongest <b>N</b> peaks, listed by angle: “… characterized by an X-ray powder diffraction pattern comprising peaks at 2θ angles of about 6.8°, 13.6°, 17.2°, 18.9° and 21.3° ± 0.2° 2θ, measured with Cu Kα1 radiation.” Peaks closer than twice the tolerance are pointed out.</li>
+      <li><b>DSC</b> — each endotherm or exotherm with its <b>onset</b> (the extrapolated baseline meets the tangent at the steepest point of the leading edge, as instrument software does) and <b>peak</b>; say whether endotherms point down (exo up) or up.</li>
+      <li><b>TGA</b> — each weight-loss step with its range, the loss in % of the starting weight (mg is converted) and the temperature of fastest loss.</li>
+    </ul>
+    <div class="try"><b>Try it:</b> XRPD → <b>Example</b>: ten peaks from 6.8° to 27.5°; 17.2° has d = 5.15 Å and is the strongest (100%).</div>
+    <p class="out"><b>Inserts:</b> the figure (through the pane's figure style — USPTO black-and-white or a journal), the peak or event table (an editable Word table), and the sentence — each with its own button.</p>
+    <div class="note"><b>Not attempted:</b> Rietveld refinement, indexing, phase identification, ΔH integration, full Kα2 stripping (with Cu Kα chosen, clear Kα2 shoulders are left out and named), and binary instrument files — export text first. <b>Said, not guessed:</b> a pattern with only a broad halo looks amorphous (no claim is written); a glass transition is a step at its midpoint, not an endotherm; three-column thermal exports name the columns used, and the pickers change them.</div>
 
     <h3>Spectra — predicted NMR, 2D, IR, UV-Vis &amp; MS fragmentation</h3>
     <p>Pick a spectrum type, type a name or SMILES, and get a prediction with an assignment for every signal. Seven kinds:</p>

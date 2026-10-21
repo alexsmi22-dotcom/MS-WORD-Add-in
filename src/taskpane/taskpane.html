@@ -96,6 +96,7 @@
           <optgroup label="Data &amp; figures">
             <option value="ppt">Table → Chart</option>
             <option value="diagram">Diagrams</option>
+            <option value="solidform">Solid form</option>
             <option value="finance">Finance</option>
           </optgroup>
           <optgroup label="Biology">
@@ -997,6 +998,79 @@
       </section>
 
       <!-- Diagrams: patent figures from text (block, flowchart, state, sequence, timing, schematic) -->
+      <section id="solidform-section">
+        <p class="seq-disclaimer">
+          Solid-form data for polymorph and salt patents: an XRPD pattern or peak list, a DSC or a TGA thermogram, read from
+          your own instrument export. Peaks, d-spacings, onsets and weight losses come from the data — nothing is predicted.
+        </p>
+        <div class="scheme-opt-row">
+          <label class="field-label" for="solid-kind">Data</label>
+          <select id="solid-kind" class="lib-select">
+            <option value="xrpd">XRPD (X-ray powder diffraction)</option>
+            <option value="dsc">DSC (differential scanning calorimetry)</option>
+            <option value="tga">TGA (thermogravimetric analysis)</option>
+          </select>
+        </div>
+        <p id="solid-help" class="hint"></p>
+        <label class="field-label" for="solid-input">Data</label>
+        <textarea id="solid-input" class="build-input" rows="7" spellcheck="false" placeholder="2θ (°)   intensity&#10;5.00   212&#10;5.02   215"></textarea>
+        <div class="draw-btn-row">
+          <button id="solid-example" class="draw-pop-btn" type="button">Example</button>
+        </div>
+        <div id="solid-xrpd-opts">
+          <div class="scheme-opt-row">
+            <label class="field-label" for="solid-wavelength">Radiation</label>
+            <select id="solid-wavelength" class="lib-select">
+              <option value="CuKa1">Cu Kα1 (1.5406 Å)</option>
+              <option value="CuKa">Cu Kα, weighted (1.5419 Å)</option>
+              <option value="CoKa1">Co Kα1 (1.7890 Å)</option>
+              <option value="MoKa1">Mo Kα1 (0.7093 Å)</option>
+            </select>
+          </div>
+          <div class="scheme-opt-row">
+            <label class="field-label" for="solid-minrel">Smallest peak (%)</label>
+            <input id="solid-minrel" class="build-input diagram-short" type="number" min="0.5" max="50" step="0.5" value="5" />
+            <label class="field-label" for="solid-cite">Peaks to cite</label>
+            <input id="solid-cite" class="build-input diagram-short" type="number" min="1" max="20" step="1" value="5" />
+            <label class="field-label" for="solid-tol">±</label>
+            <select id="solid-tol" class="lib-select">
+              <option value="0.2">0.2° 2θ</option>
+              <option value="0.1">0.1° 2θ</option>
+              <option value="0.05">0.05° 2θ</option>
+            </select>
+          </div>
+        </div>
+        <div id="solid-thermal-opts">
+          <div id="solid-endo-row" class="scheme-opt-row">
+            <label class="field-label" for="solid-endo">Endotherms point</label>
+            <select id="solid-endo" class="lib-select">
+              <option value="down">Down (exo up)</option>
+              <option value="up">Up (endo up)</option>
+            </select>
+          </div>
+          <div id="solid-units-row" class="scheme-opt-row">
+            <label class="field-label" for="solid-yunits">Heat-flow units</label>
+            <input id="solid-yunits" class="build-input diagram-short" type="text" value="W/g" />
+          </div>
+          <div id="solid-cols-row" class="scheme-opt-row" hidden>
+            <label class="field-label" for="solid-xcol">Temperature column</label>
+            <select id="solid-xcol" class="lib-select"></select>
+            <label class="field-label" for="solid-ycol">Signal column</label>
+            <select id="solid-ycol" class="lib-select"></select>
+          </div>
+        </div>
+        <label class="field-label" for="solid-subject">The form described</label>
+        <input id="solid-subject" class="build-input" type="text" placeholder="Crystalline Form A of compound 1" />
+        <div id="solid-preview" class="structure-preview solid-preview" aria-live="polite"></div>
+        <table id="solid-table" class="solid-table"></table>
+        <p id="solid-text" class="solid-text" aria-live="polite"></p>
+        <ul id="solid-notes" class="scheme-notes" aria-live="polite"></ul>
+        <div class="draw-btn-row">
+          <button id="solid-insert-fig" class="insert-btn" type="button" disabled>Insert figure</button>
+          <button id="solid-insert-table" class="insert-btn" type="button" disabled>Insert table</button>
+          <button id="solid-insert-text" class="insert-btn" type="button" disabled>Insert sentence</button>
+        </div>
+      </section>
       <section id="diagram-section">
         <p class="seq-disclaimer">
           Patent figures from short text, in USPTO style (37 CFR 1.84): block diagrams, flowcharts, state and sequence

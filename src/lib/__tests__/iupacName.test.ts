@@ -398,8 +398,12 @@ describe("v2.169.0 review round 1", () => {
 });
 
 describe("v2.169.0 review round 2", () => {
+  // Stage 3d: pyrimidine vs pyridine is no longer a tie — P-44.2.1 (f), more heteroatoms, makes pyrimidine the parent.
+  test("pyrimidin-2-yl beside pyridin-2-yl on one N: pyrimidine is the parent by (f), either way round", () => {
+    expect(nameOf("c1ccnc(n1)Nc1ccccn1")).toBe("N-(pyridin-2-yl)pyrimidin-2-amine");
+    expect(nameOf("c1ccnc(c1)Nc1ncccn1")).toBe("N-(pyridin-2-yl)pyrimidin-2-amine");
+  });
   test.each([
-    ["c1ccnc(n1)Nc1ccccn1", "c1ccnc(c1)Nc1ncccn1"],
     ["c1ccc(nc1)Nc1cccnc1", "c1cncc(c1)Nc1ccccn1"],
   ])("tied heteroaryl branches on one N are refused either way round: %s / %s", (a, b) => {
     expect(refusalOf(a)).toMatch(/equal seniority on one nitrogen/);
@@ -609,5 +613,62 @@ describe("stage 3c review", () => {
   test("two different N-substituents on a carbamate N are refused (form not confirmed)", () => {
     expect(refusalOf("CCN(C)C(=O)OC")).toMatch(/two different substituents/);
     expect(nameOf("CN(C)C(=O)OC")).toBe("methyl dimethylcarbamate");
+  });
+});
+
+describe("stage 3d — a ring on a ring (P-44.1.1, P-44.2.1, P-44.4.1.1); assemblies refused (P-28)", () => {
+  test.each([
+    ["c1ccc(cc1)-c1ccncc1", "4-phenylpyridine"],
+    ["c1ccc(cc1)-c1cc2ccccc2[nH]1", "2-phenyl-1H-indole"],
+    ["c1ccc(cc1)-c1ccc2ccccc2c1", "2-phenylnaphthalene"],
+    // P-44.1.1 before ring seniority: the ring with the principal group is the parent.
+    ["OC(=O)c1ccc(cc1)-c1ccccn1", "4-(pyridin-2-yl)benzoic acid"],
+    ["Nc1ccc(cc1)-c1ccncc1", "4-(pyridin-4-yl)aniline"],
+    ["O=C1CCCN1c1ccccc1", "1-phenylpyrrolidin-2-one"],
+    ["CC(C)(C)OC(=O)N1CCN(CC1)c1ccccc1", "tert-butyl 4-phenylpiperazine-1-carboxylate"],
+    ["C1CN(CCN1)c1ccccc1", "1-phenylpiperazine"],
+    // (f) more heteroatoms: morpholine > pyridine.
+    ["c1ccncc1N1CCOCC1", "4-(pyridin-3-yl)morpholine"],
+    // (c) O before S: furan > thiophene.
+    ["c1coc(c1)-c1cccs1", "2-(thiophen-2-yl)furan"],
+    // (e) more skeletal atoms, then P-44.4.1.1 more multiple bonds (benzene > cyclohexane).
+    ["c1ccc(cc1)C1CCCCCC1", "phenylcycloheptane"],
+    ["c1ccc(cc1)C1CCCCC1", "cyclohexylbenzene"],
+    ["C1CCC(C1)c1ccccc1", "cyclopentylbenzene"],
+    ["Oc1ccc(cc1)C1CCCCC1", "4-cyclohexylphenol"],
+    ["c1ccccc1-c1cccnc1-c1ccccc1", "2,3-diphenylpyridine"],
+  ])("%s → %s", (smiles, name) => expect(nameOf(smiles)).toBe(name));
+
+  test("the shared ring rank fixes the NH between two rings: morpholine is the parent by (f) (v2.179.0: N-(morpholin-2-yl)pyridin-2-amine)", () => {
+    expect(nameOf("c1ccc(nc1)NC1CNCCO1")).toBe("N-(pyridin-2-yl)morpholin-2-amine");
+  });
+
+  test.each([
+    ["biphenyl with a substituent (an assembly, never 1-methyl-4-phenylbenzene)", "Cc1ccc(cc1)-c1ccccc1"],
+    ["4-phenylbenzoic acid (an assembly)", "OC(=O)c1ccc(cc1)-c1ccccc1"],
+    ["2,2′-bipyridine", "c1ccc(nc1)-c1ccccn1"],
+    ["bi(cyclohexane)", "C1CCC(CC1)C1CCCCC1"],
+    ["rings joined through CH₂ (multiplicative)", "c1ccc(cc1)Cc1ccccc1"],
+    ["a diaryl ether", "c1ccc(cc1)Oc1ccccn1"],
+    ["the senior ring carrying a substituted ring", "Cc1ccc(cc1)-c1ccncc1"],
+  ])("%s is refused by name", (_why, smiles) => expect(refusalOf(smiles)).toMatch(/outside the namer's subset/));
+});
+
+describe("stage 3d review", () => {
+  test.each([
+    // An NH between two rings where one carries its own ring: ranked by the ring it is attached through, never by all
+    // the rings of the branch (was 4-(morpholin-4-yl)-N-(pyridin-2-yl)aniline: aniline is not the senior ring).
+    ["an NH beside a phenyl carrying morpholine", "c1ccc(nc1)Nc1ccc(cc1)N1CCOCC1"],
+    ["an NH beside a piperidine carrying phenyl", "c1ccc(nc1)NC1CCN(CC1)c1ccccc1"],
+    // P-54.3: a ring on its own hydrogenated form is a hydro ring assembly (hexahydro-2,2′-bipyridine).
+    ["2-(piperidin-2-yl)pyridine", "c1ccc(nc1)C1CCCCN1"],
+    ["1-(pyridin-3-yl)piperidine", "c1ccncc1N1CCCCC1"],
+    ["2-(oxolan-2-yl)furan", "c1ccoc1C1CCCO1"],
+    // P-31.2.3.3.5.1: only ONE benzene with ONE cyclohexane is substitutive; two cyclohexyls make a hydro terphenyl.
+    ["1,4-dicyclohexylbenzene", "C1CCC(CC1)c1ccc(cc1)C1CCCCC1"],
+    ["cyclohexenylbenzene (a hydro biphenyl)", "c1ccc(cc1)C1=CCCCC1"],
+  ])("%s is refused by name", (_why, smiles) => expect(refusalOf(smiles)).toMatch(/outside the namer's subset/));
+  test("an NH between pyridine and piperidine: pyridine is the parent by P-44.4.1.1 (not an assembly: not bonded directly)", () => {
+    expect(nameOf("c1ccc(nc1)NC1CCCCN1")).toBe("N-(piperidin-2-yl)pyridin-2-amine");
   });
 });

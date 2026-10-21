@@ -155,6 +155,27 @@ function generatedCorpus(): string[] {
   const bocN = Molecule.fromSmiles(BOC_PIP).getAllAtoms();
   for (let a = 0; a < bocN; a++) for (const kind of ["C", "Cl", "N", "O", "CN", "CHO", "CCO"]) { const smi = attach(BOC_PIP, a, kind); if (smi) out.add(smi); }
   for (const near of ["CC(C)(C)OC(=O)n1ccc2ccccc21", "CC(C)(C)OC(=O)n1ccnc1", "O=C(NC1CCCCC1)OCc1ccccc1", "CC(C)(C)OC(=O)NCCO", "OC(=O)CNC(=O)OC(C)(C)C", "CC(C)(C)OC(=O)N1CCC(CC1)C(=O)O", "CC(C)(C)OC(=O)NC(=O)OC(C)(C)C", "COC(=O)NOC", "COC(=O)NN", "CC(C)(C)OC(=O)N1CCN(CC1)C(=O)OC(C)(C)C"]) out.add(near);
+  // Stage 3d: a ring substituent bonded directly to a ring parent — every ring on every position of each parent, with
+  // and without a principal group; identical-ring assemblies and rings joined through an atom must refuse.
+  const attachRing = (parent: string, a: number, ringSmiles: string): string | null => {
+    const m = Molecule.fromSmiles(parent);
+    if (m.getAllHydrogens(a) === 0) return null;
+    const r = Molecule.fromSmiles(ringSmiles);
+    const map = m.addMolecule(r);
+    m.addBond(a, map[0]);
+    try {
+      return m.toIsomericSmiles();
+    } catch {
+      return null;
+    }
+  };
+  const RING_PARENTS = ["c1ccccc1", "c1ccncc1", "c1cncnc1", "c1ccsc1", "c1ccoc1", "C1CCNCC1", "C1COCCN1", "C1CNCCN1", "C1CCCCC1", "c1ccc2ccccc2c1", "c1ccc2[nH]ccc2c1", "O=C1CCCN1", "OC(=O)c1ccccc1", "Nc1ccccc1"];
+  const RING_SUBS = ["c1ccccc1", "c1ccncc1", "c1cccnc1", "C1CCCCC1", "C1CCOCC1", "c1ccsc1"];
+  for (const p of RING_PARENTS) {
+    const n = Molecule.fromSmiles(p).getAllAtoms();
+    for (let a = 0; a < n; a++) for (const sub of RING_SUBS) { const smi = attachRing(p, a, sub); if (smi) out.add(smi); }
+  }
+  for (const near of ["Cc1ccc(cc1)-c1ccccc1", "OC(=O)c1ccc(cc1)-c1ccccc1", "c1ccc(nc1)-c1ccccn1", "C1CCC(CC1)C1CCCCC1", "c1ccc(cc1)Cc1ccccc1", "c1ccc(cc1)Oc1ccccn1", "Cc1ccc(cc1)-c1ccncc1", "c1ccc(cc1)-c1ccc(cc1)-c1ccncc1", "c1ccc(nc1)NC1CNCCO1", "c1ccncc1NC1CCNCC1"]) out.add(near);
   for (const near of ["O=C1CCN1", "O=C1CCCCCN1", "O=C1OCCN1", "O=C1CCS1", "O=c1cccc[nH]1", "CC(=O)N1CCCC1=O", "O=C1NCCN1", "O=C1CCCCCO1", "O=C1CCO1"]) out.add(near);
   for (const r of ["c1ccncc1", "c1ccsc1", "c1ccoc1"]) for (const head of ["OC(=O)", "O=C", "N#C", "NC(=O)", "OC", "OC(=O)C", "N"]) out.add(`${head}${r}`);
   for (const nring of ["N1CCOCC1", "N1CCCCC1", "N1CCCC1", "n1ccnc1", "n1cccc1", "N1CCN(C)CC1"]) for (const head of ["OCC", "OC(=O)C", "OC(=O)CC", "NCC", "CC(C)"]) out.add(`${head}${nring}`);
@@ -281,6 +302,21 @@ describe("IUPAC namer oracle: every emitted name reads back to its structure (OP
       if (constitution(back) !== x.id) wrong.push(`${x.smiles} → “${x.name}” → OPSIN ${back}`);
     }
     expect(wrong).toEqual([]);
+  });
+
+  // A FORM gate the OPSIN gate cannot be: a change that renames a structure to another valid name (the ring-N nitrile
+  // "(piperidin-1-yl)methanenitrile" → "piperidine-1-carbonitrile") reads back fine. Before a stage lifts a deep refusal:
+  //   IUPAC_SNAPSHOT_WRITE=<file> npx jest iupacOracle      (on the code before the change)
+  //   IUPAC_SNAPSHOT_CHECK=<file> npx jest iupacOracle      (after it: every name in the snapshot must be byte-identical;
+  //                                                          only refusals may become names)
+  test("snapshot: names emitted before a change are unchanged after it (only when asked)", () => {
+    const snap = Object.fromEntries(named.map((x) => [x.smiles, x.name]));
+    if (process.env.IUPAC_SNAPSHOT_WRITE) fs.writeFileSync(process.env.IUPAC_SNAPSHOT_WRITE, JSON.stringify(snap, null, 1));
+    if (process.env.IUPAC_SNAPSHOT_CHECK) {
+      const before = JSON.parse(fs.readFileSync(process.env.IUPAC_SNAPSHOT_CHECK, "utf8")) as Record<string, string>;
+      const changed = Object.entries(before).filter(([smi, nm]) => snap[smi] !== nm).map(([smi, nm]) => `${smi}: “${nm}” → ${snap[smi] ? `“${snap[smi]}”` : "refused"}`);
+      expect(changed).toEqual([]);
+    }
   });
 
   test("0 collisions: no name is given to two different structures", () => {

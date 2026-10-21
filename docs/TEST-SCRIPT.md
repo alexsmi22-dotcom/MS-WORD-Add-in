@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.179.0)
+# JurisLab — Manual Test Script (v2.180.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,14 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0ds. New in v2.180.0 — Chemistry: a ring on a ring named
+
+- [ ] ★ **Biaryls.** Chemical, type each SMILES → "Systematic name: …": `c1ccc(cc1)-c1ccncc1` → 4-phenylpyridine;
+  `OC(=O)c1ccc(cc1)-c1ccccn1` → 4-(pyridin-2-yl)benzoic acid; `C1CN(CCN1)c1ccccc1` → 1-phenylpiperazine.
+- [ ] **Senior ring.** `c1ccncc1N1CCOCC1` → 4-(pyridin-3-yl)morpholine; `c1ccc(cc1)C1CCCCC1` → cyclohexylbenzene.
+- [ ] **Refusals in words.** `Cc1ccc(cc1)-c1ccccc1` (a biphenyl) and `c1ccc(cc1)Cc1ccccc1` (diphenylmethane) →
+  "No name: …".
 
 ## 0dr. New in v2.179.0 — Chemistry: Boc and other carbamates named
 

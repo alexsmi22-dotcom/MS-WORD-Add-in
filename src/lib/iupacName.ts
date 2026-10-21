@@ -49,6 +49,10 @@
 //   v2.179.0 (stage 3c): carbamates — on a saturated ring N as the ester of the ring's carboxylic acid (tert-butyl
 //   piperidine-1-carboxylate), on an open-chain N whole (tert-butyl methylcarbamate, methyl phenylcarbamate).
 //
+//   v2.180.0 (stage 3d): a ring bonded directly to another ring, named on the senior one (4-phenylpyridine,
+//   4-(pyridin-2-yl)benzoic acid, cyclohexylbenzene) by P-44.1.1 then ringRank (P-44.2.1 (a)–(g), P-44.4.1); ring
+//   assemblies of identical rings and rings joined through an atom are refused.
+//
 //   REFUSED BY NAME (each with its reason)
 //   - lactones and lactams of rings the namer does not number (4-, 7-membered, oxazolidine), aromatic pyridinones,
 //     thiolactones, N-acyl lactams (an N-Boc lactam is the ring-N carboxylate: tert-butyl 2-oxopiperidine-1-carboxylate),
@@ -346,6 +350,7 @@ interface Prepared {
 function prepare(mol: Molecule): Prepared | { refusal: string } {
   const g0 = graphOf(mol);
   const n = g0.n;
+  const systems0 = ringSystems(mol);
   const remove = new Set<number>();
   const nPrefixes: { name: string; key: string }[] = [];
   const nitroN0 = nitroAtoms(g0).n;
@@ -403,18 +408,20 @@ function prepare(mol: Molecule): Prepared | { refusal: string } {
       // then a nitrogenous ring; then, only when neither has nitrogen, O before S; then more rings (a fused pair);
       // then more ring atoms; then aromatic; for chains, the longer chain from the nitrogen. So the parent never depends
       // on drawing order.
+      // The ring part is ringRank, the one ring-seniority function (P-44.2.1 (a)–(g), P-44.4.1): an N between
+      // pyridin-2-yl and morpholin-2-yl makes MORPHOLINE the parent by (f) — the old rank, missing (f) and (g), chose
+      // pyridine (stage 3d).
       const rank = (c: number): number[] => {
         const t = subtree(g0, c, nn);
-        const ringAtoms = g0.inRing[c] ? t.filter((x) => g0.inRing[x]) : [];
-        const hasN = ringAtoms.some((x) => g0.el[x] === 7);
-        const hetero = hasN ? 0 : ringAtoms.some((x) => g0.el[x] === 8) ? 3 : ringAtoms.some((x) => g0.el[x] === 16) ? 2 : 0;
-        const fusedPair = ringAtoms.some((x) => g0.adj[x].filter((e) => g0.inRing[e.to] && ringAtoms.includes(e.to)).length === 3) ? 1 : 0;
+        // Only the ring system the branch is attached through: a ring that carries its own ring (4-(morpholin-4-yl)phenyl)
+        // is ranked as the phenyl it is, not as phenyl + morpholine (stage 3d review).
+        const ringAtoms = g0.inRing[c] ? (systems0.find((sy) => sy.atoms.includes(c))?.atoms ?? []) : [];
         // The longest carbon path from the attachment (a chain's length, not its atom count: butyl beats neopentyl).
         const tset = new Set(t);
         const depth = (a: number, from: number): number => 1 + Math.max(0, ...g0.adj[a].filter((e) => e.to !== from && tset.has(e.to) && g0.el[e.to] === 6 && !g0.inRing[e.to]).map((e) => depth(e.to, a)));
         const chainLen = g0.inRing[c] ? 0 : depth(c, nn);
         // Last, the larger branch (benzyl over methyl: N-methyl-1-phenylmethanamine).
-        return [g0.inRing[c] ? 1 : 0, hasN ? 1 : 0, hetero, fusedPair, ringAtoms.length, g0.aromatic[c] ? 1 : 0, chainLen, t.length];
+        return [g0.inRing[c] ? 1 : 0, ...ringRank(g0, ringAtoms), chainLen, t.length];
       };
       const plain = (c: number): boolean => typeof classifySub(g0, c, nn, nitroN0) !== "string";
       const ranked = [...cs].sort((p, q) => lexCompare(rank(q), rank(p)));
@@ -578,8 +585,15 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
   const rings = mol.getRingSet();
   const ringCount = rings.getSize();
   const systems = ringSystems(mol);
-  if (systems.length > 1) return refuse("Two or more separate ring systems in the parent are outside the namer's subset.");
-  if (systems.length === 1 && systems[0].rings > 1 && !matchHetero(g, systems[0].atoms)) return refuse(FUSED_REFUSAL);
+  if (systems.some((s) => s.rings > 1 && !matchHetero(g, s.atoms))) return refuse(FUSED_REFUSAL);
+  // Two or more ring systems (stage 3d): one is the parent, the others ring substituents bonded to it directly
+  // (4-phenylpyridine) — chosen by principal groups, then ring seniority (P-44.1, P-44.2.1, P-44.4.1).
+  let parentSys = systems[0];
+  if (systems.length > 1) {
+    const pick = pickParentRing(g, systems, nitroN, nitroSat);
+    if (typeof pick === "string") return refuse(pick);
+    parentSys = pick;
+  }
   // OCL's ring set only perceives rings up to 7 atoms — larger rings leave
   // ring-flagged atoms with ringCount 0, and pretending they are chains
   // would misname them (adversarial pass: cyclooctane read "no carbon
@@ -607,10 +621,10 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
     return { ...base, locants, ...(r.reversible ? { reversible: true } : {}) };
   };
 
-  if (systems.length === 1) {
-    const members: number[] = systems[0].atoms;
+  if (parentSys) {
+    const members: number[] = parentSys.atoms;
     const allC = members.every((a) => g.el[a] === 6);
-    const fused = systems[0].rings > 1;
+    const fused = parentSys.rings > 1;
     const hetero = allC && !fused ? null : matchHetero(g, members);
     if (!allC && !hetero) {
       return refuse(
@@ -665,6 +679,107 @@ function nameCore(mol: Molecule, nPrefixes: { name: string; key: string }[]): Co
 
   const r = nameAcyclic(g, nitroN, nitroSat, null, nPrefixes);
   return r.refusal ? r : finish(r);
+}
+
+/**
+ * A ring or ring system's seniority as a parent, larger is senior: P-44.2.1 (a) a heterocycle, (b) has N, (c) in
+ * the absence of N, a heteroatom earlier in F > … > O > S, (d) more rings, (e) more skeletal atoms, (f) more
+ * heteroatoms, (g) more heteroatoms earlier in O > S > … > N; then P-44.4.1.1 more multiple bonds (benzene >
+ * cyclohexene > cyclohexane) and P-44.4.1.2 more double bonds. One function for every choice between rings — a ring
+ * on a ring (stage 3d) and the branches of a substituted nitrogen (prepare()) — so the two never disagree. An empty
+ * set (a chain) ranks below every ring.
+ */
+function ringRank(g: G, atoms: number[]): number[] {
+  const set = new Set(atoms);
+  const het = atoms.filter((a) => g.el[a] !== 6);
+  const count = (z: number): number => het.filter((a) => g.el[a] === z).length;
+  const hasN = count(7) > 0;
+  const c = hasN ? 0 : count(8) ? 2 : count(16) ? 1 : 0;
+  let edges = 0, multiple = 0, double = 0;
+  for (const a of atoms) {
+    for (const e of g.adj[a]) {
+      if (a > e.to || !set.has(e.to)) continue;
+      edges++;
+      if (e.order > 1) multiple++;
+      if (e.order === 2) double++;
+    }
+  }
+  const rings = atoms.length ? edges - atoms.length + 1 : 0;
+  return [het.length ? 1 : 0, hasN ? 1 : 0, c, rings, atoms.length, het.length, count(8), count(16), count(7), multiple, double];
+}
+
+/** What a ring system IS as a parent hydride, for the ring-assembly test: pyridine, benzene, cyclohexane, naphthalene. */
+function ringIdentity(g: G, atoms: number[]): string {
+  const hetero = matchHetero(g, atoms);
+  if (hetero) return hetero.parent.name;
+  const set = new Set(atoms);
+  const unsat = atoms.some((a) => g.adj[a].some((e) => set.has(e.to) && e.order > 1));
+  if (atoms.length === 6 && atoms.every((a) => g.aromatic[a] && g.el[a] === 6)) return "benzene";
+  return `${atoms.every((a) => g.el[a] === 6) ? "C" : "X"}${atoms.length}${unsat ? "=" : ""}`;
+}
+
+/**
+ * The parent among two or more ring systems (stage 3d), or a refusal. Every other system must be a ring SUBSTITUENT
+ * of the parent: bonded to it directly by its one bond to the rest of the molecule (4-phenylpyridine). Rings joined
+ * through a chain or an atom (diphenylmethane, a diaryl ether, a diaryl sulfone) take multiplicative names, and two
+ * IDENTICAL rings bonded directly are a ring assembly (1,1′-biphenyl, P-28) whose substituted forms are not confirmed
+ * — both refused by name. Identity is the parent hydride's, never the drawn substituents': 4-methylbiphenyl is an
+ * assembly, not "1-methyl-4-phenylbenzene". The parent carries the most principal groups (P-44.1.1), then is the
+ * senior ring (ringRank); a tie between different rings is refused.
+ */
+function pickParentRing(g: G, systems: Array<{ atoms: number[]; rings: number }>, nitroN: Set<number>, nitroSat: Set<number>): { atoms: number[]; rings: number } | string {
+  const sysOf = new Map<number, number>();
+  systems.forEach((s, i) => s.atoms.forEach((a) => sysOf.set(a, i)));
+  const external = systems.map((s, i) => s.atoms.flatMap((a) => g.adj[a].filter((e) => sysOf.get(e.to) !== i).map((e) => ({ from: a, to: e.to }))));
+  // A ring assembly: two systems bonded directly whose parents are the same ring. Also the same ring in two hydrogenation
+  // states — pyridine on piperidine is 1,2,3,4,5,6-hexahydro-2,2′-bipyridine (PIN), not 2-(piperidin-2-yl)pyridine
+  // (P-54.3) — except ONE benzene with ONE cyclohexane, which is named substitutively (cyclohexylbenzene); a benzene with
+  // two cyclohexanes is a hydro terphenyl (P-31.2.3.3.5.1). (Stage 3d review.)
+  const ids = systems.map((s) => ringIdentity(g, s.atoms));
+  const HYDRO_OF: Record<string, string> = { piperidine: "pyridine", piperazine: "pyrazine", pyrrolidine: "1H-pyrrole", oxolane: "furan", benzene: "C6", "C6=": "C6" };
+  const base = (id: string): string => HYDRO_OF[id] ?? id;
+  const bonded = (i: number): number[] => external[i].map((e) => sysOf.get(e.to)).filter((j): j is number => j !== undefined);
+  for (let i = 0; i < systems.length; i++) {
+    for (const j of bonded(i)) {
+      if (ids[j] === ids[i]) return "Ring assemblies (identical rings bonded directly: 1,1′-biphenyl, 2,2′-bipyridine) are outside the namer's subset — the forms of their substituted names are not confirmed.";
+      if (base(ids[j]) !== base(ids[i])) continue;
+      const pair = new Set([ids[i], ids[j]]);
+      const benzeneCyclohexane = pair.has("benzene") && pair.has("C6");
+      const b = ids[i] === "benzene" ? i : j, c = b === i ? j : i;
+      const lone = benzeneCyclohexane && bonded(b).filter((k) => ids[k] === "C6").length === 1 && bonded(c).filter((k) => ids[k] === "benzene").length === 1;
+      if (!lone) return "A ring bonded to its own hydrogenated form is a hydro ring assembly (2-(piperidin-2-yl)pyridine is hexahydro-2,2′-bipyridine; dicyclohexylbenzene a hydro terphenyl) — outside the namer's subset.";
+    }
+  }
+  const candidates = systems
+    .map((_, p) => p)
+    .filter((p) => systems.every((_, j) => j === p || (external[j].length === 1 && sysOf.get(external[j][0].to) === p)));
+  if (!candidates.length) return "Ring systems joined through a chain or an atom, or a ring substituent carrying its own groups (diphenylmethane, a diaryl ether, 4-(4-methylphenyl)pyridine), are outside the namer's subset.";
+  // P-44.1.1: the parent carries the most principal groups — ring-attached ones (COOH on a ring C or ring N) and a
+  // ring's own C=O (a lactam's) included.
+  const det = detectGroups(g, nitroN, nitroSat);
+  if (det.refusal) return det.refusal;
+  const ringKetones = (set: Set<number>): number =>
+    [...set].filter((a) => g.adj[a].some((e) => g.el[e.to] === 8 && e.order === 2 && !nitroSat.has(e.to) && !set.has(e.to))).length;
+  const allRingAtoms = new Set(systems.flatMap((s) => s.atoms));
+  const kinds = det.groups.map((gr) => gr.kind);
+  if (ringKetones(allRingAtoms) > 0) kinds.push("one");
+  const top = SENIORITY.find((k) => kinds.includes(k));
+  const principalOn = (s: { atoms: number[] }): number => {
+    const set = new Set(s.atoms);
+    if (!top) return 0;
+    const onIt = det.groups.filter((gr) => gr.kind === top && (set.has(gr.carbon) || ringAttached(g, gr, set))).length;
+    return onIt + (top === "one" ? ringKetones(set) : 0);
+  };
+  const score = (p: number): number[] => [principalOn(systems[p]), ...ringRank(g, systems[p].atoms)];
+  // Ranked over ALL systems, not only those the shape allows: when the senior ring cannot be the parent (it is the
+  // one carrying the other groups' ring), the name would put the wrong ring first — "1-methyl-4-(pyridin-4-yl)benzene"
+  // for what is 4-(4-methylphenyl)pyridine — so it is refused (stage 3d).
+  const ranked = systems.map((_, p) => p).sort((p, q) => lexCompare(score(q), score(p)));
+  if (lexCompare(score(ranked[0]), score(ranked[1])) === 0) {
+    return "Two different ring systems of equal seniority (which is the parent?) are outside the namer's subset.";
+  }
+  if (!candidates.includes(ranked[0])) return "The senior ring here carries a ring that has its own substituents (4-(4-methylphenyl)pyridine) — outside the namer's subset.";
+  return systems[ranked[0]];
 }
 
 /** A group whose own carbon (COOH, CHO, C≡N, CONH₂) sits OFF the ring, bonded to a ring atom and nothing else. */

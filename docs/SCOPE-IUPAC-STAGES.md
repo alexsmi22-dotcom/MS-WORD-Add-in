@@ -107,7 +107,10 @@ as v2.179.0.
 2-phenyl-1H-indole) lifts nameCore's "two or more separate ring systems" refusal; identical rings bonded directly
 are a ring ASSEMBLY (1,1′-biphenyl, 2,2′-bipyridine — P-28), never "phenylbenzene" or "2-(pyridin-2-yl)pyridine"
 (OPSIN reads those back correctly, so the oracle would not catch them: refused until named as assemblies). Primes
-are ′ (U+2032) in shown and inserted names; what OPSIN accepts is checked before the oracle depends on it.
+are ′ (U+2032) in shown and inserted names; what OPSIN accepts is checked before the oracle depends on it. As shipped (v2.180.0): ring-on-ring only — assemblies are REFUSED, because the forms of substituted assemblies
+(square brackets, primed locants) were not found verbatim; seniority from P-44.1.1, P-44.2.1 (a)–(g) and P-44.4.1.1/2
+read verbatim, in one ringRank shared with the N-branch choice; a snapshot gate (IUPAC_SNAPSHOT_WRITE/CHECK in
+iupacOracle.test.ts) proved no existing name changed except the two Fixed entries.
 
 **3e — partly saturated rings.** Hydro prefixes with indicated hydrogen on the fused parents: 2,3-dihydro-1H-indole,
 1,2,3,4-tetrahydroquinoline, 1,2,3,4-tetrahydroisoquinoline, 2,3-dihydro-1-benzofuran (placement per P-31.1.4).

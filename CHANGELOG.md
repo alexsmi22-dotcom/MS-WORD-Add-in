@@ -6,6 +6,28 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.180.0] — 2026-10-21 — Chemistry: a ring on a ring named
+
+IUPAC stage 3d (docs/SCOPE-IUPAC-STAGES.md), seniority from the 2013 recommendations read verbatim (P-44.1.1,
+P-44.2.1 (a)–(g), P-44.4.1.1).
+
+- **A ring bonded directly to another ring is named on the senior one**: 4-phenylpyridine, 2-phenyl-1H-indole,
+  2-phenylnaphthalene, 1-phenylpiperazine, 1-phenylpyrrolidin-2-one, tert-butyl 4-phenylpiperazine-1-carboxylate,
+  2-(thiophen-2-yl)furan, cyclohexylbenzene, phenylcycloheptane. The ring with the principal group comes first
+  (4-(pyridin-2-yl)benzoic acid, 4-(pyridin-4-yl)aniline); then heterocycles, nitrogen, O before S, more rings, more
+  atoms, more heteroatoms (4-(pyridin-3-yl)morpholine), and more double bonds (benzene before cyclohexane).
+- Still refused by name: ring assemblies of identical rings (biphenyls, bipyridines — the forms of their substituted
+  names are not confirmed), a ring on its own hydrogenated form (2-(piperidin-2-yl)pyridine is hexahydro-2,2′-bipyridine,
+  P-54.3; only one benzene with one cyclohexane is named substitutively), rings joined through a chain or an atom
+  (diphenylmethane, diaryl ethers), and a senior ring carrying a substituted ring (4-(4-methylphenyl)pyridine). Every
+  new name reads back through OPSIN (225 added, 0 wrong); one independent review round pinned.
+
+### Fixed
+- **A nitrogen between two rings now takes the senior ring as its parent by every criterion**: pyridin-2-yl and
+  morpholin-2-yl on one NH is N-(pyridin-2-yl)morpholin-2-amine (morpholine has more heteroatoms); v2.179.0 wrote
+  "N-(morpholin-2-yl)pyridin-2-amine". Pyrimidin-2-yl beside pyridin-2-yl, refused before as a tie, is
+  N-(pyridin-2-yl)pyrimidin-2-amine.
+
 ## [2.179.0] — 2026-10-21 — Chemistry: Boc and other carbamates named
 
 IUPAC stage 3c (docs/SCOPE-IUPAC-STAGES.md), forms from the 2013 recommendations (P-65.2.1, P-65.1.2.2.2).

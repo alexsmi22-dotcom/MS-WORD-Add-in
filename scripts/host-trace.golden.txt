@@ -4199,9 +4199,9 @@ RUN R97 {
   R97.sync()
   #2412 = R97.document.body.fields.items[0].delete()
   #2413 = R97.document.body.footnotes.items[0].body.fields.items[0].delete()
-  THREW n.load is not a function
+  THREW t.load is not a function
 } R97
-   status: Could not build the field-based Table of Authorities: n.load is not a function
+   status: Could not build the field-based Table of Authorities: t.load is not a function
 == citations/toa-clearmarks
 RUN R98 {
   #2414 = R98.document.body.fields.load("items/code")

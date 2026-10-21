@@ -61,7 +61,14 @@ import {
   pngPixelSize,
   composePanelFigure,
   PanelItem,
+  svgRootSize,
 } from "../lib/insertCapability";
+import { analyzeFrame, parseFrame } from "../lib/frame2d";
+import { analyzePlate, parsePlate } from "../lib/planeStress";
+import { ARRHENIUS_SOURCE, arrhenius, parseStability } from "../lib/arrhenius";
+import { ELECTROCHEM_SOURCE, butlerVolmer, nernst, tafelFit, thermalVoltage } from "../lib/electrochem";
+import { FRAME_CHART_SIZE, frameChartSvg } from "../lib/frameChart";
+import { PLATE_CHART_WIDTH, arrheniusChartSvg, butlerVolmerChartSvg, nernstChartSvg, plateChartSvg, tafelChartSvg } from "../lib/engCharts2026";
 import { PresetWidth, USPTO_REQUIRED_FONT_PT } from "../lib/figureStyle";
 import { solveBvp, BvpMethod } from "../lib/bvp";
 import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
@@ -12832,6 +12839,9 @@ const ENG_UNIT_NOTE =
   "wrong quantity is refused rather than silently ignored.";
 
 /** The matching declaration for the tools that deliberately do not convert. */
+const ENG_CONSISTENT_UNIT_NOTE =
+  "Units: yours, used consistently and not converted — force with length (kN with m, or N with mm and MPa), time in " +
+  "the unit you name; temperatures are °C and potentials volts wherever a field says so.";
 const ENG_SAME_UNIT_NOTE =
   "Units: whatever you type, used consistently — nothing is converted here, and nothing " +
   "needs to be: every quantity in this tool is the same kind, so the answer comes back in " +
@@ -12988,6 +12998,17 @@ function avDb(v: number, places = 3): string {
   if (!Number.isFinite(v)) return "not finite";
   const t = Math.abs(v).toFixed(places);
   return Number(t) === 0 ? t : `${v < 0 ? "−" : "+"}${t}`;
+}
+
+/** A refusal in the Engineering house style: plain dashes, and the user's input quoted in straight quotes. */
+/** A required number field: empty or not a finite number is NaN (Number("") would be 0). */
+function engField(v: string | undefined): number {
+  const t = (v ?? "").trim();
+  return t !== "" && Number.isFinite(Number(t)) ? Number(t) : NaN;
+}
+
+function engRefusal(text: string): string {
+  return plainDashes(text).replace(/[“”]/g, '"');
 }
 
 const ENG_CALCS: EngCalc[] = [
@@ -13994,6 +14015,92 @@ const ENG_CALCS: EngCalc[] = [
           h: TORSION_CHART_SIZE.h,
         },
       ]);
+    },
+  },
+  {
+    id: "frame2d",
+    name: "Plane frame (direct stiffness)",
+    group: "Structural & solids",
+    hint:
+      "One item per line. Nodes: \"node A 0,0\". Section and material for the members after it: \"E=200e6 A=0.01 I=1e-4\". " +
+      "Members: \"member 1 A-B\" (add hinge=i, hinge=j or hinge=both for a pinned end). Supports: \"support A fixed\", " +
+      "\"pin\", \"roller\" (holds vertically) or \"rollerx\" (holds horizontally). Loads: \"load B Fx=10 Fy=-20 M=5\" " +
+      "(+x right, +y up, M anticlockwise); along a member \"udl 2 -5\" or \"point 2 -20 at 3\", in the member's own " +
+      "perpendicular (downward on a member drawn left to right). Keep the units consistent; nothing here converts them.",
+    fields: [
+      {
+        key: "frame",
+        label: "Frame",
+        default: "node A 0,0\nnode B 0,4\nnode C 6,4\nnode D 6,0\nE=200e6 A=0.01 I=1e-4\nmember 1 A-B\nmember 2 B-C\nmember 3 C-D\nsupport A fixed\nsupport D fixed\nload B Fx=10\nudl 2 -5",
+        kind: "block",
+        rows: 8,
+      },
+      { key: "unit", label: "Units as force,length", default: "kN,m", kind: "text" },
+    ],
+    compute: (r) => {
+      const p = parseFrame(r("frame"));
+      if (!p.model) return { text: engRefusal(p.errors.join("\n") || "Describe the frame, e.g. node A 0,0."), ok: false };
+      const res = analyzeFrame(p.model);
+      if (!res.ok) return { text: engRefusal(res.errors.join("\n")), ok: false };
+      const [fu = "kN", lu = "m"] = (r("unit") || "kN,m").split(",").map((s) => s.trim());
+      const lines: string[] = [`Plane frame: ${res.model.nodes.length} nodes, ${res.model.members.length} members (direct stiffness, Euler–Bernoulli members).`];
+      lines.push("Displacements (u, v, θ):");
+      res.model.nodes.forEach((n, i) => lines.push(`  ${n.id}: u = ${engNum(res.disp[i][0])} ${lu}, v = ${engNum(res.disp[i][1])} ${lu}, θ = ${engNum(res.disp[i][2])} rad`));
+      lines.push("Reactions (Rx, Ry, M):");
+      for (const [ni, rr] of res.reactions) lines.push(`  ${res.model.nodes[ni].id}: Rx = ${engNum(rr[0])} ${fu}, Ry = ${engNum(rr[1])} ${fu}, M = ${engNum(rr[2])} ${fu}·${lu}`);
+      lines.push("Members (axial force, tension positive; largest bending moment, sagging positive):");
+      for (const m of res.members) lines.push(`  ${m.id}: N = ${engNum(m.axial)} ${fu}, largest M = ${engNum(m.maxMoment.M)} ${fu}·${lu} at ${engNum(m.maxMoment.x)} ${lu} from its first node`);
+      lines.push(`Equilibrium check: residual ${res.residual.toExponential(1)} of the largest load.`);
+      for (const n of res.notes) lines.push(`Note: ${n}`);
+      const svg = frameChartSvg(res, { force: fu, length: lu });
+      const size = svgRootSize(svg, FRAME_CHART_SIZE.width, FRAME_CHART_SIZE.height);
+      lines.push(ENG_CONSISTENT_UNIT_NOTE);
+      const clean = lines.map(plainDashes);
+      return {
+        text: clean.join("\n"),
+        blocks: [
+          ...clean.map((t) => ({ kind: "line" as const, text: t })),
+          { kind: "plot" as const, svg, caption: "Frame, deflected shape and bending moment", alt: `Plane frame of ${res.model.members.length} members with its deflected shape and bending moment diagram`, w: size.w, h: size.h },
+        ],
+      };
+    },
+  },
+  {
+    id: "plate-fea",
+    name: "Plate in plane stress (finite elements)",
+    group: "Structural & solids",
+    hint:
+      "A rectangular plate meshed into constant-strain triangles. \"plate 100 x 20 t=1\", \"material E=200000 nu=0.3\", " +
+      "\"mesh 60 x 12\"; hold edges with \"support left fixed\" (or \"left x\" / \"bottom y\" for one direction); load " +
+      "with \"traction right ty=-5\" (force per unit area of the edge face), \"pressure top 2\", or \"load 100,10 Fy=-1000\" " +
+      "(at the nearest node). Constant-strain triangles are stiff in bending: refine the mesh until the answer stops " +
+      "changing. Keep the units consistent (N, mm, MPa).",
+    fields: [
+      { key: "plate", label: "Plate", default: "plate 100 x 20 t=1\nmaterial E=200000 nu=0.3\nmesh 60 x 12\nsupport left fixed\ntraction right ty=-5", kind: "block", rows: 6 },
+      { key: "unit", label: "Stress units", default: "MPa", kind: "text" },
+    ],
+    compute: (r) => {
+      const p = parsePlate(r("plate"));
+      if (!p.model) return { text: engRefusal(p.errors.join("\n")), ok: false };
+      const res = analyzePlate(p.model);
+      if (!res.ok) return { text: engRefusal(res.errors.join("\n")), ok: false };
+      const u = (r("unit") || "MPa").trim();
+      const m = res.model;
+      const lines = [
+        `Plate ${engNum(m.W)} × ${engNum(m.H)}, t = ${engNum(m.t)}; E = ${engNum(m.E)}, ν = ${engNum(m.nu)}; ${2 * m.nx * m.ny} constant-strain triangles (${m.nx} × ${m.ny} cells).`,
+        `Largest von Mises stress: ${engNum(res.maxVM.value)} ${u}, near (${engNum(res.maxVM.x)}, ${engNum(res.maxVM.y)}).`,
+        `Largest displacement: ${engNum(res.maxDisp.value)}, at (${engNum(res.maxDisp.x)}, ${engNum(res.maxDisp.y)}).`,
+        `Reactions: Rx = ${engNum(res.reaction[0])}, Ry = ${engNum(res.reaction[1])} (they balance the loads).`,
+        ...res.notes.map((n) => `Note: ${n}`),
+      ];
+      const svg = plateChartSvg(res, u);
+      const size = svgRootSize(svg, PLATE_CHART_WIDTH, 300);
+      lines.push(ENG_CONSISTENT_UNIT_NOTE);
+      const clean = lines.map(plainDashes);
+      return {
+        text: clean.join("\n"),
+        blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "von Mises stress on the deformed plate", alt: "Plane-stress plate coloured by von Mises stress", w: size.w, h: size.h }],
+      };
     },
   },
   {
@@ -15520,6 +15627,46 @@ const ENG_CALCS: EngCalc[] = [
           : []),
       ];
       return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "shelf-life",
+    name: "Stability and shelf life (Arrhenius)",
+    group: "Pharmacokinetics",
+    hint:
+      "One temperature per line: either its rate constant (\"40 0.0123\", per unit time), or its assay series " +
+      "(\"40: 0 100, 1 98.2, 3 95.1, 6 90.3\" = time and % remaining), which is fitted to k first. Three or more " +
+      "temperatures give 95 % intervals; the shelf life (t₉₀, time to 90 %) is also given at the upper 95 % bound of k, " +
+      "the conservative figure. Extrapolating beyond the measured range assumes the same mechanism holds.",
+    fields: [
+      { key: "data", label: "Rates or assay series", default: "40 0.00412\n50 0.0119\n60 0.0318\n70 0.0805", kind: "block", rows: 5 },
+      { key: "store", label: "Storage temperature (°C)", default: "25", kind: "text" },
+      { key: "order", label: "Order", default: "first", kind: "select", options: [{ value: "first", label: "First order (ln C falls linearly)" }, { value: "zero", label: "Zero order (C falls linearly)" }] },
+      { key: "tunit", label: "Time unit", default: "months", kind: "text" },
+    ],
+    compute: (r) => {
+      const order = r("order") === "zero" ? "zero" : "first";
+      const p = parseStability(r("data"), order);
+      if (p.errors.length) return { text: engRefusal(p.errors.join("\n")), ok: false };
+      const store = engField(r("store"));
+      if (!Number.isFinite(store)) return { text: engRefusal("Give the storage temperature in °C (e.g. 25)."), ok: false };
+      const res = arrhenius(p.points, store, order);
+      if (!res.ok) return { text: engRefusal(res.errors.join("\n")), ok: false };
+      const tu = (r("tunit") || "months").trim();
+      const lines = [
+        `Activation energy Ea = ${engNum(res.EaKJ)} kJ/mol${res.EaCI ? ` (95 % interval ${engNum(res.EaCI[0])} to ${engNum(res.EaCI[1])})` : ""}; ln A = ${engNum(res.lnA)}; r² = ${res.r2.toFixed(4)}.`,
+        `At ${engNum(store)} °C: k = ${engNum(res.storage.k)} per ${tu.length >= 4 ? tu.replace(/s$/, "") : tu}${res.storage.kUpper ? ` (upper 95 % bound ${engNum(res.storage.kUpper)})` : ""}.`,
+        `Shelf life t₉₀ (${order} order): ${engNum(res.storage.t90)} ${tu}${res.storage.t90Lower ? `; at the upper bound of k, ${engNum(res.storage.t90Lower)} ${tu}` : ""}.`,
+        ...res.notes.map((n) => `Note: ${n}`),
+        ARRHENIUS_SOURCE,
+      ];
+      const svg = arrheniusChartSvg(res);
+      lines.push(ENG_CONSISTENT_UNIT_NOTE);
+      const clean = lines.map(plainDashes);
+      return {
+        text: clean.join("\n"),
+        blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Arrhenius plot", alt: `Arrhenius plot, Ea ${engNum(res.EaKJ)} kJ/mol`, w: 420, h: 269 }],
+      };
     },
   },
   {
@@ -24499,6 +24646,116 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "nernst",
+    name: "Nernst potential",
+    group: "Energy & power",
+    hint:
+      "For the reduction written reactants + n e⁻ → products (or a cell reaction transferring n electrons): " +
+      "E = E° − (RT/nF)·ln Q, Q = Π a(products)^ν / Π a(reactants)^ν. Species as \"activity^coefficient\", comma " +
+      "separated (\"0.01\" or \"1e-7^4\"); a pure solid or the solvent has activity 1 and can be left out.",
+    fields: [
+      { key: "E0", label: "E° (V)", default: "0.34", kind: "text" },
+      { key: "n", label: "Electrons n", default: "2", kind: "text" },
+      { key: "T", label: "Temperature (°C)", default: "25", kind: "text" },
+      { key: "red", label: "Reactant activities (oxidised side)", default: "0.01", kind: "text" },
+      { key: "prod", label: "Product activities (reduced side)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const species = (s: string): Array<{ a: number; nu: number }> | string => {
+        const out: Array<{ a: number; nu: number }> = [];
+        for (const part of s.split(/[,;]/).map((x) => x.trim()).filter(Boolean)) {
+          const m = /^([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)(?:\s*\^\s*(\d+(?:\.\d+)?))?$/.exec(part);
+          if (!m) return `“${part}” is not an activity (0.01, or 1e-7^4 for a coefficient of 4).`;
+          out.push({ a: Number(m[1]), nu: m[2] ? Number(m[2]) : 1 });
+        }
+        return out;
+      };
+      const red = species(r("red")), prod = species(r("prod"));
+      if (typeof red === "string" || typeof prod === "string") return { text: engRefusal([red, prod].filter((x) => typeof x === "string").join("\n")), ok: false };
+      const E0 = engField(r("E0")), n = engField(r("n")), T = engField(r("T"));
+      if (![E0, n, T].every(Number.isFinite)) return { text: engRefusal("Give E° (V), n and the temperature (°C) as numbers."), ok: false };
+      const res = nernst(E0, n, T, prod, red);
+      if (typeof res === "string") return { text: engRefusal(`Cannot compute: ${res}.`), ok: false };
+      const lines = [`E = ${engNum(res.E, 5)} V at ${engNum(T)} °C (n = ${n}; ln Q = ${engNum(res.lnQ)}).`, `Slope: ${engNum(res.slopePerDecade * 1000, 5)} mV per decade of Q.`, ELECTROCHEM_SOURCE];
+      const svg = nernstChartSvg(E0, res.slopePerDecade, res.lnQ / Math.LN10);
+      lines.push(ENG_CONSISTENT_UNIT_NOTE);
+      const clean = lines.map(plainDashes);
+      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Nernst line", alt: "Electrode potential against log Q", w: 420, h: 269 }] };
+    },
+  },
+  {
+    id: "butler-volmer",
+    name: "Butler–Volmer kinetics",
+    group: "Energy & power",
+    hint:
+      "j = j₀[exp(αa·Fη/RT) − exp(−αc·Fη/RT)]. Give the exchange current density j₀ (any unit; the curve is in the same " +
+      "unit), the anodic and cathodic transfer coefficients and the temperature; an overpotential gives its current.",
+    fields: [
+      { key: "j0", label: "Exchange current density j₀", default: "1e-3", kind: "text" },
+      { key: "aa", label: "αa (anodic)", default: "0.5", kind: "text" },
+      { key: "ac", label: "αc (cathodic)", default: "0.5", kind: "text" },
+      { key: "T", label: "Temperature (°C)", default: "25", kind: "text" },
+      { key: "eta", label: "Overpotential η (V)", default: "0.1", kind: "text" },
+      { key: "unit", label: "Current-density unit", default: "A/cm²", kind: "text" },
+    ],
+    compute: (r) => {
+      const p = { j0: engField(r("j0")), alphaA: engField(r("aa")), alphaC: engField(r("ac")), tC: engField(r("T")) };
+      const eta = engField(r("eta"));
+      if (![p.j0, p.alphaA, p.alphaC, p.tC, eta].every(Number.isFinite)) return { text: engRefusal("Give j₀, αa, αc, the temperature (°C) and η (V) as numbers."), ok: false };
+      if (!(p.j0 > 0)) return { text: engRefusal("j₀ must be above zero."), ok: false };
+      if (!(p.alphaA > 0 && p.alphaA < 2 && p.alphaC > 0 && p.alphaC < 2)) return { text: engRefusal("Transfer coefficients are between 0 and 2 (usually about 0.5)."), ok: false };
+      if (!(p.tC > -273.15)) return { text: engRefusal("The temperature must be above absolute zero."), ok: false };
+      if (!Number.isFinite(eta) || Math.abs(eta) > 2) return { text: engRefusal("Give an overpotential between −2 and 2 V."), ok: false };
+      const j = butlerVolmer(eta, p);
+      const u = (r("unit") || "A/cm²").trim();
+      const lines = [
+        `At η = ${engNum(eta)} V: j = ${engNum(j)} ${u}.`,
+        `Tafel slopes: anodic ${engNum((Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaA)} mV/dec, cathodic ${engNum((Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaC)} mV/dec; charge-transfer resistance at η → 0: ${engNum(thermalVoltage(p.tC) / (p.j0 * (p.alphaA + p.alphaC)))} V per (${u})${/^A\/cm(²|2|\^2)$/.test(u) ? `, i.e. Ω·cm²` : /^mA\/cm(²|2|\^2)$/.test(u) ? `, i.e. kΩ·cm²` : /^A\/m(²|2|\^2)$/.test(u) ? `, i.e. Ω·m²` : `; with A/cm² this is Ω·cm²`}.`,
+        ELECTROCHEM_SOURCE,
+      ];
+      const svg = butlerVolmerChartSvg(p, Math.max(0.2, Math.abs(eta) * 1.5), u);
+      lines.push(ENG_CONSISTENT_UNIT_NOTE);
+      const clean = lines.map(plainDashes);
+      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Butler–Volmer current against overpotential", alt: "Butler–Volmer curve", w: 420, h: 269 }] };
+    },
+  },
+  {
+    id: "tafel",
+    name: "Tafel analysis of polarization data",
+    group: "Energy & power",
+    hint:
+      "Paste overpotential (V) and current density pairs, one per line, anodic currents positive and cathodic negative. " +
+      "Each branch is fitted, η against log₁₀|j|, where |η| is at least the window (default 0.1 V), giving its Tafel slope, " +
+      "transfer coefficient and the exchange current density where the lines meet η = 0.",
+    fields: [
+      { key: "data", label: "η (V), j", default: "-0.30 -1.31e-1\n-0.25 -4.97e-2\n-0.20 -1.88e-2\n-0.15 -7.07e-3\n0.15 1.85e-2\n0.20 7.20e-2\n0.25 2.68e-1\n0.30 1.00", kind: "block", rows: 6 },
+      { key: "win", label: "Fit window |η| ≥ (V)", default: "0.1", kind: "text" },
+      { key: "T", label: "Temperature (°C)", default: "25", kind: "text" },
+    ],
+    compute: (r) => {
+      const data: Array<[number, number]> = [];
+      for (const line of r("data").split(/\r\n|\r|\n/).map((l) => l.trim()).filter(Boolean)) {
+        const f = line.split(/[\s,;]+/).map(Number);
+        if (f.length < 2 || !Number.isFinite(f[0]) || !Number.isFinite(f[1])) return { text: engRefusal(`“${line}” is not “η j”.`), ok: false };
+        data.push([f[0], f[1]]);
+      }
+      const win = engField(r("win") || "0.1"), T = engField(r("T") || "25");
+      if (!(win > 0)) return { text: engRefusal("The fit window must be above zero."), ok: false };
+      if (!(T > -273.15)) return { text: engRefusal("Give the temperature in °C as a number above −273.15."), ok: false };
+      // Overpotentials are volts: a column running past 2 is millivolts typed as volts.
+      if (data.some(([e]) => Math.abs(e) > 2)) return { text: engRefusal("An overpotential beyond ±2 V: are they in mV? Give η in volts (−0.25, not −250)."), ok: false };
+      const res = tafelFit(data, T, win);
+      if (typeof res === "string") return { text: engRefusal(`Cannot fit: ${res}.`), ok: false };
+      const lines: string[] = [];
+      for (const [b, name] of [[res.anodic, "Anodic"], [res.cathodic, "Cathodic"]] as const) if (b) lines.push(`${name} branch: Tafel slope ${engNum(b.slope * 1000)} mV/dec, α = ${engNum(b.alpha, 3)}, r² = ${b.r2.toFixed(4)} (${b.n} points).`);
+      lines.push(`Exchange current density j₀ ≈ ${engNum(res.j0)} (the unit of j).`, ...res.notes.map((n) => `Note: ${n}`), ELECTROCHEM_SOURCE);
+      const svg = tafelChartSvg(data, res);
+      lines.push(ENG_CONSISTENT_UNIT_NOTE);
+      const clean = lines.map(plainDashes);
+      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Tafel plot", alt: "Tafel plot with fitted branches", w: 420, h: 269 }] };
     },
   },
   {

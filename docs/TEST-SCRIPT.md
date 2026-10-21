@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.174.0)
+# JurisLab — Manual Test Script (v2.175.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dn. New in v2.175.0 — Engineering: frames, plate, shelf life, electrochemistry
+
+- [ ] ★ **Plane frame.** Tool ▸ **Engineering** ▸ Structural & solids ▸ **Plane frame** (defaults: a fixed portal, 10 kN
+  sideways at B, 5 kN/m on the beam) → displacements, reactions, member forces, "Equilibrium check: residual …", and a
+  figure of the frame with its deflected shape and moment diagram. **Insert** → the text and the figure in Word.
+- [ ] **Plate.** **Plate in plane stress** (defaults) → largest von Mises stress and displacement, and the stress map.
+  Delete the support line → refused ("No supports…").
+- [ ] **Shelf life.** Pharmacokinetics ▸ **Arrhenius shelf life** (defaults) → Ea in kJ/mol and t₉₀ at 25 °C in months,
+  with the Arrhenius plot.
+- [ ] **Electrochemistry.** Energy & power ▸ **Nernst** (E° 0.34, n 2, activity 0.01) → E = 0.2808 V; **Butler–Volmer**
+  and **Tafel** draw their curves.
+- [ ] **Refusals.** Frame `load B Fz=10` → "“Fz=10” — this line takes Fx=…, Fy=… and M=…"; nothing is computed.
 
 ## 0dm. New in v2.174.0 — Compound table
 

@@ -84,6 +84,12 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "pk-dose", calls: ["singleDoseCurve("], module: "../lib/pk" },
   { id: "pk-steady", calls: ["steadyState(", "multipleDoseCurve("], module: "../lib/pk" },
   { id: "pk-nca", calls: ["nca(", "parseConcentrationData("], module: "../lib/pk" },
+  { id: "frame2d", calls: ["parseFrame(", "analyzeFrame(", "frameChartSvg("], module: "../lib/frame2d" },
+  { id: "plate-fea", calls: ["parsePlate(", "analyzePlate(", "plateChartSvg("], module: "../lib/planeStress" },
+  { id: "shelf-life", calls: ["parseStability(", "arrhenius(", "arrheniusChartSvg("], module: "../lib/arrhenius" },
+  { id: "nernst", calls: ["nernst(", "nernstChartSvg("], module: "../lib/electrochem" },
+  { id: "butler-volmer", calls: ["butlerVolmer(", "butlerVolmerChartSvg("], module: "../lib/electrochem" },
+  { id: "tafel", calls: ["tafelFit(", "tafelChartSvg("], module: "../lib/electrochem" },
   { id: "vib-free", calls: ["sdofProperties(", "freeResponse("], module: "../lib/vibration" },
   { id: "vib-forced", calls: ["forcedResponse("], module: "../lib/vibration" },
   { id: "vib-modal", calls: ["modalAnalysis(", "chainSystem("], module: "../lib/vibration" },
@@ -330,6 +336,7 @@ const UNIT_NOTES = [
   "ENG_RELIABILITY_UNIT_NOTE",
   "ENG_LEVEL_UNIT_NOTE",
   "ENG_DB_UNIT_NOTE",
+  "ENG_CONSISTENT_UNIT_NOTE",
 ] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
@@ -370,6 +377,12 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "pk-dose": "ENG_PK_UNIT_NOTE",
   "pk-steady": "ENG_PK_UNIT_NOTE",
   "pk-nca": "ENG_PK_UNIT_NOTE",
+  frame2d: "ENG_CONSISTENT_UNIT_NOTE",
+  "plate-fea": "ENG_CONSISTENT_UNIT_NOTE",
+  "shelf-life": "ENG_CONSISTENT_UNIT_NOTE",
+  nernst: "ENG_CONSISTENT_UNIT_NOTE",
+  "butler-volmer": "ENG_CONSISTENT_UNIT_NOTE",
+  tafel: "ENG_CONSISTENT_UNIT_NOTE",
   "vib-free": "ENG_VIB_UNIT_NOTE",
   "vib-forced": "ENG_VIB_UNIT_NOTE",
   "vib-modal": "ENG_VIB_UNIT_NOTE",

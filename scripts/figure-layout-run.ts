@@ -161,6 +161,13 @@ import { seriesStyle, seriesMarkerSvg, CATEGORICAL_PALETTE } from "../src/lib/ca
 import { prepareFigure, composePanelFigure, type FigurePresetChoice } from "../src/lib/insertCapability";
 import { bracketedBoxPlot } from "../src/lib/statsBrackets";
 import { tukeyHSD } from "../src/lib/tukey";
+// The v2.175.0 engineering figures (frames, plate FEA, shelf life, electrochemistry), from each calculator's defaults.
+import { analyzeFrame, parseFrame } from "../src/lib/frame2d";
+import { frameChartSvg } from "../src/lib/frameChart";
+import { analyzePlate, parsePlate } from "../src/lib/planeStress";
+import { arrhenius, parseStability } from "../src/lib/arrhenius";
+import { butlerVolmerCurve, nernst, tafelFit } from "../src/lib/electrochem";
+import { arrheniusChartSvg, butlerVolmerChartSvg, nernstChartSvg, plateChartSvg, tafelChartSvg } from "../src/lib/engCharts2026";
 import { twoSampleTTest } from "../src/lib/stats";
 import { kruskalWallis, dunnTest } from "../src/lib/nonparametric";
 // The compound table's structure cells (Reaction ▸ Compounds in this document), drawn as the pane draws them.
@@ -421,6 +428,34 @@ figures.push([
 
 figures.push(["torsion", torsionProfileSvg(40, 20, 95, "MPa", "mm")]);
 figures.push(["torsion solid", torsionProfileSvg(40, 0, 95, "MPa", "mm")]);
+
+// Plane frame, plate in plane stress, Arrhenius shelf life, Nernst, Butler–Volmer and Tafel: each calculator's defaults.
+{
+  const fr = parseFrame(
+    ["node A 0,0", "node B 0,4", "node C 6,4", "node D 6,0", "E=200e6 A=0.01 I=1e-4", "member 1 A-B", "member 2 B-C", "member 3 C-D", "support A fixed", "support D fixed", "load B Fx=10", "udl 2 -5"].join("\n"),
+  );
+  const frr = fr.model ? analyzeFrame(fr.model) : null;
+  if (!frr || !frr.ok) throw new Error("corpus: frame default did not solve");
+  figures.push(["plane frame portal", frameChartSvg(frr, { force: "kN", length: "m" })]);
+  const pl = parsePlate(["plate 100 x 20 t=1", "material E=200000 nu=0.3", "mesh 60 x 12", "support left fixed", "traction right ty=-5"].join("\n"));
+  const plr = pl.model ? analyzePlate(pl.model) : null;
+  if (!plr || !plr.ok) throw new Error("corpus: plate default did not solve");
+  figures.push(["plate fea cantilever", plateChartSvg(plr, "MPa")]);
+  const st = parseStability(["40 0.00412", "50 0.0119", "60 0.0318", "70 0.0805"].join("\n"), "first");
+  if (!st.points) throw new Error("corpus: stability default did not parse");
+  const ar = arrhenius(st.points, 25, "first");
+  if (!ar.ok) throw new Error("corpus: arrhenius default did not fit");
+  figures.push(["arrhenius shelf life", arrheniusChartSvg(ar)]);
+  const ne = nernst(0.34, 2, 25, [], [{ a: 0.01, nu: 1 }]);
+  if (typeof ne === "string") throw new Error(`corpus: nernst: ${ne}`);
+  figures.push(["nernst line", nernstChartSvg(0.34, ne.slopePerDecade, ne.lnQ / Math.LN10)]);
+  const bv = { j0: 1e-3, alphaA: 0.5, alphaC: 0.5, tC: 25 };
+  figures.push(["butler-volmer curve", butlerVolmerChartSvg(bv, 0.2, "A/cm²")]);
+  const tdata = butlerVolmerCurve(bv, -0.3, 0.3, 25).filter(([e]) => Math.abs(e) >= 0.1);
+  const tf = tafelFit(tdata, 25, 0.1);
+  if (typeof tf === "string") throw new Error(`corpus: tafel: ${tf}`);
+  figures.push(["tafel fit", tafelChartSvg(tdata, tf)]);
+}
 
 // The general plotter, on the shapes the Thermal release uses.
 figures.push([

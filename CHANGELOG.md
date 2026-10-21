@@ -6,6 +6,23 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.175.0] — 2026-10-21 — Engineering: plane frames, plate stress, shelf life, electrochemistry
+
+Gap item 5: six calculators, each drawing its figure (Engineering now 153 calculators).
+
+- **Plane frame** (Structural & solids): direct stiffness with Euler–Bernoulli members — nodes, members with their own E,
+  A and I, pinned ends, fixed/pin/roller supports, joint loads, loads along members. Displacements, reactions, axial
+  forces and the bending-moment diagram on the deflected shape, with an equilibrium check; a mechanism, or a load the
+  frame cannot carry, is refused. Checked against closed forms and against anastruct.
+- **Plate in plane stress** (Structural & solids): constant-strain triangles, edge supports, tractions, pressure and point
+  loads; the von Mises map. Passes the patch test exactly; a plate free to move is refused.
+- **Arrhenius shelf life** (Pharmacokinetics): rate constants, or assay series fitted first or zero order, at stress
+  temperatures; Ea with its 95 % interval; t₉₀ at the storage temperature, also at the upper 95 % bound of k. Zero order
+  counts 10 % of the starting assay in its own units; kelvin typed as °C and a negative activation energy are refused.
+- **Nernst, Butler–Volmer and Tafel** (Energy & power): the potential from E° and activities, the current–overpotential
+  curve with its Tafel slopes and charge-transfer resistance, and a Tafel fit to your own polarisation data.
+- Every input that is not a number, or a key the line does not take ("Fz=", "v="), is refused rather than dropped.
+
 ## [2.174.0] — 2026-10-21 — Compound tables from the document's register
 
 Gap item 4: the table a medicinal-chemistry patent's Examples end with, built in one insert from the compounds the

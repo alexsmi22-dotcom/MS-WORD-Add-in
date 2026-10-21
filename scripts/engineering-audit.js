@@ -315,7 +315,8 @@ function run() {
   // light-colourtemp, including the new "Light & camera" group), every one
   // drawing from its shipped defaults. Raised in the same change that added
   // them, so a tool that stops drawing cannot pass behind the old 130.
-  const FIGURE_BASELINE = 147;
+  // 153 as of v2.175.0: plane frame, plate FEA, shelf life, Nernst, Butler–Volmer and Tafel, each drawing.
+  const FIGURE_BASELINE = 153;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");
   console.log(

@@ -302,7 +302,10 @@ export function combineKey(p: CadPart): string {
 /** What a part is called in the parts list. */
 export function shapeName(p: CadPart): string {
   // An OBJ goes through the STL pipeline, but is called what it is.
-  if (p.shape === "mesh") return /\.obj$/i.test(p.mesh?.file ?? "") ? "Imported OBJ" : "Imported STL";
+  if (p.shape === "mesh") {
+    const f = p.mesh?.file ?? "";
+    return /\.(igs|iges)$/i.test(f) ? "Imported IGES" : p.mesh?.body !== undefined ? "Imported STEP" : /\.obj$/i.test(f) ? "Imported OBJ" : "Imported STL";
+  }
   if (p.shape === "combine") return p.combine?.op === "union" ? "Joined parts" : p.combine?.op === "subtract" ? "Part with a cut" : "Overlap of parts";
   return p.shape === "sketch" ? (p.op?.kind === "revolve" ? "Sketch, revolved" : "Sketch, extruded") : SHAPES[p.shape].name;
 }
@@ -636,7 +639,12 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
       // Read field by field: the reference only (the triangles never travel in a drawing).
       if (!isMeshRef(p.mesh)) return `part ${p.name} has a damaged imported-file record`;
       const m = p.mesh;
-      p.mesh = { file: m.file, hash: m.hash, facets: m.facets, mmPerUnit: m.mmPerUnit, creaseDeg: m.creaseDeg, size: [m.size[0], m.size[1], m.size[2]] };
+      p.mesh = {
+        file: m.file, hash: m.hash, facets: m.facets, mmPerUnit: m.mmPerUnit, creaseDeg: m.creaseDeg, size: [m.size[0], m.size[1], m.size[2]],
+        // A STEP body's index and tangent choice (review: dropped here, the re-opened parts never found their file).
+        ...(m.body !== undefined ? { body: m.body } : {}),
+        ...(m.tangent !== undefined ? { tangent: m.tangent } : {}),
+      };
     }
     if (p.shape === "combine") {
       const c = p.combine;

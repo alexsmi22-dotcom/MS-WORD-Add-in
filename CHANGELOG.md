@@ -6,6 +6,23 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.184.0] — 2026-10-21 — Drawing (CAD): import STEP and IGES parts and assemblies
+
+docs/SCOPE-STEP-IMPORT.md.
+
+- **Import DXF / STL / OBJ / STEP…** now reads STEP (.stp, .step) and IGES (.igs, .iges) — what Solid Edge writes
+  with **Save As → STEP**. Every solid body becomes a part named from the file (nut 1, nut 2…), and an assembly keeps
+  its shape: each part where the file puts it.
+- **Units come from the file** (inch, metre or millimetre — no units to choose), and **edges are the model's own**:
+  a line where two faces meet, never across a face, so cylinders, bolts and holes have no facet lines. Tangent edges
+  (where a rounded face meets a flat one) can be drawn or left out, for the whole import or per part.
+- **The drawing carries only the file's record**: re-open it and import the same file again, and every part comes
+  back (inside combined parts too). STEP parts can be combined, sectioned and moved like any imported part.
+- **Offline**: the STEP reader (OpenCascade, LGPL-2.1, 3 MB to download) is fetched the first time a STEP file is
+  opened and kept for offline use across updates — never downloaded again with each release. It reads in the
+  background, so Word stays responsive; an 18-part assembly reads in under a second.
+- A Solid Edge part (.par/.psm/.asm) is now pointed to **Save As → STEP** (it keeps the parts and their exact edges).
+
 ## [2.183.0] — 2026-10-21 — Drawing (CAD): combine imported parts
 
 docs/SCOPE-MESH-BOOLEANS.md.

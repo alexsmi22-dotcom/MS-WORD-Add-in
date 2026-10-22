@@ -1,13 +1,14 @@
 # Third-Party Licenses
 
-This add-in bundles the following runtime dependencies. Both are permissive and
-may be redistributed internally and externally.
+This add-in ships the following runtime dependencies. All may be redistributed internally and externally; the
+one LGPL component is shipped as separate, unmodified files (see below).
 
 | Package      | Version | License      | Use |
 | ------------ | ------- | ------------ | --- |
 | openchemlib  | 8.x     | BSD-3-Clause | 2D structure rendering, molecule building, SMILES/IDCode |
 | core-js      | 3.x     | MIT          | JavaScript polyfills |
 | manifold-3d  | 3.5.4   | Apache-2.0   | Combining CAD parts (join, cut, overlap): `manifold.js` and `manifold.wasm`, shipped unmodified and loaded only when parts are combined |
+| occt-import-js (Open CASCADE Technology) | 0.0.23 | LGPL-2.1 (OCCT: LGPL-2.1 with the Open CASCADE exception) | Reading STEP and IGES files in Drawing (CAD): `engines/occt-0.0.23/occt-import-js.js` and `occt-import-js.wasm`, shipped unmodified as separate files beside their licence texts, loaded at run time in a worker only when a STEP or IGES file is opened. Source: https://github.com/kovacsv/occt-import-js (and https://dev.opencascade.org) |
 | Revvity ChemDraw file-format tables | 2025 | BSD-3-Clause | `src/lib/cdxTags.ts`: CDX tag, attribute and enum names, generated from github.com/Glysade/chemdraw (Revvity's open-source ChemDraw format code); its copyright and licence notice is kept at the head of that file |
 
 Development-only dependencies (webpack, TypeScript, ts-loader, Jest, ts-jest,
@@ -28,6 +29,10 @@ Full license texts are available in each package under
   copyright and permission notice retained.
 - **Apache-2.0** (manifold-3d): permits use, modification, and redistribution with
   the licence and any NOTICE retained; the files are shipped unmodified.
+- **LGPL-2.1** (occt-import-js / Open CASCADE Technology): the library is used, not modified, and is shipped as its
+  own files (`dist/engines/occt-0.0.23/`) loaded at run time — so it can be replaced by another build of the same
+  library — with both licence texts (`license.occt-import-js.txt`, `license.occt.txt`) beside it. JurisLab's own
+  code stays MIT. The library's source is available from the links in the table.
 
 To verify current versions and licenses:
 

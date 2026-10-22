@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.183.0)
+# JurisLab — Manual Test Script (v2.184.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,21 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dw. New in v2.184.0 — Drawing (CAD): STEP and IGES import
+
+- [ ] ★ **Assembly.** In Solid Edge, open an assembly → **Save As → STEP** (.stp). In Word: Tool ▸ **Drawing (CAD)** →
+  **Import DXF / STL / OBJ / STEP…** → pick it. The first time, "…also fetches the STEP reader, 3 MB, once". The
+  panel lists the parts ("nut ×4, …") "in millimetres as the file says" → **Add N parts** → every part in the parts
+  list by name, the sheet shows the assembly as it was built. **Insert drawing** → the sheet in Word.
+- [ ] **Clean edges.** Zoom the sheet: holes, bolts and rounded parts show their outlines and real edges only — no
+  lines across curved faces.
+- [ ] **Tangent edges.** Select a part with a fillet → untick **Draw tangent edges** → the line where the fillet meets
+  the flat goes; tick it → it comes back.
+- [ ] **Reopen.** Insert, close and reopen Word, select the drawing → **Edit** → it asks for the .stp; import it →
+  "…put back into …" and the drawing is back.
+- [ ] **Offline.** After one STEP import, go offline (or reopen Word without a connection) → import a STEP file → it
+  still reads.
 
 ## 0dv. New in v2.183.0 — Drawing (CAD): combine imported parts
 

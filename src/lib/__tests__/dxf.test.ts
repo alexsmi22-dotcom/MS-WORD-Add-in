@@ -137,9 +137,9 @@ describe("text, units, spaces, notes", () => {
 
 describe("refusals by name, and bounds", () => {
   it.each([
-    ["part.par", "a Solid Edge part (.par) can only be read by Solid Edge — in Solid Edge, use Save As → STL (.stl) and import that"],
+    ["part.par", "a Solid Edge part (.par) can only be read by Solid Edge — in Solid Edge, use Save As → STEP (.stp) and import that — it keeps the parts and their exact edges"],
     ["sheet.dft", "a Solid Edge draft (.dft) can only be read by Solid Edge — in Solid Edge, use Save As → DXF (.dxf) and import that"],
-    ["unit.asm", "a Solid Edge assembly (.asm) can only be read by Solid Edge — in Solid Edge, use Save As → STL (.stl) and import that"],
+    ["unit.asm", "a Solid Edge assembly (.asm) can only be read by Solid Edge — in Solid Edge, use Save As → STEP (.stp) and import that — it keeps the parts and their exact edges"],
     ["plan.dwg", "DWG is a closed format this offline tool cannot read — save the drawing as DXF (.dxf) and import that"],
   ])("%s: %s", (name, why) => {
     expect(importRefusal(name, new Uint8Array(0))).toBe(why);

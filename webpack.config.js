@@ -161,6 +161,15 @@ module.exports = async (env, options) => {
           // pane, loaded at run time, precached (scripts/sw-manifest.js takes .js and .wasm).
           { from: "node_modules/manifold-3d/manifold.js", to: "manifold.js" },
           { from: "node_modules/manifold-3d/manifold.wasm", to: "manifold.wasm" },
+          // The STEP / IGES reader (src/taskpane/stepEngine.ts): OpenCascade's published files, UNMODIFIED (LGPL-2.1 —
+          // `minimized` keeps the minifier off them) with their licence texts, beside our worker; fetched on first use
+          // and kept in the service worker's engine cache, not precached (scripts/sw-manifest.js).
+          ...["occt-import-js.js", "occt-import-js.wasm", "license.occt-import-js.txt", "license.occt.txt"].map((f) => ({
+            from: `node_modules/occt-import-js/dist/${f}`,
+            to: `engines/occt-0.0.23/${f}`,
+            info: { minimized: true },
+          })),
+          { from: "src/taskpane/stepWorker.js", to: "engines/occt-0.0.23/step-worker.js", info: { minimized: true } },
           // Publish a single installable manifest at the site root. In production,
           // stamp the production manifest with the live Pages host so the deployed
           // /manifest.xml points at the hosted files and matches what the install

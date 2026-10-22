@@ -30,11 +30,16 @@ const PRECACHE = __PRECACHE__;
 const CACHE_NAME = __CACHE_NAME__;
 const CDN_ORIGINS = __CDN_ORIGINS__;
 const VERSION = __VERSION__;
+/** On-demand engines (engines/<name>-<version>/…): fetched the first time a tool needs one, then kept — across
+ *  releases — in their own cache, so the 7.6 MB STEP reader is downloaded once, not with every update. */
+const ENGINE_FILES = __ENGINE_FILES__;
 
 /** The one runtime cache for CDN responses. Not versioned: Office.js changes on
  *  Microsoft's schedule, not ours, and a pane cannot boot without it. */
 const RUNTIME_CACHE = "jurislab-runtime";
 const CACHE_PREFIX = "jurislab-v";
+/** Not under CACHE_PREFIX: the release sweep never empties it; engines no release names are swept one by one. */
+const ENGINE_CACHE = "jurislab-engines";
 /** The one CDN file whose presence decides "ready": nothing renders without it. */
 const OFFICE_JS = CDN_ORIGINS[0] + "/lib/1/hosted/office.js";
 
@@ -49,6 +54,8 @@ function stripSearch(url) {
 const scopeBase = new URL("./", self.location.href).href;
 const PRECACHE_URLS = PRECACHE.map((p) => new URL(p, scopeBase).href);
 const PRECACHE_SET = new Set(PRECACHE_URLS);
+const ENGINE_URLS = ENGINE_FILES.map((p) => new URL(p, scopeBase).href);
+const ENGINE_SET = new Set(ENGINE_URLS);
 
 /** Files that must always come from the network while it is there. */
 function isNeverCached(href) {
@@ -129,6 +136,11 @@ async function sweepOldCaches() {
   await Promise.all(
     names.filter((n) => n.startsWith(CACHE_PREFIX) && n !== CACHE_NAME).map((n) => caches.delete(n)),
   );
+  // An engine this release no longer ships (a newer version replaced it) goes; the current one stays.
+  if (names.includes(ENGINE_CACHE)) {
+    const engines = await caches.open(ENGINE_CACHE);
+    for (const req of await engines.keys()) if (!ENGINE_SET.has(stripSearch(req.url))) await engines.delete(req);
+  }
   return true;
 }
 
@@ -179,6 +191,17 @@ async function precached(request, key) {
   return res;
 }
 
+/** Cache-first for an on-demand engine: the network once, then the engine cache for good. */
+async function engine(request, key) {
+  const cache = await caches.open(ENGINE_CACHE);
+  const hit = await cache.match(key);
+  if (hit) return hit;
+  const res = await fetch(request);
+  // A store that fails (quota) must not fail the answer the network already gave.
+  if (res.ok && res.status === 200) await cache.put(key, res.clone()).catch(() => undefined);
+  return res;
+}
+
 /** Stale-while-revalidate for the Office.js CDN: answer from the runtime cache
  *  at once when possible and refresh in the background; otherwise fetch and
  *  keep the (opaque) response for next time. */
@@ -223,6 +246,10 @@ self.addEventListener("fetch", (event) => {
       event.respondWith(precached(req, key));
       return;
     }
+    if (ENGINE_SET.has(key)) {
+      event.respondWith(engine(req, key));
+      return;
+    }
     // Same-origin but not in THIS release's precache: the website pages, or a
     // previous release's chunk requested by a window still running it.
     // Network first, then any cache that holds it — never the other way round.
@@ -243,4 +270,4 @@ self.addEventListener("fetch", (event) => {
 });
 
 // Exposed for the unit tests only; a real worker never reads these.
-self.__jurislabSw = { stripSearch, isNeverCached, PRECACHE_URLS, CACHE_NAME, RUNTIME_CACHE };
+self.__jurislabSw = { stripSearch, isNeverCached, PRECACHE_URLS, CACHE_NAME, RUNTIME_CACHE, ENGINE_URLS, ENGINE_CACHE };

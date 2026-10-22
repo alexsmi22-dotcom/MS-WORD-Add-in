@@ -18,6 +18,7 @@ import * as vm from "vm";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const manifest = require("../../../scripts/sw-manifest.js") as {
   isPrecacheAsset: (n: string) => boolean;
+  isEngineAsset: (n: string) => boolean;
   buildServiceWorker: (
     t: string,
     a: Array<{ name: string; content: string | Buffer }>,
@@ -163,6 +164,12 @@ class FakeCache {
   async put(key: string | FakeRequest, res: FakeResponse) {
     const k = typeof key === "string" ? key : key.url;
     this.store.set(k, res);
+  }
+  async keys() {
+    return [...this.store.keys()].map((u) => new FakeRequest(u));
+  }
+  async delete(key: string | FakeRequest) {
+    return this.store.delete(typeof key === "string" ? key : key.url);
   }
 }
 class FakeCaches {
@@ -537,5 +544,58 @@ describe("sw.js — messages", () => {
         rt.handlers.message({ data: { type: "STATUS" }, ports: [], waitUntil: () => undefined });
       })(),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("sw.js — on-demand engines (the STEP reader): fetched once, kept across releases, never precached", () => {
+  const ENGINE = "engines/occt-0.0.23/occt-import-js.wasm";
+  const withEngine = (dir = "engines/occt-0.0.23/") => [
+    ...ASSETS,
+    { name: dir + "occt-import-js.js", content: "engine js" },
+    { name: dir + "occt-import-js.wasm", content: Buffer.from([0, 97, 115, 109]) },
+    { name: dir + "step-worker.js", content: "worker" },
+    { name: dir + "license.occt.txt", content: "LGPL" },
+  ];
+  it("engine files are not precached; their scripts and wasm are engine assets, their licence texts not", () => {
+    expect(manifest.isPrecacheAsset(ENGINE)).toBe(false);
+    expect(manifest.isPrecacheAsset("engines/occt-0.0.23/step-worker.js")).toBe(false);
+    expect(manifest.isEngineAsset(ENGINE)).toBe(true);
+    expect(manifest.isEngineAsset("engines/occt-0.0.23/step-worker.js")).toBe(true);
+    expect(manifest.isEngineAsset("engines/occt-0.0.23/license.occt.txt")).toBe(false);
+    expect(manifest.isEngineAsset("manifold.wasm")).toBe(false);
+  });
+  it("install fetches no engine; the first request fetches it once and keeps it; the next comes from the cache", async () => {
+    const rt = boot(withEngine());
+    await rt.install();
+    expect(rt.fetched.some((r) => r.url.includes("engines/"))).toBe(false);
+    rt.fetched.length = 0;
+    expect((await rt.request(SCOPE + ENGINE))!.body).toBe("served:" + SCOPE + ENGINE);
+    expect(rt.fetched).toHaveLength(1);
+    rt.network = () => {
+      throw new Error("offline");
+    };
+    expect((await rt.request(SCOPE + ENGINE))!.body).toBe("served:" + SCOPE + ENGINE);
+    expect(rt.fetched).toHaveLength(1);
+  });
+  it("a new release keeps the engine it still ships (no second download), and sweeps one it no longer ships", async () => {
+    const caches = new FakeCaches();
+    const v1 = boot(withEngine(), "1.0.0", caches);
+    await v1.install();
+    await v1.activate();
+    await v1.request(SCOPE + ENGINE);
+    // The next release, same engine: its cache survives the release sweep.
+    const v2 = boot([...withEngine(), { name: "taskpane.def456.js", content: "console.log(2)" }], "1.0.1", caches);
+    await v2.install();
+    await v2.activate();
+    v2.fetched.length = 0;
+    await v2.request(SCOPE + ENGINE);
+    expect(v2.fetched).toHaveLength(0);
+    // A release with a newer engine: the old one is swept, the cache itself stays.
+    const v3 = boot(withEngine("engines/occt-0.0.24/"), "1.0.2", caches);
+    await v3.install();
+    await v3.activate();
+    const engines = await caches.open("jurislab-engines");
+    expect((await engines.keys()).map((r) => r.url)).toEqual([]);
+    expect(await caches.keys()).toContain("jurislab-engines");
   });
 });

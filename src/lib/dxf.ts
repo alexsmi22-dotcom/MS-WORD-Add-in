@@ -122,7 +122,7 @@ const UNIT_NAMES: Record<number, [string, number | null]> = {
 export function importRefusal(fileName: string, head: Uint8Array): string | null {
   const ext = (/\.([a-z0-9_]+)$/i.exec(fileName)?.[1] ?? "").toLowerCase();
   if (["par", "psm", "asm", "pwd"].includes(ext))
-    return `a Solid Edge ${ext === "asm" ? "assembly" : ext === "psm" ? "sheet metal part" : "part"} (.${ext}) can only be read by Solid Edge — in Solid Edge, use Save As → STL (.stl) and import that`;
+    return `a Solid Edge ${ext === "asm" ? "assembly" : ext === "psm" ? "sheet metal part" : "part"} (.${ext}) can only be read by Solid Edge — in Solid Edge, use Save As → STEP (.stp) and import that — it keeps the parts and their exact edges`;
   if (ext === "dft") return "a Solid Edge draft (.dft) can only be read by Solid Edge — in Solid Edge, use Save As → DXF (.dxf) and import that";
   if (ext === "dwg") return "DWG is a closed format this offline tool cannot read — save the drawing as DXF (.dxf) and import that";
   const sentinel = "AutoCAD Binary DXF";

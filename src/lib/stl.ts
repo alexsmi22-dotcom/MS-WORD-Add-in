@@ -64,7 +64,22 @@ export interface StlFacets {
   sig?: number;
   /** A text file: every coordinate could be a float32 printed to its digits (an exporter working in float32). */
   f32?: boolean;
+  /**
+   * A STEP or IGES body (step.ts): the model face each facet lies on. Edges are then drawn where faces meet and
+   * never inside one, whatever the edge angle.
+   */
+  faceOf?: Int32Array;
 }
+
+/**
+ * Two faces meet smoothly when the surface turns across their boundary by no more than SMOOTH_SLACK × the larger of
+ * the two faces' bends ACROSS that boundary, plus SMOOTH_DEG (a flat face bends 0, and so does a cylinder across its
+ * rim; a chord at a fillet's edge turns half a bend from its neighbour, a split of one cylinder a whole one). A smooth
+ * meeting whose two bends are within SPLIT_RATIO of each other (or both flat) is one surface split in two.
+ */
+const SMOOTH_SLACK = 1.25;
+const SMOOTH_DEG = 1;
+const SPLIT_RATIO = 0.5;
 
 const n0 = (v: number): string => v.toLocaleString("en-US");
 const latin1 = (b: Uint8Array): string => new TextDecoder("latin1").decode(b);
@@ -258,7 +273,12 @@ export interface StlBody {
  * The facets as a body, in mm (`mmPerUnit` from the units the user chose), moved to
  * the origin, with edges where facets meet at more than `creaseDeg`.
  */
-export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_CREASE_DEG): { ok: true; body: StlBody } | { ok: false; reason: string } {
+export function stlBody(
+  stl: StlFacets,
+  mmPerUnit: number,
+  creaseDeg = DEFAULT_CREASE_DEG,
+  opts: { tangentEdges?: boolean } = {},
+): { ok: true; body: StlBody } | { ok: false; reason: string } {
   if (!(mmPerUnit > 0) || !Number.isFinite(mmPerUnit)) return { ok: false, reason: "choose the file's units first" };
   if (!(creaseDeg > 0 && creaseDeg < 180)) return { ok: false, reason: "the edge angle must be between 0° and 180°" };
   const C = stl.corners;
@@ -305,9 +325,13 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
   }
   // Two corners in one place: a facet with no area and no shape. Left out (counted).
   const keep: number[] = [];
+  const keptFrom: number[] = []; // each kept facet's index in the file (its face, its corner normals)
   for (let f = 0; f < stl.count; f++) {
     const a = cornerVertex[3 * f], b = cornerVertex[3 * f + 1], c = cornerVertex[3 * f + 2];
-    if (a !== b && b !== c && a !== c) keep.push(a, b, c);
+    if (a !== b && b !== c && a !== c) {
+      keep.push(a, b, c);
+      keptFrom.push(f);
+    }
   }
   const collapsed = stl.count - keep.length / 3;
   const tris = Int32Array.from(keep);
@@ -492,9 +516,124 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
   };
   const corner = (t: number, v: number): number => 3 * t + (tris[3 * t] === v ? 0 : tris[3 * t + 1] === v ? 1 : 2);
   const edges: number[] = []; // as corners (3t + c) of one facet beside the edge
+  const faceOf = stl.faceOf && stl.faceOf.length === stl.count ? stl.faceOf : undefined;
+  /** A facet's unit normal (0, 0, 0 for a sliver). */
+  const nrm = (t: number): [number, number, number] => [un[3 * t], un[3 * t + 1], un[3 * t + 2]];
+  /**
+   * The facets of each face sharing a corner with a facet (a vertex → facets table): a face's curvature is measured
+   * one facet further on than its sides reach (a cylinder's strip facet has, across its sides, only its coplanar
+   * partner in its own face).
+   */
+  let byVertex: Int32Array | undefined, vStart: Int32Array | undefined;
+  if (faceOf) {
+    vStart = new Int32Array(nv + 1);
+    for (let i = 0; i < 3 * nt; i++) vStart[tris[i] + 1]++;
+    for (let v = 0; v < nv; v++) vStart[v + 1] += vStart[v];
+    byVertex = new Int32Array(3 * nt);
+    const at = vStart.slice(0, nv);
+    for (let i = 0; i < 3 * nt; i++) byVertex[at[tris[i]]++] = (i / 3) | 0;
+  }
+  /**
+   * How much facet t's own face bends ACROSS its boundary side (a, b) (degrees): the largest turn to a facet of the same
+   * face sharing a corner, counting only the part of each turn that is a rotation ABOUT the side's direction. Along
+   * a rim a cylinder bends round its axis, but across the rim it is straight (second review: the turn in every
+   * direction made a fillet running into a cylinder look like one surface; third review: projecting the change of
+   * normal still leaked half a step on a coarse circle, and a 10° taper on a 12-facet hole was hidden). Never through
+   * a corner many facets share (a cone's apex, a dome's pole: the far side of the cone is not "across").
+   */
+  const POLE_VALENCE = 8;
+  const bendAcross = (t: number, e: [number, number, number]): number => {
+    const face = faceOf![keptFrom[t]], n = nrm(t);
+    if (!(n[0] || n[1] || n[2])) return 0;
+    let s = 0;
+    for (let c = 0; c < 3; c++) {
+      const v = tris[3 * t + c];
+      // A pole of THIS face (its facets fanning to one corner); a corner where several faces meet is not one.
+      let own = 0;
+      for (let i = vStart![v]; i < vStart![v + 1]; i++) if (faceOf![keptFrom[byVertex![i]]] === face) own++;
+      if (own > POLE_VALENCE) continue;
+      for (let i = vStart![v]; i < vStart![v + 1]; i++) {
+        const u = byVertex![i];
+        if (u === t || faceOf![keptFrom[u]] !== face) continue;
+        const m = nrm(u);
+        if (!(m[0] || m[1] || m[2])) continue;
+        // The turn from n to m is a rotation about w = n × m; only its part about the side's own direction bends the
+        // surface across the side (a cylinder's next facet round turns about the axis, square to its rim: none).
+        const wx = n[1] * m[2] - n[2] * m[1], wy = n[2] * m[0] - n[0] * m[2], wz = n[0] * m[1] - n[1] * m[0];
+        const sin = Math.hypot(wx, wy, wz), cos = n[0] * m[0] + n[1] * m[1] + n[2] * m[2];
+        if (!(sin > 0)) continue;
+        const deg = ((Math.atan2(sin, cos) * Math.abs(wx * e[0] + wy * e[1] + wz * e[2])) / sin) * (180 / Math.PI);
+        if (deg > s) s = deg;
+      }
+    }
+    return s;
+  };
+  /**
+   * How two faces meet, decided once for each connected CHAIN of the sides they share (second review: decided side by
+   * side, a circle came out dashed; third review: decided once for the whole pair, a pair meeting tangentially along
+   * one boundary and at a crease along another drew neither or both). Across the chain the surface turns by d (its
+   * median, a tie counted toward the crease); each face bends across it by its median bend. d ≤ SMOOTH_SLACK × the
+   * larger bend + SMOOTH_DEG runs on smoothly: a SPLIT of one surface when the two bend alike (both curved, the smaller
+   * ≥ SPLIT_RATIO × the larger, or both flat), never drawn; else a TANGENT edge (a rounded face meeting a flat one, or a
+   * sharper curve), drawn when asked for. Anything else is a crease.
+   */
+  const HOW = ["crease", "tangent", "split"] as const;
+  const edgeHow = new Int8Array(faceOf ? ne : 0); // per edge (side), its chain's verdict (0 crease, 1 tangent, 2 split)
+  if (faceOf) {
+    // The sides between two faces, and their vertices joined into chains (one union-find over "pair:vertex").
+    const sides: { e: number; key: string; a: string; d: number; s1: number; s2: number }[] = [];
+    const up = new Map<string, string>();
+    const root = (x: string): string => {
+      let r = x;
+      while (up.has(r) && up.get(r) !== r) r = up.get(r)!;
+      up.set(x, r);
+      return r;
+    };
+    for (let e = 0; e < ne; e++) {
+      if (count(e) !== 2) continue;
+      const t1 = (edgeList[edgeStart[e]] / 3) | 0, t2 = (edgeList[edgeStart[e] + 1] / 3) | 0;
+      const g1 = faceOf[keptFrom[t1]], g2 = faceOf[keptFrom[t2]];
+      if (g1 === g2) continue;
+      const a = lowV[edgeList[edgeStart[e]]], b = highV[edgeList[edgeStart[e]]];
+      const ex = P(b, 0) - P(a, 0), ey = P(b, 1) - P(a, 1), ez = P(b, 2) - P(a, 2), el = Math.hypot(ex, ey, ez);
+      const n1 = nrm(t1), n2 = nrm(t2);
+      if (!(el > 0) || !(n1[0] || n1[1] || n1[2]) || !(n2[0] || n2[1] || n2[2])) continue; // stays a crease
+      const dir: [number, number, number] = [ex / el, ey / el, ez / el];
+      const c = Math.max(-1, Math.min(1, n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2]));
+      const key = g1 < g2 ? `${g1}:${g2}` : `${g2}:${g1}`;
+      const va = `${key}:${a}`, vb = `${key}:${b}`;
+      if (!up.has(va)) up.set(va, va);
+      if (!up.has(vb)) up.set(vb, vb);
+      const ra = root(va), rb = root(vb);
+      if (ra !== rb) up.set(ra, rb);
+      // s1 always the lower-numbered face's bend, so the two lists stay one face each.
+      const b1 = bendAcross(t1, dir), b2 = bendAcross(t2, dir);
+      sides.push({ e, key, a: va, d: (Math.acos(c) * 180) / Math.PI, s1: g1 < g2 ? b1 : b2, s2: g1 < g2 ? b2 : b1 });
+    }
+    const chains = new Map<string, { d: number[]; s1: number[]; s2: number[]; edges: number[] }>();
+    for (const s of sides) {
+      const k = root(s.a);
+      let ch = chains.get(k);
+      if (!ch) chains.set(k, (ch = { d: [], s1: [], s2: [], edges: [] }));
+      ch.d.push(s.d);
+      ch.s1.push(s.s1);
+      ch.s2.push(s.s2);
+      ch.edges.push(s.e);
+    }
+    const sorted = (xs: number[]): number[] => [...xs].sort((x, y) => x - y);
+    for (const ch of chains.values()) {
+      const ds = sorted(ch.d), d = ds[ds.length >> 1]; // the upper middle: a tie goes to the crease
+      const b1 = sorted(ch.s1)[(ch.s1.length - 1) >> 1], b2 = sorted(ch.s2)[(ch.s2.length - 1) >> 1];
+      const hi = Math.max(b1, b2), lo = Math.min(b1, b2);
+      const how = d > SMOOTH_SLACK * hi + SMOOTH_DEG ? 0 : (hi > SMOOTH_DEG ? lo >= SPLIT_RATIO * hi : true) ? 2 : 1;
+      for (const e of ch.edges) edgeHow[e] = how;
+    }
+  }
   let open = 0, many = 0;
   const tooManyEdges = (): string =>
-    `at a ${+creaseDeg.toFixed(1)}° edge angle it has more than ${n0(STL_LIMITS.edges)} edges to draw — a drawing of an imported part holds at most ${n0(STL_LIMITS.edges)}; raise the edge angle, or export it again with a coarser tolerance`;
+    faceOf
+      ? `it has more than ${n0(STL_LIMITS.edges)} edges to draw — a drawing of an imported part holds at most ${n0(STL_LIMITS.edges)}; export it again with a coarser tolerance, or the parts you need on their own`
+      : `at a ${+creaseDeg.toFixed(1)}° edge angle it has more than ${n0(STL_LIMITS.edges)} edges to draw — a drawing of an imported part holds at most ${n0(STL_LIMITS.edges)}; raise the edge angle, or export it again with a coarser tolerance`;
   for (let e = 0; e < ne; e++) {
     const h0 = edgeList[edgeStart[e]];
     const a = lowV[h0], b = highV[h0];
@@ -508,6 +647,19 @@ export function stlBody(stl: StlFacets, mmPerUnit: number, creaseDeg = DEFAULT_C
       continue;
     }
     const t1 = (h0 / 3) | 0, t2 = (edgeList[edgeStart[e] + 1] / 3) | 0;
+    if (faceOf) {
+      // A model's faces: an edge where two meet as a crease (a tangent one only when asked for), never inside one,
+      // never along a split of one surface.
+      const f1 = keptFrom[t1], f2 = keptFrom[t2];
+      const how = faceOf[f1] === faceOf[f2] ? "inside" : HOW[edgeHow[e]];
+      if (how === "crease" || (how === "tangent" && opts.tangentEdges)) {
+        edges.push(corner(t0, a), corner(t0, b));
+        continue;
+      }
+      join(corner(t1, a), corner(t2, a));
+      join(corner(t1, b), corner(t2, b));
+      continue;
+    }
     const cos = un[3 * t1] * un[3 * t2] + un[3 * t1 + 1] * un[3 * t2 + 1] + un[3 * t1 + 2] * un[3 * t2 + 2];
     const sliver = (un[3 * t1] === 0 && un[3 * t1 + 1] === 0 && un[3 * t1 + 2] === 0) || (un[3 * t2] === 0 && un[3 * t2 + 1] === 0 && un[3 * t2 + 2] === 0);
     if (!sliver && cos < cosCrease) {

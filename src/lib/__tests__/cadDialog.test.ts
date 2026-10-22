@@ -20,7 +20,9 @@ const controllerIds = [...CONTROLLER.matchAll(/el<\w+>\("([\w-]+)"\)/g)].map((m)
 // pane-only: the pop-out cannot pop out again, save files, or insert an imported picture (the controller allows null)
 const OPTIONAL = new Set(["cad-popout", "cad-ppt", "cad-svg", "cad-import", "cad-import-file", "cad-import-panel", "cad-import-info", "cad-import-units", "cad-import-preview", "cad-import-insert", "cad-import-sketch", "cad-import-close",
   // importing an STL part is pane-only too: its facets stay in the pane, and the pop-out refuses such a drawing
-  "cad-import-part", "cad-import-crease", "cad-import-crease-row", "cad-import-preview-wrap"]);
+  "cad-import-part", "cad-import-crease", "cad-import-crease-row", "cad-import-preview-wrap",
+  // and importing a STEP file (the reader runs in the pane's worker; its parts are refused by the pop-out alike)
+  "cad-import-units-row", "cad-import-tangent", "cad-import-tangent-row"]);
 const hasId = (html: string, id: string): boolean => new RegExp(`id="${id}"`).test(html);
 
 describe("the pop-out and the pane carry the controls the controller needs", () => {

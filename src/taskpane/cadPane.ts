@@ -50,7 +50,9 @@ import { lineTypesFor } from "../lib/cadLineTypes";
 import { DxfDrawing } from "../lib/dxf";
 import { CONTROL_CHAR, MARK_LIMITS, markDistance, MarkPt, MarkStyle, roundPt, SheetMark, simplifyStroke } from "../lib/cadMarks";
 import { IMPORTED_ALT_PREFIX, IMPORT_UNITS, importedFigure, importedSketch, openDxfFile, sizeRefusal } from "../lib/dxfImport";
-import { combinedFor, hasStl, MeshRef, meshFor, rememberStl, retainCombined, retainMeshes } from "../lib/cadMeshStore";
+import { combinedFor, hasMeshFile, hasStl, MeshRef, meshFor, rememberStep, rememberStl, retainCombined, retainMeshes } from "../lib/cadMeshStore";
+import { STEP_LIMITS, stepBodies, stepFormat, stepPartNames, type StepBody } from "../lib/step";
+import { readStepFile } from "./stepEngine";
 import { combineTwo, ensureCombined, separatedOperands } from "../lib/combineParts";
 import { BOOL_OPS, type BoolOp } from "../lib/meshBoolean";
 import { loadManifoldEngine } from "./manifoldEngine";
@@ -117,7 +119,10 @@ export function modelFromAlt(alt: string): string | null {
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 /** What a part file is called in the messages: by its name, as the importer chose its reader. */
-const meshFormat = (file: string): "STL" | "OBJ" => (/\.obj$/i.test(file) ? "OBJ" : "STL");
+const meshFormat = (file: string): "STL" | "OBJ" | "STEP" | "IGES" => {
+  const s = stepFormat(file);
+  return s === "step" ? "STEP" : s === "iges" ? "IGES" : /\.obj$/i.test(file) ? "OBJ" : "STL";
+};
 
 /** Millimetres as the pane shows them: up to two decimals, no trailing zeros. */
 const fmtMm = (v: number): string => String(+v.toFixed(2));
@@ -194,6 +199,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const importCrease = el<HTMLInputElement>("cad-import-crease") as HTMLInputElement | null;
   const importCreaseRow = el<HTMLElement>("cad-import-crease-row") as HTMLElement | null;
   const importPreviewWrap = el<HTMLElement>("cad-import-preview-wrap") as HTMLElement | null;
+  const importUnitsRow = el<HTMLElement>("cad-import-units-row") as HTMLElement | null;
+  const importTangent = el<HTMLInputElement>("cad-import-tangent") as HTMLInputElement | null;
+  const importTangentRow = el<HTMLElement>("cad-import-tangent-row") as HTMLElement | null;
   // Each window shows only what it can do: the pop-out cannot read the document or pop out again.
   if (!host.readSelectedAlt) openBtn.hidden = true;
   if (popBtn && !host.openLarge) popBtn.hidden = true;
@@ -1146,7 +1154,22 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       const info = document.createElement("p");
       info.className = "build-readout";
       const sz = ref.size.map((v) => fmtMm(v)).join(" × ");
-      info.textContent = `From ${ref.file}: ${ref.facets.toLocaleString("en-US")} facets, ${sz} mm.${hasStl(ref.hash) ? "" : ` The file is not open — import ${ref.file} again to put it back.`}`;
+      info.textContent = `From ${ref.file}: ${ref.facets.toLocaleString("en-US")} facets, ${sz} mm.${hasMeshFile(ref) ? "" : ` The file is not open — import ${ref.file} again to put it back.`}`;
+      if (ref.body !== undefined) {
+        // A STEP or IGES body: its units are the file's (read in mm), its edges the model's faces — only tangent
+        // edges are a choice.
+        const row = document.createElement("label");
+        row.className = "field-label";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = !!ref.tangent;
+        box.addEventListener("change", () => {
+          ref.tangent = box.checked;
+          rebuild();
+        });
+        row.append(box, " Draw tangent edges");
+        editorEl.append(info, row);
+      }
       const units = document.createElement("select");
       units.className = "lib-select";
       units.setAttribute("aria-label", `Units of the ${meshFormat(ref.file)} file`);
@@ -1162,8 +1185,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
         renderEditor();
         rebuild();
       });
-      editorEl.append(info, units);
-      editorEl.appendChild(
+      if (ref.body === undefined) editorEl.append(info, units);
+      if (ref.body === undefined) editorEl.appendChild(
         numberField("Edge angle °", ref.creaseDeg, (v) => {
           if (!(v > 0 && v < 180)) {
             msgEl.className = "build-readout warn";
@@ -2012,17 +2035,40 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   // the same facets (lib/obj.ts) and goes the same way; only what the messages call it differs.
   let imported: { name: string; drawing: DxfDrawing } | null = null;
   let importedStl: { name: string; stl: StlFacets; hash: string } | null = null;
+  // A STEP or IGES file (docs/SCOPE-STEP-IMPORT.md): its bodies, read by the engine in a worker, each to become a part.
+  let importedStep: { name: string; hash: string; bodies: StepBody[]; names: string[]; notes: string[] } | null = null;
+  /** Each pick (and Close) moves this on: a STEP answer that arrives after it is stale and dropped. */
+  let importSeq = 0;
+  /** The STEP file being read (one reader at a time: each takes ~190 MB while it reads). */
+  let stepReading: string | null = null;
+  /** The reader has run once this session (the first time it may also be downloaded). */
+  let stepReaderStarted = false;
   const importMm = (): number => Number(importUnits?.value ?? "") || 0;
   const importCreaseDeg = (): number => Number(importCrease?.value ?? "") || 0;
+  /** A STEP body's part record (units are the file's: the engine reads it in mm). */
+  const stepRef = (s: { name: string; hash: string; bodies: StepBody[] }, k: number): MeshRef => ({
+    file: s.name,
+    hash: s.hash,
+    body: k,
+    facets: s.bodies[k].facets.count,
+    mmPerUnit: 1,
+    creaseDeg: DEFAULT_CREASE_DEG,
+    size: [0, 0, 0],
+    tangent: importTangent?.checked ?? true,
+  });
   function showImport(): void {
     if (!importPanel || !importInfo || !importUnits || !importPreview) return;
-    importPanel.hidden = !imported && !importedStl;
-    const stl = !!importedStl;
+    importPanel.hidden = !imported && !importedStl && !importedStep;
+    const stl = !!importedStl, step = !!importedStep;
     if (importCreaseRow) importCreaseRow.hidden = !stl;
-    if (importPartBtn) importPartBtn.hidden = !stl;
-    if (importPreviewWrap) importPreviewWrap.hidden = stl;
-    if (importInsertBtn) importInsertBtn.hidden = stl;
-    if (importSketchBtn) importSketchBtn.hidden = stl;
+    if (importUnitsRow) importUnitsRow.hidden = step;
+    if (importTangentRow) importTangentRow.hidden = !step;
+    if (importPartBtn) importPartBtn.hidden = !stl && !step;
+    if (importPreviewWrap) importPreviewWrap.hidden = stl || step;
+    if (importInsertBtn) importInsertBtn.hidden = stl || step;
+    if (importSketchBtn) importSketchBtn.hidden = stl || step;
+    if (importPartBtn) importPartBtn.textContent = step && importedStep!.bodies.length > 1 ? `Add ${importedStep!.bodies.length} parts` : "Add as a part";
+    if (importedStep) return showStepImport(importedStep);
     if (importedStl) return showStlImport(importedStl);
     if (!imported) return;
     const { name, drawing } = imported;
@@ -2074,6 +2120,118 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (importBtn) importBtn.disabled = inserting;
     if (importCloseBtn) importCloseBtn.disabled = inserting;
   }
+  /** The STEP file's panel: its bodies, in mm as the file says; each body built now, so a refusal is named here. */
+  function showStepImport(s: { name: string; hash: string; bodies: StepBody[]; names: string[]; notes: string[] }): void {
+    const n = s.bodies.length, facets = s.bodies.reduce((t, b) => t + b.facets.count, 0);
+    const counts = new Map<string, number>();
+    for (const b of s.bodies) {
+      const k = b.name && !/^\(?unsaved\)?$/i.test(b.name) ? b.name : s.name.replace(/\.[^.]*$/, "");
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    const list = [...counts].slice(0, 8).map(([k, c]) => (c > 1 ? `${k} ×${c}` : k)).join(", ") + (counts.size > 8 ? ", …" : "");
+    const lines = [`${s.name}: ${n === 1 ? "one solid body" : `${n} solid bodies (${list})`}, ${facets.toLocaleString("en-US")} facets, in millimetres as the file says.`, ...s.notes];
+    let ok = true;
+    const open: string[] = [];
+    for (let k = 0; k < n && ok; k++) {
+      const r = meshFor(stepRef(s, k));
+      if (!r.ok) {
+        ok = false;
+        lines.push(`${s.names[k]}: ${r.reason}.`);
+      } else if (!r.mesh.closed) open.push(s.names[k]);
+    }
+    // As the STL panel says it (review): an open surface draws, but cannot be combined or overlap another part.
+    if (open.length) {
+      lines.push(`${open.length === 1 ? `${open[0]} is` : `${open.slice(0, 5).join(", ")}${open.length > 5 ? ", …" : ""} are`} not closed (gaps in the surface): drawn alone, but not where another part overlaps, and not combined.`);
+    }
+    retainMeshes([...liveMeshRefs(), ...s.bodies.map((_, k) => stepRef(s, k))]);
+    if (ok) lines.push(n === 1 ? "Its edges are the model's own (where its faces meet)." : "They keep their places in the assembly; their edges are the model's own (where faces meet).");
+    importInfo!.textContent = lines.join(" ");
+    importInfo!.className = ok && !open.length ? "build-readout" : "build-readout warn";
+    if (importPartBtn) importPartBtn.disabled = !ok || inserting || sketching();
+    if (importBtn) importBtn.disabled = inserting;
+    if (importCloseBtn) importCloseBtn.disabled = inserting;
+  }
+  /** A STEP or IGES file read: its bodies kept; parts waiting for this very file put back; otherwise the panel. */
+  /** `mine`: the pick's importSeq, taken (with stepReading) when the file was picked — not here, after it was loaded. */
+  async function useStep(name: string, bytes: Uint8Array, mine: number): Promise<void> {
+    const format = stepFormat(name)!;
+    let r: Awaited<ReturnType<typeof readStepFile>>;
+    try {
+      r = await readStepFile(format, bytes);
+    } finally {
+      stepReading = null;
+    }
+    // The reader ran (its answer may still refuse the file): the download note is not said again.
+    if (r.ok || !/could not load|downloaded the first time/.test(r.reason)) stepReaderStarted = true;
+    // Review: a late answer replaced a newer panel, and arrived mid-insert. A stale one (Close was pressed) is
+    // dropped, and says so; one that lands mid-insert is refused.
+    if (mine !== importSeq) return; // Close was pressed while it read (and said so then)
+    if (inserting) return host.setStatus(`${name} was read, but an insert is running — import it again when it is done.`, "error");
+    if (!r.ok) return host.setStatus(`${name}: ${r.reason}.`, "error");
+    const b = stepBodies(r.result);
+    if (!b.ok) return host.setStatus(`${name}: ${b.reason}.`, "error");
+    const hash = stlHash(bytes);
+    // Parts waiting for these very bytes (a drawing re-opened in a new session), inside combined parts too: put back —
+    // when a part of the drawing lacks ITS body (review: body 0 alone decided, and a file still open was "put back").
+    const refsIn = (p: CadPart): MeshRef[] => (p.shape === "mesh" && p.mesh ? [p.mesh] : p.shape === "combine" && p.combine ? p.combine.operands.flatMap(refsIn) : []);
+    const lacking = (p: CadPart): boolean => refsIn(p).some((m) => m.hash === hash && !hasMeshFile(m));
+    const back = doc.parts.filter(lacking);
+    rememberStep(hash, b.bodies.map((x) => x.facets));
+    retainMeshes(liveMeshRefs());
+    if (back.length) {
+      combineFailed.clear();
+      imported = null;
+      importedStl = null;
+      importedStep = null;
+      showImport();
+      renderEditor();
+      rebuild();
+      return host.setStatus(`${name} put back into ${back.map((p) => p.name).join(", ")}.`, "success");
+    }
+    imported = null;
+    importedStl = null;
+    importedStep = { name, hash, bodies: b.bodies, names: stepPartNames(b.bodies, name), notes: b.notes };
+    showImport();
+    const n = b.bodies.length;
+    host.setStatus(`${name} read: ${n === 1 ? "one part" : `${n} parts`}. Check the panel below, then ${n === 1 ? "Add as a part" : `Add ${n} parts`}.`, "");
+  }
+  function addStepParts(s: { name: string; hash: string; bodies: StepBody[]; names: string[] }): void {
+    // Each body where the file puts it: the assembly keeps its shape, moved as one beside the drawing's parts.
+    const built: { ref: MeshRef; lo: Vec3 }[] = [];
+    for (let k = 0; k < s.bodies.length; k++) {
+      const ref = stepRef(s, k);
+      const r = meshFor(ref);
+      if (!r.ok) return host.setStatus(`${s.names[k]}: ${r.reason}.`, "error");
+      const P3 = r.mesh.positions;
+      for (let i = 0; i < P3.length; i += 3) for (let d = 0; d < 3; d++) ref.size[d] = Math.max(ref.size[d], P3[i + d]);
+      const lo: Vec3 = [Infinity, Infinity, Infinity];
+      const C = s.bodies[k].facets.corners;
+      for (let i = 0; i < C.length; i++) lo[i % 3] = Math.min(lo[i % 3], C[i]);
+      built.push({ ref, lo });
+    }
+    const all: Vec3 = [0, 1, 2].map((d) => Math.min(...built.map((x) => x.lo[d]))) as Vec3;
+    const x0 = besideX();
+    resetNewBtn(); // the drawing changes: an Undo clear would now throw these parts away
+    const first = doc.parts.length;
+    built.forEach(({ ref, lo }, k) => {
+      doc.parts.push({
+        id: `p${Date.now().toString(36)}${seq++}`,
+        name: s.names[k],
+        shape: "mesh",
+        params: {},
+        placement: { translate: [lo[0] - all[0] + x0, lo[1] - all[1], lo[2] - all[2]], rotateDeg: [0, 0, 0] },
+        mesh: ref,
+      });
+    });
+    selected = first;
+    importedStep = null;
+    showImport();
+    renderParts();
+    renderEditor();
+    rebuild();
+    const n = built.length;
+    host.setStatus(`${s.name} added: ${n === 1 ? s.names[0] : `${n} parts, in their places in the assembly`}. Move or turn ${n === 1 ? "it" : "each"} under the parts list.`, "success");
+  }
   function useStl(name: string, bytes: Uint8Array): void {
     const r = meshFormat(name) === "OBJ" ? readObj(bytes) : readStl(bytes);
     if (!r.ok) return host.setStatus(`${name}: ${r.reason}.`, "error");
@@ -2091,12 +2249,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       combineFailed.clear();
       imported = null;
       importedStl = null;
+      importedStep = null;
       showImport();
       renderEditor();
       rebuild();
       return host.setStatus(`${name} put back into ${back.map((p) => p.name).join(", ")}.`, "success");
     }
     imported = null;
+    importedStep = null;
     importedStl = { name, stl: r.stl, hash };
     if (importUnits) {
       importUnits.textContent = "";
@@ -2110,6 +2270,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   }
   function useImport(name: string, drawing: DxfDrawing): void {
     importedStl = null;
+    importedStep = null;
     imported = { name, drawing };
     if (importUnits) {
       importUnits.textContent = "";
@@ -2131,17 +2292,30 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const file = importFile.files?.[0];
     if (!file) return;
     if (inserting) return host.setStatus("An insert is still running; import the file when it finishes.", "error");
+    if (stepReading) return host.setStatus(`Still reading ${stepReading} — pick the next file when it is done.`, "error");
+    importSeq++;
     const isStl = /\.(stl|obj)$/i.test(file.name);
-    const big = isStl
+    const isStep = !!stepFormat(file.name);
+    const big = isStep
+      ? file.size > STEP_LIMITS.bytes ? `${file.name}: the file is ${Math.ceil((file.size / 1048576) * 10) / 10} MB — this importer reads ${meshFormat(file.name)} files up to ${STEP_LIMITS.bytes / 1048576} MB` : null
+      : isStl
       ? file.size > STL_LIMITS.bytes ? `${file.name}: the file is ${Math.ceil((file.size / 1048576) * 10) / 10} MB — this importer reads ${meshFormat(file.name)} files up to ${STL_LIMITS.bytes / 1048576} MB` : null
       : sizeRefusal(file.name, file.size);
     if (big) return host.setStatus(big, "error");
-    host.setStatus(`Reading ${file.name}…`, "");
+    // One STEP reader at a time, from the moment of the pick (second review: set after the file had loaded, a quick
+    // second pick slipped in and two readers ran).
+    const mine = importSeq;
+    if (isStep) stepReading = file.name;
+    host.setStatus(isStep && !stepReaderStarted ? `Reading ${file.name}… (starting the STEP and IGES reader — the first time ever, it is also downloaded: 3 MB)` : `Reading ${file.name}…`, "");
     const reader = new FileReader();
-    reader.onerror = () => host.setStatus(`Could not read ${file.name}.`, "error");
+    reader.onerror = () => {
+      if (isStep) stepReading = null;
+      host.setStatus(`Could not read ${file.name}.`, "error");
+    };
     reader.onload = () => {
       // Yield once so "Reading…" is painted before a large file is parsed.
       window.setTimeout(() => {
+        if (isStep) return void useStep(file.name, new Uint8Array(reader.result as ArrayBuffer), mine);
         if (isStl) return useStl(file.name, new Uint8Array(reader.result as ArrayBuffer));
         const r = openDxfFile(file.name, new Uint8Array(reader.result as ArrayBuffer));
         if (!r.ok) return host.setStatus(r.reason, "error"); // it starts with the file's name
@@ -2151,6 +2325,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     reader.readAsArrayBuffer(file);
   });
   importUnits?.addEventListener("change", showImport);
+  importTangent?.addEventListener("change", showImport);
   // Each value builds the part again: once typing pauses (review), and Add waits for it.
   let creaseTimer = 0;
   importCrease?.addEventListener("input", () => {
@@ -2160,11 +2335,18 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   });
   importCloseBtn?.addEventListener("click", () => {
     if (inserting) return;
+    importSeq++;
+    if (stepReading) host.setStatus(`Import closed — ${stepReading} will not be added.`, "");
     imported = null;
     importedStl = null;
+    importedStep = null;
     showImport();
   });
   importPartBtn?.addEventListener("click", () => {
+    if (importedStep && !inserting) {
+      if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
+      return addStepParts(importedStep);
+    }
     const s = importedStl;
     if (!s || inserting) return;
     if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
@@ -2185,6 +2367,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     doc.parts.push(part);
     selected = doc.parts.length - 1;
     importedStl = null;
+    importedStep = null;
     showImport();
     renderParts();
     renderEditor();

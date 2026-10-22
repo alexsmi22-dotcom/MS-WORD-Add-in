@@ -64,7 +64,7 @@ function chooseUnits($: <T extends HTMLElement>(id: string) => T, mm: string): v
 describe("Import DXF / STL… — an STL becomes a part", () => {
   it("the button says all three, and the picker offers .stl and .obj", () => {
     const { $ } = setup();
-    expect($("cad-import").textContent).toBe("Import DXF / STL / OBJ…");
+    expect($("cad-import").textContent).toBe("Import DXF / STL / OBJ / STEP…");
     expect($<HTMLInputElement>("cad-import-file").accept.split(",")).toEqual(expect.arrayContaining([".stl", ".obj"]));
   });
 
@@ -130,7 +130,7 @@ describe("Import DXF / STL… — an STL becomes a part", () => {
     });
     const { $, status, pane } = setup({}, fresh);
     expect(pane.load(json)).toBeNull();
-    expect($("cad-msg").textContent).toBe("block: its file block.stl is not open — import block.stl again (Import DXF / STL / OBJ…) to put it back");
+    expect($("cad-msg").textContent).toBe("block: its file block.stl is not open — import block.stl again (Import DXF / STL / OBJ / STEP…) to put it back");
     expect($<HTMLButtonElement>("cad-insert").disabled).toBe(true);
     [...$("cad-parts").querySelectorAll<HTMLButtonElement>(".cad-part-name")].find((b) => b.textContent === "block — Imported STL")!.click();
     expect($("cad-editor").textContent).toContain("The file is not open — import block.stl again to put it back.");
@@ -203,14 +203,12 @@ describe("Import DXF / STL… — an STL becomes a part", () => {
     expect(last(status)).toEqual(["The large canvas cannot open a drawing with an imported STL part yet (block) — work on it here in the pane.", "error"]);
   });
 
-  it("an unreadable STL is refused by name; a STEP file names the route through STL", async () => {
+  it("an unreadable STL is refused by name", async () => {
     const { $, status } = setup();
     await pick($, status, "junk.stl", new Uint8Array([1, 2, 3]));
     expect(last(status)[1]).toBe("error");
     expect(last(status)[0]).toMatch(/^junk\.stl: /);
     expect($("cad-import-panel").hidden).toBe(true);
-    await pick($, status, "part.step", new NodeTextEncoder().encode("ISO-10303-21;"));
-    expect(last(status)).toEqual(["part.step: STEP parts are not imported yet — save the part as STL (in Solid Edge, Save As → STL) and import that, or save a draft as DXF", "error"]);
   });
 
   it("an edge angle that draws too many edges is named in the panel, and Add stays off", async () => {

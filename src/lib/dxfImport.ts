@@ -50,7 +50,7 @@ export function openDxfFile(fileName: string, bytes: Uint8Array): OpenResult {
   const ext = (/\.([a-z0-9_]+)$/i.exec(fileName)?.[1] ?? "").toLowerCase();
   if (ext === "stl" || ext === "obj") return no(`an ${ext.toUpperCase()} is a 3D part — it is added to the model as a part, not opened as a drawing`);
   if (["stp", "step", "igs", "iges"].includes(ext))
-    return no(`${ext.toUpperCase()} parts are not imported yet — save the part as STL (in Solid Edge, Save As → STL) and import that, or save a draft as DXF`);
+    return no(`${ext === "igs" || ext === "iges" ? "an IGES" : "a STEP"} file is a 3D part or assembly — it is added to the model as parts, not opened as a drawing`);
   if (ext !== "dxf") return no("this is not a DXF file — choose a .dxf (in Solid Edge or AutoCAD, Save As → DXF)");
   const big = sizeRefusal(fileName, bytes.length);
   if (big) return { ok: false, reason: big };

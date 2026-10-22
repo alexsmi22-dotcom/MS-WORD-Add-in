@@ -11,8 +11,8 @@ _User, 2026-10-18: "we use solid edge for most drawings and i want to be able to
 | DWG | **No**: closed format; the only open reader (LibreDWG) is GPL-3 | Save as **DXF** |
 | DXF, ASCII, R12–2018 | **R3a** | Import as a **drawing**, or as an editable **sketch** |
 | Binary DXF | No | Save as ASCII DXF, which is the default |
-| STEP / IGES | **R3b** (planned) | OpenCascade's importer compiled to WebAssembly (occt-import-js, LGPL-2.1), loaded only when needed. To verify first: its `.wasm` size, licence file and offline precache |
-| STL | R3b (planned) | A mesh. Curved silhouettes need feature edges, found by dihedral angle |
+| STEP / IGES | **Yes** (v2.184.0) | OpenCascade (occt-import-js, LGPL-2.1) in a worker, fetched on first use: docs/SCOPE-STEP-IMPORT.md |
+| STL / OBJ | **Yes** (v2.158.0 / v2.161.0) | A mesh. Curved silhouettes need feature edges, found by dihedral angle |
 
 Solid Edge's export lists (ST5 help): drafts go to IGES, DGN, DWG, DXF and PDF; parts and assemblies go to IGES, SAT, STEP, STL, Parasolid (x_t/x_b), PLMXML and JT.
 
@@ -49,4 +49,4 @@ A Solid Edge draft saved as DXF is a whole sheet: several views, dimensions, not
 
 **STL shipped in v2.158.0** (`src/lib/stl.ts`, `src/lib/cadMeshStore.ts`; Import DXF / STL… adds it as a part). Read: binary or text by the file's size; corners joined where their numbers are identical; facets turned to agree; a closed piece that comes out inside out turned; an edge where facets meet beyond the edge angle, open, or shared by more than two; corner normals angle-weighted across the rest; one vertex per smooth group (never shared across an edge, as the engine's own bodies). The drawing stores only {file, hash, facets, units, edge angle, size}. Limits measured: 100,000 facets, 6,000 drawn edges. Open surfaces may not overlap another part. Not yet validated on a real Solid Edge export.
 
-STEP / IGES (still planned) through occt-import-js: tessellated to the mesh the hidden-line engine already draws. Decide first: wasm size, licence text shipped, offline behaviour (precache, or refuse by name when offline).
+**STEP / IGES shipped in v2.184.0** — docs/SCOPE-STEP-IMPORT.md.

@@ -1496,12 +1496,17 @@
           <button id="cad-add" class="insert-btn secondary" type="button">Add part</button>
         </div>
         <button id="cad-new" class="draw-pop-btn" type="button" title="Clear every part and callout for a blank drawing (click twice; Undo afterwards)">New drawing</button>
-        <button id="cad-import" class="draw-pop-btn" type="button" title="Open a DXF drawing (Solid Edge: Save As → DXF) to insert it or edit its outline as a sketch, or an STL or OBJ part (Save As → STL) to add it to the model">Import DXF / STL / OBJ…</button>
-        <input id="cad-import-file" type="file" accept=".dxf,.dft,.par,.psm,.asm,.dwg,.stp,.step,.igs,.iges,.stl,.obj" hidden />
+        <button id="cad-import" class="draw-pop-btn" type="button" title="Open a DXF drawing (Solid Edge: Save As → DXF) to insert it or edit its outline as a sketch, or a STEP, IGES, STL or OBJ part or assembly (Save As → STEP) to add it to the model">Import DXF / STL / OBJ / STEP…</button>
+        <input id="cad-import-file" type="file" accept=".dxf,.dft,.par,.psm,.asm,.dwg,.stp,.step,.p21,.igs,.iges,.stl,.obj" hidden />
         <div id="cad-import-panel" class="cad-import-panel" hidden>
           <p id="cad-import-info" class="build-readout" role="status"></p>
-          <label class="field-label" for="cad-import-units">Units</label>
-          <select id="cad-import-units" class="lib-select"></select>
+          <div id="cad-import-units-row">
+            <label class="field-label" for="cad-import-units">Units</label>
+            <select id="cad-import-units" class="lib-select"></select>
+          </div>
+          <label id="cad-import-tangent-row" class="field-label" hidden>
+            <input id="cad-import-tangent" type="checkbox" checked /> Draw tangent edges (where a rounded face meets a flat one)
+          </label>
           <div id="cad-import-crease-row" hidden>
             <label class="field-label" for="cad-import-crease">Edge angle (°) — facets meeting at more than this are drawn as an edge</label>
             <input id="cad-import-crease" class="rgroup-input" type="number" min="1" max="179" step="1" value="30" />

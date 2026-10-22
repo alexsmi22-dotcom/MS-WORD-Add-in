@@ -30,6 +30,8 @@ const ADDIN_PAGES = new Set(["taskpane.html", "commands.html", "drawdialog.html"
 
 function isPrecacheAsset(name) {
   if (typeof name !== "string" || !name) return false;
+  // On-demand engines (the STEP reader, 7.6 MB): never in the precache, which every release fetches again in full.
+  if (name.startsWith("engines/")) return false;
   if (name.endsWith(".map")) return false;
   if (name.endsWith(".LICENSE.txt")) return false;
   if (name === "version.json" || name === "sw.js" || name === "manifest.xml") return false;
@@ -39,6 +41,14 @@ function isPrecacheAsset(name) {
   if (name.endsWith(".wasm")) return true;
   if (name.startsWith("assets/")) return true;
   return false;
+}
+
+/**
+ * Files fetched only when a tool first needs them (engines/<name>-<version>/…, e.g. the STEP reader) and then kept in
+ * their own cache across releases — the folder's version makes a new engine a new URL. Licence texts are not cached.
+ */
+function isEngineAsset(name) {
+  return typeof name === "string" && name.startsWith("engines/") && (name.endsWith(".js") || name.endsWith(".wasm"));
 }
 
 /**
@@ -60,15 +70,17 @@ function buildServiceWorker(template, assets, version) {
   }
   const cacheName = "jurislab-v" + version + "-" + h.digest("hex").slice(0, 12);
   const names = chosen.map((a) => a.name);
-  for (const ph of ["__PRECACHE__", "__CACHE_NAME__", "__CDN_ORIGINS__", "__VERSION__"]) {
+  const engines = assets.filter((a) => isEngineAsset(a.name)).map((a) => a.name).sort();
+  for (const ph of ["__PRECACHE__", "__CACHE_NAME__", "__CDN_ORIGINS__", "__VERSION__", "__ENGINE_FILES__"]) {
     if (!template.includes(ph)) throw new Error("sw-manifest: template is missing " + ph);
   }
   const out = template
     .replace("__PRECACHE__", JSON.stringify(names))
     .replace("__CACHE_NAME__", JSON.stringify(cacheName))
     .replace("__CDN_ORIGINS__", JSON.stringify(CDN_ORIGINS))
-    .replace("__VERSION__", JSON.stringify(String(version)));
-  return { source: out, precache: names, cacheName };
+    .replace("__VERSION__", JSON.stringify(String(version)))
+    .replace("__ENGINE_FILES__", JSON.stringify(engines));
+  return { source: out, precache: names, cacheName, engines };
 }
 
-module.exports = { isPrecacheAsset, buildServiceWorker, CDN_ORIGINS, ADDIN_PAGES, SITE_PAGES };
+module.exports = { isPrecacheAsset, isEngineAsset, buildServiceWorker, CDN_ORIGINS, ADDIN_PAGES, SITE_PAGES };

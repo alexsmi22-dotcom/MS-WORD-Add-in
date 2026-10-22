@@ -780,7 +780,9 @@ export function mcHistogramSvg(r: McResult, label: string): string {
   const H = 280;
   const left = 64;
   const right = 16;
-  const top = 30;
+  // The legend and the beyond-the-plot note sit in a band above the plot, where no interval line or curve can
+  // cross them (figure-layout audit, v2.186.0).
+  const top = outside ? 64 : 48;
   const bottom = 40;
   const plotW = W - left - right;
   const plotH = H - top - bottom;
@@ -825,10 +827,18 @@ export function mcHistogramSvg(r: McResult, label: string): string {
   parts.push(`<text x="${left + plotW / 2}" y="${H - 6}" text-anchor="middle" fill="#7B8C99">${esc(xTitle)}</text>`);
   parts.push(`<text x="12" y="${top + plotH / 2}" text-anchor="middle" fill="#7B8C99" transform="rotate(-90 12 ${top + plotH / 2})">${esc(yTitle)}</text>`);
   // Legend.
-  parts.push(`<rect x="${W - right - 150}" y="${top + 2}" width="10" height="10" fill="#9DB3C4"/><text x="${W - right - 136}" y="${top + 11}" fill="#1A1A1A">draws</text>`);
-  if (r.gum.u > 0) parts.push(`<line x1="${W - right - 150}" y1="${top + 23}" x2="${W - right - 140}" y2="${top + 23}" stroke="#B91C1C" stroke-width="1.5"/><text x="${W - right - 136}" y="${top + 27}" fill="#1A1A1A">GUM normal</text>`);
-  parts.push(`<line x1="${W - right - 150}" y1="${top + 39}" x2="${W - right - 140}" y2="${top + 39}" stroke="#0C4A6E" stroke-dasharray="4 3"/><text x="${W - right - 136}" y="${top + 43}" fill="#1A1A1A">95 % interval</text>`);
-  if (outside) parts.push(`<text x="${left + 4}" y="${top + 11}" fill="#7B8C99">${esc(`${fmtCount(outside)} draws beyond the plotted 99.8 %`)}</text>`);
+  const ly = 34;
+  let lx = left;
+  parts.push(`<rect x="${lx}" y="${ly - 9}" width="10" height="10" fill="#9DB3C4"/><text x="${lx + 14}" y="${ly}" fill="#1A1A1A">draws</text>`);
+  lx += 64;
+  if (r.gum.u > 0) {
+    parts.push(`<line x1="${lx}" y1="${ly - 4}" x2="${lx + 12}" y2="${ly - 4}" stroke="#B91C1C" stroke-width="1.5"/><text x="${lx + 16}" y="${ly}" fill="#1A1A1A">GUM normal</text>`);
+    lx += 98;
+  }
+  parts.push(`<line x1="${lx}" y1="${ly - 4}" x2="${lx + 12}" y2="${ly - 4}" stroke="#0C4A6E" stroke-dasharray="4 3"/><text x="${lx + 16}" y="${ly}" fill="#1A1A1A">95 % interval</text>`);
+  lx += 104;
+  parts.push(`<line x1="${lx}" y1="${ly - 4}" x2="${lx + 12}" y2="${ly - 4}" stroke="#0C4A6E" stroke-width="1.2"/><text x="${lx + 16}" y="${ly}" fill="#1A1A1A">mean</text>`);
+  if (outside) parts.push(`<text x="${left}" y="${ly + 16}" fill="#7B8C99">${esc(`${fmtCount(outside)} draws beyond the plotted 99.8 %`)}</text>`);
   parts.push("</svg>");
   return parts.join("");
 }

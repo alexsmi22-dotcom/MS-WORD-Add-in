@@ -113,7 +113,7 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // Tukey under Nature), four multi-panel figures (as drawn, Nature a/b, Cell
 // A/B/C, USPTO FIG. 1A/1B) and the Okabe–Ito marker swatch. Panels scaled into
 // their cells are measured through the audit's uniform-scale flattening.
-const CORPUS_FLOOR = 280;
+const CORPUS_FLOOR = 313;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

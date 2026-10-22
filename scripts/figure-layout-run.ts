@@ -38,6 +38,7 @@ import {
   armSvg,
 } from "../src/lib/mechchart";
 import { ASSAY_QUANT_CALCS } from "../src/lib/assayQuantCalcs";
+import { monteCarlo, mcHistogramSvg } from "../src/lib/monteCarlo";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
 import { GAMUTS as GAMUT_DEFS } from "../src/lib/colourspace";
@@ -2044,6 +2045,17 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
     if (out.ok === false || !out.svg) throw new Error(`corpus: assay ${c.id} default did not draw`);
     figures.push([`assay ${c.id}`, out.svg]);
   }
+}
+
+// --- Monte Carlo uncertainty histogram (v2.186.0) ---------------------------
+//
+// A near-normal output (a·b/c) and a skewed one (exp(a)): the 95 % interval
+// markers, the first-order band and the axis labels must read on both.
+{
+  const a = monteCarlo("a*b/c", [{ name: "a", value: 10, u: 0.45 }, { name: "b", value: 4, u: 0.05 }, { name: "c", value: 2, u: 0.055 }], { seed: 1 });
+  figures.push(["monte carlo a·b/c", mcHistogramSvg(a, "a·b/c")]);
+  const e = monteCarlo("exp(a)", [{ name: "a", value: 0, u: 0.5 }], { seed: 1 });
+  figures.push(["monte carlo exp(a)", mcHistogramSvg(e, "exp(a)")]);
 }
 
 // --- Figures that moved out of the pane (v2.144.0, host adapter) -------------

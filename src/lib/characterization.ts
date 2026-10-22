@@ -302,6 +302,11 @@ function massOf(counts: Record<string, number>, labelled: CharCompound["labelled
   return m;
 }
 
+/** Monoisotopic mass: each element at its most abundant isotope (⁹⁰Zr, ³⁵Cl), labelled atoms at their own. */
+export function monoisotopicMass(c: CharCompound): number | string {
+  return massOf(c.counts, c.labelled, "mono");
+}
+
 /** Average molar mass, g/mol. */
 export function molarMass(c: CharCompound): number | string {
   return massOf(c.counts, c.labelled, "average");

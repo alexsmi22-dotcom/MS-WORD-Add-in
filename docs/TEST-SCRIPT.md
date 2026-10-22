@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.184.0)
+# JurisLab — Manual Test Script (v2.185.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,17 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dx. New in v2.185.0 — Chemistry: η-bonded organometallics have a formula
+
+- [ ] ★ **Zirconocene dichloride.** Build ▸ Draw → Organometallic → **Zirconocene dichloride (Cp₂ZrCl₂)** → Formula
+  C₁₀H₁₀Cl₂Zr (MW 292.32 g/mol; monoisotopic 289.9207); SMILES "[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Cl-].[Cl-].[Zr+4]
+  (ionic representation)"; the note says the SMILES is ionic because SMILES cannot express η bonding.
+- [ ] **Swap the metal.** Relabel Zr → Ti → C₁₀H₁₀Cl₂Ti, 248.96; → Hf → C₁₀H₁₀Cl₂Hf. Delete both Cl and relabel Fe →
+  ferrocene C₁₀H₁₀Fe, 186.03.
+- [ ] **Polymer.** Organometallic → Polymer-bound metallocene → Formula "(C₁₃H₁₄Cl₂Zr)ₙ per repeat unit".
+- [ ] **Insert.** Insert the zirconocene → in Word, the picture's alt text gives the formula and the ionic SMILES,
+  labelled.
 
 ## 0dw. New in v2.184.0 — Drawing (CAD): STEP and IGES import
 

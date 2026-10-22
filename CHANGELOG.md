@@ -6,6 +6,23 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.185.0] — 2026-10-21 — Chemistry: η-bonded organometallics have a formula
+
+User report: the Zirconocene dichloride template showed "Formula: —".
+
+- **Metallocenes and other η-bonded structures now give their molecular formula, weight and monoisotopic mass** in
+  Build ▸ Draw: Cp₂ZrCl₂ C₁₀H₁₀Cl₂Zr, MW 292.32 g/mol, monoisotopic 289.9207; Cp₂TiCl₂, Cp₂HfCl₂, ferrocene (186.03,
+  as PubChem), the ansa, half-sandwich and bis(borohydride) templates, and any ring bound with the η-bond tool. The
+  formula counts the atoms however they are bonded — every Cp carbon keeps its one H, drawn delocalized or Kekulé.
+- **The SMILES is the ionic form databases use, labelled "(ionic representation)"** —
+  [CH-]1C=CC=C1.[CH-]1C=CC=C1.[Cl-].[Cl-].[Zr+4] — since SMILES cannot express η bonding; its charges always balance.
+  Ligands as databases write them: Cl⁻ (bridging too), H⁻, O²⁻, CO as [C-]#[O+], neutral donors (NH₃, PMe₃) uncharged.
+- **The monoisotopic mass** now shows beside the average weight for every structure in Build ▸ Draw.
+- **A polymer** (structure in repeat-unit brackets, as the polymer-bound metallocene) gives its formula per repeat
+  unit: (C₁₃H₁₄Cl₂Zr)ₙ, with its weight per unit; it still inserts as a drawing.
+- An η-bonded structure inserts with its ionic SMILES labelled in the alt text and no reopen code, and opens from a
+  ChemDraw file on the page canvas, as drawn. The template is renamed **Zirconocene dichloride (Cp₂ZrCl₂)**.
+
 ## [2.184.0] — 2026-10-21 — Drawing (CAD): import STEP and IGES parts and assemblies
 
 docs/SCOPE-STEP-IMPORT.md.

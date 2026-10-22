@@ -11,6 +11,7 @@
 import type { XNode } from "./xmlLite";
 import type { CdxDoc } from "./cdxml";
 import { deleteObjects, fragmentOf, isHaptoCentre, nextIdFrom, setAtomLabel, syncHaptoCentres, writeBrackets } from "./cdxmlEdit";
+import { symbolFor } from "./periodic";
 
 type P2 = [number, number];
 const fmt = (v: number): string => String(Math.round(v * 100) / 100);
@@ -76,6 +77,21 @@ export function addHapto(doc: CdxDoc, atomIds: string[], metalId: string): { ok:
   const id = nextIdFrom(doc.root);
   const centreId = id(), bondId = id();
   metal.frag.children.push(node(centreId, [0, 0], { NodeType: "MultiAttachment", Attachments: ids.join(" ") }), bond(bondId, centreId, metalId));
+  // A main-group centre labelled with its own hydrogens (a Si placed alone reads "SiH4"): the ring takes one of its
+  // bonds, so one H fewer — the label and the formula would otherwise keep a hydrogen that is not there (review).
+  const z = Number(metal.node.attrs.Element ?? 0), h = Number(metal.node.attrs.NumHydrogens ?? 0);
+  const dfBlock = (z >= 21 && z <= 30) || (z >= 39 && z <= 48) || (z >= 57 && z <= 80) || (z >= 89 && z <= 112);
+  if (h > 0 && !dfBlock) {
+    const sym = symbolFor(z);
+    // Written on the node as the editor writes an element with its hydrogens (setAtomLabel would read "SiH3" as text).
+    const t = metal.node.children.find((c) => c.name === "t");
+    const runs = t?.children.filter((c) => c.name === "s") ?? [];
+    if (sym && runs.length) {
+      metal.node.attrs.NumHydrogens = String(h - 1);
+      runs[0].text = `${sym}${h - 1 ? `H${h - 1 > 1 ? h - 1 : ""}` : ""}`;
+      for (const r of runs.slice(1)) r.text = "";
+    }
+  }
   syncHaptoCentres(doc.root);
   return { ok: true, centreId, bondId };
 }
@@ -205,7 +221,7 @@ export function setRingPerspective(doc: CdxDoc, ringIds: string[]): string | nul
 export type MetalloceneTemplate = "metallocene-dichloride" | "ansa-metallocene" | "half-sandwich" | "metallocene-borohydride" | "polymer-metallocene";
 
 export const METALLOCENE_TEMPLATES: Array<{ id: MetalloceneTemplate; label: string }> = [
-  { id: "metallocene-dichloride", label: "Metallocene dichloride (Cp₂ZrCl₂)" },
+  { id: "metallocene-dichloride", label: "Zirconocene dichloride (Cp₂ZrCl₂)" },
   { id: "ansa-metallocene", label: "ansa-Metallocene (Me₂Si-bridged)" },
   { id: "half-sandwich", label: "Half-sandwich (CpZrCl₃)" },
   { id: "metallocene-borohydride", label: "Metallocene bis(borohydride) (Cp₂Zr(BH₄)₂)" },

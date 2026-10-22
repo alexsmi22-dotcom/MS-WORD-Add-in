@@ -60,6 +60,12 @@ export function pageStructures(doc: CdxDoc): { structures: PageStructure[]; more
     } catch (error) {
       m = { ok: false, reason: `it could not be read (${(error as Error).message})` };
     }
+    // A metallocene (η-bonds) reads as its ionic form — exact for the formula, but not a drawing: in the structure
+    // editor it would open as loose ions, its rings off the metal. It stays on the page canvas, as drawn.
+    if (m.ok && m.value.ionic) {
+      structures.push({ id, ids: own, svg: pic.svg, mol: null, reason: "a metal bound to whole rings (η-bonds) is edited on the page canvas, as drawn", bare: null });
+      continue;
+    }
     const bare = m.ok ? m.value.mol : null;
     // Something belongs to it (polymer brackets, an attached label or a counter-ion): the page canvas keeps it — the
     // structure editor would open the bare structure, a polymer's brackets silently gone (review). The bare structure

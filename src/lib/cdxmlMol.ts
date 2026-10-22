@@ -52,11 +52,17 @@ export interface PageMolecule {
   notes: string[];
   /** The page carries query features or atom lists: the Molecule is a query structure (OCL's fragment flag). */
   query: boolean;
+  /** η-bonds were written as ions (the formula is exact; the SMILES is an ionic representation). */
+  ionic?: boolean;
 }
 
 /** Which side of its one bond a label is written on: left when its neighbour lies to its right. */
 /** d- and f-block metals: the atoms a drawn complex may give more bonds than a main-group valence. */
 const isComplexMetal = (z: number): boolean => (z >= 21 && z <= 30) || (z >= 39 && z <= 48) || (z >= 57 && z <= 80) || (z >= 89 && z <= 112);
+/** s- and p-block metals (Li, Mg, Al, Sn…): a bond from an η-bound metal to one is a metal–metal bond, kept. */
+const isMainGroupMetal = (z: number): boolean => [3, 4, 11, 12, 13, 19, 20, 31, 37, 38, 49, 50, 55, 56, 81, 82, 83, 87, 88].includes(z);
+/** What an η-bond may bind a ring to: a metal (or a metalloid such as B, Si, Ge as drawn in some main-group complexes). */
+const canBindRing = (z: number): boolean => isComplexMetal(z) || isMainGroupMetal(z) || [5, 14, 32, 33, 51, 52].includes(z) || z > 112;
 
 export function labelSide(f: XNode, n: XNode): "left" | "right" | null {
   // The label's justification says which letter sits on the atom (ChemDraw's own rule): left-justified,
@@ -104,6 +110,14 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
   // Applied last (OCL makes the Molecule a query as soon as one is set, and then counts no hydrogens):
   // atom query features, atom lists and stereo groups by page id; bond query features by their two atoms.
   const atomProps: Array<{ id: string; attrs: Record<string, string>; list?: { list: number[]; not: boolean } }> = [];
+  /** η-bonds by their centre's id: the ring (or chain) atoms they bind, and the metal (filled from the bonds). */
+  const hapto = new Map<string, { ring: string[]; metal: string | null }>();
+  let ionic = false;
+  /** η-bound metals drawn with hydrogens ("ZrH"): written as hydride ions, so the drawn-H check passes them by. */
+  const metalHydrideIds = new Set<string>();
+  /** Ligand atoms the η step gave their hydrogen count (the drawn-H check passes them by: it would force a hypervalent
+   *  count the editor wrote back on). */
+  const handledH = new Set<string>();
   const bondProps: Array<{ a0: number; a1: number; attrs: Record<string, string> }> = [];
   for (const o of doc.objects) {
     if (objectIds && !objectIds.has(o.id)) continue;
@@ -282,8 +296,15 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
         expanded.set(n.attrs.id, { attach: attach.map((v) => ({ num: v.num, atom: v.atom! })), words, bondOrder: (n.attrs.BondOrdering ?? "").split(/\s+/).filter(Boolean) });
         continue;
       }
-      // A metal bound to a whole ring (η⁵-Cp in a metallocene): no single-structure formula says that bond.
-      if (type === "MultiAttachment") return { ok: false, reason: "a metal bound to a whole ring (an η-bond, as in a metallocene) has no single structure formula — it is drawn and inserted as ChemDraw draws it" };
+      // A metal bound to a whole ring (η⁵-Cp in a metallocene): the centre is a point, not an atom — the ring's atoms
+      // and the metal are counted as they are (the formula does not depend on how they are bonded); the ring and
+      // metal are written as ions afterwards (see the η-bonds step below).
+      if (type === "MultiAttachment") {
+        const ring = (n.attrs.Attachments ?? "").split(/\s+/).filter(Boolean);
+        if (ring.length < 2) return { ok: false, reason: "an η-bond names fewer than two ring atoms" };
+        hapto.set(n.attrs.id, { ring, metal: null });
+        continue;
+      }
       return { ok: false, reason: `an atom drawn as ${type} has no exact form in a structure` };
     }
     // Bonds: to an abbreviation, each bond at the connection point it names (BeginExternalNum /
@@ -305,19 +326,59 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
     };
     for (const b of f.children) {
       if (b.name !== "b") continue;
+      // An η-bond's line from its centre to the metal: not a bond between two atoms — it names the metal.
+      const centre = hapto.get(b.attrs.B) ?? hapto.get(b.attrs.E);
+      if (centre) {
+        if (centre.metal !== null) return { ok: false, reason: "an η-bond's centre is drawn bonded to two atoms — it binds one metal" };
+        centre.metal = hapto.has(b.attrs.B) ? b.attrs.E : b.attrs.B;
+        continue;
+      }
       const ia = atomFor(b.attrs.B, b, "B"), ib = atomFor(b.attrs.E, b, "E");
       if (typeof ia === "string") return { ok: false, reason: ia };
       if (typeof ib === "string") return { ok: false, reason: ib };
       if (ia === undefined || ib === undefined) return { ok: false, reason: "a bond joins an atom that is not in the structure" };
-      const why = addBondOf(mol, ia, ib, b, wavy);
+      // A bond of an η-bound ring drawn in perspective (bold front edge, wedges at its sides): the look of the ring,
+      // not stereochemistry — read as a plain bond of its order.
+      const persp = b.attrs.Display && b.attrs.Display !== "Solid" && [...hapto.values()].some((h) => h.ring.includes(b.attrs.B) && h.ring.includes(b.attrs.E));
+      const why = addBondOf(mol, ia, ib, persp ? { ...b, attrs: { ...b.attrs, Display: "Solid" } } : b, wavy);
       if (why) return { ok: false, reason: why };
       if (bondQueryConstrains(b.attrs)) bondProps.push({ a0: ia, a1: ib, attrs: b.attrs });
     }
+  }
+  // η-bonds (a metallocene's Cp rings): the ring and the metal as the ions databases write — C₅H₅⁻ and Zr⁴⁺ — since
+  // no single-structure notation says "bound to the whole ring". The atoms, and so the formula and weight, are exact;
+  // only the bonds are an ionic stand-in (the note says so). An odd ring drawn delocalized is the ion the ring is
+  // aromatic as: C₅H₅⁻ (and an allyl C₃H₅⁻), C₇H₇⁺; its charge goes on one atom, so every atom keeps its one H.
+  const etaRings: number[][] = [];
+  for (const h of hapto.values()) {
+    if (h.metal === null) return { ok: false, reason: "an η-bond's centre is bound to no metal" };
+    const m = index.get(h.metal);
+    if (m === undefined) return { ok: false, reason: "an η-bond is bound to a group label, not a metal atom — label the metal with its symbol" };
+    if (!canBindRing(mol.getAtomicNo(m))) return { ok: false, reason: `an η-bond binds a ring to a metal — ${elementSymbol(mol.getAtomicNo(m))} is not one` };
+    const ring = h.ring.map((id) => index.get(id));
+    if (ring.some((a) => a === undefined)) return { ok: false, reason: "an η-bond binds an atom that is not in the structure" };
+    const atoms = ring as number[], inRing = new Set(atoms);
+    let among = 0, deloc = 0;
+    for (let b = 0; b < mol.getAllBonds(); b++) {
+      if (!inRing.has(mol.getBondAtom(0, b)) || !inRing.has(mol.getBondAtom(1, b))) continue;
+      among++;
+      if ((mol.getBondType(b) & Molecule.cBondTypeMaskSimple) === Molecule.cBondTypeDelocalized) deloc++;
+    }
+    if (among && deloc === among && atoms.length % 2 === 1 && atoms.every((a) => mol.getAtomCharge(a) === 0)) mol.setAtomCharge(atoms[0], atoms.length === 7 ? 1 : -1);
+    etaRings.push(atoms);
   }
   // Aromatic bonds (drawn as such) become alternating single and double bonds before anything is counted.
   const listAtoms = new Set(atomProps.filter((p) => p.list).map((p) => index.get(p.id)!).filter((a) => a !== undefined));
   const arom = resolveAromatic(mol, frags, index, listAtoms);
   if (arom) return { ok: false, reason: arom };
+  // A ring drawn with its single and double bonds (a Cp written C=C–C=C–C): the carbon with no double bond is the
+  // ring's anion, not a CH₂ — η-bound, it gives its electrons to the metal (each Cp carbon keeps its one H).
+  if (etaRings.length) {
+    const multiple = new Set<number>();
+    for (let b = 0; b < mol.getAllBonds(); b++) if (mol.getBondOrder(b) >= 2) multiple.add(mol.getBondAtom(0, b)).add(mol.getBondAtom(1, b));
+    // Carbon, and the N and P of a pyrrolyl or phospholyl ring (review: a Kekulé azaferrocene kept its N–H).
+    for (const ring of etaRings) for (const a of ring) if ([6, 7, 15].includes(mol.getAtomicNo(a)) && mol.getAtomCharge(a) === 0 && !multiple.has(a)) mol.setAtomCharge(a, -1);
+  }
   // OCL moves hydrogen atoms (and their bonds) to the end when it builds its helper arrays: each atom is
   // tagged first, so the page's ids — and the wavy bonds — still name their own atoms afterwards.
   const wavyEnds = wavy.map((b) => [mol.getBondAtom(0, b), mol.getBondAtom(1, b)]);
@@ -331,10 +392,113 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
   for (const [id, a] of index) index.set(id, moved.get(a)!);
   const idsBefore = atomIds.slice();
   for (const [was, now] of moved) atomIds[now] = idsBefore[was];
+  // The η-bound metal's other bonds broken as databases write such a complex ([Cl-].[Cl-].[Zr+4]). Each atom cut away
+  // keeps as many electrons as it needs to have the hydrogens it had — a chloride (bridging two metals too), a methyl,
+  // an oxo (O²⁻), a hydroxide drawn "OH" — and a donor that needs none stays neutral (NH₃ drawn with its three H, PMe₃);
+  // CO and an isocyanide are written as databases write them, [C-]#[O+], the metal not charged for them; a hydride is
+  // H⁻. The metal takes the balance — the rings' charges (each ring counted once) and the electrons its ligands kept —
+  // so the whole is as neutral as drawn. A bond between two metals stays (review round 1: CO came out [C-]#O with
+  // Mn⁴⁺, NH₃ was refused, a bridging Cl kept an H, a Cp on two metals was credited twice).
+  // After the re-tag above (review round 2: run before it, OpenChemLib had already moved explicit H atoms to the end,
+  // and every page id after them named the wrong atom): the metals by their final indices.
+  const metalsNow = new Set([...hapto.values()].map((h) => index.get(h.metal!)!));
+  if (metalsNow.size) {
+    const charged = new Map<number, number>(); // metal → its charge to add
+    const ringsSeen = new Set<string>();
+    for (const h of hapto.values()) {
+      const key = [...h.ring].sort().join(" ");
+      if (ringsSeen.has(key)) continue;
+      ringsSeen.add(key);
+      const m = index.get(h.metal!)!;
+      const q = h.ring.reduce((s, id) => s + mol.getAtomCharge(index.get(id)!), 0);
+      charged.set(m, (charged.get(m) ?? 0) - q);
+    }
+    // Hydrogens the page draws on an atom (a label "NH3", "OH", "ZrH"): the count the atom has.
+    const drawnH = new Map<number, number>();
+    for (const f of frags)
+      for (const n of f.children)
+        if (n.name === "n" && n.attrs.id && n.attrs.NumHydrogens !== undefined && index.has(n.attrs.id)) drawnH.set(index.get(n.attrs.id)!, Number(n.attrs.NumHydrogens));
+    mol.ensureHelperArrays(Molecule.cHelperNeighbours);
+    const cut: Array<{ b: number; m: number; o: number }> = [];
+    const before = new Map<number, number>();
+    for (let b = 0; b < mol.getAllBonds(); b++) {
+      const a0 = mol.getBondAtom(0, b), a1 = mol.getBondAtom(1, b);
+      for (const [m, o] of [[a0, a1], [a1, a0]]) {
+        if (!metalsNow.has(m) || isComplexMetal(mol.getAtomicNo(o)) || metalsNow.has(o) || isMainGroupMetal(mol.getAtomicNo(o))) continue;
+        cut.push({ b, m, o });
+        if (!before.has(o)) before.set(o, mol.getImplicitHydrogens(o));
+      }
+    }
+    for (const b of [...new Set(cut.map((c) => c.b))].sort((x, y) => y - x)) mol.deleteBond(b);
+    mol.ensureHelperArrays(Molecule.cHelperNeighbours);
+    const credit = new Map<number, number>(); // ligand atom → electrons kept, credited to the metals it was cut from
+    for (const o of before.keys()) {
+      const z = mol.getAtomicNo(o);
+      let others = 0;
+      for (let k = 0; k < mol.getConnAtoms(o); k++) others++;
+      if (z === 1) {
+        mol.setAtomCharge(o, -1); // a hydride
+        credit.set(o, 1);
+        continue;
+      }
+      // The hydrogens it should have: as drawn — but never more than it has neutral with its remaining bonds (the
+      // editor writes a hypervalent count on a P or S donor, PMe₃ "PH", review round 2); a halide none; otherwise those
+      // it had before the cut (OpenChemLib's hypervalent reading of a bridging or donor atom gave a phantom H there).
+      const neutral = mol.getImplicitHydrogens(o);
+      const target = drawnH.has(o) ? Math.min(drawnH.get(o)!, neutral) : (z === 9 || z === 17 || z === 35 || z === 53) && !others ? 0 : Math.min(before.get(o)!, neutral);
+      handledH.add(atomIds[o]);
+      let kept = 0;
+      while (mol.getImplicitHydrogens(o) > target && kept < 3) {
+        mol.setAtomCharge(o, mol.getAtomCharge(o) - 1);
+        mol.ensureHelperArrays(Molecule.cHelperNeighbours);
+        kept++;
+      }
+      // Boron, aluminium, gallium: a fourth hydrogen (BH₄⁻, AlH₄⁻) is what the negative charge allows — drawn with more
+      // H than neutral, it is the anion (review round 2: the borohydride came out a neutral BH₄ radical).
+      if ((z === 5 || z === 13 || z === 31) && drawnH.has(o) && drawnH.get(o)! > neutral && !kept) {
+        mol.setAtomCharge(o, mol.getAtomCharge(o) - 1);
+        mol.ensureHelperArrays(Molecule.cHelperNeighbours);
+        kept = 1;
+      }
+      // CO / CNR: the carbon's lone pair with the partner's positive charge, as databases write it; the metal is not
+      // charged for a neutral donor. A terminal cyanide (its N has nothing else) is the anion [C-]#N (review round 2).
+      if (kept === 1 && z === 6) {
+        for (let k = 0; k < mol.getConnAtoms(o); k++) {
+          const p = mol.getConnAtom(o, k);
+          if (mol.getConnBondOrder(o, k) === 3 && (mol.getAtomicNo(p) === 8 || (mol.getAtomicNo(p) === 7 && mol.getConnAtoms(p) >= 2))) {
+            mol.setAtomCharge(p, mol.getAtomCharge(p) + 1);
+            kept = 0;
+            break;
+          }
+        }
+      }
+      if (kept) credit.set(o, kept);
+    }
+    // Each ligand's electrons credited to the metal(s) it was cut from (a bridging chloride: one metal takes it).
+    for (const [o, k] of credit) {
+      const m = cut.find((c) => c.o === o)!.m;
+      charged.set(m, (charged.get(m) ?? 0) + k);
+    }
+    // Hydrogens drawn on the metal itself ("ZrH"): hydrides, written as ions beside it.
+    for (const m of metalsNow) {
+      const h = drawnH.get(m) ?? 0;
+      if (!h) continue;
+      for (let k = 0; k < h; k++) {
+        const a = mol.addAtom(1);
+        mol.setAtomCharge(a, -1);
+        atomIds.push("");
+      }
+      charged.set(m, (charged.get(m) ?? 0) + h);
+      metalHydrideIds.add(atomIds[m]);
+    }
+    for (const [m, q] of charged) if (q) mol.setAtomCharge(m, mol.getAtomCharge(m) + q);
+    ionic = true;
+    notes.push("a metal bound to whole rings (η-bonds): the formula and weight count the atoms, however they are bonded; the SMILES is an ionic representation — each ring and ligand as the ion it gives (C₅H₅⁻ for a Cp ring), the metal as an ion — the form databases use, since SMILES cannot express η bonding");
+  }
   // A wavy single bond means the geometry of the double bond it meets is not known.
   if (wavyEnds.length) {
     mol.ensureHelperArrays(Molecule.cHelperRings);
-    for (const wb of wavyEnds.map(([a0, a1]) => mol.getBond(moved.get(a0)!, moved.get(a1)!)))
+    for (const wb of wavyEnds.map(([a0, a1]) => mol.getBond(moved.get(a0)!, moved.get(a1)!)).filter((b) => b >= 0))
       for (const end of [0, 1] as const) {
         const a = mol.getBondAtom(end, wb);
         for (let k = 0; k < mol.getConnAtoms(a); k++) {
@@ -351,7 +515,7 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
     for (const n of f.children) {
       if (n.name !== "n" || !n.attrs.id || n.attrs.NumHydrogens === undefined) continue;
       const a = index.get(n.attrs.id);
-      if (a === undefined || (n.attrs.NodeType && n.attrs.NodeType !== "Element")) continue;
+      if (a === undefined || (n.attrs.NodeType && n.attrs.NodeType !== "Element") || metalHydrideIds.has(n.attrs.id) || handledH.has(n.attrs.id)) continue;
       const drawn = Number(n.attrs.NumHydrogens);
       if (!Number.isInteger(drawn) || drawn < 0 || drawn === mol.getImplicitHydrogens(a)) continue;
       let bonds = 0;
@@ -402,7 +566,7 @@ export function pageToMolecule(doc: CdxDoc, objectIds?: ReadonlySet<string>): { 
       if (why) return { ok: false, reason: why };
     }
   }
-  return { ok: true, value: { mol, atomIds, notes, query } };
+  return { ok: true, value: { mol, atomIds, notes, query, ...(ionic ? { ionic } : {}) } };
 }
 
 /**

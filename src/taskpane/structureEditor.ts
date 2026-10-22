@@ -225,12 +225,14 @@ export function createStructureEditor(mount: HTMLElement, host: ChemCanvasHost):
       // A page's structures as one molecule (the pane routes pages that cannot be one to the page canvas).
       const r = pageToMolecule(doc);
       if (!r.ok) return host.setStatus(`This page cannot open in the structure editor: ${r.reason}.`, "error");
+      // A metallocene reads as its ionic form (exact formula, not a drawing): it stays on the page canvas, as drawn.
+      if (r.value.ionic) return host.setStatus("This page cannot open in the structure editor: a metal bound to whole rings (η-bonds) is edited on the page canvas, as drawn.", "error");
       give(r.value.mol);
       stale = true;
     },
     replacePage: (doc: CdxDoc) => {
       const r = pageToMolecule(doc);
-      if (!r.ok) return false;
+      if (!r.ok || r.value.ionic) return false;
       give(r.value.mol);
       stale = true;
       return true;

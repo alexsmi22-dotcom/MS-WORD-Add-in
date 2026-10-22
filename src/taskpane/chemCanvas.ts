@@ -18,6 +18,7 @@ import {
   namesTiedTo, setAtomLabel, setAtomProps, setBond, setBondProps, setCharge, setText, writeCdxml, type AtomProps,
 } from "../lib/cdxmlEdit";
 import { moleculeToPage, pageToMolecule } from "../lib/cdxmlMol";
+import { repeatUnitOf, type RepeatUnit } from "../lib/polymerUnit";
 import { cleanStructures } from "../lib/cdxClean";
 import { atomQueryMarks, bondQueryMarks, showsMarks, stereoGroupMark } from "../lib/cdxQuery";
 import type { XNode } from "../lib/xmlLite";
@@ -42,7 +43,8 @@ export interface ChemCanvas {
   /** The page's structures as one OCL Molecule (empty when there are none, or when they cannot be one — see chemistry()). */
   getMolecule(): Molecule;
   /** The page's structures (or the selection's) as a Molecule (with what was read as drawn but unusual), or why they have no single formula. */
-  chemistry(selectionOnly?: boolean): { ok: true; mol: Molecule; notes: string[] } | { ok: false; reason: string };
+  /** `ionic`: η-bonds written as ions (exact formula; the SMILES is an ionic representation). */
+  chemistry(selectionOnly?: boolean): { ok: true; mol: Molecule; notes: string[]; ionic?: boolean } | { ok: false; reason: string; repeatUnit?: RepeatUnit };
   /** Replaces the page with this structure. */
   setMolecule(mol: Molecule): void;
   /** Empties the page (one undo step). */
@@ -866,7 +868,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   );
 
   // ---- API ------------------------------------------------------------------------------------
-  const chemistry = (selectionOnly = false): { ok: true; mol: Molecule; notes: string[] } | { ok: false; reason: string } => {
+  const chemistry = (selectionOnly = false): { ok: true; mol: Molecule; notes: string[]; ionic?: boolean } | { ok: false; reason: string; repeatUnit?: RepeatUnit } => {
     const scope = selectionOnly && selected.size ? selected : null;
     const inScope = (id: string): boolean => !scope || scope.has(id);
     // A reaction scheme (an arrow) or a polymer (brackets) is not one structure: its parts are read one at a time.
@@ -874,7 +876,22 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       return { ok: false, reason: "a reaction (an arrow on the page) has no single formula — select one structure (Select tool) to read its formula" };
     const bracketed = new Set(doc.brackets.flatMap((g) => g.objectIds));
     const inPolymer = doc.objects.some((o) => inScope(o.id) && o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => bracketed.has(nd.id))));
-    if (inPolymer) return { ok: false, reason: "a structure in brackets (a polymer's repeat unit, or a salt or charge bracket) has no single formula here — select a structure outside them (Select tool) to read its formula" };
+    if (inPolymer) {
+      // A polymer has no single formula (it is not one molecule), but its repeat unit has one: given beside the refusal,
+      // which the insert path and the rest still honour.
+      const unit = (() => {
+        try {
+          return repeatUnitOf(doc, scope ?? undefined);
+        } catch {
+          return null;
+        }
+      })();
+      return {
+        ok: false,
+        reason: unit?.ok ? "a polymer is not one molecule — the formula is per repeat unit" : `a structure in brackets has no single formula here (${unit && !unit.ok ? unit.reason : "it could not be read"})`,
+        ...(unit?.ok ? { repeatUnit: unit.unit } : {}),
+      };
+    }
     let r: ReturnType<typeof pageToMolecule>;
     try {
       r = pageToMolecule(doc, selectionOnly && selected.size ? selected : undefined);
@@ -886,7 +903,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     // A page with query features or atom lists is a query structure whatever the Markush box says (clearing
     // OCL's flag would delete them).
     r.value.mol.setFragment(fragmentFlag || r.value.query);
-    return { ok: true, mol: r.value.mol, notes: r.value.notes };
+    return { ok: true, mol: r.value.mol, notes: r.value.notes, ...(r.value.ionic ? { ionic: true } : {}) };
   };
   const api: ChemCanvas = {
     getMolecule: () => {

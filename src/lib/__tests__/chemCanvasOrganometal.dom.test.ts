@@ -3,7 +3,7 @@
  */
 // The page canvas's organometallic tools (docs/SCOPE-ORGANOMETALLIC.md), driven as a user drives them: a metallocene
 // template placed with one click, an η-bond drawn ring-then-metal and metal-then-ring, erased, undone; the readout
-// says in plain words why a metallocene has no single formula.
+// reads a metallocene as chemistry (exact formula; an ionic SMILES, flagged).
 import { TextDecoder as NodeTextDecoder } from "util";
 import { createChemCanvas, ChemCanvas } from "../../taskpane/chemCanvas";
 import { writeCdxml } from "../cdxmlEdit";
@@ -62,13 +62,28 @@ describe("Metallocene tool", () => {
     expect(t.centres()).toBe(0);
   });
 
-  test("the readout says in plain words why a metallocene has no single formula", () => {
+  test("a metallocene reads as chemistry: its exact formula, the ionic SMILES flagged, the note saying why (user report)", () => {
     const t = setup();
     t.tool("metallocene");
     t.click(200, 200);
     const r = t.c.chemistry();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.mol.getMolecularFormula().formula).toBe("C10H10Cl2Zr");
+    expect(r.ionic).toBe(true);
+    expect(r.notes.join(" ")).toMatch(/^a metal bound to whole rings \(η-bonds\): the formula and weight count the atoms/);
+  });
+
+  test("the polymer-bound metallocene: still not one molecule, but its formula per repeat unit is given", () => {
+    const t = setup();
+    t.tool("metallocene");
+    t.choose("[data-chem-template]", "polymer-metallocene");
+    t.click(200, 260);
+    const r = t.c.chemistry();
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/a metal bound to a whole ring \(an η-bond, as in a metallocene\)/);
+    if (r.ok) return;
+    expect(r.repeatUnit).toEqual({ formula: "C13H14Cl2Zr", mw: 332.38 });
+    expect(r.reason).toBe("a polymer is not one molecule — the formula is per repeat unit");
   });
 
   test("every template places and renders on the page", () => {

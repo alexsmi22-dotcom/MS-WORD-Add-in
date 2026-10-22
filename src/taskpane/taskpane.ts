@@ -7,6 +7,7 @@ import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
 import { initCharzPane, CharzPaneApi } from "./charzPane";
+import { compoundFromMolecule, monoisotopicMass } from "../lib/characterization";
 import { initDiagramPane, DiagramPaneApi } from "./diagramPane";
 import { initSolidformPane, SolidformPaneApi } from "./solidformPane";
 import { initAntibodyPane, AntibodyPaneApi } from "./antibodyPane";
@@ -1287,6 +1288,11 @@ let subGroupWrap: HTMLElement | null = null;
 let currentStructure: StructureResult | null = null;
 /** The molecule currently shown in the Build preview, or null. */
 let currentBuild: BuildResult | null = null;
+/**
+ * The structure on the Draw page is η-bonded (a metallocene): its chemistry is the ionic form — exact formula, an ionic
+ * SMILES — not the drawing. Inserted, it carries no reopen code and goes into no history (both would reopen loose ions).
+ */
+let currentBuildIonic = false;
 
 /**
  * GLOBAL CRASH BANNER — installed at module scope, before Office.onReady, so it
@@ -5639,6 +5645,7 @@ function updateDrawPreview(preserveStatus = false): void {
   window.clearTimeout(drawPreviewTimer);
   drawPreviewPending = false;
   currentBuild = null;
+  currentBuildIonic = false;
   insertBuildBtn.disabled = true;
   const pageEmpty = drawingEmpty();
   const chem = drawEditor && !pageEmpty ? drawEditor.chemistry() : null;
@@ -5657,7 +5664,10 @@ function updateDrawPreview(preserveStatus = false): void {
       // R-group legend, SMILES and compliance notes stay; it inserts as drawn.)
       buildFragmentToggle.checked = !!drawEditor?.isFragment();
       buildPreviewEl.innerHTML = drawn.svg;
-      buildFormulaEl.textContent = chem && !chem.ok ? `— (${chem.reason})` : "—";
+      buildFormulaEl.textContent =
+        chem && !chem.ok && chem.repeatUnit
+          ? `(${formatFormula(chem.repeatUnit.formula)})ₙ per repeat unit (MW ${chem.repeatUnit.mw} g/mol per unit) — ${chem.reason}`
+          : chem && !chem.ok ? `— (${chem.reason})` : "—";
       buildSmilesEl.textContent = "—";
       showBuildStereo(null);
       renderRgroupInputs([]);
@@ -5696,9 +5706,25 @@ function updateDrawPreview(preserveStatus = false): void {
       buildFragmentToggle.checked = result.generic;
       // The page as drawn is what inserts (the chemistry gives the formula, SMILES and alt text).
       if (drawn) currentBuild = result = { ...result, svg: drawn.svg };
+      // η-bonded (a metallocene): the SMILES is the ionic form databases write, in Kekulé form as they write it
+      // ([CH-]1C=CC=C1.…[Zr+4]) — labelled as a representation, not the bonding.
+      const ionic = !!(chem?.ok && chem.ionic);
+      currentBuildIonic = ionic;
+      if (ionic) currentBuild = result = { ...result, smiles: (mol as unknown as { toIsomericSmiles(o: { kekulizedOutput: boolean }): string }).toIsomericSmiles({ kekulizedOutput: true }) };
       buildPreviewEl.innerHTML = result.svg;
-      buildFormulaEl.textContent = formatFormula(result.formula) + (result.mw ? ` (MW ${result.mw} g/mol)` : "");
-      buildSmilesEl.textContent = result.smiles || "—";
+      // The monoisotopic mass beside the average weight (⁹⁰Zr, ³⁵Cl…: what a mass spectrum's first peak sits at).
+      const mono = (() => {
+        if (!result.mw) return "";
+        try {
+          const c = compoundFromMolecule(mol);
+          const m = "refusal" in c ? null : monoisotopicMass(c);
+          return typeof m === "number" ? `; monoisotopic ${m.toFixed(4)}` : "";
+        } catch {
+          return "";
+        }
+      })();
+      buildFormulaEl.textContent = formatFormula(result.formula) + (result.mw ? ` (MW ${result.mw} g/mol${mono})` : "");
+      buildSmilesEl.textContent = result.smiles ? result.smiles + (ionic ? " (ionic representation)" : "") : "—";
       showBuildStereo(mol);
       renderRgroupInputs(result.rgroups);
       // The compliance note must never take the preview down with it.
@@ -5786,7 +5812,8 @@ function openDrawDialog(molOnly?: string): void {
       const reopenWithStructure = (): void => {
         dialog.close();
         const chem = drawEditor?.chemistry();
-        const plain = !!drawEditor && !drawEditor.hasDrawing() && chem?.ok && chem.mol.getAllAtoms() > 0 && !drawEditor.page().objects.some((o) => o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => nd.nodeType === "Unspecified" || nd.nodeType === "Nickname" || nd.nodeType === "Fragment")));
+        // Not an η-bonded page: its molecule is the ionic form, not the drawing (it would open as loose ions).
+        const plain = !!drawEditor && !drawEditor.hasDrawing() && chem?.ok && !chem.ionic && chem.mol.getAllAtoms() > 0 && !drawEditor.page().objects.some((o) => o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => nd.nodeType === "Unspecified" || nd.nodeType === "Nickname" || nd.nodeType === "Fragment")));
         if (plain && chem?.ok && !molOnly) {
           const enc = chem.mol.getIDCodeAndCoordinates();
           const seed = `${enc.idCode} ${enc.coordinates}`;
@@ -6263,8 +6290,10 @@ async function insertBuild(): Promise<void> {
     const base64 = await renderFigurePng(molecule.svg, d.w, d.h);
     const label = molecule.formula || "molecule";
     // The reopen code (OCL-ID) only for a page that is its structures: one with captions would reopen without them.
-    const alt =
-      buildTab === "draw" && drawEditor?.hasDrawing()
+    const ionic = buildTab === "draw" && currentBuildIonic;
+    const alt = ionic
+      ? `Structure drawing (JurisLab) — ${molecule.formula}; SMILES ${molecule.smiles} (ionic representation: η-bonds have no SMILES)`
+      : buildTab === "draw" && drawEditor?.hasDrawing()
         ? `Structure drawing (JurisLab) — ${molecule.formula}; SMILES ${molecule.smiles}`
         : provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
     const entries = currentLegendEntries();
@@ -6287,7 +6316,7 @@ async function insertBuild(): Promise<void> {
     const staleNow = buildTab === "draw" && drawEditor ? drawEditor.staleNames() : [];
     const warnNow = staleNow.length ? ` Check ${staleNow.map((w) => `“${w}”`).join(", ")}: ChemDraw computed ${staleNow.length === 1 ? "that name" : "those names"} before the structure changed.` : "";
     setStatus((hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.") + sizeNote + warnNow, warnNow ? "" : "success");
-    recordInsert("build", recorded, label);
+    if (!ionic) recordInsert("build", recorded, label);
   } catch (error) {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");
   } finally {
@@ -30755,7 +30784,10 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
       const res = resultFromMolecule(chem.mol, STRUCTURE_W, STRUCTURE_H);
       // The reopen code (OCL-ID) only for a page that is its structures: one with captions would reopen without them.
       const whole = selectionOnly || !drawEditor.hasDrawing();
-      alt = whole ? provenanceAltText(`2D structure (${res.formula || "molecule"})`, res.formula, res.mw, res.smiles, res.idcode) : `Structure drawing (JurisLab) — ${res.formula}; SMILES ${res.smiles}`;
+      // η-bonded: the ionic SMILES, labelled, and no reopen code (it would reopen loose ions — review).
+      alt = chem.ionic
+        ? `Structure drawing (JurisLab) — ${res.formula}; SMILES ${(chem.mol as unknown as { toIsomericSmiles(o: { kekulizedOutput: boolean }): string }).toIsomericSmiles({ kekulizedOutput: true })} (ionic representation: η-bonds have no SMILES)`
+        : whole ? provenanceAltText(`2D structure (${res.formula || "molecule"})`, res.formula, res.mw, res.smiles, res.idcode) : `Structure drawing (JurisLab) — ${res.formula}; SMILES ${res.smiles}`;
       label = res.formula || label;
       generic = res.generic;
     } catch {
@@ -30773,7 +30805,8 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
     const warn = stale.length ? ` Check ${stale.map((w) => `“${w}”`).join(", ")}: ChemDraw computed ${stale.length === 1 ? "that name" : "those names"} before the structure changed.` : "";
     const keep = replace && drawFromPicture && !drawEditor.wasSaved() ? " The new picture does not carry a ChemDraw drawing as the old one did — Save as .cdxml to keep this drawing editable." : "";
     setStatus(`${replace ? "Replaced the selected picture with" : "Inserted"} ${selectionOnly ? "the selection" : "the drawing"}. ${fit.note}${warn}${keep}`, warn || keep ? "" : "success");
-    if (chem.ok && chem.mol.getAllAtoms()) {
+    // Not for an η-bonded page: its record would replay as loose ions (review).
+    if (chem.ok && chem.mol.getAllAtoms() && !chem.ionic) {
       const rec = chem.mol.getCompactCopy();
       if (generic) rec.setFragment(true);
       const enc = rec.getIDCodeAndCoordinates();

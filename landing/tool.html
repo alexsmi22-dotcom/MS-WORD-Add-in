@@ -345,10 +345,11 @@
         {in:"cash flows -1000, 500, 500, 500", out:"NPV / IRR"},
         {in:"S, K, r, σ, T", out:"Black–Scholes price + Δ Γ Θ ν ρ"}
       ] },
-    build: { title:"Build", tagline:"Draw on JurisLab's own chemistry canvas — it opens, edits and saves ChemDraw files — or build a structure from a typed atom/bond list or a molfile, including Markush/generic genus structures for patents.",
+    build: { title:"Build", tagline:"Draw in a ChemDraw-like editor that corrects as you go — ChemDraw files open structure by structure and save as .cdxml — or build a structure from a typed atom/bond list or a molfile, including Markush/generic genus structures for patents.",
       does:[
-        "<b>One chemistry canvas</b> — a page held the way ChemDraw holds it: structures, polymer <b>brackets</b>, reaction <b>arrows</b> and <b>captions</b>. Pick a tool, then click or drag: atoms with an element palette or any label (N, Cl, R1, OMe), bonds, rings, chains, charges, wedge/hash stereo. The inserted figure is exactly the page you drew. Resizable in the pane, or pop out the <b>large canvas</b>, which takes the whole page and sends it back as one undoable edit.",
-        "<b>ChemDraw files</b> — <b>Open ChemDraw file…</b> (.cdx, .cdxml) or <b>Open ChemDraw picture</b> (a picture pasted from ChemDraw into the document) puts it on the canvas to edit; <b>Save as .cdxml</b> writes a file ChemDraw opens; <b>Replace selected picture</b> puts the edited drawing where the old one was.",
+        "<b>A ChemDraw-like editor</b> that corrects the drawing as you go: atoms with an element palette or any label (N, Cl, R1, OMe), bonds, rings, chains, charges, wedge/hash stereo; or pop out the <b>large canvas</b>. The readout gives the formula, weight, <b>monoisotopic mass</b>, SMILES and <b>R/S and E/Z</b> by the CIP rules ((2<i>R</i>)-butan-2-ol).",
+        "<b>ChemDraw files</b> — <b>Open ChemDraw file…</b> (.cdx, .cdxml) lists the file's structures, each drawn small, to pick from; one opens full size in the editor. A structure that carries more than a molecule — polymer <b>brackets</b>, a counter-ion, a drawn charge, or an η-bond — opens on the <b>page canvas</b>, as drawn, and a polymer gives its formula per repeat unit; <b>Open the whole page as a drawing</b> keeps a page's <b>arrows</b> and <b>captions</b>. <b>Open ChemDraw picture</b> takes one pasted from ChemDraw into the document; <b>Save as .cdxml</b> writes a file ChemDraw opens; <b>Replace selected picture</b> puts the edited drawing where the old one was.",
+        "<b>Metallocenes</b> — an <b>η-bond tool</b> (a ring bound to a metal) and templates, their Cp rings drawn in perspective (zirconocene dichloride, ansa-metallocene, half-sandwich, bis(borohydride), polymer-bound). The formula, weight and monoisotopic mass count the atoms however they are bonded (Cp₂ZrCl₂: C₁₀H₁₀Cl₂Zr, 292.32 g/mol); the SMILES is the ionic form databases use, labelled as such.",
         "<b>Properties</b> — radicals, <b>AND / OR stereo groups</b> (drawn &1, or1), query features (substituents, ring bonds, unsaturation; ring or chain bonds; bonds that may be several orders) and <b>atom lists</b> typed as [N,O] or NOT [F,Cl] — each written as ChemDraw's own attribute, and every structure read back to prove it holds exactly what was drawn. What ChemDraw has no form for is refused by name.",
         "<b>Clean structure</b> — tidies each structure (or just the selected ones) in place: its centre kept, captions and arrows untouched, group labels kept as labels, and the structure read again afterwards — stereo included — and refused rather than changed. One undo restores your hand-drawn layout. <b>Reset canvas</b> wipes to a fresh start, also undo-recoverable.",
         "<b>Insert size</b> — ChemDraw size by default (as drawn, reduced only to fit the page; the status says when its letters are under the USPTO minimum), or <b>USPTO drawing sheet size</b>: enlarged until its smallest lettering (subscripts and charges included) meets the 1/8-inch minimum of 37 CFR 1.84(p)(3); one too large for the page at that size is refused, never shrunk below the rule.",
@@ -536,10 +537,14 @@
         {in:"alexander trefoil", out:"Δ(t) = 1 − t + t², determinant 3, symmetry Δ(t) = Δ(1/t) checked"},
         {note:"An analysis aid — verify before relying."}
       ] },
-    cad: { title:"Drawing (CAD)", tagline:"Build a part from shapes, turn it in 3D like the molecule view, and insert an engineering or patent drawing with every hidden line worked out on your machine.",
+    cad: { title:"Drawing (CAD)", tagline:"Build a part from shapes, sketch it, or import it from your CAD package (STEP, IGES, STL, OBJ, DXF); combine parts, turn them in 3D, and insert an engineering or patent drawing with every hidden line worked out on your machine.",
       does:[
         "<b>Parts</b> in drafting dimensions — diameters, not radii: block, cylinder / pin, tube / bushing, cone, sphere, plate with a hole grid, L-bracket, stepped shaft, flange with a bolt circle. An impossible part (holes through an edge, a bore wider than the flange) is refused with the reason, never drawn wrong.",
-        "<b>Assemble</b> by moving and turning each part; <b>drag</b> to orbit the 3D view, wheel to zoom, click a part to edit it.",
+        "<b>Sketch</b> your own parts: a box in five actions (Rectangle, width, Tab, height, click), grid snap, Smart Dimension, and Solid Edge's keys (S, L, R, C, A, P, T, D); extrude or revolve.",
+        "<b>Import</b> from your CAD package: <b>STEP</b> and <b>IGES</b> parts and assemblies (every solid a part named from the file, the assembly kept in shape, the units the file's own; the model's own edges, so cylinders have no facet lines; tangent edges on or off), <b>STL</b> and <b>OBJ</b> meshes (you choose the units), and <b>DXF</b> drawings to insert or edit as a sketch. The STEP reader downloads once (3 MB) and then works offline. Native Solid Edge or SolidWorks files cannot be read — export them as STEP.",
+        "<b>Combine</b> imported parts (STEP, STL, OBJ, or ones combined already): <b>Join to this</b>, <b>Cut out of this</b> or <b>Keep only the overlap with</b> another, by a mesh geometry engine (Manifold); the drawing keeps the recipe, so <b>Separate</b> puts them back.",
+        "<b>Assemble</b> by moving and turning each part, or <b>mate faces</b>; <b>drag</b> to orbit the 3D view, wheel to zoom, click a part to edit it.",
+        "<b>Views</b>: front, top, side, isometric, <b>section</b> (37 CFR 1.84(h)(3)), <b>detail</b> (2× to 10×), <b>exploded</b> and <b>perspective</b>; draw freehand, arrows, text and numerals anywhere on the sheet; sheets with title blocks and line types; export as SVG at true size, or to PowerPoint.",
         "<b>Hidden-line removal</b> on the true surfaces: curved parts get clean outlines, never facet lines, and a hidden line under a visible one is not drawn (ISO 128 / ASME precedence).",
         "<b>Standards</b>: ASME third-angle (default; 0.6 / 0.3 mm lines, 3 mm text, 6 mm view titles) or ISO first-angle (0.5 / 0.25 mm, 2.5 mm text), each at a standard ISO 5455 scale with the projection symbol; USPTO 1.84 sheets with FIG. labels in reading order and numerals at least 3.2 mm on lead lines; journal and plain line art.",
         "<b>Callouts</b> anchor to a point on the part — a balloon (engineering) or a reference numeral continuing your Numerals table (patent) — and appear in every view where that point is visible, set in tidy columns beside the view.",
@@ -547,7 +552,9 @@
       ],
       examples:[
         {in:"a plate with two holes, an L-bracket and a flange", out:"an ASME sheet: top above front, right side to its right, an isometric, SCALE 1:2"},
-        {note:"This release builds from shapes. A 2D sketcher with dimensions and constraints, section views and CAD-file import are next."}
+        {in:"an assembly exported as STEP: a base plate and two pins", out:"three parts named from the file, in place; a USPTO FIG. 1 with numerals 10, 12, 14 on lead lines"},
+        {in:"a 20 mm cube, Cut out of this: a 10 mm rod through it", out:"one part with a bore — a circle in TOP, dashed hidden lines in FRONT and RIGHT SIDE"},
+        {note:"It drafts from the parts you build or export; it is not a parametric modeller."}
       ] },
     seqmap: { title:"Sequence Map", tagline:"Open a GenBank / FASTA / SnapGene file and insert an annotated linear or circular map — read on your machine, nothing uploaded.",
       does:[

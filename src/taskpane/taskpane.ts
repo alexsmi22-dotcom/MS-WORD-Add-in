@@ -7,6 +7,7 @@ import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
 import { initCharzPane, CharzPaneApi } from "./charzPane";
+import { initCaptionsPane, captionLabelOf, type CaptionsPane } from "./captionsPane";
 import { compoundFromMolecule, monoisotopicMass } from "../lib/characterization";
 import { initDiagramPane, DiagramPaneApi } from "./diagramPane";
 import { initSolidformPane, SolidformPaneApi } from "./solidformPane";
@@ -174,6 +175,7 @@ import {
   peptideSummaryLines,
   peptideDrawRefusal,
 } from "../lib/chembioCalcs";
+import { ASSAY_QUANT_CALCS } from "../lib/assayQuantCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -357,6 +359,7 @@ import { readSvgDims, svgNaturalSize } from "../lib/svgSize";
 import { solveFunctionSvg } from "../lib/solveFigure";
 import type { CoxInput } from "../lib/cox";
 import { rmAnovaCalc, rmFieldText, coxCalc } from "../lib/statsBatchCalcs";
+import { welchAnovaCalc, gamesHowellCalc } from "../lib/welchCalcs";
 import { tukeyHSD } from "../lib/tukey";
 import { fftFilter, FilterKind, FilterResponse } from "../lib/fftfilter";
 import {
@@ -419,6 +422,7 @@ import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt, drawnShapesSvg
 import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit } from "../lib/geometryDraw";
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { tryLaplace, solveIvpLaplace, hasInitialConditions } from "../lib/laplace";
+import { studentPackVerb } from "../lib/studentPack";
 import { tryFourierSeries } from "../lib/fourier";
 import { tryMultivar, MULTIVAR_VERB_RE } from "../lib/multivar";
 import { tryProbability, PROB_VERB_RE } from "../lib/probability";
@@ -1067,7 +1071,10 @@ let refInsertXref: HTMLButtonElement;
 let refCheck: HTMLButtonElement;
 let refFindings: HTMLElement;
 /** Per-document caption counters (persisted in document settings). */
-let refCounters: { figure: number; table: number } = { figure: 1, table: 1 };
+let refCounters: { figure: number; table: number; scheme: number } = { figure: 1, table: 1, scheme: 1 };
+/** The Word-fields half of Captions, and field-numbered equation numbers (captionsPane.ts). */
+let captionsPane: CaptionsPane;
+let numberStyleSel: HTMLSelectElement;
 let plotSection: HTMLElement;
 let plotFn: HTMLInputElement;
 let plotXmin: HTMLInputElement;
@@ -2255,6 +2262,11 @@ Office.onReady((info) => {
   refInsertXref.addEventListener("click", insertCrossRef);
   refCheck.addEventListener("click", checkCaptionsHandler);
   loadRefCounters();
+  captionsPane = initCaptionsPane({ docHost, setStatus });
+  document.getElementById("ref-mode")?.addEventListener("change", updateRefNext);
+  updateRefNext();
+  numberStyleSel = document.getElementById("number-style") as HTMLSelectElement;
+  numberStyleSel?.addEventListener("change", updateNumberLabel);
 
   for (const el of [plotFn, plotXmin, plotXmax, plotData, plotTitle, plotXlabel, plotYlabel]) {
     el.addEventListener("input", updatePlotPreview);
@@ -2692,7 +2704,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "align", audience: ["science"], label: "Align", desc: "Compare two sequences — global or local" },
       { mode: "sequence", audience: ["science", "legal"], label: "Sequence", desc: "WIPO ST.26 listings" },
       { mode: "dna", audience: ["science"], label: "DNA", desc: "Rev-comp, translation, ORFs" },
-      { mode: "assay", audience: ["science"], label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
+      { mode: "assay", audience: ["science"], label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, standard curves, plates, qPCR, lab math" },
       { mode: "peptide", audience: ["science"], label: "Peptide", desc: "Draw a peptide from its sequence" },
       { mode: "botanical", audience: ["science", "legal"], label: "Botanical", desc: "Plant nomenclature" },
       { mode: "antibody", audience: ["science", "legal"], label: "Antibody", desc: "VH/VL numbering, CDRs, identity, claims" },
@@ -2850,7 +2862,10 @@ function updateExamples(): void {
 
 /** Shows the next equation number "(I)" next to the numbering checkbox. */
 function updateNumberLabel(): void {
-  numberNext.textContent = numberCheckbox.checked ? `(${toRoman(peekFormulaNumber())})` : "";
+  const style = numberStyleSel?.value ?? "roman";
+  numberNext.textContent = !numberCheckbox.checked ? "" : style === "roman" ? `(${toRoman(peekFormulaNumber())})` : "(numbered by Word)";
+  // Word's field numbers have no counter to reset: renumbering is Update numbers.
+  numberReset.hidden = style !== "roman";
 }
 
 /** Switches mode programmatically (e.g. from search or history) and refreshes UI. */
@@ -5214,23 +5229,34 @@ async function insertFormattedText(text: string): Promise<void> {
 async function insertEquation(text: string): Promise<boolean> {
   // Reserve a number only if this expression actually parses (avoid gaps on failure).
   const numbered = numberCheckbox.checked;
+  // (I), (II) … are counted here (patent formulas); (1) and (2.1) are Word's own SEQ fields, cross-referenceable.
+  const fieldNumbered = numbered && (numberStyleSel?.value ?? "roman") !== "roman";
   let ooxml: string;
   try {
-    const label = numbered ? `(${toRoman(peekFormulaNumber())})` : undefined;
-    ooxml = mathToOoxml(text, { number: label });
+    mathToOoxml(text); // parses, or the caller falls back — before a number is registered
   } catch {
     return false; // parse error — caller falls back
+  }
+  if (fieldNumbered) {
+    const runs = await captionsPane.equationNumber(text, numberStyleSel.value === "chapter");
+    if (!runs) return true; // refused; the status said why
+    ooxml = mathToOoxml(text, { numberRunsXml: runs });
+  } else {
+    const label = numbered ? `(${toRoman(peekFormulaNumber())})` : undefined;
+    ooxml = mathToOoxml(text, { number: label });
   }
 
   insertBtn.disabled = true;
   setStatus("Inserting equation…");
   try {
     await docHost.insertAtSelection({ kind: "ooxml", content: ooxml, at: "replace", select: null, tag: "formula-inserter:equation" });
-    if (numbered) {
+    let fieldNote = "";
+    if (fieldNumbered) fieldNote = await captionsPane.afterEquation();
+    else if (numbered) {
       nextFormulaNumber(); // consume the number now that it's placed
       updateNumberLabel();
     }
-    setStatus("Equation inserted.", "success");
+    setStatus(`Equation inserted.${fieldNote}`, fieldNote ? "" : "success");
     recordInsert("math", text, text);
     return true;
   } catch (error) {
@@ -7628,9 +7654,10 @@ function loadRefCounters(): void {
     refCounters = {
       figure: Number.isFinite(p?.figure) && p.figure > 0 ? Math.floor(p.figure) : 1,
       table: Number.isFinite(p?.table) && p.table > 0 ? Math.floor(p.table) : 1,
+      scheme: Number.isFinite(p?.scheme) && p.scheme > 0 ? Math.floor(p.scheme) : 1,
     };
   } catch {
-    refCounters = { figure: 1, table: 1 };
+    refCounters = { figure: 1, table: 1, scheme: 1 };
   }
 }
 
@@ -7646,6 +7673,8 @@ function saveRefCounters(): void {
 
 /** Shows the next caption number for the selected kind. */
 function updateRefNext(): void {
+  // Word numbers field captions itself: no counter here to show.
+  if (captionsPane?.fieldsMode()) return void (refNext.textContent = "numbered by Word");
   const kind = refKind.value as RefKind;
   refNext.textContent = `next: ${formatCaption(kind, refCounters[kind])}`;
 }
@@ -7659,6 +7688,16 @@ function resetRefCounter(): void {
 
 /** Inserts an auto-numbered caption paragraph and advances the counter. */
 async function insertCaption(): Promise<void> {
+  if (captionsPane.fieldsMode()) {
+    refInsertCaption.disabled = true;
+    try {
+      await captionsPane.insertCaption(captionLabelOf(refKind.value), refCaptionText.value);
+      refCaptionText.value = "";
+    } finally {
+      refInsertCaption.disabled = false;
+    }
+    return;
+  }
   const kind = refKind.value as RefKind;
   const n = refCounters[kind];
   const text = formatCaption(kind, n, refCaptionText.value);
@@ -7696,7 +7735,7 @@ async function checkCaptionsHandler(): Promise<void> {
   setStatus("Checking captions…");
   try {
     const bodyText = await docHost.readBodyText();
-    renderRefFindings(checkCaptions(bodyText, "figure"), checkCaptions(bodyText, "table"));
+    renderRefFindings(checkCaptions(bodyText, "figure"), checkCaptions(bodyText, "table"), checkCaptions(bodyText, "scheme"));
     setStatus("Check complete.", "success");
   } catch (error) {
     setStatus(`Could not check captions: ${(error as Error).message}`, "error");
@@ -7709,6 +7748,7 @@ async function checkCaptionsHandler(): Promise<void> {
 function renderRefFindings(
   fig: ReturnType<typeof checkCaptions>,
   tab: ReturnType<typeof checkCaptions>,
+  scheme?: ReturnType<typeof checkCaptions>,
 ): void {
   const items: string[] = [];
   const add = (label: string, f: ReturnType<typeof checkCaptions>): void => {
@@ -7717,6 +7757,7 @@ function renderRefFindings(
   };
   add("Figures", fig);
   add("Tables", tab);
+  if (scheme) add("Schemes", scheme);
   refFindings.classList.remove("ok", "error");
   if (!items.length) {
     refFindings.classList.add("ok");
@@ -10420,6 +10461,56 @@ const STAT_CALCS: StatCalc[] = [
               ),
       };
     },
+  },
+  {
+    // Welch's one-way ANOVA: the omnibus test for groups with UNEQUAL variances,
+    // which "Check test assumptions" recommends. Engine src/lib/welch.ts; report
+    // and figure src/lib/welchCalcs.ts (tested in welch.test.ts against pingouin).
+    // Default: pain threshold by hair colour (McClave & Dietrich; pingouin
+    // read_dataset("anova")), so the shipped default reproduces the oracle:
+    // F(3, 8.3) = 5.89, p = .019.
+    id: "welchanova",
+    name: "Welch's ANOVA (unequal variances)",
+    fields: [
+      {
+        key: "groups",
+        label: "Groups (blank line or ; between groups)",
+        default: "63 57 52 41 43\n\n32 39 51 30 35\n\n62 60 71 55 48\n\n42 50 41 37",
+        kind: "groups",
+        table: "groups",
+      },
+    ],
+    compute: (r) => welchAnovaCalc(statGroups(r("groups"))),
+  },
+  {
+    // Games-Howell: the post-hoc for Welch's ANOVA. Every pair has its own Welch
+    // df, so p and the CI use the fractional-df studentized range in tukey.ts
+    // (studentizedRangeSf / studentizedRangeQuantile), not the Tukey path.
+    // Same default as welchanova: pairs 2 vs 3 (p = .015) and 3 vs 4 (p = .038)
+    // are significant, as pingouin reports.
+    id: "gameshowell",
+    name: "Games-Howell (post-hoc, unequal variances)",
+    fields: [
+      {
+        key: "groups",
+        label: "Groups (blank line or ; between groups)",
+        default: "63 57 52 41 43\n\n32 39 51 30 35\n\n62 60 71 55 48\n\n42 50 41 37",
+        kind: "groups",
+        table: "groups",
+      },
+      {
+        key: "alpha",
+        label: "Family-wise level",
+        default: "0.05",
+        kind: "select",
+        options: [
+          { value: "0.05", label: "alpha = 0.05" },
+          { value: "0.01", label: "alpha = 0.01" },
+          { value: "0.10", label: "alpha = 0.10" },
+        ],
+      },
+    ],
+    compute: (r) => gamesHowellCalc(statGroups(r("groups")), r("alpha")),
   },
   {
     id: "regression",
@@ -30962,7 +31053,13 @@ function updateSolve(): void {
   let text = folded.text.trim();
   // "λ → lambda" is a distribution's own parameter under a probability verb,
   // not a variable; the fold note would mislead there.
-  solvePasteNoteEl.textContent = text ? folded.notes.filter((n) => !(PROB_VERB_RE.test(text) && /^Greek letters read as variables/.test(n))).join(" ") : "";
+  // STUDENT PACK (significant figures, Monte Carlo): decided ONCE, on the RAW
+  // input — the fold drops the "." of "1200." (four figures → an ambiguous two)
+  // and notes "± means two expressions" — so when it answers, none of the
+  // fold's notes describe what was read. One decision function, shared with
+  // the tests (studentPack.ts; studentPackRouting.test.ts).
+  const studentVerb = kind === "equation" ? studentPackVerb(solveInput.value) : null;
+  solvePasteNoteEl.textContent = text && !studentVerb ? folded.notes.filter((n) => !(PROB_VERB_RE.test(text) && /^Greek letters read as variables/.test(n))).join(" ") : "";
   renderSolveTypeset(kind, text);
   solveResult.replaceChildren();
   currentSolveText = "";
@@ -31040,6 +31137,7 @@ function updateSolve(): void {
         }
       }
       const transformVerb =
+        studentVerb !== null ||
         /^\s*(?:inverse\s+)?laplace\b|^\s*(?:ℒ|L)\s*\{|^\s*(?:ℒ|L)\s*(?:\^\s*[({]?\s*-\s*1|⁻¹)|^\s*fourier\s+series\b/i.test(text) ||
         MULTIVAR_VERB_RE.test(text) ||
         PROB_VERB_RE.test(text) ||
@@ -31172,7 +31270,10 @@ function updateSolve(): void {
         tryComplex(text) ??
         tryComplex(taskText) ??
         tryAlgebraVerb(taskText) ??
-        tryAlgebraVerb(text);
+        tryAlgebraVerb(text) ??
+        // The student pack (sig figs, Monte Carlo), decided above on the RAW
+        // input — last, because no verb before it claims those lines.
+        studentVerb;
       if (verb) {
         solveResult.appendChild(msEyebrow(verb.title));
         say(verb.title, "heading");
@@ -32371,7 +32472,7 @@ interface AssayField {
   // "text" (one line) and "line" (a short multi-line box) arrived with the
   // stoichiometry calculator (v2.137.0): a reaction and its amount lines are
   // words, not numbers.
-  kind?: "number" | "list" | "select" | "text" | "line";
+  kind?: "number" | "list" | "select" | "text" | "line" | "block";
   options?: { value: string; label: string }[];
   /**
    * May be left blank without blocking the calculation.
@@ -33340,6 +33441,8 @@ const ASSAY_CALCS: AssayCalc[] = [
     ],
     compute: (r) => stoichCalc(r("rxn"), r("amounts"), r("actual"), r("gas")),
   },
+  // Quantitation: standard curve back-calculation, plates, qPCR (src/lib/assayQuantCalcs.ts).
+  ...ASSAY_QUANT_CALCS,
 ];
 
 function populateAssayCalcs(): void {

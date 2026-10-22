@@ -11,11 +11,12 @@
 
 import { maxOf } from "./minmax";
 
-export type RefKind = "figure" | "table";
+export type RefKind = "figure" | "table" | "scheme";
 
 const STYLE: Record<RefKind, { caption: string; abbr: string }> = {
   figure: { caption: "Figure", abbr: "Fig." },
   table: { caption: "Table", abbr: "Table" },
+  scheme: { caption: "Scheme", abbr: "Scheme" },
 };
 
 /** A numbered caption, e.g. "Figure 1. A widget" (or "Figure 1" with no text). */
@@ -84,7 +85,9 @@ export function extractRefNumbers(text: string, kind: RefKind): number[] {
   const re =
     kind === "figure"
       ? /\bfig(?:ure|s|\.)?\.?\s*(\d+(?:\s*(?:[-–—]|to|and|or|,)\s*\d+)*)/gi
-      : /\btables?\s+(\d+(?:\s*(?:[-–—]|to|and|or|,)\s*\d+)*)/gi;
+      : kind === "scheme"
+        ? /\bschemes?\s+(\d+(?:\s*(?:[-–—]|to|and|or|,)\s*\d+)*)/gi
+        : /\btables?\s+(\d+(?:\s*(?:[-–—]|to|and|or|,)\s*\d+)*)/gi;
   const nums = new Set<number>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) for (const n of parseRefSpan(m[1])) nums.add(n);
@@ -92,13 +95,61 @@ export function extractRefNumbers(text: string, kind: RefKind): number[] {
 }
 
 export interface CaptionFindings {
-  gaps: number[];
-  duplicates: number[];
+  /** Numbers skipped: 3, or "2.2" for chapter-numbered captions. */
+  gaps: Array<number | string>;
+  duplicates: Array<number | string>;
   ok: boolean;
 }
 
-/** Flags skipped or duplicated caption numbers for a kind (1..max expected). */
+/**
+ * Chapter-numbered caption labels at the start of a line ("Figure 2.3" → "2.3"), in order; empty when the captions
+ * are numbered plainly. Word's chapter captions (STYLEREF + SEQ … \s 1) restart at each chapter, so the check is
+ * per chapter (release A review: "Figure 1.1, 1.2, 2.1" read as a duplicated 1).
+ */
+export function extractChapterCaptions(text: string, kind: RefKind): string[] {
+  const word = STYLE[kind].caption;
+  // A caption, not a sentence: the number is followed by caption punctuation (". ", ":", a spaced dash), the end of
+  // the line, or — after a dotted number — a capitalised title. "Figure 2–4 show the results" (a range) and
+  // "Table 1.5 mg of x" (a quantity) are prose (fix-round review: either switched the whole check to chapters).
+  const re = new RegExp(
+    `(?:^|[\\r\\n\\v])[^\\S\\r\\n\\v]*${word}\\s+(\\d+)([.\\-–])(\\d+)(?=[.:]|[^\\S\\r\\n\\v]+[-–—][^\\S\\r\\n\\v]|[^\\S\\r\\n\\v]*(?:[\\r\\n\\v]|$)|([^\\S\\r\\n\\v]+\\p{Lu}))`,
+    "gu",
+  );
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m[4] !== undefined && m[2] !== ".") continue; // "Figure 2–4 Results" is a range; only 2.4 may take a bare title
+    out.push(`${parseInt(m[1], 10)}.${parseInt(m[3], 10)}`);
+  }
+  return out;
+}
+
+/** Line-start captions numbered plainly ("Figure 3. …"), counted to tell a chapter-numbered document from one that only mentions a 2.1. */
+function plainCaptionCount(text: string, kind: RefKind): number {
+  const re = new RegExp(`(?:^|[\\r\\n\\v])[^\\S\\r\\n\\v]*${STYLE[kind].caption}\\s+\\d+(?![.\\-–]\\d)`, "g");
+  return (text.match(re) ?? []).length;
+}
+
+/** Flags skipped or duplicated caption numbers for a kind (1..max expected; per chapter for chapter numbering). */
 export function checkCaptions(text: string, kind: RefKind): CaptionFindings {
+  const chapter = extractChapterCaptions(text, kind);
+  // Chapter numbering only when chapter captions are the document's form, not one stray "Figure 1.2" among plain ones.
+  if (chapter.length && chapter.length >= plainCaptionCount(text, kind)) {
+    const seen = new Map<string, number>();
+    for (const l of chapter) seen.set(l, (seen.get(l) ?? 0) + 1);
+    const duplicates = [...seen].filter(([, n]) => n > 1).map(([l]) => l);
+    const byChapter = new Map<number, number[]>();
+    for (const l of seen.keys()) {
+      const [ch, n] = l.split(".").map(Number);
+      (byChapter.get(ch) ?? byChapter.set(ch, []).get(ch)!).push(n);
+    }
+    const gaps: string[] = [];
+    for (const [ch, ns] of [...byChapter].sort((a, b) => a[0] - b[0])) {
+      const max = maxOf(ns);
+      for (let i = 1; i <= max; i++) if (!ns.includes(i)) gaps.push(`${ch}.${i}`);
+    }
+    return { gaps, duplicates, ok: !gaps.length && !duplicates.length };
+  }
   const nums = extractCaptionNumbers(text, kind);
   const seen = new Map<number, number>();
   for (const n of nums) seen.set(n, (seen.get(n) ?? 0) + 1);

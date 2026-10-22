@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.185.0)
+# JurisLab — Manual Test Script (v2.186.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,170 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dy. New in v2.186.0 — Captions as Word fields, Welch's ANOVA, standard curves and qPCR, significant figures
+
+### Captions & cross-refs (Word fields)
+
+- [ ] ★ **Renumbering.** Captions & cross-refs (Numbering: Word fields): insert three figures with captions
+  (Figure 1–3). Refresh list → Fig. 1, 2, 3 offered. Put the cursor in a paragraph, insert a reference to Figure 3 →
+  "Fig. 3". Now insert a new caption ABOVE Figure 2 → Update numbers → the captions read 1–4 and the reference reads
+  "Fig. 4". Ctrl+click it → jumps to the figure.
+- [ ] **Delete.** Delete Figure 1's caption → Update numbers → the rest renumber 1–3; refresh list → it is gone.
+- [ ] **Equations.** Math ▸ Number this equation, Equation numbers (1) → two equations (1), (2); refer to Eq. (2);
+  insert one between → Update numbers → the reference reads Eq. (3).
+- [ ] **Chapters.** With Heading 1 numbered (Home ▸ Multilevel list), tick With chapter numbers → Figure 2.1 under
+  heading 2.
+- [ ] **Table of figures.** Insert → the list of captions with page numbers.
+- [ ] **Mac.** Update numbers either works or says to select all and press F9.
+
+### Stats: Welch's ANOVA and Games–Howell
+
+Stats mode. Expected values are from pingouin 0.7.0 / SciPy 1.18 (the oracle in welch.test.ts).
+
+- [ ] Stats → **Welch's ANOVA (unequal variances)**. The default (pain threshold by hair colour, four groups) shows
+  **F(3, 8.3) = 5.89, p = .019**, then Group 1–4 means 51.2, 37.4, 59.2, 42.5 with SD and n, and a box plot.
+  Every minus is a true minus (−), and **Insert result** and **Insert chart** both work.
+- [ ] Stats → **Games-Howell (post-hoc, unequal variances)**, default, α = 0.05. The second line is
+  `Welch's ANOVA: F(3, 8.3) = 5.89, p = .019`. Six rows; exactly two are starred:
+  - `Group 2 vs 3:  diff = −21.8  SE = 5.33  df = 8.0  q = 5.79  p = .015  95% CI [−38.87, −4.732]  *`
+  - `Group 3 vs 4:  diff = 16.7  SE = 4.69  df = 6.8  q = 5.04  p = .038  95% CI [1.049, 32.35]  *`
+
+  The forest plot shows six intervals, and only those two do not cross the zero line. Switch α to 0.01: the header
+  says 99% CI, the intervals widen, and no row is starred.
+- [ ] **The case it is for.** Type these three groups into both calculators and into One-way ANOVA:
+  `10 10.1 9.9 10.05 9.95` / blank line / `1 50 100 2 75 30` / blank line / `12.2 12.4 12.3 12.5`.
+  - One-way ANOVA gives F(2, 12) = 2.79, p = .101 and warns that the variances are not equal, recommending "Welch's
+    ANOVA with the Games–Howell post-hoc instead (both in Stats)".
+  - Welch's ANOVA gives **F(2, 6.5) = 464.12, p < .001**. Its note says the variances are unequal "…so this result
+    already allows for it", with no ⚠ and no advice to go elsewhere.
+  - Games–Howell stars only `Group 1 vs 3` (diff −2.35, p < .001, 95% CI [−2.594, −2.106]); 1 vs 2 is p = .200 and
+    2 vs 3 is p = .237.
+- [ ] **Check test assumptions** on the same three groups: the variance line says "NOT equal", and the note names
+  Welch's ANOVA and Games–Howell as the remedy. It no longer says "this product does not provide it".
+- [ ] **Tukey HSD** on the same groups: the caveat says "use Games–Howell (Stats) instead".
+- [ ] **Use table at cursor**: a table with header `Dark Blond | Dark Brunette | Light Blond | Light Brunette` and the
+  default's values in columns (the last column one value shorter) → both calculators load four groups and give the
+  same result as the default. A two-column `Hair colour | Pain threshold` table (one row per person) loads the same.
+- [ ] **Refusals, in words, nothing inserted:**
+  - one group only → "needs at least two groups; only one was found";
+  - `1 2 3` / `5` → "Group 2 has only one value";
+  - `1 2 3` / `7 7 7` → "Group 2 has zero variance: every value is 7";
+  - `-2 -2` / `1 3` → "every value is −2" (a true minus).
+
+  Nowhere does NaN, Infinity or a blank result appear.
+- [ ] **Small groups**: `1 2` / `3 4 5` in Games–Howell → one row, `df = 2.9`, p = .049, which equals Welch's
+  t-test p for those two groups (Stats → two-sample t-test, Welch: p = .049). A caveat counts the groups with fewer than
+  6 values and says the test can run somewhat liberal with groups that small.
+- [ ] **Speed**: paste 12 groups of 5 numbers into Games–Howell. The result appears in about a second, and typing in
+  one group stays responsive.
+
+### Bio/Assay: standard curves, plates, qPCR
+
+Open **Bio/Assay**. Each calculator below should show its result text, its notes, and a figure, and
+**Insert result** should place the text and then the figure.
+
+**Standard curve: read unknowns (linear or 4PL)**
+- [ ] Use the defaults with **Straight line**:
+  - [ ] Sample 1 reads **142.2 µg/mL (95 % CI 138.7 to 145.7 µg/mL)**.
+  - [ ] Sample 3 reads **above the highest standard (400 µg/mL); not extrapolated**, with no number.
+  - [ ] The figure shows the standards with SD bars, the fitted line, two red unknowns, and the note "Not plotted …
+    Sample 3".
+- [ ] Switch to **4-parameter logistic**. It refuses with "The 4PL plateaus are not determined…", because the
+  default data is a straight line, and nothing is inserted.
+- [ ] Put a 4-column Word table (Conc | Rep 1 | Rep 2 | Rep 3) in the document, click inside it, and click
+  **Use table at cursor** on the Standards box. The rows load and the status line says how many.
+- [ ] Type a letter into a response. The tool refuses with "Standards, line 2: “0.1x” is not a response."
+- [ ] Check the inserted text in Word:
+  - [ ] it uses "µg/mL", "95 % CI" and the → arrows;
+  - [ ] there are no hyphen-minus signs before numbers;
+  - [ ] the notes start with "Note:".
+
+**Plate reader: 96/384-well plate → standard curve**
+- [ ] Use the defaults (4PL):
+  - [ ] the header says "96-well, 28 wells with a reading; 8 standards, 3 samples";
+  - [ ] the blank is subtracted;
+  - [ ] Sample 1 reads **98.36 pg/mL (95 % CI 96.97 to 99.76 pg/mL)**.
+- [ ] Check the figure: a blue plate heat map over the log-axis standard curve. Empty wells show hatched or blank,
+  and the note reads "68 empty wells are left blank".
+- [ ] Build a 9 × 13 Word table: header row blank, 1…12; first column A…H; numbers in a few wells. Click
+  **Use table at cursor** on the plate box and confirm it loads.
+- [ ] Build a 2-column layout table (std 10 | A1-A2, …, blank | A3-C3, S1 | A4-A6). Load it with
+  **Use table at cursor** on the layout box. The calculation runs.
+- [ ] Delete column 12 from the plate table, then load it again. The tool refuses with "The plate has 11 columns…".
+- [ ] Type `OVER` into a standard's well. The tool refuses with "Well … reads “OVER”: the detector saturated".
+- [ ] Clear one standard well. The note names the well "(std …)" and says it was left out.
+- [ ] Insert, and check that the heat map and the curve land as one picture.
+
+**qPCR: Livak ΔΔCt method**
+- [ ] Use the defaults (Livak & Schmittgen 2001, Table 1):
+  - [ ] Kidney reads **ΔΔCt −2.50 ± 0.10; fold change 5.64 (5.28–6.02)**;
+  - [ ] Brain reads **fold change 1.00 (0.886–1.13)**.
+- [ ] Check the figure: two bars with asymmetric error bars and a dashed line at 1, which the footnote names ("Dashed line: no change (1)."). The title shows
+  2^−ΔΔCt with the exponent raised and the rest of the title back on the baseline.
+- [ ] The note flags "GAPDH shifts by −0.96 cycles in Kidney…" and says the threshold is the tool's own.
+- [ ] Set **Calibrator error** to the second option. Kidney becomes **5.64 (4.91–6.47)**, and Brain reads
+  "1 (calibrator, defined without error)".
+- [ ] Load an instrument export table (Well | Sample Name | Target Name | CT) that has an "Undetermined" well:
+  - [ ] the note says 1 replicate is Undetermined and was not replaced with 40;
+  - [ ] the fold change still computes.
+- [ ] Type `ACTB` as the reference. The tool refuses, naming the genes in the table.
+
+**qPCR: Pfaffl ratio**
+- [ ] Use the defaults:
+  - [ ] c-myc reads E = 1.97 (efficiency 97 %), GAPDH reads E = 1.988 (efficiency 98.8 %);
+  - [ ] Kidney reads ratio **5.38**;
+  - [ ] the bar chart has no error bars, and the figure says why.
+- [ ] Replace the target series amounts with 1, 10, 100. The tool refuses with "Ct rises with the input amount…
+  enter the relative amounts".
+- [ ] Set the reference series to `1 15`, `0.1 17.5`, `0.01 20`. The tool refuses with "Reference: efficiency
+  151 % … outside the 80–120 % window".
+
+### Solve and Units: significant figures, Monte Carlo, unit families
+
+All of these go in **Solve**, **Equation** kind, unless the item says otherwise.
+
+- [ ] ★ **Count.** Type `how many significant figures in 0.00450` → "0.00450: 3 significant figures" and the rules
+  that applied, ending "Significant digits: 4, 5, 0.". No paste note appears under the box.
+- [ ] **Ambiguous.** `sig figs in 1200` → "1200: 2 to 4 significant figures — AMBIGUOUS", and it suggests "1200." or
+  1.200×10³. Then `sig figs in 1200.` → 4 (the trailing point counts). Then `significant figures of 1.200×10³` → 4.
+- [ ] **Round.** `round 0.0045678 to 3 sig figs` → 0.00457. `round 12345 to 2 significant figures` → 1.2×10⁴, and it
+  explains why it is not 12000. `round 2.5 to 1 sig fig` → 3, with a note that round-half-to-even would give 2.
+- [ ] ★ **Arithmetic.** `3.40 × 2.1 with sig figs` → "= 7.1 (2 significant figures)", with the × ÷ step.
+  `12.11 + 18.0 + 1.013 sig figs` → 31.1, with the + − steps. `12 eggs × 0.0450 kg with sig figs` → 0.540 kg, and it
+  says "a count of things is exact".
+- [ ] **Uncertainty.** `round 10.0 ± 0.123 to the uncertainty` → "10.0 ± 0.123 → 10.0 ± 0.1", with the convention
+  stated. There is no "± means two expressions" note.
+- [ ] **Not stolen.** `solve x^2 = 2 to 3 significant figures` is still solved as an equation. `x^2 - 5x + 6 = 0` →
+  x = 2, 3. `E = mc^2` is unchanged.
+- [ ] ★ **Monte Carlo.** `monte carlo a*b/c a = 10.0 ± 0.1, b = 4.00 ± 0.05, c = 2.0 ± 0.1` → "Monte Carlo: mean
+  20.1, standard deviation 1.1", "95 % coverage interval [18.1, 22.3]", "First-order (GUM): 20.0 ± 1.1", then "The
+  two DISAGREE …". It has a histogram with a red GUM curve and dashed interval lines, and the answer arrives with no
+  visible pause.
+  - Type the same line again → the same digits.
+  - Add `seed 7` → slightly different digits.
+  - **Insert** → the text and the histogram go into Word, and the histogram has alt text.
+- [ ] **Linear agrees.** `monte carlo 2*a + 3*b a = 1 ± 0.1, b = 2 ± 0.2` → mean 8.00 and standard deviation 0.63,
+  matching GUM 8.00 ± 0.63. The verdict is "AGREE" or "agree to within the draws' own sampling noise", never
+  "DISAGREE".
+- [ ] **Refusals.**
+  - `monte carlo 1/c c = 0.1 ± 0.1` → percentiles only, with "do NOT settle".
+  - `monte carlo sqrt(x) x = 0.1 ± 1` → "…draws made the formula non-finite…".
+  - `monte carlo a*d a = 1 ± 0.1` → "“d” appears in the formula but has no value…".
+- [ ] **Units (Units tool ▸ Convert).**
+  - 1 Torr → Pa = 133.3 (101 325/760).
+  - 1 mmHg → Pa = 133.3.
+  - 1 Ci → GBq = 37.
+  - 1 cP → mPa·s = 1.
+  - 60 U → µkat = 1.
+  - 1 week → day = 7.
+  - 1 Julian year → day = 365.25.
+- [ ] ★ **Units refused by name.**
+  - 1 Gy → Sv: "Can't convert Gy → Sv: … DIFFERENT quantities … w_R …".
+  - 1 rad → Gy: "“rad” here is the RADIAN … written “rd”".
+  - 1 Bq → Hz: refused, naming activity vs frequency.
+  - 1 cP → cSt: "…needs the fluid's density…".
+  - 1 year → day: "“year” does not say which year…".
 
 ## 0dx. New in v2.185.0 — Chemistry: η-bonded organometallics have a formula
 

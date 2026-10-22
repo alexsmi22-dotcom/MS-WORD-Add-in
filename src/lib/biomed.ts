@@ -31,7 +31,7 @@
 // wrong by a factor of 133.
 
 /** Pascals per mmHg. */
-export const PA_PER_MMHG = 133.322;
+export const PA_PER_MMHG = 133.322387415;
 
 export interface BiomedError {
   ok: false;

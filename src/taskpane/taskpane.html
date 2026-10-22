@@ -156,6 +156,12 @@
           Number this equation <span id="number-next" class="number-next"></span>
           <button type="button" id="number-reset" class="linklike">reset</button>
         </label>
+        <label class="field-label" for="number-style">Equation numbers</label>
+        <select id="number-style" class="lib-select">
+          <option value="roman">(I), (II) … — patent formulas</option>
+          <option value="arabic">(1), (2) … — Word fields, renumber themselves</option>
+          <option value="chapter">(2.1), (2.2) … — by chapter (Heading 1 numbered)</option>
+        </select>
 
         <div id="library-row" class="library-row">
           <label for="lib-category" class="field-label">Formula library</label>
@@ -1714,32 +1720,55 @@
       <!-- Captions & cross-references -->
       <section id="refs-section">
         <p class="seq-disclaimer">
-          Auto-numbered figure/table captions and cross-references (Fig. 3, Table 2, Eq. (1)).
-          Counters are saved in this document. The check is advisory.
+          Captions (Figure 3, Table 2, Scheme 1) and cross-references to them and to numbered equations. With
+          <b>Word fields</b>, the numbers are Word's own, as Insert ▸ Caption writes them: add, move or delete a figure
+          and <b>Update numbers</b> renumbers every caption and every reference to it.
         </p>
+        <label class="field-label" for="ref-mode">Numbering</label>
+        <select id="ref-mode" class="lib-select">
+          <option value="fields">Word fields — renumber themselves</option>
+          <option value="text">Plain text — as typed, counted here</option>
+        </select>
         <div class="dna-controls">
           <label class="field-label" for="ref-kind">Caption</label>
           <select id="ref-kind" class="lib-select">
             <option value="figure">Figure</option>
             <option value="table">Table</option>
+            <option value="scheme">Scheme</option>
           </select>
           <span id="ref-next" class="number-next"></span>
           <button id="ref-reset" class="linklike" type="button">reset</button>
         </div>
-        <input id="ref-caption-text" class="formula-input" type="text" placeholder="Caption text (optional)" />
+        <label id="ref-chapter-row" class="omml-option"><input type="checkbox" id="ref-chapter" /> With chapter numbers (Figure 2.3 — Heading 1 must be numbered)</label>
+        <input id="ref-caption-text" class="formula-input" type="text" placeholder="Caption text (optional)" aria-label="Caption text" />
         <button id="ref-insert-caption" class="insert-btn" type="button">Insert caption</button>
 
         <span class="palette-group-label">Cross-reference</span>
-        <div class="dna-controls">
+        <div id="ref-xref-fields" class="dna-controls">
+          <select id="ref-xref-target" class="lib-select" aria-label="What to refer to"></select>
+          <button id="ref-xref-refresh" class="linklike" type="button">refresh list</button>
+          <button id="ref-insert-xref-field" class="insert-btn secondary" type="button">Insert reference</button>
+        </div>
+        <div id="ref-xref-text" class="dna-controls" hidden>
           <select id="ref-xref-kind" class="lib-select" aria-label="Cross-reference kind">
             <option value="figure">Fig.</option>
             <option value="table">Table</option>
+            <option value="scheme">Scheme</option>
             <option value="equation">Eq.</option>
           </select>
           <input id="ref-xref-num" type="text" class="rgroup-input" value="1" placeholder="1, or 1-3, or 1,2,5" aria-label="Reference number" />
           <button id="ref-insert-xref" class="insert-btn secondary" type="button">Insert reference</button>
         </div>
 
+        <div class="dna-controls">
+          <button id="ref-update" class="insert-btn secondary" type="button">Update numbers</button>
+          <select id="ref-tof-label" class="lib-select" aria-label="Table of">
+            <option value="Figure">Table of figures</option>
+            <option value="Table">Table of tables</option>
+            <option value="Scheme">Table of schemes</option>
+          </select>
+          <button id="ref-insert-tof" class="insert-btn secondary" type="button" aria-label="Insert table of figures">Insert</button>
+        </div>
         <button id="ref-check" class="insert-btn secondary" type="button">Check captions</button>
         <div id="ref-findings" class="seq-warnings" aria-live="polite"></div>
       </section>

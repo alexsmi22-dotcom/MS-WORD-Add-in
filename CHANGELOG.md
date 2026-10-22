@@ -6,6 +6,40 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.186.0] — 2026-10-22 — Captions as Word fields, Welch's ANOVA, standard curves and qPCR, significant figures
+
+Release A of the STEM gaps (the first of three).
+
+- **Captions, equation numbers and cross-references are Word's own fields** (Captions & cross-refs ▸ Numbering:
+  Word fields, the default). A caption is Word's Caption style with a SEQ field — Figure, Table or Scheme,
+  optionally with chapter numbers (Figure 2.3); an equation can be numbered (1) or (2.1) as a field (Math ▸ Equation
+  numbers; (I), (II) for patent formulas as before). **Cross-reference** lists what is numbered with its current
+  number and inserts “Fig. 3” as a REF field that follows the figure; **Update numbers** renumbers every caption,
+  equation and reference after a figure is added, moved or deleted (on a Word without that API: select all, F9);
+  **Table of figures / tables / schemes** inserts Word's own. Plain-text numbering stays for documents that use it.
+- **Stats: Welch's ANOVA and the Games–Howell post-hoc** for unequal variances — what the assumption check
+  recommends, and until now could not provide. Each pair has its own Welch–Satterthwaite df; F(3, 8.3) = 5.89,
+  p = .019 on the shipped example, matching pingouin (10⁻¹³) and SciPy (Games–Howell p to 3×10⁻¹¹). The studentized
+  range is now accurate at small and fractional df; **Tukey HSD's p at df < 3 is fixed** (two groups of two: it read
+  p = 0.00032 where the true value is 0.00125). The Brown–Forsythe line no longer prints 4.63e+32.
+- **Bio/Assay: read unknowns off a standard curve** (linear or 4PL) with each unknown's CV and a published
+  calibration interval (Fieller for a line; the delta method for 4PL, labelled); **nothing is extrapolated** — an
+  unknown outside the standards reads “below the lowest standard” or “above the highest”. **Plate reader**: a 96- or
+  384-well plate and its layout from a Word table, blanks subtracted, replicates grouped, a plate heat map. **qPCR**:
+  Livak ΔΔCt (Livak & Schmittgen 2001 Table 1 reproduces exactly: kidney 5.6, 5.3–6.0) and the Pfaffl ratio with
+  primer efficiencies from a dilution series (80–120 % or refused); “Undetermined” Ct is dropped by name, never 40. Decimal
+  commas (0,125) are read per block, and an ambiguous 1,058 is refused rather than guessed; a hook effect is refused for
+  4PL; fold-change bars switch to a log₂ axis when anything is down-regulated.
+- **Solve: significant figures** with the steps — count them (“1200” is ambiguous, and says so), round, arithmetic
+  by the textbook rules (counts are exact), round to the uncertainty (10.0 ± 0.123 → 10.0 ± 0.1). **Monte Carlo
+  uncertainty**: 10⁵ seeded draws, the 95 % interval, a histogram, and whether the first-order (GUM) answer agrees
+  (JCGM 101 §8).
+- **Units**: viscosity (P, cP, St, cSt), Torr and mmHg (now exactly 133.322 387 415 Pa), Bq and Ci, Gy, rd, Sv and
+  rem, kat and U, Wb and Mx, sr, week and the Julian year. Refused by name: Gy → Sv, “rad” → Gy (rad is the radian;
+  the dose rad is rd), Bq → Hz, cP → cSt (needs the density), a bare “year”.
+- Word cannot run in the test suite: the field OOXML, the host calls and the pane are tested; renumbering itself is
+  the Word check below.
+
 ## [2.185.0] — 2026-10-21 — Chemistry: η-bonded organometallics have a formula
 
 User report: the Zirconocene dichloride template showed "Formula: —".

@@ -96,7 +96,7 @@ export function formatQuantityHtml(input: string): string {
 
 // --- Conversion --------------------------------------------------------------
 
-interface UnitDef {
+export interface UnitDef {
   dim: string;
   /** Multiply a value in this unit by `factor` to get the SI base value. */
   factor: number;
@@ -168,7 +168,17 @@ const UNITS: Record<string, UnitDef> = {
   // the conventional 0 °C value used for altimeter settings.
   mbar: { dim: "pressure", factor: 100 }, inHg: { dim: "pressure", factor: 3386.389 },
   atm: { dim: "pressure", factor: 101325 },
-  psi: { dim: "pressure", factor: 6894.757 }, mmHg: { dim: "pressure", factor: 133.322 },
+  psi: { dim: "pressure", factor: 6894.757 },
+  // The TORR is defined as exactly 1/760 of a standard atmosphere (101 325/760
+  // Pa = 133.322 368… Pa). The conventional MILLIMETRE OF MERCURY is a
+  // different definition — the pressure of 1 mm of mercury of density
+  // 13.5951 g/cm³ under standard gravity 9.80665 m/s² = 133.322 387 415 Pa
+  // exactly (NIST SP 811 lists 1.333 224 E+02) — so the two differ by about
+  // 1.4 parts in 10⁷ and BOTH are kept, each by its own definition. Both are
+  // DERIVED here, never retyped (the therm lesson). mmHg was 133.322, a
+  // truncation 2.9 parts in 10⁶ low.
+  Torr: { dim: "pressure", factor: 101325 / 760 },
+  mmHg: { dim: "pressure", factor: 13595.1 * 9.80665 * 0.001 },
   MPa: { dim: "pressure", factor: 1e6 }, GPa: { dim: "pressure", factor: 1e9 },
   ksi: { dim: "pressure", factor: 6894757 }, hPa: { dim: "pressure", factor: 100 },
   // force (base N) — absent entirely until engineering needed it, which is why
@@ -347,6 +357,59 @@ const UNITS: Record<string, UnitDef> = {
   // ft/s stays available and unambiguous.
   fps: { dim: "frequency", factor: 1 },
 
+  // --- the student-pack families (SI Brochure 9th ed.; NIST SP 811) ---------
+  //
+  // VISCOSITY. Dynamic: the poise, 1 P = 0.1 Pa·s exactly (so 1 cP = 1 mPa·s);
+  // kinematic: the stokes, 1 St = 10⁻⁴ m²/s (so 1 cSt = 1 mm²/s). The two are
+  // DIFFERENT quantities — kinematic = dynamic / density — and their
+  // signatures differ, so cP → cSt is refused (with a by-name message below).
+  P: { dim: "dynviscosity", factor: 0.1 }, cP: { dim: "dynviscosity", factor: 1e-3 },
+  St: { dim: "kinviscosity", factor: 1e-4 }, cSt: { dim: "kinviscosity", factor: 1e-6 },
+  // RADIOACTIVITY. The becquerel is one decay per second, but the SI Brochure
+  // reserves it for activity and the hertz for periodic phenomena: s⁻¹ in both
+  // cases, and NOT interchangeable. "activity" is therefore ATOMIC — Bq never
+  // converts to Hz, fps or 1/s (the candela/lumen precedent). The curie is
+  // exactly 3.7 × 10¹⁰ Bq.
+  Bq: { dim: "activity", factor: 1 }, kBq: { dim: "activity", factor: 1e3 },
+  MBq: { dim: "activity", factor: 1e6 }, GBq: { dim: "activity", factor: 1e9 }, TBq: { dim: "activity", factor: 1e12 },
+  Ci: { dim: "activity", factor: 3.7e10 }, mCi: { dim: "activity", factor: 3.7e7 },
+  µCi: { dim: "activity", factor: 3.7e4 }, nCi: { dim: "activity", factor: 37 }, pCi: { dim: "activity", factor: 3.7e-2 },
+  // ABSORBED DOSE vs EQUIVALENT DOSE. The gray and the sievert are both J/kg,
+  // and they are DIFFERENT QUANTITIES: a sievert is a gray weighted by the
+  // radiation (w_R) and, for effective dose, the tissue (w_T). No unit factor
+  // turns one into the other, so both are ATOMIC dims — mGy/h can never
+  // silently become µSv/h through the compound path. The price, said in the
+  // refusal: Gy ↔ J/kg does not convert either. The rad is 1 cGy and the rem
+  // 1 cSv exactly (NIST SP 811). The dose rad is spelled "rd" — NIST SP 811's
+  // own symbol for it where the radian could be confused — because "rad" is
+  // the RADIAN here, and a typed "rad" → Gy is refused by name.
+  Gy: { dim: "absorbeddose", factor: 1 }, mGy: { dim: "absorbeddose", factor: 1e-3 },
+  µGy: { dim: "absorbeddose", factor: 1e-6 }, cGy: { dim: "absorbeddose", factor: 1e-2 },
+  nGy: { dim: "absorbeddose", factor: 1e-9 }, kGy: { dim: "absorbeddose", factor: 1e3 }, MGy: { dim: "absorbeddose", factor: 1e6 },
+  rd: { dim: "absorbeddose", factor: 1e-2 },
+  Sv: { dim: "equivalentdose", factor: 1 }, mSv: { dim: "equivalentdose", factor: 1e-3 },
+  µSv: { dim: "equivalentdose", factor: 1e-6 }, cSv: { dim: "equivalentdose", factor: 1e-2 },
+  nSv: { dim: "equivalentdose", factor: 1e-9 }, kSv: { dim: "equivalentdose", factor: 1e3 },
+  rem: { dim: "equivalentdose", factor: 1e-2 }, mrem: { dim: "equivalentdose", factor: 1e-5 },
+  // CATALYTIC ACTIVITY: the katal is mol/s (decomposed, so kat ↔ mol/s and
+  // µmol/min all convert); the enzyme unit U is exactly 1 µmol/min = 10⁻⁶/60 kat.
+  kat: { dim: "catalytic", factor: 1 }, µkat: { dim: "catalytic", factor: 1e-6 }, nkat: { dim: "catalytic", factor: 1e-9 },
+  U: { dim: "catalytic", factor: 1e-6 / 60 }, mU: { dim: "catalytic", factor: 1e-9 / 60 },
+  // MAGNETIC FLUX: the weber, V·s (decomposed, so Wb/m² is the tesla); the
+  // maxwell is exactly 10⁻⁸ Wb.
+  Wb: { dim: "magflux", factor: 1 }, mWb: { dim: "magflux", factor: 1e-3 }, µWb: { dim: "magflux", factor: 1e-6 },
+  Mx: { dim: "magflux", factor: 1e-8 },
+  // SOLID ANGLE: the steradian is rad² (decomposed), so a square degree is
+  // exactly (π/180)² sr. It stays apart from the lumen: cd·sr is not lm here,
+  // for the reason given in the photometry block.
+  sr: { dim: "solidangle", factor: 1 },
+  // WEEK and the JULIAN YEAR — the only year this converts: 365.25 days of
+  // 86 400 s exactly (the IAU's year, the one in the light-year). A bare
+  // "year" is refused by name (calendar 365 d, Gregorian 365.2425 d and
+  // tropical ≈ 365.2422 d all differ).
+  week: { dim: "time", factor: 604800 },
+  julianyear: { dim: "time", factor: 365.25 * 86400 },
+
   // dimensionless fraction (base = ratio)
   "%": { dim: "fraction", factor: 0.01 }, ppm: { dim: "fraction", factor: 1e-6 },
   ppb: { dim: "fraction", factor: 1e-9 }, ppt: { dim: "fraction", factor: 1e-12 },
@@ -438,9 +501,21 @@ const ALIASES: Record<string, string> = {
   uPa: "µPa", micropascal: "µPa", micropascals: "µPa", millipascal: "mPa",
   picowatt: "pW", picowatts: "pW", nanowatt: "nW", nanowatts: "nW",
   femtolitre: "fL", femtoliter: "fL", femtolitres: "fL", femtoliters: "fL",
+  // Student-pack spellings. "torr" lowercase is safe: no milli-sibling exists.
+  // NO lowercase alias for any prefixed dose or activity key (mgy, msv, mbq…):
+  // the lowercase fallback would make MGy/mGy or MBq/mBq collide.
+  // No "cps" for the centipoise: it is also counts per second.
+  torr: "Torr", poise: "P", centipoise: "cP", stokes: "St", centistokes: "cSt",
+  becquerel: "Bq", becquerels: "Bq", curie: "Ci", curies: "Ci",
+  gray: "Gy", grays: "Gy", sievert: "Sv", sieverts: "Sv",
+  katal: "kat", katals: "kat", weber: "Wb", webers: "Wb", maxwell: "Mx", maxwells: "Mx",
+  steradian: "sr", steradians: "sr",
+  weeks: "week", wk: "week", wks: "week",
+  "julian year": "julianyear", "julian years": "julianyear", "julian-year": "julianyear", "julian-years": "julianyear", julianyears: "julianyear",
 };
 
-function lookup(unit: string): UnitDef | null {
+/** A single unit symbol or spelled name (affine temperatures included), or null. */
+export function lookup(unit: string): UnitDef | null {
   const u = unit.trim();
   if (UNITS[u]) return UNITS[u];
   if (ALIASES[u]) return UNITS[ALIASES[u]];
@@ -502,6 +577,13 @@ const BASE: Record<string, Record<string, number>> = {
   // different ends of the light path.
   luminance: { luminousintensity: 1, length: -2 },
   illuminance: { luminousflux: 1, length: -2 },
+  // Student pack. Absorbed dose, equivalent dose and activity are NOT here:
+  // they stay atomic on purpose (see UNITS).
+  dynviscosity: { mass: 1, length: -1, time: -1 },
+  kinviscosity: { length: 2, time: -1 },
+  catalytic: { amount: 1, time: -1 },
+  magflux: { mass: 1, length: 2, time: -2, current: -1 },
+  solidangle: { angle: 2 },
 };
 
 /** Accumulates one side ("·"/"*"/space-separated factors) into dims & factor. */
@@ -719,6 +801,11 @@ export function parseMeasured(text: string, targetUnit: string): Measured | { er
   }
   const converted = convert(value, written, targetUnit);
   if (converted === null) {
+    // Refusals that need a SENTENCE, not just "incompatible": two quantities
+    // that share a dimension but are not the same thing, and the one unit
+    // whose length is not defined by its name.
+    const named = unitRefusal(written, targetUnit);
+    if (named) return { error: named };
     const known = parseCompoundUnit(written) || lookup(written);
     return {
       error: known
@@ -727,6 +814,96 @@ export function parseMeasured(text: string, targetUnit: string): Measured | { er
     };
   }
   return { value, unit: written, inTarget: converted, assumed: false };
+}
+
+/**
+ * The words a bare year is typed as (compared lowercased). None is a unit:
+ * the length is not stated. The one-letter "a" (annum, but also the are) and
+ * "y" are deliberately absent — lowercasing "A" would catch the ampere.
+ */
+const AMBIGUOUS_YEAR = new Set(["year", "years", "yr", "yrs", "annum"]);
+
+/** The unit tokens of a unit expression ("mGy/h" → ["mGy", "h"]). */
+function unitTokens(expr: string): string[] {
+  return normalizeUnitText(expr)
+    .split(/[·*/\s()]+/)
+    .map((t) => t.replace(/\^-?\d+(?:\.\d+)?$/, ""))
+    .filter(Boolean);
+}
+
+/** Which of the special families a unit expression mentions. */
+function families(expr: string): Set<string> {
+  const out = new Set<string>();
+  for (const tok of unitTokens(expr)) {
+    if (AMBIGUOUS_YEAR.has(tok.toLowerCase())) out.add("year");
+    if (tok === "rad") out.add("radian");
+    const def = lookup(tok);
+    if (def) out.add(def.dim);
+  }
+  return out;
+}
+
+/**
+ * A by-name refusal for a conversion that convert() refuses, or null. The
+ * pane's converter shows this sentence instead of "incompatible", because in
+ * each case the dimensions alone would have allowed a number — and the number
+ * would be wrong (or undefined).
+ */
+export function unitRefusal(from: string, to: string): string | null {
+  const f = families(from);
+  const t = families(to);
+  const both = (a: string, b: string): boolean => (f.has(a) && t.has(b)) || (f.has(b) && t.has(a));
+  const has = (a: string): boolean => f.has(a) || t.has(a);
+  if (has("year")) {
+    const which = [...unitTokens(from), ...unitTokens(to)].find((tok) => AMBIGUOUS_YEAR.has(tok.toLowerCase()));
+    return (
+      `“${which}” does not say which year: a common year is 365 d, the Gregorian 365.2425 d, the Julian 365.25 d and the tropical ≈ 365.2422 d, ` +
+      "and conversions differ in the fourth figure. Write “Julian year” (365.25 d exactly, the astronomer's year) or a number of days."
+    );
+  }
+  if (both("absorbeddose", "equivalentdose")) {
+    return (
+      "Gy (absorbed dose) and Sv (equivalent or effective dose) are both J/kg, but they are DIFFERENT quantities: " +
+      "the sievert is the gray weighted by the radiation weighting factor w_R (1 for photons, 20 for α particles) and, for effective dose, the tissue factors w_T. " +
+      "No unit factor converts one into the other."
+    );
+  }
+  if (both("radian", "absorbeddose") || both("radian", "equivalentdose")) {
+    return "“rad” here is the RADIAN (an angle). The absorbed-dose rad (= 0.01 Gy exactly) is written “rd”, NIST SP 811's symbol for it where the radian could be confused.";
+  }
+  const dose = has("absorbeddose") ? "absorbeddose" : has("equivalentdose") ? "equivalentdose" : null;
+  if (dose) {
+    const cu = parseCompoundUnit(f.has(dose) ? to : from);
+    if (cu && sameDims(cu.dims, { length: 2, time: -2 })) {
+      return (
+        `${dose === "absorbeddose" ? "Gy" : "Sv"} is kept as its own quantity (${dose === "absorbeddose" ? "absorbed" : "equivalent"} dose), not as a bare J/kg, ` +
+        "so that a gray can never silently become a sievert; to read a J/kg as a dose, write it in Gy (absorbed) or Sv (equivalent)."
+      );
+    }
+  }
+  if (has("activity")) {
+    const cu = parseCompoundUnit(f.has("activity") ? to : from);
+    if (cu && sameDims(cu.dims, { time: -1 })) {
+      return (
+        "Bq (activity: random decays per second) and Hz (a periodic frequency) are both s⁻¹, and the SI reserves each for its own quantity — " +
+        "an activity is not converted to a frequency or a bare s⁻¹."
+      );
+    }
+  }
+  // By SIGNATURE, so Pa·s and m²/s are caught as well as P and St.
+  const sig = (u: string, d: Record<string, number>): boolean => {
+    const c = parseCompoundUnit(u);
+    return !!c && sameDims(c.dims, d);
+  };
+  const DYN = { mass: 1, length: -1, time: -1 };
+  const KIN = { length: 2, time: -1 };
+  if ((sig(from, DYN) && sig(to, KIN)) || (sig(from, KIN) && sig(to, DYN))) {
+    return (
+      "Dynamic viscosity (P, cP, Pa·s) and kinematic viscosity (St, cSt, m²/s) are different quantities: kinematic = dynamic ÷ density. " +
+      "Converting needs the fluid's density (water near 20 °C: 1 cP ≈ 1 cSt only because its density is ≈ 1 g/cm³)."
+    );
+  }
+  return null;
 }
 
 /**

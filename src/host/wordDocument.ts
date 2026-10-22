@@ -554,3 +554,48 @@ export async function insertBibCitation(
   });
   return out;
 }
+
+/**
+ * Updates the body's numbering fields so captions, equation numbers, cross-references and tables of figures show
+ * their current values — what F9 does (docs/SCOPE-CAPTIONS.md). Only SEQ and STYLEREF (the numbers), then REF and
+ * TOC (what reads them): never a DATE, an ASK or FILLIN that would prompt, or a citation manager's ADDIN field
+ * (release A review). Field.updateResult is WordApi 1.5; where Word lacks it, "unsupported" (the pane says to press
+ * F9); a Word that refuses mid-way is "failed".
+ */
+export async function updateBodyFields(): Promise<"updated" | "unsupported" | "failed"> {
+  if (!wordApiSupported("1.5")) return "unsupported";
+  try {
+    await Word.run(async (context) => {
+      const fields = context.document.body.fields;
+      fields.load("items/code");
+      await context.sync();
+      const kind = (code: string): string => (/^\s*(SEQ|STYLEREF|REF|PAGEREF|TOC)\b/i.exec(code)?.[1] ?? "").toUpperCase();
+      for (const f of fields.items) if (kind(f.code) === "SEQ" || kind(f.code) === "STYLEREF") f.updateResult();
+      await context.sync();
+      for (const f of fields.items) if (["REF", "PAGEREF", "TOC"].includes(kind(f.code))) f.updateResult();
+      await context.sync();
+    });
+    return "updated";
+  } catch {
+    return "failed";
+  }
+}
+
+/**
+ * The current text of each named bookmark (null for one the document no longer holds) — a caption's number as Word
+ * shows it now. WordApi 1.4; where Word does not have it, null for the whole call.
+ */
+export async function readBookmarkTexts(names: string[]): Promise<Record<string, string | null> | null> {
+  if (!wordApiSupported("1.4")) return null;
+  const out: Record<string, string | null> = {};
+  await Word.run(async (context) => {
+    const ranges = names.map((n) => {
+      const r = context.document.getBookmarkRangeOrNullObject(n);
+      r.load("text");
+      return r;
+    });
+    await context.sync();
+    names.forEach((n, i) => (out[n] = ranges[i].isNullObject ? null : ranges[i].text));
+  });
+  return out;
+}

@@ -309,13 +309,17 @@ describe("0.10 the advice never contradicts itself", () => {
     expect(warnings[0]).not.toMatch(/Consider the Mann-Whitney/);
   });
 
-  test("three groups get the caution, and Games-Howell is named as unavailable", () => {
+  test("three groups get the caution, and Welch + Games–Howell are named as the remedy", () => {
     const g = skewedPair();
     const notes = describeAssumptions([g[0], g[1], g[1].map((v) => v * 2)]);
     const warnings = notes.filter((n) => n.startsWith("⚠"));
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/caution/);
-    expect(warnings[0]).toMatch(/Games-Howell/);
+    // "not reliable" rather than "treat this result with caution": the same note
+    // reaches "Check test assumptions", which has no result to be cautious about.
+    expect(warnings[0]).toMatch(/both assume equal variances, so their results on these groups are not reliable/);
+    expect(warnings[0]).not.toMatch(/this result/);
+    expect(warnings[0]).toMatch(/Welch's ANOVA with the Games–Howell post-hoc instead \(both in Stats\)/);
+    expect(warnings[0]).not.toMatch(/does not provide it/);
     expect(warnings[0]).not.toMatch(/Consider the Kruskal-Wallis/);
   });
 

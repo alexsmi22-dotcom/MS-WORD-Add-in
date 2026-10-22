@@ -54,3 +54,26 @@ export async function insertCaptionParagraph(o: { text: string; tag: string }): 
     await tagInserted(context, para.getRange(), o.tag);
   });
 }
+
+/**
+ * A new paragraph after the selection's, filled with a one-paragraph package (a caption with its fields, a table of
+ * figures). Made as the plain caption is (insertParagraph, then the content into it) — insertOoxml "After" a whole
+ * paragraph can merge the package into the next paragraph — and styled by Word's built-in name, since a localized
+ * Word's Caption style id is not "Caption" (release A review).
+ */
+export async function insertParagraphOoxmlAfter(o: { ooxml: string; tag: string; caption?: boolean }): Promise<void> {
+  await Word.run(async (context) => {
+    const para = context.document.getSelection().insertParagraph("", Word.InsertLocation.after);
+    para.getRange().insertOoxml(o.ooxml, Word.InsertLocation.replace);
+    // After the fill, so it wins over the package's own style id; a table of figures is Normal, not whatever the
+    // cursor's paragraph was (a heading).
+    try {
+      para.styleBuiltIn = o.caption ? Word.BuiltInStyleName.caption : Word.BuiltInStyleName.normal;
+    } catch {
+      // Built-in styles unavailable on this build — leave the styling as inserted.
+    }
+    para.getRange().select(Word.SelectionMode.end);
+    await context.sync();
+    await tagInserted(context, para.getRange(), o.tag);
+  });
+}

@@ -40,6 +40,10 @@
     depth = depth || 0;
     if (v && (typeof v === "object" || typeof v === "function") && v.__htName) return v.__htName;
     var t = typeof v;
+    // A caption's cross-reference bookmark is named from the clock (_Ref + nine digits, captionsPane.ts): the same
+    // call every run, its name not — read as one name, or the trace would differ on every run.
+    // The bookmark's w:id is derived from the same digits.
+    if (t === "string") v = v.replace(/_Ref\d{9}/g, "_Ref#########").replace(/(<w:bookmark(?:Start|End) w:id=")\d+"/g, '$1#"');
     if (t === "string") return v.length > 48 ? "s" + v.length + ":" + fnv(v) : JSON.stringify(v);
     if (t === "number" || t === "boolean" || v === null || v === undefined) return String(v);
     if (t === "function") return "fn";

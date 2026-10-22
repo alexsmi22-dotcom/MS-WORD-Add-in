@@ -37,6 +37,7 @@ import {
   vectorTriangleSvg,
   armSvg,
 } from "../src/lib/mechchart";
+import { ASSAY_QUANT_CALCS } from "../src/lib/assayQuantCalcs";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
 import { GAMUTS as GAMUT_DEFS } from "../src/lib/colourspace";
@@ -2028,6 +2029,20 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
     push("cad sheet asme with marks", layoutSheet(tess.mesh, { standard: "asme", views: doc.views, callouts, marks: on(["top", "iso"]) }).svg);
     const empty = { ...tess.mesh, positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], crossings: [], overlaps: [], bodySag: [] };
     push("cad sheet blank figure", layoutSheet(empty, { standard: "uspto", views: [{ kind: "blank" }], marks: on(["blank"]) }).svg);
+  }
+}
+
+// --- Bio/Assay quantitation (src/lib/assayQuantCalcs.ts) ---------------------
+//
+// Each calculator at its shipped defaults: the standard curve with SD bars and the
+// unknowns, the plate heat map stacked over the 4PL curve, and the Livak / Pfaffl
+// fold-change bars (asymmetric error bars, superscript 2^−ΔΔCt).
+{
+  for (const c of ASSAY_QUANT_CALCS) {
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    const out = c.compute((k) => vals[k] ?? "");
+    if (out.ok === false || !out.svg) throw new Error(`corpus: assay ${c.id} default did not draw`);
+    figures.push([`assay ${c.id}`, out.svg]);
   }
 }
 

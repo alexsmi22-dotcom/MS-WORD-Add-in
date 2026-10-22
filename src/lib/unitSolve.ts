@@ -62,6 +62,11 @@ const SI_SYMBOL: Record<string, string> = {
   luminousflux: "lm",
   information: "bit",
   fraction: "frac",
+  // Atomic on purpose in units.ts (a gray must never become a sievert, a
+  // becquerel never a hertz), so they reach here as their own dims.
+  absorbeddose: "Gy",
+  equivalentdose: "Sv",
+  activity: "Bq",
 };
 
 /** Signature → SI named unit. Kept to the unambiguous classics — Hz is NOT
@@ -98,6 +103,11 @@ const AMBIGUOUS_UNITS: Record<string, string> = {
   fL: "the femtolitre (a volume, 10⁻¹⁸ m³)",
   S: "the siemens (a conductance)",
   nit: "the nit (a luminance, cd/m²)",
+  // Student-pack keys that are also everyday symbols: P (power, pressure,
+  // momentum), U (internal energy, potential, voltage), St (Stanton number).
+  P: "the poise (a dynamic viscosity, 0.1 Pa·s)",
+  U: "the enzyme unit (a catalytic activity, 1 µmol/min)",
+  St: "the stokes (a kinematic viscosity, 10⁻⁴ m²/s)",
 };
 
 function dimsEqual(a: Dims, b: Dims): boolean {

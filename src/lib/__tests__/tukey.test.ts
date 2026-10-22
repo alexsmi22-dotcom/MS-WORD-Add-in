@@ -233,7 +233,9 @@ describe("caveats say what the numbers do not", () => {
     // sent the user looking for something that does not exist. A caveat must
     // name something REACHABLE.
     expect(r.caveats.join(" ")).toMatch(/Check test assumptions|Kruskal-Wallis/);
-    expect(r.caveats.join(" ")).not.toMatch(/Games-Howell/);
+    // Games–Howell now exists (welch.ts, wired as the "gameshowell" Stats
+    // calculator), so the caveat names it: the reachable remedy for unequal variances.
+    expect(r.caveats.join(" ")).toMatch(/Games–Howell \(Stats\)/);
   });
 
   test("it points at Dunnett, which now exists and is reachable", () => {

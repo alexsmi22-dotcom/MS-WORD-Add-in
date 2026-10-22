@@ -18,8 +18,9 @@
 // rather than returning a number that means nothing.
 
 import { chiSquareP, normalCdf } from "./stats2";
-import { mean, variance, fTestP, incompleteBeta } from "./stats";
+import { mean, variance, fTestP, incompleteBeta, formatP } from "./stats";
 import { probit } from "./regression";
+import { timesTen } from "./axis";
 
 /** Below this, the K² transforms are not trustworthy and nothing is reported. */
 export const MIN_NORMALITY_N = 20;
@@ -202,6 +203,17 @@ export function varianceHomogeneity(groups: number[][], alpha = 0.05): VarianceH
 }
 
 /**
+ * toFixed without its exponent leak: (4.6e32).toFixed(2) is "4.6324094659170164e+32",
+ * which a set of near-constant groups (variance ratio 4×10⁶) printed into the
+ * Brown–Forsythe line. Large values are written as a mantissa ×10ⁿ instead.
+ */
+function fixedText(x: number, digits: number): string {
+  if (!Number.isFinite(x) || Math.abs(x) < 1e6) return x.toFixed(digits);
+  const e = Math.floor(Math.log10(Math.abs(x)));
+  return `${Number((x / Math.pow(10, e)).toPrecision(4))}${timesTen(e)}`;
+}
+
+/**
  * APA-ish p for prose: "p < .001" or "p = .023".
  *
  * Written as one helper because building it inline produced "p = < .001" — the
@@ -209,8 +221,10 @@ export function varianceHomogeneity(groups: number[][], alpha = 0.05): VarianceH
  * formatP()'s callers.
  */
 function pPhrase(p: number): string {
-  if (!Number.isFinite(p)) return "p = n/a";
-  return p < 0.001 ? "p < .001" : `p = ${p.toFixed(3)}`;
+  // formatP itself, so a note and the Brown–Forsythe line the "Check test
+  // assumptions" calculator prints beside it can never write the same p two ways
+  // ("p = 0.003" here against "p = .003" there).
+  return formatP(p);
 }
 
 /**
@@ -365,10 +379,14 @@ export function pairedDifferences(a: number[], b: number[]): number[] {
  */
 export function describeAssumptions(
   groups: number[][],
-  opts: { paired?: boolean } = {},
+  opts: { paired?: boolean; varianceHandled?: boolean } = {},
 ): string[] {
   const notes: string[] = [];
   const paired = opts.paired === true;
+  // The caller is ALREADY a test that does not assume equal variances (Welch's
+  // ANOVA, Games–Howell). Telling its user to go and use Welch would send them to
+  // the calculator they are in, so the variance finding is reported as handled.
+  const handled = opts.varianceHandled === true;
   const subject = normalityCheckSample(groups, opts);
   const subjectName = paired && groups.length === 2 ? "The paired differences" : "The within-group residuals";
 
@@ -386,16 +404,22 @@ export function describeAssumptions(
   const vh = !paired && groups.length >= 2 ? varianceHomogeneity(groups) : null;
   const unequalVariance = vh !== null && vh.ok && !vh.equal;
   const varianceFinding = vh
-    ? `Brown-Forsythe F(${vh.df1}, ${vh.df2}) = ${vh.f.toFixed(2)}, ${pPhrase(vh.p)}; ` +
-      `largest/smallest variance = ${vh.varianceRatio.toFixed(1)}`
+    ? `Brown-Forsythe F(${vh.df1}, ${vh.df2}) = ${fixedText(vh.f, 2)}, ${pPhrase(vh.p)}; ` +
+      `largest/smallest variance = ${fixedText(vh.varianceRatio, 1)}`
     : "";
 
   /** What to do about unequal variances — the same sentence wherever it appears. */
-  const varianceRemedy =
-    groups.length > 2
-      ? "One-way ANOVA and Tukey HSD both assume equal variances; treat this result with caution. " +
-        "Welch's ANOVA with Games-Howell is the right pairing for unequal variances and this " +
-        "product does not provide it."
+  const varianceRemedy = handled
+    ? groups.length > 2
+      ? "Welch's ANOVA and Games–Howell do not assume equal variances, so this result already allows for it."
+      : "Welch's test does not assume equal variances, so this result already allows for it."
+    : groups.length > 2
+      ? // Worded for BOTH callers: the ANOVA and Tukey calculators, which have a
+        // result, and "Check test assumptions", which has none — "treat this
+        // result with caution" there pointed at a result that does not exist.
+        "One-way ANOVA and Tukey HSD both assume equal variances, so their results on these groups are not reliable. " +
+        "Use Welch's ANOVA with the Games–Howell post-hoc instead (both in Stats): they are the right " +
+        "pairing for unequal variances."
       : "Use Welch's t-test rather than Student's pooled test — Welch does not assume equal variances.";
 
   const norm = normalityTest(subject);
@@ -408,6 +432,24 @@ export function describeAssumptions(
           ? "every group has fewer than three values, which says nothing about shape."
           : norm.reason
       }`,
+    );
+  } else if (nonNormal && unequalVariance && handled) {
+    // Inside Welch's ANOVA / Games–Howell the variance half is ALREADY the
+    // remedy, so it is not a second alarm; the note opens with what is handled
+    // and then says plainly what is not. These tests assume normal groups too.
+    const tests = groups.length > 2 ? "Welch's ANOVA and Games–Howell" : "Welch's test";
+    notes.push(
+      `The groups do not have equal variances (${varianceFinding}); ${tests} ${
+        groups.length > 2 ? "do" : "does"
+      } not assume equal variances, so that is already handled. ` +
+        `⚠ Normality still matters: ${tests} ${groups.length > 2 ? "assume" : "assumes"} roughly normal data ` +
+        `within each group, and ${subjectName.toLowerCase()} are not normally distributed ` +
+        `(D'Agostino-Pearson K² = ${norm.k2.toFixed(2)}, ${pPhrase(norm.p)}; skewness ` +
+        `${norm.skewness.toFixed(2)}, kurtosis ${norm.kurtosis.toFixed(2)}). Check the residuals for outliers ` +
+        "or skew, or consider a transformation (for example a log, for right-skewed positive data). " +
+        `A rank-based approach (${groups.length > 2 ? "Kruskal-Wallis, then Dunn's test" : "Mann-Whitney U"}) ` +
+        "is not a straight swap: it compares whole distributions and assumes the groups have similar shapes, " +
+        "which unequal spread already violates.",
     );
   } else if (nonNormal && unequalVariance) {
     // ONE note, ONE remedy. Reporting these separately is what produced the
@@ -431,6 +473,16 @@ export function describeAssumptions(
         `kurtosis ${norm.kurtosis.toFixed(2)}). ` +
         (paired
           ? "Consider the Wilcoxon signed-rank test instead."
+          : handled
+            ? // Not "use Kruskal-Wallis instead": that is an omnibus test of
+              // distributions that assumes equal shapes, not a like-for-like
+              // replacement for Welch.
+              `${groups.length > 2 ? "Welch's ANOVA" : "Welch's test"} is fairly robust to moderate ` +
+              "non-normality when the groups are balanced and not tiny; with small or unbalanced groups, " +
+              "check the residuals for outliers or skew, or consider a transformation. For a rank-based " +
+              `alternative, ${
+                groups.length > 2 ? "Kruskal-Wallis followed by Dunn's test" : "the Mann-Whitney U test"
+              } compares distributions rather than means and assumes the groups have similar shapes.`
           : groups.length > 2
             ? "Consider the Kruskal-Wallis test instead of ANOVA."
             : "Consider the Mann-Whitney U test instead."),
@@ -438,7 +490,7 @@ export function describeAssumptions(
   }
 
   if (unequalVariance && !nonNormal) {
-    notes.push(`⚠ The groups do not have equal variances (${varianceFinding}). ${varianceRemedy}`);
+    notes.push(`${handled ? "" : "⚠ "}The groups do not have equal variances (${varianceFinding}). ${varianceRemedy}`);
   }
 
   return notes;

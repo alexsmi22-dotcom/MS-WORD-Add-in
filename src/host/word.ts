@@ -3,7 +3,7 @@
  * The pane imports this one object; nothing in the pane names Word.run.
  */
 import type { Host } from "./host";
-import { insertAtSelection, insertCaptionParagraph, insertHeadedBlockBefore } from "./wordInsert";
+import { insertAtSelection, insertCaptionParagraph, insertHeadedBlockBefore, insertParagraphOoxmlAfter } from "./wordInsert";
 import { readBodyText, readParagraphTexts, readSelectedPictureAlt, readSelectionOoxml, readTableUnderCursor } from "./wordRead";
 import {
   capability,
@@ -26,7 +26,9 @@ import {
   insertTocField,
   readTextBeforeCursor,
   replaceSelectionFromTextBefore,
+  readBookmarkTexts,
   updateBibliography,
+  updateBodyFields,
 } from "./wordDocument";
 import { wordApiSupported } from "./wordShared";
 import { dialogsSupported, getSetting, openDialog, saveSettings, setSetting } from "./officeHost";
@@ -35,6 +37,9 @@ export const wordHost: Host = {
   insertAtSelection,
   insertHeadedBlockBefore,
   insertCaptionParagraph,
+  insertParagraphOoxmlAfter,
+  updateBodyFields,
+  readBookmarkTexts,
   readBodyText,
   readParagraphTexts,
   readTableUnderCursor,

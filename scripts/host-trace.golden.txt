@@ -2,6 +2,8 @@
 OFFICE settings.get("jurislab.compounds") -> null
 OFFICE settings.get("formula-inserter.numerals") -> null
 OFFICE settings.get("formula-inserter.refs") -> null
+OFFICE settings.get("formula-inserter.captionMode") -> null
+OFFICE settings.get("formula-inserter.refs") -> null
 NET fetch("version.json") -> offline
    status: 
 == chemical/insert-btn
@@ -4105,135 +4107,200 @@ RUN R89 {
   R89.sync()
 } R89
    status: 
-== refs/ref-reset
-OFFICE settings.set("formula-inserter.refs", "{\"figure\":1,\"table\":1}")
-OFFICE settings.saveAsync()
-   status: 
 == refs/ref-insert-caption
+OFFICE settings.get("formula-inserter.captionFields") -> null
+OFFICE settings.get("formula-inserter.captionFields") -> null
 RUN R90 {
   #2381 = R90.document.getSelection()
-  #2382 = #2381.insertParagraph("Figure 1", "after")
-  set #2382.styleBuiltIn = "caption"
+  #2382 = #2381.insertParagraph("", "after")
   #2383 = #2382.getRange()
-  #2384 = #2383.select("end")
-  R90.sync()
+  #2384 = #2383.insertOoxml(s1218:687ecac0, "replace")
+  set #2382.styleBuiltIn = "caption"
   #2385 = #2382.getRange()
-  #2386 = #2385.insertContentControl()
-  set #2386.tag = "formula-inserter:caption:figure"
-  set #2386.title = "JurisLab"
-  set #2386.appearance = "hidden"
+  #2386 = #2385.select("end")
+  R90.sync()
+  #2387 = #2382.getRange()
+  #2388 = #2387.insertContentControl()
+  set #2388.tag = "formula-inserter:caption:figure"
+  set #2388.title = "JurisLab"
+  set #2388.appearance = "hidden"
   R90.sync()
 } R90
-OFFICE settings.set("formula-inserter.refs", "{\"figure\":2,\"table\":1}")
+OFFICE settings.get("formula-inserter.captionFields") -> null
+OFFICE settings.set("formula-inserter.captionFields", s57:94c6d7d7)
 OFFICE settings.saveAsync()
-   status: Inserted "Figure 1".
-== refs/ref-insert-xref
+OFFICE settings.get("formula-inserter.captionMode") -> null
+OFFICE settings.set("formula-inserter.captionMode", "fields")
+OFFICE settings.saveAsync()
 RUN R91 {
-  #2387 = R91.document.getSelection()
-  #2388 = #2387.insertText("Fig. 1", "after")
-  #2389 = #2387.select("end")
+  #2389 = R91.document.body.fields.load("items/code")
+  R91.sync()
+  R91.sync()
+  #2390 = R91.document.body.fields.items[2].updateResult()
   R91.sync()
 } R91
-   status: Cross-reference inserted. Ctrl/⌘+Z undoes it.
-== refs/ref-check
+OFFICE settings.get("formula-inserter.captionFields") -> s57:94c6d7d7
 RUN R92 {
-  #2390 = R92.document.body.load("text")
+  #2391 = R92.document.getBookmarkRangeOrNullObject("_Ref#########")
+  #2392 = #2391.load("text")
   R92.sync()
 } R92
-   status: Check complete.
-== code/insert-code-btn
+   status: Figure caption inserted with Word's numbering — it renumbers when Update numbers runs (or F9).
+== refs/ref-check
 RUN R93 {
-  #2391 = R93.document.getSelection()
-  #2392 = #2391.insertHtml(s996:ceb8597c, "replace")
-  #2393 = #2392.select("end")
+  #2393 = R93.document.body.load("text")
   R93.sync()
 } R93
-   status: Block inserted.
-== audit/audit-run-btn
+   status: Check complete.
+== refs/ref-xref-refresh
+OFFICE settings.get("formula-inserter.captionFields") -> s57:94c6d7d7
 RUN R94 {
-  #2394 = R94.document.body.load("text")
+  #2394 = R94.document.getBookmarkRangeOrNullObject("_Ref#########")
+  #2395 = #2394.load("text")
   R94.sync()
 } R94
-   status: Audit complete.
-== citations/cite-insert
+   status: 
+== refs/ref-update
+OFFICE settings.get("formula-inserter.captionMode") -> "fields"
 RUN R95 {
-  #2395 = R95.document.getSelection()
-  #2396 = #2395.insertHtml(s49:b967615d, "replace")
-  #2397 = #2396.select("end")
+  #2396 = R95.document.body.fields.load("items/code")
   R95.sync()
-  #2398 = #2396.insertContentControl()
-  set #2398.tag = "formula-inserter:citation"
-  set #2398.title = "JurisLab"
-  set #2398.appearance = "hidden"
+  R95.sync()
+  #2397 = R95.document.body.fields.items[2].updateResult()
   R95.sync()
 } R95
-   status: Citation inserted.
-== citations/toa-build
+OFFICE settings.get("formula-inserter.captionFields") -> s57:94c6d7d7
 RUN R96 {
-  #2399 = R96.document.body.load("text")
-  R96.sync()
-  #2400 = R96.document.contentControls.getByTag("jurislab:toafield")
-  #2401 = #2400.load("items")
-  R96.sync()
-  #2402 = R96.document.getSelection()
-  #2403 = #2402.insertOoxml(s4663:131d388c, "replace")
-  #2404 = #2403.select("end")
-  R96.sync()
-  #2405 = #2403.insertContentControl()
-  set #2405.tag = "formula-inserter:toa"
-  set #2405.title = "JurisLab"
-  set #2405.appearance = "hidden"
+  #2398 = R96.document.getBookmarkRangeOrNullObject("_Ref#########")
+  #2399 = #2398.load("text")
   R96.sync()
 } R96
-   status: Formatted Table of Authorities inserted.
-== citations/toa-native
+   status: Numbers updated: every caption, equation number, cross-reference, table of figures and table of contents.
+== refs/ref-insert-tof
 RUN R97 {
-  #2406 = R97.document.body.footnotes.load("items")
-  #2407 = R97.document.body.endnotes.load("items")
+  #2400 = R97.document.getSelection()
+  #2401 = #2400.insertParagraph("", "after")
+  #2402 = #2401.getRange()
+  #2403 = #2402.insertOoxml(s1066:a5a1599d, "replace")
+  set #2401.styleBuiltIn = "normal"
+  #2404 = #2401.getRange()
+  #2405 = #2404.select("end")
   R97.sync()
-  #2408 = R97.document.body.load("text")
-  #2409 = R97.document.body.footnotes.items[0].body.load("text")
+  #2406 = #2401.getRange()
+  #2407 = #2406.insertContentControl()
+  set #2407.tag = "formula-inserter:table-of-figures"
+  set #2407.title = "JurisLab"
+  set #2407.appearance = "hidden"
   R97.sync()
-  #2410 = R97.document.body.fields.load("items/code")
-  #2411 = R97.document.body.footnotes.items[0].body.fields.load("items/code")
-  R97.sync()
-  #2412 = R97.document.body.fields.items[0].delete()
-  #2413 = R97.document.body.footnotes.items[0].body.fields.items[0].delete()
-  THREW t.load is not a function
 } R97
-   status: Could not build the field-based Table of Authorities: t.load is not a function
-== citations/toa-clearmarks
+OFFICE settings.get("formula-inserter.captionMode") -> "fields"
 RUN R98 {
-  #2414 = R98.document.body.fields.load("items/code")
+  #2408 = R98.document.body.fields.load("items/code")
   R98.sync()
-  #2415 = R98.document.body.fields.items[0].delete()
+  R98.sync()
+  #2409 = R98.document.body.fields.items[2].updateResult()
   R98.sync()
 } R98
-   status: Removed 1 citation marks.
-== citations/toa-cleartables
+OFFICE settings.get("formula-inserter.captionFields") -> s57:94c6d7d7
 RUN R99 {
-  #2416 = R99.document.body.fields.load("items/code")
-  R99.sync()
-  #2417 = R99.document.body.fields.items[1].delete()
-  #2418 = R99.document.body.fields.items[2].delete()
+  #2410 = R99.document.getBookmarkRangeOrNullObject("_Ref#########")
+  #2411 = #2410.load("text")
   R99.sync()
 } R99
-   status: Removed 2 table fields.
-== citations/toc-build
+   status: Table of figures inserted — Update numbers (or F9 on it) refreshes it.
+== code/insert-code-btn
 RUN R100 {
-  #2419 = R100.document.getSelection()
-  #2420 = #2419.insertOoxml(s2056:901fd238, "replace")
-  R100.sync()
-  #2421 = R100.document.getStyles()
-  #2422 = #2421.load("items/nameLocal")
+  #2412 = R100.document.getSelection()
+  #2413 = #2412.insertHtml(s996:ceb8597c, "replace")
+  #2414 = #2413.select("end")
   R100.sync()
 } R100
-   status: Table of Contents (field) inserted — press F9 to update.
-== citations/toa-find
+   status: Block inserted.
+== audit/audit-run-btn
 RUN R101 {
-  #2423 = R101.document.body.load("text")
+  #2415 = R101.document.body.load("text")
   R101.sync()
 } R101
+   status: Audit complete.
+== citations/cite-insert
+RUN R102 {
+  #2416 = R102.document.getSelection()
+  #2417 = #2416.insertHtml(s49:b967615d, "replace")
+  #2418 = #2417.select("end")
+  R102.sync()
+  #2419 = #2417.insertContentControl()
+  set #2419.tag = "formula-inserter:citation"
+  set #2419.title = "JurisLab"
+  set #2419.appearance = "hidden"
+  R102.sync()
+} R102
+   status: Citation inserted.
+== citations/toa-build
+RUN R103 {
+  #2420 = R103.document.body.load("text")
+  R103.sync()
+  #2421 = R103.document.contentControls.getByTag("jurislab:toafield")
+  #2422 = #2421.load("items")
+  R103.sync()
+  #2423 = R103.document.getSelection()
+  #2424 = #2423.insertOoxml(s4663:131d388c, "replace")
+  #2425 = #2424.select("end")
+  R103.sync()
+  #2426 = #2424.insertContentControl()
+  set #2426.tag = "formula-inserter:toa"
+  set #2426.title = "JurisLab"
+  set #2426.appearance = "hidden"
+  R103.sync()
+} R103
+   status: Formatted Table of Authorities inserted.
+== citations/toa-native
+RUN R104 {
+  #2427 = R104.document.body.footnotes.load("items")
+  #2428 = R104.document.body.endnotes.load("items")
+  R104.sync()
+  #2429 = R104.document.body.load("text")
+  #2430 = R104.document.body.footnotes.items[0].body.load("text")
+  R104.sync()
+  #2431 = R104.document.body.fields.load("items/code")
+  #2432 = R104.document.body.footnotes.items[0].body.fields.load("items/code")
+  R104.sync()
+  #2433 = R104.document.body.fields.items[0].delete()
+  #2434 = R104.document.body.footnotes.items[0].body.fields.items[0].delete()
+  THREW t.load is not a function
+} R104
+   status: Could not build the field-based Table of Authorities: t.load is not a function
+== citations/toa-clearmarks
+RUN R105 {
+  #2435 = R105.document.body.fields.load("items/code")
+  R105.sync()
+  #2436 = R105.document.body.fields.items[0].delete()
+  R105.sync()
+} R105
+   status: Removed 1 citation marks.
+== citations/toa-cleartables
+RUN R106 {
+  #2437 = R106.document.body.fields.load("items/code")
+  R106.sync()
+  #2438 = R106.document.body.fields.items[1].delete()
+  #2439 = R106.document.body.fields.items[2].delete()
+  R106.sync()
+} R106
+   status: Removed 2 table fields.
+== citations/toc-build
+RUN R107 {
+  #2440 = R107.document.getSelection()
+  #2441 = #2440.insertOoxml(s2056:901fd238, "replace")
+  R107.sync()
+  #2442 = R107.document.getStyles()
+  #2443 = #2442.load("items/nameLocal")
+  R107.sync()
+} R107
+   status: Table of Contents (field) inserted — press F9 to update.
+== citations/toa-find
+RUN R108 {
+  #2444 = R108.document.body.load("text")
+  R108.sync()
+} R108
    status: Found 3 authorities in 3 citations.
 == citations/bib-insert
 OFFICE settings.get("jurislab.bib.v1") -> null
@@ -4243,73 +4310,85 @@ OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
-RUN R102 {
-  #2424 = R102.document.getSelection()
-  #2425 = #2424.parentContentControlOrNullObject.load("tag")
-  R102.sync()
-  #2426 = #2424.insertText("…", "end")
-  #2427 = #2426.insertContentControl()
-  set #2427.tag = "formula-inserter:cite:1"
-  set #2427.title = "JurisLab citation"
-  R102.sync()
-  #2428 = R102.document.body.contentControls.load("items/tag,items/text")
-  R102.sync()
-  #2429 = R102.document.body.footnotes.load("items")
-  R102.sync()
-  #2430 = R102.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
-  R102.sync()
-  #2431 = R102.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #2431.font.superscript = false
-  set #2431.font.subscript = false
-  set #2431.font.italic = false
-  set #2431.font.bold = false
-  #2432 = R102.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
-  R102.sync()
-} R102
+RUN R109 {
+  #2445 = R109.document.getSelection()
+  #2446 = #2445.parentContentControlOrNullObject.load("tag")
+  R109.sync()
+  #2447 = #2445.insertText("…", "end")
+  #2448 = #2447.insertContentControl()
+  set #2448.tag = "formula-inserter:cite:1"
+  set #2448.title = "JurisLab citation"
+  R109.sync()
+  #2449 = R109.document.body.contentControls.load("items/tag,items/text")
+  R109.sync()
+  #2450 = R109.document.body.footnotes.load("items")
+  R109.sync()
+  #2451 = R109.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  R109.sync()
+  #2452 = R109.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #2452.font.superscript = false
+  set #2452.font.subscript = false
+  set #2452.font.italic = false
+  set #2452.font.bold = false
+  #2453 = R109.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  R109.sync()
+} R109
 OFFICE settings.set("jurislab.bib.v1", s504:c0513ad2)
 OFFICE settings.saveAsync()
    status: 
 == citations/bib-update
 OFFICE settings.get("jurislab.bib.v1") -> s504:c0513ad2
-RUN R103 {
-  #2433 = R103.document.body.contentControls.load("items/tag,items/text")
-  R103.sync()
-  #2434 = R103.document.body.footnotes.load("items")
-  R103.sync()
-  #2435 = R103.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
-  R103.sync()
-  #2436 = R103.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #2436.font.superscript = false
-  set #2436.font.subscript = false
-  set #2436.font.italic = false
-  set #2436.font.bold = false
-  #2437 = R103.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
-  R103.sync()
-} R103
+RUN R110 {
+  #2454 = R110.document.body.contentControls.load("items/tag,items/text")
+  R110.sync()
+  #2455 = R110.document.body.footnotes.load("items")
+  R110.sync()
+  #2456 = R110.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  R110.sync()
+  #2457 = R110.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #2457.font.superscript = false
+  set #2457.font.subscript = false
+  set #2457.font.italic = false
+  set #2457.font.bold = false
+  #2458 = R110.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  R110.sync()
+} R110
    status: 
+== (hidden)/ref-reset
+OFFICE settings.set("formula-inserter.refs", "{\"figure\":1,\"table\":1,\"scheme\":1}")
+OFFICE settings.saveAsync()
+   status: 
+== (hidden)/ref-insert-xref
+RUN R111 {
+  #2459 = R111.document.getSelection()
+  #2460 = #2459.insertText("Fig. 1", "after")
+  #2461 = #2459.select("end")
+  R111.sync()
+} R111
+   status: Cross-reference inserted. Ctrl/⌘+Z undoes it.
 == (hidden)/cite-iddetect
-RUN R104 {
-  #2438 = R104.document.getSelection()
-  #2439 = R104.document.body.getRange("start")
-  #2440 = #2439.expandTo(#2438)
-  #2441 = #2440.load("text")
-  R104.sync()
-  #2442 = #2438.insertHtml("<i>Id.</i>", "replace")
-  #2443 = #2442.select("end")
-  R104.sync()
-  #2444 = #2442.insertContentControl()
-  set #2444.tag = "formula-inserter:citation"
-  set #2444.title = "JurisLab"
-  set #2444.appearance = "hidden"
-  R104.sync()
-} R104
+RUN R112 {
+  #2462 = R112.document.getSelection()
+  #2463 = R112.document.body.getRange("start")
+  #2464 = #2463.expandTo(#2462)
+  #2465 = #2464.load("text")
+  R112.sync()
+  #2466 = #2462.insertHtml("<i>Id.</i>", "replace")
+  #2467 = #2466.select("end")
+  R112.sync()
+  #2468 = #2466.insertContentControl()
+  set #2468.tag = "formula-inserter:citation"
+  set #2468.title = "JurisLab"
+  set #2468.appearance = "hidden"
+  R112.sync()
+} R112
    status: Id. inserted.
 == (hidden)/cite-supradetect
-RUN R105 {
-  #2445 = R105.document.getSelection()
-  #2446 = R105.document.body.getRange("start")
-  #2447 = #2446.expandTo(#2445)
-  #2448 = #2447.load("text")
-  R105.sync()
-} R105
+RUN R113 {
+  #2469 = R113.document.getSelection()
+  #2470 = R113.document.body.getRange("start")
+  #2471 = #2470.expandTo(#2469)
+  #2472 = #2471.load("text")
+  R113.sync()
+} R113
    status: Earlier source detected.

@@ -240,6 +240,15 @@ export interface Host {
   /** A caption paragraph after the selection, in the Caption style, caret at its end, tagged. */
   insertCaptionParagraph(o: { text: string; tag: string }): Promise<void>;
 
+  /** A new paragraph after the selection's, filled with an OOXML package (a caption with Word fields — in Word's built-in Caption style — or a table of figures), caret at its end, tagged. */
+  insertParagraphOoxmlAfter(o: { ooxml: string; tag: string; caption?: boolean }): Promise<void>;
+
+  /** Updates the body's fields (SEQ first, then REF and TOC); "unsupported" where Word lacks Field.updateResult (WordApi 1.5). */
+  updateBodyFields(): Promise<"updated" | "unsupported" | "failed">;
+
+  /** The current text of each named bookmark (null: gone); null for the whole call where Word lacks bookmarks (WordApi 1.4). */
+  readBookmarkTexts(names: string[]): Promise<Record<string, string | null> | null>;
+
   // ---- read ------------------------------------------------------------------
 
   /** The main body's text (not footnotes or endnotes). */

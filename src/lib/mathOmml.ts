@@ -102,6 +102,8 @@ const OFFICE_DOC_REL = "http://schemas.openxmlformats.org/officeDocument/2006/re
 export interface MathOoxmlOptions {
   /** When set, appends a right-aligned label (e.g. "(I)") — patent-style equation numbering. */
   number?: string;
+  /** Instead of `number`: the label as ready WordprocessingML runs (a SEQ field number — captionFields.ts). */
+  numberRunsXml?: string;
 }
 
 /**
@@ -111,15 +113,22 @@ export interface MathOoxmlOptions {
  */
 export function buildMathOoxml(ommlBody: string, options: MathOoxmlOptions = {}): string {
   const number = options.number;
+  const labelled = !!number || !!options.numberRunsXml;
   // Right tab stop near the page margin so the number flushes right, patent-style.
-  const pPr = number ? `<w:pPr><w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs></w:pPr>` : "";
-  const numberRuns = number
-    ? `<w:r><w:tab/></w:r><w:r><w:t xml:space="preserve">${escapeXml(number)}</w:t></w:r>`
-    : "";
+  const pPr = labelled ? `<w:pPr><w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs></w:pPr>` : "";
+  const numberRuns = options.numberRunsXml
+    ? `<w:r><w:tab/></w:r>${options.numberRunsXml}`
+    : number
+      ? `<w:r><w:tab/></w:r><w:r><w:t xml:space="preserve">${escapeXml(number)}</w:t></w:r>`
+      : "";
   const documentXml =
     `<w:document xmlns:w="${W_NS}" xmlns:m="${M_NS}">` +
     `<w:body><w:p>${pPr}${ommlBody}${numberRuns}</w:p></w:body></w:document>`;
+  return flatOpcPackage(documentXml);
+}
 
+/** A WordprocessingML document part as the minimal flat-OPC package Word.Range.insertOoxml() accepts. */
+export function flatOpcPackage(documentXml: string): string {
   const relsXml =
     `<Relationships xmlns="${REL_NS}">` +
     `<Relationship Id="rId1" Type="${OFFICE_DOC_REL}" Target="word/document.xml"/>` +

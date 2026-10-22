@@ -221,6 +221,9 @@
       ] },
     bioassay: { title:"Bio/Assay", tagline:"Quantitative life-science tools — offline curve fitting with parameters ± SE and R², plus everyday lab math, with the fit drawn over your data.",
       does:[
+        "<b>Standard curve: read unknowns</b> — linear or 4PL fitted to replicate standards; each unknown's concentration with its CV and a calibration interval (Fieller for a line, the delta method for 4PL, labelled); an unknown outside the standards reads “below the lowest standard” or “above the highest”, never an extrapolated number.",
+        "<b>Plate reader</b> — a 96- or 384-well plate and its layout from a Word table at the cursor: blanks subtracted, replicates grouped, the standard curve and a plate heat map.",
+        "<b>qPCR</b> — Livak 2<sup>−ΔΔCt</sup> with the SD carried as Livak &amp; Schmittgen (2001) do (their Table 1 reproduces exactly), and the <b>Pfaffl</b> ratio with primer efficiencies from a dilution series (80–120 % or refused); “Undetermined” Ct values are dropped by name, never read as 40.",
         "<b>Enzyme kinetics</b> — Michaelis–Menten (V_max, K_m) and Hill fits, catalytic efficiency (k_cat, k_cat/K_m); linearizations seed the fit so no starting guess is needed.",
         "<b>Dose–response</b> — a 4-parameter logistic returns IC50/EC50, Hill slope, plateaus, pEC50; Cheng–Prusoff converts IC50 → K_i.",
         "<b>Receptor binding</b> — one-site saturation binding (B_max, K_d).",
@@ -244,6 +247,7 @@
       ] },
     stats: { title:"Stats", tagline:"Turn experimental data into a paper-ready result offline — parametric and non-parametric tests, ANOVA, regression, and uncertainty, all with real p-values.",
       does:[
+        "<b>Welch's ANOVA</b> and the <b>Games–Howell</b> post-hoc for groups with unequal variances — what the assumption check recommends when variances differ — each pair with its own Welch–Satterthwaite df; checked against pingouin and scipy to about 10⁻¹¹.",
         "<b>Descriptive statistics</b> — n, mean, SD, SEM, variance, median, min/max, 95% CI (t-based), CV.",
         "<b>t-tests</b> — two-sample (Welch or Student pooled) and paired, with a real p-value and an APA-style report.",
         "<b>Non-parametric</b> — Mann–Whitney U (independent) and Wilcoxon signed-rank (paired), tie- and continuity-corrected.",
@@ -282,6 +286,7 @@
       ] },
     units: { title:"Units", tagline:"Typeset physical quantities with SI conventions and convert between units, including compound units, with significant-figure rounding.",
       does:[
+        "Viscosity (P, cP, St, cSt), Torr and mmHg, radioactivity (Bq, Ci), absorbed and equivalent dose (Gy, rad, Sv, rem), catalytic activity (kat, U), magnetic flux (Wb, Mx), solid angle (sr), week and the Julian year — exact SI / NIST factors. Gy and Sv are different quantities and are not converted into each other.",
         "<b>Typeset quantities</b> — superscript exponents, ±, ×10ⁿ, thin space, symbol fixes (ohm → Ω, degC → °C, umol → µmol).",
         "<b>Convert</b> across length, mass, time, temperature (affine), volume, pressure, energy, amount, and angle.",
         "<b>Compound units</b> — km/h → m/s, g/mol → kg/mol.",
@@ -415,8 +420,12 @@
         {in:"housing → insert callout", out:"housing (12)"},
         {note:"Scan flags that numeral 14 is used for two different elements (a collision)."}
       ] },
-    refs: { title:"Refs", tagline:"Auto-numbered figure/table captions and cross-references, with a gap/duplicate check.",
+    refs: { title:"Refs", tagline:"Captions, equation numbers and cross-references as Word's own fields — they renumber when a figure is added, moved or deleted — plus a table of figures and a gap/duplicate check.",
       does:[
+        "<b>Word fields</b> (the default): a caption is Word's Caption style with a SEQ field — Figure, Table or Scheme — optionally with chapter numbers (Figure 2.3, restarting at each numbered Heading 1). Insert a figure in the middle and <b>Update numbers</b> renumbers every caption and every reference to it (on a Word without that API: select all, F9).",
+        "<b>Cross-references</b> list what is numbered, each with its current number, and insert “Fig. 3”, “Table 2” or “Eq. (1)” as a REF field that follows its target (Ctrl+click jumps to it).",
+        "<b>Equation numbers</b> (Math ▸ Equation numbers): (1), (2) … or by chapter (2.1) as Word fields, cross-referenceable; (I), (II) … for patent formulas as before.",
+        "<b>Table of figures / tables / schemes</b>: Word's own TOC field over those captions. <b>Plain text</b> numbering is still there for documents that use it.",
         "<b>Auto-numbered captions</b> — \"Figure 1.\", \"Table 2.\" with per-document counters saved in the file.",
         "<b>Cross-references</b> — insert \"Fig. 3\", \"Table 2\", or \"Eq. (1)\".",
         "<b>Check captions</b> — flags skipped or duplicated figure/table numbers."
@@ -474,6 +483,8 @@
       ] },
     solve: { title:"Solve", tagline:"A no-code solver for equations, calculus and common word problems — deterministic and entirely offline.",
       does:[
+        "<b>Significant figures</b>, with the steps: count them (“1200” is ambiguous — said so), round to n figures, arithmetic by the textbook rules (× ÷ fewest figures, + − fewest decimal places; counts are exact), and round a result to its uncertainty (10.0 ± 0.123 → 10.0 ± 0.1).",
+        "<b>Monte Carlo uncertainty</b>: <code>monte carlo a*b/c a = 10.0 ± 0.1, b = 4.00 ± 0.05, c = 2.0 ± 0.1</code> → 10⁵ seeded draws, mean, SD and the 95 % interval, a histogram, and whether the first-order (GUM) result agrees (JCGM 101 §8).",
         "<b>Linear programming</b> — <code>maximize 3x + 2y subject to x + y &lt;= 4, x + 3y &lt;= 6, x, y &gt;= 0</code> → (4, 0), z = 12 by an exact two-phase simplex (rational tableau, Bland's rule), the standard form with slacks, each constraint's slack and whether it binds, shadow prices (3, 0), reduced costs, objective and right-hand-side ranges, every claim verified by dual feasibility, complementary slackness and strong duality — and for two variables by an independent vertex enumeration; <code>dual of …</code>, <code>standard form of …</code>, <code>simplex tableau for …</code>, <code>graphically solve …</code>; <code>… x and y integer</code> → the LP relaxation labelled, then branch-and-bound (≤ 4 variables); unbounded → the ray, infeasible → the contradicting constraints named, alternative optima → the edge; a missing non-negativity is never silently added — both answers are printed and labelled; the feasible region drawn with the objective contour. One prose template (products × resources); transportation, assignment and diet in prose are refused by name with the typed form shown.",
         "<b>Interpolation and splines</b> — <code>interpolate (1, 2), (2, 3), (4, 7)</code> → p(x) = 1/3·x² + 5/3 exactly (Vandermonde, Lagrange and Newton cross-checked as rationals), the Newton table, <code>at x = 3</code> → 14/3; <code>neville's method … at x = 1.5</code> with the tableau; linear interpolation with the proportion line; the error bound with M stated; <code>natural cubic spline through (0, 0), (1, 1), (2, 0)</code> → M = (0, −3, 0) and one cubic per interval with S, S′, S″ continuity verified exactly; clamped, not-a-knot, linear and PCHIP; each piece drawn on its own interval. A least-squares fit is refused by name (Sketch data → function does that).",
         "<b>Probability</b> — <code>binomial n=10 p=0.4 P(X &lt;= 3)</code> → 3733209/9765625 ≈ 0.382281 exact, the formula line, the pmf drawn with the event shaded; <code>poisson lambda = 2.5 P(X &gt;= 3)</code>; <code>normal mean 100 sd 15 P(X &gt; 120)</code> → z = 4/3, 1 − Φ(4/3), the tail shaded; <code>quantile normal 0.975</code>, <code>critical value chi-square 3 df alpha 0.05</code>, <code>t 12 df P(T &gt; 2.1)</code>, exponential, uniform, gamma, beta, geometric (trials convention, said), negative binomial, hypergeometric; moments, mgfs, pmf tables; every value cross-checked by an independent route. <code>bayes P(A)=0.01, P(B|A)=0.9, P(B|not A)=0.05, P(A|B)</code> → 2/13 with the tree — independence never assumed; <code>expected value of a fair die</code> → 7/2; <code>probability of at least one six in four rolls</code> → 671/1296 (the classic prose problems exactly, refusal by name outside them); <code>confidence interval 95% mean 50 sd 10 n 30</code> with z and t both shown; normal approximation only as an explicit verb with the correction stated.",

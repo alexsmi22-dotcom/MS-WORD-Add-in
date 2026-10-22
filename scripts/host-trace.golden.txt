@@ -731,7 +731,7 @@ RUN R41 {
   R41.sync()
   #281 = R41.document.getSelection()
   #282 = #281.getRange("end")
-  #283 = #282.insertOoxml(s3655:4420ba72, "after")
+  #283 = #282.insertOoxml(s3654:c2f4f28b, "after")
   #284 = #283.getRange("after")
   #285 = #284.insertParagraph(s51:389173d4, "after")
   #286 = #285.insertInlinePictureFromBase64(s86388:94b8a178, "end")

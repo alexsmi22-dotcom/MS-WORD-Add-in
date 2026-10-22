@@ -1422,6 +1422,10 @@ a:focus-visible {
 .dna-controls .field-label {
   margin: 0;
 }
+/* Plot ▸ Plot type shows only the fields its kind uses (plotKinds.ts); a flex row must still hide. */
+#plot-section [hidden] {
+  display: none !important;
+}
 .cite-check {
   display: flex;
   align-items: flex-start;

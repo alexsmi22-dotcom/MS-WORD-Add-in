@@ -1,0 +1,2939 @@
+{
+ "rlocus": [
+  {
+   "num": "1",
+   "den": "s^3+3*s^2+2*s",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 6,
+     "kExact": "6/1",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": -0.42265,
+     "im": 0,
+     "K": 0.3849
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -2
+    ],
+    [
+     -1,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     6
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "s+3",
+   "den": "s^3+3*s^2+2*s",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": -0.467911,
+     "im": 0,
+     "K": 0.150644
+    }
+   ],
+   "segments": [
+    [
+     -3,
+     -2
+    ],
+    [
+     -1,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 3 2.0000003 0",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 6,
+     "kExact": "60000009/10000000",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": -0.42265,
+     "im": 0,
+     "K": 0.3849
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -2
+    ],
+    [
+     -1,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     6
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 0.1234567 0",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-1234567/20000000",
+     "im": 0,
+     "K": "1524155677489/400000000000000"
+    }
+   ],
+   "segments": [
+    [
+     -0.123457,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "s+1",
+   "den": "s^2",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-2/1",
+     "im": 0,
+     "K": "4/1"
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -1
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "s^2+1",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [],
+   "stable": [],
+   "jwAxis": true
+  },
+  {
+   "num": "s",
+   "den": "s^2+1",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-1/1",
+     "im": 0,
+     "K": "2/1"
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "s^4",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [],
+   "stable": [],
+   "jwAxis": false
+  },
+  {
+   "num": "-1",
+   "den": "s^2+2*s+2",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-1/1",
+     "im": 0,
+     "K": "1/1"
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     "Infinity"
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     2
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 5 10 10 5 1",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 2.88544,
+     "kExact": null,
+     "routh": null,
+     "irr": true
+    }
+   ],
+   "breakaways": [],
+   "segments": [
+    [
+     "-Infinity",
+     -1
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     2.88544
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 3 3 1 0",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 0.888889,
+     "kExact": "8/9",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": "-1/4",
+     "im": 0,
+     "K": "27/256"
+    }
+   ],
+   "segments": [
+    [
+     -1,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     0.888889
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "3 1 0",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-1/6",
+     "im": 0,
+     "K": "1/12"
+    }
+   ],
+   "segments": [
+    [
+     -0.333333,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "2",
+   "den": "2 7 3",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-7/4",
+     "im": 0,
+     "K": "25/16"
+    }
+   ],
+   "segments": [
+    [
+     -3,
+     -0.5
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "s^2+1",
+   "den": "s^3+s^2+4*s",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [
+    [
+     "-Infinity",
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "s^2+2*s+5",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 2 2 0",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 4,
+     "kExact": "4/1",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [],
+   "segments": [
+    [
+     "-Infinity",
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     4
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "s+2",
+   "den": "s^4+8*s^3+24*s^2+32*s+16",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 64,
+     "kExact": "64/1",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [],
+   "segments": [
+    [
+     "-Infinity",
+     -2
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     64
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "10",
+   "den": "0.5 1.5 1 0",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 0.3,
+     "kExact": "3/10",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": -0.42265,
+     "im": 0,
+     "K": 0.019245
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -2
+    ],
+    [
+     -1,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     0.3
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "s^4+1",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [],
+   "stable": [],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "s^2+4",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [],
+   "stable": [],
+   "jwAxis": true
+  },
+  {
+   "num": "s^2+4",
+   "den": "s^4+5*s^2+4",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": 0,
+     "im": -2,
+     "K": 3
+    },
+    {
+     "s": 0,
+     "im": 2,
+     "K": 3
+    }
+   ],
+   "segments": [],
+   "stable": [],
+   "jwAxis": true
+  },
+  {
+   "num": "1",
+   "den": "810.887217 1327.423748 543.2 12.5 0",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 5.04327,
+     "kExact": "79343804654140625/15732623274592567",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": -0.829623,
+     "im": 0,
+     "K": 10.3348
+    },
+    {
+     "s": -0.0120313,
+     "im": 0,
+     "K": 0.0740567
+    }
+   ],
+   "segments": [
+    [
+     -0.946364,
+     -0.666187
+    ],
+    [
+     -0.0244509,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     5.04327
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 0 0 0",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [
+    [
+     "-Infinity",
+     0
+    ]
+   ],
+   "stable": [],
+   "jwAxis": false
+  },
+  {
+   "num": "s^2+2*s+2",
+   "den": "s^3",
+   "src": "review-round2/rlc.json",
+   "crossings": [
+    {
+     "K": 1,
+     "kExact": "1/1",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [],
+   "segments": [
+    [
+     "-Infinity",
+     0
+    ]
+   ],
+   "stable": [
+    [
+     1,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "s^2+2*s+1.000001",
+   "src": "review-round2/rlc.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 6.002 15.009999 20.019996 15.019994 6.009996 1.001999",
+   "src": "review-round2/rlc2.json",
+   "crossings": [
+    {
+     "K": 2.37511,
+     "kExact": null,
+     "routh": null,
+     "irr": true
+    }
+   ],
+   "breakaways": [
+    {
+     "s": "-501/500",
+     "im": 0,
+     "K": "1/62500000000000000"
+    },
+    {
+     "s": "-2999/3000",
+     "im": 0,
+     "K": "1/364500000000000000000"
+    }
+   ],
+   "segments": [
+    [
+     -1.00241,
+     -0.999586
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     2.37511
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1.0 5.0002 10.00079999 10.00119997 5.00079997 1.00019999",
+   "src": "review-round2/rlc2.json",
+   "crossings": [
+    {
+     "K": 2.88602,
+     "kExact": null,
+     "routh": null,
+     "irr": true
+    }
+   ],
+   "breakaways": [
+    {
+     "s": -0.999969,
+     "im": 0,
+     "K": 8.46446e-23
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -1.00024
+    ],
+    [
+     -1,
+     -0.999959
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     2.88602
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1.0 4.000001 6.000003 4.000003 1.000001",
+   "src": "review-round2/rlc2.json",
+   "crossings": [
+    {
+     "K": 4,
+     "kExact": "8000012000006000001/2000001000000125000",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": "-4000003/4000000",
+     "im": 0,
+     "K": "27/256000000000000000000000000"
+    }
+   ],
+   "segments": [
+    [
+     -1,
+     -1
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     4
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1.0 4.00001 6.00003 4.00003 1.00001",
+   "src": "review-round2/rlc2.json",
+   "crossings": [
+    {
+     "K": 4.00004,
+     "kExact": "8000120000600001/2000010000012500",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": "-400003/400000",
+     "im": 0,
+     "K": "27/25600000000000000000000"
+    }
+   ],
+   "segments": [
+    [
+     -1.00001,
+     -1
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     4.00004
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "3.14159 2.71828 1.41421",
+   "den": "1 12.3456789 98.7654321 456.789123 1234.56789 2345.67891 3456.78912 2345.6789 1234.5678 456.789 12.345 0",
+   "src": "review-round2/rlc3.json",
+   "crossings": [
+    {
+     "K": 10.8493,
+     "kExact": null,
+     "routh": null,
+     "irr": false
+    },
+    {
+     "K": 18027.1,
+     "kExact": null,
+     "routh": null,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": -0.0145178,
+     "im": 0,
+     "K": 0.0629791
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -0.627363
+    ],
+    [
+     -0.0292089,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     10.8493
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 0 0 0 0 0 0 0 0 0 1",
+   "src": "review-round2/rlc3.json",
+   "crossings": [],
+   "breakaways": [],
+   "segments": [],
+   "stable": [],
+   "jwAxis": true
+  },
+  {
+   "num": "1",
+   "den": "1 10 45 120 210 252 210 120 45 10 1",
+   "src": "review-round2/rlc3.json",
+   "crossings": [
+    {
+     "K": 1.65172,
+     "kExact": null,
+     "routh": null,
+     "irr": true
+    },
+    {
+     "K": 203.148,
+     "kExact": null,
+     "routh": null,
+     "irr": true
+    }
+   ],
+   "breakaways": [],
+   "segments": [],
+   "stable": [
+    [
+     0,
+     1.65172
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "123456789012345",
+   "den": "1 98765432109876 12345678901234 0",
+   "src": "review-round2/rlc3.json",
+   "crossings": [
+    {
+     "K": 9876540000000,
+     "kExact": "406442103790051719346662328/41152263004115",
+     "routh": true,
+     "irr": false
+    }
+   ],
+   "breakaways": [
+    {
+     "s": -0.0625,
+     "im": 0,
+     "K": 0.003125
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -98765400000000
+    ],
+    [
+     -0.125,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     9876540000000
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "1 0.333333333333 0",
+   "src": "review-round2/rlc3.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-333333333333/2000000000000",
+     "im": 0,
+     "K": "111111111110888888888889/4000000000000000000000000"
+    }
+   ],
+   "segments": [
+    [
+     -0.333333,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "2",
+   "den": "3 1 0",
+   "src": "review-round2/rlc3.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-1/6",
+     "im": 0,
+     "K": "1/24"
+    }
+   ],
+   "segments": [
+    [
+     -0.333333,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "1",
+   "den": "2 7 0",
+   "src": "review-round2/rlc3.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": "-7/4",
+     "im": 0,
+     "K": "49/8"
+    }
+   ],
+   "segments": [
+    [
+     -3.5,
+     0
+    ]
+   ],
+   "stable": [
+    [
+     0,
+     null
+    ]
+   ],
+   "jwAxis": false
+  },
+  {
+   "num": "9.747317 58.5719 8.98559",
+   "den": "1 90.02397 65.89773 4.61481 65.8 72.704712 0.503254 0",
+   "src": "review-round3/rs2.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": -0.701133,
+     "im": 0,
+     "K": 0.48626
+    },
+    {
+     "s": -0.00351777,
+     "im": 0,
+     "K": 0.0000994908
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -89.2864
+    ],
+    [
+     -5.85149,
+     -0.157542
+    ],
+    [
+     -0.00696578,
+     0
+    ]
+   ],
+   "stable": [],
+   "jwAxis": false
+  },
+  {
+   "num": "85.88585",
+   "den": "1 46.55218 55.907059 36.61270 100.0 23.8 16.08 53.93 65.23246 0",
+   "src": "review-round3/rs2.json",
+   "crossings": [],
+   "breakaways": [
+    {
+     "s": -1.31276,
+     "im": 0,
+     "K": 1.60079
+    }
+   ],
+   "segments": [
+    [
+     "-Infinity",
+     -45.3357
+    ],
+    [
+     -1.53982,
+     0
+    ]
+   ],
+   "stable": [],
+   "jwAxis": false
+  }
+ ],
+ "nyquist": [
+  {
+   "num": "6.40913544e+10",
+   "den": "1 396.8930882 71597.80577 7770793.093 566156639.2 2.925726632e+10 1.10494306e+12 3.097054851e+13 6.478138368e+14 1.008634963e+16 1.156794968e+17 9.579705436e+17 5.537734555e+18 2.107990503e+19 4.723601593e+19 4.697521145e+19",
+   "P": 0,
+   "N": null,
+   "Z": null,
+   "agree": null,
+   "verdict": "UNDECIDED"
+  },
+  {
+   "num": "1.356496955e+12",
+   "den": "1 481.472929 107385.3395 14718792.31 1386798747 9.517641836e+10 4.91828701e+12 1.950642139e+14 5.996454063e+15 1.432613851e+17 2.650106602e+18 3.756568536e+19 4.006550765e+20 3.12348095e+21 1.701703273e+22 6.028927375e+22 1.226040974e+23 1.115496548e+23 2.674434321e+22",
+   "P": 0,
+   "N": null,
+   "Z": null,
+   "agree": null,
+   "verdict": "UNDECIDED"
+  },
+  {
+   "num": "1.427422229e+15",
+   "den": "1 645.57183 196422.188 37439213.55 5011893682 5.00678135e+11 3.870986058e+13 2.370592844e+15 1.167152323e+17 4.662062089e+18 1.5177476e+20 4.029916063e+21 8.700490479e+22 1.516579241e+24 2.109027044e+25 2.297428359e+26 1.907040232e+27 1.156027637e+28 4.773012314e+28 1.179643944e+29 1.277202729e+29",
+   "P": 0,
+   "N": null,
+   "Z": null,
+   "agree": null,
+   "verdict": "UNDECIDED"
+  },
+  {
+   "num": "100",
+   "den": "1 0.36 204.0546 60.484536 16429.3502245 3886.31175073 669551.154535 121144.049269 14747361.1667 1920565.01239 173808076.256 14823137.2919 1017442300.57 48060990.6509 2483609971.97 44184268.8 1625702400",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "s^3+3*s^2+2*s",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "s+3",
+   "den": "s^3+3*s^2+2*s",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "1 3 2.0000003 0",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "1 0.1234567 0",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "s+1",
+   "den": "s^2",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "s^2+1",
+   "P": 0,
+   "N": null,
+   "Z": null,
+   "agree": null,
+   "verdict": "MARGINAL"
+  },
+  {
+   "num": "s",
+   "den": "s^2+1",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "s^4",
+   "P": 0,
+   "N": 2,
+   "Z": 2,
+   "agree": true,
+   "verdict": "UNSTABLE"
+  },
+  {
+   "num": "-1",
+   "den": "s^2+2*s+2",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "1 5 10 10 5 1",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "1 3 3 1 0",
+   "P": 0,
+   "N": 2,
+   "Z": 2,
+   "agree": true,
+   "verdict": "UNSTABLE"
+  },
+  {
+   "num": "1",
+   "den": "3 1 0",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "2",
+   "den": "2 7 3",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "s^2+1",
+   "den": "s^3+s^2+4*s",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "s^2+2*s+5",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "1 2 2 0",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "s+2",
+   "den": "s^4+8*s^3+24*s^2+32*s+16",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "10",
+   "den": "0.5 1.5 1 0",
+   "P": 0,
+   "N": 2,
+   "Z": 2,
+   "agree": true,
+   "verdict": "UNSTABLE"
+  },
+  {
+   "num": "1",
+   "den": "s^4+1",
+   "P": 2,
+   "N": 0,
+   "Z": 2,
+   "agree": true,
+   "verdict": "UNSTABLE"
+  },
+  {
+   "num": "1",
+   "den": "s^2+4",
+   "P": 0,
+   "N": null,
+   "Z": null,
+   "agree": null,
+   "verdict": "MARGINAL"
+  },
+  {
+   "num": "s^2+4",
+   "den": "s^4+5*s^2+4",
+   "P": 0,
+   "N": null,
+   "Z": null,
+   "agree": null,
+   "verdict": "MARGINAL"
+  },
+  {
+   "num": "1",
+   "den": "810.887217 1327.423748 543.2 12.5 0",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  },
+  {
+   "num": "1",
+   "den": "1 0 0 0",
+   "P": 0,
+   "N": 2,
+   "Z": 2,
+   "agree": true,
+   "verdict": "UNSTABLE"
+  },
+  {
+   "num": "s^2+2*s+2",
+   "den": "s^3",
+   "P": 0,
+   "N": null,
+   "Z": null,
+   "agree": null,
+   "verdict": "MARGINAL"
+  },
+  {
+   "num": "1",
+   "den": "s^2+2*s+1.000001",
+   "P": 0,
+   "N": 0,
+   "Z": 0,
+   "agree": true,
+   "verdict": "STABLE"
+  }
+ ],
+ "leadlag": [
+  {
+   "ov": {},
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "kind": "lag"
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "1",
+    "den": "s^3+3*s^2+2*s",
+    "pm": "45",
+    "err": "5"
+   },
+   "ok": true,
+   "met": false,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "1",
+    "den": "s^3+3*s^2+2*s",
+    "kind": "lag",
+    "pm": "45",
+    "err": "5"
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "10",
+    "den": "s^2+s",
+    "pm": "50",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "1",
+    "den": "s^2",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "100",
+    "den": "s^3+12*s^2+20*s",
+    "pm": "40",
+    "err": "10",
+    "kind": "lead"
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "s+1",
+    "den": "s^2-s",
+    "pm": "40",
+    "err": ""
+   },
+   "ok": true,
+   "met": false,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "1",
+    "den": "s^2+0.2*s+1",
+    "pm": "60",
+    "err": "",
+    "kind": "lag"
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "369180556.8",
+    "den": "1 343.3922338 53209.99273 4913343.11 300637884.6 1.281666077e+10 3.893806201e+11 8.466330608e+12 1.301708023e+14 1.371398741e+15 9.306711492e+15 3.594565742e+16 5.797534219e+16",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "With this gain the loop magnitude never "
+  },
+  {
+   "ov": {
+    "num": "369180556.8",
+    "den": "1 343.3922338 53209.99273 4913343.11 300637884.6 1.281666077e+10 3.893806201e+11 8.466330608e+12 1.301708023e+14 1.371398741e+15 9.306711492e+15 3.594565742e+16 5.797534219e+16",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The plant's phase never rises above −180"
+  },
+  {
+   "ov": {
+    "num": "6.40913544e+10",
+    "den": "1 396.8930882 71597.80577 7770793.093 566156639.2 2.925726632e+10 1.10494306e+12 3.097054851e+13 6.478138368e+14 1.008634963e+16 1.156794968e+17 9.579705436e+17 5.537734555e+18 2.107990503e+19 4.723601593e+19 4.697521145e+19",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "With this gain the loop magnitude never "
+  },
+  {
+   "ov": {
+    "num": "6.40913544e+10",
+    "den": "1 396.8930882 71597.80577 7770793.093 566156639.2 2.925726632e+10 1.10494306e+12 3.097054851e+13 6.478138368e+14 1.008634963e+16 1.156794968e+17 9.579705436e+17 5.537734555e+18 2.107990503e+19 4.723601593e+19 4.697521145e+19",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The plant's phase never rises above −180"
+  },
+  {
+   "ov": {
+    "num": "1.356496955e+12",
+    "den": "1 481.472929 107385.3395 14718792.31 1386798747 9.517641836e+10 4.91828701e+12 1.950642139e+14 5.996454063e+15 1.432613851e+17 2.650106602e+18 3.756568536e+19 4.006550765e+20 3.12348095e+21 1.701703273e+22 6.028927375e+22 1.226040974e+23 1.115496548e+23 2.674434321e+22",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "With this gain the loop magnitude never "
+  },
+  {
+   "ov": {
+    "num": "1.356496955e+12",
+    "den": "1 481.472929 107385.3395 14718792.31 1386798747 9.517641836e+10 4.91828701e+12 1.950642139e+14 5.996454063e+15 1.432613851e+17 2.650106602e+18 3.756568536e+19 4.006550765e+20 3.12348095e+21 1.701703273e+22 6.028927375e+22 1.226040974e+23 1.115496548e+23 2.674434321e+22",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The plant's phase never rises above −180"
+  },
+  {
+   "ov": {
+    "num": "1.427422229e+15",
+    "den": "1 645.57183 196422.188 37439213.55 5011893682 5.00678135e+11 3.870986058e+13 2.370592844e+15 1.167152323e+17 4.662062089e+18 1.5177476e+20 4.029916063e+21 8.700490479e+22 1.516579241e+24 2.109027044e+25 2.297428359e+26 1.907040232e+27 1.156027637e+28 4.773012314e+28 1.179643944e+29 1.277202729e+29",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "With this gain the loop magnitude never "
+  },
+  {
+   "ov": {
+    "num": "1.427422229e+15",
+    "den": "1 645.57183 196422.188 37439213.55 5011893682 5.00678135e+11 3.870986058e+13 2.370592844e+15 1.167152323e+17 4.662062089e+18 1.5177476e+20 4.029916063e+21 8.700490479e+22 1.516579241e+24 2.109027044e+25 2.297428359e+26 1.907040232e+27 1.156027637e+28 4.773012314e+28 1.179643944e+29 1.277202729e+29",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The plant's phase never rises above −180"
+  },
+  {
+   "ov": {
+    "num": "1",
+    "den": "(s+1)^12",
+    "kind": "lead",
+    "pm": "50",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "Denominator: Factored form is not suppor"
+  },
+  {
+   "ov": {
+    "num": "1000",
+    "den": "s*(s+1)^10",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "Denominator: Factored form is not suppor"
+  },
+  {
+   "ov": {
+    "num": "1000",
+    "den": "s*(s+1)^15",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "Denominator: Factored form is not suppor"
+  },
+  {
+   "ov": {
+    "num": "369180556.8",
+    "den": "1 343.3922338 53209.99273 4913343.11 300637884.6 1.281666077e+10 3.893806201e+11 8.466330608e+12 1.301708023e+14 1.371398741e+15 9.306711492e+15 3.594565742e+16 5.797534219e+16",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "With this gain the loop magnitude never "
+  },
+  {
+   "ov": {
+    "num": "1",
+    "den": "(s+1)^12",
+    "kind": "lead",
+    "pm": "50",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "Denominator: Factored form is not suppor"
+  },
+  {
+   "ov": {
+    "num": "1000",
+    "den": "s*(s+1)^10",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "Denominator: Factored form is not suppor"
+  },
+  {
+   "ov": {
+    "num": "1.0935e+10",
+    "den": "1 558.26877628 98475.5054937 6978367.70436 213293933.497 2850205875.4 16185423655 35411631263.6 21870000000 0",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "6561000000",
+    "den": "1 558.26877628 98475.5054937 6978367.70436 213293933.497 2850205875.4 16185423655 35411631263.6 21870000000 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "4.374e+10",
+    "den": "1 558.26877628 98475.5054937 6978367.70436 213293933.497 2850205875.4 16185423655 35411631263.6 21870000000 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": false,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "2.95245e+14",
+    "den": "1 745.543872461 207675.256829 28169170.1868 2045537959.51 82819216036.4 1.89661978835e+12 2.44652321218e+13 1.73501903719e+14 6.39347724466e+14 1.07898523472e+15 5.9049e+14 0",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "1.77147e+14",
+    "den": "1 745.543872461 207675.256829 28169170.1868 2045537959.51 82819216036.4 1.89661978835e+12 2.44652321218e+13 1.73501903719e+14 6.39347724466e+14 1.07898523472e+15 5.9049e+14 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "1.18098e+15",
+    "den": "1 745.543872461 207675.256829 28169170.1868 2045537959.51 82819216036.4 1.89661978835e+12 2.44652321218e+13 1.73501903719e+14 6.39347724466e+14 1.07898523472e+15 5.9049e+14 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The loop has −13.25° of phase margin; re"
+  },
+  {
+   "ov": {
+    "num": "7.971615e+18",
+    "den": "1 935.887697686 353966.171734 71191283.1577 8452034206.8 623195671999 2.92993949765e+13 8.89221995514e+14 1.74605282682e+16 2.20263052558e+17 1.75289563018e+18 8.49794733216e+18 2.35099698619e+19 3.25044850982e+19 1.594323e+19 0",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "4.782969e+18",
+    "den": "1 935.887697686 353966.171734 71191283.1577 8452034206.8 623195671999 2.92993949765e+13 8.89221995514e+14 1.74605282682e+16 2.20263052558e+17 1.75289563018e+18 8.49794733216e+18 2.35099698619e+19 3.25044850982e+19 1.594323e+19 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "3.188646e+19",
+    "den": "1 935.887697686 353966.171734 71191283.1577 8452034206.8 623195671999 2.92993949765e+13 8.89221995514e+14 1.74605282682e+16 2.20263052558e+17 1.75289563018e+18 8.49794733216e+18 2.35099698619e+19 3.25044850982e+19 1.594323e+19 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The loop has −26.03° of phase margin; re"
+  },
+  {
+   "ov": {
+    "num": "2.15233605e+23",
+    "den": "1 1127.47757919 537532.214574 143256370.552 23802087755.1 2.6066241312e+12 1.94196043842e+14 1.00259211226e+16 3.62344178653e+17 9.20338710975e+18 1.64057471293e+20 2.03818790658e+21 1.74058925197e+22 9.97976232307e+22 3.69342713298e+23 8.23858735321e+23 9.69257944046e+23 4.3046721e+23 0",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "1.29140163e+23",
+    "den": "1 1127.47757919 537532.214574 143256370.552 23802087755.1 2.6066241312e+12 1.94196043842e+14 1.00259211226e+16 3.62344178653e+17 9.20338710975e+18 1.64057471293e+20 2.03818790658e+21 1.74058925197e+22 9.97976232307e+22 3.69342713298e+23 8.23858735321e+23 9.69257944046e+23 4.3046721e+23 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "8.6093442e+23",
+    "den": "1 1127.47757919 537532.214574 143256370.552 23802087755.1 2.6066241312e+12 1.94196043842e+14 1.00259211226e+16 3.62344178653e+17 9.20338710975e+18 1.64057471293e+20 2.03818790658e+21 1.74058925197e+22 9.97976232307e+22 3.69342713298e+23 8.23858735321e+23 9.69257944046e+23 4.3046721e+23 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The loop has −38.59° of phase margin; re"
+  },
+  {
+   "ov": {
+    "num": "1.937102445e+26",
+    "den": "1 1255.57281986 680656.669106 211003342.545 41794972072.9 5.60333975231e+12 5.25879971881e+14 3.52734384378e+16 1.71261476015e+18 6.06235790631e+19 1.56902119336e+21 2.9660102855e+22 4.0746200741e+23 4.02837950388e+24 2.82043863996e+25 1.36330084112e+26 4.36730681743e+26 8.65008378016e+26 9.27472950509e+26 3.87420489e+26 0",
+    "kind": "lag",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The plant's phase never rises above −180"
+  },
+  {
+   "ov": {
+    "num": "1.162261467e+26",
+    "den": "1 1255.57281986 680656.669106 211003342.545 41794972072.9 5.60333975231e+12 5.25879971881e+14 3.52734384378e+16 1.71261476015e+18 6.06235790631e+19 1.56902119336e+21 2.9660102855e+22 4.0746200741e+23 4.02837950388e+24 2.82043863996e+25 1.36330084112e+26 4.36730681743e+26 8.65008378016e+26 9.27472950509e+26 3.87420489e+26 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": true,
+   "met": true,
+   "head": null
+  },
+  {
+   "ov": {
+    "num": "7.74840978e+26",
+    "den": "1 1255.57281986 680656.669106 211003342.545 41794972072.9 5.60333975231e+12 5.25879971881e+14 3.52734384378e+16 1.71261476015e+18 6.06235790631e+19 1.56902119336e+21 2.9660102855e+22 4.0746200741e+23 4.02837950388e+24 2.82043863996e+25 1.36330084112e+26 4.36730681743e+26 8.65008378016e+26 9.27472950509e+26 3.87420489e+26 0",
+    "kind": "lead",
+    "pm": "45",
+    "err": ""
+   },
+   "ok": false,
+   "met": false,
+   "head": "The loop has −46.84° of phase margin; re"
+  }
+ ],
+ "c2d": [
+  {
+   "n": "4",
+   "d": "1 2 4",
+   "T": 0.2,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.06941299331036332,
+    0.060714681532578973
+   ],
+   "den": [
+    1,
+    -1.540192371192697,
+    0.6703200460356392
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "4",
+   "d": "1 2 4",
+   "T": 0.2,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.03225806451612903,
+    0.06451612903225806,
+    0.03225806451612903
+   ],
+   "den": [
+    1,
+    -1.5483870967741935,
+    0.6774193548387096
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "4",
+   "d": "1 2 4",
+   "T": 0.2,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.03253191871073552,
+    0.06506383742147104,
+    0.03253191871073552
+   ],
+   "den": [
+    1,
+    -1.540192371192697,
+    0.6703200460356391
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1",
+   "d": "1 0",
+   "T": 0.1,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.09999999999999998
+   ],
+   "den": [
+    1,
+    -1
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 0",
+   "T": 0.1,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.05,
+    0.05
+   ],
+   "den": [
+    1,
+    -1
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 0",
+   "T": 0.1,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.05,
+    0.05
+   ],
+   "den": [
+    1,
+    -1
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 1 0",
+   "T": 0.5,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.1065306597126332,
+    0.09020401043104986
+   ],
+   "den": [
+    1,
+    -1.6065306597126332,
+    0.6065306597126333
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 1 0",
+   "T": 0.5,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.05,
+    0.1,
+    0.05
+   ],
+   "den": [
+    1,
+    -1.6,
+    0.6
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 1 0",
+   "T": 0.5,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.04918366753592082,
+    0.09836733507184164,
+    0.04918366753592082
+   ],
+   "den": [
+    1,
+    -1.6065306597126334,
+    0.6065306597126334
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 0 0",
+   "T": 0.1,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.004999999999999893,
+    0.004999999999999893
+   ],
+   "den": [
+    1,
+    -2,
+    1
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 0 0",
+   "T": 0.1,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.0025,
+    0.005,
+    0.0025
+   ],
+   "den": [
+    1,
+    -2,
+    1
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 0 0",
+   "T": 0.1,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.0025000000000000005,
+    0.005000000000000001,
+    0.0025000000000000005
+   ],
+   "den": [
+    1,
+    -2,
+    1
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1 2",
+   "d": "1 1",
+   "T": 0.3,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    1,
+    -0.4816364413634358
+   ],
+   "den": [
+    1,
+    -0.7408182206817179
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 2",
+   "d": "1 1",
+   "T": 0.3,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    1.1304347826086956,
+    -0.6086956521739131
+   ],
+   "den": [
+    1,
+    -0.7391304347826086
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 2",
+   "d": "1 1",
+   "T": 0.3,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    1.148885033623318,
+    -0.6305214749867538
+   ],
+   "den": [
+    1,
+    -0.7408182206817179
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 3 1",
+   "d": "1 2 5",
+   "T": 0.25,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    1,
+    -1.2841150972915931,
+    0.3320364346701072
+   ],
+   "den": [
+    1,
+    -1.3669239728200637,
+    0.6065306597126333
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 3 1",
+   "d": "1 2 5",
+   "T": 0.25,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    1.0470588235294118,
+    -1.4823529411764707,
+    0.4823529411764706
+   ],
+   "den": [
+    1,
+    -1.388235294117647,
+    0.6235294117647059
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 3 1",
+   "d": "1 2 5",
+   "T": 0.25,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    1.0955192552554807,
+    -1.565084571943402,
+    0.5174866540664352
+   ],
+   "den": [
+    1,
+    -1.366923972820064,
+    0.6065306597126335
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1",
+   "d": "1 3 3 1",
+   "T": 0.05,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.000020067493624154054,
+    0.000077319205405324,
+    0.000018617481648663947
+   ],
+   "den": [
+    1,
+    -2.853688273502142,
+    2.7145122541078788,
+    -0.8607079764250577
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1",
+   "d": "1 3 3 1",
+   "T": 0.05,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.000014509365795621073,
+    0.00004352809738686322,
+    0.00004352809738686322,
+    0.000014509365795621073
+   ],
+   "den": [
+    1,
+    -2.8536585365853657,
+    2.7144556811421774,
+    -0.8606810696304464
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1",
+   "d": "1 3 3 1",
+   "T": 0.05,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.000014500522584851017,
+    0.00004350156775455305,
+    0.00004350156775455305,
+    0.000014500522584851017
+   ],
+   "den": [
+    1,
+    -2.853688273502142,
+    2.7145122541078783,
+    -0.8607079764250577
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "2 1",
+   "d": "1 0 0",
+   "T": 0.2,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.41999999999999993,
+    -0.38
+   ],
+   "den": [
+    1,
+    -2,
+    1
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "2 1",
+   "d": "1 0 0",
+   "T": 0.2,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.21,
+    0.02,
+    -0.19
+   ],
+   "den": [
+    1,
+    -2,
+    1
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "2 1",
+   "d": "1 0 0",
+   "T": 0.2,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.2101666388955009,
+    0.020000000000000004,
+    -0.1901666388955009
+   ],
+   "den": [
+    1,
+    -2,
+    1
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 0 1",
+   "T": 0.5,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.12241743810962724,
+    0.12241743810962735
+   ],
+   "den": [
+    1,
+    -1.7551651237807453,
+    0.9999999999999999
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 0 1",
+   "T": 0.5,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.058823529411764705,
+    0.11764705882352941,
+    0.058823529411764705
+   ],
+   "den": [
+    1,
+    -1.7647058823529411,
+    1
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "1 0 1",
+   "T": 0.5,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.06120871905481362,
+    0.12241743810962724,
+    0.06120871905481362
+   ],
+   "den": [
+    1,
+    -1.7551651237807455,
+    1
+   ],
+   "verdict": "MARGINALLY STABLE: 2 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1",
+   "d": "s-1",
+   "T": 0.1,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.1051709180756476
+   ],
+   "den": [
+    1,
+    -1.1051709180756473
+   ],
+   "verdict": "UNSTABLE: 1 discrete pole(s) outside the unit circle (|z| > 1)."
+  },
+  {
+   "n": "1",
+   "d": "s-1",
+   "T": 0.1,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.05263157894736842,
+    0.05263157894736842
+   ],
+   "den": [
+    1,
+    -1.105263157894737
+   ],
+   "verdict": "UNSTABLE: 1 discrete pole(s) outside the unit circle (|z| > 1)."
+  },
+  {
+   "n": "1",
+   "d": "s-1",
+   "T": 0.1,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.052585459037823856,
+    0.052585459037823856
+   ],
+   "den": [
+    1,
+    -1.1051709180756477
+   ],
+   "verdict": "UNSTABLE: 1 discrete pole(s) outside the unit circle (|z| > 1)."
+  },
+  {
+   "n": "5",
+   "d": "1 10 0",
+   "T": 0.01,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.00024187090179816906,
+    0.00023394200802218101
+   ],
+   "den": [
+    1,
+    -1.9048374180359597,
+    0.9048374180359596
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "5",
+   "d": "1 10 0",
+   "T": 0.01,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.00011904761904761905,
+    0.0002380952380952381,
+    0.00011904761904761905
+   ],
+   "den": [
+    1,
+    -1.9047619047619047,
+    0.9047619047619048
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "5",
+   "d": "1 10 0",
+   "T": 0.01,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.0001189532274550506,
+    0.0002379064549101012,
+    0.0001189532274550506
+   ],
+   "den": [
+    1,
+    -1.9048374180359595,
+    0.9048374180359595
+   ],
+   "verdict": "MARGINALLY STABLE: 1 discrete pole(s) on the unit circle (|z| = 1) and none outside it."
+  },
+  {
+   "n": "1 0",
+   "d": "1 2 1",
+   "T": 0.3,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.22224546620451524,
+    -0.22224546620451535
+   ],
+   "den": [
+    1,
+    -1.4816364413634355,
+    0.5488116360940263
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 0",
+   "d": "1 2 1",
+   "T": 0.3,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.11342155009451796,
+    0,
+    -0.11342155009451796
+   ],
+   "den": [
+    1,
+    -1.4782608695652173,
+    0.5463137996219282
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 0",
+   "d": "1 2 1",
+   "T": 0.3,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.11195865788431791,
+    0,
+    -0.11195865788431791
+   ],
+   "den": [
+    1,
+    -1.4816364413634358,
+    0.5488116360940265
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1",
+   "d": "1 0.2 100",
+   "T": 0.05,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.0012201210935871565,
+    0.0012160267141463343
+   ],
+   "den": [
+    1,
+    -1.746435052975837,
+    0.990049833749167
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1",
+   "d": "1 0.2 100",
+   "T": 0.05,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.000585480093676815,
+    0.00117096018735363,
+    0.000585480093676815
+   ],
+   "den": [
+    1,
+    -1.756440281030445,
+    0.990632318501171
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1",
+   "d": "1 0.2 100",
+   "T": 0.05,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.0006090369519333255,
+    0.001218073903866651,
+    0.0006090369519333255
+   ],
+   "den": [
+    1,
+    -1.746435052975838,
+    0.9900498337491681
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "3 2 1",
+   "d": "1 4 6 4",
+   "T": 1.5,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    0,
+    0.2808319104995477,
+    -0.1543206517509453,
+    0.11537016130317394
+   ],
+   "den": [
+    1,
+    -0.08135427464099532,
+    0.05135870702476695,
+    -0.002478752176666375
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "3 2 1",
+   "d": "1 4 6 4",
+   "T": 1.5,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.4189655172413793,
+    0.015517241379310345,
+    -0.23275862068965517,
+    0.1706896551724138
+   ],
+   "den": [
+    1,
+    0.2689655172413793,
+    0.18620689655172415,
+    0.034482758620689655
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "3 2 1",
+   "d": "1 4 6 4",
+   "T": 1.5,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.271376746904449,
+    0.021106784027755385,
+    -0.15043603687856102,
+    0.09983392599813264
+   ],
+   "den": [
+    1,
+    -0.08135427464099612,
+    0.051358707024766775,
+    -0.002478752176666362
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 0 0",
+   "d": "1 2 2",
+   "T": 0.2,
+   "meth": "zoh",
+   "ok": true,
+   "num": [
+    1,
+    -1.9650673381578598,
+    0.9650673381578597
+   ],
+   "den": [
+    1,
+    -1.6048212946850406,
+    0.6703200460356394
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 0 0",
+   "d": "1 2 2",
+   "T": 0.2,
+   "meth": "tustin",
+   "ok": true,
+   "num": [
+    0.819672131147541,
+    -1.639344262295082,
+    0.819672131147541
+   ],
+   "den": [
+    1,
+    -1.6065573770491803,
+    0.6721311475409836
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  },
+  {
+   "n": "1 0 0",
+   "d": "1 2 2",
+   "T": 0.2,
+   "meth": "matched",
+   "ok": true,
+   "num": [
+    0.8187343918824848,
+    -1.6374687837649695,
+    0.8187343918824848
+   ],
+   "den": [
+    1,
+    -1.6048212946850404,
+    0.6703200460356392
+   ],
+   "verdict": "STABLE: every discrete pole is strictly inside the unit circle (|z| < 1)."
+  }
+ ],
+ "margins": [
+  {
+   "name": "type0_3",
+   "num": "10.0",
+   "den": "1.0 3.0 3.0 1.0",
+   "pm": [
+    [
+     1.90829,
+     -7.0326
+    ]
+   ],
+   "gm": [
+    [
+     1.73205,
+     -1.9382
+    ]
+   ],
+   "numpyPm": [
+    [
+     1.9082947449523562,
+     -7.032600002712854
+    ]
+   ],
+   "numpyGm": [
+    [
+     1.7320508075688772,
+     -1.9382002601611283
+    ]
+   ]
+  },
+  {
+   "name": "type1_4",
+   "num": "50.0",
+   "den": "1.0 6.0 11.0 6.0 0.0",
+   "pm": [
+    [
+     2.07118,
+     -54.8507
+    ]
+   ],
+   "gm": [
+    [
+     1,
+     -13.9794
+    ]
+   ],
+   "numpyPm": [
+    [
+     2.071184328052583,
+     -54.85073334017255
+    ]
+   ],
+   "numpyGm": []
+  },
+  {
+   "name": "type2",
+   "num": "5.0 5.0",
+   "den": "1.0 10.0 0.0 0.0",
+   "pm": [
+    [
+     0.798664,
+     34.0468
+    ]
+   ],
+   "gm": [],
+   "numpyPm": [
+    [
+     0.7986640272990121,
+     34.046788385551025
+    ]
+   ],
+   "numpyGm": []
+  },
+  {
+   "name": "resonant3x",
+   "num": "100.0 2.0 100.0",
+   "den": "1.0 4.0 6.0 4.0 1.0",
+   "pm": [
+    [
+     0.983205,
+     32.4978
+    ],
+    [
+     1.0179,
+     148.557
+    ],
+    [
+     9.84675,
+     23.0779
+    ]
+   ],
+   "gm": [],
+   "numpyPm": [
+    [
+     0.9832053458401491,
+     32.497751354903016
+    ],
+    [
+     1.0178973208070403,
+     148.55747039613124
+    ],
+    [
+     9.846752049270892,
+     23.077883300165922
+    ]
+   ],
+   "numpyGm": []
+  },
+  {
+   "name": "k1000_5",
+   "num": "1000.0",
+   "den": "1.0 5.0 10.0 10.0 5.0 1.0",
+   "pm": [
+    [
+     3.85343,
+     162.739
+    ]
+   ],
+   "gm": [
+    [
+     0.726543,
+     -50.7958
+    ]
+   ],
+   "numpyPm": [
+    [
+     3.853431188513833,
+     162.73930553529544
+    ]
+   ],
+   "numpyGm": [
+    [
+     0.7265425280053608,
+     -50.79576445859975
+    ]
+   ]
+  },
+  {
+   "name": "spread",
+   "num": "10.0",
+   "den": "1.0 10001.0001 10001.0001 1.0",
+   "pm": [
+    [
+     0.000994987,
+     95.6822
+    ]
+   ],
+   "gm": [
+    [
+     100.005,
+     140.002
+    ]
+   ],
+   "numpyPm": [
+    [
+     0.0009949869396137618,
+     95.68215909333937
+    ]
+   ],
+   "numpyGm": [
+    [
+     100.00500037498124,
+     140.0017371779334
+    ]
+   ]
+  },
+  {
+   "name": "spread_int",
+   "num": "10.0 10.0",
+   "den": "1.0 10000.0001 1.0 0.0",
+   "pm": [
+    [
+     0.0316306,
+     1.99265
+    ]
+   ],
+   "gm": [],
+   "numpyPm": [
+    [
+     0.03163060420712011,
+     1.9926545802198916
+    ]
+   ],
+   "numpyGm": []
+  },
+  {
+   "name": "cond_stable",
+   "num": "100.0 200.0 100.0",
+   "den": "1.0 110.0 1000.0 0.0 0.0 0.0",
+   "pm": [
+    [
+     0.499758,
+     -40.0395
+    ]
+   ],
+   "gm": [
+    [
+     1.13248,
+     16.1295
+    ],
+    [
+     27.9234,
+     58.6777
+    ]
+   ],
+   "numpyPm": [
+    [
+     0.49975781921887424,
+     -40.03946014059295
+    ]
+   ],
+   "numpyGm": [
+    [
+     1.1324821450968559,
+     16.12950768952482
+    ],
+    [
+     27.92342178514368,
+     58.677746100360054
+    ]
+   ]
+  },
+  {
+   "name": "cond_stable2",
+   "num": "20.0 20.0 5.0",
+   "den": "1.0 5.0 0.0 0.0 0.0",
+   "pm": [
+    [
+     3.3847,
+     39.098
+    ]
+   ],
+   "gm": [
+    [
+     0.559017,
+     -22.1442
+    ]
+   ],
+   "numpyPm": [
+    [
+     3.3846971746470773,
+     39.09803746920741
+    ]
+   ],
+   "numpyGm": [
+    [
+     0.5590169943749473,
+     -22.144199392957372
+    ]
+   ]
+  },
+  {
+   "name": "bw8",
+   "num": "2.0",
+   "den": "1.0 5.125830895483013 13.137071184544089 21.846150969207628 25.688355931461274 21.846150969207628 13.137071184544089 5.125830895483013 1.0",
+   "pm": [
+    [
+     1.07108,
+     144.813
+    ]
+   ],
+   "gm": [
+    [
+     0.585262,
+     -6.01978
+    ],
+    [
+     1.70864,
+     31.2042
+    ]
+   ],
+   "numpyPm": [
+    [
+     1.0710754830729143,
+     144.81278826668023
+    ]
+   ],
+   "numpyGm": [
+    [
+     0.5852617253307183,
+     -6.019777016925897
+    ],
+    [
+     1.7086372758015609,
+     31.204203261812104
+    ]
+   ]
+  },
+  {
+   "name": "light_res_multi",
+   "num": "2.0 1.0",
+   "den": "1.0 0.03 5.0002 0.06 4.0 0.0",
+   "pm": [
+    [
+     0.383462,
+     127.114
+    ],
+    [
+     0.48985,
+     133.894
+    ],
+    [
+     1.4597,
+     -19.0633
+    ],
+    [
+     1.70545,
+     -17.618
+    ],
+    [
+     2.13851,
+     171.45
+    ]
+   ],
+   "gm": [
+    [
+     1.00998,
+     -30.4611
+    ]
+   ],
+   "numpyPm": [
+    [
+     0.38346203682429686,
+     127.11383930769819
+    ],
+    [
+     0.4898504410343637,
+     133.89397743609558
+    ],
+    [
+     1.4597036309115128,
+     -19.06330124210109
+    ],
+    [
+     1.7054490990454507,
+     -17.617984038869054
+    ],
+    [
+     2.138506977356353,
+     171.45029988790756
+    ]
+   ],
+   "numpyGm": [
+    [
+     1.009979236510087,
+     -30.461070165381887
+    ]
+   ]
+  },
+  {
+   "name": "lowk_4",
+   "num": "0.5",
+   "den": "1.0 4.0 6.0 4.0 1.0",
+   "pm": [],
+   "gm": [
+    [
+     1,
+     18.0618
+    ]
+   ],
+   "numpyPm": [],
+   "numpyGm": []
+  },
+  {
+   "name": "cond3",
+   "num": "10000.0 30000.0 20000.0",
+   "den": "1.0 70.0 1000.0 0.0 0.0 0.0",
+   "pm": [
+    [
+     9.19799,
+     36.4066
+    ]
+   ],
+   "gm": [
+    [
+     1.59165,
+     -21.4905
+    ],
+    [
+     28.0974,
+     14.8707
+    ]
+   ],
+   "numpyPm": [
+    [
+     9.197990415030539,
+     36.4065755693922
+    ]
+   ],
+   "numpyGm": [
+    [
+     1.5916519483059102,
+     -21.49053325605611
+    ],
+    [
+     28.097449067049734,
+     14.870668875227626
+    ]
+   ]
+  },
+  {
+   "name": "touch",
+   "num": "2.0",
+   "den": "1.0 2.0 1.0 0.0",
+   "pm": [
+    [
+     1,
+     0
+    ]
+   ],
+   "gm": [
+    [
+     1,
+     0
+    ]
+   ],
+   "numpyPm": [],
+   "numpyGm": []
+  }
+ ]
+}

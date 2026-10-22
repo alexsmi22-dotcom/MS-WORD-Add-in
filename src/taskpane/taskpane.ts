@@ -88,6 +88,7 @@ import {
   type AxisScale,
   type ErrorBarKind,
 } from "../lib/plot";
+import { initPlotKinds, renderPlotKind, readRangeBound } from "../lib/plotKinds";
 import {
   fitSubstrateInhibition,
   fitMichaelisMenten,
@@ -176,6 +177,10 @@ import {
   peptideDrawRefusal,
 } from "../lib/chembioCalcs";
 import { ASSAY_QUANT_CALCS } from "../lib/assayQuantCalcs";
+import { FILM_CALCS } from "../lib/filmCalcs";
+import { MATERIALS_CALCS } from "../lib/materialsCalcs";
+import { CONTROL_CALCS } from "../lib/controlCalcs";
+import { TITRATION_CALCS } from "../lib/titrationCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -1106,6 +1111,11 @@ let plotInsertBtn: HTMLButtonElement;
 let currentPlotSvg = "";
 /** Re-renders the current plot at a canvas width, keeping its aspect (figure styles, panels). */
 let currentPlotRender: ((w: number) => string) | null = null;
+/** Plot ▸ Plot type (plotKinds.ts): "fx" is the y = f(x) path below; the rest are drawn by the lib. */
+let plotKindSel: HTMLSelectElement;
+/** Alt text and figure-style chart kind of the current non-fx plot ("" / undefined for y = f(x)). */
+let currentPlotAlt = "";
+let currentPlotChartKind: string | undefined;
 let financeSection: HTMLElement;
 let finCalcSelect: HTMLSelectElement;
 let finInputs: HTMLElement;
@@ -1871,6 +1881,7 @@ Office.onReady((info) => {
   plotYlabel = document.getElementById("plot-ylabel") as HTMLInputElement;
   plotPreview = document.getElementById("plot-preview") as HTMLElement;
   plotInsertBtn = document.getElementById("plot-insert") as HTMLButtonElement;
+  plotKindSel = document.getElementById("plot-kind") as HTMLSelectElement;
   financeSection = document.getElementById("finance-section") as HTMLElement;
   finCalcSelect = document.getElementById("fin-calc") as HTMLSelectElement;
   finInputs = document.getElementById("fin-inputs") as HTMLElement;
@@ -2277,6 +2288,7 @@ Office.onReady((info) => {
     el.addEventListener("change", updatePlotPreview);
   }
   plotInsertBtn.addEventListener("click", insertPlot);
+  initPlotKinds(document, updatePlotPreview);
   themeSelect.value = getPrefs().theme;
   themeSelect.addEventListener("change", () => {
     setPref("theme", themeSelect.value as ThemePref);
@@ -7782,8 +7794,9 @@ function buildPlotSeries(): { series: Series[]; error: string; warning: string }
   const failed: string[] = [];
   const fnText = plotFn.value.trim();
   if (fnText) {
-    const xmin = parseFloat(plotXmin.value);
-    const xmax = parseFloat(plotXmax.value);
+    // readRangeBound: plain numbers exactly as parseFloat read them; "2*pi" as an expression; other text refused (was truncated).
+    const xmin = readRangeBound(plotXmin.value) ?? NaN;
+    const xmax = readRangeBound(plotXmax.value) ?? NaN;
     if (!Number.isFinite(xmin) || !Number.isFinite(xmax) || xmax <= xmin) {
       error = "Set a valid x-range (from < to).";
     } else {
@@ -7814,7 +7827,25 @@ function buildPlotSeries(): { series: Series[]; error: string; warning: string }
 function updatePlotPreview(): void {
   currentPlotSvg = "";
   currentPlotRender = null;
+  currentPlotAlt = "";
+  currentPlotChartKind = undefined;
   plotInsertBtn.disabled = true;
+  if (plotKindSel && plotKindSel.value !== "fx") {
+    // Parametric, polar, two y axes, contour, 3D surface: built and refused in
+    // src/lib/plotKinds.ts; inserted through the same currentPlotSvg/Render path.
+    const k = renderPlotKind(document);
+    if (!k.ok) {
+      plotPreview.innerHTML = `<span class="hint">${esc(k.error)}</span>`;
+      return;
+    }
+    plotPreview.innerHTML = k.notes.length ? `${k.svg}<div class="hint" style="margin-top:4px">${esc(k.notes.join(" "))}</div>` : k.svg;
+    currentPlotSvg = k.svg;
+    currentPlotRender = k.render;
+    currentPlotAlt = k.alt;
+    currentPlotChartKind = k.chartKind;
+    plotInsertBtn.disabled = false;
+    return;
+  }
   const { series, error, warning } = buildPlotSeries();
   if (error) {
     plotPreview.innerHTML = `<span class="hint">${esc(error)}</span>`;
@@ -7944,9 +7975,10 @@ async function insertPlot(): Promise<void> {
       svg: currentPlotSvg,
       fallbackW: plotDims.w,
       fallbackH: plotDims.h,
-      alt: `Plot: ${plotFn.value.trim() || "data"}`,
+      alt: currentPlotAlt || `Plot: ${plotFn.value.trim() || "data"}`,
       tag: "formula-inserter:plot",
       render: currentPlotRender ?? undefined,
+      chartKind: currentPlotChartKind,
     });
     setStatus(`Plot inserted ${how}.`, "success");
   } catch (error) {
@@ -12816,6 +12848,7 @@ const ENG_GROUP_ORDER = [
   "Fluids",
   "Thermal",
   "Energy & power",
+  "Chemistry & electrochemistry",
   "Audio & acoustics",
   "Video & display",
   "Light & camera",
@@ -15269,7 +15302,12 @@ const ENG_CALCS: EngCalc[] = [
     compute: (r) => {
       const tf = parseTf(r("num"), r("den"));
       if ("ok" in tf) return { text: tf.error, ok: false };
-      const mg = margins(tf);
+      // The closed loop is analysed ONCE and its verdict handed to margins(), which would
+      // otherwise settle it again (round 3: stability was computed twice per keystroke).
+      const closed = feedback(tf);
+      const st = analyzeStability(closed);
+      const stSettled = st.ok && !st.disagreement && !/^UNDETERMINED/.test(st.verdict);
+      const mg = margins(tf, { closedLoopStable: stSettled && st.ok ? st.stable : null });
       if (!mg.ok) return { text: mg.error, ok: false };
       const freqs = autoFrequencies(tf, 300);
       const resp = frequencyResponse(tf, freqs);
@@ -15279,19 +15317,17 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("");
       if (mg.gainMarginDb !== null) {
         lines.push(`Gain margin = ${engNum(mg.gainMarginDb)} dB at ${engNum(mg.phaseCrossoverW as number)} rad/s`);
-        lines.push(`  the loop gain may be multiplied by ${engNum(Math.pow(10, mg.gainMarginDb / 20))} before it goes unstable`);
+        lines.push(`  at this crossing: the loop gain may be ${mg.gainMarginDb >= 0 ? "multiplied" : "divided"} by ${engNum(Math.pow(10, Math.abs(mg.gainMarginDb) / 20))} before |L| reaches 1 at that −180° crossing (stability itself: see the closed-loop verdict below)`);
       } else {
-        lines.push("Gain margin: infinite — the phase never reaches -180 degrees.");
+        lines.push("Gain margin: infinite (the phase never crosses −180°).");
       }
       if (mg.phaseMarginDeg !== null) {
-        lines.push(`Phase margin = ${engNum(mg.phaseMarginDeg)} deg at ${engNum(mg.gainCrossoverW as number)} rad/s`);
+        lines.push(`Phase margin = ${engNum(mg.phaseMarginDeg)}° at ${engNum(mg.gainCrossoverW as number)} rad/s`);
       } else {
-        lines.push("Phase margin: none — the magnitude never crosses 0 dB.");
+        lines.push("Phase margin: none (the magnitude never crosses 0 dB).");
       }
       lines.push("");
       lines.push("Closing the loop");
-      const closed = feedback(tf);
-      const st = analyzeStability(closed);
       if (st.ok) {
         lines.push(`  Closed-loop denominator: ${polyToString(closed.den)}`);
         lines.push(`  ${st.verdict}`);
@@ -15370,19 +15406,22 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("Closed-loop poles");
       for (const p of st.poles) lines.push(`  ${fmtComplexPlain(p)}`);
 
-      const mg = margins(open);
+      // the closed loop was analysed just above; margins() reuses that verdict
+      const mg = margins(open, {
+        closedLoopStable: !st.disagreement && !/^UNDETERMINED/.test(st.verdict) ? st.stable : null,
+      });
       if (mg.ok) {
         lines.push("");
         lines.push("Open-loop margins");
         lines.push(
           mg.gainMarginDb !== null
             ? `  Gain margin = ${engNum(mg.gainMarginDb)} dB at ${engNum(mg.phaseCrossoverW as number)} rad/s`
-            : "  Gain margin: infinite — the phase never reaches -180 degrees.",
+            : "  Gain margin: infinite (the phase never crosses −180°).",
         );
         lines.push(
           mg.phaseMarginDeg !== null
-            ? `  Phase margin = ${engNum(mg.phaseMarginDeg)} deg at ${engNum(mg.gainCrossoverW as number)} rad/s`
-            : "  Phase margin: none — the magnitude never crosses 0 dB.",
+            ? `  Phase margin = ${engNum(mg.phaseMarginDeg)}° at ${engNum(mg.gainCrossoverW as number)} rad/s`
+            : "  Phase margin: none (the magnitude never crosses 0 dB).",
         );
         for (const note of mg.notes) lines.push(`  Note: ${note}`);
       }
@@ -24803,7 +24842,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "nernst",
     name: "Nernst potential",
-    group: "Energy & power",
+    group: "Chemistry & electrochemistry",
     hint:
       "For the reduction written reactants + n e⁻ → products (or a cell reaction transferring n electrons): " +
       "E = E° − (RT/nF)·ln Q, Q = Π a(products)^ν / Π a(reactants)^ν. Species as \"activity^coefficient\", comma " +
@@ -24841,7 +24880,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "butler-volmer",
     name: "Butler–Volmer kinetics",
-    group: "Energy & power",
+    group: "Chemistry & electrochemistry",
     hint:
       "j = j₀[exp(αa·Fη/RT) − exp(−αc·Fη/RT)]. Give the exchange current density j₀ (any unit; the curve is in the same " +
       "unit), the anodic and cathodic transfer coefficients and the temperature; an overpotential gives its current.",
@@ -24877,7 +24916,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "tafel",
     name: "Tafel analysis of polarization data",
-    group: "Energy & power",
+    group: "Chemistry & electrochemistry",
     hint:
       "Paste overpotential (V) and current density pairs, one per line, anodic currents positive and cathodic negative. " +
       "Each branch is fitted, η against log₁₀|j|, where |η| is at least the window (default 0.1 V), giving its Tafel slope, " +
@@ -28459,6 +28498,10 @@ const ENG_CALCS: EngCalc[] = [
       }
     },
   },
+  ...FILM_CALCS,
+  ...MATERIALS_CALCS,
+  ...CONTROL_CALCS,
+  ...TITRATION_CALCS,
 ];
 
 /** A transfer function as a typeset fraction, with a readable text fallback. */

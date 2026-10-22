@@ -6,6 +6,50 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.187.0] — 2026-10-22 — Thin films, materials testing, control design, titration and CV, new plot types
+
+Release B of the STEM gaps (the second of three). Engineering now has 170 calculators in twenty-two disciplines.
+
+- **Optics: Fresnel s/p, thin-film stacks and Jones calculus.** Fresnel gives rs, rp, ts, tp with phases and Rs, Rp,
+  Ts, Tp, for metals too (N = n + ik); its Brewster and critical angles are the Refraction tool's own. A coating
+  stack (`MgF2 1.38 QW`, `repeat 4 … end`) gives R, T and A at λ₀ and a spectrum by the characteristic-matrix method —
+  a quarter-wave MgF₂ on glass reads 1.26 % against 4.258 % uncoated. Jones calculus takes polarisers, half- and
+  quarter-wave plates, retarders and rotators and gives the output state, the ellipse and the Stokes parameters. Checked
+  against the published tmm package (10⁻¹¹) and closed forms; conventions (exp(−iωt), the IEEE handedness) are stated.
+- **Materials and quality.** A **tensile test** from your stress–strain or load–extension data: modulus, 0.2 % offset
+  yield, UTS, elongations, toughness, and a yield drop reported as upper and lower yield; a curve with no straight
+  elastic part still gets its UTS, elongations and toughness, while the modulus and everything built on it (offset
+  yield, resilience, plastic strain) read "not determined" rather than a guess. **Weibull modulus** of strength by regression and by
+  maximum likelihood (the Reliability tool's own fitter). **Crystallite size** by Scherrer and Williamson–Hall.
+  **Process capability** Cp, Cpk, Pp, Ppk with the Bissell interval and expected ppm. **Tolerance stack-up** by worst
+  case and RSS with each dimension's share.
+- **Control: root locus, Nyquist, lead/lag and discrete time.** Root locus with breakaway points and the exact gain at
+  each imaginary-axis crossing (1/(s(s+1)(s+2)): K = 6 at √2 rad/s, confirmed by Routh). Nyquist counts encirclements
+  and checks Z = N + P against the closed-loop poles. Lead/lag designs C(s) and then verifies it by closing the loop.
+  c2d by ZOH, Tustin or matched pole-zero, with the exact Jury test; matches SciPy to 10⁻¹¹.
+- **Fixed: phase and gain margins** (Bode, PID). The phase margin was not wrapped, so 1/s³ read 270° where it is −90°,
+  and a loop with a right-half-plane pole read 396.9° for 36.87°; a phase sitting at −180° gave a gain margin from
+  the edge of the sweep. Margins now come from genuine crossings, every −180° crossing is listed, and whether the loop
+  is stable is decided from the closed-loop poles, so a conditionally stable loop says so.
+- **Chemistry & electrochemistry** (a new discipline; Nernst, Butler–Volmer and Tafel move into it). **Titration
+  curves** solved exactly from the charge balance for up to four pKa values, with equivalence points, a dpH/dV panel
+  and your measured curve overlaid; **speciation diagrams**; **pH of a solution or buffer** with its buffer capacity;
+  **cyclic voltammetry**: Randles–Ševčík peak currents, a simulated reversible voltammogram (Nicholson–Shain, peak
+  0.4463 at 28.5/n mV from E½), and D from a fit of ip against √v.
+- **Plot types.** Plot mode has a Plot type: parametric x(t), y(t); polar r(θ) on a polar grid; two y axes;
+  contour lines or filled bands of z = f(x, y) with a colour bar; and a 3D surface. y = f(x) is unchanged; its x range
+  now also takes 2*pi or π/2, and text it cannot read is refused rather than cut short. θ, π and the true minus are
+  accepted in formulas. A contour is never drawn across a pole or a jump, and a function that is constant to
+  rounding is refused rather than drawn as noise.
+- Pasted data in every new tool reads decimal commas (5,30) and European thousands (1.234,5) by the evidence in the
+  block, and refuses what it cannot decide, rather than splitting a number in two.
+- **Fixed: eigenvalues of badly scaled matrices** (Math ▸ Matrix, and every pole and zero in the control tools).
+  The matrix is now balanced first, as LAPACK does; a matrix with entries from 10⁻²¹ to 10¹¹ read a spectral radius
+  of 8.59 where it is 0.985.
+- **Step response of stiff systems** (pole ratios of 10³ and more) is now stepped exactly by the matrix exponential,
+  checked against the poles before it is used; where it used to overflow or flatten, it now matches SciPy.
+- Also fixed: fact(x) for a huge x no longer freezes Word. Landing-page tool counts corrected (Bio/Assay has 21).
+
 ## [2.186.0] — 2026-10-22 — Captions as Word fields, Welch's ANOVA, standard curves and qPCR, significant figures
 
 Release A of the STEM gaps (the first of three).

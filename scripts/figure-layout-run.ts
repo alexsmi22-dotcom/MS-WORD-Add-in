@@ -38,7 +38,16 @@ import {
   armSvg,
 } from "../src/lib/mechchart";
 import { ASSAY_QUANT_CALCS } from "../src/lib/assayQuantCalcs";
+import { MATERIALS_CALCS } from "../src/lib/materialsCalcs";
+import { CONTROL_CALCS } from "../src/lib/controlCalcs";
+import { rootLocusSvg, nyquistSvg, zPlaneSvg } from "../src/lib/controlCharts";
+import { rootLocus, nyquist, c2d } from "../src/lib/controlDesign";
 import { monteCarlo, mcHistogramSvg } from "../src/lib/monteCarlo";
+import { FILM_CALCS } from "../src/lib/filmCalcs";
+import { polarisationEllipseSvg } from "../src/lib/filmCharts";
+import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
+import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
+import { speciationSvg, rsLineSvg, cvSimSvg } from "../src/lib/titrationCharts";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
 import { GAMUTS as GAMUT_DEFS } from "../src/lib/colourspace";
@@ -168,12 +177,19 @@ import { analyzeFrame, parseFrame } from "../src/lib/frame2d";
 import { frameChartSvg } from "../src/lib/frameChart";
 import { analyzePlate, parsePlate } from "../src/lib/planeStress";
 import { arrhenius, parseStability } from "../src/lib/arrhenius";
-import { butlerVolmerCurve, nernst, tafelFit } from "../src/lib/electrochem";
+import { butlerVolmerCurve, nernst, tafelFit, simulateReversibleCv } from "../src/lib/electrochem";
 import { arrheniusChartSvg, butlerVolmerChartSvg, nernstChartSvg, plateChartSvg, tafelChartSvg } from "../src/lib/engCharts2026";
 import { twoSampleTTest } from "../src/lib/stats";
 import { kruskalWallis, dunnTest } from "../src/lib/nonparametric";
 // The compound table's structure cells (Reaction ▸ Compounds in this document), drawn as the pane draws them.
 import { structureSvg } from "../src/lib/compoundTable";
+// Plot ▸ Plot type (Release B): parametric, polar, two y axes, contour, 3D surface — each built by
+// plotKinds.buildPlotKind, the call the pane makes, from representative field values.
+import { buildPlotKind, PlotKindInput, parametricPlotSvg } from "../src/lib/plotKinds";
+import { polarPlotSvg } from "../src/lib/polarPlot";
+import { dualAxisPlotSvg } from "../src/lib/dualAxisPlot";
+import { contourPlotSvg } from "../src/lib/contour";
+import { surfacePlotSvg } from "../src/lib/surface3d";
 
 const figures: [string, string][] = [];
 
@@ -2047,6 +2063,59 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   }
 }
 
+// --- Control design (src/lib/controlCalcs.ts, controlCharts.ts) --------------
+//
+// Every figure each control calculator draws, at its defaults and on stress cases:
+// a root locus with a breakaway, a surd crossing and complex zeros, the order-20
+// locus (twenty branches through the key), Nyquist plots that encircle −1, that
+// start unstable, and that race to infinity at imaginary-axis poles, the lead/lag
+// Bode pair and step, and the discrete step over the continuous one with its
+// z-plane map (stable, unstable, aliased).
+{
+  const ctrlCases: Array<[string, Record<string, string>]> = [
+    ["control-rlocus", { k: "2" }],
+    ["control-rlocus", { num: "s+3", den: "s^4+7*s^3+14*s^2+8*s", k: "4" }],
+    ["control-rlocus", { num: "s^2+2*s+5", den: "s^4+8*s^3+19*s^2+12*s" }],
+    ["control-rlocus", { num: "1", den: "1 20 190 1140 4845 15504 38760 77520 125970 167960 184756 167960 125970 77520 38760 15504 4845 1140 190 20 1" }],
+    ["control-rlocus", { num: "-s+1", den: "s+1" }],
+    ["control-rlocus", { num: "-1", den: "s^2+2*s+2" }],
+    ["control-nyquist", {}],
+    ["control-nyquist", { num: "10" }],
+    ["control-nyquist", { num: "s+2", den: "s^2-1" }],
+    ["control-nyquist", { num: "1", den: "s^4+2*s^2+1" }],
+    ["control-nyquist", { num: "2", den: "s+1" }],
+    ["control-nyquist", { num: "1000", den: "s^3+3*s^2+3*s+1" }],
+    ["control-nyquist", { num: "100", den: "s^3+6*s^2+11*s+6" }],
+    ["control-leadlag", {}],
+    ["control-leadlag", { kind: "lag", num: "1", den: "0.5*s^3+1.5*s^2+s", err: "5", pm: "40" }],
+    ["control-c2d", {}],
+    ["control-c2d", { num: "1", den: "s-1", T: "0.1" }],
+    ["control-c2d", { num: "1", den: "s^2+100", T: "0.5", method: "tustin" }],
+  ];
+  for (const [id, over] of ctrlCases) {
+    const c = CONTROL_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: no control calculator ${id}`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: control ${id} ${JSON.stringify(over)} did not draw`);
+    const tag = Object.entries(over).map(([k, v]) => `${k}=${v.length > 24 ? v.slice(0, 21) + "…" : v}`).join(" ") || "defaults";
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`control ${id} ${tag} #${i + 1}`, b.svg]);
+    });
+  }
+  // The chart builders directly, on an engine result the calculators do not reach:
+  // a Nyquist that passes THROUGH −1, a locus whose sweep is the whole figure, and the
+  // z-plane with a pole outside the unit circle at the edge of the frame.
+  const ny6 = nyquist({ num: [ratInt(6)], den: [ratInt(1), ratInt(3), ratInt(2), ratInt(0)] });
+  if (ny6.ok) figures.push(["control nyquist through −1 (K = 6)", nyquistSvg(ny6)]);
+  const rlAxis = rootLocus({ num: [ratInt(1)], den: [ratInt(1), ratInt(0), ratInt(1)] });
+  if (rlAxis.ok) figures.push(["control root locus on the imaginary axis", rootLocusSvg(rlAxis)]);
+  const zUnst = c2d({ num: [ratInt(1)], den: [ratInt(1), ratInt(-3)] }, 0.5, "zoh");
+  if (zUnst.ok) figures.push(["control z-plane pole far outside", zPlaneSvg(zUnst)]);
+}
+
 // --- Monte Carlo uncertainty histogram (v2.186.0) ---------------------------
 //
 // A near-normal output (a·b/c) and a skewed one (exp(a)): the 95 % interval
@@ -2056,6 +2125,123 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   figures.push(["monte carlo a·b/c", mcHistogramSvg(a, "a·b/c")]);
   const e = monteCarlo("exp(a)", [{ name: "a", value: 0, u: 0.5 }], { seed: 1 });
   figures.push(["monte carlo exp(a)", mcHistogramSvg(e, "exp(a)")]);
+}
+
+// --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------
+//
+// Each calculator at its defaults, then the states that stress the layout: TIR
+// (critical + Brewster markers and the 100 % plateau), a metal (curves bunched
+// at the top, pseudo-Brewster), a quarter-wave mirror, an absorbing stack (third
+// A curve), an opaque layer, crossed polarisers (the "no light" panel), a thin
+// elliptical output and the bare circular ellipse builder.
+{
+  const film = (id: string, over: Record<string, string>, name: string) => {
+    const c = FILM_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: film calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: film ${name} did not draw`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`film ${name}${i ? " " + i : ""}`, b.svg]);
+    });
+  };
+  for (const c of FILM_CALCS) film(c.id, {}, `${c.id} default`);
+  film("optics-fresnel", { n1: "1.5", n2: "1.0", th: "60" }, "fresnel TIR");
+  film("optics-fresnel", { n2: "0.05+3.4i", th: "70" }, "fresnel metal");
+  film("optics-thin-film", { layers: `repeat 4
+H 2.35 QW
+L 1.38 QW
+end
+H 2.35 QW` }, "stack HL mirror");
+  film("optics-thin-film", { layers: "Ag 0.05+3.4i 40 nm", th: "45" }, "stack absorbing oblique");
+  film("optics-thin-film", { layers: "Au 0.2+3.5i 1000000", lmin: "300", lmax: "2500", lam0: "1064" }, "stack opaque wide range");
+  film("optics-jones", { elements: `polariser 0
+polariser 90` }, "jones crossed");
+  film("optics-jones", { input: "custom", ex: "1", ey: "0.5i", elements: `retarder 30 60
+rotator 15` }, "jones elliptical");
+  figures.push(["film ellipse circular + linear", polarisationEllipseSvg([
+    { title: "Right circular", vec: RIGHT_CIRCULAR, lines: ["right-handed circular", "I/I₀ = 1"], colour: "#2563eb" },
+    { title: "Linear 120°", vec: linearState(120), lines: ["linear at 120°", "I/I₀ = 0.5"], colour: "#b91c1c" },
+  ])]);
+}
+
+// --- Materials testing and quality (Release B #15) ---------------------------
+//
+// Every plot block of every MATERIALS_CALCS tool at its shipped defaults, plus
+// the variants that change a figure's shape: the stack-up with Monte Carlo on,
+// a one-sided capability limit, a ksi tensile curve and a single-peak Scherrer
+// (no Williamson–Hall panel).
+{
+  const variants: Record<string, Record<string, string>[]> = {
+    "mat-tensile": [
+      {},
+      { stressUnit: "ksi", data: "0 0\n0.05 5\n0.1 10\n0.15 15\n0.2 20\n0.3 27\n0.5 31\n1 34\n3 38\n6 40\n9 39\n11 36" },
+      // mild steel with a yield-point drop (ReH/ReL markers) and two post-break rows
+      {
+        offset: "0.2",
+        data:
+          "0 0\n0.02 40\n0.04 80\n0.06 120\n0.08 160\n0.1 200\n0.12 240\n0.15 300\n0.2 270\n0.4 272\n0.6 268\n0.8 271\n1 269\n1.3 270\n1.6 271\n2 270\n" +
+          "3 303\n5 350\n8 385\n12 405\n18 418\n22 410\n25 380\n27 352\n27.1 4\n27.2 0",
+      },
+      // too few elastic rows: no modulus, a single curve-and-UTS figure
+      { data: "0 0\n0.1 70\n0.2 140\n0.3 200\n0.5 240\n1 260\n2 290\n5 350\n10 410\n15 440\n20 450\n25 420\n28 320" },
+      // curved from the start (polypropylene-like): chord slope with caveat
+      { data: "0 0\n0.25 3.2\n0.5 6.2\n0.75 8.8\n1 11.2\n1.25 13.4\n1.5 15.3\n2 18.7\n3 23.8\n4 27.1\n6 30.9\n8 32.6\n12 33.7" },
+    ],
+    "mat-weibull-strength": [{}],
+    "mat-scherrer": [{}, { peaks: "38.2 0.18" }],
+    "qual-capability": [{}, { lsl: "", subgroup: "" }],
+    "qual-tolerance-stack": [{}, { mc: "on", gapMin: "0.3", gapMax: "0.7" }],
+  };
+  for (const c of MATERIALS_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: materials ${c.id} did not draw`);
+      svgs.forEach((s, i) => figures.push([`materials ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+}
+
+// --- Chemistry & electrochemistry (src/lib/titrationCalcs.ts, titrationCharts.ts) ----
+//
+// Every calculator at its shipped defaults, then the layouts that crowd: phosphoric acid with a measured curve
+// overlaid (two breaks, four legend rows), a strong acid (a dpH/dV needle ~4300 pH/mL tall beside a flat line), a
+// diprotic base from pKb values, a strong-only solution (β panel alone), four-pKa speciation (five legend rows), a
+// six-rate oxidation-first CV at n = 2, and Randles–Ševčík data from an adsorbed layer (log–log slope 1).
+{
+  const runChem = (id: string, over: Record<string, string> = {}): string => {
+    const c = TITRATION_CALCS.find((k) => k.id === id);
+    if (!c) throw new Error(`corpus: no chemistry calculator ${id}`);
+    const vals: Record<string, string> = { ...Object.fromEntries(c.fields.map((f) => [f.key, f.default])), ...over };
+    const out = c.compute((k) => vals[k] ?? "");
+    const p = (out.blocks ?? []).find((b) => b.kind === "plot");
+    if (out.ok === false || !p || p.kind !== "plot") throw new Error(`corpus: chemistry ${id} did not draw: ${out.text}`);
+    return p.svg;
+  };
+  for (const c of TITRATION_CALCS) figures.push([`chem ${c.id} defaults`, runChem(c.id)]);
+  figures.push([
+    "chem titration phosphoric + measured",
+    runChem("chem-titration", {
+      pk: "2.15, 7.20, 12.35",
+      data: "0 1.70\n5 1.95\n10 2.15\n15 2.40\n20 2.85\n23 3.40\n24 3.80\n25 4.60\n26 5.70\n27 6.10\n30 6.70\n35 7.05\n40 7.40\n45 7.95\n48 8.60\n49 9.00\n50 9.60\n51 10.20\n52 10.50\n55 11.00\n60 11.40",
+    }),
+  ]);
+  figures.push(["chem titration strong acid needle", runChem("chem-titration", { kind: "strong-acid", vat: "" })]);
+  figures.push(["chem titration diprotic base from pKb", runChem("chem-titration", { kind: "weak-base", pktype: "pkb", pk: "4.07, 7.15", c0: "50 mM", ct: "0.2 M" })]);
+  figures.push(["chem solution strong only", runChem("chem-solution-ph", { sys: "none", csa: "1 mM" })]);
+  figures.push(["chem speciation four pKa", runChem("chem-speciation", { pk: "1.99, 2.67, 6.16, 10.26", ph: "4.5" })]);
+  figures.push(["chem cv six rates oxidation n=2", runChem("chem-cv-peak", { n: "2", dir: "ox", rates: "10, 20, 50, 100, 200, 500, 1000", ehalf: "-0.45" })]);
+  figures.push(["chem rs analysis adsorbed", runChem("chem-cv-randles", { data: "10 0.50\n25 1.25\n50 2.49\n100 5.02\n200 9.95\n400 20.1" })]);
+  // The builders directly, at the smallest legal inputs: a monoprotic speciation with no mark, one CV curve, one rate.
+  figures.push(["chem speciation svg monoprotic", speciationSvg([4.76], false, 14, null)]);
+  figures.push(["chem rs line one rate", rsLineSvg([0.1], [1.6558e-5])]);
+  const one = simulateReversibleCv({ n: 1, E0: 0, Estart: 0.3, Eswitch: -0.3, v: 0.1, D: 1e-5, A: 0.07, C: 1e-6, tC: 25, steps: 500 });
+  if (typeof one !== "string") figures.push(["chem cv svg single", cvSimSvg([{ v: 0.1, sim: one }])]);
 }
 
 // --- Figures that moved out of the pane (v2.144.0, host adapter) -------------
@@ -2403,6 +2589,61 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
     return seriesMarkerSvg(st, 20, 20 + i * 22, 5) + `<text x="34" y="${24 + i * 22}" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#111111">series ${i + 1}</text>`;
   }).join("");
   figures.push(["okabe-ito series markers", `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="${CATEGORICAL_PALETTE.length * 22 + 20}"><rect width="160" height="${CATEGORICAL_PALETTE.length * 22 + 20}" fill="#fff"/>${swatch}</svg>`]);
+}
+
+// Plot ▸ Plot type. Every figure is the pane's own build (buildPlotKind) — the
+// SVG that currentPlotSvg holds and insertFigure sizes from its root — and five
+// are also fitted to a journal style through their render(w), as inserted.
+{
+  const base: PlotKindInput = {
+    kind: "parametric", fn: "", fn2: "", xmin: "-10", xmax: "10", tmin: "0", tmax: "2*pi", ymin: "-10", ymax: "10",
+    angleUnit: "rad", data: "", title: "", xlabel: "", ylabel: "", y2label: "", zlabel: "", xscale: "linear", yscale: "linear",
+    y2scale: "linear", equal: true, levels: "", filled: false, grid: "", az: "-60", el: "30", surfaceStyle: "filled",
+  };
+  const kindFig = (name: string, o: Partial<PlotKindInput>): ((w: number) => string) => {
+    const r = buildPlotKind({ ...base, ...o });
+    if (!r.ok) throw new Error(`corpus: ${name}: ${r.error}`);
+    figures.push([name, r.svg]);
+    return r.render;
+  };
+  const circle = kindFig("plot kind parametric unit circle, equal scales", { kind: "parametric", fn: "cos(t)", fn2: "sin(t)" });
+  kindFig("plot kind parametric lissajous with title and labels", { kind: "parametric", fn: "sin(3*t)", fn2: "sin(2*t)", title: "Lissajous figure 3:2", xlabel: "Horizontal deflection (V)", ylabel: "Vertical deflection (V)" });
+  kindFig("plot kind parametric with a gap (sqrt of t² − 1)", { kind: "parametric", fn: "t", fn2: "sqrt(t^2 - 1)", tmin: "-2", tmax: "2", equal: false });
+  const rose = kindFig("plot kind polar rose cos 3θ, radians", { kind: "polar", fn: "cos(3*theta)", tmin: "0", tmax: "pi" });
+  kindFig("plot kind polar limaçon 1 + 2 cos θ, degrees, negative r", { kind: "polar", fn: "1 + 2*cos(theta)", tmin: "0", tmax: "360", angleUnit: "deg", title: "Limaçon with an inner loop" });
+  kindFig("plot kind polar Archimedean spiral r = θ", { kind: "polar", fn: "theta", tmin: "0", tmax: "6*pi" });
+  const dual = kindFig("plot kind two y axes, right axis log", {
+    kind: "dualy",
+    data: "0 21.5 1.2\n10 24.1 3.5\n20 27.9 11\n30 31.2 40\n40 33.8 150\n50 35.0 610",
+    title: "Reactor warm-up", xlabel: "Time (min)", ylabel: "Temperature (°C)", y2label: "Pressure (kPa)", y2scale: "log",
+  });
+  kindFig("plot kind two y axes, missing values, wide numbers", { kind: "dualy", data: "1 120000 0.0012\n2 135000 -\n3 - 0.0031\n4 171000 0.0044", xlabel: "Batch", ylabel: "Count", y2label: "Fraction" });
+  const rings = kindFig("plot kind contour x² + y², lines", { kind: "contour", fn: "x^2 + y^2", xmin: "-3", xmax: "3", ymin: "-3", ymax: "3" });
+  kindFig("plot kind contour sin x cos y, filled bands", { kind: "contour", fn: "sin(x)*cos(y)", xmin: "-pi", xmax: "pi", ymin: "-pi", ymax: "pi", filled: true, title: "Saddle field", zlabel: "Potential (V)" });
+  kindFig("plot kind contour with a hole (sqrt of 4 − x² − y²)", { kind: "contour", fn: "sqrt(4 - x^2 - y^2)", xmin: "-3", xmax: "3", ymin: "-3", ymax: "3", filled: true, levels: "0.5 1 1.5" });
+  kindFig("plot kind contour, long thin rectangle, user levels", { kind: "contour", fn: "x*y", xmin: "0", xmax: "100", ymin: "0", ymax: "5", levels: "10 50 100 200 400" });
+  const surf = kindFig("plot kind surface sin r, filled, default view", { kind: "surface", fn: "sin(sqrt(x^2 + y^2))", title: "Ripple" });
+  kindFig("plot kind surface saddle wireframe, az 30 el 45", { kind: "surface", fn: "x^2 - y^2", xmin: "-2", xmax: "2", ymin: "-2", ymax: "2", az: "30", el: "45", surfaceStyle: "wireframe", grid: "24" });
+  kindFig("plot kind surface with labels, az 135", { kind: "surface", fn: "exp(-(x^2 + y^2)/4)", xmin: "-5", xmax: "5", ymin: "-5", ymax: "5", az: "135", el: "20", xlabel: "Position x (mm)", ylabel: "Position y (mm)", zlabel: "Intensity" });
+  const pName = (what: string): string => {
+    const p = getPreset("nature");
+    if (!p) throw new Error("nature");
+    return `preset nature ${presetWidthMm(p, "single")} mm ${what}`;
+  };
+  const styled: [string, (w: number) => string][] = [
+    ["plot kind parametric", circle],
+    ["plot kind polar", rose],
+    ["plot kind two y axes", dual],
+    ["plot kind contour", rings],
+    ["plot kind surface", surf],
+  ];
+  for (const [what, render] of styled) {
+    const r = prepareFigure({ svg: render(380), preset: "nature", width: "single", render });
+    if (!r.ok) throw new Error(`${what}: ${r.reason}: ${r.problems.join("; ")}`);
+    figures.push([pName(what), r.svg]);
+  }
+  // The builders the kinds call, named so the coverage gate sees each module imported for its figure.
+  void [parametricPlotSvg, polarPlotSvg, dualAxisPlotSvg, contourPlotSvg, surfacePlotSvg];
 }
 
 export { figures };

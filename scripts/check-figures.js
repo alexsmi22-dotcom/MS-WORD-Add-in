@@ -113,7 +113,10 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // Tukey under Nature), four multi-panel figures (as drawn, Nature a/b, Cell
 // A/B/C, USPTO FIG. 1A/1B) and the Okabe–Ito marker swatch. Panels scaled into
 // their cells are measured through the audit's uniform-scale flattening.
-const CORPUS_FLOOR = 313;
+// 397 as of v2.187.0 (Release B): thin films, Fresnel and Jones (11), materials
+// testing and quality (13), control design (25), titration and CV (16) and the
+// new Plot kinds (20), each calculator at its defaults plus the layouts that crowd.
+const CORPUS_FLOOR = 397;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

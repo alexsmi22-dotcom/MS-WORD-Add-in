@@ -41,6 +41,25 @@ const read = (p: string): string => fs.readFileSync(path.join(ROOT, p), "utf8").
 
 const PANE = read("src/taskpane/taskpane.ts");
 
+/**
+ * Calculator arrays that live in src/lib (so they can be tested) and are SPREAD
+ * into a pane registry (`...FILM_CALCS,`). Each is loaded from the module the
+ * pane imports it from, so its entries count exactly as inline entries would.
+ */
+function spreadEntries(slice: string): Array<{ id: string; group?: string }> {
+  const out: Array<{ id: string; group?: string }> = [];
+  for (const m of slice.matchAll(/^\s*\.\.\.([A-Z][A-Z_]*_CALCS),/gm)) {
+    const name = m[1];
+    const imp = new RegExp(`import \\{[^}]*\\b${name}\\b[^}]*\\} from "\\.\\./lib/([A-Za-z0-9]+)"`).exec(PANE);
+    if (!imp) throw new Error(`the pane spreads ${name} but no import of it from ../lib was found`);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require(path.join(ROOT, "src", "lib", imp[1])) as Record<string, Array<{ id: string; group?: string }>>;
+    if (!Array.isArray(mod[name])) throw new Error(`${imp[1]}.${name} is not an array`);
+    out.push(...mod[name]);
+  }
+  return out;
+}
+
 /** The registries the pane actually ships, found rather than listed. */
 function registries(): Record<string, number> {
   const out: Record<string, number> = {};
@@ -48,7 +67,8 @@ function registries(): Record<string, number> {
     const name = m[1];
     const i = PANE.indexOf(`const ${name}`);
     const j = PANE.indexOf("\n];", i);
-    out[name] = [...PANE.slice(i, j).matchAll(/\bid: "[a-z0-9-]+"/g)].length;
+    const slice = PANE.slice(i, j);
+    out[name] = [...slice.matchAll(/\bid: "[a-z0-9-]+"/g)].length + spreadEntries(slice).length;
   }
   return out;
 }
@@ -58,8 +78,12 @@ function engGroups(): Map<string, number> {
   const i = PANE.indexOf("const ENG_CALCS");
   const j = PANE.indexOf("\n];", i);
   const out = new Map<string, number>();
-  for (const m of PANE.slice(i, j).matchAll(/group: "([^"]+)"/g)) {
+  const slice = PANE.slice(i, j);
+  for (const m of slice.matchAll(/group: "([^"]+)"/g)) {
     out.set(m[1], (out.get(m[1]) ?? 0) + 1);
+  }
+  for (const e of spreadEntries(slice)) {
+    if (e.group) out.set(e.group, (out.get(e.group) ?? 0) + 1);
   }
   return out;
 }

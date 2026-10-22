@@ -13,6 +13,9 @@ import { linearAxis, logAxis, fmtValue, resolveLimits, outsideNote, type AxisLim
 /** Factorial for non-negative integers (else NaN). */
 function factorial(n: number): number {
   if (n < 0 || !Number.isInteger(n)) return NaN;
+  // 171! already overflows to Infinity, and the loop below is O(n): fact(1e12)
+  // never returned (a frozen Word). Same value, bounded time.
+  if (n > 170) return Infinity;
   let r = 1;
   for (let k = 2; k <= n; k++) r *= k;
   return r;
@@ -57,8 +60,30 @@ const CONSTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 
  * Known function names never count as a definition prefix, so "sin(x) = …"
  * is untouched (and still refused, since an equation is not a curve).
  */
+/**
+ * Typed symbols the grammar spells in ASCII: U+2212 minus → "-", π → pi, θ → theta,
+ * with the multiplication a textbook leaves implicit made explicit next to the
+ * symbol only ("2θ" → 2*theta, "3π/2" → 3*pi/2, "θ(1 + θ)" → theta*(1 + theta)).
+ * Every one of these characters was a parse error before, so no formula that
+ * used to plot changes; the grammar's own rule (2x is refused) is untouched.
+ */
+export function foldPlotSymbols(expr: string): string {
+  let s = expr.split(String.fromCharCode(0x2212)).join("-");
+  for (const [code, name] of [
+    [0x3b8, "theta"],
+    [0x3c0, "pi"],
+  ] as [number, string][]) {
+    const ch = String.fromCharCode(code);
+    if (!s.includes(ch)) continue;
+    s = s.replace(new RegExp(`([0-9A-Za-z_.)])\\s*${ch}`, "g"), `$1*${ch}`);
+    s = s.replace(new RegExp(`${ch}\\s*(?=[0-9A-Za-z_(${String.fromCharCode(0x3b8)}${String.fromCharCode(0x3c0)}])`, "g"), `${ch}*`);
+    s = s.split(ch).join(name);
+  }
+  return s;
+}
+
 function normalizePlotExpr(expr: string): string {
-  let s = foldAbsBars(expr);
+  let s = foldAbsBars(foldPlotSymbols(expr));
   const def = /^\s*([A-Za-z_]\w*)\s*\(\s*x\s*\)\s*=\s*([^=]+)$/.exec(s);
   if (def && !(def[1].toLowerCase() in FUNCS) && !(def[1].toLowerCase() in FUNCS_N)) {
     s = def[2];
@@ -70,32 +95,62 @@ function normalizePlotExpr(expr: string): string {
 }
 
 export function evalExpr(expr: string, x: number): number {
-  let i = 0;
-  const s = normalizePlotExpr(expr).replace(/\s+/g, "");
+  // ONE GRAMMAR. y = f(x) is the compiler below with the single variable x, so
+  // Plot's new kinds (x(t), r(θ), z(x, y)) cannot parse a formula differently
+  // from the plot the product has always drawn. Same folding, same errors, same
+  // numbers — pinned against a frozen copy of the old evaluator in
+  // plotKinds.test.ts.
+  return compileRaw(normalizePlotExpr(expr), ["x"])([x]);
+}
 
-  function parseExpr(): number {
+/** A parsed formula, evaluated per point with the variables in `vars` order. */
+export type CompiledExpr = (vals: readonly number[]) => number;
+
+/**
+ * Parses `expr` ONCE in the variables `vars` and returns an evaluator.
+ *
+ * For grids (a 200 × 200 contour is 40 000 points) parsing per point is the cost
+ * that matters, so the parse happens here and the closure only does arithmetic.
+ * Any symbol that is not one of `vars` or a constant throws "Unknown symbol" at
+ * compile time, exactly as `x` alone did in evalExpr: a contour formula that
+ * mentions t is refused, not read as zero. No prefix folding is done here — a
+ * caller strips its own "z =" / "r(θ) =" definition first.
+ */
+export function compileExpr(expr: string, vars: readonly string[]): CompiledExpr {
+  return compileRaw(foldAbsBars(foldPlotSymbols(expr)), vars);
+}
+
+function compileRaw(src: string, vars: readonly string[]): CompiledExpr {
+  let i = 0;
+  const s = src.replace(/\s+/g, "");
+  type N = CompiledExpr;
+
+  function parseExpr(): N {
     let v = parseTerm();
     while (s[i] === "+" || s[i] === "-") {
       const op = s[i++];
+      const l = v;
       const r = parseTerm();
-      v = op === "+" ? v + r : v - r;
+      v = op === "+" ? (e) => l(e) + r(e) : (e) => l(e) - r(e);
     }
     return v;
   }
-  function parseTerm(): number {
+  function parseTerm(): N {
     let v = parseUnary();
     while (s[i] === "*" || s[i] === "/") {
       const op = s[i++];
+      const l = v;
       const r = parseUnary();
-      v = op === "*" ? v * r : v / r;
+      v = op === "*" ? (e) => l(e) * r(e) : (e) => l(e) / r(e);
     }
     return v;
   }
   // Unary minus binds looser than ^, so -x^2 = -(x^2) (the usual convention).
-  function parseUnary(): number {
+  function parseUnary(): N {
     if (s[i] === "-") {
       i++;
-      return -parseUnary();
+      const a = parseUnary();
+      return (e) => -a(e);
     }
     if (s[i] === "+") {
       i++;
@@ -103,15 +158,16 @@ export function evalExpr(expr: string, x: number): number {
     }
     return parsePower();
   }
-  function parsePower(): number {
+  function parsePower(): N {
     const base = parseAtom();
     if (s[i] === "^") {
       i++;
-      return Math.pow(base, parseUnary()); // right-associative; exponent may be signed
+      const ex = parseUnary(); // right-associative; exponent may be signed
+      return (e) => Math.pow(base(e), ex(e));
     }
     return base;
   }
-  function parseAtom(): number {
+  function parseAtom(): N {
     if (s[i] === "(") {
       i++;
       const v = parseExpr();
@@ -123,7 +179,8 @@ export function evalExpr(expr: string, x: number): number {
     const numMatch = /^\d*\.?\d+(?:[eE][-+]?\d+)?/.exec(s.slice(i));
     if (numMatch) {
       i += numMatch[0].length;
-      return parseFloat(numMatch[0]);
+      const c = parseFloat(numMatch[0]);
+      return () => c;
     }
     // identifier (variable, constant, or function)
     const idMatch = /^[A-Za-z_]\w*/.exec(s.slice(i));
@@ -142,18 +199,25 @@ export function evalExpr(expr: string, x: number): number {
         const key = id.toLowerCase();
         if (FUNCS[key]) {
           if (args.length !== 1) throw new Error(`${id} takes 1 argument`);
-          return FUNCS[key](args[0]);
+          const f = FUNCS[key];
+          const a = args[0];
+          return (e) => f(a(e));
         }
         const nf = FUNCS_N[key];
         if (nf) {
           if (nf.arity !== "var" && args.length !== nf.arity) throw new Error(`${id} takes ${nf.arity} arguments`);
           if (nf.arity === "var" && args.length < 1) throw new Error(`${id} needs an argument`);
-          return nf.fn(args);
+          const fn = nf.fn;
+          return (e) => fn(args.map((a) => a(e)));
         }
         throw new Error(`Unknown function ${id}`);
       }
-      if (id === "x") return x;
-      if (id.toLowerCase() in CONSTS) return CONSTS[id.toLowerCase()];
+      const k = vars.indexOf(id);
+      if (k >= 0) return (e) => e[k];
+      if (id.toLowerCase() in CONSTS) {
+        const c = CONSTS[id.toLowerCase()];
+        return () => c;
+      }
       throw new Error(`Unknown symbol ${id}`);
     }
     throw new Error(`Unexpected "${s[i] ?? "end"}"`);
@@ -387,7 +451,7 @@ export function fmtTick(v: number): string {
 }
 
 /** One axis's labelled ticks, decided once and shared by the margins and the drawing. */
-interface PlotAxisTicks {
+export interface PlotAxisTicks {
   ticks: { v: number; text: string }[];
   /** Log axes: unlabelled decades and 2–9 minors (gridlines only). */
   minor: number[];
@@ -404,7 +468,7 @@ interface PlotAxisTicks {
  * `custom` label function is applied per value, as it always was — those
  * callers own their precision.
  */
-function plotAxisTicks(
+export function plotAxisTicks(
   lo: number,
   hi: number,
   log: boolean,
@@ -438,7 +502,7 @@ function withMultiplier(label: string | undefined, mult: string): string | undef
 /** Unique clipPath ids, for figures that sit side by side in one pane. */
 let clipSeq = 0;
 
-function escapeXml(s: string): string {
+export function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
@@ -575,8 +639,8 @@ function snapNearZero(t: number, step: number): number {
 }
 
 /** The footnote block's face and line height — the error-bar declaration's face. */
-const NOTE_SIZE = 9;
-const NOTE_LH = 12;
+export const NOTE_SIZE = 9;
+export const NOTE_LH = 12;
 /**
  * A bound on the footnote block.
  *
@@ -624,7 +688,7 @@ function wrapNote(text: string, maxChars: number): string[] {
 }
 
 /** Wraps and bounds the notes for a figure `width` px wide. */
-function layoutNotes(notes: string[] | undefined, width: number): string[] {
+export function layoutNotes(notes: string[] | undefined, width: number): string[] {
   if (!notes || !notes.length) return [];
   const maxChars = Math.max(20, Math.floor((width - 16) / 6.3));
   const lines: string[] = [];

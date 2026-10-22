@@ -525,7 +525,48 @@ export function eigenvaluesGeneral(A: Matrix): Complex[] | null {
     scale = Math.pow(2, -Math.round(Math.log2(maxAbs)));
     if (!Number.isFinite(scale) || scale === 0) scale = 1;
   }
-  const src = scale === 1 ? A : A.map((row) => row.map((v) => v * scale));
+  const scaled = scale === 1 ? A : A.map((row) => row.map((v) => v * scale));
+
+  // BALANCE (Parlett–Reinsch, as LAPACK's geev does by default): a diagonal similarity
+  // D⁻¹AD by powers of two, so it is exact in floating point and leaves the eigenvalues
+  // unchanged. Without it a badly scaled matrix (entries from 10⁻²¹ to 10¹¹, the step
+  // matrix of a stiff order-12 plant) came back with spectral radius 8.59 where the true
+  // value is 0.98507: the QR iteration's backward error is relative to the matrix NORM,
+  // which the unbalanced entries inflate by many orders of magnitude.
+  const src = scaled.map((r) => r.slice());
+  for (let sweep = 0; sweep < 100; sweep++) {
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      let c = 0;
+      let r = 0;
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        c += Math.abs(src[j][i]);
+        r += Math.abs(src[i][j]);
+      }
+      if (c === 0 || r === 0 || !Number.isFinite(c) || !Number.isFinite(r)) continue;
+      const s0 = c + r;
+      let f = 1;
+      let cc = c;
+      let rr = r;
+      for (let k = 0; k < 2100 && cc < rr / 2; k++) {
+        cc *= 2;
+        rr /= 2;
+        f *= 2;
+      }
+      for (let k = 0; k < 2100 && cc >= rr * 2; k++) {
+        cc /= 2;
+        rr *= 2;
+        f /= 2;
+      }
+      if (cc + rr < 0.95 * s0 && Number.isFinite(f) && f > 0) {
+        changed = true;
+        for (let j = 0; j < n; j++) src[i][j] /= f;
+        for (let j = 0; j < n; j++) src[j][i] *= f;
+      }
+    }
+    if (!changed) break;
+  }
 
   const a = hessenberg(src);
   const wr = new Array(n).fill(0);

@@ -102,12 +102,27 @@ export function polyDegree(p: Rat[]): number {
 }
 
 /** Evaluates at a complex point by Horner's rule. */
-function polyEvalComplex(p: Rat[], re: number, im: number): Complex {
+/**
+ * The double value of each coefficient, cached per coefficient ARRAY: frequency sweeps
+ * evaluate the same polynomial thousands of times, and converting each BigInt rational
+ * afresh was most of the cost of a margin sweep at order 18 (round 3).
+ */
+const NUM_CACHE = new WeakMap<Rat[], number[]>();
+function coeffNumbers(p: Rat[]): number[] {
+  let v = NUM_CACHE.get(p);
+  if (!v || v.length !== p.length) {
+    v = p.map((c) => ratToNumber(c));
+    NUM_CACHE.set(p, v);
+  }
+  return v;
+}
+
+export function polyEvalComplex(p: Rat[], re: number, im: number): Complex {
   let ar = 0;
   let ai = 0;
-  for (const c of p) {
+  for (const c of coeffNumbers(p)) {
     // a = a*s + c
-    const nr = ar * re - ai * im + ratToNumber(c);
+    const nr = ar * re - ai * im + c;
     const ni = ar * im + ai * re;
     ar = nr;
     ai = ni;
@@ -136,7 +151,7 @@ export function parsePoly(text: string): Rat[] | ControlError {
     return {
       ok: false,
       error:
-        "Factored form is not supported — write the polynomial expanded " +
+        "Factored form is not supported: write the polynomial expanded " +
         '("s^2+3*s+2" rather than "(s+1)*(s+2)"), or give the coefficients highest power first ("1 3 2").',
     };
   }
@@ -210,10 +225,30 @@ export function parseTf(numText: string, denText: string): TransferFunction | Co
  */
 export function polyRoots(poly: Rat[]): Complex[] | null {
   const p = trimPoly(poly);
+  if (p.length - 1 <= 0) return [];
+  const asNumbers = p.map((c) => ratToNumber(c));
+  // A non-zero rational lead that underflows to 0 as a double must stay "no
+  // answer" (as before), not be trimmed into a lower-degree polynomial.
+  if (asNumbers[0] === 0 || !Number.isFinite(asNumbers[0])) return null;
+  return polyRootsNumeric(asNumbers);
+}
+
+/**
+ * The same root finder on DOUBLE coefficients (highest power first), for callers
+ * that solve thousands of polynomials in a loop — a root-locus sweep rebuilds
+ * den + K*num at every gain step, and doing that through BigInt rationals costs
+ * far more than the eigenvalue solve. polyRoots delegates here, so there is ONE
+ * root finder and the two entry points cannot give different answers.
+ */
+export function polyRootsNumeric(coeffs: number[]): Complex[] | null {
+  let i0 = 0;
+  while (i0 < coeffs.length - 1 && coeffs[i0] === 0) i0++;
+  const p = coeffs.slice(i0);
   const n = p.length - 1;
   if (n <= 0) return [];
   if (n > MAX_ORDER) return null;
-  const lead = ratToNumber(p[0]);
+  if (p.some((c) => !Number.isFinite(c))) return null;
+  const lead = p[0];
   if (!Number.isFinite(lead) || lead === 0) return null;
 
   // BALANCE FIRST. The companion matrix of a badly scaled polynomial is badly
@@ -225,7 +260,7 @@ export function polyRoots(poly: Rat[]): Complex[] | null {
   // magnitude, (|a_n|/|a_0|)^(1/n), makes the first and last coefficients equal
   // and the root magnitudes O(1); the roots are then scaled back at the end.
   // Found by cross-checking a designed filter against this analysis.
-  const tail = ratToNumber(p[p.length - 1]);
+  const tail = p[p.length - 1];
   let lambda = 1;
   if (Number.isFinite(tail) && tail !== 0) {
     const candidate = Math.pow(Math.abs(tail / lead), 1 / n);
@@ -236,7 +271,7 @@ export function polyRoots(poly: Rat[]): Complex[] | null {
   // Both steps are needed: balancing alone leaves a leading coefficient of
   // lambda^n, and a companion matrix built from a non-monic polynomial is not
   // that polynomial's companion matrix at all.
-  const scaled = p.map((c, i) => ratToNumber(c) * Math.pow(lambda, n - i));
+  const scaled = p.map((c, i) => c * Math.pow(lambda, n - i));
   const scaledLead = scaled[0];
   if (!Number.isFinite(scaledLead) || scaledLead === 0) return null;
   const a = scaled.slice(1).map((v) => v / scaledLead);
@@ -339,7 +374,7 @@ export function routhHurwitz(den: Rat[]): RouthResult | ControlError {
       for (let i = 0; i < prev.length; i++) prev[i] = aux[i] ?? ratInt(0);
       notes.push(
         `Row ${k - 1} of the array vanished. That means the polynomial has roots SYMMETRIC ABOUT ` +
-          "THE ORIGIN — an imaginary-axis pair, or a matched pair straddling it — so the system is " +
+          "THE ORIGIN (an imaginary-axis pair, or a matched pair straddling it), so the system is " +
           "marginally stable at best. The tabulation continued with the derivative of the auxiliary " +
           "polynomial, which is the standard treatment; the auxiliary polynomial's roots are those " +
           "symmetric roots.",
@@ -433,7 +468,7 @@ export interface StabilityResult {
  * p[0] is the coefficient of s^n with n = p.length - 1, so d/ds drops the constant
  * term and multiplies each remaining coefficient by its own power.
  */
-function polyDeriv(p: Rat[]): Rat[] {
+export function polyDeriv(p: Rat[]): Rat[] {
   const t = trimPoly(p);
   const n = t.length - 1;
   if (n < 1) return [ratInt(0)];
@@ -443,7 +478,7 @@ function polyDeriv(p: Rat[]): Rat[] {
 }
 
 /** Remainder of a divided by b, both highest-power-first. Exact over Q. */
-function polyRemainder(a: Rat[], b: Rat[]): Rat[] {
+export function polyRemainder(a: Rat[], b: Rat[]): Rat[] {
   const db = polyDegree(b);
   if (db < 0) return trimPoly(a);
   const bt = trimPoly(b);
@@ -492,19 +527,166 @@ function hasRepeatedRoot(p: Rat[]): boolean {
     // zero cannot happen for a non-constant polynomial over Q.
     return false;
   }
-  let u = a;
-  let v = b;
-  for (let guard = 0; guard <= 64; guard++) {
-    if (polyDegree(v) < 0) break;
-    const r = polyRemainder(u, v);
-    u = v;
-    if (polyDegree(r) < 0) break;
-    v = r;
-  }
-  return polyDegree(u) >= 1;
+  // MODULAR SHORT CUT, still exact. Euclid over Q makes the coefficients explode on
+  // decimal input (an order-16 decimal denominator took 0.9 s, order 20 took 3 s, on every
+  // keystroke). If gcd(p, p') has degree 0 modulo a prime that does not divide the leading
+  // coefficient, it has degree 0 over Q (a common factor over Q would survive the reduction),
+  // so "no repeated root" is PROVED cheaply. Only when every prime tried leaves a common
+  // factor (a repeated root, or an unlucky prime) does the exact Euclid below run.
+  if (noRepeatedRootModular(a)) return false;
+  // A GENUINELY repeated root reaches here, and Euclid over Q exploded on decimal
+  // coefficients ((s+0.5)^2 times decimal factors: 0.9 s at order 16, 4.5 s at 20). The
+  // PRIMITIVE remainder sequence over the integers is the same gcd, exactly, with each
+  // remainder divided by its content, which keeps the coefficients near their true size.
+  return primitiveGcdDegree(a, b) >= 1;
 }
 
-export function analyzeStability(tf: TransferFunction): StabilityResult | ControlError {
+/** Degree of gcd(a, b) over Q, by the primitive PRS over Z (highest-first, exact). */
+function primitiveGcdDegree(aQ: Rat[], bQ: Rat[]): number {
+  return primitiveGcd(aQ, bQ).length - 1;
+}
+
+/**
+ * The REPEATED PART of a polynomial: gcd(p, p′) over Q (primitive, integer coefficients,
+ * highest power first). Its roots are exactly the repeated roots of p; [1] when there are none.
+ */
+export function repeatedPart(p: Rat[]): bigint[] {
+  const a = trimPoly(p);
+  if (polyDegree(a) < 2) return [1n];
+  if (noRepeatedRootModular(a)) return [1n];
+  return primitiveGcd(a, polyDeriv(a));
+}
+
+/** gcd(a, b) over Q by the primitive PRS over Z (highest-first, exact, primitive). */
+function primitiveGcd(aQ: Rat[], bQ: Rat[]): bigint[] {
+  const babs = (x: bigint): bigint => (x < 0n ? -x : x);
+  const g = (x: bigint, y: bigint): bigint => {
+    x = babs(x);
+    y = babs(y);
+    for (let k = 0; y && k < 100000; k++) [x, y] = [y, x % y];
+    return x;
+  };
+  const toZ = (p: Rat[]): bigint[] => {
+    let l = 1n;
+    for (const c of p) l = (l / g(l, c.d)) * c.d;
+    return p.map((c) => (c.n * l) / c.d);
+  };
+  const strip = (p: bigint[]): bigint[] => {
+    let i = 0;
+    while (i < p.length && p[i] === 0n) i++;
+    return p.slice(i);
+  };
+  const prim = (p: bigint[]): bigint[] => {
+    let c = 0n;
+    for (const x of p) c = g(c, x);
+    return c > 1n ? p.map((x) => x / c) : p;
+  };
+  let u = prim(strip(toZ(trimPoly(aQ))));
+  let v = prim(strip(toZ(trimPoly(bQ))));
+  if (u.length < v.length) [u, v] = [v, u];
+  for (let guard = 0; guard <= 2 * MAX_ORDER + 4 && v.length > 0; guard++) {
+    if (v.length === 1) return [1n]; // a non-zero constant divides out: gcd is 1
+    // pseudo-remainder of u by v: lc(v)^(du-dv+1) * u mod v, over Z
+    let r = u.slice();
+    const lv = v[0];
+    while (r.length >= v.length && r.length > 0) {
+      const lr = r[0];
+      r = r.map((x) => x * lv);
+      for (let j = 0; j < v.length; j++) r[j] -= lr * v[j];
+      r = strip(r.slice(1));
+      r = prim(r);
+    }
+    u = v;
+    v = prim(strip(r));
+  }
+  return u;
+}
+
+/** True when gcd(p, p') is a constant modulo some prime (proof of no repeated root over Q). */
+function noRepeatedRootModular(pDesc: Rat[]): boolean {
+  const t = trimPoly(pDesc);
+  const n = t.length - 1;
+  if (n < 2 || n > 64) return false;
+  const babs = (x: bigint): bigint => (x < 0n ? -x : x);
+  const g = (x: bigint, y: bigint): bigint => {
+    x = babs(x);
+    y = babs(y);
+    for (let k = 0; y && k < 100000; k++) [x, y] = [y, x % y];
+    return x;
+  };
+  let l = 1n;
+  for (const c of t) l = (l / g(l, c.d)) * c.d;
+  const ints = t.map((c) => (c.n * l) / c.d); // highest first
+  for (const P of [2147483647n, 1000000007n, 998244353n]) {
+    const md = (x: bigint): bigint => ((x % P) + P) % P;
+    const inv = (x: bigint): bigint => {
+      let r = 1n;
+      let b = md(x);
+      let e = P - 2n;
+      while (e > 0n) {
+        if (e & 1n) r = (r * b) % P;
+        b = (b * b) % P;
+        e >>= 1n;
+      }
+      return r;
+    };
+    const f = ints.map(md);
+    if (f[0] === 0n) continue; // the prime divides the leading coefficient: not usable
+    const df: bigint[] = [];
+    for (let i = 0; i < n; i++) df.push(md(f[i] * BigInt(n - i)));
+    const strip = (q: bigint[]): bigint[] => {
+      let i = 0;
+      while (i < q.length && q[i] === 0n) i++;
+      return q.slice(i);
+    };
+    let u = strip(f);
+    let v = strip(df);
+    for (let guard = 0; guard <= 2 * n + 4 && v.length > 0; guard++) {
+      // r = u mod v
+      const r = u.slice();
+      const iv = inv(v[0]);
+      while (r.length >= v.length && r.length > 0) {
+        const c = (r[0] * iv) % P;
+        for (let j = 0; j < v.length; j++) r[j] = md(r[j] - c * v[j]);
+        r.shift();
+        while (r.length && r[0] === 0n) r.shift();
+      }
+      u = v;
+      v = r;
+    }
+    if (u.length === 1) return true; // gcd is a non-zero constant mod P
+  }
+  return false;
+}
+
+/**
+ * The work an exact Routh tabulation of this polynomial costs, as order × (bits of the
+ * largest integer-scaled coefficient): the rational entries grow roughly that large.
+ * Measured (round 4): about 2 ms per call at 600, 36 ms at 2800, 110 ms at 4600.
+ */
+export function routhWork(den: Rat[]): number {
+  const t = trimPoly(den);
+  const babs = (x: bigint): bigint => (x < 0n ? -x : x);
+  const g = (x: bigint, y: bigint): bigint => {
+    x = babs(x);
+    y = babs(y);
+    for (let k = 0; y && k < 100000; k++) [x, y] = [y, x % y];
+    return x;
+  };
+  let l = 1n;
+  for (const c of t) l = (l / g(l, c.d)) * c.d;
+  let bits = 0;
+  for (const c of t) bits = Math.max(bits, babs((c.n * l) / c.d).toString(2).length);
+  return (t.length - 1) * bits;
+}
+
+export function analyzeStability(
+  tf: TransferFunction,
+  opts: {
+    /** Skip the exact Routh array above this routhWork() (callers on a per-keystroke budget). */
+    routhWorkLimit?: number;
+  } = {},
+): StabilityResult | ControlError {
   const den = trimPoly(tf.den);
   if (polyDegree(den) < 0) return { ok: false, error: "The denominator is zero, which is not a system." };
   if (polyDegree(den) > MAX_ORDER)
@@ -550,7 +732,17 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
   // hasRepeatedRoot for why no tolerance can rescue this case.
   const repeated = hasRepeatedRoot(den);
 
-  const routh = routhHurwitz(den);
+  const work = opts.routhWorkLimit !== undefined ? routhWork(den) : 0;
+  const routhSkipped = opts.routhWorkLimit !== undefined && work > opts.routhWorkLimit;
+  const routh: RouthResult | ControlError = routhSkipped
+    ? { ok: false, error: "skipped" }
+    : routhHurwitz(den);
+  if (routhSkipped) {
+    notes.push(
+      "The exact Routh–Hurwitz tabulation was SKIPPED: these coefficients are too long to tabulate exactly " +
+        "within the pane's time budget, so the verdict below rests on the computed poles alone.",
+    );
+  }
   const routhOk = !("ok" in routh && routh.ok === false);
   const routhRes = routhOk ? (routh as RouthResult) : null;
   const rhpPolesRouth = routhRes && routhRes.clean ? routhRes.signChanges : null;
@@ -587,7 +779,7 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
   let verdict: string;
   if (unresolvable) {
     verdict =
-      "UNDETERMINED — this system has a REPEATED pole, and neither method can resolve its " +
+      "UNDETERMINED: this system has a REPEATED pole, and neither method can resolve its " +
       "stability. Computing the poles numerically cannot place a repeated root accurately: a " +
       "root of multiplicity m is found only to about the m-th root of machine precision, so a " +
       "triple root lands roughly 1e-5 away from where it belongs and its computed real part " +
@@ -603,7 +795,7 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
     );
   } else if (disagreement) {
     verdict =
-      `UNCERTAIN — the two methods disagree. The exact Routh-Hurwitz tabulation finds ` +
+      `UNCERTAIN: the two methods disagree. The exact Routh-Hurwitz tabulation finds ` +
       `${rhpPolesRouth} pole(s) in the right half plane; computing the poles numerically finds ` +
       `${rhpPolesNumeric}. That happens when a pole sits so close to the imaginary axis that its ` +
       "computed real part is not trustworthy, which means this system is on the edge of stability " +
@@ -613,14 +805,14 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
         "method would give a confident answer and be wrong.",
     );
   } else if (rhpPolesNumeric > 0) {
-    verdict = `UNSTABLE — ${rhpPolesNumeric} pole(s) in the right half plane.`;
+    verdict = `UNSTABLE: ${rhpPolesNumeric} pole(s) in the right half plane.`;
   } else if (imaginaryAxisPoles > 0) {
     verdict =
-      `MARGINALLY STABLE — ${imaginaryAxisPoles} pole(s) on the imaginary axis and none to the ` +
+      `MARGINALLY STABLE: ${imaginaryAxisPoles} pole(s) on the imaginary axis and none to the ` +
       "right of it. The response neither decays nor grows; a repeated pair on the axis grows " +
       "without bound, and an integrator (a pole at the origin) means the output ramps.";
   } else {
-    verdict = "STABLE — every pole is in the left half plane.";
+    verdict = "STABLE: every pole is in the left half plane.";
   }
 
   // Same per-zero yardstick, for the same reason.
@@ -628,7 +820,7 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
   if (nonMinimumPhase) {
     notes.push(
       "This system is NON-MINIMUM-PHASE: it has a zero in the right half plane. Its step response " +
-        "initially moves the WRONG WAY before recovering, and no amount of gain fixes that — " +
+        "initially moves the WRONG WAY before recovering, and no amount of gain fixes that; " +
         "increasing gain makes it worse and eventually unstable. It also costs phase, so the " +
         "achievable bandwidth is limited in a way the magnitude plot alone does not show.",
     );
@@ -730,6 +922,10 @@ export function timeResponse(
   kind: "step" | "impulse",
   tEnd: number,
   samples = 400,
+  /** Total RK4 step budget; callers that simulate several responses per keystroke pass less. */
+  maxTotalSteps = 120000,
+  /** The system's stability when the caller already has it (saves a second exact analysis). */
+  knownStability?: StabilityResult,
 ): TimeResponse | ControlError {
   const num = trimPoly(tf.num);
   const den = trimPoly(tf.den);
@@ -742,7 +938,7 @@ export function timeResponse(
     return {
       ok: false,
       error:
-        "This transfer function is IMPROPER — the numerator's degree is higher than the " +
+        "This transfer function is IMPROPER: the numerator's degree is higher than the " +
         "denominator's. Such a system differentiates its input, so it has no state-space " +
         "realisation and its step response contains an impulse. It is not realisable and is not " +
         "simulated here.",
@@ -795,7 +991,7 @@ export function timeResponse(
   // adversarial pass rather than by reading the code, which is the only way this
   // kind of bound gets found.
   const MAX_SUB = 2000;
-  const MAX_TOTAL_STEPS = 120000;
+  const MAX_TOTAL_STEPS = Math.max(1000, Math.min(120000, Math.floor(maxTotalSteps) || 120000));
   let capped = false;
   if (sub > MAX_SUB) {
     sub = MAX_SUB;
@@ -806,12 +1002,60 @@ export function timeResponse(
     sub = byTotal;
     capped = true;
   }
+  // TOO STIFF FOR THE STEP BUDGET: STEP EXACTLY. RK4 is only stable for h·|λ| below about
+  // 2.78; with the steps capped, a plant with poles at −1 and −19999 diverged to 10²⁹⁶ and a
+  // design tool printed that as an "overshoot" (round 4). For this LTI realisation with a
+  // piecewise-constant input the exact discrete update is x ← Φx + Γu, Φ = e^(A·dt),
+  // Γ = ∫e^(Aτ)dτ·B, taken from the matrix exponential of the augmented [A B; 0 0]·dt.
+  let exactStep: { Phi: number[][]; Gam: number[] } | null = null;
   if (capped) {
-    notes.push(
-      "The poles of this system span a very wide range of speeds, so the trace is UNDER-RESOLVED: " +
-        "the fastest mode needs a smaller step than the interactive step budget allows. Shorten " +
-        "the end time to see the fast transient, or treat the fast mode as instantaneous.",
-    );
+    const A: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+    for (let i = 0; i < n - 1; i++) A[i][i + 1] = 1;
+    for (let i = 0; i < n; i++) A[n - 1][i] = -a[n - 1 - i];
+    const M: number[][] = Array.from({ length: n + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) M[i][j] = A[i][j] * dtSample;
+    M[n - 1][n] = dtSample;
+    const E = expm(M);
+    if (E) exactStep = { Phi: E.slice(0, n).map((r) => r.slice(0, n)), Gam: E.slice(0, n).map((r) => r[n]) };
+    // VERIFY before trusting it: the step matrix's spectral radius must be e^(max Re λ·dt)
+    // for the computed poles. A matrix exponential that lost accuracy (non-normal companion
+    // matrices) shows up here, and the trace then falls back to the under-resolved path
+    // rather than being printed as exact (round 4 verification: 10¹⁹⁶ "computed EXACTLY").
+    if (exactStep && poles && poles.length === n) {
+      let ev: Complex[] | null = null;
+      try {
+        ev = eigenvaluesGeneral(exactStep.Phi);
+      } catch {
+        ev = null;
+      }
+      const rhoPhi = ev ? Math.max(...ev.map((z) => Math.hypot(z.re, z.im))) : NaN;
+      const rhoExp = Math.max(...poles.map((pl) => Math.exp(pl.re * dtSample)));
+      if (!(Math.abs(rhoPhi - rhoExp) <= 1e-6 + 1e-3 * rhoExp)) exactStep = null;
+    } else exactStep = null;
+    if (exactStep) {
+      notes.push(
+        "This system is too stiff for step-by-step integration within the interactive budget (its poles " +
+          "span a very wide range of speeds), so the response was computed EXACTLY at each sample by the " +
+          "matrix exponential of its state-space form instead.",
+      );
+    } else {
+      // RK4 is stable only for h·|λ| below about 2.78. Past that the trace diverges and every
+      // number read from it is garbage (round 4: 10¹⁹⁶), so it is refused rather than drawn.
+      if ((dtSample / sub) * fastest >= 2.5) {
+        return {
+          ok: false,
+          error:
+            "This system is too stiff to simulate within the interactive step budget (its fastest pole needs a " +
+            "far smaller step than this time window allows), and the exact matrix-exponential method could not be " +
+            "verified for it. Shorten the end time, or treat the fastest mode as instantaneous.",
+        };
+      }
+      notes.push(
+        "The poles of this system span a very wide range of speeds, so the trace is UNDER-RESOLVED: " +
+          "the fastest mode needs a smaller step than the interactive step budget allows. Shorten " +
+          "the end time to see the fast transient, or treat the fast mode as instantaneous.",
+      );
+    }
   }
   const h = dtSample / sub;
 
@@ -831,7 +1075,16 @@ export function timeResponse(
   const y: number[] = [outAt(x)];
 
   for (let k = 1; k < nSamples; k++) {
-    for (let s = 0; s < sub; s++) {
+    if (exactStep) {
+      const nx = new Array(n).fill(0);
+      for (let i = 0; i < n; i++) {
+        let acc = exactStep.Gam[i] * u;
+        for (let j = 0; j < n; j++) acc += exactStep.Phi[i][j] * x[j];
+        nx[i] = acc;
+      }
+      for (let i = 0; i < n; i++) x[i] = nx[i];
+    }
+    for (let s = 0; s < (exactStep ? 0 : sub); s++) {
       const k1 = deriv(x, u);
       const x2 = x.map((v, i) => v + (h / 2) * k1[i]);
       const k2 = deriv(x2, u);
@@ -843,7 +1096,7 @@ export function timeResponse(
     }
     if (x.some((v) => !Number.isFinite(v))) {
       notes.push(
-        "The response overflowed before the end time — this system is unstable and its output " +
+        "The response overflowed before the end time: this system is unstable and its output " +
           "grows without bound. The trace is truncated where it left double precision.",
       );
       break;
@@ -856,7 +1109,7 @@ export function timeResponse(
   // only when the closed loop is stable. Quoting it for an unstable system is a
   // classic way to report a settling value a diverging signal never reaches.
   let finalValue: number | null = null;
-  const st = analyzeStability(tf);
+  const st = knownStability ?? analyzeStability(tf);
   if (st.ok && st.stable && kind === "step") {
     const dc = ratToNumber(den[den.length - 1]);
     finalValue = dc !== 0 ? ratToNumber(num[num.length - 1]) / dc : null;
@@ -987,7 +1240,7 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
         ok: false,
         error:
           "This second-order system has a negative wn^2 term, so its poles are real and of " +
-          "opposite sign — it is unstable and the damping-ratio description does not apply to it.",
+          "opposite sign, so it is unstable and the damping-ratio description does not apply to it.",
       };
     }
     wn = Math.sqrt(q);
@@ -1019,7 +1272,7 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
       notes.push(
         `The next pole is only ${ratio.toFixed(1)}x faster than the dominant pair. The dominant-pole ` +
           "approximation needs a factor of about 5 to be trustworthy, so treat the overshoot and " +
-          "settling figures below as indicative only — simulate the step response for the real numbers.",
+          "settling figures below as indicative only; simulate the step response for the real numbers.",
       );
     }
   }
@@ -1087,7 +1340,7 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
       // release is closing, just smaller.
       notes.push(
         "The settling time above is the standard envelope estimate 4/(zeta*wn), which is the " +
-          "textbook convention and is accurate to a few percent — the true 2% crossing is " +
+          "textbook convention and is accurate to a few percent; the true 2% crossing is " +
           "typically 2 to 4% away because the oscillation does not touch the envelope exactly at " +
           "the crossing. The damping ratio and natural frequency themselves are exact. For a " +
           "critically damped or overdamped system the crossing is solved for directly instead.",
@@ -1118,7 +1371,7 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
     notes.push(
       "This system has a zero close to the dominant poles. The overshoot and rise-time formulas " +
         "above are derived for a system with NO zeros, and a nearby left-half-plane zero increases " +
-        "overshoot substantially — often by more than the damping ratio suggests. Simulate the step " +
+        "overshoot substantially, often by more than the damping ratio suggests. Simulate the step " +
         "response rather than trusting these figures.",
     );
   }
@@ -1289,12 +1542,41 @@ function marginSweep(open: TransferFunction, count = 2000): number[] {
  * finite number is correct; reporting the value at the end of whatever range
  * happened to be swept is how a bounded sweep becomes a wrong answer.
  */
-export function margins(open: TransferFunction): Margins | ControlError {
+export function margins(
+  open: TransferFunction,
+  opts: {
+    /**
+     * The closed loop's stability when the caller has already settled it (control-bode
+     * runs analyzeStability itself); null = undecided. Omitted: margins() decides it
+     * NUMERICALLY from the closed-loop poles — never with the exact Routh array, whose
+     * cost at order 15–20 froze the pane (round 3: 0.6–6 s per call).
+     */
+    closedLoopStable?: boolean | null;
+  } = {},
+): Margins | ControlError {
+  // THE CONVENTION, stated once because the previous version got it wrong:
+  //
+  //   PM = 180° + ∠L(jωc), WRAPPED INTO (−180°, 180°], at every ωc where |L| = 1;
+  //   GM = −20·log10|L(jωp)| at every ωp where L(jωp) is REAL AND NEGATIVE.
+  //
+  // The phase used to be unwrapped across the whole sweep and the margin read as
+  // 180° + (unwrapped phase). For 1/s³ (phase −270° at every frequency) that gave PM = 270°
+  // instead of −90°, and for
+  // (2s+2)/(s² − s), an unstable-pole loop, 396.9° instead of 36.87°. A margin
+  // above 180° is not a margin, and lead/lag design then reported "target met" on
+  // an UNSTABLE closed loop. ∠L at a single frequency is only defined modulo 360°,
+  // so the margin is wrapped, and anything decided from it is checked against the
+  // closed-loop poles by the caller (the margin alone never decides stability).
+  //
+  // A CROSSING MUST BE GENUINE. Samples within round-off of the crossing condition
+  // count as "on it", not as a sign: |L| that only approaches 1 ((s+2)/(s+1), whose
+  // |L| tends to 1 from above) or a phase that sits AT −180° everywhere (1/s², whose
+  // imaginary part is identically zero) has no crossover, and the sweep's edge must
+  // never be reported as one.
   const freqs = marginSweep(open);
   if (!freqs.length || freqs.some((f) => !Number.isFinite(f))) {
     return { ok: false, error: "A sensible frequency range could not be chosen for this system." };
   }
-  const resp = frequencyResponse(open, freqs);
   const notes: string[] = [];
 
   /** G(jw) as a complex number, with no phase bookkeeping at all. */
@@ -1308,14 +1590,7 @@ export function margins(open: TransferFunction): Margins | ControlError {
     return { re, im, mag: Math.hypot(re, im) };
   };
 
-  /**
-   * Bisects on a log frequency axis for a sign change of `f`.
-   *
-   * The bracket comes from the sampled sweep; only the refinement happens here,
-   * and the iteration count is FIXED rather than tolerance-driven because this
-   * runs on every keystroke and a convergence loop that fails to converge in a
-   * task pane is a frozen Word.
-   */
+  /** Bisection on a log axis, fixed iteration count (bounded on every keystroke). */
   const bisect = (lo: number, hi: number, f: (w: number) => number): number => {
     let a = lo;
     let b = hi;
@@ -1334,87 +1609,81 @@ export function margins(open: TransferFunction): Margins | ControlError {
     return Math.sqrt(a * b);
   };
 
-  // ALL CROSSINGS, THEN THE WORST ONE. NOT THE FIRST ONE.
-  //
-  // A loop whose magnitude is not monotonic crosses 0 dB more than once, and it
-  // has a phase margin at each crossing. The stability margin is the SMALLEST of
-  // them — that is what the word margin means. Reporting the first gave
-  // `100*(s^2+0.02s+1)/(s+1)^4` a phase margin of 32.5 degrees when its three
-  // crossings are at 33.0, 148.8 and 23.1 degrees, so the binding margin is 23.1.
-  // A number that says "comfortable" about a loop that is not is worse than no
-  // number.
-  //
-  // The same argument applies to the gain margin at multiple phase crossovers, so
-  // both loops now collect everything and take the minimum, and both say how many
-  // they found — because "3 crossings, worst of them 23 degrees" is a different
-  // engineering situation from "one crossing at 23 degrees" even though the margin
-  // is the same.
-  const phaseCrossings: Array<{ w: number; marginDb: number }> = [];
-  for (let i = 0; i + 1 < resp.length; i++) {
-    const a = resp[i].phaseDeg + 180;
-    const b = resp[i + 1].phaseDeg + 180;
-    if (a === 0 || a * b < 0) {
-      // REFINE ON Im(G), NOT ON THE PHASE. The phase reported by
-      // frequencyResponse is unwrapped ACROSS THE WHOLE SWEEP, so evaluating a
-      // single frequency in isolation restarts the unwrapping and returns
-      // +179.9 where the swept value is -180.1 — and the bisection then walks
-      // away from the crossing instead of into it. Phase = -180 degrees is
-      // exactly "G is real and negative", so Im(G) = 0 locates the same point
-      // with no phase bookkeeping to get wrong. Found by an oracle test that
-      // knew the answer algebraically.
-      const w = bisect(freqs[i], freqs[i + 1], (w2) => gAt(w2).im);
-      const mag = gAt(w).mag;
-      if (Number.isFinite(w) && w > 0 && Number.isFinite(mag) && mag > 0) {
-        phaseCrossings.push({ w, marginDb: -20 * Math.log10(mag) });
+  const samples = freqs.map((w) => ({ w, ...gAt(w) }));
+  const TOL = 1e-9;
+  /** Brackets [w_i, w_j] between consecutive samples whose sign (ignoring "zero" samples) flips. */
+  const brackets = (sign: (s: (typeof samples)[number]) => number): Array<[number, number]> => {
+    const out: Array<[number, number]> = [];
+    let last: { w: number; s: number } | null = null;
+    for (const smp of samples) {
+      if (!Number.isFinite(smp.mag)) {
+        last = null;
+        continue;
       }
+      const s = sign(smp);
+      if (s === 0) continue;
+      if (last && last.s !== s) out.push([last.w, smp.w]);
+      last = { w: smp.w, s };
+    }
+    return out;
+  };
+  const wrap180 = (deg: number): number => {
+    let x = deg % 360;
+    if (x <= -180) x += 360;
+    if (x > 180) x -= 360;
+    return x;
+  };
+
+  // ALL CROSSINGS, THEN THE WORST ONE. NOT THE FIRST ONE.
+  // A loop whose magnitude is not monotonic crosses 0 dB more than once and has a
+  // phase margin at each; the binding margin is the smallest (100(s²+0.02s+1)/(s+1)⁴
+  // crosses at 33.0°, 148.8° and 23.1°, so its margin is 23.1°). Same for the gain
+  // margin at several −180° crossings.
+  const phaseCrossings: Array<{ w: number; marginDb: number }> = [];
+  for (const [a, b] of brackets((s) => (Math.abs(s.im) <= TOL * s.mag ? 0 : Math.sign(s.im)))) {
+    // Phase = −180° (mod 360°) is exactly "L is real and negative": Im L = 0 with Re L < 0.
+    const w = bisect(a, b, (w2) => gAt(w2).im);
+    const g = gAt(w);
+    if (Number.isFinite(w) && w > 0 && Number.isFinite(g.mag) && g.mag > 0 && g.re < 0) {
+      phaseCrossings.push({ w, marginDb: -20 * Math.log10(g.mag) });
     }
   }
-  // The worst gain margin is the smallest one; a negative value means the loop is
-  // already unstable, and that must not be hidden behind a comfortable crossing
-  // found earlier in the sweep.
+  // HEADLINE GAIN MARGIN: the crossing nearest 0 dB (smallest |GM|), MATLAB's choice,
+  // with EVERY crossing listed. The sign of a gain margin is NOT a stability verdict:
+  // 1e4(s+1)(s+2)/(s³(s+20)(s+50)) has a STABLE closed loop with gain margins of
+  // −21.49 dB and +14.87 dB (conditionally stable: it tolerates a gain change between
+  // the two), and reporting only the most negative one, with "the loop is unstable,
+  // reduce the gain", told the user the opposite of the truth. Stability statements
+  // below come from the closed-loop poles, never from a margin's sign.
   let phaseCrossoverW: number | null = null;
   let gainMarginDb: number | null = null;
   if (phaseCrossings.length) {
-    const worst = phaseCrossings.reduce((m, c) => (c.marginDb < m.marginDb ? c : m));
-    phaseCrossoverW = worst.w;
-    gainMarginDb = worst.marginDb;
+    const head = phaseCrossings.reduce((m, c) => (Math.abs(c.marginDb) < Math.abs(m.marginDb) ? c : m));
+    phaseCrossoverW = head.w;
+    gainMarginDb = head.marginDb;
     if (phaseCrossings.length > 1) {
       notes.push(
-        `The phase crosses -180 degrees at ${phaseCrossings.length} frequencies ` +
-          `(${phaseCrossings.map((c) => c.w.toPrecision(4)).join(", ")} rad/s). The gain margin ` +
-          `reported is the WORST of them, which is the one that binds; the others are larger.`,
+        `The phase crosses −180° at ${phaseCrossings.length} frequencies: ` +
+          phaseCrossings.map((c) => `${fmtSigned(c.marginDb)} dB at ${fmtPlain(c.w)} rad/s`).join("; ") +
+          ". The gain margin reported is the one nearest 0 dB, which is the smallest gain change that " +
+          "reaches a −180° crossing.",
       );
     }
   }
   if (phaseCrossoverW === null) {
     notes.push(
-      "The phase never reaches -180 degrees over the swept range, so there is NO finite gain " +
-        "margin: the loop cannot be driven unstable by raising the gain alone. That is a property " +
-        "of the system, not a gap in the sweep.",
+      "The phase never crosses −180° over the swept range, so there is NO finite gain " +
+        "margin: raising the gain alone does not bring the Nyquist curve through −1 at a finite " +
+        "frequency. (A phase that sits AT −180° everywhere, like 1/s², is not a crossing.)",
     );
   }
 
   const gainCrossings: Array<{ w: number; marginDeg: number }> = [];
-  for (let i = 0; i + 1 < resp.length; i++) {
-    const a = resp[i].magnitudeDb;
-    const b = resp[i + 1].magnitudeDb;
-    if (a === 0 || a * b < 0) {
-      // Magnitude carries no wrapping, so it can be refined directly.
-      const w = bisect(freqs[i], freqs[i + 1], (w2) => gAt(w2).mag - 1);
-      // The phase here is taken from the SWEPT response so the unwrapping is
-      // the same one the user sees on the Bode plot, interpolated across the
-      // bracket the crossing was found in.
-      const g = gAt(w);
-      const rawDeg = (Math.atan2(g.im, g.re) * 180) / Math.PI;
-      // Align the isolated atan2 value with the swept, unwrapped phase by
-      // choosing the 360-degree branch nearest the bracket's sampled phase.
-      const reference = resp[i].phaseDeg;
-      const k = Math.round((reference - rawDeg) / 360);
-      const marginDeg = 180 + (rawDeg + 360 * k);
-      if (Number.isFinite(w) && w > 0 && Number.isFinite(marginDeg)) {
-        gainCrossings.push({ w, marginDeg });
-      }
-    }
+  for (const [a, b] of brackets((s) => (Math.abs(s.mag - 1) <= TOL ? 0 : Math.sign(s.mag - 1)))) {
+    const w = bisect(a, b, (w2) => gAt(w2).mag - 1);
+    const g = gAt(w);
+    const marginDeg = wrap180(180 + (Math.atan2(g.im, g.re) * 180) / Math.PI);
+    if (Number.isFinite(w) && w > 0 && Number.isFinite(marginDeg)) gainCrossings.push({ w, marginDeg });
   }
   let gainCrossoverW: number | null = null;
   let phaseMarginDeg: number | null = null;
@@ -1424,12 +1693,10 @@ export function margins(open: TransferFunction): Margins | ControlError {
     phaseMarginDeg = worst.marginDeg;
     if (gainCrossings.length > 1) {
       notes.push(
-        `The magnitude crosses 0 dB at ${gainCrossings.length} frequencies ` +
-          `(${gainCrossings.map((c) => c.w.toPrecision(4)).join(", ")} rad/s), with phase margins of ` +
-          `${gainCrossings.map((c) => `${c.marginDeg.toFixed(1)}`).join(", ")} degrees. The figure ` +
-          `reported is the SMALLEST, because that is the one that binds. A loop with several ` +
-          `crossings is usually resonant, and the comfortable-looking crossings say nothing about ` +
-          `its stability.`,
+        `The magnitude crosses 0 dB at ${gainCrossings.length} frequencies: ` +
+          gainCrossings.map((c) => `${fmtSigned(c.marginDeg)}° at ${fmtPlain(c.w)} rad/s`).join("; ") +
+          ". The phase margin reported is the SMALLEST, because that is the one that binds; a loop " +
+          "with several crossings is usually resonant.",
       );
     }
   }
@@ -1440,16 +1707,60 @@ export function margins(open: TransferFunction): Margins | ControlError {
     );
   }
 
-  if (gainMarginDb !== null && gainMarginDb < 0) {
+  // |L(j0)| = 1 is a touch at DC, not a crossover; L(0) = −1 puts a closed-loop pole at s = 0.
+  const dcNum = trimPoly(open.num);
+  const dcDen = trimPoly(open.den);
+  const d0 = ratToNumber(dcDen[dcDen.length - 1]);
+  if (d0 !== 0 && Number.isFinite(d0)) {
+    const l0 = ratToNumber(dcNum[dcNum.length - 1]) / d0;
+    if (Math.abs(Math.abs(l0) - 1) <= TOL) {
+      notes.push(
+        l0 < 0
+          ? "L(0) = −1 exactly: the Nyquist curve STARTS on the −1 point, so the closed loop has a pole at " +
+              "s = 0 and is at best marginally stable. Crossings 'found' as the frequency tends to zero are " +
+              "this DC condition, not margins, and none is reported from it."
+          : "|L(0)| = 1 exactly: the magnitude touches 0 dB at zero frequency itself, which is not a " +
+              "crossover and is not reported as one.",
+      );
+    }
+  }
+
+  // What the margins mean for THIS loop, read against its closed-loop poles.
+  const closedStable = opts.closedLoopStable !== undefined ? opts.closedLoopStable : numericClosedLoopStable(open);
+  const pos = phaseCrossings.filter((c) => c.marginDb > 0);
+  const neg = phaseCrossings.filter((c) => c.marginDb < 0);
+  if (closedStable === true && pos.length && neg.length) {
+    const up = Math.min(...pos.map((c) => c.marginDb));
+    const down = Math.min(...neg.map((c) => -c.marginDb));
     notes.push(
-      "The gain margin is NEGATIVE, which means the loop is already unstable at this gain — the " +
-        "gain must be REDUCED by that many dB to reach the stability boundary, not increased.",
+      `CONDITIONALLY STABLE: the closed loop is stable now (from its poles), and the gain can be lowered by ` +
+        `${fmtPlain(down)} dB or raised by ${fmtPlain(up)} dB before it reaches a −180° crossing and goes unstable.`,
+    );
+  } else if (closedStable === true && neg.length && !pos.length) {
+    const down = Math.min(...neg.map((c) => -c.marginDb));
+    notes.push(
+      `The gain margin is NEGATIVE, yet the closed loop is STABLE (from its poles): |L| exceeds 1 where the ` +
+        `phase is −180°, so this loop goes unstable if the gain is LOWERED by ${fmtPlain(down)} dB, while ` +
+        "raising it never reaches a −180° crossing.",
+    );
+  } else if (gainMarginDb !== null && gainMarginDb < 0) {
+    notes.push(
+      "The headline gain margin is NEGATIVE: |L| exceeds 1 where the phase is −180°, so reaching that " +
+        "crossing means LOWERING the gain by that many dB. The sign alone does not say whether the loop is " +
+        "stable now; " +
+        (closedStable === null ? "the closed-loop poles could not settle it." : `the closed-loop poles say it is ${closedStable ? "STABLE" : "UNSTABLE"}.`),
     );
   }
-  if (phaseMarginDeg !== null && phaseMarginDeg > 0 && phaseMarginDeg < 30) {
+  if (phaseMarginDeg !== null && phaseMarginDeg < 0) {
     notes.push(
-      `A phase margin of ${phaseMarginDeg.toFixed(1)} degrees is small. Below about 30 degrees the ` +
-        "closed loop is very oscillatory and intolerant of any unmodelled lag; 45 to 60 degrees is " +
+      "The phase margin is NEGATIVE. That usually means an unstable closed loop, but margins do not decide it " +
+        "(right-half-plane open-loop poles or several crossovers change the reading); " +
+        (closedStable === null ? "the closed-loop poles could not settle it." : `the closed-loop poles say it is ${closedStable ? "STABLE" : "UNSTABLE"}.`),
+    );
+  } else if (phaseMarginDeg !== null && phaseMarginDeg < 30) {
+    notes.push(
+      `A phase margin of ${fmtPlain(phaseMarginDeg)}° is small. Below about 30° the ` +
+        "closed loop is very oscillatory and intolerant of any unmodelled lag; 45° to 60° is " +
         "the usual design target.",
     );
   }
@@ -1464,6 +1775,49 @@ export function margins(open: TransferFunction): Margins | ControlError {
     phaseCrossings,
     notes,
   };
+}
+
+/**
+ * Closed-loop stability from the computed poles of den + num, numerically: true / false,
+ * or null when a pole sits so near the imaginary axis (relative 1e-6, widened to about
+ * 10·eps^(1/m) for a cluster of m roots) that the computed real part cannot be trusted,
+ * or when the poles cannot be computed.
+ */
+export function numericClosedLoopStable(open: TransferFunction): boolean | null {
+  const cl = feedback(open);
+  const den = trimPoly(cl.den);
+  if (polyDegree(den) < 1) return null;
+  const r = polyRoots(den);
+  if (!r || r.some((z) => !Number.isFinite(z.re) || !Number.isFinite(z.im))) return null;
+  // The undecided band scales with each root's CLUSTER: m roots crowded together are each
+  // found only to about eps^(1/m) (a triple pair at −10⁻⁶ ± j comes back with real parts of
+  // ±6×10⁻⁶), so a single 10⁻⁶ band called it UNSTABLE while the exact analysis of the same
+  // loop said UNCERTAIN (round 4).
+  const undecided = r.some((z) => {
+    const mag = Math.max(1e-12, Math.hypot(z.re, z.im));
+    const m = r.filter((w) => Math.hypot(w.re - z.re, w.im - z.im) <= 1e-2 * mag).length;
+    const band = Math.max(1e-6, 10 * Math.pow(2.2e-16, 1 / m));
+    return Math.abs(z.re) <= band * mag;
+  });
+  if (undecided) return null;
+  return r.every((z) => z.re < 0);
+}
+
+/** A signed value in plain digits with a true minus (U+2212). */
+function fmtSigned(v: number): string {
+  return v < 0 ? `−${fmtPlain(-v)}` : fmtPlain(v);
+}
+
+/** A frequency in plain digits (4 significant figures) for a note, never e-notation. */
+function fmtPlain(v: number): string {
+  if (!Number.isFinite(v)) return String(v);
+  const p = v.toPrecision(4);
+  const m = /^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(p);
+  if (!m) return p;
+  const digits = m[2] + (m[3] ?? "");
+  const e = Number(m[4]);
+  if (e < 0) return `${m[1]}0.${"0".repeat(-e - 1)}${digits}`;
+  return m[1] + (digits.length > e + 1 ? `${digits.slice(0, e + 1)}.${digits.slice(e + 1)}` : digits + "0".repeat(e + 1 - digits.length));
 }
 
 /**
@@ -1512,4 +1866,119 @@ export function polyToString(p: Rat[]): string {
     parts.push((parts.length ? (neg ? " - " : " + ") : neg ? "-" : "") + coeff + sPart);
   }
   return parts.length ? parts.join("") : "0";
+}
+
+/**
+ * Matrix exponential: BALANCING, then scaling and squaring with the degree-13 Padé
+ * approximant (Higham 2005, the method scipy.linalg.expm is built on).
+ *
+ * Round 4 used a Taylor series after scaling, and on the companion matrices this module
+ * builds (non-normal, entries spanning many decades) the squaring phase amplified its error
+ * until an order-15 stable loop came out with spectral radius 190 instead of 0.985, and an
+ * existing step response reached 10¹⁹⁶ labelled "exact". Balancing (a diagonal similarity
+ * by powers of two, exact in floating point) removes most of that non-normality; Padé-13
+ * needs far fewer squarings. Callers must still VERIFY the result (stepping does: see
+ * timeResponse), because no expm is reliable on every non-normal matrix.
+ */
+export function expm(A: number[][]): number[][] | null {
+  const n = A.length;
+  // O(n^3) per product: bounded to the orders this module accepts (plus the augmented row).
+  if (!Array.isArray(A) || n === 0 || n > MAX_ORDER + 2 || A.some((r) => !Array.isArray(r) || r.length !== n))
+    return null;
+  if (A.some((r) => r.some((v) => !Number.isFinite(v)))) return null;
+  // --- balance: B = D^-1 A D with D a power-of-two diagonal (LAPACK gebal, no permutation)
+  const d = new Array(n).fill(1);
+  const B = A.map((r) => r.slice());
+  for (let sweep = 0; sweep < 64; sweep++) {
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      let c = 0;
+      let r = 0;
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        c += Math.abs(B[j][i]);
+        r += Math.abs(B[i][j]);
+      }
+      if (c === 0 || r === 0) continue;
+      let f = 1;
+      const s = c + r;
+      let cc = c;
+      let rr = r;
+      for (let k = 0; k < 2000 && cc < rr / 2; k++) {
+        cc *= 2;
+        rr /= 2;
+        f *= 2;
+      }
+      for (let k = 0; k < 2000 && cc >= rr * 2; k++) {
+        cc /= 2;
+        rr *= 2;
+        f /= 2;
+      }
+      if (cc + rr < 0.95 * s) {
+        changed = true;
+        d[i] *= f;
+        for (let j = 0; j < n; j++) B[i][j] /= f; // row i scaled by 1/f
+        for (let j = 0; j < n; j++) B[j][i] *= f; // column i scaled by f
+      }
+    }
+    if (!changed) break;
+  }
+  const mul = (X: number[][], Y: number[][]): number[][] =>
+    X.map((row) =>
+      Y[0].map((_, j) => {
+        let s = 0;
+        for (let k = 0; k < n; k++) s += row[k] * Y[k][j];
+        return s;
+      }),
+    );
+  const add = (X: number[][], Y: number[][], a = 1, b = 1): number[][] => X.map((r, i) => r.map((v, j) => a * v + b * Y[i][j]));
+  const I = (): number[][] => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+  let norm = 0;
+  for (let j = 0; j < n; j++) {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += Math.abs(B[i][j]);
+    norm = Math.max(norm, s);
+  }
+  if (!Number.isFinite(norm)) return null;
+  const THETA13 = 5.371920351148152;
+  const sq = norm > THETA13 ? Math.min(200, Math.ceil(Math.log2(norm / THETA13))) : 0;
+  const As = B.map((r) => r.map((v) => v * Math.pow(2, -sq)));
+  const b = [
+    64764752532480000, 32382376266240000, 7771770303897600, 1187353796428800, 129060195264000, 10559470521600,
+    670442572800, 33522128640, 1323241920, 40840800, 960960, 16380, 182, 1,
+  ];
+  const A2 = mul(As, As);
+  const A4 = mul(A2, A2);
+  const A6 = mul(A4, A2);
+  const Id = I();
+  const lin = (cs: number[], Ms: number[][][]): number[][] =>
+    Id.map((r, i) => r.map((_, j) => Ms.reduce((acc, M, k) => acc + cs[k] * M[i][j], 0)));
+  const U1 = lin([b[13], b[11], b[9]], [A6, A4, A2]);
+  const U2 = lin([b[7], b[5], b[3], b[1]], [A6, A4, A2, Id]);
+  const U = mul(As, add(mul(A6, U1), U2));
+  const V1 = lin([b[12], b[10], b[8]], [A6, A4, A2]);
+  const V2 = lin([b[6], b[4], b[2], b[0]], [A6, A4, A2, Id]);
+  const V = add(mul(A6, V1), V2);
+  // solve (V − U) X = (V + U) by Gaussian elimination with partial pivoting
+  const P = add(V, U, 1, -1);
+  const Q = add(V, U);
+  const M = P.map((r, i) => [...r, ...Q[i]]);
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (M[piv][col] === 0 || !Number.isFinite(M[piv][col])) return null;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = M[r][col] / M[col][col];
+      if (f === 0) continue;
+      for (let c = col; c < 2 * n; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  let E: number[][] = M.map((r, i) => r.slice(n).map((v) => v / M[i][i]));
+  for (let i = 0; i < sq; i++) E = mul(E, E);
+  // undo the balancing: expm(A) = D expm(B) D^-1
+  E = E.map((r, i) => r.map((v, j) => (v * d[i]) / d[j]));
+  if (E.some((r) => r.some((v) => !Number.isFinite(v)))) return null;
+  return E;
 }

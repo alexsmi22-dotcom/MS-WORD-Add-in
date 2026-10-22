@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.186.0)
+# JurisLab — Manual Test Script (v2.187.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,62 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0dz. New in v2.187.0 — Thin films, materials testing, control design, titration and CV, plot types
+
+Engineering mode unless stated. Every tool below should show data AND a figure; **Insert result** and **Insert
+figure** both work, and every minus is a true minus (−).
+
+### Optics & photonics
+
+- [ ] **Fresnel s/p**, defaults (1 → 1.52 at 45°): Rs 9.673 %, Rp 0.9357 %, Brewster 56.659°. Type n₁ 1.5, n₂ 1.0,
+  60° → totally internally reflected, critical angle 41.81°. Type n₂ `0.05+3.4i` → a metal, pseudo-Brewster angle.
+- [ ] **Thin-film stack**, default `MgF2 1.38 QW` on 1.52: R = 1.26 % at 550 nm, uncoated 4.258 %. Replace the layers
+  with `repeat 4` / `H 2.35 QW` / `L 1.38 QW` / `end` / `H 2.35 QW` → R ≈ 98.46 %.
+- [ ] **Jones**, default (horizontal through `qwp 45`): left-handed circular, S₃ = −1. Elements `polariser 0` and
+  `polariser 60` → I/I₀ = 0.25, the Malus line agrees. `polariser 0` / `polariser 90` → "No light is transmitted".
+
+### Materials and quality
+
+- [ ] **Tensile test**, default: E 68.88 GPa, 0.2 % yield 208.5 MPa, UTS 314.0 MPa, two figures (curve and elastic
+  close-up with the offset line). Paste a column pair from Excel with a header line → the header is named in a note.
+- [ ] **Weibull modulus of strength**, default: regression m 9.568, maximum likelihood m 9.443 (interval 6.56 to 12.8).
+- [ ] **Crystallite size**, default: five peaks, sizes 34.6 → 25.1 nm, Williamson–Hall D 47.1 nm, strain 0.100 %.
+- [ ] **Process capability**, default: Cpk 2.03 (1.49 to 2.56), Ppk lower; histogram with LSL/USL. Clear the subgroup
+  size → σ within from moving ranges (MR̄/1.128), said in the output.
+- [ ] **Tolerance stack-up**, default: worst case 0.530 ±0.260, RSS 0.530 ±0.129, bars of each share.
+
+### Control systems
+
+- [ ] **Root locus**, default 1/(s³ + 3s² + 2s): breakaway −0.4226 at K = 0.3849; crossing ±j√2 at K = 6, confirmed;
+  stable for 0 < K < 6. The figure marks poles ×, the crossings and the asymptotes.
+- [ ] **Nyquist**, default: N = 0, P = 0, Z = 0, agreeing with the closed-loop poles; GM 15.56 dB, PM 53.41°.
+- [ ] **Lead / lag**, default (4/(s² + 2s), PM 50°, Kv 20): C(s) = (2.268s + 10)/(0.0563s + 1), PM 49.77° after,
+  "Target met"; Bode before/after and step before/after.
+- [ ] **c2d**, default ZOH, T = 0.2 s: Gd(z) = (0.069413z + 0.060715)/(z² − 1.5402z + 0.67032), stable by Jury.
+- [ ] **The margins fix.** Frequency response (Bode) with numerator `1`, denominator `1 0 0 0` (1/s³): the phase margin
+  reads −90°, not 270°, and the closed loop is reported unstable.
+
+### Chemistry & electrochemistry (new group; Nernst, Butler–Volmer and Tafel are now here)
+
+- [ ] **Titration curve**, default (0.1 M weak acid pKa 4.76, 25 mL, 0.1 M base): equivalence 25 mL, pH 2.88 at the
+  start, 4.76 at half-equivalence, 8.73 at equivalence; two panels (pH and dpH/dV).
+- [ ] **Speciation**, default phosphoric acid: at pH 7.40, H₂A⁻ 38.7 % and HA²⁻ 61.3 %.
+- [ ] **pH of a solution or buffer**, default: pH 4.76, β = 115 mM per pH unit.
+- [ ] **CV peak current**, default: ip 16.56 µA at 100 mV/s, ΔEp 57 mV, simulated voltammograms.
+- [ ] **Randles–Ševčík analysis**, default: D = 7.62×10⁻⁶ cm²/s, log–log slope 0.498. Paste the data with decimal
+  commas (`10 5,30`) → the same D, with a note that commas were read as decimals.
+
+### Plot mode: Plot type
+
+- [ ] **Default y = f(x)**: exactly as before. x range `-2*pi` to `2*pi` works.
+- [ ] **Parametric** cos(t), sin(t), t 0 to 2*pi → a round circle (equal scales).
+- [ ] **Polar** `cos(3θ)` → a three-petal rose on a polar grid.
+- [ ] **Two y axes**: three columns x y₁ y₂ → each axis coloured as its series, second series dashed.
+- [ ] **Contour** `x^2+y^2` → circles with a colour bar whose labels equal the levels; tick Filled bands. `tan(x)+y`
+  draws no vertical lines at the poles.
+- [ ] **3D surface** `sin(x)*cos(y)` filled and wireframe; change azimuth and elevation.
+- [ ] Insert each type and check the inserted figure matches the preview.
 
 ## 0dy. New in v2.186.0 — Captions as Word fields, Welch's ANOVA, standard curves and qPCR, significant figures
 

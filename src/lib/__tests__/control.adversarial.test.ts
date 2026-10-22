@@ -275,15 +275,18 @@ describe("stability refuses rather than guessing at the boundary", () => {
 
 // ---------------------------------------------------------------------------
 describe("time response is bounded and honest", () => {
-  test("a stiff system does not hang and says the trace is under-resolved", () => {
-    // Poles at -1 and -1e6: a fixed step would either take forever or diverge.
+  test("a stiff system does not hang and is stepped EXACTLY (round 4: was under-resolved, could diverge)", () => {
+    // Poles at -1 and -1e6: a fixed step would either take forever or diverge. Since round 4
+    // the capped case is stepped exactly with the matrix exponential, so the trace is right:
+    // y(t) = 1 - (1e6 e^-t - e^-1e6t)/(1e6 - 1), i.e. 1 - e^-t to within 1e-6.
     const t = parseTf("1", "0.000001*s^2+1.000001*s+1");
     if ("ok" in t) throw new Error(t.error);
     const r = within(3000, () => timeResponse(t, "step", 10, 400));
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(nonFinite(r.y)).toEqual([]);
-      expect(r.notes.join(" ")).toMatch(/UNDER-RESOLVED/i);
+      expect(r.notes.join(" ")).toMatch(/EXACTLY/);
+      r.t.forEach((tt, i) => expect(Math.abs(r.y[i] - (1 - Math.exp(-tt)))).toBeLessThan(2e-6));
     }
   });
 

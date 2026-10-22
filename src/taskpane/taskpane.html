@@ -771,22 +771,85 @@
           Plot a function or data as a chart, inserted as an image. Runs offline; nothing
           you enter leaves your machine.
         </p>
-        <label class="field-label" for="plot-fn">Function y = f(x) (separate multiple with ;)</label>
-        <input id="plot-fn" class="formula-input" type="text" placeholder="e.g. sin(x)/x ; x^2 ; exp(-x^2)" autocomplete="off" spellcheck="false" />
         <div class="dna-controls">
+          <label class="field-label" for="plot-kind">Plot type</label>
+          <select id="plot-kind" class="lib-select" aria-label="plot type">
+            <option value="fx" selected>y = f(x) and data</option>
+            <option value="parametric">Parametric x(t), y(t)</option>
+            <option value="polar">Polar r(&#952;)</option>
+            <option value="dualy">Two y axes (data)</option>
+            <option value="contour">Contour z = f(x, y)</option>
+            <option value="surface">3D surface z = f(x, y)</option>
+          </select>
+        </div>
+        <div id="plot-fn-row">
+          <label id="plot-fn-label" class="field-label" for="plot-fn">Function y = f(x) (separate multiple with ;)</label>
+          <input id="plot-fn" class="formula-input" type="text" placeholder="e.g. sin(x)/x ; x^2 ; exp(-x^2)" autocomplete="off" spellcheck="false" />
+        </div>
+        <div id="plot-fn2-row" hidden>
+          <label class="field-label" for="plot-fn2">y(t) =</label>
+          <input id="plot-fn2" class="formula-input" type="text" placeholder="e.g. sin(t)" autocomplete="off" spellcheck="false" />
+          <label class="field-label"><input id="plot-equal" type="checkbox" checked /> Equal x and y scales</label>
+        </div>
+        <div id="plot-t-row" class="dna-controls" hidden>
+          <label id="plot-tmin-label" class="field-label" for="plot-tmin">t from</label>
+          <input id="plot-tmin" type="text" class="rgroup-input num-numeral" value="0" aria-label="parameter minimum" />
+          <label class="field-label" for="plot-tmax">to</label>
+          <input id="plot-tmax" type="text" class="rgroup-input num-numeral" value="2*pi" aria-label="parameter maximum" />
+          <label id="plot-angle-label" class="field-label" for="plot-angle-unit" hidden>in</label>
+          <select id="plot-angle-unit" class="lib-select" aria-label="angle unit of the theta range" hidden>
+            <option value="rad">radians</option>
+            <option value="deg">degrees</option>
+          </select>
+        </div>
+        <div id="plot-x-row" class="dna-controls">
           <label class="field-label" for="plot-xmin">x from</label>
           <input id="plot-xmin" type="text" class="rgroup-input num-numeral" value="-10" aria-label="x minimum" />
           <label class="field-label" for="plot-xmax">to</label>
           <input id="plot-xmax" type="text" class="rgroup-input num-numeral" value="10" aria-label="x maximum" />
         </div>
-        <label class="field-label" for="plot-data">Data (x y [err] per line)</label>
+        <div id="plot-y-row" class="dna-controls" hidden>
+          <label class="field-label" for="plot-ymin">y from</label>
+          <input id="plot-ymin" type="text" class="rgroup-input num-numeral" value="-10" aria-label="y minimum" />
+          <label class="field-label" for="plot-ymax">to</label>
+          <input id="plot-ymax" type="text" class="rgroup-input num-numeral" value="10" aria-label="y maximum" />
+          <label class="field-label" for="plot-grid">grid</label>
+          <input id="plot-grid" type="text" class="rgroup-input num-numeral" value="" placeholder="auto" aria-label="grid points per side" />
+        </div>
+        <div id="plot-z-row" hidden>
+          <input id="plot-zlabel" class="formula-input" type="text" placeholder="z label (optional)" />
+        </div>
+        <div id="plot-contour-row" class="dna-controls" hidden>
+          <label class="field-label" for="plot-levels">Levels</label>
+          <input id="plot-levels" class="formula-input" type="text" placeholder="automatic, or e.g. 1 2 4 8" autocomplete="off" spellcheck="false" />
+          <label class="field-label"><input id="plot-filled" type="checkbox" /> Filled bands</label>
+        </div>
+        <div id="plot-surface-row" class="dna-controls" hidden>
+          <label class="field-label" for="plot-az">Azimuth&#176;</label>
+          <input id="plot-az" type="text" class="rgroup-input num-numeral" value="-60" aria-label="view azimuth in degrees" />
+          <label class="field-label" for="plot-el">Elevation&#176;</label>
+          <input id="plot-el" type="text" class="rgroup-input num-numeral" value="30" aria-label="view elevation in degrees" />
+          <select id="plot-surface-style" class="lib-select" aria-label="surface style">
+            <option value="filled">Filled</option>
+            <option value="wireframe">Wireframe</option>
+          </select>
+        </div>
+        <label id="plot-data-label" class="field-label" for="plot-data">Data (x y [err] per line)</label>
         <textarea id="plot-data" class="build-input" rows="4" spellcheck="false" placeholder="0 1&#10;1 2 0.1&#10;2 4"></textarea>
         <input id="plot-title" class="formula-input" type="text" placeholder="Title (optional)" />
         <div class="dna-controls">
           <input id="plot-xlabel" class="formula-input" type="text" placeholder="x-axis label" />
           <input id="plot-ylabel" class="formula-input" type="text" placeholder="y-axis label" />
         </div>
-        <div class="dna-controls">
+        <div id="plot-y2-row" class="dna-controls" hidden>
+          <input id="plot-y2label" class="formula-input" type="text" placeholder="right y-axis label" />
+          <label class="field-label" for="plot-y2scale">right y scale</label>
+          <select id="plot-y2scale" class="lib-select" aria-label="right y axis scale">
+            <option value="linear">Linear</option>
+            <option value="log">Log&#8321;&#8320;</option>
+          </select>
+        </div>
+        <div id="plot-scale-row" class="dna-controls">
           <label class="field-label" for="plot-xscale">x scale</label>
           <select id="plot-xscale" class="lib-select" aria-label="x axis scale">
             <option value="linear">Linear</option>
@@ -797,7 +860,7 @@
             <option value="linear">Linear</option>
             <option value="log">Log&#8321;&#8320;</option>
           </select>
-          <label class="field-label" for="plot-errbars">Error bars</label>
+          <label id="plot-errbars-label" class="field-label" for="plot-errbars">Error bars</label>
           <select id="plot-errbars" class="lib-select" aria-label="what the error bars represent">
             <option value="">Not stated</option>
             <option value="sd">&#177;1 SD</option>

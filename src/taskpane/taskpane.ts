@@ -20484,23 +20484,37 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) {
         return { text: "The parallel fraction must be between 0 and 1 and there must be at least one processor.", ok: false };
       }
-      const lines = [
+      // Release E: the result as a quantity / value / unit table.
+      const spRows: Array<[string, string, string]> = [
+        ["Amdahl speedup (fixed problem)", engNum(res.amdahl, 6), "×"],
+        ["Gustafson speedup (fixed time)", engNum(res.gustafson, 6), "×"],
+        ["Efficiency", engNum(res.efficiency * 100, 4), "%"],
+        res.amdahlCeiling === Infinity ? ["Amdahl ceiling", "none (perfectly parallel)", ""] : ["Amdahl ceiling", engNum(res.amdahlCeiling, 6), "×"],
+        res.halfEfficiencyN === Infinity
+          ? ["Half the machine wasted at", "never (perfectly parallel)", ""]
+          : ["Half the machine wasted at", engNum(res.halfEfficiencyN, 5), "processors"],
+      ];
+      if (res.karpFlatt !== null) spRows.push(["Karp-Flatt serial fraction", engNum(res.karpFlatt, 5), ""]);
+      const lines: EngReportLine[] = [
+        ...engEq("comp-speedup"),
+        ...(res.karpFlatt !== null ? engEq("comp-speedup:karp-flatt") : []),
         "Parallel speedup",
         "",
-        `  Amdahl (fixed problem)   ${engNum(res.amdahl, 6)}x`,
-        `  Gustafson (fixed time)   ${engNum(res.gustafson, 6)}x`,
-        `  Efficiency               ${engNum(res.efficiency * 100, 4)} %`,
-        "",
-        `  Amdahl ceiling           ${res.amdahlCeiling === Infinity ? "none (perfectly parallel)" : engNum(res.amdahlCeiling, 6) + "x"}`,
-        `  Half the machine wasted at ${res.halfEfficiencyN === Infinity ? "never (perfectly parallel)" : engNum(res.halfEfficiencyN, 5) + " processors"}`,
+        kvTable(spRows),
       ];
-      if (res.karpFlatt !== null) lines.push(`  Karp-Flatt serial fraction ${engNum(res.karpFlatt, 5)}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
       // Both laws against processor count on a log axis, the Amdahl ceiling
       // flat above (omitted entirely when the fraction is exactly 1 and the
       // ceiling is infinite), this machine on the Amdahl curve.
+      const spOutputs: EngOutput[] = [
+        { key: "Samdahl", label: "Amdahl speedup", value: res.amdahl, unit: "" },
+        { key: "Sgustafson", label: "Gustafson speedup", value: res.gustafson, unit: "" },
+        { key: "efficiency", label: "Efficiency", value: res.efficiency * 100, unit: "%" },
+        { key: "ceiling", label: "Amdahl ceiling", value: res.amdahlCeiling, unit: "" },
+        { key: "karpFlatt", label: "Karp-Flatt serial fraction", value: res.karpFlatt ?? NaN, unit: "" },
+      ];
       if (n >= 1) {
         const amdahlPts: Point[] = [];
         const gustPts: Point[] = [];
@@ -20537,7 +20551,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "speedup",
             title: "The two laws diverge",
           });
-          return engReport(lines, [
+          return withOutputs(spOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20546,10 +20560,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(spOutputs, engReport(lines));
     },
   },
   {
@@ -20577,18 +20591,28 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = shannonEntropy(w, count);
       if (!res) return { text: "Every weight must be a number, none negative, and they cannot all be zero.", ok: false };
-      const lines = [
-        "Shannon entropy",
-        "",
-        `  Entropy          ${engNum(res.entropyBits, 6)} bits/symbol`,
-        `  Maximum possible ${engNum(res.maxEntropyBits, 6)} bits/symbol  (uniform over ${w.length})`,
-        `  Redundancy       ${engNum(res.redundancy * 100, 4)} %`,
+      const enRows: Array<[string, string, string]> = [
+        ["Entropy", engNum(res.entropyBits, 6), "bits/symbol"],
+        [`Maximum possible (uniform over ${w.length})`, engNum(res.maxEntropyBits, 6), "bits/symbol"],
+        ["Redundancy", engNum(res.redundancy * 100, 4), "%"],
       ];
       if (res.idealBits !== null) {
-        lines.push("");
-        lines.push(`  Ideal compressed size of ${nRaw} symbols`);
-        lines.push(`    ${engNum(res.idealBits, 6)} bits = ${engNum(res.idealBits / 8, 6)} bytes`);
+        enRows.push([`Ideal compressed size of ${nRaw} symbols`, engNum(res.idealBits, 6), "bits"]);
+        enRows.push([`Ideal compressed size of ${nRaw} symbols`, engNum(res.idealBits / 8, 6), "bytes"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("comp-entropy"),
+        ...(res.idealBits !== null ? engEq("comp-entropy:ideal") : []),
+        "Shannon entropy",
+        "",
+        kvTable(enRows),
+      ];
+      const enOutputs: EngOutput[] = [
+        { key: "H", label: "Entropy", value: res.entropyBits, unit: "bits/symbol" },
+        { key: "Hmax", label: "Maximum possible entropy", value: res.maxEntropyBits, unit: "bits/symbol" },
+        { key: "redundancy", label: "Redundancy", value: res.redundancy * 100, unit: "%" },
+        { key: "idealBits", label: "Ideal compressed size", value: res.idealBits ?? NaN, unit: "bits" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -20619,7 +20643,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The binary entropy curve",
             },
           );
-          return engReport(lines, [
+          return withOutputs(enOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20628,7 +20652,7 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
         if (w.length > 2 && totalW > 0) {
           const rows = w.map((x, i2) => {
@@ -20641,7 +20665,7 @@ const ENG_CALCS: EngCalc[] = [
           });
           if (rows.every((rw) => Number.isFinite(rw.value))) {
             const svg = hBarSvg(rows, { title: `Contribution to H = ${engNum(res.entropyBits, 4)} bits`, unit: "bits" });
-            return engReport(lines, [
+            return withOutputs(enOutputs, engReport(lines, [
               {
                 kind: "plot",
                 svg,
@@ -20650,11 +20674,11 @@ const ENG_CALCS: EngCalc[] = [
                 w: 400,
                 h: 46 + Math.min(rows.length, 24) * HBAR_ROW_H + 18,
               },
-            ]);
+            ]));
           }
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(enOutputs, engReport(lines));
     },
   },
   {
@@ -20680,26 +20704,36 @@ const ENG_CALCS: EngCalc[] = [
       const res = channelCapacity(B, snr);
       if (!res) return { text: "Bandwidth must be positive.", ok: false };
 
-      const lines = [
-        "Channel capacity",
-        "",
-        `  SNR                  ${engNum(res.snrDb, 5)} dB  =  ${engNum(res.snrLinear, 6)} (power ratio)`,
-        `  Spectral efficiency  ${engNum(res.spectralEfficiency, 6)} bit/s/Hz`,
-        `  Capacity             ${engNum(res.capacityBps, 6)} bit/s  =  ${engNum(res.capacityBps / 1e6, 6)} Mbit/s`,
-        `  Minimum Eb/N0        ${engNum(res.ebN0Db, 5)} dB at this efficiency`,
+      const chRows: Array<[string, string, string]> = [
+        ["SNR", engNum(res.snrDb, 5), "dB"],
+        ["SNR (power ratio)", engNum(res.snrLinear, 6), ""],
+        ["Spectral efficiency", engNum(res.spectralEfficiency, 6), "bit/s/Hz"],
+        ["Capacity", engNum(res.capacityBps, 6), "bit/s"],
+        ["Capacity", engNum(res.capacityBps / 1e6, 6), "Mbit/s"],
+        ["Minimum Eb/N0 at this efficiency", engNum(res.ebN0Db, 5), "dB"],
       ];
+      const lines: EngReportLine[] = [...engEq("comp-channel"), "Channel capacity", "", kvTable(chRows)];
       const berRaw = r("ber").trim();
+      let bscCap = NaN;
       if (berRaw) {
         const ber = Number(berRaw);
         if (!Number.isFinite(ber) || ber < 0 || ber > 1) {
           return { text: "Binary channel error rate: must be between 0 and 1, or blank.", ok: false };
         }
         const bsc = bscCapacity(ber)!;
+        bscCap = bsc.capacity;
         lines.push("");
+        lines.push(...engEq("comp-channel:bsc"));
         lines.push(`  Binary symmetric channel at p = ${berRaw}`);
         lines.push(`    Capacity ${engNum(bsc.capacity, 6)} bits per channel use`);
         for (const note of bsc.notes) lines.push(`Note: ${note}`);
       }
+      const chOutputs: EngOutput[] = [
+        { key: "Cbps", label: "Capacity", value: res.capacityBps, unit: "bit/s" },
+        { key: "eta", label: "Spectral efficiency", value: res.spectralEfficiency, unit: "bit/s/Hz" },
+        { key: "EbN0", label: "Minimum Eb/N0", value: res.ebN0Db, unit: "dB" },
+        { key: "Cbsc", label: "Binary symmetric channel capacity", value: bscCap, unit: "bits per use" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -20735,7 +20769,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Capacity against SNR at this bandwidth",
             },
           );
-          return engReport(lines, [
+          return withOutputs(chOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20744,10 +20778,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(chOutputs, engReport(lines));
     },
   },
   {
@@ -20792,16 +20826,24 @@ const ENG_CALCS: EngCalc[] = [
       const res = collisionProbability(n, space);
       if (!res) return { text: "The item count cannot be negative and the value space must be positive.", ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...(res.method === "exact" ? engEq("comp-collision:exact") : engEq("comp-collision:approximation")),
+        ...engEq("comp-collision"),
         "Collision probability",
         "",
-        `  Items                 ${engNum(n, 6)}`,
-        `  Distinct values       ${engNum(space, 6)}${bits ? `  (2^${d0})` : ""}`,
-        "",
-        `  P(at least one collision)  ${res.probability >= 1 ? "1 (certain)" : engNum(res.probability, 6)}`,
-        `  Expected colliding pairs   ${engNum(res.expectedPairs, 6)}`,
-        `  Items for a 50% chance     ${engNum(res.fiftyPercentCount, 6)}`,
-        `  Method                     ${res.method}`,
+        kvTable([
+          ["Items", engNum(n, 6), ""],
+          [`Distinct values${bits ? ` (2${toSuperscript(String(d0))})` : ""}`, engNum(space, 6), ""],
+          ["P(at least one collision)", res.probability >= 1 ? "1 (certain)" : engNum(res.probability, 6), ""],
+          ["Expected colliding pairs", engNum(res.expectedPairs, 6), ""],
+          ["Items for a 50% chance", engNum(res.fiftyPercentCount, 6), ""],
+          ["Method", res.method, ""],
+        ]),
+      ];
+      const coOutputs: EngOutput[] = [
+        { key: "Pcoll", label: "Probability of at least one collision", value: res.probability, unit: "" },
+        { key: "pairs", label: "Expected colliding pairs", value: res.expectedPairs, unit: "" },
+        { key: "n50", label: "Items for a 50 % chance", value: res.fiftyPercentCount, unit: "" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -20846,7 +20888,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "P(at least one collision)",
             title: "The birthday curve",
           });
-          return engReport(lines, [
+          return withOutputs(coOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20858,10 +20900,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(coOutputs, engReport(lines));
     },
   },
   {
@@ -20886,26 +20928,33 @@ const ENG_CALCS: EngCalc[] = [
       const res = floatPrecision(v, b);
       if (!res) return { text: "Both values must be finite numbers.", ok: false };
 
-      const lines = [
-        "IEEE-754 double precision",
-        "",
-        `  Machine epsilon      ${engNum(res.epsilon, 6)}   (spacing just above 1.0)`,
-        `  Decimal digits       ${engNum(res.decimalDigits, 4)}`,
-        "",
-        `  At ${engNum(v, 6)}`,
-        `    Spacing (1 ULP)    ${engNum(res.ulp, 6)}`,
-        `    Relative spacing   ${engNum(res.relativeSpacing, 6)}`,
+      const flRows: Array<[string, string, string]> = [
+        ["Machine epsilon (spacing just above 1.0)", engNum(res.epsilon, 6), ""],
+        ["Decimal digits", engNum(res.decimalDigits, 4), ""],
+        [`Spacing (1 ULP) at ${engNum(v, 6)}`, engNum(res.ulp, 6), ""],
+        [`Relative spacing at ${engNum(v, 6)}`, engNum(res.relativeSpacing, 6), ""],
       ];
       if (res.cancellationFactor !== null) {
-        lines.push("");
-        lines.push(`  Subtracting ${engNum(v, 6)} from ${bRaw}`);
-        lines.push(
-          `    Error amplification ${res.cancellationFactor === Infinity ? "infinite (exactly equal)" : engNum(res.cancellationFactor, 6) + "x"}`,
-        );
-        lines.push(
-          `    Digits lost         ${res.digitsLost === Infinity ? "all of them" : engNum(res.digitsLost as number, 4)}`,
-        );
+        flRows.push([
+          `Error amplification, subtracting ${engNum(v, 6)} from ${bRaw}`,
+          res.cancellationFactor === Infinity ? "infinite (exactly equal)" : engNum(res.cancellationFactor, 6),
+          res.cancellationFactor === Infinity ? "" : "×",
+        ]);
+        flRows.push(["Digits lost", res.digitsLost === Infinity ? "all of them" : engNum(res.digitsLost as number, 4), ""]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("comp-float"),
+        ...(res.cancellationFactor !== null ? engEq("comp-float:cancellation") : []),
+        "IEEE-754 double precision",
+        "",
+        kvTable(flRows),
+      ];
+      const flOutputs: EngOutput[] = [
+        { key: "ulp", label: "Spacing (1 ULP) at the value", value: res.ulp, unit: "" },
+        { key: "relSpacing", label: "Relative spacing", value: res.relativeSpacing, unit: "" },
+        { key: "kappa", label: "Error amplification", value: res.cancellationFactor ?? NaN, unit: "" },
+        { key: "digitsLost", label: "Digits lost", value: res.digitsLost ?? NaN, unit: "" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -20941,7 +20990,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The gap scales with the magnitude",
             },
           );
-          return engReport(lines, [
+          return withOutputs(flOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20950,10 +20999,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(flOutputs, engReport(lines));
     },
   },
   {
@@ -20993,11 +21042,17 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("comp-scaling"),
+        ...(res.predicted !== null ? engEq("comp-scaling:predict") : []),
         "Runtime scaling",
         "",
         `  Empirical exponent k  ${engNum(res.exponent, 5)}   in t proportional to n^k`,
         `  Nearest class         ${res.nearestClass}`,
+      ];
+      const scOutputs: EngOutput[] = [
+        { key: "k", label: "Empirical exponent k", value: res.exponent, unit: "" },
+        { key: "tPred", label: "Predicted runtime (your units)", value: res.predicted ?? NaN, unit: "" },
       ];
       if (res.predicted !== null) {
         lines.push("");
@@ -21053,7 +21108,7 @@ const ENG_CALCS: EngCalc[] = [
             // class name cleaned, or the audit flags the tool.
             title: plainDashes(`t ∝ n^${engNum(res.exponent, 3)} - ${res.nearestClass}`),
           });
-          return engReport(lines, [
+          return withOutputs(scOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -21062,10 +21117,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(scOutputs, engReport(lines));
     },
   },
 

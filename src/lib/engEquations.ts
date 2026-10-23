@@ -250,6 +250,33 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("slack_hold = t_cq + t_min - t_h - t_skew", "slack (hold) = tcq + tmin − th − tskew"),
     eq("f_max = 1/T_min", "fmax = 1/Tmin"),
   ],
+  // ---- Computation & information ----
+  "comp-speedup": [
+    eq("S_A = 1/((1 - p) + p/N)", "SA = 1/((1 − p) + p/N)"),
+    eq("S_G = (1 - p) + p N", "SG = (1 − p) + p·N"),
+    eq("E = S_A/N", "E = SA/N"),
+  ],
+  "comp-speedup:karp-flatt": [eq("e = (1/psi - 1/N)/(1 - 1/N)", "e = (1/ψ − 1/N)/(1 − 1/N)")],
+  "comp-entropy": [
+    eq("H = -sum(i=1, n, p_i log_2 p_i)", "H = −∑ᵢ₌₁ⁿ pᵢ·log₂ pᵢ"),
+    eq("H_max = log_2 n", "Hmax = log₂ n"),
+    eq("R = 1 - H/H_max", "R = 1 − H/Hmax"),
+  ],
+  "comp-entropy:ideal": [eq("L = H N", "L = H·N")],
+  "comp-channel": [
+    eq("C = B log_2(1 + S/N)", "C = B·log₂(1 + S/N)"),
+    eq("SNR = 10 log_10(S/N)", "SNR = 10·log₁₀(S/N)"),
+    eq("eta = log_2(1 + S/N)", "η = log₂(1 + S/N)"),
+    eq("E_b/N_0 = (exp(eta ln(2)) - 1)/eta", "Eb/N₀ = (exp(η·ln 2) − 1)/η"),
+  ],
+  "comp-channel:bsc": [eq("C_BSC = 1 + p log_2 p + (1 - p) log_2(1 - p)", "CBSC = 1 + p·log₂ p + (1 − p)·log₂(1 − p)")],
+  "comp-collision:exact": [eq("P = 1 - prod(i=1, n - 1, (1 - i/d))", "P = 1 − ∏ᵢ₌₁ⁿ⁻¹ (1 − i/d)")],
+  "comp-collision:approximation": [eq("P approx 1 - exp(-{n} (n - 1)/(2 d))", "P ≈ 1 − exp(−n(n − 1)/(2d))")],
+  "comp-collision": [eq("E = {n} (n - 1)/(2 d)", "E = n(n − 1)/(2d)"), eq("n_50 approx sqrt(2 ln(2) d)", "n₅₀ ≈ √(2·ln 2·d)")],
+  "comp-float": [eq("epsilon = 2^{-52}", "ε = 2⁻⁵²")],
+  "comp-float:cancellation": [eq("kappa = max(abs(a), abs(b))/abs(a - b)", "κ = max(|a|, |b|)/|a − b|"), eq("n_lost = log_10 kappa", "nlost = log₁₀ κ")],
+  "comp-scaling": [eq("k = ln(t_2/t_1)/ln(n_2/n_1)", "k = ln(t₂/t₁)/ln(n₂/n₁)")],
+  "comp-scaling:predict": [eq("t = t_2 (n/n_2)^k", "t = t₂·(n/n₂)ᵏ")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

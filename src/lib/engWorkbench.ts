@@ -11,7 +11,7 @@ import { engReport } from "./engReport";
 import { fillNormals, mcHistogramSvg, type McResult } from "./monteCarlo";
 import { trueMinus } from "./numberList";
 import { buildPlotSvg } from "./plot";
-import { formatUnit } from "./units";
+import { convert, formatUnit } from "./units";
 
 export type EngCompute = (read: (k: string) => string) => AnalyzeOutput;
 
@@ -40,7 +40,9 @@ export const ENG_HANDOFFS: EngHandoff[] = [
   // in one unit, so the value goes in as MPa and the button says so).
   { from: "beam", output: "Mmax", to: "section", field: "M", label: "Use the peak moment in Cross-section" },
   { from: "beam", output: "Vmax", to: "section", field: "V", label: "Use the peak shear in Cross-section" },
-  { from: "section", output: "I", to: "column", field: "I", label: "Use I in Column buckling" },
+  // A column buckles about the weak axis: the minor-axis I, never the bending one (a 50 × 200 rectangle's bending I
+  // overstates the critical load sixteenfold). I and A go together (one button), so r = √(I/A) is the section's own.
+  { from: "section", output: "Imin", to: "column", field: "I", label: "Use the minor-axis I in Column buckling" },
   { from: "section", output: "A", to: "column", field: "A", label: "Use A in Column buckling" },
   { from: "section", output: "sigma", to: "stress", field: "sx", label: "Use σ as σx in Stress state (MPa)", unit: "" },
   { from: "section", output: "tau", to: "stress", field: "txy", label: "Use τ as τxy in Stress state (MPa)", unit: "" },
@@ -90,11 +92,120 @@ export function handoffsFor(calcId: string, out: AnalyzeOutput, table: EngHandof
   return rows;
 }
 
+/**
+ * The handoffs a result offers, one per target tool: rows into the same tool travel together (beam M and V, section
+ * I and A, three-phase P and PF), because every tool switch re-renders the target's fields from its defaults — two
+ * separate buttons could never be combined, and one alone would mix a sent I with the column's default A.
+ */
+export function handoffGroups(calcId: string, out: AnalyzeOutput, table: EngHandoff[] = ENG_HANDOFFS): Array<{ to: string; rows: Array<EngHandoff & { value: EngOutput }> }> {
+  const groups: Array<{ to: string; rows: Array<EngHandoff & { value: EngOutput }> }> = [];
+  for (const r of handoffsFor(calcId, out, table)) {
+    const g = groups.find((q) => q.to === r.to);
+    if (g) {
+      // One field takes one value: a second source for the same field (none today) keeps the first.
+      if (!g.rows.some((q) => q.field === r.field)) g.rows.push(r);
+    } else groups.push({ to: r.to, rows: [r] });
+  }
+  return groups;
+}
+
+/** The button for a handoff group: the row's own label alone, or the outputs named together. */
+export function handoffGroupLabel(rows: Array<EngHandoff & { value: EngOutput }>, targetName: string): string {
+  if (rows.length === 1) return rows[0].label;
+  const names = rows.map((r) => {
+    const l = r.value.label;
+    // "Area" → "area", but a symbol or an acronym ("I", "PF", "θ1") keeps its case.
+    return /^[A-Z][a-z]/.test(l) ? l[0].toLowerCase() + l.slice(1) : l;
+  });
+  return `Use ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} in ${targetName}`;
+}
+
+const SUPER_DIGIT: Record<string, string> = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9" };
+
 /** A value as field text: enough digits to round-trip, plain (the field parser reads e-notation), with its unit. */
 export function fieldText(value: number, unit: string): string {
   const s = Number.isInteger(value) && Math.abs(value) < 1e15 ? String(value) : String(Number(value.toPrecision(12)));
-  const u = unit.replace(/·/g, "*").replace(/²/g, "^2").replace(/³/g, "^3").replace(/⁴/g, "^4").replace(/⁻¹/g, "^-1").replace(/√([A-Za-zµΩ]+)/g, "$1^0.5");
+  // Superscript exponents back to carets as a whole run: cm⁻³ → cm^-3 (a digit-by-digit swap gave cm⁻^3, unreadable).
+  const u = unit
+    .replace(/·/g, "*")
+    .replace(/(⁻?)([⁰¹²³⁴⁵⁶⁷⁸⁹]+)/g, (_m, neg: string, ds: string) => `^${neg ? "-" : ""}${[...ds].map((d) => SUPER_DIGIT[d]).join("")}`)
+    .replace(/√([A-Za-zµΩ]+)/g, "$1^0.5");
   return u ? `${s} ${u}` : s;
+}
+
+/**
+ * Whether a field's text is one number with an optional unit, so a sweep or an uncertainty can vary it. Lists
+ * ("0.3, 0.6", "50, 200"), typed states ("0.6|0⟩ + 0.8i|1⟩"), timecodes and bit strings start with a number too, but
+ * varying only their first number would silently leave the rest fixed.
+ */
+export function variableField(text: string): boolean {
+  const t = text.trim();
+  const v = splitValue(t);
+  if (!v) return false;
+  // A bit string or a zero-padded code ("0101", "007"), not a quantity.
+  if (/^0\d/.test(t)) return false;
+  const u = v.unit.trim();
+  if (!u) return true;
+  if (u === "%") return true;
+  // A second number, a separator or a non-unit symbol after the first number.
+  if (/[,;:|⟩⟨+]/.test(u) || /(^|\s)[-−]?\d/.test(u)) return false;
+  return convert(1, u, u) !== null;
+}
+
+/** A field's label as a name in prose and on an axis: no example, no unit tail, balanced brackets, no underscores. */
+export function fieldName(label: string): string {
+  let s = label.replace(/\s*\((?:e\.g\.|blank|when|typed)[^)]*\)/gi, "");
+  // The name ends at the first comma outside brackets: "Span, m" → "Span"; "Fracture toughness K_IC, Pa·√m (MPa·√m,
+  // ksi·√in)" → "Fracture toughness KIC"; "Second moment of area (minor axis), m^4" keeps its bracket.
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "(") depth++;
+    else if (s[i] === ")") depth = Math.max(0, depth - 1);
+    else if (s[i] === "," && depth === 0) {
+      s = s.slice(0, i);
+      break;
+    }
+  }
+  // An opening bracket left unclosed: cut there.
+  const open = s.lastIndexOf("("), close = s.lastIndexOf(")");
+  if (open > close) s = s.slice(0, open);
+  return s.replace(/_\{?([A-Za-z0-9]+)\}?/g, "$1").replace(/—/g, "-").trim();
+}
+
+/** A typed field value for prose: the number typeset (×10ⁿ, true minus) and the unit formatted. */
+export function displayValue(text: string): string {
+  const v = splitValue(text);
+  if (!v) return trueMinus(text.trim());
+  const u = v.unit.trim();
+  return fmtSig(v.value, 6) + (u ? (u === "%" ? " %" : ` ${formatUnit(u)}`) : "");
+}
+
+/** Lone temperature units, where a percentage depends on the scale the value was typed in. */
+const OFFSET_TEMPERATURE = /^(°C|°F|degC|degF|C°|F°|celsius|fahrenheit)$/i;
+
+/**
+ * A typed ± uncertainty for a field holding `fieldValue`: "0.5" (the field's unit), "0.5 mm" (converted into the
+ * field's unit, as a difference), or "2 %" / "2 percent" (relative). Refused: a unit of the wrong quantity, or a
+ * percentage of a temperature on an offset scale (1 % of 20 °C is not 1 % of 293.15 K).
+ */
+export function parseUncertainty(text: string, fieldValue: string): { u: number; relative: boolean } | { error: string } {
+  const t = text.trim().replace(/−/g, "-");
+  const v = splitValue(t);
+  const fv = splitValue(fieldValue);
+  if (!v || v.value < 0 || !fv) return { error: `"${text}" is not an uncertainty: write a number in the field's unit, or a percentage such as 2 %.` };
+  const unit = v.unit.trim();
+  if (unit === "%" || /^per\s*cent$|^percent$/i.test(unit)) {
+    if (OFFSET_TEMPERATURE.test(fv.unit.trim()))
+      return { error: `A percentage of ${displayValue(fieldValue)} depends on the temperature scale: give the uncertainty in degrees instead (for example 0.5 K).` };
+    return { u: v.value, relative: true };
+  }
+  if (!unit) return { u: v.value, relative: false };
+  const target = fv.unit.trim();
+  if (!target) return { error: `The field holds a bare number, so its ± cannot be "${text}": write the uncertainty as a plain number in the same unit.` };
+  // A difference: both ends converted, so an offset scale (°F into °C) contributes only its factor.
+  const a = convert(v.value, unit, target), b = convert(0, unit, target);
+  if (a === null || b === null || !Number.isFinite(a - b)) return { error: `"${unit}" is not a unit of the same quantity as ${formatUnit(target)}.` };
+  return { u: Math.abs(a - b), relative: false };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -191,10 +302,11 @@ export function runSweep(compute: EngCompute, read: (k: string) => string, req: 
     }
     const o = out.ok === false ? undefined : out.outputs?.find((q) => q.key === req.output);
     xs.push(x);
-    if (o && Number.isFinite(o.value)) {
-      if (output && o.unit !== output.unit) return { ok: false, reason: `The output changed unit during the sweep (${output.unit} to ${o.unit}).` };
+    const y = o && Number.isFinite(o.value) ? (output ? inUnit(o, output.unit) : o.value) : null;
+    if (o && y === null && output) return { ok: false, reason: `The output changed to a unit that cannot be compared during the sweep (${output.unit} to ${o.unit}).` };
+    if (o && y !== null) {
       output = output ?? o;
-      ys.push(o.value);
+      ys.push(y);
     } else {
       ys.push(NaN);
       if (refused.length < 3) refused.push({ x, reason: firstLine(out.text) });
@@ -202,6 +314,16 @@ export function runSweep(compute: EngCompute, read: (k: string) => string, req: 
   }
   if (!output) return { ok: false, reason: `The tool gave no ${req.output} anywhere in the range${refused.length ? `: ${refused[0].reason}` : "."}` };
   return { ok: true, xs, ys, unit: a.unit, output, refused };
+}
+
+/**
+ * An output's value in `unit`. Tools pick a readable unit per result (990 fs, then 1.01 ps), so values from different
+ * runs are converted before they are compared or averaged; null when the units cannot be converted.
+ */
+function inUnit(o: EngOutput, unit: string): number | null {
+  if (o.unit === unit) return o.value;
+  const v = convert(o.value, o.unit, unit);
+  return v !== null && Number.isFinite(v) ? v : null;
 }
 
 const firstLine = (s: string): string => (s.split("\n").find((l) => l.trim()) ?? "").trim().slice(0, 160);
@@ -227,9 +349,11 @@ export interface UncertaintyResult {
   lo: number;
   hi: number;
   /** First-order (GUM) standard uncertainty from central-difference sensitivities, with each input's share. */
-  gum: { u: number; shares: Array<{ field: string; share: number }> };
+  gum: { u: number; shares: Array<{ field: string; share: number }>; unavailable: string[] };
   /** Draws the tool refused (an input pushed outside its validity); counted, not used. */
   refused: number;
+  /** Draws run (the time budget can stop the run before the requested count). */
+  attempted: number;
   sorted: Float64Array;
 }
 
@@ -245,6 +369,9 @@ export function runUncertainty(
   outputKey: string,
   draws: number,
   seed = 20261023,
+  /** Wall-clock budget for the draws, ms: each draw runs the whole tool synchronously, and a busy pane is a frozen Word. */
+  budgetMs = 4000,
+  now: () => number = () => Date.now(),
 ): UncertaintyResult | { ok: false; reason: string } {
   if (!inputs.length) return { ok: false, reason: "Give at least one input a ± uncertainty." };
   const n = Math.max(20, Math.min(4000, Math.round(draws)));
@@ -256,7 +383,9 @@ export function runUncertainty(
     if (!(u >= 0) || !Number.isFinite(u)) return { ok: false, reason: `The uncertainty of "${inp.field}" is not a non-negative number.` };
     base.push({ field: inp.field, value: v.value, unit: v.unit, u });
   }
-  const at = (vals: number[]): EngOutput | null => {
+  let centreUnit: string | null = null;
+  // The output in the centre's unit (a tool may switch fs to ps between draws); null when refused or not comparable.
+  const at = (vals: number[]): number | null => {
     let out: AnalyzeOutput;
     try {
       out = compute((k) => {
@@ -267,14 +396,31 @@ export function runUncertainty(
       return null;
     }
     const o = out.ok === false ? undefined : out.outputs?.find((q) => q.key === outputKey);
-    return o && Number.isFinite(o.value) ? o : null;
+    if (!o || !Number.isFinite(o.value)) return null;
+    return centreUnit === null ? o.value : inUnit(o, centreUnit);
   };
-  const centre = at(base.map((b) => b.value));
-  if (!centre) return { ok: false, reason: `The tool gives no ${outputKey} at the values as typed.` };
-  // First-order sensitivities by central differences (step: 10⁻⁴ of the uncertainty, or of the value when u = 0).
-  const shares: Array<{ field: string; share: number }> = [];
-  let var1 = 0;
+  let centreOut: EngOutput | null = null;
+  {
+    let out: AnalyzeOutput | null = null;
+    try {
+      out = compute((k) => {
+        const i = base.findIndex((b) => b.field === k);
+        return i < 0 ? read(k) : fieldText(base[i].value, base[i].unit);
+      });
+    } catch {
+      out = null;
+    }
+    const o = out && out.ok !== false ? out.outputs?.find((q) => q.key === outputKey) : undefined;
+    if (o && Number.isFinite(o.value)) centreOut = o;
+  }
+  if (!centreOut) return { ok: false, reason: `The tool gives no ${outputKey} at the values as typed.` };
+  const centre: EngOutput = centreOut;
+  centreUnit = centre.unit;
+  // First-order sensitivities by central differences (step: 10⁻⁴ of the uncertainty); a step the tool refuses on one
+  // side falls back to a one-sided difference, and an input refused on both sides makes the estimate unavailable
+  // rather than NaN.
   const contrib: number[] = [];
+  const noSlope: string[] = [];
   for (let i = 0; i < base.length; i++) {
     const b = base[i];
     if (b.u === 0) {
@@ -284,23 +430,30 @@ export function runUncertainty(
     const h = b.u * 1e-4;
     const up = at(base.map((q, j) => (j === i ? q.value + h : q.value)));
     const dn = at(base.map((q, j) => (j === i ? q.value - h : q.value)));
-    const c = up && dn ? ((up.value - dn.value) / (2 * h)) * b.u : NaN;
-    contrib.push(c);
-    var1 += c * c;
+    const slope = up !== null && dn !== null ? (up - dn) / (2 * h) : up !== null ? (up - centre.value) / h : dn !== null ? (centre.value - dn) / h : NaN;
+    if (!Number.isFinite(slope)) noSlope.push(b.field);
+    contrib.push(slope * b.u);
   }
-  for (let i = 0; i < base.length; i++) shares.push({ field: base[i].field, share: var1 > 0 && Number.isFinite(contrib[i]) ? (contrib[i] * contrib[i]) / var1 : 0 });
-  // The draws.
+  const var1 = noSlope.length ? NaN : contrib.reduce((s, c) => s + c * c, 0);
+  const shares = base.map((b, i) => ({ field: b.field, share: var1 > 0 ? (contrib[i] * contrib[i]) / var1 : 0 }));
+  // The draws, within the time budget.
   const state = new Int32Array([seed | 0]);
   const z = new Float64Array(base.length + (base.length % 2));
   const vals: number[] = [];
-  let refused = 0;
+  let refused = 0, attempted = 0;
+  const t0 = now();
   for (let d = 0; d < n; d++) {
+    if (d >= 20 && now() - t0 > budgetMs) break;
     fillNormals(state, z);
+    attempted++;
     const o = at(base.map((b, i) => b.value + b.u * z[i]));
-    if (o) vals.push(o.value);
+    if (o !== null) vals.push(o);
     else refused++;
   }
-  if (vals.length < Math.min(20, n)) return { ok: false, reason: `Most draws were refused by the tool (${refused} of ${n}): the uncertainties take the inputs outside its range.` };
+  if (vals.length < 20) return { ok: false, reason: `Too few draws were usable (${vals.length} of ${attempted}; ${refused} refused by the tool): the uncertainties take the inputs outside its range, or the tool is too slow to sample.` };
+  // Refused draws are not a random loss: they cut one tail off the distribution, so the mean and interval of the rest
+  // are biased. Beyond a fifth of the draws, there is no honest summary to give.
+  if (refused > 0.2 * attempted) return { ok: false, reason: `The tool refused ${refused} of ${attempted} draws: the uncertainties take the inputs well outside its range, so the remaining draws would describe a cut-off distribution. Narrow the uncertainties.` };
   const sorted = Float64Array.from(vals).sort();
   const m = vals.reduce((s, v) => s + v, 0) / vals.length;
   const sd = Math.sqrt(vals.reduce((s, v) => s + (v - m) * (v - m), 0) / Math.max(1, vals.length - 1));
@@ -308,7 +461,7 @@ export function runUncertainty(
     const k = p * (sorted.length - 1), i = Math.floor(k), f = k - i;
     return i + 1 < sorted.length ? sorted[i] + f * (sorted[i + 1] - sorted[i]) : sorted[i];
   };
-  return { ok: true, output: centre, draws: vals.length, mean: m, sd, lo: q(0.025), hi: q(0.975), gum: { u: Math.sqrt(var1), shares }, refused, sorted };
+  return { ok: true, output: centre, draws: vals.length, mean: m, sd, lo: q(0.025), hi: q(0.975), gum: { u: Math.sqrt(var1), shares, unavailable: noSlope }, refused, attempted, sorted };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -344,21 +497,33 @@ export function sweepReport(r: SweepResult, fieldLabel: string, toolName: string
 }
 
 /** An uncertainty run as a result: mean, standard uncertainty, 95 % interval, first-order comparison, histogram. */
-export function uncertaintyReport(r: UncertaintyResult, inputs: Array<{ label: string; text: string }>, toolName: string): AnalyzeOutput {
+export function uncertaintyReport(
+  r: UncertaintyResult,
+  inputs: Array<{ label: string; text: string }>,
+  toolName: string,
+  /** Field names by key, for the shares (never the internal key). */
+  names: Record<string, string> = {},
+): AnalyzeOutput {
   const u = (v: number): string => fmtSig(v, 3) + unitTail(r.output.unit);
+  const name = (k: string): string => names[k] ?? k;
+  const gumOk = Number.isFinite(r.gum.u);
   const lines: string[] = [
     `${toolName}: uncertainty of ${r.output.label} from ${inputs.map((i) => `${i.label} ${i.text}`).join(", ")} (normal, independent, 1σ).`,
     `${r.output.label} = ${fmtSig(r.output.value, 4)}${unitTail(r.output.unit)} as typed; Monte Carlo mean ${fmtSig(r.mean, 4)}${unitTail(r.output.unit)}, standard uncertainty ${u(r.sd)}.`,
-    `95 % coverage interval: ${fmtSig(r.lo, 4)} to ${fmtSig(r.hi, 4)}${unitTail(r.output.unit)} (${r.draws} draws${r.refused ? `; ${r.refused} refused by the tool and not used` : ""}).`,
-    `First-order (GUM) standard uncertainty: ${u(r.gum.u)}; shares: ${r.gum.shares.map((s) => `${s.field} ${Math.round(s.share * 100)} %`).join(", ")}.`,
+    `95 % coverage interval: ${fmtSig(r.lo, 4)} to ${fmtSig(r.hi, 4)}${unitTail(r.output.unit)} (${r.draws} draws).`,
+    gumOk
+      ? `First-order (GUM) standard uncertainty: ${u(r.gum.u)}; shares: ${r.gum.shares.map((s) => `${name(s.field)} ${Math.round(s.share * 100)} %`).join(", ")}.`
+      : `No first-order (GUM) estimate: the tool refuses a small step either side of ${r.gum.unavailable.map(name).join(", ")} as typed, so its sensitivity there is not defined.`,
   ];
-  if (r.gum.u > 0 && Math.abs(r.sd - r.gum.u) > 0.1 * r.gum.u) lines.push("The draws and the first-order estimate differ by more than 10 %: the output is not linear in its inputs over this spread, so quote the interval from the draws.");
+  if (r.refused)
+    lines.push(`${r.refused} of ${r.attempted} draws were refused by the tool (inputs pushed outside its range) and left out: the distribution above is cut off on that side, so its mean and interval are biased by up to that fraction.`);
+  if (gumOk && r.gum.u > 0 && Math.abs(r.sd - r.gum.u) > 0.1 * r.gum.u) lines.push("The draws and the first-order estimate differ by more than 10 %: the output is not linear in its inputs over this spread, so quote the interval from the draws.");
   if (r.draws < 1000) lines.push(`With ${r.draws} draws the interval ends are good to a few per cent of the spread; each draw runs the whole tool, so the count is kept to what stays responsive.`);
   const hist = mcHistogramSvg(
-    { sorted: r.sorted, mean: r.mean, lo: r.lo, hi: r.hi, gum: { value: r.output.value, u: r.gum.u } } as unknown as McResult,
+    { sorted: r.sorted, mean: r.mean, lo: r.lo, hi: r.hi, gum: { value: r.output.value, u: gumOk ? r.gum.u : 0 } } as unknown as McResult,
     axisLabel(r.output.label, r.output.unit),
   );
   return engReport(lines.map(trueMinus), [
-    { kind: "plot", svg: hist, caption: `Distribution of ${r.output.label}`, alt: `Histogram of ${r.output.label} draws with the first-order normal curve`, w: 440, h: 300 },
+    { kind: "plot", svg: hist, caption: `Distribution of ${r.output.label}`, alt: `Histogram of ${r.output.label} draws${gumOk ? " with the first-order normal curve" : ""}`, w: 440, h: 300 },
   ]);
 }

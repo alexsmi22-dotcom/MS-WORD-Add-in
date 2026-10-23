@@ -49,7 +49,7 @@ import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
 import { engEq } from "../lib/engEquations";
-import { carryOver, fieldText, handoffsFor, runSweep, runUncertainty, splitValue, sweepReport, uncertaintyReport, type UncertainInput } from "../lib/engWorkbench";
+import { carryOver, displayValue, fieldName, fieldText, handoffGroupLabel, handoffGroups, parseUncertainty, runSweep, runUncertainty, sweepReport, uncertaintyReport, variableField, type UncertainInput } from "../lib/engWorkbench";
 import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
 import {
   HostCapability,
@@ -2462,10 +2462,11 @@ Office.onReady((info) => {
   // session, or the headless audit driving it directly. One listener keeps the
   // highlight true for all of them.
   engineeringCalcSelect.addEventListener("change", () => {
+    // Old values taken before rendering, which records the new defaults. Shared fields then carry over.
     const fromId = lastEngCalcId;
+    const fromValues = lastEngFieldValues;
     renderEngineeringInputs();
-    // Shared fields (a control plant typed once) carry into the new tool, then it recomputes with them.
-    carryEngFields(fromId);
+    carryEngFields(fromId, fromValues);
     updateEngineeringPreview();
     markEngineeringSelection(engineeringCalcSelect.value);
   });
@@ -13519,6 +13520,8 @@ const ENG_CALCS: EngCalc[] = [
       const secOutputs: EngOutput[] = [
         { key: "A", label: "Area", value: p.A * Math.pow(toMOut, 2), unit: "m²" },
         { key: "I", label: "Second moment of area (bending axis)", value: p.I * Math.pow(toMOut, 4), unit: "m⁴" },
+        // The weak axis: what a column buckles about (Release E review: the bending I overstated Pcr sixteenfold).
+        { key: "Imin", label: "Second moment of area (minor axis)", value: p.Imin * Math.pow(toMOut, 4), unit: "m⁴" },
       ];
 
       const lines: EngReportLine[] = [];
@@ -30037,27 +30040,30 @@ function refreshEngWorkbench(calc: EngCalc, out: AnalyzeOutput | null): void {
   lastEngFieldValues = engFieldValues();
   const handoffHost = document.getElementById("eng-handoffs") as HTMLElement;
   const explore = document.getElementById("eng-explore") as HTMLDetailsElement;
-  const rows = out ? handoffsFor(calc.id, out) : [];
+  const groups = out ? handoffGroups(calc.id, out) : [];
   handoffHost.replaceChildren();
-  for (const h of rows) {
-    const target = ENG_CALCS.find((c) => c.id === h.to);
+  for (const g of groups) {
+    const target = ENG_CALCS.find((c) => c.id === g.to);
     if (!target) continue;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "draw-pop-btn";
-    b.textContent = h.label;
-    b.title = `${h.value.label} = ${engNum(h.value.value)} ${h.value.unit}, into ${target.name}`;
+    b.textContent = handoffGroupLabel(g.rows, target.name);
+    b.title = `${g.rows.map((h) => `${h.value.label} = ${engNum(h.value.value)} ${formatUnit(h.value.unit)}`).join("; ")}, into ${target.name}`;
     b.addEventListener("click", () => {
-      const text = fieldText(h.value.value, h.unit ?? h.value.unit);
-      selectEngineeringCalc(h.to);
-      const el = engineeringInputs.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[data-key="${h.field}"]`);
-      if (el) el.value = text;
+      // Every row of the group goes in together, after the switch (which re-renders the target's fields).
+      const sent = g.rows.map((h) => ({ h, text: fieldText(h.value.value, h.unit ?? h.value.unit) }));
+      selectEngineeringCalc(g.to);
+      for (const { h, text } of sent) {
+        const el = engineeringInputs.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[data-key="${h.field}"]`);
+        if (el) el.value = text;
+      }
       updateEngineeringPreview();
-      setStatus(`${h.value.label} sent to ${target.name} (${text}).`, "success");
+      setStatus(`${sent.map(({ h, text }) => `${h.value.label} (${text})`).join(" and ")} sent to ${target.name}.`, "success");
     });
     handoffHost.appendChild(b);
   }
-  handoffHost.hidden = rows.length === 0;
+  handoffHost.hidden = groups.length === 0;
   const outputs = out?.outputs?.filter((o) => Number.isFinite(o.value)) ?? [];
   explore.hidden = outputs.length === 0;
   if (!outputs.length) return;
@@ -30066,10 +30072,18 @@ function refreshEngWorkbench(calc: EngCalc, out: AnalyzeOutput | null): void {
   outSel.replaceChildren(...outputs.map((o) => new Option(o.unit ? `${o.label} (${formatUnit(o.unit)})` : o.label, o.key)));
   if (outputs.some((o) => o.key === keepOut)) outSel.value = keepOut;
   // Numeric text fields are the ones a sweep or an uncertainty can vary.
-  const numeric = calc.fields.filter((f) => f.kind !== "select" && f.kind !== "block" && splitValue(lastEngFieldValues[f.key] ?? "") !== null);
+  const numeric = calc.fields.filter((f) => f.kind !== "select" && f.kind !== "block" && variableField(lastEngFieldValues[f.key] ?? ""));
+  // A new tool starts the explore controls afresh: a same-key field or a From/To typed for the last tool means nothing here.
+  const exploreTool = explore.dataset.tool;
+  explore.dataset.tool = calc.id;
+  if (exploreTool !== calc.id) {
+    (document.getElementById("eng-sweep-from") as HTMLInputElement).value = "";
+    (document.getElementById("eng-sweep-to") as HTMLInputElement).value = "";
+    (document.getElementById("eng-sweep-field") as HTMLSelectElement).value = "";
+  }
   const fieldSel = document.getElementById("eng-sweep-field") as HTMLSelectElement;
   const keepField = fieldSel.value;
-  fieldSel.replaceChildren(...numeric.map((f) => new Option(f.label, f.key)));
+  fieldSel.replaceChildren(...numeric.map((f) => new Option(fieldName(f.label), f.key)));
   if (numeric.some((f) => f.key === keepField)) fieldSel.value = keepField;
   const unc = document.getElementById("eng-unc-inputs") as HTMLElement;
   const kept: Record<string, string> = {};
@@ -30080,7 +30094,7 @@ function refreshEngWorkbench(calc: EngCalc, out: AnalyzeOutput | null): void {
       row.className = "dna-controls";
       const label = document.createElement("label");
       label.className = "field-label";
-      label.textContent = `± ${f.label} (now ${lastEngFieldValues[f.key]})`;
+      label.textContent = `± ${fieldName(f.label)} (now ${displayValue(lastEngFieldValues[f.key] ?? "")})`;
       const inp = document.createElement("input");
       inp.type = "text";
       inp.className = "rgroup-input";
@@ -30096,13 +30110,13 @@ function refreshEngWorkbench(calc: EngCalc, out: AnalyzeOutput | null): void {
 }
 
 /** Carries shared fields (a control plant's transfer function) into the newly selected tool. */
-function carryEngFields(fromId: string): void {
+function carryEngFields(fromId: string, fromValues: Record<string, string>): void {
   const from = ENG_CALCS.find((c) => c.id === fromId);
   const to = engineeringCalcSelect.value;
   if (!from || fromId === to) return;
   const defaults: Record<string, string> = {};
   for (const f of from.fields) defaults[f.key] = f.default;
-  const carry = carryOver(fromId, to, lastEngFieldValues, defaults);
+  const carry = carryOver(fromId, to, fromValues, defaults);
   for (const [k, v] of Object.entries(carry)) {
     const el = engineeringInputs.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-key="${k}"]`);
     if (el) el.value = v;
@@ -30138,7 +30152,7 @@ function runEngSweep(): void {
     output: (document.getElementById("eng-explore-output") as HTMLSelectElement).value,
   };
   const r = runSweep(calc.compute, engReadNow(), req);
-  showExplore(r.ok ? sweepReport(r, label.replace(/,\s*[^,]*$/, ""), calc.name, req.log) : { text: r.reason, ok: false });
+  showExplore(r.ok ? sweepReport(r, fieldName(label), calc.name, req.log) : { text: r.reason, ok: false });
 }
 
 function runEngUncertainty(): void {
@@ -30148,22 +30162,26 @@ function runEngUncertainty(): void {
   const inputs: UncertainInput[] = [];
   const described: Array<{ label: string; text: string }> = [];
   for (const el of Array.from(document.querySelectorAll<HTMLInputElement>("#eng-unc-inputs input[data-unc]"))) {
-    const t = el.value.trim().replace(/−/g, "-");
+    const t = el.value.trim();
     if (!t) continue;
-    const m = /^(\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*(%?)\s*\S*$/.exec(t);
-    if (!m) return showExplore({ text: `"${el.value}" is not an uncertainty: write a number in the field's unit, or a percentage such as 2 %.`, ok: false });
     const key = el.dataset.unc ?? "";
-    inputs.push({ field: key, u: parseFloat(t), relative: m[2] === "%" });
-    described.push({ label: (calc.fields.find((f) => f.key === key)?.label ?? key).replace(/,\s*[^,]*$/, ""), text: `${read(key)} ± ${t}` });
+    const parsed = parseUncertainty(t, read(key));
+    if ("error" in parsed) return showExplore({ text: parsed.error, ok: false });
+    inputs.push({ field: key, u: parsed.u, relative: parsed.relative });
+    described.push({ label: fieldName(calc.fields.find((f) => f.key === key)?.label ?? key), text: `${displayValue(read(key))} ± ${displayValue(t)}` });
   }
-  // Each draw runs the whole tool (its figures too): size the run to the tool's own cost so Word stays responsive.
+  // Each draw runs the whole tool (its figures too): size the run to the tool's own cost, inside a time budget, so
+  // Word stays responsive; a tool too slow to sample 30 times in a few seconds is refused rather than frozen on.
   const t0 = performance.now();
   calc.compute(read);
   const per = Math.max(0.05, performance.now() - t0);
-  const draws = Math.max(100, Math.min(2000, Math.floor(1500 / per)));
+  if (per > 100) return showExplore({ text: `${calc.name} takes about ${Math.round(per)} ms per run, too slow to sample for an uncertainty here. Shorten its input (fewer samples or points) and try again.`, ok: false });
+  const draws = Math.max(30, Math.min(2000, Math.floor(1500 / per)));
   const output = (document.getElementById("eng-explore-output") as HTMLSelectElement).value;
-  const r = runUncertainty(calc.compute, read, inputs, output, draws);
-  showExplore(r.ok ? uncertaintyReport(r, described, calc.name) : { text: r.reason, ok: false });
+  const r = runUncertainty(calc.compute, read, inputs, output, draws, undefined, 2500, () => performance.now());
+  const names: Record<string, string> = {};
+  for (const f of calc.fields) names[f.key] = fieldName(f.label);
+  showExplore(r.ok ? uncertaintyReport(r, described, calc.name, names) : { text: r.reason, ok: false });
 }
 
 /** Inserts the current Engineering result, diagram included. */

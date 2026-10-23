@@ -167,8 +167,8 @@ const fsoCalc: QoCalc = {
   group: "Quantum optics",
   unitContract: "converts",
   hint:
-    "Diffraction-limited geometric coupling between a transmit and a receive telescope, η_geo = (π D_t D_r /(4 λ L))² " +
-    "(Fraunhofer, on axis, uniform circular apertures), times the pointing, atmospheric and optics losses and the detector " +
+    "Diffraction-limited geometric coupling between a transmit and a receive telescope, the Airy encircled energy " +
+    "(Fraunhofer, on axis, uniform circular apertures; the far-field form (π D_t D_r /(4 λ L))² is shown where it differs), times the pointing, atmospheric and optics losses and the detector " +
     "efficiency: total transmission and loss in dB, photons received per second and the one-way light time. Presets: LEO " +
     "500 km, GEO 35 786 km, Earth–Moon 3.844×10⁸ m (sources in the result).",
   fields: [
@@ -209,11 +209,11 @@ const fsoCalc: QoCalc = {
     );
     if (res.capped)
       lines.push(
-        `Aperture-limited, near field: the far-field formula gives ${s(res.etaFormula, 4)}, above 1, so the receiver is larger than the diffraction-limited beam and η_geo is capped at 1. The formula does not hold here; the full Airy encircled energy is ${s(res.etaAiry, 4)}, and a real beam spreads more than the diffraction limit.`,
+        `Aperture-limited: the far-field approximation (π D_t D_r /(4 λ L))² would give ${s(res.etaFormula, 4)} (above 1, ${pct(res.etaFormula / res.etaGeo - 1)} above the exact value), because the receiver is larger than the diffraction-limited central lobe; the exact Airy coupling ${s(res.etaGeo, 4)} is used (a real beam spreads more than the diffraction limit).`,
       );
-    else if (Math.abs(res.etaFormula / res.etaAiry - 1) > 0.01)
+    else if (Math.abs(res.etaFormula / res.etaGeo - 1) > 0.01)
       lines.push(
-        `The small-angle form is exact only for η_geo ≪ 1: the full Airy encircled energy, 1 − J₀²(x) − J₁²(x) with x = πD_tD_r/(2λL) = ${s(res.x, 4)}, gives ${s(res.etaAiry, 4)} (${db3(10 * Math.log10(res.etaAiry))} dB), so the value above overestimates by ${pct(res.etaFormula / res.etaAiry - 1)}.`,
+        `Far-field approximation (π D_t D_r /(4 λ L))² = ${s(res.etaFormula, 6)} (${db3(10 * Math.log10(res.etaFormula))} dB), ${pct(Math.abs(res.etaFormula / res.etaGeo - 1))} ${res.etaFormula > res.etaGeo ? "above" : "below"} the exact value: it holds only for η_geo ≪ 1.`,
       );
     if (res.insideFraunhofer)
       lines.push(`The range is inside the transmitter's Fraunhofer distance 2D_t²/λ = ${rangeText(res.fraunhoferM)}: the far-field form is only approximate here.`);
@@ -222,18 +222,19 @@ const fsoCalc: QoCalc = {
     );
     if (res.photonsRx !== null) lines.push(`Photons detected: ${s(res.photonsRx)} per second from ${s(emitRate as number)} emitted per second.`);
     lines.push(`One-way light time L/c = ${s(res.lightTimeS)} s (round trip ${s(2 * res.lightTimeS)} s).`);
-    lines.push({ math: "η_geo = ((π D_t D_r)/(4 λ L))^2", fallback: "η_geo = (π D_t D_r /(4 λ L))²" });
+    lines.push({ math: "η_geo = 1 - J_0^2(x) - J_1^2(x), x = (π D_t D_r)/(2 λ L)", fallback: "η_geo = 1 − J₀²(x) − J₁²(x), x = π D_t D_r /(2 λ L) (Airy encircled energy)" });
+    lines.push({ math: "η_geo ≈ ((π D_t D_r)/(4 λ L))^2", fallback: "η_geo ≈ (π D_t D_r /(4 λ L))² for η_geo ≪ 1 (far field)" });
     lines.push({ math: "η = η_geo 10^{-(L_p + L_a + L_o)/10} η_d", fallback: "10 log₁₀ η = 10 log₁₀ η_geo − L_p − L_a − L_o + 10 log₁₀ η_d (losses in dB)" });
     lines.push({ math: "t = L/c", fallback: "t = L/c, c = 299 792 458 m/s (exact)" });
     lines.push(
-      "Assumes a diffraction-limited transmitter with uniform circular aperture, Fraunhofer (far-field) propagation on axis, no central obstruction, and every other loss entered in dB; η_geo is capped at 1 when the receiver collects the whole beam.",
+      "Assumes a diffraction-limited transmitter with uniform circular aperture, Fraunhofer (far-field) propagation on axis, no central obstruction, and every other loss entered in dB; η_geo is the exact Airy encircled energy within the receive aperture.",
     );
     if (preset) lines.push(`Range preset: ${preset.source}. ${PRESET_CAVEAT}`);
     else lines.push(PRESET_CAVEAT);
 
     const rows: string[][] = [["Quantity", "Value", "dB"]];
-    rows.push(["Geometric coupling η_geo", s(res.etaGeo), db3(-res.geoDb)]);
-    rows.push(["Airy encircled energy (check)", s(res.etaAiry), db3(10 * Math.log10(res.etaAiry))]);
+    rows.push(["Geometric coupling η_geo (Airy, exact)", s(res.etaGeo), db3(-res.geoDb)]);
+    if (res.capped || Math.abs(res.etaFormula / res.etaGeo - 1) > 0.01) rows.push(["Far-field approximation", s(res.etaFormula), db3(10 * Math.log10(res.etaFormula))]);
     rows.push(["Pointing loss", s(Math.pow(10, -pointingDb / 10)), db3(-pointingDb)]);
     rows.push(["Atmospheric loss", s(Math.pow(10, -atmosDb / 10)), db3(-atmosDb)]);
     rows.push(["Optics loss", s(Math.pow(10, -opticsDb / 10)), db3(-opticsDb)]);
@@ -242,7 +243,7 @@ const fsoCalc: QoCalc = {
     const outputs: EngOutput[] = [
       { key: "etaGeo", label: "Geometric coupling", value: res.etaGeo, unit: "" },
       { key: "geoDb", label: "Geometric loss", value: res.geoDb, unit: "dB" },
-      { key: "etaAiry", label: "Airy encircled energy", value: res.etaAiry, unit: "" },
+      { key: "etaApprox", label: "Far-field approximation", value: res.etaFormula, unit: "" },
       { key: "eta", label: "Total transmission", value: res.etaTotal, unit: "" },
       { key: "lossDb", label: "Total loss", value: res.lossDb, unit: "dB" },
       { key: "lightTime", label: "One-way light time", value: res.lightTimeS, unit: "s" },

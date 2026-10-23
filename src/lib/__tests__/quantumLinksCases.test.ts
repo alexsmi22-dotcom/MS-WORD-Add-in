@@ -76,11 +76,15 @@ describe("Q5 case table (brief rows)", () => {
     expect(out(o, "lightTime")).toBeCloseTo(1.28222, 5);
     expect(o.text).toContain("L/c = 1.28222 s");
   });
-  test("LEO 500 km, 810 nm, 0.3 m / 1.0 m → η_geo 0.338464 (−4.705 dB)", () => {
+  // Integrator decision 2026-10-23: η_geo is the exact Airy encircled energy; the brief's original row pinned the
+  // far-field approximation 0.338464 (−4.705 dB), which is now reported beside it as the approximation.
+  test("LEO 500 km, 810 nm, 0.3 m / 1.0 m → η_geo 0.286264 exact (−5.432 dB); approximation 0.338464 shown, 18.23 % above", () => {
     const o = run("qlink-fso", { preset: "leo", lambda: "810 nm" });
     expectClean(o);
-    expect(rel(out(o, "etaGeo"), 0.338464)).toBeLessThan(1e-5);
-    expect(out(o, "geoDb")).toBeCloseTo(4.705, 3);
+    expect(rel(out(o, "etaGeo"), 0.28626376450724345)).toBeLessThan(1e-9);
+    expect(out(o, "geoDb")).toBeCloseTo(5.43233621836956, 9);
+    expect(rel(out(o, "etaApprox"), 0.338464)).toBeLessThan(1e-5);
+    expect(o.text).toContain("Far-field approximation (π D_t D_r /(4 λ L))² = 0.338464 (−4.705 dB), 18.23 % above the exact value");
   });
   test("R 10⁸/s, η_a 10⁻³, η_b 10⁻⁴, detectors 0.6, τ 1 ns → C 3.6/s, singles 6×10⁴ and 6×10³/s, A 0.36/s", () => {
     const o = run("qlink-entanglement", { preset: "custom", rate: "1e8 /s", etaA: "1e-3", etaB: "1e-4", detA: "0.6", detB: "0.6", tau: "1 ns" });
@@ -103,28 +107,29 @@ describe("Q5 case table (brief rows)", () => {
 });
 
 describe("Q5 case table (builder rows)", () => {
-  test("cap path: 100 km at 810 nm → η_geo capped at 1 (formula 8.4616), Airy 0.895439, Fraunhofer note", () => {
+  test("aperture-limited: 100 km at 810 nm → exact η_geo 0.895439 (approximation 8.4616 > 1 flagged), Fraunhofer note", () => {
     const o = run("qlink-fso", { preset: "custom", range: "100 km", lambda: "810 nm" });
     expectClean(o);
-    expect(out(o, "etaGeo")).toBe(1);
-    expect(o.text).toMatch(/Aperture-limited, near field: the far-field formula gives 8\.462/);
-    expect(out(o, "etaAiry")).toBeCloseTo(0.8954391, 6);
+    expect(out(o, "etaGeo")).toBeCloseTo(0.8954391035837238, 9);
+    expect(out(o, "etaApprox")).toBeCloseTo(8.461594994075238, 9);
+    expect(o.text).toContain("would give 8.462 (above 1,");
     expect(o.text).toMatch(/Fraunhofer distance 2D_t²\/λ = 222\.2 km/);
   });
-  test("LEO: the full Airy encircled energy 0.286264 is shown beside the convention (18.23 % overestimate)", () => {
-    const o = run("qlink-fso", { preset: "leo", lambda: "810 nm" });
-    expect(out(o, "etaAiry")).toBeCloseTo(0.28626376, 7);
-    expect(o.text).toContain("overestimates by 18.23 %");
+  test("LEO: the exact value drives the total, photons and loss", () => {
+    const o = run("qlink-fso", { preset: "leo", lambda: "810 nm", emit: "1e9 /s" });
+    expect(out(o, "eta")).toBeCloseTo(0.28626376450724345, 12);
+    expect(rel(out(o, "photonsRx"), 2.8626376450724345e8)).toBeLessThan(1e-12);
+    expect(out(o, "lossDb")).toBeCloseTo(5.43233621836956, 9);
   });
-  test("Earth–Moon: no overestimate note (convention and Airy agree to 10⁻⁶)", () => {
+  test("Earth–Moon: no approximation line (the two agree to 10⁻⁶)", () => {
     const o = run("qlink-fso", { preset: "moon" });
-    expect(o.text).not.toMatch(/overestimates/);
-    expect(rel(out(o, "etaAiry"), out(o, "etaGeo"))).toBeLessThan(1e-6);
+    expect(o.text).not.toContain("Far-field approximation (π");
+    expect(rel(out(o, "etaApprox"), out(o, "etaGeo"))).toBeLessThan(1e-6);
   });
   test("extra losses and photon rate: 3 + 2 + 1 dB, detector 50 %, 10⁹/s emitted", () => {
     const o = run("qlink-fso", { preset: "moon", point: "3", atm: "2 dB", opt: "1", det: "50 %", emit: "1e9 /s" });
     expectClean(o);
-    const eta = 1.5638392815896284e-7 * Math.pow(10, -0.6) * 0.5;
+    const eta = out(o, "etaGeo") * Math.pow(10, -0.6) * 0.5;
     expect(rel(out(o, "eta"), eta)).toBeLessThan(1e-12);
     expect(rel(out(o, "photonsRx"), 1e9 * eta)).toBeLessThan(1e-12);
   });
@@ -162,7 +167,8 @@ describe("Q5 case table (builder rows)", () => {
     const o = run("qlink-entanglement", { preset: "moon" });
     expectClean(o);
     expect(rel(out(o, "etaA"), 5.72645e-7)).toBeLessThan(1e-5);
-    expect(rel(out(o, "coinc"), 1e8 * Math.pow(5.726450044229664e-7 * 0.6, 2))).toBeLessThan(1e-12);
+    expect(rel(out(o, "etaA"), 5.726448405009137e-7)).toBeLessThan(1e-9); // exact Airy (scipy)
+    expect(rel(out(o, "coinc"), 1e8 * Math.pow(out(o, "etaA") * 0.6, 2))).toBeLessThan(1e-12);
   });
   test("transmission in dB: −30 dB = 10⁻³; +30 dB refused by name", () => {
     expect(out(run("qlink-entanglement", { etaA: "-30 dB" }), "etaA")).toBeCloseTo(1e-3, 15);
@@ -230,6 +236,10 @@ describe("Q5 presets and helpers", () => {
     expect(Math.abs(r - 6378137 - 35786e3)).toBeLessThan(100);
   });
   test.each([
+    [0.005, 6.249980468905729e-6],
+    [0.0099, 2.450219981612223e-5],
+    [0.0101, 2.5502174813730705e-5],
+    [0.02, 9.999500013907877e-5],
     [0.1, 0.0024968771691897492],
     [1.1637, 0.2863241843313366],
     [4, 0.8379103073486839],
@@ -238,6 +248,10 @@ describe("Q5 presets and helpers", () => {
     [3000, 0.9997878253743319],
   ])("Airy encircled energy at x = %p matches scipy", (x, v) => {
     expect(Math.abs(airyEncircled(x) - v)).toBeLessThan(1e-9);
+    expect(rel(airyEncircled(x), v)).toBeLessThan(1e-8);
+  });
+  test("Airy at x = 10⁻⁶ (1 AU scale) keeps full relative precision: x²/4 − x⁴/32", () => {
+    expect(rel(airyEncircled(1e-6), 2.5e-13 - 1e-24 / 32)).toBeLessThan(1e-14);
   });
 });
 

@@ -14,11 +14,12 @@
 //       law, (GM·T²/4π²)^⅓ − 6 378.137 km = 35 786.03 km (GM = 3.986004418×10¹⁴ m³/s², sidereal day 86 164.0905 s).
 //     Earth–Moon 3.844×10⁸ m — NASA NSSDC Moon Fact Sheet, "Semimajor axis (10⁶ km) 0.3844" (mean perigee 0.3633, mean
 //       apogee 0.4055). It is the orbit's semimajor axis (centre to centre), so the preset says so.
-//   Geometric coupling (the brief's convention, Fraunhofer, on axis, uniform circular apertures, diffraction-limited):
-//     η_geo = (π D_t D_r /(4 λ L))². It is the small-argument limit of the Airy encircled energy
-//     P(θ)/P₀ = 1 − J₀²(ka sin θ) − J₁²(ka sin θ) (Wikipedia, "Airy disk", k = 2π/λ, a the aperture radius), with
-//     ka sin θ = x = π D_t D_r /(2 λ L) and 1 − J₀² − J₁² ≈ x²/4. The full encircled energy is computed too and shown
-//     beside it, because the small-argument form overestimates as η_geo approaches 1 (18 % at the LEO case).
+//   Geometric coupling (Fraunhofer, on axis, uniform circular apertures, diffraction-limited; integrator decision
+//     2026-10-23): η_geo IS the Airy encircled energy P(θ)/P₀ = 1 − J₀²(ka sin θ) − J₁²(ka sin θ) (Wikipedia, "Airy
+//     disk", k = 2π/λ, a the aperture radius) with ka sin θ = x = π D_t D_r /(2 λ L). The familiar far-field form
+//     (π D_t D_r /(4 λ L))² is its small-argument limit (1 − J₀² − J₁² ≈ x²/4); it is reported beside it as the
+//     approximation, because it overestimates as η_geo approaches 1 (18 % at LEO 500 km, 810 nm, 0.3 m → 1.0 m) and
+//     exceeds 1 when the receiver is larger than the beam.
 //   Decoy-state BB84 (asymptotic, infinitely many decoys): X. Ma, B. Qi, Y. Zhao, H.-K. Lo, "Practical decoy state for
 //     quantum key distribution", Phys. Rev. A 72, 012326 (2005), arXiv:quant-ph/0503005 — read in the ar5iv text:
 //       Eq. 1  R ≥ q{−Q_μ f(E_μ) H₂(E_μ) + Q₁[1 − H₂(e₁)]}, q = ½ for standard BB84;
@@ -122,6 +123,12 @@ function besselJ01(x: number): [number, number] {
 /** Airy encircled energy 1 − J₀²(x) − J₁²(x). */
 export function airyEncircled(x: number): number {
   if (x <= 0) return 0;
+  // Small x: 1 − J₀² − J₁² cancels catastrophically (an Earth–Moon link is x ≈ 10⁻³, 1 AU is 10⁻⁶), so use its series
+  // x²/4 − x⁴/32 + 5x⁶/2304 (from J₀ = 1 − x²/4 + x⁴/64 − …, J₁ = x/2 − x³/16 + x⁵/384 − …); next term is O(x⁸).
+  if (x < 0.01) {
+    const x2 = x * x;
+    return x2 / 4 - (x2 * x2) / 32 + (5 * x2 * x2 * x2) / 2304;
+  }
   if (x > BESSEL_ASYMPTOTIC_X) return 1 - 2 / (Math.PI * x);
   const [j0, j1] = besselJ01(x);
   return Math.min(1, Math.max(0, 1 - j0 * j0 - j1 * j1));
@@ -150,13 +157,12 @@ export interface FsoResult {
   ok: true;
   /** π D_t D_r /(2 λ L), the Airy argument. */
   x: number;
-  /** (π D_t D_r /(4 λ L))², uncapped. */
+  /** The far-field approximation (π D_t D_r /(4 λ L))², uncapped. */
   etaFormula: number;
-  /** min(1, etaFormula): the brief's convention. */
+  /** The Airy encircled energy 1 − J₀²(x) − J₁²(x): the geometric coupling used downstream. */
   etaGeo: number;
+  /** The approximation exceeds 1: the receiver is larger than the diffraction-limited beam (aperture-limited). */
   capped: boolean;
-  /** The full Airy encircled energy at the receiver. */
-  etaAiry: number;
   geoDb: number;
   extraDb: number;
   etaTotal: number;
@@ -191,7 +197,7 @@ export function validateFsoInput(inp: FsoInput): Err | null {
 
 /** Total link loss (dB) at a range, the curve the figure draws (same apertures, wavelength and extra losses). */
 export function fsoLossAt(inp: FsoInput, rangeM: number): number {
-  const eta = Math.min(1, Math.pow((Math.PI * inp.dt * inp.dr) / (4 * inp.lambda * rangeM), 2));
+  const eta = airyEncircled((Math.PI * inp.dt * inp.dr) / (2 * inp.lambda * rangeM));
   return -toDb(eta) + inp.pointingDb + inp.atmosDb + inp.opticsDb - toDb(inp.detEff);
 }
 
@@ -202,7 +208,7 @@ export function fsoLink(inp: FsoInput): FsoResult | Err {
   const x = (Math.PI * dt * dr) / (2 * lambda * rangeM);
   const etaFormula = (x / 2) * (x / 2);
   const capped = etaFormula > 1;
-  const etaGeo = capped ? 1 : etaFormula;
+  const etaGeo = airyEncircled(x);
   const extraDb = inp.pointingDb + inp.atmosDb + inp.opticsDb;
   const etaTotal = etaGeo * fromDb(-extraDb) * detEff;
   const lossDb = -toDb(etaTotal);
@@ -215,7 +221,6 @@ export function fsoLink(inp: FsoInput): FsoResult | Err {
     etaFormula,
     etaGeo,
     capped,
-    etaAiry: airyEncircled(x),
     geoDb: -toDb(etaGeo),
     extraDb,
     etaTotal,
@@ -230,10 +235,10 @@ export function fsoLink(inp: FsoInput): FsoResult | Err {
 /** The geometry the entanglement presets use (stated in their labels): 810 nm, 0.3 m transmitter, 1.0 m receivers. */
 export const PRESET_GEOMETRY = { lambda: 810e-9, dt: 0.3, dr: 1.0 };
 
-/** Arm transmission (geometric coupling by the convention, times an extra loss) for a preset range. */
+/** Arm transmission (Airy geometric coupling, times an extra loss) for a preset range. */
 export function presetArmEta(rangeM: number, extraLossDb: number): number {
   const { lambda, dt, dr } = PRESET_GEOMETRY;
-  const eta = Math.min(1, Math.pow((Math.PI * dt * dr) / (4 * lambda * rangeM), 2));
+  const eta = airyEncircled((Math.PI * dt * dr) / (2 * lambda * rangeM));
   return eta * fromDb(-extraLossDb);
 }
 

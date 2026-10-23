@@ -8,7 +8,6 @@ import { fmtSig } from "./axis";
 import {
   MAX_COUNTS_PER_WINDOW,
   RANGE_PRESETS,
-  airyEncircled,
   capturedFraction,
   fsoLossAt,
   optimalMu,
@@ -41,7 +40,8 @@ const PRESET_TAG: Record<string, string> = { leo: "LEO", geo: "GEO", moon: "Moon
 
 /**
  * Total link loss (dB) against range on a log axis, the three range presets marked and the operating range. In the far
- * field the loss rises 20 dB per decade; at short range it flattens where the geometric coupling is capped at 1.
+ * field the loss rises 20 dB per decade; at short range it levels off as the receiver collects the whole central lobe.
+ * The far-field approximation is drawn in grey where it stays at or below 1, so the gap to the exact curve is visible.
  */
 export function fsoLossSvg(inp: FsoInput, opRangeM: number, opLossDb: number, presetId: string | null, width = WIDTH): string {
   const lo = Math.pow(10, Math.floor(Math.log10(Math.min(1e5, opRangeM / 3))));
@@ -51,13 +51,14 @@ export function fsoLossSvg(inp: FsoInput, opRangeM: number, opLossDb: number, pr
     const d = lo * Math.pow(hi / lo, i / 160);
     pts.push({ x: d, y: fsoLossAt(inp, d) });
   }
-  // The full Airy encircled energy as a grey reference: it shows where the small-angle convention overestimates.
+  // The far-field approximation (π D_t D_r /(4 λ L))² as a grey reference, only where it is at most 1.
   const extra = inp.pointingDb + inp.atmosDb + inp.opticsDb - 10 * Math.log10(inp.detEff);
-  const airyPts = pts.map((p) => ({ x: p.x, y: extra - 10 * Math.log10(airyEncircled((Math.PI * inp.dt * inp.dr) / (2 * inp.lambda * p.x))) }));
-  const capped = pts.some((p) => Math.pow((Math.PI * inp.dt * inp.dr) / (4 * inp.lambda * p.x), 2) > 1);
+  const approx = (d: number): number => Math.pow((Math.PI * inp.dt * inp.dr) / (4 * inp.lambda * d), 2);
+  const approxPts = pts.filter((p) => approx(p.x) <= 1).map((p) => ({ x: p.x, y: extra - 10 * Math.log10(approx(p.x)) }));
+  const capped = approxPts.length < pts.length;
   const series: Series[] = [
-    { points: airyPts, type: "line", color: "#999999", label: "Exact Airy coupling" },
-    { points: pts, type: "line", color: "#1f5fa8", label: "Total loss" },
+    { points: approxPts, type: "line", color: "#999999", label: "Far-field approx." },
+    { points: pts, type: "line", color: "#1f5fa8", label: "Total loss (exact)" },
   ];
   for (const p of RANGE_PRESETS) {
     if (p.id === presetId) continue;
@@ -66,7 +67,7 @@ export function fsoLossSvg(inp: FsoInput, opRangeM: number, opLossDb: number, pr
   // Legend labels stay within plot.ts's 22-character legend width.
   const opName = presetId && PRESET_TAG[presetId] ? `${PRESET_TAG[presetId]} (here)` : "Here";
   series.push({ points: [{ x: opRangeM, y: opLossDb }], type: "scatter", color: "#c00000", label: `${opName}: ${sig(opLossDb, 4)} dB` });
-  const ys = [...pts, ...airyPts].map((p) => p.y);
+  const ys = [...pts, ...approxPts].map((p) => p.y);
   const yMin = Math.min(...ys);
   const yMax = Math.max(...ys);
   const step = yMax - yMin > 60 ? 20 : 10;
@@ -78,7 +79,7 @@ export function fsoLossSvg(inp: FsoInput, opRangeM: number, opLossDb: number, pr
     yLimits: { min: Math.floor(yMin / step) * step, max: Math.ceil((yMax + step * 0.6) / step) * step, step },
     width,
     height: Math.round(width * 0.7),
-    notes: capped ? ["Flat part: geometric coupling capped at 1 (aperture-limited)."] : undefined,
+    notes: capped ? ["Grey ends where the approximation would exceed 1."] : undefined,
   });
 }
 

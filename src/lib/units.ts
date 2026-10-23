@@ -45,6 +45,9 @@ const UNIT_TOKENS: Array<[RegExp, string]> = [
 export function formatUnit(expr: string): string {
   let s = expr.trim();
   for (const [re, sym] of UNIT_TOKENS) s = s.replace(re, sym);
+  // A square root of a unit (Release E: stress intensity, Pa·m^0.5) is written as a root, as every text writes it:
+  // Pa·√m, ksi·√in. Only the exact 0.5 power; other decimal powers keep their exponent.
+  s = s.replace(/([A-Za-zµΩÅ°]+)\^\{?0\.5\}?/g, "√$1");
   // Exponents: ^n or ^{n} (optionally signed) → superscript.
   s = s.replace(/\^\{?([-+]?\d+)\}?/g, (_m, n: string) => toSuperscript(n.replace(/^\+/, "")));
   // Collapse whitespace around a division slash so "m / s" stays "m/s".
@@ -118,11 +121,18 @@ const UNITS: Record<string, UnitDef> = {
   // aviation distance is quoted in.
   nmi: { dim: "length", factor: 1852 },
   Å: { dim: "length", factor: 1e-10 },
+  // Release E: thou/mil (exactly 0.001 in) and the microinch (surface finish), both exact from the inch.
+  mil: { dim: "length", factor: 2.54e-5 }, µin: { dim: "length", factor: 2.54e-8 },
   // mass (base kg)
   kg: { dim: "mass", factor: 1 }, g: { dim: "mass", factor: 0.001 },
   mg: { dim: "mass", factor: 1e-6 }, µg: { dim: "mass", factor: 1e-9 },
   ng: { dim: "mass", factor: 1e-12 }, pg: { dim: "mass", factor: 1e-15 },
   lb: { dim: "mass", factor: 0.45359237 }, oz: { dim: "mass", factor: 0.028349523 },
+  // Release E: the tonne (metric ton, exactly 1000 kg — "t" is its SI symbol; the tesla is capital "T" and is looked
+  // up first, case-sensitively), and the slug, DERIVED as 1 lbf·s²/ft = 0.45359237 × 9.80665 / 0.3048 kg so the
+  // identity holds by construction. "ton" alone is NOT a key: short, long, metric and refrigeration tons differ.
+  t: { dim: "mass", factor: 1000 },
+  slug: { dim: "mass", factor: (0.45359237 * 9.80665) / 0.3048 },
   // molecular mass (daltons, base kg)
   Da: { dim: "mass", factor: 1.66053906660e-27 }, kDa: { dim: "mass", factor: 1.66053906660e-24 },
   MDa: { dim: "mass", factor: 1.66053906660e-21 },
@@ -138,6 +148,13 @@ const UNITS: Record<string, UnitDef> = {
   K: { dim: "temp", factor: 1, offset: 0 },
   "°C": { dim: "temp", factor: 1, offset: 273.15 },
   "°F": { dim: "temp", factor: 5 / 9, offset: (459.67 * 5) / 9 },
+  // Rankine: the absolute Fahrenheit scale (0 °R = 0 K), exactly 5/9 K per degree, no offset.
+  "°R": { dim: "temp", factor: 5 / 9, offset: 0 },
+  // TEMPERATURE DIFFERENCES, written explicitly (Release E). A difference of 1 °C is 1 K and of 1 °F is 5/9 K — no
+  // offset. Inside a compound unit (W/(m²·°C), Btu/(h·ft²·°F)) °C and °F are read this way automatically (see
+  // accumulateFactors); these keys let a bare difference be typed unambiguously ("Δ°F 180" in a ΔT field).
+  "Δ°C": { dim: "temp", factor: 1, offset: 0 }, "Δ°F": { dim: "temp", factor: 5 / 9, offset: 0 },
+  ΔK: { dim: "temp", factor: 1, offset: 0 },
   // volume (base m^3)
   L: { dim: "volume", factor: 0.001 }, mL: { dim: "volume", factor: 1e-6 },
   µL: { dim: "volume", factor: 1e-9 }, nL: { dim: "volume", factor: 1e-12 }, "m^3": { dim: "volume", factor: 1 },
@@ -151,6 +168,11 @@ const UNITS: Record<string, UnitDef> = {
   // US liquid gallon, exactly 231 in^3 = 3.785411784 L by definition. Hydro and
   // pump flow in US practice is quoted in gal/min, which composes from this.
   gal: { dim: "volume", factor: 3.785411784e-3 },
+  // Release E: the oil barrel, exactly 42 US gallons (158.987294928 L), derived from the gallon.
+  bbl: { dim: "volume", factor: 42 * 3.785411784e-3 },
+  // Volumetric flow shorthands (decomposed to length³/time in BASE, so they interoperate with m³/s and L/min):
+  // US gallons per minute and cubic feet per minute, derived from the gallon and the foot.
+  gpm: { dim: "volflow", factor: 3.785411784e-3 / 60 }, cfm: { dim: "volflow", factor: Math.pow(0.3048, 3) / 60 },
   // pressure (base Pa)
   Pa: { dim: "pressure", factor: 1 }, kPa: { dim: "pressure", factor: 1000 },
   bar: { dim: "pressure", factor: 1e5 },
@@ -186,6 +208,8 @@ const UNITS: Record<string, UnitDef> = {
   N: { dim: "force", factor: 1 }, kN: { dim: "force", factor: 1000 },
   MN: { dim: "force", factor: 1e6 }, mN: { dim: "force", factor: 0.001 },
   lbf: { dim: "force", factor: 4.4482216152605 }, kip: { dim: "force", factor: 4448.2216152605 },
+  // Release E: kilogram-force, exactly standard gravity 9.80665 N.
+  kgf: { dim: "force", factor: 9.80665 },
   // speed (base m/s) — its own dimension, decomposed in BASE to length/time so it
   // converts freely with m/s and km/h written as compounds. Aviation is quoted in
   // knots and feet per minute and neither could be expressed at all before.
@@ -262,6 +286,9 @@ const UNITS: Record<string, UnitDef> = {
   // angle (base rad)
   rad: { dim: "angle", factor: 1 }, "°": { dim: "angle", factor: Math.PI / 180 },
   mrad: { dim: "angle", factor: 1e-3 },
+  // Release E: microradians (beam pointing, divergence) and arc-minutes/-seconds (optics, astronomy, surveying).
+  µrad: { dim: "angle", factor: 1e-6 },
+  arcmin: { dim: "angle", factor: Math.PI / 10800 }, arcsec: { dim: "angle", factor: Math.PI / 648000 },
   // frequency (base Hz)
   Hz: { dim: "frequency", factor: 1 }, kHz: { dim: "frequency", factor: 1e3 },
   MHz: { dim: "frequency", factor: 1e6 }, GHz: { dim: "frequency", factor: 1e9 }, THz: { dim: "frequency", factor: 1e12 },
@@ -277,6 +304,9 @@ const UNITS: Record<string, UnitDef> = {
   nW: { dim: "power", factor: 1e-9 }, pW: { dim: "power", factor: 1e-12 },
   kW: { dim: "power", factor: 1e3 }, MW: { dim: "power", factor: 1e6 }, GW: { dim: "power", factor: 1e9 },
   hp: { dim: "power", factor: 745.699872 },
+  // Release E: the ton of refrigeration, 12 000 BTU(IT)/h by definition — derived from the BTU constant above, not
+  // retyped (3516.8528… W).
+  TR: { dim: "power", factor: (12000 * 1055.05585262) / 3600 },
   // resistance (base Ω)
   Ω: { dim: "resistance", factor: 1 }, mΩ: { dim: "resistance", factor: 1e-3 },
   kΩ: { dim: "resistance", factor: 1e3 }, MΩ: { dim: "resistance", factor: 1e6 },
@@ -301,6 +331,9 @@ const UNITS: Record<string, UnitDef> = {
   // magnetic flux density (base T)
   T: { dim: "bfield", factor: 1 }, mT: { dim: "bfield", factor: 1e-3 }, µT: { dim: "bfield", factor: 1e-6 },
   G: { dim: "bfield", factor: 1e-4 },
+  // Release E: magnetic field strength H (base A/m; decomposes to current/length so "A/m" composes). The oersted is
+  // the CGS unit, 1000/(4π) A/m exactly.
+  Oe: { dim: "hfield", factor: 1000 / (4 * Math.PI) },
   // molarity (base mol/m³ — the SI base, because "molarity" DECOMPOSES to
   // amount·length⁻³ in BASE below, and the compound path multiplies these
   // factors against mol and m³). 1 M = 1 mol/L = 1 mol/dm³ = 1000 mol/m³.
@@ -448,6 +481,14 @@ const ALIASES: Record<string, string> = {
   femtosecond: "fs", femtoseconds: "fs",
   nanojoule: "nJ", nanojoules: "nJ", millijoule: "mJ", millijoules: "mJ",
   degC: "°C", celsius: "°C", "°c": "°C", degF: "°F", fahrenheit: "°F", "°f": "°F", kelvin: "K",
+  // Release E. Rankine and explicit temperature differences ("delta" spellings for keyboards without Δ).
+  degR: "°R", rankine: "°R", "°r": "°R", deltaC: "Δ°C", deltaF: "Δ°F", deltaK: "ΔK", "Δ°c": "Δ°C", "Δ°f": "Δ°F",
+  // Release E. Tonne, pound-mass, thou, microinch, microradian, arc units, barrel, kilogram-force, oersted,
+  // refrigeration ton. NO "ton"/"tons" alias (four different tons) and NO lowercase "kp".
+  tonne: "t", tonnes: "t", lbm: "lb", thou: "mil", mils: "mil", uin: "µin", microinch: "µin", microinches: "µin",
+  urad: "µrad", microradian: "µrad", microradians: "µrad", arcminute: "arcmin", arcminutes: "arcmin",
+  arcsecond: "arcsec", arcseconds: "arcsec", barrel: "bbl", barrels: "bbl", slugs: "slug",
+  oersted: "Oe", oersteds: "Oe", RT: "TR",
   litre: "L", liter: "L", l: "L", ml: "mL", ul: "µL", microliter: "µL",
   cm3: "cm^3", cc: "cm^3", dm3: "dm^3", m3: "m^3",
   atmosphere: "atm", deg: "°", degree: "°", degrees: "°", radian: "rad", radians: "rad",
@@ -584,6 +625,8 @@ const BASE: Record<string, Record<string, number>> = {
   catalytic: { amount: 1, time: -1 },
   magflux: { mass: 1, length: 2, time: -2, current: -1 },
   solidangle: { angle: 2 },
+  volflow: { length: 3, time: -1 },
+  hfield: { current: 1, length: -1 },
 };
 
 /** Accumulates one side ("·"/"*"/space-separated factors) into dims & factor. */
@@ -594,9 +637,14 @@ function accumulateFactors(part: string, sign: 1 | -1, out: CompoundUnit): boole
     // displayed must parse back.
     const m = tok.match(/^(.+?)(?:\^(-?\d+(?:\.\d+)?))?$/);
     if (!m) return false;
-    const def = lookup(m[1]);
-    // Compound units must be purely multiplicative (no affine offset like °C).
-    if (!def || (def.offset !== undefined && def.offset !== 0)) return false;
+    const looked = lookup(m[1]);
+    if (!looked) return false;
+    // INSIDE A COMPOUND, °C AND °F ARE TEMPERATURE DIFFERENCES (Release E). A heat transfer coefficient written
+    // W/(m²·°C), or Btu/(h·ft²·°F), means "per degree of difference", where the offset has no meaning: 1 °C of
+    // difference is 1 K and 1 °F is 5/9 K. These were refused outright, which pushed the usual way h and k are
+    // written out of every field. Only the factor is used here; a bare "20 °C" never reaches this path (convert()
+    // takes single units through lookup, affine, and parseCompoundUnit refuses a lone offset unit).
+    const def: UnitDef = looked.offset ? { dim: looked.dim, factor: looked.factor } : looked;
     const exp = (m[2] ? parseFloat(m[2]) : 1) * sign;
     const decomposed = BASE[def.dim];
     if (decomposed) {
@@ -656,6 +704,12 @@ export function parseCompoundUnit(expr: string): CompoundUnit | null {
   if (!parts) return null;
   if (!parts[0].trim()) return null;
   for (let i = 1; i < parts.length; i++) if (!parts[i].trim()) return null; // reject empty denominator / trailing "/"
+  // A LONE °C or °F is a temperature, never a difference: it is not a compound, and taking it here would drop its
+  // offset (accumulateFactors reads offset units as differences). convert() handles it affinely through lookup.
+  if (parts.length === 1) {
+    const lone = parts[0].trim().replace(/^\((.*)\)$/, "$1").trim();
+    if (!/[·*\s^]/.test(lone) && lookup(lone)?.offset) return null;
+  }
 
   /** Strips one wrapping paren pair; null if the part is still not flat. */
   const flatten = (part: string): string | null => {
@@ -713,6 +767,9 @@ function normalizeUnitText(expr: string): string {
   // second. Rewritten CASE-SENSITIVELY to the bit form, so "MB/s" (megabytes,
   // 8× larger) can never be captured by it, and no "b" (barn) key is involved.
   expr = expr.replace(/(^|[^A-Za-z])([kMGT])b\/s\b/g, "$1$2bit/s");
+  // A root sign, as the display writes a stress intensity (MPa·√m, ksi·√in): the 0.5 power of the unit after it, so
+  // whatever is displayed parses back (Release E).
+  expr = expr.replace(/√\s*([A-Za-zµΩÅ°]+)/g, "$1^0.5");
   return expr.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+/g, (run) => {
     let out = "^";
     for (const ch of run) out += SUPERSCRIPT_TO_ASCII[ch] ?? "";

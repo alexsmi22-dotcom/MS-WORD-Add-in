@@ -284,6 +284,10 @@ export function analyzePipe(inp: PipeInput): PipeResult | FluidError {
  * from a table entry that is itself good to one is the standard way to produce
  * false precision, which is why the reporting layer says so.
  */
+// TYPICAL VALUES, NOT FROM A CHECKED SOURCE (Release E, 2026-10-23). These are the absolute roughnesses commonly
+// reproduced from Moody (1944), "Friction factors for pipe flow", Trans. ASME 66:671–684, but no copy of that table
+// could be fetched to check them, so they are stated as typical: the pipe tool says which value it used and takes a
+// typed override, which is preferred whenever the pipe's own roughness is known.
 export const ROUGHNESS: { id: string; label: string; eps: number }[] = [
   { id: "drawn", label: "Drawn tubing (copper, brass, glass)", eps: 1.5e-6 },
   { id: "steel", label: "Commercial steel or wrought iron", eps: 4.5e-5 },
@@ -296,20 +300,24 @@ export const ROUGHNESS: { id: string; label: string; eps: number }[] = [
 ];
 
 /**
- * Properties of water at a few temperatures, so the common case does not need
- * a handbook. Interpolation between them is linear and good to well under a
- * percent over this range.
+ * Properties of liquid water at a few temperatures, so the common case does not need a handbook. Interpolation
+ * between them is linear and good to well under a percent over this range.
+ *
+ * SOURCE (Release E, checked 2026-10-23): IAPWS-95 density and the IAPWS 2008 viscosity correlation at 101.325 kPa
+ * (0.01 °C for the 0 °C row; saturated liquid for the 100 °C row), evaluated with CoolProp 8.0.0 (Bell et al., Ind.
+ * Eng. Chem. Res. 53 (2014) 2498) — script ~/jurislab-relE/oracle_tables.py. The table these replace had no source
+ * and was 0.57 % low in viscosity at 0 °C.
  */
 export const WATER: { tempC: number; rho: number; mu: number }[] = [
-  { tempC: 0, rho: 999.8, mu: 1.781e-3 },
-  { tempC: 10, rho: 999.7, mu: 1.307e-3 },
+  { tempC: 0, rho: 999.8, mu: 1.791e-3 },
+  { tempC: 10, rho: 999.7, mu: 1.306e-3 },
   { tempC: 20, rho: 998.2, mu: 1.002e-3 },
-  { tempC: 30, rho: 995.7, mu: 7.977e-4 },
-  { tempC: 40, rho: 992.2, mu: 6.531e-4 },
-  { tempC: 50, rho: 988.1, mu: 5.471e-4 },
-  { tempC: 60, rho: 983.2, mu: 4.658e-4 },
-  { tempC: 80, rho: 971.8, mu: 3.547e-4 },
-  { tempC: 100, rho: 958.4, mu: 2.818e-4 },
+  { tempC: 30, rho: 995.6, mu: 7.972e-4 },
+  { tempC: 40, rho: 992.2, mu: 6.527e-4 },
+  { tempC: 50, rho: 988.0, mu: 5.465e-4 },
+  { tempC: 60, rho: 983.2, mu: 4.66e-4 },
+  { tempC: 80, rho: 971.8, mu: 3.541e-4 },
+  { tempC: 100, rho: 958.3, mu: 2.816e-4 },
 ];
 
 /** Density and viscosity of liquid water, linearly interpolated, 0-100 C. */
@@ -533,6 +541,10 @@ export function openChannelFlow(inp: ChannelInput): ChannelResult | FluidError {
  * taking the midpoint and quoting four figures of discharge hides an
  * uncertainty of about a factor of two.
  */
+// TYPICAL VALUES, NOT FROM A CHECKED SOURCE (Release E, 2026-10-23). Ranges of the kind tabulated by Chow (1959),
+// Open-Channel Hydraulics, Table 5-6, and USGS Water-Supply Paper 2339 (Arcement & Schneider); no copy could be
+// fetched to check these rows, so the channel tool states the value and range it used and takes a typed n, which is
+// preferred whenever the channel's n is known.
 export const MANNING_N: { id: string; label: string; min: number; typical: number; max: number }[] = [
   { id: "glass", label: "Glass or smooth plastic", min: 0.009, typical: 0.01, max: 0.013 },
   { id: "concrete-smooth", label: "Concrete, trowelled", min: 0.011, typical: 0.013, max: 0.015 },

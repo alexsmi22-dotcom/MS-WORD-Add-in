@@ -23,7 +23,7 @@ import { mathToHtml } from "../lib/mathHtml";
 import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
-import { formatQuantityHtml, convert, formatSig, formatUnit } from "../lib/units";
+import { formatQuantityHtml, convert, formatSig, formatUnit, toSuperscript } from "../lib/units";
 import { parseJcamp, JcampSpectrum, JcampRefusal } from "../lib/jcamp";
 import { overlaySpectrum, formatMatchTable, displayUnits, typesetLabel, OverlayOk } from "../lib/spectrumOverlay";
 import { overlayChartSvg, OVERLAY_CHART_SIZE } from "../lib/overlayChart";
@@ -13021,7 +13021,10 @@ function engUnits(r: (k: string) => string): EngUnits {
     // Only a real conversion is worth reporting. A bare number, or one already
     // written in the target unit, would just be noise.
     if (!m.assumed && m.inTarget !== m.value) {
-      conversions.push(`${label}: ${engNum(m.value, 6)} ${m.unit} = ${engNum(m.inTarget, 6)} ${si}`);
+      // Typeset, as everything a result shows: ×10ⁿ (never e-notation), true minus, and the units as written in a
+      // document (Pa·√m, m², not Pa*m^0.5, m^2) — "200 GPa = 2e+11 Pa" was printed here before Release E.
+      const shown = (v: number): string => trueMinus(engNum(v, 6).replace(/^(-?)(\d(?:\.\d+)?)e([+-])(\d+)$/, (_a, s: string, mant: string, sg: string, ex: string) => `${s}${mant}×10${toSuperscript((sg === "-" ? "-" : "") + ex)}`));
+      conversions.push(`${label}: ${shown(m.value)} ${formatUnit(m.unit)} = ${shown(m.inTarget)} ${formatUnit(si)}`);
     }
     return m.inTarget;
   };
@@ -14422,7 +14425,7 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("Pipe flow");
       lines.push(fluidNote);
       lines.push(
-        `Roughness ε = ${engNum(eps, 3)} m` + (r("eps").trim() ? " (as entered)" : ` (${mat.label})`),
+        `Roughness ε = ${engNum(eps, 3)} m` + (r("eps").trim() ? " (as entered)" : ` (${mat.label}: a typical value; type the pipe's own if known)`),
       );
       lines.push("");
       lines.push(`Velocity = ${engNum(res.V, figs)} m/s, flow rate = ${engNum(res.Q, figs)} m^3/s (${engNum(res.Q * 1000, figs)} L/s)`);
@@ -17371,7 +17374,7 @@ const ENG_CALCS: EngCalc[] = [
       { key: "s", label: "Remote stress, Pa (MPa converts)", default: "200 MPa", kind: "text" },
       { key: "a", label: "Crack length a, m (mm converts)", default: "3 mm", kind: "text" },
       { key: "Y", label: "Geometry factor Y (1.12 edge, 1.0 central through)", default: "1.12", kind: "text" },
-      { key: "kic", label: "Fracture toughness K_IC, Pa·√m (50e6 = 50 MPa√m)", default: "50e6", kind: "text" },
+      { key: "kic", label: "Fracture toughness K_IC, Pa·√m (MPa·√m, ksi·√in convert)", default: "50e6", kind: "text" },
       { key: "sy", label: "Yield strength, Pa (blank to skip the validity checks)", default: "500 MPa", kind: "text" },
       { key: "B", label: "Section thickness, m (blank to skip the plane-strain check)", default: "50 mm", kind: "text" },
     ],
@@ -17379,7 +17382,7 @@ const ENG_CALCS: EngCalc[] = [
       const u = engUnits(r);
       const stress = u.req("s", "Pa", "Stress");
       const crack = u.req("a", "m", "Crack length");
-      const kic = u.req("kic", "Pa", "Fracture toughness");
+      const kic = u.req("kic", "Pa*m^0.5", "Fracture toughness");
       const syRaw = r("sy").trim();
       const bRaw = r("B").trim();
       const yieldStrength = syRaw ? u.opt("sy", "Pa", "Yield strength", 0) : undefined;
@@ -17460,14 +17463,14 @@ const ENG_CALCS: EngCalc[] = [
       { key: "Y", label: "Geometry factor Y", default: "1.12", kind: "text" },
       { key: "C", label: "Paris C (da/dN in m/cycle for ΔK in MPa√m)", default: "6.9e-12", kind: "text" },
       { key: "m", label: "Paris exponent m (typically 3 to 4)", default: "3", kind: "text" },
-      { key: "kic", label: "Fracture toughness K_IC, Pa·√m", default: "50e6", kind: "text" },
+      { key: "kic", label: "Fracture toughness K_IC, Pa·√m (MPa·√m, ksi·√in convert)", default: "50e6", kind: "text" },
       { key: "dkth", label: "Threshold ΔK, Pa·√m (blank to assume growth always)", default: "", kind: "text" },
     ],
     compute: (r) => {
       const u = engUnits(r);
       const initialCrack = u.req("a0", "m", "Initial crack length");
       const stressRange = u.req("ds", "Pa", "Stress range");
-      const kic = u.req("kic", "Pa", "Fracture toughness");
+      const kic = u.req("kic", "Pa*m^0.5", "Fracture toughness");
       const thRaw = r("dkth").trim();
       const deltaKth = thRaw ? u.opt("dkth", "Pa", "Threshold", 0) : undefined;
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
@@ -17547,14 +17550,14 @@ const ENG_CALCS: EngCalc[] = [
       "before it fractures and a yield check governs. Above it the part snaps while nominally " +
       "elastic, and only a toughness assessment sees it coming.",
     fields: [
-      { key: "kic", label: "Fracture toughness K_IC, Pa·√m", default: "50e6", kind: "text" },
+      { key: "kic", label: "Fracture toughness K_IC, Pa·√m (MPa·√m, ksi·√in convert)", default: "50e6", kind: "text" },
       { key: "sy", label: "Yield strength, Pa (MPa converts)", default: "500 MPa", kind: "text" },
       { key: "Y", label: "Geometry factor Y", default: "1.12", kind: "text" },
       { key: "a", label: "A crack size to assess, m (blank for the size alone)", default: "3 mm", kind: "text" },
     ],
     compute: (r) => {
       const u = engUnits(r);
-      const kic = u.req("kic", "Pa", "Fracture toughness");
+      const kic = u.req("kic", "Pa*m^0.5", "Fracture toughness");
       const yieldStrength = u.req("sy", "Pa", "Yield strength");
       const aRaw = r("a").trim();
       const crack = aRaw ? u.opt("a", "m", "Crack length", 0) : undefined;
@@ -18490,7 +18493,7 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Open-channel flow, ${r("shape") || "trapezoidal"} section`);
       lines.push(
         `Manning's n = ${engNum(n, 4)}` +
-          (r("n").trim() ? " (as entered)" : ` (${sel.label}, range ${sel.min} to ${sel.max})`),
+          (r("n").trim() ? " (as entered)" : ` (${sel.label}: typical of the range ${sel.min} to ${sel.max}; type the channel's own n if known)`),
       );
       lines.push("");
       lines.push(`Flow area = ${engNum(res.area)} m², wetted perimeter = ${engNum(res.perimeter)} m`);

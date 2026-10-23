@@ -109,16 +109,20 @@ export interface GasProperties {
  * air-standard") values every textbook starts with, and the tools that use them
  * say so rather than presenting them as exact.
  */
+// SOURCE (Release E, checked 2026-10-23): molar masses and ideal-gas cp at 300 K from CoolProp 8.0.0's reference
+// equations of state (Bell et al., Ind. Eng. Chem. Res. 53 (2014) 2498); cv = cp − R̄/M with R̄ = 8.314462618
+// J/(mol·K) (CODATA 2018, exact), rounded to the joule — script ~/jurislab-relE/oracle_tables.py. The table these
+// replace had no source; methane's cp was 1.1 % high (2254 against 2230).
 const RAW_GASES: { id: string; label: string; M: number; cp: number; cv: number }[] = [
-  { id: "air", label: "Air", M: 28.97, cp: 1005, cv: 718 },
-  { id: "n2", label: "Nitrogen (N₂)", M: 28.013, cp: 1039, cv: 743 },
+  { id: "air", label: "Air", M: 28.966, cp: 1005, cv: 718 },
+  { id: "n2", label: "Nitrogen (N₂)", M: 28.013, cp: 1040, cv: 743 },
   { id: "o2", label: "Oxygen (O₂)", M: 31.999, cp: 918, cv: 658 },
   { id: "co2", label: "Carbon dioxide (CO₂)", M: 44.01, cp: 846, cv: 657 },
   { id: "he", label: "Helium (He)", M: 4.003, cp: 5193, cv: 3116 },
   { id: "ar", label: "Argon (Ar)", M: 39.948, cp: 520, cv: 312 },
-  { id: "h2", label: "Hydrogen (H₂)", M: 2.016, cp: 14307, cv: 10183 },
-  { id: "ch4", label: "Methane (CH₄)", M: 16.043, cp: 2254, cv: 1735 },
-  { id: "co", label: "Carbon monoxide (CO)", M: 28.011, cp: 1040, cv: 744 },
+  { id: "h2", label: "Hydrogen (H₂)", M: 2.016, cp: 14310, cv: 10186 },
+  { id: "ch4", label: "Methane (CH₄)", M: 16.043, cp: 2230, cv: 1712 },
+  { id: "co", label: "Carbon monoxide (CO)", M: 28.01, cp: 1040, cv: 744 },
 ];
 
 export const GASES: GasProperties[] = RAW_GASES.map((g) => ({

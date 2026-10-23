@@ -473,6 +473,21 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("r_c = 0.057 sqrt(Q V/T)", "rc = 0.057·√(Q·V/T)"),
   ],
   "audio-roommodes": [eq("f = (c/2) sqrt((n_x/L)^2 + (n_y/W)^2 + (n_z/H)^2)", "f = (c/2)·√((nx/L)² + (ny/W)² + (nz/H)²)")],
+  "audio-comb": [eq("t = Delta d/c", "t = Δd/c"), eq("f_notch = (2 k + 1)/(2 t)", "fnotch = (2k + 1)/(2t)"), eq("f_peak = k/t", "fpeak = k/t")],
+  "audio-levels": [eq("L_dBu = 20 log_10(V_rms/0.7746)", "LdBu = 20·log₁₀(Vrms/0.7746)"), eq("L_dBV = 20 log_10(V_rms/1)", "LdBV = 20·log₁₀(Vrms/1)")],
+  "audio-levelmath:sum": [eq("L = 10 log_10(sum(i=1, n, 10^{L_i/10}))", "L = 10·log₁₀(∑ᵢ₌₁ⁿ 10ᴸⁱᐟ¹⁰)")],
+  "audio-levelmath:subtract": [eq("L_s = 10 log_10(10^{L_m/10} - 10^{L_b/10})", "Ls = 10·log₁₀(10ᴸᵐᐟ¹⁰ − 10ᴸᵇᐟ¹⁰)")],
+  "audio-levelmath:average": [eq("L_eq = 10 log_10(sum(i=1, n, t_i 10^{L_i/10})/sum(i=1, n, t_i))", "Leq = 10·log₁₀(∑ᵢ₌₁ⁿ tᵢ·10ᴸⁱᐟ¹⁰/∑ᵢ₌₁ⁿ tᵢ)")],
+  "audio-levelmath:coherent": [eq("L = 20 log_10 abs(sum(i=1, n, 10^{L_i/20} e^{j phi_i}))", "L = 20·log₁₀|∑ᵢ₌₁ⁿ 10ᴸⁱᐟ²⁰·eʲᵠⁱ|")],
+  "audio-levelmath:weight": [eq("L_W = 10 log_10(sum(i=1, n, 10^{(L_i + W_i)/10}))", "LW = 10·log₁₀(∑ᵢ₌₁ⁿ 10⁽ᴸⁱ⁺ᵂⁱ⁾ᐟ¹⁰)")],
+  "audio-levelmath:point": [eq("L_2 = L_1 - 20 log_10(d_2/d_1)", "L₂ = L₁ − 20·log₁₀(d₂/d₁)")],
+  "audio-levelmath:line": [eq("L_2 = L_1 - 10 log_10(d_2/d_1)", "L₂ = L₁ − 10·log₁₀(d₂/d₁)")],
+  "audio-dither": [
+    eq("SNR = 20 log_10(2) n + 10 log_10(3/2)", "SNR = 20·log₁₀(2)·n + 10·log₁₀(3/2)"),
+    eq("SNR_band = SNR - D + 10 log_10(OSR) + L_s", "SNRband = SNR − D + 10·log₁₀(OSR) + Ls"),
+  ],
+  "audio-filesize:pcm": [eq("R = f_s n N_ch", "R = fs·n·Nch")],
+  "audio-filesize": [eq("size = R t/8", "size = R·t/8")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

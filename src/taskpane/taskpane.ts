@@ -26525,7 +26525,13 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = combFilter(ms ?? undefined, path ?? undefined, c);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const cbOutputs: EngOutput[] = [
+        { key: "fNotch", label: "First cancellation", value: res.firstNotchHz, unit: "Hz" },
+        { key: "delayMs", label: "Delay", value: res.delayMs, unit: "ms" },
+        { key: "pathDiff", label: "Path difference", value: res.pathDifferenceM, unit: "m" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("audio-comb"),
         "Comb filtering",
         "",
         `  Delay               ${engNum(res.delayMs, 5)} ms`,
@@ -26566,7 +26572,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The comb",
           },
         );
-        return engReport(lines, [
+        return withOutputs(cbOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -26575,9 +26581,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(cbOutputs, engReport(lines));
     },
   },
   {
@@ -26677,17 +26683,22 @@ const ENG_CALCS: EngCalc[] = [
         const unit = id === "Vrms" ? "V rms" : id === "Pa" ? "Pa" : id === "W" ? "W" : "mV/Pa";
         return `${avFmt(v, 6)} ${unit}`;
       };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-levels"),
         "Level conversion",
         "",
         `  ${show(from, val)} = ${show(to, res.value)}`,
         "",
-        "  The same level in every reference it reaches",
       ];
+      // Release E: the reference ladder as a real table.
+      const ladderRows: string[][] = [["Reference", "Level"]];
       for (const ref of LEVEL_REFS) {
         const v = res.all[ref.id];
-        if (v !== undefined) lines.push(`    ${ref.label.padEnd(18)} ${show(ref.id, v)}`);
+        if (v !== undefined) ladderRows.push([ref.label, show(ref.id, v)]);
       }
+      lines.push({ label: "The same level in every reference it reaches", table: ladderRows });
+      const toInfo = info(to);
+      const toUnit = !toInfo ? "" : !toInfo.linear ? toInfo.label : to === "Vrms" ? "V" : to === "Pa" ? "Pa" : to === "W" ? "W" : "mV/Pa";
       lines.push(`  Pro +4 dBu over consumer −10 dBV   ${avDb(res.proConsumerGapDb, 4)} dB`);
       if (res.fullScaleDbu !== null) lines.push(`  0 dBFS under this alignment        ${avDb(res.fullScaleDbu, 3)} dBu`);
       if (tempK !== null) {
@@ -26702,13 +26713,16 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_LEVEL_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "Lout", label: "Level in the target reference", value: res.value, unit: toUnit },
+        { key: "fullScaleDbu", label: "0 dBFS under this alignment", value: res.fullScaleDbu ?? NaN, unit: "dBu" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(
           audioFigureSvg(res.figure),
           "The level ladder: the entered level read on every reference scale at once",
           "Side-by-side reference scales on one decibel axis with the entered level marked on each",
         ),
-      ]);
+      ]));
     },
   },
   {
@@ -26761,7 +26775,7 @@ const ENG_CALCS: EngCalc[] = [
       const d2 = u.optNull("d2", "m", "Wanted distance");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const op = r("op");
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [];
       const notes: string[] = [];
       let total: number;
       let fig: AudioFigure;
@@ -26776,15 +26790,18 @@ const ENG_CALCS: EngCalc[] = [
         const res = bandsToWeighted(fb.values, levels, curve);
         if (!res.ok) return { text: res.error, ok: false };
         unit = `dB(${curve})`;
+        lines.push(...engEq("audio-levelmath:weight"));
         lines.push(`${curve}-weighted total of ${res.bands.length} bands`, "");
         lines.push(`  Weighted total      ${res.totalDb.toFixed(3)} ${unit}`);
         lines.push(`  Unweighted (Z)      ${res.totalZDb.toFixed(3)} dB`);
-        lines.push("", "  Band (Hz)   evaluated at   weighting   weighted level");
-        for (const b of res.bands.slice(0, 40)) {
-          lines.push(
-            `  ${avFmt(b.typedHz, 6).padEnd(10)}  ${b.usedHz.toFixed(2).padEnd(13)}  ${avDb(b.weightDb, 2).padEnd(10)}  ${b.weightedDb.toFixed(2)} ${unit}`,
-          );
-        }
+        lines.push("");
+        // Release E: the band table as a real table.
+        lines.push({
+          table: [
+            ["Band (Hz)", "Evaluated at (Hz)", "Weighting (dB)", `Weighted level (${unit})`],
+            ...res.bands.slice(0, 40).map((b) => [avFmt(b.typedHz, 6), b.usedHz.toFixed(2), avDb(b.weightDb, 2), b.weightedDb.toFixed(2)]),
+          ],
+        });
         notes.push(...res.notes);
         if (fb.note) notes.push(fb.note);
         if (lv.note) notes.push(lv.note);
@@ -26811,6 +26828,7 @@ const ENG_CALCS: EngCalc[] = [
           const bg = bgl.values[0];
           const res = levelSubtract(measured, bg);
           if (!res.ok) return { text: res.error, ok: false };
+          lines.push(...engEq("audio-levelmath:subtract"));
           lines.push("Background subtraction", "");
           lines.push(`  Measured total      ${measured.toFixed(3)} ${unit}`);
           lines.push(`  Background          ${bg.toFixed(3)} ${unit}`);
@@ -26829,6 +26847,7 @@ const ENG_CALCS: EngCalc[] = [
           }
           const res = levelAverage(values, durs);
           if (!res.ok) return { text: res.error, ok: false };
+          lines.push(...engEq("audio-levelmath:average"));
           lines.push("Energy average (Leq)", "");
           lines.push(`  Leq                 ${res.leqDb.toFixed(4)} ${unit}`);
           lines.push(`  Arithmetic mean     ${res.arithmeticMeanDb.toFixed(4)} ${unit} (shown only to make the error visible)`);
@@ -26845,6 +26864,7 @@ const ENG_CALCS: EngCalc[] = [
           } else notes.push("No phases given: every path is taken as in phase, the upper bound.");
           const res = coherentSum(values, phases);
           if (!res.ok) return { text: res.error, ok: false };
+          lines.push(...engEq("audio-levelmath:coherent"));
           lines.push("Coherent sum", "");
           lines.push(`  Coherent total      ${res.totalDb.toFixed(4)} ${unit}`);
           lines.push(`  Incoherent would be ${res.incoherentDb.toFixed(4)} ${unit}`);
@@ -26854,6 +26874,7 @@ const ENG_CALCS: EngCalc[] = [
         } else {
           const res = levelSum(values);
           if (!res.ok) return { text: res.error, ok: false };
+          lines.push(...engEq("audio-levelmath:sum"));
           lines.push(`Sum of ${values.length} unrelated sources`, "");
           lines.push(`  Incoherent total    ${res.totalDb.toFixed(4)} ${unit}`);
           lines.push(`  Above the loudest   ${avDb(res.aboveLoudestDb, 4)} dB`);
@@ -26862,6 +26883,7 @@ const ENG_CALCS: EngCalc[] = [
           fig = res.figure;
         }
       }
+      let falloffLevel = NaN;
       if (d1 !== null || d2 !== null) {
         if (d1 === null || d2 === null) {
           return { text: "Give both distances for the falloff (where it was measured and where it is wanted), or neither.", ok: false };
@@ -26869,19 +26891,24 @@ const ENG_CALCS: EngCalc[] = [
         const src = r("src") === "line" ? "line" : "point";
         const fo = distanceFalloff(total, d1, d2, src);
         if (!fo.ok) return { text: fo.error, ok: false };
+        lines.push(...(src === "line" ? engEq("audio-levelmath:line") : engEq("audio-levelmath:point")));
+        falloffLevel = fo.levelDb;
         lines.push(`  At ${engNum(d2, 5)} m (${src} source) ${fo.levelDb.toFixed(3)} ${unit} (${avDb(fo.changeDb, 3)} dB from ${engNum(d1, 5)} m)`);
         notes.push(...fo.notes);
       }
       u.report(lines as string[]);
       for (const note of notes) lines.push(`Note: ${note}`);
       lines.push(ENG_LEVEL_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "Ltotal", label: "Result level", value: total, unit: unit },
+        { key: "Lfar", label: "Result at the wanted distance", value: falloffLevel, unit: unit },
+      ], engReport(lines.map(trueMinus), [
         avPlot(
           audioFigureSvg(fig),
           op === "weight" ? "The weighting curve with the band levels before and after weighting" : "Each entry's share of the result",
           op === "weight" ? "Weighting curve on a log frequency axis with band levels" : "Bars or a curve showing how the levels combine",
         ),
-      ]);
+      ]));
     },
   },
   {
@@ -26917,7 +26944,8 @@ const ENG_CALCS: EngCalc[] = [
       for (const v of [bits, osr, lvl]) if (typeof v === "string") return { text: v, ok: false };
       const res = ditherBudget(bits as number, r("dither") as DitherKind, osr as number, lvl as number);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-dither"),
         `Noise budget, ${res.bits}-bit`,
         "",
         `  Ideal SNR           ${res.idealSnrDb.toFixed(4)} dB`,
@@ -26928,9 +26956,12 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_DB_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "SNRin", label: "In-band SNR", value: res.inBandSnrDb, unit: "dB" },
+        { key: "floor", label: "Noise floor", value: res.noiseFloorDbfs, unit: "dBFS" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "The SNR budget: ideal, after dither, at the signal level, after oversampling", "Bars of SNR in decibels at each step of the budget"),
-      ]);
+      ]));
     },
   },
   {
@@ -26980,7 +27011,9 @@ const ENG_CALCS: EngCalc[] = [
         const w = Math.round(s);
         return `${Math.floor(w / 3600)}:${String(Math.floor(w / 60) % 60).padStart(2, "0")}:${String(w % 60).padStart(2, "0")}`;
       };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...(mode === "pcm" ? engEq("audio-filesize:pcm") : []),
+        ...engEq("audio-filesize"),
         mode === "pcm" ? `PCM, ${engNum(fs ?? 0, 6)} Hz, ${bits}-bit, ${ch} ch` : `Compressed, ${engNum(res.bitRate / 1000, 6)} kbit/s`,
         "",
         `  Data rate           ${avFmt(res.bitRate, 8)} bit/s = ${avFmt(res.bytesPerSecond, 8)} B/s`,
@@ -26998,9 +27031,13 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "sizeGB", label: "Size", value: res.sizeGB, unit: "GB" },
+        { key: "bitRateOut", label: "Data rate", value: res.bitRate, unit: "bit/s" },
+        { key: "durS", label: "Duration", value: res.durationS, unit: "s" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "Size against duration for this format, the entered duration marked", "A straight line of file size against hours with markers"),
-      ]);
+      ]));
     },
   },
   {

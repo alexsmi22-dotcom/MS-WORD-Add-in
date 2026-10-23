@@ -26,8 +26,20 @@
 //   Rabi Ω/2π 1 MHz, Δ/2π 0.5 MHz, t 0.3 µs: 0.6045032594641636 (closed form) = 0.6045032594641635 (expm)
 //   infinite well me, 1 nm, n = 1: Δx 1.80756027595664e-10 m, Δp 3.3130350749999996e-25 kg m/s
 //   2s most probable radius 3 + √5 = 5.23606797749979 a₀
+//
+// Fix round 1 (review of Q6) — mpmath 1.4.1 at 80 digits in the same venv, CODATA 2018 as above:
+//   finite well, bisection (2000 steps) in φ with z = z0 cos φ, η = z0 sin φ, z0 cos φ − φ = jπ/2 (independent of the
+//   double code's arithmetic; its 10 eV / 2 nm energies agree with the brentq rows above), binding ħ²η²/(2ma²):
+//     me, 1e-20 eV, 1 nm: z0 2.5615836098374653e-10, E − V0 = −6.5617105901879397e-40 eV (= −V0·z0² to leading
+//       order; the review brief's "−6.56171×10⁻³⁶" has a typo in the exponent; the old code printed −6.10916×10⁻³⁶, noise)
+//     me, 1e-4 eV, 1 nm: E − V0 = −6.555975553761673e-8 eV
+//     me, 10 eV, 2 nm: n = 1 −9.9166188031955036, n = 11 −0.36707793128199771 eV
+//     me, 1 eV, 1 nm: n = 2 −0.29723042511911037 eV
+//   barrier, lnT = −(ln c + 2x − 2 ln 2 + ln(1 + 4e^{−2x}/c)), ratio = (lnT + 2x)/ln 10, at 60 digits:
+//     m 1e-20 kg, V0 1 eV, a 1 m, E 0.5 eV: log10 T −329680562688607.9361796665, T/T_WKB 4.0 (E/V0 0.25: 3.0)
+//     proton, a 1 m, E 0.5 eV: log10 T −134831769839.938981960421 (T = 1.1508…×10⁻¹³⁴⁸³¹⁷⁶⁹⁸⁴⁰), T/T_WKB 4.0
 
-import { QUANTUM_MECHANICS_CALCS, fromLog10 } from "../quantumMechanicsCalcs";
+import { QUANTUM_MECHANICS_CALCS, fromLog10, log10Figures } from "../quantumMechanicsCalcs";
 import {
   CODATA_2018,
   EV,
@@ -378,7 +390,6 @@ describe("adversarial inputs: named refusals, never a confident wrong number", (
     ["wrong quantity in a length field", "qm-particle-box", { width: "5 kg" }, /not compatible/],
     ["unit typo", "qm-particle-box", { width: "1 nmm" }, /not a unit/],
     ["the u for daltons", "qm-tunnelling", { particle: "typed", mass: "1 u" }, /Da/],
-    ["meV", "qm-tunnelling", { E: "5 meV" }, /meV is not a unit/],
     ["non-finite", "qm-particle-box", { width: "Infinity nm" }, /number/],
     ["levels out of range", "qm-particle-box", { levels: "9" }, /1 to 8/],
     ["state n = 0 in the infinite well", "qm-particle-box", { n: "0" }, /quantum number/],
@@ -531,5 +542,186 @@ describe("display contract, math lines and figures", () => {
     expect(curvesSvg({ series: [], xTitle: "t", yTitle: "P", xRange: [0, 1], yRange: [0, 1] })).toMatch(/<text/);
     expect(hydrogenLevelSvg({ levels: [{ n: 1, E: -13.6 }, { n: 2, E: -3.4 }], upper: 2, lower: 1, arrowLabel: "121.5 nm", unit: "eV" })).toMatch(/121\.5 nm/);
     expect(tunnelSvg({ below: [{ x: 0.5, lt: -2, wkb: -3 }], above: [{ x: 1, t: 0.1 }], xMax: 3, mark: { x: 0.5, lt: -2, t: 0.01 } })).toMatch(/<\/svg>$/);
+    // No sample below the barrier at all: still finite axes, no NaN.
+    expect(tunnelSvg({ below: [], above: [{ x: 1, t: 0.1 }, { x: 2, t: 0.9 }], xMax: 3, mark: { x: 2, lt: -0.05, t: 0.9 } })).not.toMatch(/NaN|Infinity/);
+  });
+
+  test("no underscore subscripts in prose, fallbacks, tables, captions, figure text, output labels or field labels", () => {
+    const US = /[A-Za-zΑ-Ωα-ω∞]_/;
+    for (const [, o] of runs) {
+      expect(o.text).not.toMatch(US);
+      for (const b of o.blocks ?? []) {
+        if (b.kind === "table") for (const row of b.rows) for (const c of row) expect(c).not.toMatch(US);
+        if (b.kind === "plot") {
+          expect(b.caption).not.toMatch(US);
+          const texts = [...b.svg.matchAll(/>([^<>]+)<\/text>/g)].map((m) => m[1]).join(" | ");
+          expect(texts).not.toMatch(US);
+        }
+      }
+      for (const v of o.outputs ?? []) expect(v.label).not.toMatch(US);
+    }
+    for (const c of QUANTUM_MECHANICS_CALCS) {
+      expect(c.hint ?? "").not.toMatch(US);
+      for (const f of c.fields) {
+        expect(f.label).not.toMatch(US);
+        for (const op of (f as { options?: Array<{ label: string }> }).options ?? []) expect(op.label).not.toMatch(US);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Fix round 1: the review's confirmed defects (oracle values in the header). Every row stays (cumulative gate).
+// ---------------------------------------------------------------------------------------------------------------
+
+describe("fix round 1: review defects", () => {
+  const table = (o: AnalyzeOutput, label: RegExp): string[][] => {
+    const t = (o.blocks ?? []).find((b) => b.kind === "table" && label.test((b as { label?: string }).label ?? ""));
+    if (!t || t.kind !== "table") throw new Error(`no table ${label}`);
+    return t.rows;
+  };
+  const svgOf = (o: AnalyzeOutput, i = 0): string => {
+    const p = (o.blocks ?? []).filter((b) => b.kind === "plot")[i];
+    if (!p || p.kind !== "plot") throw new Error("no plot");
+    return p.svg;
+  };
+  const captionOf = (o: AnalyzeOutput, i = 0): string => {
+    const p = (o.blocks ?? []).filter((b) => b.kind === "plot")[i];
+    if (!p || p.kind !== "plot") throw new Error("no plot");
+    return p.caption;
+  };
+
+  // #1 fromLog10 precision and the exact/WKB ratio.
+  test("#1 opaque barrier, m = 10⁻²⁰ kg, a = 1 m: exact/WKB = 4 (and 3 at E/V₀ = 0.25), T only to its power of ten", () => {
+    const o = run("qm-tunnelling", { particle: "typed", mass: "1e-20 kg", width: "1 m" });
+    const t = okText(o);
+    expect(t).toContain("exact/WKB = 4)");
+    expect(rel(out(o, "ratioWkb"), 4)).toBeLessThan(1e-12);
+    expect(t).toContain("Transmission T ≈ 10⁻³²⁹⁶⁸⁰⁵⁶²⁶⁸⁸⁶⁰⁸;");
+    expect(t).toMatch(/only the power of ten of T/);
+    expect(t).not.toMatch(/= ≈/);
+    const rows = table(o, /Transmission at a few energies/);
+    expect(rows[0]).toEqual(["E/V₀", "E (eV)", "T (exact)", "T (WKB)", "T/T(WKB)"]);
+    const r25 = rows.find((r) => r[0] === "0.25") as string[];
+    expect(r25[4]).toBe("3");
+    expect(rows.find((r) => r[0] === "0.5")?.[4]).toBe("4");
+    expect(Math.abs(out(o, "log10T") - -329680562688607.9361796665)).toBeLessThan(0.5);
+  });
+
+  test("#1 proton, a = 1 m: three meaningful figures (mantissa 1.1508 by mpmath), not six", () => {
+    const o = run("qm-tunnelling", { particle: "proton", width: "1 m" });
+    const t = okText(o);
+    expect(t).toContain("Transmission T = 1.15×10⁻¹³⁴⁸³¹⁷⁶⁹⁸⁴⁰;");
+    expect(t).toContain("WKB estimate exp(−2κa) = 2.88×10⁻¹³⁴⁸³¹⁷⁶⁹⁸⁴¹ (exact/WKB = 4)");
+    expect(t).toMatch(/only 3 significant figures/);
+  });
+
+  test("#1 mass 1 kg, a = 1 m: |log₁₀ T| ≈ 3×10²⁴ is refused by name (no '10⁻³.²⁹…e+²⁴')", () => {
+    const o = run("qm-tunnelling", { particle: "typed", mass: "1 kg", width: "1 m" });
+    expect(o.ok).toBe(false);
+    expect(o.text).toMatch(/too opaque.*past 10¹⁵/);
+    expect(o.text).not.toMatch(/\d[eE][+-]?\d|NaN|\^/);
+    // Above the barrier the same barrier still answers; the rows past range are named in the table.
+    const ab = run("qm-tunnelling", { particle: "typed", mass: "1 kg", width: "1 m", E: "2 eV" });
+    expect(okText(ab)).not.toMatch(/\d[eE][+-]?\d|NaN/);
+    expect(table(ab, /Transmission at a few energies/).find((r) => r[0] === "0.1")?.[2]).toBe("|log₁₀ T| past 10¹⁵");
+  });
+
+  test("#1 fromLog10: figures capped by |lg|, integer superscript exponent, ≈ when none survive", () => {
+    expect(fromLog10(-134831769839.938981960421)).toBe("1.15×10⁻¹³⁴⁸³¹⁷⁶⁹⁸⁴⁰");
+    expect(fromLog10(-329680562688607.9361796665)).toBe("≈10⁻³²⁹⁶⁸⁰⁵⁶²⁶⁸⁸⁶⁰⁸");
+    expect(fromLog10(-3.3e24)).toMatch(/^below 10⁻1?[⁰¹]+$/);
+    for (const lg of [-1e6 - 0.3, -1e9 - 0.7, -4.5e12, -9.99e14, 1e8 + 0.2]) expect(fromLog10(lg)).toMatch(/^≈?(\d(\.\d+)?×)?10⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/);
+    expect(log10Figures(-134831769839.94)).toBe(3);
+    expect(log10Figures(-3145.97)).toBeGreaterThanOrEqual(6);
+  });
+
+  test("#1 engine: wkbRatioLog10 equals log10T − wkbLog10 where that difference is well conditioned", () => {
+    for (const [a, E] of [[1e-9, 0.5], [1e-9, 0.1], [3e-9, 0.9], [1e-8, 0.25]]) {
+      const b = barrierT(M_E, EV, a, E * EV);
+      if (isErr(b)) throw new Error(b.error);
+      expect(Math.abs((b.wkbRatioLog10 as number) - (b.log10T - (b.wkbLog10 as number)))).toBeLessThan(1e-11);
+    }
+    const thick = barrierT(1e-20, EV, 1, 0.25 * EV);
+    if (isErr(thick)) throw new Error(thick.error);
+    expect(Math.abs(Math.pow(10, thick.wkbRatioLog10 as number) - 3)).toBeLessThan(1e-12);
+  });
+
+  // #2 finite-well binding energy from η.
+  test.each([
+    ["1e-20 eV, 1 nm (shallow)", "1e-20 eV", "1 nm", -6.5617105901879397e-40],
+    ["1e-4 eV, 1 nm", "1e-4 eV", "1 nm", -6.555975553761673e-8],
+    ["10 eV, 2 nm", "10 eV", "2 nm", -9.9166188031955036],
+  ])("#2 finite well %s: E₁ − V₀ against mpmath", (_n, depth, width, want) => {
+    const o = run("qm-particle-box", { well: "finite", depth, width });
+    expect(rel(out(o, "bind1"), want)).toBeLessThan(1e-9);
+  });
+
+  test("#2 engine: every state's Ebind against mpmath, and E + Ebind = V₀", () => {
+    const a = finiteWell(M_E, 10 * EV, 2e-9);
+    if (isErr(a)) throw new Error(a.error);
+    expect(rel(a.states[10].Ebind / EV, 0.36707793128199771)).toBeLessThan(1e-9);
+    for (const s of a.states) expect(rel(s.E + s.Ebind, 10 * EV)).toBeLessThan(1e-12);
+    const b = finiteWell(M_E, EV, 1e-9);
+    if (isErr(b)) throw new Error(b.error);
+    expect(rel(b.states[1].Ebind / EV, 0.29723042511911037)).toBeLessThan(1e-9);
+    const s = finiteWell(M_E, 1e-20 * EV, 1e-9);
+    if (isErr(s)) throw new Error(s.error);
+    expect(rel(s.states[0].Ebind / EV, 6.5617105901879397e-40)).toBeLessThan(1e-9);
+    const o = run("qm-particle-box", { well: "finite", depth: "1e-20 eV", width: "1 nm" });
+    expect(okText(o)).toContain("(−6.56171×10⁻⁴⁰ eV relative to the rim)");
+    expect(table(o, /Bound states/)[1][3]).toBe("−6.56171×10⁻⁴⁰");
+  });
+
+  // #3 levels captioned = levels drawn.
+  test("#3 finite well 10 eV, 2 nm, 8 levels: 8 states drawn and labelled beside the V₀ rim", () => {
+    const o = run("qm-particle-box", { well: "finite", depth: "10 eV", width: "2 nm", levels: "8" });
+    const svg = svgOf(o);
+    expect((svg.match(/>n = \d+</g) ?? []).length).toBe(8);
+    expect(svg).toContain(">n = 8<");
+    expect(svg).toContain(">V₀<");
+    expect(captionOf(o)).toMatch(/^Finite square well: 8 of 11 bound states/);
+  });
+
+  // #4 meV is a unit.
+  test("#4 meV accepted for every energy field; MeV is not folded into meV", () => {
+    const base = run("qm-tunnelling", {});
+    const mv = run("qm-tunnelling", { E: "500 meV" });
+    expect(rel(out(mv, "T"), out(base, "T"))).toBeLessThan(1e-12);
+    expect(okText(mv)).toContain("Particle energy E: 500 meV = ");
+    expect(rel(out(run("qm-tunnelling", { V0: "1000 meV" }), "T"), out(base, "T"))).toBeLessThan(1e-12);
+    const small = run("qm-tunnelling", { E: "5 meV" }), plain = run("qm-tunnelling", { E: "0.005 eV" });
+    expect(rel(out(small, "T"), out(plain, "T"))).toBeLessThan(1e-12);
+    const big = run("qm-tunnelling", { E: "5 MeV" });
+    expect(rel(out(big, "T"), out(small, "T"))).toBeGreaterThan(0.5);
+    const well = run("qm-particle-box", { well: "finite", depth: "300 meV", particle: "effective", width: "10 nm" });
+    expect(rel(out(well, "E1"), 0.034208440483167346)).toBeLessThan(1e-9);
+    for (const o of [base, mv, well]) expect(o.text).not.toMatch(/meV is not/);
+  });
+
+  // #6 e-notation in refusals.
+  test.each([
+    ["finite well past 1000 states", "qm-particle-box", { well: "finite", depth: "1e15 eV", width: "1 nm" }, /z₀ = 8\.100×10⁷/],
+    ["evolution phase", "qm-two-level", { mode: "spin", B: "10 T", t: "1 s" }, /8\.80×10¹¹ rad is past the 1×10⁶ rad/],
+  ])("#6 %s: the refusal writes ×10ⁿ, never e-notation", (_n, id, over, msg) => {
+    const o = run(id, over as Record<string, string>);
+    expect(o.ok).toBe(false);
+    expect(o.text).toMatch(msg);
+    expect(o.text).not.toMatch(/\d[eE][+-]?\d/);
+  });
+
+  test("#6 the dense-resonance caption writes a large count as ×10ⁿ", () => {
+    const o = run("qm-tunnelling", { particle: "typed", mass: "1e-20 kg", width: "1 m" });
+    expect(captionOf(o)).toContain("about 2.42×10¹⁴ in this window");
+  });
+
+  // Hydrogen level labels.
+  test.each([
+    ["default (3 → 2)", {}, "n = 5, 6"],
+    ["20 → 2", { upper: "20", lower: "2", orbital: "4f" }, "n = 5–10"],
+    ["8 → 1", { upper: "8", lower: "1" }, "n = 4–7"],
+  ])("hydrogen diagram %s: the crowded levels carry a grouped label", (_n, over, lab) => {
+    const svg = svgOf(run("qm-hydrogen", over as Record<string, string>), 0);
+    expect(svg).toContain(`>${lab}<`);
   });
 });

@@ -12,7 +12,7 @@
 import type { EngCalcDef, EngField } from "./engCalc";
 import { engReport, type EngReportLine } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput, EngOutput } from "./analyzeBlocks";
-import { formatUnit, parseMeasured } from "./units";
+import { formatUnit, parseMeasured, toSuperscript } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
 import { blochVector, fmtState, type CMat } from "./quantumCore";
@@ -53,25 +53,49 @@ type QmCalc = EngCalcDef<"Quantum mechanics">;
 
 const UNIT_NOTE =
   "Units: lengths, energies, masses, frequencies, times and fields convert (1 nm, 10 Å, 0.5 eV, 1 Da, 1 MHz, " +
-  "0.25 µs, 2 mT); a unit of the wrong quantity is refused. meV is not a unit the converter knows: type 0.001 eV.";
+  "0.25 µs, 2 mT, 50 meV); a unit of the wrong quantity is refused.";
 
 const refuse = (t: string): AnalyzeOutput => ({ text: trueMinus(t.replace(/—/g, ";")), ok: false });
 
 /** Six significant figures, trailing zeros dropped, U+2212, ×10ⁿ outside 10⁻³…10⁵. */
 export const n6 = (v: number, s = 6): string => (Math.abs(v) < 1e-300 ? "0" : fmtSig(v, s).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, ""));
 
-/** A number known only as log₁₀ (an opaque barrier's T): mantissa × 10ⁿ at s significant figures. */
+/**
+ * The significant figures of 10^lg that double precision carries when lg itself is only known to a few ulp: the
+ * mantissa's relative error is ln10·|lg|·(a few × 2⁻⁵³), so about 14.5 − log₁₀|lg| figures survive (|lg| = 1.3×10¹¹:
+ * 3 figures; past about 3×10¹³ none, and only the power of ten is meaningful).
+ */
+export const log10Figures = (lg: number): number => (Math.abs(lg) < 1 ? 15 : Math.floor(14.5 - Math.log10(Math.abs(lg))));
+
+/** The largest |lg| fromLog10 writes (the barrier engine refuses past BARRIER_LOG10_MAX = 10¹⁵ first). */
+const FROM_LOG10_MAX = 1e15;
+
+/**
+ * A number known only as log₁₀ (an opaque barrier's T): mantissa × 10ⁿ at s significant figures, fewer when |lg| is so
+ * large that double precision cannot carry s (log10Figures); "≈10ⁿ" (n rounded) when not even one figure survives.
+ */
 export function fromLog10(lg: number, s = 6): string {
   if (!Number.isFinite(lg)) return lg < 0 ? "0" : "not finite";
-  if (lg > -300) return n6(Math.pow(10, lg), s);
+  const a = Math.abs(lg);
+  if (a > FROM_LOG10_MAX) return lg < 0 ? "below 10⁻¹⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰" : "above 10¹⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰⁰";
+  if (a < 300) return n6(Math.pow(10, lg), s);
+  const sEff = Math.min(s, log10Figures(lg));
+  // |lg| ≤ 10¹⁵ < 2⁵³: the exponent is an exact integer and String() writes it in plain digits.
+  if (sEff < 1) return `≈10${toSuperscript(String(Math.round(lg)))}`;
   let e = Math.floor(lg);
   let m = Math.pow(10, lg - e);
-  if (Number(m.toPrecision(s)) >= 10) {
+  if (Number(m.toPrecision(sEff)) >= 10) {
     m /= 10;
     e += 1;
   }
-  return `${n6(m, s)}×10${String(e).replace("-", "⁻").replace(/\d/g, (d) => "⁰¹²³⁴⁵⁶⁷⁸⁹"[Number(d)])}`;
+  return `${n6(m, sEff)}×10${toSuperscript(String(e))}`;
 }
+
+/** "= 1.15×10⁻⁹" or, when only the power of ten survives, "≈ 10⁻³²⁹⁶…": a relation and fromLog10's value, for prose. */
+const relLog10 = (lg: number, s = 6): string => {
+  const v = fromLog10(lg, s);
+  return v.startsWith("≈") ? `≈ ${v.slice(1)}` : `= ${v}`;
+};
 
 /** A value scaled to the SI prefix that puts it in [1, 1000): "1.5 nm", "250 µs". */
 function prefixed(v: number, base: string, prefixes: Array<[number, string]>, s = 6): string {
@@ -111,10 +135,6 @@ function unitReader(r: (k: string) => string) {
     }
     if (/^[+-]?[\d.]+(?:[eE][+-]?\d+)?\s*u$/.test(raw)) {
       errors.push(`${label}: write the unified atomic mass unit as Da ("${raw.replace(/u$/, "Da")}").`);
-      return NaN;
-    }
-    if (/meV$/.test(raw)) {
-      errors.push(`${label}: meV is not a unit the converter knows; type the energy in eV (1 meV = 0.001 eV).`);
       return NaN;
     }
     const m = parseMeasured(raw, si);
@@ -321,14 +341,16 @@ function finiteBox(mass: { m: number; text: string }, w: number, V0: number, nLe
   lines.push({ math: "tan(z) = sqrt((z_0/z)^2 - 1)", fallback: "even states: tan z = √((z₀/z)² − 1)" });
   lines.push({ math: "-cot(z) = sqrt((z_0/z)^2 - 1)", fallback: "odd states: −cot z = √((z₀/z)² − 1)" });
   lines.push({ math: "E = (hbar^2 z^2)/(2 m a^2)", fallback: "E = ħ²z²/(2ma²), z = ka, measured from the well floor" });
+  lines.push({ math: "V_0 - E = (hbar^2 η^2)/(2 m a^2)", fallback: "V₀ − E = ħ²η²/(2ma²), η = κa = √(z₀² − z²) (the binding energy, solved for directly)" });
   lines.push(`z₀ = ${n6(fw.z0)}: ${st.length} bound state${st.length === 1 ? "" : "s"} (N = ⌈2z₀/π⌉; there is always at least one).`);
   if (fw.threshold) lines.push("A further state sits at the rim (z₀ is a multiple of π/2 to 10⁻⁶): it is not counted as bound.");
   const rows: string[][] = [["n", "Parity", "E above floor (eV)", "E − V₀ (eV)", "z = ka"]];
   const shown = st.slice(0, 50);
-  for (const s of shown) rows.push([String(s.n), s.parity, n6(s.E / EV), n6((s.E - V0) / EV), n6(s.z)]);
+  // E − V₀ is −ħ²η²/(2ma²) from η directly: subtracting E from V₀ cancels for a shallow or near-rim state.
+  for (const s of shown) rows.push([String(s.n), s.parity, n6(s.E / EV), n6(-s.Ebind / EV), n6(s.z)]);
   lines.push(tableLine(st.length > 50 ? `Bound states (the lowest 50 of ${st.length})` : "Bound states", rows));
   const inf1 = (Math.PI * Math.PI * HBAR * HBAR) / (2 * mass.m * w * w);
-  lines.push(`Ground state E₁ = ${eVText(st[0].E)} above the floor (${eVText(st[0].E - V0)} relative to the rim); the infinite well of the same width gives ${eVText(inf1)}.`);
+  lines.push(`Ground state E₁ = ${eVText(st[0].E)} above the floor (${eVText(-st[0].Ebind)} relative to the rim); the infinite well of the same width gives ${eVText(inf1)}.`);
   lines.push("Model: one particle, non-relativistic, V = 0 for |x| < a and V₀ outside; energies are measured from the well floor.");
   // Figure: the lowest bound states (at most nLev).
   const draw = st.slice(0, nLev);
@@ -341,10 +363,10 @@ function finiteBox(mass: { m: number; text: string }, w: number, V0: number, nLe
     const next = st[k + 1];
     if (next) return 0.72 * Ed(next.E - st[k].E);
     const below = k > 0 ? Ed(st[k].E - st[k - 1].E) : Ed(V0);
-    return Math.min(0.72 * below, Math.max(0.85 * Ed(V0 - st[k].E), 0.35 * below));
+    return Math.min(0.72 * below, Math.max(0.85 * Ed(st[k].Ebind), 0.35 * below));
   };
   const amp = ampOf(draw.length - 1);
-  const kapTop = Math.sqrt(Math.max(0, fw.z0 * fw.z0 - topState.z * topState.z)) / fw.a;
+  const kapTop = topState.eta / fw.a;
   const half = Math.min(2.5, Math.max(1.0, 0.5 + 3 / (Math.max(kapTop, 1e-300) * w))); // in units of w
   const eTop = Math.max(Ed(V0) * 1.15, Ed(topState.E) + amp * 1.08);
   const levels: LevelCurve[] = draw.map((s, k) => {
@@ -358,7 +380,8 @@ function finiteBox(mass: { m: number; text: string }, w: number, V0: number, nLe
     }
     return { E: Ed(s.E), x1: -0.5, x2: 0.5, label: `n = ${s.n}`, value: `${n6(Ed(s.E), 4)} ${sc.unit}`, curve: pts.map(([x, v]) => [x, mx > 0 ? v / mx : 0]), amp: ampOf(k) };
   });
-  levels.unshift({ E: Ed(V0), x1: -half, x2: -half, label: "V₀", value: `${n6(Ed(V0), 4)} ${sc.unit}`, curve: [] });
+  // The rim label is a marker, not a level: levelFigureSvg does not count it against LEVEL_FIG_MAX.
+  levels.unshift({ E: Ed(V0), x1: -half, x2: -half, label: "V₀", value: `${n6(Ed(V0), 4)} ${sc.unit}`, curve: [], marker: true });
   const ticks = [{ v: -0.5, label: "−w/2" }, { v: 0, label: "0" }, { v: 0.5, label: "w/2" }];
   if (half >= 1) ticks.push({ v: -1, label: "−w" }, { v: 1, label: "w" });
   const svg = levelFigureSvg({
@@ -375,7 +398,7 @@ function finiteBox(mass: { m: number; text: string }, w: number, V0: number, nLe
     { key: "count", label: "Bound states", value: st.length, unit: "" },
     { key: "z0", label: "z₀", value: fw.z0, unit: "" },
     ...st.slice(0, 8).map((s): EngOutput => ({ key: `E${s.n}`, label: `E${s.n} above the floor`, value: s.E / EV, unit: "eV" })),
-    { key: "bind1", label: "E₁ − V₀", value: (st[0].E - V0) / EV, unit: "eV" },
+    { key: "bind1", label: "E₁ − V₀", value: -st[0].Ebind / EV, unit: "eV" },
   ];
   const cap = `Finite square well: ${draw.length} of ${st.length} bound state${st.length === 1 ? "" : "s"} with |ψₙ|² (each scaled to fit below the next level); the tails reach into the barriers.`;
   return finish(lines, conversions, [plot(svg, cap, "Finite square well with bound levels and probability densities")], outputs);
@@ -565,13 +588,13 @@ const hydrogenCalc: QmCalc = {
     if (relCorr > 1e-3) {
       lines.push(`Caution: at Z = ${Z} the omitted relativistic correction to the 1s level is about ${n6(relCorr * 100, 2)} % ((Zα)²/4); read the values below as the non-relativistic estimate.`);
     }
-    lines.push(`${ion[0].toUpperCase()}${ion.slice(1)}; ${nucText}${M !== null ? `: μ/mₑ = ${n6(h.muRatio, 10)}, R_M = ${n6(h.RM, 12)} m⁻¹` : `: R_M = R∞ = ${n6(CODATA_2018.Rinf, 14)} m⁻¹`}.`);
-    lines.push({ math: "E_n = -(Z^2 R_{M} h c)/(n^2)", fallback: "Eₙ = −Z²R_M·hc/n²" });
+    lines.push(`${ion[0].toUpperCase()}${ion.slice(1)}; ${nucText}${M !== null ? `: μ/mₑ = ${n6(h.muRatio, 10)}, R(M) = ${n6(h.RM, 12)} m⁻¹` : `: R(M) = R∞ = ${n6(CODATA_2018.Rinf, 14)} m⁻¹`}.`);
+    lines.push({ math: "E_n = -(Z^2 R_{M} h c)/(n^2)", fallback: "Eₙ = −Z²R(M)·hc/n²" });
     if (M !== null) {
-      lines.push({ math: "R_{M} = R_{∞} μ/m_e", fallback: "R_M = R∞·μ/mₑ" });
+      lines.push({ math: "R_{M} = R_{∞} μ/m_e", fallback: "R(M) = R∞·μ/mₑ" });
       lines.push({ math: "μ = (m_e M)/(m_e + M)", fallback: "μ = mₑM/(mₑ + M)" });
     }
-    lines.push({ math: "1/λ = Z^2 R_{M} (1/(n_l^2) - 1/(n_u^2))", fallback: "1/λ = Z²R_M(1/n_l² − 1/n_u²)" });
+    lines.push({ math: "1/λ = Z^2 R_{M} (1/(n_1^2) - 1/(n_2^2))", fallback: "1/λ = Z²R(M)(1/n₁² − 1/n₂²), lower level n₁, upper n₂" });
     const Eu = hydrogenLevel(h, nu), El = hydrogenLevel(h, nl);
     const series = Z === 1 && SERIES_NAMES[nl] ? `${SERIES_NAMES[nl]} series` : `series ending on n = ${nl}`;
     lines.push(`Levels: E${toSub(nu)} = ${eVText(Eu)}, E${toSub(nl)} = ${eVText(El)}.`);
@@ -671,17 +694,28 @@ const tunnelCalc: QmCalc = {
     if (b.regime === "below") {
       lines.push({ math: "T = 1/(1 + (V_0^2 sinh^2(κ a))/(4 (V_0 - E) E))", fallback: "T = [1 + V₀²sinh²(κa)/(4E(V₀ − E))]⁻¹" });
       lines.push({ math: "κ = sqrt(2 (V_0 - E) m)/hbar", fallback: "κ = √(2m(V₀ − E))/ħ" });
-      lines.push({ math: "T_WKB ≈ e^(-2 κ a)", fallback: "T_WKB ≈ exp(−2κa)" });
+      lines.push({ math: "T_WKB ≈ e^(-2 κ a)", fallback: "T(WKB) ≈ exp(−2κa)" });
       const kap = b.phase / a;
       lines.push(`Tunnelling (E < V₀): κ = ${n6(kap)} m⁻¹, κa = ${n6(b.phase)}, decay length 1/κ = ${lenText(1 / kap)}.`);
-      lines.push(`Transmission T = ${fromLog10(b.log10T)}; reflection R = 1 − T = ${b.T > 1e-6 ? n6(Rr, 8) : "1 (to display precision)"}.`);
+      lines.push(`Transmission T ${relLog10(b.log10T)}; reflection R = 1 − T = ${b.T > 1e-6 ? n6(Rr, 8) : "1 (to display precision)"}.`);
       const wk = b.wkbLog10 as number;
       const thickLg = Math.log10(16 * (E / V0) * (1 - E / V0)) + wk;
+      // exact/WKB from the engine's prefactor (never log10T − wkbLog10, which cancels for an opaque barrier).
+      const ratioLg = b.wkbRatioLog10 as number;
       lines.push(
-        `WKB estimate exp(−2κa) = ${fromLog10(wk)} (exact/WKB = ${fromLog10(b.log10T - wk, 4)}); the thick-barrier limit of the exact ` +
-          `result, 16(E/V₀)(1 − E/V₀)exp(−2κa) = ${fromLog10(thickLg)}. WKB drops the prefactor, so it is good to an order of magnitude when κa ≫ 1.`,
+        `WKB estimate exp(−2κa) ${relLog10(wk)} (exact/WKB = ${fromLog10(ratioLg, 4)}); the thick-barrier limit of the exact ` +
+          `result, 16(E/V₀)(1 − E/V₀)exp(−2κa) ${relLog10(thickLg)}. WKB drops the prefactor, so it is good to an order of magnitude when κa ≫ 1.`,
       );
+      const figs = log10Figures(b.log10T);
+      if (figs < 6) {
+        lines.push(
+          `Precision: |log₁₀ T| = ${n6(-b.log10T, 4)}, and κa is known to about 16 figures, so double precision carries ` +
+            (figs >= 1 ? `only ${figs} significant figure${figs === 1 ? "" : "s"} of T's mantissa` : "only the power of ten of T (≈ marks it)") +
+            "; T and the WKB estimate are written to that, while exact/WKB comes from the prefactor and keeps full precision.",
+        );
+      }
       outputs.push({ key: "Twkb_log10", label: "log₁₀ T (WKB)", value: wk, unit: "" });
+      outputs.push({ key: "ratioWkb", label: "T/T(WKB)", value: Math.pow(10, ratioLg), unit: "" });
       outputs.push({ key: "kappa", label: "κ", value: kap, unit: "1/m" });
     } else if (b.regime === "at") {
       lines.push({ math: "T = 1/(1 + (m V_0 a^2)/(2 hbar^2))", fallback: "T = [1 + mV₀a²/(2ħ²)]⁻¹ (E = V₀)" });
@@ -694,11 +728,20 @@ const tunnelCalc: QmCalc = {
       lines.push(`Resonances (T = 1, k₂a = nπ): E = ${res.map((e) => eVText(e, 5)).join(", ")} …`);
     }
     // Table at fixed E/V₀.
-    const rows: string[][] = [["E/V₀", "E (eV)", "T (exact)", "T (WKB)"]];
+    const rows: string[][] = [["E/V₀", "E (eV)", "T (exact)", "T (WKB)", "T/T(WKB)"]];
     for (const x of [0.1, 0.25, 0.5, 0.75, 0.9, 1, 1.5, 2]) {
       const bb = barrierT(m, V0, a, x * V0);
-      if (isErr(bb)) continue;
-      rows.push([n6(x), n6((x * V0) / EV), fromLog10(bb.log10T, 4), bb.wkbLog10 === null ? "n/a" : fromLog10(bb.wkbLog10, 4)]);
+      if (isErr(bb)) {
+        rows.push([n6(x), n6((x * V0) / EV), "|log₁₀ T| past 10¹⁵", "n/a", "n/a"]);
+        continue;
+      }
+      rows.push([
+        n6(x),
+        n6((x * V0) / EV),
+        fromLog10(bb.log10T, 4),
+        bb.wkbLog10 === null ? "n/a" : fromLog10(bb.wkbLog10, 4),
+        bb.wkbRatioLog10 === null ? "n/a" : fromLog10(bb.wkbRatioLog10, 4),
+      ]);
     }
     lines.push(tableLine("Transmission at a few energies", rows));
     lines.push("Model: one particle, non-relativistic, a sharp-edged barrier with the same potential on both sides; T is computed in the log domain, so an opaque barrier gives a number, not 0.");
@@ -735,7 +778,7 @@ const tunnelCalc: QmCalc = {
     const cap =
       `Transmission through a ${lenText(a, 4)}, ${eVText(V0, 4)} barrier: log scale below the barrier with the WKB estimate dashed, linear above it ` +
       (band
-        ? `(the resonances, ${Math.round(nOsc)} in this window, are too dense to draw: T oscillates in the shaded band between the envelope [1 + V₀²/(4E(E − V₀))]⁻¹ and 1)`
+        ? `(the resonances, ${nOsc < 1e5 ? String(Math.round(nOsc)) : `about ${n6(nOsc, 3)}`} in this window, are too dense to draw: T oscillates in the shaded band between the envelope [1 + V₀²/(4E(E − V₀))]⁻¹ and 1)`
         : "(T = 1 at the resonances)") +
       `${markOff ? "" : "; the dot marks E"}.${offAxis ? " T below 10⁻³⁰⁰ runs off the bottom of the axis." : ""}${clipped ? " E lies beyond the drawn window." : ""}`;
     return finish(lines, u.conversions, [plot(svg, cap, "Transmission probability against energy over barrier height")], outputs);
@@ -747,9 +790,9 @@ const tunnelCalc: QmCalc = {
 // ---------------------------------------------------------------------------------------------------------------
 
 const MAG = {
-  electron: { g: CODATA_2018.ge, mu: CODATA_2018.muB, name: "electron", gName: "gₑ", muName: "μ_B" },
-  proton: { g: CODATA_2018.gp, mu: CODATA_2018.muN, name: "proton", gName: "gₚ", muName: "μ_N" },
-  neutron: { g: CODATA_2018.gn, mu: CODATA_2018.muN, name: "neutron", gName: "gₙ", muName: "μ_N" },
+  electron: { g: CODATA_2018.ge, mu: CODATA_2018.muB, name: "electron", gName: "gₑ", muName: "μB" },
+  proton: { g: CODATA_2018.gp, mu: CODATA_2018.muN, name: "proton", gName: "gₚ", muName: "μN" },
+  neutron: { g: CODATA_2018.gn, mu: CODATA_2018.muN, name: "neutron", gName: "gₙ", muName: "μN" },
 } as const;
 
 const H_UNITS: Record<string, { k: number; label: string; short: string }> = {
@@ -802,9 +845,9 @@ const twoLevelCalc: QmCalc = {
       default: "electron",
       kind: "select",
       options: [
-        { value: "electron", label: "Electron (gₑ, μ_B)" },
-        { value: "proton", label: "Proton (gₚ, μ_N)" },
-        { value: "neutron", label: "Neutron (gₙ, μ_N)" },
+        { value: "electron", label: "Electron (gₑ, μB)" },
+        { value: "proton", label: "Proton (gₚ, μN)" },
+        { value: "neutron", label: "Neutron (gₙ, μN)" },
       ],
     },
     { key: "B", label: "Field B along z (spin mode; T, mT, G)", default: "0.1 mT", kind: "text" },
@@ -848,7 +891,7 @@ const twoLevelCalc: QmCalc = {
       const lines: EngReportLine[] = [];
       lines.push(`Rabi oscillation: Ω/2π = ${freqText(fR)}, Δ/2π = ${freqText(fD)}, t = ${timeText(t)}; the system starts in |0⟩.`);
       lines.push({ math: "P_1(t) = Ω^2/(Ω^2 + Δ^2) sin^2((sqrt(Ω^2 + Δ^2) t)/2)", fallback: "P₁(t) = Ω²/(Ω² + Δ²)·sin²(√(Ω² + Δ²)t/2)" });
-      lines.push({ math: "H = (hbar/2)(Ω σ_x + Δ σ_z)", fallback: "H = (ħ/2)(Ωσₓ + Δσ_z) (rotating frame)" });
+      lines.push({ math: "H = (hbar/2)(Ω σ_x + Δ σ_z)", fallback: "H = (ħ/2)(Ωσx + Δσz) (rotating frame)" });
       lines.push(
         `P₁(t) = ${n6(P1, 6)}, P₀ = ${n6(1 - P1, 6)}. Generalised Rabi frequency √(Ω² + Δ²)/2π = ${freqText(W / (2 * Math.PI))}; ` +
           `oscillation period ${timeText(period)}; maximum transfer Ω²/(Ω² + Δ²) = ${n6(amp, 6)}; π-pulse time (Δ = 0) π/Ω = ${timeText(Math.PI / Om)}.`,
@@ -906,13 +949,13 @@ const twoLevelCalc: QmCalc = {
         [{ re: 0, im: 0 }, { re: (-HBAR * wL) / 2, im: 0 }],
       ];
       lines.push(`Spin-½ ${sp.name} in B = ${n6(B)} T along +z (${sp.gName} = ${n6(sp.g, 12)}, ${sp.muName} = ${n6(sp.mu, 11)} J/T).`);
-      lines.push({ math: "H = -(g μ B)/hbar S_z = (hbar ω_L)/2 σ_z", fallback: "H = −(gμB/ħ)S_z = (ħω_L/2)σ_z" });
-      lines.push({ math: "ω_L = -(g μ B)/hbar", fallback: "ω_L = −gμB/ħ" });
+      lines.push({ math: "H = -(g μ B)/hbar S_z = (hbar ω_L)/2 σ_z", fallback: "H = −(gμB/ħ)Sz = (ħωL/2)σz" });
+      lines.push({ math: "ω_L = -(g μ B)/hbar", fallback: "ωL = −gμB/ħ (the Larmor angular frequency)" });
       gyroLine =
-        `Larmor angular frequency |ω_L| = ${n6(Math.abs(wL))} rad/s, f_L = ${freqText(Math.abs(wL) / (2 * Math.PI))} ` +
+        `Larmor angular frequency |ωL| = ${n6(Math.abs(wL))} rad/s, fL = |ωL|/2π = ${freqText(Math.abs(wL) / (2 * Math.PI))} ` +
         `(${n6(Math.abs(sp.g * sp.mu) / H_PLANCK / 1e6, 10)} MHz/T); precession period ${Math.abs(wL) > 0 ? timeText((2 * Math.PI) / Math.abs(wL)) : "none (B = 0)"}; ` +
         `${wL > 0 ? "anticlockwise" : wL < 0 ? "clockwise" : "no precession"} seen from +z.`;
-      outputs.push({ key: "omegaL", label: "|ω_L|", value: Math.abs(wL), unit: "rad/s" }, { key: "fL", label: "f_L", value: Math.abs(wL) / (2 * Math.PI), unit: "Hz" });
+      outputs.push({ key: "omegaL", label: "|ωL| (Larmor)", value: Math.abs(wL), unit: "rad/s" }, { key: "fL", label: "fL (Larmor)", value: Math.abs(wL) / (2 * Math.PI), unit: "Hz" });
     } else {
       if (u.errors.length) return refuse(u.errors.join("\n"));
       const op = readOperator(r("H") ?? "");

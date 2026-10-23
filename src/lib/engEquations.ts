@@ -218,6 +218,24 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   ],
   "rel-availability": [eq("A = MTBF/(MTBF + MTTR)", "A = MTBF/(MTBF + MTTR)")],
   "rel-availability:series": [eq("A_sys = A^n", "Asys = Aⁿ")],
+  // ---- Biomedical ----
+  "haemodynamics:vessel": [
+    eq("R = 8 mu L/(pi r^4)", "R = 8μ·L/(π·r⁴)"),
+    eq("Delta p = Q R", "Δp = Q·R"),
+    eq("V = Q/(pi r^2)", "V = Q/(π·r²)"),
+    eq("Re = 2 rho V r/mu", "Re = 2ρ·V·r/μ"),
+    eq("tau_w = 4 mu Q/(pi r^3)", "τw = 4μ·Q/(π·r³)"),
+  ],
+  "haemodynamics:circulation": [eq("SVR = 80 (MAP - CVP)/CO", "SVR = 80·(MAP − CVP)/CO")],
+  "haemodynamics:stroke-volume": [eq("SV = 1000 CO/HR", "SV = 1000·CO/HR")],
+  "haemodynamics:cardiac-index": [eq("CI = CO/BSA", "CI = CO/BSA")],
+  biomechanics: [
+    eq("M = W d_W + W_s d_s", "M = W·dW + Ws·ds"),
+    eq("F_m = M/(d_m sin(theta))", "Fm = M/(dm·sin θ)"),
+    eq("MA = d_m/d_W", "MA = dm/dW"),
+  ],
+  biosignal: [eq("f_N = f_s/2", "fN = fs/2")],
+  "biosignal:record": [eq("N = f_s T", "N = fs·T"), eq("Delta f = 1/T", "Δf = 1/T")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

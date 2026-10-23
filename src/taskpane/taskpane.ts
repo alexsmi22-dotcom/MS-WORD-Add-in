@@ -19679,7 +19679,7 @@ const ENG_CALCS: EngCalc[] = [
       { key: "bsa", label: "Body surface area, m² (blank to skip)", default: "1.8", kind: "text" },
     ],
     compute: (r) => {
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       if ((r("which") || "vessel") === "vessel") {
         const res = vesselFlow({
           radius: Number(r("radius") || "0"),
@@ -19689,6 +19689,14 @@ const ENG_CALCS: EngCalc[] = [
           density: Number(r("rho") || "0"),
         });
         if (!res.ok) return { text: res.error, ok: false };
+        const vesselOutputs: EngOutput[] = [
+          { key: "Rhyd", label: "Hydraulic resistance", value: res.resistance, unit: "Pa·s/m³" },
+          { key: "dpVessel", label: "Pressure drop", value: res.pressureDrop, unit: "Pa" },
+          { key: "Vmean", label: "Mean velocity", value: res.velocity, unit: "m/s" },
+          { key: "Re", label: "Reynolds number", value: res.reynolds, unit: "" },
+          { key: "tauWall", label: "Wall shear stress", value: res.wallShearStress, unit: "Pa" },
+        ];
+        lines.push(...engEq("haemodynamics:vessel"));
         lines.push("Single-vessel flow (Poiseuille)");
         lines.push("");
         lines.push(`Hydraulic resistance = ${engNum(res.resistance)} Pa·s/m³`);
@@ -19744,7 +19752,7 @@ const ENG_CALCS: EngCalc[] = [
                 ylabel: "hydraulic resistance (Pa·s/m³)",
                 title: "A modest narrowing is not modest",
               });
-              return engReport(lines, [
+              return withOutputs(vesselOutputs, engReport(lines, [
                 {
                   kind: "plot",
                   svg,
@@ -19754,11 +19762,11 @@ const ENG_CALCS: EngCalc[] = [
                   w: 380,
                   h: 250,
                 },
-              ]);
+              ]));
             }
           }
         }
-        return { text: plainDashes(lines.join("\n")) };
+        return withOutputs(vesselOutputs, engReport(lines));
       } else {
         const res = circulation({
           mapMmHg: Number(r("map") || "0"),
@@ -19768,6 +19776,9 @@ const ENG_CALCS: EngCalc[] = [
           bsa: r("bsa").trim() ? Number(r("bsa")) : undefined,
         });
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("haemodynamics:circulation"));
+        if (res.strokeVolume !== null) lines.push(...engEq("haemodynamics:stroke-volume"));
+        if (res.cardiacIndex !== null) lines.push(...engEq("haemodynamics:cardiac-index"));
         lines.push("Systemic circulation");
         lines.push("");
         lines.push(`Systemic vascular resistance = ${engNum(res.svrClinical)} dyn·s/cm⁵`);
@@ -19775,9 +19786,13 @@ const ENG_CALCS: EngCalc[] = [
         if (res.strokeVolume !== null) lines.push(`Stroke volume = ${engNum(res.strokeVolume)} mL`);
         if (res.cardiacIndex !== null) lines.push(`Cardiac index = ${engNum(res.cardiacIndex)} L/min/m²`);
         for (const note of res.notes) lines.push(`Note: ${note}`);
+        lines.push(ENG_BIOMED_UNIT_NOTE);
+        return withOutputs([
+          { key: "SVR", label: "Systemic vascular resistance", value: res.svrClinical, unit: "dyn·s/cm⁵" },
+          { key: "SVolume", label: "Stroke volume", value: res.strokeVolume ?? NaN, unit: "mL" },
+          { key: "CI", label: "Cardiac index", value: res.cardiacIndex ?? NaN, unit: "L/min/m²" },
+        ], engReport(lines));
       }
-      lines.push(ENG_BIOMED_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
     },
   },
   {
@@ -19807,7 +19822,7 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("biomechanics")];
       lines.push("Static equilibrium about a joint");
       lines.push("");
       lines.push(`External moment = ${engNum(res.externalMoment)} N·m`);
@@ -19816,6 +19831,12 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`JOINT REACTION FORCE = ${engNum(res.jointReaction)} N`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_BIOMED_UNIT_NOTE);
+      const bioOutputs: EngOutput[] = [
+        { key: "Fmuscle", label: "Muscle force required", value: res.muscleForce, unit: "N" },
+        { key: "Fjoint", label: "Joint reaction force", value: res.jointReaction, unit: "N" },
+        { key: "MA", label: "Mechanical advantage", value: res.mechanicalAdvantage, unit: "" },
+        { key: "Mext", label: "External moment", value: res.externalMoment, unit: "N·m" },
+      ];
 
       // The forces as bars — one shared newton scale, because the 7× gap
       // between the load and the muscle force IS the third-class-lever
@@ -19834,7 +19855,7 @@ const ENG_CALCS: EngCalc[] = [
             title: `Forces about the joint (advantage ${engNum(res.mechanicalAdvantage, 3)})`,
             unit: "N",
           });
-          return engReport(lines, [
+          return withOutputs(bioOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -19843,10 +19864,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 400,
               h: 46 + rows.length * HBAR_ROW_H + 18,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(bioOutputs, engReport(lines));
     },
   },
   {
@@ -19872,7 +19893,7 @@ const ENG_CALCS: EngCalc[] = [
       );
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("biosignal"), ...(res.samples !== null ? engEq("biosignal:record") : [])];
       lines.push(`Sampling at ${engNum(Number(r("fs")))} Hz`);
       lines.push("");
       lines.push(`Nyquist frequency = ${engNum(res.nyquist)} Hz`);
@@ -19885,6 +19906,12 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_BIOMED_UNIT_NOTE);
+      const sigOutputs: EngOutput[] = [
+        { key: "fNyquist", label: "Nyquist frequency", value: res.nyquist, unit: "Hz" },
+        { key: "fAlias", label: "Apparent frequency of the checked one", value: res.aliasedTo ?? NaN, unit: "Hz" },
+        { key: "df", label: "Frequency resolution", value: res.resolution ?? NaN, unit: "Hz" },
+        { key: "samples", label: "Samples in the record", value: res.samples ?? NaN, unit: "" },
+      ];
 
       // The same fold diagram the audio door draws — one engine, one figure
       // family. The signal band's top and the fold of the checked tone both
@@ -19930,7 +19957,7 @@ const ENG_CALCS: EngCalc[] = [
               ylabel: "apparent frequency after sampling (Hz)",
               title: "Where every frequency lands",
             });
-            return engReport(lines, [
+            return withOutputs(sigOutputs, engReport(lines, [
               {
                 kind: "plot",
                 svg,
@@ -19941,11 +19968,11 @@ const ENG_CALCS: EngCalc[] = [
                 w: 380,
                 h: 260,
               },
-            ]);
+            ]));
           }
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(sigOutputs, engReport(lines));
     },
   },
 

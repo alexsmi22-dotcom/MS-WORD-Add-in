@@ -230,9 +230,10 @@ const KALMAN_ASSUMPTIONS =
   "Assumes a linear time-invariant model with zero-mean white process and measurement noise, uncorrelated with each other; every covariance is in your own consistent units.";
 
 const DARE_MATH = [
-  { math: "P = F P F^T - F P H^T (H P H^T + R)^(-1) H P F^T + Q", fallback: "P = FPFᵀ − FPHᵀ(HPHᵀ + R)⁻¹HPFᵀ + Q (steady a-priori covariance: the discrete algebraic Riccati equation)" },
-  { math: "K = P H^T (H P H^T + R)^(-1)", fallback: "K = PHᵀ(HPHᵀ + R)⁻¹" },
-  { math: "P^+ = (I - K H) P", fallback: "P⁺ = (I − KH)P (steady a-posteriori covariance)" },
+  { math: "P_pri = F P_pri F^T - F P_pri H^T (H P_pri H^T + R)^(-1) H P_pri F^T + Q", fallback: "P⁻ = FP⁻Fᵀ − FP⁻Hᵀ(HP⁻Hᵀ + R)⁻¹HP⁻Fᵀ + Q (steady a-priori covariance: the discrete algebraic Riccati equation)" },
+  { math: "K = P_pri H^T (H P_pri H^T + R)^(-1)", fallback: "K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹" },
+  { math: "P_post = (I - K H) P_pri", fallback: "P⁺ = (I − KH)P⁻ (steady a-posteriori covariance)" },
+  "In the equations the subscript pri marks the predicted (a-priori) values, written P⁻ and x̂⁻ in the tables, and post the updated (a-posteriori) ones, written P⁺ and x̂⁺.",
 ];
 
 // ------------------------------------------------------------------ 1. steady state
@@ -371,9 +372,11 @@ function computeRun(r: (k: string) => string): AnalyzeOutput {
   lines.push(`Kalman filter run over ${N} sample${N === 1 ? "" : "s"}, ${mr.desc}.`);
   lines.push(...mr.extraLines);
   lines.push(
-    { math: "x^+ = x^- + K (z - H x^-)", fallback: "x⁺ = x⁻ + K(z − Hx⁻)" },
-    { math: "K = P^- H^T (H P^- H^T + R)^(-1)", fallback: "K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹" },
-    { math: "x^- = F x^+,  P^- = F P^+ F^T + Q", fallback: "x⁻ = Fx⁺, P⁻ = FP⁺Fᵀ + Q (predict)" },
+    { math: "hat(x)_post = hat(x)_pri + K (z - H hat(x)_pri)", fallback: "x̂⁺ = x̂⁻ + K(z − Hx̂⁻)" },
+    { math: "K = P_pri H^T (H P_pri H^T + R)^(-1)", fallback: "K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹" },
+    { math: "hat(x)_pri = F hat(x)_post", fallback: "x̂⁻ = Fx̂⁺ (predict to the next step)" },
+    { math: "P_pri = F P_post F^T + Q", fallback: "P⁻ = FP⁺Fᵀ + Q (predict to the next step)" },
+    "In the equations the subscript pri marks the predicted (a-priori) values, written P⁻ and x̂⁻ in the tables, and post the updated (a-posteriori) ones, written P⁺ and x̂⁺.",
   );
   lines.push(`Start: x₀ = (${x0.map((v) => num(v, 6)).join(", ")}) and P₀ = ${num(p0)}·I, taken as the prior at the first measurement.`);
   lines.push(`Final estimate: ${mr.states.map((s, i) => `${s} ${num(last.x[i], 6)} ± ${num(Math.sqrt(Math.max(0, last.pDiag[i])), 4)} (1σ)`).join("; ")}.`);
@@ -418,12 +421,16 @@ function computeRun(r: (k: string) => string): AnalyzeOutput {
       z,
     ),
   );
-  const runFig = combineFigure(runPanels);
-  const innovFig = combineFigure(innovPanels);
-  blocks.push(
-    plot(runFig.svg, runFig.width, runFig.height, `Measurements, the filtered estimate and its ±2σ band (${mr.desc}).`, "Measured points with the filtered estimate as a line and a ±2σ band around it, against step number."),
-    plot(innovFig.svg, innovFig.width, innovFig.height, "Innovation sequence z − Hx⁻ at each update, with ±2√S, the band about 95% of innovations fall inside when the filter is consistent.", "Innovation points against step number between two ±2√S lines."),
-  );
+  // One figure per measured quantity (stacked panels would repeat one tick column, and each channel has its own unit).
+  const ch = (j: number): string => (m === 1 ? "" : ` (${mr.measured[j]})`);
+  runPanels.forEach((svg, j) => {
+    const f = sized(svg);
+    blocks.push(plot(f.svg, f.width, f.height, `Measurements, the filtered estimate and its ±2σ band${ch(j)}, ${mr.desc}.`, "Measured points with the filtered estimate as a line and a ±2σ band around it, against step number."));
+  });
+  innovPanels.forEach((svg, j) => {
+    const f = sized(svg);
+    blocks.push(plot(f.svg, f.width, f.height, `Innovation sequence z − Hx̂⁻ at each update${ch(j)}, with ±2√S, the band about 95% of innovations fall inside when the filter is consistent.`, "Innovation points against step number between two ±2√S lines."));
+  });
   const outputs: EngOutput[] = [];
   mr.states.forEach((s, i) => {
     outputs.push({ key: `final${i + 1}`, label: `Final estimate of ${s}`, value: last.x[i], unit: "" });
@@ -436,8 +443,8 @@ function computeRun(r: (k: string) => string): AnalyzeOutput {
   return finish(lines, blocks, outputs);
 }
 
-/** One panel per measured quantity, stacked by the plotter's own composer (a single panel passes through). */
-const combineFigure = (panels: string[]): { svg: string; width: number; height: number } => combineSvgs(panels);
+/** A single panel with its declared size (the plotter's composer passes one panel through and reads its size). */
+const sized = (svg: string): { svg: string; width: number; height: number } => combineSvgs([svg]);
 
 /**
  * 40 positions of a target simulated from the default model itself (constant velocity, Δt = 0.1, q = 1, r = 0.25,
@@ -518,7 +525,7 @@ function readRotation(
       errors.push(`Quaternion ${which}: ${nq.error}`);
       return null;
     }
-    if (Math.abs(nq.norm - 1) > 1e-9) notes.push(`Quaternion ${which} as typed has norm ${num(nq.norm, 8)}, not 1; it was normalised (divided by its norm) before use.`);
+    if (Math.abs(nq.norm - 1) > 1e-6) notes.push(`Quaternion ${which} as typed has norm ${num(nq.norm, 8)}, not 1; it was normalised (divided by its norm) before use.`);
     return { q: canonical(nq.q), text: `the quaternion ${order === "first" ? "(w, x, y, z)" : "(x, y, z, w)"} = (${v.map(comp).join(", ")})` };
   }
   if (form === "matrix" && which === "A") {
@@ -548,7 +555,7 @@ function readRotation(
       errors.push(aq.error);
       return null;
     }
-    if (Math.abs(aq.axisNorm - 1) > 1e-9) notes.push(`The axis as typed has length ${num(aq.axisNorm, 8)}; it was normalised to a unit vector.`);
+    if (Math.abs(aq.axisNorm - 1) > 1e-6) notes.push(`The axis as typed has length ${num(aq.axisNorm, 8)}; it was normalised to a unit vector.`);
     return { q: canonical(aq.q), text: `${deg(th)} about the axis (${axis.map(comp).join(", ")})` };
   }
   errors.push(`Rotation ${which}: unknown form "${form}"${which === "B" ? " (rotation B is given as Euler angles or a quaternion)" : ""}.`);
@@ -621,7 +628,7 @@ function computeAttitude(r: (k: string) => string): AnalyzeOutput {
   }
   if (e2.gimbalLock && !e.gimbalLock) lines.push("The reversed-sequence angles are at gimbal lock: their third angle is set to 0°.");
   lines.push(aa.axis ? `Axis–angle: ${deg((aa.angle * 180) / Math.PI)} about (${aa.axis.map(comp).join(", ")}).` : "Axis–angle: the identity (0°); no axis is defined.");
-  lines.push({ math: "q = (u sin(θ/2), cos(θ/2))", fallback: "q = (u·sin(θ/2), cos(θ/2)) for a rotation θ about the unit axis u" });
+  lines.push({ math: "q_w = cos(θ/2)", fallback: "q_w = cos(θ/2), the scalar part" }, { math: "q_v = u sin(θ/2)", fallback: "q_v = u·sin(θ/2), the vector part (x, y, z), for a rotation θ about the unit axis u" });
   lines.push(...notes, ...conversions.map((c) => `Converted: ${c}.`));
   lines.push(
     "Conventions: quaternions scalar-last (x, y, z, w) with the Hamilton product, shown with w ≥ 0 (q and −q are the same rotation); active, right-handed rotations, v_ref = R·v_body, so the columns of R are the body axes in reference coordinates (the passive direction-cosine matrix, reference to body, is Rᵀ). Intrinsic angles turn about the moving axes, extrinsic about the fixed ones.",

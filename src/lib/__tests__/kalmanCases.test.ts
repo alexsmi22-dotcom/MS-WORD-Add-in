@@ -11,6 +11,7 @@ import { eulerToQuat, quatToEuler, quatToMatrix, matrixToQuat, canonical, quatMu
 import { dhForward } from "../robotics";
 import { chiSquareDist } from "../probdist";
 import type { AnalyzeOutput } from "../analyzeBlocks";
+import { mathToOmml } from "../mathOmml";
 
 const D = Math.PI / 180;
 const calc = (id: string) => {
@@ -457,6 +458,34 @@ describe("attitude input conveniences", () => {
       expect((o.outputs ?? []).length).toBeGreaterThan(0);
       displayClean(o);
     }
+  });
+});
+
+describe("every formula typesets as a Word equation (no silent fallback to text)", () => {
+  const variants: Array<[string, Record<string, string>]> = [
+    ["kalman-steady", {}],
+    ["kalman-run", {}],
+    ["attitude-convert", {}],
+    ["attitude-convert", { op: "compose" }],
+    ["attitude-convert", { op: "slerp" }],
+    ["attitude-convert", { frame: "extrinsic", seqA: "XYZ" }],
+  ];
+  test.each(variants)("%s %j", (id, over) => {
+    const o = run(id, over);
+    const maths = (o.blocks ?? []).filter((b) => b.kind === "math");
+    expect(maths.length).toBeGreaterThan(0);
+    for (const b of maths) if (b.kind === "math") expect(() => mathToOmml(b.math)).not.toThrow();
+  });
+});
+
+describe("every dropdown option computes and draws (one option at a time, the rest at defaults)", () => {
+  const rows: Array<[string, string, string]> = [];
+  for (const c of KALMAN_CALCS) for (const f of c.fields) if (f.kind === "select") for (const o of f.options ?? []) rows.push([c.id, f.key, o.value]);
+  test.each(rows)("%s %s = %s", (id, key, value) => {
+    const o = run(id, { [key]: value });
+    expect(o.ok).not.toBe(false);
+    expect((o.blocks ?? []).some((b) => b.kind === "plot")).toBe(true);
+    displayClean(o);
   });
 });
 

@@ -14,9 +14,10 @@ const OPERATORS = new Set([
   "≡", "≈", "≅", "∝", "∥", "⇒", "⇔", "↦", "∠",
 ]);
 
-function leaf(node: { v: string }): string {
+function leaf(node: { v: string; label?: boolean }): string {
   const html = escapeHtml(node.v);
-  return OPERATORS.has(node.v) ? `<span class="m-op">${html}</span>` : html;
+  // A sign used as a state label (|+⟩, Φ⁺) is not an operator and gets no operator spacing.
+  return OPERATORS.has(node.v) && !node.label ? `<span class="m-op">${html}</span>` : html;
 }
 
 function astToHtml(node: Node): string {

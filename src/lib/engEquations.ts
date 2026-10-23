@@ -449,6 +449,13 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   ],
   "energy-solar-geometry:hour": [eq("sin(alpha) = sin(phi) sin(delta) + cos(phi) cos(delta) cos(omega)", "sin α = sin φ·sin δ + cos φ·cos δ·cos ω")],
   "energy-flame-temp": [eq("LHV + q_pre = sum(i=1, N, {n_i} ({h_i} (T_ad) - {h_i} (T_0)))", "LHV + qpre = ∑ᵢ₌₁ᴺ nᵢ·(hᵢ(Tad) − hᵢ(T₀))")],
+  // ---- Chemistry & electrochemistry ----
+  nernst: [eq("E = E^degree - (R T/(n F)) ln(Q)", "E = E° − (R·T/(n·F))·ln Q")],
+  "butler-volmer": [
+    eq("j = j_0 (exp(alpha_a F eta/(R T)) - exp(-alpha_c F eta/(R T)))", "j = j₀·(exp(αa·F·η/(R·T)) − exp(−αc·F·η/(R·T)))"),
+    eq("b = ln(10) R T/(alpha F)", "b = ln 10·R·T/(α·F)"),
+  ],
+  tafel: [eq("eta = a + b log_10 abs(j)", "η = a + b·log₁₀|j|"), eq("alpha = ln(10) R T/(abs(b) F)", "α = ln 10·R·T/(|b|·F)"), eq("j_0 = 10^{-a/b}", "j₀ = 10⁻ᵃᐟᵇ")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

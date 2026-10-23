@@ -25868,11 +25868,13 @@ const ENG_CALCS: EngCalc[] = [
       if (![E0, n, T].every(Number.isFinite)) return { text: engRefusal("Give E° (V), n and the temperature (°C) as numbers."), ok: false };
       const res = nernst(E0, n, T, prod, red);
       if (typeof res === "string") return { text: engRefusal(`Cannot compute: ${res}.`), ok: false };
-      const lines = [`E = ${engNum(res.E, 5)} V at ${engNum(T)} °C (n = ${n}; ln Q = ${engNum(res.lnQ)}).`, `Slope: ${engNum(res.slopePerDecade * 1000, 5)} mV per decade of Q.`, ELECTROCHEM_SOURCE];
+      const lines: EngReportLine[] = [...engEq("nernst"), `E = ${engNum(res.E, 5)} V at ${engNum(T)} °C (n = ${n}; ln Q = ${engNum(res.lnQ)}).`, `Slope: ${engNum(res.slopePerDecade * 1000, 5)} mV per decade of Q.`, ELECTROCHEM_SOURCE];
       const svg = nernstChartSvg(E0, res.slopePerDecade, res.lnQ / Math.LN10);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Nernst line", alt: "Electrode potential against log Q", w: 420, h: 269 }] };
+      return withOutputs([
+        { key: "Ecell", label: "Electrode potential E", value: res.E, unit: "V" },
+        { key: "slope", label: "Slope per decade of Q", value: res.slopePerDecade * 1000, unit: "mV" },
+      ], engReport(lines, [{ kind: "plot" as const, svg, caption: "Nernst line", alt: "Electrode potential against log Q", w: 420, h: 269 }]));
     },
   },
   {
@@ -25900,15 +25902,19 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(eta) || Math.abs(eta) > 2) return { text: engRefusal("Give an overpotential between −2 and 2 V."), ok: false };
       const j = butlerVolmer(eta, p);
       const u = (r("unit") || "A/cm²").trim();
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("butler-volmer"),
         `At η = ${engNum(eta)} V: j = ${engNum(j)} ${u}.`,
         `Tafel slopes: anodic ${engNum((Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaA)} mV/dec, cathodic ${engNum((Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaC)} mV/dec; charge-transfer resistance at η → 0: ${engNum(thermalVoltage(p.tC) / (p.j0 * (p.alphaA + p.alphaC)))} V per (${u})${/^A\/cm(²|2|\^2)$/.test(u) ? `, i.e. Ω·cm²` : /^mA\/cm(²|2|\^2)$/.test(u) ? `, i.e. kΩ·cm²` : /^A\/m(²|2|\^2)$/.test(u) ? `, i.e. Ω·m²` : `; with A/cm² this is Ω·cm²`}.`,
         ELECTROCHEM_SOURCE,
       ];
       const svg = butlerVolmerChartSvg(p, Math.max(0.2, Math.abs(eta) * 1.5), u);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Butler–Volmer current against overpotential", alt: "Butler–Volmer curve", w: 420, h: 269 }] };
+      return withOutputs([
+        { key: "jEta", label: "Current density at η", value: j, unit: u },
+        { key: "bA", label: "Anodic Tafel slope", value: (Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaA, unit: "mV/dec" },
+        { key: "bC", label: "Cathodic Tafel slope", value: (Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaC, unit: "mV/dec" },
+      ], engReport(lines, [{ kind: "plot" as const, svg, caption: "Butler–Volmer current against overpotential", alt: "Butler–Volmer curve", w: 420, h: 269 }]));
     },
   },
   {
@@ -25938,13 +25944,16 @@ const ENG_CALCS: EngCalc[] = [
       if (data.some(([e]) => Math.abs(e) > 2)) return { text: engRefusal("An overpotential beyond ±2 V: are they in mV? Give η in volts (−0.25, not −250)."), ok: false };
       const res = tafelFit(data, T, win);
       if (typeof res === "string") return { text: engRefusal(`Cannot fit: ${res}.`), ok: false };
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("tafel")];
       for (const [b, name] of [[res.anodic, "Anodic"], [res.cathodic, "Cathodic"]] as const) if (b) lines.push(`${name} branch: Tafel slope ${engNum(b.slope * 1000)} mV/dec, α = ${engNum(b.alpha, 3)}, r² = ${b.r2.toFixed(4)} (${b.n} points).`);
       lines.push(`Exchange current density j₀ ≈ ${engNum(res.j0)} (the unit of j).`, ...res.notes.map((n) => `Note: ${n}`), ELECTROCHEM_SOURCE);
       const svg = tafelChartSvg(data, res);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Tafel plot", alt: "Tafel plot with fitted branches", w: 420, h: 269 }] };
+      return withOutputs([
+        { key: "bAnodic", label: "Anodic Tafel slope", value: res.anodic ? res.anodic.slope * 1000 : NaN, unit: "mV/dec" },
+        { key: "bCathodic", label: "Cathodic Tafel slope", value: res.cathodic ? res.cathodic.slope * 1000 : NaN, unit: "mV/dec" },
+        { key: "j0", label: "Exchange current density (the unit of j)", value: res.j0, unit: "" },
+      ], engReport(lines, [{ kind: "plot" as const, svg, caption: "Tafel plot", alt: "Tafel plot with fitted branches", w: 420, h: 269 }]));
     },
   },
   {

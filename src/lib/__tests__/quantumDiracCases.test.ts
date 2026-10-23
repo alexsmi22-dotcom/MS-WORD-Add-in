@@ -47,6 +47,7 @@ import {
   withDegrees,
   bellDiagonalRho,
   DIRAC_MAX_DIM,
+  registerWork,
 } from "../quantumDirac";
 import { GATES, cx, kron, matNear, matMul, matScale, type CMat } from "../quantumCore";
 import { pureTwoQubit, wernerState } from "../quantum";
@@ -512,8 +513,17 @@ describe("tool refusals and caps", () => {
     expect(run("qc-operators", { A: "X⊗Y⊗Z⊗H + 0.5*(Z⊗Z⊗I⊗I)", state: "|0000⟩ + |1111⟩" }).ok).not.toBe(false);
     expect(run("qc-density", { mode: "pure", state: "|0000⟩ + i|1010⟩ - |1111⟩", compare: "0.0625*(I⊗I⊗I⊗I)" }).ok).not.toBe(false);
     expect(run("qc-bipartite", { mode: "mixed", matrix: "0.0625*(I⊗I⊗I⊗I)", split: "2" }).ok).not.toBe(false);
+    // Work bound, deterministic: the 10-qubit X-basis measurement builds NO basis vectors (512 possible outcomes is
+    // past the 64 post-states it ever writes out) — it rotates the state, O(n·2ⁿ), instead of comparing 2ⁿ vectors.
+    registerWork.basisVectorsBuilt = 0;
     const big = run("qc-measurement", { state: "|0000000000⟩ + |1111111111⟩", basis: "X" });
     expect(big.ok).not.toBe(false);
+    expect(registerWork.basisVectorsBuilt).toBe(0);
+    expect(okText(big)).toContain("The table lists 64 of the 512 possible outcomes (512 outcomes have probability 0)");
+    registerWork.basisVectorsBuilt = 0;
+    run("qc-measurement", { state: "|000⟩ + |111⟩", basis: "X" });
+    expect(registerWork.basisVectorsBuilt).toBe(4);
+    refused(run("qc-measurement", { state: "|00000⟩", basis: "typed", set: Array.from({ length: 17 }, (_, k) => `|${k.toString(2).padStart(5, "0")}⟩`).join("\n") }), /at most 16 vectors/);
     near(out(big, "p_pppppppppp"), 1 / 512, 1e-12);
     const st = run("qc-dirac-states", { psi: "|0000000000⟩ + |1111111111⟩", phi: "|0000000000⟩" });
     expect(okText(st)).toContain("tabulated only up to 16 × 16");

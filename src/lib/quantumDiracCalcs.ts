@@ -63,7 +63,7 @@ import {
   negativity,
   outer,
   partialTrace,
-  productBasis,
+  measureRegister,
   readOperator,
   readState,
   schmidt,
@@ -279,7 +279,9 @@ const statesCalc: QCalc = {
     ];
     const labels = labelsFor(d).map((l, k) => (qb !== null ? l : String(k)));
     const extra: AnalyzeBlock[] = [];
-    extra.push(table("Amplitudes", [["Basis state", "ψₖ", "φₖ"], ...labels.map((l, k) => [`|${l}⟩`, fmtCx(psi[k]).text, fmtCx(phi[k]).text]).filter((_, k) => d <= 64 || cAbs(psi[k]) > ZERO_TOL || cAbs(phi[k]) > ZERO_TOL)]));
+    const ampRows = labels.map((l, k) => [`|${l}⟩`, fmtCx(psi[k]).text, fmtCx(phi[k]).text]).filter((_, k) => d <= 16 || cAbs(psi[k]) > ZERO_TOL || cAbs(phi[k]) > ZERO_TOL);
+    if (ampRows.length > 64 || ampRows.length < d) lines.push(`The amplitude table lists ${Math.min(64, ampRows.length)} of the ${ampRows.length} basis states where |ψ⟩ or |φ⟩ is non-zero${ampRows.length < d ? ` (both are zero on the other ${d - ampRows.length})` : ""}.`);
+    extra.push(table("Amplitudes", [["Basis state", "ψₖ", "φₖ"], ...ampRows.slice(0, 64)]));
     if (d <= DIRAC_MAX_DIM) {
       lines.push({ math: "(ket(ψ) bra(φ))_{jk} = ψ_j bar(φ_k)", fallback: "(|ψ⟩⟨φ|)ⱼₖ = ψⱼ φₖ*" });
       extra.push(matrixTable("Outer product |ψ⟩⟨φ|", outer(psi, phi), labels));
@@ -536,6 +538,18 @@ const measurementCalc: QCalc = {
       if (degen) lines.push("A has a degenerate eigenvalue: its outcome projects onto the WHOLE eigenspace (Lüders rule), so the post-measurement state keeps every component in it.");
       lines.push({ math: "P(λ) = braket(ψ, P_λ ψ)", fallback: "P(λ) = ⟨ψ|P_λ|ψ⟩, P_λ the projector onto the λ eigenspace" });
       lines.push({ math: "ket(ψ_λ) = {P_λ ket(ψ)}/sqrt(P(λ))", fallback: "|ψ_λ⟩ = P_λ|ψ⟩/√P(λ)" });
+    } else if (basis === "Z" || basis === "X" || basis === "Y") {
+      if (qb === null) return refuse(`The ${basis === "Z" ? "computational" : basis} basis of a register needs qubit labels; for a d-level system choose a typed set or an observable (the computational basis |0⟩ … |d−1⟩ is the typed set of those kets).`);
+      // Rotated into the computational frame and read off: O(n·2ⁿ), never 2ⁿ basis vectors compared.
+      outcomes = measureRegister(psi, qb, basis);
+      what = `the ${basis === "Z" ? "computational" : basis} basis`;
+      if (qb === 1) {
+        // One qubit in a Pauli basis: the outcomes are the ±1 eigenvalues of that Pauli operator.
+        mean = outcomes[0].prob - outcomes[1].prob;
+        meanName = `⟨${basis}⟩`;
+      }
+      lines.push(`Measuring in ${what}: P(b) = |⟨b|ψ⟩|², and the state after outcome b is |b⟩.`);
+      lines.push({ math: "P(b) = abs(braket(b, ψ))^2", fallback: "P(b) = |⟨b|ψ⟩|²" });
     } else {
       let set: { label: string; v: State }[];
       if (basis === "bell") {
@@ -545,6 +559,7 @@ const measurementCalc: QCalc = {
       } else if (basis === "typed") {
         const rows = (r("set") ?? "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
         if (!rows.length) return refuse("Typed basis: type one ket per line, e.g. |+⟩ and |−⟩.");
+        if (rows.length > DIRAC_MAX_DIM) return refuse(`Typed basis: at most ${DIRAC_MAX_DIM} vectors (${rows.length} given); for a larger register use the computational, X or Y basis.`);
         if (rows.length > d) return refuse(`Typed basis: ${rows.length} vectors were given for a ${d}-dimensional space; at most ${d} can be orthonormal.`);
         set = [];
         for (let k = 0; k < rows.length; k++) {
@@ -557,20 +572,10 @@ const measurementCalc: QCalc = {
           set.push({ label: one ? one[1].replace(/-/g, "−") : `b${"₀₁₂₃₄₅₆₇₈₉"[(k + 1) % 10]}`, v: b.state });
         }
         what = "the typed set";
-      } else {
-        if (qb === null) return refuse(`The ${basis === "Z" ? "computational" : basis} basis of a register needs qubit labels; for a d-level system choose a typed set or an observable (the computational basis |0⟩ … |d−1⟩ is the typed set of those kets).`);
-        set = productBasis(qb, basis);
-        what = `the ${basis === "Z" ? "computational" : basis} basis`;
-        if (qb === 1) {
-          // One qubit in a Pauli basis: the outcomes are the ±1 eigenvalues of that Pauli operator.
-          mean = 0;
-          meanName = `⟨${basis}⟩`;
-        }
-      }
+      } else return refuse("Unknown measurement.");
       const m = measureInBasis(psi, set);
       if ("error" in m) return refuse(m.error);
       outcomes = m;
-      if (mean !== null) mean = outcomes[0].prob - outcomes[1].prob;
       lines.push(`Measuring in ${what}: P(b) = |⟨b|ψ⟩|², and the state after outcome b is |b⟩.`);
       lines.push({ math: "P(b) = abs(braket(b, ψ))^2", fallback: "P(b) = |⟨b|ψ⟩|²" });
       if (basis === "typed" && set.length < d) lines.push(`The typed set has ${set.length} vectors in a ${d}-dimensional space: the rest of the probability is the outcome "none of the listed".`);
@@ -579,14 +584,16 @@ const measurementCalc: QCalc = {
     const total = outcomes.reduce((t, o) => t + o.prob, 0);
     const rows: string[][] = [["Outcome", "Probability", "Post-measurement state"]];
     const outputs: EngOutput[] = [];
-    outcomes.forEach((o, k) => {
-      const post = o.post ? fmtVec(o.post, d, qb).text : "(outcome impossible)";
-      if (k < 64) rows.push([disp(o), fmtReal(o.prob).text, outcomes.length > 64 || d > 64 ? (o.post ? "|b⟩" : "") : post]);
-      if (k < 32) outputs.push({ key: `p_${keyOf(o.label)}`, label: `P(${disp(o)})`, value: o.prob, unit: "" });
-    });
+    // Up to 16 outcomes all listed; beyond that the possible ones only, at most 64 rows (said in the result).
+    const listed = outcomes.length <= 16 ? outcomes : outcomes.filter((o) => o.prob > ZERO_TOL);
+    const postText = (o: Outcome): string => (o.post ? fmtVec(o.post, d, qb).text : o.prob > ZERO_TOL ? `that basis state, ${disp(o)}` : "(outcome impossible)");
+    listed.slice(0, 64).forEach((o) => rows.push([disp(o), fmtReal(o.prob).text, postText(o)]));
+    if (listed.length < outcomes.length || listed.length > 64)
+      lines.push(`The table lists ${Math.min(64, listed.length)} of the ${listed.length} possible outcomes${listed.length < outcomes.length ? ` (${outcomes.length - listed.length} outcomes have probability 0)` : ""}.`);
+    outcomes.slice(0, 32).forEach((o) => outputs.push({ key: `p_${keyOf(o.label)}`, label: `P(${disp(o)})`, value: o.prob, unit: "" }));
     if (outcomes.length <= 8) {
       lines.push("Outcomes:");
-      for (const o of outcomes) lines.push(`  ${disp(o)}: P = ${fmtReal(o.prob).text}${fmtReal(o.prob).exact && fmtReal(o.prob).text !== trimNum(o.prob) ? ` = ${trimNum(o.prob)}` : ""}${o.post ? `; afterwards ${fmtVec(o.post, d, qb).text}` : "; impossible"}.`);
+      for (const o of outcomes) lines.push(`  ${disp(o)}: P = ${fmtReal(o.prob).text}${fmtReal(o.prob).exact && fmtReal(o.prob).text !== trimNum(o.prob) ? ` = ${trimNum(o.prob)}` : ""}${o.prob > ZERO_TOL ? `; afterwards ${postText(o)}` : "; impossible"}.`);
     } else lines.push(`${outcomes.filter((o) => o.prob > ZERO_TOL).length} of the ${outcomes.length} outcomes have non-zero probability (table below).`);
     lines.push(`The probabilities sum to ${trimNum(total)}.`);
     if (mean !== null) {

@@ -878,17 +878,32 @@ export function measureQubitInBasis(psi: State, n: number, q: number, basis: "Z"
 }
 
 /** Every qubit of a register in the X or Y basis: the product basis |±…⟩ / |±i…⟩, as labelled basis vectors. */
-export function productBasis(n: number, basis: "Z" | "X" | "Y"): { label: string; v: State }[] {
-  if (!Number.isInteger(n) || n < 1 || n > MAX_QUBITS) throw new Error(`productBasis: 1 to ${MAX_QUBITS} qubits`);
+/** The register measurement's work counter (basis vectors built), for the deterministic work-bound test. */
+export const registerWork = { basisVectorsBuilt: 0 };
+
+/**
+ * Every qubit of an n-qubit register measured in the Z, X or Y basis. O(n·2ⁿ): the state is rotated qubit by qubit
+ * (H, or H·S†) into the computational frame and the probabilities read off — no 2ⁿ basis vectors are compared.
+ * Post-states (the product basis states themselves) are built only for the non-zero outcomes, and only when there
+ * are at most `maxPosts` of them; otherwise `post` is null for a possible outcome and `postIsBasis` says what it is.
+ */
+export function measureRegister(psi: State, n: number, basis: "Z" | "X" | "Y", maxPosts = 64): (Outcome & { postIsBasis: true })[] {
+  if (!Number.isInteger(n) || n < 1 || n > MAX_QUBITS || !Array.isArray(psi) || psi.length !== 1 << n) throw new Error(`measureRegister: 1 to ${MAX_QUBITS} qubits`);
   const r = BASIS_ROT[basis];
-  const out: { label: string; v: State }[] = [];
-  for (let k = 0; k < 1 << n; k++) {
-    let v: State = Array.from({ length: 1 << n }, (_, j) => (j === k ? C1 : C0));
-    if (basis !== "Z") for (let q = 0; q < n; q++) v = applyGate(v, n, r.back, [q]);
-    const label = Array.from({ length: n }, (_, q) => r.labels[(k >> (n - 1 - q)) & 1]).join(basis === "Z" ? "" : "");
-    out.push({ label, v });
-  }
-  return out;
+  let s = psi;
+  if (basis !== "Z") for (let q = 0; q < n; q++) s = applyGate(s, n, r.to, [q]);
+  const probs = s.map(cAbs2);
+  const nonzero = probs.filter((p) => p > ZERO_TOL).length;
+  return probs.map((p, k) => {
+    const label = Array.from({ length: n }, (_, q) => r.labels[(k >> (n - 1 - q)) & 1]).join("");
+    let post: State | null = null;
+    if (p > ZERO_TOL && nonzero <= maxPosts) {
+      registerWork.basisVectorsBuilt++;
+      post = Array.from({ length: 1 << n }, (_, j) => (j === k ? C1 : C0));
+      if (basis !== "Z") for (let q = 0; q < n; q++) post = applyGate(post, n, r.back, [q]);
+    }
+    return { label, prob: p, post, postIsBasis: true as const };
+  });
 }
 
 export const BELL_BASIS: { label: string; v: State }[] = [

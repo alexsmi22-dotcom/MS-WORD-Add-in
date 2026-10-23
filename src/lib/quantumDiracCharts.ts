@@ -199,7 +199,9 @@ export function matrixHeatmapSvg(M: CMat, labels: string[], cellText: (z: Cx) =>
   const steps = 24;
   for (let s = 0; s < steps; s++) out.push(rect(barX, T + (gridW * s) / steps, barW, gridW / steps + 0.5, ramp(1 - s / steps)));
   out.push(`<rect x="${f(barX)}" y="${f(T)}" width="${barW}" height="${f(gridW)}" fill="none" stroke="#6b6b6b" stroke-width="0.8"/>`);
-  [0, 0.5, 1].forEach((p, i) => {
+  // An all-zero operator has one tick, 0 (three ticks all reading "0" would be a duplicate-label axis).
+  (maxMod > 0 ? [0, 0.5, 1] : [1]).forEach((p) => {
+    const i = p === 0 ? 0 : p === 0.5 ? 1 : 2;
     const y = T + gridW * p;
     out.push(line(barX + barW, y, barX + barW + 4, y));
     out.push(text(barX + barW + 7, y + 4, barLab[i], "start", 11));

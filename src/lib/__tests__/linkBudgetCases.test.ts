@@ -30,6 +30,9 @@
 //   8-PSK  4, 8, 10, 12 dB: approx/sim = 0.9963, 1.0041, 0.9914, 1.0141  (Pb 4.6×10⁻² … 6.3×10⁻⁵)
 //   16-PSK 4, 8, 10, 12, 14 dB: 0.9663, 0.9999, 1.0009, 0.9993, 1.0056  (Pb 9.9×10⁻² … 1.4×10⁻³)
 //   DBPSK 2, 6, 8 dB: sim 1.0250e-01, 9.3910e-03, 9.2500e-04 vs ½exp(−γ) 1.0248e-01, 9.3328e-03, 9.0940e-04
+//   Deeper runs (seed 2, chunks of 2×10⁶): 16-PSK 16 dB, 2×10⁷ symbols, 10005 bit errors: sim 1.2506e-04, approx
+//   1.2460e-04 (0.9963); 8-PSK 13 dB, 4×10⁷ symbols, 1137 errors: sim 9.4750e-06, approx 9.4173e-06 (0.9939);
+//   16-PSK 18 dB, 4×10⁷ symbols, only 432 errors (±5 % statistical): sim 2.70e-06, approx 2.93e-06 (1.083).
 
 import {
   berAt,
@@ -207,6 +210,10 @@ describe("named refusals", () => {
     ["rf-link-budget", { pt: "1e400" }, /not a finite number/],
     ["rf-link-budget", { gt: "500" }, /beyond ±400 dB/],
     ["rf-link-budget", { d: "1e400 m" }, /finite/],
+    ["rf-link-budget", { d: "1e308 m" }, /path loss would exceed 400 dB/],
+    ["rf-link-budget", { f: "1e300 Hz", d: "1e300 m" }, /path loss would exceed/],
+    ["noise-figure-cascade", { stages: [...Array.from({ length: 17 }, () => "-200 0"), "0 3"].join("\n") }, /beyond ±300 dB/],
+    ["noise-figure-cascade", { stages: Array.from({ length: 31 }, () => "20 1").join("\n") }, /beyond ±300 dB/],
     ["noise-figure-cascade", { stages: "20 -1" }, /below 0 dB.*not physical/],
     ["noise-figure-cascade", { stages: "20 abc" }, /mixes words and numbers/],
     ["noise-figure-cascade", { stages: "20 1.5 7" }, /exactly 2 numbers/],

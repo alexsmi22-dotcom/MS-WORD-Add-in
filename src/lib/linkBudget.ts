@@ -9,12 +9,13 @@
 //   Friis transmission: Pr = Pt + Gt + Gr − FSPL − losses, FSPL = 20 log₁₀(4πd/λ) (far field, free space).
 //   Friis noise: F = F₁ + (F₂ − 1)/G₁ + (F₃ − 1)/(G₁G₂) + …
 //   BPSK, and Gray-coded QPSK per bit: Pb = ½ erfc(√(Eb/N₀)) (Wikipedia "Phase-shift keying", citing Xiong 2000;
-//   MathWorks "Analytical Expressions Used in berawgn", citing Proakis eq. 5.2-57 and 5.2-62).
-//   DBPSK (differentially coherent detection): Pb = ½ exp(−Eb/N₀) (Wikipedia, citing Stüber 1988; MathWorks, citing
-//   Simon & Alouini eq. 8.85) — the two sources agree.
+//   MathWorks "Analytical Expressions Used in berawgn Function", eqs. 5.2-57 and 5.2-62 of its reference [1]).
+//   DBPSK (differentially coherent detection): Pb = ½ exp(−Eb/N₀) (Wikipedia, citing Stüber 1988; MathWorks, eq. 8.85
+//   of its reference [2]) — the two sources agree.
 //   M-PSK, M = 8 and 16, Gray coded: Ps ≈ 2Q(√(2Es/N₀) sin(π/M)), Pb ≈ Ps/log₂M (Wikipedia, "approximated for high M
 //   and high Eb/N₀"). Checked against a Gray-coded Monte Carlo simulation (oracle script in linkBudgetCases.test.ts):
-//   within 4 % for 6×10⁻⁵ ≤ Pb ≤ 10⁻¹ (the bound tightens as Eb/N₀ rises), so this tool uses it only for Pb ≤ 10⁻¹ and says it is an approximation.
+//   within 4 % for 8-PSK from Pb 4.6×10⁻² down to 9.5×10⁻⁶ and for 16-PSK from 10⁻¹ down to 1.25×10⁻⁴; this tool
+//   uses it only for Pb ≤ 10⁻¹ and says it is an approximation.
 //   M-QAM is NOT offered: no source read for this release rendered its formula legibly enough to check.
 
 import { erfPrecise, erfcPrecise } from "./probdist";
@@ -23,23 +24,28 @@ import { fmtSig } from "./axis";
 /** Speed of light in vacuum, m/s (exact, SI 2019). */
 export const C_LIGHT = 299792458;
 /** Boltzmann constant, J/K (exact, SI 2019). */
-export const K_BOLTZMANN = 1.380649e-23;
+const K_BOLTZMANN = 1.380649e-23;
 /** Noise-figure reference temperature, K (IEEE definition). */
 export const T0_NOISE = 290;
 /** kT₀ in dBm/Hz (≈ −173.975). */
 export const KT0_DBM_HZ = 10 * Math.log10((K_BOLTZMANN * T0_NOISE) / 1e-3);
 /** Most cascade stages accepted. */
 export const MAX_STAGES = 50;
+/** Largest free-space path loss accepted, dB (a probe at Neptune at 32 GHz is about 330 dB). */
+const FSPL_MAX_DB = 400;
+/** Largest |cumulative gain| along a cascade, dB (beyond it the linear product leaves double precision's useful range). */
+const CUM_GAIN_LIMIT_DB = 300;
 /** Largest |dB| accepted for a gain, loss or level (beyond it a typo is likelier than a link). */
-export const DB_LIMIT = 400;
+const DB_LIMIT = 400;
 
 export type Err = { ok: false; error: string };
 const err = (error: string): Err => ({ ok: false, error });
 const fin = (...v: number[]): boolean => v.every((x) => Number.isFinite(x));
 
-/** 10 log₁₀ and its inverse. */
-export const toDb = (x: number): number => 10 * Math.log10(x);
-export const fromDb = (db: number): number => Math.pow(10, db / 10);
+/** 10 log₁₀ and its inverse (power ratios). Module-private: audio.ts toDb(ratio, quantity) is the app's exported dB
+ *  helper, but it wraps each result for its level calculators; here only the bare power ratio is ever needed. */
+const toDb = (x: number): number => 10 * Math.log10(x);
+const fromDb = (db: number): number => Math.pow(10, db / 10);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Free-space path loss and the Friis link
@@ -52,12 +58,15 @@ export function fspl(fHz: number, dM: number): { ok: true; db: number; lambda: n
   if (!(fHz > 0)) return err("The frequency must be greater than zero.");
   if (!(dM > 0)) return err("The distance must be greater than zero.");
   const lambda = C_LIGHT / fHz;
+  const db = 20 * Math.log10((4 * Math.PI * dM) / lambda);
+  if (!Number.isFinite(db) || db > FSPL_MAX_DB)
+    return err(`The path loss would exceed ${FSPL_MAX_DB} dB (beyond any real link, deep-space ones included): check the frequency and distance.`);
   if (dM < 2 * lambda)
     return err(
       `The distance is less than two wavelengths (λ = ${fmtSig(lambda, 4)} m): the Friis free-space formula assumes the far field, ` +
         "and so close to the antenna it does not hold (below λ/4π it would even give a negative loss).",
     );
-  return { ok: true, db: 20 * Math.log10((4 * Math.PI * dM) / lambda), lambda };
+  return { ok: true, db, lambda };
 }
 
 export interface LinkInput {
@@ -190,6 +199,8 @@ export function noiseCascade(stages: Stage[]): CascadeResult | Err {
     F += term;
     gLin *= fromDb(gainDb);
     gDb += gainDb;
+    if (Math.abs(gDb) > CUM_GAIN_LIMIT_DB || !Number.isFinite(F))
+      return err(`Up to stage ${i + 1} the chain's gain is ${gDb > 0 ? "+" : ""}${gDb} dB, beyond ±${CUM_GAIN_LIMIT_DB} dB: no receive chain has that, so check the entries.`);
     rows.push({ n: i + 1, gainDb, nfDb, teK: T0_NOISE * (Fi - 1), cumGainDb: gDb, cumNfDb: toDb(F), term });
   }
   return { ok: true, rows, factor: F, nfDb: toDb(F), teK: T0_NOISE * (F - 1), gainDb: gDb };
@@ -238,15 +249,24 @@ export function erfc(x: number): number {
   return 1 - erfPrecise(x);
 }
 /** Gaussian tail Q(x) = ½ erfc(x/√2). */
-export const qfunc = (x: number): number => 0.5 * erfc(x / Math.SQRT2);
+const qfunc = (x: number): number => 0.5 * erfc(x / Math.SQRT2);
 
 /** The largest Pb at which an approximate curve is used (it was checked against simulation up to here). */
 export const APPROX_MAX_BER = 0.1;
 /** Smallest BER accepted as a target. */
-export const MIN_TARGET_BER = 1e-15;
+const MIN_TARGET_BER = 1e-15;
 /** Eb/N0 search interval, dB. */
-export const EBN0_LO = -10;
-export const EBN0_HI = 40;
+const EBN0_LO = -10;
+const EBN0_HI = 40;
+
+/** Bit error probability at Eb/N0 given in dB (the figure's curve). */
+export function berOfDb(mod: Modulation, ebn0Db: number): number {
+  return berLinear(mod, fromDb(ebn0Db));
+}
+
+/** A data rate in dB (10 log₁₀ Rb, Rb in bit/s), and a power in W as dBm. */
+export const rateDb = (rateBps: number): number => toDb(rateBps);
+export const wattsToDbm = (w: number): number => toDb(w / 1e-3);
 
 /** Bit error probability at Eb/N0 (linear). */
 export function berLinear(mod: Modulation, g: number): number {

@@ -23,10 +23,11 @@ import {
   cn0FromEbn0,
   ebn0FromCn0,
   linkBudget,
+  rateDb,
+  wattsToDbm,
   noiseCascade,
   requiredEbN0,
   sensitivity,
-  toDb,
   type LinkInput,
   type Modulation,
 } from "./linkBudget";
@@ -109,7 +110,7 @@ function unitReader(r: (k: string) => string) {
           errors.push(`${label}: a power in watts must be greater than zero.`);
           return NaN;
         }
-        const dbm = toDb(w.inTarget / 1e-3);
+        const dbm = wattsToDbm(w.inTarget);
         conversions.push(`${label}: ${trimSig(w.value)} ${formatUnit(w.unit)} = ${db2(dbm)} dBm`);
         return dbm;
       }
@@ -398,7 +399,7 @@ const berCalc: ElecCalc = {
       if (b.outsideApprox)
         return refuse(`At Eb/N₀ = ${db2(e)} dB the ${m.label} approximation gives Pb above 10⁻¹, where it was not checked against simulation; it is not used there. Raise Eb/N₀ or choose BPSK, QPSK or DBPSK.`);
       point = { ebn0Db: e, ber: b.ber };
-      if (mode === "cn0") lines.push(`Eb/N₀ = C/N₀ − 10 log₁₀ Rb = ${db2(cn0 as number)} − ${db2(toDb(rate as number))} = ${db2(e)} dB.`);
+      if (mode === "cn0") lines.push(`Eb/N₀ = C/N₀ − 10 log₁₀ Rb = ${db2(cn0 as number)} − ${db2(rateDb(rate as number))} = ${db2(e)} dB.`);
       const berText = b.ber === 0 ? "below 10⁻³⁰⁰ (underflows double precision)" : fmtSig(b.ber, 6);
       lines.push(`Bit error rate with ${m.label} at Eb/N₀ = ${db2(e)} dB: ${berText}${b.ber > 0 && b.ber < 1e-15 ? " (far below anything a link test can measure)" : ""}.`);
       lines.push(`Es/N₀ = ${db2(b.esn0Db)} dB at ${k} bit${k > 1 ? "s" : ""} per symbol.`);
@@ -415,13 +416,13 @@ const berCalc: ElecCalc = {
       lines.push({ math: "P_s ≈ 2 Q(sqrt(2 E_s/N_0) sin(π/M))", fallback: "Ps ≈ 2Q(√(2Es/N₀)·sin(π/M))" });
       lines.push({ math: "P_b ≈ P_s/(log_2 M)", fallback: "Pb ≈ Ps/log₂M (Gray coding)" });
     }
-    lines.push({ math: "E_b/N_0 = C/N_0 - 10 log_10 R_b", fallback: "Eb/N₀ (dB) = C/N₀ (dB-Hz) − 10 log₁₀Rb" });
+    lines.push({ math: "E_b/N_0 = (C/N_0)/R_b", fallback: "Eb/N₀ = (C/N₀)/Rb, in dB: Eb/N₀ = C/N₀ (dB-Hz) − 10 log₁₀Rb" });
     lines.push(
       (mod === "qpsk" ? "QPSK with Gray coding has the same bit error rate as BPSK at the same Eb/N₀. " : "") +
         (m.approx
-          ? "The M-PSK curve is the high-SNR (nearest-neighbour) approximation with Gray coding; a Monte Carlo simulation agreed within 4 % for 6×10⁻⁵ ≤ Pb ≤ 10⁻¹. "
+          ? "The M-PSK curve is the high-SNR (nearest-neighbour) approximation with Gray coding; a Gray-coded Monte Carlo simulation agreed within 4 % (8-PSK checked down to Pb ≈ 10⁻⁵, 16-PSK down to 1.25×10⁻⁴; the approximation tightens as Eb/N₀ rises). "
           : "") +
-        "Assumes uncoded transmission, additive white Gaussian noise, coherent detection (differential for DBPSK) with perfect synchronisation; sources: Wikipedia, Phase-shift keying (Xiong; Stüber), and MathWorks, Analytical expressions used in berawgn (Proakis).",
+        "Assumes uncoded transmission, additive white Gaussian noise, coherent detection (differential for DBPSK) with perfect synchronisation; sources: Wikipedia, “Phase-shift keying” (citing Xiong; Stüber), and MathWorks, “Analytical Expressions Used in berawgn Function”.",
     );
     const extra: AnalyzeBlock[] = [
       plot(

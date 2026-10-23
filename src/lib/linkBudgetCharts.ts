@@ -4,12 +4,12 @@
 
 import { buildPlotSvg, type Series } from "./plot";
 import { fmtSig } from "./axis";
-import { berLinear, fromDb, prAt, APPROX_MAX_BER, MODULATIONS, type CascadeRow, type LinkInput, type Modulation } from "./linkBudget";
+import { berOfDb, prAt, APPROX_MAX_BER, C_LIGHT, MODULATIONS, type CascadeRow, type LinkInput, type Modulation } from "./linkBudget";
 
 /** 4 significant figures, trailing zeros dropped (a label, not a measurement). */
 const sig = (v: number, n = 4): string => fmtSig(Number(v.toPrecision(n)), n).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "");
 
-export const LINK_CHART_WIDTH = 460;
+const LINK_CHART_WIDTH = 460;
 
 /** A distance with its unit chosen for reading (m or km). */
 export function distText(m: number): string {
@@ -21,7 +21,7 @@ export function distText(m: number): string {
  * horizontal line, the design distance marked and, when a sensitivity is given, the free-space range where Pr meets it.
  */
 export function linkRangeSvg(inp: LinkInput, prDbm: number, maxRangeM: number | null, width = LINK_CHART_WIDTH): string {
-  const lambda = 299792458 / inp.fHz;
+  const lambda = C_LIGHT / inp.fHz;
   const far = Math.max(inp.dM, maxRangeM ?? 0);
   const near = Math.min(inp.dM, maxRangeM ?? Infinity);
   const lo = Math.max(2 * lambda, Math.pow(10, Math.floor(Math.log10(near / 10))));
@@ -72,9 +72,9 @@ export function cascadeNfSvg(rows: CascadeRow[], width = LINK_CHART_WIDTH): stri
 }
 
 /** The floor of the waterfall's BER axis. */
-export const BER_FLOOR = 1e-10;
+const BER_FLOOR = 1e-10;
 /** The axis never extends below this, whatever the point (a 10⁻⁴⁴ point would squash every curve to the top). */
-export const BER_AXIS_MIN = 1e-16;
+const BER_AXIS_MIN = 1e-16;
 
 /**
  * BER against Eb/N0 (log BER) for the chosen modulation, BPSK as a grey reference when it differs, the operating point
@@ -88,14 +88,14 @@ export function berWaterfallSvg(mod: Modulation, point: { ebn0Db: number; ber: n
   const xLo = -2;
   // Right edge: where the curve reaches the floor, but always past the point.
   let xHi = 4;
-  while (xHi < 40 && berLinear(mod, fromDb(xHi)) > floor) xHi += 1;
+  while (xHi < 40 && berOfDb(mod, xHi) > floor) xHi += 1;
   if (point && pointShown) xHi = Math.max(xHi, Math.ceil(point.ebn0Db + 2));
   xHi = Math.ceil(xHi / 2) * 2;
   const curve = (md: Modulation, cap: number) => {
     const out: Array<{ x: number; y: number }> = [];
     for (let i = 0; i <= 240; i++) {
       const x = xLo + ((xHi - xLo) * i) / 240;
-      const y = berLinear(md, fromDb(x));
+      const y = berOfDb(md, x);
       if (y >= floor && y <= cap) out.push({ x, y });
     }
     return out;

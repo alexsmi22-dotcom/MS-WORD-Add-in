@@ -427,13 +427,26 @@ describe("the three calculators", () => {
     expect(out(run("vib-shaft-critical", { E: "29007547.5 psi", masses: "20 0.4" }), "dunkerleyRadS")).toBeCloseTo(si, 3);
   });
   test("shaft: ±20 % warning, supercritical, clear", () => {
-    expect(run("vib-shaft-critical").text).toMatch(/WARNING: the operating speed 3000 rpm is within ±20 % of the first critical \(Dunkerley\), 3120 rpm/);
+    expect(run("vib-shaft-critical").text).toMatch(
+      /WARNING: the operating speed 3000 rpm is within ±20 % of the first critical, which lies between 3120 rpm \(Dunkerley, a lower bound\) and 3665 rpm \(an upper bound\) \(3\.8 % below it\)/,
+    );
+    // One mass on a massless shaft: Rayleigh is exact, no bracket.
+    expect(run("vib-shaft-critical", { rho: "", op: "3500" }).text).toMatch(/within ±20 % of the first critical \(Rayleigh, exact for one mass\), 3665 rpm \(4\.5 % below it\)/);
     expect(run("vib-shaft-critical", { op: "6000 rpm" }).text).toMatch(/SUPERCRITICAL/);
     expect(run("vib-shaft-critical", { op: "1000" }).text).toMatch(/clear of the computed critical/);
     expect(run("vib-shaft-critical", { op: "300 rad/s" }).text).toMatch(/WARNING/);
     expect(run("vib-shaft-critical", { masses: "", op: "24000 rpm" }).text).toMatch(/within ±20 % of critical 2/);
     expect(run("vib-shaft-critical").text).toMatch(/convention, not a code requirement/);
   });
+  test("shaft: supercritical is judged against the UPPER bound of the first critical, clear against the lower", () => {
+    // Masses only: Dunkerley 2724 rpm, Rayleigh 2786 rpm (numpy oracle above).
+    const base = { rho: "", masses: ["20 0.3", "15 0.55", "8 0.6"].join(String.fromCharCode(10)) };
+    expect(run("vib-shaft-critical", { ...base, op: `${1.21 * 2724.33} rpm` }).text).toMatch(/WARNING/); // above 1.2·lower, below 1.2·upper
+    expect(run("vib-shaft-critical", { ...base, op: `${1.21 * 2785.88} rpm` }).text).toMatch(/SUPERCRITICAL/);
+    expect(run("vib-shaft-critical", { ...base, op: `${0.79 * 2724.33} rpm` }).text).toMatch(/clear of the computed critical by more than 20 %/);
+    expect(run("vib-shaft-critical", { ...base, op: "2750 rpm" }).text).toMatch(/inside that range/);
+  });
+
   test("shaft: many masses draw with subscript labels and stay clean", () => {
     const o = run("vib-shaft-critical", { rho: "", masses: Array.from({ length: 12 }, (_, i) => `${5 + i} ${0.05 + i * 0.075}`).join("\n") });
     displayClean(o);
@@ -455,6 +468,50 @@ describe("the three calculators", () => {
     const o = run("vib-shaft-critical", over as Record<string, string>);
     expect(o.ok).toBe(false);
     expect(o.text).toMatch(msg);
+  });
+});
+
+describe("a bare number is read in the unit its field's label names", () => {
+  // For every text field whose default is "number unit", typing the bare number must give identical outputs: a label
+  // that says (GPa) or (mm) and a reader that assumes Pa or m is a confident wrong number on the likeliest input.
+  const cases = RANDOM_VIBRATION_CALCS.flatMap((c) =>
+    c.fields
+      .filter((f) => f.kind === "text" && /^[\d.]+\s+\S+$/.test(f.default))
+      .map((f) => [c.id, f.key, f.default] as const),
+  );
+  test("the scan is not vacuous", () => {
+    expect(cases.map(([id, k]) => `${id}.${k}`)).toEqual(expect.arrayContaining(["vib-shaft-critical.E", "vib-shaft-critical.d", "vib-shaft-critical.L", "vib-shaft-critical.rho", "vib-shaft-critical.op"]));
+  });
+  test.each(cases)("%s %s (default %s)", (id, key, def) => {
+    const typed = run(id);
+    const bare = run(id, { [key]: def.split(/\s+/)[0] });
+    expect(bare.ok).not.toBe(false);
+    expect(bare.outputs).toEqual(typed.outputs);
+  });
+  test.each(RANDOM_VIBRATION_CALCS.map((c) => [c.id]))("%s: every unit-bearing default field read bare (all at once) matches", (id) => {
+    const c = calc(id);
+    const over: Record<string, string> = {};
+    for (const f of c.fields) if (f.kind === "text" && /^[\d.]+\s+\S+$/.test(f.default)) over[f.key] = f.default.split(/\s+/)[0];
+    for (const f of c.fields) if (f.kind === "text" && /^[\d.]+$/.test(f.default)) over[f.key] = f.default;
+    expect(run(id, over).outputs).toEqual(run(id).outputs);
+  });
+  test("bare shaft numbers: 200, 50, 1, 7850, 3000 are GPa, mm, m, kg/m³, rpm", () => {
+    const o = run("vib-shaft-critical", { E: "200", d: "50", L: "1", rho: "7850", op: "3000", masses: "" });
+    expect(out(o, "shaft1RadS")).toBeCloseTo(622.716, 2);
+  });
+});
+
+describe("converted units are typeset in the Units read note", () => {
+  test.each([
+    ["vib-base-excitation", { ikind: "acc", amp: "1961.33 cm/s^2" }, /1961\.33 cm\/s² = 19\.61 m\/s²/],
+    ["vib-shaft-critical", { rho: "7.85 g/cm^3" }, /g\/cm³/],
+    ["vib-shaft-critical", { E: "29007547.5 psi", d: "1.968504 in" }, /psi/],
+    ["vib-random-psd", { fn: "0.1 kHz" }, /kHz/],
+  ])("%s %p", (id, over, unit) => {
+    const o = run(id, over as Record<string, string>);
+    displayClean(o);
+    expect(o.text).toMatch(/Units read: /);
+    expect(o.text).toMatch(unit);
   });
 });
 

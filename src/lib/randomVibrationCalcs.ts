@@ -9,7 +9,7 @@
 import type { EngCalcDef } from "./engCalc";
 import { engReport, type EngLine } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput, EngOutput } from "./analyzeBlocks";
-import { convert, parseMeasured } from "./units";
+import { convert, formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
 import { readDataBlock } from "./dataBlock";
@@ -62,11 +62,13 @@ function unitReader(r: (k: string) => string) {
       errors.push(`${label}: ${m.error}`);
       return NaN;
     }
+    // The unit typed IS the target ("3000 rpm" in an rpm field): the number as typed, not a round trip through SI.
+    if (m.unit.replace(/\s+/g, "") === si) return m.value;
     if (!Number.isFinite(m.inTarget)) {
       errors.push(`${label}: "${raw}" is not a finite number.`);
       return NaN;
     }
-    if (!m.assumed && Math.abs(m.inTarget / m.value - 1) > 1e-12) conversions.push(`${label}: ${trimSig(m.value)} ${m.unit} = ${n4(m.inTarget)} ${shown}`);
+    if (!m.assumed && Math.abs(m.inTarget / m.value - 1) > 1e-12) conversions.push(`${label}: ${trimSig(m.value)} ${formatUnit(m.unit)} = ${n4(m.inTarget)} ${shown}`);
     return m.inTarget;
   };
   return {
@@ -165,7 +167,7 @@ const randomCalc: VibCalc = {
       { key: "area", label: "Mean square acceleration", value: prof.area, unit: "g²" },
       { key: "grms", label: "Overall Grms", value: prof.grms, unit: "g" },
     ];
-    lines.push(`Overall level: ${n4(prof.grms)} g rms (area ${n4(prof.area)} g², ${prof.segments.length} segment${prof.segments.length > 1 ? "s" : ""}, ${n4(prof.points[0][0])}–${n4(prof.points[prof.points.length - 1][0])} Hz).`);
+    lines.push(`Overall level: ${n4(prof.grms)} g rms (area ${n4(prof.area)} g², ${prof.segments.length} segment${prof.segments.length > 1 ? "s" : ""}, ${trimSig(prof.points[0][0])}–${trimSig(prof.points[prof.points.length - 1][0])} Hz).`);
     lines.push({ math: "G_rms = sqrt(sum(i=1, N, A_i))", fallback: "Grms = √(Σ Aᵢ), the square root of the area under the profile" });
     lines.push({ math: "A_i = a_1 f_1 {(f_2/f_1)^{n+1} - 1}/{n+1}", fallback: "Aᵢ = a₁f₁·((f₂/f₁)ⁿ⁺¹ − 1)/(n + 1)" });
     lines.push({ math: "n = {log(a_2/a_1)}/{log(f_2/f_1)}", fallback: "n = log(a₂/a₁)/log(f₂/f₁)" });
@@ -183,15 +185,15 @@ const randomCalc: VibCalc = {
       if (!(fn > 0)) return refuse("Natural frequency: it must be greater than zero.");
       const asd = asdAt(prof, fn);
       if (asd === null)
-        return refuse(`Natural frequency ${n4(fn)} Hz is outside the profile (${n4(prof.points[0][0])}–${n4(prof.points[prof.points.length - 1][0])} Hz): Miles' equation needs the input ASD at fn. Extend the profile or leave fn blank.`);
+        return refuse(`Natural frequency ${trimSig(fn)} Hz is outside the profile (${trimSig(prof.points[0][0])}–${trimSig(prof.points[prof.points.length - 1][0])} Hz): Miles' equation needs the input ASD at fn. Extend the profile or leave fn blank.`);
       const Q = 1 / (2 * zeta);
       const mi = miles(fn, Q, asd);
       const ex = sdofRandomResponse(prof, fn, zeta);
       if ("error" in ex) return refuse(ex.error);
       const exact = ex;
-      lines.push(`SDOF response at fn = ${n4(fn)} Hz, Q = ${fmtSig(Q, 3)} (ζ = ${fmtSig(zeta, 3)}); input ASD at fn ${n4(asd)} g²/Hz (log-log interpolation):`);
+      lines.push(`SDOF response at fn = ${trimSig(fn)} Hz, Q = ${trimSig(Q)} (ζ = ${trimSig(zeta)}); input ASD at fn ${n4(asd)} g²/Hz (log-log interpolation):`);
       lines.push({ math: "G_rms = sqrt(π/2 f_n Q ASD(f_n))", fallback: "Grms = √(π/2 · fn · Q · ASD(fn)) (Miles)" });
-      lines.push({ math: "x_rms = {G_rms g}/{(2 π f_n)^2}", fallback: "x_rms = Grms·g/(2π·fn)²" });
+      lines.push({ math: "x_rms = {G_rms g}/{(2 π f_n)^2}", fallback: "x (rms) = Grms·g/(2π·fn)²" });
       lines.push(`  Miles: ${n4(mi.grms)} g rms; relative displacement ${n4(mi.xRms * 1000)} mm rms, 3σ ${n4(mi.x3Sigma * 1000)} mm (g = ${STANDARD_GRAVITY} m/s²).`);
       lines.push(`  Exact over the profile (∫T²·ASD df, zero outside the band): ${n4(exact.grms)} g rms; relative displacement ${n4(exact.xRms * 1000)} mm rms, 3σ ${n4(3 * exact.xRms * 1000)} mm.`);
       const d = mi.grms / exact.grms - 1;
@@ -269,7 +271,7 @@ const baseCalc: VibCalc = {
     if (!res.ok) return refuse(res.error);
     const g = STANDARD_GRAVITY;
     const lines: EngLine[] = [];
-    lines.push(`r = f/fn = ${n4(res.r)} (f = ${n4(f)} Hz, fn = ${n4(fn)} Hz), ζ = ${fmtSig(zeta, 3)} (Q = ${fmtSig(1 / (2 * zeta), 3)}).`);
+    lines.push(`r = f/fn = ${n4(res.r)} (f = ${trimSig(f)} Hz, fn = ${trimSig(fn)} Hz), ζ = ${trimSig(zeta)} (Q = ${trimSig(1 / (2 * zeta))}).`);
     lines.push({ math: "T = sqrt({1 + (2 ζ r)^2}/{(1 - r^2)^2 + (2 ζ r)^2})", fallback: "T = √((1 + (2ζr)²)/((1 − r²)² + (2ζr)²))" });
     lines.push({ math: "Z = A/{ω_n^2} 1/sqrt((1 - r^2)^2 + (2 ζ r)^2)", fallback: "Z = (A/ωn²)/√((1 − r²)² + (2ζr)²), the isolator deflection for a base acceleration amplitude A" });
     lines.push(`Transmissibility T = ${n4(res.T)}: ${res.isolating ? `the mount ISOLATES (r > √2), passing ${pct(res.T)} of the input; isolation ${pct(1 - res.T)}.` : res.r > 1 / Math.SQRT2 ? "the mount AMPLIFIES: it is near resonance (r below √2, isolation only begins at r = √2)." : "the mount AMPLIFIES slightly (r below √2): the item follows its base."}`);
@@ -340,9 +342,10 @@ const shaftCalc: VibCalc = {
   ],
   compute: (r) => {
     const u = unitReader(r);
-    const E = u.req("E", "Pa", "Pa", "Young's modulus");
-    const d = u.req("d", "m", "m", "Shaft diameter");
-    const di = u.opt("di", "m", "m", "Bore diameter") ?? 0;
+    // Each field is read in the unit its label names (a bare 200 is 200 GPa, a bare 50 is 50 mm), then taken to SI.
+    const E = u.req("E", "GPa", "GPa", "Young's modulus") * 1e9;
+    const d = u.req("d", "mm", "mm", "Shaft diameter") / 1000;
+    const di = (u.opt("di", "mm", "mm", "Bore diameter") ?? 0) / 1000;
     const L = u.req("L", "m", "m", "Bearing span");
     const rho = u.opt("rho", "kg/m^3", "kg/m³", "Density");
     const op = u.opt("op", "rpm", "rpm", "Operating speed");
@@ -371,17 +374,18 @@ const shaftCalc: VibCalc = {
       rows.push({ label, rpm: rpm(w) });
       outputs.push({ key: `${key}RadS`, label: `${label} (rad/s)`, value: w, unit: "rad/s" }, { key: `${key}Rpm`, label: `${label} (rpm)`, value: rpm(w), unit: "rpm" });
     };
-    lines.push(`Shaft: ${di > 0 ? `hollow, ${n4(d * 1000)} mm outside, ${n4(di * 1000)} mm bore` : `solid, ${n4(d * 1000)} mm`}; I = ${n4(s.I)} m⁴, A = ${n4(s.A)} m², E = ${n4(E / 1e9)} GPa, bearing span ${n4(L)} m.`);
+    lines.push(`Shaft: ${di > 0 ? `hollow, ${trimSig(d * 1000)} mm outside, ${trimSig(di * 1000)} mm bore` : `solid, ${trimSig(d * 1000)} mm`}; I = ${n4(s.I)} m⁴, A = ${n4(s.A)} m², E = ${trimSig(E / 1e9)} GPa, bearing span ${trimSig(L)} m.`);
     let shaftW: number[] = [];
     if (rho !== null) {
       const ws = uniformShaftCriticals(E, s, rho, L, 3);
       if (!Array.isArray(ws)) return refuse(ws.error);
       shaftW = ws;
       lines.push({ math: "ω_n = ({n π}/L)^2 sqrt({E I}/{ρ A})", fallback: "ωₙ = (nπ/L)²·√(EI/(ρA))" });
-      lines.push(`Shaft alone (ρ = ${n4(rho)} kg/m³, mass ${n4(rho * s.A * L)} kg): first critical ${n4(ws[0])} rad/s = ${n4(rpm(ws[0]))} rpm.`);
+      lines.push(`Shaft alone (ρ = ${trimSig(rho)} kg/m³, mass ${n4(rho * s.A * L)} kg): first critical ${n4(ws[0])} rad/s = ${n4(rpm(ws[0]))} rpm.`);
     }
     let masses: Array<{ m: number; x: number }> = [];
-    let first: { w: number; how: string } | null = null;
+    /** The first critical: exact (lo = hi) or bracketed by Dunkerley (lo) and an upper bound (hi). */
+    let first: { lo: number; hi: number; how: string } | null = null;
     let shape: Array<[number, number]> = [];
     if (hasMasses) {
       const t = readRows(r("masses"), "Point masses", 2, SHAFT_MAX_MASSES, `mass in ${mUnit}, position in ${xUnit}`);
@@ -393,7 +397,7 @@ const shaftCalc: VibCalc = {
       shape = ms.shape;
       lines.push({ math: "ω^2 = {sum(i=1, N, m_i δ_i)}/{sum(i=1, N, m_i δ_i^2)}", fallback: "ω² = Σmᵢδᵢ / Σmᵢδᵢ² (Rayleigh; δᵢ = static deflection at mass i under the weights, per unit g)" });
       lines.push({ math: "1/{ω^2} = 1/{ω_s^2} + sum(i=1, N, 1/{ω_i^2})", fallback: "1/ω² = 1/ωs² + Σ 1/ωᵢ² (Dunkerley)" });
-      masses.forEach((q, i) => lines.push(`  Mass ${i + 1}: ${n4(q.m)} kg at ${n4(q.x)} m; alone on the massless shaft ${n4(ms.alone[i])} rad/s = ${n4(rpm(ms.alone[i]))} rpm (static deflection under its weight ${n4(ms.selfInfluence[i] * q.m * STANDARD_GRAVITY * 1000)} mm).`));
+      masses.forEach((q, i) => lines.push(`  Mass ${i + 1}: ${trimSig(q.m)} kg at ${trimSig(q.x)} m; alone on the massless shaft ${n4(ms.alone[i])} rad/s = ${n4(rpm(ms.alone[i]))} rpm (static deflection under its weight ${n4(ms.selfInfluence[i] * q.m * STANDARD_GRAVITY * 1000)} mm).`));
       lines.push(`Rayleigh (all masses, shaft mass neglected): ${n4(ms.rayleigh)} rad/s = ${n4(rpm(ms.rayleigh))} rpm${masses.length === 1 ? " (exact for one mass)" : " (an upper bound on the masses' first critical)"}.`);
       add(masses.length === 1 ? "Mass on massless shaft" : "Masses (Rayleigh)", ms.rayleigh, "rayleigh");
       if (rho !== null || masses.length > 1) {
@@ -401,8 +405,11 @@ const shaftCalc: VibCalc = {
         const wd = dunkerley(comps);
         lines.push(`Dunkerley (${rho !== null ? "shaft + " : ""}${masses.length > 1 ? "every mass" : "the mass"}): ${n4(wd)} rad/s = ${n4(rpm(wd))} rpm (a lower bound on the first critical).`);
         add(rho !== null ? `Dunkerley (shaft + mass${masses.length > 1 ? "es" : ""})` : "Dunkerley (masses)", wd, "dunkerley");
-        first = { w: wd, how: "Dunkerley" };
-      } else first = { w: ms.rayleigh, how: "Rayleigh, exact for one mass" };
+        // Adding mass only lowers a critical, so the system's first critical is below both the masses' (whose Rayleigh
+        // value is an upper bound) and the bare shaft's.
+        const hi = rho !== null ? Math.min(ms.rayleigh, shaftW[0]) : ms.rayleigh;
+        first = { lo: wd, hi: Math.max(hi, wd), how: "Dunkerley lower bound" };
+      } else first = { lo: ms.rayleigh, hi: ms.rayleigh, how: "Rayleigh, exact for one mass" };
       if (rho !== null) {
         // The shaft's own mode row first: its rows lead the chart.
         table.splice(1, 0, ["Shaft alone, mode 1", n4(shaftW[0]), n4(rpm(shaftW[0])), n4(shaftW[0] / (2 * Math.PI))]);
@@ -411,29 +418,41 @@ const shaftCalc: VibCalc = {
       }
     } else {
       shaftW.forEach((w, i) => add(`Shaft, mode ${i + 1}`, w, `shaft${i + 1}`));
-      first = { w: shaftW[0], how: "uniform shaft" };
+      first = { lo: shaftW[0], hi: shaftW[0], how: "uniform shaft" };
       const NS = 60;
       shape = Array.from({ length: NS + 1 }, (_, k) => [(L * k) / NS, Math.sin((Math.PI * k) / NS)] as [number, number]);
     }
-    // Speed check: every critical that is a real mode of THIS model (with masses, only the first is computed).
-    const checks: Array<{ w: number; name: string }> = hasMasses ? [{ w: first.w, name: `the first critical (${first.how})` }] : shaftW.map((w, i) => ({ w, name: `critical ${i + 1}` }));
+    // Speed check. Without masses: each of the shaft's three modes, exact. With masses: the first critical only, which
+    // lies in [lo, hi] — near when within 20 % of that interval, supercritical only when 20 % above its upper end.
+    const fc = first as { lo: number; hi: number; how: string };
+    const bracket = fc.hi > fc.lo * (1 + 1e-9);
+    const fcText = bracket
+      ? `the first critical, which lies between ${n4(rpm(fc.lo))} rpm (Dunkerley, a lower bound) and ${n4(rpm(fc.hi))} rpm (an upper bound)`
+      : `the first critical (${fc.how}), ${n4(rpm(fc.lo))} rpm`;
     if (op !== null) {
-      const opW = op * (2 * Math.PI) / 60;
-      const near = checks.filter((c) => Math.abs(speedMargin(opW, c.w)) <= 0.2);
-      if (near.length)
-        for (const c of near) {
-          const m = speedMargin(opW, c.w);
-          lines.push(`WARNING: the operating speed ${n4(op)} rpm is within ±20 % of ${c.name}, ${n4(rpm(c.w))} rpm (${pct(m)} ${m >= 0 ? "above" : "below"} it). Move the critical (stiffer or shorter shaft, lighter or relocated masses) or the speed.`);
+      const opW = (op * (2 * Math.PI)) / 60;
+      const nearList: string[] = [];
+      if (hasMasses) {
+        if (opW >= 0.8 * fc.lo && opW <= 1.2 * fc.hi) {
+          const m = speedMargin(opW, opW < fc.lo ? fc.lo : opW > fc.hi ? fc.hi : opW);
+          nearList.push(`${fcText} (${m === 0 ? "inside that range" : `${pct(m)} ${m > 0 ? "above" : "below"} it`})`);
         }
-      else if (opW > 1.2 * first.w)
-        lines.push(`The operating speed ${n4(op)} rpm is more than 20 % above the first critical (${n4(rpm(first.w))} rpm): the shaft runs SUPERCRITICAL and passes through the critical on every run-up and coast-down.`);
-      else lines.push(`The operating speed ${n4(op)} rpm is clear of the computed critical${checks.length > 1 ? "s" : ""} by more than 20 % (${pct(speedMargin(opW, first.w))} ${opW >= first.w ? "above" : "below"} the first).`);
+      } else
+        shaftW.forEach((w, i) => {
+          const m = speedMargin(opW, w);
+          if (Math.abs(m) <= 0.2) nearList.push(`critical ${i + 1}, ${n4(rpm(w))} rpm (${pct(m)} ${m >= 0 ? "above" : "below"} it)`);
+        });
+      if (nearList.length)
+        for (const c of nearList) lines.push(`WARNING: the operating speed ${trimSig(op)} rpm is within ±20 % of ${c}. Move the critical (stiffer or shorter shaft, lighter or relocated masses) or the speed.`);
+      else if (opW > 1.2 * fc.hi)
+        lines.push(`The operating speed ${trimSig(op)} rpm is more than 20 % above ${fcText}: the shaft runs SUPERCRITICAL and passes through the critical on every run-up and coast-down.`);
+      else lines.push(`The operating speed ${trimSig(op)} rpm is clear of the computed critical${hasMasses ? "" : "s"} by more than 20 % (${pct(speedMargin(opW, fc.lo))} ${opW >= fc.lo ? "above" : "below"} the first${bracket ? "'s lower bound" : ""}).`);
       lines.push("The ±20 % separation margin is a common design convention, not a code requirement.");
       if (hasMasses) lines.push("With point masses only the FIRST critical is estimated; higher criticals are not computed.");
-      outputs.push({ key: "marginPct", label: "Margin to the first critical", value: speedMargin(opW, first.w) * 100, unit: "%" });
+      outputs.push({ key: "marginPct", label: "Margin to the first critical (its lower bound)", value: speedMargin(opW, fc.lo) * 100, unit: "%" });
     }
     lines.push("Model: Euler–Bernoulli shaft on rigid, simply supporting bearings; no gyroscopic stiffening, rotary inertia or shear deformation, no bearing or foundation flexibility (all of which lower or split real criticals). Rayleigh is an upper bound and Dunkerley a lower bound on the first critical.");
-    const chartMasses = masses.map((q, i) => ({ x: q.x, label: masses.length > 1 ? `m${String(i + 1).replace(/\d/g, (c) => String.fromCharCode(0x2080 + Number(c)))}` : `${n4(q.m)} kg` }));
+    const chartMasses = masses.map((q, i) => ({ x: q.x, label: masses.length > 1 ? `m${String(i + 1).replace(/\d/g, (c) => String.fromCharCode(0x2080 + Number(c)))}` : `${trimSig(q.m)} kg` }));
     const fig = shaftCriticalSvg(L, shape, chartMasses, rows, op, hasMasses ? undefined : "First mode shape of the uniform shaft, sin(πx/L)");
     return finish(lines, u.conversions, [
       { kind: "table", label: "Critical speeds", rows: table.map((row) => row.map((c) => trueMinus(c))) },

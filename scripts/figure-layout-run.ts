@@ -243,6 +243,10 @@ import { QUANTUM_GATES_CALCS } from "../src/lib/quantumGatesCalcs";
 import { blochSphereSvg, circuitDiagramSvg, probabilityBarsSvg } from "../src/lib/quantumCharts";
 import { grover as qGrover, parseCircuit as qParseCircuit } from "../src/lib/quantumCircuits";
 // --- end Release E: quantum gates ---
+// --- Release E: link budget ---
+import { LINK_BUDGET_CALCS } from "../src/lib/linkBudgetCalcs";
+import { berWaterfallSvg, cascadeNfSvg, linkRangeSvg } from "../src/lib/linkBudgetCharts";
+// --- end Release E: link budget ---
 
 const figures: [string, string][] = [];
 
@@ -3250,5 +3254,49 @@ rotator 15` }, "jones elliptical");
   figures.push(["quantum bars builder 2 qubits Grover", probabilityBarsSvg(qGrover(2, 2, 1).final.map((z) => z.re * z.re + z.im * z.im), 2)]);
 }
 // --- end Release E: quantum gates ---
+
+// --- Release E: link budget ---
+// Each calculator through its own compute() at its defaults and at layout stress: a short 5.8 GHz link with no
+// sensitivity (no line, no range point), a long link that does not close (range point left of the design point), a
+// fourteen-stage chain with lossy stages (stepped stage ticks, NF to 25 dB), a one-stage chain, every modulation, the
+// required-Eb/N0 mode with its target line, and a point far below the axis (named in a note). Plus the three builders
+// called directly at their edges.
+{
+  const lb = (id: string, over: Record<string, string>, name: string): void => {
+    const c = LINK_BUDGET_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: ${name} did not draw: ${out.text}`);
+    plots.forEach((b) => {
+      if (b.kind === "plot") figures.push([`link budget ${name}`, b.svg]);
+    });
+  };
+  const NL = String.fromCharCode(10);
+  lb("rf-link-budget", {}, "Friis 2.4 GHz 1 km with sensitivity");
+  lb("rf-link-budget", { f: "5.8 GHz", d: "50 m", sens: "", lother: "3" }, "Friis 5.8 GHz 50 m no sensitivity");
+  lb("rf-link-budget", { d: "100 km", sens: "-80 dBm" }, "Friis link that does not close");
+  lb("noise-figure-cascade", {}, "cascade three stages");
+  lb(
+    "noise-figure-cascade",
+    { stages: ["-0.5 0.5", "18 0.9", "-3 3", "-6 6", "25 4", "10 8", "-8 8", "30 12", "12 10", "-2 2", "20 15", "15 18", "40 20", "6 25"].join(NL), snr: "" },
+    "cascade fourteen stages with losses",
+  );
+  lb("noise-figure-cascade", { stages: "15 0.6" }, "cascade one stage");
+  lb("ber-ebn0", {}, "BER BPSK 9.6 dB");
+  lb("ber-ebn0", { mod: "dbpsk", mode: "cn0", cn0: "68", rate: "64 kbps" }, "BER DBPSK point below the axis");
+  lb("ber-ebn0", { mod: "8psk", mode: "target", target: "1e-6" }, "BER 8-PSK required for 1e-6");
+  lb("ber-ebn0", { mod: "16psk", ebn0: "16" }, "BER 16-PSK 16 dB");
+  lb("ber-ebn0", { mod: "qpsk", mode: "target", target: "1e-15" }, "BER QPSK target 1e-15");
+  figures.push([
+    "link budget range builder, no sensitivity, 60 GHz 10 m",
+    linkRangeSvg({ ptDbm: 10, gtDbi: 20, grDbi: 20, fHz: 60e9, dM: 10, txLossDb: 0, rxLossDb: 0, otherLossDb: 0, sensDbm: null }, -38.0, null),
+  ]);
+  figures.push(["link budget BER builder, DBPSK, no point", berWaterfallSvg("dbpsk", null, null)]);
+  figures.push(["link budget cascade builder, 50 stages", cascadeNfSvg(Array.from({ length: 50 }, (_, i) => ({ n: i + 1, gainDb: 10, nfDb: 3 + (i % 7), teK: 290, cumGainDb: 10 * (i + 1), cumNfDb: 3.2, term: 0 })))]);
+}
+// --- end Release E: link budget ---
 
 export { figures };

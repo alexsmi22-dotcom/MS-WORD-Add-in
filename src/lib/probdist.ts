@@ -148,7 +148,7 @@ export function erfPrecise(x: number): number {
   return x < 0 ? -(1 - erfcPrecise(ax)) : 1 - erfcPrecise(ax);
 }
 /** erfc(x) for x ≥ 2.5 by Lentz's continued fraction (relative error ~1e-16). */
-function erfcPrecise(x: number): number {
+export function erfcPrecise(x: number): number {
   if (x > 27) return 0;
   // erfc(x) = exp(−x²)/√π · 1/(x + 1/2/(x + 1/(x + 3/2/(x + …))))
   const tiny = 1e-300;

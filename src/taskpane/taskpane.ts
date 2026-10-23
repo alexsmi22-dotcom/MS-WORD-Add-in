@@ -27960,7 +27960,7 @@ const ENG_CALCS: EngCalc[] = [
     compute: (r) => {
       const res = gamutCoverage(r("g"), r("ref"));
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
         `${res.gamut} measured against ${res.reference}`,
         "",
         `  Coverage (u'v')     ${engNum(res.coverageUv * 100, 4)} %`,
@@ -27968,16 +27968,24 @@ const ENG_CALCS: EngCalc[] = [
         `  Area ratio (u'v')   ${engNum(res.areaRatioUv * 100, 4)} %`,
         `  Outside the reference   ${engNum(res.outsideReferenceUv * 100, 4)} % of ${res.gamut}`,
         "",
-        "  Every space by area (u'v'), sRGB = 100%",
-        // gamutAreaUv gives each triangle's absolute area, so the landscape can
-        // be shown independently of whichever reference is selected.
-        ...GAMUTS.map((x) => {
-          const a = gamutAreaUv(x.id);
-          const base = gamutAreaUv("srgb");
-          return a === null || base === null || base === 0
-            ? `    ${x.label}`
-            : `    ${x.label.padEnd(18)} ${engNum((a / base) * 100, 4)} %`;
-        }),
+        // Release E: every space by area as a real table. gamutAreaUv gives each triangle's absolute area, so the
+        // landscape is shown independently of whichever reference is selected.
+        {
+          label: "Every space by area (u'v'), sRGB = 100%",
+          table: [
+            ["Colour space", "Area, % of sRGB"],
+            ...GAMUTS.map((x) => {
+              const a = gamutAreaUv(x.id);
+              const base = gamutAreaUv("srgb");
+              return [x.label, a === null || base === null || base === 0 ? "" : engNum((a / base) * 100, 4)];
+            }),
+          ],
+        },
+      ];
+      const gmOutputs: EngOutput[] = [
+        { key: "coverageUv", label: "Coverage (u′v′)", value: res.coverageUv * 100, unit: "%" },
+        { key: "areaRatioUv", label: "Area ratio (u′v′)", value: res.areaRatioUv * 100, unit: "%" },
+        { key: "coverageXy", label: "Coverage (xy)", value: res.coverageXy * 100, unit: "%" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -27988,7 +27996,7 @@ const ENG_CALCS: EngCalc[] = [
         const gDef = gamutById(r("g"));
         const refDef = gamutById(r("ref"));
         if (gDef && refDef) {
-          return engReport(lines, [
+          return withOutputs(gmOutputs, engReport(lines, [
             {
               kind: "plot",
               svg: gamutTriangleSvg({
@@ -28003,10 +28011,10 @@ const ENG_CALCS: EngCalc[] = [
               w: GAMUT_CHART_SIZE.w,
               h: GAMUT_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(gmOutputs, engReport(lines));
     },
   },
   {
@@ -28036,7 +28044,9 @@ const ENG_CALCS: EngCalc[] = [
       const rt = realTimeOf(a.frames, a.rate);
       if (!rt.ok) return { text: rt.error, ok: false };
       const mode = a.df ? " drop-frame" : a.rate.dropPerMinute ? " non-drop" : "";
+      let durFrames = NaN;
       const lines: EngLine[] = [
+        ...engEq("video-timecode"),
         `Timecode ${a.label} at ${a.rate.id} fps${mode}`,
         "",
         `  Frame number        ${a.frames} (0-based)`,
@@ -28049,6 +28059,7 @@ const ENG_CALCS: EngCalc[] = [
       if (r("tcb").trim()) {
         const d = tcDuration(r("tca"), r("tcb"), rate);
         if (!d.ok) return { text: d.error, ok: false };
+        durFrames = d.frames;
         lines.push(`  Duration A → B      ${d.durationLabel} = ${d.frames} frame${Math.abs(d.frames) === 1 ? "" : "s"} = ${clockText(d.seconds)} real`);
         notes.push(...d.notes);
       }
@@ -28062,8 +28073,13 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(ENG_EXACT_UNIT_NOTE);
       const span = Math.min(1440, Math.max(60, Math.ceil((rt.secondsApprox / 60) * 1.25)));
       const fig = driftFigure(a.rate, span, a.frames);
-      if (!fig.ok) return engReport(lines.map(trueMinus));
-      return engReport(lines.map(trueMinus), [avPlot(timecodeDriftSvg(fig, a.rate.id), fig.caption, "Label time minus real time against elapsed minutes, non-drop and drop-frame")]);
+      const tcOutputs: EngOutput[] = [
+        { key: "frameNo", label: "Frame number (0-based)", value: a.frames, unit: "" },
+        { key: "realS", label: "Real elapsed time", value: rt.secondsApprox, unit: "s" },
+        { key: "durFrames", label: "Duration A → B", value: durFrames, unit: "frames" },
+      ];
+      if (!fig.ok) return withOutputs(tcOutputs, engReport(lines.map(trueMinus)));
+      return withOutputs(tcOutputs, engReport(lines.map(trueMinus), [avPlot(timecodeDriftSvg(fig, a.rate.id), fig.caption, "Label time minus real time against elapsed minutes, non-drop and drop-frame")]));
     },
   },
   {
@@ -28090,7 +28106,9 @@ const ENG_CALCS: EngCalc[] = [
       const src = r("src").trim();
       const rf = rateFacts(src, audioHz);
       if (!rf.ok) return { text: `Source rate: ${rf.error}`, ok: false };
+      let shutterMs = NaN;
       const lines: EngLine[] = [
+        ...engEq("video-framerate"),
         `Frame rate ${rf.fpsText} fps`,
         "",
         `  Frame duration      ${engNum(rf.frameMs, 7)} ms`,
@@ -28112,6 +28130,8 @@ const ENG_CALCS: EngCalc[] = [
         if (angleRaw && !Number.isFinite(angle as number)) return { text: "The shutter angle must be a number of degrees.", ok: false };
         const sh = shutter({ angleDeg: angle, timeS }, src);
         if (!sh.ok) return { text: sh.error, ok: false };
+        shutterMs = sh.timeMs;
+        lines.push(...engEq("video-framerate:shutter"));
         lines.push(`  Shutter             ${engNum(sh.angleDeg, 6)}° = ${sh.timeText} (${engNum(sh.timeMs, 6)} ms)`);
         notes.push(...sh.notes);
       }
@@ -28135,7 +28155,10 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of [...new Set(notes)]) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), blocks);
+      return withOutputs([
+        { key: "frameMs", label: "Frame duration", value: rf.frameMs, unit: "ms" },
+        { key: "shutterMs", label: "Shutter time", value: shutterMs, unit: "ms" },
+      ], engReport(lines.map(trueMinus), blocks));
     },
   },
   {
@@ -28167,7 +28190,9 @@ const ENG_CALCS: EngCalc[] = [
         content: r("content").trim() || undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const darNum = res.dar.num === 0n ? 0 : Number(res.dar.num) / Number(res.dar.den);
+      const lines: EngReportLine[] = [
+        ...engEq("video-aspect"),
         `Aspect of ${w}×${h}`,
         "",
         `  Storage aspect      ${res.sarText}`,
@@ -28176,7 +28201,8 @@ const ENG_CALCS: EngCalc[] = [
         `  Nearest common name ${res.nearestCommon.exact ? res.nearestCommon.name : `≈ ${res.nearestCommon.name}`}`,
       ];
       if (res.sdConventions) {
-        for (const c of res.sdConventions) lines.push(`  PAR, ${c.basis.padEnd(32)} ${c.par}`);
+        // Release E: the two SD pixel-aspect conventions as a real table.
+        lines.push({ table: [["Pixel aspect basis", "PAR"], ...res.sdConventions.map((c) => [c.basis, c.par])] });
       }
       if (res.darOn704) lines.push(`  704-sample picture  displays ${res.darOn704}`);
       if (res.framing && res.framing.kind !== "none") {
@@ -28191,7 +28217,11 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`  Title safe (90%)    ${engNum(res.safe.titleW, 6)}×${engNum(res.safe.titleH, 6)}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [avPlot(aspectFrameSvg(res.figure), "The delivery frame to scale: active picture, bars and the safe areas", "Nested rectangles showing the frame, active picture and safe areas")]);
+      return withOutputs([
+        { key: "DAR", label: "Display aspect", value: darNum, unit: "" },
+        { key: "actionW", label: "Action-safe width", value: res.safe.actionW, unit: "px" },
+        { key: "titleW", label: "Title-safe width", value: res.safe.titleW, unit: "px" },
+      ], engReport(lines.map(trueMinus), [avPlot(aspectFrameSvg(res.figure), "The delivery frame to scale: active picture, bars and the safe areas", "Nested rectangles showing the frame, active picture and safe areas")]));
     },
   },
   {
@@ -28265,6 +28295,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = transfer(curve, dir, val, { Lw: lw, Lb: lb });
       if (!res.ok) return { text: res.error, ok: false };
       const signal = dir === "toLight" ? val : res.output;
+      let codeOut = NaN;
       const lines: EngLine[] = [
         res.standard,
         "",
@@ -28275,13 +28306,17 @@ const ENG_CALCS: EngCalc[] = [
       if (signal >= 0 && signal <= 1) {
         const cv = codeValue(signal, Number(r("bits")), r("range") === "full" ? "full" : "narrow", "luma");
         if (!cv.ok) return { text: cv.error, ok: false };
+        codeOut = cv.code;
         lines.push(`  ${cv.bits}-bit ${cv.range} code  ${cv.code} (black ${cv.nominalMin}, white ${cv.nominalMax}; ${cv.formula})`);
         res.notes.push(...cv.notes);
       }
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [avPlot(transferSvg(res), "The selected curve with the entered point; the SDR curves faint for comparison", "Transfer curve of light against signal")]);
+      return withOutputs([
+        { key: "out", label: "Output (signal or light, as the direction gives)", value: res.output, unit: "" },
+        { key: "code", label: "Code value", value: codeOut, unit: "" },
+      ], engReport(lines.map(trueMinus), [avPlot(transferSvg(res), "The selected curve with the entered point; the SDR curves faint for comparison", "Transfer curve of light against signal")]));
     },
   },
   {
@@ -28316,6 +28351,7 @@ const ENG_CALCS: EngCalc[] = [
       const rec = recordTime(stream, cap);
       if (!rec.ok) return { text: rec.error, ok: false };
       const lines: EngLine[] = [
+        ...engEq("video-interface"),
         `Interface, ${act.w}×${act.h} in a ${tot.w}×${tot.h} raster`,
         "",
         `  Active picture      ${engNum(ir.activeRateBps / 1e9, 6)} Gbit/s`,
@@ -28328,7 +28364,11 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of [...ir.notes, ...rec.notes]) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [avPlot(interfaceBarsSvg(ir.figure), "Active picture, blanking and the SDI class that carries the link", "Bars of link rate in gigabits per second")]);
+      return withOutputs([
+        { key: "linkGbps", label: "Link rate with blanking", value: ir.lineRateBps / 1e9, unit: "Gbit/s" },
+        { key: "activeGbps", label: "Active picture rate", value: ir.activeRateBps / 1e9, unit: "Gbit/s" },
+        { key: "recordS", label: "Recording time", value: rec.seconds, unit: "s" },
+      ], engReport(lines.map(trueMinus), [avPlot(interfaceBarsSvg(ir.figure), "Active picture, blanking and the SDI class that carries the link", "Bars of link rate in gigabits per second")]));
     },
   },
   {

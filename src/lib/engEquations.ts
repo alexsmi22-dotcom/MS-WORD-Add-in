@@ -520,6 +520,11 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "video-psnr": [eq("PSNR = 10 log_10(MAX^2/MSE)", "PSNR = 10·log₁₀(MAX²/MSE)"), eq("MAX = 2^b - 1", "MAX = 2ᵇ − 1")],
   "video-stream": [eq("t_buf = 8 B/R", "tbuf = 8B/R"), eq("t_start = 8 B/(BW - R)", "tstart = 8B/(BW − R)")],
   "video-latency": [eq("t = sum(i=1, n, t_i)", "t = ∑ᵢ₌₁ⁿ tᵢ"), eq("t_shown = ceil(t f_r)/f_r", "tshown = ⌈t·fr⌉/fr")],
+  "video-timecode": [eq("t = N/f", "t = N/f")],
+  "video-framerate": [eq("T = 1/f", "T = 1/f"), eq("n_a = f_a/f", "na = fa/f")],
+  "video-framerate:shutter": [eq("t_s = (theta/360)/f", "ts = (θ/360)/f")],
+  "video-aspect": [eq("DAR = SAR PAR", "DAR = SAR·PAR")],
+  "video-interface": [eq("R_link = W_t H_t f b_px", "Rlink = Wt·Ht·f·bpx"), eq("R_active = W_a H_a f b_px", "Ractive = Wa·Ha·f·bpx"), eq("t_rec = 8 C/R", "trec = 8C/R")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

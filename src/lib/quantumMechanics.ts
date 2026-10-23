@@ -15,7 +15,11 @@
 // SI units throughout (J, m, kg, s, T). Pure functions; every loop is bounded; non-finite input is refused up front.
 
 import { expm } from "./control";
+import { fmtSig } from "./axis";
 import { cAbs2, cx, matVec, type CMat, type Cx, type State } from "./quantumCore";
+
+/** A number in a refusal: fmtSig's ×10ⁿ and U+2212, never e-notation. */
+const sig = (v: number, s: number): string => fmtSig(v, s);
 
 // ---------------------------------------------------------------------------------------------------------------
 // CODATA 2018 recommended values — the ONE constants block for this engine.
@@ -125,6 +129,10 @@ export interface FiniteState {
   z: number;
   /** Energy above the well bottom (J). */
   E: number;
+  /** η = κa, the dimensionless outside decay constant (computed directly, never as √(z₀² − z²)). */
+  eta: number;
+  /** Binding energy V₀ − E = ħ²η²/(2ma²) (J, positive), computed from η so a shallow well does not cancel. */
+  Ebind: number;
 }
 
 export interface FiniteWell {
@@ -168,7 +176,7 @@ export function finiteWell(m: number, V0: number, width: number): FiniteWell | E
   const z0 = (a * Math.sqrt(2 * m * V0)) / HBAR;
   if (!fin(z0)) return { error: "z₀ = a√(2mV₀)/ħ is not representable for these inputs." };
   if (z0 > (FINITE_MAX_STATES * Math.PI) / 2) {
-    return { error: `This well holds more than ${FINITE_MAX_STATES} bound states (z₀ = ${z0.toPrecision(4)}); the infinite-well levels are an excellent approximation for its low states.` };
+    return { error: `This well holds more than ${FINITE_MAX_STATES} bound states (z₀ = ${sig(z0, 4)}); the infinite-well levels are an excellent approximation for its low states.` };
   }
   const half = Math.PI / 2;
   const k = z0 / half;
@@ -179,20 +187,24 @@ export function finiteWell(m: number, V0: number, width: number): FiniteWell | E
   // A new state enters at the rim as z₀ crosses kr·π/2 (interval j = kr): it is excluded either side of the crossing,
   // and every interval below it holds exactly one well-bound state.
   const expected = threshold ? kr : Math.ceil(k);
-  const eta = (z: number): number => Math.sqrt(Math.max(0, z0 * z0 - z * z));
-  const even = (z: number): number => z * Math.sin(z) - eta(z) * Math.cos(z);
-  const odd = (z: number): number => z * Math.cos(z) + eta(z) * Math.sin(z);
+  // The matching conditions in the angle φ, z = z₀cos φ and η = z₀sin φ (z² + η² = z₀²): even tan z = η/z = tan φ and
+  // odd −cot z = tan φ both say z = φ + jπ/2 in interval j. So F(φ) = (z₀ − jπ/2) − 2z₀sin²(φ/2) − φ = 0, strictly
+  // decreasing on [0, π/2] with F(0) = z₀ − jπ/2 > 0. Bisecting in φ gives z AND η to full relative precision; η from
+  // √(z₀² − z²) would cancel when η ≪ z₀ (a shallow well: z₀ = 2.6×10⁻¹⁰ has η ≈ z₀², and the old E − V₀ was noise).
+  const mE = (HBAR * HBAR) / (2 * m * a * a);
   const states: FiniteState[] = [];
   for (let j = 0; j < FINITE_MAX_STATES + 1; j++) {
-    const lo = j * half;
-    if (lo >= z0) break;
-    const hi = Math.min((j + 1) * half, z0);
+    const d = z0 - j * half;
+    if (d <= 0) break;
     if (threshold && j === expected) break;
-    const f = j % 2 === 0 ? even : odd;
-    // The bracket's lower end of an even interval is 0 for j = 0: f(0) = −z₀ < 0, fine.
-    const z = bisect(f, lo === 0 ? 0 : lo, hi);
-    if (z === null || z <= 0 || z >= z0) continue;
-    states.push({ n: states.length + 1, parity: j % 2 === 0 ? "even" : "odd", z, E: (HBAR * HBAR * z * z) / (2 * m * a * a) });
+    const F = (p: number): number => d - 2 * z0 * Math.sin(p / 2) ** 2 - p;
+    // The root lies below d (φ = d − 2z₀sin²(φ/2) ≤ d) and below π/2.
+    const phi = bisect(F, 0, Math.min(half, d));
+    if (phi === null || !(phi > 0)) continue;
+    const z = z0 * Math.cos(phi);
+    const eta = z0 * Math.sin(phi);
+    if (!(z > 0) || !(eta > 0)) continue;
+    states.push({ n: states.length + 1, parity: j % 2 === 0 ? "even" : "odd", z, E: mE * z * z, eta, Ebind: mE * eta * eta });
   }
   if (states.length !== expected) {
     return { error: `The bound-state search found ${states.length} states where the count formula gives ${expected}; no result is printed (a defect to report).` };
@@ -206,7 +218,7 @@ export function finiteWell(m: number, V0: number, width: number): FiniteWell | E
  */
 export function finiteWellPsi(st: FiniteState, z0: number, a: number, x: number): number {
   const k = st.z / a;
-  const kap = Math.sqrt(Math.max(0, z0 * z0 - st.z * st.z)) / a;
+  const kap = st.eta / a;
   const evenS = st.parity === "even";
   const inside = (ax: number): number => (evenS ? Math.cos(k * ax) : Math.sin(k * ax));
   const edge = evenS ? Math.cos(st.z) : Math.sin(st.z);
@@ -362,7 +374,7 @@ export function hydrogenTransition(h: HydrogenModel, nUpper: number, nLower: num
   if (![nUpper, nLower].every((n) => Number.isInteger(n) && n >= 1 && n <= HYDROGEN_MAX_N)) {
     return { error: `Both levels must be whole numbers from 1 to ${HYDROGEN_MAX_N}.` };
   }
-  if (nUpper <= nLower) return { error: "The upper level must be above the lower one (n_upper > n_lower)." };
+  if (nUpper <= nLower) return { error: "The upper level must be above the lower one (upper n > lower n)." };
   const s = h.Z * h.Z * h.RM;
   const wavenumber = s * (1 / (nLower * nLower) - 1 / (nUpper * nUpper));
   return {
@@ -445,7 +457,15 @@ export interface Barrier {
   phase: number;
   /** WKB log₁₀T = −2κa/ln10 (below the barrier only). */
   wkbLog10: number | null;
+  /**
+   * log₁₀(T/T_WKB) computed from the prefactor directly (below the barrier only). Never log10T − wkbLog10: for an
+   * opaque barrier both are ~10¹⁴ and their difference is rounding noise.
+   */
+  wkbRatioLog10: number | null;
 }
+
+/** The largest |log₁₀ T| the barrier tool resolves: past it κa itself carries no integer power of ten. */
+export const BARRIER_LOG10_MAX = 1e15;
 
 /**
  * The exact transmission through a rectangular barrier of height V₀ and width a for a particle of energy E:
@@ -462,29 +482,38 @@ export function barrierT(m: number, V0: number, a: number, E: number): Barrier |
   const LN10 = Math.LN10;
   if (Math.abs(E - V0) <= 1e-12 * V0) {
     const T = 1 / (1 + (m * V0 * a * a) / (2 * HBAR * HBAR));
-    return { regime: "at", log10T: Math.log10(T), T, phase: 0, wkbLog10: null };
+    return { regime: "at", log10T: Math.log10(T), T, phase: 0, wkbLog10: null, wkbRatioLog10: null };
   }
   if (E < V0) {
     const kap = Math.sqrt(2 * m * (V0 - E)) / HBAR;
     const x = kap * a;
     const c = (V0 * V0) / (4 * E * (V0 - E));
     let lnT: number;
+    let lnRatio: number;
     if (x < 20) {
       const s = Math.sinh(x);
       lnT = -Math.log1p(c * s * s);
+      lnRatio = lnT + 2 * x;
     } else {
-      const lnS2 = 2 * x - 2 * Math.LN2 + 2 * Math.log1p(-Math.exp(-2 * x));
-      const lnCS = Math.log(c) + lnS2;
-      lnT = -(lnCS + Math.log1p(Math.exp(-lnCS)));
+      // sinh²x = e^{2x}(1 − e^{−2x})²/4, so ln T = −(ln c + 2x − 2 ln 2 + 2 log1p(−e^{−2x}) + log1p(1/(c sinh²x))) and
+      // ln(T/e^{−2x}) is the same with the 2x left out: no large number is ever subtracted.
+      const corr = 2 * Math.log1p(-Math.exp(-2 * x));
+      const lnCS = Math.log(c) + 2 * x - 2 * Math.LN2 + corr;
+      const tail = Math.log1p(Math.exp(-lnCS));
+      lnT = -(lnCS + tail);
+      lnRatio = -(Math.log(c) - 2 * Math.LN2 + corr + tail);
     }
-    if (!fin(lnT)) return { error: "The transmission is not representable for these inputs." };
-    return { regime: "below", log10T: lnT / LN10, T: Math.exp(lnT), phase: x, wkbLog10: (-2 * x) / LN10 };
+    if (!fin(lnT, lnRatio)) return { error: "The transmission is not representable for these inputs." };
+    if (-lnT / LN10 > BARRIER_LOG10_MAX) {
+      return { error: `The barrier is too opaque: |log₁₀ T| = ${sig(-lnT / LN10, 3)} is past 10¹⁵ (κa = ${sig(x, 3)}), and past that double precision cannot place even the power of ten of T. Use a thinner barrier, a lighter particle or an energy nearer V₀.` };
+    }
+    return { regime: "below", log10T: lnT / LN10, T: Math.exp(lnT), phase: x, wkbLog10: (-2 * x) / LN10, wkbRatioLog10: lnRatio / LN10 };
   }
   const k2 = Math.sqrt(2 * m * (E - V0)) / HBAR;
   const x = k2 * a;
   const sn = Math.sin(x);
   const T = 1 / (1 + (V0 * V0 * sn * sn) / (4 * E * (E - V0)));
-  return { regime: "above", log10T: Math.log10(T), T, phase: x, wkbLog10: null };
+  return { regime: "above", log10T: Math.log10(T), T, phase: x, wkbLog10: null, wkbRatioLog10: null };
 }
 
 /** Above-barrier resonance energies Eₙ = V₀ + n²π²ħ²/(2ma²) (T = 1), the first `count`. */
@@ -555,7 +584,7 @@ export function evolve2(H: CMat, psi0: State, t: number): Evolution | Err {
   const bm = Math.hypot(bx, by, bz);
   const theta = (bm * t) / HBAR;
   if (Math.abs(theta) > EVOLVE_MAX_PHASE) {
-    return { error: `|b|t/ħ = ${Math.abs(theta).toPrecision(3)} rad is past the ${EVOLVE_MAX_PHASE.toPrecision(1)} rad this tool resolves (rounding would own the phase); use a shorter time.` };
+    return { error: `|b|t/ħ = ${sig(Math.abs(theta), 3)} rad is past the ${sig(EVOLVE_MAX_PHASE, 1)} rad this tool resolves (rounding would own the phase); use a shorter time.` };
   }
   const c = Math.cos(theta), s = Math.sin(theta);
   const [nx, ny, nz] = bm > 0 ? [bx / bm, by / bm, bz / bm] : [0, 0, 1];
@@ -584,7 +613,7 @@ export function evolve2(H: CMat, psi0: State, t: number): Evolution | Err {
   for (let i = 0; i < 2; i++)
     for (let j = 0; j < 2; j++) check = Math.max(check, Math.abs(E[i][j] - U[i][j].re), Math.abs(E[i + 2][j] - U[i][j].im));
   const tol = 1e-8 * Math.max(1, Math.abs(theta));
-  if (!(check <= tol)) return { error: `The closed form and the matrix exponential disagree by ${check.toPrecision(2)}; no result is printed (a defect to report).` };
+  if (!(check <= tol)) return { error: `The closed form and the matrix exponential disagree by ${sig(check, 2)}; no result is printed (a defect to report).` };
   return { psi: matVec(U, p0), U, mean, b: [bx, by, bz], check };
 }
 

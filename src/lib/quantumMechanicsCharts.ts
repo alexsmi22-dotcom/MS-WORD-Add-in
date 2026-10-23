@@ -87,6 +87,8 @@ export interface LevelCurve {
   curve: Array<[number, number]>;
   /** This curve's peak height (energy units); the spec's common height when absent. */
   amp?: number;
+  /** A labelled reference height (the finite well's rim V₀), not a state: never counted against LEVEL_FIG_MAX. */
+  marker?: boolean;
 }
 
 export interface LevelSpec {
@@ -104,11 +106,12 @@ export interface LevelSpec {
   yTitle: string;
 }
 
-/** The most levels one figure draws. */
+/** The most levels (states) one figure draws; marker entries such as the V₀ rim come on top of these. */
 export const LEVEL_FIG_MAX = 8;
 
 export function levelFigureSvg(spec: LevelSpec): string {
-  const levels = spec.levels.slice(0, LEVEL_FIG_MAX);
+  let states = 0;
+  const levels = spec.levels.filter((l) => l.marker || ++states <= LEVEL_FIG_MAX);
   const nameW = Math.max(...levels.map((l) => tw(l.label, 11)));
   const valW = Math.max(...levels.map((l) => tw(l.value, 11)));
   const labelW = nameW + 22 + valW;
@@ -218,15 +221,28 @@ export function hydrogenLevelSvg(fig: HydrogenFigure): string {
     const hl = must.has(a.n);
     out.push(line(lx1, y, lx2, y, a.n === Infinity ? "#555555" : hl ? "#000000" : "#444444", hl ? 1.6 : 1, a.n === Infinity ? "4 3" : ""));
   }
-  // Must-show labels that still collide are nudged apart by the declutter pass.
-  const shown = all.filter((a) => show.has(a.n));
-  const ys = declutter(shown.map((a) => Y(a.E) + 4), 12.5, T + 6);
-  shown.forEach((a, i) => {
-    const y = Y(a.E);
-    if (Math.abs(ys[i] - 4 - y) > 1) out.push(line(lx2 + 1, y, R + 8, ys[i] - 4, "#777777", 0.8));
-    const col = must.has(a.n) ? "#000000" : "#333333";
-    out.push(text(R + 12, ys[i], a.name, "start", 11, col));
-    out.push(text(R + 12 + nameW + 22 + valW, ys[i], a.val, "end", 11, col));
+  // The levels left unlabelled get one label per run of consecutive n ("n = 5, 6" or "n = 5–10", no value), at the
+  // run's mean height, with a leader from each of its lines, so no drawn line is anonymous.
+  type Lab = { name: string; val: string; ys: number[]; col: string };
+  const labs: Lab[] = all.filter((a) => show.has(a.n)).map((a) => ({ name: a.name, val: a.val, ys: [Y(a.E)], col: must.has(a.n) ? "#000000" : "#333333" }));
+  const runs: Array<typeof all> = [];
+  for (const a of all) {
+    if (show.has(a.n)) continue;
+    const last = runs[runs.length - 1];
+    if (last && a.n === last[last.length - 1].n + 1) last.push(a);
+    else runs.push([a]);
+  }
+  for (const r of runs) {
+    const ns = r.map((a) => a.n);
+    const name = ns.length === 1 ? `n = ${ns[0]}` : ns.length === 2 ? `n = ${ns[0]}, ${ns[1]}` : `n = ${ns[0]}–${ns[ns.length - 1]}`;
+    labs.push({ name, val: ns.length === 1 ? r[0].val : "", ys: r.map((a) => Y(a.E)), col: "#333333" });
+  }
+  // Labels that still collide are nudged apart by the declutter pass.
+  const ys = declutter(labs.map((l) => l.ys.reduce((s, v) => s + v, 0) / l.ys.length + 4), 12.5, T + 6);
+  labs.forEach((l, i) => {
+    for (const y of l.ys) if (l.ys.length > 1 || Math.abs(ys[i] - 4 - y) > 1) out.push(line(lx2 + 1, y, R + 8, ys[i] - 4, "#777777", 0.8));
+    out.push(text(R + 12, ys[i], l.name, "start", 11, l.col));
+    if (l.val) out.push(text(R + 12 + nameW + 22 + valW, ys[i], l.val, "end", 11, l.col));
   });
   // The transition arrow (emission: upper → lower).
   const yu = Y(lv.find((l) => l.n === fig.upper)?.E ?? 0);
@@ -375,7 +391,8 @@ export function tunnelSvg(spec: TunnelSpec): string {
   out.push(text(lx + 26, 18, "WKB, exp(−2κa)", "start", 11));
   // Left panel: log₁₀T against E/V₀ in (xmin, 1).
   const xs = spec.below.map((p) => p.x);
-  const bx0 = Math.min(...xs), bx1 = 1;
+  // No sample below the barrier (every one past the engine's range): an empty panel, still on finite axes.
+  const bx0 = xs.length ? Math.min(...xs) : 0, bx1 = 1;
   const lts = spec.below.flatMap((p) => [p.lt, p.wkb]).filter((v) => Number.isFinite(v));
   let lo = Math.floor(Math.min(...lts, spec.mark.x < 1 ? spec.mark.lt : 0));
   if (lo > -1) lo = -1;

@@ -525,6 +525,26 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "video-framerate:shutter": [eq("t_s = (theta/360)/f", "ts = (θ/360)/f")],
   "video-aspect": [eq("DAR = SAR PAR", "DAR = SAR·PAR")],
   "video-interface": [eq("R_link = W_t H_t f b_px", "Rlink = Wt·Ht·f·bpx"), eq("R_active = W_a H_a f b_px", "Ractive = Wa·Ha·f·bpx"), eq("t_rec = 8 C/R", "trec = 8C/R")],
+  // ---- Light & camera ----
+  "light-photometry": [
+    eq("E = I cos(theta)/d^2", "E = I·cos θ/d²"),
+    eq("Omega = 4 pi sin(beta/4)^2", "Ω = 4π·sin(β/4)²"),
+    eq("Phi = I Omega", "Φ = I·Ω"),
+    eq("L = (Phi/A) g/pi", "L = (Φ/A)·g/π"),
+  ],
+  "light-exposure": [
+    eq("EV = log_2(N^2/t)", "EV = log₂(N²/t)"),
+    eq("EV_100 = EV - log_2(S/100)", "EV₁₀₀ = EV − log₂(S/100)"),
+    eq("H = f^2/(N c) + f", "H = f²/(N·c) + f"),
+    eq("D_near = {s} (H - f)/(H + s - 2 f)", "Dnear = s·(H − f)/(H + s − 2f)"),
+    eq("D_far = {s} (H - f)/(H - s)", "Dfar = s·(H − f)/(H − s)"),
+    eq("AOV = 2 arctan(d/(2 f))", "AOV = 2·arctan(d/(2f))"),
+  ],
+  "light-colourtemp": [eq("M = 10^6/T", "M = 10⁶/T"), eq("Delta M = M_2 - M_1", "ΔM = M₂ − M₁")],
+  "light-colourtemp:mccamy": [
+    eq("CCT = -449 n^3 + 3525 n^2 - 6823.3 n + 5520.33", "CCT = −449n³ + 3525n² − 6823.3n + 5520.33"),
+    eq("n = (x - 0.3320)/(y - 0.1858)", "n = (x − 0.3320)/(y − 0.1858)"),
+  ],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

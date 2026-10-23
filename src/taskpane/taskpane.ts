@@ -28420,6 +28420,7 @@ const ENG_CALCS: EngCalc[] = [
         return { text: "The foot-candle / foot-lambert cross-check disagreed, so no number is given.", ok: false };
       }
       const lines: EngLine[] = [
+        ...engEq("light-photometry"),
         "Photometry",
         "",
         `  Illuminance at ${engNum(d, 5)} m   ${engNum(pt.lux, 6)} lx (${engNum(pt.footcandles, 5)} fc)` +
@@ -28433,7 +28434,11 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(ENG_UNIT_NOTE);
       const mode = r("mode");
       const fig = mode === "beam" ? cone.figure : mode === "screen" ? scr.figure : pt.figure;
-      return engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Photometric quantity against the swept input, the entered value marked")]);
+      return withOutputs([
+        { key: "Elux", label: "Illuminance at the distance", value: pt.lux, unit: "lx" },
+        { key: "Phi", label: "Flux of the uniform cone", value: cone.lumens, unit: "lm" },
+        { key: "Lscreen", label: "Screen luminance", value: scr.nits, unit: "cd/m²" },
+      ], engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Photometric quantity against the swept input, the entered value marked")]));
     },
   },
   {
@@ -28508,6 +28513,7 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       const lines: EngLine[] = [
+        ...engEq("light-exposure"),
         `Exposure, ${fName(marked, n)} at ${engNum(t, 6)} s, ISO ${engNum(iso, 6)}`,
         "",
         `  EV of the settings  ${engNum(ev.evSettings, 5)}`,
@@ -28557,7 +28563,14 @@ const ENG_CALCS: EngCalc[] = [
       for (const note of notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
       const fig = r("fig") === "exposure" ? ev.figure : dof.figure;
-      return engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Exposure or depth-of-field curve with the entered setting marked")]);
+      return withOutputs([
+        { key: "EV", label: "EV of the settings", value: ev.evSettings, unit: "" },
+        { key: "EV100", label: "Scene EV at ISO 100", value: ev.ev100, unit: "" },
+        { key: "hyperfocal", label: "Hyperfocal distance", value: dof.hyperfocalM, unit: "m" },
+        { key: "near", label: "Near limit of sharpness", value: dof.nearM, unit: "m" },
+        { key: "far", label: "Far limit of sharpness", value: dof.farM, unit: "m" },
+        { key: "aovH", label: "Horizontal angle of view", value: aov.horizontalDeg, unit: "°" },
+      ], engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Exposure or depth-of-field curve with the entered setting marked")]));
     },
   },
   {
@@ -28585,7 +28598,9 @@ const ENG_CALCS: EngCalc[] = [
       if (typeof m2 !== "number") return { text: m2.error, ok: false };
       const ms = miredShift(t1, t2);
       if (!ms.ok) return { text: ms.error, ok: false };
+      let cctOut = NaN;
       const lines: EngLine[] = [
+        ...engEq("light-colourtemp"),
         "Colour temperature",
         "",
         `  ${engNum(t1, 6)} K               ${engNum(m1, 5)} mired`,
@@ -28621,6 +28636,8 @@ const ENG_CALCS: EngCalc[] = [
         const cct = cctMcCamy(x, y);
         if (!cct.ok) return { text: cct.error, ok: false };
         entered = { x, y };
+        cctOut = cct.cctK;
+        lines.push(...engEq("light-colourtemp:mccamy"));
         lines.push(
           `  CCT of (${engNum(x, 6)}, ${engNum(y, 6)})  McCamy ${engNum(cct.cctK, 6)} K (approximation); Robertson ${engNum(cct.robertsonK, 6)} K, Duv ${avDb(cct.duv, 4)}`,
         );
@@ -28639,7 +28656,12 @@ const ENG_CALCS: EngCalc[] = [
         (locus.onPlanckian.length ? `; ${locus.onPlanckian.map((t) => `${engNum(t, 6)} K`).join(" and ")} on the Planckian locus` : "") +
         (locus.omitted.length ? `; ${locus.omitted.map((t) => `${engNum(t, 6)} K`).join(" and ")} not drawn (on neither locus)` : "") +
         (entered ? "; the entered x, y in black" : "");
-      return engReport(lines.map(trueMinus), [avPlot(daylightLocusSvg(locus), caption, "Daylight and Planckian loci inside the sRGB triangle with the entered points")]);
+      return withOutputs([
+        { key: "mired1", label: "Source mired", value: m1, unit: "mired" },
+        { key: "mired2", label: "Target mired", value: m2, unit: "mired" },
+        { key: "shift", label: "Mired shift", value: ms.shift, unit: "mired" },
+        { key: "CCT", label: "CCT of the chromaticity (McCamy)", value: cctOut, unit: "K" },
+      ], engReport(lines.map(trueMinus), [avPlot(daylightLocusSvg(locus), caption, "Daylight and Planckian loci inside the sRGB triangle with the entered points")]));
     },
   },
   {

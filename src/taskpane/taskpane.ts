@@ -193,6 +193,7 @@ import { GAS_DYNAMICS_CALCS } from "../lib/gasDynamicsCalcs";
 import { VESSELS_CALCS } from "../lib/vesselsCalcs";
 import { RANDOM_VIBRATION_CALCS } from "../lib/randomVibrationCalcs";
 import { KALMAN_CALCS } from "../lib/kalmanCalcs";
+import { QUANTUM_GATES_CALCS } from "../lib/quantumGatesCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -12925,6 +12926,7 @@ const ENG_GROUP_ORDER = [
   "Vibration",
   "Optics & photonics",
   "Quantum optics",
+  "Quantum computing",
   "Biomedical",
   "Molecular cloning",
   "Pharmacokinetics",
@@ -28603,6 +28605,7 @@ const ENG_CALCS: EngCalc[] = [
   ...VESSELS_CALCS,
   ...RANDOM_VIBRATION_CALCS,
   ...KALMAN_CALCS,
+  ...QUANTUM_GATES_CALCS,
 ];
 
 /** A transfer function as a typeset fraction, with a readable text fallback. */

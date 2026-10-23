@@ -237,6 +237,12 @@ import { psdProfile } from "../src/lib/randomVibration";
 import { KALMAN_CALCS } from "../src/lib/kalmanCalcs";
 import { attitudeTriadSvg } from "../src/lib/kalmanCharts";
 // --- end Release E: kalman ---
+// --- Release E: quantum gates ---
+// Release Q part Q2: single-qubit gates (Bloch sphere), the circuit simulator and the protocol presets.
+import { QUANTUM_GATES_CALCS } from "../src/lib/quantumGatesCalcs";
+import { blochSphereSvg, circuitDiagramSvg, probabilityBarsSvg } from "../src/lib/quantumCharts";
+import { grover as qGrover, parseCircuit as qParseCircuit } from "../src/lib/quantumCircuits";
+// --- end Release E: quantum gates ---
 
 const figures: [string, string][] = [];
 
@@ -3198,5 +3204,51 @@ rotator 15` }, "jones elliptical");
   }
 }
 // --- end Release E: circuit ---
+
+// --- Release E: quantum gates ---------------------------------------------
+// Each tool through its own compute() at its defaults and at layout stress: a long single-qubit sequence (long path),
+// a ten-qubit circuit that folds into bands with a 1024-outcome bar chart, every multi-qubit gate kind, a 3-qubit
+// Grover with two iterations, Deutsch-Jozsa on 3 qubits. Plus the three builders called directly at their edges.
+{
+  const qc = (id: string, over: Record<string, string>, name: string): void => {
+    const c = QUANTUM_GATES_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`quantum ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  const NL = String.fromCharCode(10);
+  qc("qc-single-qubit", {}, "single-qubit H T");
+  qc("qc-single-qubit", { gates: "Rx(60) Rz(90)" }, "single-qubit Rx Rz case row");
+  qc("qc-single-qubit", { start: "bloch", theta: "150", phi: "-120", gates: "Rx(pi/3) Ry(-70) Rz(200) H U(30, 60, 90) √X T†" }, "single-qubit long path to the back");
+  qc("qc-circuit", {}, "circuit GHZ measured");
+  qc(
+    "qc-circuit",
+    { n: "10", circuit: [...Array.from({ length: 10 }, (_, q) => `H ${q}`), ...Array.from({ length: 9 }, (_, q) => `CNOT ${q} ${q + 1}`), "CU(Rz(pi/4)) 0 9", "CCX 2 5 8", "CSWAP 1 4 7", "iSWAP 3 6", "SWAP 0 9", "RY(30) 5", "MEASURE 0", "CX 0 9"].join(NL) },
+    "circuit ten qubits folded",
+  );
+  qc("qc-circuit", { n: "4", circuit: ["H 0", "CY 0 1", "CH 1 2", "CS 2 3", "CRZ(45) 0 3", "CP(pi/8) 1 3", "iSWAP 1 2", "CCZ 0 1 2", "CU(U(90, 0, 180)) 3 0", "MEASURE 0 1"].join(NL) }, "circuit every gate kind");
+  qc("qc-interference", {}, "Mach-Zehnder 60 degrees");
+  qc("qc-interference", { setup: "hzh" }, "H Z H");
+  qc("qc-bell", {}, "Bell all four");
+  qc("qc-bell", { which: "11" }, "Bell from 11");
+  qc("qc-teleport", {}, "teleportation");
+  qc("qc-superdense", {}, "superdense all");
+  qc("qc-deutsch-jozsa", { n: "3", oracle: "table", table: "0 1 1 0 1 0 0 1" }, "Deutsch-Jozsa 3 qubits");
+  qc("qc-grover", { n: "3", marked: "101" }, "Grover 3 qubits");
+  qc("qc-qft", { n: "3", input: "110" }, "QFT 3 qubits");
+  figures.push(["quantum Bloch builder state at the pole, no path", blochSphereSvg({ start: [0, 0, 1], end: [0, 0, 1], path: [], startLabel: "start", endLabel: "final: (0, 0, 1)" })]);
+  figures.push(["quantum Bloch builder pointing at the viewer", blochSphereSvg({ start: [0, 0, -1], end: [0.81, 0.38, 0.45], path: [], startLabel: "start: (0, 0, −1)", endLabel: "final: (0.81, 0.38, 0.45)" })]);
+  const pc = qParseCircuit(["H 0", "CNOT 0 1", "MEASURE 1", "CZ 1 0"].join(NL), 2);
+  if ("error" in pc) throw new Error(pc.error);
+  figures.push(["quantum circuit builder classical control", circuitDiagramSvg({ n: 2, ops: pc.ops })]);
+  figures.push(["quantum bars builder 2 qubits Grover", probabilityBarsSvg(qGrover(2, 2, 1).final.map((z) => z.re * z.re + z.im * z.im), 2)]);
+}
+// --- end Release E: quantum gates ---
 
 export { figures };

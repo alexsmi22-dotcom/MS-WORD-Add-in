@@ -646,6 +646,14 @@ function accumulateFactors(part: string, sign: 1 | -1, out: CompoundUnit): boole
     // takes single units through lookup, affine, and parseCompoundUnit refuses a lone offset unit).
     const def: UnitDef = looked.offset ? { dim: looked.dim, factor: looked.factor } : looked;
     const exp = (m[2] ? parseFloat(m[2]) : 1) * sign;
+    // A FRACTION INSIDE A COMPOUND IS A SCALE (Release E): "ppm/K", "%/°C", "ppm/V" — the way every datasheet writes an
+    // expansion or drift coefficient — mean 10⁻⁶ (0.01) per unit. A LONE %, ppm stays its own atomic quantity (it is
+    // never a compound, so it never reaches here alone: parseCompoundUnit is reached only for real compounds or units
+    // lookup does not know).
+    if (def.dim === "fraction") {
+      out.factor *= Math.pow(def.factor, exp);
+      continue;
+    }
     const decomposed = BASE[def.dim];
     if (decomposed) {
       for (const [b, e] of Object.entries(decomposed)) out.dims[b] = (out.dims[b] ?? 0) + e * exp;
@@ -770,6 +778,8 @@ function normalizeUnitText(expr: string): string {
   // A root sign, as the display writes a stress intensity (MPa·√m, ksi·√in): the 0.5 power of the unit after it, so
   // whatever is displayed parses back (Release E).
   expr = expr.replace(/√\s*([A-Za-zµΩÅ°]+)/g, "$1^0.5");
+  // A leading slash is a reciprocal, as a datasheet writes a coefficient: "12e-6 /K" = 12×10⁻⁶ per kelvin (Release E).
+  expr = expr.replace(/^\s*\//, "1/");
   return expr.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+/g, (run) => {
     let out = "^";
     for (const ch of run) out += SUPERSCRIPT_TO_ASCII[ch] ?? "";
@@ -844,6 +854,9 @@ export function parseMeasured(text: string, targetUnit: string): Measured | { er
   }
   const written = rest.trim().replace(/·/g, "*");
   if (!written) return { value, unit: targetUnit, inTarget: value, assumed: true };
+  // A slash GLUED to the number ("51/s") stays refused: it reads as 5 1/s or as 51 per second, and guessing is how a
+  // wrong number gets in. Only a spaced slash ("12e-6 /K") is the reciprocal unit (normalizeUnitText, Release E).
+  if (written.startsWith("/") && !/^\s/.test(rest)) return { error: `"${t}" is not a unit this recognises: write a space before the slash ("51 /s") for "per", or 5 1/s.` };
   // DECIBELS ARE NOT UNITS. dB, dBu, dBV, dBFS, dB SPL and the neper are
   // logarithmic level statements: converting one by a factor (94 dB SPL ≠ 94 ×
   // anything Pa, and 80 dB + 80 dB is 83 dB, not 160) would be a confident

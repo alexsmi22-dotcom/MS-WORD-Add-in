@@ -1046,6 +1046,48 @@
           <div id="engineering-result" class="preview" aria-live="polite"></div>
         </div>
         <button id="engineering-insert" class="insert-btn" type="button" disabled>Insert result</button>
+        <!-- Release E workbench: send a named result to another tool, sweep an input, or propagate uncertainties.
+             Shown only for a result that declares named outputs (engWorkbench.ts). -->
+        <div id="eng-handoffs" class="eng-handoffs" hidden></div>
+        <details id="eng-explore" class="eng-explore" hidden>
+          <summary>Explore this result: sweep an input, or its uncertainty</summary>
+          <div class="dna-controls">
+            <label class="field-label" for="eng-explore-output">Result to follow</label>
+            <select id="eng-explore-output" class="lib-select"></select>
+          </div>
+          <fieldset class="eng-explore-box">
+            <legend>Sweep one input</legend>
+            <div class="dna-controls">
+              <label class="field-label" for="eng-sweep-field">Vary</label>
+              <select id="eng-sweep-field" class="lib-select"></select>
+            </div>
+            <div class="dna-controls">
+              <label class="field-label" for="eng-sweep-from">From (with the field's unit)</label>
+              <input id="eng-sweep-from" class="rgroup-input" type="text" />
+            </div>
+            <div class="dna-controls">
+              <label class="field-label" for="eng-sweep-to">To</label>
+              <input id="eng-sweep-to" class="rgroup-input" type="text" />
+            </div>
+            <div class="dna-controls">
+              <label class="field-label" for="eng-sweep-points">Points (2 to 41)</label>
+              <input id="eng-sweep-points" class="rgroup-input" type="text" value="21" />
+            </div>
+            <label class="field-label"><input id="eng-sweep-log" type="checkbox" /> Logarithmic spacing</label>
+            <button id="eng-sweep-run" class="draw-pop-btn" type="button">Run sweep</button>
+          </fieldset>
+          <fieldset class="eng-explore-box">
+            <legend>Uncertainty (Monte Carlo)</legend>
+            <p class="seq-disclaimer">Give a standard uncertainty (1σ) to any inputs: a value in the field's unit, or a percentage such as 2 %.</p>
+            <div id="eng-unc-inputs"></div>
+            <button id="eng-unc-run" class="draw-pop-btn" type="button">Run uncertainty</button>
+          </fieldset>
+          <div class="preview-wrap">
+            <span class="preview-label">Explore result</span>
+            <div id="eng-explore-result" class="preview" aria-live="polite"></div>
+          </div>
+          <button id="eng-explore-insert" class="insert-btn" type="button" disabled>Insert explore result</button>
+        </details>
       </section>
 
       <!-- Peptide: draw a 2D structure from a sequence -->

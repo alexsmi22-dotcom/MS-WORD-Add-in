@@ -46,8 +46,9 @@ import {
   OverlaySource,
 } from "../lib/spectroPane";
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
-import { AnalyzeBlock, AnalyzeOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
+import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { EngLine, engReport, plainDashes } from "../lib/engReport";
+import { carryOver, fieldText, handoffsFor, runSweep, runUncertainty, splitValue, sweepReport, uncertaintyReport, type UncertainInput } from "../lib/engWorkbench";
 import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
 import {
   HostCapability,
@@ -2444,10 +2445,17 @@ Office.onReady((info) => {
   // session, or the headless audit driving it directly. One listener keeps the
   // highlight true for all of them.
   engineeringCalcSelect.addEventListener("change", () => {
+    const fromId = lastEngCalcId;
     renderEngineeringInputs();
+    // Shared fields (a control plant typed once) carry into the new tool, then it recomputes with them.
+    carryEngFields(fromId);
+    updateEngineeringPreview();
     markEngineeringSelection(engineeringCalcSelect.value);
   });
   engineeringInsertBtn.addEventListener("click", insertEngineering);
+  document.getElementById("eng-sweep-run")?.addEventListener("click", runEngSweep);
+  document.getElementById("eng-unc-run")?.addEventListener("click", runEngUncertainty);
+  document.getElementById("eng-explore-insert")?.addEventListener("click", () => void insertResultBlocks(currentExploreText, currentExploreBlocks, "Engineering sweep or uncertainty"));
   analyzeCalcSelect.addEventListener("change", renderAnalyzeInputs);
   analyzeInsertBtn.addEventListener("click", insertAnalysis);
 
@@ -13412,7 +13420,17 @@ const ENG_CALCS: EngCalc[] = [
           h: BEAM_CHART_SIZE.h,
         },
       ];
-      return { text: clean.join("\n"), blocks };
+      // Named outputs (Release E): the peak moment of either sign and the peak shear, in the beam's own units — what
+      // the cross-section tool needs (its fields convert, so "12 kN*m" arrives as written).
+      const peakM = Math.abs(res.minMoment.value) > Math.abs(res.maxMoment.value) ? res.minMoment.value : res.maxMoment.value;
+      return {
+        text: clean.join("\n"),
+        blocks,
+        outputs: [
+          { key: "Mmax", label: "Peak bending moment", value: peakM, unit: mu },
+          { key: "Vmax", label: "Peak shear force", value: res.maxShear.value, unit: fu },
+        ],
+      };
     },
   },
   {
@@ -13476,6 +13494,13 @@ const ENG_CALCS: EngCalc[] = [
 
       const p = sectionProperties(spec);
       if ("error" in p) return { text: p.error, ok: false };
+      // Named outputs (Release E): A and I in SI for the column, frame and plate tools; the peak stresses (MPa) when a
+      // moment or shear is given, for the stress-state tool (which reads plain numbers in one unit of your choosing).
+      const toMOut = convert(1, dimUnit, "m") ?? 1;
+      const secOutputs: EngOutput[] = [
+        { key: "A", label: "Area", value: p.A * Math.pow(toMOut, 2), unit: "m²" },
+        { key: "I", label: "Second moment of area (bending axis)", value: p.I * Math.pow(toMOut, 4), unit: "m⁴" },
+      ];
 
       const lines: string[] = [];
       lines.push(`${p.name}, section properties`);
@@ -13542,6 +13567,8 @@ const ENG_CALCS: EngCalc[] = [
           const sigmaSi = Math.abs(Msi) / Math.min(sTopSi, sBotSi);
           const fibre = sTopSi < sBotSi ? "top" : "bottom";
           const tauSi = tSi > 0 && Isi > 0 ? (Math.abs(Vsi) * Qsi) / (Isi * tSi) : 0;
+          if (mQ) secOutputs.push({ key: "sigma", label: "Peak bending stress", value: sigmaSi / 1e6, unit: "MPa" });
+          if (vQ) secOutputs.push({ key: "tau", label: "Shear stress at the neutral axis", value: tauSi / 1e6, unit: "MPa" });
           lines.push("");
           if (mQ) {
             lines.push(
@@ -13594,7 +13621,7 @@ const ENG_CALCS: EngCalc[] = [
         strips.push({ b: d[0], h: d[1], yc: d[2] - d[1] / 2, sign: 1 });
       }
       const depth = shape === "circle" ? d[0] : shape === "pipe" ? d[0] : shape === "rect" ? d[1] : shape === "box" ? d[1] : d[2];
-      return engReport(lines, [
+      return { ...engReport(lines, [
         {
           kind: "plot",
           svg: sectionShapeSvg({ name: p.name, strips, depth, yBar: p.yBar, circle, unit: dimUnit }),
@@ -13603,7 +13630,7 @@ const ENG_CALCS: EngCalc[] = [
           w: SECTION_CHART_SIZE.w,
           h: SECTION_CHART_SIZE.h,
         },
-      ]);
+      ]), outputs: secOutputs };
     },
   },
   {
@@ -14672,7 +14699,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Temperature through the wall",
           },
         );
-        return engReport(lines, [
+        return withOutputs([{ key: "U", label: "Overall coefficient U", value: res.U, unit: "W/(m²·K)" }], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -14681,7 +14708,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
       return { text: plainDashes(lines.join("\n")) };
     },
@@ -22267,7 +22294,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "g₂ = 1 − L/R₂",
           title: "The stability diagram",
         });
-        return engReport(lines, [
+        return withOutputs([{ key: "w0", label: "Waist radius w₀", value: res.waistM ?? NaN, unit: "m" }], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -22277,7 +22304,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 270,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -23369,7 +23396,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "array output (kW)",
           title: "Rated against temperature-derated output",
         });
-        return engReport(lines, [
+        return withOutputs([{ key: "Eyear", label: "Annual energy", value: res.dailyEnergyKWh != null ? (res.dailyEnergyKWh * 365) / 1000 : NaN, unit: "MWh" }], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23378,7 +23405,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
       return { text: plainDashes(lines.join("\n")) };
     },
@@ -24012,7 +24039,7 @@ const ENG_CALCS: EngCalc[] = [
 
       // The power triangle, at one scale on both axes so φ reads as the
       // angle whose cosine is the power factor — which is the entire figure.
-      return engReport(lines, [
+      return withOutputs([{ key: "P", label: "Real power", value: res.realPowerW, unit: "W" }, { key: "pf", label: "Power factor", value: pf, unit: "" }], engReport(lines, [
         {
           kind: "plot",
           svg: powerTriangleSvg(res.realPowerW / 1000, res.reactivePowerVAR / 1000, res.apparentPowerVA / 1000, pf),
@@ -24021,7 +24048,7 @@ const ENG_CALCS: EngCalc[] = [
           w: POWER_TRIANGLE_SIZE.w,
           h: POWER_TRIANGLE_SIZE.h,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -28693,6 +28720,10 @@ function renderEngineeringInputs(): void {
   renderCalcFields(calc.fields, engineeringInputs, "engineering", updateEngineeringPreview);
 }
 
+/** A result with its named outputs (Release E workbench); non-finite values are left out. */
+const withOutputs = (outputs: EngOutput[], out: AnalyzeOutput): AnalyzeOutput =>
+  out.ok === false ? out : { ...out, outputs: outputs.filter((o) => Number.isFinite(o.value)) };
+
 let currentEngText = "";
 let currentEngBlocks: AnalyzeBlock[] | null = null;
 
@@ -28720,6 +28751,161 @@ function updateEngineeringPreview(): void {
   currentEngText = insertable ? out.text : "";
   currentEngBlocks = insertable ? out.blocks ?? null : null;
   engineeringInsertBtn.disabled = !insertable;
+  refreshEngWorkbench(calc, insertable ? out : null);
+}
+
+// ---- The Engineering workbench (Release E): handoffs, sweeps, uncertainty — logic in lib/engWorkbench.ts ----
+
+let lastEngCalcId = "";
+let lastEngFieldValues: Record<string, string> = {};
+let currentExploreText = "";
+let currentExploreBlocks: AnalyzeBlock[] | null = null;
+
+/** The current Engineering field values, by key. */
+function engFieldValues(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const el of Array.from(engineeringInputs.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("[data-key]"))) {
+    out[el.dataset.key ?? ""] = el.value;
+  }
+  return out;
+}
+
+/** Shows the handoff buttons and the explore panel for a result that declares named outputs. */
+let currentEngCalc: EngCalc | null = null;
+
+function refreshEngWorkbench(calc: EngCalc, out: AnalyzeOutput | null): void {
+  currentEngCalc = calc;
+  lastEngCalcId = calc.id;
+  lastEngFieldValues = engFieldValues();
+  const handoffHost = document.getElementById("eng-handoffs") as HTMLElement;
+  const explore = document.getElementById("eng-explore") as HTMLDetailsElement;
+  const rows = out ? handoffsFor(calc.id, out) : [];
+  handoffHost.replaceChildren();
+  for (const h of rows) {
+    const target = ENG_CALCS.find((c) => c.id === h.to);
+    if (!target) continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "draw-pop-btn";
+    b.textContent = h.label;
+    b.title = `${h.value.label} = ${engNum(h.value.value)} ${h.value.unit}, into ${target.name}`;
+    b.addEventListener("click", () => {
+      const text = fieldText(h.value.value, h.unit ?? h.value.unit);
+      selectEngineeringCalc(h.to);
+      const el = engineeringInputs.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[data-key="${h.field}"]`);
+      if (el) el.value = text;
+      updateEngineeringPreview();
+      setStatus(`${h.value.label} sent to ${target.name} (${text}).`, "success");
+    });
+    handoffHost.appendChild(b);
+  }
+  handoffHost.hidden = rows.length === 0;
+  const outputs = out?.outputs?.filter((o) => Number.isFinite(o.value)) ?? [];
+  explore.hidden = outputs.length === 0;
+  if (!outputs.length) return;
+  const outSel = document.getElementById("eng-explore-output") as HTMLSelectElement;
+  const keepOut = outSel.value;
+  outSel.replaceChildren(...outputs.map((o) => new Option(o.unit ? `${o.label} (${formatUnit(o.unit)})` : o.label, o.key)));
+  if (outputs.some((o) => o.key === keepOut)) outSel.value = keepOut;
+  // Numeric text fields are the ones a sweep or an uncertainty can vary.
+  const numeric = calc.fields.filter((f) => f.kind !== "select" && f.kind !== "block" && splitValue(lastEngFieldValues[f.key] ?? "") !== null);
+  const fieldSel = document.getElementById("eng-sweep-field") as HTMLSelectElement;
+  const keepField = fieldSel.value;
+  fieldSel.replaceChildren(...numeric.map((f) => new Option(f.label, f.key)));
+  if (numeric.some((f) => f.key === keepField)) fieldSel.value = keepField;
+  const unc = document.getElementById("eng-unc-inputs") as HTMLElement;
+  const kept: Record<string, string> = {};
+  for (const el of Array.from(unc.querySelectorAll<HTMLInputElement>("input[data-unc]"))) if (el.dataset.tool === calc.id) kept[el.dataset.unc ?? ""] = el.value;
+  unc.replaceChildren(
+    ...numeric.map((f) => {
+      const row = document.createElement("div");
+      row.className = "dna-controls";
+      const label = document.createElement("label");
+      label.className = "field-label";
+      label.textContent = `± ${f.label} (now ${lastEngFieldValues[f.key]})`;
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.className = "rgroup-input";
+      inp.dataset.unc = f.key;
+      inp.dataset.tool = calc.id;
+      inp.value = kept[f.key] ?? "";
+      inp.placeholder = "blank: exact";
+      label.htmlFor = inp.id = `eng-unc-${f.key}`;
+      row.append(label, inp);
+      return row;
+    }),
+  );
+}
+
+/** Carries shared fields (a control plant's transfer function) into the newly selected tool. */
+function carryEngFields(fromId: string): void {
+  const from = ENG_CALCS.find((c) => c.id === fromId);
+  const to = engineeringCalcSelect.value;
+  if (!from || fromId === to) return;
+  const defaults: Record<string, string> = {};
+  for (const f of from.fields) defaults[f.key] = f.default;
+  const carry = carryOver(fromId, to, lastEngFieldValues, defaults);
+  for (const [k, v] of Object.entries(carry)) {
+    const el = engineeringInputs.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-key="${k}"]`);
+    if (el) el.value = v;
+  }
+}
+
+function showExplore(out: AnalyzeOutput): void {
+  const result = document.getElementById("eng-explore-result") as HTMLElement;
+  const insert = document.getElementById("eng-explore-insert") as HTMLButtonElement;
+  const insertable = out.ok !== false && insertableResultText(out.text);
+  result.innerHTML = out.blocks && insertable ? analyzeBlocksToPreviewHtml(out.blocks) : esc(out.text).replace(/\n/g, "<br>");
+  currentExploreText = insertable ? out.text : "";
+  currentExploreBlocks = insertable ? out.blocks ?? null : null;
+  insert.disabled = !insertable;
+}
+
+function engReadNow(): (k: string) => string {
+  const values = engFieldValues();
+  return (k: string): string => values[k] ?? "";
+}
+
+function runEngSweep(): void {
+  const calc = currentEngCalc;
+  if (!calc) return;
+  const field = (document.getElementById("eng-sweep-field") as HTMLSelectElement).value;
+  const label = calc.fields.find((f) => f.key === field)?.label ?? field;
+  const req = {
+    field,
+    from: (document.getElementById("eng-sweep-from") as HTMLInputElement).value,
+    to: (document.getElementById("eng-sweep-to") as HTMLInputElement).value,
+    points: Number((document.getElementById("eng-sweep-points") as HTMLInputElement).value),
+    log: (document.getElementById("eng-sweep-log") as HTMLInputElement).checked,
+    output: (document.getElementById("eng-explore-output") as HTMLSelectElement).value,
+  };
+  const r = runSweep(calc.compute, engReadNow(), req);
+  showExplore(r.ok ? sweepReport(r, label.replace(/,\s*[^,]*$/, ""), calc.name, req.log) : { text: r.reason, ok: false });
+}
+
+function runEngUncertainty(): void {
+  const calc = currentEngCalc;
+  if (!calc) return;
+  const read = engReadNow();
+  const inputs: UncertainInput[] = [];
+  const described: Array<{ label: string; text: string }> = [];
+  for (const el of Array.from(document.querySelectorAll<HTMLInputElement>("#eng-unc-inputs input[data-unc]"))) {
+    const t = el.value.trim().replace(/−/g, "-");
+    if (!t) continue;
+    const m = /^(\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*(%?)\s*\S*$/.exec(t);
+    if (!m) return showExplore({ text: `"${el.value}" is not an uncertainty: write a number in the field's unit, or a percentage such as 2 %.`, ok: false });
+    const key = el.dataset.unc ?? "";
+    inputs.push({ field: key, u: parseFloat(t), relative: m[2] === "%" });
+    described.push({ label: (calc.fields.find((f) => f.key === key)?.label ?? key).replace(/,\s*[^,]*$/, ""), text: `${read(key)} ± ${t}` });
+  }
+  // Each draw runs the whole tool (its figures too): size the run to the tool's own cost so Word stays responsive.
+  const t0 = performance.now();
+  calc.compute(read);
+  const per = Math.max(0.05, performance.now() - t0);
+  const draws = Math.max(100, Math.min(2000, Math.floor(1500 / per)));
+  const output = (document.getElementById("eng-explore-output") as HTMLSelectElement).value;
+  const r = runUncertainty(calc.compute, read, inputs, output, draws);
+  showExplore(r.ok ? uncertaintyReport(r, described, calc.name) : { text: r.reason, ok: false });
 }
 
 /** Inserts the current Engineering result, diagram included. */

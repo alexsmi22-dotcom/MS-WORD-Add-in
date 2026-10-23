@@ -19,6 +19,12 @@ describe("°C and °F inside a compound are temperature differences", () => {
     ["1/°C", "1/K", 1],
     ["J/(kg*°F)", "J/(kg*K)", 1.8],
     ["µm/(m*°C)", "1/K", 1e-6],
+    ["µin/(in*°F)", "µm/(m*K)", 1.8],
+    ["BTU/(h*ft*°F)", "W/(m*K)", 1.7307346663713907],
+    ["/K", "1/K", 1],
+    ["/°C", "1/K", 1],
+    ["ppm/K", "1/K", 1e-6],
+    ["%/°C", "1/K", 0.01],
   ])("1 %s = %s %s", (from, to, want) => close(convert(1, from, to), want as number));
 
   test("a lone °C or °F still converts with its offset", () => {
@@ -32,6 +38,11 @@ describe("°C and °F inside a compound are temperature differences", () => {
     close(convert(180, "deltaF", "ΔK"), 100);
     close(convert(491.67, "°R", "K"), 273.15);
     close(convert(1, "Δ°C", "K"), 1);
+  });
+
+  test("a lone fraction stays a fraction (never a pure number)", () => {
+    expect(convert(1, "ppm", "1")).toBeNull();
+    close(convert(5, "%", "ppm"), 50000);
   });
 
   test("a temperature still cannot become a heat transfer coefficient", () => {

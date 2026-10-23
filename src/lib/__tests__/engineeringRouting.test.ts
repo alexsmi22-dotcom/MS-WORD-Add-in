@@ -297,7 +297,9 @@ describe("every Engineering tool declares its inputs and can produce a result", 
     // reported it as dead. One occurrence is the declaration; a field that is
     // ever used appears at least twice.
     const body = ENG.find((e) => e.id === id)!.body;
-    const declared = [...body.matchAll(/key:\s*"([^"]+)"/g)].map((m) => m[1]);
+    // Named outputs ({ key, label, value, unit } — Release E) are results, not fields: left out of the scan.
+    const fieldsOnly = body.replace(/\{\s*key:\s*"[^"]+",\s*label:[^{}]*?\bvalue:[^{}]*\}/g, "");
+    const declared = [...fieldsOnly.matchAll(/key:\s*"([^"]+)"/g)].map((m) => m[1]);
     expect(declared.length).toBeGreaterThan(0);
     const unread = declared.filter((k) => body.split(`"${k}"`).length - 1 < 2);
     expect(unread).toEqual([]);

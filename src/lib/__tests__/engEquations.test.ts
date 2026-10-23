@@ -81,7 +81,7 @@ describe("every governing equation", () => {
     // No symbol glyphs the parser invents from words (∈ ∞ → ° etc.) in the TYPESET tree either.
     expect(leaves(parseMathAst(e.math)).join("")).not.toMatch(/[∈∉→∧∨¬ℝℤℕℚℂ∪∩]/);
     // A script takes ONE token: `S_e0` is S sub e, times 0. Mixed scripts need braces: S_{e0}.
-    expect(e.math).not.toMatch(/[_^][A-Za-z]+[0-9]|[_^][0-9]+[A-Za-z]/);
+    expect(e.math).not.toMatch(/[_^][A-Za-z]+[0-9]|[_^][0-9.]+[A-Za-z]/);
     // A Greek name directly before "(" parses as a FUNCTION called "pi" and typesets the Latin word.
     expect(e.math).not.toMatch(/\b(alpha|beta|gamma|delta|Delta|epsilon|eta|theta|lambda|mu|nu|pi|rho|sigma|tau|phi|omega|Omega)\(/);
   });

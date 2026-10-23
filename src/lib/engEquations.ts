@@ -488,6 +488,25 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   ],
   "audio-filesize:pcm": [eq("R = f_s n N_ch", "R = fs·n·Nch")],
   "audio-filesize": [eq("size = R t/8", "size = R·t/8")],
+  "audio-loudness:normalise": [eq("G = L_target - L_meas", "G = Ltarget − Lmeas"), eq("TP_after = TP + G", "TPafter = TP + G")],
+  "audio-loudness:gated": [eq("L_I = 10 log_10((1/N) sum(j=1, N, 10^{L_j/10}))", "LI = 10·log₁₀((1/N)·∑ⱼ₌₁ᴺ 10ᴸʲᐟ¹⁰)")],
+  "audio-loudness:sine": [eq("L_K = -0.691 + 10 log_10(sum(i=1, n, G_i z_i))", "LK = −0.691 + 10·log₁₀(∑ᵢ₌₁ⁿ Gᵢ·zᵢ)")],
+  "audio-speaker": [eq("SPL = S_{1W} + 10 log_10(P) - 20 log_10(d)", "SPL = S1W + 10·log₁₀ P − 20·log₁₀ d"), eq("P_{2.83V} = 2.83^2/Z", "P2.83V = 2.83²/Z")],
+  "audio-speaker:incoherent": [eq("G_box = 10 log_10(n)", "Gbox = 10·log₁₀ n")],
+  "audio-speaker:coherent": [eq("G_box = 20 log_10(n)", "Gbox = 20·log₁₀ n")],
+  "audio-absorption": [
+    eq("A = sum(i=1, n, S_i alpha_i) + 4 m V", "A = ∑ᵢ₌₁ⁿ Sᵢ·αᵢ + 4m·V"),
+    eq("T_Sabine = 0.161 V/A", "TSabine = 0.161·V/A"),
+    eq("T_MS = 0.161 V/(-sum(i=1, n, S_i ln(1 - alpha_i)) + 4 m V)", "TMS = 0.161·V/(−∑ᵢ₌₁ⁿ Sᵢ·ln(1 − αᵢ) + 4m·V)"),
+  ],
+  "audio-crossover:1st": [eq("L = Z/(2 pi f_c)", "L = Z/(2π·fc)"), eq("C = 1/(2 pi f_c Z)", "C = 1/(2π·fc·Z)")],
+  "audio-crossover:bw2": [eq("L = sqrt(2) Z/(2 pi f_c)", "L = √2·Z/(2π·fc)"), eq("C = 1/(2 sqrt(2) pi f_c Z)", "C = 1/(2√2·π·fc·Z)")],
+  "audio-crossover:lr2": [eq("L = 2 Z/(2 pi f_c)", "L = 2Z/(2π·fc)"), eq("C = 1/(4 pi f_c Z)", "C = 1/(4π·fc·Z)")],
+  "audio-damping": [
+    eq("R_c = 2 rho L/A", "Rc = 2ρ·L/A"),
+    eq("DF = Z_L/(Z_out + R_c)", "DF = ZL/(Zout + Rc)"),
+    eq("Delta L = 20 log_10(Z_L/(Z_L + Z_out + R_c))", "ΔL = 20·log₁₀(ZL/(ZL + Zout + Rc))"),
+  ],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

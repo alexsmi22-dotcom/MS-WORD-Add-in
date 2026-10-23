@@ -27094,8 +27094,9 @@ const ENG_CALCS: EngCalc[] = [
       // A loudness may be typed with its scale ("−23 LUFS", "−16,3 LKFS"), a true
       // peak with "dBTP", an amplitude with "dBFS": the label is read, not refused.
       const num = (k: string): number => fieldNumber(r(k), /\s*(LUFS|LKFS|LU|dBTP|dBFS|dB)$/i);
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [];
       const notes: string[] = [];
+      const ldOutputs: EngOutput[] = [];
       let fig: AudioFigure;
       let caption: string;
       if (mode === "sine") {
@@ -27117,6 +27118,8 @@ const ENG_CALCS: EngCalc[] = [
         if (Math.abs(kw.gainDb - res.kGainDb) > 1e-9 || Math.abs(comb.loudnessLufs - res.loudnessLufs) > 1e-9) {
           return { text: "The loudness cross-check disagreed with itself, so no number is given.", ok: false };
         }
+        lines.push(...engEq("audio-loudness:sine"));
+        ldOutputs.push({ key: "Lsine", label: "Loudness of the sine", value: res.loudnessLufs, unit: "LUFS" });
         lines.push(`Steady sine, ${avDb(amp, 2)} dBFS at ${engNum(fHz, 6)} Hz`, "");
         lines.push(`  Loudness            ${avDb(res.loudnessLufs, 4)} LUFS`);
         lines.push(`  K-weighting gain    ${avDb(res.kGainDb, 4)} dB`);
@@ -27132,6 +27135,8 @@ const ENG_CALCS: EngCalc[] = [
         if (!lv.ok) return { text: lv.error.replace(/is not a level in dB/, "is not a block loudness in LUFS"), ok: false };
         const res = gatedIntegrated(lv.values);
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("audio-loudness:gated"));
+        ldOutputs.push({ key: "Lint", label: "Integrated loudness", value: res.integratedLufs, unit: "LUFS" });
         lines.push(`Gated integration of ${res.blocksGiven} blocks`, "");
         lines.push(`  Integrated          ${avDb(res.integratedLufs, 3)} LUFS`);
         lines.push(`  Relative gate       ${avDb(res.relativeGateLufs, 3)} LUFS`);
@@ -27154,6 +27159,9 @@ const ENG_CALCS: EngCalc[] = [
         if (!Number.isFinite(maxtp)) return { text: "The true-peak ceiling must be a number of dBTP.", ok: false };
         const res = normaliseGain(meas, target, tp, maxtp);
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("audio-loudness:normalise"));
+        ldOutputs.push({ key: "gainDb", label: "Normalisation gain", value: res.gainDb, unit: "dB" });
+        ldOutputs.push({ key: "tpAfter", label: "True peak after the gain", value: res.resultingTruePeak ?? NaN, unit: "dBTP" });
         lines.push(`Normalising ${avDb(meas, 1)} LUFS to ${avDb(target, 1)} LUFS`, "");
         lines.push(`  Gain                ${avDb(res.gainDb, 2)} dB`);
         if (res.resultingTruePeak !== null) {
@@ -27167,7 +27175,7 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of notes) lines.push(`Note: ${note}`);
       lines.push(ENG_LEVEL_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [avPlot(audioFigureSvg(fig), caption, "Loudness figure for the selected mode")]);
+      return withOutputs(ldOutputs, engReport(lines.map(trueMinus), [avPlot(audioFigureSvg(fig), caption, "Loudness figure for the selected mode")]));
     },
   },
   {
@@ -27227,7 +27235,9 @@ const ENG_CALCS: EngCalc[] = [
         targetSplDb: target,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-speaker"),
+        ...(n > 1 ? (r("coh") === "coherent" ? engEq("audio-speaker:coherent") : engEq("audio-speaker:incoherent")) : []),
         `Loudspeaker at ${engNum(d, 5)} m`,
         "",
         `  Sensitivity (1 W)   ${res.sensitivity1W.toFixed(3)} dB SPL at 1 m`,
@@ -27241,9 +27251,14 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_LEVEL_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "SPL", label: "Continuous SPL", value: res.splDb, unit: "dB SPL" },
+        { key: "SPLpeak", label: "Peak SPL", value: res.peakSplDb, unit: "dB SPL" },
+        { key: "Ppeak", label: "Power for peaks, per box", value: res.peakPowerW, unit: "W" },
+        { key: "Ptarget", label: "Power for the target SPL, per box", value: res.powerForTargetW ?? NaN, unit: "W" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "SPL against distance at the rated power and at the peaks, the listener marked", "SPL falling with log distance, continuous and peak"),
-      ]);
+      ]));
     },
   },
   {
@@ -27272,7 +27287,8 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(m)) return { text: "The air attenuation must be a number per metre (e.g. 0.0024).", ok: false };
       const res = absorptionBudget(v, sl.values, m, target);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-absorption"),
         `Absorption budget, ${engNum(v, 5)} m³`,
         "",
         `  Total absorption    ${engNum(res.absorption, 5)} m² sabins (ᾱ = ${engNum(res.meanAlpha, 4)})`,
@@ -27288,9 +27304,15 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "Atotal", label: "Total absorption", value: res.absorption, unit: "m²" },
+        { key: "RT60sabine", label: "RT60, Sabine", value: res.sabineS, unit: "s" },
+        { key: "RT60eyring", label: "RT60, Eyring", value: res.eyringS, unit: "s" },
+        { key: "RT60ms", label: "RT60, Millington–Sette", value: res.millingtonSetteS, unit: "s" },
+        { key: "Aadd", label: "Absorption to add for the target", value: res.addedAbsorption ?? NaN, unit: "m²" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "Absorption per surface, with the total and what the target needs", "Horizontal bars of absorption per surface"),
-      ]);
+      ]));
     },
   },
   {
@@ -27332,7 +27354,13 @@ const ENG_CALCS: EngCalc[] = [
         return { text: "The crossover cross-check disagreed with itself, so no values are given.", ok: false };
       }
       const db = (x: number | null): string => (x === null ? "a null (−∞ dB)" : `${avDb(x, 3)} dB`);
-      const lines: EngLine[] = [
+      const xoEq: Record<string, EngReportLine[]> = {
+        "1st": engEq("audio-crossover:1st"),
+        bw2: engEq("audio-crossover:bw2"),
+        lr2: engEq("audio-crossover:lr2"),
+      };
+      const lines: EngReportLine[] = [
+        ...(xoEq[type] ?? []),
         `Passive crossover at ${engNum(fc, 5)} Hz into ${engNum(z, 4)} Ω`,
         "",
         `  Capacitor C         ${engNum(res.capacitanceF * 1e6, 5)} µF`,
@@ -27345,9 +27373,12 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "Cuf", label: "Capacitor C", value: res.capacitanceF * 1e6, unit: "µF" },
+        { key: "LmH", label: "Inductor L", value: res.inductanceH * 1e3, unit: "mH" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "Low-pass, high-pass and summed magnitude, with both tweeter polarities", "Crossover magnitude responses on a log frequency axis"),
-      ]);
+      ]));
     },
   },
   {
@@ -27383,7 +27414,8 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = cableDamping({ loadOhm: load, sourceOhm: zout, lengthM: len, areaM2: area ?? undefined, awg });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-damping"),
         `Speaker cable, ${engNum(len, 5)} m of ${engNum(res.areaMm2, 4)} mm² copper`,
         "",
         `  Round-trip resistance ${engNum(res.cableOhm, 6)} Ω`,
@@ -27394,9 +27426,13 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "DF", label: "Damping factor at the speaker", value: res.dampingFactor, unit: "" },
+        { key: "Rcable", label: "Round-trip cable resistance", value: res.cableOhm, unit: "Ω" },
+        { key: "lossDb", label: "Level at the speaker", value: res.lossDb, unit: "dB" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "Damping factor against cable length for three standard areas, the entered length marked", "Damping factor falling with log cable length"),
-      ]);
+      ]));
     },
   },
   {

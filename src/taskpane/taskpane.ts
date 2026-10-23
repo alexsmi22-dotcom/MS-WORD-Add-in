@@ -23521,13 +23521,21 @@ const ENG_CALCS: EngCalc[] = [
       const res = pureTwoQubit(cx(A.re, A.im), cx(B.re, B.im), cx(C.re, C.im), cx(D.re, D.im));
       if (!res) return { text: "All four amplitudes are zero, which is not a state.", ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("quantum-entanglement"),
         "Two-qubit pure state",
         "",
-        `  Concurrence           ${engNum(res.concurrence, 6)}   (0 = product, 1 = maximally entangled)`,
-        `  Entanglement entropy  ${engNum(res.entropyEbits, 6)} ebits`,
-        `  Schmidt eigenvalues   ${engNum(res.schmidt[0], 6)}, ${engNum(res.schmidt[1], 6)}`,
-        `  Largest possible CHSH ${engNum(res.maxChsh, 6)}`,
+        kvTable([
+          ["Concurrence (0 = product, 1 = maximally entangled)", engNum(res.concurrence, 6), ""],
+          ["Entanglement entropy", engNum(res.entropyEbits, 6), "ebits"],
+          ["Schmidt eigenvalues", `${engNum(res.schmidt[0], 6)}, ${engNum(res.schmidt[1], 6)}`, ""],
+          ["Largest possible CHSH", engNum(res.maxChsh, 6), ""],
+        ]),
+      ];
+      const enOutputs: EngOutput[] = [
+        { key: "conc", label: "Concurrence", value: res.concurrence, unit: "" },
+        { key: "Eent", label: "Entanglement entropy", value: res.entropyEbits, unit: "ebits" },
+        { key: "Smax", label: "Largest possible CHSH value", value: res.maxChsh, unit: "" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
@@ -23580,7 +23588,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "probability",
             title: "The state, as probabilities",
           });
-          return engReport(lines, [
+          return withOutputs(enOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23590,10 +23598,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(enOutputs, engReport(lines));
     },
   },
   {
@@ -23637,7 +23645,9 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) {
         return { text: "Each correlation must lie between -1 and +1. Outside that range it is not a measured correlation.", ok: false };
       }
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("quantum-chsh"),
+        ...(res.sigmas !== null ? engEq("quantum-chsh:significance") : []),
         "CHSH Bell test",
         "",
         `  S = ${engNum(res.s, 7)}`,
@@ -23714,7 +23724,10 @@ const ENG_CALCS: EngCalc[] = [
           title: "S against both bounds",
           errorBars: sd !== undefined ? "custom" : undefined,
         });
-        return engReport(lines, [
+        return withOutputs([
+          { key: "S", label: "CHSH value S", value: res.s, unit: "" },
+          { key: "nSigma", label: "Standard errors beyond the classical bound", value: res.sigmas ?? NaN, unit: "" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23724,7 +23737,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -23741,14 +23754,21 @@ const ENG_CALCS: EngCalc[] = [
       const p = Number(r("p"));
       const res = wernerState(p);
       if (!res) return { text: "p must be a number between 0 and 1.", ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("quantum-werner"),
         "Werner state",
         "",
-        `  p = ${engNum(res.p, 6)}`,
-        `  Concurrence      ${engNum(res.concurrence, 6)}`,
-        `  Entangled        ${res.entangled ? "yes (p > 1/3)" : "no (p <= 1/3)"}`,
-        `  Can violate CHSH ${res.violatesChsh ? "yes (p > 0.7071)" : "no (p <= 0.7071)"}`,
-        `  Best CHSH value  ${engNum(res.maxChsh, 6)}`,
+        kvTable([
+          ["p", engNum(res.p, 6), ""],
+          ["Concurrence", engNum(res.concurrence, 6), ""],
+          ["Entangled", res.entangled ? "yes (p > 1/3)" : "no (p ≤ 1/3)", ""],
+          ["Can violate CHSH", res.violatesChsh ? "yes (p > 0.7071)" : "no (p ≤ 0.7071)", ""],
+          ["Best CHSH value", engNum(res.maxChsh, 6), ""],
+        ]),
+      ];
+      const weOutputs: EngOutput[] = [
+        { key: "conc", label: "Concurrence", value: res.concurrence, unit: "" },
+        { key: "Smax", label: "Best CHSH value", value: res.maxChsh, unit: "" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
@@ -23804,7 +23824,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "concurrence",
             title: "Two thresholds, and the gap between them",
           });
-          return engReport(lines, [
+          return withOutputs(weOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23814,10 +23834,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(weOutputs, engReport(lines));
     },
   },
   {
@@ -23836,13 +23856,20 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = bb84KeyRate(pct / 100);
       if (!res) return { text: "The QBER must be a percentage between 0 and 100.", ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("quantum-qkd"),
         "BB84 key rate (Shor-Preskill, asymptotic)",
         "",
-        `  QBER              ${engNum(pct, 5)} %`,
-        `  Secure key rate   ${engNum(res.keyRate, 6)} bits per sifted bit`,
-        `  Threshold QBER    ${engNum(res.thresholdQber * 100, 5)} %`,
+        kvTable([
+          ["QBER", engNum(pct, 5), "%"],
+          ["Secure key rate", engNum(res.keyRate, 6), "bits per sifted bit"],
+          ["Threshold QBER", engNum(res.thresholdQber * 100, 5), "%"],
+        ]),
         `  ${res.secure ? "A key CAN be distilled." : "NO key can be distilled."}`,
+      ];
+      const qkOutputs: EngOutput[] = [
+        { key: "keyRate", label: "Secure key rate", value: res.keyRate, unit: "bits per sifted bit" },
+        { key: "qberThreshold", label: "Threshold QBER", value: res.thresholdQber * 100, unit: "%" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
@@ -23879,7 +23906,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "secure bits per sifted bit",
             title: "The Shor-Preskill bound",
           });
-          return engReport(lines, [
+          return withOutputs(qkOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23888,10 +23915,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(qkOutputs, engReport(lines));
     },
   },
   {

@@ -370,6 +370,20 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("V = 2 pi a NA/lambda", "V = 2π·a·NA/λ"),
     eq("lambda_c = 2 pi a NA/2.405", "λc = 2π·a·NA/2.405"),
   ],
+  // ---- Quantum optics ----
+  "quantum-entanglement": [
+    eq("C = 2 abs(a d - b c)", "C = 2·|ad − bc|"),
+    eq("E = -lambda_1 log_2 lambda_1 - lambda_2 log_2 lambda_2", "E = −λ₁·log₂ λ₁ − λ₂·log₂ λ₂"),
+    eq("S_max = 2 sqrt(1 + C^2)", "Smax = 2√(1 + C²)"),
+  ],
+  "quantum-chsh": [eq("S = E_1 - E_2 + E_3 + E_4", "S = E₁ − E₂ + E₃ + E₄"), eq("S_Q = 2 sqrt(2)", "SQ = 2√2")],
+  "quantum-chsh:significance": [eq("n_sigma = (abs(S) - 2)/sigma_S", "nσ = (|S| − 2)/σS")],
+  "quantum-werner": [
+    eq("rho_W = p ket(Phi) bra(Phi) + (1 - p) I/4", "ρW = p·|Φ⟩⟨Φ| + (1 − p)·I/4"),
+    eq("C = max(0, (3 p - 1)/2)", "C = max(0, (3p − 1)/2)"),
+    eq("S_max = 2 sqrt(2) p", "Smax = 2√2·p"),
+  ],
+  "quantum-qkd": [eq("r = 1 - 2 H_2(Q)", "r = 1 − 2H₂(Q)"), eq("H_2(Q) = -Q log_2 Q - (1 - Q) log_2(1 - Q)", "H₂(Q) = −Q·log₂ Q − (1 − Q)·log₂(1 − Q)")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

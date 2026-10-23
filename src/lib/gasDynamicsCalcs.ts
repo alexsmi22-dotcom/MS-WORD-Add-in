@@ -62,7 +62,7 @@ function unitReader(r: (k: string) => string) {
       return NaN;
     }
     if (!m.assumed && m.inTarget !== m.value) {
-      conversions.push(`${label}: ${num(m.value, 6)} ${m.unit} = ${num(m.inTarget, 5)} ${si.replace("*", "·")} (converted).`);
+      conversions.push(`${label}: ${num(m.value, 7)} ${m.unit} = ${num(m.inTarget, 7)} ${si.replace("*", "·")} (converted).`);
     }
     return m.inTarget;
   };
@@ -177,7 +177,7 @@ const normalShockCalc: EngCalcDef<"Fluids"> = {
       rows.push(["Velocity (m/s)", num(V1), num(V2), num(V2 / V1)]);
       rows.push(["Total pressure (kPa)", num(p01 / 1000), num(p02 / 1000), num(res.p02p01)]);
       lines.push(
-        `Upstream p₁ = ${num(p1 / 1000)} kPa, T₁ = ${num(T1)} K → downstream p₂ = ${num(p2 / 1000)} kPa, T₂ = ${num(T2)} K; ` +
+        `Upstream p₁ = ${num(p1 / 1000, 7)} kPa, T₁ = ${num(T1, 7)} K → downstream p₂ = ${num(p2 / 1000)} kPa, T₂ = ${num(T2)} K; ` +
           `velocity ${num(V1)} → ${num(V2)} m/s (a = √(γRT), R = ${num(R)} J/(kg·K)).`,
       );
       outputs.push(out("p2", "Downstream static pressure p₂", p2 / 1000, "kPa"), out("T2", "Downstream static temperature T₂", T2, "K"));
@@ -322,7 +322,7 @@ const fannoCalc: EngCalcDef<"Fluids"> = {
     "Adiabatic flow in a constant-area duct with wall friction. The state at M₁ against the sonic (*) reference, and " +
     "with the friction factor, length and diameter, the exit Mach number on the same branch: friction drives subsonic " +
     "flow UP and supersonic flow DOWN toward Mach 1. A duct longer than L* chokes. The friction factor is the FANNING " +
-    "f̄ (4f̄L/D); a Darcy (Moody-chart) factor is converted, f_D = 4f̄. " + UNIT_NOTE,
+    "f̄ (4f̄L/D); a Darcy (Moody-chart) factor is converted, Darcy f = 4f̄. " + UNIT_NOTE,
   fields: [
     { key: "M1", label: "Inlet Mach number M₁", default: "0.5", kind: "text" },
     GAMMA_FIELD,
@@ -334,7 +334,7 @@ const fannoCalc: EngCalcDef<"Fluids"> = {
       kind: "select",
       options: [
         { value: "fanning", label: "Fanning f̄ (τw = f̄·½ρV²)" },
-        { value: "darcy", label: "Darcy f_D (Moody chart; f_D = 4f̄)" },
+        { value: "darcy", label: "Darcy f (Moody chart; Darcy f = 4f̄)" },
       ],
     },
     { key: "L", label: "Duct length L, m (blank for the state only)", default: "2", kind: "text" },
@@ -374,7 +374,7 @@ const fannoCalc: EngCalcDef<"Fluids"> = {
     const marks = [{ M: M1, label: `inlet M₁ = ${num(M1, 4)}` }];
     if (fF !== null && D !== null) {
       const Lstar = (s1.fLD * D) / (4 * fF);
-      lines.push(`Choking length from the inlet state: L* = 4f̄L*/D × D/(4f̄) = ${num(Lstar)} m (Fanning f̄ = ${num(fF)}${darcy ? `, from Darcy f_D = ${num(f!)} ÷ 4` : ""}).`);
+      lines.push(`Choking length from the inlet state: L* = 4f̄L*/D × D/(4f̄) = ${num(Lstar)} m (Fanning f̄ = ${num(fF)}${darcy ? `, from the Darcy f = ${num(f!)} ÷ 4` : ""}).`);
       outputs.push(out("Lstar", "Choking length L*", Lstar, "m"));
     }
     if (res.s2 && fLD !== null) {
@@ -390,7 +390,7 @@ const fannoCalc: EngCalcDef<"Fluids"> = {
       "F(M) = 4f̄L*/D, the friction length that takes the flow from M to Mach 1:",
       { math: "F(M) = (1 - M^2)/(γ M^2) + (γ + 1)/(2γ) ln(((γ + 1) M^2)/(2 + (γ - 1) M^2))", fallback: "F(M) = (1 − M²)/(γM²) + ((γ + 1)/(2γ)) ln[(γ + 1)M²/(2 + (γ − 1)M²)]" },
       { math: "(4 bar(f) L)/D = F(M_1) - F(M_2)", fallback: "4f̄L/D = F(M₁) − F(M₂)" },
-      { math: "f_D = 4 bar(f)", fallback: "f_D = 4f̄ (Darcy from Fanning)" },
+      { math: "f_D = 4 bar(f)", fallback: "Darcy f = 4f̄ (four times the Fanning factor)" },
       "T/T* = (γ + 1)/(2 + (γ − 1)M²), p/p* = √(T/T*)/M, V/V* = M√(T/T*), p₀/p₀* = A/A* (the isentropic area ratio).",
     );
     lines.push(...u.conversions, `${ASSUMPTION} Adiabatic, constant area, a constant mean friction factor.`);

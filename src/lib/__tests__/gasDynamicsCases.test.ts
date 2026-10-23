@@ -199,7 +199,21 @@ describe("further oracle rows (jurislab-oracle-venv, scipy)", () => {
   test("Fanno: a Darcy factor is divided by 4 (f_D L/D = 4f̄L/D)", () => {
     const o = run("gd-fanno", { conv: "darcy", f: "0.02" });
     expect(rel(outv(o, "fLD"), 0.8)).toBe(true);
-    expect(o.text).toMatch(/Darcy f_D = 0\.02 ÷ 4/);
+    expect(o.text).toMatch(/Darcy f = 0\.02 ÷ 4/);
+  });
+  test("a root exactly on a bracket end: a zero-length duct and zero heat leave the state unchanged", () => {
+    const a = fanno(0.5, 0, 1.4), b = fanno(2, 0, 1.4), c = rayleigh(0.5, 1, 1.4), d = rayleigh(2, 1, 1.4);
+    if (!a.ok || !b.ok || !c.ok || !d.ok) throw new Error("x");
+    expect(a.s2!.M).toBe(0.5);
+    expect(b.s2!.M).toBe(2);
+    expect(c.s2!.M).toBe(0.5);
+    expect(d.s2!.M).toBe(2);
+    expect(outv(run("gd-fanno", { L: "0" }), "M2")).toBe(0.5);
+  });
+  test("the default normal shock echoes the typed pressure exactly", () => {
+    const o = run("gd-normal-shock");
+    expect(o.text).toMatch(/101\.325 kPa = 101325 Pa \(converted\)/);
+    expect(o.text).toMatch(/Upstream p₁ = 101\.325 kPa/);
   });
   test("Fanno p₀/p₀* is A/A* from the isentropic tool", () => {
     const f = fanno(0.5, null, 1.4);
@@ -320,6 +334,8 @@ const SCENARIOS: Array<[string, Record<string, string>]> = [
   ["gd-fanno", { M1: "0.001", L: "", f: "" }],
   ["gd-fanno", { M1: "3", L: "0.5", conv: "darcy", f: "0.02" }],
   ["gd-fanno", { M1: "1", L: "0" }],
+  ["gd-fanno", { L: "0" }],
+  ["gd-rayleigh", { ratio: "1" }],
   ["gd-rayleigh", {}],
   ["gd-rayleigh", { M1: "0.1", ratio: "0.5" }],
   ["gd-rayleigh", { M1: "4", ratio: "1.6" }],
@@ -332,7 +348,7 @@ describe("every result keeps the display contract, declares outputs, draws, and 
     expect({ ok: o.ok, text: o.text }).toEqual({ ok: undefined, text: o.text });
     const blocks = o.blocks ?? [];
     const allText = [o.text, ...blocks.flatMap((b) => (b.kind === "table" ? b.rows.flat() : []))].join("\n");
-    expect(allText).not.toMatch(/NaN|Infinity|undefined|not finite|—|\^|\d[eE][+-]?\d/);
+    expect(allText).not.toMatch(/NaN|Infinity|undefined|not finite|—|\^|_|\d[eE][+-]?\d/);
     expect(allText).not.toMatch(/(^|[\s(=,;:])-\d/);
     // Outputs: present, finite, keyed.
     expect((o.outputs ?? []).length).toBeGreaterThanOrEqual(2);

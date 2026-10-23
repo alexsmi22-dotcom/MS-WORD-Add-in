@@ -52,6 +52,10 @@ function isen(M: number, g: number): { T0T: number; p0p: number; AAs: number } {
 /** Bisection for f(x) = 0 on [lo, hi] where f(lo) and f(hi) have opposite signs (checked by the caller). */
 function bisect(f: (x: number) => number, lo: number, hi: number): number {
   let flo = f(lo);
+  // A root exactly on an end (a zero-length duct, no heat) is returned as is: with flo = 0 the sign test below
+  // would walk the bracket away from it.
+  if (flo === 0) return lo;
+  if (f(hi) === 0) return hi;
   for (let i = 0; i < BISECT_CAP; i++) {
     const mid = 0.5 * (lo + hi);
     if (mid === lo || mid === hi) break;
@@ -356,6 +360,7 @@ export function fanno(M1: number, fLD: number | null, g = 1.4): FannoResult | Gd
           : "a supersonic inlet flow takes a shock inside the duct (or the inlet unstarts)."),
     };
   }
+  if (fLD === 0) return { ok: true, branch, s1, fLD, s2: s1 };
   if (target <= 0 || M1 === 1) return { ok: true, branch, s1, fLD, s2: fannoState(1, g) };
   const f = (M: number): number => fannoFLD(M, g) - target;
   // 4f̄L*/D falls monotonically to 0 at M = 1 from either side, so the exit lies between M₁ and 1.
@@ -414,6 +419,7 @@ export function rayleigh(M1: number, T02T01: number | null, g = 1.4): RayleighRe
     return { ok: false, error: "T₀₂/T₀₁ must be greater than 0 (an absolute stagnation temperature cannot reach zero)." };
   }
   const target = s1.T0T0s * T02T01;
+  if (T02T01 === 1) return { ok: true, branch, s1, T02T01, s2: s1, chokeRatio };
   if (target > 1 + 1e-12) {
     return {
       ok: false,

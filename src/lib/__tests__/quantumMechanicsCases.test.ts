@@ -38,6 +38,22 @@
 //   barrier, lnT = −(ln c + 2x − 2 ln 2 + ln(1 + 4e^{−2x}/c)), ratio = (lnT + 2x)/ln 10, at 60 digits:
 //     m 1e-20 kg, V0 1 eV, a 1 m, E 0.5 eV: log10 T −329680562688607.9361796665, T/T_WKB 4.0 (E/V0 0.25: 3.0)
 //     proton, a 1 m, E 0.5 eV: log10 T −134831769839.938981960421 (T = 1.1508…×10⁻¹³⁴⁸³¹⁷⁶⁹⁸⁴⁰), T/T_WKB 4.0
+//   The script (from mpmath import mp, mpf, sqrt, sinh, log, exp, pi; e, hbar as above):
+//     def well(m, V0eV, w):
+//         V0 = V0eV*e; a = w/2; z0 = a*sqrt(2*m*V0)/hbar; j = 0
+//         while j*pi/2 < z0:
+//             F = lambda p: z0*mp.cos(p) - p - j*pi/2
+//             lo, hi = mpf(0), min(pi/2, z0 - j*pi/2)
+//             for _ in range(2000):
+//                 mid = (lo + hi)/2
+//                 if F(mid) > 0: lo = mid
+//                 else: hi = mid
+//             p = (lo + hi)/2; z = z0*mp.cos(p); eta = z0*mp.sin(p)
+//             print(j, hbar**2*z**2/(2*m*a**2)/e, -hbar**2*eta**2/(2*m*a**2)/e); j += 1
+//     def barrier(m, V0eV, a, EeV):
+//         V0 = V0eV*e; E = EeV*e; x = sqrt(2*m*(V0 - E))/hbar*a; c = V0**2/(4*E*(V0 - E))
+//         lnT = -log(1 + c*sinh(x)**2) if x < 1e6 else -(log(c) + 2*x - 2*log(2) + log(1 + 4*exp(-2*x)/c))
+//         return lnT/log(10), (lnT + 2*x)/log(10)
 
 import { QUANTUM_MECHANICS_CALCS, fromLog10, log10Figures } from "../quantumMechanicsCalcs";
 import {
@@ -424,6 +440,7 @@ describe("adversarial inputs: named refusals, never a confident wrong number", (
     expect(o.text).toMatch(msg);
     // A refusal may quote what was typed ("Infinity nm"); it never prints a computed NaN or undefined.
     expect(o.text).not.toMatch(/NaN|undefined/);
+    expect(o.text).not.toMatch(/[A-Za-zα-ω]_/);
   });
 
   test("huge and tiny magnitudes: a refusal or a finite typeset answer, never NaN", () => {
@@ -697,6 +714,11 @@ describe("fix round 1: review defects", () => {
     const well = run("qm-particle-box", { well: "finite", depth: "300 meV", particle: "effective", width: "10 nm" });
     expect(rel(out(well, "E1"), 0.034208440483167346)).toBeLessThan(1e-9);
     for (const o of [base, mv, well]) expect(o.text).not.toMatch(/meV is not/);
+    // The Hamiltonian's entry unit (a select) offers meV too: 300 meV·X + 100 meV·Z is 0.3 X + 0.1 Z in eV.
+    const hev = run("qm-two-level", { mode: "hamiltonian", H: "0.3*X + 0.1*Z", hUnit: "eV", t: "5 fs" });
+    const hmev = run("qm-two-level", { mode: "hamiltonian", H: "300*X + 100*Z", hUnit: "meV", t: "5 fs" });
+    expect(Math.abs(out(hmev, "P1") - out(hev, "P1"))).toBeLessThan(1e-12);
+    expect(rel(out(hmev, "Eplus"), out(hev, "Eplus"))).toBeLessThan(1e-12);
   });
 
   // #6 e-notation in refusals.

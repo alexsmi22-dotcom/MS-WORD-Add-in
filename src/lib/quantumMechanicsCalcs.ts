@@ -797,6 +797,7 @@ const MAG = {
 
 const H_UNITS: Record<string, { k: number; label: string; short: string }> = {
   eV: { k: EV, label: "eV", short: "eV" },
+  meV: { k: EV * 1e-3, label: "meV", short: "meV" },
   J: { k: 1, label: "J", short: "J" },
   hHz: { k: H_PLANCK, label: "h·Hz (entries are E/h)", short: "h·Hz" },
   hMHz: { k: H_PLANCK * 1e6, label: "h·MHz (entries are E/h)", short: "h·MHz" },

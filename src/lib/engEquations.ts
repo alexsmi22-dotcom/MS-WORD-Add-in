@@ -193,6 +193,31 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   ],
   "fracture-transition": [eq("a_t = (1/pi) (K_IC/(Y sigma_y))^2", "aₜ = (1/π)·(KIC/(Y·σy))²")],
   "fracture-transition:stress": [eq("sigma_f = K_IC/(Y sqrt(pi a))", "σf = KIC/(Y·√(πa))")],
+  // ---- Reliability ----
+  "rel-weibull": [
+    eq("R(t) = exp(-(t/eta)^beta)", "R(t) = exp(−(t/η)ᵝ)"),
+    eq("B_10 = {eta} (-ln(0.9))^{1/beta}", "B₁₀ = η·(−ln 0.9)¹ᐟᵝ"),
+  ],
+  "rel-weibull:mttf": [eq("MTTF = {eta} {Gamma} (1 + 1/beta)", "MTTF = η·Γ(1 + 1/β)")],
+  "rel-rbd:series": [
+    eq("R_s = prod(i=1, n, R_i)", "Rs = ∏ᵢ₌₁ⁿ Rᵢ"),
+    eq("lambda_s = sum(i=1, n, lambda_i)", "λs = ∑ᵢ₌₁ⁿ λᵢ"),
+    eq("MTTF = 1/lambda_s", "MTTF = 1/λs"),
+  ],
+  "rel-rbd:parallel": [eq("R_p = 1 - prod(i=1, n, (1 - R_i))", "Rp = 1 − ∏ᵢ₌₁ⁿ (1 − Rᵢ)")],
+  "rel-koon": [
+    eq("R_sys = sum(i=k, n, C(n, i) (1 - R)^{n - i} R^i)", "Rsys = ∑ᵢ₌ₖⁿ C(n, i)·(1 − R)ⁿ⁻ⁱ·Rⁱ"),
+    eq("MTTF = (1/lambda) sum(i=k, n, 1/i)", "MTTF = (1/λ)·∑ᵢ₌ₖⁿ 1/i"),
+  ],
+  "rel-koon:derived": [eq("R = exp(-lambda t)", "R = exp(−λt)")],
+  "rel-redundancy": [
+    eq("R_active = 1 - (1 - exp(-lambda t))^n", "Ractive = 1 − (1 − exp(−λt))ⁿ"),
+    eq("R_standby = exp(-lambda t) sum(i=0, n - 1, (lambda t)^i/i!)", "Rstandby = exp(−λt)·∑ᵢ₌₀ⁿ⁻¹ (λt)ⁱ/i!"),
+    eq("MTTF_active = (1/lambda) sum(i=1, n, 1/i)", "MTTFactive = (1/λ)·∑ᵢ₌₁ⁿ 1/i"),
+    eq("MTTF_standby = n/lambda", "MTTFstandby = n/λ"),
+  ],
+  "rel-availability": [eq("A = MTBF/(MTBF + MTTR)", "A = MTBF/(MTBF + MTTR)")],
+  "rel-availability:series": [eq("A_sys = A^n", "Asys = Aⁿ")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

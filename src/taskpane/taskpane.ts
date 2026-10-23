@@ -17957,34 +17957,35 @@ const ENG_CALCS: EngCalc[] = [
       const res = weibullFit(parsed);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Weibull life, fitted by maximum likelihood",
-        "",
-        `  Shape  beta          ${engNum(res.beta, 4)}`,
-        `  Scale  eta           ${engNum(res.eta, 5)} h`,
-        `  Hazard                ${res.regime}`,
-        "",
-        `  B10 life              ${engNum(res.b10, 5)} h`,
-        `  Median life           ${engNum(res.medianLife, 5)} h`,
+      // Release E: the fit as a quantity / value / unit table.
+      const wRows: Array<[string, string, string]> = [
+        ["Shape beta", engNum(res.beta, 4), ""],
+        ["Scale eta", engNum(res.eta, 5), "h"],
+        ["Hazard", res.regime, ""],
+        ["B10 life", engNum(res.b10, 5), "h"],
+        ["Median life", engNum(res.medianLife, 5), "h"],
+        res.mttf === null ? ["Mean life", "not reported at this shape (see the note below)", ""] : ["Mean life MTTF", engNum(res.mttf, 5), "h"],
+        [
+          "95 % interval on beta",
+          res.betaLow !== null && res.betaHigh !== null ? `${engNum(res.betaLow, 4)} to ${engNum(res.betaHigh, 4)}` : "not resolved from this data",
+          "",
+        ],
+        ["Failures / units", `${res.failures} of ${res.failures + res.censored}`, ""],
       ];
-      lines.push(
-        res.mttf === null
-          ? "  Mean life             not reported at this shape (see the note below)"
-          : `  Mean life  MTTF       ${engNum(res.mttf, 5)} h`,
-      );
-      lines.push("");
-      lines.push(
-        res.betaLow !== null && res.betaHigh !== null
-          ? `  95 % interval on beta  ${engNum(res.betaLow, 4)} to ${engNum(res.betaHigh, 4)}`
-          : "  95 % interval on beta  not resolved from this data",
-      );
-      lines.push(`  Failures / units      ${res.failures} of ${res.failures + res.censored}`);
+      let survivingPct = NaN;
       if (at !== null && at > 0) {
         const R = Math.exp(-Math.pow(at / res.eta, res.beta));
-        lines.push("");
-        lines.push(`  Surviving at ${engNum(at, 5)} h    ${(R * 100).toFixed(2)} %`);
+        survivingPct = R * 100;
+        wRows.push([`Surviving at ${engNum(at, 5)} h`, (R * 100).toFixed(2), "%"]);
       }
-      lines.push("");
+      const lines: EngReportLine[] = [
+        ...engEq("rel-weibull"),
+        ...(res.mttf !== null ? engEq("rel-weibull:mttf") : []),
+        "Weibull life, fitted by maximum likelihood",
+        "",
+        kvTable(wRows),
+        "",
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_RELIABILITY_UNIT_NOTE);
@@ -18002,7 +18003,13 @@ const ENG_CALCS: EngCalc[] = [
           title: "Straight means Weibull fits",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "beta", label: "Shape β", value: res.beta, unit: "" },
+        { key: "eta", label: "Scale η", value: res.eta, unit: "h" },
+        { key: "B10", label: "B10 life", value: res.b10, unit: "h" },
+        { key: "MTTF", label: "Mean life MTTF", value: res.mttf ?? NaN, unit: "h" },
+        { key: "Rt", label: "Surviving at the age asked", value: survivingPct, unit: "%" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -18011,7 +18018,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -18052,25 +18059,26 @@ const ENG_CALCS: EngCalc[] = [
       const res = reliabilityBlock({ components: parts, configuration: cfg, timeH });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const rbdRows: Array<[string, string, string]> = [
+        ["Units in the system", `${res.totalUnits}`, ""],
+        [`Reliability at ${engNum(timeH, 5)} h`, (res.reliability * 100).toFixed(4), "%"],
+        ["Chance of failure", engNum(res.unreliability, 4), ""],
+      ];
+      if (res.systemLambda !== null) rbdRows.push(["System failure rate", engNum(res.systemLambda, 4), "per hour"]);
+      rbdRows.push(res.mttf === null ? ["Mean time to failure", "not reported (see the notes)", ""] : ["Mean time to failure", engNum(res.mttf, 5), "h"]);
+      const lines: EngReportLine[] = [
+        ...(cfg === "series" ? engEq("rel-rbd:series") : engEq("rel-rbd:parallel")),
         cfg === "series" ? "Series system" : "Parallel system",
         "",
-        `  Units in the system   ${res.totalUnits}`,
-        `  Reliability at ${engNum(timeH, 5)} h  ${(res.reliability * 100).toFixed(4)} %`,
-        `  Chance of failure     ${engNum(res.unreliability, 4)}`,
+        kvTable(rbdRows),
       ];
-      if (res.systemLambda !== null) {
-        lines.push(`  System failure rate   ${engNum(res.systemLambda, 4)} per hour`);
-      }
-      lines.push(
-        res.mttf === null ? "  Mean time to failure  not reported (see the notes)" : `  Mean time to failure  ${engNum(res.mttf, 5)} h`,
-      );
       if (res.contributions.length) {
         lines.push("");
-        lines.push("Where the failures come from");
-        for (const c of res.contributions) {
-          lines.push(`  ${c.name.padEnd(20).slice(0, 20)} ${(c.share * 100).toFixed(1)} %`);
-        }
+        // Release E: the failure shares as a real table (names no longer cut at 20 characters).
+        lines.push({
+          label: "Where the failures come from",
+          table: [["Component", "Share of failures (%)"], ...res.contributions.map((c) => [c.name, (c.share * 100).toFixed(1)])],
+        });
       }
       lines.push("");
       u.report(lines);
@@ -18090,7 +18098,11 @@ const ENG_CALCS: EngCalc[] = [
           title: cfg === "series" ? "The system falls faster than any part" : "The system outlives every part",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Rsys", label: "System reliability over the mission", value: res.reliability * 100, unit: "%" },
+        { key: "lambdaSys", label: "System failure rate", value: res.systemLambda ?? NaN, unit: "1/h" },
+        { key: "MTTF", label: "Mean time to failure", value: res.mttf ?? NaN, unit: "h" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -18102,7 +18114,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -18168,21 +18180,20 @@ const ENG_CALCS: EngCalc[] = [
         Number.isFinite(implied) &&
         Math.abs(implied - unitReliability) > 0.005 * Math.max(implied, unitReliability, 1e-12);
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("rel-koon"),
+        ...(derived ? engEq("rel-koon:derived") : []),
         `${k} out of ${n} must work`,
         "",
-        `  One unit survives     ${(unitReliability * 100).toFixed(4)} %${derived ? "  (from the rate and mission)" : ""}`,
-        `  System survives       ${(res.systemReliability * 100).toFixed(4)} %`,
-        `  System fails          ${engNum(res.systemUnreliability, 4)}`,
+        kvTable([
+          [`One unit survives${derived ? " (from the rate and mission)" : ""}`, (unitReliability * 100).toFixed(4), "%"],
+          ["System survives", (res.systemReliability * 100).toFixed(4), "%"],
+          ["System fails", engNum(res.systemUnreliability, 4), ""],
+          ["Mean life factor", engNum(res.mttfFactor, 4), "/ (failure rate)"],
+          res.mttf === null ? ["Mean time to failure", "needs a failure rate above zero", ""] : ["Mean time to failure", engNum(res.mttf, 5), "h"],
+        ]),
         "",
-        `  Mean life factor      ${engNum(res.mttfFactor, 4)} / (failure rate)`,
       ];
-      lines.push(
-        res.mttf === null
-          ? "  Mean time to failure  needs a failure rate above zero"
-          : `  Mean time to failure  ${engNum(res.mttf, 5)} h`,
-      );
-      lines.push("");
       u.report(lines);
       if (disagrees && implied !== null) {
         lines.push(
@@ -18224,7 +18235,10 @@ const ENG_CALCS: EngCalc[] = [
           title: "Redundancy only pays where units are good",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Rsys", label: "System reliability", value: res.systemReliability * 100, unit: "%" },
+        { key: "MTTF", label: "Mean time to failure", value: res.mttf ?? NaN, unit: "h" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -18233,7 +18247,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -18260,24 +18274,21 @@ const ENG_CALCS: EngCalc[] = [
       const res = redundancy({ lambda, n, timeH });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      // Release E: the three schemes side by side in one table.
+      const lines: EngReportLine[] = [
+        ...engEq("rel-redundancy"),
         `One unit against ${n} in parallel and ${n} with cold spares`,
         "",
-        `  Surviving ${engNum(timeH, 5)} h`,
-        `    single unit         ${(res.singleR * 100).toFixed(4)} %`,
-        `    ${n} active            ${(res.activeR * 100).toFixed(4)} %`,
-        `    ${n} standby           ${(res.standbyR * 100).toFixed(4)} %`,
+        {
+          table: [
+            ["Scheme", `Surviving ${engNum(timeH, 5)} h (%)`, "Mean time to failure (h)"],
+            ["single unit", (res.singleR * 100).toFixed(4), res.singleMttf === null ? "nothing ever fails at a rate of zero" : engNum(res.singleMttf, 5)],
+            [`${n} active`, (res.activeR * 100).toFixed(4), res.activeMttf !== null ? engNum(res.activeMttf, 5) : ""],
+            [`${n} standby`, (res.standbyR * 100).toFixed(4), res.standbyMttf !== null ? engNum(res.standbyMttf, 5) : ""],
+          ],
+        },
         "",
-        "  Mean time to failure",
       ];
-      lines.push(
-        res.singleMttf === null
-          ? "    nothing ever fails at a rate of zero"
-          : `    single unit         ${engNum(res.singleMttf, 5)} h`,
-      );
-      if (res.activeMttf !== null) lines.push(`    ${n} active            ${engNum(res.activeMttf, 5)} h`);
-      if (res.standbyMttf !== null) lines.push(`    ${n} standby           ${engNum(res.standbyMttf, 5)} h`);
-      lines.push("");
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_RELIABILITY_UNIT_NOTE);
@@ -18317,7 +18328,12 @@ const ENG_CALCS: EngCalc[] = [
             ],
             { width: 380, height: 260, xlabel: "single, active, standby", ylabel: "Surviving", title: "Nothing fails at a rate of zero" },
           );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Ractive", label: "Surviving, active spares", value: res.activeR * 100, unit: "%" },
+        { key: "Rstandby", label: "Surviving, standby spares", value: res.standbyR * 100, unit: "%" },
+        { key: "MTTFactive", label: "Mean time to failure, active", value: res.activeMttf ?? NaN, unit: "h" },
+        { key: "MTTFstandby", label: "Mean time to failure, standby", value: res.standbyMttf ?? NaN, unit: "h" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -18326,7 +18342,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -18358,23 +18374,25 @@ const ENG_CALCS: EngCalc[] = [
       const res = availability({ mtbfH, mttrH, windowH, unitsInSeries });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Inherent availability",
-        "",
-        `  Availability          ${(res.availability * 100).toFixed(4)} %`,
-        `  Unavailability        ${engNum(res.unavailability, 4)}`,
-        "",
-        `  Over ${engNum(windowH, 5)} h`,
-        `    up                  ${engNum(res.uptimeH, 5)} h`,
-        `    down                ${engNum(res.downtimeH, 5)} h`,
-        `    failures expected   ${engNum(res.failuresInWindow, 4)}`,
+      const avRows: Array<[string, string, string]> = [
+        ["Availability", (res.availability * 100).toFixed(4), "%"],
+        ["Unavailability", engNum(res.unavailability, 4), ""],
+        [`Up, over ${engNum(windowH, 5)} h`, engNum(res.uptimeH, 5), "h"],
+        [`Down, over ${engNum(windowH, 5)} h`, engNum(res.downtimeH, 5), "h"],
+        ["Failures expected", engNum(res.failuresInWindow, 4), ""],
       ];
       if (res.systemAvailability !== null) {
-        lines.push("");
-        lines.push(`  ${unitsInSeries} in series          ${(res.systemAvailability * 100).toFixed(4)} %`);
-        lines.push(`    down                ${engNum((1 - res.systemAvailability) * windowH, 5)} h`);
+        avRows.push([`${unitsInSeries} in series`, (res.systemAvailability * 100).toFixed(4), "%"]);
+        avRows.push([`${unitsInSeries} in series, down`, engNum((1 - res.systemAvailability) * windowH, 5), "h"]);
       }
-      lines.push("");
+      const lines: EngReportLine[] = [
+        ...engEq("rel-availability"),
+        ...(res.systemAvailability !== null ? engEq("rel-availability:series") : []),
+        "Inherent availability",
+        "",
+        kvTable(avRows),
+        "",
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_RELIABILITY_UNIT_NOTE);
@@ -18392,7 +18410,12 @@ const ENG_CALCS: EngCalc[] = [
           title: "Repair time is the lever",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "A", label: "Availability", value: res.availability * 100, unit: "%" },
+        { key: "downtime", label: "Downtime over the window", value: res.downtimeH, unit: "h" },
+        { key: "failures", label: "Failures expected in the window", value: res.failuresInWindow, unit: "" },
+        { key: "Asys", label: "Availability of the series", value: res.systemAvailability !== null ? res.systemAvailability * 100 : NaN, unit: "%" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -18401,7 +18424,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {

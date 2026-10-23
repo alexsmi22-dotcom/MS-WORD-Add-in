@@ -236,6 +236,20 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   ],
   biosignal: [eq("f_N = f_s/2", "fN = fs/2")],
   "biosignal:record": [eq("N = f_s T", "N = fs·T"), eq("Delta f = 1/T", "Δf = 1/T")],
+  // ---- Chips & semiconductors ----
+  "chips-power": [eq("P_dyn = alpha C V^2 f", "Pdyn = α·C·V²·f"), eq("P_leak = V I_leak", "Pleak = V·Ileak"), eq("E = C V^2", "E = C·V²")],
+  "chips-thermal": [eq("T_j = T_a + {P} (theta_jc + theta_cs + theta_sa)", "Tj = Ta + P·(θjc + θcs + θsa)")],
+  "chips-thermal:limit": [eq("P_max = (T_jmax - T_a)/theta_total", "Pmax = (Tjmax − Ta)/θtotal")],
+  "chips-delay": [
+    eq("t_50 = ln(2) (C_w + C_l) R_d + 0.38 R_w C_w + ln(2) R_w C_l", "t₅₀ = ln 2·(Cw + Cl)·Rd + 0.38·Rw·Cw + ln 2·Rw·Cl"),
+    eq("t_Elmore = R_w C_w/2", "tElmore = Rw·Cw/2"),
+    eq("t_r = 2.2 ((C_w + C_l) R_d + (C_w/2 + C_l) R_w)", "tr = 2.2·((Cw + Cl)·Rd + (Cw/2 + Cl)·Rw)"),
+  ],
+  "chips-timing": [
+    eq("slack_setup = T - (t_cq + t_max + t_su) + t_skew", "slack (setup) = T − (tcq + tmax + tsu) + tskew"),
+    eq("slack_hold = t_cq + t_min - t_h - t_skew", "slack (hold) = tcq + tmin − th − tskew"),
+    eq("f_max = 1/T_min", "fmax = 1/Tmin"),
+  ],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

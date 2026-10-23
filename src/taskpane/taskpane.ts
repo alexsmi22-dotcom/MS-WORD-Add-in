@@ -20011,17 +20011,18 @@ const ENG_CALCS: EngCalc[] = [
       const res = switchingPower(C, V, f, a, I);
       if (!res) return { text: "Capacitance and voltage must be positive, and the frequency cannot be negative.", ok: false };
 
-      const lines = [
-        "Power",
-        "",
-        `  Dynamic          ${engNum(res.dynamicW, 6)} W`,
-        `  Static (leakage) ${engNum(res.staticW, 6)} W`,
-        `  Total            ${engNum(res.totalW, 6)} W`,
-        "",
-        `  Energy per 0→1 transition  ${engNum(res.energyPerTransitionJ, 6)} J`,
-        `  Energy per clock cycle     ${res.energyPerCycleJ === null ? "n/a — no clock, and leakage accrues with time" : engNum(res.energyPerCycleJ, 6) + " J"}`,
+      // Release E: the power budget as a quantity / value / unit table.
+      const pRows: Array<[string, string, string]> = [
+        ["Dynamic", engNum(res.dynamicW, 6), "W"],
+        ["Static (leakage)", engNum(res.staticW, 6), "W"],
+        ["Total", engNum(res.totalW, 6), "W"],
+        ["Energy per 0→1 transition", engNum(res.energyPerTransitionJ, 6), "J"],
+        res.energyPerCycleJ === null
+          ? ["Energy per clock cycle", "n/a: no clock, and leakage accrues with time", ""]
+          : ["Energy per clock cycle", engNum(res.energyPerCycleJ, 6), "J"],
       ];
-      if (res.staticW > 0) lines.push(`  Leakage is ${engNum(res.leakageFraction * 100, 4)} % of the total`);
+      if (res.staticW > 0) pRows.push(["Leakage share of the total", engNum(res.leakageFraction * 100, 4), "%"]);
+      const lines: EngReportLine[] = [...engEq("chips-power"), "Power", "", kvTable(pRows)];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -20029,6 +20030,12 @@ const ENG_CALCS: EngCalc[] = [
       // Power against clock frequency: dynamic rises linearly, leakage sits
       // flat — that flatness is the lesson, and it only earns a legend row
       // when there IS leakage. With none entered, one honest curve.
+      const cpOutputs: EngOutput[] = [
+        { key: "Pdyn", label: "Dynamic power", value: res.dynamicW, unit: "W" },
+        { key: "Pleak", label: "Static (leakage) power", value: res.staticW, unit: "W" },
+        { key: "Ptotal", label: "Total power", value: res.totalW, unit: "W" },
+        { key: "Etrans", label: "Energy per 0→1 transition", value: res.energyPerTransitionJ, unit: "J" },
+      ];
       if (f > 0 && Number.isFinite(res.totalW)) {
         const dynPts: Point[] = [];
         const statPts: Point[] = [];
@@ -20058,7 +20065,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "power (W)",
             title: res.staticW > 0 ? "Where the power goes against clock" : "Dynamic power against clock",
           });
-          return engReport(lines, [
+          return withOutputs(cpOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20070,10 +20077,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(cpOutputs, engReport(lines));
     },
   },
   {
@@ -20173,21 +20180,25 @@ const ENG_CALCS: EngCalc[] = [
       const res = junctionTemperature(power, Ta, th[0], th[1], th[2], tjMax === null ? undefined : tjMax);
       if (!res) return { text: "Power and the thermal resistances must not be negative.", ok: false };
 
-      const lines = [
-        "Thermal path",
-        "",
-        `  Dissipated power   ${engNum(power, 5)} W`,
-        `  Ambient            ${engNum(Ta, 5)} °C`,
-        `  Sink               ${engNum(res.sinkC, 5)} °C`,
-        `  Case               ${engNum(res.caseC, 5)} °C`,
-        `  Junction           ${engNum(res.junctionC, 5)} °C`,
-        "",
-        `  Total resistance   ${engNum(res.totalResistance, 5)} K/W`,
+      const tRows: Array<[string, string, string]> = [
+        ["Dissipated power", engNum(power, 5), "W"],
+        ["Ambient", engNum(Ta, 5), "°C"],
+        ["Sink", engNum(res.sinkC, 5), "°C"],
+        ["Case", engNum(res.caseC, 5), "°C"],
+        ["Junction", engNum(res.junctionC, 5), "°C"],
+        ["Total resistance", engNum(res.totalResistance, 5), "K/W"],
       ];
       if (res.marginC !== null) {
-        lines.push(`  Margin to limit    ${engNum(res.marginC, 5)} °C  (${res.withinLimit ? "within" : "OVER"})`);
-        if (res.maxPowerW !== null) lines.push(`  Power at the limit ${engNum(res.maxPowerW, 5)} W`);
+        tRows.push([`Margin to limit (${res.withinLimit ? "within" : "OVER"})`, engNum(res.marginC, 5), "°C"]);
+        if (res.maxPowerW !== null) tRows.push(["Power at the limit", engNum(res.maxPowerW, 5), "W"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("chips-thermal"),
+        ...(res.marginC !== null && res.maxPowerW !== null ? engEq("chips-thermal:limit") : []),
+        "Thermal path",
+        "",
+        kvTable(tRows),
+      ];
       u.report(lines);
       if (powerNote) lines.push(`Note: ${powerNote}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -20230,7 +20241,12 @@ const ENG_CALCS: EngCalc[] = [
             failText: "OVER LIMIT",
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "Tj", label: "Junction temperature", value: res.junctionC, unit: "°C" },
+          { key: "Tcase", label: "Case temperature", value: res.caseC, unit: "°C" },
+          { key: "marginTj", label: "Margin to the junction limit", value: res.marginC ?? NaN, unit: "°C" },
+          { key: "PmaxW", label: "Power at the limit", value: res.maxPowerW ?? NaN, unit: "W" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg: ladder,
@@ -20239,7 +20255,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 56 + 5 * 34 + 12,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -20267,14 +20283,17 @@ const ENG_CALCS: EngCalc[] = [
       const res = interconnectDelay(Rd, Rw, Cw, Cl);
       if (!res) return { text: "Resistances and capacitances must be zero or more.", ok: false };
 
-      const ps = (s: number) => `${engNum(s * 1e12, 5)} ps`;
-      const lines = [
+      const psN = (s: number) => engNum(s * 1e12, 5);
+      const lines: EngReportLine[] = [
+        ...engEq("chips-delay"),
         "Interconnect delay",
         "",
-        `  Wire Elmore (upper bound)  ${ps(res.wireElmoreS)}`,
-        `  Wire 50% crossing          ${ps(res.wireFiftyS)}`,
-        `  Driver + wire + load, 50%  ${ps(res.totalFiftyS)}`,
-        `  10-90% rise (lumped)       ${ps(res.riseTenNinetyS)}`,
+        kvTable([
+          ["Wire Elmore (upper bound)", psN(res.wireElmoreS), "ps"],
+          ["Wire 50% crossing", psN(res.wireFiftyS), "ps"],
+          ["Driver + wire + load, 50%", psN(res.totalFiftyS), "ps"],
+          ["10-90% rise (lumped)", psN(res.riseTenNinetyS), "ps"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -20285,6 +20304,11 @@ const ENG_CALCS: EngCalc[] = [
       // together is exactly "the same wire, longer", and the wire term going
       // as the square of length is the lesson. Values in ps or the axis
       // would read 3.5e-11.
+      const dlOutputs: EngOutput[] = [
+        { key: "t50", label: "Driver + wire + load 50 % delay", value: res.totalFiftyS * 1e12, unit: "ps" },
+        { key: "tElmore", label: "Wire Elmore delay (upper bound)", value: res.wireElmoreS * 1e12, unit: "ps" },
+        { key: "tRise", label: "10–90 % rise time", value: res.riseTenNinetyS * 1e12, unit: "ps" },
+      ];
       {
         const totPts: Point[] = [];
         const elmorePts: Point[] = [];
@@ -20310,7 +20334,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "RC delay grows as the square of length",
             },
           );
-          return engReport(lines, [
+          return withOutputs(dlOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20319,10 +20343,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dlOutputs, engReport(lines));
     },
   },
   {
@@ -20361,15 +20385,23 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const ps = (s: number) => `${engNum(s * 1e12, 5)} ps`;
-      const lines = [
+      const psN = (s: number) => engNum(s * 1e12, 5);
+      const lines: EngReportLine[] = [
+        ...engEq("chips-timing"),
         "Timing closure (one path)",
         "",
-        `  Setup slack   ${ps(res.setupSlackS)}   ${res.setupOk ? "PASS" : "FAIL"}`,
-        `  Hold slack    ${ps(res.holdSlackS)}   ${res.holdOk ? "PASS" : "FAIL"}`,
+        {
+          table: [
+            ["Check", "Slack (ps)", "Verdict"],
+            ["Setup", psN(res.setupSlackS), res.setupOk ? "PASS" : "FAIL"],
+            ["Hold", psN(res.holdSlackS), res.holdOk ? "PASS" : "FAIL"],
+          ],
+        },
         "",
-        `  Required period ${ps(res.minPeriodS)}`,
-        `  Maximum clock   ${res.fMaxHz === null ? "unbounded" : engNum(res.fMaxHz / 1e6, 6) + " MHz"}`,
+        kvTable([
+          ["Required period", psN(res.minPeriodS), "ps"],
+          res.fMaxHz === null ? ["Maximum clock", "unbounded", ""] : ["Maximum clock", engNum(res.fMaxHz / 1e6, 6), "MHz"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -20401,7 +20433,12 @@ const ENG_CALCS: EngCalc[] = [
             failText: "FAIL",
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "setupSlack", label: "Setup slack", value: res.setupSlackS * 1e12, unit: "ps" },
+          { key: "holdSlack", label: "Hold slack", value: res.holdSlackS * 1e12, unit: "ps" },
+          { key: "Tmin", label: "Required period", value: res.minPeriodS * 1e12, unit: "ps" },
+          { key: "fmax", label: "Maximum clock", value: res.fMaxHz !== null ? res.fMaxHz / 1e6 : NaN, unit: "MHz" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg: ladder,
@@ -20410,7 +20447,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 56 + 6 * 34 + 12,
           },
-        ]);
+        ]));
       }
     },
   },

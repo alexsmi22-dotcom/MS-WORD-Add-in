@@ -46,10 +46,11 @@ export function formatUnit(expr: string): string {
   let s = expr.trim();
   for (const [re, sym] of UNIT_TOKENS) s = s.replace(re, sym);
   // A square root of a unit (Release E: stress intensity, Pa·m^0.5) is written as a root, as every text writes it:
-  // Pa·√m, ksi·√in. Only the exact 0.5 power; other decimal powers keep their exponent.
-  s = s.replace(/([A-Za-zµΩÅ°]+)\^\{?0\.5\}?/g, "√$1");
-  // Exponents: ^n or ^{n} (optionally signed) → superscript.
-  s = s.replace(/\^\{?([-+]?\d+)\}?/g, (_m, n: string) => toSuperscript(n.replace(/^\+/, "")));
+  // Pa·√m, ksi·√in. Only a power of exactly 0.5 (0.50… included), anchored so "m^0.55" is never "√m5"; other decimal
+  // powers keep their exponent, superscripted with a plain decimal point (normalizeUnitText reads that back).
+  s = s.replace(/([A-Za-zµΩÅ°]+)\^(?:0\.50*(?![\d.])|\{0\.50*\})/g, "√$1");
+  // Exponents: ^n or ^{n} (optionally signed, optionally decimal) → superscript.
+  s = s.replace(/\^\{?([-+]?\d+(?:\.\d+)?)\}?/g, (_m, n: string) => toSuperscript(n.replace(/^\+/, "")));
   // Collapse whitespace around a division slash so "m / s" stays "m/s".
   s = s.replace(/\s*\/\s*/g, "/");
   // Explicit multiplication and remaining spaces between unit factors → middle dot.
@@ -105,6 +106,8 @@ export interface UnitDef {
   factor: number;
   /** Affine offset (temperatures): base = value*factor + offset. */
   offset?: number;
+  /** An explicit temperature DIFFERENCE (Δ°C, Δ°F, ΔK): never picks up an offset (see convert()). */
+  delta?: boolean;
 }
 
 // Canonical units keyed by symbol; aliases are resolved in `lookup`.
@@ -153,8 +156,8 @@ const UNITS: Record<string, UnitDef> = {
   // TEMPERATURE DIFFERENCES, written explicitly (Release E). A difference of 1 °C is 1 K and of 1 °F is 5/9 K — no
   // offset. Inside a compound unit (W/(m²·°C), Btu/(h·ft²·°F)) °C and °F are read this way automatically (see
   // accumulateFactors); these keys let a bare difference be typed unambiguously ("Δ°F 180" in a ΔT field).
-  "Δ°C": { dim: "temp", factor: 1, offset: 0 }, "Δ°F": { dim: "temp", factor: 5 / 9, offset: 0 },
-  ΔK: { dim: "temp", factor: 1, offset: 0 },
+  "Δ°C": { dim: "temp", factor: 1, offset: 0, delta: true }, "Δ°F": { dim: "temp", factor: 5 / 9, offset: 0, delta: true },
+  ΔK: { dim: "temp", factor: 1, offset: 0, delta: true },
   // volume (base m^3)
   L: { dim: "volume", factor: 0.001 }, mL: { dim: "volume", factor: 1e-6 },
   µL: { dim: "volume", factor: 1e-9 }, nL: { dim: "volume", factor: 1e-12 }, "m^3": { dim: "volume", factor: 1 },
@@ -722,6 +725,10 @@ export function parseCompoundUnit(expr: string): CompoundUnit | null {
   if (parts.length === 1) {
     const lone = parts[0].trim().replace(/^\((.*)\)$/, "$1").trim();
     if (!/[·*\s^]/.test(lone) && lookup(lone)?.offset) return null;
+    // Nor a lone °C or °F with an exponent ("°C^2"): a power of an offset scale is not a quantity. (convert() has
+    // already reduced "°C^1" to "°C".)
+    const powered = /^([^·*\s]+?)\^[-+]?\d+(?:\.\d+)?$/.exec(lone);
+    if (powered && lookup(powered[1])?.offset) return null;
   }
 
   /** Strips one wrapping paren pair; null if the part is still not flat. */
@@ -785,9 +792,10 @@ function normalizeUnitText(expr: string): string {
   expr = expr.replace(/√\s*([A-Za-zµΩÅ°]+)/g, "$1^0.5");
   // A leading slash is a reciprocal, as a datasheet writes a coefficient: "12e-6 /K" = 12×10⁻⁶ per kelvin (Release E).
   expr = expr.replace(/^\s*\//, "1/");
-  return expr.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+/g, (run) => {
+  // A decimal superscript exponent ("m⁰.⁵⁵", as formatUnit writes m^0.55) is one run, decimal point included.
+  return expr.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+(?:\.[⁰¹²³⁴⁵⁶⁷⁸⁹]+)?/g, (run) => {
     let out = "^";
-    for (const ch of run) out += SUPERSCRIPT_TO_ASCII[ch] ?? "";
+    for (const ch of run) out += ch === "." ? "." : SUPERSCRIPT_TO_ASCII[ch] ?? "";
     return out;
   });
 }
@@ -798,12 +806,23 @@ function normalizeUnitText(expr: string): string {
  * "km/h" → "m/s" are converted by matching dimension signatures.
  */
 export function convert(value: number, from: string, to: string): number | null {
-  from = normalizeUnitText(from);
-  to = normalizeUnitText(to);
+  // A lone unit to the first power ("°C^1", "°C¹") is that unit: stripping the exponent keeps a lone °C on the affine
+  // path below rather than letting the compound path read it as a difference (which would drop its offset).
+  from = normalizeUnitText(from).trim().replace(/^([^·*\s/^()]+)\^\+?1$/, "$1");
+  to = normalizeUnitText(to).trim().replace(/^([^·*\s/^()]+)\^\+?1$/, "$1");
   const f = lookup(from);
   const t = lookup(to);
   if (f && t) {
     if (f.dim !== t.dim) return null;
+    // TEMPERATURE DIFFERENCES (Δ°C, Δ°F, ΔK) convert by factor alone, never with an offset: 10 Δ°C = 10 K = 18 Δ°F.
+    // The other side must also be able to mean a difference: another Δ unit, or an absolute scale whose zero is
+    // absolute (K, °R), because a kelvin or a Rankine degree is also the unit of a difference — the ΔT fields read
+    // their value in "K" (thermalStressCalcs deltaT). A °C or °F on the other side is a TEMPERATURE, and a difference
+    // cannot be read as one (10 Δ°C is not 10 °C, nor −263.15 °C), so that pair is refused (unitRefusal names it).
+    if (f.delta || t.delta) {
+      if ((f.offset ?? 0) !== 0 || (t.offset ?? 0) !== 0) return null;
+      return (value * f.factor) / t.factor;
+    }
     const base = value * f.factor + (f.offset ?? 0);
     return (base - (t.offset ?? 0)) / t.factor;
   }
@@ -862,7 +881,7 @@ export function parseMeasured(text: string, targetUnit: string): Measured | { er
   // A slash GLUED to the number ("51/s") stays refused: it reads as 5 1/s or as 51 per second, and guessing is how a
   // wrong number gets in. Only a spaced slash ("12e-6 /K") is the reciprocal unit (normalizeUnitText, Release E).
   // (The number pattern swallows the space before the unit, so the gap is read off the typed text itself.)
-  if (written.startsWith("/") && t.slice(m[1].length).startsWith("/")) return { error: `"${t}" is not a unit this recognises: write a space before the slash ("51 /s") for "per", or 5 1/s.` };
+  if (written.startsWith("/") && t.slice(m[1].length).startsWith("/")) return { error: `"${t}" is not a unit this recognises: write a space before the slash ("${m[1]} ${written}") for "per", or write the fraction out.` };
   // DECIBELS ARE NOT UNITS. dB, dBu, dBV, dBFS, dB SPL and the neper are
   // logarithmic level statements: converting one by a factor (94 dB SPL ≠ 94 ×
   // anything Pa, and 80 dB + 80 dB is 83 dB, not 160) would be a confident
@@ -930,6 +949,14 @@ export function unitRefusal(from: string, to: string): string | null {
   const t = families(to);
   const both = (a: string, b: string): boolean => (f.has(a) && t.has(b)) || (f.has(b) && t.has(a));
   const has = (a: string): boolean => f.has(a) || t.has(a);
+  const lone = (u: string): UnitDef | null => lookup(normalizeUnitText(u).trim().replace(/^([^·*\s/^()]+)\^\+?1$/, "$1"));
+  const lf = lone(from);
+  const lt = lone(to);
+  if (lf && lt && lf.dim === "temp" && (lf.delta || lt.delta)) {
+    return lf.delta
+      ? `${from.trim()} is a temperature difference, and a temperature difference cannot be read as a temperature (${to.trim()}); write the temperature itself, or give the difference in K.`
+      : `${from.trim()} is a temperature, not a temperature difference (${to.trim()}); write the difference itself (Δ°C, Δ°F or K).`;
+  }
   if (has("year")) {
     const which = [...unitTokens(from), ...unitTokens(to)].find((tok) => AMBIGUOUS_YEAR.has(tok.toLowerCase()));
     return (

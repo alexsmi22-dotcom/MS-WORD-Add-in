@@ -172,7 +172,10 @@ function arrowHead(x0: number, y0: number, x1: number, y1: number, color: string
 
 const WIRE = 40;
 const GATE_H = 28;
-const MAX_BAND_WIDTH = 640;
+// A figure inserts at 0.75 pt per px (figures.ts figurePoints): 624 px = 468 pt = the 6.5 in text width, and a page of
+// bands stops at 840 px = 630 pt, under the 9 in text height with room for the caption.
+const MAX_BAND_WIDTH = 624;
+const MAX_PAGE_HEIGHT = 840;
 const SUBS = "₀₁₂₃₄₅₆₇₈₉";
 const subNum = (k: number): string => String(k).split("").map((d) => SUBS[Number(d)]).join("");
 
@@ -220,9 +223,19 @@ const opWidth = (op: Op): number => {
 
 /**
  * The circuit diagram, Qiskit/textbook style: one wire per qubit (q₀ at the top), time left to right, gates packed
- * into columns so no vertical connector crosses another gate; a long circuit folds into bands.
+ * into columns so no vertical connector crosses another gate; a long circuit folds into bands. This is the FIRST page
+ * of circuitDiagramPages: a circuit long enough to need more than one page must be drawn with circuitDiagramPages.
  */
 export function circuitDiagramSvg(c: Circuit, opts: { initial?: number } = {}): string {
+  return circuitDiagramPages(c, opts)[0];
+}
+
+/**
+ * The circuit diagram as one or more page-sized figures. A long circuit folds into bands (rows) no wider than the text
+ * width, and the bands are split across figures so that none is taller than a page (a 10-qubit, 195-gate circuit was
+ * one 617 × 9118 px figure). Every page repeats the wire labels; the input kets are on the first page only.
+ */
+export function circuitDiagramPages(c: Circuit, opts: { initial?: number } = {}): string[] {
   const n = c.n;
   // Columns: each op goes after the last column used by any wire its connector spans.
   const colOf: number[] = [];
@@ -260,39 +273,51 @@ export function circuitDiagramSvg(c: Circuit, opts: { initial?: number } = {}): 
   const bandW = bands.map((b) => b.reduce((s, k) => s + colW[k] + GAP, 0));
   const W = Math.max(220, labW + Math.max(...bandW) + 16);
   const bandH = n * WIRE + 14;
-  const H = bands.length * bandH + 10;
-  const out: string[] = [];
-  bands.forEach((cols, bi) => {
-    const top = 10 + bi * bandH + WIRE / 2;
-    const yq = (q: number): number => top + q * WIRE;
-    const colX: Record<number, number> = {};
-    let x = labW + GAP / 2;
-    for (const k of cols) {
-      colX[k] = x + colW[k] / 2;
-      x += colW[k] + GAP;
-    }
-    const xEnd = x - GAP / 2 + 14;
-    const first = cols[0], last = cols[cols.length - 1];
-    // Wire labels (repeated on every band) and wires.
-    for (let q = 0; q < n; q++) {
-      out.push(runText(6, yq(q) + 4, `q${subNum(q)}`, "start", 12));
-      if (bi === 0) out.push(runText(labW - 6, yq(q) + 4, inputs[q], "end", 12));
-      const x0 = labW;
-      const mc = measCol[q];
-      const xm = mc === Infinity || mc > last ? xEnd : mc < first ? x0 : colX[mc];
-      if (xm > x0) out.push(line(x0, yq(q), xm, yq(q)));
-      if (xm < xEnd) {
-        out.push(line(xm, yq(q) - 1.5, xEnd, yq(q) - 1.5));
-        out.push(line(xm, yq(q) + 1.5, xEnd, yq(q) + 1.5));
+  // Bands per page: at least one (a 10-qubit band is 414 px, well under a page).
+  const perPage = Math.max(1, Math.floor((MAX_PAGE_HEIGHT - 10) / bandH));
+  const pages: string[] = [];
+  for (let p0 = 0; p0 < bands.length; p0 += perPage) {
+    const pageBands = bands.slice(p0, p0 + perPage);
+    const H = pageBands.length * bandH + 10;
+    pages.push(svgOpen(W, H) + drawBands(pageBands, p0).join("") + "</svg>");
+  }
+  return pages;
+
+  function drawBands(pageBands: number[][], firstBand: number): string[] {
+    const out: string[] = [];
+    pageBands.forEach((cols, pbi) => {
+      const bi = firstBand + pbi;
+      const top = 10 + pbi * bandH + WIRE / 2;
+      const yq = (q: number): number => top + q * WIRE;
+      const colX: Record<number, number> = {};
+      let x = labW + GAP / 2;
+      for (const k of cols) {
+        colX[k] = x + colW[k] / 2;
+        x += colW[k] + GAP;
       }
-    }
-    c.ops.forEach((op, i) => {
-      const k = colOf[i];
-      if (!(k in colX)) return;
-      out.push(drawOp(op, colX[k], yq, (q) => measCol[q] < k));
+      const xEnd = x - GAP / 2 + 14;
+      const first = cols[0], last = cols[cols.length - 1];
+      // Wire labels (repeated on every band) and wires.
+      for (let q = 0; q < n; q++) {
+        out.push(runText(6, yq(q) + 4, `q${subNum(q)}`, "start", 12));
+        if (bi === 0) out.push(runText(labW - 6, yq(q) + 4, inputs[q], "end", 12));
+        const x0 = labW;
+        const mc = measCol[q];
+        const xm = mc === Infinity || mc > last ? xEnd : mc < first ? x0 : colX[mc];
+        if (xm > x0) out.push(line(x0, yq(q), xm, yq(q)));
+        if (xm < xEnd) {
+          out.push(line(xm, yq(q) - 1.5, xEnd, yq(q) - 1.5));
+          out.push(line(xm, yq(q) + 1.5, xEnd, yq(q) + 1.5));
+        }
+      }
+      c.ops.forEach((op, i) => {
+        const k = colOf[i];
+        if (!(k in colX)) return;
+        out.push(drawOp(op, colX[k], yq, (q) => measCol[q] < k));
+      });
     });
-  });
-  return svgOpen(W, H) + out.join("") + "</svg>";
+    return out;
+  }
 }
 
 function drawOp(op: Op, x: number, yq: (q: number) => number, classical: (q: number) => boolean): string {

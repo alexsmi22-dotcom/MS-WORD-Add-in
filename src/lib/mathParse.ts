@@ -53,6 +53,8 @@ interface Token {
     | "semi"
     | "bar";
   v: string;
+  /** Whitespace was typed before this token (only a script's lone sign reads it: "sigma_+ sigma_-"). */
+  sp?: boolean;
 }
 
 const MULTI_CHAR_OPS: Record<string, string> = { "<=": "≤", ">=": "≥", "!=": "≠", "->": "→", "+-": "±" };
@@ -136,12 +138,15 @@ function isAlpha(ch: string): boolean {
 
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
+  /** Indices of tokens typed after whitespace. */
+  const gapBefore = new Set<number>();
   let i = 0;
   const n = input.length;
 
   while (i < n) {
     const ch = input[i];
     if (ch === " " || ch === "\t") {
+      gapBefore.add(tokens.length);
       i++;
       continue;
     }
@@ -195,6 +200,7 @@ function tokenize(input: string): Token[] {
     }
     i++;
   }
+  for (const k of gapBefore) if (tokens[k]) tokens[k].sp = true;
   return tokens;
 }
 
@@ -310,11 +316,17 @@ class Parser {
   private closesArg(t: Token | undefined): boolean {
     return !!t && (t.t === "rparen" || t.t === "comma");
   }
-  /** The token after a script's sign leaves it nothing to apply to: the sign is the script itself (Phi^+). */
+  /**
+   * The token after a script's sign leaves it nothing to apply to: the sign is the script itself (Phi^+). A lone sign
+   * is the whole script when followed by the end, whitespace, a closing bracket or separator, or any operator:
+   * "Phi^+ + Psi^-" is Φ⁺ + Ψ⁻, "sigma_+ sigma_-" is σ₊σ₋, "a_+ + a_-" is a₊ + a₋. Glued to an operand it still
+   * signs that operand (x^-1, x^-n).
+   */
   private closesScript(t: Token | undefined): boolean {
     if (!t) return true;
-    if (t.t === "rparen" || t.t === "rbrace" || t.t === "rbrack" || t.t === "comma" || t.t === "semi" || t.t === "bar") return true;
-    return t.t === "op" && ["=", "≠", "<", ">", "≤", "≥", "→", "⟩"].includes(t.v);
+    if (t.sp) return true;
+    if (t.t === "op") return true;
+    return t.t === "rparen" || t.t === "rbrace" || t.t === "rbrack" || t.t === "comma" || t.t === "semi" || t.t === "bar";
   }
 
   /** ket/bra/braket arguments: a lone sign is the state label (ket(+) is |+⟩, bra(-) is ⟨−|). */

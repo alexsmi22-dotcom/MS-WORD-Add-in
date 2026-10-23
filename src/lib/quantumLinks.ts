@@ -400,9 +400,11 @@ export function qkdAt(source: QkdSource, eta: number, y0: number, ed: number, mu
     const fraction = bb ? bb.keyRate : 0;
     return { eta, gain: y1, qber: e1, fraction, perPulse: Q_SIFT * y1 * fraction, q1: null, e1: null };
   }
-  const em = Math.exp(-eta * mu);
-  const qmu = y0 + 1 - em;
-  const emu = (E0 * y0 + ed * (1 - em)) / qmu;
+  // 1 − exp(−ημ) as −expm1(−ημ): at high loss ημ is far below the double epsilon and 1 − exp(−ημ) rounds to 0, which
+  // made Q_μ = 0, E_μ = 0/0 and the rate NaN (and a phantom zero-key cutoff where the rounding set in).
+  const det = -Math.expm1(-eta * mu);
+  const qmu = y0 + det;
+  const emu = (E0 * y0 + ed * det) / qmu;
   const q1 = y1 * mu * Math.exp(-mu);
   const r = Q_SIFT * (-qmu * f * binaryEntropy(Math.min(0.5, emu)) + q1 * (1 - binaryEntropy(Math.min(0.5, e1))));
   const perPulse = Math.max(0, r);
@@ -420,7 +422,14 @@ export function optimalMu(eta: number, y0: number, ed: number, f: number): numbe
   let b = MU_HI;
   let c = b - g * (b - a);
   let d = a + g * (b - a);
-  const val = (m: number): number => Q_SIFT * (-(y0 + 1 - Math.exp(-eta * m)) * f * binaryEntropy(Math.min(0.5, (E0 * y0 + ed * (1 - Math.exp(-eta * m))) / (y0 + 1 - Math.exp(-eta * m)))) + (y0 + eta - y0 * eta) * m * Math.exp(-m) * (1 - binaryEntropy(Math.min(0.5, (E0 * y0 + ed * eta) / (y0 + eta - y0 * eta)))));
+  // The unclamped decoy rate (qkdAt clamps at 0, which would flatten the search where the rate is negative).
+  const y1 = y0 + eta - y0 * eta;
+  const h1 = 1 - binaryEntropy(Math.min(0.5, (E0 * y0 + ed * eta) / y1));
+  const val = (m: number): number => {
+    const det = -Math.expm1(-eta * m);
+    const qmu = y0 + det;
+    return Q_SIFT * (-qmu * f * binaryEntropy(Math.min(0.5, (E0 * y0 + ed * det) / qmu)) + y1 * m * Math.exp(-m) * h1);
+  };
   let fc = val(c);
   let fd = val(d);
   for (let i = 0; i < 80; i++) {
@@ -488,7 +497,14 @@ export function qkdLink(inp: QkdInput): QkdResult | Err {
   } else {
     const m = mu as number;
     const rAt = (l: number): number => qkdAt("decoy", fromDb(-l) * detEff, y0, ed, m, f).perPulse;
-    if (!(rAt(0) > 0)) cutoffDb = -1;
+    if (y0 === 0) {
+      // With no background counts E_μ = e₁ = e_det at every loss and Q_μ/Q₁ = (1 − e^{−ημ})/(ημ e^{−μ}) only falls as
+      // the loss grows, so the secret fraction never gets worse with loss: there is no zero-key cutoff when the rate
+      // is positive in the small-η limit, R/η → q μ [e^{−μ}(1 − H₂(e_det)) − f H₂(e_det)], and no key at any loss
+      // otherwise. (Bisecting here only ever found where floating point gave out.)
+      const hd = binaryEntropy(Math.min(0.5, ed));
+      cutoffDb = Math.exp(-m) * (1 - hd) - f * hd > 0 ? null : -1;
+    } else if (!(rAt(0) > 0)) cutoffDb = -1;
     else if (rAt(MAX_LOSS_DB) > 0) cutoffDb = y0 === 0 ? null : MAX_LOSS_DB;
     else {
       let lo = 0;

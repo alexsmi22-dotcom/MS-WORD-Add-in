@@ -295,6 +295,27 @@ export function parseCircuit(text: string, n: number): { ops: Op[] } | { error: 
       ops.push(op);
       lineOf.push(li + 1);
     };
+    // Fixed multi-qubit gates and MEASURE take no argument: "CZ(pi/2) 0 1" must not silently run a plain CZ. Refused
+    // by name, pointing to the parameterised gate where one exists (as singleGate refuses H(30)).
+    const NO_ARGS: Record<string, string> = {
+      CNOT: "for a controlled rotation use CRX(θ), or CP(φ) for a controlled phase",
+      CX: "for a controlled rotation use CRX(θ), or CP(φ) for a controlled phase",
+      CZ: "for a controlled phase use CP(φ)",
+      CCZ: "a doubly controlled phase is not built in",
+      CCX: "it is the fixed Toffoli gate",
+      TOFFOLI: "it is the fixed Toffoli gate",
+      CCNOT: "it is the fixed Toffoli gate",
+      SWAP: "it is the fixed exchange",
+      CSWAP: "it is the fixed Fredkin gate",
+      FREDKIN: "it is the fixed Fredkin gate",
+      ISWAP: "it is the fixed iSWAP",
+      MEASURE: "it measures in the computational basis",
+      M: "it measures in the computational basis",
+      MEASUREMENT: "it measures in the computational basis",
+      BARRIER: "it only separates gates",
+    };
+    if (NO_ARGS[name] && tok.args !== null)
+      return { error: `${at}: ${tok.name} takes no argument ("${tok.name}(${tok.args})"): ${NO_ARGS[name]}.` };
     if (name === "BARRIER") continue;
     if (name === "MEASURE" || name === "M" || name === "MEASUREMENT") {
       if (!qs.length) return { error: `${at}: name the qubit(s) to measure (MEASURE 0).` };

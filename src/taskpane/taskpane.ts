@@ -195,6 +195,7 @@ import { VESSELS_CALCS } from "../lib/vesselsCalcs";
 import { RANDOM_VIBRATION_CALCS } from "../lib/randomVibrationCalcs";
 import { KALMAN_CALCS } from "../lib/kalmanCalcs";
 import { QUANTUM_GATES_CALCS } from "../lib/quantumGatesCalcs";
+import { QUANTUM_DIRAC_CALCS } from "../lib/quantumDiracCalcs";
 import { LASER_CALCS } from "../lib/laserCalcs";
 import { LINK_BUDGET_CALCS } from "../lib/linkBudgetCalcs";
 import { LINEAR_OPTICS_CALCS } from "../lib/linearOpticsCalcs";
@@ -29830,6 +29831,7 @@ const ENG_CALCS: EngCalc[] = [
   ...RANDOM_VIBRATION_CALCS,
   ...KALMAN_CALCS,
   ...QUANTUM_GATES_CALCS,
+  ...QUANTUM_DIRAC_CALCS,
   ...LASER_CALCS,
   ...LINK_BUDGET_CALCS,
   ...LINEAR_OPTICS_CALCS,

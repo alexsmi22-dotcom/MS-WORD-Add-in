@@ -267,6 +267,12 @@ import { SEMICONDUCTOR_CALCS } from "../src/lib/semiconductorCalcs";
 import { cvChartSvg, fermiChartSvg, idVdsFamilySvg, ivChartSvg } from "../src/lib/semiconductorCharts";
 // --- end Release E: semiconductor ---
 
+// --- Release E: quantum dirac ---
+// Release Q parts Q1 + Q3: states, operators, measurement, density matrices, bipartite entanglement.
+import { QUANTUM_DIRAC_CALCS } from "../src/lib/quantumDiracCalcs";
+import { amplitudeChartSvg, matrixHeatmapSvg, quantumBarsSvg } from "../src/lib/quantumDiracCharts";
+// --- end Release E: quantum dirac ---
+
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -3426,5 +3432,47 @@ rotator 15` }, "jones elliptical");
   figures.push(["semiconductor fermiChartSvg GaAs p-type", fermiChartSvg(2.1e6, 0.025852, -1e15, 4.7e17, 9e18)]);
 }
 // --- end Release E: semiconductor ---
+
+// --- Release E: quantum dirac ---
+// Each Q1/Q3 tool through its own compute() at its defaults and at layout stress (a 4-qubit amplitude chart with
+// rotated labels, a qutrit, the 16 × 16 heat map, a 4 × 4 heat map of long complex entries, a 10-qubit X-basis
+// measurement capped at 32 bars, the Bell basis, a partial-transpose spectrum with a negative eigenvalue, a product
+// state's single Schmidt bar, an interior Bloch vector), then the three builders directly at their edges.
+{
+  const qd = (id: string, over: Record<string, string>, name: string): void => {
+    const c = QUANTUM_DIRAC_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`quantum dirac ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  qd("qc-dirac-states", {}, "states default");
+  qd("qc-dirac-states", { psi: "0.5|0000⟩ - 0.5i|0101⟩ + 0.5|1010⟩ + e^(i pi/3)*0.5|1111⟩", phi: "|0000⟩ + |1111⟩" }, "states four qubits");
+  qd("qc-dirac-states", { psi: "|0⟩ + i|1⟩ - |2⟩", phi: "|2⟩", dim: "3" }, "states qutrit");
+  qd("qc-operators", {}, "operator Hermitian 2x2");
+  qd("qc-operators", { A: "(0.6+0.8i)/sqrt(2)*CNOT + 0.25*SWAP" }, "operator 4x4 long entries");
+  qd("qc-operators", { A: "X⊗Z⊗H⊗Y + 0.5*(Z⊗Z⊗I⊗I)" }, "operator 16x16");
+  qd("qc-measurement", {}, "measurement Z");
+  qd("qc-measurement", { state: "|Φ⁺⟩", basis: "bell" }, "measurement Bell");
+  qd("qc-measurement", { state: "|0000000000⟩ + |1111111111⟩", basis: "X" }, "measurement ten qubits X capped");
+  qd("qc-measurement", { basis: "typed", set: "|+⟩" }, "measurement incomplete set");
+  qd("qc-density", {}, "density mixture");
+  qd("qc-density", { mode: "matrix", matrix: "0.0625*(I⊗I⊗I⊗I)" }, "density maximally mixed 16");
+  qd("qc-bipartite", {}, "bipartite Schmidt");
+  qd("qc-bipartite", { state: "|01⟩" }, "bipartite product");
+  qd("qc-bipartite", { mode: "werner" }, "bipartite Werner");
+  qd("qc-bipartite", { mode: "mixed", matrix: "[[0.5,0,0,0,0,0.5],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0.5,0,0,0,0,0.5]]", split: "2x3" }, "bipartite 2x3 NPT");
+  // Builders at their edges: 64 basis states (32 drawn, the rest noted), an all-zero operator, 32 signed bars.
+  const amps = Array.from({ length: 64 }, (_, k) => ({ re: Math.cos(k) / 8, im: Math.sin(k) / 8 }));
+  figures.push(["quantum dirac amplitudes 64 states capped", amplitudeChartSvg(Array.from({ length: 64 }, (_, k) => `|${k.toString(2).padStart(6, "0")}⟩`), [{ name: "|ψ⟩", amps }])]);
+  figures.push(["quantum dirac heat map zero operator", matrixHeatmapSvg([[{ re: 0, im: 0 }, { re: 0, im: 0 }], [{ re: 0, im: 0 }, { re: 0, im: 0 }]], ["0", "1"], () => "0")]);
+  figures.push(["quantum dirac bars 32 signed", quantumBarsSvg({ values: Array.from({ length: 40 }, (_, k) => Math.sin(k) / 4), labels: Array.from({ length: 40 }, (_, k) => `μ${k + 1}`), yTitle: "Eigenvalue", xTitle: "Spectrum", ref: { value: 0.1, label: "0.1" } })]);
+}
+// --- end Release E: quantum dirac ---
 
 export { figures };

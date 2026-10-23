@@ -36,6 +36,11 @@ export interface BlochFigure {
   path: [number, number, number][];
   startLabel: string;
   endLabel: string;
+  /**
+   * One vector, not a before/after pair (Release Q part Q3: the Bloch vector of a density matrix, |r| ≤ 1). Pass the
+   * same vector as start and end; the legend then names it by endLabel alone, without "(unchanged)".
+   */
+  single?: boolean;
 }
 
 const AZ = (25 * Math.PI) / 180;
@@ -141,7 +146,7 @@ export function blochSphereSvg(fig: BlochFigure): string {
     out.push(text(60, ly, label, "start", 11));
     ly += 17;
   };
-  if (same) leg("#c00000", `${fig.endLabel} (unchanged)`);
+  if (same) leg("#c00000", fig.single ? fig.endLabel : `${fig.endLabel} (unchanged)`);
   else {
     leg("#1f5fa8", fig.startLabel);
     leg("#c00000", fig.endLabel);

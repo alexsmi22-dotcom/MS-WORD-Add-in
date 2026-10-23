@@ -20,7 +20,7 @@
 import { ambiguousImplicitProduct } from "./ambiguous";
 
 export type Node =
-  | { k: "text"; v: string; plain?: boolean } // leaf run; plain → upright (function names)
+  | { k: "text"; v: string; plain?: boolean; label?: boolean } // leaf run; plain → upright (function names); label → a sign used as a name (|+⟩, Φ⁺), not an operator
   | { k: "row"; items: Node[] }
   | { k: "frac"; num: Node; den: Node }
   | { k: "sup"; base: Node; sup: Node }
@@ -92,6 +92,8 @@ const SYMBOLS: Record<string, string> = {
   ZZ: "ℤ", RR: "ℝ", NN: "ℕ", QQ: "ℚ", CC: "ℂ", PP: "ℙ", EE: "𝔼", FF: "𝔽",
   // Electrical engineering & physics
   angle: "∠", laplace: "ℒ", fourier: "ℱ", ohm: "Ω", hbar: "ℏ",
+  // Quantum (Release Q): the adjoint, U^dagger → U†.
+  dagger: "†",
 };
 
 // Words that should render upright even when used without parentheses (e.g.
@@ -103,6 +105,8 @@ const UPRIGHT_WORDS = new Set(["mod", "argmax", "argmin", "lcm", "gcd", "Pr"]);
 // left as operators by the tokenizer's default case.
 const ATOM_GLYPHS = new Set([
   "∀", "∃", "¬", "∂", "∇", "∅", "°", "∞", "ℤ", "ℝ", "ℕ", "ℚ", "ℂ", "ℙ", "ℏ", "ℒ", "ℱ",
+  // The dagger: postfix A† is the superscript adjoint (parseFactor), and ^† / ^dagger read as the same.
+  "†",
 ]);
 
 const ACCENTS: Record<string, string> = { bar: "̄", hat: "̂", vec: "⃗" };
@@ -255,6 +259,13 @@ class Parser {
   private parseExpr(): Node {
     const items: Node[] = [this.parseTerm()];
     while (this.peek()?.t === "op") {
+      // Inside a ket/bra argument, a trailing sign is a superscript label: ket(Phi+) is |Φ⁺⟩, bra(Psi-) is ⟨Ψ⁻|.
+      if (this.diracDepth > 0 && Parser.isSign(this.peek()) && this.closesArg(this.tokens[this.pos + 1])) {
+        const sign = Parser.signText(this.next().v);
+        const last = items.pop() as Node;
+        items.push({ k: "sup", base: last, sup: { k: "text", v: sign, plain: true, label: true } });
+        continue;
+      }
       const op = this.next().v;
       items.push({ k: "text", v: op, plain: true });
       items.push(this.parseTerm());
@@ -283,6 +294,52 @@ class Parser {
     return node;
   }
 
+  /** > 0 while reading a ket/bra/braket argument (where a trailing or lone sign is a state label). */
+  private diracDepth = 0;
+
+  private static isSign(t: Token | undefined): boolean {
+    return !!t && t.t === "op" && (t.v === "+" || t.v === "-" || t.v === "−");
+  }
+  private static signText(v: string): string {
+    return v === "+" ? "+" : "−";
+  }
+  private static isSupSign(t: Token | undefined): boolean {
+    return !!t && t.t === "op" && (t.v === "⁺" || t.v === "⁻");
+  }
+  /** The token after a sign ends a Dirac argument: the sign is the label (ket(+), ket(Phi+)). */
+  private closesArg(t: Token | undefined): boolean {
+    return !!t && (t.t === "rparen" || t.t === "comma");
+  }
+  /** The token after a script's sign leaves it nothing to apply to: the sign is the script itself (Phi^+). */
+  private closesScript(t: Token | undefined): boolean {
+    if (!t) return true;
+    if (t.t === "rparen" || t.t === "rbrace" || t.t === "rbrack" || t.t === "comma" || t.t === "semi" || t.t === "bar") return true;
+    return t.t === "op" && ["=", "≠", "<", ">", "≤", "≥", "→", "⟩"].includes(t.v);
+  }
+
+  /** ket/bra/braket arguments: a lone sign is the state label (ket(+) is |+⟩, bra(-) is ⟨−|). */
+  private parseDiracArgs(count: number): Node[] {
+    this.expect("lparen");
+    this.diracDepth++;
+    try {
+      const one = (): Node => {
+        if (Parser.isSign(this.peek()) && this.closesArg(this.tokens[this.pos + 1]))
+          return { k: "text", v: Parser.signText(this.next().v), plain: true, label: true };
+        return this.parseExpr();
+      };
+      const args: Node[] = [one()];
+      while (this.peek()?.t === "comma") {
+        this.next();
+        args.push(one());
+      }
+      this.expect("rparen");
+      if (args.length !== count) throw new Error(`Expected ${count} argument(s) but got ${args.length}.`);
+      return args;
+    } finally {
+      this.diracDepth--;
+    }
+  }
+
   private startsBase(t: Token | undefined): boolean {
     // `bar` (|) is intentionally excluded: a "|" is ambiguous between opening and
     // closing an absolute value, so allowing it as an implicit-multiplication
@@ -295,9 +352,25 @@ class Parser {
     const base = this.parseBase();
     let sub: Node | null = null;
     let sup: Node | null = null;
-    while (this.peek()?.t === "caret" || this.peek()?.t === "underscore") {
+    while (
+      this.peek()?.t === "caret" ||
+      this.peek()?.t === "underscore" ||
+      Parser.isSupSign(this.peek()) ||
+      (this.peek()?.t === "id" && this.peek()?.v === "†")
+    ) {
       const tok = this.next();
-      const s = this.parseBase();
+      let s: Node;
+      if (tok.t === "op" || tok.t === "id") {
+        // A superscript typed as a glyph: the adjoint U† (postfix), or a sign Φ⁺, Ψ⁻. It joins any superscript
+        // already there (U²† is U^{2†}), never nests under it.
+        s = tok.t === "id" ? { k: "text", v: "†" } : { k: "text", v: tok.v === "⁺" ? "+" : "−", plain: true, label: true };
+        sup = sup ? { k: "row", items: [sup, s] } : s;
+        continue;
+      }
+      // A lone sign as the script (Phi^+, x_-), i.e. a sign with nothing after it to apply to, is the sign itself.
+      if (Parser.isSign(this.peek()) && this.closesScript(this.tokens[this.pos + 1])) {
+        s = { k: "text", v: Parser.signText(this.next().v), plain: true, label: true };
+      } else s = this.parseBase();
       // A repeated script nests right-associatively (x^2^3 → x^(2^3)) instead of
       // silently overwriting the earlier one.
       if (tok.t === "caret") sup = sup ? { k: "sup", base: sup, sup: s } : s;
@@ -366,9 +439,10 @@ class Parser {
       return { k: "delim", inner, open: "|", close: "|" };
     }
 
-    if (t.t === "op" && (t.v === "+" || t.v === "-")) {
+    if (t.t === "op" && (t.v === "+" || t.v === "-" || (t.v === "−" && this.diracDepth > 0))) {
       this.next();
-      return { k: "row", items: [{ k: "text", v: t.v, plain: true }, this.parseBase()] };
+      // Inside a ket or bra the sign is typeset as a true minus: |−i⟩.
+      return { k: "row", items: [{ k: "text", v: this.diracDepth > 0 && t.v === "-" ? "−" : t.v, plain: true }, this.parseBase()] };
     }
 
     throw new Error(`Unexpected "${t.v}" in math expression.`);
@@ -408,15 +482,15 @@ class Parser {
     }
     // Dirac notation: bra ⟨ψ|, ket |ψ⟩, inner product ⟨φ|ψ⟩, expectation ⟨A⟩.
     if (lower === "bra") {
-      const [inner] = this.parseArgs(1);
+      const [inner] = this.parseDiracArgs(1);
       return { k: "delim", inner, open: "⟨", close: "|" };
     }
     if (lower === "ket") {
-      const [inner] = this.parseArgs(1);
+      const [inner] = this.parseDiracArgs(1);
       return { k: "delim", inner, open: "|", close: "⟩" };
     }
     if (lower === "braket" || lower === "ip") {
-      const [a, b] = this.parseArgs(2);
+      const [a, b] = this.parseDiracArgs(2);
       const inner: Node = { k: "row", items: [a, { k: "text", v: "|", plain: true }, b] };
       return { k: "delim", inner, open: "⟨", close: "⟩" };
     }

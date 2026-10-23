@@ -27477,7 +27477,14 @@ const ENG_CALCS: EngCalc[] = [
       const pr = parseRate(fps);
       const fpsText =
         pr.ok && pr.fractional && Math.abs(fps - (pr.nominal * 1000) / 1001) < 1e-9 * fps ? `${pr.nominal * 1000}/1001` : engNum(fps, 6);
-      const lines = [
+      const brOutputs: EngOutput[] = [
+        { key: "Rcomp", label: "Bitrate after compression", value: res.compressedBps / 1e6, unit: "Mbit/s" },
+        { key: "Runcomp", label: "Uncompressed bitrate", value: res.uncompressedBps / 1e6, unit: "Mbit/s" },
+        { key: "sizeGB", label: "File size", value: res.sizeBytes !== null ? res.sizeBytes / 1e9 : NaN, unit: "GB" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("video-bitrate"),
+        ...(res.sizeBytes !== null ? engEq("video-bitrate:size") : []),
         `Bitrate, ${nums.w}×${nums.h} at ${fpsText} fps`,
         "",
         `  Bits per pixel      ${engNum(res.bitsPerPixel, 4)}`,
@@ -27521,16 +27528,16 @@ const ENG_CALCS: EngCalc[] = [
             title: `Rate at ${nums.w}×${nums.h}, ${fpsText} fps, ${nums.depth}-bit`,
             unit: "Mbit/s",
           });
-          return engReport(lines, [
+          return withOutputs(brOutputs, engReport(lines, [
             avPlot(
               svg,
               "The three chroma schemes at this format; 4:2:0 halves the data, not quarters it",
               "Bitrate bars for 4:4:4, 4:2:2 and 4:2:0 chroma subsampling",
             ),
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(brOutputs, engReport(lines));
     },
   },
   {
@@ -27555,7 +27562,13 @@ const ENG_CALCS: EngCalc[] = [
       if (diagRaw && !Number.isFinite(diag as number)) return { text: "The diagonal must be a number of inches.", ok: false };
       const res = resolution(w, h, diag);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const rsOutputs: EngOutput[] = [
+        { key: "Mpx", label: "Pixels", value: res.megapixels, unit: "Mpixel" },
+        { key: "PPI", label: "Pixel density", value: res.ppi ?? NaN, unit: "PPI" },
+        { key: "dRetina", label: "Distance past which the grid is invisible", value: res.retinaDistanceM ?? NaN, unit: "m" },
+      ];
+      const lines: EngReportLine[] = [
+        ...(res.ppi !== null ? engEq("video-resolution") : []),
         `Resolution ${w}×${h}`,
         "",
         `  Pixels              ${engNum(res.megapixels, 5)} Mpixel`,
@@ -27595,16 +27608,16 @@ const ENG_CALCS: EngCalc[] = [
               title: "Where the eye stops resolving the grid",
             },
           );
-          return engReport(lines, [
+          return withOutputs(rsOutputs, engReport(lines, [
             avPlot(
               svg,
               "The retina distance against screen size at this pixel count",
               "Distance beyond which the pixel grid is unresolvable, against diagonal size",
             ),
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(rsOutputs, engReport(lines));
     },
   },
   {
@@ -27627,7 +27640,13 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(black)) return { text: "The black level must be a number of nits.", ok: false };
       const res = hdrRange(peak, black);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const hdOutputs: EngOutput[] = [
+        { key: "CR", label: "Contrast ratio", value: res.contrastRatio, unit: "" },
+        { key: "stops", label: "Dynamic range", value: res.stops, unit: "stops" },
+        { key: "pqPeak", label: "PQ code at peak", value: res.pqAtPeak, unit: "" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("video-hdr"),
         "HDR luminance",
         "",
         `  Peak                ${engNum(res.peakNits, 5)} nits`,
@@ -27636,14 +27655,10 @@ const ENG_CALCS: EngCalc[] = [
         `  Dynamic range       ${Number.isFinite(res.stops) ? engNum(res.stops, 4) + " stops" : "unbounded"}`,
         `  PQ code at peak     ${engNum(res.pqAtPeak, 4)}  (${engNum(res.pqHeadroomPct, 4)}% of the 10000-nit range)`,
         "",
-        "  Where the code range goes",
-        // Uses pqToNits, the inverse direction, to show how little of the code
-        // space the bright end occupies. The curve is perceptual, so half the
-        // code values cover well under a fiftieth of the luminance - which is
-        // the reason PQ exists and is not obvious from a single number.
-        ...[0.25, 0.5, 0.75, 1].map(
-          (code) => `    code ${code.toFixed(2)}  ->  ${engNum(pqToNits(code), 5)} nits`,
-        ),
+        // Release E: the code-value ladder as a real table. pqToNits, the inverse direction, shows how little of the
+        // code space the bright end occupies: the curve is perceptual, so half the code values cover well under a
+        // fiftieth of the luminance - the reason PQ exists.
+        { label: "Where the code range goes", table: [["PQ code", "Luminance (nits)"], ...[0.25, 0.5, 0.75, 1].map((code) => [code.toFixed(2), engNum(pqToNits(code), 5)])] },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -27676,7 +27691,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The absolute PQ curve",
             },
           );
-          return engReport(lines, [
+          return withOutputs(hdOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -27685,10 +27700,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(hdOutputs, engReport(lines));
     },
   },
   {
@@ -27709,7 +27724,9 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(mse) || !Number.isFinite(depth)) return { text: "Both values must be numbers.", ok: false };
       const res = psnr(mse, depth);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const psOutputs: EngOutput[] = [{ key: "PSNR", label: "PSNR", value: res.psnrDb, unit: "dB" }];
+      const lines: EngReportLine[] = [
+        ...engEq("video-psnr"),
         "PSNR",
         "",
         `  Mean squared error  ${engNum(res.mse, 6)}`,
@@ -27744,7 +27761,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "PSNR against error",
             },
           );
-          return engReport(lines, [
+          return withOutputs(psOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -27753,10 +27770,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(psOutputs, engReport(lines));
     },
   },
   {
@@ -27780,7 +27797,13 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = streamBuffer(rate, bw, buf);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const stOutputs: EngOutput[] = [
+        { key: "bufS", label: "Buffer holds", value: res.bufferSeconds, unit: "s" },
+        { key: "startS", label: "Startup delay", value: res.startupDelayS, unit: "s" },
+        { key: "headroom", label: "Bandwidth headroom", value: res.headroom * 100, unit: "%" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("video-stream"),
         "Streaming",
         "",
         `  Buffer holds        ${engNum(res.bufferSeconds, 4)} s of video`,
@@ -27821,7 +27844,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Fill on the surplus, drain through an outage",
           },
         );
-        return engReport(lines, [
+        return withOutputs(stOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -27830,9 +27853,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(stOutputs, engReport(lines));
     },
   },
   {
@@ -27867,9 +27890,15 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = latencyBudget(stages, hz);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = ["Latency budget", ""];
-      for (const s of res.stages) lines.push(`  ${s.name.padEnd(16)} ${engNum(s.ms, 4)} ms`);
+      const lines: EngReportLine[] = [...engEq("video-latency"), "Latency budget", ""];
+      // Release E: the stages as a real table.
+      lines.push({ table: [["Stage", "Time (ms)"], ...res.stages.map((s) => [s.name, engNum(s.ms, 4)])] });
       lines.push("");
+      const ltOutputs: EngOutput[] = [
+        { key: "totalMs", label: "Sum of the stages", value: res.totalMs, unit: "ms" },
+        { key: "deliveredMs", label: "Delivered (refresh-quantised)", value: res.quantisedMs, unit: "ms" },
+        { key: "frames", label: "Frames", value: res.frames, unit: "" },
+      ];
       lines.push(`  Sum                 ${engNum(res.totalMs, 5)} ms`);
       lines.push(`  Delivered           ${engNum(res.quantisedMs, 5)} ms  (${engNum(res.frames, 3)} frames)`);
       u.report(lines);
@@ -27895,7 +27924,7 @@ const ENG_CALCS: EngCalc[] = [
         ];
         if (latRows.every((rw) => Number.isFinite(rw.value))) {
           const svg = hBarSvg(latRows, { title: `Latency budget at ${engNum(hz, 4)} Hz`, unit: "ms" });
-          return engReport(lines, [
+          return withOutputs(ltOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -27904,10 +27933,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 400,
               h: 46 + Math.min(latRows.length, 24) * HBAR_ROW_H + 18,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(ltOutputs, engReport(lines));
     },
   },
   {

@@ -507,6 +507,19 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("DF = Z_L/(Z_out + R_c)", "DF = ZL/(Zout + Rc)"),
     eq("Delta L = 20 log_10(Z_L/(Z_L + Z_out + R_c))", "ΔL = 20·log₁₀(ZL/(ZL + Zout + Rc))"),
   ],
+  // ---- Video & display ----
+  "video-bitrate": [eq("R = w h f b_px/CR", "R = w·h·f·bpx/CR"), eq("b_px = b k_chroma", "bpx = b·kchroma")],
+  "video-bitrate:size": [eq("S = R t/8", "S = R·t/8")],
+  "video-resolution": [eq("PPI = sqrt(w^2 + h^2)/d", "PPI = √(w² + h²)/d"), eq("d_r = (0.0254/PPI)/tan((1/60) degree)", "dr = (0.0254/PPI)/tan((1/60)°)")],
+  "video-hdr": [
+    eq("CR = L_peak/L_black", "CR = Lpeak/Lblack"),
+    eq("stops = log_2(CR)", "stops = log₂(CR)"),
+    eq("E = ((c_1 + c_2 Y^{m_1})/(1 + c_3 Y^{m_1}))^{m_2}", "E = ((c₁ + c₂·Yᵐ¹)/(1 + c₃·Yᵐ¹))ᵐ²"),
+    eq("Y = L/10000", "Y = L/10000"),
+  ],
+  "video-psnr": [eq("PSNR = 10 log_10(MAX^2/MSE)", "PSNR = 10·log₁₀(MAX²/MSE)"), eq("MAX = 2^b - 1", "MAX = 2ᵇ − 1")],
+  "video-stream": [eq("t_buf = 8 B/R", "tbuf = 8B/R"), eq("t_start = 8 B/(BW - R)", "tstart = 8B/(BW − R)")],
+  "video-latency": [eq("t = sum(i=1, n, t_i)", "t = ∑ᵢ₌₁ⁿ tᵢ"), eq("t_shown = ceil(t f_r)/f_r", "tshown = ⌈t·fr⌉/fr")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

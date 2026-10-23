@@ -339,6 +339,37 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "aero-turn:stall": [eq("V_{s turn} = V_s sqrt(n)", "Vs turn = Vs·√n")],
   "aero-climb": [eq("sin(gamma) = (T - D)/W", "sin γ = (T − D)/W"), eq("ROC = V sin(gamma)", "ROC = V·sin γ")],
   "aero-climb:glide": [eq("L/D = abs(cot(gamma))", "L/D = |cot γ|"), eq("R_glide = (L/D) h", "Rglide = (L/D)·h")],
+  // ---- Optics & photonics ----
+  "optics-photon": [eq("E = h c/lambda", "E = h·c/λ"), eq("nu = c/lambda", "ν = c/λ"), eq("k = 1/lambda", "k = 1/λ")],
+  "optics-gaussian": [
+    eq("z_R = pi w_0^2/(M^2 lambda)", "zR = π·w₀²/(M²·λ)"),
+    eq("theta = M^2 lambda/(pi w_0)", "θ = M²·λ/(π·w₀)"),
+    eq("w(z) = w_0 sqrt(1 + (z/z_R)^2)", "w(z) = w₀·√(1 + (z/zR)²)"),
+    eq("R(z) = {z} (1 + (z_R/z)^2)", "R(z) = z·(1 + (zR/z)²)"),
+  ],
+  "optics-abcd": [eq("M = prod(i=1, n, M_{n + 1 - i})", "M = ∏ᵢ₌₁ⁿ Mₙ₊₁₋ᵢ")],
+  "optics-abcd:beam": [eq("q_2 = (A q_1 + B)/(C q_1 + D)", "q₂ = (A·q₁ + B)/(C·q₁ + D)"), eq("1/q = 1/R - j lambda/(pi w^2)", "1/q = 1/R − jλ/(π·w²)")],
+  "optics-resonator": [eq("g_i = 1 - L/R_i", "gᵢ = 1 − L/Rᵢ"), eq("0 <= g_1 g_2 <= 1", "0 ≤ g₁g₂ ≤ 1")],
+  "optics-resonator:mode": [eq("w_0^4 = (lambda L/pi)^2 g_1 g_2 (1 - g_1 g_2)/(g_1 + g_2 - 2 g_1 g_2)^2", "w₀⁴ = (λL/π)²·g₁g₂(1 − g₁g₂)/(g₁ + g₂ − 2g₁g₂)²")],
+  "optics-pulse": [eq("bar(P) = E f", "P̄ = E·f"), eq("D = tau f", "D = τ·f")],
+  "optics-pulse:gaussian": [eq("P_peak = 2 sqrt(ln(2)/pi) E/tau", "Ppeak = 2√(ln 2/π)·E/τ")],
+  "optics-pulse:sech2": [eq("P_peak = ln(1 + sqrt(2)) E/tau", "Ppeak = ln(1 + √2)·E/τ")],
+  "optics-pulse:rectangular": [eq("P_peak = E/tau", "Ppeak = E/τ")],
+  "optics-pulse:fluence": [eq("F_peak = 2 E/(pi w^2)", "Fpeak = 2E/(π·w²)"), eq("I_peak = 2 P_peak/(pi w^2)", "Ipeak = 2Ppeak/(π·w²)")],
+  "optics-refraction": [
+    eq("n_1 sin(theta_1) = n_2 sin(theta_2)", "n₁·sin θ₁ = n₂·sin θ₂"),
+    eq("theta_B = arctan(n_2/n_1)", "θB = arctan(n₂/n₁)"),
+    eq("R_0 = ((n_1 - n_2)/(n_1 + n_2))^2", "R₀ = ((n₁ − n₂)/(n₁ + n₂))²"),
+  ],
+  "optics-refraction:critical": [eq("theta_c = arcsin(n_2/n_1)", "θc = arcsin(n₂/n₁)")],
+  "optics-diffraction": [eq("theta = 1.22 lambda/D", "θ = 1.22·λ/D")],
+  "optics-diffraction:spot": [eq("d = 2.44 lambda f/D", "d = 2.44·λ·f/D")],
+  "optics-diffraction:grating": [eq("sin(theta_m) = sin(theta_i) + m lambda/d", "sin θm = sin θᵢ + m·λ/d")],
+  "optics-fibre": [
+    eq("NA = sqrt(n_core^2 - n_clad^2)", "NA = √(ncore² − nclad²)"),
+    eq("V = 2 pi a NA/lambda", "V = 2π·a·NA/λ"),
+    eq("lambda_c = 2 pi a NA/2.405", "λc = 2π·a·NA/2.405"),
+  ],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

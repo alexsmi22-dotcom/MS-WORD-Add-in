@@ -32,8 +32,8 @@ function leaves(n: Node, out: string[] = []): string[] {
 // ᐟ is the superscript slash the fallbacks use in exponents (Rₕ²ᐟ³); it is punctuation here, not a letter.
 const letters = (s: string): string => s.normalize("NFKC").replace(/ᐟ/g, "").replace(/[^\p{L}\p{N}]/gu, "");
 
-/** Functions named on purpose: L(s), G(s), C(s), T(s), H(s), R(t), and C(n, i) for the binomial coefficient. */
-const TRANSFER_FUNCTIONS = new Set(["L", "G", "C", "T", "H", "R"]);
+/** Functions named on purpose: L(s), G(s), C(s), T(s), H(s), R(t), w(z), and C(n, i) for the binomial coefficient. */
+const TRANSFER_FUNCTIONS = new Set(["L", "G", "C", "T", "H", "R", "w"]);
 
 const ALL = Object.entries(ENG_EQUATIONS).flatMap(([k, list]) => list.map((e, i) => [`${k} #${i + 1}`, e] as const));
 

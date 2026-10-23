@@ -22459,14 +22459,17 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(n) || n <= 0) return { text: "Refractive index must be positive.", ok: false };
       const res = photonRelations(v, r("u") as PhotonUnit, n);
       if (!res) return { text: "That value has no physical photon corresponding to it.", ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-photon"),
         "Photon relations",
         "",
-        `  Wavelength (vacuum)  ${engNum(res.wavelengthNm, 7)} nm`,
-        `  Frequency            ${engNum(res.frequencyTHz, 7)} THz`,
-        `  Photon energy        ${engNum(res.energyEv, 7)} eV`,
-        `                       ${engNum(res.energyJ, 6)} J`,
-        `  Wavenumber           ${engNum(res.wavenumberCm, 7)} cm^-1`,
+        kvTable([
+          ["Wavelength (vacuum)", engNum(res.wavelengthNm, 7), "nm"],
+          ["Frequency", engNum(res.frequencyTHz, 7), "THz"],
+          ["Photon energy", engNum(res.energyEv, 7), "eV"],
+          ["Photon energy", engNum(res.energyJ, 6), "J"],
+          ["Wavenumber", engNum(res.wavenumberCm, 7), "cm⁻¹"],
+        ]),
         "",
         `  From the exact SI constants h = ${H_PLANCK} J*s and c = ${C_LIGHT} m/s,`,
         `  so hc = ${((H_PLANCK * C_LIGHT) / 1.602176634e-19 / 1e-9).toPrecision(10)} eV*nm.`,
@@ -22478,6 +22481,12 @@ const ENG_CALCS: EngCalc[] = [
       // E = hc/λ. Swept around the VACUUM wavelength the engine computed
       // (the entered value may be THz or eV), each point re-asked with n = 1
       // since the result is already in vacuum.
+      const phOutputs: EngOutput[] = [
+        { key: "lambdaNm", label: "Vacuum wavelength", value: res.wavelengthNm, unit: "nm" },
+        { key: "nuTHz", label: "Frequency", value: res.frequencyTHz, unit: "THz" },
+        { key: "EeV", label: "Photon energy", value: res.energyEv, unit: "eV" },
+        { key: "wavenumber", label: "Wavenumber", value: res.wavenumberCm, unit: "cm⁻¹" },
+      ];
       if (res.wavelengthNm > 0 && Number.isFinite(res.energyEv)) {
         const ePts: Point[] = [];
         for (let i2 = 0; i2 <= 60; i2++) {
@@ -22501,7 +22510,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Energy against wavelength",
             },
           );
-          return engReport(lines, [
+          return withOutputs(phOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22510,10 +22519,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(phOutputs, engReport(lines));
     },
   },
   {
@@ -22549,18 +22558,21 @@ const ENG_CALCS: EngCalc[] = [
       const g = gaussianBeam({ w0, lambda: lam, m2, z });
       if (!g) return { text: "Enter a positive waist and wavelength.", ok: false };
       const mrad = (x: number) => engNum(x * 1000, 5);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-gaussian"),
         "Gaussian beam",
         "",
-        `  Rayleigh range z_R    ${engNum(g.rayleighM, 6)} m`,
-        `  Depth of focus 2z_R   ${engNum(g.confocalM, 6)} m`,
-        `  Divergence half-angle ${mrad(g.thetaHalfRad)} mrad   (full angle ${mrad(2 * g.thetaHalfRad)} mrad)`,
-        `  Beam parameter prod.  ${engNum(g.bpp * 1e6, 5)} mm*mrad`,
-        "",
-        `  At z = ${engNum(z, 5)} m`,
-        `    Radius w(z)         ${engNum(g.wAtZ, 6)} m   (diameter ${engNum(2 * g.wAtZ, 6)} m)`,
-        `    Wavefront R(z)      ${g.rAtZ === Infinity ? "flat (infinite)" : engNum(g.rAtZ, 6) + " m"}`,
-        `    Gouy phase          ${engNum((g.gouyRad * 180) / Math.PI, 5)} deg`,
+        kvTable([
+          ["Rayleigh range zR", engNum(g.rayleighM, 6), "m"],
+          ["Depth of focus 2zR", engNum(g.confocalM, 6), "m"],
+          ["Divergence half-angle", mrad(g.thetaHalfRad), "mrad"],
+          ["Divergence full angle", mrad(2 * g.thetaHalfRad), "mrad"],
+          ["Beam parameter product", engNum(g.bpp * 1e6, 5), "mm·mrad"],
+          [`Radius w(z) at z = ${engNum(z, 5)} m`, engNum(g.wAtZ, 6), "m"],
+          [`Diameter at z = ${engNum(z, 5)} m`, engNum(2 * g.wAtZ, 6), "m"],
+          g.rAtZ === Infinity ? [`Wavefront R(z) at z = ${engNum(z, 5)} m`, "flat (infinite)", ""] : [`Wavefront R(z) at z = ${engNum(z, 5)} m`, engNum(g.rAtZ, 6), "m"],
+          [`Gouy phase at z = ${engNum(z, 5)} m`, engNum((g.gouyRad * 180) / Math.PI, 5), "deg"],
+        ]),
       ];
       const want = r("want").trim();
       if (want) {
@@ -22578,6 +22590,13 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of g.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+      const gbOutputs: EngOutput[] = [
+        { key: "zR", label: "Rayleigh range", value: g.rayleighM, unit: "m" },
+        { key: "thetaHalf", label: "Divergence half-angle", value: g.thetaHalfRad * 1000, unit: "mrad" },
+        { key: "wz", label: "Beam radius at z", value: g.wAtZ, unit: "m" },
+        { key: "Rz", label: "Wavefront radius at z", value: g.rAtZ, unit: "m" },
+        { key: "BPP", label: "Beam parameter product", value: g.bpp * 1e6, unit: "mm·mrad" },
+      ];
 
       // The caustic: ±w(z) through the waist, the Rayleigh range as stems,
       // this z marked. Every point re-asks the engine; LINEAR axes only —
@@ -22625,7 +22644,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "beam radius (mm)",
             title: "The beam caustic",
           });
-          return engReport(lines, [
+          return withOutputs(gbOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22634,10 +22653,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(gbOutputs, engReport(lines));
     },
   },
   {
@@ -22708,11 +22727,17 @@ const ENG_CALCS: EngCalc[] = [
       const m = systemMatrix(els);
       if (!m) return { text: "An element has a non-physical parameter (zero focal length or radius, or a non-positive index).", ok: false };
 
-      const lines = [
+      let wOut = NaN;
+      const lines: EngReportLine[] = [
+        ...engEq("optics-abcd"),
         `System matrix for ${els.length} element${els.length === 1 ? "" : "s"}`,
         "",
-        `  A = ${engNum(m[0], 6)}    B = ${engNum(m[1], 6)}`,
-        `  C = ${engNum(m[2], 6)}    D = ${engNum(m[3], 6)}`,
+        kvTable([
+          ["A", engNum(m[0], 6), ""],
+          ["B", engNum(m[1], 6), "m"],
+          ["C", engNum(m[2], 6), "1/m"],
+          ["D", engNum(m[3], 6), ""],
+        ]),
         "",
         `  det = ${engNum(m[0] * m[3] - m[1] * m[2], 6)}  (equals n_in/n_out; 1 when both ends are in the same medium)`,
       ];
@@ -22747,7 +22772,9 @@ const ENG_CALCS: EngCalc[] = [
         const q1 = q0 ? propagateQ(q0, m) : null;
         const out = q1 ? beamFromQ(q1, lam, 1, nOut) : null;
         if (out) {
+          wOut = out.w;
           lines.push("");
+          lines.push(...engEq("optics-abcd:beam"));
           lines.push("Gaussian beam through this system");
           if (Math.abs(nOut - nIn) > 1e-9) {
             lines.push(`  Entering a medium of n = ${engNum(nIn, 5)}, leaving one of n = ${engNum(nOut, 5)}`);
@@ -22768,6 +22795,14 @@ const ENG_CALCS: EngCalc[] = [
           "and no error, which is why the order is fixed here rather than left to the caller.",
       );
       lines.push(ENG_UNIT_NOTE);
+      const abOutputs: EngOutput[] = [
+        { key: "Aabcd", label: "Matrix element A", value: m[0], unit: "" },
+        { key: "Babcd", label: "Matrix element B", value: m[1], unit: "m" },
+        { key: "Cabcd", label: "Matrix element C", value: m[2], unit: "1/m" },
+        { key: "Dabcd", label: "Matrix element D", value: m[3], unit: "" },
+        { key: "fEff", label: "Effective focal length", value: Math.abs(m[2]) > 1e-15 ? -1 / m[2] : NaN, unit: "m" },
+        { key: "wOut", label: "Output beam radius", value: wOut, unit: "m" },
+      ];
 
       // w(z) walked THROUGH the system: spaces subdivided, thin elements as
       // stems, the RUNNING index carried across every flat/curved surface —
@@ -22819,7 +22854,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "beam radius (mm)",
             title: "The beam through the system",
           });
-          return engReport(lines, [
+          return withOutputs(abOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22828,10 +22863,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(abOutputs, engReport(lines));
     },
   },
   {
@@ -22866,7 +22901,9 @@ const ENG_CALCS: EngCalc[] = [
       const res = resonator(L, R1, R2, lam);
       if (!res) return { text: "Enter a positive cavity length and wavelength.", ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-resonator"),
+        ...(res.waistM !== null ? engEq("optics-resonator:mode") : []),
         "Two-mirror resonator",
         "",
         `  g1 = ${engNum(res.g1, 6)}    g2 = ${engNum(res.g2, 6)}`,
@@ -22875,10 +22912,15 @@ const ENG_CALCS: EngCalc[] = [
       ];
       if (res.waistM !== null) {
         lines.push("");
-        lines.push(`  Waist radius w0      ${engNum(res.waistM, 6)} m`);
-        lines.push(`  Waist from mirror 1  ${engNum(res.waistFromM1 ?? 0, 6)} m`);
-        lines.push(`  Spot on mirror 1     ${engNum(res.spot1M ?? NaN, 6)} m`);
-        lines.push(`  Spot on mirror 2     ${engNum(res.spot2M ?? NaN, 6)} m`);
+        // Release E: the mode sizes as a quantity / value / unit table.
+        lines.push(
+          kvTable([
+            ["Waist radius w0", engNum(res.waistM, 6), "m"],
+            ["Waist from mirror 1", engNum(res.waistFromM1 ?? 0, 6), "m"],
+            ["Spot on mirror 1", engNum(res.spot1M ?? NaN, 6), "m"],
+            ["Spot on mirror 2", engNum(res.spot2M ?? NaN, 6), "m"],
+          ]),
+        );
       }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -22932,7 +22974,12 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "g₂ = 1 − L/R₂",
           title: "The stability diagram",
         });
-        return withOutputs([{ key: "w0", label: "Waist radius w₀", value: res.waistM ?? NaN, unit: "m" }], engReport(lines, [
+        return withOutputs([
+          { key: "w0", label: "Waist radius w₀", value: res.waistM ?? NaN, unit: "m" },
+          { key: "g1g2", label: "Stability product g₁g₂", value: res.product, unit: "" },
+          { key: "spot1", label: "Spot radius on mirror 1", value: res.spot1M ?? NaN, unit: "m" },
+          { key: "spot2", label: "Spot radius on mirror 2", value: res.spot2M ?? NaN, unit: "m" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -22982,19 +23029,33 @@ const ENG_CALCS: EngCalc[] = [
       const res = pulseMetrics(E, tau, f, r("shape") as PulseShape, w === null ? undefined : w);
       if (!res) return { text: "Energy and duration must be positive, and the rate cannot be negative.", ok: false };
 
-      const lines = [
-        "Pulse train",
-        "",
-        `  Average power   ${engNum(res.averagePowerW, 6)} W`,
-        `  Peak power      ${engNum(res.peakPowerW, 6)} W`,
-        `  Duty cycle      ${engNum(res.dutyCycle, 6)}`,
-        `  Period          ${f > 0 ? engNum(1 / f, 6) + " s" : "n/a (single shot)"}`,
+      const puRows: Array<[string, string, string]> = [
+        ["Average power", engNum(res.averagePowerW, 6), "W"],
+        ["Peak power", engNum(res.peakPowerW, 6), "W"],
+        ["Duty cycle", engNum(res.dutyCycle, 6), ""],
+        f > 0 ? ["Period", engNum(1 / f, 6), "s"] : ["Period", "n/a (single shot)", ""],
       ];
       if (res.peakFluenceJm2 !== null) {
-        lines.push("");
-        lines.push(`  Peak fluence    ${engNum(res.peakFluenceJm2, 6)} J/m^2  = ${engNum(res.peakFluenceJm2 / 1e4, 6)} J/cm^2`);
-        lines.push(`  Peak irradiance ${engNum(res.peakIrradianceWm2 ?? NaN, 6)} W/m^2 = ${engNum((res.peakIrradianceWm2 ?? NaN) / 1e4, 6)} W/cm^2`);
+        puRows.push(["Peak fluence", engNum(res.peakFluenceJm2, 6), "J/m²"]);
+        puRows.push(["Peak fluence", engNum(res.peakFluenceJm2 / 1e4, 6), "J/cm²"]);
+        puRows.push(["Peak irradiance", engNum(res.peakIrradianceWm2 ?? NaN, 6), "W/m²"]);
+        puRows.push(["Peak irradiance", engNum((res.peakIrradianceWm2 ?? NaN) / 1e4, 6), "W/cm²"]);
       }
+      const shapeSel = r("shape");
+      const lines: EngReportLine[] = [
+        ...(shapeSel === "rectangular" ? engEq("optics-pulse:rectangular") : shapeSel === "sech2" ? engEq("optics-pulse:sech2") : engEq("optics-pulse:gaussian")),
+        ...engEq("optics-pulse"),
+        ...(res.peakFluenceJm2 !== null ? engEq("optics-pulse:fluence") : []),
+        "Pulse train",
+        "",
+        kvTable(puRows),
+      ];
+      const puOutputs: EngOutput[] = [
+        { key: "Pavg", label: "Average power", value: res.averagePowerW, unit: "W" },
+        { key: "Ppeak", label: "Peak power", value: res.peakPowerW, unit: "W" },
+        { key: "duty", label: "Duty cycle", value: res.dutyCycle, unit: "" },
+        { key: "fluence", label: "Peak fluence", value: res.peakFluenceJm2 !== null ? res.peakFluenceJm2 / 1e4 : NaN, unit: "J/cm²" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -23018,7 +23079,7 @@ const ENG_CALCS: EngCalc[] = [
           .filter((x): x is NonNullable<typeof x> => x !== null && Number.isFinite(x.value));
         if (rows.length === 3) {
           const svg = hBarSvg(rows, { title: "Peak power by pulse shape, same E and τ", unit: "kW" });
-          return engReport(lines, [
+          return withOutputs(puOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23027,10 +23088,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 400,
               h: 46 + 3 * HBAR_ROW_H + 18,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(puOutputs, engReport(lines));
     },
   },
   {
@@ -23054,13 +23115,23 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) {
         return { text: "Indices must be positive and the angle must be at least 0 and below 90 degrees.", ok: false };
       }
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-refraction"),
+        ...(res.criticalDeg !== null ? engEq("optics-refraction:critical") : []),
         "Refraction at a single interface",
         "",
-        `  Refraction angle   ${res.thetaTDeg === null ? "none — totally internally reflected" : engNum(res.thetaTDeg, 6) + " deg"}`,
-        `  Critical angle     ${res.criticalDeg === null ? "does not exist for n1 <= n2" : engNum(res.criticalDeg, 6) + " deg"}`,
-        `  Brewster angle     ${engNum(res.brewsterDeg, 6)} deg`,
-        `  Reflectance (normal incidence)  ${engNum(res.reflectanceNormal * 100, 4)} %`,
+        kvTable([
+          res.thetaTDeg === null ? ["Refraction angle", "none: totally internally reflected", ""] : ["Refraction angle", engNum(res.thetaTDeg, 6), "deg"],
+          res.criticalDeg === null ? ["Critical angle", "does not exist for n1 ≤ n2", ""] : ["Critical angle", engNum(res.criticalDeg, 6), "deg"],
+          ["Brewster angle", engNum(res.brewsterDeg, 6), "deg"],
+          ["Reflectance (normal incidence)", engNum(res.reflectanceNormal * 100, 4), "%"],
+        ]),
+      ];
+      const rfOutputs: EngOutput[] = [
+        { key: "thetaT", label: "Refraction angle", value: res.thetaTDeg ?? NaN, unit: "deg" },
+        { key: "thetaC", label: "Critical angle", value: res.criticalDeg ?? NaN, unit: "deg" },
+        { key: "thetaB", label: "Brewster angle", value: res.brewsterDeg, unit: "deg" },
+        { key: "R0", label: "Reflectance at normal incidence", value: res.reflectanceNormal * 100, unit: "%" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -23101,7 +23172,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "angle of refraction (°)",
             title: "Snell's law at this interface",
           });
-          return engReport(lines, [
+          return withOutputs(rfOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23113,10 +23184,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(rfOutputs, engReport(lines));
     },
   },
   {
@@ -23143,7 +23214,9 @@ const ENG_CALCS: EngCalc[] = [
       const a = airy(lam, D, f === null ? undefined : f);
       if (!a) return { text: "Wavelength, aperture and focal length must all be positive.", ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-diffraction"),
+        ...(a.airyDiameterM !== null ? engEq("optics-diffraction:spot") : []),
         "Diffraction",
         "",
         `  Airy half-angle to first zero  ${engNum(a.airyHalfAngleRad * 1e6, 5)} µrad`,
@@ -23161,10 +23234,12 @@ const ENG_CALCS: EngCalc[] = [
           lines.push("Grating: enter a positive line density and an incidence below 90 degrees.");
         } else {
           lines.push("");
-          lines.push(`Grating orders (${lpm} lines/mm)`);
-          for (const o of gr.orders) {
-            lines.push(`  m = ${o.m >= 0 ? " " : ""}${o.m}   ${engNum(o.angleDeg, 6)} deg`);
-          }
+          lines.push(...engEq("optics-diffraction:grating"));
+          // Release E: the orders as a real table.
+          lines.push({
+            label: `Grating orders (${lpm} lines/mm)`,
+            table: [["Order m", "Angle (deg)"], ...gr.orders.map((o) => [`${o.m}`, engNum(o.angleDeg, 6)])],
+          });
           lines.push(`  Highest existing order: ${gr.maxOrder}`);
           for (const note of gr.notes) lines.push(`Note: ${note}`);
           gratingOrders = gr.orders;
@@ -23173,6 +23248,10 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of a.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+      const dfOutputs: EngOutput[] = [
+        { key: "airyHalf", label: "Airy half-angle to the first zero", value: a.airyHalfAngleRad * 1e6, unit: "µrad" },
+        { key: "airyDia", label: "Airy disc diameter at focus", value: a.airyDiameterM ?? NaN, unit: "m" },
+      ];
 
       // The orders that EXIST, at their angles, as unit stems — the caption
       // says out loud that the height carries no intensity, because neither
@@ -23206,7 +23285,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "order exists",
           title: "Where the grating sends the light",
         });
-        return engReport(lines, [
+        return withOutputs(dfOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23216,7 +23295,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 220,
           },
-        ]);
+        ]));
       }
       {
         const airyPts: Point[] = [];
@@ -23241,7 +23320,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Resolution against aperture",
             },
           );
-          return engReport(lines, [
+          return withOutputs(dfOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23250,10 +23329,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dfOutputs, engReport(lines));
     },
   },
   {
@@ -23284,16 +23363,26 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const lines = [
+      const fbRows: Array<[string, string, string]> = [
+        ["Numerical aperture", engNum(res.na, 6), ""],
+        ["Acceptance half-angle", engNum(res.acceptanceHalfDeg, 5), "deg"],
+        ["V number", engNum(res.vNumber, 6), ""],
+        ["Cutoff wavelength (single-mode above this)", engNum(res.cutoffWavelengthM * 1e9, 6), "nm"],
+      ];
+      if (res.approxModes !== null) fbRows.push(["Approx. guided modes", engNum(res.approxModes, 5), ""]);
+      const lines: EngReportLine[] = [
+        ...engEq("optics-fibre"),
         "Step-index fibre",
         "",
-        `  Numerical aperture   ${engNum(res.na, 6)}`,
-        `  Acceptance half-angle ${engNum(res.acceptanceHalfDeg, 5)} deg`,
-        `  V number             ${engNum(res.vNumber, 6)}`,
+        kvTable(fbRows),
         `  ${res.singleMode ? "SINGLE MODE at this wavelength" : "MULTIMODE at this wavelength"}`,
-        `  Cutoff wavelength    ${engNum(res.cutoffWavelengthM * 1e9, 6)} nm  (single-mode above this)`,
       ];
-      if (res.approxModes !== null) lines.push(`  Approx. guided modes ${engNum(res.approxModes, 5)}`);
+      const fbOutputs: EngOutput[] = [
+        { key: "NA", label: "Numerical aperture", value: res.na, unit: "" },
+        { key: "V", label: "V number", value: res.vNumber, unit: "" },
+        { key: "lambdaC", label: "Cutoff wavelength", value: res.cutoffWavelengthM * 1e9, unit: "nm" },
+        { key: "modes", label: "Approximate guided modes", value: res.approxModes ?? NaN, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -23343,7 +23432,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The single-mode boundary",
             },
           );
-          return engReport(lines, [
+          return withOutputs(fbOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23352,10 +23441,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(fbOutputs, engReport(lines));
     },
   },
 

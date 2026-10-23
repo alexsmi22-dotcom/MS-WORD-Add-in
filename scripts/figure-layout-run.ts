@@ -279,6 +279,12 @@ import { TLINE_CALCS } from "../src/lib/tlineCalcs";
 import { sParamBarsSvg, smithChartSvg } from "../src/lib/tlineCharts";
 // --- end Release E: transmission lines ---
 
+// --- Release E: quantum mechanics ---
+// Release Q part Q6: well / oscillator levels with |ψ|², the hydrogen level diagram and P(r), T(E/V₀), two-level dynamics.
+import { QUANTUM_MECHANICS_CALCS } from "../src/lib/quantumMechanicsCalcs";
+import { curvesSvg, hydrogenLevelSvg, levelFigureSvg, tunnelSvg } from "../src/lib/quantumMechanicsCharts";
+// --- end Release E: quantum mechanics ---
+
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -3526,5 +3532,69 @@ rotator 15` }, "jones elliptical");
   figures.push(["transmission line sParamBarsSvg one bar", sParamBarsSvg([{ sub: "21", db: 12.5, angleDeg: -45, kind: "transmission" }])]);
 }
 // --- end Release E: transmission lines ---
+
+// --- Release E: quantum mechanics ---
+// Each quantum-mechanics tool through its own compute() at its defaults and at layout stress: the infinite well with 8
+// levels (labels decluttered at the bottom) and with 1; the finite well with 11 bound states (8 drawn, V₀ label kept), a
+// single state at the rim (tails across the frame), a GaAs effective-mass well; the oscillator with 8 levels and a
+// proton at 1 level; hydrogen Lyman α (1s), 20 → 2 (crowded levels near 0 with a leader to n = ∞), He⁺ with a 4f P(r);
+// tunnelling below, above (resonances), at a very low energy (the E label clear of the axis), through 10 nm (resonances too dense: the shaded band) and 1 mm
+// (T below 10⁻³⁰⁰ runs off the axis); Rabi resonant and detuned (the Ω²/(Ω² + Δ²) line), t beyond the window; Larmor
+// precession; a typed Hamiltonian. Then the builders directly at their edges.
+{
+  const qm = (id: string, over: Record<string, string>, name: string): void => {
+    const c = QUANTUM_MECHANICS_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: quantum mechanics ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`quantum mechanics ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  qm("qm-particle-box", {}, "infinite well 4 levels");
+  qm("qm-particle-box", { levels: "8" }, "infinite well 8 levels");
+  qm("qm-particle-box", { levels: "1", particle: "proton", width: "10 pm" }, "infinite well 1 level proton");
+  qm("qm-particle-box", { well: "finite" }, "finite well 2 states");
+  qm("qm-particle-box", { well: "finite", depth: "10 eV", width: "2 nm", levels: "8" }, "finite well 11 states 8 drawn");
+  qm("qm-particle-box", { well: "finite", depth: "0.01 eV" }, "finite well one state at the rim");
+  qm("qm-particle-box", { well: "finite", particle: "effective", depth: "0.3 eV", width: "10 nm" }, "finite well GaAs");
+  qm("qm-harmonic-oscillator", {}, "oscillator 5 levels");
+  qm("qm-harmonic-oscillator", { levels: "8", n: "7" }, "oscillator 8 levels");
+  qm("qm-harmonic-oscillator", { levels: "1", particle: "proton", omega: "1e14 rad/s" }, "oscillator proton 1 level");
+  qm("qm-hydrogen", {}, "hydrogen Balmer alpha 2p");
+  qm("qm-hydrogen", { upper: "2", lower: "1", orbital: "1s", nucleus: "proton" }, "hydrogen Lyman alpha 1s");
+  qm("qm-hydrogen", { upper: "20", lower: "2", orbital: "3d" }, "hydrogen 20 to 2 3d");
+  qm("qm-hydrogen", { Z: "2", nucleus: "alpha", upper: "4", lower: "3", orbital: "4f" }, "hydrogen He+ 4 to 3 4f");
+  qm("qm-tunnelling", {}, "tunnelling below the barrier");
+  qm("qm-tunnelling", { E: "5 eV" }, "tunnelling above the barrier");
+  qm("qm-tunnelling", { E: "0.001 eV" }, "tunnelling very low energy");
+  qm("qm-tunnelling", { width: "10 nm" }, "tunnelling 10 nm resonance band");
+  qm("qm-tunnelling", { width: "1 mm" }, "tunnelling 1 mm off the axis");
+  qm("qm-two-level", {}, "Rabi resonant");
+  qm("qm-two-level", { detuning: "0.5 MHz", t: "0.3 µs" }, "Rabi detuned");
+  qm("qm-two-level", { t: "20 µs" }, "Rabi t beyond the window");
+  qm("qm-two-level", { mode: "spin", state: "|+⟩" }, "Larmor precession electron");
+  qm("qm-two-level", { mode: "hamiltonian" }, "typed Hamiltonian");
+  figures.push([
+    "quantum mechanics levelFigureSvg 12 levels capped",
+    levelFigureSvg({
+      xRange: [0, 1],
+      potential: [[0, 0], [1, 0]],
+      levels: Array.from({ length: 12 }, (_, i) => ({ E: i + 1, x1: 0, x2: 1, label: `n = ${i + 1}`, value: `${i + 1} eV`, curve: [[0, 0], [0.5, 1], [1, 0]] as Array<[number, number]> })),
+      amp: 0.5,
+      eRange: [0, 14],
+      xTicks: [{ v: 0, label: "0" }, { v: 1, label: "L" }],
+      xTitle: "Position x",
+      yTitle: "Energy (eV)",
+    }),
+  ]);
+  figures.push(["quantum mechanics hydrogenLevelSvg two levels", hydrogenLevelSvg({ levels: [{ n: 1, E: -13.6 }, { n: 2, E: -3.4 }], upper: 2, lower: 1, arrowLabel: "121.5 nm", unit: "eV" })]);
+  figures.push(["quantum mechanics curvesSvg six series", curvesSvg({ series: Array.from({ length: 6 }, (_, k) => ({ name: `series ${k + 1}`, pts: Array.from({ length: 50 }, (_, i) => [i / 49, Math.sin(i / 8 + k) ** 2] as [number, number]), color: ["#1f5fa8", "#d07a00", "#2e8b57", "#8e44ad", "#c0392b", "#555555"][k] })), xTitle: "Time t (ns)", yTitle: "Probability", xRange: [0, 1], yRange: [0, 1], marker: { x: 0.98, y: 0.5, label: "t = 98 ns" } })]);
+  figures.push(["quantum mechanics tunnelSvg one point each", tunnelSvg({ below: [{ x: 0.5, lt: -2, wkb: -3 }, { x: 0.9, lt: -1, wkb: -1.5 }], above: [{ x: 1, t: 0.1 }, { x: 3, t: 0.9 }], xMax: 3, mark: { x: 0.95, lt: -1, t: 0.1 } })]);
+}
+// --- end Release E: quantum mechanics ---
 
 export { figures };

@@ -317,7 +317,7 @@ describe("named refusals", () => {
     ["laser-shg", { I: "1e9", L: "" }, /needs all three/],
     ["laser-shg", { deff: "14 pm/V", I: "1e9", L: "" }, /needs all three/],
     ["laser-shg", { per: "-5 µm" }, /period must be greater than zero/],
-    ["laser-shg", { deff: "14 kg", I: "1e9" }, /d_eff: /],
+    ["laser-shg", { deff: "14 kg", I: "1e9" }, /d\(eff\): /],
     ["laser-shg", { L: "1e400 mm" }, /finite|not a/],
   ] as Array<[string, Record<string, string>, RegExp]>)("%s %j", (id, over, re) => refused(run(id, over), re));
 });

@@ -41,6 +41,7 @@
   function badNumbers(text) {
     var stripped = String(text).replace(/"[^"\n]*"/g, '""');
     return /(?<![\p{L}\p{N}_])(?:NaN|Infinity)(?![\p{L}\p{N}_])/u.test(stripped) ||
+      /(?<![\p{L}\p{N}_])not finite(?![\p{L}\p{N}_])/iu.test(stripped) ||
       /(?:^|[=:±≈<>≤≥])[ \t]*undefined(?:(?=[ \t]*(?:$|[,;)\]]))|(?=[ \t]*(?:[-+−]?\d|[µμ°%‰ΩÅ℃]))|(?=[ \t]+(?:[^\s,;)\]]*[\/·^²³¹⁰⁴-⁹⁻]|(?!(?:at|in|as|if|for|on|by|to|of|or|and|the|is|so|but|yet|due|per|was|are|has|its|it|be|we|not|no|an|a)(?![A-Za-z]))[A-Za-z]{1,3}(?![\p{L}\p{N}_])|[A-Za-z]+[A-Z][A-Za-z]*(?![\p{L}\p{N}_]))))/mu.test(stripped);
   }
 

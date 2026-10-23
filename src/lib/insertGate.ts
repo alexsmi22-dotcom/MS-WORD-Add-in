@@ -24,6 +24,8 @@
 //                  superscript or ⁻; an ASCII-letter token of 1–3 letters that is not a common short English word
 //                  (m, mL, kPa, mol); or a letter token with an inner capital (mmHg). Not caught: "mean undefined µM"
 //                  (no value position) and long lower-case units ("undefined kcal").
+//   not finite     the formatters' word for a non-finite value: broken wherever it stands as a phrase (any case;
+//                  not inside a longer word). See NOT_FINITE_WORDS.
 //
 // Pure: no Office.js, no DOM.
 
@@ -31,10 +33,18 @@
 const NUMBER_TOKEN = /(?<![\p{L}\p{N}_])(?:NaN|Infinity)(?![\p{L}\p{N}_])/u;
 const UNDEFINED_VALUE = /(?:^|[=:±≈<>≤≥])[ \t]*undefined(?:(?=[ \t]*(?:$|[,;)\]]))|(?=[ \t]*(?:[-+−]?\d|[µμ°%‰ΩÅ℃]))|(?=[ \t]+(?:[^\s,;)\]]*[\/·^²³¹⁰⁴-⁹⁻]|(?!(?:at|in|as|if|for|on|by|to|of|or|and|the|is|so|but|yet|due|per|was|are|has|its|it|be|we|not|no|an|a)(?![A-Za-z]))[A-Za-z]{1,3}(?![\p{L}\p{N}_])|[A-Za-z]+[A-Z][A-Za-z]*(?![\p{L}\p{N}_]))))/mu;
 
-/** True when the text prints NaN, Infinity or undefined as a value (see the rule above). */
+/**
+ * "not finite" is what the number formatters (the pane's engNum, gasDynamicsCalcs num, vesselsCalcs num, ...) print
+ * for a non-finite value: blocked ANYWHERE in an ok result (fix round eng-9). It has no value-position test because
+ * engNum's callers print it bare ("Range at that angle not finite m") and inside copulas ("the range is not finite m");
+ * an ok result that merely says something is not finite is refused insertion, which errs on the safe side.
+ */
+const NOT_FINITE_WORDS = /(?<![\p{L}\p{N}_])not finite(?![\p{L}\p{N}_])/iu;
+
+/** True when the text prints NaN, Infinity, undefined or "not finite" as a value (see the rule above). */
 export function hasBrokenNumber(text: string): boolean {
   const stripped = String(text ?? "").replace(/"[^"\n]*"/g, '""');
-  return NUMBER_TOKEN.test(stripped) || UNDEFINED_VALUE.test(stripped);
+  return NUMBER_TOKEN.test(stripped) || UNDEFINED_VALUE.test(stripped) || NOT_FINITE_WORDS.test(stripped);
 }
 
 /**

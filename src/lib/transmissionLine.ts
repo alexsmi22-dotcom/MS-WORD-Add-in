@@ -18,6 +18,8 @@
 //       ε_eff = (εᵣ + 1)/2 + ((εᵣ − 1)/2)(1 + 10/u)^(−ab), Z₀ = Z_air/√ε_eff.
 //     The quasi-static value is the zero-frequency one (skrf's own docstring); dispersion raises ε_eff with frequency.
 
+import { fmtSig } from "./axis";
+
 /** A complex number. */
 export interface Cx {
   re: number;
@@ -64,6 +66,11 @@ export const cConj = (a: Cx): Cx => cx(a.re, -a.im);
 const cExpJ = (theta: number): Cx => cx(Math.cos(theta), Math.sin(theta));
 
 const finite = (...v: number[]): boolean => v.every((x) => Number.isFinite(x));
+/** An echoed number for a refusal: ×10ⁿ outside 10⁻³…10⁶ (toPrecision printed "1.00e+3"), U+2212. */
+const fmt3 = (v: number): string => {
+  const a = Math.abs(v);
+  return v === 0 || (a >= 1e-3 && a < 1e6) ? String(Number(v.toPrecision(3))).replace(/^-/, "−") : fmtSig(v, 3).replace(/(\.\d*?)0+(?=×)/, "$1").replace(/\.(?=×)/, "");
+};
 
 // ---------------------------------------------------------------------------------------------------------------
 // Characteristic impedance from geometry
@@ -100,7 +107,7 @@ export function microstripZ0(w: number, h: number, epsR: number): Z0Geometry | F
   if (!(epsR >= 1) || epsR > MS_ER_MAX) return { ok: false, error: `Microstrip: the substrate's relative permittivity εᵣ must be between 1 and ${MS_ER_MAX}.` };
   const u = w / h;
   if (u < MS_U_MIN || u > MS_U_MAX)
-    return { ok: false, error: `Microstrip: w/h = ${u.toPrecision(3)} is outside the range this tool accepts for the Hammerstad–Jensen equations (0.01 to 100).` };
+    return { ok: false, error: `Microstrip: w/h = ${fmt3(u)} is outside the range this tool accepts for the Hammerstad–Jensen equations (0.01 to 100).` };
   const fu = 6 + (2 * Math.PI - 6) * Math.exp(-Math.pow(30.666 / u, 0.7528));
   const zAir = (ETA0 / (2 * Math.PI)) * Math.log(fu / u + Math.sqrt(1 + (2 / u) ** 2));
   const a = 1 + Math.log((u ** 4 + (u / 52) ** 2) / (u ** 4 + 0.432)) / 49 + Math.log(1 + (u / 18.1) ** 3) / 18.7;

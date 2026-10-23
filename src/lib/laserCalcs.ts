@@ -13,6 +13,7 @@ import { formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
 import { C_LIGHT } from "./optics";
+import { refuseNonFinite } from "./finiteResult";
 import {
   coherence,
   fabryPerot,
@@ -109,7 +110,7 @@ function finish(lines: EngLine[], conversions: string[], extra: AnalyzeBlock[], 
   if (conversions.length) lines.push("Units read: " + conversions.join("; ") + ".");
   lines.push(UNIT_NOTE);
   const clean = lines.map((l) => (typeof l === "string" ? trueMinus(l) : { math: l.math, fallback: trueMinus(l.fallback) }));
-  return { ...engReport(clean, extra), outputs };
+  return refuseNonFinite({ ...engReport(clean, extra), outputs });
 }
 
 const pct = (x: number, s = 4): string => `${fmtSig(x * 100, s)} %`;
@@ -150,20 +151,20 @@ const fpCalc: OptCalc = {
     if (!res.ok) return refuse(res.error);
     const lines: EngLine[] = [];
     lines.push(`Cavity: L = ${trimSig(L)} m, n = ${trimSig(n)}, R₁ = ${trimSig(R1)}, R₂ = ${trimSig(R2)} (R = √(R₁R₂) = ${trimSig(res.R)}).`);
-    lines.push({ math: "Δν_FSR = c/(2 n L)", fallback: "Δν_FSR = c/(2nL)" });
+    lines.push({ math: "Δν_FSR = c/(2 n L)", fallback: "Δν(FSR) = c/(2nL)" });
     lines.push({ math: "F = (π sqrt(R))/(1 - R)", fallback: "F = π√R/(1 − R)" });
     lines.push({ math: "R = sqrt(R_1 R_2)", fallback: "R = √(R₁R₂)" });
-    lines.push({ math: "Δν = Δν_FSR/F", fallback: "Δν = Δν_FSR/F (FWHM of each transmission peak)" });
-    lines.push({ math: "1/τ_c = (-ln(R_1 R_2))/t_RT", fallback: "1/τ_c = −ln(R₁R₂)/t_RT, with t_RT = 1/Δν_FSR the round-trip time" });
+    lines.push({ math: "Δν = Δν_FSR/F", fallback: "Δν = Δν(FSR)/F (FWHM of each transmission peak)" });
+    lines.push({ math: "1/τ_p = (-ln(R_1 R_2))/t_RT", fallback: "1/τₚ = −ln(R₁R₂)/t(RT), with t(RT) = 1/Δν(FSR) the round-trip time" });
     lines.push({ math: "T = ((1 - R_1)(1 - R_2))/((1 - sqrt(R_1 R_2))^2 + 4 sqrt(R_1 R_2) sin^2 φ)", fallback: "T = (1 − R₁)(1 − R₂)/((1 − √(R₁R₂))² + 4√(R₁R₂)·sin²φ) (Airy transmission)" });
-    lines.push({ math: "φ = (π ν)/Δν_FSR", fallback: "φ = πν/Δν_FSR, ν measured from a resonance" });
+    lines.push({ math: "φ = (π ν)/Δν_FSR", fallback: "φ = πν/Δν(FSR), ν measured from a resonance" });
     lines.push(`Free spectral range ${pre(res.fsr, "Hz")}; round trip ${pre(res.tRT, "s")}.`);
     lines.push(`Finesse ${n6(res.finesse)}; transmission linewidth (FWHM) ${pre(res.linewidth, "Hz")}.`);
     if (res.finesseExact !== null) {
       const d = res.finesse / res.finesseExact - 1;
-      lines.push(`Exact Airy finesse ${n6(res.finesseExact)}${Math.abs(d) > 0.01 ? `: the π√R/(1 − R) form is ${pct(Math.abs(d), 2)} ${d > 0 ? "high" : "low"} at this reflectivity, so use the exact value and the exact FWHM FSR/F_Airy = ${pre(res.fsr / res.finesseExact, "Hz")} (the width drawn in the resonance figure)` :" (the π√R/(1 − R) form agrees to better than 1 %)"}.`);
+      lines.push(`Exact Airy finesse ${n6(res.finesseExact)}${Math.abs(d) > 0.01 ? `: the π√R/(1 − R) form is ${pct(Math.abs(d), 2)} ${d > 0 ? "high" : "low"} at this reflectivity, so use the exact value and the exact FWHM FSR/F(Airy) = ${pre(res.fsr / res.finesseExact, "Hz")} (the width drawn in the resonance figure)` :" (the π√R/(1 − R) form agrees to better than 1 %)"}.`);
     } else lines.push("R₁R₂ is at or below 0.0294: the Airy peaks overlap so much that they have no half maximum. The finesse and linewidth above are the low-reflectivity extrapolation of π√R/(1 − R) and do not describe a resolvable peak.");
-    lines.push(`Photon lifetime τ_c = ${pre(res.tauC, "s")} (mirror loss only; the decaying mode's Lorentzian linewidth 1/(2πτ_c) = ${pre(res.dnuC, "Hz")}, Lorentzian finesse ${n6(res.finesseLorentz)}).`);
+    lines.push(`Photon lifetime τₚ = ${pre(res.tauC, "s")} (mirror loss only; the decaying mode's Lorentzian linewidth 1/(2πτₚ) = ${pre(res.dnuC, "Hz")}, Lorentzian finesse ${n6(res.finesseLorentz)}).`);
     if (res.Q !== null && res.nu !== null) lines.push(`At λ = ${trimSig((lamNm as number))} nm (ν = ${pre(res.nu, "Hz")}): Q = ν/Δν = ${n6(res.Q)}.`);
     lines.push(`Peak transmission ${n6(res.peakT)}${res.peakT < 0.999999 ? " (unequal mirrors: a lossless etalon transmits fully only when R₁ = R₂)" : ""}.`);
     lines.push("Model: plane-parallel lossless mirrors and a plane wave at normal incidence; n is the group index when the medium is dispersive (it sets the FSR). The photon lifetime counts mirror loss only.");
@@ -173,7 +174,7 @@ const fpCalc: OptCalc = {
       ["Finesse F = π√R/(1 − R)", n6(res.finesse)],
       ["Exact Airy finesse", res.finesseExact === null ? "no half maximum" : n6(res.finesseExact)],
       ["Linewidth (FWHM) FSR/F", pre(res.linewidth, "Hz")],
-      ["Photon lifetime τ_c", pre(res.tauC, "s")],
+      ["Photon lifetime τₚ", pre(res.tauC, "s")],
       ["Q = ν/Δν", res.Q === null ? "(give λ)" : n6(res.Q)],
       ["Peak transmission", n6(res.peakT)],
     ];
@@ -247,7 +248,7 @@ const thresholdCalc: OptCalc = {
     lines.push({ math: "P_out = η_s (P_p - P_th)", fallback: "Pₒᵤₜ = ηₛ(Pₚ − Pₜₕ) above threshold, 0 below it" });
     lines.push(`Mirror loss αₘ = ${n6(res.alphaM)} m⁻¹ (${n6(res.alphaM / 100)} cm⁻¹); threshold gain gₜₕ = ${n6(res.gth)} m⁻¹ (${n6(res.gth / 100)} cm⁻¹).`);
     lines.push(`Slope efficiency ηₛ = ${n6(res.etaS)} (${pct(res.etaS)}): ηᵢ = ${trimSig(etaI)} × extraction αₘ/(αₘ + αᵢ) = ${n6(res.extraction)} × quantum-defect factor λₚ/λ = ${n6(res.quantum)}.`);
-    lines.push("ηₛ counts the light leaving through BOTH mirrors (α_m is their combined loss); how it divides between them is not computed here, so the output coupler alone delivers less.");
+    lines.push("ηₛ counts the light leaving through BOTH mirrors (αₘ is their combined loss); how it divides between them is not computed here, so the output coupler alone delivers less.");
     lines.push(`Photon lifetime n/(c(αᵢ + αₘ)) = ${pre(res.tauP, "s")}.`);
     if (res.Pout !== null && Pp !== null) {
       lines.push(Pp > Pth
@@ -303,7 +304,7 @@ const coherenceCalc: OptCalc = {
     { key: "shape", label: "Line shape", default: "lorentzian", kind: "select", options: SHAPES },
     { key: "dnu", label: "Linewidth, FWHM (Hz; or a wavelength such as 0.01 nm)", default: "1 MHz", kind: "text" },
     { key: "lam", label: "Centre wavelength λ (nm; for a wavelength linewidth and Schawlow–Townes)", default: "1064 nm", kind: "text" },
-    { key: "dnuc", label: "Passive cavity linewidth Δν_c, FWHM (Hz; blank to skip Schawlow–Townes)", default: "", kind: "text" },
+    { key: "dnuc", label: "Passive cavity linewidth Δν(c), FWHM (Hz; blank to skip Schawlow–Townes)", default: "", kind: "text" },
     { key: "pout", label: "Laser output power (W; for Schawlow–Townes)", default: "1 mW", kind: "text" },
   ],
   compute: (r) => {
@@ -335,11 +336,11 @@ const coherenceCalc: OptCalc = {
     const name = shape === "lorentzian" ? "Lorentzian" : "Gaussian";
     if (shape === "lorentzian") {
       lines.push({ math: "abs(γ(τ)) = e^(-π Δν abs(τ))", fallback: "|γ(τ)| = exp(−πΔν|τ|), the degree of coherence of a Lorentzian line" });
-      lines.push({ math: "τ_coh = 1/(π Δν)", fallback: "τ_coh = 1/(πΔν) (|γ| = 1/e)" });
-      lines.push({ math: "L_coh = c τ_coh", fallback: "L_coh = cτ_coh" });
+      lines.push({ math: "τ_coh = 1/(π Δν)", fallback: "τ(coh) = 1/(πΔν) (|γ| = 1/e)" });
+      lines.push({ math: "L_coh = c τ_coh", fallback: "L(coh) = cτ(coh)" });
     } else {
       lines.push({ math: "abs(γ(τ)) = e^(-(π Δν τ)^2/(4 ln 2))", fallback: "|γ(τ)| = exp(−(πΔντ)²/(4 ln 2)), the degree of coherence of a Gaussian line" });
-      lines.push({ math: "L_coh = (2 ln 2)/π c/Δν = (2 ln 2)/π λ^2/Δλ", fallback: "L_coh = (2 ln 2/π)·c/Δν = (2 ln 2/π)·λ²/Δλ (|γ| = 1/2)" });
+      lines.push({ math: "L_coh = (2 ln 2)/π c/Δν = (2 ln 2)/π λ^2/Δλ", fallback: "L(coh) = (2 ln 2/π)·c/Δν = (2 ln 2/π)·λ²/Δλ (|γ| = 1/2)" });
     }
     lines.push(`${name} line, FWHM ${pre(dnu, "Hz")}: coherence time ${pre(res.tauCoh, "s")}, coherence length ${pre(res.Lcoh, "m")} (quoted at |γ| = ${res.convention}${shape === "lorentzian" ? ", the decay constant of the field correlation" : ", where fringe visibility falls to 50 %"}).`);
     lines.push(`The other convention for the same line: |γ| = ${shape === "lorentzian" ? "1/2" : "1/e"} at ${pre(shape === "lorentzian" ? res.LHalf : res.L1e, "m")}. A Lorentzian and a Gaussian of the same FWHM quoted at the same level differ by ${shape === "lorentzian" ? "a factor 2√(ln 2) = 1.665 at 1/e" : "a factor 2 at 1/2"}, so say which shape and level a coherence length uses.`);
@@ -365,9 +366,9 @@ const coherenceCalc: OptCalc = {
       if (lamNm === null) return refuse("Schawlow–Townes needs the laser wavelength (its photon energy hν).");
       const st = schawlowTownes(lamNm * 1e-9, dnuC, Pout as number);
       if (typeof st !== "number") return refuse(st.error);
-      lines.push({ math: "Δν_ST = (2 π h ν (Δν_c)^2)/P_out", fallback: "Δν_ST = 2πhν(Δν_c)²/Pₒᵤₜ (FWHM)" });
-      lines.push(`Schawlow–Townes limit: Δν_c = ${pre(dnuC, "Hz")}, Pₒᵤₜ = ${pre(Pout as number, "W")}, ν = ${pre(C_LIGHT / (lamNm * 1e-9), "Hz")}: Δν_ST = ${pre(st, "Hz")} (FWHM, Lorentzian), a coherence length c/(πΔν_ST) = ${pre(C_LIGHT / (Math.PI * st), "m")}.`);
-      lines.push("Schawlow–Townes is the quantum (spontaneous-emission) limit of an ideal laser well above threshold with no intrinsic cavity loss; real lines are wider (technical noise, vibration, and in semiconductor lasers the Henry α-factor, none of which is included). Δν_c is the passive cavity's Lorentzian FWHM: the Fabry–Pérot tool's 1/(2πτ_c).");
+      lines.push({ math: "Δν_ST = (2 π h ν (Δν_c)^2)/P_out", fallback: "Δν(ST) = 2πhν(Δν(c))²/Pₒᵤₜ (FWHM)" });
+      lines.push(`Schawlow–Townes limit: Δν(c) = ${pre(dnuC, "Hz")}, Pₒᵤₜ = ${pre(Pout as number, "W")}, ν = ${pre(C_LIGHT / (lamNm * 1e-9), "Hz")}: Δν(ST) = ${pre(st, "Hz")} (FWHM, Lorentzian), a coherence length c/(πΔν(ST)) = ${pre(C_LIGHT / (Math.PI * st), "m")}.`);
+      lines.push("Schawlow–Townes is the quantum (spontaneous-emission) limit of an ideal laser well above threshold with no intrinsic cavity loss; real lines are wider (technical noise, vibration, and in semiconductor lasers the Henry α-factor, none of which is included). Δν(c) is the passive cavity's Lorentzian FWHM: the Fabry–Pérot tool's 1/(2πτₚ).");
       rows.push(["Schawlow–Townes (1/e)", pre(1 / (Math.PI * st), "s"), pre(C_LIGHT / (Math.PI * st), "m")]);
       outputs.push({ key: "dnuST", label: "Schawlow–Townes linewidth", value: st, unit: "Hz" });
     }
@@ -395,16 +396,16 @@ const shgCalc: OptCalc = {
   unitContract: "converts",
   hint:
     "The fundamental wavelength and the crystal's refractive indices at ω and 2ω (your values: dispersion data are not built " +
-    "in) give Δk = (4π/λ)(n₂ω − n_ω), the coherence length π/Δk and the first-order QPM period 2π/Δk. With a crystal length " +
-    "the sinc² phase-matching factor; with d_eff and the fundamental intensity, the plane-wave low-conversion efficiency.",
+    "in) give Δk = (4π/λ)(n(2ω) − n(ω)), the coherence length π/Δk and the first-order QPM period 2π/Δk. With a crystal length " +
+    "the sinc² phase-matching factor; with d(eff) and the fundamental intensity, the plane-wave low-conversion efficiency.",
   fields: [
     { key: "lam", label: "Fundamental wavelength λ (nm)", default: "1064 nm", kind: "text" },
-    { key: "nw", label: "Refractive index at the fundamental, n_ω", default: "2.1560", kind: "text" },
-    { key: "n2w", label: "Refractive index at the second harmonic, n₂ω", default: "2.2340", kind: "text" },
+    { key: "nw", label: "Refractive index at the fundamental, n(ω)", default: "2.1560", kind: "text" },
+    { key: "n2w", label: "Refractive index at the second harmonic, n(2ω)", default: "2.2340", kind: "text" },
     { key: "mode", label: "Phase matching", default: "qpm", kind: "select", options: PM_OPTIONS },
     { key: "per", label: "QPM period Λ (µm; blank = the computed period)", default: "", kind: "text" },
     { key: "L", label: "Crystal length L (mm; blank for none)", default: "10 mm", kind: "text" },
-    { key: "deff", label: "d_eff (pm/V; blank to skip the efficiency)", default: "", kind: "text" },
+    { key: "deff", label: "d(eff) (pm/V; blank to skip the efficiency)", default: "", kind: "text" },
     { key: "I", label: "Fundamental intensity (W/m²; MW/cm² converts)", default: "", kind: "text" },
   ],
   compute: (r) => {
@@ -413,34 +414,34 @@ const shgCalc: OptCalc = {
     const lamNm = u.req("lam", "nm", "nm", "Fundamental wavelength");
     const perUm = mode === "qpm" ? u.opt("per", "um", "µm", "QPM period") : null;
     const Lmm = u.opt("L", "mm", "mm", "Crystal length");
-    const deffPm = u.opt("deff", "pm/V", "pm/V", "d_eff");
+    const deffPm = u.opt("deff", "pm/V", "pm/V", "d(eff)");
     const I = u.opt("I", "W/m^2", "W/m²", "Fundamental intensity");
     if (u.errors.length) return refuse(u.errors.join("\n"));
     const nW = plain(r("nw"));
     const n2W = plain(r("n2w"));
-    if (!Number.isFinite(nW)) return refuse(`n_ω: "${(r("nw") ?? "").trim()}" is not a number.`);
-    if (!Number.isFinite(n2W)) return refuse(`n₂ω: "${(r("n2w") ?? "").trim()}" is not a number.`);
+    if (!Number.isFinite(nW)) return refuse(`n(ω): "${(r("nw") ?? "").trim()}" is not a number.`);
+    if (!Number.isFinite(n2W)) return refuse(`n(2ω): "${(r("n2w") ?? "").trim()}" is not a number.`);
     if ((deffPm !== null || I !== null) && (deffPm === null || I === null || Lmm === null))
-      return refuse("The efficiency needs all three of d_eff, the fundamental intensity and the crystal length (or clear d_eff and the intensity).");
+      return refuse("The efficiency needs all three of d(eff), the fundamental intensity and the crystal length (or clear d(eff) and the intensity).");
     const res = shg({ lambda: lamNm * 1e-9, nW, n2W, L: Lmm === null ? null : Lmm / 1000, mode, period: perUm === null ? null : perUm * 1e-6, deff: deffPm === null ? null : deffPm * 1e-12, I });
     if (!res.ok) return refuse(res.error);
     const lines: EngLine[] = [];
     const adk = Math.abs(res.dk);
-    lines.push(`Fundamental λ = ${trimSig(lamNm)} nm, n_ω = ${trimSig(nW)}, n₂ω = ${trimSig(n2W)}.`);
-    lines.push({ math: "Δk = k_2ω - 2 k_ω = (4 π)/λ (n_2ω - n_ω)", fallback: "Δk = k₂ω − 2k_ω = (4π/λ)(n₂ω − n_ω)" });
-    lines.push({ math: "l_c = π/Δk", fallback: "ℓ_c = π/Δk (coherence length)" });
-    lines.push({ math: "Λ = (2 π)/Δk = 2 l_c", fallback: "Λ = 2π/Δk = 2ℓ_c (first-order QPM period)" });
-    if (adk === 0) lines.push("n₂ω = n_ω: Δk = 0, the interaction is phase-matched as it stands; the coherence length is unbounded and no QPM grating is needed.");
+    lines.push(`Fundamental λ = ${trimSig(lamNm)} nm, n(ω) = ${trimSig(nW)}, n(2ω) = ${trimSig(n2W)}.`);
+    lines.push({ math: "Δk = k_2ω - 2 k_ω = (4 π)/λ (n_2ω - n_ω)", fallback: "Δk = k(2ω) − 2k(ω) = (4π/λ)(n(2ω) − n(ω))" });
+    lines.push({ math: "l_c = π/Δk", fallback: "ℓ(c) = π/Δk (coherence length)" });
+    lines.push({ math: "Λ = (2 π)/Δk = 2 l_c", fallback: "Λ = 2π/Δk = 2ℓ(c) (first-order QPM period)" });
+    if (adk === 0) lines.push("n(2ω) = n(ω): Δk = 0, the interaction is phase-matched as it stands; the coherence length is unbounded and no QPM grating is needed.");
     else {
-      lines.push(`Phase mismatch Δk = ${n6(res.dk)} m⁻¹ (${n6(res.dk / 100)} cm⁻¹)${res.dk < 0 ? "; negative because n₂ω < n_ω (magnitudes are used below)" : ""}.`);
-      lines.push(`Coherence length ℓ_c = π/|Δk| = ${pre(res.lc as number, "m")}; first-order QPM period Λ = 2π/|Δk| = ${pre(res.period as number, "m")} (m-th order: m·Λ, with d_eff reduced by 1/m).`);
+      lines.push(`Phase mismatch Δk = ${n6(res.dk)} m⁻¹ (${n6(res.dk / 100)} cm⁻¹)${res.dk < 0 ? "; negative because n(2ω) < n(ω) (magnitudes are used below)" : ""}.`);
+      lines.push(`Coherence length ℓ(c) = π/|Δk| = ${pre(res.lc as number, "m")}; first-order QPM period Λ = 2π/|Δk| = ${pre(res.period as number, "m")} (m-th order: m·Λ, with d(eff) reduced by 1/m).`);
     }
     const outputs: EngOutput[] = [{ key: "dk", label: "Phase mismatch Δk", value: res.dk, unit: "m⁻¹" }];
     if (res.lc !== null && res.period !== null) outputs.push({ key: "lc", label: "Coherence length", value: res.lc, unit: "m" }, { key: "period", label: "First-order QPM period", value: res.period, unit: "m" });
     const rows: string[][] = [["Quantity", "Value"], ["Δk (m⁻¹)", n6(res.dk)], ["Coherence length π/|Δk|", res.lc === null ? "unbounded (Δk = 0)" : pre(res.lc, "m")], ["QPM period 2π/|Δk|", res.period === null ? "none needed" : pre(res.period, "m")]];
     if (mode === "qpm" && res.periodUsed !== null) {
-      lines.push(`QPM with Λ = ${pre(res.periodUsed, "m")}: residual mismatch |Δk| − 2π/Λ = ${n6(res.dkRes)} m⁻¹; the driving coefficient is the first Fourier component of the 50 % duty-cycle grating, d_Q = (2/π)·d_eff.`);
-      lines.push({ math: "d_Q = 2/π d_eff", fallback: "d_Q = (2/π)·d_eff (first order, 50 % duty cycle)" });
+      lines.push(`QPM with Λ = ${pre(res.periodUsed, "m")}: residual mismatch |Δk| − 2π/Λ = ${n6(res.dkRes)} m⁻¹; the driving coefficient is the first Fourier component of the 50 % duty-cycle grating, d(Q) = (2/π)·d(eff).`);
+      lines.push({ math: "d_Q = 2/π d_eff", fallback: "d(Q) = (2/π)·d(eff) (first order, 50 % duty cycle)" });
     } else if (mode === "perfect") lines.push("Phase matching taken as perfect (Δk = 0): the crystal is assumed birefringently matched, or ideally matched.");
     if (Lmm !== null && res.sinc2 !== null && res.dkFwhm !== null) {
       lines.push({ math: "η ∝ (sin(Δk L/2)/(Δk L/2))^2", fallback: "η ∝ sinc²(ΔkL/2), sinc x = sin x/x" });
@@ -450,17 +451,17 @@ const shgCalc: OptCalc = {
       outputs.push({ key: "sinc2", label: "Phase-matching factor sinc²", value: res.sinc2, unit: "" }, { key: "dkFwhm", label: "Acceptance FWHM in Δk", value: res.dkFwhm, unit: "m⁻¹" });
     }
     if (res.eta !== null && deffPm !== null && I !== null && Lmm !== null) {
-      lines.push({ math: "η = I_2ω/I_ω = (2 ω^2 d^2 L^2)/(n_2ω n_ω^2 c^3 ε_0) I_ω (sin(Δk L/2)/(Δk L/2))^2", fallback: "η = I₂ω/I_ω = 2ω²d²L²I_ω/(n₂ω n_ω² c³ ε₀)·sinc²(ΔkL/2), ω the fundamental angular frequency" });
+      lines.push({ math: "η = I_2ω/I_ω = (2 ω^2 d^2 L^2)/(n_2ω n_ω^2 c^3 ε_0) I_ω (sin(Δk L/2)/(Δk L/2))^2", fallback: "η = I(2ω)/I(ω) = 2ω²d²L²I(ω)/(n(2ω) n(ω)² c³ ε₀)·sinc²(ΔkL/2), ω the fundamental angular frequency" });
       if (res.eta > 0.1)
         lines.push(`Efficiency NOT reported: the low-conversion formula gives ${fmtSig(res.eta * 100, 3)} %, above 10 %, where the undepleted-pump assumption fails (the formula would overstate it and can pass 100 %). Lower the intensity or the length, or use a pump-depletion (tanh²) model.`);
       else {
-        lines.push(`Low-conversion efficiency η = ${n6(res.eta)} (${pct(res.eta, 4)}) with d = ${trimSig(deffPm)} pm/V${mode === "qpm" ? ` × 2/π = ${n6(deffPm * 2 / Math.PI)} pm/V` : ""}, I_ω = ${trimSig(I)} W/m², L = ${trimSig(Lmm)} mm.`);
-        rows.push(["Efficiency I₂ω/I_ω", n6(res.eta)]);
+        lines.push(`Low-conversion efficiency η = ${n6(res.eta)} (${pct(res.eta, 4)}) with d = ${trimSig(deffPm)} pm/V${mode === "qpm" ? ` × 2/π = ${n6(deffPm * 2 / Math.PI)} pm/V` : ""}, I(ω) = ${trimSig(I)} W/m², L = ${trimSig(Lmm)} mm.`);
+        rows.push(["Efficiency I(2ω)/I(ω)", n6(res.eta)]);
         outputs.push({ key: "eta", label: "SHG efficiency (low conversion)", value: res.eta, unit: "" });
       }
       lines.push("The efficiency is the plane-wave, undepleted-pump, continuous-wave result with no absorption or walk-off; a focused Gaussian beam (Boyd–Kleinman focusing) is not computed.");
     }
-    lines.push("Refractive indices are your inputs (no Sellmeier data is built in); d_eff is the effective coefficient for your crystal cut and polarisations.");
+    lines.push("Refractive indices are your inputs (no Sellmeier data is built in); d(eff) is the effective coefficient for your crystal cut and polarisations.");
     const extra: AnalyzeBlock[] = [table("Second-harmonic phase matching", rows)];
     if (adk > 0 && res.lc !== null) extra.push(plot(shgGrowthChartSvg(adk, res.lc), `Second-harmonic growth along the crystal, in units of the phase-matched intensity at one coherence length (${pre(res.lc, "m")})`, "Second-harmonic intensity against distance into the crystal over six coherence lengths: quadratic growth when phase-matched, steady growth under first-order quasi-phase-matching, and oscillation when not phase-matched"));
     if (Lmm !== null || adk === 0) extra.push(plot(shgSincChartSvg(res.dkRes, Lmm === null ? 1 : Lmm / 1000), "Phase-matching curve sinc²(ΔkL/2)", "Relative second-harmonic efficiency sinc squared against the phase mismatch times half the crystal length, with the half-maximum width and this crystal marked"));

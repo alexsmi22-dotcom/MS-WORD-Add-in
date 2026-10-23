@@ -14,6 +14,7 @@ import type { AnalyzeBlock, AnalyzeOutput, EngOutput } from "./analyzeBlocks";
 import { parseMeasured } from "./units";
 import { fmtSig, MINUS, superscript } from "./axis";
 import { trueMinus } from "./numberList";
+import { refuseNonFinite } from "./finiteResult";
 import { buildPlotSvg, type Series } from "./plot";
 import { rowLabeller, titleWithMultiplier } from "./flippedAxis";
 import { hBarSvg, mohrCircleSvg } from "./mechchart";
@@ -49,7 +50,7 @@ function report(lines: EngLine[], blocks: AnalyzeBlock[], outputs: EngOutput[]):
     b.kind === "table" ? { ...b, rows: b.rows.map((row) => row.map((c) => trueMinus(plainDashes(c)))) } : b,
   );
   const out = engReport(lines.map((l) => (typeof l === "string" ? trueMinus(l) : l)), cleanBlocks);
-  return { ...out, outputs };
+  return refuseNonFinite({ ...out, outputs });
 }
 
 /** The w/h an SVG declares (buildPlotSvg grows the canvas for legends and notes). */

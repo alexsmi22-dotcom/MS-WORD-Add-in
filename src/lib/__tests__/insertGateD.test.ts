@@ -86,6 +86,15 @@ const TABLE: Array<[string, boolean]> = [
   ["μ = undefinedµM", true],
   ["a\n  undefined", true],
   ['"NaN₃": x = NaN', true],
+  // fix round eng-9: the formatters' "not finite" (engNum, gasDynamicsCalcs num, ...) is a broken number anywhere
+  ["x = not finite", true],
+  ["  Range at that angle not finite m", true],
+  ["the range is not finite m", true],
+  ["Not finite", true],
+  ["p₂ = not finite kPa", true],
+  ['rejected "not finite" as a width', false],
+  ["finite element mesh, not infinite", false],
+  ["a cannot-finitely-many case", false],
 ];
 
 describe("one broken-number rule: the lib helper and both QC drivers agree", () => {

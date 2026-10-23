@@ -1397,6 +1397,34 @@ const acWaveNote = (elements: Element[]): string =>
   `${waveNames(elements)}: as in SPICE, a waveform source has no AC amplitude, so it is 0 here (a voltage ` +
   "source is a short, a current source an open). Only the plain-valued sources drive this analysis.";
 
+/**
+ * The work of one AC solve, in units of (unknowns)³: the nodes, plus the rows that
+ * controlled voltage sources and coupled inductors append, times 3 when a k = 1
+ * coupling needs its singularity test. `appended` is false for a netlist with none of
+ * the Release E elements, whose cost is then nodes³ exactly as it always was.
+ */
+function acCost(elements: Element[], nodes: number): { size: number; perSolve: number; appended: boolean } {
+  const coupled = new Set<string>();
+  for (const e of elements) if (e.kind === "K") for (const l of [e.l1, e.l2]) coupled.add(l as string);
+  const extra = elements.filter(isControlledVoltage).length + coupled.size;
+  const perPoint = elements.some((e) => e.kind === "K" && e.value === 1) ? 3 : 1;
+  const size = nodes + extra;
+  return { size, perSolve: perPoint * size ** 3, appended: extra > 0 || perPoint > 1 };
+}
+
+/**
+ * Work ceilings for netlists with appended unknowns, from the measured cost of the
+ * existing path (a 120-node complex solve is about 10 ms): one solve at most 15 such
+ * (about 150 ms), a whole sweep at most twice the existing worst case of 12 points at
+ * 120 nodes (about 250 ms). A netlist without the new elements is never refused here.
+ */
+const AC_SOLVE_CEILING = 15 * 120 ** 3;
+const AC_SWEEP_CEILING = 2 * 12 * 120 ** 3;
+const acTooBig = (size: number, what: string): string =>
+  `This circuit has ${size} AC unknowns (node voltages plus the branch currents of its controlled voltage sources ` +
+  `and coupled inductors), so ${what} would keep Word busy too long. Split the circuit, or model fewer elements ` +
+  "with controlled sources or couplings.";
+
 /** Admittance of one element at angular frequency w. Sources contribute none. */
 function admittance(e: Element, w: number): Cx | null {
   if (e.kind === "R") return cx(1 / e.value, 0);
@@ -1516,6 +1544,8 @@ export function solveAc(elements: Element[], frequency: number): AcResult | Fail
   if (!elements.some((e) => (e.kind === "V" || e.kind === "I") && !e.wave))
     return { ok: false, error: AC_NO_DRIVE };
 
+  const cost = acCost(elements, nodes.length);
+  if (cost.appended && cost.perSolve > AC_SOLVE_CEILING) return { ok: false, error: acTooBig(cost.size, "one solve") };
   const w = 2 * Math.PI * frequency;
   const { A, b } = buildAc(elements, nodes, w);
   // k = 1 EXACTLY can leave the matrix singular in exact arithmetic while rounding in
@@ -1583,10 +1613,14 @@ export function frequencySweep(
   // range, so the shape of the response is preserved rather than truncated.
   const requested = Math.max(2, Math.min(Math.floor(points) || 120, MAX_SWEEP_POINTS));
   const SWEEP_BUDGET = 120 * 30 * 30 * 30; // 120 points at 30 nodes, the reference cost
-  // A k = 1 coupling costs each point two more factorizations (the singularity test).
-  const perPoint = elements.some((e) => e.kind === "K" && e.value === 1) ? 3 : 1;
-  const affordable = Math.max(12, Math.floor(SWEEP_BUDGET / Math.max(1, perPoint * nodes.length ** 3)));
+  // The appended unknowns (E/H branch rows, coupled-inductor rows) count in the cost,
+  // and a k = 1 coupling costs each point two more factorizations; a netlist without
+  // them costs nodes³ exactly as before.
+  const cost = acCost(elements, nodes.length);
+  const affordable = Math.max(12, Math.floor(SWEEP_BUDGET / Math.max(1, cost.perSolve)));
   const n = Math.min(requested, Math.max(12, affordable));
+  if (cost.appended && n * cost.perSolve > AC_SWEEP_CEILING)
+    return { ok: false, error: acTooBig(cost.size, "a sweep of even 12 points") };
   const thinned = n < requested;
   const out: SweepPoint[] = [];
   const logMin = Math.log10(fMin);

@@ -201,7 +201,8 @@ describe("fixed case table (brief E3-a)", () => {
       [9.85e-3, -1.3897272692389018],
     ];
     for (const [t, want] of ref) expect(Math.abs(traceAt(r.times, v, t) - want) / phasor.magnitude).toBeLessThan(0.005);
-    expect(r.notes).toContain(COUPLING_NOTE);
+    const kNote = r.notes.find((x) => x.startsWith(COUPLING_NOTE));
+    expect(kNote).toMatch(/leakage mode with a time constant of about L\(1 − k²\)\/R/);
   });
 
   test("5 CCVS against a hand-solved circuit: H1 = 500 Ω × I(Vs)", () => {
@@ -233,6 +234,57 @@ describe("fixed case table (brief E3-a)", () => {
     expect(node(ac(text, 50).nodes, "3").re).toBeCloseTo(50, 10);
     const t = tran(text, { stop: 1e-3 });
     for (const x of probe(t, "3")) expect(Math.abs(x - 50)).toBeLessThan(1e-10);
+  });
+});
+
+describe("two-node hand-solved CCVS and CCCS (the brief's form), sensing the driving source itself", () => {
+  // V1 10 V across R1 1 kΩ delivers 10 mA, so I(V1) = −10 mA: SPICE's I(V) runs from the +
+  // node THROUGH the source to the − node, which for a source delivering power is negative.
+  test("CCVS: H1 2 0 V1 500 → V(2) = 500 Ω × (−10 mA) = −5 V (numpy MNA −5.0)", () => {
+    const text = ["V1 1 0 10", "R1 1 0 1k", "H1 2 0 V1 500", "R2 2 0 1k"].join("\n");
+    const r = dc(text);
+    expect(node(r.currents, "V1").exact).toEqual({ n: -1n, d: 100n });
+    expect(node(r.nodes, "2").exact).toEqual({ n: -5n, d: 1n });
+    expect(node(ac(text, 1000).nodes, "2").re).toBeCloseTo(-5, 12);
+  });
+  test("CCCS: F1 0 2 V1 50 → 50 × (−10 mA) = −0.5 A into node 2, V(2) = −50 V (numpy MNA −50.0)", () => {
+    const text = ["V1 1 0 10", "R1 1 0 1k", "F1 0 2 V1 50", "R2 2 0 100"].join("\n");
+    const r = dc(text);
+    expect(node(r.nodes, "2").exact).toEqual({ n: -50n, d: 1n });
+    expect(node(r.currents, "F1").exact).toEqual({ n: -1n, d: 2n });
+    expect(r.totalDelivered).toBeCloseTo(r.totalDissipated, 12);
+    expect(node(ac(text, 1000).nodes, "2").re).toBeCloseTo(-50, 10);
+  });
+});
+
+describe("work bounds (deterministic: point counts and named refusals, never a clock)", () => {
+  /** A resistor chain of `chain` nodes, with a VCVS copying each chain node onto its own output node. */
+  function chainWithE(chain: number, copies: number): string {
+    const lines = ["V1 n0 0 1"];
+    for (let k = 1; k <= chain; k++) lines.push(`R${k} n${k - 1} n${k} 1k`);
+    lines.push(`Rend n${chain} 0 1k`);
+    for (let k = 1; k <= copies; k++) lines.push(`E${k} x${k} 0 n${k} 0 2`);
+    return lines.join("\n");
+  }
+  test("a sweep counts the appended E rows in its cost: 40 nodes + 10 E rows thins 120 points to 25", () => {
+    const s = frequencySweep(net(chainWithE(29, 10)), "x1", 1, 1e6, 120);
+    // nodes n0–n29 and x1–x10 = 40, plus 10 E rows = 50 unknowns: ⌊120·30³ / 50³⌋ = ⌊25.92⌋ = 25
+    expect("points" in s).toBe(true);
+    if ("points" in s) expect(s.points.length).toBe(Math.floor((120 * 30 ** 3) / 50 ** 3));
+  });
+  test("a sweep too large even at 12 points is refused by name; one solve of it still runs", () => {
+    const text = chainWithE(60, 59); // 61 + 59 = 120 nodes, + 59 E rows = 179 unknowns
+    const s = frequencySweep(net(text), "x1", 1, 1e6, 120);
+    expect("ok" in s && s.ok === false && s.error).toMatch(/179 AC unknowns.*a sweep of even 12 points/);
+    expect(solveAc(net(text), 1000).ok).toBe(true);
+  });
+  test("the same netlist without the E sources keeps the old thinning (nodes³ only)", () => {
+    const lines = ["V1 n0 0 1"];
+    for (let k = 1; k <= 60; k++) lines.push(`R${k} n${k - 1} n${k} 1k`);
+    lines.push("Rend n60 0 1k");
+    const s = frequencySweep(net(lines.join("\n")), "n1", 1, 1e6, 120);
+    if ("points" in s) expect(s.points.length).toBe(Math.max(12, Math.floor((120 * 30 ** 3) / 61 ** 3)));
+    else throw new Error("expected points");
   });
 });
 

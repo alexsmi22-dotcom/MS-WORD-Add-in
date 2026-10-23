@@ -976,7 +976,12 @@ export function solveTransient(elements: Element[], req: TransientRequest): Tran
       `${CONTROLLED_NOTE} The time-step checks here estimate the circuit's speed from the passive elements alone; a ` +
         "controlled source can make it faster or slower than they suggest, so confirm with a shorter step.",
     );
-  if (mutual.length) notes.push(COUPLING_NOTE);
+  if (mutual.length)
+    notes.push(
+      `${COUPLING_NOTE} The time-step checks here ignore the coupling: a coupled pair also has a leakage mode with a ` +
+        "time constant of about L(1 − k²)/R, far faster than L/R when k is near 1. The integration stays stable on " +
+        "it, but detail on that time scale is not resolved unless the step is shorter still.",
+    );
 
   let steady: number | null = 0;
   const unsteady: string[] = [];

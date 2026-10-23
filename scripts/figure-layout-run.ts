@@ -223,6 +223,9 @@ import { timoshenkoBilayer } from "../src/lib/thermalStress";
 import { GAS_DYNAMICS_CALCS } from "../src/lib/gasDynamicsCalcs";
 import { thetaBetaSvg, prandtlMeyerSvg, fannoSvg, rayleighSvg, normalShockSvg } from "../src/lib/gasDynamicsCharts";
 // --- end Release E: flow ---
+// --- Release E: vessels ---
+import { VESSELS_CALCS } from "../src/lib/vesselsCalcs";
+// --- end Release E: vessels ---
 
 const figures: [string, string][] = [];
 
@@ -3013,5 +3016,44 @@ rotator 15` }, "jones elliptical");
   figures.push(["gas dynamics normal shock, M1 40", normalShockSvg(40, 1.4).svg]);
 }
 // --- end Release E: flow ---
+
+// --- Release E: vessels ---
+// Every plot of every VESSELS_CALCS tool (thin vessel bar chart, Lamé and shrink-fit and rotating-disk stress
+// profiles, the combined-loading Mohr's circle, the Hertz pressure and subsurface-shear figures) at its shipped
+// defaults, plus the layouts that change a figure's shape: a sphere (three bars), open ends (no σz line), external
+// pressure only, a hollow shaft in a dissimilar hub (σθ jumps in both directions), a hollow disk, the neutral axis
+// governing (V given), a compressed beam-column, dissimilar Hertz bodies (two shear curves) and a ν = 0 cylinder
+// (the peak at the surface).
+{
+  const variants: Record<string, Record<string, string>[]> = {
+    "vessel-thin-wall": [{}, { shape: "sphere" }],
+    "vessel-lame": [{}, { ends: "open" }, { pi: "0", po: "50" }],
+    "vessel-shrink-fit": [{}, { a: "10", b: "25", c: "50", delta: "0.01", Es: "70", nus: "0.33" }],
+    "vessel-rotating-disk": [{}, { a: "50" }],
+    "combined-loading": [{}, { V: "40 kN" }, { P: "-10 kN", L: "1" }, { T: "0" }, { section: "rect", T: "0" }, { P: "0", M: "0", T: "0" }],
+    "hertz-contact": [{}, { geom: "sphere-sphere", R2: "20", E2: "70", nu2: "0.33" }, { geom: "cyl-flat", nu1: "0", nu2: "0.3", F: "1000" }],
+  };
+  for (const c of VESSELS_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: vessels ${c.id} did not draw: ${out.text}`);
+      svgs.forEach((s, i) => figures.push([`vessels ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+  // Mohr's circle label placement (moved outside the circle in Release E): shear-free states, where the applied
+  // points sit on the σ axis beside the σ₁ / σ₂ labels, and a nearly shear-free one.
+  const mohrOf = (sx: number, sy: number, txy: number): string => {
+    const c = (sx + sy) / 2;
+    const r = Math.hypot((sx - sy) / 2, txy);
+    return mohrCircleSvg({ sigmaX: sx, sigmaY: sy, tauXY: txy, sigma1: c + r, sigma2: c - r, centre: c, radius: r, unit: "MPa" });
+  };
+  figures.push(["vessels mohr uniaxial 100, 0, 0", mohrOf(100, 0, 0)]);
+  figures.push(["vessels mohr biaxial 100, 60, 0", mohrOf(100, 60, 0)]);
+  figures.push(["vessels mohr small shear 100, 60, 2", mohrOf(100, 60, 2)]);
+}
+// --- end Release E: vessels ---
 
 export { figures };

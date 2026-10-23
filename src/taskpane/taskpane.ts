@@ -17163,27 +17163,34 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("fatigue-endurance")];
       lines.push("Corrected endurance limit, Marin factor method");
       lines.push("");
-      lines.push(`Uncorrected Se' = ${engNum(res.sePrime)} MPa`);
-      lines.push(`  ka surface     = ${engNum(res.ka, 4)}`);
-      lines.push(`  kb size        = ${engNum(res.kb, 4)}`);
-      lines.push(`  kc load        = ${engNum(res.kc, 4)}`);
-      lines.push(`  kd temperature = ${engNum(res.kd, 4)}`);
-      lines.push(`  ke reliability = ${engNum(res.ke, 4)}`);
-      lines.push("");
-      lines.push(`Corrected Se = ${engNum(res.se)} MPa`);
+      // Release E: the Marin factors as a quantity / value / unit table.
+      lines.push(
+        kvTable([
+          ["Uncorrected Se'", engNum(res.sePrime), "MPa"],
+          ["ka surface", engNum(res.ka, 4), ""],
+          ["kb size", engNum(res.kb, 4), ""],
+          ["kc load", engNum(res.kc, 4), ""],
+          ["kd temperature", engNum(res.kd, 4), ""],
+          ["ke reliability", engNum(res.ke, 4), ""],
+          ["Corrected Se", engNum(res.se), "MPa"],
+        ]),
+      );
       lines.push(`  a reduction of ${engNum((1 - res.se / res.sePrime) * 100)}% from the uncorrected value`);
 
       const ktRaw = r("kt").trim();
+      let kfOut = NaN;
       if (ktRaw) {
         const nf = notchFactor(Number(ktRaw), Number(r("q") || "1"));
         if (!nf.ok) {
           lines.push("");
           lines.push(nf.error);
         } else {
+          kfOut = nf.kf;
           lines.push("");
+          lines.push(...engEq("fatigue-endurance:notch"));
           lines.push("Stress concentration");
           lines.push(`  Kt = ${engNum(nf.kt)}, q = ${engNum(nf.q)} → Kf = 1 + q(Kt-1) = ${engNum(nf.kf)}`);
           lines.push(`  Multiply the alternating stress by Kf before the fatigue check.`);
@@ -17198,6 +17205,11 @@ const ENG_CALCS: EngCalc[] = [
       // surface finish doing the damage. A steel gets its knee at 10^6 and
       // runs flat; a non-ferrous alloy has no knee to draw, so its line keeps
       // falling to 5x10^8, which is the honest picture.
+      const endOutputs: EngOutput[] = [
+        { key: "Se", label: "Corrected endurance limit Se", value: res.se, unit: "MPa" },
+        { key: "SePrime", label: "Uncorrected endurance limit Se'", value: res.sePrime, unit: "MPa" },
+        { key: "Kf", label: "Fatigue notch factor Kf", value: kfOut, unit: "" },
+      ];
       const snSketch = (limit: number): Point[] => {
         const s1000 = 0.9 * sutV;
         if (!(limit > 0) || !(s1000 > limit) || !Number.isFinite(limit)) return [];
@@ -17234,7 +17246,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Estimated S-N curve",
           },
         );
-        return engReport(lines, [
+        return withOutputs(endOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -17243,9 +17255,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(endOutputs, engReport(lines));
     },
   },
   {
@@ -17389,7 +17401,13 @@ const ENG_CALCS: EngCalc[] = [
       );
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const critEq: Record<string, EngReportLine[]> = {
+        goodman: engEq("fatigue-safety:goodman"),
+        soderberg: engEq("fatigue-safety:soderberg"),
+        gerber: engEq("fatigue-safety:gerber"),
+        "asme-elliptic": engEq("fatigue-safety:asme-elliptic"),
+      };
+      const lines: EngReportLine[] = [...(critEq[r("crit") || "goodman"] ?? []), ...engEq("fatigue-safety")];
       lines.push(`Mean-stress analysis, σa = ${engNum(saEffective)} MPa, σm = ${engNum(Number(r("sm")))} MPa`);
       lines.push(`  Se = ${engNum(seVal)} MPa`);
       if (marinNote) lines.push(`Note: ${marinNote}`);
@@ -17407,10 +17425,7 @@ const ENG_CALCS: EngCalc[] = [
       );
       lines.push(`First-cycle yield (Langer) = ${engNum(res.nYield)}`);
       lines.push("");
-      lines.push("All four criteria, for comparison");
-      for (const c of res.comparison) {
-        lines.push(`  ${c.criterion.padEnd(14)} n = ${engNum(c.n)}`);
-      }
+      lines.push({ label: "All four criteria, for comparison", table: [["Criterion", "Factor of safety n"], ...res.comparison.map((c) => [c.criterion, engNum(c.n)])] });
       lines.push(
         "  Those four are drawn below with the operating point on them. The spread between them " +
           "IS the result: a table says they differ, the diagram says by how much and in which " +
@@ -17473,7 +17488,11 @@ const ENG_CALCS: EngCalc[] = [
               },
             ]
           : [];
-      return engReport(lines, goodBlocks);
+      return withOutputs([
+        { key: "nGov", label: "Governing factor of safety", value: res.nGoverning, unit: "" },
+        { key: "nFatigue", label: "Fatigue factor of safety", value: res.nFatigue, unit: "" },
+        { key: "nYield", label: "First-cycle yield factor of safety", value: res.nYield, unit: "" },
+      ], engReport(lines, goodBlocks));
     },
   },
   {
@@ -17526,12 +17545,14 @@ const ENG_CALCS: EngCalc[] = [
       if (errors.length) return { text: errors.join("\n"), ok: false };
       if (!blocks.length) return { text: "Give at least one load block.", ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("fatigue-life"), ...(blocks.length > 1 ? engEq("fatigue-life:miner") : [])];
+      let nfOut = NaN;
 
       // A single block reads as a life question; several read as a spectrum.
       if (blocks.length === 1) {
         const life = finiteLife(blocks[0].sigmaA, se, sut, mclass);
         if (!life.ok) return { text: life.error, ok: false };
+        if (!life.infiniteLife) nfOut = life.cycles;
         lines.push(`Finite life at σa = ${engNum(blocks[0].sigmaA)} MPa`);
         lines.push("");
         lines.push(
@@ -17547,13 +17568,13 @@ const ENG_CALCS: EngCalc[] = [
       if (!dmg.ok) return { text: dmg.error, ok: false };
       if (blocks.length > 1) lines.push("Cumulative damage over the load spectrum (Palmgren-Miner)");
       lines.push("");
-      lines.push("Block   σa (MPa)   applied      allowable        damage");
-      for (const b of dmg.blocks) {
-        lines.push(
-          `        ${engNum(b.sigmaA, 4).padEnd(10)} ${engNum(b.applied, 4).padEnd(12)} ` +
-            `${(b.allowable === Infinity ? "infinite" : engNum(b.allowable, 3)).padEnd(15)} ${engNum(b.damage, 3)}`,
-        );
-      }
+      // Release E: the load blocks as a real table.
+      lines.push({
+        table: [
+          ["Block", "σa (MPa)", "Applied cycles", "Allowable cycles", "Damage"],
+          ...dmg.blocks.map((b, i) => [`${i + 1}`, engNum(b.sigmaA, 4), engNum(b.applied, 4), b.allowable === Infinity ? "infinite" : engNum(b.allowable, 3), engNum(b.damage, 3)]),
+        ],
+      });
       lines.push("");
       lines.push(`Total damage D = ${engNum(dmg.damage, 4)}  (failure nominally at D = 1)`);
       lines.push(
@@ -17568,6 +17589,11 @@ const ENG_CALCS: EngCalc[] = [
       // of the line has life in hand at that stress; a point at or past it has
       // spent this block's share on its own. Same construction as the engine:
       // 0.9·Sut at 10^3 to Se at 10^6, flat past the knee only for steel.
+      const lifeOutputs: EngOutput[] = [
+        { key: "D", label: "Total Miner damage D", value: dmg.damage, unit: "" },
+        { key: "repeats", label: "Repeats of the spectrum to failure", value: dmg.repeats, unit: "" },
+        { key: "Nf", label: "Cycles to failure (single block)", value: nfOut, unit: "" },
+      ];
       const s1000 = 0.9 * sut;
       const applied: Point[] = dmg.blocks
         .filter((b) => Number.isFinite(b.applied) && b.applied > 0 && Number.isFinite(b.sigmaA) && b.sigmaA > 0)
@@ -17577,7 +17603,7 @@ const ENG_CALCS: EngCalc[] = [
         // Same overflow guard as the endurance tool: aCoef is (0.9·Sut)²/Se
         // and Infinity here becomes NaN in every SVG coordinate.
         const aCoef = s1000 / Math.pow(1000, bExp);
-        if (!Number.isFinite(aCoef)) return { text: plainDashes(lines.join("\n")) };
+        if (!Number.isFinite(aCoef)) return withOutputs(lifeOutputs, engReport(lines));
         const endExp = mclass === "steel" ? 6 : Math.max(Math.log10(5e8), ...applied.map((p) => Math.log10(p.x)));
         let snLine: Point[] = [];
         for (let i = 0; i <= 60; i++) {
@@ -17602,7 +17628,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Load blocks against the S-N line",
           },
         );
-        return engReport(lines, [
+        return withOutputs(lifeOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -17611,9 +17637,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(lifeOutputs, engReport(lines));
     },
   },
   {

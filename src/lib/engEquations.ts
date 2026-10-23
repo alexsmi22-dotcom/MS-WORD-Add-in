@@ -167,6 +167,17 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "vib-modal": [eq("det(K - omega^2 M) = 0", "det(K − ω²M) = 0")],
   "vib-mdof-forced": [eq("(K - omega^2 M + j omega C) X = F", "(K − ω²M + jωC)·X = F")],
   "vib-mdof-forced:rayleigh": [eq("C = alpha M + beta K", "C = αM + βK")],
+  // ---- Fatigue & machine design ----
+  // The uncorrected limit is written Se0 (the math syntax has no prime).
+  "fatigue-endurance": [eq("S_e = k_a k_b k_c k_d k_e S_{e0}", "Se = ka·kb·kc·kd·ke·Se0")],
+  "fatigue-endurance:notch": [eq("K_f = 1 + (K_t - 1) q", "Kf = 1 + (Kt − 1)·q")],
+  "fatigue-safety": [eq("sigma_a + abs(sigma_m) = S_y/n_y", "σa + |σm| = Sy/ny"), eq("n = min(n_f, n_y)", "n = min(nf, ny)")],
+  "fatigue-safety:goodman": [eq("sigma_a/S_e + sigma_m/S_ut = 1/n_f", "σa/Se + σm/Sut = 1/nf")],
+  "fatigue-safety:soderberg": [eq("sigma_a/S_e + sigma_m/S_y = 1/n_f", "σa/Se + σm/Sy = 1/nf")],
+  "fatigue-safety:gerber": [eq("n_f sigma_a/S_e + (n_f sigma_m/S_ut)^2 = 1", "nf·σa/Se + (nf·σm/Sut)² = 1")],
+  "fatigue-safety:asme-elliptic": [eq("(n_f sigma_a/S_e)^2 + (n_f sigma_m/S_y)^2 = 1", "(nf·σa/Se)² + (nf·σm/Sy)² = 1")],
+  "fatigue-life": [eq("S = a N^b", "S = a·Nᵇ"), eq("a = (0.9 S_ut)^2/S_e", "a = (0.9·Sut)²/Se"), eq("b = -(1/3) log(0.9 S_ut/S_e)", "b = −(1/3)·log(0.9·Sut/Se)")],
+  "fatigue-life:miner": [eq("D = sum(i=1, k, n_i/N_i)", "D = ∑ᵢ₌₁ᵏ nᵢ/Nᵢ")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

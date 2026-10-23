@@ -12,6 +12,7 @@ import { parseMeasured } from "./units";
 import { fmtSig, MINUS } from "./axis";
 import { trueMinus } from "./numberList";
 import { compressibleFlow } from "./fluids";
+import { refuseNonFinite } from "./finiteResult";
 import {
   normalShock,
   obliqueShock,
@@ -108,7 +109,7 @@ function plot(fig: GdFigure, caption: string, alt: string): AnalyzeBlock {
 
 function finish(lines: EngLine[], extra: AnalyzeBlock[], outputs: EngOutput[]): AnalyzeOutput {
   const clean = lines.map((l) => (typeof l === "string" ? trueMinus(l) : { math: l.math, fallback: trueMinus(l.fallback) }));
-  return { ...engReport(clean, extra), outputs };
+  return refuseNonFinite({ ...engReport(clean, extra), outputs });
 }
 
 const out = (key: string, label: string, value: number, unit = ""): EngOutput => ({ key, label, value, unit });

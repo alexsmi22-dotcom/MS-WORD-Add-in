@@ -14,6 +14,7 @@ import { formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
 import { readBer } from "./linkBudgetCalcs";
+import { refuseNonFinite } from "./finiteResult";
 import {
   PRESET_GEOMETRY,
   RANGE_PRESETS,
@@ -54,7 +55,7 @@ function finish(lines: EngLine[], conversions: string[], extra: AnalyzeBlock[], 
   if (conversions.length) lines.push("Units read: " + conversions.join("; ") + ".");
   lines.push(UNIT_NOTE);
   const clean = lines.map((l) => (typeof l === "string" ? trueMinus(l.replace(/—/g, ";")) : { math: l.math, fallback: trueMinus(l.fallback) }));
-  return { ...engReport(clean, extra), outputs };
+  return refuseNonFinite({ ...engReport(clean, extra), outputs });
 }
 
 /**

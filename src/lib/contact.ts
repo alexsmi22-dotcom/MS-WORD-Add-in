@@ -17,6 +17,8 @@
 // The approach of two cylinders is NOT computed: it depends on the bodies' overall dimensions (it is logarithmic in
 // them), which the Hertz line-contact solution does not fix.
 
+import { fmtSig } from "./axis";
+
 export interface ContactError {
   ok: false;
   error: string;
@@ -195,5 +197,8 @@ export function hertzCylinder(F: number, L: number, r1: number, r2: number | nul
 }
 
 function pctOf(frac: number): string {
-  return `${String(Number((frac * 100).toPrecision(3)))} %`;
+  const v = frac * 100;
+  const a = Math.abs(v);
+  // Plain digits in 10⁻³…10⁶, ×10ⁿ outside (a refusal printed "4.02e+99 %").
+  return `${a === 0 || (a >= 1e-3 && a < 1e6) ? String(Number(v.toPrecision(3))) : fmtSig(v, 3).replace(/(\.\d*?)0+(?=×)/, "$1").replace(/\.(?=×)/, "")} %`;
 }

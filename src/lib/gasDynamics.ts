@@ -27,6 +27,10 @@ export type GdError = { ok: false; error: string };
 export const GAMMA_MAX = 5 / 3;
 /** The largest Mach number accepted: bounds every bracket and figure. */
 export const MACH_MAX = 50;
+// The smallest inlet Mach number Fanno and Rayleigh accept: 10⁻⁶. Below it 4f̄L*/D (proportional to 1/M²) leaves the
+// range where a duct's 4f̄L/D can be subtracted from it without losing every digit, and at M ≈ 10⁻¹⁶⁰ M² underflows
+// and the exit was reported "exactly choked". Rayleigh's exit search starts at the same floor.
+export const MACH_MIN_DUCT = 1e-6;
 /** Bisection iterations: 200 halvings exhaust double precision on any bracket used here. */
 const BISECT_CAP = 200;
 const DEG = 180 / Math.PI;
@@ -73,6 +77,17 @@ function checkMach(M: number, name: string, min: number, minText: string): GdErr
   if (!Number.isFinite(M)) return { ok: false, error: `${name} must be a finite number.` };
   if (M <= min) return { ok: false, error: minText };
   if (M > MACH_MAX) return { ok: false, error: `${name} = ${fv(M)} is above the limit of ${MACH_MAX} this tool accepts.` };
+  return null;
+}
+
+/** Fanno and Rayleigh: an inlet Mach number below MACH_MIN_DUCT is refused by name. */
+function checkMachFloor(M: number): GdError | null {
+  if (M < MACH_MIN_DUCT) {
+    return {
+      ok: false,
+      error: `M₁ = ${fv(M)} is below 10⁻⁶, the smallest inlet Mach number this tool accepts (the friction length and heat ratios lose every digit there; the flow is effectively incompressible).`,
+    };
+  }
   return null;
 }
 
@@ -342,7 +357,7 @@ export interface FannoResult {
 export function fanno(M1: number, fLD: number | null, g = 1.4): FannoResult | GdError {
   const eg = checkGamma(g);
   if (eg) return eg;
-  const em = checkMach(M1, "The inlet Mach number M₁", 0, `M₁ = ${fv(M1)}: the Mach number must be greater than 0.`);
+  const em = checkMach(M1, "The inlet Mach number M₁", 0, `M₁ = ${fv(M1)}: the Mach number must be greater than 0.`) ?? checkMachFloor(M1);
   if (em) return em;
   const s1 = fannoState(M1, g);
   const branch = M1 === 1 ? "sonic" : M1 < 1 ? "subsonic" : "supersonic";
@@ -350,6 +365,14 @@ export function fanno(M1: number, fLD: number | null, g = 1.4): FannoResult | Gd
   if (!Number.isFinite(fLD) || fLD < 0) return { ok: false, error: "The duct's 4f̄L/D must be zero or greater." };
   const target = s1.fLD - fLD;
   if (target < -1e-12 * Math.max(1, s1.fLD)) {
+    if (M1 === 1) {
+      return {
+        ok: false,
+        error:
+          `Choked: at M₁ = 1 the flow is already at the sonic (choking) state, so any duct friction (here 4f̄L/D = ` +
+          `${fmtSig(fLD, 4)}) chokes it: the inlet Mach number falls (the mass flow drops) until the duct just chokes.`,
+      };
+    }
     return {
       ok: false,
       error:
@@ -409,7 +432,7 @@ export interface RayleighResult {
 export function rayleigh(M1: number, T02T01: number | null, g = 1.4): RayleighResult | GdError {
   const eg = checkGamma(g);
   if (eg) return eg;
-  const em = checkMach(M1, "The inlet Mach number M₁", 0, `M₁ = ${fv(M1)}: the Mach number must be greater than 0.`);
+  const em = checkMach(M1, "The inlet Mach number M₁", 0, `M₁ = ${fv(M1)}: the Mach number must be greater than 0.`) ?? checkMachFloor(M1);
   if (em) return em;
   const s1 = rayleighState(M1, g);
   const branch = M1 === 1 ? "sonic" : M1 < 1 ? "subsonic" : "supersonic";
@@ -421,6 +444,12 @@ export function rayleigh(M1: number, T02T01: number | null, g = 1.4): RayleighRe
   const target = s1.T0T0s * T02T01;
   if (T02T01 === 1) return { ok: true, branch, s1, T02T01, s2: s1, chokeRatio };
   if (target > 1 + 1e-12) {
+    if (M1 === 1) {
+      return {
+        ok: false,
+        error: `Thermally choked: at M₁ = 1 the flow is already at the sonic (thermally choked) state, so no heat can be added (T₀₂/T₀₁ = ${fmtSig(T02T01, 4)} asked for); the inlet Mach number falls instead.`,
+      };
+    }
     return {
       ok: false,
       error:
@@ -443,9 +472,10 @@ export function rayleigh(M1: number, T02T01: number | null, g = 1.4): RayleighRe
   const f = (M: number): number => rayleighState(M, g).T0T0s - target;
   if (M1 < 1) {
     // T₀/T₀* rises monotonically from 0 (M → 0) to 1 (M = 1) on the subsonic branch.
-    const lo = 1e-6;
+    const lo = MACH_MIN_DUCT;
     if (f(lo) > 0) {
-      return { ok: false, error: `Cooling by T₀₂/T₀₁ = ${fmtSig(T02T01, 4)} would take the Mach number below 10⁻⁶; refused.` };
+      const what = T02T01 < 1 ? `Cooling by T₀₂/T₀₁ = ${fmtSig(T02T01, 4)}` : `T₀₂/T₀₁ = ${fmtSig(T02T01, 4)}`;
+      return { ok: false, error: `${what} would take the exit Mach number below 10⁻⁶, the smallest this tool accepts; refused.` };
     }
     return { ok: true, branch, s1, T02T01, s2: rayleighState(bisect(f, lo, 1), g), chokeRatio };
   }

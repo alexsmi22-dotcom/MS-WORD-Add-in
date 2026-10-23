@@ -21,6 +21,8 @@
 // No design code: a yield margin is the ratio of a user-given yield strength to the von Mises (and Tresca)
 // equivalent stress, computed by stress.ts, never an allowable stress.
 
+import { fmtSig } from "./axis";
+
 /** A named refusal: the reason is the user-facing sentence. */
 export interface VesselError {
   ok: false;
@@ -85,9 +87,11 @@ export function thinVessel(p: number, r: number, t: number, shape: ThinShape): T
   return { ok: true, shape, hoop: hoopCyl, axial: shape === "cylinder-closed" ? half : 0, radialBore: -p, ratio, lameBoreHoop: lame };
 }
 
-/** A ratio for a sentence (3 significant figures, plain digits). */
+/** A ratio for a sentence (3 significant figures, plain digits; ×10ⁿ outside 10⁻³…10⁶, never e-notation). */
 function trim(v: number): string {
-  return String(Number(v.toPrecision(3)));
+  const a = Math.abs(v);
+  if (v === 0 || (a >= 1e-3 && a < 1e6)) return String(Number(v.toPrecision(3)));
+  return fmtSig(v, 3).replace(/(\.\d*?)0+(?=×)/, "$1").replace(/\.(?=×)/, "");
 }
 
 // ---------------------------------------------------------------------------------------------- Lamé cylinder

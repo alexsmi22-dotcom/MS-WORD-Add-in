@@ -14,6 +14,7 @@ import { formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
 import { readDataBlock } from "./dataBlock";
+import { refuseNonFinite } from "./finiteResult";
 import {
   KT0_DBM_HZ,
   MAX_STAGES,
@@ -147,7 +148,7 @@ function finish(lines: EngLine[], conversions: string[], extra: AnalyzeBlock[], 
   if (conversions.length) lines.push("Units read: " + conversions.join("; ") + ".");
   lines.push(UNIT_NOTE);
   const out = engReport(lines.map((l) => trueMinus(l)), extra);
-  return { ...out, outputs };
+  return refuseNonFinite({ ...out, outputs });
 }
 
 /** "1 MHz" style frequency for prose. */
@@ -200,10 +201,16 @@ const linkCalc: ElecCalc = {
     lines.push(`Received power: ${db2(res.prDbm)} dBm (${n4(res.prW)} W) at ${distText(dM)}, ${freqText(fHz)} (λ = ${n4(res.lambda)} m).`);
     lines.push(`Free-space path loss: ${db2(res.fsplDb)} dB; EIRP ${db2(res.eirpDbm)} dBm.`);
     if (res.marginDb !== null && sens !== null) {
+      const rangeText =
+        res.maxRangeM !== null
+          ? null
+          : `the free-space range at that sensitivity would be under two wavelengths (2λ = ${n4(2 * res.lambda)} m), inside the antenna's near field where the Friis formula does not hold, so no range is stated`;
       lines.push(
         res.marginDb >= 0
           ? `Link margin: ${db2(res.marginDb)} dB above the ${db2(sens)} dBm sensitivity; in free space the link closes out to ${distText(res.maxRangeM as number)}.`
-          : `Link margin: ${db2(res.marginDb)} dB: the received power is BELOW the ${db2(sens)} dBm sensitivity, so the link does not close; in free space it would reach ${distText(res.maxRangeM as number)}.`,
+          : rangeText !== null
+            ? `Link margin: ${db2(res.marginDb)} dB: the received power is BELOW the ${db2(sens)} dBm sensitivity, so the link does not close; ${rangeText}.`
+            : `Link margin: ${db2(res.marginDb)} dB: the received power is BELOW the ${db2(sens)} dBm sensitivity, so the link does not close; in free space it would reach ${distText(res.maxRangeM as number)} (far field assumed: beyond 2D²/λ for an antenna of size D).`,
       );
     }
     lines.push({ math: "λ = c/f", fallback: "λ = c/f" });
@@ -224,7 +231,7 @@ const linkCalc: ElecCalc = {
     ];
     if (res.marginDb !== null) {
       outputs.push({ key: "margin", label: "Link margin", value: res.marginDb, unit: "dB" });
-      outputs.push({ key: "range", label: "Free-space range at sensitivity", value: res.maxRangeM as number, unit: "m" });
+      if (res.maxRangeM !== null) outputs.push({ key: "range", label: "Free-space range at sensitivity", value: res.maxRangeM, unit: "m" });
     }
     const extra: AnalyzeBlock[] = [
       { kind: "table", label: "Link budget", rows: table },

@@ -91,6 +91,7 @@ export function fabryPerot(inp: FabryPerotInput): FabryPerotResult | Fail {
   const { L, n, R1, R2, lambda } = inp;
   if (!fin(L, n, R1, R2)) return fail("Every input must be a finite number.");
   if (!(L > 0)) return fail("The mirror spacing must be greater than zero.");
+  if (L < 1e-9) return fail("The mirror spacing is below 1 nm, shorter than any optical cavity: check the unit.");
   if (!(n >= 1) || n > 10) return fail("The refractive (group) index must be from 1 to 10.");
   for (const [R, name] of [[R1, "R₁"], [R2, "R₂"]] as const)
     if (!(R > 0 && R < 1)) return fail(`${name} must be a reflectivity strictly between 0 and 1 (a fraction: 0.99, or 99 %).`);
@@ -165,13 +166,14 @@ export function laserThreshold(inp: ThresholdInput): ThresholdResult | Fail {
   const { L, alphaI, R1, R2, lambdaP, lambda, etaI, n, Pth, Pp } = inp;
   if (!fin(L, alphaI, R1, R2, lambdaP, lambda, etaI, n)) return fail("Every input must be a finite number.");
   if (!(L > 0)) return fail("The cavity length must be greater than zero.");
+  if (L < 1e-9) return fail("The cavity length is below 1 nm, shorter than any laser cavity (the mirror loss would be unbounded): check the unit.");
   if (!(alphaI >= 0)) return fail("The internal loss cannot be negative.");
   for (const [R, name] of [[R1, "R₁"], [R2, "R₂"]] as const)
     if (!(R > 0 && R <= 1)) return fail(`${name} must be a reflectivity above 0 and at most 1 (a fraction: 0.95, or 95 %).`);
   if (R1 * R2 >= 1) return fail("With R₁ = R₂ = 1 nothing leaves the cavity: the mirror loss and the output are zero. Give the output coupler's reflectivity below 1.");
   if (!(lambdaP > 0 && lambda > 0)) return fail("The wavelengths must be greater than zero.");
-  if (lambdaP > lambda) return fail("The pump wavelength is longer than the laser wavelength: a pump photon would carry less energy than the laser photon it makes (the quantum-defect model needs λ_p ≤ λ).");
-  if (!(etaI > 0 && etaI <= 1)) return fail("The internal efficiency η_i must be above 0 and at most 1.");
+  if (lambdaP > lambda) return fail("The pump wavelength is longer than the laser wavelength: a pump photon would carry less energy than the laser photon it makes (the quantum-defect model needs λₚ ≤ λ).");
+  if (!(etaI > 0 && etaI <= 1)) return fail("The internal efficiency ηᵢ must be above 0 and at most 1.");
   if (!(n >= 1) || n > 10) return fail("The refractive (group) index must be from 1 to 10.");
   if (Pth !== null && !(Number.isFinite(Pth) && Pth > 0)) return fail("The threshold pump power must be greater than zero.");
   if (Pp !== null && !(Number.isFinite(Pp) && Pp >= 0)) return fail("The pump power cannot be negative.");
@@ -302,7 +304,7 @@ export function shg(inp: ShgInput): ShgResult | Fail {
   if (!(nW >= 1 && nW <= 10 && n2W >= 1 && n2W <= 10)) return fail("The refractive indices must be from 1 to 10.");
   if (L !== null && !(Number.isFinite(L) && L > 0)) return fail("The crystal length must be greater than zero.");
   if (period !== null && !(Number.isFinite(period) && period > 0)) return fail("The QPM period must be greater than zero.");
-  if (deff !== null && !(Number.isFinite(deff) && deff > 0)) return fail("d_eff must be greater than zero (its magnitude).");
+  if (deff !== null && !(Number.isFinite(deff) && deff > 0)) return fail("d(eff) must be greater than zero (its magnitude).");
   if (I !== null && !(Number.isFinite(I) && I > 0)) return fail("The fundamental intensity must be greater than zero.");
   const dk = ((4 * Math.PI) / lambda) * (n2W - nW);
   const adk = Math.abs(dk);
@@ -313,7 +315,7 @@ export function shg(inp: ShgInput): ShgResult | Fail {
   let dDrive = deff;
   if (mode === "perfect") dkRes = 0;
   else if (mode === "qpm") {
-    if (adk === 0) return fail("n₂ω = n_ω: the interaction is already phase-matched (Δk = 0) and needs no QPM grating. Choose “perfect”.");
+    if (adk === 0) return fail("n(2ω) = n(ω): the interaction is already phase-matched (Δk = 0) and needs no QPM grating. Choose “perfect”.");
     periodUsed = period ?? (per as number);
     // The grating vector cancels |Δk|; what remains is |Δk| − 2π/Λ (its sign does not enter sinc²).
     dkRes = adk - (2 * Math.PI) / periodUsed;

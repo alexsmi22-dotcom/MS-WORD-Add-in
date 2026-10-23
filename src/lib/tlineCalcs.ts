@@ -16,6 +16,7 @@ import { formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
 import { readDataBlock } from "./dataBlock";
+import { refuseNonFinite } from "./finiteResult";
 import {
   C_LIGHT,
   RECIP_TOL,
@@ -108,7 +109,7 @@ function finish(lines: EngReportLine[], conversions: string[], extra: AnalyzeBlo
   if (conversions.length) lines.push("Units read: " + conversions.join("; ") + ".");
   lines.push(UNIT_NOTE);
   const out = engReport(lines.map((l) => (typeof l === "string" ? trueMinus(l) : l)), extra);
-  return { ...out, outputs };
+  return refuseNonFinite({ ...out, outputs });
 }
 
 /** The load: a termination select plus R and X fields read in ohms. */
@@ -432,7 +433,7 @@ const matchCalc: ElecCalc = {
     });
     if (!bwMeaningful) lines.push(`The load's own VSWR (${n6(rf.vswr as number)}) is already within the limit (${n6(vmax)}), so no band edge exists and bandwidths are not reported: lower the limit.`);
     lines.push({ math: "Z_T = sqrt(Z_0 R)", fallback: "Zₜ = √(Z₀R), R = Z₀·VSWR at a voltage maximum or Z₀/VSWR at a minimum" });
-    lines.push({ math: "Γ(d) = Γ_L e^(-j 4 π d/λ)", fallback: "Γ(d) = Γₗ e^(−j4πd/λ)" });
+    lines.push({ math: "Γ(d) = Γ_L e^(-j 4 π d/λ)", fallback: "Γ(d) = Γₗ·exp(−j4πd/λ)" });
     lines.push({ math: "y(d) = (1 - Γ(d))/(1 + Γ(d)) = 1 + j b", fallback: "y(d) = (1 − Γ(d))/(1 + Γ(d)) = 1 + jb at the stub" });
     lines.push(
       kind === "short"
@@ -568,7 +569,9 @@ const twoPortCalc: ElecCalc = {
     if (t.gtu) {
       const g = t.gtu;
       lines.push(
-        `Maximum unilateral transducer gain (S₁₂ taken as 0, both ports conjugate-matched): ${db4(10 * Math.log10(g.total))} dB = source match ${db4(10 * Math.log10(g.gs))} dB + |S₂₁|² ${g.g0 > 0 ? db4(10 * Math.log10(g.g0)) + " dB" : "(zero)"} + load match ${db4(10 * Math.log10(g.gl))} dB.`,
+        g.total > 0
+          ? `Maximum unilateral transducer gain (S₁₂ taken as 0, both ports conjugate-matched): ${db4(10 * Math.log10(g.total))} dB = source match ${db4(10 * Math.log10(g.gs))} dB + |S₂₁|² ${g.g0 > 0 ? db4(10 * Math.log10(g.g0)) + " dB" : "(zero)"} + load match ${db4(10 * Math.log10(g.gl))} dB.`
+          : "Maximum unilateral transducer gain: none, no transmission (S₂₁ = 0): no power reaches the load at any matching, so the gain is zero and has no value in dB.",
       );
       if (t.unilateral)
         lines.push(
@@ -605,7 +608,7 @@ const twoPortCalc: ElecCalc = {
     push("vswrOut", "Output VSWR", t.vswrOut, "");
     push("K", "Rollett stability factor K", t.K, "");
     push("deltaMag", "|Δ|", t.deltaMag, "");
-    push("gtuMax", "Maximum unilateral transducer gain", t.gtu ? 10 * Math.log10(t.gtu.total) : null, "dB");
+    push("gtuMax", "Maximum unilateral transducer gain", t.gtu && t.gtu.total > 0 ? 10 * Math.log10(t.gtu.total) : null, "dB");
     push("U", "Unilateral figure of merit", t.unilateral ? t.unilateral.U : null, "");
     push("recipDev", "Reciprocity deviation", 100 * t.recipDev, "%");
     push("losslessDev", "Losslessness deviation", t.losslessDev, "");

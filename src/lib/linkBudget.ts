@@ -41,6 +41,11 @@ const DB_LIMIT = 400;
 export type Err = { ok: false; error: string };
 const err = (error: string): Err => ({ ok: false, error });
 const fin = (...v: number[]): boolean => v.every((x) => Number.isFinite(x));
+/** An echoed number for a refusal: plain digits in 10⁻³…10⁶, ×10ⁿ outside, U+2212 (never "1e+301"). */
+const nv = (v: number): string => {
+  const a = Math.abs(v);
+  return v === 0 || (a >= 1e-3 && a < 1e6) ? String(Number(v.toPrecision(6))).replace(/^-/, "−") : fmtSig(v, 6).replace(/(\.\d*?)0+(?=×)/, "$1").replace(/\.(?=×)/, "");
+};
 
 /** 10 log₁₀ and its inverse (power ratios). Module-private: audio.ts toDb(ratio, quantity) is the app's exported dB
  *  helper, but it wraps each result for its level calculators; here only the bare power ratio is ever needed. */
@@ -94,8 +99,13 @@ export interface LinkResult {
   prW: number;
   /** Pr − sensitivity, dB (null without a sensitivity). */
   marginDb: number | null;
-  /** Distance at which Pr falls to the sensitivity, free space (null without a sensitivity). */
+  /**
+   * Distance at which Pr falls to the sensitivity, free space (null without a sensitivity, and null when that
+   * distance is inside the near field — below 2λ — where the Friis form does not hold; see rangeInNearField).
+   */
   maxRangeM: number | null;
+  /** True when the Friis range at the sensitivity would be under 2λ: not a far-field distance, so not stated. */
+  rangeInNearField: boolean;
   /** Each line of the budget: label and dB (gains positive, losses negative). */
   items: Array<{ label: string; db: number; unit: string }>;
 }
@@ -111,7 +121,7 @@ export function linkBudget(inp: LinkInput): LinkResult | Err {
   if (!fin(ptDbm, gtDbi, grDbi, txLossDb, rxLossDb, otherLossDb) || (sensDbm !== null && !Number.isFinite(sensDbm)))
     return err("Every level, gain and loss must be a finite number.");
   for (const [v, n] of [[ptDbm, "transmit power"], [gtDbi, "transmit antenna gain"], [grDbi, "receive antenna gain"], [txLossDb, "transmit feeder loss"], [rxLossDb, "receive feeder loss"], [otherLossDb, "other losses"]] as const)
-    if (Math.abs(v) > DB_LIMIT) return err(`The ${n} (${v} dB) is beyond ±${DB_LIMIT} dB: check the entry.`);
+    if (Math.abs(v) > DB_LIMIT) return err(`The ${n} (${nv(v)} dB) is beyond ±${DB_LIMIT} dB: check the entry.`);
   if (sensDbm !== null && Math.abs(sensDbm) > DB_LIMIT) return err(`The sensitivity is beyond ±${DB_LIMIT} dBm: check the entry.`);
   for (const [v, n] of [[txLossDb, "transmit feeder loss"], [rxLossDb, "receive feeder loss"], [otherLossDb, "other losses"]] as const)
     if (v < 0) return err(`The ${n} must be zero or more (a loss in dB is entered as a positive number).`);
@@ -135,6 +145,10 @@ export function linkBudget(inp: LinkInput): LinkResult | Err {
     items.push({ label: "Receiver sensitivity", db: sensDbm, unit: "dBm" });
     items.push({ label: "Link margin", db: margin as number, unit: "dB" });
   }
+  const rawRange = margin === null ? null : inp.dM * Math.pow(10, margin / 20);
+  // The far-field rule this tool applies to the design distance (fspl: d ≥ 2λ) applies to the range too; with no
+  // antenna size known, 2D²/λ cannot be checked, so 2λ is the floor.
+  const rangeInNearField = rawRange !== null && rawRange < 2 * p.lambda;
   return {
     ok: true,
     lambda: p.lambda,
@@ -143,7 +157,8 @@ export function linkBudget(inp: LinkInput): LinkResult | Err {
     prDbm: pr,
     prW: 1e-3 * fromDb(pr),
     marginDb: margin,
-    maxRangeM: margin === null ? null : inp.dM * Math.pow(10, margin / 20),
+    maxRangeM: rangeInNearField ? null : rawRange,
+    rangeInNearField,
     items,
   };
 }
@@ -192,15 +207,15 @@ export function noiseCascade(stages: Stage[]): CascadeResult | Err {
     const { gainDb, nfDb } = stages[i];
     if (!fin(gainDb, nfDb)) return err(`Stage ${i + 1}: the gain and noise figure must be finite numbers.`);
     if (nfDb < 0) return err(`Stage ${i + 1}: a noise figure below 0 dB (F < 1) is not physical: every two-port adds noise.`);
-    if (nfDb > 100) return err(`Stage ${i + 1}: a noise figure of ${nfDb} dB is beyond 100 dB: check the entry.`);
-    if (Math.abs(gainDb) > 200) return err(`Stage ${i + 1}: a gain of ${gainDb} dB is beyond ±200 dB: check the entry.`);
+    if (nfDb > 100) return err(`Stage ${i + 1}: a noise figure of ${nv(nfDb)} dB is beyond 100 dB: check the entry.`);
+    if (Math.abs(gainDb) > 200) return err(`Stage ${i + 1}: a gain of ${nv(gainDb)} dB is beyond ±200 dB: check the entry.`);
     const Fi = fromDb(nfDb);
     const term = i === 0 ? Fi : (Fi - 1) / gLin;
     F += term;
     gLin *= fromDb(gainDb);
     gDb += gainDb;
     if (Math.abs(gDb) > CUM_GAIN_LIMIT_DB || !Number.isFinite(F))
-      return err(`Up to stage ${i + 1} the chain's gain is ${gDb > 0 ? "+" : ""}${gDb} dB, beyond ±${CUM_GAIN_LIMIT_DB} dB: no receive chain has that, so check the entries.`);
+      return err(`Up to stage ${i + 1} the chain's gain is ${gDb > 0 ? "+" : ""}${nv(gDb)} dB, beyond ±${CUM_GAIN_LIMIT_DB} dB: no receive chain has that, so check the entries.`);
     rows.push({ n: i + 1, gainDb, nfDb, teK: T0_NOISE * (Fi - 1), cumGainDb: gDb, cumNfDb: toDb(F), term });
   }
   return { ok: true, rows, factor: F, nfDb: toDb(F), teK: T0_NOISE * (F - 1), gainDb: gDb };
@@ -208,7 +223,8 @@ export function noiseCascade(stages: Stage[]): CascadeResult | Err {
 
 /** kTB in dBm for a temperature and bandwidth. */
 export function kTBdBm(tK: number, bHz: number): number {
-  return toDb((K_BOLTZMANN * tK * bHz) / 1e-3);
+  // In dB as a sum, so a tiny B cannot underflow kTB to 0 (10 log₁₀ 0 = −Infinity reached the result).
+  return toDb((K_BOLTZMANN * tK) / 1e-3) + toDb(bHz);
 }
 
 export interface SensitivityResult {
@@ -223,6 +239,7 @@ export interface SensitivityResult {
 export function sensitivity(nfDb: number, bHz: number, snrDb: number): SensitivityResult | Err {
   if (!fin(nfDb, bHz, snrDb)) return err("The bandwidth and SNR must be finite numbers.");
   if (!(bHz > 0)) return err("The bandwidth must be greater than zero.");
+  if (bHz < 1e-6) return err("A noise bandwidth below 1 µHz is outside this tool (no receiver integrates for the ~10⁶ s it implies): check the unit.");
   if (bHz > 1e13) return err("A noise bandwidth above 10 THz is outside this tool (the kTB noise model is classical; above about kT/h it does not hold).");
   if (Math.abs(snrDb) > 100) return err("The required SNR is beyond ±100 dB: check the entry.");
   const ktb = kTBdBm(T0_NOISE, bHz);

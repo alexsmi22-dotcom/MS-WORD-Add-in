@@ -68,7 +68,6 @@ import {
   finiteWell,
   finiteWellPsi,
   harmonicOscillator,
-  hermite,
   hydrogenLevel,
   hydrogenModel,
   hydrogenTransition,
@@ -224,8 +223,8 @@ describe("engine against further oracle values", () => {
     }
     // H₃(ξ) = 8ξ³ − 12ξ; ψ₃ = H₃ e^{−ξ²/2}/√(2³·3!·√π)
     const xi = 0.7;
-    expect(hermite(3, xi)).toBeCloseTo(8 * xi ** 3 - 12 * xi, 12);
-    expect(oscillatorPsi(3, xi)).toBeCloseTo((hermite(3, xi) * Math.exp(-xi * xi / 2)) / Math.sqrt(8 * 6 * Math.sqrt(Math.PI)), 12);
+    // H₃(ξ) = 8ξ³ − 12ξ, the physicists' Hermite polynomial.
+    expect(oscillatorPsi(3, xi)).toBeCloseTo(((8 * xi ** 3 - 12 * xi) * Math.exp(-xi * xi / 2)) / Math.sqrt(8 * 6 * Math.sqrt(Math.PI)), 12);
   });
 
   test("finite well: 10 eV, 2 nm electron (11 states) and a GaAs well (m* 0.067 mₑ)", () => {

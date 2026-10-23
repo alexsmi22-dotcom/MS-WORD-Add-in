@@ -108,12 +108,6 @@ export function infiniteWell(m: number, L: number, n: number): InfiniteWell | Er
   return { E1, n, En: n * n * E1, xMean: L / 2, dx, dp: (n * Math.PI * HBAR) / L };
 }
 
-/** ψₙ(x) = √(2/L) sin(nπx/L) inside, 0 outside (1/√m). */
-export function infiniteWellPsi(n: number, L: number, x: number): number {
-  if (x <= 0 || x >= L) return 0;
-  return Math.sqrt(2 / L) * Math.sin((n * Math.PI * x) / L);
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // Finite square well: V = 0 for |x| < a = w/2, V = V₀ outside. Energies from the well bottom.
 // ---------------------------------------------------------------------------------------------------------------
@@ -253,20 +247,6 @@ export function oscillatorPsi(n: number, xi: number): number {
     p1 = p2;
   }
   return p1;
-}
-
-/** The physicists' Hermite polynomial Hₙ(ξ) (n ≤ 20), for the formula table: H₀ = 1, H₁ = 2ξ, Hₙ₊₁ = 2ξHₙ − 2nHₙ₋₁. */
-export function hermite(n: number, xi: number): number {
-  if (!Number.isInteger(n) || n < 0 || n > OSC_MAX_N) return NaN;
-  let h0 = 1;
-  if (n === 0) return h0;
-  let h1 = 2 * xi;
-  for (let k = 1; k < n; k++) {
-    const h2 = 2 * xi * h1 - 2 * k * h0;
-    h0 = h1;
-    h1 = h2;
-  }
-  return h1;
 }
 
 /**

@@ -32,6 +32,9 @@ function leaves(n: Node, out: string[] = []): string[] {
 // ᐟ is the superscript slash the fallbacks use in exponents (Rₕ²ᐟ³); it is punctuation here, not a letter.
 const letters = (s: string): string => s.normalize("NFKC").replace(/ᐟ/g, "").replace(/[^\p{L}\p{N}]/gu, "");
 
+/** The transfer functions the control equations name on purpose: L(s), G(s), C(s), T(s), H(s). */
+const TRANSFER_FUNCTIONS = new Set(["L", "G", "C", "T", "H"]);
+
 const ALL = Object.entries(ENG_EQUATIONS).flatMap(([k, list]) => list.map((e, i) => [`${k} #${i + 1}`, e] as const));
 
 describe("every governing equation", () => {
@@ -45,7 +48,7 @@ describe("every governing equation", () => {
   test.each(ALL)("%s has no accidental function application (a symbol before a bracket)", (_k, e) => {
     const unknown: string[] = [];
     const walk = (n: Node): void => {
-      if (n.k === "func" && !n.known) unknown.push(n.name);
+      if (n.k === "func" && !n.known && !TRANSFER_FUNCTIONS.has(n.name)) unknown.push(n.name);
       for (const v of Object.values(n)) {
         if (Array.isArray(v)) v.flat().forEach((c) => c && typeof c === "object" && "k" in c && walk(c as Node));
         else if (v && typeof v === "object" && "k" in v) walk(v as Node);
@@ -73,7 +76,7 @@ describe("every governing equation", () => {
     // A minus in the fallback is the true minus.
     expect(e.fallback).not.toMatch(/(^|[\s(=])-(?=[\w(√])/);
     // No symbol glyphs the parser invents from words (∈ ∞ → ° etc.) in the TYPESET tree either.
-    expect(leaves(parseMathAst(e.math)).join("")).not.toMatch(/[∈∉∞→°∧∨¬ℝℤℕℚℂ∪∩]/);
+    expect(leaves(parseMathAst(e.math)).join("")).not.toMatch(/[∈∉∞→∧∨¬ℝℤℕℚℂ∪∩]/);
     // A Greek name directly before "(" parses as a FUNCTION called "pi" and typesets the Latin word.
     expect(e.math).not.toMatch(/\b(alpha|beta|gamma|delta|Delta|epsilon|eta|theta|lambda|mu|nu|pi|rho|sigma|tau|phi|omega|Omega)\(/);
   });

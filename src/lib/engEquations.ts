@@ -123,6 +123,15 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "thermo-vapour:carnot-efficiency": [eq("eta_max = 1 - T_C/T_H", "ηmax = 1 − TC/TH")],
   "thermo-vapour:carnot-refrigerator": [eq("COP_{R max} = T_C/(T_H - T_C)", "COPR max = TC/(TH − TC)")],
   "thermo-vapour:carnot-heat-pump": [eq("COP_{HP max} = T_H/(T_H - T_C)", "COPHP max = TH/(TH − TC)")],
+  // ---- Control systems (the transfer functions themselves are already typeset by the tools) ----
+  "control-step:underdamped": [
+    eq("omega_d = omega_n sqrt(1 - zeta^2)", "ωd = ωn·√(1 − ζ²)"),
+    eq("M_p = exp(-pi zeta/sqrt(1 - zeta^2))", "Mp = exp(−πζ/√(1 − ζ²))"),
+    eq("t_p = pi/omega_d", "tp = π/ωd"),
+    eq("t_s approx 4/(zeta omega_n)", "ts ≈ 4/(ζ·ωn)"),
+  ],
+  "control-bode": [eq("GM = -20 log(abs(L(j omega_pc)))", "GM = −20·log|L(jωpc)|"), eq("PM = 180 degree + angle L(j omega_gc)", "PM = 180° + ∠L(jωgc)")],
+  "control-pid": [eq("C(s) = K_p + K_i/s + K_d s", "C(s) = Kp + Ki/s + Kd·s"), eq("T(s) = L(s)/(1 + L(s))", "T(s) = L(s)/(1 + L(s))")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

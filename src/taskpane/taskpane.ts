@@ -15456,6 +15456,7 @@ const ENG_CALCS: EngCalc[] = [
 
       const m = secondOrderMetrics(tf);
       if (m.ok) {
+        if (m.kind === "underdamped" && m.wd > 0) lines.push(...engEq("control-step:underdamped"));
         lines.push(m.exact ? "Second-order metrics (exact for this system)" : "Transient metrics from the dominant poles");
         lines.push(`  Natural frequency wn = ${engNum(m.wn)} rad/s`);
         lines.push(`  Damping ratio zeta = ${engNum(m.zeta)} (${m.kind})`);
@@ -15482,7 +15483,13 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.t.map((t, i) => ({ x: t, y: res.y[i] })), type: "line", color: "#2563eb", label: "y(t)" }],
         { width: 380, height: 240, xlabel: "Time (s)", ylabel: "Output", title: `${kind === "step" ? "Step" : "Impulse"} response` },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "wn", label: "Natural frequency ωn", value: m.ok ? m.wn : NaN, unit: "rad/s" },
+        { key: "zeta", label: "Damping ratio ζ", value: m.ok ? m.zeta : NaN, unit: "" },
+        { key: "Mp", label: "Overshoot", value: m.ok && m.overshoot !== null ? m.overshoot * 100 : NaN, unit: "%" },
+        { key: "ts", label: "Settling time (2 %)", value: m.ok && m.settlingTime !== null ? m.settlingTime : NaN, unit: "s" },
+        { key: "yFinal", label: "Final value", value: res.finalValue ?? NaN, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -15491,7 +15498,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15519,8 +15526,9 @@ const ENG_CALCS: EngCalc[] = [
       const freqs = autoFrequencies(tf, 300);
       const resp = frequencyResponse(tf, freqs);
 
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(tfLine("L(s)", tf.num, tf.den));
+      lines.push(...engEq("control-bode"));
       lines.push("");
       if (mg.gainMarginDb !== null) {
         lines.push(`Gain margin = ${engNum(mg.gainMarginDb)} dB at ${engNum(mg.phaseCrossoverW as number)} rad/s`);
@@ -15550,7 +15558,12 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: resp.map((p) => ({ x: p.w, y: p.phaseDeg })), type: "line", color: "#b91c1c", label: "phase" }],
         { width: 380, height: 220, xlabel: "Frequency (rad/s)", ylabel: "Phase (deg)", xScale: "log", title: "Bode phase" },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "GM", label: "Gain margin", value: mg.gainMarginDb ?? NaN, unit: "dB" },
+        { key: "PM", label: "Phase margin", value: mg.phaseMarginDeg ?? NaN, unit: "°" },
+        { key: "wgc", label: "Gain crossover frequency", value: mg.phaseMarginDeg !== null ? (mg.gainCrossoverW as number) : NaN, unit: "rad/s" },
+        { key: "wpc", label: "Phase crossover frequency", value: mg.gainMarginDb !== null ? (mg.phaseCrossoverW as number) : NaN, unit: "rad/s" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg: magSvg,
@@ -15567,7 +15580,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 220,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15600,7 +15613,7 @@ const ENG_CALCS: EngCalc[] = [
       const open = series(c, plant);
       const closed = feedback(open);
 
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [...engEq("control-pid")];
       lines.push(tfLine("C(s)", c.num, c.den));
       lines.push(tfLine("G(s)", plant.num, plant.den));
       lines.push(tfLine("L(s)", open.num, open.den));
@@ -15610,8 +15623,7 @@ const ENG_CALCS: EngCalc[] = [
       if (!st.ok) return { text: st.error, ok: false };
       lines.push(st.verdict);
       lines.push("");
-      lines.push("Closed-loop poles");
-      for (const p of st.poles) lines.push(`  ${fmtComplexPlain(p)}`);
+      lines.push({ label: "Closed-loop poles", table: [["Pole", "Location (rad/s)"], ...st.poles.map((p, i) => [`p${i + 1}`, fmtComplexPlain(p)])] });
 
       // the closed loop was analysed just above; margins() reuses that verdict
       const mg = margins(open, {
@@ -15658,6 +15670,12 @@ const ENG_CALCS: EngCalc[] = [
       // setpoint change. Window from the slowest closed-loop mode, exactly as
       // the step tool chooses it; an unstable loop honestly diverges on the
       // plot instead of being hidden.
+      const pidOutputs: EngOutput[] = [
+        { key: "GM", label: "Gain margin", value: mg.ok && mg.gainMarginDb !== null ? mg.gainMarginDb : NaN, unit: "dB" },
+        { key: "PM", label: "Phase margin", value: mg.ok && mg.phaseMarginDeg !== null ? mg.phaseMarginDeg : NaN, unit: "°" },
+        { key: "Mp", label: "Closed-loop overshoot", value: m.ok && m.overshoot !== null ? m.overshoot * 100 : NaN, unit: "%" },
+        { key: "ts", label: "Closed-loop settling time (2 %)", value: m.ok && m.settlingTime !== null ? m.settlingTime : NaN, unit: "s" },
+      ];
       const slowest = st.poles.length
         ? Math.min(...st.poles.map((p) => Math.abs(p.re)).filter((v) => v > 1e-9))
         : NaN;
@@ -15678,7 +15696,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Closed-loop step response",
             },
           );
-          return engReport(lines, [
+          return withOutputs(pidOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -15687,10 +15705,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 240,
             },
-          ]);
+          ]));
         }
       }
-      return engReport(lines);
+      return withOutputs(pidOutputs, engReport(lines));
     },
   },
   {

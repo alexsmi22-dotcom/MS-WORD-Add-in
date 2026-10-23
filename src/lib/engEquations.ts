@@ -277,6 +277,38 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "comp-float:cancellation": [eq("kappa = max(abs(a), abs(b))/abs(a - b)", "κ = max(|a|, |b|)/|a − b|"), eq("n_lost = log_10 kappa", "nlost = log₁₀ κ")],
   "comp-scaling": [eq("k = ln(t_2/t_1)/ln(n_2/n_1)", "k = ln(t₂/t₁)/ln(n₂/n₁)")],
   "comp-scaling:predict": [eq("t = t_2 (n/n_2)^k", "t = t₂·(n/n₂)ᵏ")],
+  // ---- Robotics & kinematics ----
+  "robotics-fk": [
+    eq("x = sum(i=1, n, L_i cos(phi_i))", "x = ∑ᵢ₌₁ⁿ Lᵢ·cos φᵢ"),
+    eq("y = sum(i=1, n, L_i sin(phi_i))", "y = ∑ᵢ₌₁ⁿ Lᵢ·sin φᵢ"),
+    eq("phi_i = sum(j=1, i, theta_j)", "φᵢ = ∑ⱼ₌₁ⁱ θⱼ"),
+  ],
+  "robotics-ik": [
+    eq("cos(theta_2) = (x^2 + y^2 - L_1^2 - L_2^2)/(2 L_1 L_2)", "cos θ₂ = (x² + y² − L₁² − L₂²)/(2L₁L₂)"),
+    eq("theta_1 = arg(x + j y) - arg(L_1 + L_2 cos(theta_2) + j L_2 sin(theta_2))", "θ₁ = arg(x + jy) − arg(L₁ + L₂·cos θ₂ + jL₂·sin θ₂)"),
+  ],
+  "robotics-jacobian": [
+    eq(
+      "J = matrix(-L_1 sin(theta_1) - L_2 sin(theta_1 + theta_2), -L_2 sin(theta_1 + theta_2); L_1 cos(theta_1) + L_2 cos(theta_1 + theta_2), L_2 cos(theta_1 + theta_2))",
+      "J = [−L₁·sin θ₁ − L₂·sin(θ₁ + θ₂), −L₂·sin(θ₁ + θ₂); L₁·cos θ₁ + L₂·cos(θ₁ + θ₂), L₂·cos(θ₁ + θ₂)]",
+    ),
+    eq("det(J) = L_1 L_2 sin(theta_2)", "det J = L₁·L₂·sin θ₂"),
+    eq("kappa = sigma_max/sigma_min", "κ = σmax/σmin"),
+  ],
+  "robotics-jacobian:torque": [eq("tau = J^T F", "τ = Jᵀ·F")],
+  "robotics-dh": [
+    eq("T = prod(i=1, n, A_i)", "T = ∏ᵢ₌₁ⁿ Aᵢ"),
+    eq("A_i = Rot_{z} (theta_i) Trans_{z} (d_i) Trans_{x} (a_i) Rot_{x} (alpha_i)", "Aᵢ = Rotz(θᵢ)·Transz(dᵢ)·Transx(aᵢ)·Rotx(αᵢ)"),
+  ],
+  "robotics-profile:trapezoidal": [eq("t = d/v_max + v_max/a", "t = d/vmax + vmax/a")],
+  "robotics-profile:triangular": [eq("v_peak = sqrt(a d)", "vpeak = √(a·d)"), eq("t = 2 sqrt(d/a)", "t = 2√(d/a)")],
+  "robotics-diffdrive:wheels": [
+    eq("v = (v_R + v_L)/2", "v = (vR + vL)/2"),
+    eq("omega = (v_R - v_L)/W", "ω = (vR − vL)/W"),
+    eq("R = v/omega", "R = v/ω"),
+  ],
+  "robotics-diffdrive:body": [eq("v_L = v - omega W/2", "vL = v − ω·W/2"), eq("v_R = v + omega W/2", "vR = v + ω·W/2")],
+  "robotics-diffdrive:rates": [eq("omega_w = v/r", "ωw = v/r")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

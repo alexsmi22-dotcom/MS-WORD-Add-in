@@ -21159,19 +21159,24 @@ const ENG_CALCS: EngCalc[] = [
       const res = planarFk(L, A.map((d) => (d * Math.PI) / 180));
       if (!res) return { text: "Every link length must be a positive number and every angle a number.", ok: false };
 
-      const lines = [
+      // Release E: the pose and the joint positions as real tables.
+      const lines: EngReportLine[] = [
+        ...engEq("robotics-fk"),
         "Planar forward kinematics",
         "",
-        `  Tip position   x = ${engNum(res.tip.x, 6)} m,  y = ${engNum(res.tip.y, 6)} m`,
-        `  Tip distance   ${engNum(Math.hypot(res.tip.x, res.tip.y), 6)} m from the base`,
-        `  Tip orientation ${engNum((res.tip.theta * 180) / Math.PI, 6)} °`,
-        `  Maximum reach  ${engNum(res.maxReach, 6)} m`,
+        kvTable([
+          ["Tip position x", engNum(res.tip.x, 6), "m"],
+          ["Tip position y", engNum(res.tip.y, 6), "m"],
+          ["Tip distance from the base", engNum(Math.hypot(res.tip.x, res.tip.y), 6), "m"],
+          ["Tip orientation", engNum((res.tip.theta * 180) / Math.PI, 6), "°"],
+          ["Maximum reach", engNum(res.maxReach, 6), "m"],
+        ]),
         "",
-        "  Joint positions",
+        {
+          label: "Joint positions",
+          table: [["Joint", "x (m)", "y (m)"], ...res.joints.map((j, i) => [i === 0 ? "base" : "J" + i, engNum(j.x, 6), engNum(j.y, 6)])],
+        },
       ];
-      res.joints.forEach((j, i) => {
-        lines.push(`    ${i === 0 ? "base" : "J" + i}   x = ${engNum(j.x, 6)},  y = ${engNum(j.y, 6)}`);
-      });
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -21187,7 +21192,12 @@ const ENG_CALCS: EngCalc[] = [
             note: `tip (${engNum(res.tip.x, 4)}, ${engNum(res.tip.y, 4)}) m, reach ${engNum(res.maxReach, 4)} m`,
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "xTip", label: "Tip position x", value: res.tip.x, unit: "m" },
+          { key: "yTip", label: "Tip position y", value: res.tip.y, unit: "m" },
+          { key: "thetaTip", label: "Tip orientation", value: (res.tip.theta * 180) / Math.PI, unit: "°" },
+          { key: "reachMax", label: "Maximum reach", value: res.maxReach, unit: "m" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21196,7 +21206,7 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -21228,7 +21238,8 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) return { text: "Both link lengths must be positive numbers.", ok: false };
 
       const deg = (v: number) => engNum((v * 180) / Math.PI, 6);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...(res.reachable ? engEq("robotics-ik") : []),
         "2R inverse kinematics",
         "",
         `  Target distance   ${engNum(res.radius, 6)} m`,
@@ -21238,14 +21249,20 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.reachable) {
         lines.push(`  NO SOLUTION - outside the workspace by ${engNum(res.missM, 6)} m`);
       } else {
-        lines.push(`  ${res.solutions.length} solution${res.solutions.length === 1 ? "" : "s"}`);
-        for (const s of res.solutions) {
-          lines.push(
-            `    ${s.branch.padEnd(11)} θ1 = ${deg(s.theta1)} °,  θ2 = ${deg(s.theta2)} °`,
-          );
-        }
+        // Release E: the solution branches as a real table.
+        lines.push({
+          label: `${res.solutions.length} solution${res.solutions.length === 1 ? "" : "s"}`,
+          table: [["Branch", "θ1 (°)", "θ2 (°)"], ...res.solutions.map((s) => [s.branch, deg(s.theta1), deg(s.theta2)])],
+        });
         if (res.singular) lines.push("  SINGULAR: the two branches coincide here.");
       }
+      const degN = (v: number | undefined): number => (v === undefined ? NaN : (v * 180) / Math.PI);
+      const ikOutputs: EngOutput[] = [
+        { key: "theta1a", label: "θ1, first branch", value: degN(res.solutions[0]?.theta1), unit: "°" },
+        { key: "theta2a", label: "θ2, first branch", value: degN(res.solutions[0]?.theta2), unit: "°" },
+        { key: "theta1b", label: "θ1, second branch", value: degN(res.solutions[1]?.theta1), unit: "°" },
+        { key: "theta2b", label: "θ2, second branch", value: degN(res.solutions[1]?.theta2), unit: "°" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -21277,7 +21294,7 @@ const ENG_CALCS: EngCalc[] = [
               : `outside the annulus by ${engNum(res.missM, 4)} m`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(ikOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21288,7 +21305,7 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -21338,24 +21355,48 @@ const ENG_CALCS: EngCalc[] = [
       const res = planar2rJacobian(l1, l2, (t1 * Math.PI) / 180, (t2 * Math.PI) / 180, force);
       if (!res) return { text: "Both link lengths must be positive numbers.", ok: false };
 
-      const lines = [
+      // Release E: J and the derived figures as real tables.
+      const lines: EngReportLine[] = [
+        ...engEq("robotics-jacobian"),
+        ...(res.jointTorques ? engEq("robotics-jacobian:torque") : []),
         "Jacobian at this configuration",
         "",
-        `  J = [ ${engNum(res.j[0], 5)}   ${engNum(res.j[1], 5)} ]`,
-        `      [ ${engNum(res.j[2], 5)}   ${engNum(res.j[3], 5)} ]`,
+        {
+          label: "J (m/rad)",
+          table: [
+            ["", "∂/∂θ1", "∂/∂θ2"],
+            ["x", engNum(res.j[0], 5), engNum(res.j[1], 5)],
+            ["y", engNum(res.j[2], 5), engNum(res.j[3], 5)],
+          ],
+        },
         "",
-        `  det J            ${engNum(res.determinant, 6)}`,
-        `  Manipulability   ${engNum(res.manipulability, 6)}`,
-        `  Singular values  ${engNum(res.singularValues[0], 6)}, ${engNum(res.singularValues[1], 6)}`,
-        `  Condition number ${res.conditionNumber === Infinity ? "infinite (singular)" : engNum(res.conditionNumber, 6)}`,
+        kvTable([
+          ["det J", engNum(res.determinant, 6), "m²"],
+          ["Manipulability", engNum(res.manipulability, 6), "m²"],
+          ["Singular values", `${engNum(res.singularValues[0], 6)}, ${engNum(res.singularValues[1], 6)}`, "m"],
+          ["Condition number", res.conditionNumber === Infinity ? "infinite (singular)" : engNum(res.conditionNumber, 6), ""],
+        ]),
         `  ${res.singular ? "SINGULAR - the Jacobian has rank 1 here." : "Non-singular."}`,
       ];
       if (res.jointTorques) {
         lines.push("");
-        lines.push(`  Joint torques to hold the tip load (τ = Jᵀ F)`);
-        lines.push(`    τ1 (shoulder) ${engNum(res.jointTorques[0], 6)} N·m`);
-        lines.push(`    τ2 (elbow)    ${engNum(res.jointTorques[1], 6)} N·m`);
+        lines.push(
+          kvTable(
+            [
+              ["τ1 (shoulder)", engNum(res.jointTorques[0], 6), "N·m"],
+              ["τ2 (elbow)", engNum(res.jointTorques[1], 6), "N·m"],
+            ],
+            "Joint torques to hold the tip load (τ = Jᵀ F)",
+          ),
+        );
       }
+      const jacOutputs: EngOutput[] = [
+        { key: "detJ", label: "det J", value: res.determinant, unit: "m²" },
+        { key: "manip", label: "Manipulability", value: res.manipulability, unit: "m²" },
+        { key: "cond", label: "Condition number", value: res.conditionNumber, unit: "" },
+        { key: "tau1", label: "Shoulder torque τ1", value: res.jointTorques ? res.jointTorques[0] : NaN, unit: "N·m" },
+        { key: "tau2", label: "Elbow torque τ2", value: res.jointTorques ? res.jointTorques[1] : NaN, unit: "N·m" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -21386,7 +21427,7 @@ const ENG_CALCS: EngCalc[] = [
               : `condition number ${engNum(res.conditionNumber, 4)}`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(jacOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21395,7 +21436,7 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -21436,21 +21477,32 @@ const ENG_CALCS: EngCalc[] = [
       const res = dhForward(rows);
       if (!res) return { text: "Every DH entry must be a finite number.", ok: false };
 
-      const lines = [
+      // Release E: the tip position and rotation as real tables.
+      const lines: EngReportLine[] = [
+        ...engEq("robotics-dh"),
         `Forward kinematics of a ${rows.length}-joint chain`,
         "",
-        `  Tip position  x = ${engNum(res.position[0], 6)} m`,
-        `                y = ${engNum(res.position[1], 6)} m`,
-        `                z = ${engNum(res.position[2], 6)} m`,
-        `  Distance from base ${engNum(Math.hypot(res.position[0], res.position[1], res.position[2]), 6)} m`,
+        kvTable([
+          ["Tip position x", engNum(res.position[0], 6), "m"],
+          ["Tip position y", engNum(res.position[1], 6), "m"],
+          ["Tip position z", engNum(res.position[2], 6), "m"],
+          ["Distance from base", engNum(Math.hypot(res.position[0], res.position[1], res.position[2]), 6), "m"],
+        ]),
         "",
-        "  Tip rotation matrix",
+        {
+          label: "Tip rotation matrix",
+          table: [
+            ["Row", "1", "2", "3"],
+            ...[0, 1, 2].map((i) => [`${i + 1}`, engNum(res.rotation[i * 3], 5), engNum(res.rotation[i * 3 + 1], 5), engNum(res.rotation[i * 3 + 2], 5)]),
+          ],
+        },
       ];
-      for (let i = 0; i < 3; i++) {
-        lines.push(
-          `    [ ${engNum(res.rotation[i * 3], 5)}  ${engNum(res.rotation[i * 3 + 1], 5)}  ${engNum(res.rotation[i * 3 + 2], 5)} ]`,
-        );
-      }
+      const dhOutputs: EngOutput[] = [
+        { key: "xTip", label: "Tip position x", value: res.position[0], unit: "m" },
+        { key: "yTip", label: "Tip position y", value: res.position[1], unit: "m" },
+        { key: "zTip", label: "Tip position z", value: res.position[2], unit: "m" },
+        { key: "dist", label: "Distance from base", value: Math.hypot(res.position[0], res.position[1], res.position[2]), unit: "m" },
+      ];
       lines.push("");
       if (res.rpy) {
         const d = (v: number) => engNum((v * 180) / Math.PI, 6);
@@ -21486,7 +21538,7 @@ const ENG_CALCS: EngCalc[] = [
           note: `tip x ${engNum(res.position[0], 4)}, z ${engNum(res.position[2], 4)} m`,
           minSpan: shared,
         });
-        return engReport(lines, [
+        return withOutputs(dhOutputs, engReport(lines, [
           {
             kind: "plot",
             svg: planSvg,
@@ -21503,9 +21555,9 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dhOutputs, engReport(lines));
     },
   },
   {
@@ -21532,17 +21584,24 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) {
         return { text: "Distance cannot be negative, and speed and acceleration must be positive.", ok: false };
       }
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...(res.shape === "triangular" ? engEq("robotics-profile:triangular") : engEq("robotics-profile:trapezoidal")),
         `Motion profile - ${res.shape}`,
         "",
-        `  Total time      ${engNum(res.totalTimeS, 6)} s`,
-        `  Accelerate for  ${engNum(res.accelTimeS, 6)} s`,
-        `  Cruise for      ${engNum(res.cruiseTimeS, 6)} s`,
-        `  Decelerate for  ${engNum(res.accelTimeS, 6)} s`,
-        "",
-        `  Peak speed      ${engNum(res.peakSpeed, 6)} m/s`,
-        `  Accel distance  ${engNum(res.accelDistance, 6)} m  (each end)`,
-        `  Cruise distance ${engNum(res.cruiseDistance, 6)} m`,
+        kvTable([
+          ["Total time", engNum(res.totalTimeS, 6), "s"],
+          ["Accelerate for", engNum(res.accelTimeS, 6), "s"],
+          ["Cruise for", engNum(res.cruiseTimeS, 6), "s"],
+          ["Decelerate for", engNum(res.accelTimeS, 6), "s"],
+          ["Peak speed", engNum(res.peakSpeed, 6), "m/s"],
+          ["Accel distance (each end)", engNum(res.accelDistance, 6), "m"],
+          ["Cruise distance", engNum(res.cruiseDistance, 6), "m"],
+        ]),
+      ];
+      const prOutputs: EngOutput[] = [
+        { key: "tTotal", label: "Total time", value: res.totalTimeS, unit: "s" },
+        { key: "vPeak", label: "Peak speed", value: res.peakSpeed, unit: "m/s" },
+        { key: "tAccel", label: "Acceleration time", value: res.accelTimeS, unit: "s" },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -21584,7 +21643,7 @@ const ENG_CALCS: EngCalc[] = [
             title: res.shape === "triangular" ? "The move never reaches the commanded speed" : "The trapezoidal profile",
           },
         );
-        return engReport(lines, [
+        return withOutputs(prOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21596,9 +21655,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(prOutputs, engReport(lines));
     },
   },
   {
@@ -21651,21 +21710,34 @@ const ENG_CALCS: EngCalc[] = [
         : diffDriveFromWheels(a1, a2, W, rw === null ? undefined : rw);
       if (!res) return { text: "The track width must be greater than zero.", ok: false };
 
-      const lines = [
-        body ? "Differential drive - wheel speeds for the commanded motion" : "Differential drive - motion from the wheel speeds",
-        "",
-        `  Left wheel    ${engNum(res.leftSpeed, 6)} m/s`,
-        `  Right wheel   ${engNum(res.rightSpeed, 6)} m/s`,
-        "",
-        `  Body speed    ${engNum(res.linearSpeed, 6)} m/s`,
-        `  Yaw rate      ${engNum(res.angularSpeed, 6)} rad/s  (${engNum((res.angularSpeed * 180) / Math.PI, 5)} °/s)`,
-        `  Turn radius   ${res.turnRadius === Infinity ? "infinite (straight ahead)" : engNum(res.turnRadius, 6) + " m"}`,
+      const ddRows: Array<[string, string, string]> = [
+        ["Left wheel", engNum(res.leftSpeed, 6), "m/s"],
+        ["Right wheel", engNum(res.rightSpeed, 6), "m/s"],
+        ["Body speed", engNum(res.linearSpeed, 6), "m/s"],
+        ["Yaw rate", engNum(res.angularSpeed, 6), "rad/s"],
+        ["Yaw rate", engNum((res.angularSpeed * 180) / Math.PI, 5), "°/s"],
+        res.turnRadius === Infinity ? ["Turn radius", "infinite (straight ahead)", ""] : ["Turn radius", engNum(res.turnRadius, 6), "m"],
       ];
       if (res.wheelRates) {
-        lines.push("");
-        lines.push(`  Left wheel rate  ${engNum(res.wheelRates[0], 6)} rad/s  (${engNum((res.wheelRates[0] * 60) / (2 * Math.PI), 5)} rpm)`);
-        lines.push(`  Right wheel rate ${engNum(res.wheelRates[1], 6)} rad/s  (${engNum((res.wheelRates[1] * 60) / (2 * Math.PI), 5)} rpm)`);
+        ddRows.push(["Left wheel rate", engNum(res.wheelRates[0], 6), "rad/s"]);
+        ddRows.push(["Left wheel rate", engNum((res.wheelRates[0] * 60) / (2 * Math.PI), 5), "rpm"]);
+        ddRows.push(["Right wheel rate", engNum(res.wheelRates[1], 6), "rad/s"]);
+        ddRows.push(["Right wheel rate", engNum((res.wheelRates[1] * 60) / (2 * Math.PI), 5), "rpm"]);
       }
+      const lines: EngReportLine[] = [
+        ...(body ? engEq("robotics-diffdrive:body") : engEq("robotics-diffdrive:wheels")),
+        ...(res.wheelRates ? engEq("robotics-diffdrive:rates") : []),
+        body ? "Differential drive - wheel speeds for the commanded motion" : "Differential drive - motion from the wheel speeds",
+        "",
+        kvTable(ddRows),
+      ];
+      const ddOutputs: EngOutput[] = [
+        { key: "vBody", label: "Body speed", value: res.linearSpeed, unit: "m/s" },
+        { key: "omega", label: "Yaw rate", value: res.angularSpeed, unit: "rad/s" },
+        { key: "Rturn", label: "Turn radius", value: res.turnRadius, unit: "m" },
+        { key: "vLeft", label: "Left wheel speed", value: res.leftSpeed, unit: "m/s" },
+        { key: "vRight", label: "Right wheel speed", value: res.rightSpeed, unit: "m/s" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -21710,7 +21782,7 @@ const ENG_CALCS: EngCalc[] = [
             [],
             { title: "Straight ahead", note: "equal wheels: infinite turn radius, parallel tracks" },
           );
-          return engReport(lines, [
+          return withOutputs(ddOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -21719,7 +21791,7 @@ const ENG_CALCS: EngCalc[] = [
               w: ARM_CHART_SIZE.w,
               h: ARM_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
         // The engine's turnRadius is SIGNED (v/ω), and that sign already
         // carries the turn direction: with the robot on the x axis heading
@@ -21751,7 +21823,7 @@ const ENG_CALCS: EngCalc[] = [
             note: `turn radius ${engNum(Math.abs(res.turnRadius), 4)} m about the marked centre; dashed circles are the wheel tracks`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(ddOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21760,7 +21832,7 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },

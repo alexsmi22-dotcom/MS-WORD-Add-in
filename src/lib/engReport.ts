@@ -4,6 +4,8 @@
  * tested: host-adapter scope §E).
  */
 import { AnalyzeBlock, AnalyzeOutput, analyzeBlocksToText } from "./analyzeBlocks";
+import { trueMinus } from "./numberList";
+import { toSuperscript } from "./units";
 
 /**
  * Swaps em dashes for hyphens in prose destined for a Stats result.
@@ -26,12 +28,50 @@ export function plainDashes(text: string): string {
  */
 export type EngLine = string | { math: string; fallback: string };
 
+/**
+ * A results table IN PLACE among the report's lines (Release E): first row the header, units in its cells. It goes
+ * where the padded text lines used to be, not after the notes as an `extra` block would. Cells are cleaned like lines.
+ */
+export interface EngTableLine {
+  table: string[][];
+  label?: string;
+}
+
+/**
+ * One table cell under the display contract: the em-dash sentinel cleaned, a true minus on negative numbers, and
+ * e-notation written as ×10ⁿ (the pane's number formatter returns "1.2e-5" and "-3"; a table is new output and is
+ * typeset). Hyphenated names ("A-B", "1-2") are left alone.
+ */
+export function engCell(text: string): string {
+  const sci = text.replace(/(^|[^\w.])(-?\d+(?:\.\d+)?)[eE]([+-]?)(\d+)(?![\w.])/g, (_m, pre: string, mant: string, sg: string, ex: string) =>
+    `${pre}${mant}×10${toSuperscript((sg === "-" ? "-" : "") + String(Number(ex)))}`,
+  );
+  return trueMinus(plainDashes(sci));
+}
+
+/**
+ * A quantity / value / unit table — the form of the padded "  Flow     0.012 m³/s" summaries the tools printed —
+ * with the unit in its own column. Rows whose value is not shown are left out by the caller.
+ */
+export function kvTable(rows: Array<[string, string, string]>, label?: string): EngTableLine {
+  return { table: [["Quantity", "Value", "Unit"], ...rows], ...(label !== undefined ? { label } : {}) };
+}
+
+/** A report line: prose, a formula, or a table. */
+export type EngReportLine = EngLine | EngTableLine;
+
 /** Turns an Engineering report into blocks, typesetting the marked formulas. */
-export function engReport(lines: EngLine[], extra: AnalyzeBlock[] = []): AnalyzeOutput {
-  const blocks: AnalyzeBlock[] = lines.map((l) =>
+export function engReport(lines: EngReportLine[], extra: AnalyzeBlock[] = []): AnalyzeOutput {
+  const blocks: AnalyzeBlock[] = lines.map((l): AnalyzeBlock =>
     typeof l === "string"
       ? { kind: "line" as const, text: plainDashes(l) }
-      : { kind: "math" as const, math: l.math, fallback: plainDashes(l.fallback) },
+      : "table" in l
+        ? {
+            kind: "table" as const,
+            ...(l.label !== undefined ? { label: plainDashes(l.label) } : {}),
+            rows: l.table.map((r) => r.map(engCell)),
+          }
+        : { kind: "math" as const, math: l.math, fallback: plainDashes(l.fallback) },
   );
   // A FIGURE'S CAPTION IS PART OF THE RESULT TEXT, and the insert guard scans
   // the whole of it for the em dash it uses as the non-finite sentinel. The

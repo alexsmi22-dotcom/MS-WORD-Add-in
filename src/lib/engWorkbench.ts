@@ -52,7 +52,28 @@ export const ENG_HANDOFFS: EngHandoff[] = [
   // Energy and power.
   { from: "energy-solar", output: "Eyear", to: "energy-lcoe", field: "e", label: "Use the annual energy in LCOE" },
   { from: "energy-three-phase", output: "P", to: "energy-pf-correction", field: "p", label: "Use P in Power factor correction" },
-  { from: "energy-three-phase", output: "pf", to: "energy-pf-correction", field: "pf1", label: "Use the power factor in Power factor correction", unit: "" },
+  { from: "energy-three-phase", output: "PF", to: "energy-pf-correction", field: "pf1", label: "Use the power factor in Power factor correction", unit: "" },
+  // Release E outputs part: further natural pairs. A target that reads a bare number in a fixed unit gets unit "" and
+  // a label naming that unit; every other target converts the output's own unit.
+  { from: "energy-wind", output: "Eyear", to: "energy-lcoe", field: "e", label: "Use the annual energy in LCOE" },
+  { from: "energy-hydro", output: "Eyear", to: "energy-lcoe", field: "e", label: "Use the annual energy in LCOE" },
+  { from: "energy-capacity-factor", output: "CF", to: "energy-wind", field: "cf", label: "Use the capacity factor in Wind turbine power", unit: "" },
+  { from: "energy-capacity-factor", output: "CF", to: "energy-hydro", field: "cf", label: "Use the capacity factor in Hydropower", unit: "" },
+  { from: "energy-weibull", output: "CF", to: "energy-wind", field: "cf", label: "Use the capacity factor in Wind turbine power", unit: "" },
+  { from: "energy-three-phase", output: "Iline", to: "energy-voltage-drop", field: "i", label: "Use the line current in Cable voltage drop" },
+  { from: "energy-pf-correction", output: "Iafter", to: "energy-voltage-drop", field: "i", label: "Use the corrected current in Cable voltage drop" },
+  { from: "fatigue-endurance", output: "Se", to: "fatigue-safety", field: "se", label: "Use Se in Mean stress & factor of safety (MPa)", unit: "" },
+  { from: "fatigue-endurance", output: "Se", to: "fatigue-life", field: "se", label: "Use Se in Finite life & cumulative damage (MPa)", unit: "" },
+  { from: "fatigue-endurance", output: "Kf", to: "fatigue-safety", field: "kf", label: "Use Kf in Mean stress & factor of safety", unit: "" },
+  { from: "chips-power", output: "Ptotal", to: "chips-thermal", field: "P", label: "Use the total power in Junction temperature" },
+  { from: "aero-polar", output: "drag", to: "aero-climb", field: "D", label: "Use the drag in Climb rate & glide" },
+  { from: "aero-isa", output: "rhoisa", to: "energy-wind", field: "rho", label: "Use the air density in Wind turbine power" },
+  { from: "aero-isa", output: "rhoisa", to: "body-drag", field: "rho", label: "Use the air density in Drag on a body" },
+  { from: "pipe", output: "hLoss", to: "pump-npsh", field: "hloss", label: "Use the head loss as the suction-line loss in Pump NPSH" },
+  { from: "robotics-ik", output: "theta1a", to: "robotics-jacobian", field: "t1", label: "Use θ1 (first branch) in Jacobian (degrees)", unit: "" },
+  { from: "robotics-ik", output: "theta2a", to: "robotics-jacobian", field: "t2", label: "Use θ2 (first branch) in Jacobian (degrees)", unit: "" },
+  { from: "video-bitrate", output: "Rcomp", to: "video-stream", field: "rate", label: "Use the bitrate in Streaming bandwidth" },
+  { from: "video-bitrate", output: "Rcomp", to: "video-interface", field: "stream", label: "Use the bitrate as the recorded stream rate" },
 ];
 
 /** The handoffs a result offers: its tool's rows whose output it actually produced. */

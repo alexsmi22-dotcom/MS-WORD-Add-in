@@ -47,7 +47,8 @@ import {
 } from "../lib/spectroPane";
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
-import { EngLine, engReport, plainDashes } from "../lib/engReport";
+import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
+import { engEq } from "../lib/engEquations";
 import { carryOver, fieldText, handoffsFor, runSweep, runUncertainty, splitValue, sweepReport, uncertaintyReport, type UncertainInput } from "../lib/engWorkbench";
 import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
 import {
@@ -636,7 +637,7 @@ import {
 } from "../lib/optics";
 import { BELL_STATES, pureTwoQubit, chsh, wernerState, bb84KeyRate, cx } from "../lib/quantum";
 import { switchingPower, junctionTemperature, interconnectDelay, timingCheck } from "../lib/chips";
-import { atmosphere, pressureAltitude, airspeeds, dragPolar, levelTurn, climbGlide } from "../lib/aero";
+import { atmosphere, pressureAltitude, airspeeds, dragPolar, levelTurn, climbGlide, LAYERS as ISA_LAYERS } from "../lib/aero";
 import {
   planarFk,
   planar2rIk,
@@ -13019,7 +13020,7 @@ interface EngUnits {
   /** An optional quantity; null when the field is blank. */
   optNull(key: string, si: string, label: string): number | null;
   /** Appends the "units read" block to a report, when anything was converted. */
-  report(lines: string[]): void;
+  report(lines: EngReportLine[]): void;
 }
 
 function engUnits(r: (k: string) => string): EngUnits {
@@ -13510,7 +13511,7 @@ const ENG_CALCS: EngCalc[] = [
         { key: "I", label: "Second moment of area (bending axis)", value: p.I * Math.pow(toMOut, 4), unit: "m⁴" },
       ];
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(`${p.name}, section properties`);
       lines.push(`Area A = ${engNum(p.A, figs)} ${dimUnit}^2`);
       lines.push(`Second moment I = ${engNum(p.I, figs)} ${dimUnit}^4`);
@@ -13578,9 +13579,11 @@ const ENG_CALCS: EngCalc[] = [
           if (mQ) secOutputs.push({ key: "sigma", label: "Peak bending stress", value: sigmaSi / 1e6, unit: "MPa" });
           if (vQ) secOutputs.push({ key: "tau", label: "Shear stress at the neutral axis", value: tauSi / 1e6, unit: "MPa" });
           lines.push("");
+          if (mQ) lines.push(...engEq("section:sigma"));
+          if (vQ) lines.push(...engEq("section:tau"));
           if (mQ) {
             lines.push(
-              `Peak bending stress = ${engNum(sigmaSi / 1e6, figs)} MPa at the ${fibre} fibre` +
+              `Peak bending stress =${engNum(sigmaSi / 1e6, figs)} MPa at the ${fibre} fibre` +
                 ` (${engNum(sigmaSi, figs)} Pa)`,
             );
             if ((mQ as { assumed: boolean }).assumed)
@@ -13666,24 +13669,36 @@ const ENG_CALCS: EngCalc[] = [
       const res = solveDc(parsed.elements);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(res.exact ? "DC operating point (exact)" : "DC operating point");
       lines.push("");
-      lines.push("Node voltages");
-      for (const n of res.nodes) {
-        const ex = n.exact && n.exact.d !== 1n ? `  = ${n.exact.n}/${n.exact.d}` : "";
-        lines.push(`  V(${n.name}) = ${engNum(n.volts)} V${ex}`);
-      }
+      // Release E: node voltages, currents and powers as real tables.
+      const anyExact = res.nodes.some((n) => n.exact && n.exact.d !== 1n);
+      lines.push({
+        label: "Node voltages",
+        table: [
+          ["Node", "Voltage (V)", ...(anyExact ? ["Exact"] : [])],
+          ...res.nodes.map((n) => [`V(${n.name})`, engNum(n.volts), ...(anyExact ? [n.exact && n.exact.d !== 1n ? `${n.exact.n}/${n.exact.d}` : ""] : [])]),
+        ],
+      });
       lines.push("");
-      lines.push("Element currents (positive from the first node to the second)");
-      for (const c of res.currents) lines.push(`  I(${c.name}) = ${engNum(c.amps)} A`);
+      lines.push({
+        label: "Element currents (positive from the first node to the second)",
+        table: [["Element", "Current (A)"], ...res.currents.map((c) => [`I(${c.name})`, engNum(c.amps)])],
+      });
       lines.push("");
-      lines.push("Power");
-      for (const p of res.power)
-        lines.push(`  ${p.name}: ${engNum(Math.abs(p.watts))} W ${p.watts >= 0 ? "dissipated" : "delivered"}`);
+      lines.push({
+        label: "Power",
+        table: [["Element", "Power (W)", "Role"], ...res.power.map((p) => [p.name, engNum(Math.abs(p.watts)), p.watts >= 0 ? "dissipated" : "delivered"])],
+      });
       lines.push(
         `  Total delivered ${engNum(res.totalDelivered)} W = total dissipated ${engNum(res.totalDissipated)} W`,
       );
+      // Named outputs (Release E): every node voltage, and the total power dissipated.
+      const dcOutputs: EngOutput[] = [
+        { key: "Pdiss", label: "Total power dissipated", value: res.totalDissipated, unit: "W" },
+        ...res.nodes.map((n) => ({ key: `V_${n.name.replace(/[^A-Za-z0-9_]/g, "_")}`, label: `Node voltage V(${n.name})`, value: n.volts, unit: "V" })),
+      ];
       for (const n of res.notes) lines.push(`Note: ${n}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -13695,7 +13710,7 @@ const ENG_CALCS: EngCalc[] = [
         .map((p) => ({ name: p.name, value: p.watts, colour: p.watts >= 0 ? "#2563eb" : "#059669" }));
       if (powerRows.length) {
         const svg = hBarSvg(powerRows, { title: "Power per element", unit: "W" });
-        return engReport(lines, [
+        return withOutputs(dcOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -13704,9 +13719,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 46 + Math.min(powerRows.length, 24) * HBAR_ROW_H + 18,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dcOutputs, engReport(lines));
     },
   },
   {
@@ -13745,16 +13760,24 @@ const ENG_CALCS: EngCalc[] = [
       if (f2 === undefined) {
         const res = solveAc(parsed.elements, f1);
         if (!res.ok) return { text: res.error, ok: false };
-        const lines: string[] = [];
+        const lines: EngReportLine[] = [...engEq("circuit-ac")];
         lines.push(`AC steady state at ${engNum(res.frequency)} Hz`);
         lines.push("");
-        for (const n of res.nodes)
-          lines.push(
-            `  V(${n.name}) = ${engNum(n.magnitude)} at ${engNum(n.phaseDeg)} deg  ` +
-              `(${engNum(n.re)} ${n.im >= 0 ? "+" : "-"} j${engNum(Math.abs(n.im))})`,
-          );
+        // Release E: the node phasors as a real table.
+        lines.push({
+          table: [
+            ["Node", "Magnitude", "Phase (deg)", "Phasor"],
+            ...res.nodes.map((n) => [`V(${n.name})`, engNum(n.magnitude), engNum(n.phaseDeg), `${engNum(n.re)} ${n.im >= 0 ? "+" : "−"} j${engNum(Math.abs(n.im))}`]),
+          ],
+        });
         for (const n of res.notes) lines.push(`Note: ${n}`);
-        return { text: plainDashes(lines.join("\n")) };
+        return withOutputs(
+          res.nodes.flatMap((n) => [
+            { key: `Vmag_${n.name.replace(/[^A-Za-z0-9_]/g, "_")}`, label: `Magnitude of V(${n.name})`, value: n.magnitude, unit: "" },
+            { key: `Vphase_${n.name.replace(/[^A-Za-z0-9_]/g, "_")}`, label: `Phase of V(${n.name})`, value: n.phaseDeg, unit: "deg" },
+          ]),
+          engReport(lines),
+        );
       }
 
       const sweep = frequencySweep(parsed.elements, out, f1, f2, 160);
@@ -13786,7 +13809,7 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("circuit-ac")];
       lines.push(`Frequency response at node ${out}`);
       lines.push(`Swept ${engNum(f1)} Hz to ${engNum(f2)} Hz, ${pts.length} points, logarithmic`);
       lines.push(`  at ${engNum(pts[0].f)} Hz: ${engNum(pts[0].magnitude)} at ${engNum(pts[0].phaseDeg)} deg`);
@@ -13800,9 +13823,10 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("AC results are floating point, and phase is in degrees relative to the source.");
       lines.push(ENG_SAME_UNIT_NOTE);
 
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "fc", label: "3 dB frequency", value: corner ?? NaN, unit: "Hz" },
+        { key: "magEnd", label: "Magnitude at the sweep stop", value: last.magnitude, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot" as const,
           svg,
@@ -13811,8 +13835,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -13843,7 +13866,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = analyzeStress(state);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("stress"), ...(res.plane ? engEq("stress:plane") : [])];
       lines.push(res.plane ? "Plane stress state" : "General three-dimensional stress state");
       lines.push("");
       lines.push("Principal stresses");
@@ -13949,7 +13972,16 @@ const ENG_CALCS: EngCalc[] = [
               },
             ]
           : [];
-      return engReport(lines, blocks);
+      // Named outputs (Release E): in the stress unit typed (this tool reads one consistent unit, so no unit is named).
+      return withOutputs(
+        [
+          { key: "sigma1", label: "Principal stress σ₁", value: res.principal[0], unit: "" },
+          { key: "sigma3", label: "Principal stress σ₃", value: res.principal[2], unit: "" },
+          { key: "vonMises", label: "von Mises stress", value: res.vonMises, unit: "" },
+          { key: "tauMax", label: "Absolute maximum shear", value: res.tauAbsMax, unit: "" },
+        ],
+        engReport(lines, blocks),
+      );
     },
   },
   {
@@ -13987,28 +14019,29 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
       const fu = r("unit").trim();
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(
         `Planar truss: ${res.counts.joints} joints, ${res.counts.members} members, ` +
           `${res.counts.reactions} reaction components`,
       );
       lines.push(res.determinacy);
       lines.push("");
-      lines.push("Member forces (positive = tension)");
+      // Release E: the member and reaction lists are real tables. An exact answer keeps its fraction column, because
+      // the fraction is what a textbook quotes and what a student is checking.
+      const fHead = fu ? `Force (${fu})` : "Force";
+      const memberRows: string[][] = [["Member", fHead, "Exact", "State", "Length"]];
       for (const m of res.members) {
-        // An exact answer is shown as a fraction as well as a decimal, because
-        // the fraction is what a textbook quotes and what a student is checking.
-        const exact =
-          m.exact && m.exact.d !== 1n ? ` = ${m.exact.n}/${m.exact.d}` : "";
+        const exact = m.exact && m.exact.d !== 1n ? `${m.exact.n}/${m.exact.d}` : "";
         const tag = m.state === "zero" ? "zero force" : m.state;
-        lines.push(`  ${m.a}-${m.b}: ${engNum(m.force)}${exact} ${fu} (${tag}), length ${engNum(m.length)}`);
+        memberRows.push([`${m.a}-${m.b}`, engNum(m.force), exact, tag, engNum(m.length)]);
       }
+      lines.push({ table: memberRows, label: "Member forces (positive = tension)" });
       lines.push("");
-      lines.push("Reactions");
+      const reactionRows: string[][] = [["Joint", "Direction", fHead, "Exact"]];
       for (const v of res.reactions) {
-        const exact = v.exact.d !== 1n ? ` = ${v.exact.n}/${v.exact.d}` : "";
-        lines.push(`  ${v.joint} ${v.dir}: ${engNum(v.value)}${exact} ${fu}`);
+        reactionRows.push([v.joint, v.dir, engNum(v.value), v.exact.d !== 1n ? `${v.exact.n}/${v.exact.d}` : ""]);
       }
+      lines.push({ table: reactionRows, label: "Reactions" });
       if (res.maxTension || res.maxCompression) {
         lines.push("");
         if (res.maxTension)
@@ -14031,19 +14064,25 @@ const ENG_CALCS: EngCalc[] = [
       // The truss drawn in its own geometry, members coloured by what they
       // carry. Zero-force members are the reason: they look structurally
       // essential and carry nothing, and a list of names does not show that.
-      return engReport(lines, [
-        {
-          kind: "plot",
-          svg: trussSvg(
-            parsed.input.joints.map((j) => ({ name: j.name, x: ratNum(j.x), y: ratNum(j.y) })),
-            res.members.map((m) => ({ a: m.a, b: m.b, force: m.force })),
-          ),
-          caption: "Truss member forces",
-          alt: "Truss geometry with members coloured by tension, compression or zero force",
-          w: TRUSS_CHART_SIZE.w,
-          h: TRUSS_CHART_SIZE.h,
-        },
-      ]);
+      return withOutputs(
+        [
+          { key: "maxTension", label: "Largest tension", value: res.maxTension?.force ?? NaN, unit: fu },
+          { key: "maxCompression", label: "Largest compression", value: res.maxCompression?.force ?? NaN, unit: fu },
+        ],
+        engReport(lines, [
+          {
+            kind: "plot",
+            svg: trussSvg(
+              parsed.input.joints.map((j) => ({ name: j.name, x: ratNum(j.x), y: ratNum(j.y) })),
+              res.members.map((m) => ({ a: m.a, b: m.b, force: m.force })),
+            ),
+            caption: "Truss member forces",
+            alt: "Truss geometry with members coloured by tension, compression or zero force",
+            w: TRUSS_CHART_SIZE.w,
+            h: TRUSS_CHART_SIZE.h,
+          },
+        ]),
+      );
     },
   },
   {
@@ -14184,7 +14223,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("column"), ...(res.slendernessTransition !== null ? engEq("column:johnson") : [])];
       lines.push("Column buckling");
       if (sectionNote) lines.push(`Note: ${sectionNote}`);
       lines.push(`Effective length factor K = ${engNum(res.K, figs)}, effective length = ${engNum(res.Le, figs)} m`);
@@ -14214,7 +14253,11 @@ const ENG_CALCS: EngCalc[] = [
       // The two curves and where this column sits on them. Drawn because the
       // reason the Johnson parabola exists is invisible in a table and obvious
       // in a picture: Euler runs off to infinity as the column gets stumpy.
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Pcr", label: "Governing critical load", value: res.pCritical, unit: "N" },
+        { key: "Peuler", label: "Euler critical load", value: res.pEuler, unit: "N" },
+        { key: "slenderness", label: "Slenderness ratio Le/r", value: res.slenderness, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg: columnCurveSvg({
@@ -14229,7 +14272,7 @@ const ENG_CALCS: EngCalc[] = [
           w: COLUMN_CHART_SIZE.w,
           h: COLUMN_CHART_SIZE.h,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -14262,7 +14305,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("torsion"), ...(res.twistRad !== null ? engEq("torsion:twist") : [])];
       lines.push("Torsion of a circular shaft");
       lines.push(`Polar second moment J = ${engNum(res.J, figs)} m^4`);
       lines.push(`Peak shear stress at the surface = ${engNum(res.tauMax / 1e6, figs)} MPa (${engNum(res.tauMax, figs)} Pa)`);
@@ -14279,7 +14322,11 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(ENG_UNIT_NOTE);
       // Shear against radius. Linear from zero at the axis, which is the whole
       // argument for a hollow shaft and is one glance in a picture.
-      return engReport(lines, [
+      return withOutputs([
+        { key: "tauMax", label: "Peak shear stress", value: res.tauMax / 1e6, unit: "MPa" },
+        { key: "twist", label: "Angle of twist", value: res.twistRad !== null ? (res.twistDeg as number) : NaN, unit: "°" },
+        { key: "J", label: "Polar second moment J", value: res.J, unit: "m⁴" },
+      ], engReport(lines, [
         {
           kind: "plot",
           // Millimetres, not metres. The radius labels format to one decimal
@@ -14291,7 +14338,7 @@ const ENG_CALCS: EngCalc[] = [
           w: TORSION_CHART_SIZE.w,
           h: TORSION_CHART_SIZE.h,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -14320,26 +14367,37 @@ const ENG_CALCS: EngCalc[] = [
       const res = analyzeFrame(p.model);
       if (!res.ok) return { text: engRefusal(res.errors.join("\n")), ok: false };
       const [fu = "kN", lu = "m"] = (r("unit") || "kN,m").split(",").map((s) => s.trim());
-      const lines: string[] = [`Plane frame: ${res.model.nodes.length} nodes, ${res.model.members.length} members (direct stiffness, Euler–Bernoulli members).`];
-      lines.push("Displacements (u, v, θ):");
-      res.model.nodes.forEach((n, i) => lines.push(`  ${n.id}: u = ${engNum(res.disp[i][0])} ${lu}, v = ${engNum(res.disp[i][1])} ${lu}, θ = ${engNum(res.disp[i][2])} rad`));
-      lines.push("Reactions (Rx, Ry, M):");
-      for (const [ni, rr] of res.reactions) lines.push(`  ${res.model.nodes[ni].id}: Rx = ${engNum(rr[0])} ${fu}, Ry = ${engNum(rr[1])} ${fu}, M = ${engNum(rr[2])} ${fu}·${lu}`);
-      lines.push("Members (axial force, tension positive; largest bending moment, sagging positive):");
-      for (const m of res.members) lines.push(`  ${m.id}: N = ${engNum(m.axial)} ${fu}, largest M = ${engNum(m.maxMoment.M)} ${fu}·${lu} at ${engNum(m.maxMoment.x)} ${lu} from its first node`);
+      const lines: EngReportLine[] = [`Plane frame: ${res.model.nodes.length} nodes, ${res.model.members.length} members (direct stiffness, Euler–Bernoulli members).`];
+      // Release E: the three lists are real tables (units in the header cells).
+      lines.push({
+        label: "Displacements (u, v, θ)",
+        table: [["Node", `u (${lu})`, `v (${lu})`, "θ (rad)"], ...res.model.nodes.map((n, i) => [n.id, engNum(res.disp[i][0]), engNum(res.disp[i][1]), engNum(res.disp[i][2])])],
+      });
+      lines.push({
+        label: "Reactions (Rx, Ry, M)",
+        table: [["Node", `Rx (${fu})`, `Ry (${fu})`, `M (${fu}·${lu})`], ...[...res.reactions].map(([ni, rr]) => [res.model.nodes[ni].id, engNum(rr[0]), engNum(rr[1]), engNum(rr[2])])],
+      });
+      lines.push({
+        label: "Members (axial force, tension positive; largest bending moment, sagging positive)",
+        table: [
+          ["Member", `N (${fu})`, `Largest M (${fu}·${lu})`, `at x (${lu}) from its first node`],
+          ...res.members.map((m) => [m.id, engNum(m.axial), engNum(m.maxMoment.M), engNum(m.maxMoment.x)]),
+        ],
+      });
       lines.push(`Equilibrium check: residual ${res.residual.toExponential(1)} of the largest load.`);
       for (const n of res.notes) lines.push(`Note: ${n}`);
       const svg = frameChartSvg(res, { force: fu, length: lu });
       const size = svgRootSize(svg, FRAME_CHART_SIZE.width, FRAME_CHART_SIZE.height);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return {
-        text: clean.join("\n"),
-        blocks: [
-          ...clean.map((t) => ({ kind: "line" as const, text: t })),
-          { kind: "plot" as const, svg, caption: "Frame, deflected shape and bending moment", alt: `Plane frame of ${res.model.members.length} members with its deflected shape and bending moment diagram`, w: size.w, h: size.h },
-        ],
-      };
+      // Named outputs (Release E): the members' largest bending moment and axial force (by size, sign kept), in the
+      // frame's own units.
+      const peakBy = (vals: number[]): number => vals.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
+      return withOutputs([
+        { key: "Mpeak", label: "Largest member bending moment", value: peakBy(res.members.map((m) => m.maxMoment.M)), unit: fu + "·" + lu },
+        { key: "Npeak", label: "Largest member axial force", value: peakBy(res.members.map((m) => m.axial)), unit: fu },
+      ], engReport(lines, [
+        { kind: "plot" as const, svg, caption: "Frame, deflected shape and bending moment", alt: `Plane frame of ${res.model.members.length} members with its deflected shape and bending moment diagram`, w: size.w, h: size.h },
+      ]));
     },
   },
   {
@@ -14374,10 +14432,13 @@ const ENG_CALCS: EngCalc[] = [
       const size = svgRootSize(svg, PLATE_CHART_WIDTH, 300);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
       const clean = lines.map(plainDashes);
-      return {
+      return withOutputs([
+        { key: "maxVM", label: "Largest von Mises stress", value: res.maxVM.value, unit: u },
+        { key: "maxDisp", label: "Largest displacement", value: res.maxDisp.value, unit: "" },
+      ], {
         text: clean.join("\n"),
         blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "von Mises stress on the deformed plate", alt: "Plane-stress plate coloured by von Mises stress", w: size.w, h: size.h }],
-      };
+      });
     },
   },
   {
@@ -14460,7 +14521,11 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [
+        ...engEq("pipe"),
+        ...(res.regime === "laminar" ? engEq("pipe:laminar") : res.regime === "turbulent" ? engEq("pipe:turbulent") : []),
+        ...(res.hMinor > 0 ? engEq("pipe:minor") : []),
+      ];
       lines.push("Pipe flow");
       lines.push(fluidNote);
       lines.push(
@@ -14492,6 +14557,14 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       lines.push(ENG_UNIT_NOTE);
 
+      // Named outputs (Release E): the headline numbers in the units the text quotes them in.
+      const pipeOutputs: EngOutput[] = [
+        { key: "Re", label: "Reynolds number", value: res.Re, unit: "" },
+        { key: "fD", label: "Darcy friction factor", value: res.f, unit: "" },
+        { key: "hLoss", label: "Total head loss", value: res.hTotal, unit: "m" },
+        { key: "dp", label: "Pressure drop", value: res.dp, unit: "Pa" },
+        { key: "Ppump", label: "Pump shaft power", value: res.pumpPower ?? NaN, unit: "W" },
+      ];
       // The system head curve: the same pipe swept over flow, with this flow
       // on it. Head loss grows roughly with Q² (exactly with Q through the
       // Colebrook factor, which is why each point re-solves it), and where a
@@ -14524,7 +14597,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "System head curve",
           },
         );
-        return engReport(lines, [
+        return withOutputs(pipeOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -14533,9 +14606,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(pipeOutputs, engReport(lines));
     },
   },
   {
@@ -14648,21 +14721,22 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("wall"), ...(geom === "plane" ? engEq("wall:plane") : engEq("wall:cylinder"))];
       lines.push(geom === "plane" ? "Composite plane wall" : "Composite cylindrical wall");
       lines.push(`Total thermal resistance = ${engNum(res.Rtotal, figs)} K/W`);
       lines.push(`Overall coefficient U = ${engNum(res.U, figs)} W/(m²·K), on the outer area ${engNum(res.areaOuter, figs)} m²`);
       lines.push(`Heat rate Q = ${engNum(res.Q, figs)} W`);
       lines.push(`Heat flux = ${engNum(res.flux, figs)} W/m² of outer surface`);
       lines.push("");
-      lines.push("Resistance chain, inside to outside");
-      lines.push(`  Inside fluid at ${engNum(tInSi, figs)} °C`);
-      for (const s of res.steps) {
-        lines.push(
-          `  ${s.name}: R = ${engNum(s.R, figs)} K/W (${engNum(100 * s.share, 3)}%) → ` +
-            `${engNum(s.tAfter, figs)} °C`,
-        );
-      }
+      // Release E: the resistance chain as a real table.
+      lines.push({
+        label: "Resistance chain, inside to outside",
+        table: [
+          ["Stage", "R (K/W)", "Share (%)", "Temperature after (°C)"],
+          ["Inside fluid", "", "", engNum(tInSi, figs)],
+          ...res.steps.map((s) => [s.name, engNum(s.R, figs), engNum(100 * s.share, 3), engNum(s.tAfter, figs)]),
+        ],
+      });
       lines.push("");
       lines.push(`Controlling resistance: ${res.controlling}`);
       if (res.criticalRadius !== null) {
@@ -14681,6 +14755,12 @@ const ENG_CALCS: EngCalc[] = [
       // the vertical steps at each face are the films. The walk is positional
       // — steps come back in chain order (inside film if present, each layer,
       // outside film if present), which this compute built itself.
+      const wallOutputs: EngOutput[] = [
+        { key: "U", label: "Overall coefficient U", value: res.U, unit: "W/(m²·K)" },
+        { key: "Qrate", label: "Heat rate", value: res.Q, unit: "W" },
+        { key: "Rtotal", label: "Total thermal resistance", value: res.Rtotal, unit: "K/W" },
+        { key: "flux", label: "Heat flux", value: res.flux, unit: "W/m²" },
+      ];
       const profile: Point[] = [{ x: 0, y: tInSi }];
       let stepIdx = 0;
       let xmm = 0;
@@ -14711,7 +14791,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Temperature through the wall",
           },
         );
-        return withOutputs([{ key: "U", label: "Overall coefficient U", value: res.U, unit: "W/(m²·K)" }], engReport(lines, [
+        return withOutputs(wallOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -14722,7 +14802,7 @@ const ENG_CALCS: EngCalc[] = [
           },
         ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(wallOutputs, engReport(lines));
     },
   },
   {
@@ -14772,7 +14852,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("hx")];
       lines.push(`${r("flow") === "parallel" ? "Parallel-flow" : "Counterflow"} heat exchanger`);
       lines.push(`Terminal differences: ΔT1 = ${engNum(res.dt1, figs)} K, ΔT2 = ${engNum(res.dt2, figs)} K`);
       lines.push(`Log mean temperature difference = ${engNum(res.lmtd, figs)} K`);
@@ -14817,7 +14897,11 @@ const ENG_CALCS: EngCalc[] = [
             title: `${counter ? "Counterflow" : "Parallel flow"} temperature profile`,
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "duty", label: "Heat duty", value: res.Q, unit: "W" },
+          { key: "area", label: "Area", value: res.A, unit: "m²" },
+          { key: "lmtd", label: "Log mean temperature difference", value: res.lmtd, unit: "K" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -14826,7 +14910,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -14871,17 +14955,34 @@ const ENG_CALCS: EngCalc[] = [
       const res = effectivenessNtu({ flow, cHot, cCold, thIn, tcIn, U, A });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      // Release E: the effectiveness relation for the arrangement actually used (the phase-change limit first, as in
+      // the engine), and the rating as a quantity / value / unit table.
+      const ntuEq: EngReportLine[] =
+        res.cr < 1e-9
+          ? engEq("hx-ntu:phase-change")
+          : flow === "counter"
+            ? Math.abs(res.cr - 1) < 1e-9
+              ? engEq("hx-ntu:counter-balanced")
+              : engEq("hx-ntu:counter")
+            : flow === "parallel"
+              ? engEq("hx-ntu:parallel")
+              : [];
+      const lines: EngReportLine[] = [
+        ...engEq("hx-ntu"),
+        ...ntuEq,
         `Exchanger rating, ${flow} flow`,
         "",
-        `  Cmin / Cmax         ${engNum(res.cMin, 5)} / ${engNum(res.cMax, 5)} W/K`,
-        `  Capacity ratio Cr   ${engNum(res.cr, 4)}`,
-        `  NTU = U·A/Cmin      ${engNum(res.ntu, 4)}`,
-        `  Effectiveness ε     ${engNum(res.effectiveness * 100, 4)} %`,
-        "",
-        `  Heat transferred    ${engNum(res.Q / 1000, 5)} kW  (of a possible ${engNum(res.qMax / 1000, 5)} kW)`,
-        `  Hot outlet          ${engNum(res.thOut, 5)} °C`,
-        `  Cold outlet         ${engNum(res.tcOut, 5)} °C`,
+        kvTable([
+          ["Cmin", engNum(res.cMin, 5), "W/K"],
+          ["Cmax", engNum(res.cMax, 5), "W/K"],
+          ["Capacity ratio Cr", engNum(res.cr, 4), ""],
+          ["NTU = U·A/Cmin", engNum(res.ntu, 4), ""],
+          ["Effectiveness ε", engNum(res.effectiveness * 100, 4), "%"],
+          ["Heat transferred", engNum(res.Q / 1000, 5), "kW"],
+          ["Largest possible heat", engNum(res.qMax / 1000, 5), "kW"],
+          ["Hot outlet", engNum(res.thOut, 5), "°C"],
+          ["Cold outlet", engNum(res.tcOut, 5), "°C"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -14912,7 +15013,13 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Effectiveness (%)",
         title: `Effectiveness vs NTU at Cr = ${res.cr.toFixed(2)}`,
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Qkw", label: "Heat transferred", value: res.Q / 1000, unit: "kW" },
+        { key: "effectiveness", label: "Effectiveness", value: res.effectiveness * 100, unit: "%" },
+        { key: "NTU", label: "NTU", value: res.ntu, unit: "" },
+        { key: "thOut", label: "Hot outlet", value: res.thOut, unit: "°C" },
+        { key: "tcOut", label: "Cold outlet", value: res.tcOut, unit: "°C" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -14921,7 +15028,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -14952,17 +15059,19 @@ const ENG_CALCS: EngCalc[] = [
       const res = finPerformance({ h, k, L, t, width: w, excessK: dT });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("fin"),
         "Straight rectangular fin",
         "",
-        `  Fin parameter m     ${engNum(res.m, 5)} 1/m`,
-        `  Corrected length    ${engNum(res.lCorrected, 5)} m`,
-        `  mLc                 ${engNum(res.mLc, 4)}`,
-        `  Efficiency          ${engNum(res.efficiency * 100, 4)} %`,
-        "",
-        `  Heat with the fin   ${engNum(res.qFin, 5)} W`,
-        `  Heat with no fin    ${engNum(res.qBare, 5)} W`,
-        `  Effectiveness       ${engNum(res.effectiveness, 4)}`,
+        kvTable([
+          ["Fin parameter m", engNum(res.m, 5), "1/m"],
+          ["Corrected length", engNum(res.lCorrected, 5), "m"],
+          ["mLc", engNum(res.mLc, 4), ""],
+          ["Efficiency", engNum(res.efficiency * 100, 4), "%"],
+          ["Heat with the fin", engNum(res.qFin, 5), "W"],
+          ["Heat with no fin", engNum(res.qBare, 5), "W"],
+          ["Effectiveness", engNum(res.effectiveness, 4), ""],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -14996,7 +15105,11 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Temperature above ambient (K)",
         title: `Temperature along the fin, efficiency ${(res.efficiency * 100).toFixed(1)}%`,
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "etaFin", label: "Fin efficiency", value: res.efficiency * 100, unit: "%" },
+        { key: "qFin", label: "Heat with the fin", value: res.qFin, unit: "W" },
+        { key: "epsFin", label: "Fin effectiveness", value: res.effectiveness, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -15005,7 +15118,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 250,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15043,17 +15156,19 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("lumped"),
         "Transient cooling",
         "",
-        `  Characteristic length V/A  ${engNum(res.lc, 5)} m`,
-        `  Biot number                ${engNum(res.biot, 4)}  (must be under 0.1)`,
-        `  Time constant τ            ${engNum(res.tau, 5)} s`,
-        "",
-        `  Temperature at that time   ${engNum(res.temperature, 5)} °C`,
-        `  Fraction of excess left    ${engNum(res.fractionRemaining * 100, 4)} %`,
-        `  Time to 99% of the way     ${engNum(res.timeTo99, 5)} s`,
-        `  Energy removed by then     ${engNum(res.energyJ / 1000, 5)} kJ`,
+        kvTable([
+          ["Characteristic length V/A", engNum(res.lc, 5), "m"],
+          ["Biot number (must be under 0.1)", engNum(res.biot, 4), ""],
+          ["Time constant τ", engNum(res.tau, 5), "s"],
+          ["Temperature at that time", engNum(res.temperature, 5), "°C"],
+          ["Fraction of excess left", engNum(res.fractionRemaining * 100, 4), "%"],
+          ["Time to 99% of the way", engNum(res.timeTo99, 5), "s"],
+          ["Energy removed by then", engNum(res.energyJ / 1000, 5), "kJ"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -15081,7 +15196,12 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Temperature (deg C)",
         title: `Cooling curve, tau = ${res.tau.toPrecision(3)} s`,
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Tend", label: "Temperature at that time", value: res.temperature, unit: "°C" },
+        { key: "tauTime", label: "Time constant τ", value: res.tau, unit: "s" },
+        { key: "Bi", label: "Biot number", value: res.biot, unit: "" },
+        { key: "t99", label: "Time to 99 % of the way", value: res.timeTo99, unit: "s" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -15090,7 +15210,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 250,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15149,17 +15269,20 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Radiant exchange",
-        "",
-        `  Exchange factor      ${engNum(res.factor, 5)}`,
-        `  Net radiation Q      ${engNum(res.Q, 5)} W  (${engNum(res.Q / 1000, 4)} kW)`,
-        `  Flux                 ${engNum(res.flux, 5)} W/m²`,
-        `  Equivalent h_rad     ${engNum(res.hRadiation, 5)} W/(m²·K)`,
+      const radRows: Array<[string, string, string]> = [
+        ["Exchange factor", engNum(res.factor, 5), ""],
+        ["Net radiation Q", engNum(res.Q, 5), "W"],
+        ["Net radiation Q", engNum(res.Q / 1000, 4), "kW"],
+        ["Flux", engNum(res.flux, 5), "W/m²"],
+        ["Equivalent radiation coefficient", engNum(res.hRadiation, 5), "W/(m²·K)"],
       ];
-      if (res.qConvection !== null) {
-        lines.push(`  Convection for comparison  ${engNum(res.qConvection, 5)} W`);
-      }
+      if (res.qConvection !== null) radRows.push(["Convection for comparison", engNum(res.qConvection, 5), "W"]);
+      const radGeomEq: Record<string, EngReportLine[]> = {
+        large: engEq("radiation:large"),
+        parallel: engEq("radiation:parallel"),
+        shields: engEq("radiation:shields"),
+      };
+      const lines: EngReportLine[] = [...engEq("radiation"), ...(radGeomEq[geometry] ?? []), "Radiant exchange", "", kvTable(radRows)];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -15191,7 +15314,11 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Heat rate (kW)",
         title: "Radiation against convection",
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Qrad", label: "Net radiation", value: res.Q, unit: "W" },
+        { key: "hrad", label: "Equivalent radiation coefficient", value: res.hRadiation, unit: "W/(m²·K)" },
+        { key: "factor", label: "Exchange factor", value: res.factor, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -15200,7 +15327,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15341,6 +15468,7 @@ const ENG_CALCS: EngCalc[] = [
 
       const m = secondOrderMetrics(tf);
       if (m.ok) {
+        if (m.kind === "underdamped" && m.wd > 0) lines.push(...engEq("control-step:underdamped"));
         lines.push(m.exact ? "Second-order metrics (exact for this system)" : "Transient metrics from the dominant poles");
         lines.push(`  Natural frequency wn = ${engNum(m.wn)} rad/s`);
         lines.push(`  Damping ratio zeta = ${engNum(m.zeta)} (${m.kind})`);
@@ -15367,7 +15495,13 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.t.map((t, i) => ({ x: t, y: res.y[i] })), type: "line", color: "#2563eb", label: "y(t)" }],
         { width: 380, height: 240, xlabel: "Time (s)", ylabel: "Output", title: `${kind === "step" ? "Step" : "Impulse"} response` },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "wn", label: "Natural frequency ωn", value: m.ok ? m.wn : NaN, unit: "rad/s" },
+        { key: "zeta", label: "Damping ratio ζ", value: m.ok ? m.zeta : NaN, unit: "" },
+        { key: "Mp", label: "Overshoot", value: m.ok && m.overshoot !== null ? m.overshoot * 100 : NaN, unit: "%" },
+        { key: "ts", label: "Settling time (2 %)", value: m.ok && m.settlingTime !== null ? m.settlingTime : NaN, unit: "s" },
+        { key: "yFinal", label: "Final value", value: res.finalValue ?? NaN, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -15376,7 +15510,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15404,8 +15538,9 @@ const ENG_CALCS: EngCalc[] = [
       const freqs = autoFrequencies(tf, 300);
       const resp = frequencyResponse(tf, freqs);
 
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(tfLine("L(s)", tf.num, tf.den));
+      lines.push(...engEq("control-bode"));
       lines.push("");
       if (mg.gainMarginDb !== null) {
         lines.push(`Gain margin = ${engNum(mg.gainMarginDb)} dB at ${engNum(mg.phaseCrossoverW as number)} rad/s`);
@@ -15435,7 +15570,12 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: resp.map((p) => ({ x: p.w, y: p.phaseDeg })), type: "line", color: "#b91c1c", label: "phase" }],
         { width: 380, height: 220, xlabel: "Frequency (rad/s)", ylabel: "Phase (deg)", xScale: "log", title: "Bode phase" },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "GM", label: "Gain margin", value: mg.gainMarginDb ?? NaN, unit: "dB" },
+        { key: "PM", label: "Phase margin", value: mg.phaseMarginDeg ?? NaN, unit: "°" },
+        { key: "wgc", label: "Gain crossover frequency", value: mg.phaseMarginDeg !== null ? (mg.gainCrossoverW as number) : NaN, unit: "rad/s" },
+        { key: "wpc", label: "Phase crossover frequency", value: mg.gainMarginDb !== null ? (mg.phaseCrossoverW as number) : NaN, unit: "rad/s" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg: magSvg,
@@ -15452,7 +15592,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 220,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15485,7 +15625,7 @@ const ENG_CALCS: EngCalc[] = [
       const open = series(c, plant);
       const closed = feedback(open);
 
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [...engEq("control-pid")];
       lines.push(tfLine("C(s)", c.num, c.den));
       lines.push(tfLine("G(s)", plant.num, plant.den));
       lines.push(tfLine("L(s)", open.num, open.den));
@@ -15495,8 +15635,7 @@ const ENG_CALCS: EngCalc[] = [
       if (!st.ok) return { text: st.error, ok: false };
       lines.push(st.verdict);
       lines.push("");
-      lines.push("Closed-loop poles");
-      for (const p of st.poles) lines.push(`  ${fmtComplexPlain(p)}`);
+      lines.push({ label: "Closed-loop poles", table: [["Pole", "Location (rad/s)"], ...st.poles.map((p, i) => [`p${i + 1}`, fmtComplexPlain(p)])] });
 
       // the closed loop was analysed just above; margins() reuses that verdict
       const mg = margins(open, {
@@ -15543,6 +15682,12 @@ const ENG_CALCS: EngCalc[] = [
       // setpoint change. Window from the slowest closed-loop mode, exactly as
       // the step tool chooses it; an unstable loop honestly diverges on the
       // plot instead of being hidden.
+      const pidOutputs: EngOutput[] = [
+        { key: "GM", label: "Gain margin", value: mg.ok && mg.gainMarginDb !== null ? mg.gainMarginDb : NaN, unit: "dB" },
+        { key: "PM", label: "Phase margin", value: mg.ok && mg.phaseMarginDeg !== null ? mg.phaseMarginDeg : NaN, unit: "°" },
+        { key: "Mp", label: "Closed-loop overshoot", value: m.ok && m.overshoot !== null ? m.overshoot * 100 : NaN, unit: "%" },
+        { key: "ts", label: "Closed-loop settling time (2 %)", value: m.ok && m.settlingTime !== null ? m.settlingTime : NaN, unit: "s" },
+      ];
       const slowest = st.poles.length
         ? Math.min(...st.poles.map((p) => Math.abs(p.re)).filter((v) => v > 1e-9))
         : NaN;
@@ -15563,7 +15708,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Closed-loop step response",
             },
           );
-          return engReport(lines, [
+          return withOutputs(pidOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -15572,10 +15717,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 240,
             },
-          ]);
+          ]));
         }
       }
-      return engReport(lines);
+      return withOutputs(pidOutputs, engReport(lines));
     },
   },
   {
@@ -15634,7 +15779,16 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const label = route === "iv-bolus" ? "IV bolus" : route === "infusion" ? "IV infusion" : "Oral";
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [
+        ...engEq("pk-dose"),
+        ...(route === "iv-bolus"
+          ? engEq("pk-dose:iv-bolus")
+          : route === "infusion"
+            ? engEq("pk-dose:infusion")
+            : Math.abs(p.ka - res.k) >= 1e-12 * Math.max(p.ka, res.k)
+              ? engEq("pk-dose:oral")
+              : engEq("pk-dose:oral-auc")),
+      ];
       lines.push(`${label} dose of ${engNum(p.dose)} mg`);
       lines.push(
         `CL = ${engNum(p.cl)} L/h, Vd = ${engNum(p.vd)} L` + (route === "oral" ? `, F = ${engNum(p.f)}, ka = ${engNum(p.ka)} /h` : ""),
@@ -15658,9 +15812,13 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.t.map((t, i) => ({ x: t, y: res.c[i] })), type: "line", color: "#2563eb", label: "C(t)" }],
         { width: 380, height: 240, xlabel: "Time (h)", ylabel: "Concentration (mg/L)", title: `${label} concentration-time profile` },
       );
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "kel", label: "Elimination rate constant k", value: res.k, unit: "1/h" },
+        { key: "thalf", label: "Half-life", value: res.halfLife, unit: "h" },
+        { key: "Cmax", label: "Peak concentration Cmax", value: res.cmax, unit: "mg/L" },
+        { key: "tmax", label: "Time of the peak", value: res.tmax, unit: "h" },
+        { key: "AUC", label: "AUC (0 to infinity)", value: res.auc, unit: "mg·h/L" },
+      ], engReport(lines, [
         {
           kind: "plot" as const,
           svg,
@@ -15669,8 +15827,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -15713,7 +15870,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = steadyState(p, tau);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("pk-steady")];
       lines.push(`${engNum(p.dose)} mg every ${engNum(tau)} h`);
       lines.push(
         `CL = ${engNum(p.cl)} L/h, Vd = ${engNum(p.vd)} L, F = ${engNum(p.f)}` +
@@ -15756,15 +15913,20 @@ const ENG_CALCS: EngCalc[] = [
         );
       }
       const trace = multipleDoseCurve(p, tau, nDoses, 800);
-      const clean = lines.map(plainDashes);
-      if (!trace.ok) return { text: clean.join("\n") };
+      const ssOutputs: EngOutput[] = [
+        { key: "CmaxSs", label: "Steady-state peak", value: res.cMaxSs, unit: "mg/L" },
+        { key: "CminSs", label: "Steady-state trough", value: res.cMinSs, unit: "mg/L" },
+        { key: "CavgSs", label: "Steady-state average", value: res.cAvgSs, unit: "mg/L" },
+        { key: "loading", label: "Loading dose", value: res.loadingDose, unit: "mg" },
+        { key: "Rac", label: "Accumulation ratio", value: res.accumulation, unit: "" },
+      ];
+      if (!trace.ok) return withOutputs(ssOutputs, engReport(lines));
 
       const svg = buildPlotSvg(
         [{ points: trace.t.map((t, i) => ({ x: t, y: trace.c[i] })), type: "line", color: "#2563eb", label: "C(t)" }],
         { width: 380, height: 240, xlabel: "Time (h)", ylabel: "Concentration (mg/L)", title: `${nDoses} doses, ${engNum(tau)} h apart` },
       );
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs(ssOutputs, engReport(lines, [
         {
           kind: "plot" as const,
           svg,
@@ -15773,8 +15935,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -15828,28 +15989,24 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const apparent = route === "oral" ? "/F" : "";
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("pk-nca"), ...(route === "oral" ? engEq("pk-nca:oral") : engEq("pk-nca:iv"))];
       lines.push(`Non-compartmental analysis of ${parsed.times.length} points, ${route === "oral" ? "oral" : "intravenous"} dose of ${engNum(dose)} mg`);
       lines.push("");
-      lines.push("Observed");
-      lines.push(`  Cmax = ${engNum(res.cmax)} mg/L at Tmax = ${engNum(res.tmax)} h`);
-      lines.push("");
-      lines.push("Terminal phase");
-      lines.push(`  λz = ${engNum(res.lambdaZ)} /h, from the last ${res.lambdaPoints} points (adjusted R² = ${engNum(res.lambdaR2, 4)})`);
-      lines.push(`  Half-life = ${engNum(res.halfLife)} h`);
-      lines.push("");
-      lines.push("Exposure");
-      lines.push(`  AUC to the last sample = ${engNum(res.aucLast)} mg·h/L`);
-      lines.push(`  AUC to infinity = ${engNum(res.aucInf)} mg·h/L`);
-      lines.push(`  Extrapolated beyond the last sample = ${engNum(res.percentExtrapolated)}%`);
-      lines.push("");
-      lines.push("Derived");
-      lines.push(`  Clearance CL${apparent} = Dose/AUC∞ = ${engNum(res.clearance)} L/h`);
-      lines.push(`  Terminal volume Vz${apparent} = Dose/(λz·AUC∞) = ${engNum(res.volume)} L`);
-      lines.push(`  Mean residence time = ${engNum(res.mrt)} h`);
-      if (route === "iv") {
-        lines.push(`  Steady-state volume Vss = CL·MRT = ${engNum(res.clearance * res.mrt)} L`);
-      }
+      // Release E: the NCA parameters as one quantity / value / unit table (the formulas are typeset above).
+      const ncaRows: Array<[string, string, string]> = [
+        ["Cmax (observed)", engNum(res.cmax), "mg/L"],
+        ["Tmax (observed)", engNum(res.tmax), "h"],
+        [`λz, from the last ${res.lambdaPoints} points (adjusted R² = ${engNum(res.lambdaR2, 4)})`, engNum(res.lambdaZ), "1/h"],
+        ["Half-life", engNum(res.halfLife), "h"],
+        ["AUC to the last sample", engNum(res.aucLast), "mg·h/L"],
+        ["AUC to infinity", engNum(res.aucInf), "mg·h/L"],
+        ["Extrapolated beyond the last sample", engNum(res.percentExtrapolated), "%"],
+        [`Clearance CL${apparent} = Dose/AUC∞`, engNum(res.clearance), "L/h"],
+        [`Terminal volume Vz${apparent} = Dose/(λz·AUC∞)`, engNum(res.volume), "L"],
+        ["Mean residence time", engNum(res.mrt), "h"],
+      ];
+      if (route === "iv") ncaRows.push(["Steady-state volume Vss = CL·MRT", engNum(res.clearance * res.mrt), "L"]);
+      lines.push(kvTable(ncaRows));
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_PK_UNIT_NOTE);
 
@@ -15893,9 +16050,13 @@ const ENG_CALCS: EngCalc[] = [
         pkFiltered.series.some((s) => s.points.length > 0)
           ? buildPlotSvg(pkFiltered.series, pkPlotOpts)
           : null;
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "Cmax", label: "Peak concentration Cmax", value: res.cmax, unit: "mg/L" },
+        { key: "thalf", label: "Terminal half-life", value: res.halfLife, unit: "h" },
+        { key: "AUCinf", label: "AUC to infinity", value: res.aucInf, unit: "mg·h/L" },
+        { key: "CL", label: route === "oral" ? "Apparent clearance CL/F" : "Clearance CL", value: res.clearance, unit: "L/h" },
+        { key: "Vz", label: route === "oral" ? "Apparent terminal volume Vz/F" : "Terminal volume Vz", value: res.volume, unit: "L" },
+      ], engReport(lines, [
         ...(svg
           ? [
               {
@@ -15908,8 +16069,7 @@ const ENG_CALCS: EngCalc[] = [
               },
             ]
           : []),
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -15936,7 +16096,9 @@ const ENG_CALCS: EngCalc[] = [
       const res = arrhenius(p.points, store, order);
       if (!res.ok) return { text: engRefusal(res.errors.join("\n")), ok: false };
       const tu = (r("tunit") || "months").trim();
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("shelf-life"),
+        ...(order === "first" ? engEq("shelf-life:first") : engEq("shelf-life:zero")),
         `Activation energy Ea = ${engNum(res.EaKJ)} kJ/mol${res.EaCI ? ` (95 % interval ${engNum(res.EaCI[0])} to ${engNum(res.EaCI[1])})` : ""}; ln A = ${engNum(res.lnA)}; r² = ${res.r2.toFixed(4)}.`,
         `At ${engNum(store)} °C: k = ${engNum(res.storage.k)} per ${tu.length >= 4 ? tu.replace(/s$/, "") : tu}${res.storage.kUpper ? ` (upper 95 % bound ${engNum(res.storage.kUpper)})` : ""}.`,
         `Shelf life t₉₀ (${order} order): ${engNum(res.storage.t90)} ${tu}${res.storage.t90Lower ? `; at the upper bound of k, ${engNum(res.storage.t90Lower)} ${tu}` : ""}.`,
@@ -15945,11 +16107,12 @@ const ENG_CALCS: EngCalc[] = [
       ];
       const svg = arrheniusChartSvg(res);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return {
-        text: clean.join("\n"),
-        blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Arrhenius plot", alt: `Arrhenius plot, Ea ${engNum(res.EaKJ)} kJ/mol`, w: 420, h: 269 }],
-      };
+      return withOutputs([
+        { key: "Ea", label: "Activation energy", value: res.EaKJ, unit: "kJ/mol" },
+        { key: "kStore", label: "Rate constant at storage (per time unit)", value: res.storage.k, unit: "" },
+        { key: "t90", label: "Shelf life t₉₀", value: res.storage.t90, unit: tu },
+        { key: "t90Lower", label: "Shelf life at the upper 95 % bound of k", value: res.storage.t90Lower ?? NaN, unit: tu },
+      ], engReport(lines, [{ kind: "plot" as const, svg, caption: "Arrhenius plot", alt: `Arrhenius plot, Ea ${engNum(res.EaKJ)} kJ/mol`, w: 420, h: 269 }]));
     },
   },
   {
@@ -16002,7 +16165,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = freeResponse(m, k, c, Number(r("x0") || "0"), Number(r("v0") || "0"), tEnd, 500);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("vib-free"), ...(p.wd > 0 ? engEq("vib-free:damped") : [])];
       lines.push(`Single degree of freedom: m = ${engNum(m)}, k = ${engNum(k)}, c = ${engNum(c)}` + (fromZeta ? " (from ζ)" : ""));
       lines.push("");
       lines.push(`Natural frequency ωn = √(k/m) = ${engNum(p.wn)} rad/s = ${engNum(p.fn)} Hz`);
@@ -16026,6 +16189,7 @@ const ENG_CALCS: EngCalc[] = [
         if (!est.ok) {
           lines.push(`Damping from the measured peaks: ${est.error}`);
         } else {
+          lines.push(...engEq("vib-free:decrement"));
           lines.push("Damping estimated from your two measured peaks");
           lines.push(`  δ = ${engNum(est.delta)}, ζ = ${engNum(est.zeta)}`);
           lines.push(`  which is c = ${engNum(est.zeta * p.cc)} N·s/m at this mass and stiffness`);
@@ -16040,12 +16204,15 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.t.map((t, i) => ({ x: t, y: res.x[i] })), type: "line", color: "#2563eb", label: "x(t)" }],
         { width: 380, height: 240, xlabel: "Time (s)", ylabel: "Displacement", title: `Free response, ζ = ${engNum(p.zeta, 3)}` },
       );
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "wnat", label: "Natural frequency ωn", value: p.wn, unit: "rad/s" },
+        { key: "fn", label: "Natural frequency", value: p.fn, unit: "Hz" },
+        { key: "dampingRatio", label: "Damping ratio ζ", value: p.zeta, unit: "" },
+        { key: "wd", label: "Damped natural frequency ωd", value: p.wd > 0 ? p.wd : NaN, unit: "rad/s" },
+        { key: "logDec", label: "Logarithmic decrement δ", value: res.logDecrement ?? NaN, unit: "" },
+      ], engReport(lines, [
         { kind: "plot" as const, svg, caption: "Free vibration response", alt: "Displacement against time in free vibration", w: 380, h: 240 },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -16075,7 +16242,7 @@ const ENG_CALCS: EngCalc[] = [
       const p = sdofProperties(m, k, c);
       if (!p.ok) return { text: p.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("vib-forced"), ...(res.peakR !== null ? engEq("vib-forced:peak") : [])];
       lines.push(`Harmonic forcing of an SDOF system, ζ = ${engNum(zeta)}`);
       lines.push(`Natural frequency ωn = ${engNum(p.wn)} rad/s; forcing at ${engNum(Number(r("w") || "0"))} rad/s`);
       lines.push(`Frequency ratio r = ω/ωn = ${engNum(res.r)}`);
@@ -16112,9 +16279,12 @@ const ENG_CALCS: EngCalc[] = [
           title: `Response and transmissibility, ζ = ${engNum(zeta, 3)}`,
         },
       );
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "X", label: "Steady-state amplitude", value: res.amplitude, unit: "m" },
+        { key: "MF", label: "Magnification factor", value: res.magnification, unit: "" },
+        { key: "TR", label: "Force transmissibility", value: res.transmissibility, unit: "" },
+        { key: "phase", label: "Phase lag behind the force", value: res.phaseDeg, unit: "°" },
+      ], engReport(lines, [
         {
           kind: "plot" as const,
           svg: magSvg,
@@ -16123,8 +16293,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -16188,20 +16357,26 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const n = res.frequencies.length;
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("vib-modal")];
       lines.push(`${n} degree-of-freedom system`);
       lines.push("");
-      lines.push("Natural frequencies");
-      for (let i = 0; i < n; i++) {
-        lines.push(
-          `  Mode ${i + 1}: ω = ${engNum(res.frequencies[i])} rad/s = ${engNum(res.frequenciesHz[i])} Hz` +
-            (res.frequencies[i] === 0 ? "  (rigid-body mode)" : ""),
-        );
-      }
+      // Release E: frequencies and mode shapes as real tables.
+      const anyRigid = res.frequencies.some((f) => f === 0);
+      lines.push({
+        label: "Natural frequencies",
+        table: [
+          ["Mode", "ω (rad/s)", "f (Hz)", ...(anyRigid ? [""] : [])],
+          ...res.frequencies.map((f, i) => [`${i + 1}`, engNum(f), engNum(res.frequenciesHz[i]), ...(anyRigid ? [f === 0 ? "rigid-body mode" : ""] : [])]),
+        ],
+      });
       lines.push("");
-      lines.push("Mode shapes (columns, mass-normalised)");
-      for (let i = 0; i < n; i++) {
-        lines.push(`  DOF ${i + 1}: ` + res.modes[i].map((v) => engNum(v, 4)).join("   "));
+      // Six modes per table, so a 12-DOF system does not insert a 13-column table wider than the page.
+      for (let c0 = 0; c0 < n; c0 += 6) {
+        const cols = res.frequencies.map((_, j) => j).slice(c0, c0 + 6);
+        lines.push({
+          label: n > 6 ? `Mode shapes (columns, mass-normalised), modes ${c0 + 1}–${c0 + cols.length}` : "Mode shapes (columns, mass-normalised)",
+          table: [["DOF", ...cols.map((j) => `Mode ${j + 1}`)], ...res.modes.map((row, i) => [`${i + 1}`, ...cols.map((j) => engNum(row[j], 4))])],
+        });
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_VIB_UNIT_NOTE);
@@ -16211,6 +16386,11 @@ const ENG_CALCS: EngCalc[] = [
       // chain gets its anchor at DOF 0 so the first spring's stretch shows.
       // Legends hold five entries legibly; a bigger model keeps its first
       // five modes and the caption says so.
+      const modalOutputs: EngOutput[] = [
+        { key: "f1", label: "First natural frequency", value: res.frequenciesHz[0] ?? NaN, unit: "Hz" },
+        { key: "f2", label: "Second natural frequency", value: res.frequenciesHz[1] ?? NaN, unit: "Hz" },
+        { key: "f3", label: "Third natural frequency", value: res.frequenciesHz[2] ?? NaN, unit: "Hz" },
+      ];
       const shownModes = Math.min(n, 5);
       const grounded = (r("mode") || "chain") === "chain" && r("ground") !== "free";
       const palette5 = ["#2563eb", "#b91c1c", "#059669", "#d97706", "#7c3aed"];
@@ -16235,7 +16415,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "mass-normalised amplitude",
           title: "Mode shapes",
         });
-        return engReport(lines, [
+        return withOutputs(modalOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -16247,9 +16427,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(modalOutputs, engReport(lines));
     },
   },
   {
@@ -16343,21 +16523,22 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const n = res.frequencies.length;
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("vib-mdof-forced"), ...(ray ? engEq("vib-mdof-forced:rayleigh") : [])];
       lines.push(`${n} degree-of-freedom forced response at ω = ${engNum(w)} rad/s`);
       lines.push("");
-      lines.push("Steady-state amplitude per degree of freedom");
-      for (let j = 0; j < n; j++)
-        lines.push(`  DOF ${j + 1}: ${engNum(res.amplitude[j])}, lagging the force by ${engNum(res.phaseDeg[j])}°`);
+      // Release E: the response and the modal breakdown as real tables.
+      lines.push({
+        label: "Steady-state amplitude per degree of freedom",
+        table: [["DOF", "Amplitude", "Lag behind the force (°)"], ...res.amplitude.map((a, j) => [`${j + 1}`, engNum(a), engNum(res.phaseDeg[j])])],
+      });
       lines.push("");
-      lines.push("Modal breakdown");
-      for (const c of res.contributions) {
-        lines.push(
-          `  Mode ${c.mode}: ω_n = ${engNum(c.wn)} rad/s, ζ = ${engNum(c.zeta)}, ` +
-            `r = ${c.wn > 0 ? engNum(c.r) : "—"}, generalised force ${engNum(c.force)}, ` +
-            `${(c.share * 100).toFixed(1)}% of the peak response`,
-        );
-      }
+      lines.push({
+        label: "Modal breakdown",
+        table: [
+          ["Mode", "ωn (rad/s)", "ζ", "r", "Generalised force", "Share of the peak response (%)"],
+          ...res.contributions.map((c) => [`${c.mode}`, engNum(c.wn), engNum(c.zeta), c.wn > 0 ? engNum(c.r) : "rigid", engNum(c.force), (c.share * 100).toFixed(1)]),
+        ],
+      });
       lines.push("");
       lines.push(`Mode ${res.dominantMode} dominates the largest response.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -16368,6 +16549,10 @@ const ENG_CALCS: EngCalc[] = [
       // point re-solves the same modal problem the headline numbers used, so
       // the curve cannot disagree with them. Log amplitude, because a
       // resonance three decades above the floor is the story being told.
+      const mdofOutputs: EngOutput[] = [
+        { key: "Xmax", label: "Largest steady-state amplitude", value: Math.max(...res.amplitude), unit: "" },
+        ...res.amplitude.map((a, j) => ({ key: `X${j + 1}`, label: `Amplitude of DOF ${j + 1}`, value: a, unit: "" })),
+      ];
       const wns = res.contributions.map((c) => c.wn).filter((v) => Number.isFinite(v) && v > 0);
       if (wns.length) {
         let dofMax = 0;
@@ -16395,7 +16580,7 @@ const ENG_CALCS: EngCalc[] = [
               title: `Frequency response, DOF ${dofMax + 1}`,
             },
           );
-          return engReport(lines, [
+          return withOutputs(mdofOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -16404,10 +16589,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(mdofOutputs, engReport(lines));
     },
   },
   {
@@ -16482,13 +16667,27 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      // Release E: the work law of the process actually computed (chosen by its polytropic index, as the engine does).
+      const workEq = !Number.isFinite(res.n)
+        ? engEq("thermo-process:isochoric")
+        : res.n === 0
+          ? engEq("thermo-process:isobaric")
+          : res.n === 1
+            ? engEq("thermo-process:isothermal")
+            : engEq("thermo-process:polytropic");
+      const lines: EngReportLine[] = [...workEq, ...engEq("thermo-process")];
       lines.push(`${res.gas}, ${r("kind") || "isentropic"} process (polytropic index n = ${Number.isFinite(res.n) ? engNum(res.n) : "infinite"})`);
       lines.push("");
-      lines.push("State 1 → State 2");
-      lines.push(`  P: ${engNum(res.p1)} → ${engNum(res.p2)} Pa`);
-      lines.push(`  T: ${engNum(res.t1)} → ${engNum(res.t2)} K  (${engNum(res.t1 - 273.15)} → ${engNum(res.t2 - 273.15)} °C)`);
-      lines.push(`  V: ${engNum(res.v1)} → ${engNum(res.v2)} m³`);
+      lines.push({
+        label: "State 1 → State 2",
+        table: [
+          ["Quantity", "State 1", "State 2", "Unit"],
+          ["P", engNum(res.p1), engNum(res.p2), "Pa"],
+          ["T", engNum(res.t1), engNum(res.t2), "K"],
+          ["T", engNum(res.t1 - 273.15), engNum(res.t2 - 273.15), "°C"],
+          ["V", engNum(res.v1), engNum(res.v2), "m³"],
+        ],
+      });
       lines.push("");
       lines.push(`Boundary work done BY the gas = ${engNum(res.work)} J`);
       lines.push(`Heat added TO the gas = ${engNum(res.heat)} J`);
@@ -16503,6 +16702,13 @@ const ENG_CALCS: EngCalc[] = [
       // boundary work the numbers report. Isochoric (n = ∞) is a vertical
       // segment and isobaric a horizontal one; everything else is the
       // polytropic curve sampled between the two states.
+      const procOutputs: EngOutput[] = [
+        { key: "W", label: "Boundary work done by the gas", value: res.work, unit: "J" },
+        { key: "Qheat", label: "Heat added to the gas", value: res.heat, unit: "J" },
+        { key: "dU", label: "Change in internal energy ΔU", value: res.deltaU, unit: "J" },
+        { key: "Tend", label: "End temperature", value: res.t2, unit: "K" },
+        { key: "Pend", label: "End pressure", value: res.p2, unit: "Pa" },
+      ];
       const pvPath: Point[] = [];
       if (!Number.isFinite(res.n) || res.n === 0 || res.v1 === res.v2) {
         pvPath.push({ x: res.v1, y: res.p1 / 1000 }, { x: res.v2, y: res.p2 / 1000 });
@@ -16527,7 +16733,7 @@ const ENG_CALCS: EngCalc[] = [
             title: `${r("kind") || "isentropic"} process on the P-v plane`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(procOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -16536,9 +16742,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(procOutputs, engReport(lines));
     },
   },
   {
@@ -16607,7 +16813,12 @@ const ENG_CALCS: EngCalc[] = [
             : ottoCycle(Number(r("r") || "0"), gas, t1 as number | undefined, t3 as number | undefined);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const cycleEq: Record<string, EngReportLine[]> = {
+        otto: engEq("thermo-cycle:otto"),
+        diesel: engEq("thermo-cycle:diesel"),
+        brayton: engEq("thermo-cycle:brayton"),
+      };
+      const lines: EngReportLine[] = [...(cycleEq[which] ?? []), ...(res.carnotEfficiency !== null ? engEq("thermo-cycle:carnot") : [])];
       lines.push(`${res.name} cycle, air-standard`);
       lines.push("");
       lines.push(`Thermal efficiency = ${engNum(res.efficiency * 100)}%`);
@@ -16621,10 +16832,10 @@ const ENG_CALCS: EngCalc[] = [
       }
       if (res.temperatures.length) {
         lines.push("");
-        lines.push("Temperatures around the cycle");
-        for (const t of res.temperatures) {
-          lines.push(`  ${t.label}: ${engNum(t.t)} K (${engNum(t.t - 273.15)} °C)`);
-        }
+        lines.push({
+          label: "Temperatures around the cycle",
+          table: [["State", "T (K)", "T (°C)"], ...res.temperatures.map((t) => [t.label, engNum(t.t), engNum(t.t - 273.15)])],
+        });
       }
       if (res.heatIn !== null && res.netWork !== null) {
         lines.push("");
@@ -16642,6 +16853,12 @@ const ENG_CALCS: EngCalc[] = [
       // when the temperature section above does; Diesel's shape needs only
       // the two ratios. Log pressure, because r^k alone is ~18 at r = 8 and a
       // linear axis flattens the intake leg into the axis.
+      const cycOutputs: EngOutput[] = [
+        { key: "eta", label: "Thermal efficiency", value: res.efficiency * 100, unit: "%" },
+        { key: "etaCarnot", label: "Carnot bound", value: res.carnotEfficiency !== null ? res.carnotEfficiency * 100 : NaN, unit: "%" },
+        { key: "wnet", label: "Net work", value: res.netWork !== null && res.heatIn !== null ? res.netWork / 1000 : NaN, unit: "kJ/kg" },
+        { key: "qin", label: "Heat added", value: res.heatIn !== null && res.netWork !== null ? res.heatIn / 1000 : NaN, unit: "kJ/kg" },
+      ];
       const kGas = THERMO_GASES.find((g) => g.id === gas)?.k ?? 1.4;
       const cyclePath: Point[] = [];
       const corners: Point[] = [];
@@ -16704,7 +16921,7 @@ const ENG_CALCS: EngCalc[] = [
             title: `${res.name.split(" (")[0]} cycle on the P-v plane`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(cycOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -16713,9 +16930,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 270,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(cycOutputs, engReport(lines));
     },
   },
   {
@@ -16770,7 +16987,7 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const which = r("which") || "rankine";
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
 
       if (which === "rankine") {
         const res = rankineFromEnthalpies(
@@ -16780,6 +16997,7 @@ const ENG_CALCS: EngCalc[] = [
           Number(r("h4") || "0"),
         );
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("thermo-vapour:rankine"));
         lines.push("Rankine cycle, from your enthalpies");
         lines.push("");
         lines.push(`Turbine work = ${engNum(res.turbineWork)} kJ/kg`);
@@ -16797,7 +17015,12 @@ const ENG_CALCS: EngCalc[] = [
         // net work. The pump bar is ~0.3% of the turbine's — that
         // near-invisibility IS the back-work-ratio lesson, and the value
         // label carries what the 0.75 px floor cannot.
-        return engReport(lines, [
+        return withOutputs([
+          { key: "eta", label: "Thermal efficiency", value: res.efficiency * 100, unit: "%" },
+          { key: "wnet", label: "Net work", value: res.netWork, unit: "kJ/kg" },
+          { key: "qin", label: "Heat added in the boiler", value: res.heatIn, unit: "kJ/kg" },
+          { key: "bwr", label: "Back-work ratio", value: res.backWorkRatio * 100, unit: "%" },
+        ], engReport(lines, [
           {
             kind: "plot",
             // Qin − Qout = Wnet EXACTLY — netWork already carries the pump
@@ -16817,7 +17040,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 56 + 3 * 34 + 12,
           },
-        ]);
+        ]));
       } else if (which === "fridge") {
         const res = refrigerationFromEnthalpies(
           Number(r("h1") || "0"),
@@ -16825,6 +17048,7 @@ const ENG_CALCS: EngCalc[] = [
           Number(r("h3") || "0"),
         );
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("thermo-vapour:fridge"));
         lines.push("Vapour-compression refrigeration, from your enthalpies");
         lines.push("");
         lines.push(`Compressor work = ${engNum(res.compressorWork)} kJ/kg`);
@@ -16838,7 +17062,12 @@ const ENG_CALCS: EngCalc[] = [
         // The energy balance of the cycle: effect + work = rejection,
         // exactly — which is why a heat pump's COP always beats the same
         // machine's refrigerator COP by exactly one.
-        return engReport(lines, [
+        return withOutputs([
+          { key: "copR", label: "COP as a refrigerator", value: res.copRefrigerator, unit: "" },
+          { key: "copHP", label: "COP as a heat pump", value: res.copHeatPump, unit: "" },
+          { key: "qL", label: "Refrigeration effect", value: res.refrigerationEffect, unit: "kJ/kg" },
+          { key: "wc", label: "Compressor work", value: res.compressorWork, unit: "kJ/kg" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg: ladderSvg(
@@ -16854,7 +17083,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 56 + 3 * 34 + 12,
           },
-        ]);
+        ]));
       } else {
         const tunit = (r("tunit") || "C") as TempUnit;
         const th = toKelvin(Number(r("th") || "0"), tunit);
@@ -16869,6 +17098,8 @@ const ENG_CALCS: EngCalc[] = [
         );
         if (!res.ok) return { text: res.error, ok: false };
         const c = carnot(th, tc);
+        const ck = r("ckind") || "efficiency";
+        lines.push(...(ck === "refrigerator" ? engEq("thermo-vapour:carnot-refrigerator") : ck === "heat-pump" ? engEq("thermo-vapour:carnot-heat-pump") : engEq("thermo-vapour:carnot-efficiency")));
         lines.push("Carnot check");
         lines.push("");
         lines.push(`Reservoirs: ${engNum(th)} K and ${engNum(tc)} K`);
@@ -16884,7 +17115,7 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       lines.push(ENG_THERMO_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      return engReport(lines);
     },
   },
   {
@@ -16948,27 +17179,34 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("fatigue-endurance")];
       lines.push("Corrected endurance limit, Marin factor method");
       lines.push("");
-      lines.push(`Uncorrected Se' = ${engNum(res.sePrime)} MPa`);
-      lines.push(`  ka surface     = ${engNum(res.ka, 4)}`);
-      lines.push(`  kb size        = ${engNum(res.kb, 4)}`);
-      lines.push(`  kc load        = ${engNum(res.kc, 4)}`);
-      lines.push(`  kd temperature = ${engNum(res.kd, 4)}`);
-      lines.push(`  ke reliability = ${engNum(res.ke, 4)}`);
-      lines.push("");
-      lines.push(`Corrected Se = ${engNum(res.se)} MPa`);
+      // Release E: the Marin factors as a quantity / value / unit table.
+      lines.push(
+        kvTable([
+          ["Uncorrected Se'", engNum(res.sePrime), "MPa"],
+          ["ka surface", engNum(res.ka, 4), ""],
+          ["kb size", engNum(res.kb, 4), ""],
+          ["kc load", engNum(res.kc, 4), ""],
+          ["kd temperature", engNum(res.kd, 4), ""],
+          ["ke reliability", engNum(res.ke, 4), ""],
+          ["Corrected Se", engNum(res.se), "MPa"],
+        ]),
+      );
       lines.push(`  a reduction of ${engNum((1 - res.se / res.sePrime) * 100)}% from the uncorrected value`);
 
       const ktRaw = r("kt").trim();
+      let kfOut = NaN;
       if (ktRaw) {
         const nf = notchFactor(Number(ktRaw), Number(r("q") || "1"));
         if (!nf.ok) {
           lines.push("");
           lines.push(nf.error);
         } else {
+          kfOut = nf.kf;
           lines.push("");
+          lines.push(...engEq("fatigue-endurance:notch"));
           lines.push("Stress concentration");
           lines.push(`  Kt = ${engNum(nf.kt)}, q = ${engNum(nf.q)} → Kf = 1 + q(Kt-1) = ${engNum(nf.kf)}`);
           lines.push(`  Multiply the alternating stress by Kf before the fatigue check.`);
@@ -16983,6 +17221,11 @@ const ENG_CALCS: EngCalc[] = [
       // surface finish doing the damage. A steel gets its knee at 10^6 and
       // runs flat; a non-ferrous alloy has no knee to draw, so its line keeps
       // falling to 5x10^8, which is the honest picture.
+      const endOutputs: EngOutput[] = [
+        { key: "Se", label: "Corrected endurance limit Se", value: res.se, unit: "MPa" },
+        { key: "SePrime", label: "Uncorrected endurance limit Se'", value: res.sePrime, unit: "MPa" },
+        { key: "Kf", label: "Fatigue notch factor Kf", value: kfOut, unit: "" },
+      ];
       const snSketch = (limit: number): Point[] => {
         const s1000 = 0.9 * sutV;
         if (!(limit > 0) || !(s1000 > limit) || !Number.isFinite(limit)) return [];
@@ -17019,7 +17262,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Estimated S-N curve",
           },
         );
-        return engReport(lines, [
+        return withOutputs(endOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -17028,9 +17271,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(endOutputs, engReport(lines));
     },
   },
   {
@@ -17174,7 +17417,13 @@ const ENG_CALCS: EngCalc[] = [
       );
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const critEq: Record<string, EngReportLine[]> = {
+        goodman: engEq("fatigue-safety:goodman"),
+        soderberg: engEq("fatigue-safety:soderberg"),
+        gerber: engEq("fatigue-safety:gerber"),
+        "asme-elliptic": engEq("fatigue-safety:asme-elliptic"),
+      };
+      const lines: EngReportLine[] = [...(critEq[r("crit") || "goodman"] ?? []), ...engEq("fatigue-safety")];
       lines.push(`Mean-stress analysis, σa = ${engNum(saEffective)} MPa, σm = ${engNum(Number(r("sm")))} MPa`);
       lines.push(`  Se = ${engNum(seVal)} MPa`);
       if (marinNote) lines.push(`Note: ${marinNote}`);
@@ -17192,10 +17441,7 @@ const ENG_CALCS: EngCalc[] = [
       );
       lines.push(`First-cycle yield (Langer) = ${engNum(res.nYield)}`);
       lines.push("");
-      lines.push("All four criteria, for comparison");
-      for (const c of res.comparison) {
-        lines.push(`  ${c.criterion.padEnd(14)} n = ${engNum(c.n)}`);
-      }
+      lines.push({ label: "All four criteria, for comparison", table: [["Criterion", "Factor of safety n"], ...res.comparison.map((c) => [c.criterion, engNum(c.n)])] });
       lines.push(
         "  Those four are drawn below with the operating point on them. The spread between them " +
           "IS the result: a table says they differ, the diagram says by how much and in which " +
@@ -17258,7 +17504,11 @@ const ENG_CALCS: EngCalc[] = [
               },
             ]
           : [];
-      return engReport(lines, goodBlocks);
+      return withOutputs([
+        { key: "nGov", label: "Governing factor of safety", value: res.nGoverning, unit: "" },
+        { key: "nFatigue", label: "Fatigue factor of safety", value: res.nFatigue, unit: "" },
+        { key: "nYield", label: "First-cycle yield factor of safety", value: res.nYield, unit: "" },
+      ], engReport(lines, goodBlocks));
     },
   },
   {
@@ -17311,12 +17561,14 @@ const ENG_CALCS: EngCalc[] = [
       if (errors.length) return { text: errors.join("\n"), ok: false };
       if (!blocks.length) return { text: "Give at least one load block.", ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("fatigue-life"), ...(blocks.length > 1 ? engEq("fatigue-life:miner") : [])];
+      let nfOut = NaN;
 
       // A single block reads as a life question; several read as a spectrum.
       if (blocks.length === 1) {
         const life = finiteLife(blocks[0].sigmaA, se, sut, mclass);
         if (!life.ok) return { text: life.error, ok: false };
+        if (!life.infiniteLife) nfOut = life.cycles;
         lines.push(`Finite life at σa = ${engNum(blocks[0].sigmaA)} MPa`);
         lines.push("");
         lines.push(
@@ -17332,13 +17584,13 @@ const ENG_CALCS: EngCalc[] = [
       if (!dmg.ok) return { text: dmg.error, ok: false };
       if (blocks.length > 1) lines.push("Cumulative damage over the load spectrum (Palmgren-Miner)");
       lines.push("");
-      lines.push("Block   σa (MPa)   applied      allowable        damage");
-      for (const b of dmg.blocks) {
-        lines.push(
-          `        ${engNum(b.sigmaA, 4).padEnd(10)} ${engNum(b.applied, 4).padEnd(12)} ` +
-            `${(b.allowable === Infinity ? "infinite" : engNum(b.allowable, 3)).padEnd(15)} ${engNum(b.damage, 3)}`,
-        );
-      }
+      // Release E: the load blocks as a real table.
+      lines.push({
+        table: [
+          ["Block", "σa (MPa)", "Applied cycles", "Allowable cycles", "Damage"],
+          ...dmg.blocks.map((b, i) => [`${i + 1}`, engNum(b.sigmaA, 4), engNum(b.applied, 4), b.allowable === Infinity ? "infinite" : engNum(b.allowable, 3), engNum(b.damage, 3)]),
+        ],
+      });
       lines.push("");
       lines.push(`Total damage D = ${engNum(dmg.damage, 4)}  (failure nominally at D = 1)`);
       lines.push(
@@ -17353,6 +17605,11 @@ const ENG_CALCS: EngCalc[] = [
       // of the line has life in hand at that stress; a point at or past it has
       // spent this block's share on its own. Same construction as the engine:
       // 0.9·Sut at 10^3 to Se at 10^6, flat past the knee only for steel.
+      const lifeOutputs: EngOutput[] = [
+        { key: "D", label: "Total Miner damage D", value: dmg.damage, unit: "" },
+        { key: "repeats", label: "Repeats of the spectrum to failure", value: dmg.repeats, unit: "" },
+        { key: "Nf", label: "Cycles to failure (single block)", value: nfOut, unit: "" },
+      ];
       const s1000 = 0.9 * sut;
       const applied: Point[] = dmg.blocks
         .filter((b) => Number.isFinite(b.applied) && b.applied > 0 && Number.isFinite(b.sigmaA) && b.sigmaA > 0)
@@ -17362,7 +17619,7 @@ const ENG_CALCS: EngCalc[] = [
         // Same overflow guard as the endurance tool: aCoef is (0.9·Sut)²/Se
         // and Infinity here becomes NaN in every SVG coordinate.
         const aCoef = s1000 / Math.pow(1000, bExp);
-        if (!Number.isFinite(aCoef)) return { text: plainDashes(lines.join("\n")) };
+        if (!Number.isFinite(aCoef)) return withOutputs(lifeOutputs, engReport(lines));
         const endExp = mclass === "steel" ? 6 : Math.max(Math.log10(5e8), ...applied.map((p) => Math.log10(p.x)));
         let snLine: Point[] = [];
         for (let i = 0; i <= 60; i++) {
@@ -17387,7 +17644,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Load blocks against the S-N line",
           },
         );
-        return engReport(lines, [
+        return withOutputs(lifeOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -17396,9 +17653,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(lifeOutputs, engReport(lines));
     },
   },
   {
@@ -17432,20 +17689,25 @@ const ENG_CALCS: EngCalc[] = [
       const res = stressIntensity({ stress, crack, Y, kic, yieldStrength, thickness });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      // Release E: the result as a quantity / value / unit table.
+      const kRows: Array<[string, string, string]> = [
+        ["K", engNum(res.K / 1e6, 5), "MPa·√m"],
+        [`K / K_IC${res.fractures ? " (FRACTURES)" : ""}`, engNum(res.ratio, 4), ""],
+        ["Safety on stress", engNum(res.safetyOnStress, 4), ""],
+        ["Critical crack size", engNum(res.criticalCrack * 1000, 5), "mm"],
+        ["Your crack size", engNum(crack * 1000, 5), "mm"],
+        ["Critical stress", engNum(res.criticalStress / 1e6, 5), "MPa"],
+      ];
+      if (res.plasticZone !== null) kRows.push(["Plastic zone radius", engNum(res.plasticZone * 1000, 4), "mm"]);
+      if (res.thicknessRequired !== null) kRows.push(["Thickness plane strain needs", engNum(res.thicknessRequired * 1000, 4), "mm"]);
+      const lines: EngReportLine[] = [
+        ...engEq("fracture-k"),
+        ...(res.plasticZone !== null ? engEq("fracture-k:plastic-zone") : []),
+        ...(res.thicknessRequired !== null ? engEq("fracture-k:plane-strain") : []),
         "Stress intensity at the crack",
         "",
-        `  K                    ${engNum(res.K / 1e6, 5)} MPa·√m`,
-        `  K / K_IC             ${engNum(res.ratio, 4)}${res.fractures ? "   FRACTURES" : ""}`,
-        `  Safety on stress     ${engNum(res.safetyOnStress, 4)}`,
-        "",
-        `  Critical crack size  ${engNum(res.criticalCrack * 1000, 5)} mm  (yours is ${engNum(crack * 1000, 5)} mm)`,
-        `  Critical stress      ${engNum(res.criticalStress / 1e6, 5)} MPa`,
+        kvTable(kRows),
       ];
-      if (res.plasticZone !== null) lines.push(`  Plastic zone radius  ${engNum(res.plasticZone * 1000, 4)} mm`);
-      if (res.thicknessRequired !== null) {
-        lines.push(`  Plane strain needs   ${engNum(res.thicknessRequired * 1000, 4)} mm of thickness`);
-      }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -17476,7 +17738,12 @@ const ENG_CALCS: EngCalc[] = [
           title: "Where this flaw becomes critical",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Kstress", label: "Stress intensity K", value: res.K / 1e6, unit: "MPa·√m" },
+        { key: "KoverKIC", label: "K / K_IC", value: res.ratio, unit: "" },
+        { key: "acrit", label: "Critical crack size", value: res.criticalCrack * 1000, unit: "mm" },
+        { key: "sigmaCrit", label: "Critical stress", value: res.criticalStress / 1e6, unit: "MPa" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17485,7 +17752,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -17522,16 +17789,18 @@ const ENG_CALCS: EngCalc[] = [
       const res = parisGrowth({ initialCrack, stressRange, Y, C, m, kic, deltaKth });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("fracture-paris"),
         "Crack growth to fast fracture",
         "",
-        `  Cycles to failure    ${engNum(res.cycles, 5)}`,
-        `  Final crack size     ${engNum(res.finalCrack * 1000, 5)} mm`,
-        "",
-        `  ΔK at the start      ${engNum(res.deltaKInitial / 1e6, 4)} MPa·√m`,
-        `  ΔK at the end        ${engNum(res.deltaKFinal / 1e6, 4)} MPa·√m`,
-        `  Growth rate, start   ${engNum(res.rateInitial, 4)} m/cycle`,
-        `  Growth rate, end     ${engNum(res.rateFinal, 4)} m/cycle`,
+        kvTable([
+          ["Cycles to failure", engNum(res.cycles, 5), ""],
+          ["Final crack size", engNum(res.finalCrack * 1000, 5), "mm"],
+          ["ΔK at the start", engNum(res.deltaKInitial / 1e6, 4), "MPa·√m"],
+          ["ΔK at the end", engNum(res.deltaKFinal / 1e6, 4), "MPa·√m"],
+          ["Growth rate, start", engNum(res.rateInitial, 4), "m/cycle"],
+          ["Growth rate, end", engNum(res.rateFinal, 4), "m/cycle"],
+        ]),
         "",
       ];
       if (res.cyclesToDouble !== null && res.firstDoublingFraction !== null) {
@@ -17568,7 +17837,11 @@ const ENG_CALCS: EngCalc[] = [
           title: "Nearly flat, then vertical",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Ncycles", label: "Cycles to failure", value: res.cycles, unit: "" },
+        { key: "afinal", label: "Final (critical) crack size", value: res.finalCrack * 1000, unit: "mm" },
+        { key: "Ndouble", label: "Cycles for the first doubling", value: res.cyclesToDouble ?? NaN, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17577,7 +17850,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -17606,16 +17879,21 @@ const ENG_CALCS: EngCalc[] = [
       const res = fractureTransition({ kic, yieldStrength, Y, crack });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Yielding or fracture",
-        "",
-        `  Transition crack size  ${engNum(res.transitionCrack * 1000, 5)} mm`,
-        `  Governs here           ${res.governs}`,
+      const trRows: Array<[string, string, string]> = [
+        ["Transition crack size", engNum(res.transitionCrack * 1000, 5), "mm"],
+        ["Governs here", res.governs, ""],
       ];
       if (res.fractureStress !== null) {
-        lines.push(`  Fracture stress        ${engNum(res.fractureStress / 1e6, 5)} MPa`);
-        lines.push(`  Yield strength         ${engNum(yieldStrength / 1e6, 5)} MPa`);
+        trRows.push(["Fracture stress", engNum(res.fractureStress / 1e6, 5), "MPa"]);
+        trRows.push(["Yield strength", engNum(yieldStrength / 1e6, 5), "MPa"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("fracture-transition"),
+        ...(res.fractureStress !== null ? engEq("fracture-transition:stress") : []),
+        "Yielding or fracture",
+        "",
+        kvTable(trRows),
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -17651,7 +17929,10 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Failure stress (MPa)",
         title: "The lower curve governs",
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "atrans", label: "Transition crack size", value: res.transitionCrack * 1000, unit: "mm" },
+        { key: "sigmaF", label: "Fracture stress", value: res.fractureStress !== null ? res.fractureStress / 1e6 : NaN, unit: "MPa" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17660,7 +17941,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -17692,34 +17973,35 @@ const ENG_CALCS: EngCalc[] = [
       const res = weibullFit(parsed);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Weibull life, fitted by maximum likelihood",
-        "",
-        `  Shape  beta          ${engNum(res.beta, 4)}`,
-        `  Scale  eta           ${engNum(res.eta, 5)} h`,
-        `  Hazard                ${res.regime}`,
-        "",
-        `  B10 life              ${engNum(res.b10, 5)} h`,
-        `  Median life           ${engNum(res.medianLife, 5)} h`,
+      // Release E: the fit as a quantity / value / unit table.
+      const wRows: Array<[string, string, string]> = [
+        ["Shape beta", engNum(res.beta, 4), ""],
+        ["Scale eta", engNum(res.eta, 5), "h"],
+        ["Hazard", res.regime, ""],
+        ["B10 life", engNum(res.b10, 5), "h"],
+        ["Median life", engNum(res.medianLife, 5), "h"],
+        res.mttf === null ? ["Mean life", "not reported at this shape (see the note below)", ""] : ["Mean life MTTF", engNum(res.mttf, 5), "h"],
+        [
+          "95 % interval on beta",
+          res.betaLow !== null && res.betaHigh !== null ? `${engNum(res.betaLow, 4)} to ${engNum(res.betaHigh, 4)}` : "not resolved from this data",
+          "",
+        ],
+        ["Failures / units", `${res.failures} of ${res.failures + res.censored}`, ""],
       ];
-      lines.push(
-        res.mttf === null
-          ? "  Mean life             not reported at this shape (see the note below)"
-          : `  Mean life  MTTF       ${engNum(res.mttf, 5)} h`,
-      );
-      lines.push("");
-      lines.push(
-        res.betaLow !== null && res.betaHigh !== null
-          ? `  95 % interval on beta  ${engNum(res.betaLow, 4)} to ${engNum(res.betaHigh, 4)}`
-          : "  95 % interval on beta  not resolved from this data",
-      );
-      lines.push(`  Failures / units      ${res.failures} of ${res.failures + res.censored}`);
+      let survivingPct = NaN;
       if (at !== null && at > 0) {
         const R = Math.exp(-Math.pow(at / res.eta, res.beta));
-        lines.push("");
-        lines.push(`  Surviving at ${engNum(at, 5)} h    ${(R * 100).toFixed(2)} %`);
+        survivingPct = R * 100;
+        wRows.push([`Surviving at ${engNum(at, 5)} h`, (R * 100).toFixed(2), "%"]);
       }
-      lines.push("");
+      const lines: EngReportLine[] = [
+        ...engEq("rel-weibull"),
+        ...(res.mttf !== null ? engEq("rel-weibull:mttf") : []),
+        "Weibull life, fitted by maximum likelihood",
+        "",
+        kvTable(wRows),
+        "",
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_RELIABILITY_UNIT_NOTE);
@@ -17737,7 +18019,13 @@ const ENG_CALCS: EngCalc[] = [
           title: "Straight means Weibull fits",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "beta", label: "Shape β", value: res.beta, unit: "" },
+        { key: "eta", label: "Scale η", value: res.eta, unit: "h" },
+        { key: "B10", label: "B10 life", value: res.b10, unit: "h" },
+        { key: "MTTF", label: "Mean life MTTF", value: res.mttf ?? NaN, unit: "h" },
+        { key: "Rt", label: "Surviving at the age asked", value: survivingPct, unit: "%" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17746,7 +18034,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -17787,25 +18075,26 @@ const ENG_CALCS: EngCalc[] = [
       const res = reliabilityBlock({ components: parts, configuration: cfg, timeH });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const rbdRows: Array<[string, string, string]> = [
+        ["Units in the system", `${res.totalUnits}`, ""],
+        [`Reliability at ${engNum(timeH, 5)} h`, (res.reliability * 100).toFixed(4), "%"],
+        ["Chance of failure", engNum(res.unreliability, 4), ""],
+      ];
+      if (res.systemLambda !== null) rbdRows.push(["System failure rate", engNum(res.systemLambda, 4), "per hour"]);
+      rbdRows.push(res.mttf === null ? ["Mean time to failure", "not reported (see the notes)", ""] : ["Mean time to failure", engNum(res.mttf, 5), "h"]);
+      const lines: EngReportLine[] = [
+        ...(cfg === "series" ? engEq("rel-rbd:series") : engEq("rel-rbd:parallel")),
         cfg === "series" ? "Series system" : "Parallel system",
         "",
-        `  Units in the system   ${res.totalUnits}`,
-        `  Reliability at ${engNum(timeH, 5)} h  ${(res.reliability * 100).toFixed(4)} %`,
-        `  Chance of failure     ${engNum(res.unreliability, 4)}`,
+        kvTable(rbdRows),
       ];
-      if (res.systemLambda !== null) {
-        lines.push(`  System failure rate   ${engNum(res.systemLambda, 4)} per hour`);
-      }
-      lines.push(
-        res.mttf === null ? "  Mean time to failure  not reported (see the notes)" : `  Mean time to failure  ${engNum(res.mttf, 5)} h`,
-      );
       if (res.contributions.length) {
         lines.push("");
-        lines.push("Where the failures come from");
-        for (const c of res.contributions) {
-          lines.push(`  ${c.name.padEnd(20).slice(0, 20)} ${(c.share * 100).toFixed(1)} %`);
-        }
+        // Release E: the failure shares as a real table (names no longer cut at 20 characters).
+        lines.push({
+          label: "Where the failures come from",
+          table: [["Component", "Share of failures (%)"], ...res.contributions.map((c) => [c.name, (c.share * 100).toFixed(1)])],
+        });
       }
       lines.push("");
       u.report(lines);
@@ -17825,7 +18114,11 @@ const ENG_CALCS: EngCalc[] = [
           title: cfg === "series" ? "The system falls faster than any part" : "The system outlives every part",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Rsys", label: "System reliability over the mission", value: res.reliability * 100, unit: "%" },
+        { key: "lambdaSys", label: "System failure rate", value: res.systemLambda ?? NaN, unit: "1/h" },
+        { key: "MTTF", label: "Mean time to failure", value: res.mttf ?? NaN, unit: "h" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17837,7 +18130,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -17903,21 +18196,20 @@ const ENG_CALCS: EngCalc[] = [
         Number.isFinite(implied) &&
         Math.abs(implied - unitReliability) > 0.005 * Math.max(implied, unitReliability, 1e-12);
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("rel-koon"),
+        ...(derived ? engEq("rel-koon:derived") : []),
         `${k} out of ${n} must work`,
         "",
-        `  One unit survives     ${(unitReliability * 100).toFixed(4)} %${derived ? "  (from the rate and mission)" : ""}`,
-        `  System survives       ${(res.systemReliability * 100).toFixed(4)} %`,
-        `  System fails          ${engNum(res.systemUnreliability, 4)}`,
+        kvTable([
+          [`One unit survives${derived ? " (from the rate and mission)" : ""}`, (unitReliability * 100).toFixed(4), "%"],
+          ["System survives", (res.systemReliability * 100).toFixed(4), "%"],
+          ["System fails", engNum(res.systemUnreliability, 4), ""],
+          ["Mean life factor", engNum(res.mttfFactor, 4), "/ (failure rate)"],
+          res.mttf === null ? ["Mean time to failure", "needs a failure rate above zero", ""] : ["Mean time to failure", engNum(res.mttf, 5), "h"],
+        ]),
         "",
-        `  Mean life factor      ${engNum(res.mttfFactor, 4)} / (failure rate)`,
       ];
-      lines.push(
-        res.mttf === null
-          ? "  Mean time to failure  needs a failure rate above zero"
-          : `  Mean time to failure  ${engNum(res.mttf, 5)} h`,
-      );
-      lines.push("");
       u.report(lines);
       if (disagrees && implied !== null) {
         lines.push(
@@ -17959,7 +18251,10 @@ const ENG_CALCS: EngCalc[] = [
           title: "Redundancy only pays where units are good",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Rsys", label: "System reliability", value: res.systemReliability * 100, unit: "%" },
+        { key: "MTTF", label: "Mean time to failure", value: res.mttf ?? NaN, unit: "h" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17968,7 +18263,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -17995,24 +18290,21 @@ const ENG_CALCS: EngCalc[] = [
       const res = redundancy({ lambda, n, timeH });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      // Release E: the three schemes side by side in one table.
+      const lines: EngReportLine[] = [
+        ...engEq("rel-redundancy"),
         `One unit against ${n} in parallel and ${n} with cold spares`,
         "",
-        `  Surviving ${engNum(timeH, 5)} h`,
-        `    single unit         ${(res.singleR * 100).toFixed(4)} %`,
-        `    ${n} active            ${(res.activeR * 100).toFixed(4)} %`,
-        `    ${n} standby           ${(res.standbyR * 100).toFixed(4)} %`,
+        {
+          table: [
+            ["Scheme", `Surviving ${engNum(timeH, 5)} h (%)`, "Mean time to failure (h)"],
+            ["single unit", (res.singleR * 100).toFixed(4), res.singleMttf === null ? "nothing ever fails at a rate of zero" : engNum(res.singleMttf, 5)],
+            [`${n} active`, (res.activeR * 100).toFixed(4), res.activeMttf !== null ? engNum(res.activeMttf, 5) : ""],
+            [`${n} standby`, (res.standbyR * 100).toFixed(4), res.standbyMttf !== null ? engNum(res.standbyMttf, 5) : ""],
+          ],
+        },
         "",
-        "  Mean time to failure",
       ];
-      lines.push(
-        res.singleMttf === null
-          ? "    nothing ever fails at a rate of zero"
-          : `    single unit         ${engNum(res.singleMttf, 5)} h`,
-      );
-      if (res.activeMttf !== null) lines.push(`    ${n} active            ${engNum(res.activeMttf, 5)} h`);
-      if (res.standbyMttf !== null) lines.push(`    ${n} standby           ${engNum(res.standbyMttf, 5)} h`);
-      lines.push("");
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_RELIABILITY_UNIT_NOTE);
@@ -18052,7 +18344,12 @@ const ENG_CALCS: EngCalc[] = [
             ],
             { width: 380, height: 260, xlabel: "single, active, standby", ylabel: "Surviving", title: "Nothing fails at a rate of zero" },
           );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Ractive", label: "Surviving, active spares", value: res.activeR * 100, unit: "%" },
+        { key: "Rstandby", label: "Surviving, standby spares", value: res.standbyR * 100, unit: "%" },
+        { key: "MTTFactive", label: "Mean time to failure, active", value: res.activeMttf ?? NaN, unit: "h" },
+        { key: "MTTFstandby", label: "Mean time to failure, standby", value: res.standbyMttf ?? NaN, unit: "h" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -18061,7 +18358,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -18093,23 +18390,25 @@ const ENG_CALCS: EngCalc[] = [
       const res = availability({ mtbfH, mttrH, windowH, unitsInSeries });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Inherent availability",
-        "",
-        `  Availability          ${(res.availability * 100).toFixed(4)} %`,
-        `  Unavailability        ${engNum(res.unavailability, 4)}`,
-        "",
-        `  Over ${engNum(windowH, 5)} h`,
-        `    up                  ${engNum(res.uptimeH, 5)} h`,
-        `    down                ${engNum(res.downtimeH, 5)} h`,
-        `    failures expected   ${engNum(res.failuresInWindow, 4)}`,
+      const avRows: Array<[string, string, string]> = [
+        ["Availability", (res.availability * 100).toFixed(4), "%"],
+        ["Unavailability", engNum(res.unavailability, 4), ""],
+        [`Up, over ${engNum(windowH, 5)} h`, engNum(res.uptimeH, 5), "h"],
+        [`Down, over ${engNum(windowH, 5)} h`, engNum(res.downtimeH, 5), "h"],
+        ["Failures expected", engNum(res.failuresInWindow, 4), ""],
       ];
       if (res.systemAvailability !== null) {
-        lines.push("");
-        lines.push(`  ${unitsInSeries} in series          ${(res.systemAvailability * 100).toFixed(4)} %`);
-        lines.push(`    down                ${engNum((1 - res.systemAvailability) * windowH, 5)} h`);
+        avRows.push([`${unitsInSeries} in series`, (res.systemAvailability * 100).toFixed(4), "%"]);
+        avRows.push([`${unitsInSeries} in series, down`, engNum((1 - res.systemAvailability) * windowH, 5), "h"]);
       }
-      lines.push("");
+      const lines: EngReportLine[] = [
+        ...engEq("rel-availability"),
+        ...(res.systemAvailability !== null ? engEq("rel-availability:series") : []),
+        "Inherent availability",
+        "",
+        kvTable(avRows),
+        "",
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_RELIABILITY_UNIT_NOTE);
@@ -18127,7 +18426,12 @@ const ENG_CALCS: EngCalc[] = [
           title: "Repair time is the lever",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "A", label: "Availability", value: res.availability * 100, unit: "%" },
+        { key: "downtime", label: "Downtime over the window", value: res.downtimeH, unit: "h" },
+        { key: "failures", label: "Failures expected in the window", value: res.failuresInWindow, unit: "" },
+        { key: "Asys", label: "Availability of the series", value: res.systemAvailability !== null ? res.systemAvailability * 100 : NaN, unit: "%" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -18136,7 +18440,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -18188,7 +18492,20 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      // Release E: the configuration's gain law, then the bandwidth laws that were used.
+      const cfgEq: Record<string, EngReportLine[]> = {
+        inverting: engEq("opamp:inverting"),
+        "non-inverting": engEq("opamp:non-inverting"),
+        summing: engEq("opamp:summing"),
+        difference: engEq("opamp:difference"),
+        integrator: engEq("opamp:integrator"),
+        differentiator: engEq("opamp:differentiator"),
+      };
+      const lines: EngReportLine[] = [
+        ...(cfgEq[r("config") || "non-inverting"] ?? []),
+        ...(res.bandwidth !== null ? engEq("opamp:bandwidth") : []),
+        ...(res.fullPowerBandwidth !== null ? engEq("opamp:full-power") : []),
+      ];
       lines.push(`${res.config} amplifier`);
       lines.push("");
       if (res.inputGains.length > 1) {
@@ -18221,6 +18538,14 @@ const ENG_CALCS: EngCalc[] = [
       // open-loop roll-off; an integrator or differentiator IS a slope, with
       // its unity-gain corner marked. Everything drawn comes from the same
       // single-pole model the bandwidth number used.
+      // Named outputs (Release E): the closed-loop gain only where the text quotes one (a single resistive gain).
+      const opOutputs: EngOutput[] = [
+        { key: "G", label: "Closed-loop gain", value: res.inputGains.length <= 1 && res.cornerFrequency === null ? res.gain : NaN, unit: "" },
+        { key: "Gnoise", label: "Noise gain", value: res.noiseGain, unit: "" },
+        { key: "fbw", label: "Small-signal bandwidth", value: res.bandwidth ?? NaN, unit: "Hz" },
+        { key: "fpbw", label: "Full-power bandwidth", value: res.fullPowerBandwidth ?? NaN, unit: "Hz" },
+        { key: "fcorner", label: "Unity-gain corner frequency", value: res.cornerFrequency ?? NaN, unit: "Hz" },
+      ];
       const gbwV = r("gbw").trim() ? Number(r("gbw")) : NaN;
       const toDb = (g: number): number => 20 * Math.log10(Math.max(g, 1e-12));
       const gainSeries: Series[] = [];
@@ -18279,7 +18604,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "gain (dB)",
           title: "Gain against frequency",
         });
-        return engReport(lines, [
+        return withOutputs(opOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -18288,9 +18613,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(opOutputs, engReport(lines));
     },
   },
   {
@@ -18341,14 +18666,16 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const tf = toTransferFunction(res);
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [
+        ...(res.family === "butterworth" ? engEq("filter-design:butterworth") : engEq("filter-design:chebyshev")),
+        ...(res.kind === "lowpass" ? engEq("filter-design:lowpass") : engEq("filter-design:highpass")),
+      ];
       lines.push(`${res.family} ${res.kind} filter, order ${res.order}`);
       lines.push(`  the specification needs order ${engNum(res.exactOrder, 4)}, rounded up`);
       lines.push("");
       lines.push(tfLineDecimal("H(s)", res.num, res.den));
       lines.push("");
-      lines.push("Poles");
-      for (const p of res.poles) lines.push(`  ${fmtComplexPlain(p)}`);
+      lines.push({ label: "Poles", table: [["Pole", "Location (rad/s)"], ...res.poles.map((p, i) => [`p${i + 1}`, fmtComplexPlain(p)])] });
       lines.push("");
       lines.push(`Delivered stopband attenuation = ${engNum(res.stopbandAttenuation)} dB (asked for ${engNum(Number(r("as")))})`);
       lines.push(`Passband ripple = ${engNum(res.passbandRipple)} dB`);
@@ -18360,6 +18687,11 @@ const ENG_CALCS: EngCalc[] = [
       // meet: the passband-edge and stopband-edge points are drawn ON the
       // plot, so "delivered vs asked for" is visible rather than asserted.
       // Same evaluation path as the control tools' Bode plot.
+      const filtOutputs: EngOutput[] = [
+        { key: "order", label: "Filter order", value: res.order, unit: "" },
+        { key: "nExact", label: "Order the specification needs (unrounded)", value: res.exactOrder, unit: "" },
+        { key: "Astop", label: "Delivered stopband attenuation", value: res.stopbandAttenuation, unit: "dB" },
+      ];
       const freqs = autoFrequencies(tf, 300);
       const resp = frequencyResponse(tf, freqs).filter((p) => Number.isFinite(p.magnitudeDb));
       const wpV = Number(r("wp") || "0");
@@ -18382,7 +18714,7 @@ const ENG_CALCS: EngCalc[] = [
             title: `${res.family} order ${res.order} against its specification`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(filtOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -18391,9 +18723,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return engReport(lines);
+      return withOutputs(filtOutputs, engReport(lines));
     },
   },
   {
@@ -18434,7 +18766,7 @@ const ENG_CALCS: EngCalc[] = [
       const m = minimise(t.minterms, t.variables, dc);
       if (!m.ok) return { text: m.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(`Variables: ${t.variables.join(", ")} — ${t.rows.length} rows`);
       lines.push(`Minterms where the output is true: ${t.minterms.join(", ") || "none"}`);
       if (dc.length) lines.push(`Don't-cares: ${dc.join(", ")}`);
@@ -18447,11 +18779,10 @@ const ENG_CALCS: EngCalc[] = [
 
       if (r("show") === "yes") {
         lines.push("");
-        lines.push(`${t.variables.join(" ")}  |  out`);
-        for (let i = 0; i < t.rows.length; i++) {
-          const row = t.rows[i];
-          lines.push(`${row.inputs.map((b) => (b ? "1" : "0")).join(" ")}  |  ${row.output ? "1" : "0"}`);
-        }
+        // Release E: the truth table as a real table.
+        lines.push({
+          table: [[...t.variables, "out"], ...t.rows.map((row) => [...row.inputs.map((b) => (b ? "1" : "0")), row.output ? "1" : "0"])],
+        });
       }
       for (const note of t.notes) lines.push(`Note: ${note}`);
       for (const note of m.notes) lines.push(`Note: ${note}`);
@@ -18462,8 +18793,12 @@ const ENG_CALCS: EngCalc[] = [
       // the eye finds the pattern in a way a column of bits does not. Capped
       // at five variables (32 columns); past that the lanes are illegible and
       // the table is the better artifact anyway.
+      const logicOutputs: EngOutput[] = [
+        { key: "terms", label: "Product terms", value: m.terms.length, unit: "" },
+        { key: "literals", label: "Literals", value: m.literals, unit: "" },
+      ];
       if (t.variables.length <= 5 && t.rows.length >= 2) {
-        return engReport(lines, [
+        return withOutputs(logicOutputs, engReport(lines, [
           {
             kind: "plot",
             svg: logicWaveSvg({ variables: t.variables, rows: t.rows }),
@@ -18472,9 +18807,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 40 + (t.variables.length + 1) * 26 + 20,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(logicOutputs, engReport(lines));
     },
   },
   {
@@ -18528,7 +18863,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("open-channel")];
       lines.push(`Open-channel flow, ${r("shape") || "trapezoidal"} section`);
       lines.push(
         `Manning's n = ${engNum(n, 4)}` +
@@ -18552,6 +18887,12 @@ const ENG_CALCS: EngCalc[] = [
       // water, and which arm this flow sits on is the regime the text names.
       // A(y) is re-asked of the engine per depth so every section shape is
       // priced by the same geometry code, not re-derived here.
+      const ocOutputs: EngOutput[] = [
+        { key: "Qd", label: "Discharge", value: res.discharge, unit: "m³/s" },
+        { key: "Vmean", label: "Mean velocity", value: res.velocity, unit: "m/s" },
+        { key: "Fr", label: "Froude number", value: res.froude, unit: "" },
+        { key: "yc", label: "Critical depth", value: res.criticalDepth ?? NaN, unit: "m" },
+      ];
       const Qd = res.discharge;
       const g = 9.80665;
       let yTop = 2.2 * Math.max(yV, res.criticalDepth ?? yV);
@@ -18593,7 +18934,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "depth y (m)",
           title: "Specific energy diagram",
         });
-        return engReport(lines, [
+        return withOutputs(ocOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -18602,9 +18943,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 270,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(ocOutputs, engReport(lines));
     },
   },
   {
@@ -18737,7 +19078,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("pump-npsh"), ...(res.hydraulicPower !== null ? engEq("pump-npsh:power") : [])];
       lines.push("Pump suction analysis");
       lines.push("");
       lines.push(`NPSH available = ${engNum(res.npshAvailable)} m`);
@@ -18835,7 +19176,12 @@ const ENG_CALCS: EngCalc[] = [
           });
         }
       }
-      return engReport(lines, figBlocks);
+      return withOutputs([
+        { key: "NPSHa", label: "NPSH available", value: res.npshAvailable, unit: "m" },
+        { key: "margin", label: "NPSH margin", value: res.margin, unit: "m" },
+        { key: "Phyd", label: "Hydraulic power", value: res.hydraulicPower ?? NaN, unit: "W" },
+        { key: "Pshaft", label: "Shaft power", value: res.shaftPower ?? NaN, unit: "W" },
+      ], engReport(lines, figBlocks));
     },
   },
   {
@@ -18855,7 +19201,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = compressibleFlow(Number(r("mach") || "0"), Number(r("k") || "1.4"), Number(r("T") || "288.15"));
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("compressible")];
       lines.push(`Compressible flow at Mach ${engNum(res.mach)} — ${res.regime.toUpperCase()}`);
       lines.push("");
       lines.push(`Speed of sound = ${engNum(res.speedOfSound)} m/s`);
@@ -18895,7 +19241,13 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "Mass flow (fraction of choked)",
           title: `Choking at p*/p0 = ${crit.toFixed(4)}`,
         });
-        return engReport(lines, [
+        return withOutputs([
+          { key: "a", label: "Speed of sound", value: res.speedOfSound, unit: "m/s" },
+          { key: "V", label: "Velocity", value: res.mach * res.speedOfSound, unit: "m/s" },
+          { key: "T0T", label: "Stagnation temperature ratio T₀/T", value: res.temperatureRatio, unit: "" },
+          { key: "p0p", label: "Stagnation pressure ratio p₀/p", value: res.pressureRatio, unit: "" },
+          { key: "areaRatio", label: "Area ratio A/A*", value: res.areaRatio, unit: "" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -18904,7 +19256,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -18958,21 +19310,20 @@ const ENG_CALCS: EngCalc[] = [
       const res = flowMeter({ kind, pipeD, throatD, deltaP, rho, cd, epsilon: eps, lossFraction });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        `${kind} meter, β = ${engNum(res.beta, 4)}`,
-        "",
-        `  Volumetric flow      ${engNum(res.Q, 5)} m³/s  (${engNum(res.Q * 3600, 5)} m³/h)`,
-        `  Mass flow            ${engNum(res.massFlow, 5)} kg/s`,
-        `  Throat velocity      ${engNum(res.throatVelocity, 5)} m/s`,
-        `  Pipe velocity        ${engNum(res.pipeVelocity, 5)} m/s`,
-        "",
-        `  Velocity-of-approach ${engNum(res.approachFactor, 5)}`,
+      // Release E: the summary is a quantity / value / unit table.
+      const meterRows: Array<[string, string, string]> = [
+        ["Volumetric flow", engNum(res.Q, 5), "m³/s"],
+        ["Volumetric flow", engNum(res.Q * 3600, 5), "m³/h"],
+        ["Mass flow", engNum(res.massFlow, 5), "kg/s"],
+        ["Throat velocity", engNum(res.throatVelocity, 5), "m/s"],
+        ["Pipe velocity", engNum(res.pipeVelocity, 5), "m/s"],
+        ["Velocity-of-approach factor", engNum(res.approachFactor, 5), ""],
       ];
       if (res.permanentLoss !== null && res.lossFraction !== null) {
-        lines.push(
-          `  PERMANENT loss       ${engNum(res.permanentLoss, 5)} Pa  (${engNum(res.lossFraction * 100, 4)} % of the differential)`,
-        );
+        meterRows.push(["PERMANENT loss", engNum(res.permanentLoss, 5), "Pa"]);
+        meterRows.push(["PERMANENT loss, share of the differential", engNum(res.lossFraction * 100, 4), "%"]);
       }
+      const lines: EngReportLine[] = [...engEq("flow-meter"), `${kind} meter, β = ${engNum(res.beta, 4)}`, "", kvTable(meterRows)];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -19006,7 +19357,12 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Flow (m³/h)",
         title: `Square-root response, beta = ${res.beta.toFixed(3)}`,
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Qflow", label: "Volumetric flow", value: res.Q, unit: "m³/s" },
+        { key: "mdot", label: "Mass flow", value: res.massFlow, unit: "kg/s" },
+        { key: "beta", label: "Diameter ratio β", value: res.beta, unit: "" },
+        { key: "dpLoss", label: "Permanent pressure loss", value: res.permanentLoss ?? NaN, unit: "Pa" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -19015,7 +19371,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -19059,22 +19415,23 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Operating point",
-        "",
-        `  Flow                 ${engNum(res.flow, 5)} m³/s  (${engNum(res.flow * 3600, 5)} m³/h)`,
-        `  Head                 ${engNum(res.head, 5)} m`,
-        `  Hydraulic power      ${engNum(res.hydraulicPower / 1000, 5)} kW`,
+      // Release E: the operating point (and the throttled one) as quantity / value / unit tables.
+      const opRows: Array<[string, string, string]> = [
+        ["Flow", engNum(res.flow, 5), "m³/s"],
+        ["Flow", engNum(res.flow * 3600, 5), "m³/h"],
+        ["Head", engNum(res.head, 5), "m"],
+        ["Hydraulic power", engNum(res.hydraulicPower / 1000, 5), "kW"],
       ];
-      if (res.shaftPower !== null) lines.push(`  Shaft power          ${engNum(res.shaftPower / 1000, 5)} kW`);
+      if (res.shaftPower !== null) opRows.push(["Shaft power", engNum(res.shaftPower / 1000, 5), "kW"]);
+      const lines: EngReportLine[] = [...engEq("pump-system"), "Operating point", "", kvTable(opRows)];
       if (res.throttled) {
         lines.push("");
-        lines.push("Throttled");
-        lines.push(`  Flow                 ${engNum(res.throttled.flow, 5)} m³/s`);
-        lines.push(`  Head                 ${engNum(res.throttled.head, 5)} m  (HIGHER, not lower)`);
-        if (res.throttled.wastedW !== null) {
-          lines.push(`  Burned at the valve  ${engNum(res.throttled.wastedW / 1000, 5)} kW`);
-        }
+        const thRows: Array<[string, string, string]> = [
+          ["Flow", engNum(res.throttled.flow, 5), "m³/s"],
+          ["Head (HIGHER, not lower)", engNum(res.throttled.head, 5), "m"],
+        ];
+        if (res.throttled.wastedW !== null) thRows.push(["Burned at the valve", engNum(res.throttled.wastedW / 1000, 5), "kW"]);
+        lines.push(kvTable(thRows, "Throttled"));
       }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -19106,7 +19463,12 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Head (m)",
         title: "Where the pump actually runs",
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Qop", label: "Operating flow", value: res.flow, unit: "m³/s" },
+        { key: "Hop", label: "Operating head", value: res.head, unit: "m" },
+        { key: "Phyd", label: "Hydraulic power", value: res.hydraulicPower / 1000, unit: "kW" },
+        { key: "Pshaft", label: "Shaft power", value: res.shaftPower !== null ? res.shaftPower / 1000 : NaN, unit: "kW" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -19115,7 +19477,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 270,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -19155,13 +19517,16 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("affinity"),
         `Affinity scaling, speed ratio ${engNum(res.speedRatio, 5)}`,
         "",
-        `  Flow                 ${engNum(res.flow2, 5)}`,
-        `  Head                 ${engNum(res.head2, 5)}`,
-        `  Power                ${engNum(res.power2, 5)} W`,
-        `  Power as a fraction  ${engNum(res.powerFraction * 100, 4)} %`,
+        kvTable([
+          ["Flow", engNum(res.flow2, 5), ""],
+          ["Head", engNum(res.head2, 5), ""],
+          ["Power", engNum(res.power2, 5), "W"],
+          ["Power as a fraction", engNum(res.powerFraction * 100, 4), "%"],
+        ]),
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -19193,7 +19558,11 @@ const ENG_CALCS: EngCalc[] = [
           title: "Why power is the one that matters",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Q2", label: "New flow (unit of the known flow)", value: res.flow2, unit: "" },
+        { key: "H2", label: "New head (unit of the known head)", value: res.head2, unit: "" },
+        { key: "P2", label: "New power", value: res.power2, unit: "W" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -19202,7 +19571,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -19239,15 +19608,21 @@ const ENG_CALCS: EngCalc[] = [
       const res = bodyDrag({ velocity, rho, area, cd, mass, mu, length });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const dragRows: Array<[string, string, string]> = [
+        ["Dynamic pressure", engNum(res.dynamicPressure, 5), "Pa"],
+        ["Drag force", engNum(res.drag, 5), "N"],
+        ["Power to overcome", engNum(res.power / 1000, 5), "kW"],
+      ];
+      if (res.terminalVelocity !== null) dragRows.push(["Terminal velocity", engNum(res.terminalVelocity, 5), "m/s"]);
+      if (res.reynolds !== null) dragRows.push(["Reynolds number", engNum(res.reynolds, 5), ""]);
+      const lines: EngReportLine[] = [
+        ...engEq("body-drag"),
+        ...(res.terminalVelocity !== null ? engEq("body-drag:terminal") : []),
+        ...(res.reynolds !== null ? engEq("body-drag:reynolds") : []),
         `Drag at ${engNum(velocity, 4)} m/s`,
         "",
-        `  Dynamic pressure     ${engNum(res.dynamicPressure, 5)} Pa`,
-        `  Drag force           ${engNum(res.drag, 5)} N`,
-        `  Power to overcome    ${engNum(res.power / 1000, 5)} kW`,
+        kvTable(dragRows),
       ];
-      if (res.terminalVelocity !== null) lines.push(`  Terminal velocity    ${engNum(res.terminalVelocity, 5)} m/s`);
-      if (res.reynolds !== null) lines.push(`  Reynolds number      ${engNum(res.reynolds, 5)}`);
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -19272,7 +19647,12 @@ const ENG_CALCS: EngCalc[] = [
           title: "Drag squares, power cubes",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "FD", label: "Drag force", value: res.drag, unit: "N" },
+        { key: "Pdrag", label: "Power to overcome drag", value: res.power / 1000, unit: "kW" },
+        { key: "Vt", label: "Terminal velocity", value: res.terminalVelocity ?? NaN, unit: "m/s" },
+        { key: "Re", label: "Reynolds number", value: res.reynolds ?? NaN, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -19281,7 +19661,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -19315,7 +19695,7 @@ const ENG_CALCS: EngCalc[] = [
       { key: "bsa", label: "Body surface area, m² (blank to skip)", default: "1.8", kind: "text" },
     ],
     compute: (r) => {
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       if ((r("which") || "vessel") === "vessel") {
         const res = vesselFlow({
           radius: Number(r("radius") || "0"),
@@ -19325,6 +19705,14 @@ const ENG_CALCS: EngCalc[] = [
           density: Number(r("rho") || "0"),
         });
         if (!res.ok) return { text: res.error, ok: false };
+        const vesselOutputs: EngOutput[] = [
+          { key: "Rhyd", label: "Hydraulic resistance", value: res.resistance, unit: "Pa·s/m³" },
+          { key: "dpVessel", label: "Pressure drop", value: res.pressureDrop, unit: "Pa" },
+          { key: "Vmean", label: "Mean velocity", value: res.velocity, unit: "m/s" },
+          { key: "Re", label: "Reynolds number", value: res.reynolds, unit: "" },
+          { key: "tauWall", label: "Wall shear stress", value: res.wallShearStress, unit: "Pa" },
+        ];
+        lines.push(...engEq("haemodynamics:vessel"));
         lines.push("Single-vessel flow (Poiseuille)");
         lines.push("");
         lines.push(`Hydraulic resistance = ${engNum(res.resistance)} Pa·s/m³`);
@@ -19380,7 +19768,7 @@ const ENG_CALCS: EngCalc[] = [
                 ylabel: "hydraulic resistance (Pa·s/m³)",
                 title: "A modest narrowing is not modest",
               });
-              return engReport(lines, [
+              return withOutputs(vesselOutputs, engReport(lines, [
                 {
                   kind: "plot",
                   svg,
@@ -19390,11 +19778,11 @@ const ENG_CALCS: EngCalc[] = [
                   w: 380,
                   h: 250,
                 },
-              ]);
+              ]));
             }
           }
         }
-        return { text: plainDashes(lines.join("\n")) };
+        return withOutputs(vesselOutputs, engReport(lines));
       } else {
         const res = circulation({
           mapMmHg: Number(r("map") || "0"),
@@ -19404,6 +19792,9 @@ const ENG_CALCS: EngCalc[] = [
           bsa: r("bsa").trim() ? Number(r("bsa")) : undefined,
         });
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("haemodynamics:circulation"));
+        if (res.strokeVolume !== null) lines.push(...engEq("haemodynamics:stroke-volume"));
+        if (res.cardiacIndex !== null) lines.push(...engEq("haemodynamics:cardiac-index"));
         lines.push("Systemic circulation");
         lines.push("");
         lines.push(`Systemic vascular resistance = ${engNum(res.svrClinical)} dyn·s/cm⁵`);
@@ -19411,9 +19802,13 @@ const ENG_CALCS: EngCalc[] = [
         if (res.strokeVolume !== null) lines.push(`Stroke volume = ${engNum(res.strokeVolume)} mL`);
         if (res.cardiacIndex !== null) lines.push(`Cardiac index = ${engNum(res.cardiacIndex)} L/min/m²`);
         for (const note of res.notes) lines.push(`Note: ${note}`);
+        lines.push(ENG_BIOMED_UNIT_NOTE);
+        return withOutputs([
+          { key: "SVR", label: "Systemic vascular resistance", value: res.svrClinical, unit: "dyn·s/cm⁵" },
+          { key: "SVolume", label: "Stroke volume", value: res.strokeVolume ?? NaN, unit: "mL" },
+          { key: "CI", label: "Cardiac index", value: res.cardiacIndex ?? NaN, unit: "L/min/m²" },
+        ], engReport(lines));
       }
-      lines.push(ENG_BIOMED_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
     },
   },
   {
@@ -19443,7 +19838,7 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("biomechanics")];
       lines.push("Static equilibrium about a joint");
       lines.push("");
       lines.push(`External moment = ${engNum(res.externalMoment)} N·m`);
@@ -19452,6 +19847,12 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`JOINT REACTION FORCE = ${engNum(res.jointReaction)} N`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_BIOMED_UNIT_NOTE);
+      const bioOutputs: EngOutput[] = [
+        { key: "Fmuscle", label: "Muscle force required", value: res.muscleForce, unit: "N" },
+        { key: "Fjoint", label: "Joint reaction force", value: res.jointReaction, unit: "N" },
+        { key: "MA", label: "Mechanical advantage", value: res.mechanicalAdvantage, unit: "" },
+        { key: "Mext", label: "External moment", value: res.externalMoment, unit: "N·m" },
+      ];
 
       // The forces as bars — one shared newton scale, because the 7× gap
       // between the load and the muscle force IS the third-class-lever
@@ -19470,7 +19871,7 @@ const ENG_CALCS: EngCalc[] = [
             title: `Forces about the joint (advantage ${engNum(res.mechanicalAdvantage, 3)})`,
             unit: "N",
           });
-          return engReport(lines, [
+          return withOutputs(bioOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -19479,10 +19880,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 400,
               h: 46 + rows.length * HBAR_ROW_H + 18,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(bioOutputs, engReport(lines));
     },
   },
   {
@@ -19508,7 +19909,7 @@ const ENG_CALCS: EngCalc[] = [
       );
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("biosignal"), ...(res.samples !== null ? engEq("biosignal:record") : [])];
       lines.push(`Sampling at ${engNum(Number(r("fs")))} Hz`);
       lines.push("");
       lines.push(`Nyquist frequency = ${engNum(res.nyquist)} Hz`);
@@ -19521,6 +19922,12 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_BIOMED_UNIT_NOTE);
+      const sigOutputs: EngOutput[] = [
+        { key: "fNyquist", label: "Nyquist frequency", value: res.nyquist, unit: "Hz" },
+        { key: "fAlias", label: "Apparent frequency of the checked one", value: res.aliasedTo ?? NaN, unit: "Hz" },
+        { key: "df", label: "Frequency resolution", value: res.resolution ?? NaN, unit: "Hz" },
+        { key: "samples", label: "Samples in the record", value: res.samples ?? NaN, unit: "" },
+      ];
 
       // The same fold diagram the audio door draws — one engine, one figure
       // family. The signal band's top and the fold of the checked tone both
@@ -19566,7 +19973,7 @@ const ENG_CALCS: EngCalc[] = [
               ylabel: "apparent frequency after sampling (Hz)",
               title: "Where every frequency lands",
             });
-            return engReport(lines, [
+            return withOutputs(sigOutputs, engReport(lines, [
               {
                 kind: "plot",
                 svg,
@@ -19577,11 +19984,11 @@ const ENG_CALCS: EngCalc[] = [
                 w: 380,
                 h: 260,
               },
-            ]);
+            ]));
           }
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(sigOutputs, engReport(lines));
     },
   },
 
@@ -19620,17 +20027,18 @@ const ENG_CALCS: EngCalc[] = [
       const res = switchingPower(C, V, f, a, I);
       if (!res) return { text: "Capacitance and voltage must be positive, and the frequency cannot be negative.", ok: false };
 
-      const lines = [
-        "Power",
-        "",
-        `  Dynamic          ${engNum(res.dynamicW, 6)} W`,
-        `  Static (leakage) ${engNum(res.staticW, 6)} W`,
-        `  Total            ${engNum(res.totalW, 6)} W`,
-        "",
-        `  Energy per 0→1 transition  ${engNum(res.energyPerTransitionJ, 6)} J`,
-        `  Energy per clock cycle     ${res.energyPerCycleJ === null ? "n/a — no clock, and leakage accrues with time" : engNum(res.energyPerCycleJ, 6) + " J"}`,
+      // Release E: the power budget as a quantity / value / unit table.
+      const pRows: Array<[string, string, string]> = [
+        ["Dynamic", engNum(res.dynamicW, 6), "W"],
+        ["Static (leakage)", engNum(res.staticW, 6), "W"],
+        ["Total", engNum(res.totalW, 6), "W"],
+        ["Energy per 0→1 transition", engNum(res.energyPerTransitionJ, 6), "J"],
+        res.energyPerCycleJ === null
+          ? ["Energy per clock cycle", "n/a: no clock, and leakage accrues with time", ""]
+          : ["Energy per clock cycle", engNum(res.energyPerCycleJ, 6), "J"],
       ];
-      if (res.staticW > 0) lines.push(`  Leakage is ${engNum(res.leakageFraction * 100, 4)} % of the total`);
+      if (res.staticW > 0) pRows.push(["Leakage share of the total", engNum(res.leakageFraction * 100, 4), "%"]);
+      const lines: EngReportLine[] = [...engEq("chips-power"), "Power", "", kvTable(pRows)];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -19638,6 +20046,12 @@ const ENG_CALCS: EngCalc[] = [
       // Power against clock frequency: dynamic rises linearly, leakage sits
       // flat — that flatness is the lesson, and it only earns a legend row
       // when there IS leakage. With none entered, one honest curve.
+      const cpOutputs: EngOutput[] = [
+        { key: "Pdyn", label: "Dynamic power", value: res.dynamicW, unit: "W" },
+        { key: "Pleak", label: "Static (leakage) power", value: res.staticW, unit: "W" },
+        { key: "Ptotal", label: "Total power", value: res.totalW, unit: "W" },
+        { key: "Etrans", label: "Energy per 0→1 transition", value: res.energyPerTransitionJ, unit: "J" },
+      ];
       if (f > 0 && Number.isFinite(res.totalW)) {
         const dynPts: Point[] = [];
         const statPts: Point[] = [];
@@ -19667,7 +20081,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "power (W)",
             title: res.staticW > 0 ? "Where the power goes against clock" : "Dynamic power against clock",
           });
-          return engReport(lines, [
+          return withOutputs(cpOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -19679,10 +20093,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(cpOutputs, engReport(lines));
     },
   },
   {
@@ -19782,21 +20196,25 @@ const ENG_CALCS: EngCalc[] = [
       const res = junctionTemperature(power, Ta, th[0], th[1], th[2], tjMax === null ? undefined : tjMax);
       if (!res) return { text: "Power and the thermal resistances must not be negative.", ok: false };
 
-      const lines = [
-        "Thermal path",
-        "",
-        `  Dissipated power   ${engNum(power, 5)} W`,
-        `  Ambient            ${engNum(Ta, 5)} °C`,
-        `  Sink               ${engNum(res.sinkC, 5)} °C`,
-        `  Case               ${engNum(res.caseC, 5)} °C`,
-        `  Junction           ${engNum(res.junctionC, 5)} °C`,
-        "",
-        `  Total resistance   ${engNum(res.totalResistance, 5)} K/W`,
+      const tRows: Array<[string, string, string]> = [
+        ["Dissipated power", engNum(power, 5), "W"],
+        ["Ambient", engNum(Ta, 5), "°C"],
+        ["Sink", engNum(res.sinkC, 5), "°C"],
+        ["Case", engNum(res.caseC, 5), "°C"],
+        ["Junction", engNum(res.junctionC, 5), "°C"],
+        ["Total resistance", engNum(res.totalResistance, 5), "K/W"],
       ];
       if (res.marginC !== null) {
-        lines.push(`  Margin to limit    ${engNum(res.marginC, 5)} °C  (${res.withinLimit ? "within" : "OVER"})`);
-        if (res.maxPowerW !== null) lines.push(`  Power at the limit ${engNum(res.maxPowerW, 5)} W`);
+        tRows.push([`Margin to limit (${res.withinLimit ? "within" : "OVER"})`, engNum(res.marginC, 5), "°C"]);
+        if (res.maxPowerW !== null) tRows.push(["Power at the limit", engNum(res.maxPowerW, 5), "W"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("chips-thermal"),
+        ...(res.marginC !== null && res.maxPowerW !== null ? engEq("chips-thermal:limit") : []),
+        "Thermal path",
+        "",
+        kvTable(tRows),
+      ];
       u.report(lines);
       if (powerNote) lines.push(`Note: ${powerNote}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -19839,7 +20257,12 @@ const ENG_CALCS: EngCalc[] = [
             failText: "OVER LIMIT",
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "Tj", label: "Junction temperature", value: res.junctionC, unit: "°C" },
+          { key: "Tcase", label: "Case temperature", value: res.caseC, unit: "°C" },
+          { key: "marginTj", label: "Margin to the junction limit", value: res.marginC ?? NaN, unit: "°C" },
+          { key: "PmaxW", label: "Power at the limit", value: res.maxPowerW ?? NaN, unit: "W" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg: ladder,
@@ -19848,7 +20271,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 56 + 5 * 34 + 12,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -19876,14 +20299,17 @@ const ENG_CALCS: EngCalc[] = [
       const res = interconnectDelay(Rd, Rw, Cw, Cl);
       if (!res) return { text: "Resistances and capacitances must be zero or more.", ok: false };
 
-      const ps = (s: number) => `${engNum(s * 1e12, 5)} ps`;
-      const lines = [
+      const psN = (s: number) => engNum(s * 1e12, 5);
+      const lines: EngReportLine[] = [
+        ...engEq("chips-delay"),
         "Interconnect delay",
         "",
-        `  Wire Elmore (upper bound)  ${ps(res.wireElmoreS)}`,
-        `  Wire 50% crossing          ${ps(res.wireFiftyS)}`,
-        `  Driver + wire + load, 50%  ${ps(res.totalFiftyS)}`,
-        `  10-90% rise (lumped)       ${ps(res.riseTenNinetyS)}`,
+        kvTable([
+          ["Wire Elmore (upper bound)", psN(res.wireElmoreS), "ps"],
+          ["Wire 50% crossing", psN(res.wireFiftyS), "ps"],
+          ["Driver + wire + load, 50%", psN(res.totalFiftyS), "ps"],
+          ["10-90% rise (lumped)", psN(res.riseTenNinetyS), "ps"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -19894,6 +20320,11 @@ const ENG_CALCS: EngCalc[] = [
       // together is exactly "the same wire, longer", and the wire term going
       // as the square of length is the lesson. Values in ps or the axis
       // would read 3.5e-11.
+      const dlOutputs: EngOutput[] = [
+        { key: "t50", label: "Driver + wire + load 50 % delay", value: res.totalFiftyS * 1e12, unit: "ps" },
+        { key: "tElmore", label: "Wire Elmore delay (upper bound)", value: res.wireElmoreS * 1e12, unit: "ps" },
+        { key: "tRise", label: "10–90 % rise time", value: res.riseTenNinetyS * 1e12, unit: "ps" },
+      ];
       {
         const totPts: Point[] = [];
         const elmorePts: Point[] = [];
@@ -19919,7 +20350,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "RC delay grows as the square of length",
             },
           );
-          return engReport(lines, [
+          return withOutputs(dlOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -19928,10 +20359,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dlOutputs, engReport(lines));
     },
   },
   {
@@ -19970,15 +20401,23 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const ps = (s: number) => `${engNum(s * 1e12, 5)} ps`;
-      const lines = [
+      const psN = (s: number) => engNum(s * 1e12, 5);
+      const lines: EngReportLine[] = [
+        ...engEq("chips-timing"),
         "Timing closure (one path)",
         "",
-        `  Setup slack   ${ps(res.setupSlackS)}   ${res.setupOk ? "PASS" : "FAIL"}`,
-        `  Hold slack    ${ps(res.holdSlackS)}   ${res.holdOk ? "PASS" : "FAIL"}`,
+        {
+          table: [
+            ["Check", "Slack (ps)", "Verdict"],
+            ["Setup", psN(res.setupSlackS), res.setupOk ? "PASS" : "FAIL"],
+            ["Hold", psN(res.holdSlackS), res.holdOk ? "PASS" : "FAIL"],
+          ],
+        },
         "",
-        `  Required period ${ps(res.minPeriodS)}`,
-        `  Maximum clock   ${res.fMaxHz === null ? "unbounded" : engNum(res.fMaxHz / 1e6, 6) + " MHz"}`,
+        kvTable([
+          ["Required period", psN(res.minPeriodS), "ps"],
+          res.fMaxHz === null ? ["Maximum clock", "unbounded", ""] : ["Maximum clock", engNum(res.fMaxHz / 1e6, 6), "MHz"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -20010,7 +20449,12 @@ const ENG_CALCS: EngCalc[] = [
             failText: "FAIL",
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "setupSlack", label: "Setup slack", value: res.setupSlackS * 1e12, unit: "ps" },
+          { key: "holdSlack", label: "Hold slack", value: res.holdSlackS * 1e12, unit: "ps" },
+          { key: "Tmin", label: "Required period", value: res.minPeriodS * 1e12, unit: "ps" },
+          { key: "fmax", label: "Maximum clock", value: res.fMaxHz !== null ? res.fMaxHz / 1e6 : NaN, unit: "MHz" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg: ladder,
@@ -20019,7 +20463,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 56 + 6 * 34 + 12,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -20056,23 +20500,37 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) {
         return { text: "The parallel fraction must be between 0 and 1 and there must be at least one processor.", ok: false };
       }
-      const lines = [
+      // Release E: the result as a quantity / value / unit table.
+      const spRows: Array<[string, string, string]> = [
+        ["Amdahl speedup (fixed problem)", engNum(res.amdahl, 6), "×"],
+        ["Gustafson speedup (fixed time)", engNum(res.gustafson, 6), "×"],
+        ["Efficiency", engNum(res.efficiency * 100, 4), "%"],
+        res.amdahlCeiling === Infinity ? ["Amdahl ceiling", "none (perfectly parallel)", ""] : ["Amdahl ceiling", engNum(res.amdahlCeiling, 6), "×"],
+        res.halfEfficiencyN === Infinity
+          ? ["Half the machine wasted at", "never (perfectly parallel)", ""]
+          : ["Half the machine wasted at", engNum(res.halfEfficiencyN, 5), "processors"],
+      ];
+      if (res.karpFlatt !== null) spRows.push(["Karp-Flatt serial fraction", engNum(res.karpFlatt, 5), ""]);
+      const lines: EngReportLine[] = [
+        ...engEq("comp-speedup"),
+        ...(res.karpFlatt !== null ? engEq("comp-speedup:karp-flatt") : []),
         "Parallel speedup",
         "",
-        `  Amdahl (fixed problem)   ${engNum(res.amdahl, 6)}x`,
-        `  Gustafson (fixed time)   ${engNum(res.gustafson, 6)}x`,
-        `  Efficiency               ${engNum(res.efficiency * 100, 4)} %`,
-        "",
-        `  Amdahl ceiling           ${res.amdahlCeiling === Infinity ? "none (perfectly parallel)" : engNum(res.amdahlCeiling, 6) + "x"}`,
-        `  Half the machine wasted at ${res.halfEfficiencyN === Infinity ? "never (perfectly parallel)" : engNum(res.halfEfficiencyN, 5) + " processors"}`,
+        kvTable(spRows),
       ];
-      if (res.karpFlatt !== null) lines.push(`  Karp-Flatt serial fraction ${engNum(res.karpFlatt, 5)}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
       // Both laws against processor count on a log axis, the Amdahl ceiling
       // flat above (omitted entirely when the fraction is exactly 1 and the
       // ceiling is infinite), this machine on the Amdahl curve.
+      const spOutputs: EngOutput[] = [
+        { key: "Samdahl", label: "Amdahl speedup", value: res.amdahl, unit: "" },
+        { key: "Sgustafson", label: "Gustafson speedup", value: res.gustafson, unit: "" },
+        { key: "efficiency", label: "Efficiency", value: res.efficiency * 100, unit: "%" },
+        { key: "ceiling", label: "Amdahl ceiling", value: res.amdahlCeiling, unit: "" },
+        { key: "karpFlatt", label: "Karp-Flatt serial fraction", value: res.karpFlatt ?? NaN, unit: "" },
+      ];
       if (n >= 1) {
         const amdahlPts: Point[] = [];
         const gustPts: Point[] = [];
@@ -20109,7 +20567,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "speedup",
             title: "The two laws diverge",
           });
-          return engReport(lines, [
+          return withOutputs(spOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20118,10 +20576,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(spOutputs, engReport(lines));
     },
   },
   {
@@ -20149,18 +20607,28 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = shannonEntropy(w, count);
       if (!res) return { text: "Every weight must be a number, none negative, and they cannot all be zero.", ok: false };
-      const lines = [
-        "Shannon entropy",
-        "",
-        `  Entropy          ${engNum(res.entropyBits, 6)} bits/symbol`,
-        `  Maximum possible ${engNum(res.maxEntropyBits, 6)} bits/symbol  (uniform over ${w.length})`,
-        `  Redundancy       ${engNum(res.redundancy * 100, 4)} %`,
+      const enRows: Array<[string, string, string]> = [
+        ["Entropy", engNum(res.entropyBits, 6), "bits/symbol"],
+        [`Maximum possible (uniform over ${w.length})`, engNum(res.maxEntropyBits, 6), "bits/symbol"],
+        ["Redundancy", engNum(res.redundancy * 100, 4), "%"],
       ];
       if (res.idealBits !== null) {
-        lines.push("");
-        lines.push(`  Ideal compressed size of ${nRaw} symbols`);
-        lines.push(`    ${engNum(res.idealBits, 6)} bits = ${engNum(res.idealBits / 8, 6)} bytes`);
+        enRows.push([`Ideal compressed size of ${nRaw} symbols`, engNum(res.idealBits, 6), "bits"]);
+        enRows.push([`Ideal compressed size of ${nRaw} symbols`, engNum(res.idealBits / 8, 6), "bytes"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("comp-entropy"),
+        ...(res.idealBits !== null ? engEq("comp-entropy:ideal") : []),
+        "Shannon entropy",
+        "",
+        kvTable(enRows),
+      ];
+      const enOutputs: EngOutput[] = [
+        { key: "H", label: "Entropy", value: res.entropyBits, unit: "bits/symbol" },
+        { key: "Hmax", label: "Maximum possible entropy", value: res.maxEntropyBits, unit: "bits/symbol" },
+        { key: "redundancy", label: "Redundancy", value: res.redundancy * 100, unit: "%" },
+        { key: "idealBits", label: "Ideal compressed size", value: res.idealBits ?? NaN, unit: "bits" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -20191,7 +20659,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The binary entropy curve",
             },
           );
-          return engReport(lines, [
+          return withOutputs(enOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20200,7 +20668,7 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
         if (w.length > 2 && totalW > 0) {
           const rows = w.map((x, i2) => {
@@ -20213,7 +20681,7 @@ const ENG_CALCS: EngCalc[] = [
           });
           if (rows.every((rw) => Number.isFinite(rw.value))) {
             const svg = hBarSvg(rows, { title: `Contribution to H = ${engNum(res.entropyBits, 4)} bits`, unit: "bits" });
-            return engReport(lines, [
+            return withOutputs(enOutputs, engReport(lines, [
               {
                 kind: "plot",
                 svg,
@@ -20222,11 +20690,11 @@ const ENG_CALCS: EngCalc[] = [
                 w: 400,
                 h: 46 + Math.min(rows.length, 24) * HBAR_ROW_H + 18,
               },
-            ]);
+            ]));
           }
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(enOutputs, engReport(lines));
     },
   },
   {
@@ -20252,26 +20720,36 @@ const ENG_CALCS: EngCalc[] = [
       const res = channelCapacity(B, snr);
       if (!res) return { text: "Bandwidth must be positive.", ok: false };
 
-      const lines = [
-        "Channel capacity",
-        "",
-        `  SNR                  ${engNum(res.snrDb, 5)} dB  =  ${engNum(res.snrLinear, 6)} (power ratio)`,
-        `  Spectral efficiency  ${engNum(res.spectralEfficiency, 6)} bit/s/Hz`,
-        `  Capacity             ${engNum(res.capacityBps, 6)} bit/s  =  ${engNum(res.capacityBps / 1e6, 6)} Mbit/s`,
-        `  Minimum Eb/N0        ${engNum(res.ebN0Db, 5)} dB at this efficiency`,
+      const chRows: Array<[string, string, string]> = [
+        ["SNR", engNum(res.snrDb, 5), "dB"],
+        ["SNR (power ratio)", engNum(res.snrLinear, 6), ""],
+        ["Spectral efficiency", engNum(res.spectralEfficiency, 6), "bit/s/Hz"],
+        ["Capacity", engNum(res.capacityBps, 6), "bit/s"],
+        ["Capacity", engNum(res.capacityBps / 1e6, 6), "Mbit/s"],
+        ["Minimum Eb/N0 at this efficiency", engNum(res.ebN0Db, 5), "dB"],
       ];
+      const lines: EngReportLine[] = [...engEq("comp-channel"), "Channel capacity", "", kvTable(chRows)];
       const berRaw = r("ber").trim();
+      let bscCap = NaN;
       if (berRaw) {
         const ber = Number(berRaw);
         if (!Number.isFinite(ber) || ber < 0 || ber > 1) {
           return { text: "Binary channel error rate: must be between 0 and 1, or blank.", ok: false };
         }
         const bsc = bscCapacity(ber)!;
+        bscCap = bsc.capacity;
         lines.push("");
+        lines.push(...engEq("comp-channel:bsc"));
         lines.push(`  Binary symmetric channel at p = ${berRaw}`);
         lines.push(`    Capacity ${engNum(bsc.capacity, 6)} bits per channel use`);
         for (const note of bsc.notes) lines.push(`Note: ${note}`);
       }
+      const chOutputs: EngOutput[] = [
+        { key: "Cbps", label: "Capacity", value: res.capacityBps, unit: "bit/s" },
+        { key: "eta", label: "Spectral efficiency", value: res.spectralEfficiency, unit: "bit/s/Hz" },
+        { key: "EbN0", label: "Minimum Eb/N0", value: res.ebN0Db, unit: "dB" },
+        { key: "Cbsc", label: "Binary symmetric channel capacity", value: bscCap, unit: "bits per use" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -20307,7 +20785,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Capacity against SNR at this bandwidth",
             },
           );
-          return engReport(lines, [
+          return withOutputs(chOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20316,10 +20794,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(chOutputs, engReport(lines));
     },
   },
   {
@@ -20364,16 +20842,24 @@ const ENG_CALCS: EngCalc[] = [
       const res = collisionProbability(n, space);
       if (!res) return { text: "The item count cannot be negative and the value space must be positive.", ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...(res.method === "exact" ? engEq("comp-collision:exact") : engEq("comp-collision:approximation")),
+        ...engEq("comp-collision"),
         "Collision probability",
         "",
-        `  Items                 ${engNum(n, 6)}`,
-        `  Distinct values       ${engNum(space, 6)}${bits ? `  (2^${d0})` : ""}`,
-        "",
-        `  P(at least one collision)  ${res.probability >= 1 ? "1 (certain)" : engNum(res.probability, 6)}`,
-        `  Expected colliding pairs   ${engNum(res.expectedPairs, 6)}`,
-        `  Items for a 50% chance     ${engNum(res.fiftyPercentCount, 6)}`,
-        `  Method                     ${res.method}`,
+        kvTable([
+          ["Items", engNum(n, 6), ""],
+          [`Distinct values${bits ? ` (2${toSuperscript(String(d0))})` : ""}`, engNum(space, 6), ""],
+          ["P(at least one collision)", res.probability >= 1 ? "1 (certain)" : engNum(res.probability, 6), ""],
+          ["Expected colliding pairs", engNum(res.expectedPairs, 6), ""],
+          ["Items for a 50% chance", engNum(res.fiftyPercentCount, 6), ""],
+          ["Method", res.method, ""],
+        ]),
+      ];
+      const coOutputs: EngOutput[] = [
+        { key: "Pcoll", label: "Probability of at least one collision", value: res.probability, unit: "" },
+        { key: "pairs", label: "Expected colliding pairs", value: res.expectedPairs, unit: "" },
+        { key: "n50", label: "Items for a 50 % chance", value: res.fiftyPercentCount, unit: "" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -20418,7 +20904,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "P(at least one collision)",
             title: "The birthday curve",
           });
-          return engReport(lines, [
+          return withOutputs(coOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20430,10 +20916,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(coOutputs, engReport(lines));
     },
   },
   {
@@ -20458,26 +20944,33 @@ const ENG_CALCS: EngCalc[] = [
       const res = floatPrecision(v, b);
       if (!res) return { text: "Both values must be finite numbers.", ok: false };
 
-      const lines = [
-        "IEEE-754 double precision",
-        "",
-        `  Machine epsilon      ${engNum(res.epsilon, 6)}   (spacing just above 1.0)`,
-        `  Decimal digits       ${engNum(res.decimalDigits, 4)}`,
-        "",
-        `  At ${engNum(v, 6)}`,
-        `    Spacing (1 ULP)    ${engNum(res.ulp, 6)}`,
-        `    Relative spacing   ${engNum(res.relativeSpacing, 6)}`,
+      const flRows: Array<[string, string, string]> = [
+        ["Machine epsilon (spacing just above 1.0)", engNum(res.epsilon, 6), ""],
+        ["Decimal digits", engNum(res.decimalDigits, 4), ""],
+        [`Spacing (1 ULP) at ${engNum(v, 6)}`, engNum(res.ulp, 6), ""],
+        [`Relative spacing at ${engNum(v, 6)}`, engNum(res.relativeSpacing, 6), ""],
       ];
       if (res.cancellationFactor !== null) {
-        lines.push("");
-        lines.push(`  Subtracting ${engNum(v, 6)} from ${bRaw}`);
-        lines.push(
-          `    Error amplification ${res.cancellationFactor === Infinity ? "infinite (exactly equal)" : engNum(res.cancellationFactor, 6) + "x"}`,
-        );
-        lines.push(
-          `    Digits lost         ${res.digitsLost === Infinity ? "all of them" : engNum(res.digitsLost as number, 4)}`,
-        );
+        flRows.push([
+          `Error amplification, subtracting ${engNum(v, 6)} from ${bRaw}`,
+          res.cancellationFactor === Infinity ? "infinite (exactly equal)" : engNum(res.cancellationFactor, 6),
+          res.cancellationFactor === Infinity ? "" : "×",
+        ]);
+        flRows.push(["Digits lost", res.digitsLost === Infinity ? "all of them" : engNum(res.digitsLost as number, 4), ""]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("comp-float"),
+        ...(res.cancellationFactor !== null ? engEq("comp-float:cancellation") : []),
+        "IEEE-754 double precision",
+        "",
+        kvTable(flRows),
+      ];
+      const flOutputs: EngOutput[] = [
+        { key: "ulp", label: "Spacing (1 ULP) at the value", value: res.ulp, unit: "" },
+        { key: "relSpacing", label: "Relative spacing", value: res.relativeSpacing, unit: "" },
+        { key: "kappa", label: "Error amplification", value: res.cancellationFactor ?? NaN, unit: "" },
+        { key: "digitsLost", label: "Digits lost", value: res.digitsLost ?? NaN, unit: "" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -20513,7 +21006,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The gap scales with the magnitude",
             },
           );
-          return engReport(lines, [
+          return withOutputs(flOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20522,10 +21015,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(flOutputs, engReport(lines));
     },
   },
   {
@@ -20565,11 +21058,17 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("comp-scaling"),
+        ...(res.predicted !== null ? engEq("comp-scaling:predict") : []),
         "Runtime scaling",
         "",
         `  Empirical exponent k  ${engNum(res.exponent, 5)}   in t proportional to n^k`,
         `  Nearest class         ${res.nearestClass}`,
+      ];
+      const scOutputs: EngOutput[] = [
+        { key: "k", label: "Empirical exponent k", value: res.exponent, unit: "" },
+        { key: "tPred", label: "Predicted runtime (your units)", value: res.predicted ?? NaN, unit: "" },
       ];
       if (res.predicted !== null) {
         lines.push("");
@@ -20625,7 +21124,7 @@ const ENG_CALCS: EngCalc[] = [
             // class name cleaned, or the audit flags the tool.
             title: plainDashes(`t ∝ n^${engNum(res.exponent, 3)} - ${res.nearestClass}`),
           });
-          return engReport(lines, [
+          return withOutputs(scOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -20634,10 +21133,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(scOutputs, engReport(lines));
     },
   },
 
@@ -20676,19 +21175,24 @@ const ENG_CALCS: EngCalc[] = [
       const res = planarFk(L, A.map((d) => (d * Math.PI) / 180));
       if (!res) return { text: "Every link length must be a positive number and every angle a number.", ok: false };
 
-      const lines = [
+      // Release E: the pose and the joint positions as real tables.
+      const lines: EngReportLine[] = [
+        ...engEq("robotics-fk"),
         "Planar forward kinematics",
         "",
-        `  Tip position   x = ${engNum(res.tip.x, 6)} m,  y = ${engNum(res.tip.y, 6)} m`,
-        `  Tip distance   ${engNum(Math.hypot(res.tip.x, res.tip.y), 6)} m from the base`,
-        `  Tip orientation ${engNum((res.tip.theta * 180) / Math.PI, 6)} °`,
-        `  Maximum reach  ${engNum(res.maxReach, 6)} m`,
+        kvTable([
+          ["Tip position x", engNum(res.tip.x, 6), "m"],
+          ["Tip position y", engNum(res.tip.y, 6), "m"],
+          ["Tip distance from the base", engNum(Math.hypot(res.tip.x, res.tip.y), 6), "m"],
+          ["Tip orientation", engNum((res.tip.theta * 180) / Math.PI, 6), "°"],
+          ["Maximum reach", engNum(res.maxReach, 6), "m"],
+        ]),
         "",
-        "  Joint positions",
+        {
+          label: "Joint positions",
+          table: [["Joint", "x (m)", "y (m)"], ...res.joints.map((j, i) => [i === 0 ? "base" : "J" + i, engNum(j.x, 6), engNum(j.y, 6)])],
+        },
       ];
-      res.joints.forEach((j, i) => {
-        lines.push(`    ${i === 0 ? "base" : "J" + i}   x = ${engNum(j.x, 6)},  y = ${engNum(j.y, 6)}`);
-      });
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -20704,7 +21208,12 @@ const ENG_CALCS: EngCalc[] = [
             note: `tip (${engNum(res.tip.x, 4)}, ${engNum(res.tip.y, 4)}) m, reach ${engNum(res.maxReach, 4)} m`,
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "xTip", label: "Tip position x", value: res.tip.x, unit: "m" },
+          { key: "yTip", label: "Tip position y", value: res.tip.y, unit: "m" },
+          { key: "thetaTip", label: "Tip orientation", value: (res.tip.theta * 180) / Math.PI, unit: "°" },
+          { key: "reachMax", label: "Maximum reach", value: res.maxReach, unit: "m" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -20713,7 +21222,7 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -20745,7 +21254,8 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) return { text: "Both link lengths must be positive numbers.", ok: false };
 
       const deg = (v: number) => engNum((v * 180) / Math.PI, 6);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...(res.reachable ? engEq("robotics-ik") : []),
         "2R inverse kinematics",
         "",
         `  Target distance   ${engNum(res.radius, 6)} m`,
@@ -20755,14 +21265,20 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.reachable) {
         lines.push(`  NO SOLUTION - outside the workspace by ${engNum(res.missM, 6)} m`);
       } else {
-        lines.push(`  ${res.solutions.length} solution${res.solutions.length === 1 ? "" : "s"}`);
-        for (const s of res.solutions) {
-          lines.push(
-            `    ${s.branch.padEnd(11)} θ1 = ${deg(s.theta1)} °,  θ2 = ${deg(s.theta2)} °`,
-          );
-        }
+        // Release E: the solution branches as a real table.
+        lines.push({
+          label: `${res.solutions.length} solution${res.solutions.length === 1 ? "" : "s"}`,
+          table: [["Branch", "θ1 (°)", "θ2 (°)"], ...res.solutions.map((s) => [s.branch, deg(s.theta1), deg(s.theta2)])],
+        });
         if (res.singular) lines.push("  SINGULAR: the two branches coincide here.");
       }
+      const degN = (v: number | undefined): number => (v === undefined ? NaN : (v * 180) / Math.PI);
+      const ikOutputs: EngOutput[] = [
+        { key: "theta1a", label: "θ1, first branch", value: degN(res.solutions[0]?.theta1), unit: "°" },
+        { key: "theta2a", label: "θ2, first branch", value: degN(res.solutions[0]?.theta2), unit: "°" },
+        { key: "theta1b", label: "θ1, second branch", value: degN(res.solutions[1]?.theta1), unit: "°" },
+        { key: "theta2b", label: "θ2, second branch", value: degN(res.solutions[1]?.theta2), unit: "°" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -20794,7 +21310,7 @@ const ENG_CALCS: EngCalc[] = [
               : `outside the annulus by ${engNum(res.missM, 4)} m`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(ikOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -20805,7 +21321,7 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -20855,24 +21371,48 @@ const ENG_CALCS: EngCalc[] = [
       const res = planar2rJacobian(l1, l2, (t1 * Math.PI) / 180, (t2 * Math.PI) / 180, force);
       if (!res) return { text: "Both link lengths must be positive numbers.", ok: false };
 
-      const lines = [
+      // Release E: J and the derived figures as real tables.
+      const lines: EngReportLine[] = [
+        ...engEq("robotics-jacobian"),
+        ...(res.jointTorques ? engEq("robotics-jacobian:torque") : []),
         "Jacobian at this configuration",
         "",
-        `  J = [ ${engNum(res.j[0], 5)}   ${engNum(res.j[1], 5)} ]`,
-        `      [ ${engNum(res.j[2], 5)}   ${engNum(res.j[3], 5)} ]`,
+        {
+          label: "J (m/rad)",
+          table: [
+            ["", "∂/∂θ1", "∂/∂θ2"],
+            ["x", engNum(res.j[0], 5), engNum(res.j[1], 5)],
+            ["y", engNum(res.j[2], 5), engNum(res.j[3], 5)],
+          ],
+        },
         "",
-        `  det J            ${engNum(res.determinant, 6)}`,
-        `  Manipulability   ${engNum(res.manipulability, 6)}`,
-        `  Singular values  ${engNum(res.singularValues[0], 6)}, ${engNum(res.singularValues[1], 6)}`,
-        `  Condition number ${res.conditionNumber === Infinity ? "infinite (singular)" : engNum(res.conditionNumber, 6)}`,
+        kvTable([
+          ["det J", engNum(res.determinant, 6), "m²"],
+          ["Manipulability", engNum(res.manipulability, 6), "m²"],
+          ["Singular values", `${engNum(res.singularValues[0], 6)}, ${engNum(res.singularValues[1], 6)}`, "m"],
+          ["Condition number", res.conditionNumber === Infinity ? "infinite (singular)" : engNum(res.conditionNumber, 6), ""],
+        ]),
         `  ${res.singular ? "SINGULAR - the Jacobian has rank 1 here." : "Non-singular."}`,
       ];
       if (res.jointTorques) {
         lines.push("");
-        lines.push(`  Joint torques to hold the tip load (τ = Jᵀ F)`);
-        lines.push(`    τ1 (shoulder) ${engNum(res.jointTorques[0], 6)} N·m`);
-        lines.push(`    τ2 (elbow)    ${engNum(res.jointTorques[1], 6)} N·m`);
+        lines.push(
+          kvTable(
+            [
+              ["τ1 (shoulder)", engNum(res.jointTorques[0], 6), "N·m"],
+              ["τ2 (elbow)", engNum(res.jointTorques[1], 6), "N·m"],
+            ],
+            "Joint torques to hold the tip load (τ = Jᵀ F)",
+          ),
+        );
       }
+      const jacOutputs: EngOutput[] = [
+        { key: "detJ", label: "det J", value: res.determinant, unit: "m²" },
+        { key: "manip", label: "Manipulability", value: res.manipulability, unit: "m²" },
+        { key: "cond", label: "Condition number", value: res.conditionNumber, unit: "" },
+        { key: "tau1", label: "Shoulder torque τ1", value: res.jointTorques ? res.jointTorques[0] : NaN, unit: "N·m" },
+        { key: "tau2", label: "Elbow torque τ2", value: res.jointTorques ? res.jointTorques[1] : NaN, unit: "N·m" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -20903,7 +21443,7 @@ const ENG_CALCS: EngCalc[] = [
               : `condition number ${engNum(res.conditionNumber, 4)}`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(jacOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -20912,7 +21452,7 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -20953,21 +21493,32 @@ const ENG_CALCS: EngCalc[] = [
       const res = dhForward(rows);
       if (!res) return { text: "Every DH entry must be a finite number.", ok: false };
 
-      const lines = [
+      // Release E: the tip position and rotation as real tables.
+      const lines: EngReportLine[] = [
+        ...engEq("robotics-dh"),
         `Forward kinematics of a ${rows.length}-joint chain`,
         "",
-        `  Tip position  x = ${engNum(res.position[0], 6)} m`,
-        `                y = ${engNum(res.position[1], 6)} m`,
-        `                z = ${engNum(res.position[2], 6)} m`,
-        `  Distance from base ${engNum(Math.hypot(res.position[0], res.position[1], res.position[2]), 6)} m`,
+        kvTable([
+          ["Tip position x", engNum(res.position[0], 6), "m"],
+          ["Tip position y", engNum(res.position[1], 6), "m"],
+          ["Tip position z", engNum(res.position[2], 6), "m"],
+          ["Distance from base", engNum(Math.hypot(res.position[0], res.position[1], res.position[2]), 6), "m"],
+        ]),
         "",
-        "  Tip rotation matrix",
+        {
+          label: "Tip rotation matrix",
+          table: [
+            ["Row", "1", "2", "3"],
+            ...[0, 1, 2].map((i) => [`${i + 1}`, engNum(res.rotation[i * 3], 5), engNum(res.rotation[i * 3 + 1], 5), engNum(res.rotation[i * 3 + 2], 5)]),
+          ],
+        },
       ];
-      for (let i = 0; i < 3; i++) {
-        lines.push(
-          `    [ ${engNum(res.rotation[i * 3], 5)}  ${engNum(res.rotation[i * 3 + 1], 5)}  ${engNum(res.rotation[i * 3 + 2], 5)} ]`,
-        );
-      }
+      const dhOutputs: EngOutput[] = [
+        { key: "xTip", label: "Tip position x", value: res.position[0], unit: "m" },
+        { key: "yTip", label: "Tip position y", value: res.position[1], unit: "m" },
+        { key: "zTip", label: "Tip position z", value: res.position[2], unit: "m" },
+        { key: "dist", label: "Distance from base", value: Math.hypot(res.position[0], res.position[1], res.position[2]), unit: "m" },
+      ];
       lines.push("");
       if (res.rpy) {
         const d = (v: number) => engNum((v * 180) / Math.PI, 6);
@@ -21003,7 +21554,7 @@ const ENG_CALCS: EngCalc[] = [
           note: `tip x ${engNum(res.position[0], 4)}, z ${engNum(res.position[2], 4)} m`,
           minSpan: shared,
         });
-        return engReport(lines, [
+        return withOutputs(dhOutputs, engReport(lines, [
           {
             kind: "plot",
             svg: planSvg,
@@ -21020,9 +21571,9 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dhOutputs, engReport(lines));
     },
   },
   {
@@ -21049,17 +21600,24 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) {
         return { text: "Distance cannot be negative, and speed and acceleration must be positive.", ok: false };
       }
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...(res.shape === "triangular" ? engEq("robotics-profile:triangular") : engEq("robotics-profile:trapezoidal")),
         `Motion profile - ${res.shape}`,
         "",
-        `  Total time      ${engNum(res.totalTimeS, 6)} s`,
-        `  Accelerate for  ${engNum(res.accelTimeS, 6)} s`,
-        `  Cruise for      ${engNum(res.cruiseTimeS, 6)} s`,
-        `  Decelerate for  ${engNum(res.accelTimeS, 6)} s`,
-        "",
-        `  Peak speed      ${engNum(res.peakSpeed, 6)} m/s`,
-        `  Accel distance  ${engNum(res.accelDistance, 6)} m  (each end)`,
-        `  Cruise distance ${engNum(res.cruiseDistance, 6)} m`,
+        kvTable([
+          ["Total time", engNum(res.totalTimeS, 6), "s"],
+          ["Accelerate for", engNum(res.accelTimeS, 6), "s"],
+          ["Cruise for", engNum(res.cruiseTimeS, 6), "s"],
+          ["Decelerate for", engNum(res.accelTimeS, 6), "s"],
+          ["Peak speed", engNum(res.peakSpeed, 6), "m/s"],
+          ["Accel distance (each end)", engNum(res.accelDistance, 6), "m"],
+          ["Cruise distance", engNum(res.cruiseDistance, 6), "m"],
+        ]),
+      ];
+      const prOutputs: EngOutput[] = [
+        { key: "tTotal", label: "Total time", value: res.totalTimeS, unit: "s" },
+        { key: "vPeak", label: "Peak speed", value: res.peakSpeed, unit: "m/s" },
+        { key: "tAccel", label: "Acceleration time", value: res.accelTimeS, unit: "s" },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -21101,7 +21659,7 @@ const ENG_CALCS: EngCalc[] = [
             title: res.shape === "triangular" ? "The move never reaches the commanded speed" : "The trapezoidal profile",
           },
         );
-        return engReport(lines, [
+        return withOutputs(prOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21113,9 +21671,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(prOutputs, engReport(lines));
     },
   },
   {
@@ -21168,21 +21726,34 @@ const ENG_CALCS: EngCalc[] = [
         : diffDriveFromWheels(a1, a2, W, rw === null ? undefined : rw);
       if (!res) return { text: "The track width must be greater than zero.", ok: false };
 
-      const lines = [
-        body ? "Differential drive - wheel speeds for the commanded motion" : "Differential drive - motion from the wheel speeds",
-        "",
-        `  Left wheel    ${engNum(res.leftSpeed, 6)} m/s`,
-        `  Right wheel   ${engNum(res.rightSpeed, 6)} m/s`,
-        "",
-        `  Body speed    ${engNum(res.linearSpeed, 6)} m/s`,
-        `  Yaw rate      ${engNum(res.angularSpeed, 6)} rad/s  (${engNum((res.angularSpeed * 180) / Math.PI, 5)} °/s)`,
-        `  Turn radius   ${res.turnRadius === Infinity ? "infinite (straight ahead)" : engNum(res.turnRadius, 6) + " m"}`,
+      const ddRows: Array<[string, string, string]> = [
+        ["Left wheel", engNum(res.leftSpeed, 6), "m/s"],
+        ["Right wheel", engNum(res.rightSpeed, 6), "m/s"],
+        ["Body speed", engNum(res.linearSpeed, 6), "m/s"],
+        ["Yaw rate", engNum(res.angularSpeed, 6), "rad/s"],
+        ["Yaw rate", engNum((res.angularSpeed * 180) / Math.PI, 5), "°/s"],
+        res.turnRadius === Infinity ? ["Turn radius", "infinite (straight ahead)", ""] : ["Turn radius", engNum(res.turnRadius, 6), "m"],
       ];
       if (res.wheelRates) {
-        lines.push("");
-        lines.push(`  Left wheel rate  ${engNum(res.wheelRates[0], 6)} rad/s  (${engNum((res.wheelRates[0] * 60) / (2 * Math.PI), 5)} rpm)`);
-        lines.push(`  Right wheel rate ${engNum(res.wheelRates[1], 6)} rad/s  (${engNum((res.wheelRates[1] * 60) / (2 * Math.PI), 5)} rpm)`);
+        ddRows.push(["Left wheel rate", engNum(res.wheelRates[0], 6), "rad/s"]);
+        ddRows.push(["Left wheel rate", engNum((res.wheelRates[0] * 60) / (2 * Math.PI), 5), "rpm"]);
+        ddRows.push(["Right wheel rate", engNum(res.wheelRates[1], 6), "rad/s"]);
+        ddRows.push(["Right wheel rate", engNum((res.wheelRates[1] * 60) / (2 * Math.PI), 5), "rpm"]);
       }
+      const lines: EngReportLine[] = [
+        ...(body ? engEq("robotics-diffdrive:body") : engEq("robotics-diffdrive:wheels")),
+        ...(res.wheelRates ? engEq("robotics-diffdrive:rates") : []),
+        body ? "Differential drive - wheel speeds for the commanded motion" : "Differential drive - motion from the wheel speeds",
+        "",
+        kvTable(ddRows),
+      ];
+      const ddOutputs: EngOutput[] = [
+        { key: "vBody", label: "Body speed", value: res.linearSpeed, unit: "m/s" },
+        { key: "omega", label: "Yaw rate", value: res.angularSpeed, unit: "rad/s" },
+        { key: "Rturn", label: "Turn radius", value: res.turnRadius, unit: "m" },
+        { key: "vLeft", label: "Left wheel speed", value: res.leftSpeed, unit: "m/s" },
+        { key: "vRight", label: "Right wheel speed", value: res.rightSpeed, unit: "m/s" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -21227,7 +21798,7 @@ const ENG_CALCS: EngCalc[] = [
             [],
             { title: "Straight ahead", note: "equal wheels: infinite turn radius, parallel tracks" },
           );
-          return engReport(lines, [
+          return withOutputs(ddOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -21236,7 +21807,7 @@ const ENG_CALCS: EngCalc[] = [
               w: ARM_CHART_SIZE.w,
               h: ARM_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
         // The engine's turnRadius is SIGNED (v/ω), and that sign already
         // carries the turn direction: with the robot on the x axis heading
@@ -21268,7 +21839,7 @@ const ENG_CALCS: EngCalc[] = [
             note: `turn radius ${engNum(Math.abs(res.turnRadius), 4)} m about the marked centre; dashed circles are the wheel tracks`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(ddOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21277,7 +21848,7 @@ const ENG_CALCS: EngCalc[] = [
             w: ARM_CHART_SIZE.w,
             h: ARM_CHART_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -21323,23 +21894,40 @@ const ENG_CALCS: EngCalc[] = [
       // a real answer for a MEASURED pressure, so it is reported only when one is
       // given.
       const pa = pObs === null ? null : pressureAltitude(pObs);
-      const lines = [
-        "Standard atmosphere",
-        "",
-        `  Geopotential altitude ${engNum(a.geopotentialM, 6)} m`,
-        `  Temperature           ${engNum(a.temperatureK, 6)} K   (${engNum(a.temperatureK - 273.15, 5)} °C)`,
-        `  Pressure              ${engNum(a.pressurePa, 6)} Pa  (${engNum(a.pressurePa / 100, 6)} hPa)`,
-        `  Density               ${engNum(a.densityKgM3, 6)} kg/m³`,
-        `  Density ratio σ       ${engNum(a.sigma, 6)}`,
-        `  Speed of sound        ${engNum(a.soundSpeedMs, 6)} m/s  (${engNum(a.soundSpeedMs * 1.9438444924406, 6)} kt)`,
+      // Release E: the layer's own barometric law (isothermal layers are exponential, sloped ones a power law).
+      const isoLayer = ISA_LAYERS[a.layerIndex]?.lapse === 0;
+      const isaRows: Array<[string, string, string]> = [
+        ["Geopotential altitude", engNum(a.geopotentialM, 6), "m"],
+        ["Temperature", engNum(a.temperatureK, 6), "K"],
+        ["Temperature", engNum(a.temperatureK - 273.15, 5), "°C"],
+        ["Pressure", engNum(a.pressurePa, 6), "Pa"],
+        ["Pressure", engNum(a.pressurePa / 100, 6), "hPa"],
+        ["Density", engNum(a.densityKgM3, 6), "kg/m³"],
+        ["Density ratio σ", engNum(a.sigma, 6), ""],
+        ["Speed of sound", engNum(a.soundSpeedMs, 6), "m/s"],
+        ["Speed of sound", engNum(a.soundSpeedMs * 1.9438444924406, 6), "kt"],
       ];
       if (pObs !== null) {
-        if (pa === null) {
-          lines.push(`  Pressure altitude     that pressure lies outside the model's range`);
-        } else {
-          lines.push(`  Pressure altitude     ${engNum(pa, 6)} m   (for the observed ${engNum(pObs / 100, 6)} hPa)`);
-        }
+        isaRows.push(
+          pa === null
+            ? ["Pressure altitude", "that pressure lies outside the model's range", ""]
+            : [`Pressure altitude (for the observed ${engNum(pObs / 100, 6)} hPa)`, engNum(pa, 6), "m"],
+        );
       }
+      const lines: EngReportLine[] = [
+        ...engEq("aero-isa"),
+        ...(isoLayer ? engEq("aero-isa:isothermal") : engEq("aero-isa:sloped")),
+        "Standard atmosphere",
+        "",
+        kvTable(isaRows),
+      ];
+      const isaOutputs: EngOutput[] = [
+        { key: "Tisa", label: "Temperature", value: a.temperatureK, unit: "K" },
+        { key: "pisa", label: "Pressure", value: a.pressurePa, unit: "Pa" },
+        { key: "rhoisa", label: "Density", value: a.densityKgM3, unit: "kg/m³" },
+        { key: "sigma", label: "Density ratio σ", value: a.sigma, unit: "" },
+        { key: "aSound", label: "Speed of sound", value: a.soundSpeedMs, unit: "m/s" },
+      ];
       u.report(lines);
       for (const note of a.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -21379,7 +21967,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Standard atmosphere profile",
             },
           );
-          return engReport(lines, [
+          return withOutputs(isaOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -21388,10 +21976,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 270,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(isaOutputs, engReport(lines));
     },
   },
   {
@@ -21421,17 +22009,31 @@ const ENG_CALCS: EngCalc[] = [
       const s = airspeeds(V, a.densityKgM3, a.pressurePa);
       if (!s) return { text: "Airspeed cannot be negative.", ok: false };
 
-      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
-      const lines = [
+      const ktN = (v: number) => engNum(v * 1.9438444924406, 5);
+      const lines: EngReportLine[] = [
+        ...engEq("aero-airspeed"),
         "Airspeeds",
         "",
-        `  True (TAS)        ${engNum(s.tasMs, 5)} m/s   ${kt(s.tasMs)}`,
-        `  Equivalent (EAS)  ${engNum(s.easMs, 5)} m/s   ${kt(s.easMs)}`,
-        `  Calibrated (CAS)  ${engNum(s.casMs, 5)} m/s   ${kt(s.casMs)}`,
-        `  Mach              ${engNum(s.mach, 5)}`,
+        {
+          table: [
+            ["Airspeed", "m/s", "kt"],
+            ["True (TAS)", engNum(s.tasMs, 5), ktN(s.tasMs)],
+            ["Equivalent (EAS)", engNum(s.easMs, 5), ktN(s.easMs)],
+            ["Calibrated (CAS)", engNum(s.casMs, 5), ktN(s.casMs)],
+          ],
+        },
         "",
-        `  Impact pressure   ${engNum(s.impactPa, 6)} Pa`,
-        `  Dynamic pressure  ${engNum(s.dynamicPa, 6)} Pa   (incompressible ½ρV²)`,
+        kvTable([
+          ["Mach", engNum(s.mach, 5), ""],
+          ["Impact pressure", engNum(s.impactPa, 6), "Pa"],
+          ["Dynamic pressure (incompressible ½ρV²)", engNum(s.dynamicPa, 6), "Pa"],
+        ]),
+      ];
+      const asOutputs: EngOutput[] = [
+        { key: "EAS", label: "Equivalent airspeed", value: s.easMs, unit: "m/s" },
+        { key: "CAS", label: "Calibrated airspeed", value: s.casMs, unit: "m/s" },
+        { key: "Mach", label: "Mach number", value: s.mach, unit: "" },
+        { key: "qc", label: "Impact pressure", value: s.impactPa, unit: "Pa" },
       ];
       u.report(lines);
       for (const note of s.notes) lines.push(`Note: ${note}`);
@@ -21483,7 +22085,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "One TAS, three airspeeds",
             },
           );
-          return engReport(lines, [
+          return withOutputs(asOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -21492,10 +22094,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(asOutputs, engReport(lines));
     },
   },
   {
@@ -21550,22 +22152,38 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
-      const lines = [
-        "Lift and drag in level flight",
-        "",
-        `  Density at altitude ${engNum(a.densityKgM3, 6)} kg/m³`,
-        `  CL                  ${engNum(p.cl, 5)}`,
-        `  CD                  ${engNum(p.cd, 5)}   (CD0 ${engNum(nums.cd0, 4)} + induced ${engNum(p.cd - nums.cd0, 4)})`,
-        `  L/D                 ${engNum(p.liftToDrag, 5)}`,
-        `  Drag                ${engNum(p.dragN, 6)} N`,
-        "",
-        `  Best L/D            ${engNum(p.bestLd, 5)} at CL ${engNum(p.clAtBestLd, 5)}`,
-        `  Speed for best L/D  ${engNum(p.speedAtBestLdMs, 5)} m/s   ${kt(p.speedAtBestLdMs)}`,
+      const ktN = (v: number) => engNum(v * 1.9438444924406, 5);
+      const poRows: Array<[string, string, string]> = [
+        ["Density at altitude", engNum(a.densityKgM3, 6), "kg/m³"],
+        ["CL", engNum(p.cl, 5), ""],
+        ["CD", engNum(p.cd, 5), ""],
+        ["CD0", engNum(nums.cd0, 4), ""],
+        ["Induced CD", engNum(p.cd - nums.cd0, 4), ""],
+        ["L/D", engNum(p.liftToDrag, 5), ""],
+        ["Drag", engNum(p.dragN, 6), "N"],
+        ["Best L/D", engNum(p.bestLd, 5), ""],
+        ["CL at best L/D", engNum(p.clAtBestLd, 5), ""],
+        ["Speed for best L/D", engNum(p.speedAtBestLdMs, 5), "m/s"],
+        ["Speed for best L/D", ktN(p.speedAtBestLdMs), "kt"],
       ];
       if (p.stallSpeedMs !== null) {
-        lines.push(`  Stall speed         ${engNum(p.stallSpeedMs, 5)} m/s   ${kt(p.stallSpeedMs)}`);
+        poRows.push(["Stall speed", engNum(p.stallSpeedMs, 5), "m/s"]);
+        poRows.push(["Stall speed", ktN(p.stallSpeedMs), "kt"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("aero-polar"),
+        ...(p.stallSpeedMs !== null ? engEq("aero-polar:stall") : []),
+        "Lift and drag in level flight",
+        "",
+        kvTable(poRows),
+      ];
+      const poOutputs: EngOutput[] = [
+        { key: "CL", label: "Lift coefficient CL", value: p.cl, unit: "" },
+        { key: "CD", label: "Drag coefficient CD", value: p.cd, unit: "" },
+        { key: "LD", label: "Lift-to-drag ratio", value: p.liftToDrag, unit: "" },
+        { key: "drag", label: "Drag", value: p.dragN, unit: "N" },
+        { key: "Vstall", label: "Stall speed", value: p.stallSpeedMs ?? NaN, unit: "m/s" },
+      ];
       u.report(lines);
       for (const note of p.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -21610,7 +22228,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Drag polar",
           },
         );
-        return engReport(lines, [
+        return withOutputs(poOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21619,9 +22237,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 270,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(poOutputs, engReport(lines));
     },
   },
   {
@@ -21661,18 +22279,30 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
-      const lines = [
-        "Level turn",
-        "",
-        `  Load factor n     ${engNum(t.loadFactor, 5)} g`,
-        `  Turn radius       ${t.radiusM === Infinity ? "infinite (wings level)" : engNum(t.radiusM, 5) + " m"}`,
-        `  Turn rate         ${engNum((t.rateRadS * 180) / Math.PI, 5)} °/s`,
-        `  Time for 360°     ${t.periodS === Infinity ? "never (wings level)" : engNum(t.periodS, 5) + " s"}`,
+      const ktN = (v: number) => engNum(v * 1.9438444924406, 5);
+      const tuRows: Array<[string, string, string]> = [
+        ["Load factor n", engNum(t.loadFactor, 5), "g"],
+        t.radiusM === Infinity ? ["Turn radius", "infinite (wings level)", ""] : ["Turn radius", engNum(t.radiusM, 5), "m"],
+        ["Turn rate", engNum((t.rateRadS * 180) / Math.PI, 5), "°/s"],
+        t.periodS === Infinity ? ["Time for 360°", "never (wings level)", ""] : ["Time for 360°", engNum(t.periodS, 5), "s"],
       ];
       if (t.stallInTurnMs !== null) {
-        lines.push(`  Stall speed in turn ${engNum(t.stallInTurnMs, 5)} m/s   ${kt(t.stallInTurnMs)}`);
+        tuRows.push(["Stall speed in turn", engNum(t.stallInTurnMs, 5), "m/s"]);
+        tuRows.push(["Stall speed in turn", ktN(t.stallInTurnMs), "kt"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("aero-turn"),
+        ...(t.stallInTurnMs !== null ? engEq("aero-turn:stall") : []),
+        "Level turn",
+        "",
+        kvTable(tuRows),
+      ];
+      const tuOutputs: EngOutput[] = [
+        { key: "nLoad", label: "Load factor", value: t.loadFactor, unit: "g" },
+        { key: "Rturn", label: "Turn radius", value: t.radiusM, unit: "m" },
+        { key: "rate", label: "Turn rate", value: (t.rateRadS * 180) / Math.PI, unit: "°/s" },
+        { key: "VsTurn", label: "Stall speed in the turn", value: t.stallInTurnMs ?? NaN, unit: "m/s" },
+      ];
       u.report(lines);
       for (const note of t.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -21706,7 +22336,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Turn radius against bank",
             },
           );
-          return engReport(lines, [
+          return withOutputs(tuOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -21715,10 +22345,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(tuOutputs, engReport(lines));
     },
   },
   {
@@ -21753,16 +22383,23 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const lines = [
+      const clRows: Array<[string, string, string]> = [
+        ["Rate of climb", engNum(c.rocMs, 5), "m/s"],
+        ["Rate of climb", engNum(c.rocMs * 196.850393700787, 5), "ft/min"],
+        ["Flight-path angle", engNum(c.angleDeg, 5), "°"],
+      ];
+      if (c.glideRatio !== null) clRows.push(["Glide ratio", `${engNum(c.glideRatio, 5)} : 1`, ""]);
+      if (c.glideRangeM !== null) {
+        clRows.push(["Still-air range", engNum(c.glideRangeM, 6), "m"]);
+        clRows.push(["Still-air range", engNum(c.glideRangeM / 1852, 5), "nmi"]);
+      }
+      const lines: EngReportLine[] = [
+        ...engEq("aero-climb"),
+        ...(c.glideRatio !== null ? engEq("aero-climb:glide") : []),
         c.rocMs >= 0 ? "Climb" : "Descent",
         "",
-        `  Rate of climb      ${engNum(c.rocMs, 5)} m/s   (${engNum(c.rocMs * 196.850393700787, 5)} ft/min)`,
-        `  Flight-path angle  ${engNum(c.angleDeg, 5)} °`,
+        kvTable(clRows),
       ];
-      if (c.glideRatio !== null) lines.push(`  Glide ratio        ${engNum(c.glideRatio, 5)} : 1`);
-      if (c.glideRangeM !== null) {
-        lines.push(`  Still-air range    ${engNum(c.glideRangeM, 6)} m   (${engNum(c.glideRangeM / 1852, 5)} nmi)`);
-      }
       u.report(lines);
       for (const note of c.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -21783,7 +22420,12 @@ const ENG_CALCS: EngCalc[] = [
           c.rocMs >= 0 ? "The climb triangle" : "The descent triangle",
           `sin γ = (T − D)/W = ${engNum((T - D) / W, 4)}`,
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "ROC", label: "Rate of climb", value: c.rocMs, unit: "m/s" },
+          { key: "gammaDeg", label: "Flight-path angle", value: c.angleDeg, unit: "°" },
+          { key: "glideRatio", label: "Glide ratio", value: c.glideRatio ?? NaN, unit: "" },
+          { key: "glideRange", label: "Still-air glide range", value: c.glideRangeM ?? NaN, unit: "m" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -21792,7 +22434,7 @@ const ENG_CALCS: EngCalc[] = [
             w: VECTOR_TRIANGLE_SIZE.w,
             h: VECTOR_TRIANGLE_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -21833,14 +22475,17 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(n) || n <= 0) return { text: "Refractive index must be positive.", ok: false };
       const res = photonRelations(v, r("u") as PhotonUnit, n);
       if (!res) return { text: "That value has no physical photon corresponding to it.", ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-photon"),
         "Photon relations",
         "",
-        `  Wavelength (vacuum)  ${engNum(res.wavelengthNm, 7)} nm`,
-        `  Frequency            ${engNum(res.frequencyTHz, 7)} THz`,
-        `  Photon energy        ${engNum(res.energyEv, 7)} eV`,
-        `                       ${engNum(res.energyJ, 6)} J`,
-        `  Wavenumber           ${engNum(res.wavenumberCm, 7)} cm^-1`,
+        kvTable([
+          ["Wavelength (vacuum)", engNum(res.wavelengthNm, 7), "nm"],
+          ["Frequency", engNum(res.frequencyTHz, 7), "THz"],
+          ["Photon energy", engNum(res.energyEv, 7), "eV"],
+          ["Photon energy", engNum(res.energyJ, 6), "J"],
+          ["Wavenumber", engNum(res.wavenumberCm, 7), "cm⁻¹"],
+        ]),
         "",
         `  From the exact SI constants h = ${H_PLANCK} J*s and c = ${C_LIGHT} m/s,`,
         `  so hc = ${((H_PLANCK * C_LIGHT) / 1.602176634e-19 / 1e-9).toPrecision(10)} eV*nm.`,
@@ -21852,6 +22497,12 @@ const ENG_CALCS: EngCalc[] = [
       // E = hc/λ. Swept around the VACUUM wavelength the engine computed
       // (the entered value may be THz or eV), each point re-asked with n = 1
       // since the result is already in vacuum.
+      const phOutputs: EngOutput[] = [
+        { key: "lambdaNm", label: "Vacuum wavelength", value: res.wavelengthNm, unit: "nm" },
+        { key: "nuTHz", label: "Frequency", value: res.frequencyTHz, unit: "THz" },
+        { key: "EeV", label: "Photon energy", value: res.energyEv, unit: "eV" },
+        { key: "wavenumber", label: "Wavenumber", value: res.wavenumberCm, unit: "cm⁻¹" },
+      ];
       if (res.wavelengthNm > 0 && Number.isFinite(res.energyEv)) {
         const ePts: Point[] = [];
         for (let i2 = 0; i2 <= 60; i2++) {
@@ -21875,7 +22526,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Energy against wavelength",
             },
           );
-          return engReport(lines, [
+          return withOutputs(phOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -21884,10 +22535,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(phOutputs, engReport(lines));
     },
   },
   {
@@ -21923,18 +22574,21 @@ const ENG_CALCS: EngCalc[] = [
       const g = gaussianBeam({ w0, lambda: lam, m2, z });
       if (!g) return { text: "Enter a positive waist and wavelength.", ok: false };
       const mrad = (x: number) => engNum(x * 1000, 5);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-gaussian"),
         "Gaussian beam",
         "",
-        `  Rayleigh range z_R    ${engNum(g.rayleighM, 6)} m`,
-        `  Depth of focus 2z_R   ${engNum(g.confocalM, 6)} m`,
-        `  Divergence half-angle ${mrad(g.thetaHalfRad)} mrad   (full angle ${mrad(2 * g.thetaHalfRad)} mrad)`,
-        `  Beam parameter prod.  ${engNum(g.bpp * 1e6, 5)} mm*mrad`,
-        "",
-        `  At z = ${engNum(z, 5)} m`,
-        `    Radius w(z)         ${engNum(g.wAtZ, 6)} m   (diameter ${engNum(2 * g.wAtZ, 6)} m)`,
-        `    Wavefront R(z)      ${g.rAtZ === Infinity ? "flat (infinite)" : engNum(g.rAtZ, 6) + " m"}`,
-        `    Gouy phase          ${engNum((g.gouyRad * 180) / Math.PI, 5)} deg`,
+        kvTable([
+          ["Rayleigh range zR", engNum(g.rayleighM, 6), "m"],
+          ["Depth of focus 2zR", engNum(g.confocalM, 6), "m"],
+          ["Divergence half-angle", mrad(g.thetaHalfRad), "mrad"],
+          ["Divergence full angle", mrad(2 * g.thetaHalfRad), "mrad"],
+          ["Beam parameter product", engNum(g.bpp * 1e6, 5), "mm·mrad"],
+          [`Radius w(z) at z = ${engNum(z, 5)} m`, engNum(g.wAtZ, 6), "m"],
+          [`Diameter at z = ${engNum(z, 5)} m`, engNum(2 * g.wAtZ, 6), "m"],
+          g.rAtZ === Infinity ? [`Wavefront R(z) at z = ${engNum(z, 5)} m`, "flat (infinite)", ""] : [`Wavefront R(z) at z = ${engNum(z, 5)} m`, engNum(g.rAtZ, 6), "m"],
+          [`Gouy phase at z = ${engNum(z, 5)} m`, engNum((g.gouyRad * 180) / Math.PI, 5), "deg"],
+        ]),
       ];
       const want = r("want").trim();
       if (want) {
@@ -21952,6 +22606,13 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of g.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+      const gbOutputs: EngOutput[] = [
+        { key: "zR", label: "Rayleigh range", value: g.rayleighM, unit: "m" },
+        { key: "thetaHalf", label: "Divergence half-angle", value: g.thetaHalfRad * 1000, unit: "mrad" },
+        { key: "wz", label: "Beam radius at z", value: g.wAtZ, unit: "m" },
+        { key: "Rz", label: "Wavefront radius at z", value: g.rAtZ, unit: "m" },
+        { key: "BPP", label: "Beam parameter product", value: g.bpp * 1e6, unit: "mm·mrad" },
+      ];
 
       // The caustic: ±w(z) through the waist, the Rayleigh range as stems,
       // this z marked. Every point re-asks the engine; LINEAR axes only —
@@ -21999,7 +22660,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "beam radius (mm)",
             title: "The beam caustic",
           });
-          return engReport(lines, [
+          return withOutputs(gbOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22008,10 +22669,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(gbOutputs, engReport(lines));
     },
   },
   {
@@ -22082,11 +22743,17 @@ const ENG_CALCS: EngCalc[] = [
       const m = systemMatrix(els);
       if (!m) return { text: "An element has a non-physical parameter (zero focal length or radius, or a non-positive index).", ok: false };
 
-      const lines = [
+      let wOut = NaN;
+      const lines: EngReportLine[] = [
+        ...engEq("optics-abcd"),
         `System matrix for ${els.length} element${els.length === 1 ? "" : "s"}`,
         "",
-        `  A = ${engNum(m[0], 6)}    B = ${engNum(m[1], 6)}`,
-        `  C = ${engNum(m[2], 6)}    D = ${engNum(m[3], 6)}`,
+        kvTable([
+          ["A", engNum(m[0], 6), ""],
+          ["B", engNum(m[1], 6), "m"],
+          ["C", engNum(m[2], 6), "1/m"],
+          ["D", engNum(m[3], 6), ""],
+        ]),
         "",
         `  det = ${engNum(m[0] * m[3] - m[1] * m[2], 6)}  (equals n_in/n_out; 1 when both ends are in the same medium)`,
       ];
@@ -22121,7 +22788,9 @@ const ENG_CALCS: EngCalc[] = [
         const q1 = q0 ? propagateQ(q0, m) : null;
         const out = q1 ? beamFromQ(q1, lam, 1, nOut) : null;
         if (out) {
+          wOut = out.w;
           lines.push("");
+          lines.push(...engEq("optics-abcd:beam"));
           lines.push("Gaussian beam through this system");
           if (Math.abs(nOut - nIn) > 1e-9) {
             lines.push(`  Entering a medium of n = ${engNum(nIn, 5)}, leaving one of n = ${engNum(nOut, 5)}`);
@@ -22142,6 +22811,14 @@ const ENG_CALCS: EngCalc[] = [
           "and no error, which is why the order is fixed here rather than left to the caller.",
       );
       lines.push(ENG_UNIT_NOTE);
+      const abOutputs: EngOutput[] = [
+        { key: "Aabcd", label: "Matrix element A", value: m[0], unit: "" },
+        { key: "Babcd", label: "Matrix element B", value: m[1], unit: "m" },
+        { key: "Cabcd", label: "Matrix element C", value: m[2], unit: "1/m" },
+        { key: "Dabcd", label: "Matrix element D", value: m[3], unit: "" },
+        { key: "fEff", label: "Effective focal length", value: Math.abs(m[2]) > 1e-15 ? -1 / m[2] : NaN, unit: "m" },
+        { key: "wOut", label: "Output beam radius", value: wOut, unit: "m" },
+      ];
 
       // w(z) walked THROUGH the system: spaces subdivided, thin elements as
       // stems, the RUNNING index carried across every flat/curved surface —
@@ -22193,7 +22870,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "beam radius (mm)",
             title: "The beam through the system",
           });
-          return engReport(lines, [
+          return withOutputs(abOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22202,10 +22879,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(abOutputs, engReport(lines));
     },
   },
   {
@@ -22240,7 +22917,9 @@ const ENG_CALCS: EngCalc[] = [
       const res = resonator(L, R1, R2, lam);
       if (!res) return { text: "Enter a positive cavity length and wavelength.", ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-resonator"),
+        ...(res.waistM !== null ? engEq("optics-resonator:mode") : []),
         "Two-mirror resonator",
         "",
         `  g1 = ${engNum(res.g1, 6)}    g2 = ${engNum(res.g2, 6)}`,
@@ -22249,10 +22928,15 @@ const ENG_CALCS: EngCalc[] = [
       ];
       if (res.waistM !== null) {
         lines.push("");
-        lines.push(`  Waist radius w0      ${engNum(res.waistM, 6)} m`);
-        lines.push(`  Waist from mirror 1  ${engNum(res.waistFromM1 ?? 0, 6)} m`);
-        lines.push(`  Spot on mirror 1     ${engNum(res.spot1M ?? NaN, 6)} m`);
-        lines.push(`  Spot on mirror 2     ${engNum(res.spot2M ?? NaN, 6)} m`);
+        // Release E: the mode sizes as a quantity / value / unit table.
+        lines.push(
+          kvTable([
+            ["Waist radius w0", engNum(res.waistM, 6), "m"],
+            ["Waist from mirror 1", engNum(res.waistFromM1 ?? 0, 6), "m"],
+            ["Spot on mirror 1", engNum(res.spot1M ?? NaN, 6), "m"],
+            ["Spot on mirror 2", engNum(res.spot2M ?? NaN, 6), "m"],
+          ]),
+        );
       }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -22306,7 +22990,12 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "g₂ = 1 − L/R₂",
           title: "The stability diagram",
         });
-        return withOutputs([{ key: "w0", label: "Waist radius w₀", value: res.waistM ?? NaN, unit: "m" }], engReport(lines, [
+        return withOutputs([
+          { key: "w0", label: "Waist radius w₀", value: res.waistM ?? NaN, unit: "m" },
+          { key: "g1g2", label: "Stability product g₁g₂", value: res.product, unit: "" },
+          { key: "spot1", label: "Spot radius on mirror 1", value: res.spot1M ?? NaN, unit: "m" },
+          { key: "spot2", label: "Spot radius on mirror 2", value: res.spot2M ?? NaN, unit: "m" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -22356,19 +23045,33 @@ const ENG_CALCS: EngCalc[] = [
       const res = pulseMetrics(E, tau, f, r("shape") as PulseShape, w === null ? undefined : w);
       if (!res) return { text: "Energy and duration must be positive, and the rate cannot be negative.", ok: false };
 
-      const lines = [
-        "Pulse train",
-        "",
-        `  Average power   ${engNum(res.averagePowerW, 6)} W`,
-        `  Peak power      ${engNum(res.peakPowerW, 6)} W`,
-        `  Duty cycle      ${engNum(res.dutyCycle, 6)}`,
-        `  Period          ${f > 0 ? engNum(1 / f, 6) + " s" : "n/a (single shot)"}`,
+      const puRows: Array<[string, string, string]> = [
+        ["Average power", engNum(res.averagePowerW, 6), "W"],
+        ["Peak power", engNum(res.peakPowerW, 6), "W"],
+        ["Duty cycle", engNum(res.dutyCycle, 6), ""],
+        f > 0 ? ["Period", engNum(1 / f, 6), "s"] : ["Period", "n/a (single shot)", ""],
       ];
       if (res.peakFluenceJm2 !== null) {
-        lines.push("");
-        lines.push(`  Peak fluence    ${engNum(res.peakFluenceJm2, 6)} J/m^2  = ${engNum(res.peakFluenceJm2 / 1e4, 6)} J/cm^2`);
-        lines.push(`  Peak irradiance ${engNum(res.peakIrradianceWm2 ?? NaN, 6)} W/m^2 = ${engNum((res.peakIrradianceWm2 ?? NaN) / 1e4, 6)} W/cm^2`);
+        puRows.push(["Peak fluence", engNum(res.peakFluenceJm2, 6), "J/m²"]);
+        puRows.push(["Peak fluence", engNum(res.peakFluenceJm2 / 1e4, 6), "J/cm²"]);
+        puRows.push(["Peak irradiance", engNum(res.peakIrradianceWm2 ?? NaN, 6), "W/m²"]);
+        puRows.push(["Peak irradiance", engNum((res.peakIrradianceWm2 ?? NaN) / 1e4, 6), "W/cm²"]);
       }
+      const shapeSel = r("shape");
+      const lines: EngReportLine[] = [
+        ...(shapeSel === "rectangular" ? engEq("optics-pulse:rectangular") : shapeSel === "sech2" ? engEq("optics-pulse:sech2") : engEq("optics-pulse:gaussian")),
+        ...engEq("optics-pulse"),
+        ...(res.peakFluenceJm2 !== null ? engEq("optics-pulse:fluence") : []),
+        "Pulse train",
+        "",
+        kvTable(puRows),
+      ];
+      const puOutputs: EngOutput[] = [
+        { key: "Pavg", label: "Average power", value: res.averagePowerW, unit: "W" },
+        { key: "Ppeak", label: "Peak power", value: res.peakPowerW, unit: "W" },
+        { key: "duty", label: "Duty cycle", value: res.dutyCycle, unit: "" },
+        { key: "fluence", label: "Peak fluence", value: res.peakFluenceJm2 !== null ? res.peakFluenceJm2 / 1e4 : NaN, unit: "J/cm²" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -22392,7 +23095,7 @@ const ENG_CALCS: EngCalc[] = [
           .filter((x): x is NonNullable<typeof x> => x !== null && Number.isFinite(x.value));
         if (rows.length === 3) {
           const svg = hBarSvg(rows, { title: "Peak power by pulse shape, same E and τ", unit: "kW" });
-          return engReport(lines, [
+          return withOutputs(puOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22401,10 +23104,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 400,
               h: 46 + 3 * HBAR_ROW_H + 18,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(puOutputs, engReport(lines));
     },
   },
   {
@@ -22428,13 +23131,23 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) {
         return { text: "Indices must be positive and the angle must be at least 0 and below 90 degrees.", ok: false };
       }
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-refraction"),
+        ...(res.criticalDeg !== null ? engEq("optics-refraction:critical") : []),
         "Refraction at a single interface",
         "",
-        `  Refraction angle   ${res.thetaTDeg === null ? "none — totally internally reflected" : engNum(res.thetaTDeg, 6) + " deg"}`,
-        `  Critical angle     ${res.criticalDeg === null ? "does not exist for n1 <= n2" : engNum(res.criticalDeg, 6) + " deg"}`,
-        `  Brewster angle     ${engNum(res.brewsterDeg, 6)} deg`,
-        `  Reflectance (normal incidence)  ${engNum(res.reflectanceNormal * 100, 4)} %`,
+        kvTable([
+          res.thetaTDeg === null ? ["Refraction angle", "none: totally internally reflected", ""] : ["Refraction angle", engNum(res.thetaTDeg, 6), "deg"],
+          res.criticalDeg === null ? ["Critical angle", "does not exist for n1 ≤ n2", ""] : ["Critical angle", engNum(res.criticalDeg, 6), "deg"],
+          ["Brewster angle", engNum(res.brewsterDeg, 6), "deg"],
+          ["Reflectance (normal incidence)", engNum(res.reflectanceNormal * 100, 4), "%"],
+        ]),
+      ];
+      const rfOutputs: EngOutput[] = [
+        { key: "thetaT", label: "Refraction angle", value: res.thetaTDeg ?? NaN, unit: "deg" },
+        { key: "thetaC", label: "Critical angle", value: res.criticalDeg ?? NaN, unit: "deg" },
+        { key: "thetaB", label: "Brewster angle", value: res.brewsterDeg, unit: "deg" },
+        { key: "R0", label: "Reflectance at normal incidence", value: res.reflectanceNormal * 100, unit: "%" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -22475,7 +23188,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "angle of refraction (°)",
             title: "Snell's law at this interface",
           });
-          return engReport(lines, [
+          return withOutputs(rfOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22487,10 +23200,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(rfOutputs, engReport(lines));
     },
   },
   {
@@ -22517,7 +23230,9 @@ const ENG_CALCS: EngCalc[] = [
       const a = airy(lam, D, f === null ? undefined : f);
       if (!a) return { text: "Wavelength, aperture and focal length must all be positive.", ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("optics-diffraction"),
+        ...(a.airyDiameterM !== null ? engEq("optics-diffraction:spot") : []),
         "Diffraction",
         "",
         `  Airy half-angle to first zero  ${engNum(a.airyHalfAngleRad * 1e6, 5)} µrad`,
@@ -22535,10 +23250,12 @@ const ENG_CALCS: EngCalc[] = [
           lines.push("Grating: enter a positive line density and an incidence below 90 degrees.");
         } else {
           lines.push("");
-          lines.push(`Grating orders (${lpm} lines/mm)`);
-          for (const o of gr.orders) {
-            lines.push(`  m = ${o.m >= 0 ? " " : ""}${o.m}   ${engNum(o.angleDeg, 6)} deg`);
-          }
+          lines.push(...engEq("optics-diffraction:grating"));
+          // Release E: the orders as a real table.
+          lines.push({
+            label: `Grating orders (${lpm} lines/mm)`,
+            table: [["Order m", "Angle (deg)"], ...gr.orders.map((o) => [`${o.m}`, engNum(o.angleDeg, 6)])],
+          });
           lines.push(`  Highest existing order: ${gr.maxOrder}`);
           for (const note of gr.notes) lines.push(`Note: ${note}`);
           gratingOrders = gr.orders;
@@ -22547,6 +23264,10 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of a.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+      const dfOutputs: EngOutput[] = [
+        { key: "airyHalf", label: "Airy half-angle to the first zero", value: a.airyHalfAngleRad * 1e6, unit: "µrad" },
+        { key: "airyDia", label: "Airy disc diameter at focus", value: a.airyDiameterM ?? NaN, unit: "m" },
+      ];
 
       // The orders that EXIST, at their angles, as unit stems — the caption
       // says out loud that the height carries no intensity, because neither
@@ -22580,7 +23301,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "order exists",
           title: "Where the grating sends the light",
         });
-        return engReport(lines, [
+        return withOutputs(dfOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -22590,7 +23311,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 220,
           },
-        ]);
+        ]));
       }
       {
         const airyPts: Point[] = [];
@@ -22615,7 +23336,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Resolution against aperture",
             },
           );
-          return engReport(lines, [
+          return withOutputs(dfOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22624,10 +23345,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dfOutputs, engReport(lines));
     },
   },
   {
@@ -22658,16 +23379,26 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const lines = [
+      const fbRows: Array<[string, string, string]> = [
+        ["Numerical aperture", engNum(res.na, 6), ""],
+        ["Acceptance half-angle", engNum(res.acceptanceHalfDeg, 5), "deg"],
+        ["V number", engNum(res.vNumber, 6), ""],
+        ["Cutoff wavelength (single-mode above this)", engNum(res.cutoffWavelengthM * 1e9, 6), "nm"],
+      ];
+      if (res.approxModes !== null) fbRows.push(["Approx. guided modes", engNum(res.approxModes, 5), ""]);
+      const lines: EngReportLine[] = [
+        ...engEq("optics-fibre"),
         "Step-index fibre",
         "",
-        `  Numerical aperture   ${engNum(res.na, 6)}`,
-        `  Acceptance half-angle ${engNum(res.acceptanceHalfDeg, 5)} deg`,
-        `  V number             ${engNum(res.vNumber, 6)}`,
+        kvTable(fbRows),
         `  ${res.singleMode ? "SINGLE MODE at this wavelength" : "MULTIMODE at this wavelength"}`,
-        `  Cutoff wavelength    ${engNum(res.cutoffWavelengthM * 1e9, 6)} nm  (single-mode above this)`,
       ];
-      if (res.approxModes !== null) lines.push(`  Approx. guided modes ${engNum(res.approxModes, 5)}`);
+      const fbOutputs: EngOutput[] = [
+        { key: "NA", label: "Numerical aperture", value: res.na, unit: "" },
+        { key: "V", label: "V number", value: res.vNumber, unit: "" },
+        { key: "lambdaC", label: "Cutoff wavelength", value: res.cutoffWavelengthM * 1e9, unit: "nm" },
+        { key: "modes", label: "Approximate guided modes", value: res.approxModes ?? NaN, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -22717,7 +23448,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The single-mode boundary",
             },
           );
-          return engReport(lines, [
+          return withOutputs(fbOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22726,10 +23457,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(fbOutputs, engReport(lines));
     },
   },
 
@@ -22806,13 +23537,21 @@ const ENG_CALCS: EngCalc[] = [
       const res = pureTwoQubit(cx(A.re, A.im), cx(B.re, B.im), cx(C.re, C.im), cx(D.re, D.im));
       if (!res) return { text: "All four amplitudes are zero, which is not a state.", ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("quantum-entanglement"),
         "Two-qubit pure state",
         "",
-        `  Concurrence           ${engNum(res.concurrence, 6)}   (0 = product, 1 = maximally entangled)`,
-        `  Entanglement entropy  ${engNum(res.entropyEbits, 6)} ebits`,
-        `  Schmidt eigenvalues   ${engNum(res.schmidt[0], 6)}, ${engNum(res.schmidt[1], 6)}`,
-        `  Largest possible CHSH ${engNum(res.maxChsh, 6)}`,
+        kvTable([
+          ["Concurrence (0 = product, 1 = maximally entangled)", engNum(res.concurrence, 6), ""],
+          ["Entanglement entropy", engNum(res.entropyEbits, 6), "ebits"],
+          ["Schmidt eigenvalues", `${engNum(res.schmidt[0], 6)}, ${engNum(res.schmidt[1], 6)}`, ""],
+          ["Largest possible CHSH", engNum(res.maxChsh, 6), ""],
+        ]),
+      ];
+      const enOutputs: EngOutput[] = [
+        { key: "conc", label: "Concurrence", value: res.concurrence, unit: "" },
+        { key: "Eent", label: "Entanglement entropy", value: res.entropyEbits, unit: "ebits" },
+        { key: "Smax", label: "Largest possible CHSH value", value: res.maxChsh, unit: "" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
@@ -22865,7 +23604,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "probability",
             title: "The state, as probabilities",
           });
-          return engReport(lines, [
+          return withOutputs(enOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22875,10 +23614,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(enOutputs, engReport(lines));
     },
   },
   {
@@ -22922,7 +23661,9 @@ const ENG_CALCS: EngCalc[] = [
       if (!res) {
         return { text: "Each correlation must lie between -1 and +1. Outside that range it is not a measured correlation.", ok: false };
       }
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("quantum-chsh"),
+        ...(res.sigmas !== null ? engEq("quantum-chsh:significance") : []),
         "CHSH Bell test",
         "",
         `  S = ${engNum(res.s, 7)}`,
@@ -22999,7 +23740,10 @@ const ENG_CALCS: EngCalc[] = [
           title: "S against both bounds",
           errorBars: sd !== undefined ? "custom" : undefined,
         });
-        return engReport(lines, [
+        return withOutputs([
+          { key: "S", label: "CHSH value S", value: res.s, unit: "" },
+          { key: "nSigma", label: "Standard errors beyond the classical bound", value: res.sigmas ?? NaN, unit: "" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23009,7 +23753,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -23026,14 +23770,21 @@ const ENG_CALCS: EngCalc[] = [
       const p = Number(r("p"));
       const res = wernerState(p);
       if (!res) return { text: "p must be a number between 0 and 1.", ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("quantum-werner"),
         "Werner state",
         "",
-        `  p = ${engNum(res.p, 6)}`,
-        `  Concurrence      ${engNum(res.concurrence, 6)}`,
-        `  Entangled        ${res.entangled ? "yes (p > 1/3)" : "no (p <= 1/3)"}`,
-        `  Can violate CHSH ${res.violatesChsh ? "yes (p > 0.7071)" : "no (p <= 0.7071)"}`,
-        `  Best CHSH value  ${engNum(res.maxChsh, 6)}`,
+        kvTable([
+          ["p", engNum(res.p, 6), ""],
+          ["Concurrence", engNum(res.concurrence, 6), ""],
+          ["Entangled", res.entangled ? "yes (p > 1/3)" : "no (p ≤ 1/3)", ""],
+          ["Can violate CHSH", res.violatesChsh ? "yes (p > 0.7071)" : "no (p ≤ 0.7071)", ""],
+          ["Best CHSH value", engNum(res.maxChsh, 6), ""],
+        ]),
+      ];
+      const weOutputs: EngOutput[] = [
+        { key: "conc", label: "Concurrence", value: res.concurrence, unit: "" },
+        { key: "Smax", label: "Best CHSH value", value: res.maxChsh, unit: "" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
@@ -23089,7 +23840,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "concurrence",
             title: "Two thresholds, and the gap between them",
           });
-          return engReport(lines, [
+          return withOutputs(weOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23099,10 +23850,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(weOutputs, engReport(lines));
     },
   },
   {
@@ -23121,13 +23872,20 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = bb84KeyRate(pct / 100);
       if (!res) return { text: "The QBER must be a percentage between 0 and 100.", ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("quantum-qkd"),
         "BB84 key rate (Shor-Preskill, asymptotic)",
         "",
-        `  QBER              ${engNum(pct, 5)} %`,
-        `  Secure key rate   ${engNum(res.keyRate, 6)} bits per sifted bit`,
-        `  Threshold QBER    ${engNum(res.thresholdQber * 100, 5)} %`,
+        kvTable([
+          ["QBER", engNum(pct, 5), "%"],
+          ["Secure key rate", engNum(res.keyRate, 6), "bits per sifted bit"],
+          ["Threshold QBER", engNum(res.thresholdQber * 100, 5), "%"],
+        ]),
         `  ${res.secure ? "A key CAN be distilled." : "NO key can be distilled."}`,
+      ];
+      const qkOutputs: EngOutput[] = [
+        { key: "keyRate", label: "Secure key rate", value: res.keyRate, unit: "bits per sifted bit" },
+        { key: "qberThreshold", label: "Threshold QBER", value: res.thresholdQber * 100, unit: "%" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
@@ -23164,7 +23922,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "secure bits per sifted bit",
             title: "The Shor-Preskill bound",
           });
-          return engReport(lines, [
+          return withOutputs(qkOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23173,10 +23931,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(qkOutputs, engReport(lines));
     },
   },
   {
@@ -23234,22 +23992,29 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("d"), r("v")]);
-      const lines = [
+      const wiRows: Array<[string, string, string]> = [
+        ["Swept area", engNum(res.sweptArea, sig), "m²"],
+        ["Power in the wind", engNum(res.windPower / 1000, sig), "kW"],
+        ["Betz bound (16/27)", engNum(res.betzPower / 1000, sig), "kW"],
+      ];
+      if (res.outputPower !== null) wiRows.push([`Output at Cp = ${engNum(res.cpUsed!, 3)}`, engNum(res.outputPower / 1000, sig), "kW"]);
+      if (res.tipSpeedRatio !== null) wiRows.push(["Tip-speed ratio (design optimum is typically 6–8)", engNum(res.tipSpeedRatio, 4), ""]);
+      if (res.annualEnergyKWh !== null) wiRows.push(["Annual energy", engNum(res.annualEnergyKWh / 1000, sig), "MWh"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-wind"),
+        ...(res.outputPower !== null ? engEq("energy-wind:cp") : []),
+        ...(res.tipSpeedRatio !== null ? engEq("energy-wind:tsr") : []),
+        ...(res.annualEnergyKWh !== null ? engEq("energy-wind:annual") : []),
         "Wind turbine power",
         "",
-        `  Swept area          ${engNum(res.sweptArea, sig)} m²`,
-        `  Power in the wind   ${engNum(res.windPower / 1000, sig)} kW`,
-        `  Betz bound (16/27)  ${engNum(res.betzPower / 1000, sig)} kW`,
+        kvTable(wiRows),
       ];
-      if (res.outputPower !== null) {
-        lines.push(`  Output at Cp = ${engNum(res.cpUsed!, 3)}   ${engNum(res.outputPower / 1000, sig)} kW`);
-      }
-      if (res.tipSpeedRatio !== null) {
-        lines.push(`  Tip-speed ratio     ${engNum(res.tipSpeedRatio, 4)}  (design optimum is typically 6-8)`);
-      }
-      if (res.annualEnergyKWh !== null) {
-        lines.push(`  Annual energy       ${engNum(res.annualEnergyKWh / 1000, sig)} MWh`);
-      }
+      const wiOutputs: EngOutput[] = [
+        { key: "Pwind", label: "Power in the wind", value: res.windPower / 1000, unit: "kW" },
+        { key: "Pbetz", label: "Betz bound", value: res.betzPower / 1000, unit: "kW" },
+        { key: "Pout", label: "Turbine output", value: res.outputPower !== null ? res.outputPower / 1000 : NaN, unit: "kW" },
+        { key: "Eyear", label: "Annual energy", value: res.annualEnergyKWh !== null ? res.annualEnergyKWh / 1000 : NaN, unit: "MWh" },
+      ];
       u.report(lines);
       if (densityNote) lines.push(`Note: ${densityNote}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -23285,7 +24050,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "power (kW)",
           title: "Power goes as the cube of wind speed",
         });
-        return engReport(lines, [
+        return withOutputs(wiOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23294,9 +24059,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(wiOutputs, engReport(lines));
     },
   },
   {
@@ -23353,20 +24118,29 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("g"), r("a"), r("eff")]);
-      const lines = [
+      const soRows: Array<[string, string, string]> = [["Output at stated irradiance, 25 °C cells", engNum(res.powerStc / 1000, sig), "kW"]];
+      if (res.cellTempC !== null && res.powerDerated !== null) {
+        soRows.push(["Estimated cell temperature", engNum(res.cellTempC, 4), "°C"]);
+        soRows.push(["Temperature-derated output", engNum(res.powerDerated / 1000, sig), "kW"]);
+        const lossPct = res.powerStc > 0 ? (1 - res.powerDerated / res.powerStc) * 100 : 0;
+        soRows.push(["Thermal derating", engNum(lossPct, 3), "%"]);
+      }
+      if (res.dailyEnergyKWh !== null) soRows.push(["Daily energy", engNum(res.dailyEnergyKWh, sig), "kWh/day"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-solar"),
+        ...(res.cellTempC !== null && res.powerDerated !== null ? engEq("energy-solar:derate") : []),
+        ...(res.dailyEnergyKWh !== null ? engEq("energy-solar:daily") : []),
         "Solar PV output",
         "",
-        `  Output at stated irradiance, 25 °C cells   ${engNum(res.powerStc / 1000, sig)} kW`,
+        kvTable(soRows),
       ];
-      if (res.cellTempC !== null && res.powerDerated !== null) {
-        lines.push(`  Estimated cell temperature                 ${engNum(res.cellTempC, 4)} °C`);
-        lines.push(`  Temperature-derated output                 ${engNum(res.powerDerated / 1000, sig)} kW`);
-        const lossPct = res.powerStc > 0 ? (1 - res.powerDerated / res.powerStc) * 100 : 0;
-        lines.push(`  Thermal derating                           ${engNum(lossPct, 3)} %`);
-      }
-      if (res.dailyEnergyKWh !== null) {
-        lines.push(`  Daily energy                               ${engNum(res.dailyEnergyKWh, sig)} kWh/day`);
-      }
+      const soOutputs: EngOutput[] = [
+        { key: "Eyear", label: "Annual energy", value: res.dailyEnergyKWh != null ? (res.dailyEnergyKWh * 365) / 1000 : NaN, unit: "MWh" },
+        { key: "Pstc", label: "Output at 25 °C cells", value: res.powerStc / 1000, unit: "kW" },
+        { key: "Pderated", label: "Temperature-derated output", value: res.powerDerated !== null ? res.powerDerated / 1000 : NaN, unit: "kW" },
+        { key: "Tcell", label: "Cell temperature", value: res.cellTempC ?? NaN, unit: "°C" },
+        { key: "Eday", label: "Daily energy", value: res.dailyEnergyKWh ?? NaN, unit: "kWh/day" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -23408,7 +24182,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "array output (kW)",
           title: "Rated against temperature-derated output",
         });
-        return withOutputs([{ key: "Eyear", label: "Annual energy", value: res.dailyEnergyKWh != null ? (res.dailyEnergyKWh * 365) / 1000 : NaN, unit: "MWh" }], engReport(lines, [
+        return withOutputs(soOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23419,7 +24193,7 @@ const ENG_CALCS: EngCalc[] = [
           },
         ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(soOutputs, engReport(lines));
     },
   },
   {
@@ -23446,7 +24220,8 @@ const ENG_CALCS: EngCalc[] = [
       const res = fillFactor(voc, isc, vmp, imp);
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("voc"), r("isc"), r("vmp"), r("imp")]);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("energy-fill-factor"),
         "PV fill factor",
         "",
         `  Maximum power Pmp   ${engNum(res.pMax, sig)} W`,
@@ -23501,7 +24276,10 @@ const ENG_CALCS: EngCalc[] = [
             title: `Fill factor = ${engNum(res.fillFactor, 3)} of the bounding rectangle`,
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "FF", label: "Fill factor", value: res.fillFactor, unit: "" },
+          { key: "Pmp", label: "Maximum power", value: res.pMax, unit: "W" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23510,7 +24288,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -23553,16 +24331,25 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("q"), r("h"), r("eff")]);
-      const lines = [
+      const hyRows: Array<[string, string, string]> = [
+        ["Net head", engNum(res.netHead, sig), "m"],
+        ["Hydraulic power", engNum(res.hydraulicPower / 1000, sig), "kW"],
+        ["Electrical output", engNum(res.outputPower / 1000, sig), "kW"],
+      ];
+      if (res.annualEnergyKWh !== null) hyRows.push(["Annual energy", engNum(res.annualEnergyKWh / 1000, sig), "MWh"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-hydro"),
+        ...(res.annualEnergyKWh !== null ? engEq("energy-hydro:annual") : []),
         "Hydropower",
         "",
-        `  Net head           ${engNum(res.netHead, sig)} m`,
-        `  Hydraulic power    ${engNum(res.hydraulicPower / 1000, sig)} kW`,
-        `  Electrical output  ${engNum(res.outputPower / 1000, sig)} kW`,
+        kvTable(hyRows),
       ];
-      if (res.annualEnergyKWh !== null) {
-        lines.push(`  Annual energy      ${engNum(res.annualEnergyKWh / 1000, sig)} MWh`);
-      }
+      const hyOutputs: EngOutput[] = [
+        { key: "Pelec", label: "Electrical output", value: res.outputPower / 1000, unit: "kW" },
+        { key: "Phyd", label: "Hydraulic power", value: res.hydraulicPower / 1000, unit: "kW" },
+        { key: "Hnet", label: "Net head", value: res.netHead, unit: "m" },
+        { key: "Eyear", label: "Annual energy", value: res.annualEnergyKWh !== null ? res.annualEnergyKWh / 1000 : NaN, unit: "MWh" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -23591,7 +24378,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Power is linear in flow",
           },
         );
-        return engReport(lines, [
+        return withOutputs(hyOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23600,9 +24387,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(hyOutputs, engReport(lines));
     },
   },
   {
@@ -23657,25 +24444,35 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("vc"), r("cap")]);
-      const lines = [
+      const baRows: Array<[string, string, string]> = [
+        ["Configuration", `${r("s")}S${r("p")}P (${res.cellCount} cells)`, ""],
+        ["Pack voltage", engNum(res.packVoltage, sig), "V"],
+        ["Pack capacity", engNum(res.packCapacityAh, sig), "Ah"],
+        ["Pack energy", engNum(res.packEnergyWh / 1000, sig), "kWh"],
+        ["Usable energy", engNum(res.usableEnergyWh / 1000, sig), "kWh"],
+      ];
+      const hasRun = res.loadCurrentA !== null && res.cRate !== null && res.runtimeHours !== null;
+      if (res.loadCurrentA !== null && res.cRate !== null && res.runtimeHours !== null) {
+        baRows.push(["C-rate at load", engNum(res.cRate, 3), "C"]);
+        baRows.push(["Runtime", engNum(res.runtimeHours, sig), "h"]);
+        if (res.runtimePeukertHours !== null) baRows.push(["Runtime (Peukert-corrected)", engNum(res.runtimePeukertHours, sig), "h"]);
+      }
+      if (res.chargeTimeHours !== null) baRows.push(["Charge time (CC estimate)", engNum(res.chargeTimeHours, sig), "h"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-battery"),
+        ...(hasRun ? engEq("energy-battery:runtime") : []),
+        ...(hasRun && res.runtimePeukertHours !== null ? engEq("energy-battery:peukert") : []),
         "Battery pack",
         "",
-        `  Configuration    ${r("s")}S${r("p")}P  (${res.cellCount} cells)`,
-        `  Pack voltage     ${engNum(res.packVoltage, sig)} V`,
-        `  Pack capacity    ${engNum(res.packCapacityAh, sig)} Ah`,
-        `  Pack energy      ${engNum(res.packEnergyWh / 1000, sig)} kWh`,
-        `  Usable energy    ${engNum(res.usableEnergyWh / 1000, sig)} kWh`,
+        kvTable(baRows),
       ];
-      if (res.loadCurrentA !== null && res.cRate !== null && res.runtimeHours !== null) {
-        lines.push(`  C-rate at load   ${engNum(res.cRate, 3)}C`);
-        lines.push(`  Runtime          ${engNum(res.runtimeHours, sig)} h`);
-        if (res.runtimePeukertHours !== null) {
-          lines.push(`  Runtime (Peukert-corrected)  ${engNum(res.runtimePeukertHours, sig)} h`);
-        }
-      }
-      if (res.chargeTimeHours !== null) {
-        lines.push(`  Charge time (CC estimate)    ${engNum(res.chargeTimeHours, sig)} h`);
-      }
+      const baOutputs: EngOutput[] = [
+        { key: "Vpack", label: "Pack voltage", value: res.packVoltage, unit: "V" },
+        { key: "Epack", label: "Pack energy", value: res.packEnergyWh / 1000, unit: "kWh" },
+        { key: "Eusable", label: "Usable energy", value: res.usableEnergyWh / 1000, unit: "kWh" },
+        { key: "runtime", label: "Runtime", value: res.runtimeHours ?? NaN, unit: "h" },
+        { key: "cRate", label: "C-rate at load", value: res.cRate ?? NaN, unit: "C" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -23722,7 +24519,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "runtime (h)",
           title: "Runtime against discharge current",
         });
-        return engReport(lines, [
+        return withOutputs(baOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23731,9 +24528,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(baOutputs, engReport(lines));
     },
   },
   {
@@ -23764,25 +24561,34 @@ const ENG_CALCS: EngCalc[] = [
         hhvMJPerKg: hhv ?? undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      // Release E: the balance as a quantity / value / unit table.
+      const coRows: Array<[string, string, string]> = [
+        ["Molar mass", engNum(res.molarMass, 6), "g/mol"],
+        ["O₂ required", engNum(res.o2PerMolFuel, 5), "mol per mol fuel"],
+        ["Stoichiometric AFR", engNum(res.afrStoich, 4), "kg air / kg fuel"],
+      ];
+      if (res.afrActual !== res.afrStoich) coRows.push([`AFR at ${engNum((excess ?? 0) * 100, 3)}% excess air`, engNum(res.afrActual, 4), "kg air / kg fuel"]);
+      coRows.push(["CO₂ produced", engNum(res.co2PerKgFuel, 4), "kg per kg fuel"]);
+      coRows.push(["H₂O produced", engNum(res.h2oPerKgFuel, 4), "kg per kg fuel"]);
+      if (res.so2PerKgFuel !== null) coRows.push(["SO₂ produced", engNum(res.so2PerKgFuel, 4), "kg per kg fuel"]);
+      if (res.lhvMJPerKg !== null && res.co2PerKWh !== null) {
+        coRows.push(["LHV (from your HHV)", engNum(res.lhvMJPerKg, 4), "MJ/kg"]);
+        coRows.push(["CO₂ intensity (HHV basis)", engNum(res.co2PerKWh, 4), "kg CO₂ / kWh fuel energy"]);
+      }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-combustion"),
+        ...(res.afrActual !== res.afrStoich ? engEq("energy-combustion:excess") : []),
+        ...(res.lhvMJPerKg !== null && res.co2PerKWh !== null ? engEq("energy-combustion:lhv") : []),
         `Combustion of ${formatFormula(r("formula").trim())}`,
         "",
-        `  Molar mass             ${engNum(res.molarMass, 6)} g/mol`,
-        `  O₂ required            ${engNum(res.o2PerMolFuel, 5)} mol per mol fuel`,
-        `  Stoichiometric AFR     ${engNum(res.afrStoich, 4)} kg air / kg fuel`,
+        kvTable(coRows),
       ];
-      if (res.afrActual !== res.afrStoich) {
-        lines.push(`  AFR at ${engNum((excess ?? 0) * 100, 3)}% excess air  ${engNum(res.afrActual, 4)} kg air / kg fuel`);
-      }
-      lines.push(`  CO₂ produced           ${engNum(res.co2PerKgFuel, 4)} kg per kg fuel`);
-      lines.push(`  H₂O produced           ${engNum(res.h2oPerKgFuel, 4)} kg per kg fuel`);
-      if (res.so2PerKgFuel !== null) {
-        lines.push(`  SO₂ produced           ${engNum(res.so2PerKgFuel, 4)} kg per kg fuel`);
-      }
-      if (res.lhvMJPerKg !== null && res.co2PerKWh !== null) {
-        lines.push(`  LHV (from your HHV)    ${engNum(res.lhvMJPerKg, 4)} MJ/kg`);
-        lines.push(`  CO₂ intensity          ${engNum(res.co2PerKWh, 4)} kg CO₂ / kWh fuel energy (HHV basis)`);
-      }
+      const coOutputs: EngOutput[] = [
+        { key: "AFR", label: "Air-fuel ratio (as run)", value: res.afrActual, unit: "kg/kg" },
+        { key: "co2", label: "CO₂ per kg of fuel", value: res.co2PerKgFuel, unit: "kg/kg" },
+        { key: "LHV", label: "Lower heating value", value: res.lhvMJPerKg ?? NaN, unit: "MJ/kg" },
+        { key: "co2kWh", label: "CO₂ intensity (HHV basis)", value: res.co2PerKWh ?? NaN, unit: "kg/kWh" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -23803,7 +24609,7 @@ const ENG_CALCS: EngCalc[] = [
         if (so2 > 0) rows.push({ name: "SO₂ out", value: -so2, colour: "#b91c1c" });
         rows.push({ name: "N₂ + unused O₂ out", value: -balance, colour: "#9ca3af" });
         const svg = hBarSvg(rows, { title: "Mass balance per kg of fuel", unit: "kg" });
-        return engReport(lines, [
+        return withOutputs(coOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -23812,9 +24618,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 46 + rows.length * HBAR_ROW_H + 18,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(coOutputs, engReport(lines));
     },
   },
   {
@@ -23864,12 +24670,21 @@ const ENG_CALCS: EngCalc[] = [
         degradationRate: deg,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("energy-lcoe"),
         "Levelized cost of energy",
         "",
-        `  LCOE                     ${engNum(res.lcoePerMWh, 4)} per MWh  =  ${engNum(res.lcoePerKWh, 4)} per kWh`,
-        `  PV of lifetime costs     ${engNum(res.presentValueCosts, 5)}`,
-        `  PV of lifetime energy    ${engNum(res.presentValueMWh, 5)} MWh`,
+        kvTable([
+          ["LCOE", engNum(res.lcoePerMWh, 4), "per MWh"],
+          ["LCOE", engNum(res.lcoePerKWh, 4), "per kWh"],
+          ["PV of lifetime costs", engNum(res.presentValueCosts, 5), ""],
+          ["PV of lifetime energy", engNum(res.presentValueMWh, 5), "MWh"],
+        ]),
+      ];
+      const lcOutputs: EngOutput[] = [
+        { key: "LCOE", label: "LCOE (currency per MWh)", value: res.lcoePerMWh, unit: "" },
+        { key: "pvCosts", label: "PV of lifetime costs", value: res.presentValueCosts, unit: "" },
+        { key: "pvEnergy", label: "PV of lifetime energy", value: res.presentValueMWh, unit: "MWh" },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -23906,7 +24721,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "LCOE against the discount rate",
             },
           );
-          return engReport(lines, [
+          return withOutputs(lcOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -23915,10 +24730,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(lcOutputs, engReport(lines));
     },
   },
   {
@@ -23943,12 +24758,20 @@ const ENG_CALCS: EngCalc[] = [
       const res = capacityFactor(mw, mwh, hours ?? undefined);
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("mw"), r("mwh")]);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("energy-capacity-factor"),
         "Capacity factor",
         "",
-        `  Capacity factor             ${engNum(res.capacityFactor, 4)}  =  ${engNum(res.capacityFactor * 100, 4)} %`,
-        `  Maximum possible energy     ${engNum(res.maximumMWh, sig)} MWh`,
-        `  Equivalent full-load hours  ${engNum(res.equivalentFullLoadHours, sig)} h`,
+        kvTable([
+          ["Capacity factor", engNum(res.capacityFactor, 4), ""],
+          ["Capacity factor", engNum(res.capacityFactor * 100, 4), "%"],
+          ["Maximum possible energy", engNum(res.maximumMWh, sig), "MWh"],
+          ["Equivalent full-load hours", engNum(res.equivalentFullLoadHours, sig), "h"],
+        ]),
+      ];
+      const cfOutputs: EngOutput[] = [
+        { key: "CF", label: "Capacity factor", value: res.capacityFactor, unit: "" },
+        { key: "EFLH", label: "Equivalent full-load hours", value: res.equivalentFullLoadHours, unit: "h" },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -23991,7 +24814,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Actual against flat-out generation",
           },
         );
-        return engReport(lines, [
+        return withOutputs(cfOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24000,9 +24823,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(cfOutputs, engReport(lines));
     },
   },
   {
@@ -24035,15 +24858,18 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("v"), r("i") || r("p")]);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("energy-three-phase"),
         "Three-phase power",
         "",
-        `  Real power P        ${engNum(res.realPowerW / 1000, sig)} kW`,
-        `  Reactive power Q    ${engNum(res.reactivePowerVAR / 1000, sig)} kVAR`,
-        `  Apparent power S    ${engNum(res.apparentPowerVA / 1000, sig)} kVA`,
-        `  Line current        ${engNum(res.lineCurrentA, sig)} A`,
-        `  Phase voltage (wye)     ${engNum(res.phaseVoltageWye, sig)} V`,
-        `  Phase current (delta)   ${engNum(res.phaseCurrentDelta, sig)} A`,
+        kvTable([
+          ["Real power P", engNum(res.realPowerW / 1000, sig), "kW"],
+          ["Reactive power Q", engNum(res.reactivePowerVAR / 1000, sig), "kVAR"],
+          ["Apparent power S", engNum(res.apparentPowerVA / 1000, sig), "kVA"],
+          ["Line current", engNum(res.lineCurrentA, sig), "A"],
+          ["Phase voltage (wye)", engNum(res.phaseVoltageWye, sig), "V"],
+          ["Phase current (delta)", engNum(res.phaseCurrentDelta, sig), "A"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -24051,7 +24877,13 @@ const ENG_CALCS: EngCalc[] = [
 
       // The power triangle, at one scale on both axes so φ reads as the
       // angle whose cosine is the power factor — which is the entire figure.
-      return withOutputs([{ key: "P", label: "Real power", value: res.realPowerW, unit: "W" }, { key: "pf", label: "Power factor", value: pf, unit: "" }], engReport(lines, [
+      return withOutputs([
+        { key: "P", label: "Real power", value: res.realPowerW, unit: "W" },
+        { key: "PF", label: "Power factor", value: pf, unit: "" },
+        { key: "Qr", label: "Reactive power", value: res.reactivePowerVAR / 1000, unit: "kVAR" },
+        { key: "S", label: "Apparent power", value: res.apparentPowerVA / 1000, unit: "kVA" },
+        { key: "Iline", label: "Line current", value: res.lineCurrentA, unit: "A" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg: powerTriangleSvg(res.realPowerW / 1000, res.reactivePowerVAR / 1000, res.apparentPowerVA / 1000, pf),
@@ -24097,19 +24929,32 @@ const ENG_CALCS: EngCalc[] = [
         frequencyHz: f ?? undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
-        "Power factor correction",
-        "",
-        `  Capacitor bank        ${engNum(res.bankVAR / 1000, 4)} kVAR (total, three-phase)`,
-        `  Current reduction     ${engNum(res.currentReduction * 100, 3)} %`,
-        `  I²R loss reduction    ${engNum(res.lossReduction * 100, 3)} %`,
+      const pfRows: Array<[string, string, string]> = [
+        ["Capacitor bank (total, three-phase)", engNum(res.bankVAR / 1000, 4), "kVAR"],
+        ["Current reduction", engNum(res.currentReduction * 100, 3), "%"],
+        ["I²R loss reduction", engNum(res.lossReduction * 100, 3), "%"],
       ];
       if (res.currentBefore !== null && res.currentAfter !== null) {
-        lines.push(`  Line current          ${engNum(res.currentBefore, 4)} A  →  ${engNum(res.currentAfter, 4)} A`);
+        pfRows.push(["Line current before", engNum(res.currentBefore, 4), "A"]);
+        pfRows.push(["Line current after", engNum(res.currentAfter, 4), "A"]);
       }
       if (res.capacitanceDeltaF !== null && res.capacitanceWyeF !== null) {
-        lines.push(`  Capacitance per phase   delta ${engNum(res.capacitanceDeltaF * 1e6, 4)} µF   wye ${engNum(res.capacitanceWyeF * 1e6, 4)} µF`);
+        pfRows.push(["Capacitance per phase, delta", engNum(res.capacitanceDeltaF * 1e6, 4), "µF"]);
+        pfRows.push(["Capacitance per phase, wye", engNum(res.capacitanceWyeF * 1e6, 4), "µF"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-pf-correction"),
+        ...(res.capacitanceDeltaF !== null && res.capacitanceWyeF !== null ? engEq("energy-pf-correction:capacitance") : []),
+        "Power factor correction",
+        "",
+        kvTable(pfRows),
+      ];
+      const pcOutputs: EngOutput[] = [
+        { key: "Qc", label: "Capacitor bank", value: res.bankVAR / 1000, unit: "kVAR" },
+        { key: "Iafter", label: "Line current after correction", value: res.currentAfter ?? NaN, unit: "A" },
+        { key: "Cdelta", label: "Capacitance per phase, delta", value: res.capacitanceDeltaF !== null ? res.capacitanceDeltaF * 1e6 : NaN, unit: "µF" },
+        { key: "Cwye", label: "Capacitance per phase, wye", value: res.capacitanceWyeF !== null ? res.capacitanceWyeF * 1e6 : NaN, unit: "µF" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24139,7 +24984,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The cost of chasing unity",
             },
           );
-          return engReport(lines, [
+          return withOutputs(pcOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24148,10 +24993,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(pcOutputs, engReport(lines));
     },
   },
   {
@@ -24210,17 +25055,28 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("len"), r("i")]);
-      const lines = [
+      const vdRows: Array<[string, string, string]> = [
+        ["Conductor section", engNum(res.sectionMm2, 4), "mm²"],
+        ["Path resistance", engNum(res.pathResistance * 1000, 4), "mΩ"],
+        ["Voltage drop", engNum(res.dropV, sig), "V"],
+      ];
+      if (res.dropFraction !== null) vdRows.push(["Voltage drop", engNum(res.dropFraction * 100, 3), "%"]);
+      vdRows.push(["Conductor loss", engNum(res.lossW, sig), "W"]);
+      if (res.minSectionMm2 !== null) vdRows.push(["Minimum section for the target drop", engNum(res.minSectionMm2, 4), "mm²"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-voltage-drop"),
+        ...(r("kind") === "three-phase" ? engEq("energy-voltage-drop:three-phase") : engEq("energy-voltage-drop:two-wire")),
+        ...(res.minSectionMm2 !== null ? engEq("energy-voltage-drop:sizing") : []),
         "Cable voltage drop",
         "",
-        `  Conductor section    ${engNum(res.sectionMm2, 4)} mm²`,
-        `  Path resistance      ${engNum(res.pathResistance * 1000, 4)} mΩ`,
-        `  Voltage drop         ${engNum(res.dropV, sig)} V${res.dropFraction !== null ? `  =  ${engNum(res.dropFraction * 100, 3)} %` : ""}`,
-        `  Conductor loss       ${engNum(res.lossW, sig)} W`,
+        kvTable(vdRows),
       ];
-      if (res.minSectionMm2 !== null) {
-        lines.push(`  Minimum section for the target drop   ${engNum(res.minSectionMm2, 4)} mm²`);
-      }
+      const vdOutputs: EngOutput[] = [
+        { key: "dV", label: "Voltage drop", value: res.dropV, unit: "V" },
+        { key: "dVpct", label: "Voltage drop, share of supply", value: res.dropFraction !== null ? res.dropFraction * 100 : NaN, unit: "%" },
+        { key: "Ploss", label: "Conductor loss", value: res.lossW, unit: "W" },
+        { key: "Amin", label: "Minimum section for the target drop", value: res.minSectionMm2 ?? NaN, unit: "mm²" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24274,7 +25130,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: asPct ? "drop (% of supply)" : "drop (V)",
           title: "Voltage drop against run length",
         });
-        return engReport(lines, [
+        return withOutputs(vdOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24283,9 +25139,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(vdOutputs, engReport(lines));
     },
   },
   {
@@ -24322,11 +25178,24 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("v"), r("h1"), r("h2")]);
-      const lines = [`Wind shear, ${engNum(h1, 4)} m → ${engNum(h2, 4)} m`, ""];
-      if (res.powerLawSpeed !== null) lines.push(`  Power law     ${engNum(res.powerLawSpeed, sig)} m/s`);
-      if (res.logLawSpeed !== null) lines.push(`  Log law       ${engNum(res.logLawSpeed, sig)} m/s`);
-      if (res.disagreement !== null) lines.push(`  Disagreement  ${engNum(res.disagreement * 100, 3)} %`);
-      lines.push(`  Power ratio   ${engNum(res.powerRatio, 4)}× the power at the measurement height`);
+      const shRows: Array<[string, string, string]> = [];
+      if (res.powerLawSpeed !== null) shRows.push(["Power law", engNum(res.powerLawSpeed, sig), "m/s"]);
+      if (res.logLawSpeed !== null) shRows.push(["Log law", engNum(res.logLawSpeed, sig), "m/s"]);
+      if (res.disagreement !== null) shRows.push(["Disagreement", engNum(res.disagreement * 100, 3), "%"]);
+      shRows.push(["Power ratio (× the power at the measurement height)", engNum(res.powerRatio, 4), ""]);
+      const lines: EngReportLine[] = [
+        ...(res.powerLawSpeed !== null ? engEq("energy-wind-shear:power") : []),
+        ...(res.logLawSpeed !== null ? engEq("energy-wind-shear:log") : []),
+        ...engEq("energy-wind-shear"),
+        `Wind shear, ${engNum(h1, 4)} m → ${engNum(h2, 4)} m`,
+        "",
+        kvTable(shRows),
+      ];
+      const wsOutputs: EngOutput[] = [
+        { key: "vPower", label: "Hub speed, power law", value: res.powerLawSpeed ?? NaN, unit: "m/s" },
+        { key: "vLog", label: "Hub speed, log law", value: res.logLawSpeed ?? NaN, unit: "m/s" },
+        { key: "powerRatio", label: "Power ratio", value: res.powerRatio, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24360,7 +25229,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "height above ground (m)",
             title: "The wind profile, both laws",
           });
-          return engReport(lines, [
+          return withOutputs(wsOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24369,10 +25238,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(wsOutputs, engReport(lines));
     },
   },
   {
@@ -24415,19 +25284,33 @@ const ENG_CALCS: EngCalc[] = [
         turbine: given === 3 ? { cutIn: vci!, rated: vr!, cutOut: vco! } : undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const wbRows: Array<[string, string, string]> = [
+        ["Shape k", engNum(res.shape, 4), ""],
+        ["Scale c", engNum(res.scale, 4), "m/s"],
+        ["Mean speed", engNum(res.meanSpeed, 4), "m/s"],
+      ];
+      if (res.mostProbableSpeed !== null) wbRows.push(["Most probable speed", engNum(res.mostProbableSpeed, 4), "m/s"]);
+      wbRows.push(["Mean power density", engNum(res.meanPowerDensity, 4), "W/m²"]);
+      wbRows.push(["Energy pattern factor", engNum(res.energyPatternFactor, 4), ""]);
+      if (res.capacityFactor !== null && res.availabilityFraction !== null) {
+        wbRows.push(["Capacity factor", engNum(res.capacityFactor, 4), ""]);
+        wbRows.push(["Capacity factor", engNum(res.capacityFactor * 100, 4), "%"]);
+        wbRows.push(["Hours in operating band", engNum(res.availabilityFraction * 100, 4), "%"]);
+      }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-weibull"),
+        ...(res.mostProbableSpeed !== null ? engEq("energy-weibull:mode") : []),
+        ...(res.capacityFactor !== null ? engEq("energy-weibull:cf") : []),
         "Weibull wind resource",
         "",
-        `  Shape k / scale c       ${engNum(res.shape, 4)} / ${engNum(res.scale, 4)} m/s`,
-        `  Mean speed              ${engNum(res.meanSpeed, 4)} m/s`,
+        kvTable(wbRows),
       ];
-      if (res.mostProbableSpeed !== null) lines.push(`  Most probable speed     ${engNum(res.mostProbableSpeed, 4)} m/s`);
-      lines.push(`  Mean power density      ${engNum(res.meanPowerDensity, 4)} W/m²`);
-      lines.push(`  Energy pattern factor   ${engNum(res.energyPatternFactor, 4)}`);
-      if (res.capacityFactor !== null && res.availabilityFraction !== null) {
-        lines.push(`  Capacity factor         ${engNum(res.capacityFactor, 4)}  =  ${engNum(res.capacityFactor * 100, 4)} %`);
-        lines.push(`  Hours in operating band ${engNum(res.availabilityFraction * 100, 4)} %`);
-      }
+      const wbOutputs: EngOutput[] = [
+        { key: "vMean", label: "Mean speed", value: res.meanSpeed, unit: "m/s" },
+        { key: "powerDensity", label: "Mean power density", value: res.meanPowerDensity, unit: "W/m²" },
+        { key: "EPF", label: "Energy pattern factor", value: res.energyPatternFactor, unit: "" },
+        { key: "CF", label: "Capacity factor", value: res.capacityFactor ?? NaN, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24472,7 +25355,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "probability density (per m/s)",
             title: "The fitted wind distribution",
           });
-          return engReport(lines, [
+          return withOutputs(wbOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24486,10 +25369,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(wbOutputs, engReport(lines));
     },
   },
   {
@@ -24509,15 +25392,25 @@ const ENG_CALCS: EngCalc[] = [
       if (!r("o2").trim() || !Number.isFinite(o2)) return { text: "The O₂ reading must be a percentage.", ok: false };
       const res = flueGas({ formula: r("formula"), o2DryPct: o2 });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const fgRows: Array<[string, string, string]> = [
+        ["Excess air", engNum(res.excessAir * 100, 4), "%"],
+        ["Actual AFR", engNum(res.afrActual, 4), "kg air / kg fuel"],
+        ["Dry CO₂", engNum(res.dryCO2Pct, 4), "%"],
+        ["Ultimate CO₂", engNum(res.ultimateCO2Pct, 4), "%"],
+        ["Dry N₂", engNum(res.dryN2Pct, 4), "%"],
+      ];
+      if (res.drySO2Pct !== null) fgRows.push(["Dry SO₂", engNum(res.drySO2Pct, 4), "%"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-flue-gas"),
         `Flue gas of ${formatFormula(r("formula").trim())} at ${engNum(o2, 3)}% dry O₂`,
         "",
-        `  Excess air          ${engNum(res.excessAir * 100, 4)} %`,
-        `  Actual AFR          ${engNum(res.afrActual, 4)} kg air / kg fuel`,
-        `  Dry CO₂             ${engNum(res.dryCO2Pct, 4)} %   (ultimate ${engNum(res.ultimateCO2Pct, 4)} %)`,
-        `  Dry N₂              ${engNum(res.dryN2Pct, 4)} %`,
+        kvTable(fgRows),
       ];
-      if (res.drySO2Pct !== null) lines.push(`  Dry SO₂             ${engNum(res.drySO2Pct, 4)} %`);
+      const fgOutputs: EngOutput[] = [
+        { key: "excessAir", label: "Excess air", value: res.excessAir * 100, unit: "%" },
+        { key: "AFR", label: "Actual air-fuel ratio", value: res.afrActual, unit: "kg/kg" },
+        { key: "co2Dry", label: "Dry CO₂", value: res.dryCO2Pct, unit: "%" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -24574,7 +25467,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The combustion-analysis chart",
             },
           );
-          return engReport(lines, [
+          return withOutputs(fgOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24583,10 +25476,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(fgOutputs, engReport(lines));
     },
   },
   {
@@ -24666,20 +25559,30 @@ const ENG_CALCS: EngCalc[] = [
         economics,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const stRows: Array<[string, string, string]> = [
+        ["Bank (nameplate)", engNum(res.bankKWh, 4), "kWh"],
+        ["Usable at this DoD", engNum(res.usableKWh, 4), "kWh"],
+      ];
+      if (res.bankAh !== null) stRows.push(["At the bus voltage", engNum(res.bankAh, 4), "Ah"]);
+      stRows.push(["Daily charge input", engNum(res.dailyChargeKWh, 4), "kWh"]);
+      if (res.lcosPerKWh !== null) {
+        stRows.push(["LCOS", engNum(res.lcosPerKWh, 4), "per kWh discharged"]);
+        stRows.push(["PV of costs", engNum(res.presentValueCosts!, 5), ""]);
+        stRows.push(["PV of discharged energy", engNum(res.presentValueKWh!, 5), "kWh"]);
+      }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-storage"),
+        ...(res.lcosPerKWh !== null ? engEq("energy-storage:lcos") : []),
         "Battery bank sizing",
         "",
-        `  Bank (nameplate)     ${engNum(res.bankKWh, 4)} kWh`,
-        `  Usable at this DoD   ${engNum(res.usableKWh, 4)} kWh`,
+        kvTable(stRows),
       ];
-      if (res.bankAh !== null) lines.push(`  At the bus voltage   ${engNum(res.bankAh, 4)} Ah`);
-      lines.push(`  Daily charge input   ${engNum(res.dailyChargeKWh, 4)} kWh`);
-      if (res.lcosPerKWh !== null) {
-        lines.push("");
-        lines.push(`  LCOS                 ${engNum(res.lcosPerKWh, 4)} per kWh discharged`);
-        lines.push(`  PV of costs          ${engNum(res.presentValueCosts!, 5)}`);
-        lines.push(`  PV of discharged     ${engNum(res.presentValueKWh!, 5)} kWh`);
-      }
+      const stOutputs: EngOutput[] = [
+        { key: "bankKWh", label: "Bank size (nameplate)", value: res.bankKWh, unit: "kWh" },
+        { key: "bankAh", label: "Bank at the bus voltage", value: res.bankAh ?? NaN, unit: "Ah" },
+        { key: "chargeKWh", label: "Daily charge input", value: res.dailyChargeKWh, unit: "kWh" },
+        { key: "LCOS", label: "LCOS (currency per kWh discharged)", value: res.lcosPerKWh ?? NaN, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24715,7 +25618,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Bank size against depth of discharge",
             },
           );
-          return engReport(lines, [
+          return withOutputs(stOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24724,10 +25627,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(stOutputs, engReport(lines));
     },
   },
   {
@@ -24753,17 +25656,29 @@ const ENG_CALCS: EngCalc[] = [
       if (hourRaw && !Number.isFinite(hour as number)) return { text: "The solar hour must be a number, 0-24.", ok: false };
       const res = solarGeometry({ latitudeDeg: lat, dayOfYear: day, solarHour: hour });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
-        `Solar geometry at ${engNum(lat, 4)}°, day ${engNum(day, 3)}`,
-        "",
-        `  Declination            ${engNum(res.declinationDeg, 4)}°`,
-        `  Day length             ${engNum(res.dayLengthHours, 4)} h`,
-        `  Noon elevation         ${engNum(res.noonElevationDeg, 4)}°`,
-        `  Extraterrestrial H₀    ${engNum(res.extraterrestrialKWhM2, 4)} kWh/m² per day`,
+      const sgRows: Array<[string, string, string]> = [
+        ["Declination", engNum(res.declinationDeg, 4), "°"],
+        ["Day length", engNum(res.dayLengthHours, 4), "h"],
+        ["Noon elevation", engNum(res.noonElevationDeg, 4), "°"],
+        ["Extraterrestrial H₀", engNum(res.extraterrestrialKWhM2, 4), "kWh/m² per day"],
       ];
       if (res.hourElevationDeg !== null && res.hourAzimuthDeg !== null) {
-        lines.push(`  At solar hour ${engNum(hour!, 4)}:  elevation ${engNum(res.hourElevationDeg, 4)}°, azimuth ${engNum(res.hourAzimuthDeg, 4)}° from north`);
+        sgRows.push([`Elevation at solar hour ${engNum(hour!, 4)}`, engNum(res.hourElevationDeg, 4), "°"]);
+        sgRows.push([`Azimuth from north at solar hour ${engNum(hour!, 4)}`, engNum(res.hourAzimuthDeg, 4), "°"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-solar-geometry"),
+        ...(res.hourElevationDeg !== null ? engEq("energy-solar-geometry:hour") : []),
+        `Solar geometry at ${engNum(lat, 4)}°, day ${engNum(day, 3)}`,
+        "",
+        kvTable(sgRows),
+      ];
+      const sgOutputs: EngOutput[] = [
+        { key: "decl", label: "Declination", value: res.declinationDeg, unit: "°" },
+        { key: "dayLength", label: "Day length", value: res.dayLengthHours, unit: "h" },
+        { key: "noonElev", label: "Noon elevation", value: res.noonElevationDeg, unit: "°" },
+        { key: "H0", label: "Extraterrestrial daily total", value: res.extraterrestrialKWhM2, unit: "kWh/m²" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -24813,7 +25728,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "sun elevation (°)",
             title: "The sun's day at this latitude",
           });
-          return engReport(lines, [
+          return withOutputs(sgOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24822,10 +25737,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(sgOutputs, engReport(lines));
     },
   },
   {
@@ -24868,15 +25783,22 @@ const ENG_CALCS: EngCalc[] = [
         airPreheatC: preheat ?? undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const ftRows: Array<[string, string, string]> = [
+        ["Flame temperature", engNum(res.flameTempK, 4), "K"],
+        ["Flame temperature", engNum(res.flameTempC, 4), "°C"],
+        ["LHV used", engNum(res.lhvUsedMJPerKg, 4), "MJ/kg"],
+      ];
+      if (res.preheatMJPerKg > 0) ftRows.push(["Preheat contribution", engNum(res.preheatMJPerKg, 4), "MJ per kg fuel"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-flame-temp"),
         `Adiabatic flame temperature of ${formatFormula(r("formula").trim())}`,
         "",
-        `  Flame temperature    ${engNum(res.flameTempK, 4)} K  =  ${engNum(res.flameTempC, 4)} °C`,
-        `  LHV used             ${engNum(res.lhvUsedMJPerKg, 4)} MJ/kg`,
+        kvTable(ftRows),
       ];
-      if (res.preheatMJPerKg > 0) {
-        lines.push(`  Preheat contribution ${engNum(res.preheatMJPerKg, 4)} MJ per kg fuel`);
-      }
+      const ftOutputs: EngOutput[] = [
+        { key: "Tflame", label: "Adiabatic flame temperature", value: res.flameTempK, unit: "K" },
+        { key: "TflameC", label: "Adiabatic flame temperature", value: res.flameTempC, unit: "°C" },
+      ];
       lines.push(
         `  Products per mol fuel   CO₂ ${engNum(res.products.co2, 4)}, H₂O ${engNum(res.products.h2o, 4)}, N₂ ${engNum(res.products.n2, 4)}${res.products.o2 > 0 ? `, O₂ ${engNum(res.products.o2, 4)}` : ""}`
       );
@@ -24916,7 +25838,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Flame temperature against excess air",
             },
           );
-          return engReport(lines, [
+          return withOutputs(ftOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24925,10 +25847,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(ftOutputs, engReport(lines));
     },
   },
   {
@@ -24962,11 +25884,13 @@ const ENG_CALCS: EngCalc[] = [
       if (![E0, n, T].every(Number.isFinite)) return { text: engRefusal("Give E° (V), n and the temperature (°C) as numbers."), ok: false };
       const res = nernst(E0, n, T, prod, red);
       if (typeof res === "string") return { text: engRefusal(`Cannot compute: ${res}.`), ok: false };
-      const lines = [`E = ${engNum(res.E, 5)} V at ${engNum(T)} °C (n = ${n}; ln Q = ${engNum(res.lnQ)}).`, `Slope: ${engNum(res.slopePerDecade * 1000, 5)} mV per decade of Q.`, ELECTROCHEM_SOURCE];
+      const lines: EngReportLine[] = [...engEq("nernst"), `E = ${engNum(res.E, 5)} V at ${engNum(T)} °C (n = ${n}; ln Q = ${engNum(res.lnQ)}).`, `Slope: ${engNum(res.slopePerDecade * 1000, 5)} mV per decade of Q.`, ELECTROCHEM_SOURCE];
       const svg = nernstChartSvg(E0, res.slopePerDecade, res.lnQ / Math.LN10);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Nernst line", alt: "Electrode potential against log Q", w: 420, h: 269 }] };
+      return withOutputs([
+        { key: "Ecell", label: "Electrode potential E", value: res.E, unit: "V" },
+        { key: "slope", label: "Slope per decade of Q", value: res.slopePerDecade * 1000, unit: "mV" },
+      ], engReport(lines, [{ kind: "plot" as const, svg, caption: "Nernst line", alt: "Electrode potential against log Q", w: 420, h: 269 }]));
     },
   },
   {
@@ -24994,15 +25918,19 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(eta) || Math.abs(eta) > 2) return { text: engRefusal("Give an overpotential between −2 and 2 V."), ok: false };
       const j = butlerVolmer(eta, p);
       const u = (r("unit") || "A/cm²").trim();
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("butler-volmer"),
         `At η = ${engNum(eta)} V: j = ${engNum(j)} ${u}.`,
         `Tafel slopes: anodic ${engNum((Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaA)} mV/dec, cathodic ${engNum((Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaC)} mV/dec; charge-transfer resistance at η → 0: ${engNum(thermalVoltage(p.tC) / (p.j0 * (p.alphaA + p.alphaC)))} V per (${u})${/^A\/cm(²|2|\^2)$/.test(u) ? `, i.e. Ω·cm²` : /^mA\/cm(²|2|\^2)$/.test(u) ? `, i.e. kΩ·cm²` : /^A\/m(²|2|\^2)$/.test(u) ? `, i.e. Ω·m²` : `; with A/cm² this is Ω·cm²`}.`,
         ELECTROCHEM_SOURCE,
       ];
       const svg = butlerVolmerChartSvg(p, Math.max(0.2, Math.abs(eta) * 1.5), u);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Butler–Volmer current against overpotential", alt: "Butler–Volmer curve", w: 420, h: 269 }] };
+      return withOutputs([
+        { key: "jEta", label: "Current density at η", value: j, unit: u },
+        { key: "bA", label: "Anodic Tafel slope", value: (Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaA, unit: "mV/dec" },
+        { key: "bC", label: "Cathodic Tafel slope", value: (Math.LN10 * thermalVoltage(p.tC) * 1000) / p.alphaC, unit: "mV/dec" },
+      ], engReport(lines, [{ kind: "plot" as const, svg, caption: "Butler–Volmer current against overpotential", alt: "Butler–Volmer curve", w: 420, h: 269 }]));
     },
   },
   {
@@ -25032,13 +25960,16 @@ const ENG_CALCS: EngCalc[] = [
       if (data.some(([e]) => Math.abs(e) > 2)) return { text: engRefusal("An overpotential beyond ±2 V: are they in mV? Give η in volts (−0.25, not −250)."), ok: false };
       const res = tafelFit(data, T, win);
       if (typeof res === "string") return { text: engRefusal(`Cannot fit: ${res}.`), ok: false };
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("tafel")];
       for (const [b, name] of [[res.anodic, "Anodic"], [res.cathodic, "Cathodic"]] as const) if (b) lines.push(`${name} branch: Tafel slope ${engNum(b.slope * 1000)} mV/dec, α = ${engNum(b.alpha, 3)}, r² = ${b.r2.toFixed(4)} (${b.n} points).`);
       lines.push(`Exchange current density j₀ ≈ ${engNum(res.j0)} (the unit of j).`, ...res.notes.map((n) => `Note: ${n}`), ELECTROCHEM_SOURCE);
       const svg = tafelChartSvg(data, res);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return { text: clean.join("\n"), blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Tafel plot", alt: "Tafel plot with fitted branches", w: 420, h: 269 }] };
+      return withOutputs([
+        { key: "bAnodic", label: "Anodic Tafel slope", value: res.anodic ? res.anodic.slope * 1000 : NaN, unit: "mV/dec" },
+        { key: "bCathodic", label: "Cathodic Tafel slope", value: res.cathodic ? res.cathodic.slope * 1000 : NaN, unit: "mV/dec" },
+        { key: "j0", label: "Exchange current density (the unit of j)", value: res.j0, unit: "" },
+      ], engReport(lines, [{ kind: "plot" as const, svg, caption: "Tafel plot", alt: "Tafel plot with fitted branches", w: 420, h: 269 }]));
     },
   },
   {
@@ -25066,7 +25997,9 @@ const ENG_CALCS: EngCalc[] = [
       // and is not biomedical in any way; one implementation, two doors.
       const res = audioSamplingCheck(fs, fmax, rec ?? undefined, interf ?? undefined);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-sampling"),
+        ...(res.samples !== null || res.resolution !== null ? engEq("audio-sampling:record") : []),
         "Sampling",
         "",
         `  Nyquist frequency   ${engNum(res.nyquist, 6)} Hz`,
@@ -25085,6 +26018,11 @@ const ENG_CALCS: EngCalc[] = [
       // that folded the headline tone. Drawn only when the setup is adequate;
       // an inadequate one folds the signal itself and the flat line it
       // produces would just restate the warning.
+      const asOutputs: EngOutput[] = [
+        { key: "fNyquist", label: "Nyquist frequency", value: res.nyquist, unit: "Hz" },
+        { key: "fAlias", label: "Where the out-of-band tone folds to", value: res.aliasedTo ?? NaN, unit: "Hz" },
+        { key: "df", label: "FFT resolution", value: res.resolution ?? NaN, unit: "Hz" },
+      ];
       if (res.adequate && fs > 0) {
         const fold: Point[] = [];
         for (let i2 = 1; i2 <= 200; i2++) {
@@ -25111,7 +26049,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "apparent frequency after sampling (Hz)",
             title: "The fold diagram",
           });
-          return engReport(lines, [
+          return withOutputs(asOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -25120,10 +26058,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(asOutputs, engReport(lines));
     },
   },
   {
@@ -25152,7 +26090,10 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(ch)) return { text: "Channel count must be a whole number.", ok: false };
       const res = quantisation(bits, vfs ?? undefined, fs ?? undefined, ch);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-quantisation"),
+        ...(res.lsbVolts !== null ? engEq("audio-quantisation:lsb") : []),
+        ...(res.bitRate !== null ? engEq("audio-quantisation:rate") : []),
         `Quantisation, ${res.bits}-bit`,
         "",
         `  Theoretical SNR     ${engNum(res.snrDb, 5)} dB`,
@@ -25171,6 +26112,11 @@ const ENG_CALCS: EngCalc[] = [
       // The 6.02n + 1.76 line drawn across bit depths, each point asked of
       // the engine, this converter marked. The line being straight IS the
       // claim in the hint — one bit is always 6.02 dB.
+      const qOutputs: EngOutput[] = [
+        { key: "SNR", label: "Theoretical SNR", value: res.snrDb, unit: "dB" },
+        { key: "LSBv", label: "LSB voltage", value: res.lsbVolts ?? NaN, unit: "V" },
+        { key: "bitRate", label: "Uncompressed bit rate", value: res.bitRate !== null ? res.bitRate / 1e6 : NaN, unit: "Mbit/s" },
+      ];
       {
         const snrPts: Point[] = [];
         const nTop = Math.min(64, Math.max(24, res.bits));
@@ -25192,12 +26138,12 @@ const ENG_CALCS: EngCalc[] = [
               title: "SNR against bit depth",
             },
           );
-          return engReport(lines, [
+          return withOutputs(qOutputs, engReport(lines, [
             avPlot(svg, "The quantisation SNR line, 6.02 dB per bit, this converter marked", "Theoretical SNR rising linearly with bit depth"),
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(qOutputs, engReport(lines));
     },
   },
   {
@@ -25231,7 +26177,13 @@ const ENG_CALCS: EngCalc[] = [
       const q = (r("q") === "power" ? "power" : "field") as DbQuantity;
       const res = r("dir") === "fromDb" ? fromDb(v, q) : toDb(v, q);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const dbOutputs: EngOutput[] = [
+        { key: "ratio", label: "Linear ratio", value: res.ratio, unit: "" },
+        { key: "dB", label: "Level on the chosen basis", value: res.db, unit: "dB" },
+        { key: "dBother", label: "Level on the other basis", value: res.dbIfOtherConvention, unit: "dB" },
+      ];
+      const lines: EngReportLine[] = [
+        ...(res.quantity === "power" ? engEq("audio-decibel:power") : engEq("audio-decibel:field")),
         "Decibels",
         "",
         `  Linear ratio        ${engNum(res.ratio, 6)}`,
@@ -25277,7 +26229,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The two decibel conventions",
           },
         );
-        return engReport(lines, [
+        return withOutputs(dbOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -25286,9 +26238,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dbOutputs, engReport(lines));
     },
   },
   {
@@ -25314,7 +26266,9 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(lvl)) return { text: "The level must be a number of dB.", ok: false };
       const res = splAtDistance(lvl, d0, d1);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      let sumTotal = NaN;
+      const lines: EngReportLine[] = [
+        ...engEq("audio-spl"),
         "Sound pressure level",
         "",
         `  At ${engNum(d0, 4)} m           ${engNum(res.levelDb, 5)} dB SPL`,
@@ -25330,7 +26284,9 @@ const ENG_CALCS: EngCalc[] = [
         }
         const sum = sumIncoherent(levels);
         if (!sum.ok) return { text: sum.error, ok: false };
+        sumTotal = sum.totalDb;
         lines.push("");
+        lines.push(...engEq("audio-spl:sum"));
         lines.push(`  ${levels.length} incoherent sources  ${engNum(sum.totalDb, 5)} dB SPL`);
         lines.push(`  Above the loudest   ${engNum(sum.aboveLoudestDb, 4)} dB`);
         for (const note of sum.notes) lines.push(`Note: ${note}`);
@@ -25342,6 +26298,12 @@ const ENG_CALCS: EngCalc[] = [
       // Inverse-square falloff on a log distance axis, where it is a straight
       // line at −6 dB per doubling — closed form from the reference level the
       // engine used, both distances marked.
+      const splOutputs: EngOutput[] = [
+        { key: "Lat", label: "Level at the target distance", value: res.atDistanceDb, unit: "dB SPL" },
+        { key: "dL", label: "Change in level", value: res.changeDb, unit: "dB" },
+        { key: "pPa", label: "Sound pressure there", value: res.pressurePa, unit: "Pa" },
+        { key: "Lsum", label: "Sum of the incoherent sources", value: sumTotal, unit: "dB SPL" },
+      ];
       if (d0 > 0 && d1 > 0) {
         const xLo = Math.min(d0, d1) / 4;
         const xHi = Math.max(d0, d1) * 4;
@@ -25372,7 +26334,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "6 dB per doubling of distance",
           },
         );
-        return engReport(lines, [
+        return withOutputs(splOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -25381,9 +26343,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(splOutputs, engReport(lines));
     },
   },
   {
@@ -25412,7 +26374,8 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(q)) return { text: "The directivity Q must be a number (1 for an omnidirectional source).", ok: false };
       const res = reverbTime(v, s, a, q);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-reverb"),
         "Reverberation",
         "",
         `  RT60, Sabine        ${engNum(res.sabineS, 4)} s`,
@@ -25429,6 +26392,12 @@ const ENG_CALCS: EngCalc[] = [
       // Both decay slopes to -60 dB. The two lines diverging as the room gets
       // dead is the Sabine-vs-Eyring argument made visible: they cross the
       // -60 line at different times, and those crossings ARE the two RT60s.
+      const rvOutputs: EngOutput[] = [
+        { key: "RT60sabine", label: "RT60, Sabine", value: res.sabineS, unit: "s" },
+        { key: "RT60eyring", label: "RT60, Eyring", value: res.eyringS, unit: "s" },
+        { key: "fSchroeder", label: "Schroeder frequency", value: res.schroederHz, unit: "Hz" },
+        { key: "rc", label: "Critical distance", value: res.criticalDistance, unit: "m" },
+      ];
       if (res.sabineS > 0 && res.eyringS > 0) {
         const tEnd = 1.25 * Math.max(res.sabineS, res.eyringS);
         const slope = (rt: number): Point[] =>
@@ -25458,15 +26427,15 @@ const ENG_CALCS: EngCalc[] = [
             title: "The decay to -60 dB",
           },
         );
-        return engReport(lines, [
+        return withOutputs(rvOutputs, engReport(lines, [
           avPlot(
             svg,
             "Sabine and Eyring decay slopes; the −60 dB crossings are the two RT60s",
             "Two linear decay lines with markers where each reaches minus sixty decibels",
           ),
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(rvOutputs, engReport(lines));
     },
   },
   {
@@ -25495,17 +26464,19 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(fmax)) return { text: "The frequency ceiling must be a number.", ok: false };
       const res = roomModes(l, w, h, fmax, c);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [`Room modes below ${engNum(fmax, 4)} Hz`, ""];
+      const lines: EngReportLine[] = [...engEq("audio-roommodes"), `Room modes below ${engNum(fmax, 4)} Hz`, ""];
       if (!res.modes.length) {
         lines.push("  No modes below that frequency.");
       } else {
-        for (const m of res.modes.slice(0, 24)) {
-          lines.push(
-            `  ${engNum(m.frequency, 4).padStart(7)} Hz  ${m.kind.padEnd(11)} (${m.order.join(",")})`,
-          );
-        }
+        // Release E: the mode list as a real table.
+        lines.push({
+          table: [["Frequency (Hz)", "Type", "Order (nx, ny, nz)"], ...res.modes.slice(0, 24).map((m) => [engNum(m.frequency, 4), m.kind, m.order.join(", ")])],
+        });
         if (res.modes.length > 24) lines.push(`  … and ${res.modes.length - 24} more`);
       }
+      const rmOutputs: EngOutput[] = [
+        { key: "fLowest", label: "Lowest mode", value: res.modes.length ? res.modes[0].frequency : NaN, unit: "Hz" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -25531,7 +26502,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "audibility rank",
             title: "The mode map",
           });
-          return engReport(lines, [
+          return withOutputs(rmOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -25540,10 +26511,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 220,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(rmOutputs, engReport(lines));
     },
   },
   {
@@ -25567,7 +26538,13 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = combFilter(ms ?? undefined, path ?? undefined, c);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const cbOutputs: EngOutput[] = [
+        { key: "fNotch", label: "First cancellation", value: res.firstNotchHz, unit: "Hz" },
+        { key: "delayMs", label: "Delay", value: res.delayMs, unit: "ms" },
+        { key: "pathDiff", label: "Path difference", value: res.pathDifferenceM, unit: "m" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("audio-comb"),
         "Comb filtering",
         "",
         `  Delay               ${engNum(res.delayMs, 5)} ms`,
@@ -25608,7 +26585,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The comb",
           },
         );
-        return engReport(lines, [
+        return withOutputs(cbOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -25617,9 +26594,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(cbOutputs, engReport(lines));
     },
   },
   {
@@ -25719,17 +26696,22 @@ const ENG_CALCS: EngCalc[] = [
         const unit = id === "Vrms" ? "V rms" : id === "Pa" ? "Pa" : id === "W" ? "W" : "mV/Pa";
         return `${avFmt(v, 6)} ${unit}`;
       };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-levels"),
         "Level conversion",
         "",
         `  ${show(from, val)} = ${show(to, res.value)}`,
         "",
-        "  The same level in every reference it reaches",
       ];
+      // Release E: the reference ladder as a real table.
+      const ladderRows: string[][] = [["Reference", "Level"]];
       for (const ref of LEVEL_REFS) {
         const v = res.all[ref.id];
-        if (v !== undefined) lines.push(`    ${ref.label.padEnd(18)} ${show(ref.id, v)}`);
+        if (v !== undefined) ladderRows.push([ref.label, show(ref.id, v)]);
       }
+      lines.push({ label: "The same level in every reference it reaches", table: ladderRows });
+      const toInfo = info(to);
+      const toUnit = !toInfo ? "" : !toInfo.linear ? toInfo.label : to === "Vrms" ? "V" : to === "Pa" ? "Pa" : to === "W" ? "W" : "mV/Pa";
       lines.push(`  Pro +4 dBu over consumer −10 dBV   ${avDb(res.proConsumerGapDb, 4)} dB`);
       if (res.fullScaleDbu !== null) lines.push(`  0 dBFS under this alignment        ${avDb(res.fullScaleDbu, 3)} dBu`);
       if (tempK !== null) {
@@ -25744,13 +26726,16 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_LEVEL_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "Lout", label: "Level in the target reference", value: res.value, unit: toUnit },
+        { key: "fullScaleDbu", label: "0 dBFS under this alignment", value: res.fullScaleDbu ?? NaN, unit: "dBu" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(
           audioFigureSvg(res.figure),
           "The level ladder: the entered level read on every reference scale at once",
           "Side-by-side reference scales on one decibel axis with the entered level marked on each",
         ),
-      ]);
+      ]));
     },
   },
   {
@@ -25803,7 +26788,7 @@ const ENG_CALCS: EngCalc[] = [
       const d2 = u.optNull("d2", "m", "Wanted distance");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const op = r("op");
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [];
       const notes: string[] = [];
       let total: number;
       let fig: AudioFigure;
@@ -25818,15 +26803,18 @@ const ENG_CALCS: EngCalc[] = [
         const res = bandsToWeighted(fb.values, levels, curve);
         if (!res.ok) return { text: res.error, ok: false };
         unit = `dB(${curve})`;
+        lines.push(...engEq("audio-levelmath:weight"));
         lines.push(`${curve}-weighted total of ${res.bands.length} bands`, "");
         lines.push(`  Weighted total      ${res.totalDb.toFixed(3)} ${unit}`);
         lines.push(`  Unweighted (Z)      ${res.totalZDb.toFixed(3)} dB`);
-        lines.push("", "  Band (Hz)   evaluated at   weighting   weighted level");
-        for (const b of res.bands.slice(0, 40)) {
-          lines.push(
-            `  ${avFmt(b.typedHz, 6).padEnd(10)}  ${b.usedHz.toFixed(2).padEnd(13)}  ${avDb(b.weightDb, 2).padEnd(10)}  ${b.weightedDb.toFixed(2)} ${unit}`,
-          );
-        }
+        lines.push("");
+        // Release E: the band table as a real table.
+        lines.push({
+          table: [
+            ["Band (Hz)", "Evaluated at (Hz)", "Weighting (dB)", `Weighted level (${unit})`],
+            ...res.bands.slice(0, 40).map((b) => [avFmt(b.typedHz, 6), b.usedHz.toFixed(2), avDb(b.weightDb, 2), b.weightedDb.toFixed(2)]),
+          ],
+        });
         notes.push(...res.notes);
         if (fb.note) notes.push(fb.note);
         if (lv.note) notes.push(lv.note);
@@ -25853,6 +26841,7 @@ const ENG_CALCS: EngCalc[] = [
           const bg = bgl.values[0];
           const res = levelSubtract(measured, bg);
           if (!res.ok) return { text: res.error, ok: false };
+          lines.push(...engEq("audio-levelmath:subtract"));
           lines.push("Background subtraction", "");
           lines.push(`  Measured total      ${measured.toFixed(3)} ${unit}`);
           lines.push(`  Background          ${bg.toFixed(3)} ${unit}`);
@@ -25871,6 +26860,7 @@ const ENG_CALCS: EngCalc[] = [
           }
           const res = levelAverage(values, durs);
           if (!res.ok) return { text: res.error, ok: false };
+          lines.push(...engEq("audio-levelmath:average"));
           lines.push("Energy average (Leq)", "");
           lines.push(`  Leq                 ${res.leqDb.toFixed(4)} ${unit}`);
           lines.push(`  Arithmetic mean     ${res.arithmeticMeanDb.toFixed(4)} ${unit} (shown only to make the error visible)`);
@@ -25887,6 +26877,7 @@ const ENG_CALCS: EngCalc[] = [
           } else notes.push("No phases given: every path is taken as in phase, the upper bound.");
           const res = coherentSum(values, phases);
           if (!res.ok) return { text: res.error, ok: false };
+          lines.push(...engEq("audio-levelmath:coherent"));
           lines.push("Coherent sum", "");
           lines.push(`  Coherent total      ${res.totalDb.toFixed(4)} ${unit}`);
           lines.push(`  Incoherent would be ${res.incoherentDb.toFixed(4)} ${unit}`);
@@ -25896,6 +26887,7 @@ const ENG_CALCS: EngCalc[] = [
         } else {
           const res = levelSum(values);
           if (!res.ok) return { text: res.error, ok: false };
+          lines.push(...engEq("audio-levelmath:sum"));
           lines.push(`Sum of ${values.length} unrelated sources`, "");
           lines.push(`  Incoherent total    ${res.totalDb.toFixed(4)} ${unit}`);
           lines.push(`  Above the loudest   ${avDb(res.aboveLoudestDb, 4)} dB`);
@@ -25904,6 +26896,7 @@ const ENG_CALCS: EngCalc[] = [
           fig = res.figure;
         }
       }
+      let falloffLevel = NaN;
       if (d1 !== null || d2 !== null) {
         if (d1 === null || d2 === null) {
           return { text: "Give both distances for the falloff (where it was measured and where it is wanted), or neither.", ok: false };
@@ -25911,19 +26904,24 @@ const ENG_CALCS: EngCalc[] = [
         const src = r("src") === "line" ? "line" : "point";
         const fo = distanceFalloff(total, d1, d2, src);
         if (!fo.ok) return { text: fo.error, ok: false };
+        lines.push(...(src === "line" ? engEq("audio-levelmath:line") : engEq("audio-levelmath:point")));
+        falloffLevel = fo.levelDb;
         lines.push(`  At ${engNum(d2, 5)} m (${src} source) ${fo.levelDb.toFixed(3)} ${unit} (${avDb(fo.changeDb, 3)} dB from ${engNum(d1, 5)} m)`);
         notes.push(...fo.notes);
       }
       u.report(lines as string[]);
       for (const note of notes) lines.push(`Note: ${note}`);
       lines.push(ENG_LEVEL_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "Ltotal", label: "Result level", value: total, unit: unit },
+        { key: "Lfar", label: "Result at the wanted distance", value: falloffLevel, unit: unit },
+      ], engReport(lines.map(trueMinus), [
         avPlot(
           audioFigureSvg(fig),
           op === "weight" ? "The weighting curve with the band levels before and after weighting" : "Each entry's share of the result",
           op === "weight" ? "Weighting curve on a log frequency axis with band levels" : "Bars or a curve showing how the levels combine",
         ),
-      ]);
+      ]));
     },
   },
   {
@@ -25959,7 +26957,8 @@ const ENG_CALCS: EngCalc[] = [
       for (const v of [bits, osr, lvl]) if (typeof v === "string") return { text: v, ok: false };
       const res = ditherBudget(bits as number, r("dither") as DitherKind, osr as number, lvl as number);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-dither"),
         `Noise budget, ${res.bits}-bit`,
         "",
         `  Ideal SNR           ${res.idealSnrDb.toFixed(4)} dB`,
@@ -25970,9 +26969,12 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_DB_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "SNRin", label: "In-band SNR", value: res.inBandSnrDb, unit: "dB" },
+        { key: "floor", label: "Noise floor", value: res.noiseFloorDbfs, unit: "dBFS" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "The SNR budget: ideal, after dither, at the signal level, after oversampling", "Bars of SNR in decibels at each step of the budget"),
-      ]);
+      ]));
     },
   },
   {
@@ -26022,7 +27024,9 @@ const ENG_CALCS: EngCalc[] = [
         const w = Math.round(s);
         return `${Math.floor(w / 3600)}:${String(Math.floor(w / 60) % 60).padStart(2, "0")}:${String(w % 60).padStart(2, "0")}`;
       };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...(mode === "pcm" ? engEq("audio-filesize:pcm") : []),
+        ...engEq("audio-filesize"),
         mode === "pcm" ? `PCM, ${engNum(fs ?? 0, 6)} Hz, ${bits}-bit, ${ch} ch` : `Compressed, ${engNum(res.bitRate / 1000, 6)} kbit/s`,
         "",
         `  Data rate           ${avFmt(res.bitRate, 8)} bit/s = ${avFmt(res.bytesPerSecond, 8)} B/s`,
@@ -26040,9 +27044,13 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "sizeGB", label: "Size", value: res.sizeGB, unit: "GB" },
+        { key: "bitRateOut", label: "Data rate", value: res.bitRate, unit: "bit/s" },
+        { key: "durS", label: "Duration", value: res.durationS, unit: "s" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "Size against duration for this format, the entered duration marked", "A straight line of file size against hours with markers"),
-      ]);
+      ]));
     },
   },
   {
@@ -26099,8 +27107,9 @@ const ENG_CALCS: EngCalc[] = [
       // A loudness may be typed with its scale ("−23 LUFS", "−16,3 LKFS"), a true
       // peak with "dBTP", an amplitude with "dBFS": the label is read, not refused.
       const num = (k: string): number => fieldNumber(r(k), /\s*(LUFS|LKFS|LU|dBTP|dBFS|dB)$/i);
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [];
       const notes: string[] = [];
+      const ldOutputs: EngOutput[] = [];
       let fig: AudioFigure;
       let caption: string;
       if (mode === "sine") {
@@ -26122,6 +27131,8 @@ const ENG_CALCS: EngCalc[] = [
         if (Math.abs(kw.gainDb - res.kGainDb) > 1e-9 || Math.abs(comb.loudnessLufs - res.loudnessLufs) > 1e-9) {
           return { text: "The loudness cross-check disagreed with itself, so no number is given.", ok: false };
         }
+        lines.push(...engEq("audio-loudness:sine"));
+        ldOutputs.push({ key: "Lsine", label: "Loudness of the sine", value: res.loudnessLufs, unit: "LUFS" });
         lines.push(`Steady sine, ${avDb(amp, 2)} dBFS at ${engNum(fHz, 6)} Hz`, "");
         lines.push(`  Loudness            ${avDb(res.loudnessLufs, 4)} LUFS`);
         lines.push(`  K-weighting gain    ${avDb(res.kGainDb, 4)} dB`);
@@ -26137,6 +27148,8 @@ const ENG_CALCS: EngCalc[] = [
         if (!lv.ok) return { text: lv.error.replace(/is not a level in dB/, "is not a block loudness in LUFS"), ok: false };
         const res = gatedIntegrated(lv.values);
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("audio-loudness:gated"));
+        ldOutputs.push({ key: "Lint", label: "Integrated loudness", value: res.integratedLufs, unit: "LUFS" });
         lines.push(`Gated integration of ${res.blocksGiven} blocks`, "");
         lines.push(`  Integrated          ${avDb(res.integratedLufs, 3)} LUFS`);
         lines.push(`  Relative gate       ${avDb(res.relativeGateLufs, 3)} LUFS`);
@@ -26159,6 +27172,9 @@ const ENG_CALCS: EngCalc[] = [
         if (!Number.isFinite(maxtp)) return { text: "The true-peak ceiling must be a number of dBTP.", ok: false };
         const res = normaliseGain(meas, target, tp, maxtp);
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("audio-loudness:normalise"));
+        ldOutputs.push({ key: "gainDb", label: "Normalisation gain", value: res.gainDb, unit: "dB" });
+        ldOutputs.push({ key: "tpAfter", label: "True peak after the gain", value: res.resultingTruePeak ?? NaN, unit: "dBTP" });
         lines.push(`Normalising ${avDb(meas, 1)} LUFS to ${avDb(target, 1)} LUFS`, "");
         lines.push(`  Gain                ${avDb(res.gainDb, 2)} dB`);
         if (res.resultingTruePeak !== null) {
@@ -26172,7 +27188,7 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of notes) lines.push(`Note: ${note}`);
       lines.push(ENG_LEVEL_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [avPlot(audioFigureSvg(fig), caption, "Loudness figure for the selected mode")]);
+      return withOutputs(ldOutputs, engReport(lines.map(trueMinus), [avPlot(audioFigureSvg(fig), caption, "Loudness figure for the selected mode")]));
     },
   },
   {
@@ -26232,7 +27248,9 @@ const ENG_CALCS: EngCalc[] = [
         targetSplDb: target,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-speaker"),
+        ...(n > 1 ? (r("coh") === "coherent" ? engEq("audio-speaker:coherent") : engEq("audio-speaker:incoherent")) : []),
         `Loudspeaker at ${engNum(d, 5)} m`,
         "",
         `  Sensitivity (1 W)   ${res.sensitivity1W.toFixed(3)} dB SPL at 1 m`,
@@ -26246,9 +27264,14 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_LEVEL_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "SPL", label: "Continuous SPL", value: res.splDb, unit: "dB SPL" },
+        { key: "SPLpeak", label: "Peak SPL", value: res.peakSplDb, unit: "dB SPL" },
+        { key: "Ppeak", label: "Power for peaks, per box", value: res.peakPowerW, unit: "W" },
+        { key: "Ptarget", label: "Power for the target SPL, per box", value: res.powerForTargetW ?? NaN, unit: "W" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "SPL against distance at the rated power and at the peaks, the listener marked", "SPL falling with log distance, continuous and peak"),
-      ]);
+      ]));
     },
   },
   {
@@ -26277,7 +27300,8 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(m)) return { text: "The air attenuation must be a number per metre (e.g. 0.0024).", ok: false };
       const res = absorptionBudget(v, sl.values, m, target);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-absorption"),
         `Absorption budget, ${engNum(v, 5)} m³`,
         "",
         `  Total absorption    ${engNum(res.absorption, 5)} m² sabins (ᾱ = ${engNum(res.meanAlpha, 4)})`,
@@ -26293,9 +27317,15 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "Atotal", label: "Total absorption", value: res.absorption, unit: "m²" },
+        { key: "RT60sabine", label: "RT60, Sabine", value: res.sabineS, unit: "s" },
+        { key: "RT60eyring", label: "RT60, Eyring", value: res.eyringS, unit: "s" },
+        { key: "RT60ms", label: "RT60, Millington–Sette", value: res.millingtonSetteS, unit: "s" },
+        { key: "Aadd", label: "Absorption to add for the target", value: res.addedAbsorption ?? NaN, unit: "m²" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "Absorption per surface, with the total and what the target needs", "Horizontal bars of absorption per surface"),
-      ]);
+      ]));
     },
   },
   {
@@ -26337,7 +27367,13 @@ const ENG_CALCS: EngCalc[] = [
         return { text: "The crossover cross-check disagreed with itself, so no values are given.", ok: false };
       }
       const db = (x: number | null): string => (x === null ? "a null (−∞ dB)" : `${avDb(x, 3)} dB`);
-      const lines: EngLine[] = [
+      const xoEq: Record<string, EngReportLine[]> = {
+        "1st": engEq("audio-crossover:1st"),
+        bw2: engEq("audio-crossover:bw2"),
+        lr2: engEq("audio-crossover:lr2"),
+      };
+      const lines: EngReportLine[] = [
+        ...(xoEq[type] ?? []),
         `Passive crossover at ${engNum(fc, 5)} Hz into ${engNum(z, 4)} Ω`,
         "",
         `  Capacitor C         ${engNum(res.capacitanceF * 1e6, 5)} µF`,
@@ -26350,9 +27386,12 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "Cuf", label: "Capacitor C", value: res.capacitanceF * 1e6, unit: "µF" },
+        { key: "LmH", label: "Inductor L", value: res.inductanceH * 1e3, unit: "mH" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "Low-pass, high-pass and summed magnitude, with both tweeter polarities", "Crossover magnitude responses on a log frequency axis"),
-      ]);
+      ]));
     },
   },
   {
@@ -26388,7 +27427,8 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = cableDamping({ loadOhm: load, sourceOhm: zout, lengthM: len, areaM2: area ?? undefined, awg });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-damping"),
         `Speaker cable, ${engNum(len, 5)} m of ${engNum(res.areaMm2, 4)} mm² copper`,
         "",
         `  Round-trip resistance ${engNum(res.cableOhm, 6)} Ω`,
@@ -26399,9 +27439,13 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [
+      return withOutputs([
+        { key: "DF", label: "Damping factor at the speaker", value: res.dampingFactor, unit: "" },
+        { key: "Rcable", label: "Round-trip cable resistance", value: res.cableOhm, unit: "Ω" },
+        { key: "lossDb", label: "Level at the speaker", value: res.lossDb, unit: "dB" },
+      ], engReport(lines.map(trueMinus), [
         avPlot(audioFigureSvg(res.figure), "Damping factor against cable length for three standard areas, the entered length marked", "Damping factor falling with log cable length"),
-      ]);
+      ]));
     },
   },
   {
@@ -26446,7 +27490,14 @@ const ENG_CALCS: EngCalc[] = [
       const pr = parseRate(fps);
       const fpsText =
         pr.ok && pr.fractional && Math.abs(fps - (pr.nominal * 1000) / 1001) < 1e-9 * fps ? `${pr.nominal * 1000}/1001` : engNum(fps, 6);
-      const lines = [
+      const brOutputs: EngOutput[] = [
+        { key: "Rcomp", label: "Bitrate after compression", value: res.compressedBps / 1e6, unit: "Mbit/s" },
+        { key: "Runcomp", label: "Uncompressed bitrate", value: res.uncompressedBps / 1e6, unit: "Mbit/s" },
+        { key: "sizeGB", label: "File size", value: res.sizeBytes !== null ? res.sizeBytes / 1e9 : NaN, unit: "GB" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("video-bitrate"),
+        ...(res.sizeBytes !== null ? engEq("video-bitrate:size") : []),
         `Bitrate, ${nums.w}×${nums.h} at ${fpsText} fps`,
         "",
         `  Bits per pixel      ${engNum(res.bitsPerPixel, 4)}`,
@@ -26490,16 +27541,16 @@ const ENG_CALCS: EngCalc[] = [
             title: `Rate at ${nums.w}×${nums.h}, ${fpsText} fps, ${nums.depth}-bit`,
             unit: "Mbit/s",
           });
-          return engReport(lines, [
+          return withOutputs(brOutputs, engReport(lines, [
             avPlot(
               svg,
               "The three chroma schemes at this format; 4:2:0 halves the data, not quarters it",
               "Bitrate bars for 4:4:4, 4:2:2 and 4:2:0 chroma subsampling",
             ),
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(brOutputs, engReport(lines));
     },
   },
   {
@@ -26524,7 +27575,13 @@ const ENG_CALCS: EngCalc[] = [
       if (diagRaw && !Number.isFinite(diag as number)) return { text: "The diagonal must be a number of inches.", ok: false };
       const res = resolution(w, h, diag);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const rsOutputs: EngOutput[] = [
+        { key: "Mpx", label: "Pixels", value: res.megapixels, unit: "Mpixel" },
+        { key: "PPI", label: "Pixel density", value: res.ppi ?? NaN, unit: "PPI" },
+        { key: "dRetina", label: "Distance past which the grid is invisible", value: res.retinaDistanceM ?? NaN, unit: "m" },
+      ];
+      const lines: EngReportLine[] = [
+        ...(res.ppi !== null ? engEq("video-resolution") : []),
         `Resolution ${w}×${h}`,
         "",
         `  Pixels              ${engNum(res.megapixels, 5)} Mpixel`,
@@ -26564,16 +27621,16 @@ const ENG_CALCS: EngCalc[] = [
               title: "Where the eye stops resolving the grid",
             },
           );
-          return engReport(lines, [
+          return withOutputs(rsOutputs, engReport(lines, [
             avPlot(
               svg,
               "The retina distance against screen size at this pixel count",
               "Distance beyond which the pixel grid is unresolvable, against diagonal size",
             ),
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(rsOutputs, engReport(lines));
     },
   },
   {
@@ -26596,7 +27653,13 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(black)) return { text: "The black level must be a number of nits.", ok: false };
       const res = hdrRange(peak, black);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const hdOutputs: EngOutput[] = [
+        { key: "CR", label: "Contrast ratio", value: res.contrastRatio, unit: "" },
+        { key: "stops", label: "Dynamic range", value: res.stops, unit: "stops" },
+        { key: "pqPeak", label: "PQ code at peak", value: res.pqAtPeak, unit: "" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("video-hdr"),
         "HDR luminance",
         "",
         `  Peak                ${engNum(res.peakNits, 5)} nits`,
@@ -26605,14 +27668,10 @@ const ENG_CALCS: EngCalc[] = [
         `  Dynamic range       ${Number.isFinite(res.stops) ? engNum(res.stops, 4) + " stops" : "unbounded"}`,
         `  PQ code at peak     ${engNum(res.pqAtPeak, 4)}  (${engNum(res.pqHeadroomPct, 4)}% of the 10000-nit range)`,
         "",
-        "  Where the code range goes",
-        // Uses pqToNits, the inverse direction, to show how little of the code
-        // space the bright end occupies. The curve is perceptual, so half the
-        // code values cover well under a fiftieth of the luminance - which is
-        // the reason PQ exists and is not obvious from a single number.
-        ...[0.25, 0.5, 0.75, 1].map(
-          (code) => `    code ${code.toFixed(2)}  ->  ${engNum(pqToNits(code), 5)} nits`,
-        ),
+        // Release E: the code-value ladder as a real table. pqToNits, the inverse direction, shows how little of the
+        // code space the bright end occupies: the curve is perceptual, so half the code values cover well under a
+        // fiftieth of the luminance - the reason PQ exists.
+        { label: "Where the code range goes", table: [["PQ code", "Luminance (nits)"], ...[0.25, 0.5, 0.75, 1].map((code) => [code.toFixed(2), engNum(pqToNits(code), 5)])] },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -26645,7 +27704,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The absolute PQ curve",
             },
           );
-          return engReport(lines, [
+          return withOutputs(hdOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -26654,10 +27713,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(hdOutputs, engReport(lines));
     },
   },
   {
@@ -26678,7 +27737,9 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(mse) || !Number.isFinite(depth)) return { text: "Both values must be numbers.", ok: false };
       const res = psnr(mse, depth);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const psOutputs: EngOutput[] = [{ key: "PSNR", label: "PSNR", value: res.psnrDb, unit: "dB" }];
+      const lines: EngReportLine[] = [
+        ...engEq("video-psnr"),
         "PSNR",
         "",
         `  Mean squared error  ${engNum(res.mse, 6)}`,
@@ -26713,7 +27774,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "PSNR against error",
             },
           );
-          return engReport(lines, [
+          return withOutputs(psOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -26722,10 +27783,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(psOutputs, engReport(lines));
     },
   },
   {
@@ -26749,7 +27810,13 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = streamBuffer(rate, bw, buf);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const stOutputs: EngOutput[] = [
+        { key: "bufS", label: "Buffer holds", value: res.bufferSeconds, unit: "s" },
+        { key: "startS", label: "Startup delay", value: res.startupDelayS, unit: "s" },
+        { key: "headroom", label: "Bandwidth headroom", value: res.headroom * 100, unit: "%" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("video-stream"),
         "Streaming",
         "",
         `  Buffer holds        ${engNum(res.bufferSeconds, 4)} s of video`,
@@ -26790,7 +27857,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Fill on the surplus, drain through an outage",
           },
         );
-        return engReport(lines, [
+        return withOutputs(stOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -26799,9 +27866,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(stOutputs, engReport(lines));
     },
   },
   {
@@ -26836,9 +27903,15 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = latencyBudget(stages, hz);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = ["Latency budget", ""];
-      for (const s of res.stages) lines.push(`  ${s.name.padEnd(16)} ${engNum(s.ms, 4)} ms`);
+      const lines: EngReportLine[] = [...engEq("video-latency"), "Latency budget", ""];
+      // Release E: the stages as a real table.
+      lines.push({ table: [["Stage", "Time (ms)"], ...res.stages.map((s) => [s.name, engNum(s.ms, 4)])] });
       lines.push("");
+      const ltOutputs: EngOutput[] = [
+        { key: "totalMs", label: "Sum of the stages", value: res.totalMs, unit: "ms" },
+        { key: "deliveredMs", label: "Delivered (refresh-quantised)", value: res.quantisedMs, unit: "ms" },
+        { key: "frames", label: "Frames", value: res.frames, unit: "" },
+      ];
       lines.push(`  Sum                 ${engNum(res.totalMs, 5)} ms`);
       lines.push(`  Delivered           ${engNum(res.quantisedMs, 5)} ms  (${engNum(res.frames, 3)} frames)`);
       u.report(lines);
@@ -26864,7 +27937,7 @@ const ENG_CALCS: EngCalc[] = [
         ];
         if (latRows.every((rw) => Number.isFinite(rw.value))) {
           const svg = hBarSvg(latRows, { title: `Latency budget at ${engNum(hz, 4)} Hz`, unit: "ms" });
-          return engReport(lines, [
+          return withOutputs(ltOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -26873,10 +27946,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 400,
               h: 46 + Math.min(latRows.length, 24) * HBAR_ROW_H + 18,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(ltOutputs, engReport(lines));
     },
   },
   {
@@ -26900,7 +27973,7 @@ const ENG_CALCS: EngCalc[] = [
     compute: (r) => {
       const res = gamutCoverage(r("g"), r("ref"));
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
         `${res.gamut} measured against ${res.reference}`,
         "",
         `  Coverage (u'v')     ${engNum(res.coverageUv * 100, 4)} %`,
@@ -26908,16 +27981,24 @@ const ENG_CALCS: EngCalc[] = [
         `  Area ratio (u'v')   ${engNum(res.areaRatioUv * 100, 4)} %`,
         `  Outside the reference   ${engNum(res.outsideReferenceUv * 100, 4)} % of ${res.gamut}`,
         "",
-        "  Every space by area (u'v'), sRGB = 100%",
-        // gamutAreaUv gives each triangle's absolute area, so the landscape can
-        // be shown independently of whichever reference is selected.
-        ...GAMUTS.map((x) => {
-          const a = gamutAreaUv(x.id);
-          const base = gamutAreaUv("srgb");
-          return a === null || base === null || base === 0
-            ? `    ${x.label}`
-            : `    ${x.label.padEnd(18)} ${engNum((a / base) * 100, 4)} %`;
-        }),
+        // Release E: every space by area as a real table. gamutAreaUv gives each triangle's absolute area, so the
+        // landscape is shown independently of whichever reference is selected.
+        {
+          label: "Every space by area (u'v'), sRGB = 100%",
+          table: [
+            ["Colour space", "Area, % of sRGB"],
+            ...GAMUTS.map((x) => {
+              const a = gamutAreaUv(x.id);
+              const base = gamutAreaUv("srgb");
+              return [x.label, a === null || base === null || base === 0 ? "" : engNum((a / base) * 100, 4)];
+            }),
+          ],
+        },
+      ];
+      const gmOutputs: EngOutput[] = [
+        { key: "coverageUv", label: "Coverage (u′v′)", value: res.coverageUv * 100, unit: "%" },
+        { key: "areaRatioUv", label: "Area ratio (u′v′)", value: res.areaRatioUv * 100, unit: "%" },
+        { key: "coverageXy", label: "Coverage (xy)", value: res.coverageXy * 100, unit: "%" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -26928,7 +28009,7 @@ const ENG_CALCS: EngCalc[] = [
         const gDef = gamutById(r("g"));
         const refDef = gamutById(r("ref"));
         if (gDef && refDef) {
-          return engReport(lines, [
+          return withOutputs(gmOutputs, engReport(lines, [
             {
               kind: "plot",
               svg: gamutTriangleSvg({
@@ -26943,10 +28024,10 @@ const ENG_CALCS: EngCalc[] = [
               w: GAMUT_CHART_SIZE.w,
               h: GAMUT_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(gmOutputs, engReport(lines));
     },
   },
   {
@@ -26976,7 +28057,9 @@ const ENG_CALCS: EngCalc[] = [
       const rt = realTimeOf(a.frames, a.rate);
       if (!rt.ok) return { text: rt.error, ok: false };
       const mode = a.df ? " drop-frame" : a.rate.dropPerMinute ? " non-drop" : "";
+      let durFrames = NaN;
       const lines: EngLine[] = [
+        ...engEq("video-timecode"),
         `Timecode ${a.label} at ${a.rate.id} fps${mode}`,
         "",
         `  Frame number        ${a.frames} (0-based)`,
@@ -26989,6 +28072,7 @@ const ENG_CALCS: EngCalc[] = [
       if (r("tcb").trim()) {
         const d = tcDuration(r("tca"), r("tcb"), rate);
         if (!d.ok) return { text: d.error, ok: false };
+        durFrames = d.frames;
         lines.push(`  Duration A → B      ${d.durationLabel} = ${d.frames} frame${Math.abs(d.frames) === 1 ? "" : "s"} = ${clockText(d.seconds)} real`);
         notes.push(...d.notes);
       }
@@ -27002,8 +28086,13 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(ENG_EXACT_UNIT_NOTE);
       const span = Math.min(1440, Math.max(60, Math.ceil((rt.secondsApprox / 60) * 1.25)));
       const fig = driftFigure(a.rate, span, a.frames);
-      if (!fig.ok) return engReport(lines.map(trueMinus));
-      return engReport(lines.map(trueMinus), [avPlot(timecodeDriftSvg(fig, a.rate.id), fig.caption, "Label time minus real time against elapsed minutes, non-drop and drop-frame")]);
+      const tcOutputs: EngOutput[] = [
+        { key: "frameNo", label: "Frame number (0-based)", value: a.frames, unit: "" },
+        { key: "realS", label: "Real elapsed time", value: rt.secondsApprox, unit: "s" },
+        { key: "durFrames", label: "Duration A → B", value: durFrames, unit: "frames" },
+      ];
+      if (!fig.ok) return withOutputs(tcOutputs, engReport(lines.map(trueMinus)));
+      return withOutputs(tcOutputs, engReport(lines.map(trueMinus), [avPlot(timecodeDriftSvg(fig, a.rate.id), fig.caption, "Label time minus real time against elapsed minutes, non-drop and drop-frame")]));
     },
   },
   {
@@ -27030,7 +28119,9 @@ const ENG_CALCS: EngCalc[] = [
       const src = r("src").trim();
       const rf = rateFacts(src, audioHz);
       if (!rf.ok) return { text: `Source rate: ${rf.error}`, ok: false };
+      let shutterMs = NaN;
       const lines: EngLine[] = [
+        ...engEq("video-framerate"),
         `Frame rate ${rf.fpsText} fps`,
         "",
         `  Frame duration      ${engNum(rf.frameMs, 7)} ms`,
@@ -27052,6 +28143,8 @@ const ENG_CALCS: EngCalc[] = [
         if (angleRaw && !Number.isFinite(angle as number)) return { text: "The shutter angle must be a number of degrees.", ok: false };
         const sh = shutter({ angleDeg: angle, timeS }, src);
         if (!sh.ok) return { text: sh.error, ok: false };
+        shutterMs = sh.timeMs;
+        lines.push(...engEq("video-framerate:shutter"));
         lines.push(`  Shutter             ${engNum(sh.angleDeg, 6)}° = ${sh.timeText} (${engNum(sh.timeMs, 6)} ms)`);
         notes.push(...sh.notes);
       }
@@ -27075,7 +28168,10 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of [...new Set(notes)]) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), blocks);
+      return withOutputs([
+        { key: "frameMs", label: "Frame duration", value: rf.frameMs, unit: "ms" },
+        { key: "shutterMs", label: "Shutter time", value: shutterMs, unit: "ms" },
+      ], engReport(lines.map(trueMinus), blocks));
     },
   },
   {
@@ -27107,7 +28203,9 @@ const ENG_CALCS: EngCalc[] = [
         content: r("content").trim() || undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines: EngLine[] = [
+      const darNum = res.dar.num === 0n ? 0 : Number(res.dar.num) / Number(res.dar.den);
+      const lines: EngReportLine[] = [
+        ...engEq("video-aspect"),
         `Aspect of ${w}×${h}`,
         "",
         `  Storage aspect      ${res.sarText}`,
@@ -27116,7 +28214,8 @@ const ENG_CALCS: EngCalc[] = [
         `  Nearest common name ${res.nearestCommon.exact ? res.nearestCommon.name : `≈ ${res.nearestCommon.name}`}`,
       ];
       if (res.sdConventions) {
-        for (const c of res.sdConventions) lines.push(`  PAR, ${c.basis.padEnd(32)} ${c.par}`);
+        // Release E: the two SD pixel-aspect conventions as a real table.
+        lines.push({ table: [["Pixel aspect basis", "PAR"], ...res.sdConventions.map((c) => [c.basis, c.par])] });
       }
       if (res.darOn704) lines.push(`  704-sample picture  displays ${res.darOn704}`);
       if (res.framing && res.framing.kind !== "none") {
@@ -27131,7 +28230,11 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`  Title safe (90%)    ${engNum(res.safe.titleW, 6)}×${engNum(res.safe.titleH, 6)}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [avPlot(aspectFrameSvg(res.figure), "The delivery frame to scale: active picture, bars and the safe areas", "Nested rectangles showing the frame, active picture and safe areas")]);
+      return withOutputs([
+        { key: "DAR", label: "Display aspect", value: darNum, unit: "" },
+        { key: "actionW", label: "Action-safe width", value: res.safe.actionW, unit: "px" },
+        { key: "titleW", label: "Title-safe width", value: res.safe.titleW, unit: "px" },
+      ], engReport(lines.map(trueMinus), [avPlot(aspectFrameSvg(res.figure), "The delivery frame to scale: active picture, bars and the safe areas", "Nested rectangles showing the frame, active picture and safe areas")]));
     },
   },
   {
@@ -27205,6 +28308,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = transfer(curve, dir, val, { Lw: lw, Lb: lb });
       if (!res.ok) return { text: res.error, ok: false };
       const signal = dir === "toLight" ? val : res.output;
+      let codeOut = NaN;
       const lines: EngLine[] = [
         res.standard,
         "",
@@ -27215,13 +28319,17 @@ const ENG_CALCS: EngCalc[] = [
       if (signal >= 0 && signal <= 1) {
         const cv = codeValue(signal, Number(r("bits")), r("range") === "full" ? "full" : "narrow", "luma");
         if (!cv.ok) return { text: cv.error, ok: false };
+        codeOut = cv.code;
         lines.push(`  ${cv.bits}-bit ${cv.range} code  ${cv.code} (black ${cv.nominalMin}, white ${cv.nominalMax}; ${cv.formula})`);
         res.notes.push(...cv.notes);
       }
       u.report(lines as string[]);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [avPlot(transferSvg(res), "The selected curve with the entered point; the SDR curves faint for comparison", "Transfer curve of light against signal")]);
+      return withOutputs([
+        { key: "out", label: "Output (signal or light, as the direction gives)", value: res.output, unit: "" },
+        { key: "code", label: "Code value", value: codeOut, unit: "" },
+      ], engReport(lines.map(trueMinus), [avPlot(transferSvg(res), "The selected curve with the entered point; the SDR curves faint for comparison", "Transfer curve of light against signal")]));
     },
   },
   {
@@ -27256,6 +28364,7 @@ const ENG_CALCS: EngCalc[] = [
       const rec = recordTime(stream, cap);
       if (!rec.ok) return { text: rec.error, ok: false };
       const lines: EngLine[] = [
+        ...engEq("video-interface"),
         `Interface, ${act.w}×${act.h} in a ${tot.w}×${tot.h} raster`,
         "",
         `  Active picture      ${engNum(ir.activeRateBps / 1e9, 6)} Gbit/s`,
@@ -27268,7 +28377,11 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines as string[]);
       for (const note of [...ir.notes, ...rec.notes]) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return engReport(lines.map(trueMinus), [avPlot(interfaceBarsSvg(ir.figure), "Active picture, blanking and the SDI class that carries the link", "Bars of link rate in gigabits per second")]);
+      return withOutputs([
+        { key: "linkGbps", label: "Link rate with blanking", value: ir.lineRateBps / 1e9, unit: "Gbit/s" },
+        { key: "activeGbps", label: "Active picture rate", value: ir.activeRateBps / 1e9, unit: "Gbit/s" },
+        { key: "recordS", label: "Recording time", value: rec.seconds, unit: "s" },
+      ], engReport(lines.map(trueMinus), [avPlot(interfaceBarsSvg(ir.figure), "Active picture, blanking and the SDI class that carries the link", "Bars of link rate in gigabits per second")]));
     },
   },
   {
@@ -27320,6 +28433,7 @@ const ENG_CALCS: EngCalc[] = [
         return { text: "The foot-candle / foot-lambert cross-check disagreed, so no number is given.", ok: false };
       }
       const lines: EngLine[] = [
+        ...engEq("light-photometry"),
         "Photometry",
         "",
         `  Illuminance at ${engNum(d, 5)} m   ${engNum(pt.lux, 6)} lx (${engNum(pt.footcandles, 5)} fc)` +
@@ -27333,7 +28447,11 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(ENG_UNIT_NOTE);
       const mode = r("mode");
       const fig = mode === "beam" ? cone.figure : mode === "screen" ? scr.figure : pt.figure;
-      return engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Photometric quantity against the swept input, the entered value marked")]);
+      return withOutputs([
+        { key: "Elux", label: "Illuminance at the distance", value: pt.lux, unit: "lx" },
+        { key: "Phi", label: "Flux of the uniform cone", value: cone.lumens, unit: "lm" },
+        { key: "Lscreen", label: "Screen luminance", value: scr.nits, unit: "cd/m²" },
+      ], engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Photometric quantity against the swept input, the entered value marked")]));
     },
   },
   {
@@ -27408,6 +28526,7 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       const lines: EngLine[] = [
+        ...engEq("light-exposure"),
         `Exposure, ${fName(marked, n)} at ${engNum(t, 6)} s, ISO ${engNum(iso, 6)}`,
         "",
         `  EV of the settings  ${engNum(ev.evSettings, 5)}`,
@@ -27457,7 +28576,14 @@ const ENG_CALCS: EngCalc[] = [
       for (const note of notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
       const fig = r("fig") === "exposure" ? ev.figure : dof.figure;
-      return engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Exposure or depth-of-field curve with the entered setting marked")]);
+      return withOutputs([
+        { key: "EV", label: "EV of the settings", value: ev.evSettings, unit: "" },
+        { key: "EV100", label: "Scene EV at ISO 100", value: ev.ev100, unit: "" },
+        { key: "hyperfocal", label: "Hyperfocal distance", value: dof.hyperfocalM, unit: "m" },
+        { key: "near", label: "Near limit of sharpness", value: dof.nearM, unit: "m" },
+        { key: "far", label: "Far limit of sharpness", value: dof.farM, unit: "m" },
+        { key: "aovH", label: "Horizontal angle of view", value: aov.horizontalDeg, unit: "°" },
+      ], engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Exposure or depth-of-field curve with the entered setting marked")]));
     },
   },
   {
@@ -27485,7 +28611,9 @@ const ENG_CALCS: EngCalc[] = [
       if (typeof m2 !== "number") return { text: m2.error, ok: false };
       const ms = miredShift(t1, t2);
       if (!ms.ok) return { text: ms.error, ok: false };
+      let cctOut = NaN;
       const lines: EngLine[] = [
+        ...engEq("light-colourtemp"),
         "Colour temperature",
         "",
         `  ${engNum(t1, 6)} K               ${engNum(m1, 5)} mired`,
@@ -27521,6 +28649,8 @@ const ENG_CALCS: EngCalc[] = [
         const cct = cctMcCamy(x, y);
         if (!cct.ok) return { text: cct.error, ok: false };
         entered = { x, y };
+        cctOut = cct.cctK;
+        lines.push(...engEq("light-colourtemp:mccamy"));
         lines.push(
           `  CCT of (${engNum(x, 6)}, ${engNum(y, 6)})  McCamy ${engNum(cct.cctK, 6)} K (approximation); Robertson ${engNum(cct.robertsonK, 6)} K, Duv ${avDb(cct.duv, 4)}`,
         );
@@ -27539,7 +28669,12 @@ const ENG_CALCS: EngCalc[] = [
         (locus.onPlanckian.length ? `; ${locus.onPlanckian.map((t) => `${engNum(t, 6)} K`).join(" and ")} on the Planckian locus` : "") +
         (locus.omitted.length ? `; ${locus.omitted.map((t) => `${engNum(t, 6)} K`).join(" and ")} not drawn (on neither locus)` : "") +
         (entered ? "; the entered x, y in black" : "");
-      return engReport(lines.map(trueMinus), [avPlot(daylightLocusSvg(locus), caption, "Daylight and Planckian loci inside the sRGB triangle with the entered points")]);
+      return withOutputs([
+        { key: "mired1", label: "Source mired", value: m1, unit: "mired" },
+        { key: "mired2", label: "Target mired", value: m2, unit: "mired" },
+        { key: "shift", label: "Mired shift", value: ms.shift, unit: "mired" },
+        { key: "CCT", label: "CCT of the chromaticity (McCamy)", value: cctOut, unit: "K" },
+      ], engReport(lines.map(trueMinus), [avPlot(daylightLocusSvg(locus), caption, "Daylight and Planckian loci inside the sRGB triangle with the entered points")]));
     },
   },
   {
@@ -27563,7 +28698,15 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = vacuumShot(v, ang, h);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const vaOutputs: EngOutput[] = [
+        { key: "range", label: "Range", value: res.rangeM, unit: "m" },
+        { key: "apex", label: "Apex", value: res.apexM, unit: "m" },
+        { key: "tFlight", label: "Flight time", value: res.flightTimeS, unit: "s" },
+        { key: "vImpact", label: "Impact speed", value: res.impactSpeedMs, unit: "m/s" },
+        { key: "thetaOpt", label: "Best angle for this height", value: res.optimumAngleDeg, unit: "°" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("traj-vacuum"),
         `Vacuum projectile, ${engNum(v, 4)} m/s at ${engNum(ang, 4)}°`,
         "",
         `  Range               ${engNum(res.rangeM, 5)} m`,
@@ -27605,7 +28748,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "height (m)",
           title: "Your shot against the optimum for this height",
         });
-        return engReport(lines, [
+        return withOutputs(vaOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -27614,9 +28757,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 240,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(vaOutputs, engReport(lines));
     },
   },
   {
@@ -27647,7 +28790,8 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(cd)) return { text: "The drag coefficient must be a number.", ok: false };
       const res = dragShot(v, ang, m, a, cd, h);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("traj-drag"),
         `Projectile with drag, ${engNum(v, 4)} m/s at ${engNum(ang, 4)}°, Cd ${engNum(cd, 3)}`,
         "",
         `  Range               ${engNum(res.rangeM, 5)} m`,
@@ -27666,7 +28810,13 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.path.map((p) => ({ x: p.x, y: p.y })), type: "line", color: "#2563eb", label: "with drag" }],
         { width: 380, height: 240, xlabel: "Range (m)", ylabel: "Height (m)", title: "Trajectory with drag" },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "range", label: "Range", value: res.rangeM, unit: "m" },
+        { key: "apex", label: "Apex", value: res.apexM, unit: "m" },
+        { key: "tFlight", label: "Flight time", value: res.flightTimeS, unit: "s" },
+        { key: "vImpact", label: "Impact speed", value: res.impactSpeedMs, unit: "m/s" },
+        { key: "rangeFraction", label: "Fraction of the vacuum range", value: res.rangeFraction !== null ? res.rangeFraction * 100 : NaN, unit: "%" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -27675,7 +28825,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -27697,7 +28847,13 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = aimForRange(v, d);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const aiOutputs: EngOutput[] = [
+        { key: "thetaLow", label: "Low (direct) angle", value: res.lowAngleDeg, unit: "°" },
+        { key: "thetaHigh", label: "High (lofted) angle", value: res.highAngleDeg, unit: "°" },
+        { key: "Rmax", label: "Maximum range at this speed", value: res.maxRangeM, unit: "m" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("traj-aim"),
         `Aiming ${engNum(v, 4)} m/s at a target ${engNum(d, 5)} m away`,
         "",
         `  Low (direct) angle  ${engNum(res.lowAngleDeg, 4)}°   flight ${engNum(res.lowFlightTimeS, 4)} s`,
@@ -27736,7 +28892,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The two ways to hit the same target",
           },
         );
-        return engReport(lines, [
+        return withOutputs(aiOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -27745,9 +28901,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 240,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(aiOutputs, engReport(lines));
     },
   },
   {
@@ -27776,7 +28932,14 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(cd)) return { text: "The drag coefficient must be a number.", ok: false };
       const res = impactEnergy(m, h, a, cd, alt);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const imOutputs: EngOutput[] = [
+        { key: "vImpact", label: "Impact speed", value: res.impactSpeedMs, unit: "m/s" },
+        { key: "vTerm", label: "Terminal speed", value: res.terminalSpeedMs, unit: "m/s" },
+        { key: "E", label: "Kinetic energy at impact", value: res.energyJ, unit: "J" },
+        { key: "p", label: "Momentum at impact", value: res.momentumNs, unit: "N·s" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("traj-impact"),
         `Falling ${engNum(h, 5)} m, mass ${engNum(m, 4)} kg, Cd ${engNum(cd, 3)}`,
         "",
         `  Impact speed        ${engNum(res.impactSpeedMs, 5)} m/s`,
@@ -27831,7 +28994,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Energy saturates at terminal speed",
           },
         );
-        return engReport(lines, [
+        return withOutputs(imOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -27840,9 +29003,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(imOutputs, engReport(lines));
     },
   },
   {
@@ -27866,7 +29029,14 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = circularOrbit(r("body"), alt);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const ciOutputs: EngOutput[] = [
+        { key: "vOrbit", label: "Orbital speed", value: res.speedMs, unit: "m/s" },
+        { key: "T", label: "Period", value: res.periodS, unit: "s" },
+        { key: "vEsc", label: "Escape speed here", value: res.escapeSpeedMs, unit: "m/s" },
+        { key: "rOrbit", label: "Orbital radius", value: res.radiusM / 1000, unit: "km" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-circular"),
         `Circular orbit of ${res.body} at ${engNum(res.altitudeM / 1000, 5)} km`,
         "",
         `  Orbital radius      ${engNum(res.radiusM / 1000, 6)} km`,
@@ -27892,7 +29062,7 @@ const ENG_CALCS: EngCalc[] = [
             [],
             `Circular orbit of ${res.body}`,
           );
-          return engReport(lines, [
+          return withOutputs(ciOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -27901,10 +29071,10 @@ const ENG_CALCS: EngCalc[] = [
               w: ORBIT_CHART_SIZE.w,
               h: ORBIT_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(ciOutputs, engReport(lines));
     },
   },
   {
@@ -27930,7 +29100,15 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = ellipticalOrbit(r("body"), peri, apo);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const elOutputs: EngOutput[] = [
+        { key: "aSemi", label: "Semi-major axis", value: res.semiMajorAxisM / 1000, unit: "km" },
+        { key: "ecc", label: "Eccentricity", value: res.eccentricity, unit: "" },
+        { key: "vPeri", label: "Periapsis speed", value: res.periapsisSpeedMs, unit: "m/s" },
+        { key: "vApo", label: "Apoapsis speed", value: res.apoapsisSpeedMs, unit: "m/s" },
+        { key: "T", label: "Period", value: res.periodS, unit: "s" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-elliptical"),
         `Elliptical orbit of ${res.body}`,
         "",
         `  Semi-major axis     ${engNum(res.semiMajorAxisM / 1000, 6)} km`,
@@ -27960,7 +29138,7 @@ const ENG_CALCS: EngCalc[] = [
             ],
             `Elliptical orbit of ${res.body}`,
           );
-          return engReport(lines, [
+          return withOutputs(elOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -27969,10 +29147,10 @@ const ENG_CALCS: EngCalc[] = [
               w: ORBIT_CHART_SIZE.w,
               h: ORBIT_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(elOutputs, engReport(lines));
     },
   },
   {
@@ -27998,7 +29176,15 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = hohmannTransfer(r("body"), from, to);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const hoOutputs: EngOutput[] = [
+        { key: "dv1", label: "Burn 1 (departure)", value: res.burn1Ms, unit: "m/s" },
+        { key: "dv2", label: "Burn 2 (arrival)", value: res.burn2Ms, unit: "m/s" },
+        { key: "dvTotal", label: "Total Δv", value: res.totalDeltaVMs, unit: "m/s" },
+        { key: "tTransfer", label: "Transfer time", value: res.transferTimeS, unit: "s" },
+        { key: "phase", label: "Phase angle", value: res.phaseAngleDeg, unit: "°" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-hohmann"),
         `Hohmann transfer at ${res.body}, ${engNum(res.fromAltitudeM / 1000, 5)} km to ` +
           `${engNum(res.toAltitudeM / 1000, 5)} km`,
         "",
@@ -28040,7 +29226,7 @@ const ENG_CALCS: EngCalc[] = [
             ],
             `Hohmann transfer at ${res.body}`,
           );
-          return engReport(lines, [
+          return withOutputs(hoOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -28049,10 +29235,10 @@ const ENG_CALCS: EngCalc[] = [
               w: ORBIT_CHART_SIZE.w,
               h: ORBIT_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(hoOutputs, engReport(lines));
     },
   },
   {
@@ -28076,7 +29262,14 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = rocketEquation(isp, m0, mf);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const roOutputs: EngOutput[] = [
+        { key: "dv", label: "Δv", value: res.deltaVMs, unit: "m/s" },
+        { key: "ve", label: "Exhaust velocity", value: res.exhaustVelocityMs, unit: "m/s" },
+        { key: "MR", label: "Mass ratio", value: res.massRatio, unit: "" },
+        { key: "propFraction", label: "Propellant fraction", value: res.propellantFraction * 100, unit: "%" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-rocket"),
         `Rocket equation, Isp ${engNum(isp, 4)} s`,
         "",
         `  Exhaust velocity    ${engNum(res.exhaustVelocityMs, 5)} m/s`,
@@ -28114,7 +29307,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The tyranny of the rocket equation",
           },
         );
-        return engReport(lines, [
+        return withOutputs(roOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -28123,9 +29316,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(roOutputs, engReport(lines));
     },
   },
   {
@@ -28149,7 +29342,13 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = escapeSpeed(r("body"), alt);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const esOutputs: EngOutput[] = [
+        { key: "vEsc", label: "Escape speed", value: res.escapeSpeedMs, unit: "m/s" },
+        { key: "vCirc", label: "Circular speed", value: res.circularSpeedMs, unit: "m/s" },
+        { key: "dvFromOrbit", label: "Extra from a circular orbit", value: res.additionalFromOrbitMs, unit: "m/s" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-escape"),
         `Escape from ${res.body} at ${engNum(alt / 1000, 5)} km altitude`,
         "",
         `  Escape speed        ${engNum(res.escapeSpeedMs, 5)} m/s  (${engNum(res.escapeSpeedMs / 1000, 4)} km/s)`,
@@ -28190,7 +29389,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Escape is always √2 × circular",
           },
         );
-        return engReport(lines, [
+        return withOutputs(esOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -28199,9 +29398,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(esOutputs, engReport(lines));
     },
   },
   {
@@ -28227,6 +29426,11 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = sCurveProfile(d, v, a, j);
       if (!res.ok) return { text: res.error, ok: false };
+      const scOutputs: EngOutput[] = [
+        { key: "tTotal", label: "Total time", value: res.totalTimeS, unit: "s" },
+        { key: "tTrap", label: "Trapezoidal time", value: res.trapezoidalTimeS, unit: "s" },
+        { key: "vPeak", label: "Peak speed", value: res.peakSpeedMs, unit: "m/s" },
+      ];
       const lines = [
         `S-curve move of ${engNum(d, 5)} m`,
         "",
@@ -28293,7 +29497,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The jerk limit rounds the corners",
           },
         );
-        return engReport(lines, [
+        return withOutputs(scOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -28302,9 +29506,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(scOutputs, engReport(lines));
     },
   },
   {
@@ -28341,20 +29545,24 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = multiAxisMove(specs);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
         `Coordinated move over ${specs.length} axes`,
         "",
         `  Move time           ${engNum(res.moveTimeS, 5)} s`,
         `  Limiting axis       ${res.limitingAxis}`,
         `  Fastest axis alone  ${engNum(res.earliestFinishS, 5)} s`,
         "",
-        "  Axis      Distance   Command speed   Command accel   Uses",
-        ...res.axes.map(
-          (a) =>
-            `  ${a.label.padEnd(9)} ${engNum(a.distanceM, 4).padEnd(10)} ` +
-            `${engNum(a.scaledVmax, 4).padEnd(15)} ${engNum(a.scaledAmax, 4).padEnd(15)} ` +
-            `${engNum(a.utilisation * 100, 3)}%${a.limiting ? "  (limiting)" : ""}`,
-        ),
+        // Release E: the axes as a real table.
+        {
+          table: [
+            ["Axis", "Distance", "Command speed", "Command accel", "Uses (%)"],
+            ...res.axes.map((a) => [`${a.label}${a.limiting ? " (limiting)" : ""}`, engNum(a.distanceM, 4), engNum(a.scaledVmax, 4), engNum(a.scaledAmax, 4), engNum(a.utilisation * 100, 3)]),
+          ],
+        },
+      ];
+      const maOutputs: EngOutput[] = [
+        { key: "tMove", label: "Coordinated move time", value: res.moveTimeS, unit: "s" },
+        { key: "tFastest", label: "Fastest axis alone", value: res.earliestFinishS, unit: "s" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -28391,7 +29599,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "commanded speed",
             title: "Every axis finishes together",
           });
-          return engReport(lines, [
+          return withOutputs(maOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -28400,10 +29608,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(maOutputs, engReport(lines));
     },
   },
   {
@@ -28429,7 +29637,14 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = greatCircle(vals[0], vals[1], vals[2], vals[3]);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const gcOutputs: EngOutput[] = [
+        { key: "distKm", label: "Distance", value: res.distanceM / 1000, unit: "km" },
+        { key: "distNmi", label: "Distance", value: res.distanceNmi, unit: "nmi" },
+        { key: "brgInit", label: "Initial bearing", value: res.initialBearingDeg, unit: "°" },
+        { key: "brgFinal", label: "Final bearing", value: res.finalBearingDeg, unit: "°" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("nav-greatcircle"),
         "Great-circle route",
         "",
         `  Distance            ${engNum(res.distanceM / 1000, 6)} km`,
@@ -28497,7 +29712,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "latitude (°N)",
             title: "The shortest route bends poleward",
           });
-          return engReport(lines, [
+          return withOutputs(gcOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -28506,10 +29721,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(gcOutputs, engReport(lines));
     },
   },
   {
@@ -28535,7 +29750,8 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = windTriangle(track, tas, wdir, wspd);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("nav-windtriangle"),
         `Wind triangle for a track of ${engNum(track, 4)}°`,
         "",
         `  Heading to steer    ${engNum(res.headingDeg, 4)}°`,
@@ -28577,7 +29793,11 @@ const ENG_CALCS: EngCalc[] = [
           `drift ${engNum(res.driftAngleDeg, 3)}°, north up` +
             (res.alternateHeadingDeg !== null ? "; a second solution exists (see the text)" : ""),
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "heading", label: "Heading to steer", value: res.headingDeg, unit: "°" },
+          { key: "wca", label: "Wind correction angle", value: res.driftAngleDeg, unit: "°" },
+          { key: "GS", label: "Ground speed", value: res.groundSpeedMs, unit: "m/s" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -28586,7 +29806,7 @@ const ENG_CALCS: EngCalc[] = [
             w: VECTOR_TRIANGLE_SIZE.w,
             h: VECTOR_TRIANGLE_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },

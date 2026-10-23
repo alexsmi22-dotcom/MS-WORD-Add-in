@@ -250,6 +250,11 @@ import { LASER_CALCS } from "../src/lib/laserCalcs";
 import { fpAiryChartSvg, fpPeakChartSvg, thresholdChartSvg, coherenceChartSvg, shgGrowthChartSvg, shgSincChartSvg } from "../src/lib/laserCharts";
 import { fabryPerot } from "../src/lib/laserPhysics";
 // --- end Release E: laser ---
+// --- Release E: linear optics ---
+// Release Q part Q4: Mach–Zehnder fringes, the HOM dip, multiphoton pattern bars (Fock labels) and CZ success vs η.
+import { LINEAR_OPTICS_CALCS } from "../src/lib/linearOpticsCalcs";
+import { fockBarsSvg } from "../src/lib/linearOpticsCharts";
+// --- end Release E: linear optics ---
 
 const figures: [string, string][] = [];
 
@@ -3290,5 +3295,41 @@ rotator 15` }, "jones elliptical");
   figures.push(["laser shgSincChartSvg, operating point near the first zero", shgSincChartSvg(2 * 3.0 / 0.01, 0.01)]);
 }
 // --- end Release E: laser ---
+
+// --- Release E: linear optics ---
+// Each linear-optics tool through its own compute() at its defaults and at layout stress: unbalanced splitters with a
+// negative phase, a partially distinguishable dip in ps with the delay on the flank, a delay far outside the dip, the
+// tritter, 2+1+1 photons in a 4-mode multiport (rotated labels), 3 photons in 6 modes (56 patterns, the top 16 drawn),
+// one gate only with lossy transmission. Then the pattern-bar builder directly: no distinguishable bars, many bars.
+{
+  const lo = (id: string, over: Record<string, string>, name: string): void => {
+    const c = LINEAR_OPTICS_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: linear optics ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`linear optics ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  lo("lo-mach-zehnder", {}, "Mach-Zehnder 60 degrees");
+  lo("lo-mach-zehnder", { R1: "0.3", R2: "0.6", phi: "-40", power: "1 mW" }, "Mach-Zehnder unbalanced, negative phase");
+  lo("lo-hom", {}, "HOM dip default");
+  lo("lo-hom", { R: "0.3", M0: "0.8", width: "2 ps", delay: "-1.5 ps" }, "HOM dip partial, on the flank");
+  lo("lo-hom", { width: "1 ps", delay: "50 ps" }, "HOM dip delay off the plot");
+  lo("lo-multiphoton", {}, "tritter 111");
+  lo("lo-multiphoton", { net: "dft", m: "4", input: "2, 1, 1, 0" }, "4-mode multiport 2110");
+  lo("lo-multiphoton", { net: "dft", m: "6", input: "1, 1, 1, 0, 0, 0" }, "6-mode multiport top 16");
+  lo("lo-dual-rail-gates", {}, "CZ success both gates");
+  lo("lo-dual-rail-gates", { gate: "klm", trans: "0.7" }, "CZ success KLM lossy");
+  figures.push(["linear optics fockBarsSvg no distinguishable bars", fockBarsSvg([{ t: [2, 0], p: 0.5 }, { t: [1, 1], p: 0 }, { t: [0, 2], p: 0.5 }])]);
+  figures.push([
+    "linear optics fockBarsSvg 40 patterns",
+    fockBarsSvg(Array.from({ length: 40 }, (_, i) => ({ t: [i % 5, 3, (i * 7) % 4, 1], p: (i % 7) / 100, pDist: (i % 3) / 80 })), { title: "Input |1,1,1,1,0⟩" }),
+  ]);
+}
+// --- end Release E: linear optics ---
 
 export { figures };

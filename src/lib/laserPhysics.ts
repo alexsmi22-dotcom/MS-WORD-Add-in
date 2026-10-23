@@ -33,7 +33,8 @@
 //         (also Aston: "the poling period being double the coherence length"); square-wave Fourier coefficient
 //         d_m = d_eff·2 sin(mπD)/(mπ), 2d_eff/π at m = 1, D = 50 %. (Wikipedia's QPM page writes Λ = π/Δk; that is
 //         the domain length, not the period, and is NOT used.)
-//   Not included, because no source was read for them: the Gaussian-beam (Boyd–Kleinman) SHG focusing function, the
+//   Not included, because no source was read for them: how α_m divides between the two mirrors (the share of the output
+//   leaving through the output coupler); the Gaussian-beam (Boyd–Kleinman) SHG focusing function, the
 //   Henry α-factor broadening of Schawlow–Townes, threshold pump power from cross-sections and lifetimes.
 
 import { C_LIGHT, H_PLANCK } from "./optics";
@@ -151,9 +152,10 @@ export interface ThresholdResult {
   quantum: number;
   /** η_s = η_i·α_m/(α_m + α_i)·λ_p/λ. */
   etaS: number;
-  /** ln(1/R₂)/ln(1/(R₁R₂)): the usual estimate of the share of α_m that is mirror 2's. */
-  shareR2: number;
-  /** Photon lifetime n/(c(α_i + α_m)), s. */
+  /**
+   * Photon lifetime n/(c(α_i + α_m)), s: DERIVED, not quoted — [FP]'s 1/τ = −ln(R₁R₂)/t_RT with t_RT = 2nL/c, and the
+   * round-trip internal loss e^(−2α_i L) of [LT] added to the mirror loss.
+   */
   tauP: number;
   /** Output power at Pp (both mirrors), W; null without Pp and Pth. */
   Pout: number | null;
@@ -178,10 +180,9 @@ export function laserThreshold(inp: ThresholdInput): ThresholdResult | Fail {
   const extraction = alphaM / (alphaM + alphaI);
   const quantum = lambdaP / lambda;
   const etaS = etaI * extraction * quantum;
-  const shareR2 = Math.log(1 / R2) / Math.log(1 / (R1 * R2));
   const tauP = n / (C_LIGHT * (alphaI + alphaM));
   const Pout = Pp !== null && Pth !== null ? outputPower(etaS, Pp, Pth) : null;
-  return { ok: true, alphaM, gth, extraction, quantum, etaS, shareR2, tauP, Pout };
+  return { ok: true, alphaM, gth, extraction, quantum, etaS, tauP, Pout };
 }
 
 /** P_out = η_s(P_p − P_th) above threshold, 0 at and below it (never negative). */

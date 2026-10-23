@@ -247,7 +247,7 @@ const thresholdCalc: OptCalc = {
     lines.push({ math: "P_out = η_s (P_p - P_th)", fallback: "Pₒᵤₜ = ηₛ(Pₚ − Pₜₕ) above threshold, 0 below it" });
     lines.push(`Mirror loss αₘ = ${n6(res.alphaM)} m⁻¹ (${n6(res.alphaM / 100)} cm⁻¹); threshold gain gₜₕ = ${n6(res.gth)} m⁻¹ (${n6(res.gth / 100)} cm⁻¹).`);
     lines.push(`Slope efficiency ηₛ = ${n6(res.etaS)} (${pct(res.etaS)}): ηᵢ = ${trimSig(etaI)} × extraction αₘ/(αₘ + αᵢ) = ${n6(res.extraction)} × quantum-defect factor λₚ/λ = ${n6(res.quantum)}.`);
-    lines.push(`ηₛ counts the light leaving through BOTH mirrors. The usual estimate of mirror 2's share is ln(1/R₂)/ln(1/(R₁R₂)) = ${n6(res.shareR2)}, so about ${pct(res.etaS * res.shareR2, 3)} comes out of the output coupler.`);
+    lines.push("ηₛ counts the light leaving through BOTH mirrors (α_m is their combined loss); how it divides between them is not computed here, so the output coupler alone delivers less.");
     lines.push(`Photon lifetime n/(c(αᵢ + αₘ)) = ${pre(res.tauP, "s")}.`);
     if (res.Pout !== null && Pp !== null) {
       lines.push(Pp > Pth

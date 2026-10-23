@@ -18,7 +18,7 @@
 //   fp(0.1,1,0.99,0.95,1064e-9): F 102.42202815178497, lw 14635155.31813726, Fexact 102.4180127955863, Tpk 0.5479962693354081
 //   fp(5e-3,1.5,0.9,0.9,1550e-9): fsr 19986163866.666668, F 29.803764797388308, Fexact 29.789955883029805, Q 288423.5302973062
 //   threshold: am = 1/(2*0.1)*log(1/(0.99*0.95)); eta = am/(am+0.5)*808/1064; Pout(10 W, Pth 2 W) = eta*8 = 2.309815912256153
-//              share through R2 = log(1/0.95)/log(1/(0.99*0.95)) = 0.8361633340901352; photon lifetime 1/(c(0.5+am)) = 4.1348281887521404e-09
+//              photon lifetime 1/(c(0.5+am)) = 4.1348281887521404e-09
 //   diode: 0.8*(am/(am+500))*940/1030 with am = log(1/(0.3*0.95))/(2e-3)  ->  0.40636717905645936
 //   coherence, independent FFT of the spectrum (|γ| = |IFFT(S)|, N = 2^22, span 400 FWHM, linear crossing):
 //       Gaussian 1 MHz: 1/e at 158.89623 m, 1/2 at 132.28998 m (closed forms 158.89621654990705, 132.28977778413721)
@@ -170,7 +170,7 @@ describe("threshold (oracle rows)", () => {
     expect(o.text).toMatch(/BOTH mirrors/);
     const r = laserThreshold({ L: 0.1, alphaI: 0.5, R1: 0.99, R2: 0.95, lambdaP: 808e-9, lambda: 1064e-9, etaI: 1, n: 1, Pth: 2, Pp: 10 });
     if (!r.ok) throw new Error(r.error);
-    near(r.shareR2, 0.8361633340901352, 1e-12);
+    near(r.etaS, 0.2887269890320191, 1e-12);
   });
   test("a diode-like cavity in cm⁻¹ and mm with η_i in %: η_s 0.406367", () => {
     const o = ok(run("laser-threshold", { L: "1 mm", ai: "5 cm^-1", R1: "0.3", R2: "0.95", lp: "940 nm", lam: "1030 nm", etai: "80 %" }));
@@ -346,6 +346,12 @@ describe("unit layer", () => {
     expect(a.text).toMatch(/Units read: Mirror spacing: 10 cm = 0\.1 m/);
     near(out(ok(run("laser-coherence", { dnu: "0.001 GHz" })), "Lcoh"), 95.42690318473885, 1e-9);
     near(out(ok(run("laser-coherence", { dnu: "1000000" })), "Lcoh"), 95.42690318473885, 1e-9);
+  });
+  test("long lengths stop at km (never Mm or Gm, which read as millimetres); times stop at s", () => {
+    const o = ok(run("laser-coherence", { dnu: "1 Hz", dnuc: "1 MHz" }));
+    expect(o.text).not.toMatch(/\d (Mm|Gm|Tm|ks|Ms)\b/);
+    expect(o.text).toMatch(/coherence length 95426\.9 km/);
+    for (const b of o.blocks ?? []) if (b.kind === "plot") expect(b.svg).not.toMatch(/\((Mm|Gm|Tm)\)/);
   });
   test("huge and tiny magnitudes stay finite and display-clean", () => {
     ok(run("laser-fabry-perot", { L: "1 µm", R1: "0.999999", R2: "0.999999" }));

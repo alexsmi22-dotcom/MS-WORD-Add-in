@@ -19,9 +19,13 @@ const ORANGE = "#d46a00";
 /** 4 significant figures, trailing zeros dropped (a label, not a measurement). */
 export const sig = (v: number, n = 4): string => fmtSig(Number(v.toPrecision(n)), n).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "");
 
-/** The SI prefix that puts |v| in [1, 1000): factor and symbol. */
+/**
+ * The SI prefix that puts |v| in [1, 1000): factor and symbol. Lengths stop at km and times at s ("95.4 Mm" reads as
+ * millimetres, and nobody writes ks); beyond the cap the number carries ×10ⁿ instead.
+ */
 export function scaleFor(v: number, unit: string): { f: number; u: string } {
-  const P: Array<[number, string]> = [[1e12, "T"], [1e9, "G"], [1e6, "M"], [1e3, "k"], [1, ""], [1e-3, "m"], [1e-6, "µ"], [1e-9, "n"], [1e-12, "p"], [1e-15, "f"]];
+  const cap = unit === "m" ? 1e3 : unit === "s" ? 1 : 1e12;
+  const P: Array<[number, string]> = ([[1e12, "T"], [1e9, "G"], [1e6, "M"], [1e3, "k"], [1, ""], [1e-3, "m"], [1e-6, "µ"], [1e-9, "n"], [1e-12, "p"], [1e-15, "f"]] as Array<[number, string]>).filter(([f]) => f <= cap);
   const a = Math.abs(v);
   for (const [f, p] of P) if (a >= f * 0.9995) return { f, u: p + unit };
   return { f: 1e-15, u: "f" + unit };

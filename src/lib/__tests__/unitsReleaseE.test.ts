@@ -40,6 +40,14 @@ describe("°C and °F inside a compound are temperature differences", () => {
     close(convert(1, "Δ°C", "K"), 1);
   });
 
+  test("a spaced reciprocal reads; a glued one stays refused", () => {
+    expect(parseMeasured("0.5 /m", "1/m")).toMatchObject({ inTarget: 0.5 });
+    expect(parseMeasured("12e-6 /K", "1/K")).toMatchObject({ inTarget: 12e-6 });
+    expect("error" in parseMeasured("51/s", "Hz")).toBe(true);
+    close(convert(5, "mHz", "Hz"), 0.005);
+    close(convert(1, "MHz", "Hz"), 1e6);
+  });
+
   test("a lone fraction stays a fraction (never a pure number)", () => {
     expect(convert(1, "ppm", "1")).toBeNull();
     close(convert(5, "%", "ppm"), 50000);

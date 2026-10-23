@@ -291,6 +291,9 @@ const UNITS: Record<string, UnitDef> = {
   arcmin: { dim: "angle", factor: Math.PI / 10800 }, arcsec: { dim: "angle", factor: Math.PI / 648000 },
   // frequency (base Hz)
   Hz: { dim: "frequency", factor: 1 }, kHz: { dim: "frequency", factor: 1e3 },
+  // Release E: millihertz (laser linewidths at the Schawlow–Townes limit; slow modulation). Canonical, so "mHz" is
+  // never lower-cased into MHz by the alias fallback.
+  mHz: { dim: "frequency", factor: 1e-3 },
   MHz: { dim: "frequency", factor: 1e6 }, GHz: { dim: "frequency", factor: 1e9 }, THz: { dim: "frequency", factor: 1e12 },
   // electric current (base A)
   A: { dim: "current", factor: 1 }, mA: { dim: "current", factor: 1e-3 },
@@ -856,7 +859,8 @@ export function parseMeasured(text: string, targetUnit: string): Measured | { er
   if (!written) return { value, unit: targetUnit, inTarget: value, assumed: true };
   // A slash GLUED to the number ("51/s") stays refused: it reads as 5 1/s or as 51 per second, and guessing is how a
   // wrong number gets in. Only a spaced slash ("12e-6 /K") is the reciprocal unit (normalizeUnitText, Release E).
-  if (written.startsWith("/") && !/^\s/.test(rest)) return { error: `"${t}" is not a unit this recognises: write a space before the slash ("51 /s") for "per", or 5 1/s.` };
+  // (The number pattern swallows the space before the unit, so the gap is read off the typed text itself.)
+  if (written.startsWith("/") && t.slice(m[1].length).startsWith("/")) return { error: `"${t}" is not a unit this recognises: write a space before the slash ("51 /s") for "per", or 5 1/s.` };
   // DECIBELS ARE NOT UNITS. dB, dBu, dBV, dBFS, dB SPL and the neper are
   // logarithmic level statements: converting one by a factor (94 dB SPL ≠ 94 ×
   // anything Pa, and 80 dB + 80 dB is 83 dB, not 160) would be a confident

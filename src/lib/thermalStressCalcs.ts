@@ -151,7 +151,7 @@ const plot = (svg: string, caption: string, alt: string): AnalyzeBlock => ({
 
 const finish = (lines: Parameters<typeof engReport>[0], extra: AnalyzeBlock[], outputs: EngOutput[]): AnalyzeOutput => {
   const out = engReport(
-    lines.map((l) => (typeof l === "string" ? trueMinus(l) : { math: l.math, fallback: trueMinus(l.fallback) })),
+    lines.map((l) => (typeof l === "string" ? trueMinus(l) : "math" in l ? { math: l.math, fallback: trueMinus(l.fallback) } : l)),
     extra,
   );
   return { ...out, outputs };

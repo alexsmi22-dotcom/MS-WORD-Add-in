@@ -314,6 +314,15 @@ describe("two-port against scikit-rf and numpy", () => {
     expect(t.K as number).toBeCloseTo(1, 6);
     expect(10 * Math.log10(t.gtu!.total)).toBeCloseTo(0.389180660303701, 6);
   });
+  test("a slightly active network (a lossless line with S21 scaled by 1.005) is NOT called passive; the K–Δ test decides", () => {
+    const a = cx(0.25714286, 0.13997084), b = cx(0.45714286, -0.83982505);
+    const t = twoPort(a, cx(b.re * 1.005, b.im * 1.005), b, a);
+    if (!t.ok) throw new Error(t.error);
+    expect(t.lossless).toBe(true); // within the stated 1 % tolerance
+    expect(t.passive).toBe(false);
+    expect(t.maxGain).toBeGreaterThan(1.004);
+    expect(t.stability).toBe("potential");
+  });
   test("S12 = 0 (unilateral): no isolation output, U = 0, no −∞ bar", () => {
     const o = run("tl-two-port", { s: "0.61 -170\n2.24 32\n0 0\n0.72 -83" });
     expect(o.ok).not.toBe(false);
@@ -356,7 +365,7 @@ describe("named refusals", () => {
     ["tl-line-termination", { lenMode: "deg", len: "45 kg" }, /not compatible/],
     ["tl-line-termination", { lenMode: "phys", len: "1 m", vf: "1.2" }, /at most 1/],
     ["tl-line-termination", { lenMode: "phys", len: "1 m", vf: "" }, /Velocity factor: required/],
-    ["tl-line-termination", { lenMode: "phys", len: "1 m", freq: "0 Hz" }, /greater than zero/],
+    ["tl-line-termination", { lenMode: "phys", len: "1 m", freq: "0 Hz", vf: "0.66" }, /greater than zero/],
     ["tl-line-termination", { z0mode: "coax", dIn: "3 mm", dOut: "2 mm" }, /outer diameter/],
     ["tl-line-termination", { z0mode: "coax", er: "0.5" }, /between 1/],
     ["tl-line-termination", { z0mode: "microstrip", w: "0.001 mm" }, /outside the range/],
@@ -466,6 +475,14 @@ describe("display contract on every ok result", () => {
       expect(c.group).toBe("Electronics");
     }
     expect(TLINE_CALCS.map((c) => c.id)).toEqual(["tl-line-termination", "tl-match", "tl-two-port"]);
+  });
+  test("physical length: the velocity factor defaults to the geometry's; a typed one that differs is stated", () => {
+    const g = run("tl-line-termination", { z0mode: "coax", lenMode: "phys", len: "30 cm", freq: "2.4 GHz" });
+    expect(rel(out(g, "turns"), 0.3 / (299792458 / (2.4e9 * Math.sqrt(2.1))))).toBeLessThan(1e-12);
+    expect(g.text).not.toMatch(/differs from the geometry/);
+    const t = run("tl-line-termination", { z0mode: "coax", lenMode: "phys", len: "30 cm", freq: "2.4 GHz", vf: "0.66" });
+    expect(t.text).toMatch(/typed velocity factor 0.66 differs from the geometry's 0.690066/);
+    expect(run("tl-line-termination", { lenMode: "phys", len: "1 m" }).text).toMatch(/Velocity factor: required/);
   });
   test("units convert and the conversion is reported", () => {
     const o = run("tl-line-termination", { z0: "75 ohm", rl: "0.1 kΩ" });

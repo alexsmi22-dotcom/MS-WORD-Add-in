@@ -190,7 +190,7 @@ const lineCalc: ElecCalc = {
     },
     { key: "len", label: "Line length (ℓ/λ, degrees or metres, per the mode above)", default: "0.125", kind: "text" },
     { key: "freq", label: "Frequency (physical length only)", default: "1 GHz", kind: "text" },
-    { key: "vf", label: "Velocity factor (physical length only; blank = from the geometry's εᵣ)", default: "0.66", kind: "text" },
+    { key: "vf", label: "Velocity factor (physical length only; blank = from the geometry's εᵣ, required for a typed Z₀)", default: "", kind: "text" },
   ],
   compute: (r) => {
     const u = unitReader(r);
@@ -229,7 +229,7 @@ const lineCalc: ElecCalc = {
               `Z₀ from microstrip geometry: w = ${n6(w * 1e3)} mm, h = ${n6(h * 1e3)} mm (w/h = ${n6(w / h)}), εᵣ = ${n6(er)}: effective permittivity ${n6(g.epsEff)}, ` +
               `Z₀ = ${n6(z0)} Ω; velocity factor ${n6(g.vf)}. Hammerstad–Jensen (1980) quasi-static equations, as scikit-rf implements them: ` +
               "zero strip thickness and no frequency dispersion (the effective permittivity rises with frequency, so this is the low-frequency value).",
-            math: { math: "Z_0 = η_0/(2 π sqrt(ε_eff)) ln(f(u)/u + sqrt(1 + (2/u)^2))", fallback: "Z₀ = (η₀/(2π√ε_eff)) ln(f(u)/u + √(1 + (2/u)²)), u = w/h" },
+            math: { math: "Z_0 = η_0/(2 π sqrt(ε_eff)) ln(f(u)/u + sqrt(1 + (2/u)^2))", fallback: "Z₀ = (η₀/(2π√ε(eff))) ln(f(u)/u + √(1 + (2/u)²)), u = w/h" },
           };
         }
       } else return refuse("Characteristic impedance: choose typed, coaxial or microstrip.");
@@ -239,6 +239,7 @@ const lineCalc: ElecCalc = {
     const lenMode = r("lenMode") || "lambda";
     let turns = NaN;
     let lenText = "";
+    let vfNote = "";
     if (lenMode === "lambda") {
       turns = u.req("len", "", "", "Line length ℓ/λ");
       lenText = `ℓ = ${n6(turns)}λ`;
@@ -253,6 +254,8 @@ const lineCalc: ElecCalc = {
       if (vf === null) {
         if (!geo) u.errors.push("Velocity factor: required for a physical length when Z₀ is typed (blank takes it from the geometry's εᵣ).");
         else vf = geo.vf;
+      } else if (geo && Math.abs(vf / geo.vf - 1) > 0.01) {
+        vfNote = `The typed velocity factor ${n6(vf)} differs from the geometry's ${n6(geo.vf)} (1/√εᵣ); the wavelength uses the typed value, Z₀ the geometry.`;
       }
       if (!u.errors.length) {
         if (!(fHz > 0)) return refuse("Frequency: must be greater than zero.");
@@ -284,13 +287,14 @@ const lineCalc: ElecCalc = {
         ? `At ${lenText}: Γᵢₙ = ${gText(zi.gammaIn)}, so the input is an open circuit (|Zᵢₙ| unbounded).`
         : `At ${lenText}: input impedance Zᵢₙ = ${zText(zi.zin)} (Γᵢₙ = ${gText(zi.gammaIn)}).`;
     lines.push(inLine);
+    if (vfNote) lines.push(vfNote);
     if (zi.halfWaves > 0) lines.push(`The input impedance repeats every half wavelength: ${zi.halfWaves} × λ/2 removed, ${n6(zi.reduced)}λ remains.`);
     if (geo) lines.push(geo.math);
-    lines.push({ math: "Γ = (Z_L - Z_0)/(Z_L + Z_0)", fallback: "Γ = (Z_L − Z₀)/(Z_L + Z₀)" });
+    lines.push({ math: "Γ = (Z_L - Z_0)/(Z_L + Z_0)", fallback: "Γ = (Zₗ − Z₀)/(Zₗ + Z₀)" });
     lines.push({ math: "VSWR = (1 + abs(Γ))/(1 - abs(Γ))", fallback: "VSWR = (1 + |Γ|)/(1 − |Γ|)" });
     lines.push({ math: "RL = -20 log_10 abs(Γ)", fallback: "RL = −20 log₁₀|Γ| dB" });
     lines.push({ math: "ML = -10 log_10 (1 - abs(Γ)^2)", fallback: "ML = −10 log₁₀(1 − |Γ|²) dB" });
-    lines.push({ math: "Z_in = Z_0 (Z_L + j Z_0 tan(β l))/(Z_0 + j Z_L tan(β l))", fallback: "Z_in = Z₀ (Z_L + jZ₀ tan βℓ)/(Z₀ + jZ_L tan βℓ), β = 2π/λ" });
+    lines.push({ math: "Z_in = Z_0 (Z_L + j Z_0 tan(β l))/(Z_0 + j Z_L tan(β l))", fallback: "Zᵢₙ = Z₀ (Zₗ + jZ₀ tan βℓ)/(Z₀ + jZₗ tan βℓ), β = 2π/λ" });
     lines.push("Assumes a lossless line with a real Z₀ (TEM, one mode); positions are measured from the load toward the generator, and the input impedance is computed by rotating Γ clockwise by 4πℓ/λ.");
     const rows: Array<[string, string, string]> = [
       ["Z₀", n6(z0), "Ω"],
@@ -427,8 +431,8 @@ const matchCalc: ElecCalc = {
       curves.push({ label: `Stub ${i + 1}: d = ${sig(s.dLambda, 3)}λ`, colour: ST_COL[i], g: (F) => cAbs(g(F)) });
     });
     if (!bwMeaningful) lines.push(`The load's own VSWR (${n6(rf.vswr as number)}) is already within the limit (${n6(vmax)}), so no band edge exists and bandwidths are not reported: lower the limit.`);
-    lines.push({ math: "Z_T = sqrt(Z_0 R)", fallback: "Z_T = √(Z₀R), R = Z₀·VSWR at a voltage maximum or Z₀/VSWR at a minimum" });
-    lines.push({ math: "Γ(d) = Γ_L e^(-j 4 π d/λ)", fallback: "Γ(d) = Γ_L e^(−j4πd/λ)" });
+    lines.push({ math: "Z_T = sqrt(Z_0 R)", fallback: "Zₜ = √(Z₀R), R = Z₀·VSWR at a voltage maximum or Z₀/VSWR at a minimum" });
+    lines.push({ math: "Γ(d) = Γ_L e^(-j 4 π d/λ)", fallback: "Γ(d) = Γₗ e^(−j4πd/λ)" });
     lines.push({ math: "y(d) = (1 - Γ(d))/(1 + Γ(d)) = 1 + j b", fallback: "y(d) = (1 − Γ(d))/(1 + Γ(d)) = 1 + jb at the stub" });
     lines.push(
       kind === "short"
@@ -576,11 +580,11 @@ const twoPortCalc: ElecCalc = {
     } else lines.push("The maximum unilateral transducer gain is not defined: |S₁₁| ≥ 1 or |S₂₂| ≥ 1 (a port with negative resistance).");
     const zin1 = zOfGamma(S11, z0);
     if (zin1) lines.push(`Input impedance with port 2 terminated in Z₀: ${zText(zin1)}.`);
-    lines.push({ math: "RL_in = -20 log_10 abs(S_11)", fallback: "RL_in = −20 log₁₀|S₁₁| dB" });
+    lines.push({ math: "RL_in = -20 log_10 abs(S_11)", fallback: "RLᵢₙ = −20 log₁₀|S₁₁| dB" });
     lines.push({ math: "IL = -20 log_10 abs(S_21)", fallback: "IL = −20 log₁₀|S₂₁| dB" });
     lines.push({ math: "K = (1 - abs(S_11)^2 - abs(S_22)^2 + abs(Δ)^2)/(2 abs(S_12 S_21))", fallback: "K = (1 − |S₁₁|² − |S₂₂|² + |Δ|²)/(2|S₁₂S₂₁|), Δ = S₁₁S₂₂ − S₁₂S₂₁" });
-    lines.push({ math: "G_{TU" + THIN + "max} = 1/(1 - abs(S_11)^2) abs(S_21)^2 1/(1 - abs(S_22)^2)", fallback: "G_TU,max = |S₂₁|²/((1 − |S₁₁|²)(1 − |S₂₂|²))" });
-    lines.push({ math: "U = (abs(S_12) abs(S_21) abs(S_11) abs(S_22))/((1 - abs(S_11)^2)(1 - abs(S_22)^2))", fallback: "U = |S₁₂||S₂₁||S₁₁||S₂₂|/((1 − |S₁₁|²)(1 − |S₂₂|²)), 1/(1 + U)² < G_T/G_TU < 1/(1 − U)²" });
+    lines.push({ math: "G_{TU" + THIN + "max} = 1/(1 - abs(S_11)^2) abs(S_21)^2 1/(1 - abs(S_22)^2)", fallback: "Gₜᵤ,ₘₐₓ = |S₂₁|²/((1 − |S₁₁|²)(1 − |S₂₂|²))" });
+    lines.push({ math: "U = (abs(S_12) abs(S_21) abs(S_11) abs(S_22))/((1 - abs(S_11)^2)(1 - abs(S_22)^2))", fallback: "U = |S₁₂||S₂₁||S₁₁||S₂₂|/((1 − |S₁₁|²)(1 − |S₂₂|²)), 1/(1 + U)² < Gₜ/Gₜᵤ < 1/(1 − U)²" });
     lines.push("Assumes all four parameters at one frequency, referred to the same real Z₀ at both ports; angles in degrees.");
     const table: string[][] = [["Parameter", "Magnitude", "Magnitude (dB)", "Angle (°)", "Real", "Imaginary"]];
     for (const name of S_ORDER) {

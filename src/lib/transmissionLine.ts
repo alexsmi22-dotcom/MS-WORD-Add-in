@@ -438,8 +438,9 @@ export function twoPort(s11: Cx, s21: Cx, s12: Cx, s22: Cx): TwoPortResult | Fai
   const tr = p11 + p22, det = p11 * p22 - cAbs(off) ** 2;
   const maxGain = tr / 2 + Math.sqrt(Math.max(0, (tr * tr) / 4 - det));
   const lossless = losslessDev <= LOSSLESS_TOL;
-  // Lossless within the stated tolerance counts as passive: typed values carry rounding of that order.
-  const passive = maxGain <= 1 + 1e-6 || lossless;
+  // Passive only when no direction gains power beyond rounding: a 'lossless within 1 %' network may still be
+  // slightly active, so it is not called passive and the K–Δ test decides.
+  const passive = maxGain <= 1 + 1e-6;
   const delta = cSub(cMul(s11, s22), cMul(s12, s21));
   const deltaMag = cAbs(delta);
   const denom = 2 * m12 * m21;

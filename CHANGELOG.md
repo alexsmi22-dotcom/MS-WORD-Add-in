@@ -6,6 +6,50 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.188.0] — 2026-10-22 — Lab data: peak tables, NMR integration, cloning, circuit transients, liquid-crystal wave plates, more arrows
+
+Release C of the STEM gaps (the last of three), plus liquid-crystal retarders and an Optica reference style so a
+liquid-crystal optics letter can be written end to end. Engineering now has 179 calculators in twenty-three disciplines.
+
+- **More arrows on the Draw page (Structure ▸ Draw ▸ Arrow).** Retrosynthetic ⇒ and resonance ↔ arrows join reaction
+  and equilibrium; they insert into Word as drawn and save to .cdxml the way ChemDraw stores them. Older ChemDraw
+  arrow forms now open as arrows, open ("angle") arrowheads in ChemDraw files are drawn open as ChemDraw draws them,
+  and curved arrows already in a ChemDraw file are drawn bowing the right way. Drawing new curved electron-pushing
+  arrows is not offered yet: in review, several everyday mechanisms did not draw cleanly enough to ship.
+- **HPLC/GC peak table.** Paste the peak table from your chromatography software (columns read by their headers):
+  plate count, resolution, retention and separation factors, symmetry factor and area % by the harmonized
+  USP ⟨621⟩ / Ph. Eur. 2.2.46 half-height definitions, named in every result, with the chromatogram redrawn from the
+  table (and labelled as such). Header units must match the chosen time unit; nothing is converted silently.
+- **Excel import.** "Open CSV…" on any data field now opens .xlsx and .xlsm: the first visible sheet, cells placed by
+  reference, cached formula values. Dates, error cells and formulas without a saved value are refused naming the cell;
+  .xls, .ods, .numbers and password-protected files are refused with how to re-save. Loaded only when used.
+- **Measured ¹H integration → characterization.** Characterization ▸ ¹H NMR ▸ From an integration table: paste the
+  multiplet table, choose a reference row or fit to the formula, and the ¹H list is written in the journal style the
+  tool already uses. A count is rounded only within ±0.15 of a whole number; otherwise it is shown and flagged.
+  Solvent and water peaks (Fulmer et al. 2010) can be dropped, with a note.
+- **TLC plate figure.** Lanes of Rf values (or spot distances and the solvent front) give an Rf table and a schematic
+  plate with origin, front and lane labels; close co-spots are drawn as one merged spot with a note.
+- **Molecular cloning (new discipline).** A schematic agarose gel against manufacturer ladders read from their own
+  pages (NEB 1 kb, 100 bp, 1 kb Plus; Thermo GeneRuler 1 kb) or your own sizes, lanes from fragment sizes or a virtual
+  digest; Golden Gate design (internal and junction-created sites, duplicate, palindromic and reverse-complement
+  overhangs refused by name); Gibson / HiFi design by overlap length or Tm; PCR primer design for any region. Every Tm
+  is the app's one nearest-neighbour model; checked against Biopython.
+- **Circuit transients (Electronics).** The same netlist the DC and AC tools take, with PULSE, SIN and PWL sources:
+  node voltages against time by trapezoidal integration with backward-Euler starts at every source corner, a check that
+  the trace settles to the DC answer, and a named note when the step looks too coarse for the circuit's time
+  constants or ringing.
+- **Liquid-crystal retarders and achromatic wave plates (Optics & photonics).** Retardance of tilted nematic cells from
+  Cauchy dispersion (E7 and BL036 built in, with sources), transmission spectra between crossed and parallel
+  polarisers with retardation-level lines, the achromatic quarter- or half-wave band, a design mode for the tilt, and
+  measured spectra overlaid. A second tool gives the Fréedericksz threshold, the full director profile at each voltage,
+  retardance against voltage and the voltage for a target retardance. Both draw the cell, the index geometry and the
+  device. Checked against SciPy's boundary-value solver; the published example of Abuleil & Abdulhalim (Opt. Lett. 39,
+  5487, 2014) is offered as a preset, with its comparison stated honestly (our indices differ from theirs).
+- **Optica reference style** (Optics Letters, Optics Express, JOSA) for journal articles, from Optica's current style
+  guide: [1], [2,3], [1–4] in the text.
+- **Fixed: primer Tm for self-complementary primers** was 1–2 °C high: the symmetry term of SantaLucia (1998) was
+  missing. Every other primer's Tm is unchanged.
+
 ## [2.187.0] — 2026-10-22 — Thin films, materials testing, control design, titration and CV, new plot types
 
 Release B of the STEM gaps (the second of three). Engineering now has 170 calculators in twenty-two disciplines.

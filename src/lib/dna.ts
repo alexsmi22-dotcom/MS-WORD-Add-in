@@ -449,6 +449,13 @@ const INIT_AT: [number, number] = [2.3, 4.1];
 const R_CAL = 1.987;
 
 /**
+ * ΔS°sym, cal/(mol·K): the entropy penalty a self-complementary duplex pays for
+ * its two-fold symmetry (SantaLucia 1998; the "sym" entry of Biopython's
+ * DNA_NN3 table is the same −1.4). Applies to palindromes only.
+ */
+const SYMMETRY_DS = -1.4;
+
+/**
  * The largest degenerate pool `primerTm` will enumerate.
  *
  * THIS IS A COST BOUND, NOT A THERMODYNAMIC ONE. It says nothing about accuracy —
@@ -612,6 +619,27 @@ function concreteTm(
   const b = init(s[n - 1]);
   dH += a[0] + b[0];
   dS += a[1] + b[1];
+
+  // SYMMETRY CORRECTION (SantaLucia 1998), for a self-complementary duplex only.
+  //
+  // A palindromic oligo anneals to a second copy of ITSELF, so the two strands
+  // are indistinguishable and the duplex has a two-fold rotational symmetry.
+  // That removes a factor of two from the number of distinguishable
+  // arrangements, which costs R·ln2 ≈ 1.4 cal·mol⁻¹·K⁻¹ of entropy:
+  // ΔS°sym = −1.4. SantaLucia's unified treatment applies it ALONGSIDE the
+  // undivided total-strand term below; this code had the concentration half and
+  // not the entropy half, so every self-complementary oligo read 1.1–2.0 °C too
+  // HOT (worst case 2.05 °C on the 8-mer TTAATTAA). Too hot is the dangerous
+  // direction: it is the direction that makes a hairpin-prone primer look fine.
+  //
+  // Oracle: Bio.SeqUtils.MeltingTemp.Tm_NN with nn_table=DNA_NN3 (the same
+  // SantaLucia 1998 unified table this file transcribes), Na=50, saltcorr=5,
+  // dnac1=dnac2=125 nM for a normal oligo and dnac1=250 nM with selfcomp=True
+  // for a palindrome — which is this function's primer/4 and primer exactly.
+  // With DNA_NN3's own "sym" entry of (0, −1.4) the oracle reproduces the
+  // values below; zeroing it reproduces the values this file used to return.
+  // Pinned in primerTmNN.test.ts.
+  if (selfComp) dS += SYMMETRY_DS;
 
   // Salt correction (SantaLucia 1998). Applied to entropy, not to Tm directly.
   dS += 0.368 * (n - 1) * Math.log(sodium);

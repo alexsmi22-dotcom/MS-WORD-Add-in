@@ -9,7 +9,9 @@
  * depth of a bracket), the rule used is named in a comment and was checked against ChemDraw's
  * own output for the same file.
  */
-import { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxGraphic, CdxItem, CdxNode, CdxRun, CdxText, cssColor, Pt } from "./cdxml";
+import { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxGraphic, CdxItem, CdxNode, CdxRun, CdxStyle, CdxText, cssColor, Pt } from "./cdxml";
+import { arcOf, arcPoint } from "./cdxArrows";
+import { chargeGlyph } from "./cdxGlyphs";
 import { atomQueryMarks, bondQueryMarks, showsMarks, stereoGroupMark } from "./cdxQuery";
 
 const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
@@ -48,6 +50,118 @@ export interface RenderedCdx {
 interface Prim {
   z: number;
   svg: string;
+}
+
+/**
+ * One arrow's ink, and the points (with margins) its drawing reaches. HeadSize, ArrowheadCenterSize and ArrowheadWidth
+ * are hundredths of the line width (head 1000 = 10 × LineWidth long), as ChemDraw's own boxes for its arrows show.
+ * Exported so the canvas's preview of an arrow being drawn is drawn by the same code as the arrow itself.
+ */
+export function arrowMarkup(st: CdxStyle, ar: CdxArrow, col: string): { svg: string; extent: Array<[Pt, number]> } {
+  const lw = st.lineWidth;
+  const extent: Array<[Pt, number]> = [];
+  const L = (ar.headSize / 100) * lw, C = (ar.centerSize / 100) * lw, W = (ar.headWidth / 100) * lw;
+  /** A head with its tip at `tip`, pointing along `dir`; `notchAt` puts its notch on a curved shaft's own end. */
+  const head = (tip: Pt, dir: Pt, kind: string, notchAt?: Pt): { svg: string; back: Pt } => {
+    if (kind === "None" || kind === "Unspecified") return { svg: "", back: tip };
+    const u = unit(dir), nn = right(u);
+    const base = addp(tip, mul(u, -L)), notch = notchAt ?? addp(tip, mul(u, -C));
+    const s1 = addp(base, mul(nn, W)), s2 = addp(base, mul(nn, -W));
+    if (ar.headType === "Angle") {
+      // An open head (ChemDraw's "Angle"): its arms only, the shaft running to the tip.
+      const arms = kind === "HalfLeft" ? [s2, tip] : kind === "HalfRight" ? [s1, tip] : [s1, tip, s2];
+      return { svg: `<path d="M${arms.map((p) => `${f2(p[0])} ${f2(p[1])}`).join("L")}" fill="none" stroke="${col}" stroke-width="${f2(lw)}" stroke-linejoin="miter" stroke-linecap="round"/>`, back: tip };
+    }
+    const pts = kind === "HalfLeft" ? [tip, s2, notch] : kind === "HalfRight" ? [tip, s1, notch] : [tip, s1, notch, s2];
+    const d = "M" + pts.map((p) => `${f2(p[0])} ${f2(p[1])}`).join("L") + "Z";
+    const style = ar.headType === "Hollow" ? `fill="#fff" stroke="${col}" stroke-width="${f2(lw)}"` : `fill="${col}" stroke="none"`;
+    return { svg: `<path d="${d}" ${style} stroke-linejoin="miter"/>`, back: notch };
+  };
+  const parts: string[] = [];
+  const g = arcOf(ar);
+  if (g) {
+    // A curved arrow: the arc from Center3D through AngularSize. Each head lies along the chord of the last head length
+    // of the arc (the tangent at the tip kinks it on a tight arc), and the shaft stops at the head's notch, so the
+    // tip stays sharp.
+    const P = (phi: number): Pt => arcPoint(g, phi);
+    const phiT = g.phi0, phiH = g.phi0 + g.dphi;
+    /** The angle at which the arc lies `d` (chord) from its end at phiE, searching toward phiS. */
+    const back = (phiE: number, phiS: number, d: number): number => {
+      const e = P(phiE);
+      if (len(sub(P(phiE + (phiS - phiE) * 0.5), e)) < d) return phiE + (phiS - phiE) * 0.5;
+      let lo = 0, hi = 0.5;
+      for (let i = 0; i < 40; i++) {
+        const m = (lo + hi) / 2;
+        if (len(sub(P(phiE + (phiS - phiE) * m), e)) < d) lo = m;
+        else hi = m;
+      }
+      return phiE + (phiS - phiE) * hi;
+    };
+    const end = (phiE: number, phiS: number, kind: string): { svg: string; shaftAt: number } => {
+      if (kind === "None" || kind === "Unspecified") return { svg: "", shaftAt: phiE };
+      const tip = P(phiE), phiL = back(phiE, phiS, L), phiC = back(phiE, phiS, Math.min(C, L));
+      const h = head(tip, sub(tip, P(phiL)), kind, P(phiC));
+      extent.push([tip, lw], [P(phiL), W + lw]);
+      return { svg: h.svg, shaftAt: ar.headType === "Angle" ? phiE : phiC };
+    };
+    const hd = end(phiH, phiT, ar.headEnd), tl = end(phiT, phiH, ar.tailEnd);
+    const s = tl.shaftAt, e = hd.shaftAt, m = (s + e) / 2;
+    const dash = ar.lineType === "Dashed" ? ` stroke-dasharray="${f2(st.hashSpacing)} ${f2(st.hashSpacing)}"` : "";
+    const w = ar.lineType === "Bold" ? st.boldWidth : lw;
+    const rx = len(g.a), ry = len(g.b);
+    let d: string;
+    if (Math.abs(g.a[0] * g.b[0] + g.a[1] * g.b[1]) < 1e-6 * rx * ry) {
+      // In two halves, each under a half turn: SVG's large-arc flag is then never in doubt (a 180° arc is).
+      const rot = (Math.atan2(g.a[1], g.a[0]) * 180) / Math.PI;
+      const sweep = (e - s) * Math.sign(cross(g.a, g.b)) > 0 ? 1 : 0;
+      const arc = (p: Pt): string => `A${f2(rx)} ${f2(ry)} ${f2(rot)} 0 ${sweep} ${f2(p[0])} ${f2(p[1])}`;
+      const p0 = P(s);
+      d = `M${f2(p0[0])} ${f2(p0[1])}${arc(P(m))}${arc(P(e))}`;
+    } else {
+      // A skewed ellipse SVG's arc cannot state: drawn as a fine polyline.
+      const pts: Pt[] = [];
+      for (let i = 0; i <= 64; i++) pts.push(P(s + ((e - s) * i) / 64));
+      d = "M" + pts.map((p) => `${f2(p[0])} ${f2(p[1])}`).join("L");
+    }
+    parts.push(`<path d="${d}" fill="none" stroke="${col}" stroke-width="${f2(w)}" stroke-linecap="butt"${dash}/>`, hd.svg, tl.svg);
+    for (let i = 0; i <= 24; i++) extent.push([P(phiT + (g.dphi * i) / 24), lw]);
+    return { svg: parts.join(""), extent };
+  }
+  const dir = sub(ar.head, ar.tail);
+  const h = head(ar.head, dir, ar.headEnd);
+  const tl = head(ar.tail, mul(dir, -1), ar.tailEnd);
+  const dash = ar.lineType === "Dashed" ? ` stroke-dasharray="${f2(st.hashSpacing)} ${f2(st.hashSpacing)}"` : "";
+  const w = ar.lineType === "Bold" ? st.boldWidth : lw;
+  const shaft = (a: Pt, c: Pt): string => `<line x1="${f2(a[0])}" y1="${f2(a[1])}" x2="${f2(c[0])}" y2="${f2(c[1])}" stroke="${col}" stroke-width="${f2(w)}"${dash}/>`;
+  // A half head's barb side, as a multiple of right(dir): HalfLeft at the head is on −right; at
+  // the tail (pointing back) on +right.
+  const hs = ar.headEnd === "HalfLeft" ? -1 : ar.headEnd === "HalfRight" ? 1 : 0;
+  const ts = ar.tailEnd === "HalfLeft" ? 1 : ar.tailEnd === "HalfRight" ? -1 : 0;
+  if (ar.shaftSpacing > 0 && hs && ts && hs !== ts) {
+    // Equilibrium (⇌): each shaft carries one half head, its barb on the outside.
+    const nn = right(unit(dir)), half = (ar.shaftSpacing / 100) * lw * 0.5 + lw;
+    const oh = mul(nn, hs * half), ot = mul(nn, ts * half);
+    const h2 = head(addp(ar.head, oh), dir, ar.headEnd), t2 = head(addp(ar.tail, ot), mul(dir, -1), ar.tailEnd);
+    parts.push(shaft(addp(ar.tail, oh), h2.back), shaft(t2.back, addp(ar.head, ot)), h2.svg, t2.svg);
+  } else {
+    if (ar.shaftSpacing > 0) {
+      const u = unit(dir), nn = right(u), half = (ar.shaftSpacing / 100) * lw * 0.5 + lw;
+      // An open head over two shafts (the retrosynthetic ⇒): each shaft ends where it meets the head's arm.
+      const reach = (kind: string, tip: Pt, sgn: number, fallback: Pt): Pt =>
+        ar.headType === "Angle" && kind === "Full" && W > half ? addp(tip, mul(u, (sgn * -L * half) / W)) : fallback;
+      const hEnd = reach(ar.headEnd, ar.head, 1, h.back), tEnd = reach(ar.tailEnd, ar.tail, -1, tl.back);
+      for (const s of [1, -1]) parts.push(shaft(addp(tEnd, mul(nn, s * half)), addp(hEnd, mul(nn, s * half))));
+    } else parts.push(shaft(tl.back, h.back));
+    parts.push(h.svg, tl.svg);
+  }
+  if (ar.noGo === "Cross") {
+    const m = mul(addp(ar.head, ar.tail), 0.5), u = unit(dir), nn = right(u), s = W * 2;
+    parts.push(`<path d="M${f2(m[0] - u[0] * s - nn[0] * s)} ${f2(m[1] - u[1] * s - nn[1] * s)}L${f2(m[0] + u[0] * s + nn[0] * s)} ${f2(m[1] + u[1] * s + nn[1] * s)}M${f2(m[0] - u[0] * s + nn[0] * s)} ${f2(m[1] - u[1] * s + nn[1] * s)}L${f2(m[0] + u[0] * s - nn[0] * s)} ${f2(m[1] + u[1] * s - nn[1] * s)}" stroke="${col}" stroke-width="${f2(lw)}"/>`);
+  }
+  // Room for the heads: an equilibrium's sit a shaft's half spacing off the axis.
+  const off = ar.shaftSpacing > 0 ? (ar.shaftSpacing / 100) * lw * 0.5 + lw : 0;
+  extent.push([ar.head, W + lw + off], [ar.tail, W + lw + off]);
+  return { svg: parts.join(""), extent };
 }
 
 export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | null {
@@ -396,10 +510,7 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       if (nd.charge && !chargeDrawn.has(nd.id)) {
         // ChemDraw draws a charge as a symbol tied to the atom; where the file has none (or after an
         // edit) it is set as a superscript after the label, or up and right of a bare vertex.
-        const q = nd.charge, txt = (Math.abs(q) > 1 ? String(Math.abs(q)) : "") + (q > 0 ? "+" : "−");
-        const size = st.labelSize * 0.75;
-        const bx = nd.label?.box;
-        const at: Pt = bx ? [bx[2] + size * 0.1, bx[1] + size * 0.6] : [nd.p[0] + st.bondLength * 0.25, nd.p[1] - st.bondLength * 0.2];
+        const { at, txt, size } = chargeGlyph(st, nd);
         prims.push({ z: nd.z + 0.6, svg: `<text x="${f2(at[0])}" y="${f2(at[1])}" font-family="${esc(fontName(st.labelFont))}" font-size="${f2(size)}" fill="#000">${txt}</text>` });
         grow(at, size);
       }
@@ -578,64 +689,9 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
    * 1000 = 10 × LineWidth long), as ChemDraw's own boxes for its arrows show.
    */
   const drawArrow = (ar: CdxArrow): void => {
-    const col = color(ar.color);
-    const lw = st.lineWidth;
-    const L = (ar.headSize / 100) * lw, C = (ar.centerSize / 100) * lw, W = (ar.headWidth / 100) * lw;
-    const head = (tip: Pt, dir: Pt, kind: string): { svg: string; back: Pt } => {
-      if (kind === "None" || kind === "Unspecified") return { svg: "", back: tip };
-      const u = unit(dir), nn = right(u);
-      const base = addp(tip, mul(u, -L)), notch = addp(tip, mul(u, -C));
-      const s1 = addp(base, mul(nn, W)), s2 = addp(base, mul(nn, -W));
-      const pts = kind === "HalfLeft" ? [tip, s2, notch] : kind === "HalfRight" ? [tip, s1, notch] : [tip, s1, notch, s2];
-      const d = "M" + pts.map((p) => `${f2(p[0])} ${f2(p[1])}`).join("L") + "Z";
-      const style = ar.headType === "Hollow" ? `fill="#fff" stroke="${col}" stroke-width="${f2(lw)}"` : ar.headType === "Angle" ? `fill="none" stroke="${col}" stroke-width="${f2(lw)}"` : `fill="${col}" stroke="none"`;
-      return { svg: `<path d="${d}" ${style} stroke-linejoin="miter"/>`, back: notch };
-    };
-    const parts: string[] = [];
-    if (ar.angularSize && ar.center && ar.major && ar.minor) {
-      const rx = len(sub(ar.major, ar.center)), ry = len(sub(ar.minor, ar.center));
-      const large = Math.abs(ar.angularSize) > 180 ? 1 : 0, sweep = ar.angularSize > 0 ? 1 : 0;
-      parts.push(`<path d="M${f2(ar.tail[0])} ${f2(ar.tail[1])}A${f2(rx)} ${f2(ry)} 0 ${large} ${sweep} ${f2(ar.head[0])} ${f2(ar.head[1])}" fill="none" stroke="${col}" stroke-width="${f2(lw)}"/>`);
-      // The head along the tangent at its end.
-      const rad = sub(ar.head, ar.center);
-      const tan: Pt = sweep ? [-rad[1], rad[0]] : [rad[1], -rad[0]];
-      parts.push(head(ar.head, tan, ar.headEnd).svg);
-      parts.push(head(ar.tail, mul(sweep ? [rad[1], -rad[0]] : [-rad[1], rad[0]], 1), ar.tailEnd).svg);
-      grow(ar.center, Math.max(rx, ry));
-    } else {
-      const dir = sub(ar.head, ar.tail);
-      const h = head(ar.head, dir, ar.headEnd);
-      const tl = head(ar.tail, mul(dir, -1), ar.tailEnd);
-      const dash = ar.lineType === "Dashed" ? ` stroke-dasharray="${f2(st.hashSpacing)} ${f2(st.hashSpacing)}"` : "";
-      const w = ar.lineType === "Bold" ? st.boldWidth : lw;
-      const shaft = (a: Pt, c: Pt): string => `<line x1="${f2(a[0])}" y1="${f2(a[1])}" x2="${f2(c[0])}" y2="${f2(c[1])}" stroke="${col}" stroke-width="${f2(w)}"${dash}/>`;
-      // A half head's barb side, as a multiple of right(dir): HalfLeft at the head is on −right; at
-      // the tail (pointing back) on +right.
-      const hs = ar.headEnd === "HalfLeft" ? -1 : ar.headEnd === "HalfRight" ? 1 : 0;
-      const ts = ar.tailEnd === "HalfLeft" ? 1 : ar.tailEnd === "HalfRight" ? -1 : 0;
-      if (ar.shaftSpacing > 0 && hs && ts && hs !== ts) {
-        // Equilibrium (⇌): each shaft carries one half head, its barb on the outside.
-        const nn = right(unit(dir)), half = (ar.shaftSpacing / 100) * lw * 0.5 + lw;
-        const oh = mul(nn, hs * half), ot = mul(nn, ts * half);
-        const h2 = head(addp(ar.head, oh), dir, ar.headEnd), t2 = head(addp(ar.tail, ot), mul(dir, -1), ar.tailEnd);
-        parts.push(shaft(addp(ar.tail, oh), h2.back), shaft(t2.back, addp(ar.head, ot)), h2.svg, t2.svg);
-      } else {
-        if (ar.shaftSpacing > 0) {
-          const nn = right(unit(dir)), half = (ar.shaftSpacing / 100) * lw * 0.5 + lw;
-          for (const s of [1, -1]) parts.push(shaft(addp(tl.back, mul(nn, s * half)), addp(h.back, mul(nn, s * half))));
-        } else parts.push(shaft(tl.back, h.back));
-        parts.push(h.svg, tl.svg);
-      }
-      if (ar.noGo === "Cross") {
-        const m = mul(addp(ar.head, ar.tail), 0.5), u = unit(dir), nn = right(u), s = W * 2;
-        parts.push(`<path d="M${f2(m[0] - u[0] * s - nn[0] * s)} ${f2(m[1] - u[1] * s - nn[1] * s)}L${f2(m[0] + u[0] * s + nn[0] * s)} ${f2(m[1] + u[1] * s + nn[1] * s)}M${f2(m[0] - u[0] * s + nn[0] * s)} ${f2(m[1] - u[1] * s + nn[1] * s)}L${f2(m[0] + u[0] * s - nn[0] * s)} ${f2(m[1] + u[1] * s - nn[1] * s)}" stroke="${col}" stroke-width="${f2(lw)}"/>`);
-      }
-      // Room for the heads: an equilibrium's sit a shaft's half spacing off the axis.
-      const off = ar.shaftSpacing > 0 ? (ar.shaftSpacing / 100) * lw * 0.5 + lw : 0;
-      grow(ar.head, W + lw + off);
-      grow(ar.tail, W + lw + off);
-    }
-    prims.push({ z: ar.z, svg: parts.join("") });
+    const a = arrowMarkup(st, ar, color(ar.color));
+    prims.push({ z: ar.z, svg: a.svg });
+    for (const [p, m] of a.extent) grow(p, m);
   };
 
   const drawItem = (it: CdxItem): void => {

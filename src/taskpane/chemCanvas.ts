@@ -9,11 +9,12 @@
  * (getMolecule, setMolecule, clearAll, moleculeChanged, setOnChangeListener), plus the page itself.
  */
 import { Molecule } from "openchemlib/full";
-import { readCdxml, readCdxmlTree, CdxDoc, CdxRun, CdxText, Box, Pt } from "../lib/cdxml";
-import { renderCdx } from "../lib/cdxmlRender";
+import { arrowFromElement, readCdxml, readCdxmlTree, CdxDoc, CdxRun, CdxText, Box, Pt } from "../lib/cdxml";
+import { arrowMarkup, renderCdx } from "../lib/cdxmlRender";
+import { arcOf, type ArrowEnd } from "../lib/cdxArrows";
 import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from "../lib/cdxmlSelect";
 import {
-  addArrow, addAtomAt, addBondAt, addBondBetween, addBondFrom, addBondToward, addBrackets, addCaption, addChain, addRingAt, addRingAtAtom, addRingOnBond,
+  addArrow, addCurvedArrow, arrowAnchors, curvedArrowElement, flipCurvedArrow, followAnchors, addAtomAt, addBondAt, addBondBetween, addBondFrom, addBondToward, addBrackets, addCaption, addChain, addRingAt, addRingAtAtom, addRingOnBond,
   ArrowKind, blankPageCdxml, chainLength, chainPath, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, RingKind,
   namesTiedTo, setAtomLabel, setAtomProps, setBond, setBondProps, setCharge, setText, writeCdxml, type AtomProps,
 } from "../lib/cdxmlEdit";
@@ -96,7 +97,7 @@ const TOOL_HELP: Record<CanvasTool, string> = {
   "charge+": "Charge +: click an atom to raise its charge by one.",
   "charge-": "Charge −: click an atom to lower its charge by one.",
   bracket: "Brackets: drag a box round a repeat unit (blank label = n).",
-  arrow: "Arrow: drag from the tail to the head.",
+  arrow: "Arrow: choose the kind, then drag from the tail to the head.",
   text: "Text: type the words in the box, then click empty paper for a new caption, or a caption to change it.",
   erase: "Erase: click an atom, a bond, or anything else on the page.",
   hapto: "η-bond: click inside a ring (a Cp ring), then the metal it binds — or the metal first, then the ring. Label the metal first (Zr, Hf, Ti, Fe …).",
@@ -104,6 +105,22 @@ const TOOL_HELP: Record<CanvasTool, string> = {
   props: "Properties: click an atom for its radical, stereo group (AND / OR) and query features, or a bond for its query orders and ring / chain. For an atom list, type [N,O] or NOT [F,Cl] with the Atom tool.",
 };
 const DRAG_TOOLS = new Set<CanvasTool>(["bond", "chain", "bracket", "arrow"]);
+/** The Arrow tool's kinds: [value, menu name, what a drawn one is called, how to draw it]. */
+const ARROW_KINDS: Array<[string, string, string, string]> = [
+  ["reaction", "Reaction arrow →", "Reaction arrow", "drag from the tail to the head."],
+  ["equilibrium", "Equilibrium arrow ⇌", "Equilibrium arrow", "drag from the tail to the head."],
+  ["retrosynthetic", "Retrosynthetic arrow ⇒", "Retrosynthetic arrow", "drag from the target back toward what it is made from."],
+  ["resonance", "Resonance arrow ↔", "Resonance arrow", "drag between the two resonance forms."],
+  ["curved", "Curved arrow (electron pair)", "Curved arrow", "drag from a lone pair (its atom) or a bond to the atom or bond the electrons go to; the ends snap to them. Shift while dragging bows it the other way; click a curved arrow to flip it."],
+  ["fishhook", "Fishhook (one electron)", "Fishhook arrow", "drag from an atom or a bond to where the electron goes; the ends snap to them. Shift while dragging bows it the other way; click a curved arrow to flip it."],
+];
+/**
+ * Curved electron-pushing arrows and fishhooks are NOT offered in the menu yet (Release C review, final round): on
+ * several everyday mechanisms (an arenium C–H to the ring, a tilted O–O homolysis, a leaving group in most bond
+ * directions, a carbonyl addition beside another arrow) neither bow drew cleanly, and a drawing has no refusal mode.
+ * The geometry, the file format and the attachment stay in place; arrows of these kinds in a file still open and draw.
+ */
+const CURVED_ARROWS_OFFERED = false;
 const SVGNS = "http://www.w3.org/2000/svg";
 
 function blankDoc(): CdxDoc {
@@ -194,8 +211,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   const styleSel = el("select", { "aria-label": "Bond style", "data-chem-bondstyle": "" }) as HTMLSelectElement;
   for (const [v, t] of STYLES) styleSel.add(new Option(t, v));
   const arrowSel = el("select", { "aria-label": "Arrow", "data-chem-arrow": "" }) as HTMLSelectElement;
-  arrowSel.add(new Option("Reaction arrow", "reaction"));
-  arrowSel.add(new Option("Equilibrium arrow", "equilibrium"));
+  for (const [v, t] of ARROW_KINDS) if (CURVED_ARROWS_OFFERED || (v !== "curved" && v !== "fishhook")) arrowSel.add(new Option(t, v));
+  arrowSel.addEventListener("change", () => host.setStatus(arrowHelp(), ""));
   const tplSel = el("select", { "aria-label": "Metallocene template", "data-chem-template": "" }) as HTMLSelectElement;
   for (const t of METALLOCENE_TEMPLATES) tplSel.add(new Option(t.label, t.id));
   opts.append(palette, valueIn, ringSel, tplSel, styleSel, arrowSel);
@@ -407,8 +424,36 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     show(arrowSel, t === "arrow");
     propsBox.hidden = t !== "props";
     if (t !== "props") propTarget = null;
-    host.setStatus(TOOL_HELP[t], "");
+    host.setStatus(t === "arrow" ? arrowHelp() : TOOL_HELP[t], "");
   }
+  const arrowKind = (): (typeof ARROW_KINDS)[number] => ARROW_KINDS.find((k) => k[0] === arrowSel.value) ?? ARROW_KINDS[0];
+  const curvedKind = (): boolean => arrowSel.value === "curved" || arrowSel.value === "fishhook";
+  const arrowHelp = (): string => `${arrowKind()[2]}: ${arrowKind()[3]}`;
+  /** Where a curved arrow's end goes: the atom under the point, else the bond, else the point itself. */
+  const snapEnd = (p: Pt): ArrowEnd => {
+    // An atom's own point first, then a bond's line, then anywhere on an atom's label: the middle of a short bond
+    // between two labels (Br–Br) lies inside a label's box, and there the bond is meant (walkthrough: homolysis).
+    let near: string | null = null, best = L() * 0.3;
+    for (const o of doc.objects)
+      for (const it of o.items)
+        if (it.kind === "fragment")
+          for (const n of it.v.nodes) {
+            const d = Math.hypot(n.p[0] - p[0], n.p[1] - p[1]);
+            if (n.nodeType !== "MultiAttachment" && d < best) (best = d), (near = n.id);
+          }
+    if (near) return { atom: near };
+    const b = bondAt(doc, p, L() * 0.2);
+    if (b) return { bond: b };
+    const a = atomAt(doc, p, L() * 0.3);
+    return a ? { atom: a } : { at: p };
+  };
+  /** The curved arrow under a point (for a click that flips it). */
+  const curvedArrowAt = (p: Pt): string | null => {
+    const id = objectAt(doc, boxes, p, L() * 0.3);
+    const o = id ? doc.objects.find((x) => x.id === id) : undefined;
+    const it = o?.items.find((x) => x.kind === "arrow");
+    return it && it.kind === "arrow" && it.v.el.name === "arrow" && arcOf(it.v) ? it.v.id : null;
+  };
 
   // ---- pointer --------------------------------------------------------------------------------
   const pagePoint = (e: MouseEvent): Pt | null => {
@@ -420,7 +465,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     return [view[0] + (e.clientX - r.left) * k, view[1] + (e.clientY - r.top) * k];
   };
   const L = (): number => doc.style.bondLength;
-  type Sketch = { tool: CanvasTool; from: Pt; atom: string | null; to: Pt; moved: boolean };
+  type Sketch = { tool: CanvasTool; from: Pt; atom: string | null; to: Pt; moved: boolean; shift?: boolean };
   let sketch: Sketch | null = null;
   let moving: { from: Pt; moved: boolean } | null = null;
   let boxSel: { from: Pt; to: Pt } | null = null;
@@ -446,10 +491,47 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
         if (path) line([path.start, ...path.points]);
       } else if (sketch.tool === "bracket") {
         line([from, [to[0], from[1]], to, [from[0], to[1]], from]);
+      } else if (sketch.tool === "arrow" && curvedKind()) {
+        // The curved arrow as it will be drawn (the same geometry and the same drawing code), and the atoms or bonds
+        // its ends have snapped to.
+        const a = snapEnd(from), b = snapEnd(to);
+        const el = sketch.moved ? curvedArrowElement(doc, a, b, { electrons: arrowSel.value === "fishhook" ? 1 : 2, flip: !!sketch.shift }) : null;
+        const ar = el && typeof el !== "string" ? arrowFromElement(el) : null;
+        if (ar) {
+          const m = document.createElementNS(SVGNS, "g");
+          m.innerHTML = arrowMarkup(doc.style, ar, "#2563eb").svg;
+          g.appendChild(m);
+        } else line([from, to]);
+        for (const e of [a, b]) {
+          const q = "atom" in e ? atomPos(e.atom) : "bond" in e ? bondMid(e.bond) : null;
+          if (!q) continue;
+          const c = document.createElementNS(SVGNS, "circle");
+          c.setAttribute("cx", String(q[0]));
+          c.setAttribute("cy", String(q[1]));
+          c.setAttribute("r", String(L() * 0.3));
+          c.setAttribute("stroke-width", String(Math.max(0.3, doc.style.lineWidth * 0.6)));
+          c.setAttribute("stroke-dasharray", `${L() * 0.08} ${L() * 0.08}`);
+          g.appendChild(c);
+        }
       } else line([sketch.tool === "bond" && sketch.atom ? atomPos(sketch.atom) ?? from : from, to]);
     }
     if (boxSel) line([boxSel.from, [boxSel.to[0], boxSel.from[1]], boxSel.to, [boxSel.from[0], boxSel.to[1]], boxSel.from]);
     svg.appendChild(g);
+  };
+  const bondMid = (id: string): Pt | null => {
+    const b = findById(doc.root, id)?.el;
+    const p = b ? atomPos(b.attrs.B ?? "") : null, q = b ? atomPos(b.attrs.E ?? "") : null;
+    return p && q ? [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2] : null;
+  };
+  let ghostPending = false;
+  const ghostSoon = (): void => {
+    if (ghostPending) return;
+    ghostPending = true;
+    const later = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (cb: () => void) => setTimeout(cb, 16);
+    later(() => {
+      ghostPending = false;
+      if (sketch) ghost();
+    });
   };
   const atomPos = (id: string): Pt | null => {
     const p = findById(doc.root, id)?.el.attrs.p?.split(/\s+/).map(Number);
@@ -491,8 +573,11 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     if ((sketch || moving || boxSel) && e.buttons === 0) return cancelDrag();
     if (sketch) {
       sketch.to = p;
+      sketch.shift = e.shiftKey;
       if (Math.hypot(p[0] - sketch.from[0], p[1] - sketch.from[1]) > L() * 0.25) sketch.moved = true;
-      ghost();
+      // A curved arrow's preview is planned afresh each time: at most once a frame, however fast the pointer reports.
+      if (sketch.tool === "arrow" && curvedKind()) ghostSoon();
+      else ghost();
     } else if (moving) {
       const dx = p[0] - moving.from[0], dy = p[1] - moving.from[1];
       if (Math.hypot(dx, dy) > L() * 0.1) moving.moved = true;
@@ -555,15 +640,32 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       if (edit(() => addChain(doc, s.atom ? { nodeId: s.atom } : { at: s.from }, to, n))) host.setStatus(`Chain of ${n} bond${n === 1 ? "" : "s"} drawn.`, "success");
       return;
     }
-    if (!far) return host.setStatus(TOOL_HELP[s.tool], "error");
+    if (!far && s.tool === "arrow" && curvedKind()) {
+      // A click on a curved arrow bows it the other way.
+      const hit = curvedArrowAt(s.from);
+      if (hit) {
+        if (edit(() => flipCurvedArrow(doc, hit))) host.setStatus("Curved arrow flipped to the other side; Undo takes it back.", "success");
+        return;
+      }
+    }
+    if (!far) return host.setStatus(s.tool === "arrow" ? arrowHelp() : TOOL_HELP[s.tool], "error");
     if (s.tool === "bracket") {
       const label = valueIn.value.trim() || "n";
       const box: [number, number, number, number] = [s.from[0], s.from[1], to[0], to[1]];
       if (edit(() => addBrackets(doc, box, label))) host.setStatus(`Brackets drawn round the repeat unit, labelled ${label}.`, "success");
       return;
     }
+    if (curvedKind()) {
+      const electrons = arrowSel.value === "fishhook" ? 1 : 2;
+      const a = snapEnd(s.from), b = snapEnd(to);
+      if (edit(() => {
+        const r = addCurvedArrow(doc, a, b, { electrons, flip: e.shiftKey });
+        return r.ok ? null : r.reason;
+      })) host.setStatus(`${arrowKind()[2]} drawn. Click it to bow it the other way; Undo takes it back.`, "success");
+      return;
+    }
     const kind = (arrowSel.value || "reaction") as ArrowKind;
-    if (edit(() => addArrow(doc, s.from, to, kind))) host.setStatus(kind === "equilibrium" ? "Equilibrium arrow drawn." : "Reaction arrow drawn.", "success");
+    if (edit(() => addArrow(doc, s.from, to, kind))) host.setStatus(`${arrowKind()[2]} drawn.`, "success");
   });
 
   /** The bond tool: a click (bond on empty paper, a bond from an atom, a bond changed) or a drag. */
@@ -872,8 +974,17 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     const scope = selectionOnly && selected.size ? selected : null;
     const inScope = (id: string): boolean => !scope || scope.has(id);
     // A reaction scheme (an arrow) or a polymer (brackets) is not one structure: its parts are read one at a time.
-    if (doc.objects.some((o) => inScope(o.id) && o.items.some((it) => it.kind === "arrow")))
-      return { ok: false, reason: "a reaction (an arrow on the page) has no single formula — select one structure (Select tool) to read its formula" };
+    const arrowsIn = doc.objects.filter((o) => inScope(o.id)).flatMap((o) => o.items.flatMap((it) => (it.kind === "arrow" ? [it.v] : [])));
+    if (arrowsIn.length) {
+      // Reaction and equilibrium arrows make a reaction; curved, ⇒ and ↔ arrows make a mechanism or a scheme.
+      const reactionOnly = arrowsIn.every((a) => !a.angularSize && a.headType !== "Angle" && (a.tailEnd === "None" || (a.shaftSpacing > 0 && a.headEnd !== "Full")));
+      return {
+        ok: false,
+        reason: reactionOnly
+          ? "a reaction (an arrow on the page) has no single formula — select one structure (Select tool) to read its formula"
+          : "a page with arrows has no single formula — select one structure (Select tool) to read its formula",
+      };
+    }
     const bracketed = new Set(doc.brackets.flatMap((g) => g.objectIds));
     const inPolymer = doc.objects.some((o) => inScope(o.id) && o.items.some((it) => it.kind === "fragment" && it.v.nodes.some((nd) => bracketed.has(nd.id))));
     if (inPolymer) {
@@ -978,7 +1089,13 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     },
     clean: () => {
       const scope = selected.size ? new Set(selected) : undefined;
-      return edit(() => cleanStructures(doc, scope), true);
+      return edit(() => {
+        // Mechanism arrows tied to the atoms Clean moves follow them.
+        const tied = arrowAnchors(doc.root);
+        const why = cleanStructures(doc, scope);
+        if (!why) followAnchors(doc.root, tied);
+        return why;
+      }, true);
     },
     replacePage: (d) =>
       edit(() => {

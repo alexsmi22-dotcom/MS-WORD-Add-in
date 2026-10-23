@@ -367,33 +367,9 @@ export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: fa
   };
 
   const readArrow = (el: XNode): CdxArrow | null => {
-    const head = pt(el.attrs.Head3D), tail = pt(el.attrs.Tail3D);
-    if (!head || !tail) {
-      note("arrows with no ends were not drawn");
-      return null;
-    }
-    const at = (k1: string, k2: string): string | undefined => el.attrs[k1] ?? el.attrs[k2];
-    return {
-      el,
-      id: el.attrs.id ?? "",
-      head,
-      tail,
-      center: pt(el.attrs.Center3D),
-      major: pt(el.attrs.MajorAxisEnd3D),
-      minor: pt(el.attrs.MinorAxisEnd3D),
-      angularSize: num(el.attrs.AngularSize, 0),
-      headEnd: at("ArrowheadHead", "ArrowHeadHead") ?? "None",
-      tailEnd: at("ArrowheadTail", "ArrowHeadTail") ?? "None",
-      headType: at("ArrowheadType", "ArrowHeadType") ?? "Solid",
-      headSize: num(el.attrs.HeadSize, 1000),
-      centerSize: num(at("ArrowheadCenterSize", "HeadCenterSize"), 875),
-      headWidth: num(at("ArrowheadWidth", "HeadWidth"), 250),
-      shaftSpacing: num(el.attrs.ArrowShaftSpacing, 0),
-      noGo: el.attrs.NoGo ?? "",
-      lineType: el.attrs.LineType ?? "Solid",
-      z: num(el.attrs.Z, 0),
-      color: colorOf(el),
-    };
+    const r = arrowFromElement(el);
+    if (!r) note("arrows with no ends were not drawn");
+    return r;
   };
 
   const readCurve = (el: XNode): CdxCurve | null => {
@@ -420,7 +396,10 @@ export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: fa
         return;
       case "graphic": {
         const g = readGraphic(el);
-        if (g) out.push({ kind: "graphic", v: g });
+        // A line or arc with an ArrowType is an arrow in ChemDraw's older form (files before ChemDraw 8 have only that).
+        const old = g ? legacyArrow(g) : null;
+        if (old) out.push({ kind: "arrow", v: old });
+        else if (g) out.push({ kind: "graphic", v: g });
         // A bracket's label ("n", "m", a count) is text inside its object tag, drawn by ChemDraw.
         for (const tag of el.children) if (tag.name === "objecttag") for (const t of tag.children) if (t.name === "t" && !skip(t)) out.push({ kind: "text", v: readText(t, false) });
         return;
@@ -531,6 +510,91 @@ export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: fa
       notes: [...notes].map(([k, n]) => (n > 1 && !/^pages after/.test(k) ? `${n} ${k}` : k)),
     },
   };
+}
+
+/** An `<arrow>` element as drawn (null without both ends). */
+export function arrowFromElement(el: XNode): CdxArrow | null {
+  const head = pt(el.attrs.Head3D), tail = pt(el.attrs.Tail3D);
+  if (!head || !tail) return null;
+  const at = (k1: string, k2: string): string | undefined => el.attrs[k1] ?? el.attrs[k2];
+  return {
+    el,
+    id: el.attrs.id ?? "",
+    head,
+    tail,
+    center: pt(el.attrs.Center3D),
+    major: pt(el.attrs.MajorAxisEnd3D),
+    minor: pt(el.attrs.MinorAxisEnd3D),
+    angularSize: num(el.attrs.AngularSize, 0),
+    headEnd: at("ArrowheadHead", "ArrowHeadHead") ?? "None",
+    tailEnd: at("ArrowheadTail", "ArrowHeadTail") ?? "None",
+    headType: at("ArrowheadType", "ArrowHeadType") ?? "Solid",
+    headSize: num(el.attrs.HeadSize, 1000),
+    centerSize: num(at("ArrowheadCenterSize", "HeadCenterSize"), 875),
+    headWidth: num(at("ArrowheadWidth", "HeadWidth"), 250),
+    shaftSpacing: num(el.attrs.ArrowShaftSpacing, 0),
+    noGo: el.attrs.NoGo ?? "",
+    lineType: el.attrs.LineType ?? "Solid",
+    z: num(el.attrs.Z, 0),
+    color: colorOf(el),
+  };
+}
+
+/**
+ * ChemDraw's older form of an arrow — a line or arc `<graphic>` with an ArrowType — read as the arrow it draws. ChemDraw
+ * still writes it, superseded by the `<arrow>` (never drawn then); a file from before ChemDraw 8 has only this.
+ * Measured on a ChemDraw 23.1 file's superseded copies of every arrow kind (arrows.cdx, github.com/epam/Indigo): a
+ * line's BoundingBox is the HEAD, then the tail; a HalfHead's barb is HalfLeft for a positive HeadSize and HalfRight
+ * for a negative one; Resonance is a head at both ends. An arc's BoundingBox is its centre and the end of the arc (CDX
+ * Format Specification, Graphic_Type: https://chemapps.stolaf.edu/iupac/cdx/sdk/properties/Graphic_Type.htm); read
+ * here as the tail, turned through AngularSize the way a plain Arc graphic is drawn here, to the head: one geometry, one
+ * arc, with or without an ArrowType (review). No ChemDraw file with an old-form curved arrow was available to confirm
+ * the turn or which end carries the head.
+ */
+function legacyArrow(g: CdxGraphic): CdxArrow | null {
+  const type = g.arrowType.trim();
+  if ((g.kind !== "Line" && g.kind !== "Arc") || !type || type === "NoHead") return null;
+  const hs = num(g.el.attrs.HeadSize, 1000);
+  const size = Math.abs(hs) || 1000;
+  const base: CdxArrow = {
+    el: g.el,
+    id: g.id,
+    head: g.p1,
+    tail: g.p2,
+    center: null,
+    major: null,
+    minor: null,
+    angularSize: 0,
+    headEnd: "Full",
+    tailEnd: "None",
+    headType: "Solid",
+    headSize: size,
+    centerSize: size * 0.875,
+    headWidth: size * 0.25,
+    shaftSpacing: 0,
+    noGo: "",
+    lineType: g.lineType,
+    z: g.z,
+    color: g.color,
+  };
+  if (/HalfHead/.test(type)) base.headEnd = hs < 0 ? "HalfRight" : "HalfLeft";
+  if (/Resonance/.test(type)) base.tailEnd = "Full";
+  if (/Equilibrium/.test(type)) Object.assign(base, { headEnd: "HalfLeft", tailEnd: "HalfLeft", shaftSpacing: 300 });
+  if (/Hollow/.test(type)) base.headType = "Hollow";
+  if (/RetroSynthetic/.test(type)) Object.assign(base, { headType: "Angle", headSize: 500, centerSize: 500, headWidth: 500, shaftSpacing: 200 });
+  if (/NoGo/.test(type)) base.noGo = "Cross";
+  if (g.kind === "Arc") {
+    const c = g.p1, r = Math.hypot(g.p2[0] - c[0], g.p2[1] - c[1]);
+    if (!(r > 0)) return null;
+    // Absent, an arc's angle is taken as zero and rounded up to 90° (the specification's own default).
+    const deg = g.angularSize || 90;
+    // The same arc a plain Arc graphic draws (cdxmlRender: from the end point by +AngularSize, the page's angle
+    // increasing): the head where that arc ends, and the arrow's AngularSize written so its sign alone runs the same way
+    // (a half turn, where the head cannot say which way round, included).
+    const a0 = Math.atan2(g.p2[1] - c[1], g.p2[0] - c[0]), a1 = a0 + (deg * Math.PI) / 180;
+    Object.assign(base, { tail: g.p2, head: [c[0] + r * Math.cos(a1), c[1] + r * Math.sin(a1)] as Pt, center: c, major: [c[0] + r, c[1]] as Pt, minor: [c[0], c[1] + r] as Pt, angularSize: -deg });
+  }
+  return base;
 }
 
 /** A colour index as CSS: 0 black, 1 white, n ≥ 2 the table's entry n − 2 (default foreground black). */

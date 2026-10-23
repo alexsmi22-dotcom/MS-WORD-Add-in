@@ -181,6 +181,11 @@ import { FILM_CALCS } from "../lib/filmCalcs";
 import { MATERIALS_CALCS } from "../lib/materialsCalcs";
 import { CONTROL_CALCS } from "../lib/controlCalcs";
 import { TITRATION_CALCS } from "../lib/titrationCalcs";
+import { CIRCUIT_CALCS } from "../lib/circuitCalcs";
+import { CHROM_CALCS } from "../lib/chromCalcs";
+import { CLONING_CALCS } from "../lib/cloningCalcs";
+import { TLC_CALCS } from "../lib/tlcCalcs";
+import { LC_CALCS } from "../lib/lcCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -9235,7 +9240,7 @@ function buildDataSourceBar(
 
   const fileInput = document.createElement("input");
   fileInput.type = "file";
-  fileInput.accept = ".csv,.tsv,.txt";
+  fileInput.accept = ".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.xlsb,.ods,.numbers";
   fileInput.hidden = true;
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
@@ -9245,6 +9250,21 @@ function buildDataSourceBar(
     if (file.size > 8 * 1024 * 1024) {
       setStatus("That file is over 8 MB — too large to load into the pane.", "error");
       fileInput.value = "";
+      return;
+    }
+    // A workbook (or a format that must be refused by name): the first worksheet as a grid, by the lazily loaded
+    // reader (src/lib/xlsxRead.ts, its own chunk); the sheet note rides in the source label.
+    if (/\.(xlsx|xlsm|xls|xlsb|ods|numbers)$/i.test(file.name)) {
+      void file
+        .arrayBuffer()
+        .then(async (buf) => {
+          const { readXlsx } = await import(/* webpackChunkName: "xlsx" */ "../lib/xlsxRead");
+          const r = await readXlsx(new Uint8Array(buf), file.name);
+          if (r.ok) fill(r.rows, `${file.name} (${r.note})`);
+          else setStatus(r.error, "error");
+        })
+        .catch((e) => setStatus(e instanceof Error ? e.message : "That file could not be read.", "error"))
+        .finally(() => (fileInput.value = ""));
       return;
     }
     const reader = new FileReader();
@@ -9264,7 +9284,7 @@ function buildDataSourceBar(
   fileBtn.type = "button";
   fileBtn.className = "insert-btn secondary data-source-btn";
   fileBtn.textContent = "Open CSV…";
-  fileBtn.title = "Load a CSV or tab-separated file into this field";
+  fileBtn.title = "Load a CSV, tab-separated or Excel (.xlsx) file into this field";
   fileBtn.addEventListener("click", () => fileInput.click());
 
   bar.append(tableBtn, fileBtn, fileInput);
@@ -12863,6 +12883,7 @@ const ENG_GROUP_ORDER = [
   "Optics & photonics",
   "Quantum optics",
   "Biomedical",
+  "Molecular cloning",
   "Pharmacokinetics",
 ] as const;
 type EngGroup = (typeof ENG_GROUP_ORDER)[number];
@@ -28502,6 +28523,11 @@ const ENG_CALCS: EngCalc[] = [
   ...MATERIALS_CALCS,
   ...CONTROL_CALCS,
   ...TITRATION_CALCS,
+  ...CIRCUIT_CALCS,
+  ...CHROM_CALCS,
+  ...TLC_CALCS,
+  ...CLONING_CALCS,
+  ...LC_CALCS,
 ];
 
 /** A transfer function as a typeset fraction, with a readable text fallback. */

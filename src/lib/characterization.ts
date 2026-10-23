@@ -15,6 +15,8 @@ import { compositionFromMolecule } from "./massspec";
 import { ELECTRON_MASS, elementIsotopes, elementRefusal, isotopeMass } from "./isotopes";
 import { carbonEnvironmentCount } from "./nmr";
 import { atomicNumber, atomicWeight } from "./periodic";
+import { readDataBlock } from "./dataBlock";
+import { fmtSig } from "./axis";
 
 /** Where the format and the tolerances come from — shown in the pane. */
 export const CHAR_SOURCE =
@@ -1288,3 +1290,446 @@ export function htmlText(html: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&");
 }
+
+// ---------------------------------------------------------------------------
+// Measured ¹H integration → the ¹H list
+// ---------------------------------------------------------------------------
+//
+// A multiplet table as an NMR program exports it (one row per signal: δ or a range, the raw integral, the
+// multiplicity, the J values) → proton counts → the SAME typed ¹H list the pane already formats. This section only
+// writes that list (integrationToNmr); parseNmr / formatNmr / checkNmr then do everything they do for typed text, so
+// the app has one journal formatter and one set of referee checks (the total against the formula among them).
+//
+// Columns. A first line with no number in it is a header and columns are read by NAME (headerRole: MestReNova's
+// multiplet report "Name, Shift, Range, H's, Integral, Class, J's, Method" and the plain names δ, shift, integral,
+// mult, J; other columns are ignored and named). Without a header the DEFAULT ORDER is: δ (or a range), integral,
+// multiplicity (optional), J values (optional, any number of them).
+//
+// Fields are split by the RULE N separator decision (tab, else semicolon, else ", " and spaces, else bare commas);
+// every number then goes through dataBlock.readDataBlock, the one number reader (mixed decimal marks refused there).
+//
+// RANGE RULE. In one δ field a dash BETWEEN two numbers is a range ("7.30–7.24", "7.30-7.24", "7.30 .. 7.24",
+// "7.30 to 7.24"); a dash before the first digit is a minus sign ("−0.05", "-0.05"), and so is a dash right after the
+// range dash ("0.10–-0.05"). U+2212 is only ever a minus sign.
+
+/** A count is rounded to a whole number only within this distance of it (the brief's settled tolerance). */
+export const INTEGRATION_TOLERANCE = 0.15;
+/** Most rows an integration table may have. */
+export const INTEGRATION_MAX_ROWS = 200;
+/** A row within this distance of a solvent residual or water signal is that signal. */
+export const RESIDUAL_MATCH_PPM = 0.02;
+
+export const RESIDUAL_SOURCE =
+  "Solvent residual and water ¹H shifts: G. R. Fulmer et al., Organometallics 2010, 29, 2176–2179, Table 1.";
+
+/**
+ * Residual ¹H signals and water (H₂O / HOD) for the SOLVENTS keys, as printed in Fulmer et al. 2010, Table 1
+ * ("solvent residual signals" and "water OH" rows; read from the paper 2026-10-22). D₂O's residual IS its HOD.
+ * pyridine-d5 is not in that table: no values, so nothing is ever dropped for it.
+ */
+export const SOLVENT_RESIDUALS_1H: Record<string, { residual: string[]; water?: string }> = {
+  "THF-d8": { residual: ["1.72", "3.58"], water: "2.46" },
+  CD2Cl2: { residual: ["5.32"], water: "1.52" },
+  CDCl3: { residual: ["7.26"], water: "1.56" },
+  "toluene-d8": { residual: ["2.08", "6.97", "7.01", "7.09"], water: "0.43" },
+  C6D6: { residual: ["7.16"], water: "0.40" },
+  "acetone-d6": { residual: ["2.05"], water: "2.84" },
+  "DMSO-d6": { residual: ["2.50"], water: "3.33" },
+  CD3CN: { residual: ["1.94"], water: "2.13" },
+  CD3OD: { residual: ["3.31"], water: "4.87" },
+  D2O: { residual: ["4.79"] },
+};
+
+export type IntegrationReference =
+  | { kind: "as-written" }
+  /** Data row `row` (1-based, as pasted, header not counted) is `nH` protons. */
+  | { kind: "row"; row: number; nH: number }
+  | { kind: "formula" };
+
+export interface IntegrationOptions {
+  reference: IntegrationReference;
+  compound?: CharCompound | null;
+  /** Fit to the formula less the OH/NH/SH protons (they were not observed). Needs a structure. */
+  exchangeablesNotObserved?: boolean;
+  /** The solvent (a SOLVENTS key or alias) — for the residual / water rows. */
+  solvent?: string;
+  /** Drop rows at the solvent's residual or water shift (each named in a note). */
+  dropSolventPeaks?: boolean;
+}
+
+export interface IntegrationRow {
+  /** 1-based line in the pasted text. */
+  line: number;
+  /** 1-based data row, as pasted (the header not counted). */
+  row: number;
+  /** δ as typed (dot decimal); for a range, the high end. */
+  shift: string;
+  low?: string;
+  integral: number;
+  /** The normalized (unrounded) count. */
+  count: number;
+  /** The count printed: a whole number, or the measured value to one decimal when flagged. */
+  nH: string;
+  flagged: boolean;
+  mult?: string;
+  J: string[];
+}
+
+export interface IntegrationResult {
+  ok: true;
+  /** The typed ¹H list (high δ to low) — what the pane puts in its ¹H box. */
+  nmrText: string;
+  rows: IntegrationRow[];
+  /** Rows left out as solvent / water peaks. */
+  dropped: IntegrationRow[];
+  /** Raw integral × factor = count. */
+  factor: number;
+  messages: CharMessage[];
+}
+
+export interface IntegrationRefusal {
+  ok: false;
+  refusal: string;
+}
+
+type IntRole = "shift" | "range" | "integral" | "nh" | "mult" | "j" | "ignore";
+
+/** A header cell → the column it names (case, units and punctuation ignored). */
+export function headerRole(cell: string): IntRole {
+  const k = normalizeText(cell)
+    .toLowerCase()
+    .replace(/[’`]/g, "'")
+    .replace(/[([](?:ppm|hz)[)\]]/g, " ")
+    .replace(/[\s_.:/]+/g, " ")
+    .trim();
+  if (/^(?:δ|delta|shift|chemical shift|cs|ppm|δ ?h|δh)$/.test(k)) return "shift";
+  if (/^(?:range|shift range|δ range|delta range)$/.test(k)) return "range";
+  if (/^(?:integral|integrals|integration|int|area|abs integral|absolute integral|norm integral|normalized integral|normalised integral|relative integral|rel integral)$/.test(k)) return "integral";
+  if (/^(?:h's|hs|nh|n h|#h|h|protons|no of h|number of h)$/.test(k)) return "nh";
+  if (/^(?:class|mult|multiplicity|multiplicities|pattern|type)$/.test(k)) return "mult";
+  if (/^(?:j's|js|j|j values|j value|coupling|couplings|coupling constant|coupling constants|j ?\d)$/.test(k)) return "j";
+  return "ignore";
+}
+
+/** Looks like one number (readable or not: readDataBlock decides). */
+const INT_NUMLIKE = /^[-+−–]?(?:\d[\d.,]*|[.,]\d[\d.,]*)(?:[eE][-+−]?\d+)?$/;
+/** A δ range in one field (the RANGE RULE above). */
+const INT_RANGE = /^([-−–]?\d+(?:[.,]\d+)?)\s*(?:[-‐‑‒–—]|\.\.|to)\s*([-−–]?\d+(?:[.,]\d+)?)$/i;
+const INT_MISSING = /^(?:|[-–—]|na|n\/a|nan|\.)$/i;
+const INT_RANGE_TOKEN = /^(?:[-–—]|\.\.|to)$/i;
+
+/** Plain-text solvent name with Unicode subscripts (CDCl₃, DMSO-d₆). */
+function solventText(s: Solvent): string {
+  return s.html.replace(/<sub>(\d+)<\/sub>/g, (_, d: string) => d.split("").map((c) => SUBS[Number(c)]).join("")).replace(/<[^>]+>/g, "");
+}
+
+/** A number as the table typed it: the same decimals (a decimal comma written as a point). */
+function typedNumber(raw: string, v: number): string {
+  if (/e/i.test(raw)) return String(Number(v.toPrecision(6)));
+  const dp = (/[.,](\d+)$/.exec(raw.trim())?.[1] ?? "").length;
+  const s = v.toFixed(dp);
+  return Math.abs(Number(s) - v) < 1e-9 ? s : String(v);
+}
+
+/** The cells of one line under the block's separator. */
+function intFields(line: string, sep: "tab" | "semicolon" | "space" | "comma"): string[] {
+  if (sep === "tab") return line.split("\t").map((f) => f.trim());
+  if (sep === "semicolon") return line.split(";").map((f) => f.trim());
+  if (sep === "comma") return line.split(",").map((f) => f.trim());
+  // Whitespace: "7.36 – 7.27" is one range, "br s" one multiplicity; "J", "=", "Hz" carry nothing.
+  const toks = line.split(/,\s+|\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (INT_NUMLIKE.test(t) && INT_RANGE_TOKEN.test(toks[i + 1] ?? "") && INT_NUMLIKE.test(toks[i + 2] ?? "")) {
+      out.push(`${t}${EN_DASH}${toks[i + 2]}`);
+      i += 2;
+      continue;
+    }
+    if (/^\d.*[-–]$/.test(t) && INT_NUMLIKE.test(t.slice(0, -1)) && INT_NUMLIKE.test(toks[i + 1] ?? "")) {
+      out.push(`${t.slice(0, -1)}${EN_DASH}${toks[i + 1]}`);
+      i += 1;
+      continue;
+    }
+    if (/^(?:br|br\.|broad|app|app\.|apparent)$/i.test(t) && toks[i + 1] && normalizeMult(`${t} ${toks[i + 1]}`)) {
+      out.push(`${t} ${toks[i + 1]}`);
+      i += 1;
+      continue;
+    }
+    // "J", "J1", "J₂", "J=" and "=" are positions, "Hz" a unit: they carry nothing. ("³J", "JHF" stay, and are refused.)
+    if (/^(?:J[\d₀-₉]*=?|=|Hz)$/i.test(t)) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+/** The J values in one cell: "7.1", "8.0, 2.0", "J = 8.0, 2.0 Hz", "8.0; 2.0", "8.0/2.0", "8.04,1.95". */
+function jValues(cell: string): string[] | { bad: string } {
+  let t = cell.trim();
+  if (!t || INT_MISSING.test(t)) return [];
+  // A bond count (³J, 3J) or a labelled coupling (J_HF, JHF, J(H,F)) carries meaning this table reader would drop:
+  // refused by name — type such a signal in the ¹H box. An index (J1 = 8.0, J₂ = 2.0) is only a position: dropped.
+  if (/[¹²³⁴]\s*J|(?:^|[^\d.])\dJ|J\s*(?:[_{(]|[A-Za-z])/.test(t)) return { bad: t };
+  t = t.replace(/J\s*[\d₀-₉]*\s*=?/g, " ").replace(/Hz/gi, " ").replace(/\s+,/g, ",").trim();
+  if (!t) return [];
+  // Dot decimals joined by bare commas: the commas can only be separators.
+  if (/^\d+\.\d+(?:,\d+\.\d+)+$/.test(t)) t = t.replace(/,/g, " ");
+  return t.split(/\s*[;/]\s*|,\s+|\s+and\s+|\s+/).filter((x) => x && x !== "," && x !== "=");
+}
+
+/** A number in a message: plain digits from 10⁻³ to 10⁶, else m×10ⁿ (never e-notation). */
+function msgNum(v: number): string {
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  const s = a >= 1e-3 && a < 1e6 ? String(Number(a.toPrecision(6))) : fmtSig(a, 4).replace(/(\.\d*?)0+×/, "$1×").replace(/\.×/, "×");
+  return v < 0 ? MINUS + s : s;
+}
+
+/**
+ * The integration table → the typed ¹H list, or a refusal by name. See the section comment for the column, range
+ * and separator rules; the counts follow `o.reference` and the ±0.15 rounding rule (a count further from a whole
+ * number is printed to one decimal and flagged, never rounded).
+ */
+export function integrationToNmr(text: string, o: IntegrationOptions): IntegrationResult | IntegrationRefusal {
+  const refuse = (refusal: string): IntegrationRefusal => ({ ok: false, refusal });
+  const all = (text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const src = all.map((l, i) => ({ text: l, trimmed: l.trim(), line: i + 1 })).filter((r) => r.trimmed);
+  if (!src.length) return refuse("Integration table: nothing to read.");
+  // RULE N1, once for the block.
+  const sep: "tab" | "semicolon" | "space" | "comma" = all.some((l) => l.includes("\t"))
+    ? "tab"
+    : src.some((r) => r.trimmed.includes(";"))
+      ? "semicolon"
+      : src.some((r) => /\s/.test(r.trimmed))
+        ? "space"
+        : "comma";
+  const messages: CharMessage[] = [];
+
+  // Header (RULE N4: a first line none of whose cells is a number or a range).
+  const first = sep === "space" ? src[0].trimmed.split(/,\s+|\s+/).filter((t) => !/^[([](?:ppm|hz)[)\]]$/i.test(t)) : intFields(src[0].text, sep);
+  const isNum = (f: string): boolean => INT_NUMLIKE.test(f) || INT_RANGE.test(normalizeText(f).trim());
+  const hasHeader = first.some((f) => f && !INT_MISSING.test(f)) && !first.some(isNum);
+  let roles: IntRole[] | null = null;
+  if (hasHeader) {
+    roles = first.map((h) => (h ? headerRole(h) : "ignore"));
+    const named = (r: IntRole): number => roles!.filter((x) => x === r).length;
+    for (const r of ["shift", "range", "integral", "nh", "mult"] as const) {
+      if (named(r) > 1) return refuse(`Integration table: the header names more than one ${r === "nh" ? "H's" : r} column (“${first.filter((h, i) => roles![i] === r).join("”, “")}”).`);
+    }
+    if (!named("shift") && !named("range")) return refuse(`Integration table: the header (“${first.join(", ")}”) has no δ column (Shift, δ or Range).`);
+    if (!named("integral") && !named("nh")) return refuse(`Integration table: the header (“${first.join(", ")}”) has no Integral column.`);
+    const ignored = first.filter((h, i) => h && roles![i] === "ignore");
+    if (sep === "space" && ignored.length) {
+      return refuse(`Integration table: header word${ignored.length > 1 ? "s" : ""} “${ignored.join("”, “")}” not recognised. In a space-separated table every header word must be a column name (δ, Integral, Mult, J); paste with tabs to keep other columns.`);
+    }
+    if (ignored.length) messages.push({ level: "info", text: `Columns not used: ${ignored.join(", ")}.` });
+    if (!named("integral")) messages.push({ level: "info", text: "No Integral column: the H's column is used as the integrals." });
+    else if (named("nh")) messages.push({ level: "info", text: "The H's column (the program's own counts) is not used: the counts come from the Integral column and the reference below." });
+    if (named("shift") && named("range")) messages.push({ level: "info", text: "A multiplet (m) is given as its Range and every other signal at its Shift, as journals report them." });
+  }
+  const data = hasHeader ? src.slice(1) : src;
+  if (!data.length) return refuse("Integration table: only a header line.");
+  if (data.length > INTEGRATION_MAX_ROWS) return refuse(`Integration table: more than ${INTEGRATION_MAX_ROWS} rows (${data.length}).`);
+
+  interface Cells { line: number; text: string; delta: string; integral: string; mult: string; J: string[]; fromRange: boolean }
+  const cells: Cells[] = [];
+  for (const r of data) {
+    const f = intFields(r.text, sep);
+    const where = `line ${r.line} (“${r.trimmed}”)`;
+    let delta = "";
+    let range = "";
+    let integral = "";
+    let nh = "";
+    let mult = "";
+    const J: string[] = [];
+    const jCells: string[] = [];
+    if (roles) {
+      const lastJ = roles[roles.length - 1] === "j";
+      if (f.length > roles.length && f.slice(roles.length).some((x) => x && !INT_MISSING.test(x))) {
+        if (!lastJ) return refuse(`Integration table: ${where} has more fields than the header.`);
+      }
+      f.forEach((x, i) => {
+        const role = i < roles!.length ? roles![i] : lastJ ? "j" : "ignore";
+        if (role === "shift") delta = x;
+        else if (role === "range") range = x;
+        else if (role === "integral") integral = x;
+        else if (role === "nh") nh = x;
+        else if (role === "mult") mult = x;
+        else if (role === "j") jCells.push(x);
+      });
+      if (!roles.includes("integral")) integral = nh;
+    } else {
+      [delta = "", integral = ""] = f;
+      const third = f[2] ?? "";
+      if (third && !INT_MISSING.test(third) && INT_NUMLIKE.test(third)) {
+        return refuse(`Integration table: ${where}: a number (${third}) where the multiplicity goes. Without a header the columns are δ, integral, multiplicity, J values.`);
+      }
+      mult = third;
+      jCells.push(...f.slice(3));
+    }
+    for (const x of jCells) {
+      const jv = jValues(x);
+      if ("bad" in jv) return refuse(`Integration table: ${where}: “${jv.bad}” is a labelled coupling (a bond count or nuclei such as J_HF) — type that signal in the ¹H box, where its label is kept.`);
+      J.push(...jv);
+    }
+    const m = mult.trim() && !INT_MISSING.test(mult.trim()) ? normalizeMult(mult) : null;
+    if (mult.trim() && !INT_MISSING.test(mult.trim()) && !m) return refuse(`Integration table: ${where}: “${mult.trim()}” is not a multiplicity (s, d, t, q, dd, m, br s, …).`);
+    // MestReNova's report: a multiplet at its range, every other signal at its shift.
+    let fromRange = false;
+    if (range.trim() && !INT_MISSING.test(range.trim()) && (!delta.trim() || INT_MISSING.test(delta.trim()) || !m || m === "m")) {
+      delta = range;
+      fromRange = true;
+    }
+    if (!delta.trim() || INT_MISSING.test(delta.trim())) return refuse(`Integration table: ${where} has no δ.`);
+    if (!integral.trim() || INT_MISSING.test(integral.trim())) return refuse(`Integration table: ${where} has no integral.`);
+    // δ kept as typed (no normalizeText: it reads U+2212 as a hyphen, and U+2212 is never a range dash).
+    cells.push({ line: r.line, text: r.trimmed, delta: delta.trim(), integral: integral.trim(), mult: m ?? "", J, fromRange });
+  }
+
+  // Every number through the one reader: per row [δ high, δ low | NA, integral, J…], on the row's own line.
+  const synth = all.map(() => "");
+  const parts: { hi: string; lo: string | null }[] = [];
+  for (const c of cells) {
+    const where = `line ${c.line} (“${c.text}”)`;
+    const rg = INT_RANGE.exec(c.delta);
+    const hi = rg ? rg[1] : c.delta;
+    const lo = rg ? rg[2] : null;
+    if (!INT_NUMLIKE.test(hi) || (lo !== null && !INT_NUMLIKE.test(lo))) return refuse(`Integration table: ${where}: “${c.delta}” is not a shift (δ) or a range like 7.36–7.28.`);
+    if (!INT_NUMLIKE.test(c.integral)) return refuse(`Integration table: ${where}: “${c.integral}” is not an integral.`);
+    for (const j of c.J) if (!INT_NUMLIKE.test(j)) return refuse(`Integration table: ${where}: “${j}” is not a J value.`);
+    parts.push({ hi, lo });
+    synth[c.line - 1] = [hi, lo ?? "NA", c.integral, ...c.J].join("\t");
+  }
+  const block = readDataBlock(synth.join("\n"), "Integration table", { maxRows: INTEGRATION_MAX_ROWS });
+  if (!block.ok) return refuse(block.error);
+  for (const n of block.notes) messages.push({ level: "info", text: n });
+
+  const rows: IntegrationRow[] = [];
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    const v = block.rows[i];
+    const where = `line ${c.line}`;
+    const hiV = v[0];
+    const loV = v[1];
+    const integral = v[2];
+    if (hiV === null || !Number.isFinite(hiV)) return refuse(`Integration table: ${where} has no δ.`);
+    let shift = typedNumber(parts[i].hi, hiV);
+    let low: string | undefined;
+    if (loV !== null && loV !== undefined) {
+      if (loV === hiV) return refuse(`Integration table: ${where}: the range “${c.delta}” has equal ends; give the single shift.`);
+      low = typedNumber(parts[i].lo as string, loV);
+      // A range is printed high end first, whichever way the program wrote it.
+      if (loV > hiV) [shift, low] = [low, shift];
+    }
+    const label = `δ ${signed(shift)}${low !== undefined ? EN_DASH + signed(low) : ""}`;
+    if (integral === null || integral === undefined || !Number.isFinite(integral)) return refuse(`Integration table: ${where} (${label}) has no integral.`);
+    if (integral <= 0) {
+      return refuse(`Integration table: ${where} (${label}): the integral ${integral === 0 ? "0" : msgNum(integral)} is not positive. A signal's integral must be above zero: fix the integration (baseline, phase) or delete the row.`);
+    }
+    const J: string[] = [];
+    for (let k = 3; k < v.length; k++) {
+      const jv = v[k];
+      if (jv === null) continue;
+      if (!(jv > 0)) return refuse(`Integration table: ${where} (${label}): J = ${jv === 0 ? "0" : msgNum(jv)} Hz; give |J|, a positive number.`);
+      J.push(typedNumber(c.J[k - 3], jv));
+    }
+    rows.push({ line: c.line, row: i + 1, shift, low, integral, count: 0, nH: "", flagged: false, mult: c.mult || undefined, J });
+  }
+
+  // Solvent residual / water rows: named, dropped only when asked.
+  const solv = o.solvent && o.solvent.trim() ? findSolvent(o.solvent) : null;
+  const res = solv ? SOLVENT_RESIDUALS_1H[solv.key] : undefined;
+  const dropped: IntegrationRow[] = [];
+  let kept = rows;
+  if (o.dropSolventPeaks && !solv) {
+    messages.push({ level: "warn", text: "“Drop solvent peaks” needs the solvent: choose it in the Solvent menu. Nothing was dropped." });
+  } else if (o.dropSolventPeaks && solv && !res) {
+    messages.push({ level: "warn", text: `No residual or water shifts on file for ${solventText(solv)}, so nothing was dropped.` });
+  }
+  if (solv && res) {
+    const sName = solventText(solv);
+    const signals = [...res.residual.map((d) => ({ d, what: `the ${sName} residual (${d})` })), ...(res.water ? [{ d: res.water, what: `water in ${sName} (${res.water})` }] : [])];
+    kept = [];
+    for (const r of rows) {
+      const at = r.low === undefined ? signals.find((s) => Math.abs(Number(r.shift) - Number(s.d)) <= RESIDUAL_MATCH_PPM + 1e-9) : undefined;
+      if (at && o.dropSolventPeaks) {
+        dropped.push(r);
+        messages.push({ level: "info", text: `δ ${signed(r.shift)} (row ${r.row}) left out: it is at ${at.what}, within ±${RESIDUAL_MATCH_PPM} ppm. If it is a signal of the compound, untick “Drop solvent peaks”.` });
+        continue;
+      }
+      if (at) messages.push({ level: "info", text: `δ ${signed(r.shift)} (row ${r.row}) is at ${at.what}; kept. Tick “Drop solvent peaks” if it is the solvent.` });
+      else if (r.low !== undefined) {
+        const inside = signals.find((s) => Number(s.d) <= Number(r.shift) + RESIDUAL_MATCH_PPM && Number(s.d) >= Number(r.low) - RESIDUAL_MATCH_PPM);
+        if (inside) messages.push({ level: "info", text: `δ ${signed(r.shift)}${EN_DASH}${signed(r.low as string)} (row ${r.row}) spans ${inside.what}; kept whole (a range is never dropped). Its integral may include the solvent.` });
+      }
+      kept.push(r);
+    }
+    if (!kept.length) return refuse("Integration table: every row is a solvent or water peak; nothing is left to report.");
+  }
+
+  // The reference → the factor.
+  let factor: number;
+  const ref = o.reference;
+  if (ref.kind === "row") {
+    if (!Number.isInteger(ref.row) || ref.row < 1 || ref.row > rows.length) {
+      return refuse(`Reference row ${Number.isFinite(ref.row) ? msgNum(ref.row) : "(not a number)"} is not a row of the table: it has ${rows.length} row${rows.length > 1 ? "s" : ""} (numbered from 1, the header not counted).`);
+    }
+    if (!Number.isFinite(ref.nH) || !Number.isInteger(ref.nH) || ref.nH < 1) {
+      return refuse(`The reference must be a whole number of protons, 1H or more (not ${Number.isFinite(ref.nH) ? msgNum(ref.nH) : "a number"}).`);
+    }
+    const r = rows[ref.row - 1];
+    if (dropped.includes(r)) return refuse(`Reference row ${ref.row} (δ ${signed(r.shift)}) was left out as a solvent peak; choose another reference row.`);
+    factor = ref.nH / r.integral;
+    messages.push({ level: "info", text: `Counts scaled so that row ${ref.row} (δ ${signed(r.shift)}${r.low !== undefined ? EN_DASH + signed(r.low) : ""}) is ${ref.nH}H.` });
+  } else if (ref.kind === "formula") {
+    const c = o.compound;
+    if (!c) return refuse("“Fit to the formula” needs the compound: enter it above, or choose a reference row.");
+    let target = protonCount(c);
+    let exNote = "";
+    if (o.exchangeablesNotObserved) {
+      const ex = exchangeableProtons(c);
+      if (ex === null) return refuse("“Exchangeable protons not observed” needs a structure (a name or SMILES): a formula does not say which H are on O, N or S.");
+      target -= ex;
+      exNote = ex ? ` less its ${ex} OH/NH/SH proton${ex > 1 ? "s" : ""} (not observed)` : " (it has no OH/NH/SH protons)";
+    }
+    if (!(target > 0)) return refuse(`Nothing to fit: the formula leaves ${target} ¹H to observe.`);
+    const sum = kept.reduce((s, r) => s + r.integral, 0);
+    factor = target / sum;
+    messages.push({ level: "info", text: `Counts scaled so that the signals add up to ${target}H: the formula's ${protonCount(c)} ¹H${exNote}.` });
+  } else {
+    factor = 1;
+    messages.push({ level: "info", text: "Integrals used as written (no reference row): they should already be proton counts." });
+  }
+  if (!Number.isFinite(factor) || factor <= 0) return refuse("The integrals cannot be scaled (an integral too large or too small to compute with).");
+  if (factor !== 1) messages.push({ level: "info", text: `Raw integral × ${fmtSig(factor, 4)} = protons.` });
+  messages.push({ level: "info", text: `A count is rounded to a whole number only when it is within ±${INTEGRATION_TOLERANCE} of one; otherwise it is shown to one decimal and flagged.` });
+
+  for (const r of kept) {
+    const v = r.integral * factor;
+    if (!Number.isFinite(v)) return refuse(`Integration table: line ${r.line}: the count cannot be computed.`);
+    const n = Math.round(v);
+    const near = Math.abs(v - n) <= INTEGRATION_TOLERANCE + 1e-9;
+    r.count = v;
+    if (near && n === 0) {
+      return refuse(`δ ${signed(r.shift)} (row ${r.row}) comes to ${v < 0.005 ? "less than 0.01" : v.toFixed(2)}H, too small to be a signal of the compound (an impurity, or noise?). Delete the row, or check the reference.`);
+    }
+    if (near) r.nH = String(n);
+    else {
+      r.flagged = true;
+      r.nH = v.toFixed(1);
+      messages.push({ level: "warn", text: `δ ${signed(r.shift)}${r.low !== undefined ? EN_DASH + signed(r.low) : ""}: ${v.toFixed(2)}H is not near a whole number — check the integration or the reference. Shown as ${r.nH}H.` });
+    }
+  }
+  messages.push({ level: "info", text: "Signals listed from high δ to low (journal order)." });
+
+  const order = kept.map((r, i) => ({ r, i })).sort((a, b) => Number(b.r.shift) - Number(a.r.shift) || a.i - b.i).map(({ r }) => r);
+  const nmrText = order
+    .map((r) => {
+      const inner = [r.mult, r.J.length ? `J = ${r.J.join(", ")} Hz` : "", `${r.nH}H`].filter(Boolean).join(", ");
+      // Negative shifts with a true minus (U+2212): the ¹H box shows typeset text, and parseNmr reads it back.
+      return `${signed(r.shift)}${r.low !== undefined ? EN_DASH + signed(r.low) : ""} (${inner})`;
+    })
+    .join(", ");
+  return { ok: true, nmrText, rows: kept, dropped, factor, messages };
+}
+

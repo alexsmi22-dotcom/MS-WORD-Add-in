@@ -1289,6 +1289,29 @@
           <label class="field-label" for="charz-h-list">Signals — paste from MestReNova, or one per line</label>
           <textarea id="charz-h-list" class="build-input" rows="4" spellcheck="false"
             placeholder="1H NMR (400 MHz, Chloroform-d) δ 7.36 – 7.27 (m, 5H), 5.12 (s, 2H), 2.10 (s, 3H)&#10;— or —&#10;7.26 d 8.0 2H"></textarea>
+          <details class="charz-group" id="charz-int">
+            <summary>From an integration table</summary>
+            <label class="field-label" for="charz-int-table">Multiplet table: δ (or a range), integral, multiplicity, J values — or paste MestReNova's multiplet report with its header row</label>
+            <textarea id="charz-int-table" class="build-input" rows="4" spellcheck="false"
+              placeholder="4.12, 2.00, q, 7.1&#10;2.05, 3.02, s&#10;1.26, 2.97, t, 7.1"></textarea>
+            <div class="charz-row">
+              <label class="field-label" for="charz-int-ref">Counts from</label>
+              <select id="charz-int-ref" class="lib-select">
+                <option value="as-written" selected>The integrals as written</option>
+                <option value="row">A reference row</option>
+                <option value="formula">Fit to the compound's formula</option>
+              </select>
+            </div>
+            <div class="charz-row">
+              <label class="field-label" for="charz-int-row">Row</label>
+              <input id="charz-int-row" type="text" class="rgroup-input charz-short" autocomplete="off" placeholder="1" disabled />
+              <label class="field-label" for="charz-int-nh">is (nH)</label>
+              <input id="charz-int-nh" type="text" class="rgroup-input charz-short" autocomplete="off" placeholder="2" disabled />
+            </div>
+            <label class="omml-option"><input type="checkbox" id="charz-int-exch" /> Exchangeable protons (OH, NH) not observed</label>
+            <label class="omml-option"><input type="checkbox" id="charz-int-drop" /> Drop solvent and water peaks (Solvent menu)</label>
+            <button id="charz-int-fill" class="draw-pop-btn" type="button">Write the <sup>1</sup>H list</button>
+          </details>
         </details>
 
         <details class="charz-group" open>

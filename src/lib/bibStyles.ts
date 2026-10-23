@@ -14,6 +14,9 @@
 //   APA 7       apastyle.apa.org reference examples (journal, book, edited-book chapter) and
 //               "Elements of reference list entries"
 //   Chicago     CMOS 18 Citation Quick Guide, author-date and notes-bibliography pages
+//   Optica      Optica Publishing Group Journal Style Guide, §3 "References and notes"
+//               (opg.optica.org/content/author/portal/item/style-optica-styleguide/, page
+//               updatedAt 2026-08-20, fetched 2026-10-22; tests: opticaStyle.test.ts)
 // The tests (bibStyles.oracle.test.ts) quote each example verbatim with its URL.
 //
 // A style claims only the item types for which at least three verbatim examples were found
@@ -22,8 +25,8 @@
 //
 // Display contract: html is built from escaped text plus <i> <b> <sup> <sub>; plain is the
 // html with tags stripped and entities decoded. Unicode (H₂O) is never folded, page ranges
-// use the en dash (NLM: hyphen, its own rule), and et al. is roman: none of the fetched
-// sources sets it in italics.
+// use the en dash (NLM: hyphen, its own rule), and et al. is roman except in Optica, whose
+// guide sets it in italics in every formatted example ("J. Chang, <em>et al.</em>,").
 
 import type { BibDate, BibName, BibRecord, BibStyle, BibType, CiteItem, Formatted, StyleId } from "./bibRecord";
 import { formatPages, isPageRange } from "./bibPages";
@@ -51,6 +54,8 @@ export interface StyleInfo {
   reason?: string;
   /** Why particular types are refused, by type. */
   refusedTypes?: Partial<Record<BibType, string>>;
+  /** Set when the style's guide gives no form for a locator in a citation: the reason. */
+  noLocator?: string;
   sources: string[];
 }
 
@@ -72,6 +77,10 @@ export const STYLE_RULES: Record<StyleId, StyleRules> = {
   acs: { refEtAl: null, citeEtAlMin: null, compressRanges: true, sortParticleFirst: null },
   nature: { refEtAl: { max: 5, keep: 1 }, citeEtAlMin: null, compressRanges: true, sortParticleFirst: null },
   vancouver: { refEtAl: { max: 6, keep: 6 }, citeEtAlMin: null, compressRanges: true, sortParticleFirst: null },
+  // Optica guide §3: "Always list the first three authors in references and use et al. if there are
+  // additional authors"; "three or more consecutive references should be indicated by the bounding
+  // numbers and an en dash [1–4]".
+  optica: { refEtAl: { max: 3, keep: 3 }, citeEtAlMin: null, compressRanges: true, sortParticleFirst: null },
   apa7: { refEtAl: { max: 20, keep: 19 }, citeEtAlMin: 3, compressRanges: false, sortParticleFirst: true },
   "chicago-ad": { refEtAl: { max: 6, keep: 3 }, citeEtAlMin: 3, compressRanges: false, sortParticleFirst: null },
   "chicago-nb": { refEtAl: { max: 6, keep: 3 }, citeEtAlMin: 3, compressRanges: false, sortParticleFirst: null },
@@ -110,6 +119,29 @@ export const STYLE_INFO: Record<StyleId, StyleInfo> = {
       patent: "nature.com guides give no patent example",
     },
     sources: ["nature.com Scientific Reports and Nature Chemistry author guidelines; Nature formatting guide"],
+  },
+  optica: {
+    id: "optica", name: "Optica (Optics Letters, Optics Express, JOSA)", shipped: true,
+    types: ["article-journal"],
+    refusedTypes: {
+      book: "the Optica style guide has one clean book example (Almond, Photothermal Science and Techniques)",
+      chapter: "the Optica style guide's three chapter examples (Meola, Gaussorgues, Maldague) each have a "
+        + "different shape, and one needs a chapter number (\"Chap. 3\") the record contract cannot hold",
+      "paper-conference": "the Optica style guide has two conference examples, both the same Balageas paper; "
+        + "a Proc. SPIE or Proc. IEEE paper is set like a journal article, so enter it as a journal article "
+        + "with the journal abbreviation \"Proc. SPIE\"",
+      patent: "the Optica style guide has two patent examples, both the same Sun patent",
+      thesis: "the Optica style guide has one dissertation example (McKay)",
+      report: "the Optica style guide has one report example (Lang and Bradley)",
+      dataset: "the Optica style guide has two data examples (Partridge, Radosheich)",
+      article: "the Optica style guide's three preprint examples (Optica Open, arXiv, university EPrint) "
+        + "each have a different shape",
+      webpage: "the Optica style guide has no web page example",
+    },
+    noLocator: "the Optica style guide gives no form for a page, figure or equation inside the citation "
+      + "brackets. Cite the reference without a locator and name the place in the sentence (for example, "
+      + "“Fig. 3 of [2]”)",
+    sources: ["Optica Publishing Group Journal Style Guide §3 References and notes (updated 2026-08-20)"],
   },
   vancouver: {
     id: "vancouver", name: "Vancouver (NLM)", shipped: true,
@@ -605,6 +637,72 @@ function natureReference(rec: BibRecord): Formatted {
   return out(period(joinNonEmpty([by, t, src], " ")));
 }
 
+// ======================================================================== Optica (formerly OSA)
+//
+// Optica Publishing Group Journal Style Guide §3 "References and notes", the one guide for all
+// Optica journals (Optics Letters, Optics Express, Optica, JOSA A/B, Applied Optics …):
+//   T. Wang, Y. Ge, J. Chang, <em>et al.</em>, "Wavelength-interrogation …," IEEE Photon. Technol.
+//     Lett. <strong>28,</strong> 3-6 (2016).
+//   C. Gomez, R. Su, P. de Groot, <em>et al.</em>, "Noise reduction …," Nanomanuf. Metrol.
+//     <strong>3</strong>(2), 1-12 (2020).
+//   L. Deck and J. A. Soobitsky, "Phase-shifting …," Proc. SPIE <strong>3782,</strong> 432-442 (1999).
+//   5. W. S. Haddad, D. Cullen, J. C. Solem, et al., Appl. Opt. 31, 4973-4980 (1992).
+// So: initials first; "A and B" / "A, B, and C"; more than three → first three, et al. (italic in
+// the formatted examples); title as given in quotes with the comma inside; journal abbreviation
+// in roman (never invented: container-title-short or the full title plus a warning); volume bold
+// with the comma inside the bold, or "<b>3</b>(2)," with an issue; pages or article number;
+// "(year)". The guide's journal examples print no DOI or URL, so none is printed. The web page is
+// typed in ASCII (hyphen ranges, straight quotes, "--" for a dash); the output uses the en dash
+// (display contract) and curly quotes, as the journals print them.
+
+function opticaNames(names: BibName[], etAl: boolean): string {
+  if (!names.length) return "";
+  const r = STYLE_RULES.optica.refEtAl!;
+  const list = names.map((n) => esc(nameText(n, "initials-first")));
+  if (names.length > r.max) return `${list.slice(0, r.keep).join(", ")}, <i>et al.</i>`;
+  if (etAl) return `${list.join(", ")}, <i>et al.</i>`;
+  return serialAnd(list);
+}
+
+function opticaReference(rec: BibRecord): Formatted {
+  guard("optica", rec);
+  const by = opticaNames(rec.author ?? [], !!rec["et-al-in-source"]);
+  const t = richTitle(rec.title);
+  const j = journalTitle(rec, "abbrev").text;
+  const year = yearOf(rec.issued);
+  const loc = rec["article-number"]?.trim() ? esc(rec["article-number"].trim()) : rec.page ? formatPages(rec.page, "full") : "";
+  const vol = rec.volume?.trim() ? esc(rec.volume.trim()) : "";
+  const iss = rec.issue?.trim() ? esc(rec.issue.trim()) : "";
+  // "<b>28,</b> 3–6" / "<b>3</b>(2), 1–12" / "<b>31</b>" / "Optica Open, 100004" (no volume).
+  let volLoc: string;
+  if (vol) {
+    if (iss) volLoc = `<b>${vol}</b>(${iss})${loc ? `, ${loc}` : ""}`;
+    else volLoc = loc ? `<b>${vol},</b> ${loc}` : `<b>${vol}</b>`;
+  } else {
+    volLoc = loc;
+  }
+  const jPart = j ? normalizeRich(j) : "";
+  const src = vol ? joinNonEmpty([jPart, volLoc], " ") : joinNonEmpty([jPart, volLoc], ", ");
+  const tail = joinNonEmpty([src, year ? `(${esc(year)})` : ""], " ");
+  const quoted = t ? (tail ? (/[?!]$/.test(plainOf(t)) ? `“${t}”` : `“${t},”`) : period(`“${t}”`)) : "";
+  const head = joinNonEmpty([quoted, tail], " ");
+  const html = by ? (head ? `${by}, ${head}` : by) : head;
+  return out(period(html));
+}
+
+function opticaMarker(items: Array<{ rec: BibRecord; n?: number; item: CiteItem }>): Formatted {
+  // Optica guide §3: "Two references [2,3] should be included together, separated by a comma, and
+  // three or more consecutive references should be indicated by the bounding numbers and an en
+  // dash [1–4]." The guide gives no form for a page or figure locator inside the brackets, so none
+  // is invented: a new citation with a locator is refused at insert (bibPane planInsert, via
+  // STYLE_INFO.optica.noLocator), and a locator carried over from another style is left out of the
+  // marker, which still gets its CORRECT number (refusing here would leave a stale number in the
+  // document), and is reported by name (bibPane planUpdate).
+  const nums = compressNumbers(numbersOf(items));
+  const unknown = items.some((i) => typeof i.n !== "number" || !Number.isFinite(i.n));
+  return out(esc(`[${joinNonEmpty([nums, unknown ? "?" : ""], ",")}]`));
+}
+
 // ======================================================================== Vancouver / NLM
 
 const NLM_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -985,6 +1083,10 @@ export const STYLES: Partial<Record<StyleId, BibStyle>> = {
   ieee: { id: "ieee", name: "IEEE", kind: "numeric", order: "citation", reference: ieeeReference, marker: ieeeMarker },
   acs: { id: "acs", name: "ACS", kind: "numeric", order: "citation", reference: acsReference, marker: superscriptMarker },
   nature: { id: "nature", name: "Nature", kind: "numeric", order: "citation", reference: natureReference, marker: superscriptMarker },
+  optica: {
+    id: "optica", name: STYLE_INFO.optica.name, kind: "numeric", order: "citation",
+    reference: opticaReference, marker: opticaMarker,
+  },
   vancouver: makeVancouver(),
   apa7: { id: "apa7", name: "APA 7", kind: "author-date", order: "alphabetical", reference: apaReference, marker: apaMarker },
   "chicago-ad": {
@@ -1026,7 +1128,7 @@ export function formatReference(id: StyleId, rec: BibRecord, n?: number): Format
 export function referenceWarnings(id: StyleId, rec: BibRecord): string[] {
   const w: string[] = [];
   const wantsAbbrev = (id === "ieee" && (rec.type === "article-journal" || rec.type === "paper-conference"))
-    || ((id === "nature" || id === "vancouver") && rec.type === "article-journal");
+    || ((id === "nature" || id === "vancouver" || id === "optica") && rec.type === "article-journal");
   if (wantsAbbrev) {
     const j = journalTitle(rec, id === "vancouver" ? "abbrev-nlm" : "abbrev");
     if (j.warning) w.push(j.warning);

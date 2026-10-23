@@ -47,7 +47,49 @@ export interface Element {
   value: number;
   /** Exact value, when the user typed something exactly representable. */
   exact: Rat | null;
+  /**
+   * A time-varying source (V or I only): PULSE, SIN or PWL. `value`/`exact` then
+   * hold the waveform's value AT t = 0, which is what the DC tool solves with
+   * (SPICE: "the time-zero value is used for dc analysis"); the AC tool gives a
+   * waveform source no AC amplitude, as SPICE does; the transient tool follows
+   * the waveform. Absent for every plain-valued element, so a netlist without a
+   * waveform parses to exactly the objects it always did.
+   */
+  wave?: Waveform;
 }
+
+/**
+ * The SPICE-compatible subset of independent-source waveforms.
+ *
+ *   PULSE(V1 V2 TD TR TF PW PER)  TR/TF omitted or 0 take the time step (as SPICE);
+ *                                 PW omitted stays at V2; PER omitted is one pulse.
+ *   SIN(VO VA FREQ TD)            VO until TD, then VO + VA sin(2πf(t − TD)).
+ *   PWL(t1 v1 t2 v2 …)            held at v1 before t1 and at the last value after.
+ *
+ * Exact rationals are kept for the levels a user types, so a DC operating point
+ * computed from them (t = 0, or the final value) stays exact.
+ */
+export type Waveform =
+  | {
+      kind: "PULSE";
+      v1: number;
+      v2: number;
+      v1x: Rat | null;
+      v2x: Rat | null;
+      td: number;
+      /** null: not given (or 0), so the transient's time step is used, as in SPICE. */
+      tr: number | null;
+      tf: number | null;
+      /** null: not given, so the pulse stays at V2. */
+      pw: number | null;
+      /** null: not given, so there is one pulse. */
+      per: number | null;
+    }
+  | { kind: "SIN"; vo: number; va: number; vox: Rat | null; freq: number; td: number }
+  | { kind: "PWL"; t: number[]; v: number[]; vx: (Rat | null)[] };
+
+/** At most this many PWL corners, so a pasted table cannot make every step a long scan. */
+export const MAX_PWL_POINTS = 1000;
 
 export interface DcResult {
   ok: true;
@@ -94,7 +136,7 @@ const MAX_SWEEP_POINTS = 400;
 // capitalisation. "Ground" and "GROUND" failed the same way while "ground" did
 // not, which is the kind of inconsistency nobody would ever think to test.
 const GROUND = new Set(["0", "gnd", "gnd!", "ground", "vss", "agnd", "dgnd"]);
-const isGround = (n: string): boolean => GROUND.has(n.trim().toLowerCase());
+export const isGround = (n: string): boolean => GROUND.has(n.trim().toLowerCase());
 
 // ---------------------------------------------------------------------------
 // Complex arithmetic — small and local; linalg.ts is real-valued.
@@ -195,6 +237,199 @@ export interface ParsedNetlist {
 }
 
 /**
+ * The netlist's element lines, exactly as parseNetlist reads them: split at line
+ * breaks and semicolons, `*` and `#` comments removed, blank lines dropped.
+ * Exported so the transient tool's own pre-scan (unsupported devices, dot cards)
+ * sees the same lines the parser does.
+ */
+export function netlistLines(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/\n|;/)) {
+    const line = raw.replace(/[*#].*$/, "").trim();
+    if (line) out.push(line);
+  }
+  return out;
+}
+
+/** SPICE source keywords. Only these are intercepted, so any other text keeps its old message. */
+const SOURCE_KEYWORD = /^(pulse|sin|pwl|dc|ac|exp|sffm|am|trnoise|trrandom|distof1|distof2)(?:\(|$)/i;
+
+/**
+ * Reads the value part of a V or I line that starts with a SPICE keyword.
+ * `tokens` are the line's fields after the two nodes (already split at spaces
+ * and commas). Returns the t = 0 value, its exact form, and the waveform.
+ */
+function parseSourceSpec(
+  name: string,
+  tokens: string[],
+): { value: number; exact: Rat | null; wave?: Waveform } | { error: string } {
+  const joined = tokens.join(" ");
+  const kw = (SOURCE_KEYWORD.exec(tokens[0]) as RegExpExecArray)[1].toUpperCase();
+  if (kw === "DC") {
+    if (tokens.length !== 2)
+      return {
+        error:
+          `${name}: write a DC source as "DC 5" or just "5". A DC value together with a waveform or an AC ` +
+          "magnitude is not read: give the source either a plain value or one PULSE, SIN or PWL waveform.",
+      };
+    const v = parseValue(tokens[1]);
+    if (!v) return { error: `Could not read the value "${tokens[1]}" in "${name}".` };
+    return { value: v.value, exact: v.exact };
+  }
+  if (kw === "AC")
+    return {
+      error:
+        `${name}: an "AC" magnitude on a source is not read. The AC tool uses a source's plain value as its ` +
+        `AC amplitude, so write it as "${name} <node> <node> 1".`,
+    };
+  if (kw !== "PULSE" && kw !== "SIN" && kw !== "PWL")
+    return {
+      error:
+        `${name} uses ${kw === "EXP" || kw === "SFFM" || kw === "AM" ? "an" : "a"} ${kw} waveform, which is not supported. A source takes a plain value, ` +
+        "PULSE(V1 V2 TD TR TF PW PER), SIN(VO VA FREQ TD) or PWL(t1 v1 t2 v2 …).",
+    };
+  const m = /^[a-z]+\s*\(([^()]*)\)\s*$/i.exec(joined) ?? /^[a-z]+\s+([^()]*)$/i.exec(joined);
+  if (!m)
+    return { error: `${name}: could not read ${kw}(…). Write it as ${kw}(` + (kw === "PULSE" ? "0 5 0 1n 1n 1m 2m)" : kw === "SIN" ? "0 1 1k 0)" : "0 0 1m 5)") + "." };
+  const args = m[1].split(/[\s,]+/).filter(Boolean);
+  const vals: { value: number; exact: Rat | null }[] = [];
+  for (const a of args) {
+    const v = parseValue(a);
+    if (!v) return { error: `Could not read "${a}" in ${name}'s ${kw}(…).` };
+    vals.push(v);
+  }
+  const negTime = (what: string): { error: string } => ({
+    error: `${name}: ${what} in ${kw}(…) is negative. Times in a source waveform start at 0.`,
+  });
+
+  if (kw === "PULSE") {
+    if (vals.length < 2)
+      return { error: `${name}: PULSE needs at least V1 and V2: PULSE(V1 V2 TD TR TF PW PER).` };
+    if (vals.length > 7)
+      return {
+        error:
+          `${name}: PULSE takes at most seven values (V1 V2 TD TR TF PW PER). An eighth (a pulse count) is not ` +
+          "supported; shorten the stop time instead.",
+      };
+    const at = (i: number): number | null => (i < vals.length ? vals[i].value : null);
+    const td = at(2) ?? 0;
+    const tr = at(3);
+    const tf = at(4);
+    const pw = at(5);
+    const per = at(6);
+    if (td < 0) return negTime("TD (the delay)");
+    if (tr !== null && tr < 0) return negTime("TR (the rise time)");
+    if (tf !== null && tf < 0) return negTime("TF (the fall time)");
+    if (pw !== null && pw < 0) return negTime("PW (the pulse width)");
+    if (per !== null) {
+      if (per <= 0) return { error: `${name}: PER (the period) in PULSE(…) must be greater than 0.` };
+      if (pw === null)
+        return { error: `${name}: PULSE gives a period PER but no pulse width PW. Give PW too: PULSE(V1 V2 TD TR TF PW PER).` };
+      if (per < (tr ?? 0) + pw + (tf ?? 0))
+        return {
+          error:
+            `${name}: the period PER is shorter than TR + PW + TF, so one pulse would not have finished ` +
+            "before the next began. Lengthen PER or shorten the pulse.",
+        };
+    }
+    return {
+      value: vals[0].value,
+      exact: vals[0].exact,
+      wave: {
+        kind: "PULSE",
+        v1: vals[0].value,
+        v2: vals[1].value,
+        v1x: vals[0].exact,
+        v2x: vals[1].exact,
+        td,
+        tr: tr === 0 ? null : tr,
+        tf: tf === 0 ? null : tf,
+        pw,
+        per,
+      },
+    };
+  }
+  if (kw === "SIN") {
+    if (vals.length < 3) return { error: `${name}: SIN needs VO, VA and FREQ: SIN(VO VA FREQ TD).` };
+    if (vals.length > 4)
+      return {
+        error:
+          `${name}: SIN takes at most four values here (VO VA FREQ TD). A damping factor or phase is not ` +
+          "supported; remove them.",
+      };
+    const freq = vals[2].value;
+    const td = vals.length > 3 ? vals[3].value : 0;
+    if (!(freq > 0))
+      return { error: `${name}: FREQ in SIN(…) must be greater than 0. For a constant source give a plain value.` };
+    if (td < 0) return negTime("TD (the delay)");
+    return {
+      value: vals[0].value,
+      exact: vals[0].exact,
+      wave: { kind: "SIN", vo: vals[0].value, va: vals[1].value, vox: vals[0].exact, freq, td },
+    };
+  }
+  // PWL
+  if (vals.length < 2 || vals.length % 2 !== 0)
+    return { error: `${name}: PWL needs time–value pairs: PWL(t1 v1 t2 v2 …), an even count of numbers.` };
+  if (vals.length / 2 > MAX_PWL_POINTS) return { error: `${name}: PWL takes at most ${MAX_PWL_POINTS} points.` };
+  const t: number[] = [];
+  const v: number[] = [];
+  const vx: (Rat | null)[] = [];
+  for (let i = 0; i < vals.length; i += 2) {
+    const ti = vals[i].value;
+    if (ti < 0) return negTime("a time");
+    if (t.length && ti <= t[t.length - 1])
+      return {
+        error:
+          `${name}: the times in PWL(…) must increase strictly. For a step, put the two corners a short time ` +
+          "apart (for example 1m 0 1.001m 5) rather than at the same time.",
+      };
+    t.push(ti);
+    v.push(vals[i + 1].value);
+    vx.push(vals[i + 1].exact);
+  }
+  return { value: v[0], exact: vx[0], wave: { kind: "PWL", t, v, vx } };
+}
+
+/**
+ * The value of a source at time t. `h` is the time step, which a PULSE with no
+ * rise or fall time uses in its place (SPICE's default). A plain source is its value.
+ */
+export function sourceValueAt(e: Element, t: number, h: number): number {
+  const w = e.wave;
+  if (!w) return e.value;
+  if (w.kind === "SIN") return t <= w.td ? w.vo : w.vo + w.va * Math.sin(2 * Math.PI * w.freq * (t - w.td));
+  if (w.kind === "PWL") {
+    const n = w.t.length;
+    if (t <= w.t[0]) return w.v[0];
+    if (t >= w.t[n - 1]) return w.v[n - 1];
+    let lo = 0;
+    let hi = n - 1;
+    // Bisection: at most log2(MAX_PWL_POINTS) + 1 passes.
+    for (let guard = 0; hi - lo > 1 && guard < 40; guard++) {
+      const mid = (lo + hi) >> 1;
+      if (w.t[mid] <= t) lo = mid;
+      else hi = mid;
+    }
+    const f = (t - w.t[lo]) / (w.t[hi] - w.t[lo]);
+    return w.v[lo] + (w.v[hi] - w.v[lo]) * f;
+  }
+  const tr = w.tr ?? h;
+  const tf = w.tf ?? h;
+  if (t <= w.td) return w.v1;
+  let tt = t - w.td;
+  if (w.per !== null) {
+    const k = Math.floor(tt / w.per + 1e-12);
+    tt = Math.max(0, tt - k * w.per);
+  }
+  if (tt < tr) return w.v1 + ((w.v2 - w.v1) * tt) / tr;
+  if (w.pw === null) return w.v2;
+  if (tt <= tr + w.pw) return w.v2;
+  if (tt < tr + w.pw + tf) return w.v2 + ((w.v1 - w.v2) * (tt - tr - w.pw)) / tf;
+  return w.v1;
+}
+
+/**
  * Reads a SPICE-style netlist, one element per line:
  *   R1 1 0 1k        resistor
  *   V1 1 0 5         voltage source, + at the first node
@@ -206,10 +441,33 @@ export function parseNetlist(text: string): ParsedNetlist {
   const elements: Element[] = [];
   const errors: string[] = [];
   const seen = new Set<string>();
-  for (const raw of text.split(/\n|;/)) {
-    const line = raw.replace(/[*#].*$/, "").trim();
-    if (!line) continue;
+  for (const line of netlistLines(text)) {
     const parts = line.split(/[\s,]+/).filter(Boolean);
+    // A SOURCE WRITTEN WITH A SPICE KEYWORD (PULSE(…), SIN(…), PWL(…), DC 5) has
+    // more than four fields, so it is read here before the four-field rule. Only a
+    // V or I line whose value field starts with one of SOURCE_KEYWORD's words takes
+    // this path; every other line meets exactly the checks it always did.
+    if (parts.length >= 4 && /^[vi]/i.test(parts[0]) && SOURCE_KEYWORD.test(parts[3])) {
+      const [name, a, b] = parts;
+      if (seen.has(name.toLowerCase())) {
+        errors.push(`Two elements are both called "${name}".`);
+        continue;
+      }
+      seen.add(name.toLowerCase());
+      const spec = parseSourceSpec(name, parts.slice(3));
+      if ("error" in spec) {
+        errors.push(spec.error);
+        continue;
+      }
+      if (a === b) {
+        errors.push(`"${name}" has both ends on node ${a}, which shorts it out.`);
+        continue;
+      }
+      const el: Element = { kind: name[0].toUpperCase() as ElementKind, name, a, b, value: spec.value, exact: spec.exact };
+      if (spec.wave) el.wave = spec.wave;
+      elements.push(el);
+      continue;
+    }
     if (parts.length !== 4) {
       errors.push(`"${line}" needs exactly four fields: name, node, node, value.`);
       continue;
@@ -282,7 +540,7 @@ export function parseNetlist(text: string): ParsedNetlist {
 }
 
 /** Non-ground node names, in first-seen order. */
-function nodeList(elements: Element[]): string[] {
+export function nodeList(elements: Element[]): string[] {
   const out: string[] = [];
   for (const e of elements)
     for (const n of [e.a, e.b]) if (!isGround(n) && !out.includes(n)) out.push(n);
@@ -529,7 +787,24 @@ function singularMessage(elements: Element[], nodes: string[]): string {
   );
 }
 
-export function solveDc(elements: Element[]): DcResult | Failure {
+/** Waveform sources, named for a note: "V1 (PULSE)". */
+const waveNames = (elements: Element[]): string =>
+  elements
+    .filter((e) => e.wave)
+    .map((e) => `${e.name} (${(e.wave as Waveform).kind})`)
+    .join(", ");
+
+export interface DcOptions {
+  /**
+   * Treat every inductor as a short (a 0 V source whose current is its branch
+   * current) instead of refusing it. This is the operating point a transient run
+   * starts from, as in SPICE. Off by default, so the DC tool is unchanged.
+   */
+  inductorsShorted?: boolean;
+}
+
+export function solveDc(elements: Element[], opts: DcOptions = {}): DcResult | Failure {
+  const shortL = opts.inductorsShorted === true;
   if (!elements.length) return { ok: false, error: "The netlist is empty." };
   const nodes = nodeList(elements);
   if (!nodes.length) return { ok: false, error: "Every node is ground — there is nothing to solve." };
@@ -538,7 +813,9 @@ export function solveDc(elements: Element[]): DcResult | Failure {
     return { ok: false, error: "There is no source in this circuit, so every voltage is zero. Add a V or I element." };
 
   const idx = new Map(nodes.map((n, i) => [n, i]));
-  const vs = elements.filter((e) => e.kind === "V");
+  // With inductorsShorted, each inductor joins the source rows as a 0 V source, so
+  // its branch current is solved for exactly as a source current is.
+  const vs = elements.filter((e) => e.kind === "V" || (shortL && e.kind === "L"));
   const n = nodes.length;
   const size = n + vs.length;
 
@@ -571,7 +848,7 @@ export function solveDc(elements: Element[]): DcResult | Failure {
       // At DC a capacitor is an open circuit and an inductor a short. A short
       // between two nodes needs them merged, which this simple formulation does
       // not do, so say so rather than analyse a different circuit.
-      if (e.kind === "L")
+      if (e.kind === "L" && !shortL)
         return {
           ok: false,
           error: `${e.name} is an inductor, which is a short circuit at DC. Remove it (and merge its two nodes) for a DC analysis, or run the AC analysis instead.`,
@@ -583,8 +860,9 @@ export function solveDc(elements: Element[]): DcResult | Failure {
     const row = n + k;
     const ia = at(e.a);
     const ib = at(e.b);
-    if (!e.exact) exactOk = false;
-    const val = e.exact ?? R0;
+    const isShort = e.kind === "L";
+    if (!isShort && !e.exact) exactOk = false;
+    const val = isShort ? R0 : (e.exact ?? R0);
     if (ia !== null) {
       A[row][ia] = ratAdd(A[row][ia], ratInt(1));
       A[ia][row] = ratAdd(A[ia][row], ratInt(1));
@@ -621,7 +899,7 @@ export function solveDc(elements: Element[]): DcResult | Failure {
       iExact = ratDiv(ratSub(nodeVolt(e.a), nodeVolt(e.b)), e.exact);
     } else if (e.kind === "I") {
       iExact = e.exact;
-    } else if (e.kind === "V") {
+    } else if (e.kind === "V" || (shortL && e.kind === "L")) {
       const k = vs.indexOf(e);
       // MNA's extra unknown appears in node a's KCL with a +1 coefficient, and
       // that equation sums currents LEAVING the node — so the unknown already IS
@@ -659,6 +937,11 @@ export function solveDc(elements: Element[]): DcResult | Failure {
   }
   if (elements.some((e) => e.kind === "C"))
     notes.push("Capacitors are open circuits at DC, so they carry no current here and set no voltage of their own.");
+  if (elements.some((e) => e.wave))
+    notes.push(
+      `${waveNames(elements)}: a time-varying source is solved here at its value at t = 0, as SPICE does for a ` +
+        "DC operating point. The Transient response tool follows the waveform.",
+    );
   if (!exactOk) notes.push("Some values could not be held exactly, so these results are floating point.");
 
   return {
@@ -676,6 +959,17 @@ export function solveDc(elements: Element[]): DcResult | Failure {
 // ---------------------------------------------------------------------------
 // AC steady state
 // ---------------------------------------------------------------------------
+
+/** Every source is a waveform, so nothing drives the AC analysis. */
+const AC_NO_DRIVE =
+  "Every source in this circuit is a PULSE, SIN or PWL waveform, and (as in SPICE) a waveform source has no AC " +
+  "amplitude, so every node would be 0 V. Give the driving source a plain value, which this tool uses as its " +
+  "AC amplitude: for example V1 1 0 1.";
+
+/** Names the waveform sources that were zeroed in an AC solve. */
+const acWaveNote = (elements: Element[]): string =>
+  `${waveNames(elements)}: as in SPICE, a waveform source has no AC amplitude, so it is 0 here (a voltage ` +
+  "source is a short, a current source an open). Only the plain-valued sources drive this analysis.";
 
 /** Admittance of one element at angular frequency w. Sources contribute none. */
 function admittance(e: Element, w: number): Cx | null {
@@ -709,8 +1003,10 @@ function buildAc(elements: Element[], nodes: string[], w: number): { A: Cx[][]; 
         A[ib][ia] = cSub(A[ib][ia], y);
       }
     } else if (e.kind === "I") {
-      if (ia !== null) b[ia] = cSub(b[ia], cx(e.value));
-      if (ib !== null) b[ib] = cAdd(b[ib], cx(e.value));
+      // A waveform source has no AC amplitude (SPICE): an open current source.
+      const amp = e.wave ? 0 : e.value;
+      if (ia !== null) b[ia] = cSub(b[ia], cx(amp));
+      if (ib !== null) b[ib] = cAdd(b[ib], cx(amp));
     }
   }
   vs.forEach((e, k) => {
@@ -725,7 +1021,8 @@ function buildAc(elements: Element[], nodes: string[], w: number): { A: Cx[][]; 
       A[row][ib] = cSub(A[row][ib], cx(1));
       A[ib][row] = cSub(A[ib][row], cx(1));
     }
-    b[row] = cx(e.value);
+    // A waveform source has no AC amplitude (SPICE): a 0 V source, i.e. a short.
+    b[row] = cx(e.wave ? 0 : e.value);
   });
   return { A, b, vs };
 }
@@ -739,6 +1036,8 @@ export function solveAc(elements: Element[], frequency: number): AcResult | Fail
   if (nodes.length > MAX_NODES) return { ok: false, error: `At most ${MAX_NODES} nodes.` };
   if (!elements.some((e) => e.kind === "V" || e.kind === "I"))
     return { ok: false, error: "There is no source in this circuit. Add a V or I element." };
+  if (!elements.some((e) => (e.kind === "V" || e.kind === "I") && !e.wave))
+    return { ok: false, error: AC_NO_DRIVE };
 
   const w = 2 * Math.PI * frequency;
   const { A, b } = buildAc(elements, nodes, w);
@@ -749,6 +1048,8 @@ export function solveAc(elements: Element[], frequency: number): AcResult | Fail
     "AC results are steady-state phasors at this one frequency, and are floating point: an impedance " +
       "carries 2*pi*f, which is not rational. Phase is in degrees, relative to the source.",
   ];
+  const waved = elements.filter((e) => e.wave);
+  if (waved.length) notes.push(acWaveNote(elements));
   return {
     ok: true,
     frequency,
@@ -815,12 +1116,18 @@ export function frequencySweep(
     points: out,
     // Disclosed, not silent: a chart drawn from 12 points where 120 were asked for
     // looks like a coarse chart, and the reader deserves to know which it is.
-    error: thinned
-      ? `This circuit has ${nodes.length} nodes, and every sweep point is a full complex solve, ` +
-        `so the sweep was thinned from ${requested} points to ${n} to keep the pane responsive. ` +
-        `The frequency range is unchanged and still log-spaced; the curve is simply coarser. ` +
-        `Sweep a smaller sub-circuit for more resolution.`
-      : undefined,
+    error:
+      [
+        thinned
+          ? `This circuit has ${nodes.length} nodes, and every sweep point is a full complex solve, ` +
+            `so the sweep was thinned from ${requested} points to ${n} to keep the pane responsive. ` +
+            `The frequency range is unchanged and still log-spaced; the curve is simply coarser. ` +
+            `Sweep a smaller sub-circuit for more resolution.`
+          : "",
+        elements.some((e) => e.wave) ? acWaveNote(elements) : "",
+      ]
+        .filter(Boolean)
+        .join(" ") || undefined,
   };
 }
 

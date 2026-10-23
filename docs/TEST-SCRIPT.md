@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.187.0)
+# JurisLab — Manual Test Script (v2.188.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,63 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0ea. New in v2.188.0 — Peak tables, NMR integration, cloning, transients, LC wave plates, more arrows
+
+Engineering mode unless stated. Every Engineering tool below should show data AND a figure; **Insert result** and
+**Insert figure** both work, and every minus is a true minus (−).
+
+### Structure ▸ Draw: arrows
+
+- [ ] Arrow menu lists Reaction →, Equilibrium ⇌, **Retrosynthetic ⇒** and **Resonance ↔** (no curved arrows yet).
+  Draw two structures with a ⇒ between them, and two with a ↔: open double-shaft head on ⇒, heads at both ends on ↔.
+- [ ] **Insert** the page: the picture in Word matches the canvas. Save as .cdxml and reopen it: the arrows are kept.
+- [ ] Regression: clicks on empty paper with the Arrow tool add nothing; drawing a bond to a carbon with four bonds
+  is still blocked ("That C has no bond to spare.").
+
+### Chemistry & electrochemistry
+
+- [ ] **HPLC/GC peak table**, default: 4 peaks, N 9848 / 12 897 / 16 392 / 18 033, lowest resolution Rs = 2.98
+  between peak 3 (Caffeine) and peak 4 (Impurity A); the chromatogram says it is reconstructed from the table.
+  Change the RT header to `RT (s)` with the time unit on min → refused, naming the column.
+- [ ] **Open CSV… with an .xlsx** on the peak-table data field: the first sheet fills the field; the status line names
+  the sheet. A sheet with a date cell → refused naming the cell.
+- [ ] **TLC plate**, default: SM 0.62, co 0.62 + 0.35, rxn 0.35, plate with origin and solvent front. Change the co
+  lane to `co: 0.62, 0.59` → one merged spot and a note naming both Rf values; the other spots stay full size.
+
+### Characterization (Characterization mode)
+
+- [ ] ¹H NMR ▸ **From an integration table**: paste `4.12	2.00	q	7.1` / `2.05	3.02	s` / `1.26	2.97	t	7.1`
+  (tab-separated), reference row 1 = 2H, **Write the ¹H list** → "4.12 (q, J = 7.1 Hz, 2H), 2.05 (s, 3H),
+  1.26 (t, J = 7.1 Hz, 3H)" in the ¹H box; Insert as before. Change the second integral to 2.19 → that row is flagged
+  as not near a whole number.
+
+### Molecular cloning (new discipline)
+
+- [ ] **Agarose gel**, default: NEB 1 kb ladder (10.0 kb to 500 bp, "500/517" as one band) beside Digest A
+  (3,000 / 1,500 / 850 bp) and a 1,200 bp PCR product; the source page and date are named in the result.
+- [ ] **Golden Gate**, default: 3 parts with BsaI, product 212 bp, fusion sites AATG / GGTT / GCTT, six primers.
+  Name two parts the same → refused naming both positions.
+- [ ] **Gibson / HiFi**, default: 2 fragments, overlaps 54.2 °C and 57.1 °C, four primers.
+- [ ] **PCR primers**, default: forward and reverse at 59.9 °C, ΔTm 0.1 °C, a primer-dimer warning.
+
+### Electronics
+
+- [ ] **Transient response**, default RC: V(2) 3.16 V at 1 ms, 4.966 V at 5 ms, "settles to 5 V; DC operating point
+  5 V". Add `D1 2 0 1N4148` → refused by name.
+
+### Optics & photonics
+
+- [ ] **Liquid-crystal retarder**, default: net retardance 0.4999π at 600 nm, achromatic quarter-wave band
+  485.5–706.7 nm shaded; the cell, geometry and device drawings insert. Published-example menu ▸ the quarter-wave
+  device of Abuleil & Abdulhalim → runs and states that its indices differ from the paper's.
+- [ ] **LC cell, Fréedericksz**, default: Vₜₕ 0.97118 V; at 2 V the midplane tilt 67.56° beside the uniform-profile
+  approximation 78.93°; tilt profiles and Γ(V) graphs.
+
+### References
+
+- [ ] Citations: choose the **Optica** style; a journal article prints as "M. Wahle and H. S. Kitzerow, "…," Opt.
+  Express **22**, 262–270 (2014)." and in-text numbers read [1], [2,3], [1–4].
 
 ## 0dz. New in v2.187.0 — Thin films, materials testing, control design, titration and CV, plot types
 

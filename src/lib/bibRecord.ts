@@ -16,7 +16,7 @@ export interface BibRecord { id: string; type: BibType; title?: string; "contain
 export interface CiteItem { id: string; locator?: string; label?: "page" | "figure" | "equation" | "chapter";
   prefix?: string; suffix?: string; suppressAuthor?: boolean; }
 export interface Formatted { plain: string; html: string; }
-export type StyleId = "acs" | "ieee" | "vancouver" | "nature" | "apa7" | "chicago-ad" | "chicago-nb" | "harvard-ctr" | "mla9";
+export type StyleId = "acs" | "ieee" | "vancouver" | "nature" | "optica" | "apa7" | "chicago-ad" | "chicago-nb" | "harvard-ctr" | "mla9";
 export interface BibStyle { id: StyleId; name: string; kind: "numeric" | "author-date" | "note";
   order: "citation" | "alphabetical";
   reference(r: BibRecord, n?: number): Formatted;

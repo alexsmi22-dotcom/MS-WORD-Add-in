@@ -190,6 +190,29 @@ import { polarPlotSvg } from "../src/lib/polarPlot";
 import { dualAxisPlotSvg } from "../src/lib/dualAxisPlot";
 import { contourPlotSvg } from "../src/lib/contour";
 import { surfacePlotSvg } from "../src/lib/surface3d";
+// --- Release C: circuit transient ---
+import { CIRCUIT_CALCS } from "../src/lib/circuitCalcs";
+// --- end Release C: circuit transient ---
+// --- Release C: hplc --- the reconstructed chromatogram (chromChart.ts), built by the calculator the pane registers.
+import { chromatogramSvg } from "../src/lib/chromChart";
+import { CHROM_CALCS } from "../src/lib/chromCalcs";
+// --- end Release C: hplc ---
+// --- Release C: cloning (gap #13) --------------------------------------------
+import { CLONING_CALCS } from "../src/lib/cloningCalcs";
+import { gelSvg } from "../src/lib/gelChart";
+import { goldenGateSvg, gibsonSvg, primerMapSvg, partsDiagramSvg } from "../src/lib/cloningCharts";
+import { PUC19 } from "../src/lib/__tests__/fixtures/puc19";
+// --- Release C: nmr ---
+import { TLC_CALCS } from "../src/lib/tlcCalcs";
+import { tlcPlateSvg } from "../src/lib/tlcChart";
+import { readTlc } from "../src/lib/tlc";
+// --- end Release C: nmr ---
+// --- Release C: lc ---
+// Liquid-crystal retarder / achromatic wave plate and LC voltage tools: their charts and drawings.
+import { LC_CALCS } from "../src/lib/lcCalcs";
+import { lcLineChartSvg, lcTransmissionSvg, lcNetRetardanceSvg, lcMeasuredSvg, lcProfilesSvg, lcGammaVoltageSvg, lcMidTiltSvg } from "../src/lib/lcCharts";
+import { lcCellSvg, lcDirectorSvg, lcDeviceSvg } from "../src/lib/lcDrawings";
+// --- end Release C: lc ---
 
 const figures: [string, string][] = [];
 
@@ -2645,5 +2668,170 @@ rotator 15` }, "jones elliptical");
   // The builders the kinds call, named so the coverage gate sees each module imported for its figure.
   void [parametricPlotSvg, polarPlotSvg, dualAxisPlotSvg, contourPlotSvg, surfacePlotSvg];
 }
+
+// --- Release C: circuit transient ---
+// The transient calculator at its default (RC charge), then the layouts that crowd: an
+// underdamped RLC (three traces overshooting the source), a SIN steady state (a negative
+// axis), a repeating pulse into an RLC with a PWL current source (three legend rows, µs
+// axis, spikes kept by the min/max decimation), flat DC traces (a degenerate y range),
+// six traces at the cap, and a millivolt-scale run on a nanosecond axis.
+{
+  const tranCases: Record<string, string>[] = [
+    {},
+    { net: "V1 1 0 PULSE(0 1 0 1n 1n 1 2)\nR1 1 2 10\nL1 2 3 1m\nC1 3 0 1u", stop: "1m" },
+    { net: "V1 1 0 SIN(0 1 159.155 0)\nR1 1 2 1k\nC1 2 0 1u", stop: "40m" },
+    { net: "V1 in 0 PULSE(0 3.3 0.1u 10n 10n 1u 2u)\nR1 in a 50\nL1 a out 1u\nC1 out 0 1n\nR2 out 0 1k\nI1 0 out PWL(0 0 3u 0 3.1u 5m 6u 5m)", stop: "8u" },
+    { net: "V1 1 0 9\nR1 1 2 1k\nR2 2 0 2k\nC1 2 0 1u", stop: "5m" },
+    { net: "V1 n0 0 PULSE(0 5 0 1u 1u 10m)\nR1 n0 n1 1k\nC1 n1 0 1u\nR2 n1 n2 1k\nC2 n2 0 1u\nR3 n2 n3 1k\nC3 n3 0 1u\nR4 n3 n4 1k\nC4 n4 0 1u\nR5 n4 n5 1k\nC5 n5 0 1u", stop: "30m" },
+    { net: "V1 1 0 PULSE(0 2m 10n 1n 1n 1 2)\nR1 1 2 1k\nC1 2 0 10p", stop: "100n" },
+  ];
+  const tran = CIRCUIT_CALCS.find((c) => c.id === "circuit-transient");
+  if (!tran) throw new Error("corpus: no circuit-transient calculator");
+  for (const over of tranCases) {
+    const vals: Record<string, string> = { ...Object.fromEntries(tran.fields.map((f) => [f.key, f.default])), ...over };
+    const out = tran.compute((k) => vals[k] ?? "");
+    const p = (out.blocks ?? []).find((b) => b.kind === "plot");
+    if (out.ok === false || !p || p.kind !== "plot") throw new Error(`corpus: circuit-transient ${JSON.stringify(over)} did not draw: ${out.text}`);
+    const tag = over.net ? over.net.split("\n")[0] : "defaults";
+    figures.push([`circuit-transient ${tag} stop=${over.stop ?? "default"}`, p.svg]);
+  }
+}
+// --- end Release C: circuit transient ---
+// --- Release C: hplc ---
+// HPLC/GC peak table: the chromatogram reconstructed from the table (Gaussian peaks), as the calculator inserts it:
+// the default four-peak run with names at the apices; two nearly co-eluting peaks with long names (numbers + key);
+// thirty peaks (label collisions); a peak with no W0.5 drawn as a line; a run in seconds sized from area/(1.0645 W0.5).
+{
+  const peakCalc = CHROM_CALCS.find((c) => c.id === "chem-peak-table");
+  if (!peakCalc) throw new Error("corpus: chem-peak-table missing");
+  const chrom = (name: string, data: string | null, tm = "", unit = "min"): void => {
+    const f: Record<string, string> = { tm, unit };
+    const out = peakCalc.compute((k) => (k === "data" ? (data ?? peakCalc.fields[0].default) : (f[k] ?? "")));
+    const plot = (out.blocks ?? []).find((b) => b.kind === "plot");
+    if (out.ok === false || !plot || plot.kind !== "plot") throw new Error(`corpus: ${name}: ${out.text}`);
+    figures.push([name, plot.svg]);
+  };
+  chrom("chromatogram default four peaks, names at apices", null, "1.05");
+  chrom(
+    "chromatogram co-eluting pair, long names (numbers and key)",
+    "Name\tRT\tArea\tHeight\tW0.5\n4-Hydroxybenzoic acid methyl ester\t6.10\t120\t800\t0.11\nPropylparaben (related compound)\t6.22\t95\t620\t0.12\nButylparaben\t8.4\t60\t300\t0.15",
+  );
+  chrom("chromatogram thirty peaks", "Name\tRT\tHeight\tW0.5\n" + Array.from({ length: 30 }, (_, i) => `Compound ${i + 1}\t${(2 + i * 0.25).toFixed(2)}\t${100 + ((i * 37) % 200)}\t0.06`).join("\n"));
+  chrom("chromatogram peak without W0.5 drawn as a line", "RT\tHeight\tW0.5\n2.0\t40\t0.05\n3.5\t100\t-\n5.0\t70\t0.08");
+  chrom("chromatogram in seconds, heights from areas", "RT\tArea\tW0.5\n125\t5000\t3.1\n188\t12000\t3.9\n241\t800\t4.4", "", "s");
+  void chromatogramSvg;
+}
+// --- end Release C: hplc ---
+// --- Release C: cloning (gap #13) --------------------------------------------
+// The gel, the two assembly diagrams and the PCR map, drawn through the pane's
+// own calculators so the corpus gates exactly what a user inserts. Cases are
+// chosen for layout stress: 15 lanes, a ladder whose 500/517 labels collide, a
+// band off each end of the ladder, a circular assembly whose closing junction
+// sits at the right-hand edge, and the longest primer labels the tools produce.
+{
+  const clone = (id: string, over: Record<string, string>, name: string): void => {
+    const c = CLONING_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: cloning calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: cloning ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`cloning ${name}${i ? " " + i : ""}`, b.svg]);
+    });
+  };
+  for (const c of CLONING_CALCS) clone(c.id, {}, `${c.id} defaults`);
+  const NL = String.fromCharCode(10);
+  clone("cloning-gel", { style: "ethidium", lanes: ["Digest A: 3000, 1500, 850", "Mini 1: 5000, 2000", "Mini 2: 4001, 3800, 700"].join(NL) }, "gel ethidium three lanes");
+  clone("cloning-gel", { lanes: ["Big: 20000", "Small: 120", "Mid: 1500"].join(NL) }, "gel bands off both ends of the ladder");
+  clone("cloning-gel", { ladder: "neb-100bp", lanes: Array.from({ length: 14 }, (_, i) => `L${i + 1}: ${300 + i * 80}, ${1000 + i * 30}`).join(NL) }, "gel fourteen lanes 100 bp ladder");
+  clone("cloning-gel", { ladder: "generuler-1kb", lanes: "Digest: 10000, 3500, 750, 250" }, "gel GeneRuler every band matched");
+  clone("cloning-gel", { ladder: "custom", custom: "8000, 4000, 2000, 1000, 500", lanes: "Sample: 2500, 1500" }, "gel custom ladder");
+  clone("cloning-gel", { lanes: "Marker check: 2686", seq: PUC19, enzymes: "EcoRI", topology: "circular" }, "gel pUC19 EcoRI circular");
+  clone("cloning-gibson", { mode: "tm" }, "gibson overlaps chosen by Tm");
+  clone("cloning-pcr-primers", { start: "40", end: "250" }, "pcr primers inside the template");
+  // Named so the coverage gate sees every builder's module imported for a figure.
+  void [gelSvg, goldenGateSvg, gibsonSvg, primerMapSvg, partsDiagramSvg];
+}
+// --- Release C: nmr ---
+// TLC plate (src/lib/tlcCalcs.ts → tlcChart.ts): the calculator at its defaults (SM / co / rxn, UV-outlined), stained,
+// distances on a sized 2.5 × 10 cm plate, 12 lanes whose labels go to two rows, 10 spots in one lane, spots at
+// Rf 0.02 and 1.00 (on the origin and front lines), a long eluent wider than the plate, a short wide plate, and the
+// builder directly on one lane.
+{
+  const runTlc = (over: Record<string, string> = {}): string => {
+    const c = TLC_CALCS[0];
+    const vals: Record<string, string> = { ...Object.fromEntries(c.fields.map((f) => [f.key, f.default])), ...over };
+    const out = c.compute((k) => vals[k] ?? "");
+    const p = (out.blocks ?? []).find((b) => b.kind === "plot");
+    if (out.ok === false || !p || p.kind !== "plot") throw new Error(`corpus: TLC did not draw: ${out.text}`);
+    return p.svg;
+  };
+  const NL = "\n";
+  figures.push(["tlc defaults (SM, co, rxn; UV)", runTlc()]);
+  figures.push(["tlc stained", runTlc({ style: "stain" })]);
+  figures.push(["tlc distances on a 2.5 x 10 cm plate", runTlc({ mode: "distance", lanes: ["SM: 3.2", "co: 3.2, 5.1", "rxn: 5.1"].join(NL), front: "8.0 cm", plate: "2.5 x 10 cm" })]);
+  figures.push(["tlc 12 lanes, labels in two rows", runTlc({ lanes: Array.from({ length: 12 }, (_, i) => `fraction ${i + 10}: ${(0.1 + i * 0.07).toFixed(2)}`).join(NL) })]);
+  figures.push(["tlc 10 spots in one lane, stained", runTlc({ lanes: ["crude: 0.05, 0.14, 0.22, 0.31, 0.40, 0.52, 0.61, 0.72, 0.85, 0.97", "P: 0.40"].join(NL), style: "stain" })]);
+  figures.push(["tlc spots on the origin and the front", runTlc({ lanes: ["A: 0.02", "B: 1.00", "C: 0.02, 1"].join(NL) })]);
+  figures.push(["tlc long eluent", runTlc({ eluent: "CH2Cl2/MeOH/NH4OH (aq) 90:9:1, two developments" })]);
+  figures.push(["tlc short wide plate", runTlc({ lanes: ["A: 0.5", "B: 0.3", "C: 0.5, 0.3"].join(NL), plate: "10 x 3 cm" })]);
+  const one = readTlc({ lanes: "P: 0.45", mode: "rf" });
+  if (!one.ok) throw new Error(`corpus: TLC builder: ${one.error}`);
+  figures.push(["tlc builder, one lane, no eluent", tlcPlateSvg(one.plate).svg]);
+}
+// --- end Release C: nmr ---
+// --- Release C: lc ---
+// Every figure the two LC calculators return, as the pane receives them (the calculator's own compute), at the
+// defaults and at stressed inputs: black-and-white style, six cells, measured noisy spectra, a design solution, an
+// analyser at an angle; plus the drawings at extreme tilts and angles.
+{
+  const lcRun = (id: string, over: Record<string, string>): { svg: string; caption: string }[] => {
+    const c = LC_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: no ${id}`);
+    const vals: Record<string, string> = {};
+    for (const f of c.fields) vals[f.key] = f.default;
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (out.ok === false) throw new Error(`corpus: ${id}: ${out.text}`);
+    return (out.blocks ?? []).flatMap((b) => (b.kind === "plot" ? [{ svg: b.svg, caption: b.caption }] : []));
+  };
+  const noisy = Array.from({ length: 3000 }, (_, i) => {
+    const l = 450 + i * 0.15;
+    const tc = Math.sin((2 * Math.PI * 0.21) / (l / 1000) / 2) ** 2;
+    const n = Math.sin(i * 12.9898) * 2.5;
+    return [l.toFixed(2), (88 * tc + n).toFixed(2), (88 * (1 - tc) - n).toFixed(2)].join("\t");
+  }).join("\n");
+  const lcCases: [string, string, Record<string, string>][] = [
+    ["lc retarder defaults", "optics-lc-retarder", {}],
+    ["lc retarder B/W, half-wave, fraction axis", "optics-lc-retarder", { style: "bw", target: "hwp", tunits: "fraction", levels: "π, 0.8π" }],
+    ["lc retarder analyser at 30°, three cells", "optics-lc-retarder", { analyser: "angle", anaAngle: "30", cells: ["3 10 45 LC-A", "2.5 35 -45 LC-B", "1 5 45 LC-A"].join("\n") }],
+    [
+      "lc retarder six cells, wide range",
+      "optics-lc-retarder",
+      { cells: ["10 0 45 LC-A", "5 24.26 -45 LC-B", "8 10 45 LC-A", "4 30 -45 LC-B", "2 0 45 LC-A", "1 50 -45 LC-B"].join("\n"), lamFrom: "350", lamTo: "1700", points: "2000" },
+    ],
+    ["lc retarder measured noisy spectra, model overlay", "optics-lc-retarder", { measured: noisy, levels: "0.56π, 0.53π, π/2, 0.47π, 0.44π" }],
+    ["lc retarder design mode", "optics-lc-retarder", { mode: "design", cells: ["10 0 45 LC-A", "5 0 -45 LC-B"].join("\n") }],
+    ["lc retarder published example, achromatic HWP", "optics-lc-retarder", { preset: "ol-ahwp" }],
+    ["lc voltage defaults", "optics-lc-voltage", {}],
+    ["lc voltage B/W, zero pretilt, target retardance", "optics-lc-voltage", { style: "bw", pretilt: "0", vTo: "10", vProfile: "4", targetKind: "gamma", targetGamma: "π" }],
+  ];
+  for (const [name, id, over] of lcCases) lcRun(id, over).forEach((p, i) => figures.push([`${name} ${i + 1}: ${p.caption}`, p.svg]));
+  // The builders directly, at edges the calculators reach rarely.
+  figures.push(["lc cell drawing, uniform tilt 90°", lcCellSvg({ tiltsDeg: [90], uniformTiltDeg: 90, style: "colour", title: "Cell 1: uniform tilt θ = 90°" })]);
+  figures.push([
+    "lc cell drawing, profile, B/W, field",
+    lcCellSvg({ tiltsDeg: [3, 25, 50, 68, 80, 68, 50, 25, 3], uniformTiltDeg: null, pretiltDeg: 3, voltage: 12.5, style: "bw", title: "Director profile at 12.5 V rms" }),
+  ]);
+  for (const t of [10, 45, 80]) figures.push([`lc director geometry θ = ${t}°`, lcDirectorSvg({ tiltDeg: t, style: t === 45 ? "bw" : "colour" })]);
+  figures.push(["lc device, P 10°, one cell at 0°, A 100°", lcDeviceSvg({ polDeg: 10, cellsOaDeg: [0], anaDeg: 100, style: "colour" })]);
+  figures.push(["lc device, six cells, B/W", lcDeviceSvg({ polDeg: 0, cellsOaDeg: [45, -45, 45, -45, 45, -45], anaDeg: 90, style: "bw" })]);
+  figures.push(["lc line chart, one series", lcLineChartSvg({ xLabel: "x", yLabel: "y", series: [{ points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], colour: "#111111", label: "line" }] })]);
+  // Named so the coverage gate sees each builder imported for its figure (the calculators call them above).
+  void [lcTransmissionSvg, lcNetRetardanceSvg, lcMeasuredSvg, lcProfilesSvg, lcGammaVoltageSvg, lcMidTiltSvg];
+}
+// --- end Release C: lc ---
 
 export { figures };

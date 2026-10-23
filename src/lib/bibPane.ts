@@ -174,7 +174,7 @@ export function notOfferedNote(): string {
 
 /**
  * The number label printed before each bibliography entry (the styles' reference() does not
- * print it). IEEE "[1]" and Vancouver "1." are the guides' forms; ACS "(1)" and Nature "1." are
+ * print it). IEEE "[1]", Vancouver "1." and Optica "1." are the guides' forms; ACS "(1)" and Nature "1." are
  * the conventional list forms and are NOT pinned by a quoted manual example (TEST-SCRIPT §0ci).
  * Author-date and notes styles are unnumbered.
  */
@@ -184,6 +184,7 @@ export function bibLabel(id: StyleId): ((n: number) => string) | undefined {
     case "vancouver": return (n) => `${n}.`;
     case "acs": return (n) => `(${n})`;
     case "nature": return (n) => `${n}.`;
+    case "optica": return (n) => `${n}.`; // the guide's own "5. W. S. Haddad…", "1. J. Smith…"
     default: return undefined;
   }
 }
@@ -286,6 +287,8 @@ export function planInsert(
   if (locator && ids.length > 1) {
     return { ok: false, reasons: ["A locator (page, figure, …) belongs to one reference: select one, or insert the citations one at a time."] };
   }
+  const noLoc = STYLE_INFO[store.style]?.noLocator;
+  if (locator && noLoc) return { ok: false, reasons: [`${STYLE_INFO[store.style].name} cannot add a locator: ${noLoc}.`] };
   const label = LABELS.find((l) => l === opts.label) ?? "page";
   const items: CiteItem[] = ids.map((id) => (locator ? { id, locator, label } : { id }));
   const existing = parseCiteTag(opts.existingTag ?? null);
@@ -458,7 +461,28 @@ export function planUpdate(collected: CollectedCitations, store: BibStoreData, o
     rewrites.push({ index: i, markerId: p.markerId, plain: text.plain, runs: markerRuns(text.html) });
   });
   const ooxml = bibliographyOoxml(plan.entries, { label: bibLabel(store.style), heading: bibHeading(store.style) });
-  return { ok: true, plan, rewrites, ooxml, report: [...collected.notes, ...planReportLines(plan, store)] };
+  return { ok: true, plan, rewrites, ooxml, report: [...collected.notes, ...planReportLines(plan, store), ...droppedLocatorLines(occ, store)] };
+}
+
+/**
+ * A style whose guide has no locator form (Optica) prints the citation's number without it; each
+ * such citation is named here so the page or figure is not lost silently.
+ */
+function droppedLocatorLines(occ: ReadonlyArray<MarkerOccurrence>, store: BibStoreData): string[] {
+  const why = STYLE_INFO[store.style]?.noLocator;
+  if (!why) return [];
+  const seen = new Set<string>();
+  const dropped: string[] = [];
+  for (const o of occ) {
+    if (seen.has(o.markerId)) continue;
+    seen.add(o.markerId);
+    for (const it of store.markers[o.markerId] ?? []) {
+      const loc = it.locator?.trim();
+      if (loc) dropped.push(`“${loc}” for “${it.id}” (marker ${o.markerId})`);
+    }
+  }
+  if (!dropped.length) return [];
+  return [`Locators left out (${dropped.length}): ${dropped.join("; ")}. ${STYLE_INFO[store.style].name}: ${why}.`];
 }
 
 /** Every problem list of a plan, by name. Empty lists are not printed; nothing is dropped. */

@@ -35,7 +35,7 @@ const MARKER_ID_RE = /^[0-9a-z]+$/;
 
 const BIB_TYPES: readonly BibType[] = ["article-journal", "book", "chapter", "paper-conference", "thesis",
   "report", "webpage", "dataset", "article", "patent"];
-const STYLE_IDS: readonly StyleId[] = ["acs", "ieee", "vancouver", "nature", "apa7", "chicago-ad", "chicago-nb",
+const STYLE_IDS: readonly StyleId[] = ["acs", "ieee", "vancouver", "nature", "optica", "apa7", "chicago-ad", "chicago-nb",
   "harvard-ctr", "mla9"];
 const LABELS = ["page", "figure", "equation", "chapter"];
 

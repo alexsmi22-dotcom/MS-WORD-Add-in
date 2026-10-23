@@ -216,9 +216,9 @@ describe("import: format detection, refusals with line numbers, merge outcomes b
   });
 });
 
-describe("the style picker offers the seven shipped styles and refuses by name", () => {
-  it("exactly 7 styles; Harvard and MLA explained in one line", () => {
-    expect(offeredStyles().map((s) => s.id)).toEqual(["ieee", "acs", "nature", "vancouver", "apa7", "chicago-ad", "chicago-nb"]);
+describe("the style picker offers the eight shipped styles and refuses by name", () => {
+  it("exactly 8 styles (Optica added in Release C); Harvard and MLA explained in one line", () => {
+    expect(offeredStyles().map((s) => s.id)).toEqual(["ieee", "acs", "nature", "optica", "vancouver", "apa7", "chicago-ad", "chicago-nb"]);
     expect(notOfferedNote()).toBe("Harvard (Cite Them Right) and MLA 9 are not offered: no official guide could be verified.");
   });
   it("a patent under IEEE is refused by name, never formatted in another style; Vancouver formats it", () => {

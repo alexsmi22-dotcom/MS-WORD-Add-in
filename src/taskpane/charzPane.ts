@@ -16,6 +16,8 @@ import {
   formatNmr,
   hrmsLine,
   htmlText,
+  IntegrationReference,
+  integrationToNmr,
   molarMass,
   parseNmr,
   physicalLines,
@@ -68,12 +70,40 @@ export function initCharzPane(deps: CharzPaneDeps): CharzPaneApi {
   const checks = el<HTMLElement>("charz-checks");
   const insertBtn = el<HTMLButtonElement>("charz-insert");
   const source = el<HTMLElement>("charz-source");
+  const intTable = el<HTMLTextAreaElement>("charz-int-table");
+  const intRef = el<HTMLSelectElement>("charz-int-ref");
+  const intRow = el<HTMLInputElement>("charz-int-row");
+  const intNh = el<HTMLInputElement>("charz-int-nh");
+  const intExch = el<HTMLInputElement>("charz-int-exch");
+  const intDrop = el<HTMLInputElement>("charz-int-drop");
+  const intFill = el<HTMLButtonElement>("charz-int-fill");
 
   for (const s of SOLVENTS) solvent.add(new Option(htmlText(s.html), s.key));
   for (const i of ION_TYPES) msIon.add(new Option(i.label, i.id));
   source.textContent = CHAR_SOURCE;
 
   let current: string[] = [];
+  // The integration table writes the ¹H box; while the box still holds exactly what it wrote, the two stay linked
+  // (a new compound or solvent re-fits), and its messages show. Typing in the ¹H box breaks the link.
+  let intLinked: string | null = null;
+  let intMsgs: CharMessage[] = [];
+
+  /** The integration options as the form holds them — or a refusal for a reference that is not a number. */
+  const intReference = (): IntegrationReference | { refusal: string } => {
+    if (intRef.value === "formula") return { kind: "formula" };
+    if (intRef.value !== "row") return { kind: "as-written" };
+    const row = intRow.value.trim();
+    const nh = intNh.value.trim().replace(/\s*H$/i, "").replace(/^−/, "-");
+    if (!/^\d+$/.test(row)) return { refusal: `Reference row “${row}” is not a row number (1, 2, 3, …).` };
+    if (!/^-?\d+(?:\.\d+)?$/.test(nh)) return { refusal: `The reference “${intNh.value.trim()}” is not a number of protons.` };
+    return { kind: "row", row: Number(row), nH: Number(nh) };
+  };
+  const runIntegration = (c: CharCompound | null) => {
+    const ref = intReference();
+    if ("refusal" in ref) return { ok: false as const, refusal: ref.refusal };
+    return integrationToNmr(intTable.value, { reference: ref, compound: c, exchangeablesNotObserved: intExch.checked, solvent: solvent.value || undefined, dropSolventPeaks: intDrop.checked });
+  };
+  let lastCompound: CharCompound | null = null;
 
   const update = (): void => {
     const st = style.value as CharStyle;
@@ -112,6 +142,20 @@ export function initCharzPane(deps: CharzPaneDeps): CharzPaneApi {
       add("Compound", [{ level: "info", text: "No compound: the lines are written, but nothing is checked against a formula and no Calcd values are given." }]);
     }
 
+    lastCompound = c;
+    intRow.disabled = intNh.disabled = intRef.value !== "row";
+    // Still linked: re-run with the current compound, solvent and reference; the ¹H box follows.
+    if (intLinked !== null && hList.value === intLinked && intTable.value.trim()) {
+      const r = runIntegration(c);
+      if (r.ok) {
+        hList.value = intLinked = r.nmrText;
+        intMsgs = r.messages;
+      } else intMsgs = [{ level: "error", text: `${r.refusal} The ¹H list below is from the last table that could be read.` }];
+    } else if (intLinked !== null) {
+      intLinked = null;
+      intMsgs = [];
+    }
+
     // Physical data first, as an Example reads: yield, then mp and Rf.
     const phys = physicalLines(c, { massMg: mass.value, scaleMmol: scale.value, state: state.value, mp: mp.value, rf: rf.value, eluent: eluent.value });
     if ("refusal" in phys) add("Physical data", [{ level: "error", text: phys.refusal }]);
@@ -121,6 +165,7 @@ export function initCharzPane(deps: CharzPaneDeps): CharzPaneApi {
     }
 
     const solv = solvent.value || undefined;
+    add("¹H integration", intMsgs);
     for (const [nuc, box, freq, label] of [["1H", hList, hFreq, "¹H NMR"], ["13C", cList, cFreq, "¹³C NMR"]] as const) {
       if (!box.value.trim()) continue;
       const p = parseNmr(box.value, nuc);
@@ -186,7 +231,25 @@ export function initCharzPane(deps: CharzPaneDeps): CharzPaneApi {
     timer = window.setTimeout(update, 120);
   };
   for (const el of [compoundIn, hFreq, hList, cFreq, cList, msFound, state, mass, scale, mp, rf, eluent, ...Object.values(ea)]) el.addEventListener("input", soon);
-  for (const el of [style, solvent, msSource, msAnalyzer, msIon, msOn]) el.addEventListener("change", update);
+  for (const el of [style, solvent, msSource, msAnalyzer, msIon, msOn, intRef, intExch, intDrop]) el.addEventListener("change", update);
+  for (const el of [intTable, intRow, intNh]) el.addEventListener("input", soon);
+
+  intFill.addEventListener("click", () => {
+    if (!intTable.value.trim()) {
+      deps.setStatus("Paste an integration table first (δ, integral, multiplicity, J).", "error");
+      return;
+    }
+    update();
+    const r = runIntegration(lastCompound);
+    if (!r.ok) {
+      deps.setStatus(r.refusal, "error");
+      return;
+    }
+    hList.value = intLinked = r.nmrText;
+    intMsgs = r.messages;
+    update();
+    deps.setStatus(`The ¹H list was written from the integration table (${r.rows.length} signal${r.rows.length > 1 ? "s" : ""}).`, "success");
+  });
 
   fromBuild.addEventListener("click", () => {
     const s = deps.buildSmiles();

@@ -7,6 +7,7 @@
  */
 import type { Box, CdxDoc, Pt } from "./cdxml";
 import { renderCdx } from "./cdxmlRender";
+import { arrowTrace, distToTrace } from "./cdxArrows";
 
 /** The drawn box of every top-level object (document points). */
 export function objectBoxes(doc: CdxDoc): Map<string, Box> {
@@ -25,9 +26,13 @@ const distToBox = (b: Box, p: Pt): number => Math.hypot(Math.max(0, b[0] - p[0],
 /** The object under a point: the smallest box that holds it, else the nearest within `slop`. */
 export function objectAt(doc: CdxDoc, boxes: Map<string, Box>, p: Pt, slop: number): string | null {
   let best: string | null = null, bestArea = Infinity;
+  // An arrow is picked on its line, not anywhere in its box: a curved arrow's box lies over the structure it points
+  // into, and a click on the structure must not pick the arrow.
+  const offArrow = (o: (typeof doc.objects)[number]): boolean =>
+    o.items.length > 0 && o.items.every((it) => it.kind === "arrow") && o.items.every((it) => it.kind === "arrow" && distToTrace(arrowTrace(it.v), p) > slop);
   for (const o of doc.objects) {
     const b = boxes.get(o.id);
-    if (!b || !inside(b, p)) continue;
+    if (!b || !inside(b, p) || offArrow(o)) continue;
     const area = (b[2] - b[0]) * (b[3] - b[1]);
     if (area < bestArea) {
       bestArea = area;
@@ -38,7 +43,7 @@ export function objectAt(doc: CdxDoc, boxes: Map<string, Box>, p: Pt, slop: numb
   let bestD = slop;
   for (const o of doc.objects) {
     const b = boxes.get(o.id);
-    if (!b) continue;
+    if (!b || offArrow(o)) continue;
     const d = distToBox(b, p);
     if (d < bestD) {
       bestD = d;

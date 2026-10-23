@@ -14,6 +14,8 @@ import { atomicNumber, symbolFor } from "./periodic";
 import { Molecule } from "openchemlib/full";
 import { groupSmilesBySide, isGroupLabel, leftwardOf, rightwardOf } from "./labelExpand";
 import { elementListLabel, parseElementList } from "./cdxQuery";
+import { arrowFromElement, readCdxmlTree } from "./cdxml";
+import { arcOf, bowAndPlans, CURVED_HEAD, fishhookSide, planAxes, planCurved, type ArrowEnd, type CurvedPlan } from "./cdxArrows";
 
 // ---- the tree --------------------------------------------------------------------------------
 
@@ -87,7 +89,13 @@ const POSITIONAL = ["p", "BoundingBox", "Head3D", "Tail3D", "Center3D", "MajorAx
 /** Moves top-level objects (by id) by (dx, dy) points: every position inside them, labels included. */
 export function moveObjects(doc: CdxDoc, ids: Iterable<string>, dx: number, dy: number): void {
   const movedIds = new Set<string>();
-  for (const id of new Set(ids)) {
+  const want = new Set(ids);
+  // An arrow's older copy (a graphic it supersedes, never drawn) goes where the arrow goes.
+  walk(doc.root, (x) => {
+    if (x.name === "graphic" && x.attrs.SupersededBy && want.has(x.attrs.SupersededBy) && x.attrs.id) want.add(x.attrs.id);
+  });
+  const tied = arrowAnchors(doc.root);
+  for (const id of want) {
     const top = findById(doc.root, id)?.el;
     if (!top) continue;
     walk(top, (x) => {
@@ -105,6 +113,8 @@ export function moveObjects(doc: CdxDoc, ids: Iterable<string>, dx: number, dy: 
   }
   // Only the η-bonds whose ring atoms moved follow them (an imported centre a hair off its centroid is left alone).
   syncHaptoCentres(doc.root, movedIds);
+  // Mechanism arrows tied to atoms that moved follow them.
+  followAnchors(doc.root, tied);
 }
 
 /**
@@ -206,6 +216,14 @@ function dropReferences(root: XNode, gone: Set<string>): void {
     } else if (x.name === "graphic" && x.children.some((c) => c.name === "represent" && gone.has(c.attrs.object ?? ""))) {
       // A ⊕ that showed a removed atom's charge would read as a charge on whatever is near it.
       removeIds.add(x.attrs.id ?? "\u0000");
+    } else if (x.name === "graphic" && x.attrs.SupersededBy && gone.has(x.attrs.SupersededBy)) {
+      // An arrow's older copy goes with the arrow.
+      removeIds.add(x.attrs.id ?? "\u0000");
+    } else if (x.name === "arrow") {
+      // A mechanism arrow whose atom or bond was erased stays where it was drawn, tied to nothing at that end (the
+      // chemist erased the atom, not the arrow; the arrow is erased on its own).
+      if (gone.has(x.attrs.ArrowSource ?? "")) delete x.attrs.ArrowSource;
+      if (gone.has(x.attrs.ArrowTarget ?? "")) delete x.attrs.ArrowTarget;
     }
   });
   const prune = (n: XNode): void => {
@@ -1205,14 +1223,41 @@ export function writeBrackets(doc: CdxDoc, page: XNode, box: [number, number, nu
   page.children.push(left, right, group);
 }
 
-export type ArrowKind = "reaction" | "equilibrium";
+export type ArrowKind = "reaction" | "equilibrium" | "retrosynthetic" | "resonance";
 
-/** A reaction arrow from tail to head (a full solid head), or an equilibrium arrow (two half-headed shafts). */
+/**
+ * The retrosynthetic arrow (⇒): an open ("Angle") head over two shafts, as ChemDraw keeps it (ArrowheadType Angle,
+ * ArrowShaftSpacing; its superseded copy says ArrowType RetroSynthetic). The proportions are JurisLab's, drawn to a
+ * journal's ⇒ at the ACS 1996 line width: shafts 2.4 pt apart, the head's arms reaching 1.8 pt past them at 45°.
+ */
+export const RETRO_HEAD = { HeadSize: "500", ArrowheadCenterSize: "500", ArrowheadWidth: "500", ArrowShaftSpacing: "200" } as const;
+
+/**
+ * A reaction arrow from tail to head (a full solid head), an equilibrium arrow (two half-headed shafts), a
+ * retrosynthetic arrow (⇒) or a resonance arrow (↔, a full head at each end). The last two are written as ChemDraw 23
+ * writes them: the `<arrow>`, and before it the older `<graphic>` form it supersedes (a line, BoundingBox head then
+ * tail, with its ArrowType), for readers that know only that.
+ */
 export function addArrow(doc: CdxDoc, tail: P2, head: P2, kind: ArrowKind = "reaction"): string | null {
   if (![...tail, ...head].every(Number.isFinite)) return "that is not a place on the page";
   if (Math.hypot(head[0] - tail[0], head[1] - tail[1]) < doc.style.bondLength * 0.5) return "drag further: an arrow needs some length";
   const page = pageOf(doc.root);
   if (!page) return "the document has no page";
+  if (kind === "retrosynthetic" || kind === "resonance") {
+    const id = nextIdFrom(doc.root);
+    const gid = id(), aid = id();
+    const retro = kind === "retrosynthetic";
+    const sizes = retro ? RETRO_HEAD : CURVED_HEAD;
+    const a: Record<string, string> = { id: aid, FillType: "None", ArrowheadType: retro ? "Angle" : "Solid", ArrowheadHead: "Full" };
+    if (!retro) a.ArrowheadTail = "Full";
+    Object.assign(a, { HeadSize: sizes.HeadSize, ArrowheadCenterSize: sizes.ArrowheadCenterSize, ArrowheadWidth: sizes.ArrowheadWidth });
+    if (retro) a.ArrowShaftSpacing = RETRO_HEAD.ArrowShaftSpacing;
+    a.Head3D = `${fmt(head[0])} ${fmt(head[1])} 0`;
+    a.Tail3D = `${fmt(tail[0])} ${fmt(tail[1])} 0`;
+    const g: Record<string, string> = { id: gid, SupersededBy: aid, BoundingBox: `${fmt(head[0])} ${fmt(head[1])} ${fmt(tail[0])} ${fmt(tail[1])}`, GraphicType: "Line", ArrowType: retro ? "RetroSynthetic" : "Resonance", HeadSize: sizes.HeadSize };
+    page.children.push({ name: "graphic", attrs: g, children: [], text: "", line: 0 }, { name: "arrow", attrs: a, children: [], text: "", line: 0 });
+    return null;
+  }
   const attrs: Record<string, string> = {
     id: nextIdFrom(doc.root)(),
     Head3D: `${fmt(head[0])} ${fmt(head[1])} 0`,
@@ -1226,6 +1271,202 @@ export function addArrow(doc: CdxDoc, tail: P2, head: P2, kind: ArrowKind = "rea
   else attrs.ArrowheadHead = "Full";
   page.children.push({ name: "arrow", attrs, children: [], text: "", line: 0 });
   return null;
+}
+
+// ---- mechanism arrows (cdxArrows.ts holds the geometry and its sources) ----------------------------
+
+/** A plan's attributes as ChemDraw writes a curved arrow: a circle with its axes along x and y (a short hop: its ellipse). */
+function curvedAttrs(p: CurvedPlan): Record<string, string> {
+  const a: Record<string, string> = {
+    Head3D: `${fmt(p.head[0])} ${fmt(p.head[1])} 0`,
+    Tail3D: `${fmt(p.tail[0])} ${fmt(p.tail[1])} 0`,
+    Center3D: `${fmt(p.center[0])} ${fmt(p.center[1])} 0`,
+    MajorAxisEnd3D: `${fmt(planAxes(p).major[0])} ${fmt(planAxes(p).major[1])} 0`,
+    MinorAxisEnd3D: `${fmt(planAxes(p).minor[0])} ${fmt(planAxes(p).minor[1])} 0`,
+    AngularSize: fmt(p.angularSize),
+  };
+  if (p.source) a.ArrowSource = p.source;
+  if (p.target) a.ArrowTarget = p.target;
+  return a;
+}
+
+/**
+ * A curved electron-pushing arrow (an electron pair: a full head) or a fishhook (one electron: a half head, its barb
+ * on the outside of the curve), from an atom (a lone pair), a bond or a page point to another. Bowed to the side that
+ * passes fewest atoms, or to the other with `flip`. Tied to the atom or bond at each end (ArrowSource / ArrowTarget),
+ * so it follows them when they move.
+ */
+export function addCurvedArrow(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: { electrons: 1 | 2; flip?: boolean }): { ok: true; arrowId: string } | { ok: false; reason: string } {
+  const page = pageOf(doc.root);
+  if (!page) return { ok: false, reason: "the document has no page" };
+  const el = curvedArrowElement(doc, from, to, o);
+  if (typeof el === "string") return { ok: false, reason: el };
+  el.attrs.id = nextIdFrom(doc.root)();
+  page.children.push(el);
+  return { ok: true, arrowId: el.attrs.id };
+}
+
+/** The curved arrow addCurvedArrow would add, not yet on the page (the canvas previews it while it is dragged). */
+export function curvedArrowElement(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: { electrons: 1 | 2; flip?: boolean }): XNode | string {
+  const chosen = bowAndPlans(doc, from, to);
+  const bow = (o.flip ? -chosen.bow : chosen.bow) as 1 | -1;
+  const plan = chosen.plans.get(bow)!;
+  if (typeof plan === "string") return plan;
+  const attrs: Record<string, string> = {
+    id: "",
+    FillType: "None",
+    ArrowheadType: "Solid",
+    ArrowheadHead: o.electrons === 1 ? fishhookSide(bow) : "Full",
+    ...CURVED_HEAD,
+    ...curvedAttrs(plan),
+  };
+  return { name: "arrow", attrs, children: [], text: "", line: 0 };
+}
+
+/** The end of an arrow element as an ArrowEnd: its atom or bond if it is tied to one still on the page, else its point. */
+function endOf(doc: CdxDoc, el: XNode, which: "tail" | "head"): ArrowEnd {
+  const ref = el.attrs[which === "tail" ? "ArrowSource" : "ArrowTarget"];
+  const hit = ref ? findById(doc.root, ref) : null;
+  if (hit?.el.name === "n") return { atom: ref! };
+  if (hit?.el.name === "b") return { bond: ref! };
+  const v = (el.attrs[which === "tail" ? "Tail3D" : "Head3D"] ?? "").split(/\s+/).map(Number);
+  return { at: [v[0], v[1]] };
+}
+
+/**
+ * Bows a curved arrow the other way. One tied to atoms or bonds is drawn again from them (its ends leave and reach
+ * them on the new side); any other is mirrored in the line through its ends. A fishhook's barb goes to the outside.
+ */
+export function flipCurvedArrow(doc: CdxDoc, arrowId: string): string | null {
+  const hit = findById(doc.root, arrowId);
+  const el = hit?.el;
+  if (!el || el.name !== "arrow") return "that arrow is no longer on the page";
+  const ar = arrowFromElement(el);
+  const g = ar ? arcOf(ar) : null;
+  if (!ar || !g) return "only a curved arrow bows — this one is straight";
+  const swap = (v: string | undefined): string | undefined => (v === "HalfLeft" ? "HalfRight" : v === "HalfRight" ? "HalfLeft" : v);
+  if (el.attrs.ArrowSource || el.attrs.ArrowTarget) {
+    const bow = (ar.angularSize > 0 ? -1 : 1) as 1 | -1; // the bow it has: negative AngularSize = bowed left
+    const plan = planCurved(doc, endOf(doc, el, "tail"), endOf(doc, el, "head"), (-bow) as 1 | -1);
+    if (typeof plan === "string") return plan;
+    for (const k of ["ArrowSource", "ArrowTarget"]) delete el.attrs[k];
+    Object.assign(el.attrs, curvedAttrs(plan));
+  } else {
+    // Mirrored in the line tail–head: the centre reflected, the turn reversed.
+    const t = ar.tail, d = [ar.head[0] - t[0], ar.head[1] - t[1]];
+    const dl = Math.hypot(d[0], d[1]);
+    if (!(dl > 0)) return "that arrow has no length";
+    const ux = d[0] / dl, uy = d[1] / dl;
+    const refl = (p: P2): P2 => {
+      const vx = p[0] - t[0], vy = p[1] - t[1], k = vx * ux + vy * uy;
+      return [t[0] + 2 * k * ux - vx, t[1] + 2 * k * uy - vy];
+    };
+    const c = refl(g.c), ra = Math.hypot(g.a[0], g.a[1]), rb = Math.hypot(g.b[0], g.b[1]);
+    const circle = Math.abs(ra - rb) < 1e-6 * Math.max(ra, rb);
+    const major = circle ? ([c[0] + ra, c[1]] as P2) : refl([g.c[0] + g.a[0], g.c[1] + g.a[1]]);
+    const minor = circle ? ([c[0], c[1] + ra] as P2) : refl([g.c[0] + g.b[0], g.c[1] + g.b[1]]);
+    el.attrs.Center3D = `${fmt(c[0])} ${fmt(c[1])} 0`;
+    el.attrs.MajorAxisEnd3D = `${fmt(major[0])} ${fmt(major[1])} 0`;
+    el.attrs.MinorAxisEnd3D = `${fmt(minor[0])} ${fmt(minor[1])} 0`;
+    // A reflection reverses the turn; a skewed ellipse's reflected axes also reverse their orientation, and so its sign.
+    el.attrs.AngularSize = fmt(circle ? -ar.angularSize : ar.angularSize);
+  }
+  for (const k of ["ArrowheadHead", "ArrowheadTail"]) {
+    const v = swap(el.attrs[k]);
+    if (v !== undefined) el.attrs[k] = v;
+  }
+  return null;
+}
+
+/** Where an arrow's tied end is: its atom, or its bond's middle. Null when it is tied to nothing on the page. */
+function anchorPoint(root: XNode, ref: string | undefined): P2 | null {
+  if (!ref) return null;
+  const hit = findById(root, ref);
+  if (!hit) return null;
+  if (hit.el.name === "n") return posOf(hit.el);
+  if (hit.el.name === "b" && hit.parent) {
+    const a = hit.parent.children.find((c) => c.name === "n" && c.attrs.id === hit.el.attrs.B);
+    const b = hit.parent.children.find((c) => c.name === "n" && c.attrs.id === hit.el.attrs.E);
+    if (!a || !b) return null;
+    const pa = posOf(a), pb = posOf(b);
+    return [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
+  }
+  return null;
+}
+
+const ARROW_POINTS = ["Head3D", "Tail3D", "Center3D", "MajorAxisEnd3D", "MinorAxisEnd3D"];
+const pointOf = (v: string | undefined): P2 | null => {
+  const a = (v ?? "").trim().split(/\s+/).map(Number);
+  return a.length >= 2 && Number.isFinite(a[0]) && Number.isFinite(a[1]) ? [a[0], a[1]] : null;
+};
+
+/** Every tied arrow and where its ends' atoms or bonds are (before an edit moves atoms). */
+export function arrowAnchors(root: XNode): Map<XNode, { tail: P2 | null; head: P2 | null; own: string }> {
+  const out = new Map<XNode, { tail: P2 | null; head: P2 | null; own: string }>();
+  walk(root, (x) => {
+    if (x.name !== "arrow" || (!x.attrs.ArrowSource && !x.attrs.ArrowTarget)) return;
+    out.set(x, { tail: anchorPoint(root, x.attrs.ArrowSource), head: anchorPoint(root, x.attrs.ArrowTarget), own: `${x.attrs.Tail3D}|${x.attrs.Head3D}` });
+  });
+  return out;
+}
+
+/**
+ * After atoms moved: each tied arrow follows its atoms or bonds, keeping its shape — carried by the turn, scale and
+ * shift that take its ends' old places to their new ones (an untied end stays where it is). An arrow that was moved
+ * itself while what it is tied to stayed is no longer tied to it (it was put somewhere else on purpose).
+ */
+export function followAnchors(root: XNode, before: Map<XNode, { tail: P2 | null; head: P2 | null; own: string }>): void {
+  // The page as it now is (read once, when a curved arrow needs drawing again from its atoms' new places).
+  let page: CdxDoc | null | undefined;
+  const now = (): CdxDoc | null => {
+    if (page === undefined) {
+      const r = readCdxmlTree(root);
+      page = r.ok ? r.doc : null;
+    }
+    return page;
+  };
+  for (const [el, was] of before) {
+    const nowT = anchorPoint(root, el.attrs.ArrowSource), nowH = anchorPoint(root, el.attrs.ArrowTarget);
+    const movedSelf = `${el.attrs.Tail3D}|${el.attrs.Head3D}` !== was.own;
+    const same = (a: P2 | null, b: P2 | null): boolean => !a || !b || Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
+    if (movedSelf) {
+      // Each end on its own: one whose atom moved with the arrow (both selected) stays tied; one left behind is not.
+      if (was.tail && nowT && same(was.tail, nowT)) delete el.attrs.ArrowSource;
+      if (was.head && nowH && same(was.head, nowH)) delete el.attrs.ArrowTarget;
+      continue;
+    }
+    if (same(was.tail, nowT) && same(was.head, nowH)) continue;
+    // A curved arrow is drawn again from its atoms' new places, bowed the same way: its ends keep their clear gaps (a
+    // shape merely carried along stretches them — walkthrough). Anything else is carried by the similarity below.
+    const ang = Number(el.attrs.AngularSize ?? 0);
+    const fresh = ang && Number.isFinite(ang) ? now() : null;
+    if (fresh) {
+      const plan = planCurved(fresh, endOf(fresh, el, "tail"), endOf(fresh, el, "head"), ang < 0 ? 1 : -1);
+      if (typeof plan !== "string") {
+        Object.assign(el.attrs, curvedAttrs(plan));
+        continue;
+      }
+    }
+    const tail = pointOf(el.attrs.Tail3D), head = pointOf(el.attrs.Head3D);
+    if (!tail || !head) continue;
+    const a0 = was.tail ?? tail, b0 = was.head ?? head;
+    const a1 = nowT ?? (was.tail ? a0 : tail), b1 = nowH ?? (was.head ? b0 : head);
+    // The similarity z ↦ s·R·(z − a0) + a1 with R, s from (b0 − a0) → (b1 − a1); a pure shift when the ends coincide.
+    const ox = b0[0] - a0[0], oy = b0[1] - a0[1], nx = b1[0] - a1[0], ny = b1[1] - a1[1];
+    const o2 = ox * ox + oy * oy;
+    const [cr, ci] = o2 > 1e-12 ? [(nx * ox + ny * oy) / o2, (ny * ox - nx * oy) / o2] : [1, 0];
+    const map = (p: P2): P2 => {
+      const vx = p[0] - a0[0], vy = p[1] - a0[1];
+      return [a1[0] + cr * vx - ci * vy, a1[1] + ci * vx + cr * vy];
+    };
+    for (const k of ARROW_POINTS) {
+      const p = pointOf(el.attrs[k]);
+      if (p) {
+        const q = map(p);
+        el.attrs[k] = `${fmt(q[0])} ${fmt(q[1])} 0`;
+      }
+    }
+  }
 }
 
 // ---- drawing from a blank page (docs/SCOPE-CHEM-CANVAS.md, stage 2) ---------------------------

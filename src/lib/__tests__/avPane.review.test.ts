@@ -41,6 +41,7 @@ import * as mechchart from "../mechchart";
 import * as plot from "../plot";
 import * as svgSize from "../svgSize";
 import * as engReportLib from "../engReport";
+import * as engEquations from "../engEquations";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -103,15 +104,24 @@ function buildRegistry(): Record<string, any> {
     .transpileModule(src, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.None, removeComments: true } })
     .outputText.replace(/^"use strict";/, "");
   const scope: Record<string, any> = {};
-  for (const lib of [audio, loudness, video, timecode, photometry, colourspace, avFigures, units, numberList, mechchart, plot, svgSize, engReportLib]) {
+  for (const lib of [audio, loudness, video, timecode, photometry, colourspace, avFigures, units, numberList, mechchart, plot, svgSize, engReportLib, engEquations]) {
     Object.assign(scope, lib);
   }
   // The real engReport came in with plainDashes; the stub below replaces it on purpose.
   scope.avFmt = (audio as any).fmtNum;
+  // Release E: a table line (kvTable or { table }) becomes its label and one text line per row, cells typeset as the
+  // real engReport typesets them; a governing-equation line is its fallback. withOutputs attaches the named outputs.
   scope.engReport = (lines: any[], extra: any[] = []) => ({
-    lines: lines.map((l) => (typeof l === "string" ? l.replace(/—/g, "-") : l.fallback)),
+    lines: lines.flatMap((l) =>
+      typeof l === "string"
+        ? [l.replace(/—/g, "-")]
+        : "table" in l
+          ? [...(l.label ? [l.label] : []), ...l.table.map((row: string[]) => row.map((c) => engReportLib.engCell(c)).join("  "))]
+          : [l.fallback],
+    ),
     blocks: extra,
   });
+  scope.withOutputs = (outputs: any[], out: any) => (out.ok === false ? out : { ...out, outputs: outputs.filter((o) => Number.isFinite(o.value)) });
   const proxy = new Proxy(scope, { has: (t, k) => k in t, get: (t, k) => (t as any)[k] });
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const calcs = new Function("__s", `with (__s) { ${js} }`)(proxy) as any[];
@@ -446,7 +456,8 @@ describe("v2.140.0 pane review — cosmetic and refusals (fixed; flipped to plai
   // "165.8 ppm" correction note. Correct: "23.976" (or 24000/1001), as every other
   // new video tool prints. Owner: taskpane.ts (video-bitrate header).
   it("video-bitrate names 24000/1001 as 23.976, not 23.98", () => {
-    const header = run("video-bitrate", { fps: "24000/1001" }).lines![0];
+    // The governing equations now lead the report (Release E), so the header is found by its own words.
+    const header = run("video-bitrate", { fps: "24000/1001" }).lines!.find((l: string) => l.startsWith("Bitrate, ")) ?? "";
     expect(header).toMatch(/ at (23\.976|24000\/1001) fps$/);
   });
 

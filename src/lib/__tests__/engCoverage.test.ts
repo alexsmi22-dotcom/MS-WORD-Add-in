@@ -33,7 +33,7 @@ const withTable = ENG.filter((e) => /\btable: \[/.test(e.body) || /\bkvTable\(/.
 
 // Tools whose result is not a headline number (or whose method is an algorithm with no single formula) are listed in
 // the Release E report; these floors are what the release reached.
-const FLOORS = { tools: 153, outputs: 9, math: 5, tables: 2 };
+const FLOORS = { tools: 153, outputs: 152, math: 142, tables: 85 };
 
 describe("Engineering coverage ratchet (Release E)", () => {
   test("the registry is found and has every literal tool", () => {

@@ -591,5 +591,3 @@ export function engEq(key: string): EngLine[] {
   return ENG_EQUATIONS[key] ?? [];
 }
 
-// Referenced so the helper is not flagged unused while the table is being filled.
-void eq;

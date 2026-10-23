@@ -53,6 +53,35 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "filter-design:chebyshev": [eq("n = arccosh(sqrt((10^{0.1 A_s} - 1)/(10^{0.1 A_p} - 1)))/arccosh(Omega)", "n = arccosh(√((10⁰·¹ᴬˢ − 1)/(10⁰·¹ᴬᵖ − 1)))/arccosh Ω")],
   "filter-design:lowpass": [eq("Omega = omega_s/omega_p", "Ω = ωs/ωp")],
   "filter-design:highpass": [eq("Omega = omega_p/omega_s", "Ω = ωp/ωs")],
+
+  // ---- Fluids ----
+  pipe: [eq("Re = rho V D/mu", "Re = ρ·V·D/μ"), eq("h_f = f L V^2/(2 g D)", "hf = f·L·V²/(2g·D)"), eq("Delta p = rho g h_L", "Δp = ρ·g·hL")],
+  "pipe:laminar": [eq("f = 64/Re", "f = 64/Re")],
+  "pipe:turbulent": [eq("1/sqrt(f) = -2 log(epsilon/(3.7 D) + 2.51/(Re sqrt(f)))", "1/√f = −2·log(ε/(3.7·D) + 2.51/(Re·√f))")],
+  "pipe:minor": [eq("h_m = Sigma K V^2/(2 g)", "hm = ΣK·V²/(2g)")],
+  "open-channel": [
+    eq("V = (1/n) R_h^{2/3} sqrt(S)", "V = (1/n)·Rₕ²ᐟ³·√S"),
+    eq("Q = V A", "Q = V·A"),
+    eq("Fr = V/sqrt(g A/T)", "Fr = V/√(g·A/T)"),
+    eq("E = y + V^2/(2 g)", "E = y + V²/(2g)"),
+  ],
+  "pump-npsh": [eq("NPSH_a = (p_s - p_v)/(rho g) + h_s - h_L", "NPSHa = (ps − pv)/(ρ·g) + hs − hL")],
+  "pump-npsh:power": [eq("P_h = rho g Q H", "Ph = ρ·g·Q·H"), eq("P_shaft = P_h/eta", "Pshaft = Ph/η")],
+  compressible: [
+    eq("a = sqrt(k R T)", "a = √(k·R·T)"),
+    eq("T_0/T = 1 + ((k - 1)/2) M^2", "T₀/T = 1 + ((k − 1)/2)·M²"),
+    eq("p_0/p = (T_0/T)^{k/(k - 1)}", "p₀/p = (T₀/T)ᵏᐟ⁽ᵏ⁻¹⁾"),
+  ],
+  "flow-meter": [eq("Q = C_d epsilon A_t sqrt(2 Delta p/rho)/sqrt(1 - beta^4)", "Q = Cd·ε·At·√(2Δp/ρ)/√(1 − β⁴)"), eq("beta = d/D", "β = d/D")],
+  "pump-system": [eq("H_pump = H_0 (1 - (Q/Q_max)^2)", "Hpump = H₀(1 − (Q/Qmax)²)"), eq("H_sys = h_s + K Q^2", "Hsys = hs + K·Q²"), eq("P_h = rho g Q H", "Ph = ρ·g·Q·H")],
+  affinity: [
+    eq("Q_2/Q_1 = (N_2/N_1) (D_2/D_1)^3", "Q₂/Q₁ = (N₂/N₁)(D₂/D₁)³"),
+    eq("H_2/H_1 = (N_2/N_1)^2 (D_2/D_1)^2", "H₂/H₁ = (N₂/N₁)²(D₂/D₁)²"),
+    eq("P_2/P_1 = (N_2/N_1)^3 (D_2/D_1)^5", "P₂/P₁ = (N₂/N₁)³(D₂/D₁)⁵"),
+  ],
+  "body-drag": [eq("F_D = (1/2) rho V^2 C_d A", "FD = ½·ρ·V²·Cd·A"), eq("P = F_D V", "P = FD·V")],
+  "body-drag:terminal": [eq("V_t = sqrt(2 m g/(rho C_d A))", "Vt = √(2m·g/(ρ·Cd·A))")],
+  "body-drag:reynolds": [eq("Re = rho V L/mu", "Re = ρ·V·L/μ")],
 };
 
 /** The governing-equation lines for a tool (or `tool:branch`); empty for a key that has none. */

@@ -29,7 +29,8 @@ function leaves(n: Node, out: string[] = []): string[] {
   return out;
 }
 
-const letters = (s: string): string => s.normalize("NFKC").replace(/[^\p{L}\p{N}]/gu, "");
+// ᐟ is the superscript slash the fallbacks use in exponents (Rₕ²ᐟ³); it is punctuation here, not a letter.
+const letters = (s: string): string => s.normalize("NFKC").replace(/ᐟ/g, "").replace(/[^\p{L}\p{N}]/gu, "");
 
 const ALL = Object.entries(ENG_EQUATIONS).flatMap(([k, list]) => list.map((e, i) => [`${k} #${i + 1}`, e] as const));
 

@@ -1,6 +1,6 @@
 // An Engineering report's blocks and text, with the em-dash sentinel cleaned out (engReport.ts, moved out of
 // taskpane.ts unchanged).
-import { engCell, engReport, plainDashes } from "../engReport";
+import { engCell, engReport, kvTable, plainDashes } from "../engReport";
 
 describe("plainDashes", () => {
   it("swaps every em dash for a hyphen and touches nothing else", () => {
@@ -60,6 +60,11 @@ describe("engReport", () => {
     expect(engCell("member 2e3x")).toBe("member 2e3x");
     expect(engCell("Force (kN)")).toBe("Force (kN)");
     expect(engReport([{ table: [["x"], ["-1e-3"]] }]).blocks).toEqual([{ kind: "table", rows: [["x"], ["−1×10⁻³"]] }]);
+  });
+
+  it("kvTable lays a quantity/value/unit summary out as a table line", () => {
+    expect(kvTable([["Flow", "0.012", "m³/s"]], "Result")).toEqual({ table: [["Quantity", "Value", "Unit"], ["Flow", "0.012", "m³/s"]], label: "Result" });
+    expect(kvTable([["n", "3", ""]])).toEqual({ table: [["Quantity", "Value", "Unit"], ["n", "3", ""]] });
   });
 
   it("an empty report is empty", () => {

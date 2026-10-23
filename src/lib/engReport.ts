@@ -49,6 +49,14 @@ export function engCell(text: string): string {
   return trueMinus(plainDashes(sci));
 }
 
+/**
+ * A quantity / value / unit table — the form of the padded "  Flow     0.012 m³/s" summaries the tools printed —
+ * with the unit in its own column. Rows whose value is not shown are left out by the caller.
+ */
+export function kvTable(rows: Array<[string, string, string]>, label?: string): EngTableLine {
+  return { table: [["Quantity", "Value", "Unit"], ...rows], ...(label !== undefined ? { label } : {}) };
+}
+
 /** A report line: prose, a formula, or a table. */
 export type EngReportLine = EngLine | EngTableLine;
 

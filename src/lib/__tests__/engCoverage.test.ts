@@ -29,7 +29,7 @@ function outputKeys(body: string): string[] {
 
 const withOut = ENG.filter((e) => outputKeys(e.body).length > 0);
 const withMath = ENG.filter((e) => /\bengEq\("/.test(e.body) || /\{\s*math: /.test(e.body));
-const withTable = ENG.filter((e) => /\{\s*(label: [^\n]*?,\s*)?table: /.test(e.body) || /\btable: \[/.test(e.body));
+const withTable = ENG.filter((e) => /\btable: \[/.test(e.body) || /\bkvTable\(/.test(e.body));
 
 // Tools whose result is not a headline number (or whose method is an algorithm with no single formula) are listed in
 // the Release E report; these floors are what the release reached.

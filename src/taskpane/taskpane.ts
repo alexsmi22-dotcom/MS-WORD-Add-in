@@ -47,7 +47,7 @@ import {
 } from "../lib/spectroPane";
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
-import { EngLine, EngReportLine, engReport, plainDashes } from "../lib/engReport";
+import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
 import { engEq } from "../lib/engEquations";
 import { carryOver, fieldText, handoffsFor, runSweep, runUncertainty, splitValue, sweepReport, uncertaintyReport, type UncertainInput } from "../lib/engWorkbench";
 import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
@@ -13012,7 +13012,7 @@ interface EngUnits {
   /** An optional quantity; null when the field is blank. */
   optNull(key: string, si: string, label: string): number | null;
   /** Appends the "units read" block to a report, when anything was converted. */
-  report(lines: string[]): void;
+  report(lines: EngReportLine[]): void;
 }
 
 function engUnits(r: (k: string) => string): EngUnits {
@@ -14510,7 +14510,11 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [
+        ...engEq("pipe"),
+        ...(res.regime === "laminar" ? engEq("pipe:laminar") : res.regime === "turbulent" ? engEq("pipe:turbulent") : []),
+        ...(res.hMinor > 0 ? engEq("pipe:minor") : []),
+      ];
       lines.push("Pipe flow");
       lines.push(fluidNote);
       lines.push(
@@ -14542,6 +14546,14 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       lines.push(ENG_UNIT_NOTE);
 
+      // Named outputs (Release E): the headline numbers in the units the text quotes them in.
+      const pipeOutputs: EngOutput[] = [
+        { key: "Re", label: "Reynolds number", value: res.Re, unit: "" },
+        { key: "fD", label: "Darcy friction factor", value: res.f, unit: "" },
+        { key: "hLoss", label: "Total head loss", value: res.hTotal, unit: "m" },
+        { key: "dp", label: "Pressure drop", value: res.dp, unit: "Pa" },
+        { key: "Ppump", label: "Pump shaft power", value: res.pumpPower ?? NaN, unit: "W" },
+      ];
       // The system head curve: the same pipe swept over flow, with this flow
       // on it. Head loss grows roughly with Q² (exactly with Q through the
       // Colebrook factor, which is why each point re-solves it), and where a
@@ -14574,7 +14586,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "System head curve",
           },
         );
-        return engReport(lines, [
+        return withOutputs(pipeOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -14583,9 +14595,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(pipeOutputs, engReport(lines));
     },
   },
   {
@@ -18609,7 +18621,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("open-channel")];
       lines.push(`Open-channel flow, ${r("shape") || "trapezoidal"} section`);
       lines.push(
         `Manning's n = ${engNum(n, 4)}` +
@@ -18633,6 +18645,12 @@ const ENG_CALCS: EngCalc[] = [
       // water, and which arm this flow sits on is the regime the text names.
       // A(y) is re-asked of the engine per depth so every section shape is
       // priced by the same geometry code, not re-derived here.
+      const ocOutputs: EngOutput[] = [
+        { key: "Qd", label: "Discharge", value: res.discharge, unit: "m³/s" },
+        { key: "Vmean", label: "Mean velocity", value: res.velocity, unit: "m/s" },
+        { key: "Fr", label: "Froude number", value: res.froude, unit: "" },
+        { key: "yc", label: "Critical depth", value: res.criticalDepth ?? NaN, unit: "m" },
+      ];
       const Qd = res.discharge;
       const g = 9.80665;
       let yTop = 2.2 * Math.max(yV, res.criticalDepth ?? yV);
@@ -18674,7 +18692,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "depth y (m)",
           title: "Specific energy diagram",
         });
-        return engReport(lines, [
+        return withOutputs(ocOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -18683,9 +18701,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 270,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(ocOutputs, engReport(lines));
     },
   },
   {
@@ -18818,7 +18836,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("pump-npsh"), ...(res.hydraulicPower !== null ? engEq("pump-npsh:power") : [])];
       lines.push("Pump suction analysis");
       lines.push("");
       lines.push(`NPSH available = ${engNum(res.npshAvailable)} m`);
@@ -18916,7 +18934,12 @@ const ENG_CALCS: EngCalc[] = [
           });
         }
       }
-      return engReport(lines, figBlocks);
+      return withOutputs([
+        { key: "NPSHa", label: "NPSH available", value: res.npshAvailable, unit: "m" },
+        { key: "margin", label: "NPSH margin", value: res.margin, unit: "m" },
+        { key: "Phyd", label: "Hydraulic power", value: res.hydraulicPower ?? NaN, unit: "W" },
+        { key: "Pshaft", label: "Shaft power", value: res.shaftPower ?? NaN, unit: "W" },
+      ], engReport(lines, figBlocks));
     },
   },
   {
@@ -18936,7 +18959,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = compressibleFlow(Number(r("mach") || "0"), Number(r("k") || "1.4"), Number(r("T") || "288.15"));
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("compressible")];
       lines.push(`Compressible flow at Mach ${engNum(res.mach)} — ${res.regime.toUpperCase()}`);
       lines.push("");
       lines.push(`Speed of sound = ${engNum(res.speedOfSound)} m/s`);
@@ -18976,7 +18999,13 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "Mass flow (fraction of choked)",
           title: `Choking at p*/p0 = ${crit.toFixed(4)}`,
         });
-        return engReport(lines, [
+        return withOutputs([
+          { key: "a", label: "Speed of sound", value: res.speedOfSound, unit: "m/s" },
+          { key: "V", label: "Velocity", value: res.mach * res.speedOfSound, unit: "m/s" },
+          { key: "T0T", label: "Stagnation temperature ratio T₀/T", value: res.temperatureRatio, unit: "" },
+          { key: "p0p", label: "Stagnation pressure ratio p₀/p", value: res.pressureRatio, unit: "" },
+          { key: "areaRatio", label: "Area ratio A/A*", value: res.areaRatio, unit: "" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -18985,7 +19014,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -19039,21 +19068,20 @@ const ENG_CALCS: EngCalc[] = [
       const res = flowMeter({ kind, pipeD, throatD, deltaP, rho, cd, epsilon: eps, lossFraction });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        `${kind} meter, β = ${engNum(res.beta, 4)}`,
-        "",
-        `  Volumetric flow      ${engNum(res.Q, 5)} m³/s  (${engNum(res.Q * 3600, 5)} m³/h)`,
-        `  Mass flow            ${engNum(res.massFlow, 5)} kg/s`,
-        `  Throat velocity      ${engNum(res.throatVelocity, 5)} m/s`,
-        `  Pipe velocity        ${engNum(res.pipeVelocity, 5)} m/s`,
-        "",
-        `  Velocity-of-approach ${engNum(res.approachFactor, 5)}`,
+      // Release E: the summary is a quantity / value / unit table.
+      const meterRows: Array<[string, string, string]> = [
+        ["Volumetric flow", engNum(res.Q, 5), "m³/s"],
+        ["Volumetric flow", engNum(res.Q * 3600, 5), "m³/h"],
+        ["Mass flow", engNum(res.massFlow, 5), "kg/s"],
+        ["Throat velocity", engNum(res.throatVelocity, 5), "m/s"],
+        ["Pipe velocity", engNum(res.pipeVelocity, 5), "m/s"],
+        ["Velocity-of-approach factor", engNum(res.approachFactor, 5), ""],
       ];
       if (res.permanentLoss !== null && res.lossFraction !== null) {
-        lines.push(
-          `  PERMANENT loss       ${engNum(res.permanentLoss, 5)} Pa  (${engNum(res.lossFraction * 100, 4)} % of the differential)`,
-        );
+        meterRows.push(["PERMANENT loss", engNum(res.permanentLoss, 5), "Pa"]);
+        meterRows.push(["PERMANENT loss, share of the differential", engNum(res.lossFraction * 100, 4), "%"]);
       }
+      const lines: EngReportLine[] = [...engEq("flow-meter"), `${kind} meter, β = ${engNum(res.beta, 4)}`, "", kvTable(meterRows)];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -19087,7 +19115,12 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Flow (m³/h)",
         title: `Square-root response, beta = ${res.beta.toFixed(3)}`,
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Qflow", label: "Volumetric flow", value: res.Q, unit: "m³/s" },
+        { key: "mdot", label: "Mass flow", value: res.massFlow, unit: "kg/s" },
+        { key: "beta", label: "Diameter ratio β", value: res.beta, unit: "" },
+        { key: "dpLoss", label: "Permanent pressure loss", value: res.permanentLoss ?? NaN, unit: "Pa" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -19096,7 +19129,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -19140,22 +19173,23 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Operating point",
-        "",
-        `  Flow                 ${engNum(res.flow, 5)} m³/s  (${engNum(res.flow * 3600, 5)} m³/h)`,
-        `  Head                 ${engNum(res.head, 5)} m`,
-        `  Hydraulic power      ${engNum(res.hydraulicPower / 1000, 5)} kW`,
+      // Release E: the operating point (and the throttled one) as quantity / value / unit tables.
+      const opRows: Array<[string, string, string]> = [
+        ["Flow", engNum(res.flow, 5), "m³/s"],
+        ["Flow", engNum(res.flow * 3600, 5), "m³/h"],
+        ["Head", engNum(res.head, 5), "m"],
+        ["Hydraulic power", engNum(res.hydraulicPower / 1000, 5), "kW"],
       ];
-      if (res.shaftPower !== null) lines.push(`  Shaft power          ${engNum(res.shaftPower / 1000, 5)} kW`);
+      if (res.shaftPower !== null) opRows.push(["Shaft power", engNum(res.shaftPower / 1000, 5), "kW"]);
+      const lines: EngReportLine[] = [...engEq("pump-system"), "Operating point", "", kvTable(opRows)];
       if (res.throttled) {
         lines.push("");
-        lines.push("Throttled");
-        lines.push(`  Flow                 ${engNum(res.throttled.flow, 5)} m³/s`);
-        lines.push(`  Head                 ${engNum(res.throttled.head, 5)} m  (HIGHER, not lower)`);
-        if (res.throttled.wastedW !== null) {
-          lines.push(`  Burned at the valve  ${engNum(res.throttled.wastedW / 1000, 5)} kW`);
-        }
+        const thRows: Array<[string, string, string]> = [
+          ["Flow", engNum(res.throttled.flow, 5), "m³/s"],
+          ["Head (HIGHER, not lower)", engNum(res.throttled.head, 5), "m"],
+        ];
+        if (res.throttled.wastedW !== null) thRows.push(["Burned at the valve", engNum(res.throttled.wastedW / 1000, 5), "kW"]);
+        lines.push(kvTable(thRows, "Throttled"));
       }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -19187,7 +19221,12 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Head (m)",
         title: "Where the pump actually runs",
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Qop", label: "Operating flow", value: res.flow, unit: "m³/s" },
+        { key: "Hop", label: "Operating head", value: res.head, unit: "m" },
+        { key: "Phyd", label: "Hydraulic power", value: res.hydraulicPower / 1000, unit: "kW" },
+        { key: "Pshaft", label: "Shaft power", value: res.shaftPower !== null ? res.shaftPower / 1000 : NaN, unit: "kW" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -19196,7 +19235,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 270,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -19236,13 +19275,16 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("affinity"),
         `Affinity scaling, speed ratio ${engNum(res.speedRatio, 5)}`,
         "",
-        `  Flow                 ${engNum(res.flow2, 5)}`,
-        `  Head                 ${engNum(res.head2, 5)}`,
-        `  Power                ${engNum(res.power2, 5)} W`,
-        `  Power as a fraction  ${engNum(res.powerFraction * 100, 4)} %`,
+        kvTable([
+          ["Flow", engNum(res.flow2, 5), ""],
+          ["Head", engNum(res.head2, 5), ""],
+          ["Power", engNum(res.power2, 5), "W"],
+          ["Power as a fraction", engNum(res.powerFraction * 100, 4), "%"],
+        ]),
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -19274,7 +19316,11 @@ const ENG_CALCS: EngCalc[] = [
           title: "Why power is the one that matters",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Q2", label: "New flow (unit of the known flow)", value: res.flow2, unit: "" },
+        { key: "H2", label: "New head (unit of the known head)", value: res.head2, unit: "" },
+        { key: "P2", label: "New power", value: res.power2, unit: "W" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -19283,7 +19329,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -19320,15 +19366,21 @@ const ENG_CALCS: EngCalc[] = [
       const res = bodyDrag({ velocity, rho, area, cd, mass, mu, length });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const dragRows: Array<[string, string, string]> = [
+        ["Dynamic pressure", engNum(res.dynamicPressure, 5), "Pa"],
+        ["Drag force", engNum(res.drag, 5), "N"],
+        ["Power to overcome", engNum(res.power / 1000, 5), "kW"],
+      ];
+      if (res.terminalVelocity !== null) dragRows.push(["Terminal velocity", engNum(res.terminalVelocity, 5), "m/s"]);
+      if (res.reynolds !== null) dragRows.push(["Reynolds number", engNum(res.reynolds, 5), ""]);
+      const lines: EngReportLine[] = [
+        ...engEq("body-drag"),
+        ...(res.terminalVelocity !== null ? engEq("body-drag:terminal") : []),
+        ...(res.reynolds !== null ? engEq("body-drag:reynolds") : []),
         `Drag at ${engNum(velocity, 4)} m/s`,
         "",
-        `  Dynamic pressure     ${engNum(res.dynamicPressure, 5)} Pa`,
-        `  Drag force           ${engNum(res.drag, 5)} N`,
-        `  Power to overcome    ${engNum(res.power / 1000, 5)} kW`,
+        kvTable(dragRows),
       ];
-      if (res.terminalVelocity !== null) lines.push(`  Terminal velocity    ${engNum(res.terminalVelocity, 5)} m/s`);
-      if (res.reynolds !== null) lines.push(`  Reynolds number      ${engNum(res.reynolds, 5)}`);
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -19353,7 +19405,12 @@ const ENG_CALCS: EngCalc[] = [
           title: "Drag squares, power cubes",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "FD", label: "Drag force", value: res.drag, unit: "N" },
+        { key: "Pdrag", label: "Power to overcome drag", value: res.power / 1000, unit: "kW" },
+        { key: "Vt", label: "Terminal velocity", value: res.terminalVelocity ?? NaN, unit: "m/s" },
+        { key: "Re", label: "Reynolds number", value: res.reynolds ?? NaN, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -19362,7 +19419,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {

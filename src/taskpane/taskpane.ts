@@ -13687,7 +13687,7 @@ const ENG_CALCS: EngCalc[] = [
       // Named outputs (Release E): every node voltage, and the total power dissipated.
       const dcOutputs: EngOutput[] = [
         { key: "Pdiss", label: "Total power dissipated", value: res.totalDissipated, unit: "W" },
-        ...res.nodes.map((n) => ({ key: `V(${n.name})`, label: `Node voltage V(${n.name})`, value: n.volts, unit: "V" })),
+        ...res.nodes.map((n) => ({ key: `V_${n.name.replace(/[^A-Za-z0-9_]/g, "_")}`, label: `Node voltage V(${n.name})`, value: n.volts, unit: "V" })),
       ];
       for (const n of res.notes) lines.push(`Note: ${n}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -13761,8 +13761,8 @@ const ENG_CALCS: EngCalc[] = [
         for (const n of res.notes) lines.push(`Note: ${n}`);
         return withOutputs(
           res.nodes.flatMap((n) => [
-            { key: `|V(${n.name})|`, label: `Magnitude of V(${n.name})`, value: n.magnitude, unit: "" },
-            { key: `arg V(${n.name})`, label: `Phase of V(${n.name})`, value: n.phaseDeg, unit: "deg" },
+            { key: `Vmag_${n.name.replace(/[^A-Za-z0-9_]/g, "_")}`, label: `Magnitude of V(${n.name})`, value: n.magnitude, unit: "" },
+            { key: `Vphase_${n.name.replace(/[^A-Za-z0-9_]/g, "_")}`, label: `Phase of V(${n.name})`, value: n.phaseDeg, unit: "deg" },
           ]),
           engReport(lines),
         );
@@ -14377,13 +14377,12 @@ const ENG_CALCS: EngCalc[] = [
       const svg = frameChartSvg(res, { force: fu, length: lu });
       const size = svgRootSize(svg, FRAME_CHART_SIZE.width, FRAME_CHART_SIZE.height);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      // Named outputs (Release E): the members' largest bending moment and axial force (by size, sign kept), and the
-      // largest nodal translation, in the frame's own units.
+      // Named outputs (Release E): the members' largest bending moment and axial force (by size, sign kept), in the
+      // frame's own units.
       const peakBy = (vals: number[]): number => vals.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
       return withOutputs([
         { key: "Mpeak", label: "Largest member bending moment", value: peakBy(res.members.map((m) => m.maxMoment.M)), unit: fu + "·" + lu },
         { key: "Npeak", label: "Largest member axial force", value: peakBy(res.members.map((m) => m.axial)), unit: fu },
-        { key: "dmax", label: "Largest nodal translation", value: Math.max(0, ...res.disp.map((d) => Math.hypot(d[0], d[1]))), unit: lu },
       ], engReport(lines, [
         { kind: "plot" as const, svg, caption: "Frame, deflected shape and bending moment", alt: `Plane frame of ${res.model.members.length} members with its deflected shape and bending moment diagram`, w: size.w, h: size.h },
       ]));
@@ -15261,6 +15260,7 @@ const ENG_CALCS: EngCalc[] = [
       const radRows: Array<[string, string, string]> = [
         ["Exchange factor", engNum(res.factor, 5), ""],
         ["Net radiation Q", engNum(res.Q, 5), "W"],
+        ["Net radiation Q", engNum(res.Q / 1000, 4), "kW"],
         ["Flux", engNum(res.flux, 5), "W/m²"],
         ["Equivalent radiation coefficient", engNum(res.hRadiation, 5), "W/(m²·K)"],
       ];
@@ -16358,10 +16358,14 @@ const ENG_CALCS: EngCalc[] = [
         ],
       });
       lines.push("");
-      lines.push({
-        label: "Mode shapes (columns, mass-normalised)",
-        table: [["DOF", ...res.frequencies.map((_, j) => `Mode ${j + 1}`)], ...res.modes.map((row, i) => [`${i + 1}`, ...row.map((v) => engNum(v, 4))])],
-      });
+      // Six modes per table, so a 12-DOF system does not insert a 13-column table wider than the page.
+      for (let c0 = 0; c0 < n; c0 += 6) {
+        const cols = res.frequencies.map((_, j) => j).slice(c0, c0 + 6);
+        lines.push({
+          label: n > 6 ? `Mode shapes (columns, mass-normalised), modes ${c0 + 1}–${c0 + cols.length}` : "Mode shapes (columns, mass-normalised)",
+          table: [["DOF", ...cols.map((j) => `Mode ${j + 1}`)], ...res.modes.map((row, i) => [`${i + 1}`, ...cols.map((j) => engNum(row[j], 4))])],
+        });
+      }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_VIB_UNIT_NOTE);
 
@@ -26458,11 +26462,8 @@ const ENG_CALCS: EngCalc[] = [
         });
         if (res.modes.length > 24) lines.push(`  … and ${res.modes.length - 24} more`);
       }
-      const axialModes = res.modes.filter((m) => m.kind === "axial");
       const rmOutputs: EngOutput[] = [
         { key: "fLowest", label: "Lowest mode", value: res.modes.length ? res.modes[0].frequency : NaN, unit: "Hz" },
-        { key: "nModes", label: "Modes below the ceiling", value: res.modes.length, unit: "" },
-        { key: "nAxial", label: "Axial modes below the ceiling", value: axialModes.length, unit: "" },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);

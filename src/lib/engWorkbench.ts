@@ -69,7 +69,6 @@ export const ENG_HANDOFFS: EngHandoff[] = [
   { from: "aero-polar", output: "drag", to: "aero-climb", field: "D", label: "Use the drag in Climb rate & glide" },
   { from: "aero-isa", output: "rhoisa", to: "energy-wind", field: "rho", label: "Use the air density in Wind turbine power" },
   { from: "aero-isa", output: "rhoisa", to: "body-drag", field: "rho", label: "Use the air density in Drag on a body" },
-  { from: "pump-system", output: "Qop", to: "pipe", field: "Q", label: "Use the operating flow in Pipe flow" },
   { from: "pipe", output: "hLoss", to: "pump-npsh", field: "hloss", label: "Use the head loss as the suction-line loss in Pump NPSH" },
   { from: "robotics-ik", output: "theta1a", to: "robotics-jacobian", field: "t1", label: "Use θ1 (first branch) in Jacobian (degrees)", unit: "" },
   { from: "robotics-ik", output: "theta2a", to: "robotics-jacobian", field: "t2", label: "Use θ2 (first branch) in Jacobian (degrees)", unit: "" },

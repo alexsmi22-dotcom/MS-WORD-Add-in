@@ -7,6 +7,7 @@ import * as path from "path";
 import { ENG_EQUATIONS, engEq } from "../engEquations";
 import { parseMathAst, type Node } from "../mathParse";
 import { mathToOmml } from "../mathOmml";
+import { mathToHtml } from "../mathHtml";
 
 function leaves(n: Node, out: string[] = []): string[] {
   switch (n.k) {
@@ -46,6 +47,8 @@ describe("every governing equation", () => {
   });
   test.each(ALL)("%s parses and typesets as its fallback reads", (_k, e) => {
     expect(() => mathToOmml(e.math)).not.toThrow();
+    // The pane preview renders the same string through the HTML emitter.
+    expect(() => mathToHtml(e.math)).not.toThrow();
     expect(letters(leaves(parseMathAst(e.math)).join(""))).toBe(letters(e.fallback));
   });
   test.each(ALL)("%s has no accidental function application (a symbol before a bracket)", (_k, e) => {

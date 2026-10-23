@@ -187,6 +187,10 @@ import { CHROM_CALCS } from "../lib/chromCalcs";
 import { CLONING_CALCS } from "../lib/cloningCalcs";
 import { TLC_CALCS } from "../lib/tlcCalcs";
 import { LC_CALCS } from "../lib/lcCalcs";
+// Release E: engineering gap directive (docs/GAP-ANALYSIS-ENGINEERING-2026-10-23.md).
+import { THERMAL_STRESS_CALCS } from "../lib/thermalStressCalcs";
+import { GAS_DYNAMICS_CALCS } from "../lib/gasDynamicsCalcs";
+import { VESSELS_CALCS } from "../lib/vesselsCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -28587,6 +28591,10 @@ const ENG_CALCS: EngCalc[] = [
   ...TLC_CALCS,
   ...CLONING_CALCS,
   ...LC_CALCS,
+  // Release E
+  ...THERMAL_STRESS_CALCS,
+  ...GAS_DYNAMICS_CALCS,
+  ...VESSELS_CALCS,
 ];
 
 /** A transfer function as a typeset fraction, with a readable text fallback. */

@@ -116,7 +116,8 @@ describe("every spread Engineering tool declares its inputs, group and unit cont
     const viaConst = /\bgroup:\s*([A-Z_]+)\b/.exec(e.obj)?.[1];
     const constIn = (f: string, depth = 0): string | null => {
       const text = fs.readFileSync(path.join(SRC, "lib", f + ".ts"), "utf8");
-      const own = new RegExp(`const ${viaConst}\\s*=\\s*"([^"]+)"`).exec(text)?.[1];
+      // A declaration at the start of a line — never a comment that quotes the form.
+      const own = new RegExp(`^(?:export )?const ${viaConst}\\s*=\\s*"([^"]+)"`, "m").exec(text)?.[1];
       if (own) return own;
       const from = new RegExp(`import \\{[^}]*\\b${viaConst}\\b[^}]*\\} from "\\./([A-Za-z0-9]+)"`).exec(text)?.[1];
       return from && depth < 3 ? constIn(from, depth + 1) : null;

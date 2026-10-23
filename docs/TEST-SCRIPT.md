@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.190.0)
+# JurisLab — Manual Test Script (v2.191.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,36 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0ed. New in v2.191.0 — Engineering gap release and quantum mathematics
+
+- [ ] **Engineering panels:** the panel list shows **Quantum computing** and **Quantum mechanics** after Quantum optics;
+  the Engineering heading counts 241 calculators.
+- [ ] **Units:** Thermal ▸ composite wall, enter a film coefficient `10 Btu/(h·ft²·°F)` → converted (about 56.78 W/(m²·K)),
+  and the "Units read" note shows ×10ⁿ, never e-notation. Fracture toughness `50 MPa·√m` is accepted; plain `50 MPa` is
+  refused as the wrong quantity.
+- [ ] **Send to another tool:** Structural ▸ beam, run the example → a button under the result ("Use the peak moment in
+  Cross-section") opens Cross-section with the moment and its unit filled in.
+- [ ] **Control tools share one plant:** type a transfer function in Control ▸ Bode, open Root locus → the same plant.
+- [ ] **Explore this result:** on the beam, open *Explore this result*, sweep the load over 10 points, plot the peak
+  moment → a straight line; Insert → the sweep table and graph land in Word. Give two inputs a ± and run Monte Carlo →
+  a histogram with its 95 % interval beside the first-order estimate.
+- [ ] **Equations and tables:** Control ▸ Bode Insert → the governing equation is a real Word equation (click it: the
+  equation ribbon appears), then the figures. Structural ▸ truss Insert → the member forces arrive as a Word table with
+  units in the header row, and a compressive force reads −7.5 kN with a true minus.
+- [ ] **New engineering tools (spot check, Insert each):** Pressure vessel (Lamé) with its stress plot; Normal shock;
+  Random vibration (PSD plot, Grms); Kalman filter steady state; Laser cavity (Fabry–Pérot); RF link budget; pn junction;
+  Transmission line with the Smith chart; Roofline. Each inserts a clean figure with its data.
+- [ ] **Circuit with a controlled source:** Electronics ▸ DC operating point, add `E1 out 0 in 0 10` to a divider → the
+  output node reads 10× the input node.
+- [ ] **Quantum computing:** States (Dirac) → |ψ⟩ shows kets and amplitudes like 1/√2; Single-qubit gates → the Bloch
+  sphere; Circuit simulator with 2 qubits and the lines `H 0`, `CNOT 0 1` → the circuit diagram and the Bell state
+  (|00⟩ + |11⟩)/√2; Teleportation
+  and Grover run and insert.
+- [ ] **Quantum optics:** Hong–Ou–Mandel → the dip figure; Free-space link to LEO → a coupling efficiency near 0.286.
+- [ ] **Quantum mechanics:** Particle in a box, harmonic oscillator, hydrogen-like atom, tunnelling, two-level dynamics
+  each insert a figure; an energy typed as `25 meV` is accepted.
+- [ ] **Word equations:** in Equations, type `ket(+)`, `ket(Phi+)`, `U^dagger`, `A otimes B` → |+⟩, |Φ⁺⟩, U†, A ⊗ B in Word.
 
 ## 0ec. New in v2.190.0 — Curved mechanism arrows and fishhooks
 

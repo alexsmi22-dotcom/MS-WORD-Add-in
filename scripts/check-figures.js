@@ -116,7 +116,7 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // 397 as of v2.187.0 (Release B): thin films, Fresnel and Jones (11), materials
 // testing and quality (13), control design (25), titration and CV (16) and the
 // new Plot kinds (20), each calculator at its defaults plus the layouts that crowd.
-const CORPUS_FLOOR = 716;
+const CORPUS_FLOOR = 736;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

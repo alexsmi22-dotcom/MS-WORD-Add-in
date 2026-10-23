@@ -31,7 +31,9 @@ function leaves(n: Node, out: string[] = []): string[] {
 
 // ᐟ is the superscript slash the fallbacks use in exponents (Rₕ²ᐟ³); it is punctuation here, not a letter.
 // ᵅ (modifier alpha) folds to Latin ɑ under NFKC; it is the superscript Greek alpha here.
-const letters = (s: string): string => s.normalize("NFKC").replace(/ᐟ/g, "").replace(/ɑ/g, "α").replace(/[^\p{L}\p{N}]/gu, "");
+// NFKD then dropping combining marks: ᾱ, v̄ and C̄ compare as their base letters (the bar is an accent in the tree).
+const letters = (s: string): string =>
+  s.normalize("NFKD").replace(/\p{M}/gu, "").replace(/ᐟ/g, "").replace(/ɑ/g, "α").replace(/[^\p{L}\p{N}]/gu, "");
 
 /** Functions named on purpose: L(s), G(s), C(s), T(s), H(s), R(t), w(z), f(v), F(v), and C(n, i) for the binomial coefficient. */
 const TRANSFER_FUNCTIONS = new Set(["L", "G", "C", "T", "H", "R", "w", "f", "F"]);

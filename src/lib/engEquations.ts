@@ -456,6 +456,23 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("b = ln(10) R T/(alpha F)", "b = ln 10·R·T/(α·F)"),
   ],
   tafel: [eq("eta = a + b log_10 abs(j)", "η = a + b·log₁₀|j|"), eq("alpha = ln(10) R T/(abs(b) F)", "α = ln 10·R·T/(|b|·F)"), eq("j_0 = 10^{-a/b}", "j₀ = 10⁻ᵃᐟᵇ")],
+  // ---- Audio & acoustics ----
+  "audio-sampling": [eq("f_N = f_s/2", "fN = fs/2")],
+  "audio-sampling:record": [eq("N = f_s T", "N = fs·T"), eq("Delta f = 1/T", "Δf = 1/T")],
+  "audio-quantisation": [eq("SNR = 20 log_10(2) n + 10 log_10(3/2)", "SNR = 20·log₁₀(2)·n + 10·log₁₀(3/2)")],
+  "audio-quantisation:lsb": [eq("LSB = V_FS/2^n", "LSB = VFS/2ⁿ")],
+  "audio-quantisation:rate": [eq("R = n f_s N_ch", "R = n·fs·Nch")],
+  "audio-decibel:power": [eq("L = 10 log_10(P_2/P_1)", "L = 10·log₁₀(P₂/P₁)")],
+  "audio-decibel:field": [eq("L = 20 log_10(V_2/V_1)", "L = 20·log₁₀(V₂/V₁)")],
+  "audio-spl": [eq("L_2 = L_1 - 20 log_10(d_2/d_1)", "L₂ = L₁ − 20·log₁₀(d₂/d₁)"), eq("p = p_0 10^{L/20}", "p = p₀·10ᴸᐟ²⁰")],
+  "audio-spl:sum": [eq("L_tot = 10 log_10(sum(i=1, n, 10^{L_i/10}))", "Ltot = 10·log₁₀(∑ᵢ₌₁ⁿ 10ᴸⁱᐟ¹⁰)")],
+  "audio-reverb": [
+    eq("T_Sabine = 0.161 V/(S bar(alpha))", "TSabine = 0.161·V/(S·ᾱ)"),
+    eq("T_Eyring = 0.161 V/(-S ln(1 - bar(alpha)))", "TEyring = 0.161·V/(−S·ln(1 − ᾱ))"),
+    eq("f_S = 2000 sqrt(T/V)", "fS = 2000·√(T/V)"),
+    eq("r_c = 0.057 sqrt(Q V/T)", "rc = 0.057·√(Q·V/T)"),
+  ],
+  "audio-roommodes": [eq("f = (c/2) sqrt((n_x/L)^2 + (n_y/W)^2 + (n_z/H)^2)", "f = (c/2)·√((nx/L)² + (ny/W)² + (nz/H)²)")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

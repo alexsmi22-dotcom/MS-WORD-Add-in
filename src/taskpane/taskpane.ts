@@ -25981,7 +25981,9 @@ const ENG_CALCS: EngCalc[] = [
       // and is not biomedical in any way; one implementation, two doors.
       const res = audioSamplingCheck(fs, fmax, rec ?? undefined, interf ?? undefined);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-sampling"),
+        ...(res.samples !== null || res.resolution !== null ? engEq("audio-sampling:record") : []),
         "Sampling",
         "",
         `  Nyquist frequency   ${engNum(res.nyquist, 6)} Hz`,
@@ -26000,6 +26002,11 @@ const ENG_CALCS: EngCalc[] = [
       // that folded the headline tone. Drawn only when the setup is adequate;
       // an inadequate one folds the signal itself and the flat line it
       // produces would just restate the warning.
+      const asOutputs: EngOutput[] = [
+        { key: "fNyquist", label: "Nyquist frequency", value: res.nyquist, unit: "Hz" },
+        { key: "fAlias", label: "Where the out-of-band tone folds to", value: res.aliasedTo ?? NaN, unit: "Hz" },
+        { key: "df", label: "FFT resolution", value: res.resolution ?? NaN, unit: "Hz" },
+      ];
       if (res.adequate && fs > 0) {
         const fold: Point[] = [];
         for (let i2 = 1; i2 <= 200; i2++) {
@@ -26026,7 +26033,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "apparent frequency after sampling (Hz)",
             title: "The fold diagram",
           });
-          return engReport(lines, [
+          return withOutputs(asOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -26035,10 +26042,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(asOutputs, engReport(lines));
     },
   },
   {
@@ -26067,7 +26074,10 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(ch)) return { text: "Channel count must be a whole number.", ok: false };
       const res = quantisation(bits, vfs ?? undefined, fs ?? undefined, ch);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-quantisation"),
+        ...(res.lsbVolts !== null ? engEq("audio-quantisation:lsb") : []),
+        ...(res.bitRate !== null ? engEq("audio-quantisation:rate") : []),
         `Quantisation, ${res.bits}-bit`,
         "",
         `  Theoretical SNR     ${engNum(res.snrDb, 5)} dB`,
@@ -26086,6 +26096,11 @@ const ENG_CALCS: EngCalc[] = [
       // The 6.02n + 1.76 line drawn across bit depths, each point asked of
       // the engine, this converter marked. The line being straight IS the
       // claim in the hint — one bit is always 6.02 dB.
+      const qOutputs: EngOutput[] = [
+        { key: "SNR", label: "Theoretical SNR", value: res.snrDb, unit: "dB" },
+        { key: "LSBv", label: "LSB voltage", value: res.lsbVolts ?? NaN, unit: "V" },
+        { key: "bitRate", label: "Uncompressed bit rate", value: res.bitRate !== null ? res.bitRate / 1e6 : NaN, unit: "Mbit/s" },
+      ];
       {
         const snrPts: Point[] = [];
         const nTop = Math.min(64, Math.max(24, res.bits));
@@ -26107,12 +26122,12 @@ const ENG_CALCS: EngCalc[] = [
               title: "SNR against bit depth",
             },
           );
-          return engReport(lines, [
+          return withOutputs(qOutputs, engReport(lines, [
             avPlot(svg, "The quantisation SNR line, 6.02 dB per bit, this converter marked", "Theoretical SNR rising linearly with bit depth"),
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(qOutputs, engReport(lines));
     },
   },
   {
@@ -26146,7 +26161,13 @@ const ENG_CALCS: EngCalc[] = [
       const q = (r("q") === "power" ? "power" : "field") as DbQuantity;
       const res = r("dir") === "fromDb" ? fromDb(v, q) : toDb(v, q);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const dbOutputs: EngOutput[] = [
+        { key: "ratio", label: "Linear ratio", value: res.ratio, unit: "" },
+        { key: "dB", label: "Level on the chosen basis", value: res.db, unit: "dB" },
+        { key: "dBother", label: "Level on the other basis", value: res.dbIfOtherConvention, unit: "dB" },
+      ];
+      const lines: EngReportLine[] = [
+        ...(res.quantity === "power" ? engEq("audio-decibel:power") : engEq("audio-decibel:field")),
         "Decibels",
         "",
         `  Linear ratio        ${engNum(res.ratio, 6)}`,
@@ -26192,7 +26213,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The two decibel conventions",
           },
         );
-        return engReport(lines, [
+        return withOutputs(dbOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -26201,9 +26222,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dbOutputs, engReport(lines));
     },
   },
   {
@@ -26229,7 +26250,9 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(lvl)) return { text: "The level must be a number of dB.", ok: false };
       const res = splAtDistance(lvl, d0, d1);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      let sumTotal = NaN;
+      const lines: EngReportLine[] = [
+        ...engEq("audio-spl"),
         "Sound pressure level",
         "",
         `  At ${engNum(d0, 4)} m           ${engNum(res.levelDb, 5)} dB SPL`,
@@ -26245,7 +26268,9 @@ const ENG_CALCS: EngCalc[] = [
         }
         const sum = sumIncoherent(levels);
         if (!sum.ok) return { text: sum.error, ok: false };
+        sumTotal = sum.totalDb;
         lines.push("");
+        lines.push(...engEq("audio-spl:sum"));
         lines.push(`  ${levels.length} incoherent sources  ${engNum(sum.totalDb, 5)} dB SPL`);
         lines.push(`  Above the loudest   ${engNum(sum.aboveLoudestDb, 4)} dB`);
         for (const note of sum.notes) lines.push(`Note: ${note}`);
@@ -26257,6 +26282,12 @@ const ENG_CALCS: EngCalc[] = [
       // Inverse-square falloff on a log distance axis, where it is a straight
       // line at −6 dB per doubling — closed form from the reference level the
       // engine used, both distances marked.
+      const splOutputs: EngOutput[] = [
+        { key: "Lat", label: "Level at the target distance", value: res.atDistanceDb, unit: "dB SPL" },
+        { key: "dL", label: "Change in level", value: res.changeDb, unit: "dB" },
+        { key: "pPa", label: "Sound pressure there", value: res.pressurePa, unit: "Pa" },
+        { key: "Lsum", label: "Sum of the incoherent sources", value: sumTotal, unit: "dB SPL" },
+      ];
       if (d0 > 0 && d1 > 0) {
         const xLo = Math.min(d0, d1) / 4;
         const xHi = Math.max(d0, d1) * 4;
@@ -26287,7 +26318,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "6 dB per doubling of distance",
           },
         );
-        return engReport(lines, [
+        return withOutputs(splOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -26296,9 +26327,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(splOutputs, engReport(lines));
     },
   },
   {
@@ -26327,7 +26358,8 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(q)) return { text: "The directivity Q must be a number (1 for an omnidirectional source).", ok: false };
       const res = reverbTime(v, s, a, q);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("audio-reverb"),
         "Reverberation",
         "",
         `  RT60, Sabine        ${engNum(res.sabineS, 4)} s`,
@@ -26344,6 +26376,12 @@ const ENG_CALCS: EngCalc[] = [
       // Both decay slopes to -60 dB. The two lines diverging as the room gets
       // dead is the Sabine-vs-Eyring argument made visible: they cross the
       // -60 line at different times, and those crossings ARE the two RT60s.
+      const rvOutputs: EngOutput[] = [
+        { key: "RT60sabine", label: "RT60, Sabine", value: res.sabineS, unit: "s" },
+        { key: "RT60eyring", label: "RT60, Eyring", value: res.eyringS, unit: "s" },
+        { key: "fSchroeder", label: "Schroeder frequency", value: res.schroederHz, unit: "Hz" },
+        { key: "rc", label: "Critical distance", value: res.criticalDistance, unit: "m" },
+      ];
       if (res.sabineS > 0 && res.eyringS > 0) {
         const tEnd = 1.25 * Math.max(res.sabineS, res.eyringS);
         const slope = (rt: number): Point[] =>
@@ -26373,15 +26411,15 @@ const ENG_CALCS: EngCalc[] = [
             title: "The decay to -60 dB",
           },
         );
-        return engReport(lines, [
+        return withOutputs(rvOutputs, engReport(lines, [
           avPlot(
             svg,
             "Sabine and Eyring decay slopes; the −60 dB crossings are the two RT60s",
             "Two linear decay lines with markers where each reaches minus sixty decibels",
           ),
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(rvOutputs, engReport(lines));
     },
   },
   {
@@ -26410,17 +26448,22 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(fmax)) return { text: "The frequency ceiling must be a number.", ok: false };
       const res = roomModes(l, w, h, fmax, c);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [`Room modes below ${engNum(fmax, 4)} Hz`, ""];
+      const lines: EngReportLine[] = [...engEq("audio-roommodes"), `Room modes below ${engNum(fmax, 4)} Hz`, ""];
       if (!res.modes.length) {
         lines.push("  No modes below that frequency.");
       } else {
-        for (const m of res.modes.slice(0, 24)) {
-          lines.push(
-            `  ${engNum(m.frequency, 4).padStart(7)} Hz  ${m.kind.padEnd(11)} (${m.order.join(",")})`,
-          );
-        }
+        // Release E: the mode list as a real table.
+        lines.push({
+          table: [["Frequency (Hz)", "Type", "Order (nx, ny, nz)"], ...res.modes.slice(0, 24).map((m) => [engNum(m.frequency, 4), m.kind, m.order.join(", ")])],
+        });
         if (res.modes.length > 24) lines.push(`  … and ${res.modes.length - 24} more`);
       }
+      const axialModes = res.modes.filter((m) => m.kind === "axial");
+      const rmOutputs: EngOutput[] = [
+        { key: "fLowest", label: "Lowest mode", value: res.modes.length ? res.modes[0].frequency : NaN, unit: "Hz" },
+        { key: "nModes", label: "Modes below the ceiling", value: res.modes.length, unit: "" },
+        { key: "nAxial", label: "Axial modes below the ceiling", value: axialModes.length, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -26446,7 +26489,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "audibility rank",
             title: "The mode map",
           });
-          return engReport(lines, [
+          return withOutputs(rmOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -26455,10 +26498,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 220,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(rmOutputs, engReport(lines));
     },
   },
   {

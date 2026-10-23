@@ -35,8 +35,8 @@ function leaves(n: Node, out: string[] = []): string[] {
 const letters = (s: string): string =>
   s.normalize("NFKD").replace(/\p{M}/gu, "").replace(/ᐟ/g, "").replace(/ɑ/g, "α").replace(/[^\p{L}\p{N}]/gu, "");
 
-/** Functions named on purpose: L(s), G(s), C(s), T(s), H(s), R(t), w(z), f(v), F(v), and C(n, i) for the binomial coefficient. */
-const TRANSFER_FUNCTIONS = new Set(["L", "G", "C", "T", "H", "R", "w", "f", "F"]);
+/** Functions named on purpose: L(s), G(s), C(s), T(s), H(s), R(t), w(z), f(v), F(v), v(h), and C(n, i) for the binomial coefficient. */
+const TRANSFER_FUNCTIONS = new Set(["L", "G", "C", "T", "H", "R", "w", "f", "F", "v"]);
 
 const ALL = Object.entries(ENG_EQUATIONS).flatMap(([k, list]) => list.map((e, i) => [`${k} #${i + 1}`, e] as const));
 

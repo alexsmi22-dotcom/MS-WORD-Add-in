@@ -545,6 +545,44 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("CCT = -449 n^3 + 3525 n^2 - 6823.3 n + 5520.33", "CCT = −449n³ + 3525n² − 6823.3n + 5520.33"),
     eq("n = (x - 0.3320)/(y - 0.1858)", "n = (x − 0.3320)/(y − 0.1858)"),
   ],
+  // ---- Trajectory & orbits ----
+  "traj-vacuum": [
+    eq("y = h + v t sin(theta) - (1/2) g t^2", "y = h + v·t·sin θ − ½·g·t²"),
+    eq("R = (v cos(theta)/g) (v sin(theta) + sqrt(v^2 sin(theta)^2 + 2 g h))", "R = (v·cos θ/g)·(v·sin θ + √(v²·sin(θ)² + 2g·h))"),
+    eq("theta_opt = arctan(v/sqrt(v^2 + 2 g h))", "θopt = arctan(v/√(v² + 2g·h))"),
+  ],
+  "traj-drag": [eq("{m} {d vec(v)}/{d t} = {m} vec(g) - (1/2) rho C_d A abs(vec(v)) vec(v)", "m·dv⃗/dt = m·g⃗ − ½·ρ·Cd·A·|v⃗|·v⃗")],
+  "traj-aim": [eq("sin(2 theta) = g d/v^2", "sin 2θ = g·d/v²"), eq("R_max = v^2/g", "Rmax = v²/g")],
+  "traj-impact": [
+    eq("v_t = sqrt(2 m g/(rho C_d A))", "vt = √(2m·g/(ρ·Cd·A))"),
+    eq("v(h) = v_t sqrt(1 - exp(-2 g h/v_t^2))", "v(h) = vt·√(1 − exp(−2g·h/vt²))"),
+    eq("E = (1/2) m v^2", "E = ½·m·v²"),
+    eq("p = m v", "p = m·v"),
+  ],
+  "orbit-circular": [eq("v = sqrt(mu/r)", "v = √(μ/r)"), eq("T = 2 pi sqrt(r^3/mu)", "T = 2π·√(r³/μ)"), eq("v_esc = sqrt(2 mu/r)", "vesc = √(2μ/r)")],
+  "orbit-elliptical": [
+    eq("a = (r_p + r_a)/2", "a = (rₚ + rₐ)/2"),
+    eq("e = (r_a - r_p)/(r_a + r_p)", "e = (rₐ − rₚ)/(rₐ + rₚ)"),
+    eq("v^2 = {mu} (2/r - 1/a)", "v² = μ·(2/r − 1/a)"),
+    eq("T = 2 pi sqrt(a^3/mu)", "T = 2π·√(a³/μ)"),
+  ],
+  "orbit-hohmann": [
+    eq("a_T = (r_1 + r_2)/2", "aT = (r₁ + r₂)/2"),
+    eq("Delta v_1 = sqrt({mu} (2/r_1 - 1/a_T)) - sqrt(mu/r_1)", "Δv₁ = √(μ·(2/r₁ − 1/aT)) − √(μ/r₁)"),
+    eq("Delta v_2 = sqrt(mu/r_2) - sqrt({mu} (2/r_2 - 1/a_T))", "Δv₂ = √(μ/r₂) − √(μ·(2/r₂ − 1/aT))"),
+    eq("t_T = pi sqrt(a_T^3/mu)", "tT = π·√(aT³/μ)"),
+    eq("phi = pi - n_2 t_T", "φ = π − n₂·tT"),
+  ],
+  "orbit-rocket": [eq("Delta v = v_e ln(m_0/m_f)", "Δv = vₑ·ln(m₀/mf)"), eq("v_e = I_sp g_0", "vₑ = Isp·g₀")],
+  "orbit-escape": [eq("v_esc = sqrt(2 mu/r)", "vesc = √(2μ/r)"), eq("v_esc = sqrt(2) v_circ", "vesc = √2·vcirc")],
+  "nav-greatcircle": [
+    eq("d = 2 R arcsin(sqrt(sin(Delta phi/2)^2 + cos(phi_1) cos(phi_2) sin(Delta lambda/2)^2))", "d = 2R·arcsin(√(sin(Δφ/2)² + cos φ₁·cos φ₂·sin(Δλ/2)²))"),
+    eq("theta_0 = arg(cos(phi_1) sin(phi_2) - sin(phi_1) cos(phi_2) cos(Delta lambda) + j sin(Delta lambda) cos(phi_2))", "θ₀ = arg(cos φ₁·sin φ₂ − sin φ₁·cos φ₂·cos Δλ + j·sin Δλ·cos φ₂)"),
+  ],
+  "nav-windtriangle": [
+    eq("sin(WCA) = W sin(theta_w - theta_tr)/V", "sin WCA = W·sin(θw − θtr)/V"),
+    eq("GS = V cos(WCA) - W cos(theta_w - theta_tr)", "GS = V·cos WCA − W·cos(θw − θtr)"),
+  ],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

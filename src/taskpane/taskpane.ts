@@ -28685,7 +28685,15 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = vacuumShot(v, ang, h);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const vaOutputs: EngOutput[] = [
+        { key: "range", label: "Range", value: res.rangeM, unit: "m" },
+        { key: "apex", label: "Apex", value: res.apexM, unit: "m" },
+        { key: "tFlight", label: "Flight time", value: res.flightTimeS, unit: "s" },
+        { key: "vImpact", label: "Impact speed", value: res.impactSpeedMs, unit: "m/s" },
+        { key: "thetaOpt", label: "Best angle for this height", value: res.optimumAngleDeg, unit: "°" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("traj-vacuum"),
         `Vacuum projectile, ${engNum(v, 4)} m/s at ${engNum(ang, 4)}°`,
         "",
         `  Range               ${engNum(res.rangeM, 5)} m`,
@@ -28727,7 +28735,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "height (m)",
           title: "Your shot against the optimum for this height",
         });
-        return engReport(lines, [
+        return withOutputs(vaOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -28736,9 +28744,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 240,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(vaOutputs, engReport(lines));
     },
   },
   {
@@ -28769,7 +28777,8 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(cd)) return { text: "The drag coefficient must be a number.", ok: false };
       const res = dragShot(v, ang, m, a, cd, h);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("traj-drag"),
         `Projectile with drag, ${engNum(v, 4)} m/s at ${engNum(ang, 4)}°, Cd ${engNum(cd, 3)}`,
         "",
         `  Range               ${engNum(res.rangeM, 5)} m`,
@@ -28788,7 +28797,13 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.path.map((p) => ({ x: p.x, y: p.y })), type: "line", color: "#2563eb", label: "with drag" }],
         { width: 380, height: 240, xlabel: "Range (m)", ylabel: "Height (m)", title: "Trajectory with drag" },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "range", label: "Range", value: res.rangeM, unit: "m" },
+        { key: "apex", label: "Apex", value: res.apexM, unit: "m" },
+        { key: "tFlight", label: "Flight time", value: res.flightTimeS, unit: "s" },
+        { key: "vImpact", label: "Impact speed", value: res.impactSpeedMs, unit: "m/s" },
+        { key: "rangeFraction", label: "Fraction of the vacuum range", value: res.rangeFraction !== null ? res.rangeFraction * 100 : NaN, unit: "%" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -28797,7 +28812,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -28819,7 +28834,13 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = aimForRange(v, d);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const aiOutputs: EngOutput[] = [
+        { key: "thetaLow", label: "Low (direct) angle", value: res.lowAngleDeg, unit: "°" },
+        { key: "thetaHigh", label: "High (lofted) angle", value: res.highAngleDeg, unit: "°" },
+        { key: "Rmax", label: "Maximum range at this speed", value: res.maxRangeM, unit: "m" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("traj-aim"),
         `Aiming ${engNum(v, 4)} m/s at a target ${engNum(d, 5)} m away`,
         "",
         `  Low (direct) angle  ${engNum(res.lowAngleDeg, 4)}°   flight ${engNum(res.lowFlightTimeS, 4)} s`,
@@ -28858,7 +28879,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The two ways to hit the same target",
           },
         );
-        return engReport(lines, [
+        return withOutputs(aiOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -28867,9 +28888,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 240,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(aiOutputs, engReport(lines));
     },
   },
   {
@@ -28898,7 +28919,14 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(cd)) return { text: "The drag coefficient must be a number.", ok: false };
       const res = impactEnergy(m, h, a, cd, alt);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const imOutputs: EngOutput[] = [
+        { key: "vImpact", label: "Impact speed", value: res.impactSpeedMs, unit: "m/s" },
+        { key: "vTerm", label: "Terminal speed", value: res.terminalSpeedMs, unit: "m/s" },
+        { key: "E", label: "Kinetic energy at impact", value: res.energyJ, unit: "J" },
+        { key: "p", label: "Momentum at impact", value: res.momentumNs, unit: "N·s" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("traj-impact"),
         `Falling ${engNum(h, 5)} m, mass ${engNum(m, 4)} kg, Cd ${engNum(cd, 3)}`,
         "",
         `  Impact speed        ${engNum(res.impactSpeedMs, 5)} m/s`,
@@ -28953,7 +28981,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Energy saturates at terminal speed",
           },
         );
-        return engReport(lines, [
+        return withOutputs(imOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -28962,9 +28990,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(imOutputs, engReport(lines));
     },
   },
   {
@@ -28988,7 +29016,14 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = circularOrbit(r("body"), alt);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const ciOutputs: EngOutput[] = [
+        { key: "vOrbit", label: "Orbital speed", value: res.speedMs, unit: "m/s" },
+        { key: "T", label: "Period", value: res.periodS, unit: "s" },
+        { key: "vEsc", label: "Escape speed here", value: res.escapeSpeedMs, unit: "m/s" },
+        { key: "rOrbit", label: "Orbital radius", value: res.radiusM / 1000, unit: "km" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-circular"),
         `Circular orbit of ${res.body} at ${engNum(res.altitudeM / 1000, 5)} km`,
         "",
         `  Orbital radius      ${engNum(res.radiusM / 1000, 6)} km`,
@@ -29014,7 +29049,7 @@ const ENG_CALCS: EngCalc[] = [
             [],
             `Circular orbit of ${res.body}`,
           );
-          return engReport(lines, [
+          return withOutputs(ciOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -29023,10 +29058,10 @@ const ENG_CALCS: EngCalc[] = [
               w: ORBIT_CHART_SIZE.w,
               h: ORBIT_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(ciOutputs, engReport(lines));
     },
   },
   {
@@ -29052,7 +29087,15 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = ellipticalOrbit(r("body"), peri, apo);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const elOutputs: EngOutput[] = [
+        { key: "aSemi", label: "Semi-major axis", value: res.semiMajorAxisM / 1000, unit: "km" },
+        { key: "ecc", label: "Eccentricity", value: res.eccentricity, unit: "" },
+        { key: "vPeri", label: "Periapsis speed", value: res.periapsisSpeedMs, unit: "m/s" },
+        { key: "vApo", label: "Apoapsis speed", value: res.apoapsisSpeedMs, unit: "m/s" },
+        { key: "T", label: "Period", value: res.periodS, unit: "s" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-elliptical"),
         `Elliptical orbit of ${res.body}`,
         "",
         `  Semi-major axis     ${engNum(res.semiMajorAxisM / 1000, 6)} km`,
@@ -29082,7 +29125,7 @@ const ENG_CALCS: EngCalc[] = [
             ],
             `Elliptical orbit of ${res.body}`,
           );
-          return engReport(lines, [
+          return withOutputs(elOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -29091,10 +29134,10 @@ const ENG_CALCS: EngCalc[] = [
               w: ORBIT_CHART_SIZE.w,
               h: ORBIT_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(elOutputs, engReport(lines));
     },
   },
   {
@@ -29120,7 +29163,15 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = hohmannTransfer(r("body"), from, to);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const hoOutputs: EngOutput[] = [
+        { key: "dv1", label: "Burn 1 (departure)", value: res.burn1Ms, unit: "m/s" },
+        { key: "dv2", label: "Burn 2 (arrival)", value: res.burn2Ms, unit: "m/s" },
+        { key: "dvTotal", label: "Total Δv", value: res.totalDeltaVMs, unit: "m/s" },
+        { key: "tTransfer", label: "Transfer time", value: res.transferTimeS, unit: "s" },
+        { key: "phase", label: "Phase angle", value: res.phaseAngleDeg, unit: "°" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-hohmann"),
         `Hohmann transfer at ${res.body}, ${engNum(res.fromAltitudeM / 1000, 5)} km to ` +
           `${engNum(res.toAltitudeM / 1000, 5)} km`,
         "",
@@ -29162,7 +29213,7 @@ const ENG_CALCS: EngCalc[] = [
             ],
             `Hohmann transfer at ${res.body}`,
           );
-          return engReport(lines, [
+          return withOutputs(hoOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -29171,10 +29222,10 @@ const ENG_CALCS: EngCalc[] = [
               w: ORBIT_CHART_SIZE.w,
               h: ORBIT_CHART_SIZE.h,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(hoOutputs, engReport(lines));
     },
   },
   {
@@ -29198,7 +29249,14 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = rocketEquation(isp, m0, mf);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const roOutputs: EngOutput[] = [
+        { key: "dv", label: "Δv", value: res.deltaVMs, unit: "m/s" },
+        { key: "ve", label: "Exhaust velocity", value: res.exhaustVelocityMs, unit: "m/s" },
+        { key: "MR", label: "Mass ratio", value: res.massRatio, unit: "" },
+        { key: "propFraction", label: "Propellant fraction", value: res.propellantFraction * 100, unit: "%" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-rocket"),
         `Rocket equation, Isp ${engNum(isp, 4)} s`,
         "",
         `  Exhaust velocity    ${engNum(res.exhaustVelocityMs, 5)} m/s`,
@@ -29236,7 +29294,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The tyranny of the rocket equation",
           },
         );
-        return engReport(lines, [
+        return withOutputs(roOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -29245,9 +29303,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(roOutputs, engReport(lines));
     },
   },
   {
@@ -29271,7 +29329,13 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = escapeSpeed(r("body"), alt);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const esOutputs: EngOutput[] = [
+        { key: "vEsc", label: "Escape speed", value: res.escapeSpeedMs, unit: "m/s" },
+        { key: "vCirc", label: "Circular speed", value: res.circularSpeedMs, unit: "m/s" },
+        { key: "dvFromOrbit", label: "Extra from a circular orbit", value: res.additionalFromOrbitMs, unit: "m/s" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("orbit-escape"),
         `Escape from ${res.body} at ${engNum(alt / 1000, 5)} km altitude`,
         "",
         `  Escape speed        ${engNum(res.escapeSpeedMs, 5)} m/s  (${engNum(res.escapeSpeedMs / 1000, 4)} km/s)`,
@@ -29312,7 +29376,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Escape is always √2 × circular",
           },
         );
-        return engReport(lines, [
+        return withOutputs(esOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -29321,9 +29385,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(esOutputs, engReport(lines));
     },
   },
   {
@@ -29349,6 +29413,11 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = sCurveProfile(d, v, a, j);
       if (!res.ok) return { text: res.error, ok: false };
+      const scOutputs: EngOutput[] = [
+        { key: "tTotal", label: "Total time", value: res.totalTimeS, unit: "s" },
+        { key: "tTrap", label: "Trapezoidal time", value: res.trapezoidalTimeS, unit: "s" },
+        { key: "vPeak", label: "Peak speed", value: res.peakSpeedMs, unit: "m/s" },
+      ];
       const lines = [
         `S-curve move of ${engNum(d, 5)} m`,
         "",
@@ -29415,7 +29484,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "The jerk limit rounds the corners",
           },
         );
-        return engReport(lines, [
+        return withOutputs(scOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -29424,9 +29493,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(scOutputs, engReport(lines));
     },
   },
   {
@@ -29463,20 +29532,24 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = multiAxisMove(specs);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
         `Coordinated move over ${specs.length} axes`,
         "",
         `  Move time           ${engNum(res.moveTimeS, 5)} s`,
         `  Limiting axis       ${res.limitingAxis}`,
         `  Fastest axis alone  ${engNum(res.earliestFinishS, 5)} s`,
         "",
-        "  Axis      Distance   Command speed   Command accel   Uses",
-        ...res.axes.map(
-          (a) =>
-            `  ${a.label.padEnd(9)} ${engNum(a.distanceM, 4).padEnd(10)} ` +
-            `${engNum(a.scaledVmax, 4).padEnd(15)} ${engNum(a.scaledAmax, 4).padEnd(15)} ` +
-            `${engNum(a.utilisation * 100, 3)}%${a.limiting ? "  (limiting)" : ""}`,
-        ),
+        // Release E: the axes as a real table.
+        {
+          table: [
+            ["Axis", "Distance", "Command speed", "Command accel", "Uses (%)"],
+            ...res.axes.map((a) => [`${a.label}${a.limiting ? " (limiting)" : ""}`, engNum(a.distanceM, 4), engNum(a.scaledVmax, 4), engNum(a.scaledAmax, 4), engNum(a.utilisation * 100, 3)]),
+          ],
+        },
+      ];
+      const maOutputs: EngOutput[] = [
+        { key: "tMove", label: "Coordinated move time", value: res.moveTimeS, unit: "s" },
+        { key: "tFastest", label: "Fastest axis alone", value: res.earliestFinishS, unit: "s" },
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -29513,7 +29586,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "commanded speed",
             title: "Every axis finishes together",
           });
-          return engReport(lines, [
+          return withOutputs(maOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -29522,10 +29595,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(maOutputs, engReport(lines));
     },
   },
   {
@@ -29551,7 +29624,14 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = greatCircle(vals[0], vals[1], vals[2], vals[3]);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const gcOutputs: EngOutput[] = [
+        { key: "distKm", label: "Distance", value: res.distanceM / 1000, unit: "km" },
+        { key: "distNmi", label: "Distance", value: res.distanceNmi, unit: "nmi" },
+        { key: "brgInit", label: "Initial bearing", value: res.initialBearingDeg, unit: "°" },
+        { key: "brgFinal", label: "Final bearing", value: res.finalBearingDeg, unit: "°" },
+      ];
+      const lines: EngReportLine[] = [
+        ...engEq("nav-greatcircle"),
         "Great-circle route",
         "",
         `  Distance            ${engNum(res.distanceM / 1000, 6)} km`,
@@ -29619,7 +29699,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "latitude (°N)",
             title: "The shortest route bends poleward",
           });
-          return engReport(lines, [
+          return withOutputs(gcOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -29628,10 +29708,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(gcOutputs, engReport(lines));
     },
   },
   {
@@ -29657,7 +29737,8 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = windTriangle(track, tas, wdir, wspd);
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("nav-windtriangle"),
         `Wind triangle for a track of ${engNum(track, 4)}°`,
         "",
         `  Heading to steer    ${engNum(res.headingDeg, 4)}°`,
@@ -29699,7 +29780,11 @@ const ENG_CALCS: EngCalc[] = [
           `drift ${engNum(res.driftAngleDeg, 3)}°, north up` +
             (res.alternateHeadingDeg !== null ? "; a second solution exists (see the text)" : ""),
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "heading", label: "Heading to steer", value: res.headingDeg, unit: "°" },
+          { key: "wca", label: "Wind correction angle", value: res.driftAngleDeg, unit: "°" },
+          { key: "GS", label: "Ground speed", value: res.groundSpeedMs, unit: "m/s" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -29708,7 +29793,7 @@ const ENG_CALCS: EngCalc[] = [
             w: VECTOR_TRIANGLE_SIZE.w,
             h: VECTOR_TRIANGLE_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },

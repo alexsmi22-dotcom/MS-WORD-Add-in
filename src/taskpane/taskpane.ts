@@ -192,6 +192,7 @@ import { THERMAL_STRESS_CALCS } from "../lib/thermalStressCalcs";
 import { GAS_DYNAMICS_CALCS } from "../lib/gasDynamicsCalcs";
 import { VESSELS_CALCS } from "../lib/vesselsCalcs";
 import { RANDOM_VIBRATION_CALCS } from "../lib/randomVibrationCalcs";
+import { KALMAN_CALCS } from "../lib/kalmanCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -28597,6 +28598,7 @@ const ENG_CALCS: EngCalc[] = [
   ...GAS_DYNAMICS_CALCS,
   ...VESSELS_CALCS,
   ...RANDOM_VIBRATION_CALCS,
+  ...KALMAN_CALCS,
 ];
 
 /** A transfer function as a typeset fraction, with a readable text fallback. */

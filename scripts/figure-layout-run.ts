@@ -232,6 +232,11 @@ import { RANDOM_VIBRATION_CALCS } from "../src/lib/randomVibrationCalcs";
 import { psdChartSvg, transmissibilityChartSvg, shaftCriticalSvg } from "../src/lib/randomVibrationCharts";
 import { psdProfile } from "../src/lib/randomVibration";
 // --- end Release E: vibration ---
+// --- Release E: kalman ---
+// Kalman filter (steady state, run on data) and attitude conversions: their charts and the body-axes triad.
+import { KALMAN_CALCS } from "../src/lib/kalmanCalcs";
+import { attitudeTriadSvg } from "../src/lib/kalmanCharts";
+// --- end Release E: kalman ---
 
 const figures: [string, string][] = [];
 
@@ -3127,5 +3132,50 @@ rotator 15` }, "jones elliptical");
   ]);
 }
 // --- end Release E: vibration ---
+
+// --- Release E: kalman ---
+// Every plot of every KALMAN_CALCS tool at its defaults, plus the shapes that change a figure: one state (random
+// walk), three states (three panels, two measurements), four states (one ratio panel with coinciding curves merged),
+// huge magnitudes (log axis, ×10ⁿ legends), two measured channels (stacked run and innovation panels), missing
+// measurements, and the triad at identity (coincident axes), gimbal lock, a 180° yaw, and a body axis pointing at the
+// viewer (zero-length projection).
+{
+  const variants: Record<string, Record<string, string>[]> = {
+    "kalman-steady": [
+      {},
+      { model: "rw", q: "0.01", r: "1" },
+      { model: "matrix", F: "1 0.1 0\n0 1 0\n0 0 0.9", H: "1 0 0\n0 0 1", Q: "0.01 0 0\n0 0.1 0\n0 0 0.05", R: "0.2 0.05\n0.05 0.3" },
+      { model: "matrix", F: "1 0.1 0 0\n0 1 0 0\n0 0 1 0.1\n0 0 0 1", H: "1 0 0 0\n0 0 1 0", Q: "0.0003 0.005 0 0\n0.005 0.1 0 0\n0 0 0.0003 0.005\n0 0 0.005 0.1", R: "0.25 0\n0 0.25", p0: "100" },
+      { model: "cv", q: "1e12", r: "1e10" },
+    ],
+    "kalman-run": [
+      {},
+      { model: "matrix", F: "1 0.1 0\n0 1 0\n0 0 0.9", H: "1 0 0\n0 0 1", Q: "0.01 0 0\n0 0.1 0\n0 0 0.05", R: "0.2 0.05\n0.05 0.3", data: "1 0.5\n1.2 0.4\n1.1 0.6\n1.5 0.2\n1.6 0.1\n1.9 0.3", p0: "1" },
+      { data: "0.60, 1.53, 1.62, NA, NA, 2.14, 1.99, 2.62, 2.75, 2.63, 3.66, 3.37" },
+    ],
+    "attitude-convert": [
+      {},
+      { formA: "quat", quatA: "0, 0, 0, 1" },
+      { a1: "30", a2: "90", a3: "10" },
+      { a1: "180", a2: "0", a3: "0" },
+      { formA: "axis", axisA: "0, -1, 1", angleA: "26.565" },
+      { op: "compose" },
+      { op: "slerp", formA: "quat", quatA: "0, 0, 0, 1", formB: "euler", seqB: "ZYX", b1: "90", b2: "0", b3: "0", t: "0.5" },
+    ],
+  };
+  for (const c of KALMAN_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: kalman ${c.id} did not draw: ${out.text}`);
+      svgs.forEach((s, i) => figures.push([`kalman ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+  // The triad straight from its builder: a pure roll.
+  figures.push(["kalman triad, a 19.5° roll", attitudeTriadSvg([[1, 0, 0], [0, 0.9428, -0.3333], [0, 0.3333, 0.9428]]).svg]);
+}
+// --- end Release E: kalman ---
 
 export { figures };

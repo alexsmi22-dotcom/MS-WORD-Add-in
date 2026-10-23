@@ -198,6 +198,7 @@ import { QUANTUM_GATES_CALCS } from "../lib/quantumGatesCalcs";
 import { LASER_CALCS } from "../lib/laserCalcs";
 import { LINK_BUDGET_CALCS } from "../lib/linkBudgetCalcs";
 import { LINEAR_OPTICS_CALCS } from "../lib/linearOpticsCalcs";
+import { SEMICONDUCTOR_CALCS } from "../lib/semiconductorCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -29832,6 +29833,7 @@ const ENG_CALCS: EngCalc[] = [
   ...LASER_CALCS,
   ...LINK_BUDGET_CALCS,
   ...LINEAR_OPTICS_CALCS,
+  ...SEMICONDUCTOR_CALCS,
 ];
 
 /** A transfer function as a typeset fraction, with a readable text fallback. */

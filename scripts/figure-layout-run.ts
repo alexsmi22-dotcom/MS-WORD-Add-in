@@ -279,6 +279,13 @@ import { TLINE_CALCS } from "../src/lib/tlineCalcs";
 import { sParamBarsSvg, smithChartSvg } from "../src/lib/tlineCharts";
 // --- end Release E: transmission lines ---
 
+// --- Release Q: quantum links ---
+// Release Q5: link loss against range, coincidences and accidentals against the window, key rate against loss.
+import { QUANTUM_LINKS_CALCS } from "../src/lib/quantumLinksCalcs";
+import { entRatesSvg, fsoLossSvg, qkdKeySvg } from "../src/lib/quantumLinksCharts";
+import { entanglement, fsoLink, qkdLink } from "../src/lib/quantumLinks";
+// --- end Release Q: quantum links ---
+
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -3526,5 +3533,53 @@ rotator 15` }, "jones elliptical");
   figures.push(["transmission line sParamBarsSvg one bar", sParamBarsSvg([{ sub: "21", db: 12.5, angleDeg: -45, kind: "transmission" }])]);
 }
 // --- end Release E: transmission lines ---
+
+// --- Release Q: quantum links ---
+// Each quantum-link tool through its own compute(): the free-space link at each preset, a custom range in the capped
+// near field and one far beyond the Moon, with extra losses; entanglement distribution at its defaults, with jitter and
+// dark counts, at the Earth–Moon preset and with a window near the saturation limit; BB84 single-photon and decoy, μ
+// optimised, no dark counts (no cutoff), past the cutoff (no operating point) and at 0 dB. Then the builders directly.
+{
+  const ql = (id: string, over: Record<string, string>, name: string): void => {
+    const c = QUANTUM_LINKS_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: quantum link ${name} did not draw: ${out.text}`);
+    plots.forEach((b) => {
+      if (b.kind === "plot") figures.push([`quantum link ${name}`, b.svg]);
+    });
+  };
+  ql("qlink-fso", {}, "FSO Earth-Moon 1550 nm");
+  ql("qlink-fso", { preset: "leo", lambda: "810 nm" }, "FSO LEO 810 nm");
+  ql("qlink-fso", { preset: "geo", point: "3", atm: "1", det: "60 %" }, "FSO GEO with losses");
+  ql("qlink-fso", { preset: "custom", range: "100 km", lambda: "810 nm" }, "FSO capped near field");
+  ql("qlink-fso", { preset: "custom", range: "1.496e11 m" }, "FSO 1 AU");
+  ql("qlink-entanglement", {}, "entanglement defaults");
+  ql("qlink-entanglement", { jitter: "300 ps", darkA: "500", darkB: "500" }, "entanglement jitter and darks");
+  ql("qlink-entanglement", { preset: "moon" }, "entanglement Earth-Moon");
+  ql("qlink-entanglement", { tau: "1 µs" }, "entanglement near saturation");
+  ql("qlink-qkd", {}, "BB84 single photon");
+  ql("qlink-qkd", { source: "decoy" }, "BB84 decoy");
+  ql("qlink-qkd", { source: "decoy", mu: "" }, "BB84 decoy optimised");
+  ql("qlink-qkd", { y0: "0" }, "BB84 no dark counts");
+  ql("qlink-qkd", { loss: "45" }, "BB84 past the cutoff");
+  ql("qlink-qkd", { loss: "0" }, "BB84 at 0 dB");
+  const fsoIn = { lambda: 1550e-9, dt: 0.3, dr: 1.0, rangeM: 1e6, pointingDb: 0, atmosDb: 0, opticsDb: 0, detEff: 1, emitRate: null };
+  const fsoRes = fsoLink(fsoIn);
+  if (!fsoRes.ok) throw new Error("corpus: fso direct refused");
+  figures.push(["quantum link fsoLossSvg custom 1000 km", fsoLossSvg(fsoIn, 1e6, fsoRes.lossDb, null)]);
+  const entIn = { pairRate: 1e6, etaA: 0.1, etaB: 0.1, detA: 0.5, detB: 0.5, darkA: 100, darkB: 100, tau: 2e-9, jitter: 5e-10 };
+  const entRes = entanglement(entIn);
+  if (!entRes.ok) throw new Error("corpus: entanglement direct refused");
+  figures.push(["quantum link entRatesSvg direct", entRatesSvg(entIn, entRes)]);
+  const qIn = { rate: 1e9, lossDb: 10, detEff: 0.8, y0: 1e-5, ed: 0.01, source: "single" as const, mu: null, f: 1.16 };
+  const qRes = qkdLink(qIn);
+  if (!qRes.ok) throw new Error("corpus: qkd direct refused");
+  figures.push(["quantum link qkdKeySvg direct", qkdKeySvg(qIn, qRes)]);
+}
+// --- end Release Q: quantum links ---
 
 export { figures };

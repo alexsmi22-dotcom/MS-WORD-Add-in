@@ -4,7 +4,7 @@
 
 import { buildPlotSvg, type Series } from "./plot";
 import { fmtSig } from "./axis";
-import { cjAt, degeneracyLimit, fermiFromNet, mosId, MAX_EXPONENT } from "./semiconductor";
+import { cjAt, fermiFromNet, mosId, MAX_EXPONENT } from "./semiconductor";
 
 const BLUE = "#1f5fa8";
 const RED = "#c00000";
@@ -150,14 +150,14 @@ export function idVdsFamilySvg(beta: number, vth: number, vgs: number, vds: numb
  */
 export function fermiChartSvg(ni: number, vt: number, net: number, nc: number | null, nv: number | null): string {
   const lo = Math.pow(10, Math.floor(Math.log10(ni)));
-  const want = Math.max(Math.abs(net) * 10, ni * 1e8, nc !== null ? degeneracyLimit(nc) : 0, nv !== null ? degeneracyLimit(nv) : 0);
+  const want = Math.max(Math.abs(net) * 10, ni * 1e8, nc ?? 0, nv ?? 0);
   const hi = Math.pow(10, Math.ceil(Math.log10(want)));
   const curve = (sign: 1 | -1, limit: number | null) => {
     const out: Array<{ x: number; y: number }> = [];
     for (let i = 0; i <= 200; i++) {
       const x = lo * Math.pow(hi / lo, i / 200);
       const maj = x / 2 + Math.hypot(x / 2, ni);
-      if (limit !== null && maj > degeneracyLimit(limit)) break;
+      if (limit !== null && maj >= limit) break;
       out.push({ x, y: fermiFromNet(sign * x, ni, vt) });
     }
     return out;
@@ -169,15 +169,15 @@ export function fermiChartSvg(ni: number, vt: number, net: number, nc: number | 
   const notes: string[] = [];
   if (net !== 0) series.push({ points: [{ x: Math.abs(net), y: fermiFromNet(net, ni, vt) }], type: "scatter", color: RED, label: `Sample: ${sig(fermiFromNet(net, ni, vt))} eV` });
   else notes.push("Net doping is zero: the sample is intrinsic (EF = Ei).");
-  if (nc !== null || nv !== null) notes.push("Curves end where EF comes within 3kT of a band edge (degenerate).");
+  if (nc !== null || nv !== null) notes.push("Curves end at the band edge (Nc, Nv); within 3kT of it they are approximate.");
   const ys = series.flatMap((s) => s.points.map((p) => Math.abs(p.y)));
-  const ymax = Math.ceil(Math.max(...ys) * 10 + 0.5) / 10;
+  const yt = axisTop(Math.max(...ys) * 1.04);
   return buildPlotSvg(series, {
     xlabel: "Net dopant density (cm⁻³)",
     ylabel: "EF − Ei (eV)",
     xScale: "log",
     xLimits: { min: lo, max: hi },
-    yLimits: { min: -ymax, max: ymax },
+    yLimits: { min: -yt.max, max: yt.max, step: yt.step },
     notes: notes.length ? notes : undefined,
     width: W,
     height: Math.round(W * 0.7),

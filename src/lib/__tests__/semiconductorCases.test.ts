@@ -34,7 +34,10 @@
 //     ND 3e15, NA 1e15, ni 9.65e9, 1350/480: n 2000000000046561.2, p 46561.24999891603, EF−Ei 0.31647242121488656,
 //                                            σ 0.43258769119365165
 //     ND = ni = 1e10, 1400/450:              n 16180339887.49895, p 6180339887.498948, EF−Ei 0.012440287998671123
-//     GaAs ND 1e16 is used below; ND 1e17 is degenerate (Nc·e⁻³ = 2.34×10¹⁶ cm⁻³ for Nc 4.7×10¹⁷).
+//     Band-edge rows (integrator decision 2026-10-23: caution within 3kT of an edge, refuse only at N >= Nc / Nv):
+//   pn(1e18,1e17,9.65e9,11.7)      Vbi 0.89473850756262, W 0.11281620952486975 µm; NA edge ln(1.8e19/1e18) = 2.89 kT
+//   pn(1e16,1e17,2.1e6,12.9)       Vbi 1.2116938878239814, W 0.4359350839809863 µm; ND edge ln(4.7e17/1e17) = 1.55 kT
+//   car ND 1e19, ni 9.65e9, 1400/450: EF−Ei 0.5366588977798076, σ 2243.0472876, Ec−EF 0.03006977448668878 (1.16 kT)
 
 import {
   carriers,
@@ -284,8 +287,8 @@ describe("input forms", () => {
 
 describe("named refusals", () => {
   test.each([
-    ["semi-pn-junction", { na: "1e18" }, /NA = 1\.00×10¹⁸ cm⁻³ is degenerate/],
-    ["semi-pn-junction", { mat: "gaas", na: "1e16", nd: "1e17" }, /ND = 1\.00×10¹⁷ cm⁻³ is degenerate/],
+    ["semi-pn-junction", { na: "2e19" }, /NA = 2\.00×10¹⁹ cm⁻³ is degenerate: at or above Nv = 1\.80×10¹⁹/],
+    ["semi-pn-junction", { mat: "gaas", na: "1e16", nd: "5e17" }, /ND = 5\.00×10¹⁷ cm⁻³ is degenerate: at or above Nc = 4\.70×10¹⁷/],
     ["semi-pn-junction", { mat: "custom" }, /nᵢ is required/],
     ["semi-pn-junction", { mat: "custom", ni: "1e10" }, /εᵣ is required/],
     ["semi-pn-junction", { T: "350 K" }, /300 K value/],
@@ -310,8 +313,8 @@ describe("named refusals", () => {
     ["semi-mosfet-square-law", { wl: "ten" }, /W\/L: "ten" is not a number/],
     ["semi-mosfet-square-law", { vgs: "1e9 V" }, /Voltages above 1000 V are refused/],
     ["semi-mosfet-square-law", { mu: "400 cm" }, /Mobility: "cm" is not compatible/],
-    ["semi-carriers", { nd: "1e19" }, /n = 1\.00×10¹⁹ cm⁻³ is degenerate/],
-    ["semi-carriers", { nd: "0", na: "1e18" }, /p = 1\.00×10¹⁸ cm⁻³ is degenerate/],
+    ["semi-carriers", { nd: "4e19" }, /n = 4\.00×10¹⁹ cm⁻³ is degenerate: at or above Nc/],
+    ["semi-carriers", { nd: "0", na: "1.8e19" }, /p = 1\.80×10¹⁹ cm⁻³ is degenerate: at or above Nv/],
     ["semi-carriers", { nd: "-1e16" }, /cannot be negative/],
     ["semi-carriers", { mun: "0" }, /mobilities must be positive/],
     ["semi-carriers", { mat: "custom" }, /nᵢ is required/],
@@ -320,6 +323,27 @@ describe("named refusals", () => {
     expect(o.ok).toBe(false);
     expect(o.text).toMatch(re);
     expect(o.text).not.toMatch(/NaN|Infinity|undefined/);
+  });
+  test("within 3kT of a band edge: computed, with the caution (Si NA 1e18, GaAs ND 1e17, Si n 1e19)", () => {
+    const a = run("semi-pn-junction", { na: "1e18" });
+    expect(a.ok).not.toBe(false);
+    expect(rel(out(a, "vbi"), 0.89473850756262)).toBeLessThan(1e-9);
+    expect(rel(out(a, "w"), 0.11281620952486975)).toBeLessThan(1e-8);
+    expect(a.text).toMatch(/Caution: NA = 1\.00×10¹⁸ cm⁻³ puts the Fermi level 2\.9 kT from the valence band edge/);
+    expect(a.text).toMatch(/treat these numbers as approximate/);
+    const b = run("semi-pn-junction", { mat: "gaas", na: "1e16", nd: "1e17" });
+    expect(b.ok).not.toBe(false);
+    expect(rel(out(b, "vbi"), 1.2116938878239814)).toBeLessThan(1e-9);
+    expect(rel(out(b, "w"), 0.4359350839809863)).toBeLessThan(1e-8);
+    expect(b.text).toMatch(/Caution: ND = 1\.00×10¹⁷ cm⁻³ puts the Fermi level 1\.5 kT from the conduction band edge/);
+    const c = run("semi-carriers", { nd: "1e19" });
+    expect(c.ok).not.toBe(false);
+    expect(rel(out(c, "efEi"), 0.5366588977798076)).toBeLessThan(1e-9);
+    expect(rel(out(c, "sigma"), 2243.0472876)).toBeLessThan(1e-9);
+    expect(rel(out(c, "edge"), 0.03006977448668878)).toBeLessThan(1e-9);
+    expect(c.text).toMatch(/Caution: n = 1\.00×10¹⁹ cm⁻³ puts the Fermi level 1\.2 kT from the conduction band edge/);
+    expect(c.text).not.toMatch(/Non-degenerate range checked/);
+    expect(run("semi-pn-junction").text).not.toMatch(/Caution/);
   });
   test("a custom material without Nc, Nv says the degeneracy check was not made", () => {
     const o = run("semi-carriers", { mat: "custom", ni: "1e10" });
@@ -362,6 +386,9 @@ const OK_RUNS: Array<[string, Record<string, string>]> = [
   ["semi-carriers", { nd: "0", mat: "custom", ni: "1e10" }],
   ["semi-carriers", { mat: "gaas", nd: "1e16", mun: "8000", mup: "400" }],
   ["semi-carriers", { nd: "3e15", na: "1e15" }],
+  ["semi-pn-junction", { na: "1e18" }],
+  ["semi-pn-junction", { mat: "gaas", na: "1e16", nd: "1e17" }],
+  ["semi-carriers", { nd: "1e19" }],
 ];
 
 describe("display contract on every ok result", () => {

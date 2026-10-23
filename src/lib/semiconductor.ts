@@ -83,7 +83,11 @@ export const MATERIALS: Record<MaterialId, MaterialData> = {
   },
 };
 
-/** Fermi level closer than this many kT to a band edge = degenerate: Boltzmann statistics no longer hold. */
+/**
+ * Fermi level closer than this many kT to a band edge: Boltzmann statistics and complete ionisation become
+ * approximations, so the result carries a caution (integrator decision 2026-10-23: compute and caution, do not refuse).
+ * Only a Fermi level AT or INSIDE the band (majority density >= Nc or Nv) is refused, where the Boltzmann model fails.
+ */
 export const DEGENERACY_KT = 3;
 /** Doping must exceed nᵢ by this factor for the depletion approximation (a junction needs majority carriers). */
 export const MINDOPING_OVER_NI = 100;
@@ -102,9 +106,26 @@ export function thermalVoltage(tK: number): number {
   return K_BOLTZMANN_EV * tK;
 }
 
-/** The highest majority density at which EF stays DEGENERACY_KT·kT from the band edge: N·e⁻³. */
+/** The majority density above which EF is within DEGENERACY_KT·kT of the band edge: N·e⁻³ (the caution threshold). */
 export function degeneracyLimit(nEdge: number): number {
   return nEdge * Math.exp(-DEGENERACY_KT);
+}
+
+/**
+ * The band-edge check for one majority density: a named refusal at or beyond the edge (N >= N_edge: the Fermi level
+ * is at or inside the band), a caution within DEGENERACY_KT·kT of it, nothing otherwise. The Boltzmann distance from
+ * the edge is ln(N_edge/N) in units of kT.
+ */
+export function edgeCheck(n: number, nEdge: number, label: string, band: "conduction" | "valence", edgeName: "Nc" | "Nv"): { error: string } | { caution: string } | null {
+  if (n >= nEdge)
+    return {
+      error: `${label} = ${sci(n)} cm⁻³ is degenerate: at or above ${edgeName} = ${sci(nEdge)} cm⁻³ the Fermi level is at or inside the ${band} band, where the Boltzmann model fails outright.`,
+    };
+  if (n > degeneracyLimit(nEdge))
+    return {
+      caution: `Caution: ${label} = ${sci(n)} cm⁻³ puts the Fermi level ${fmtSig(Math.log(nEdge / n), 2)} kT from the ${band} band edge (closer than 3kT). Boltzmann statistics and complete ionisation are approximations here, so treat these numbers as approximate.`,
+    };
+  return null;
 }
 
 /** Three significant figures, ×10ⁿ (axis.ts fmtSig), for refusal messages. */
@@ -147,6 +168,8 @@ export interface PnResult {
   /** "p" when the p side is the lightly doped one (one-sided n⁺p), "n" for p⁺n, null when not one-sided. */
   lightSide: "p" | "n" | null;
   degeneracyChecked: boolean;
+  /** Band-edge cautions (doping within 3kT of an edge), each a full sentence. */
+  cautions: string[];
 }
 
 /** Depletion width (m) of an abrupt junction at total potential vbi + vr. Densities in cm⁻³. */
@@ -156,7 +179,8 @@ export function depletionWidth(na: number, nd: number, epsR: number, vTotal: num
 }
 
 /**
- * Abrupt (step) pn junction in the depletion approximation, complete ionisation, non-degenerate doping:
+ * Abrupt (step) pn junction in the depletion approximation, complete ionisation, non-degenerate doping (a caution
+ * within 3kT of a band edge, a refusal at or beyond it):
  *   Vbi = (kT/q) ln(NA ND / nᵢ²),  W = √(2ε(Vbi + VR)/q · (1/NA + 1/ND)),  C′ = ε/W.
  * The 2kT/q majority-carrier-tail correction to Vbi in W is NOT applied (the textbook form; it is stated).
  */
@@ -178,16 +202,14 @@ export function pnJunction(p: PnInput): Result<PnResult> {
       ok: false,
       error: `Both dopings must exceed ${MINDOPING_OVER_NI}·nᵢ = ${sci(minN)} cm⁻³: at a doping comparable to nᵢ the side is nearly intrinsic and the depletion approximation (all charge from ionised dopants) does not hold.`,
     };
-  if (p.nc !== null && p.nd > degeneracyLimit(p.nc))
-    return {
-      ok: false,
-      error: `ND = ${sci(p.nd)} cm⁻³ is degenerate: above Nc·e⁻³ = ${sci(degeneracyLimit(p.nc))} cm⁻³ the Fermi level is within 3kT of the conduction band, so Boltzmann statistics (and the ln(NA ND/nᵢ²) form of Vbi) no longer hold.`,
-    };
-  if (p.nv !== null && p.na > degeneracyLimit(p.nv))
-    return {
-      ok: false,
-      error: `NA = ${sci(p.na)} cm⁻³ is degenerate: above Nv·e⁻³ = ${sci(degeneracyLimit(p.nv))} cm⁻³ the Fermi level is within 3kT of the valence band, so Boltzmann statistics (and the ln(NA ND/nᵢ²) form of Vbi) no longer hold.`,
-    };
+  const cautions: string[] = [];
+  for (const chk of [
+    p.nc !== null ? edgeCheck(p.nd, p.nc, "ND", "conduction", "Nc") : null,
+    p.nv !== null ? edgeCheck(p.na, p.nv, "NA", "valence", "Nv") : null,
+  ]) {
+    if (chk && "error" in chk) return { ok: false, error: chk.error };
+    if (chk) cautions.push(chk.caution);
+  }
   const vt = thermalVoltage(p.tK);
   // ln(NA) + ln(ND) − 2 ln(ni): no product that could overflow.
   const vbi = vt * (Math.log(p.na) + Math.log(p.nd) - 2 * Math.log(p.ni));
@@ -203,7 +225,7 @@ export function pnJunction(p: PnInput): Result<PnResult> {
   const w1 = ratio >= 10 ? Math.sqrt((2 * eps * (vbi + p.vr)) / (E_CHARGE * light * 1e6)) : null;
   const lightSide = ratio >= 10 ? (p.na < p.nd ? "p" : "n") : null;
   if (!fin(vbi, w, cj, emax)) return { ok: false, error: "The inputs give a non-finite result (check the magnitudes)." };
-  return { ok: true, vt, vbi, w, xn, xp, emax, cj, cj0, w1, lightSide, degeneracyChecked: p.nc !== null && p.nv !== null };
+  return { ok: true, vt, vbi, w, xn, xp, emax, cj, cj0, w1, lightSide, degeneracyChecked: p.nc !== null && p.nv !== null, cautions };
 }
 
 /** Junction capacitance per area (F/m²) at reverse bias vr for a computed junction. */
@@ -342,6 +364,8 @@ export interface CarrierResult {
   sigma: number;
   rho: number;
   degeneracyChecked: boolean;
+  /** Band-edge cautions (EF within 3kT of an edge), each a full sentence. */
+  cautions: string[];
 }
 
 /** Majority density for net doping |N| (cm⁻³): |N|/2 + √(N²/4 + nᵢ²), written so a huge N does not overflow. */
@@ -371,21 +395,19 @@ export function carriers(c: CarrierInput): Result<CarrierResult> {
   const min = (c.ni / maj) * c.ni;
   const n = net >= 0 ? maj : min;
   const p = net >= 0 ? min : maj;
-  if (c.nc !== null && n > degeneracyLimit(c.nc))
-    return {
-      ok: false,
-      error: `n = ${sci(n)} cm⁻³ is degenerate: above Nc·e⁻³ = ${sci(degeneracyLimit(c.nc))} cm⁻³ the Fermi level is within 3kT of the conduction band, so Boltzmann statistics and complete ionisation no longer hold.`,
-    };
-  if (c.nv !== null && p > degeneracyLimit(c.nv))
-    return {
-      ok: false,
-      error: `p = ${sci(p)} cm⁻³ is degenerate: above Nv·e⁻³ = ${sci(degeneracyLimit(c.nv))} cm⁻³ the Fermi level is within 3kT of the valence band, so Boltzmann statistics and complete ionisation no longer hold.`,
-    };
+  const cautions: string[] = [];
+  for (const chk of [
+    c.nc !== null ? edgeCheck(n, c.nc, "n", "conduction", "Nc") : null,
+    c.nv !== null ? edgeCheck(p, c.nv, "p", "valence", "Nv") : null,
+  ]) {
+    if (chk && "error" in chk) return { ok: false, error: chk.error };
+    if (chk) cautions.push(chk.caution);
+  }
   const vt = thermalVoltage(c.tK);
   const efEi = fermiFromNet(net, c.ni, vt);
   const type = net > 0 ? "n" : net < 0 ? "p" : "intrinsic";
   const edge = type === "n" && c.nc !== null ? vt * Math.log(c.nc / n) : type === "p" && c.nv !== null ? vt * Math.log(c.nv / p) : null;
   const sigma = E_CHARGE * (n * c.mun + p * c.mup);
   if (!fin(n, p, efEi, sigma) || sigma <= 0) return { ok: false, error: "The inputs give a non-finite result (check the magnitudes)." };
-  return { ok: true, vt, net, n, p, type, efEi, edge, sigma, rho: 1 / sigma, degeneracyChecked: c.nc !== null && c.nv !== null };
+  return { ok: true, vt, net, n, p, type, efEi, edge, sigma, rho: 1 / sigma, degeneracyChecked: c.nc !== null && c.nv !== null, cautions };
 }

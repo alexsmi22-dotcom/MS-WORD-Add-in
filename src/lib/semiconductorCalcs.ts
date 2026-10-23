@@ -192,7 +192,7 @@ function readMaterial(r: (k: string) => string, u: Reader, withEps: boolean): Ma
 
 const degeneracyNote = (m: MaterialUse): string | null =>
   m.nc === null || m.nv === null
-    ? "Degeneracy NOT checked: give Nc and Nv (above about Nc·e⁻³ or Nv·e⁻³ the Fermi level is within 3kT of a band edge and these formulas do not hold)."
+    ? "Degeneracy NOT checked: give Nc and Nv (above about Nc·e⁻³ or Nv·e⁻³ the Fermi level is within 3kT of a band edge and these formulas are only approximate; at Nc or Nv they fail)."
     : null;
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -261,6 +261,7 @@ const pnCalc: SemiCalc = {
       lines.push(
         `Diode current at V = ${trimSig(diode.v)} V: I = ${n6(diode.i)} A (Iₛ = ${trimSig(diode.is)} A, n = ${trimSig(diode.n)}; ${n6(diode.perDecade * 1000)} mV per decade forward). Iₛ is your input; it is not derived from the doping.`,
       );
+    lines.push(...res.cautions);
     const deg = degeneracyNote(mat);
     if (deg) lines.push(deg);
     lines.push(
@@ -437,7 +438,8 @@ const carrierCalc: SemiCalc = {
     lines.push(`Conductivity σ = ${n6(res.sigma)} S/cm (${n6(res.sigma * 100)} S/m); resistivity ρ = ${n6(res.rho)} Ω·cm.`);
     const deg = degeneracyNote(mat);
     if (deg) lines.push(deg);
-    else lines.push(`Non-degenerate range checked: n ≤ Nc·e⁻³ = ${n4(degeneracyLimit(mat.nc as number))} and p ≤ Nv·e⁻³ = ${n4(degeneracyLimit(mat.nv as number))} cm⁻³.`);
+    else if (!res.cautions.length) lines.push(`Non-degenerate range checked: n ≤ Nc·e⁻³ = ${n4(degeneracyLimit(mat.nc as number))} and p ≤ Nv·e⁻³ = ${n4(degeneracyLimit(mat.nv as number))} cm⁻³ (EF at least 3kT from both band edges).`);
+    lines.push(...res.cautions);
     lines.push("Model: thermal equilibrium, complete ionisation of every dopant (fails at low temperature, freeze-out), Boltzmann statistics (non-degenerate), uniform doping.");
     const rows: Array<[string, string, string]> = [
       ["Electron density n", n4(res.n), "cm⁻³"],

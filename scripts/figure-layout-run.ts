@@ -3376,6 +3376,7 @@ rotator 15` }, "jones elliptical");
   sc("semi-carriers", {}, "carriers Si n-type");
   sc("semi-carriers", { nd: "0", na: "1e17" }, "carriers Si p-type");
   sc("semi-carriers", { nd: "0", mat: "custom", ni: "1e10" }, "carriers custom intrinsic");
+  sc("semi-carriers", { nd: "1e19" }, "carriers Si within 3kT of the conduction band");
   figures.push(["semiconductor cvChartSvg 1 kV one-sided", cvChartSvg({ na: 1e14, nd: 1e19, epsR: 11.7 }, 0.8, 1000)]);
   figures.push(["semiconductor ivChartSvg near the exponent cap", ivChartSvg(1e-20, 1, 0.025852, 1.15)]);
   figures.push(["semiconductor ivChartSvg 1 mV forward", ivChartSvg(1e-14, 1, 0.025852, 0.001)]);

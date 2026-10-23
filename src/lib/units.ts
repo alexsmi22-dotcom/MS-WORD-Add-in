@@ -725,9 +725,10 @@ export function parseCompoundUnit(expr: string): CompoundUnit | null {
   if (parts.length === 1) {
     const lone = parts[0].trim().replace(/^\((.*)\)$/, "$1").trim();
     if (!/[·*\s^]/.test(lone) && lookup(lone)?.offset) return null;
-    // Nor a lone °C or °F with an exponent ("°C^2"): a power of an offset scale is not a quantity. (convert() has
-    // already reduced "°C^1" to "°C".)
-    const powered = /^([^·*\s]+?)\^[-+]?\d+(?:\.\d+)?$/.exec(lone);
+    // Nor a lone °C or °F to a positive power ("°C^2"): a power of an offset scale is not a quantity. (convert() has
+    // already reduced "°C^1" to "°C".) A negative power stays: "°C⁻¹" is per degree of DIFFERENCE, how datasheets
+    // write a thermal expansion coefficient, and the compound path reads it without the offset.
+    const powered = /^([^·*\s]+?)\^\+?\d+(?:\.\d+)?$/.exec(lone);
     if (powered && lookup(powered[1])?.offset) return null;
   }
 

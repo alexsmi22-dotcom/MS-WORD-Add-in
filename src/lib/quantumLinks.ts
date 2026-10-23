@@ -497,15 +497,15 @@ export function qkdLink(inp: QkdInput): QkdResult | Err {
   } else {
     const m = mu as number;
     const rAt = (l: number): number => qkdAt("decoy", fromDb(-l) * detEff, y0, ed, m, f).perPulse;
-    if (y0 === 0) {
-      // With no background counts E_μ = e₁ = e_det at every loss and Q_μ/Q₁ = (1 − e^{−ημ})/(ημ e^{−μ}) only falls as
-      // the loss grows, so the secret fraction never gets worse with loss: there is no zero-key cutoff when the rate
-      // is positive in the small-η limit, R/η → q μ [e^{−μ}(1 − H₂(e_det)) − f H₂(e_det)], and no key at any loss
-      // otherwise. (Bisecting here only ever found where floating point gave out.)
-      const hd = binaryEntropy(Math.min(0.5, ed));
-      cutoffDb = Math.exp(-m) * (1 - hd) - f * hd > 0 ? null : -1;
-    } else if (!(rAt(0) > 0)) cutoffDb = -1;
-    else if (rAt(MAX_LOSS_DB) > 0) cutoffDb = y0 === 0 ? null : MAX_LOSS_DB;
+    // With no background counts E_μ = e₁ = e_det at every loss, and Q_μ/Q₁ = (1 − e^{−ημ})/(ημ e^{−μ}) RISES toward
+    // e^{μ} as the loss grows, so the secret fraction only gets worse with loss: η → 0 is the worst case. When the rate
+    // stays positive there, R/η → q μ [e^{−μ}(1 − H₂(e_det)) − f H₂(e_det)] > 0, there is no zero-key cutoff at any
+    // loss; otherwise the cutoff is where the rate crosses zero, found by bisection below (round-2 review: the η → 0
+    // test alone printed "no key at any loss" beside a positive key rate at 0 dB).
+    const hd = binaryEntropy(Math.min(0.5, ed));
+    if (y0 === 0 && Math.exp(-m) * (1 - hd) - f * hd > 0) cutoffDb = null;
+    else if (!(rAt(0) > 0)) cutoffDb = -1;
+    else if (rAt(MAX_LOSS_DB) > 0) cutoffDb = MAX_LOSS_DB;
     else {
       let lo = 0;
       let hi = MAX_LOSS_DB;

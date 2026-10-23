@@ -254,3 +254,23 @@ describe("7. teleport note with tiny amplitudes", () => {
     expect(o.text).not.toMatch(CONTRACT);
   });
 });
+
+describe("round 2 of the review", () => {
+  test("decoy QKD with Y₀ = 0 and a positive key at 0 dB has a finite cutoff (scipy: 11.9035 dB)", () => {
+    const r = qkdLink({ rate: 1e9, lossDb: 0, detEff: 1, y0: 0, ed: 0.065, source: "decoy", mu: 0.5, f: 1.16 } as QkdInput);
+    if (!("ok" in r) || !r.ok) throw new Error("refused");
+    expect(r.keyRate).toBeGreaterThan(0);
+    expect(r.cutoffDb).not.toBeNull();
+    expect(Math.abs((r.cutoffDb as number) - 11.903479507473788)).toBeLessThan(1e-6);
+  });
+  test("a thermal expansion coefficient per °C or °F converts (datasheet form)", () => {
+    const a = parseMeasured("12e-6 °C^-1", "1/K");
+    expect("inTarget" in a && Math.abs(a.inTarget - 1.2e-5) < 1e-18).toBe(true);
+    const b = parseMeasured("12e-6 °C⁻¹", "1/K");
+    expect("inTarget" in b && Math.abs(b.inTarget - 1.2e-5) < 1e-18).toBe(true);
+    const c = parseMeasured("5e-6 °F^-1", "1/K");
+    expect("inTarget" in c && Math.abs(c.inTarget - 9e-6) < 1e-18).toBe(true);
+    expect(convert(1, "°C^-1", "°F^-1")).toBeCloseTo(5 / 9, 12);
+    expect(convert(1, "°C^2", "K^2")).toBeNull();
+  });
+});

@@ -11,7 +11,7 @@ import { engReport } from "./engReport";
 import { fillNormals, mcHistogramSvg, type McResult } from "./monteCarlo";
 import { trueMinus } from "./numberList";
 import { buildPlotSvg } from "./plot";
-import { convert, formatUnit } from "./units";
+import { convert, formatUnit, toSuperscript } from "./units";
 
 export type EngCompute = (read: (k: string) => string) => AnalyzeOutput;
 
@@ -147,9 +147,12 @@ export function variableField(text: string): boolean {
   const u = v.unit.trim();
   if (!u) return true;
   if (u === "%") return true;
-  // A second number, a separator or a non-unit symbol after the first number.
-  if (/[,;:|⟩⟨+]/.test(u) || /(^|\s)[-−]?\d/.test(u)) return false;
-  return convert(1, u, u) !== null;
+  // A separator or a state symbol after the first number: a list, a timecode, a typed state.
+  if (/[,;:|⟩⟨+]/.test(u)) return false;
+  // A second number: any digit left once a leading "1/" (0.5 1/m) and caret exponents (cm^-3) are set aside
+  // ("2048 2048", "1/125 s"). Units the converter does not know (dBm, TFLOP/s, 100k, 0.5π) stay variable: the tool
+  // reads its own field text, so the swept value goes back in exactly as the user wrote the unit.
+  return !/\d/.test(u.replace(/^1\s*\//, "/").replace(/\^[-−+]?\d+(?:\.\d+)?/g, ""));
 }
 
 /** A field's label as a name in prose and on an axis: no example, no unit tail, balanced brackets, no underscores. */
@@ -169,7 +172,32 @@ export function fieldName(label: string): string {
   // An opening bracket left unclosed: cut there.
   const open = s.lastIndexOf("("), close = s.lastIndexOf(")");
   if (open > close) s = s.slice(0, open);
-  return s.replace(/_\{?([A-Za-z0-9]+)\}?/g, "$1").replace(/—/g, "-").trim();
+  return typesetName(s.replace(/_\{?([A-Za-z0-9]+)\}?/g, "$1").replace(/—/g, "-").trim());
+}
+
+/** Carets and e-notation in a label typeset: "M^2" → M², "1/e^2" → 1/e², "1e-6" → 10⁻⁶, "2.5e3" → 2.5×10³. */
+function typesetName(s: string): string {
+  return trueMinus(
+    s
+      .replace(/\b(\d+(?:\.\d+)?)[eE]([-+]?\d+)\b/g, (_m, a: string, e: string) => `${a === "1" ? "" : `${a}×`}10${toSuperscript(String(Number(e)))}`)
+      // A bracketed exponent "^(−1)" loses its brackets; a bare one "^-6)" leaves the bracket after it alone.
+      .replace(/\^(?:\(([-−+]?\d+(?:\.\d+)?)\)|([-−+]?\d+(?:\.\d+)?))/g, (_m, b: string | undefined, e: string | undefined) => toSuperscript((b ?? e ?? "").replace(/−/g, "-"))),
+  );
+}
+
+/**
+ * Names for a tool's fields, distinct within the tool: the short name where it is unique, the fuller label
+ * (example and unit notes still dropped) where short names collide — "A, first angle" and "A, second angle" are not
+ * both "A".
+ */
+export function fieldNames(fields: Array<{ key: string; label: string }>): Record<string, string> {
+  const short = fields.map((f) => fieldName(f.label));
+  const out: Record<string, string> = {};
+  fields.forEach((f, i) => {
+    const clash = short.filter((n) => n === short[i]).length > 1;
+    out[f.key] = clash ? typesetName(f.label.replace(/\s*\((?:e\.g\.|blank|when|typed)[^)]*\)/gi, "").replace(/_\{?([A-Za-z0-9]+)\}?/g, "$1").trim()) : short[i];
+  });
+  return out;
 }
 
 /** A typed field value for prose: the number typeset (×10ⁿ, true minus) and the unit formatted. */
@@ -177,7 +205,11 @@ export function displayValue(text: string): string {
   const v = splitValue(text);
   if (!v) return trueMinus(text.trim());
   const u = v.unit.trim();
-  return fmtSig(v.value, 6) + (u ? (u === "%" ? " %" : ` ${formatUnit(u)}`) : "");
+  // The digits as typed (68 °F stays 68, not 68.0000); e-notation typeset as ×10ⁿ.
+  const raw = (NUM.exec(text.replace(/−/g, "-")) as RegExpExecArray)[1];
+  const m = /^([+-]?[\d.]+)[eE]([-+]?\d+)$/.exec(raw);
+  const num = m ? `${Number(m[1]) === 1 ? "" : `${m[1]}×`}10${toSuperscript(String(Number(m[2])))}` : raw;
+  return trueMinus(num) + (u ? (u === "%" ? " %" : ` ${formatUnit(u)}`) : "");
 }
 
 /** Lone temperature units, where a percentage depends on the scale the value was typed in. */
@@ -195,6 +227,8 @@ export function parseUncertainty(text: string, fieldValue: string): { u: number;
   if (!v || v.value < 0 || !fv) return { error: `"${text}" is not an uncertainty: write a number in the field's unit, or a percentage such as 2 %.` };
   const unit = v.unit.trim();
   if (unit === "%" || /^per\s*cent$|^percent$/i.test(unit)) {
+    if (fv.unit.trim() === "%")
+      return { error: `The field is itself a percentage, so "${text}" could mean percentage points or a relative per cent: write the uncertainty in percentage points as a plain number (for example 2 for ${displayValue(fieldValue)} ± 2 points).` };
     if (OFFSET_TEMPERATURE.test(fv.unit.trim()))
       return { error: `A percentage of ${displayValue(fieldValue)} depends on the temperature scale: give the uncertainty in degrees instead (for example 0.5 K).` };
     return { u: v.value, relative: true };
@@ -202,6 +236,11 @@ export function parseUncertainty(text: string, fieldValue: string): { u: number;
   if (!unit) return { u: v.value, relative: false };
   const target = fv.unit.trim();
   if (!target) return { error: `The field holds a bare number, so its ± cannot be "${text}": write the uncertainty as a plain number in the same unit.` };
+  // A temperature difference unit (Δ°C, Δ°F, ΔK) on a °C or °F field: by the degree size alone.
+  if (OFFSET_TEMPERATURE.test(target)) {
+    const k = convert(v.value, unit, "ΔK");
+    if (k !== null && Number.isFinite(k)) return { u: Math.abs(/F/i.test(target) ? (k * 9) / 5 : k), relative: false };
+  }
   // A difference: both ends converted, so an offset scale (°F into °C) contributes only its factor.
   const a = convert(v.value, unit, target), b = convert(0, unit, target);
   if (a === null || b === null || !Number.isFinite(a - b)) return { error: `"${unit}" is not a unit of the same quantity as ${formatUnit(target)}.` };
@@ -487,12 +526,12 @@ export function sweepReport(r: SweepResult, fieldLabel: string, toolName: string
   const svg = buildPlotSvg([{ points: pts, type: "line", color: "#2563eb", label: r.output.label }], {
     width: 440,
     height: 300,
-    xlabel: axisLabel(fieldLabel, r.unit),
-    ylabel: axisLabel(r.output.label, r.output.unit),
+    xlabel: trueMinus(axisLabel(fieldLabel, r.unit)),
+    ylabel: trueMinus(axisLabel(r.output.label, r.output.unit)),
     xScale: log ? "log" : "linear",
   });
   return engReport(lines.map(trueMinus), [
-    { kind: "plot", svg, caption: `${r.output.label} against ${fieldLabel}`, alt: `Line plot of ${r.output.label} against ${fieldLabel}`, w: 440, h: 300 },
+    { kind: "plot", svg, caption: trueMinus(`${r.output.label} against ${fieldLabel}`), alt: `Line plot of ${r.output.label} against ${fieldLabel}`, w: 440, h: 300 },
   ]);
 }
 

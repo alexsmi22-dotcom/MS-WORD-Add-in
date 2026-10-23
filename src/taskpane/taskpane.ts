@@ -49,7 +49,7 @@ import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
 import { engEq } from "../lib/engEquations";
-import { carryOver, displayValue, fieldName, fieldText, handoffGroupLabel, handoffGroups, parseUncertainty, runSweep, runUncertainty, sweepReport, uncertaintyReport, variableField, type UncertainInput } from "../lib/engWorkbench";
+import { carryOver, displayValue, fieldNames, fieldText, handoffGroupLabel, handoffGroups, parseUncertainty, runSweep, runUncertainty, sweepReport, uncertaintyReport, variableField, type UncertainInput } from "../lib/engWorkbench";
 import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
 import {
   HostCapability,
@@ -30083,7 +30083,8 @@ function refreshEngWorkbench(calc: EngCalc, out: AnalyzeOutput | null): void {
   }
   const fieldSel = document.getElementById("eng-sweep-field") as HTMLSelectElement;
   const keepField = fieldSel.value;
-  fieldSel.replaceChildren(...numeric.map((f) => new Option(fieldName(f.label), f.key)));
+  const names = fieldNames(calc.fields);
+  fieldSel.replaceChildren(...numeric.map((f) => new Option(names[f.key], f.key)));
   if (numeric.some((f) => f.key === keepField)) fieldSel.value = keepField;
   const unc = document.getElementById("eng-unc-inputs") as HTMLElement;
   const kept: Record<string, string> = {};
@@ -30094,7 +30095,7 @@ function refreshEngWorkbench(calc: EngCalc, out: AnalyzeOutput | null): void {
       row.className = "dna-controls";
       const label = document.createElement("label");
       label.className = "field-label";
-      label.textContent = `± ${fieldName(f.label)} (now ${displayValue(lastEngFieldValues[f.key] ?? "")})`;
+      label.textContent = `± ${names[f.key]} (now ${displayValue(lastEngFieldValues[f.key] ?? "")})`;
       const inp = document.createElement("input");
       inp.type = "text";
       inp.className = "rgroup-input";
@@ -30142,7 +30143,7 @@ function runEngSweep(): void {
   const calc = currentEngCalc;
   if (!calc) return;
   const field = (document.getElementById("eng-sweep-field") as HTMLSelectElement).value;
-  const label = calc.fields.find((f) => f.key === field)?.label ?? field;
+  const label = fieldNames(calc.fields)[field] ?? field;
   const req = {
     field,
     from: (document.getElementById("eng-sweep-from") as HTMLInputElement).value,
@@ -30152,7 +30153,7 @@ function runEngSweep(): void {
     output: (document.getElementById("eng-explore-output") as HTMLSelectElement).value,
   };
   const r = runSweep(calc.compute, engReadNow(), req);
-  showExplore(r.ok ? sweepReport(r, fieldName(label), calc.name, req.log) : { text: r.reason, ok: false });
+  showExplore(r.ok ? sweepReport(r, label, calc.name, req.log) : { text: r.reason, ok: false });
 }
 
 function runEngUncertainty(): void {
@@ -30161,6 +30162,7 @@ function runEngUncertainty(): void {
   const read = engReadNow();
   const inputs: UncertainInput[] = [];
   const described: Array<{ label: string; text: string }> = [];
+  const names = fieldNames(calc.fields);
   for (const el of Array.from(document.querySelectorAll<HTMLInputElement>("#eng-unc-inputs input[data-unc]"))) {
     const t = el.value.trim();
     if (!t) continue;
@@ -30168,7 +30170,7 @@ function runEngUncertainty(): void {
     const parsed = parseUncertainty(t, read(key));
     if ("error" in parsed) return showExplore({ text: parsed.error, ok: false });
     inputs.push({ field: key, u: parsed.u, relative: parsed.relative });
-    described.push({ label: fieldName(calc.fields.find((f) => f.key === key)?.label ?? key), text: `${displayValue(read(key))} ± ${displayValue(t)}` });
+    described.push({ label: names[key] ?? key, text: `${displayValue(read(key))} ± ${displayValue(t)}` });
   }
   // Each draw runs the whole tool (its figures too): size the run to the tool's own cost, inside a time budget, so
   // Word stays responsive; a tool too slow to sample 30 times in a few seconds is refused rather than frozen on.
@@ -30179,8 +30181,6 @@ function runEngUncertainty(): void {
   const draws = Math.max(30, Math.min(2000, Math.floor(1500 / per)));
   const output = (document.getElementById("eng-explore-output") as HTMLSelectElement).value;
   const r = runUncertainty(calc.compute, read, inputs, output, draws, undefined, 2500, () => performance.now());
-  const names: Record<string, string> = {};
-  for (const f of calc.fields) names[f.key] = fieldName(f.label);
   showExplore(r.ok ? uncertaintyReport(r, described, calc.name, names) : { text: r.reason, ok: false });
 }
 

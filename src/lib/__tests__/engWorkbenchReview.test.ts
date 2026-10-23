@@ -5,6 +5,7 @@ import type { AnalyzeOutput } from "../analyzeBlocks";
 import {
   ENG_HANDOFFS,
   displayValue,
+  fieldNames,
   fieldName,
   fieldText,
   handoffGroupLabel,
@@ -127,6 +128,14 @@ describe("only single-number fields can be varied (review #5)", () => {
     ["2 %", true],
     ["1e16 cm^-3", true],
     ["0.5", true],
+    // Round 2: units the converter does not know stay variable; "1/125 s" does not.
+    ["20 dBm", true],
+    ["-90 dBm", true],
+    ["0.5 1/m", true],
+    ["312 TFLOP/s", true],
+    ["0.5π", true],
+    ["100k", true],
+    ["1/125 s", false],
   ])("%s → %s", (t, ok) => expect(variableField(t)).toBe(ok));
 });
 
@@ -181,9 +190,12 @@ describe("refused steps and draws are reported, never NaN or silently cut (revie
 
 describe("reports are typeset (review #7)", () => {
   test("typed values are shown as numbers with formatted units", () => {
-    expect(displayValue("1e-4")).toBe("1.00000×10⁻⁴");
-    expect(displayValue("50e6 Pa")).toBe("5.00000×10⁷ Pa");
-    expect(displayValue("2 %")).toBe("2.00000 %");
+    // The digits as typed (round 2: "68 °F" showed as 68.0000 °F); e-notation typeset.
+    expect(displayValue("1e-4")).toBe("10⁻⁴");
+    expect(displayValue("50e6 Pa")).toBe("50×10⁶ Pa");
+    expect(displayValue("2 %")).toBe("2 %");
+    expect(displayValue("68 °F")).toBe("68 °F");
+    expect(displayValue("-90 dBm")).toBe("−90 dBm");
   });
   test.each([
     ["Fracture toughness K_IC, Pa·√m (MPa·√m, ksi·√in)", "Fracture toughness KIC"],
@@ -192,6 +204,8 @@ describe("reports are typeset (review #7)", () => {
     ["Bending moment, e.g. 12 kN·m (blank to skip)", "Bending moment"],
     ["Photon duration: intensity FWHM w (fs)", "Photon duration: intensity FWHM w (fs)"],
     ["Mode — option", "Mode - option"],
+    ["Beam quality M^2 (1 = diffraction limited)", "Beam quality M² (1 = diffraction limited)"],
+    ["Target BER (1e-6 or 10^-6)", "Target BER (10⁻⁶ or 10⁻⁶)"],
   ])("field name %s → %s", (label, name) => expect(fieldName(label)).toBe(name));
   test("field text writes superscript exponents as one caret run", () => {
     expect(fieldText(1e16, "cm⁻³")).toBe("10000000000000000 cm^-3");
@@ -209,5 +223,25 @@ describe("shared fields carry over in the pane (review #8)", () => {
     expect(snap).toBeGreaterThan(0);
     expect(snap).toBeLessThan(render);
     expect(body).toMatch(/carryEngFields\(fromId, fromValues\)/);
+  });
+});
+
+describe("round 2 of the review", () => {
+  test("colliding short names fall back to the fuller label", () => {
+    const n = fieldNames([
+      { key: "a1", label: "A, first angle" },
+      { key: "a2", label: "A, second angle" },
+      { key: "span", label: "Span, m" },
+    ]);
+    expect(n).toEqual({ a1: "A, first angle", a2: "A, second angle", span: "Span" });
+  });
+  test("a Δ°C or Δ°F uncertainty on a °C or °F field", () => {
+    expect(parseUncertainty("0.5 Δ°C", "20 °C")).toEqual({ u: 0.5, relative: false });
+    const f = parseUncertainty("0.5 Δ°C", "68 °F");
+    expect("u" in f && Math.abs(f.u - 0.9) < 1e-12).toBe(true);
+  });
+  test("a per-cent field refuses a per-cent uncertainty as ambiguous", () => {
+    expect("error" in parseUncertainty("2 %", "50 %")).toBe(true);
+    expect(parseUncertainty("2", "50 %")).toEqual({ u: 2, relative: false });
   });
 });

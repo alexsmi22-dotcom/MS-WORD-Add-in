@@ -23,7 +23,7 @@
 //   # superdense: (Z^b1 X^b2 ⊗ I)|Φ+>, then (H⊗I)·CNOT -> |b1 b2> exactly
 //   w=np.exp(2j*math.pi/8); F=np.array([[w**(j*k) for k in range(8)] for j in range(8)])/math.sqrt(8)
 //   F[:,6]  # QFT|110> = (1, −i, −1, i, 1, −i, −1, i)/(2√2)
-import { QUANTUM_GATES_CALCS } from "../quantumGatesCalcs";
+import { QUANTUM_GATES_CALCS, blochPath } from "../quantumGatesCalcs";
 import type { AnalyzeOutput } from "../analyzeBlocks";
 import {
   GATES,
@@ -321,6 +321,22 @@ describe("the core", () => {
   });
 });
 
+describe("Bloch path", () => {
+  test("Rz(270°) from |+⟩ draws the typed 270° turn about +z, not the 90° turn about −z", () => {
+    const seq = parseGateSequence("Rz(270)");
+    if ("error" in seq) throw new Error(seq.error);
+    const k = parseKet("|+⟩");
+    if ("error" in k) throw new Error(k.error);
+    const pts = blochPath(k.state, seq);
+    // A turn about +z from +x passes through +y first (counter-clockwise seen from above).
+    const third = pts[Math.round(pts.length / 3)];
+    expect(third[1]).toBeGreaterThan(0.5);
+    const end = pts[pts.length - 1];
+    near(end[0], 0, 1e-9);
+    near(end[1], -1, 1e-9);
+  });
+});
+
 describe("adversarial inputs", () => {
   test.each([
     ["qc-single-qubit", { gates: "H Q" }, /not a gate/],
@@ -366,6 +382,7 @@ describe("adversarial inputs", () => {
     const o = run("qc-circuit", { n: "2", circuit: "H 0\nMEASURE 0\nCX 0 1" });
     expect(okText(o)).toContain("(|00⟩ + |11⟩)/√2");
     near(out(o, "m_0"), 0.5, 1e-12);
+    expect(o.text).toMatch(/Measurement is deferred to the end of the circuit/);
   });
 
   test("ten qubits, 200 gates: the deterministic work bound holds and the result is summarised", () => {

@@ -133,10 +133,13 @@ function blochPath(start: State, gates: GateSpec[]): [number, number, number][] 
   const pts: [number, number, number][] = [blochVector(start)];
   let s = start;
   for (const g of gates) {
-    const r = rotationOf(g.U);
-    if (r.axis) {
+    // A rotation gate turns through the angle typed (Rz(270°) draws 270°, at most two full turns); any other gate
+    // through its canonical rotation (θ ≤ π about rotationOf's axis).
+    const r0 = rotationOf(g.U);
+    const r = g.rot ? { axis: g.rot.axis, theta: Math.max(-4 * Math.PI, Math.min(4 * Math.PI, g.rot.angle)) } : r0;
+    if (r.axis && Math.abs(r.theta) > 1e-12) {
       const [nx, ny, nz] = r.axis;
-      const steps = Math.max(6, Math.ceil((r.theta / Math.PI) * 48));
+      const steps = Math.max(6, Math.ceil((Math.abs(r.theta) / Math.PI) * 48));
       for (let k = 1; k <= steps; k++) {
         const t = (r.theta * k) / steps, c = Math.cos(t / 2), sn = Math.sin(t / 2);
         const M: CMat = [
@@ -360,6 +363,8 @@ const circuitCalc: QCalc = {
     const shown = fmtState(fin, n);
     const lines: EngLine[] = [ORDER_NOTE];
     lines.push(`Initial state |${ketLabel(init, n)}⟩; ${pc.ops.length} operation${pc.ops.length > 1 ? "s" : ""}.`);
+    if (measuredQubits(pc.ops).length)
+      lines.push("Measurement is deferred to the end of the circuit (the deferred-measurement principle): the state shown is the whole circuit's state just before measurement, with any gate controlled by a measured qubit applied as a quantum control, which gives the same outcome statistics as the classically controlled gate.");
     lines.push(`Final state (before measurement): |ψ⟩ = ${shown.text}${shown.globalPhase ? ` (global phase ${shown.globalPhase.text} factored out)` : ""}.`);
     if (shown.math) lines.push({ math: `ket(ψ) = ${shown.math}`, fallback: `|ψ⟩ = ${shown.text}` });
     lines.push({ math: "P(x) = abs(braket(x, ψ))^2", fallback: "P(x) = |⟨x|ψ⟩|²" });

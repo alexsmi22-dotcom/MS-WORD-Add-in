@@ -41,6 +41,8 @@ export interface GateSpec {
   /** As drawn and printed: "S†", "√X", "Rz(π/4)", "Ry(30°)". */
   label: string;
   U: CMat;
+  /** For Rx/Ry/Rz/P: the Bloch rotation as typed (axis, signed angle in radians), so a 270° turn draws 270°. */
+  rot?: { axis: [number, number, number]; angle: number };
 }
 
 const FIXED: Record<string, { name: keyof typeof GATES; label: string }> = {
@@ -83,20 +85,21 @@ export function singleGate(rawName: string, args: string | null): GateSpec | { e
     if (args !== null) return { error: `${f.label} takes no angle ("${rawName}(${args})").` };
     return { name: f.name, label: f.label, U: GATES[f.name] };
   }
-  const rot: Record<string, { name: string; fn: (t: number) => CMat; sym: string }> = {
-    RX: { name: "Rx", fn: rx, sym: "θ" },
-    RY: { name: "Ry", fn: ry, sym: "θ" },
-    RZ: { name: "Rz", fn: rz, sym: "θ" },
-    P: { name: "P", fn: phaseGate, sym: "φ" },
-    PHASE: { name: "P", fn: phaseGate, sym: "φ" },
-    U1: { name: "P", fn: phaseGate, sym: "φ" },
+  const X3: [number, number, number] = [1, 0, 0], Y3: [number, number, number] = [0, 1, 0], Z3: [number, number, number] = [0, 0, 1];
+  const rot: Record<string, { name: string; fn: (t: number) => CMat; axis: [number, number, number] }> = {
+    RX: { name: "Rx", fn: rx, axis: X3 },
+    RY: { name: "Ry", fn: ry, axis: Y3 },
+    RZ: { name: "Rz", fn: rz, axis: Z3 },
+    P: { name: "P", fn: phaseGate, axis: Z3 },
+    PHASE: { name: "P", fn: phaseGate, axis: Z3 },
+    U1: { name: "P", fn: phaseGate, axis: Z3 },
   };
   if (rot[key]) {
     const g = rot[key];
     if (args === null || !args.trim()) return { error: `${g.name} needs an angle: ${g.name}(30) in degrees or ${g.name}(pi/4) in radians.` };
     const a = parseAngle(args);
     if ("error" in a) return { error: `${g.name}(${args}): ${a.error}` };
-    return { name: g.name, label: `${g.name}(${a.label})`, U: g.fn(a.rad) };
+    return { name: g.name, label: `${g.name}(${a.label})`, U: g.fn(a.rad), rot: { axis: g.axis, angle: a.rad } };
   }
   if (key === "U" || key === "U3") {
     const parts = args === null ? [] : splitArgs(args);

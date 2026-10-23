@@ -185,6 +185,19 @@ export function mohrCircleSvg(inp: MohrInput): string {
     tickLabels.push(labelText(x, y0 + 14, t.text, { anchor: "middle", size: 9 }));
   }
 
+  // The applied state and its conjugate (drawn below), and the maximum-shear label, which is painted BEFORE the
+  // circle so that the circle's stroke runs over the label's paper backing rather than being notched by it.
+  const ax = X(inp.sigmaX);
+  const ay = Y(inp.tauXY);
+  const bx = X(inp.sigmaY);
+  const by = Y(-inp.tauXY);
+  const topY = Y(R);
+  // On the side of the radius AWAY from the upper half of the dashed diameter, so the diameter never runs through
+  // the label (Release E: with σx left of centre it struck the label out).
+  const upperX = ay <= by ? ax : bx;
+  const leftSide = upperX >= X(c);
+  p.push(labelText(leftSide ? X(c) - 4 : X(c) + 4, (y0 + topY) / 2, "τmax = R = " + n1(R), { fill: CIRCLE, size: 8, anchor: leftSide ? "end" : "start" }));
+
   // The circle itself.
   p.push(
     `<circle cx="${X(c).toFixed(1)}" cy="${Y(0).toFixed(1)}" r="${(R * scale).toFixed(1)}" fill="none" stroke="${CIRCLE}" stroke-width="1.6"/>`,
@@ -193,34 +206,38 @@ export function mohrCircleSvg(inp: MohrInput): string {
   // The applied state and its conjugate, joined through the centre. That line
   // IS the element's current orientation; the sigma axis is the principal one,
   // and the angle between them is 2*theta_p.
-  const ax = X(inp.sigmaX);
-  const ay = Y(inp.tauXY);
-  const bx = X(inp.sigmaY);
-  const by = Y(-inp.tauXY);
   p.push(`<line x1="${ax.toFixed(1)}" y1="${ay.toFixed(1)}" x2="${bx.toFixed(1)}" y2="${by.toFixed(1)}" stroke="${POINT}" stroke-width="1.2" stroke-dasharray="4 3"/>`);
+  // Each point's label goes OUTSIDE the circle, on the side the point faces (Release E): placed up and to the
+  // right whatever the point's position, a label on the left half sat across the circle and its paper backing cut a
+  // notch out of the stroke.
+  const cx = X(c);
   for (const [px, py, lbl] of [
     [ax, ay, "(σx, τxy)"],
     [bx, by, "(σy, −τxy)"],
   ] as [number, number, string][]) {
     p.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3" fill="${POINT}"/>`);
-    p.push(labelText((px + 5), (py - 5), lbl, { fill: POINT, size: 8 }));
+    const right = px >= cx;
+    const above = py <= y0;
+    p.push(labelText(right ? px + 6 : px - 6, above ? py - 6 : py + 13, lbl, { fill: POINT, size: 8, anchor: right ? "start" : "end" }));
   }
 
   // Principal stresses, where the circle meets the sigma axis.
-  for (const [s, label] of [
-    [inp.sigma1, "σ₁"],
-    [inp.sigma2, "σ₂"],
-  ] as [number, string][]) {
+  // Labelled just OUTSIDE the circle (σ₁ to its right, σ₂ to its left), where the stroke is vertical: centred above
+  // the point, the glyph sat on the stroke and was struck through (Release E).
+  for (const [s, label, outward] of [
+    [inp.sigma1, "σ₁", 1],
+    [inp.sigma2, "σ₂", -1],
+  ] as [number, string, number][]) {
     const x = X(s);
+    const lx = R > 0 ? x + outward * 5 : x;
+    const anchor = R > 0 ? (outward > 0 ? "start" : "end") : "middle";
     p.push(`<circle cx="${x.toFixed(1)}" cy="${y0.toFixed(1)}" r="2.6" fill="${CIRCLE}"/>`);
-    p.push(`<text x="${x.toFixed(1)}" y="${(y0 - 7).toFixed(1)}" text-anchor="middle" fill="${CIRCLE}" font-size="9">${esc(label)}</text>`);
+    p.push(`<text x="${lx.toFixed(1)}" y="${(y0 - 5).toFixed(1)}" text-anchor="${anchor}" fill="${CIRCLE}" font-size="9">${esc(label)}</text>`);
   }
 
   // The radius IS the maximum in-plane shear — drawn, because that equivalence
   // is the single most useful thing the picture says.
-  const topY = Y(R);
   p.push(`<line x1="${X(c).toFixed(1)}" y1="${y0.toFixed(1)}" x2="${X(c).toFixed(1)}" y2="${topY.toFixed(1)}" stroke="${CIRCLE}" stroke-width="1" stroke-dasharray="2 2"/>`);
-  p.push(labelText(X(c) + 4, (y0 + topY) / 2, "τmax = R = " + n1(R), { fill: CIRCLE, size: 8 }));
 
   p.push(...tickLabels);
   p.push(`<text x="${W / 2}" y="${H - 6}" text-anchor="middle" fill="${INK}">σ${unit ? " (" + esc(unit) + ")" : ""}</text>`);

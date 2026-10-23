@@ -244,6 +244,13 @@ import { blochSphereSvg, circuitDiagramSvg, probabilityBarsSvg } from "../src/li
 import { grover as qGrover, parseCircuit as qParseCircuit } from "../src/lib/quantumCircuits";
 // --- end Release E: quantum gates ---
 
+// --- Release E: laser ---
+// Fabry–Pérot, threshold, coherence and SHG: their charts, through the calculators and straight from the builders.
+import { LASER_CALCS } from "../src/lib/laserCalcs";
+import { fpAiryChartSvg, fpPeakChartSvg, thresholdChartSvg, coherenceChartSvg, shgGrowthChartSvg, shgSincChartSvg } from "../src/lib/laserCharts";
+import { fabryPerot } from "../src/lib/laserPhysics";
+// --- end Release E: laser ---
+
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -3250,5 +3257,38 @@ rotator 15` }, "jones elliptical");
   figures.push(["quantum bars builder 2 qubits Grover", probabilityBarsSvg(qGrover(2, 2, 1).final.map((z) => z.re * z.re + z.im * z.im), 2)]);
 }
 // --- end Release E: quantum gates ---
+
+// --- Release E: laser ---
+// Each laser calculator at its defaults and at the variants that change a figure's layout (unequal mirrors, a
+// low-finesse etalon, a sub-threshold pump, a Gaussian line from a wavelength width with Schawlow–Townes, an
+// off-axis bulk SHG crystal, Δk = 0), then each builder directly at extreme scales.
+{
+  const variants: Record<string, Record<string, string>[]> = {
+    "laser-fabry-perot": [{}, { R2: "0.95" }, { L: "5 mm", n: "1.5", R1: "0.3", R2: "0.3", lam: "1550 nm" }, { L: "2 µm", R1: "0.999", R2: "0.999" }],
+    "laser-threshold": [{}, { pp: "1 W" }, { pp: "" }, { L: "1 mm", ai: "5 cm^-1", R1: "0.3", R2: "0.95", lp: "940 nm", lam: "1030 nm", etai: "80 %", pth: "300 mW", pp: "2 W" }],
+    "laser-coherence": [{}, { shape: "gaussian" }, { shape: "gaussian", dnu: "0.01 nm", lam: "1550 nm", dnuc: "4.8 MHz" }, { dnu: "10 kHz" }],
+    "laser-shg": [{}, { mode: "none", deff: "14 pm/V", I: "1e9" }, { mode: "qpm", per: "6.9 µm", L: "1 mm" }, { nw: "2.2", n2w: "2.2", mode: "perfect", L: "" }],
+  };
+  for (const c of LASER_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: laser ${c.id} did not draw: ${out.text}`);
+      svgs.forEach((s, i) => figures.push([`laser ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+  const fp = fabryPerot({ L: 0.25, n: 1, R1: 0.9999, R2: 0.98, lambda: null });
+  if (fp.ok) {
+    figures.push(["laser fpAiryChartSvg, F ≈ 300 unequal", fpAiryChartSvg(0.9999, 0.98, fp)]);
+    figures.push(["laser fpPeakChartSvg, F ≈ 300 unequal", fpPeakChartSvg(0.9999, 0.98, fp)]);
+  }
+  figures.push(["laser thresholdChartSvg, µW scale", thresholdChartSvg(0.05, 2e-3, 5e-3)]);
+  figures.push(["laser coherenceChartSvg, 1 GHz Gaussian", coherenceChartSvg("gaussian", 1e9)]);
+  figures.push(["laser shgGrowthChartSvg, 20 µm coherence length", shgGrowthChartSvg(Math.PI / 20e-6, 20e-6)]);
+  figures.push(["laser shgSincChartSvg, operating point near the first zero", shgSincChartSvg(2 * 3.0 / 0.01, 0.01)]);
+}
+// --- end Release E: laser ---
 
 export { figures };

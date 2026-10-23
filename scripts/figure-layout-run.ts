@@ -213,6 +213,11 @@ import { LC_CALCS } from "../src/lib/lcCalcs";
 import { lcLineChartSvg, lcTransmissionSvg, lcNetRetardanceSvg, lcMeasuredSvg, lcProfilesSvg, lcGammaVoltageSvg, lcMidTiltSvg } from "../src/lib/lcCharts";
 import { lcCellSvg, lcDirectorSvg, lcDeviceSvg } from "../src/lib/lcDrawings";
 // --- end Release C: lc ---
+// --- Release E: flow ---
+// Compressible flow beyond isentropic: normal shock, θ–β–M / Prandtl–Meyer, Fanno and Rayleigh.
+import { GAS_DYNAMICS_CALCS } from "../src/lib/gasDynamicsCalcs";
+import { thetaBetaSvg, prandtlMeyerSvg, fannoSvg, rayleighSvg, normalShockSvg } from "../src/lib/gasDynamicsCharts";
+// --- end Release E: flow ---
 
 const figures: [string, string][] = [];
 
@@ -2926,5 +2931,50 @@ rotator 15` }, "jones elliptical");
   );
 }
 // --- end Release D: golden gate destination vector ---------------------------
+
+// --- Release E: flow ---
+// Each compressible-flow calculator at its defaults, then the layouts that crowd: a strong shock (log axis to M 15),
+// a barely supersonic one, a Mach wave (θ = 0), θ at θmax (one solution), a non-standard M₁ among the standard
+// curves, γ = 5/3, an expansion near νmax (axis out to M 50), a very low subsonic Fanno inlet (tall left branch), a
+// supersonic Fanno duct, Rayleigh cooling and a near-choked supersonic heating.
+{
+  const gd = (id: string, over: Record<string, string>, name: string): void => {
+    const c = GAS_DYNAMICS_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: ${name} did not draw: ${out.text}`);
+    plots.forEach((b) => {
+      if (b.kind === "plot") figures.push([`gas dynamics ${name}`, b.svg]);
+    });
+  };
+  gd("gd-normal-shock", {}, "normal shock defaults");
+  gd("gd-normal-shock", { M1: "10", p1: "", T1: "" }, "normal shock M1 10 ratios only");
+  gd("gd-normal-shock", { M1: "1.05", gamma: "1.6667" }, "normal shock M1 1.05 monatomic");
+  gd("gd-oblique-pm", {}, "oblique defaults");
+  gd("gd-oblique-pm", { theta: "0" }, "oblique Mach wave");
+  gd("gd-oblique-pm", { theta: "22.9735" }, "oblique at theta max");
+  gd("gd-oblique-pm", { M1: "7", theta: "30" }, "oblique M1 7");
+  gd("gd-oblique-pm", { M1: "1.2", theta: "3", gamma: "1.3" }, "oblique M1 1.2 gamma 1.3");
+  gd("gd-oblique-pm", { mode: "expansion", theta: "" }, "Prandtl-Meyer nu only");
+  gd("gd-oblique-pm", { mode: "expansion", theta: "20" }, "Prandtl-Meyer turn 20");
+  gd("gd-oblique-pm", { mode: "expansion", theta: "80" }, "Prandtl-Meyer large turn");
+  gd("gd-fanno", {}, "Fanno defaults");
+  gd("gd-fanno", { M1: "0.05", L: "100", D: "0.1", f: "0.003" }, "Fanno low inlet Mach");
+  gd("gd-fanno", { M1: "3", L: "0.5", conv: "darcy", f: "0.02" }, "Fanno supersonic Darcy");
+  gd("gd-fanno", { L: "" }, "Fanno state only");
+  gd("gd-rayleigh", {}, "Rayleigh defaults");
+  gd("gd-rayleigh", { M1: "0.1", ratio: "0.5" }, "Rayleigh subsonic cooling");
+  gd("gd-rayleigh", { M1: "4", ratio: "1.6" }, "Rayleigh supersonic heating");
+  gd("gd-rayleigh", { heat: "q", q: "200 kJ/kg", T1: "600 K" }, "Rayleigh heat q");
+  figures.push(["gas dynamics theta-beta-M chart, no solution", thetaBetaSvg(3, 1.4, null).svg]);
+  figures.push(["gas dynamics Prandtl-Meyer, no turn, M1 1", prandtlMeyerSvg(1, null, 1.4).svg]);
+  figures.push(["gas dynamics Fanno, one mark", fannoSvg(1.3, [{ M: 0.3, label: "inlet M₁ = 0.3" }]).svg]);
+  figures.push(["gas dynamics Rayleigh, one mark", rayleighSvg(1.3, [{ M: 2.5, label: "inlet M₁ = 2.5" }]).svg]);
+  figures.push(["gas dynamics normal shock, M1 40", normalShockSvg(40, 1.4).svg]);
+}
+// --- end Release E: flow ---
 
 export { figures };

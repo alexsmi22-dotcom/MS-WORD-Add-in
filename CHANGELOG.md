@@ -6,6 +6,22 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.190.0] — 2026-10-23 — Curved mechanism arrows and fishhooks
+
+- **Curved arrows and fishhooks on the Draw page.** Draw the structure, then **Mechanism: Curved arrow** or
+  **Fishhook** under the canvas: the canvas switches to the page view in place (what you drew comes along) with that
+  arrow picked. Drag from a lone pair's atom or a bond to the atom or bond the electrons go to; the ends attach to
+  them and move with the structure. Shift while dragging, or a click on the arrow, bows it the other way. An arrow
+  with no clean path (it would cross a bond, a label or another arrow) is refused with the reason, never drawn
+  through something.
+- **Homolysis fishhooks drawn as published figures draw them.** Each hook starts at the middle of the visible bond and
+  comes down over its own atom — measured on published homolysis figures. On a peroxide whose O–C bonds point
+  opposite ways the two hooks sit on opposite sides, as in the published figure; otherwise both on one side, mirror
+  images.
+- **A press on the short dash between two labels (Br–Br at an angle) now picks the bond**, not the nearer Br.
+- Arrows plan faster when the mouse is released (about a third less time on a crowded page).
+- Four timing tests now scale with the machine they run on (a fixed millisecond limit blocked one deploy).
+
 ## [2.189.0] — 2026-10-23 — Cleanup: every known open defect fixed
 
 No new tools: the defects and rough edges left open by the last three releases, fixed.
@@ -30,7 +46,7 @@ No new tools: the defects and rough edges left open by the last three releases, 
 - **Fixed:** the qPCR dilution series reads its numbers by the shared rules and names mixed decimal marks; Tukey HSD
   and Dunnett are limited to 20 groups (they could freeze Word at hundreds); root locus on large plants is instant;
   contour and surface refusals give the right advice.
-- Curved electron-pushing arrows remain unavailable while their drawing is improved.
+- Curved electron-pushing arrows remain unavailable while their drawing is improved (back in 2.190.0).
 
 ## [2.188.0] — 2026-10-22 — Lab data: peak tables, NMR integration, cloning, circuit transients, liquid-crystal wave plates, more arrows
 

@@ -37,6 +37,14 @@ real pane before this script was written; re-run it after each chemistry release
 2. (If asked) a centre JurisLab cannot decide is refused by name, never guessed — checked against the CIP Validation
    Suite with zero wrong labels.
 
+## 2c′. A mechanism arrow (Build ▸ Draw) — 1 min
+1. Draw Br–Br: Bond tool, click the paper; Atom tool **Br**, click both ends.
+2. Under the canvas, **Mechanism: Fishhook**. Drag from the short dash between the letters to each Br: two hooks over
+   their atoms, as a textbook homolysis is drawn.
+3. (If asked) **Curved arrow** for electron pairs: drag from an atom's lone pair or a bond to where the electrons go;
+   click an arrow to bow it the other way. An arrow that would cross something is refused with the reason.
+4. **Insert** — the arrows go in with the drawing.
+
 ## 2d. The Example paragraph (Characterization) — 1 min
 1. Tool ▸ **Characterization**, compound `caffeine`. Paste a MestReNova ¹H line (`1H NMR (400 MHz, Chloroform-d) δ 7.51
    (s, 1H), 3.99 (s, 3H), 3.57 (s, 3H), 3.40 (s, 3H).`) → the journal form appears, with "integrations add up to 10H,
@@ -73,6 +81,8 @@ real pane before this script was written; re-run it after each chemistry release
 - What it will not do is said plainly (a structure it cannot read exactly is refused by name, never redrawn wrong).
 
 ## Avoid in a demo (known limits)
+- **Curved arrows:** Shift (bow the other way) on a peroxide whose O–C bonds point opposite ways is refused — its
+  hooks already sit on their only clean sides. Two big labels on a level bond (Br–Cl) leave room for one fishhook only.
 - ChemDraw objects **embedded** in Word (the kind you double-click to open ChemDraw): not yet readable. ChemDraw
   *pictures* pasted into Word do open (Open ChemDraw picture).
 - **Systematic IUPAC names** cover chains, carbocycles and benzenes with their groups (phenols, anilines, benzoic

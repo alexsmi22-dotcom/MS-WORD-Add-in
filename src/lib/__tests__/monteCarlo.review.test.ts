@@ -4,6 +4,7 @@
 
 import { monteCarlo, tryMonteCarlo, numericalTolerance, fmtShared, plannedSamples, reciprocalParts, compileFormula, noiseAdvice, MC_DEFAULT_SAMPLES, MC_MAX_SAMPLES } from "../monteCarlo";
 import { evalFormula } from "../stats";
+import { referenceMs } from "./timingFloor";
 
 const THIN = String.fromCharCode(0x2009);
 const plain = (s: string): string => s.split(THIN).join(" ");
@@ -169,8 +170,9 @@ describe("R3-4: a budget that can reach a verdict", () => {
   it("10⁶ draws of a·b/c stay bounded even under ts-jest (≈ 0.2 s bundled)", () => {
     const t0 = Date.now();
     monteCarlo("a*b/c", marginal, { samples: 1e6 });
-    expect(Date.now() - t0).toBeLessThan(6000);
-  }, 30000);
+    // 62 × the reference workload (timingFloor.ts), ~6 s here, scaling with the machine.
+    expect(Date.now() - t0).toBeLessThan(62 * referenceMs());
+  }, 60000);
   it("the narrow a·b/c case DISAGREES on at least 7 of 8 seeds at the cap", () => {
     let dis = 0;
     for (let seed = 1; seed <= 8; seed++) if (monteCarlo("a*b/c", marginal, { samples: MC_MAX_SAMPLES, seed }).verdict === "disagree") dis++;

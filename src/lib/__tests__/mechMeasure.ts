@@ -61,6 +61,21 @@ export function headPolygon(d: CdxDoc, ar: CdxArrow): Pt[] {
 /** Thresholds (ink to ink, points): what a clean arrow keeps. */
 export const CLEAR = { bond: 1.0, label: 1.0, ownLabel: 0.6, glyph: 1.0, arrow: 1.5, headBond: 0.15 } as const;
 
+/**
+ * The most a clean arrow may turn: 110°, except a fishhook from a bond between two lettered atoms to one of them
+ * (half a homolysis), 155° — published homolysis fishhooks turn 121–139° before their heads (Wikimedia Commons "Homolysis2.svg",
+ * "Homolysis (Chemistry) V.1.svg", "Bromine homolysis.svg", measured 2026-10-23).
+ */
+export function sweepCap(d: CdxDoc, ar: { el: { attrs: Record<string, string | undefined> } }): number {
+  const a = ar.el.attrs;
+  if (!/^Half/.test(a.ArrowheadHead ?? "")) return 110;
+  const b = bondsOf(d).find((x) => x.id === a.ArrowSource);
+  // Between two LETTERED atoms only (Br–Br, RO–OR): a fishhook to an unlettered carbon keeps 110°.
+  const nodes = nodesOf(d);
+  const lettered = (id: string): boolean => !!labelInk(d.fonts, nodes.get(id)!);
+  return b && (a.ArrowTarget === b.b || a.ArrowTarget === b.e) && lettered(b.b) && lettered(b.e) ? 155 : 110;
+}
+
 export function measureArrow(d: CdxDoc, id: string): ArrowMeasure {
   const st = d.style, L = st.bondLength, lw = st.lineWidth;
   const ar = arrowsOf(d).find((a) => a.id === id);
@@ -149,7 +164,7 @@ export function measureArrow(d: CdxDoc, id: string): ArrowMeasure {
     if (m < CLEAR.arrow) issues.push(`arrow ${o.id} ${m.toFixed(2)}pt`);
   }
   const sweep = Math.abs(ar.angularSize);
-  if (sweep > 110 + 1e-6) issues.push(`sweep ${sweep.toFixed(0)}°`);
+  if (sweep > sweepCap(d, ar) + 1e-6) issues.push(`sweep ${sweep.toFixed(0)}°`);
   const tip = head[0] ?? ar.head, notch = head[2] ?? trace[trace.length - 2];
   const dl = Math.hypot(tip[0] - notch[0], tip[1] - notch[1]) || 1;
   const midP = trace[48];

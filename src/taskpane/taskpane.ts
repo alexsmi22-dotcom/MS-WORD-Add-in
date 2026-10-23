@@ -2139,6 +2139,9 @@ Office.onReady((info) => {
     pc.setRingKind?.("cyclopentadienyl");
     setStatus("Cp ring: click empty paper for a new ring, or an atom to attach one.", "");
   });
+  // Mechanism arrows: the page canvas in place (what is drawn comes along), the Arrow tool on that kind.
+  document.getElementById("build-mech-curved")?.addEventListener("click", () => organoCanvas()?.setArrowKind?.("curved"));
+  document.getElementById("build-mech-fishhook")?.addEventListener("click", () => organoCanvas()?.setArrowKind?.("fishhook"));
   document.getElementById("chemdraw-gallery-page")?.addEventListener("click", () => {
     if (!galleryDoc) return;
     const doc = galleryDoc, name = galleryName;

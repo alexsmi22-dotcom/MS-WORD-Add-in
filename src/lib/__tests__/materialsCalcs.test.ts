@@ -41,6 +41,7 @@ import { tensileTest, weibullStrength, scherrer, capability, toleranceStack, D2,
 import { weibullFit } from "../reliability";
 import { gridToFieldText } from "../dataimport";
 import type { AnalyzeOutput } from "../analyzeBlocks";
+import { referenceMs } from "./timingFloor";
 
 const calc = (id: string): MatCalc => {
   const c = MATERIALS_CALCS.find((x) => x.id === id);
@@ -1301,8 +1302,9 @@ describe("round 4: freeze caps (nothing near a second at the documented caps)", 
     const t0 = Date.now();
     okOut(run("mat-weibull-strength", { data: w(2000) }));
     // Measured in plain Node: Weibull 2 000 ≈ 100 ms, stack 100 + MC ≈ 140 ms; jest's transform makes the same code
-    // several times slower, so the gate here is a loose ceiling that still catches the old 1.3–3.4 s freezes.
-    expect(Date.now() - t0).toBeLessThan(3000);
+    // several times slower, so the gate here is a loose ceiling that still catches the old 1.3–3.4 s freezes: 31 × the
+    // reference workload (timingFloor.ts), ~3 s here, scaling with the machine (a fixed 3 s failed on a loaded worker).
+    expect(Date.now() - t0).toBeLessThan(31 * referenceMs());
     refused(run("mat-weibull-strength", { data: w(2001) }), /more than 2,000 strengths/);
   });
   test("Stack: 100 dimensions with Monte Carlo under budget, 101 refused by name", () => {
@@ -1310,8 +1312,9 @@ describe("round 4: freeze caps (nothing near a second at the documented caps)", 
     const t0 = Date.now();
     const out = run("qual-tolerance-stack", { dims: dims(100), mc: "on", gapMin: "" });
     // Measured in plain Node: Weibull 2 000 ≈ 100 ms, stack 100 + MC ≈ 140 ms; jest's transform makes the same code
-    // several times slower, so the gate here is a loose ceiling that still catches the old 1.3–3.4 s freezes.
-    expect(Date.now() - t0).toBeLessThan(3000);
+    // several times slower, so the gate here is a loose ceiling that still catches the old 1.3–3.4 s freezes: 31 × the
+    // reference workload (timingFloor.ts), ~3 s here, scaling with the machine (a fixed 3 s failed on a loaded worker).
+    expect(Date.now() - t0).toBeLessThan(31 * referenceMs());
     okOut(out);
     expect(out.text).toMatch(/Monte Carlo \(10 000 draws/);
     refused(run("qual-tolerance-stack", { dims: dims(101), gapMin: "" }), /more than 100 dimensions/);

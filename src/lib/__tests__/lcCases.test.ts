@@ -70,6 +70,7 @@ import { decimateTrace } from "../spectraChart";
 import { readElements, propagate, linearState } from "../jones";
 import { FILM_CALCS } from "../filmCalcs";
 import type { AnalyzeOutput } from "../analyzeBlocks";
+import { referenceMs } from "./timingFloor";
 
 const PI = Math.PI;
 const CONST: Material = { name: "C", ne: { A: 1.7, B: 0, C: 0 }, no: { A: 1.5, B: 0, C: 0 } };
@@ -333,12 +334,14 @@ describe("LC fixed case table", () => {
     const d = run("optics-lc-retarder", { mode: "design", cells: "900 0 45 LC-A\n800 0 -45 LC-B", points: "2000" });
     const td = Date.now() - t;
     expect(d.ok).not.toBe(false);
-    // generous ceilings for a loaded CI machine; measured ~60–150 ms locally
+    // Ceilings that scale with the machine (timingFloor.ts): 16 × the reference workload, ~1.5 s here; measured
+    // ~70–620 ms (the voltage curve the slowest). A fixed 1.5 s failed once on a loaded worker.
+    const ref = referenceMs();
     // eslint-disable-next-line no-console
-    if (process.env.LC_TIMING) console.log({ ta, tb, td });
-    expect(ta).toBeLessThan(1500);
-    expect(tb).toBeLessThan(1500);
-    expect(td).toBeLessThan(1500);
+    if (process.env.LC_TIMING) console.log({ ta, tb, td, ref });
+    expect(ta).toBeLessThan(16 * ref);
+    expect(tb).toBeLessThan(16 * ref);
+    expect(td).toBeLessThan(16 * ref);
   });
 });
 

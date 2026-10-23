@@ -299,6 +299,13 @@
             <button id="build-page-bare" class="draw-pop-btn" type="button" hidden title="The structure itself in the ChemDraw-like editor — its brackets, n and attached labels are left out">Edit the structure in the structure editor (brackets and labels left out)</button>
             <button id="build-page-back" class="draw-pop-btn" type="button">Back to the structure editor</button>
           </div>
+          <!-- Mechanisms, right here: curved arrows live on the page canvas, which the canvas switches to in place,
+               carrying over what is drawn (as for organometallics, below). -->
+          <div id="build-mech" class="build-organo-row" role="group" aria-label="Mechanism arrows">
+            <span class="build-organo-label">Mechanism:</span>
+            <button id="build-mech-curved" class="draw-pop-btn" type="button" title="Curved arrow (an electron pair): drag from a lone pair's atom or a bond to the atom or bond the electrons go to">Curved arrow</button>
+            <button id="build-mech-fishhook" class="draw-pop-btn" type="button" title="Fishhook (one electron): drag from a bond or an atom to where the electron goes — for a homolysis, from the bond to each atom">Fishhook</button>
+          </div>
           <!-- Organometallics, right here: the canvas switches in place to the ChemDraw-style page canvas (an η-bond
                cannot be held by the structure editor), carrying over what is drawn. -->
           <div id="build-organo" class="build-organo-row" role="group" aria-label="Organometallic">

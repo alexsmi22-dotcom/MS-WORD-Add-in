@@ -24,7 +24,7 @@
  * rounder arc, so the head never eats the shaft. Every loop here has a fixed bound.
  */
 import type { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxNode, Pt } from "./cdxml";
-import { chargeGlyph, labelInk, radicalBox, segBoxDist } from "./cdxGlyphs";
+import { chargeGlyph, glyph, labelInk, radicalBox, segBoxDist } from "./cdxGlyphs";
 // (A cycle with cdxmlRender, used only inside functions: the planner measures other arrows' heads as they are drawn.)
 import { arrowMarkup } from "./cdxmlRender";
 
@@ -114,7 +114,7 @@ export const CURVED_HEAD = { HeadSize: "700", ArrowheadCenterSize: "610", Arrowh
  *   - the head: round its target's letters (or vertex, or beside its bond) pointing at it — the circle through the
  *     tail and the tip whose drawn head (laid along the chord of its last head length, as the renderer draws it) points
  *     that way is unique, so "pointing at its atom" holds by construction, and the sweep follows from it;
- *   - kept only if the sweep is SWEEP_LO…SWEEP_HI, the shaft has room beyond its head, the tail leaves away from its
+ *   - kept only if the sweep is SWEEP_LO…SWEEP_HI (a homolysis fishhook: SWEEP_HOMO_HI), the shaft has room beyond its head, the tail leaves away from its
  *     atom or bond, and nothing is in the way: other bonds' lines, letters, charge signs and radical dots, captions,
  *     and the arrows already on the page (CLEAR, below; every distance measured from the ink as drawn);
  *   - scored: the sweep nearest the one its length reads best at, the head square on its target, the tail nearest its
@@ -134,6 +134,14 @@ const dbg = (k: string): number => {
 
 /** The sweep (degrees): the range kept, and the one aimed at for a short and a long arrow. */
 const SWEEP_LO = 30, SWEEP_HI = 110, SWEEP_SHORT = 95, SWEEP_LONG = 65;
+/**
+ * A fishhook from a bond to one of its own atoms (half a homolysis) turns further: it leaves the bond's middle and comes
+ * down onto its atom's letters. Measured on published homolysis figures (Wikimedia Commons "Homolysis2.svg",
+ * "Homolysis (Chemistry) V.1.svg", "Bromine homolysis.svg"): the shafts turn 121–139° before the head, so up to 155°
+ * with the head. The aim stays the same as any arrow's (a tighter clean arc still wins; the radical-addition
+ * scenes stay at or under 110°); every other arrow keeps SWEEP_HI.
+ */
+const SWEEP_HOMO_HI = 155;
 /** Clearances (points), centre line to ink: what a candidate must keep (each a little over what the table measures). */
 const CLEAR = {
   /** Another bond's line: its ink 1.2 pt clear, and its main line at least 0.2 bond length from the shaft's centre. */
@@ -240,7 +248,7 @@ interface PlanCtx {
   /** The tips of the curved arrows on the page (a shared target point: their heads may meet there). */
   tips: Map<string, Pt>;
   /** Curved arrows from a bond to one of its atoms: which side of the bond each bows to. */
-  hooks: Array<{ source: string; target: string; side: number }>;
+  hooks: Array<{ source: string; target: string; side: number; tail: Pt; head: Pt }>;
 }
 
 const ctxCache = new WeakMap<CdxDoc, { objects: unknown; exclude: string | undefined; ctx: PlanCtx }>();
@@ -306,7 +314,7 @@ function planContext(doc: CdxDoc, exclude?: string): PlanCtx {
           const sb = bonds.get(ar.el.attrs.ArrowSource ?? ""), tg = ar.el.attrs.ArrowTarget;
           if (sb && tg && (tg === sb.b || tg === sb.e)) {
             const pa = nodes.get(sb.b)!.p, pb = nodes.get(sb.e)!.p, mid = tr[Math.floor(tr.length / 2)];
-            hooks.push({ source: sb.id, target: tg, side: Math.sign(cross(unit(sub(pb, pa)), sub(mid, mul(addp(pa, pb), 0.5)))) });
+            hooks.push({ source: sb.id, target: tg, side: Math.sign(cross(unit(sub(pb, pa)), sub(mid, mul(addp(pa, pb), 0.5)))), tail: ar.tail, head: ar.head });
           }
         }
       }
@@ -526,6 +534,115 @@ function tailCands(ctx: PlanCtx, A: End, quick: boolean, wide: boolean, own: { t
 }
 
 /**
+ * The two fishhooks of a homolysis between two lettered atoms (Br–Br, RO–OR), placed as published figures place them
+ * (Wikimedia Commons "Homolysis2.svg", ChemDraw-drawn, measured 2026-10-23, in bond lengths from the middle of the
+ * VISIBLE bond — between the letters, which for "Br" is not the bond's middle — and, for the tip, from the middle of
+ * its atom's letters): the tail 0.20–0.29 off the line within
+ * 0.1 of that middle (here 0.08–0.16 toward its own atom, so the two tails keep an arrow's clearance; the hand-drawn
+ * "Homolysis (Chemistry) V.1.svg" sets them 0.12 apart); the tip OVER its atom, 0.20–0.24 past the atom's centre and 0.35–0.48 above the bond line (clear
+ * above the letters); the head 38° down from the bond's direction, toward the line; the shaft turning about 133°. A tip
+ * held 1 pt from the letters and aimed into them (the rule for every other arrow) forces a near-180° loop here.
+ */
+/**
+ * The box of an atom's own element letters: "Br" both letters, "O" alone in "OH" or "HO" (the hydrogens are not the
+ * atom). The letter the renderer centres on the atom is found by its advance; a lowercase letter after it makes a
+ * two-letter symbol. A stacked label (more than one line) or an unreadable one: the whole label's ink.
+ */
+export function elementBox(nd: Pick<CdxNode, "label" | "p">, ink: Box): Box {
+  const runs = nd.label?.runs ?? [];
+  const text = runs.map((r) => r.text).join("");
+  if (!text.trim() || /[\r\n]/.test(text) || runs.length !== 1) return ink;
+  const size = runs[0].size;
+  // Advance spans of the letters, from the ink box's left edge (less the first letter's own left bearing).
+  const g0 = glyph(text[0]);
+  let pen = ink[0] - (g0.ink ? g0.ink[0] * size : 0);
+  const spans: Array<[number, number]> = [];
+  for (const ch of text) {
+    const a = glyph(ch).adv * size;
+    spans.push([pen, pen + a]);
+    pen += a;
+  }
+  const mid = (i: number): number => (spans[i][0] + spans[i][1]) / 2;
+  let k = 0;
+  for (let i = 1; i < spans.length; i++) if (Math.abs(mid(i) - nd.p[0]) < Math.abs(mid(k) - nd.p[0])) k = i;
+  const two = k + 1 < text.length && /[A-Z]/.test(text[k]) && /[a-z]/.test(text[k + 1]);
+  return [Math.max(ink[0], spans[k][0]), ink[1], Math.min(ink[2], spans[two ? k + 1 : k][1]), ink[3]];
+}
+
+/** The middle of an atom's own element letters (elementBox), at the atom's height. */
+export function elementAnchor(nd: Pick<CdxNode, "label" | "p">, ink: Box | null): Pt {
+  if (!ink) return nd.p;
+  const b = elementBox(nd, ink);
+  return [(b[0] + b[2]) / 2, nd.p[1]];
+}
+
+function homoFrame(ctx: PlanCtx, A: End, target: string): { vm: Pt; dT: Pt; nR: Pt; tp: Pt; ink: Box } | null {
+  const b = ctx.bonds.get(A.bond!)!;
+  const ink = ctx.ink.get(target);
+  if (!ink) return null;
+  const other = b.b === target ? b.e : b.b;
+  const tp = ctx.nodes.get(target)!.p, op = ctx.nodes.get(other)!.p;
+  const dT = unit(sub(tp, op)), nR = right(dT);
+  // The visible bond: the stretch of the line clear of both atoms' letters (sampled; bounded).
+  const inks = A.atoms.map((id) => ctx.ink.get(id)).filter((x): x is Box => !!x);
+  let t0 = -1, t1 = -1;
+  for (let i = 0; i <= 64; i++) {
+    const q = addp(op, mul(sub(tp, op), i / 64));
+    if (inks.every((bx) => boxDist(bx, q) > 0)) {
+      if (t0 < 0) t0 = i / 64;
+      t1 = i / 64;
+    }
+  }
+  const tm = t0 < 0 ? 0.5 : (t0 + t1) / 2;
+  return { vm: addp(op, mul(sub(tp, op), tm)), dT, nR, tp, ink };
+}
+
+function homoTails(ctx: PlanCtx, A: End, target: string, quick: boolean): TailCand[] {
+  const f = homoFrame(ctx, A, target);
+  if (!f) return [];
+  const { L, lw } = ctx;
+  const inks = A.atoms.map((id) => ctx.ink.get(id)).filter((x): x is Box => !!x);
+  const out: TailCand[] = [];
+  for (const s of [1, -1])
+    // Toward its own atom: the partner's tail mirrors it, and the two shafts keep an arrow's clearance apart.
+    for (const a of quick ? [0.1] : [0.08, 0.1, 0.13, 0.16])
+      for (const h of quick ? [0.16, 0.24] : [0.12, 0.16, 0.2, 0.24, 0.28]) {
+        const n = mul(f.nR, s);
+        const T = addp(addp(f.vm, mul(f.dT, a * L)), mul(n, h * L));
+        if (inks.some((bx) => boxDist(bx, T) < GAP.tailLabel + lw / 2)) continue;
+        out.push({ T, out: n, cost: 0.3 * (Math.abs(a - 0.1) / 0.05) + 0.3 * (Math.abs(h - 0.22) / 0.08), side: s });
+      }
+  return out;
+}
+
+function homoHeads(ctx: PlanCtx, A: End, target: string, quick: boolean): HeadCand[] {
+  const f = homoFrame(ctx, A, target);
+  if (!f) return [];
+  const { L } = ctx;
+  const deg = Math.PI / 180;
+  const out: HeadCand[] = [];
+  // The element's own letters (an OH's H is left to the clearance checks, not lifted over).
+  const eb = elementBox(ctx.nodes.get(target)!, f.ink);
+  const corners: Pt[] = [[eb[0], eb[1]], [eb[2], eb[1]], [eb[0], eb[3]], [eb[2], eb[3]]];
+  for (const s of [1, -1]) {
+    const n = mul(f.nR, s);
+    // Measured from the middle of its element's letters on the bond line ("Br" is set from its B, so its atom is not
+    // its middle; in "OH" only the O is the atom), and how far the letters reach above that line on this side.
+    const ic = elementAnchor(ctx.nodes.get(target)!, f.ink);
+    const lc = addp(f.tp, mul(f.dT, dot(sub(ic, f.tp), f.dT)));
+    const top = Math.max(...corners.map((c) => dot(sub(c, lc), n)));
+    for (const a of quick ? [0.1, 0.25] : [-0.05, 0.05, 0.15, 0.25, 0.35])
+      for (const dh of quick ? [0.12] : [0.06, 0.12, 0.18, 0.26])
+        for (const th of quick ? [30, 45] : [25, 32, 40, 48, 56]) {
+          const H = addp(addp(lc, mul(f.dT, a * L)), mul(n, top + dh * L));
+          const D = addp(mul(f.dT, Math.cos(th * deg)), mul(n, -Math.sin(th * deg)));
+          out.push({ H, D, cost: 0.3 * (Math.abs(th - 38) / 15) + 0.3 * (Math.abs(a - 0.2) / 0.15) + 0.2 * (Math.abs(dh - 0.12) / 0.1) });
+        }
+  }
+  return out;
+}
+
+/**
  * Places along a bond (fractions of a bond length from its middle) a tail or tip may take: within a quarter bond — or,
  * for a short hop between ends that share an atom, within 0.4 bond (a longer arc fits there).
  */
@@ -649,7 +766,7 @@ interface Scored {
  * Every clean arc from one end to the other, best first per bow. `hopSide`: for a bond to one of its own atoms, the
  * side its default bows to (0: no such rule).
  */
-function search(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: PlanOptions): { best: Map<1 | -1, Scored>; hopSide: number; partner?: number; reason?: string } {
+function search(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: PlanOptions): { best: Map<1 | -1, Scored>; hopSide: number; partner?: number; homo?: boolean; reason?: string } {
   const ctx = planContext(doc, o.exclude);
   const A = endOf(ctx, from), B = endOf(ctx, to);
   const none = { best: new Map<1 | -1, Scored>(), hopSide: 0 };
@@ -667,20 +784,46 @@ function search(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: PlanOptions): { be
   if (B.kind === "bond" && A.kind === "atom" && B.atoms.includes(A.id!)) hopBond = ctx.bonds.get(B.bond!)!;
   if (hopBond) hopSide = freeSide(ctx, hopBond);
   if (toOwnAtom && o.electrons === 1) {
+    // Over its own atom, away from that atom's other bonds and its hydrogens' letters (a trans RO–OR, a tilted HO–OH:
+    // the two hooks on opposite sides, as the published peroxide figure draws them); an atom with neither, or with
+    // them on both sides, shares its partner's side.
+    const mine = atomFreeSide(ctx, hopBond!, B.id!);
     const h = ctx.hooks.find((x) => x.source === A.bond && x.target !== B.id && A.atoms.includes(x.target));
-    if (h) hopSide = partner = h.side;
+    if (mine) hopSide = mine;
+    else if (h) hopSide = partner = h.side;
   }
   // The shaft at least as long again as its head (a bond to its own atom: 0.6 of it), the arc no tighter than the head is long.
   const need = toOwnAtom ? headLen * 1.6 : Math.max(headLen * 2, headLen + L * 0.3), rmin = headLen * 0.9;
   const c0 = len(sub(B.p, A.p));
+  // (A homolysis between two lettered atoms only: a fishhook to an unlettered carbon keeps SWEEP_HI — review.)
+  const homo = toOwnAtom && o.electrons === 1 && A.atoms.every((x) => ctx.ink.has(x));
   const ideal = (Math.max(SWEEP_LONG, Math.min(SWEEP_SHORT, SWEEP_SHORT - ((c0 - 1.5 * L) / (2.5 * L)) * (SWEEP_SHORT - SWEEP_LONG))) * Math.PI) / 180;
-  const lo = (SWEEP_LO * Math.PI) / 180, hi = (SWEEP_HI * Math.PI) / 180;
+  const lo = (SWEEP_LO * Math.PI) / 180, hi = ((homo ? SWEEP_HOMO_HI : SWEEP_HI) * Math.PI) / 180;
   // Ends that share an atom (a bond to its own atom or the next bond, an atom to its own bond): a short hop.
   const wide = A.atoms.some((x) => B.atoms.includes(x));
   // A fishhook from a bond between two labelled atoms (Br–Br, O–O) to one of them: half a homolysis, its tail on that atom's half.
   const own = toOwnAtom ? { target: B.id!, half: o.electrons === 1 && A.atoms.every((x) => ctx.ink.has(x)) } : null;
   // (A tail round its atom's letters is best on the side facing its target.)
-  const tails = tailCands(ctx, A, quick, wide, own, unit(sub(B.p, A.p))), heads = headCands(ctx, B, quick, wide);
+  // Half a homolysis between two lettered atoms: placed as published figures place it (homoFrame) — unless the
+  // letters leave that placement no room for a tail (Br–Cl level: a 2.5 pt dash), when the general placement is
+  // tried as before (review: it drew the Cl hook there).
+  const homoLetters = !!own?.half && homoTails(ctx, A, B.id!, quick).length > 0;
+  // (It turns as the published figures' do, ~135° with its head; an ideal that only this placement uses.)
+  const aim = homoLetters ? (135 * Math.PI) / 180 : ideal;
+  // The second hook of a homolysis: the image of its partner (mirror in the visible bond's bisector on one side, the
+  // point image through its middle on opposite sides), preferred strongly so a symmetric pair is drawn symmetric.
+  const twin = homoLetters ? ctx.hooks.find((x) => x.source === A.bond && x.target !== B.id && A.atoms.includes(x.target)) : undefined;
+  const twinFrame = twin ? homoFrame(ctx, A, B.id!) : null;
+  const twinCost = (T: Pt, H: Pt): number => {
+    if (!twin || !twinFrame) return 0;
+    const { vm, dT } = twinFrame;
+    const mirror = (z: Pt): Pt => sub(z, mul(dT, 2 * dot(sub(z, vm), dT)));
+    const point = (z: Pt): Pt => sub(mul(vm, 2), z);
+    const off = (f: (z: Pt) => Pt): number => (len(sub(T, f(twin.tail))) + len(sub(H, f(twin.head)))) / L;
+    return 3 * Math.min(off(mirror), off(point));
+  };
+  const tails = homoLetters ? homoTails(ctx, A, B.id!, quick) : tailCands(ctx, A, quick, wide, own, unit(sub(B.p, A.p)));
+  const heads = homoLetters ? homoHeads(ctx, A, B.id!, quick) : headCands(ctx, B, quick, wide);
   // Every construction first (cheap), then the clearance checks in order of score, stopping once none can win.
   type Cand = { g: Arc; T: Pt; H: Pt; base: number; tc: TailCand };
   const cands: Cand[] = [];
@@ -700,7 +843,7 @@ function search(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: PlanOptions): { be
       }
       const mid = onArc(g, 0.5), cm = mul(addp(tc.T, hc.H), 0.5);
       const bulge = unit(sub(mid, cm));
-      const base = Math.abs(g.sweep - ideal) / ((30 * Math.PI) / 180) + tc.cost + hc.cost + (tc.inner ? 0.3 : 0) + 0.15 * bulge[1] * (Math.abs(bulge[1]) > 0.3 ? 1 : 0);
+      const base = Math.abs(g.sweep - aim) / ((30 * Math.PI) / 180) + tc.cost + hc.cost + (tc.inner ? 0.3 : 0) + 0.15 * bulge[1] * (Math.abs(bulge[1]) > 0.3 ? 1 : 0) + twinCost(tc.T, hc.H);
       cands.push({ g, T: tc.T, H: hc.H, base, tc });
     }
   cands.sort((x, y) => x.base - y.base);
@@ -741,7 +884,36 @@ function search(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: PlanOptions): { be
     const v = bestOf((x) => x.plan.bow === b);
     if (v) out.set(b, v);
   }
-  return { best: out, hopSide: hs ? hopSide : 0, partner };
+  return { best: out, hopSide: hs ? hopSide : 0, partner, homo: homoLetters };
+}
+
+/**
+ * The side of a bond (of right(dB)) clear of one atom's other bonds and of its label's other letters (an OH's H):
+ * 0 when it has neither, or has them on both sides. Letters lying along the bond's line pick no side.
+ */
+function atomFreeSide(ctx: PlanCtx, b: BondInfo, at: string): number {
+  const pa = ctx.nodes.get(b.b)!.p, pb = ctx.nodes.get(b.e)!.p, dB = unit(sub(pb, pa));
+  const ap = ctx.nodes.get(at)!.p;
+  const sides = new Set<number>();
+  for (const id of ctx.atBonds.get(at) ?? []) {
+    if (id === b.id) continue;
+    const o = ctx.bonds.get(id)!;
+    const q = ctx.nodes.get(o.b === at ? o.e : o.b)!.p;
+    const sg = Math.sign(cross(dB, sub(q, ap)));
+    if (sg) sides.add(sg);
+  }
+  const ink = ctx.ink.get(at);
+  if (ink) {
+    const eb = elementBox(ctx.nodes.get(at)!, ink);
+    // The other letters: the part of the label beyond its element's letters, left or right.
+    for (const part of [[ink[0], eb[0]], [eb[2], ink[2]]] as const) {
+      if (part[1] - part[0] < 0.25 * ctx.labelSize) continue;
+      const c: Pt = [(part[0] + part[1]) / 2, (ink[1] + ink[3]) / 2];
+      const off = cross(dB, sub(c, ap));
+      if (Math.abs(off) > 0.15 * ctx.L) sides.add(Math.sign(off));
+    }
+  }
+  return sides.size === 1 ? -[...sides][0] : 0;
 }
 
 /** The side of a bond (of right(dB)) with fewer neighbours of its two atoms; on a tie the upper side, then the right. */
@@ -767,7 +939,7 @@ function freeSide(ctx: PlanCtx, b: BondInfo): number {
  */
 function clearance(ctx: PlanCtx, g: Arc, head: Pt[], A: End, B: End, H: Pt, quick: boolean): number {
   const { L, lw } = ctx;
-  const n = quick ? 12 : 24;
+  const n = quick ? 8 : 12;
   const shaft: Pt[] = [];
   for (let i = 0; i <= n; i++) shaft.push(onArc(g, i / n));
   const T = shaft[0];
@@ -800,6 +972,14 @@ function clearance(ctx: PlanCtx, g: Arc, head: Pt[], A: End, B: End, H: Pt, quic
     room = Math.min(room, d - req);
     return d >= req;
   };
+  // Two segments whose boxes are already 2 pt beyond what is required pass, and their room cannot change the score (it
+  // counts room up to 2 pt): skipped before the exact distance — the planner's inner loop on a crowded page.
+  const needSeg = (p: Pt, q: Pt, a: Pt, b: Pt, req: number): boolean => {
+    const gx = Math.max(0, Math.min(a[0], b[0]) - Math.max(p[0], q[0]), Math.min(p[0], q[0]) - Math.max(a[0], b[0]));
+    const gy = Math.max(0, Math.min(a[1], b[1]) - Math.max(p[1], q[1]), Math.min(p[1], q[1]) - Math.max(a[1], b[1]));
+    if (gx * gx + gy * gy >= (req + 2) * (req + 2)) return true;
+    return need(segSegDist(p, q, a, b), req);
+  };
   // A shared target point (two hooks meeting to form a bond): their heads may meet there.
   const meet = new Set([...ctx.tips.entries()].filter(([, tp]) => B.kind === "at" && len(sub(tp, H)) < 1).map(([id]) => id));
   // (The heads' own region: within 5 pt of the shared point.)
@@ -809,16 +989,16 @@ function clearance(ctx: PlanCtx, g: Arc, head: Pt[], A: End, B: End, H: Pt, quic
       const shared = meet.has(sg.arrow) && Math.min(len(sub(sg.a, H)), len(sub(sg.b, H))) < 5;
       for (const s of all) {
         if (shared && nearH(s)) continue;
-        if (!need(segSegDist(s[0], s[1], sg.a, sg.b), lw + CLEAR.arrow)) return dbg("arrow");
+        if (!needSeg(s[0], s[1], sg.a, sg.b, lw + CLEAR.arrow)) return dbg("arrow");
       }
       continue;
     }
     const bd = ctx.bonds.get(sg.bond!)!;
     if (ownBonds.has(bd.id)) {
       // Its own bond: never crossed (the tail starts beside it; the tip stops short of it).
-      for (let i = 1; i < sSegs.length - 1; i++) if (!need(segSegDist(sSegs[i][0], sSegs[i][1], sg.a, sg.b), lw / 2 + 0.6)) return dbg("ownBond");
+      for (let i = 1; i < sSegs.length - 1; i++) if (!needSeg(sSegs[i][0], sSegs[i][1], sg.a, sg.b, lw / 2 + 0.6)) return dbg("ownBond");
       // A head kept 0.15 bond length off its own source bond as off any other.
-      if (sg.main && bd.id !== B.bond) for (const q of head) if (!need(distToTrace([sg.a, sg.b], q), CLEAR.headBond * L + 0.1)) return dbg("headBond");
+      if (sg.main && bd.id !== B.bond) for (const q of head) if (!need(ptSegDist(q, sg.a, sg.b), CLEAR.headBond * L + 0.1)) return dbg("headBond");
       continue;
     }
     const ends = [bd.b, bd.e].filter((id) => ownAtoms.has(id)).map((id) => ctx.nodes.get(id)!.p);
@@ -829,15 +1009,15 @@ function clearance(ctx: PlanCtx, g: Arc, head: Pt[], A: End, B: End, H: Pt, quic
     for (const s of sSegs) {
       // (Exempt from the clearance, never from crossing: an arc may pass close by its own atom's other bonds, not over them.)
       if (exempt(s[0]) && exempt(s[1])) {
-        if (sg.main && !need(segSegDist(s[0], s[1], sg.a, sg.b), lw + 0.3)) return dbg("crossNearEnd");
+        if (sg.main && !needSeg(s[0], s[1], sg.a, sg.b, lw + 0.3)) return dbg("crossNearEnd");
         continue;
       }
-      if (!need(segSegDist(s[0], s[1], sg.a, sg.b), req)) return dbg(planDebug.counts ? "bondShaft:" + bd.id + (sg.main ? "" : "'") : "");
+      if (!needSeg(s[0], s[1], sg.a, sg.b, req)) return dbg(planDebug.counts ? "bondShaft:" + bd.id + (sg.main ? "" : "'") : "");
     }
     for (const q of head) {
       if (sg.main && bd.id !== B.bond) {
-        if (!need(distToTrace([sg.a, sg.b], q), CLEAR.headBond * L + 0.1)) return dbg("headBond");
-      } else if (!sg.main && !exempt(q) && !need(distToTrace([sg.a, sg.b], q), lw + CLEAR.bondInk)) return dbg("head2nd");
+        if (!need(ptSegDist(q, sg.a, sg.b), CLEAR.headBond * L + 0.1)) return dbg("headBond");
+      } else if (!sg.main && !exempt(q) && !need(ptSegDist(q, sg.a, sg.b), lw + CLEAR.bondInk)) return dbg("head2nd");
     }
   }
   for (const bi of near.boxes) {
@@ -848,12 +1028,19 @@ function clearance(ctx: PlanCtx, g: Arc, head: Pt[], A: End, B: End, H: Pt, quic
   return Number.isFinite(room) ? room : 10;
 }
 
+/** Distance from p to segment a–b (distToTrace on two points, without its allocations: the planner's inner loop). */
+function ptSegDist(p: Pt, a: Pt, b: Pt): number {
+  const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+  const t = L2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2)) : 0;
+  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
+}
+
 /** Distance between two segments (0 when they cross). */
 function segSegDist(a: Pt, b: Pt, c: Pt, d: Pt): number {
   const o = (p: Pt, q: Pt, r: Pt): number => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
   const o1 = o(a, b, c), o2 = o(a, b, d), o3 = o(c, d, a), o4 = o(c, d, b);
   if (o1 * o2 < 0 && o3 * o4 < 0) return 0;
-  return Math.min(distToTrace([c, d], a), distToTrace([c, d], b), distToTrace([a, b], c), distToTrace([a, b], d));
+  return Math.min(ptSegDist(a, c, d), ptSegDist(b, c, d), ptSegDist(c, a, b), ptSegDist(d, a, b));
 }
 
 /**
@@ -881,6 +1068,11 @@ export function bowAndPlans(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: PlanOp
   for (const b of [1, -1] as const) plans.set(b, s.reason ?? s.best.get(b)?.plan ?? noArc(s.best.size > 0));
   const p = s.best.get(1), q = s.best.get(-1);
   let bow: 1 | -1 = 1;
+  if (s.partner && p?.side !== s.partner && q?.side !== s.partner && s.homo && (p || q)) {
+    // Between two lettered atoms, the partner's side full (Br–Br steeply tilted: the other Br's letters fill it): the
+    // other side, as the point image of the partner — the published peroxide figure's layout.
+    return { bow: p ? 1 : -1, plans };
+  }
   if (s.partner && p?.side !== s.partner && q?.side !== s.partner) {
     // The partner fishhook's side has no clean arc: refused rather than drawn on the other side (a homolysis's two
     // fishhooks share a side).

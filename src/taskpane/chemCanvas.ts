@@ -12,6 +12,7 @@ import { Molecule } from "openchemlib/full";
 import { arrowFromElement, readCdxml, readCdxmlTree, CdxDoc, CdxRun, CdxText, Box, Pt } from "../lib/cdxml";
 import { arrowMarkup, renderCdx } from "../lib/cdxmlRender";
 import { arcOf, type ArrowEnd } from "../lib/cdxArrows";
+import { labelInk } from "../lib/cdxGlyphs";
 import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from "../lib/cdxmlSelect";
 import {
   addArrow, addCurvedArrow, arrowAnchors, curvedArrowElement, flipCurvedArrow, followAnchors, addAtomAt, addBondAt, addBondBetween, addBondFrom, addBondToward, addBrackets, addCaption, addChain, addRingAt, addRingAtAtom, addRingOnBond,
@@ -73,6 +74,8 @@ export interface ChemCanvas {
   placeTemplate?(kind: MetalloceneTemplate): boolean;
   /** The Ring tool's ring (Cp for organometallics). Page canvas only. */
   setRingKind?(kind: RingKind): void;
+  /** The Arrow tool with this kind picked (curved, fishhook, reaction …), its help in the status. Page canvas only. */
+  setArrowKind?(kind: string): void;
   /** Names ChemDraw computed for structures changed since (their words): to check before inserting. */
   staleNames(): string[];
   /** The name the page is saved under (a ChemDraw file's name). */
@@ -115,15 +118,12 @@ const ARROW_KINDS: Array<[string, string, string, string]> = [
   ["fishhook", "Fishhook (one electron)", "Fishhook arrow", "drag from an atom or a bond to where the electron goes; the ends snap to them. Shift while dragging bows it the other way; click a curved arrow to flip it."],
 ];
 /**
- * Curved electron-pushing arrows and fishhooks are NOT offered in the menu yet (Release C review, final round): on
- * several everyday mechanisms (an arenium C–H to the ring, a tilted O–O homolysis, a leaving group in most bond
- * directions, a carbonyl addition beside another arrow) neither bow drew cleanly, and a drawing has no refusal mode.
- * The geometry, the file format and the attachment stay in place; arrows of these kinds in a file still open and draw.
- * Release D rebuilt the planner against a measured case table (mechanismArrowD.test.ts): it draws clean or refuses by
- * name. Still off: a homolysis's two fishhooks cannot start in the bond's middle, land on their atoms and keep the
- * 110° sweep cap at once, so they are refused — a demo of Br₂ or a peroxide would show refusals.
+ * Curved electron-pushing arrows and fishhooks: cut from Release C's menu (on several everyday mechanisms neither bow
+ * drew cleanly, and a drawing has no refusal mode); Release D rebuilt the planner against a measured case table
+ * (mechanismArrowD.test.ts) so it draws clean or refuses by name; Release E placed a homolysis's two fishhooks as
+ * published figures place them (over their atoms) and offers both kinds again.
  */
-const CURVED_ARROWS_OFFERED = false;
+const CURVED_ARROWS_OFFERED = true;
 const SVGNS = "http://www.w3.org/2000/svg";
 
 function blankDoc(): CdxDoc {
@@ -436,14 +436,32 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   const snapEnd = (p: Pt): ArrowEnd => {
     // An atom's own point first, then a bond's line, then anywhere on an atom's label: the middle of a short bond
     // between two labels (Br–Br) lies inside a label's box, and there the bond is meant (walkthrough: homolysis).
-    let near: string | null = null, best = L() * 0.3;
+    // But first the bond as SEEN: a point on a bond's line, off every label's letters and away from any bare vertex,
+    // is that bond — a tilted Br–Br shows only a short dash near one B's centre, and a press on the dash took the atom
+    // (Release E browser walk).
+    let near: string | null = null, best = L() * 0.3, onLetters = false, nearBare = false;
     for (const o of doc.objects)
       for (const it of o.items)
         if (it.kind === "fragment")
           for (const n of it.v.nodes) {
             const d = Math.hypot(n.p[0] - p[0], n.p[1] - p[1]);
             if (n.nodeType !== "MultiAttachment" && d < best) (best = d), (near = n.id);
+            const ink = labelInk(doc.fonts, n);
+            if (ink) onLetters ||= p[0] >= ink[0] - 0.5 && p[0] <= ink[2] + 0.5 && p[1] >= ink[1] - 0.5 && p[1] <= ink[3] + 0.5;
+            else if (d < L() * 0.25) nearBare = true;
           }
+    if (!onLetters && !nearBare) {
+      // Only a bond between two lettered atoms (Br–Br, O–O): there the dash between the letters is all of the bond
+      // there is to press. With a bare end (C–Br) the bond shows its length, and a press beside Br's letters means Br
+      // (review: the leaving-group arrow was refused).
+      const seen = bondAt(doc, p, L() * 0.15);
+      const sb = seen ? findById(doc.root, seen)?.el : undefined;
+      const lettered = (id: string | undefined): boolean => {
+        for (const o of doc.objects) for (const it of o.items) if (it.kind === "fragment") for (const n of it.v.nodes) if (n.id === id) return !!labelInk(doc.fonts, n);
+        return false;
+      };
+      if (seen && sb && lettered(sb.attrs.B) && lettered(sb.attrs.E)) return { bond: seen };
+    }
     if (near) return { atom: near };
     const b = bondAt(doc, p, L() * 0.2);
     if (b) return { bond: b };
@@ -1155,6 +1173,11 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     setRingKind: (kind) => {
       setTool("ring");
       ringSel.value = kind;
+    },
+    setArrowKind: (kind) => {
+      setTool("arrow");
+      if (ARROW_KINDS.some((k) => k[0] === kind)) arrowSel.value = kind;
+      host.setStatus(arrowHelp(), "");
     },
     staleNames: () => [...stale].map((id) => (findById(doc.root, id)?.el.children.filter((c) => c.name === "s").map((s) => s.text).join("") ?? "").trim()).filter(Boolean),
     wasSaved: () => saved,

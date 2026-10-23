@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.189.0)
+# JurisLab — Manual Test Script (v2.190.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,18 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0ec. New in v2.190.0 — Curved mechanism arrows and fishhooks
+
+- [ ] **Build ▸ Draw**, draw Br–Br (bond, then Atom ▸ Br on both ends). Under the canvas, **Mechanism: Fishhook** → the
+  canvas switches in place with Br–Br still there and the Arrow tool on Fishhook. Drag from the short dash between the
+  letters to the left Br, then again to the right Br → two hooks, each rising from the bond and coming down over its
+  Br, both on the same side. Nothing touches a letter.
+- [ ] Tilt the bond (draw it at an angle first) and repeat → the hooks still start at the dash (not at a Br).
+- [ ] **CH₃–Br with hydroxide:** draw HO⁻ to the left of CH₃Br; **Mechanism: Curved arrow**; drag from O to the C, then
+  from the C–Br bond to Br → two clean arrows; click one → it bows the other way; move the structure → the arrows
+  follow.
+- [ ] Insert → Word shows the same picture (arrows included), crisp when zoomed.
 
 ## 0eb. New in v2.189.0 — Cleanup
 

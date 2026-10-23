@@ -94,16 +94,11 @@ const FIXTURE_TEXTS = new Set([
 // review: the allowance used to exempt every finding of the predicate in the
 // figure, whatever it said). A recorded allowance that matches nothing is
 // reported "FIXED — delete it".
-const BITS4 = Array.from({ length: 16 }, (_, i) => i.toString(2).padStart(4, "0"));
 const LABEL_ALLOWANCES = {
   // A head-to-tail mass spectrum mirrors its y axis about 0 (100 … 0 … 100): the
   // repeated labels are the design, one per half.
   "overlay ms acetone head-to-tail": { DUPLICATE: { reason: "mirrored head-to-tail axis (100 … 0 … 100)", kind: "y-axis column", labels: ["100", "50"] } },
   "overlay ms isotope pattern C2Cl4": { DUPLICATE: { reason: "mirrored head-to-tail axis (100 … 0 … 100)", kind: "y-axis column", labels: ["100", "50"] } },
-  // Data cells, not ticks: a Turing-machine tape and a GF(16) multiplication
-  // table are rows of evenly spaced numerals that legitimately repeat.
-  "tm diagram + tape strip": { DUPLICATE: { reason: "tape cells (0 and 1), not tick labels", kind: "x-axis row", labels: ["0", "1"] } },
-  "GF(16) multiplication table": { DUPLICATE: { reason: "table cells (4-bit field elements), not tick labels", kind: "x-axis row", labels: BITS4 } },
 };
 
 /**
@@ -170,6 +165,50 @@ function splitRuns(items, key) {
   return runs;
 }
 
+/**
+ * Two panels side by side whose x ranges ADJOIN (0.2 … 1.0 | 1.0 … 3.0, the tunnelling figure's E < V₀ and E > V₀
+ * panels) put the shared boundary value at the end of one axis and the start of the next, only ~1.1 tick spacings
+ * apart — too close for splitRuns' gap rule, so the row read as one axis with "1.0" twice. Split such a row where
+ * the value RESTARTS (v[k+1] ≤ v[k]) but only when both sides are themselves strictly increasing, evenly spaced axes
+ * of ≥ 2 labels (isLinearAxis). A row of equal bar values (0.4, 0.4, 0.4) is never increasing, so it never splits
+ * and still fires.
+ */
+function splitPanelRestart(run) {
+  const s = run.slice().sort((a, b) => a.x - b.x);
+  const v = s.map((l) => labelValue(l.text));
+  for (let k = 1; k <= s.length - 2; k++) {
+    if (!(v[k] <= v[k - 1])) continue;
+    const left = s.slice(0, k), right = s.slice(k);
+    if (left.length >= 2 && right.length >= 2 && isLinearAxis(left, "x") && isLinearAxis(right, "x")) return [left, right];
+  }
+  return [s];
+}
+
+/**
+ * Labels printed INSIDE their own cell — a heat-map/matrix cell or a table cell (a <rect> smaller than a quarter of
+ * the canvas, the label horizontally centred in it and its baseline within it). They are data, not ticks: a matrix
+ * row legitimately reads 0, 0, 0.
+ */
+function cellLabelFilter(svg) {
+  const flat = flattenTranslates(svg);
+  const num = (attrs, name) => {
+    const a = new RegExp(`(?:^|\\s)${name}="([^"]*)"`).exec(attrs);
+    return a ? Number(a[1]) : NaN;
+  };
+  const head = /<svg\b([^>]*)>/.exec(flat);
+  const W = head ? num(head[1], "width") : NaN, H = head ? num(head[1], "height") : NaN;
+  const cells = [];
+  const re = /<rect\b([^>]*?)\/?>/g;
+  let m;
+  while ((m = re.exec(flat))) {
+    const x = num(m[1], "x") || 0, y = num(m[1], "y") || 0, w = num(m[1], "width"), h = num(m[1], "height");
+    if (!(w > 0 && h > 0)) continue;
+    if (Number.isFinite(W) && Number.isFinite(H) && w * h >= (W * H) / 4) continue;
+    cells.push({ x, y, w, h });
+  }
+  return (t) => t.anchor === "middle" && cells.some((c) => Math.abs(t.x - (c.x + c.w / 2)) <= 1.5 && t.y >= c.y && t.y <= c.y + c.h);
+}
+
 /** Axis rows and columns of numeric labels. */
 function axisGroups(ts) {
   const numeric = ts.filter((t) => !t.rotated && Number.isFinite(t.x) && Number.isFinite(t.y) && NUMERIC.test(t.text));
@@ -184,7 +223,9 @@ function axisGroups(ts) {
     return [...map.values()];
   };
   for (const row of by(numeric.filter((t) => t.anchor === "middle"), (t) => t.y.toFixed(1))) {
-    for (const run of splitRuns(row, "x")) if (run.length >= 3) groups.push({ kind: "x-axis row", labels: run });
+    for (const gapRun of splitRuns(row, "x")) {
+      for (const run of splitPanelRestart(gapRun)) if (run.length >= 3) groups.push({ kind: "x-axis row", labels: run });
+    }
   }
   for (const col of by(numeric.filter((t) => t.anchor === "end"), (t) => t.x.toFixed(1))) {
     for (const run of splitRuns(col, "y")) if (run.length >= 3) groups.push({ kind: "y-axis column", labels: run });
@@ -240,7 +281,8 @@ function auditLabels(svg) {
     if (/(^|[^\p{L}\p{N}.])-\.?\d/u.test(t.text)) f.HYPHEN.push(t.text);
     if (/\de[+-]\d/i.test(t.text)) f.ENOTATION.push(t.text);
   }
-  for (const g of axisGroups(ts)) {
+  const inCell = cellLabelFilter(svg);
+  for (const g of axisGroups(ts.filter((t) => !inCell(t)))) {
     const seen = new Map();
     for (const l of g.labels) seen.set(l.text, (seen.get(l.text) || 0) + 1);
     const dup = [...seen].filter(([, n]) => n > 1).map(([t, n]) => `"${t}" ×${n}`);
@@ -305,6 +347,16 @@ function selfTest() {
     `<g transform="translate(0,0)">${xRow(["0", "1", "2"])}</g><g transform="translate(0,40)">${xRow(["0", "1", "2"])}</g>`,
   );
   if (auditLabels(tr).DUPLICATE.length) fails.push("translate groups were not flattened before grouping rows");
+  // Adjoining panels (0.2 … 1.0 | 1.0 … 3.0) one tick spacing apart are two axes; equal bar values above their bars
+  // (0.4 ×3) are still a duplicate; matrix cells (0, 0, 0 each centred in its own cell) are data, not ticks.
+  const adjoining = ["0.2", "0.4", "0.6", "0.8", "1.0"].map((l, i) => `<text x="${40 + i * 30}" y="200" text-anchor="middle">${l}</text>`).join("") +
+    ["1.0", "1.5", "2.0", "2.5", "3.0"].map((l, i) => `<text x="${195 + i * 30}" y="200" text-anchor="middle">${l}</text>`).join("");
+  if (auditLabels(svg(adjoining)).DUPLICATE.length) fails.push("two adjoining panels sharing a boundary value read as one row");
+  const bars = [0, 1, 2].map((i) => `<rect x="${40 + i * 50}" y="100" width="30" height="80"/><text x="${55 + i * 50}" y="96" text-anchor="middle">0.4</text>`).join("");
+  if (!auditLabels(svg(bars)).DUPLICATE.length) fails.push("equal bar value labels above their bars did not fire");
+  const cells = [0, 1, 2].map((i) => `<rect x="${40 + i * 50}" y="100" width="50" height="50"/><text x="${65 + i * 50}" y="129" text-anchor="middle">0</text>`).join("");
+  if (auditLabels(svg(cells)).DUPLICATE.length) fails.push("matrix cell labels were read as an axis row");
+  if (!auditLabels(svg(cells.replace(/text x="(\d+)"/g, (_m, v) => `text x="${Number(v) + 10}"`))).DUPLICATE.length) fails.push("labels off their cells' centres were excluded as cell labels");
   // ALLOWANCES are label-specific: a mirrored 100 … 0 … 100 column is covered,
   // a NEW, different duplicate in the same figure is not — nor is a hit that
   // repeats an allowed label together with one that is not, nor the right

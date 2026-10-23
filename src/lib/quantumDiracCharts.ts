@@ -278,8 +278,30 @@ export function quantumBarsSvg(fig: BarsFigure): string {
     const y0 = yOf(0), y1 = yOf(v);
     const neg = v < 0;
     if (Math.abs(y1 - y0) > 0.2) out.push(rect(xc - bw / 2, Math.min(y0, y1), bw, Math.abs(y1 - y0), neg ? "#c00000" : "#1f5fa8"));
-    if (showVals && v !== 0) out.push(text(xc, neg ? y1 + 13 : y1 - 4, sig(v), "middle", 10, neg ? "#c00000" : "#000000"));
   });
+  // A run of neighbouring bars that print the same value (a degenerate eigenvalue: 0.4, 0.4, 0.4) is labelled once,
+  // over a thin bracket spanning the run, rather than as a row of identical numbers.
+  if (showVals) {
+    for (let i = 0; i < vals.length; ) {
+      const t = sig(vals[i]);
+      let j = i;
+      while (j + 1 < vals.length && vals[j + 1] !== 0 && sig(vals[j + 1]) === t) j++;
+      const v = vals[i];
+      if (v !== 0) {
+        const neg = v < 0;
+        const colour = neg ? "#c00000" : "#000000";
+        const y1 = yOf(v);
+        const xa = x0 + slot * (i + 0.5), xb = x0 + slot * (j + 0.5);
+        if (j === i) out.push(text(xa, neg ? y1 + 13 : y1 - 4, t, "middle", 10, colour));
+        else {
+          const yb = neg ? y1 + 4 : y1 - 4, tick = neg ? -3 : 3;
+          out.push(`<path d="M${f(xa - bw / 2)},${f(yb + tick)} L${f(xa - bw / 2)},${f(yb)} L${f(xb + bw / 2)},${f(yb)} L${f(xb + bw / 2)},${f(yb + tick)}" fill="none" stroke="${colour}" stroke-width="0.8"/>`);
+          out.push(text((xa + xb) / 2, neg ? y1 + 17 : y1 - 8, t, "middle", 10, colour));
+        }
+      }
+      i = j + 1;
+    }
+  }
   // Labels sit under the plot frame (below any negative bar).
   labs.forEach((l, i) => {
     const xc = x0 + slot * (i + 0.5);

@@ -441,11 +441,30 @@ export function probabilityBarsSvg(probs: number[], n: number, opts: { title?: s
   const yTitle = T + plotH / 2;
   out.push(`<text x="16" y="${f(yTitle)}" text-anchor="middle" font-family="${FONT}" font-size="12" fill="#000000" transform="rotate(-90 16 ${f(yTitle)})">Probability</text>`);
   const bw = Math.min(30, slot * 0.7);
+  // Value labels (≤ 16 bars). A value printed on several bars is a row of identical numbers (Grover's 0.00781 on
+  // seven outcomes, a uniform QFT output): those bars go unlabelled and the value is stated once in a note.
+  const valText = bars.map((b) => (bars.length <= 16 && b.p > 0 ? sig(b.p, 3) : ""));
+  const count = new Map<string, number>();
+  for (const t of valText) if (t) count.set(t, (count.get(t) ?? 0) + 1);
+  const repeated = [...count.keys()].filter((t) => (count.get(t) ?? 0) > 1);
+  const labelled = valText.filter(Boolean).length;
+  const collapse = labelled >= 3 && repeated.length > 0;
+  let valueNote = "";
+  if (collapse) {
+    const allSame = repeated.length === 1 && count.get(repeated[0]) === labelled;
+    const allPositive = labelled === bars.length && rest === 0;
+    if (allSame) valueNote = `${allPositive ? "every outcome" : "every nonzero outcome"}: ${repeated[0]}`;
+    else if (repeated.length === 1) valueNote = `each unlabelled outcome: ${repeated[0]}`;
+    else {
+      const byHeight = repeated.slice().sort((a, b) => bars[valText.indexOf(b)].p - bars[valText.indexOf(a)].p);
+      valueNote = `unlabelled outcomes, by bar height: ${byHeight.join(", ")}`;
+    }
+  }
   bars.forEach((b, i) => {
     const xc = xs0 + slot * (i + 0.5);
     const h = (plotH * b.p) / top;
     if (h > 0) out.push(`<rect x="${f(xc - bw / 2)}" y="${f(B - h)}" width="${f(bw)}" height="${f(h)}" fill="#1f5fa8"/>`);
-    if (bars.length <= 16 && b.p > 0) out.push(text(xc, B - h - 4, sig(b.p, 3), "middle", 10));
+    if (valText[i] && !(collapse && repeated.includes(valText[i]))) out.push(text(xc, B - h - 4, valText[i], "middle", 10));
     if (rotate) {
       // Centred on its own point (the rotated box the layout gate measures), its top 6 px under the axis.
       const y = B + 6 + tw(labels[i], 11) / 2;
@@ -456,6 +475,10 @@ export function probabilityBarsSvg(probs: number[], n: number, opts: { title?: s
   let yb = B + xLabH + 18;
   const axisTitle = qs.length === 1 ? `Outcome of qubit ${qs[0]}` : `Outcome (leftmost bit = qubit ${qs[0]})`;
   out.push(text(L + (W - L - Rm) / 2, yb, axisTitle, "middle", 12));
+  if (valueNote) {
+    yb += 16;
+    out.push(text(L + (W - L - Rm) / 2, yb, valueNote, "middle", 11, "#444444"));
+  }
   if (rest > 0) {
     yb += 16;
     out.push(text(L + (W - L - Rm) / 2, yb, `${all.length - bars.length} other outcomes not drawn: total ${sig(rest, 3)}`, "middle", 11, "#444444"));

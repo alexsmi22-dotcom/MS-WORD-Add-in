@@ -127,11 +127,31 @@ export function memoryBarsSvg(bars: MemoryBar[], title: string, width = 460): st
   out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}">`);
   out.push(`<rect width="${width}" height="${H}" fill="#ffffff"/>`);
   out.push(text(width / 2, 18, title, "middle", 12));
+  // Each bar's total sits just past its end, in the bar's own band. A gridline is interrupted across that label's box
+  // (a conservative 0.6 em per glyph plus 3 px either side), so no line ever runs through the number.
+  const totalText = totals.map((t) => `${sig(t / factor, 3)} ${unit}`);
+  const labelBoxes = shown.map((_, i) => {
+    const lx = X(totals[i]) + 5;
+    const y = MT + i * ROW + 6;
+    return { x0: lx - 3, x1: lx + totalText[i].length * 0.6 * 10 + 3, y0: y - 1, y1: y + ROW - 12 + 1 };
+  });
   // grid and ticks
   for (let i = 0; i * step <= axisMax + 1e-9; i++) {
     const v = i * step;
     const x = ML + (v / axisMax) * pw;
-    out.push(`<line x1="${f2(x)}" y1="${MT}" x2="${f2(x)}" y2="${MT + plotH}" stroke="${i === 0 ? "#000000" : "#e2e2e2"}" stroke-width="1"/>`);
+    const stroke = i === 0 ? "#000000" : "#e2e2e2";
+    // A piece shorter than 8 px left over by the break would read as a stray dash, so it is dropped.
+    const pieces: Array<[number, number]> = [];
+    let y0 = MT;
+    for (const b of labelBoxes) {
+      if (i === 0 || x < b.x0 || x > b.x1) continue;
+      pieces.push([y0, b.y0]);
+      y0 = b.y1;
+    }
+    pieces.push([y0, MT + plotH]);
+    for (const [a, z] of pieces) {
+      if (z - a >= (i === 0 ? 0 : 8)) out.push(`<line x1="${f2(x)}" y1="${f2(a)}" x2="${f2(x)}" y2="${f2(z)}" stroke="${stroke}" stroke-width="1"/>`);
+    }
     // One decimals count for the whole row (0.0, 0.5, 1.0 — never 0, 0.5, 1).
     out.push(text(x, MT + plotH + 14, v.toFixed(Math.max(0, -Math.floor(Math.log10(step) + 1e-9))), "middle", 10, "#333333"));
   }
@@ -147,7 +167,7 @@ export function memoryBarsSvg(bars: MemoryBar[], title: string, width = 460): st
       acc += s.bytes;
     }
     out.push(text(ML - 6, y + h / 2 + 4, b.label, "end", 10));
-    out.push(text(X(acc) + 5, y + h / 2 + 4, `${sig(totals[i] / factor, 3)} ${unit}`, "start", 10, "#333333"));
+    out.push(text(X(acc) + 5, y + h / 2 + 4, totalText[i], "start", 10, "#333333"));
   });
   // legend
   const ly = MT + plotH + 44;

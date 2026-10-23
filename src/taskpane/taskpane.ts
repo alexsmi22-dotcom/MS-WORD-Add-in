@@ -14710,21 +14710,22 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("wall"), ...(geom === "plane" ? engEq("wall:plane") : engEq("wall:cylinder"))];
       lines.push(geom === "plane" ? "Composite plane wall" : "Composite cylindrical wall");
       lines.push(`Total thermal resistance = ${engNum(res.Rtotal, figs)} K/W`);
       lines.push(`Overall coefficient U = ${engNum(res.U, figs)} W/(m²·K), on the outer area ${engNum(res.areaOuter, figs)} m²`);
       lines.push(`Heat rate Q = ${engNum(res.Q, figs)} W`);
       lines.push(`Heat flux = ${engNum(res.flux, figs)} W/m² of outer surface`);
       lines.push("");
-      lines.push("Resistance chain, inside to outside");
-      lines.push(`  Inside fluid at ${engNum(tInSi, figs)} °C`);
-      for (const s of res.steps) {
-        lines.push(
-          `  ${s.name}: R = ${engNum(s.R, figs)} K/W (${engNum(100 * s.share, 3)}%) → ` +
-            `${engNum(s.tAfter, figs)} °C`,
-        );
-      }
+      // Release E: the resistance chain as a real table.
+      lines.push({
+        label: "Resistance chain, inside to outside",
+        table: [
+          ["Stage", "R (K/W)", "Share (%)", "Temperature after (°C)"],
+          ["Inside fluid", "", "", engNum(tInSi, figs)],
+          ...res.steps.map((s) => [s.name, engNum(s.R, figs), engNum(100 * s.share, 3), engNum(s.tAfter, figs)]),
+        ],
+      });
       lines.push("");
       lines.push(`Controlling resistance: ${res.controlling}`);
       if (res.criticalRadius !== null) {
@@ -14743,6 +14744,12 @@ const ENG_CALCS: EngCalc[] = [
       // the vertical steps at each face are the films. The walk is positional
       // — steps come back in chain order (inside film if present, each layer,
       // outside film if present), which this compute built itself.
+      const wallOutputs: EngOutput[] = [
+        { key: "U", label: "Overall coefficient U", value: res.U, unit: "W/(m²·K)" },
+        { key: "Qrate", label: "Heat rate", value: res.Q, unit: "W" },
+        { key: "Rtotal", label: "Total thermal resistance", value: res.Rtotal, unit: "K/W" },
+        { key: "flux", label: "Heat flux", value: res.flux, unit: "W/m²" },
+      ];
       const profile: Point[] = [{ x: 0, y: tInSi }];
       let stepIdx = 0;
       let xmm = 0;
@@ -14773,7 +14780,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Temperature through the wall",
           },
         );
-        return withOutputs([{ key: "U", label: "Overall coefficient U", value: res.U, unit: "W/(m²·K)" }], engReport(lines, [
+        return withOutputs(wallOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -14784,7 +14791,7 @@ const ENG_CALCS: EngCalc[] = [
           },
         ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(wallOutputs, engReport(lines));
     },
   },
   {
@@ -14834,7 +14841,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("hx")];
       lines.push(`${r("flow") === "parallel" ? "Parallel-flow" : "Counterflow"} heat exchanger`);
       lines.push(`Terminal differences: ΔT1 = ${engNum(res.dt1, figs)} K, ΔT2 = ${engNum(res.dt2, figs)} K`);
       lines.push(`Log mean temperature difference = ${engNum(res.lmtd, figs)} K`);
@@ -14879,7 +14886,11 @@ const ENG_CALCS: EngCalc[] = [
             title: `${counter ? "Counterflow" : "Parallel flow"} temperature profile`,
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "duty", label: "Heat duty", value: res.Q, unit: "W" },
+          { key: "area", label: "Area", value: res.A, unit: "m²" },
+          { key: "lmtd", label: "Log mean temperature difference", value: res.lmtd, unit: "K" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -14888,7 +14899,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -14933,17 +14944,34 @@ const ENG_CALCS: EngCalc[] = [
       const res = effectivenessNtu({ flow, cHot, cCold, thIn, tcIn, U, A });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      // Release E: the effectiveness relation for the arrangement actually used (the phase-change limit first, as in
+      // the engine), and the rating as a quantity / value / unit table.
+      const ntuEq: EngReportLine[] =
+        res.cr < 1e-9
+          ? engEq("hx-ntu:phase-change")
+          : flow === "counter"
+            ? Math.abs(res.cr - 1) < 1e-9
+              ? engEq("hx-ntu:counter-balanced")
+              : engEq("hx-ntu:counter")
+            : flow === "parallel"
+              ? engEq("hx-ntu:parallel")
+              : [];
+      const lines: EngReportLine[] = [
+        ...engEq("hx-ntu"),
+        ...ntuEq,
         `Exchanger rating, ${flow} flow`,
         "",
-        `  Cmin / Cmax         ${engNum(res.cMin, 5)} / ${engNum(res.cMax, 5)} W/K`,
-        `  Capacity ratio Cr   ${engNum(res.cr, 4)}`,
-        `  NTU = U·A/Cmin      ${engNum(res.ntu, 4)}`,
-        `  Effectiveness ε     ${engNum(res.effectiveness * 100, 4)} %`,
-        "",
-        `  Heat transferred    ${engNum(res.Q / 1000, 5)} kW  (of a possible ${engNum(res.qMax / 1000, 5)} kW)`,
-        `  Hot outlet          ${engNum(res.thOut, 5)} °C`,
-        `  Cold outlet         ${engNum(res.tcOut, 5)} °C`,
+        kvTable([
+          ["Cmin", engNum(res.cMin, 5), "W/K"],
+          ["Cmax", engNum(res.cMax, 5), "W/K"],
+          ["Capacity ratio Cr", engNum(res.cr, 4), ""],
+          ["NTU = U·A/Cmin", engNum(res.ntu, 4), ""],
+          ["Effectiveness ε", engNum(res.effectiveness * 100, 4), "%"],
+          ["Heat transferred", engNum(res.Q / 1000, 5), "kW"],
+          ["Largest possible heat", engNum(res.qMax / 1000, 5), "kW"],
+          ["Hot outlet", engNum(res.thOut, 5), "°C"],
+          ["Cold outlet", engNum(res.tcOut, 5), "°C"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -14974,7 +15002,13 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Effectiveness (%)",
         title: `Effectiveness vs NTU at Cr = ${res.cr.toFixed(2)}`,
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Qkw", label: "Heat transferred", value: res.Q / 1000, unit: "kW" },
+        { key: "effectiveness", label: "Effectiveness", value: res.effectiveness * 100, unit: "%" },
+        { key: "NTU", label: "NTU", value: res.ntu, unit: "" },
+        { key: "thOut", label: "Hot outlet", value: res.thOut, unit: "°C" },
+        { key: "tcOut", label: "Cold outlet", value: res.tcOut, unit: "°C" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -14983,7 +15017,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15014,17 +15048,19 @@ const ENG_CALCS: EngCalc[] = [
       const res = finPerformance({ h, k, L, t, width: w, excessK: dT });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("fin"),
         "Straight rectangular fin",
         "",
-        `  Fin parameter m     ${engNum(res.m, 5)} 1/m`,
-        `  Corrected length    ${engNum(res.lCorrected, 5)} m`,
-        `  mLc                 ${engNum(res.mLc, 4)}`,
-        `  Efficiency          ${engNum(res.efficiency * 100, 4)} %`,
-        "",
-        `  Heat with the fin   ${engNum(res.qFin, 5)} W`,
-        `  Heat with no fin    ${engNum(res.qBare, 5)} W`,
-        `  Effectiveness       ${engNum(res.effectiveness, 4)}`,
+        kvTable([
+          ["Fin parameter m", engNum(res.m, 5), "1/m"],
+          ["Corrected length", engNum(res.lCorrected, 5), "m"],
+          ["mLc", engNum(res.mLc, 4), ""],
+          ["Efficiency", engNum(res.efficiency * 100, 4), "%"],
+          ["Heat with the fin", engNum(res.qFin, 5), "W"],
+          ["Heat with no fin", engNum(res.qBare, 5), "W"],
+          ["Effectiveness", engNum(res.effectiveness, 4), ""],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -15058,7 +15094,11 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Temperature above ambient (K)",
         title: `Temperature along the fin, efficiency ${(res.efficiency * 100).toFixed(1)}%`,
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "etaFin", label: "Fin efficiency", value: res.efficiency * 100, unit: "%" },
+        { key: "qFin", label: "Heat with the fin", value: res.qFin, unit: "W" },
+        { key: "epsFin", label: "Fin effectiveness", value: res.effectiveness, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -15067,7 +15107,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 250,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15105,17 +15145,19 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("lumped"),
         "Transient cooling",
         "",
-        `  Characteristic length V/A  ${engNum(res.lc, 5)} m`,
-        `  Biot number                ${engNum(res.biot, 4)}  (must be under 0.1)`,
-        `  Time constant τ            ${engNum(res.tau, 5)} s`,
-        "",
-        `  Temperature at that time   ${engNum(res.temperature, 5)} °C`,
-        `  Fraction of excess left    ${engNum(res.fractionRemaining * 100, 4)} %`,
-        `  Time to 99% of the way     ${engNum(res.timeTo99, 5)} s`,
-        `  Energy removed by then     ${engNum(res.energyJ / 1000, 5)} kJ`,
+        kvTable([
+          ["Characteristic length V/A", engNum(res.lc, 5), "m"],
+          ["Biot number (must be under 0.1)", engNum(res.biot, 4), ""],
+          ["Time constant τ", engNum(res.tau, 5), "s"],
+          ["Temperature at that time", engNum(res.temperature, 5), "°C"],
+          ["Fraction of excess left", engNum(res.fractionRemaining * 100, 4), "%"],
+          ["Time to 99% of the way", engNum(res.timeTo99, 5), "s"],
+          ["Energy removed by then", engNum(res.energyJ / 1000, 5), "kJ"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -15143,7 +15185,12 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Temperature (deg C)",
         title: `Cooling curve, tau = ${res.tau.toPrecision(3)} s`,
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Tend", label: "Temperature at that time", value: res.temperature, unit: "°C" },
+        { key: "tauTime", label: "Time constant τ", value: res.tau, unit: "s" },
+        { key: "Bi", label: "Biot number", value: res.biot, unit: "" },
+        { key: "t99", label: "Time to 99 % of the way", value: res.timeTo99, unit: "s" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -15152,7 +15199,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 250,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -15211,17 +15258,19 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Radiant exchange",
-        "",
-        `  Exchange factor      ${engNum(res.factor, 5)}`,
-        `  Net radiation Q      ${engNum(res.Q, 5)} W  (${engNum(res.Q / 1000, 4)} kW)`,
-        `  Flux                 ${engNum(res.flux, 5)} W/m²`,
-        `  Equivalent h_rad     ${engNum(res.hRadiation, 5)} W/(m²·K)`,
+      const radRows: Array<[string, string, string]> = [
+        ["Exchange factor", engNum(res.factor, 5), ""],
+        ["Net radiation Q", engNum(res.Q, 5), "W"],
+        ["Flux", engNum(res.flux, 5), "W/m²"],
+        ["Equivalent radiation coefficient", engNum(res.hRadiation, 5), "W/(m²·K)"],
       ];
-      if (res.qConvection !== null) {
-        lines.push(`  Convection for comparison  ${engNum(res.qConvection, 5)} W`);
-      }
+      if (res.qConvection !== null) radRows.push(["Convection for comparison", engNum(res.qConvection, 5), "W"]);
+      const radGeomEq: Record<string, EngReportLine[]> = {
+        large: engEq("radiation:large"),
+        parallel: engEq("radiation:parallel"),
+        shields: engEq("radiation:shields"),
+      };
+      const lines: EngReportLine[] = [...engEq("radiation"), ...(radGeomEq[geometry] ?? []), "Radiant exchange", "", kvTable(radRows)];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -15253,7 +15302,11 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Heat rate (kW)",
         title: "Radiation against convection",
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Qrad", label: "Net radiation", value: res.Q, unit: "W" },
+        { key: "hrad", label: "Equivalent radiation coefficient", value: res.hRadiation, unit: "W/(m²·K)" },
+        { key: "factor", label: "Exchange factor", value: res.factor, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -15262,7 +15315,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {

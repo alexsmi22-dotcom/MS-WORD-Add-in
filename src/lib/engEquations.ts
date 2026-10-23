@@ -46,7 +46,7 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "opamp:summing": [eq("V_out = -R_f sum(i=1, n, V_i/R_i)", "Vout = −Rf·∑ᵢ₌₁ⁿ Vᵢ/Rᵢ")],
   "opamp:difference": [eq("V_out = (R_f/R_1) (V_2 - V_1)", "Vout = (Rf/R₁)(V₂ − V₁)")],
   "opamp:integrator": [eq("V_out = -1/(R_1 C) int(0, t, V_i dt)", "Vout = −(1/(R₁·C))·∫₀ᵗ Vᵢ dt"), eq("f_c = 1/(2 pi R_1 C)", "fc = 1/(2π·R₁·C)")],
-  "opamp:differentiator": [eq("V_out = -R_f C (d V_i)/(d t)", "Vout = −Rf·C·dVᵢ/dt"), eq("f_c = 1/(2 pi R_f C)", "fc = 1/(2π·Rf·C)")],
+  "opamp:differentiator": [eq("V_out = -R_f C {d V_i}/{d t}", "Vout = −Rf·C·dVᵢ/dt"), eq("f_c = 1/(2 pi R_f C)", "fc = 1/(2π·Rf·C)")],
   "opamp:bandwidth": [eq("f_BW = GBW/G_n", "fBW = GBW/Gₙ")],
   "opamp:full-power": [eq("f_p = SR/(2 pi V_p)", "fp = SR/(2π·Vp)")],
   "filter-design:butterworth": [eq("n = log((10^{0.1 A_s} - 1)/(10^{0.1 A_p} - 1))/(2 log(Omega))", "n = log((10⁰·¹ᴬˢ − 1)/(10⁰·¹ᴬᵖ − 1))/(2·log Ω)")],
@@ -82,6 +82,34 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "body-drag": [eq("F_D = (1/2) rho V^2 C_d A", "FD = ½·ρ·V²·Cd·A"), eq("P = F_D V", "P = FD·V")],
   "body-drag:terminal": [eq("V_t = sqrt(2 m g/(rho C_d A))", "Vt = √(2m·g/(ρ·Cd·A))")],
   "body-drag:reynolds": [eq("Re = rho V L/mu", "Re = ρ·V·L/μ")],
+
+  // ---- Thermal ----
+  // A symbol directly before "(" parses as a function name, so a product with a bracket is written {A} (…).
+  wall: [eq("Q = (T_i - T_o)/R_total", "Q = (Tᵢ − Tₒ)/Rtotal"), eq("U = 1/(R_total A_o)", "U = 1/(Rtotal·Aₒ)")],
+  "wall:plane": [eq("R = L/(k A)", "R = L/(k·A)"), eq("R_conv = 1/(h A)", "Rconv = 1/(h·A)")],
+  "wall:cylinder": [eq("R = ln(r_2/r_1)/(2 pi k L)", "R = ln(r₂/r₁)/(2π·k·L)"), eq("R_conv = 1/(h A)", "Rconv = 1/(h·A)")],
+  hx: [eq("Q = U A Delta T_lm", "Q = U·A·ΔTlm"), eq("Delta T_lm = (Delta T_1 - Delta T_2)/ln(Delta T_1/Delta T_2)", "ΔTlm = (ΔT₁ − ΔT₂)/ln(ΔT₁/ΔT₂)")],
+  "hx-ntu": [eq("NTU = U A/C_min", "NTU = U·A/Cmin"), eq("C_r = C_min/C_max", "Cr = Cmin/Cmax"), eq("Q = epsilon C_min (T_hi - T_ci)", "Q = ε·Cmin·(Thi − Tci)")],
+  "hx-ntu:counter": [eq("epsilon = (1 - exp(-(1 - C_r) NTU))/(1 - C_r exp(-(1 - C_r) NTU))", "ε = (1 − exp(−(1 − Cr)·NTU))/(1 − Cr·exp(−(1 − Cr)·NTU))")],
+  "hx-ntu:counter-balanced": [eq("epsilon = NTU/(1 + NTU)", "ε = NTU/(1 + NTU)")],
+  "hx-ntu:parallel": [eq("epsilon = (1 - exp(-(1 + C_r) NTU))/(1 + C_r)", "ε = (1 − exp(−(1 + Cr)·NTU))/(1 + Cr)")],
+  "hx-ntu:phase-change": [eq("epsilon = 1 - exp(-NTU)", "ε = 1 − exp(−NTU)")],
+  fin: [
+    eq("m = sqrt(h P/(k A_c))", "m = √(h·P/(k·Ac))"),
+    eq("L_c = L + t/2", "Lc = L + t/2"),
+    eq("eta_f = tanh(m L_c)/(m L_c)", "ηf = tanh(m·Lc)/(m·Lc)"),
+    eq("epsilon_f = eta_f A_f/A_c", "εf = ηf·Af/Ac"),
+  ],
+  lumped: [
+    eq("Bi = h L_c/k", "Bi = h·Lc/k"),
+    eq("L_c = V/A_s", "Lc = V/As"),
+    eq("tau = rho V c_p/(h A_s)", "τ = ρ·V·cp/(h·As)"),
+    eq("(T - T_a)/(T_i - T_a) = exp(-t/tau)", "(T − Tₐ)/(Tᵢ − Tₐ) = exp(−t/τ)"),
+  ],
+  radiation: [eq("Q = F sigma {A} (T_1^4 - T_2^4)", "Q = F·σ·A·(T₁⁴ − T₂⁴)")],
+  "radiation:large": [eq("F = epsilon_1", "F = ε₁")],
+  "radiation:parallel": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1)", "F = 1/(1/ε₁ + 1/ε₂ − 1)")],
+  "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 
 /** The governing-equation lines for a tool (or `tool:branch`); empty for a key that has none. */

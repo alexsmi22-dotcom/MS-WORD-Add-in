@@ -42,6 +42,18 @@ describe("every governing equation", () => {
     expect(() => mathToOmml(e.math)).not.toThrow();
     expect(letters(leaves(parseMathAst(e.math)).join(""))).toBe(letters(e.fallback));
   });
+  test.each(ALL)("%s has no accidental function application (a symbol before a bracket)", (_k, e) => {
+    const unknown: string[] = [];
+    const walk = (n: Node): void => {
+      if (n.k === "func" && !n.known) unknown.push(n.name);
+      for (const v of Object.values(n)) {
+        if (Array.isArray(v)) v.flat().forEach((c) => c && typeof c === "object" && "k" in c && walk(c as Node));
+        else if (v && typeof v === "object" && "k" in v) walk(v as Node);
+      }
+    };
+    walk(parseMathAst(e.math));
+    expect(unknown).toEqual([]);
+  });
   test.each(ALL)("%s fallback keeps the display contract", (_k, e) => {
     expect(e.fallback).not.toMatch(/[\^_*]|\d[eE][+-]?\d|NaN|Infinity|undefined|—/);
     // A minus in the fallback is the true minus.

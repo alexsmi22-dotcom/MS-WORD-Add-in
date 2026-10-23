@@ -222,15 +222,6 @@ const opWidth = (op: Op): number => {
 };
 
 /**
- * The circuit diagram, Qiskit/textbook style: one wire per qubit (q₀ at the top), time left to right, gates packed
- * into columns so no vertical connector crosses another gate; a long circuit folds into bands. This is the FIRST page
- * of circuitDiagramPages: a circuit long enough to need more than one page must be drawn with circuitDiagramPages.
- */
-export function circuitDiagramSvg(c: Circuit, opts: { initial?: number } = {}): string {
-  return circuitDiagramPages(c, opts)[0];
-}
-
-/**
  * The circuit diagram as one or more page-sized figures. A long circuit folds into bands (rows) no wider than the text
  * width, and the bands are split across figures so that none is taller than a page (a 10-qubit, 195-gate circuit was
  * one 617 × 9118 px figure). Every page repeats the wire labels; the input kets are on the first page only.

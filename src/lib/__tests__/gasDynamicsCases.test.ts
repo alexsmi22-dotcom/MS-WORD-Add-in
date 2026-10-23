@@ -24,7 +24,6 @@ import {
   fanno,
   rayleigh,
   fannoFLD,
-  fannoFLDSupersonicLimit,
   rayleighState,
   rayleighT0SupersonicLimit,
   machFromNu,
@@ -192,7 +191,8 @@ describe("further oracle rows (jurislab-oracle-venv, scipy)", () => {
     if (!a.ok || !b.ok) throw new Error("fanno");
     expect(rel(a.s2!.M, 0.671631)).toBe(true);
     expect(rel(b.s2!.M, 2.05872)).toBe(true);
-    expect(rel(fannoFLDSupersonicLimit(1.4), 0.821508)).toBe(true);
+    // The supersonic limit as M → ∞, ((γ+1)/2γ) ln((γ+1)/(γ−1)) − 1/γ, approached by the engine at large M.
+    expect(rel(fannoFLD(1e6, 1.4), 0.821508)).toBe(true);
     // The pane's defaults (f̄ 0.005, L 2 m, D 0.05 m) are exactly 4f̄L/D = 0.8.
     expect(rel(outv(run("gd-fanno"), "M2"), 0.671631)).toBe(true);
   });

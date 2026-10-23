@@ -40,9 +40,6 @@ export const GIMBAL_TOL = 1e-9;
 
 const AXIS_INDEX: Record<string, number> = { X: 0, Y: 1, Z: 2 };
 
-export function isSequence(s: string): boolean {
-  return SEQUENCES.includes(s);
-}
 export function isProper(seq: Sequence): boolean {
   return seq[0] === seq[2];
 }
@@ -57,10 +54,6 @@ export function quatMul(a: Quat, b: Quat): Quat {
     aw * bz + ax * by - ay * bx + az * bw,
     aw * bw - ax * bx - ay * by - az * bz,
   ];
-}
-
-export function quatConj(q: Quat): Quat {
-  return [-q[0], -q[1], -q[2], q[3]];
 }
 
 /** The norm, and the unit quaternion; an error for a zero or non-finite quaternion. */

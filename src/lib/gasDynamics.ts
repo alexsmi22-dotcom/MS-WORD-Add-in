@@ -333,11 +333,6 @@ export function fannoFLD(M: number, g: number): number {
   return (1 - m2) / (g * m2) + ((g + 1) / (2 * g)) * Math.log(((g + 1) * m2) / (2 + (g - 1) * m2));
 }
 
-/** The supersonic limit of 4f̄L* / D as M → ∞: ((γ+1)/2γ) ln((γ+1)/(γ−1)) − 1/γ. */
-export function fannoFLDSupersonicLimit(g: number): number {
-  return ((g + 1) / (2 * g)) * Math.log((g + 1) / (g - 1)) - 1 / g;
-}
-
 export function fannoState(M: number, g: number): FannoState {
   const TTs = (g + 1) / (2 + (g - 1) * M * M);
   const VVs = M * Math.sqrt(TTs);

@@ -256,6 +256,11 @@ import { LINK_BUDGET_CALCS } from "../src/lib/linkBudgetCalcs";
 import { berWaterfallSvg, cascadeNfSvg, linkRangeSvg } from "../src/lib/linkBudgetCharts";
 // --- end Release E: link budget ---
 
+// --- Release E: semiconductor ---
+import { SEMICONDUCTOR_CALCS } from "../src/lib/semiconductorCalcs";
+import { cvChartSvg, fermiChartSvg, idVdsFamilySvg, ivChartSvg } from "../src/lib/semiconductorCharts";
+// --- end Release E: semiconductor ---
+
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -3339,5 +3344,43 @@ rotator 15` }, "jones elliptical");
   figures.push(["link budget cascade builder, 50 stages", cascadeNfSvg(Array.from({ length: 50 }, (_, i) => ({ n: i + 1, gainDb: 10, nfDb: 3 + (i % 7), teK: 290, cumGainDb: 10 * (i + 1), cumNfDb: 3.2, term: 0 })))]);
 }
 // --- end Release E: link budget ---
+
+// --- Release E: semiconductor ---
+// The pn junction (C–V and the semilog forward I–V), the MOSFET output family and the Fermi level against doping,
+// each through its calculator at the defaults and at layout stress: the brief's case junction at 5 V, a GaAs p⁺n with
+// a reverse diode point (note under the I–V), a one-sided junction to 40 V with fA saturation current, the triode
+// point with λ, cutoff (note), a power device (mA scale, 20 V), a weak device (µA scale), a p-type and a
+// custom-material intrinsic sample. Plus the four builders called directly at their edges.
+{
+  const sc = (id: string, over: Record<string, string>, name: string): void => {
+    const c = SEMICONDUCTOR_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`semiconductor ${name} #${i + 1}`, b.svg]);
+    });
+  };
+  sc("semi-pn-junction", {}, "pn junction Si defaults");
+  sc("semi-pn-junction", { ni: "1e10", vr: "5 V" }, "pn junction brief case at 5 V");
+  sc("semi-pn-junction", { mat: "gaas", na: "1e17", nd: "1e16", vd: "-1 V" }, "pn junction GaAs reverse diode point");
+  sc("semi-pn-junction", { na: "5e17", nd: "1e15", vr: "40 V", is: "2 fA", nid: "1.8", vd: "0.8 V" }, "pn junction one-sided 40 V");
+  sc("semi-mosfet-square-law", {}, "MOSFET defaults");
+  sc("semi-mosfet-square-law", { lambda: "0.05", vds: "0.4" }, "MOSFET triode with lambda");
+  sc("semi-mosfet-square-law", { vgs: "0.3" }, "MOSFET cutoff");
+  sc("semi-mosfet-square-law", { mu: "50", wl: "1000", vgs: "12 V", vth: "2 V", vds: "20 V", lambda: "0.01" }, "MOSFET power device");
+  sc("semi-mosfet-square-law", { mu: "600", wl: "0.5", vgs: "0.6", vth: "0.45", vds: "0.05", tox: "2 nm" }, "MOSFET weak device");
+  sc("semi-carriers", {}, "carriers Si n-type");
+  sc("semi-carriers", { nd: "0", na: "1e17" }, "carriers Si p-type");
+  sc("semi-carriers", { nd: "0", mat: "custom", ni: "1e10" }, "carriers custom intrinsic");
+  figures.push(["semiconductor cvChartSvg 1 kV one-sided", cvChartSvg({ na: 1e14, nd: 1e19, epsR: 11.7 }, 0.8, 1000)]);
+  figures.push(["semiconductor ivChartSvg near the exponent cap", ivChartSvg(1e-20, 1, 0.025852, 1.15)]);
+  figures.push(["semiconductor idVdsFamilySvg nA scale", idVdsFamilySvg(1e-9, 0.4, 0.45, 0.02, 0.1)]);
+  figures.push(["semiconductor fermiChartSvg GaAs p-type", fermiChartSvg(2.1e6, 0.025852, -1e15, 4.7e17, 9e18)]);
+}
+// --- end Release E: semiconductor ---
 
 export { figures };

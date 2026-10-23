@@ -713,6 +713,24 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
  * so they need no further Bonferroni correction. Applying one on top would be
  * double-counting and would make the test needlessly conservative.
  */
+/**
+ * The most groups the pane runs Tukey HSD on, the same limit Games–Howell and Welch's ANOVA carry (welch.ts
+ * WELCH_MAX_GROUPS). Release D measured the recompute per keystroke in the production bundle on ~2000 values:
+ * 20 groups 0.5 s, 50 groups 4.0 s, 500 groups 31.8 s (a frozen Word). Every pair needs its own studentized-range
+ * probability.
+ */
+export const TUKEY_MAX_GROUPS = 20;
+
+/** The pane's refusal above TUKEY_MAX_GROUPS, or null. */
+export function tukeyGroupLimit(k: number): string | null {
+  if (!(k > TUKEY_MAX_GROUPS)) return null;
+  return (
+    `Tukey HSD is limited to ${TUKEY_MAX_GROUPS} groups here (${k} were entered). ` +
+    `Each of the ${(k * (k - 1)) / 2} pairs needs its own studentized-range probability, ` +
+    "and beyond this the pane would stall while you type."
+  );
+}
+
 export function tukeyHSD(groups: number[][], alpha = 0.05): TukeyResult | null {
   const k = groups.length;
   if (k < 2) return null;

@@ -233,7 +233,8 @@ describe("TLC — the calculator", () => {
 describe("tlc review round 3", () => {
   it("R3-01: the merge note quotes the same rounded Rf values as the table", () => {
     const r = run({ lanes: "A: 0.62, 0.585" });
+    // Assert on the merge note itself (the table line alone also holds 0.59).
+    expect(r.text).toMatch(/the spots at Rf 0\.62 and 0\.59 are too close/);
     expect(r.text).not.toMatch(/0\.58\b/);
-    expect(r.text).toMatch(/0\.59/);
   });
 });

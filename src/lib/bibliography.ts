@@ -464,17 +464,24 @@ export function renumberPlan(
   const markerRec = (id: string): BibRecord => citeRec.get(id) ?? shown.get(id)!;
 
   // 4. Numbers and the formatted list.
+  //    A reference the style refuses takes NO number in a numeric style: numbering it would leave
+  //    the text citing [1] while the printed list starts at 2. Its citations read "?" (as for a
+  //    reference that is gone) until it is retyped or the style changed, and it is reported.
   const numeric = style.kind === "numeric";
-  ordered.forEach((r, i) => {
-    const n = numeric ? i + 1 : undefined;
-    if (n !== undefined) plan.numbers[r.id] = n;
+  const refusedIds = new Set<string>();
+  let next = 1;
+  ordered.forEach((r) => {
     let formatted: Formatted | null = null;
+    let n: number | undefined;
     try {
-      formatted = style.reference(shown.get(r.id)!, n);
+      formatted = style.reference(shown.get(r.id)!, numeric ? next : undefined);
+      if (numeric) n = next++;
     } catch (e) {
+      refusedIds.add(r.id);
       plan.refused.push({ id: r.id, reason: errText(e) });
       plan.problems.push(`Reference “${r.id}” could not be formatted: ${errText(e)}`);
     }
+    if (n !== undefined) plan.numbers[r.id] = n;
     const entry: PlanEntry = { id: r.id, formatted };
     if (n !== undefined) entry.n = n;
     const s = suffixOf.get(r.id);
@@ -491,12 +498,18 @@ export function renumberPlan(
       continue;
     }
     if (brokenMarkers.has(id)) continue;
-    const items: Array<{ rec: BibRecord; n?: number; item: CiteItem }> = store.markers[id].map((item) => {
-      const n = plan.numbers[item.id];
+    const cites = store.markers[id];
+    const citesRefused = numeric && cites.some((item) => refusedIds.has(item.id));
+    const items: Array<{ rec: BibRecord; n?: number; item: CiteItem }> = cites.map((item) => {
+      const n = citesRefused && refusedIds.has(item.id) ? PLACEHOLDER_N : plan.numbers[item.id];
       return n !== undefined ? { rec: markerRec(item.id), n, item } : { rec: markerRec(item.id), item };
     });
     try {
-      plan.markerText[id] = style.marker(items);
+      const f = style.marker(items);
+      if (citesRefused) {
+        const sentinel = String(PLACEHOLDER_N);
+        plan.markerText[id] = { html: f.html.split(sentinel).join("?"), plain: f.plain.split(sentinel).join("?") };
+      } else plan.markerText[id] = f;
     } catch (e) {
       plan.refused.push({ markerId: id, reason: errText(e) });
       plan.problems.push(`Citation marker ${id} could not be formatted: ${errText(e)}`);

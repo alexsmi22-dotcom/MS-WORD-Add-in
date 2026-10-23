@@ -283,6 +283,38 @@ export interface Overhang {
   seq: string;
 }
 
+/**
+ * A backbone read as a Golden Gate DESTINATION VECTOR.
+ *
+ * The standard arrangement: a plasmid carrying TWO INVERTED sites of the chosen
+ * Type IIS enzyme around a dropout (lacZα, ccdB, a stuffer), each pointing away
+ * from the other so that both cuts fall outside the pair. The piece that carries
+ * the two recognition sites is therefore the piece that LEAVES, and the retained
+ * vector body keeps one programmed overhang at each end — which is the whole
+ * point: the finished plasmid contains no site of the enzyme that built it, so
+ * the reaction is one-pot and irreversible.
+ *
+ * The geometry is read off the enzyme table (cutTop/cutBottom), on both strands,
+ * with the plasmid treated as circular, so a site spanning the position the user
+ * happened to paste first is found like any other.
+ */
+export interface DestinationVector {
+  /** The backbone's name, as the user gave it. */
+  name: string;
+  /** The two recognition sites, 1-based in the pasted coordinates, in position order. */
+  sites: { position: number; strand: 1 | -1; cut: number }[];
+  /** The region removed with the dropout, 1-based inclusive, in the pasted coordinates. */
+  dropout: { start: number; end: number; length: number; wraps: boolean };
+  /** The retained vector body, top strand 5′→3′, beginning with its own 5′ overhang. */
+  body: string;
+  /** The vector body's own 5′ overhang — its first bases, which the LAST part's primer must match. */
+  overhang5: string;
+  /** The overhang the insert must supply at the vector's 3′ end — the dropout's first bases. */
+  overhang3: string;
+  /** The sentence the result leads with. */
+  summary: string;
+}
+
 export interface GoldenGateOk {
   ok: true;
   enzyme: Enzyme;
@@ -295,6 +327,10 @@ export interface GoldenGateOk {
   primers: DesignedPrimer[];
   /** Σ part lengths: the fusion sites are each a part's own first bases, so nothing is duplicated. */
   productLength: number;
+  /** The assembled product, top strand, in `order` — the sequence the junction scan runs on. */
+  productSequence: string;
+  /** Set when the backbone was read as a destination vector; null for every other assembly. */
+  destination: DestinationVector | null;
   /** Each part's length, in assembly order — what the diagram draws its boxes from. */
   partLengths: number[];
   /** The order the product is assembled in. */
@@ -305,6 +341,159 @@ export interface GoldenGateOk {
 }
 
 export type GoldenGateResult = GoldenGateOk | CloningRefusal;
+
+/**
+ * Reads a backbone as a destination vector, or refuses and says why.
+ *
+ * THE TEST, and why it is this one. On a CIRCLE there is only one topology for
+ * two inverted sites: each cuts away from the other, so the two cuts divide the
+ * plasmid into two arcs and BOTH recognition sites always land in the same arc.
+ * That arc is the dropout — the sites leave on the piece they sit on, whichever
+ * way round the user pasted the sequence — and the other arc is the vector body.
+ * There is no separate "facing inward" case to detect: inward-facing is the same
+ * picture read from the other side, and it is reported by the vector-body-shorter
+ * -than-the-dropout warning rather than by a second rule.
+ *
+ * Each arc begins with its own 5′ overhang, because a cut's overhang duplex is
+ * always the `overhangLength` bases immediately after the top-strand cut (true
+ * for a forward and a reverse site alike — enzymes.ts already mirrors the offsets
+ * for a reverse hit). So the vector body's own first bases are the overhang the
+ * LAST part must present, and the dropout's own first bases are the overhang the
+ * FIRST part must present, which its primer tail carries.
+ *
+ * Verified against Bio.Restriction: see cloningD.test.ts.
+ */
+export function destinationVector(seq: string, enzyme: Enzyme, name: string): DestinationVector | CloningRefusal {
+  const n = seq.length;
+  const overhangLength = enzyme.cutBottom - enzyme.cutTop;
+  const need =
+    `A destination vector needs exactly two ${enzyme.name} sites (${enzyme.site}) facing away from each other ` +
+    `around the dropout, so that both cuts fall outside the pair and both recognition sites leave with the dropout`;
+  const orPartOf = (count: number): string =>
+    `If “${name}” is meant to be an ordinary part carried through into the product rather than a destination ` +
+    `vector, domesticate ${count === 1 ? "that site" : "those sites"} instead (a silent change), or use a different ` +
+    `Type IIS enzyme.`;
+  if (!(overhangLength > 0)) {
+    return { ok: false, error: `${enzyme.name} does not leave a 5′ overhang, so it cannot open a destination vector.` };
+  }
+
+  // The plasmid is CIRCULAR: a destination vector is digested, not amplified, so
+  // a site across the position the user pasted first is a real site.
+  const hits = findSites(seq, { only: [enzyme.name], circular: true });
+  const where = (h: { position: number; strand: 1 | -1 }): string =>
+    `${h.position} (${h.strand === 1 ? "forward" : "reverse"} strand)`;
+  const list = hits.map(where).join(", ");
+
+  if (hits.length === 1) {
+    return {
+      ok: false,
+      error:
+        `${need}; “${name}” has ONE, at ${list}. A single site cannot release a dropout: ${enzyme.name} would ` +
+        `simply linearise the plasmid, leaving one end with an overhang and the other with the recognition site ` +
+        `still attached. ${orPartOf(hits.length)}`,
+    };
+  }
+  if (hits.length !== 2) {
+    return {
+      ok: false,
+      error:
+        `${need}; “${name}” has ${hits.length}${hits.length ? `, at ${list}` : ` – none at all, so there is nothing for ${enzyme.name} to open`}. ` +
+        (hits.length > 2
+          ? `${enzyme.name} cuts at every one of them, so the vector body itself comes apart into pieces. ${orPartOf(hits.length)}`
+          : `${orPartOf(hits.length)}`),
+    };
+  }
+
+  const [h1, h2] = hits;
+  const c1 = h1.cutPosition;
+  const c2 = h2.cutPosition;
+  if (c1 == null || c2 == null) {
+    return { ok: false, error: `${enzyme.name}'s cut position could not be placed in “${name}”, so no dropout can be read.` };
+  }
+  if (c1 === c2) {
+    return {
+      ok: false,
+      error:
+        `${need}; the two ${enzyme.name} sites in “${name}” (at ${list}) cut at the SAME position (${c1}), so there ` +
+        `is no dropout between them: one of the two pieces would be empty. ${orPartOf(hits.length)}`,
+    };
+  }
+
+  const L = enzyme.site.length;
+  const arcLen = (from: number, to: number): number => (((to - from) % n) + n) % n || n;
+  const at = (p: number): string => seq[(((p - 1) % n) + n) % n];
+  const span = (start: number, len: number): string => {
+    let s = "";
+    for (let k = 0; k < len; k++) s += at(start + k);
+    return s;
+  };
+  /** Does the whole recognition match starting at `p` lie inside the arc? */
+  const holds = (start: number, len: number, p: number): boolean => {
+    const off = (((p - start) % n) + n) % n;
+    return off + L <= len;
+  };
+
+  const aStart = (c1 % n) + 1;
+  const aLen = arcLen(c1, c2);
+  const bStart = (c2 % n) + 1;
+  const bLen = arcLen(c2, c1);
+  const aHolds = hits.every((h) => holds(aStart, aLen, h.position));
+  const bHolds = hits.every((h) => holds(bStart, bLen, h.position));
+
+  if (aHolds === bHolds) {
+    if (h1.strand === h2.strand) {
+      return {
+        ok: false,
+        error:
+          `${need}; the two ${enzyme.name} sites in “${name}” (at ${list}) are in the SAME orientation, so they cut ` +
+          `the same way round: one site stays on the vector body and only the other leaves with the dropout. ` +
+          `${enzyme.name} would then cut the finished plasmid. The two sites of a destination vector are INVERTED ` +
+          `(one on each strand) so that both of them leave. ${orPartOf(hits.length)}`,
+      };
+    }
+    return {
+      ok: false,
+      error:
+        `${need}; the two ${enzyme.name} sites in “${name}” (at ${list}) are inverted but too close together: one of ` +
+        `them straddles the other's cut, so neither piece carries both sites whole and the digest does not give a ` +
+        `clean dropout. Move them apart. ${orPartOf(hits.length)}`,
+    };
+  }
+
+  const dropStart = aHolds ? aStart : bStart;
+  const dropLength = aHolds ? aLen : bLen;
+  const vecStart = aHolds ? bStart : aStart;
+  const vecLength = aHolds ? bLen : aLen;
+  if (vecLength < overhangLength + 1) {
+    return {
+      ok: false,
+      error:
+        `${need}; in “${name}” the piece that would be KEPT is only ${vecLength} bp, shorter than the ` +
+        `${overhangLength} nt overhang it has to carry at each end, so there is no vector body to clone into. ${orPartOf(hits.length)}`,
+    };
+  }
+
+  const body = span(vecStart, vecLength);
+  const overhang5 = body.slice(0, overhangLength);
+  const overhang3 = span(dropStart, overhangLength);
+  const dropEnd = ((dropStart - 1 + dropLength - 1) % n) + 1;
+  const wraps = dropEnd < dropStart;
+  const bp = (v: number): string => v.toLocaleString("en-US");
+  const summary =
+    `Destination vector: ${enzyme.name} sites at ${h1.position} and ${h2.position} (inverted), dropout ` +
+    `${bp(dropStart)}–${bp(dropEnd)} (${bp(dropLength)} bp${wraps ? ", wrapping the start of the sequence as pasted" : ""}) ` +
+    `removed, vector overhangs ${overhang5} (5′) and ${overhang3} (3′).`;
+
+  return {
+    name,
+    sites: hits.map((h) => ({ position: h.position, strand: h.strand, cut: h.cutPosition as number })),
+    dropout: { start: dropStart, end: dropEnd, length: dropLength, wraps },
+    body,
+    overhang5,
+    overhang3,
+    summary,
+  };
+}
 
 /**
  * Designs a Golden Gate assembly.
@@ -353,12 +542,42 @@ export function goldenGate(spec: GoldenGateSpec): GoldenGateResult {
 
   // 1. INTERNAL SITES. One surviving site inside a part and the assembly eats
   //    itself; it is the first thing to check and the loudest thing to say.
-  for (const p of all) {
+  //
+  //    THE BACKBONE IS THE EXCEPTION. A Golden Gate DESTINATION VECTOR is
+  //    SUPPOSED to carry two sites of the enzyme, around the dropout it loses,
+  //    and telling the user to "domesticate" them was advice to break the
+  //    vector. So sites in the backbone field are read as a destination vector
+  //    (or refused with advice that is actually right), while sites inside a
+  //    PART keep the domestication refusal, which is correct there.
+  const bbIndex = spec.backbone ? all.length - 1 : -1;
+  let destination: DestinationVector | null = null;
+  for (const [pi, p] of all.entries()) {
     if (p.seq.length < overhangLength + MIN_ANNEAL) {
       return {
         ok: false,
         error: `“${p.name}” is ${p.seq.length} nt: too short to carry a ${overhangLength} nt fusion site and an annealing region of at least ${MIN_ANNEAL} nt.`,
       };
+    }
+    if (pi === bbIndex) {
+      // Searched BOTH ways, and the difference matters:
+      //   * circular — a destination vector is a plasmid that gets digested, so
+      //     a site across the paste position is real.
+      //   * linear — a PLAIN backbone is a fragment whose two pasted ends BECOME
+      //     the junctions with the parts, so a site spanning the paste position
+      //     does not exist in the product at all (the product scan in step 3
+      //     proves it). Refusing those would break designs that are correct.
+      const circular = findSites(p.seq, { only: [enzyme.name], circular: true });
+      if (circular.length) {
+        const dv = destinationVector(p.seq, enzyme, p.name);
+        if (!("ok" in dv)) {
+          destination = dv;
+        } else if (findSites(p.seq, { only: [enzyme.name] }).length) {
+          return dv;
+        }
+        // else: the only site straddles the paste position, which the assembly
+        // itself destroys — carry on as a plain backbone.
+      }
+      continue;
     }
     const hits = findSites(p.seq, { only: [enzyme.name] });
     if (hits.length) {
@@ -375,8 +594,45 @@ export function goldenGate(spec: GoldenGateSpec): GoldenGateResult {
     }
   }
 
-  // 2. THE FUSION SITES.
-  const overhangs: Overhang[] = all.map((p) => ({ part: p.name, seq: p.seq.slice(0, overhangLength) }));
+  // 2. THE ELEMENTS OF THE PRODUCT, and their fusion sites.
+  //
+  // `product` is what the element contributes to the assembled plasmid and
+  // `template` is what its primers anneal to. They are the same thing for every
+  // ordinary part, and differ only for a destination vector:
+  //   * the vector contributes its BODY (the dropout is gone) and is not
+  //     amplified at all, so it gets no primers;
+  //   * the first part contributes the vector's 3′ overhang IN FRONT of itself,
+  //     carried on its forward primer's tail, because that overhang belongs to
+  //     the vector and is not in the part's own sequence.
+  interface Element {
+    name: string;
+    product: string;
+    template: string;
+    /** Extra bases the forward primer's tail must add in front of the annealing region. */
+    lead: string;
+    /** False for a destination vector: it is digested, not amplified. */
+    amplified: boolean;
+  }
+  const elems: Element[] = all.map((p) => ({ name: p.name, product: p.seq, template: p.seq, lead: "", amplified: true }));
+  if (destination) {
+    const vec = elems[bbIndex];
+    vec.product = destination.body;
+    vec.template = destination.body;
+    vec.amplified = false;
+    // THE FIRST PART AND THE VECTOR'S 3′ OVERHANG. Those bases belong to the
+    // vector, not to the part, so they are ordered on the part's forward primer
+    // — UNLESS the part already begins with them, which is how a part taken
+    // from a parts library (MoClo and friends define the fusion sites) arrives.
+    // Adding them unconditionally would then write the overhang twice and shift
+    // the whole insert by four bases, in a result that still looked right.
+    const first = elems[0];
+    if (first.template.slice(0, overhangLength) !== destination.overhang3) {
+      first.lead = destination.overhang3;
+      first.product = destination.overhang3 + first.template;
+    }
+  }
+
+  const overhangs: Overhang[] = elems.map((e) => ({ part: e.name, seq: e.product.slice(0, overhangLength) }));
 
   for (let i = 0; i < overhangs.length; i++) {
     const a = overhangs[i];
@@ -431,14 +687,14 @@ export function goldenGate(spec: GoldenGateSpec): GoldenGateResult {
   // refused and the junction is named. The search is findSites on the assembled
   // product with circular: true, so BOTH STRANDS and the wrap are enzymes.ts's
   // job rather than a second matcher here.
+  const product = elems.map((e) => e.product).join("");
   {
-    const product = all.map((p) => p.seq).join("");
     // Where each part starts in the product, 1-based, for naming the junction.
     const starts: number[] = [];
     let at = 1;
-    for (const p of all) {
+    for (const e of elems) {
       starts.push(at);
-      at += p.seq.length;
+      at += e.product.length;
     }
     const inProduct = findSites(product, { only: [enzyme.name], circular: true });
     if (inProduct.length) {
@@ -447,14 +703,14 @@ export function goldenGate(spec: GoldenGateSpec): GoldenGateResult {
       // the wrap named as such.
       let idx = 0;
       for (let i = 0; i < starts.length; i++) if (h.position >= starts[i]) idx = i;
-      const endOfPart = starts[idx] + all[idx].seq.length - 1;
+      const endOfPart = starts[idx] + elems[idx].product.length - 1;
       const spansWrap = h.position + enzyme.site.length - 1 > product.length;
-      const nextIdx = spansWrap ? 0 : (idx + 1) % all.length;
+      const nextIdx = spansWrap ? 0 : (idx + 1) % elems.length;
       const junction = spansWrap
-        ? `the junction that closes the circle, ${all[all.length - 1].name} → ${all[0].name}`
+        ? `the junction that closes the circle, ${elems[elems.length - 1].name} → ${elems[0].name}`
         : h.position + enzyme.site.length - 1 > endOfPart
-          ? `the ${all[idx].name} → ${all[nextIdx].name} junction`
-          : `${all[idx].name}`;
+          ? `the ${elems[idx].name} → ${elems[nextIdx].name} junction`
+          : `${elems[idx].name}`;
       return {
         ok: false,
         error:
@@ -470,15 +726,20 @@ export function goldenGate(spec: GoldenGateSpec): GoldenGateResult {
   //    reverse primer) the NEXT part's fusion site.
   const spacer = "A".repeat(spacerLength);
   const primers: DesignedPrimer[] = [];
-  for (let i = 0; i < all.length; i++) {
-    const p = all[i];
-    const next = overhangs[(i + 1) % all.length];
-    const fwdAnneal = chooseAnneal((len) => p.seq.slice(0, len), targetTm);
+  for (let i = 0; i < elems.length; i++) {
+    const p = elems[i];
+    // A destination vector is cut out of its own plasmid, so it has no primers.
+    if (!p.amplified) continue;
+    const next = overhangs[(i + 1) % elems.length];
+    const fwdAnneal = chooseAnneal((len) => p.template.slice(0, len), targetTm);
     if ("ok" in fwdAnneal) return fwdAnneal;
-    const revAnneal = chooseAnneal((len) => reverseComplement(p.seq.slice(p.seq.length - len)), targetTm);
+    const revAnneal = chooseAnneal((len) => reverseComplement(p.template.slice(p.template.length - len)), targetTm);
     if ("ok" in revAnneal) return revAnneal;
 
-    const fwdTail = enzyme.site + spacer;
+    // `lead` is empty for every ordinary part; for the first part of a
+    // destination-vector assembly it is the overhang the VECTOR defines, which
+    // is not in the part's own sequence and so has to be ordered on the primer.
+    const fwdTail = enzyme.site + spacer + p.lead;
     // The downstream fusion site rides on this part's reverse primer, as the
     // reverse complement, so the cut leaves the next part's own four bases.
     const revTail = enzyme.site + spacer + reverseComplement(next.seq);
@@ -496,11 +757,44 @@ export function goldenGate(spec: GoldenGateSpec): GoldenGateResult {
     }
   }
 
-  const productLength = all.reduce((s, p) => s + p.seq.length, 0);
+  const productLength = elems.reduce((s, e) => s + e.product.length, 0);
   notes.push(
     `Fusion sites are the first ${overhangLength} bases of each part, so every junction's bases belong to one part ` +
-      `and the assembled product is the parts joined end to end: ${all.map((p) => `${p.name} ${p.seq.length}`).join(" + ")} = ${productLength} bp.`,
+      `and the assembled product is the parts joined end to end: ${elems.map((e) => `${e.name} ${e.product.length}`).join(" + ")} = ${productLength} bp.`,
   );
+  if (destination) {
+    const d = destination;
+    notes.push(
+      (elems[0].lead
+        ? `The ${overhangLength} nt the vector's 3′ end accepts (${d.overhang3}) are the dropout's own first bases, ` +
+          `not “${elems[0].name}”'s, so they are ordered on that part's forward primer tail, which is why ` +
+          `“${elems[0].name}” counts as ${elems[0].product.length} bp above and ${elems[0].template.length} bp of it ` +
+          `is template. `
+        : `“${elems[0].name}” already begins with ${d.overhang3}, the overhang this vector's 3′ end accepts, so it ` +
+          `carries that fusion site itself and nothing was added to its forward primer. `) +
+        `The vector body keeps ${d.overhang5} as its own ${overhangLength} nt 5′ overhang, and ` +
+        `“${elems[elems.length - 2].name}”'s reverse primer carries its reverse complement.`,
+    );
+    notes.push(
+      `Both ${enzyme.name} sites leave with the dropout, so the assembled plasmid carries no ${enzyme.name} site at ` +
+        `all (checked on the finished product, both strands, across the closing junction). That is what lets the ` +
+        `digestion and the ligation run in one pot.`,
+    );
+    notes.push(
+      `The vector is digested, not amplified: it gets no primers. Only the ${primers.length / 2} part${primers.length === 2 ? "" : "s"} ` +
+        `are amplified, and the dropout (${d.dropout.length.toLocaleString("en-US")} bp) is replaced by ` +
+        `${(productLength - d.body.length).toLocaleString("en-US")} bp of insert.`,
+    );
+    if (d.body.length < d.dropout.length) {
+      warnings.push(
+        `The piece this vector KEEPS (${d.body.length.toLocaleString("en-US")} bp) is shorter than the piece it ` +
+          `loses (${d.dropout.length.toLocaleString("en-US")} bp). The two recognition sites always leave on the ` +
+          `fragment they sit on, so check that they are on the dropout and not on your backbone: if the origin and ` +
+          `the selection marker are in the ${d.dropout.length.toLocaleString("en-US")} bp being discarded, the sites ` +
+          `are the wrong way round and nothing will transform.`,
+      );
+    }
+  }
   notes.push(
     `${enzyme.name} (${enzyme.site}) cuts ${spacerLength} nt past its site on the top strand and leaves a ` +
       `${overhangLength} nt 5′ overhang; both numbers are read from the enzyme table, not assumed.`,
@@ -517,8 +811,10 @@ export function goldenGate(spec: GoldenGateSpec): GoldenGateResult {
     overhangs,
     primers,
     productLength,
-    partLengths: all.map((p) => p.seq.length),
-    order: all.map((p) => p.name),
+    productSequence: product,
+    destination,
+    partLengths: elems.map((e) => e.product.length),
+    order: elems.map((e) => e.name),
     circular: true,
     warnings,
     notes,

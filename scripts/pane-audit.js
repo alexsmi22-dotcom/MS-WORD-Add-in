@@ -58,7 +58,8 @@ const BASELINES = {
   // v2.134.0: 24 of 24 — repeated-measures ANOVA (profile plot with
   // within-subject CIs) and Cox regression (log-axis HR forest plot + adjusted
   // survival curves), both drawing from their shipped defaults.
-  stats: { label: "Statistics", figures: 24, total: 24 },
+  // v2.186.0: 26 of 26 — Welch's ANOVA and Games–Howell, each drawing from its shipped default.
+  stats: { label: "Statistics", figures: 26, total: 26 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it
@@ -68,7 +69,8 @@ const BASELINES = {
   // fits, which is why `AssayOutput` grew a raw `svg` route beside `plot`.
   // v2.137.0: 17 of 17 — Reaction stoichiometry & yield, drawing moles
   // available vs needed (limiting reagent flagged) from its shipped default.
-  assay: { label: "Bio/Assay", figures: 17, total: 17 },
+  // v2.186.0: 21 of 21 — standard-curve unknowns, plate reader, qPCR ΔΔCt and Pfaffl, each drawing.
+  assay: { label: "Bio/Assay", figures: 21, total: 21 },
   // FINANCE IS COMPLETE: 24 of 24, and it was 0 of 24 because FinCalc.compute
   // could return only a bare string - there was nowhere to put a figure. The
   // type change landed with ONE wired calculator so the path was proven before

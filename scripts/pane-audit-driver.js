@@ -32,10 +32,16 @@
 
   // A "NaN" or "Infinity" that a tool QUOTES BACK is the error message naming
   // the offending input, which is correct and wanted. Only an unquoted one is a
-  // computed value that escaped.
+  // computed value that escaped. THE SAME RULE as src/lib/insertGate.ts
+  // hasBrokenNumber (Release D): NaN/Infinity only as a number token (so the
+  // NaN₃ in a sodium-azide sample name is a word), "undefined" only in a value
+  // position (after = : ± ≈ < > ≤ ≥ or at a line start) and only when it ENDS
+  // the value (see insertGate.ts); quotes are blanked per line. insertGateD.test.ts runs one table against
+  // this copy, the other driver's and the TS helper.
   function badNumbers(text) {
-    var stripped = text.replace(/"[^"]*"/g, '""');
-    return /\bNaN\b|\bInfinity\b|\bundefined\b/.test(stripped);
+    var stripped = String(text).replace(/"[^"\n]*"/g, '""');
+    return /(?<![\p{L}\p{N}_])(?:NaN|Infinity)(?![\p{L}\p{N}_])/u.test(stripped) ||
+      /(?:^|[=:±≈<>≤≥])[ \t]*undefined(?:(?=[ \t]*(?:$|[,;)\]]))|(?=[ \t]*(?:[-+−]?\d|[µμ°%‰ΩÅ℃]))|(?=[ \t]+(?:[^\s,;)\]]*[\/·^²³¹⁰⁴-⁹⁻]|(?!(?:at|in|as|if|for|on|by|to|of|or|and|the|is|so|but|yet|due|per|was|are|has|its|it|be|we|not|no|an|a)(?![A-Za-z]))[A-Za-z]{1,3}(?![\p{L}\p{N}_])|[A-Za-z]+[A-Z][A-Za-z]*(?![\p{L}\p{N}_]))))/mu.test(stripped);
   }
 
   // "The tool threw and the pane caught it" — in whichever wording the registry
@@ -269,6 +275,7 @@
 
       if (!badNumbers("x = NaN")) bad.push("badnumber-blind");
       if (badNumbers('rejected "NaN" as a width')) bad.push("badnumber-trigger-happy");
+      if (badNumbers("NaN₃ standard 12.5 µM")) bad.push("badnumber-formula-blocked");
       if (!hasControlChar("a" + String.fromCharCode(8) + "b")) {
         bad.push("controlchar-blind");
       }
@@ -410,8 +417,11 @@
         calcSel.value = v;
         calcSel.dispatchEvent(new Event("change", { bubbles: true }));
       }
+      // Release D: Statistics recomputes on a keystroke only after a pause (lib/previewDebounce.ts). Leaving the
+      // field ("change") recomputes at once, as Insert does, so the text read straight after this is current.
       function fire(el) {
         el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+        if (el.tagName !== "SELECT") el.dispatchEvent(new Event("change", { bubbles: true }));
       }
       function recompute() {
         var f = fields();

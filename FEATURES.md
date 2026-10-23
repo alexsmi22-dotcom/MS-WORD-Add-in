@@ -16,6 +16,16 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 
 ---
 
+## Latest additions (v2.186 – v2.189)
+- **Authoring:** Word-native figure and table captions, equation numbers (arabic or by chapter), cross-references and a Table of Figures that Word updates itself.
+- **Lab statistics:** Welch's ANOVA with the Games–Howell post-hoc; standard curves with back-calculated unknowns (linear and 4PL, never extrapolated) and 96/384-well plate layouts; **qPCR** ΔΔCt and Pfaffl; significant figures and Monte Carlo uncertainty; new unit families (viscosity, Torr, Bq/Ci, Gy/Sv and more).
+- **Engineering (179 calculators, 23 disciplines):** Fresnel s/p, thin-film coating stacks and Jones calculus; **liquid-crystal retarders and achromatic wave plates** with the Fréedericksz transition, director profiles and cell/device drawings; tensile tests, Weibull strength, crystallite size, process capability and tolerance stack-ups; root locus, Nyquist, lead/lag and discrete-time control; titration curves, speciation, buffer pH and cyclic voltammetry; an **HPLC/GC peak table** (USP ⟨621⟩) with the chromatogram redrawn; **TLC plates**; **circuit transients** from the same netlist as DC and AC; **molecular cloning** — a schematic gel against manufacturer ladders, Golden Gate (including destination vectors) and Gibson/HiFi design, PCR primers.
+- **Plots:** parametric, polar, two y-axes, contour and 3D surface plots.
+- **Characterization:** write the ¹H NMR line from a measured integration table.
+- **Structures:** retrosynthetic ⇒ and resonance ↔ arrows on the Draw page; older ChemDraw arrows open as drawn.
+- **Data in:** any data field opens .xlsx spreadsheets as well as CSV.
+- **References:** an Optica style (Optics Letters, Optics Express, JOSA) beside IEEE, ACS, Nature, Vancouver, APA and Chicago.
+
 ## Across all modes
 - **Search** formulas and compounds by name (e.g. "quadratic", "benzene").
 - **Recents & favorites**, with a one-click **Clear** for confidentiality.

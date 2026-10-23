@@ -22,6 +22,7 @@
 import { levenbergMarquardt, fourPL, linearRegression } from "./assay";
 import { tCritical, tTestP, oneWayAnova } from "./stats";
 import { parseCellNumber } from "./dataimport";
+import { readDataBlock } from "./dataBlock";
 
 // --------------------------------------------------------------- replicates
 
@@ -1397,49 +1398,114 @@ export const EFFICIENCY_GOOD: [number, number] = [90, 110];
 /** R² below this is flagged. */
 export const EFFICIENCY_R2_FLAG = 0.98;
 
-/** "1", "0.1", "1:10" (= 0.1), "1/100" (= 0.01), "10^-2". */
-export function parseAmount(raw: string, mode: CommaMode = "point"): number {
+/** "1:10" (= 0.1), "1/100" (= 0.01), "10^-2": the amount forms that are not plain numbers; null for anything else. */
+function amountForm(raw: string): number | null {
   const t = raw.trim().replace(/−/g, "-");
   const ratio = /^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/.exec(t);
   if (ratio) return Number(ratio[1]) / Number(ratio[2]);
   const pow = /^10\s*\^\s*(-?\d+(?:\.\d+)?)$/.exec(t);
   if (pow) return Math.pow(10, Number(pow[1]));
-  return readNum(t, mode);
+  return null;
 }
 
-/** Lines "amount  Ct  Ct  Ct" (a header line is skipped) → dilution points. */
+/**
+ * Lines "amount  Ct  Ct  Ct" (a header line is skipped) → dilution points.
+ *
+ * Release D: the numbers are read by dataBlock.readDataBlock (RULE N, the one number reader), so this reader gets
+ * the shared separators (", " and bare commas separate; a space inside a tab or semicolon field is refused), the
+ * mixed-decimal-mark refusal that names one example of each, and the comma rules with the Ct ≤ 60 evidence. Only
+ * this reader's own tokens are peeled off first, through mapRow: the amount forms 1:10, 1/100 and 10^-2, the
+ * Undetermined / No Ct calls (a Ct that did not cross threshold) and the "-" or empty cell (no reading). Before,
+ * it split on its own and read each comma by commaReading alone: "1, 20.11" took line 1 as a header and refused
+ * line 2 by its "0.1,", a "1 20.1" line in a tabbed block was silently dropped as a header, and 20,11 beside 20.05
+ * was read without a word.
+ */
 export function readDilutionSeries(text: string, what: string, notes?: string[]): DilutionPoint[] | Refusal {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n").filter((l) => l.trim() !== "");
-  const tabbed = lines.some((l) => l.includes("\t"));
-  const out: DilutionPoint[] = [];
-  const commas = commaReading(lines.flatMap((l) => splitLine(l, tabbed)), what, {
-    bounded: { cells: lines.flatMap((l) => splitLine(l, tabbed).slice(1)), max: CT_MAX, why: `a Ct cannot exceed ${CT_MAX} cycles` },
+  const none: Refusal = { ok: false, error: `${what}: no dilution points.` };
+  if (!(text ?? "").trim()) return none;
+  /** Per line: the fields as typed, and what each peeled cell was. */
+  const typed = new Map<number, string[]>();
+  const peeled = new Map<number, Array<number | "undetermined" | "skip" | undefined>>();
+  let first = true;
+  const block = readDataBlock(text, what, {
+    commaBounded: { fromColumn: 1, max: CT_MAX, why: `a Ct cannot exceed ${CT_MAX} cycles` },
+    // The header is judged here, on the line as the user wrote it (mapRow), never on the peeled fields.
+    noHeader: true,
+    mapRow: (fields, line) => {
+      const isFirst = first;
+      first = false;
+      // A header: a first row whose amount cell is a word ("Input", "Dilution"), whatever follows it.
+      const a0 = fields[0] ?? "";
+      if (isFirst && /\p{L}/u.test(a0) && amountForm(a0) === null && !Number.isFinite(parseCellNumber(a0))) return null;
+      typed.set(line, fields.slice());
+      const marks: Array<number | "undetermined" | "skip" | undefined> = [];
+      const out = fields.map((f, k) => {
+        const t = f.trim();
+        if (k === 0) {
+          const form = amountForm(t);
+          if (form === null) return f;
+          marks[0] = form;
+          // A NUMERIC stand-in, not "-": the line is data as the user wrote it, so dataBlock's header rule (N4) must
+          // not take "1:10  n.d." for a header and drop it (review D1). "1" carries no decimal mark, so it is no
+          // evidence for N2/N3, and the value is never read (marks[0] wins).
+          return "1";
+        }
+        if (NO_CELL.test(t)) marks[k] = "skip";
+        else if (UNDETERMINED.test(t)) marks[k] = "undetermined";
+        else return f;
+        return "-";
+      });
+      peeled.set(line, marks);
+      return out;
+    },
   });
-  if ("ok" in commas) return commas;
-  if (notes) notes.push(...commaNotes(what.toLowerCase(), commas));
-  for (let i = 0; i < lines.length; i++) {
-    const cells = splitLine(lines[i], tabbed);
-    const amount = parseAmount(cells[0] ?? "", commas.mode);
-    if (!Number.isFinite(amount)) {
-      if (i === 0 && out.length === 0) continue; // header row
-      return { ok: false, error: `${what}, line ${i + 1}: “${cells[0]}” is not an input amount (write 1, 0.1, 0.01 or 1:10).` };
+  const notAmount = (line: number, cell: string): Refusal => ({
+    ok: false,
+    error: `${what}, line ${line}: “${cell}” is not an input amount (write 1, 0.1, 0.01 or 1:10).`,
+  });
+  const notCt = (line: number, cell: string): Refusal => ({ ok: false, error: `${what}, line ${line}: “${cell}” is not a Ct.` });
+  if (!block.ok) {
+    if (block.error === `${what}: nothing to read.` || block.error === `${what}: only a header line.`) return none;
+    // A word or an unreadable number where a number belongs: name the cell as an amount or a Ct, as before.
+    const word = /^.*?: line (\d+) \(.*\) (?:mixes words and numbers \("(.*)"\)|has no numbers)/s.exec(block.error);
+    const bad = word ? null : /^.*?: line (\d+): "(.*)" is not a number\.$/s.exec(block.error);
+    const m = word ?? bad;
+    if (m) {
+      const line = Number(m[1]);
+      const cells = typed.get(line) ?? [];
+      const marks = peeled.get(line) ?? [];
+      const k = m[2] !== undefined ? cells.indexOf(m[2]) : cells.findIndex((c, i) => marks[i] === undefined && c.trim() !== "");
+      if (k === 0) return notAmount(line, cells[0]);
+      if (k > 0) return notCt(line, cells[k]);
     }
-    if (!(amount > 0)) return { ok: false, error: `${what}, line ${i + 1}: an input amount must be positive (its log is taken).` };
+    return { ok: false, error: block.error };
+  }
+  if (notes) notes.push(...block.notes);
+  const out: DilutionPoint[] = [];
+  for (let i = 0; i < block.rows.length; i++) {
+    const line = block.lines[i];
+    const row = block.rows[i];
+    const cells = typed.get(line) ?? [];
+    const marks = peeled.get(line) ?? [];
+    const form = marks[0];
+    const amount = typeof form === "number" ? form : row[0];
+    if (amount === null || amount === undefined || !Number.isFinite(amount)) return notAmount(line, cells[0] ?? "");
+    if (!(amount > 0)) return { ok: false, error: `${what}, line ${line}: an input amount must be positive (its log is taken).` };
     const cts: (number | null)[] = [];
-    for (const c of cells.slice(1)) {
-      if (NO_CELL.test(c.trim())) continue;
-      if (UNDETERMINED.test(c.trim())) {
+    for (let k = 1; k < row.length; k++) {
+      if (marks[k] === "skip") continue;
+      if (marks[k] === "undetermined") {
         cts.push(null);
         continue;
       }
-      const v = readNum(c, commas.mode);
-      if (!Number.isFinite(v) || v <= 0) return { ok: false, error: `${what}, line ${i + 1}: “${c}” is not a Ct.` };
+      const v = row[k];
+      if (v === null || !Number.isFinite(v) || v <= 0) return notCt(line, cells[k] ?? "");
       cts.push(v);
     }
-    if (!cts.length) return { ok: false, error: `${what}, line ${i + 1}: no Ct after the amount.` };
+    if (!cts.length) return { ok: false, error: `${what}, line ${line}: no Ct after the amount.` };
     out.push({ amount, cts });
   }
-  if (!out.length) return { ok: false, error: `${what}: no dilution points.` };
+  if (!out.length) return none;
   return out;
 }
 

@@ -24,8 +24,10 @@ import { readNumberList } from "./numberList";
 import { mcDisplayFormula } from "./monteCarlo";
 import { samplePolar, polarPlotSvg, POLAR_SAMPLES_MAX } from "./polarPlot";
 import { parseDualData, dualAxisPlotSvg, dropForDualScales } from "./dualAxisPlot";
-import { sampleGrid, gridRange, niceLevels, levelLabels, estimateLineVertices, markJumps, contourPlotSvg, marchingSquares, isobands, isFlat, rangeText, CONTOUR_GRID_MAX, CONTOUR_LEVELS_MAX, Grid } from "./contour";
+import { sampleGrid, gridRange, niceLevels, levelLabels, estimateLineVertices, markJumps, contourPlotSvg, marchingSquares, isobands, isFlat, rangeText, ContourLabelError, CONTOUR_GRID_MAX, CONTOUR_LEVELS_MAX, Grid } from "./contour";
 import { sampleSurface, surfacePlotSvg, SURFACE_GRID_MAX, SurfaceStyle } from "./surface3d";
+import type { FigureStylePreset } from "./figureStyle";
+import { blackAndWhite } from "./solidformChart";
 
 export type PlotKind = "fx" | "parametric" | "polar" | "dualy" | "contour" | "surface";
 export const PLOT_KINDS: readonly PlotKind[] = ["fx", "parametric", "polar", "dualy", "contour", "surface"];
@@ -64,12 +66,17 @@ export type PlotKindResult =
   | {
       ok: true;
       svg: string;
-      /** The same figure on a canvas w units wide (figure styles re-render with it). */
-      render: (w: number) => string;
+      /**
+       * The same figure on a canvas w units wide (figure styles re-render with it). A black-and-white
+       * style (USPTO, 37 CFR 1.84(a)(1)) gets the figure drawn as black line art; a figure whose values
+       * need shading (filled contour bands, a filled surface) THROWS a named refusal that says what to
+       * change, which prepareFigure and the panel tray report.
+       */
+      render: (w: number, style?: FigureStylePreset) => string;
       /** Already drawn INTO the figure; the pane may repeat them beside it. */
       notes: string[];
       alt: string;
-      /** For figure styles that refuse colour-coded values (USPTO). */
+      /** Table→Chart kind for a style's refusal list; the plot kinds answer black and white themselves (render). */
       chartKind?: string;
     }
   | { ok: false; error: string };
@@ -173,6 +180,30 @@ function gridSize(text: string, def: number, cap: number): number | string {
 
 /** Most vertices a contour figure may hold (≈ 12 bytes each in the SVG: about 4 MB). */
 export const CONTOUR_VERTEX_BUDGET = 330_000;
+
+/** A black-and-white figure style (USPTO): the figure is drawn as black line art. */
+const isBw = (style?: FigureStylePreset): boolean => style?.color === "bw";
+
+/**
+ * plot.ts figures in black and white: solidformChart.blackAndWhite (the existing convention: grey
+ * frame, ticks and lettering made black, the light grid left out), plus the two paints it does not
+ * meet in these figures: the minor log-axis grid (#f5f5f5, left out) and the legend frame (#ccc).
+ */
+function plotBlackAndWhite(svg: string): string {
+  return blackAndWhite(svg)
+    .replace(/<line [^>]*stroke="#f5f5f5"[^>]*\/>/g, "")
+    .replace(/(stroke|fill)="#(?:ccc|222)"/g, '$1="#000"');
+}
+
+/** No finite z on the grid (Release D item 3: the advice names what to change). */
+export const NO_FINITE_Z =
+  "z has no finite value anywhere in the rectangle; move the x and y ranges to where the formula is defined (log and sqrt need positive arguments).";
+
+/** Why a figure that needs shading is not drawn in black and white, and what to change (Release D item 3). */
+export const BW_FILLED_CONTOUR =
+  "filled contour bands carry z in shading, and 37 CFR 1.84(a)(1) requires black-and-white line art. Turn off Filled bands: the contour lines are then drawn in black with each level written on its line";
+export const BW_FILLED_SURFACE =
+  "a filled surface carries z in colour, and 37 CFR 1.84(a)(1) requires black-and-white line art. Choose the Wireframe surface style: it is drawn as black line art with hidden lines removed";
 
 function jumpNote(g: Grid, what: string): string {
   const n = g.jumps ?? 0;
@@ -281,7 +312,9 @@ function parametric(inp: PlotKindInput): PlotKindResult {
   }
   series = filtered.series.filter((s) => s.points.length);
   if (!series.length) return { ok: false, error: "Nothing left to plot: every point is zero or negative, which a logarithmic axis cannot show." };
-  const render = (w: number): string => parametricPlotSvg(series, { ...opts, notes, equal: inp.equal }, w);
+  const black: Series[] = series.map((sr) => ({ ...sr, color: "#000" }));
+  const render = (w: number, style?: FigureStylePreset): string =>
+    isBw(style) ? plotBlackAndWhite(parametricPlotSvg(black, { ...opts, notes, equal: inp.equal }, w)) : parametricPlotSvg(series, { ...opts, notes, equal: inp.equal }, w);
   return {
     ok: true,
     svg: render(DEFAULT_W),
@@ -312,7 +345,7 @@ function polar(inp: PlotKindInput): PlotKindResult {
   const bad = samples.length - finite.length;
   if (bad) notes.push(`r has no finite value at ${bad} of ${samples.length} values of θ; the curve is broken there.`);
   const title = inp.title.trim();
-  const render = (w: number): string => polarPlotSvg({ samples, angleUnit: inp.angleUnit, title, notes, width: w });
+  const render = (w: number, style?: FigureStylePreset): string => polarPlotSvg({ samples, angleUnit: inp.angleUnit, title, notes, width: w, bw: isBw(style) });
   const svg = render(DEFAULT_W);
   // polarPlotSvg writes this one into the figure itself; repeated for the pane.
   // The units sentence is for the pane only (the angle labels show the unit in the figure).
@@ -359,7 +392,7 @@ function dualy(inp: PlotKindInput): PlotKindResult {
   }
   if (d.dropped) notes.push(`${d.dropped} point${d.dropped === 1 ? "" : "s"} not plotted: a logarithmic axis cannot show zero or negative values.`);
   if (!d.fig.left.length || !d.fig.right.length) return { ok: false, error: "Nothing left to plot on one of the axes: a logarithmic axis cannot show zero or negative values." };
-  const render = (w: number): string => dualAxisPlotSvg({ ...d.fig, notes, width: w, height: Math.round((270 * w) / 380) });
+  const render = (w: number, style?: FigureStylePreset): string => dualAxisPlotSvg({ ...d.fig, notes, width: w, height: Math.round((270 * w) / 380), bw: isBw(style) });
   return {
     ok: true,
     svg: render(DEFAULT_W),
@@ -376,7 +409,7 @@ export function readLevels(text: string, lo: number, hi: number): { levels: numb
   const t = text.trim();
   if (!t) {
     const lv = niceLevels(lo, hi, 8);
-    return lv.length ? { levels: lv, notes: [] } : "z barely varies over the rectangle; enter the levels to draw.";
+    return lv.length ? { levels: lv, notes: [] } : "z varies too little over the rectangle for automatic levels; type the levels to draw in Levels (for example 0.1 0.2 0.3).";
   }
   const r = readNumberList(t);
   if (r.dropped.length) return `Could not read the level${r.dropped.length === 1 ? "" : "s"} ${r.dropped.map((d) => `“${d}”`).join(", ")}; write numbers separated by spaces or commas.`;
@@ -415,13 +448,20 @@ function contour(inp: PlotKindInput): PlotKindResult {
   if (typeof g0 === "string") return { ok: false, error: g0 };
   const grid = sampleGrid(g0.f, g0.xr.lo, g0.xr.hi, g0.yr.lo, g0.yr.hi, g0.n, g0.n, CONTOUR_GRID_MAX, false);
   const zr = gridRange(grid);
-  if (!zr) return { ok: false, error: "z has no finite value anywhere in the rectangle." };
-  if (isFlat(zr.lo, zr.hi)) return { ok: false, error: `z is constant (${fmtValue(zr.lo)}${zr.lo === zr.hi ? "" : ", to within rounding"}) over the whole rectangle, so it has no contours.` };
+  if (!zr) return { ok: false, error: NO_FINITE_Z };
+  if (isFlat(zr.lo, zr.hi)) return { ok: false, error: `z is constant (${fmtValue(zr.lo)}${zr.lo === zr.hi ? "" : ", to within rounding"}) over the whole rectangle, so it has no contours. Check the formula, or widen the x and y ranges to take in a region where z changes.` };
   if (!Number.isFinite(zr.hi - zr.lo)) return { ok: false, error: "z spans too wide a range to contour (beyond about 10³⁰⁷); rescale the formula." };
   const lv = readLevels(inp.levels, zr.lo, zr.hi);
   if (typeof lv === "string") return { ok: false, error: lv };
   // RULE C: labels that cannot be told apart (or do not read back as their levels) are refused, never printed.
   if (!levelLabels(lv.levels)) return { ok: false, error: "The levels are too close together to label distinctly; choose levels further apart." };
+  // The figure's own words for a hole: grey as drawn, hatched in black and white.
+  const notesFor = (bw: boolean): string[] => {
+    const out = [...lv.notes];
+    if (grid.holes) out.push(`z has no finite value at ${holeCount(grid)} grid points (${bw ? "hatched" : "grey"}); no contour is drawn through them.`);
+    if (grid.jumps) out.push(jumpNote(grid, `they are ${bw ? "hatched" : "grey"} and no contour is drawn across them`));
+    return out;
+  };
   const notes = [...lv.notes];
   if (grid.holes) notes.push(`z has no finite value at ${holeCount(grid)} grid points (grey); no contour is drawn through them.`);
   // THE SIZE BUDGET, on work rather than time: the pieces are computed once,
@@ -448,8 +488,43 @@ function contour(inp: PlotKindInput): PlotKindResult {
     };
   }
   const title = inp.title.trim();
-  const render = (w: number): string =>
-    contourPlotSvg({ grid, levels: lv.levels, filled: inp.filled, title, xlabel: inp.xlabel.trim(), ylabel: inp.ylabel.trim(), zlabel: inp.zlabel.trim(), notes, width: w, lines, bands });
+  const bwNotes = notesFor(true);
+  const render = (w: number, style?: FigureStylePreset): string => {
+    if (!isBw(style))
+      return contourPlotSvg({ grid, levels: lv.levels, filled: inp.filled, title, xlabel: inp.xlabel.trim(), ylabel: inp.ylabel.trim(), zlabel: inp.zlabel.trim(), notes, width: w, lines, bands });
+    if (inp.filled) throw new Error(BW_FILLED_CONTOUR);
+    // Black and white writes each level on its line at USPTO lettering (3.5 mm), which crowds a
+    // figure 17 cm wide. AUTOMATIC levels thin out (about 8, then 5, then 3 nice levels) until every
+    // level has room for its value ON its line; a level that still has none (or a typed level without room) is
+    // drawn without a label and the figure says so. A label is never placed off its own line.
+    const sets = bwLevelSets();
+    for (let i = 0; i < sets.length; i++) {
+      const set = sets[i];
+      try {
+        return contourPlotSvg({ grid, levels: set.levels, filled: false, title, xlabel: inp.xlabel.trim(), ylabel: inp.ylabel.trim(), zlabel: inp.zlabel.trim(), notes: bwNotes, width: w, lines: set.lines, bw: true, dropUnlabelled: i === sets.length - 1 });
+      } catch (e) {
+        if (!(e instanceof ContourLabelError) || i === sets.length - 1) throw e;
+      }
+    }
+    throw new Error("no contour levels");
+  };
+  // Narrowed values captured for the lazily built level sets (a nested function loses the narrowing).
+  const autoLevels = lv.levels;
+  const zLo = zr.lo;
+  const zHi = zr.hi;
+  let bwSets: { levels: number[]; lines: ReturnType<typeof marchingSquares> }[] | null = null;
+  const bwLevelSets = (): { levels: number[]; lines: ReturnType<typeof marchingSquares> }[] => {
+    if (bwSets) return bwSets;
+    const sets = [{ levels: autoLevels, lines }];
+    if (!inp.levels.trim()) {
+      for (const target of [5, 3]) {
+        const lvls = niceLevels(zLo, zHi, target);
+        if (lvls.length && lvls.length < sets[sets.length - 1].levels.length && levelLabels(lvls)) sets.push({ levels: lvls, lines: marchingSquares(grid, lvls) });
+      }
+    }
+    bwSets = sets;
+    return sets;
+  };
   return {
     ok: true,
     svg: render(DEFAULT_W),
@@ -457,7 +532,6 @@ function contour(inp: PlotKindInput): PlotKindResult {
     // The grid line is for the pane; the figure keeps only the caveats.
     notes: [...notes, `Grid ${grid.xs.length} × ${grid.ys.length}; z from ${rangeText(zr.lo, zr.hi).join(" to ")}.`],
     alt: `Contour plot: z = ${shown(inp.fn)}, ${lv.levels.length} level${lv.levels.length === 1 ? "" : "s"}`,
-    chartKind: inp.filled ? "heatmap" : undefined,
   };
 }
 
@@ -472,18 +546,19 @@ function surface(inp: PlotKindInput): PlotKindResult {
   if (el === null || el < 0 || el > 90) return { ok: false, error: "Elevation must be from 0° to 90° (views from below are not drawn)." };
   const grid = sampleSurface(g0.f, g0.xr.lo, g0.xr.hi, g0.yr.lo, g0.yr.hi, g0.n);
   const zr = gridRange(grid);
-  if (!zr) return { ok: false, error: "z has no finite value anywhere in the rectangle." };
+  if (!zr) return { ok: false, error: NO_FINITE_Z };
   if (!Number.isFinite(zr.hi - zr.lo)) return { ok: false, error: "z spans too wide a range to draw (beyond about 10³⁰⁷); rescale the formula." };
   if (isFlat(zr.lo, zr.hi) && zr.lo !== zr.hi) {
     // Float noise (sin² x + cos² x) stretched to the full z axis would be drawn as terrain.
-    return { ok: false, error: `z is constant (${fmtValue(zr.lo)}) to within rounding over the whole rectangle; there is no surface shape to draw.` };
+    return { ok: false, error: `z is constant (${fmtValue(zr.lo)}) to within rounding over the whole rectangle; there is no surface shape to draw. Check the formula (it may simplify to a constant), or widen the x and y ranges.` };
   }
   const notes: string[] = [];
   if (grid.holes) notes.push(`z has no finite value at ${holeCount(grid)} grid points; the surface has a gap there.`);
   if (grid.jumps) notes.push(jumpNote(grid, "the surface is broken there rather than drawn as a wall"));
   const title = inp.title.trim();
-  const render = (w: number): string =>
-    surfacePlotSvg({
+  const render = (w: number, style?: FigureStylePreset): string => {
+    if (isBw(style) && inp.surfaceStyle !== "wireframe") throw new Error(BW_FILLED_SURFACE);
+    return surfacePlotSvg({
       grid,
       azimuthDeg: az,
       elevationDeg: el,
@@ -494,15 +569,24 @@ function surface(inp: PlotKindInput): PlotKindResult {
       zlabel: inp.zlabel.trim(),
       notes,
       width: w,
+      bw: isBw(style),
     });
+  };
+  // A title with no clear spot beside the box is refused by name (the figure is never drawn with it over the box).
+  let svg: string;
+  try {
+    svg = render(DEFAULT_W);
+  } catch (e) {
+    const m = (e as Error).message;
+    return { ok: false, error: m.charAt(0).toUpperCase() + m.slice(1) + "." };
+  }
   return {
     ok: true,
-    svg: render(DEFAULT_W),
+    svg,
     render,
     notes,
     alt: `Surface plot: z = ${shown(inp.fn)}, viewed from azimuth ${fmtValue(az)}°, elevation ${fmtValue(el)}°`,
-    // Filled faces carry z in colour (USPTO refuses that by name); the wireframe is line art.
-    chartKind: inp.surfaceStyle === "wireframe" ? undefined : "heatmap",
+    // Filled faces carry z in colour: under a black-and-white style render refuses them with advice (BW_FILLED_SURFACE).
   };
 }
 

@@ -11,7 +11,7 @@
  */
 import { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxGraphic, CdxItem, CdxNode, CdxRun, CdxStyle, CdxText, cssColor, Pt } from "./cdxml";
 import { arcOf, arcPoint } from "./cdxArrows";
-import { chargeGlyph } from "./cdxGlyphs";
+import { chargeGlyph, pieceDrop, pieceSize, textInk, textLayout, textPieces } from "./cdxGlyphs";
 import { atomQueryMarks, bondQueryMarks, showsMarks, stereoGroupMark } from "./cdxQuery";
 
 const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
@@ -191,46 +191,23 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   const color = (i: number): string => cssColor(doc, i);
 
   // ---- text ------------------------------------------------------------------------------
-  /** Runs split into lines at CR / LF (a run may span lines). */
-  const linesOf = (runs: CdxRun[]): CdxRun[][] => {
-    const lines: CdxRun[][] = [[]];
-    for (const run of runs) {
-      const parts = run.text.split(/\r\n|\r|\n/);
-      parts.forEach((p, i) => {
-        if (i) lines.push([]);
-        if (p) lines[lines.length - 1].push({ ...run, text: p });
-      });
-    }
-    return lines;
-  };
   /**
-   * One line of runs as tspans. Formula face (0x60) sets digits as subscripts and a trailing charge
-   * as a superscript; 0x20 / 0x40 are plain subscript / superscript. Shifts are by dy, and the next
-   * piece's dy brings it back, so plain text sits on the baseline.
+   * One line of runs as tspans, set as cdxGlyphs lays them out (the model the editor's label boxes and the arrow
+   * planner measure with). Shifts are by dy, and the next piece's dy brings it back, so plain text sits on the baseline.
    */
   const tspans = (runs: CdxRun[]): string => {
     let out = "";
     /** The current offset from the baseline (dy accumulates in SVG). */
     let level = 0;
     for (const run of runs) {
-      const pieces: Array<{ text: string; shift: 0 | 1 | -1 }> = [];
-      const face = run.face & 0x60;
-      if (face === 0x60) {
-        // Formula: digits after a letter or bracket are counts (subscript); + / − at the end, charges.
-        const re = /(\d+)|([+\-−]+)$|([^\d+\-−]+|[+\-−])/g;
-        for (const m of run.text.matchAll(re)) {
-          if (m[1]) pieces.push({ text: m[1], shift: 1 });
-          else if (m[2]) pieces.push({ text: m[2].replace(/-/g, "−"), shift: -1 });
-          else pieces.push({ text: m[0], shift: 0 });
-        }
-      } else pieces.push({ text: run.text, shift: face === 0x20 ? 1 : face === 0x40 ? -1 : 0 });
+      const pieces = textPieces(run);
       const weight = run.face & 1 ? ' font-weight="bold"' : "";
       const italic = run.face & 2 ? ' font-style="italic"' : "";
       const under = run.face & 4 ? ' text-decoration="underline"' : "";
       for (const p of pieces) {
         if (!p.text) continue;
-        const size = p.shift ? run.size * 0.75 : run.size;
-        const want = p.shift === 1 ? run.size * 0.25 : p.shift === -1 ? -run.size * 0.4 : 0;
+        const size = pieceSize(run, p.shift);
+        const want = pieceDrop(run, p.shift);
         // The shift back to the baseline rides on the NEXT piece: an empty <tspan dy> undoing it is
         // skipped by some rasterisers, which left the rest of the line lowered ("LiAlH₄, THF" — schemes).
         const dy = want - level;
@@ -243,31 +220,10 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   };
   /** Draws a text object at its own place: left / centre / right edge of its box, first baseline at p. */
   const drawText = (tx: CdxText, z: number, node?: CdxNode): void => {
-    let lines = linesOf(tx.runs);
-    if (!lines.some((ln) => ln.length)) return;
-    const size = tx.runs.reduce((m, q) => Math.max(m, q.size), 1);
-    const pitch = tx.lineHeight ?? size * 1.15;
-    // A stacked atom label ("NH" with its H below, "H2C" above): the element symbol's line and the
-    // rest, the element's line on the baseline at p (as ChemDraw places it on its atom).
-    let elemLine = 0;
-    // (Only where ChemDraw stacked it: its box is taller than one line — one-line boxes are under 1 × size, stacked ones about 1.45 ×.)
-    const oneLineBox = !!tx.box && tx.box[3] - tx.box[1] < size * 1.2;
-    if (node && lines.length === 1 && (tx.align === "Below" || tx.align === "Above") && !oneLineBox) {
-      const all = lines[0].map((q) => q.text).join("");
-      const m = /^([A-Z][a-z]?)(.+)$/.exec(all);
-      if (m) {
-        const base = lines[0][0];
-        const elem: CdxRun = { ...base, text: m[1] };
-        const rest: CdxRun = { ...base, text: m[2] };
-        lines = tx.align === "Below" ? [[elem], [rest]] : [[rest], [elem]];
-        elemLine = tx.align === "Below" ? 0 : 1;
-      }
-    }
-    const just = tx.justify.toLowerCase();
-    const anchor = just === "right" ? "end" : just === "center" ? "middle" : "start";
+    const lay = textLayout(tx, node);
+    if (!lay) return;
+    const { lines, anchor, x, y0, pitch, size } = lay;
     const bx = tx.box;
-    const x = bx ? (anchor === "end" ? bx[2] : anchor === "middle" ? (bx[0] + bx[2]) / 2 : bx[0]) : (tx.p?.[0] ?? node?.p[0] ?? 0);
-    const y0 = (tx.p?.[1] ?? (bx ? bx[3] - size * 0.25 : (node?.p[1] ?? 0) + size * 0.35)) - elemLine * pitch;
     const body = lines
       .map((ln, i) => `<text x="${f2(x)}" y="${f2(y0 + i * pitch)}" text-anchor="${anchor}"${tx.color !== 3 ? ` fill="${color(tx.color)}"` : ' fill="#000"'}>${tspans(ln)}</text>`)
       .join("");
@@ -365,6 +321,17 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       let p0 = nb.p, p1 = ne.p;
       if (cb) p0 = exitBox(nb.p, ne.p, cb);
       if (ce) p1 = exitBox(ne.p, nb.p, ce);
+      if (cb && ce && (p1[0] - p0[0]) * (ne.p[0] - nb.p[0]) + (p1[1] - p0[1]) * (ne.p[1] - nb.p[1]) <= 0) {
+        // Two labels whose boxes (with their margins) overlap along the bond: clipped at the boxes the bond would run
+        // backwards, its end on the far label's letters (a Br–Br from a file). Clipped instead at the letters' own ink
+        // by a 1.2 pt margin (a short tick between letters that nearly touch); nothing is drawn if even that leaves no room.
+        const ib = textInk(doc.fonts, nb.label!, nb), ie = textInk(doc.fonts, ne.label!, ne);
+        if (!ib || !ie) continue;
+        const m = Math.min(st.marginWidth, 1.2);
+        p0 = exitBox(nb.p, ne.p, [ib[0] - m, ib[1] - m, ib[2] + m, ib[3] + m]);
+        p1 = exitBox(ne.p, nb.p, [ie[0] - m, ie[1] - m, ie[2] + m, ie[3] + m]);
+        if ((p1[0] - p0[0]) * (ne.p[0] - nb.p[0]) + (p1[1] - p0[1]) * (ne.p[1] - nb.p[1]) <= 0) continue;
+      }
       if (len(sub(p1, p0)) < 0.01) continue;
       const d = unit(sub(p1, p0));
       const n = right(d);
@@ -510,7 +477,8 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       if (nd.charge && !chargeDrawn.has(nd.id)) {
         // ChemDraw draws a charge as a symbol tied to the atom; where the file has none (or after an
         // edit) it is set as a superscript after the label, or up and right of a bare vertex.
-        const { at, txt, size } = chargeGlyph(st, nd);
+        const nb = (nbrs.get(nd.id) ?? []).map((k) => byId.get(k)?.p).filter((q): q is Pt => !!q);
+        const { at, txt, size } = chargeGlyph(st, nd, { nbrs: nb, fonts: doc.fonts, doc });
         prims.push({ z: nd.z + 0.6, svg: `<text x="${f2(at[0])}" y="${f2(at[1])}" font-family="${esc(fontName(st.labelFont))}" font-size="${f2(size)}" fill="#000">${txt}</text>` });
         grow(at, size);
       }

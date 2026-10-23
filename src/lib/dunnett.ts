@@ -217,6 +217,12 @@ export interface DunnettResult {
  * assumption one-way ANOVA makes, and the reason a control with few replicates
  * weakens every comparison at once.
  */
+/**
+ * The most groups (control included) dunnettTest runs on, the same limit as Tukey HSD and Games–Howell. Release D
+ * measured the pane's recompute per keystroke on ~2000 values: 20 groups 0.2 s, 50 groups 0.8 s, 500 groups 5.3 s.
+ */
+export const DUNNETT_MAX_GROUPS = 20;
+
 export function dunnettTest(
   control: number[],
   treatments: number[][],
@@ -244,6 +250,14 @@ export function dunnettTest(
   }
   if (groups.some((g) => g.length < 2)) {
     return { ...empty, reason: "Each treatment group needs at least two values." };
+  }
+  if (groups.length + 1 > DUNNETT_MAX_GROUPS) {
+    return {
+      ...empty,
+      reason:
+        `Dunnett's test is limited to ${DUNNETT_MAX_GROUPS} groups here, the control included (${groups.length + 1} were entered). ` +
+        "Every treatment's p-value is a multivariate-t probability over all the comparisons, and beyond this the pane would stall while you type.",
+    };
   }
 
   // Pooled error variance across all groups (control included).

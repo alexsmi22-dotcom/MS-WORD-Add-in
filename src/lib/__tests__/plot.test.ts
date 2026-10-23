@@ -1,4 +1,10 @@
-import { evalExpr, samplePlot, parseData, buildPlotSvg, Series } from "../plot";
+import { evalExpr, samplePlot, readPlotData, Point, buildPlotSvg, Series } from "../plot";
+/** The points of a pasted block (readPlotData; a refused block gives none), as the old parseData returned. */
+const parseData = (text: string): Point[] => {
+  const r = readPlotData(text);
+  return r.ok ? r.points : [];
+};
+
 
 describe("evalExpr", () => {
   it("evaluates arithmetic with precedence", () => {

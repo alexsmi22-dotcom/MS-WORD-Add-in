@@ -327,7 +327,10 @@ const goldenGateCalc: CloningCalc = {
     "Designs a Golden Gate assembly from ordered parts: checks every part for internal sites of the chosen " +
     "Type IIS enzyme (both strands), checks the fusion sites for duplicates, palindromes and reverse-complement " +
     "pairs, and writes the primer tails. The fusion site of a part is its own first bases, so the product is the " +
-    "parts joined end to end. Refuses by name rather than designing an assembly that cannot work.",
+    "parts joined end to end. A BACKBONE carrying two inverted sites of the enzyme around a dropout (lacZα, ccdB, " +
+    "a stuffer) is read as a destination vector: the dropout and both recognition sites are cut out, the vector's " +
+    "two overhangs are computed from the enzyme table on both strands with the plasmid treated as circular, and the " +
+    "first part's primer tail is written to match. Refuses by name rather than designing an assembly that cannot work.",
   fields: [
     {
       key: "parts",
@@ -344,7 +347,13 @@ const goldenGateCalc: CloningCalc = {
       kind: "select",
       options: TYPE_IIS.map((e) => ({ value: e.name, label: `${e.name} (${e.site})` })),
     },
-    { key: "backbone", label: "Backbone (optional), name: sequence", default: "", kind: "block", rows: 2 },
+    {
+      key: "backbone",
+      label: "Backbone (optional), name: sequence — a destination vector (two inverted sites around a dropout) is detected",
+      default: "",
+      kind: "block",
+      rows: 2,
+    },
     { key: "tm", label: "Target annealing Tm (°C)", default: "60", kind: "text" },
   ],
   compute(read) {
@@ -371,10 +380,17 @@ const goldenGateCalc: CloningCalc = {
       `${r.order.length} parts with ${r.enzyme.name} (${r.enzyme.site}): assembled product ${whole(r.productLength)} bp, ` +
         `circular, in the order ${r.order.join(" → ")}.`,
     );
+    if (r.destination) lines.push(r.destination.summary);
     lines.push(`No internal ${r.enzyme.name} site was found in any part (both strands were searched).`);
     lines.push(
       `Fusion sites (${r.overhangLength} nt, all distinct, none palindromic, none the reverse complement of another): ` +
-        r.overhangs.map((o) => `${o.seq} (5′ end of ${o.part})`).join(", "),
+        r.overhangs
+          .map((o, i) =>
+            r.destination && i === 0
+              ? `${o.seq} (the vector's 3′ overhang, carried on the “${o.part}” forward primer)`
+              : `${o.seq} (5′ end of ${o.part})`,
+          )
+          .join(", "),
     );
     lines.push(`Primers (${r.primers.length}), target ${degC(targetTm)}:`);
     for (const p of r.primers) lines.push(primerLine(p));

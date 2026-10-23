@@ -15,6 +15,7 @@ import { Molecule } from "openchemlib/full";
 import { groupSmilesBySide, isGroupLabel, leftwardOf, rightwardOf } from "./labelExpand";
 import { elementListLabel, parseElementList } from "./cdxQuery";
 import { arrowFromElement, readCdxmlTree } from "./cdxml";
+import { labelGeometry, stackedLabelGeometry } from "./cdxGlyphs";
 import { arcOf, bowAndPlans, CURVED_HEAD, fishhookSide, planAxes, planCurved, type ArrowEnd, type CurvedPlan } from "./cdxArrows";
 
 // ---- the tree --------------------------------------------------------------------------------
@@ -302,23 +303,47 @@ export function fragmentOf(root: XNode, nodeId: string): { frag: XNode; node: XN
   return out;
 }
 
-/** A label's text object, placed as ChemDraw places it: the first character centred on the atom. */
+/**
+ * A label's text object, placed as ChemDraw places it: the first character centred on the atom (right-aligned, written
+ * left of its bond: the last). Its p and box from the page's glyph model (cdxGlyphs.labelGeometry), the one the
+ * renderer draws with: the box runs exactly from the text's start to its advance end, so a bond stops the page's
+ * margin from the letters themselves (an estimate of 0.72 em a capital made "Br" 2.7 pt too wide, and a Br–Br bond ran
+ * into the second label).
+ */
 function labelText(doc: CdxDoc, node: XNode, text: string, rightAligned = false): XNode {
   const st = doc.style;
+  const s: XNode = { name: "s", attrs: { font: String(st.labelFont), size: fmt(st.labelSize), face: String(st.labelFace) }, children: [], text, line: 0 };
+  const t: XNode = { name: "t", attrs: { p: "", BoundingBox: "", LabelJustification: rightAligned ? "Right" : "Left" }, children: [s], text: "", line: 0 };
+  fitLabel(doc, node, t);
+  return t;
+}
+
+/**
+ * Sets a one-line label's p and box for its runs as they now read (after hydrogens or an isotope are added), keeping
+ * its justification: the letter that bonds centred on the atom — the last for a right-justified label, else the first
+ * letter after a leading mass number. p is where ChemDraw puts it for that justification (the text's start, end or
+ * middle on its baseline). A label over several lines is left as it is.
+ */
+export function fitLabel(doc: CdxDoc, node: XNode, t: XNode, centreLast = t.attrs.LabelJustification === "Right"): void {
+  const runs = t.children.filter((c) => c.name === "s").map((c) => ({ text: c.text, face: Number(c.attrs.face ?? doc.style.labelFace) || 0, size: Number(c.attrs.size) || doc.style.labelSize }));
+  const flat = runs.map((r) => r.text).join("");
+  if (!flat || /[\r\n]/.test(flat)) return;
   const [x, y] = (node.attrs.p ?? "0 0").split(/\s+/).map(Number);
-  const size = st.labelSize;
-  const charW = (ch: string): number => (/[A-Z]/.test(ch) ? 0.72 : /\d/.test(ch) ? 0.42 : 0.56) * size;
-  const width = [...text].reduce((w, ch) => w + charW(ch), 0);
-  // Left-aligned: the first letter centred on the atom; right-aligned (written left of its bond): the last.
-  const left = rightAligned ? x - (width - charW(text[text.length - 1] ?? "C") / 2) : x - charW(text[0] ?? "C") / 2;
-  const s: XNode = { name: "s", attrs: { font: String(st.labelFont), size: fmt(size), face: String(st.labelFace) }, children: [], text, line: 0 };
-  return {
-    name: "t",
-    attrs: { p: `${fmt(left)} ${fmt(y + 0.35 * size)}`, BoundingBox: `${fmt(left)} ${fmt(y - 0.5 * size)} ${fmt(left + width)} ${fmt(y + 0.5 * size)}`, LabelJustification: rightAligned ? "Right" : "Left" },
-    children: [s],
-    text: "",
-    line: 0,
-  };
+  const stack = t.attrs.LabelAlignment === "Below" || t.attrs.LabelAlignment === "Above";
+  if (stack && runs.length === 1) {
+    const sg = stackedLabelGeometry([x, y], runs[0], t.attrs.LabelAlignment === "Below");
+    if (sg) {
+      t.attrs.p = `${fmt(sg.p[0])} ${fmt(sg.p[1])}`;
+      t.attrs.BoundingBox = sg.box.map(fmt).join(" ");
+      return;
+    }
+  }
+  const right = t.attrs.LabelJustification === "Right";
+  const lead = runs.length > 1 && (runs[0].face & 0x60) !== 0x60 && (runs[0].face & 0x60) !== 0 ? [...runs[0].text].length : 0;
+  const g = labelGeometry([x, y], runs, centreLast ? [...flat].length - 1 : lead);
+  const px = right ? g.box[2] : t.attrs.LabelJustification === "Center" ? (g.box[0] + g.box[2]) / 2 : g.box[0];
+  t.attrs.p = `${fmt(px)} ${fmt(g.p[1])}`;
+  t.attrs.BoundingBox = g.box.map(fmt).join(" ");
 }
 
 /** ChemDraw's Radical values as OCL radical states. */
@@ -408,6 +433,7 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
     const lt = labelText(doc, node, iso[2] + (h ? "H" + (h > 1 ? h : "") : ""));
     const s0 = lt.children[0];
     lt.children.unshift({ name: "s", attrs: { ...s0.attrs, face: String(0x20) }, children: [], text: iso[1], line: 0 });
+    fitLabel(doc, node, lt);
     node.children.push(lt);
     return { ok: true, note: null };
   }
@@ -441,9 +467,10 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
     if (h !== null) node.attrs.NumHydrogens = String(h);
     // Left of its bond, its hydrogens come first, right-aligned on the atom (HO, H2N), as ChemDraw writes it.
     const hs = h ? "H" + (h > 1 ? h : "") : "";
-    const oneBond = frag.children.filter((b) => b.name === "b" && (b.attrs.B === nodeId || b.attrs.E === nodeId)).length === 1;
-    const left = !!hs && oneBond && sideOf(frag, node) === "left";
-    node.children.push(labelText(doc, node, left ? hs + sym : sym + hs, left));
+    // Its hydrogens on the side away from its bonds (hSide).
+    const lt = labelText(doc, node, sym, false);
+    placeHydrogens(doc, node, lt, sym, hs, hs ? hSide(frag, node) : "right");
+    node.children.push(lt);
     return { ok: true, note: null };
   }
   if (GENERIC.test(t)) {
@@ -625,22 +652,62 @@ function relabel(doc: CdxDoc, node: XNode): void {
   const h = hydrogensFor(Number(node.attrs.Element ?? 6), Number(node.attrs.Charge ?? 0) || 0, frag, node.attrs.id ?? "");
   if (h === null) return;
   const hs = h ? "H" + (h > 1 ? h : "") : "";
-  const hFirst = !!m[1] || (!m[2] && t.attrs.LabelJustification === "Right");
   const sep = text.includes("\n") ? "\n" : "";
+  if (!sep) {
+    // Its hydrogens set again on the side away from its bonds, which may have just changed (a bond added toward them).
+    node.attrs.NumHydrogens = String(h);
+    const s0 = runs[0];
+    t.children = t.children.filter((c) => c.name !== "s" || c === s0);
+    placeHydrogens(doc, node, t, sym, hs, hs ? hSide(frag, node) : "right");
+    return;
+  }
+  const hFirst = !!m[1] || (!m[2] && t.attrs.LabelJustification === "Right");
   const next = !hs ? sym : hFirst ? hs + sep + sym : sym + sep + hs;
   node.attrs.NumHydrogens = String(h);
   if (next === text) return;
-  // The box grows or shrinks on the side away from the atom.
-  const size = Number(runs[0].attrs.size) || doc.style.labelSize;
-  const delta = (next.replace(/\n/g, "").length - flat.length) * size * 0.6;
-  const box = (t.attrs.BoundingBox ?? "").split(/\s+/).map(Number);
-  if (box.length === 4 && box.every(Number.isFinite) && !sep) {
-    if (hFirst) box[0] -= delta;
-    else box[2] += delta;
-    t.attrs.BoundingBox = box.map(fmt).join(" ");
-  }
   runs[0].text = next;
   t.children = t.children.filter((c) => c.name !== "s" || c === runs[0]);
+
+}
+
+type HSide = "right" | "left" | "below" | "above";
+/**
+ * Where a labelled atom's hydrogens go, as ChemDraw puts them: on the side away from its bonds. Right (NH2) or left
+ * (H2N), whichever keeps farther from every bond (right on a tie) — and where both keep within 60° of a bond (bonds
+ * leaving both ways), stacked below or above the element if that side is freer. A lone atom: right.
+ */
+function hSide(frag: XNode, node: XNode): HSide {
+  const p = posOf(node), id = node.attrs.id;
+  const dirs: number[] = [];
+  for (const b of frag.children) {
+    if (b.name !== "b" || (b.attrs.B !== id && b.attrs.E !== id)) continue;
+    const o = frag.children.find((c) => c.name === "n" && c.attrs.id === (b.attrs.B === id ? b.attrs.E : b.attrs.B));
+    if (o) dirs.push(Math.atan2(posOf(o)[1] - p[1], posOf(o)[0] - p[0]));
+  }
+  if (!dirs.length) return "right";
+  const clear = (a: number): number => Math.min(...dirs.map((d) => Math.abs(Math.atan2(Math.sin(a - d), Math.cos(a - d)))));
+  const r = clear(0), l = clear(Math.PI), dn = clear(Math.PI / 2), up = clear(-Math.PI / 2);
+  const side: HSide = l > r + 1e-9 ? "left" : "right";
+  if (Math.max(r, l) >= Math.PI / 3 - 1e-9) return side;
+  if (Math.max(dn, up) > Math.max(r, l) + 1e-9) return dn >= up - 1e-9 ? "below" : "above";
+  return side;
+}
+
+/**
+ * Writes a label's element and hydrogens for a side: NH2 left-justified (the N on the atom), H2N right-justified, or
+ * stacked — the element on the atom, its hydrogens centred below or above, centre-justified with LabelAlignment Below
+ * or Above as ChemDraw writes a stacked label. Its p and box from the glyph model.
+ */
+function placeHydrogens(doc: CdxDoc, node: XNode, t: XNode, sym: string, hs: string, side: HSide): void {
+  const s0 = t.children.find((c) => c.name === "s");
+  if (!s0) return;
+  const stacked = !!hs && (side === "below" || side === "above");
+  s0.text = !hs ? sym : side === "left" ? hs + sym : sym + hs;
+  const just = !hs ? "Left" : side === "left" ? "Right" : stacked ? "Center" : "Left";
+  t.attrs.LabelJustification = just;
+  if (stacked) t.attrs.LabelAlignment = side === "below" ? "Below" : "Above";
+  else if (t.attrs.LabelAlignment) t.attrs.LabelAlignment = just;
+  fitLabel(doc, node, t);
 }
 
 /** Sets an atom's charge (−9…9); a labelled atom's hydrogens follow. */
@@ -1307,9 +1374,15 @@ export function addCurvedArrow(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: { e
 }
 
 /** The curved arrow addCurvedArrow would add, not yet on the page (the canvas previews it while it is dragged). */
-export function curvedArrowElement(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: { electrons: 1 | 2; flip?: boolean }): XNode | string {
-  const chosen = bowAndPlans(doc, from, to);
-  const bow = (o.flip ? -chosen.bow : chosen.bow) as 1 | -1;
+export function curvedArrowElement(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: { electrons: 1 | 2; flip?: boolean; quick?: boolean }): XNode | string {
+  // quick: a coarse plan, for the preview while it is dragged (the arrow added on release is planned in full).
+  let chosen = bowAndPlans(doc, from, to, { quick: !!o.quick, electrons: o.electrons });
+  let bow = (o.flip ? -chosen.bow : chosen.bow) as 1 | -1;
+  // Where the coarse plan finds nothing, the full one may: the preview never shows less than the release will draw.
+  if (o.quick && typeof chosen.plans.get(bow) === "string") {
+    chosen = bowAndPlans(doc, from, to, { electrons: o.electrons });
+    bow = (o.flip ? -chosen.bow : chosen.bow) as 1 | -1;
+  }
   const plan = chosen.plans.get(bow)!;
   if (typeof plan === "string") return plan;
   const attrs: Record<string, string> = {
@@ -1347,7 +1420,7 @@ export function flipCurvedArrow(doc: CdxDoc, arrowId: string): string | null {
   const swap = (v: string | undefined): string | undefined => (v === "HalfLeft" ? "HalfRight" : v === "HalfRight" ? "HalfLeft" : v);
   if (el.attrs.ArrowSource || el.attrs.ArrowTarget) {
     const bow = (ar.angularSize > 0 ? -1 : 1) as 1 | -1; // the bow it has: negative AngularSize = bowed left
-    const plan = planCurved(doc, endOf(doc, el, "tail"), endOf(doc, el, "head"), (-bow) as 1 | -1);
+    const plan = planCurved(doc, endOf(doc, el, "tail"), endOf(doc, el, "head"), (-bow) as 1 | -1, { exclude: arrowId, electrons: /^Half/.test(el.attrs.ArrowheadHead ?? "") ? 1 : 2 });
     if (typeof plan === "string") return plan;
     for (const k of ["ArrowSource", "ArrowTarget"]) delete el.attrs[k];
     Object.assign(el.attrs, curvedAttrs(plan));
@@ -1441,7 +1514,7 @@ export function followAnchors(root: XNode, before: Map<XNode, { tail: P2 | null;
     const ang = Number(el.attrs.AngularSize ?? 0);
     const fresh = ang && Number.isFinite(ang) ? now() : null;
     if (fresh) {
-      const plan = planCurved(fresh, endOf(fresh, el, "tail"), endOf(fresh, el, "head"), ang < 0 ? 1 : -1);
+      const plan = planCurved(fresh, endOf(fresh, el, "tail"), endOf(fresh, el, "head"), ang < 0 ? 1 : -1, { exclude: el.attrs.id, electrons: /^Half/.test(el.attrs.ArrowheadHead ?? "") ? 1 : 2 });
       if (typeof plan !== "string") {
         Object.assign(el.attrs, curvedAttrs(plan));
         continue;

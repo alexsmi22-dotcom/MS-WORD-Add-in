@@ -99,7 +99,10 @@ describe("surface", () => {
     const g = sampleSurface(compileExpr("5", ["x", "y"]), 0, 1, 0, 1, 6);
     const svg = surfacePlotSvg({ grid: g, elevationDeg: 400 });
     expect(svg).not.toMatch(/NaN|Infinity/);
-    expect(svg).toMatch(/>5(\.0)?<\/text>/);
+    // Release D final review: clamped to 90° the z axis is a point on the page, where its three tick labels used to
+    // print on one spot; it is now left out, and the figure says so. The z axis around the value is checked at 30°.
+    expect(svg).toMatch(/no length on the page/);
+    expect(surfacePlotSvg({ grid: g, elevationDeg: 30 })).toMatch(/>5(\.0)?<\/text>/);
   });
   test("axes: x, y and z titles and true-minus ticks", () => {
     const g = sampleSurface(compileExpr("x*y", ["x", "y"]), -2, 2, -2, 2, 12);

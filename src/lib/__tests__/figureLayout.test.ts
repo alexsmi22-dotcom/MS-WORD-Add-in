@@ -8,7 +8,13 @@
 // worse than no gate, because it is believed.
 
 /* eslint-disable @typescript-eslint/no-var-requires */
-import { buildPlotSvg, parseData, Series } from "../plot";
+import { buildPlotSvg, readPlotData, Point, Series } from "../plot";
+/** The points of a pasted block (readPlotData; a refused block gives none), as the old parseData returned. */
+const parseData = (text: string): Point[] => {
+  const r = readPlotData(text);
+  return r.ok ? r.points : [];
+};
+
 import { finPerformance, radiationExchange, lumpedCapacitance } from "../heat2";
 
 const audit = require("../../../scripts/figure-layout-audit.js") as {

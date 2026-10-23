@@ -10,6 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { ASSAY_QUANT_CALCS, parseStandards, parseUnknowns, type QuantCalc, type QuantOutput } from "../assayQuantCalcs";
 import { gridToFieldText } from "../dataimport";
+import { insertableResultText } from "../insertGate";
 
 const calc = (id: string): QuantCalc => {
   const c = ASSAY_QUANT_CALCS.find((x) => x.id === id);
@@ -26,10 +27,8 @@ function run(id: string, over: Record<string, string> = {}): QuantOutput {
 /** A Word table as the table reader hands it over, through the block-field conversion. */
 const feed = (rows: string[][]): string => gridToFieldText(rows, "block");
 
-/** The pane's insertableResultText rule (taskpane.ts), restated: these three block insertion. */
-function insertable(text: string): boolean {
-  return !!text && !text.includes("—") && !text.includes("NaN") && !text.includes("Infinity");
-}
+/** The pane's insert gate itself (Release D: src/lib/insertGate.ts, which the pane imports). */
+const insertable = insertableResultText;
 /** Display contract: U+2212 for a negative number, a space before %. */
 function typographyClean(text: string): string[] {
   const bad: string[] = [];

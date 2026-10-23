@@ -248,13 +248,15 @@ describe("nothing is dropped silently", () => {
     expect(p.problems[0]).toContain("cites no references");
   });
 
-  test("a reference the style refuses keeps its number and is reported", () => {
+  test("a reference the style refuses takes no number, its citation reads ?, and it is reported", () => {
+    // Release D: numbering a refused reference left the text citing [1–3] over a list printed 1, 3.
     const pat: BibRecord = { id: "pat", type: "patent", title: "Widget" };
     const p = renumberPlan(["1"], store([A, pat, B], { "1": cite("a", "pat", "b") }), numericStub);
     expect(p.refused).toEqual([{ id: "pat", reason: "Numeric stub cannot format a patent reference." }]);
-    expect(p.entries.map((e) => [e.id, e.n, e.formatted === null])).toEqual([["a", 1, false], ["pat", 2, true], ["b", 3, false]]);
-    expect(p.bibliography.map((f) => f.plain[0])).toEqual(["1", "3"]);
-    expect(p.markerText["1"].plain).toBe("[1–3]");
+    expect(p.entries.map((e) => [e.id, e.n, e.formatted === null])).toEqual([["a", 1, false], ["pat", undefined, true], ["b", 2, false]]);
+    expect(p.bibliography.map((f) => f.plain[0])).toEqual(["1", "2"]);
+    expect(p.markerText["1"].plain).toContain("?");
+    expect(p.markerText["1"].plain).not.toMatch(/3/);
     expect(p.problems.some((s) => s.includes("“pat”"))).toBe(true);
   });
 

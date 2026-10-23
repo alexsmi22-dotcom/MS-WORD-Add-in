@@ -24,6 +24,9 @@ const INK = "#111111";
 const RULE = "#8a8a8a";
 const PART_FILL = "#e8eef7";
 const PART_FILL_ALT = "#f3f6fb";
+/** The destination-vector body: the one box in the row that is not amplified. */
+const VECTOR_FILL = "#e6f0e6";
+const VECTOR_EDGE = "#2f5d35";
 const PART_EDGE = "#1f3a5f";
 const JUNCTION = "#b91c1c";
 const OVERLAP_FILL = "#f7dcdc";
@@ -68,6 +71,8 @@ function fitName(name: string, boxW: number, size: number): string {
 export interface DiagramPart {
   name: string;
   length: number;
+  /** Drawn in the vector tint: a destination-vector body rather than an amplified part. */
+  vector?: boolean;
 }
 
 export interface DiagramJunction {
@@ -161,7 +166,7 @@ export function partsDiagramSvg(parts: DiagramPart[], junctions: DiagramJunction
   ps.forEach((part, i) => {
     const w = widths[i];
     p.push(
-      `<rect x="${x0[i].toFixed(1)}" y="${boxY}" width="${w.toFixed(1)}" height="${BOX_H}" fill="${i % 2 ? PART_FILL_ALT : PART_FILL}" stroke="${PART_EDGE}" stroke-width="0.9"/>`,
+      `<rect x="${x0[i].toFixed(1)}" y="${boxY}" width="${w.toFixed(1)}" height="${BOX_H}" fill="${part.vector ? VECTOR_FILL : i % 2 ? PART_FILL_ALT : PART_FILL}" stroke="${part.vector ? VECTOR_EDGE : PART_EDGE}" stroke-width="${part.vector ? "1.4" : "0.9"}"/>`,
     );
     p.push(
       `<text x="${(x0[i] + w / 2).toFixed(1)}" y="${boxY + 19}" text-anchor="middle" font-size="10" fill="${INK}">${esc(fitName(part.name, w, 10))}</text>`,
@@ -235,17 +240,34 @@ export function partsDiagramSvg(parts: DiagramPart[], junctions: DiagramJunction
 
 /** The Golden Gate diagram: parts in order, each junction's fusion site named. */
 export function goldenGateSvg(r: GoldenGateOk): string {
-  const parts: DiagramPart[] = r.order.map((name, i) => ({ name, length: r.partLengths[i] }));
+  // A destination vector is drawn as one of the boxes — it IS a piece of the
+  // product — but in its own tint, because it is the one box that is not
+  // amplified. Its two overhangs are already the labels on its two boundaries
+  // (the fusion site of a box is drawn at its left edge, and the one that closes
+  // the circle at the right-hand end), so the footer only has to name the
+  // dropout that left.
+  const vecName = r.destination?.name;
+  const parts: DiagramPart[] = r.order.map((name, i) => ({
+    name,
+    length: r.partLengths[i],
+    vector: vecName !== undefined && name === vecName,
+  }));
   // Junction i joins part i to part i+1, and its fusion site is the FIRST
   // part's own 5′ end for the junction that closes the circle.
   const junctions: DiagramJunction[] = r.overhangs.map((_o, i) => ({
     label: r.overhangs[(i + 1) % r.overhangs.length].seq,
   }));
+  const d = r.destination;
+  const dest = d
+    ? `destination vector “${d.name}” (green): body ${d.body.length.toLocaleString("en-US")} bp kept, ` +
+      `dropout ${d.dropout.length.toLocaleString("en-US")} bp cut out with both ${r.enzyme.name} sites, ` +
+      `vector overhangs ${d.overhang5} (5′) and ${d.overhang3} (3′) · `
+    : "";
   return partsDiagramSvg(parts, junctions, {
     title: `Golden Gate with ${r.enzyme.name} (${r.enzyme.site})`,
     circular: true,
     junctionWord: "fusion site",
-    footer: `Assembled product ${r.productLength.toLocaleString("en-US")} bp · ${r.overhangLength} nt fusion sites · box widths proportional to part length (short parts drawn at a minimum width)`,
+    footer: `${dest}Assembled product ${r.productLength.toLocaleString("en-US")} bp · ${r.overhangLength} nt fusion sites · box widths proportional to part length (short parts drawn at a minimum width)`,
   });
 }
 

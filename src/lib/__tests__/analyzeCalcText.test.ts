@@ -55,13 +55,16 @@ describe("the em-dash sentinel hazard is contained", () => {
     // rejects the em dash and additionally rejects a literal NaN or Infinity.
     // The hazard this file guards is unchanged: prose punctuation can still
     // cost a calculator its Insert button.
-    expect(PANE).toContain("function insertableResultText");
+    // Release D: the gate moved to src/lib/insertGate.ts; the pane imports it.
+    expect(PANE).toMatch(/import \{[^}]*\binsertableResultText\b[^}]*\} from "\.\.\/lib\/insertGate";/);
+    const GATE = fs.readFileSync(path.join(__dirname, "..", "insertGate.ts"), "utf8");
+    expect(GATE).toContain("export function insertableResultText");
     // EITHER SPELLING. The source may write the sentinel as the literal
     // character or as its — escape — they are the same character to the
     // compiler, and this file already keeps EM_PATTERNS for that reason. A test
     // that accepts only one spelling fails on a reformat and teaches nothing.
     expect(
-      EM_PATTERNS.some((p) => PANE.includes(`!text.includes("${p}")`)),
+      EM_PATTERNS.some((p) => GATE.includes(`!text.includes("${p}")`)),
     ).toBe(true);
     expect(PANE).toContain("HAZARD, learned the hard way");
   });

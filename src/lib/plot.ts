@@ -23,6 +23,7 @@ function factorial(n: number): number {
 
 import { foldAbsBars } from "./solve";
 import { composePanels } from "./panels";
+import { readDataBlock } from "./dataBlock";
 
 const FUNCS: Record<string, (x: number) => number> = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
@@ -251,20 +252,66 @@ export function samplePlot(expr: string, xmin: number, xmax: number, samples = 2
   return pts;
 }
 
-/** Parses "x y [err]" lines (whitespace- or comma-separated) into points. */
-export function parseData(text: string): Point[] {
-  const pts: Point[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const nums = t.split(/[\s,;]+/).map(Number);
-    if (nums.length >= 2 && Number.isFinite(nums[0]) && Number.isFinite(nums[1])) {
-      const p: Point = { x: nums[0], y: nums[1] };
-      if (nums.length >= 3 && Number.isFinite(nums[2])) p.err = Math.abs(nums[2]);
-      pts.push(p);
+/** Most data rows the y = f(x) data box reads (a figure of more points is not a figure anyone reads). */
+export const PLOT_DATA_ROWS_MAX = 100_000;
+
+export type PlotData = { ok: true; points: Point[]; notes: string[] } | { ok: false; error: string };
+
+/**
+ * Reads the y = f(x) data box: "x y [err]" per line, through RULE N (dataBlock.readDataBlock,
+ * the one reader the two-y-axes data, titration and materials tools use). Release D: the old
+ * splitter cut on every comma, so a European "2,5 3,5" became x = 2, y = 5, err = 3 — a
+ * confident wrong figure. Now:
+ *   - one field-separator decision per block (tab, else semicolon, else spaces and ", ", else
+ *     bare commas), so "1,2" and "0, 1" still read as x, y and "2,5 3,5" reads as 2.5, 3.5;
+ *   - a block mixing 2.5 and 3,5, an undecidable "1,000", a word inside the data, or a line
+ *     with only one number is REFUSED by name (it used to be split, dropped or skipped silently);
+ *   - a first line of words is a header (named in a note); lines starting with # are comments;
+ *   - a missing x or y (-, NA, nan, ., an empty tab cell) leaves that line out, and a note says
+ *     how many; a missing err only drops that point's bar; fields after the third are not
+ *     plotted, and a note says so;
+ *   - U+2212 and the en dash read as minus; 1×10³ and 50 % read as the product displays them.
+ * Empty input (or only comments) is ok with no points: the box is optional.
+ */
+export function readPlotData(text: string): PlotData {
+  const src = (text ?? "").split(/\r\n?|\n/);
+  // Comments become blank lines, so the reader's line numbers still match the paste.
+  const clean = src.map((l) => (l.trim().startsWith("#") ? "" : l)).join("\n");
+  if (!clean.trim()) return { ok: true, points: [], notes: [] };
+  const b = readDataBlock(clean, "The data", { maxRows: PLOT_DATA_ROWS_MAX });
+  if (!b.ok) return { ok: false, error: b.error };
+  const points: Point[] = [];
+  let skipped = 0;
+  let extra = 0;
+  for (let k = 0; k < b.rows.length; k++) {
+    const r = b.rows[k];
+    const filled = r.filter((v) => v !== null).length;
+    if (r.length < 2 && filled === 1) {
+      const line = b.lines[k];
+      const typed = (src[line - 1] ?? "").trim();
+      // "0,1" among lines separated by spaces is ONE comma-number (RULE N1 decides the separator per block).
+      const why = typed.includes(",") ? " (a comma with no space after it is part of a number when other lines are separated by spaces, tabs or semicolons)" : "";
+      return {
+        ok: false,
+        error: `The data: line ${line} ("${typed}") has one number${why}; write x and y on every line, separated the same way (x y, or x y err).`,
+      };
     }
+    const x = r[0] ?? null;
+    const y = r[1] ?? null;
+    if (x === null || y === null) {
+      skipped++;
+      continue;
+    }
+    const p: Point = { x, y };
+    const e = r[2] ?? null;
+    if (e !== null) p.err = Math.abs(e);
+    if (r.length > 3 && r.slice(3).some((v) => v !== null)) extra++;
+    points.push(p);
   }
-  return pts;
+  const notes = [...b.notes];
+  if (skipped) notes.push(`${skipped} line${skipped === 1 ? "" : "s"} left out: no x or no y value.`);
+  if (extra) notes.push(`${extra} line${extra === 1 ? " has" : "s have"} more than three columns; only x, y and the error (the first three) are plotted.`);
+  return { ok: true, points, notes };
 }
 
 // --- SVG rendering -----------------------------------------------------------
@@ -687,10 +734,26 @@ function wrapNote(text: string, maxChars: number): string[] {
   return out;
 }
 
-/** Wraps and bounds the notes for a figure `width` px wide. */
-export function layoutNotes(notes: string[] | undefined, width: number): string[] {
+/**
+ * BLACK-AND-WHITE (USPTO) LETTERING, Release D. 37 CFR 1.84(p)(3) is about every letter, so the
+ * figure style measures a lowercase run on its x-height (about 0.72 of the cap height in Arial):
+ * a lowercase axis title or note at the numerals' size is the run that forces the whole figure to
+ * be drawn larger, crowding it. The patent convention (tablechart.ts: numerals and capitals
+ * 12 px, any lowercase 17 px) draws a run that has a lowercase letter 1.4× larger, so both print
+ * alike. Notes in black and white are drawn at BW_NOTE_SIZE on BW_NOTE_LH lines.
+ */
+export const BW_LOWER_SCALE = 1.4;
+export const BW_NOTE_SIZE = 13;
+export const BW_NOTE_LH = 17;
+/** The font size for `text` drawn at `base`: unchanged as drawn; 1.4× in black and white when it has a lowercase letter. */
+export function bwPx(text: string, base: number, bw: boolean): number {
+  return bw && /\p{Ll}/u.test(text) ? Math.round(base * BW_LOWER_SCALE * 10) / 10 : base;
+}
+
+/** Wraps and bounds the notes for a figure `width` px wide (drawn at `size` px; NOTE_SIZE by default). */
+export function layoutNotes(notes: string[] | undefined, width: number, size: number = NOTE_SIZE): string[] {
   if (!notes || !notes.length) return [];
-  const maxChars = Math.max(20, Math.floor((width - 16) / 6.3));
+  const maxChars = Math.max(20, Math.floor((width - 16) / ((6.3 * size) / NOTE_SIZE)));
   const lines: string[] = [];
   for (const n of notes) {
     if (!n || !n.trim()) continue;

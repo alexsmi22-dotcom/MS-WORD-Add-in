@@ -461,12 +461,40 @@ function ieeeOnline(rec: BibRecord): string {
   return url ? ` [Online]. Available: ${esc(url)}` : "";
 }
 
+/**
+ * A title printed inside double quotes takes SINGLE quotes for any quotation of its own
+ * (“The ‘Hello World’ Program,”): every style here that quotes titles follows that rule. Straight
+ * and curly double quotes in the title text become ‘ and ’; quotes inside HTML tags (attribute
+ * values) are left alone.
+ */
+function nestQuotes(html: string): string {
+  // Direction by context, as typesetters do: a quote right after a letter, digit or closing
+  // punctuation closes; anywhere else (start, space, opening bracket) it opens. The context
+  // is the previous VISIBLE character, so a tag between (“<i>lac</i>”) does not reset it.
+  let prev = "";
+  return html
+    .split(/(<[^>]*>)/)
+    .map((part) => {
+      if (part.startsWith("<")) return part;
+      let out = "";
+      for (const ch of part) {
+        if (ch === "“") out += "‘";
+        else if (ch === "”") out += "’";
+        else if (ch === '"') out += prev && !/[\s([{—–-]/.test(prev) ? "’" : "‘";
+        else out += ch;
+        prev = ch;
+      }
+      return out;
+    })
+    .join("");
+}
+
 function ieeeReference(rec: BibRecord): Formatted {
   guard("ieee", rec);
   const etAl = !!rec["et-al-in-source"];
   const { names, editors } = creators(rec);
   const by = ieeeNames(names, etAl);
-  const t = richTitle(rec.title);
+  const t = nestQuotes(richTitle(rec.title));
   const quoted = t ? `“${t},”` : "";
   const doi = bareDoi(rec.DOI);
   const pages = rec.page ? `${isPageRange(rec.page) ? "pp." : "p."} ${formatPages(rec.page, "full")}` : "";
@@ -684,7 +712,8 @@ function opticaReference(rec: BibRecord): Formatted {
   const jPart = j ? normalizeRich(j) : "";
   const src = vol ? joinNonEmpty([jPart, volLoc], " ") : joinNonEmpty([jPart, volLoc], ", ");
   const tail = joinNonEmpty([src, year ? `(${esc(year)})` : ""], " ");
-  const quoted = t ? (tail ? (/[?!]$/.test(plainOf(t)) ? `“${t}”` : `“${t},”`) : period(`“${t}”`)) : "";
+  const tq = nestQuotes(t);
+  const quoted = tq ? (tail ? (/[?!]$/.test(plainOf(tq)) ? `“${tq}”` : `“${tq},”`) : period(`“${tq}”`)) : "";
   const head = joinNonEmpty([quoted, tail], " ");
   const html = by ? (head ? `${by}, ${head}` : by) : head;
   return out(period(html));
@@ -911,8 +940,9 @@ function chicagoBibNames(names: BibName[], etAl: boolean, editors: boolean): str
   return period(esc(s));
 }
 
-function chicagoQuoted(t: string): string {
+function chicagoQuoted(title: string): string {
   // Period inside the closing quote, unless the title ends in ? or !.
+  const t = nestQuotes(title);
   return /[?!]$/.test(plainOf(t)) ? `“${t}”` : `“${t}.”`;
 }
 
@@ -1043,7 +1073,8 @@ function chicagoNote(rec: BibRecord, item: CiteItem, first: boolean): Formatted 
     const short = chicagoShortTitle(titleHtml);
     const who = esc(chicagoCiteNames(rec));
     if (isBook) return out(`${who}, ${italicize(short)}${loc ? `, ${esc(loc)}` : ""}.`);
-    return out(loc ? `${who}, “${short},” ${esc(loc)}.` : `${who}, “${short}.”`);
+    const sq = nestQuotes(short);
+    return out(loc ? `${who}, “${sq},” ${esc(loc)}.` : `${who}, “${sq}.”`);
   }
   const { text, editors, count } = chicagoNoteNames(rec);
   const who = esc(text) + (editors ? (count > 1 ? ", eds.," : ", ed.,") : text ? "," : "");
@@ -1064,7 +1095,8 @@ function chicagoNote(rec: BibRecord, item: CiteItem, first: boolean): Formatted 
   const where = loc ? joinNonEmpty([esc(loc), art], ", ") : art || pages;
   const src = `${j} ${vol} (${year})${where ? `: ${where}` : ""}`;
   // CMOS: no comma after a title's closing ? or !.
-  const qt = /[?!]$/.test(plainOf(titleHtml)) ? `“${titleHtml}”` : `“${titleHtml},”`;
+  const tq = nestQuotes(titleHtml);
+  const qt = /[?!]$/.test(plainOf(tq)) ? `“${tq}”` : `“${tq},”`;
   return out(`${joinNonEmpty([who, qt, joinNonEmpty([src, link], ", ")], " ")}.`);
 }
 
@@ -1132,6 +1164,9 @@ export function referenceWarnings(id: StyleId, rec: BibRecord): string[] {
   if (wantsAbbrev) {
     const j = journalTitle(rec, id === "vancouver" ? "abbrev-nlm" : "abbrev");
     if (j.warning) w.push(j.warning);
+  }
+  if (rec.type === "article-journal" && !rec["container-title"]?.trim() && !rec["container-title-short"]?.trim()) {
+    w.push("No journal name in the record; the reference prints without one. Add the journal (container-title).");
   }
   if (!yearOf(rec.issued)) w.push("No year in the record.");
   if (!STYLE_INFO[id]?.types.includes(rec.type)) {

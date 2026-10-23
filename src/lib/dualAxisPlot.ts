@@ -91,6 +91,11 @@ export interface DualFigure {
   notes?: string[];
   width?: number;
   height?: number;
+  /**
+   * Black and white (37 CFR 1.84(a)(1), the USPTO figure style): both series in black, told apart by
+   * the dash and marker they already carry (seriesStyle grey), no light grid, black frame and text.
+   */
+  bw?: boolean;
 }
 
 const f1 = (n: number): string => (Math.round(n * 10) / 10).toFixed(1);
@@ -142,8 +147,11 @@ export function dualAxisPlotSvg(fig: DualFigure): string {
   const logX = fig.xScale === "log";
   const logL = fig.leftScale === "log";
   const logR = fig.rightScale === "log";
-  const sL: SeriesStyle = seriesStyle(0);
-  const sR: SeriesStyle = { ...seriesStyle(1), filled: false };
+  const bw = fig.bw === true;
+  const INK = bw ? "#000000" : "#333333";
+  const RULE = bw ? "#000000" : "#888888";
+  const sL: SeriesStyle = seriesStyle(0, { grey: bw });
+  const sR: SeriesStyle = { ...seriesStyle(1, { grey: bw }), filled: false };
   const xs = [...fig.left, ...fig.right].map((p) => p.x);
   const xd = domain(xs, logX, false);
   const ld = domain(fig.left.map((p) => p.y), logL, true);
@@ -155,12 +163,13 @@ export function dualAxisPlotSvg(fig: DualFigure): string {
   const leftLabel = withMult(fig.leftLabel ?? "", lAxis);
   const rightLabel = withMult(fig.rightLabel ?? "", rAxis);
   const widest = (ax: PlotAxisTicks): number => Math.max(1, ...ax.ticks.map((t) => t.text.length));
-  const ml = Math.min(130, Math.max(48, Math.ceil(widest(lAxis) * 6 + 7 + (leftLabel ? 23 : 4))));
-  const mr = Math.min(130, Math.max(48, Math.ceil(widest(rAxis) * 6 + 7 + (rightLabel ? 23 : 4))));
+  let ml = Math.min(130, Math.max(48, Math.ceil(widest(lAxis) * 6 + 7 + (leftLabel ? 23 : 4))));
+  let mr = Math.min(130, Math.max(48, Math.ceil(widest(rAxis) * 6 + 7 + (rightLabel ? 23 : 4))));
   const mt = fig.title ? 26 : 12;
   // The key: side by side when both entries fit in half the width each, else
   // one per row (a long axis title is shortened only past the full width).
-  const keyText = (label: string | undefined, side: string): string => (label ? `${side} axis: ${label}` : `${side} axis`);
+  // Black and white (USPTO): the key names the axis only (its title is beside it), so an entry is never shortened.
+  const keyText = (label: string | undefined, side: string): string => (label && !bw ? `${side} axis: ${label}` : `${side} axis`);
   const halfRoom = Math.floor((W / 2 - 8 - 24 - 10) / 6);
   const fullRoom = Math.max(8, Math.floor((W - 16 - 24) / 6));
   const keyL = keyText(fig.leftLabel, "left");
@@ -168,8 +177,33 @@ export function dualAxisPlotSvg(fig: DualFigure): string {
   const stacked = keyL.length > halfRoom || keyR.length > halfRoom;
   const keyH = stacked ? 30 : 16;
   const mb = (xlabel ? 42 : 30) + keyH;
-  const pw = W - ml - mr;
   const ph = H - mt - mb;
+  // Black and white (USPTO, review round 1): an axis title is never clipped. It is centred on the frame and moved to
+  // stay on the canvas, above the key; a title longer than that room is set on two lines; a title that
+  // cannot fit on two is refused by name (USPTO lettering cannot shrink below 37 CFR 1.84(p)(3)).
+  const TITLE_FS = 11;
+  const titleLen = (t: string): number => t.length * TITLE_FS * 0.6;
+  // From the canvas top to just above the key (the side margins are clear of the x title below the frame).
+  const titleBottom = H - keyH - 6;
+  const titleRoom = titleBottom - 4;
+  const titleLines = (t: string, side: string): string[] => {
+    if (!t) return [];
+    if (!bw || titleLen(t) <= titleRoom) return [t];
+    const words = t.split(" ");
+    let best: string[] | null = null;
+    for (let i = 1; i < words.length; i++) {
+      const a = words.slice(0, i).join(" ");
+      const b = words.slice(i).join(" ");
+      if (titleLen(a) <= titleRoom && titleLen(b) <= titleRoom && (!best || Math.abs(a.length - b.length) < Math.abs(best[0].length - best[1].length))) best = [a, b];
+    }
+    if (!best) throw new Error(`the ${side} axis title “${t}” is too long to fit beside the plot in a USPTO drawing (its letters cannot be smaller than 37 CFR 1.84(p)(3) allows); shorten it`);
+    return best;
+  };
+  const leftLines = titleLines(leftLabel, "left");
+  const rightLines = titleLines(rightLabel, "right");
+  if (leftLines.length > 1) ml += 13;
+  if (rightLines.length > 1) mr += 13;
+  const pw = W - ml - mr;
   const noteLines = layoutNotes(fig.notes, W);
   const outH = H + (noteLines.length ? noteLines.length * NOTE_LH + 4 : 0);
   const tx = (v: number): number => (logX ? Math.log10(v) : v);
@@ -178,19 +212,20 @@ export function dualAxisPlotSvg(fig: DualFigure): string {
   const syR = (v: number): number => mt + ph - (((logR ? Math.log10(v) : v) - rd.lo) / (rd.hi - rd.lo)) * ph;
 
   const parts: string[] = [`<rect width="${W}" height="${outH}" fill="#ffffff"/>`];
-  parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="#888888" stroke-width="1"/>`);
-  for (const v of xAxis.minor) parts.push(`<line x1="${f1(sx(v))}" y1="${mt}" x2="${f1(sx(v))}" y2="${mt + ph}" stroke="#f5f5f5"/>`);
+  parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="${RULE}" stroke-width="1"/>`);
+  // Patent drawings carry no light grid (the tablechart / solid-form convention).
+  if (!bw) for (const v of xAxis.minor) parts.push(`<line x1="${f1(sx(v))}" y1="${mt}" x2="${f1(sx(v))}" y2="${mt + ph}" stroke="#f5f5f5"/>`);
   for (const t of xAxis.ticks) {
     const px = sx(t.v);
-    parts.push(`<line x1="${f1(px)}" y1="${mt}" x2="${f1(px)}" y2="${mt + ph}" stroke="#eeeeee"/>`);
-    parts.push(`<line x1="${f1(px)}" y1="${mt + ph}" x2="${f1(px)}" y2="${mt + ph + 4}" stroke="#888888"/>`);
-    parts.push(`<text x="${f1(px)}" y="${mt + ph + 16}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(t.text)}</text>`);
+    if (!bw) parts.push(`<line x1="${f1(px)}" y1="${mt}" x2="${f1(px)}" y2="${mt + ph}" stroke="#eeeeee"/>`);
+    parts.push(`<line x1="${f1(px)}" y1="${mt + ph}" x2="${f1(px)}" y2="${mt + ph + 4}" stroke="${RULE}"/>`);
+    parts.push(`<text x="${f1(px)}" y="${mt + ph + 16}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="${INK}">${escapeXml(t.text)}</text>`);
   }
   // Gridlines follow the LEFT axis only: two sets of horizontal rules would
   // make neither readable.
   for (const t of lAxis.ticks) {
     const py = syL(t.v);
-    parts.push(`<line x1="${ml}" y1="${f1(py)}" x2="${ml + pw}" y2="${f1(py)}" stroke="#eeeeee"/>`);
+    if (!bw) parts.push(`<line x1="${ml}" y1="${f1(py)}" x2="${ml + pw}" y2="${f1(py)}" stroke="#eeeeee"/>`);
     parts.push(`<line x1="${ml - 4}" y1="${f1(py)}" x2="${ml}" y2="${f1(py)}" stroke="${sL.color}"/>`);
     parts.push(`<text x="${ml - 7}" y="${f1(py + 3)}" text-anchor="end" font-family="${FONT}" font-size="10" fill="${sL.color}">${escapeXml(t.text)}</text>`);
   }
@@ -213,12 +248,25 @@ export function dualAxisPlotSvg(fig: DualFigure): string {
   drawSeries(fig.right, sR, syR);
 
   if (fig.title) {
-    parts.push(`<text data-figure-title="1" x="${f1(W / 2)}" y="16" text-anchor="middle" font-family="${FONT}" font-size="13" font-weight="bold" fill="#222222">${escapeXml(fig.title)}</text>`);
+    parts.push(`<text data-figure-title="1" x="${f1(W / 2)}" y="16" text-anchor="middle" font-family="${FONT}" font-size="13" font-weight="bold" fill="${bw ? "#000000" : "#222222"}">${escapeXml(fig.title)}</text>`);
   }
-  if (xlabel) parts.push(`<text x="${f1(ml + pw / 2)}" y="${H - 8 - keyH}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="#333333">${escapeXml(xlabel)}</text>`);
+  if (xlabel) parts.push(`<text x="${f1(ml + pw / 2)}" y="${H - 8 - keyH}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="${INK}">${escapeXml(xlabel)}</text>`);
   const cy = mt + ph / 2;
-  if (leftLabel) parts.push(`<text x="14" y="${f1(cy)}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="${sL.color}" transform="rotate(-90 14 ${f1(cy)})">${escapeXml(leftLabel)}</text>`);
-  if (rightLabel) parts.push(`<text x="${W - 14}" y="${f1(cy)}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="${sR.color}" transform="rotate(90 ${W - 14} ${f1(cy)})">${escapeXml(rightLabel)}</text>`);
+  if (!bw) {
+    if (leftLabel) parts.push(`<text x="14" y="${f1(cy)}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="${sL.color}" transform="rotate(-90 14 ${f1(cy)})">${escapeXml(leftLabel)}</text>`);
+    if (rightLabel) parts.push(`<text x="${W - 14}" y="${f1(cy)}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="${sR.color}" transform="rotate(90 ${W - 14} ${f1(cy)})">${escapeXml(rightLabel)}</text>`);
+  } else {
+    // Centred on the frame, moved (not clipped) to keep the whole title between the canvas top and the key.
+    const at = (t: string): number => Math.min(titleBottom - titleLen(t) / 2, Math.max(4 + titleLen(t) / 2, cy));
+    leftLines.forEach((t, i) => {
+      const x = 14 + i * 13;
+      parts.push(`<text x="${x}" y="${f1(at(t))}" text-anchor="middle" font-family="${FONT}" font-size="${TITLE_FS}" fill="${sL.color}" transform="rotate(-90 ${x} ${f1(at(t))})">${escapeXml(t)}</text>`);
+    });
+    rightLines.forEach((t, i) => {
+      const x = W - 14 - i * 13;
+      parts.push(`<text x="${x}" y="${f1(at(t))}" text-anchor="middle" font-family="${FONT}" font-size="${TITLE_FS}" fill="${sR.color}" transform="rotate(90 ${x} ${f1(at(t))})">${escapeXml(t)}</text>`);
+    });
+  }
 
   // The key: which series reads against which axis.
   const keyItem = (x: number, ky: number, st: SeriesStyle, text: string, anchorEnd: boolean): void => {
@@ -237,7 +285,7 @@ export function dualAxisPlotSvg(fig: DualFigure): string {
     keyItem(W - 8, H - 8, sR, keyR, true);
   }
   noteLines.forEach((line, i) => {
-    parts.push(`<text x="8" y="${H + 11 + i * NOTE_LH}" font-family="${FONT}" font-size="${NOTE_SIZE}" fill="#555555">${escapeXml(line)}</text>`);
+    parts.push(`<text x="8" y="${H + 11 + i * NOTE_LH}" font-family="${FONT}" font-size="${NOTE_SIZE}" fill="${bw ? "#000000" : "#555555"}">${escapeXml(line)}</text>`);
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${outH}" viewBox="0 0 ${W} ${outH}">${parts.join("")}</svg>`;
 }

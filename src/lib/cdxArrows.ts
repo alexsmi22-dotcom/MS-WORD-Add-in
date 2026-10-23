@@ -23,8 +23,10 @@
  * the atom's label, and arrives with its tip just short of the target's label, pointing at it; a short arrow takes a
  * rounder arc, so the head never eats the shaft. Every loop here has a fixed bound.
  */
-import type { Box, CdxArrow, CdxDoc, CdxNode, Pt } from "./cdxml";
-import { chargeGlyph, radicalBox } from "./cdxGlyphs";
+import type { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxNode, Pt } from "./cdxml";
+import { chargeGlyph, labelInk, radicalBox, segBoxDist } from "./cdxGlyphs";
+// (A cycle with cdxmlRender, used only inside functions: the planner measures other arrows' heads as they are drawn.)
+import { arrowMarkup } from "./cdxmlRender";
 
 export type ArrowEnd = { atom: string } | { bond: string } | { at: Pt };
 
@@ -37,8 +39,6 @@ const unit = (a: Pt): Pt => {
   return [a[0] / l, a[1] / l];
 };
 const cross = (a: Pt, b: Pt): number => a[0] * b[1] - a[1] * b[0];
-/** Turned by `ang` radians, anticlockwise on the page (y points down). */
-const turn = (d: Pt, ang: number): Pt => [d[0] * Math.cos(ang) + d[1] * Math.sin(ang), -d[0] * Math.sin(ang) + d[1] * Math.cos(ang)];
 /** The normal to the right of direction d on the page (y down). */
 const right = (d: Pt): Pt => [-d[1], d[0]];
 
@@ -106,8 +106,50 @@ export function distToTrace(pts: Pt[], p: Pt): number {
  * ate most of the shaft (walkthrough).
  */
 export const CURVED_HEAD = { HeadSize: "700", ArrowheadCenterSize: "610", ArrowheadWidth: "230" } as const;
-/** The arc's sweep for a long arrow, and for a short one (degrees). */
-const SWEEP_MIN = 75, SWEEP_MAX = 110;
+
+/**
+ * The planner (Release D, rebuilt table-first after three rounds of tuning one cost sum failed). Every candidate arc is
+ * CONSTRUCTED to land right and then FILTERED by hard clearances; only clean candidates are scored:
+ *   - the tail: beside its bond's middle (clear of the drawn lines), round its atom's letters, or its page point;
+ *   - the head: round its target's letters (or vertex, or beside its bond) pointing at it — the circle through the
+ *     tail and the tip whose drawn head (laid along the chord of its last head length, as the renderer draws it) points
+ *     that way is unique, so "pointing at its atom" holds by construction, and the sweep follows from it;
+ *   - kept only if the sweep is SWEEP_LO…SWEEP_HI, the shaft has room beyond its head, the tail leaves away from its
+ *     atom or bond, and nothing is in the way: other bonds' lines, letters, charge signs and radical dots, captions,
+ *     and the arrows already on the page (CLEAR, below; every distance measured from the ink as drawn);
+ *   - scored: the sweep nearest the one its length reads best at, the head square on its target, the tail nearest its
+ *     bond's middle, the most room; on a tie, over the top.
+ * Both bows come from one pass. A side with no clean arc is refused by name — a curve through a bond or a label is
+ * never drawn. A bond to one of its own atoms (a homolysis, a leaving group) bows by default to the side of the bond
+ * with fewer neighbours (up on a tie), decided by the bond alone, so the two fishhooks of a homolysis share a side.
+ * Obstacles are binned in a grid of bond-length cells; every loop has a fixed bound.
+ */
+
+/** Rejection counts, for a diagnostic run (null: not counted). */
+export const planDebug: { counts: Record<string, number> | null; seen?: Array<{ T: Pt; H: Pt; D: Pt; sweep: number; r: number }> } = { counts: null };
+const dbg = (k: string): number => {
+  if (planDebug.counts) planDebug.counts[k] = (planDebug.counts[k] ?? 0) + 1;
+  return -1;
+};
+
+/** The sweep (degrees): the range kept, and the one aimed at for a short and a long arrow. */
+const SWEEP_LO = 30, SWEEP_HI = 110, SWEEP_SHORT = 95, SWEEP_LONG = 65;
+/** Clearances (points), centre line to ink: what a candidate must keep (each a little over what the table measures). */
+const CLEAR = {
+  /** Another bond's line: its ink 1.2 pt clear, and its main line at least 0.2 bond length from the shaft's centre. */
+  bondInk: 1.2,
+  bondMain: 0.2,
+  /** The head: 0.15 bond length (centre to centre) from every bond but its target. */
+  headBond: 0.15,
+  /** Letters: 1.2 pt; the arrow's own atoms' letters 0.7 pt; charge signs, radical dots, captions 1.25 pt. */
+  label: 1.2,
+  ownLabel: 0.7,
+  glyph: 1.25,
+  /** Another arrow: 1.7 pt, ink to ink. */
+  arrow: 1.7,
+} as const;
+/** Gaps (points, ink to ink): a tail from its atom's letters, a tip from its target's letters, a tail from its bond's lines, a tip from a bond's lines. */
+const GAP = { tailLabel: 1.0, tipLabel: 1.1, tailBond: 1.5, tipBond: 1.1 } as const;
 
 export interface CurvedPlan {
   tail: Pt;
@@ -116,149 +158,196 @@ export interface CurvedPlan {
   r: number;
   /** Degrees, positive anticlockwise on the page (ChemDraw's AngularSize). */
   angularSize: number;
-  /** +1: bowed to the left of the way it runs; −1: to the right. */
+  /** +1: bowed to the left of the way it runs (clockwise on the page); −1: to the right. */
   bow: 1 | -1;
-  /** An ellipse's semi-axes as vectors (a short hop); absent for a circle of radius r with axes along x and y. */
+  /** An ellipse's semi-axes as vectors; absent for a circle of radius r with axes along x and y. */
   axes?: { major: Pt; minor: Pt };
-  /** How far it runs into other atoms' and bonds' clearance (0 = clear). */
+  /** How far it runs into other ink's clearance: always 0 for a plan returned (a candidate that clashes is refused). */
   clash?: number;
   source?: string;
   target?: string;
 }
 
-interface EndInfo {
-  p: Pt;
-  id?: string;
-  /** How far the arrow's end sits from p in direction d (clear of a label, off an atom's bonds). */
-  reach: (d: Pt) => number;
-  kind: "atom" | "bond" | "at";
-  /** The label ink boxes at this end: the atom's own, or both of the bond's atoms' (a short hop keeps clear of them). */
-  labels: Box[];
-  /** Bonds the arrow may run close to at this end (the bond it starts or ends on; an atom's own bonds). */
-  ownBonds: string[];
-  /** For a double (or aromatic) bond: true when direction d leaves toward its inner line. */
-  inner?: (d: Pt) => boolean;
-  /** A bond end's own placement for an arrow leaving (or arriving) along d: near the bond's middle, beside its lines. */
-  place?: (d: Pt, role: "tail" | "head") => Pt;
-}
-const labelBox = (n: CdxNode | undefined): Box | null => (n?.label?.box && n.label.runs.some((q) => q.text.trim()) ? n.label.box : null);
-
-function nodesOf(doc: CdxDoc): Map<string, CdxNode> {
-  const m = new Map<string, CdxNode>();
-  for (const o of doc.objects) for (const it of o.items) if (it.kind === "fragment") for (const n of it.v.nodes) m.set(n.id, n);
-  return m;
+/** Options: `exclude` an arrow already on the page that this plan replaces (a flip, a re-plan); `quick` a coarse plan (a drag's preview). */
+export interface PlanOptions {
+  exclude?: string;
+  quick?: boolean;
+  /** 1 for a fishhook: a fishhook from a bond to one of its own atoms is half a homolysis (its tail on that atom's half; its partner's side kept). */
+  electrons?: 1 | 2;
 }
 
-/** Where an end is, and how far its arrow keeps from it. Null when the atom or bond is not on the page. */
-function resolve(doc: CdxDoc, end: ArrowEnd, role: "tail" | "head", nodes: Map<string, CdxNode>): EndInfo | null {
-  const L = doc.style.bondLength, lw = doc.style.lineWidth;
-  if ("at" in end) return end.at.every(Number.isFinite) ? { p: end.at, reach: () => 0, kind: "at", labels: [], ownBonds: [] } : null;
-  if ("atom" in end) {
-    const n = nodes.get(end.atom);
-    if (!n) return null;
-    const ownBonds: string[] = [];
-    for (const o of doc.objects) for (const it of o.items) if (it.kind === "fragment") for (const b of it.v.bonds) if (b.b === n.id || b.e === n.id) ownBonds.push(b.id);
-    const box = n.label?.box && n.label.runs.some((r) => r.text.trim()) ? n.label.box : null;
-    if (!box) {
-      // A bare vertex: off the bonds that meet there (a head tip a little farther, as it points into them).
-      const r = (role === "tail" ? 0.2 : 0.22) * L;
-      return { p: n.p, id: n.id, reach: () => r, kind: "atom", labels: [], ownBonds };
-    }
-    // A labelled atom: where the ray from the atom leaves its label's box, then a clear gap.
-    const gap = (role === "tail" ? 0.12 : 0.1) * L + lw;
-    return {
-      p: n.p,
-      id: n.id,
-      kind: "atom",
-      labels: [box],
-      ownBonds,
-      reach: (d) => {
-        let t = Infinity;
-        if (d[0] > 1e-9) t = Math.min(t, (box[2] - n.p[0]) / d[0]);
-        if (d[0] < -1e-9) t = Math.min(t, (box[0] - n.p[0]) / d[0]);
-        if (d[1] > 1e-9) t = Math.min(t, (box[3] - n.p[1]) / d[1]);
-        if (d[1] < -1e-9) t = Math.min(t, (box[1] - n.p[1]) / d[1]);
-        return (Number.isFinite(t) ? Math.max(0, t) : 0) + gap;
-      },
-    };
+type Seg = { a: Pt; b: Pt; bond?: string; main?: boolean; arrow?: string };
+type BoxItem = { bx: Box; node?: string; kind: "label" | "glyph" | "caption" };
+
+/** Obstacles binned by bond-length cells. */
+class Grid {
+  private cells = new Map<number, { segs: Seg[]; boxes: BoxItem[] }>();
+  constructor(private cell: number) {}
+  private key = (i: number, j: number): number => (i + 4096) * 8192 + (j + 4096);
+  private range(x0: number, y0: number, x1: number, y1: number, f: (k: number) => void): void {
+    const c = this.cell;
+    const i0 = Math.max(-4000, Math.floor(x0 / c)), i1 = Math.min(4000, Math.floor(x1 / c)), j0 = Math.max(-4000, Math.floor(y0 / c)), j1 = Math.min(4000, Math.floor(y1 / c));
+    // A bounded walk: an item spans at most 64 × 64 cells (a damaged coordinate cannot freeze Word).
+    for (let i = i0; i <= i1 && i <= i0 + 64; i++) for (let j = j0; j <= j1 && j <= j0 + 64; j++) f(this.key(i, j));
   }
+  private at(k: number): { segs: Seg[]; boxes: BoxItem[] } {
+    let v = this.cells.get(k);
+    if (!v) this.cells.set(k, (v = { segs: [], boxes: [] }));
+    return v;
+  }
+  addSeg(s: Seg): void {
+    this.range(Math.min(s.a[0], s.b[0]), Math.min(s.a[1], s.b[1]), Math.max(s.a[0], s.b[0]), Math.max(s.a[1], s.b[1]), (k) => this.at(k).segs.push(s));
+  }
+  addBox(b: BoxItem): void {
+    this.range(b.bx[0], b.bx[1], b.bx[2], b.bx[3], (k) => this.at(k).boxes.push(b));
+  }
+  query(x0: number, y0: number, x1: number, y1: number): { segs: Set<Seg>; boxes: Set<BoxItem> } {
+    const segs = new Set<Seg>(), boxes = new Set<BoxItem>();
+    this.range(x0, y0, x1, y1, (k) => {
+      const v = this.cells.get(k);
+      if (v) {
+        for (const s of v.segs) segs.add(s);
+        for (const b of v.boxes) boxes.add(b);
+      }
+    });
+    return { segs, boxes };
+  }
+}
+
+interface BondInfo {
+  id: string;
+  b: string;
+  e: string;
+  order: string;
+  /** +1 / −1: the side (of right(dB)) a double bond's second line lies on; 0 centred or single. */
+  side: number;
+  multiple: boolean;
+  triple: boolean;
+}
+
+/** What a page holds for the planner: its atoms, bonds, letters and every obstacle, binned. */
+interface PlanCtx {
+  L: number;
+  labelSize: number;
+  lw: number;
+  gap: number;
+  nodes: Map<string, CdxNode>;
+  bonds: Map<string, BondInfo>;
+  /** The bonds at each atom. */
+  atBonds: Map<string, string[]>;
+  ink: Map<string, Box>;
+  grid: Grid;
+  /** The tips of the curved arrows on the page (a shared target point: their heads may meet there). */
+  tips: Map<string, Pt>;
+  /** Curved arrows from a bond to one of its atoms: which side of the bond each bows to. */
+  hooks: Array<{ source: string; target: string; side: number }>;
+}
+
+const ctxCache = new WeakMap<CdxDoc, { objects: unknown; exclude: string | undefined; ctx: PlanCtx }>();
+
+function planContext(doc: CdxDoc, exclude?: string): PlanCtx {
+  const hit = ctxCache.get(doc);
+  if (hit && hit.objects === doc.objects && hit.exclude === exclude) return hit.ctx;
+  const st = doc.style, L = st.bondLength, lw = st.lineWidth, gap = st.bondGap;
+  const nodes = new Map<string, CdxNode>(), bonds = new Map<string, BondInfo>(), atBonds = new Map<string, string[]>(), ink = new Map<string, Box>();
+  const grid = new Grid(Math.max(L, 1));
+  const frags: CdxFragment[] = [];
+  for (const o of doc.objects) for (const it of o.items) if (it.kind === "fragment") frags.push(it.v);
+  for (const f of frags) for (const n of f.nodes) nodes.set(n.id, n);
+  // Charges and radicals a symbol on the page draws are boxed as that symbol.
+  const drawnBySymbol = new Set<string>();
+  for (const o of doc.objects) for (const it of o.items) if (it.kind === "graphic") for (const c of it.v.el.children) if (c.name === "represent" && c.attrs.object) drawnBySymbol.add(c.attrs.object);
+  for (const f of frags) {
+    for (const bd of f.bonds) {
+      const pa = nodes.get(bd.b)?.p, pb = nodes.get(bd.e)?.p;
+      if (!pa || !pb) continue;
+      const ord = bd.order.split(/\s+/)[0];
+      const multiple = ord === "2" || ord === "1.5" || ord === "3";
+      bonds.set(bd.id, { id: bd.id, b: bd.b, e: bd.e, order: ord, side: multiple && ord !== "3" ? doubleSide(f, bd, nodes) : 0, multiple, triple: ord === "3" });
+      (atBonds.get(bd.b) ?? atBonds.set(bd.b, []).get(bd.b)!).push(bd.id);
+      (atBonds.get(bd.e) ?? atBonds.set(bd.e, []).get(bd.e)!).push(bd.id);
+      grid.addSeg({ a: pa, b: pb, bond: bd.id, main: true });
+      // A multiple bond's other lines where they are drawn (a centred double bond's two lie within its main line's clearance).
+      if (multiple) {
+        const info = bonds.get(bd.id)!;
+        const n = mul(right(unit(sub(pb, pa))), gap);
+        for (const sgn of info.triple ? [1, -1] : info.side ? [info.side] : []) grid.addSeg({ a: addp(pa, mul(n, sgn)), b: addp(pb, mul(n, sgn)), bond: bd.id, main: false });
+      }
+    }
+  }
+  for (const n of nodes.values()) {
+    const bx = labelInk(doc.fonts, n);
+    if (bx) {
+      ink.set(n.id, bx);
+      grid.addBox({ bx, node: n.id, kind: "label" });
+    }
+    const nb = (atBonds.get(n.id) ?? []).map((id) => bonds.get(id)!).map((b) => nodes.get(b.b === n.id ? b.e : b.b)!.p);
+    if (n.charge && !drawnBySymbol.has(n.id)) grid.addBox({ bx: chargeGlyph(st, n, { nbrs: nb, fonts: doc.fonts, doc }).box, node: n.id, kind: "glyph" });
+    const rad = n.el.attrs.Radical;
+    if (rad && rad !== "None" && !drawnBySymbol.has(n.id)) grid.addBox({ bx: radicalBox(st, n, rad), node: n.id, kind: "glyph" });
+  }
+  const tips = new Map<string, Pt>();
+  const hooks: PlanCtx["hooks"] = [];
   for (const o of doc.objects)
     for (const it of o.items) {
-      if (it.kind !== "fragment") continue;
-      const b = it.v.bonds.find((x) => x.id === end.bond);
-      if (!b) continue;
-      const pa = nodes.get(b.b)?.p, pb = nodes.get(b.e)?.p;
-      if (!pa || !pb) return null;
-      const r = (role === "tail" ? 0.2 : 0.16) * L;
-      const mid = mul(addp(pa, pb), 0.5);
-      // Between two labels the bond's middle can lie inside a label's box (Br–Br): the end leaves that box first.
-      const boxes = [nodes.get(b.b), nodes.get(b.e)]
-        .map((n) => (n?.label?.box && n.label.runs.some((q) => q.text.trim()) ? n.label.box : null))
-        .filter((x): x is [number, number, number, number] => !!x && mid[0] > x[0] && mid[0] < x[2] && mid[1] > x[1] && mid[1] < x[3]);
-      // A double bond's second line (as cdxmlRender places it: DoublePosition; else toward the ring's centre; else toward
-      // the side with more neighbours; centred otherwise), so the tail starts clear of both lines (review: a tail sat on
-      // the inner line of a ring's double bond).
-      const order = b.order.split(/\s+/)[0];
-      const gap = doc.style.bondGap;
-      const dB = unit(sub(pb, pa)), nR = right(dB);
-      let side = 0; // +1: the second line lies on nR's side
-      if (order === "2" || order === "1.5") {
-        if (b.doublePosition === "Right") side = 1;
-        else if (b.doublePosition === "Left") side = -1;
-        else if (b.doublePosition !== "Center") {
-          const ring = ringCentre(it.v, b);
-          if (ring) side = Math.sign(cross(dB, sub(ring, pa))) || 0;
-          else {
-            let sum = 0;
-            for (const o2 of it.v.bonds) {
-              if (o2 === b) continue;
-              const other = o2.b === b.b || o2.b === b.e ? o2.e : o2.e === b.b || o2.e === b.e ? o2.b : null;
-              const q = other ? nodes.get(other)?.p : undefined;
-              if (q) sum += Math.sign(cross(dB, sub(q, pa)));
-            }
-            side = Math.sign(sum);
+      if (it.kind === "text" && it.v.box) grid.addBox({ bx: it.v.box, kind: "caption" });
+      if (it.kind === "graphic" && it.v.kind === "Symbol") {
+        const rr = Math.max(len(sub(it.v.p2, it.v.p1)) / 3, st.labelSize * 0.25);
+        grid.addBox({ bx: [it.v.p1[0] - rr, it.v.p1[1] - rr, it.v.p1[0] + rr, it.v.p1[1] + rr], kind: "glyph" });
+      }
+      if (it.kind === "arrow" && it.v.id !== exclude) {
+        const ar = it.v;
+        const tr = arrowTrace(ar, 24);
+        for (let i = 0; i + 1 < tr.length; i++) grid.addSeg({ a: tr[i], b: tr[i + 1], arrow: ar.id });
+        // Its heads and any second shaft, as drawn (straight segments of the markup).
+        for (const poly of arrowInk(st, ar)) for (let i = 0; i + 1 < poly.length; i++) grid.addSeg({ a: poly[i], b: poly[i + 1], arrow: ar.id });
+        if (arcOf(ar)) {
+          tips.set(ar.id, ar.head);
+          const sb = bonds.get(ar.el.attrs.ArrowSource ?? ""), tg = ar.el.attrs.ArrowTarget;
+          if (sb && tg && (tg === sb.b || tg === sb.e)) {
+            const pa = nodes.get(sb.b)!.p, pb = nodes.get(sb.e)!.p, mid = tr[Math.floor(tr.length / 2)];
+            hooks.push({ source: sb.id, target: tg, side: Math.sign(cross(unit(sub(pb, pa)), sub(mid, mul(addp(pa, pb), 0.5)))) });
           }
         }
       }
-      const multiple = order === "2" || order === "1.5" || order === "3";
-      /** How far off the bond's own line the lines on d's side reach (0 for the outer side of an offset double bond). */
-      const lineOff = (d: Pt): number => {
-        if (!multiple) return 0;
-        if (order === "3") return gap;
-        if (side === 0) return gap / 2;
-        return Math.sign(d[0] * nR[0] + d[1] * nR[1]) === side ? gap : 0;
-      };
-      const inner = multiple && order !== "3" && side !== 0 ? (d: Pt): boolean => Math.sign(d[0] * nR[0] + d[1] * nR[1]) === side : undefined;
-      const reach = (d: Pt): number => {
-        let t = 0;
-        // Clear of the lines on its side by 1.5 pt (measured across the bond).
-        const across = Math.abs(d[0] * nR[0] + d[1] * nR[1]);
-        if (multiple) t = Math.min((lineOff(d) + lw / 2 + 1.5) / Math.max(across, 0.3), 0.6 * L);
-        for (const box of boxes) {
-          let e = Infinity;
-          if (d[0] > 1e-9) e = Math.min(e, (box[2] - mid[0]) / d[0]);
-          if (d[0] < -1e-9) e = Math.min(e, (box[0] - mid[0]) / d[0]);
-          if (d[1] > 1e-9) e = Math.min(e, (box[3] - mid[1]) / d[1]);
-          if (d[1] < -1e-9) e = Math.min(e, (box[1] - mid[1]) / d[1]);
-          if (Number.isFinite(e)) t = Math.max(t, e + lw);
-        }
-        return Math.max(r, t);
-      };
-      const labels = [nodes.get(b.b), nodes.get(b.e)].map(labelBox).filter((x): x is Box => !!x);
-      // The end placed by rule (review round 2): within a quarter bond of the middle, measured along the bond; beside
-      // the lines on d's side — a tail 1.5 pt clear of the drawn lines, a head's tip 1.1 pt (as a tip stops short of an
-      // atom's label) — and out of the bond's atoms' labels.
-      const place = (d: Pt, role2: "tail" | "head"): Pt => {
-        const sgn = Math.sign(d[0] * nR[0] + d[1] * nR[1]) || 1;
-        const along = Math.max(-0.25 * L, Math.min(0.25 * L, (d[0] * dB[0] + d[1] * dB[1]) * 0.2 * L));
-        let q = addp(addp(mid, mul(dB, along)), mul(nR, sgn * (lineOff(d) + lw / 2 + (role2 === "tail" ? 1.5 : 1.1))));
-        const inBox = (z: Pt): boolean => labels.some((bx) => z[0] > bx[0] - 1.5 && z[0] < bx[2] + 1.5 && z[1] > bx[1] - 1.5 && z[1] < bx[3] + 1.5);
-        for (let k = 0; k < 24 && inBox(q); k++) q = addp(q, mul(nR, sgn));
-        return q;
-      };
-      return { p: mid, id: b.id, reach, kind: "bond", labels, ownBonds: [b.id], place, ...(inner ? { inner } : {}) };
     }
-  return null;
+  const ctx: PlanCtx = { L, labelSize: st.labelSize, lw, gap, nodes, bonds, atBonds, ink, grid, tips, hooks };
+  ctxCache.set(doc, { objects: doc.objects, exclude, ctx });
+  return ctx;
+}
+
+/** The straight pieces of an arrow's drawn ink (heads, shafts): polylines read from the renderer's markup. */
+function arrowInk(st: CdxDoc["style"], ar: CdxArrow): Pt[][] {
+  const svg = arrowMarkup(st, ar, "#000").svg;
+  const out: Pt[][] = [];
+  for (const m of svg.matchAll(/<line x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/g)) out.push([[+m[1], +m[2]], [+m[3], +m[4]]]);
+  for (const m of svg.matchAll(/<path d="M([-\d. L]+?)(Z?)"/g)) {
+    const pts = m[1].split("L").map((s) => s.trim().split(/\s+/).map(Number) as Pt).filter((p) => p.length === 2 && p.every(Number.isFinite));
+    if (m[2] && pts.length) pts.push(pts[0]);
+    if (pts.length > 1) out.push(pts);
+  }
+  return out;
+}
+/** A double bond's second line side, as cdxmlRender places it (DoublePosition; else the ring's centre; else the side with more neighbours; else centred). */
+function doubleSide(f: CdxFragment, b: CdxBond, nodes: Map<string, CdxNode>): number {
+  if (b.doublePosition === "Right") return 1;
+  if (b.doublePosition === "Left") return -1;
+  if (b.doublePosition === "Center") return 0;
+  const pa = nodes.get(b.b)!.p, pb = nodes.get(b.e)!.p, dB = unit(sub(pb, pa));
+  const ring = ringCentre(f, b);
+  if (ring) return Math.sign(cross(dB, sub(ring, pa))) || 0;
+  // Centred on a bond to a labelled atom with no other bond (C=O), as the renderer draws it.
+  const lonely = (id: string): boolean => !f.bonds.some((o) => o !== b && (o.b === id || o.e === id));
+  const labelled = (id: string): boolean => !!nodes.get(id)?.label?.runs.some((q) => q.text.trim());
+  if ((lonely(b.b) && labelled(b.b)) || (lonely(b.e) && labelled(b.e))) return 0;
+  let sum = 0;
+  for (const o2 of f.bonds) {
+    if (o2 === b) continue;
+    const other = o2.b === b.b || o2.b === b.e ? o2.e : o2.e === b.b || o2.e === b.e ? o2.b : null;
+    const q = other ? nodes.get(other)?.p : undefined;
+    if (q) sum += Math.sign(cross(dB, sub(q, pa)));
+  }
+  return Math.sign(sum);
 }
 
 /** The centre of the smallest ring (up to 7 bonds) a bond is in, as cdxmlRender finds it; null outside a ring. */
@@ -293,312 +382,521 @@ function ringCentre(fr: { nodes: CdxNode[]; bonds: Array<{ b: string; e: string 
   return null;
 }
 
-/** What an arrow must keep clear of: every bond and label on the page but its own ends' (near the chord only). */
-interface Obstacles {
-  segs: Array<[Pt, Pt]>;
-  /** For the head: every line but its target bond's — the source's bonds and the target atom's own included (review
-   * round 2: a head between two adjacent bonds lay on the source's lines). */
-  headSegs: Array<[Pt, Pt]>;
-  boxes: Box[];
+// ---- the ends ------------------------------------------------------------------------------------
+
+interface TailCand {
+  T: Pt;
+  /** The way the arc must leave (away from its atom or bond); null for a page point. */
+  out: Pt | null;
+  /** How far from its ideal place (0 = ideal), for the score. */
+  cost: number;
+  /** For a bond tail: which side of the bond (of right(dB)); and whether that is a double bond's inner side. */
+  side?: number;
+  inner?: boolean;
 }
-function obstaclesFor(doc: CdxDoc, A: EndInfo, B: EndInfo, nodes: Map<string, CdxNode>): Obstacles {
-  const own = new Set([...A.ownBonds, ...B.ownBonds]);
-  const ownBoxes = new Set<Box>([...A.labels, ...B.labels]);
-  const c = len(sub(B.p, A.p)), L = doc.style.bondLength;
-  const m = c * 0.75 + L;
-  const lo: Pt = [Math.min(A.p[0], B.p[0]) - m, Math.min(A.p[1], B.p[1]) - m], hi: Pt = [Math.max(A.p[0], B.p[0]) + m, Math.max(A.p[1], B.p[1]) + m];
-  const inside = (q: Pt): boolean => q[0] >= lo[0] && q[0] <= hi[0] && q[1] >= lo[1] && q[1] <= hi[1];
-  const segs: Array<[Pt, Pt]> = [], headSegs: Array<[Pt, Pt]> = [], boxes: Box[] = [];
-  // Charges and radicals a symbol on the page draws are boxed as that symbol, below.
-  const chargeDrawn = new Set<string>(), radicalDrawn = new Set<string>();
-  for (const o of doc.objects)
-    for (const it of o.items)
-      if (it.kind === "graphic")
-        for (const c of it.v.el.children)
-          if (c.name === "represent" && c.attrs.object) (c.attrs.attribute === "Charge" ? chargeDrawn : c.attrs.attribute === "Radical" ? radicalDrawn : new Set<string>()).add(c.attrs.object);
-  for (const o of doc.objects)
-    for (const it of o.items) {
-      if (it.kind !== "fragment") continue;
-      for (const b of it.v.bonds) {
-        if (B.kind === "bond" && b.id === B.id) continue;
-        const pa = nodes.get(b.b)?.p, pb = nodes.get(b.e)?.p;
-        if (!pa || !pb || (!inside(pa) && !inside(pb))) continue;
-        const lines: Array<[Pt, Pt]> = [[pa, pb]];
-        // A multiple bond's other lines are ink too (either side: the clearance is measured to what is drawn).
-        const ord = b.order.split(/\s+/)[0];
-        if (ord === "2" || ord === "1.5" || ord === "3") {
-          const n = mul(right(unit(sub(pb, pa))), doc.style.bondGap);
-          lines.push([addp(pa, n), addp(pb, n)], [sub(pa, n), sub(pb, n)]);
-        }
-        headSegs.push(...lines);
-        if (!own.has(b.id)) segs.push(...lines);
-      }
-      for (const n of it.v.nodes) {
-        const bx = labelBox(n);
-        if (bx && !ownBoxes.has(bx) && inside(n.p)) boxes.push(bx);
-        // Its charge sign and radical dots, the target's own included: a head must not land on E⁺ (review round 2).
-        if (n.charge && !chargeDrawn.has(n.id) && inside(n.p)) boxes.push(chargeGlyph(doc.style, n).box);
-        const rad = n.el.attrs.Radical;
-        if (rad && rad !== "None" && !radicalDrawn.has(n.id) && inside(n.p)) boxes.push(radicalBox(doc.style, n, rad));
-      }
-    }
-  // Captions and symbols (⊕, ⊖, lone pairs) on the page.
-  for (const o of doc.objects)
-    for (const it of o.items) {
-      if (it.kind === "text" && it.v.box && (inside([it.v.box[0], it.v.box[1]]) || inside([it.v.box[2], it.v.box[3]]))) boxes.push(it.v.box);
-      if (it.kind === "graphic" && it.v.kind === "Symbol" && inside(it.v.p1)) {
-        const rr = Math.max(len(sub(it.v.p2, it.v.p1)) / 3, doc.style.labelSize * 0.25);
-        boxes.push([it.v.p1[0] - rr, it.v.p1[1] - rr, it.v.p1[0] + rr, it.v.p1[1] + rr]);
-      }
-    }
-  return { segs, headSegs, boxes };
+interface HeadCand {
+  H: Pt;
+  /** The way the drawn head points (at its target). */
+  D: Pt;
+  cost: number;
+}
+interface End {
+  kind: "atom" | "bond" | "at";
+  id?: string;
+  p: Pt;
+  /** The atoms this end is: the atom, or the bond's two (their letters are its own). */
+  atoms: string[];
+  /** The bond this end is (its lines are its own). */
+  bond?: string;
 }
 
-/** How far into the clearance of bonds (0.2 bond length) and labels (1.5 pt) the arc's middle runs: 0 when clear. */
-function clashOf(ob: Obstacles, P: (t: number) => Pt, L: number, head: Pt[] = []): number {
-  let s = 0;
-  const bondClear = 0.2 * L, boxClear = 1.5, headClear = 0.15 * L;
-  const qs: Pt[] = [];
-  for (let i = 1; i < 20; i++) qs.push(P(0.08 + (0.84 * i) / 20));
-  // Only what lies near the arc's own box is measured.
-  const m = bondClear + boxClear, pts = [...qs, ...head];
-  const x0 = Math.min(...pts.map((q) => q[0])) - m, x1 = Math.max(...pts.map((q) => q[0])) + m;
-  const y0 = Math.min(...pts.map((q) => q[1])) - m, y1 = Math.max(...pts.map((q) => q[1])) + m;
-  const near = ([a, b]: [Pt, Pt]): boolean => Math.max(a[0], b[0]) >= x0 && Math.min(a[0], b[0]) <= x1 && Math.max(a[1], b[1]) >= y0 && Math.min(a[1], b[1]) <= y1;
-  const segs = ob.segs.filter(near), headSegs = ob.headSegs.filter(near);
-  const boxes = ob.boxes.filter((bx) => bx[2] >= x0 && bx[0] <= x1 && bx[3] >= y0 && bx[1] <= y1);
-  if (!segs.length && !headSegs.length && !boxes.length) return 0;
-  // The head too (its tip, barbs and middle): clear of other bonds by 0.15 bond length, of labels by 1.5 pt (review:
-  // a head inside a ring crowded the next double bond's inner line).
-  for (const q of head) {
-    for (const sg of headSegs) s += 3 * Math.max(0, headClear - distToTrace(sg, q));
-    for (const bx of boxes) s += Math.max(0, boxClear - Math.hypot(Math.max(0, bx[0] - q[0], q[0] - bx[2]), Math.max(0, bx[1] - q[1], q[1] - bx[3])));
+const rot = (d: Pt, a: number): Pt => [d[0] * Math.cos(a) - d[1] * Math.sin(a), d[0] * Math.sin(a) + d[1] * Math.cos(a)];
+const dot = (a: Pt, b: Pt): number => a[0] * b[0] + a[1] * b[1];
+const boxDist = (bx: Box, p: Pt): number => Math.hypot(Math.max(0, bx[0] - p[0], p[0] - bx[2]), Math.max(0, bx[1] - p[1], p[1] - bx[3]));
+const nearestInBox = (bx: Box, p: Pt): Pt => [Math.max(bx[0], Math.min(bx[2], p[0])), Math.max(bx[1], Math.min(bx[3], p[1]))];
+/** Where the ray from inside a box leaves it. */
+const exitT = (bx: Box, c: Pt, u: Pt): number => {
+  let t = Infinity;
+  if (u[0] > 1e-9) t = Math.min(t, (bx[2] - c[0]) / u[0]);
+  if (u[0] < -1e-9) t = Math.min(t, (bx[0] - c[0]) / u[0]);
+  if (u[1] > 1e-9) t = Math.min(t, (bx[3] - c[1]) / u[1]);
+  if (u[1] < -1e-9) t = Math.min(t, (bx[1] - c[1]) / u[1]);
+  return Number.isFinite(t) ? Math.max(0, t) : 0;
+};
+/**
+ * What a head aims at on a label: its letters' ink, widened to at least 0.6 label size each way (a head pointing just
+ * past a thin I or l reads as pointing at it). Shared with the case table's measure.
+ */
+export function aimBox(bx: Box, labelSize: number): Box {
+  const m = 0.6 * labelSize, cx = (bx[0] + bx[2]) / 2, cy = (bx[1] + bx[3]) / 2;
+  const hw = Math.max((bx[2] - bx[0]) / 2, m / 2), hh = Math.max((bx[3] - bx[1]) / 2, m / 2);
+  return [cx - hw, cy - hh, cx + hw, cy + hh];
+}
+/** Does the ray p + t·d (t ≥ 0) pass through box b grown by m? */
+function rayHits(p: Pt, d: Pt, b: Box, m: number): boolean {
+  let t0 = 0, t1 = 1e6;
+  const axes: Array<[number, number, number, number]> = [[p[0], d[0], b[0] - m, b[2] + m], [p[1], d[1], b[1] - m, b[3] + m]];
+  for (const [o, dd, lo, hi] of axes) {
+    if (Math.abs(dd) < 1e-12) {
+      if (o < lo || o > hi) return false;
+      continue;
+    }
+    let a = (lo - o) / dd, c = (hi - o) / dd;
+    if (a > c) [a, c] = [c, a];
+    t0 = Math.max(t0, a);
+    t1 = Math.min(t1, c);
   }
-  for (const q of qs) {
-    for (const sg of segs) s += Math.max(0, bondClear - distToTrace(sg, q));
-    for (const bx of boxes) s += Math.max(0, boxClear - Math.hypot(Math.max(0, bx[0] - q[0], q[0] - bx[2]), Math.max(0, bx[1] - q[1], q[1] - bx[3])));
+  return t0 <= t1;
+}
+const rayPointDist = (p: Pt, d: Pt, q: Pt): number => {
+  const t = Math.max(0, dot(sub(q, p), d));
+  return len(sub(addp(p, mul(d, t)), q));
+};
+
+function endOf(ctx: PlanCtx, end: ArrowEnd): End | null {
+  if ("at" in end) return end.at.every(Number.isFinite) ? { kind: "at", p: end.at, atoms: [] } : null;
+  if ("atom" in end) {
+    const n = ctx.nodes.get(end.atom);
+    return n ? { kind: "atom", id: n.id, p: n.p, atoms: [n.id] } : null;
   }
-  return s;
+  const b = ctx.bonds.get(end.bond);
+  if (!b) return null;
+  const pa = ctx.nodes.get(b.b)!.p, pb = ctx.nodes.get(b.e)!.p;
+  return { kind: "bond", id: b.id, p: mul(addp(pa, pb), 0.5), atoms: [b.b, b.e], bond: b.id };
 }
 
-/** Arc length of a circular arc on chord c sweeping θ (radians). */
-const arcLen = (c: number, th: number): number => (c * (th / 2)) / Math.sin(th / 2);
+/** How far off a bond's own line its drawn lines on side s reach. */
+function lineOff(ctx: PlanCtx, b: BondInfo, s: number): number {
+  if (!b.multiple) return 0;
+  if (b.triple) return ctx.gap;
+  if (b.side === 0) return ctx.gap / 2;
+  return s === b.side ? ctx.gap : 0;
+}
+
+function tailCands(ctx: PlanCtx, A: End, quick: boolean, wide: boolean, own: { target: string; half: boolean } | null, toward: Pt): TailCand[] {
+  const { L, lw } = ctx;
+  if (A.kind === "at") return [{ T: A.p, out: null, cost: 0 }];
+  const out: TailCand[] = [];
+  if (A.kind === "atom") {
+    const bx = ctx.ink.get(A.id!);
+    const N = quick ? 12 : 24;
+    const own = (ctx.atBonds.get(A.id!) ?? []).map((id) => ctx.bonds.get(id)!).map((b) => [A.p, ctx.nodes.get(b.b === A.id ? b.e : b.b)!.p] as [Pt, Pt]);
+    for (let k = 0; k < N; k++) {
+      const u: Pt = [Math.cos((2 * Math.PI * k) / N), Math.sin((2 * Math.PI * k) / N)];
+      if (bx) {
+        const c: Pt = [(bx[0] + bx[2]) / 2, (bx[1] + bx[3]) / 2];
+        out.push({ T: addp(c, mul(u, exitT(bx, c, u) + GAP.tailLabel + lw / 2)), out: u, cost: (1 - dot(u, toward)) / 2 });
+      } else {
+        // A bare vertex: a fifth of a bond off it, between its bonds.
+        const T = addp(A.p, mul(u, 0.2 * L));
+        if (own.every((sg) => distToTrace(sg, T) >= 0.12 * L)) out.push({ T, out: u, cost: 0 });
+      }
+    }
+    return out;
+  }
+  const b = ctx.bonds.get(A.bond!)!;
+  const pa = ctx.nodes.get(b.b)!.p, pb = ctx.nodes.get(b.e)!.p, dB = unit(sub(pb, pa)), nR = right(dB);
+  const inks = A.atoms.map((id) => ctx.ink.get(id)).filter((x): x is Box => !!x);
+  // A bond to one of its own atoms (a homolysis, a leaving group): the tail in the bond's middle, just off its line
+  // (farther out, in steps of 1 pt, only where letters crowd it).
+  // On the target's half of the bond: the two fishhooks of a homolysis start apart, each toward its own atom.
+  const toEnd = own?.half ? (own.target === b.e ? 1 : -1) : 0;
+  const alongs = own?.half
+    ? (quick ? [0.08, 0.2] : [0.06, 0.12, 0.18, 0.24, 0.3]).map((t) => t * toEnd)
+    : own
+      ? alongsFor(quick, true)
+      : alongsFor(quick, wide);
+  const step = own ? 1 : 1.5;
+  // (Between two labels the middle may be crowded: up to 4 pt farther out; else 1 pt — a leaving group's tail stays
+  // within 3 pt of its bond. Never beyond a third of a bond from the middle.)
+  const steps = quick ? 3 : own ? (inks.length === 2 ? 5 : 3) : 5;
+  for (const s of [1, -1]) {
+    const base = lineOff(ctx, b, s) + lw / 2 + GAP.tailBond;
+    for (const t of alongs) {
+      // Off the line by the gap; where the bond's letters crowd its middle (Br–Br), farther out until clear of them.
+      for (let k = 0; k < steps; k++) {
+        const T = addp(addp(A.p, mul(dB, t * L)), mul(nR, s * (base + k * step)));
+        if (inks.some((bx) => boxDist(bx, T) < GAP.tailLabel + lw / 2)) continue;
+        if (own?.half && len(sub(T, A.p)) > 0.35 * L) continue;
+        out.push({ T, out: mul(nR, s), cost: 0.4 * (Math.abs(t) / 0.25) + 0.25 * k, side: s, inner: b.multiple && b.side !== 0 && s === b.side });
+      }
+    }
+  }
+  return out;
+}
 
 /**
- * The arrow from one end to the other, bowed to `bow`'s side: its ends set back from the atoms along the way the arc
- * leaves and arrives, the sweep the smallest from SWEEP_MIN that gives the shaft room beyond its head. A reason when
- * the ends coincide or lie too close for an arrow.
+ * Places along a bond (fractions of a bond length from its middle) a tail or tip may take: within a quarter bond — or,
+ * for a short hop between ends that share an atom, within 0.4 bond (a longer arc fits there).
  */
-export function planCurved(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, bow: 1 | -1): CurvedPlan | string {
-  const nodes = nodesOf(doc);
-  const A = resolve(doc, from, "tail", nodes), B = resolve(doc, to, "head", nodes);
-  if (!A || !B) return "that atom or bond is no longer on the page";
-  if (A.id && A.id === B.id) return "a curved arrow runs from one atom or bond to another — it starts and ends on the same one here";
-  const L = doc.style.bondLength, lw = doc.style.lineWidth;
-  const chord0 = sub(B.p, A.p);
-  if (!(len(chord0) > L * 0.2)) return "drag further: the arrow's two ends are in the same place";
-  const headLen = (Number(CURVED_HEAD.HeadSize) / 100) * lw;
-  // The shaft at least as long again as its head, and the arc no tighter than the head is long: on a tighter arc the
-  // head (laid along its last head length) points off the curve (walkthrough: a C–Br bond to its Br).
-  const need = Math.max(headLen * 2, headLen + L * 0.3), rmin = headLen * 0.9;
-  const d0 = unit(chord0), c0 = len(chord0);
+const alongsFor = (quick: boolean, wide: boolean): number[] =>
+  wide ? (quick ? [-0.3, 0, 0.3] : [-0.4, -0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4]) : quick ? [-0.15, 0, 0.15] : [-0.25, -0.125, 0, 0.125, 0.25];
+
+function headCands(ctx: PlanCtx, B: End, quick: boolean, wide: boolean): HeadCand[] {
+  const { L, lw } = ctx;
+  const out: HeadCand[] = [];
+  if (B.kind === "at") {
+    const N = quick ? 12 : 36;
+    for (let k = 0; k < N; k++) out.push({ H: B.p, D: [Math.cos((2 * Math.PI * k) / N), Math.sin((2 * Math.PI * k) / N)], cost: 0 });
+    return out;
+  }
   const deg = Math.PI / 180;
-  // The sweep: SWEEP_MAX° across a bond or two, flattening to SWEEP_MIN° by four bonds (a long arrow that bowed as much
-  // would tower over the scheme).
-  const th = Math.max(SWEEP_MIN, Math.min(SWEEP_MAX, SWEEP_MAX - ((c0 - 2 * L) / (2 * L)) * (SWEEP_MAX - SWEEP_MIN))) * deg;
-  // Candidates: the tail set back from its atom along the way the arc leaves (θ/2 off the chord toward the bow, or
-  // steeper), the head set back the way it arrives (or farther round, landing on the far side of its atom), and the
-  // arc through them at the sweep θ or rounder. Kept: an arc with room for its head and no tighter than the head is
-  // long. Chosen: the one whose head points most nearly at its atom (or point), then the sweep nearest θ. Bounded:
-  // 6 × 10 × 8 candidates. (A head aimed within 15° of its atom counts as aimed: a leaving group's arrow lands beside
-  // its atom, heading on past it, as journals draw it.)
-  let best: CurvedPlan | null = null, bestCost = Infinity;
-  if (c0 < 1.2 * L && B.kind === "atom" && A.kind !== "at") {
-    const hop = shortHop(A, B, d0, bow, L, lw, headLen * 1.6);
-    if (hop) {
-      if (A.id) hop.source = A.id;
-      if (B.id) hop.target = B.id;
-      return hop;
-    }
-  }
-  const ob = obstaclesFor(doc, A, B, nodes);
-  const headW = (Number(CURVED_HEAD.ArrowheadWidth) / 100) * lw;
-  for (let i = 0; i < 6; i++) {
-    // Never leaving backward, past square to the chord: two arrows from one bond (a homolysis) would cross.
-    const bt = th / 2 + i * 12 * deg;
-    if (bt > Math.PI / 2 + 1e-9) break;
-    const out = turn(d0, bow * bt);
-    const T = A.place ? A.place(out, "tail") : addp(A.p, mul(out, A.reach(out)));
-    // Arrivals from θ/2 round to far beyond — and, nearer square-on (down to 12° off the chord), for a head that must
-    // fit between other bonds (inside a ring).
-    for (let j = -3; j < 10; j++) {
-      const bh = th / 2 + j * 12 * deg;
-      if (bh < 12 * deg) continue;
-      const back = turn(mul(d0, -1), -bow * bh);
-      const H = B.place ? B.place(back, "head") : addp(B.p, mul(back, B.reach(back)));
-      const c = len(sub(H, T));
-      if (!(c > lw)) continue;
-      const d = unit(sub(H, T)), mid = mul(addp(T, H), 0.5);
-      for (let k = 0; k < 8; k++) {
-        const sw = th + k * 15 * deg;
-        // Never past a half turn: a rounder arc curls back over its own tail (two from one bond cross).
-        if (sw > Math.PI + 1e-9) break;
-        const r = c / 2 / Math.sin(sw / 2);
-        if (r < rmin || r * sw < need) continue;
-        // Bowed left of the way it runs: the centre lies to the right of the chord (to the left past a half circle).
-        const C = addp(mid, mul(right(d), bow * (c / 2 / Math.tan(sw / 2))));
-        // The head lies along the chord of the arc's last head length: where it points.
-        const aH = Math.atan2(H[1] - C[1], H[0] - C[0]), al = Math.min(sw, headLen / r);
-        const aB = aH - bow * al; // clockwise (bow +1) runs with the angle increasing on the page
-        const P: Pt = [C[0] + r * Math.cos(aB), C[1] + r * Math.sin(aB)];
-        const hd = unit(sub(H, P)), toB = unit(sub(B.p, H));
-        const aim = B.kind === "at" ? 0 : Math.acos(Math.max(-1, Math.min(1, hd[0] * toB[0] + hd[1] * toB[1])));
-        // An arc that runs into another atom, label or bond is rejected in all but name (a rounder one that clears is
-        // always cheaper); leaving a double bond toward its inner line costs a little (the outer side is the clean one).
-        const innerCost = A.inner?.(out) ? 0.4 : 0;
-        const base = 2 * Math.max(0, aim - 15 * deg) + 0.35 * (sw - th) + 0.15 * (bt - th / 2) + 0.1 * Math.abs(bh - th / 2) + innerCost;
-        if (base >= bestCost) continue; // the clash can only add
-        const aT = Math.atan2(T[1] - C[1], T[0] - C[0]);
-        const hn = right(hd), base2 = sub(H, mul(hd, headLen));
-        const headPts: Pt[] = [H, addp(base2, mul(hn, headW)), sub(base2, mul(hn, headW)), sub(H, mul(hd, headLen / 2))];
-        const clash = clashOf(ob, (t) => [C[0] + r * Math.cos(aT + bow * t * sw), C[1] + r * Math.sin(aT + bow * t * sw)], L, headPts);
-        const cost = base + 25 * clash;
-        if (cost < bestCost) {
-          bestCost = cost;
-          best = { tail: T, head: H, center: C, r, angularSize: (-bow * sw * 180) / Math.PI, bow, clash };
+  if (B.kind === "atom") {
+    const bx = ctx.ink.get(B.id!);
+    const M = quick ? 16 : 32;
+    for (let k = 0; k < M; k++) {
+      const u: Pt = [Math.cos((2 * Math.PI * k) / M), Math.sin((2 * Math.PI * k) / M)];
+      if (bx) {
+        const c: Pt = [(bx[0] + bx[2]) / 2, (bx[1] + bx[3]) / 2];
+        const H = addp(c, mul(u, exitT(bx, c, u) + GAP.tipLabel + lw / 2));
+        const D0 = unit(sub(nearestInBox(bx, H), H));
+        for (const dd of quick ? [0, -25, 25, -50, 50] : [0, -15, 15, -30, 30, -45, 45, -60, 60]) {
+          const D = rot(D0, dd * deg);
+          if (rayHits(H, D, aimBox(bx, ctx.labelSize), 0.3)) out.push({ H, D, cost: 0.6 * (Math.abs(dd) / 30) });
+        }
+      } else {
+        // A bare vertex: the tip a little off it (farther where its bonds crowd the way in), pointing at it.
+        for (const rr of quick ? [0.24] : [0.22, 0.3]) {
+          const H = addp(B.p, mul(u, rr * L));
+          for (const dd of quick ? [0] : [0, -10, 10]) {
+            const D = rot(mul(u, -1), dd * deg);
+            if (rayPointDist(H, D, B.p) <= 0.08 * L) out.push({ H, D, cost: 0.6 * (Math.abs(dd) / 30) + (rr > 0.25 ? 0.15 : 0) });
+          }
         }
       }
     }
+    return out;
   }
-  if (!best) return "the two ends are too close for a curved arrow to show its head — drag farther, or draw it to an atom or bond farther away";
-  const plan = best;
-  if (A.id) plan.source = A.id;
-  if (B.id) plan.target = B.id;
-  return plan;
+  const b = ctx.bonds.get(B.bond!)!;
+  const pa = ctx.nodes.get(b.b)!.p, pb = ctx.nodes.get(b.e)!.p, dB = unit(sub(pb, pa)), nR = right(dB);
+  for (const s of [1, -1])
+    for (const t of alongsFor(quick, wide)) {
+      const H = addp(addp(B.p, mul(dB, t * L)), mul(nR, s * (lineOff(ctx, b, s) + lw / 2 + GAP.tipBond)));
+      for (const dd of quick ? [0, -25, 25, -50, 50] : [0, -20, 20, -35, 35, -50, 50]) {
+        const D = rot(mul(nR, -s), dd * deg);
+        let best = Infinity;
+        for (let i = 0; i <= 12; i++) best = Math.min(best, rayPointDist(H, D, addp(pa, mul(sub(pb, pa), i / 12))));
+        if (best <= 1.0) out.push({ H, D, cost: 0.6 * (Math.abs(dd) / 30) + 0.2 * (Math.abs(t) / 0.25) });
+      }
+    }
+  return out;
+}
+
+// ---- the arc through a tail and a tip ------------------------------------------------------------
+
+interface Arc {
+  C: Pt;
+  r: number;
+  aT: number;
+  /** +1: the angle increases from tail to tip (clockwise on the page). */
+  dir: 1 | -1;
+  sweep: number;
+}
+
+/** The circle through T and H whose tangent at H is D (null when D runs along the chord). */
+function arcTangent(T: Pt, H: Pt, D: Pt): Arc | null {
+  const p: Pt = [-D[1], D[0]];
+  const hT = sub(H, T), den = 2 * dot(p, hT);
+  if (Math.abs(den) < 1e-9) return null;
+  const k = -dot(hT, hT) / den;
+  const C = addp(H, mul(p, k)), r = Math.abs(k);
+  const aT = Math.atan2(T[1] - C[1], T[0] - C[0]), aH = Math.atan2(H[1] - C[1], H[0] - C[0]);
+  const vH: Pt = [-Math.sin(aH), Math.cos(aH)];
+  const dir: 1 | -1 = dot(vH, D) >= 0 ? 1 : -1;
+  let sweep = dir > 0 ? aH - aT : aT - aH;
+  sweep = ((sweep % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  return { C, r, aT, dir, sweep };
+}
+const onArc = (g: Arc, t: number): Pt => [g.C[0] + g.r * Math.cos(g.aT + g.dir * t * g.sweep), g.C[1] + g.r * Math.sin(g.aT + g.dir * t * g.sweep)];
+
+/**
+ * The arc whose DRAWN head points along Dh: the head lies along the chord of the arc's last head length, which leans
+ * out from the tangent (away from the centre) by asin(head / 2r); so the tangent is Dh turned that much toward the centre (four passes).
+ */
+function arcForHead(T: Pt, H: Pt, Dh: Pt, headLen: number): Arc | null {
+  let D = Dh, g: Arc | null = null;
+  for (let i = 0; i < 4; i++) {
+    g = arcTangent(T, H, D);
+    if (!g) return null;
+    const beta = Math.asin(Math.min(1, headLen / (2 * g.r)));
+    // Turned toward the centre (which lies at the tangent turned by dir × 90°).
+    D = rot(Dh, g.dir * beta);
+  }
+  return g;
+}
+
+/** The drawn head (tip, barbs, notch) of an arc, as cdxmlRender draws it. */
+function headOf(g: Arc, headLen: number, centre: number, width: number): Pt[] {
+  const tip = onArc(g, 1);
+  const back = (d: number): Pt => {
+    // The point on the arc a chord of d back from the tip.
+    const a = 2 * Math.asin(Math.min(1, d / (2 * g.r)));
+    const t = Math.max(0, 1 - a / g.sweep);
+    return onArc(g, t);
+  };
+  const P = back(headLen), Cn = back(Math.min(centre, headLen));
+  const u = unit(sub(tip, P)), nn = right(u), base = sub(tip, mul(u, headLen));
+  return [tip, addp(base, mul(nn, width)), Cn, sub(base, mul(nn, width))];
+}
+
+interface Scored {
+  plan: CurvedPlan;
+  cost: number;
+  side: number;
 }
 
 /**
- * The side a curved arrow bows to by default — the one whose arc clears other atoms and bonds (then passes fewer of
- * them; over the top on a tie) — and the arrow planned each way (each planned once: the preview runs this on every
- * pointer move).
+ * Every clean arc from one end to the other, best first per bow. `hopSide`: for a bond to one of its own atoms, the
+ * side its default bows to (0: no such rule).
  */
-export function bowAndPlans(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd): { bow: 1 | -1; plans: Map<1 | -1, CurvedPlan | string> } {
-  const plans = new Map<1 | -1, CurvedPlan | string>([[1, planCurved(doc, from, to, 1)], [-1, planCurved(doc, from, to, -1)]]);
-  const L = doc.style.bondLength;
-  const traceOf = (p: CurvedPlan): Pt[] => arrowTrace({ tail: p.tail, head: p.head, ...planAxes(p), angularSize: p.angularSize }, 16);
-  const score = (bow: 1 | -1): number => {
-    const p = plans.get(bow)!;
-    if (typeof p === "string") return Infinity;
-    const tr = traceOf(p);
-    // Only what lies near the arc's box is measured.
-    const xs = tr.map((q) => q[0]), ys = tr.map((q) => q[1]);
-    const bx = [Math.min(...xs) - L, Math.min(...ys) - L, Math.max(...xs) + L, Math.max(...ys) + L];
-    const near = (q: Pt): boolean => q[0] >= bx[0] && q[0] <= bx[2] && q[1] >= bx[1] && q[1] <= bx[3];
-    let s = 0;
-    for (const o of doc.objects)
-      for (const it of o.items) {
-        if (it.kind !== "fragment") continue;
-        const pos = new Map(it.v.nodes.map((n) => [n.id, n.p]));
-        for (const n of it.v.nodes) {
-          if (n.id === p.source || n.id === p.target || !near(n.p)) continue;
-          const dd = distToTrace(tr, n.p);
-          if (dd < L * 0.6) s += 1 + (L * 0.6 - dd) / L;
-        }
-        for (const b of it.v.bonds) {
-          if (b.id === p.source || b.id === p.target) continue;
-          const pa = pos.get(b.b), pb = pos.get(b.e);
-          if (!pa || !pb || (!near(pa) && !near(pb))) continue;
-          const dd = Math.min(...tr.map((q) => distToTrace([pa, pb], q)));
-          if (dd < L * 0.25) s += 1;
-        }
+function search(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: PlanOptions): { best: Map<1 | -1, Scored>; hopSide: number; partner?: number; reason?: string } {
+  const ctx = planContext(doc, o.exclude);
+  const A = endOf(ctx, from), B = endOf(ctx, to);
+  const none = { best: new Map<1 | -1, Scored>(), hopSide: 0 };
+  if (!A || !B) return { ...none, reason: "that atom or bond is no longer on the page" };
+  if (A.id && A.id === B.id) return { ...none, reason: "a curved arrow runs from one atom or bond to another — it starts and ends on the same one here" };
+  const { L, lw } = ctx;
+  if (!(len(sub(B.p, A.p)) > L * 0.2)) return { ...none, reason: "drag further: the arrow's two ends are in the same place" };
+  const quick = !!o.quick;
+  const headLen = (Number(CURVED_HEAD.HeadSize) / 100) * lw, centreLen = (Number(CURVED_HEAD.ArrowheadCenterSize) / 100) * lw, headW = (Number(CURVED_HEAD.ArrowheadWidth) / 100) * lw;
+  // A bond to one of its own atoms (or an atom to its own bond): the side decided by the bond alone — or, for the
+  // second fishhook of a homolysis, the side its partner (from the same bond to the other atom) already took.
+  const toOwnAtom = A.kind === "bond" && B.kind === "atom" && A.atoms.includes(B.id!);
+  let hopSide = 0, hopBond: BondInfo | null = null, partner = 0;
+  if (toOwnAtom) hopBond = ctx.bonds.get(A.bond!)!;
+  if (B.kind === "bond" && A.kind === "atom" && B.atoms.includes(A.id!)) hopBond = ctx.bonds.get(B.bond!)!;
+  if (hopBond) hopSide = freeSide(ctx, hopBond);
+  if (toOwnAtom && o.electrons === 1) {
+    const h = ctx.hooks.find((x) => x.source === A.bond && x.target !== B.id && A.atoms.includes(x.target));
+    if (h) hopSide = partner = h.side;
+  }
+  // The shaft at least as long again as its head (a bond to its own atom: 0.6 of it), the arc no tighter than the head is long.
+  const need = toOwnAtom ? headLen * 1.6 : Math.max(headLen * 2, headLen + L * 0.3), rmin = headLen * 0.9;
+  const c0 = len(sub(B.p, A.p));
+  const ideal = (Math.max(SWEEP_LONG, Math.min(SWEEP_SHORT, SWEEP_SHORT - ((c0 - 1.5 * L) / (2.5 * L)) * (SWEEP_SHORT - SWEEP_LONG))) * Math.PI) / 180;
+  const lo = (SWEEP_LO * Math.PI) / 180, hi = (SWEEP_HI * Math.PI) / 180;
+  // Ends that share an atom (a bond to its own atom or the next bond, an atom to its own bond): a short hop.
+  const wide = A.atoms.some((x) => B.atoms.includes(x));
+  // A fishhook from a bond between two labelled atoms (Br–Br, O–O) to one of them: half a homolysis, its tail on that atom's half.
+  const own = toOwnAtom ? { target: B.id!, half: o.electrons === 1 && A.atoms.every((x) => ctx.ink.has(x)) } : null;
+  // (A tail round its atom's letters is best on the side facing its target.)
+  const tails = tailCands(ctx, A, quick, wide, own, unit(sub(B.p, A.p))), heads = headCands(ctx, B, quick, wide);
+  // Every construction first (cheap), then the clearance checks in order of score, stopping once none can win.
+  type Cand = { g: Arc; T: Pt; H: Pt; base: number; tc: TailCand };
+  const cands: Cand[] = [];
+  for (const tc of tails)
+    for (const hc of heads) {
+      const chord = len(sub(hc.H, tc.T));
+      if (!(chord > lw * 4)) continue;
+      const g = arcForHead(tc.T, hc.H, hc.D, headLen);
+      if (planDebug.seen && planDebug.counts && g) planDebug.seen.push({ T: tc.T, H: hc.H, D: hc.D, sweep: (g.sweep * 180) / Math.PI, r: g.r });
+      if (!g) { dbg("nocircle"); continue; }
+      if (g.sweep < lo) { dbg("sweepLo"); continue; }
+      if (g.sweep > hi) { dbg("sweepHi"); continue; }
+      if (g.r < rmin || g.r * g.sweep < need) { dbg("short"); continue; }
+      if (tc.out) {
+        const vT: Pt = [-Math.sin(g.aT) * g.dir, Math.cos(g.aT) * g.dir];
+        if (dot(vT, tc.out) < (A.kind === "bond" ? 0.25 : 0.15)) { dbg("tailDir"); continue; }
       }
-    return s;
+      const mid = onArc(g, 0.5), cm = mul(addp(tc.T, hc.H), 0.5);
+      const bulge = unit(sub(mid, cm));
+      const base = Math.abs(g.sweep - ideal) / ((30 * Math.PI) / 180) + tc.cost + hc.cost + (tc.inner ? 0.3 : 0) + 0.15 * bulge[1] * (Math.abs(bulge[1]) > 0.3 ? 1 : 0);
+      cands.push({ g, T: tc.T, H: hc.H, base, tc });
+    }
+  cands.sort((x, y) => x.base - y.base);
+  // The best clean arc per (side of a hop's bond, bow).
+  const bests = new Map<string, Scored>();
+  const sideOf = (g: Arc): number => {
+    if (!hopBond) return 0;
+    const pa = ctx.nodes.get(hopBond.b)!.p, pb = ctx.nodes.get(hopBond.e)!.p;
+    return Math.sign(cross(unit(sub(pb, pa)), sub(onArc(g, 0.5), mul(addp(pa, pb), 0.5))));
   };
-  const clash = (bow: 1 | -1): number => {
-    const p = plans.get(bow)!;
-    return typeof p === "string" ? Infinity : (p.clash ?? 0);
+  const ROOM = 0.3;
+  let checked = 0;
+  for (const c of cands) {
+    const bow = c.g.dir;
+    const side = sideOf(c.g);
+    const key = side + "|" + bow;
+    const cur = bests.get(key);
+    if (cur && c.base - ROOM >= cur.cost) continue;
+    if (++checked > (quick ? 400 : 4000)) break;
+    const room = clearance(ctx, c.g, headOf(c.g, headLen, centreLen, headW), A, B, c.H, quick);
+    if (room < 0) continue;
+    const cost = c.base - ROOM * Math.min(1, room / 2);
+    if (!cur || cost < cur.cost) {
+      const plan: CurvedPlan = { tail: c.T, head: c.H, center: c.g.C, r: c.g.r, angularSize: (-bow * c.g.sweep * 180) / Math.PI, bow, clash: 0 };
+      if (A.id) plan.source = A.id;
+      if (B.id) plan.target = B.id;
+      bests.set(key, { plan, cost, side });
+    }
+  }
+  const all = [...bests.values()];
+  const bestOf = (f: (v: Scored) => boolean): Scored | undefined => all.filter(f).sort((x, y) => x.cost - y.cost)[0];
+  const out = new Map<1 | -1, Scored>();
+  // A hop: its default side's best stands for its bow; the other bow takes its own best.
+  const hs = hopBond ? bestOf((v) => v.side === hopSide) : undefined;
+  if (hs) out.set(hs.plan.bow, hs);
+  for (const b of [1, -1] as const) {
+    if (out.has(b)) continue;
+    const v = bestOf((x) => x.plan.bow === b);
+    if (v) out.set(b, v);
+  }
+  return { best: out, hopSide: hs ? hopSide : 0, partner };
+}
+
+/** The side of a bond (of right(dB)) with fewer neighbours of its two atoms; on a tie the upper side, then the right. */
+function freeSide(ctx: PlanCtx, b: BondInfo): number {
+  const pa = ctx.nodes.get(b.b)!.p, pb = ctx.nodes.get(b.e)!.p, dB = unit(sub(pb, pa)), nR = right(dB);
+  let sum = 0;
+  for (const at of [b.b, b.e])
+    for (const id of ctx.atBonds.get(at) ?? []) {
+      if (id === b.id) continue;
+      const o = ctx.bonds.get(id)!;
+      const q = ctx.nodes.get(o.b === at ? o.e : o.b)!.p;
+      sum += Math.sign(cross(dB, sub(q, ctx.nodes.get(at)!.p)));
+    }
+  if (sum) return -Math.sign(sum);
+  if (Math.abs(nR[1]) > 1e-6) return nR[1] < 0 ? 1 : -1;
+  return nR[0] > 0 ? 1 : -1;
+}
+
+/**
+ * How much room an arc leaves (the smallest margin over every clearance, points), or a negative number when it runs
+ * into anything: other bonds' lines, letters, charge signs and radical dots, captions, other arrows; its own bond (it
+ * must not cross it) and its own atoms' letters (it may pass close).
+ */
+function clearance(ctx: PlanCtx, g: Arc, head: Pt[], A: End, B: End, H: Pt, quick: boolean): number {
+  const { L, lw } = ctx;
+  const n = quick ? 12 : 24;
+  const shaft: Pt[] = [];
+  for (let i = 0; i <= n; i++) shaft.push(onArc(g, i / n));
+  const T = shaft[0];
+  // The ink as segments: the shaft, and the head's outline (tip, barb, notch, barb).
+  const sSegs: Array<[Pt, Pt]> = [];
+  for (let i = 0; i < n; i++) sSegs.push([shaft[i], shaft[i + 1]]);
+  const hSegs: Array<[Pt, Pt]> = head.map((q, i) => [q, head[(i + 1) % head.length]] as [Pt, Pt]);
+  const all = [...sSegs, ...hSegs];
+  const ownAtoms = new Set([...A.atoms, ...B.atoms]);
+  // First, fast: does the shaft's middle run across another bond (each segment against its own cells only)? Most
+  // arcs that fail fail there, and a long arc over a crowded page would otherwise gather hundreds of obstacles.
+  const reqMain = Math.max(lw + CLEAR.bondInk, CLEAR.bondMain * L);
+  for (let i = Math.floor(n / 4); i < Math.ceil((3 * n) / 4); i++) {
+    const [p, q] = sSegs[i];
+    const hit = ctx.grid.query(Math.min(p[0], q[0]) - reqMain, Math.min(p[1], q[1]) - reqMain, Math.max(p[0], q[0]) + reqMain, Math.max(p[1], q[1]) + reqMain);
+    for (const sg of hit.segs) {
+      if (!sg.main || sg.arrow) continue;
+      const bd = ctx.bonds.get(sg.bond!)!;
+      if (ownAtoms.has(bd.b) || ownAtoms.has(bd.e)) continue;
+      if (segSegDist(p, q, sg.a, sg.b) < reqMain) return dbg("fastShaft");
+    }
+  }
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const q of [...shaft, ...head]) (x0 = Math.min(x0, q[0])), (y0 = Math.min(y0, q[1])), (x1 = Math.max(x1, q[0])), (y1 = Math.max(y1, q[1]));
+  const m = CLEAR.bondMain * L + 2;
+  const near = ctx.grid.query(x0 - m, y0 - m, x1 + m, y1 + m);
+  const ownBonds = new Set([A.bond, B.bond].filter((x): x is string => !!x));
+  let room = Infinity;
+  const need = (d: number, req: number): boolean => {
+    room = Math.min(room, d - req);
+    return d >= req;
   };
-  const cl = clash(1), cr = clash(-1);
-  if (Math.abs(cl - cr) > 0.05) return { bow: cr < cl ? -1 : 1, plans };
-  const left = score(1), rightS = score(-1);
-  if (rightS !== left) return { bow: rightS < left ? -1 : 1, plans };
-  // A tie (nothing in the way either side): over the top, as a mechanism is drawn — the side whose arc rises higher.
-  const top = (bow: 1 | -1): number => {
-    const p = plans.get(bow)!;
-    return typeof p === "string" ? Infinity : Math.min(...traceOf(p).map((q) => q[1]));
-  };
-  return { bow: top(-1) < top(1) - 1e-6 ? -1 : 1, plans };
+  // A shared target point (two hooks meeting to form a bond): their heads may meet there.
+  const meet = new Set([...ctx.tips.entries()].filter(([, tp]) => B.kind === "at" && len(sub(tp, H)) < 1).map(([id]) => id));
+  // (The heads' own region: within 5 pt of the shared point.)
+  const nearH = (s: [Pt, Pt]): boolean => Math.min(len(sub(s[0], H)), len(sub(s[1], H))) < 5;
+  for (const sg of near.segs) {
+    if (sg.arrow) {
+      const shared = meet.has(sg.arrow) && Math.min(len(sub(sg.a, H)), len(sub(sg.b, H))) < 5;
+      for (const s of all) {
+        if (shared && nearH(s)) continue;
+        if (!need(segSegDist(s[0], s[1], sg.a, sg.b), lw + CLEAR.arrow)) return dbg("arrow");
+      }
+      continue;
+    }
+    const bd = ctx.bonds.get(sg.bond!)!;
+    if (ownBonds.has(bd.id)) {
+      // Its own bond: never crossed (the tail starts beside it; the tip stops short of it).
+      for (let i = 1; i < sSegs.length - 1; i++) if (!need(segSegDist(sSegs[i][0], sSegs[i][1], sg.a, sg.b), lw / 2 + 0.6)) return dbg("ownBond");
+      // A head kept 0.15 bond length off its own source bond as off any other.
+      if (sg.main && bd.id !== B.bond) for (const q of head) if (!need(distToTrace([sg.a, sg.b], q), CLEAR.headBond * L + 0.1)) return dbg("headBond");
+      continue;
+    }
+    const ends = [bd.b, bd.e].filter((id) => ownAtoms.has(id)).map((id) => ctx.nodes.get(id)!.p);
+    // An end's own bonds meet the end: not measured within 0.35 bond length of that atom, near the arrow's own end
+    // (an arc swinging round a shared atom further along must still not cross its other bonds).
+    const exempt = (q: Pt): boolean => ends.some((e) => len(sub(q, e)) < 0.35 * L) && (len(sub(q, T)) < 0.35 * L || len(sub(q, H)) < 0.35 * L);
+    const req = sg.main ? Math.max(lw + CLEAR.bondInk, CLEAR.bondMain * L) : lw + CLEAR.bondInk;
+    for (const s of sSegs) {
+      // (Exempt from the clearance, never from crossing: an arc may pass close by its own atom's other bonds, not over them.)
+      if (exempt(s[0]) && exempt(s[1])) {
+        if (sg.main && !need(segSegDist(s[0], s[1], sg.a, sg.b), lw + 0.3)) return dbg("crossNearEnd");
+        continue;
+      }
+      if (!need(segSegDist(s[0], s[1], sg.a, sg.b), req)) return dbg(planDebug.counts ? "bondShaft:" + bd.id + (sg.main ? "" : "'") : "");
+    }
+    for (const q of head) {
+      if (sg.main && bd.id !== B.bond) {
+        if (!need(distToTrace([sg.a, sg.b], q), CLEAR.headBond * L + 0.1)) return dbg("headBond");
+      } else if (!sg.main && !exempt(q) && !need(distToTrace([sg.a, sg.b], q), lw + CLEAR.bondInk)) return dbg("head2nd");
+    }
+  }
+  for (const bi of near.boxes) {
+    const own = bi.kind === "label" && !!bi.node && ownAtoms.has(bi.node);
+    const req = lw / 2 + (bi.kind === "glyph" || bi.kind === "caption" ? CLEAR.glyph : own ? CLEAR.ownLabel : CLEAR.label);
+    for (const s of all) if (!need(segBoxDist(s[0], s[1], bi.bx), req)) return dbg(planDebug.counts ? "box-" + bi.kind + (own ? "-own" : "") : "");
+  }
+  return Number.isFinite(room) ? room : 10;
+}
+
+/** Distance between two segments (0 when they cross). */
+function segSegDist(a: Pt, b: Pt, c: Pt, d: Pt): number {
+  const o = (p: Pt, q: Pt, r: Pt): number => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const o1 = o(a, b, c), o2 = o(a, b, d), o3 = o(c, d, a), o4 = o(c, d, b);
+  if (o1 * o2 < 0 && o3 * o4 < 0) return 0;
+  return Math.min(distToTrace([c, d], a), distToTrace([c, d], b), distToTrace([a, b], c), distToTrace([a, b], d));
+}
+
+/**
+ * The arrow from one end to the other, bowed to `bow`'s side: the best clean arc that way, or a reason (the ends
+ * coincide, lie too close, or no clean arc bows that way here).
+ */
+export function planCurved(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, bow: 1 | -1, o: PlanOptions = {}): CurvedPlan | string {
+  const s = search(doc, from, to, o);
+  if (s.reason) return s.reason;
+  return s.best.get(bow)?.plan ?? noArc(s.best.size > 0);
+}
+
+const noArc = (otherSide: boolean): string =>
+  otherSide
+    ? "no clean curve bows that way here — it would cross a bond, a label or another arrow; the arrow keeps the other side"
+    : "no clean curve fits between these two — every arc would cross a bond, a label or another arrow; move the structures apart a little, or draw it to the bond or atom beside";
+
+/**
+ * The side a curved arrow bows to by default — its cleanest, best-shaped arc (a bond to its own atom: the bond's freer
+ * side) — and the arrow planned each way, from one search (the preview runs this on every pointer move).
+ */
+export function bowAndPlans(doc: CdxDoc, from: ArrowEnd, to: ArrowEnd, o: PlanOptions = {}): { bow: 1 | -1; plans: Map<1 | -1, CurvedPlan | string> } {
+  const s = search(doc, from, to, o);
+  const plans = new Map<1 | -1, CurvedPlan | string>();
+  for (const b of [1, -1] as const) plans.set(b, s.reason ?? s.best.get(b)?.plan ?? noArc(s.best.size > 0));
+  const p = s.best.get(1), q = s.best.get(-1);
+  let bow: 1 | -1 = 1;
+  if (s.partner && p?.side !== s.partner && q?.side !== s.partner) {
+    // The partner fishhook's side has no clean arc: refused rather than drawn on the other side (a homolysis's two
+    // fishhooks share a side).
+    const r = "no clean fishhook fits on its partner's side of this bond — the two fishhooks of a homolysis share a side; move the neighbouring atoms or labels a little";
+    return { bow: 1, plans: new Map<1 | -1, CurvedPlan | string>([[1, r], [-1, s.best.get(-1)?.plan ?? r]]) };
+  }
+  if (s.hopSide && (p?.side === s.hopSide || q?.side === s.hopSide)) bow = p?.side === s.hopSide ? 1 : -1;
+  else if (p && q) bow = q.cost < p.cost - 1e-9 ? -1 : 1;
+  else if (q) bow = -1;
+  return { bow, plans };
 }
 
 /** A plan's ellipse as ChemDraw's Center3D / MajorAxisEnd3D / MinorAxisEnd3D points. */
 export function planAxes(p: CurvedPlan): { center: Pt; major: Pt; minor: Pt } {
   const a = p.axes?.major ?? [p.r, 0], b = p.axes?.minor ?? [0, p.r];
   return { center: p.center, major: addp(p.center, a), minor: addp(p.center, b) };
-}
-
-/**
- * A short hop (a bond to its own atom, an atom to its neighbour, a homolysis): the arrow does not shrink to the chord.
- * It is a flat arc over the labels, as textbook mechanism figures draw a bond to its leaving group:
- *   - the tail at the bond's middle, HOP_CLEAR above the bond line and HOP_CLEAR clear of every label's box — or, where
- *     the visible bond is too short for that (Br–Br), above the middle at the labels' top; nudged HOP_SPLIT toward its
- *     target, so the two arrows of a homolysis start apart, mirror images;
- *   - the tip over the target label's outer shoulder (HOP_LAND bond lengths past the atom, away from the tail),
- *     HOP_TIP above the label's top;
- *   - the apex HOP_APEX above the tallest label's top (higher where the arc would be flatter than HOP_ASPECT): a circle
- *     through tail and tip with its top there.
- * Worked in the frame along the chord (x, toward the target) and across it (y, toward the bow: "up").
- */
-const HOP_CLEAR = 1.8, HOP_SPLIT = 1.2, HOP_LAND = 0.3, HOP_TIP = 1.2, HOP_APEX = 4.5, HOP_ASPECT = 0.52;
-function shortHop(A: EndInfo, B: EndInfo, d0: Pt, bow: 1 | -1, L: number, lw: number, need: number): CurvedPlan | null {
-  const w = turn(d0, bow * (Math.PI / 2)); // across the chord, on the side it bows to
-  const O = A.p;
-  const loc = (q: Pt): Pt => [(q[0] - O[0]) * d0[0] + (q[1] - O[1]) * d0[1], (q[0] - O[0]) * w[0] + (q[1] - O[1]) * w[1]];
-  const page = (x: number, y: number): Pt => addp(O, addp(mul(d0, x), mul(w, y)));
-  /** A page box in the chord's frame (its corners' extent). */
-  const lbox = (bx: Box): Box => {
-    const cs = [loc([bx[0], bx[1]]), loc([bx[2], bx[1]]), loc([bx[0], bx[3]]), loc([bx[2], bx[3]])];
-    return [Math.min(...cs.map((c) => c[0])), Math.min(...cs.map((c) => c[1])), Math.max(...cs.map((c) => c[0])), Math.max(...cs.map((c) => c[1]))];
-  };
-  const boxesA = A.labels.map(lbox), boxesB = B.labels.map(lbox), all = [...boxesA, ...boxesB];
-  const distBox = (p: Pt, bx: Box): number => Math.hypot(Math.max(0, bx[0] - p[0], p[0] - bx[2]), Math.max(0, bx[1] - p[1], p[1] - bx[3]));
-  const top = (bxs: Box[]): number => Math.max(-Infinity, ...bxs.map((bx) => bx[3]));
-  // The tail.
-  let T: Pt;
-  if (A.kind === "bond") {
-    T = [HOP_SPLIT, lw / 2 + HOP_CLEAR];
-    if (all.some((bx) => distBox(T, bx) < HOP_CLEAR)) T = [HOP_SPLIT, Math.max(T[1], top(boxesA) + HOP_CLEAR)];
-  } else {
-    const own = top(boxesA);
-    T = [HOP_SPLIT, Number.isFinite(own) ? own + HOP_CLEAR : 0.22 * L];
-  }
-  // The tip.
-  const b = loc(B.p);
-  const tTop = top(boxesB);
-  const H: Pt = [b[0] + HOP_LAND * L, Number.isFinite(tTop) ? tTop + HOP_TIP : b[1] + 0.25 * L];
-  if (!(H[0] - T[0] > lw * 4)) return null;
-  // The apex over the tallest label; never lower than a little above both ends.
-  // And high enough for the arc's height to be about half its width (flatter reads as a line; taller as a hairpin).
-  const span = H[0] - T[0];
-  const apex = Math.max(Number.isFinite(top(all)) ? top(all) + HOP_APEX : -Infinity, Math.max(T[1], H[1]) + 1.5, Math.min(T[1], H[1]) + HOP_ASPECT * span);
-  const dT = apex - T[1], dH = apex - H[1];
-  // The circle with its top at the apex through both ends: (x − cx)² = 2r·d − d² at each end; r by bisection (bounded).
-  const f = (r: number): number => Math.sqrt(Math.max(0, 2 * r * dT - dT * dT)) + Math.sqrt(Math.max(0, 2 * r * dH - dH * dH)) - span;
-  let lo = Math.max(dT, dH) / 2, hi = Math.max(lo * 2, span * 4 + 1);
-  if (f(lo) > 0) return null; // the apex is too high for so short a span
-  for (let i = 0; i < 80 && f(hi) < 0; i++) hi *= 2;
-  for (let i = 0; i < 60; i++) {
-    const m = (lo + hi) / 2;
-    if (f(m) < 0) lo = m;
-    else hi = m;
-  }
-  const r = (lo + hi) / 2;
-  const cx = T[0] + Math.sqrt(Math.max(0, 2 * r * dT - dT * dT)), cy = apex - r;
-  const aT = Math.atan2(T[1] - cy, T[0] - cx), aH = Math.atan2(H[1] - cy, H[0] - cx);
-  let sweep = aT - aH; // over the top, from the tail (left) to the tip (right)
-  if (sweep <= 0) sweep += 2 * Math.PI;
-  if (r * sweep < need) return null;
-  // Over the top, bowed left of the way it runs: clockwise on the page, a negative AngularSize.
-  return { tail: page(T[0], T[1]), head: page(H[0], H[1]), center: page(cx, cy), r, angularSize: (-bow * sweep * 180) / Math.PI, bow };
 }
 
 /** The barb of a fishhook on the outside of its curve: left of the way it runs when it bows left. */

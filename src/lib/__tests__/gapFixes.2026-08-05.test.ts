@@ -15,6 +15,7 @@ import { validateFormula, normalizeFormulaText } from "../chemValidate";
 import { bondPeriodRefusal, bondPrice, bondYTM } from "../finance";
 import { auditDocument } from "../audit";
 import { finPct } from "../financeFigures";
+import { insertableResultText } from "../insertGate";
 
 const ROOT = path.join(__dirname, "..", "..", "..");
 const read = (p: string): string => fs.readFileSync(path.join(ROOT, p), "utf8").replace(/\r\n/g, "\n");
@@ -169,11 +170,12 @@ describe("0.6 — Finance cannot insert a non-finite number", () => {
     //
     // Asserted on the helper, and separately on Finance still using it, so
     // neither half can drift away from the other.
-    const i = pane.indexOf("function insertableResultText");
-    expect(i).toBeGreaterThan(0);
-    const region = pane.slice(i, i + 400);
-    expect(region).toMatch(/!text\.includes\("NaN"\)/);
-    expect(region).toMatch(/!text\.includes\("Infinity"\)/);
+    // Release D: the gate lives in src/lib/insertGate.ts and blocks NaN/Infinity as NUMBER TOKENS (so "NaN₃"
+    // sodium azide inserts). It is called, not read; insertGateD.test.ts holds the full table.
+    expect(pane).toMatch(/import \{[^}]*\binsertableResultText\b[^}]*\} from "\.\.\/lib\/insertGate";/);
+    expect(insertableResultText("variance = Infinity")).toBe(false);
+    expect(insertableResultText("d = NaN")).toBe(false);
+    expect(insertableResultText("NaN₃ standard 12.5 µM")).toBe(true);
 
     const fin = pane.indexOf("const insertable = insertableResultText(text)");
     expect(fin).toBeGreaterThan(0);

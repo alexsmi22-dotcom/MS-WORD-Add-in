@@ -14,7 +14,7 @@
 // scale under the disc instead, because a number with the data drawn through it
 // is a number nobody can read (the layout gate flags it as a strikethrough).
 
-import { CompiledExpr, escapeXml, layoutNotes, NOTE_LH, NOTE_SIZE } from "./plot";
+import { CompiledExpr, escapeXml, layoutNotes, NOTE_LH, NOTE_SIZE, BW_NOTE_SIZE, BW_NOTE_LH, bwPx } from "./plot";
 import { linearAxis } from "./axis";
 
 const FONT = "Arial, Helvetica, sans-serif";
@@ -53,6 +53,11 @@ export interface PolarFigure {
   notes?: string[];
   width?: number;
   color?: string;
+  /**
+   * Black and white (37 CFR 1.84(a)(1), the USPTO figure style): black ink, the grid as thin dotted
+   * black rings and spokes (a polar figure cannot be read without them), no grey.
+   */
+  bw?: boolean;
 }
 
 const f1 = (n: number): string => (Math.round(n * 10) / 10).toFixed(1);
@@ -109,6 +114,12 @@ function segHitsBox(x0: number, y0: number, x1: number, y1: number, b: { x0: num
  */
 export function polarPlotSvg(fig: PolarFigure): string {
   const W = fig.width ?? 380;
+  const bw = fig.bw === true;
+  const INK = bw ? "#000000" : "#333333";
+  const INK2 = bw ? "#000000" : "#555555";
+  const RULE = bw ? "#000000" : "#888888";
+  // The light grid: grey as drawn; dotted black hairlines in black and white.
+  const gridAttr = bw ? 'stroke="#000000" stroke-width="0.6" stroke-dasharray="1.2 2.4"' : 'stroke="#dddddd" stroke-width="1"';
   const finite = fig.samples.filter((s) => Number.isFinite(s.r));
   let rmax = 0;
   for (const s of finite) rmax = Math.max(rmax, Math.abs(s.r));
@@ -118,7 +129,8 @@ export function polarPlotSvg(fig: PolarFigure): string {
   const rOuter = rings.length ? rings[rings.length - 1] : rmax;
   const ringText = rows.values.map((v, i) => ({ v, text: rows.labels[i] })).filter((t) => t.v > 0);
   const mt = fig.title ? 26 : 8;
-  const pad = 34; // room for the angle labels outside the disc
+  // Room for the angle labels outside the disc (black and white letters π/6 at 1.4×: more room).
+  const pad = bw && fig.angleUnit !== "deg" ? 46 : 34;
   const R = Math.max(40, (W - 2 * pad) / 2);
   const cx = W / 2;
   const cyc = mt + pad - 10 + R;
@@ -141,13 +153,15 @@ export function polarPlotSvg(fig: PolarFigure): string {
   // Ring labels: try the mid-spoke angles; pick the one the curve stays clear of.
   const labelBox = (rv: number, angDeg: number, text: string): { x: number; y: number; box: { x0: number; y0: number; x1: number; y1: number } } => {
     const a = (angDeg * Math.PI) / 180;
-    const rr = (rv / rOuter) * R + 3;
+    // Black and white: just INSIDE the ring (outside it, the outermost value sits among the angle
+    // labels and reads as one of them at USPTO lettering).
+    const rr = (rv / rOuter) * R + (bw ? -3 : 3);
     const x = cx + rr * Math.cos(a);
     const y = cyc - rr * Math.sin(a);
     const w = text.length * 6.2;
-    // Anchored at its inner corner so the text sits just OUTSIDE its ring.
-    const left = Math.cos(a) >= 0 ? x : x - w;
-    const base = Math.sin(a) >= 0 ? y : y + 9;
+    // Anchored at its inner corner so the text sits just OUTSIDE its ring (outer corner, inside, in black and white).
+    const left = (Math.cos(a) >= 0) !== bw ? x : x - w;
+    const base = (Math.sin(a) >= 0) !== bw ? y : y + 9;
     return { x: left, y: base, box: { x0: left - 1, y0: base - 9, x1: left + w + 1, y1: base + 2 } };
   };
   const hits = (box: { x0: number; y0: number; x1: number; y1: number }): boolean =>
@@ -170,28 +184,32 @@ export function polarPlotSvg(fig: PolarFigure): string {
   const notes = [...(fig.notes ?? [])];
   if (finite.some((s) => s.r < 0)) notes.push("Where r < 0 the point is drawn at angle θ + π (the standard convention).");
   if (rows.multiplier) notes.push(`Ring labels are in units of ${rows.multiplier}.`);
-  const noteLines = layoutNotes(notes, W);
-  const outH = H + (noteLines.length ? noteLines.length * NOTE_LH + 4 : 0);
+  const noteSize = bw ? BW_NOTE_SIZE : NOTE_SIZE;
+  const noteLh = bw ? BW_NOTE_LH : NOTE_LH;
+  const noteLines = layoutNotes(notes, W, noteSize);
+  const outH = H + (noteLines.length ? noteLines.length * noteLh + 4 : 0);
 
   const parts: string[] = [`<rect width="${W}" height="${outH}" fill="#ffffff"/>`];
   // Grid: rings, then spokes.
   for (const v of rings) {
-    parts.push(`<circle cx="${f1(cx)}" cy="${f1(cyc)}" r="${f1((v / rOuter) * R)}" fill="none" stroke="${v === rOuter ? "#888888" : "#dddddd"}" stroke-width="1"/>`);
+    parts.push(`<circle cx="${f1(cx)}" cy="${f1(cyc)}" r="${f1((v / rOuter) * R)}" fill="none" ${v === rOuter ? `stroke="${RULE}" stroke-width="1"` : gridAttr}/>`);
   }
+  // One size for every angle label: in black and white the π labels are lettered 1.4× (bwPx), and "0" with them.
+  const angleSize = bwPx(fig.angleUnit === "deg" ? "0" : "π", 10, bw);
   for (let k = 0; k < 12; k++) {
     const a = (k * Math.PI) / 6;
     const [x, y] = [cx + R * Math.cos(a), cyc - R * Math.sin(a)];
-    parts.push(`<line x1="${f1(cx)}" y1="${f1(cyc)}" x2="${f1(x)}" y2="${f1(y)}" stroke="#dddddd" stroke-width="1"/>`);
+    parts.push(`<line x1="${f1(cx)}" y1="${f1(cyc)}" x2="${f1(x)}" y2="${f1(y)}" ${gridAttr}/>`);
     const lx = cx + (R + 7) * Math.cos(a);
     const ly = cyc - (R + 7) * Math.sin(a);
     const c = Math.cos(a);
     const anchor = Math.abs(c) < 0.2 ? "middle" : c > 0 ? "start" : "end";
     const dy = Math.sin(a) > 0.2 ? -2 : Math.sin(a) < -0.2 ? 10 : 3.5;
     const text = fig.angleUnit === "deg" ? `${k * 30}°` : piLabel(k);
-    parts.push(`<text x="${f1(lx)}" y="${f1(ly + dy)}" text-anchor="${anchor}" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(text)}</text>`);
+    parts.push(`<text x="${f1(lx)}" y="${f1(ly + dy)}" text-anchor="${anchor}" font-family="${FONT}" font-size="${angleSize}" fill="${INK}">${escapeXml(text)}</text>`);
   }
   // The curve.
-  const color = fig.color ?? "#0072B2";
+  const color = bw ? "#000000" : (fig.color ?? "#0072B2");
   const d = runs
     .filter((r) => r.length >= 2)
     .map((r) => r.map(([x, y], k) => `${k === 0 ? "M" : "L"}${f1(x)},${f1(y)}`).join(" "))
@@ -201,24 +219,26 @@ export function polarPlotSvg(fig: PolarFigure): string {
   // Ring labels on the disc.
   for (const t of onRing) {
     const lb = labelBox(t.v, best, t.text);
-    parts.push(`<text x="${f1(lb.x)}" y="${f1(lb.y)}" font-family="${FONT}" font-size="10" fill="#555555">${escapeXml(t.text)}</text>`);
+    // Black and white: a white backing, so the dotted spokes do not strike the number through (the curve is clear of it by construction).
+    if (bw) parts.push(`<rect x="${f1(lb.box.x0)}" y="${f1(lb.box.y0)}" width="${f1(lb.box.x1 - lb.box.x0)}" height="${f1(lb.box.y1 - lb.box.y0)}" fill="#ffffff"/>`);
+    parts.push(`<text x="${f1(lb.x)}" y="${f1(lb.y)}" font-family="${FONT}" font-size="10" fill="${INK2}">${escapeXml(t.text)}</text>`);
   }
   // Any the curve would cross: a radial scale under the disc, centre to rim.
   if (toScale.length) {
     const y0 = cyc + R + pad - 4 + 6;
-    parts.push(`<line x1="${f1(cx)}" y1="${f1(y0)}" x2="${f1(cx + R)}" y2="${f1(y0)}" stroke="#888888" stroke-width="1"/>`);
-    parts.push(`<text x="${f1(cx - 6)}" y="${f1(y0 + 3.5)}" text-anchor="end" font-family="${FONT}" font-size="10" fill="#333333">r</text>`);
+    parts.push(`<line x1="${f1(cx)}" y1="${f1(y0)}" x2="${f1(cx + R)}" y2="${f1(y0)}" stroke="${RULE}" stroke-width="1"/>`);
+    parts.push(`<text x="${f1(cx - 6)}" y="${f1(y0 + 3.5)}" text-anchor="end" font-family="${FONT}" font-size="10" fill="${INK}">r</text>`);
     for (const t of [{ v: 0, text: "0" }, ...ringText]) {
       const x = cx + (t.v / rOuter) * R;
-      parts.push(`<line x1="${f1(x)}" y1="${f1(y0)}" x2="${f1(x)}" y2="${f1(y0 + 4)}" stroke="#888888"/>`);
-      parts.push(`<text x="${f1(x)}" y="${f1(y0 + 16)}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(t.text)}</text>`);
+      parts.push(`<line x1="${f1(x)}" y1="${f1(y0)}" x2="${f1(x)}" y2="${f1(y0 + 4)}" stroke="${RULE}"/>`);
+      parts.push(`<text x="${f1(x)}" y="${f1(y0 + 16)}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="${INK}">${escapeXml(t.text)}</text>`);
     }
   }
   if (fig.title) {
-    parts.push(`<text data-figure-title="1" x="${f1(W / 2)}" y="16" text-anchor="middle" font-family="${FONT}" font-size="13" font-weight="bold" fill="#222222">${escapeXml(fig.title)}</text>`);
+    parts.push(`<text data-figure-title="1" x="${f1(W / 2)}" y="16" text-anchor="middle" font-family="${FONT}" font-size="13" font-weight="bold" fill="${bw ? "#000000" : "#222222"}">${escapeXml(fig.title)}</text>`);
   }
   noteLines.forEach((line, i) => {
-    parts.push(`<text x="8" y="${H + 11 + i * NOTE_LH}" font-family="${FONT}" font-size="${NOTE_SIZE}" fill="#555555">${escapeXml(line)}</text>`);
+    parts.push(`<text x="8" y="${H + (bw ? 15 : 11) + i * noteLh}" font-family="${FONT}" font-size="${noteSize}" fill="${INK2}">${escapeXml(line)}</text>`);
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${outH}" viewBox="0 0 ${W} ${outH}">${parts.join("")}</svg>`;
 }

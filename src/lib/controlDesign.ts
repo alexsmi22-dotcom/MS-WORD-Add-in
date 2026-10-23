@@ -94,6 +94,59 @@ const asc = (p: Rat[]): Rat[] => p.slice().reverse();
 /** Ascending -> highest-first (a copy), trimmed. */
 const desc = (p: Rat[]): Rat[] => (p.length ? trimPoly(p.slice().reverse()) : [ratInt(0)]);
 
+/**
+ * RULE F (Release D): exact evaluation WITHOUT a gcd per step. ratPolyEval reduces after
+ * every multiply and add (two BigInt gcds per coefficient, on numbers that grow with the
+ * degree); on an order-20 decimal plant that was two thirds of a 0.85 s root locus. Here
+ * the polynomial is scaled once to integers (L·P, L > 0 the lcm of its denominators,
+ * memoised per array) and evaluated at q = a/b homogeneously,
+ *   H = Σ L·pᵢ · aⁱ · bⁿ⁻ⁱ   so   P(q) = H / (L · bⁿ),
+ * with ONE reduction at the end. The value is the same reduced fraction ratPolyEval
+ * returns (a rational has one reduced form), and its sign is sign(H) with no reduction.
+ */
+const scaledIntsCache = new WeakMap<Rat[], { a: bigint[]; L: bigint }>();
+function scaledInts(pAsc: Rat[]): { a: bigint[]; L: bigint } {
+  const hit = scaledIntsCache.get(pAsc);
+  if (hit) return hit;
+  const ab = (x: bigint): bigint => (x < 0n ? -x : x);
+  const gcd = (x: bigint, y: bigint): bigint => {
+    x = ab(x);
+    y = ab(y);
+    for (let k = 0; y && k < 100000; k++) [x, y] = [y, x % y];
+    return x;
+  };
+  let L = 1n;
+  for (const c of pAsc) L = (L / gcd(L, c.d)) * c.d;
+  const out = { a: pAsc.map((c) => (c.n * L) / c.d), L };
+  scaledIntsCache.set(pAsc, out);
+  return out;
+}
+/** H for pAsc at q (see scaledInts); P(q) = H / (L·q.dⁿ). */
+function homogeneousHorner(pAsc: Rat[], q: Rat): { h: bigint; den: bigint } {
+  const { a, L } = scaledInts(pAsc);
+  const n = a.length - 1;
+  if (n < 0) return { h: 0n, den: 1n };
+  let h = a[n];
+  let bp = 1n;
+  for (let i = n - 1; i >= 0; i--) {
+    bp *= q.d;
+    h = h * q.n + a[i] * bp;
+  }
+  return { h, den: L * bp };
+}
+/** Exactly ratPolyEval(pAsc, q), with one reduction instead of one per coefficient. */
+function ratPolyEvalFast(pAsc: Rat[], q: Rat): Rat {
+  if (!(q.d > 0n)) return ratPolyEval(pAsc, q);
+  const { h, den } = homogeneousHorner(pAsc, q);
+  return h === 0n ? ratInt(0) : ratMake(h, den);
+}
+/** The exact sign of P(q) (−1, 0, 1), with no reduction at all. */
+function ratPolySignAt(pAsc: Rat[], q: Rat): number {
+  if (!(q.d > 0n)) return ratSign(ratPolyEval(pAsc, q));
+  const { h } = homogeneousHorner(pAsc, q);
+  return h > 0n ? 1 : h < 0n ? -1 : 0;
+}
+
 const cAbs = (z: Complex): number => Math.hypot(z.re, z.im);
 const cSub = (a: Complex, b: Complex): Complex => ({
   re: a.re - b.re,
@@ -254,7 +307,7 @@ function rationalRoots(
             scale = scale * Math.abs(qv) + Math.abs(cN);
           }
           if (!(Math.abs(val) <= 1e-7 * scale)) continue;
-          if (ratIsZero(ratPolyEval(p, q))) {
+          if (ratPolySignAt(p, q) === 0) {
             hit = q;
             break;
           }
@@ -806,6 +859,9 @@ export function rootLocus(g: TransferFunction, kAt: Rat | null = null): RootLocu
       ok: false,
       error: "The open-loop poles or zeros could not be computed.",
     };
+  // Ascending copies made ONCE, so ratPolyEvalFast scales each to integers once.
+  const denAsc = asc(den);
+  const numAsc = asc(num);
 
   const complementary = ratSign(num[0]) * ratSign(den[0]) < 0;
   if (complementary) {
@@ -839,8 +895,8 @@ export function rootLocus(g: TransferFunction, kAt: Rat | null = null): RootLocu
   const Kreal = (x: number): number => {
     const q = toRat(x);
     if (q) {
-      const dq = ratPolyEval(asc(den), q);
-      const nq = ratPolyEval(asc(num), q);
+      const dq = ratPolyEvalFast(denAsc, q);
+      const nq = ratPolyEvalFast(numAsc, q);
       if (!ratIsZero(nq)) return -ratSign(dq) * ratSign(nq);
     }
     const d = polyEvalComplex(den, x, 0).re;
@@ -905,9 +961,9 @@ export function rootLocus(g: TransferFunction, kAt: Rat | null = null): RootLocu
       restDesc = qPoly;
     }
     for (const r of exactRoots) {
-      const nv = ratPolyEval(asc(num), r);
+      const nv = ratPolyEvalFast(numAsc, r);
       if (ratIsZero(nv)) continue;
-      const K = ratNeg(ratDiv(ratPolyEval(asc(den), r), nv));
+      const K = ratNeg(ratDiv(ratPolyEvalFast(denAsc, r), nv));
       if (ratSign(K) > 0)
         breakaways.push({
           s: { re: ratToNumber(r), im: 0 },
@@ -917,6 +973,7 @@ export function rootLocus(g: TransferFunction, kAt: Rat | null = null): RootLocu
         });
     }
     const numericRoots = polyDegree(restDesc) >= 1 ? (polyRoots(restDesc) ?? []) : [];
+    const restAsc = asc(restDesc);
     const restNum = restDesc.map((c) => ratToNumber(c));
     for (const s of numericRoots) {
       // A REAL root that is in fact rational is confirmed EXACTLY (qPoly vanishes there) and
@@ -937,16 +994,16 @@ export function rootLocus(g: TransferFunction, kAt: Rat | null = null): RootLocu
             fs = fs * Math.abs(qv) + Math.abs(c);
           }
           if (!(Math.abs(fv) <= 1e-7 * fs)) continue;
-          if (ratIsZero(ratPolyEval(asc(restDesc), q))) {
+          if (ratPolySignAt(restAsc, q) === 0) {
             exactHit = q;
             break;
           }
         }
         if (exactHit) {
           if (breakaways.some((b) => b.sExact && ratEq(b.sExact, exactHit as Rat))) continue;
-          const nq = ratPolyEval(asc(num), exactHit);
+          const nq = ratPolyEvalFast(numAsc, exactHit);
           if (!ratIsZero(nq)) {
-            const Kq = ratNeg(ratDiv(ratPolyEval(asc(den), exactHit), nq));
+            const Kq = ratNeg(ratDiv(ratPolyEvalFast(denAsc, exactHit), nq));
             if (ratSign(Kq) > 0) breakaways.push({ s: { re: ratToNumber(exactHit), im: 0 }, K: ratToNumber(Kq), kExact: Kq, sExact: exactHit });
           }
           continue;
@@ -982,8 +1039,8 @@ export function rootLocus(g: TransferFunction, kAt: Rat | null = null): RootLocu
         const kAt = (x: number): Rat | null => {
           const q = toRat(x);
           if (!q) return null;
-          const nq = ratPolyEval(asc(num), q);
-          return ratIsZero(nq) ? null : ratNeg(ratDiv(ratPolyEval(asc(den), q), nq));
+          const nq = ratPolyEvalFast(numAsc, q);
+          return ratIsZero(nq) ? null : ratNeg(ratDiv(ratPolyEvalFast(denAsc, q), nq));
         };
         const ks = [kAt(s.re), kAt(s.re - delta), kAt(s.re + delta)];
         if (ks.some((k) => k === null)) continue;

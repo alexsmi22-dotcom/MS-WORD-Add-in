@@ -81,7 +81,7 @@ import {
   Series,
   Point,
   samplePlot,
-  parseData,
+  readPlotData,
   buildPlotSvg,
   combineSvgs,
   dropForScales,
@@ -370,7 +370,7 @@ import { solveFunctionSvg } from "../lib/solveFigure";
 import type { CoxInput } from "../lib/cox";
 import { rmAnovaCalc, rmFieldText, coxCalc } from "../lib/statsBatchCalcs";
 import { welchAnovaCalc, gamesHowellCalc } from "../lib/welchCalcs";
-import { tukeyHSD } from "../lib/tukey";
+import { tukeyHSD, tukeyGroupLimit } from "../lib/tukey";
 import { fftFilter, FilterKind, FilterResponse } from "../lib/fftfilter";
 import {
   build,
@@ -799,6 +799,8 @@ import {
   escapeSpeed,
 } from "../lib/orbital";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
+import { insertableResultText } from "../lib/insertGate";
+import { debouncedPreview, flushBeforeInsert, previewListener } from "../lib/previewDebounce";
 import {
   planParagraphNumbering,
   describeParagraphPlan,
@@ -2381,13 +2383,18 @@ Office.onReady((info) => {
   specOverlayChartBtn.addEventListener("click", () => void insertOverlayChart(specPanel));
   solveKind.addEventListener("change", () => { solveVarChoice = null; updateSolveUi(); updateSolve(); });
   solveOpenCanvasBtn.addEventListener("click", openSolveDialog);
-  solveInput.addEventListener("input", () => { solveVarChoice = null; updateSolve(); });
-  solveA.addEventListener("input", updateSolve);
-  solveB.addEventListener("input", updateSolve);
+  // Release D: a keystroke recomputes after a pause (lib/previewDebounce.ts has the measurements); leaving the
+  // field, Insert and every direct updateSolve() call run it at once.
+  solveInput.addEventListener("input", () => { solveVarChoice = null; solvePreview.schedule(); });
+  solveInput.addEventListener("change", () => solvePreview.flush());
+  solveA.addEventListener("input", () => solvePreview.schedule());
+  solveA.addEventListener("change", () => solvePreview.flush());
+  solveB.addEventListener("input", () => solvePreview.schedule());
+  solveB.addEventListener("change", () => solvePreview.flush());
   // Inserts real, editable Word equations (OMML) — the pane already typeset the
   // derivation on screen, and the same engine drives Math mode, so shipping it
   // to the document as flat ASCII was leaving the best part behind.
-  solveInsertBtn.addEventListener("click", () => void runCompositeInsert(solveInsertBtn, insertSolveResult));
+  solveInsertBtn.addEventListener("click", () => { if (flushBeforeInsert(solvePreview, solveInsertBtn)) void runCompositeInsert(solveInsertBtn, insertSolveResult); });
   // DEBOUNCED, unlike every other input handler here, because alignment is
   // O(n·m) in the two sequence lengths and runs synchronously on the UI thread.
   // Measured before the clamp in align.ts: 3 kb x 3 kb took 2.2 s and 659 MB,
@@ -2413,8 +2420,8 @@ Office.onReady((info) => {
 
   populateStatsCalcs();
   statsCalcSelect.addEventListener("change", renderStatsInputs);
-  statsInsertBtn.addEventListener("click", () => void runCompositeInsert(statsInsertBtn, insertStatsResult));
-  statsInsertChartBtn.addEventListener("click", () => void insertStatsChart());
+  statsInsertBtn.addEventListener("click", () => { if (flushBeforeInsert(statsPreview, statsInsertBtn)) void runCompositeInsert(statsInsertBtn, insertStatsResult); });
+  statsInsertChartBtn.addEventListener("click", () => { if (flushBeforeInsert(statsPreview, statsInsertChartBtn)) void insertStatsChart(); });
   statsBracketsSelect.addEventListener("change", updateStatsPreview);
   statsBracketsHideNs.addEventListener("change", updateStatsPreview);
   statsBracketsTall.addEventListener("change", updateStatsPreview);
@@ -6599,6 +6606,13 @@ function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number): (.
   };
 }
 
+/**
+ * Release D: Stats and Solve recompute after a pause in typing (measured up to ~0.2 s per keystroke on 2000 values
+ * or a hard integral; lib/previewDebounce.ts). Insert FLUSHES first, so it never inserts an earlier keystroke's result.
+ */
+const statsPreview = debouncedPreview(() => updateStatsPreview());
+const solvePreview = debouncedPreview(() => updateSolve());
+
 /** Minimal HTML escape for findings text. */
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -7792,7 +7806,7 @@ function renderRefFindings(
 // ---------------------------------------------------------------------------
 
 /** Builds plot series from the function and/or data inputs. */
-function buildPlotSeries(): { series: Series[]; error: string; warning: string } {
+function buildPlotSeries(): { series: Series[]; error: string; warning: string; dataNotes: string[] } {
   const series: Series[] = [];
   let error = "";
   let warning = "";
@@ -7816,8 +7830,15 @@ function buildPlotSeries(): { series: Series[]; error: string; warning: string }
       }
     }
   }
-  const data = parseData(plotData.value);
-  if (data.length) series.push({ points: data, type: "scatter", label: series.length ? "data" : undefined });
+  // The data block goes through the one number reader: a refused block is an error (preview and insert blocked),
+  // never data that silently disappears beside a plotted function.
+  const pd = readPlotData(plotData.value);
+  let dataNotes: string[] = [];
+  if (!pd.ok) error = error || pd.error;
+  else {
+    dataNotes = pd.notes;
+    if (pd.points.length) series.push({ points: pd.points, type: "scatter", label: series.length ? "data" : undefined });
+  }
   // A failed function only blocks when nothing else can be drawn; otherwise the
   // valid functions/data still render and the bad one is a soft warning.
   if (failed.length) {
@@ -7825,7 +7846,7 @@ function buildPlotSeries(): { series: Series[]; error: string; warning: string }
     if (series.length) warning = `Skipped ${list} — check the expression.`;
     else if (!error) error = `Couldn't evaluate ${list} — check the expression.`;
   }
-  return { series, error, warning };
+  return { series, error, warning, dataNotes };
 }
 
 /** Live-renders the plot preview. */
@@ -7851,7 +7872,7 @@ function updatePlotPreview(): void {
     plotInsertBtn.disabled = false;
     return;
   }
-  const { series, error, warning } = buildPlotSeries();
+  const { series, error, warning, dataNotes } = buildPlotSeries();
   if (error) {
     plotPreview.innerHTML = `<span class="hint">${esc(error)}</span>`;
     return;
@@ -7876,6 +7897,7 @@ function updatePlotPreview(): void {
   const filtered = dropForScales(series, opts);
   const notes: string[] = [];
   if (warning) notes.push(warning);
+  notes.push(...dataNotes);
   if (filtered.dropped > 0) {
     const axes = filtered.axes.join(" and ");
     notes.push(
@@ -9497,7 +9519,8 @@ function statTwoWay(s: string): { cells: number[][][]; aLevels: string[]; bLevel
 
 
 /**
- * Is this result text safe to put in a document?
+ * Is this result text safe to put in a document? (insertableResultText — since Release D in
+ * src/lib/insertGate.ts, where NaN/Infinity count only as number tokens, so "NaN₃" inserts.)
  *
  * THE EM DASH ALONE IS NOT ENOUGH, and relying on it produced a regression in
  * the very change that added this. `formatNum` and `assaySig` render a
@@ -9550,15 +9573,6 @@ function largestContributionLine(contributions: { name: string; contribution: nu
     return `Largest contribution: ${tied.map((c) => c.name).join(" and ")} (equal).`;
   }
   return `Largest contribution: ${finite[0].name}`;
-}
-
-function insertableResultText(text: string): boolean {
-  return (
-    !!text &&
-    !text.includes("\u2014") &&
-    !text.includes("NaN") &&
-    !text.includes("Infinity")
-  );
 }
 
 /** Shared text report for any least-squares fit. */
@@ -10431,6 +10445,8 @@ const STAT_CALCS: StatCalc[] = [
       const groups = statGroups(r("groups"));
       if (groups.length < 2) return { text: "Enter at least two groups (separate with a blank line).", ok: false };
       if (groups.some((g) => g.length < 2)) return { text: "Each group needs at least two values.", ok: false };
+      const tooMany = tukeyGroupLimit(groups.length);
+      if (tooMany) return { text: tooMany, ok: false };
       const alpha = Number(r("alpha")) || 0.05;
       const res = tukeyHSD(groups, alpha);
       if (!res) return { text: "Tukey HSD needs at least two groups with data in each.", ok: false };
@@ -11140,7 +11156,7 @@ function populateStatsCalcs(): void {
 /** Builds the inputs for the selected statistical test and wires live compute. */
 function renderStatsInputs(): void {
   const calc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value) ?? STAT_CALCS[0];
-  renderCalcFields(calc.fields, statsInputs, "stats", updateStatsPreview);
+  renderCalcFields(calc.fields, statsInputs, "stats", previewListener(statsPreview, updateStatsPreview));
 }
 
 /** Computes and shows the result for the current statistical test. */
@@ -11196,6 +11212,7 @@ function isLabelLine(line: string): boolean {
 }
 
 function updateStatsPreview(): void {
+  statsPreview.cancel(); // a direct recompute supersedes a pending keystroke one
   const calc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value) ?? STAT_CALCS[0];
   const read = (k: string): string => {
     const el = statsInputs.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[data-key="${k}"]`);
@@ -31074,6 +31091,7 @@ function renderSolveChemistry(raw: string): void {
 }
 
 function updateSolve(): void {
+  solvePreview.cancel(); // a direct recompute supersedes a pending keystroke one
   const kind = solveKind.value as SolveKind;
   // Fold pasted mathematics FIRST — math-italic 𝑥, Greek θ, LaTeX, the
   // fraction slash — so paste-from-anywhere just works, and say what was
@@ -34691,6 +34709,9 @@ function updatePanelTray(): void {
 }
 
 function addCurrentFigureToPanels(): void {
+  // Release D: the figure of the CURRENT input, never one a pending keystroke is about to replace.
+  statsPreview.flush();
+  solvePreview.flush();
   const item = currentModeFigure();
   if (!item) {
     setStatus("There is no figure here to add — compute a result with a chart first.", "error");

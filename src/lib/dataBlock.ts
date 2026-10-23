@@ -53,6 +53,18 @@ export interface DataBlockOptions {
    * loneCommaPairAmbiguous). Multi-column tools never pass it.
    */
   singleColumn?: boolean;
+  /**
+   * Release D. A reader whose rows also hold tokens of its OWN grammar (a dilution "1:10", a Ct "Undetermined")
+   * maps each split row here, after N1 and the grouping rules and before the header and word checks: it returns the
+   * row's fields (such tokens replaced by a missing-value token "-", which it remembers) or null to drop the row
+   * (its own header). `line` is the row's 1-based line in the pasted text. The fields every number comes from are
+   * still split and read here, by RULE N; the hook never reads a number.
+   */
+  mapRow?: (fields: string[], line: number) => string[] | null;
+  /** N3 evidence: the fields from column `fromColumn` on cannot exceed `max` (a Ct ≤ 60), so "18,123" there is a decimal comma. */
+  commaBounded?: { fromColumn: number; max: number; why: string };
+  /** The caller has already taken its own header off (mapRow returned null for it): no row is a header here (N4). */
+  noHeader?: boolean;
 }
 
 // Minus signs are kept AS TYPED in the fields (U+2212, the en dash or a hyphen) so a note echoes the user's text;
@@ -102,7 +114,7 @@ export function readDataBlock(text: string, what: string, opts: DataBlockOptions
   const maxRows = opts.maxRows ?? 2000;
   // R3″ (c): a grouping space that is not between two digits is ordinary whitespace.
   const all = (text ?? "").replace(/\r\n?/g, "\n").replace(GROUP_NOT_BETWEEN_DIGITS, " ").split("\n");
-  const src: Array<{ text: string; line: number }> = [];
+  let src: Array<{ text: string; line: number }> = [];
   all.forEach((l, i) => {
     const t = l.trim();
     if (t) src.push({ text: t, line: i + 1 });
@@ -121,7 +133,7 @@ export function readDataBlock(text: string, what: string, opts: DataBlockOptions
         : opts.singleColumn && src.length > 1
           ? "line"
           : "comma";
-  const fieldsOf = src.map((r): string[] => {
+  let fieldsOf = src.map((r): string[] => {
     // Tab and semicolon fields keep their empty cells (a missing value must not shift the columns after it), so a
     // tab row is re-split from the untrimmed line.
     if (separator === "tab") return all[r.line - 1].split("\t").map((f) => f.trim());
@@ -146,6 +158,23 @@ export function readDataBlock(text: string, what: string, opts: DataBlockOptions
       fields[k] = fields[k].replace(GROUP_ANY, "");
     }
 
+  // The caller's own tokens (opts.mapRow): rows it maps keep their place; rows it drops are gone before N4.
+  if (opts.mapRow) {
+    const kept: number[] = [];
+    for (let i = 0; i < fieldsOf.length; i++) {
+      const mapped = opts.mapRow(fieldsOf[i].slice(), src[i].line);
+      if (mapped) {
+        fieldsOf[i] = mapped;
+        kept.push(i);
+      }
+    }
+    if (kept.length < fieldsOf.length) {
+      src = kept.map((i) => src[i]);
+      fieldsOf = kept.map((i) => fieldsOf[i]);
+    }
+    if (!src.length) return refuse(`${what}: nothing to read.`);
+  }
+
   // R2: inside a tab- or semicolon-separated field an ASCII space is not digit grouping: "362 371 380" is three
   // numbers or one, and either guess is a confident wrong number.
   const spacedNumber = (f: string): boolean => / /.test(f) && f.split(/ +/).every((p) => NUMBER_LIKE.test(p));
@@ -155,7 +184,7 @@ export function readDataBlock(text: string, what: string, opts: DataBlockOptions
   let header: string[] | null = null;
   let start = 0;
   const firstWords = fieldsOf[0].filter((f) => !MISSING.test(f));
-  if (firstWords.length && !firstWords.some((f) => isNumeric(f) || spacedNumber(f))) {
+  if (!opts.noHeader && firstWords.length && !firstWords.some((f) => isNumeric(f) || spacedNumber(f))) {
     header = fieldsOf[0];
     start = 1;
   }
@@ -198,7 +227,12 @@ export function readDataBlock(text: string, what: string, opts: DataBlockOptions
   if (header) notes.push(`${what}: the first line was read as a header (${header.filter(Boolean).join(", ")}).`);
   let mode: "comma" | "point" = "point";
   if (commaNum !== undefined) {
-    const reading = commaReading(fields, what);
+    const b = opts.commaBounded;
+    const reading = commaReading(
+      fields,
+      what,
+      b ? { bounded: { cells: data.flatMap((r) => r.slice(b.fromColumn)).filter((f) => !MISSING.test(f)), max: b.max, why: b.why } } : {},
+    );
     if ("ok" in reading) return refuse(reading.error);
     mode = reading.mode;
     // commaNotes writes "Commas in the <noun> …": the caller's label ("The data", "Scan rates") becomes a bare

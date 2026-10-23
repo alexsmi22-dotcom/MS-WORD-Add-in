@@ -514,7 +514,9 @@ export function planReportLines(plan: RenumberPlan, store?: BibStoreData): strin
     out.push(`Deleted citations (${plan.staleStoreMarkers.length}), no longer in the document (kept so Undo can restore them): ${plan.staleStoreMarkers.join(", ")}.`);
   }
   if (plan.refused.length) {
-    out.push(`Refused by the style (${plan.refused.length}): ${plan.refused.map((r) => `${r.id ? `“${r.id}”` : `marker ${r.markerId}`}: ${r.reason}`).join("; ")}.`);
+    // A reason is a sentence and usually ends in its own period; strip it so the line ends in exactly one.
+    const reasons = plan.refused.map((r) => `${r.id ? `“${r.id}”` : `marker ${r.markerId}`}: ${r.reason.replace(/[.\s]+$/, "")}`);
+    out.push(`Refused by the style (${plan.refused.length}): ${reasons.join("; ")}.`);
   }
   // Any sentence renumberPlan reports that the lists above do not cover (e.g. an empty marker).
   for (const p of plan.problems) {

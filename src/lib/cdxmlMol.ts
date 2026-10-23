@@ -17,7 +17,7 @@
 import { Molecule } from "openchemlib/full";
 import { readCdxmlTree, type CdxDoc } from "./cdxml";
 import type { XNode } from "./xmlLite";
-import { findById, nextIdFrom, setAtomLabel } from "./cdxmlEdit";
+import { findById, fitLabel, nextIdFrom, setAtomLabel } from "./cdxmlEdit";
 import { symbolFor } from "./periodic";
 import { groupSmilesBySide } from "./labelExpand";
 import { applyAtomQuery, applyBondQuery, atomQueryAttrs, atomQueryConstrains, baseBondType, bondQueryAttrs, bondQueryConstrains, comparableCopy, elementListLabel, hasStereoGroup, isQueryOrder, parseElementList, queryOrders, stereoGroupOf } from "./cdxQuery";
@@ -851,13 +851,17 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
       if (t && runs.length) {
         runs[0].text = elementSymbol(z) + (h ? "H" + (h > 1 ? h : "") : "");
         t.children = t.children.filter((c) => c.name !== "s" || c === runs[0]);
+        fitLabel(doc, fresh, t);
       }
     }
     if (mass) {
       fresh.attrs.Isotope = String(mass);
       const t = fresh.children.find((c) => c.name === "t");
       const s0 = t?.children.find((c) => c.name === "s");
-      if (t && s0) t.children.unshift({ name: "s", attrs: { ...s0.attrs, face: String(0x20) }, children: [], text: String(mass), line: 0 });
+      if (t && s0) {
+        t.children.unshift({ name: "s", attrs: { ...s0.attrs, face: String(0x20) }, children: [], text: String(mass), line: 0 });
+        fitLabel(doc, fresh, t);
+      }
     }
   }
   // The page must say exactly what the Molecule does: read back, the same idcode — else something it holds

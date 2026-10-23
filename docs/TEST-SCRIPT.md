@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.188.0)
+# JurisLab — Manual Test Script (v2.189.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,22 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0eb. New in v2.189.0 — Cleanup
+
+- [ ] **Draw page (Structure ▸ Draw):** draw Br–Br at a few angles (the bond stops short of both Br); an O with a −
+  charge and its bond to the right (reads ⁻O–, not O=); H₃N⁺–CH₂–CO₂⁻; a ring carbon with a + charge (the + sits just
+  outside the ring at that carbon); N–H in a chain (the H under the N). Insert: Word shows the same picture.
+- [ ] **NaN₃:** Bio/Assay ▸ Standard curve, name a sample "NaN₃ 12.5" → the result inserts.
+- [ ] **Stats:** type quickly in a data box and press Insert straight away → the inserted result matches what you typed.
+- [ ] **Plot ▸ y = f(x):** data `1 2,5` / `2 3,5` / `3 4,0` plots (1, 2.5), (2, 3.5), (3, 4.0); data `1,000 2` → a
+  message about the ambiguous comma.
+- [ ] **Plot kinds in the USPTO figure style:** a contour plot inserts as black lines with values on the lines; a
+  two-axis plot with a long right-axis title wraps it onto two lines.
+- [ ] **Golden Gate:** paste a destination vector (two inverted BsaI sites around a stuffer) into Backbone → the result
+  names both sites, the dropout removed and the two overhangs; the diagram shows the vector as a green box.
+- [ ] **Citations:** choose Nature, cite a journal article and a book → the book is refused, the article is 1 and the
+  list starts at 1.
 
 ## 0ea. New in v2.188.0 — Peak tables, NMR integration, cloning, transients, LC wave plates, more arrows
 

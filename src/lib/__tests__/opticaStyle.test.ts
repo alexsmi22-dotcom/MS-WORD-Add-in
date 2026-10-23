@@ -345,3 +345,28 @@ describe("registration", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("Release D citation fixes", () => {
+  it("a quoted title's own double quotes become single quotes", () => {
+    const rec: BibRecord = { id: "q", type: "article-journal", title: 'The "Hello World" program', author: [{ family: "Ab", given: "A." }], "container-title-short": "Opt. Lett.", volume: "1", page: "1", issued: { "date-parts": [[2001]] } };
+    for (const sid of ["optica", "ieee"] as const) {
+      const f = STYLES[sid]!.reference(rec, 1);
+      expect(f.plain).toContain("‘Hello World’");
+      expect(f.plain).not.toContain('"');
+    }
+  });
+  it("a journal article with no journal name is warned about", () => {
+    const rec: BibRecord = { id: "n", type: "article-journal", title: "T", issued: { "date-parts": [[2001]] } };
+    expect(referenceWarnings("optica", rec).some((w) => /No journal name/.test(w))).toBe(true);
+  });
+});
+
+describe("Release D review: nested quote direction", () => {
+  const rec = (title: string): BibRecord => ({ id: "q", type: "article-journal", title, author: [{ family: "Ab", given: "A." }], "container-title-short": "Opt. Lett.", volume: "1", page: "1", issued: { "date-parts": [[2001]] } });
+  it("a tag inside the quoted words does not flip the closing quote", () => {
+    expect(STYLES.optica!.reference(rec('The "<i>lac</i>" operon'), 1).plain).toContain("‘lac’");
+  });
+  it("a quote that ends a word closes", () => {
+    expect(STYLES.ieee!.reference(rec('Ending in a quote"'), 1).plain).toContain("quote’");
+  });
+});

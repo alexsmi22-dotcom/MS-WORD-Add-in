@@ -53,9 +53,10 @@
 // lines: a number drawn on a curve is a number struck through, and the layout
 // gate (scripts/figure-layout-audit.js) rightly flags that.
 
-import { CompiledExpr, plotAxisTicks, escapeXml, layoutNotes, NOTE_LH, NOTE_SIZE } from "./plot";
+import { CompiledExpr, plotAxisTicks, escapeXml, layoutNotes, NOTE_LH, NOTE_SIZE, BW_NOTE_SIZE, BW_NOTE_LH, bwPx } from "./plot";
 import { linearAxis, formatIntRow, scale10, fmtSig, fmtValue } from "./axis";
 import { SEQUENTIAL_BLUE, sampleRamp } from "./chartPalette";
+import { usptoPatternDefs } from "./figureStyle";
 
 const FONT = "Arial, Helvetica, sans-serif";
 
@@ -612,6 +613,195 @@ export interface ContourFigure {
   /** Precomputed pieces (plotKinds computes them once, under its size budget). */
   bands?: BandPolygon[];
   lines?: ContourLevel[];
+  /**
+   * Black and white (37 CFR 1.84(a)(1), the USPTO figure style): black lines with each level's
+   * value written ON its lines (no colour key can tell black lines apart), holes hatched
+   * (usptoPatternDefs), no fill. A filled figure is not drawn in black and white: the caller
+   * refuses it with advice (plotKinds).
+   */
+  bw?: boolean;
+  /** Black and white: a level with no room for its value ON its line is drawn unlabelled, and a note says so (else ContourLabelError). */
+  dropUnlabelled?: boolean;
+}
+
+/** Liang–Barsky: does segment (x0,y0)-(x1,y1) touch the box? */
+function segHitsBox(x0: number, y0: number, x1: number, y1: number, b: { x0: number; y0: number; x1: number; y1: number }): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const checks: [number, number][] = [
+    [-dx, x0 - b.x0],
+    [dx, b.x1 - x0],
+    [-dy, y0 - b.y0],
+    [dy, b.y1 - y0],
+  ];
+  for (const [p, q] of checks) {
+    if (p === 0) {
+      if (q < 0) return false;
+    } else {
+      const t = q / p;
+      if (p < 0) {
+        if (t > t1) return false;
+        if (t > t0) t0 = t;
+      } else {
+        if (t < t0) return false;
+        if (t < t1) t1 = t;
+      }
+    }
+  }
+  return true;
+}
+
+type Box = { x0: number; y0: number; x1: number; y1: number };
+const boxesMeet = (a: Box, b: Box, gap: number): boolean => a.x0 < b.x1 + gap && b.x0 < a.x1 + gap && a.y0 < b.y1 + gap && b.y0 < a.y1 + gap;
+
+/** Thrown by a black-and-white contour figure when a level has no room for its value (plotKinds may retry with fewer automatic levels). */
+export class ContourLabelError extends Error {}
+
+/** Most labels written on one level's lines (one per separate piece, longest pieces first). */
+const LABELS_PER_LEVEL = 3;
+
+/**
+ * Places each level's value ON its own lines (the black-and-white figure, where lines cannot be
+ * told apart by colour). Screen-space polylines per level in; per level, label boxes out (centre
+ * x, baseline y). A label sits where its own line runs through the middle of the box, clear of
+ * every OTHER level's lines (its white backing would hide them), of holes, of the frame and of
+ * every other label. A level whose lines are too short to carry the label is labelled just
+ * beside its longest piece if that spot is clear of all lines. Returns null for a level with
+ * lines and no labelling spot: the caller refuses rather than leave a line unidentified.
+ */
+function placeLineLabels(
+  polys: [number, number][][][],
+  texts: string[],
+  frame: Box,
+  holes: Box[],
+  fs: number,
+): ({ cx: number; base: number; box: Box }[] | null)[] {
+  const placed: Box[] = [];
+  const out: ({ cx: number; base: number; box: Box }[] | null)[] = polys.map(() => []);
+  const len = (p: [number, number][]): number => {
+    let s = 0;
+    for (let i = 1; i < p.length; i++) s += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+    return s;
+  };
+  const at = (p: [number, number][], d: number): [number, number] => {
+    let s = 0;
+    for (let i = 1; i < p.length; i++) {
+      const l = Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+      if (s + l >= d && l > 0) {
+        const t = (d - s) / l;
+        return [p[i - 1][0] + t * (p[i][0] - p[i - 1][0]), p[i - 1][1] + t * (p[i][1] - p[i - 1][1])];
+      }
+      s += l;
+    }
+    return p[p.length - 1];
+  };
+  // Segments bucketed on a coarse screen grid, so a candidate box tests only the segments near it
+  // (a 200 × 200 grid at 40 levels holds ~10⁵ segments; a linear scan per candidate was seconds).
+  const CELL = Math.max(8, fs * 3);
+  const buckets = new Map<number, number[]>();
+  const segs: number[] = []; // flat: piece, x0, y0, x1, y1
+  // A label may cover only the piece it is written on: not another level, and not another piece of its own level
+  // (two pieces of one level meet at a saddle, and a backing there would hide the crossing).
+  const pieceId = new Map<[number, number][], number>();
+  const keyOf = (i: number, j: number): number => i * 100003 + j;
+  polys.forEach((lv) =>
+    lv.forEach((p) => {
+      const pid = pieceId.size;
+      pieceId.set(p, pid);
+      for (let i = 1; i < p.length; i++) {
+        const id = segs.length;
+        segs.push(pid, p[i - 1][0], p[i - 1][1], p[i][0], p[i][1]);
+        const i0 = Math.floor(Math.min(p[i - 1][0], p[i][0]) / CELL);
+        const i1 = Math.floor(Math.max(p[i - 1][0], p[i][0]) / CELL);
+        const j0 = Math.floor(Math.min(p[i - 1][1], p[i][1]) / CELL);
+        const j1 = Math.floor(Math.max(p[i - 1][1], p[i][1]) / CELL);
+        for (let a = i0; a <= i1 && a - i0 < 64; a++)
+          for (let c = j0; c <= j1 && c - j0 < 64; c++) {
+            const key = keyOf(a, c);
+            const list = buckets.get(key);
+            if (list) list.push(id);
+            else buckets.set(key, [id]);
+          }
+      }
+    }),
+  );
+  const hitsLines = (b: Box, skip: number): boolean => {
+    for (let a = Math.floor(b.x0 / CELL); a <= Math.floor(b.x1 / CELL); a++)
+      for (let c = Math.floor(b.y0 / CELL); c <= Math.floor(b.y1 / CELL); c++)
+        for (const id of buckets.get(keyOf(a, c)) ?? []) {
+          if (segs[id] === skip) continue;
+          if (segHitsBox(segs[id + 1], segs[id + 2], segs[id + 3], segs[id + 4], b)) return true;
+        }
+    return false;
+  };
+  const free = (b: Box): boolean =>
+    b.x0 >= frame.x0 + 2 && b.x1 <= frame.x1 - 2 && b.y0 >= frame.y0 + 2 && b.y1 <= frame.y1 - 2 && !placed.some((q) => boxesMeet(q, b, 3)) && !holes.some((h) => boxesMeet(h, b, 0));
+  const boxAt = (cx: number, cy: number, w: number): Box => ({ x0: cx - w / 2, y0: cy - fs * 0.62, x1: cx + w / 2, y1: cy + fs * 0.62 });
+  // Levels in order of their longest piece, shortest first: the hardest to place choose first.
+  const order = polys.map((lv, k) => ({ k, L: Math.max(0, ...lv.map(len)) })).sort((a, b) => a.L - b.L);
+  for (const { k } of order) {
+    const lv = polys[k];
+    const pieces = lv.map((p) => ({ p, L: len(p) })).filter((q) => q.L > 0).sort((a, b) => b.L - a.L);
+    if (!pieces.length) continue;
+    const w = texts[k].length * fs * 0.6 + 4;
+    const mine: { cx: number; base: number; box: Box }[] = [];
+    // One label on piece p: positions from its middle outward, every ~L/60 (at most 61 tries), the
+    // whole label inside the piece with endClr of line on each side (a stub between a label and the
+    // frame reads as a minus sign), only where the line runs nearly STRAIGHT across the label (chord
+    // >= straightMin of the arc it covers: on a bend the label sits in the corner), and among those the
+    // spot with the MOST room to the other lines (a label crowding a neighbour reads as its value).
+    const onPiece = (p: [number, number][], L: number, endClr: number, straightMin: number): { cx: number; cy: number; b: Box } | null => {
+      const lo = w / 2 + endClr;
+      const hi = L - w / 2 - endClr;
+      if (hi < lo) return null;
+      const step = Math.max(2, (hi - lo) / 60);
+      const tries: number[] = [];
+      const mid = (lo + hi) / 2;
+      for (let t = 0; t <= 61 && mid + t * step <= hi + 1e-9; t++) {
+        tries.push(mid + t * step);
+        if (t > 0 && mid - t * step >= lo - 1e-9) tries.push(mid - t * step);
+      }
+      const pid = pieceId.get(p) ?? -1;
+      const MARGINS = [fs * 1.4, fs * 0.8, fs * 0.4, 0];
+      let best: { cx: number; cy: number; b: Box; m: number } | null = null;
+      for (const d of tries) {
+        const a = at(p, d - w / 2);
+        const c = at(p, d + w / 2);
+        if (Math.hypot(c[0] - a[0], c[1] - a[1]) < straightMin * w) continue;
+        const [cx, cy] = at(p, d);
+        const b = boxAt(cx, cy, w);
+        if (!free(b)) continue;
+        const m = MARGINS.findIndex((g) => !hitsLines({ x0: b.x0 - g, y0: b.y0 - g, x1: b.x1 + g, y1: b.y1 + g }, pid));
+        if (m < 0) continue;
+        if (!best || m < best.m) best = { cx, cy, b, m };
+        if (m === 0) break;
+      }
+      return best;
+    };
+    const take = (q: { cx: number; cy: number; b: Box }): void => {
+      placed.push(q.b);
+      mine.push({ cx: q.cx, base: q.cy + fs * 0.36, box: q.b });
+    };
+    for (const { p, L } of pieces) {
+      if (mine.length >= LABELS_PER_LEVEL) break;
+      // A further piece carries a label only when it is clearly longer than the label.
+      if (mine.length && L < 3 * w) continue;
+      const q = onPiece(p, L, 1.5 * fs, 0.85);
+      if (q) take(q);
+    }
+    // A short piece: once more with less line either side and a gentler bend allowed.
+    for (const { p, L } of pieces) {
+      if (mine.length) break;
+      const q = onPiece(p, L, 1.0 * fs, 0.7);
+      if (q) take(q);
+    }
+    // No spot ON the line: the level gets no label (review round 1: a label beside its line read back as another
+    // value). The caller drops it with a note, or retries with fewer automatic levels.
+    out[k] = mine.length ? mine : null;
+  }
+  return out;
 }
 
 const HOLE_FILL = "#d4d4d4";
@@ -635,6 +825,10 @@ function lineColour(k: number, nLevels: number): string {
 export function contourPlotSvg(fig: ContourFigure): string {
   const W = fig.width ?? 380;
   const g = fig.grid;
+  const bw = fig.bw === true;
+  const filled = fig.filled && !bw;
+  const INK = bw ? "#000000" : "#333333";
+  const RULE = bw ? "#000000" : "#888888";
   const xlo = g.xs[0];
   const xhi = g.xs[g.xs.length - 1];
   const ylo = g.ys[0];
@@ -651,12 +845,15 @@ export function contourPlotSvg(fig: ContourFigure): string {
 
   // Colour bar gutter on the right: bar 12 px, ticks, labels.
   const widestLevel = Math.max(1, ...levelText.map((t) => t.length));
-  const barGutter = Math.max(12 + 14 + 6 + widestLevel * 6 + 8, Math.ceil(zTitle.length * 6.2) + 12);
+  // Black and white: no colour bar (the values are written on the lines); the z name, offset and
+  // multiplier, when there are any, go in one line above the frame.
+  const barGutter = bw ? 0 : Math.max(12 + 14 + 6 + widestLevel * 6 + 8, Math.ceil(zTitle.length * 6.2) + 12);
+  const zCaption = bw && (fig.zlabel || levelRow.offset || levelRow.multiplier) ? `Contour labels: ${zTitle}` : "";
   const widestY = Math.max(1, ...yAxis.ticks.map((t) => t.text.length));
   const ml = Math.min(130, Math.max(48, Math.ceil(widestY * 6 + 7 + 23)));
   const widestX = Math.max(1, ...xAxis.ticks.map((t) => t.text.length));
   const mr = Math.max(14, Math.ceil((widestX * 6) / 2) + 2) + barGutter;
-  const mt = fig.title ? 26 : 14;
+  const mt = (fig.title ? 26 : 14) + (zCaption ? 20 : 0);
   const mb = 42;
   const pw = Math.max(60, W - ml - mr);
   // Equal scales when that keeps the frame between 0.45 and 1.4 of its width.
@@ -666,8 +863,10 @@ export function contourPlotSvg(fig: ContourFigure): string {
   const H = mt + ph + mb;
   const notes = [...(fig.notes ?? [])];
   if (!equal) notes.push("x and y are drawn to different scales (the rectangle is too long and thin for equal scales).");
-  const noteLines = layoutNotes(notes, W);
-  const outH = H + (noteLines.length ? noteLines.length * NOTE_LH + 4 : 0);
+  const noteSize = bw ? BW_NOTE_SIZE : NOTE_SIZE;
+  const noteLh = bw ? BW_NOTE_LH : NOTE_LH;
+  let noteLines = layoutNotes(notes, W, noteSize);
+  let outH = H + (noteLines.length ? noteLines.length * noteLh + 4 : 0);
 
   const sx = (x: number): number => ml + ((x - xlo) / (xhi - xlo)) * pw;
   const sy = (y: number): number => mt + ph - ((y - ylo) / (yhi - ylo)) * ph;
@@ -677,6 +876,8 @@ export function contourPlotSvg(fig: ContourFigure): string {
   parts.push(`<g clip-path="url(#${clipId})">`);
 
   // Holes: every cell with a non-finite corner, merged along rows.
+  const holeBoxes: Box[] = [];
+  if (bw && (g.holes > 0 || g.jumps)) parts.splice(1, 0, usptoPatternDefs());
   if (g.holes > 0 || g.jumps) {
     for (let j = 0; j < g.ys.length - 1; j++) {
       let start = -1;
@@ -686,14 +887,20 @@ export function contourPlotSvg(fig: ContourFigure): string {
         if (!bad && start >= 0) {
           const x = sx(g.xs[start]);
           const y = sy(g.ys[j + 1]);
-          parts.push(`<rect x="${f1(x)}" y="${f1(y)}" width="${f1(sx(g.xs[i]) - x)}" height="${f1(sy(g.ys[j]) - y)}" fill="${HOLE_FILL}" stroke="${HOLE_FILL}" stroke-width="0.5"/>`);
+          holeBoxes.push({ x0: x, y0: y, x1: sx(g.xs[i]), y1: sy(g.ys[j]) });
+          // Black and white: hatched (usptoPatternDefs fi-diag; userSpaceOnUse, so neighbouring runs join seamlessly).
+          parts.push(
+            bw
+              ? `<rect x="${f1(x)}" y="${f1(y)}" width="${f1(sx(g.xs[i]) - x)}" height="${f1(sy(g.ys[j]) - y)}" fill="url(#fi-diag)"/>`
+              : `<rect x="${f1(x)}" y="${f1(y)}" width="${f1(sx(g.xs[i]) - x)}" height="${f1(sy(g.ys[j]) - y)}" fill="${HOLE_FILL}" stroke="${HOLE_FILL}" stroke-width="0.5"/>`,
+          );
           start = -1;
         }
       }
     }
   }
   const nBands = levels.length + 1;
-  if (fig.filled) {
+  if (filled) {
     // ONE PATH PER BAND (disjoint subpaths): a 60 × 60 field of fine bands is
     // thousands of pieces, and an element per piece was most of a megabyte.
     const byBand: string[][] = Array.from({ length: nBands }, () => []);
@@ -710,63 +917,95 @@ export function contourPlotSvg(fig: ContourFigure): string {
   }
   const lines = fig.lines ?? marchingSquares(g, levels);
   lines.forEach((lvl, k) => {
-    const col = fig.filled ? "#1a1a1a" : lineColour(k, levels.length);
+    const col = bw ? "#000000" : fig.filled ? "#1a1a1a" : lineColour(k, levels.length);
     const d = lvl.paths
       .filter((p) => p.pts.length >= 2)
       .map((p) => p.pts.map(([x, y], n) => `${n === 0 ? "M" : "L"}${f1(sx(x))},${f1(sy(y))}`).join(" ") + (p.closed ? " Z" : ""))
       .join(" ");
-    if (d) parts.push(`<path d="${d}" fill="none" stroke="${col}" stroke-width="${fig.filled ? 0.8 : 1.3}" stroke-linejoin="round"/>`);
+    if (d) parts.push(`<path d="${d}" fill="none" stroke="${col}" stroke-width="${bw ? 1 : fig.filled ? 0.8 : 1.3}" stroke-linejoin="round"/>`);
   });
   parts.push(`</g>`);
-  parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="#888888" stroke-width="1"/>`);
+  if (bw && levels.length) {
+    // Each level written on its own lines, on a white backing that hides only its own line.
+    const polys = levels.map((_, k) =>
+      (lines[k]?.paths ?? []).filter((p) => p.pts.length >= 2).map((p) => p.pts.map(([x, y]): [number, number] => [sx(x), sy(y)])),
+    );
+    const where = placeLineLabels(polys, levelText, { x0: ml, y0: mt, x1: ml + pw, y1: mt + ph }, holeBoxes, 10);
+    const missing = levelText.filter((_, k) => where[k] === null);
+    // Not one value on any line would be a figure no reader can use: refused, as before.
+    const labelled = where.filter((x) => x !== null && x.length > 0).length;
+    if (missing.length && fig.dropUnlabelled && labelled > 0) {
+      // The figure says which lines carry no value, and the canvas grows for the note.
+      const many = missing.length > 1;
+      notes.push(`No room to write ${missing.join(", ")} on ${many ? "their lines" : "its line"} without covering another line, so ${many ? "those contours are" : "that contour is"} drawn without a label.`);
+      noteLines = layoutNotes(notes, W, noteSize);
+      outH = H + (noteLines.length ? noteLines.length * noteLh + 4 : 0);
+      parts[0] = `<rect width="${W}" height="${outH}" fill="#ffffff"/>`;
+    } else if (missing.length) {
+      throw new ContourLabelError(
+        `in black and white each contour line carries its value, and there is no room to write ${missing.join(", ")} on ${missing.length === 1 ? "its line" : "their lines"} without covering another line; choose fewer levels, or levels further apart`,
+      );
+    }
+    where.forEach((spots, k) => {
+      for (const sp of spots ?? []) {
+        parts.push(`<rect x="${f1(sp.box.x0)}" y="${f1(sp.box.y0)}" width="${f1(sp.box.x1 - sp.box.x0)}" height="${f1(sp.box.y1 - sp.box.y0)}" fill="#ffffff"/>`);
+        parts.push(`<text x="${f1(sp.cx)}" y="${f1(sp.base)}" text-anchor="middle" font-family="${FONT}" font-size="${bwPx(levelText[k], 10, bw)}" fill="#000000">${escapeXml(levelText[k])}</text>`);
+      }
+    });
+    if (zCaption) parts.push(`<text x="${ml}" y="${mt - 6}" font-family="${FONT}" font-size="${bwPx(zCaption, 10, bw)}" fill="#000000">${escapeXml(zCaption)}</text>`);
+  }
+  parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="${RULE}" stroke-width="1"/>`);
 
   for (const t of xAxis.ticks) {
     const px = sx(t.v);
-    parts.push(`<line x1="${f1(px)}" y1="${mt + ph}" x2="${f1(px)}" y2="${mt + ph + 4}" stroke="#888888"/>`);
-    parts.push(`<text x="${f1(px)}" y="${mt + ph + 16}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(t.text)}</text>`);
+    parts.push(`<line x1="${f1(px)}" y1="${mt + ph}" x2="${f1(px)}" y2="${mt + ph + 4}" stroke="${RULE}"/>`);
+    parts.push(`<text x="${f1(px)}" y="${mt + ph + 16}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="${INK}">${escapeXml(t.text)}</text>`);
   }
   for (const t of yAxis.ticks) {
     const py = sy(t.v);
-    parts.push(`<line x1="${ml - 4}" y1="${f1(py)}" x2="${ml}" y2="${f1(py)}" stroke="#888888"/>`);
-    parts.push(`<text x="${ml - 7}" y="${f1(py + 3)}" text-anchor="end" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(t.text)}</text>`);
+    parts.push(`<line x1="${ml - 4}" y1="${f1(py)}" x2="${ml}" y2="${f1(py)}" stroke="${RULE}"/>`);
+    parts.push(`<text x="${ml - 7}" y="${f1(py + 3)}" text-anchor="end" font-family="${FONT}" font-size="10" fill="${INK}">${escapeXml(t.text)}</text>`);
   }
-  parts.push(`<text x="${f1(ml + pw / 2)}" y="${H - 8}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="#333333">${escapeXml(xlabel)}</text>`);
+  parts.push(`<text x="${f1(ml + pw / 2)}" y="${H - 8}" text-anchor="middle" font-family="${FONT}" font-size="${bwPx(xlabel, 11, bw)}" fill="${INK}">${escapeXml(xlabel)}</text>`);
   const cy = mt + ph / 2;
-  parts.push(`<text x="14" y="${f1(cy)}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="#333333" transform="rotate(-90 14 ${f1(cy)})">${escapeXml(ylabel)}</text>`);
+  parts.push(`<text x="14" y="${f1(cy)}" text-anchor="middle" font-family="${FONT}" font-size="${bwPx(ylabel, 11, bw)}" fill="${INK}" transform="rotate(-90 14 ${f1(cy)})">${escapeXml(ylabel)}</text>`);
 
   // The colour bar: one cell per band (filled) or one stroke per level (lines),
   // spaced evenly — a level key, not a linear z scale, so unevenly spaced user
   // levels stay readable.
+  // The colour bar (not in black and white).
   const bx = W - barGutter + 6;
-  const barTop = mt + 14;
-  const barH = Math.max(40, ph - 14);
-  parts.push(`<text x="${bx}" y="${mt + 8}" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(zTitle)}</text>`);
-  if (levels.length) {
-    const yAt = (k: number): number => barTop + barH - (barH * (k + 1)) / (levels.length + 1);
-    if (fig.filled) {
-      for (let b = 0; b < nBands; b++) {
-        const yTop = b === nBands - 1 ? barTop : yAt(b);
-        const yBot = b === 0 ? barTop + barH : yAt(b - 1);
-        parts.push(`<rect x="${bx}" y="${f1(yTop)}" width="12" height="${f1(yBot - yTop)}" fill="${bandColour(b, nBands)}"/>`);
+  if (!bw) {
+    const barTop = mt + 14;
+    const barH = Math.max(40, ph - 14);
+    parts.push(`<text x="${bx}" y="${mt + 8}" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(zTitle)}</text>`);
+    if (levels.length) {
+      const yAt = (k: number): number => barTop + barH - (barH * (k + 1)) / (levels.length + 1);
+      if (fig.filled) {
+        for (let b = 0; b < nBands; b++) {
+          const yTop = b === nBands - 1 ? barTop : yAt(b);
+          const yBot = b === 0 ? barTop + barH : yAt(b - 1);
+          parts.push(`<rect x="${bx}" y="${f1(yTop)}" width="12" height="${f1(yBot - yTop)}" fill="${bandColour(b, nBands)}"/>`);
+        }
+        parts.push(`<rect x="${bx}" y="${barTop}" width="12" height="${barH}" fill="none" stroke="#888888" stroke-width="0.8"/>`);
       }
-      parts.push(`<rect x="${bx}" y="${barTop}" width="12" height="${barH}" fill="none" stroke="#888888" stroke-width="0.8"/>`);
+      // Label every k-th level so labels stay ≥ 12 px apart.
+      const step = Math.max(1, Math.ceil(12 / (barH / (levels.length + 1))));
+      levels.forEach((_, k) => {
+        const y = yAt(k);
+        const col = fig.filled ? "#1a1a1a" : lineColour(k, levels.length);
+        parts.push(`<line x1="${bx}" y1="${f1(y)}" x2="${bx + 12}" y2="${f1(y)}" stroke="${col}" stroke-width="${fig.filled ? 1 : 2}"/>`);
+        if (k % step === 0) {
+          parts.push(`<text x="${bx + 18}" y="${f1(y + 3.5)}" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(levelText[k])}</text>`);
+        }
+      });
     }
-    // Label every k-th level so labels stay ≥ 12 px apart.
-    const step = Math.max(1, Math.ceil(12 / (barH / (levels.length + 1))));
-    levels.forEach((_, k) => {
-      const y = yAt(k);
-      const col = fig.filled ? "#1a1a1a" : lineColour(k, levels.length);
-      parts.push(`<line x1="${bx}" y1="${f1(y)}" x2="${bx + 12}" y2="${f1(y)}" stroke="${col}" stroke-width="${fig.filled ? 1 : 2}"/>`);
-      if (k % step === 0) {
-        parts.push(`<text x="${bx + 18}" y="${f1(y + 3.5)}" font-family="${FONT}" font-size="10" fill="#333333">${escapeXml(levelText[k])}</text>`);
-      }
-    });
   }
   if (fig.title) {
-    parts.push(`<text data-figure-title="1" x="${f1(W / 2)}" y="16" text-anchor="middle" font-family="${FONT}" font-size="13" font-weight="bold" fill="#222222">${escapeXml(fig.title)}</text>`);
+    parts.push(`<text data-figure-title="1" x="${f1(W / 2)}" y="16" text-anchor="middle" font-family="${FONT}" font-size="13" font-weight="bold" fill="${bw ? "#000000" : "#222222"}">${escapeXml(fig.title)}</text>`);
   }
   noteLines.forEach((line, i) => {
-    parts.push(`<text x="8" y="${H + 11 + i * NOTE_LH}" font-family="${FONT}" font-size="${NOTE_SIZE}" fill="#555555">${escapeXml(line)}</text>`);
+    parts.push(`<text x="8" y="${H + (bw ? 15 : 11) + i * noteLh}" font-family="${FONT}" font-size="${noteSize}" fill="${bw ? "#000000" : "#555555"}">${escapeXml(line)}</text>`);
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${outH}" viewBox="0 0 ${W} ${outH}">${parts.join("")}</svg>`;
 }

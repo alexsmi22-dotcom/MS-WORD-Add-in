@@ -2833,5 +2833,98 @@ rotator 15` }, "jones elliptical");
   void [lcTransmissionSvg, lcNetRetardanceSvg, lcMeasuredSvg, lcProfilesSvg, lcGammaVoltageSvg, lcMidTiltSvg];
 }
 // --- end Release C: lc ---
+// --- Release D: plots ---
+// The plot kinds under the USPTO figure style (37 CFR 1.84(a)(1), black and white), fitted as inserted: prepareFigure
+// re-renders each through render(w, preset), which draws black line art (contour values written on their lines,
+// holes hatched, hidden-line wireframe, dotted polar grid, dash and marker for the two series).
+{
+  const base: PlotKindInput = {
+    kind: "parametric", fn: "", fn2: "", xmin: "-1", xmax: "1", tmin: "0", tmax: "2*pi", ymin: "-1", ymax: "1",
+    angleUnit: "rad", data: "", title: "", xlabel: "", ylabel: "", y2label: "", zlabel: "", xscale: "linear", yscale: "linear",
+    y2scale: "linear", equal: true, levels: "", filled: false, grid: "", az: "-60", el: "30", surfaceStyle: "wireframe",
+  };
+  const uspto: [string, Partial<PlotKindInput>][] = [
+    ["parametric figure eight", { kind: "parametric", fn: "cos(t)", fn2: "sin(2*t)" }],
+    ["polar rose, radians", { kind: "polar", fn: "cos(3*theta)" }],
+    ["polar limaçon, degrees", { kind: "polar", fn: "1+0.5*cos(theta)", angleUnit: "deg", tmax: "360" }],
+    ["two y axes", { kind: "dualy", data: "1 2 30\n2 3 20\n3 5 10\n4 6 8\n5 8 5", xlabel: "Time (h)", ylabel: "Mass (g)", y2label: "Rate (g/h)" }],
+    ["contour saddle x·y, values on the lines", { kind: "contour", fn: "x*y" }],
+    ["contour sin 3x cos 3y, 200 grid", { kind: "contour", fn: "sin(3*x)*cos(3*y)", grid: "200" }],
+    ["contour with a hatched hole and a z name", { kind: "contour", fn: "log(x)+y", xmin: "-1", xmax: "2", ymin: "0", ymax: "2", zlabel: "T (K)" }],
+    ["surface wireframe sin x cos y", { kind: "surface", fn: "sin(x)*cos(y)", xmin: "-pi", xmax: "pi", ymin: "-pi", ymax: "pi" }],
+    ["surface wireframe with a gap", { kind: "surface", fn: "log(x*y)", xmin: "-1", xmax: "2", ymin: "0.1", ymax: "2", grid: "30" }],
+  ];
+  for (const [what, o] of uspto) {
+    const r = buildPlotKind({ ...base, ...o });
+    if (!r.ok) throw new Error(`corpus: USPTO ${what}: ${r.error}`);
+    const p = prepareFigure({ svg: r.svg, preset: "uspto", width: "single", render: r.render, chartKind: r.chartKind });
+    if (!p.ok) throw new Error(`corpus: USPTO ${what}: ${p.reason}: ${p.problems.join("; ")}`);
+    figures.push([`preset uspto 170 mm plot kind ${what}`, p.svg]);
+  }
+}
+// --- end Release D: plots ---
+
+// --- Release D: golden gate destination vector -------------------------------
+// The Golden Gate diagram when the backbone is a DESTINATION VECTOR: the vector
+// body is one more box in the row, in its own tint, and the footer names the
+// dropout that left and the two overhangs. Layout stress: a 2.7 kb vector box
+// next to 80 bp parts (the minimum-width floor), the longest footer the tool
+// writes (it has to wrap), one part (the vector box takes nearly the whole row)
+// and six parts (junction labels step to two rows).
+{
+  const ggd = (parts: string[], backbone: string, enzyme: string, name: string): void => {
+    const c = CLONING_CALCS.find((x) => x.id === "cloning-golden-gate");
+    if (!c) throw new Error("corpus: cloning-golden-gate missing");
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    vals.parts = parts.join(String.fromCharCode(10));
+    vals.backbone = backbone;
+    vals.enzyme = enzyme;
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: ${name} did not draw: ${out.text}`);
+    plots.forEach((b) => {
+      if (b.kind === "plot") figures.push([`cloning ${name}`, b.svg]);
+    });
+  };
+  // Built the way the oracle and cloningD.test.ts build it: pUC19 (L09137.2)
+  // with its one native BsaI site domesticated, then a cassette of
+  // [overhang][spacer][inverted site][stuffer][site][spacer][overhang] in lacZα.
+  const rcDna = (s: string): string =>
+    s
+      .split("")
+      .reverse()
+      .map((ch) => ({ A: "T", T: "A", G: "C", C: "G" })[ch] ?? "N")
+      .join("");
+  const pucBsaIFree = PUC19.slice(0, 1770) + "G" + PUC19.slice(1771);
+  const pucIisFree = (() => {
+    const b = pucBsaIFree.split("");
+    b[1] = "A";
+    b[55] = "A";
+    b[1770] = "A";
+    return b.join("");
+  })();
+  const stuffer =
+    "CATGATTACGGATTCACTGGCCGTCGTTTTACAACGTCGTGACTGGGAAAACCCTGGCGTTACCCAACTTAATC" +
+    "GCCTTGCAGCACATCCCCCTTTCGCCAGCTGGCGTAATAGCGAAGAGGCCCGCACCGATCGCCCTTCCCAACAG";
+  const destV = (scaffold: string, site: string, ov5: string, ov3: string): string =>
+    scaffold.slice(0, 400) + ov5 + "A" + rcDna(site) + stuffer + site + "A" + ov3 + scaffold.slice(400);
+  const vBsaI = destV(pucBsaIFree, "GGTCTC", "AATG", "GCTT");
+  const vBsmBI = destV(pucIisFree, "CGTCTC", "TTCG", "ATCC");
+  const gg1 = "AGCAAAGGCGAAGAACTGTTTACCGGCGTTGTGCCGATTCTGGTGGAACTGGATGGTGATGTGAACGGTCATAAATTTTCT";
+  const gg2 = "GTGAGCGGCGAAGGCGAAGGCGATGCGACCTATGGCAAACTGACCCTGAAATTTATTTGCACCACCGGCAAACTGCCGGTG";
+  const gg3 = "TTCCGGTGAACAGCTGCCGGTGCCGTGGCCGACCCTGGTGACCACCTTTAGCTATGGCGTGCAGTGCTTTAGCCGCTATCC";
+  const gg4 = "CAGGATCATATGAAACAGCATGATTTTTTTAAAAGCGCGATGCCGGAAGGCTATGTGCAGGAACGCACCATTTTTTTTAAA";
+  const gg5 = "GATGATGGCAACTATAAAACCCGCGCGGAAGTGAAATTTGAAGGCGATACCCTGGTGAACCGCATTGAACTGAAAGGCATT";
+  const gg6 = "ACCTTTAAAGAAGATGGCAACATTCTGGGCCATAAACTGGAATATAACTTTAACAGCCATAACGTGTATATTACCGCGGAT";
+  ggd([`insert 1: ${gg1}`, `insert 2: ${gg2}`], `pDEST-lacZalpha: ${vBsaI}`, "BsaI", "golden gate destination vector, two parts");
+  ggd([`cds: ${gg1}`], `pDEST-ccdB: ${vBsmBI}`, "BsmBI", "golden gate destination vector, one part, BsmBI");
+  ggd(
+    [`p1: ${gg1}`, `p2: ${gg2}`, `p3: ${gg3}`, `p4: ${gg4}`, `p5: ${gg5}`, `p6: ${gg6}`],
+    `pDEST-lacZalpha: ${vBsaI}`,
+    "BsaI",
+    "golden gate destination vector, six parts",
+  );
+}
+// --- end Release D: golden gate destination vector ---------------------------
 
 export { figures };

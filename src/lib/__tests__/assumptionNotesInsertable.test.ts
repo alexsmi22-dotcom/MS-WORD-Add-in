@@ -24,6 +24,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { describeAssumptions } from "../diagnostics";
 import { assaySig } from "../assayFormat";
+import { insertableResultText } from "../insertGate";
 
 const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
 // plainDashes moved to lib/engReport.ts (host-adapter scope §E); the pane imports it from there.
@@ -51,7 +52,8 @@ describe("prose spliced into a result cannot disable Insert", () => {
   test("the pane's sentinel scan still works the way this test assumes", () => {
     // If the reader stops blocking on the sentinel, this file is obsolete
     // rather than wrong. Pin the behaviour it defends.
-    expect(PANE).toContain("function insertableResultText");
+    // Release D: the gate moved to src/lib/insertGate.ts; the pane imports it.
+    expect(PANE).toMatch(/import \{[^}]*insertableResultText[^}]*\} from "\.\.\/lib\/insertGate";/);
     expect(ENG_REPORT).toContain("export function plainDashes");
     expect(PANE).toMatch(/import \{[^}]*\bplainDashes\b[^}]*\} from "\.\.\/lib\/engReport";/);
   });
@@ -130,7 +132,7 @@ describe("a non-finite value cannot reach a document by a route the dash misses"
   });
 
   test("the pane's gate blocks NaN and Infinity by name, not just the dash", () => {
-    expect(PANE).toContain("function insertableResultText");
+    expect(PANE).toMatch(/import \{[^}]*insertableResultText[^}]*\} from "\.\.\/lib\/insertGate";/);
     // EVERY registry goes through the shared gate. The recorded failure this
     // prevents is a guard that lags the defect by one registry: the em-dash
     // check covered Analyze, was extended to Stats after a regression, and
@@ -146,11 +148,8 @@ describe("a non-finite value cannot reach a document by a route the dash misses"
     // needed — a correctly-wired wrong function passes the first on its own.
     // The source is TypeScript, so the one type annotation is stripped before
     // it is evaluated. Nothing else in the function is TS.
-    const src = /function insertableResultText\([\s\S]*?\n\}/
-      .exec(PANE)![0]
-      .replace("(text: string): boolean", "(text)");
-    // eslint-disable-next-line no-new-func
-    const gate = new Function(`${src}; return insertableResultText;`)() as (t: string) => boolean;
+    // Release D: the gate is a lib export now, so it is CALLED rather than extracted from the pane source.
+    const gate = insertableResultText;
     expect(gate("t(8) = 2.31, p = .049")).toBe(true);
     expect(gate("")).toBe(false);
     expect(gate("ratio = Infinity")).toBe(false);

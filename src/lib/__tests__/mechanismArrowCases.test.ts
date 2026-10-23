@@ -50,7 +50,9 @@ describe("write → read: identical geometry", () => {
     ["curved, full head, atom → atom", { atom: "21" }, { atom: "31" }, 2, false],
     ["curved, full head, bond → atom", { bond: "33" }, { atom: "32" }, 2, false],
     ["fishhook, bowed its default way", { atom: "21" }, { atom: "31" }, 1, false],
-    ["fishhook, flipped (Shift)", { atom: "21" }, { atom: "31" }, 1, true],
+    // Release D: drawn from O⁻ to a point below CH3–Br (was to C31: over the top a clean curve to C31 needs a 140° sweep
+    // or crosses bond 35, and is now refused by name — row "Release D: a flip with no clean curve" below).
+    ["fishhook, flipped (Shift)", { atom: "21" }, { at: [100, 125] }, 1, true],
     ["curved on an empty stretch of page (both ends in space)", { at: [200, 300] }, { at: [240, 300] }, 2, false],
   ] as const)("%s", (_n, from, to, electrons, flip) => {
     const d = open();
@@ -268,7 +270,8 @@ describe("refusals and guards", () => {
   });
   test("flipping: the bow and a fishhook's barb change sides; twice is where it began", () => {
     const d = open();
-    const r = ok(addCurvedArrow(d, { atom: "21" }, { atom: "31" }, { electrons: 1 }));
+    // (Release D: to a point below CH3–Br, where both bows are clean — see the row after this one.)
+    const r = ok(addCurvedArrow(d, { atom: "21" }, { at: [100, 125] }, { electrons: 1 }));
     const a0 = { ...findById(d.root, r.arrowId)!.el.attrs };
     expect(flipCurvedArrow(d, r.arrowId)).toBeNull();
     const a1 = { ...findById(d.root, r.arrowId)!.el.attrs };
@@ -286,6 +289,16 @@ describe("refusals and guards", () => {
     expect(addArrow(d, [200, 400], [260, 400])).toBeNull();
     const straight = arrows(reread(d)).find((a) => a.angularSize === 0)!;
     expect(flipCurvedArrow(d, straight.id)).toBe("only a curved arrow bows — this one is straight");
+  });
+});
+
+describe("Release D: a flip with no clean curve", () => {
+  test("O⁻ → C31 bowed over the top would cross bond 35 or sweep 140°: the flip is refused by name and the arrow keeps its side", () => {
+    const d = open();
+    const r = ok(addCurvedArrow(d, { atom: "21" }, { atom: "31" }, { electrons: 1 }));
+    const before = { ...findById(d.root, r.arrowId)!.el.attrs };
+    expect(flipCurvedArrow(d, r.arrowId)).toMatch(/^no clean curve bows that way here/);
+    expect(findById(d.root, r.arrowId)!.el.attrs).toEqual(before);
   });
 });
 

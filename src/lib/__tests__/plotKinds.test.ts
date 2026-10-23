@@ -5,7 +5,7 @@ import { foldAbsBars } from "../solve";
 import { minOf, maxOf } from "../minmax";
 import { buildPlotKind, readBound, readLevels, compileKindExpr, PlotKindInput, parametricPlotSvg } from "../plotKinds";
 import { readSvgDims } from "../svgSize";
-import { prepareFigure } from "../insertCapability";
+import { prepareFigure, refusalText } from "../insertCapability";
 
 // ---------------------------------------------------------------------------
 // A FROZEN COPY of evalExpr as it was before compileExpr existed (v2.186.0),
@@ -462,11 +462,18 @@ describe("patent figure style (USPTO) per kind", () => {
 });
 
 describe("contour via buildPlotKind", () => {
-  test("filled contours are flagged as colour-coded (a USPTO style refuses them by name)", () => {
+  test("filled contours are refused by a USPTO style by name, with advice that fits a contour", () => {
+    // Release D (item 3): this was chartKind "heatmap", which refused with the Table→Chart advice
+    // "Choose a column, bar or line chart". The contour now refuses itself, when re-rendered in
+    // black and white, and names the change that works: turn off Filled bands.
     const r = okOf({ kind: "contour", fn: "x*y", filled: true });
-    expect(r.chartKind).toBe("heatmap");
+    expect(r.chartKind).toBeUndefined();
     const p = prepareFigure({ svg: r.svg, preset: "uspto", width: "single", render: r.render, chartKind: r.chartKind });
     expect(p.ok).toBe(false);
+    if (!p.ok) {
+      expect(refusalText(p)).toMatch(/Turn off Filled bands/);
+      expect(refusalText(p)).not.toMatch(/heat map|column, bar or line/);
+    }
     expect(okOf({ kind: "contour", fn: "x*y" }).chartKind).toBeUndefined();
   });
   test("holes are counted in the figure", () => {

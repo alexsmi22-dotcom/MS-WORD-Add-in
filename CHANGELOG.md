@@ -6,6 +6,32 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.189.0] — 2026-10-23 — Cleanup: every known open defect fixed
+
+No new tools: the defects and rough edges left open by the last three releases, fixed.
+
+- **Draw page labels and charges.** Labels are measured with Arial's real glyph widths, so a Br–Br bond no longer
+  runs into the second Br and bonds stop a consistent gap from the letters. Charge signs sit close to their letters
+  and move off any bond (O⁻ no longer reads "O="); a carbocation's + sits just beside its carbon. Hydrogens go on
+  the side away from the bonds (H₂N– when the bond leaves to the right; stacked under the N in a chain), written the
+  way ChemDraw stores them so files round-trip.
+- **Names such as NaN₃ insert.** Sodium azide, NaNO₃ and similar names no longer make a result uninsertable; one
+  rule now decides what counts as a broken number, shared by the pane and the audits.
+- **Stats and Solve update a moment after you stop typing**, and Insert always uses what you typed.
+- **Plot data reads European decimal commas** (2,5 is 2.5), true minus signs, ×10³ and %; an ambiguous comma, a word
+  line or a one-number line gets a message saying what to fix instead of being split or dropped.
+- **Patent (USPTO) figures for the newer plot types:** parametric, polar, two y-axes, contour lines (values written
+  on their lines) and wireframe surfaces insert as black line art.
+- **Golden Gate destination vectors.** A backbone with two inverted BsaI/BsmBI/BbsI/SapI sites around a dropout is
+  recognised: its overhangs are read, the dropout removed, the first and last parts matched to it.
+- **References:** a reference the style cannot format takes no number (its citation reads "?") instead of leaving the
+  text one ahead of the list; quotation marks inside a quoted title become single quotes; a journal article with no
+  journal name is warned about.
+- **Fixed:** the qPCR dilution series reads its numbers by the shared rules and names mixed decimal marks; Tukey HSD
+  and Dunnett are limited to 20 groups (they could freeze Word at hundreds); root locus on large plants is instant;
+  contour and surface refusals give the right advice.
+- Curved electron-pushing arrows remain unavailable while their drawing is improved.
+
 ## [2.188.0] — 2026-10-22 — Lab data: peak tables, NMR integration, cloning, circuit transients, liquid-crystal wave plates, more arrows
 
 Release C of the STEM gaps (the last of three), plus liquid-crystal retarders and an Optica reference style so a

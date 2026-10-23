@@ -119,6 +119,9 @@ const ARROW_KINDS: Array<[string, string, string, string]> = [
  * several everyday mechanisms (an arenium C–H to the ring, a tilted O–O homolysis, a leaving group in most bond
  * directions, a carbonyl addition beside another arrow) neither bow drew cleanly, and a drawing has no refusal mode.
  * The geometry, the file format and the attachment stay in place; arrows of these kinds in a file still open and draw.
+ * Release D rebuilt the planner against a measured case table (mechanismArrowD.test.ts): it draws clean or refuses by
+ * name. Still off: a homolysis's two fishhooks cannot start in the bond's middle, land on their atoms and keep the
+ * 110° sweep cap at once, so they are refused — a demo of Br₂ or a peroxide would show refusals.
  */
 const CURVED_ARROWS_OFFERED = false;
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -495,7 +498,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
         // The curved arrow as it will be drawn (the same geometry and the same drawing code), and the atoms or bonds
         // its ends have snapped to.
         const a = snapEnd(from), b = snapEnd(to);
-        const el = sketch.moved ? curvedArrowElement(doc, a, b, { electrons: arrowSel.value === "fishhook" ? 1 : 2, flip: !!sketch.shift }) : null;
+        // A coarse plan while it moves (one frame each); the arrow added on release is planned in full.
+        const el = sketch.moved ? curvedArrowElement(doc, a, b, { electrons: arrowSel.value === "fishhook" ? 1 : 2, flip: !!sketch.shift, quick: true }) : null;
         const ar = el && typeof el !== "string" ? arrowFromElement(el) : null;
         if (ar) {
           const m = document.createElementNS(SVGNS, "g");

@@ -28,7 +28,6 @@ import {
   pfaffl,
   readDilutionSeries,
   efficiencyFromDilution,
-  parseAmount,
   qNum,
   type StandardCurveOk,
   type LivakResult,
@@ -554,9 +553,11 @@ describe("PCR efficiency from a dilution series [oracle: pfaffl_default, scipy l
     expect(f.efficiencyPct).toBeCloseTo(100, 10);
   });
   it("input amounts: 1:10 and 1/100 notation", () => {
-    expect(parseAmount("1:10")).toBe(0.1);
-    expect(parseAmount("1/100")).toBe(0.01);
-    expect(parseAmount("10^-3")).toBeCloseTo(0.001, 15);
+    // Through the public reader (Release D: the amount forms are peeled inside readDilutionSeries).
+    const r = readDilutionSeries(["1:10\t20.1", "1/100\t23.5", "10^-3\t26.9"].join("\n"), "T") as { amount: number }[];
+    expect(r[0].amount).toBe(0.1);
+    expect(r[1].amount).toBe(0.01);
+    expect(r[2].amount).toBeCloseTo(0.001, 15);
   });
   it("adversarial: dilution FACTORS (Ct rising with the number) are refused by name", () => {
     const r = efficiencyFromDilution(readDilutionSeries("1\t20.1\n10\t23.5\n100\t26.9", "T") as never, "Target");

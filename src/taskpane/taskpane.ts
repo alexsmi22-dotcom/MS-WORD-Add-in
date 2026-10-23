@@ -16597,13 +16597,27 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      // Release E: the work law of the process actually computed (chosen by its polytropic index, as the engine does).
+      const workEq = !Number.isFinite(res.n)
+        ? engEq("thermo-process:isochoric")
+        : res.n === 0
+          ? engEq("thermo-process:isobaric")
+          : res.n === 1
+            ? engEq("thermo-process:isothermal")
+            : engEq("thermo-process:polytropic");
+      const lines: EngReportLine[] = [...workEq, ...engEq("thermo-process")];
       lines.push(`${res.gas}, ${r("kind") || "isentropic"} process (polytropic index n = ${Number.isFinite(res.n) ? engNum(res.n) : "infinite"})`);
       lines.push("");
-      lines.push("State 1 → State 2");
-      lines.push(`  P: ${engNum(res.p1)} → ${engNum(res.p2)} Pa`);
-      lines.push(`  T: ${engNum(res.t1)} → ${engNum(res.t2)} K  (${engNum(res.t1 - 273.15)} → ${engNum(res.t2 - 273.15)} °C)`);
-      lines.push(`  V: ${engNum(res.v1)} → ${engNum(res.v2)} m³`);
+      lines.push({
+        label: "State 1 → State 2",
+        table: [
+          ["Quantity", "State 1", "State 2", "Unit"],
+          ["P", engNum(res.p1), engNum(res.p2), "Pa"],
+          ["T", engNum(res.t1), engNum(res.t2), "K"],
+          ["T", engNum(res.t1 - 273.15), engNum(res.t2 - 273.15), "°C"],
+          ["V", engNum(res.v1), engNum(res.v2), "m³"],
+        ],
+      });
       lines.push("");
       lines.push(`Boundary work done BY the gas = ${engNum(res.work)} J`);
       lines.push(`Heat added TO the gas = ${engNum(res.heat)} J`);
@@ -16618,6 +16632,13 @@ const ENG_CALCS: EngCalc[] = [
       // boundary work the numbers report. Isochoric (n = ∞) is a vertical
       // segment and isobaric a horizontal one; everything else is the
       // polytropic curve sampled between the two states.
+      const procOutputs: EngOutput[] = [
+        { key: "W", label: "Boundary work done by the gas", value: res.work, unit: "J" },
+        { key: "Qheat", label: "Heat added to the gas", value: res.heat, unit: "J" },
+        { key: "dU", label: "Change in internal energy ΔU", value: res.deltaU, unit: "J" },
+        { key: "Tend", label: "End temperature", value: res.t2, unit: "K" },
+        { key: "Pend", label: "End pressure", value: res.p2, unit: "Pa" },
+      ];
       const pvPath: Point[] = [];
       if (!Number.isFinite(res.n) || res.n === 0 || res.v1 === res.v2) {
         pvPath.push({ x: res.v1, y: res.p1 / 1000 }, { x: res.v2, y: res.p2 / 1000 });
@@ -16642,7 +16663,7 @@ const ENG_CALCS: EngCalc[] = [
             title: `${r("kind") || "isentropic"} process on the P-v plane`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(procOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -16651,9 +16672,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(procOutputs, engReport(lines));
     },
   },
   {
@@ -16722,7 +16743,12 @@ const ENG_CALCS: EngCalc[] = [
             : ottoCycle(Number(r("r") || "0"), gas, t1 as number | undefined, t3 as number | undefined);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const cycleEq: Record<string, EngReportLine[]> = {
+        otto: engEq("thermo-cycle:otto"),
+        diesel: engEq("thermo-cycle:diesel"),
+        brayton: engEq("thermo-cycle:brayton"),
+      };
+      const lines: EngReportLine[] = [...(cycleEq[which] ?? []), ...(res.carnotEfficiency !== null ? engEq("thermo-cycle:carnot") : [])];
       lines.push(`${res.name} cycle, air-standard`);
       lines.push("");
       lines.push(`Thermal efficiency = ${engNum(res.efficiency * 100)}%`);
@@ -16736,10 +16762,10 @@ const ENG_CALCS: EngCalc[] = [
       }
       if (res.temperatures.length) {
         lines.push("");
-        lines.push("Temperatures around the cycle");
-        for (const t of res.temperatures) {
-          lines.push(`  ${t.label}: ${engNum(t.t)} K (${engNum(t.t - 273.15)} °C)`);
-        }
+        lines.push({
+          label: "Temperatures around the cycle",
+          table: [["State", "T (K)", "T (°C)"], ...res.temperatures.map((t) => [t.label, engNum(t.t), engNum(t.t - 273.15)])],
+        });
       }
       if (res.heatIn !== null && res.netWork !== null) {
         lines.push("");
@@ -16757,6 +16783,12 @@ const ENG_CALCS: EngCalc[] = [
       // when the temperature section above does; Diesel's shape needs only
       // the two ratios. Log pressure, because r^k alone is ~18 at r = 8 and a
       // linear axis flattens the intake leg into the axis.
+      const cycOutputs: EngOutput[] = [
+        { key: "eta", label: "Thermal efficiency", value: res.efficiency * 100, unit: "%" },
+        { key: "etaCarnot", label: "Carnot bound", value: res.carnotEfficiency !== null ? res.carnotEfficiency * 100 : NaN, unit: "%" },
+        { key: "wnet", label: "Net work", value: res.netWork !== null && res.heatIn !== null ? res.netWork / 1000 : NaN, unit: "kJ/kg" },
+        { key: "qin", label: "Heat added", value: res.heatIn !== null && res.netWork !== null ? res.heatIn / 1000 : NaN, unit: "kJ/kg" },
+      ];
       const kGas = THERMO_GASES.find((g) => g.id === gas)?.k ?? 1.4;
       const cyclePath: Point[] = [];
       const corners: Point[] = [];
@@ -16819,7 +16851,7 @@ const ENG_CALCS: EngCalc[] = [
             title: `${res.name.split(" (")[0]} cycle on the P-v plane`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(cycOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -16828,9 +16860,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 270,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(cycOutputs, engReport(lines));
     },
   },
   {
@@ -16885,7 +16917,7 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const which = r("which") || "rankine";
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
 
       if (which === "rankine") {
         const res = rankineFromEnthalpies(
@@ -16895,6 +16927,7 @@ const ENG_CALCS: EngCalc[] = [
           Number(r("h4") || "0"),
         );
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("thermo-vapour:rankine"));
         lines.push("Rankine cycle, from your enthalpies");
         lines.push("");
         lines.push(`Turbine work = ${engNum(res.turbineWork)} kJ/kg`);
@@ -16912,7 +16945,12 @@ const ENG_CALCS: EngCalc[] = [
         // net work. The pump bar is ~0.3% of the turbine's — that
         // near-invisibility IS the back-work-ratio lesson, and the value
         // label carries what the 0.75 px floor cannot.
-        return engReport(lines, [
+        return withOutputs([
+          { key: "eta", label: "Thermal efficiency", value: res.efficiency * 100, unit: "%" },
+          { key: "wnet", label: "Net work", value: res.netWork, unit: "kJ/kg" },
+          { key: "qin", label: "Heat added in the boiler", value: res.heatIn, unit: "kJ/kg" },
+          { key: "bwr", label: "Back-work ratio", value: res.backWorkRatio * 100, unit: "%" },
+        ], engReport(lines, [
           {
             kind: "plot",
             // Qin − Qout = Wnet EXACTLY — netWork already carries the pump
@@ -16932,7 +16970,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 56 + 3 * 34 + 12,
           },
-        ]);
+        ]));
       } else if (which === "fridge") {
         const res = refrigerationFromEnthalpies(
           Number(r("h1") || "0"),
@@ -16940,6 +16978,7 @@ const ENG_CALCS: EngCalc[] = [
           Number(r("h3") || "0"),
         );
         if (!res.ok) return { text: res.error, ok: false };
+        lines.push(...engEq("thermo-vapour:fridge"));
         lines.push("Vapour-compression refrigeration, from your enthalpies");
         lines.push("");
         lines.push(`Compressor work = ${engNum(res.compressorWork)} kJ/kg`);
@@ -16953,7 +16992,12 @@ const ENG_CALCS: EngCalc[] = [
         // The energy balance of the cycle: effect + work = rejection,
         // exactly — which is why a heat pump's COP always beats the same
         // machine's refrigerator COP by exactly one.
-        return engReport(lines, [
+        return withOutputs([
+          { key: "copR", label: "COP as a refrigerator", value: res.copRefrigerator, unit: "" },
+          { key: "copHP", label: "COP as a heat pump", value: res.copHeatPump, unit: "" },
+          { key: "qL", label: "Refrigeration effect", value: res.refrigerationEffect, unit: "kJ/kg" },
+          { key: "wc", label: "Compressor work", value: res.compressorWork, unit: "kJ/kg" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg: ladderSvg(
@@ -16969,7 +17013,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 56 + 3 * 34 + 12,
           },
-        ]);
+        ]));
       } else {
         const tunit = (r("tunit") || "C") as TempUnit;
         const th = toKelvin(Number(r("th") || "0"), tunit);
@@ -16984,6 +17028,8 @@ const ENG_CALCS: EngCalc[] = [
         );
         if (!res.ok) return { text: res.error, ok: false };
         const c = carnot(th, tc);
+        const ck = r("ckind") || "efficiency";
+        lines.push(...(ck === "refrigerator" ? engEq("thermo-vapour:carnot-refrigerator") : ck === "heat-pump" ? engEq("thermo-vapour:carnot-heat-pump") : engEq("thermo-vapour:carnot-efficiency")));
         lines.push("Carnot check");
         lines.push("");
         lines.push(`Reservoirs: ${engNum(th)} K and ${engNum(tc)} K`);
@@ -16999,7 +17045,7 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       lines.push(ENG_THERMO_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      return engReport(lines);
     },
   },
   {

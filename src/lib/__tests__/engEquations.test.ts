@@ -53,6 +53,20 @@ describe("every governing equation", () => {
     };
     walk(parseMathAst(e.math));
     expect(unknown).toEqual([]);
+    // A subscript followed by a bracket swallows it: `C_min (T − T)` is C sub "min(T − T)".
+    const inScripts: string[] = [];
+    const scan = (n: Node, inScript: boolean): void => {
+      if (n.k === "func" && inScript) inScripts.push(n.name);
+      if (n.k === "sub") { scan(n.base, inScript); scan(n.sub, true); return; }
+      if (n.k === "sup") { scan(n.base, inScript); scan(n.sup, true); return; }
+      if (n.k === "subsup") { scan(n.base, inScript); scan(n.sub, true); scan(n.sup, true); return; }
+      for (const v of Object.values(n)) {
+        if (Array.isArray(v)) v.flat().forEach((c) => c && typeof c === "object" && "k" in c && scan(c as Node, inScript));
+        else if (v && typeof v === "object" && "k" in v) scan(v as Node, inScript);
+      }
+    };
+    scan(parseMathAst(e.math), false);
+    expect(inScripts).toEqual([]);
   });
   test.each(ALL)("%s fallback keeps the display contract", (_k, e) => {
     expect(e.fallback).not.toMatch(/[\^_*]|\d[eE][+-]?\d|NaN|Infinity|undefined|—/);

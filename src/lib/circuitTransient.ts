@@ -39,7 +39,15 @@
 // are exact). The tool reports both numbers side by side, and refuses outright if
 // a trace has gone flat at a value that disagrees with it.
 //
-// Out of scope here: nonlinear devices, adaptive steps, dependent sources.
+// CONTROLLED SOURCES AND COUPLED INDUCTORS. E, G, H and F are static stamps (the same
+// stampControlled the DC and AC paths use); each E and H adds a branch row after every
+// row an existing netlist has. A K couples two inductor rows: the companion row of
+// inductor l becomes v_l − (α/h)·Σₘ L_lm·i_m = −(α/h)·Σₘ L_lm·i_m(prev) − (α−1)·v_l(prev),
+// i.e. the mutual terms −(α/h)·M off the diagonal and −(α/h)·M·i_other in the history,
+// added in a separate pass that runs only when a K exists, so an uncoupled netlist
+// performs exactly the arithmetic it always did.
+//
+// Out of scope here: nonlinear devices, adaptive steps.
 
 import {
   Element,
@@ -50,6 +58,12 @@ import {
   isGround,
   nodeList,
   Waveform,
+  isControlledVoltage,
+  stampControlled,
+  unitySingular,
+  unityMessage,
+  CONTROLLED_NOTE,
+  COUPLING_NOTE,
 } from "./circuit";
 import { Rat, ratFromNumber } from "./cas";
 import { fmtSig } from "./axis";
@@ -436,7 +450,7 @@ export function fastestTimeConstant(elements: Element[]): { tau: number; name: s
     } else if (e.kind === "C") {
       cap.set(a, (cap.get(a) ?? 0) + e.value);
       cap.set(b, (cap.get(b) ?? 0) + e.value);
-    } else if (e.kind === "V") {
+    } else if (e.kind === "V" || isControlledVoltage(e)) {
       held.add(a);
       held.add(b);
     }
@@ -590,8 +604,9 @@ export function solveTransient(elements: Element[], req: TransientRequest): Tran
   const inds = elements.filter((e) => e.kind === "L");
   const caps = elements.filter((e) => e.kind === "C");
   const isrc = elements.filter((e) => e.kind === "I");
+  const ctl = elements.filter(isControlledVoltage);
   const n = nodes.length;
-  const m = n + vsrc.length + inds.length;
+  const m = n + vsrc.length + inds.length + ctl.length;
 
   const probeNames = req.probes ?? nodes.slice(0, TRANSIENT_MAX_PROBES);
   const currentNames = req.currents ?? [];
@@ -633,6 +648,26 @@ export function solveTransient(elements: Element[], req: TransientRequest): Tran
   };
   vsrc.forEach((e, k) => branch(n + k, e));
   inds.forEach((e, k) => branch(n + vsrc.length + k, e));
+  if (ctl.length || elements.some((e) => e.kind === "G" || e.kind === "F")) {
+    const vsIdx = new Map(vsrc.map((e, k) => [e.name, n + k]));
+    const ctlIdx = new Map(ctl.map((e, k) => [e, n + vsrc.length + inds.length + k]));
+    stampControlled(
+      elements,
+      at,
+      (name) => vsIdx.get(name) as number,
+      (e) => ctlIdx.get(e) as number,
+      (i, j, sign, e) => add(i, j, sign * (e ? e.value : 1)),
+    );
+  }
+  // Mutual inductances: [row of l1, row of l2, M]. Empty without a K.
+  const lIdxOf = new Map(inds.map((e, k) => [e.name, k]));
+  const mutual = elements
+    .filter((e) => e.kind === "K")
+    .map((e) => {
+      const p = lIdxOf.get(e.l1 as string) as number;
+      const q = lIdxOf.get(e.l2 as string) as number;
+      return { p, q, M: e.value * Math.sqrt(inds[p].value * inds[q].value), unity: e.value === 1, k: e.value };
+    });
 
   // Index arrays for the step loop (no Map lookups or allocation inside it).
   const vRow = vsrc.map((_, k) => n + k);
@@ -678,6 +713,11 @@ export function solveTransient(elements: Element[], req: TransientRequest): Tran
       }
     }
     for (let l = 0; l < inds.length; l++) a[lRow[l] * m + lRow[l]] -= (alpha * lVal[l]) / hk;
+    for (const mu of mutual) {
+      const g = (alpha * mu.M) / hk;
+      a[lRow[mu.p] * m + lRow[mu.q]] -= g;
+      a[lRow[mu.q] * m + lRow[mu.p]] -= g;
+    }
     return factor(a, m);
   };
   const NO_SOLUTION =
@@ -689,6 +729,28 @@ export function solveTransient(elements: Element[], req: TransientRequest): Tran
   // step a sparse solve over the factors' non-zeros plus a pass over the elements.
   // The fill is measured on the first factorization; the others share its pattern.
   const keys = [...keyStep.keys()];
+  // A k = 1 coupling: decided structurally before any factor is trusted (circuit.ts
+  // unitySingular), on the matrix of the first step with each unity M scaled.
+  if (mutual.some((mu) => mu.unity)) {
+    const k0 = keys[0];
+    const h0 = keyStep.get(k0) as number;
+    const logDet = (els: Element[]): number | null => {
+      const saved = mutual.map((mu) => mu.M);
+      const scaled = els.filter((e) => e.kind === "K");
+      mutual.forEach((mu, i) => {
+        mu.M = scaled[i].value * Math.sqrt(inds[mu.p].value * inds[mu.q].value);
+      });
+      const lu = factorFor(k0, h0);
+      mutual.forEach((mu, i) => {
+        mu.M = saved[i];
+      });
+      if (!lu) return null;
+      let acc = 0;
+      for (let i = 0; i < m; i++) acc += Math.log(Math.abs(lu.diag[i]));
+      return acc;
+    };
+    if (unitySingular(elements, logDet)) return fail(unityMessage(elements));
+  }
   const first = factorFor(keys[0], keyStep.get(keys[0]) as number);
   if (!first) return fail(NO_SOLUTION);
   const factorWork = (keys.length * m * m * m) / 3;
@@ -771,6 +833,7 @@ export function solveTransient(elements: Element[], req: TransientRequest): Tran
   const nL = inds.length;
   const nV = vsrc.length;
   const nI = isrc.length;
+  const nMu = mutual.length;
   let beSteps = 0;
   for (let i = 0; i < steps; i++) {
     const lu = luList[stepLu[i]];
@@ -796,6 +859,12 @@ export function solveTransient(elements: Element[], req: TransientRequest): Tran
     for (let l = 0; l < nL; l++) {
       const r = lVal[l] * aoh;
       rhs[lRow[l]] = isBe ? -r * iL[l] : -r * iL[l] - vL[l];
+    }
+    for (let u = 0; u < nMu; u++) {
+      const mu = mutual[u];
+      const g = mu.M * aoh;
+      rhs[lRow[mu.p]] -= g * iL[mu.q];
+      rhs[lRow[mu.q]] -= g * iL[mu.p];
     }
     luSolve(lu, rhs, x);
     for (let c = 0; c < nC; c++) {
@@ -901,6 +970,13 @@ export function solveTransient(elements: Element[], req: TransientRequest): Tran
       }
     }
   }
+
+  if (elements.some((e) => e.kind === "E" || e.kind === "G" || e.kind === "H" || e.kind === "F"))
+    notes.push(
+      `${CONTROLLED_NOTE} The time-step checks here estimate the circuit's speed from the passive elements alone; a ` +
+        "controlled source can make it faster or slower than they suggest, so confirm with a shorter step.",
+    );
+  if (mutual.length) notes.push(COUPLING_NOTE);
 
   let steady: number | null = 0;
   const unsteady: string[] = [];

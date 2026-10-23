@@ -3177,5 +3177,26 @@ rotator 15` }, "jones elliptical");
   figures.push(["kalman triad, a 19.5° roll", attitudeTriadSvg([[1, 0, 0], [0, 0.9428, -0.3333], [0, 0.3333, 0.9428]]).svg]);
 }
 // --- end Release E: kalman ---
+// --- Release E: circuit ---
+// The transient calculator with the Release E elements (no new builder; CIRCUIT_CALCS is
+// imported in the Release C block): a k 0.999 transformer driven by a 1 kHz sine (primary
+// and secondary on one axis, the start-up offset visible), and an RC charge buffered by a
+// VCVS of gain 2 (the buffer output above its input, three traces).
+{
+  const tran = CIRCUIT_CALCS.find((c) => c.id === "circuit-transient");
+  if (!tran) throw new Error("corpus: no circuit-transient calculator");
+  const relECases: Record<string, string>[] = [
+    { net: "V1 1 0 SIN(0 1 1k)\nRs 1 3 1\nL1 3 0 1m\nL2 2 0 4m\nK1 L1 L2 0.999\nRL 2 0 1k", stop: "5m", step: "1u", nodes: "3 2" },
+    { net: "V1 1 0 PULSE(0 1 0 1n 1n 1 2)\nR1 1 2 1k\nC1 2 0 1u\nE1 3 0 2 0 2\nRL 3 0 1k", stop: "5m" },
+  ];
+  for (const over of relECases) {
+    const vals: Record<string, string> = { ...Object.fromEntries(tran.fields.map((f) => [f.key, f.default])), ...over };
+    const out = tran.compute((k) => vals[k] ?? "");
+    const p = (out.blocks ?? []).find((b) => b.kind === "plot");
+    if (out.ok === false || !p || p.kind !== "plot") throw new Error(`corpus: circuit-transient ${JSON.stringify(over)} did not draw: ${out.text}`);
+    figures.push([`circuit-transient Release E ${over.net.split("\n").find((l) => /^[EK]/.test(l))}`, p.svg]);
+  }
+}
+// --- end Release E: circuit ---
 
 export { figures };

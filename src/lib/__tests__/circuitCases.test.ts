@@ -385,7 +385,9 @@ describe("adversarial", () => {
   test("SPICE control lines and other devices are named", () => {
     expect(run({ net: ".tran 1u 5m\nV1 1 0 5\nR1 1 0 1k" }).text).toMatch(/"\.tran" is a SPICE control line/);
     expect(run({ net: "V1 1 0 5\nQ1 1 2 0 2N3904" }).text).toMatch(/"Q1" \(a bipolar transistor\) is not supported/);
-    expect(run({ net: "V1 1 0 5\nE1 2 0 1 0 10" }).text).toMatch(/"E1" \(a voltage-controlled voltage source\)/);
+    // Release E (E3-a) added E, G, H, F and K to the transient tool, so this row now names a
+    // device that is still outside it (it used to assert that E1 was refused).
+    expect(run({ net: "V1 1 0 5\nS1 2 0 1 0 sw" }).text).toMatch(/"S1" \(a voltage-controlled switch\)/);
   });
 
   test("nodes field: choice, V(n) form, ground, unknown, too many", () => {

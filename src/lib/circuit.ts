@@ -35,16 +35,42 @@ import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratInt, ratIsZero, ratNeg, ratToNu
 // Model
 // ---------------------------------------------------------------------------
 
-export type ElementKind = "R" | "V" | "I" | "C" | "L";
+/**
+ * R, V, I, C, L: the passive elements and independent sources.
+ * E, G, H, F: the four linear controlled sources, written as SPICE writes them:
+ *   E1 n+ n- nc+ nc- gain    VCVS: V(n+) − V(n-) = gain·(V(nc+) − V(nc-))
+ *   G1 n+ n- nc+ nc- gm      VCCS: gm·(V(nc+) − V(nc-)) flows from n+ through the source to n-
+ *   H1 n+ n- Vsense r        CCVS: V(n+) − V(n-) = r·I(Vsense)
+ *   F1 n+ n- Vsense gain     CCCS: gain·I(Vsense) flows from n+ through the source to n-
+ * where I(Vsense) is the current through a voltage source, positive from its + node
+ * through it to its − node (SPICE's I(V)); a 0 V source in series senses a branch.
+ * K: mutual coupling, "K1 L1 L2 k", M = k·√(L1·L2), 0 < k ≤ 1, with the dot at each
+ * inductor's FIRST node (SPICE's convention).
+ */
+export type ElementKind = "R" | "V" | "I" | "C" | "L" | "E" | "G" | "H" | "F" | "K";
 
 export interface Element {
   kind: ElementKind;
   name: string;
-  /** Node names; "0" (or "gnd") is ground. */
+  /**
+   * Node names; "0" (or "gnd") is ground. A K element has no nodes of its own and
+   * carries "0" in both, so every node walk passes over it.
+   */
   a: string;
   b: string;
-  /** Resistance in ohms, source value in volts or amps, C in farads, L in henries. */
+  /**
+   * Resistance in ohms, source value in volts or amps, C in farads, L in henries; the
+   * gain of a controlled source (V/V, S, Ω or A/A); the coupling coefficient k of a K.
+   */
   value: number;
+  /** E and G only: the controlling nodes (+, −). Absent on every other element. */
+  c?: string;
+  d?: string;
+  /** H and F only: the voltage source whose current controls it (its name as declared). */
+  ctrl?: string;
+  /** K only: the two coupled inductors (their names as declared). */
+  l1?: string;
+  l2?: string;
   /** Exact value, when the user typed something exactly representable. */
   exact: Rat | null;
   /**
@@ -468,6 +494,21 @@ export function parseNetlist(text: string): ParsedNetlist {
       elements.push(el);
       continue;
     }
+    // CONTROLLED SOURCES AND COUPLINGS (E, G, H, F, K) are read before the
+    // four-field rule: E and G lines have six fields, H and F five, and a K line's
+    // four fields are not "name node node value". No other line takes this path.
+    if ("EGHFK".includes(parts[0][0].toUpperCase())) {
+      const name = parts[0];
+      if (seen.has(name.toLowerCase())) {
+        errors.push(`Two elements are both called "${name}".`);
+        continue;
+      }
+      seen.add(name.toLowerCase());
+      const got = parseControlled(name, parts, line);
+      if ("error" in got) errors.push(got.error);
+      else elements.push(got);
+      continue;
+    }
     if (parts.length !== 4) {
       errors.push(`"${line}" needs exactly four fields: name, node, node, value.`);
       continue;
@@ -475,7 +516,9 @@ export function parseNetlist(text: string): ParsedNetlist {
     const [name, a, b, valueText] = parts;
     const kindChar = name[0].toUpperCase();
     if (!"RVICL".includes(kindChar)) {
-      errors.push(`"${name}" must start with R, V, I, C or L.`);
+      errors.push(
+        `"${name}" must start with R, V, I, C or L (or E, G, H, F for a controlled source, K for a coupling between inductors).`,
+      );
       continue;
     }
     if (seen.has(name.toLowerCase())) {
@@ -536,15 +579,296 @@ export function parseNetlist(text: string): ParsedNetlist {
       );
     }
   }
+  // Only a netlist with a controlled source or a coupling has anything to resolve.
+  if (elements.some((e) => e.kind === "H" || e.kind === "F" || e.kind === "K")) errors.push(...resolveControls(elements));
   return { elements, errors };
 }
+
+/** What an element is, in words, for a refusal that names it. */
+const KIND_WORDS: Record<ElementKind, string> = {
+  R: "a resistor",
+  V: "a voltage source",
+  I: "a current source",
+  C: "a capacitor",
+  L: "an inductor",
+  E: "a voltage-controlled voltage source",
+  G: "a voltage-controlled current source",
+  H: "a current-controlled voltage source",
+  F: "a current-controlled current source",
+  K: "a coupling",
+};
+
+/** SPICE forms of E/G/H/F that are nonlinear or behavioural, refused by name. */
+const BEHAVIOURAL = /=|\{|^(poly|table|laplace|freq)\b/i;
+
+/**
+ * Reads one E, G, H, F or K line (already split into fields). The references an H, F
+ * or K makes to other elements are checked afterwards, in resolveControls, because a
+ * SPICE netlist may name an element before the line that declares it.
+ */
+function parseControlled(name: string, parts: string[], line: string): Element | { error: string } {
+  const kind = name[0].toUpperCase() as "E" | "G" | "H" | "F" | "K";
+  if (parts.slice(3).some((p) => BEHAVIOURAL.test(p)))
+    return {
+      error:
+        `${name} uses a SPICE behavioural form (POLY, VALUE, TABLE or an expression), which is not supported: ` +
+        "this tool solves linear circuits. Write a linear controlled source, for example " +
+        (kind === "E" || kind === "G" ? `${name} out 0 inp inn 100.` : `${name} out 0 Vsense 100.`),
+    };
+  if (kind === "K") {
+    if (parts.length !== 4)
+      return {
+        error:
+          `"${line}": a coupling needs four fields, name, inductor, inductor, k (for example K1 L1 L2 0.99). ` +
+          "Couple three or more inductors with one K line per pair.",
+      };
+    const [, l1, l2, kText] = parts;
+    const v = parseValue(kText);
+    if (!v) return { error: `Could not read the coupling coefficient "${kText}" in "${line}".` };
+    if (l1.toLowerCase() === l2.toLowerCase())
+      return { error: `${name} couples ${l1} to itself. A coupling joins two different inductors.` };
+    if (v.value > 1)
+      return {
+        error:
+          `${name} has k = ${kText}, above 1. The coupling coefficient k = M/√(L₁L₂) cannot exceed 1: a larger ` +
+          "mutual inductance would let the pair store negative magnetic energy, which no pair of windings can. " +
+          "Use 0 < k ≤ 1 (0.99 for a good transformer).",
+      };
+    if (v.value <= 0)
+      return {
+        error:
+          `${name} has k = ${kText}. This tool takes 0 < k ≤ 1, with the dot at each inductor's first node; for ` +
+          "opposing coupling keep k positive and swap the two nodes of one inductor, which moves its dot. With no " +
+          "coupling at all, delete the K line.",
+      };
+    return { kind, name, a: "0", b: "0", value: v.value, exact: v.exact, l1, l2 };
+  }
+  const voltageControlled = kind === "E" || kind === "G";
+  const need = voltageControlled ? 6 : 5;
+  if (parts.length !== need) {
+    const form = voltageControlled
+      ? `name, node +, node −, control node +, control node −, ${kind === "E" ? "gain" : "transconductance"} ` +
+        `(for example ${name} out 0 inp inn ${kind === "E" ? "100k" : "40m"})`
+      : `name, node +, node −, the voltage source whose current controls it, ${kind === "H" ? "transresistance" : "gain"} ` +
+        `(for example ${name} out 0 Vsense ${kind === "H" ? "1k" : "100"})`;
+    return { error: `"${line}" needs exactly ${need} fields for ${KIND_WORDS[kind]}: ${form}.` };
+  }
+  const a = parts[1];
+  const b = parts[2];
+  const valueText = parts[need - 1];
+  const v = parseValue(valueText);
+  if (!v) return { error: `Could not read the value "${valueText}" in "${line}".` };
+  const same = a === b || (isGround(a) && isGround(b));
+  if (same)
+    return {
+      error:
+        kind === "E" || kind === "H"
+          ? `"${name}" has both ends on node ${a}, which shorts it out.`
+          : `"${name}" has both ends on node ${a}, so its current leaves and re-enters the same node and does nothing. Check the node names.`,
+    };
+  if (voltageControlled) {
+    const c = parts[3];
+    const d = parts[4];
+    if (c === d || (isGround(c) && isGround(d)))
+      return {
+        error: `${name}'s two controlling nodes are both ${c}, so its controlling voltage is always zero and the source does nothing. Check the node names.`,
+      };
+    return { kind, name, a, b, value: v.value, exact: v.exact, c, d };
+  }
+  return { kind, name, a, b, value: v.value, exact: v.exact, ctrl: parts[3] };
+}
+
+/**
+ * Checks what H, F and K lines name, once every line has been read: an H or F must
+ * name a voltage source (SPICE measures a controlling current only through one), a K
+ * two inductors, no pair coupled twice, and the inductance matrix of all the
+ * couplings together physically possible (positive semidefinite). Rewrites each
+ * reference to the name as declared, so later lookups are exact.
+ */
+function resolveControls(elements: Element[]): string[] {
+  const errors: string[] = [];
+  const byName = new Map(elements.map((e) => [e.name.toLowerCase(), e]));
+  for (const e of elements) {
+    if (e.kind !== "H" && e.kind !== "F") continue;
+    const ref = e.ctrl as string;
+    const hit = byName.get(ref.toLowerCase());
+    if (!hit) {
+      errors.push(
+        `${e.name} is controlled by the current through "${ref}", but no element is called that. As in SPICE, a ` +
+          "controlling current is the current through a voltage source: put a 0 V source in series with the branch " +
+          `(for example Vsense 3 4 0) and name it in ${e.name}.`,
+      );
+      continue;
+    }
+    if (hit.kind !== "V") {
+      errors.push(
+        `${e.name} names ${hit.name} as its controlling source, but ${hit.name} is ${KIND_WORDS[hit.kind]}. As in SPICE, ` +
+          "the controlling current must be the current through a voltage source: put a 0 V source in series with " +
+          `${hit.name} (for example Vsense) and name that in ${e.name}.`,
+      );
+      continue;
+    }
+    e.ctrl = hit.name;
+  }
+  const pairs = new Set<string>();
+  const coupled: Element[] = [];
+  for (const e of elements) {
+    if (e.kind !== "K") continue;
+    let bad = false;
+    const ends: Element[] = [];
+    for (const ref of [e.l1 as string, e.l2 as string]) {
+      const hit = byName.get(ref.toLowerCase());
+      if (!hit) {
+        errors.push(`${e.name} couples "${ref}", but no element is called that. A coupling joins two inductors: K1 L1 L2 0.99.`);
+        bad = true;
+      } else if (hit.kind !== "L") {
+        errors.push(
+          `${e.name} couples ${hit.name}, which is ${KIND_WORDS[hit.kind]}. Only inductors can be coupled: K1 L1 L2 0.99.`,
+        );
+        bad = true;
+      } else ends.push(hit);
+    }
+    if (bad) continue;
+    e.l1 = ends[0].name;
+    e.l2 = ends[1].name;
+    const key = [e.l1.toLowerCase(), e.l2.toLowerCase()].sort().join(" ");
+    if (pairs.has(key)) {
+      errors.push(`${e.l1} and ${e.l2} are coupled by more than one K line. Give each pair one coupling.`);
+      continue;
+    }
+    pairs.add(key);
+    for (const l of ends) if (!coupled.includes(l)) coupled.push(l);
+  }
+  if (!errors.length && coupled.length > 2) {
+    const why = inductanceMatrixProblem(elements, coupled);
+    if (why) errors.push(why);
+  }
+  return errors;
+}
+
+/**
+ * Null when the coupling coefficients of all the K lines together describe a
+ * possible set of windings, else the refusal. Each pair alone is fine when
+ * 0 < k ≤ 1, but three or more inductors can still be impossible together (k₁₂ =
+ * k₁₃ = 0.99 with k₂₃ = 0 says L₂ and L₃ are each almost the same flux as L₁ yet
+ * share none): the matrix of k values (ones on the diagonal) must be positive
+ * semidefinite, or some current pattern would store negative energy. Checked by an
+ * LDLᵀ elimination that allows a zero pivot (k = 1 exactly) only with its column
+ * also zero. At most MAX_ELEMENTS inductors, so the work is bounded.
+ */
+function inductanceMatrixProblem(elements: Element[], coupled: Element[]): string | null {
+  const n = coupled.length;
+  const idx = new Map(coupled.map((l, i) => [l.name, i]));
+  const kMat: number[][] = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+  for (const e of elements) {
+    if (e.kind !== "K") continue;
+    const i = idx.get(e.l1 as string) as number;
+    const j = idx.get(e.l2 as string) as number;
+    kMat[i][j] = e.value;
+    kMat[j][i] = e.value;
+  }
+  const TOL = 1e-12;
+  const Lm: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const D = new Array<number>(n).fill(0);
+  for (let i = 0; i < n; i++) {
+    let d = kMat[i][i];
+    for (let j = 0; j < i; j++) d -= Lm[i][j] * Lm[i][j] * D[j];
+    if (d < -TOL) return impossible(coupled);
+    D[i] = d > TOL ? d : 0;
+    for (let r = i + 1; r < n; r++) {
+      let off = kMat[r][i];
+      for (let j = 0; j < i; j++) off -= Lm[r][j] * Lm[i][j] * D[j];
+      if (D[i] === 0) {
+        if (Math.abs(off) > 1e-9) return impossible(coupled);
+        Lm[r][i] = 0;
+      } else Lm[r][i] = off / D[i];
+    }
+  }
+  return null;
+}
+
+const impossible = (coupled: Element[]): string =>
+  `The coupling coefficients between ${coupled.map((l) => l.name).join(", ")} cannot all hold at once: taken ` +
+  "together they describe windings that would store negative magnetic energy for some pattern of currents (for " +
+  "example L1 coupled 0.99 to both L2 and L3 while L2 and L3 are not coupled at all). Check the k values; two " +
+  "windings that each share almost all of L1's flux must also share it with each other.";
 
 /** Non-ground node names, in first-seen order. */
 export function nodeList(elements: Element[]): string[] {
   const out: string[] = [];
+  // An E or G's controlling nodes are nodes of the circuit too: one that nothing else
+  // touches then has no DC path and is refused by name, rather than missing from the matrix.
   for (const e of elements)
-    for (const n of [e.a, e.b]) if (!isGround(n) && !out.includes(n)) out.push(n);
+    for (const n of e.c !== undefined ? [e.a, e.b, e.c, e.d as string] : [e.a, e.b])
+      if (!isGround(n) && !out.includes(n)) out.push(n);
   return out;
+}
+
+/** E and H: controlled sources that set a voltage, so each adds a branch-current unknown. */
+export const isControlledVoltage = (e: Element): boolean => e.kind === "E" || e.kind === "H";
+/** True when the netlist has any controlled source. */
+const hasControlled = (elements: Element[]): boolean =>
+  elements.some((e) => e.kind === "E" || e.kind === "G" || e.kind === "H" || e.kind === "F");
+
+/** The assumption line for a netlist with controlled sources. */
+export const CONTROLLED_NOTE =
+  "Controlled sources (E, G, H, F) are ideal and linear: the output is the gain times the controlling voltage or " +
+  "current, with no limit, so an op-amp modelled by E never saturates. A controlling current is the current " +
+  "through the named voltage source, positive from its + node through it to its − node (SPICE's convention).";
+
+/** The dot convention, stated wherever a coupling takes part in the answer. */
+export const COUPLING_NOTE =
+  "Coupled inductors (K): M = k√(L₁L₂), with the dot at each inductor's FIRST node (SPICE's convention): a current " +
+  "entering L1's first node induces a voltage that is positive at L2's first node. Swap an inductor's two nodes to " +
+  "move its dot.";
+
+/**
+ * The stamp pattern of the controlled sources, shared by the DC (exact), AC (complex)
+ * and transient (real) MNA so the three cannot disagree. `node` maps a node name to its
+ * row (−1 for ground, which the callback ignores), `vsCol` a voltage source's name to
+ * its current unknown, and `ctlRow` an E or H to its own branch row. The callback gets
+ * a sign and whether the entry is that sign times the element's gain (true) or the
+ * sign alone (false); each caller adds it in its own number type.
+ *
+ *   G: KCL at n+ gains +gm·(V(c+) − V(c−)), at n− the negative (current n+ → n− inside).
+ *   F: KCL at n+ gains +gain·I(Vsense), at n− the negative.
+ *   E: KCL ±I(E) at n±; row V(n+) − V(n−) − gain·(V(c+) − V(c−)) = 0.
+ *   H: KCL ±I(H) at n±; row V(n+) − V(n−) − r·I(Vsense) = 0.
+ */
+export function stampControlled(
+  elements: Element[],
+  node: (name: string) => number,
+  vsCol: (name: string) => number,
+  ctlRow: (e: Element) => number,
+  add: (i: number, j: number, sign: 1 | -1, e: Element | null) => void,
+): void {
+  for (const e of elements) {
+    if (e.kind !== "G" && e.kind !== "F" && e.kind !== "E" && e.kind !== "H") continue;
+    const ia = node(e.a);
+    const ib = node(e.b);
+    if (e.kind === "G") {
+      const ic = node(e.c as string);
+      const id = node(e.d as string);
+      add(ia, ic, 1, e);
+      add(ia, id, -1, e);
+      add(ib, ic, -1, e);
+      add(ib, id, 1, e);
+    } else if (e.kind === "F") {
+      const col = vsCol(e.ctrl as string);
+      add(ia, col, 1, e);
+      add(ib, col, -1, e);
+    } else {
+      const row = ctlRow(e);
+      add(row, ia, 1, null);
+      add(ia, row, 1, null);
+      add(row, ib, -1, null);
+      add(ib, row, -1, null);
+      if (e.kind === "E") {
+        add(row, node(e.c as string), -1, e);
+        add(row, node(e.d as string), 1, e);
+      } else add(row, vsCol(e.ctrl as string), -1, e);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -690,9 +1014,11 @@ const R0 = ratInt(0);
 function singularMessage(elements: Element[], nodes: string[]): string {
   // Which of the three real circuit errors is it? Naming the right one is the
   // difference between a useful message and "matrix is singular".
-  const vLoop = elements.filter((e) => e.kind === "V");
+  // An E or H sets a voltage just as a V does, so it counts in every test below.
+  const setsVoltage = (e: Element): boolean => e.kind === "V" || isControlledVoltage(e);
+  const vLoop = elements.filter(setsVoltage);
   for (const e of vLoop)
-    if (elements.some((o) => o !== e && o.kind === "V" && ((o.a === e.a && o.b === e.b) || (o.a === e.b && o.b === e.a))))
+    if (elements.some((o) => o !== e && setsVoltage(o) && ((o.a === e.a && o.b === e.b) || (o.a === e.b && o.b === e.a))))
       return `${e.name} is in parallel with another voltage source across the same two nodes. Two ideal sources cannot both set that voltage.`;
 
   // A node with no resistive/source path to ground floats.
@@ -708,7 +1034,9 @@ function singularMessage(elements: Element[], nodes: string[]): string {
       // module's header leads with ("a node with no DC path to ground floats"),
       // for the single commonest netlist mistake it exists to catch: the
       // coupling-capacitor input with no bias resistor.
-      if (e.kind === "I" || e.kind === "C") continue;
+      // A controlled CURRENT source is open to DC bias in the same way, a coupling
+      // has no nodes, and an E's controlling inputs draw no current.
+      if (e.kind === "I" || e.kind === "C" || e.kind === "G" || e.kind === "F" || e.kind === "K") continue;
       const a = isGround(e.a) ? "0" : e.a;
       const b = isGround(e.b) ? "0" : e.b;
       if (reach.has(a) && !reach.has(b)) {
@@ -733,7 +1061,7 @@ function singularMessage(elements: Element[], nodes: string[]): string {
   // An inductor is a short at DC, so a source shorted through one is the same
   // fault. Both reach here, and neither is "a shorted or duplicated source" in any
   // sense the reader can act on.
-  const zeroImpedance = elements.filter((e) => e.kind === "V" || e.kind === "L");
+  const zeroImpedance = elements.filter((e) => setsVoltage(e) || e.kind === "L");
   if (zeroImpedance.length >= 2) {
     // Union-find over the zero-impedance subgraph: a cycle means an over-determined
     // loop. Bounded by the element count, so it cannot spin.
@@ -778,13 +1106,81 @@ function singularMessage(elements: Element[], nodes: string[]): string {
   // parallel-pair test above and a source loop by the test just above this, so it
   // sent the reader looking for two faults that had already been excluded. A
   // message that is false is a defect in its own right.
+  const controlled = hasControlled(elements)
+    ? " With controlled sources (E, G, H, F) the equations are also singular when a gain exactly cancels the " +
+      "circuit's own response, for example a feedback loop whose gain is exactly 1; check the gains."
+    : "";
   return (
     "The nodal equations for this circuit have no unique solution, and it is not one of the " +
     "faults this tool can name: it is not a pair of voltage sources in parallel, not a node " +
     "without a DC path to ground, and not a loop of sources or inductors — each of those was " +
     "checked. What remains is usually a redundant constraint somewhere in the topology. Try " +
-    "removing elements until it solves; the last one removed is the one to look at."
+    "removing elements until it solves; the last one removed is the one to look at." +
+    controlled
   );
+}
+
+/** Why a k = 1 coupling leaves the circuit without a unique solution. */
+export function unityMessage(elements: Element[]): string {
+  const unity = elements.find((e) => e.kind === "K" && e.value === 1) as Element;
+  return (
+    `${unity.name} couples ${unity.l1} and ${unity.l2} with k = 1 exactly, and that leaves these equations without ` +
+    "a unique solution. With k = 1 the inductance matrix is singular (L₁L₂ − M² = 0): the two winding voltages " +
+    "are locked in the fixed ratio √(L₂/L₁) and the windings set only one combination of their two currents, so " +
+    "the rest of the circuit must not try to set both winding voltages on its own (for example with a voltage " +
+    "source on each side). Use k just below 1, for example 0.9999, which models a near-ideal transformer."
+  );
+}
+
+/** A copy of the elements with every k = 1 coupling set to 1 − s. */
+const unityScaled = (elements: Element[], s: number): Element[] =>
+  elements.map((e) => (e.kind === "K" && e.value === 1 ? { ...e, value: 1 - s, exact: null } : e));
+
+/**
+ * True when a k = 1 coupling makes the circuit's matrix singular. `logDet` returns
+ * log |det| of the matrix the caller builds from a list of elements (null when it is
+ * exactly singular). If k = 1 is singular, det ∝ (1 − k) near it, so halving 1 − k
+ * from 2×10⁻⁷ to 10⁻⁷ changes log |det| by about ln 2; if it is regular, by about
+ * 10⁻⁷. The test costs two factorizations and runs only when some k is exactly 1.
+ */
+export function unitySingular(elements: Element[], logDet: (els: Element[]) => number | null): boolean {
+  if (!elements.some((e) => e.kind === "K" && e.value === 1)) return false;
+  const near = logDet(unityScaled(elements, 1e-7));
+  const nearer = logDet(unityScaled(elements, 2e-7));
+  if (near === null || nearer === null) return true;
+  return Math.abs(near - nearer) > 0.1;
+}
+
+/** log |det A| by elimination with partial pivoting; null when a pivot is exactly zero. */
+function cxLogDet(A0: Cx[][]): number | null {
+  const n = A0.length;
+  const m = A0.map((row) => row.slice());
+  let acc = 0;
+  for (let col = 0; col < n; col++) {
+    let p = -1;
+    let best = 0;
+    for (let r = col; r < n; r++) {
+      const mag = cAbs(m[r][col]);
+      if (mag > best) {
+        best = mag;
+        p = r;
+      }
+    }
+    if (p < 0 || !(best > 0) || !Number.isFinite(best)) return null;
+    if (p !== col) {
+      const t = m[p];
+      m[p] = m[col];
+      m[col] = t;
+    }
+    acc += Math.log(best);
+    const pv = m[col][col];
+    for (let r = col + 1; r < n; r++) {
+      if (cIsZero(m[r][col])) continue;
+      const f = cDiv(m[r][col], pv);
+      for (let j = col; j < n; j++) m[r][j] = cSub(m[r][j], cMul(f, m[col][j]));
+    }
+  }
+  return acc;
 }
 
 /** Waveform sources, named for a note: "V1 (PULSE)". */
@@ -816,8 +1212,11 @@ export function solveDc(elements: Element[], opts: DcOptions = {}): DcResult | F
   // With inductorsShorted, each inductor joins the source rows as a 0 V source, so
   // its branch current is solved for exactly as a source current is.
   const vs = elements.filter((e) => e.kind === "V" || (shortL && e.kind === "L"));
+  // E and H rows come AFTER every row an existing netlist has, so a netlist without
+  // them builds exactly the matrix it always did.
+  const ctl = elements.filter(isControlledVoltage);
   const n = nodes.length;
-  const size = n + vs.length;
+  const size = n + vs.length + ctl.length;
 
   const A: Rat[][] = Array.from({ length: size }, () => new Array<Rat>(size).fill(R0));
   const rhs: Rat[] = new Array<Rat>(size).fill(R0);
@@ -874,6 +1273,23 @@ export function solveDc(elements: Element[], opts: DcOptions = {}): DcResult | F
     rhs[row] = val;
   });
 
+  if (ctl.length || elements.some((e) => e.kind === "G" || e.kind === "F")) {
+    const vsIdx = new Map(vs.map((e, k) => [e.name, n + k]));
+    const ctlIdx = new Map(ctl.map((e, k) => [e, n + vs.length + k]));
+    for (const e of elements) if ((e.kind === "E" || e.kind === "G" || e.kind === "H" || e.kind === "F") && !e.exact) exactOk = false;
+    stampControlled(
+      elements,
+      (name) => at(name) ?? -1,
+      (name) => vsIdx.get(name) as number,
+      (e) => ctlIdx.get(e) as number,
+      (i, j, sign, e) => {
+        if (i < 0 || j < 0) return;
+        const unit = ratInt(BigInt(sign));
+        A[i][j] = ratAdd(A[i][j], e ? ratMul(unit, e.exact ?? ratFromNumber(e.value)) : unit);
+      },
+    );
+  }
+
   // Exact when it is affordable, doubles when it is not — never a refusal purely
   // for being large, because a slow correct answer traded for no answer is a worse
   // deal than an approximate one that says so.
@@ -912,6 +1328,15 @@ export function solveDc(elements: Element[], opts: DcOptions = {}): DcResult | F
       // The parallel-resistor test could not catch this: it asserts on
       // Math.abs of the source current, so both signs pass.
       iExact = sol[n + k];
+    } else if (isControlledVoltage(e)) {
+      // The branch unknown, positive from n+ through the source to n− (as I(V)).
+      iExact = sol[n + vs.length + ctl.indexOf(e)];
+    } else if (e.kind === "G") {
+      const g = e.exact ?? ratFromNumber(e.value);
+      iExact = ratMul(g, ratSub(nodeVolt(e.c as string), nodeVolt(e.d as string)));
+    } else if (e.kind === "F") {
+      const src = vs.findIndex((o) => o.name === e.ctrl);
+      iExact = ratMul(e.exact ?? ratFromNumber(e.value), sol[n + src]);
     }
     if (iExact === null) continue;
     const amps = ratToNumber(iExact);
@@ -942,6 +1367,7 @@ export function solveDc(elements: Element[], opts: DcOptions = {}): DcResult | F
       `${waveNames(elements)}: a time-varying source is solved here at its value at t = 0, as SPICE does for a ` +
         "DC operating point. The Transient response tool follows the waveform.",
     );
+  if (hasControlled(elements)) notes.push(CONTROLLED_NOTE);
   if (!exactOk) notes.push("Some values could not be held exactly, so these results are floating point.");
 
   return {
@@ -986,13 +1412,22 @@ function buildAc(elements: Element[], nodes: string[], w: number): { A: Cx[][]; 
   const idx = new Map(nodes.map((n, i) => [n, i]));
   const vs = elements.filter((e) => e.kind === "V");
   const n = nodes.length;
-  const size = n + vs.length;
+  // Appended unknowns, after every one an existing netlist has: the branch current of
+  // each E and H, then of each inductor that a K couples (a coupled inductor's
+  // voltage depends on the OTHER inductor's current, which an admittance stamp
+  // cannot say). An uncoupled inductor keeps its admittance stamp.
+  const ctl = elements.filter(isControlledVoltage);
+  const couplings = elements.filter((e) => e.kind === "K");
+  const coupledL = elements.filter(
+    (e) => e.kind === "L" && couplings.some((k) => k.l1 === e.name || k.l2 === e.name),
+  );
+  const size = n + vs.length + ctl.length + coupledL.length;
   const A: Cx[][] = Array.from({ length: size }, () => Array.from({ length: size }, () => cx(0)));
   const b: Cx[] = Array.from({ length: size }, () => cx(0));
   const at = (name: string): number | null => (isGround(name) ? null : (idx.get(name) as number));
 
   for (const e of elements) {
-    const y = admittance(e, w);
+    const y = coupledL.length && coupledL.includes(e) ? null : admittance(e, w);
     const ia = at(e.a);
     const ib = at(e.b);
     if (y) {
@@ -1024,6 +1459,48 @@ function buildAc(elements: Element[], nodes: string[], w: number): { A: Cx[][]; 
     // A waveform source has no AC amplitude (SPICE): a 0 V source, i.e. a short.
     b[row] = cx(e.wave ? 0 : e.value);
   });
+  if (ctl.length || elements.some((e) => e.kind === "G" || e.kind === "F")) {
+    const vsIdx = new Map(vs.map((e, k) => [e.name, n + k]));
+    const ctlIdx = new Map(ctl.map((e, k) => [e, n + vs.length + k]));
+    stampControlled(
+      elements,
+      (name) => at(name) ?? -1,
+      (name) => vsIdx.get(name) as number,
+      (e) => ctlIdx.get(e) as number,
+      (i, j, sign, e) => {
+        if (i >= 0 && j >= 0) A[i][j] = cAdd(A[i][j], cx(sign * (e ? e.value : 1)));
+      },
+    );
+  }
+  if (coupledL.length) {
+    // Row of coupled inductor l: V(a) − V(b) − jωLₗ·iₗ − Σ jωMₗₘ·iₘ = 0, with the
+    // branch current iₗ entering the first node (the dot) and leaving the second.
+    const base = n + vs.length + ctl.length;
+    const lIdx = new Map(coupledL.map((e, k) => [e.name, base + k]));
+    coupledL.forEach((e, k) => {
+      const row = base + k;
+      const ia = at(e.a);
+      const ib = at(e.b);
+      if (ia !== null) {
+        A[row][ia] = cAdd(A[row][ia], cx(1));
+        A[ia][row] = cAdd(A[ia][row], cx(1));
+      }
+      if (ib !== null) {
+        A[row][ib] = cSub(A[row][ib], cx(1));
+        A[ib][row] = cSub(A[ib][row], cx(1));
+      }
+      A[row][row] = cSub(A[row][row], cx(0, w * e.value));
+    });
+    for (const k of couplings) {
+      const p = lIdx.get(k.l1 as string) as number;
+      const q = lIdx.get(k.l2 as string) as number;
+      const L1 = coupledL[p - base].value;
+      const L2 = coupledL[q - base].value;
+      const wm = cx(0, w * k.value * Math.sqrt(L1 * L2));
+      A[p][q] = cSub(A[p][q], wm);
+      A[q][p] = cSub(A[q][p], wm);
+    }
+  }
   return { A, b, vs };
 }
 
@@ -1041,6 +1518,12 @@ export function solveAc(elements: Element[], frequency: number): AcResult | Fail
 
   const w = 2 * Math.PI * frequency;
   const { A, b } = buildAc(elements, nodes, w);
+  // k = 1 EXACTLY can leave the matrix singular in exact arithmetic while rounding in
+  // M = √(L₁L₂) keeps every pivot just above the threshold, and a solve would then
+  // print huge confident numbers. So it is decided structurally: the determinant
+  // near k = 1 falls in proportion to (1 − k) when, and only when, k = 1 is singular.
+  if (unitySingular(elements, (els) => cxLogDet(buildAc(els, nodes, w).A)))
+    return { ok: false, error: unityMessage(elements) };
   const sol = solveCx(A, b);
   if (!sol) return { ok: false, error: singularMessage(elements, nodes) };
 
@@ -1050,6 +1533,8 @@ export function solveAc(elements: Element[], frequency: number): AcResult | Fail
   ];
   const waved = elements.filter((e) => e.wave);
   if (waved.length) notes.push(acWaveNote(elements));
+  if (hasControlled(elements)) notes.push(CONTROLLED_NOTE);
+  if (elements.some((e) => e.kind === "K")) notes.push(COUPLING_NOTE);
   return {
     ok: true,
     frequency,
@@ -1098,7 +1583,9 @@ export function frequencySweep(
   // range, so the shape of the response is preserved rather than truncated.
   const requested = Math.max(2, Math.min(Math.floor(points) || 120, MAX_SWEEP_POINTS));
   const SWEEP_BUDGET = 120 * 30 * 30 * 30; // 120 points at 30 nodes, the reference cost
-  const affordable = Math.max(12, Math.floor(SWEEP_BUDGET / Math.max(1, nodes.length ** 3)));
+  // A k = 1 coupling costs each point two more factorizations (the singularity test).
+  const perPoint = elements.some((e) => e.kind === "K" && e.value === 1) ? 3 : 1;
+  const affordable = Math.max(12, Math.floor(SWEEP_BUDGET / Math.max(1, perPoint * nodes.length ** 3)));
   const n = Math.min(requested, Math.max(12, affordable));
   const thinned = n < requested;
   const out: SweepPoint[] = [];

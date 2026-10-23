@@ -13646,6 +13646,8 @@ const ENG_CALCS: EngCalc[] = [
     hint:
       'One element per line: "R1 1 0 1k", "V1 1 0 5", "I1 0 2 10m". Node 0 is ground. ' +
       "Values take SI suffixes and RKM notation, so 2k2 is 2.2 k and 4r7 is 4.7 ohms. " +
+      'Controlled sources as in SPICE: "E1 out 0 inp inn 100k" (VCVS), "G1 c 0 b 0 40m" (VCCS), ' +
+      '"H1 out 0 Vsense 1k" (CCVS), "F1 out 0 Vsense 100" (CCCS), where Vsense is a voltage source (0 V senses a branch). ' +
       "Answers are EXACT: a divider reports 10/3 V, not 3.3333.",
     fields: [
       {
@@ -13710,7 +13712,9 @@ const ENG_CALCS: EngCalc[] = [
     name: "AC response & Bode plot",
     group: "Electronics",
     hint:
-      "Same netlist, plus C and L. Give one frequency for a phasor answer, or a start and stop " +
+      "Same netlist, plus C and L, controlled sources (E, G, H, F) and coupled inductors " +
+      '("K1 L1 L2 0.99", 0 < k ≤ 1, dot at the first node of each inductor). Give one frequency for a phasor ' +
+      "answer, or a start and stop " +
       "frequency to sweep an output node and draw a Bode magnitude plot. AC is floating point: " +
       "an impedance carries 2*pi*f, which is not rational.",
     fields: [

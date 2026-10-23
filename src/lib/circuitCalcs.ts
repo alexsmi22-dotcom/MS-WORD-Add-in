@@ -70,11 +70,6 @@ const DEVICE: Record<string, string> = {
   J: "a JFET",
   Z: "a MESFET",
   X: "a subcircuit call",
-  E: "a voltage-controlled voltage source",
-  F: "a current-controlled current source",
-  G: "a voltage-controlled current source",
-  H: "a current-controlled voltage source",
-  K: "a coupling between inductors",
   S: "a voltage-controlled switch",
   W: "a current-controlled switch",
   T: "a transmission line",
@@ -99,7 +94,8 @@ function unsupportedLine(text: string): string | null {
     if (first.startsWith(".")) {
       return (
         `"${first}" is a SPICE control line; this tool reads element lines only. Put the stop time and time ` +
-        "step in their fields and delete the line (and any .model line: transient analysis covers R, L, C, V and I)."
+        "step in their fields and delete the line (and any .model line: transient analysis covers R, L, C, V, I, the " +
+        "linear controlled sources E, G, H, F and coupled inductors K)."
       );
     }
     const fields = line.split(/[\s,]+/).filter(Boolean);
@@ -108,18 +104,23 @@ function unsupportedLine(text: string): string | null {
     const notAName = /^(nan|[+-]?inf(inity)?|undefined|null)$/i;
     if (fields.length === 1 && !/^[a-z]\w*$/i.test(first))
       return "A netlist line needs an element name, two nodes and a value (for example R1 1 0 1k); one line has an unrecognised element name.";
-    for (const f of fields.slice(0, 3))
+    // An E or G line names two more nodes (its controlling pair), checked the same way.
+    const named = /^[eg]/i.test(first) ? fields.slice(0, 5) : fields.slice(0, 3);
+    for (const f of named)
       if (notAName.test(f))
         return (
           `"${f}" cannot be an element or node name here: the result would print it where a number is expected. ` +
           "Rename it (for example R1, n1)."
         );
     const c = first[0]?.toUpperCase() ?? "";
-    if (c && !"RVICL".includes(c)) {
+    if (c && !"RVICLEGHFK".includes(c)) {
       const what = fields.length > 1 && DEVICE[c] ? ` (${DEVICE[c]})` : "";
       return (
-        `Transient analysis covers R, L, C, V and I; "${first}"${what} is not supported. Nonlinear devices, ` +
-        "switches and controlled sources are outside this tool."
+        // The first sentence is pinned by the Release C case table (row 9); the second
+        // completes the scope that Release E added.
+        `Transient analysis covers R, L, C, V and I; "${first}"${what} is not supported. It also covers the linear ` +
+        "controlled sources E, G, H, F and coupled inductors K; nonlinear devices, switches and transmission lines " +
+        "are outside this tool."
       );
     }
   }
@@ -329,7 +330,9 @@ export const CIRCUIT_CALCS: CircuitCalc[] = [
     hint:
       'The same netlist as the DC and AC tools, with time-varying sources: "V1 1 0 PULSE(0 5 0 1n 1n 1m 2m)", ' +
       '"V1 1 0 SIN(0 1 1k)", "I1 0 2 PWL(0 0 1m 10m)". Times take SI suffixes (5m is 5 ms). Covers R, L, C, V ' +
-      "and I. Starts from the DC operating point at t = 0 and checks the end against the DC answer.",
+      'and I, the linear controlled sources E, G, H, F ("E1 out 0 inp inn 100k", "F1 out 0 Vsense 100") and coupled ' +
+      'inductors K ("K1 L1 L2 0.99", dot at each first node). Starts from the DC operating point at t = 0 and checks ' +
+      "the end against the DC answer.",
     fields: [
       {
         key: "net",

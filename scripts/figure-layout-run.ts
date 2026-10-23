@@ -213,6 +213,12 @@ import { LC_CALCS } from "../src/lib/lcCalcs";
 import { lcLineChartSvg, lcTransmissionSvg, lcNetRetardanceSvg, lcMeasuredSvg, lcProfilesSvg, lcGammaVoltageSvg, lcMidTiltSvg } from "../src/lib/lcCharts";
 import { lcCellSvg, lcDirectorSvg, lcDeviceSvg } from "../src/lib/lcDrawings";
 // --- end Release C: lc ---
+// --- Release E: vibration ---
+// Random vibration (PSD + Miles), base excitation and shaft critical speeds: their charts.
+import { RANDOM_VIBRATION_CALCS } from "../src/lib/randomVibrationCalcs";
+import { psdChartSvg, transmissibilityChartSvg, shaftCriticalSvg } from "../src/lib/randomVibrationCharts";
+import { psdProfile } from "../src/lib/randomVibration";
+// --- end Release E: vibration ---
 
 const figures: [string, string][] = [];
 
@@ -2926,5 +2932,71 @@ rotator 15` }, "jones elliptical");
   );
 }
 // --- end Release D: golden gate destination vector ---------------------------
+
+// --- Release E: vibration ---------------------------------------------------
+// Each calculator through its own compute() (the figure the pane inserts) at its defaults and at layout stress: a
+// ten-breakpoint profile with a high-Q item near its upper edge, a profile alone, an isolator run near resonance and
+// far above it, a shaft with no masses (three modes on the ladder) and one with twelve close masses in inches
+// (stepped labels, long ladder). Plus the three builders called directly at their edges.
+{
+  const vib = (id: string, over: Record<string, string>, name: string): void => {
+    const c = RANDOM_VIBRATION_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`vibration ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  const NL = String.fromCharCode(10);
+  vib("vib-random-psd", {}, "random PSD NAVMAT with Miles at 100 Hz");
+  vib("vib-random-psd", { fn: "" }, "random PSD profile alone");
+  vib(
+    "vib-random-psd",
+    { psd: ["10 0.002", "15 0.01", "40 0.01", "60 0.05", "100 0.05", "150 0.2", "300 0.2", "500 0.08", "1000 0.08", "2000 0.005"].join(NL), fn: "1800", dkind: "q", damp: "50" },
+    "random PSD ten breakpoints, Q 50 near the top",
+  );
+  vib("vib-base-excitation", {}, "base excitation isolating r 4");
+  vib("vib-base-excitation", { fn: "98", f: "100", damp: "0.02" }, "base excitation near resonance");
+  vib("vib-base-excitation", { fn: "10", f: "400", ikind: "disp", amp: "0.5 mm" }, "base excitation r 40 displacement input");
+  vib("vib-base-excitation", { fn: "200", f: "30", dkind: "q", damp: "3" }, "base excitation r 0.15 low Q");
+  vib("vib-shaft-critical", {}, "shaft uniform plus central mass");
+  vib("vib-shaft-critical", { masses: "", op: "12000 rpm" }, "shaft uniform three modes");
+  vib(
+    "vib-shaft-critical",
+    {
+      rho: "",
+      L: "48 in",
+      d: "2 in",
+      munit: "lb",
+      xunit: "in",
+      masses: Array.from({ length: 12 }, (_, i) => `${10 + i * 3} ${4 + i * 3.6}`).join(NL),
+      op: "1800 rpm",
+    },
+    "shaft twelve close masses in inches",
+  );
+  const prof = psdProfile([[20, 0.01], [2000, 0.01]]);
+  if (!prof.ok) throw new Error("corpus: flat profile refused");
+  figures.push(["vibration PSD builder flat white profile with low fn", psdChartSvg(prof, { fn: 21, zeta: 0.01, grms: 4.43 })]);
+  figures.push(["vibration transmissibility builder heavy damping r 0.002", transmissibilityChartSvg(0.7, 0.002)]);
+  figures.push([
+    "vibration shaft builder no operating speed, long labels",
+    shaftCriticalSvg(
+      2.5,
+      Array.from({ length: 61 }, (_, k) => [(2.5 * k) / 60, Math.sin((Math.PI * k) / 60)] as [number, number]),
+      [{ x: 0.2, label: "impeller 120 kg" }, { x: 2.3, label: "coupling hub 45 kg" }],
+      [
+        { label: "Shaft alone, mode 1", rpm: 41250 },
+        { label: "Masses (Rayleigh)", rpm: 980 },
+        { label: "Dunkerley (shaft + masses)", rpm: 975 },
+      ],
+      null,
+    ),
+  ]);
+}
+// --- end Release E: vibration -----------------------------------------------
 
 export { figures };

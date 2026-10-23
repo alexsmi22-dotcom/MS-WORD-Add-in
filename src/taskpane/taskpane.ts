@@ -13659,24 +13659,36 @@ const ENG_CALCS: EngCalc[] = [
       const res = solveDc(parsed.elements);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(res.exact ? "DC operating point (exact)" : "DC operating point");
       lines.push("");
-      lines.push("Node voltages");
-      for (const n of res.nodes) {
-        const ex = n.exact && n.exact.d !== 1n ? `  = ${n.exact.n}/${n.exact.d}` : "";
-        lines.push(`  V(${n.name}) = ${engNum(n.volts)} V${ex}`);
-      }
+      // Release E: node voltages, currents and powers as real tables.
+      const anyExact = res.nodes.some((n) => n.exact && n.exact.d !== 1n);
+      lines.push({
+        label: "Node voltages",
+        table: [
+          ["Node", "Voltage (V)", ...(anyExact ? ["Exact"] : [])],
+          ...res.nodes.map((n) => [`V(${n.name})`, engNum(n.volts), ...(anyExact ? [n.exact && n.exact.d !== 1n ? `${n.exact.n}/${n.exact.d}` : ""] : [])]),
+        ],
+      });
       lines.push("");
-      lines.push("Element currents (positive from the first node to the second)");
-      for (const c of res.currents) lines.push(`  I(${c.name}) = ${engNum(c.amps)} A`);
+      lines.push({
+        label: "Element currents (positive from the first node to the second)",
+        table: [["Element", "Current (A)"], ...res.currents.map((c) => [`I(${c.name})`, engNum(c.amps)])],
+      });
       lines.push("");
-      lines.push("Power");
-      for (const p of res.power)
-        lines.push(`  ${p.name}: ${engNum(Math.abs(p.watts))} W ${p.watts >= 0 ? "dissipated" : "delivered"}`);
+      lines.push({
+        label: "Power",
+        table: [["Element", "Power (W)", "Role"], ...res.power.map((p) => [p.name, engNum(Math.abs(p.watts)), p.watts >= 0 ? "dissipated" : "delivered"])],
+      });
       lines.push(
         `  Total delivered ${engNum(res.totalDelivered)} W = total dissipated ${engNum(res.totalDissipated)} W`,
       );
+      // Named outputs (Release E): every node voltage, and the total power dissipated.
+      const dcOutputs: EngOutput[] = [
+        { key: "Pdiss", label: "Total power dissipated", value: res.totalDissipated, unit: "W" },
+        ...res.nodes.map((n) => ({ key: `V(${n.name})`, label: `Node voltage V(${n.name})`, value: n.volts, unit: "V" })),
+      ];
       for (const n of res.notes) lines.push(`Note: ${n}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -13688,7 +13700,7 @@ const ENG_CALCS: EngCalc[] = [
         .map((p) => ({ name: p.name, value: p.watts, colour: p.watts >= 0 ? "#2563eb" : "#059669" }));
       if (powerRows.length) {
         const svg = hBarSvg(powerRows, { title: "Power per element", unit: "W" });
-        return engReport(lines, [
+        return withOutputs(dcOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -13697,9 +13709,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 46 + Math.min(powerRows.length, 24) * HBAR_ROW_H + 18,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(dcOutputs, engReport(lines));
     },
   },
   {
@@ -13736,16 +13748,24 @@ const ENG_CALCS: EngCalc[] = [
       if (f2 === undefined) {
         const res = solveAc(parsed.elements, f1);
         if (!res.ok) return { text: res.error, ok: false };
-        const lines: string[] = [];
+        const lines: EngReportLine[] = [...engEq("circuit-ac")];
         lines.push(`AC steady state at ${engNum(res.frequency)} Hz`);
         lines.push("");
-        for (const n of res.nodes)
-          lines.push(
-            `  V(${n.name}) = ${engNum(n.magnitude)} at ${engNum(n.phaseDeg)} deg  ` +
-              `(${engNum(n.re)} ${n.im >= 0 ? "+" : "-"} j${engNum(Math.abs(n.im))})`,
-          );
+        // Release E: the node phasors as a real table.
+        lines.push({
+          table: [
+            ["Node", "Magnitude", "Phase (deg)", "Phasor"],
+            ...res.nodes.map((n) => [`V(${n.name})`, engNum(n.magnitude), engNum(n.phaseDeg), `${engNum(n.re)} ${n.im >= 0 ? "+" : "−"} j${engNum(Math.abs(n.im))}`]),
+          ],
+        });
         for (const n of res.notes) lines.push(`Note: ${n}`);
-        return { text: plainDashes(lines.join("\n")) };
+        return withOutputs(
+          res.nodes.flatMap((n) => [
+            { key: `|V(${n.name})|`, label: `Magnitude of V(${n.name})`, value: n.magnitude, unit: "" },
+            { key: `arg V(${n.name})`, label: `Phase of V(${n.name})`, value: n.phaseDeg, unit: "deg" },
+          ]),
+          engReport(lines),
+        );
       }
 
       const sweep = frequencySweep(parsed.elements, out, f1, f2, 160);
@@ -13777,7 +13797,7 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("circuit-ac")];
       lines.push(`Frequency response at node ${out}`);
       lines.push(`Swept ${engNum(f1)} Hz to ${engNum(f2)} Hz, ${pts.length} points, logarithmic`);
       lines.push(`  at ${engNum(pts[0].f)} Hz: ${engNum(pts[0].magnitude)} at ${engNum(pts[0].phaseDeg)} deg`);
@@ -13791,9 +13811,10 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("AC results are floating point, and phase is in degrees relative to the source.");
       lines.push(ENG_SAME_UNIT_NOTE);
 
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "fc", label: "3 dB frequency", value: corner ?? NaN, unit: "Hz" },
+        { key: "magEnd", label: "Magnitude at the sweep stop", value: last.magnitude, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot" as const,
           svg,
@@ -13802,8 +13823,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -18218,7 +18238,20 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      // Release E: the configuration's gain law, then the bandwidth laws that were used.
+      const cfgEq: Record<string, EngReportLine[]> = {
+        inverting: engEq("opamp:inverting"),
+        "non-inverting": engEq("opamp:non-inverting"),
+        summing: engEq("opamp:summing"),
+        difference: engEq("opamp:difference"),
+        integrator: engEq("opamp:integrator"),
+        differentiator: engEq("opamp:differentiator"),
+      };
+      const lines: EngReportLine[] = [
+        ...(cfgEq[r("config") || "non-inverting"] ?? []),
+        ...(res.bandwidth !== null ? engEq("opamp:bandwidth") : []),
+        ...(res.fullPowerBandwidth !== null ? engEq("opamp:full-power") : []),
+      ];
       lines.push(`${res.config} amplifier`);
       lines.push("");
       if (res.inputGains.length > 1) {
@@ -18251,6 +18284,14 @@ const ENG_CALCS: EngCalc[] = [
       // open-loop roll-off; an integrator or differentiator IS a slope, with
       // its unity-gain corner marked. Everything drawn comes from the same
       // single-pole model the bandwidth number used.
+      // Named outputs (Release E): the closed-loop gain only where the text quotes one (a single resistive gain).
+      const opOutputs: EngOutput[] = [
+        { key: "G", label: "Closed-loop gain", value: res.inputGains.length <= 1 && res.cornerFrequency === null ? res.gain : NaN, unit: "" },
+        { key: "Gnoise", label: "Noise gain", value: res.noiseGain, unit: "" },
+        { key: "fbw", label: "Small-signal bandwidth", value: res.bandwidth ?? NaN, unit: "Hz" },
+        { key: "fpbw", label: "Full-power bandwidth", value: res.fullPowerBandwidth ?? NaN, unit: "Hz" },
+        { key: "fcorner", label: "Unity-gain corner frequency", value: res.cornerFrequency ?? NaN, unit: "Hz" },
+      ];
       const gbwV = r("gbw").trim() ? Number(r("gbw")) : NaN;
       const toDb = (g: number): number => 20 * Math.log10(Math.max(g, 1e-12));
       const gainSeries: Series[] = [];
@@ -18309,7 +18350,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "gain (dB)",
           title: "Gain against frequency",
         });
-        return engReport(lines, [
+        return withOutputs(opOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -18318,9 +18359,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(opOutputs, engReport(lines));
     },
   },
   {
@@ -18371,14 +18412,16 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const tf = toTransferFunction(res);
-      const lines: EngLine[] = [];
+      const lines: EngReportLine[] = [
+        ...(res.family === "butterworth" ? engEq("filter-design:butterworth") : engEq("filter-design:chebyshev")),
+        ...(res.kind === "lowpass" ? engEq("filter-design:lowpass") : engEq("filter-design:highpass")),
+      ];
       lines.push(`${res.family} ${res.kind} filter, order ${res.order}`);
       lines.push(`  the specification needs order ${engNum(res.exactOrder, 4)}, rounded up`);
       lines.push("");
       lines.push(tfLineDecimal("H(s)", res.num, res.den));
       lines.push("");
-      lines.push("Poles");
-      for (const p of res.poles) lines.push(`  ${fmtComplexPlain(p)}`);
+      lines.push({ label: "Poles", table: [["Pole", "Location (rad/s)"], ...res.poles.map((p, i) => [`p${i + 1}`, fmtComplexPlain(p)])] });
       lines.push("");
       lines.push(`Delivered stopband attenuation = ${engNum(res.stopbandAttenuation)} dB (asked for ${engNum(Number(r("as")))})`);
       lines.push(`Passband ripple = ${engNum(res.passbandRipple)} dB`);
@@ -18390,6 +18433,11 @@ const ENG_CALCS: EngCalc[] = [
       // meet: the passband-edge and stopband-edge points are drawn ON the
       // plot, so "delivered vs asked for" is visible rather than asserted.
       // Same evaluation path as the control tools' Bode plot.
+      const filtOutputs: EngOutput[] = [
+        { key: "order", label: "Filter order", value: res.order, unit: "" },
+        { key: "nExact", label: "Order the specification needs (unrounded)", value: res.exactOrder, unit: "" },
+        { key: "Astop", label: "Delivered stopband attenuation", value: res.stopbandAttenuation, unit: "dB" },
+      ];
       const freqs = autoFrequencies(tf, 300);
       const resp = frequencyResponse(tf, freqs).filter((p) => Number.isFinite(p.magnitudeDb));
       const wpV = Number(r("wp") || "0");
@@ -18412,7 +18460,7 @@ const ENG_CALCS: EngCalc[] = [
             title: `${res.family} order ${res.order} against its specification`,
           },
         );
-        return engReport(lines, [
+        return withOutputs(filtOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -18421,9 +18469,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return engReport(lines);
+      return withOutputs(filtOutputs, engReport(lines));
     },
   },
   {
@@ -18464,7 +18512,7 @@ const ENG_CALCS: EngCalc[] = [
       const m = minimise(t.minterms, t.variables, dc);
       if (!m.ok) return { text: m.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(`Variables: ${t.variables.join(", ")} — ${t.rows.length} rows`);
       lines.push(`Minterms where the output is true: ${t.minterms.join(", ") || "none"}`);
       if (dc.length) lines.push(`Don't-cares: ${dc.join(", ")}`);
@@ -18477,11 +18525,10 @@ const ENG_CALCS: EngCalc[] = [
 
       if (r("show") === "yes") {
         lines.push("");
-        lines.push(`${t.variables.join(" ")}  |  out`);
-        for (let i = 0; i < t.rows.length; i++) {
-          const row = t.rows[i];
-          lines.push(`${row.inputs.map((b) => (b ? "1" : "0")).join(" ")}  |  ${row.output ? "1" : "0"}`);
-        }
+        // Release E: the truth table as a real table.
+        lines.push({
+          table: [[...t.variables, "out"], ...t.rows.map((row) => [...row.inputs.map((b) => (b ? "1" : "0")), row.output ? "1" : "0"])],
+        });
       }
       for (const note of t.notes) lines.push(`Note: ${note}`);
       for (const note of m.notes) lines.push(`Note: ${note}`);
@@ -18492,8 +18539,12 @@ const ENG_CALCS: EngCalc[] = [
       // the eye finds the pattern in a way a column of bits does not. Capped
       // at five variables (32 columns); past that the lanes are illegible and
       // the table is the better artifact anyway.
+      const logicOutputs: EngOutput[] = [
+        { key: "terms", label: "Product terms", value: m.terms.length, unit: "" },
+        { key: "literals", label: "Literals", value: m.literals, unit: "" },
+      ];
       if (t.variables.length <= 5 && t.rows.length >= 2) {
-        return engReport(lines, [
+        return withOutputs(logicOutputs, engReport(lines, [
           {
             kind: "plot",
             svg: logicWaveSvg({ variables: t.variables, rows: t.rows }),
@@ -18502,9 +18553,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 40 + (t.variables.length + 1) * 26 + 20,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(logicOutputs, engReport(lines));
     },
   },
   {

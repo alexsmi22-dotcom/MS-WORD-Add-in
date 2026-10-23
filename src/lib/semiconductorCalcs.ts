@@ -206,23 +206,23 @@ const pnCalc: SemiCalc = {
   unitContract: "converts",
   hint:
     "An abrupt (step) pn junction: the acceptor density on the p side and the donor density on the n side give the " +
-    "built-in potential Vbi = (kT/q)·ln(N_A·N_D/nᵢ²), the depletion width (two-sided, plus the one-sided form when one " +
+    "built-in potential Vbi = (kT/q)·ln(NA·ND/nᵢ²), the depletion width (two-sided, plus the one-sided form when one " +
     "side is ten times heavier), its split across the junction, the peak field and the capacitance per area at a " +
     "reverse bias, with the C–V curve. Give a saturation current Iₛ for the Shockley diode current at a bias. Si and " +
-    "GaAs presets are cited 300 K values; every one can be overridden.",
+    "GaAs presets (nᵢ, εᵣ, Nc, Nv) are cited 300 K values, and each field overrides its preset.",
   fields: [
-    { key: "na", label: "Acceptors on the p side N_A (cm⁻³)", default: "1e16", kind: "text" },
-    { key: "nd", label: "Donors on the n side N_D (cm⁻³)", default: "1e17", kind: "text" },
+    { key: "na", label: "Acceptors on the p side NA (cm⁻³)", default: "1e16", kind: "text" },
+    { key: "nd", label: "Donors on the n side ND (cm⁻³)", default: "1e17", kind: "text" },
     ...materialFields(true),
-    { key: "vr", label: "Reverse bias V_R (V; 0 for equilibrium)", default: "0 V", kind: "text" },
+    { key: "vr", label: "Reverse bias VR (V; 0 for equilibrium)", default: "0 V", kind: "text" },
     { key: "is", label: "Saturation current Iₛ (A; blank for no diode current)", default: "1e-14 A", kind: "text" },
     { key: "nid", label: "Ideality factor n (1–2)", default: "1", kind: "text" },
     { key: "vd", label: "Diode bias V for the current (V; forward positive)", default: "0.6 V", kind: "text" },
   ],
   compute: (r) => {
     const u = unitReader(r);
-    const na = u.req("na", "cm^-3", "cm⁻³", "N_A");
-    const nd = u.req("nd", "cm^-3", "cm⁻³", "N_D");
+    const na = u.req("na", "cm^-3", "cm⁻³", "NA");
+    const nd = u.req("nd", "cm^-3", "cm⁻³", "ND");
     const vr = u.req("vr", "V", "V", "Reverse bias");
     const is = u.opt("is", "A", "A", "Saturation current");
     const vd = u.opt("vd", "V", "V", "Diode bias");
@@ -243,20 +243,20 @@ const pnCalc: SemiCalc = {
     const um = (m: number): string => `${n6(m * 1e6)} µm`;
     const lines: EngReportLine[] = [];
     lines.push(mat.line);
-    lines.push(`Doping: N_A = ${n4(na)} cm⁻³ (p side), N_D = ${n4(nd)} cm⁻³ (n side); reverse bias V_R = ${trimSig(vr)} V.`);
-    lines.push({ math: "V_bi = (k T)/q ln((N_A N_D)/(n_i^2))", fallback: "Vbi = (kT/q)·ln(N_A·N_D/nᵢ²)" });
-    lines.push({ math: "W = sqrt((2 ε_s (V_bi + V_R))/q (1/N_A + 1/N_D))", fallback: "W = √(2εₛ(Vbi + V_R)/q · (1/N_A + 1/N_D))" });
-    lines.push({ math: "x_n = (W N_A)/(N_A + N_D)", fallback: "xₙ = W·N_A/(N_A + N_D)" });
-    lines.push({ math: "x_p = (W N_D)/(N_A + N_D)", fallback: "xₚ = W·N_D/(N_A + N_D)" });
-    lines.push({ math: "E_max = (q N_D x_n)/ε_s", fallback: "E_max = q·N_D·xₙ/εₛ" });
+    lines.push(`Doping: NA = ${n4(na)} cm⁻³ (p side), ND = ${n4(nd)} cm⁻³ (n side); reverse bias VR = ${trimSig(vr)} V.`);
+    lines.push({ math: "V_bi = (k T)/q ln((N_A N_D)/(n_i^2))", fallback: "Vbi = (kT/q)·ln(NA·ND/nᵢ²)" });
+    lines.push({ math: "W = sqrt((2 ε_s (V_bi + V_R))/q (1/N_A + 1/N_D))", fallback: "W = √(2εₛ(Vbi + VR)/q · (1/NA + 1/ND))" });
+    lines.push({ math: "x_n = (W N_A)/(N_A + N_D)", fallback: "xₙ = W·NA/(NA + ND)" });
+    lines.push({ math: "x_p = (W N_D)/(N_A + N_D)", fallback: "xₚ = W·ND/(NA + ND)" });
+    lines.push({ math: "E_max = (q N_D x_n)/ε_s", fallback: "Eₘₐₓ = q·ND·xₙ/εₛ" });
     lines.push({ math: "C_j = ε_s/W", fallback: "C′ⱼ = εₛ/W (per unit area)" });
     if (diode) lines.push({ math: "I = I_s (e^(V/(n V_t)) - 1)", fallback: "I = Iₛ(exp(V/(nVₜ)) − 1), Vₜ = kT/q" });
     lines.push(`Built-in potential Vbi = ${n6(res.vbi)} V.`);
     lines.push(`Depletion width W = ${um(res.w)} (n side xₙ = ${um(res.xn)}, p side xₚ = ${um(res.xp)}); peak field ${n6(res.emax / 1e5)} kV/cm.`);
     if (res.w1 !== null)
-      lines.push(`One-sided (${res.lightSide === "n" ? "p⁺n" : "n⁺p"}) approximation W ≈ √(2εₛ(Vbi + V_R)/(qN_light)) = ${um(res.w1)}, ${n6(Math.abs(res.w1 / res.w - 1) * 100)} % from the two-sided value.`);
+      lines.push(`One-sided (${res.lightSide === "n" ? "p⁺n" : "n⁺p"}) approximation W ≈ √(2εₛ(Vbi + VR)/(q·Nₗ)) = ${um(res.w1)} (Nₗ the lighter doping), ${n6(Math.abs(res.w1 / res.w - 1) * 100)} % from the two-sided value.`);
     else lines.push("The dopings are within a factor of 10 of each other, so the one-sided approximation is not used: the depletion region spreads into both sides.");
-    lines.push(`Junction capacitance per area C′ = ${n6(res.cj)} F/m² (${n6(res.cj * 1e5)} nF/cm²) at V_R = ${trimSig(vr)} V; at zero bias ${n6(res.cj0 * 1e5)} nF/cm².`);
+    lines.push(`Junction capacitance per area C′ = ${n6(res.cj)} F/m² (${n6(res.cj * 1e5)} nF/cm²) at VR = ${trimSig(vr)} V; at zero bias ${n6(res.cj0 * 1e5)} nF/cm².`);
     if (diode)
       lines.push(
         `Diode current at V = ${trimSig(diode.v)} V: I = ${n6(diode.i)} A (Iₛ = ${trimSig(diode.is)} A, n = ${trimSig(diode.n)}; ${n6(diode.perDecade * 1000)} mV per decade forward). Iₛ is your input; it is not derived from the doping.`,
@@ -264,14 +264,14 @@ const pnCalc: SemiCalc = {
     const deg = degeneracyNote(mat);
     if (deg) lines.push(deg);
     lines.push(
-      "Model: abrupt junction, depletion approximation, complete ionisation, non-degenerate doping; W uses Vbi + V_R without the 2kT/q majority-carrier-tail correction; reverse breakdown is not modelled. The diode is ideal (no series resistance, high injection or generation current).",
+      "Model: abrupt junction, depletion approximation, complete ionisation, non-degenerate doping; W uses Vbi + VR without the 2kT/q majority-carrier-tail correction; reverse breakdown is not modelled. The diode is ideal (no series resistance, high injection or generation current).",
     );
     const rows: Array<[string, string, string]> = [
       ["Built-in potential Vbi", n6(res.vbi), "V"],
       ["Depletion width W", n6(res.w * 1e6), "µm"],
       ["n-side width xₙ", n6(res.xn * 1e6), "µm"],
       ["p-side width xₚ", n6(res.xp * 1e6), "µm"],
-      ["Peak field E_max", n6(res.emax / 1e5), "kV/cm"],
+      ["Peak field Eₘₐₓ", n6(res.emax / 1e5), "kV/cm"],
       ["Capacitance per area C′", n6(res.cj * 1e5), "nF/cm²"],
     ];
     if (res.w1 !== null) rows.splice(2, 0, ["One-sided W", n6(res.w1 * 1e6), "µm"]);
@@ -309,17 +309,17 @@ const mosCalc: SemiCalc = {
   group: "Chips & semiconductors",
   unitContract: "converts",
   hint:
-    "A long-channel MOSFET: the channel mobility, the oxide thickness and its permittivity give Cox = ε_ox/t_ox; with " +
+    "A long-channel MOSFET: the channel mobility, the oxide thickness and its permittivity give Cox = εₒₓ/tₒₓ; with " +
     "W/L, the threshold and the bias, the region (cutoff, triode, saturation), the drain current, gm and the output " +
-    "conductance (channel-length modulation λ), drawn as the I_D–V_DS family. nMOS signs; enter a pMOS by magnitudes.",
+    "conductance (channel-length modulation λ), drawn as the ID–VDS family. nMOS signs; enter a pMOS by magnitudes.",
   fields: [
     { key: "mu", label: "Channel mobility µ (cm²/(V·s); your value)", default: "400", kind: "text" },
-    { key: "tox", label: "Oxide thickness t_ox (nm)", default: "10 nm", kind: "text" },
-    { key: "epsox", label: "Oxide relative permittivity εᵣ,ox (your value; SiO₂ is quoted 3.7–3.9)", default: "3.9", kind: "text" },
+    { key: "tox", label: "Oxide thickness tₒₓ (nm)", default: "10 nm", kind: "text" },
+    { key: "epsox", label: "Oxide relative permittivity εᵣ,ₒₓ (your value; SiO₂ is quoted 3.7–3.9)", default: "3.9", kind: "text" },
     { key: "wl", label: "Aspect ratio W/L", default: "10", kind: "text" },
-    { key: "vth", label: "Threshold voltage V_th (V)", default: "0.5 V", kind: "text" },
-    { key: "vgs", label: "Gate–source voltage V_GS (V)", default: "1.5 V", kind: "text" },
-    { key: "vds", label: "Drain–source voltage V_DS (V)", default: "1.5 V", kind: "text" },
+    { key: "vth", label: "Threshold voltage Vₜₕ (V)", default: "0.5 V", kind: "text" },
+    { key: "vgs", label: "Gate–source voltage VGS (V)", default: "1.5 V", kind: "text" },
+    { key: "vds", label: "Drain–source voltage VDS (V)", default: "1.5 V", kind: "text" },
     { key: "lambda", label: "Channel-length modulation λ (1/V; 0 for none)", default: "0", kind: "text" },
   ],
   compute: (r) => {
@@ -327,8 +327,8 @@ const mosCalc: SemiCalc = {
     const mu = u.req("mu", "cm^2/(V*s)", "cm²/(V·s)", "Mobility");
     const tox = u.req("tox", "nm", "nm", "Oxide thickness");
     const vth = u.req("vth", "V", "V", "Threshold voltage");
-    const vgs = u.req("vgs", "V", "V", "V_GS");
-    const vds = u.req("vds", "V", "V", "V_DS");
+    const vgs = u.req("vgs", "V", "V", "VGS");
+    const vds = u.req("vds", "V", "V", "VDS");
     const lam = u.req("lambda", "1/V", "V⁻¹", "λ");
     if (u.errors.length) return refuse(u.errors.join("\n"));
     const epsOx = plainOpt(r("epsox"));
@@ -339,13 +339,13 @@ const mosCalc: SemiCalc = {
     const res = mosfet({ mu, tox: tox * 1e-9, epsOx, wl, vth, vgs, vds, lambda: lam });
     if (!res.ok) return refuse(res.error);
     const lines: EngReportLine[] = [];
-    lines.push(`Device: µ = ${trimSig(mu)} cm²/(V·s), t_ox = ${trimSig(tox)} nm, εᵣ,ox = ${trimSig(epsOx)} (your values), W/L = ${trimSig(wl)}, V_th = ${trimSig(vth)} V; bias V_GS = ${trimSig(vgs)} V, V_DS = ${trimSig(vds)} V, λ = ${trimSig(lam)} V⁻¹.`);
-    lines.push({ math: "C_ox = ε_ox/t_ox", fallback: "C_ox = ε_ox/t_ox, with ε_ox = εᵣ,ox·ε₀" });
-    lines.push({ math: "I_D = (μ C_ox W)/(2 L) V_ov^2 (1 + λ V_DS)", fallback: "I_D = ½µC_ox(W/L)V_ov²(1 + λV_DS) in saturation (V_DS ≥ V_ov)" });
-    lines.push({ math: "I_D = (μ C_ox W)/L (V_ov V_DS - (V_DS^2)/2)(1 + λ V_DS)", fallback: "I_D = µC_ox(W/L)(V_ov·V_DS − ½V_DS²)(1 + λV_DS) in triode (V_DS < V_ov)" });
-    lines.push({ math: "g_m = (∂I_D)/(∂V_GS)", fallback: "g_m = ∂I_D/∂V_GS" });
-    lines.push({ math: "g_ds = (∂I_D)/(∂V_DS)", fallback: "g_ds = ∂I_D/∂V_DS" });
-    lines.push(`Oxide capacitance C_ox = ${n6(res.cox)} F/m² (${n6(res.cox * 1000)} fF/µm²); µC_ox·W/L = ${n6(res.beta * 1000)} mA/V².`);
+    lines.push(`Device: µ = ${trimSig(mu)} cm²/(V·s), tₒₓ = ${trimSig(tox)} nm, εᵣ,ₒₓ = ${trimSig(epsOx)} (your values), W/L = ${trimSig(wl)}, Vₜₕ = ${trimSig(vth)} V; bias VGS = ${trimSig(vgs)} V, VDS = ${trimSig(vds)} V, λ = ${trimSig(lam)} V⁻¹.`);
+    lines.push({ math: "C_ox = ε_ox/t_ox", fallback: "Cₒₓ = εₒₓ/tₒₓ, with εₒₓ = εᵣ,ₒₓ·ε₀" });
+    lines.push({ math: "I_D = (μ C_ox W)/(2 L) V_ov^2 (1 + λ V_DS)", fallback: "ID = ½µCₒₓ(W/L)Vₒᵥ²(1 + λVDS) in saturation (VDS ≥ Vₒᵥ)" });
+    lines.push({ math: "I_D = (μ C_ox W)/L (V_ov V_DS - (V_DS^2)/2)(1 + λ V_DS)", fallback: "ID = µCₒₓ(W/L)(Vₒᵥ·VDS − ½VDS²)(1 + λVDS) in triode (VDS < Vₒᵥ)" });
+    lines.push({ math: "g_m = (∂I_D)/(∂V_GS)", fallback: "gₘ = ∂ID/∂VGS" });
+    lines.push({ math: "g_ds = (∂I_D)/(∂V_DS)", fallback: "gds = ∂ID/∂VDS" });
+    lines.push(`Oxide capacitance Cₒₓ = ${n6(res.cox)} F/m² (${n6(res.cox * 1000)} fF/µm²); µCₒₓ·W/L = ${n6(res.beta * 1000)} mA/V².`);
     const outputs: EngOutput[] = [
       { key: "cox", label: "Oxide capacitance", value: res.cox, unit: "F/m²" },
       { key: "beta", label: "µCox·W/L", value: res.beta * 1000, unit: "mA/V²" },
@@ -355,27 +355,27 @@ const mosCalc: SemiCalc = {
       { key: "gds", label: "Output conductance", value: res.gds * 1e6, unit: "µS" },
     ];
     const rows: Array<[string, string, string]> = [
-      ["Oxide capacitance C_ox", n6(res.cox), "F/m²"],
-      ["Overdrive V_ov = V_GS − V_th", n6(res.vov), "V"],
+      ["Oxide capacitance Cₒₓ", n6(res.cox), "F/m²"],
+      ["Overdrive Vₒᵥ = VGS − Vₜₕ", n6(res.vov), "V"],
       ["Region", res.region, ""],
-      ["Drain current I_D", n6(res.id * 1000), "mA"],
-      ["Transconductance g_m", n6(res.gm * 1000), "mS"],
-      ["Output conductance g_ds", n6(res.gds * 1e6), "µS"],
+      ["Drain current ID", n6(res.id * 1000), "mA"],
+      ["Transconductance gₘ", n6(res.gm * 1000), "mS"],
+      ["Output conductance gds", n6(res.gds * 1e6), "µS"],
     ];
     if (res.region === "cutoff") {
-      lines.push(`Overdrive V_ov = ${n6(res.vov)} V ≤ 0: CUTOFF. The square law gives I_D = 0, gm = 0 (subthreshold conduction is not modelled).`);
+      lines.push(`Overdrive Vₒᵥ = ${n6(res.vov)} V ≤ 0: CUTOFF. The square law gives ID = 0, gm = 0 (subthreshold conduction is not modelled).`);
     } else {
-      lines.push(`Overdrive V_ov = ${n6(res.vov)} V; V_DS,sat = V_ov = ${n6(res.vdsat)} V, so the device is in ${res.region.toUpperCase()}${res.region === "saturation" ? " (V_DS ≥ V_ov)" : " (V_DS < V_ov)"}.`);
-      lines.push(`Drain current I_D = ${n6(res.id * 1000)} mA; transconductance gm = ${n6(res.gm * 1000)} mS${res.region === "saturation" ? ` (= 2I_D/V_ov)` : ""}; output conductance g_ds = ${n6(res.gds * 1e6)} µS.`);
+      lines.push(`Overdrive Vₒᵥ = ${n6(res.vov)} V; VDS,sat = Vₒᵥ = ${n6(res.vdsat)} V, so the device is in ${res.region.toUpperCase()}${res.region === "saturation" ? " (VDS ≥ Vₒᵥ)" : " (VDS < Vₒᵥ)"}.`);
+      lines.push(`Drain current ID = ${n6(res.id * 1000)} mA; transconductance gm = ${n6(res.gm * 1000)} mS${res.region === "saturation" ? ` (= 2ID/Vₒᵥ)` : ""}; output conductance gds = ${n6(res.gds * 1e6)} µS.`);
       if (res.gds > 0) {
         const ro = 1 / res.gds;
-        lines.push(`Output resistance r_o = 1/g_ds = ${n6(ro / 1000)} kΩ; intrinsic gain gm·r_o = ${n6(res.gm * ro)}.`);
+        lines.push(`Output resistance rₒ = 1/gds = ${n6(ro / 1000)} kΩ; intrinsic gain gm·rₒ = ${n6(res.gm * ro)}.`);
         outputs.push({ key: "ro", label: "Output resistance", value: ro / 1000, unit: "kΩ" }, { key: "gain", label: "Intrinsic gain", value: res.gm * ro, unit: "" });
-        rows.push(["Output resistance r_o", n6(ro / 1000), "kΩ"]);
-      } else lines.push("λ = 0 in saturation: the output conductance is zero and r_o is unbounded (an ideal current source).");
+        rows.push(["Output resistance rₒ", n6(ro / 1000), "kΩ"]);
+      } else lines.push("λ = 0 in saturation: the output conductance is zero and rₒ is unbounded (an ideal current source).");
     }
     lines.push(
-      "Model: long-channel square law in the SPICE level-1 form (the (1 + λV_DS) factor in both regions keeps I_D continuous). Not included: subthreshold conduction, velocity saturation and mobility degradation (both matter below about 0.25 µm), body effect. µ is the effective channel mobility, your input.",
+      "Model: long-channel square law in the SPICE level-1 form (the (1 + λVDS) factor in both regions keeps ID continuous). Not included: subthreshold conduction, velocity saturation and mobility degradation (both matter below about 0.25 µm), body effect. µ is the effective channel mobility, your input.",
     );
     lines.push(kvTable(rows, "MOSFET operating point"));
     return finish(lines, u.conversions, [
@@ -399,8 +399,8 @@ const carrierCalc: SemiCalc = {
     "electron and hole mobilities — the conductivity and resistivity. Mobilities depend on doping and temperature and " +
     "are your inputs (tables are not built in).",
   fields: [
-    { key: "nd", label: "Donors N_D (cm⁻³)", default: "1e16", kind: "text" },
-    { key: "na", label: "Acceptors N_A (cm⁻³)", default: "0", kind: "text" },
+    { key: "nd", label: "Donors ND (cm⁻³)", default: "1e16", kind: "text" },
+    { key: "na", label: "Acceptors NA (cm⁻³)", default: "0", kind: "text" },
     ...materialFields(false),
     // The defaults are the pure-Si lattice limits the Ioffe NSM archive lists (Si/electric.html, "Mobility electrons
     // ≤1400, holes ≤450 cm² V⁻¹ s⁻¹", read 2026-10-23); doped silicon and other materials are lower or different, so
@@ -410,8 +410,8 @@ const carrierCalc: SemiCalc = {
   ],
   compute: (r) => {
     const u = unitReader(r);
-    const nd = u.req("nd", "cm^-3", "cm⁻³", "N_D");
-    const na = u.req("na", "cm^-3", "cm⁻³", "N_A");
+    const nd = u.req("nd", "cm^-3", "cm⁻³", "ND");
+    const na = u.req("na", "cm^-3", "cm⁻³", "NA");
     const mun = u.req("mun", "cm^2/(V*s)", "cm²/(V·s)", "Electron mobility");
     const mup = u.req("mup", "cm^2/(V*s)", "cm²/(V·s)", "Hole mobility");
     if (u.errors.length) return refuse(u.errors.join("\n"));
@@ -421,18 +421,18 @@ const carrierCalc: SemiCalc = {
     if (!res.ok) return refuse(res.error);
     const lines: EngReportLine[] = [];
     lines.push(mat.line);
-    lines.push(`Doping: N_D = ${n4(nd)} cm⁻³, N_A = ${n4(na)} cm⁻³ (net N_D − N_A = ${n4(res.net)} cm⁻³); mobilities µₙ = ${trimSig(mun)}, µₚ = ${trimSig(mup)} cm²/(V·s) (your values).`);
-    lines.push({ math: "n = (N_D - N_A)/2 + sqrt(((N_D - N_A)/2)^2 + n_i^2)", fallback: "n = (N_D − N_A)/2 + √(((N_D − N_A)/2)² + nᵢ²) (n-type; the mirror form gives p for p-type)" });
+    lines.push(`Doping: ND = ${n4(nd)} cm⁻³, NA = ${n4(na)} cm⁻³ (net ND − NA = ${n4(res.net)} cm⁻³); mobilities µₙ = ${trimSig(mun)}, µₚ = ${trimSig(mup)} cm²/(V·s) (your values).`);
+    lines.push({ math: "n = (N_D - N_A)/2 + sqrt(((N_D - N_A)/2)^2 + n_i^2)", fallback: "n = (ND − NA)/2 + √(((ND − NA)/2)² + nᵢ²) (n-type; the mirror form gives p for p-type)" });
     lines.push({ math: "p = (n_i^2)/n", fallback: "p = nᵢ²/n (the minority carrier from the mass-action law)" });
-    lines.push({ math: "E_F - E_i = k T ln(n/n_i)", fallback: "E_F − Eᵢ = kT·ln(n/nᵢ)" });
+    lines.push({ math: "E_F - E_i = k T ln(n/n_i)", fallback: "EF − Eᵢ = kT·ln(n/nᵢ)" });
     lines.push({ math: "σ = q (n μ_n + p μ_p)", fallback: "σ = q(nµₙ + pµₚ)" });
     lines.push({ math: "ρ = 1/σ", fallback: "ρ = 1/σ" });
     const kind = res.type === "intrinsic" ? "intrinsic (net doping zero)" : `${res.type}-type`;
     lines.push(`The sample is ${kind}: n = ${n4(res.n)} cm⁻³, p = ${n4(res.p)} cm⁻³.`);
-    lines.push(`Fermi level E_F − Eᵢ = ${n6(res.efEi)} eV (${res.efEi > 0 ? "above" : res.efEi < 0 ? "below" : "at"} the intrinsic level; from nᵢ).`);
+    lines.push(`Fermi level EF − Eᵢ = ${n6(res.efEi)} eV (${res.efEi > 0 ? "above" : res.efEi < 0 ? "below" : "at"} the intrinsic level; from nᵢ).`);
     if (res.edge !== null)
       lines.push(
-        `${res.type === "n" ? `E_c − E_F = kT·ln(Nc/n) = ${n6(res.edge)} eV` : `E_F − E_v = kT·ln(Nv/p) = ${n6(res.edge)} eV`}; from ${res.type === "n" ? "Nc" : "Nv"}, a different data set from nᵢ (the presets are not exactly self-consistent, so the two band-referenced positions are not forced to match Eg).`,
+        `${res.type === "n" ? `Ec − EF = kT·ln(Nc/n) = ${n6(res.edge)} eV` : `EF − Ev = kT·ln(Nv/p) = ${n6(res.edge)} eV`}; from ${res.type === "n" ? "Nc" : "Nv"}, a different data set from nᵢ (the presets are not exactly self-consistent, so the two band-referenced positions are not forced to match Eg).`,
       );
     lines.push(`Conductivity σ = ${n6(res.sigma)} S/cm (${n6(res.sigma * 100)} S/m); resistivity ρ = ${n6(res.rho)} Ω·cm.`);
     const deg = degeneracyNote(mat);
@@ -442,9 +442,9 @@ const carrierCalc: SemiCalc = {
     const rows: Array<[string, string, string]> = [
       ["Electron density n", n4(res.n), "cm⁻³"],
       ["Hole density p", n4(res.p), "cm⁻³"],
-      ["E_F − Eᵢ", n6(res.efEi), "eV"],
+      ["EF − Eᵢ", n6(res.efEi), "eV"],
     ];
-    if (res.edge !== null) rows.push([res.type === "n" ? "E_c − E_F" : "E_F − E_v", n6(res.edge), "eV"]);
+    if (res.edge !== null) rows.push([res.type === "n" ? "Ec − EF" : "EF − Ev", n6(res.edge), "eV"]);
     rows.push(["Conductivity σ", n6(res.sigma), "S/cm"], ["Resistivity ρ", n6(res.rho), "Ω·cm"]);
     lines.push(kvTable(rows, "Carrier statistics"));
     const outputs: EngOutput[] = [

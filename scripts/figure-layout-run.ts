@@ -3378,6 +3378,7 @@ rotator 15` }, "jones elliptical");
   sc("semi-carriers", { nd: "0", mat: "custom", ni: "1e10" }, "carriers custom intrinsic");
   figures.push(["semiconductor cvChartSvg 1 kV one-sided", cvChartSvg({ na: 1e14, nd: 1e19, epsR: 11.7 }, 0.8, 1000)]);
   figures.push(["semiconductor ivChartSvg near the exponent cap", ivChartSvg(1e-20, 1, 0.025852, 1.15)]);
+  figures.push(["semiconductor ivChartSvg 1 mV forward", ivChartSvg(1e-14, 1, 0.025852, 0.001)]);
   figures.push(["semiconductor idVdsFamilySvg nA scale", idVdsFamilySvg(1e-9, 0.4, 0.45, 0.02, 0.1)]);
   figures.push(["semiconductor fermiChartSvg GaAs p-type", fermiChartSvg(2.1e6, 0.025852, -1e15, 4.7e17, 9e18)]);
 }

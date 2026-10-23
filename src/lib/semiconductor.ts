@@ -19,7 +19,7 @@
 //   - Textbooks also quote 1.5×10¹⁰ cm⁻³: three values in circulation, which is why every result STATES the nᵢ it used
 //     and where it came from, and why the field is overridable.
 // What is NOT here: the oxide permittivity (a TU Wien thesis table gives 3.7–3.9 for SiO₂ citing a reference we could
-// not resolve, so ε_ox is the user's input), mobilities (doping- and temperature-dependent tables: user inputs), and
+// not resolve, so εₒₓ is the user's input), mobilities (doping- and temperature-dependent tables: user inputs), and
 // any temperature dependence (the presets are 300 K values; at another temperature nᵢ must be typed).
 //
 // THE PRESETS ARE NOT MUTUALLY CONSISTENT, and the code never pretends they are: √(Nc·Nv)·exp(−Eg/2kT) from Ioffe's
@@ -86,7 +86,7 @@ export const MATERIALS: Record<MaterialId, MaterialData> = {
 /** Fermi level closer than this many kT to a band edge = degenerate: Boltzmann statistics no longer hold. */
 export const DEGENERACY_KT = 3;
 /** Doping must exceed nᵢ by this factor for the depletion approximation (a junction needs majority carriers). */
-export const MIN_DOPING_OVER_NI = 100;
+export const MINDOPING_OVER_NI = 100;
 /** Largest Shockley exponent V/(nVₜ) evaluated (exp overflows a double past 709). */
 export const MAX_EXPONENT = 700;
 /** Temperature range accepted, K. */
@@ -157,12 +157,12 @@ export function depletionWidth(na: number, nd: number, epsR: number, vTotal: num
 
 /**
  * Abrupt (step) pn junction in the depletion approximation, complete ionisation, non-degenerate doping:
- *   Vbi = (kT/q) ln(N_A N_D / nᵢ²),  W = √(2ε(Vbi + V_R)/q · (1/N_A + 1/N_D)),  C′ = ε/W.
+ *   Vbi = (kT/q) ln(NA ND / nᵢ²),  W = √(2ε(Vbi + VR)/q · (1/NA + 1/ND)),  C′ = ε/W.
  * The 2kT/q majority-carrier-tail correction to Vbi in W is NOT applied (the textbook form; it is stated).
  */
 export function pnJunction(p: PnInput): Result<PnResult> {
   if (!fin(p.na, p.nd, p.ni, p.epsR, p.tK, p.vr)) return { ok: false, error: "Every input must be a finite number." };
-  if (p.na <= 0 || p.nd <= 0) return { ok: false, error: "Both N_A and N_D must be positive: a pn junction needs acceptors on one side and donors on the other." };
+  if (p.na <= 0 || p.nd <= 0) return { ok: false, error: "Both NA and ND must be positive: a pn junction needs acceptors on one side and donors on the other." };
   if (p.ni <= 0) return { ok: false, error: "nᵢ must be positive." };
   if (p.epsR < 1) return { ok: false, error: "The relative permittivity εᵣ must be at least 1." };
   if (p.tK < T_MIN || p.tK > T_MAX) return { ok: false, error: `Temperature must lie between ${T_MIN} K and ${T_MAX} K.` };
@@ -170,23 +170,23 @@ export function pnJunction(p: PnInput): Result<PnResult> {
     return {
       ok: false,
       error:
-        "Reverse bias V_R must be zero or positive. Forward bias is not computed: the depletion approximation fails as V approaches Vbi (the injected carriers are no longer negligible). Use the diode current (Iₛ) for the forward branch.",
+        "Reverse bias VR must be zero or positive. Forward bias is not computed: the depletion approximation fails as V approaches Vbi (the injected carriers are no longer negligible). Use the diode current (Iₛ) for the forward branch.",
     };
-  const minN = MIN_DOPING_OVER_NI * p.ni;
+  const minN = MINDOPING_OVER_NI * p.ni;
   if (p.na < minN || p.nd < minN)
     return {
       ok: false,
-      error: `Both dopings must exceed ${MIN_DOPING_OVER_NI}·nᵢ = ${sci(minN)} cm⁻³: at a doping comparable to nᵢ the side is nearly intrinsic and the depletion approximation (all charge from ionised dopants) does not hold.`,
+      error: `Both dopings must exceed ${MINDOPING_OVER_NI}·nᵢ = ${sci(minN)} cm⁻³: at a doping comparable to nᵢ the side is nearly intrinsic and the depletion approximation (all charge from ionised dopants) does not hold.`,
     };
   if (p.nc !== null && p.nd > degeneracyLimit(p.nc))
     return {
       ok: false,
-      error: `N_D = ${sci(p.nd)} cm⁻³ is degenerate: above Nc·e⁻³ = ${sci(degeneracyLimit(p.nc))} cm⁻³ the Fermi level is within 3kT of the conduction band, so Boltzmann statistics (and the ln(N_A N_D/nᵢ²) form of Vbi) no longer hold.`,
+      error: `ND = ${sci(p.nd)} cm⁻³ is degenerate: above Nc·e⁻³ = ${sci(degeneracyLimit(p.nc))} cm⁻³ the Fermi level is within 3kT of the conduction band, so Boltzmann statistics (and the ln(NA ND/nᵢ²) form of Vbi) no longer hold.`,
     };
   if (p.nv !== null && p.na > degeneracyLimit(p.nv))
     return {
       ok: false,
-      error: `N_A = ${sci(p.na)} cm⁻³ is degenerate: above Nv·e⁻³ = ${sci(degeneracyLimit(p.nv))} cm⁻³ the Fermi level is within 3kT of the valence band, so Boltzmann statistics (and the ln(N_A N_D/nᵢ²) form of Vbi) no longer hold.`,
+      error: `NA = ${sci(p.na)} cm⁻³ is degenerate: above Nv·e⁻³ = ${sci(degeneracyLimit(p.nv))} cm⁻³ the Fermi level is within 3kT of the valence band, so Boltzmann statistics (and the ln(NA ND/nᵢ²) form of Vbi) no longer hold.`,
     };
   const vt = thermalVoltage(p.tK);
   // ln(NA) + ln(ND) − 2 ln(ni): no product that could overflow.
@@ -264,9 +264,9 @@ export interface MosResult {
   region: MosRegion;
   id: number;
   gm: number;
-  /** Output conductance ∂I_D/∂V_DS, S. */
+  /** Output conductance ∂ID/∂VDS, S. */
   gds: number;
-  /** Saturation voltage V_DS,sat = V_ov (0 in cutoff). */
+  /** Saturation voltage VDS,sat = Vₒᵥ (0 in cutoff). */
   vdsat: number;
 }
 
@@ -282,10 +282,10 @@ export function mosId(beta: number, vov: number, vds: number, lambda: number): n
 }
 
 /**
- * Long-channel square law, SPICE level-1 form (both regions carry (1 + λV_DS), so I_D is continuous at V_DS = V_ov):
- *   saturation (V_DS ≥ V_ov): I_D = ½µC_ox(W/L)V_ov²(1 + λV_DS)
- *   triode (V_DS < V_ov):     I_D = µC_ox(W/L)(V_ov V_DS − ½V_DS²)(1 + λV_DS)
- * gm and g_ds are the exact partial derivatives of that I_D. nMOS sign convention; a pMOS is entered by magnitudes.
+ * Long-channel square law, SPICE level-1 form (both regions carry (1 + λVDS), so ID is continuous at VDS = Vₒᵥ):
+ *   saturation (VDS ≥ Vₒᵥ): ID = ½µCₒₓ(W/L)Vₒᵥ²(1 + λVDS)
+ *   triode (VDS < Vₒᵥ):     ID = µCₒₓ(W/L)(Vₒᵥ VDS − ½VDS²)(1 + λVDS)
+ * gm and gds are the exact partial derivatives of that ID. nMOS sign convention; a pMOS is entered by magnitudes.
  * No subthreshold conduction, velocity saturation, mobility degradation or body effect.
  */
 export function mosfet(m: MosInput): Result<MosResult> {
@@ -296,7 +296,7 @@ export function mosfet(m: MosInput): Result<MosResult> {
   if (m.wl <= 0 || m.wl > MOS_MAX_WL) return { ok: false, error: `W/L must be positive and at most ${sci(MOS_MAX_WL)}.` };
   if ([m.vth, m.vgs, m.vds].some((v) => Math.abs(v) > MOS_MAX_V)) return { ok: false, error: `Voltages above ${MOS_MAX_V} V are refused (check for a mistyped exponent).` };
   if (m.vds < 0)
-    return { ok: false, error: "V_DS must be zero or positive (nMOS convention). For a pMOS enter the magnitudes |V_GS|, |V_DS|, |V_th|; for V_DS < 0 on an nMOS the source and drain swap roles." };
+    return { ok: false, error: "VDS must be zero or positive (nMOS convention). For a pMOS enter the magnitudes |VGS|, |VDS|, |Vₜₕ|; for VDS < 0 on an nMOS the source and drain swap roles." };
   if (m.lambda < 0 || m.lambda > 1) return { ok: false, error: "λ must lie between 0 and 1 V⁻¹ (typical values are 0.01–0.2 V⁻¹)." };
   const cox = (m.epsOx * EPS0) / m.tox;
   const beta = m.mu * 1e-4 * cox * m.wl;
@@ -329,14 +329,14 @@ export interface CarrierInput {
 
 export interface CarrierResult {
   vt: number;
-  /** Net doping N_D − N_A, cm⁻³. */
+  /** Net doping ND − NA, cm⁻³. */
   net: number;
   n: number;
   p: number;
   type: "n" | "p" | "intrinsic";
-  /** E_F − Eᵢ in eV (from nᵢ). */
+  /** EF − Eᵢ in eV (from nᵢ). */
   efEi: number;
-  /** E_c − E_F (n-type) or E_F − E_v (p-type), eV, from Nc or Nv; null when not available or intrinsic. */
+  /** Ec − EF (n-type) or EF − Ev (p-type), eV, from Nc or Nv; null when not available or intrinsic. */
   edge: number | null;
   /** S/cm and Ω·cm. */
   sigma: number;
@@ -350,15 +350,15 @@ export function majority(netAbs: number, ni: number): number {
   return h + Math.hypot(h, ni);
 }
 
-/** E_F − Eᵢ (eV) for net doping N (signed, cm⁻³): kT·asinh(N/2nᵢ), which is kT·ln(n/nᵢ) for the exact n. */
+/** EF − Eᵢ (eV) for net doping N (signed, cm⁻³): kT·asinh(N/2nᵢ), which is kT·ln(n/nᵢ) for the exact n. */
 export function fermiFromNet(net: number, ni: number, vt: number): number {
   return vt * Math.asinh(net / (2 * ni));
 }
 
 /**
- * Equilibrium carrier densities with COMPLETE IONISATION and Boltzmann statistics: charge neutrality n − p = N_D − N_A
+ * Equilibrium carrier densities with COMPLETE IONISATION and Boltzmann statistics: charge neutrality n − p = ND − NA
  * with np = nᵢ², the majority from the quadratic and the minority as nᵢ²/majority (the subtraction form cancels to 0).
- * E_F − Eᵢ = kT ln(n/nᵢ); σ = q(nµₙ + pµₚ).
+ * EF − Eᵢ = kT ln(n/nᵢ); σ = q(nµₙ + pµₚ).
  */
 export function carriers(c: CarrierInput): Result<CarrierResult> {
   if (!fin(c.nd, c.na, c.ni, c.tK, c.mun, c.mup)) return { ok: false, error: "Every input must be a finite number." };

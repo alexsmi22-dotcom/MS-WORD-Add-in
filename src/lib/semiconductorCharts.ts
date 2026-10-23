@@ -76,7 +76,10 @@ export function ivChartSvg(is: number, n: number, vt: number, v: number): string
   let vhi = v > 0 ? Math.max(1.15 * v, v + 0.1) : Math.max(v1mA, 4 * nvt);
   vhi = Math.min(vhi, 0.98 * MAX_EXPONENT * nvt);
   // At most twelve decades of current below the top: a textbook semilog plot, not a wall of tick labels.
-  const vlo = Math.max(Math.min(2 * nvt, vhi / 10), vhi - 12 * Math.LN10 * nvt);
+  let vlo = Math.max(Math.min(2 * nvt, vhi / 10), vhi - 12 * Math.LN10 * nvt);
+  // A very small forward bias stays on the axis.
+  if (v > 0) vlo = Math.min(vlo, v / 2);
+  const xStep = niceCeil((vhi - vlo) / 5);
   const pts: Array<{ x: number; y: number }> = [];
   for (let i = 0; i <= 200; i++) {
     const x = vlo + ((vhi - vlo) * i) / 200;
@@ -93,7 +96,7 @@ export function ivChartSvg(is: number, n: number, vt: number, v: number): string
     xlabel: "Forward bias V (V)",
     ylabel: "Current I (A)",
     yScale: "log",
-    xLimits: { min: Math.floor(vlo * 10) / 10, max: Math.ceil(vhi * 10 - 1e-9) / 10 },
+    xLimits: { min: Math.floor(vlo / xStep) * xStep, max: Math.ceil(vhi / xStep - 1e-9) * xStep },
     yLimits: { min: lo, max: hi },
     notes: notes.length ? notes : undefined,
     width: W,

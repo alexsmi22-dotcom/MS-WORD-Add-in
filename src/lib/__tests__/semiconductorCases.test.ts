@@ -89,9 +89,9 @@ describe("E3-d fixed case table: engine", () => {
     expect(thermalVoltage(300)).toBeCloseTo(0.025852, 6);
   });
   test.each([
-    ["N_A 1e16, N_D 1e17, nᵢ 1e10 → Vbi 0.773844 V", () => pnOk().vbi, 0.773844, 1e-6],
+    ["NA 1e16, ND 1e17, nᵢ 1e10 → Vbi 0.773844 V", () => pnOk().vbi, 0.773844, 1e-6],
     ["→ W 0.331780 µm (εᵣ 11.7)", () => pnOk().w * 1e6, 0.33178, 1e-6],
-    ["MOSFET µ 400, t_ox 10 nm, εᵣ,ox 3.9 → Cox 3.45313×10⁻³ F/m²", () => mosOk().cox, 3.45313e-3, 1e-8],
+    ["MOSFET µ 400, tₒₓ 10 nm, εᵣ,ₒₓ 3.9 → Cox 3.45313×10⁻³ F/m²", () => mosOk().cox, 3.45313e-3, 1e-8],
     ["W/L 10, Vov 1 V → Id 0.690627 mA", () => mosOk().id * 1e3, 0.690627, 1e-6],
     ["→ gm 1.38125 mS", () => mosOk().gm * 1e3, 1.38125, 1e-5],
   ])("%s", (_n, f, want, tol) => {
@@ -116,7 +116,7 @@ describe("E3-d fixed case table: through SEMICONDUCTOR_CALCS (the pane's objects
     expect(t).toMatch(/nᵢ = 1\.000×10¹⁰ cm⁻³ \(your value\)/);
     const m = run("semi-mosfet-square-law").text;
     expect(m).toMatch(/0\.00345313 F\/m²/);
-    expect(m).toMatch(/I_D = 0\.690627 mA/);
+    expect(m).toMatch(/ID = 0\.690627 mA/);
     expect(m).toMatch(/gm = 1\.38125 mS/);
   });
 });
@@ -152,13 +152,13 @@ describe("oracle rows (scipy, script in the header)", () => {
     expect(MATERIALS.si).toMatchObject({ eg: 1.12, nc: 3.2e19, nv: 1.8e19, ni: 9.65e9, epsR: 11.7 });
     expect(MATERIALS.gaas).toMatchObject({ eg: 1.424, nc: 4.7e17, nv: 9.0e18, ni: 2.1e6, epsR: 12.9 });
   });
-  test("GaAs presets: p⁺n with N_A 1e17, N_D 1e16", () => {
+  test("GaAs presets: p⁺n with NA 1e17, ND 1e16", () => {
     const o = run("semi-pn-junction", { mat: "gaas", na: "1e17", nd: "1e16" });
     expect(rel(out(o, "vbi"), 1.2116938878239814)).toBeLessThan(1e-9);
     expect(rel(out(o, "w"), 0.4359350839809863)).toBeLessThan(1e-8);
     expect(o.text).toMatch(/p⁺n/);
   });
-  test("one-sided n⁺p junction (N_A 5e17, N_D 1e15)", () => {
+  test("one-sided n⁺p junction (NA 5e17, ND 1e15)", () => {
     const r = pnOk({ na: 5e17, nd: 1e15 });
     expect(rel(r.vbi, 0.7559243405565081)).toBeLessThan(1e-9);
     expect(rel(r.w * 1e6, 0.9896921431605812)).toBeLessThan(1e-8);
@@ -183,9 +183,9 @@ describe("oracle rows (scipy, script in the header)", () => {
     expect(rel(out(run("semi-pn-junction", { is: "10 fA" }), "i"), 0.00012010369553128491)).toBeLessThan(1e-8);
   });
   test.each([
-    ["λ 0.05, V_DS 2 (saturation)", { lambda: 0.05, vds: 2 }, 0.75968931485304, 1.51937862970608, 34.53133249332001, "saturation"],
-    ["λ 0, V_DS 0.4 (triode)", { vds: 0.4 }, 0.44200105591449607, 0.5525013198931201, 828.75197983968, "triode"],
-    ["λ 0.05, V_DS 0.4 (triode)", { lambda: 0.05, vds: 0.4 }, 0.450841077032786, 0.5635513462909825, 867.4270722321984, "triode"],
+    ["λ 0.05, VDS 2 (saturation)", { lambda: 0.05, vds: 2 }, 0.75968931485304, 1.51937862970608, 34.53133249332001, "saturation"],
+    ["λ 0, VDS 0.4 (triode)", { vds: 0.4 }, 0.44200105591449607, 0.5525013198931201, 828.75197983968, "triode"],
+    ["λ 0.05, VDS 0.4 (triode)", { lambda: 0.05, vds: 0.4 }, 0.450841077032786, 0.5635513462909825, 867.4270722321984, "triode"],
   ])("MOSFET %s", (_n, p, id, gm, gds, region) => {
     const r = mosOk(p as Partial<typeof MOS>);
     expect(r.region).toBe(region);
@@ -193,7 +193,7 @@ describe("oracle rows (scipy, script in the header)", () => {
     expect(rel(r.gm * 1e3, gm as number)).toBeLessThan(1e-8);
     expect(rel(r.gds * 1e6, gds as number)).toBeLessThan(1e-8);
   });
-  test("MOSFET current is continuous at the saturation edge and gm, g_ds are its derivatives", () => {
+  test("MOSFET current is continuous at the saturation edge and gm, gds are its derivatives", () => {
     for (const lambda of [0, 0.05, 0.2]) {
       const a = mosOk({ lambda, vds: 1 - 1e-9 }).id;
       const b = mosOk({ lambda, vds: 1 }).id;
@@ -208,7 +208,7 @@ describe("oracle rows (scipy, script in the header)", () => {
       }
     }
   });
-  test("MOSFET cutoff: I_D = 0 and stated", () => {
+  test("MOSFET cutoff: ID = 0 and stated", () => {
     const o = run("semi-mosfet-square-law", { vgs: "0.3 V" });
     expect(out(o, "id")).toBe(0);
     expect(o.text).toMatch(/CUTOFF/);
@@ -284,16 +284,16 @@ describe("input forms", () => {
 
 describe("named refusals", () => {
   test.each([
-    ["semi-pn-junction", { na: "1e18" }, /N_A = 1\.00×10¹⁸ cm⁻³ is degenerate/],
-    ["semi-pn-junction", { mat: "gaas", na: "1e16", nd: "1e17" }, /N_D = 1\.00×10¹⁷ cm⁻³ is degenerate/],
+    ["semi-pn-junction", { na: "1e18" }, /NA = 1\.00×10¹⁸ cm⁻³ is degenerate/],
+    ["semi-pn-junction", { mat: "gaas", na: "1e16", nd: "1e17" }, /ND = 1\.00×10¹⁷ cm⁻³ is degenerate/],
     ["semi-pn-junction", { mat: "custom" }, /nᵢ is required/],
     ["semi-pn-junction", { mat: "custom", ni: "1e10" }, /εᵣ is required/],
     ["semi-pn-junction", { T: "350 K" }, /300 K value/],
     ["semi-pn-junction", { ni: "1e10", nd: "5e11" }, /must exceed 100·nᵢ/],
     ["semi-pn-junction", { vr: "-1 V" }, /Forward bias is not computed/],
-    ["semi-pn-junction", { na: "5 kg" }, /N_A: "kg" is not compatible/],
+    ["semi-pn-junction", { na: "5 kg" }, /NA: "kg" is not compatible/],
     ["semi-pn-junction", { na: "1e999" }, /not a finite number/],
-    ["semi-pn-junction", { na: "" }, /N_A: this field is required/],
+    ["semi-pn-junction", { na: "" }, /NA: this field is required/],
     ["semi-pn-junction", { na: "0" }, /must be positive/],
     ["semi-pn-junction", { na: "abc" }, /does not start with a number/],
     ["semi-pn-junction", { eps: "eleven" }, /εᵣ: "eleven" is not a number/],
@@ -302,7 +302,7 @@ describe("named refusals", () => {
     ["semi-pn-junction", { vd: "" }, /Diode bias: give the bias/],
     ["semi-pn-junction", { T: "0 K", ni: "1e10" }, /Temperature must lie between/],
     ["semi-pn-junction", { mat: "ge" }, /not one of the choices/],
-    ["semi-mosfet-square-law", { vds: "-1 V" }, /V_DS must be zero or positive/],
+    ["semi-mosfet-square-law", { vds: "-1 V" }, /VDS must be zero or positive/],
     ["semi-mosfet-square-law", { lambda: "2" }, /λ must lie between 0 and 1/],
     ["semi-mosfet-square-law", { tox: "10 kg" }, /Oxide thickness: "kg" is not compatible/],
     ["semi-mosfet-square-law", { tox: "0 nm" }, /oxide thickness must be positive/],
@@ -334,7 +334,7 @@ describe("named refusals", () => {
     expect(shockley(1e-14, 1, NaN, 300).ok).toBe(false);
     expect(shockley(0, 1, 0.6, 300).ok).toBe(false);
   });
-  test("huge but legal magnitudes stay finite (no N_A·N_D overflow)", () => {
+  test("huge but legal magnitudes stay finite (no NA·ND overflow)", () => {
     const r = pnJunction({ ...PN, na: 1e200, nd: 1e200, ni: 1e190, nc: null, nv: null });
     expect(r.ok).toBe(true);
     if (r.ok) expect(Number.isFinite(r.vbi) && Number.isFinite(r.w)).toBe(true);
@@ -372,6 +372,7 @@ describe("display contract on every ok result", () => {
     expect(t).not.toMatch(/NaN|Infinity|undefined|\u2014/);
     expect(t).not.toMatch(/\d[eE][+-]?\d/);
     expect(t).not.toMatch(/\^/);
+    expect(t).not.toMatch(/[A-Za-zα-ωµ]_[A-Za-z0-9]/);
     expect(t).not.toMatch(/(^|[\s(=:,])-\d/m);
     expect(o.outputs!.length).toBeGreaterThan(0);
     for (const v of o.outputs!) expect(Number.isFinite(v.value)).toBe(true);
@@ -390,7 +391,7 @@ describe("display contract on every ok result", () => {
       }
       if (b.kind === "table") {
         expect(b.rows[0].length).toBeGreaterThan(1);
-        for (const row of b.rows) for (const cell of row) expect(cell).not.toMatch(/NaN|\d[eE][+-]?\d|(^|\s)-\d/);
+        for (const row of b.rows) for (const cell of row) expect(cell).not.toMatch(/NaN|\d[eE][+-]?\d|(^|\s)-\d|[A-Za-zα-ωµ]_[A-Za-z0-9]/);
       }
     }
   });
@@ -401,6 +402,7 @@ describe("figure builders at their edges", () => {
     ["C–V at 1 kV", () => cvChartSvg({ na: 1e14, nd: 1e19, epsR: 11.7 }, 0.8, 1000)],
     ["I–V near the exponent cap", () => ivChartSvg(1e-20, 1, 0.025852, 1.15)],
     ["I–V reverse point", () => ivChartSvg(1e-9, 2, 0.025852, -5)],
+    ["I–V tiny forward bias", () => ivChartSvg(1e-14, 1, 0.025852, 0.001)],
     ["family in cutoff", () => idVdsFamilySvg(1e-3, 0.5, 0, 1, 0)],
     ["family, nA scale", () => idVdsFamilySvg(1e-9, 0.4, 0.45, 0.02, 0.1)],
     ["Fermi, intrinsic, no Nc/Nv", () => fermiChartSvg(1e10, 0.025852, 0, null, null)],

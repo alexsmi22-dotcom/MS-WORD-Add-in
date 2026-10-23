@@ -36,6 +36,7 @@
 import { C_LIGHT } from "./linkBudget";
 import { bb84KeyRate, binaryEntropy, wernerState } from "./quantum";
 import { erfPrecise } from "./probdist";
+import { fmtSig } from "./axis";
 
 export type Err = { ok: false; error: string };
 const err = (error: string): Err => ({ ok: false, error });
@@ -306,7 +307,7 @@ export function entanglement(inp: EntInput): EntResult | Err {
   const worst = Math.max(singlesA, singlesB) * tau;
   if (worst > MAX_COUNTS_PER_WINDOW)
     return err(
-      `A detector sees ${fmtPlain(worst)} counts per window (more than one in ten): there the accidental rate S_a·S_b·τ no longer holds (multiple counts and dead time per window). Shorten the window or lower the rates.`,
+      `A detector sees ${fmtSig(worst, 3)} counts per window (more than one in ten): there the accidental rate S_a·S_b·τ no longer holds (multiple counts and dead time per window). Shorten the window or lower the rates.`,
     );
   const coincTotal = pairRate * etaA * detA * etaB * detB;
   const captured = capturedFraction(tau, jitter);
@@ -333,16 +334,6 @@ export function entanglement(inp: EntInput): EntResult | Err {
     concurrence: w.concurrence,
     pairsPerWindow: pairRate * tau,
   };
-}
-
-/** A short number for a refusal (no e-notation). */
-function fmtPlain(v: number): string {
-  if (v >= 1e5) return `${Math.round(v / Math.pow(10, Math.floor(Math.log10(v))))}×10${sup(Math.floor(Math.log10(v)))}`;
-  return String(Number(v.toPrecision(3)));
-}
-function sup(n: number): string {
-  const d = "⁰¹²³⁴⁵⁶⁷⁸⁹";
-  return String(n).replace(/-/g, "⁻").replace(/\d/g, (c) => d[Number(c)]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -481,7 +472,8 @@ export function qkdLink(inp: QkdInput): QkdResult | Err {
   let cutoffDb: number | null;
   if (source === "single") {
     // e₁(η) = Q* ⇔ η* = Y₀(Q* − e₀)/(e_det − Q*(1 − Y₀)); e_det ≥ Q* ⇒ no key at any loss.
-    if (ed >= thr) cutoffDb = -1;
+    // e₁ falls from ½ (η → 0) toward e_det/(1 − Y₀) (η → ∞): at or above Q*(1 − Y₀) no η gives e₁ < Q*.
+    if (ed >= thr * (1 - y0)) cutoffDb = -1;
     else if (y0 === 0) cutoffDb = null;
     else {
       const etaStar = (y0 * (thr - E0)) / (ed - thr * (1 - y0));

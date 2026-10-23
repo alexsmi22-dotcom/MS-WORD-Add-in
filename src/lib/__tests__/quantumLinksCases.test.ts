@@ -202,6 +202,13 @@ describe("Q5 case table (builder rows)", () => {
     expect(o.ok).toBe(false);
     expect(o.text).toMatch(/no secret key can be distilled at any loss/);
   });
+  test("Q*(1 − Y₀) ≤ e_det < Q* (10.9 %, Y₀ 0.01) → no key at any loss, clean (was NaN dB)", () => {
+    const o = run("qlink-qkd", { ed: "10.9 %", y0: "0.01" });
+    expectClean(o);
+    expect(o.text).toMatch(/No secret key at any channel loss/);
+    expect(out(o, "keyRate")).toBe(0);
+    expect(o.outputs?.some((x) => x.key === "cutoff")).toBe(false);
+  });
   test("Y₀ = 0 → no cutoff, stated", () => {
     const o = run("qlink-qkd", { y0: "0" });
     expectClean(o);

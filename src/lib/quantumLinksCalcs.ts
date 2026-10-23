@@ -404,8 +404,9 @@ const qkdCalc: QoCalc = {
   hint:
     "Secret key rate of BB84 over a channel of given loss: detection probability per pulse from the loss, detector efficiency " +
     "and background counts, QBER from the background and the intrinsic (misalignment) error, the asymptotic secret " +
-    "fraction, and the loss at which the key reaches zero. Defaults are the GYS experiment parameters tabulated by Ma et al. " +
-    "(2005). To hold a measured QBER fixed, set Y₀ = 0 and the intrinsic error to that QBER.",
+    "fraction, and the loss at which the key reaches zero. The default detector efficiency (0.045), Y₀ (1.7×10⁻⁶), " +
+    "intrinsic error (3.3 %) and f (1.22) are the GYS values used by Ma et al. (2005), and μ = 0.48 is that paper's optimum for " +
+    "them; the rate and loss are examples. To hold a measured QBER fixed, set Y₀ = 0 and the intrinsic error to that QBER.",
   fields: [
     { key: "source", label: "Source", default: "single", kind: "select", options: SOURCE_OPTIONS },
     { key: "rate", label: "Pulse repetition rate (per second; 10 MHz)", default: "10 MHz", kind: "text" },

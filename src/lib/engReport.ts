@@ -64,7 +64,9 @@ export type EngReportLine = EngLine | EngTableLine;
 export function engReport(lines: EngReportLine[], extra: AnalyzeBlock[] = []): AnalyzeOutput {
   const blocks: AnalyzeBlock[] = lines.map((l): AnalyzeBlock =>
     typeof l === "string"
-      ? { kind: "line" as const, text: plainDashes(l) }
+      ? // The display contract's minus on every prose line (Release E: "at -7.5 kN" reached Word from the truss tool):
+        // a hyphen used as a numeric sign becomes U+2212; hyphens in words and ranges are left alone (trueMinus).
+        { kind: "line" as const, text: trueMinus(plainDashes(l)) }
       : "table" in l
         ? {
             kind: "table" as const,

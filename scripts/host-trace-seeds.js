@@ -65,6 +65,10 @@ module.exports = {
   "ppt/ppt-insert-fig#2": [["ppt-with-text", true]],
   "ppt/ppt-insert-table#2": [["ppt-figlabel", "FIG. 1"]],
   "engineering/engineering-insert#2": [["engineering-calc", "control-tf"]],
+  // Release E: a report with governing equations ahead of TWO figures (Bode), and one with a Word table (truss
+  // member forces) — the equation → table → figure order the outputs/equations pass introduced.
+  "engineering/engineering-insert#3": [["engineering-calc", "control-bode"]],
+  "engineering/engineering-insert#4": [["engineering-calc", "truss"]],
   "plot/plot-insert":[["plot-fn", "sin(x)/x"], ["figstyle-vector", true]],
   "dna/dna-revcomp-insert": [["dna-input", DNA]],
   "dna/dna-mrna-insert": [["dna-input", DNA]],

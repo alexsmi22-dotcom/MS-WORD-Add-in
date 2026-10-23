@@ -104,7 +104,7 @@ describe("every spread Engineering tool declares its inputs, group and unit cont
   test.each(ENTRIES.map((e) => [e.id, e] as const))("%s reads every field key it declares", (id, e) => {
     // One occurrence is the declaration; a key that is ever read appears again (in the object or a helper it calls).
     // Named outputs ({ key, label, value, unit } — Release E) are results, not fields: left out of the scan.
-    const fieldsOnly = e.obj.replace(/\{\s*key:\s*"[^"]+",\s*label:[^{}]*?\bvalue:[^{}]*\}/g, "");
+    const fieldsOnly = e.obj.replace(/\{\s*key:\s*"[^"]+",\s*label:(?:[^{}]|\$\{[^{}]*\})*?\bvalue:(?:[^{}]|\$\{[^{}]*\})*\}/g, "");
     const declared = [...fieldsOnly.matchAll(/key:\s*"([^"]+)"/g)].map((m) => m[1]);
     const unread = declared.filter((k) => e.seg.split(`"${k}"`).length - 1 < 2);
     expect({ id, unread }).toEqual({ id, unread: [] });

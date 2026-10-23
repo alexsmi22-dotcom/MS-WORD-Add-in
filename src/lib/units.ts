@@ -261,6 +261,8 @@ const UNITS: Record<string, UnitDef> = {
   J: { dim: "energy", factor: 1 }, kJ: { dim: "energy", factor: 1000 },
   cal: { dim: "energy", factor: 4.184 }, kcal: { dim: "energy", factor: 4184 },
   eV: { dim: "energy", factor: 1.602176634e-19 }, Wh: { dim: "energy", factor: 3600 },
+  // Release E: millielectronvolt (quantum wells, phonons, spin splittings). Canonical, so it never meets MeV.
+  meV: { dim: "energy", factor: 1.602176634e-22 },
   // Grid and utility energy is quoted in kilowatt-hours and their multiples, and
   // fuel energy in BTU. None existed, so an electricity bill or a heating value
   // could not be expressed at all. BTU is the IT ("International Table") BTU,

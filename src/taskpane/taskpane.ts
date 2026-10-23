@@ -202,6 +202,7 @@ import { LINEAR_OPTICS_CALCS } from "../lib/linearOpticsCalcs";
 import { SEMICONDUCTOR_CALCS } from "../lib/semiconductorCalcs";
 import { TLINE_CALCS } from "../lib/tlineCalcs";
 import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
+import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -29840,6 +29841,7 @@ const ENG_CALCS: EngCalc[] = [
   ...SEMICONDUCTOR_CALCS,
   ...TLINE_CALCS,
   ...AI_COMPUTE_CALCS,
+  ...QUANTUM_LINKS_CALCS,
 ];
 
 /** A transfer function as a typeset fraction, with a readable text fallback. */

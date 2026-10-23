@@ -261,6 +261,11 @@ import { berWaterfallSvg, cascadeNfSvg, linkRangeSvg } from "../src/lib/linkBudg
 import { LINEAR_OPTICS_CALCS } from "../src/lib/linearOpticsCalcs";
 import { fockBarsSvg } from "../src/lib/linearOpticsCharts";
 // --- end Release E: linear optics ---
+// --- Release E: transmission lines ---
+// Release E3-e: the Smith chart, the matching networks' |Γ| against f/f₀, and the S-parameter bars.
+import { TLINE_CALCS } from "../src/lib/tlineCalcs";
+import { sParamBarsSvg, smithChartSvg } from "../src/lib/tlineCharts";
+// --- end Release E: transmission lines ---
 
 const figures: [string, string][] = [];
 
@@ -3381,5 +3386,51 @@ rotator 15` }, "jones elliptical");
   ]);
 }
 // --- end Release E: linear optics ---
+
+// --- Release E: transmission lines ---
+// Each transmission-line tool through its own compute() at its defaults and at layout stress: the Smith chart with a
+// load near Γ = 1 (5 kΩ), a short (both points on the rim), an open, a matched load, a 0.01λ line (overlapping labels),
+// a half wavelength (Z_L = Z_in), several wavelengths, a capacitive load in degrees, a high-VSWR circle through the
+// reactance labels, a near match (points overlap), coax with a physical length and microstrip geometry; both matching
+// figures; the S-parameter bars with S12 = 0 and an attenuator. Then the builders directly: the Smith chart with no
+// line, and one bar.
+{
+  const tl = (id: string, over: Record<string, string>, name: string): void => {
+    const c = TLINE_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: transmission line ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`transmission line ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  tl("tl-line-termination", {}, "Smith 100+j50 at 0.125 wavelength");
+  tl("tl-line-termination", { rl: "5 kΩ", xl: "0", len: "0.08" }, "Smith 5 kohm near the rim");
+  tl("tl-line-termination", { term: "short" }, "Smith short");
+  tl("tl-line-termination", { term: "open", len: "0.3" }, "Smith open");
+  tl("tl-line-termination", { rl: "50", xl: "0" }, "Smith matched");
+  tl("tl-line-termination", { len: "0.01" }, "Smith 0.01 wavelength");
+  tl("tl-line-termination", { len: "0.5" }, "Smith half wavelength");
+  tl("tl-line-termination", { len: "3.725" }, "Smith 3.725 wavelengths");
+  tl("tl-line-termination", { rl: "25", xl: "-30", lenMode: "deg", len: "72" }, "Smith capacitive 72 degrees");
+  tl("tl-line-termination", { rl: "20", xl: "80", len: "0.3" }, "Smith high VSWR");
+  tl("tl-line-termination", { rl: "52", xl: "1", len: "0.2" }, "Smith near match");
+  tl("tl-line-termination", { z0mode: "coax", lenMode: "phys", len: "30 cm", freq: "2.4 GHz", vf: "" }, "Smith coax physical length");
+  tl("tl-line-termination", { z0mode: "microstrip", er: "4.5", rl: "30", xl: "-60", len: "0.4" }, "Smith microstrip");
+  tl("tl-match", {}, "match 100 ohm");
+  tl("tl-match", { rl: "60", xl: "-80", stub: "open" }, "match 60-j80 open stubs");
+  tl("tl-two-port", {}, "S-parameters amplifier");
+  tl("tl-two-port", { s: ["0.61 -170", "2.24 32", "0 0", "0.72 -83"].join(String.fromCharCode(10)) }, "S-parameters unilateral");
+  tl("tl-two-port", { fmt: "db", s: ["-30 0", "-3 0", "-3 0", "-30 0"].join(String.fromCharCode(10)) }, "S-parameters attenuator");
+  figures.push([
+    "transmission line smithChartSvg no line",
+    smithChartSvg({ gammaL: { re: 0.4, im: 0.2 }, gammaIn: null, turns: 0, halfWaves: 0, z0: 50, zlText: "100 + j50 Ω", zinText: null, vswr: 2.618 }),
+  ]);
+  figures.push(["transmission line sParamBarsSvg one bar", sParamBarsSvg([{ sub: "21", db: 12.5, angleDeg: -45, kind: "transmission" }])]);
+}
+// --- end Release E: transmission lines ---
 
 export { figures };

@@ -630,7 +630,7 @@ import {
 } from "../lib/optics";
 import { BELL_STATES, pureTwoQubit, chsh, wernerState, bb84KeyRate, cx } from "../lib/quantum";
 import { switchingPower, junctionTemperature, interconnectDelay, timingCheck } from "../lib/chips";
-import { atmosphere, pressureAltitude, airspeeds, dragPolar, levelTurn, climbGlide } from "../lib/aero";
+import { atmosphere, pressureAltitude, airspeeds, dragPolar, levelTurn, climbGlide, LAYERS as ISA_LAYERS } from "../lib/aero";
 import {
   planarFk,
   planar2rIk,
@@ -21878,23 +21878,40 @@ const ENG_CALCS: EngCalc[] = [
       // a real answer for a MEASURED pressure, so it is reported only when one is
       // given.
       const pa = pObs === null ? null : pressureAltitude(pObs);
-      const lines = [
-        "Standard atmosphere",
-        "",
-        `  Geopotential altitude ${engNum(a.geopotentialM, 6)} m`,
-        `  Temperature           ${engNum(a.temperatureK, 6)} K   (${engNum(a.temperatureK - 273.15, 5)} °C)`,
-        `  Pressure              ${engNum(a.pressurePa, 6)} Pa  (${engNum(a.pressurePa / 100, 6)} hPa)`,
-        `  Density               ${engNum(a.densityKgM3, 6)} kg/m³`,
-        `  Density ratio σ       ${engNum(a.sigma, 6)}`,
-        `  Speed of sound        ${engNum(a.soundSpeedMs, 6)} m/s  (${engNum(a.soundSpeedMs * 1.9438444924406, 6)} kt)`,
+      // Release E: the layer's own barometric law (isothermal layers are exponential, sloped ones a power law).
+      const isoLayer = ISA_LAYERS[a.layerIndex]?.lapse === 0;
+      const isaRows: Array<[string, string, string]> = [
+        ["Geopotential altitude", engNum(a.geopotentialM, 6), "m"],
+        ["Temperature", engNum(a.temperatureK, 6), "K"],
+        ["Temperature", engNum(a.temperatureK - 273.15, 5), "°C"],
+        ["Pressure", engNum(a.pressurePa, 6), "Pa"],
+        ["Pressure", engNum(a.pressurePa / 100, 6), "hPa"],
+        ["Density", engNum(a.densityKgM3, 6), "kg/m³"],
+        ["Density ratio σ", engNum(a.sigma, 6), ""],
+        ["Speed of sound", engNum(a.soundSpeedMs, 6), "m/s"],
+        ["Speed of sound", engNum(a.soundSpeedMs * 1.9438444924406, 6), "kt"],
       ];
       if (pObs !== null) {
-        if (pa === null) {
-          lines.push(`  Pressure altitude     that pressure lies outside the model's range`);
-        } else {
-          lines.push(`  Pressure altitude     ${engNum(pa, 6)} m   (for the observed ${engNum(pObs / 100, 6)} hPa)`);
-        }
+        isaRows.push(
+          pa === null
+            ? ["Pressure altitude", "that pressure lies outside the model's range", ""]
+            : [`Pressure altitude (for the observed ${engNum(pObs / 100, 6)} hPa)`, engNum(pa, 6), "m"],
+        );
       }
+      const lines: EngReportLine[] = [
+        ...engEq("aero-isa"),
+        ...(isoLayer ? engEq("aero-isa:isothermal") : engEq("aero-isa:sloped")),
+        "Standard atmosphere",
+        "",
+        kvTable(isaRows),
+      ];
+      const isaOutputs: EngOutput[] = [
+        { key: "Tisa", label: "Temperature", value: a.temperatureK, unit: "K" },
+        { key: "pisa", label: "Pressure", value: a.pressurePa, unit: "Pa" },
+        { key: "rhoisa", label: "Density", value: a.densityKgM3, unit: "kg/m³" },
+        { key: "sigma", label: "Density ratio σ", value: a.sigma, unit: "" },
+        { key: "aSound", label: "Speed of sound", value: a.soundSpeedMs, unit: "m/s" },
+      ];
       u.report(lines);
       for (const note of a.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -21934,7 +21951,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Standard atmosphere profile",
             },
           );
-          return engReport(lines, [
+          return withOutputs(isaOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -21943,10 +21960,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 270,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(isaOutputs, engReport(lines));
     },
   },
   {
@@ -21976,17 +21993,31 @@ const ENG_CALCS: EngCalc[] = [
       const s = airspeeds(V, a.densityKgM3, a.pressurePa);
       if (!s) return { text: "Airspeed cannot be negative.", ok: false };
 
-      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
-      const lines = [
+      const ktN = (v: number) => engNum(v * 1.9438444924406, 5);
+      const lines: EngReportLine[] = [
+        ...engEq("aero-airspeed"),
         "Airspeeds",
         "",
-        `  True (TAS)        ${engNum(s.tasMs, 5)} m/s   ${kt(s.tasMs)}`,
-        `  Equivalent (EAS)  ${engNum(s.easMs, 5)} m/s   ${kt(s.easMs)}`,
-        `  Calibrated (CAS)  ${engNum(s.casMs, 5)} m/s   ${kt(s.casMs)}`,
-        `  Mach              ${engNum(s.mach, 5)}`,
+        {
+          table: [
+            ["Airspeed", "m/s", "kt"],
+            ["True (TAS)", engNum(s.tasMs, 5), ktN(s.tasMs)],
+            ["Equivalent (EAS)", engNum(s.easMs, 5), ktN(s.easMs)],
+            ["Calibrated (CAS)", engNum(s.casMs, 5), ktN(s.casMs)],
+          ],
+        },
         "",
-        `  Impact pressure   ${engNum(s.impactPa, 6)} Pa`,
-        `  Dynamic pressure  ${engNum(s.dynamicPa, 6)} Pa   (incompressible ½ρV²)`,
+        kvTable([
+          ["Mach", engNum(s.mach, 5), ""],
+          ["Impact pressure", engNum(s.impactPa, 6), "Pa"],
+          ["Dynamic pressure (incompressible ½ρV²)", engNum(s.dynamicPa, 6), "Pa"],
+        ]),
+      ];
+      const asOutputs: EngOutput[] = [
+        { key: "EAS", label: "Equivalent airspeed", value: s.easMs, unit: "m/s" },
+        { key: "CAS", label: "Calibrated airspeed", value: s.casMs, unit: "m/s" },
+        { key: "Mach", label: "Mach number", value: s.mach, unit: "" },
+        { key: "qc", label: "Impact pressure", value: s.impactPa, unit: "Pa" },
       ];
       u.report(lines);
       for (const note of s.notes) lines.push(`Note: ${note}`);
@@ -22038,7 +22069,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "One TAS, three airspeeds",
             },
           );
-          return engReport(lines, [
+          return withOutputs(asOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22047,10 +22078,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(asOutputs, engReport(lines));
     },
   },
   {
@@ -22105,22 +22136,38 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
-      const lines = [
-        "Lift and drag in level flight",
-        "",
-        `  Density at altitude ${engNum(a.densityKgM3, 6)} kg/m³`,
-        `  CL                  ${engNum(p.cl, 5)}`,
-        `  CD                  ${engNum(p.cd, 5)}   (CD0 ${engNum(nums.cd0, 4)} + induced ${engNum(p.cd - nums.cd0, 4)})`,
-        `  L/D                 ${engNum(p.liftToDrag, 5)}`,
-        `  Drag                ${engNum(p.dragN, 6)} N`,
-        "",
-        `  Best L/D            ${engNum(p.bestLd, 5)} at CL ${engNum(p.clAtBestLd, 5)}`,
-        `  Speed for best L/D  ${engNum(p.speedAtBestLdMs, 5)} m/s   ${kt(p.speedAtBestLdMs)}`,
+      const ktN = (v: number) => engNum(v * 1.9438444924406, 5);
+      const poRows: Array<[string, string, string]> = [
+        ["Density at altitude", engNum(a.densityKgM3, 6), "kg/m³"],
+        ["CL", engNum(p.cl, 5), ""],
+        ["CD", engNum(p.cd, 5), ""],
+        ["CD0", engNum(nums.cd0, 4), ""],
+        ["Induced CD", engNum(p.cd - nums.cd0, 4), ""],
+        ["L/D", engNum(p.liftToDrag, 5), ""],
+        ["Drag", engNum(p.dragN, 6), "N"],
+        ["Best L/D", engNum(p.bestLd, 5), ""],
+        ["CL at best L/D", engNum(p.clAtBestLd, 5), ""],
+        ["Speed for best L/D", engNum(p.speedAtBestLdMs, 5), "m/s"],
+        ["Speed for best L/D", ktN(p.speedAtBestLdMs), "kt"],
       ];
       if (p.stallSpeedMs !== null) {
-        lines.push(`  Stall speed         ${engNum(p.stallSpeedMs, 5)} m/s   ${kt(p.stallSpeedMs)}`);
+        poRows.push(["Stall speed", engNum(p.stallSpeedMs, 5), "m/s"]);
+        poRows.push(["Stall speed", ktN(p.stallSpeedMs), "kt"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("aero-polar"),
+        ...(p.stallSpeedMs !== null ? engEq("aero-polar:stall") : []),
+        "Lift and drag in level flight",
+        "",
+        kvTable(poRows),
+      ];
+      const poOutputs: EngOutput[] = [
+        { key: "CL", label: "Lift coefficient CL", value: p.cl, unit: "" },
+        { key: "CD", label: "Drag coefficient CD", value: p.cd, unit: "" },
+        { key: "LD", label: "Lift-to-drag ratio", value: p.liftToDrag, unit: "" },
+        { key: "drag", label: "Drag", value: p.dragN, unit: "N" },
+        { key: "Vstall", label: "Stall speed", value: p.stallSpeedMs ?? NaN, unit: "m/s" },
+      ];
       u.report(lines);
       for (const note of p.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -22165,7 +22212,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Drag polar",
           },
         );
-        return engReport(lines, [
+        return withOutputs(poOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -22174,9 +22221,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 270,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(poOutputs, engReport(lines));
     },
   },
   {
@@ -22216,18 +22263,30 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
-      const lines = [
-        "Level turn",
-        "",
-        `  Load factor n     ${engNum(t.loadFactor, 5)} g`,
-        `  Turn radius       ${t.radiusM === Infinity ? "infinite (wings level)" : engNum(t.radiusM, 5) + " m"}`,
-        `  Turn rate         ${engNum((t.rateRadS * 180) / Math.PI, 5)} °/s`,
-        `  Time for 360°     ${t.periodS === Infinity ? "never (wings level)" : engNum(t.periodS, 5) + " s"}`,
+      const ktN = (v: number) => engNum(v * 1.9438444924406, 5);
+      const tuRows: Array<[string, string, string]> = [
+        ["Load factor n", engNum(t.loadFactor, 5), "g"],
+        t.radiusM === Infinity ? ["Turn radius", "infinite (wings level)", ""] : ["Turn radius", engNum(t.radiusM, 5), "m"],
+        ["Turn rate", engNum((t.rateRadS * 180) / Math.PI, 5), "°/s"],
+        t.periodS === Infinity ? ["Time for 360°", "never (wings level)", ""] : ["Time for 360°", engNum(t.periodS, 5), "s"],
       ];
       if (t.stallInTurnMs !== null) {
-        lines.push(`  Stall speed in turn ${engNum(t.stallInTurnMs, 5)} m/s   ${kt(t.stallInTurnMs)}`);
+        tuRows.push(["Stall speed in turn", engNum(t.stallInTurnMs, 5), "m/s"]);
+        tuRows.push(["Stall speed in turn", ktN(t.stallInTurnMs), "kt"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("aero-turn"),
+        ...(t.stallInTurnMs !== null ? engEq("aero-turn:stall") : []),
+        "Level turn",
+        "",
+        kvTable(tuRows),
+      ];
+      const tuOutputs: EngOutput[] = [
+        { key: "nLoad", label: "Load factor", value: t.loadFactor, unit: "g" },
+        { key: "Rturn", label: "Turn radius", value: t.radiusM, unit: "m" },
+        { key: "rate", label: "Turn rate", value: (t.rateRadS * 180) / Math.PI, unit: "°/s" },
+        { key: "VsTurn", label: "Stall speed in the turn", value: t.stallInTurnMs ?? NaN, unit: "m/s" },
+      ];
       u.report(lines);
       for (const note of t.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -22261,7 +22320,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Turn radius against bank",
             },
           );
-          return engReport(lines, [
+          return withOutputs(tuOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -22270,10 +22329,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(tuOutputs, engReport(lines));
     },
   },
   {
@@ -22308,16 +22367,23 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const lines = [
+      const clRows: Array<[string, string, string]> = [
+        ["Rate of climb", engNum(c.rocMs, 5), "m/s"],
+        ["Rate of climb", engNum(c.rocMs * 196.850393700787, 5), "ft/min"],
+        ["Flight-path angle", engNum(c.angleDeg, 5), "°"],
+      ];
+      if (c.glideRatio !== null) clRows.push(["Glide ratio", `${engNum(c.glideRatio, 5)} : 1`, ""]);
+      if (c.glideRangeM !== null) {
+        clRows.push(["Still-air range", engNum(c.glideRangeM, 6), "m"]);
+        clRows.push(["Still-air range", engNum(c.glideRangeM / 1852, 5), "nmi"]);
+      }
+      const lines: EngReportLine[] = [
+        ...engEq("aero-climb"),
+        ...(c.glideRatio !== null ? engEq("aero-climb:glide") : []),
         c.rocMs >= 0 ? "Climb" : "Descent",
         "",
-        `  Rate of climb      ${engNum(c.rocMs, 5)} m/s   (${engNum(c.rocMs * 196.850393700787, 5)} ft/min)`,
-        `  Flight-path angle  ${engNum(c.angleDeg, 5)} °`,
+        kvTable(clRows),
       ];
-      if (c.glideRatio !== null) lines.push(`  Glide ratio        ${engNum(c.glideRatio, 5)} : 1`);
-      if (c.glideRangeM !== null) {
-        lines.push(`  Still-air range    ${engNum(c.glideRangeM, 6)} m   (${engNum(c.glideRangeM / 1852, 5)} nmi)`);
-      }
       u.report(lines);
       for (const note of c.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -22338,7 +22404,12 @@ const ENG_CALCS: EngCalc[] = [
           c.rocMs >= 0 ? "The climb triangle" : "The descent triangle",
           `sin γ = (T − D)/W = ${engNum((T - D) / W, 4)}`,
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "ROC", label: "Rate of climb", value: c.rocMs, unit: "m/s" },
+          { key: "gammaDeg", label: "Flight-path angle", value: c.angleDeg, unit: "°" },
+          { key: "glideRatio", label: "Glide ratio", value: c.glideRatio ?? NaN, unit: "" },
+          { key: "glideRange", label: "Still-air glide range", value: c.glideRangeM ?? NaN, unit: "m" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -22347,7 +22418,7 @@ const ENG_CALCS: EngCalc[] = [
             w: VECTOR_TRIANGLE_SIZE.w,
             h: VECTOR_TRIANGLE_SIZE.h,
           },
-        ]);
+        ]));
       }
     },
   },

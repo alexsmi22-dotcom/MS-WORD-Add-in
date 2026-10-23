@@ -84,6 +84,13 @@ describe("every governing equation", () => {
   });
 });
 
+describe("the equation table is plain data", () => {
+  test("no entry is computed (each math and fallback is a literal)", () => {
+    const src = fs.readFileSync(path.join(__dirname, "..", "engEquations.ts"), "utf8");
+    expect(src).not.toMatch(/\.replace\(|\.split\(|\.join\(|\$\{/);
+  });
+});
+
 describe("every engEq key the pane uses exists", () => {
   const pane = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
   const keys = [...pane.matchAll(/\bengEq\("([^"]+)"\)/g)].map((m) => m[1]);

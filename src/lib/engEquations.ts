@@ -309,6 +309,36 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   ],
   "robotics-diffdrive:body": [eq("v_L = v - omega W/2", "vL = v − ω·W/2"), eq("v_R = v + omega W/2", "vR = v + ω·W/2")],
   "robotics-diffdrive:rates": [eq("omega_w = v/r", "ωw = v/r")],
+  // ---- Aviation & avionics ----
+  "aero-isa": [
+    eq("H = r_0 z/(r_0 + z)", "H = r₀·z/(r₀ + z)"),
+    eq("T = T_b + {L} (H - H_b)", "T = Tb + L·(H − Hb)"),
+    eq("rho = p/(R T)", "ρ = p/(R·T)"),
+    eq("a = sqrt(gamma R T)", "a = √(γ·R·T)"),
+  ],
+  "aero-isa:sloped": [eq("p = p_b {(T_b/T)}^{g_0/(R L)}", "p = pb·(Tb/T)ᵍ⁰ᐟ⁽ᴿᴸ⁾")],
+  "aero-isa:isothermal": [eq("p = p_b exp(-g_0 {(H - H_b)}/(R T_b))", "p = pb·exp(−g₀·(H − Hb)/(R·Tb))")],
+  "aero-airspeed": [
+    eq("EAS = TAS sqrt(rho/rho_0)", "EAS = TAS·√(ρ/ρ₀)"),
+    eq("M = TAS/a", "M = TAS/a"),
+    eq("q_c = {p} ((1 + 0.2 M^2)^{3.5} - 1)", "qc = p·((1 + 0.2M²)³·⁵ − 1)"),
+    eq("CAS = a_0 sqrt(5 ((q_c/p_0 + 1)^{2/7} - 1))", "CAS = a₀·√(5((qc/p₀ + 1)²ᐟ⁷ − 1))"),
+  ],
+  "aero-polar": [
+    eq("C_L = 2 W/(rho V^2 S)", "CL = 2W/(ρ·V²·S)"),
+    eq("C_D = C_{D0} + k C_L^2", "CD = CD0 + k·CL²"),
+    eq("k = 1/(pi AR e)", "k = 1/(π·AR·e)"),
+    eq("(L/D)_max = 1/(2 sqrt(k C_{D0}))", "(L/D)max = 1/(2√(k·CD0))"),
+  ],
+  "aero-polar:stall": [eq("V_s = sqrt(2 W/(rho S C_Lmax))", "Vs = √(2W/(ρ·S·CLmax))")],
+  "aero-turn": [
+    eq("n = 1/cos(phi)", "n = 1/cos φ"),
+    eq("R = V^2/(g tan(phi))", "R = V²/(g·tan φ)"),
+    eq("omega = g tan(phi)/V", "ω = g·tan φ/V"),
+  ],
+  "aero-turn:stall": [eq("V_{s turn} = V_s sqrt(n)", "Vs turn = Vs·√n")],
+  "aero-climb": [eq("sin(gamma) = (T - D)/W", "sin γ = (T − D)/W"), eq("ROC = V sin(gamma)", "ROC = V·sin γ")],
+  "aero-climb:glide": [eq("L/D = abs(cot(gamma))", "L/D = |cot γ|"), eq("R_glide = (L/D) h", "Rglide = (L/D)·h")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

@@ -295,7 +295,9 @@ describe("roofline — more rows", () => {
     expect(rel(out(o, "intensity"), 1.9990239141044412)).toBeLessThan(1e-12);
     expect(rel(out(o, "attainable"), 15.99219131283553)).toBeLessThan(1e-12);
     expect(o.text).toMatch(/MEMORY-BOUND/);
-    expect(o.text).toMatch(/peak 5\.00000 PFLOP\/s = 5000 TFLOP\/s|PFLOP\/s/);
+    expect(o.text).toMatch(/Machine: peak 5\.00000 PFLOP\/s, bandwidth 8\.00000 TB\/s/);
+    expect(o.text).toMatch(/Attainable performance P = 15\.9922 TFLOP\/s \(0\.319844 % of peak\)/);
+    expect(o.text).toMatch(/Units read: Peak compute: 5 PFLOP\/s = 5000 TFLOP\/s/);
   });
   test("typed intensity with units converted (19.5 TFLOPS, 900 GB/s)", () => {
     const o = run("ai-roofline", { kernel: "typed", ai: "0.25", flops: "1e9", peak: "19.5 TFLOPS", bw: "900 GB/s" });
@@ -455,7 +457,10 @@ describe("adversarial input is refused by name", () => {
   test("bounded work: the spacing curve and the staircase are capped", () => {
     expect(spacingCurve("fp32", 1e-45, 3e38, 600).length).toBeLessThanOrEqual(2 + 2 * 600);
     const s = quantStairSvg({ scale: 1, zeroPoint: 0, qmin: -127, qmax: 127, lo: -127, hi: 127 }, null);
-    expect((s.match(/[ML][\d.]+,[\d.]+/g) ?? []).length).toBeLessThan(2000);
+    // plot.ts draws a line series as one <path d="M x,y L x,y …">: count its vertices.
+    const vertices = (s.match(/[ML]\s?-?[\d.]+[ ,]-?[\d.]+/g) ?? []).length;
+    expect(vertices).toBeGreaterThan(500);
+    expect(vertices).toBeLessThan(2000);
   });
 });
 

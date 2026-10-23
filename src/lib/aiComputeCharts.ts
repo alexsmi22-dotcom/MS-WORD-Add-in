@@ -132,7 +132,8 @@ export function memoryBarsSvg(bars: MemoryBar[], title: string, width = 460): st
     const v = i * step;
     const x = ML + (v / axisMax) * pw;
     out.push(`<line x1="${f2(x)}" y1="${MT}" x2="${f2(x)}" y2="${MT + plotH}" stroke="${i === 0 ? "#000000" : "#e2e2e2"}" stroke-width="1"/>`);
-    out.push(text(x, MT + plotH + 14, sig(v), "middle", 10, "#333333"));
+    // One decimals count for the whole row (0.0, 0.5, 1.0 — never 0, 0.5, 1).
+    out.push(text(x, MT + plotH + 14, v.toFixed(Math.max(0, -Math.floor(Math.log10(step) + 1e-9))), "middle", 10, "#333333"));
   }
   out.push(text(ML + pw / 2, MT + plotH + 28, `Memory (${unit})`, "middle", 11));
   shown.forEach((b, i) => {

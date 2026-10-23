@@ -23976,22 +23976,29 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("d"), r("v")]);
-      const lines = [
+      const wiRows: Array<[string, string, string]> = [
+        ["Swept area", engNum(res.sweptArea, sig), "m²"],
+        ["Power in the wind", engNum(res.windPower / 1000, sig), "kW"],
+        ["Betz bound (16/27)", engNum(res.betzPower / 1000, sig), "kW"],
+      ];
+      if (res.outputPower !== null) wiRows.push([`Output at Cp = ${engNum(res.cpUsed!, 3)}`, engNum(res.outputPower / 1000, sig), "kW"]);
+      if (res.tipSpeedRatio !== null) wiRows.push(["Tip-speed ratio (design optimum is typically 6–8)", engNum(res.tipSpeedRatio, 4), ""]);
+      if (res.annualEnergyKWh !== null) wiRows.push(["Annual energy", engNum(res.annualEnergyKWh / 1000, sig), "MWh"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-wind"),
+        ...(res.outputPower !== null ? engEq("energy-wind:cp") : []),
+        ...(res.tipSpeedRatio !== null ? engEq("energy-wind:tsr") : []),
+        ...(res.annualEnergyKWh !== null ? engEq("energy-wind:annual") : []),
         "Wind turbine power",
         "",
-        `  Swept area          ${engNum(res.sweptArea, sig)} m²`,
-        `  Power in the wind   ${engNum(res.windPower / 1000, sig)} kW`,
-        `  Betz bound (16/27)  ${engNum(res.betzPower / 1000, sig)} kW`,
+        kvTable(wiRows),
       ];
-      if (res.outputPower !== null) {
-        lines.push(`  Output at Cp = ${engNum(res.cpUsed!, 3)}   ${engNum(res.outputPower / 1000, sig)} kW`);
-      }
-      if (res.tipSpeedRatio !== null) {
-        lines.push(`  Tip-speed ratio     ${engNum(res.tipSpeedRatio, 4)}  (design optimum is typically 6-8)`);
-      }
-      if (res.annualEnergyKWh !== null) {
-        lines.push(`  Annual energy       ${engNum(res.annualEnergyKWh / 1000, sig)} MWh`);
-      }
+      const wiOutputs: EngOutput[] = [
+        { key: "Pwind", label: "Power in the wind", value: res.windPower / 1000, unit: "kW" },
+        { key: "Pbetz", label: "Betz bound", value: res.betzPower / 1000, unit: "kW" },
+        { key: "Pout", label: "Turbine output", value: res.outputPower !== null ? res.outputPower / 1000 : NaN, unit: "kW" },
+        { key: "Eyear", label: "Annual energy", value: res.annualEnergyKWh !== null ? res.annualEnergyKWh / 1000 : NaN, unit: "MWh" },
+      ];
       u.report(lines);
       if (densityNote) lines.push(`Note: ${densityNote}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -24027,7 +24034,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "power (kW)",
           title: "Power goes as the cube of wind speed",
         });
-        return engReport(lines, [
+        return withOutputs(wiOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24036,9 +24043,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 260,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(wiOutputs, engReport(lines));
     },
   },
   {
@@ -24095,20 +24102,29 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("g"), r("a"), r("eff")]);
-      const lines = [
+      const soRows: Array<[string, string, string]> = [["Output at stated irradiance, 25 °C cells", engNum(res.powerStc / 1000, sig), "kW"]];
+      if (res.cellTempC !== null && res.powerDerated !== null) {
+        soRows.push(["Estimated cell temperature", engNum(res.cellTempC, 4), "°C"]);
+        soRows.push(["Temperature-derated output", engNum(res.powerDerated / 1000, sig), "kW"]);
+        const lossPct = res.powerStc > 0 ? (1 - res.powerDerated / res.powerStc) * 100 : 0;
+        soRows.push(["Thermal derating", engNum(lossPct, 3), "%"]);
+      }
+      if (res.dailyEnergyKWh !== null) soRows.push(["Daily energy", engNum(res.dailyEnergyKWh, sig), "kWh/day"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-solar"),
+        ...(res.cellTempC !== null && res.powerDerated !== null ? engEq("energy-solar:derate") : []),
+        ...(res.dailyEnergyKWh !== null ? engEq("energy-solar:daily") : []),
         "Solar PV output",
         "",
-        `  Output at stated irradiance, 25 °C cells   ${engNum(res.powerStc / 1000, sig)} kW`,
+        kvTable(soRows),
       ];
-      if (res.cellTempC !== null && res.powerDerated !== null) {
-        lines.push(`  Estimated cell temperature                 ${engNum(res.cellTempC, 4)} °C`);
-        lines.push(`  Temperature-derated output                 ${engNum(res.powerDerated / 1000, sig)} kW`);
-        const lossPct = res.powerStc > 0 ? (1 - res.powerDerated / res.powerStc) * 100 : 0;
-        lines.push(`  Thermal derating                           ${engNum(lossPct, 3)} %`);
-      }
-      if (res.dailyEnergyKWh !== null) {
-        lines.push(`  Daily energy                               ${engNum(res.dailyEnergyKWh, sig)} kWh/day`);
-      }
+      const soOutputs: EngOutput[] = [
+        { key: "Eyear", label: "Annual energy", value: res.dailyEnergyKWh != null ? (res.dailyEnergyKWh * 365) / 1000 : NaN, unit: "MWh" },
+        { key: "Pstc", label: "Output at 25 °C cells", value: res.powerStc / 1000, unit: "kW" },
+        { key: "Pderated", label: "Temperature-derated output", value: res.powerDerated !== null ? res.powerDerated / 1000 : NaN, unit: "kW" },
+        { key: "Tcell", label: "Cell temperature", value: res.cellTempC ?? NaN, unit: "°C" },
+        { key: "Eday", label: "Daily energy", value: res.dailyEnergyKWh ?? NaN, unit: "kWh/day" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24150,7 +24166,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "array output (kW)",
           title: "Rated against temperature-derated output",
         });
-        return withOutputs([{ key: "Eyear", label: "Annual energy", value: res.dailyEnergyKWh != null ? (res.dailyEnergyKWh * 365) / 1000 : NaN, unit: "MWh" }], engReport(lines, [
+        return withOutputs(soOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24161,7 +24177,7 @@ const ENG_CALCS: EngCalc[] = [
           },
         ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(soOutputs, engReport(lines));
     },
   },
   {
@@ -24188,7 +24204,8 @@ const ENG_CALCS: EngCalc[] = [
       const res = fillFactor(voc, isc, vmp, imp);
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("voc"), r("isc"), r("vmp"), r("imp")]);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("energy-fill-factor"),
         "PV fill factor",
         "",
         `  Maximum power Pmp   ${engNum(res.pMax, sig)} W`,
@@ -24243,7 +24260,10 @@ const ENG_CALCS: EngCalc[] = [
             title: `Fill factor = ${engNum(res.fillFactor, 3)} of the bounding rectangle`,
           },
         );
-        return engReport(lines, [
+        return withOutputs([
+          { key: "FF", label: "Fill factor", value: res.fillFactor, unit: "" },
+          { key: "Pmp", label: "Maximum power", value: res.pMax, unit: "W" },
+        ], engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24252,7 +24272,7 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
     },
   },
@@ -24295,16 +24315,25 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("q"), r("h"), r("eff")]);
-      const lines = [
+      const hyRows: Array<[string, string, string]> = [
+        ["Net head", engNum(res.netHead, sig), "m"],
+        ["Hydraulic power", engNum(res.hydraulicPower / 1000, sig), "kW"],
+        ["Electrical output", engNum(res.outputPower / 1000, sig), "kW"],
+      ];
+      if (res.annualEnergyKWh !== null) hyRows.push(["Annual energy", engNum(res.annualEnergyKWh / 1000, sig), "MWh"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-hydro"),
+        ...(res.annualEnergyKWh !== null ? engEq("energy-hydro:annual") : []),
         "Hydropower",
         "",
-        `  Net head           ${engNum(res.netHead, sig)} m`,
-        `  Hydraulic power    ${engNum(res.hydraulicPower / 1000, sig)} kW`,
-        `  Electrical output  ${engNum(res.outputPower / 1000, sig)} kW`,
+        kvTable(hyRows),
       ];
-      if (res.annualEnergyKWh !== null) {
-        lines.push(`  Annual energy      ${engNum(res.annualEnergyKWh / 1000, sig)} MWh`);
-      }
+      const hyOutputs: EngOutput[] = [
+        { key: "Pelec", label: "Electrical output", value: res.outputPower / 1000, unit: "kW" },
+        { key: "Phyd", label: "Hydraulic power", value: res.hydraulicPower / 1000, unit: "kW" },
+        { key: "Hnet", label: "Net head", value: res.netHead, unit: "m" },
+        { key: "Eyear", label: "Annual energy", value: res.annualEnergyKWh !== null ? res.annualEnergyKWh / 1000 : NaN, unit: "MWh" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24333,7 +24362,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Power is linear in flow",
           },
         );
-        return engReport(lines, [
+        return withOutputs(hyOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24342,9 +24371,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(hyOutputs, engReport(lines));
     },
   },
   {
@@ -24399,25 +24428,35 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("vc"), r("cap")]);
-      const lines = [
+      const baRows: Array<[string, string, string]> = [
+        ["Configuration", `${r("s")}S${r("p")}P (${res.cellCount} cells)`, ""],
+        ["Pack voltage", engNum(res.packVoltage, sig), "V"],
+        ["Pack capacity", engNum(res.packCapacityAh, sig), "Ah"],
+        ["Pack energy", engNum(res.packEnergyWh / 1000, sig), "kWh"],
+        ["Usable energy", engNum(res.usableEnergyWh / 1000, sig), "kWh"],
+      ];
+      const hasRun = res.loadCurrentA !== null && res.cRate !== null && res.runtimeHours !== null;
+      if (res.loadCurrentA !== null && res.cRate !== null && res.runtimeHours !== null) {
+        baRows.push(["C-rate at load", engNum(res.cRate, 3), "C"]);
+        baRows.push(["Runtime", engNum(res.runtimeHours, sig), "h"]);
+        if (res.runtimePeukertHours !== null) baRows.push(["Runtime (Peukert-corrected)", engNum(res.runtimePeukertHours, sig), "h"]);
+      }
+      if (res.chargeTimeHours !== null) baRows.push(["Charge time (CC estimate)", engNum(res.chargeTimeHours, sig), "h"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-battery"),
+        ...(hasRun ? engEq("energy-battery:runtime") : []),
+        ...(hasRun && res.runtimePeukertHours !== null ? engEq("energy-battery:peukert") : []),
         "Battery pack",
         "",
-        `  Configuration    ${r("s")}S${r("p")}P  (${res.cellCount} cells)`,
-        `  Pack voltage     ${engNum(res.packVoltage, sig)} V`,
-        `  Pack capacity    ${engNum(res.packCapacityAh, sig)} Ah`,
-        `  Pack energy      ${engNum(res.packEnergyWh / 1000, sig)} kWh`,
-        `  Usable energy    ${engNum(res.usableEnergyWh / 1000, sig)} kWh`,
+        kvTable(baRows),
       ];
-      if (res.loadCurrentA !== null && res.cRate !== null && res.runtimeHours !== null) {
-        lines.push(`  C-rate at load   ${engNum(res.cRate, 3)}C`);
-        lines.push(`  Runtime          ${engNum(res.runtimeHours, sig)} h`);
-        if (res.runtimePeukertHours !== null) {
-          lines.push(`  Runtime (Peukert-corrected)  ${engNum(res.runtimePeukertHours, sig)} h`);
-        }
-      }
-      if (res.chargeTimeHours !== null) {
-        lines.push(`  Charge time (CC estimate)    ${engNum(res.chargeTimeHours, sig)} h`);
-      }
+      const baOutputs: EngOutput[] = [
+        { key: "Vpack", label: "Pack voltage", value: res.packVoltage, unit: "V" },
+        { key: "Epack", label: "Pack energy", value: res.packEnergyWh / 1000, unit: "kWh" },
+        { key: "Eusable", label: "Usable energy", value: res.usableEnergyWh / 1000, unit: "kWh" },
+        { key: "runtime", label: "Runtime", value: res.runtimeHours ?? NaN, unit: "h" },
+        { key: "cRate", label: "C-rate at load", value: res.cRate ?? NaN, unit: "C" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24464,7 +24503,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "runtime (h)",
           title: "Runtime against discharge current",
         });
-        return engReport(lines, [
+        return withOutputs(baOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24473,9 +24512,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(baOutputs, engReport(lines));
     },
   },
   {

@@ -384,6 +384,20 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("S_max = 2 sqrt(2) p", "Smax = 2√2·p"),
   ],
   "quantum-qkd": [eq("r = 1 - 2 H_2(Q)", "r = 1 − 2H₂(Q)"), eq("H_2(Q) = -Q log_2 Q - (1 - Q) log_2(1 - Q)", "H₂(Q) = −Q·log₂ Q − (1 − Q)·log₂(1 − Q)")],
+  // ---- Energy & power ----
+  "energy-wind": [eq("P = (1/2) rho A v^3", "P = ½·ρ·A·v³"), eq("P_Betz = (16/27) P", "PBetz = (16/27)·P")],
+  "energy-wind:cp": [eq("P_out = C_p P", "Pout = Cp·P")],
+  "energy-wind:tsr": [eq("lambda = omega R/v", "λ = ω·R/v")],
+  "energy-wind:annual": [eq("E = 8760 CF P_out", "E = 8760·CF·Pout")],
+  "energy-solar": [eq("P = G A eta", "P = G·A·η")],
+  "energy-solar:derate": [eq("T_c = T_a + (NOCT - 20) G/800", "Tc = Ta + (NOCT − 20)·G/800"), eq("P_T = (1 + {gamma} (T_c - 25)) P", "PT = (1 + γ·(Tc − 25))·P")],
+  "energy-solar:daily": [eq("E_day = P_1000 PSH PR", "Eday = P₁₀₀₀·PSH·PR")],
+  "energy-fill-factor": [eq("F F = V_mp I_mp/(V_oc I_sc)", "FF = Vmp·Imp/(Voc·Isc)")],
+  "energy-hydro": [eq("P = eta rho g Q H_net", "P = η·ρ·g·Q·Hnet"), eq("H_net = H - h_L", "Hnet = H − hL")],
+  "energy-hydro:annual": [eq("E = 8760 CF P", "E = 8760·CF·P")],
+  "energy-battery": [eq("V = s V_cell", "V = s·Vcell"), eq("Q = p Q_cell", "Q = p·Qcell"), eq("E = V Q", "E = V·Q")],
+  "energy-battery:runtime": [eq("t = DoD Q/I", "t = DoD·Q/I"), eq("C_rate = I/Q", "Crate = I/Q")],
+  "energy-battery:peukert": [eq("t_P = H (DoD Q/(I H))^k", "tP = H·(DoD·Q/(I·H))ᵏ")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

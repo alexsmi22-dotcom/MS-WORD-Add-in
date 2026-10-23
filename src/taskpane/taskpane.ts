@@ -16153,7 +16153,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = freeResponse(m, k, c, Number(r("x0") || "0"), Number(r("v0") || "0"), tEnd, 500);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("vib-free"), ...(p.wd > 0 ? engEq("vib-free:damped") : [])];
       lines.push(`Single degree of freedom: m = ${engNum(m)}, k = ${engNum(k)}, c = ${engNum(c)}` + (fromZeta ? " (from ζ)" : ""));
       lines.push("");
       lines.push(`Natural frequency ωn = √(k/m) = ${engNum(p.wn)} rad/s = ${engNum(p.fn)} Hz`);
@@ -16177,6 +16177,7 @@ const ENG_CALCS: EngCalc[] = [
         if (!est.ok) {
           lines.push(`Damping from the measured peaks: ${est.error}`);
         } else {
+          lines.push(...engEq("vib-free:decrement"));
           lines.push("Damping estimated from your two measured peaks");
           lines.push(`  δ = ${engNum(est.delta)}, ζ = ${engNum(est.zeta)}`);
           lines.push(`  which is c = ${engNum(est.zeta * p.cc)} N·s/m at this mass and stiffness`);
@@ -16191,12 +16192,15 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.t.map((t, i) => ({ x: t, y: res.x[i] })), type: "line", color: "#2563eb", label: "x(t)" }],
         { width: 380, height: 240, xlabel: "Time (s)", ylabel: "Displacement", title: `Free response, ζ = ${engNum(p.zeta, 3)}` },
       );
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "wnat", label: "Natural frequency ωn", value: p.wn, unit: "rad/s" },
+        { key: "fn", label: "Natural frequency", value: p.fn, unit: "Hz" },
+        { key: "dampingRatio", label: "Damping ratio ζ", value: p.zeta, unit: "" },
+        { key: "wd", label: "Damped natural frequency ωd", value: p.wd > 0 ? p.wd : NaN, unit: "rad/s" },
+        { key: "logDec", label: "Logarithmic decrement δ", value: res.logDecrement ?? NaN, unit: "" },
+      ], engReport(lines, [
         { kind: "plot" as const, svg, caption: "Free vibration response", alt: "Displacement against time in free vibration", w: 380, h: 240 },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -16226,7 +16230,7 @@ const ENG_CALCS: EngCalc[] = [
       const p = sdofProperties(m, k, c);
       if (!p.ok) return { text: p.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("vib-forced"), ...(res.peakR !== null ? engEq("vib-forced:peak") : [])];
       lines.push(`Harmonic forcing of an SDOF system, ζ = ${engNum(zeta)}`);
       lines.push(`Natural frequency ωn = ${engNum(p.wn)} rad/s; forcing at ${engNum(Number(r("w") || "0"))} rad/s`);
       lines.push(`Frequency ratio r = ω/ωn = ${engNum(res.r)}`);
@@ -16263,9 +16267,12 @@ const ENG_CALCS: EngCalc[] = [
           title: `Response and transmissibility, ζ = ${engNum(zeta, 3)}`,
         },
       );
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "X", label: "Steady-state amplitude", value: res.amplitude, unit: "m" },
+        { key: "MF", label: "Magnification factor", value: res.magnification, unit: "" },
+        { key: "TR", label: "Force transmissibility", value: res.transmissibility, unit: "" },
+        { key: "phase", label: "Phase lag behind the force", value: res.phaseDeg, unit: "°" },
+      ], engReport(lines, [
         {
           kind: "plot" as const,
           svg: magSvg,
@@ -16274,8 +16281,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -16339,21 +16345,23 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const n = res.frequencies.length;
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("vib-modal")];
       lines.push(`${n} degree-of-freedom system`);
       lines.push("");
-      lines.push("Natural frequencies");
-      for (let i = 0; i < n; i++) {
-        lines.push(
-          `  Mode ${i + 1}: ω = ${engNum(res.frequencies[i])} rad/s = ${engNum(res.frequenciesHz[i])} Hz` +
-            (res.frequencies[i] === 0 ? "  (rigid-body mode)" : ""),
-        );
-      }
+      // Release E: frequencies and mode shapes as real tables.
+      const anyRigid = res.frequencies.some((f) => f === 0);
+      lines.push({
+        label: "Natural frequencies",
+        table: [
+          ["Mode", "ω (rad/s)", "f (Hz)", ...(anyRigid ? [""] : [])],
+          ...res.frequencies.map((f, i) => [`${i + 1}`, engNum(f), engNum(res.frequenciesHz[i]), ...(anyRigid ? [f === 0 ? "rigid-body mode" : ""] : [])]),
+        ],
+      });
       lines.push("");
-      lines.push("Mode shapes (columns, mass-normalised)");
-      for (let i = 0; i < n; i++) {
-        lines.push(`  DOF ${i + 1}: ` + res.modes[i].map((v) => engNum(v, 4)).join("   "));
-      }
+      lines.push({
+        label: "Mode shapes (columns, mass-normalised)",
+        table: [["DOF", ...res.frequencies.map((_, j) => `Mode ${j + 1}`)], ...res.modes.map((row, i) => [`${i + 1}`, ...row.map((v) => engNum(v, 4))])],
+      });
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_VIB_UNIT_NOTE);
 
@@ -16362,6 +16370,11 @@ const ENG_CALCS: EngCalc[] = [
       // chain gets its anchor at DOF 0 so the first spring's stretch shows.
       // Legends hold five entries legibly; a bigger model keeps its first
       // five modes and the caption says so.
+      const modalOutputs: EngOutput[] = [
+        { key: "f1", label: "First natural frequency", value: res.frequenciesHz[0] ?? NaN, unit: "Hz" },
+        { key: "f2", label: "Second natural frequency", value: res.frequenciesHz[1] ?? NaN, unit: "Hz" },
+        { key: "f3", label: "Third natural frequency", value: res.frequenciesHz[2] ?? NaN, unit: "Hz" },
+      ];
       const shownModes = Math.min(n, 5);
       const grounded = (r("mode") || "chain") === "chain" && r("ground") !== "free";
       const palette5 = ["#2563eb", "#b91c1c", "#059669", "#d97706", "#7c3aed"];
@@ -16386,7 +16399,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: "mass-normalised amplitude",
           title: "Mode shapes",
         });
-        return engReport(lines, [
+        return withOutputs(modalOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -16398,9 +16411,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(modalOutputs, engReport(lines));
     },
   },
   {
@@ -16494,21 +16507,22 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const n = res.frequencies.length;
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("vib-mdof-forced"), ...(ray ? engEq("vib-mdof-forced:rayleigh") : [])];
       lines.push(`${n} degree-of-freedom forced response at ω = ${engNum(w)} rad/s`);
       lines.push("");
-      lines.push("Steady-state amplitude per degree of freedom");
-      for (let j = 0; j < n; j++)
-        lines.push(`  DOF ${j + 1}: ${engNum(res.amplitude[j])}, lagging the force by ${engNum(res.phaseDeg[j])}°`);
+      // Release E: the response and the modal breakdown as real tables.
+      lines.push({
+        label: "Steady-state amplitude per degree of freedom",
+        table: [["DOF", "Amplitude", "Lag behind the force (°)"], ...res.amplitude.map((a, j) => [`${j + 1}`, engNum(a), engNum(res.phaseDeg[j])])],
+      });
       lines.push("");
-      lines.push("Modal breakdown");
-      for (const c of res.contributions) {
-        lines.push(
-          `  Mode ${c.mode}: ω_n = ${engNum(c.wn)} rad/s, ζ = ${engNum(c.zeta)}, ` +
-            `r = ${c.wn > 0 ? engNum(c.r) : "—"}, generalised force ${engNum(c.force)}, ` +
-            `${(c.share * 100).toFixed(1)}% of the peak response`,
-        );
-      }
+      lines.push({
+        label: "Modal breakdown",
+        table: [
+          ["Mode", "ωn (rad/s)", "ζ", "r", "Generalised force", "Share of the peak response (%)"],
+          ...res.contributions.map((c) => [`${c.mode}`, engNum(c.wn), engNum(c.zeta), c.wn > 0 ? engNum(c.r) : "rigid", engNum(c.force), (c.share * 100).toFixed(1)]),
+        ],
+      });
       lines.push("");
       lines.push(`Mode ${res.dominantMode} dominates the largest response.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -16519,6 +16533,10 @@ const ENG_CALCS: EngCalc[] = [
       // point re-solves the same modal problem the headline numbers used, so
       // the curve cannot disagree with them. Log amplitude, because a
       // resonance three decades above the floor is the story being told.
+      const mdofOutputs: EngOutput[] = [
+        { key: "Xmax", label: "Largest steady-state amplitude", value: Math.max(...res.amplitude), unit: "" },
+        ...res.amplitude.map((a, j) => ({ key: `X${j + 1}`, label: `Amplitude of DOF ${j + 1}`, value: a, unit: "" })),
+      ];
       const wns = res.contributions.map((c) => c.wn).filter((v) => Number.isFinite(v) && v > 0);
       if (wns.length) {
         let dofMax = 0;
@@ -16546,7 +16564,7 @@ const ENG_CALCS: EngCalc[] = [
               title: `Frequency response, DOF ${dofMax + 1}`,
             },
           );
-          return engReport(lines, [
+          return withOutputs(mdofOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -16555,10 +16573,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(mdofOutputs, engReport(lines));
     },
   },
   {

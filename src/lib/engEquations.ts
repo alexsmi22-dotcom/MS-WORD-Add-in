@@ -153,6 +153,20 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "shelf-life": [eq("k = A exp(-E_a/(R T))", "k = A·exp(−Ea/(R·T))")],
   "shelf-life:first": [eq("t_90 = ln(10/9)/k", "t₉₀ = ln(10/9)/k")],
   "shelf-life:zero": [eq("t_90 = 0.1 C_0/k_0", "t₉₀ = 0.1·C₀/k₀")],
+  // ---- Vibration ----
+  "vib-free": [eq("omega_n = sqrt(k/m)", "ωn = √(k/m)"), eq("c_c = 2 sqrt(k m)", "cc = 2√(k·m)"), eq("zeta = c/c_c", "ζ = c/cc")],
+  "vib-free:damped": [eq("omega_d = omega_n sqrt(1 - zeta^2)", "ωd = ωn·√(1 − ζ²)")],
+  "vib-free:decrement": [eq("delta = (1/N) ln(x_1/x_2)", "δ = (1/N)·ln(x₁/x₂)"), eq("zeta = delta/sqrt(4 pi^2 + delta^2)", "ζ = δ/√(4π² + δ²)")],
+  "vib-forced": [
+    eq("r = omega/omega_n", "r = ω/ωn"),
+    eq("X/(F_0/k) = 1/sqrt((1 - r^2)^2 + (2 zeta r)^2)", "X/(F₀/k) = 1/√((1 − r²)² + (2ζr)²)"),
+    eq("T_r = sqrt((1 + (2 zeta r)^2)/((1 - r^2)^2 + (2 zeta r)^2))", "Tr = √((1 + (2ζr)²)/((1 − r²)² + (2ζr)²))"),
+    eq("phi = arctan(2 zeta r/(1 - r^2))", "φ = arctan(2ζr/(1 − r²))"),
+  ],
+  "vib-forced:peak": [eq("r_peak = sqrt(1 - 2 zeta^2)", "rpeak = √(1 − 2ζ²)")],
+  "vib-modal": [eq("det(K - omega^2 M) = 0", "det(K − ω²M) = 0")],
+  "vib-mdof-forced": [eq("(K - omega^2 M + j omega C) X = F", "(K − ω²M + jωC)·X = F")],
+  "vib-mdof-forced:rayleigh": [eq("C = alpha M + beta K", "C = αM + βK")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

@@ -213,6 +213,11 @@ import { LC_CALCS } from "../src/lib/lcCalcs";
 import { lcLineChartSvg, lcTransmissionSvg, lcNetRetardanceSvg, lcMeasuredSvg, lcProfilesSvg, lcGammaVoltageSvg, lcMidTiltSvg } from "../src/lib/lcCharts";
 import { lcCellSvg, lcDirectorSvg, lcDeviceSvg } from "../src/lib/lcDrawings";
 // --- end Release C: lc ---
+// --- Release E: thermal ---
+import { THERMAL_STRESS_CALCS } from "../src/lib/thermalStressCalcs";
+import { bilayerStressProfileSvg } from "../src/lib/thermalStressCharts";
+import { timoshenkoBilayer } from "../src/lib/thermalStress";
+// --- end Release E: thermal ---
 
 const figures: [string, string][] = [];
 
@@ -2926,5 +2931,37 @@ rotator 15` }, "jones elliptical");
   );
 }
 // --- end Release D: golden gate destination vector ---------------------------
+
+// --- Release E: thermal ---
+// The four thermal-stress tools through their real compute paths (every builder in thermalStressCharts.ts): the
+// restrained stress with its yield line (heating, cooling biaxial), the gap kink, the ΔT = 0 range note; the bimetal
+// κ–ΔT line and its through-thickness stress profile; Stoney; and the thermal-shock crossing.
+{
+  const th = (id: string, over: Record<string, string>, name: string): void => {
+    const c = THERMAL_STRESS_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: thermal ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`thermal ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  th("thermal-restrained", {}, "restrained bar with yield line");
+  th("thermal-restrained", { mode: "biaxial", dT: "-180 °F" }, "restrained plate cooled, tension past yield");
+  th("thermal-restrained", { restraint: "gap" }, "restrained bar with a gap");
+  th("thermal-restrained", { dT: "0", sy: "" }, "restrained bar at zero ΔT");
+  th("thermal-bilayer", {}, "bimetal Al on steel");
+  th("thermal-stoney", {}, "Stoney film stress");
+  th("thermal-shock", {}, "thermal shock crossing");
+  // The crowding case for the profile: the thinnest layer it is drawn for (10% of the total; below that the tool
+  // leaves the profile out), a 100 µm layer on 900 µm, cooled, so the thin layer's segment sits at the top frame.
+  const film = timoshenkoBilayer({ t1: 100e-6, t2: 900e-6, E1: 400e9, E2: 130e9, dAlpha: 3e-6, dT: -300, length: null });
+  if (!film.ok) throw new Error(`corpus: thermal thin layer: ${film.error}`);
+  figures.push(["thermal bimetal profile, 100 µm layer on 900 µm", bilayerStressProfileSvg(film, 100e-6, 900e-6)]);
+}
+// --- end Release E: thermal ---
 
 export { figures };

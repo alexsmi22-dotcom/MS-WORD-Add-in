@@ -41,8 +41,9 @@ import {
   PROFILE_MIN_FRACTION,
 } from "./thermalStressCharts";
 
-type Group = "Structural & solids";
-const GROUP: Group = "Structural & solids";
+// Written as `const GROUP = "…"` exactly: engineeringSpreadContract.test.ts resolves a group constant by that form.
+const GROUP = "Structural & solids" as const;
+type Group = typeof GROUP;
 
 // ------------------------------------------------------------------ helpers
 
@@ -223,7 +224,10 @@ function computeRestrained(r: (k: string) => string): AnalyzeOutput {
     if (st.vonMises === 0) {
       lines.push(
         mode === "triaxial" && res.sigma !== 0
-          ? `Yield: the stress is hydrostatic (equal in all three directions), so the von Mises and Tresca equivalent stresses are zero and neither criterion predicts yielding at any ΔT; brittle fracture or cavitation governs instead.`
+          ? "Yield: the stress is hydrostatic (equal in all three directions), so the von Mises and Tresca equivalent stresses are zero and neither criterion predicts yielding at any ΔT." +
+            (res.sigma > 0
+              ? " Under hydrostatic TENSION, brittle fracture or cavitation governs instead: check the strength against σ itself."
+              : " Hydrostatic compression alone does not fail a dense isotropic solid; real parts yield where the restraint is not uniform (corners, interfaces).")
           : `Yield: no stress, so no yield (yield strength ${num(sy / 1e6)} MPa).`,
       );
     } else {
@@ -357,7 +361,7 @@ function computeStoney(r: (k: string) => string): AnalyzeOutput {
     outputs.push({ key: "kappa", label: "Curvature κ", value: kappa, unit: "m⁻¹" });
     if (kappa !== 0) outputs.push({ key: "R", label: "Radius of curvature R", value: 1 / Math.abs(kappa), unit: "m" });
   }
-  lines.push({ math: "σ_f = (E_s h_s^2 κ)/(6 (1 - ν_s) h_f)", fallback: "σ_f = E_s h_s² κ / (6(1 − ν_s) h_f)" });
+  lines.push({ math: "σ_f = (E_s h_s^2 κ)/(6 (1 - ν_s) h_f)", fallback: "film stress = Eₛ hₛ² κ / (6 (1 − νₛ) × film thickness)" });
   lines.push(
     `With Eₛ = ${num(Es / 1e9)} GPa, νₛ = ${num(nus)}, substrate hₛ = ${num(hs * 1e6)} µm, film ${num(hf * 1e6)} µm (film/substrate thickness ratio ${num(hf / hs, 3)}, within the ${STONEY_MAX_RATIO} thin-film limit).`,
   );
@@ -387,7 +391,7 @@ function computeShock(r: (k: string) => string): AnalyzeOutput {
   if (!res.ok) return refuse(res.error);
   const lines: Parameters<typeof engReport>[0] = [];
   lines.push(`Thermal shock resistance: R = ${num(res.R, 5)} K, the largest sudden quench temperature difference before fracture in the severe-quench limit.`);
-  lines.push({ math: "R = (σ_f (1 - ν))/(E α)", fallback: "R = σ_f(1 − ν)/(Eα)" });
+  lines.push({ math: "R = (σ_f (1 - ν))/(E α)", fallback: "R = (fracture strength)(1 − ν)/(Eα)" });
   const outputs: EngOutput[] = [{ key: "R", label: "Thermal shock resistance R", value: res.R, unit: "K" }];
   if (res.Rp !== null && k !== null) {
     lines.push(`R′ = k·R = ${num(res.Rp, 5)} W/m with k = ${num(k)} W/(m·K) (the resistance under mild, heat-flow-limited cooling).`);

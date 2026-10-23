@@ -16,22 +16,36 @@
 //   - The first thermal-shock resistance parameter R = σ_f(1−ν)/(Eα) and R′ = kR. No Biot correction: no form of it
 //     was checked against a source for this release, so none is used.
 
+import { fmtSig } from "./axis";
+
 export type Fail = { ok: false; error: string };
 
 const fin = (...xs: number[]): boolean => xs.every((x) => Number.isFinite(x));
 /** −0 is not a stress anybody wrote down; Object.is(−0, 0) is false, and "−0 MPa" is not a display. */
 const z = (x: number): number => (x === 0 ? 0 : x);
 
+/** A number inside a refusal: three significant figures, trailing zeros dropped, ×10ⁿ and U+2212 (never 1e+25). */
+function show(v: number): string {
+  const s = fmtSig(v, 3);
+  return s.includes("×") ? s.replace(/(\.\d*?)0+×/, "$1×").replace(/\.×/, "×") : s.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+}
+
+/** The refusal for a result that overflowed double precision (finite inputs, non-finite answer). */
+const OVERFLOW: Fail = {
+  ok: false,
+  error: "The inputs overflow double precision: the result is not a finite number. Check the magnitudes and their units.",
+};
+
 /** Poisson's ratio inside isotropic linear elasticity, or a named refusal. */
 function poissonError(nu: number, what: string): string | null {
   if (!Number.isFinite(nu)) return `${what}: Poisson's ratio ν is required here.`;
   if (nu >= 0.5) {
     return (
-      `${what}: ν = ${nu} is at or above 0.5, outside isotropic linear elasticity (−1 < ν < 0.5). At ν = 0.5 the ` +
+      `${what}: ν = ${show(nu)} is at or above 0.5, outside isotropic linear elasticity (−1 < ν < 0.5). At ν = 0.5 the ` +
       "material is incompressible and a body restrained in all directions carries unbounded stress; use a ν below 0.5."
     );
   }
-  if (nu <= -1) return `${what}: ν = ${nu} is at or below −1, outside isotropic linear elasticity (−1 < ν < 0.5).`;
+  if (nu <= -1) return `${what}: ν = ${show(nu)} is at or below −1, outside isotropic linear elasticity (−1 < ν < 0.5).`;
   return null;
 }
 
@@ -69,7 +83,7 @@ export function checkRestrained(inp: RestrainedInput): Fail | null {
   if (!fin(E) || E <= 0) return { ok: false, error: "Young's modulus E must be a positive finite number." };
   if (!fin(alpha)) return { ok: false, error: "The expansion coefficient α must be a finite number." };
   if (Math.abs(alpha) > 1e-3) {
-    return { ok: false, error: `α = ${alpha} /K is above 10⁻³ /K, far beyond any solid (most lie between 10⁻⁷ and 3×10⁻⁴ /K); check its unit.` };
+    return { ok: false, error: `α = ${show(alpha)} /K is above 10⁻³ /K, far beyond any solid (most lie between 10⁻⁷ and 3×10⁻⁴ /K); check its unit.` };
   }
   if (!fin(dT)) return { ok: false, error: "The temperature change ΔT must be a finite number." };
   if (mode !== "uniaxial") {
@@ -110,6 +124,8 @@ export function restrainedStress(inp: RestrainedInput): RestrainedResult | Fail 
   const bad = checkRestrained(inp);
   if (bad) return bad;
   const sigma = restrainedSigmaAt(inp, inp.dT);
+  // σ is linear in ΔT (piecewise for a gap), so a finite end value means the whole drawn line is finite.
+  if (!Number.isFinite(sigma)) return OVERFLOW;
   const { nu, mode, restraint, alpha } = inp;
   const modeFactor = mode === "uniaxial" ? 1 : mode === "biaxial" ? 1 / (1 - nu) : 1 / (1 - 2 * nu);
   const dTClose = restraint.kind === "gap" && alpha !== 0 ? restraint.gap / restraint.length / alpha : null;
@@ -174,13 +190,18 @@ export function timoshenkoBilayer(inp: BilayerInput): BilayerResult | Fail {
   if (t1 / t2 > 1e6 || t2 / t1 > 1e6) return { ok: false, error: "The layer thicknesses differ by more than 10⁶×: use the Stoney thin-film relation for a film on a thick substrate." };
   if (E1 / E2 > 1e6 || E2 / E1 > 1e6) return { ok: false, error: "The layer moduli differ by more than 10⁶×; the bilayer beam model is not meaningful there." };
   if (!fin(dAlpha)) return { ok: false, error: "Δα must be a finite number." };
-  if (Math.abs(dAlpha) > 1e-3) return { ok: false, error: `Δα = ${dAlpha} /K is above 10⁻³ /K, beyond any pair of solids; check its unit.` };
+  if (Math.abs(dAlpha) > 1e-3) return { ok: false, error: `Δα = ${show(dAlpha)} /K is above 10⁻³ /K, beyond any pair of solids; check its unit.` };
   if (!fin(dT)) return { ok: false, error: "ΔT must be a finite number." };
   if (length !== null && (!fin(length) || length <= 0)) return { ok: false, error: "The cantilever length L must be a positive length." };
   const m = t1 / t2, n = E1 / E2, h = t1 + t2;
   const kappaPerK = dAlpha * timoKappaPerUnit(t1, t2, E1, E2);
   const kappa = z(kappaPerK * dT);
   const P = z((kappa * (E1 * t1 ** 3 + E2 * t2 ** 3)) / (6 * h));
+  const s1Outer = z(-P / t1 + (E1 * kappa * t1) / 2);
+  const s1Interface = z(-P / t1 - (E1 * kappa * t1) / 2);
+  const s2Interface = z(P / t2 + (E2 * kappa * t2) / 2);
+  const s2Outer = z(P / t2 - (E2 * kappa * t2) / 2);
+  if (!fin(kappa, kappaPerK, P, s1Outer, s1Interface, s2Interface, s2Outer)) return OVERFLOW;
   let tip: number | null = null, kappaL: number | null = null;
   if (length !== null) {
     kappaL = Math.abs(kappa) * length;
@@ -188,19 +209,14 @@ export function timoshenkoBilayer(inp: BilayerInput): BilayerResult | Fail {
       return {
         ok: false,
         error:
-          `Large deflection: κL = ${Number(kappaL.toPrecision(3))} rad exceeds ${BILAYER_MAX_KAPPA_L} rad, where the ` +
+          `Large deflection: κL = ${show(kappaL)} rad exceeds ${BILAYER_MAX_KAPPA_L} rad, where the ` +
           "small-deflection tip formula δ = κL²/2 is no longer accurate. Shorten L, or clear the length field for the curvature alone.",
       };
     }
     tip = z((kappa * length * length) / 2);
   }
   return {
-    ok: true, m, n, h, kappa, kappaPerK, P,
-    s1Outer: z(-P / t1 + (E1 * kappa * t1) / 2),
-    s1Interface: z(-P / t1 - (E1 * kappa * t1) / 2),
-    s2Interface: z(P / t2 + (E2 * kappa * t2) / 2),
-    s2Outer: z(P / t2 - (E2 * kappa * t2) / 2),
-    tip, kappaL,
+    ok: true, m, n, h, kappa, kappaPerK, P, s1Outer, s1Interface, s2Interface, s2Outer, tip, kappaL,
   };
 }
 
@@ -225,7 +241,7 @@ function checkStoney(s: StoneyInput): Fail | null {
     return {
       ok: false,
       error:
-        `Film not thin: the film/substrate thickness ratio ${Number((s.hf / s.hs).toPrecision(3))} exceeds ${STONEY_MAX_RATIO}, outside Stoney's ` +
+        `Film not thin: the film/substrate thickness ratio ${show(s.hf / s.hs)} exceeds ${STONEY_MAX_RATIO}, outside Stoney's ` +
         "thin-film validity (the film's own stiffness is neglected). Use the bilayer (Timoshenko) calculator for comparable thicknesses.",
     };
   }
@@ -240,7 +256,9 @@ export function stoneyFilmStress(s: StoneyInput, kappa: number): { ok: true; sig
   if (bad) return bad;
   if (!fin(kappa)) return { ok: false, error: "The curvature κ must be a finite number." };
   const factor = stoneyFactor(s);
-  return { ok: true, sigma: z(factor * kappa), factor };
+  const sigma = z(factor * kappa);
+  if (!fin(factor, sigma)) return OVERFLOW;
+  return { ok: true, sigma, factor };
 }
 
 export function stoneyCurvature(s: StoneyInput, sigma: number): { ok: true; kappa: number; factor: number } | Fail {
@@ -248,7 +266,9 @@ export function stoneyCurvature(s: StoneyInput, sigma: number): { ok: true; kapp
   if (bad) return bad;
   if (!fin(sigma)) return { ok: false, error: "The film stress must be a finite number." };
   const factor = stoneyFactor(s);
-  return { ok: true, kappa: z(sigma / factor), factor };
+  const kappa = z(sigma / factor);
+  if (!fin(factor, kappa) || factor === 0) return OVERFLOW;
+  return { ok: true, kappa, factor };
 }
 
 // ------------------------------------------------------------------ thermal shock
@@ -270,8 +290,11 @@ export function thermalShock(s: ShockInput): { ok: true; R: number; Rp: number |
   if (!fin(s.alpha) || s.alpha <= 0) {
     return { ok: false, error: "The expansion coefficient α must be positive: R = (strength)(1 − ν)/(Eα) has no meaning for α ≤ 0 (no thermal stress to resist)." };
   }
-  if (s.alpha > 1e-3) return { ok: false, error: `α = ${s.alpha} /K is above 10⁻³ /K, far beyond any solid; check its unit.` };
+  if (s.alpha > 1e-3) return { ok: false, error: `α = ${show(s.alpha)} /K is above 10⁻³ /K, far beyond any solid; check its unit.` };
   if (s.k !== null && (!fin(s.k) || s.k <= 0)) return { ok: false, error: "The thermal conductivity k must be positive." };
   const R = (s.sf * (1 - s.nu)) / (s.E * s.alpha);
-  return { ok: true, R, Rp: s.k === null ? null : s.k * R };
+  const Rp = s.k === null ? null : s.k * R;
+  // The figure draws to 1.6 R, so R must leave that headroom too.
+  if (!fin(R, 1.6 * R) || R === 0 || (Rp !== null && !fin(Rp))) return OVERFLOW;
+  return { ok: true, R, Rp };
 }

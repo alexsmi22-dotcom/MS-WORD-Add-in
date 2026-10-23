@@ -308,13 +308,30 @@ describe("adversarial inputs", () => {
     ["thermal-shock", { sf: "0 MPa" }, /must be positive/],
     ["thermal-shock", { k: "-3 W/(m·K)" }, /conductivity k must be positive/],
     ["thermal-shock", { nu: "-1" }, /outside isotropic linear elasticity/],
+    // Finite inputs whose answer overflows double precision: a named refusal, never "not finite MPa" or −∞ outputs.
+    ["thermal-restrained", { alpha: "1000", dT: "1e308 K" }, /overflow double precision/],
+    ["thermal-bilayer", { dAlpha: "1000", dT: "1e308 K" }, /overflow double precision/],
+    ["thermal-stoney", { kappa: "1e300 1/m" }, /overflow double precision/],
+    ["thermal-shock", { sf: "1e300 MPa", E: "1e-300 GPa" }, /overflow double precision/],
+    // Numbers echoed in a refusal are typeset: ×10ⁿ, never 1e+25.
+    ["thermal-restrained", { alpha: "1e25 1/K" }, /α = 1×10²⁵ \/K is above 10⁻³/],
+    ["thermal-restrained", { mode: "biaxial", nu: "1e25" }, /ν = 1×10²⁵ is at or above 0\.5/],
+    ["thermal-bilayer", { dAlpha: "2e7" }, /Δα = 20 \/K is above/],
   ] as [string, Record<string, string>, RegExp][])("%s %j is refused by name", (id, over, re) => {
     const base = id === "thermal-restrained" ? RESTRAINED : id === "thermal-bilayer" ? BI_EQUAL : id === "thermal-stoney" ? STONEY : SHOCK;
     const o = run(id, { ...base, ...over });
     expect(o.ok).toBe(false);
     expect(o.text).toMatch(re);
     // The user's own text, echoed in quotes, is theirs; everything this tool wrote must be clean.
-    expect(o.text.replace(/"[^"]*"/g, "")).not.toMatch(/NaN|Infinity|undefined|—/);
+    const own = o.text.replace(/"[^"]*"/g, "");
+    expect(own).not.toMatch(/NaN|Infinity|undefined|—|not finite/);
+    expect(own).not.toMatch(/\d[eE][+-]?\d/);
+  });
+  test("triaxial heating (hydrostatic compression) does not claim fracture or cavitation; triaxial cooling does", () => {
+    const hot = run("thermal-restrained", { ...RESTRAINED, mode: "triaxial", nu: "0.3", sy: "250 MPa" });
+    expect(hot.text).not.toMatch(/cavitation/);
+    const cold = run("thermal-restrained", { ...RESTRAINED, mode: "triaxial", nu: "0.3", sy: "250 MPa", dT: "-100 K" });
+    expect(cold.text).toMatch(/hydrostatic TENSION, brittle fracture or cavitation governs/);
   });
   test("huge and tiny but valid magnitudes stay finite and typeset", () => {
     const o = run("thermal-stoney", { ...STONEY, kappa: "1e-9 1/m" });

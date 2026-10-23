@@ -37,7 +37,7 @@ const SIMPLE: Record<string, string> = {
   land: "∧", wedge: "∧", lor: "∨", vee: "∨", oplus: "⊕", otimes: "⊗",
   // Calculus / misc
   partial: "∂", nabla: "∇", infty: "∞", prime: "′", circ: "∘", bullet: "•",
-  ldots: "…", cdots: "⋯", dots: "…", angle: "∠", hbar: "ℏ", ell: "ℓ", Re: "ℜ", Im: "ℑ",
+  ldots: "…", cdots: "⋯", dots: "…", angle: "∠", hbar: "ℏ", ell: "ℓ", Re: "ℜ", Im: "ℑ", dagger: "†",
   // Delimiters used bare (not inside \left…\right) — otherwise the fallback
   // would emit the literal command letters ("langle", "rfloor", …).
   langle: "⟨", rangle: "⟩", lfloor: "⌊", rfloor: "⌋", lceil: "⌈", rceil: "⌉",
@@ -341,6 +341,8 @@ const GLYPH_TO_LATEX: Record<string, string> = {
   "ℝ": "\\mathbb{R}", "ℤ": "\\mathbb{Z}", "ℕ": "\\mathbb{N}", "ℚ": "\\mathbb{Q}", "ℂ": "\\mathbb{C}",
   "∑": "\\sum", "∏": "\\prod", "∫": "\\int", "∮": "\\oint", "∬": "\\iint", "∭": "\\iiint",
   "∠": "\\angle", "ℏ": "\\hbar", "ℓ": "\\ell",
+  // The true minus the parser prints inside kets (|−1⟩) and the adjoint dagger (A†): LaTeX writes them - and \dagger.
+  "−": "-", "†": "\\dagger",
 };
 
 const DELIM_TO_LATEX: Record<string, string> = {
@@ -352,7 +354,11 @@ const ACC_TO_LATEX: Record<string, string> = { "̄": "\\bar", "̂": "\\hat", "�
 
 function glyphsToLatex(s: string): string {
   let out = "";
-  for (const ch of s) out += GLYPH_TO_LATEX[ch] ? GLYPH_TO_LATEX[ch] + " " : ch;
+  // A control word needs a space after it (\alpha x); a plain character ("-" for −) does not.
+  for (const ch of s) {
+    const g = GLYPH_TO_LATEX[ch];
+    out += g ? (g.startsWith("\\") ? g + " " : g) : ch;
+  }
   return out.trim();
 }
 

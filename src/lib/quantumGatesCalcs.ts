@@ -14,6 +14,7 @@ import type { EngCalcDef } from "./engCalc";
 import { engReport, type EngLine } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput, EngOutput } from "./analyzeBlocks";
 import { trueMinus } from "./numberList";
+import { toSuperscript } from "./units";
 import { readDataBlock } from "./dataBlock";
 import { buildPlotSvg } from "./plot";
 import { BELL_STATES, pureTwoQubit } from "./quantum";
@@ -73,7 +74,7 @@ import {
   type Circuit,
   type GateSpec,
 } from "./quantumCircuits";
-import { blochSphereSvg, circuitDiagramSvg, probabilityBarsSvg } from "./quantumCharts";
+import { blochSphereSvg, circuitDiagramPages, probabilityBarsSvg } from "./quantumCharts";
 
 type QCalc = EngCalcDef<"Quantum computing">;
 
@@ -86,6 +87,14 @@ const plot = (svg: string, caption: string, alt: string): AnalyzeBlock => {
   const h = Number(/^<svg[^>]*\sheight="([\d.]+)"/.exec(svg)?.[1] ?? 290);
   return { kind: "plot", svg, caption, alt, w, h };
 };
+
+/** A circuit drawn as page-sized figures (circuitDiagramPages); a multi-page circuit's captions say "part i of k". */
+const circuitPlots = (pages: string[], caption: string, alt: string): AnalyzeBlock[] =>
+  pages.map((svg, i) =>
+    pages.length === 1
+      ? plot(svg, caption, alt)
+      : plot(svg, caption.replace(/\.?$/, ` (part ${i + 1} of ${pages.length}).`), `${alt} Part ${i + 1} of ${pages.length}.`),
+  );
 
 function finish(lines: EngLine[], extra: AnalyzeBlock[], outputs: EngOutput[]): AnalyzeOutput {
   const out = engReport(lines.map((l) => (typeof l === "string" ? trueMinus(l.replace(/—/g, ";")) : l)), extra);
@@ -405,7 +414,7 @@ const circuitCalc: QCalc = {
         }
       }
     }
-    extra.push(plot(circuitDiagramSvg(circ, { initial: init }), `Circuit diagram (${n} qubit${n > 1 ? "s" : ""}, time left to right).`, `Quantum circuit on ${n} qubits with ${pc.ops.length} operations.`));
+    extra.push(...circuitPlots(circuitDiagramPages(circ, { initial: init }), `Circuit diagram (${n} qubit${n > 1 ? "s" : ""}, time left to right).`, `Quantum circuit on ${n} qubits with ${pc.ops.length} operations.`));
     extra.push(plot(probabilityBarsSvg(probs, n), "Measurement probabilities of the final state, all qubits (big-endian outcomes).", "Bar chart of outcome probabilities."));
     return finish(lines, extra, outputs);
   },
@@ -487,7 +496,7 @@ const interferenceCalc: QCalc = {
     lines.push(`Final state: ${st.text}${st.globalPhase ? ` (global phase ${st.globalPhase.text} factored out)` : ""}; P(0) = ${fmtReal(p0).text}, P(1) = ${fmtReal(1 - p0).text}.`);
     if (st.math) lines.push({ math: `ket(ψ) = ${st.math}`, fallback: `|ψ⟩ = ${st.text}` });
     extra.unshift(table("Outcome", [["Outcome", "Probability"], ["|0⟩", fmtReal(p0).text], ["|1⟩", fmtReal(1 - p0).text]]));
-    extra.push(plot(circuitDiagramSvg(circ), "The circuit (one qubit from |0⟩).", "One-qubit interference circuit."));
+    extra.push(...circuitPlots(circuitDiagramPages(circ), "The circuit (one qubit from |0⟩).", "One-qubit interference circuit."));
     return finish(lines, extra, outputs);
   },
 };
@@ -539,11 +548,33 @@ const bellCalc: QCalc = {
     lines.push("Every output is maximally entangled (concurrence 1; each qubit alone is maximally mixed, purity ½).");
     const extra: AnalyzeBlock[] = [table("Bell states", rows)];
     const ins = which === "all" ? ["|x⟩", "|y⟩"] : [`|${which[0]}⟩`, `|${which[1]}⟩`];
-    extra.push(plot(circuitDiagramSvg(bellCircuit(ins)), "Bell-state preparation: H then CNOT.", "Two-qubit circuit: Hadamard on q0, CNOT from q0 to q1."));
+    extra.push(...circuitPlots(circuitDiagramPages(bellCircuit(ins)), "Bell-state preparation: H then CNOT.", "Two-qubit circuit: Hadamard on q0, CNOT from q0 to q1."));
     if (which !== "all") extra.push(plot(probabilityBarsSvg(probabilities(last), 2), `Measurement probabilities of |${BELL_NAMES[inputs[0]]}⟩.`, "Bar chart of outcome probabilities."));
     return finish(lines, extra, outputs);
   },
 };
+
+/**
+ * x² for a finite x > 0, printed even where the square under- or overflows a double (10⁻²⁰⁰ amplitudes have
+ * |α|² + |β|² = 2×10⁻⁴⁰⁰): the mantissa and power of ten come from 2·log₁₀ x.
+ */
+function squareText(x: number): string {
+  return powerText(x, 2);
+}
+
+/** x^p for a finite x > 0 (p = 1 or 2), without trimNum's zero cut-off or a double's range. */
+function powerText(x: number, p: number): string {
+  const v = Math.pow(x, p);
+  if (v > 1e-12 && v < 1e300) return trimNum(v, 6);
+  const e = p * Math.log10(x);
+  let ex = Math.floor(e);
+  let m = Math.pow(10, e - ex);
+  if (Number(trimNum(m, 6)) >= 10) {
+    m /= 10;
+    ex += 1;
+  }
+  return `${trimNum(m, 6)}×10${toSuperscript(String(ex))}`;
+}
 
 const teleportCalc: QCalc = {
   id: "qc-teleport",
@@ -565,7 +596,7 @@ const teleportCalc: QCalc = {
     const nz = normalise([a, b]);
     if (!nz) return refuse("α and β are both zero: there is no state to teleport.");
     const lines: EngLine[] = [ORDER_NOTE];
-    if (Math.abs(nz.norm2 - 1) > 1e-9) lines.push(`|α|² + |β|² = ${trimNum(nz.norm2, 6)}, not 1: the state was normalised (divided by ${fmtReal(Math.sqrt(nz.norm2)).text}).`);
+    if (Math.abs(nz.norm2 - 1) > 1e-9) lines.push(`|α|² + |β|² = ${squareText(nz.norm)}, not 1: the state was normalised (divided by ${nz.norm > 1e-12 && nz.norm < 1e12 ? fmtReal(nz.norm).text : powerText(nz.norm, 1)}).`);
     const psi: [Cx, Cx] = [nz.state[0], nz.state[1]];
     const t = teleport(psi);
     const ps = fmtState(psi, 1);
@@ -598,7 +629,7 @@ const teleportCalc: QCalc = {
     );
     lines.push("Nothing travels faster than light: until Bob receives Alice's two classical bits his qubit is maximally mixed (ρ = I/2) whatever |ψ⟩ is.");
     const extra: AnalyzeBlock[] = [table("The four outcomes", rows)];
-    extra.push(plot(circuitDiagramSvg(t.circuit), "Teleportation circuit: Bell pair, Alice's CNOT and H, her measurements, and Bob's corrections controlled by her classical bits (double lines).", "Three-qubit teleportation circuit."));
+    extra.push(...circuitPlots(circuitDiagramPages(t.circuit), "Teleportation circuit: Bell pair, Alice's CNOT and H, her measurements, and Bob's corrections controlled by her classical bits (double lines).", "Three-qubit teleportation circuit."));
     return finish(lines, extra, outputs);
   },
 };
@@ -651,7 +682,7 @@ const superdenseCalc: QCalc = {
       const sd = superdense(0, 0);
       circ = { n: 2, ops: [sd.circuit.ops[0], sd.circuit.ops[1], { kind: "block", label: "Encode", qubits: [0], ops: [] }, ...sd.circuit.ops.slice(2)] };
     } else circ = superdense((list[0] >> 1) as 0 | 1, (list[0] & 1) as 0 | 1).circuit;
-    extra.push(plot(circuitDiagramSvg(circ), bits === "all" ? "Superdense coding: share Φ⁺, Alice encodes (X if b₂ = 1, then Z if b₁ = 1), Bob decodes with CNOT and H." : `Superdense coding of the bits ${bits}.`, "Two-qubit superdense coding circuit."));
+    extra.push(...circuitPlots(circuitDiagramPages(circ), bits === "all" ? "Superdense coding: share Φ⁺, Alice encodes (X if b₂ = 1, then Z if b₁ = 1), Bob decodes with CNOT and H." : `Superdense coding of the bits ${bits}.`, "Two-qubit superdense coding circuit."));
     return finish(lines, extra, outputs);
   },
 };
@@ -710,7 +741,7 @@ const djCalc: QCalc = {
     const outputs: EngOutput[] = [{ key: "pZero", label: "P(inputs all 0)", value: dj.pZero, unit: "" }, { key: "constant", label: "Constant (1) or balanced (0)", value: constant ? 1 : 0, unit: "" }];
     const rows = [["x", "f(x)"], ...f.map((v, x) => [ketLabel(x, n), String(v)])];
     const extra: AnalyzeBlock[] = [table("Oracle truth table", rows)];
-    extra.push(plot(circuitDiagramSvg(dj.circuit), `Deutsch–Jozsa circuit, n = ${n}: one query to the oracle U_f.`, "Deutsch–Jozsa circuit with an oracle block."));
+    extra.push(...circuitPlots(circuitDiagramPages(dj.circuit), `Deutsch–Jozsa circuit, n = ${n}: one query to the oracle U_f.`, "Deutsch–Jozsa circuit with an oracle block."));
     const inputs = Array.from({ length: n }, (_, q) => q);
     extra.push(plot(probabilityBarsSvg(marginal(dj.final, n + 1, inputs), n, { qubits: inputs }), "Measurement probabilities of the input register.", "Bar chart of the input-register outcomes."));
     return finish(lines, extra, outputs);
@@ -762,7 +793,7 @@ const groverCalc: QCalc = {
     if (k > opt) lines.push("More iterations than optimal rotate past the marked state: the success probability falls again.");
     const outputs: EngOutput[] = [{ key: "pMarked", label: "P(marked)", value: pk, unit: "" }, { key: "iterations", label: "Iterations", value: k, unit: "" }, { key: "optimal", label: "Optimal iterations", value: opt, unit: "" }];
     const extra: AnalyzeBlock[] = [table("Success probability per iteration", rows)];
-    extra.push(plot(circuitDiagramSvg(g.circuit), `Grover circuit, n = ${n}, ${k} iteration${k === 1 ? "" : "s"} (oracle then diffuser).`, "Grover search circuit."));
+    extra.push(...circuitPlots(circuitDiagramPages(g.circuit), `Grover circuit, n = ${n}, ${k} iteration${k === 1 ? "" : "s"} (oracle then diffuser).`, "Grover search circuit."));
     extra.push(plot(probabilityBarsSvg(probabilities(g.final), n), `Measurement probabilities after ${k} iteration${k === 1 ? "" : "s"}.`, "Bar chart of outcome probabilities."));
     return finish(lines, extra, outputs);
   },
@@ -828,7 +859,7 @@ const qftCalc: QCalc = {
       outputs.push({ key: `im_${ketLabel(k, n)}`, label: `Im ⟨${ketLabel(k, n)}|ψ⟩`, value: z.im, unit: "" });
     });
     const extra: AnalyzeBlock[] = [table("QFT output", ot.rows)];
-    extra.push(plot(circuitDiagramSvg(circ, { initial: /^[01]+$/.test(bits) && bits.length === n ? parseInt(bits, 2) : 0 }), `QFT circuit on ${n} qubits: H, controlled R_k = P(2π/2ᵏ), then swaps.`.replace("R_k", "Rₖ"), "Quantum Fourier transform circuit."));
+    extra.push(...circuitPlots(circuitDiagramPages(circ, { initial: /^[01]+$/.test(bits) && bits.length === n ? parseInt(bits, 2) : 0 }), `QFT circuit on ${n} qubits: H, controlled R_k = P(2π/2ᵏ), then swaps.`.replace("R_k", "Rₖ"), "Quantum Fourier transform circuit."));
     extra.push(plot(probabilityBarsSvg(probabilities(fin), n), "Measurement probabilities of the QFT output.", "Bar chart of outcome probabilities."));
     return finish(lines, extra, outputs);
   },

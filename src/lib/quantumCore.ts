@@ -179,7 +179,7 @@ export function basisState(n: number, index: number): State {
 export const stateNorm2 = (s: State): number => s.reduce((t, z) => t + cAbs2(z), 0);
 
 /** The state divided by its norm; null for a zero or non-finite vector. */
-export function normalise(s: State): { state: State; norm2: number } | null {
+export function normalise(s: State): { state: State; norm2: number; norm: number } | null {
   if (!s.every(finiteCx)) return null;
   // Scaled by the largest modulus first, so 10⁻²⁰⁰|0⟩ + 10⁻²⁰⁰|1⟩ neither underflows to zero nor 10²⁰⁰ overflows.
   const big = Math.max(...s.map(cAbs));
@@ -187,7 +187,9 @@ export function normalise(s: State): { state: State; norm2: number } | null {
   const t = s.map((z) => cScale(z, 1 / big));
   const n2t = stateNorm2(t);
   const k = 1 / Math.sqrt(n2t);
-  return { state: t.map((z) => cScale(z, k)), norm2: n2t * big * big };
+  // norm2 itself can under- or overflow (10⁻²⁰⁰ amplitudes give 2×10⁻⁴⁰⁰ = 0 in a double); `norm` = √n2t·big cannot
+  // while the amplitudes are finite, and is what a caller should print or divide by.
+  return { state: t.map((z) => cScale(z, k)), norm2: n2t * big * big, norm: Math.sqrt(n2t) * big };
 }
 
 /**

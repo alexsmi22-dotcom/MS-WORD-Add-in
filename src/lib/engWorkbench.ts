@@ -52,7 +52,7 @@ export const ENG_HANDOFFS: EngHandoff[] = [
   // Energy and power.
   { from: "energy-solar", output: "Eyear", to: "energy-lcoe", field: "e", label: "Use the annual energy in LCOE" },
   { from: "energy-three-phase", output: "P", to: "energy-pf-correction", field: "p", label: "Use P in Power factor correction" },
-  { from: "energy-three-phase", output: "pf", to: "energy-pf-correction", field: "pf1", label: "Use the power factor in Power factor correction", unit: "" },
+  { from: "energy-three-phase", output: "PF", to: "energy-pf-correction", field: "pf1", label: "Use the power factor in Power factor correction", unit: "" },
 ];
 
 /** The handoffs a result offers: its tool's rows whose output it actually produced. */

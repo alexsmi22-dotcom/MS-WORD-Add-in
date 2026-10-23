@@ -47,7 +47,8 @@ import {
 } from "../lib/spectroPane";
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
-import { EngLine, engReport, plainDashes } from "../lib/engReport";
+import { EngLine, EngReportLine, engReport, plainDashes } from "../lib/engReport";
+import { engEq } from "../lib/engEquations";
 import { carryOver, fieldText, handoffsFor, runSweep, runUncertainty, splitValue, sweepReport, uncertaintyReport, type UncertainInput } from "../lib/engWorkbench";
 import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
 import {
@@ -13502,7 +13503,7 @@ const ENG_CALCS: EngCalc[] = [
         { key: "I", label: "Second moment of area (bending axis)", value: p.I * Math.pow(toMOut, 4), unit: "m⁴" },
       ];
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(`${p.name}, section properties`);
       lines.push(`Area A = ${engNum(p.A, figs)} ${dimUnit}^2`);
       lines.push(`Second moment I = ${engNum(p.I, figs)} ${dimUnit}^4`);
@@ -13570,9 +13571,11 @@ const ENG_CALCS: EngCalc[] = [
           if (mQ) secOutputs.push({ key: "sigma", label: "Peak bending stress", value: sigmaSi / 1e6, unit: "MPa" });
           if (vQ) secOutputs.push({ key: "tau", label: "Shear stress at the neutral axis", value: tauSi / 1e6, unit: "MPa" });
           lines.push("");
+          if (mQ) lines.push(...engEq("section:sigma"));
+          if (vQ) lines.push(...engEq("section:tau"));
           if (mQ) {
             lines.push(
-              `Peak bending stress = ${engNum(sigmaSi / 1e6, figs)} MPa at the ${fibre} fibre` +
+              `Peak bending stress =${engNum(sigmaSi / 1e6, figs)} MPa at the ${fibre} fibre` +
                 ` (${engNum(sigmaSi, figs)} Pa)`,
             );
             if ((mQ as { assumed: boolean }).assumed)
@@ -13831,7 +13834,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = analyzeStress(state);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("stress"), ...(res.plane ? engEq("stress:plane") : [])];
       lines.push(res.plane ? "Plane stress state" : "General three-dimensional stress state");
       lines.push("");
       lines.push("Principal stresses");
@@ -13937,7 +13940,16 @@ const ENG_CALCS: EngCalc[] = [
               },
             ]
           : [];
-      return engReport(lines, blocks);
+      // Named outputs (Release E): in the stress unit typed (this tool reads one consistent unit, so no unit is named).
+      return withOutputs(
+        [
+          { key: "sigma1", label: "Principal stress σ₁", value: res.principal[0], unit: "" },
+          { key: "sigma3", label: "Principal stress σ₃", value: res.principal[2], unit: "" },
+          { key: "vonMises", label: "von Mises stress", value: res.vonMises, unit: "" },
+          { key: "tauMax", label: "Absolute maximum shear", value: res.tauAbsMax, unit: "" },
+        ],
+        engReport(lines, blocks),
+      );
     },
   },
   {
@@ -13975,28 +13987,29 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
       const fu = r("unit").trim();
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [];
       lines.push(
         `Planar truss: ${res.counts.joints} joints, ${res.counts.members} members, ` +
           `${res.counts.reactions} reaction components`,
       );
       lines.push(res.determinacy);
       lines.push("");
-      lines.push("Member forces (positive = tension)");
+      // Release E: the member and reaction lists are real tables. An exact answer keeps its fraction column, because
+      // the fraction is what a textbook quotes and what a student is checking.
+      const fHead = fu ? `Force (${fu})` : "Force";
+      const memberRows: string[][] = [["Member", fHead, "Exact", "State", "Length"]];
       for (const m of res.members) {
-        // An exact answer is shown as a fraction as well as a decimal, because
-        // the fraction is what a textbook quotes and what a student is checking.
-        const exact =
-          m.exact && m.exact.d !== 1n ? ` = ${m.exact.n}/${m.exact.d}` : "";
+        const exact = m.exact && m.exact.d !== 1n ? `${m.exact.n}/${m.exact.d}` : "";
         const tag = m.state === "zero" ? "zero force" : m.state;
-        lines.push(`  ${m.a}-${m.b}: ${engNum(m.force)}${exact} ${fu} (${tag}), length ${engNum(m.length)}`);
+        memberRows.push([`${m.a}-${m.b}`, engNum(m.force), exact, tag, engNum(m.length)]);
       }
+      lines.push({ table: memberRows, label: "Member forces (positive = tension)" });
       lines.push("");
-      lines.push("Reactions");
+      const reactionRows: string[][] = [["Joint", "Direction", fHead, "Exact"]];
       for (const v of res.reactions) {
-        const exact = v.exact.d !== 1n ? ` = ${v.exact.n}/${v.exact.d}` : "";
-        lines.push(`  ${v.joint} ${v.dir}: ${engNum(v.value)}${exact} ${fu}`);
+        reactionRows.push([v.joint, v.dir, engNum(v.value), v.exact.d !== 1n ? `${v.exact.n}/${v.exact.d}` : ""]);
       }
+      lines.push({ table: reactionRows, label: "Reactions" });
       if (res.maxTension || res.maxCompression) {
         lines.push("");
         if (res.maxTension)
@@ -14019,19 +14032,25 @@ const ENG_CALCS: EngCalc[] = [
       // The truss drawn in its own geometry, members coloured by what they
       // carry. Zero-force members are the reason: they look structurally
       // essential and carry nothing, and a list of names does not show that.
-      return engReport(lines, [
-        {
-          kind: "plot",
-          svg: trussSvg(
-            parsed.input.joints.map((j) => ({ name: j.name, x: ratNum(j.x), y: ratNum(j.y) })),
-            res.members.map((m) => ({ a: m.a, b: m.b, force: m.force })),
-          ),
-          caption: "Truss member forces",
-          alt: "Truss geometry with members coloured by tension, compression or zero force",
-          w: TRUSS_CHART_SIZE.w,
-          h: TRUSS_CHART_SIZE.h,
-        },
-      ]);
+      return withOutputs(
+        [
+          { key: "maxTension", label: "Largest tension", value: res.maxTension?.force ?? NaN, unit: fu },
+          { key: "maxCompression", label: "Largest compression", value: res.maxCompression?.force ?? NaN, unit: fu },
+        ],
+        engReport(lines, [
+          {
+            kind: "plot",
+            svg: trussSvg(
+              parsed.input.joints.map((j) => ({ name: j.name, x: ratNum(j.x), y: ratNum(j.y) })),
+              res.members.map((m) => ({ a: m.a, b: m.b, force: m.force })),
+            ),
+            caption: "Truss member forces",
+            alt: "Truss geometry with members coloured by tension, compression or zero force",
+            w: TRUSS_CHART_SIZE.w,
+            h: TRUSS_CHART_SIZE.h,
+          },
+        ]),
+      );
     },
   },
   {
@@ -14172,7 +14191,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("column"), ...(res.slendernessTransition !== null ? engEq("column:johnson") : [])];
       lines.push("Column buckling");
       if (sectionNote) lines.push(`Note: ${sectionNote}`);
       lines.push(`Effective length factor K = ${engNum(res.K, figs)}, effective length = ${engNum(res.Le, figs)} m`);
@@ -14202,7 +14221,11 @@ const ENG_CALCS: EngCalc[] = [
       // The two curves and where this column sits on them. Drawn because the
       // reason the Johnson parabola exists is invisible in a table and obvious
       // in a picture: Euler runs off to infinity as the column gets stumpy.
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Pcr", label: "Governing critical load", value: res.pCritical, unit: "N" },
+        { key: "Peuler", label: "Euler critical load", value: res.pEuler, unit: "N" },
+        { key: "slenderness", label: "Slenderness ratio Le/r", value: res.slenderness, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg: columnCurveSvg({
@@ -14217,7 +14240,7 @@ const ENG_CALCS: EngCalc[] = [
           w: COLUMN_CHART_SIZE.w,
           h: COLUMN_CHART_SIZE.h,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -14250,7 +14273,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("torsion"), ...(res.twistRad !== null ? engEq("torsion:twist") : [])];
       lines.push("Torsion of a circular shaft");
       lines.push(`Polar second moment J = ${engNum(res.J, figs)} m^4`);
       lines.push(`Peak shear stress at the surface = ${engNum(res.tauMax / 1e6, figs)} MPa (${engNum(res.tauMax, figs)} Pa)`);
@@ -14267,7 +14290,11 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(ENG_UNIT_NOTE);
       // Shear against radius. Linear from zero at the axis, which is the whole
       // argument for a hollow shaft and is one glance in a picture.
-      return engReport(lines, [
+      return withOutputs([
+        { key: "tauMax", label: "Peak shear stress", value: res.tauMax / 1e6, unit: "MPa" },
+        { key: "twist", label: "Angle of twist", value: res.twistRad !== null ? (res.twistDeg as number) : NaN, unit: "°" },
+        { key: "J", label: "Polar second moment J", value: res.J, unit: "m⁴" },
+      ], engReport(lines, [
         {
           kind: "plot",
           // Millimetres, not metres. The radius labels format to one decimal
@@ -14279,7 +14306,7 @@ const ENG_CALCS: EngCalc[] = [
           w: TORSION_CHART_SIZE.w,
           h: TORSION_CHART_SIZE.h,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -14308,26 +14335,38 @@ const ENG_CALCS: EngCalc[] = [
       const res = analyzeFrame(p.model);
       if (!res.ok) return { text: engRefusal(res.errors.join("\n")), ok: false };
       const [fu = "kN", lu = "m"] = (r("unit") || "kN,m").split(",").map((s) => s.trim());
-      const lines: string[] = [`Plane frame: ${res.model.nodes.length} nodes, ${res.model.members.length} members (direct stiffness, Euler–Bernoulli members).`];
-      lines.push("Displacements (u, v, θ):");
-      res.model.nodes.forEach((n, i) => lines.push(`  ${n.id}: u = ${engNum(res.disp[i][0])} ${lu}, v = ${engNum(res.disp[i][1])} ${lu}, θ = ${engNum(res.disp[i][2])} rad`));
-      lines.push("Reactions (Rx, Ry, M):");
-      for (const [ni, rr] of res.reactions) lines.push(`  ${res.model.nodes[ni].id}: Rx = ${engNum(rr[0])} ${fu}, Ry = ${engNum(rr[1])} ${fu}, M = ${engNum(rr[2])} ${fu}·${lu}`);
-      lines.push("Members (axial force, tension positive; largest bending moment, sagging positive):");
-      for (const m of res.members) lines.push(`  ${m.id}: N = ${engNum(m.axial)} ${fu}, largest M = ${engNum(m.maxMoment.M)} ${fu}·${lu} at ${engNum(m.maxMoment.x)} ${lu} from its first node`);
+      const lines: EngReportLine[] = [`Plane frame: ${res.model.nodes.length} nodes, ${res.model.members.length} members (direct stiffness, Euler–Bernoulli members).`];
+      // Release E: the three lists are real tables (units in the header cells).
+      lines.push({
+        label: "Displacements (u, v, θ)",
+        table: [["Node", `u (${lu})`, `v (${lu})`, "θ (rad)"], ...res.model.nodes.map((n, i) => [n.id, engNum(res.disp[i][0]), engNum(res.disp[i][1]), engNum(res.disp[i][2])])],
+      });
+      lines.push({
+        label: "Reactions (Rx, Ry, M)",
+        table: [["Node", `Rx (${fu})`, `Ry (${fu})`, `M (${fu}·${lu})`], ...[...res.reactions].map(([ni, rr]) => [res.model.nodes[ni].id, engNum(rr[0]), engNum(rr[1]), engNum(rr[2])])],
+      });
+      lines.push({
+        label: "Members (axial force, tension positive; largest bending moment, sagging positive)",
+        table: [
+          ["Member", `N (${fu})`, `Largest M (${fu}·${lu})`, `at x (${lu}) from its first node`],
+          ...res.members.map((m) => [m.id, engNum(m.axial), engNum(m.maxMoment.M), engNum(m.maxMoment.x)]),
+        ],
+      });
       lines.push(`Equilibrium check: residual ${res.residual.toExponential(1)} of the largest load.`);
       for (const n of res.notes) lines.push(`Note: ${n}`);
       const svg = frameChartSvg(res, { force: fu, length: lu });
       const size = svgRootSize(svg, FRAME_CHART_SIZE.width, FRAME_CHART_SIZE.height);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return {
-        text: clean.join("\n"),
-        blocks: [
-          ...clean.map((t) => ({ kind: "line" as const, text: t })),
-          { kind: "plot" as const, svg, caption: "Frame, deflected shape and bending moment", alt: `Plane frame of ${res.model.members.length} members with its deflected shape and bending moment diagram`, w: size.w, h: size.h },
-        ],
-      };
+      // Named outputs (Release E): the members' largest bending moment and axial force (by size, sign kept), and the
+      // largest nodal translation, in the frame's own units.
+      const peakBy = (vals: number[]): number => vals.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
+      return withOutputs([
+        { key: "Mpeak", label: "Largest member bending moment", value: peakBy(res.members.map((m) => m.maxMoment.M)), unit: fu + "·" + lu },
+        { key: "Npeak", label: "Largest member axial force", value: peakBy(res.members.map((m) => m.axial)), unit: fu },
+        { key: "dmax", label: "Largest nodal translation", value: Math.max(0, ...res.disp.map((d) => Math.hypot(d[0], d[1]))), unit: lu },
+      ], engReport(lines, [
+        { kind: "plot" as const, svg, caption: "Frame, deflected shape and bending moment", alt: `Plane frame of ${res.model.members.length} members with its deflected shape and bending moment diagram`, w: size.w, h: size.h },
+      ]));
     },
   },
   {
@@ -14362,10 +14401,13 @@ const ENG_CALCS: EngCalc[] = [
       const size = svgRootSize(svg, PLATE_CHART_WIDTH, 300);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
       const clean = lines.map(plainDashes);
-      return {
+      return withOutputs([
+        { key: "maxVM", label: "Largest von Mises stress", value: res.maxVM.value, unit: u },
+        { key: "maxDisp", label: "Largest displacement", value: res.maxDisp.value, unit: "" },
+      ], {
         text: clean.join("\n"),
         blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "von Mises stress on the deformed plate", alt: "Plane-stress plate coloured by von Mises stress", w: size.w, h: size.h }],
-      };
+      });
     },
   },
   {
@@ -24039,7 +24081,7 @@ const ENG_CALCS: EngCalc[] = [
 
       // The power triangle, at one scale on both axes so φ reads as the
       // angle whose cosine is the power factor — which is the entire figure.
-      return withOutputs([{ key: "P", label: "Real power", value: res.realPowerW, unit: "W" }, { key: "pf", label: "Power factor", value: pf, unit: "" }], engReport(lines, [
+      return withOutputs([{ key: "P", label: "Real power", value: res.realPowerW, unit: "W" }, { key: "PF", label: "Power factor", value: pf, unit: "" }], engReport(lines, [
         {
           kind: "plot",
           svg: powerTriangleSvg(res.realPowerW / 1000, res.reactivePowerVAR / 1000, res.apparentPowerVA / 1000, pf),

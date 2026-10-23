@@ -437,6 +437,127 @@ function ulpOf(a: number): number {
   return Math.max(Math.pow(2, unbiased - 52), Number.MIN_VALUE);
 }
 
+// ---------------------------------------------------------------------------
+// Binary floating-point formats (Release E, AI compute): one descriptor per
+// format, so the double and the low-precision formats share ONE rounding rule.
+// ---------------------------------------------------------------------------
+
+export type FloatFormatId = "fp64" | "fp32" | "fp16" | "bf16" | "e4m3fn" | "e5m2";
+
+export interface FloatFormat {
+  id: FloatFormatId;
+  /** Display name. */
+  label: string;
+  /** Storage bits (sign + exponent + stored mantissa). */
+  bits: number;
+  /** Stored mantissa (fraction) bits; machine epsilon is 2^−nmant. */
+  nmant: number;
+  /** Exponent bits. */
+  nexp: number;
+  /** Exponent of the smallest normal number, 2^minExp. */
+  minExp: number;
+  /**
+   * The largest finite value — a FIELD, not derived from the exponent width: E4M3fn spends its top code on NaN only,
+   * so its maximum is 1.75·2⁸ = 448, not (2 − 2⁻³)·2⁸ = 480.
+   */
+  max: number;
+  /** What a round-to-nearest conversion past the range gives: ±∞ (IEEE-style), or NaN (E4M3fn has no infinity). */
+  overflow: "inf" | "nan";
+}
+
+/**
+ * The formats. Parameters are the formats' own definitions (IEEE 754-2008 binary64/32/16; bfloat16 = the binary32
+ * exponent with 7 stored mantissa bits; the OCP 8-bit floating point specification's E4M3 ("fn": finite, NaN only) and
+ * E5M2 (IEEE-style, with infinities)); every derived constant agrees with ml_dtypes.finfo (test comment).
+ */
+export const FLOAT_FORMATS: Record<FloatFormatId, FloatFormat> = {
+  fp64: { id: "fp64", label: "fp64 (binary64)", bits: 64, nmant: 52, nexp: 11, minExp: -1022, max: Number.MAX_VALUE, overflow: "inf" },
+  fp32: { id: "fp32", label: "fp32 (binary32)", bits: 32, nmant: 23, nexp: 8, minExp: -126, max: (2 - Math.pow(2, -23)) * Math.pow(2, 127), overflow: "inf" },
+  fp16: { id: "fp16", label: "fp16 (binary16)", bits: 16, nmant: 10, nexp: 5, minExp: -14, max: 65504, overflow: "inf" },
+  bf16: { id: "bf16", label: "bf16 (bfloat16)", bits: 16, nmant: 7, nexp: 8, minExp: -126, max: (2 - Math.pow(2, -7)) * Math.pow(2, 127), overflow: "inf" },
+  e4m3fn: { id: "e4m3fn", label: "fp8 E4M3 (fn)", bits: 8, nmant: 3, nexp: 4, minExp: -6, max: 448, overflow: "nan" },
+  e5m2: { id: "e5m2", label: "fp8 E5M2", bits: 8, nmant: 2, nexp: 5, minExp: -14, max: 57344, overflow: "inf" },
+};
+
+/** Unbiased binary exponent of a positive NORMAL double, read from its bit pattern (never Math.log2; see ulpOf). */
+function exponentOf(a: number): number {
+  const buf = new DataView(new ArrayBuffer(8));
+  buf.setFloat64(0, a);
+  return ((buf.getUint32(0) >>> 20) & 0x7ff) - 1023;
+}
+
+/** Machine epsilon 2^−nmant, smallest normal 2^minExp, smallest subnormal 2^(minExp − nmant). */
+export function formatConstants(f: FloatFormat): { epsilon: number; smallestNormal: number; smallestSubnormal: number; max: number } {
+  return { epsilon: Math.pow(2, -f.nmant), smallestNormal: Math.pow(2, f.minExp), smallestSubnormal: Math.pow(2, f.minExp - f.nmant), max: f.max };
+}
+
+/** Spacing between representable values of the format at magnitude |a| (the gap above it; constant in the subnormal range). */
+export function formatUlp(a: number, f: FloatFormat): number {
+  const m = Math.abs(a);
+  if (f.id === "fp64") return ulpOf(m);
+  const sub = Math.pow(2, f.minExp - f.nmant);
+  if (m < Math.pow(2, f.minExp)) return sub;
+  return Math.pow(2, exponentOf(m) - f.nmant);
+}
+
+export interface FormatRounding {
+  /** The nearest representable value (round to nearest, ties to even), or null when the conversion overflows. */
+  value: number | null;
+  /** True when |x| rounds past the largest finite value. */
+  overflow: boolean;
+  /** True when a non-zero x rounds to zero. */
+  underflow: boolean;
+  /** True when x lies exactly halfway between two representable values (ties to even decided). */
+  tie: boolean;
+  /** The representable values bracketing x (equal to x when it is representable); null past the finite range. */
+  below: number | null;
+  above: number | null;
+}
+
+/**
+ * Rounds a double to the format, round-to-nearest ties-to-even, in ONE step from the double (no detour through fp32:
+ * ml_dtypes converts double→bf16 through fp32 and double-rounds 1 + 2⁻⁸ + 2⁻³⁰ to 1; the single rounding is 1.0078125).
+ * The quantum comes from the exponent field, clamped to the subnormal spacing below the smallest normal. fp64 is the
+ * identity: the typed decimal was already rounded to a double when it was read.
+ */
+export function roundToFormat(x: number, f: FloatFormat): FormatRounding | null {
+  if (!Number.isFinite(x)) return null;
+  if (f.id === "fp64" || x === 0) return { value: x, overflow: false, underflow: false, tie: false, below: x, above: x };
+  const s = x < 0 ? -1 : 1;
+  const a = Math.abs(x);
+  let lo: number, hi: number, r: number, tie = false;
+  if (a < Math.pow(2, -1022)) {
+    // A subnormal double: far below every format's smallest subnormal (2⁻¹⁴⁹ at the least), so it rounds to zero.
+    lo = 0; hi = Math.pow(2, f.minExp - f.nmant); r = 0;
+  } else {
+    const q = Math.pow(2, Math.max(exponentOf(a), f.minExp) - f.nmant);
+    const k = a / q; // exact: a power-of-two scaling
+    const n = Math.floor(k);
+    const frac = k - n; // exact: k < 2^54
+    lo = n * q;
+    hi = frac === 0 ? lo : (n + 1) * q;
+    if (frac > 0.5) r = hi;
+    else if (frac < 0.5) r = lo;
+    else {
+      tie = true;
+      r = n % 2 === 0 ? lo : hi;
+    }
+  }
+  const overflow = r > f.max;
+  const below = lo > f.max ? f.max : lo;
+  const above = hi > f.max ? null : hi;
+  const sb = s > 0 ? below : above === null ? null : -above;
+  const sa = s > 0 ? above : -below;
+  return {
+    value: overflow ? null : s * r,
+    overflow,
+    underflow: !overflow && r === 0,
+    tie,
+    below: sb,
+    above: sa,
+  };
+}
+
 export interface FloatResult {
   /** Machine epsilon for IEEE-754 double: the spacing just above 1.0. */
   epsilon: number;
@@ -461,8 +582,9 @@ export interface FloatResult {
  * why subtracting two nearly equal large numbers destroys precision: the answer
  * inherits the ABSOLUTE error of its inputs while being much smaller than them.
  */
-export function floatPrecision(value: number, subtractFrom?: number): FloatResult | null {
+export function floatPrecision(value: number, subtractFrom?: number, format: FloatFormatId = "fp64"): FloatResult | null {
   if (!Number.isFinite(value)) return null;
+  if (format !== "fp64") return formatPrecision(value, subtractFrom, FLOAT_FORMATS[format]);
   const epsilon = Number.EPSILON;
 
   // ULP FROM THE BIT PATTERN, not from Math.log2.
@@ -517,6 +639,33 @@ export function floatPrecision(value: number, subtractFrom?: number): FloatResul
     cancellationFactor,
     digitsLost,
     notes,
+  };
+}
+
+/**
+ * floatPrecision in a narrower format: epsilon, decimal digits and the spacing come from the format, the spacing at the
+ * value AFTER it is rounded into the format; the cancellation measure is the same statement about the operands. Null
+ * when the value is past the format's finite range (roundToFormat says how it overflows).
+ */
+function formatPrecision(value: number, subtractFrom: number | undefined, f: FloatFormat): FloatResult | null {
+  const r = roundToFormat(value, f);
+  if (!r || r.value === null) return null;
+  const base = floatPrecision(value, subtractFrom);
+  if (!base) return null;
+  const epsilon = Math.pow(2, -f.nmant);
+  const ulp = formatUlp(r.value, f);
+  const a = Math.abs(value);
+  return {
+    ...base,
+    epsilon,
+    ulp,
+    relativeSpacing: a === 0 ? 0 : ulp / a,
+    decimalDigits: -Math.log10(epsilon / 2),
+    notes: [
+      `Machine epsilon is the spacing just above 1.0, NOT an absolute error bound. The gap between representable ${f.label} ` +
+        "values scales with magnitude.",
+      ...base.notes.slice(1),
+    ],
   };
 }
 

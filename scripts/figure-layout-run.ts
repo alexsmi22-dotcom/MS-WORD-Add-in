@@ -279,6 +279,11 @@ import { TLINE_CALCS } from "../src/lib/tlineCalcs";
 import { sParamBarsSvg, smithChartSvg } from "../src/lib/tlineCharts";
 // --- end Release E: transmission lines ---
 
+// --- Release E: AI compute ---
+import { AI_COMPUTE_CALCS } from "../src/lib/aiComputeCalcs";
+import { memoryBarsSvg, quantStairSvg, rooflineSvg, spacingChartSvg } from "../src/lib/aiComputeCharts";
+// --- end Release E: AI compute ---
+
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -3526,5 +3531,43 @@ rotator 15` }, "jones elliptical");
   figures.push(["transmission line sParamBarsSvg one bar", sParamBarsSvg([{ sub: "21", db: 12.5, angleDeg: -45, kind: "transmission" }])]);
 }
 // --- end Release E: transmission lines ---
+
+// --- Release E: AI compute ---
+// The roofline (the brief's compute-bound GEMM, a convolution with a measured point, a memory-bound GEMV at PFLOP/s,
+// a typed kernel at GFLOP/s), the memory bars (defaults, a GQA model without activations, a 175-billion-parameter
+// model at 128k context), the float spacing chart (fp16 at 0.1, a bf16 subnormal over the wide envelope range, an
+// overflowing E4M3 value) and the quantisation staircase (int8 symmetric, int4 asymmetric clipped). Plus the four
+// builders called directly at their edges.
+{
+  const ai = (id: string, over: Record<string, string>, name: string): void => {
+    const c = AI_COMPUTE_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`AI compute ${name} #${i + 1}`, b.svg]);
+    });
+  };
+  ai("ai-roofline", {}, "roofline GEMM 4096 cubed");
+  ai("ai-roofline", { kernel: "conv", meas: "150 TFLOPS" }, "roofline convolution measured");
+  ai("ai-roofline", { mnk: "1, 4096, 4096", peak: "5 PFLOP/s", bw: "8 TB/s", elem: "1 B" }, "roofline GEMV memory-bound");
+  ai("ai-roofline", { kernel: "typed", ai: "1e-4", peak: "1 GFLOP/s", bw: "1 GB/s" }, "roofline typed GFLOP/s");
+  ai("ai-transformer-size", {}, "transformer defaults");
+  ai("ai-transformer-size", { kvheads: "8", ffn: "3.5", ffntype: "gated", vocab: "128256", seq: "8192", batch: "8", tied: "untied" }, "transformer GQA gated");
+  ai("ai-transformer-size", { d: "12288", layers: "96", heads: "96", seq: "131072" }, "transformer 175B long context");
+  ai("ai-number-formats", {}, "formats fp16 0.1");
+  ai("ai-number-formats", { fmt: "bf16", x: "1e-39" }, "formats bf16 subnormal wide range");
+  ai("ai-number-formats", { fmt: "e4m3fn", x: "465" }, "formats E4M3 overflow");
+  ai("ai-number-formats", { fmt: "int8s" }, "formats int8 symmetric");
+  ai("ai-number-formats", { fmt: "int4a", x: "5", lo: "0.5", hi: "4" }, "formats int4 asymmetric clipped");
+  figures.push(["AI compute rooflineSvg tiny bandwidth", rooflineSvg(1e18, 1e9, [{ intensity: 1e6, perf: 1e15, label: "Kernel, I = 10⁶", color: "#c00000" }])]);
+  figures.push(["AI compute memoryBarsSvg one segment", memoryBarsSvg([{ label: "Weights only", segments: [{ name: "Weights", bytes: 1500 }] }], "Memory, tiny model")]);
+  figures.push(["AI compute spacingChartSvg no value", spacingChartSvg(null, null)]);
+  figures.push(["AI compute quantStairSvg int4 symmetric", quantStairSvg({ scale: 3 / 7, zeroPoint: 0, qmin: -7, qmax: 7, lo: -1.5, hi: 3 }, -2.9)]);
+}
+// --- end Release E: AI compute ---
 
 export { figures };

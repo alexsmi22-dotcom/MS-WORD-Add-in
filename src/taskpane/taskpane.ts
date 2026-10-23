@@ -24545,25 +24545,34 @@ const ENG_CALCS: EngCalc[] = [
         hhvMJPerKg: hhv ?? undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      // Release E: the balance as a quantity / value / unit table.
+      const coRows: Array<[string, string, string]> = [
+        ["Molar mass", engNum(res.molarMass, 6), "g/mol"],
+        ["O₂ required", engNum(res.o2PerMolFuel, 5), "mol per mol fuel"],
+        ["Stoichiometric AFR", engNum(res.afrStoich, 4), "kg air / kg fuel"],
+      ];
+      if (res.afrActual !== res.afrStoich) coRows.push([`AFR at ${engNum((excess ?? 0) * 100, 3)}% excess air`, engNum(res.afrActual, 4), "kg air / kg fuel"]);
+      coRows.push(["CO₂ produced", engNum(res.co2PerKgFuel, 4), "kg per kg fuel"]);
+      coRows.push(["H₂O produced", engNum(res.h2oPerKgFuel, 4), "kg per kg fuel"]);
+      if (res.so2PerKgFuel !== null) coRows.push(["SO₂ produced", engNum(res.so2PerKgFuel, 4), "kg per kg fuel"]);
+      if (res.lhvMJPerKg !== null && res.co2PerKWh !== null) {
+        coRows.push(["LHV (from your HHV)", engNum(res.lhvMJPerKg, 4), "MJ/kg"]);
+        coRows.push(["CO₂ intensity (HHV basis)", engNum(res.co2PerKWh, 4), "kg CO₂ / kWh fuel energy"]);
+      }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-combustion"),
+        ...(res.afrActual !== res.afrStoich ? engEq("energy-combustion:excess") : []),
+        ...(res.lhvMJPerKg !== null && res.co2PerKWh !== null ? engEq("energy-combustion:lhv") : []),
         `Combustion of ${formatFormula(r("formula").trim())}`,
         "",
-        `  Molar mass             ${engNum(res.molarMass, 6)} g/mol`,
-        `  O₂ required            ${engNum(res.o2PerMolFuel, 5)} mol per mol fuel`,
-        `  Stoichiometric AFR     ${engNum(res.afrStoich, 4)} kg air / kg fuel`,
+        kvTable(coRows),
       ];
-      if (res.afrActual !== res.afrStoich) {
-        lines.push(`  AFR at ${engNum((excess ?? 0) * 100, 3)}% excess air  ${engNum(res.afrActual, 4)} kg air / kg fuel`);
-      }
-      lines.push(`  CO₂ produced           ${engNum(res.co2PerKgFuel, 4)} kg per kg fuel`);
-      lines.push(`  H₂O produced           ${engNum(res.h2oPerKgFuel, 4)} kg per kg fuel`);
-      if (res.so2PerKgFuel !== null) {
-        lines.push(`  SO₂ produced           ${engNum(res.so2PerKgFuel, 4)} kg per kg fuel`);
-      }
-      if (res.lhvMJPerKg !== null && res.co2PerKWh !== null) {
-        lines.push(`  LHV (from your HHV)    ${engNum(res.lhvMJPerKg, 4)} MJ/kg`);
-        lines.push(`  CO₂ intensity          ${engNum(res.co2PerKWh, 4)} kg CO₂ / kWh fuel energy (HHV basis)`);
-      }
+      const coOutputs: EngOutput[] = [
+        { key: "AFR", label: "Air-fuel ratio (as run)", value: res.afrActual, unit: "kg/kg" },
+        { key: "co2", label: "CO₂ per kg of fuel", value: res.co2PerKgFuel, unit: "kg/kg" },
+        { key: "LHV", label: "Lower heating value", value: res.lhvMJPerKg ?? NaN, unit: "MJ/kg" },
+        { key: "co2kWh", label: "CO₂ intensity (HHV basis)", value: res.co2PerKWh ?? NaN, unit: "kg/kWh" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24584,7 +24593,7 @@ const ENG_CALCS: EngCalc[] = [
         if (so2 > 0) rows.push({ name: "SO₂ out", value: -so2, colour: "#b91c1c" });
         rows.push({ name: "N₂ + unused O₂ out", value: -balance, colour: "#9ca3af" });
         const svg = hBarSvg(rows, { title: "Mass balance per kg of fuel", unit: "kg" });
-        return engReport(lines, [
+        return withOutputs(coOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24593,9 +24602,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 400,
             h: 46 + rows.length * HBAR_ROW_H + 18,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(coOutputs, engReport(lines));
     },
   },
   {
@@ -24645,12 +24654,21 @@ const ENG_CALCS: EngCalc[] = [
         degradationRate: deg,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("energy-lcoe"),
         "Levelized cost of energy",
         "",
-        `  LCOE                     ${engNum(res.lcoePerMWh, 4)} per MWh  =  ${engNum(res.lcoePerKWh, 4)} per kWh`,
-        `  PV of lifetime costs     ${engNum(res.presentValueCosts, 5)}`,
-        `  PV of lifetime energy    ${engNum(res.presentValueMWh, 5)} MWh`,
+        kvTable([
+          ["LCOE", engNum(res.lcoePerMWh, 4), "per MWh"],
+          ["LCOE", engNum(res.lcoePerKWh, 4), "per kWh"],
+          ["PV of lifetime costs", engNum(res.presentValueCosts, 5), ""],
+          ["PV of lifetime energy", engNum(res.presentValueMWh, 5), "MWh"],
+        ]),
+      ];
+      const lcOutputs: EngOutput[] = [
+        { key: "LCOE", label: "LCOE (currency per MWh)", value: res.lcoePerMWh, unit: "" },
+        { key: "pvCosts", label: "PV of lifetime costs", value: res.presentValueCosts, unit: "" },
+        { key: "pvEnergy", label: "PV of lifetime energy", value: res.presentValueMWh, unit: "MWh" },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -24687,7 +24705,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "LCOE against the discount rate",
             },
           );
-          return engReport(lines, [
+          return withOutputs(lcOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24696,10 +24714,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(lcOutputs, engReport(lines));
     },
   },
   {
@@ -24724,12 +24742,20 @@ const ENG_CALCS: EngCalc[] = [
       const res = capacityFactor(mw, mwh, hours ?? undefined);
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("mw"), r("mwh")]);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("energy-capacity-factor"),
         "Capacity factor",
         "",
-        `  Capacity factor             ${engNum(res.capacityFactor, 4)}  =  ${engNum(res.capacityFactor * 100, 4)} %`,
-        `  Maximum possible energy     ${engNum(res.maximumMWh, sig)} MWh`,
-        `  Equivalent full-load hours  ${engNum(res.equivalentFullLoadHours, sig)} h`,
+        kvTable([
+          ["Capacity factor", engNum(res.capacityFactor, 4), ""],
+          ["Capacity factor", engNum(res.capacityFactor * 100, 4), "%"],
+          ["Maximum possible energy", engNum(res.maximumMWh, sig), "MWh"],
+          ["Equivalent full-load hours", engNum(res.equivalentFullLoadHours, sig), "h"],
+        ]),
+      ];
+      const cfOutputs: EngOutput[] = [
+        { key: "CF", label: "Capacity factor", value: res.capacityFactor, unit: "" },
+        { key: "EFLH", label: "Equivalent full-load hours", value: res.equivalentFullLoadHours, unit: "h" },
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -24772,7 +24798,7 @@ const ENG_CALCS: EngCalc[] = [
             title: "Actual against flat-out generation",
           },
         );
-        return engReport(lines, [
+        return withOutputs(cfOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -24781,9 +24807,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(cfOutputs, engReport(lines));
     },
   },
   {
@@ -24816,15 +24842,18 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("v"), r("i") || r("p")]);
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("energy-three-phase"),
         "Three-phase power",
         "",
-        `  Real power P        ${engNum(res.realPowerW / 1000, sig)} kW`,
-        `  Reactive power Q    ${engNum(res.reactivePowerVAR / 1000, sig)} kVAR`,
-        `  Apparent power S    ${engNum(res.apparentPowerVA / 1000, sig)} kVA`,
-        `  Line current        ${engNum(res.lineCurrentA, sig)} A`,
-        `  Phase voltage (wye)     ${engNum(res.phaseVoltageWye, sig)} V`,
-        `  Phase current (delta)   ${engNum(res.phaseCurrentDelta, sig)} A`,
+        kvTable([
+          ["Real power P", engNum(res.realPowerW / 1000, sig), "kW"],
+          ["Reactive power Q", engNum(res.reactivePowerVAR / 1000, sig), "kVAR"],
+          ["Apparent power S", engNum(res.apparentPowerVA / 1000, sig), "kVA"],
+          ["Line current", engNum(res.lineCurrentA, sig), "A"],
+          ["Phase voltage (wye)", engNum(res.phaseVoltageWye, sig), "V"],
+          ["Phase current (delta)", engNum(res.phaseCurrentDelta, sig), "A"],
+        ]),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -24832,7 +24861,13 @@ const ENG_CALCS: EngCalc[] = [
 
       // The power triangle, at one scale on both axes so φ reads as the
       // angle whose cosine is the power factor — which is the entire figure.
-      return withOutputs([{ key: "P", label: "Real power", value: res.realPowerW, unit: "W" }, { key: "PF", label: "Power factor", value: pf, unit: "" }], engReport(lines, [
+      return withOutputs([
+        { key: "P", label: "Real power", value: res.realPowerW, unit: "W" },
+        { key: "PF", label: "Power factor", value: pf, unit: "" },
+        { key: "Qr", label: "Reactive power", value: res.reactivePowerVAR / 1000, unit: "kVAR" },
+        { key: "S", label: "Apparent power", value: res.apparentPowerVA / 1000, unit: "kVA" },
+        { key: "Iline", label: "Line current", value: res.lineCurrentA, unit: "A" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg: powerTriangleSvg(res.realPowerW / 1000, res.reactivePowerVAR / 1000, res.apparentPowerVA / 1000, pf),
@@ -24878,19 +24913,32 @@ const ENG_CALCS: EngCalc[] = [
         frequencyHz: f ?? undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
-        "Power factor correction",
-        "",
-        `  Capacitor bank        ${engNum(res.bankVAR / 1000, 4)} kVAR (total, three-phase)`,
-        `  Current reduction     ${engNum(res.currentReduction * 100, 3)} %`,
-        `  I²R loss reduction    ${engNum(res.lossReduction * 100, 3)} %`,
+      const pfRows: Array<[string, string, string]> = [
+        ["Capacitor bank (total, three-phase)", engNum(res.bankVAR / 1000, 4), "kVAR"],
+        ["Current reduction", engNum(res.currentReduction * 100, 3), "%"],
+        ["I²R loss reduction", engNum(res.lossReduction * 100, 3), "%"],
       ];
       if (res.currentBefore !== null && res.currentAfter !== null) {
-        lines.push(`  Line current          ${engNum(res.currentBefore, 4)} A  →  ${engNum(res.currentAfter, 4)} A`);
+        pfRows.push(["Line current before", engNum(res.currentBefore, 4), "A"]);
+        pfRows.push(["Line current after", engNum(res.currentAfter, 4), "A"]);
       }
       if (res.capacitanceDeltaF !== null && res.capacitanceWyeF !== null) {
-        lines.push(`  Capacitance per phase   delta ${engNum(res.capacitanceDeltaF * 1e6, 4)} µF   wye ${engNum(res.capacitanceWyeF * 1e6, 4)} µF`);
+        pfRows.push(["Capacitance per phase, delta", engNum(res.capacitanceDeltaF * 1e6, 4), "µF"]);
+        pfRows.push(["Capacitance per phase, wye", engNum(res.capacitanceWyeF * 1e6, 4), "µF"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-pf-correction"),
+        ...(res.capacitanceDeltaF !== null && res.capacitanceWyeF !== null ? engEq("energy-pf-correction:capacitance") : []),
+        "Power factor correction",
+        "",
+        kvTable(pfRows),
+      ];
+      const pcOutputs: EngOutput[] = [
+        { key: "Qc", label: "Capacitor bank", value: res.bankVAR / 1000, unit: "kVAR" },
+        { key: "Iafter", label: "Line current after correction", value: res.currentAfter ?? NaN, unit: "A" },
+        { key: "Cdelta", label: "Capacitance per phase, delta", value: res.capacitanceDeltaF !== null ? res.capacitanceDeltaF * 1e6 : NaN, unit: "µF" },
+        { key: "Cwye", label: "Capacitance per phase, wye", value: res.capacitanceWyeF !== null ? res.capacitanceWyeF * 1e6 : NaN, unit: "µF" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -24920,7 +24968,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The cost of chasing unity",
             },
           );
-          return engReport(lines, [
+          return withOutputs(pcOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -24929,10 +24977,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(pcOutputs, engReport(lines));
     },
   },
   {
@@ -24991,17 +25039,28 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("len"), r("i")]);
-      const lines = [
+      const vdRows: Array<[string, string, string]> = [
+        ["Conductor section", engNum(res.sectionMm2, 4), "mm²"],
+        ["Path resistance", engNum(res.pathResistance * 1000, 4), "mΩ"],
+        ["Voltage drop", engNum(res.dropV, sig), "V"],
+      ];
+      if (res.dropFraction !== null) vdRows.push(["Voltage drop", engNum(res.dropFraction * 100, 3), "%"]);
+      vdRows.push(["Conductor loss", engNum(res.lossW, sig), "W"]);
+      if (res.minSectionMm2 !== null) vdRows.push(["Minimum section for the target drop", engNum(res.minSectionMm2, 4), "mm²"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-voltage-drop"),
+        ...(r("kind") === "three-phase" ? engEq("energy-voltage-drop:three-phase") : engEq("energy-voltage-drop:two-wire")),
+        ...(res.minSectionMm2 !== null ? engEq("energy-voltage-drop:sizing") : []),
         "Cable voltage drop",
         "",
-        `  Conductor section    ${engNum(res.sectionMm2, 4)} mm²`,
-        `  Path resistance      ${engNum(res.pathResistance * 1000, 4)} mΩ`,
-        `  Voltage drop         ${engNum(res.dropV, sig)} V${res.dropFraction !== null ? `  =  ${engNum(res.dropFraction * 100, 3)} %` : ""}`,
-        `  Conductor loss       ${engNum(res.lossW, sig)} W`,
+        kvTable(vdRows),
       ];
-      if (res.minSectionMm2 !== null) {
-        lines.push(`  Minimum section for the target drop   ${engNum(res.minSectionMm2, 4)} mm²`);
-      }
+      const vdOutputs: EngOutput[] = [
+        { key: "dV", label: "Voltage drop", value: res.dropV, unit: "V" },
+        { key: "dVpct", label: "Voltage drop, share of supply", value: res.dropFraction !== null ? res.dropFraction * 100 : NaN, unit: "%" },
+        { key: "Ploss", label: "Conductor loss", value: res.lossW, unit: "W" },
+        { key: "Amin", label: "Minimum section for the target drop", value: res.minSectionMm2 ?? NaN, unit: "mm²" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -25055,7 +25114,7 @@ const ENG_CALCS: EngCalc[] = [
           ylabel: asPct ? "drop (% of supply)" : "drop (V)",
           title: "Voltage drop against run length",
         });
-        return engReport(lines, [
+        return withOutputs(vdOutputs, engReport(lines, [
           {
             kind: "plot",
             svg,
@@ -25064,9 +25123,9 @@ const ENG_CALCS: EngCalc[] = [
             w: 380,
             h: 250,
           },
-        ]);
+        ]));
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(vdOutputs, engReport(lines));
     },
   },
   {

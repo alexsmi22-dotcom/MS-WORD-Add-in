@@ -398,6 +398,28 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "energy-battery": [eq("V = s V_cell", "V = s·Vcell"), eq("Q = p Q_cell", "Q = p·Qcell"), eq("E = V Q", "E = V·Q")],
   "energy-battery:runtime": [eq("t = DoD Q/I", "t = DoD·Q/I"), eq("C_rate = I/Q", "Crate = I/Q")],
   "energy-battery:peukert": [eq("t_P = H (DoD Q/(I H))^k", "tP = H·(DoD·Q/(I·H))ᵏ")],
+  "energy-combustion": [
+    eq("n_{O2} = x + y/4 + w - z/2", "nO₂ = x + y/4 + w − z/2"),
+    eq("AFR = n_{O2} (M_{O2} + 3.76 M_{N2})/M_fuel", "AFR = nO₂·(MO₂ + 3.76·MN₂)/Mfuel"),
+    eq("m_{CO2} = x M_{CO2}/M_fuel", "mCO₂ = x·MCO₂/Mfuel"),
+  ],
+  "energy-combustion:excess": [eq("AFR_run = (1 + e) AFR", "AFRrun = (1 + e)·AFR")],
+  "energy-combustion:lhv": [eq("LHV = HHV - h_fg m_{H2O}", "LHV = HHV − hfg·mH₂O")],
+  "energy-lcoe": [
+    eq("LCOE = (C_0 + sum(t=1, N, O/(1 + r)^t))/sum(t=1, N, E_1 (1 - d)^{t - 1}/(1 + r)^t)", "LCOE = (C₀ + ∑ₜ₌₁ᴺ O/(1 + r)ᵗ)/∑ₜ₌₁ᴺ E₁·(1 − d)ᵗ⁻¹/(1 + r)ᵗ"),
+  ],
+  "energy-capacity-factor": [eq("CF = E/(P T)", "CF = E/(P·T)"), eq("h_FL = E/P", "hFL = E/P")],
+  "energy-three-phase": [
+    eq("P = sqrt(3) V_L I_L pf", "P = √3·VL·IL·pf"),
+    eq("S = sqrt(3) V_L I_L", "S = √3·VL·IL"),
+    eq("Q = sqrt(S^2 - P^2)", "Q = √(S² − P²)"),
+  ],
+  "energy-pf-correction": [eq("Q_c = {P} (tan(phi_1) - tan(phi_2))", "Qc = P·(tan φ₁ − tan φ₂)"), eq("I_2/I_1 = pf_1/pf_2", "I₂/I₁ = pf₁/pf₂")],
+  "energy-pf-correction:capacitance": [eq("C_Delta = Q_c/(3 omega V_L^2)", "CΔ = Qc/(3ω·VL²)"), eq("C_Y = 3 C_Delta", "CY = 3·CΔ")],
+  "energy-voltage-drop": [eq("R = rho L/A", "R = ρ·L/A")],
+  "energy-voltage-drop:two-wire": [eq("Delta V = 2 I rho L/A", "ΔV = 2I·ρ·L/A")],
+  "energy-voltage-drop:three-phase": [eq("Delta V = sqrt(3) I rho L/A", "ΔV = √3·I·ρ·L/A")],
+  "energy-voltage-drop:sizing": [eq("A_min = {A} (Delta V/V_s)/f_max", "Amin = A·(ΔV/Vs)/fmax")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

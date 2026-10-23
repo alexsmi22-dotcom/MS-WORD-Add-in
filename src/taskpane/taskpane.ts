@@ -17673,20 +17673,25 @@ const ENG_CALCS: EngCalc[] = [
       const res = stressIntensity({ stress, crack, Y, kic, yieldStrength, thickness });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      // Release E: the result as a quantity / value / unit table.
+      const kRows: Array<[string, string, string]> = [
+        ["K", engNum(res.K / 1e6, 5), "MPa·√m"],
+        [`K / K_IC${res.fractures ? " (FRACTURES)" : ""}`, engNum(res.ratio, 4), ""],
+        ["Safety on stress", engNum(res.safetyOnStress, 4), ""],
+        ["Critical crack size", engNum(res.criticalCrack * 1000, 5), "mm"],
+        ["Your crack size", engNum(crack * 1000, 5), "mm"],
+        ["Critical stress", engNum(res.criticalStress / 1e6, 5), "MPa"],
+      ];
+      if (res.plasticZone !== null) kRows.push(["Plastic zone radius", engNum(res.plasticZone * 1000, 4), "mm"]);
+      if (res.thicknessRequired !== null) kRows.push(["Thickness plane strain needs", engNum(res.thicknessRequired * 1000, 4), "mm"]);
+      const lines: EngReportLine[] = [
+        ...engEq("fracture-k"),
+        ...(res.plasticZone !== null ? engEq("fracture-k:plastic-zone") : []),
+        ...(res.thicknessRequired !== null ? engEq("fracture-k:plane-strain") : []),
         "Stress intensity at the crack",
         "",
-        `  K                    ${engNum(res.K / 1e6, 5)} MPa·√m`,
-        `  K / K_IC             ${engNum(res.ratio, 4)}${res.fractures ? "   FRACTURES" : ""}`,
-        `  Safety on stress     ${engNum(res.safetyOnStress, 4)}`,
-        "",
-        `  Critical crack size  ${engNum(res.criticalCrack * 1000, 5)} mm  (yours is ${engNum(crack * 1000, 5)} mm)`,
-        `  Critical stress      ${engNum(res.criticalStress / 1e6, 5)} MPa`,
+        kvTable(kRows),
       ];
-      if (res.plasticZone !== null) lines.push(`  Plastic zone radius  ${engNum(res.plasticZone * 1000, 4)} mm`);
-      if (res.thicknessRequired !== null) {
-        lines.push(`  Plane strain needs   ${engNum(res.thicknessRequired * 1000, 4)} mm of thickness`);
-      }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -17717,7 +17722,12 @@ const ENG_CALCS: EngCalc[] = [
           title: "Where this flaw becomes critical",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Kstress", label: "Stress intensity K", value: res.K / 1e6, unit: "MPa·√m" },
+        { key: "KoverKIC", label: "K / K_IC", value: res.ratio, unit: "" },
+        { key: "acrit", label: "Critical crack size", value: res.criticalCrack * 1000, unit: "mm" },
+        { key: "sigmaCrit", label: "Critical stress", value: res.criticalStress / 1e6, unit: "MPa" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17726,7 +17736,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -17763,16 +17773,18 @@ const ENG_CALCS: EngCalc[] = [
       const res = parisGrowth({ initialCrack, stressRange, Y, C, m, kic, deltaKth });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("fracture-paris"),
         "Crack growth to fast fracture",
         "",
-        `  Cycles to failure    ${engNum(res.cycles, 5)}`,
-        `  Final crack size     ${engNum(res.finalCrack * 1000, 5)} mm`,
-        "",
-        `  ΔK at the start      ${engNum(res.deltaKInitial / 1e6, 4)} MPa·√m`,
-        `  ΔK at the end        ${engNum(res.deltaKFinal / 1e6, 4)} MPa·√m`,
-        `  Growth rate, start   ${engNum(res.rateInitial, 4)} m/cycle`,
-        `  Growth rate, end     ${engNum(res.rateFinal, 4)} m/cycle`,
+        kvTable([
+          ["Cycles to failure", engNum(res.cycles, 5), ""],
+          ["Final crack size", engNum(res.finalCrack * 1000, 5), "mm"],
+          ["ΔK at the start", engNum(res.deltaKInitial / 1e6, 4), "MPa·√m"],
+          ["ΔK at the end", engNum(res.deltaKFinal / 1e6, 4), "MPa·√m"],
+          ["Growth rate, start", engNum(res.rateInitial, 4), "m/cycle"],
+          ["Growth rate, end", engNum(res.rateFinal, 4), "m/cycle"],
+        ]),
         "",
       ];
       if (res.cyclesToDouble !== null && res.firstDoublingFraction !== null) {
@@ -17809,7 +17821,11 @@ const ENG_CALCS: EngCalc[] = [
           title: "Nearly flat, then vertical",
         },
       );
-      return engReport(lines, [
+      return withOutputs([
+        { key: "Ncycles", label: "Cycles to failure", value: res.cycles, unit: "" },
+        { key: "afinal", label: "Final (critical) crack size", value: res.finalCrack * 1000, unit: "mm" },
+        { key: "Ndouble", label: "Cycles for the first doubling", value: res.cyclesToDouble ?? NaN, unit: "" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17818,7 +17834,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {
@@ -17847,16 +17863,21 @@ const ENG_CALCS: EngCalc[] = [
       const res = fractureTransition({ kic, yieldStrength, Y, crack });
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines = [
-        "Yielding or fracture",
-        "",
-        `  Transition crack size  ${engNum(res.transitionCrack * 1000, 5)} mm`,
-        `  Governs here           ${res.governs}`,
+      const trRows: Array<[string, string, string]> = [
+        ["Transition crack size", engNum(res.transitionCrack * 1000, 5), "mm"],
+        ["Governs here", res.governs, ""],
       ];
       if (res.fractureStress !== null) {
-        lines.push(`  Fracture stress        ${engNum(res.fractureStress / 1e6, 5)} MPa`);
-        lines.push(`  Yield strength         ${engNum(yieldStrength / 1e6, 5)} MPa`);
+        trRows.push(["Fracture stress", engNum(res.fractureStress / 1e6, 5), "MPa"]);
+        trRows.push(["Yield strength", engNum(yieldStrength / 1e6, 5), "MPa"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("fracture-transition"),
+        ...(res.fractureStress !== null ? engEq("fracture-transition:stress") : []),
+        "Yielding or fracture",
+        "",
+        kvTable(trRows),
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -17892,7 +17913,10 @@ const ENG_CALCS: EngCalc[] = [
         ylabel: "Failure stress (MPa)",
         title: "The lower curve governs",
       });
-      return engReport(lines, [
+      return withOutputs([
+        { key: "atrans", label: "Transition crack size", value: res.transitionCrack * 1000, unit: "mm" },
+        { key: "sigmaF", label: "Fracture stress", value: res.fractureStress !== null ? res.fractureStress / 1e6 : NaN, unit: "MPa" },
+      ], engReport(lines, [
         {
           kind: "plot",
           svg,
@@ -17901,7 +17925,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 260,
         },
-      ]);
+      ]));
     },
   },
   {

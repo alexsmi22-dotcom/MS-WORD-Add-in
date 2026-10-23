@@ -178,6 +178,21 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "fatigue-safety:asme-elliptic": [eq("(n_f sigma_a/S_e)^2 + (n_f sigma_m/S_y)^2 = 1", "(nf·σa/Se)² + (nf·σm/Sy)² = 1")],
   "fatigue-life": [eq("S = a N^b", "S = a·Nᵇ"), eq("a = (0.9 S_ut)^2/S_e", "a = (0.9·Sut)²/Se"), eq("b = -(1/3) log(0.9 S_ut/S_e)", "b = −(1/3)·log(0.9·Sut/Se)")],
   "fatigue-life:miner": [eq("D = sum(i=1, k, n_i/N_i)", "D = ∑ᵢ₌₁ᵏ nᵢ/Nᵢ")],
+  "fracture-k": [
+    eq("K = Y sigma sqrt(pi a)", "K = Y·σ·√(πa)"),
+    eq("a_c = (1/pi) (K_IC/(Y sigma))^2", "ac = (1/π)·(KIC/(Y·σ))²"),
+    eq("sigma_c = K_IC/(Y sqrt(pi a))", "σc = KIC/(Y·√(πa))"),
+  ],
+  "fracture-k:plastic-zone": [eq("r_p = (1/(6 pi)) (K/sigma_y)^2", "rp = (1/(6π))·(K/σy)²")],
+  "fracture-k:plane-strain": [eq("B >= 2.5 (K_IC/sigma_y)^2", "B ≥ 2.5·(KIC/σy)²")],
+  "fracture-paris": [
+    eq("da/dN = {C} (Delta K)^m", "da/dN = C·(ΔK)ᵐ"),
+    eq("Delta K = Y Delta sigma sqrt(pi a)", "ΔK = Y·Δσ·√(πa)"),
+    eq("a_c = (1/pi) (K_IC/(Y Delta sigma))^2", "ac = (1/π)·(KIC/(Y·Δσ))²"),
+    eq("N_f = int(a_0, a_c, da/({C} (Delta K)^m))", "Nf = ∫ₐ₀ᵃᶜ da/(C·(ΔK)ᵐ)"),
+  ],
+  "fracture-transition": [eq("a_t = (1/pi) (K_IC/(Y sigma_y))^2", "aₜ = (1/π)·(KIC/(Y·σy))²")],
+  "fracture-transition:stress": [eq("sigma_f = K_IC/(Y sqrt(pi a))", "σf = KIC/(Y·√(πa))")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

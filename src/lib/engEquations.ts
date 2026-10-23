@@ -420,6 +420,35 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "energy-voltage-drop:two-wire": [eq("Delta V = 2 I rho L/A", "ΔV = 2I·ρ·L/A")],
   "energy-voltage-drop:three-phase": [eq("Delta V = sqrt(3) I rho L/A", "ΔV = √3·I·ρ·L/A")],
   "energy-voltage-drop:sizing": [eq("A_min = {A} (Delta V/V_s)/f_max", "Amin = A·(ΔV/Vs)/fmax")],
+  "energy-wind-shear:power": [eq("v_2 = v_1 (h_2/h_1)^alpha", "v₂ = v₁·(h₂/h₁)ᵅ")],
+  "energy-wind-shear:log": [eq("v_2 = v_1 ln(h_2/z_0)/ln(h_1/z_0)", "v₂ = v₁·ln(h₂/z₀)/ln(h₁/z₀)")],
+  "energy-wind-shear": [eq("P_2/P_1 = (v_2/v_1)^3", "P₂/P₁ = (v₂/v₁)³")],
+  "energy-weibull": [
+    eq("f(v) = (k/c) (v/c)^{k - 1} exp(-(v/c)^k)", "f(v) = (k/c)·(v/c)ᵏ⁻¹·exp(−(v/c)ᵏ)"),
+    eq("bar(v) = c {Gamma} (1 + 1/k)", "v̄ = c·Γ(1 + 1/k)"),
+    eq("P/A = (1/2) rho c^3 {Gamma} (1 + 3/k)", "P/A = ½·ρ·c³·Γ(1 + 3/k)"),
+  ],
+  "energy-weibull:mode": [eq("v_mode = {c} ((k - 1)/k)^{1/k}", "vmode = c·((k − 1)/k)¹ᐟᵏ")],
+  "energy-weibull:cf": [
+    eq(
+      "CF = int(v_ci, v_r, (v^3 - v_ci^3)/(v_r^3 - v_ci^3) f(v) dv) + F(v_co) - F(v_r)",
+      "CF = ∫[vci, vr] (v³ − vci³)/(vr³ − vci³)·f(v) dv + F(vco) − F(vr)",
+    ),
+  ],
+  "energy-flue-gas": [eq("e = f D/((1 - 4.76 f) n_{O2})", "e = f·D/((1 − 4.76f)·nO₂)"), eq("D = x + w + 3.76 n_{O2} + n_N/2", "D = x + w + 3.76·nO₂ + nN/2")],
+  "energy-storage": [
+    eq("E_bank = L t_a/(eta_inv sqrt(eta_rt) DoD)", "Ebank = L·ta/(ηinv·√ηrt·DoD)"),
+    eq("E_charge = L/(eta_inv eta_rt)", "Echarge = L/(ηinv·ηrt)"),
+  ],
+  "energy-storage:lcos": [eq("LCOS = (C_0 + sum(t=1, N, O/(1 + r)^t))/sum(t=1, N, E_t/(1 + r)^t)", "LCOS = (C₀ + ∑ₜ₌₁ᴺ O/(1 + r)ᵗ)/∑ₜ₌₁ᴺ Eₜ/(1 + r)ᵗ")],
+  "energy-solar-geometry": [
+    eq("delta = 23.45 sin(360 (284 + n)/365)", "δ = 23.45·sin(360·(284 + n)/365)"),
+    eq("omega_s = arccos(-tan(phi) tan(delta))", "ωs = arccos(−tan φ·tan δ)"),
+    eq("alpha_noon = 90 - abs(phi - delta)", "αnoon = 90 − |φ − δ|"),
+    eq("H_0 = (24/pi) G_sc E_0 (cos(phi) cos(delta) sin(omega_s) + omega_s sin(phi) sin(delta))", "H₀ = (24/π)·Gsc·E₀·(cos φ·cos δ·sin ωs + ωs·sin φ·sin δ)"),
+  ],
+  "energy-solar-geometry:hour": [eq("sin(alpha) = sin(phi) sin(delta) + cos(phi) cos(delta) cos(omega)", "sin α = sin φ·sin δ + cos φ·cos δ·cos ω")],
+  "energy-flame-temp": [eq("LHV + q_pre = sum(i=1, N, {n_i} ({h_i} (T_ad) - {h_i} (T_0)))", "LHV + qpre = ∑ᵢ₌₁ᴺ nᵢ·(hᵢ(Tad) − hᵢ(T₀))")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

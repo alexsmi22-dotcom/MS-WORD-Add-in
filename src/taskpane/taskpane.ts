@@ -25162,11 +25162,24 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const sig = engFigures([r("v"), r("h1"), r("h2")]);
-      const lines = [`Wind shear, ${engNum(h1, 4)} m → ${engNum(h2, 4)} m`, ""];
-      if (res.powerLawSpeed !== null) lines.push(`  Power law     ${engNum(res.powerLawSpeed, sig)} m/s`);
-      if (res.logLawSpeed !== null) lines.push(`  Log law       ${engNum(res.logLawSpeed, sig)} m/s`);
-      if (res.disagreement !== null) lines.push(`  Disagreement  ${engNum(res.disagreement * 100, 3)} %`);
-      lines.push(`  Power ratio   ${engNum(res.powerRatio, 4)}× the power at the measurement height`);
+      const shRows: Array<[string, string, string]> = [];
+      if (res.powerLawSpeed !== null) shRows.push(["Power law", engNum(res.powerLawSpeed, sig), "m/s"]);
+      if (res.logLawSpeed !== null) shRows.push(["Log law", engNum(res.logLawSpeed, sig), "m/s"]);
+      if (res.disagreement !== null) shRows.push(["Disagreement", engNum(res.disagreement * 100, 3), "%"]);
+      shRows.push(["Power ratio (× the power at the measurement height)", engNum(res.powerRatio, 4), ""]);
+      const lines: EngReportLine[] = [
+        ...(res.powerLawSpeed !== null ? engEq("energy-wind-shear:power") : []),
+        ...(res.logLawSpeed !== null ? engEq("energy-wind-shear:log") : []),
+        ...engEq("energy-wind-shear"),
+        `Wind shear, ${engNum(h1, 4)} m → ${engNum(h2, 4)} m`,
+        "",
+        kvTable(shRows),
+      ];
+      const wsOutputs: EngOutput[] = [
+        { key: "vPower", label: "Hub speed, power law", value: res.powerLawSpeed ?? NaN, unit: "m/s" },
+        { key: "vLog", label: "Hub speed, log law", value: res.logLawSpeed ?? NaN, unit: "m/s" },
+        { key: "powerRatio", label: "Power ratio", value: res.powerRatio, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -25200,7 +25213,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "height above ground (m)",
             title: "The wind profile, both laws",
           });
-          return engReport(lines, [
+          return withOutputs(wsOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -25209,10 +25222,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(wsOutputs, engReport(lines));
     },
   },
   {
@@ -25255,19 +25268,33 @@ const ENG_CALCS: EngCalc[] = [
         turbine: given === 3 ? { cutIn: vci!, rated: vr!, cutOut: vco! } : undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const wbRows: Array<[string, string, string]> = [
+        ["Shape k", engNum(res.shape, 4), ""],
+        ["Scale c", engNum(res.scale, 4), "m/s"],
+        ["Mean speed", engNum(res.meanSpeed, 4), "m/s"],
+      ];
+      if (res.mostProbableSpeed !== null) wbRows.push(["Most probable speed", engNum(res.mostProbableSpeed, 4), "m/s"]);
+      wbRows.push(["Mean power density", engNum(res.meanPowerDensity, 4), "W/m²"]);
+      wbRows.push(["Energy pattern factor", engNum(res.energyPatternFactor, 4), ""]);
+      if (res.capacityFactor !== null && res.availabilityFraction !== null) {
+        wbRows.push(["Capacity factor", engNum(res.capacityFactor, 4), ""]);
+        wbRows.push(["Capacity factor", engNum(res.capacityFactor * 100, 4), "%"]);
+        wbRows.push(["Hours in operating band", engNum(res.availabilityFraction * 100, 4), "%"]);
+      }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-weibull"),
+        ...(res.mostProbableSpeed !== null ? engEq("energy-weibull:mode") : []),
+        ...(res.capacityFactor !== null ? engEq("energy-weibull:cf") : []),
         "Weibull wind resource",
         "",
-        `  Shape k / scale c       ${engNum(res.shape, 4)} / ${engNum(res.scale, 4)} m/s`,
-        `  Mean speed              ${engNum(res.meanSpeed, 4)} m/s`,
+        kvTable(wbRows),
       ];
-      if (res.mostProbableSpeed !== null) lines.push(`  Most probable speed     ${engNum(res.mostProbableSpeed, 4)} m/s`);
-      lines.push(`  Mean power density      ${engNum(res.meanPowerDensity, 4)} W/m²`);
-      lines.push(`  Energy pattern factor   ${engNum(res.energyPatternFactor, 4)}`);
-      if (res.capacityFactor !== null && res.availabilityFraction !== null) {
-        lines.push(`  Capacity factor         ${engNum(res.capacityFactor, 4)}  =  ${engNum(res.capacityFactor * 100, 4)} %`);
-        lines.push(`  Hours in operating band ${engNum(res.availabilityFraction * 100, 4)} %`);
-      }
+      const wbOutputs: EngOutput[] = [
+        { key: "vMean", label: "Mean speed", value: res.meanSpeed, unit: "m/s" },
+        { key: "powerDensity", label: "Mean power density", value: res.meanPowerDensity, unit: "W/m²" },
+        { key: "EPF", label: "Energy pattern factor", value: res.energyPatternFactor, unit: "" },
+        { key: "CF", label: "Capacity factor", value: res.capacityFactor ?? NaN, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -25312,7 +25339,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "probability density (per m/s)",
             title: "The fitted wind distribution",
           });
-          return engReport(lines, [
+          return withOutputs(wbOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -25326,10 +25353,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(wbOutputs, engReport(lines));
     },
   },
   {
@@ -25349,15 +25376,25 @@ const ENG_CALCS: EngCalc[] = [
       if (!r("o2").trim() || !Number.isFinite(o2)) return { text: "The O₂ reading must be a percentage.", ok: false };
       const res = flueGas({ formula: r("formula"), o2DryPct: o2 });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const fgRows: Array<[string, string, string]> = [
+        ["Excess air", engNum(res.excessAir * 100, 4), "%"],
+        ["Actual AFR", engNum(res.afrActual, 4), "kg air / kg fuel"],
+        ["Dry CO₂", engNum(res.dryCO2Pct, 4), "%"],
+        ["Ultimate CO₂", engNum(res.ultimateCO2Pct, 4), "%"],
+        ["Dry N₂", engNum(res.dryN2Pct, 4), "%"],
+      ];
+      if (res.drySO2Pct !== null) fgRows.push(["Dry SO₂", engNum(res.drySO2Pct, 4), "%"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-flue-gas"),
         `Flue gas of ${formatFormula(r("formula").trim())} at ${engNum(o2, 3)}% dry O₂`,
         "",
-        `  Excess air          ${engNum(res.excessAir * 100, 4)} %`,
-        `  Actual AFR          ${engNum(res.afrActual, 4)} kg air / kg fuel`,
-        `  Dry CO₂             ${engNum(res.dryCO2Pct, 4)} %   (ultimate ${engNum(res.ultimateCO2Pct, 4)} %)`,
-        `  Dry N₂              ${engNum(res.dryN2Pct, 4)} %`,
+        kvTable(fgRows),
       ];
-      if (res.drySO2Pct !== null) lines.push(`  Dry SO₂             ${engNum(res.drySO2Pct, 4)} %`);
+      const fgOutputs: EngOutput[] = [
+        { key: "excessAir", label: "Excess air", value: res.excessAir * 100, unit: "%" },
+        { key: "AFR", label: "Actual air-fuel ratio", value: res.afrActual, unit: "kg/kg" },
+        { key: "co2Dry", label: "Dry CO₂", value: res.dryCO2Pct, unit: "%" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -25414,7 +25451,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "The combustion-analysis chart",
             },
           );
-          return engReport(lines, [
+          return withOutputs(fgOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -25423,10 +25460,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(fgOutputs, engReport(lines));
     },
   },
   {
@@ -25506,20 +25543,30 @@ const ENG_CALCS: EngCalc[] = [
         economics,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const stRows: Array<[string, string, string]> = [
+        ["Bank (nameplate)", engNum(res.bankKWh, 4), "kWh"],
+        ["Usable at this DoD", engNum(res.usableKWh, 4), "kWh"],
+      ];
+      if (res.bankAh !== null) stRows.push(["At the bus voltage", engNum(res.bankAh, 4), "Ah"]);
+      stRows.push(["Daily charge input", engNum(res.dailyChargeKWh, 4), "kWh"]);
+      if (res.lcosPerKWh !== null) {
+        stRows.push(["LCOS", engNum(res.lcosPerKWh, 4), "per kWh discharged"]);
+        stRows.push(["PV of costs", engNum(res.presentValueCosts!, 5), ""]);
+        stRows.push(["PV of discharged energy", engNum(res.presentValueKWh!, 5), "kWh"]);
+      }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-storage"),
+        ...(res.lcosPerKWh !== null ? engEq("energy-storage:lcos") : []),
         "Battery bank sizing",
         "",
-        `  Bank (nameplate)     ${engNum(res.bankKWh, 4)} kWh`,
-        `  Usable at this DoD   ${engNum(res.usableKWh, 4)} kWh`,
+        kvTable(stRows),
       ];
-      if (res.bankAh !== null) lines.push(`  At the bus voltage   ${engNum(res.bankAh, 4)} Ah`);
-      lines.push(`  Daily charge input   ${engNum(res.dailyChargeKWh, 4)} kWh`);
-      if (res.lcosPerKWh !== null) {
-        lines.push("");
-        lines.push(`  LCOS                 ${engNum(res.lcosPerKWh, 4)} per kWh discharged`);
-        lines.push(`  PV of costs          ${engNum(res.presentValueCosts!, 5)}`);
-        lines.push(`  PV of discharged     ${engNum(res.presentValueKWh!, 5)} kWh`);
-      }
+      const stOutputs: EngOutput[] = [
+        { key: "bankKWh", label: "Bank size (nameplate)", value: res.bankKWh, unit: "kWh" },
+        { key: "bankAh", label: "Bank at the bus voltage", value: res.bankAh ?? NaN, unit: "Ah" },
+        { key: "chargeKWh", label: "Daily charge input", value: res.dailyChargeKWh, unit: "kWh" },
+        { key: "LCOS", label: "LCOS (currency per kWh discharged)", value: res.lcosPerKWh ?? NaN, unit: "" },
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -25555,7 +25602,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Bank size against depth of discharge",
             },
           );
-          return engReport(lines, [
+          return withOutputs(stOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -25564,10 +25611,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(stOutputs, engReport(lines));
     },
   },
   {
@@ -25593,17 +25640,29 @@ const ENG_CALCS: EngCalc[] = [
       if (hourRaw && !Number.isFinite(hour as number)) return { text: "The solar hour must be a number, 0-24.", ok: false };
       const res = solarGeometry({ latitudeDeg: lat, dayOfYear: day, solarHour: hour });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
-        `Solar geometry at ${engNum(lat, 4)}°, day ${engNum(day, 3)}`,
-        "",
-        `  Declination            ${engNum(res.declinationDeg, 4)}°`,
-        `  Day length             ${engNum(res.dayLengthHours, 4)} h`,
-        `  Noon elevation         ${engNum(res.noonElevationDeg, 4)}°`,
-        `  Extraterrestrial H₀    ${engNum(res.extraterrestrialKWhM2, 4)} kWh/m² per day`,
+      const sgRows: Array<[string, string, string]> = [
+        ["Declination", engNum(res.declinationDeg, 4), "°"],
+        ["Day length", engNum(res.dayLengthHours, 4), "h"],
+        ["Noon elevation", engNum(res.noonElevationDeg, 4), "°"],
+        ["Extraterrestrial H₀", engNum(res.extraterrestrialKWhM2, 4), "kWh/m² per day"],
       ];
       if (res.hourElevationDeg !== null && res.hourAzimuthDeg !== null) {
-        lines.push(`  At solar hour ${engNum(hour!, 4)}:  elevation ${engNum(res.hourElevationDeg, 4)}°, azimuth ${engNum(res.hourAzimuthDeg, 4)}° from north`);
+        sgRows.push([`Elevation at solar hour ${engNum(hour!, 4)}`, engNum(res.hourElevationDeg, 4), "°"]);
+        sgRows.push([`Azimuth from north at solar hour ${engNum(hour!, 4)}`, engNum(res.hourAzimuthDeg, 4), "°"]);
       }
+      const lines: EngReportLine[] = [
+        ...engEq("energy-solar-geometry"),
+        ...(res.hourElevationDeg !== null ? engEq("energy-solar-geometry:hour") : []),
+        `Solar geometry at ${engNum(lat, 4)}°, day ${engNum(day, 3)}`,
+        "",
+        kvTable(sgRows),
+      ];
+      const sgOutputs: EngOutput[] = [
+        { key: "decl", label: "Declination", value: res.declinationDeg, unit: "°" },
+        { key: "dayLength", label: "Day length", value: res.dayLengthHours, unit: "h" },
+        { key: "noonElev", label: "Noon elevation", value: res.noonElevationDeg, unit: "°" },
+        { key: "H0", label: "Extraterrestrial daily total", value: res.extraterrestrialKWhM2, unit: "kWh/m²" },
+      ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
@@ -25653,7 +25712,7 @@ const ENG_CALCS: EngCalc[] = [
             ylabel: "sun elevation (°)",
             title: "The sun's day at this latitude",
           });
-          return engReport(lines, [
+          return withOutputs(sgOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -25662,10 +25721,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 260,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(sgOutputs, engReport(lines));
     },
   },
   {
@@ -25708,15 +25767,22 @@ const ENG_CALCS: EngCalc[] = [
         airPreheatC: preheat ?? undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
-      const lines = [
+      const ftRows: Array<[string, string, string]> = [
+        ["Flame temperature", engNum(res.flameTempK, 4), "K"],
+        ["Flame temperature", engNum(res.flameTempC, 4), "°C"],
+        ["LHV used", engNum(res.lhvUsedMJPerKg, 4), "MJ/kg"],
+      ];
+      if (res.preheatMJPerKg > 0) ftRows.push(["Preheat contribution", engNum(res.preheatMJPerKg, 4), "MJ per kg fuel"]);
+      const lines: EngReportLine[] = [
+        ...engEq("energy-flame-temp"),
         `Adiabatic flame temperature of ${formatFormula(r("formula").trim())}`,
         "",
-        `  Flame temperature    ${engNum(res.flameTempK, 4)} K  =  ${engNum(res.flameTempC, 4)} °C`,
-        `  LHV used             ${engNum(res.lhvUsedMJPerKg, 4)} MJ/kg`,
+        kvTable(ftRows),
       ];
-      if (res.preheatMJPerKg > 0) {
-        lines.push(`  Preheat contribution ${engNum(res.preheatMJPerKg, 4)} MJ per kg fuel`);
-      }
+      const ftOutputs: EngOutput[] = [
+        { key: "Tflame", label: "Adiabatic flame temperature", value: res.flameTempK, unit: "K" },
+        { key: "TflameC", label: "Adiabatic flame temperature", value: res.flameTempC, unit: "°C" },
+      ];
       lines.push(
         `  Products per mol fuel   CO₂ ${engNum(res.products.co2, 4)}, H₂O ${engNum(res.products.h2o, 4)}, N₂ ${engNum(res.products.n2, 4)}${res.products.o2 > 0 ? `, O₂ ${engNum(res.products.o2, 4)}` : ""}`
       );
@@ -25756,7 +25822,7 @@ const ENG_CALCS: EngCalc[] = [
               title: "Flame temperature against excess air",
             },
           );
-          return engReport(lines, [
+          return withOutputs(ftOutputs, engReport(lines, [
             {
               kind: "plot",
               svg,
@@ -25765,10 +25831,10 @@ const ENG_CALCS: EngCalc[] = [
               w: 380,
               h: 250,
             },
-          ]);
+          ]));
         }
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return withOutputs(ftOutputs, engReport(lines));
     },
   },
   {

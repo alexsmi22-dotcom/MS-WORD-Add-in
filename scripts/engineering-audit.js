@@ -108,11 +108,11 @@ function run() {
         "--disable-gpu",
         "--no-sandbox",
         profile.arg,
-        "--virtual-time-budget=60000",
+        "--virtual-time-budget=240000",
         "--dump-dom",
         "file:///" + path.join(DIST, "eng-harness.html").replace(/\\/g, "/"),
       ],
-      { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 , timeout: 180000, killSignal: "SIGKILL" }
+      { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 , timeout: 600000, killSignal: "SIGKILL" }
     );
   } finally {
     profile.cleanup();

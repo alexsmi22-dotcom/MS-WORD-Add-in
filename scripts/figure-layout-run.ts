@@ -240,7 +240,7 @@ import { attitudeTriadSvg } from "../src/lib/kalmanCharts";
 // --- Release E: quantum gates ---
 // Release Q part Q2: single-qubit gates (Bloch sphere), the circuit simulator and the protocol presets.
 import { QUANTUM_GATES_CALCS } from "../src/lib/quantumGatesCalcs";
-import { blochSphereSvg, circuitDiagramSvg, probabilityBarsSvg } from "../src/lib/quantumCharts";
+import { blochSphereSvg, circuitDiagramPages, probabilityBarsSvg } from "../src/lib/quantumCharts";
 import { grover as qGrover, parseCircuit as qParseCircuit } from "../src/lib/quantumCircuits";
 // --- end Release E: quantum gates ---
 
@@ -3299,7 +3299,7 @@ rotator 15` }, "jones elliptical");
   figures.push(["quantum Bloch builder pointing at the viewer", blochSphereSvg({ start: [0, 0, -1], end: [0.81, 0.38, 0.45], path: [], startLabel: "start: (0, 0, −1)", endLabel: "final: (0.81, 0.38, 0.45)" })]);
   const pc = qParseCircuit(["H 0", "CNOT 0 1", "MEASURE 1", "CZ 1 0"].join(NL), 2);
   if ("error" in pc) throw new Error(pc.error);
-  figures.push(["quantum circuit builder classical control", circuitDiagramSvg({ n: 2, ops: pc.ops })]);
+  figures.push(["quantum circuit builder classical control", circuitDiagramPages({ n: 2, ops: pc.ops })[0]]);
   figures.push(["quantum bars builder 2 qubits Grover", probabilityBarsSvg(qGrover(2, 2, 1).final.map((z) => z.re * z.re + z.im * z.im), 2)]);
 }
 // --- end Release E: quantum gates ---

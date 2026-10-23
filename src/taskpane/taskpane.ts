@@ -204,6 +204,7 @@ import { TLINE_CALCS } from "../lib/tlineCalcs";
 import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
+import { tidyResultSubscripts, tidySubscripts } from "../lib/subscriptText";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -29850,6 +29851,13 @@ const ENG_CALCS: EngCalc[] = [
   ...QUANTUM_MECHANICS_CALCS,
 ];
 
+// Underscore subscripts in every tool's prose, tables, captions and output names typeset (subscriptText.ts); the math
+// sources keep theirs for Word to typeset. Wrapped once here so the preview, the insert, sweeps and uncertainty agree.
+for (const c of ENG_CALCS) {
+  const raw = c.compute;
+  c.compute = (read) => tidyResultSubscripts(raw(read));
+}
+
 /** A transfer function as a typeset fraction, with a readable text fallback. */
 function tfLine(name: string, num: Rat[], den: Rat[]): EngLine {
   return {
@@ -29977,7 +29985,7 @@ function markEngineeringSelection(id: string): void {
 
 function renderEngineeringInputs(): void {
   const calc = ENG_CALCS.find((c) => c.id === engineeringCalcSelect.value) ?? ENG_CALCS[0];
-  engineeringHint.textContent = calc.hint;
+  engineeringHint.textContent = tidySubscripts(calc.hint);
   renderCalcFields(calc.fields, engineeringInputs, "engineering", updateEngineeringPreview);
 }
 

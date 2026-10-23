@@ -6,6 +6,73 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.191.0] — 2026-10-23 — Engineering gap release and a quantum mathematics section
+
+Everything from the 2026-10-23 engineering gap analysis (docs/GAP-ANALYSIS-ENGINEERING-2026-10-23.md, all fifteen
+items) and a new quantum mathematics section (docs/SCOPE-QUANTUM-2026-10.md), in one release. Engineering now has
+241 calculators in 25 disciplines (was 179 in 23).
+
+### Fixed
+- **Units:** °C and °F inside a compound unit are temperature differences, so W/(m²·°C) and Btu/(h·ft²·°F) convert (a
+  lone 20 °C still means 293.15 K). New: °R, Δ°C/Δ°F, tonne (t), slug, lbm, kgf, mil/thou, µin, ton of refrigeration
+  (TR), gpm, cfm, oil barrel (bbl), arcmin, arcsec, µrad, oersted, mHz; "ppm/K" and "%/°C"; a spaced reciprocal
+  ("12e-6 /K"); a root sign (MPa·√m). The "Units read" note is typeset (×10ⁿ, never e-notation).
+- **Fracture toughness** fields read Pa·√m: 50 MPa·√m and ksi·√in convert; plain MPa is refused as the wrong quantity.
+- **The rocket equation** accepts tonnes, as its label always said.
+- **Data checked against references:** liquid water density and viscosity (IAPWS-95 / IAPWS 2008 via CoolProp 8.0.0 —
+  the old 0 °C viscosity was 0.57 % low) and ideal-gas cp for the nine gases (methane was 1.1 % high). Pipe roughness
+  and Manning's n are now stated as typical values, with your own value preferred.
+- **True minus signs** throughout Engineering result text (a negative force read "-7.5 kN").
+
+### New: the Engineering workbench
+- **Send a result to another tool:** buttons under a result ("Use the peak moment in Cross-section") fill the next
+  tool's field with the value and its unit — beam → cross-section → stress state / column, wall U → both heat
+  exchangers, laser cavity w₀ → Gaussian beam, energy tools → LCOE, three-phase → power-factor correction → cable drop,
+  endurance limit → the fatigue tools, and more (31 links).
+- **The control tools share one plant:** a transfer function typed in one of the eight control tools carries to the
+  others.
+- **Explore this result:** sweep any numeric input over a range and plot a chosen result, or give inputs a ± uncertainty
+  and get a Monte Carlo distribution with its 95 % interval beside the first-order estimate.
+- **Named results, governing equations and Word tables:** of the 153 calculators that were already here, 152 now report
+  their headline numbers by name (which the sweep and uncertainty runs read), 142 insert their governing equations as
+  real Word equations, and 85 insert their results tables as Word tables.
+
+### New engineering tools
+- Thermal stress (restrained), bimetal/bilayer curvature, Stoney thin-film stress, thermal shock resistance.
+- Thin-walled pressure vessels, Lamé thick-walled cylinders, shrink fits, rotating disks, combined loading with
+  Mohr's circle and the beam-column factor, Hertz contact.
+- Normal shock, oblique shock and Prandtl–Meyer expansion, Fanno and Rayleigh flow.
+- Random vibration (PSD profiles, Grms, Miles' equation), base excitation, shaft critical speeds.
+- Kalman filter (steady state; run on measured data), attitude conversions (quaternions, rotation matrices, all twelve
+  Euler sequences, slerp).
+- Circuit simulator: controlled sources (E, G, H, F) and coupled inductors (K) in DC, AC and transient — transistor
+  small-signal models, op-amps, transformers.
+- Laser physics: Fabry–Pérot cavity, threshold and slope efficiency, coherence and Schawlow–Townes linewidth,
+  second-harmonic generation and quasi-phase matching.
+- RF link budget, noise-figure cascade, Eb/N0 ↔ BER.
+- Semiconductor devices: pn junction, MOSFET square law, carrier statistics (Si nᵢ 9.65×10⁹ cm⁻³, Altermatt et al.
+  2003).
+- Transmission lines with the Smith chart, quarter-wave and single-stub matching, two-port S-parameters.
+- AI compute: roofline, transformer size and FLOPs, low-precision number formats (fp16, bf16, fp8 E4M3/E5M2, int8/int4).
+
+### New: quantum mathematics
+- **Quantum computing** (new panel): Dirac states and inner products, operators (Hermitian/unitary checks, spectra,
+  commutators, the uncertainty relation), the Born rule; single-qubit gates on the Bloch sphere; a circuit simulator
+  up to 10 qubits with the circuit diagram; interference, Bell states, teleportation, superdense coding,
+  Deutsch–Jozsa, Grover, the quantum Fourier transform; density matrices (purity, entropy, fidelity) and two-party
+  entanglement (Schmidt decomposition, concurrence, negativity).
+- **Quantum optics** extended: beam splitters and Mach–Zehnder fringes, Hong–Ou–Mandel interference, multiphoton
+  (boson-sampling) probabilities, dual-rail qubits and the linear-optics CZ gates; space quantum links — a free-space single-photon link to LEO, GEO or the
+  Moon (exact Airy coupling into the receiver), entanglement distribution with coincidences, accidentals and Bell
+  visibility, and the BB84 key rate (single photon or decoy state) over that link.
+- **Quantum mechanics** (new panel): particle in a box (infinite and finite wells), the harmonic oscillator, the
+  hydrogen-like atom (levels, transitions, radial probability), tunnelling through a rectangular barrier, and two-level
+  dynamics (Rabi oscillation, spin precession); CODATA 2018 constants. New unit: meV.
+- Word equations now typeset |+⟩, |−⟩, |Φ⁺⟩, U† and ⊗.
+
+### Changed
+- The Stress tool's Mohr's circle places its labels outside the circle.
+
 ## [2.190.0] — 2026-10-23 — Curved mechanism arrows and fishhooks
 
 - **Curved arrows and fishhooks on the Draw page.** Draw the structure, then **Mechanism: Curved arrow** or

@@ -223,7 +223,9 @@ const fsoCalc: QoCalc = {
     );
     if (res.photonsRx !== null) lines.push(`Photons detected: ${s(res.photonsRx)} per second from ${s(emitRate as number)} emitted per second.`);
     lines.push(`One-way light time L/c = ${s(res.lightTimeS)} s (round trip ${s(2 * res.lightTimeS)} s).`);
-    lines.push({ math: "η_geo = 1 - J_0^2(x) - J_1^2(x), x = (π D_t D_r)/(2 λ L)", fallback: "η_geo = 1 − J₀²(x) − J₁²(x), x = π D_t D_r /(2 λ L) (Airy encircled energy)" });
+    // One statement per equation: a comma-joined pair does not parse, and the insert fell back to text (v2.191.0 QC).
+    lines.push({ math: "η_geo = 1 - J_0^2(x) - J_1^2(x)", fallback: "η_geo = 1 − J₀²(x) − J₁²(x) (Airy encircled energy)" });
+    lines.push({ math: "x = (π D_t D_r)/(2 λ L)", fallback: "x = π D_t D_r /(2 λ L)" });
     lines.push({ math: "η_geo ≈ ((π D_t D_r)/(4 λ L))^2", fallback: "η_geo ≈ (π D_t D_r /(4 λ L))² for η_geo ≪ 1 (far field)" });
     lines.push({ math: "η = η_geo 10^{-(L_p + L_a + L_o)/10} η_d", fallback: "10 log₁₀ η = 10 log₁₀ η_geo − L_p − L_a − L_o + 10 log₁₀ η_d (losses in dB)" });
     lines.push({ math: "t = L/c", fallback: "t = L/c, c = 299 792 458 m/s (exact)" });
@@ -281,7 +283,7 @@ const entCalc: QoCalc = {
   unitContract: "converts",
   hint:
     "A pair source of rate R sends one photon down each arm. Singles S = R·η·η_d (+ dark counts), true coincidences " +
-    "R·η_a·η_d,a·η_b·η_d,b, accidental coincidences S_a·S_b·τ for a window of full width τ, the coincidence-to-accidental " +
+    "R·η_a·η_{da}·η_b·η_{db}, accidental coincidences S_a·S_b·τ for a window of full width τ, the coincidence-to-accidental " +
     "ratio and the visibility and CHSH value the accidentals leave. Arm transmissions are typed (a fraction, or dB ≤ 0) or " +
     "come from a preset link geometry.",
   fields: [
@@ -346,10 +348,12 @@ const entCalc: QoCalc = {
       lines.push(`With no dark counts CAR = 1/(R·τ) = ${s(1 / res.pairsPerWindow, 4)} whatever the arm losses${res.captured < 1 ? " (times the fraction inside the window)" : ""}; over long, lossy links dark and background counts usually dominate the accidentals, so enter them.`);
     if (res.pairsPerWindow > 0.01)
       lines.push(`The source emits ${s(res.pairsPerWindow, 3)} pairs per window: multi-pair emission is significant; its accidentals are in S_a·S_b·τ, but the visibility bound assumes an otherwise perfect state.`);
-    lines.push({ math: "S_a = R η_a η_{d,a} + D_a", fallback: "S_a = R·η_a·η_d,a + D_a (and likewise S_b)" });
-    lines.push({ math: "C = R η_a η_{d,a} η_b η_{d,b}", fallback: "C = R·η_a·η_d,a·η_b·η_d,b" });
+    // η_{da}: arm a's detector efficiency (a comma in a subscript does not parse).
+    lines.push({ math: "S_a = R η_a η_{da} + D_a", fallback: "S_a = R·η_a·η_{da} + D_a (and likewise S_b)" });
+    lines.push({ math: "C = R η_a η_{da} η_b η_{db}", fallback: "C = R·η_a·η_{da}·η_b·η_{db}" });
     lines.push({ math: "A = S_a S_b τ", fallback: "A = S_a·S_b·τ" });
-    lines.push({ math: "V = C/(C + A), S_max = 2 sqrt(2) V", fallback: "V = C/(C + A), S_max = 2√2·V" });
+    lines.push({ math: "V = C/(C + A)", fallback: "V = C/(C + A)" });
+    lines.push({ math: "S_max = 2 sqrt(2) V", fallback: "S_max = 2√2·V" });
     if (jitter !== null && jitter > 0) lines.push({ math: "C(τ) = C erf(τ/(2 sqrt(2) σ))", fallback: "C(τ) = C·erf(τ/(2√2·σ)), σ the rms jitter of t_a − t_b" });
     lines.push(
       "Assumes an ideal maximally entangled source, uncorrelated accidentals spread evenly over the four outcome pairs (white noise: a Werner state of weight p = V, so the CHSH bound is 2√2·V), τ the FULL window width, and at most one count in ten windows at each detector. Arm transmissions exclude the detectors.",

@@ -114,8 +114,9 @@ describe("one broken-number rule: the lib helper and both QC drivers agree", () 
     const pane = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
     expect(pane).toMatch(/import \{ insertableResultText \} from "\.\.\/lib\/insertGate";/);
     expect(pane).not.toMatch(/function insertableResultText/);
-    // Every registry's insert gate is the shared one (the five call sites, Finance's "no solution" kept).
-    expect(pane.match(/insertableResultText\(/g)?.length).toBe(5);
+    // Every registry's insert gate is the shared one (the five call sites plus the Engineering Explore panel's since
+    // v2.191.0, Finance's "no solution" kept).
+    expect(pane.match(/insertableResultText\(/g)?.length).toBe(6);
     expect(pane).toMatch(/insertableResultText\(text\) && !text\.includes\("no solution"\)/);
   });
 });

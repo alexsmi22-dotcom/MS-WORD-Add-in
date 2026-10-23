@@ -3576,7 +3576,7 @@ rotator 15` }, "jones elliptical");
   qm("qm-two-level", {}, "Rabi resonant");
   qm("qm-two-level", { detuning: "0.5 MHz", t: "0.3 µs" }, "Rabi detuned");
   qm("qm-two-level", { t: "20 µs" }, "Rabi t beyond the window");
-  qm("qm-two-level", { mode: "spin", state: "|+⟩" }, "Larmor precession electron");
+  qm("qm-two-level", { mode: "spin" }, "Larmor precession electron");
   qm("qm-two-level", { mode: "hamiltonian" }, "typed Hamiltonian");
   figures.push([
     "quantum mechanics levelFigureSvg 12 levels capped",

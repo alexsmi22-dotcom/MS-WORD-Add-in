@@ -15,7 +15,7 @@
 // SI units throughout (J, m, kg, s, T). Pure functions; every loop is bounded; non-finite input is refused up front.
 
 import { expm } from "./control";
-import { cAbs2, cx, type CMat, type Cx, type State } from "./quantumCore";
+import { cAbs2, cx, matVec, type CMat, type Cx, type State } from "./quantumCore";
 
 // ---------------------------------------------------------------------------------------------------------------
 // CODATA 2018 recommended values — the ONE constants block for this engine.
@@ -316,6 +316,8 @@ export function harmonicOscillator(m: number, omega: number, n: number): Oscilla
 // ---------------------------------------------------------------------------------------------------------------
 
 export const HYDROGEN_MAX_N = 1000;
+/** The highest Z the Bohr levels are offered for: (Zα)²/4 = 1.7 % at Z = 36. */
+export const HYDROGEN_MAX_Z = 36;
 export const RADIAL_MAX_N = 4;
 
 export interface HydrogenModel {
@@ -331,7 +333,7 @@ export interface HydrogenModel {
 }
 
 export function hydrogenModel(Z: number, M: number | null): HydrogenModel | Err {
-  if (!fin(Z) || !Number.isInteger(Z) || Z < 1 || Z > 118) return { error: "The nuclear charge Z must be a whole number from 1 to 118." };
+  if (!fin(Z) || !Number.isInteger(Z) || Z < 1 || Z > HYDROGEN_MAX_Z) return { error: `The nuclear charge Z must be a whole number from 1 to ${HYDROGEN_MAX_Z}: beyond it the omitted relativistic corrections, of relative size (Zα)²/4 for 1s, pass 2 % and these non-relativistic levels are not a usable answer (a Dirac treatment is needed).` };
   if (M !== null && (!fin(M) || M <= 0)) return { error: "The nuclear mass must be positive." };
   const muRatio = M === null ? 1 : M / (M + M_E);
   return { Z, M, muRatio, RM: CODATA_2018.Rinf * muRatio, aMu: CODATA_2018.a0 / muRatio };
@@ -521,7 +523,11 @@ export interface Evolution {
   check: number;
 }
 
-/** True when the 2 × 2 complex matrix is Hermitian to a relative 10⁻¹⁰. */
+/**
+ * True when the 2 × 2 complex matrix is Hermitian to a RELATIVE 10⁻¹⁰. Not quantumDirac.isHermitian: that one scales its
+ * tolerance by max(1, |A|), which is right for dimensionless operators and wrong here — an SI Hamiltonian's entries are
+ * ~10⁻²⁵ J, so an absolute 10⁻⁹ would pass every matrix as Hermitian.
+ */
 export function isHermitian2(H: CMat): boolean {
   if (H.length !== 2 || H.some((r) => r.length !== 2)) return false;
   const scale = Math.max(1e-300, ...H.flat().map((z) => Math.hypot(z.re, z.im)));
@@ -579,20 +585,7 @@ export function evolve2(H: CMat, psi0: State, t: number): Evolution | Err {
     for (let j = 0; j < 2; j++) check = Math.max(check, Math.abs(E[i][j] - U[i][j].re), Math.abs(E[i + 2][j] - U[i][j].im));
   const tol = 1e-8 * Math.max(1, Math.abs(theta));
   if (!(check <= tol)) return { error: `The closed form and the matrix exponential disagree by ${check.toPrecision(2)}; no result is printed (a defect to report).` };
-  const psi: State = [
-    cx(U[0][0].re * p0[0].re - U[0][0].im * p0[0].im + U[0][1].re * p0[1].re - U[0][1].im * p0[1].im, U[0][0].re * p0[0].im + U[0][0].im * p0[0].re + U[0][1].re * p0[1].im + U[0][1].im * p0[1].re),
-    cx(U[1][0].re * p0[0].re - U[1][0].im * p0[0].im + U[1][1].re * p0[1].re - U[1][1].im * p0[1].im, U[1][0].re * p0[0].im + U[1][0].im * p0[0].re + U[1][1].re * p0[1].im + U[1][1].im * p0[1].re),
-  ];
-  return { psi, U, mean, b: [bx, by, bz], check };
-}
-
-/** The Bloch vector (⟨σx⟩, ⟨σy⟩, ⟨σz⟩) of a normalised qubit state. */
-export function bloch2(psi: State): [number, number, number] {
-  const [a, b] = psi;
-  // ⟨σx⟩ = 2 Re(a* b), ⟨σy⟩ = 2 Im(a* b), ⟨σz⟩ = |a|² − |b|²
-  const re = a.re * b.re + a.im * b.im;
-  const im = a.re * b.im - a.im * b.re;
-  return [2 * re, 2 * im, cAbs2(a) - cAbs2(b)];
+  return { psi: matVec(U, p0), U, mean, b: [bx, by, bz], check };
 }
 
 export type { Cx };

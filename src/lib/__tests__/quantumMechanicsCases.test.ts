@@ -321,7 +321,7 @@ describe("engine against further oracle values", () => {
     expect(rel(f(CODATA_2018.gp, CODATA_2018.muN), 42.577478518)).toBeLessThan(5e-10);
     expect(rel(f(CODATA_2018.gn, CODATA_2018.muN), 29.1646931)).toBeLessThan(5e-8);
     expect(Math.abs(larmorOmega(CODATA_2018.ge, CODATA_2018.muB, 1) - 1.7608596302e11)).toBeLessThan(1e2);
-    const o = run("qm-two-level", { mode: "spin", spin: "electron", B: "1 T", t: "1 ns", state: "|+⟩" });
+    const o = run("qm-two-level", { mode: "spin", spin: "electron", B: "1 T", t: "1 ns", spinState: "|+⟩" });
     expect(rel(out(o, "fL"), 28024.9514242e6)).toBeLessThan(5e-10);
     expect(okText(o)).toContain("anticlockwise seen from +z");
   });
@@ -346,6 +346,16 @@ describe("engine against further oracle values", () => {
     const p = run("qm-two-level", { mode: "hamiltonian", H: "0.2*X + 0.1*Y + 0.3*Z", hUnit: "hMHz", t: "0.1 µs" });
     const m = run("qm-two-level", { mode: "hamiltonian", H: "[[0.3, 0.2-0.1i], [0.2+0.1i, -0.3]]", hUnit: "hMHz", t: "0.1 µs" });
     expect(Math.abs(out(p, "P1") - out(m, "P1"))).toBeLessThan(1e-13);
+  });
+
+  test("demo defaults: spin mode precesses out of the box (|+⟩, ⟨σx⟩ moves); a high-Z ion leads with its caution", () => {
+    const o = run("qm-two-level", { mode: "spin" });
+    okText(o);
+    expect(Math.abs(out(o, "blochX"))).toBeLessThan(0.999);
+    expect(Math.hypot(out(o, "blochX"), out(o, "blochY"))).toBeCloseTo(1, 9);
+    const z = run("qm-hydrogen", { Z: "20" });
+    expect(okText(z).split("\n")[0]).toMatch(/^Caution: at Z = 20 .*0\.53 %/);
+    expect(okText(run("qm-hydrogen", { Z: "8" }))).not.toMatch(/Caution/);
   });
 
   test("the CODATA block: exact constants and ħ = h/2π", () => {
@@ -375,7 +385,7 @@ describe("adversarial inputs: named refusals, never a confident wrong number", (
     ["oscillator n = 21", "qm-harmonic-oscillator", { n: "21" }, /0 to 20/],
     ["oscillator ω in kg", "qm-harmonic-oscillator", { omega: "3 kg" }, /not an angular frequency/],
     ["oscillator ω negative", "qm-harmonic-oscillator", { omega: "-1e15 rad/s" }, /must be positive/],
-    ["Z = 0", "qm-hydrogen", { Z: "0" }, /whole number from 1 to 118/],
+    ["Z = 0", "qm-hydrogen", { Z: "0" }, /whole number from 1 to 36/],
     ["Z = 1.5", "qm-hydrogen", { Z: "1.5" }, /whole number/],
     ["upper ≤ lower", "qm-hydrogen", { upper: "2", lower: "3" }, /upper level must be above/],
     ["orbital 5s", "qm-hydrogen", { orbital: "5s" }, /n ≤ 4/],
@@ -390,10 +400,13 @@ describe("adversarial inputs: named refusals, never a confident wrong number", (
     ["Rabi phase past 10⁶ rad", "qm-two-level", { t: "1 s" }, /10⁶ rad/],
     ["non-Hermitian H", "qm-two-level", { mode: "hamiltonian", H: "[[0, 1], [0, 0]]" }, /Hermitian/],
     ["3 × 3 H", "qm-two-level", { mode: "hamiltonian", H: "[[1,0,0],[0,1,0],[0,0,1]]" }, /two-level/],
-    ["two-qubit state", "qm-two-level", { mode: "spin", state: "|00⟩" }, /two amplitudes/],
+    ["two-qubit state", "qm-two-level", { mode: "spin", spinState: "|00⟩" }, /two amplitudes/],
     ["empty state", "qm-two-level", { mode: "hamiltonian", state: "" }, /No state/],
     ["evolution phase past 10⁶ rad", "qm-two-level", { mode: "spin", B: "10 T", t: "1 s" }, /past the/],
     ["field in metres", "qm-two-level", { mode: "spin", B: "1 m" }, /not compatible/],
+    ["Z = 37 (relativistic corrections past 2 %)", "qm-hydrogen", { Z: "37" }, /Dirac treatment/],
+    ["ω in 1/s (ambiguous by 2π)", "qm-harmonic-oscillator", { omega: "1e15 1/s" }, /s⁻¹ is ambiguous/],
+    ["ω in s^-1", "qm-harmonic-oscillator", { omega: "1e15 s^-1" }, /s⁻¹ is ambiguous/],
   ])("%s", (_n, id, over, msg) => {
     const o = run(id, over as Record<string, string>);
     expect(o.ok).toBe(false);
@@ -467,9 +480,9 @@ describe("display contract, math lines and figures", () => {
     ["qm-two-level", {}],
     ["qm-two-level", { detuning: "-0.5 MHz", t: "0.3 µs" }],
     ["qm-two-level", { t: "20 µs" }],
-    ["qm-two-level", { mode: "spin", state: "|+⟩" }],
-    ["qm-two-level", { mode: "spin", spin: "proton", B: "1 T", state: "1/sqrt(2)|0⟩ + i/sqrt(2)|1⟩", t: "10 ns" }],
-    ["qm-two-level", { mode: "spin", spin: "neutron", B: "0.5 T", state: "|0⟩" }],
+    ["qm-two-level", { mode: "spin" }],
+    ["qm-two-level", { mode: "spin", spin: "proton", B: "1 T", spinState: "1/sqrt(2)|0⟩ + i/sqrt(2)|1⟩", t: "10 ns" }],
+    ["qm-two-level", { mode: "spin", spin: "neutron", B: "0.5 T", spinState: "|0⟩" }],
     ["qm-two-level", { mode: "hamiltonian" }],
     ["qm-two-level", { mode: "hamiltonian", H: "0.3*X + 0.1*Z", hUnit: "eV", t: "5 fs", state: "|1⟩" }],
   ];

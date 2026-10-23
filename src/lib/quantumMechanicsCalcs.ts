@@ -15,7 +15,7 @@ import type { AnalyzeBlock, AnalyzeOutput, EngOutput } from "./analyzeBlocks";
 import { formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
-import { fmtState, type CMat } from "./quantumCore";
+import { blochVector, fmtState, type CMat } from "./quantumCore";
 import { readOperator, readState } from "./quantumDirac";
 import {
   CODATA_2018,
@@ -30,7 +30,6 @@ import {
   SERIES_NAMES,
   barrierResonances,
   barrierT,
-  bloch2,
   evolve2,
   finiteWell,
   finiteWellPsi,
@@ -53,7 +52,7 @@ import { TUNNEL_LOG_FLOOR, curvesSvg, hydrogenLevelSvg, levelFigureSvg, tunnelSv
 type QmCalc = EngCalcDef<"Quantum mechanics">;
 
 const UNIT_NOTE =
-  "Units: lengths, energies, masses, frequencies, times and fields convert (1 nm, 10 Å, 0.5 eV, 8×10⁻²⁰ J, 1 Da, 1 MHz, " +
+  "Units: lengths, energies, masses, frequencies, times and fields convert (1 nm, 10 Å, 0.5 eV, 1 Da, 1 MHz, " +
   "0.25 µs, 2 mT); a unit of the wrong quantity is refused. meV is not a unit the converter knows: type 0.001 eV.";
 
 const refuse = (t: string): AnalyzeOutput => ({ text: trueMinus(t.replace(/—/g, ";")), ok: false });
@@ -405,6 +404,11 @@ const oscCalc: QmCalc = {
   compute: (r) => {
     const u = unitReader(r);
     const mass = readMass(r, u);
+    // A bare reciprocal second is both "ω in rad/s" and "f in Hz" (they differ by 2π), and the unit layer reads it as
+    // Hz: refused by name rather than guessed.
+    if (/^\s*[+-]?[\d.]+(?:[eE][+-]?\d+)?\s*(?:1\/s|\/s|s\^-1|s-1|s⁻¹)\s*$/.test(r("omega") ?? "")) {
+      return refuse("ω: s⁻¹ is ambiguous here (ω in rad/s and f in Hz differ by 2π). Write rad/s for the angular frequency or Hz for the frequency.");
+    }
     const om = u.readAny("omega", [["rad/s", "an angular frequency (rad/s)"], ["Hz", "a frequency (Hz)"], ["N/m", "a spring constant (N/m)"], ["1/m", "a wavenumber (cm⁻¹)"]], "ω");
     const n = Number((r("n") ?? "0").trim() || "0");
     const nLev = Number((r("levels") ?? "5").trim() || "5");
@@ -510,7 +514,7 @@ const hydrogenCalc: QmCalc = {
     "P(r) = r²|Rₙₗ|² for n ≤ 4. Fine structure, the Lamb shift and hyperfine structure are not included. Drawn: the level " +
     "diagram with the transition, and P(r).",
   fields: [
-    { key: "Z", label: "Nuclear charge Z (1 = H, 2 = He⁺, 3 = Li²⁺ …)", default: "1", kind: "text" },
+    { key: "Z", label: "Nuclear charge Z (1 = H, 2 = He⁺, 3 = Li²⁺ …; up to 36)", default: "1", kind: "text" },
     {
       key: "nucleus",
       label: "Nuclear mass (reduced-mass correction)",
@@ -557,6 +561,10 @@ const hydrogenCalc: QmCalc = {
     if (isErr(tr)) return refuse(tr.error);
     const lines: EngReportLine[] = [];
     const ion = Z === 1 ? "hydrogen" : `hydrogen-like ion, Z = ${Z}`;
+    const relCorr = Math.pow(Z * CODATA_2018.alpha, 2) / 4;
+    if (relCorr > 1e-3) {
+      lines.push(`Caution: at Z = ${Z} the omitted relativistic correction to the 1s level is about ${n6(relCorr * 100, 2)} % ((Zα)²/4); read the values below as the non-relativistic estimate.`);
+    }
     lines.push(`${ion[0].toUpperCase()}${ion.slice(1)}; ${nucText}${M !== null ? `: μ/mₑ = ${n6(h.muRatio, 10)}, R_M = ${n6(h.RM, 12)} m⁻¹` : `: R_M = R∞ = ${n6(CODATA_2018.Rinf, 14)} m⁻¹`}.`);
     lines.push({ math: "E_n = -(Z^2 R_{M} h c)/(n^2)", fallback: "Eₙ = −Z²R_M·hc/n²" });
     if (M !== null) {
@@ -661,7 +669,7 @@ const tunnelCalc: QmCalc = {
     if (b.T > 0) outputs.unshift({ key: "T", label: "Transmission T", value: b.T, unit: "" });
     const Rr = b.T > 0 ? 1 - b.T : 1;
     if (b.regime === "below") {
-      lines.push({ math: "T = 1/(1 + (V_0^2 sinh^2(κ a))/(4 E (V_0 - E)))", fallback: "T = [1 + V₀²sinh²(κa)/(4E(V₀ − E))]⁻¹" });
+      lines.push({ math: "T = 1/(1 + (V_0^2 sinh^2(κ a))/(4 (V_0 - E) E))", fallback: "T = [1 + V₀²sinh²(κa)/(4E(V₀ − E))]⁻¹" });
       lines.push({ math: "κ = sqrt(2 (V_0 - E) m)/hbar", fallback: "κ = √(2m(V₀ − E))/ħ" });
       lines.push({ math: "T_WKB ≈ e^(-2 κ a)", fallback: "T_WKB ≈ exp(−2κa)" });
       const kap = b.phase / a;
@@ -679,7 +687,7 @@ const tunnelCalc: QmCalc = {
       lines.push({ math: "T = 1/(1 + (m V_0 a^2)/(2 hbar^2))", fallback: "T = [1 + mV₀a²/(2ħ²)]⁻¹ (E = V₀)" });
       lines.push(`At the barrier top (E = V₀): T = ${n6(b.T)}, R = ${n6(Rr)}. WKB does not apply at or above the barrier.`);
     } else {
-      lines.push({ math: "T = 1/(1 + (V_0^2 sin^2(k a))/(4 E (E - V_0)))", fallback: "T = [1 + V₀²sin²(k₂a)/(4E(E − V₀))]⁻¹" });
+      lines.push({ math: "T = 1/(1 + (V_0^2 sin^2(k a))/(4 (E - V_0) E))", fallback: "T = [1 + V₀²sin²(k₂a)/(4E(E − V₀))]⁻¹" });
       lines.push({ math: "k = sqrt(2 (E - V_0) m)/hbar", fallback: "k₂ = √(2m(E − V₀))/ħ" });
       lines.push(`Above the barrier (E > V₀): k₂a = ${n6(b.phase)}; T = ${n6(b.T)}, R = ${n6(Rr)} (classically T = 1). WKB does not apply above the barrier.`);
       const res = barrierResonances(m, V0, a, 3);
@@ -808,7 +816,8 @@ const twoLevelCalc: QmCalc = {
       kind: "select",
       options: Object.entries(H_UNITS).map(([value, v]) => ({ value, label: v.label })),
     },
-    { key: "state", label: "Initial state |ψ(0)⟩ (spin and Hamiltonian modes)", default: "|0⟩", kind: "text" },
+    { key: "spinState", label: "Initial spin state (spin mode; |+⟩ points along +x)", default: "|+⟩", kind: "text" },
+    { key: "state", label: "Initial state |ψ(0)⟩ (Hamiltonian mode)", default: "|0⟩", kind: "text" },
     { key: "t", label: "Time t", default: "0.25 µs", kind: "text" },
   ],
   compute: (r) => {
@@ -884,7 +893,7 @@ const twoLevelCalc: QmCalc = {
     let H: CMat;
     const lines: EngReportLine[] = [];
     const outputs: EngOutput[] = [];
-    const st = readState(r("state") ?? "", "");
+    const st = readState((mode === "spin" ? r("spinState") : r("state")) ?? "", "");
     let gyroLine = "";
     if (mode === "spin") {
       const B = u.req("B", "T", "T", "Field B");
@@ -938,7 +947,7 @@ const twoLevelCalc: QmCalc = {
     }
     const P0 = ev.psi[0].re ** 2 + ev.psi[0].im ** 2;
     const P1 = 1 - P0;
-    const [bx, by, bz] = bloch2(ev.psi);
+    const [bx, by, bz] = blochVector(ev.psi);
     lines.push(`|ψ(0)⟩ = ${s0.text}${st.notes.length ? ` (${st.notes.join("; ")})` : ""}.`);
     lines.push(`At t = ${timeText(t)}: |ψ(t)⟩ = ${s1.text}${s1.globalPhase ? ` (global phase ${s1.globalPhase.text} factored out)` : ""}, up to the global phase exp(−iĒt/ħ), Ē = (H₀₀ + H₁₁)/2.`);
     lines.push(`P(|0⟩) = ${n6(P0, 6)}, P(|1⟩) = ${n6(P1, 6)}; Bloch vector (⟨σx⟩, ⟨σy⟩, ⟨σz⟩) = (${n6(bx, 5)}, ${n6(by, 5)}, ${n6(bz, 5)}). Closed form and matrix exponential agree to ${fromLog10(Math.log10(Math.max(ev.check, 1e-17)), 2)}.`);
@@ -952,7 +961,7 @@ const twoLevelCalc: QmCalc = {
         const e2 = evolve2(H, psi0, tt);
         if (isErr(e2)) continue;
         const p0 = e2.psi[0].re ** 2 + e2.psi[0].im ** 2;
-        const bl = bloch2(e2.psi);
+        const bl = blochVector(e2.psi);
         rows.push([timeText(tt, 5), n6(p0, 5), n6(1 - p0, 5), ...bl.map((v) => n6(Math.abs(v) < 1e-12 ? 0 : v, 5))]);
       }
       lines.push(tableLine(mode === "spin" ? "Over one precession period, and at t" : "Over one population period, and at t", rows));
@@ -969,7 +978,7 @@ const twoLevelCalc: QmCalc = {
       const tt = (win.t1 * i) / (N - 1);
       const e2 = evolve2(H, psi0, tt);
       if (isErr(e2)) continue;
-      samp.push({ tt: tt * ts.k, P1: e2.psi[1].re ** 2 + e2.psi[1].im ** 2, b: bloch2(e2.psi) });
+      samp.push({ tt: tt * ts.k, P1: e2.psi[1].re ** 2 + e2.psi[1].im ** 2, b: blochVector(e2.psi) });
     }
     let svg: string;
     if (mode === "spin") {

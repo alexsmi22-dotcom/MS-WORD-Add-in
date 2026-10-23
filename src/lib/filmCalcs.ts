@@ -11,6 +11,7 @@
 // minus, ×10⁻ⁿ, subscripts, no carets, no e-notation, no em dash in an ok
 // result) and the figures.
 
+import type { EngUnitContract } from "./engCalc";
 import type { AnalyzeBlock, AnalyzeOutput } from "./analyzeBlocks";
 import { engReport } from "./engReport";
 import { buildPlotSvg, type Point, type Series } from "./plot";
@@ -48,6 +49,8 @@ export interface FilmCalc {
   group: "Optics & photonics";
   hint: string;
   fields: FilmField[];
+  /** The unit contract this tool keeps (engCalc.ts EngUnitContract). */
+  unitContract: EngUnitContract;
   compute: (read: (k: string) => string) => AnalyzeOutput;
 }
 
@@ -107,6 +110,7 @@ const fresnelCalc: FilmCalc = {
   id: "optics-fresnel",
   name: "Fresnel s/p reflection & transmission",
   group: "Optics & photonics",
+  unitContract: "domain",
   hint:
     "Fresnel coefficients rs, rp, ts, tp, the power fractions R and T for s, p and unpolarised light, and the phase " +
     "shifts, at one uncoated interface. Indices are YOUR inputs (no index table): the incident medium is lossless, " +
@@ -246,6 +250,7 @@ const stackCalc: FilmCalc = {
   id: "optics-thin-film",
   name: "Thin-film stack: R, T, A spectrum",
   group: "Optics & photonics",
+  unitContract: "domain",
   hint:
     "Reflectance, transmittance and absorptance of a multilayer coating by the characteristic matrix. One layer per " +
     "line, the one nearest the incident medium FIRST: label, index, thickness, e.g. \"MgF2 1.38 99.6 nm\" or \"1.38 QW\" " +
@@ -485,6 +490,7 @@ const jonesCalc: FilmCalc = {
   id: "optics-jones",
   name: "Polarisation: Jones calculus",
   group: "Optics & photonics",
+  unitContract: "domain",
   hint:
     "A fully polarised beam through polarisers, wave plates, retarders and rotators, in order, one per line: " +
     "\"polariser 30\", \"hwp 22.5\", \"qwp 45\", \"retarder 30 60\" (fast axis 30°, δ = 60°), \"rotator 15\". Angles from x " +

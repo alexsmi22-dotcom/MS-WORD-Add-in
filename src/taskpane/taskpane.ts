@@ -11505,6 +11505,15 @@ function analyzeBlocksToPreviewHtml(blocks: AnalyzeBlock[]): string {
         }
       }
       if (b.kind === "plot") return b.svg;
+      if (b.kind === "table") {
+        // A results table previews as a table (header row bold), as it will go into Word.
+        const [head, ...body] = b.rows;
+        const cells = (r: string[], tag: string): string => r.map((c) => `<${tag} style="padding:1px 6px;text-align:left">${esc(c)}</${tag}>`).join("");
+        return (
+          (b.label ? `${esc(b.label)}<br>` : "") +
+          `<table style="border-collapse:collapse;font-size:inherit">${head ? `<tr>${cells(head, "th")}</tr>` : ""}${body.map((r) => `<tr>${cells(r, "td")}</tr>`).join("")}</table>`
+        );
+      }
       return (
         (b.label ? `${esc(b.label)}<br>` : "") +
         `<span style="font-family:monospace;white-space:pre">${esc(formatMatrix(b.m))}</span>`
@@ -28785,7 +28794,7 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
   // fully written and never reached. Exactly the "engine built, pane cannot
   // reach it" failure this repo has hit before; the gate below now pins the
   // list so a new rich block kind cannot be added without routing it.
-  const RICH_KINDS = ["matrix", "plot", "math"];
+  const RICH_KINDS = ["matrix", "table", "plot", "math"];
   if (!blocks || !blocks.some((b) => RICH_KINDS.includes(b.kind))) {
     await insertPlainText(text, label);
     return;
@@ -29011,6 +29020,10 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           heightPt: figurePoints(dims.h),
           alt: block.alt,
         });
+        continue;
+      }
+      if (block.kind === "table") {
+        layout.push({ kind: "matrix", label: block.label ?? "", values: block.rows });
         continue;
       }
       layout.push({ kind: "matrix", label: block.label ?? "", values: block.m.map((row) => row.map((v) => formatNum(v, 6))) });

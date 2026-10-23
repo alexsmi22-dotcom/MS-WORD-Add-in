@@ -3,6 +3,7 @@
 // of titrationCalcs.ts). No number is computed here beyond what tlc.ts reads; this file words the result under the
 // display contract (U+2212, no em dash, no e-notation) and draws through tlcChart.ts.
 
+import type { EngUnitContract } from "./engCalc";
 import { engReport } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput } from "./analyzeBlocks";
 import { trueMinus } from "./numberList";
@@ -20,6 +21,7 @@ export const tlcCalc: ChemEngCalc = {
   id: "chem-tlc",
   name: "TLC plate",
   group: CHEM_ENG_GROUP,
+  unitContract: "domain",
   hint:
     "Thin-layer chromatography: one lane per line, label then spots (SM: 0.62 / co: 0.62, 0.35 / rxn: 0.35). Give Rf values, or each spot's distance from the origin with the solvent front's distance (Rf = spot distance ÷ front distance). Draws the plate schematic: origin, solvent front, lanes and spots, outlined (UV) or filled (stained). Up to " +
     `${TLC_MAX_LANES} lanes and ${TLC_MAX_SPOTS} spots per lane.`,

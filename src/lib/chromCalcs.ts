@@ -7,6 +7,7 @@
 // half-height widths) and every formula. This file reads the fields, words the result under the display contract
 // (U+2212 minus, ×10ⁿ, never an em dash, NaN or e-notation in the text) and draws.
 
+import type { EngUnitContract } from "./engCalc";
 import { engReport } from "./engReport";
 import type { AnalyzeOutput } from "./analyzeBlocks";
 import { trueMinus } from "./numberList";
@@ -71,6 +72,7 @@ const peakTableCalc: ChemEngCalc = {
   id: "chem-peak-table",
   name: "HPLC/GC peak table (plates, resolution, symmetry)",
   group: CHEM_ENG_GROUP,
+  unitContract: "domain",
   hint:
     "Paste the PEAK TABLE your chromatography software reports (one line per peak), not the raw detector trace: this " +
     "tool does no peak detection or integration. Columns are read by their headers (Peak or Name, RT or tR, Area, " +

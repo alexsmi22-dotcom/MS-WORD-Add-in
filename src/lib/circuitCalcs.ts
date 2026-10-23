@@ -10,6 +10,7 @@
 // wording, the display contract (U+2212 minus, ×10ⁿ never e-notation, µs/ms on
 // the axes, no em dash in an ok result) and the figure.
 
+import type { EngUnitContract } from "./engCalc";
 import type { AnalyzeOutput, AnalyzeBlock } from "./analyzeBlocks";
 import { engReport, plainDashes } from "./engReport";
 import { trueMinus } from "./numberList";
@@ -42,6 +43,8 @@ export interface CircuitCalc {
   group: "Electronics";
   hint: string;
   fields: CircuitField[];
+  /** The unit contract this tool keeps (engCalc.ts EngUnitContract). */
+  unitContract: EngUnitContract;
   compute: (read: (k: string) => string) => AnalyzeOutput;
 }
 
@@ -322,6 +325,7 @@ export const CIRCUIT_CALCS: CircuitCalc[] = [
     id: "circuit-transient",
     name: "Transient response",
     group: "Electronics",
+    unitContract: "spice",
     hint:
       'The same netlist as the DC and AC tools, with time-varying sources: "V1 1 0 PULSE(0 5 0 1n 1n 1m 2m)", ' +
       '"V1 1 0 SIN(0 1 1k)", "I1 0 2 PWL(0 0 1m 10m)". Times take SI suffixes (5m is 5 ms). Covers R, L, C, V ' +

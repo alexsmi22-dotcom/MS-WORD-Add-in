@@ -7,6 +7,7 @@
 // engine of the "optics-jones" calculator). This file reads the fields, words the result (display contract:
 // U+2212 minus, ×10⁻ⁿ, sub/superscripts, no carets, no e-notation, no em dash in an ok result) and draws.
 
+import type { EngUnitContract } from "./engCalc";
 import type { AnalyzeBlock, AnalyzeOutput } from "./analyzeBlocks";
 import { engReport } from "./engReport";
 import { qNum } from "./assayQuant";
@@ -70,6 +71,8 @@ export interface LcCalc {
   group: "Optics & photonics";
   hint: string;
   fields: LcField[];
+  /** The unit contract this tool keeps (engCalc.ts EngUnitContract). */
+  unitContract: EngUnitContract;
   compute: (read: (k: string) => string) => AnalyzeOutput;
 }
 
@@ -448,6 +451,7 @@ const retarderCalc: LcCalc = {
   id: "optics-lc-retarder",
   name: "Liquid-crystal retarder / achromatic wave plate",
   group: "Optics & photonics",
+  unitContract: "domain",
   hint:
     "A stack of 1–6 birefringent (liquid-crystal) cells between a polariser and an analyser, at normal incidence. " +
     "Each cell: thickness (µm), tilt θ of the director FROM THE SUBSTRATE PLANE (θ = 0 gives the full Δn, 90° gives none), " +
@@ -922,6 +926,7 @@ const voltageCalc: LcCalc = {
   id: "optics-lc-voltage",
   name: "Liquid-crystal cell: Fréedericksz transition and retardance vs voltage",
   group: "Optics & photonics",
+  unitContract: "domain",
   hint:
     "A planar nematic cell with strong anchoring and positive dielectric anisotropy. Vₜₕ = π√(K₁₁/(ε₀Δε)); above it the " +
     "director tilts (splay–bend, K₁₁ and K₃₃) in a non-uniform field (D uniform, V = ∫E dz), solved through the first integral " +

@@ -16,6 +16,7 @@
 // contract (U+2212 minus, superscripts, no em dash, no e-notation, never NaN)
 // and draws.
 
+import type { EngUnitContract } from "./engCalc";
 import { engReport } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput } from "./analyzeBlocks";
 import { trueMinus } from "./numberList";
@@ -68,6 +69,8 @@ export interface CloningCalc {
   group: typeof CLONING_GROUP;
   hint: string;
   fields: CloningField[];
+  /** The unit contract this tool keeps (engCalc.ts EngUnitContract). */
+  unitContract: EngUnitContract;
   compute: (read: (k: string) => string) => AnalyzeOutput;
 }
 
@@ -206,6 +209,7 @@ const gelCalc: CloningCalc = {
   id: "cloning-gel",
   name: "Agarose gel figure",
   group: CLONING_GROUP,
+  unitContract: "domain",
   hint:
     "Draws a schematic agarose gel: a manufacturer's ladder beside up to 14 sample lanes. A lane is a list of " +
     "fragment sizes in bp (“Digest A: 3000, 1500, 850”), and a sequence plus enzymes becomes a lane of its own " +
@@ -323,6 +327,7 @@ const goldenGateCalc: CloningCalc = {
   id: "cloning-golden-gate",
   name: "Golden Gate assembly",
   group: CLONING_GROUP,
+  unitContract: "domain",
   hint:
     "Designs a Golden Gate assembly from ordered parts: checks every part for internal sites of the chosen " +
     "Type IIS enzyme (both strands), checks the fusion sites for duplicates, palindromes and reverse-complement " +
@@ -421,6 +426,7 @@ const gibsonCalc: CloningCalc = {
   id: "cloning-gibson",
   name: "Gibson / HiFi assembly",
   group: CLONING_GROUP,
+  unitContract: "domain",
   hint:
     "Designs a Gibson or NEBuilder HiFi assembly from ordered fragments: one overlap per junction, either a fixed " +
     "length or the shortest overlap that melts at or above a target Tm, with the primer that carries it. Overlap " +
@@ -520,6 +526,7 @@ const pcrCalc: CloningCalc = {
   id: "cloning-pcr-primers",
   name: "PCR primer design",
   group: CLONING_GROUP,
+  unitContract: "domain",
   hint:
     "Designs a primer pair for a region of a template (1-based, inclusive). Lengths are chosen so each primer's " +
     "Tm is as close as possible to the target; the result gives Tm, GC %, the 3′ GC clamp, ΔTm between the primers " +

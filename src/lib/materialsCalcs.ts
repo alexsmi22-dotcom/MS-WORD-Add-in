@@ -12,6 +12,7 @@
 // hyphen as a minus, a caret or e-notation: numbers go through fmtSig (axis.ts:
 // ×10ⁿ, U+2212) and every line through trueMinus (numberList.ts).
 
+import type { EngUnitContract } from "./engCalc";
 import { engReport, plainDashes, type EngLine } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput } from "./analyzeBlocks";
 import { fmtSig, superscript } from "./axis";
@@ -60,6 +61,8 @@ export interface MatCalc {
   group: MatGroup;
   hint: string;
   fields: MatField[];
+  /** The unit contract this tool keeps (engCalc.ts EngUnitContract). */
+  unitContract: EngUnitContract;
   compute: (read: (k: string) => string) => AnalyzeOutput;
 }
 
@@ -346,6 +349,7 @@ const tensileCalc: MatCalc = {
   id: "mat-tensile",
   name: "Tensile test: modulus, 0.2 % yield, UTS",
   group: "Structural & solids",
+  unitContract: "converts",
   hint:
     "Paste the curve as two columns in test order: strain then stress, or extension then load with the gauge length " +
     "and area. The modulus is a straight-line fit over the elastic region (automatically the rising curve between " +
@@ -647,6 +651,7 @@ const weibullStrengthCalc: MatCalc = {
   id: "mat-weibull-strength",
   name: "Weibull modulus of strength (ceramics, fibres)",
   group: "Structural & solids",
+  unitContract: "same-units",
   hint:
     "Paste the fracture strengths of nominally identical specimens. Two estimates are shown side by side: the " +
     "linearised median-rank regression (Bernard ranks, the Weibull-plot line) and maximum likelihood, the same fitter " +
@@ -739,6 +744,7 @@ const scherrerCalc: MatCalc = {
   id: "mat-scherrer",
   name: "Crystallite size: Scherrer and Williamson–Hall",
   group: "Structural & solids",
+  unitContract: "converts",
   hint:
     "One XRD peak per line: 2θ and FWHM, both in degrees 2θ (an optional third column is that peak's instrumental FWHM). " +
     "τ = Kλ/(β cos θ) with β the sample broadening in radians. Instrumental broadening is subtracted in quadrature " +
@@ -896,6 +902,7 @@ const capabilityCalc: MatCalc = {
   id: "qual-capability",
   name: "Process capability: Cp, Cpk, Pp, Ppk",
   group: "Reliability",
+  unitContract: "same-units",
   hint:
     "Paste the measurements in production order and give the specification limits (one-sided is fine). Cp/Cpk use " +
     "the WITHIN-subgroup σ (R̄/d₂ with a subgroup size; for individuals the moving range MR̄/1.128), Pp/Ppk the overall standard deviation; a gap " +
@@ -1158,6 +1165,7 @@ const stackCalc: MatCalc = {
   id: "qual-tolerance-stack",
   name: "Tolerance stack-up: worst case and RSS",
   group: "Fatigue & machine design",
+  unitContract: "same-units",
   hint:
     "One dimension per line around the loop: a name, + or − (the direction it adds to the gap), the nominal and its " +
     "tolerance (±0.10, or +0.10/−0.05 for unequal limits, which are re-centred). Worst case adds every tolerance; RSS " +

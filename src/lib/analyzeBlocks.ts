@@ -50,10 +50,44 @@ export type AnalyzeBlock =
    */
   | { kind: "math"; math: string; fallback: string }
   | { kind: "matrix"; label?: string; m: Matrix }
+  /**
+   * A results table of text cells — the first row is the header, units in its cells ("Force (kN)") — inserted as a
+   * real Word table (Release E: truss forces, reliability blocks, link budgets went in as padded text before).
+   */
+  | { kind: "table"; label?: string; rows: string[][] }
   | { kind: "plot"; svg: string; caption: string; alt: string; w: number; h: number };
+
+/**
+ * One named numeric result: its value in `unit` (the unit it is displayed in, as typeset: "kN", "MPa", "m²", "" for
+ * a pure number). A parameter sweep or an uncertainty run reads these — a tool joins them only by declaring them;
+ * nothing is ever scraped from the result text.
+ */
+export interface EngOutput {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+}
+
 export interface AnalyzeOutput extends StatOutput {
-  /** Structured blocks for rich insertion; when present, matrices go in as Word tables. */
+  /** Structured blocks for rich insertion; when present, matrices and tables go in as Word tables. */
   blocks?: AnalyzeBlock[];
+  /** Named numeric results, for sweeps and uncertainty (Engineering, Release E). */
+  outputs?: EngOutput[];
+}
+
+/** A text table laid out in columns, for the preview and the plain-text form. */
+export function formatTextTable(rows: string[][]): string {
+  const len = (s: string): number => [...s].length;
+  const n = Math.max(0, ...rows.map((r) => r.length));
+  const width = Array.from({ length: n }, (_, j) => Math.max(0, ...rows.map((r) => len(r[j] ?? ""))));
+  return rows
+    .map((r) =>
+      Array.from({ length: n }, (_, j) => (r[j] ?? "") + " ".repeat(width[j] - len(r[j] ?? "")))
+        .join("  ")
+        .trimEnd(),
+    )
+    .join("\n");
 }
 
 /** Renders a block's text form (for the pane preview and the plain-text fallback). */
@@ -63,6 +97,7 @@ export function analyzeBlocksToText(blocks: AnalyzeBlock[]): string {
       if (b.kind === "line") return b.text;
       if (b.kind === "math") return b.fallback;
       if (b.kind === "plot") return b.caption;
+      if (b.kind === "table") return (b.label ? `${b.label}\n` : "") + formatTextTable(b.rows);
       return (b.label ? `${b.label}\n` : "") + formatMatrix(b.m);
     })
     .join("\n");

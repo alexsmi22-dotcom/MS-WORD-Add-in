@@ -14,6 +14,7 @@
 // powers, ×10ⁿ (never e-notation), no em dash (the insert gate's non-finite
 // sentinel), no "NaN"/"Infinity" — and the figures.
 
+import type { EngUnitContract } from "./engCalc";
 import type { AnalyzeOutput, AnalyzeBlock } from "./analyzeBlocks";
 import { engReport, type EngLine } from "./engReport";
 import { Rat, ratToNumber, ratSign, ratNeg, ratIsZero, parseRatLiteral } from "./cas";
@@ -64,6 +65,8 @@ export interface ControlCalc {
   group: "Control systems";
   hint: string;
   fields: ControlField[];
+  /** The unit contract this tool keeps (engCalc.ts EngUnitContract). */
+  unitContract: EngUnitContract;
   compute: (read: (k: string) => string) => AnalyzeOutput;
 }
 
@@ -296,6 +299,7 @@ const rootLocusCalc: ControlCalc = {
   id: "control-rlocus",
   name: "Root locus",
   group: "Control systems",
+  unitContract: "same-units",
   hint:
     "Enter the OPEN-LOOP G(s)H(s); the locus is the closed-loop poles of 1 + K·G(s)H(s) = 0 as K rises from 0. " +
     "Asymptotes, real-axis segments, breakaway points and the gain at each imaginary-axis crossing are derived " +
@@ -455,6 +459,7 @@ const nyquistCalc: ControlCalc = {
   id: "control-nyquist",
   name: "Nyquist plot & encirclements",
   group: "Control systems",
+  unitContract: "same-units",
   hint:
     "Enter the OPEN-LOOP L(s) = G·H. Counts the clockwise encirclements N of −1 around the Nyquist contour " +
     "(indented around any imaginary-axis poles), takes P = open-loop right-half-plane poles, and gives Z = N + P. " +
@@ -546,6 +551,7 @@ const leadLagCalc: ControlCalc = {
   id: "control-leadlag",
   name: "Lead / lag compensator design",
   group: "Control systems",
+  unitContract: "same-units",
   hint:
     "Classical Bode design in series with your plant, unity feedback. LEAD adds phase at the crossover for a " +
     "target phase margin (optionally at a crossover you choose); LAG meets an error constant (Kp, Kv or Ka by the " +
@@ -665,6 +671,7 @@ const c2dCalc: ControlCalc = {
   id: "control-c2d",
   name: "Discrete time (c2d) & z-plane stability",
   group: "Control systems",
+  unitContract: "same-units",
   hint:
     "Converts G(s) to Gd(z) at sample time T by zero-order hold, Tustin (optionally prewarped) or matched " +
     "pole-zero, then tests |z| < 1 twice: exactly by the Jury (Schur–Cohn) test and from the computed poles. The " +

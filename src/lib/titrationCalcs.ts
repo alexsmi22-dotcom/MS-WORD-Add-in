@@ -11,6 +11,7 @@
 // same contract as the pane's engUnits), words the result under the display contract (U+2212 minus, ×10ⁿ, never an
 // em dash, NaN or Infinity in the text) and draws.
 
+import type { EngUnitContract } from "./engCalc";
 import { engReport } from "./engReport";
 import type { AnalyzeOutput, AnalyzeBlock } from "./analyzeBlocks";
 import { parseMeasured } from "./units";
@@ -67,6 +68,8 @@ export interface ChemEngCalc {
   group: typeof CHEM_ENG_GROUP;
   hint: string;
   fields: ChemEngField[];
+  /** The unit contract this tool keeps (engCalc.ts EngUnitContract). */
+  unitContract: EngUnitContract;
   compute: (read: (k: string) => string) => AnalyzeOutput;
 }
 
@@ -237,6 +240,7 @@ const titrationCalc: ChemEngCalc = {
   id: "chem-titration",
   name: "Titration curve (exact pH)",
   group: CHEM_ENG_GROUP,
+  unitContract: "converts",
   hint:
     "An acid titrated with a strong base (NaOH), or a base with a strong acid (HCl): the pH at every volume from the exact " +
     "charge balance, solved for [H⁺] numerically, not from Henderson–Hasselbalch. Gives the equivalence volume(s), the pH at " +
@@ -342,6 +346,7 @@ const speciationCalc: ChemEngCalc = {
   id: "chem-speciation",
   name: "Speciation (distribution) diagram",
   group: CHEM_ENG_GROUP,
+  unitContract: "domain",
   hint:
     "The fraction of each protonation state of a mono- or polyprotic acid (or a base) against pH, exactly: " +
     "αₖ ∝ [H⁺]ᵏ·Ka₁·…·Ka₍ₙ₋ₖ₎. Gives the fractions at your pH and which form dominates." +
@@ -396,6 +401,7 @@ const solutionCalc: ChemEngCalc = {
   id: "chem-solution-ph",
   name: "pH of a solution or buffer",
   group: CHEM_ENG_GROUP,
+  unitContract: "converts",
   hint:
     "The exact pH of a weak acid or base, its salt, a buffer of the two, and any added strong acid or base, from the " +
     "charge balance. For an acid HₙA the salt is its one-step conjugate (NaHₙ₋₁A: sodium acetate, NaH₂PO₄); for a base B " +
@@ -517,6 +523,7 @@ const cvCalc: ChemEngCalc = {
   id: "chem-cv-peak",
   name: "Cyclic voltammetry: Randles–Ševčík peak current",
   group: CHEM_ENG_GROUP,
+  unitContract: "converts",
   hint:
     "A reversible, diffusion-controlled couple O + n e⁻ ⇌ R at a planar electrode: peak current ip = 0.4463·nFAC·√(nFvD/RT) " +
     "(at 25 °C, 2.69×10⁵·n·√n·A·C·√(Dv) with A in cm², C in mol/cm³, D in cm²/s, v in V/s; the temperature-dependent " +
@@ -598,6 +605,7 @@ const rsCalc: ChemEngCalc = {
   id: "chem-cv-randles",
   name: "Randles–Ševčík analysis (D from ip against √v)",
   group: CHEM_ENG_GROUP,
+  unitContract: "converts",
   hint:
     "Paste scan rate and peak current, one pair per line (a third column, ΔEp in mV, is optional). ip is fitted against √v " +
     "by least squares, keeping the intercept; the slope gives the diffusion coefficient D = (slope / (0.4463·nFAC·√(nF/RT)))². " +

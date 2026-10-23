@@ -196,7 +196,9 @@ export function mohrCircleSvg(inp: MohrInput): string {
   // the label (Release E: with σx left of centre it struck the label out).
   const upperX = ay <= by ? ax : bx;
   const leftSide = upperX >= X(c);
-  p.push(labelText(leftSide ? X(c) - 4 : X(c) + 4, (y0 + topY) / 2, "τmax = R = " + n1(R), { fill: CIRCLE, size: 8, anchor: leftSide ? "end" : "start" }));
+  // A circle shrunk to a point (an isotropic in-plane state) has no radius to label: its σ₁ = σ₂ label says it.
+  const point = !(R * scale >= 1);
+  if (!point) p.push(labelText(leftSide ? X(c) - 4 : X(c) + 4, (y0 + topY) / 2, "τmax = R = " + n1(R), { fill: CIRCLE, size: 8, anchor: leftSide ? "end" : "start" }));
 
   // The circle itself.
   p.push(
@@ -216,6 +218,9 @@ export function mohrCircleSvg(inp: MohrInput): string {
     [bx, by, "(σy, −τxy)"],
   ] as [number, number, string][]) {
     p.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3" fill="${POINT}"/>`);
+    // A shear-free state puts both points ON the σ axis, where they ARE σ₁ and σ₂ and are labelled as such below;
+    // a second label there would sit on top of the first.
+    if (Math.abs(py - y0) < 12) continue;
     const right = px >= cx;
     const above = py <= y0;
     p.push(labelText(right ? px + 6 : px - 6, above ? py - 6 : py + 13, lbl, { fill: POINT, size: 8, anchor: right ? "start" : "end" }));
@@ -224,15 +229,21 @@ export function mohrCircleSvg(inp: MohrInput): string {
   // Principal stresses, where the circle meets the sigma axis.
   // Labelled just OUTSIDE the circle (σ₁ to its right, σ₂ to its left), where the stroke is vertical: centred above
   // the point, the glyph sat on the stroke and was struck through (Release E).
-  for (const [s, label, outward] of [
-    [inp.sigma1, "σ₁", 1],
-    [inp.sigma2, "σ₂", -1],
-  ] as [number, string, number][]) {
+  for (const [s, label, outward] of (point
+    ? [[inp.sigma1, "σ₁ = σ₂", 1]]
+    : [
+        [inp.sigma1, "σ₁", 1],
+        [inp.sigma2, "σ₂", -1],
+      ]) as [number, string, number][]) {
     const x = X(s);
-    const lx = R > 0 ? x + outward * 5 : x;
-    const anchor = R > 0 ? (outward > 0 ? "start" : "end") : "middle";
+    const lx = point ? x : x + outward * 5;
+    const anchor = point ? "middle" : outward > 0 ? "start" : "end";
     p.push(`<circle cx="${x.toFixed(1)}" cy="${y0.toFixed(1)}" r="2.6" fill="${CIRCLE}"/>`);
-    p.push(`<text x="${lx.toFixed(1)}" y="${(y0 - 5).toFixed(1)}" text-anchor="${anchor}" fill="${CIRCLE}" font-size="9">${esc(label)}</text>`);
+    p.push(
+      point
+        ? labelText(lx, y0 - 6, label, { fill: CIRCLE, size: 9, anchor: "middle" })
+        : `<text x="${lx.toFixed(1)}" y="${(y0 - 5).toFixed(1)}" text-anchor="${anchor}" fill="${CIRCLE}" font-size="9">${esc(label)}</text>`,
+    );
   }
 
   // The radius IS the maximum in-plane shear — drawn, because that equivalence

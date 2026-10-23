@@ -2943,7 +2943,7 @@ rotator 15` }, "jones elliptical");
     "vessel-lame": [{}, { ends: "open" }, { pi: "0", po: "50" }],
     "vessel-shrink-fit": [{}, { a: "10", b: "25", c: "50", delta: "0.01", Es: "70", nus: "0.33" }],
     "vessel-rotating-disk": [{}, { a: "50" }],
-    "combined-loading": [{}, { V: "40 kN" }, { P: "-10 kN", L: "1" }],
+    "combined-loading": [{}, { V: "40 kN" }, { P: "-10 kN", L: "1" }, { T: "0" }, { section: "rect", T: "0" }, { P: "0", M: "0", T: "0" }],
     "hertz-contact": [{}, { geom: "sphere-sphere", R2: "20", E2: "70", nu2: "0.33" }, { geom: "cyl-flat", nu1: "0", nu2: "0.3", F: "1000" }],
   };
   for (const c of VESSELS_CALCS) {
@@ -2956,6 +2956,16 @@ rotator 15` }, "jones elliptical");
       svgs.forEach((s, i) => figures.push([`vessels ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
     });
   }
+  // Mohr's circle label placement (moved outside the circle in Release E): shear-free states, where the applied
+  // points sit on the σ axis beside the σ₁ / σ₂ labels, and a nearly shear-free one.
+  const mohrOf = (sx: number, sy: number, txy: number): string => {
+    const c = (sx + sy) / 2;
+    const r = Math.hypot((sx - sy) / 2, txy);
+    return mohrCircleSvg({ sigmaX: sx, sigmaY: sy, tauXY: txy, sigma1: c + r, sigma2: c - r, centre: c, radius: r, unit: "MPa" });
+  };
+  figures.push(["vessels mohr uniaxial 100, 0, 0", mohrOf(100, 0, 0)]);
+  figures.push(["vessels mohr biaxial 100, 60, 0", mohrOf(100, 60, 0)]);
+  figures.push(["vessels mohr small shear 100, 60, 2", mohrOf(100, 60, 2)]);
 }
 // --- end Release E: vessels ---
 

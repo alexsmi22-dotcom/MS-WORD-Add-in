@@ -15767,7 +15767,16 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const label = route === "iv-bolus" ? "IV bolus" : route === "infusion" ? "IV infusion" : "Oral";
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [
+        ...engEq("pk-dose"),
+        ...(route === "iv-bolus"
+          ? engEq("pk-dose:iv-bolus")
+          : route === "infusion"
+            ? engEq("pk-dose:infusion")
+            : Math.abs(p.ka - res.k) >= 1e-12 * Math.max(p.ka, res.k)
+              ? engEq("pk-dose:oral")
+              : engEq("pk-dose:oral-auc")),
+      ];
       lines.push(`${label} dose of ${engNum(p.dose)} mg`);
       lines.push(
         `CL = ${engNum(p.cl)} L/h, Vd = ${engNum(p.vd)} L` + (route === "oral" ? `, F = ${engNum(p.f)}, ka = ${engNum(p.ka)} /h` : ""),
@@ -15791,9 +15800,13 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.t.map((t, i) => ({ x: t, y: res.c[i] })), type: "line", color: "#2563eb", label: "C(t)" }],
         { width: 380, height: 240, xlabel: "Time (h)", ylabel: "Concentration (mg/L)", title: `${label} concentration-time profile` },
       );
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "kel", label: "Elimination rate constant k", value: res.k, unit: "1/h" },
+        { key: "thalf", label: "Half-life", value: res.halfLife, unit: "h" },
+        { key: "Cmax", label: "Peak concentration Cmax", value: res.cmax, unit: "mg/L" },
+        { key: "tmax", label: "Time of the peak", value: res.tmax, unit: "h" },
+        { key: "AUC", label: "AUC (0 to infinity)", value: res.auc, unit: "mg·h/L" },
+      ], engReport(lines, [
         {
           kind: "plot" as const,
           svg,
@@ -15802,8 +15815,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -15846,7 +15858,7 @@ const ENG_CALCS: EngCalc[] = [
       const res = steadyState(p, tau);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("pk-steady")];
       lines.push(`${engNum(p.dose)} mg every ${engNum(tau)} h`);
       lines.push(
         `CL = ${engNum(p.cl)} L/h, Vd = ${engNum(p.vd)} L, F = ${engNum(p.f)}` +
@@ -15889,15 +15901,20 @@ const ENG_CALCS: EngCalc[] = [
         );
       }
       const trace = multipleDoseCurve(p, tau, nDoses, 800);
-      const clean = lines.map(plainDashes);
-      if (!trace.ok) return { text: clean.join("\n") };
+      const ssOutputs: EngOutput[] = [
+        { key: "CmaxSs", label: "Steady-state peak", value: res.cMaxSs, unit: "mg/L" },
+        { key: "CminSs", label: "Steady-state trough", value: res.cMinSs, unit: "mg/L" },
+        { key: "CavgSs", label: "Steady-state average", value: res.cAvgSs, unit: "mg/L" },
+        { key: "loading", label: "Loading dose", value: res.loadingDose, unit: "mg" },
+        { key: "Rac", label: "Accumulation ratio", value: res.accumulation, unit: "" },
+      ];
+      if (!trace.ok) return withOutputs(ssOutputs, engReport(lines));
 
       const svg = buildPlotSvg(
         [{ points: trace.t.map((t, i) => ({ x: t, y: trace.c[i] })), type: "line", color: "#2563eb", label: "C(t)" }],
         { width: 380, height: 240, xlabel: "Time (h)", ylabel: "Concentration (mg/L)", title: `${nDoses} doses, ${engNum(tau)} h apart` },
       );
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs(ssOutputs, engReport(lines, [
         {
           kind: "plot" as const,
           svg,
@@ -15906,8 +15923,7 @@ const ENG_CALCS: EngCalc[] = [
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -15961,28 +15977,24 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const apparent = route === "oral" ? "/F" : "";
-      const lines: string[] = [];
+      const lines: EngReportLine[] = [...engEq("pk-nca"), ...(route === "oral" ? engEq("pk-nca:oral") : engEq("pk-nca:iv"))];
       lines.push(`Non-compartmental analysis of ${parsed.times.length} points, ${route === "oral" ? "oral" : "intravenous"} dose of ${engNum(dose)} mg`);
       lines.push("");
-      lines.push("Observed");
-      lines.push(`  Cmax = ${engNum(res.cmax)} mg/L at Tmax = ${engNum(res.tmax)} h`);
-      lines.push("");
-      lines.push("Terminal phase");
-      lines.push(`  λz = ${engNum(res.lambdaZ)} /h, from the last ${res.lambdaPoints} points (adjusted R² = ${engNum(res.lambdaR2, 4)})`);
-      lines.push(`  Half-life = ${engNum(res.halfLife)} h`);
-      lines.push("");
-      lines.push("Exposure");
-      lines.push(`  AUC to the last sample = ${engNum(res.aucLast)} mg·h/L`);
-      lines.push(`  AUC to infinity = ${engNum(res.aucInf)} mg·h/L`);
-      lines.push(`  Extrapolated beyond the last sample = ${engNum(res.percentExtrapolated)}%`);
-      lines.push("");
-      lines.push("Derived");
-      lines.push(`  Clearance CL${apparent} = Dose/AUC∞ = ${engNum(res.clearance)} L/h`);
-      lines.push(`  Terminal volume Vz${apparent} = Dose/(λz·AUC∞) = ${engNum(res.volume)} L`);
-      lines.push(`  Mean residence time = ${engNum(res.mrt)} h`);
-      if (route === "iv") {
-        lines.push(`  Steady-state volume Vss = CL·MRT = ${engNum(res.clearance * res.mrt)} L`);
-      }
+      // Release E: the NCA parameters as one quantity / value / unit table (the formulas are typeset above).
+      const ncaRows: Array<[string, string, string]> = [
+        ["Cmax (observed)", engNum(res.cmax), "mg/L"],
+        ["Tmax (observed)", engNum(res.tmax), "h"],
+        [`λz, from the last ${res.lambdaPoints} points (adjusted R² = ${engNum(res.lambdaR2, 4)})`, engNum(res.lambdaZ), "1/h"],
+        ["Half-life", engNum(res.halfLife), "h"],
+        ["AUC to the last sample", engNum(res.aucLast), "mg·h/L"],
+        ["AUC to infinity", engNum(res.aucInf), "mg·h/L"],
+        ["Extrapolated beyond the last sample", engNum(res.percentExtrapolated), "%"],
+        [`Clearance CL${apparent} = Dose/AUC∞`, engNum(res.clearance), "L/h"],
+        [`Terminal volume Vz${apparent} = Dose/(λz·AUC∞)`, engNum(res.volume), "L"],
+        ["Mean residence time", engNum(res.mrt), "h"],
+      ];
+      if (route === "iv") ncaRows.push(["Steady-state volume Vss = CL·MRT", engNum(res.clearance * res.mrt), "L"]);
+      lines.push(kvTable(ncaRows));
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_PK_UNIT_NOTE);
 
@@ -16026,9 +16038,13 @@ const ENG_CALCS: EngCalc[] = [
         pkFiltered.series.some((s) => s.points.length > 0)
           ? buildPlotSvg(pkFiltered.series, pkPlotOpts)
           : null;
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return withOutputs([
+        { key: "Cmax", label: "Peak concentration Cmax", value: res.cmax, unit: "mg/L" },
+        { key: "thalf", label: "Terminal half-life", value: res.halfLife, unit: "h" },
+        { key: "AUCinf", label: "AUC to infinity", value: res.aucInf, unit: "mg·h/L" },
+        { key: "CL", label: route === "oral" ? "Apparent clearance CL/F" : "Clearance CL", value: res.clearance, unit: "L/h" },
+        { key: "Vz", label: route === "oral" ? "Apparent terminal volume Vz/F" : "Terminal volume Vz", value: res.volume, unit: "L" },
+      ], engReport(lines, [
         ...(svg
           ? [
               {
@@ -16041,8 +16057,7 @@ const ENG_CALCS: EngCalc[] = [
               },
             ]
           : []),
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]));
     },
   },
   {
@@ -16069,7 +16084,9 @@ const ENG_CALCS: EngCalc[] = [
       const res = arrhenius(p.points, store, order);
       if (!res.ok) return { text: engRefusal(res.errors.join("\n")), ok: false };
       const tu = (r("tunit") || "months").trim();
-      const lines = [
+      const lines: EngReportLine[] = [
+        ...engEq("shelf-life"),
+        ...(order === "first" ? engEq("shelf-life:first") : engEq("shelf-life:zero")),
         `Activation energy Ea = ${engNum(res.EaKJ)} kJ/mol${res.EaCI ? ` (95 % interval ${engNum(res.EaCI[0])} to ${engNum(res.EaCI[1])})` : ""}; ln A = ${engNum(res.lnA)}; r² = ${res.r2.toFixed(4)}.`,
         `At ${engNum(store)} °C: k = ${engNum(res.storage.k)} per ${tu.length >= 4 ? tu.replace(/s$/, "") : tu}${res.storage.kUpper ? ` (upper 95 % bound ${engNum(res.storage.kUpper)})` : ""}.`,
         `Shelf life t₉₀ (${order} order): ${engNum(res.storage.t90)} ${tu}${res.storage.t90Lower ? `; at the upper bound of k, ${engNum(res.storage.t90Lower)} ${tu}` : ""}.`,
@@ -16078,11 +16095,12 @@ const ENG_CALCS: EngCalc[] = [
       ];
       const svg = arrheniusChartSvg(res);
       lines.push(ENG_CONSISTENT_UNIT_NOTE);
-      const clean = lines.map(plainDashes);
-      return {
-        text: clean.join("\n"),
-        blocks: [...clean.map((t) => ({ kind: "line" as const, text: t })), { kind: "plot" as const, svg, caption: "Arrhenius plot", alt: `Arrhenius plot, Ea ${engNum(res.EaKJ)} kJ/mol`, w: 420, h: 269 }],
-      };
+      return withOutputs([
+        { key: "Ea", label: "Activation energy", value: res.EaKJ, unit: "kJ/mol" },
+        { key: "kStore", label: "Rate constant at storage (per time unit)", value: res.storage.k, unit: "" },
+        { key: "t90", label: "Shelf life t₉₀", value: res.storage.t90, unit: tu },
+        { key: "t90Lower", label: "Shelf life at the upper 95 % bound of k", value: res.storage.t90Lower ?? NaN, unit: tu },
+      ], engReport(lines, [{ kind: "plot" as const, svg, caption: "Arrhenius plot", alt: `Arrhenius plot, Ea ${engNum(res.EaKJ)} kJ/mol`, w: 420, h: 269 }]));
     },
   },
   {

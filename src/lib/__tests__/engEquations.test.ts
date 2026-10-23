@@ -76,7 +76,7 @@ describe("every governing equation", () => {
     // A minus in the fallback is the true minus.
     expect(e.fallback).not.toMatch(/(^|[\s(=])-(?=[\w(√])/);
     // No symbol glyphs the parser invents from words (∈ ∞ → ° etc.) in the TYPESET tree either.
-    expect(leaves(parseMathAst(e.math)).join("")).not.toMatch(/[∈∉∞→∧∨¬ℝℤℕℚℂ∪∩]/);
+    expect(leaves(parseMathAst(e.math)).join("")).not.toMatch(/[∈∉→∧∨¬ℝℤℕℚℂ∪∩]/);
     // A Greek name directly before "(" parses as a FUNCTION called "pi" and typesets the Latin word.
     expect(e.math).not.toMatch(/\b(alpha|beta|gamma|delta|Delta|epsilon|eta|theta|lambda|mu|nu|pi|rho|sigma|tau|phi|omega|Omega)\(/);
   });

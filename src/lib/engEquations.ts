@@ -132,6 +132,27 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   ],
   "control-bode": [eq("GM = -20 log(abs(L(j omega_pc)))", "GM = −20·log|L(jωpc)|"), eq("PM = 180 degree + angle L(j omega_gc)", "PM = 180° + ∠L(jωgc)")],
   "control-pid": [eq("C(s) = K_p + K_i/s + K_d s", "C(s) = Kp + Ki/s + Kd·s"), eq("T(s) = L(s)/(1 + L(s))", "T(s) = L(s)/(1 + L(s))")],
+  // ---- Pharmacokinetics ----
+  "pk-dose": [eq("k = CL/V_d", "k = CL/Vd"), eq("t_{1/2} = ln(2)/k", "t½ = ln 2/k")],
+  "pk-dose:iv-bolus": [eq("C(t) = (Dose/V_d) e^{-k t}", "C(t) = (Dose/Vd)·e⁻ᵏᵗ"), eq("AUC = Dose/CL", "AUC = Dose/CL")],
+  "pk-dose:infusion": [eq("C(t) = (R_0/CL) (1 - e^{-k t})", "C(t) = (R₀/CL)·(1 − e⁻ᵏᵗ)"), eq("R_0 = Dose/T", "R₀ = Dose/T"), eq("AUC = Dose/CL", "AUC = Dose/CL")],
+  "pk-dose:oral": [
+    eq("C(t) = F Dose k_a/((k_a - k) V_d) (e^{-k t} - e^{-k_a t})", "C(t) = F·Dose·kₐ/((kₐ − k)·Vd)·(e⁻ᵏᵗ − e⁻ᵏᵃᵗ)"),
+    eq("AUC = F Dose/CL", "AUC = F·Dose/CL"),
+  ],
+  "pk-dose:oral-auc": [eq("AUC = F Dose/CL", "AUC = F·Dose/CL")],
+  "pk-steady": [
+    eq("R_ac = 1/(1 - exp(-k tau))", "Rac = 1/(1 − exp(−k·τ))"),
+    eq("bar(C)_ss = F Dose/(CL tau)", "C̄ss = F·Dose/(CL·τ)"),
+    eq("D_L = Dose R_ac", "DL = Dose·Rac"),
+    eq("t_95 = 4.32 t_{1/2}", "t₉₅ = 4.32·t½"),
+  ],
+  "pk-nca": [eq("t_{1/2} = ln(2)/lambda_z", "t½ = ln 2/λz"), eq("AUC_inf = AUC_last + C_last/lambda_z", "AUC∞ = AUClast + Clast/λz")],
+  "pk-nca:iv": [eq("CL = Dose/AUC_inf", "CL = Dose/AUC∞"), eq("V_z = Dose/(lambda_z AUC_inf)", "Vz = Dose/(λz·AUC∞)")],
+  "pk-nca:oral": [eq("CL/F = Dose/AUC_inf", "CL/F = Dose/AUC∞"), eq("V_z/F = Dose/(lambda_z AUC_inf)", "Vz/F = Dose/(λz·AUC∞)")],
+  "shelf-life": [eq("k = A exp(-E_a/(R T))", "k = A·exp(−Ea/(R·T))")],
+  "shelf-life:first": [eq("t_90 = ln(10/9)/k", "t₉₀ = ln(10/9)/k")],
+  "shelf-life:zero": [eq("t_90 = 0.1 C_0/k_0", "t₉₀ = 0.1·C₀/k₀")],
   "radiation:shields": [eq("F = 1/(1/epsilon_1 + 1/epsilon_2 - 1 + (2/epsilon_s - 1) N)", "F = 1/(1/ε₁ + 1/ε₂ − 1 + (2/εs − 1)·N)")],
 };
 

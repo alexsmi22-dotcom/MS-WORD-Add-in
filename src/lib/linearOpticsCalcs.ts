@@ -258,7 +258,7 @@ const mzCalc: QoCalc = {
     lines.push({ math: `ket(ψ_out) = ${st.math}`, fallback: `|ψ_out⟩ = ${st.text}` });
     lines.push(`P(port 0) = ${probShow(mz.p[0])}; P(port 1) = ${probShow(mz.p[1])}. One-photon interference follows the classical intensity fringe exactly: these are also the fractions of a classical beam's power.`);
     lines.push({ math: "V = {P_max - P_min}/{P_max + P_min}", fallback: "V = (P_max − P_min)/(P_max + P_min)" });
-    lines.push(`Fringe visibility over a full turn of φ: port 0 ${t6(mz.vis[0])}, port 1 ${t6(mz.vis[1])}${Math.abs(R1 - R2) < 1e-12 && Math.abs(R1 - 0.5) > 1e-12 ? " (unbalanced splitters: full visibility only at the port where the two paths carry equal amplitude)" : ""}.`);
+    lines.push(`Fringe visibility over a full turn of φ: port 0: ${t6(mz.vis[0])}; port 1: ${t6(mz.vis[1])}${Math.abs(R1 - R2) < 1e-12 && Math.abs(R1 - 0.5) > 1e-12 ? " (unbalanced splitters: full visibility only at the port where the two paths carry equal amplitude)" : ""}.`);
     const rows: string[][] = [["Output port", "Amplitude", "Probability", ...(PmW !== null ? ["Power (mW)"] : [])]];
     for (const k of [0, 1] as const) rows.push([String(k), fmtCx(mz.amps[k]).text, probShow(mz.p[k]), ...(PmW !== null ? [t6(PmW * mz.p[k])] : [])]);
     if (PmW !== null) {
@@ -325,8 +325,9 @@ const homCalc: QoCalc = {
     const M0 = fraction(r("M0"), "Mode overlap");
     if (typeof M0 === "string") return refuse(M0);
     const u = unitReader(r);
-    const w = u.req("width", "s", "Photon duration");
-    const tau = u.req("delay", "s", "Delay");
+    // Read in femtoseconds (the unit the fields name: a bare 500 is 500 fs), computed in seconds.
+    const w = u.req("width", "fs", "Photon duration") * 1e-15;
+    const tau = u.req("delay", "fs", "Delay") * 1e-15;
     if (u.errors.length) return refuse(u.errors.join("\n"));
     if (!(w > 0)) return refuse("Photon duration: the intensity FWHM must be greater than zero.");
     if (w > 1) return refuse("Photon duration: above 1 s is outside this tool's range (a single-photon wavepacket is fs–µs long).");
@@ -346,7 +347,7 @@ const homCalc: QoCalc = {
       { key: "p02", label: "P(0,2) at τ", value: h.p02, unit: "" },
       { key: "overlap", label: "Overlap at τ", value: M, unit: "" },
       { key: "visibility", label: "HOM visibility", value: h0.visibility, unit: "" },
-      { key: "dipFwhm", label: "Dip FWHM", value: dipFwhm / 1e-15, unit: "fs" },
+      { key: "dipFwhm", label: "Dip FWHM", value: dipFwhm / wu.f, unit: wu.u },
     ];
     lines.push(BS_CONVENTION);
     lines.push(`Input |1,1⟩: one photon in each port of a splitter with R = ${t6(R)}, T = ${t6(T)}; zero-delay overlap M₀ = ${t6(M0)}; photon intensity FWHM w = ${ts(w)}; delay τ = ${ts(tau)}.`);

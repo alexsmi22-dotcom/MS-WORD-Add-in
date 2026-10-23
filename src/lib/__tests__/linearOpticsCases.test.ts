@@ -180,15 +180,24 @@ describe("permanents (Ryser) and multiphoton probabilities", () => {
       if (pd !== null) expect(Math.abs(r.pDist - pd) / pd).toBeLessThan(1e-9);
     }
   });
-  test("8 photons in 8 modes: all 6435 patterns run within the work bound and sum to 1", () => {
-    const r = multiphoton(U8, [1, 1, 1, 1, 1, 1, 1, 1]);
+  test("8 photons in 7 modes: all 3003 patterns run within the work bound and sum to 1", () => {
+    const U = beamSplitterChain([0.5, 0.3, 0.7, 0.5, 0.2, 0.6]);
+    const r = multiphoton(U, [2, 1, 1, 1, 1, 1, 1]);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.results.length).toBe(6435);
+      expect(r.results.length).toBe(3003);
       expect(Math.abs(r.total - 1)).toBeLessThan(1e-10);
       expect(Math.abs(r.totalDist - 1)).toBeLessThan(1e-10);
     }
-    expect(runWork(8, patternCount(8, 8))).toBeLessThanOrEqual(WORK_CAP);
+    expect(runWork(8, patternCount(8, 7))).toBeLessThanOrEqual(WORK_CAP);
+  });
+  test("8 photons in 8 modes: the full enumeration is refused by name; listed patterns still run", () => {
+    expect(runWork(8, patternCount(8, 8))).toBeGreaterThan(WORK_CAP);
+    const r = multiphoton(U8, [1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/8 photons in 8 modes have 6,435 patterns/);
+    const l = multiphoton(U8, [1, 1, 1, 1, 1, 1, 1, 1], [[1, 1, 1, 1, 1, 1, 1, 1]]);
+    expect(l.ok && Math.abs(l.results[0].p - 0.00024249074711318766) < 1e-15).toBe(true);
   });
   test("tritter |1,1,1⟩: every pattern, quantum and distinguishable", () => {
     const r = multiphoton(dftUnitary(3), [1, 1, 1]);
@@ -248,7 +257,7 @@ describe("Hong–Ou–Mandel", () => {
     expect(Math.abs(gaussianOverlap(0.8e-12, 1e-12, 1) - 0.41179550863378644)).toBeLessThan(1e-13);
     const o = run("lo-hom", { width: "1 ps", delay: "0.8 ps" });
     expect(Math.abs(out(o, "p11") - 0.2941022456831068)).toBeLessThan(1e-13);
-    expect(o.text).toMatch(/Photon duration: 1 ps = 1×10⁻¹² s/);
+    expect(o.text).toMatch(/Photon duration: 1 ps = 1000 fs/);
   });
   test("the dip's FWHM is √2·w", () => {
     const w = 300e-15;
@@ -256,6 +265,17 @@ describe("Hong–Ou–Mandel", () => {
     expect(gaussianOverlap(half, w, 1)).toBeCloseTo(0.5, 12);
     expect(FWHM_TO_SIGMA * 2 * Math.sqrt(2 * Math.LN2)).toBeCloseTo(1, 15);
     expect(out(run("lo-hom", { width: "300 fs" }), "dipFwhm")).toBeCloseTo(Math.SQRT2 * 300, 9);
+    // The output is in the unit the text shows it in: ps for a 2 ps photon.
+    const o2 = run("lo-hom", { width: "2 ps" });
+    expect(out(o2, "dipFwhm")).toBeCloseTo(2 * Math.SQRT2, 12);
+    expect(o2.outputs!.find((x) => x.key === "dipFwhm")!.unit).toBe("ps");
+  });
+  test("bare numbers are read in the unit the fields name (fs)", () => {
+    const a = run("lo-hom", { width: "500", delay: "300" });
+    const b = run("lo-hom", { width: "500 fs", delay: "0.3 ps" });
+    expect(out(a, "p11")).toBeCloseTo(out(b, "p11"), 15);
+    expect(out(a, "overlap")).toBeCloseTo(gaussianOverlap(300, 500, 1), 15);
+    expect(out(a, "dipFwhm")).toBeCloseTo(Math.SQRT2 * 500, 9);
   });
   test("visibility 2RT·M₀/(T² + R²)", () => {
     expect(out(run("lo-hom", { R: "0.5", M0: "1" }), "visibility")).toBeCloseTo(1, 14);

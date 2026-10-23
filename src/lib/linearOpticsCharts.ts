@@ -60,7 +60,10 @@ export function fockBarsSvg(bars: FockBar[], opts: { title?: string } = {}): str
   const plotH = 200;
   const B = T + plotH;
   const pmax = Math.max(0, ...shown.map((b) => Math.max(b.p, b.pDist ?? 0)));
-  const top = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1].find((v) => v >= pmax - 1e-12) ?? 1;
+  // A little headroom over the tallest bar (a bar of 0.5 does not run into the frame's top line).
+  const [top, tickStep] = (
+    [[0.01, 0.002], [0.02, 0.005], [0.05, 0.01], [0.1, 0.02], [0.2, 0.05], [0.3, 0.05], [0.4, 0.1], [0.6, 0.1], [0.8, 0.2], [1, 0.2]] as const
+  ).find(([v]) => v >= pmax * 1.04 - 1e-12) ?? [1, 0.2];
   const xs0 = L + (W - L - Rm - plotW) / 2;
   const out: string[] = [];
   if (opts.title) out.push(text(W / 2, 18, opts.title, "middle", 12));
@@ -77,9 +80,9 @@ export function fockBarsSvg(bars: FockBar[], opts: { title?: string } = {}): str
     out.push(`<rect x="${f(x)}" y="${f(y - 9)}" width="11" height="11" fill="${GREY}"/>`);
     out.push(text(x + 16, y + 1, b, "start", 11));
   }
-  const ticks = 5;
+  const ticks = Math.round(top / tickStep);
   for (let i = 0; i <= ticks; i++) {
-    const v = (top * i) / ticks;
+    const v = tickStep * i;
     const y = B - (plotH * i) / ticks;
     out.push(line(L, y, W - Rm, y, i === 0 ? "#000000" : "#e3e3e3", i === 0 ? 1 : 0.8));
     out.push(line(L - 4, y, L, y));

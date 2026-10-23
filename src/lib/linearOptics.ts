@@ -123,10 +123,11 @@ export const MAX_PHOTONS = 8;
 export const MAX_MODES = 12;
 /**
  * The work bound: Σ over the evaluated patterns of n·2ⁿ Gray-code steps, twice (the quantum permanent and the
- * distinguishable one). 8 photons in 8 modes (6435 patterns) is 2.64×10⁷ and runs; 8 photons in 9 modes (12 870
- * patterns, 5.3×10⁷) is refused by name. Nothing a user types can make a run longer than this bound.
+ * distinguishable one). 8 photons in 7 modes (3003 patterns) is 1.23×10⁷ and runs (about 60 ms in Node, table and
+ * figure included); 8 photons in 8 modes (6435 patterns, 2.64×10⁷, about 130 ms) is refused by name — the margin is
+ * for a slower host JavaScript engine than Node's. Nothing a user types can make a run longer than this bound.
  */
-export const WORK_CAP = 3e7;
+export const WORK_CAP = 1.4e7;
 /** The most patterns listed explicitly. */
 export const MAX_LISTED_PATTERNS = 200;
 

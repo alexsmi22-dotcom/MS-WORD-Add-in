@@ -1292,7 +1292,7 @@ function balanceFullInMedium(p: ParsedEquation, skel: Species[], skelSides: Side
       : `Balanced in ${solution} solution: no ${aux.map((a) => a.display).join(" or ")} had to be added.`,
   );
   // The electron sentence only where an oxidation state is shown to change (a precipitation is not a redox).
-  if (redoxShown(species, sides)) notes.push("This is a full equation, so no free electrons appear: the electrons lost and gained cancel.");
+  if (redoxShown(species, sides, coefs)) notes.push("This is a full equation, so no free electrons appear: the electrons lost and gained cancel.");
   return finishOk(species, sides, coefs, p.arrow, notes, null);
 }
 
@@ -1330,17 +1330,30 @@ function oxidationStates(s: Species): Record<string, number> | null {
   return open.length === 0 && Math.abs(fixedSum - s.charge) < 1e-9 ? ox : null;
 }
 
-/** True only when the balanced equation is SHOWN to change an oxidation state (else the electron sentence is left out). */
-function redoxShown(species: Species[], sides: Side[]): boolean {
+/**
+ * True only when the balanced equation is SHOWN to change an oxidation state (else the electron sentence is left out).
+ * An element shows it in either of two ways: its oxidation-state total (each state times the atoms carrying it) differs
+ * between the sides, so it gained or lost electrons; or, where every state of it is a whole number, the set of states
+ * differs (Cl₂ → Cl⁻ + ClO₃⁻, a disproportionation, keeps the total). A fractional state is a mixed-valence AVERAGE
+ * (Fe₃O₄ is Fe 8/3, Pb₃O₄ is Pb 8/3): the states it hides are unknown, so it cannot show a change of set
+ * (Fe₃O₄ + H⁺ → Fe²⁺ + Fe³⁺ + H₂O moves no electrons).
+ */
+function redoxShown(species: Species[], sides: Side[], coefs: bigint[]): boolean {
   const states: Array<Record<string, number> | null> = species.map((s) => (s.electron ? {} : oxidationStates(s)));
-  const sets = (side: Side, e: string): string =>
-    [...new Set(species.flatMap((_, j) => (sides[j] === side && states[j] && e in states[j]! ? [states[j]![e].toFixed(6)] : [])))].sort().join(",");
   const hydrogenOf = (e: string): string => (e === "D" || e === "T" ? "H" : e);
+  const atomsOf = (j: number, e: string): number =>
+    Object.entries(species[j].counts).reduce((t, [k, c]) => (hydrogenOf(k) === e ? t + ratToNumber(c) : t), 0);
   const elements = [...new Set(species.flatMap((s) => Object.keys(s.counts).map(hydrogenOf)))];
-  // An element changed when every species holding it is settled and its states differ between the two sides.
   return elements.some((e) => {
     const holders = species.map((_, j) => j).filter((j) => Object.keys(species[j].counts).some((k) => hydrogenOf(k) === e));
-    return holders.every((j) => states[j]) && sets("left", e) !== sets("right", e);
+    if (!holders.every((j) => states[j] && e in states[j]!)) return false;
+    const on = (side: Side): number[] => holders.filter((j) => sides[j] === side);
+    const total = (side: Side): number => on(side).reduce((t, j) => t + states[j]![e] * atomsOf(j, e) * Number(coefs[j]), 0);
+    if (Math.abs(total("left") - total("right")) > 1e-6) return true;
+    const whole = holders.every((j) => Math.abs(states[j]![e] - Math.round(states[j]![e])) < 1e-9);
+    if (!whole) return false;
+    const set = (side: Side): string => [...new Set(on(side).map((j) => Math.round(states[j]![e])))].sort((a, b) => a - b).join(",");
+    return set("left") !== set("right");
   });
 }
 

@@ -27,7 +27,7 @@ describe("1. the editable Word table carries every row (its own grid, not the 40
     const a = analyzeAntibodies(FX.trastuzumab_H.seq);
     expect(a.errors).toEqual([]);
     const rows = numberingRows(a.chains[0], "imgt");
-    expect(rows.length).toBeGreaterThan(110); // the header and one row per residue (121 for this VH)
+    expect(rows.length).toBe(121); // the header and one row per residue of this VH
     const g = prepareEditableTable(rows);
     expect(g.grid.length).toBe(rows.length);
     expect(g.grid).toEqual(rows);
@@ -137,9 +137,13 @@ describe("4. display contract outside Engineering", () => {
     expect(formatNum(-Infinity)).toBe("—");
   });
 
-  test("a matrix snaps round-off to 0 at 10⁻¹² of its scale; a non-finite entry still blocks the insert", () => {
+  test("a matrix snaps round-off to 0 below 10⁻¹⁴ of its scale; a non-finite entry still blocks the insert", () => {
     expect(formatMatrixCells([[1, 1.6e-17], [-5.5e-17, 1]], 6)).toEqual([["1", "0"], ["0", "1"]]);
     expect(formatMatrixCells([[1e-20, 2e-20]], 6)).toEqual([["1×10⁻²⁰", "2×10⁻²⁰"]]); // a small matrix is not round-off
+    // An honest entry of a badly scaled matrix is never snapped to a confident 0 (the threshold is 10⁻¹⁴ of scale).
+    expect(formatMatrixCells([[1e13, 0], [0, 1]], 6)).toEqual([["10000000000000", "0"], ["0", "1"]]);
+    expect(formatMatrixCells([[1, 2e-15]], 6)).toEqual([["1", "0"]]);
+    expect(formatMatrixCells([[1, 3e-14]], 6)).toEqual([["1", "3×10⁻¹⁴"]]);
     expect(formatMatrix([[1, -2]])).toBe(" 1  −2");
     const bad = [[1, NaN]];
     expect(formatMatrixCells(bad, 6)[0][1]).toBe("—");

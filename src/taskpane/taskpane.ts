@@ -14765,6 +14765,16 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
+      // No flow: zero head loss, and a friction factor that is undefined (64/Re at Re = 0). Said by name here: printed,
+      // the factor was "not finite" and the central non-finite guard put "overflowed" in place of this reason (fix3c).
+      if (res.V === 0) {
+        return {
+          text:
+            "There is no flow (velocity 0), so there is no head loss and the friction factor is undefined at zero flow: " +
+            "give a velocity or a flow rate above zero.",
+          ok: false,
+        };
+      }
 
       const lines: EngReportLine[] = [
         ...engEq("pipe"),

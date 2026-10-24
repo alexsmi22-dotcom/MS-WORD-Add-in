@@ -454,10 +454,15 @@ export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: fa
   flatten(page, "", 0);
   for (const { el: c, group } of pageItems) {
     if (c.name === "bracketedgroup") {
-      const atts = c.children.filter((k) => k.name === "bracketattachment").map((k) => {
-        const cb = child(k, "crossingbond");
-        return { graphicId: k.attrs.GraphicID ?? "", bondId: cb?.attrs.BondID ?? "", innerAtomId: cb?.attrs.InnerAtomID ?? "" };
-      });
+      // EVERY crossing bond of an attachment (a bracket may cross more than one bond): reading only the first lost the
+      // second bond of a bracket that crosses two, and the repeat unit came out open.
+      const atts = c.children
+        .filter((k) => k.name === "bracketattachment")
+        .flatMap((k) => {
+          const cbs = k.children.filter((q) => q.name === "crossingbond");
+          const graphicId = k.attrs.GraphicID ?? "";
+          return cbs.length ? cbs.map((cb) => ({ graphicId, bondId: cb.attrs.BondID ?? "", innerAtomId: cb.attrs.InnerAtomID ?? "" })) : [{ graphicId, bondId: "", innerAtomId: "" }];
+        });
       brackets.push({ el: c, id: c.attrs.id ?? "", usage: c.attrs.BracketUsage ?? "", objectIds: (c.attrs.BracketedObjectIDs ?? "").split(/\s+/).filter(Boolean), attachments: atts });
       continue;
     }

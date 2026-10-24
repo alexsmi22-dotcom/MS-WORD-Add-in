@@ -91,8 +91,6 @@ const EXCEPTIONS: Record<string, string> = {
   hydrogen: "[H][H] vs PubChem's [HH] — same molecule, standard SMILES spelling",
   "calcium oxide": "ionic [Ca+2].[O-2] vs PubChem's covalent O=[Ca]; ionic is truer for CaO",
   quicklime: "ionic depiction — see calcium oxide",
-  fructose: "open-chain keto form (textbook Fischer depiction); PubChem gives the cyclic form",
-  ribose: "furanose — the form ribose takes in RNA, and the one this audience means",
 
   // Ambiguous names where PubChem picked a different member of the family.
   "sodium phosphate": "we give trisodium Na3PO4; PubChem's match is the monosodium salt",
@@ -217,6 +215,11 @@ describe("regressions found by the first PubChem verification", () => {
     expect(cip(NAMES["nicotine"])).toEqual(["S"]);
     expect(cip(NAMES["adrenaline"])).toEqual(["R"]);
     expect(cip(NAMES["alanine"])).toEqual(["S"]); // L-alanine
+    // D-ribose and D-fructose (PubChem CID 10975657 D-ribopyranose, CID 2723872 D-fructopyranose; anomeric centre
+    // open): every ring centre but the anomeric one defined. RDKit: ribose (R,R,R), fructose (R,R,S) — they were
+    // drawn with no stereo at all, i.e. as every diastereomer at once.
+    expect(cip(NAMES["ribose"]).sort()).toEqual(["R", "R", "R"]);
+    expect(cip(NAMES["fructose"]).sort()).toEqual(["R", "R", "S"]);
 
     // oleic acid: the C=C must be geometry-defined, not bare.
     const m = Molecule.fromSmiles(NAMES["oleic acid"]);

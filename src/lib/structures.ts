@@ -26,6 +26,8 @@ export interface StructureResult {
    * REPEAT UNIT (the two * are the bonds to the neighbouring units), never a molecule's.
    */
   repeatUnit?: boolean;
+  /** True when one attachment point (*) marks a substituent's bond to its parent (DrawOptions.substituent): formula and mw are the group's. */
+  substituent?: boolean;
 }
 
 /** Looks up a SMILES for a known name or formula. Returns null if not in the dictionaries. */
@@ -241,15 +243,111 @@ export function checkSmiles(smiles: string): SmilesCheck {
   if (br) return { ok: false, message: `“${s}” is not valid SMILES: ${br}.`, invalid: true };
   const sub = substituteWildcards(s);
   if (sub.count && /\[\d*Og/.test(s)) return { ok: false, message: `“${s}” mixes attachment points (*) with oganesson, which this tool does not read.` };
-  const mol = parseSmilesOnly(sub.text);
+  // Aromatic selenium and tellurium ([se], [te]: selenophene c1cc[se]c1) are valid SMILES that OpenChemLib does not
+  // read; written as [Se] / [Te] the ring's aromatic carbons kekulise around them to the same molecule.
+  const parsed = sub.text.replace(/\[(\d*)(se|te)(?=[^a-z])/g, (_m, iso: string, el: string) => `[${iso}${el === "se" ? "Se" : "Te"}`);
+  // An unclosed ring bond ("C1CC"): RDKit refuses it; OpenChemLib cannot read it either, and the string fell through to
+  // the FORMULA reading "carbon, C₃". Said as a SMILES error where the string is written as SMILES (no bare H — a
+  // formula's "C7H8O2" digits are counts, not ring bonds) and reads once the open labels are taken out.
+  const ring = unclosedRing(s);
+  if (ring && /^[BCNOPSFIbcnops]*$/.test(s.replace(/\[[^\]]*\]|Cl|Br/g, "").replace(/[^A-Za-z]/g, ""))) {
+    if (parseSmilesOnly(parsed.replace(/%\d\d|\d(?![^[]*\])/g, ""))) return { ok: false, message: `“${s}” is not valid SMILES: ring bond ${ring} is opened but never closed (each ring-closure digit must appear twice).`, invalid: true };
+  }
+  const mol = parseSmilesOnly(parsed);
   if (!mol) return { ok: false, message: `“${s}” is not a SMILES string this tool can read.` };
   const v = valenceProblem(mol);
   if (v) return { ok: false, message: `“${s}” is not a valid structure: ${v}.`, invalid: true };
-  return { ok: true, parsed: sub.text, mol, wildcards: sub.count, heavyAtoms: heavyAtomCount(mol) };
+  const k = inventedRadical(s, mol);
+  if (k) return { ok: false, message: `“${s}” is not valid SMILES: ${k}`, invalid: true };
+  return { ok: true, parsed, mol, wildcards: sub.count, heavyAtoms: heavyAtomCount(mol) };
+}
+
+/** The SMILES atoms in order: each one's text and whether it was written in brackets. Null on anything unexpected. */
+function smilesAtomTokens(s: string): Array<{ text: string; bracket: boolean; start: number }> | null {
+  const out: Array<{ text: string; bracket: boolean; start: number }> = [];
+  for (let i = 0; i < s.length; ) {
+    const c = s[i];
+    if (c === "[") {
+      const j = s.indexOf("]", i);
+      if (j < 0) return null;
+      out.push({ text: s.slice(i, j + 1), bracket: true, start: i });
+      i = j + 1;
+    } else if (s.startsWith("Cl", i) || s.startsWith("Br", i)) {
+      out.push({ text: s.slice(i, i + 2), bracket: false, start: i });
+      i += 2;
+    } else if (/[BCNOPSFIbcnops*]/.test(c)) {
+      out.push({ text: c, bracket: false, start: i });
+      i++;
+    } else if (/[()\-=#$:/\\.%\d@+]/.test(c)) i++;
+    else return null;
+  }
+  return out;
+}
+
+/** The first ring-closure label (outside atom brackets) opened and never closed, or null. */
+function unclosedRing(s: string): string | null {
+  const open = new Set<string>();
+  const order: string[] = [];
+  const outside = s.replace(/\[[^\]]*\]/g, "A");
+  for (const m of outside.matchAll(/%\d\d|\d/g)) {
+    if (open.has(m[0])) open.delete(m[0]);
+    else open.add(m[0]), order.push(m[0]);
+  }
+  return order.find((l) => open.has(l)) ?? null;
+}
+
+/**
+ * A radical OpenChemLib invented where SMILES cannot write one — on an atom NOT in brackets (an organic-subset atom
+ * takes its normal valence in hydrogens) — named with the repair; or null. It comes from an aromatic system that has
+ * no Kekulé form: c1ccnc1 (pyrrole's N–H left out) came out as C₄H₄N with a radical nitrogen, c1ccccc1c as a benzyl
+ * radical. RDKit refuses both ("Can't kekulize mol").
+ */
+function inventedRadical(s: string, mol: Molecule): string | null {
+  let radicals = 0;
+  for (let i = 0; i < mol.getAllAtoms(); i++) if (mol.getAtomRadical(i)) radicals++;
+  if (!radicals) return null;
+  const toks = smilesAtomTokens(s);
+  const sameOrder = !!toks && toks.length === mol.getAllAtoms();
+  mol.ensureHelperArrays(Molecule.cHelperRings);
+  // An aromatic (lowercase) atom outside any ring ("Co", c1ccccc1c): named first — the commonest cause.
+  if (sameOrder) {
+    const j = toks!.findIndex((q, k) => !q.bracket && /^[a-z]/.test(q.text) && !mol.isRingAtom(k));
+    if (j >= 0) {
+      const q = toks![j];
+      const up = q.text.toUpperCase();
+      const fixed = s.slice(0, q.start) + up + s.slice(q.start + q.text.length);
+      return `atom ${j + 1} (${q.text}) is written aromatic (lowercase) but is in no ring, so it would be left as a radical — an aromatic atom must sit in an aromatic ring; write it as ${up} (${fixed}).`;
+    }
+  }
+  for (let i = 0; i < mol.getAllAtoms(); i++) {
+    if (!mol.getAtomRadical(i)) continue;
+    const tok = sameOrder ? toks![i] : null;
+    if (tok?.bracket) continue;
+    // Atoms not matched to the text in order, and bracket atoms present: the radical cannot be pinned on one — left alone.
+    if (!sameOrder && (!toks || toks.some((q) => q.bracket))) continue;
+    const t = tok?.text ?? mol.getAtomLabel(i);
+    const where = tok ? `atom ${i + 1} (${t})` : `an atom (${t})`;
+    let fix: string;
+    // A two-connected aromatic n not in brackets is the usual cause (pyrrole, indole, imidazole written without the N–H).
+    const nTok = t === "n" ? tok : sameOrder ? toks!.find((q, j) => q.text === "n" && mol.getConnAtoms(j) === 2 && mol.isRingAtom(j)) : undefined;
+    if (nTok || t === "n") {
+      const fixed = nTok ? s.slice(0, nTok.start) + "[nH]" + s.slice(nTok.start + 1) : null;
+      fix = `Write the pyrrole-type N–H as [nH]${fixed ? ` (${fixed})` : ""}.`;
+    } else if (/^[a-z]/.test(t)) {
+      fix = `Write the ring in Kekulé form (alternating = bonds), or give the odd atom its hydrogens or charge in brackets (e.g. [cH-] for cyclopentadienide, [nH] for pyrrole).`;
+    } else fix = "Give the atom its hydrogens or charge in brackets.";
+    return `its aromatic ring cannot be written with alternating double bonds (it does not kekulise) — ${where} would be left as a radical. ${fix}`;
+  }
+  return null;
 }
 
 /** Why a structure cannot be drawn (too large, or attachment points other than a repeat unit's two), or null. */
-export function drawRefusal(check: Extract<SmilesCheck, { ok: true }>): string | null {
+/** Drawing options: `substituent` lets one attachment point (*) stand for the bond to the parent (a gallery R group). */
+export interface DrawOptions {
+  substituent?: boolean;
+}
+
+export function drawRefusal(check: Extract<SmilesCheck, { ok: true }>, opts: DrawOptions = {}): string | null {
   if (check.heavyAtoms > STRUCTURE_DRAW_MAX_HEAVY_ATOMS) {
     return (
       `Structure not drawn: ${check.heavyAtoms} heavy atoms is above the ${STRUCTURE_DRAW_MAX_HEAVY_ATOMS}-atom drawing limit ` +
@@ -257,7 +355,7 @@ export function drawRefusal(check: Extract<SmilesCheck, { ok: true }>): string |
     );
   }
   if (check.wildcards) {
-    if (check.wildcards !== 2) {
+    if (check.wildcards !== 2 && !(opts.substituent && check.wildcards === 1)) {
       return (
         `The SMILES has ${check.wildcards} attachment point${check.wildcards === 1 ? "" : "s"} (*). Two * mark a polymer's ` +
         `repeat unit (*CC* is polyethylene's –[CH₂CH₂]ₙ–); ${check.wildcards === 1 ? "one marks a substituent, which" : "any other number"} has no formula of its own here.`
@@ -267,11 +365,86 @@ export function drawRefusal(check: Extract<SmilesCheck, { ok: true }>): string |
     for (let i = 0; i < mol.getAllAtoms(); i++) {
       if (mol.getAtomicNo(i) !== WILDCARD_SENTINEL_Z) continue;
       if (mol.getConnAtoms(i) !== 1 || mol.getConnBondOrder(i, 0) !== 1 || mol.getAtomicNo(mol.getConnAtom(i, 0)) === WILDCARD_SENTINEL_Z) {
-        return "Each attachment point (*) of a repeat unit must hang from one atom by a single bond.";
+        return `Each attachment point (*) of a ${check.wildcards === 1 ? "substituent" : "repeat unit"} must hang from one atom by a single bond.`;
       }
     }
   }
   return null;
+}
+
+/**
+ * OpenChemLib's structure SVG with its charge signs set properly: the minus as a true minus (U+2212, never the ASCII
+ * hyphen "-"), and each sign moved to the first place around its atom that keeps clear of the atom's bonds and of every
+ * label — OpenChemLib always sets it upper right, where diazomethane's "+" sat on the N=N bond. Places tried: upper
+ * right, upper left, above, lower right, lower left, below, right, left; the clearest if none is clear.
+ */
+export function tidyOclCharges(svg: string): string {
+  const num = (s: string | undefined): number => Number(s ?? NaN);
+  const atoms: Array<[number, number]> = [];
+  for (const m of svg.matchAll(/<circle id="[^"]*:Atom:\d+"[^>]*\bcx="([-\d.]+)" cy="([-\d.]+)"/g)) atoms.push([num(m[1]), num(m[2])]);
+  const segs: Array<[number, number, number, number]> = [];
+  for (const m of svg.matchAll(/<line id="[^"]*:Bond:\d+"[^>]*\bx1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/g)) segs.push([num(m[1]), num(m[2]), num(m[3]), num(m[4])]);
+  type T = { full: string; x: number; y: number; fs: number; text: string; idx: number };
+  const texts: T[] = [];
+  for (const m of svg.matchAll(/<text x="([-\d.]+)" y="([-\d.]+)"([^>]*?)font-size="([\d.]+)"([^>]*)>([^<]*)<\/text>/g)) texts.push({ full: m[0], x: num(m[1]), y: num(m[2]), fs: num(m[4]), text: m[6], idx: m.index ?? 0 });
+  const isCharge = (t: T): boolean => /^\d*[+-]$/.test(t.text);
+  const boxOf = (x: number, y: number, fs: number, n: number): [number, number, number, number] => [x, y - 0.72 * fs, x + 0.6 * fs * n, y + 0.05 * fs];
+  const labels = texts.filter((t) => !isCharge(t)).map((t) => boxOf(t.x, t.y, t.fs, t.text.length));
+  const segBox = (s: [number, number, number, number], b: [number, number, number, number]): number => {
+    // Distance from a segment to a box (sampled; boxes and bonds are a few points across).
+    let best = Infinity;
+    for (let k = 0; k <= 20; k++) {
+      const px = s[0] + ((s[2] - s[0]) * k) / 20, py = s[1] + ((s[3] - s[1]) * k) / 20;
+      best = Math.min(best, Math.hypot(Math.max(0, b[0] - px, px - b[2]), Math.max(0, b[1] - py, py - b[3])));
+    }
+    return best;
+  };
+  const boxBox = (a: number[], b: number[]): number => Math.hypot(Math.max(0, b[0] - a[2], a[0] - b[2]), Math.max(0, b[1] - a[3], a[1] - b[3]));
+  if (!texts.some(isCharge)) return svg;
+  let out = svg;
+  let [vx, vy, vw, vh] = (/viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/.exec(svg) ?? []).slice(1).map(Number);
+  for (const t of texts.filter(isCharge).reverse()) {
+    const sign = t.text.replace("-", "−");
+    let moved = t.full.replace(/>([^<]*)<\/text>$/, `>${sign}</text>`);
+    if (atoms.length) {
+      // Its atom: the nearest atom centre to the sign's own box.
+      const own = boxOf(t.x, t.y, t.fs, t.text.length);
+      const mid: [number, number] = [(own[0] + own[2]) / 2, (own[1] + own[3]) / 2];
+      const atom = atoms.reduce((p, q) => (Math.hypot(q[0] - mid[0], q[1] - mid[1]) < Math.hypot(p[0] - mid[0], p[1] - mid[1]) ? q : p));
+      const mine = segs.filter((s) => Math.hypot(s[0] - atom[0], s[1] - atom[1]) < 0.5 || Math.hypot(s[2] - atom[0], s[3] - atom[1]) < 0.5);
+      const others = labels.filter((b) => !(atom[0] >= b[0] - 1 && atom[0] <= b[2] + 1 && atom[1] >= b[1] - 1 && atom[1] <= b[3] + 1));
+      const w = own[2] - own[0], h = own[3] - own[1];
+      const ownLabel = labels.find((b) => atom[0] >= b[0] - 1 && atom[0] <= b[2] + 1 && atom[1] >= b[1] - 1 && atom[1] <= b[3] + 1);
+      const r = ownLabel ? Math.max(ownLabel[2] - ownLabel[0], ownLabel[3] - ownLabel[1]) / 2 + 0.6 * Math.max(w, h) : 0.9 * t.fs;
+      const angles = [-45, -135, -90, 45, 135, 90, 0, 180];
+      let best: { x: number; y: number; score: number } | null = null;
+      for (const deg of angles) {
+        const a = (deg * Math.PI) / 180;
+        const cx = atom[0] + r * Math.cos(a), cy = atom[1] + r * Math.sin(a);
+        const b: [number, number, number, number] = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
+        const clear = Math.min(Infinity, ...mine.map((s) => segBox(s, b)), ...segs.filter((s) => !mine.includes(s)).map((s) => segBox(s, b)), ...others.map((o) => boxBox(o, b)));
+        if (!best || clear > best.score + 1e-9) best = { x: b[0], y: b[3] - 0.05 * t.fs, score: clear };
+        if (clear >= 0.4 * t.fs) {
+          best = { x: b[0], y: b[3] - 0.05 * t.fs, score: clear };
+          break;
+        }
+      }
+      if (best) {
+        moved = moved.replace(/^<text x="[-\d.]+" y="[-\d.]+"/, `<text x="${best.x.toFixed(2)}" y="${best.y.toFixed(2)}"`);
+        const b = boxOf(best.x, best.y, t.fs, t.text.length);
+        if (Number.isFinite(vx)) {
+          const nx0 = Math.min(vx, b[0] - 2), ny0 = Math.min(vy, b[1] - 2), nx1 = Math.max(vx + vw, b[2] + 2), ny1 = Math.max(vy + vh, b[3] + 2);
+          [vx, vy, vw, vh] = [nx0, ny0, nx1 - nx0, ny1 - ny0];
+        }
+      }
+    }
+    out = out.slice(0, t.idx) + moved + out.slice(t.idx + t.full.length);
+  }
+  if (Number.isFinite(vx)) {
+    const f = (v: number): string => String(Math.round(v * 100) / 100);
+    out = out.replace(/viewBox="[^"]*"/, `viewBox="${f(vx)} ${f(vy)} ${f(vw)} ${f(vh)}"`).replace(/width="[\d.]+px" height="[\d.]+px"/, `width="${f(vw)}px" height="${f(vh)}px"`);
+  }
+  return out;
 }
 
 /** OpenChemLib's formula string ("C2H3O2Na") in Hill order ("C2H3NaO2"; with no carbon, all alphabetical). */
@@ -285,7 +458,7 @@ export function hillFromOcl(formula: string): string {
  * (invalid SMILES, over the drawing cap, attachment points other than a repeat
  * unit's two; resolveStructure says why by name).
  */
-export function renderStructure(input: string, width = 280, height = 220): StructureResult | null {
+export function renderStructure(input: string, width = 280, height = 220, opts: DrawOptions = {}): StructureResult | null {
   // An explicit "smiles:" prefix bypasses the name/formula dictionary. The
   // lookup order (name → formula → SMILES) is right for TYPED input, but a
   // string that is ALREADY a structure must be able to say so: drawn
@@ -312,7 +485,7 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
 
   // The gate, BEFORE any parse that lays the molecule out.
   const check = checkSmiles(smiles);
-  if (!check.ok || drawRefusal(check)) return null;
+  if (!check.ok || drawRefusal(check, opts)) return null;
   const mol = safeFromSmiles(check.parsed);
   if (!mol) return null;
 
@@ -323,7 +496,8 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
   }
   // Attachment points are drawn as "*" (OpenChemLib would draw its query atom as "?").
   const repeatUnit = check.wildcards === 2;
-  if (repeatUnit) {
+  const substituent = !!opts.substituent && check.wildcards === 1;
+  if (repeatUnit || substituent) {
     for (let i = 0; i < mol.getAllAtoms(); i++) if (mol.getAtomicNo(i) === WILDCARD_SENTINEL_Z) mol.setAtomCustomLabel(i, "*");
   }
 
@@ -333,13 +507,13 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
   // Suppress the R/S/"abs" stereo-descriptor text labels: the wedge bonds already
   // convey stereochemistry, and on a stereo-rich molecule (e.g. paclitaxel, 11
   // centres) the CIP/ESR tags pile onto the bonds and read as overlapping clutter.
-  const svg = mol.toSVG(width, height, undefined, {
+  const svg = tidyOclCharges(mol.toSVG(width, height, undefined, {
     autoCrop: true,
     autoCropMargin: 8,
     suppressChiralText: true,
     suppressCIPParity: true,
     suppressESR: true,
-  });
+  }));
 
   // Provenance: canonical SMILES, OCL ID code, formula, and molecular weight.
   let canonicalSmiles = smiles;
@@ -357,31 +531,33 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
     /* ignore */
   }
   try {
-    if (repeatUnit) {
+    if (repeatUnit || substituent) {
       // Per repeat unit: cap each * with a hydrogen (the bond it stands for holds a valence, as any bond does), then
-      // take those two hydrogens back off — *CC* → C₂H₆ → C₂H₄.
+      // take those two hydrogens back off — *CC* → C₂H₆ → C₂H₄. A substituent the same with its one: *OC → CH₃O.
+      const k = check.wildcards;
       const capped = mol.getCompactCopy();
       for (let i = 0; i < capped.getAllAtoms(); i++) if (capped.getAtomicNo(i) === WILDCARD_SENTINEL_Z) capped.setAtomicNo(i, 1);
       const mf = capped.getMolecularFormula();
       const counts = oclCounts(mf.formula);
-      counts.H = (counts.H ?? 0) - 2;
+      counts.H = (counts.H ?? 0) - k;
       if (!counts.H) delete counts.H;
-      formula = hillFormula(counts);
+      formula = hillFormula(counts) + chargeSuffix(netCharge(capped));
       const hWeight = Molecule.fromSmiles("[H][H]", { noCoordinates: true }).getMolecularFormula().relativeWeight / 2;
-      mw = Math.round((mf.relativeWeight - 2 * hWeight) * 100) / 100;
+      mw = Math.round((mf.relativeWeight - k * hWeight) * 100) / 100;
       canonicalSmiles = canonicalSmiles.split(WILDCARD_SENTINEL).join("*");
       // The idcode would carry the sentinel element: no name lookup, namer or canvas may read it as a compound.
       idcode = "";
     } else {
       const mf = mol.getMolecularFormula();
-      formula = hillFromOcl(mf.formula);
+      // The net charge raised after the formula (C₄H₁₂N⁺, acetylcholine C₇H₁₆NO₂⁺): the Hill string alone dropped it.
+      formula = hillFromOcl(mf.formula) + chargeSuffix(netCharge(mol));
       mw = Math.round(mf.relativeWeight * 100) / 100;
     }
   } catch {
     /* ignore */
   }
 
-  return { svg, smiles: canonicalSmiles, source, formula, idcode, mw, ...(repeatUnit ? { repeatUnit: true } : {}) };
+  return { svg, smiles: canonicalSmiles, source, formula, idcode, mw, ...(repeatUnit ? { repeatUnit: true } : {}), ...(substituent ? { substituent: true } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -470,11 +646,14 @@ export function typesetHill(hill: string, charge = 0): string {
       partStart = ch === "·" || ch === "/";
     }
   }
-  if (charge) {
-    const mag = Math.abs(charge) === 1 ? "" : [...String(Math.abs(charge))].map((d) => SUPERSCRIPT[d]).join("");
-    out += mag + (charge > 0 ? "⁺" : "⁻");
-  }
-  return out;
+  return out + chargeSuffix(charge);
+}
+
+/** A net charge as raised text after a formula: "" for 0, ⁺, ²⁺, ⁻ (the superscript minus), ³⁻. */
+export function chargeSuffix(charge: number): string {
+  if (!charge || !Number.isFinite(charge)) return "";
+  const mag = Math.abs(charge) === 1 ? "" : [...String(Math.abs(charge))].map((d) => SUPERSCRIPT[d]).join("");
+  return mag + (charge > 0 ? "⁺" : "⁻");
 }
 
 /** Element → count from an OpenChemLib formula string ("CH5N", "O3Fe2"). */
@@ -838,13 +1017,13 @@ export type StructureResolution =
  * Structure mode's mode-aware resolver for TYPED input. renderStructure keeps
  * its legacy order for callers that pass SMILES by construction.
  */
-export function resolveStructure(input: string, mode: ChemReadMode = "auto", width = 280, height = 220): StructureResolution {
+export function resolveStructure(input: string, mode: ChemReadMode = "auto", width = 280, height = 220, opts: DrawOptions = {}): StructureResolution {
   const r = resolveChemInput(input, mode, "structure");
   // The drawing refusals by NAME (too large to lay out, attachment points other than a repeat unit's two), before
   // renderStructure would only say null.
   const refusalFor = (smiles: string): string | null => {
     const c = checkSmiles(smiles);
-    return c.ok ? drawRefusal(c) : c.message;
+    return c.ok ? drawRefusal(c, opts) : c.message;
   };
   const repeatNote = (res: StructureResult, note?: string): string | undefined =>
     res.repeatUnit
@@ -858,13 +1037,13 @@ export function resolveStructure(input: string, mode: ChemReadMode = "auto", wid
     case "dictionary": {
       const why = refusalFor(r.smiles);
       if (why) return { kind: "none", message: why };
-      const res = renderStructure(input, width, height);
+      const res = renderStructure(input, width, height, opts);
       return res ? { kind: "ok", result: res, note: r.note } : { kind: "none", message: `The dictionary entry for “${input.trim()}” could not be drawn.` };
     }
     case "smiles": {
       const why = refusalFor(r.smiles);
       if (why) return { kind: "none", message: why };
-      const res = renderStructure(`smiles:${r.smiles}`, width, height);
+      const res = renderStructure(`smiles:${r.smiles}`, width, height, opts);
       return res ? { kind: "ok", result: res, note: repeatNote(res, r.note) } : { kind: "none", message: `“${r.smiles}” could not be drawn.` };
     }
     case "formula":
@@ -876,9 +1055,21 @@ export function resolveStructure(input: string, mode: ChemReadMode = "auto", wid
           `For a structure, type a name or a SMILES string.${r.note && /not valid/.test(r.note) ? ` ${r.note}` : ""}`,
       };
     case "ambiguous": {
-      const res = renderStructure(`smiles:${r.smiles}`, width, height);
+      const res = renderStructure(`smiles:${r.smiles}`, width, height, opts);
       if (!res) return { kind: "formula", formula: r.formula, message: r.message };
       return { kind: "ambiguous", formula: r.formula, smiles: res, message: r.message };
     }
   }
+}
+
+/**
+ * One substituent of the Markush gallery (R = …), read exactly as Structure mode reads the same text (resolveStructure:
+ * "CO" is what Structure mode draws, "Co" cobalt — a formula, refused by name — never the legacy formula-first
+ * renderer's carbon monoxide or radical), with one attachment point (*) allowed for the bond to the parent (*OC).
+ */
+export function gallerySubstituent(input: string, width = 160, height = 120): { ok: true; result: StructureResult; note?: string } | { ok: false; message: string } {
+  const r = resolveStructure(input, "auto", width, height, { substituent: true });
+  if (r.kind === "ok") return { ok: true, result: r.result, note: r.note };
+  if (r.kind === "ambiguous") return { ok: true, result: r.smiles, note: r.message };
+  return { ok: false, message: r.message };
 }

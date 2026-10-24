@@ -101,6 +101,11 @@ export interface IupacNameResult {
 const STEM = ["", "methan", "ethan", "propan", "butan", "pentan", "hexan", "heptan", "octan", "nonan", "decan", "undecan", "dodecan"];
 const ALKYL = ["", "methyl", "ethyl", "propyl", "butyl", "pentyl", "hexyl", "heptyl", "octyl", "nonyl", "decyl"];
 const MULT = ["", "", "di", "tri", "tetra", "penta", "hexa"];
+/**
+ * A multiplier joined to its suffix, the multiplier's terminal "a" elided before a suffix beginning with a or o
+ * (P-16.7.1(c)): benzenehexol, butane-1,2,3,4-tetramine, cyclohexane-1,2,4,5-tetrone (not hexaol, tetraamine, tetraone).
+ */
+const multiplied = (mult: string, suffix: string): string => (/a$/.test(mult) && /^[ao]/.test(suffix) ? mult.slice(0, -1) + suffix : mult + suffix);
 const HALO: Record<number, string> = { 9: "fluoro", 17: "chloro", 35: "bromo", 53: "iodo" };
 export const IUPAC_MAX_CHAIN = 12;
 
@@ -310,6 +315,12 @@ function screenAtoms(mol: Molecule): string | null {
   const n = mol.getAllAtoms();
   for (let i = 0; i < n; i++) {
     const z = mol.getAtomicNo(i);
+    // An explicit hydrogen isotope (deuterium [2H], tritium [3H]) is an isotopic label, not an element outside the
+    // subset: said so (the isotopic descriptor, e.g. (1-²H₁)ethan-1-ol, P-82, is not written here).
+    if (z === 1 && mol.getAtomMass(i) >= 2) {
+      const what = mol.getAtomMass(i) === 2 ? "deuterium, ²H" : mol.getAtomMass(i) === 3 ? "tritium, ³H" : "a hydrogen isotope";
+      return `Isotope labels (${what}) are outside the namer's subset — the isotopic descriptor (P-82, e.g. (1-²H₁)ethan-1-ol) is not written here; name the unlabelled compound and add the label by hand.`;
+    }
     if (![6, 7, 8, 9, 16, 17, 35, 53].includes(z)) return `${mol.getAtomLabel(i)} is outside the namer's subset (C, H, N, O, halogens, and S in thiophene or thiazole rings or in a sulfonyl group).`;
     if (mol.getAtomMass(i) !== 0) return "Isotope labels are outside the namer's subset.";
     if (mol.getAtomRadical(i) !== 0) return "Radicals are outside the namer's subset.";
@@ -914,8 +925,25 @@ function classifySub(g: G, root: number, from: number, nitroN: Set<number>): Sub
     return "Ring substituents other than plain phenyl and cycloalkyl are outside the namer's subset.";
   }
   if (!atoms.every((a) => g.el[a] === 6)) return "This substituent carries its own groups — outside the namer's subset.";
-  if (!isPlainAlkane(g, atoms)) return "Unsaturated substituents are outside the namer's subset.";
+  if (!isPlainAlkane(g, atoms)) {
+    // Ethenyl and ethynyl (preferred prefixes, P-32.1.1); longer unsaturated branches are refused by name.
+    const other = atoms.find((x) => x !== root);
+    const bond = atoms.length === 2 && other !== undefined ? g.adj[root].find((e) => e.to === other) : undefined;
+    if (bond?.order === 2) return { name: "ethenyl", key: "ethenyl" };
+    if (bond?.order === 3) return { name: "ethynyl", key: "ethynyl" };
+    return "Unsaturated substituents other than ethenyl and ethynyl are outside the namer's subset.";
+  }
   return alkylName(g, root, from, atoms);
+}
+
+/** A branch joined to the chain by a double bond: methylidene (=CH₂) or ethylidene (=CH–CH₃); anything else refused. */
+function alkylidene(g: G, root: number, from: number, order: number): Sub | string {
+  const atoms = subtree(g, root, from);
+  if (order === 2 && atoms.every((a) => g.el[a] === 6 && !g.inRing[a]) && isPlainAlkane(g, atoms)) {
+    if (atoms.length === 1) return { name: "methylidene", key: "methylidene" };
+    if (atoms.length === 2) return { name: "ethylidene", key: "ethylidene" };
+  }
+  return "A double-bonded branch other than methylidene or ethylidene is outside the namer's subset.";
 }
 
 function isPlainAlkane(g: G, atoms: number[]): boolean {
@@ -948,16 +976,19 @@ function alkylName(g: G, root: number, from: number, atoms: number[]): Sub | str
       return "Substituent chains beyond decyl are outside the namer's subset.";
     }
     if (atoms.length === 3) return { name: "propan-2-yl", key: "propanyl" };
-    if (atoms.length === 4 && degIn(root) === 2) return { name: "sec-butyl", key: "butyl" };
+    // sec-butyl and isobutyl are no longer recommended (P-29.6.3): butan-2-yl, 2-methylpropyl (preferred prefixes).
+    if (atoms.length === 4 && degIn(root) === 2) return { name: "butan-2-yl", key: "butanyl" };
     return "This attachment pattern is outside the namer's subset.";
   }
-  // Small named branched alkyls, recognized by shape from the root.
+  // Small named branched alkyls, recognized by shape from the root. tert-butyl is a retained PREFERRED prefix
+  // (P-29.6.1: "tert-butyldi(methyl)phosphane (PIN)"); isobutyl is not (P-29.6.3) — 2-methylpropyl, alphabetised
+  // at its first letter m (P-14.5.2).
   const rootDeg = degIn(root);
   if (atoms.length === 4 && rootDeg === 3) return { name: "tert-butyl", key: "butyl" };
   if (atoms.length === 4 && rootDeg === 1) {
     // CH2-CH(CH3)2
     const next = g.adj[root].find((e) => set.has(e.to))!.to;
-    if (degIn(next) === 3) return { name: "isobutyl", key: "isobutyl" };
+    if (degIn(next) === 3) return { name: "2-methylpropyl", key: "methylpropyl" };
   }
   return "Complex branched substituents are outside the namer's subset.";
 }
@@ -993,7 +1024,11 @@ function prefixString(subs: { loc: number | string | null; name: string; key: st
     // A sulfonyl prefix is a compound prefix, always enclosed: (methanesulfonyl)benzene, 2-(methanesulfonyl)benzoic
     // acid (P-65.4.1); two of them are bis(methanesulfonyl).
     const complex = /\d/.test(name) || !!enclose || /sulfonyl$/.test(name);
-    const multTable = complex ? MULT_COMPLEX : MULT;
+    // A SIMPLE prefix that carries its own locant (propan-2-yl, butan-2-yl, pyridin-2-yl) is enclosed but multiplied by
+    // di/tri: di(propan-2-yl) (P-61.2.3; "ethyldi(propan-2-yl)silane (PIN)"). bis/tris are for compound and complex
+    // prefixes — a substituted one (bis(2-methylpropyl)) or a sulfonyl.
+    const simpleWithLocant = /^[a-z]+-\d+(,\d+)*-yl$/.test(name) && !enclose;
+    const multTable = complex && !simpleWithLocant ? MULT_COMPLEX : MULT;
     if (count >= multTable.length || (count > 1 && !multTable[count])) {
       return { refusal: `More than ${multTable.length - 1} identical substituents is outside the namer's subset.` };
     }
@@ -1213,15 +1248,12 @@ function nameAcyclic(
       const set = new Set(chain);
       // Unsaturation within the chain.
       const unsat: { loc: number; order: number }[] = [];
-      let exo = false;
       for (const a of chain) {
         for (const e of g.adj[a]) {
           if (e.order === 1) continue;
-          if (g.el[e.to] === 6 && !set.has(e.to) && !g.inRing[e.to]) exo = true;
           if (set.has(e.to) && pos.get(e.to)! === pos.get(a)! + 1) unsat.push({ loc: pos.get(a)!, order: e.order });
         }
       }
-      if (exo) return "An exocyclic/branch double bond is outside the namer's subset.";
       // Suffix locants.
       const suffixLocs = principal.map((p) => pos.get(p.carbon)!).sort((x, y) => x - y);
       // Substituents (junior groups in prefix form + everything else).
@@ -1238,6 +1270,14 @@ function nameAcyclic(
             const cls = classifySub(g, e.to, a, nitroN);
             if (typeof cls === "string") { subRefusal = cls; break; }
             subs.push({ loc: pos.get(a)!, ...cls });
+            continue;
+          }
+          if (e.order !== 1 && g.el[e.to] === 6 && !g.inRing[e.to]) {
+            // A double bond leaving the chain to a branch carbon: an alkylidene prefix (P-31.1.4.2.4; 2013 rules put
+            // chain length before unsaturation, so CCC(=C)CC is 3-methylidenepentane, not 2-ethylbut-1-ene).
+            const yl = alkylidene(g, e.to, a, e.order);
+            if (typeof yl === "string") return yl;
+            subs.push({ loc: pos.get(a)!, ...yl });
             continue;
           }
           if (e.order !== 1 && g.el[e.to] !== 6) {
@@ -1289,12 +1329,16 @@ function nameAcyclic(
     return false;
   };
 
-  // Chain selection: most unsaturation in chain → longest → most substituents
-  // → best locant key.
+  // Chain selection (2013 rules, P-44.3): the LONGEST chain first, then the most multiple bonds in it → most
+  // substituents → best locant key. (Unsaturation before length was the 1979/1993 rule.) Only chains of the
+  // greatest length can be principal: when every one of them is refused, the molecule is refused — a shorter chain
+  // would give a name that is not the PIN.
+  const longest = Math.max(...viable.map((c) => c.length));
   let chosen: Scored | null = null;
   let refusalSeen: string | null = null;
   let refusalLen = -1;
   for (const cand of viable) {
+    if (cand.length < longest) continue;
     const a = analyse(cand);
     if (typeof a === "string") {
       // Keep the refusal from the LONGEST failing chain — a one-carbon
@@ -1305,8 +1349,8 @@ function nameAcyclic(
     }
     if (!chosen) { chosen = a; continue; }
     const better =
-      a.unsat.length !== chosen.unsat.length ? a.unsat.length > chosen.unsat.length :
       a.chain.length !== chosen.chain.length ? a.chain.length > chosen.chain.length :
+      a.unsat.length !== chosen.unsat.length ? a.unsat.length > chosen.unsat.length :
       a.subs.length !== chosen.subs.length ? a.subs.length > chosen.subs.length :
       lexLess(a.scoreKey, chosen.scoreKey);
     if (better) chosen = a;
@@ -1350,7 +1394,7 @@ function nameAcyclic(
     const bare = len <= 2 && chosen.subs.length === 0 && chosen.unsat.length === 0 && count === 1;
     const needLocants = !principal[0].terminal && !bare && len > 1;
     const locStr = needLocants ? `-${chosen.suffixLocs.join(",")}-` : "";
-    const suffixPart = `${locStr}${mult}${suffix}`;
+    const suffixPart = `${locStr}${multiplied(mult, suffix)}`;
     // Final-e elision: the stem keeps its "e" before a consonant-initial
     // suffix (butanenitrile, pentane-2,4-dione) and drops it before a
     // vowel-initial one (butanal, propan-2-ol).
@@ -1511,7 +1555,7 @@ function nameWithOneRing(
   if (isBenzene && (kind === "one")) return refuse("A ketone on a benzene ring is not a ring ketone — outside the namer's subset.");
   const stem = isBenzene ? "benzen" : `cyclo${STEM[size]}`;
   const suffixWord = RING_ATTACHED_SUFFIX[kind] && groups.some((gr) => gr.kind === kind && ringAttached(g, gr, memberSet)) ? RING_ATTACHED_SUFFIX[kind]! : SUFFIX[kind];
-  const suffixPart = `${locStr}${mult}${suffixWord}`;
+  const suffixPart = `${locStr}${multiplied(mult, suffixWord)}`;
   // Final-e elision: the stem keeps its "e" before a consonant (cyclohexane-1,2-diol, cyclohexanecarboxylic acid)
   // and drops it before a vowel (cyclohexanol, cyclohexanone, cyclohexanamine).
   const body = /^[-0-9,]*[aeiouy]/.test(suffixPart) ? `${stem}${suffixPart}` : `${stem}e${suffixPart}`;
@@ -1787,7 +1831,7 @@ function nameHeteroRing(
   const attached = RING_ATTACHED_SUFFIX[kind] && groups.some((gr) => gr.kind === kind && ringAttached(g, gr, memberSet));
   const suffixWord = attached ? RING_ATTACHED_SUFFIX[kind]! : SUFFIX[kind];
   // Heterocycles keep every locant (pyridin-2-amine): the position is never implied.
-  const suffixPart = `-${sufLocs.join(",")}-${mult}${suffixWord}`;
+  const suffixPart = `-${sufLocs.join(",")}-${multiplied(mult, suffixWord)}`;
   const body = /^[-0-9,]*[aeiouy]/.test(suffixPart) && parentName.endsWith("e") ? `${heteroStem(parentName)}${suffixPart}` : `${parentName}${suffixPart}`;
   return result(join(prefixes, body));
 }

@@ -455,8 +455,12 @@ describe("live bug 3 — a formula is not read as SMILES on a dictionary miss", 
   });
 
   test("the mode is a parameter: smiles / formula force one reading", () => {
+    // "Co" as SMILES is NOT SMILES (an aromatic o in no ring; RDKit refuses it): OpenChemLib's CH₃O was an invented
+    // radical, now refused by name (fix2-chem). smiles mode still forces the SMILES reading of a valid one.
     const s = resolveMassSpec("Co", "smiles");
-    expect(s.kind === "ok" && s.result.formula).toBe("CH3O");
+    expect(s.kind).not.toBe("ok");
+    const s2 = resolveMassSpec("CN", "smiles");
+    expect(s2.kind === "ok" && s2.result.formula).toBe("CH5N");
     const f = resolveMassSpec("CCO", "formula");
     expect(f.kind === "ok" && f.result.formula).toBe("C2O");
     const a = resolveMassSpec("CCO", "auto");

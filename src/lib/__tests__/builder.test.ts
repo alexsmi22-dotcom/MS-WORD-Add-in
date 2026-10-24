@@ -17,7 +17,7 @@ describe("builder — concrete molecules", () => {
 
   it("applies a charge", () => {
     const r = build("atoms: N+", "auto");
-    expect(r.formula).toBe("H4N");
+    expect(r.formula).toBe("H4N⁺"); // the net charge is part of the formula (fix2-chem)
   });
 
   it("parses a molfile (round-trip via build)", () => {

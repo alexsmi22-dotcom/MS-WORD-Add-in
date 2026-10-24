@@ -258,15 +258,6 @@ const REVIEWED = [
     reason: "Dihydrogen written as two bonded H atoms; PubChem writes [HH]. Same molecule, different SMILES idiom.",
   },
   {
-    name: "fructose",
-    ours: "OCC(=O)C(O)C(O)C(O)CO",
-    reason:
-      "Ours is the OPEN-CHAIN keto form, which is how fructose is drawn when teaching and how its " +
-      "ketose chemistry is explained; PubChem gives the cyclic furanose. This one is a real choice, " +
-      "not a notation difference — the open chain is a small fraction of fructose in solution — but " +
-      "it is the conventional textbook depiction and is recorded here rather than hidden.",
-  },
-  {
     name: "heme",
     ours:
       "CC1=C(C2=CC3=NC(=CC4=C(C(=C([N-]4)C=C5C(=C(C(=N5)C=C1[N-]2)C)C=C)C)C=C)C(=C3CCC(=O)O)C)CCC(=O)O.[Fe+2]",
@@ -281,13 +272,7 @@ const REVIEWED = [
       "CC1=C(C2=CC3=NC(=CC4=C(C(=C([N-]4)C=C5C(=C(C(=N5)C=C1[N-]2)C)C=C)C)C=C)C(=C3CCC(=O)O)C)CCC(=O)O.[Fe+2]",
     reason: "The British spelling of heme, sharing its structure and the same Kekulé note.",
   },
-  {
-    name: "ribose",
-    ours: "OCC1OC(O)C(O)C1O",
-    reason:
-      "Furanose ring without stereocentres assigned; PubChem gives the fully-specified D-ribofuranose. " +
-      "Ours is deliberately unspecified, and is flagged rather than hidden.",
-  },
+
 ];
 
 const reviewedFor = (name, ours) => REVIEWED.find((r) => r.name === name && r.ours === ours) ?? null;

@@ -17,7 +17,7 @@
 import { Molecule } from "openchemlib/full";
 import { readCdxmlTree, type CdxDoc } from "./cdxml";
 import type { XNode } from "./xmlLite";
-import { findById, fitLabel, nextIdFrom, setAtomLabel } from "./cdxmlEdit";
+import { findById, nextIdFrom, setAtomLabel, writeElementLabel } from "./cdxmlEdit";
 import { symbolFor } from "./periodic";
 import { groupSmilesBySide } from "./labelExpand";
 import { applyAtomQuery, applyBondQuery, atomQueryAttrs, atomQueryConstrains, baseBondType, bondQueryAttrs, bondQueryConstrains, comparableCopy, elementListLabel, hasStereoGroup, isQueryOrder, parseElementList, queryOrders, stereoGroupOf } from "./cdxQuery";
@@ -816,6 +816,38 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
     }
     frag.children.push({ name: "b", attrs, children: [], text: "", line: 0 });
   }
+  // A mass number stands left of its element (¹³C): a chain bond leaving that side nearly level runs into it, and at
+  // the page's bond length nothing of the bond was left (O=¹³C=O read as O ¹³C=O). That bond is lengthened by the
+  // mass's width — the far side moved rigidly along the bond, so every angle (and the stereo) is kept.
+  const pos = nodeIds.map((_, a) => frag.children[a].attrs.p.split(" ").map(Number) as [number, number]);
+  for (let a = 0; a < n; a++) {
+    const mass = mol.getAtomMass(a);
+    if (!mass || (mol.getAtomicNo(a) === 1 && (mass === 2 || mass === 3))) continue;
+    const extra = String(mass).length * 0.556 * 0.75 * doc.style.labelSize + doc.style.marginWidth;
+    for (let j = 0; j < mol.getAllConnAtomsPlusMetalBonds(a); j++) {
+      const b = mol.getConnAtom(a, j), bond = mol.getConnBond(a, j);
+      if (mol.isRingBond(bond)) continue;
+      const dx = pos[b][0] - pos[a][0], dy = pos[b][1] - pos[a][1], len = Math.hypot(dx, dy);
+      if (!(len > 0) || dx >= 0 || Math.abs(dy) > 0.6 * Math.abs(dx)) continue;
+      // The atoms on b's side of the bond (an acyclic bond splits the molecule in two).
+      const side = new Set<number>([b]);
+      const stack = [b];
+      while (stack.length) {
+        const v = stack.pop()!;
+        for (let k = 0; k < mol.getAllConnAtomsPlusMetalBonds(v); k++) {
+          const w = mol.getConnAtom(v, k);
+          if (w === a || side.has(w)) continue;
+          side.add(w);
+          stack.push(w);
+        }
+      }
+      const s = extra / Math.abs(dx / len);
+      for (const v of side) (pos[v][0] += (dx / len) * s), (pos[v][1] += (dy / len) * s);
+    }
+  }
+  const left = Math.min(...pos.map((q) => q[0]));
+  const lift = left < origin[0] ? origin[0] - left : 0;
+  pos.forEach((q, a) => (frag.children[a].attrs.p = `${fmt(q[0] + lift)} ${fmt(q[1])}`));
   page.children.push(frag);
   // Labels as ChemDraw draws them: heteroatoms and charged / isotopic carbons with their hydrogens; R groups.
   let notLists: Set<number> | null = null;
@@ -837,32 +869,19 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
     }
     const mass = mol.getAtomMass(a);
     const unusual = mol.getAtomAbnormalValence(a) !== -1;
-    if (z === 6 && !mass && !node.attrs.Radical && !unusual) continue;
-    const r = setAtomLabel(doc, nodeIds[a], z === 1 && mass === 2 ? "D" : z === 1 && mass === 3 ? "T" : elementSymbol(z));
-    if (!r.ok) return { ok: false, reason: r.reason };
-    const fresh = findById(doc.root, nodeIds[a])!.el;
-    if (z === 1 && (mass === 2 || mass === 3)) continue; // D / T: their own label
+    // A carbon is a bare vertex unless something about it must be read: no bonds (methane is "CH₄", not a blank),
+    // a mass number, a charge, a radical or an unusual valence — then it is labelled with its hydrogens, as ChemDraw
+    // labels it (¹³CH₃, CH₃⁻, CH₃ with its dot). Without the label, O=[¹³C]=O was drawn as O=O.
+    const lone = mol.getAllConnAtomsPlusMetalBonds(a) === 0;
+    if (z === 6 && !mass && !node.attrs.Radical && !unusual && !mol.getAtomCharge(a) && !lone) continue;
+    if (z === 1 && (mass === 2 || mass === 3)) {
+      const r = setAtomLabel(doc, nodeIds[a], mass === 2 ? "D" : "T"); // D / T: their own label
+      if (!r.ok) return { ok: false, reason: r.reason };
+      continue;
+    }
     // The hydrogens are the Molecule's own (an atom of unusual valence keeps its count), in the label too.
     const h = sameAtoms ? counted.getImplicitHydrogens(a) : mol.getImplicitHydrogens(a);
-    if (fresh.attrs.NumHydrogens !== String(h)) {
-      fresh.attrs.NumHydrogens = String(h);
-      const t = fresh.children.find((c) => c.name === "t");
-      const runs = t?.children.filter((c) => c.name === "s") ?? [];
-      if (t && runs.length) {
-        runs[0].text = elementSymbol(z) + (h ? "H" + (h > 1 ? h : "") : "");
-        t.children = t.children.filter((c) => c.name !== "s" || c === runs[0]);
-        fitLabel(doc, fresh, t);
-      }
-    }
-    if (mass) {
-      fresh.attrs.Isotope = String(mass);
-      const t = fresh.children.find((c) => c.name === "t");
-      const s0 = t?.children.find((c) => c.name === "s");
-      if (t && s0) {
-        t.children.unshift({ name: "s", attrs: { ...s0.attrs, face: String(0x20) }, children: [], text: String(mass), line: 0 });
-        fitLabel(doc, fresh, t);
-      }
-    }
+    if (!writeElementLabel(doc, nodeIds[a], z, h, mass)) return { ok: false, reason: `an atom (number ${z}) has no element symbol` };
   }
   // The page must say exactly what the Molecule does: read back, the same idcode — else something it holds
   // (a query feature OCL keeps but does not show, say) would be lost, and it is refused instead.

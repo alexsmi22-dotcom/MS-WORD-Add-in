@@ -240,8 +240,12 @@ function curveHeadline(r: StandardCurveOk, unit: string): string[] {
         `EC50 = ${qNum(c.ec50)}${unitSuffix(unit)}, Hill slope = ${qNum(c.hill, 3)}`,
     );
   }
+  // An EXACT fit (every standard on the curve) has a residual SD of rounding
+  // noise, 3.93×10⁻¹⁷ on exact data: print 0 and say why the intervals have no width.
+  const scale = Math.max(0, ...r.standards.map((st) => Math.abs(st.stats.mean)).filter(Number.isFinite));
+  const exact = Number.isFinite(c.s) && scale > 0 && c.s <= 1e-10 * scale;
   lines.push(
-    `${r2Text(c.rsquared, 5)}, residual SD = ${qNum(c.s, 3)}, ${c.n} points at ${r.standards.length} standards (df = ${c.df})`,
+    `${r2Text(c.rsquared, 5)}, residual SD = ${exact ? "0 (exact fit: every standard lies on the curve, so the intervals below have zero width)" : qNum(c.s, 3)}, ${c.n} points at ${r.standards.length} standards (df = ${c.df})`,
   );
   return lines;
 }

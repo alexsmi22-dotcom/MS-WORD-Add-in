@@ -206,7 +206,8 @@ describe("4. display contract outside Engineering", () => {
   test("the pane's fixed strings: superscript units in the assay figure titles; notes and assumptions punctuated before they are inserted", () => {
     expect(PANE).not.toContain("(M^-1 s^-1)");
     expect(PANE).not.toContain("(M^-1 cm^-1)");
-    expect(PANE).toContain("(M⁻¹ s⁻¹)");
+    // The kcat/Km figure moved to lib/assayInputs.ts (fix round 2, units converted).
+    expect(fs.readFileSync(path.join(__dirname, "..", "assayInputs.ts"), "utf8")).toContain("(M\u207b\u00b9 s\u207b\u00b9)");
     expect(PANE).toContain("assayNotes.map((c) => `Note: ${proseDashes(c)}`)");
     expect(PANE).toContain("`Assumes: ${proseDashes(calc.assumes)}`");
     expect(PANE).toContain("currentFinText = insertable && insertableResultText(composed) ? composed : \"\"");

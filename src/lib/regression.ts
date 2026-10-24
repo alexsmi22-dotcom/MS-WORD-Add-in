@@ -52,6 +52,12 @@ export interface MultipleRegressionResult {
   pOverall: number;
   n: number;
   caveats: string[];
+  /**
+   * The data lie exactly on the fitted surface (residuals are rounding noise,
+   * ≤ 10⁻¹⁰ of the data's scale). Then SE = 0 and t, F and their p-values are
+   * undefined — printing SE 2.22×10⁻¹⁴, t 1.22×10¹⁵, F 3.4×10³⁰ reports noise.
+   */
+  exactFit?: boolean;
 }
 
 /** Back-substitution for an upper-triangular system Rb = z. */
@@ -204,7 +210,7 @@ export function multipleRegression(
 
   const { beta, xtxInv } = ls;
   const fitted = X.map((row) => row.reduce((s, v, j) => s + v * beta[j], 0));
-  const residuals = y.map((v, i) => v - fitted[i]);
+  let residuals = y.map((v, i) => v - fitted[i]);
 
   const ybar = mean(y);
   let ssTotal = 0;
@@ -215,6 +221,14 @@ export function multipleRegression(
   }
   const dfResidual = n - p;
   const dfModel = k;
+  // AN EXACT FIT: residuals at rounding level against the data's own scale.
+  let yScale = 0;
+  for (const v of y) yScale = Math.max(yScale, Math.abs(v));
+  const exactFit = ssTotal > 0 && Math.sqrt(ssRes / n) <= 1e-10 * Math.max(yScale, Math.sqrt(ssTotal / n));
+  if (exactFit) {
+    ssRes = 0;
+    residuals = residuals.map(() => 0);
+  }
   const mse = ssRes / dfResidual;
   const rse = Math.sqrt(mse);
 
@@ -248,6 +262,13 @@ export function multipleRegression(
     "Check the residual plot before believing any of this: a curved pattern means the model shape " +
       "is wrong, and no summary statistic will tell you.",
   ];
+  if (exactFit) {
+    caveats.unshift(
+      "EXACT FIT: every point lies on the fitted curve (the residuals are rounding noise), so the standard " +
+        "errors are 0 and t, F and their p-values are undefined. Real measurements are never exact; check that " +
+        "y was not computed from x.",
+    );
+  }
   if (k > 1) {
     caveats.push(
       "This is a fit, not a causal claim. Adding predictors that correlate with each other changes " +
@@ -260,9 +281,9 @@ export function multipleRegression(
     coefficients,
     fitted,
     residuals,
-    standardizedResiduals: residuals.map((r) => (rse > 0 ? r / rse : NaN)),
-    rSquared,
-    adjustedRSquared,
+    standardizedResiduals: residuals.map((r) => (rse > 0 ? r / rse : exactFit ? 0 : NaN)),
+    rSquared: exactFit ? 1 : rSquared,
+    adjustedRSquared: exactFit ? 1 : adjustedRSquared,
     residualStandardError: rse,
     f,
     dfModel,
@@ -270,6 +291,7 @@ export function multipleRegression(
     pOverall,
     n,
     caveats,
+    ...(exactFit ? { exactFit: true } : {}),
   };
 }
 
@@ -286,7 +308,8 @@ export function polynomialRegression(
   y: number[],
   degree: number,
 ): MultipleRegressionResult & { centre: number; degree: number } {
-  const deg = Math.max(1, Math.min(6, Math.floor(degree)));
+  // 1–4, the degrees the pane offers (it said "6 is the maximum" beside a dropdown ending at 4).
+  const deg = Math.max(1, Math.min(4, Math.floor(degree)));
   const centre = x.length ? mean(x) : 0;
   const cols: number[][] = [];
   const names: string[] = [];
@@ -301,7 +324,7 @@ export function polynomialRegression(
         "(x − x̄). Uncentred powers of a large x are numerically unstable.",
     );
     res.caveats.push(
-      "A higher degree always fits the sample better and usually predicts worse. Degree 6 is the " +
+      "A higher degree always fits the sample better and usually predicts worse. Degree 4 is the " +
         "maximum offered, and even that is rarely justified by data.",
     );
   }

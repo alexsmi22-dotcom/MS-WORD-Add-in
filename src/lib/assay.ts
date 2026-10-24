@@ -921,24 +921,42 @@ export function fitInhibition(
   if (n < 4) return null;
   const idx = Array.from({ length: n }, (_, k) => k);
 
+  // CONCENTRATIONS ARE FITTED ON A UNIT SCALE and the constants scaled back.
+  // [S] and [I] share one unit, so dividing both by the largest positive [S]
+  // leaves the model's shape unchanged and puts Km and Ki near 1 whatever the
+  // unit. The Ki seed used to be maxOf(i, 1) — at least 1 — so molar data
+  // (every [I] below 10⁻⁶) started Ki a million-fold too high, the optimiser
+  // wandered to a NEGATIVE Ki, and the pane printed it with Insert enabled.
+  const cScale = maxOf(s.slice(0, n).filter((x) => x > 0 && Number.isFinite(x))) || 1;
+  const sN = s.map((x) => x / (Number.isFinite(cScale) && cScale > 0 ? cScale : 1));
+  const iN = i.map((x) => x / (Number.isFinite(cScale) && cScale > 0 ? cScale : 1));
+  const scaleBack = Number.isFinite(cScale) && cScale > 0 ? cScale : 1;
+
   // Initial guess: fit MM to the uninhibited points if there are any, else all.
-  const zero = idx.filter((k) => i[k] === 0);
-  const base = zero.length >= 3 ? fitMichaelisMenten(zero.map((k) => s[k]), zero.map((k) => v[k])) : fitMichaelisMenten(s, v);
+  const zero = idx.filter((k) => iN[k] === 0);
+  const base = zero.length >= 3 ? fitMichaelisMenten(zero.map((k) => sN[k]), zero.map((k) => v[k])) : fitMichaelisMenten(sN, v);
   const vmax0 = base.vmax > 0 ? base.vmax : maxOf(v);
-  const km0 = base.km > 0 ? base.km : s[Math.floor(n / 2)] || 1;
-  const ki0 = maxOf(i.filter((x) => x > 0), 1) || 1;
+  const km0 = base.km > 0 ? base.km : sN[Math.floor(n / 2)] || 1;
+  // The largest positive [I] alone; 1 (= the largest [S]) only when there is none.
+  const posI = iN.slice(0, n).filter((x) => x > 0);
+  const ki0 = (posI.length ? maxOf(posI) : 1) || 1;
 
   const model: Model =
     mode === "mixed"
-      ? (p, x) => mixedV(p[0], p[1], p[2], p[3], s[Math.round(x)], i[Math.round(x)])
+      ? (p, x) => mixedV(p[0], p[1], p[2], p[3], sN[Math.round(x)], iN[Math.round(x)])
       : mode === "competitive"
-        ? (p, x) => competitiveV(p[0], p[1], p[2], s[Math.round(x)], i[Math.round(x)])
+        ? (p, x) => competitiveV(p[0], p[1], p[2], sN[Math.round(x)], iN[Math.round(x)])
         : mode === "uncompetitive"
-          ? (p, x) => uncompetitiveV(p[0], p[1], p[2], s[Math.round(x)], i[Math.round(x)])
-          : (p, x) => noncompetitiveV(p[0], p[1], p[2], s[Math.round(x)], i[Math.round(x)]);
+          ? (p, x) => uncompetitiveV(p[0], p[1], p[2], sN[Math.round(x)], iN[Math.round(x)])
+          : (p, x) => noncompetitiveV(p[0], p[1], p[2], sN[Math.round(x)], iN[Math.round(x)]);
 
   const initial = mode === "mixed" ? [vmax0, km0, ki0, ki0] : [vmax0, km0, ki0];
-  const fit = levenbergMarquardt(idx, v.slice(0, n), model, initial);
+  const fitN = levenbergMarquardt(idx, v.slice(0, n), model, initial);
+  // Back to the user's concentration unit: Vmax is a velocity (unscaled); Km,
+  // Ki and Ki′ are concentrations, as are their standard errors. predict() is
+  // indexed by row, so it needs no change.
+  const unscale = (arr: number[]): number[] => arr.map((val, k) => (k === 0 ? val : val * scaleBack));
+  const fit: FitResult = { ...fitN, params: unscale(fitN.params), se: unscale(fitN.se) };
 
   const caveats = [
     `Fitted as ${mode.toUpperCase()} inhibition — YOU chose that, the data did not. ` +
@@ -968,6 +986,29 @@ export function fitInhibition(
     mode,
     caveats,
   };
+}
+
+/**
+ * Why an inhibition fit may not be reported, or null when it may. Michaelis–
+ * Menten already refused a non-converged fit; the inhibition panel printed
+ * whatever came back, so a molar run showed a NEGATIVE Ki with Insert enabled.
+ * Every constant must be positive and the fit must have converged.
+ */
+export function inhibitionRefusal(fit: InhibitionFit | null): string | null {
+  if (!fit) return "Need at least 4 (s, i, v) rows to fit.";
+  const consts = [fit.vmax, fit.km, fit.ki, ...(fit.mode === "mixed" ? [fit.kiPrime] : [])];
+  if (fit.converged && consts.every((c) => Number.isFinite(c) && c > 0)) return null;
+  if (fit.mode === "mixed") {
+    return (
+      "The mixed-inhibition fit did not converge to positive constants: Ki or Ki′ ran away, which " +
+      "usually means the data follow a simpler mode (Ki′ → ∞ is competitive, Ki → ∞ is " +
+      "uncompetitive). Try Competitive, Uncompetitive or Non-competitive."
+    );
+  }
+  return (
+    `The ${fit.mode} fit did not converge to positive constants (Vmax, Km and Ki must all be above zero), ` +
+    "so there is no Ki to report. Check the data, and compare the other inhibition modes."
+  );
 }
 
 // --- receptor / saturation binding ------------------------------------------

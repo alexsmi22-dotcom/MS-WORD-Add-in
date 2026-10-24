@@ -322,6 +322,11 @@ export interface Series {
   color?: string;
   /** Optional label shown in the legend. */
   label?: string;
+  /**
+   * Scatter marker shape. Default a filled dot; "plus" is the journal censoring
+   * tick of a Kaplan–Meier figure (a small + on the curve).
+   */
+  marker?: "dot" | "plus";
 }
 
 export type AxisScale = "linear" | "log";
@@ -1025,7 +1030,15 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
               `<line x1="${(x - cap).toFixed(1)}" y1="${yLo.toFixed(1)}" x2="${(x + cap).toFixed(1)}" y2="${yLo.toFixed(1)}" stroke="${color}" stroke-width="1"/>`,
             );
         }
-        parts.push(`<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.6" fill="${color}"/>`);
+        if (sObj.marker === "plus") {
+          const cx = sx(p.x);
+          const cy = sy(p.y);
+          parts.push(
+            `<path d="M${(cx - 3.5).toFixed(1)},${cy.toFixed(1)} L${(cx + 3.5).toFixed(1)},${cy.toFixed(1)} M${cx.toFixed(1)},${(cy - 3.5).toFixed(1)} L${cx.toFixed(1)},${(cy + 3.5).toFixed(1)}" stroke="${color}" stroke-width="1.3" fill="none"/>`,
+          );
+        } else {
+          parts.push(`<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.6" fill="${color}"/>`);
+        }
       }
     }
   });
@@ -1043,7 +1056,11 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     legendRows.forEach((s, i) => {
       const color = s.color ?? palette[series.indexOf(s) % palette.length];
       const cyl = ly + 9 + i * LEGEND_LH;
-      parts.push(`<line x1="${lx + 6}" y1="${cyl}" x2="${lx + 20}" y2="${cyl}" stroke="${color}" stroke-width="2"/>`);
+      if (s.marker === "plus") {
+        parts.push(`<path d="M${lx + 9.5},${cyl} L${lx + 16.5},${cyl} M${lx + 13},${cyl - 3.5} L${lx + 13},${cyl + 3.5}" stroke="${color}" stroke-width="1.3" fill="none"/>`);
+      } else {
+        parts.push(`<line x1="${lx + 6}" y1="${cyl}" x2="${lx + 20}" y2="${cyl}" stroke="${color}" stroke-width="2"/>`);
+      }
       parts.push(`<text x="${lx + 24}" y="${cyl + 3.5}" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(legendLabelOf(s))}</text>`);
     });
   }

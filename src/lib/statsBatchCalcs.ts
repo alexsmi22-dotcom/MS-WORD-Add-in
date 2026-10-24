@@ -260,7 +260,12 @@ export function rmProfileSvg(res: RmAnovaResult, f: RmField): string {
     xlabel: "Condition",
     ylabel: "Mean",
     errorBars: "ci95",
-    xTickLabel: (v) => (Number.isInteger(v) && v >= 1 && v <= k ? cName(f, v).slice(0, 12) : ""),
+    // A cut label says so with an ellipsis ("Baseline vi…"), never a silent chop.
+    xTickLabel: (v) => {
+      if (!(Number.isInteger(v) && v >= 1 && v <= k)) return "";
+      const nm = cName(f, v);
+      return nm.length > 12 ? `${nm.slice(0, 11)}…` : nm;
+    },
     notes,
   });
 }

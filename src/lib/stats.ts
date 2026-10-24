@@ -182,6 +182,8 @@ export interface TTestResult {
   dKind: "cohen" | "dz";
   /** 95% confidence interval on the mean difference, [lo, hi]. */
   ci95: [number, number];
+  /** Two-sample tests only: which variance model was run (a caption must name it). */
+  variant?: "welch" | "student";
 }
 
 /**
@@ -225,6 +227,7 @@ export function twoSampleTTest(a: number[], b: number[], pooled = false): TTestR
     d: sPooled > 0 ? diff / sPooled : NaN,
     dKind: "cohen",
     ci95: [diff - tCrit * se, diff + tCrit * se],
+    variant: pooled ? "student" : "welch",
   };
 }
 

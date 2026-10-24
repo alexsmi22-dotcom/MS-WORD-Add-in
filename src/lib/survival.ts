@@ -26,7 +26,7 @@ export interface SurvivalPoint {
   survival: number;
   /** Greenwood standard error of S(t). */
   standardError: number;
-  /** 95% CI for S(t), clipped to [0, 1]. */
+  /** 95% CI for S(t), log(−log) Greenwood (logLogCI): inside [0, 1] without clipping. */
   ci95: [number, number];
 }
 
@@ -48,6 +48,30 @@ export interface KaplanMeierResult {
   medianSurvival: number | null;
   caveats: string[];
 }
+
+/**
+ * The 95% interval for S(t) on the log(−log) scale ("exponential Greenwood",
+ * Kalbfleisch & Prentice; the default of lifelines and of R survfit's
+ * conf.type = "log-log"):
+ *   v = Σ d/(r(r−d)) / (ln S)²,  CI = exp(−exp(ln(−ln S) ± z·√v)).
+ * It lies inside [0, 1] by construction. The plain S ± 1.96·SE interval it
+ * replaces ran past 0 and 1 and had to be CLIPPED, which printed "[0, 0.735]"
+ * — a lower bound of exactly zero that no data supports.
+ * S = 1 (no event yet) gives [1, 1]; S = 0 gives no interval (NaN).
+ */
+export function logLogCI(survival: number, greenwood: number): [number, number] {
+  if (!Number.isFinite(greenwood) || !(survival > 0)) return [NaN, NaN];
+  if (survival >= 1 || greenwood === 0) return [survival, survival];
+  const lnS = Math.log(survival);
+  const sd = Math.sqrt(greenwood) / Math.abs(lnS);
+  const c = Math.log(-lnS);
+  const z = 1.959963985;
+  return [Math.exp(-Math.exp(c + z * sd)), Math.exp(-Math.exp(c - z * sd))];
+}
+
+/** The interval type, stated wherever the interval is printed. */
+export const KM_CI_NOTE =
+  "95% CI: log(−log) transformed Greenwood interval (as lifelines and R survfit conf.type = \"log-log\"), which stays inside 0 to 1 without clipping.";
 
 /**
  * Kaplan-Meier product-limit estimator.
@@ -107,7 +131,6 @@ export function kaplanMeier(times: number[], events: number[]): KaplanMeierResul
       else greenwood = Infinity; // S(t) hit zero; the variance is undefined beyond
     }
     const se = Number.isFinite(greenwood) ? survival * Math.sqrt(greenwood) : NaN;
-    const half = Number.isFinite(se) ? 1.959963985 * se : NaN;
     points.push({
       time: t,
       atRisk,
@@ -115,10 +138,7 @@ export function kaplanMeier(times: number[], events: number[]): KaplanMeierResul
       censored: c,
       survival,
       standardError: se,
-      ci95: [
-        Number.isFinite(half) ? Math.max(0, survival - half) : NaN,
-        Number.isFinite(half) ? Math.min(1, survival + half) : NaN,
-      ],
+      ci95: logLogCI(survival, greenwood),
     });
 
     // Everyone with this time leaves the risk set — events and censorings alike.
@@ -258,6 +278,9 @@ export function logRankTest(groups: { times: number[]; events: number[] }[]): Lo
   const expected = new Array<number>(k).fill(0);
   // Variance of O1−E1, for two groups.
   let variance = 0;
+  // The full k×k covariance of O − E (survdiff / lifelines multivariate form):
+  // V_jl += d·(n_j/N)·(δ_jl − n_l/N)·(N − d)/(N − 1).
+  const cov: number[][] = Array.from({ length: k }, () => new Array<number>(k).fill(0));
 
   for (const t of eventTimes) {
     const atRisk = usable.map((g) => g.times.reduce((acc, tt) => acc + (tt >= t ? 1 : 0), 0));
@@ -275,6 +298,9 @@ export function logRankTest(groups: { times: number[]; events: number[] }[]): Lo
     // Hypergeometric variance for group 1 vs the rest.
     variance +=
       (dTot * (atRisk[0] / nTot) * (1 - atRisk[0] / nTot) * (nTot - dTot)) / (nTot - 1);
+    const f = (dTot * (nTot - dTot)) / (nTot - 1);
+    for (let j = 0; j < k; j++)
+      for (let l = 0; l < k; l++) cov[j][l] += f * (atRisk[j] / nTot) * ((j === l ? 1 : 0) - atRisk[l] / nTot);
   }
 
   // THE LOG-RANK STATISTIC IS (O1 - E1)^2 / V, NOT sum (Oj - Ej)^2 / Ej.
@@ -292,20 +318,29 @@ export function logRankTest(groups: { times: number[]; events: number[] }[]): Lo
   // matched the literature exactly — [21, 9] and [10.749, 19.251] — while the
   // statistic came out 15.23, p = 9.5e-5. Only the denominator was wrong.
   //
-  // For more than two groups the correct statistic needs the full covariance
-  // matrix of (O - E), which this accumulation does not carry, so k > 2 keeps the
-  // Pearson approximation and SAYS SO rather than quietly reporting it as exact.
+  // For more than two groups the statistic is the quadratic form
+  // (O − E)ᵀ V⁻¹ (O − E) over the first k − 1 groups (V is singular in full,
+  // since Σ(O − E) = 0), exactly as R survdiff and lifelines
+  // multivariate_logrank_test. It replaced the Pearson approximation
+  // Σ(O − E)²/E, which gave 4.58 against lifelines' 5.21 on a 3-group case.
   const df = k - 1;
   let chi2: number;
-  let approximate = false;
-  if (k === 2 && variance > 0) {
+  if (k === 2) {
+    if (!(variance > 0)) return { ...empty, reason: "The log-rank variance is zero (no informative event times), so there is no test." };
     chi2 = (observed[0] - expected[0]) ** 2 / variance;
   } else {
-    chi2 = 0;
-    for (let j = 0; j < k; j++) {
-      if (expected[j] > 0) chi2 += (observed[j] - expected[j]) ** 2 / expected[j];
+    const m = k - 1;
+    const A = cov.slice(0, m).map((row) => row.slice(0, m));
+    const b = observed.slice(0, m).map((o, j) => o - expected[j]);
+    const x = solveSymmetric(A, b);
+    if (!x) {
+      return {
+        ...empty,
+        reason:
+          "The covariance of observed − expected events is singular (a group has nobody at risk at any event time), so the k-group test is undefined. Remove that group.",
+      };
     }
-    approximate = k > 2;
+    chi2 = b.reduce((s, v, j) => s + v * x[j], 0);
   }
   const p = chiSquareP(chi2, df);
 
@@ -333,16 +368,39 @@ export function logRankTest(groups: { times: number[]; events: number[] }[]): Lo
         "toward 1 when it is extreme. It is not a Cox regression and admits no covariates.",
     );
   }
-  if (approximate) {
+  if (k > 2) {
     caveats.push(
-      "With more than two groups this uses the Pearson form of the statistic, sum (O-E)^2/E, which " +
-        "is an APPROXIMATION: the exact k-group log-rank test needs the full covariance matrix of " +
-        "O - E, and this does not compute it. The two-group case above uses the exact variance. " +
-        "Treat a borderline k-group p-value as indicative rather than decisive.",
+      `With ${k} groups the test is the global one (df = ${df}): it says the curves are not all the same, not which ` +
+        "pair differs. Compare pairs afterwards, with a multiple-comparison correction.",
     );
   }
 
   return { ok: true, chi2, df, p, observed, expected, hazardRatio, hazardRatioCI, caveats };
+}
+
+/** Gaussian elimination with partial pivoting on a small system; null if singular. */
+function solveSymmetric(A: number[][], b: number[]): number[] | null {
+  const n = b.length;
+  const M = A.map((row, i) => [...row, b[i]]);
+  const scale = Math.max(...A.map((row) => Math.max(...row.map(Math.abs))), 0);
+  if (!(scale > 0)) return null;
+  for (let c = 0; c < n; c++) {
+    let piv = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+    if (Math.abs(M[piv][c]) <= 1e-12 * scale) return null;
+    [M[c], M[piv]] = [M[piv], M[c]];
+    for (let r = c + 1; r < n; r++) {
+      const f = M[r][c] / M[c][c];
+      for (let j = c; j <= n; j++) M[r][j] -= f * M[c][j];
+    }
+  }
+  const x = new Array<number>(n).fill(0);
+  for (let r = n - 1; r >= 0; r--) {
+    let s = M[r][n];
+    for (let j = r + 1; j < n; j++) s -= M[r][j] * x[j];
+    x[r] = s / M[r][r];
+  }
+  return x.every(Number.isFinite) ? x : null;
 }
 
 /** Points for drawing the step curve, including the initial S=1 at t=0. */
@@ -355,7 +413,22 @@ export function survivalCurvePoints(res: KaplanMeierResult): { x: number; y: num
     pts.push({ x: p.time, y: p.survival }); // then the drop
     prev = p.survival;
   }
+  // THE CENSORED TAIL. The curve used to stop at the last EVENT, so subjects
+  // followed event-free beyond it vanished from the picture — and the length
+  // of follow-up is part of what a KM figure reports. It runs flat to the
+  // largest observed time.
+  const last = res.points.length ? res.points[res.points.length - 1].time : 0;
+  if (last > pts[pts.length - 1].x) pts.push({ x: last, y: prev });
   return pts;
+}
+
+/**
+ * Where to draw the censoring tick marks: one per distinct time at which a
+ * subject was censored, at the curve's height there (S after any event at the
+ * same time, the right-continuous value).
+ */
+export function survivalCensorMarks(res: KaplanMeierResult): { x: number; y: number }[] {
+  return res.points.filter((p) => p.censored > 0).map((p) => ({ x: p.time, y: p.survival }));
 }
 
 /**

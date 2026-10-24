@@ -21,6 +21,12 @@ import { timesTen } from "./axis";
 export function assaySig(x: number, sig = 4): string {
   if (!Number.isFinite(x)) return "—";
   if (x === 0) return "0";
+  // From 10⁹ up, ×10ⁿ: String() keeps plain digits to 10²¹, so a 1.98×10⁹
+  // intercept printed as "1980000000" and 10²⁰ as a 21-digit integer.
+  if (Math.abs(x) >= 1e9) {
+    const e = /^(-?)(\d(?:\.\d+)?)e\+?(\d+)$/.exec(Number(x.toPrecision(sig)).toExponential());
+    if (e) return `${e[1] ? "−" : ""}${e[2]}${timesTen(Number(e[3]))}`;
+  }
   const s = Number(x.toPrecision(sig)).toString();
   const m = /^(-?)(\d+(?:\.\d+)?)e([+-]\d+)$/.exec(s);
   if (m) return `${m[1] ? "−" : ""}${m[2]}${timesTen(Number(m[3]))}`;

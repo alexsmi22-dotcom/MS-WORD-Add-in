@@ -100,17 +100,17 @@ import {
   chengPrusoff,
   kiFromIc50,
   InhibitionMode,
-  catalyticEfficiency,
-  kcat,
   hendersonHasselbalch,
   beerLambert,
   stockVolumeNeeded,
   serialDilution,
+  MAX_DILUTION_STEPS,
   nucleicAcidConc,
   proteinConcFromA280,
   extinctionCoefficient,
   NucleicAcidKind,
   fitInhibition,
+  inhibitionRefusal,
   lineweaverBurk,
   eadieHofstee,
   hanesWoolf,
@@ -152,6 +152,7 @@ import {
 } from "../lib/finance";
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg } from "../lib/financeFigures";
 import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
+import { CONC_UNITS, RATE_UNITS, catalyticEfficiencyCalc, dilutionRefusal, proteinSequenceRefusal, readAssayScalars, serialRefusal } from "../lib/assayInputs";
 import { renderStructure, resolveStructure, resolveChemInput, lookupSmiles, typesetHill, nameForIdcode, StructureResult, gallerySubstituent } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
 import { predictPka, PkaResult } from "../lib/pka";
@@ -621,7 +622,9 @@ import { describeAssumptions, normalityTest, varianceHomogeneity, normalityCheck
 import { kruskalWallis, dunnTest, friedman } from "../lib/nonparametric";
 import { dunnettTest } from "../lib/dunnett";
 import { multipleRegression, polynomialRegression, qqPoints } from "../lib/regression";
-import { kaplanMeier, logRankTest, survivalCurvePoints, readSurvivalRows } from "../lib/survival";
+import { kaplanMeier, logRankTest, readSurvivalRows, KM_CI_NOTE } from "../lib/survival";
+import { kaplanMeierSvg } from "../lib/survivalFigure";
+import { displayFormula, droppedTokensNote, lineEquation, nbspSeparators, regressionReport } from "../lib/statsDisplay";
 import { minOf, maxOf } from "../lib/minmax";
 import {
   buildBohrSvg,
@@ -9546,7 +9549,7 @@ const statCommaLog = new Map<string, string>();
  */
 function statList(s: string, cells = false): number[] {
   // A forced cell keeps the field's ruling: a three-digit "1,250" in a decimal-comma field is 1.25.
-  const r = readNumberList(s, { cells, decimalField: cells });
+  const r = readNumberList(nbspSeparators(s), { cells, decimalField: cells });
   // The note is numberList's own sentence for THIS reading (decimalCommaNote),
   // so whatever the shared reader says it did is exactly what the user reads.
   const note = decimalCommaNote(r);
@@ -9674,36 +9677,7 @@ function largestContributionLine(contributions: { name: string; contribution: nu
   return `Largest contribution: ${finite[0].name}`;
 }
 
-/** Shared text report for any least-squares fit. */
-function regressionReport(res: {
-  coefficients: { name: string; estimate: number; standardError: number; t: number; p: number }[];
-  rSquared: number;
-  adjustedRSquared: number;
-  residualStandardError: number;
-  f: number;
-  dfModel: number;
-  dfResidual: number;
-  pOverall: number;
-  n: number;
-  caveats: string[];
-}): string {
-  const lines: string[] = [];
-  for (const c of res.coefficients) {
-    lines.push(
-      `${c.name} = ${assaySig(c.estimate)} \u00b1 ${assaySig(c.standardError, 3)}  ` +
-        `t = ${assaySig(c.t, 3)}, ${formatP(c.p)}`,
-    );
-  }
-  lines.push("");
-  lines.push(
-    `R\u00b2 = ${assaySig(res.rSquared, 4)} \u00b7 adjusted R\u00b2 = ${assaySig(res.adjustedRSquared, 4)}`,
-  );
-  lines.push(`Residual SE = ${assaySig(res.residualStandardError, 4)} on ${res.dfResidual} df (n = ${res.n})`);
-  lines.push(`Overall F(${res.dfModel}, ${res.dfResidual}) = ${assaySig(res.f, 4)}, ${formatP(res.pOverall)}`);
-  lines.push("");
-  lines.push(plainDashes(res.caveats.join("\n")));
-  return lines.join("\n");
-}
+// regressionReport (the shared least-squares text, exact fits included) lives in lib/statsDisplay.ts.
 
 /**
  * Residuals-vs-fitted and normal Q-Q, side by side.
@@ -9932,10 +9906,9 @@ const STAT_CALCS: StatCalc[] = [
             `${assaySig(p.survival, 4)}  ${ci}`,
         );
       }
-      const svg = buildPlotSvg(
-        [{ type: "line", points: survivalCurvePoints(res), color: "#0369a1", label: "S(t)" }],
-        { width: 320, height: 210, title: "Kaplan-Meier", xlabel: "Time", ylabel: "Survival" },
-      );
+      // Curve to the last follow-up, y fixed 0 to 1, + ticks at censoring (survivalFigure.ts).
+      const svg = kaplanMeierSvg([{ km: res, label: "S(t)" }], { title: "Kaplan-Meier" });
+      lines.push("", KM_CI_NOTE);
       return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), svg };
     },
   },
@@ -9994,21 +9967,10 @@ const STAT_CALCS: StatCalc[] = [
       }
 
       // Both curves on one chart, which is how the result is read.
-      const curves = groups.map((g, i) => {
-        const km = kaplanMeier(g.times, g.events);
-        return {
-          type: "line" as const,
-          points: km.ok ? survivalCurvePoints(km) : [],
-          label: `Group ${i + 1}`,
-        };
-      });
-      const svg = buildPlotSvg(curves, {
-        width: 320,
-        height: 210,
-        title: "Survival by group",
-        xlabel: "Time",
-        ylabel: "Survival",
-      });
+      const svg = kaplanMeierSvg(
+        groups.map((g, i) => ({ km: kaplanMeier(g.times, g.events), label: `Group ${i + 1}` })),
+        { title: "Survival by group" },
+      );
       return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), svg };
     },
   },
@@ -10724,7 +10686,7 @@ const STAT_CALCS: StatCalc[] = [
       return {
         text:
           `Linear regression (n = ${res.n})\n` +
-          `y = ${assaySig(res.slope)}·x + ${assaySig(res.intercept)}\n` +
+          `${lineEquation(res.slope, res.intercept)}\n` +
           `R² = ${assaySig(res.rSquared, 4)} · slope SE = ${assaySig(res.slopeSE, 3)} · slope ${formatP(res.slopeP)}`,
         svg: combineSvgs([fitPlot, regressionFigures({ fitted, residuals, standardizedResiduals })]).svg,
       };
@@ -10756,7 +10718,7 @@ const STAT_CALCS: StatCalc[] = [
         return {
           text:
             `Uncertainty propagation\n` +
-            `${formula} = ${assaySig(res.value)} ± ${assaySig(res.uncertainty, 3)}\n` +
+            `${displayFormula(formula)} = ${assaySig(res.value)} ± ${assaySig(res.uncertainty, 3)}\n` +
             largestContributionLine(res.contributions),
           // THE UNCERTAINTY BUDGET, which is what this calculation is FOR. The
           // combined figure says how well you know the answer; the budget says
@@ -10945,6 +10907,8 @@ const STAT_CALCS: StatCalc[] = [
         return { text: "Every count is zero — there is nothing to test.", ok: false };
       }
       const res = chiSquareIndependence(table);
+      // Negative counts and empty rows/columns are refused by the engine.
+      if (res.reason) return { text: res.reason, ok: false };
       // ON A 2×2 THE EXACT TEST IS THE ANSWER, and it is the one to report.
       // Measured on [[1,9],[8,2]] — all expected counts between 4.5 and 5.5 —
       // the χ² p is 0.00165 against Fisher's 0.00548, so the shipped number was
@@ -11129,9 +11093,9 @@ const STAT_CALCS: StatCalc[] = [
         pw = (n) => powerT({ design: des, d, n, alpha, tails });
         if (des === "paired") {
           unit = "pairs (or subjects)";
-          what = `paired / one-sample t-test, Cohen's d = ${d} on the differences (${effectLabel("d", d)})`;
+          what = `paired / one-sample t-test, Cohen's d = ${trueMinus(String(d))} on the differences (${effectLabel("d", d)})`;
         } else {
-          what = `two-sample t-test, Cohen's d = ${d} (${effectLabel("d", d)})`;
+          what = `two-sample t-test, Cohen's d = ${trueMinus(String(d))} (${effectLabel("d", d)})`;
         }
         assumes = `${des === "paired" ? "normal differences" : "equal group sizes, normal data with equal variance"}; ${tails === 2 ? "two" : "one"}-sided α = ${alpha}`;
       }
@@ -11285,7 +11249,7 @@ function statDroppedTokens(calc: StatCalc, read: (k: string) => string): string[
       if (lines.length && isLabelLine(lines[0])) lines.shift();
       text = lines.map((l) => l.trim().replace(/^[^\s]+\s+/, (lead) => (isNumberToken(lead.trim()) ? lead : ""))).join("\n");
     }
-    const reading = readNumberList(text);
+    const reading = readNumberList(nbspSeparators(text));
     const bad = reading.dropped;
     const total = reading.values.length + bad.length;
     if (!total) continue;
@@ -11350,17 +11314,8 @@ function updateStatsPreview(): void {
   // because the two-sample output reports t(df) and never n.
   if (out.ok !== false) {
     const dropped = statDroppedTokens(calc, read);
-    if (dropped.length) {
-      const shown = [...new Set(dropped)].slice(0, 6).join(", ");
-      out = {
-        ...out,
-        text:
-          `${out.text}\n\n\u26a0 ${dropped.length} non-numeric ` +
-          `${dropped.length === 1 ? "entry was" : "entries were"} ignored (${shown}` +
-          `${new Set(dropped).size > 6 ? ", ..." : ""}). They are NOT counted in n, ` +
-          `so check that this is what you meant.`,
-      };
-    }
+    // Tokens quoted (statsDisplay.droppedTokensNote) so an echoed "NaN" does not trip the insert gate.
+    if (dropped.length) out = { ...out, text: `${out.text}\n\n${droppedTokensNote(dropped)}` };
   }
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.
@@ -34307,7 +34262,7 @@ interface AssayCalc {
 
 /** A Bio/Assay list field, under the same rule as Finance's (finList). */
 function assayList(s: string): number[] {
-  return finList(s);
+  return finList(nbspSeparators(s));
 }
 const ASSAY_CALCS: AssayCalc[] = [
   {
@@ -34409,7 +34364,8 @@ const ASSAY_CALCS: AssayCalc[] = [
       if (s.length < 4) return { text: "Need at least 4 (s, i, v) rows to fit.", ok: false };
       const mode = r("mode") as InhibitionMode;
       const fit = fitInhibition(s, i, v, mode);
-      if (!fit) return { text: "Fit did not converge \u2014 check the data and the chosen mode.", ok: false };
+      const refusal = inhibitionRefusal(fit);
+      if (refusal || !fit) return { text: refusal ?? "Fit did not converge.", ok: false };
       // FitResult carries the standard errors in se[], in the model's parameter
       // order: [vmax, km, ki] and [vmax, km, ki, kiPrime] for mixed.
       const se = (k: number): number => (Number.isFinite(fit.se[k]) ? fit.se[k] : NaN);
@@ -34425,7 +34381,7 @@ const ASSAY_CALCS: AssayCalc[] = [
         `Ki = ${assayValSE(fit.ki, se(2))}`,
       ];
       if (mode === "mixed" && Number.isFinite(fit.kiPrime)) {
-        lines.push(`Ki-prime = ${assayValSE(fit.kiPrime, se(3))}`);
+        lines.push(`Ki′ = ${assayValSE(fit.kiPrime, se(3))}`);
       }
       lines.push(`R\u00b2 = ${assaySig(fit.rsquared, 4)}`);
       return {
@@ -34623,7 +34579,7 @@ const ASSAY_CALCS: AssayCalc[] = [
       const text =
         `Dose–response (4-parameter logistic)\n` +
         `${label} = ${assaySig(fit.ec50)}\n` +
-        `pEC50 = ${assaySig(fit.pEC50, 3)}\n` +
+        `p${label} = ${assaySig(fit.pEC50, 3)}\n` +
         `Hill slope = ${assaySig(fit.hill, 3)}\n` +
         `Bottom = ${assaySig(fit.bottom, 3)}, Top = ${assaySig(fit.top, 3)}\n` +
         `R² = ${assaySig(fit.rsquared, 4)}`;
@@ -34702,7 +34658,15 @@ const ASSAY_CALCS: AssayCalc[] = [
     // compound look eleven times more potent than it is.
     compute: (r) => {
       const mode = r("mode") as InhibitionMode;
-      const ki = kiFromIc50(+r("ic50"), +r("s"), +r("km"), mode);
+      const rd = readAssayScalars(r, [
+        { key: "ic50", label: "IC50", sign: "positive" },
+        { key: "s", label: "[Substrate]", sign: "nonneg" },
+        { key: "km", label: "Km", sign: "positive" },
+      ]);
+      if (!rd.ok && mode !== "mixed") return { text: rd.error, ok: false };
+      if (rd.ok) rd.notes.forEach((n) => calcListNotes.add(n));
+      const cp = rd.ok ? rd.v : { ic50: NaN, s: NaN, km: NaN };
+      const ki = kiFromIc50(cp.ic50, cp.s, cp.km, mode);
       if (mode === "mixed") {
         return {
           text:
@@ -34749,7 +34713,7 @@ const ASSAY_CALCS: AssayCalc[] = [
               name:
                 (m === "uncompetitive" ? "uncompetitive (Ki')" : m) +
                 (m === mode ? " - yours" : ""),
-              value: kiFromIc50(+r("ic50"), +r("s"), +r("km"), m),
+              value: kiFromIc50(cp.ic50, cp.s, cp.km, m),
               colour: m === mode ? "#b91c1c" : "#6b7280",
             }))
             .filter((row) => Number.isFinite(row.value)),
@@ -34778,30 +34742,25 @@ const ASSAY_CALCS: AssayCalc[] = [
     name: "Catalytic efficiency (kcat, kcat/Km)",
     fields: [
       { key: "vmax", label: "Vmax", default: "12" },
+      { key: "vmaxu", label: "Vmax unit", default: "uM/s", kind: "select", options: RATE_UNITS.map((u) => ({ value: u.value, label: u.label })) },
       { key: "e", label: "[Enzyme] total", default: "0.001" },
+      { key: "eu", label: "[Enzyme] unit", default: "uM", kind: "select", options: CONC_UNITS.map((u) => ({ value: u.value, label: u.label })) },
       { key: "km", label: "Km", default: "8" },
+      { key: "kmu", label: "Km unit", default: "uM", kind: "select", options: CONC_UNITS.map((u) => ({ value: u.value, label: u.label })) },
     ],
+    // UNITS, converted (assayInputs.catalyticEfficiencyCalc): kcat in s⁻¹ and
+    // kcat/Km in M⁻¹ s⁻¹, and the diffusion-limit comparison only when every
+    // unit is stated. It used to claim M⁻¹ s⁻¹ for unitless inputs.
     compute: (r) => {
-      const kc = kcat(+r("vmax"), +r("e"));
-      const keff = catalyticEfficiency(kc, +r("km"));
-      return {
-        text: `kcat = ${assaySig(kc)}\nkcat/Km = ${assaySig(keff)}`,
-        // WHERE THIS ENZYME SITS AGAINST THE DIFFUSION LIMIT. kcat/Km has a
-        // hard physical ceiling - an enzyme cannot turn over substrate faster
-        // than the two can meet, about 1e8 to 1e9 per molar per second - and a
-        // bare number gives a reader no way to know whether 1e5 is excellent or
-        // ordinary. Against the limit it is one glance.
-        //
-        // The ceiling is a measured physical constant, not a fitted or invented
-        // value, and it is labelled as the bound rather than drawn as data.
-        svg: hBarSvg(
-          [
-            { name: "this enzyme", value: keff },
-            { name: "diffusion limit", value: 1e9, colour: "#6b7280" },
-          ],
-          { title: "kcat/Km against the diffusion limit (M⁻¹ s⁻¹)", unit: "", w: 360 },
-        ),
-      };
+      const rd = readAssayScalars(r, [
+        { key: "vmax", label: "Vmax", sign: "positive" },
+        { key: "e", label: "[Enzyme]", sign: "positive" },
+        { key: "km", label: "Km", sign: "positive" },
+      ]);
+      if (!rd.ok) return { text: rd.error, ok: false };
+      rd.notes.forEach((n) => calcListNotes.add(n));
+      const o = catalyticEfficiencyCalc({ vmax: rd.v.vmax, vmaxUnit: r("vmaxu"), e: rd.v.e, eUnit: r("eu"), km: rd.v.km, kmUnit: r("kmu") });
+      return { text: o.text, ok: o.ok, svg: o.svg, caveats: o.caveats };
     },
   },
   {
@@ -34813,9 +34772,14 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "acid", label: "[HA] acid", default: "0.1" },
     ],
     compute: (r) => {
-      const pka = +r("pka");
-      const base = +r("base");
-      const acid = +r("acid");
+      const rd = readAssayScalars(r, [
+        { key: "pka", label: "pKa", sign: "any" },
+        { key: "base", label: "[A⁻]", sign: "positive" },
+        { key: "acid", label: "[HA]", sign: "positive" },
+      ]);
+      if (!rd.ok) return { text: rd.error, ok: false };
+      rd.notes.forEach((n) => calcListNotes.add(n));
+      const { pka, base, acid } = rd.v;
       const ph = hendersonHasselbalch(pka, base, acid);
       return {
         text: `pH = ${assaySig(ph, 4)}`,
@@ -34837,7 +34801,7 @@ const ASSAY_CALCS: AssayCalc[] = [
           }
           const here = base > 0 && acid > 0 ? Math.log10(base / acid) : NaN;
           const series: Series[] = [
-            { points: pts, type: "line", color: "#2563eb", label: "pH = pKa + log([A-]/[HA])" },
+            { points: pts, type: "line", color: "#2563eb", label: "pKa + log₁₀ ratio" },
           ];
           if (Number.isFinite(here) && Number.isFinite(ph)) {
             series.push({ points: [{ x: here, y: ph }], type: "scatter", color: "#b91c1c", label: "this buffer" });
@@ -34846,7 +34810,7 @@ const ASSAY_CALCS: AssayCalc[] = [
             width: 360,
             height: 240,
             title: "Buffer curve",
-            xlabel: "log10([A-]/[HA])",
+            xlabel: "log₁₀([A⁻]/[HA])",
             ylabel: "pH",
           });
         })(),
@@ -34864,10 +34828,13 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "ph", label: "Target pH", default: "7.4" },
     ],
     compute: (r) => {
-      const pka = +r("pka");
-      const ph = +r("ph");
-      if (!Number.isFinite(pka) || !Number.isFinite(ph))
-        return { text: "Enter a numeric pKa and target pH.", ok: false };
+      const rd = readAssayScalars(r, [
+        { key: "pka", label: "pKa", sign: "any" },
+        { key: "ph", label: "Target pH", sign: "any" },
+      ]);
+      if (!rd.ok) return { text: rd.error, ok: false };
+      rd.notes.forEach((n) => calcListNotes.add(n));
+      const { pka, ph } = rd.v;
       const ratio = bufferRatioForPh(pka, ph);
       const basePct = (100 * ratio) / (1 + ratio);
       const caveats: string[] = [];
@@ -34881,7 +34848,7 @@ const ASSAY_CALCS: AssayCalc[] = [
       );
       return {
         text: [
-          `[A-]/[HA] = ${assaySig(ratio, 4)}`,
+          `[A⁻]/[HA] = ${assaySig(ratio, 4)}`,
           `Mix ${assaySig(basePct, 3)}% conjugate base with ${assaySig(100 - basePct, 3)}% acid.`,
         ].join("\n"),
         // THE TITRATION CURVE WITH THE TARGET ON IT, which is the only way to
@@ -34915,7 +34882,7 @@ const ASSAY_CALCS: AssayCalc[] = [
             width: 360,
             height: 240,
             title: `Buffer curve, pKa ${assaySig(pka, 4)}`,
-            xlabel: "log10([A-]/[HA])",
+            xlabel: "log₁₀([A⁻]/[HA])",
             ylabel: "pH",
           });
         })(),
@@ -34932,7 +34899,14 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "l", label: "Path length l (cm)", default: "1" },
     ],
     compute: (r) => {
-      const c = beerLambert({ a: +r("a"), epsilon: +r("eps"), l: +r("l") });
+      const rd = readAssayScalars(r, [
+        { key: "a", label: "Absorbance A", sign: "nonneg" },
+        { key: "eps", label: "ε", sign: "positive" },
+        { key: "l", label: "Path length l", sign: "positive" },
+      ]);
+      if (!rd.ok) return { text: rd.error, ok: false };
+      rd.notes.forEach((n) => calcListNotes.add(n));
+      const c = beerLambert({ a: rd.v.a, epsilon: rd.v.eps, l: rd.v.l });
       return {
         text: `c = ${assaySig(c)} M`,
         // THE CALIBRATION LINE THE LAW ASSERTS, with this measurement on it.
@@ -34944,12 +34918,12 @@ const ASSAY_CALCS: AssayCalc[] = [
         // The line is drawn from the user's own epsilon and l, so it is their
         // instrument's calibration, not a generic illustration.
         svg: assayLineSvg({
-          slope: +r("eps") * +r("l"),
+          slope: rd.v.eps * rd.v.l,
           x: c,
-          y: +r("a"),
+          y: rd.v.a,
           xlabel: "concentration (M)",
           ylabel: "absorbance A",
-          title: "Beer-Lambert: A = " + String(+r("eps")) + " x " + String(+r("l")) + " x c",
+          title: `Beer–Lambert: A = ${assaySig(rd.v.eps)} × ${assaySig(rd.v.l)} × c`,
         }),
       };
     },
@@ -34963,8 +34937,17 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "v2", label: "Final volume V2", default: "10" },
     ],
     compute: (r) => {
-      const v1 = stockVolumeNeeded(+r("c1"), +r("c2"), +r("v2"));
-      const vFinal = +r("v2");
+      const rd = readAssayScalars(r, [
+        { key: "c1", label: "C1", sign: "positive" },
+        { key: "c2", label: "C2", sign: "nonneg" },
+        { key: "v2", label: "V2", sign: "positive" },
+      ]);
+      if (!rd.ok) return { text: rd.error, ok: false };
+      const impossible = dilutionRefusal(rd.v.c1, rd.v.c2);
+      if (impossible) return { text: impossible, ok: false };
+      rd.notes.forEach((n) => calcListNotes.add(n));
+      const v1 = stockVolumeNeeded(rd.v.c1, rd.v.c2, rd.v.v2);
+      const vFinal = rd.v.v2;
       return {
         text: `V1 (stock) = ${assaySig(v1)}\nDiluent to add = ${assaySig(vFinal - v1)}`,
         // THE TWO VOLUMES AGAINST THE FINAL VOLUME, which is the check a bench
@@ -34993,12 +34976,21 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "n", label: "Number of steps", default: "6" },
     ],
     compute: (r) => {
-      const start = +r("start");
-      const fold = +r("fold");
-      const n = Math.floor(+r("n"));
-      if (!Number.isFinite(start) || !Number.isFinite(fold) || !Number.isFinite(n) || n < 1) {
-        return { text: "Enter a numeric starting concentration, fold, and step count.", ok: false };
+      const rd = readAssayScalars(r, [
+        { key: "start", label: "Starting concentration", sign: "positive" },
+        { key: "fold", label: "Fold per step", sign: "any" },
+        { key: "n", label: "Number of steps", sign: "any" },
+      ]);
+      if (!rd.ok) return { text: rd.error, ok: false };
+      // Fold > 1 and a whole number of steps (assayInputs.serialRefusal): a fold
+      // of 1 or 0.5 used to "dilute" flat or upwards, and 2.5 steps was floored.
+      const bad = serialRefusal(rd.v.fold, rd.v.n);
+      if (bad) return { text: bad, ok: false };
+      if (rd.v.n > MAX_DILUTION_STEPS) {
+        return { text: `${rd.v.n} steps is beyond what a dilution plan can mean; the limit is ${MAX_DILUTION_STEPS}.`, ok: false };
       }
+      rd.notes.forEach((nt) => calcListNotes.add(nt));
+      const { start, fold, n } = rd.v;
       const steps = serialDilution(start, fold, Math.min(n, 50)); // cap to keep the readout sane
       const note = n > 50 ? `\n(showing first 50 of ${n} steps)` : "";
       // A LOG AXIS DISCARDS zero and negative values, so say so in the RESULT
@@ -35071,24 +35063,35 @@ const ASSAY_CALCS: AssayCalc[] = [
       },
       { key: "dil", label: "Dilution factor", default: "1" },
     ],
-    compute: (r) => ({
-      text: `Concentration = ${assaySig(nucleicAcidConc(+r("a260"), r("kind") as NucleicAcidKind, +r("dil")))} µg/mL`,
-      // The same calibration line as Beer-Lambert, in the units this assay
-      // uses. The factor is the conversion this nucleic-acid type carries
-      // (50 µg/mL per A260 for double-stranded DNA, 40 for RNA, and so on),
-      // multiplied by the dilution — so the slope IS the assumption being
-      // made, drawn rather than buried.
-      svg: assayLineSvg({
-        slope: +r("a260") > 0
-          ? nucleicAcidConc(+r("a260"), r("kind") as NucleicAcidKind, +r("dil")) / +r("a260")
-          : NaN,
-        x: +r("a260"),
-        y: nucleicAcidConc(+r("a260"), r("kind") as NucleicAcidKind, +r("dil")),
-        xlabel: "A260",
-        ylabel: "concentration (µg/mL)",
-        title: "A260 calibration",
-      }),
-    }),
+    compute: (r) => {
+      // A negative A260 (a blank-subtraction artefact) and a dilution factor
+      // below 1 are refused, not turned into a negative concentration.
+      const rd = readAssayScalars(r, [
+        { key: "a260", label: "A260", sign: "nonneg" },
+        { key: "dil", label: "Dilution factor", sign: "positive" },
+      ]);
+      if (!rd.ok) return { text: rd.error, ok: false };
+      if (rd.v.dil < 1) return { text: `A dilution factor is 1 or more (got ${assaySig(rd.v.dil)}); 10 means the sample was diluted ten-fold before reading.`, ok: false };
+      rd.notes.forEach((n) => calcListNotes.add(n));
+      const kind = r("kind") as NucleicAcidKind;
+      const conc = nucleicAcidConc(rd.v.a260, kind, rd.v.dil);
+      return {
+        text: `Concentration = ${assaySig(conc)} µg/mL`,
+        // The same calibration line as Beer-Lambert, in the units this assay
+        // uses. The factor is the conversion this nucleic-acid type carries
+        // (50 µg/mL per A260 for double-stranded DNA, 40 for RNA, and so on),
+        // multiplied by the dilution — so the slope IS the assumption being
+        // made, drawn rather than buried.
+        svg: assayLineSvg({
+          slope: nucleicAcidConc(1, kind, rd.v.dil),
+          x: rd.v.a260,
+          y: conc,
+          xlabel: "A260",
+          ylabel: "concentration (µg/mL)",
+          title: "A260 calibration",
+        }),
+      };
+    },
   },
   {
     id: "protein280",
@@ -35105,6 +35108,15 @@ const ASSAY_CALCS: AssayCalc[] = [
     // would not derive. Gill & von Hippel needs only the W/Y/C counts.
     compute: (r) => {
       const seq = r("seq").trim();
+      // A negative A280, ε or path length is refused (it used to print a
+      // negative concentration); ε is only read when there is no sequence.
+      const rd = readAssayScalars(r, [
+        { key: "a280", label: "A280", sign: "nonneg" },
+        { key: "l", label: "Path length l", sign: "positive" },
+        ...(seq ? [] : [{ key: "eps", label: "ε", sign: "positive" as const }]),
+      ]);
+      if (!rd.ok) return { text: rd.error, ok: false };
+      rd.notes.forEach((n) => calcListNotes.add(n));
       if (!seq) {
         // NO SEQUENCE: the epsilon is the one the user typed, so there is no
         // composition to break down — but there is still the calibration line
@@ -35112,18 +35124,23 @@ const ASSAY_CALCS: AssayCalc[] = [
         // DEFAULT view of the calculator (the sequence field is optional and
         // ships empty), so leaving it text-only would have meant the tool drew
         // nothing until you gave it something it does not require.
+        const conc = proteinConcFromA280(rd.v.a280, rd.v.eps, rd.v.l);
         return {
-          text: `Concentration = ${assaySig(proteinConcFromA280(+r("a280"), +r("eps"), +r("l")))} M`,
+          text: `Concentration = ${assaySig(conc)} M`,
           svg: assayLineSvg({
-            slope: +r("eps") * +r("l"),
-            x: proteinConcFromA280(+r("a280"), +r("eps"), +r("l")),
-            y: +r("a280"),
+            slope: rd.v.eps * rd.v.l,
+            x: conc,
+            y: rd.v.a280,
             xlabel: "concentration (M)",
             ylabel: "A280",
             title: "A280 calibration",
           }),
         };
       }
+      // Only the 20 standard residues: B/Z/X (which may hide W, Y or C), other
+      // letters and digits inside the sequence are refused by name.
+      const badSeq = proteinSequenceRefusal(seq);
+      if (badSeq) return { text: badSeq, ok: false };
       const eps = extinctionCoefficient(seq);
       // ε = 0 when the sequence has no Trp, Tyr or Cys at all. Dividing by it
       // would report an infinite concentration, so refuse: such a protein does
@@ -35136,8 +35153,8 @@ const ASSAY_CALCS: AssayCalc[] = [
           ok: false,
         };
       }
-      const a280 = +r("a280");
-      const l = +r("l");
+      const a280 = rd.v.a280;
+      const l = rd.v.l;
       // Both cysteine states, because which one applies is the user's to decide
       // and the difference is real — picking one silently would be inventing a
       // condition the experiment did not state.
@@ -35161,10 +35178,10 @@ const ASSAY_CALCS: AssayCalc[] = [
         // the number printed above rather than to a re-derivation of it.
         svg: hBarSvg(
           [
-            { name: `tryptophan x${eps.counts.W}`, value: eps.counts.W * 5500 },
-            { name: `tyrosine x${eps.counts.Y}`, value: eps.counts.Y * 1490 },
+            { name: `tryptophan ×${eps.counts.W}`, value: eps.counts.W * 5500 },
+            { name: `tyrosine ×${eps.counts.Y}`, value: eps.counts.Y * 1490 },
             {
-              name: `cystines x${eps.counts.cystinePairs}`,
+              name: `cystines ×${eps.counts.cystinePairs}`,
               value: eps.cystines - eps.reduced,
               colour: "#6b7280",
             },
@@ -35200,7 +35217,11 @@ const ASSAY_CALCS: AssayCalc[] = [
         options: GAS_CONDITION_OPTIONS,
       },
     ],
-    compute: (r) => stoichCalc(r("rxn"), r("amounts"), r("actual"), r("gas")),
+    // "V_m" (stoich.ts's gas line) typeset as Vₘ for display; stoich.ts itself is owned by the chemistry branch.
+    compute: (r) => {
+      const o = stoichCalc(r("rxn"), r("amounts"), r("actual"), r("gas"));
+      return { ...o, text: o.text.replace(/\bV_m\b/g, "Vₘ"), caveats: o.caveats?.map((c) => c.replace(/\bV_m\b/g, "Vₘ")) };
+    },
   },
   // Quantitation: standard curve back-calculation, plates, qPCR (src/lib/assayQuantCalcs.ts).
   ...ASSAY_QUANT_CALCS,

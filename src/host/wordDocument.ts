@@ -585,6 +585,30 @@ export async function updateBodyFields(): Promise<"updated" | "unsupported" | "f
  * The current text of each named bookmark (null for one the document no longer holds) — a caption's number as Word
  * shows it now. WordApi 1.4; where Word does not have it, null for the whole call.
  */
+export async function heading1Numbering(): Promise<"numbered" | "unnumbered" | "none" | "unknown"> {
+  if (!wordApiSupported("1.3")) return "unknown";
+  try {
+    return await Word.run(async (context) => {
+      const paras = context.document.body.paragraphs;
+      paras.load("items/styleBuiltIn");
+      await context.sync();
+      // At most 200 headings are asked about (a bounded batch); one unnumbered Heading 1 is enough to refuse.
+      const h1 = paras.items.filter((p) => p.styleBuiltIn === Word.BuiltInStyleName.heading1).slice(0, 200);
+      if (!h1.length) return "none";
+      const lists = h1.map((p) => {
+        const li = p.listItemOrNullObject;
+        li.load("listString");
+        return li;
+      });
+      await context.sync();
+      // Numbered = every Heading 1 has a list string with a digit or roman numeral ("1", "Chapter 2", "IV").
+      return lists.every((li) => !li.isNullObject && /[0-9IVXLivxl]/.test(li.listString ?? "")) ? "numbered" : "unnumbered";
+    });
+  } catch {
+    return "unknown";
+  }
+}
+
 export async function readBookmarkTexts(names: string[]): Promise<Record<string, string | null> | null> {
   if (!wordApiSupported("1.4")) return null;
   const out: Record<string, string | null> = {};

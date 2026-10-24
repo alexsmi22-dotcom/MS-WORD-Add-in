@@ -10,7 +10,7 @@ import { initCaptionsPane, CAPTIONS_SETTING, CAPTIONS_MODE_SETTING, type Caption
 const HTML = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.html"), "utf8");
 const SECTION = /<section id="refs-section">[\s\S]*?<\/section>/.exec(HTML)![0];
 
-function setup(o: { bookmarks?: "ok" | "unsupported"; update?: "updated" | "unsupported" | "failed"; settings?: Record<string, unknown> } = {}) {
+function setup(o: { bookmarks?: "ok" | "unsupported"; update?: "updated" | "unsupported" | "failed"; settings?: Record<string, unknown>; h1?: "numbered" | "unnumbered" | "none" | "unknown" } = {}) {
   document.body.innerHTML = `<p id="status"></p>${SECTION}`;
   const settings = new Map<string, unknown>(Object.entries(o.settings ?? {}));
   const captionFlags: boolean[] = [];
@@ -37,6 +37,7 @@ function setup(o: { bookmarks?: "ok" | "unsupported"; update?: "updated" | "unsu
       return o.update ?? "updated";
     },
     readBookmarkTexts: async (names) => (o.bookmarks === "unsupported" ? null : Object.fromEntries(names.map((n) => [n, doc.get(n) ?? null]))),
+    heading1Numbering: async () => o.h1 ?? "numbered",
   };
   const pane = initCaptionsPane({ docHost, setStatus: (t, k) => void status.push([t, k]) });
   const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -165,5 +166,24 @@ describe("Captions with Word fields", () => {
     expect($("ref-xref-fields").hidden).toBe(true);
     expect($<HTMLButtonElement>("ref-update").disabled).toBe(true);
     expect($<HTMLButtonElement>("ref-insert-tof").disabled).toBe(true);
+  });
+});
+
+// fix2 (docs2 review): chapter-numbered captions broke in real Word ("Figure 0.1", "Error! No text of specified
+// style") when Heading 1 is not list-numbered — they are now refused by name in that case.
+describe("chapter numbering needs numbered Heading 1 chapters", () => {
+  test.each(["unnumbered", "none", "unknown"] as const)("Heading 1 %s → caption and equation refused, nothing inserted", async (h1) => {
+    const t = setup({ h1 });
+    t.$<HTMLInputElement>("ref-chapter").checked = true;
+    await t.pane.insertCaption("Figure", "x");
+    expect(t.inserted).toHaveLength(0);
+    expect(last(t.status)).toEqual([expect.stringMatching(/^Caption not inserted\. .*(Heading 1|chapters)/), "error"]);
+    expect(await t.pane.equationNumber("E = mc^2", true)).toBeNull();
+    expect(last(t.status)[0]).toMatch(/^Equation not numbered by chapter/);
+  });
+  test("an unticked box never asks", async () => {
+    const t = setup({ h1: "unnumbered" });
+    await t.pane.insertCaption("Figure", "x");
+    expect(t.inserted).toHaveLength(1);
   });
 });

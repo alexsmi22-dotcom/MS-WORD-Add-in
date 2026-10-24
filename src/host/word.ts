@@ -27,6 +27,7 @@ import {
   readTextBeforeCursor,
   replaceSelectionFromTextBefore,
   readBookmarkTexts,
+  heading1Numbering,
   updateBibliography,
   updateBodyFields,
 } from "./wordDocument";
@@ -40,6 +41,7 @@ export const wordHost: Host = {
   insertParagraphOoxmlAfter,
   updateBodyFields,
   readBookmarkTexts,
+  heading1Numbering,
   readBodyText,
   readParagraphTexts,
   readTableUnderCursor,

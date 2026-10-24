@@ -28,7 +28,7 @@ export const CAPTIONS_MODE_SETTING = "formula-inserter.captionMode";
 const PLAIN_COUNTERS_SETTING = "formula-inserter.refs";
 
 export interface CaptionsPaneHost {
-  docHost: Pick<Host, "getSetting" | "setSetting" | "saveSettings" | "insertParagraphOoxmlAfter" | "insertAtSelection" | "updateBodyFields" | "readBookmarkTexts">;
+  docHost: Pick<Host, "getSetting" | "setSetting" | "saveSettings" | "insertParagraphOoxmlAfter" | "insertAtSelection" | "updateBodyFields" | "readBookmarkTexts" | "heading1Numbering">;
   setStatus(text: string, kind?: "error" | "success" | ""): void;
 }
 
@@ -185,9 +185,31 @@ export function initCaptionsPane(host: CaptionsPaneHost): CaptionsPane {
     }
   }
 
+  /**
+   * Chapter numbering (STYLEREF 1 \s + SEQ … \s 1) only works when Heading 1 is list-numbered; otherwise Word prints
+   * "Figure 0.1" or "Error! No text of specified style" in the user's document (fix2, seen in real Word). The reason
+   * it is refused, or "" when chapter numbering can go ahead.
+   */
+  async function chapterRefusal(): Promise<string> {
+    let state: Awaited<ReturnType<CaptionsPaneHost["docHost"]["heading1Numbering"]>>;
+    try {
+      state = await host.docHost.heading1Numbering();
+    } catch {
+      state = "unknown";
+    }
+    if (state === "numbered") return "";
+    if (state === "none") return "Chapter numbering needs chapters: no paragraph uses the Heading 1 style. Style each chapter title Heading 1 with a numbered list (Home ▸ Multilevel List), or untick “by chapter”.";
+    if (state === "unnumbered") return "Chapter numbering needs numbered chapters: the Heading 1 paragraphs carry no list numbering, so Word would print “Figure 0.1” or an error. Number them (Home ▸ Multilevel List, linked to Heading 1), or untick “by chapter”.";
+    return "This version of Word cannot say whether the chapters (Heading 1) are numbered, so chapter numbering is not used — untick “by chapter”, or check the headings are numbered and try in a newer Word.";
+  }
+
   async function insertCaption(label: CaptionLabel, text: string): Promise<void> {
     const bookmark = newBookmark();
     const chapter = !!chapterBox?.checked;
+    if (chapter) {
+      const why = await chapterRefusal();
+      if (why) return host.setStatus(`Caption not inserted. ${why}`, "error");
+    }
     let ooxml: string;
     try {
       await refresh();
@@ -206,6 +228,13 @@ export function initCaptionsPane(host: CaptionsPaneHost): CaptionsPane {
   }
 
   async function equationNumber(source: string, chapter: boolean): Promise<string | null> {
+    if (chapter) {
+      const why = await chapterRefusal();
+      if (why) {
+        host.setStatus(`Equation not numbered by chapter. ${why}`, "error");
+        return null;
+      }
+    }
     try {
       await refresh();
       const bookmark = newBookmark();

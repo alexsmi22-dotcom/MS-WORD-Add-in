@@ -254,6 +254,13 @@ export interface Host {
   /** The current text of each named bookmark (null: gone); null for the whole call where Word lacks bookmarks (WordApi 1.4). */
   readBookmarkTexts(names: string[]): Promise<Record<string, string | null> | null>;
 
+  /**
+   * Whether the document's Heading 1 paragraphs carry list numbering — what chapter-numbered captions
+   * (STYLEREF 1 \s) need, or Word prints "Figure 0.1" / "Error! No text of specified style". "none": no
+   * Heading 1 paragraph; "unknown": Word could not say (WordApi 1.3 missing).
+   */
+  heading1Numbering(): Promise<"numbered" | "unnumbered" | "none" | "unknown">;
+
   // ---- read ------------------------------------------------------------------
 
   /** The main body's text (not footnotes or endnotes). */

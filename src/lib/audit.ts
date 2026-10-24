@@ -109,52 +109,58 @@ export function extractFigureRefs(text: string): number[] {
  */
 const BRIEF_DESCRIPTION_RE = /^brief descriptions?\s+of\b.*\b(drawings?|figures?|views?)\b/i;
 
-function briefDescriptionFigures(text: string): number[] | null {
-  const lines = text.split(/\r\n|\r|\n/);
-  // A HEADING IS STILL A HEADING WITH A COLON ON IT. looksLikeHeading rejects any
-  // line ending in punctuation — right for its own job (deciding what to number),
-  // wrong here, where "BRIEF DESCRIPTION OF THE DRAWINGS:" is one of the two forms
-  // everybody writes. The trailing colon is dropped before asking.
-  const asHeading = (t: string): string => t.replace(/[:.]\s*$/, "");
-  // Finding THIS heading and finding ANY heading are different questions.
-  //
-  // looksLikeHeading is the right test for the section's END, where anything at all
-  // may follow. For the start it is too strict: it accepts a non-standard heading
-  // only when it is fully upper-case, so "Brief Description of Drawings" — title
-  // case, no "the" — was not a heading and the whole check silently did not run.
-  // BRIEF_DESCRIPTION_RE is anchored and specific enough to carry the start on its
-  // own; the length bound is what keeps a prose sentence that happens to open with
-  // those words from being mistaken for the list.
-  // A HEADING DOES NOT CITE A FIGURE. A sentence about the drawings does.
-  //
-  // Reproduced on a CORRECT specification: a summary paragraph opening
-  // "Brief description of the drawings with reference to FIG. 1" won the section
-  // start, because it matches the regex, is under 80 characters, and — ending in
-  // a digit rather than a full stop — `looksLikeHeading` accepts it. The body
-  // then became the single line beneath it, so only FIG. 1 counted as described
-  // and FIG. 2 was reported missing from a document that describes it perfectly.
-  // That is the maximal false alarm on a correct document, on the surface where
-  // false alarms teach an attorney to ignore the whole audit.
-  //
-  // Testing for a figure CITATION rather than tightening the punctuation rule
-  // keeps legitimate headings that carry a comma ("…DRAWINGS, FIGURES AND
-  // VIEWS") working: FIG_REF needs digits after the word, which a heading has
-  // and a citation does not.
-  const FIG_REF = /\bfig(?:ures?|s)?\.?\s*\d/i;
-  const isBriefDescriptionHeading = (t: string): boolean =>
-    BRIEF_DESCRIPTION_RE.test(t) &&
-    t.length <= 80 &&
-    !FIG_REF.test(t) &&
-    (looksLikeHeading(t) || !/[.;,]/.test(t));
-  let start = -1;
+// A HEADING IS STILL A HEADING WITH A COLON ON IT. looksLikeHeading rejects any
+// line ending in punctuation — right for its own job (deciding what to number),
+// wrong here, where "BRIEF DESCRIPTION OF THE DRAWINGS:" is one of the two forms
+// everybody writes. The trailing colon is dropped before asking.
+const asHeading = (t: string): string => t.replace(/[:.]\s*$/, "");
+// Finding THIS heading and finding ANY heading are different questions.
+//
+// looksLikeHeading is the right test for the section's END, where anything at all
+// may follow. For the start it is too strict: it accepts a non-standard heading
+// only when it is fully upper-case, so "Brief Description of Drawings" — title
+// case, no "the" — was not a heading and the whole check silently did not run.
+// BRIEF_DESCRIPTION_RE is anchored and specific enough to carry the start on its
+// own; the length bound is what keeps a prose sentence that happens to open with
+// those words from being mistaken for the list.
+// A HEADING DOES NOT CITE A FIGURE. A sentence about the drawings does.
+//
+// Reproduced on a CORRECT specification: a summary paragraph opening
+// "Brief description of the drawings with reference to FIG. 1" won the section
+// start, because it matches the regex, is under 80 characters, and — ending in
+// a digit rather than a full stop — `looksLikeHeading` accepts it. The body
+// then became the single line beneath it, so only FIG. 1 counted as described
+// and FIG. 2 was reported missing from a document that describes it perfectly.
+// That is the maximal false alarm on a correct document, on the surface where
+// false alarms teach an attorney to ignore the whole audit.
+//
+// Testing for a figure CITATION rather than tightening the punctuation rule
+// keeps legitimate headings that carry a comma ("…DRAWINGS, FIGURES AND
+// VIEWS") working: FIG_REF needs digits after the word, which a heading has
+// and a citation does not.
+const FIG_REF = /\bfig(?:ures?|s)?\.?\s*\d/i;
+const isBriefDescriptionHeading = (t: string): boolean =>
+  BRIEF_DESCRIPTION_RE.test(t) && t.length <= 80 && !FIG_REF.test(t) && (looksLikeHeading(t) || !/[.;,]/.test(t));
+
+/** Index of the Brief Description of the Drawings heading line, or -1. */
+function briefDescriptionStart(lines: string[]): number {
   for (let i = 0; i < lines.length; i++) {
     const t = asHeading(lines[i].trim());
-    if (!t) continue;
-    if (isBriefDescriptionHeading(t)) {
-      start = i;
-      break;
-    }
+    if (t && isBriefDescriptionHeading(t)) return i;
   }
+  return -1;
+}
+
+/** True when the document has a Brief Description of the Drawings heading —
+ *  i.e. it is a patent application, whose figures are captioned by that
+ *  section and by the drawing sheets, never by in-text "Figure N:" captions. */
+function hasBriefDescriptionHeading(text: string): boolean {
+  return briefDescriptionStart(text.split(/\r\n|\r|\n/)) >= 0;
+}
+
+function briefDescriptionFigures(text: string): number[] | null {
+  const lines = text.split(/\r\n|\r|\n/);
+  const start = briefDescriptionStart(lines);
   if (start < 0) return null;
   const body: string[] = [];
   for (let i = start + 1; i < lines.length; i++) {
@@ -185,7 +191,10 @@ export function auditDocument(input: AuditInput): AuditReport {
     // Pass the table so extractNumerals can discard citation years and
     // enumeration far outside the numbering range.
     const known = input.numerals.map((e) => e.numeral);
-    const f = reconcileNumerals(input.numerals, extractNumerals(text, known));
+    // The text goes to reconcileNumerals too, so the "housing 12" house style
+    // (no parentheses) counts as a use — without it every such numeral was
+    // reported "defined but never called out".
+    const f = reconcileNumerals(input.numerals, extractNumerals(text, known), text);
     const issues: string[] = [];
     for (const c of f.collisions) issues.push(`Numeral (${c.numeral}) reused for: ${c.elements.join(", ")}`);
     for (const d of f.duplicates) {
@@ -258,7 +267,12 @@ export function auditDocument(input: AuditInput): AuditReport {
   // 4. Cross-references — every "Fig. N" / "Table N" should have a caption.
   {
     const issues: string[] = [];
-    for (const kind of ["figure", "table"] as RefKind[]) {
+    // A patent application captions its figures in the Brief Description of
+    // the Drawings and on the drawing sheets, not with in-text "Figure 1:"
+    // captions — checking them flagged EVERY "FIG. 1" as uncaptioned. Tables
+    // are still checked.
+    const kinds: RefKind[] = hasBriefDescriptionHeading(text) ? ["table"] : ["figure", "table"];
+    for (const kind of kinds) {
       const caps = new Set(extractCaptionNumbers(text, kind));
       const refs = extractRefNumbers(text, kind);
       const dangling = refs.filter((n) => !caps.has(n));

@@ -316,7 +316,10 @@ function nameText(n: BibName, form: NameForm): string {
       return joinNonEmpty([fam, g, suf], ", ");
     }
     case "full":
-      return joinNonEmpty([given, dp, fam], " ") + (suf ? `, ${suf}` : "");
+      // CMOS 17 §6.43: "Jr.", "III" take no comma in normal order ("Martin
+      // Luther King Jr."); the inverted form keeps one ("King, Martin Luther,
+      // Jr."). Used by Chicago only; citeproc's chicago CSL agrees.
+      return joinNonEmpty([given, dp, fam, suf], " ");
     default:
       return fam;
   }
@@ -420,12 +423,15 @@ function guard(id: StyleId, rec: BibRecord): void {
 
 const IEEE_MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
 
-function ieeeDate(d: BibDate | undefined): string {
+/** IEEE date. A periodical (journal article) gives "Abbrev. Month year" only —
+ *  IEEE Reference Guide, Periodicals; citeproc's ieee.csl agrees ("Feb. 2013")
+ *  — so `withDay` is false there; other types keep the day. */
+function ieeeDate(d: BibDate | undefined, withDay = true): string {
   const y = yearOf(d);
   if (!y) return "(n.d.)";
   const { m, day } = monthDay(d);
   if (!m || m < 1 || m > 12) return y;
-  return day ? `${IEEE_MONTHS[m - 1]} ${day}, ${y}` : `${IEEE_MONTHS[m - 1]} ${y}`;
+  return day && withDay ? `${IEEE_MONTHS[m - 1]} ${day}, ${y}` : `${IEEE_MONTHS[m - 1]} ${y}`;
 }
 
 function ieeeNames(names: BibName[], etAl: boolean): string {
@@ -511,7 +517,7 @@ function ieeeReference(rec: BibRecord): Formatted {
         rec.volume ? `vol. ${esc(rec.volume)}` : "",
         rec.issue ? `no. ${esc(rec.issue)}` : "",
         rec["article-number"] ? "" : pages,
-        ieeeDate(rec.issued),
+        ieeeDate(rec.issued, false),
         rec["article-number"] ? `Art. no. ${esc(rec["article-number"])}` : "",
         doi ? `doi: ${esc(doi)}` : "",
       ], ", ");
@@ -535,7 +541,8 @@ function ieeeReference(rec: BibRecord): Formatted {
       const head = editors ? `${who} ${italicize(t)}` : joinNonEmpty([who, italicize(t)], " ");
       const titled = ed ? `${head}, ${esc(ed)} ed.` : head;
       const imprint = joinNonEmpty([place && pub ? `${place}: ${pub}` : place || pub, year], ", ");
-      html = `${titled}. ${imprint}.`;
+      // "3rd ed." already ends the element — never "3rd ed.." (IEEE Reference Guide).
+      html = `${titled}${/[.?!]$/.test(titled) ? "" : "."} ${imprint}.`;
       break;
     }
     case "chapter": {
@@ -545,7 +552,7 @@ function ieeeReference(rec: BibRecord): Formatted {
       let inPart = `in ${book}${rec.volume ? `, vol. ${esc(rec.volume)}` : ""}`;
       if (eds) inPart += `, ${eds}`;
       if (ed) inPart += `${eds ? " " : ", "}${esc(ed)} ed.`;
-      const sep = eds && !ed ? " " : ". ";
+      const sep = (eds && !ed) || /[.?!]$/.test(inPart) ? " " : ". ";
       const imprint = joinNonEmpty([place && pub ? `${place}: ${pub}` : place || pub, year, pages], ", ");
       html = joinNonEmpty([by ? `${by},` : "", quoted, inPart], " ") + sep + imprint + ".";
       break;

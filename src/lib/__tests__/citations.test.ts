@@ -116,7 +116,8 @@ describe("statutes & regs", () => {
     expect(fmt("cfr", { title: "26", section: "1.482-7" }).plain).toBe("26 C.F.R. § 1.482-7");
   });
   test("a real integer section range still uses §§", () => {
-    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101-103");
+    // v2.193: a typed hyphen range prints with an en dash (Rule 3.3(b)).
+    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101–103");
   });
   test("a lettered single section (2000e-2) stays §", () => {
     expect(fmt("usc", { title: "42", section: "2000e-2" }).plain).toBe("42 U.S.C. § 2000e-2");
@@ -186,7 +187,8 @@ describe("signals", () => {
 
 describe("section ranges", () => {
   test("a dash/en-dash range of sections uses §§", () => {
-    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101-103");
+    // v2.193: the hyphen is printed as an en dash (Rule 3.3(b)).
+    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101–103");
     expect(fmt("usc", { title: "35", section: "101–103" }).plain).toBe("35 U.S.C. §§ 101–103");
     expect(fmt("cfr", { title: "37", section: "1.821 to 1.825" }).plain).toBe("37 C.F.R. §§ 1.821 to 1.825");
   });
@@ -451,7 +453,7 @@ describe("bug-check regressions", () => {
   test("single section with subsections stays § (not §§); multiple sections → §§", () => {
     expect(fmt("cfr", { title: "37", section: "1.84(a), (b)" }).plain).toBe("37 C.F.R. § 1.84(a), (b)");
     expect(fmt("usc", { title: "35", section: "101, 102" }).plain).toBe("35 U.S.C. §§ 101, 102");
-    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101-103");
+    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101–103"); // en dash, v2.193
   });
   test("patent pincite keeps the line range (not truncated to col.)", () => {
     const p = parseCitation("U.S. Patent No. 10,123,456 col. 3 ll. 15–20 (issued May 14, 2019)");

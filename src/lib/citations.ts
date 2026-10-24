@@ -84,12 +84,37 @@ export function formatDate(input: string): string {
     if (valid(y, m, d)) return `${MONTHS[m - 1]} ${d}, ${us[3]}`;
     return t;
   }
+  // A spelled month ("September 20, 1983", "Sep 20 1983", "sept. 20, 1983") →
+  // the Table T12 form ("Sept. 20, 1983"; May, June and July stay whole).
+  const named = /^([A-Za-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})$/.exec(t);
+  if (named) {
+    const mo = monthFromName(named[1]);
+    const d = parseInt(named[2], 10);
+    const y = parseInt(named[3], 10);
+    if (mo && valid(y, mo, d)) return `${MONTHS[mo - 1]} ${d}, ${named[3]}`;
+  }
   return t;
+}
+
+/** 1–12 for a month name or a common abbreviation of it ("Sept", "Sep"), else 0. */
+function monthFromName(word: string): number {
+  const w = word.toLowerCase();
+  const full = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  const i = full.findIndex((f) => f === w || (w.length >= 3 && f.startsWith(w)));
+  return i + 1;
 }
 
 /** Groups a run of digits with thousands commas: "10123456" → "10,123,456". */
 function groupDigits(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/**
+ * Bluebook Rule 6.2(a): commas only in numbers of FIVE or more digits — "1076",
+ * "12,345". (Patent numbers keep their own comma convention: groupDigits.)
+ */
+export function groupDigitsRule62(digits: string): string {
+  return digits.length >= 5 ? groupDigits(digits) : digits;
 }
 
 /**
@@ -133,6 +158,26 @@ export function sectionSymbol(section: string): string {
   return /,\s*\d|&\s*\d|\s(?:to|and)\s+\d|(?:^|[^.\d])\d+\s*[-–—]\s*\d|\d+\.\d+\s*[-–—]\s*\d+\.\d/.test(section)
     ? "§§"
     : "§";
+}
+
+/**
+ * A page / line span with an en dash (Rule 3.2(a): "216–18", "ll. 15–20"): any
+ * digit-hyphen-digit in a PINCITE. Not for section numbers — see sectionRanges.
+ */
+export function dashRanges(pin: string): string {
+  return pin.replace(/(\d)\s*[-—]\s*(?=\d)/g, "$1–");
+}
+
+/**
+ * Section ranges with an en dash ("101-103" → "101–103", "1.97-1.98" →
+ * "1.97–1.98", Rule 3.3(b)) — but never the hyphen INSIDE one section number
+ * ("1.6011-4", "2000e-2"): a token is a range only when sectionSymbol calls
+ * it plural, the same test the Table of Authorities uses.
+ */
+export function sectionRanges(section: string): string {
+  return section.replace(/(^|[^\w.])(\d+(?:\.\d+)?)\s*[-—]\s*(\d+(?:\.\d+)?)(?![\w.])/g, (all, pre: string, a: string, b: string) =>
+    sectionSymbol(`${a}-${b}`) === "§§" ? `${pre}${a}–${b}` : all,
+  );
 }
 
 /** Joins non-empty pieces with a separator. */
@@ -210,14 +255,16 @@ export function normalizeCourt(raw: string): string {
   if (COURTS[key]) return COURTS[key];
   // Numbered federal circuits: "9th cir", "9 Cir.", "ninth circuit".
   let n = 0;
-  const num = /^(\d{1,2})(?:st|nd|rd|th)?\s*cir/i.exec(t);
+  const num = /^(\d{1,2})(?:st|nd|rd|th|d)?\s*cir/i.exec(t);
   if (num) n = parseInt(num[1], 10);
   else {
     const word = /^([a-z]+)\s*cir/i.exec(t);
     if (word) n = CIRCUIT_WORDS[word[1].toLowerCase()] ?? 0;
   }
   if (n >= 1 && n <= 11) {
-    const suffix = n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th";
+    // Bluebook T7 writes the Second and Third Circuits "2d" / "3d", never
+    // "2nd" / "3rd" (Rule 6.2(b) ordinals).
+    const suffix = n === 1 ? "st" : n === 2 ? "d" : n === 3 ? "d" : "th";
     return `${n}${suffix} Cir.`;
   }
   return t;
@@ -264,18 +311,23 @@ export const CITATIONS: CitationType[] = [
       { key: "parallel", label: "Parallel cite(s)", placeholder: "134 S. Ct. 2347, 189 L. Ed. 2d 296", optional: true },
       { key: "court", label: "Court", placeholder: "Fed. Cir. (omit for U.S. Sup. Ct.)", optional: true },
       { key: "year", label: "Year", placeholder: "2014" },
+      // Rule 10.6.1: "(en banc)", "(per curiam)", "(quoting …)" follow the
+      // court/year parenthetical and are part of the citation.
+      { key: "explan", label: "Parenthetical(s)", placeholder: "(en banc)", optional: true },
     ],
     format: (g, style) => {
       const reporter = normalizeReporter(g("reporter"));
       const court = normalizeCourt(g("court"));
       const loc = join([g("vol"), reporter, g("page")]);
-      const withPin = g("pin") ? `${loc}, ${g("pin")}` : loc;
+      const pinText = dashRanges(g("pin"));
+      const withPin = pinText ? `${loc}, ${pinText}` : loc;
       // Parallel reporters (Rule 10.3.1) follow the primary cite, before the year.
       const withParallel = g("parallel") ? `${withPin}, ${g("parallel")}` : withPin;
       const withDocket = g("docket") ? `${g("docket")}, ${withParallel}` : withParallel;
       // No court and no year: no parenthetical at all, never an empty "()".
       const inner = join([court, g("year")]);
-      const paren = inner ? ` (${inner})` : "";
+      const explan = g("explan");
+      const paren = (inner ? ` (${inner})` : "") + (explan ? ` ${/^\(/.test(explan) ? explan : `(${explan})`}` : "");
       // Practitioner italicizes the case name; academic full citations set it roman.
       const nameHtml = style === "academic" ? esc(g("name")) : it(g("name"));
       return {
@@ -343,7 +395,7 @@ export const CITATIONS: CitationType[] = [
     ],
     format: (g) => {
       const sub = g("sub") ? `(${g("sub")})` : "";
-      const core = `${g("title")} U.S.C. ${sectionSymbol(g("section"))} ${g("section")}${sub}`;
+      const core = `${g("title")} U.S.C. ${sectionSymbol(g("section"))} ${sectionRanges(g("section"))}${sub}`;
       const plain = g("year") ? `${core} (${g("year")})` : core;
       return { plain, html: esc(plain) };
     },
@@ -357,7 +409,7 @@ export const CITATIONS: CitationType[] = [
       { key: "year", label: "Year", placeholder: "2023", optional: true },
     ],
     format: (g) => {
-      const core = `${g("title")} C.F.R. ${sectionSymbol(g("section"))} ${g("section")}`;
+      const core = `${g("title")} C.F.R. ${sectionSymbol(g("section"))} ${sectionRanges(g("section"))}`;
       const plain = g("year") ? `${core} (${g("year")})` : core;
       return { plain, html: esc(plain) };
     },
@@ -371,7 +423,7 @@ export const CITATIONS: CitationType[] = [
       { key: "date", label: "Issue date", placeholder: "2019-05-14 or May 14, 2019", optional: true },
     ],
     format: (g) => {
-      const core = join([`U.S. Patent No. ${formatPatentNumber(g("number"))}`, g("pin")]);
+      const core = join([`U.S. Patent No. ${formatPatentNumber(g("number"))}`, dashRanges(g("pin"))]);
       const plain = g("date") ? `${core} (issued ${formatDate(g("date"))})` : core;
       return { plain, html: esc(plain) };
     },
@@ -400,7 +452,7 @@ export const CITATIONS: CitationType[] = [
       { key: "codified", label: "To be codified at", placeholder: "37 C.F.R. pt. 1", optional: true },
     ],
     format: (g) => {
-      const page = groupDigits(g("page").replace(/,/g, "")) || g("page");
+      const page = groupDigitsRule62(g("page").replace(/,/g, "")) || g("page");
       const core = `${g("vol")} Fed. Reg. ${page} (${formatDate(g("date"))})`;
       const plain = g("codified") ? `${core} (to be codified at ${g("codified")})` : core;
       return { plain, html: esc(plain) };
@@ -414,7 +466,7 @@ export const CITATIONS: CitationType[] = [
       { key: "edition", label: "Edition", placeholder: "9th ed. Rev. 10.2019, June 2020", optional: true },
     ],
     format: (g) => {
-      const core = `MPEP ${sectionSymbol(g("section"))} ${g("section")}`;
+      const core = `MPEP ${sectionSymbol(g("section"))} ${sectionRanges(g("section"))}`;
       const plain = g("edition") ? `${core} (${g("edition")})` : core;
       return { plain, html: esc(plain) };
     },
@@ -465,7 +517,9 @@ export const CITATIONS: CitationType[] = [
       // A multi-volume work cites the volume before the author (Rule 3.2).
       const volPrefix = g("vol") ? `${g("vol")} ` : "";
       const withPin = g("pin") ? `${volPrefix}${g("author")}, ${g("title")} ${g("pin")}` : `${volPrefix}${g("author")}, ${g("title")}`;
-      const paren = `(${join([g("edition"), g("year")])})`;
+      // Nothing to put in the parenthetical → no "()" at all.
+      const innerParen = join([g("edition"), g("year")]);
+      const paren = innerParen ? `(${innerParen})` : "";
       // Academic sets the author and title in large-and-small caps; practitioner
       // uses roman author + italic title. The volume number stays roman in both.
       const pinHtml = g("pin") ? " " + esc(g("pin")) : "";
@@ -474,8 +528,8 @@ export const CITATIONS: CitationType[] = [
           ? `${esc(volPrefix)}${sc(g("author"))}, ${sc(g("title"))}${pinHtml}`
           : `${esc(volPrefix)}${esc(g("author"))}, ${it(g("title"))}${pinHtml}`;
       return {
-        plain: `${withPin} ${paren}`,
-        html: `${bodyHtml} ${esc(paren)}`,
+        plain: paren ? `${withPin} ${paren}` : withPin,
+        html: paren ? `${bodyHtml} ${esc(paren)}` : bodyHtml,
       };
     },
   },
@@ -564,7 +618,8 @@ const T6: Record<string, string> = {
   number: "No.",
   organization: "Org.",
   pharmaceutical: "Pharm.",
-  pharmaceuticals: "Pharm.",
+  // T6 plurals add "s" before the period (Rule 10.2.2): "Teva Pharms. USA".
+  pharmaceuticals: "Pharms.",
   products: "Prods.",
   public: "Pub.",
   publishing: "Publ'g",
@@ -587,6 +642,126 @@ const T6: Record<string, string> = {
   transportation: "Transp.",
   university: "Univ.",
   utility: "Util.",
+  // v2.193 T6 audit — words that were missing, so "Dow Chemical Co." and "Dow
+  // Chem. Co." were two Table of Authorities rows and "Abbreviate" left them
+  // whole. Compass words are the "-ern" adjectives only: a bare "West"/"North"
+  // would break "West Virginia" / "North Carolina" (T10, applied after T6).
+  accounting: "Acct.",
+  advertising: "Advert.",
+  affair: "Aff.",
+  affairs: "Affs.",
+  african: "Afr.",
+  amendment: "Amend.",
+  appellate: "App.",
+  arbitration: "Arb.",
+  atlantic: "Atl.",
+  attorney: "Att'y",
+  attorneys: "Att'ys",
+  avenue: "Ave.",
+  bankruptcy: "Bankr.",
+  broadcasting: "Broad.",
+  brotherhood: "Bhd.",
+  casualty: "Cas.",
+  catholic: "Cath.",
+  chemical: "Chem.",
+  chemicals: "Chems.",
+  college: "Coll.",
+  commissioner: "Comm'r",
+  community: "Cmty.",
+  compensation: "Comp.",
+  computer: "Comput.",
+  condominium: "Condo.",
+  consolidated: "Consol.",
+  construction: "Constr.",
+  continental: "Cont'l",
+  cooperative: "Coop.",
+  county: "Cnty.",
+  defence: "Def.",
+  defense: "Def.",
+  director: "Dir.",
+  distributor: "Distrib.",
+  distributors: "Distribs.",
+  eastern: "E.",
+  economic: "Econ.",
+  economics: "Econ.",
+  educational: "Educ.",
+  electrical: "Elec.",
+  employee: "Emp.",
+  employees: "Emps.",
+  employer: "Emp.",
+  employers: "Emps.",
+  employment: "Emp.",
+  engineer: "Eng'r",
+  engineers: "Eng'rs",
+  entertainment: "Ent.",
+  examiner: "Exam'r",
+  exchange: "Exch.",
+  executive: "Exec.",
+  federation: "Fed'n",
+  fidelity: "Fid.",
+  guaranty: "Guar.",
+  housing: "Hous.",
+  indemnity: "Indem.",
+  independent: "Indep.",
+  industrial: "Indus.",
+  information: "Info.",
+  intellectual: "Intell.",
+  investment: "Inv.",
+  investments: "Invs.",
+  liability: "Liab.",
+  litigation: "Litig.",
+  maintenance: "Maint.",
+  marketing: "Mktg.",
+  mechanical: "Mech.",
+  memorial: "Mem'l",
+  merchant: "Merch.",
+  merchants: "Merchs.",
+  metropolitan: "Metro.",
+  municipal: "Mun.",
+  mutual: "Mut.",
+  natural: "Nat.",
+  northeastern: "Ne.",
+  northern: "N.",
+  northwestern: "Nw.",
+  pacific: "Pac.",
+  partnership: "P'ship",
+  partnerships: "P'ships",
+  product: "Prod.",
+  professional: "Pro.",
+  property: "Prop.",
+  properties: "Props.",
+  protection: "Prot.",
+  publication: "Publ'n",
+  publications: "Publ'ns",
+  railroad: "R.R.",
+  railway: "Ry.",
+  regional: "Reg'l",
+  rehabilitation: "Rehab.",
+  restaurant: "Rest.",
+  restaurants: "Rests.",
+  retirement: "Ret.",
+  road: "Rd.",
+  school: "Sch.",
+  schools: "Schs.",
+  secretary: "Sec'y",
+  shareholder: "S'holder",
+  shareholders: "S'holders",
+  southeastern: "Se.",
+  southern: "S.",
+  southwestern: "Sw.",
+  street: "St.",
+  subcommittee: "Subcomm.",
+  surety: "Sur.",
+  temporary: "Temp.",
+  township: "Twp.",
+  transcontinental: "Transcon.",
+  trust: "Tr.",
+  trustee: "Tr.",
+  trustees: "Trs.",
+  turnpike: "Tpk.",
+  uniform: "Unif.",
+  village: "Vill.",
+  western: "W.",
 };
 
 /**
@@ -645,9 +820,23 @@ function applyT10Geographic(name: string): string {
 
 /** Abbreviations that end in a period inside a case name — T6, T10 and the
  *  corporate designators — so a period after them is NOT a sentence end. */
+// Built from EVERY T6 value (and its "s" plural), every T10 value, and the
+// abbreviations reporters print in case names that T6 does not list ("Pats.",
+// "Petrol."). A missing entry is not cosmetic: cutAtSentenceEnd treated
+// "Chem." as a sentence end and the Table of Authorities listed "Dow Chem. Co.
+// v. Mee Indus." as "Co. v. Mee Indus." under C. Abbreviations that are also
+// ordinary capitalised words ("All.", "Child.", "Coal.", "Rest.") are left out:
+// those CAN end the previous sentence.
+const T6_PLURALS = Object.values(T6)
+  .filter((a) => /^[A-Z][a-z]+\.$/.test(a))
+  .map((a) => `${a.slice(0, -1)}s.`);
+const NOT_NAME_ABBREVIATIONS = new Set(["all.", "alls.", "child.", "coal.", "coals.", "rest.", "rests.", "sur.", "comps.", "pros."]);
 const NAME_ABBREVIATIONS = new Set<string>(
   [
     ...Object.values(T6),
+    ...T6_PLURALS,
+    "Chem.", "Chems.", "Pat.", "Pats.", "Petrol.", "Consol.", "Constr.", "Intell.", "Lab'y.", "Lab'ys.", "Cir.",
+    "Ams.", "Holdings.", "Bancorp.", "Bankcorp.", "Ry.", "Tr.", "Trs.",
     ...T10_MULTI.map(([, a]) => a),
     ...T10_SINGLE.map(([, a]) => a),
     "Inc.", "Corp.", "Co.", "Cos.", "Ltd.", "Bros.", "Labs.", "Servs.", "Sys.", "Techs.", "Assocs.", "Mfg.",
@@ -658,7 +847,9 @@ const NAME_ABBREVIATIONS = new Set<string>(
     "Distrib.", "Envtl.", "Equip.", "Found.", "Telecomm.", "Comm.", "Auth.", "Auto.", "Bldg.", "Bus.",
     "Cent.", "Dev.", "Elec.", "Fed.", "Agric.", "Acad.", "Assoc.", "Mach.", "Med.", "Pharm.", "Bd.",
     "Jr.", "Sr.", "Mfrs.", "Mfr.", "Bancorp.", "Int'l.", "Nat'l.", "Am.", "Cal.", "No.", "Nos.", "St.",
-  ].map((a) => a.toLowerCase()),
+  ]
+    .map((a) => a.toLowerCase())
+    .filter((a) => !NOT_NAME_ABBREVIATIONS.has(a)),
 );
 
 /**
@@ -688,7 +879,18 @@ export function abbreviateCaseName(name: string): string {
   // "United States of America" — and never "United States of Am." (T6 would
   // otherwise abbreviate the "America" it should have dropped).
   const us = name.replace(/\bUnited\s+States\s+of\s+America\b/g, "United States");
-  const t6ed = us.replace(/[A-Za-z][A-Za-z'’]*/g, (word) => {
+  // Place names whose compass word is part of the NAME, not a T6 adjective;
+  // T10 has no form for them here, so they pass through whole rather than as
+  // a half-abbreviated "N. Mariana Islands".
+  const keep: Array<[number, number]> = [];
+  const placeRe = /\b(?:Northern\s+(?:Mariana\s+Islands|Ireland|Territory)|Western\s+(?:Australia|Sahara)|Eastern\s+Cape|Northern\s+Cape|Western\s+Cape)\b/g;
+  let pm: RegExpExecArray | null;
+  while ((pm = placeRe.exec(us))) keep.push([pm.index, pm.index + pm[0].length]);
+  const t6ed = us.replace(/[A-Za-z][A-Za-z'’]*/g, (word: string, at: number, whole: string) => {
+    // Half of a hyphenated proper name ("Western-Pacific", "Mutual-Benefit")
+    // is a name, not a T6 word.
+    if (whole[at - 1] === "-" || whole[at + word.length] === "-") return word;
+    if (keep.some(([a, b]) => at >= a && at < b)) return word;
     const key = word.toLowerCase().replace(/’/g, "'");
     return T6[key] ?? word;
   });
@@ -713,14 +915,24 @@ const NAME_PARTICLE = /^(?:de|del|della|der|den|van|von|du|da|di|dos|das|le|la|t
  */
 export function caseShortName(name: string): string | null {
   const t = name.replace(/\s+/g, " ").trim();
-  const strip = (p: string): string =>
-    p
-      .replace(
-        /,?\s*(Inc\.|LLC|L\.L\.C\.|Ltd\.|Corp\.|Co\.|Corporation|Company|Ass'n|Assoc\.|N\.A\.|P\.C\.|LLP)\.?$/gi,
-        "",
-      )
-      .replace(/[,.]$/, "")
-      .trim();
+  // Trailing corporate designators ("…, Inc.", "… Co.", "… Grp. LP"), repeated
+  // until none is left; a trailing comma goes too. Periods of abbreviations
+  // stay ("Gen. Elec.", never "Gen").
+  const strip = (p: string): string => {
+    let s = p.trim();
+    for (let k = 0; k < 4; k++) {
+      const before = s;
+      s = s
+        .replace(
+          /,?\s+(?:Inc\.?|LLC|L\.L\.C\.|Ltd\.?|Corp\.|Co\.|Cos\.|Corporation|Company|Ass['’]n|Assoc\.|N\.A\.|P\.C\.|LLP|L\.L\.P\.|LP|L\.P\.|PLLC|P\.A\.|S\.A\.|N\.V\.|AG|A\.G\.|GmbH|plc|PLC)$/i,
+          "",
+        )
+        .replace(/,$/, "")
+        .trim();
+      if (s === before) break;
+    }
+    return s;
+  };
 
   let pick: string;
   const proc = /^(?:In re|Ex parte|In the Matter of|Matter of)\s+(.+)$/i.exec(t);
@@ -742,13 +954,43 @@ export function caseShortName(name: string): string | null {
     pick = (GENERIC.test(first) || GENERIC_LEAD.test(first)) && second ? second : first;
   }
   if (!pick) return null;
-  // The distinctive leading word, which is what briefs actually write — kept
-  // together with a lowercase particle ("de Vries", never "de").
-  const words = pick.split(/\s+/);
-  const clean = (w: string): string => w.replace(/[^\wÀ-ÖØ-öø-ÿ'’-]/g, "");
-  let word = clean(words[0]);
-  if (NAME_PARTICLE.test(word) && words.length > 1) word = `${word} ${clean(words[1])}`;
-  return word.length >= 2 ? word : null;
+  // Rule 10.9(a)(i): the short form is the first party's name, shortened only
+  // as far as it still identifies the party, in its T6/T10-abbreviated form
+  // ("State Street Bank" → "State St. Bank"). The distinctive leading word is
+  // what briefs write ("Alice", "Teva", "KSR"), but a leading abbreviation, a
+  // two-letter word or a generic geographic word does not identify anyone on
+  // its own, so it is kept together with what follows: "Gen. Elec.", "Int'l
+  // Bus. Machs.", "TC Heartland", "J.E.M. Ag Supply", "State St. Bank". The run
+  // stops at "&" and at "of"/"for" ("Lab. Corp. of Am." → "Lab. Corp."),
+  // except straight after a lone abbreviation ("Dir. of Revenue").
+  const words = strip(abbreviateCaseName(pick)).split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const clean = (w: string): string => w.replace(/[^\wÀ-ÖØ-öø-ÿ'’.-]/g, "");
+  const isAbbrev = (w: string): boolean => /\.$/.test(w) || /['’]/.test(w);
+  const isShort = (w: string): boolean => /^[A-Za-z]{1,2}$/.test(w);
+  const GEO_WORD = /^(?:State|United|City|County|Cnty\.|Commonwealth|People|Town|Village|Vill\.)$/;
+  const out: string[] = [clean(words[0])];
+  let i = 1;
+  if (NAME_PARTICLE.test(out[0]) && words.length > 1) out.push(clean(words[i++]));
+  while (i < words.length && out.length < 6) {
+    const last = out[out.length - 1];
+    const chain = isAbbrev(last) || isShort(last) || (out.length === 1 && GEO_WORD.test(last));
+    if (!chain) break;
+    const next = words[i];
+    if (/^(?:&|and)$/i.test(next)) break;
+    if (/^(?:of|for|the)$/i.test(next)) {
+      if (out.length === 1 && i + 1 < words.length && !/^(?:&|and|of|for|the)$/i.test(words[i + 1])) {
+        out.push(next, clean(words[i + 1]));
+        i += 2;
+        continue;
+      }
+      break;
+    }
+    out.push(clean(next));
+    i++;
+  }
+  const word = out.join(" ").replace(/,$/, "");
+  return word.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ0-9]/g, "").length >= 2 ? word : null;
 }
 
 /**
@@ -923,7 +1165,21 @@ const detectBarePatent: Detector = (t): Omit<ParsedCitation, "signal"> | null =>
  * pincites ("216", "216 n.3", "at *3") and parallel cites (anything that is
  * itself "vol Reporter page").
  */
-const CITE_HEAD = /^(.+?),\s*(\d+)\s+([A-Za-z][A-Za-z0-9.'’ ]*?)\s+(\d+)((?:\s*,\s*[^,()]+?)*)\s*\(([^()]*)\)\s*\.?$/;
+//
+// FREEZE FIX (v2.193): the middle group used to be `(?:\s*,\s*[^,()]+?)*`, whose
+// `[^,()]` also matches spaces — so "\s*" and the segment could split the same
+// run of characters in exponentially many ways, and with no closing ")" the
+// engine tried them all: 22 commas took 2 s, doubling per comma, which froze
+// Word on the Citations "Parse" button. Every repeated piece is now
+// unambiguous: a reporter is space-separated tokens that contain no space, and
+// a middle segment starts AND ends with a non-space character, so "\s*" around
+// the comma is the only place a space can go. The segment count is capped (10
+// pins/parallels is far beyond any real cite).
+const CITE_SEG = "[^,()\\s](?:[^,()]*[^,()\\s])?";
+const CITE_HEAD = new RegExp(
+  "^(.+?),\\s*(\\d+)\\s+([A-Za-z][A-Za-z0-9.'’]*(?: [A-Za-z0-9.'’]+)*?)\\s+(\\d+)" +
+    `((?:\\s*,\\s*${CITE_SEG}){0,10})\\s*\\(([^()]*)\\)\\s*\\.?$`,
+);
 const PARALLEL_TOKEN = /^\d+\s+[A-Z][A-Za-z0-9.'’ ]*?\s+\d+$/;
 
 function splitMiddle(middle: string): { pin: string; parallel: string } {
@@ -936,8 +1192,44 @@ function splitMiddle(middle: string): { pin: string; parallel: string } {
   return { pin: pins.join(", "), parallel: parallels.join(", ") };
 }
 
+/**
+ * Splits trailing parentheticals that FOLLOW the "(court year)" one — "(en
+ * banc)", "(per curiam)", "(quoting Mayo …, 566 U.S. 66, 72 (2012))" — off a
+ * case cite. Rule 10.6.1 makes them part of the citation, so they are kept (in
+ * the case form's "explan" field), not dropped. Parens are matched by a
+ * balanced scan (a "quoting" parenthetical nests a whole cite). A group is
+ * peeled only while what remains still ends in ")" — the court/year group
+ * itself is never peeled. At most 3 groups.
+ */
+function peelParentheticals(t: string): { core: string; explan: string } {
+  let core = t.replace(/\.\s*$/, "").trimEnd();
+  const peeled: string[] = [];
+  for (let k = 0; k < 3 && core.endsWith(")"); k++) {
+    let depth = 0;
+    let open = -1;
+    for (let i = core.length - 1; i >= 0; i--) {
+      const ch = core[i];
+      if (ch === ")") depth++;
+      else if (ch === "(") {
+        depth--;
+        if (depth === 0) {
+          open = i;
+          break;
+        }
+      }
+    }
+    if (open <= 0) break;
+    const rest = core.slice(0, open).trimEnd();
+    if (!rest.endsWith(")")) break;
+    peeled.unshift(core.slice(open));
+    core = rest;
+  }
+  return { core: peeled.length ? core : t, explan: peeled.join(" ") };
+}
+
 const detectCase: Detector = (t) => {
-  const m = CITE_HEAD.exec(t);
+  const { core, explan } = peelParentheticals(t);
+  const m = CITE_HEAD.exec(core);
   if (!m) return null;
   let name = m[1].trim();
   // An unreported decision's docket number sits between the name and the
@@ -955,6 +1247,7 @@ const detectCase: Detector = (t) => {
   const { pin, parallel } = splitMiddle(m[5]);
   const fields: Record<string, string> = { name, vol: m[2], reporter, page: m[4], pin, parallel, court, year };
   if (docket) fields.docket = docket;
+  if (explan) fields.explan = explan;
   return { typeId: "case", fields };
 };
 

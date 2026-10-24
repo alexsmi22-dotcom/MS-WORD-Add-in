@@ -62,6 +62,44 @@ function looksLikeYear(n: number, raw: string): boolean {
   return raw.length === 4 && n >= 1800 && n <= 2199;
 }
 
+const NUM_UNITS: Record<string, number> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+};
+const NUM_TENS: Record<string, number> = {
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+
+/**
+ * The value of a spelled-out CARDINAL ending right before `at` ("twenty",
+ * "thirty-five", "one hundred and twenty"), or -1. Ordinals ("first") and any
+ * other word give -1, so "a first housing (12)" stays a callout.
+ */
+function spelledNumberBefore(text: string, at: number): number {
+  const before = text.slice(Math.max(0, at - 60), at);
+  const m = /((?:[A-Za-z]+[ \t -]+){0,5}[A-Za-z]+)[ \t ]*$/.exec(before);
+  if (!m) return -1;
+  const words = m[1].toLowerCase().split(/[ \t -]+/);
+  // The longest run of number words at the END.
+  let k = words.length;
+  while (k > 0 && (NUM_UNITS[words[k - 1]] !== undefined || NUM_TENS[words[k - 1]] !== undefined || /^(?:hundred|thousand|and)$/.test(words[k - 1]))) k--;
+  const run = words.slice(k);
+  while (run.length && run[0] === "and") run.shift();
+  if (!run.length || run[run.length - 1] === "and") return -1;
+  let total = 0;
+  let cur = 0;
+  for (const w of run) {
+    if (NUM_UNITS[w] !== undefined) cur += NUM_UNITS[w];
+    else if (NUM_TENS[w] !== undefined) cur += NUM_TENS[w];
+    else if (w === "hundred") cur = (cur || 1) * 100;
+    else if (w === "thousand") {
+      total += (cur || 1) * 1000;
+      cur = 0;
+    }
+  }
+  return total + cur;
+}
+
 /**
  * Distinct reference numerals called out in a block of document text, ascending.
  *
@@ -101,10 +139,17 @@ export function extractNumerals(documentText: string, known?: number[]): number[
     hi = max + Math.max(100, max - min);
   }
 
+  // A numeral the TABLE defines is a callout even when it is shaped like a year:
+  // a FIG. 18 numbered 1800/1802/1804 had every callout dropped and the Audit
+  // reported all three as "defined but never called out".
+  const knownSet = new Set(known ?? []);
   while ((m = CALLOUT_RE.exec(documentText)) !== null) {
     const raw = m[1];
     const n = parseInt(raw, 10);
-    if (looksLikeYear(n, raw)) continue;
+    // "twenty (20) minutes", "thirty (30) days": a spelled-out number with its
+    // figures in parentheses is a quantity, not a reference numeral.
+    if (spelledNumberBefore(documentText, m.index) === n) continue;
+    if (looksLikeYear(n, raw) && !knownSet.has(n)) continue;
     if (n < lo || n > hi) continue;
     seen.add(n);
   }

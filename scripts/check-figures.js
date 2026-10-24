@@ -187,13 +187,9 @@ const ALLOWANCES = {
     'CLIPPED  "Q:2" runs outside the 320x320 canvas',
   ],
 
-  // seqmapcirc.ts — a feature label on the circular map is placed radially with
-  // no clamp to the canvas, so a long /label (which GenBank files routinely
-  // carry) runs 90-105 px outside a 460 px square and is simply cut off.
-  "seqmap circular": [
-    'CLIPPED  "a rather long coding seque" runs outside the 460x460 canvas',
-    'CLIPPED  "reverse element with a lon" runs outside the 460x460 canvas',
-  ],
+  // "seqmap circular" (long labels clipped at the canvas edge) was FIXED in bio fix
+  // round 2: the canvas widens to hold every label, names past 32 characters are
+  // cut with an ellipsis; entry removed.
   // "persistence barcode" (the ε axis line through its own tick label) was
   // FIXED in v2.138.0 by the barcode redraw in persistence.ts; entry removed.
 };

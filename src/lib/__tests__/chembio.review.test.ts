@@ -20,7 +20,7 @@ import { buildSt26Xml, type SequenceEntry } from "../sequence";
 import { computationKindFor } from "../ctSwitch";
 import { validateFormula } from "../chemValidate";
 
-const META = { applicantName: "Test Applicant", inventionTitle: "Test Invention", productionDate: "2026-10-14" };
+const META = { applicantName: "Test Applicant", inventionTitle: "Test Invention", applicantFileReference: "R1", productionDate: "2026-10-14" };
 
 function translationOf(xml: string): string | null {
   const m = /<INSDQualifier_name>translation<\/INSDQualifier_name><INSDQualifier_value>([^<]*)</.exec(xml);

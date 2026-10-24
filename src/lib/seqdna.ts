@@ -125,6 +125,30 @@ function spanOf(segments: FeatureSegment[], wraps: boolean): { start: number; en
     : { start: minOf(segments.map((s) => s.start)), end: maxOf(segments.map((s) => s.end)) };
 }
 
+/**
+ * Display text from a SnapGene attribute value: XML entities are already decoded
+ * by `attr`, which leaves HTML markup ("<html><body><i>bla</i></body></html>");
+ * strip the tags (as Biopython's SnapGeneIO._decode does), then decode the
+ * entities the HTML itself carried (&amp;amp; → &amp; → &), and collapse
+ * whitespace. "" when nothing readable is left.
+ */
+function snapText(v: string | null): string {
+  if (!v) return "";
+  return unescapeXml(v.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
+}
+
+/** The first non-empty value of the first qualifier in `names` (taken in that priority order). */
+function qualifierText(body: string, names: string[]): string {
+  for (const n of names) {
+    const q = new RegExp(`<Q name="${n}"[^>]*>([\\s\\S]*?)</Q>`).exec(body);
+    if (!q) continue;
+    const v = /(?:text|predef)="([^"]*)"/.exec(q[1]);
+    const t = snapText(v ? unescapeXml(v[1]) : null);
+    if (t) return t;
+  }
+  return "";
+}
+
 function parseFeaturesXml(xml: string, seqLen = 0): SeqFeature[] {
   const out: SeqFeature[] = [];
   // An exec loop rather than matchAll: the project targets ES2017, and moving
@@ -134,7 +158,6 @@ function parseFeaturesXml(xml: string, seqLen = 0): SeqFeature[] {
   while ((m = featRe.exec(xml)) !== null) {
     const head = m[1] ?? m[3] ?? "";
     const body = m[2] ?? "";
-    const name = attr(head, "name") ?? attr(head, "type") ?? "feature";
     const type = attr(head, "type") ?? "misc_feature";
     const dir = attr(head, "directionality");
     const strand: 1 | -1 = dir === "2" ? -1 : 1;
@@ -144,6 +167,9 @@ function parseFeaturesXml(xml: string, seqLen = 0): SeqFeature[] {
     const segRe = /<Segment\b([^>]*)\/?>/g;
     let sm: RegExpExecArray | null;
     while ((sm = segRe.exec(body)) !== null) {
+      // A type="gap" segment is the space BETWEEN the parts of a split feature
+      // (Biopython's SnapGeneIO skips it too) — drawing it would fill the gap.
+      if (attr(sm[1], "type") === "gap") continue;
       const range = attr(sm[1], "range");
       if (!range) continue;
       const r = /^(\d+)-(\d+)$/.exec(range.trim());
@@ -160,17 +186,15 @@ function parseFeaturesXml(xml: string, seqLen = 0): SeqFeature[] {
     // place it at a made-up coordinate.
     if (!segments.length) continue;
 
-    // A better label from a <Q name="label"> qualifier, when present.
-    let label = name;
-    const q = /<Q name="(?:label|gene|product|note)"[^>]*>([\s\S]*?)<\/Q>/.exec(body);
-    if (q) {
-      const v = /(?:text|predef)="([^"]*)"/.exec(q[1]);
-      if (v) label = unescapeXml(v[1]);
-    }
+    // The label, by priority: the Feature's own name (what SnapGene shows on the
+    // map), then a label / gene / product qualifier, then a note. Qualifier text
+    // is often HTML ("<html><body>aminoglycoside phosphotransferase…") — the
+    // first-in-document-order match used to put that markup on the map.
+    const label = snapText(attr(head, "name")) || qualifierText(body, ["label", "gene", "product"]) || qualifierText(body, ["note"]);
 
     out.push({
       type,
-      name: label.replace(/\s+/g, " ").trim() || type,
+      name: label || type,
       ...spanOf(segments, wraps),
       strand,
       segments,
@@ -182,7 +206,7 @@ function parseFeaturesXml(xml: string, seqLen = 0): SeqFeature[] {
 }
 
 /** Reads the <Primers> XML into primer_bind features. */
-function parsePrimersXml(xml: string, seqLen = 0): SeqFeature[] {
+function parsePrimersXml(xml: string, seqLen = 0, circular = true): SeqFeature[] {
   const out: SeqFeature[] = [];
   const primRe = /<Primer\b([^>]*)>([\s\S]*?)<\/Primer>|<Primer\b([^>]*)\/>/g;
   let m: RegExpExecArray | null;
@@ -196,10 +220,25 @@ function parsePrimersXml(xml: string, seqLen = 0): SeqFeature[] {
     if (!loc) continue;
     const r = /^(\d+)-(\d+)$/.exec(loc.trim());
     if (!r) continue;
-    const a = Number(r[1]);
-    const b = Number(r[2]);
-    const strandAttr = attr(site[1], "strand");
-    const strand: 1 | -1 = strandAttr === "bottom" ? -1 : 1;
+    // SnapGene stores primer binding sites one base LOW: location="751-775" with
+    // annealedBases of 25 nt anneals at 752..776 (Biopython SnapGeneIO
+    // _parse_location: "Primers' coordinates in SnapGene files are shifted by
+    // -1"). Features are not shifted — only this path adds 1. On a circular
+    // molecule a site ending at the last base wraps to base 1.
+    let a = Number(r[1]) + 1;
+    let b = Number(r[2]) + 1;
+    if (seqLen > 0) {
+      // Past the last base: on a circular molecule that is base 1 again; on a
+      // linear one the site cannot be placed, so it is not drawn (not guessed).
+      if ((a > seqLen || b > seqLen) && !circular) continue;
+      if (a > seqLen) a -= seqLen;
+      if (b > seqLen) b -= seqLen;
+      if (a > seqLen || b > seqLen) continue;
+    }
+    // The strand is boundStrand (0 = top, 1 = bottom), as Biopython reads it;
+    // the older strand="bottom" attribute is only a fallback when it is absent.
+    const bound = attr(site[1], "boundStrand");
+    const strand: 1 | -1 = bound !== null ? (bound.trim() === "1" ? -1 : 1) : attr(site[1], "strand") === "bottom" ? -1 : 1;
     const sr = snapRange(a, b, seqLen);
     if (!sr) continue;
     out.push({
@@ -251,7 +290,7 @@ export function parseSnapGeneDna(bytes: Uint8Array): DnaParse {
   const fp = packets.find((p) => p.tag === TAG_FEATURES);
   if (fp) features.push(...parseFeaturesXml(decodeUtf8(fp.data), sequence.length));
   const pp = packets.find((p) => p.tag === TAG_PRIMERS);
-  if (pp) features.push(...parsePrimersXml(decodeUtf8(pp.data), sequence.length));
+  if (pp) features.push(...parsePrimersXml(decodeUtf8(pp.data), sequence.length, circular));
 
   // Name and description live in the notes XML, when present.
   let name = "SnapGene construct";

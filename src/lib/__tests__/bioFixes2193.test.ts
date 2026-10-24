@@ -336,7 +336,9 @@ describe("4. SnapGene origin-spanning segments (Biopython: join{[2800:3000],[0:1
     if (!r.ok) throw new Error(r.error);
     const [cds, primer] = r.record.features;
     expect([cds.start, cds.end, cds.wraps]).toEqual([100, 400, undefined]);
-    expect([primer.start, primer.end, primer.wraps]).toEqual([2990, 10, true]);
+    // Primer locations are stored one base low (fix round 2, bio2Fixes.test.ts §1): Biopython reads "2990-10" as
+    // join{[2990:3000],[0:11]} = 2991..3000 + 1..11.
+    expect([primer.start, primer.end, primer.wraps]).toEqual([2991, 11, true]);
   });
   test("a reversed range that starts beyond the sequence is skipped, not invented", () => {
     const r = parseSnapGeneDna(snapgene(`<Features><Feature name="x" type="CDS"><Segment range="5000-10"/></Feature></Features>`));

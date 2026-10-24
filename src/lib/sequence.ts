@@ -468,6 +468,19 @@ function readCodonStart(value: string | undefined): 1 | 2 | 3 {
   return n === 2 || n === 3 ? n : 1;
 }
 
+/**
+ * Why a typed /codon_start cannot be used, or null. The qualifier passes into
+ * the XML as typed, so a value that is not exactly 1, 2 or 3 ("4", "two", "2a")
+ * used to sit beside a /translation read from base 1 (readCodonStart's
+ * fallback) — the listing contradicting its own frame. Such a value now
+ * suppresses the auto-translation and featureWarnings says why. Blank = absent.
+ */
+function codonStartProblem(quals: { name: string; value: string }[]): string | null {
+  const q = quals.find((x) => x.name.trim().toLowerCase() === "codon_start" && x.value.trim());
+  if (!q || /^[123]$/.test(q.value.trim())) return null;
+  return `/codon_start “${q.value.trim()}” is not 1, 2 or 3`;
+}
+
 /** The residues a simple "start..end" (1-based) CDS location covers, or null. */
 function cdsRegion(location: string, residues: string): string | null {
   const loc = location.trim();
@@ -502,7 +515,7 @@ function featureInner(feature: St26Feature, moltype: MolType, residues: string):
     const supplied = quals.find((q) => q.name.toLowerCase() === "codon_start");
     const codonStart = readCodonStart(supplied?.value);
     const te = region !== null ? readTranslExcept(quals, location, codonStart, region.length) : null;
-    if (region !== null && !has("translation") && tt.kind !== "refused" && te !== null && te.kind === "ok") {
+    if (region !== null && !has("translation") && tt.kind !== "refused" && te !== null && te.kind === "ok" && codonStartProblem(quals) === null) {
       // The initiator rule applies only when /transl_table is EXPLICIT (scope §E10):
       // applying it to qualifier-less table-1 CDSs (TTG/CTG are table-1 starts)
       // would change emitted XML product-wide and is a separate decision.
@@ -539,6 +552,16 @@ export function featureWarnings(entry: SequenceEntry): string[] {
           ? `CDS (${f.location || "whole"}): ${why}. Your /translation was kept as typed; fix the /transl_table qualifier before filing.`
           : `CDS (${f.location || "whole"}): no /translation was generated — ${why}. Fix the /transl_table qualifier or supply /translation yourself.`,
       );
+    }
+    const csProblem = codonStartProblem(f.qualifiers ?? []);
+    if (csProblem) {
+      const suppliedTranslation = (f.qualifiers ?? []).some((q) => q.name.trim().toLowerCase() === "translation" && q.value.trim());
+      warnings.push(
+        suppliedTranslation
+          ? `CDS (${f.location || "whole"}): ${csProblem}. Your /translation was kept as typed; fix the /codon_start qualifier before filing.`
+          : `CDS (${f.location || "whole"}): no /translation was generated — ${csProblem}. Fix the /codon_start qualifier or supply /translation yourself.`,
+      );
+      continue; // the frame is unknown, so no frame or length check can be made
     }
     const region = cdsRegion(f.location, residues);
     if (region === null) {
@@ -632,8 +655,8 @@ export function featureNotes(entry: SequenceEntry): string[] {
     if (tt.kind !== "ok") continue;
     const hasTranslation = (f.qualifiers ?? []).some((q) => q.name.trim().toLowerCase() === "translation" && q.value.trim());
     const region = cdsRegion(f.location, residues);
-    if (hasTranslation || region === null) continue;
-    const supplied = (f.qualifiers ?? []).find((q) => q.name.trim().toLowerCase() === "codon_start" && q.value.trim());
+    if (hasTranslation || region === null || codonStartProblem(f.qualifiers ?? [])) continue;
+    const supplied =(f.qualifiers ?? []).find((q) => q.name.trim().toLowerCase() === "codon_start" && q.value.trim());
     const codonStart = readCodonStart(supplied?.value);
     // Same computation as featureInner: no protein → no /translation emitted → no note.
     const te = readTranslExcept(f.qualifiers, f.location, codonStart, region.length);
@@ -706,6 +729,21 @@ export function buildSt26Xml(meta: SequenceListingMeta, entries: SequenceEntry[]
   // `st26Exclusions` exists to make the caller confront BEFORE it builds.
   const listed = entries.filter((e) => !belowSt26Minimum(e));
   qualCount = 0;
+
+  // The DTD requires at least one SequenceData and the file reference or the
+  // application identification. The pane refuses both before it gets here
+  // (st26Exclusions, st26MetaProblems, "Add at least one sequence"), but a
+  // builder that writes a DTD-invalid document when called alone is a trap for
+  // the next caller — so it refuses by name too, never returning invalid XML.
+  const metaProblems = st26MetaProblems(meta);
+  if (metaProblems.length) throw new Error(`ST.26 listing not built: ${metaProblems.join(" ")}`);
+  if (!listed.length) {
+    throw new Error(
+      entries.length
+        ? "ST.26 listing not built: every sequence is below the ST.26 minimum (10 nucleotides or 4 amino acids, specifically defined), so the listing would hold none."
+        : "ST.26 listing not built: there are no sequences to list.",
+    );
+  }
 
   const body =
     appId +

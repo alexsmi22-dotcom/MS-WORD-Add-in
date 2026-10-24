@@ -556,7 +556,7 @@ const pcrCalc: CloningCalc = {
     const start = plainNum(read("start"));
     const end = plainNum(read("end"));
     if (!Number.isFinite(start) || !Number.isFinite(end)) {
-      return refuse(`The region must be two base positions, 1-based and inclusive; "${read("start")}" to "${read("end")}" is not.`);
+      return refuse(`The region must be two base positions, 1-based and inclusive; “${read("start")}” to “${read("end")}” is not.`);
     }
     const targetTm = plainNum(read("tm")) || 60;
     const lmin = plainNum(read("lmin")) || 18;

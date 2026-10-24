@@ -228,7 +228,7 @@ describe("unknown tables are refused by name everywhere", () => {
 });
 
 describe("ST.26 /transl_table junk values", () => {
-  const META = { applicantName: "A", inventionTitle: "T", productionDate: "2026-10-14" };
+  const META = { applicantName: "A", inventionTitle: "T", applicantFileReference: "R1", productionDate: "2026-10-14" };
   const entry = (value: string | string[]): SequenceEntry => ({
     moltype: "DNA",
     residues: "GTGAAACCCTAA",
@@ -310,9 +310,14 @@ describe("ST.26 /transl_table junk values", () => {
       features: [{ key: "CDS", location: `1..${residues.length}`, qualifiers: [{ name: "transl_table", value: "11" }] }],
     });
     for (const r of ["TAAAAACCC", "AT"]) {
-      expect(tr(buildSt26Xml(META, [e(r)]))).toBeNull();
+      // Below the ST.26 minimum of 10: since fix round 2 the builder refuses the whole listing (DTD needs one
+      // SequenceData), so no XML carries a /translation for these at all.
+      expect(() => buildSt26Xml(META, [e(r)])).toThrow(/below the ST\.26 minimum/);
       expect(featureNotes(e(r))).toEqual([]);
     }
+    // The same in-frame-stop case at a listable length still emits no /translation and no note.
+    expect(tr(buildSt26Xml(META, [e("TAAAAACCCGGG")]))).toBeNull();
+    expect(featureNotes(e("TAAAAACCCGGG"))).toEqual([]);
     expect(featureNotes(e("ATGAAATAA"))).toEqual(["CDS (1..9): /translation generated with NCBI table 11 (Bacterial, Archaeal and Plant Plastid)."]);
   });
 

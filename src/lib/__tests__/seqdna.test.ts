@@ -135,8 +135,9 @@ describe("features", () => {
   test("primers become primer_bind features with their strand", () => {
     const p = ok(parseSnapGeneDna(buildDna())).features.find((f) => f.type === "primer_bind")!;
     expect(p.name).toBe("M13 rev");
-    expect(p.start).toBe(90);
-    expect(p.strand).toBe(-1); // strand="bottom"
+    // location="90-106" is stored one base low (Biopython SnapGeneIO: primers are shifted by −1): 91..107.
+    expect([p.start, p.end]).toEqual([91, 107]);
+    expect(p.strand).toBe(-1); // boundStrand="1"
   });
 
   test("a feature with no readable range is skipped, not placed at a guess", () => {

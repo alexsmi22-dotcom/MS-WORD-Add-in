@@ -43,6 +43,7 @@ describe("ST.26 XML — the emitted frame matches the emitted translation", () =
       {
         applicantName: "Test Applicant",
         inventionTitle: "Test Invention",
+        applicantFileReference: "R1",
         productionDate: "2026-07-26",
       },
       [
@@ -79,8 +80,11 @@ describe("ST.26 XML — the emitted frame matches the emitted translation", () =
     expect((xml.match(/codon_start/g) ?? []).length).toBe(1);
   });
 
-  test("a nonsense /codon_start falls back to frame 1 rather than throwing", () => {
+  // Fix round 2: the frame-1 fallback was itself the defect — /codon_start "banana" was written into the XML
+  // beside a translation read from base 1. Now: no /translation (featureWarnings says why), and no throw.
+  test("a nonsense /codon_start suppresses the auto-translation rather than throwing", () => {
     const xml = xmlFor("banana");
-    expect(xml).toContain("MACMH");
+    expect(xml).not.toContain("MACMH");
+    expect(xml).not.toContain(">translation<");
   });
 });

@@ -18,6 +18,7 @@ import {
   REPORTER_NAMES,
   abbreviateCaseName,
   caseShortName,
+  groupDigitsRule62,
   isCaseNameAbbreviation,
   normalizeReporter,
   sectionSymbol,
@@ -49,6 +50,9 @@ export interface ToaGroup {
 export interface TableOfAuthorities {
   groups: ToaGroup[];
   total: number;
+  /** What the scan saw but deliberately did not list, each with its reason
+   *  (absent when nothing was skipped). */
+  refused?: ToaRefusal[];
 }
 
 const HEADINGS: Record<ToaCategory, string> = {
@@ -117,7 +121,14 @@ const FIRMSEG = `[${UP}]${WORDCH}*(?:${HS}(?:&|[${UP}]${WORDCH}*)){0,3}`;
 // transition word ("Likewise, Smith v. Jones") is mis-read as part of the first
 // party. A genuine firm-name plaintiff ends in a corp form (P.C., LLP), which
 // the CORP branch still captures.
-const FIRMTAIL = `(?:,${HS}${FIRMSEG}(?!${HS}vs?\\.)){0,4}`;
+// …unless the segment itself ENDS in a corporate word: "Becton, Dickinson & Co.
+// v. Tyco" is one party, and dropping "Becton," filed it under D. A transition
+// word never ends in "Co." / "Inc." (and LEADING_INTRO_RE strips "However, ").
+const CORP_WORD = "(?:Co|Cos|Corp|Inc|Ltd|LLC|L\\.L\\.C|LLP|L\\.P|LP|Grp|Bros|Sons)\\.?";
+// The segment must also carry an "&" (Becton, Dickinson & Co.; Sears, Roebuck &
+// Co.): "Second, Dow Chem. Co. v. …" is a transition word, not a firm name.
+const FIRMSEG_CORP = `[${UP}]${WORDCH}*(?:${HS}[${UP}]${WORDCH}*)?${HS}&(?:${HS}[${UP}]${WORDCH}*)?${HS}${CORP_WORD}(?=${HS}vs?\\.)`;
+const FIRMTAIL = `(?:,${HS}(?:${FIRMSEG_CORP}|${FIRMSEG}(?!${HS}vs?\\.))){0,4}`;
 // The first word of a party. Normally capitalized, but real party names can
 // start lowercase: a camel-case brand ("eBay", "iRobot") or a surname particle
 // before a capitalized surname ("de Vries", "van Gogh"). Both lowercase forms
@@ -128,7 +139,9 @@ const NOT_AFTER_LETTER = "(?<![A-Za-zÀ-ÖØ-öø-ÿ'’])";
 const PARTY_HEAD =
   `(?:${NOT_AFTER_LETTER}[a-z]{1,2}[${UP}]${WORDCH}*` +
   `|${NOT_AFTER_LETTER}(?:de|del|della|der|den|van|von|du|da|di|dos|das|le|la|ter)${HS}[${UP}]${WORDCH}*` +
-  `|[${UP}]${WORDCH}*)`;
+  // Never from the middle of a word (that also kept a 5 kB run of capitals
+  // from costing a full rescan per letter).
+  `|(?<![A-Za-zÀ-ÖØ-öø-ÿ])[${UP}]${WORDCH}*)`;
 const PARTY = `${PARTY_HEAD}(?:${HS}${NAMEWORD}){0,7}${FIRMTAIL}${CORP}`;
 // "v." (and the non-Bluebook "vs.", which drafters paste; it is shown as "v.").
 const CASE_NAME = `(?:${PARTY}${HS}vs?\\.${HS}${PARTY}|(?:In re|Ex parte|In the Matter of)${HS}${PARTY})`;
@@ -181,7 +194,20 @@ const MPEP_RE = new RegExp(`\\bMPEP\\s+(§{1,2})\\s*(${SEC_TOK})`, "g");
 // Federal rules in the qualified form ("Fed. R. Civ. P. 19(a)"). The base rule
 // number (19) is what the table lists; subsections collapse into it.
 const RULE_ABBR: Record<string, string> = { Civ: "Civ.", App: "App.", Evid: "Evid.", Crim: "Crim.", Bankr: "Bankr." };
-const RULE_RE = /\bFed\.\s+R\.\s+(Civ|App|Evid|Crim|Bankr)\.\s+P\.\s+(\d+)(?:\([\w'.]+\))*/g;
+// "Fed. R. Evid. 702" has no "P." (it is not a procedure rule) — the old
+// pattern demanded one, so the Rules of Evidence were never listed at all.
+// Groups: 1 Evid, 2 Civ/App/Crim/Bankr, 3 the rule number.
+const RULE_RE = /\bFed\.\s+R\.\s+(?:(Evid)\.|(Civ|App|Crim|Bankr)\.\s+P\.)\s+(\d+(?:\.\d+)?)(?:\([\w'.]+\))*/g;
+// Spelled-out forms: "Rule 702 of the Federal Rules of Evidence", "Federal
+// Rule of Civil Procedure 12(b)(6)". Groups: (A) 1 number, 2 set; (B) 3 set, 4 number.
+const RULE_WORDS_RE =
+  /\bRules?\s+(\d+(?:\.\d+)?)(?:\([\w'.]+\))*\s+of\s+the\s+Federal\s+Rules\s+of\s+(Evidence|Civil\s+Procedure|Criminal\s+Procedure|Appellate\s+Procedure|Bankruptcy\s+Procedure)\b|\bFederal\s+Rules?\s+of\s+(Evidence|Civil\s+Procedure|Criminal\s+Procedure|Appellate\s+Procedure|Bankruptcy\s+Procedure)\s+(\d+(?:\.\d+)?)/g;
+const RULE_SET_OF: Record<string, string> = { evidence: "Evid", civil: "Civ", criminal: "Crim", appellate: "App", bankruptcy: "Bankr" };
+// Court rules (FRAP 28(a)(3) lists them with the rules): "Fed. Cir. R. 36",
+// "Sup. Ct. R. 10", "D.C. Cir. R. 28", "9th Cir. R. 36-3". Groups: 1 court, 2 number.
+const COURT_RULE_RE = /\b(Fed\.\s+Cir\.|Sup\.\s+Ct\.|D\.C\.\s+Cir\.|(?:1st|2d|3d|[4-9]th|1[01]th)\s+Cir\.)\s+R\.\s+(\d+(?:[.-]\d+)*)/g;
+/** The Federal Rules of Civil Procedure stop at Rule 86. */
+const FRCP_MAX = 86;
 // Bare "Rule 12(b)(7)" references. Only trusted when the document also uses the
 // qualified "Fed. R. Civ. P." form (so we know the ruleset) — then a bare rule
 // in a federal civil brief is treated as Fed. R. Civ. P.
@@ -379,7 +405,7 @@ function patentShortDigits(long: string): string | null {
 // listed: real litigants start with it ("Under Armour", "Under Seal"), and a
 // wrong strip would corrupt an actual party name — worse than leaving it.
 const LEADING_INTRO_RE =
-  /^(?:In(?!\s+re\b)(?!\s+the\s+Matter\b)|Applying|Citing|Quoting|Following|Whether|Because|Although|Though|Since|When|Where|While|Unlike|Given|Assuming|Consider|Accordingly|Moreover|Nevertheless|Nonetheless|Likewise|Similarly|Conversely|Instead|Notably|Finally|Here|Thus|Therefore|Hence|However|Indeed|After|Before|Even|Both|Only|Recently|Later|Earlier|Yet|Still|Also|Again|Specifically|Importantly|Ultimately|Then|Next|Per)\s+/;
+  /^(?:In(?!\s+re\b)(?!\s+the\s+Matter\b)|Applying|Citing|Quoting|Following|Whether|Because|Although|Though|Since|When|Where|While|Unlike|Given|Assuming|Consider|Accordingly|Moreover|Nevertheless|Nonetheless|Likewise|Similarly|Conversely|Instead|Notably|Finally|Here|Thus|Therefore|Hence|However|Indeed|After|Before|Even|Both|Only|Recently|Later|Earlier|Yet|Still|Also|Again|Specifically|Importantly|Ultimately|Then|Next|Per),?\s+/;
 
 /**
  * Cuts a name at the last SENTENCE end inside it: the greedy party grammar
@@ -480,7 +506,8 @@ function caseRaw(
     html: `<i>${esc(name)}</i>, ${esc(dk)}${esc(coreCite)}${cy ? ` (${esc(cy)})` : ""}`,
     locator: coreCite,
     locators,
-    dedupe: `cases|${foldQuotes(abbreviateCaseName(name)).toLowerCase()}|${coreCite.toLowerCase()}`,
+    // "Lab'ys" (21st ed. T6) and "Labs." (earlier editions) are one party.
+    dedupe: `cases|${foldQuotes(abbreviateCaseName(name)).toLowerCase().replace(/\blab'ys(?![\w.])/g, "labs.").replace(/\blab'y(?![\w.'])/g, "lab.")}|${coreCite.toLowerCase()}`,
     start,
     end,
   };
@@ -609,19 +636,118 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
   while ((m = FEDREG_RE.exec(text))) {
     const page = m[2].replace(/,+$/, ""); // "12,345, which …" — the comma is prose
     const span = m[0].slice(0, m[0].length - (m[2].length - page.length));
-    plain("other", `${m[1]} Fed. Reg. ${page}`, `fedreg ${m[1].padStart(4, "0")}`, m.index, m.index + span.length, { span });
+    // One authority however its page is comma'd ("1076" = "1,076"), shown per
+    // Rule 6.2(a): commas only from five digits ("1076", "50,057").
+    const digits = page.replace(/\D/g, "");
+    plain("other", `${m[1]} Fed. Reg. ${groupDigitsRule62(digits)}`, `fedreg ${m[1].padStart(4, "0")} ${digits.padStart(8, "0")}`, m.index, m.index + span.length, {
+      span,
+      key: `other|fedreg|${m[1]}|${digits}`,
+    });
   }
   sections(MPEP_RE, "other", 1, () => (s) => `MPEP ${sectionSymbol(s)} ${s}`, () => (s) => `mpep ${s}`);
 
+  // Secondary sources — "Other Authorities" (FRAP 28(a)(3)). Conservative
+  // shapes only; anything that LOOKS like one but is not read is reported in
+  // the refusals below instead of silently missing from the table.
+  const secondary: Array<[number, number]> = [];
+  const pushSecondary = (t: string, html: string, sortKey: string, start: number, end: number, key: string, span: string): void => {
+    plain("other", t, sortKey, start, end, { key, span });
+    out[out.length - 1].html = html;
+    secondary.push([start, end]);
+  };
+  TOA_ARTICLE_RE.lastIndex = 0;
+  while ((m = TOA_ARTICLE_RE.exec(text))) {
+    const lead = (LEADING_SIGNAL_RE.exec(m[0]) ?? [""])[0];
+    const author = m[1].slice(lead.length).replace(/\s+/g, " ").trim();
+    const title = m[2].replace(/\s+/g, " ").trim();
+    const journal = m[4].replace(/\s+/g, " ").trim();
+    const yr = m[7] === m[3] ? "" : ` (${m[7]})`;
+    const cite = `${m[3]} ${journal} ${m[5]}${yr}`;
+    const start = m.index + lead.length;
+    pushSecondary(
+      `${author}, ${title}, ${cite}`,
+      `${esc(author)}, <i>${esc(title)}</i>, ${esc(cite)}`,
+      `zz2 ${author.split(" ").slice(-1)[0].toLowerCase()} ${title.toLowerCase()}`,
+      start,
+      m.index + m[0].length,
+      `other|article|${m[3]}|${journal.toLowerCase()}|${m[5]}`,
+      text.slice(start, m.index + m[0].length),
+    );
+  }
+  RESTATEMENT_RE.lastIndex = 0;
+  while ((m = RESTATEMENT_RE.exec(text))) {
+    const ed = m[1] ? ` (${m[1]})` : "";
+    const subject = m[2].replace(/\s+/g, " ");
+    const sec = normalizeSection(m[4]);
+    const paren = m[5] ? ` (${m[5].replace(/\s+/g, " ")})` : "";
+    const t = `Restatement${ed} of ${subject} ${sectionSymbol(sec)} ${sec}${paren}`;
+    pushSecondary(t, `<i>${esc(`Restatement${ed} of ${subject}`)}</i> ${esc(`${sectionSymbol(sec)} ${sec}${paren}`)}`, `zz1 restatement ${subject.toLowerCase()} ${ed} ${sec}`, m.index, m.index + m[0].length, `other|restatement|${(m[1] ?? "").toLowerCase()}|${subject.toLowerCase()}|${sec.toLowerCase()}`, m[0]);
+  }
+  TREATISE_RE.lastIndex = 0;
+  while ((m = TREATISE_RE.exec(text))) {
+    if (secondary.some(([a, b]) => m!.index < b && m!.index + m![0].length > a)) continue;
+    const lead = (LEADING_SIGNAL_RE.exec(m[2]) ?? [""])[0];
+    if (!m[1] && lead && m[2].slice(lead.length).trim().split(/\s+/).length < 2) continue; // "See Chisum, …": one-word author
+    const vol = m[1] ? `${m[1]} ` : "";
+    const author = m[2].slice(lead.length).replace(/\s+/g, " ").trim();
+    const title = m[3].replace(/\s+/g, " ");
+    const pin = m[4].replace(/\s+/g, " ").replace(/^(§+)(?=\d)/, "$1 ");
+    const paren = m[5].replace(/\s+/g, " ");
+    const start = m[1] ? m.index : m.index + lead.length;
+    pushSecondary(
+      `${vol}${author}, ${title} ${pin} (${paren})`,
+      `${esc(vol)}${esc(author)}, <i>${esc(title)}</i> ${esc(`${pin} (${paren})`)}`,
+      `zz3 ${title.toLowerCase()} ${pin}`,
+      start,
+      m.index + m[0].length,
+      `other|treatise|${vol}${author.toLowerCase()}|${title.toLowerCase()}|${pin}`,
+      text.slice(start, m.index + m[0].length),
+    );
+  }
+  // Shapes the table could not read — reported by name.
+  const unreadShape = (re: RegExp, what: string): void => {
+    re.lastIndex = 0;
+    let u: RegExpExecArray | null;
+    while ((u = re.exec(text))) {
+      const at = u.index;
+      if (secondary.some(([a, b]) => at >= a && at < b)) continue;
+      refusals.push({ index: at, text: u[0], reason: `"${u[0]}" looks like ${what}, but its full citation could not be read — not listed in the table; check its form` });
+    }
+  };
+  // Only a CITATION-shaped Restatement (a § within the clause), never the word
+  // in prose ("as the Restatement explains").
+  unreadShape(/\bRestatement\b[^.;§\n]{0,60}§+\s*\d[\w.]*/g, "a Restatement");
+  unreadShape(/\b\d+\s+(?:[A-Z][A-Za-z.'’&]*\s+){0,4}(?:L\.\s?Rev\.|L\.\s?J\.)\s+\d+/g, "a law-review article");
+
   // Federal rules — qualified "Fed. R. Civ. P. 19" form (authoritative).
+  // Evidence rules are "Fed. R. Evid. 702" (no "P."); the others "Fed. R. Civ. P. 12".
   const ruleText = (abbr: string, num: string): { text: string; sortKey: string } => ({
-    text: `Fed. R. ${RULE_ABBR[abbr]} P. ${num}`,
+    text: abbr === "Evid" ? `Fed. R. Evid. ${num}` : `Fed. R. ${RULE_ABBR[abbr]} P. ${num}`,
     sortKey: `${abbr.toLowerCase()} ${num.padStart(4, "0")}`,
   });
   RULE_RE.lastIndex = 0;
   while ((m = RULE_RE.exec(text))) {
-    const r = ruleText(m[1], m[2]);
+    const r = ruleText(m[1] || m[2], m[3]);
     plain("rules", r.text, r.sortKey, m.index, m.index + m[0].length);
+  }
+  // "Rule 702 of the Federal Rules of Evidence" / "Federal Rule of Civil
+  // Procedure 12" — the set is named, so no FRCP guess. Their spans are kept so
+  // the bare-rule pass below does not ALSO read that "Rule 702" as FRCP.
+  const spelledRuleSpans: Array<[number, number]> = [];
+  RULE_WORDS_RE.lastIndex = 0;
+  while ((m = RULE_WORDS_RE.exec(text))) {
+    const num = m[1] ?? m[4];
+    const set = RULE_SET_OF[(m[2] ?? m[3]).split(/\s+/)[0].toLowerCase()];
+    const r = ruleText(set, num);
+    plain("rules", r.text, r.sortKey, m.index, m.index + m[0].length, { span: m[0] });
+    spelledRuleSpans.push([m.index, m.index + m[0].length]);
+  }
+  // Court rules: "Fed. Cir. R. 36", "Sup. Ct. R. 10".
+  COURT_RULE_RE.lastIndex = 0;
+  while ((m = COURT_RULE_RE.exec(text))) {
+    const court = m[1].replace(/\s+/g, " ");
+    const t = `${court} R. ${m[2]}`;
+    plain("rules", t, `zz ${court.toLowerCase()} ${m[2].padStart(4, "0")}`, m.index, m.index + m[0].length);
   }
   // Bare "Rule 12(b)(7)" — trusted only in a document that also uses the
   // qualified Fed. R. Civ. P. form; then treated as a civil rule.
@@ -632,8 +758,21 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
     // "Fed. R. Civ. P. 132", and "Local Rule 7.1" became "Fed. R. Civ. P. 7".
     BARE_RULE_RE.lastIndex = 0;
     while ((m = BARE_RULE_RE.exec(text))) {
-      if (USPTO_PRACTICE_RULES.has(parseInt(m[1], 10))) continue;
+      const at = m.index;
+      if (spelledRuleSpans.some(([a, b]) => at >= a && at < b)) continue;
+      const n = parseInt(m[1], 10);
+      if (USPTO_PRACTICE_RULES.has(n)) continue;
       if (RULE_QUALIFIER_RE.test(text.slice(Math.max(0, m.index - 24), m.index))) continue;
+      // There is no Fed. R. Civ. P. above 86: "Rule 403" / "Rule 702" are
+      // evidence rules (or something else) — said by name, never listed as FRCP.
+      if (n > FRCP_MAX) {
+        refusals.push({
+          index: m.index,
+          text: m[0],
+          reason: `"${m[0]}" names no rule set and the Federal Rules of Civil Procedure end at Rule ${FRCP_MAX} — not listed; write it as "Fed. R. Evid. ${n}" (or the rule set it belongs to)`,
+        });
+        continue;
+      }
       const r = ruleText("Civ", m[1]);
       plain("rules", r.text, r.sortKey, m.index, m.index + m[0].length);
     }
@@ -686,7 +825,8 @@ function dedupeBest(raws: Raw[]): Raw[] {
  */
 export function buildTableOfAuthorities(text: string): TableOfAuthorities {
   const byCat = new Map<ToaCategory, Raw[]>();
-  for (const r of dedupeBest(collect(text))) {
+  const { raws, refusals } = collectAll(text);
+  for (const r of dedupeBest(raws)) {
     if (!byCat.has(r.category)) byCat.set(r.category, []);
     byCat.get(r.category)!.push(r);
   }
@@ -700,7 +840,7 @@ export function buildTableOfAuthorities(text: string): TableOfAuthorities {
     groups.push({ category, heading: HEADINGS[category], entries: list.map((r) => ({ plain: r.plain, html: r.html, name: r.name, rest: r.rest })) });
     total += list.length;
   }
-  return { groups, total };
+  return refusals.length ? { groups, total, refused: refusals.sort((a, b) => a.index - b.index) } : { groups, total };
 }
 
 export interface RegisterEntry {
@@ -846,6 +986,20 @@ export function toaStaticOoxml(toa: TableOfAuthorities, pages?: Map<string, stri
       const cite = e.rest.replace(/^,\s*/, "");
       return `<w:p>${pPr}${run(`${RPR_BASE}<w:i/><w:iCs/>`, t(`${e.name},`))}${run(RPR_BASE, `<w:br/>${t(cite)}`)}${pageRun}</w:p>`;
     }
+    // A non-case entry with italic parts (an article or treatise title) keeps
+    // them italic here too, run by run.
+    if (/<i>/.test(e.html)) {
+      const unesc = (s: string): string => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+      const runs = e.html
+        .split(/(<i>[\s\S]*?<\/i>)/)
+        .filter(Boolean)
+        .map((p) => {
+          const im = /^<i>([\s\S]*)<\/i>$/.exec(p);
+          return run(im ? `${RPR_BASE}<w:i/><w:iCs/>` : RPR_BASE, t(unesc(im ? im[1] : p)));
+        })
+        .join("");
+      return `<w:p>${pPr}${runs}${pageRun}</w:p>`;
+    }
     return `<w:p>${pPr}${run(RPR_BASE, t(e.plain))}${pageRun}</w:p>`;
   };
 
@@ -889,12 +1043,41 @@ export function findPrecedingAuthority(text: string): PrecedingAuthority | null 
 
 // "Author, Title, VOL JOURNAL PAGE (YEAR)". The journal must carry a law-journal
 // marker (L. Rev. / L.J. / Rev. / J. …) so a case reporter isn't mistaken for one.
-const AUTHOR = "[A-Z][A-Za-z.'’-]+(?:\\s+[A-Z][A-Za-z.'’-]*){1,3}";
+// Starts at a word start only (never mid-word).
+const AUTHOR = "(?<![A-Za-z])[A-Z][A-Za-z.'’-]+(?:\\s+[A-Z][A-Za-z.'’-]*){1,3}";
+// The journal's law-journal marker. The "J." tail used to be
+// `(?:\s?[A-Z][A-Za-z.'’&]*)*` — with the space optional, "J.ABCDEFGH…" splits
+// into tokens in exponentially many ways (a freeze on a long capitalised run).
+// Each token now starts with a capital and continues in lower case, so the
+// split is unique, and the repeat is capped.
+const LAW_JOURNAL = "(?:[A-Z][A-Za-z.'’&]*\\s+){0,4}(?:L\\.\\s?Rev\\.|L\\.\\s?J\\.|Rev\\.|J\\.(?:\\s?(?:[A-Z][a-z.'’]*|&)){0,6})";
 const ARTICLE_RE = new RegExp(
   `(${AUTHOR}(?:\\s+&\\s+${AUTHOR})?),\\s+[A-Z][^,]{2,180}?,\\s+\\d+\\s+` +
-    `(?:[A-Z][A-Za-z.'’&]*\\s+){0,4}(?:L\\.\\s?Rev\\.|L\\.\\s?J\\.|Rev\\.|J\\.(?:\\s?[A-Z][A-Za-z.'’&]*)*)\\s+` +
+    `${LAW_JOURNAL}\\s+` +
     `\\d+(?:,\\s*\\d+)?\\s*\\((?:19|20)\\d{2}\\)`,
   "g"
+);
+/** The same article shape with every part captured, for the table: 1 author,
+ *  2 title, 3 volume, 4 journal, 5 first page, 6 pincite, 7 year. */
+const TOA_ARTICLE_RE = new RegExp(
+  `(${AUTHOR}(?:\\s+&\\s+${AUTHOR})?),\\s+([A-Z][^,]{2,180}?),\\s+(\\d+)\\s+(${LAW_JOURNAL})\\s+` +
+    `(\\d+)(?:,\\s*(\\d+(?:[–—-]\\d+)?))?\\s*\\(((?:19|20)\\d{2})\\)`,
+  "g",
+);
+/** A Bluebook signal an author-shaped match can swallow ("See Mark A. Lemley"). */
+const LEADING_SIGNAL_RE = /^(?:See(?:\s+also|\s+generally)?|Cf\.|Accord|Contra|Compare)\s+/;
+/** "Restatement (Second) of Torts § 402A (Am. L. Inst. 1965)": 1 edition,
+ *  2 subject, 3 "§"/"§§", 4 section, 5 the parenthetical. */
+const RESTATEMENT_RE =
+  /\bRestatement\s+(?:\((First|Second|Third|Fourth)\)\s+)?of\s+((?:the\s+)?[A-Z][A-Za-z]*(?:\s+(?:of|and|the|&|[A-Z][A-Za-z]*)){0,5}?)\s+(§{1,2})\s*(\d[\w.]*)(?:\s*\(([^()]{0,40}?\d{4})\))?/g;
+/** A treatise: "[vol] Author, Title § N (… year)" — "5 Donald S. Chisum,
+ *  Chisum on Patents § 18.02 (2020)". A § / ¶ pin and a dated parenthetical
+ *  are required, so prose is not read as a book. 1 volume, 2 author, 3 title,
+ *  4 pin, 5 parenthetical. */
+const TREATISE_RE = new RegExp(
+  `(?:\\b(\\d+[A-Z]?)\\s+)?(${AUTHOR}(?:\\s+&\\s+${AUTHOR})?),\\s+([A-Z][A-Za-z'’]*(?:\\s+(?:on|of|the|and|in|for|to|&|[A-Z][A-Za-z.'’]*)){1,8})\\s+` +
+    `(§{1,2}\\s*\\d[\\w.()-]*\\w|¶\\s*\\d[\\w.]*\\w|§{1,2}\\s*\\d|¶\\s*\\d)(?:,\\s*at\\s+\\d+)?\\s*\\(([^()]{0,40}?(?:1[6-9]|20)\\d{2})\\)`,
+  "g",
 );
 
 export interface SecondarySource {
@@ -1188,7 +1371,28 @@ const UNREAD_CITATION =
 function caseShortCandidates(name: string): string[] {
   const out: string[] = [];
   const s = caseShortName(name);
-  if (s) out.push(s);
+  if (s) {
+    out.push(s);
+    // Every shorter word-prefix too: a brief may cut "State St. Bank" to
+    // "State St." or "Gen. Elec." to "Gen." — vol + reporter + "at" still pin
+    // the case. A lone generic word ("State", "United") is never a candidate.
+    // …and the same words AS WRITTEN in the document's first party ("State
+    // Street", when the T6 short name is "State St. Bank").
+    const ws = s.split(" ");
+    const lead = name.replace(/^(?:In re|Ex parte|In the Matter of|Matter of)\s+/i, "").split(/\s+vs?\.\s+/)[0].trim().split(/\s+/);
+    const asWritten = lead.slice(0, ws.length).join(" ").replace(/,$/, "");
+    const pushPrefixes = (words: string[]): void => {
+      for (let k = words.length; k >= 1; k--) {
+        const p = words.slice(0, k).join(" ").replace(/,$/, "");
+        if (p.replace(/[^A-Za-z]/g, "").length >= 2 && !/^(?:of|for|the|State|United|City|County|Commonwealth|People)$/i.test(p) && !/\s(?:of|for|the|&)$/i.test(p) && !out.includes(p)) out.push(p);
+      }
+    };
+    pushPrefixes(ws);
+    // Only when the short name IS the first party (not the second, chosen
+    // because the first was generic).
+    const samePartyAs = (a: string, b: string): boolean => a.slice(0, 3).toLowerCase() === b.slice(0, 3).toLowerCase();
+    if (asWritten && asWritten !== s && samePartyAs(lead[0] ?? "", ws[0])) pushPrefixes(asWritten.split(" "));
+  }
   const parts = name.split(/\s+v\.\s+/);
   if (parts.length === 2) {
     for (const p of parts) {
@@ -1322,7 +1526,15 @@ export function toaOccurrenceReport(
   const cover = (a: number, b: number): void => {
     for (let i = Math.max(0, a); i < Math.min(text.length, b); i++) covered[i] = 1;
   };
-  for (const r of raws) cover(r.start, r.end);
+  // Members of one list share one extent — cover it once, not once per member
+  // (a 1,700-member "§§" list was 1,700 × the list length).
+  const coveredExtents = new Set<string>();
+  for (const r of raws) {
+    const k = `${r.start}:${r.end}`;
+    if (coveredExtents.has(k)) continue;
+    coveredExtents.add(k);
+    cover(r.start, r.end);
+  }
   for (const o of kept) cover(o.index, o.index + o.text.length);
   for (const i of ids) cover(i.index, i.index + i.text.length);
   const residual = (a: number, b: number): string => {

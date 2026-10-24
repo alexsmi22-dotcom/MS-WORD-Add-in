@@ -95,7 +95,12 @@ export function normalizeDoi(input: string): DoiResult {
 /** Every DOI in free text (Crossref pattern), normalised and de-duplicated, in order. */
 export function findDois(text: string): string[] {
   const out: string[] = [];
-  const re = new RegExp(CROSSREF_DOI_PATTERN.source, "gi");
+  // Crossref's supplemental pattern for Wiley's 10.1002 SICI DOIs, which carry
+  // "<" ">" and are cut short by the main pattern ("…35:4<439::AID-JBM5>3.0.CO;2-H"
+  // was found as "…35:4"): /^10.1002\/[^\s]+$/i — gated on the SICI shape (a
+  // "<…>" group) so comma-joined ordinary DOIs are not swallowed. Trailing
+  // punctuation is trimmed below.
+  const re = new RegExp(`10\\.1002\\/[^\\s<>]*<[^\\s<>]*>[^\\s,]*|${CROSSREF_DOI_PATTERN.source}`, "gi");
   let m: RegExpExecArray | null;
   while ((m = re.exec(text ?? "")) !== null) {
     const d = trimDoiTail(m[0]);

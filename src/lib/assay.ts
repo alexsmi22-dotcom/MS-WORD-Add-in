@@ -252,8 +252,12 @@ export function levenbergMarquardt(
   const residuals = (pr: number[]): number[] => x.map((xi, i) => sw[i] * (y[i] - model(pr, xi)));
   const cost = (pr: number[]): number => residuals(pr).reduce((a, r) => a + r * r, 0);
 
-  // Each parameter's own scale, for the finite-difference step when it sits at 0.
-  const scale = initial.map((v) => (Number.isFinite(v) && v !== 0 ? Math.abs(v) : 1));
+  // Each parameter's step FLOOR, proportional to its own scale: 10⁻³ of its
+  // starting value, or (a zero seed) 10⁻³ of the largest |y|, else 10⁻³. Without
+  // a floor a parameter converging to ~0 (a 4PL bottom of 0) got a step of
+  // ~10⁻²⁰, its Jacobian column rounded to zero, and a correct fit was refused.
+  const yScale = y.reduce((m, v) => (Number.isFinite(v) ? Math.max(m, Math.abs(v)) : m), 0) || 1;
+  const scale = initial.map((v) => 1e-3 * (Number.isFinite(v) && v !== 0 ? Math.abs(v) : yScale));
 
   // Central-difference Jacobian of the (weighted) residuals w.r.t. each param.
   //
@@ -261,12 +265,11 @@ export function levenbergMarquardt(
   // an absolute floor of 10⁻⁷ is LARGER than every molar EC50/Kd below 10⁻⁷ M,
   // so p − h went negative, (EC50/x)^hill became NaN, every trial step was
   // rejected, and the loop reported "converged" with the parameters still at
-  // the seed — a confident wrong answer. Only a parameter that is exactly 0
-  // falls back to its starting value's scale.
+  // the seed — a confident wrong answer. The floor (`scale`) is relative too.
   const jacobian = (pr: number[]): number[][] => {
     const J: number[][] = Array.from({ length: n }, () => new Array(p).fill(0));
     for (let j = 0; j < p; j++) {
-      const h = 1e-6 * (pr[j] !== 0 ? Math.abs(pr[j]) : scale[j]);
+      const h = 1e-6 * Math.max(Math.abs(pr[j]), scale[j]);
       const up = [...pr];
       const dn = [...pr];
       up[j] += h;

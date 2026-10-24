@@ -633,8 +633,8 @@ export function standardCurve(standardsIn: StandardInput[], unknownsIn: UnknownI
         ok: false,
         error:
           `The 4PL midpoint and slope are not determined by these standards (EC50 = ${qNum(C)} ± ${qNum(se[2], 2)}, ` +
-          `Hill slope = ${qNum(h, 3)} ± ${qNum(se[3], 2)}: a standard error larger than the estimate). The response steps between ` +
-          "standards with nothing measured where the curve bends, so the fit did not converge to a usable curve. Add standards in the transition.",
+          `Hill slope = ${qNum(h, 3)} ± ${qNum(se[3], 2)}: a standard error larger than the estimate), so the fit did not converge ` +
+          "to a usable curve and nothing is read from it. Add standards (or replicates) where the curve bends.",
       };
     }
     if (!fit.converged) {

@@ -13,6 +13,7 @@ import { ENZYMES, findSites, formatSite, type Enzyme } from "../enzymes";
 import { align } from "../align";
 import { bandText, buildGel, LADDERS } from "../gel";
 import { gelAlt } from "../gelChart";
+import { fitCurve } from "../curvefit";
 
 const META: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", applicantFileReference: "R1", productionDate: "2026-10-24" };
 
@@ -441,5 +442,34 @@ describe("gel band text names every merged size", () => {
   });
   test("two copies of one size still read as fragments", () => {
     expect(bandText({ sizes: [1200, 1200], size: 1200, offScale: null })).toBe("1,200 bp (2 fragments)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2b. A parameter that converges to ~0 keeps a usable finite-difference step.
+// ---------------------------------------------------------------------------
+describe("2b. finite-difference step floor", () => {
+  const f4 = (B: number, T: number, C: number, h: number, x: number): number => B + (T - B) / (1 + Math.pow(C / x, h));
+  test("exact molar 4PL with bottom 0 (EC50 2×10⁻⁸ M, Hill 1.5) converges and recovers the truth", () => {
+    const x = LOGX;
+    const y = x.map((v) => f4(0, 100, 2e-8, 1.5, v));
+    const f = fitDoseResponse(x, y);
+    expect(f.converged).toBe(true);
+    expect(rel(f.ec50, 2e-8)).toBeLessThan(1e-6);
+    expect(rel(f.hill, 1.5)).toBeLessThan(1e-6);
+    expect(Math.abs(f.bottom)).toBeLessThan(1e-6);
+    const sc = standardCurve(x.map((conc, i) => ({ conc, responses: [y[i]] })), [{ name: "u", responses: [50] }], "4pl");
+    expect(sc.ok).toBe(true);
+    if (!sc.ok || sc.unknowns[0].status !== "ok") throw new Error("not read");
+    expect(rel(sc.unknowns[0].conc ?? NaN, 2e-8)).toBeLessThan(1e-6);
+  });
+  test("curvefit a·x + b on exact y = 2x converges with b ≈ 0 and finite SEs", () => {
+    const xs = [1, 2, 3, 4, 5, 6];
+    const r = fitCurve(xs, xs.map((v) => 2 * v), "a*x+b", { start: { a: 1, b: 1 } });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.converged).toBe(true);
+    expect(r.values[0]).toBeCloseTo(2, 9);
+    expect(Math.abs(r.values[1])).toBeLessThan(1e-8);
+    expect(r.notes.join(" ")).not.toMatch(/could not be computed/);
   });
 });

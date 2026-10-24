@@ -791,6 +791,14 @@ function normalize(e: Expr, ctx: Ctx): RF {
       return atomFor(ctx, { t: "pow", l: rfToExpr(base, ctx), r: rfToExpr(exp, ctx) });
     }
     case "fn": {
+      // ln(e) = 1 (a derivative of e^(−x²/2) used to print a literal *ln(e)); log10(e) = 1/ln(10), log2(e) = 1/ln(2).
+      if (e.arg.t === "var" && e.arg.name === "e") {
+        if (e.name === "ln") return rfConst(Q_ONE);
+        if (e.name === "log" || e.name === "log10" || e.name === "log2") {
+          const lnBase: Expr = { t: "fn", name: "ln", arg: { t: "num", v: e.name === "log2" ? 2 : 10 } };
+          return normalize({ t: "div", l: { t: "num", v: 1 }, r: lnBase }, ctx);
+        }
+      }
       const arg = normalize(e.arg, ctx);
       if (ctx.exact) {
         const ex = exactFn(e.name, arg, ctx);

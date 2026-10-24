@@ -23,6 +23,7 @@ export type Node =
   | { k: "text"; v: string; plain?: boolean; label?: boolean } // leaf run; plain → upright (function names); label → a sign used as a name (|+⟩, Φ⁺), not an operator
   | { k: "row"; items: Node[] }
   | { k: "frac"; num: Node; den: Node }
+  | { k: "binom"; top: Node; bottom: Node } // binom(n, k): n over k, no bar, in parentheses
   | { k: "sup"; base: Node; sup: Node }
   | { k: "sub"; base: Node; sub: Node }
   | { k: "subsup"; base: Node; sub: Node; sup: Node }
@@ -55,6 +56,8 @@ interface Token {
   v: string;
   /** Whitespace was typed before this token (only a script's lone sign reads it: "sigma_+ sigma_-"). */
   sp?: boolean;
+  /** A number typed in e-notation: its power of ten ("-3" for 1.5e-3). */
+  exp?: string;
 }
 
 const MULTI_CHAR_OPS: Record<string, string> = { "<=": "≤", ">=": "≥", "!=": "≠", "->": "→", "+-": "±" };
@@ -67,9 +70,9 @@ const GREEK: Record<string, string> = {
   inf: "∞", infty: "∞", infinity: "∞",
 };
 
-const KNOWN_FUNCS = new Set([
+export const KNOWN_FUNCS: ReadonlySet<string> = new Set([
   "sin", "cos", "tan", "cot", "sec", "csc", "sinh", "cosh", "tanh",
-  "arcsin", "arccos", "arctan", "log", "ln", "exp", "det", "dim", "max", "min", "gcd", "mod",
+  "arcsin", "arccos", "arctan", "asin", "acos", "atan", "log", "ln", "exp", "det", "dim", "max", "min", "gcd", "mod",
   "argmax", "argmin", "lcm", "softmax", "sigmoid", "relu", "re", "im",
   // Reciprocal & inverse trig / hyperbolic
   "sech", "csch", "coth", "arcsec", "arccsc", "arccot",
@@ -162,6 +165,14 @@ function tokenize(input: string): Token[] {
     if (isDigit(ch) || (ch === "." && isDigit(input[i + 1]))) {
       let num = "";
       while (i < n && (isDigit(input[i]) || input[i] === ".")) num += input[i++];
+      // E-notation typed with no spaces (1.5e-3, 2E5) is one number, typeset 1.5×10⁻³ — never "1.5e − 3". A digit must
+      // follow the e (and its optional sign), so 2e^x, 2e and "2e - 3" keep reading e as Euler's number.
+      const em = /^[eE]([+\-−]?)(\d+)/.exec(input.slice(i));
+      if (em && !isAlpha(input[i + em[0].length] ?? "")) {
+        tokens.push({ t: "num", v: num, exp: (em[1] && em[1] !== "+" ? "-" : "") + em[2] });
+        i += em[0].length;
+        continue;
+      }
       tokens.push({ t: "num", v: num });
       continue;
     }
@@ -296,8 +307,9 @@ class Parser {
         const ungroup = (n: Node): Node => (n.k === "delim" && n.open === "(" && n.close === ")" ? n.inner : n);
         node = { k: "frac", num: ungroup(node), den: ungroup(this.parseFactor()) };
       } else if (this.startsBase(t)) {
-        // implicit multiplication: juxtaposition, no visible operator
-        node = { k: "row", items: [node, this.parseFactor()] };
+        // implicit multiplication: juxtaposition, no visible operator. After a number, a bracketed fraction keeps its
+        // brackets: 2(1/2) unbracketed would read as the mixed number 2½.
+        node = { k: "row", items: [node, this.parseFactor(Parser.endsInNumber(node))] };
       } else {
         break;
       }
@@ -365,8 +377,20 @@ class Parser {
     return !!t && (t.t === "num" || t.t === "id" || t.t === "lparen" || t.t === "lbrace" || t.t === "lbrack");
   }
 
+  /** The node's last visible item is a number (2, 3.5, −2): a fraction right after it would read as a mixed number. */
+  private static endsInNumber(n: Node): boolean {
+    if (n.k === "row") return n.items.length > 0 && Parser.endsInNumber(n.items[n.items.length - 1]);
+    return n.k === "text" && /^[0-9.]+$/.test(n.v);
+  }
+
+  /** ∂ (or "partial") glued to what it differentiates: ∂u/∂t is ∂u over ∂t, ∂^2u/∂x^2 is ∂²u over ∂x². */
+  private static isPartial(n: Node): boolean {
+    if (n.k === "sup") return Parser.isPartial(n.base);
+    return n.k === "text" && n.v === "∂";
+  }
+
   // factor := base ( ^base | _base )* '!'*
-  private parseFactor(): Node {
+  private parseFactor(afterNumber = false): Node {
     const base = this.parseBase();
     let sub: Node | null = null;
     let sup: Node | null = null;
@@ -389,7 +413,7 @@ class Parser {
       if (Parser.isSign(this.peek()) && this.closesScript(this.tokens[this.pos + 1], tok.t === "caret")) {
         s = { k: "text", v: Parser.signText(this.next().v), plain: true, label: true };
       } else {
-        this.scriptBaseNext = true;
+        this.scriptBaseNext = tok.t === "caret" ? "sup" : "sub";
         s = this.parseBase();
       }
       // A repeated script nests right-associatively (x^2^3 → x^(2^3)) instead of
@@ -403,8 +427,24 @@ class Parser {
     else if (sup) node = { k: "sup", base, sup };
     else if (sub) node = { k: "sub", base, sub };
     // A built-up fraction groups itself: (ħ/2)(Ωσx + Δσz) and (1/2)(I + r·σ) need no brackets around the fraction
-    // (v2.192.1, seen in Word). With a power or subscript, (a/b)^2, the brackets stay.
-    else node = base.k === "delim" && base.open === "(" && base.close === ")" && base.inner.k === "frac" ? base.inner : base;
+    // (v2.192.1, seen in Word). With a power or subscript, (a/b)^2, the brackets stay; so do they before a factorial,
+    // (a/b)!, and right after a number, 2(1/2) (not the mixed number 2½).
+    else {
+      const bang = this.peek()?.t === "op" && this.peek()?.v === "!";
+      node = !bang && !afterNumber && base.k === "delim" && base.open === "(" && base.close === ")" && base.inner.k === "frac" ? base.inner : base;
+    }
+
+    // re and im are function names only when applied to something: re^(iθ) and a bare "re" are the letters r·e,
+    // italic, while "re z" and Re(z) stay upright (the upright rule for known names, v2.192.1, turned the polar form
+    // r e^{iθ} into an upright "re").
+    if (base.k === "text" && base.plain && /^(re|im)$/i.test(base.v) && !this.startsBase(this.peek())) {
+      (base as { plain?: boolean }).plain = false;
+    }
+
+    // ∂ glues to the variable after it, so a fraction takes them together.
+    if (Parser.isPartial(node) && this.peek()?.t === "id") {
+      node = { k: "row", items: [node, this.parseFactor()] };
+    }
 
     // Factorial postfix.
     while (this.peek()?.t === "op" && this.peek()?.v === "!") {
@@ -414,8 +454,11 @@ class Parser {
     return node;
   }
 
-  /** Set just before a script's base is parsed: an identifier there takes no function brackets (tr_B(ρ), r_i(S)). */
-  private scriptBaseNext = false;
+  /**
+   * Set just before a script's base is parsed: an identifier there takes no function brackets (tr_B(ρ), r_i(S)),
+   * except a known function in a superscript, whose argument it is: e^sin(x), 10^log(x).
+   */
+  private scriptBaseNext: "sup" | "sub" | false = false;
 
   private parseBase(): Node {
     const asScript = this.scriptBaseNext;
@@ -425,6 +468,12 @@ class Parser {
 
     if (t.t === "num") {
       this.next();
+      if (t.exp !== undefined) {
+        const pow: Node = t.exp.startsWith("-")
+          ? { k: "row", items: [{ k: "text", v: "-", plain: true }, { k: "text", v: t.exp.slice(1) }] }
+          : { k: "text", v: t.exp };
+        return { k: "row", items: [{ k: "text", v: t.v }, { k: "text", v: "×", plain: true }, { k: "sup", base: { k: "text", v: "10" }, sup: pow }] };
+      }
       return { k: "text", v: t.v };
     }
 
@@ -478,10 +527,33 @@ class Parser {
     throw new Error(`Unexpected "${t.v}" in math expression.`);
   }
 
-  private parseIdentifier(id: string, asScript = false): Node {
+  /** The "(" at the cursor holds exactly one top-level argument (no comma before its matching ")"). */
+  private oneParenArg(): boolean {
+    if (this.peek()?.t !== "lparen") return false;
+    let depth = 0;
+    for (let j = this.pos; j < this.tokens.length; j++) {
+      const t = this.tokens[j].t;
+      if (t === "lparen" || t === "lbrace" || t === "lbrack") depth++;
+      else if (t === "rparen" || t === "rbrace" || t === "rbrack") {
+        if (--depth === 0) return true;
+      } else if ((t === "comma" || t === "semi") && depth === 1) return false;
+    }
+    return false;
+  }
+
+  private parseIdentifier(id: string, asScript: "sup" | "sub" | false = false): Node {
     const lower = id.toLowerCase();
 
     if (lower === "sqrt") return { k: "rad", radicand: this.parseSingleGroup() };
+    if (lower === "binom") {
+      const [top, bottom] = this.parseArgs(2);
+      return { k: "binom", top, bottom };
+    }
+    // Visible braces (LaTeX \left\{ … \right\}): braces(x, y) is {x, y}.
+    if (lower === "braces") {
+      const g = this.parseParenGroup();
+      return { k: "delim", inner: (g as { inner: Node }).inner, open: "{", close: "}" };
+    }
     if (lower === "root") {
       const [degree, radicand] = this.parseArgs(2);
       return { k: "rad", radicand, degree };
@@ -528,10 +600,13 @@ class Parser {
       const [inner] = this.parseArgs(1);
       return { k: "delim", inner, open: "⟨", close: "⟩" };
     }
-    if (ACCENTS[lower]) {
+    // An accent takes exactly one bracketed argument. "dot" is also the dot product: bare (nabla dot E) it is "·", and
+    // with two arguments, dot(a, b), it is a function as it always was (v2.192.1 made both fail to parse).
+    if (ACCENTS[lower] && (lower !== "dot" || this.oneParenArg())) {
       const [base] = this.parseArgs(1);
       return { k: "acc", chr: ACCENTS[lower], base };
     }
+    if (lower === "dot" && this.peek()?.t !== "lparen") return { k: "text", v: "·", plain: true };
     if (MATRIX_DELIMS[lower]) {
       const rows = this.parseRows();
       const cols = rows[0].length;
@@ -557,10 +632,16 @@ class Parser {
     // function T applied to it, which typeset the whole bracket inside the superscript (the Kalman gain, v2.192.0).
     // In a script, an identifier never takes the brackets after it: "tr_B(|ψ⟩⟨ψ|)" is tr_B applied to the bracket and
     // "r_i(S_k)" is r_i of S_k — not a subscript B(…) or i(…) (v2.192.1, seen in Word).
-    if (this.peek()?.t === "lparen" && !asScript && (!this.peek()!.sp || KNOWN_FUNCS.has(lower))) {
+    // A known function in a SUPERSCRIPT, glued to its bracket, is applied: e^sin(x) is e^{sin(x)}, not e^{sin}·(x)
+    // (a v2.192.1 regression). Subscripts keep the no-call rule: T_max(t) is T_max of t, tr_B(ρ) is tr_B of ρ.
+    const scriptCall = asScript === "sup" && KNOWN_FUNCS.has(lower) && !this.peek()?.sp;
+    if (this.peek()?.t === "lparen" && (!asScript || scriptCall) && (!this.peek()!.sp || KNOWN_FUNCS.has(lower))) {
       const arg = this.parseParenGroup();
       return { k: "func", name: id, arg, known: KNOWN_FUNCS.has(lower) };
     }
+
+    // "deg" is the degree sign (90 deg → 90°), checked before the upright-function rule below.
+    if (SYMBOLS[id] && KNOWN_FUNCS.has(lower)) return { k: "text", v: SYMBOLS[id] };
 
     // Words that stay upright without parentheses (e.g. "a mod n", "Pr[A]"); and a known function written with a power
     // or subscript before its argument — sin^2(x), log_2 ρ, tr_B(…) — is still a function name: upright, never sin².

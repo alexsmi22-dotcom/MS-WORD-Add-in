@@ -22,6 +22,9 @@ function emit(node: Node): string {
       return node.items.map(emit).join("");
     case "frac":
       return `<m:f><m:num>${emit(node.num)}</m:num><m:den>${emit(node.den)}</m:den></m:f>`;
+    case "binom":
+      // A binomial coefficient: a bar-less fraction inside parentheses.
+      return `<m:d><m:e><m:f><m:fPr><m:type m:val="noBar"/></m:fPr><m:num>${emit(node.top)}</m:num><m:den>${emit(node.bottom)}</m:den></m:f></m:e></m:d>`;
     case "sup":
       return `<m:sSup><m:e>${emit(node.base)}</m:e><m:sup>${emit(node.sup)}</m:sup></m:sSup>`;
     case "sub":

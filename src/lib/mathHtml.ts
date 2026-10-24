@@ -11,7 +11,7 @@ import { parseMath } from "./mathFormat";
 const OPERATORS = new Set([
   "+", "-", "=", "<", ">", "×", "·", "±", "→", "≤", "≥", "≠",
   "∈", "∉", "⊂", "⊆", "⊃", "⊇", "∪", "∩", "∧", "∨", "⊕", "⊗",
-  "≡", "≈", "≅", "∝", "∥", "⇒", "⇔", "↦", "∠",
+  "≡", "≈", "≅", "∝", "∥", "⇒", "⇔", "↦", "∠", "∣",
 ]);
 
 function leaf(node: { v: string; label?: boolean }): string {
@@ -32,6 +32,12 @@ function astToHtml(node: Node): string {
       return (
         `<span class="m-frac"><span class="m-frac-n">${astToHtml(node.num)}</span>` +
         `<span class="m-frac-d">${astToHtml(node.den)}</span></span>`
+      );
+    case "binom":
+      // n over k with no bar, in parentheses.
+      return (
+        `(<span class="m-frac m-frac-nobar"><span class="m-frac-n">${astToHtml(node.top)}</span>` +
+        `<span class="m-frac-d">${astToHtml(node.bottom)}</span></span>)`
       );
     case "sup":
       return `${astToHtml(node.base)}<sup>${astToHtml(node.sup)}</sup>`;

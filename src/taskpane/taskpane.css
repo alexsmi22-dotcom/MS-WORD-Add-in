@@ -537,6 +537,9 @@ h1 {
 .m-frac-d {
   padding: 0 0.3em;
 }
+.m-frac-nobar > .m-frac-n {
+  border-bottom: none;
+}
 .m-sqrt {
   margin-right: -0.1em;
 }

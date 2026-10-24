@@ -37,6 +37,8 @@ function astLeaves(node: Node, order: "omml" | "html"): string[] {
       return node.items.flatMap(go);
     case "frac":
       return [...go(node.num), ...go(node.den)];
+    case "binom":
+      return [...go(node.top), ...go(node.bottom)];
     case "sup":
       return [...go(node.base), ...go(node.sup)];
     case "sub":

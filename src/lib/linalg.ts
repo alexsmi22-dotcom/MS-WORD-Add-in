@@ -8,6 +8,8 @@
 // eigenvalues of a symmetric matrix. Parsing and formatting are separated from
 // the math so both can be unit-tested in isolation.
 
+import { MINUS, timesTen, trueMinus } from "./axis";
+
 export type Matrix = number[][];
 
 /** A parsed matrix, or a human-readable reason the text wasn't a valid matrix. */
@@ -62,7 +64,7 @@ function clone(m: Matrix): Matrix {
 
 /** Formats a matrix as aligned text (fixed significant figures per entry). */
 export function formatMatrix(m: Matrix, sig = 4): string {
-  const strs = m.map((r) => r.map((v) => formatNum(v, sig)));
+  const strs = formatMatrixCells(m, sig);
   let width = 0;
   for (const r of strs) for (const s of r) width = Math.max(width, s.length);
   return strs.map((r) => r.map((s) => s.padStart(width)).join("  ")).join("\n");
@@ -74,7 +76,26 @@ export function formatNum(x: number, sig = 4): string {
   if (x === 0) return "0";
   const rounded = Number(x.toPrecision(sig));
   const normalized = Object.is(rounded, -0) ? 0 : rounded;
-  return String(normalized);
+  // The display contract (v2.193.0): a true minus and ×10ⁿ, never "-5.551e-17" — String() writes e-notation below
+  // 10⁻⁶ and from 10²¹. The digits are String()'s (shortest, trailing zeros dropped), as they always were. "—" stays
+  // the non-finite sentinel the insert gate refuses (insertGate.ts).
+  const m = /^(-?)(\d+(?:\.\d+)?)e([+-]\d+)$/.exec(String(normalized));
+  if (m) return `${m[1] ? MINUS : ""}${m[2]}${timesTen(Number(m[3]))}`;
+  return trueMinus(String(normalized));
+}
+
+/**
+ * A matrix's entries for display, each through formatNum, with round-off snapped to 0: an entry smaller than 10⁻¹⁴
+ * of the matrix's largest finite entry is floating-point residue (a product A·A⁻¹ printing "1.63376×10⁻¹⁷" where
+ * the identity has a 0), not a value. 10⁻¹⁴ (about 45 ulps), not 10⁻¹²: at 10⁻¹² an honest entry of a badly scaled
+ * matrix — the 1 in diag(10¹³, 1) — would print as a confident 0, and residue left unsnapped is merely untidy.
+ * Non-finite entries stay "—" so the insert gate still refuses the result.
+ */
+export function formatMatrixCells(m: number[][], sig = 6): string[][] {
+  let scale = 0;
+  for (const row of m) for (const v of row) if (Number.isFinite(v)) scale = Math.max(scale, Math.abs(v));
+  const tiny = scale * 1e-14;
+  return m.map((row) => row.map((v) => (Number.isFinite(v) && Math.abs(v) < tiny ? "0" : formatNum(v, sig))));
 }
 
 export function identity(n: number): Matrix {
@@ -719,6 +740,7 @@ export function formatComplex(c: Complex, sig = 4): string {
   if (imZero) return formatNum(c.re, sig);
   const imAbs = formatNum(Math.abs(c.im), sig);
   const imPart = `${imAbs === "1" ? "" : imAbs}i`;
-  if (reZero) return `${c.im < 0 ? "-" : ""}${imPart}`;
-  return `${formatNum(c.re, sig)} ${c.im < 0 ? "-" : "+"} ${imPart}`;
+  // True minus throughout (v2.193.0), as formatNum now writes the real part.
+  if (reZero) return `${c.im < 0 ? MINUS : ""}${imPart}`;
+  return `${formatNum(c.re, sig)} ${c.im < 0 ? MINUS : "+"} ${imPart}`;
 }

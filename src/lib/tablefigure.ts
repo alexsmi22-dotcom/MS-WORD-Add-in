@@ -108,6 +108,49 @@ export function prepareTableFigure(rows: string[][]): PreparedTable {
   return { grid, kinds, bandText, numericCol, hasHeader, warnings };
 }
 
+/** The editable Word table's grid: every row, every column, a header row when one is detected. */
+export interface EditableTableGrid {
+  grid: string[][];
+  hasHeader: boolean;
+  /** Per-column: right-align (numbers in the body rows). */
+  numericCol: boolean[];
+}
+
+/**
+ * The EDITABLE table's own preparation (v2.193.0). prepareTableFigure is for a table drawn as a PICTURE: it caps the
+ * rows at 40 (a figure taller than a page is unreadable), shades section bands and drops a section column. None of
+ * that belongs in a native Word table, which pages itself: the editable path inserted only the first 40 rows of an
+ * Antibody numbering table (121 rows) or a 58-peak XRPD list, with no word about the rest. Here: every row, padded to
+ * the widest, the header detected the same way, numeric columns flagged; nothing dropped, nothing banded.
+ */
+export function prepareEditableTable(rows: string[][]): EditableTableGrid {
+  const ncols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+  const grid = rows.map((r) => (r.length < ncols ? r.concat(Array(ncols - r.length).fill("")) : r.slice()));
+  const hasHeader = detectHeader(grid);
+  const body = hasHeader ? grid.slice(1) : grid;
+  const numericCol = Array.from({ length: ncols }, (_, j) => {
+    const cells = body.map((r) => r[j]).filter((c) => c !== "");
+    return cells.length > 0 && cells.filter((c) => parseNumberCell(c) !== null).length / cells.length >= 0.6;
+  });
+  return { grid, hasHeader, numericCol };
+}
+
+/**
+ * The status words for an inserted editable table: its TRUE row count (data rows, the header not counted), and a
+ * shortfall said out loud when Word reports fewer rows than were sent. `reported` is Word's own row count (header
+ * included), null/undefined when the host cannot say.
+ */
+export function tableRowsNote(sent: string[][], reported: number | null | void): string {
+  const hasHeader = detectHeader(sent);
+  const data = Math.max(0, sent.length - (hasHeader ? 1 : 0));
+  const said = `${data} row${data === 1 ? "" : "s"}`;
+  if (typeof reported === "number" && reported !== sent.length) {
+    const got = Math.max(0, reported - (hasHeader ? 1 : 0));
+    return `${said} sent, but Word reports ${got}`;
+  }
+  return said;
+}
+
 type RowKindInternal = RowKind;
 
 /**

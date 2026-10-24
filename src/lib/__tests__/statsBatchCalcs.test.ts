@@ -49,8 +49,8 @@ describe("repeated-measures ANOVA calculator (§D3 bushtucker — the shipped de
     expect(out.ok).toBe(true);
     expect(insertable(out.text)).toBe(true);
     expect(out.text).toContain("Conditions: F(3, 21) = 3.794, p = 0.0256 (sphericity assumed); partial η² = 0.3515");
-    expect(out.text).toContain("Greenhouse–Geisser: F(1.60, 11.19) = 3.794, p = 0.0626 (ε_GG = 0.5328)");
-    expect(out.text).toContain("Huynh–Feldt: F(2.00, 13.98) = 3.794, p = 0.0483 (ε_HF = 0.6658)");
+    expect(out.text).toContain("Greenhouse–Geisser: F(1.60, 11.19) = 3.794, p = 0.0626 (ε(GG) = 0.5328)");
+    expect(out.text).toContain("Huynh–Feldt: F(2.00, 13.98) = 3.794, p = 0.0483 (ε(HF) = 0.6658)");
     expect(out.text).toContain("Reported p (Greenhouse–Geisser): p = 0.0626");
     expect(out.text).toContain("W = 0.1362, χ²(5) = 11.41, p = 0.0468");
     expect(out.text).toMatch(/Girden 1992/);
@@ -73,7 +73,7 @@ describe("repeated-measures ANOVA — the other §D3 sets", () => {
   test("well-conditioned: HF raw 1.2978 printed, capped at 1, HF leads", () => {
     const o = rmAnovaCalc("10 12 14\n9 11 15\n12 13 16\n8 10 13\n11 14 15\n10 11 14", "holm");
     expect(o.text).toContain("Huynh–Feldt 1.2978 (raw; capped at 1 for the df)");
-    expect(o.text).toContain("Huynh–Feldt: F(2, 10) = 79, p < 0.0001 (ε_HF, capped at 1 = 1.0000)");
+    expect(o.text).toContain("Huynh–Feldt: F(2, 10) = 79, p < 0.0001 (ε(HF), capped at 1 = 1.0000)");
     expect(o.text).toContain("Reported p (Huynh–Feldt)");
     expect(o.text).toContain("W = 0.8522, χ²(2) = 0.6395, p = 0.726");
   });

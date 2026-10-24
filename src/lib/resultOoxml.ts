@@ -18,7 +18,13 @@ export type ResultPackageItem =
   | { kind: "text"; content: string }
   | { kind: "math"; content: string }
   | { kind: "table"; label: string; rows: string[][] }
-  | { kind: "picture"; caption: string; base64: string; widthPt: number; heightPt: number; alt: string };
+  | { kind: "picture"; caption: string; base64: string; widthPt: number; heightPt: number; alt: string }
+  /**
+   * Body XML written as given: one or more complete <w:p>/<w:tbl> elements in the w: namespace (v2.193.0), for
+   * content another builder already formats — a scheme caption's SEQ field, a footnote's italic runs — so it goes in
+   * the SAME package instead of a second insert chained off the first (which Word silently drops).
+   */
+  | { kind: "xml"; content: string };
 
 const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math";
@@ -30,6 +36,26 @@ const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 const OFFICE_DOC_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
 const IMAGE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+
+/**
+ * The body of a flat-OPC package another builder made (bibOoxml's wrapPackage and friends): what sits between
+ * <w:body> and </w:body> of its document part, or "" when there is none. For the "xml" item kind.
+ */
+export function packageBodyXml(pkg: string): string {
+  const m = /<w:body>([\s\S]*?)<\/w:body>/.exec(pkg);
+  return m ? m[1] : "";
+}
+
+const STYLES_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
+
+/** Word's built-in Caption paragraph style (styleId "Caption", name "caption"), with Word's own default formatting. */
+const CAPTION_STYLES_XML =
+  `<w:styles xmlns:w="${W_NS}">` +
+  `<w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/>` +
+  `<w:uiPriority w:val="35"/><w:unhideWhenUsed/><w:qFormat/>` +
+  `<w:pPr><w:spacing w:after="200" w:line="240" w:lineRule="auto"/></w:pPr>` +
+  `<w:rPr><w:i/><w:iCs/><w:color w:val="44546A" w:themeColor="text2"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>` +
+  `</w:styles>`;
 
 /** 1 pt = 12 700 EMU. */
 const EMU_PER_PT = 12700;
@@ -136,6 +162,9 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
   const images: Array<{ id: string; name: string; base64: string }> = [];
   for (const it of items) {
     if (it.kind === "text") body.push(textPara(it.content));
+    else if (it.kind === "xml") {
+      if (it.content.trim()) body.push(it.content);
+    }
     else if (it.kind === "math") {
       try {
         body.push(`<w:p>${mathToOmml(it.content)}</w:p>`);
@@ -163,9 +192,15 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
     `<w:body>${body.join("")}</w:body></w:document>`;
   const part = (name: string, type: string, inner: string): string => `<pkg:part pkg:name="${name}" pkg:contentType="${type}">${inner}</pkg:part>`;
   const relsXml = `<Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${OFFICE_DOC_REL}" Target="word/document.xml"/></Relationships>`;
+  // A paragraph set in Word's built-in Caption style carries that style's definition in the package: Word drops a
+  // pStyle the package does not define when the target document has not used the style yet (a new document has
+  // Caption only as a latent style). Measured in Word via COM, v2.193.0: without this part the scheme caption landed
+  // as Normal; with it, as Caption. A document that already defines Caption keeps its own definition.
+  const caption = /<w:pStyle w:val="Caption"\/>/.test(documentXml);
   const docRels =
     `<Relationships xmlns="${REL_NS}">` +
     images.map((im) => `<Relationship Id="${im.id}" Type="${IMAGE_REL}" Target="media/${im.name}"/>`).join("") +
+    (caption ? `<Relationship Id="rIdStyles" Type="${STYLES_REL}" Target="styles.xml"/>` : "") +
     `</Relationships>`;
   const ooxml =
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
@@ -173,9 +208,12 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
     `<pkg:package xmlns:pkg="${PKG_NS}">` +
     part("/_rels/.rels", "application/vnd.openxmlformats-package.relationships+xml", `<pkg:xmlData>${relsXml}</pkg:xmlData>`) +
     part("/word/document.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml", `<pkg:xmlData>${documentXml}</pkg:xmlData>`) +
-    (images.length
+    (images.length || caption
       ? part("/word/_rels/document.xml.rels", "application/vnd.openxmlformats-package.relationships+xml", `<pkg:xmlData>${docRels}</pkg:xmlData>`) +
         images.map((im) => part(`/word/media/${im.name}`, "image/png", `<pkg:binaryData>${im.base64}</pkg:binaryData>`)).join("")
+      : "") +
+    (caption
+      ? part("/word/styles.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml", `<pkg:xmlData>${CAPTION_STYLES_XML}</pkg:xmlData>`)
       : "") +
     `</pkg:package>`;
   return { ooxml, pictures: images.length };

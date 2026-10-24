@@ -19,10 +19,12 @@ import {
   type Analysis,
   type IdentityScope,
 } from "../lib/antibodyReport";
+import { tableRowsNote } from "../lib/tablefigure";
 
 export interface AntibodyPaneDeps {
   setStatus: (text: string, kind?: "success" | "error" | "") => void;
-  insertTable: (rows: string[][], label: string) => Promise<void>;
+  /** Resolves to the row count Word reports for the table (null/void when it cannot say). */
+  insertTable: (rows: string[][], label: string) => Promise<number | null | void>;
   /** Resolves false when the insert did not happen (the host has already said why). */
   insertText: (text: string) => Promise<boolean>;
   insertHtml: (html: string) => Promise<void>;
@@ -177,22 +179,32 @@ export function initAntibodyPane(deps: AntibodyPaneDeps): AntibodyPaneApi {
   };
   const defName = (): string => DEFINITION_NAMES[d()];
   const insertCdrTable = async (): Promise<string> => {
-    await deps.insertTable(cdrRows(current!.chains, d()), `CDRs (${defName()})`);
-    return `CDR table (${defName()}) inserted.`;
+    const rows = cdrRows(current!.chains, d());
+    const got = await deps.insertTable(rows, `CDRs (${defName()})`);
+    return `CDR table (${defName()}) inserted (${tableRowsNote(rows, got)}).`;
   };
   const insertRegionTables = async (): Promise<string> => {
-    for (const c of current!.chains) await deps.insertTable(regionRows(c, d(), scheme.value as Scheme), `${c.name}: frameworks and CDRs (${defName()})`);
-    return `Region table${current!.chains.length === 1 ? "" : "s"} inserted.`;
+    const notes: string[] = [];
+    for (const c of current!.chains) {
+      const rows = regionRows(c, d(), scheme.value as Scheme);
+      notes.push(`${c.name}: ${tableRowsNote(rows, await deps.insertTable(rows, `${c.name}: frameworks and CDRs (${defName()})`))}`);
+    }
+    return `Region table${current!.chains.length === 1 ? "" : "s"} inserted (${notes.join("; ")}).`;
   };
   const insertNumberingTables = async (): Promise<string> => {
-    for (const c of current!.chains) await deps.insertTable(numberingRows(c, d()), `${c.name}: numbering`);
-    return `Numbering table${current!.chains.length === 1 ? "" : "s"} inserted.`;
+    const notes: string[] = [];
+    for (const c of current!.chains) {
+      const rows = numberingRows(c, d());
+      notes.push(`${c.name}: ${tableRowsNote(rows, await deps.insertTable(rows, `${c.name}: numbering`))}`);
+    }
+    return `Numbering table${current!.chains.length === 1 ? "" : "s"} inserted (${notes.join("; ")}).`;
   };
   const insertIdentityTable = async (): Promise<string> => {
     const sc = scope.value as IdentityScope;
     const what = sc === "v" ? "V domain" : sc === "fr" ? "frameworks" : `CDRs, ${defName()}`;
-    await deps.insertTable(identityRows(current!.chains, sc, d()), `% identity (${what}; aligned by IMGT position)`);
-    return "Identity table inserted.";
+    const rows = identityRows(current!.chains, sc, d());
+    const got = await deps.insertTable(rows, `% identity (${what}; aligned by IMGT position)`);
+    return `Identity table inserted (${tableRowsNote(rows, got)}).`;
   };
   const insertAnnotated = async (): Promise<string> => {
     await deps.insertHtml(annotatedHtml(current!.chains, d()));
@@ -202,8 +214,9 @@ export function initAntibodyPane(deps: AntibodyPaneDeps): AntibodyPaneApi {
     return (await deps.insertText(claims().join("\n\n"))) ? "Claim text inserted — review it before filing." : null;
   };
   const insertSeqIdTable = async (): Promise<string> => {
-    await deps.insertTable(seqIdRows(seqIds(pairChains(current!.chains), d(), start()!)), "Sequences");
-    return "SEQ ID table inserted.";
+    const rows = seqIdRows(seqIds(pairChains(current!.chains), d(), start()!));
+    const got = await deps.insertTable(rows, "Sequences");
+    return `SEQ ID table inserted (${tableRowsNote(rows, got)}).`;
   };
   cdrsBtn.addEventListener("click", run(insertCdrTable));
   regionsBtn.addEventListener("click", run(insertRegionTables));

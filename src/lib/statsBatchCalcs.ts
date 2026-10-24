@@ -25,6 +25,7 @@ import { readNumberList } from "./numberList";
 import { parseCellNumber } from "./dataimport";
 import { buildPlotSvg, combineSvgs, type Series } from "./plot";
 import { forestPlotSvg } from "./statchart";
+import { formatNum } from "./linalg";
 
 /**
  * An em dash in a Stats result is the pane's NON-FINITE sentinel and blocks
@@ -48,8 +49,8 @@ export function pText(p: number): string {
 /** Significant figures without trailing-zero noise. */
 function sig(x: number, n = 4): string {
   if (!Number.isFinite(x)) return "n/a";
-  if (x === 0) return "0";
-  return String(Number(x.toPrecision(n)));
+  // formatNum: the same digits, with a true minus and ×10ⁿ (v2.193.0: "mean difference -1.5, t(7) = -1.122").
+  return formatNum(x, n);
 }
 
 /** A typed condition/column name made into one token that can never read as a number. */
@@ -135,10 +136,10 @@ function withinLines(label: string, w: RmWithinTest, k: number): string[] {
     `${label}: F(${df2(w.df1)}, ${df2(w.df2)}) = ${sig(w.f, 4)}, ${pText(w.p)} (sphericity assumed); partial η² = ${sig(w.partialEta2, 4)}`,
   ];
   if (k > 2) {
-    out.push("  " + correctedLine("Greenhouse–Geisser", w.f, w.gg, "ε_GG"));
+    out.push("  " + correctedLine("Greenhouse–Geisser", w.f, w.gg, "ε(GG)"));
     out.push(
       w.hf
-        ? "  " + correctedLine("Huynh–Feldt", w.f, w.hf, w.hf.epsilon >= 1 ? "ε_HF, capped at 1" : "ε_HF")
+        ? "  " + correctedLine("Huynh–Feldt", w.f, w.hf, w.hf.epsilon >= 1 ? "ε(HF), capped at 1" : "ε(HF)")
         : "  Huynh–Feldt: undefined at this sample size",
     );
     out.push("  " + correctedLine("Lower bound", w.f, w.lowerBound, "ε"));

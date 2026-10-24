@@ -90,7 +90,7 @@ describe("the paired test reports d_z, not Cohen's d", () => {
   test("it is labelled d_z in the report, because it is not comparable to d", () => {
     // d_z is typically much larger for the same data; printing it as "d" would
     // overstate the effect to anyone reading it as a two-sample d.
-    expect(reportT(pairedTTest(after, before))).toContain("d_z =");
+    expect(reportT(pairedTTest(after, before))).toContain("d(z) =");
     expect(reportT(twoSampleTTest(after, before))).toMatch(/, d = /);
   });
 
@@ -106,7 +106,7 @@ describe("the report line", () => {
     // on df = 8. (An earlier version of this test asserted -2.83, which was my
     // arithmetic being wrong, not the code.)
     const line = reportT(twoSampleTTest([3, 4, 5, 6, 7], [5, 6, 7, 8, 9]));
-    expect(line).toMatch(/^t\(8\) = -2\.00, p = \.081, d = -1\.26, 95% CI \[-?\d+\.\d+, -?\d+\.\d+\]$/);
+    expect(line).toMatch(/^t\(8\) = −2\.00, p = \.081, d = −1\.26, 95% CI \[−?\d+\.\d+, −?\d+\.\d+\]$/); // true minus (v2.193.0)
   });
 
   test("says what went wrong instead of printing NaN", () => {

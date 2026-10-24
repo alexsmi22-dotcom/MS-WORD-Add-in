@@ -18,7 +18,7 @@ import type {
 } from "./host";
 import { tagInserted } from "./wordShared";
 import { findInsertedPicture, PictureSignature } from "../lib/insertCapability";
-import { prepareTableFigure } from "../lib/tablefigure";
+import { prepareEditableTable } from "../lib/tablefigure";
 
 /** One picture after the selection: size, alt text, optional caret move and tag. */
 export async function insertPictureAtSelection(o: PictureInsert): Promise<void> {
@@ -108,36 +108,33 @@ export async function insertPictureParagraphs(items: GalleryItem[]): Promise<voi
 }
 
 /**
- * Inserts a formatted, editable Word table after `anchor` and returns it —
- * header row and section-band rows bolded and shaded, numeric columns
- * right-aligned. Only queues operations; the caller syncs.
+ * Inserts a formatted, editable Word table after `anchor` (a paragraph, or the selection) and returns it, with how
+ * many rows it was given — header row bolded and shaded, numeric columns right-aligned. EVERY row: the editable
+ * table has its own grid (prepareEditableTable), not the table FIGURE's, which caps at 40 rows, shades section bands
+ * and drops a section column (v2.193.0: a 121-row Antibody numbering table went in as 40 rows, silently). Only queues
+ * operations; the caller syncs.
  */
-function insertFormattedWordTable(anchor: Word.Range, rows: string[][]): Word.Table {
-  const prepared = prepareTableFigure(rows);
+function insertFormattedWordTable(anchor: Word.Range | Word.Paragraph, rows: string[][]): { table: Word.Table; rows: number } {
+  const prepared = prepareEditableTable(rows);
   const grid = prepared.grid;
   const nRows = grid.length;
   const nCols = nRows ? grid[0].length : 0;
   if (!nRows || !nCols) throw new Error("The table is empty.");
-  // Band rows are all-empty in the prepared grid (the section text lives in
-  // bandText) — put the section text back into the first cell for insertion.
-  const insertGrid = grid.map((r, i) => (prepared.kinds[i] === "band" ? [prepared.bandText[i], ...r.slice(1)] : r));
-  const table = anchor.insertTable(nRows, nCols, Word.InsertLocation.after, insertGrid);
+  const table = anchor.insertTable(nRows, nCols, Word.InsertLocation.after, grid);
   for (let i = 0; i < nRows; i++) {
-    const kind = prepared.kinds[i];
     for (let j = 0; j < nCols; j++) {
+      const header = i === 0 && prepared.hasHeader;
+      if (!header && !prepared.numericCol[j]) continue;
       const cell = table.getCell(i, j);
-      if (kind === "header") {
+      if (header) {
         cell.body.font.bold = true;
         cell.shadingColor = "#E7EEF6";
-      } else if (kind === "band") {
-        cell.body.font.bold = true;
-        cell.shadingColor = "#DBE6F2";
-      } else if (prepared.numericCol[j]) {
+      } else {
         cell.body.paragraphs.getFirst().alignment = Word.Alignment.right;
       }
     }
   }
-  return table;
+  return { table, rows: nRows };
 }
 
 /**
@@ -168,22 +165,35 @@ async function clearTableListFormatting(context: Word.RequestContext, table: Wor
   if (detached) await context.sync();
 }
 
-/** The read table as a native, editable Word table at the cursor, with an optional centred label. */
-export async function insertEditableTable(o: EditableTableInsert): Promise<void> {
+/**
+ * The read table as a native, editable Word table at the cursor, with an optional centred label under it. Returns
+ * the number of rows Word reports the table has (null when the host cannot say), so the status line states a
+ * measured count.
+ *
+ * THE LABEL IS MADE BY THE TABLE ITSELF (Table.insertParagraph "After"), never chained from table.getRange(after):
+ * the point after a table is not a location Word inserts at, and content chained there is silently lost (v2.192.0,
+ * measured in Word). With no label the same call makes the empty paragraph the caret goes to.
+ */
+export async function insertEditableTable(o: EditableTableInsert): Promise<number | null> {
+  let rowCount: number | null = null;
   await Word.run(async (context) => {
     const range = context.document.getSelection();
-    const table = insertFormattedWordTable(range, o.rows);
-    let tail = table.getRange(Word.RangeLocation.after);
-    if (o.label) {
-      const cap = tail.insertParagraph(o.label, Word.InsertLocation.after);
-      cap.alignment = Word.Alignment.centered;
-      cap.styleBuiltIn = Word.BuiltInStyleName.normal;
-      tail = cap.getRange(Word.RangeLocation.after);
-    }
-    tail.select(Word.SelectionMode.end);
+    const { table } = insertFormattedWordTable(range, o.rows);
+    const below = table.insertParagraph(o.label || "", Word.InsertLocation.after);
+    below.styleBuiltIn = Word.BuiltInStyleName.normal;
+    if (o.label) below.alignment = Word.Alignment.centered;
+    below.getRange(Word.RangeLocation.end).select(Word.SelectionMode.end);
     await context.sync();
     await clearTableListFormatting(context, table);
+    try {
+      table.load("rowCount");
+      await context.sync();
+      rowCount = typeof table.rowCount === "number" ? table.rowCount : null;
+    } catch {
+      rowCount = null; // no count available; the table is in
+    }
   });
+  return rowCount;
 }
 
 /**
@@ -329,22 +339,47 @@ async function figureTail(context: Word.RequestContext, picture: Word.InlinePict
   }
   // Optionally follow the image with an editable Word table of the data,
   // so the text is editable even though the figure itself is an image.
-  let tail = picture.getRange(Word.RangeLocation.end);
+  //
+  // ONLY SUPPORTED INSERTION POINTS (v2.193.0): a fresh paragraph made at the picture's END (never its "after"
+  // range), the table inserted by THAT PARAGRAPH, and the caret on a paragraph the TABLE makes below itself. The old
+  // chain — para.getRange(after) for the table, table.getRange(after) for the caret — anchored on locations Word does
+  // not insert at.
+  const tail = picture.getRange(Word.RangeLocation.end);
   let dataTable: Word.Table | null = null;
   if (spec.rows) {
     const para = tail.insertParagraph("", Word.InsertLocation.after);
-    dataTable = insertFormattedWordTable(para.getRange(Word.RangeLocation.after), spec.rows());
-    tail = dataTable.getRange(Word.RangeLocation.after);
+    dataTable = insertFormattedWordTable(para, spec.rows()).table;
+    const below = dataTable.insertParagraph("", Word.InsertLocation.after);
+    below.getRange(Word.RangeLocation.end).select(Word.SelectionMode.end);
+  } else {
+    tail.select(Word.SelectionMode.end);
   }
-  tail.select(Word.SelectionMode.end);
   await context.sync();
   if (dataTable) await clearTableListFormatting(context, dataTable);
   await tagInserted(context, picture.getRange(), spec.tag);
 }
 
-/** The PNG route of the one figure insert path: picture, size in points, alt, tag, tail. */
-export async function insertFigurePng(o: FigureInsertWord & { base64: string }): Promise<void> {
+/** The body's in-line picture count, or null when the host cannot say (instrumentation never breaks an insert). */
+async function bodyPictureCount(context: Word.RequestContext): Promise<number | null> {
+  try {
+    const pics = context.document.body.inlinePictures;
+    pics.load("items");
+    await context.sync();
+    return pics.items.length;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The PNG route of the one figure insert path: picture, size in points, alt, tag, tail. Returns how many pictures
+ * Word KEPT (body count after minus before; null when the host cannot say): a PNG that stayed over the payload size
+ * at 1× is still sent, and Word may accept it and keep nothing, so the pane checks this instead of assuming.
+ */
+export async function insertFigurePng(o: FigureInsertWord & { base64: string }): Promise<number | null> {
+  let kept: number | null = null;
   await Word.run(async (context) => {
+    const before = await bodyPictureCount(context);
     const range = context.document.getSelection();
     const picture = range.insertInlinePictureFromBase64(o.base64, Word.InsertLocation.after);
     picture.width = o.widthPt;
@@ -355,7 +390,12 @@ export async function insertFigurePng(o: FigureInsertWord & { base64: string }):
     if (o.tag) await tagInserted(context, picture.getRange(), o.tag);
     await figureTail(context, picture, o);
     await context.sync();
+    if (before !== null) {
+      const after = await bodyPictureCount(context);
+      kept = after === null ? null : after - before;
+    }
   });
+  return kept;
 }
 
 /** setSelectedDataAsync as a promise that always settles (10 s bound on the callback API). */

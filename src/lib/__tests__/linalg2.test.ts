@@ -122,9 +122,11 @@ describe("formatComplex", () => {
   it("renders real, imaginary, and full complex forms", () => {
     expect(formatComplex({ re: 3, im: 0 })).toBe("3");
     expect(formatComplex({ re: 0, im: 1 })).toBe("i");
-    expect(formatComplex({ re: 0, im: -1 })).toBe("-i");
+    // True minus (v2.193.0, display contract).
+    expect(formatComplex({ re: 0, im: -1 })).toBe("−i");
     expect(formatComplex({ re: 2, im: 3 })).toBe("2 + 3i");
-    expect(formatComplex({ re: 2, im: -3 })).toBe("2 - 3i");
+    expect(formatComplex({ re: 2, im: -3 })).toBe("2 − 3i");
+    expect(formatComplex({ re: -2, im: -3 })).toBe("−2 − 3i");
   });
 });
 

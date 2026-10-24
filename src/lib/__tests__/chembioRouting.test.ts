@@ -230,7 +230,13 @@ describe("Reaction mode: Structures | Formulas is an explicit toggle", () => {
   });
   it("the Formulas insert is text then the figure, and only if the text landed", () => {
     const body = paneFn("insertReactionBalance");
-    expect(body).toMatch(/if \(!\(await insertDerivation\(blocks, plain, "Balanced equation"\)\)\) return;/);
+    // v2.193.0: text and figure as ONE package (insertDerivationWithFigure), so the chart cannot land above the
+    // equation; it falls back to the text alone when Word refuses the package. No figure: the derivation path.
+    expect(body).toMatch(/await insertDerivationWithFigure\(blocks, plain, "Balanced equation", \{/);
+    expect(body).toMatch(/if \(!rep\.svg\) \{\s*await insertDerivation\(blocks, plain, "Balanced equation"\);/);
+    const helper = paneFn("insertDerivationWithFigure");
+    expect(helper).toMatch(/buildResultOoxml\(\[/);
+    expect(helper).toMatch(/const ok = await insertPlainText\(plain, label\);/);
   });
 });
 

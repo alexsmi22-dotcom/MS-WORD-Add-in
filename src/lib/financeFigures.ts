@@ -7,9 +7,16 @@ import { buildPlotSvg, Point } from "./plot";
 import { blackScholes, bondPrice, OptionType } from "./finance";
 import { ladderSvg, LadderRow } from "./mechchart";
 
+/** A formatted number's leading hyphen as a true minus, and a negative zero ("-0.00", "-0.00%") as plain zero. */
+function trueMinusFixed(s: string): string {
+  if (/^-0(?:[.,]0*)?%?$/.test(s)) return s.slice(1);
+  return s.startsWith("-") ? "−" + s.slice(1) : s;
+}
+
 export function finMoney(x: number): string {
   if (!Number.isFinite(x)) return "—";
-  return x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // True minus (v2.193.0): a negative NPV printed "-1,234.56" with an ASCII hyphen.
+  return trueMinusFixed(x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 }
 export function finPct(x: number): string {
   // Same non-finite guard as finMoney. Without it, a constant return series
@@ -17,12 +24,14 @@ export function finPct(x: number): string {
   // insertability gate below only blocked on the em dash — so "Sharpe ratio NaN"
   // went into the user's document as though it were a number.
   if (!Number.isFinite(x)) return "—";
-  return (x * 100).toFixed(2) + "%";
+  return trueMinusFixed((x * 100).toFixed(2) + "%");
 }
 /** Fixed-decimal formatting that cannot emit "NaN" or "Infinity". */
 export function finFixed(x: number, dp: number): string {
   if (!Number.isFinite(x)) return "—";
-  return x.toFixed(dp);
+  // A true minus (v2.193.0: "Theta -0.0176 per day" had an ASCII hyphen), and no "−0.0000" for a value that rounds
+  // to zero.
+  return trueMinusFixed(x.toFixed(dp));
 }
 
 /**

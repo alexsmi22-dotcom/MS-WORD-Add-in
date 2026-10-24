@@ -9,6 +9,7 @@ import { assaySig } from "../assayFormat";
 import { featureLength, parseGenBank, parseLocation, type SeqRecord } from "../seqio";
 import { parseSnapGeneDna } from "../seqdna";
 import { buildCircularMapSvg } from "../seqmapcirc";
+import { ENZYMES, findSites, formatSite, type Enzyme } from "../enzymes";
 
 const META: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", applicantFileReference: "R1", productionDate: "2026-10-24" };
 
@@ -337,5 +338,48 @@ describe("4. SnapGene origin-spanning segments (Biopython: join{[2800:3000],[0:1
     const r = parseSnapGeneDna(snapgene(`<Features><Feature name="x" type="CDS"><Segment range="5000-10"/></Feature></Features>`));
     if (!r.ok) throw new Error(r.error);
     expect(r.record.features).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Restriction enzymes: PleI / BciVI bottom cuts, EcoP15I (Type III), end cuts.
+// ---------------------------------------------------------------------------
+//   from Bio import Restriction as R
+//   R.PleI.fst5, R.PleI.ovhg  → 9, −1   (GAGTC(4/5): bottom cut 10)
+//   R.BciVI.fst5, R.BciVI.ovhg → 12, +1 (GTATCC(6/5): bottom cut 11)
+// The whole table (121 enzymes) was also diffed against Bio.Restriction
+// search() on a seeded random 5 kb sequence, circular and linear: 0 differences.
+describe("6. restriction enzymes", () => {
+  const byName = (n: string): Enzyme => ENZYMES.find((e) => e.name === n) as Enzyme;
+  test("PleI GAGTC(4/5) and BciVI GTATCC(6/5) bottom-strand cuts", () => {
+    expect([byName("PleI").cutTop, byName("PleI").cutBottom]).toEqual([9, 10]);
+    expect([byName("BciVI").cutTop, byName("BciVI").cutBottom]).toEqual([12, 11]);
+    expect(formatSite(byName("PleI"))).toBe("GAGTC(4/5)");
+    expect(formatSite(byName("BciVI"))).toBe("GTATCC(6/5)");
+  });
+  test("a REVERSE PleI site cuts the top strand where Bio.Restriction says", () => {
+    // GACTC (reverse PleI) at 1-based 21..25 of 60 A's: Bio search → top cut after base 15 (21 − 5 − 1).
+    const seq = "A".repeat(20) + "GACTC" + "A".repeat(35);
+    const h = findSites(seq, { only: ["PleI"] });
+    expect(h.map((x) => [x.strand, x.cutPosition])).toEqual([[-1, 15]]);
+  });
+  test("EcoP15I (Type III: needs two inversely oriented sites) is not a single-site cutter here", () => {
+    expect(ENZYMES.some((e) => e.name === "EcoP15I")).toBe(false);
+  });
+  test("linear end: AlwI whose top cut lands at 4000/4000 does not cut", () => {
+    const seq = "A".repeat(3991) + "GGATC" + "AAAA"; // site 3992..3996, top cut 4000, bottom 4001
+    expect(seq.length).toBe(4000);
+    const h = findSites(seq, { only: ["AlwI"] });
+    expect(h.length).toBe(1);
+    expect(h[0].cutPosition).toBeNull();
+    expect(findSites(seq, { only: ["AlwI"], circular: true })[0].cutPosition).toBe(4000);
+  });
+  test("linear end: Sau3AI on a GATC at 797..800 of 800 (bottom cut at 800) does not cut", () => {
+    const seq = "A".repeat(796) + "GATC";
+    const h = findSites(seq, { only: ["Sau3AI"] });
+    expect(h.length).toBe(1);
+    expect(h[0].cutPosition).toBeNull();
+    // One base more and both strands are cut.
+    expect(findSites(seq + "A", { only: ["Sau3AI"] })[0].cutPosition).toBe(796);
   });
 });

@@ -242,7 +242,7 @@ export const ENZYMES: Enzyme[] = [
   { name: "BsaBI", site: "GATNNNNATC", cutTop: 5, cutBottom: 5 },
   { name: "BstAPI", site: "GCANNNNNTGC", cutTop: 7, cutBottom: 4 },
   { name: "PflFI", site: "GACNNNGTC", cutTop: 4, cutBottom: 5 },
-  { name: "BciVI", site: "GTATCC", cutTop: 12, cutBottom: 10, typeIIS: true },
+  { name: "BciVI", site: "GTATCC", cutTop: 12, cutBottom: 11, typeIIS: true }, // GTATCC(6/5): Bio.Restriction fst5 12, ovhg +1
 
   // --- Type IIS — cut OUTSIDE the recognition site -------------------------
   // These power Golden Gate assembly. They are ASYMMETRIC, so a forward-only
@@ -260,13 +260,19 @@ export const ENZYMES: Enzyme[] = [
   { name: "FokI", site: "GGATG", cutTop: 14, cutBottom: 18, typeIIS: true },
   { name: "HgaI", site: "GACGC", cutTop: 10, cutBottom: 15, typeIIS: true },
   { name: "MlyI", site: "GAGTC", cutTop: 10, cutBottom: 10, typeIIS: true },
-  { name: "PleI", site: "GAGTC", cutTop: 9, cutBottom: 13, typeIIS: true },
+  { name: "PleI", site: "GAGTC", cutTop: 9, cutBottom: 10, typeIIS: true }, // GAGTC(4/5): Bio.Restriction fst5 9, ovhg −1
   { name: "AlwI", site: "GGATC", cutTop: 9, cutBottom: 10, typeIIS: true },
   { name: "MmeI", site: "TCCRAC", cutTop: 26, cutBottom: 24, typeIIS: true },
   { name: "BsgI", site: "GTGCAG", cutTop: 22, cutBottom: 20, typeIIS: true },
   { name: "BpmI", site: "CTGGAG", cutTop: 22, cutBottom: 20, typeIIS: true },
   { name: "BpuEI", site: "CTTGAG", cutTop: 22, cutBottom: 20, typeIIS: true },
-  { name: "EcoP15I", site: "CAGCAG", cutTop: 31, cutBottom: 33, typeIIS: true },
+  // EcoP15I is NOT here, deliberately. It was listed as a Type IIS single-site
+  // cutter (CAGCAG 25/27), but REBASE classifies it as a TYPE III enzyme (checked
+  // 2026-10-24, rebase.neb.com/rebase/enz/EcoP15I.html: "Type III restriction
+  // enzyme"), and Type III enzymes cut only between TWO inversely oriented sites
+  // (Meisel et al., Nature 355:467, 1992 — shown for EcoP15I). Every lone CAGCAG
+  // was a predicted cut that does not happen. A digest model of pairs is not
+  // built, so it is left out rather than drawn wrong.
 ];
 
 /** Reverse complement, IUPAC-aware. */
@@ -493,12 +499,21 @@ export function findSites(seq: string, opts: FindOptions = {}): EnzymeHit[] {
         // enzyme (BsaI, BsmBI, BbsI, SapI) was affected: reverse BsaI at position
         // 11 reported a cut at 9 when it is at 5.
         const cut = strand === 1 ? i + e.cutTop : i + site.length - e.cutBottom;
+        // The molecule's BOTTOM-strand cut, same frame (mirrored the same way).
+        const cutB = strand === 1 ? i + e.cutBottom : i + site.length - e.cutTop;
+        // On a LINEAR molecule the enzyme makes a double-strand break only when
+        // BOTH strand cuts fall on a phosphodiester bond, i.e. strictly inside
+        // 1..n−1 bases from the left end. A cut "at" 0 or n is the end of the
+        // molecule: AlwI whose top cut lands after the last base of a 4000 bp
+        // fragment, or Sau3AI on a GATC that ends at 800/800 (top cut 796, bottom
+        // cut 800) were reported as cuts — and digests counted an extra fragment.
+        const linearOk = opts.circular || (cut >= 1 && cut <= n - 1 && cutB >= 1 && cutB <= n - 1);
         hits.push({
           enzyme: e.name,
           site: e.site,
           position: pos,
           strand,
-          cutPosition: cutCoordinate(cut, n, !!opts.circular),
+          cutPosition: linearOk ? cutCoordinate(cut, n, !!opts.circular) : null,
           overhang: kind,
           overhangLength: length,
           typeIIS: e.typeIIS,

@@ -128,7 +128,7 @@ describe("offline: no network, and the UI says so", () => {
       expect(src).not.toMatch(/\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|\bimport\(|\brequire\(/);
       const imports = [...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
       for (const imp of imports) {
-        expect(["./bibRecord", "./doi", "./cslJson", "./bibNames", "./latexUnicode"]).toContain(imp);
+        expect(["./bibRecord", "./doi", "./ris", "./cslJson", "./bibNames", "./latexUnicode"]).toContain(imp);
       }
     }
   });

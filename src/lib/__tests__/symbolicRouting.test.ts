@@ -9,7 +9,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { normalizeTaskProse, resolveTaskVerb, foldPastedMath } from "../pasteMath";
-import { isSeriesOrRadiusRequest, isProseRequest, rootDisplayIsComplex, seriesFailureMessage, solveToTypesetDsl } from "../solveTypeset";
+import { isSeriesOrRadiusRequest, isProseRequest, seriesFailureMessage, solveToTypesetDsl } from "../solveTypeset";
 import { solveEquation } from "../solve";
 import { tryRadius, radiusSvg } from "../radius";
 import { taylorSeries, parseSeriesRequest } from "../analysis";
@@ -228,20 +228,6 @@ describe("series and radius phrasings switch (§E.12) — through isSeriesOrRadi
 });
 
 describe("root typesetting (§E.8)", () => {
-  it.each([
-    ["2*cos(2*pi/9)", false],
-    ["2*sqrt(1234567/3)*cos(acos(-3/2469134*sqrt(3/1234567))/3)", false],
-    ["sin(1)", false],
-    ["cbrt(2)", false],
-    ["i", true],
-    ["-i", true],
-    ["1 + i", true],
-    ["-1/2*cbrt(2) + sqrt(3)/2*cbrt(2)*i", true],
-    ["140737488355328i", true],
-    ["1 (×4)", true],
-  ])("%s → complex/marked: %s", (d, want) => {
-    expect(rootDisplayIsComplex(d)).toBe(want);
-  });
   it.each([
     ["x = cbrt(2)", "x = root(3, 2)", 1],
     ["x = 2^(1/4)", "x = root(4, 2)", 1],

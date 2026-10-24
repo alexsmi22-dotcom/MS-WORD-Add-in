@@ -556,7 +556,11 @@ const pcrCalc: CloningCalc = {
     const start = plainNum(read("start"));
     const end = plainNum(read("end"));
     if (!Number.isFinite(start) || !Number.isFinite(end)) {
-      return refuse("The region must be two whole-number base positions (start and end, 1-based and inclusive), for example 101 and 450.");
+      // The typed text is echoed, except a NaN/Infinity spelling, which the display contract never prints.
+      const typed = [read("start") ?? "", read("end") ?? ""];
+      return typed.some((t) => /nan|inf/i.test(t))
+        ? refuse("The region must be two whole-number base positions (start and end, 1-based and inclusive), for example 101 and 450.")
+        : refuse(`The region must be two base positions, 1-based and inclusive; “${typed[0]}” to “${typed[1]}” is not.`);
     }
     const targetTm = plainNum(read("tm")) || 60;
     const lmin = plainNum(read("lmin")) || 18;

@@ -76,16 +76,6 @@ export function seriesFailureMessage(expr: string, variable: string, centre: num
   return generic;
 }
 
-/**
- * Does a displayed root carry an imaginary unit or a multiplicity marker (so
- * it stays text rather than being typeset)? TOKEN-aware: the `i` in `pi`,
- * `sin` or `acos(…)` is not the imaginary unit. No lookbehind — the pane must
- * parse on WebKit before Safari 16.4.
- */
-export function rootDisplayIsComplex(display: string): boolean {
-  return /×/.test(display) || /(^|[^A-Za-z_])i(?![A-Za-z_(])/.test(display);
-}
-
 /** Index of the ")" closing the "(" at `open`, or -1. */
 function closingParen(s: string, open: number): number {
   let depth = 0;

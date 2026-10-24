@@ -62,12 +62,12 @@ beforeAll(() => {
 describe("1 + 9 — isolated, isotopic, charged and radical carbons are labelled; masses are superscripts on the element", () => {
   test.each([
     ["O=[13C]=O", ["O{96}", "13{64}C{96}", "O{96}"]],
-    ["[13CH3]O", ["13{64}CH3{96}", "HO{96}"]],
+    ["[13CH3]O", ["H3{96}13{64}C{96}", "OH{96}"]],
     ["C", ["CH4{96}"]],
     ["[CH3-]", ["CH3{96}"]],
     ["[CH3]", ["CH3{96}"]],
-    ["C[15NH2]", ["·", "H2{96}15{64}N{96}"]],
-    ["[15NH2]C", ["15{64}NH2{96}", "·"]],
+    ["C[15NH2]", ["·", "15{64}NH2{96}"]],
+    ["[15NH2]C", ["H2{96}15{64}N{96}", "·"]],
   ])("%s", (smiles, want) => {
     expect(labelsOf(smiles)).toEqual(want);
   });

@@ -332,7 +332,8 @@ describe("13. figures: nothing on the frame or in the corner", () => {
     for (const x of ["ibuprofen", "ethyl acetate", "toluene"]) {
       const svg = hsqcChartSvg(predictHsqc(x)!)!;
       const f = frame(svg);
-      const pts = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)"/g)].map((m) => [+m[1], +m[2]]);
+      // A legend swatch (a circle followed by its label) sits outside the frame by design.
+      const pts = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)"[^>]*\/>(?!<text)/g)].map((m) => [+m[1], +m[2]]);
       expect(pts.length).toBeGreaterThan(0);
       for (const [cx, cy] of pts) {
         expect(cx - f.x0).toBeGreaterThanOrEqual(4);

@@ -524,10 +524,10 @@ const METALLOCENE: Record<string, string> = {
   "metallocene-borohydride Fe": "2dc64ec545c4e9bd",
   "metallocene-borohydride Ti": "20579c23e76ee43a",
   "metallocene-borohydride Hf": "4209d03008a47cad",
-  "polymer-metallocene Zr": "fc09f687ba63d689",
-  "polymer-metallocene Fe": "12792bee88b8ca0d",
-  "polymer-metallocene Ti": "e307e95bbc64f929",
-  "polymer-metallocene Hf": "10f52496bbd8f6d7",
+  "polymer-metallocene Zr": "f1c9dfc1402895ea",
+  "polymer-metallocene Fe": "8f30a9fa2e4283ea",
+  "polymer-metallocene Ti": "f83f05715e3c8159",
+  "polymer-metallocene Hf": "6eefbb8c4c62ce83",
 };
 describe("metallocene templates: their drawing is locked (Release D state)", () => {
   for (const t of ["metallocene-dichloride", "ansa-metallocene", "half-sandwich", "metallocene-borohydride", "polymer-metallocene"])

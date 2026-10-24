@@ -79,6 +79,12 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("H_2/H_1 = (N_2/N_1)^2 (D_2/D_1)^2", "H₂/H₁ = (N₂/N₁)²(D₂/D₁)²"),
     eq("P_2/P_1 = (N_2/N_1)^3 (D_2/D_1)^5", "P₂/P₁ = (N₂/N₁)³(D₂/D₁)⁵"),
   ],
+  // Impeller trimmed in the same casing (Karassik, Pump Handbook; Hydraulic Institute): Q ∝ D, H ∝ D², P ∝ D³.
+  "affinity:trim": [
+    eq("Q_2/Q_1 = (N_2/N_1) (D_2/D_1)", "Q₂/Q₁ = (N₂/N₁)(D₂/D₁)"),
+    eq("H_2/H_1 = (N_2/N_1)^2 (D_2/D_1)^2", "H₂/H₁ = (N₂/N₁)²(D₂/D₁)²"),
+    eq("P_2/P_1 = (N_2/N_1)^3 (D_2/D_1)^3", "P₂/P₁ = (N₂/N₁)³(D₂/D₁)³"),
+  ],
   "body-drag": [eq("F_D = (1/2) rho V^2 C_d A", "FD = ½·ρ·V²·Cd·A"), eq("P = F_D V", "P = FD·V")],
   "body-drag:terminal": [eq("V_t = sqrt(2 m g/(rho C_d A))", "Vt = √(2m·g/(ρ·Cd·A))")],
   "body-drag:reynolds": [eq("Re = rho V L/mu", "Re = ρ·V·L/μ")],

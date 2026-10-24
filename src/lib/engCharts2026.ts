@@ -110,7 +110,7 @@ export function nernstChartSvg(E0: number, slopePerDecade: number, log10Q: numbe
   const line = xs.map((x) => ({ x, y: E0 - slopePerDecade * x }));
   return buildPlotSvg(
     [
-      { points: line, type: "line", color: "#000000", label: `E = E° − ${fmtSig(slopePerDecade * 1000, 4)} mV · log₁₀Q` },
+      { points: line, type: "line", color: "#000000", label: `slope −${fmtSig(slopePerDecade * 1000, 4)} mV/decade` },
       { points: [{ x: log10Q, y: E0 - slopePerDecade * log10Q }], type: "scatter", color: "#c00000", label: "this Q" },
     ],
     { xlabel: "log₁₀ Q", ylabel: "E (V)", width, height: Math.round(width * 0.64) },

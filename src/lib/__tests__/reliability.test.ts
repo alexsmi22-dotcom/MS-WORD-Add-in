@@ -138,7 +138,7 @@ describe("Weibull fit against a brute-force maximum of the likelihood", () => {
     expect(two.ok).toBe(true);
     if (!two.ok) return;
     expect(two.beta).toBeGreaterThan(1);
-    expect(two.regime).toBe("constant hazard");
+    expect(two.regime).toBe("not distinguishable from constant at 95 %"); // fix2-eng1 wording (was "constant hazard")
     expect(two.betaLow!).toBeLessThan(1);
     expect(two.betaHigh!).toBeGreaterThan(1);
 

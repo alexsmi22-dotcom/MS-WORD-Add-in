@@ -68,8 +68,20 @@ const MAX_NODES = 200;
 const MAX_MEMBERS = 400;
 
 /** Solves A x = b by Gaussian elimination with partial pivoting; null when singular (relative to the matrix's scale). */
-function solve(A: number[][], b: number[]): number[] | null {
-  const n = b.length;
+function solve(A0: number[][], b0: number[]): number[] | null {
+  const n = b0.length;
+  // SYMMETRIC DIAGONAL SCALING first (A → DAD, D = 1/√|Aᵢᵢ|). Translations and rotations carry stiffnesses of very
+  // different size (12EI/L³ against 4EI/L), so one tolerance against the largest entry called a stiff 1 nm member's
+  // rotation "singular" and refused a sound cantilever as a mechanism. Scaled, every diagonal is 1 and the pivot
+  // test below is relative to each degree of freedom's own stiffness; a real mechanism still pivots at ~10⁻¹⁶.
+  const D = A0.map((r, i) => (Math.abs(r[i]) > 0 && Number.isFinite(r[i]) ? 1 / Math.sqrt(Math.abs(r[i])) : 1));
+  const A = A0.map((r, i) => r.map((v, j) => v * D[i] * D[j]));
+  const b = b0.map((v, i) => v * D[i]);
+  const y = solveScaled(A, b, n);
+  return y === null ? null : y.map((v, i) => v * D[i]);
+}
+
+function solveScaled(A: number[][], b: number[], n: number): number[] | null {
   const M = A.map((r, i) => [...r, b[i]]);
   const scale = Math.max(1e-300, ...A.map((r) => Math.max(...r.map(Math.abs))));
   for (let c = 0; c < n; c++) {

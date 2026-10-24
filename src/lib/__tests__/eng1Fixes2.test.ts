@@ -22,6 +22,16 @@ import { flueGas } from "../energy";
 import { readTlc } from "../tlc";
 import { MATERIALS_CALCS } from "../materialsCalcs";
 import { fillNormals } from "../monteCarlo";
+import { CHROM_CALCS } from "../chromCalcs";
+import { analyzeBeam, parseSupports, parseLoads, parseLength } from "../beam";
+import { analyzeFrame, parseFrame } from "../frame2d";
+import { affinityLaws } from "../fluids2";
+import { weibullFit } from "../reliability";
+import { toKelvin, checkAgainstCarnot } from "../thermo";
+import { radiationExchange } from "../heat2";
+import { steadyState } from "../pk";
+import { drawPlan, readPeakTable, analyzePeaks } from "../chromatography";
+import { tensileTest } from "../materialsTesting";
 import type { AnalyzeOutput } from "../analyzeBlocks";
 
 const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8").replace(/\r\n/g, "\n");
@@ -204,5 +214,156 @@ describe("Suspicion: Monte Carlo normal stream is i.i.d. N(0, 1) in each dimensi
       expect(spread).toBeLessThan(1.25 * se);
     }
     expect(Math.max(...cors.map(Math.abs))).toBeLessThan(0.1);
+  });
+});
+
+describe("4. Results tables are table blocks with units in the header", () => {
+  const tableOf = (o: AnalyzeOutput): string[][] => {
+    const b = (o.blocks ?? []).find((x) => x.kind === "table");
+    if (!b || b.kind !== "table") throw new Error("no table block");
+    return b.rows;
+  };
+  test("chem-peak-table: header t(R) (min), Area (%), Rₛ; no tab-separated text lines", () => {
+    const calc = CHROM_CALCS.find((c) => c.id === "chem-peak-table")!;
+    const out = calc.compute((k) => (k === "unit" ? "min" : k === "tm" ? "1.05" : (calc.fields.find((f) => f.key === k)?.default ?? "")));
+    const rows = tableOf(out);
+    expect(rows[0]).toEqual(["Peak", "Name", "t(R) (min)", "Area (%)", "k", "N", "Rₛ (to next)", "α (to next)", "T"]);
+    expect(rows.length).toBe(5);
+    expect((out.blocks ?? []).filter((b) => b.kind === "line" && b.text.includes("\t"))).toEqual([]);
+    expect(out.text).toContain("dead time t(M) = 1.05 min");
+    expect(out.text).not.toMatch(/\btR\b|\btM\b/);
+  });
+  test("mat-scherrer and qual-tolerance-stack", () => {
+    const run = (id: string): AnalyzeOutput => {
+      const c = MATERIALS_CALCS.find((x) => x.id === id)!;
+      return c.compute((k) => c.fields.find((f) => f.key === k)?.default ?? "");
+    };
+    expect(tableOf(run("mat-scherrer"))[0]).toEqual(["2θ (°)", "FWHM observed (°)", "Instrumental FWHM (°)", "β (°)", "Crystallite size τ"]);
+    const st = run("qual-tolerance-stack");
+    expect(tableOf(st)[0][3]).toBe("Share of RSS variance (%)");
+    const tables = (st.blocks ?? []).filter((b) => b.kind === "table");
+    expect(tables.length).toBe(2);
+  });
+});
+
+describe("5. Display", () => {
+  test("pane figure labels and titles", () => {
+    expect(PANE).not.toMatch(/\(deg C\)/);
+    expect(PANE).not.toMatch(/Cooling curve, tau = /);
+    expect(PANE).not.toMatch(/Square-root response, beta = /);
+    expect(PANE).not.toMatch(/MPa·sqrt\(m\)/);
+    expect(PANE).not.toMatch(/label: "toughness K_IC"/);
+    expect(PANE).not.toMatch(/"standby \(perfect switch\)"/);
+    expect(toolSource("radiation") + toolSource("lumped")).toBeTruthy();
+  });
+  test("section drawing reads c (top) / c (bot); Nernst legend fits the 22-character legend", () => {
+    const mech = fs.readFileSync(path.join(__dirname, "..", "mechchart.ts"), "utf8");
+    expect(mech).not.toMatch(/c_top|c_bot/);
+    expect(mech).toMatch(/c \(top\) = /);
+    const charts = fs.readFileSync(path.join(__dirname, "..", "engCharts2026.ts"), "utf8");
+    expect(charts).toMatch(/label: `slope −\$\{fmtSig\(slopePerDecade \* 1000, 4\)\} mV\/decade`/);
+    expect("slope −29.58 mV/decade".length).toBeLessThanOrEqual(22);
+    expect("standby, ideal switch".length).toBeLessThanOrEqual(22);
+  });
+  test("radiation note: no binary noise from a kelvin input", () => {
+    const r = radiationExchange({ geometry: "large", t1C: 527, t2C: 300 - 273.15, eps1: 0.8, eps2: 0.8, area: 1 });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.notes.join(" ")).toContain("26.85 °C");
+    expect(r.notes.join(" ")).not.toMatch(/26\.8500000/);
+  });
+  test("absolute-zero refusal: true minus and degree signs", () => {
+    const k = toKelvin(-5, "K");
+    expect(typeof k).toBe("object");
+    if (typeof k === "object") expect(k.error).toMatch(/^−5 K is −5\.00 K, at or below absolute zero/);
+    const c = toKelvin(-300, "C");
+    if (typeof c === "object") expect(c.error).toMatch(/^−300 °C is −26\.85 K/);
+  });
+  test("handoff tooltip typesets ×10ⁿ", () => {
+    expect(PANE).toMatch(/b\.title = `\$\{g\.rows\.map\(\(h\) => `\$\{h\.value\.label\} = \$\{trueMinus\(typesetENotation\(engNum\(h\.value\.value\)\)\)\}/);
+  });
+  test("pk-steady ka = ke note: t·e⁻ᵏᵗ", () => {
+    const r = steadyState({ dose: 500, vd: 35, cl: 3.5, f: 1, ka: 0.1 }, 12);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.notes.join(" ")).toContain("t·e⁻ᵏᵗ");
+    expect(r.notes.join(" ")).not.toContain("e^(");
+  });
+  test("section prints S, c, r, Q with units; column handoff phrase reads", () => {
+    const sec = toolSource("section");
+    expect(sec).toMatch(/Section modulus S = \$\{engNum\(p\.sTop, figs\)\} \$\{dimUnit\}³ \(c = \$\{engNum\(p\.cTop, figs\)\} \$\{dimUnit\}\)/);
+    expect(sec).toMatch(/Radius of gyration r = \$\{engNum\(p\.r, figs\)\} \$\{dimUnit\}`/);
+    expect(sec).toMatch(/First moment Q at the neutral axis = \$\{engNum\(p\.Q, figs\)\} \$\{dimUnit\}³/);
+    expect(PANE).not.toMatch(/either \(both equal\)/);
+    expect(PANE).toMatch(/about either axis \(both are equal\)/);
+  });
+});
+
+describe("7. Minor text", () => {
+  test("beam: a point moment of 12 at midspan peaks at exactly ±6", () => {
+    const sup = parseSupports("pin 0, roller 6");
+    const lds = parseLoads("moment 12 at 3");
+    const r = analyzeBeam({ length: parseLength("6")!, supports: sup.supports, loads: lds.loads });
+    if (!r.ok) throw new Error("refused");
+    expect(r.maxMoment.value).toBe(6);
+    expect(r.minMoment.value).toBe(-6);
+    expect(r.maxMoment.exact).toBe(true);
+  });
+  test("tensile: the automatic window reads as prose", () => {
+    const t = tensileTest({ strain: [0, 0.001, 0.002, 0.003, 0.004, 0.006, 0.01, 0.02], stress: [0, 100, 195, 280, 350, 400, 420, 410], offset: 0.002 });
+    if (!t.ok) throw new Error(t.error);
+    const all = [t.modulus?.windowRule ?? "", ...t.notes].join(" ");
+    expect(all).not.toMatch(/over automatic:|\(automatic:/);
+    if (t.modulus) expect(t.modulus.windowRule).toMatch(/^the automatic window \(/);
+  });
+  test("peak table note names what the table holds", () => {
+    const tb = readPeakTable("RT\tArea\n2\t100\n3\t300");
+    if (!tb.ok) throw new Error(tb.error);
+    const a = analyzePeaks(tb.rows, null);
+    if (!a.ok) throw new Error(a.error);
+    const n = drawPlan(a.peaks).notes.join(" ");
+    expect(n).not.toMatch(/No heights or areas/);
+    expect(n).toMatch(/areas have no W₀\.₅/);
+  });
+  test("Carnot check: An efficiency", () => {
+    const r = checkAgainstCarnot(0.68, 773.15, 293.15, "efficiency");
+    if (!r.ok) throw new Error(r.error);
+    expect(r.message).toMatch(/^An efficiency of 0\.68 EXCEEDS/);
+  });
+  test("capacity factor: one precision across the table", () => {
+    expect(toolSource("energy-capacity-factor")).toMatch(/const sig = Math\.max\(4, engFigures/);
+    expect(toolSource("energy-capacity-factor")).toMatch(/engNum\(res\.capacityFactor, sig\)/);
+  });
+});
+
+describe("Suspicions resolved", () => {
+  test("affinity: trimming law by default (Q ∝ D, P ∝ D³); similarity law on request", () => {
+    const base = { flow1: 100, head1: 50, power1: 20000, speed1: 1450, speed2: 1450, diameter1: 300, diameter2: 270 };
+    const t = affinityLaws(base);
+    if (!t.ok) throw new Error(t.error);
+    expect(t.flow2).toBeCloseTo(90, 9);
+    expect(t.head2).toBeCloseTo(40.5, 9);
+    expect(t.power2).toBeCloseTo(14580, 6);
+    const s = affinityLaws({ ...base, diameterLaw: "similar" });
+    if (!s.ok) throw new Error(s.error);
+    expect(s.flow2).toBeCloseTo(72.9, 9);
+    expect(s.power2).toBeCloseTo(11809.8, 6);
+    expect(toolSource("affinity")).toMatch(/key: "dlaw"/);
+  });
+  test("Weibull: an interval straddling 1 is 'not distinguishable from constant at 95 %'", () => {
+    const two = weibullFit({ times: [100, 250], events: [1, 1] });
+    if (!two.ok) throw new Error(two.error);
+    expect(two.regime).toBe("not distinguishable from constant at 95 %");
+    expect(two.notes.join(" ")).toMatch(/NOT DISTINGUISHABLE FROM CONSTANT at 95 %, which is not the same as constant/);
+    expect(two.notes.join(" ")).not.toMatch(/consistent with a constant hazard/);
+  });
+  test("frame2d: a stiff 1 nm cantilever is solved, not refused as a mechanism; a real mechanism still is", () => {
+    const p = parseFrame("node A 0,0\nnode B 1e-9,0\nE=200e6 A=0.01 I=1e-4\nmember 1 A-B\nsupport A fixed\nload B Fy=-10");
+    if (!p.model) throw new Error(p.errors.join(" "));
+    const r = analyzeFrame(p.model);
+    if (!r.ok) throw new Error(r.errors.join(" "));
+    const mech = parseFrame("node A 0,0\nnode B 1,0\nE=200e6 A=0.01 I=1e-4\nmember 1 A-B\nsupport A pin\nload B Fy=-10");
+    if (!mech.model) throw new Error(mech.errors.join(" "));
+    const m = analyzeFrame(mech.model);
+    expect(m.ok).toBe(false);
+    if (!m.ok) expect(m.errors.join(" ")).toMatch(/mechanism/);
   });
 });

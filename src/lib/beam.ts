@@ -656,7 +656,7 @@ export function analyzeBeam(input: BeamInput, probe = false): BeamResult | BeamF
 
   const breaks = collectBreakpoints(L, supports, loads);
   const maxShear = extremeOf((x, inc) => num(V, x, inc), breaks, L, true);
-  const mExt = extremeSigned((x) => num(M, x), breaks, L);
+  const mExt = extremeSigned((x, inc) => num(M, x, inc), breaks, L);
   const maxEiDeflection = extremeOf((x) => num(DEF, x), breaks, L, true);
 
   const warnings: string[] = [];
@@ -802,16 +802,21 @@ function extremeOf(
 }
 
 /** Both signed extremes of f: sagging and hogging govern opposite fibres. */
-function extremeSigned(f: (x: number) => number, breaks: Rat[], L: Rat): { max: Extremum; min: Extremum } {
+function extremeSigned(f: (x: number, inclusive?: boolean) => number, breaks: Rat[], L: Rat): { max: Extremum; min: Extremum } {
   let max: Extremum = { x: 0, value: -Infinity, exact: true };
   let min: Extremum = { x: 0, value: Infinity, exact: true };
-  const consider = (x: number, exact: boolean) => {
-    const v = f(x);
+  const consider = (x: number, exact: boolean, inclusive = true) => {
+    const v = f(x, inclusive);
     if (!Number.isFinite(v)) return;
     if (v > max.value) max = { x, value: v, exact };
     if (v < min.value) min = { x, value: v, exact };
   };
-  for (const b of breaks) consider(ratToNumber(b), true);
+  // BOTH SIDES of every breakpoint past the left end: a point MOMENT makes M jump there, and the peak is one of the
+  // two exact one-sided values — sampling beside it gave "sagging peak 5.97" for an exact 6.
+  for (const b of breaks) {
+    consider(ratToNumber(b), true);
+    if (!ratIsZero(b)) consider(ratToNumber(b), true, false);
+  }
   const len = ratToNumber(L);
   for (let i = 1; i < SAMPLES; i++) consider((len * i) / SAMPLES, false);
   if (!Number.isFinite(max.value)) max = { x: 0, value: 0, exact: true };

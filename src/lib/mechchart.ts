@@ -497,8 +497,8 @@ export function sectionShapeSvg(inp: SectionShapeInput): string {
   const yNA = Y(inp.yBar);
   p.push(`<line x1="${(ML - 8).toFixed(1)}" y1="${yNA.toFixed(1)}" x2="${(ML + pw + 8).toFixed(1)}" y2="${yNA.toFixed(1)}" stroke="${POINT}" stroke-width="1.2" stroke-dasharray="6 3"/>`);
   p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(yNA + 3).toFixed(1)}" fill="${POINT}" font-size="8">neutral axis</text>`);
-  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(Y(depth) + 11).toFixed(1)}" font-size="7.5">c_top = ${esc(n1(depth - inp.yBar))} ${esc(inp.unit)}</text>`);
-  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(Y(0) - 4).toFixed(1)}" font-size="7.5">c_bot = ${esc(n1(inp.yBar))} ${esc(inp.unit)}</text>`);
+  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(Y(depth) + 11).toFixed(1)}" font-size="7.5">c (top) = ${esc(n1(depth - inp.yBar))} ${esc(inp.unit)}</text>`);
+  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(Y(0) - 4).toFixed(1)}" font-size="7.5">c (bot) = ${esc(n1(inp.yBar))} ${esc(inp.unit)}</text>`);
   p.push(`<text x="${W / 2}" y="${H - 6}" text-anchor="middle" font-size="8">to scale, dimensions in ${esc(inp.unit)}</text>`);
   p.push("</g></svg>");
   return p.join("");

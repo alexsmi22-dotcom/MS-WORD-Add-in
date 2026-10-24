@@ -368,7 +368,7 @@ export function steadyState(p: PkParams, tau: number): SteadyState | PkError {
     const bolusPeak = ((p.f * p.dose) / p.vd) * accumulation;
     notes.push(
       `The absorption rate constant equals the elimination rate constant (ka = ke = ${k.toPrecision(4)}), where the ` +
-        "standard oral solution is 0/0; its exact limit is used, C(t) = F·D·k/V · t·e^(−kt) per dose, summed over " +
+        "standard oral solution is 0/0; its exact limit is used, C(t) = F·D·k/V · t·e⁻ᵏᵗ per dose, summed over " +
         `the doses. The steady-state peak is ${cMaxSs.toPrecision(4)} at ${tm.toPrecision(3)} after each dose; an IV ` +
         `bolus of the same bioavailable dose would peak at ${bolusPeak.toPrecision(4)}.`,
     );

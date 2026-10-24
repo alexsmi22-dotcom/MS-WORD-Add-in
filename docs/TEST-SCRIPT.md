@@ -1,7 +1,7 @@
 # JurisLab — Manual Test Script (v2.193.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
-The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
+The engine is covered by 14,000+ automated unit tests, and `npm run qc` now also
 boots the pane in headless Chromium to check every tool renders. This script
 covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
@@ -1140,7 +1140,7 @@ delete. Nothing is looked up online. Citations stays out of the Science filter o
   "[Online]. Available: http://dx.doi.org/…" after it.
 
 **Styles**
-- [ ] **Seven styles.** The Reference style list shows exactly IEEE, ACS, Nature, Vancouver (NLM), APA 7,
+- [ ] **Eight styles.** The Reference style list shows exactly IEEE, ACS, Nature, Optica, Vancouver (NLM), APA 7,
   Chicago author-date (CMOS 18) and Chicago notes-bibliography (CMOS 18). The line under it reads "Harvard (Cite
   Them Right) and MLA 9 are not offered: no official guide could be verified."
 - [ ] ★ **Refused by name.** Choose **Nature**, select a book in the library → the preview says "refused" and

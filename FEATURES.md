@@ -16,10 +16,17 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 
 ---
 
-## Latest additions (v2.186 – v2.189)
+## Latest additions (v2.190 – v2.194)
+- **Quantum computing and quantum mechanics** (two new Engineering panels): Dirac notation, the Born rule, operators, single-qubit gates on the Bloch sphere, a circuit simulator up to 10 qubits, Bell states, teleportation, superdense coding, Deutsch–Jozsa, Grover, the quantum Fourier transform, density matrices and entanglement; square wells, the harmonic oscillator, hydrogen-like atoms, tunnelling and Rabi oscillation. Quantum optics gained beam splitters, Hong–Ou–Mandel interference, linear-optics gates and single-photon links to LEO, GEO and the Moon.
+- **Engineering release:** sixty-two new tools, bringing Engineering to 241 calculators (thermal stress, pressure vessels, Hertz contact, shocks and Fanno/Rayleigh flow, random vibration, the Kalman filter and attitude, laser physics, RF link budgets, semiconductor devices, transmission lines and the Smith chart, AI compute), controlled sources in the circuit simulator, and a workbench: send a result to another tool, sweep an input, or propagate ± uncertainties by Monte Carlo.
+- **Inserts:** a result with equations, tables or figures goes into Word whole, as one package; subscripts and symbols are drawn the same on Mac and PC.
+- **Mechanisms:** curved arrows and fishhooks on the Draw page.
+- **Two comprehensive bug tests** against outside references (RDKit, OPSIN, Biopython, REBASE, ANARCI, scipy, sympy, CoolProp, citeproc-js, the Bluebook tables, WIPO's ST.26 DTD) and real Word.
+
+## Earlier additions (v2.186 – v2.189)
 - **Authoring:** Word-native figure and table captions, equation numbers (arabic or by chapter), cross-references and a Table of Figures that Word updates itself.
 - **Lab statistics:** Welch's ANOVA with the Games–Howell post-hoc; standard curves with back-calculated unknowns (linear and 4PL, never extrapolated) and 96/384-well plate layouts; **qPCR** ΔΔCt and Pfaffl; significant figures and Monte Carlo uncertainty; new unit families (viscosity, Torr, Bq/Ci, Gy/Sv and more).
-- **Engineering (241 calculators, 23 disciplines):** Fresnel s/p, thin-film coating stacks and Jones calculus; **liquid-crystal retarders and achromatic wave plates** with the Fréedericksz transition, director profiles and cell/device drawings; tensile tests, Weibull strength, crystallite size, process capability and tolerance stack-ups; root locus, Nyquist, lead/lag and discrete-time control; titration curves, speciation, buffer pH and cyclic voltammetry; an **HPLC/GC peak table** (USP ⟨621⟩) with the chromatogram redrawn; **TLC plates**; **circuit transients** from the same netlist as DC and AC; **molecular cloning** — a schematic gel against manufacturer ladders, Golden Gate (including destination vectors) and Gibson/HiFi design, PCR primers.
+- **Engineering (241 calculators, 25 disciplines):** Fresnel s/p, thin-film coating stacks and Jones calculus; **liquid-crystal retarders and achromatic wave plates** with the Fréedericksz transition, director profiles and cell/device drawings; tensile tests, Weibull strength, crystallite size, process capability and tolerance stack-ups; root locus, Nyquist, lead/lag and discrete-time control; titration curves, speciation, buffer pH and cyclic voltammetry; an **HPLC/GC peak table** (USP ⟨621⟩) with the chromatogram redrawn; **TLC plates**; **circuit transients** from the same netlist as DC and AC; **molecular cloning** — a schematic gel against manufacturer ladders, Golden Gate (including destination vectors) and Gibson/HiFi design, PCR primers.
 - **Plots:** parametric, polar, two y-axes, contour and 3D surface plots.
 - **Characterization:** write the ¹H NMR line from a measured integration table.
 - **Structures:** retrosynthetic ⇒ and resonance ↔ arrows on the Draw page; older ChemDraw arrows open as drawn.

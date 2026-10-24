@@ -32,10 +32,12 @@ describe("energy units convert exactly", () => {
 });
 
 describe("collision guards", () => {
-  it("mWh is REFUSED, not read as megawatt-hours", () => {
+  it("mWh is the milliwatt-hour, never read as megawatt-hours", () => {
     // A lowercase "mwh" alias would make a typed mWh — milliwatt-hour, a real
-    // unit on coin-cell spec sheets — resolve to MWh, a 10^9 error.
-    expect(convert(1, "mWh", "J")).toBeNull();
+    // unit on coin-cell spec sheets — resolve to MWh, a 10^9 error. It was
+    // refused until 2026-10; it is now its own case-exact key (3.6 J).
+    expect(convert(1, "mWh", "J")).toBeCloseTo(3.6, 12);
+    expect(convert(1, "MWh", "J")).toBe(3.6e9);
   });
 
   it("newton-metre still works as a compound and is not hijacked", () => {

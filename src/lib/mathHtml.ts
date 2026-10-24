@@ -4,7 +4,7 @@
 // renders in any Office webview — no MathML required. Styling lives in
 // taskpane.css under the .m-* classes.
 
-import { Node, parseMathAst } from "./mathParse";
+import { Node, parseMathAst, isEmptyNode } from "./mathParse";
 import { escapeHtml, segmentsToHtml } from "./segments";
 import { parseMath } from "./mathFormat";
 
@@ -22,9 +22,36 @@ function leaf(node: { v: string; label?: boolean }): string {
   return OPERATORS.has(node.v) && !node.label ? `<span class="m-op">${html}</span>` : html;
 }
 
+/** The base of an accent is more than one letter (bar(xy), vec(AB)): a combining mark would sit on the last one only. */
+function wideBase(n: Node): boolean {
+  if (n.k === "text") return [...n.v].length > 1;
+  return true;
+}
+
+// Wide accents drawn over the whole base, centred, as Word draws them. Inline styles: the preview needs no new CSS.
+const ACC_WIDE_GLYPH: Record<string, string> = { "⃗": "→", "̂": "^", "̃": "~", "̇": "˙", "̈": "¨" };
+
+function accentHtml(chr: string, base: Node): string {
+  const inner = astToHtml(base);
+  if (!wideBase(base)) return `${inner}${chr}`; // a combining accent renders over the preceding single letter
+  if (chr === "̄" || chr === "̅") {
+    return `<span class="m-acc-bar" style="border-top:1px solid currentColor;padding-top:1px;display:inline-block;line-height:1.1">${inner}</span>`;
+  }
+  const glyph = ACC_WIDE_GLYPH[chr] ?? "^";
+  const stretch = chr === "⃗" ? "transform:scaleX(1.6);" : "";
+  return (
+    `<span class="m-acc-wide" style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:bottom;line-height:1">` +
+    `<span style="font-size:0.7em;line-height:0.6;font-style:normal;${stretch}">${escapeHtml(glyph)}</span>` +
+    `<span>${inner}</span></span>`
+  );
+}
+
 function astToHtml(node: Node): string {
   switch (node.k) {
     case "text":
+      // A unit after a number: thin space, upright (25 °C, 3 m/s); a prose word in a cases condition: upright.
+      if (node.unit) return `<span class="m-fn">&#8201;${escapeHtml(node.v)}</span>`;
+      if (node.word) return `<span class="m-fn" style="white-space:pre">${escapeHtml(node.v)}</span>`;
       return leaf(node);
     case "row":
       return node.items.map(astToHtml).join("");
@@ -52,6 +79,10 @@ function astToHtml(node: Node): string {
     case "delim":
       return `${escapeHtml(node.open)}${astToHtml(node.inner)}${escapeHtml(node.close)}`;
     case "nary":
+      // No limits (an indefinite integral or sum): the bare operator, nothing above or below it.
+      if (isEmptyNode(node.sub) && isEmptyNode(node.sup)) {
+        return `<span class="m-nary"><span class="m-nary-op">${escapeHtml(node.chr)}</span></span>${astToHtml(node.body)}`;
+      }
       return (
         `<span class="m-nary"><span class="m-nary-op">${escapeHtml(node.chr)}</span>` +
         `<span class="m-nary-lim"><span class="m-over">${astToHtml(node.sup)}</span>` +
@@ -60,10 +91,10 @@ function astToHtml(node: Node): string {
     case "func":
       return `<span class="m-fn">${escapeHtml(node.name)}</span>${astToHtml(node.arg)}`;
     case "lim":
+      if (isEmptyNode(node.sub)) return `<span class="m-fn">lim</span> ${astToHtml(node.body)}`;
       return `<span class="m-fn">lim</span><sub>${astToHtml(node.sub)}</sub> ${astToHtml(node.body)}`;
     case "acc":
-      // Combining accent character renders over the preceding base text.
-      return `${astToHtml(node.base)}${node.chr}`;
+      return accentHtml(node.chr, node.base);
     case "matrix": {
       const cols = node.rows[0].length;
       const cells = node.rows

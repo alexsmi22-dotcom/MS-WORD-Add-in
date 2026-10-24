@@ -8,6 +8,7 @@
 // preserving the WYSIWYG invariant.
 
 import { trueMinus } from "./numberList";
+import { parseCellNumber, isDecimalComma } from "./dataimport";
 
 const SUP: Record<string, string> = {
   "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
@@ -51,8 +52,11 @@ export function formatUnit(expr: string): string {
   // Pa·√m, ksi·√in. Only a power of exactly 0.5 (0.50… included), anchored so "m^0.55" is never "√m5"; other decimal
   // powers keep their exponent, superscripted with a plain decimal point (normalizeUnitText reads that back).
   s = s.replace(/([A-Za-zµΩÅ°]+)\^(?:0\.50*(?![\d.])|\{0\.50*\})/g, "√$1");
-  // Exponents: ^n or ^{n} (optionally signed, optionally decimal) → superscript.
-  s = s.replace(/\^\{?([-+]?\d+(?:\.\d+)?)\}?/g, (_m, n: string) => toSuperscript(n.replace(/^\+/, "")));
+  // Exponents: ^n, ^{n} or ^(n) (optionally signed — a true minus too — optionally decimal) → superscript. "m^(-1)"
+  // printed its caret and brackets in the converter's quantity line.
+  s = s.replace(/\^(?:\{([-+−]?\d+(?:\.\d+)?)\}|\(([-+−]?\d+(?:\.\d+)?)\)|([-+−]?\d+(?:\.\d+)?))/g, (_m, a?: string, b?: string, c?: string) =>
+    toSuperscript((a ?? b ?? c ?? "").replace(/−/g, "-").replace(/^\+/, "")),
+  );
   // Collapse whitespace around a division slash so "m / s" stays "m/s".
   s = s.replace(/\s*\/\s*/g, "/");
   // Explicit multiplication and remaining spaces between unit factors → middle dot.
@@ -96,7 +100,8 @@ export function formatQuantityHtml(input: string): string {
   // A negative value takes the true minus (−40 °F), never the hyphen it was typed with.
   let num = trueMinus(q.value);
   if (q.uncertainty) num += ` ± ${q.uncertainty}`;
-  if (q.exponent) num += ` × 10${toSuperscript(q.exponent)}`;
+  // 1e+6 is 10⁶, never 10⁺⁶ (formatSig writes the exponent with its sign).
+  if (q.exponent) num += ` × 10${toSuperscript(q.exponent.replace(/^\+/, ""))}`;
   const unit = q.unit ? `${THIN}${formatUnit(q.unit)}` : "";
   return num + unit;
 }
@@ -454,6 +459,26 @@ const UNITS: Record<string, UnitDef> = {
   week: { dim: "time", factor: 604800 },
   julianyear: { dim: "time", factor: 365.25 * 86400 },
 
+  // Prefixed forms the converter lacked (2026-10 review). There is no prefix mechanism here — every key is explicit,
+  // because the alias lookup's lowercase fallback makes generated prefixes collide (mWh/MWh, mBq/MBq) — so each is a
+  // canonical, case-exact key. Factors are the SI prefixes (SI Brochure 9th ed.) times the base unit's factor above;
+  // the electronvolt and the watt-hour are derived from their own constants, never retyped.
+  dL: { dim: "volume", factor: 1e-4 },
+  mWh: { dim: "energy", factor: 3.6 },
+  GJ: { dim: "energy", factor: 1e9 },
+  GeV: { dim: "energy", factor: 1e9 * 1.602176634e-19 },
+  pA: { dim: "current", factor: 1e-12 },
+  nV: { dim: "voltage", factor: 1e-9 },
+  // Absolute temperatures on the kelvin scale (cryogenics): no offset, so they are also differences.
+  mK: { dim: "temp", factor: 1e-3, offset: 0 }, µK: { dim: "temp", factor: 1e-6, offset: 0 },
+  kmol: { dim: "amount", factor: 1e3 },
+  nT: { dim: "bfield", factor: 1e-9 }, pT: { dim: "bfield", factor: 1e-12 },
+  nH: { dim: "inductance", factor: 1e-9 },
+  nN: { dim: "force", factor: 1e-9 }, µN: { dim: "force", factor: 1e-6 },
+  mBq: { dim: "activity", factor: 1e-3 },
+  kbar: { dim: "pressure", factor: 1e8 },
+  µΩ: { dim: "resistance", factor: 1e-6 }, GΩ: { dim: "resistance", factor: 1e9 },
+
   // dimensionless fraction (base = ratio)
   "%": { dim: "fraction", factor: 0.01 }, ppm: { dim: "fraction", factor: 1e-6 },
   ppb: { dim: "fraction", factor: 1e-9 }, ppt: { dim: "fraction", factor: 1e-12 },
@@ -461,7 +486,7 @@ const UNITS: Record<string, UnitDef> = {
 
 const ALIASES: Record<string, string> = {
   meter: "m", metre: "m", meters: "m", micron: "µm", um: "µm", micrometer: "µm",
-  gram: "g", grams: "g", ug: "µg", microgram: "µg", kilogram: "kg", pound: "lb", pounds: "lb",
+  gram: "g", grams: "g", ug: "µg", microgram: "µg", mcg: "µg", deciliter: "dL", decilitre: "dL", dl: "dL", kilogram: "kg", pound: "lb", pounds: "lb",
   sec: "s", secs: "s", second: "s", seconds: "s", us: "µs", minute: "min", minutes: "min",
   hr: "h", hour: "h", hours: "h", days: "day",
   // NO "nm" OR "kn" ALIAS HERE, deliberately. Alias lookup falls back to a
@@ -796,12 +821,30 @@ function normalizeUnitText(expr: string): string {
   expr = expr.replace(/√\s*([A-Za-zµΩÅ°]+)/g, "$1^0.5");
   // A leading slash is a reciprocal, as a datasheet writes a coefficient: "12e-6 /K" = 12×10⁻⁶ per kelvin (Release E).
   expr = expr.replace(/^\s*\//, "1/");
+  // A bracketed or braced exponent, as typed in a formula ("m^(-1)", "s^{−2}"), is the plain one.
+  expr = expr.replace(/\^[({]\s*([-+−]?\d+(?:\.\d+)?)\s*[)}]/g, (_m, n: string) => "^" + n.replace(/−/g, "-").replace(/^\+/, ""));
   // A decimal superscript exponent ("m⁰.⁵⁵", as formatUnit writes m^0.55) is one run, decimal point included.
   return expr.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+(?:\.[⁰¹²³⁴⁵⁶⁷⁸⁹]+)?/g, (run) => {
     let out = "^";
     for (const ch of run) out += ch === "." ? "." : SUPERSCRIPT_TO_ASCII[ch] ?? "";
     return out;
   });
+}
+
+/** A thermodynamic temperature in kelvin below 0 K (with a rounding allowance: −459.67 °F lands at about −6 × 10⁻¹⁴ K). */
+function belowAbsoluteZero(kelvin: number): boolean {
+  return kelvin < -1e-9;
+}
+
+/** The refusal for a temperature below absolute zero, or null (a difference or a non-temperature is never refused). */
+export function absoluteZeroRefusal(value: number, unit: string): string | null {
+  const def = lookup(normalizeUnitText(unit).trim());
+  if (!def || def.dim !== "temp" || def.delta) return null;
+  if (!belowAbsoluteZero(value * def.factor + (def.offset ?? 0))) return null;
+  return (
+    `${trueMinus(String(value))} ${unit.trim()} is below absolute zero (0 K = −273.15 °C = −459.67 °F), and no temperature is lower. ` +
+    "For a temperature DIFFERENCE, write it as Δ°C, Δ°F or K."
+  );
 }
 
 /**
@@ -828,6 +871,9 @@ export function convert(value: number, from: string, to: string): number | null 
       return (value * f.factor) / t.factor;
     }
     const base = value * f.factor + (f.offset ?? 0);
+    // BELOW ABSOLUTE ZERO there is no temperature to convert to: −500 °C → K gave −226.85 K. Refused when the two
+    // scales differ in zero (a pure rescale K ↔ °R also carries a temperature DIFFERENCE, where −5 K is meaningful).
+    if (f.dim === "temp" && (f.offset ?? 0) !== (t.offset ?? 0) && belowAbsoluteZero(base)) return null;
     return (base - (t.offset ?? 0)) / t.factor;
   }
   const cf = parseCompoundUnit(from);
@@ -900,6 +946,8 @@ export function parseMeasured(text: string, targetUnit: string): Measured | { er
   }
   const converted = convert(value, written, targetUnit);
   if (converted === null) {
+    const cold = lookup(normalizeUnitText(targetUnit).trim())?.dim === "temp" ? absoluteZeroRefusal(value, written) : null;
+    if (cold) return { error: cold };
     // Refusals that need a SENTENCE, not just "incompatible": two quantities
     // that share a dimension but are not the same thing, and the one unit
     // whose length is not defined by its name.
@@ -997,6 +1045,19 @@ export function unitRefusal(from: string, to: string): string | null {
       );
     }
   }
+  // rpm ↔ Hz: an angle is kept as its own dimension here (so rad/s can never silently become Hz, a 2π error), which
+  // also keeps a revolution from being read as a cycle. Said by name, with the relation to apply by hand.
+  const freq = (u: string): boolean => {
+    const c = parseCompoundUnit(u) ?? null;
+    const l = lookup(normalizeUnitText(u).trim());
+    return (l?.dim === "frequency" || (!!c && sameDims(c.dims, { time: -1 }))) && !families(u).has("activity");
+  };
+  if ((f.has("angularvelocity") && freq(to)) || (t.has("angularvelocity") && freq(from))) {
+    return (
+      "rpm is an angular speed (revolutions per minute) and Hz a frequency (cycles per second); angles are kept as their own " +
+      "quantity here, so the two do not convert directly. If one revolution is one cycle, 1 rpm = 1/60 Hz; or convert rpm to rad/s."
+    );
+  }
   // By SIGNATURE, so Pa·s and m²/s are caught as well as P and St.
   const sig = (u: string, d: Record<string, number>): boolean => {
     const c = parseCompoundUnit(u);
@@ -1058,7 +1119,66 @@ export function roundSig(x: number, sig: number): number {
   const d = Math.ceil(Math.log10(Math.abs(x)));
   const power = sig - d;
   const mag = Math.pow(10, power);
-  return Math.round(x * mag) / mag;
+  const r = Math.round(x * mag) / mag;
+  // At the ends of the double range the scale itself over- or underflows (1e308 × 10⁻³⁰⁴ is fine, but 1e-310 needs
+  // 10³¹³ = ∞, and ∞/∞ is NaN — a blank result): toPrecision rounds there without forming the scale.
+  if (!Number.isFinite(mag) || mag === 0 || !Number.isFinite(r)) return Number(x.toPrecision(Math.min(sig, 100)));
+  return r;
+}
+
+export type ConversionDisplay = { ok: true; fromHtml: string; resultHtml: string } | { ok: false; error: string };
+
+/**
+ * The unit converter's whole reading, as the pane shows it: the value box text, the two unit boxes, and either the
+ * typeset "from = result" pair or a sentence saying why not.
+ *
+ * The value box was read with parseFloat, so "1,000" was 1 (it stops at the comma) and every converted thousand was a
+ * thousandfold wrong. It now goes through the one cell-number reader (dataimport.parseCellNumber: 1,000 and 1 000 are
+ * a thousand, "5." is 5), and a lone decimal comma ("1,5") is refused as ambiguous rather than guessed. A result that
+ * overflows the double range or underflows to zero is refused by name (it printed blank), and so is a temperature
+ * below absolute zero.
+ */
+export function convertForDisplay(valueText: string, from: string, to: string): ConversionDisplay {
+  const t = valueText.trim();
+  if (!t) return { ok: false, error: "Enter a numeric value." };
+  if (isDecimalComma(t)) {
+    return { ok: false, error: `“${t}” is ambiguous: write ${t.replace(",", ".")} for a decimal, or ${t.replace(",", "")} without the comma.` };
+  }
+  const value = /%/.test(t) ? NaN : parseCellNumber(t);
+  if (!Number.isFinite(value)) return { ok: false, error: `“${t}” is not a number this can read (write e.g. 1500, 1,500 or 1.5e3).` };
+  const f = from.trim();
+  const g = to.trim();
+  if (!f || !g) return { ok: false, error: "Enter both units." };
+  const cold = absoluteZeroRefusal(value, f);
+  if (cold) return { ok: false, error: cold };
+  const r = convert(value, f, g);
+  if (r === null) {
+    // parseMeasured distinguishes "not a unit this recognises" from "not compatible with X", and names the special
+    // cases (Gy/Sv, Bq/Hz, dynamic/kinematic viscosity, years). The units are typeset in the message too.
+    const why = parseMeasured(`${value} ${f}`, g);
+    const detail = "error" in why ? why.error : "";
+    return {
+      ok: false,
+      error: detail
+        ? `Can't convert ${formatUnit(f)} → ${formatUnit(g)}: ${detail}`
+        : `Can't convert ${formatUnit(f)} → ${formatUnit(g)} (incompatible quantities).`,
+    };
+  }
+  if (!Number.isFinite(r)) {
+    return { ok: false, error: `The result is too large to hold: ${trueMinus(t)} ${formatUnit(f)} is more than 1.8 × 10³⁰⁸ ${formatUnit(g)}.` };
+  }
+  // An offset scale (°C, °F) lands exactly on zero legitimately (−273.15 °C = 0 K), and its rounding residue
+  // (−459.67 °F → 6 × 10⁻¹⁴ K) is not a temperature anyone wrote: both read as 0 there, never as an underflow.
+  const affine = !!(lookup(normalizeUnitText(f).trim())?.offset || lookup(normalizeUnitText(g).trim())?.offset);
+  if (affine && Math.abs(r) < 1e-9) return { ok: true, fromHtml: formatQuantityHtml(`${value} ${f}`), resultHtml: formatQuantityHtml(`0 ${g}`) };
+  if (r === 0 && value !== 0) {
+    return { ok: false, error: `The result is too small to hold: ${trueMinus(t)} ${formatUnit(f)} is less than 5 × 10⁻³²⁴ ${formatUnit(g)}.` };
+  }
+  return {
+    ok: true,
+    fromHtml: formatQuantityHtml(`${value} ${f}`),
+    resultHtml: formatQuantityHtml(`${formatSig(r)} ${g}`),
+  };
 }
 
 /** Formats a number to `sig` significant figures as a string (trims to a sane form). */

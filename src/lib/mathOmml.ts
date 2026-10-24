@@ -3,10 +3,21 @@
 // produces a real Word equation object: true fractions, radicals, summations,
 // integrals, n-th roots, accents, etc.
 
-import { Node, parseMathAst } from "./mathParse";
+import { Node, parseMathAst, isEmptyNode } from "./mathParse";
+
+/** Drops characters XML 1.0 cannot carry at all (C0 controls other than tab/newline/CR, DEL is allowed but dropped). */
+function xmlSafe(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    const c = ch.codePointAt(0)!;
+    if ((c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) || c === 0x7f || c === 0xfffe || c === 0xffff) continue;
+    out += ch;
+  }
+  return out;
+}
 
 function escapeXml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return xmlSafe(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function run(text: string, plain = false): string {
@@ -14,9 +25,19 @@ function run(text: string, plain = false): string {
   return `<m:r>${rPr}<m:t xml:space="preserve">${escapeXml(text)}</m:t></m:r>`;
 }
 
+/** A run of normal (non-math) text: upright, in the text font, with its spaces kept ("if ", "otherwise"). */
+function normalRun(text: string): string {
+  return `<m:r><m:rPr><m:nor/></m:rPr><m:t xml:space="preserve">${escapeXml(text)}</m:t></m:r>`;
+}
+
+const THIN_SPACE = String.fromCharCode(0x2009);
+
 function emit(node: Node): string {
   switch (node.k) {
     case "text":
+      // A unit after a number: a thin space, then the unit upright (25 °C, 3 m/s) — the SI way to write a quantity.
+      if (node.unit) return run(THIN_SPACE + node.v, true);
+      if (node.word) return normalRun(node.v);
       return run(node.v, node.plain);
     case "row":
       return node.items.map(emit).join("");
@@ -48,8 +69,10 @@ function emit(node: Node): string {
     }
     case "nary": {
       const limLoc = node.underOver ? "undOvr" : "subSup";
+      // An omitted limit is HIDDEN (an indefinite integral ∫ f dx, ∮_C): an empty slot would draw a dotted box in Word.
+      const hide = (isEmptyNode(node.sub) ? `<m:subHide m:val="1"/>` : "") + (isEmptyNode(node.sup) ? `<m:supHide m:val="1"/>` : "");
       return (
-        `<m:nary><m:naryPr><m:chr m:val="${node.chr}"/><m:limLoc m:val="${limLoc}"/></m:naryPr>` +
+        `<m:nary><m:naryPr><m:chr m:val="${node.chr}"/><m:limLoc m:val="${limLoc}"/>${hide}</m:naryPr>` +
         `<m:sub>${emit(node.sub)}</m:sub><m:sup>${emit(node.sup)}</m:sup><m:e>${emit(node.body)}</m:e></m:nary>`
       );
     }
@@ -57,6 +80,7 @@ function emit(node: Node): string {
       // upright name for known functions, then the parenthesized argument
       return run(node.name, node.known) + emit(node.arg);
     case "lim":
+      if (isEmptyNode(node.sub)) return `<m:func><m:fName>${run("lim", true)}</m:fName><m:e>${emit(node.body)}</m:e></m:func>`;
       return (
         `<m:func><m:fName><m:limLow><m:e>${run("lim", true)}</m:e>` +
         `<m:lim>${emit(node.sub)}</m:lim></m:limLow></m:fName><m:e>${emit(node.body)}</m:e></m:func>`

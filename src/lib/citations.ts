@@ -949,9 +949,18 @@ export function caseShortName(name: string): string | null {
     // brief writes either: "Myriad, 569 U.S. at 590", "Bakke, 438 U.S. at 307".
     const GENERIC_LEAD =
       /^(?:Ass['’]ns?|Bd\.|Board|Dep['’]t|Comm['’]n|Soc['’]y|Gov['’]t|Univ\.|University|Regents|Trs\.|Trustees)(?:\s|$)/i;
+    // Rule 10.9(a)(i): a geographic or governmental unit, or a government
+    // officer, as first party sends the short form to the other party —
+    // "City of Los Angeles v. Lyons" → "Lyons", "Texas v. Johnson" → "Johnson",
+    // "Comm'r of Internal Revenue v. Banks" → "Banks". Two states ("Kansas v.
+    // Colorado") keep the first.
+    const OFFICER_OF = /^(?:Commissioner|Comm['’]r|Secretary|Sec['’]y|Attorney\s+General|Att['’]y\s+Gen\.)\s+of\b/i;
+    const isState = (p: string): boolean => STATE_NAMES.has(p.toLowerCase());
     const first = strip(parts[0]);
     const second = strip(parts[1]);
-    pick = (GENERIC.test(first) || GENERIC_LEAD.test(first)) && second ? second : first;
+    const generic =
+      GENERIC.test(first) || GENERIC_LEAD.test(first) || GEO_PARTY_PREFIX.test(first) || OFFICER_OF.test(first) || (isState(first) && !isState(second));
+    pick = generic && second ? second : first;
   }
   if (!pick) return null;
   // Rule 10.9(a)(i): the short form is the first party's name, shortened only
@@ -965,7 +974,8 @@ export function caseShortName(name: string): string | null {
   // except straight after a lone abbreviation ("Dir. of Revenue").
   const words = strip(abbreviateCaseName(pick)).split(/\s+/).filter(Boolean);
   if (!words.length) return null;
-  const clean = (w: string): string => w.replace(/[^\wÀ-ÖØ-öø-ÿ'’.-]/g, "");
+  // An in-word "&" stays ("AT&T", never "ATT").
+  const clean = (w: string): string => w.replace(/[^\wÀ-ÖØ-öø-ÿ'’.&-]/g, "");
   const isAbbrev = (w: string): boolean => /\.$/.test(w) || /['’]/.test(w);
   const isShort = (w: string): boolean => /^[A-Za-z]{1,2}$/.test(w);
   const GEO_WORD = /^(?:State|United|City|County|Cnty\.|Commonwealth|People|Town|Village|Vill\.)$/;
@@ -979,10 +989,12 @@ export function caseShortName(name: string): string | null {
     const next = words[i];
     if (/^(?:&|and)$/i.test(next)) break;
     if (/^(?:of|for|the)$/i.test(next)) {
-      if (out.length === 1 && i + 1 < words.length && !/^(?:&|and|of|for|the)$/i.test(words[i + 1])) {
-        out.push(next, clean(words[i + 1]));
-        i += 2;
-        continue;
+      // After a lone abbreviation, the whole capitalised run after "of"
+      // ("Dir. of Revenue", "Dir. of Internal Revenue"), then stop.
+      if (out.length === 1 && i + 1 < words.length && /^[A-Z]/.test(words[i + 1])) {
+        out.push(next);
+        i++;
+        while (i < words.length && /^[A-Z]/.test(words[i]) && out.length < 8) out.push(clean(words[i++]));
       }
       break;
     }

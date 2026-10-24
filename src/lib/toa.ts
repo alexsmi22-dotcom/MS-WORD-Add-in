@@ -125,7 +125,9 @@ const FIRMSEG = `[${UP}]${WORDCH}*(?:${HS}(?:&|[${UP}]${WORDCH}*)){0,3}`;
 // v. Tyco" is one party, and dropping "Becton," filed it under D. A transition
 // word never ends in "Co." / "Inc." (and LEADING_INTRO_RE strips "However, ").
 const CORP_WORD = "(?:Co|Cos|Corp|Inc|Ltd|LLC|L\\.L\\.C|LLP|L\\.P|LP|Grp|Bros|Sons)\\.?";
-const FIRMSEG_CORP = `[${UP}]${WORDCH}*(?:${HS}(?:&|[${UP}]${WORDCH}*)){0,2}${HS}${CORP_WORD}(?=${HS}vs?\\.)`;
+// The segment must also carry an "&" (Becton, Dickinson & Co.; Sears, Roebuck &
+// Co.): "Second, Dow Chem. Co. v. …" is a transition word, not a firm name.
+const FIRMSEG_CORP = `[${UP}]${WORDCH}*(?:${HS}[${UP}]${WORDCH}*)?${HS}&(?:${HS}[${UP}]${WORDCH}*)?${HS}${CORP_WORD}(?=${HS}vs?\\.)`;
 const FIRMTAIL = `(?:,${HS}(?:${FIRMSEG_CORP}|${FIRMSEG}(?!${HS}vs?\\.))){0,4}`;
 // The first word of a party. Normally capitalized, but real party names can
 // start lowercase: a camel-case brand ("eBay", "iRobot") or a surname particle
@@ -712,7 +714,9 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
       refusals.push({ index: at, text: u[0], reason: `"${u[0]}" looks like ${what}, but its full citation could not be read — not listed in the table; check its form` });
     }
   };
-  unreadShape(/\bRestatement\b(?:\s+\((?:First|Second|Third|Fourth)\))?(?:\s+of(?:\s+[A-Z][A-Za-z]*){1,4})?/g, "a Restatement");
+  // Only a CITATION-shaped Restatement (a § within the clause), never the word
+  // in prose ("as the Restatement explains").
+  unreadShape(/\bRestatement\b[^.;§\n]{0,60}§+\s*\d[\w.]*/g, "a Restatement");
   unreadShape(/\b\d+\s+(?:[A-Z][A-Za-z.'’&]*\s+){0,4}(?:L\.\s?Rev\.|L\.\s?J\.)\s+\d+/g, "a law-review article");
 
   // Federal rules — qualified "Fed. R. Civ. P. 19" form (authoritative).
@@ -981,6 +985,20 @@ export function toaStaticOoxml(toa: TableOfAuthorities, pages?: Map<string, stri
     if (e.name) {
       const cite = e.rest.replace(/^,\s*/, "");
       return `<w:p>${pPr}${run(`${RPR_BASE}<w:i/><w:iCs/>`, t(`${e.name},`))}${run(RPR_BASE, `<w:br/>${t(cite)}`)}${pageRun}</w:p>`;
+    }
+    // A non-case entry with italic parts (an article or treatise title) keeps
+    // them italic here too, run by run.
+    if (/<i>/.test(e.html)) {
+      const unesc = (s: string): string => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+      const runs = e.html
+        .split(/(<i>[\s\S]*?<\/i>)/)
+        .filter(Boolean)
+        .map((p) => {
+          const im = /^<i>([\s\S]*)<\/i>$/.exec(p);
+          return run(im ? `${RPR_BASE}<w:i/><w:iCs/>` : RPR_BASE, t(unesc(im ? im[1] : p)));
+        })
+        .join("");
+      return `<w:p>${pPr}${runs}${pageRun}</w:p>`;
     }
     return `<w:p>${pPr}${run(RPR_BASE, t(e.plain))}${pageRun}</w:p>`;
   };
@@ -1358,11 +1376,22 @@ function caseShortCandidates(name: string): string[] {
     // Every shorter word-prefix too: a brief may cut "State St. Bank" to
     // "State St." or "Gen. Elec." to "Gen." — vol + reporter + "at" still pin
     // the case. A lone generic word ("State", "United") is never a candidate.
+    // …and the same words AS WRITTEN in the document's first party ("State
+    // Street", when the T6 short name is "State St. Bank").
     const ws = s.split(" ");
-    for (let k = ws.length - 1; k >= 1; k--) {
-      const p = ws.slice(0, k).join(" ");
-      if (p.replace(/[^A-Za-z]/g, "").length >= 2 && !/^(?:of|for|the|State|United|City|County|Commonwealth|People)$/i.test(p) && !/\s(?:of|for|the)$/i.test(p) && !out.includes(p)) out.push(p);
-    }
+    const lead = name.replace(/^(?:In re|Ex parte|In the Matter of|Matter of)\s+/i, "").split(/\s+vs?\.\s+/)[0].trim().split(/\s+/);
+    const asWritten = lead.slice(0, ws.length).join(" ").replace(/,$/, "");
+    const pushPrefixes = (words: string[]): void => {
+      for (let k = words.length; k >= 1; k--) {
+        const p = words.slice(0, k).join(" ").replace(/,$/, "");
+        if (p.replace(/[^A-Za-z]/g, "").length >= 2 && !/^(?:of|for|the|State|United|City|County|Commonwealth|People)$/i.test(p) && !/\s(?:of|for|the|&)$/i.test(p) && !out.includes(p)) out.push(p);
+      }
+    };
+    pushPrefixes(ws);
+    // Only when the short name IS the first party (not the second, chosen
+    // because the first was generic).
+    const samePartyAs = (a: string, b: string): boolean => a.slice(0, 3).toLowerCase() === b.slice(0, 3).toLowerCase();
+    if (asWritten && asWritten !== s && samePartyAs(lead[0] ?? "", ws[0])) pushPrefixes(asWritten.split(" "));
   }
   const parts = name.split(/\s+v\.\s+/);
   if (parts.length === 2) {

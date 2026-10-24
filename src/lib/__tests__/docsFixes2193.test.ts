@@ -10,7 +10,7 @@ import {
   normalizeCourt,
   parseCitation,
 } from "../citations";
-import { authoritiesForToa, buildTableOfAuthorities, toaOccurrenceReport } from "../toa";
+import { authoritiesForToa, buildTableOfAuthorities, toaOccurrenceReport, toaStaticOoxml } from "../toa";
 import { auditDocument } from "../audit";
 import { extractNumerals, reconcileNumerals } from "../numerals";
 import { formatReference } from "../bibStyles";
@@ -56,6 +56,12 @@ describe("1. TOA keeps case names whole across T6/T10 abbreviations", () => {
   test("the Becton relaxation does not glue a transition word onto the party", () => {
     expect(caseNames("However, Acme Co. v. Widget Inc., 1 F.3d 2 (Fed. Cir. 2000).")).toEqual(["Acme Co. v. Widget Inc."]);
     expect(caseNames("Likewise, Smith v. Jones, 1 F.3d 2 (Fed. Cir. 2000).")).toEqual(["Smith v. Jones"]);
+    expect(caseNames("Second, Dow Chem. Co. v. Mee Indus., 341 F.3d 1370 (Fed. Cir. 2003).")).toEqual(["Dow Chem. Co. v. Mee Indus."]);
+    expect(caseNames("First, Acme Corp. v. Widget Inc., 1 F.3d 2 (Fed. Cir. 2000).")).toEqual(["Acme Corp. v. Widget Inc."]);
+    expect(caseNames("Further, Acme Inc. v. Widget Inc., 1 F.3d 2 (Fed. Cir. 2000).")).toEqual(["Acme Inc. v. Widget Inc."]);
+  });
+  test("comma firm names with '&' stay whole", () => {
+    expect(caseNames("Sears, Roebuck & Co. v. Stiffel Co., 376 U.S. 225 (1964).")).toEqual(["Sears, Roebuck & Co. v. Stiffel Co."]);
   });
   test("a real sentence end before a case is still cut", () => {
     expect(caseNames("So held the Supreme Court. Mayo Collaborative Servs. v. Prometheus Labs., Inc., 566 U.S. 66 (2012).")).toEqual([
@@ -159,9 +165,17 @@ describe("5. Other Authorities and court rules (FRAP 28(a)(3))", () => {
     expect(e.html).toContain("<i>Software Patents</i>");
   });
   test("a secondary source the scan cannot read is reported, not silently dropped", () => {
-    const t = toa("As the Restatement explains, see also 12 Harv. L. Rev. 45, nothing more.");
+    const t = toa("See Restatement (Second) of Torts, § 402A cmt. c; see also 12 Harv. L. Rev. 45, nothing more.");
     expect(t.total).toBe(0);
-    expect(t.refused?.map((r) => r.text)).toEqual(["Restatement", "12 Harv. L. Rev. 45"]);
+    expect(t.refused?.map((r) => r.text)).toEqual(["Restatement (Second) of Torts, § 402A", "12 Harv. L. Rev. 45"]);
+  });
+  test("the word 'Restatement' in prose is not a refusal", () => {
+    expect(toa("As the Restatement explains, the rule is old.").refused).toBeUndefined();
+    expect(toa("Restatement (Second) of Torts § 402A (Am. L. Inst. 1965). The Restatement says so.").refused).toBeUndefined();
+  });
+  test("the static OOXML table keeps article titles italic", () => {
+    const xml = toaStaticOoxml(toa(doc));
+    expect(xml).toContain('<w:i/><w:iCs/></w:rPr><w:t xml:space="preserve">Software Patents</w:t>');
   });
 });
 
@@ -192,6 +206,14 @@ describe("6. caseShortName", () => {
     ["eBay Inc. v. MercExchange, L.L.C.", "eBay"],
     ["Teva Pharms. USA, Inc. v. Sandoz, Inc.", "Teva"],
     ["Nautilus, Inc. v. Biosig Instruments, Inc.", "Nautilus"],
+    // Geographic / governmental first parties → the other party (R. 10.9(a)(i)).
+    ["City of Los Angeles v. Lyons", "Lyons"],
+    ["State of New York v. Smith", "Smith"],
+    ["Comm'r of Internal Revenue v. Banks", "Banks"],
+    ["Texas v. Johnson", "Johnson"],
+    ["Kansas v. Colorado", "Kansas"],
+    ["Dir. of Internal Revenue v. X", "Dir. of Internal Revenue"],
+    ["AT&T Corp. v. Excel Commc'ns, Inc.", "AT&T"],
   ])("%s → %s", (name, short) => {
     expect(caseShortName(name)).toBe(short);
   });
@@ -221,6 +243,20 @@ describe("6. caseShortName", () => {
       "eBay, 547 U.S. at 391",
       "Wands, 858 F.2d at 740",
       "Alston, 594 U.S. at 81",
+    ]);
+  });
+  test("a short cite written in the document's own (unabbreviated) spelling is still found", () => {
+    const shortsOf = (doc: string): string[] =>
+      toaOccurrenceReport(doc, authoritiesForToa(doc)).occurrences.filter((o) => o.kind === "short").map((o) => o.text);
+    expect(shortsOf("State Street Bank & Trust Co. v. Signature Fin. Grp., Inc., 149 F.3d 1368 (Fed. Cir. 1998). State Street, 149 F.3d at 1373.")).toEqual([
+      "State Street, 149 F.3d at 1373",
+    ]);
+    expect(shortsOf("United Technologies Corp. v. Widget Co., 5 F.3d 10 (Fed. Cir. 1999). United Technologies, 5 F.3d at 12.")).toEqual([
+      "United Technologies, 5 F.3d at 12",
+    ]);
+    // A generic first party is never a candidate on its own.
+    expect(shortsOf("Commissioner v. Banks, 543 U.S. 426 (2005). Commissioner, 543 U.S. at 430. Banks, 543 U.S. at 431.")).toEqual([
+      "Banks, 543 U.S. at 431",
     ]);
   });
 });
@@ -378,5 +414,7 @@ describe("reviewer suspicions, confirmed against the cited rule", () => {
       "10.1000/182",
       "10.1002/(SICI)1097-4636(199706)35:4<439::AID-JBM5>3.0.CO;2-H",
     ]);
+    // An ordinary 10.1002 DOI is not allowed to swallow a comma-joined neighbour.
+    expect(findDois("10.1002/anie.201900001,10.1000/182")).toEqual(["10.1002/anie.201900001", "10.1000/182"]);
   });
 });

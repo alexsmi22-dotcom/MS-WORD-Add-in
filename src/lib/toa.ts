@@ -224,8 +224,16 @@ const STAT_RE = /\b(\d{1,3})\s+Stat\.\s+(\d[\d,]*\d|\d)/g;
 // § 16.003", "Del. Code Ann. tit. 8, § 102". Groups: 1 the code name, 2 §, 3 section.
 const STATE_ABBR =
   "Ala\\.|Alaska|Ariz\\.|Ark\\.|Cal\\.|Colo\\.|Conn\\.|Del\\.|D\\.C\\.|Fla\\.|Ga\\.|Haw\\.|Idaho|Ill\\.|Ind\\.|Iowa|Kan\\.|Ky\\.|La\\.|Me\\.|Md\\.|Mass\\.|Mich\\.|Minn\\.|Miss\\.|Mo\\.|Mont\\.|Neb\\.|Nev\\.|N\\.H\\.|N\\.J\\.|N\\.M\\.|N\\.Y\\.|N\\.C\\.|N\\.D\\.|Ohio|Okla\\.|Or\\.|Pa\\.|R\\.I\\.|S\\.C\\.|S\\.D\\.|Tenn\\.|Tex\\.|Utah|Vt\\.|Va\\.|Wash\\.|W\\. Va\\.|Wis\\.|Wyo\\.";
+/**
+ * States whose codes number sections with hyphens (title-section or title-chapter-section, Bluebook T1): "Ala. Code
+ * § 6-2-38", "Ariz. Rev. Stat. Ann. § 12-341", "Va. Code Ann. § 8.01-243", "N.J. Stat. Ann. § 2A:14-1". There a
+ * hyphen is inside the section number. The others (Cal., N.Y., Tex., Fla., Ohio, Mich., Wash., …) number plainly or
+ * with dots, so a hyphen between two numbers is a range.
+ */
+const HYPHEN_SECTION_STATE_RE =
+  /^(?:Ala\.|Ariz\.|Ark\.|Colo\.|Conn\.|D\.C\.|Ga\.|Haw\.|Idaho|Ill\.|Ind\.|Kan\.|Md\.|Miss\.|Mont\.|Neb\.|N\.J\.|N\.M\.|N\.C\.|N\.D\.|R\.I\.|S\.C\.|S\.D\.|Tenn\.|Utah|Va\.|W\. Va\.|Wyo\.)/;
 const STATE_CODE_RE = new RegExp(
-  `(?<![\\w.])((?:${STATE_ABBR})(?:[ \\t\\u00a0]+(?:[A-Z][a-z]{0,8}\\.?|&)){0,5}?[ \\t\\u00a0]+(?:Code|Law|Stat\\.|Rev\\.[ \\t\\u00a0]+Stat\\.|Comp\\.[ \\t\\u00a0]+Laws|Gen\\.[ \\t\\u00a0]+Laws)(?:[ \\t\\u00a0]+Ann\\.)?(?:[ \\t\\u00a0]+tit\\.[ \\t\\u00a0]+\\d+,)?)[ \\t\\u00a0]*(§{1,2})[ \\t\\u00a0]*(${"[\\w.()–—\\-]+(?::[\\w.()–—\\-]+)*(?![\\w.()–—\\-]|:[\\w(])"})`,
+  `(?<![\\w.])((?:${STATE_ABBR})(?:[ \\t\\u00a0]+(?:[A-Z][a-z]{0,8}\\.?|&)){0,5}?[ \\t\\u00a0]+(?:Code|Law|Stat\\.|Rev\\.[ \\t\\u00a0]+Stat\\.|Comp\\.[ \\t\\u00a0]+Laws|Gen\\.[ \\t\\u00a0]+Laws)(?:[ \\t\\u00a0]+Ann\\.)?(?:[ \\t\\u00a0]+tit\\.[ \\t\\u00a0]+\\d+,)?)[ \\t\\u00a0]*(§{1,2})[ \\t\\u00a0]*(${"[\\w.()–—\\-]+(?::\\d[\\w.()–—\\-]*)*(?![\\w.()–—\\-]|:\\d)"})`,
   "g",
 );
 
@@ -859,11 +867,14 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
   STATE_CODE_RE.lastIndex = 0;
   while ((m = STATE_CODE_RE.exec(text))) {
     const code = m[1].replace(/\s+/g, " ");
-    // fix3: a state section number holds its hyphens and colons ("Ga. Code Ann. § 9-11-12", "N.J. Stat. Ann.
-    // § 2A:14-1", "Ariz. Rev. Stat. Ann. § 12-341"): ONE section, so the sign is the one written and the hyphen is
-    // kept (normalizeSection's range en dash and sectionSymbol's "§§" are for federal ranges like "§§ 101-103").
-    const sec = trimSection(m[3]).replace(/\s+/g, " ");
-    const sign = m[2];
+    // fix3: in a state whose code numbers its sections with hyphens ("Ga. Code Ann. § 9-11-12", "N.J. Stat. Ann.
+    // § 2A:14-1", "Ariz. Rev. Stat. Ann. § 12-341") the section is ONE number: the sign is the one written and the
+    // hyphen is kept. fix3e: in a plain-number code (Cal., N.Y., Tex., …) a hyphen between two numbers is a RANGE,
+    // as in a federal cite: "§ 1714-1716" → "§§ 1714–1716", and "§§ 1714-1715" / "§§ 1714–1715" merge (base).
+    const raw = trimSection(m[3]).replace(/\s+/g, " ");
+    const hyphenated = HYPHEN_SECTION_STATE_RE.test(code) || /-.*-/.test(raw) || /\d:\d/.test(raw);
+    const sec = hyphenated ? raw : normalizeSection(m[3]);
+    const sign = hyphenated ? m[2] : sectionSymbol(sec);
     plain("statutes", `${code} ${sign} ${sec}`, `${code} ${sign} ${sec}`.toLowerCase(), m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length), {
       span: text.slice(m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length)),
     });

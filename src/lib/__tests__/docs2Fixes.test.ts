@@ -3,6 +3,14 @@
 // APA in-text order. Each row was reproduced by the reviewer's probes
 // (scratchpad docs2/c2.js, t1.js) before the fix and pins the corrected outcome.
 
+import { STYLES, referenceWarnings } from "../bibStyles";
+import { parseRis } from "../ris";
+import { parseBibtex } from "../bibtex";
+import type { BibRecord } from "../bibRecord";
+import { auditDocument, extractFigureRefs } from "../audit";
+import { extractRefNumbers } from "../refs";
+import { extractSeqIdRefs } from "../seqid";
+import { extractNumerals, reconcileNumerals } from "../numerals";
 import { applySignal, citationById, idForm, pageRanges, parseCitation } from "../citations";
 import {
   authoritiesForToa,
@@ -185,11 +193,12 @@ describe("5. findPrecedingAuthority reads short forms and refuses what Id. canno
 describe("9. constitutional provisions, PTAB, session laws, state codes, legislative history, local rules, reporters", () => {
   it("U.S. Const. art./amend. → Constitutional Provisions (Word TOA category 7)", () => {
     const t = "U.S. Const. art. I, § 8, cl. 8. U.S. Const. amend. V. U.S. Const. amend. XIV, § 1. Cal. Const. art. I, § 7.";
+    // In entry-text order, as Word's native TOA sorts them (checked in real Word), so both tables agree.
     expect(rows(t, "Constitutional Provisions")).toEqual([
-      "U.S. Const. art. I, § 8, cl. 8",
+      "Cal. Const. art. I, § 7",
       "U.S. Const. amend. V",
       "U.S. Const. amend. XIV, § 1",
-      "Cal. Const. art. I, § 7",
+      "U.S. Const. art. I, § 8, cl. 8",
     ]);
     expect(toa(t).groups[0].heading).toBe("Constitutional Provisions");
     expect(authoritiesForToa(t)[0].categoryNum).toBe(7);
@@ -297,10 +306,6 @@ describe("12. pin ranges, § doubling, patent numbers, native italics, In re sor
 });
 
 // --- 7 / 8. audit figure spans -------------------------------------------------
-import { auditDocument, extractFigureRefs } from "../audit";
-import { extractRefNumbers } from "../refs";
-import { extractSeqIdRefs } from "../seqid";
-import { extractNumerals, reconcileNumerals } from "../numerals";
 
 describe("7. an enormous figure range is capped, not expanded", () => {
   it('"FIGS. 1-1000000" returns at once, is flagged by name, and lists no gaps', () => {
@@ -366,10 +371,6 @@ describe("N. numerals: grouped callouts, curly primes, a cleared box", () => {
 });
 
 // --- 6. APA 7 §8.12 in-text order ---------------------------------------------
-import { STYLES, referenceWarnings } from "../bibStyles";
-import { parseRis } from "../ris";
-import { parseBibtex } from "../bibtex";
-import type { BibRecord } from "../bibRecord";
 
 describe("6. APA parenthetical citations follow the reference-list order, same author collapsed", () => {
   const rec = (id: string, family: string, issued: BibRecord["issued"], title: string): BibRecord => ({

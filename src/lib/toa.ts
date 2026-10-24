@@ -792,22 +792,16 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
     out.push(caseRaw(m[1], core, m[4], verb, m.index, m.index + m[0].length));
   }
 
-  // Constitutional provisions.
-  const romanValue = (r: string): number => {
-    if (/^\d+$/.test(r)) return parseInt(r, 10);
-    const v: Record<string, number> = { I: 1, V: 5, X: 10, L: 50 };
-    let n = 0;
-    for (let i = 0; i < r.length; i++) n += v[r[i]] < (v[r[i + 1]] ?? 0) ? -v[r[i]] : v[r[i]];
-    return n;
-  };
+  // Constitutional provisions. Sorted by the entry text, as Word's native TOA
+  // sorts a TA field (checked in real Word: "amend. V" before "art. I"), so the
+  // static and the native tables list them in the same order.
   CONST_RE.lastIndex = 0;
   while ((m = CONST_RE.exec(text))) {
     const jur = m[1].replace(/\s+/g, "");
     const t = m[6]
       ? `${jur} Const. pmbl.`
       : `${jur} Const. ${m[2]} ${m[3]}${m[4] ? `, § ${m[4]}` : ""}${m[5] ? `, cl. ${m[5]}` : ""}`;
-    const sk = `${jur === "U.S." ? "0" : `1${jur.toLowerCase()}`} ${m[6] ? "0" : m[2] === "art." ? "1" : "2"} ${String(m[6] ? 0 : romanValue(m[3])).padStart(3, "0")} ${(m[4] ?? "").padStart(3, "0")} ${(m[5] ?? "").padStart(3, "0")}`;
-    plain("constitutional", t, sk, m.index, m.index + m[0].length, { span: m[0] });
+    plain("constitutional", t, t.toLowerCase(), m.index, m.index + m[0].length, { span: m[0] });
   }
 
   // Session laws and Statutes at Large.
@@ -1609,7 +1603,10 @@ export function isTableFieldCode(code: string | null | undefined): boolean {
 export function taFieldOoxml(name: string, rest: string, categoryNum: number, html?: string): string {
   const q = '<w:instrText xml:space="preserve">';
   let runs: string;
-  if (html && /<i>/.test(html)) {
+  // A case whose only italic part is its name keeps the original runs below
+  // (byte-identical TA fields); the html path is for every other italic part.
+  const italics = html ? (html.match(/<i>/g) ?? []).length : 0;
+  if (html && italics > 0 && (!name || italics > 1)) {
     // Every italic part of the entry keeps its italics in the generated table —
     // an article or treatise title, a Restatement, "cert. denied" (fix2: an
     // article title used to come out roman in the native TOA).

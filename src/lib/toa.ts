@@ -20,6 +20,7 @@ import {
   caseShortName,
   groupDigitsRule62,
   isCaseNameAbbreviation,
+  isKnownReporter,
   normalizeReporter,
   sectionSymbol,
 } from "./citations";
@@ -153,7 +154,12 @@ const CASE_NAME = `(?:${PARTY}${HS}vs?\\.${HS}${PARTY}|(?:In re|Ex parte|In the 
 const PINCITE = "(?:,\\s*\\d+(?:[–—-]\\d+)?(?:\\s*n\\.\\s*\\d+)?)*";
 // The "(court year)" parenthetical that closes a full citation, e.g. "(2014)",
 // "(Fed. Cir. 2008)", "(D. Mass. 2025)", "(1829)". Any year from 1600 on.
-const YEAR_PAREN = `(?:${PINCITE}\\s*\\(([^)]{0,45}(?:1[6-9]|20)\\d{2}[a-z]?)\\))?`;
+// Up to three parallel cites ("573 U.S. 208, 134 S. Ct. 2347, 189 L. Ed. 2d 296
+// (2014)", "50 Cal. App. 4th 100, 57 Cal. Rptr. 2d 1 (1996)") may sit before the
+// parenthetical (fix2: the year was lost and the parallel cite reported as
+// unclassifiable). The table lists the first cite, as Rule 10.3.1 prefers.
+const PARALLEL = `(?:,\\s*\\d+\\s+(?:${REPORTER_ALT})\\s+\\d+(?![\\w])${PINCITE}){0,3}`;
+const YEAR_PAREN = `(?:${PINCITE}${PARALLEL}\\s*\\(([^)]{0,45}(?:1[6-9]|20)\\d{2}[a-z]?)\\))?`;
 // Early U.S. Reports carry the nominative reporter: "56 U.S. (15 How.) 62".
 const NOMINATIVE = "(?:\\s*\\((\\d+\\s+[A-Z][A-Za-z.]*(?:\\s+[A-Z][A-Za-z.]*)?)\\))?";
 // Groups: 1 name, 2 vol, 3 reporter, 4 nominative, 5 page, 6 (court year).
@@ -490,11 +496,9 @@ function patentShortDigits(long: string): string | null {
 // Capitalized sentence-opener words that a greedy party-name match can absorb
 // when they run straight into a case name with no comma ("In Alice Corp. v. …",
 // "Applying Mayo v. …", "Whether Bilski v. …"). "In" is guarded so the genuine
-// "In re" / "In the Matter of" case forms survive. "Under" is deliberately NOT
-// listed: real litigants start with it ("Under Armour", "Under Seal"), and a
-// wrong strip would corrupt an actual party name — worse than leaving it.
+// "In re" / "In the Matter of" case forms survive.
 //
-// "Under" (docs2 review, fix2): "Under Alice Corp. … v. CLS Bank" was filed
+// "Under" (docs2 review, fix2 — reverses the earlier decision to keep it): "Under Alice Corp. … v. CLS Bank" was filed
 // under U and its short form "Alice, 573 U.S. at 218" was never found — the
 // commonest way a patent brief introduces Alice. "Under" is now stripped EXCEPT
 // before the real parties that start with it (Under Armour, Under Seal, Under
@@ -829,8 +833,7 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
     const stat = m[3] ? `, ${m[3]} Stat. ${m[4].replace(/,+$/, "")}` : "";
     const yr = m[5] ? ` (${m[5]})` : "";
     const t = `${name ? `${name}, ` : ""}Pub. L. No. ${law}${stat}${yr}`;
-    const [c, n] = law.split("-");
-    plain("statutes", t, `zz1 publ ${c.padStart(4, "0")} ${n.padStart(5, "0")}`, start, m.index + m[0].length, {
+    plain("statutes", t, t.toLowerCase(), start, m.index + m[0].length, {
       span: text.slice(m.index + m[0].indexOf("Pub"), m.index + m[0].length),
       key: `statutes|publ|${law}`,
     });
@@ -846,7 +849,7 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
     const at = m.index;
     if (publSpans.some(([a, b]) => at >= a && at < b)) continue;
     const page = m[2].replace(/\D/g, "");
-    plain("statutes", `${m[1]} Stat. ${groupDigitsRule62(page)}`, `zz2 stat ${m[1].padStart(4, "0")} ${page.padStart(7, "0")}`, at, at + m[0].length, {
+    plain("statutes", `${m[1]} Stat. ${groupDigitsRule62(page)}`, `${m[1]} stat. ${groupDigitsRule62(page)}`, at, at + m[0].length, {
       span: m[0],
       key: `statutes|stat|${m[1]}|${page}`,
     });
@@ -857,7 +860,7 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
   while ((m = STATE_CODE_RE.exec(text))) {
     const code = m[1].replace(/\s+/g, " ");
     const sec = normalizeSection(m[3]);
-    plain("statutes", `${code} ${sectionSymbol(sec)} ${sec}`, `zz3 ${code.toLowerCase()} ${sec}`, m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length), {
+    plain("statutes", `${code} ${sectionSymbol(sec)} ${sec}`, `${code} ${sectionSymbol(sec)} ${sec}`.toLowerCase(), m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length), {
       span: text.slice(m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length)),
     });
   }
@@ -869,8 +872,7 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
     const kind = m[2].replace(/\s+/g, " ");
     const num = m[3].replace("–", "-");
     const t = `${chamber} ${kind} No. ${num}${m[4] ? ` (${m[4]})` : ""}`;
-    const [c, n] = num.split("-");
-    plain("other", t, `zz0 leg ${chamber.toLowerCase()} ${kind.toLowerCase()} ${c.padStart(4, "0")} ${n.padStart(6, "0")}`, m.index, m.index + m[0].length, {
+    plain("other", t, t.toLowerCase(), m.index, m.index + m[0].length, {
       span: text.slice(m.index, m.index + m[0].indexOf(m[3]) + m[3].length),
       key: `other|leg|${chamber}|${kind}|${num}`,
     });
@@ -996,7 +998,7 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
       .replace(/^Local Patent Rules$/, "Local Patent Rule")
       .replace(/^Local (Civil )?Rules$/, "Local $1Rule");
     const t = `${court}${set} ${m[3]}`;
-    plain("rules", t, `zz1 ${court.toLowerCase()}${set.toLowerCase()} ${m[3].split(/[.-]/).map((p) => p.padStart(3, "0")).join(".")}`, m.index, m.index + m[0].length, { span: m[0] });
+    plain("rules", t, t.toLowerCase(), m.index, m.index + m[0].length, { span: m[0] });
   }
   // Bare "Rule 12(b)(7)" — trusted only in a document that also uses the
   // qualified Fed. R. Civ. P. form; then treated as a civil rule.
@@ -1059,11 +1061,13 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
     refusals.push({
       index: m.index,
       text: m[0],
-      reason: `"${m[0]}" looks like a citation, but "${m[2]}" is not a source the table can classify — not listed; check it and add it by hand if it is an authority`,
+      reason: isKnownReporter(m[2])
+        ? `"${m[0]}" is a ${normalizeReporter(m[2])} cite, but no case name the table could read goes with it — not listed; check the citation's form`
+        : `"${m[0]}" looks like a citation, but "${m[2]}" is not a source the table can classify — not listed; check it and add it by hand if it is an authority`,
     });
   }
 
-  mergeCaseSpellings(out);
+  mergeCaseSpellings(out, refusals);
   return { raws: out, refusals };
 }
 
@@ -1072,10 +1076,15 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
  * reporter + first page whose names differ only by words glued on in front
  * ("A). Smith v. Jones" / "Smith v. Jones") are one authority. The longer name
  * takes the shorter one's name and key, so the table, the register and the
- * occurrence report all agree. Names that are NOT a word-suffix of each other
- * stay separate (two memorandum decisions can share a table page).
+ * occurrence report all agree.
+ *
+ * Any OTHER difference in the name for the same cite ("Alice Corp. Pty. Ltd. v.
+ * …" and "Alice Corp. v. …", 573 U.S. 208) is still one row — under the first
+ * spelling — so the native TOA does not split its pages across two \l texts;
+ * each other spelling is reported by name in the skipped list, so a mistyped
+ * cite or two decisions on one table page are checked, never silently merged.
  */
-function mergeCaseSpellings(raws: Raw[]): void {
+function mergeCaseSpellings(raws: Raw[], refusals: ToaRefusal[]): void {
   const byCore = new Map<string, Raw[]>();
   for (const r of raws) {
     if (r.category !== "cases") continue;
@@ -1084,28 +1093,57 @@ function mergeCaseSpellings(raws: Raw[]): void {
     list.push(r);
     byCore.set(core, list);
   }
-  const norm = (s: string): string => foldQuotes(abbreviateCaseName(s)).toLowerCase();
   for (const list of byCore.values()) {
     if (list.length < 2) continue;
-    // Shortest name first: every longer name that ENDS with it (at a word
-    // boundary) is the same case with prose glued on.
-    const sorted = [...list].sort((a, b) => a.name.length - b.name.length);
-    for (let i = 0; i < sorted.length; i++) {
-      const s = sorted[i];
-      const sn = norm(s.name);
-      for (let j = i + 1; j < sorted.length; j++) {
-        const l = sorted[j];
-        if (l.dedupe === s.dedupe) continue;
-        const ln = norm(l.name);
-        if (ln.length > sn.length && ln.endsWith(sn) && /\s$/.test(ln.slice(0, ln.length - sn.length))) {
-          const rest = l.rest;
-          l.name = s.name;
-          l.plain = `${s.name}${rest}`;
-          l.html = l.html.replace(/^<i>[\s\S]*?<\/i>/, `<i>${esc(s.name)}</i>`);
-          l.sortKey = s.sortKey;
-          l.dedupe = s.dedupe;
+    // One spelling per dedupe key, normalised ONCE (abbreviateCaseName is the
+    // costly part), with where it is first seen.
+    const spell = new Map<string, { raw: Raw; norm: string; first: number; into?: string }>();
+    for (const r of list) {
+      const s = spell.get(r.dedupe);
+      if (!s) spell.set(r.dedupe, { raw: r, norm: foldQuotes(abbreviateCaseName(r.name)).toLowerCase(), first: r.start });
+      else if (r.start < s.first) s.first = r.start;
+    }
+    if (spell.size < 2) continue;
+    // 1. A longer name that ENDS with a shorter one (at a word boundary) is the
+    //    same case with prose glued on: it takes the shorter name, silently.
+    const keys = [...spell.keys()].sort((a, b) => spell.get(a)!.norm.length - spell.get(b)!.norm.length);
+    for (let i = 0; i < keys.length; i++) {
+      const s = spell.get(keys[i])!;
+      if (s.into) continue;
+      for (let j = i + 1; j < keys.length; j++) {
+        const l = spell.get(keys[j])!;
+        if (l.into) continue;
+        if (l.norm.length > s.norm.length && l.norm.endsWith(s.norm) && /\s$/.test(l.norm.slice(0, l.norm.length - s.norm.length))) {
+          l.into = keys[i];
+          s.first = Math.min(s.first, l.first);
         }
       }
+    }
+    // 2. Whatever spellings remain: one row, under the first seen, each other
+    //    spelling reported by name.
+    const left = keys.filter((k) => !spell.get(k)!.into).sort((a, b) => spell.get(a)!.first - spell.get(b)!.first);
+    for (const k of left.slice(1)) {
+      const o = spell.get(k)!;
+      o.into = left[0];
+      refusals.push({
+        index: o.first,
+        text: o.raw.name,
+        reason: `"${o.raw.name}" cites the same ${o.raw.locator} as "${spell.get(left[0])!.raw.name}" — listed once, under the first spelling; check the case name`,
+      });
+    }
+    const target = (k: string): string => {
+      let t = k;
+      for (let g = 0; g < 8 && spell.get(t)!.into; g++) t = spell.get(t)!.into!;
+      return t;
+    };
+    for (const r of list) {
+      const t = spell.get(target(r.dedupe))!.raw;
+      if (r.dedupe === t.dedupe) continue;
+      r.name = t.name;
+      r.plain = `${t.name}${r.rest}`;
+      r.html = r.html.replace(/^<i>[\s\S]*?<\/i>/, `<i>${esc(t.name)}</i>`);
+      r.sortKey = t.sortKey;
+      r.dedupe = t.dedupe;
     }
   }
 }
@@ -1313,7 +1351,20 @@ export function toaStaticOoxml(toa: TableOfAuthorities, pages?: Map<string, stri
     const pageRun = run(RPR_BASE, `<w:tab/>${t(pageOf(e))}`);
     if (e.name) {
       const cite = e.rest.replace(/^,\s*/, "");
-      return `<w:p>${pPr}${run(`${RPR_BASE}<w:i/><w:iCs/>`, t(`${e.name},`))}${run(RPR_BASE, `<w:br/>${t(cite)}`)}${pageRun}</w:p>`;
+      // Italic parts after the name ("cert. denied", "aff'd") stay italic, as in the native TOA (fix2).
+      const restHtml = e.html.replace(/^<i>[\s\S]*?<\/i>,\s*/, "");
+      const citeRuns = /<i>/.test(restHtml)
+        ? restHtml
+            .split(/(<i>[\s\S]*?<\/i>)/)
+            .filter(Boolean)
+            .map((p, k) => {
+              const im = /^<i>([\s\S]*)<\/i>$/.exec(p);
+              const unesc = (s: string): string => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+              return run(im ? `${RPR_BASE}<w:i/><w:iCs/>` : RPR_BASE, `${k === 0 ? "<w:br/>" : ""}${t(unesc(im ? im[1] : p))}`);
+            })
+            .join("")
+        : run(RPR_BASE, `<w:br/>${t(cite)}`);
+      return `<w:p>${pPr}${run(`${RPR_BASE}<w:i/><w:iCs/>`, t(`${e.name},`))}${citeRuns}${pageRun}</w:p>`;
     }
     // A non-case entry with italic parts (an article or treatise title) keeps
     // them italic here too, run by run.
@@ -1471,7 +1522,8 @@ export function findPrecedingSecondarySource(text: string): SecondarySource | nu
 
 /**
  * Word's built-in Table of Authorities category numbers (1 Cases, 2 Statutes,
- * 3 Other Authorities, 4 Rules, 6 Regulations). Word has no native "Patents"
+ * 3 Other Authorities, 4 Rules, 6 Regulations, 7 Constitutional Provisions —
+ * the last verified in real Word, fix2). Word has no native "Patents"
  * category, so patents share "Other Authorities" (3) with Fed. Reg. and MPEP.
  */
 const CATEGORY_NUM: Record<ToaCategory, number> = {

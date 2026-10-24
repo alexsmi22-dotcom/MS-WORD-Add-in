@@ -70,9 +70,32 @@ describe("1. TOA case names: ')' sentence ends, Ex. X., Under, one row per case"
     expect(rows(t, "Cases")).toHaveLength(1);
     expect(authoritiesForToa(t).filter((m) => m.category === "cases")).toHaveLength(1);
   });
-  it("different names on one table page stay two rows", () => {
-    const t = "Ann v. Bob, 100 F.3d 1 (9th Cir. 1996). Cy v. Dee, 100 F.3d 1 (9th Cir. 1996).";
-    expect(rows(t, "Cases")).toHaveLength(2);
+  it("a different name for the same cite is one row (first spelling) plus a named skipped line", () => {
+    const t = "Alice Corp. Pty. Ltd. v. CLS Bank Int'l, 573 U.S. 208 (2014). Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 216 (2014).";
+    expect(rows(t, "Cases")).toEqual(["Alice Corp. Pty. Ltd. v. CLS Bank Int'l, 573 U.S. 208 (2014)"]);
+    expect(toa(t).refused?.map((r) => r.text)).toEqual(["Alice Corp. v. CLS Bank Int'l"]);
+    expect(toa(t).refused?.[0].reason).toMatch(/same 573 U\.S\. 208 .*listed once/);
+    const occ = toaOccurrenceReport(t, authoritiesForToa(t)).occurrences;
+    expect(new Set(occ.map((o) => o.markIndex)).size).toBe(1);
+  });
+  it("parallel cites keep the year and are not reported as unclassifiable", () => {
+    for (const [t, row] of [
+      ["Teva Pharms. USA, Inc. v. Sandoz, Inc., 574 U.S. 318, 135 S. Ct. 831 (2015).", "Teva Pharms. USA, Inc. v. Sandoz, Inc., 574 U.S. 318 (2015)"],
+      ["Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 134 S. Ct. 2347, 189 L. Ed. 2d 296 (2014).", "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014)"],
+      ["Smith v. Jones, 50 Cal. App. 4th 100, 57 Cal. Rptr. 2d 1 (1996).", "Smith v. Jones, 50 Cal. App. 4th 100 (1996)"],
+    ]) {
+      expect(allRows(t)).toEqual([row]);
+      expect(toa(t).refused).toBeUndefined();
+    }
+    // A known reporter with no readable name is reported truthfully.
+    expect(toa("as held at 135 S. Ct. 831 (2015).").refused?.[0].reason).toMatch(/S\. Ct\. cite, but no case name/);
+  });
+  it("many names on one cite stay fast (normalised once each)", () => {
+    let s = "";
+    for (let i = 0; i < 190; i++) s += `P${i} v. Q, 1 F.3d 1 (1990). `;
+    expect(s.length).toBeGreaterThan(5000);
+    expect(ms(() => toa(s))).toBeLessThan(100);
+    expect(rows(s, "Cases")).toHaveLength(1);
   });
   it("subsequent history is carried in the entry as first cited (Rule 10.7) and its cite is not a second row", () => {
     const t = "Thaler v. Vidal, 43 F.4th 1207 (Fed. Cir. 2022), cert. denied, 143 S. Ct. 1783 (2023).";
@@ -214,13 +237,14 @@ describe("9. constitutional provisions, PTAB, session laws, state codes, legisla
   it("Pub. L. / Stat. and state codes → Statutes", () => {
     const t =
       "See Leahy-Smith America Invents Act, Pub. L. No. 112-29, § 3, 125 Stat. 284, 285 (2011). 96 Stat. 25. Federal Food, Drug, and Cosmetic Act, Pub. L. No. 75-717, 52 Stat. 1040 (1938). Cal. Civ. Proc. Code § 425.16. Fla. Stat. § 768.79. Tex. Civ. Prac. & Rem. Code Ann. § 16.003. Del. Code Ann. tit. 8, § 102 (2020).";
+    // In entry-text order, as Word's native TOA sorts the TA field's entry text, so static and native agree.
     expect(rows(t, "Statutes")).toEqual([
-      "Pub. L. No. 75-717, 52 Stat. 1040 (1938)",
-      "Leahy-Smith America Invents Act, Pub. L. No. 112-29, 125 Stat. 284 (2011)",
       "96 Stat. 25",
       "Cal. Civ. Proc. Code § 425.16",
       "Del. Code Ann. tit. 8, § 102",
       "Fla. Stat. § 768.79",
+      "Leahy-Smith America Invents Act, Pub. L. No. 112-29, 125 Stat. 284 (2011)",
+      "Pub. L. No. 75-717, 52 Stat. 1040 (1938)",
       "Tex. Civ. Prac. & Rem. Code Ann. § 16.003",
     ]);
   });
@@ -412,5 +436,23 @@ describe("11. patents keep their number and country", () => {
   it("BibTeX number = {US 7,469,381} → country US", () => {
     const r = parseBibtex("@patent{k, author = {Smith, John}, title = {Water filter}, number = {US 7,469,381}, year = {2008}}").records[0];
     expect(r.authority).toBe("US");
+  });
+});
+
+// --- regex timing rows for the remaining new patterns ------------------------
+import { patentCountryOf } from "../ris";
+
+describe("timing: every new regex is linear on 5 kB of hostile input (< 100 ms)", () => {
+  it("pageRanges, idForm, patentCountryOf, history italics, refs singular head", () => {
+    const digits = "1-".repeat(2600);
+    const sp = "See ".repeat(1300) + " ".repeat(10);
+    const pc = "US".repeat(2600);
+    const hist = { name: "A v. B", vol: "1", reporter: "F.3d", page: "1", year: "2000", history: "cert. denied ".repeat(400) + "aff'd in part" };
+    const figs = "Fig. " + "2, ".repeat(1700);
+    expect(ms(() => pageRanges(digits))).toBeLessThan(100);
+    expect(ms(() => idForm(sp))).toBeLessThan(100);
+    expect(ms(() => patentCountryOf(pc))).toBeLessThan(100);
+    expect(ms(() => fmtHtml("case", hist))).toBeLessThan(100);
+    expect(ms(() => extractRefNumbers(figs, "figure"))).toBeLessThan(100);
   });
 });

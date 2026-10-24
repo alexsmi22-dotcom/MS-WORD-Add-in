@@ -59,7 +59,11 @@ export interface NumeralFindings {
 // "never called out"). Group 1 is the whole list; at most 20 members, and the
 // separators hold no digit, so the scan is linear.
 const SUB = "[A-Za-z'’′]?";
-const CALLOUT_RE = new RegExp(`\\((\\d+${SUB}(?:\\s*(?:,\\s*(?:and|or|&)?|and|or|&)\\s*\\d+${SUB}){0,20})\\)`, "g");
+// Each separator has ONE way to match its spaces (an optional "\s*" on both
+// sides of an optional word split the same spaces two ways: 2²⁰ tries on an
+// unclosed "(12, 12, …").
+const CALLOUT_SEP = "(?:\\s*,\\s*(?:(?:and|or|&)\\s*)?|\\s*(?:and|or|&)\\s*)";
+const CALLOUT_RE = new RegExp(`\\((\\d+${SUB}(?:${CALLOUT_SEP}\\d+${SUB}){0,20})\\)`, "g");
 
 /**
  * A parenthesized four-digit year. A patent spec or brief is full of these

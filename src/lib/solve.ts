@@ -2610,6 +2610,19 @@ export interface DerivativeResult {
 }
 
 /** Symbolic derivative of `input` with respect to `variable` (default: the sole free variable, else x). */
+/**
+ * The derivative as the user is shown it (the result and the show-work lines alike): exact constants where the CAS
+ * can keep them (ln(2)·2^x, 1/(x·ln(10)), not 0.693147…·2^x), the numeric simplifier otherwise.
+ */
+export function simplifiedDerivative(e: Expr, x: string): Expr {
+  try {
+    return casSimplify(casSimplify(derivative(e, x), { exactRadicals: true }), { exactRadicals: true });
+  } catch (err) {
+    if (!(err instanceof CasBail)) throw err;
+    return simplify(simplify(derivative(e, x)));
+  }
+}
+
 export function differentiate(input: string, variable?: string): DerivativeResult | null {
   // "f(x) = |x + 4|" pasted whole into the derivative box: differentiate the
   // BODY of the definition (with respect to its stated variable).
@@ -2619,14 +2632,7 @@ export function differentiate(input: string, variable?: string): DerivativeResul
   try { e = parseExpr(input); } catch { return null; }
   const vars = freeVars(e);
   const x = variable ?? (vars.length === 1 ? vars[0] : "x");
-  // Exact constants where the CAS can keep them (ln(2)·2^x, 1/(x·ln(10))), the numeric simplifier otherwise.
-  let d: Expr;
-  try {
-    d = casSimplify(casSimplify(derivative(e, x), { exactRadicals: true }), { exactRadicals: true });
-  } catch (err) {
-    if (!(err instanceof CasBail)) throw err;
-    d = simplify(simplify(derivative(e, x)));
-  }
+  const d = simplifiedDerivative(e, x);
   const caveats: string[] = [];
   if (freeVars(e).length > 1) caveats.push(`Differentiated with respect to ${x}; other symbols were treated as constants.`);
   if (/\babs\b/.test(input)) caveats.push("The derivative of abs() is the sign function, undefined where its argument is zero.");

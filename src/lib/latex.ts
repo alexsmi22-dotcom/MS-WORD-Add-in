@@ -134,6 +134,17 @@ export function latexToDsl(src: string): string {
   const eat = (): LTok | undefined => toks[pos++];
   /** What each open \left emitted, so its \right can close it. */
   const leftStack: string[] = [];
+  /** The \right matching the \left whose delimiter ends just before index `from` names "." (a one-sided delimiter). */
+  const rightIsDot = (from: number): boolean => {
+    let depth = 1;
+    for (let j = from; j < toks.length; j++) {
+      const t = toks[j];
+      if (t.t !== "cmd") continue;
+      if (t.v === "left") depth++;
+      else if (t.v === "right" && --depth === 0) return toks[j + 1]?.t === "char" && toks[j + 1].v === ".";
+    }
+    return false;
+  };
 
   function group(): string {
     const t = peek();
@@ -261,6 +272,25 @@ export function latexToDsl(src: string): string {
           eat();
           return ")";
         }
+      }
+      // A one-sided brace, \left\{ \begin{array}…\end{array} \right., is a piecewise definition: cases(…). Any
+      // other content under a one-sided brace is left unbalanced (the parse fails and falls back), never closed with a
+      // brace it does not have.
+      if (name === "left" && d.t === "cmd" && (d.v === "{" || d.v === "lbrace") && rightIsDot(pos + 1)) {
+        eat();
+        if (peek()?.t === "cmd" && peek()!.v === "begin") {
+          eat();
+          // env name: array / matrix / aligned — the rows are what matter; array's column spec {ll} is not content
+          if (group().replace(/\s+/g, "") === "array" && peek()?.t === "lbrace") group();
+          const rows = readRows();
+          if (peek()?.t === "cmd" && peek()!.v === "right") {
+            eat();
+            if (peek()?.t === "char" && peek()!.v === ".") eat();
+          }
+          return rows.length ? `cases(${rows.map((r) => r.join(", ")).join("; ")})` : "";
+        }
+        leftStack.push("(");
+        return "(";
       }
       let out = "";
       if (d.t === "char") {

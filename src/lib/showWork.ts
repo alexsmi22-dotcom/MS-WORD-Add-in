@@ -14,6 +14,7 @@ import {
   parseExpr,
   evalAst,
   derivative as derivAst,
+  simplifiedDerivative,
   simplify,
   format,
   polyCoeffs,
@@ -310,7 +311,7 @@ export function derivativeWork(input: string, variable: string): WorkLine[] {
    *  the user-facing result gets, so u′ lines never show `2*x^(2 - 1)*1`. */
   const D = (x: Expr): string | null => {
     try {
-      return format(simplify(simplify(derivAst(x, v))));
+      return format(simplifiedDerivative(x, v));
     } catch {
       return null;
     }
@@ -404,7 +405,7 @@ export function derivativeWork(input: string, variable: string): WorkLine[] {
   if (!lines.length) return [];
   lines.push({ text: "Assembled and simplified:" });
   try {
-    lines.push({ math: `d/d${v} (${input.trim()}) = ${format(simplify(simplify(derivAst(e, v))))}` });
+    lines.push({ math: `d/d${v} (${input.trim()}) = ${format(simplifiedDerivative(e, v))}` });
   } catch {
     return [];
   }

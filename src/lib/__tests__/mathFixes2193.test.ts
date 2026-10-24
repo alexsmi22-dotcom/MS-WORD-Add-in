@@ -17,6 +17,7 @@ import { mathToHtml } from "../mathHtml";
 import { mathToOmml } from "../mathOmml";
 import { limit } from "../analysis";
 import { differentiate } from "../solve";
+import { derivativeWork } from "../showWork";
 import { formatQuantityHtml } from "../units";
 import { tryCombinatorics } from "../combinatorics";
 
@@ -162,6 +163,12 @@ describe("8. latexToDsl", () => {
     expect(astToLatex(P(dsl))).toBe("\\left\\{ x \\mid x > 0 \\right\\}");
     expect(latexToDsl("\\left( a \\right)")).toBe("(a)");
   });
+  test("a one-sided \\left\\{ … \\right. array is a piecewise definition, never given a closing brace", () => {
+    const dsl = latexToDsl("\\left\\{ \\begin{array}{ll} x & x \\ge 0 \\\\ -x & x < 0 \\end{array} \\right.");
+    expect(dsl).toBe("cases(x, x≥0; -x, x<0)");
+    expect(P(dsl).k).toBe("cases");
+    expect(latexToDsl("f = \\left\\{ x \\right.")).not.toContain("braces(");
+  });
 });
 
 describe("9. limits refused by cancellation now resolve; divergent limits stay refused", () => {
@@ -204,6 +211,14 @@ describe("smaller fixes", () => {
     expect(differentiate("2^x")!.derivative).toBe("2^x*ln(2)");
     expect(differentiate("e^(-x^2/2)")!.derivative).toBe("-x*e^(-x^2/2)");
     expect(differentiate("exp(-x^2/2)")!.derivative).toBe("-x*exp(-x^2/2)");
+  });
+  test("the show-work lines use the same exact derivative", () => {
+    const last = (f: string): string => {
+      const w = derivativeWork(f, "x");
+      return (w[w.length - 1] as { math: string }).math;
+    };
+    expect(last("log(x)")).toBe("d/dx (log(x)) = 1/(x*ln(10))");
+    expect(last("2^x")).toBe("d/dx (2^x) = 2^x*ln(2)");
   });
   test("L'Hôpital working shows no ln(e)", () => {
     expect(limit("(e^x - 1)/x", "x", 0)!.steps.join(" ")).not.toContain("ln(e)");

@@ -16,7 +16,7 @@ import type {
   PictureInsert,
   ResultLayoutItem,
 } from "./host";
-import { tagInserted } from "./wordShared";
+import { blockTarget, isMultiBlockOoxml, tagInserted } from "./wordShared";
 import { findInsertedPicture, PictureSignature } from "../lib/insertCapability";
 import { prepareEditableTable } from "../lib/tablefigure";
 
@@ -270,11 +270,17 @@ export async function insertResultLayout(items: ResultLayoutItem[]): Promise<num
       picturesBefore = null; // no confirmation available; the insert proceeds
     }
 
-    let anchor = context.document.getSelection().getRange(Word.RangeLocation.end);
+    const selection = context.document.getSelection();
+    let anchor = selection.getRange(Word.RangeLocation.end);
+    // A multi-paragraph package first goes in a paragraph of its own (wordShared blockTarget): inserted after the
+    // cursor it joined its first line to the user's paragraph — a heading, a list item (fix2-plat).
+    let first: { range: Word.Range; at: Word.InsertLocation } | null =
+      items.length && items[0].kind === "ooxml" && isMultiBlockOoxml(items[0].ooxml) ? await blockTarget(context, selection) : null;
     const captions: Array<{ para: Word.Paragraph; prefix: string }> = [];
     for (const item of items) {
       if (item.kind === "ooxml") {
-        const inserted = anchor.insertOoxml(item.ooxml, Word.InsertLocation.after);
+        const inserted = first ? first.range.insertOoxml(item.ooxml, first.at) : anchor.insertOoxml(item.ooxml, Word.InsertLocation.after);
+        first = null;
         if (item.captionPrefix) {
           const first = inserted.paragraphs.getFirst();
           first.load("text");

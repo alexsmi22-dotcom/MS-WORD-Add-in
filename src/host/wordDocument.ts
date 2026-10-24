@@ -21,7 +21,19 @@ import type {
   ParagraphMark,
   StaticToaReport,
 } from "./host";
-import { tagInserted, wordApiSupported } from "./wordShared";
+import { blockTarget, tagInserted, wordApiSupported } from "./wordShared";
+
+/**
+ * A TOC / TOA replacing at the selection: a real selection is replaced as before; at a collapsed cursor the table
+ * goes in a paragraph of its own (wordShared blockTarget) — it joined the heading or list item the cursor was in.
+ */
+async function collapsedBlockTarget(context: Word.RequestContext, selection: Word.Range): Promise<{ range: Word.Range; at: Word.InsertLocation }> {
+  // Range.isEmpty and paragraphs.getLast are WordApi 1.3: an older host replaces at the selection, as before.
+  if (!wordApiSupported("1.3")) return { range: selection, at: Word.InsertLocation.replace };
+  selection.load("isEmpty");
+  await context.sync();
+  return selection.isEmpty === true ? blockTarget(context, selection) : { range: selection, at: Word.InsertLocation.replace };
+}
 import { stripParagraphNumber } from "../lib/paragraphs";
 import {
   authoritiesForToa,
@@ -147,7 +159,8 @@ export async function replaceSelectionFromTextBefore(
 export async function insertTocField(): Promise<void> {
   await Word.run(async (context) => {
     const selection = context.document.getSelection();
-    selection.insertOoxml(tocFieldOoxml(3), Word.InsertLocation.replace);
+    const t = await collapsedBlockTarget(context, selection);
+    t.range.insertOoxml(tocFieldOoxml(3), t.at);
     await context.sync();
     // Make Word's generated TOC entries Times New Roman 12 (court-brief template).
     await setTableStylesToTimesNewRoman(context, ["TOC 1", "TOC 2", "TOC 3"]);
@@ -345,7 +358,8 @@ export async function buildNativeToa(): Promise<NativeToaReport> {
     // a tagged content control so the "formatted list" button can find this
     // exact block, copy its F9'd page numbers, and replace it cleanly.
     const selection = context.document.getSelection();
-    const toaRange = selection.insertOoxml(toaFieldsOoxml([...categoryNums]), Word.InsertLocation.replace);
+    const toaAt = await collapsedBlockTarget(context, selection);
+    const toaRange = toaAt.range.insertOoxml(toaFieldsOoxml([...categoryNums]), toaAt.at);
     await context.sync();
     try {
       const cc = toaRange.insertContentControl();
@@ -415,9 +429,10 @@ export async function buildStaticToa(): Promise<StaticToaReport> {
       replacedField = true;
     } else {
       const range = context.document.getSelection();
+      const at = await collapsedBlockTarget(context, range);
       inserted = ooxml
-        ? range.insertOoxml(ooxml, Word.InsertLocation.replace)
-        : range.insertHtml(toaToHtml(toa), Word.InsertLocation.replace);
+        ? at.range.insertOoxml(ooxml, at.at)
+        : at.range.insertHtml(toaToHtml(toa), at.at);
       inserted.select(Word.SelectionMode.end);
       await context.sync();
       await tagInserted(context, inserted, "formula-inserter:toa");

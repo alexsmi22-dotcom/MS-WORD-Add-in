@@ -92,7 +92,9 @@ describe("the figure-style picker reaches prepareFigure", () => {
       plot: "insertPlot",
       ppt: "insertTableFigure",
       stats: "insertStatsChart",
-      finance: "insertFinanceResult",
+      // fix2-plat: Finance's text and chart go in as one package (insertTextWithFigure), still through the figure
+      // style (prepareFigure + rasterTarget there; insertFigure itself on the vector route).
+      finance: "insertTextWithFigure",
       assay: "insertAssayPlot",
       solidform: "insertSolidFigure",
     };
@@ -102,7 +104,8 @@ describe("the figure-style picker reaches prepareFigure", () => {
       const b = fnBody(insertFnFor[mode]);
       // "Its own PNG" is now a direct host picture call as much as a raw Word one
       // (v2.145.0) — matching only the Word call would make this check vacuous.
-      expect({ mode, viaInsertFigure: /await insertFigure\(\{/.test(b), ownPng: /insertInlinePictureFromBase64|docHost\.insertPicture/.test(b) }).toEqual({
+      const via = mode === "finance" ? /prepareFigure\(/.test(b) && /rasterTarget\(prepared/.test(b) && /await insertFigure\(o\)/.test(b) : /await insertFigure\(\{/.test(b);
+      expect({ mode, viaInsertFigure: via, ownPng: /insertInlinePictureFromBase64|docHost\.insertPicture/.test(b) }).toEqual({
         mode,
         viaInsertFigure: true,
         ownPng: false,

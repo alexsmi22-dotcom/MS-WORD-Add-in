@@ -18,7 +18,8 @@ export type ResultPackageItem =
   | { kind: "text"; content: string }
   | { kind: "math"; content: string }
   | { kind: "table"; label: string; rows: string[][] }
-  | { kind: "picture"; caption: string; base64: string; widthPt: number; heightPt: number; alt: string }
+  /** `caption` is set above the picture; `below` (optional) is a caption line under it (Statistics' bracket legend). */
+  | { kind: "picture"; caption: string; base64: string; widthPt: number; heightPt: number; alt: string; below?: string }
   /**
    * Body XML written as given: one or more complete <w:p>/<w:tbl> elements in the w: namespace (v2.193.0), for
    * content another builder already formats — a scheme caption's SEQ field, a footnote's italic runs — so it goes in
@@ -90,7 +91,8 @@ export function textRuns(text: string): string {
       : kind === "sup" ? `<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>`
       : kind === "math" ? `<w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math" w:cs="Cambria Math"/></w:rPr>`
       : "";
-    out.push(`<w:r>${rPr}<w:t xml:space="preserve">${esc(cur)}</w:t></w:r>`);
+    // A tab is Word's own <w:tab/> (insertText made real tabs; a raw tab inside <w:t> is not one).
+    out.push(`<w:r>${rPr}<w:t xml:space="preserve">${esc(cur).split("\t").join('</w:t><w:tab/><w:t xml:space="preserve">')}</w:t></w:r>`);
     cur = "";
   };
   for (const c of text) {
@@ -145,6 +147,25 @@ function pictureRun(relId: string, n: number, widthPt: number, heightPt: number,
   );
 }
 
+/**
+ * The LAST paragraph of `xml` kept on the page of whatever follows it (<w:keepNext/>, fix2-plat): a caption or table
+ * label above a figure or table was stranded at the bottom of a page with its figure on the next (measured via COM).
+ * keepNext follows pStyle in CT_PPr's sequence. Body XML holding a table, or a paragraph already kept, is unchanged.
+ */
+export function keepWithNext(xml: string): string {
+  if (!xml.startsWith("<w:p") || xml.includes("<w:tbl") || xml.includes("<w:keepNext")) return xml;
+  const at = Math.max(xml.lastIndexOf("<w:p>"), xml.lastIndexOf("<w:p "));
+  if (at < 0) return xml;
+  const open = xml.indexOf(">", at) + 1;
+  const tail = xml.slice(open);
+  if (tail.startsWith("<w:pPr>")) {
+    const style = /^<w:pPr>(<w:pStyle [^>]*\/>)?/.exec(tail)!;
+    return xml.slice(0, open) + style[0] + "<w:keepNext/>" + tail.slice(style[0].length);
+  }
+  if (xml.slice(at, open).endsWith("/>")) return xml; // <w:p/>: an empty paragraph is no caption
+  return xml.slice(0, open) + "<w:pPr><w:keepNext/></w:pPr>" + tail;
+}
+
 /** The package, and how many pictures it carries (the host checks Word's own count against it). */
 export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; pictures: number } {
   const body: string[] = [];
@@ -164,7 +185,8 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
         body.push(textPara(it.content)); // the caller passes the readable fallback for a line that will not parse
       }
     } else if (it.kind === "table") {
-      if (it.label) body.push(textPara(it.label));
+      // A label stays on the page of its table (keepNext); a label with no table is plain text.
+      if (it.label) body.push(it.rows.length ? keepWithNext(textPara(it.label)) : textPara(it.label));
       if (it.rows.length) body.push(tableXml(it.rows));
       // A table is always followed by a paragraph: Word needs one between a table and whatever comes next.
       body.push(`<w:p/>`);
@@ -172,8 +194,11 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
       const n = images.length + 1;
       const id = `rIdFig${n}`;
       images.push({ id, name: `figure${n}.png`, base64: it.base64 });
-      if (it.caption) body.push(textPara(it.caption));
-      body.push(`<w:p>${pictureRun(id, n, it.widthPt, it.heightPt, it.alt)}</w:p>`);
+      // A caption above its figure is kept on the figure's page; a caption below keeps the figure with it.
+      if (it.caption) body.push(keepWithNext(textPara(it.caption)));
+      const pic = `<w:p>${pictureRun(id, n, it.widthPt, it.heightPt, it.alt)}</w:p>`;
+      body.push(it.below ? keepWithNext(pic) : pic);
+      if (it.below) for (const line of it.below.split(/\r\n?|\n/)) if (line) body.push(textPara(line));
     }
   }
   // A result that ends on a figure or table ends on an empty paragraph too, so the next insert starts on its own line

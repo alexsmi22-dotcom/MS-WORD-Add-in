@@ -36,6 +36,11 @@ export interface SelectionInsert {
   select: SelectAfter;
   /** Wraps the inserted range in a hidden tagged content control (`formula-inserter:*`), after the content syncs. */
   tag?: string;
+  /**
+   * OOXML that is a paragraph of its own even when it is one paragraph (the Characterization text): never joined to
+   * the cursor's paragraph. A multi-paragraph package is always treated so (fix2-plat).
+   */
+  ownParagraph?: boolean;
 }
 
 /** The table the cursor or selection sits in: its raw cell values, or null when there is none. */

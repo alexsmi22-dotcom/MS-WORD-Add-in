@@ -470,7 +470,7 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
       },
       formula: "H2O",
       mass: 2 * MONO[1] + MONO[8],
-      label: "dehydration (loss of H2O)",
+      label: "dehydration (loss of H₂O)",
       like: "high",
     },
     {
@@ -480,7 +480,7 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
       },
       formula: "CO2",
       mass: MONO[6] + 2 * MONO[8],
-      label: "decarboxylation (loss of CO2)",
+      label: "decarboxylation (loss of CO₂)",
       like: "high",
     },
     {
@@ -490,7 +490,7 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
       },
       formula: "NH3",
       mass: MONO[7] + 3 * MONO[1],
-      label: "loss of NH3",
+      label: "loss of NH₃",
       like: "medium",
     },
     {

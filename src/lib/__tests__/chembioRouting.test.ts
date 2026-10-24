@@ -236,7 +236,8 @@ describe("Reaction mode: Structures | Formulas is an explicit toggle", () => {
     expect(body).toMatch(/if \(!rep\.svg\) \{\s*await insertDerivation\(blocks, plain, "Balanced equation"\);/);
     const helper = paneFn("insertDerivationWithFigure");
     expect(helper).toMatch(/buildResultOoxml\(\[/);
-    expect(helper).toMatch(/const ok = await insertPlainText\(plain, label\);/);
+    // The fallback keeps the equations typeset (insertDerivation), not plain text (regression review, v2.193.0).
+    expect(helper).toMatch(/const ok = await insertDerivation\(blocks, plain, label\);/);
   });
 });
 

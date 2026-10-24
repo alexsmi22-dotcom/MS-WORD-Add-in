@@ -476,9 +476,13 @@ function readCodonStart(value: string | undefined): 1 | 2 | 3 {
  * suppresses the auto-translation and featureWarnings says why. Blank = absent.
  */
 function codonStartProblem(quals: { name: string; value: string }[]): string | null {
-  const q = quals.find((x) => x.name.trim().toLowerCase() === "codon_start" && x.value.trim());
-  if (!q || /^[123]$/.test(q.value.trim())) return null;
-  return `/codon_start “${q.value.trim()}” is not 1, 2 or 3`;
+  const all = quals.filter((x) => x.name.trim().toLowerCase() === "codon_start" && x.value.trim()).map((x) => x.value.trim());
+  if (!all.length) return null;
+  const bad = all.find((v) => !/^[123]$/.test(v));
+  if (bad !== undefined) return `/codon_start “${bad}” is not 1, 2 or 3`;
+  // Two different values are both written to the XML; the translation could follow only one of them.
+  if (new Set(all).size > 1) return `/codon_start is given twice with different values (${all.join(", ")})`;
+  return null;
 }
 
 /** The residues a simple "start..end" (1-based) CDS location covers, or null. */

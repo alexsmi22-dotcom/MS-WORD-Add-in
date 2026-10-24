@@ -354,10 +354,14 @@ export function buildCircularMapSvg(record: SeqRecord, opts: CircularMapOptions 
   }
 
   out.push("</svg>");
+  // The viewBox keeps its origin at 0 (every insert/render path reads plain width/height); the drawing is shifted
+  // right by the extra left margin instead.
   const W = x1 - x0;
+  out.pop(); // "</svg>", re-added after the group closes
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${y1}" viewBox="${x0} 0 ${W} ${y1}">` +
-    `<rect x="${x0}" width="${W}" height="${y1}" fill="#fff"/>` +
-    out.join("")
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${y1}" viewBox="0 0 ${W} ${y1}">` +
+    `<rect width="${W}" height="${y1}" fill="#fff"/>` +
+    (ext ? `<g transform="translate(${ext},0)">${out.join("")}</g>` : out.join("")) +
+    "</svg>"
   );
 }

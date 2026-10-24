@@ -146,8 +146,12 @@ describe("5. circular map labels are never clipped", () => {
     const svg = buildCircularMapSvg(p.records[0])!;
     const { vb, texts } = extent(svg);
     const [x0, y0, w, h] = vb;
+    // Every render/insert path reads plain width/height, so the origin stays at 0 and the drawing is translated.
+    expect([x0, y0]).toEqual([0, 0]);
+    const shift = Number(/<g transform="translate\(([\d.]+),0\)">/.exec(svg)?.[1] ?? 0);
+    expect(shift).toBeGreaterThan(0);
     for (const [, xs, ys, fs, anchor, t] of texts) {
-      const x = Number(xs), y = Number(ys), tw = t.length * Number(fs) * W;
+      const x = Number(xs) + shift, y = Number(ys), tw = t.length * Number(fs) * W;
       const left = anchor === "start" ? x : anchor === "end" ? x - tw : x - tw / 2;
       expect({ t, inside: left >= x0 && left + tw <= x0 + w && y <= y0 + h && y - Number(fs) >= y0 }).toEqual({ t, inside: true });
     }
@@ -304,6 +308,15 @@ describe("minor: an unusable /codon_start never sits beside a frame-1 /translati
     expect(featureWarnings(entry(cs)).join(" ")).toMatch(/no \/translation was generated — \/codon_start “.+” is not 1, 2 or 3/);
     expect(featureNotes(entry(cs)).join(" ")).not.toMatch(/translation generated/);
   });
+  test("two different /codon_start values → no /translation, named", () => {
+    const e: SequenceEntry = {
+      moltype: "DNA",
+      residues: "ATGGCATGCATGCACTAA",
+      features: [{ key: "CDS", location: "1..18", qualifiers: [{ name: "codon_start", value: "1" }, { name: "codon_start", value: "2" }] }],
+    };
+    expect(buildSt26Xml(META, [e])).not.toContain(">translation<");
+    expect(featureWarnings(e).join(" ")).toMatch(/given twice with different values \(1, 2\)/);
+  });
   test("/codon_start 2 translates from base 2 (unchanged)", () => {
     const xml = buildSt26Xml(META, [{ ...entry("2"), residues: "AATGGCATGCATGCACTAA", features: [{ key: "CDS", location: "1..19", qualifiers: [{ name: "codon_start", value: "2" }] }] }]);
     expect(xml).toMatch(/<INSDQualifier_value>MACMH<\/INSDQualifier_value>/);
@@ -334,5 +347,13 @@ describe("minor: a VH cut off inside framework 3 is told so", () => {
     if (r.ok) return;
     expect(r.errors.join(" ")).toMatch(/ends inside framework 3/);
     expect(r.errors.join(" ")).not.toMatch(/light-chain|does not read as an antibody/);
+  });
+  test("a stray YYC where a light chain's cysteine would sit (the reviewer's path) no longer draws a light-chain message", () => {
+    // Before the fix this exact input gave "A light-chain start but no framework 4 (F-G-x-G …)".
+    const s = H.slice(0, 77) + "YYC" + H.slice(80, 90);
+    const r = numberChain(s);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join(" ")).toMatch(/ends inside framework 3/);
   });
 });

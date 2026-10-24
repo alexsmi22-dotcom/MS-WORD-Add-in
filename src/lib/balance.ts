@@ -1330,6 +1330,9 @@ function oxidationStates(s: Species): Record<string, number> | null {
   return open.length === 0 && Math.abs(fixedSum - s.charge) < 1e-9 ? ox : null;
 }
 
+// Elements read as non-metals (H, the noble gases, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, Te, I, At); every other is a metal.
+const REDOX_NONMETALS = new Set(["H", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "As", "Se", "Br", "Kr", "Te", "I", "Xe", "At", "Rn"]);
+
 /**
  * True only when the balanced equation is SHOWN to change an oxidation state (else the electron sentence is left out).
  * An element shows it in either of two ways: its oxidation-state total (each state times the atoms carrying it) differs
@@ -1338,8 +1341,6 @@ function oxidationStates(s: Species): Record<string, number> | null {
  * (Fe₃O₄ is Fe 8/3, Pb₃O₄ is Pb 8/3): the states it hides are unknown, so only a change of SIGN is shown
  * (Fe₃O₄ + H⁺ → Fe²⁺ + Fe³⁺ + H₂O moves no electrons; Fe₃O₄ → Fe + Fe₂O₃ does).
  */
-// Elements read as non-metals (H, the noble gases, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, Te, I, At); every other is a metal.
-const NONMETALS = new Set(["H", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "As", "Se", "Br", "Kr", "Te", "I", "Xe", "At", "Rn"]);
 
 function redoxShown(species: Species[], sides: Side[], coefs: bigint[]): boolean {
   const states: Array<Record<string, number> | null> = species.map((s) => (s.electron ? {} : oxidationStates(s)));
@@ -1357,7 +1358,7 @@ function redoxShown(species: Species[], sides: Side[], coefs: bigint[]): boolean
     // With an average among them, only the SIGN of each state is known (Fe₃O₄'s hidden states are positive): a free
     // element (0) or a negative state appearing on one side only is still shown (Fe₃O₄ → Fe + Fe₂O₃).
     // Only for a metal: a non-metal's average (carbon in an ester, −6/5) is no mixed-valence salt.
-    if (!whole && NONMETALS.has(e)) return false;
+    if (!whole && REDOX_NONMETALS.has(e)) return false;
     const key = whole ? (x: number): number => Math.round(x) : (x: number): number => (Math.abs(x) < 1e-9 ? 0 : Math.sign(x));
     const set = (side: Side): string => [...new Set(on(side).map((j) => key(states[j]![e])))].sort((a, b) => a - b).join(",");
     return set("left") !== set("right");

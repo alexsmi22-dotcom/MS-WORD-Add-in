@@ -476,3 +476,17 @@ describe("Suspicion: anamorphic SD frames fit content to the display aspect", ()
     expect(r.framing?.activeExact as number).toBeCloseTo(1037.838, 3);
   });
 });
+
+describe("a symbol word in a script is a label (Z_in, P_in — not ∈)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { mathToHtml } = require("../mathHtml");
+  test.each([["Z_in", "in"], ["Z_{in}", "in"], ["P_out/P_in", "in"]])("%s", (m, label) => {
+    const h: string = mathToHtml(m);
+    expect(h).toContain(label);
+    expect(h).not.toContain("∈");
+  });
+  test("the relation and Greek still map", () => {
+    expect(mathToHtml("x in A")).toContain("∈");
+    expect(mathToHtml("x_alpha")).toContain("α");
+  });
+});

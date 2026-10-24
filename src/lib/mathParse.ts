@@ -126,6 +126,10 @@ const ATOM_GLYPHS = new Set([
 ]);
 
 // overline/tilde/dot/ddot (v2.192.1: "overline(y)" printed as the literal word in the Bell-state formula).
+// In a subscript or superscript these words are LABELS, not the symbols they name elsewhere: P_in, Z_in and RL_in are
+// "in" (input), never ∈; x_to, a_and likewise (v2.194.0). Other symbol words keep their symbol in scripts (E^degree → °).
+const SCRIPT_LABEL_WORDS = new Set(["in", "notin", "to", "and", "or", "not", "on", "at"]);
+
 const ACCENTS: Record<string, string> = { bar: "̄", hat: "̂", vec: "⃗", overline: "̅", tilde: "̃", dot: "̇", ddot: "̈" };
 
 // N-ary operator keywords → big-operator glyph (sum/prod sit limits under/over).
@@ -616,6 +620,16 @@ class Parser {
       // A lone sign as the script (Phi^+, x_-), i.e. a sign with nothing after it to apply to, is the sign itself.
       if (Parser.isSign(this.peek()) && this.closesScript(this.tokens[this.pos + 1], tok.t === "caret")) {
         s = { k: "text", v: Parser.signText(this.next().v), plain: true, label: true };
+      } else if (
+        this.peek()?.t === "lbrace" &&
+        this.tokens[this.pos + 1]?.t === "id" &&
+        this.tokens[this.pos + 2]?.t === "rbrace" &&
+        SCRIPT_LABEL_WORDS.has(this.tokens[this.pos + 1]!.v)
+      ) {
+        // A braced label word in a script, Z_{in}: the label "in", as unbraced Z_in is.
+        this.next();
+        s = { k: "text", v: this.next().v, plain: true };
+        this.next();
       } else {
         this.scriptBaseNext = tok.t === "caret" ? "sup" : "sub";
         s = this.parseBase();
@@ -1028,6 +1042,9 @@ class Parser {
 
     if (GREEK[id]) return { k: "text", v: GREEK[id] };
     if (GREEK[lower]) return { k: "text", v: GREEK[lower] };
+    // In a subscript or superscript, a word that is also a symbol name ("in", "to", "and") is a LABEL, not the
+    // symbol: P_in, Z_in and RL_in are "in" (input), never ∈ (v2.194.0; Greek names still map: x_alpha → xα).
+    if (asScript && SCRIPT_LABEL_WORDS.has(id)) return { k: "text", v: id, plain: true };
     if (SYMBOLS[id]) return { k: "text", v: SYMBOLS[id] };
     if (SYMBOLS[lower]) return { k: "text", v: SYMBOLS[lower] };
     return { k: "text", v: id };

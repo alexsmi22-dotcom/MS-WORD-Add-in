@@ -709,9 +709,11 @@ function derivFn(name: string, u: Expr): Expr {
         // threw "No derivative rule" straight out of the pane (derivative() is not
         // inside solve.ts's try), and integrate("log10(x)", 1, 2) threw the same
         // from casint's by-parts branch. It was the only such gap.
+    // ln(10) and ln(2) stay symbolic, so the exact derivative reads 1/(x·ln(10)) rather than 0.434294…/x; numeric
+    // simplification still folds them.
     case "log":
-    case "log10": return { t: "div", l: N(1), r: { t: "mul", l: u, r: N(Math.LN10) } };
-    case "log2": return { t: "div", l: N(1), r: { t: "mul", l: u, r: N(Math.LN2) } };
+    case "log10": return { t: "div", l: N(1), r: { t: "mul", l: u, r: { t: "fn", name: "ln", arg: N(10) } } };
+    case "log2": return { t: "div", l: N(1), r: { t: "mul", l: u, r: { t: "fn", name: "ln", arg: N(2) } } };
     case "sqrt": return { t: "div", l: N(1), r: { t: "mul", l: N(2), r: { t: "fn", name: "sqrt", arg: u } } };
     case "cbrt": return { t: "div", l: N(1), r: { t: "mul", l: N(3), r: { t: "pow", l: { t: "fn", name: "cbrt", arg: u }, r: N(2) } } };
     case "asin": return { t: "div", l: N(1), r: { t: "fn", name: "sqrt", arg: { t: "sub", l: N(1), r: { t: "pow", l: u, r: N(2) } } } };
@@ -763,6 +765,8 @@ export function derivative(e: Expr, x: string): Expr {
         };
       }
       if (uConst) {
+        // e^v: e^v*v' (ln(e) = 1 — it used to print as a literal *ln(e) factor).
+        if (e.l.t === "var" && e.l.name === "e") return { t: "mul", l: e, r: derivative(e.r, x) };
         // a^v: a^v*ln(a)*v'
         return {
           t: "mul",
@@ -2615,7 +2619,14 @@ export function differentiate(input: string, variable?: string): DerivativeResul
   try { e = parseExpr(input); } catch { return null; }
   const vars = freeVars(e);
   const x = variable ?? (vars.length === 1 ? vars[0] : "x");
-  const d = simplify(simplify(derivative(e, x)));
+  // Exact constants where the CAS can keep them (ln(2)·2^x, 1/(x·ln(10))), the numeric simplifier otherwise.
+  let d: Expr;
+  try {
+    d = casSimplify(casSimplify(derivative(e, x), { exactRadicals: true }), { exactRadicals: true });
+  } catch (err) {
+    if (!(err instanceof CasBail)) throw err;
+    d = simplify(simplify(derivative(e, x)));
+  }
   const caveats: string[] = [];
   if (freeVars(e).length > 1) caveats.push(`Differentiated with respect to ${x}; other symbols were treated as constants.`);
   if (/\babs\b/.test(input)) caveats.push("The derivative of abs() is the sign function, undefined where its argument is zero.");

@@ -9,7 +9,7 @@
 // limits, matrices, cases, common symbols); anything unrecognized degrades
 // gracefully (the math pipeline falls back to plain formatting on a parse error).
 
-import { Node as MathNode } from "./mathParse";
+import { Node as MathNode, KNOWN_FUNCS } from "./mathParse";
 
 // LaTeX command → glyph/word emitted into the DSL. Greek is emitted as the literal
 // glyph (the DSL tokenizer treats Greek letters as atoms); symbols are emitted as
@@ -42,6 +42,8 @@ const SIMPLE: Record<string, string> = {
   // would emit the literal command letters ("langle", "rfloor", …).
   langle: "⟨", rangle: "⟩", lfloor: "⌊", rfloor: "⌋", lceil: "⌈", rceil: "⌉",
   vert: "|", Vert: "‖", backslash: "\\",
+  // \mid (set-builder, conditional probability) is the divides-sign glyph, an operator: a bare "|" would open |…|.
+  mid: "∣",
   // Blackboard-bold number sets
   mathbbR: "ℝ", mathbbZ: "ℤ", mathbbN: "ℕ", mathbbQ: "ℚ", mathbbC: "ℂ",
   // Spacing → dropped
@@ -62,7 +64,8 @@ const NARY_GLYPH: Record<string, string> = { sum: "∑", prod: "∏", int: "∫"
 const MATRIX_ENV: Record<string, string> = {
   matrix: "matrix", pmatrix: "pmatrix", bmatrix: "bmatrix", Bmatrix: "bmatrix", vmatrix: "vmatrix", array: "matrix",
 };
-const DELIM_CMD: Record<string, string> = { "{": "(", "}": ")", "|": "|", ".": "", lbrace: "(", rbrace: ")", langle: "|", rangle: "|" };
+// \left\{ … \right\} keeps visible braces: the DSL's braces(…) (a bare { } in the DSL is an invisible group).
+const DELIM_CMD: Record<string, string> = { "{": "braces(", "}": ")", "|": "|", ".": "", lbrace: "braces(", rbrace: ")", langle: "|", rangle: "|" };
 
 interface LTok {
   t: "cmd" | "sup" | "sub" | "lbrace" | "rbrace" | "amp" | "rows" | "char";
@@ -129,6 +132,8 @@ export function latexToDsl(src: string): string {
   let pos = 0;
   const peek = (): LTok | undefined => toks[pos];
   const eat = (): LTok | undefined => toks[pos++];
+  /** What each open \left emitted, so its \right can close it. */
+  const leftStack: string[] = [];
 
   function group(): string {
     const t = peek();
@@ -236,21 +241,37 @@ export function latexToDsl(src: string): string {
     if (name === "hat" || name === "bar" || name === "vec" || name === "overline") {
       return `${name === "overline" ? "bar" : name}(${group()})`;
     }
-    if (name === "text" || name === "mathrm" || name === "mathbf" || name === "mathit" || name === "operatorname") {
+    if (name === "tilde" || name === "widetilde" || name === "dot" || name === "ddot" || name === "widehat") {
+      return `${name === "widetilde" ? "tilde" : name === "widehat" ? "hat" : name}(${group()})`;
+    }
+    // \operatorname{erf} is ONE name: seq() would space its letters apart as a product (e r f).
+    if (name === "operatorname") return group().replace(/\s+/g, "");
+    if (name === "text" || name === "mathrm" || name === "mathbf" || name === "mathit") {
       return group();
     }
+    if (name === "{") return "braces(";
+    if (name === "}") return ")";
     if (name === "left" || name === "right") {
       const d = peek();
       if (!d) return "";
+      // The \right that closes a \left\{ closes the braces(…) it opened, whatever delimiter it names.
+      if (name === "right" && leftStack.length) {
+        const opened = leftStack.pop();
+        if (opened === "braces(") {
+          eat();
+          return ")";
+        }
+      }
+      let out = "";
       if (d.t === "char") {
         eat();
-        return d.v === "." ? "" : d.v;
-      }
-      if (d.t === "cmd") {
+        out = d.v === "." ? "" : d.v;
+      } else if (d.t === "cmd") {
         eat();
-        return DELIM_CMD[d.v] ?? "";
+        out = DELIM_CMD[d.v] ?? "";
       }
-      return "";
+      if (name === "left") leftStack.push(out);
+      return out;
     }
     // The env name is lexed as individual chars; collapse the spaces seq() adds.
     if (name === "begin") return environment(group().replace(/\s+/g, ""));
@@ -342,15 +363,32 @@ const GLYPH_TO_LATEX: Record<string, string> = {
   "∑": "\\sum", "∏": "\\prod", "∫": "\\int", "∮": "\\oint", "∬": "\\iint", "∭": "\\iiint",
   "∠": "\\angle", "ℏ": "\\hbar", "ℓ": "\\ell",
   // The true minus the parser prints inside kets (|−1⟩) and the adjoint dagger (A†): LaTeX writes them - and \dagger.
-  "−": "-", "†": "\\dagger",
+  "−": "-", "†": "\\dagger", "∣": "\\mid",
+  // Characters LaTeX reads as syntax: % would comment out the rest of the line.
+  "%": "\\%", "&": "\\&", "#": "\\#", "$": "\\$",
 };
 
 const DELIM_TO_LATEX: Record<string, string> = {
-  "(": "(", ")": ")", "[": "[", "]": "]", "|": "|", "‖": "\\|",
+  "(": "(", ")": ")", "[": "[", "]": "]", "|": "|", "‖": "\\|", "{": "\\{", "}": "\\}",
   "⌊": "\\lfloor", "⌋": "\\rfloor", "⌈": "\\lceil", "⌉": "\\rceil", "⟨": "\\langle", "⟩": "\\rangle",
 };
 
-const ACC_TO_LATEX: Record<string, string> = { "̄": "\\bar", "̂": "\\hat", "⃗": "\\vec" };
+const ACC_TO_LATEX: Record<string, string> = {
+  "̄": "\\bar", "̂": "\\hat", "⃗": "\\vec", "̃": "\\tilde", "̈": "\\ddot", "̅": "\\overline", "̇": "\\dot",
+};
+
+/** Function names LaTeX has a command for (\sin, \log, …). Any other function name exports as \operatorname{…}. */
+const LATEX_FUNCS = new Set([
+  "sin", "cos", "tan", "cot", "sec", "csc", "sinh", "cosh", "tanh", "coth",
+  "arcsin", "arccos", "arctan", "log", "ln", "lg", "exp", "det", "dim", "max", "min", "gcd",
+  "ker", "deg", "arg", "Pr", "sup", "inf", "hom",
+]);
+
+/** An upright function name or word as LaTeX: \sin, \operatorname{erf}, or \mathrm{…} for an upright non-function word. */
+function uprightName(name: string): string {
+  if (LATEX_FUNCS.has(name)) return "\\" + name;
+  return KNOWN_FUNCS.has(name.toLowerCase()) ? `\\operatorname{${name}}` : `\\mathrm{${name}}`;
+}
 
 function glyphsToLatex(s: string): string {
   let out = "";
@@ -366,11 +404,15 @@ function glyphsToLatex(s: string): string {
 export function astToLatex(node: MathNode): string {
   switch (node.k) {
     case "text":
+      // An upright word (sin in sin^2 x, log in log_2 x, mod) exports upright, never as the italic letters s i n.
+      if (node.plain && /^[A-Za-z]{2,}$/.test(node.v)) return uprightName(node.v);
       return glyphsToLatex(node.v);
     case "row":
       return node.items.map(astToLatex).join(" ");
     case "frac":
       return `\\frac{${astToLatex(node.num)}}{${astToLatex(node.den)}}`;
+    case "binom":
+      return `\\binom{${astToLatex(node.top)}}{${astToLatex(node.bottom)}}`;
     case "sup":
       return `${astToLatex(node.base)}^{${astToLatex(node.sup)}}`;
     case "sub":
@@ -391,7 +433,7 @@ export function astToLatex(node: MathNode): string {
       return `${op}${limits} ${astToLatex(node.body)}`;
     }
     case "func":
-      return `${node.known ? "\\" : ""}${node.name}${astToLatex(node.arg)}`;
+      return `${node.known ? uprightName(node.name) : node.name}${astToLatex(node.arg)}`;
     case "lim":
       return `\\lim_{${astToLatex(node.sub)}} ${astToLatex(node.body)}`;
     case "acc":

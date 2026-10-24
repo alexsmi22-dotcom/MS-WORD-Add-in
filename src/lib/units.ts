@@ -7,6 +7,8 @@
 // is the same string used for the live preview and for Word.Range.insertHtml(),
 // preserving the WYSIWYG invariant.
 
+import { trueMinus } from "./numberList";
+
 const SUP: Record<string, string> = {
   "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
   "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "+": "⁺",
@@ -91,7 +93,8 @@ const THIN = "&#8201;"; // thin space between value and unit
 export function formatQuantityHtml(input: string): string {
   const q = parseQuantity(input);
   if (!q) return "";
-  let num = q.value;
+  // A negative value takes the true minus (−40 °F), never the hyphen it was typed with.
+  let num = trueMinus(q.value);
   if (q.uncertainty) num += ` ± ${q.uncertainty}`;
   if (q.exponent) num += ` × 10${toSuperscript(q.exponent)}`;
   const unit = q.unit ? `${THIN}${formatUnit(q.unit)}` : "";

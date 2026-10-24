@@ -548,6 +548,11 @@ function buildDerangements(n: number): DiscreteResult {
   return finish(out);
 }
 
+/** The listed range's last index as subscript digits: the sequence shows terms 0..min(n, 10). */
+function seqEndSub(n: number): string {
+  return [...String(Math.min(n, 10))].map((d) => "₀₁₂₃₄₅₆₇₈₉"[Number(d)]).join("");
+}
+
 function buildCatalan(n: number): DiscreteResult {
   capCheck("n in Catalan(n)", n, CAPS.SPECIAL_N, "SPECIAL_N");
   const out = acc();
@@ -555,7 +560,7 @@ function buildCatalan(n: number): DiscreteResult {
   const value = seq[n];
   out.display.push(`Catalan(${fmtN(n)}) = ${formatBig(value)}`);
   out.steps.push(`Closed form C(2n, n)/(n + 1) = C(${fmtN(2 * n)}, ${fmtN(n)}) / ${fmtN(n + 1)} = ${formatBig(binomial(2 * n, n))} / ${fmtN(n + 1)} = ${formatBig(catalanClosed(n))}`);
-  out.steps.push(`Sequence C₀..C${n <= 10 ? "" : "ₙ"}: ${seq.slice(0, Math.min(seq.length, 11)).map(formatBig).join(", ")}${n > 10 ? ", …" : ""}`);
+  out.steps.push(`Sequence C₀..C${seqEndSub(n)}: ${seq.slice(0, Math.min(seq.length, 11)).map(formatBig).join(", ")}${n > 10 ? ", …" : ""}`);
   check(out, "the ratio recurrence Cₘ = Cₘ₋₁·2(2m−1)/(m+1) and the closed form C(2n, n)/(n+1)", value, catalanClosed(n));
   if (n <= CAPS.CATALAN_CONV_CHECK_N) {
     check(out, "the convolution recurrence Cₙ₊₁ = Σ Cᵢ·Cₙ₋ᵢ and the closed form", catalanConvolution(n), catalanClosed(n));
@@ -572,7 +577,7 @@ function buildBell(n: number): DiscreteResult {
   const value = seq[n];
   out.display.push(`Bell(${fmtN(n)}) = ${formatBig(value)}`);
   out.steps.push(`Bell triangle (each row starts with the previous row's last entry; B(n) is the first entry of row n)`);
-  out.steps.push(`Sequence B₀..B${n <= 10 ? "" : "ₙ"}: ${seq.slice(0, Math.min(seq.length, 11)).map(formatBig).join(", ")}${n > 10 ? ", …" : ""}`);
+  out.steps.push(`Sequence B₀..B${seqEndSub(n)}: ${seq.slice(0, Math.min(seq.length, 11)).map(formatBig).join(", ")}${n > 10 ? ", …" : ""}`);
   const row = stirling2Row(n);
   const sumS = row.reduce((a, b) => a + b, 0n);
   out.steps.push(`Σₖ S(${fmtN(n)}, k) over Stirling numbers of the second kind = ${formatBig(sumS)}`);

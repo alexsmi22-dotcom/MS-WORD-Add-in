@@ -235,6 +235,27 @@ function asQuotient(e: Expr): { num: Expr; den: Expr } | null {
 const isZeroAt = (e: Expr, x: string, p: number): boolean => Math.abs(at(e, x, p)) < 1e-9;
 
 /**
+ * Do the values of `e` at MODERATE distances from the point (0.2 down to 0.0125, where a cancelling difference such as
+ * cos(x) − 1 + x²/2 still has most of its digits) close in on `v`? Every step must shrink the error by at least a
+ * fifth, and a Richardson extrapolation of the two closest samples (error ∝ h) must land within 1e-4 of `v`, on every
+ * side asked for. A wrong v, a jump or an oscillation fails one of the two.
+ */
+function approachesModerately(e: Expr, x: string, p: number, side: Side, v: number): boolean {
+  const hs = [0.2, 0.1, 0.05, 0.025, 0.0125];
+  const sides: Array<"-" | "+"> = side === "both" ? ["-", "+"] : [side];
+  for (const s of sides) {
+    const f = hs.map((h) => at(e, x, s === "-" ? p - h : p + h));
+    if (f.some((y) => Number.isNaN(y))) return false;
+    const err = f.map((y) => Math.abs(y - v));
+    const floor = 1e-12 * (1 + Math.abs(v));
+    for (let i = 1; i < err.length; i++) if (!(err[i] <= 0.8 * err[i - 1] || err[i] <= floor)) return false;
+    const n = f.length;
+    if (Math.abs(2 * f[n - 1] - f[n - 2] - v) > 1e-4 * (1 + Math.abs(v))) return false;
+  }
+  return true;
+}
+
+/**
  * The limit of `input` as `variable` → `point`.
  * Returns "undetermined" rather than a guess when it cannot establish one.
  */
@@ -279,6 +300,10 @@ export function limit(input: string, variable = "x", point: LimitPoint = 0, side
   let wvar = variable;
   let wpoint: number = typeof point === "number" ? point : 0;
   let wside: Side = side;
+  // The substitution variable is internal ("_t", which no typed name can collide with); the working shows it as t
+  // (or u when the expression already uses t).
+  const tName = /(^|[^A-Za-z_])t([^A-Za-z0-9_(]|$)/.test(format(e)) ? "u" : "t";
+  const disp = (s: string): string => s.replace(/_t\b/g, tName);
   if (point === "inf" || point === "-inf") {
     const t = "_t";
     const sub = point === "inf" ? { t: "div" as const, l: N(1), r: V(t) } : { t: "neg" as const, e: { t: "div" as const, l: N(1), r: V(t) } };
@@ -286,7 +311,7 @@ export function limit(input: string, variable = "x", point: LimitPoint = 0, side
     wvar = t;
     wpoint = 0;
     wside = "+";
-    steps.push(`Substituting ${variable} = ${point === "inf" ? "1/t" : "−1/t"} turns this into a limit as t → 0 from above.`);
+    steps.push(`Substituting ${variable} = ${point === "inf" ? `1/${tName}` : `−1/${tName}`} turns this into a limit as ${tName} → 0 from above.`);
   }
 
   // A TWO-SIDED limit requires both sides to agree, and this has to be checked
@@ -350,19 +375,34 @@ export function limit(input: string, variable = "x", point: LimitPoint = 0, side
   const q = asQuotient(work);
   if (q && isIndeterminate(work, wvar, wpoint)) {
     let num = q.num, den = q.den;
+    // Every stage an EXACT 0/0 (both sides evaluate to 0 itself, not merely below 1e-9) or ∞/∞.
+    let exactStages = true;
     for (let i = 0; i < MAX_LHOPITAL; i++) {
       const n0 = at(num, wvar, wpoint), d0 = at(den, wvar, wpoint);
       const zeroOverZero = Math.abs(n0) < 1e-9 && Math.abs(d0) < 1e-9;
       const infOverInf = !Number.isFinite(n0) && !Number.isFinite(d0);
       if (!zeroOverZero && !infOverInf) break;
+      if (zeroOverZero && (n0 !== 0 || d0 !== 0)) exactStages = false;
       num = simp(derivative(num, wvar));
       den = simp(derivative(den, wvar));
-      steps.push(`Indeterminate, so by L'Hôpital differentiate top and bottom: (${format(num)}) / (${format(den)}).`);
+      steps.push(disp(`Indeterminate, so by L'Hôpital differentiate top and bottom: (${format(num)}) / (${format(den)}).`));
       const v = at({ t: "div", l: num, r: den }, wvar, wpoint);
       if (Number.isFinite(v)) {
-        // Cross-check against the ORIGINAL expression before believing it.
-        if (settled && "value" in settled && Math.abs(settled.value - v) > 1e-3 * (1 + Math.abs(v))) {
+        // Cross-check against the ORIGINAL expression before believing it. Close to the point a difference such as
+        // e^x − 1 − x cancels to rounding noise, so the close-in probe can disagree with a correct answer
+        // ((e^x − 1 − x)/x² → 1/2 was refused). When every stage was an exact 0/0, the samples taken BEFORE
+        // cancellation sets in decide instead: they must close in on v steadily and extrapolate to it.
+        if (
+          settled && "value" in settled && Math.abs(settled.value - v) > 1e-3 * (1 + Math.abs(v)) &&
+          !(exactStages && approachesModerately(work, wvar, wpoint, wside, v))
+        ) {
           caveats.push("L'Hôpital's rule and a numeric approach disagree, so no value is reported.");
+          return { ...base, kind: "undetermined" };
+        }
+        // A stage that was only NEARLY 0/0 (a top of 1e-10, not 0) is not an indeterminate form at all, and with no
+        // settled numeric check there is nothing to confirm the rule's answer: (x + 1e-10)/x at 0 came back as 1.
+        if (!exactStages && !(settled && "value" in settled)) {
+          caveats.push("The expression is only nearly 0/0 at the point and its values near it do not settle, so L'Hôpital's rule does not apply and no value is reported.");
           return { ...base, kind: "undetermined" };
         }
         steps.push(`After ${i + 1} application${i === 0 ? "" : "s"}, the value is ${trim(v)}.`);

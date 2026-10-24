@@ -69,9 +69,11 @@ describe("item 4: a parenthesised range is a callout only between two known nume
     ["as recited in claims (12-16)", []],
     ["pages (10–12) of the record", []],
     ["the gap is (10–20) mm wide", []],
-    ["As shown. (12-16) are walls", []],
   ] as Array<[string, number[]]>)("%p marks nothing (base: none)", (text, want) => {
     expect(extractNumerals(text, K)).toEqual(want);
+  });
+  test("fix3e: a range opening a sentence is a callout (the sentence-opening veto dropped real ones)", () => {
+    expect(extractNumerals("As shown. (12-16) are walls", K)).toEqual([12, 14, 16]);
   });
   test("an unknown end with a table: the range calls out nothing (not even its known end)", () => {
     expect(extractNumerals("walls (1-20) and (12)", K)).toEqual([12]);

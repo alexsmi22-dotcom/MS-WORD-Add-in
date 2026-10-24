@@ -117,25 +117,51 @@ function spelledNumberBefore(text: string, at: number): number {
   return total + cur;
 }
 
-/** Words before a bracket that make the numbers in it citations or quantities: "claims (1-20)", "from (10–200)". */
+/**
+ * Legal-citation and quantity words right before a bracket that make a RANGE in it a citation or a quantity:
+ * "claims (1-20)", "pages (10–12)", "¶ (12-16)", "about (10–20)", "col. 3, lines (10-20)". Only clear ones:
+ * element names ("fluid lines", "support columns", "tube sections", "steps", "examples") and plain prepositions
+ * ("each of") are callout positions (fix3e: every one of those dropped a real callout).
+ */
 const RANGE_STOP_BEFORE =
-  /(?:^|[^A-Za-z])(?:claims?|pages?|pp?|paragraphs?|paras?|columns?|cols?|lines?|ll|sections?|steps?|examples?|tables?|figs?|figures?|of|from|between|about|approximately|approx|around|roughly|ca|range|ranging|ranges|by|at|to)\.?[ \t ]*$|[§¶][ \t ]*$/i;
-/** A unit or count noun right after the bracket: "(10–20) mm", "(10–200) particles". */
+  /(?:^|[^A-Za-z])(?:claims?|pages?|pp|paragraphs?|paras?|approximately|approx|about|roughly|circa|ca)\.?[ \t ]*$|[§¶][ \t ]*$|(?:^|[^A-Za-z])col(?:umn)?s?\.?[ \t ]*\d+[ \t ]*,?[ \t ]*(?:lines?|ll\.?)[ \t ]*$/i;
+/**
+ * A real unit right after the bracket, then a space, punctuation (not a hyphen) or the end: "(10–20) mm wide",
+ * "(10–20)%". Never a single letter ("L-shaped", "s-bend", "(30–34) M") and never a count noun ("units",
+ * "times"): those followed real callouts.
+ */
 const RANGE_UNIT_AFTER =
-  /^[ \t ]*(?:%|‰|°|µ|μ|(?:nm|um|µm|μm|mm|cm|m|km|inch(?:es)?|ft|mg|g|kg|lbs?|s|ms|sec|min|h|hrs?|hours?|days?|weeks?|months?|years?|wt|vol|mol|mmol|mM|M|mV|kV|V|mA|kW|W|Hz|kHz|MHz|GHz|Pa|kPa|MPa|psi|bar|rpm|ppm|ppb|mL|ml|L|µL|μL|K|percent|degrees?|cycles?|times|particles?|molecules?|atoms?|carbons?|residues?|amino|nucleotides?|bases?|copies|units?)(?![A-Za-z]))/;
+  /^[ \t ]*(?:%|‰|°[CFK]?|(?:nm|µm|μm|um|mm|cm|km|inch(?:es)?|ft|ng|µg|μg|mg|kg|lbs?|ms|sec|min|hrs?|hours?|days?|weeks?|months?|years?|wt%|vol%|mol|mmol|µmol|μmol|nM|µM|μM|mM|mV|kV|mA|kW|MW|Hz|kHz|MHz|GHz|kPa|MPa|GPa|Pa|psi|bar|rpm|ppm|ppb|mL|ml|µL|μL|nL|kDa|Da|bp|kb|percent|degrees?)(?=[ \t\n.,;:)\]]|$))/;
+
+/** Whether the range in the bracket at [start, end) reads as a citation or a quantity: a stop word before it or a unit after it. */
+function rangeIsQuantity(text: string, start: number, end: number): boolean {
+  if (RANGE_STOP_BEFORE.test(text.slice(Math.max(0, start - 40), start))) return true;
+  return RANGE_UNIT_AFTER.test(text.slice(end, end + 40));
+}
+
+/** Greatest common divisor of two non-negative integers. */
+function gcd(a: number, b: number): number {
+  while (b) [a, b] = [b, a % b];
+  return a;
+}
 
 /**
- * Whether the bracket at [start, end) holding a range reads as a quantity or a citation, not a callout: a stop word
- * before it, nothing word-like before it (it opens the text or a sentence), or a unit after it.
+ * Whether a range a–b between two of the table's numerals is a plausible callout of them: the table's numerals in
+ * [a, b] fill at least half of the slots on their own spacing (the gcd of their gaps). "(20–24)" over 20/22/24 and
+ * "(102–108)" over 102…108 are full; "(10–200)" over 10, 12, 14, 16, 20, 100, 102, 200 fills 8 of 96 slots, a
+ * quantity whose ends happen to be numerals.
  */
-function rangeIsQuantity(text: string, start: number, end: number): boolean {
-  const before = text.slice(Math.max(0, start - 40), start);
-  if (RANGE_STOP_BEFORE.test(before)) return true;
-  // A callout follows its element's name ("walls (30–34)"); a bracket opening the text or a sentence does not.
-  const opens = start < 40 ? /(?:^|[.!?:;(\[\n])[ \t ]*$/ : /[.!?:;(\[\n][ \t ]*$/;
-  // ... and a word after it: "(10–200) particles". A bare "(12, 14–18)" is still a callout list.
-  if (opens.test(before) && /^\s*[A-Za-z]/.test(text.slice(end, end + 4))) return true;
-  return RANGE_UNIT_AFTER.test(text.slice(end, end + 40));
+function rangeIsPlausible(a: number, b: number, sortedKnown: number[]): boolean {
+  if (a === b) return true;
+  const inside = sortedKnown.filter((k) => k >= a && k <= b);
+  let g = 0;
+  for (let i = 1; i < inside.length; i++) g = gcd(g, inside[i] - inside[i - 1]);
+  if (g <= 0) return false;
+  const slots = (b - a) / g + 1;
+  // A callout range spans a handful of a figure's parts; one over more than 12 slots is a quantity even when the
+  // table is dense ("(10–200) particles" against 10, 12, …, 1000 or 10, 20, …, 1000).
+  if (slots > 12) return false;
+  return inside.length / slots >= 0.5;
 }
 
 /**
@@ -184,23 +210,26 @@ export function extractNumerals(documentText: string, known?: number[]): number[
   // reported all three as "defined but never called out".
   const knownSet = new Set(known ?? []);
   const hasTable = knownSet.size > 0;
+  const sortedKnown = [...knownSet].sort((x, y) => x - y);
   while ((m = CALLOUT_RE.exec(documentText)) !== null) {
-    // fix3: a bracket holding a RANGE is a quantity, not a callout, when its
-    // context says so: "see claims (1-20)", "pages (10–12)", "from (10–200)",
-    // a bracket opening the sentence "(10–200) particles", or one followed by
-    // a unit "(10–20) mm". Then nothing in it is a callout, ends included (the
-    // range rule must never mark what the plain "(12)" rule would not).
-    const rangeQuantity = /\d\s*[-–]\s*\d/.test(m[1]) && rangeIsQuantity(documentText, m.index, m.index + m[0].length);
-    if (rangeQuantity) continue;
+    // fix3: a RANGE member is a citation or a quantity, not a callout, when its
+    // context says so: "see claims (1-20)", "pages (10–12)", "(10–20) mm".
+    // Each member is judged on its own: a single "(20, 22–24)" member keeps the
+    // plain "(12)" rule whatever happens to the range beside it.
+    let rangeQuantity: boolean | undefined;
     const members: string[] = [];
     for (const mm of m[1].matchAll(CALLOUT_MEMBER)) {
       if (mm[2] === undefined) {
         members.push(mm[1]);
         continue;
       }
+      rangeQuantity ??= rangeIsQuantity(documentText, m.index, m.index + m[0].length);
+      if (rangeQuantity) continue;
       const a = parseInt(mm[1], 10), b = parseInt(mm[2], 10);
-      // With a table, a range calls out only between two of ITS numerals: "(1-20)" against 10…1000 is no callout.
-      if (hasTable && !(knownSet.has(a) && knownSet.has(b))) continue;
+      // With a table, a range calls out only between two of ITS numerals that
+      // it plausibly spans: "(1-20)" against 10…1000 has an unknown end, and
+      // "(10–200)" spans 96 slots holding 8 numerals (fix3e).
+      if (hasTable && !(knownSet.has(a) && knownSet.has(b) && rangeIsPlausible(Math.min(a, b), Math.max(a, b), sortedKnown))) continue;
       members.push(mm[1], mm[2]);
       // The table's numerals inside the range are called out by it too.
       if (a < b) for (const k of knownSet) if (k > a && k < b) members.push(String(k));

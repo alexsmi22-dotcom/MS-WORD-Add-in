@@ -1299,62 +1299,91 @@ export function feedRows(rows: string[][], what: "regression" | "counts"): Table
   // A margin sits at the END: only the LAST column and the last non-blank row
   // can be one by label. "Overall" or "All" anywhere else is a category with
   // real counts (fix3 regression: a first row "Overall" was dropped).
+  // fix3e: labelled margins are peeled off BEFORE the numeric check (a Total
+  // row with a blank or "—" cell is still a margin, as on base), and a labelled
+  // percent row or column is dropped first wherever it sits (a percentage is not
+  // a count), so a Total right before a "%" row is the last margin. A labelled
+  // last Total is a margin even beside a single data row or column; what is left
+  // then is too small and refused, never read with the total as data.
+  const counts = what === "counts";
   const totalsDropped: string[] = [];
   const totalsKept: string[] = [];
+  const pctDropped: string[] = [];
   const TOTAL_LABEL = /^\s*(grand\s+)?(totals?|sums?|all|overall)\s*:?\s*$/i;
-  // The label decides a margin only at the end; the numbers decide the rest.
-  let colLabelled = false;
-  if (what === "counts" && header) {
-    for (let j = start; j < width; j++) {
-      if (!TOTAL_LABEL.test(header[j] ?? "")) continue;
-      if (j === width - 1 && width - start >= 3) colLabelled = true;
-      else totalsKept.push(`The ${(header[j] ?? "").trim()} column was read as data (only a last column can be a total).`);
-    }
+  const PCT_LABEL =
+    /^\s*(?:(?:row|col(?:umn)?|total)\s*)?(?:%|percent(?:age)?s?|pct\.?)(?:\s*(?:of\s+)?(?:row|col(?:umn)?|total)s?)?\s*:?\s*$/i;
+  // Columns: drop labelled percent columns, then a labelled Total that is LAST.
+  let dataCols: number[] = [];
+  for (let j = start; j < width; j++) {
+    if (counts && header && PCT_LABEL.test(header[j] ?? "")) pctDropped.push(`the ${(header[j] ?? "").trim()} column`);
+    else dataCols.push(j);
   }
-  let lastRow = -1;
-  body.forEach((r, i) => {
-    if (!r.slice(start).every(isBlank)) lastRow = i;
-  });
+  let colLabelled = false;
+  let totalColName = "";
+  if (counts && header) {
+    dataCols.forEach((j, k) => {
+      if (!TOTAL_LABEL.test(header[j] ?? "")) return;
+      if (k === dataCols.length - 1) {
+        colLabelled = true;
+        totalColName = (header[j] ?? "").trim();
+      } else totalsKept.push(`The ${(header[j] ?? "").trim()} column was read as data (only a last column can be a total).`);
+    });
+    if (colLabelled) dataCols = dataCols.slice(0, -1);
+  }
+  // Rows: the non-blank ones, minus labelled percent rows, then a labelled Total that is LAST.
+  let bodyRows: string[][] = [];
+  for (const r of body) {
+    if (r.slice(start).every(isBlank)) continue;
+    if (counts && start === 1 && PCT_LABEL.test(r[0] ?? "")) pctDropped.push(`the ${(r[0] ?? "").trim()} row`);
+    else bodyRows.push(r);
+  }
   let rowLabel = "";
-  const countRows: string[][] = [];
-  for (const [i, r] of body.entries()) {
-    const vals = r.slice(start);
-    if (vals.every(isBlank)) continue;
-    if (what === "counts" && start === 1 && TOTAL_LABEL.test(r[0] ?? "")) {
-      if (i === lastRow) rowLabel = (r[0] ?? "").trim();
+  if (counts && start === 1) {
+    bodyRows.forEach((r, i) => {
+      if (!TOTAL_LABEL.test(r[0] ?? "")) return;
+      if (i === bodyRows.length - 1) rowLabel = (r[0] ?? "").trim();
       else totalsKept.push(`The ${(r[0] ?? "").trim()} row was read as data (only a last row can be a total).`);
-    }
+    });
+    if (rowLabel) bodyRows = bodyRows.slice(0, -1);
+  }
+  const countRows: string[][] = [];
+  for (const r of bodyRows) {
+    const vals = dataCols.map((j) => r[j] ?? "");
     if (!vals.every(isNumericCell)) {
       return { error: "Every cell must be a number (blank cells and words are not allowed here)." };
     }
     countRows.push(vals.map(numText));
   }
   let rowsN = countRows.length;
-  let cols = width - start;
-  if (what === "counts" && rowsN && cols) {
+  let cols = dataCols.length;
+  if (rowLabel) totalsDropped.push(`the ${rowLabel} row`);
+  if (colLabelled) totalsDropped.push(`the ${totalColName} column`);
+  if (counts && rowsN && cols) {
     // An UNLABELLED margin is dropped only beside another margin: the last row
     // equals the column sums AND the last column equals the row sums (or the
     // other margin is labelled), the corner (grand total) agreeing with both
     // since each check runs through it. One sum-like row or column alone is a
     // coincidence real counts can have (x 1 2 / y 1 0 / z 2 2), so it stays
-    // data and the note says so. A labelled margin needs two others beside it.
+    // data and the note says so. Checked on what the labelled margins left.
     const g = countRows.map((row) => row.map((c) => num(c)));
     const near = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
     const R = rowsN;
     const C = cols;
-    const rowLabelled = !!rowLabel && R >= 3;
-    const lastRowIsSum = R >= 3 && g[R - 1].every((v, j) => near(v, g.slice(0, R - 1).reduce((s, row) => s + row[j], 0)));
-    const lastColIsSum = C >= 3 && g.every((row) => near(row[C - 1], row.slice(0, C - 1).reduce((s, v) => s + v, 0)));
-    const dropRow = rowLabelled || (lastRowIsSum && (lastColIsSum || colLabelled));
-    const dropCol = colLabelled || (lastColIsSum && (lastRowIsSum || rowLabelled));
-    if (dropRow) totalsDropped.push(rowLabelled ? `the ${rowLabel} row` : "the last row (it equals the sum of the rows above it)");
+    const lastRowIsSum = !rowLabel && R >= 3 && g[R - 1].every((v, j) => near(v, g.slice(0, R - 1).reduce((s, row) => s + row[j], 0)));
+    const lastColIsSum = !colLabelled && C >= 3 && g.every((row) => near(row[C - 1], row.slice(0, C - 1).reduce((s, v) => s + v, 0)));
+    const dropRow = lastRowIsSum && (lastColIsSum || colLabelled);
+    const dropCol = lastColIsSum && (lastRowIsSum || !!rowLabel);
+    if (dropRow) totalsDropped.push("the last row (it equals the sum of the rows above it)");
     else if (lastRowIsSum) totalsKept.push("The last row equals the sum of the rows above it; it was read as data (if it is a total, delete it).");
-    if (dropCol) totalsDropped.push(colLabelled ? `the ${(header?.[width - 1] ?? "").trim()} column` : "the last column (it equals the sum of the columns before it)");
+    if (dropCol) totalsDropped.push("the last column (it equals the sum of the columns before it)");
     else if (lastColIsSum) totalsKept.push("The last column equals the sum of the columns before it; it was read as data (if it is a total, delete it).");
     if (dropRow) rowsN--;
     if (dropCol) cols--;
   }
   lines = countRows.slice(0, rowsN).map((row) => row.slice(0, cols).join(" "));
+  // Several rows labelled alike ("Total", "%") give one note each, not one per row.
+  const pctDrop = [...new Set(pctDropped)];
+  const totDrop = [...new Set(totalsDropped)];
   if (lines.length < 2 || cols < 2) return { error: "Need at least two rows and two numeric columns." };
   const hasTime = !!header && header.some((h) => {
     const role = headerRole(h ?? "");
@@ -1388,8 +1417,9 @@ export function feedRows(rows: string[][], what: "regression" | "counts"): Table
     note:
       `Read a ${lines.length} × ${cols} table of counts${header ? " (header row dropped)" : ""}.` +
       dropped +
-      (totalsDropped.length ? ` Marginal totals are not data, so ${totalsDropped.join(" and ")} ${totalsDropped.length > 1 ? "were" : "was"} dropped.` : "") +
-      totalsKept.map((k) => ` ${k}`).join("") +
+      (pctDrop.length ? ` Percentages are not counts, so ${pctDrop.join(" and ")} ${pctDrop.length > 1 ? "were" : "was"} dropped.` : "") +
+      (totDrop.length ? ` Marginal totals are not data, so ${totDrop.join(" and ")} ${totDrop.length > 1 ? "were" : "was"} dropped.` : "") +
+      [...new Set(totalsKept)].map((k) => ` ${k}`).join("") +
       (header ? "" : " No header row found, so the first row was read as counts; if it holds category names, make it a header.") +
       commaNote(body),
   };

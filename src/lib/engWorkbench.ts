@@ -365,6 +365,12 @@ function inUnit(o: EngOutput, unit: string): number | null {
   return v !== null && Number.isFinite(v) ? v : null;
 }
 
+/** Output units that are angles, with their period, for unwrapping draws across the ±180° seam. */
+const ANGLE_PERIOD: Record<string, number> = { "°": 360, deg: 360, rad: 2 * Math.PI };
+
+/** d reduced to (−P/2, P/2]. */
+const wrapHalf = (d: number, P: number): number => d - P * Math.ceil(d / P - 0.5);
+
 const firstLine = (s: string): string => (s.split("\n").find((l) => l.trim()) ?? "").trim().slice(0, 160);
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -436,8 +442,14 @@ export function runUncertainty(
     }
     const o = out.ok === false ? undefined : out.outputs?.find((q) => q.key === outputKey);
     if (!o || !Number.isFinite(o.value)) return null;
-    return centreUnit === null ? o.value : inUnit(o, centreUnit);
+    if (centreUnit === null) return o.value;
+    const v = inUnit(o, centreUnit);
+    // An angle wraps (Euler angles, IK joint angles report −180° to 180°): a draw just past the seam is taken on the
+    // centre's side, so 179° ± 2° spreads as 177° to 181°, not as 177° and −179°.
+    const period = ANGLE_PERIOD[centreUnit];
+    return v === null || period === undefined || centreValue === null ? v : centreValue + wrapHalf(v - centreValue, period);
   };
+  let centreValue: number | null = null;
   let centreOut: EngOutput | null = null;
   {
     let out: AnalyzeOutput | null = null;
@@ -455,6 +467,7 @@ export function runUncertainty(
   if (!centreOut) return { ok: false, reason: `The tool gives no ${outputKey} at the values as typed.` };
   const centre: EngOutput = centreOut;
   centreUnit = centre.unit;
+  centreValue = centre.value;
   // First-order sensitivities by central differences (step: 10⁻⁴ of the uncertainty); a step the tool refuses on one
   // side falls back to a one-sided difference, and an input refused on both sides makes the estimate unavailable
   // rather than NaN.

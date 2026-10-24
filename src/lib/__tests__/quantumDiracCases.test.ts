@@ -624,7 +624,7 @@ describe("the equation typesetter: Dirac symbols (granted mathParse / mathOmml /
   test("a sign used as a label carries no operator spacing; existing forms are unchanged", () => {
     expect(mathToHtml("ket(+)")).not.toMatch(/m-op/);
     expect(mathToHtml("a + b")).toContain('<span class="m-op">+</span>');
-    expect(mathToHtml("x^-y")).toBe("x<sup><span class=\"m-op\">-</span>y</sup>");
+    expect(mathToHtml("x^-y")).toBe("x<sup><span class=\"m-op\">−</span>y</sup>");
     expect(mathToHtml("ket(psi)")).toBe("|ψ⟩");
     expect(mathToHtml("braket(φ, ψ)")).toBe("⟨φ|ψ⟩");
   });

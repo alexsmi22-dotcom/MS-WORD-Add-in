@@ -320,11 +320,12 @@ class Parser {
    * The token after a script's sign leaves it nothing to apply to: the sign is the script itself (Phi^+). A lone sign
    * is the whole script when followed by the end, whitespace, a closing bracket or separator, or any operator:
    * "Phi^+ + Psi^-" is Φ⁺ + Ψ⁻, "sigma_+ sigma_-" is σ₊σ₋, "a_+ + a_-" is a₊ + a₋. Glued to an operand it still
-   * signs that operand (x^-1, x^-n).
+   * signs that operand (x^-1, x^-n). After a caret, a spaced NUMBER is still the exponent's operand: "x^- 1" is x⁻¹
+   * (a stray space must not turn it into x⁻·1), while "Phi^+ Psi" keeps the label reading.
    */
-  private closesScript(t: Token | undefined): boolean {
+  private closesScript(t: Token | undefined, caret = false): boolean {
     if (!t) return true;
-    if (t.sp) return true;
+    if (t.sp) return !(caret && t.t === "num");
     if (t.t === "op") return true;
     return t.t === "rparen" || t.t === "rbrace" || t.t === "rbrack" || t.t === "comma" || t.t === "semi" || t.t === "bar";
   }
@@ -380,7 +381,7 @@ class Parser {
         continue;
       }
       // A lone sign as the script (Phi^+, x_-), i.e. a sign with nothing after it to apply to, is the sign itself.
-      if (Parser.isSign(this.peek()) && this.closesScript(this.tokens[this.pos + 1])) {
+      if (Parser.isSign(this.peek()) && this.closesScript(this.tokens[this.pos + 1], tok.t === "caret")) {
         s = { k: "text", v: Parser.signText(this.next().v), plain: true, label: true };
       } else s = this.parseBase();
       // A repeated script nests right-associatively (x^2^3 → x^(2^3)) instead of

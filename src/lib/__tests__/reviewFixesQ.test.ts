@@ -164,8 +164,8 @@ describe("3. a lone sign after ^ or _ is the whole script", () => {
   test.each([
     ["Phi^+ + Psi^-", "Φ<sup>+</sup> + Ψ<sup>−</sup>", "\\Phi ^{+} + \\Psi ^{-}"],
     ["sigma_+ sigma_-", "σ<sub>+</sub>σ<sub>−</sub>", "\\sigma _{+} \\sigma _{-}"],
-    // (the HTML preview prints a binary minus as typed; only the script signs are true minus)
-    ["E_+ - E_-", "E<sub>+</sub> - E<sub>−</sub>", "E_{+} - E_{-}"],
+    // (since v2.192.0 the HTML preview prints the binary minus as a true minus too)
+    ["E_+ - E_-", "E<sub>+</sub> − E<sub>−</sub>", "E_{+} - E_{-}"],
     ["a_- a_+", "a<sub>−</sub>a<sub>+</sub>", "a_{-} a_{+}"],
     ["a_+ + a_-", "a<sub>+</sub> + a<sub>−</sub>", "a_{+} + a_{-}"],
   ])("%s", (src, html, latex) => {

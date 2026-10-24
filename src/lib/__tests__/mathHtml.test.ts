@@ -31,7 +31,8 @@ function astLeaves(node: Node, order: "omml" | "html"): string[] {
   const go = (n: Node): string[] => astLeaves(n, order);
   switch (node.k) {
     case "text":
-      return [node.v];
+      // The preview shows a typed hyphen-minus as the true minus (U+2212); Word's math zone does the same for OMML.
+      return [order === "html" && node.v === "-" ? "−" : node.v];
     case "row":
       return node.items.flatMap(go);
     case "frac":
@@ -151,7 +152,7 @@ describe("preview and insert agree — the contract in mathHtml.ts's header", ()
     const text = htmlText(mathToHtml(expr));
     for (const leaf of fromAst) {
       if (!leaf.trim()) continue;
-      expect(text).toContain(leaf);
+      expect(text.replace(/−/g, "-")).toContain(leaf.replace(/−/g, "-"));
     }
   });
 
@@ -169,7 +170,7 @@ describe("preview and insert agree — the contract in mathHtml.ts's header", ()
 
         const text = htmlText(mathToHtml(f.expr));
         for (const leaf of leaves) {
-          if (!text.includes(leaf)) {
+          if (!text.replace(/−/g, "-").includes(leaf.replace(/−/g, "-"))) {
             throw new Error(`"${cat.name} / ${f.label}" previews without "${leaf}" — preview would not match the insert.`);
           }
         }

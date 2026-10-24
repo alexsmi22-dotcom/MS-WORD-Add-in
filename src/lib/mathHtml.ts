@@ -15,7 +15,9 @@ const OPERATORS = new Set([
 ]);
 
 function leaf(node: { v: string; label?: boolean }): string {
-  const html = escapeHtml(node.v);
+  // A minus is shown as the true minus sign (U+2212), never the hyphen it was typed as (Word's math zone renders the
+  // OMML hyphen-minus as a minus the same way).
+  const html = escapeHtml(node.v === "-" ? "−" : node.v);
   // A sign used as a state label (|+⟩, Φ⁺) is not an operator and gets no operator spacing.
   return OPERATORS.has(node.v) && !node.label ? `<span class="m-op">${html}</span>` : html;
 }

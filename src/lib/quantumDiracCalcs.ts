@@ -31,6 +31,7 @@ import {
   matScale,
   parseComplex,
   purity,
+  norm2Text,
   trimNum,
   type CMat,
   type Cx,
@@ -256,9 +257,9 @@ const statesCalc: QCalc = {
     else lines.push("Convention: ⟨φ|ψ⟩ = Σₖ φₖ* ψₖ, conjugate-linear in φ.");
     for (const n of ps.notes) lines.push(`|ψ⟩: ${n}`);
     for (const n of ph.notes) lines.push(`|φ⟩: ${n}`);
-    lines.push(`|ψ⟩ = ${sP.text}${sP.globalPhase ? ` (global phase ${sP.globalPhase.text} factored out)` : ""}; ‖ψ‖² as typed = ${trimNum(ps.norm2)}.`);
+    lines.push(`|ψ⟩ = ${sP.text}${sP.globalPhase ? ` (global phase ${sP.globalPhase.text} factored out)` : ""}; ‖ψ‖² as typed = ${norm2Text(ps.norm)}.`);
     if (sP.math) lines.push({ math: `ket(ψ) = ${sP.math}`, fallback: `|ψ⟩ = ${sP.text}` });
-    lines.push(`|φ⟩ = ${sF.text}${sF.globalPhase ? ` (global phase ${sF.globalPhase.text} factored out)` : ""}; ‖φ‖² as typed = ${trimNum(ph.norm2)}.`);
+    lines.push(`|φ⟩ = ${sF.text}${sF.globalPhase ? ` (global phase ${sF.globalPhase.text} factored out)` : ""}; ‖φ‖² as typed = ${norm2Text(ph.norm)}.`);
     if (sF.math) lines.push({ math: `ket(φ) = ${sF.math}`, fallback: `|φ⟩ = ${sF.text}` });
     lines.push("Both states are used normalised (‖ψ‖ = ‖φ‖ = 1).");
     const ex = exactCx(ip);

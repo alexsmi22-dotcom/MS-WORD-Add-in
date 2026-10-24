@@ -369,6 +369,8 @@ export interface KetParse {
   n: number;
   /** ‖ψ‖² as typed (1 when it was already normalised). */
   norm2: number;
+  /** ‖ψ‖ as typed: what ‖ψ‖² is shown from, since the square can underflow. */
+  norm: number;
   notes: string[];
 }
 
@@ -454,8 +456,8 @@ export function parseKet(text: string): KetParse | { error: string } {
   if (!nz) return { error: "The state is zero (or not finite): it cannot be normalised." };
   const notes: string[] = [];
   if (Math.abs(nz.norm2 - 1) > 1e-9)
-    notes.push(`The state as typed has ‖ψ‖² = ${trimNum(nz.norm2, 6)}, not 1; it was normalised (divided by ${fmtReal(Math.sqrt(nz.norm2)).text}).`);
-  return { state: nz.state, n, norm2: nz.norm2, notes };
+    notes.push(`The state as typed has ‖ψ‖² = ${norm2Text(nz.norm)}, not 1; it was normalised (divided by ${nz.norm >= 1e-6 && nz.norm < 1e6 ? fmtReal(nz.norm).text : trimZeros(fmtSig(nz.norm, 6))}).`);
+  return { state: nz.state, n, norm2: nz.norm2, norm: nz.norm, notes };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -465,7 +467,26 @@ export function parseKet(text: string): KetParse | { error: string } {
 /** Six significant figures with trailing zeros dropped, U+2212, ×10ⁿ outside 10⁻³…10⁵ (fmtSig). */
 export function trimNum(v: number, sig = 6): string {
   if (Math.abs(v) < ZERO_TOL) return "0";
-  return fmtSig(v, sig).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "");
+  return trimZeros(fmtSig(v, sig));
+}
+
+const trimZeros = (s: string): string => s.replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "");
+
+/**
+ * ‖ψ‖² for display, from ‖ψ‖: never "0" for a nonzero state. The square itself can underflow (amplitudes of 10⁻²⁰⁰
+ * give 2×10⁻⁴⁰⁰, which is 0 in a double), so the exponent is doubled by hand.
+ */
+export function norm2Text(norm: number, sig = 6): string {
+  if (!(norm > 0) || !Number.isFinite(norm)) return trimNum(norm * norm, sig);
+  const sq = norm * norm;
+  if (sq >= 1e-300 && Number.isFinite(sq)) return trimZeros(fmtSig(sq, sig));
+  const e = Math.floor(Math.log10(norm));
+  let m2 = (norm / Math.pow(10, e)) ** 2, e2 = 2 * e;
+  if (m2 >= 10) {
+    m2 /= 10;
+    e2++;
+  }
+  return `${trimZeros(fmtSig(m2, sig))}×10${String(e2).replace(/[-0-9]/g, (c) => "⁻⁰¹²³⁴⁵⁶⁷⁸⁹"["-0123456789".indexOf(c)])}`;
 }
 
 /** a·√b/d with a, d > 0 coprime-reduced; `neg` the sign. a = 0 is zero. */

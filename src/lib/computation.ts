@@ -740,8 +740,8 @@ export function runtimeScaling(n1: number, t1: number, n2: number, t2: number, t
   }
 
   const notes: string[] = [
-    `Empirical exponent ${exponent.toPrecision(4)} from t ∝ n^k. TWO POINTS FIT A POWER LAW AND ` +
-      "NOTHING ELSE: they cannot separate n·log n from n^1.1, and they cannot see an exponential " +
+    `Empirical exponent ${exponent.toPrecision(4)} from t ∝ nᵏ. TWO POINTS FIT A POWER LAW AND ` +
+      "NOTHING ELSE: they cannot separate n·log n from n to the power 1.1, and they cannot see an exponential " +
       "at all — 2ⁿ through two points looks like a very large power. The class below is the " +
       "nearest one, not an identification.",
     "An asymptotic class predicts a RATIO, never an absolute time. Constants, cache behaviour " +

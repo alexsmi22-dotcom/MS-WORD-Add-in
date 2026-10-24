@@ -29,27 +29,108 @@ export function tidySubscripts(text: string): string {
   });
 }
 
-function tidyBlock(b: AnalyzeBlock): AnalyzeBlock {
+// ---------------------------------------------------------------------------------------------------------------
+// The display pass (fix round 2.193): numbers in legacy result prose typeset as the display contract writes them.
+// ---------------------------------------------------------------------------------------------------------------
+
+const SUP: Record<string, string> = {
+  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+  "-": "⁻", "−": "⁻", "+": "⁺",
+  a: "ᵃ", b: "ᵇ", c: "ᶜ", d: "ᵈ", e: "ᵉ", f: "ᶠ", g: "ᵍ", h: "ʰ", i: "ⁱ", j: "ʲ", k: "ᵏ", l: "ˡ", m: "ᵐ", n: "ⁿ",
+  o: "ᵒ", p: "ᵖ", r: "ʳ", s: "ˢ", t: "ᵗ", u: "ᵘ", v: "ᵛ", w: "ʷ", x: "ˣ", y: "ʸ", z: "ᶻ",
+};
+const sup = (s: string): string => [...s].map((c) => SUP[c] ?? c).join("");
+
+/** "1.2e-5", "3.3e+7", "-4e3" → "1.2×10⁻⁵", "3.3×10⁷", "-4×10³" (an exponent of 0 drops). Not inside identifiers. */
+export function typesetENotation(s: string): string {
+  return s.replace(/(^|[^\w.])([-−]?\d+(?:\.\d+)?)[eE]([+-]?)(\d+)(?!\d|\.\d)/g, (_m, pre: string, mant: string, sg: string, ex: string) => {
+    const n = Number(ex);
+    return n === 0 ? `${pre}${mant}` : `${pre}${mant}×10${sup((sg === "-" ? "-" : "") + String(n))}`;
+  });
+}
+
+/**
+ * Integer and single-letter exponents written with a caret → superscripts: "mm^4" → "mm⁴", "m^-1" → "m⁻¹",
+ * "s^(−2)" → "s⁻²", "n^k" → "nᵏ". A decimal exponent ("N^-0.085") has no superscript form and is left for its
+ * source to write differently.
+ */
+export function typesetCarets(s: string): string {
+  if (!s.includes("^")) return s;
+  return s
+    .replace(/([A-Za-z0-9)\]µΩ°²³}])\^(?:\(([+\-−]?\d+)\)|\{([+\-−]?\d+)\}|([+\-−]?\d+))(?!\d|\.\d)/g, (_m, base: string, a?: string, b?: string, c?: string) => base + sup(a ?? b ?? c ?? ""))
+    .replace(/([A-Za-z0-9)\]])\^([a-pr-z])(?![A-Za-z0-9.(])/g, (_m, base: string, l: string) => base + sup(l));
+}
+
+/**
+ * The true minus (U+2212) for a hyphen-minus used as a numeric SIGN ("Max shear: -42.5", "(-3", "≈ -7") or as the
+ * binary minus between two numbers ("0.6624 - 0.5623j"). Hyphens inside words and digit-hyphen-digit ranges and
+ * references ("0-100", "Eq. 6-27", "2019-2020") are left alone.
+ */
+export function typesetMinus(s: string): string {
+  return s.replace(/(^|[\s(=,;:[/×≈~<>≤≥±→^])-(?=\.?\d)/g, "$1−").replace(/([\dj)]) - (?=\.?\d)/g, "$1 − ");
+}
+
+/**
+ * One prose string under the display contract: e-notation as ×10ⁿ, caret exponents as superscripts, a true minus.
+ * Text inside double quotes is left exactly as written: it is syntax the user is told to type ("k=5e4").
+ */
+export function tidyDisplay(text: string): string {
+  if (!/[eE^-]/.test(text)) return text;
+  return text
+    .split(/("[^"\n]*"|“[^”\n]*”)/)
+    .map((seg, i) => (i % 2 === 1 ? seg : typesetMinus(typesetCarets(typesetENotation(seg)))))
+    .join("");
+}
+
+/** The text nodes of an SVG figure (labels, legends, notes) through tidyDisplay; markup and attributes untouched. */
+export function tidySvgText(svg: string): string {
+  return svg.replace(/(<(?:text|tspan)\b[^>]*>)([^<]+)/g, (_m, tag: string, body: string) => tag + tidyDisplay(body));
+}
+
+/**
+ * ROUNDING NOISE SNAPPED TO ZERO, against the scale of the result it belongs to: a value smaller than rel × scale is
+ * floating-point residue of a cancellation (pure shear's σ₂ = 3.5×10⁻¹⁵, an isentropic Q of −2.9×10⁻¹¹ J, a plate
+ * reaction of −1.1×10⁻¹⁰ N beside 100 N) and is printed as the 0 it is. The scale must be the tool's own (the largest
+ * magnitude among the quantities printed together), so the snap is per tool; an all-small result is never zeroed.
+ */
+export function snapNoise(x: number, scale: number, rel = 1e-10): number {
+  if (!Number.isFinite(x) || !Number.isFinite(scale) || scale <= 0) return x;
+  return Math.abs(x) < rel * scale ? 0 : x;
+}
+
+/** Every value of a group snapped against the group's own largest magnitude. */
+export function snapGroup(values: number[], rel = 1e-10): number[] {
+  const scale = Math.max(0, ...values.filter(Number.isFinite).map(Math.abs));
+  return values.map((v) => snapNoise(v, scale, rel));
+}
+
+function tidyBlock(b: AnalyzeBlock, display: boolean): AnalyzeBlock {
+  const t = (s: string): string => (display ? tidyDisplay(tidySubscripts(s)) : tidySubscripts(s));
   switch (b.kind) {
     case "line":
-      return { ...b, text: tidySubscripts(b.text) };
+      return { ...b, text: t(b.text) };
     case "math":
-      return { ...b, fallback: tidySubscripts(b.fallback) };
+      return { ...b, fallback: t(b.fallback) };
     case "table":
-      return { ...b, label: b.label === undefined ? undefined : tidySubscripts(b.label), rows: b.rows.map((r) => r.map(tidySubscripts)) };
+      return { ...b, label: b.label === undefined ? undefined : t(b.label), rows: b.rows.map((r) => r.map(t)) };
     case "plot":
-      return { ...b, caption: tidySubscripts(b.caption ?? ""), alt: tidySubscripts(b.alt ?? "") };
+      return { ...b, caption: t(b.caption ?? ""), alt: t(b.alt ?? ""), ...(display && b.svg ? { svg: tidySvgText(b.svg) } : {}) };
     default:
       return b;
   }
 }
 
-/** A result with its prose, tables, captions, fallbacks and output names typeset; the math sources untouched. */
+/**
+ * A result with its prose, tables, captions, fallbacks and output names typeset; the math sources untouched. An ok
+ * result also gets the display pass (tidyDisplay) on every text, and on its figures' text nodes; a refusal keeps its
+ * wording exactly, since it often quotes what to type.
+ */
 export function tidyResultSubscripts(out: AnalyzeOutput): AnalyzeOutput {
+  const display = out.ok !== false;
   return {
     ...out,
-    text: tidySubscripts(out.text),
-    blocks: out.blocks?.map(tidyBlock),
+    text: display ? tidyDisplay(tidySubscripts(out.text)) : tidySubscripts(out.text),
+    blocks: out.blocks?.map((b) => tidyBlock(b, display)),
     outputs: out.outputs?.map((o) => ({ ...o, label: tidySubscripts(o.label) })),
   };
 }

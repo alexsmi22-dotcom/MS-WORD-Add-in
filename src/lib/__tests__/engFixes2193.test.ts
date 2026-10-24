@@ -19,6 +19,8 @@ import { parseTf, secondOrderMetrics, timeResponse, reportedTransient, stepMetri
 import { parseNetlist, frequencySweep, sweepCorner3dB, parseFieldValue } from "../circuit";
 import { parseUncertainty, fieldUnitOf } from "../engWorkbench";
 import { resonator } from "../optics";
+import { tidyDisplay, tidySvgText, tidyResultSubscripts, snapNoise, snapGroup } from "../subscriptText";
+import type { AnalyzeOutput } from "../analyzeBlocks";
 
 const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8").replace(/\r\n/g, "\n");
 /** The source of one ENG_CALCS entry, from its id to the next entry. */
@@ -369,5 +371,120 @@ describe("Lower: resonator, great circle, pipe, beam, shelf life", () => {
     expect(toolSource("pipe")).toMatch(/if \(vRaw && qRaw\)/);
     expect(toolSource("beam")).toMatch(/overflow double precision/);
     expect(toolSource("shelf-life")).toMatch(/order === "zero" \? "% " : ""/);
+  });
+});
+
+describe("11. The display pass (subscriptText.ts) and per-tool noise snapping", () => {
+  test.each([
+    // e-notation
+    ["Second moment I = 3.3e+7 mm^4", "Second moment I = 3.3×10⁷ mm⁴"],
+    ["Heat added TO the gas = -2.910e-11 J", "Heat added TO the gas = −2.910×10⁻¹¹ J"],
+    ["orbit rate 8.8903e-4 rad/s", "orbit rate 8.8903×10⁻⁴ rad/s"],
+    ["s^4 + 4.7863e+6s^2", "s⁴ + 4.7863×10⁶s²"],
+    ["value 1.5e+0 exactly", "value 1.5 exactly"],
+    // carets
+    ["Area A = 10000 mm^2, k = 50 m^-1, a s^(-2) term", "Area A = 10000 mm², k = 50 m⁻¹, a s⁻² term"],
+    ["t ∝ n^k and 1/e^2 radius", "t ∝ nᵏ and 1/e² radius"],
+    ["a decimal N^-0.0851 is left", "a decimal N^−0.0851 is left"],
+    // minus
+    ["Max shear: -42.5 kN at x = 8 m", "Max shear: −42.5 kN at x = 8 m"],
+    ["pole 0.6624 - 0.5623j", "pole 0.6624 − 0.5623j"],
+    ["(-3, 4) and ≈ -7", "(−3, 4) and ≈ −7"],
+    // left alone
+    ["Shigley Eq. 6-27, valid 0-100 °C, 2019-2020, R-134a, x-3", "Shigley Eq. 6-27, valid 0-100 °C, 2019-2020, R-134a, x-3"],
+    ['add "k=5e4" or "settle=-0.01" to a support', 'add "k=5e4" or "settle=-0.01" to a support'],
+    ["IDs like TEM00 and 0x1e5 stay", "IDs like TEM00 and 0x1e5 stay"],
+  ])("%s", (a, b) => expect(tidyDisplay(a)).toBe(b));
+
+  test("figure text nodes, not markup", () => {
+    const svg = '<svg viewBox="0 -10 100 100"><text x="-5" y="3">burn 1: -1467 m/s</text><text><tspan>climb -8 m/s</tspan></text></svg>';
+    expect(tidySvgText(svg)).toBe('<svg viewBox="0 -10 100 100"><text x="-5" y="3">burn 1: −1467 m/s</text><text><tspan>climb −8 m/s</tspan></text></svg>');
+  });
+
+  test("ok results get the pass (lines, fallbacks, tables, captions, figures); refusals keep their wording", () => {
+    const ok = tidyResultSubscripts({
+      text: "Max shear: -42.5 kN",
+      blocks: [
+        { kind: "line", text: "Max shear: -42.5 kN" },
+        { kind: "math", math: "x = 1e-3", fallback: "x = 1e-3" },
+        { kind: "table", rows: [["I", "3.3e+7 mm^4"]] },
+        { kind: "plot", svg: "<svg><text>-3 dB</text></svg>", caption: "decay to -60 dB", alt: "", w: 1, h: 1 },
+      ],
+    });
+    expect(ok.text).toBe("Max shear: −42.5 kN");
+    expect(ok.blocks).toEqual([
+      { kind: "line", text: "Max shear: −42.5 kN" },
+      { kind: "math", math: "x = 1e-3", fallback: "x = 1×10⁻³" },
+      { kind: "table", rows: [["I", "3.3×10⁷ mm⁴"]] },
+      { kind: "plot", svg: "<svg><text>−3 dB</text></svg>", caption: "decay to −60 dB", alt: "", w: 1, h: 1 },
+    ]);
+    const bad = tidyResultSubscripts({ text: 'Write "1e6" or 1e6 here', ok: false });
+    expect(bad.text).toBe('Write "1e6" or 1e6 here');
+  });
+
+  test("snapping is against the tool's own scale (the reviewer's cases)", () => {
+    expect(snapGroup([50, 3.5e-15, -50])).toEqual([50, 0, -50]); // pure-shear σ2
+    expect(snapGroup([-1.127e-10, 100])).toEqual([0, 100]); // plate reactions
+    expect(snapGroup([1.2e5, -2.9e-11])).toEqual([1.2e5, 0]); // isentropic W, Q
+    expect(snapNoise(9.4e-16, 180)).toBe(0); // DH yaw, degrees
+    expect(snapNoise(-1.22e-15, 50 * 1.5)).toBe(0); // Jacobian τ2 against |F|·reach
+    expect(snapNoise(-6.994e-17, 1, 1e-12)).toBe(0); // marginal pole real part
+    expect(snapNoise(1.119e-12, 2000, 1e-12)).toBe(0); // Chebyshev HP pole imaginary part
+    // An all-small result is never zeroed, and a genuine small value beside a large one survives at 1e-10.
+    expect(snapGroup([1e-14, 2e-14])).toEqual([1e-14, 2e-14]);
+    expect(snapGroup([1e-6, 100])).toEqual([1e-6, 100]);
+  });
+
+  test("the snapping sites and source fixes are in place", () => {
+    expect(toolSource("stress")).toMatch(/const pr = snapGroup\(/);
+    expect(toolSource("thermo-process")).toMatch(/snapGroup\(\[res\.work, res\.heat/);
+    expect(toolSource("plate-fea")).toMatch(/snapGroup\(res\.reaction\)/);
+    expect(toolSource("robotics-jacobian")).toMatch(/snapNoise\(res\.jointTorques\[1\], torqueScale\)/);
+    expect(toolSource("robotics-dh")).toMatch(/snapNoise\(\(v \* 180\) \/ Math\.PI, 180\)/);
+    expect(PANE).toMatch(/function fmtComplexPlain\(c: \{ re: number; im: number \}, scale = /);
+    expect(PANE).toMatch(/for \(const c of ENG_CALCS\) \{\n\s+const raw = c\.compute;\n\s+c\.compute = \(read\) => tidyResultSubscripts\(raw\(read\)\);/);
+    // The shared unit note no longer shows input syntax with an exponent and a caret.
+    expect(PANE).not.toMatch(/"\(200 GPa, 1e6 mm\^4/);
+    expect(toolSource("fatigue-life")).not.toMatch(/N\^\$\{engNum/);
+  });
+
+  /**
+   * SOURCE SCAN for the legacy prose the pass cannot fix: a DECIMAL exponent after a caret in a result string
+   * ("N^${…}" with a fractional value, "e^0.63", "2^(18/6)") has no superscript form. Pinned to the files fixed in
+   * this round; the pass handles integer exponents and e-notation everywhere else.
+   */
+  test("no caret before an interpolated or decimal exponent in the fixed sources", () => {
+    const files = ["../vibration.ts", "../computation.ts", "../photometry.ts"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8"));
+    for (const src of files) expect(src).not.toMatch(/[`"'][^`"'\n]*\w\^(?:\$\{|\(\$\{|\d+\.\d)[^`"'\n]*[`"']/);
+  });
+});
+
+describe("11. Display gate over every library registry tool's defaults", () => {
+  const regs = [...PANE.matchAll(/import \{ ([A-Z_]+_CALCS) \} from "\.\.\/lib\/([A-Za-z0-9]+)"/g)].map((m) => [m[1], m[2]]);
+  type Tool = { id: string; fields: Array<{ key: string; default: string }>; compute: (r: (k: string) => string) => AnalyzeOutput };
+  const tools: Tool[] = [];
+  for (const [name, file] of regs) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require("../" + file);
+    for (const c of (mod[name] ?? []) as Array<Partial<Tool>>) if (c.fields && typeof c.compute === "function") tools.push(c as Tool);
+  }
+  test("the scan is not vacuous", () => expect(tools.length).toBeGreaterThan(80));
+  test.each(tools.map((c) => [c.id, c] as const))("%s: no e-notation, integer caret or hyphen-minus sign left", (id, c) => {
+    const d: Record<string, string> = {};
+    for (const f of c.fields) d[f.key] = f.default;
+    const out = tidyResultSubscripts(c.compute((k) => d[k] ?? ""));
+    if (out.ok === false) return;
+    const texts: string[] = [];
+    for (const b of out.blocks ?? []) {
+      if (b.kind === "line") texts.push(b.text);
+      if (b.kind === "math") texts.push(b.fallback);
+      if (b.kind === "table") texts.push(b.label ?? "", ...b.rows.flat());
+      if (b.kind === "plot") texts.push(b.caption, b.alt);
+    }
+    const unquoted = texts.map((t) => t.replace(/"[^"\n]*"|“[^”\n]*”/g, ""));
+    const left = unquoted.filter(
+      (t) => /(^|[^\w.])-?\d+(?:\.\d+)?[eE][+-]?\d+(?!\d|\.\d)/.test(t) || /[A-Za-z0-9)]\^[-+]?\d+(?!\d|\.\d)/.test(t) || /(^|[\s(=:])-\d/.test(t),
+    );
+    expect({ id, left }).toEqual({ id, left: [] });
   });
 });

@@ -204,7 +204,7 @@ import { TLINE_CALCS } from "../lib/tlineCalcs";
 import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
-import { tidyResultSubscripts, tidySubscripts } from "../lib/subscriptText";
+import { tidyResultSubscripts, tidySubscripts, snapNoise, snapGroup } from "../lib/subscriptText";
 import { buildResultOoxml, type ResultPackageItem } from "../lib/resultOoxml";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
@@ -13113,7 +13113,7 @@ function engUnits(r: (k: string) => string): EngUnits {
  */
 const ENG_UNIT_NOTE =
   "Units: a bare number is read in the unit that field names; write another unit " +
-  "(200 GPa, 1e6 mm^4, 50 ksi, 68 °F) and it is converted for you, and a unit of the " +
+  "(200 GPa, 25 mm, 50 ksi, 68 °F) and it is converted for you, and a unit of the " +
   "wrong quantity is refused rather than silently ignored.";
 
 /** The matching declaration for the tools that deliberately do not convert. */
@@ -13902,9 +13902,11 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(res.plane ? "Plane stress state" : "General three-dimensional stress state");
       lines.push("");
       lines.push("Principal stresses");
-      lines.push(`  σ1 = ${engNum(res.principal[0], figs)}`);
-      lines.push(`  σ2 = ${engNum(res.principal[1], figs)}`);
-      lines.push(`  σ3 = ${engNum(res.principal[2], figs)}`);
+      // Rounding residue (pure shear's σ2 = 3.5e-15) snapped against the stress state's own scale.
+      const pr = snapGroup([...res.principal, state.sx, state.sy, state.sz, state.txy, state.tyz, state.tzx]);
+      lines.push(`  σ1 = ${engNum(pr[0], figs)}`);
+      lines.push(`  σ2 = ${engNum(pr[1], figs)}`);
+      lines.push(`  σ3 = ${engNum(pr[2], figs)}`);
       if (res.plane && res.thetaP !== null) {
         lines.push(
           `  σ1 acts on a plane ${engNum(res.thetaP, figs)} deg counterclockwise from the x axis` +
@@ -14457,7 +14459,8 @@ const ENG_CALCS: EngCalc[] = [
         `Plate ${engNum(m.W)} × ${engNum(m.H)}, t = ${engNum(m.t)}; E = ${engNum(m.E)}, ν = ${engNum(m.nu)}; ${2 * m.nx * m.ny} constant-strain triangles (${m.nx} × ${m.ny} cells).`,
         `Largest von Mises stress: ${engNum(res.maxVM.value)} ${u}, near (${engNum(res.maxVM.x)}, ${engNum(res.maxVM.y)}).`,
         `Largest displacement: ${engNum(res.maxDisp.value)}, at (${engNum(res.maxDisp.x)}, ${engNum(res.maxDisp.y)}).`,
-        `Reactions: Rx = ${engNum(res.reaction[0])}, Ry = ${engNum(res.reaction[1])} (they balance the loads).`,
+        // Solver residue (Rx = −1.1e-10 beside Ry = 100) snapped against the pair's own scale.
+        `Reactions: Rx = ${engNum(snapGroup(res.reaction)[0])}, Ry = ${engNum(snapGroup(res.reaction)[1])} (they balance the loads).`,
         ...res.notes.map((n) => `Note: ${n}`),
       ];
       const svg = plateChartSvg(res, u);
@@ -15396,12 +15399,12 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("Poles");
       for (const p of res.poles) {
         const tag = p.re > 0 ? "right half plane" : Math.abs(p.re) < 1e-12 ? "on the imaginary axis" : "stable";
-        lines.push(`  ${fmtComplexPlain(p)}   (${tag})`);
+        lines.push(`  ${fmtComplexPlain(p, complexScale(res.poles))}   (${tag})`);
       }
       if (res.zeros.length) {
         lines.push("");
         lines.push("Zeros");
-        for (const z of res.zeros) lines.push(`  ${fmtComplexPlain(z)}`);
+        for (const z of res.zeros) lines.push(`  ${fmtComplexPlain(z, complexScale(res.zeros))}`);
       } else {
         lines.push("");
         lines.push("No finite zeros.");
@@ -15685,7 +15688,7 @@ const ENG_CALCS: EngCalc[] = [
       if (!st.ok) return { text: st.error, ok: false };
       lines.push(st.verdict);
       lines.push("");
-      lines.push({ label: "Closed-loop poles", table: [["Pole", "Location (rad/s)"], ...st.poles.map((p, i) => [`p${i + 1}`, fmtComplexPlain(p)])] });
+      lines.push({ label: "Closed-loop poles", table: [["Pole", "Location (rad/s)"], ...st.poles.map((p, i) => [`p${i + 1}`, fmtComplexPlain(p, complexScale(st.poles))])] });
 
       // the closed loop was analysed just above; margins() reuses that verdict
       const mg = margins(open, {
@@ -16743,12 +16746,16 @@ const ENG_CALCS: EngCalc[] = [
         ],
       });
       lines.push("");
-      lines.push(`Boundary work done BY the gas = ${engNum(res.work)} J`);
-      lines.push(`Heat added TO the gas = ${engNum(res.heat)} J`);
-      lines.push(`Change in internal energy ΔU = ${engNum(res.deltaU)} J`);
-      lines.push(`Change in enthalpy ΔH = ${engNum(res.deltaH)} J`);
-      lines.push(`Change in entropy ΔS = ${engNum(res.deltaS)} J/K`);
-      lines.push(`  First law check: ΔU + W = ${engNum(res.deltaU + res.work)} J, which is Q.`);
+      // Rounding residue (an isentropic Q of −2.9e-11 J beside a work of 10⁵ J) snapped against the energies' scale;
+      // ΔS against that scale over the lower temperature.
+      const [eW, eQ, eU, eH, eLaw] = snapGroup([res.work, res.heat, res.deltaU, res.deltaH, res.deltaU + res.work]);
+      const eS = snapNoise(res.deltaS, Math.max(Math.abs(res.work), Math.abs(res.deltaU), Math.abs(res.deltaH)) / Math.min(res.t1, res.t2));
+      lines.push(`Boundary work done BY the gas = ${engNum(eW)} J`);
+      lines.push(`Heat added TO the gas = ${engNum(eQ)} J`);
+      lines.push(`Change in internal energy ΔU = ${engNum(eU)} J`);
+      lines.push(`Change in enthalpy ΔH = ${engNum(eH)} J`);
+      lines.push(`Change in entropy ΔS = ${engNum(eS)} J/K`);
+      lines.push(`  First law check: ΔU + W = ${engNum(eLaw)} J, which is Q.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_THERMO_UNIT_NOTE);
 
@@ -18744,7 +18751,7 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("");
       lines.push(tfLineDecimal("H(s)", res.num, res.den));
       lines.push("");
-      lines.push({ label: "Poles", table: [["Pole", "Location (rad/s)"], ...res.poles.map((p, i) => [`p${i + 1}`, fmtComplexPlain(p)])] });
+      lines.push({ label: "Poles", table: [["Pole", "Location (rad/s)"], ...res.poles.map((p, i) => [`p${i + 1}`, fmtComplexPlain(p, complexScale(res.poles))])] });
       lines.push("");
       lines.push(`Delivered stopband attenuation = ${engNum(res.stopbandAttenuation)} dB (asked for ${engNum(Number(r("as")))})`);
       lines.push(`Passband ripple = ${engNum(res.passbandRipple)} dB`);
@@ -21174,7 +21181,7 @@ const ENG_CALCS: EngCalc[] = [
         }
         if (fit.length > 10) {
           const scalingSeries: Series[] = [
-            { points: fit, type: "line", color: "#2563eb", label: `fit: n^${engNum(res.exponent, 3)}` },
+            { points: fit, type: "line", color: "#2563eb", label: `fit: exponent k = ${engNum(res.exponent, 3)}` },
             { points: ref, type: "line", color: "#9ca3af", label: "linear (k = 1)" },
             {
               points: [
@@ -21199,7 +21206,7 @@ const ENG_CALCS: EngCalc[] = [
             // plainDashes never sees SVG text, and the insert guard scans the
             // whole result DOM for the em-dash sentinel — a hyphen, and the
             // class name cleaned, or the audit flags the tool.
-            title: plainDashes(`t ∝ n^${engNum(res.exponent, 3)} - ${res.nearestClass}`),
+            title: plainDashes(`t ∝ nᵏ, k = ${engNum(res.exponent, 3)} – ${res.nearestClass}`),
           });
           return withOutputs(scOutputs, engReport(lines, [
             {
@@ -21447,6 +21454,7 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = planar2rJacobian(l1, l2, (t1 * Math.PI) / 180, (t2 * Math.PI) / 180, force);
       if (!res) return { text: "Both link lengths must be positive numbers.", ok: false };
+      const torqueScale = force ? Math.hypot(force[0], force[1]) * (l1 + l2) : 0;
 
       // Release E: J and the derived figures as real tables.
       const lines: EngReportLine[] = [
@@ -21458,8 +21466,9 @@ const ENG_CALCS: EngCalc[] = [
           label: "J (m/rad)",
           table: [
             ["", "∂/∂θ1", "∂/∂θ2"],
-            ["x", engNum(res.j[0], 5), engNum(res.j[1], 5)],
-            ["y", engNum(res.j[2], 5), engNum(res.j[3], 5)],
+            // Trig residue (cos 90° = 6e-17) snapped against the arm's reach.
+            ["x", engNum(snapNoise(res.j[0], l1 + l2), 5), engNum(snapNoise(res.j[1], l1 + l2), 5)],
+            ["y", engNum(snapNoise(res.j[2], l1 + l2), 5), engNum(snapNoise(res.j[3], l1 + l2), 5)],
           ],
         },
         "",
@@ -21476,8 +21485,9 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(
           kvTable(
             [
-              ["τ1 (shoulder)", engNum(res.jointTorques[0], 6), "N·m"],
-              ["τ2 (elbow)", engNum(res.jointTorques[1], 6), "N·m"],
+              // Residue (τ2 = −1.22e-15) snapped against the largest torque the load could make, |F|·(l1 + l2).
+              ["τ1 (shoulder)", engNum(snapNoise(res.jointTorques[0], torqueScale), 6), "N·m"],
+              ["τ2 (elbow)", engNum(snapNoise(res.jointTorques[1], torqueScale), 6), "N·m"],
             ],
             "Joint torques to hold the tip load (τ = Jᵀ F)",
           ),
@@ -21570,15 +21580,20 @@ const ENG_CALCS: EngCalc[] = [
       const res = dhForward(rows);
       if (!res) return { text: "Every DH entry must be a finite number.", ok: false };
 
+      // Trig residue (y = 2.2e-17 m, yaw 9.4e-16°) snapped: positions against the chain's reach, rotation entries
+      // against 1, angles against 180°.
+      const reach = Math.max(0, ...res.joints.flat().map((v) => Math.abs(v)), ...res.position.map((v) => Math.abs(v)));
+      const pos = res.position.map((v) => snapNoise(v, reach));
+      const rot = res.rotation.map((v) => snapNoise(v, 1));
       // Release E: the tip position and rotation as real tables.
       const lines: EngReportLine[] = [
         ...engEq("robotics-dh"),
         `Forward kinematics of a ${rows.length}-joint chain`,
         "",
         kvTable([
-          ["Tip position x", engNum(res.position[0], 6), "m"],
-          ["Tip position y", engNum(res.position[1], 6), "m"],
-          ["Tip position z", engNum(res.position[2], 6), "m"],
+          ["Tip position x", engNum(pos[0], 6), "m"],
+          ["Tip position y", engNum(pos[1], 6), "m"],
+          ["Tip position z", engNum(pos[2], 6), "m"],
           ["Distance from base", engNum(Math.hypot(res.position[0], res.position[1], res.position[2]), 6), "m"],
         ]),
         "",
@@ -21586,7 +21601,7 @@ const ENG_CALCS: EngCalc[] = [
           label: "Tip rotation matrix",
           table: [
             ["Row", "1", "2", "3"],
-            ...[0, 1, 2].map((i) => [`${i + 1}`, engNum(res.rotation[i * 3], 5), engNum(res.rotation[i * 3 + 1], 5), engNum(res.rotation[i * 3 + 2], 5)]),
+            ...[0, 1, 2].map((i) => [`${i + 1}`, engNum(rot[i * 3], 5), engNum(rot[i * 3 + 1], 5), engNum(rot[i * 3 + 2], 5)]),
           ],
         },
       ];
@@ -21598,7 +21613,7 @@ const ENG_CALCS: EngCalc[] = [
       ];
       lines.push("");
       if (res.rpy) {
-        const d = (v: number) => engNum((v * 180) / Math.PI, 6);
+        const d = (v: number) => engNum(snapNoise((v * 180) / Math.PI, 180), 6);
         lines.push(`  Roll ${d(res.rpy[0])} °,  pitch ${d(res.rpy[1])} °,  yaw ${d(res.rpy[2])} °  (ZYX)`);
       } else {
         lines.push("  Roll/pitch/yaw: not reported - the chain is at gimbal lock.");
@@ -21623,12 +21638,12 @@ const ENG_CALCS: EngCalc[] = [
         const shared = Math.max(extent(plan), extent(elev));
         const planSvg = armSvg([{ joints: plan, colour: "#2563eb", label: "tip" }], [], {
           title: "Plan view (x-y)",
-          note: `tip x ${engNum(res.position[0], 4)}, y ${engNum(res.position[1], 4)} m`,
+          note: `tip x ${engNum(pos[0], 4)}, y ${engNum(pos[1], 4)} m`,
           minSpan: shared,
         });
         const elevSvg = armSvg([{ joints: elev, colour: "#059669", label: "tip" }], [], {
           title: "Elevation (x-z)",
-          note: `tip x ${engNum(res.position[0], 4)}, z ${engNum(res.position[2], 4)} m`,
+          note: `tip x ${engNum(pos[0], 4)}, z ${engNum(pos[2], 4)} m`,
           minSpan: shared,
         });
         return withOutputs(dhOutputs, engReport(lines, [
@@ -29942,7 +29957,7 @@ function tfLine(name: string, num: Rat[], den: Rat[]): EngLine {
  * the honest presentation of a coefficient that was never rational.
  */
 function tfLineDecimal(name: string, num: number[], den: number[], sig = 5): EngLine {
-  const fmt = (p: number[]): string => {
+  const fmt = (p: number[], math = false): string => {
     const n = p.length - 1;
     const parts: string[] = [];
     for (let i = 0; i <= n; i++) {
@@ -29951,7 +29966,10 @@ function tfLineDecimal(name: string, num: number[], den: number[], sig = 5): Eng
       const neg = p[i] < 0;
       const mag = Math.abs(p[i]);
       const isOne = Math.abs(mag - 1) < 1e-12;
-      const coeff = isOne && power > 0 ? "" : engNum(mag, sig);
+      // A coefficient engNum writes as "4.7863e+6" goes into the equation as 4.7863×10^{6} (Word typesets it), never
+      // as e-notation; the text fallback is typeset by the display pass (subscriptText.ts).
+      const raw = isOne && power > 0 ? "" : engNum(mag, sig);
+      const coeff = math ? raw.replace(/^(\d+(?:\.\d+)?)e([+-]?)(\d+)$/, (_m, mt: string, sg: string, ex: string) => `${mt}×10^{${sg === "-" ? "-" : ""}${Number(ex)}} `) : raw;
       const sPart = power === 0 ? "" : power === 1 ? "s" : `s^${power}`;
       parts.push((parts.length ? (neg ? " - " : " + ") : neg ? "-" : "") + coeff + sPart);
     }
@@ -29959,14 +29977,21 @@ function tfLineDecimal(name: string, num: number[], den: number[], sig = 5): Eng
   };
   const n = fmt(num);
   const d = fmt(den);
-  return { math: `${name} = (${n})/(${d})`, fallback: `${name} = [ ${n} ] / [ ${d} ]` };
+  return { math: `${name} = (${fmt(num, true)})/(${fmt(den, true)})`, fallback: `${name} = [ ${n} ] / [ ${d} ]` };
 }
 
 /** A complex number as plain text, for a result that must survive the dash guard. */
-function fmtComplexPlain(c: { re: number; im: number }): string {
-  if (Math.abs(c.im) < 1e-12) return engNum(c.re);
-  return `${engNum(c.re)} ${c.im < 0 ? "-" : "+"} ${engNum(Math.abs(c.im))}j`;
+function fmtComplexPlain(c: { re: number; im: number }, scale = Math.hypot(c.re, c.im)): string {
+  // Rounding residue against the scale of the set the value is printed with (the largest |pole| of the list):
+  // a marginal pole is "0 ± 1j", not "−6.994×10⁻¹⁷ ± 1j" (subscriptText.ts snapNoise).
+  const re = snapNoise(c.re, scale, 1e-12);
+  const im = snapNoise(c.im, scale, 1e-12);
+  if (im === 0 || Math.abs(im) < 1e-12) return engNum(re);
+  return `${re === 0 ? "" : `${engNum(re)} ${im < 0 ? "−" : "+"} `}${re === 0 && im < 0 ? "−" : ""}${engNum(Math.abs(im))}j`;
 }
+
+/** The largest |z| of a list of complex values: the scale fmtComplexPlain snaps against. */
+const complexScale = (zs: Array<{ re: number; im: number }>): number => Math.max(0, ...zs.map((z) => Math.hypot(z.re, z.im)));
 
 /** Builds the inputs for the selected Engineering tool and wires live compute. */
 /**

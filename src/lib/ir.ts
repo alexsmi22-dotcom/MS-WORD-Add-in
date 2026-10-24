@@ -288,7 +288,10 @@ export function predictIr(input: string): IrResult | null {
         });
       } else if (!mol.isAromaticAtom(a) && dbl) {
         hasAlkeneCH = true;
-      } else if (!mol.isAromaticAtom(a)) {
+      } else if (!mol.isAromaticAtom(a) && nbrs.every((nb) => nb.order === 1)) {
+        // ALKYL C–H is an sp³ carbon's. The aldehyde's own C–H (C=O, not C=C) used to land here, so benzaldehyde
+        // and acrolein — no sp³ carbon at all — were listed with 2925/1460 cm⁻¹ alkyl bands. Its band is the
+        // Fermi doublet below; an imine C–H (C=N) is not alkyl either.
         hasAlkylCH = true;
       }
     }
@@ -333,11 +336,19 @@ export function predictIr(input: string): IrResult | null {
         });
       }
       if (kind === "aldehyde") {
+        // The aldehyde C–H stretch is a Fermi doublet (the C–H stretch in resonance with the overtone of the C–H
+        // bend): two bands, ≈ 2820 and ≈ 2720 cm⁻¹, the lower one the diagnostic shoulder beside the alkyl C–H.
         add({
-          wavenumber: 2770,
-          range: [2695, 2830],
+          wavenumber: 2820,
+          range: [2800, 2860],
           intensity: "medium",
-          assignment: "C-H stretch (aldehyde, Fermi doublet ~2820/2720)",
+          assignment: "C-H stretch (aldehyde, Fermi doublet, upper)",
+        });
+        add({
+          wavenumber: 2720,
+          range: [2695, 2775],
+          intensity: "medium",
+          assignment: "C-H stretch (aldehyde, Fermi doublet, lower)",
         });
       }
       if (kind === "ester" || kind === "acid") {

@@ -13,6 +13,8 @@ const RANK_CONNECTORS = new Set([
 ]);
 // Unranked / qualifier markers — roman, and the rest of the name stays roman.
 const UNRANKED = new Set(["sp.", "spp.", "spec.", "aff.", "cf.", "gen."]);
+// Lowercase words that begin an author citation, not an epithet ("Aster ... de Candolle", "ex", "in", "et").
+const AUTHOR_PARTICLES = new Set(["de", "van", "von", "der", "den", "du", "la", "le", "ex", "in", "et", "d'", "dos", "da", "di", "y"]);
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -67,6 +69,7 @@ export function parseBotanicalName(input: string): NamePart[] {
 
   let epithetNext = false; // the next token is an italic epithet
   let speciesDone = false;
+  let subspeciesDone = false;
   let roman = false; // once authors/cultivar/sp. seen, the rest is roman
 
   for (let i = start + 1; i < tokens.length; i++) {
@@ -100,10 +103,17 @@ export function parseBotanicalName(input: string): NamePart[] {
     } else if (epithetNext) {
       parts.push({ text: t, italic: true });
       epithetNext = false;
+      if (speciesDone) subspeciesDone = true; // an infraspecific epithet already: no rank-less third word after it
       speciesDone = true;
     } else if (!speciesDone && isEpithet(t)) {
       parts.push({ text: t, italic: true }); // species epithet
       speciesDone = true;
+    } else if (speciesDone && !subspeciesDone && parts[parts.length - 1]?.italic && isEpithet(t) && !AUTHOR_PARTICLES.has(low)) {
+      // A zoological trinomial: the subspecies follows the species with no rank word (ICZN Art. 5.2) —
+      // Panthera tigris altaica, Homo sapiens sapiens — and is italic like the binomial. Only the word right after
+      // the italic species epithet, and never an author particle (de, van, ex …).
+      parts.push({ text: t, italic: true });
+      subspeciesDone = true;
     } else {
       parts.push({ text: t, italic: false }); // author citation etc.
       roman = true;

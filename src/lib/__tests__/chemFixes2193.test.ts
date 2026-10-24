@@ -13,7 +13,15 @@ import { renderStructure, resolveStructure, checkSmiles, hillFromOcl, nameForIdc
 import { resolveMassSpec, smilesSpec, computeMassSpec, compositionFromMolecule } from "../massspec";
 import { resolveCompound, ionOf } from "../characterization";
 import { massSpecText } from "../spectroPane";
-import { hillFormula } from "../chemValidate";
+import { hillFormula, validateFormula } from "../chemValidate";
+import { predictUvVis } from "../uvvis";
+import { predictIr } from "../ir";
+import { parseChemical } from "../chemParser";
+import { segmentsToHtml } from "../segments";
+import { readPeptide } from "../peptide";
+import { formatBotanicalNameHtml } from "../botanical";
+import { physicalLines } from "../characterization";
+import { parseTable, parsePeakList } from "../solidform";
 
 beforeAll(() => {
   // Warm OpenChemLib (the first layout of a session is slow in jest).
@@ -191,5 +199,124 @@ describe("9 — Hill order in Structure and Mass Spec formula rows", () => {
     expect(hillFormula({ C: 2, H: 5, D: 1, O: 1 })).toBe("C2H5DO");
     expect(hillFormula({ Na: 1, Cl: 1 })).toBe("ClNa");
     expect(hillFormula({ H: 2, O: 1 })).toBe("H2O");
+  });
+});
+
+describe("3 — isolated carbonyl n→π* by class (Silverstein / Pavia)", () => {
+  it.each([
+    ["CC(=O)O", 204, /carboxylic acid/],
+    ["CC(=O)OCC", 207, /ester/],
+    ["CC(N)=O", 214, /amide/],
+    ["CC(C)=O", 280, /ketone/],
+    ["CC=O", 290, /aldehyde/],
+    ["CC(=O)CCC(=O)OC", 280, /ketone/], // keto ester: the ketone's band is the longest
+  ])("%s → %d nm", (smi, nm, what) => {
+    const r = predictUvVis(smi)!;
+    expect(r.lambdaMax).toBe(nm);
+    expect(r.chromophore).toMatch(what);
+  });
+
+  it("classes with no tabulated band are named, not given 280 nm", () => {
+    for (const smi of ["CC(=O)OC(C)=O", "CC(=O)Cl", "COC(=O)OC", "CC(=O)SC"]) {
+      const r = predictUvVis(smi)!;
+      expect({ smi, l: r.lambdaMax }).toEqual({ smi, l: null });
+      expect(r.chromophore).toMatch(/no tabulated band/);
+    }
+  });
+});
+
+describe("4 — IR: alkyl C–H only from an sp³ carbon; the aldehyde Fermi doublet", () => {
+  const assigns = (smi: string): string[] => predictIr(smi)!.bands.map((b) => `${b.wavenumber} ${b.assignment}`);
+
+  it.each(["O=Cc1ccccc1", "C=CC=O"])("%s (no sp³ carbon) has no alkyl C–H, and both doublet bands", (smi) => {
+    const a = assigns(smi);
+    expect(a.some((x) => /alkyl/.test(x))).toBe(false);
+    expect(a).toContain("2820 C-H stretch (aldehyde, Fermi doublet, upper)");
+    expect(a).toContain("2720 C-H stretch (aldehyde, Fermi doublet, lower)");
+  });
+
+  it("propanal keeps its alkyl C–H; a dialdehyde still lists the doublet once", () => {
+    expect(assigns("CCC=O").some((x) => x.startsWith("2925 C-H stretch (alkyl)"))).toBe(true);
+    expect(assigns("O=CCCC=O").filter((x) => /Fermi/.test(x))).toHaveLength(2);
+  });
+});
+
+describe("6/7 — chemParser: true-minus charges, U+2212 read, one-digit monatomic charges", () => {
+  const html = (s: string) => segmentsToHtml(parseChemical(s));
+  it.each([
+    ["Cl-", "Cl<sup>−</sup>"],
+    ["Cl−", "Cl<sup>−</sup>"],
+    ["e−", "e<sup>−</sup>"],
+    ["OH−", "OH<sup>−</sup>"],
+    ["SO4^2−", "SO<sub>4</sub><sup>2−</sup>"],
+    ["SO4^2-", "SO<sub>4</sub><sup>2−</sup>"],
+    ["PO4^3−", "PO<sub>4</sub><sup>3−</sup>"],
+    ["PO43−", "PO<sub>43</sub><sup>−</sup>"], // polyatomic, no caret: the digits are a count (unchanged rule)
+    ["[Fe(CN)6]3−", "[Fe(CN)<sub>6</sub>]<sup>3−</sup>"],
+    ["S2−", "S<sup>2−</sup>"],
+    ["Fe3+", "Fe<sup>3+</sup>"],
+    ["Hg22+", "Hg<sub>2</sub><sup>2+</sup>"],
+    ["O22-", "O<sub>2</sub><sup>2−</sup>"],
+    ["O22−", "O<sub>2</sub><sup>2−</sup>"],
+    ["C60-", "C<sub>60</sub><sup>−</sup>"],
+    ["NH4+", "NH<sub>4</sub><sup>+</sup>"],
+  ])("%s", (input, out) => {
+    expect(html(input)).toBe(out);
+  });
+
+  it("validateFormula reads the same ions the same way (Hg₂²⁺, O₂²⁻, C₆₀⁻; U+2212 accepted)", () => {
+    expect(validateFormula("Hg22+")).toMatchObject({ valid: true, counts: { Hg: 2 }, charge: 2 });
+    expect(validateFormula("O22-")).toMatchObject({ valid: true, counts: { O: 2 }, charge: -2 });
+    expect(validateFormula("O22−")).toMatchObject({ valid: true, counts: { O: 2 }, charge: -2 });
+    expect(validateFormula("C60-")).toMatchObject({ valid: true, counts: { C: 60 }, charge: -1 });
+    expect(validateFormula("Fe3+")).toMatchObject({ valid: true, counts: { Fe: 1 }, charge: 3 });
+    expect(validateFormula("S2-")).toMatchObject({ valid: true, counts: { S: 1 }, charge: -2 });
+  });
+
+  it("no ASCII hyphen is ever a superscript", () => {
+    for (const s of ["Cl-", "NO3-", "[Fe(CN)6]4-", "Fe + O2 -> Fe2O3", "2Cr3+ + 3e- -> 2Cr"]) {
+      for (const seg of parseChemical(s)) if (seg.type === "sup") expect(seg.text).not.toMatch(/-/);
+    }
+  });
+});
+
+describe("minor fixes", () => {
+  it("peptide: E[Glu->pyro-Glu]HPG three-letter is pGlu-His-Pro-Gly", () => {
+    const r = readPeptide("E[Glu->pyro-Glu]HPG");
+    if (!r.ok) throw new Error(r.message);
+    expect(r.threeLetter).toBe("pGlu-His-Pro-Gly-OH");
+  });
+
+  it("peptide: a ProForma mass delta is refused by name with the matching named modification", () => {
+    const r = readPeptide("PEPT[+79.966]IDE");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toMatch(/Mass delta “\[\+79\.966\]” at position \d+ is not read.*matches Phospho.*T\[Phospho\]/);
+  });
+
+  it("botanical: a zoological trinomial's third word is italic; authors stay roman", () => {
+    expect(formatBotanicalNameHtml("Panthera tigris altaica")).toBe("<i>Panthera</i> <i>tigris</i> <i>altaica</i>");
+    expect(formatBotanicalNameHtml("Homo sapiens sapiens Linnaeus, 1758")).toBe("<i>Homo</i> <i>sapiens</i> <i>sapiens</i> Linnaeus, 1758");
+    expect(formatBotanicalNameHtml("Rosa canina L.")).toBe("<i>Rosa</i> <i>canina</i> L.");
+    expect(formatBotanicalNameHtml("Rosa canina var. alba hort")).toBe("<i>Rosa</i> <i>canina</i> var. <i>alba</i> hort");
+    expect(formatBotanicalNameHtml("Abies alba de Candolle")).toBe("<i>Abies</i> <i>alba</i> de Candolle");
+  });
+
+  it("characterization: Rf messages say Rf (no R_f); the line keeps R with a real subscript f", () => {
+    const bad = physicalLines(null, { rf: "1.5" });
+    expect("refusal" in bad && bad.refusal).toMatch(/^Rf “1\.5”/);
+    const ok = physicalLines(null, { rf: "0.35" });
+    if ("refusal" in ok) throw new Error(ok.refusal);
+    expect(ok.lines[0]).toBe("<i>R</i><sub>f</sub> = 0.35.");
+    expect(ok.messages.map((m) => m.text).join(" ")).toMatch(/An Rf without its eluent/);
+    expect(JSON.stringify(ok)).not.toMatch(/R_f/);
+  });
+
+  it("XRPD: rows mixing tabs and spaces are all read", () => {
+    const t = parseTable("2θ (deg)\tIntensity\n5.20\t100\n10.40 85\n15.60\t40\n20.80  22");
+    expect(t.rows).toEqual([[5.2, 100], [10.4, 85], [15.6, 40], [20.8, 22]]);
+    expect(t.header).toEqual(["2θ (deg)", "Intensity"]);
+    const dc = parseTable("5,20\t100\n10,40 85\n15,60\t40");
+    expect(dc.rows).toEqual([[5.2, 100], [10.4, 85], [15.6, 40]]);
+    expect(parsePeakList("5.20\t100\n10.40 85\n15.60\t40", 1.540598).peaks.map((p) => p.twoTheta)).toEqual([5.2, 10.4, 15.6]);
   });
 });

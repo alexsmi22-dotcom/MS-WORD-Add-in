@@ -18,28 +18,28 @@ describe("parseChemical", () => {
   });
 
   it("renders explicit charges as superscripts", () => {
-    expect(html("SO4^2-")).toBe("SO<sub>4</sub><sup>2-</sup>");
+    expect(html("SO4^2-")).toBe("SO<sub>4</sub><sup>2−</sup>");
     expect(html("Fe^3+")).toBe("Fe<sup>3+</sup>");
   });
 
   it("renders trailing +/- as a superscript charge", () => {
     expect(html("Na+")).toBe("Na<sup>+</sup>");
-    expect(html("Cl-")).toBe("Cl<sup>-</sup>");
+    expect(html("Cl-")).toBe("Cl<sup>−</sup>");
   });
 
   it("treats a digit run before a sign as a charge, not a subscript count", () => {
     expect(html("Ca2+")).toBe("Ca<sup>2+</sup>");
     expect(html("Fe3+")).toBe("Fe<sup>3+</sup>");
     // Subscript count on the group, then the ion charge.
-    expect(html("[Fe(CN)6]3-")).toBe("[Fe(CN)<sub>6</sub>]<sup>3-</sup>");
+    expect(html("[Fe(CN)6]3-")).toBe("[Fe(CN)<sub>6</sub>]<sup>3−</sup>");
     // A count NOT followed by a sign stays a subscript.
     expect(html("H2O")).toBe("H<sub>2</sub>O");
   });
 
   it("keeps a subscript on a polyatomic ion, with a separate ± charge", () => {
     expect(html("NH4+")).toBe("NH<sub>4</sub><sup>+</sup>"); // ammonium: 4 H, charge +1
-    expect(html("NO3-")).toBe("NO<sub>3</sub><sup>-</sup>");
-    expect(html("HCO3-")).toBe("HCO<sub>3</sub><sup>-</sup>");
+    expect(html("NO3-")).toBe("NO<sub>3</sub><sup>−</sup>");
+    expect(html("HCO3-")).toBe("HCO<sub>3</sub><sup>−</sup>");
   });
 
   it("keeps bond glyphs and lone pairs inline (normal size)", () => {

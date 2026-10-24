@@ -133,14 +133,19 @@ export function parseTable(text: string, maxRows = 200000): Table {
   const tabs = lines.filter((l) => l.includes("\t")).length;
   // Thousands separators ("1,234" in a file that writes decimals with points, as copied from a spreadsheet): split on
   // tabs or spaces, every token a number or a comma-grouped number, at least one of the latter, two or more per line.
-  const wsToks = lines.map((l) => l.split(tabs > lines.length / 2 ? /\t+/ : /\s+/).filter(Boolean));
+  const wsToks = lines.map((l) => l.split(/\s+/).filter(Boolean));
   const numericWs = wsToks.filter((tk) => tk.length >= 2 && tk.every((t) => NUMTOK.test(t) || THOUSANDS_TOK.test(t)));
   const thousands = anyDot && numericWs.length >= 0.5 * lines.length && numericWs.some((tk) => tk.some((t) => THOUSANDS_TOK.test(t) && !NUMTOK.test(t)));
   const sep: "semi" | "tab" | "comma" | "space" =
     semis > lines.length / 2 ? "semi" : tabs > lines.length / 2 ? "tab" : thousands ? "space" : lines.some((l) => /\d\s*,\s*[-+.\d]/.test(l)) ? "comma" : "space";
   // Decimal comma: no dotted decimals anywhere, and comma-decimal tokens once split on the other separators.
+  // Tab-separated DATA rows split on any whitespace: a paste that mixes tabs and spaces between the columns
+  // ("5.20\t100" on one row, "10.40 85" on the next — hand-edited exports do this) kept only its tab rows, and the
+  // space rows were dropped as "not numbers". Data cells are numbers, so no cell has a space inside; a HEADER's cells
+  // can ("2θ (deg)\tIntensity"), so the header alone is still split on tabs (headerSplit below).
   const splitBy = (l: string, s: typeof sep): string[] =>
-    (s === "semi" ? l.split(";") : s === "tab" ? l.split(/\t+/) : s === "comma" ? l.split(/\s*,\s*|\s+/) : l.split(/\s+/)).map((x) => x.trim()).filter((x) => x !== "");
+    (s === "semi" ? l.split(";") : s === "tab" ? l.split(/\s+/) : s === "comma" ? l.split(/\s*,\s*|\s+/) : l.split(/\s+/)).map((x) => x.trim()).filter((x) => x !== "");
+  const headerSplit = (l: string): string[] => l.split(/\t+/).map((x) => x.trim()).filter((x) => x !== "");
   // Decimal commas: no dotted decimal anywhere, and — split on the other separators — tokens like 3,02 with every data
   // line still holding at least two numbers (one comma-number per line stays an "x,y" pair: 6,100 is 6 and 100).
   let decimalComma = false;
@@ -178,7 +183,8 @@ export function parseTable(text: string, maxRows = 200000): Table {
     else after.push(p.raw);
   });
   if (firstData > 0) {
-    const h = splitBy(lines[firstData - 1], effSep === "space" && lines[firstData - 1].includes("\t") ? "tab" : effSep);
+    const hl = lines[firstData - 1];
+    const h = (effSep === "tab" || effSep === "space") && hl.includes("\t") ? headerSplit(hl) : splitBy(hl, effSep);
     if (h.length === width) out.header = h;
   }
   if (skippedBefore) out.notes.push(`${skippedBefore} header line${skippedBefore === 1 ? "" : "s"} skipped.`);

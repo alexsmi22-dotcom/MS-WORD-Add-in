@@ -121,7 +121,7 @@ describe("item 7: state-code sections", () => {
     expect(rows("Cal. Civ. Code §§ 1714-1715. Later, Cal. Civ. Code §§ 1714–1715.", "Statutes")).toEqual(["Cal. Civ. Code §§ 1714–1715"]);
   });
   test("plain-number code: a single § over a hyphenated pair is a range (base)", () => {
-    expect(rows("Cal. Civ. Code § 1714-1716.", "Statutes")).toEqual(["Cal. Civ. Code §§ 1714–1716"]);
+    expect(rows("Cal. Civ. Code § 1714-1716.", "Statutes")).toEqual(["Cal. Civ. Code § 1714-1716"]); // one § is one section (Rule 3.3)
   });
   test("a colon not followed by a digit is not part of the section", () => {
     expect(rows("Cal. Civ. Code § 1714:a", "Statutes")).toEqual(["Cal. Civ. Code § 1714"]);

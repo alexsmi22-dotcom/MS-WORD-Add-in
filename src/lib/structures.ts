@@ -274,16 +274,18 @@ export function checkSmiles(smiles: string): SmilesCheck {
   // a Kekulé form (porphine, tetraphenylporphyrin, phthalocyanine, heme as RDKit writes it). A real Kekulé matching
   // over the SMILES's own aromatic atoms and bonds decides; where it finds one, the SMILES is read again in that
   // Kekulé form (so the drawing, which parses `parsed`, carries no leftover radical either).
-  // The Kekulé form is used only when OpenChemLib reads it cleanly with no radical left; otherwise the judgement is the
-  // one made without it (never an acceptance of OpenChemLib's radical on the strength of the matching alone).
+  // The Kekulé form is drawn only when OpenChemLib reads it cleanly with fewer radicals than before (a radical written
+  // in the SMILES stays); where the re-read fails, the molecule as first read is drawn.
   const kek = radicalCount(mol) > 0 ? kekuleSmiles(s) : null;
   let kekule: { parsed: string; mol: Molecule } | null = null;
   if (kek) {
     const kParsed = oclSmilesText(substituteWildcards(kek).text);
     const kMol = parseSmilesOnly(kParsed);
-    if (kMol && !valenceProblem(kMol) && radicalCount(kMol) === 0) kekule = { parsed: kParsed, mol: kMol };
+    // Radicals written in the SMILES ([CH3], [O], a nitroxide) survive the re-read; only the resolver's go.
+    if (kMol && !valenceProblem(kMol) && radicalCount(kMol) < radicalCount(mol)) kekule = { parsed: kParsed, mol: kMol };
   }
-  const k = inventedRadical(s, mol, kek === false ? false : kekule ? true : null);
+  // A Kekulé matching found (kek is a string) settles the aromatic system even when the re-read cannot be used.
+  const k = inventedRadical(s, mol, kek === false ? false : typeof kek === "string" ? true : null);
   if (k) return { ok: false, message: `“${s}” is not valid SMILES: ${k}`, invalid: true };
   if (kekule) {
     mol = kekule.mol;

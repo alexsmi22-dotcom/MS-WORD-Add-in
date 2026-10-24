@@ -1335,8 +1335,8 @@ function oxidationStates(s: Species): Record<string, number> | null {
  * An element shows it in either of two ways: its oxidation-state total (each state times the atoms carrying it) differs
  * between the sides, so it gained or lost electrons; or, where every state of it is a whole number, the set of states
  * differs (Cl₂ → Cl⁻ + ClO₃⁻, a disproportionation, keeps the total). A fractional state is a mixed-valence AVERAGE
- * (Fe₃O₄ is Fe 8/3, Pb₃O₄ is Pb 8/3): the states it hides are unknown, so it cannot show a change of set
- * (Fe₃O₄ + H⁺ → Fe²⁺ + Fe³⁺ + H₂O moves no electrons).
+ * (Fe₃O₄ is Fe 8/3, Pb₃O₄ is Pb 8/3): the states it hides are unknown, so only a change of SIGN is shown
+ * (Fe₃O₄ + H⁺ → Fe²⁺ + Fe³⁺ + H₂O moves no electrons; Fe₃O₄ → Fe + Fe₂O₃ does).
  */
 function redoxShown(species: Species[], sides: Side[], coefs: bigint[]): boolean {
   const states: Array<Record<string, number> | null> = species.map((s) => (s.electron ? {} : oxidationStates(s)));
@@ -1351,8 +1351,10 @@ function redoxShown(species: Species[], sides: Side[], coefs: bigint[]): boolean
     const total = (side: Side): number => on(side).reduce((t, j) => t + states[j]![e] * atomsOf(j, e) * Number(coefs[j]), 0);
     if (Math.abs(total("left") - total("right")) > 1e-6) return true;
     const whole = holders.every((j) => Math.abs(states[j]![e] - Math.round(states[j]![e])) < 1e-9);
-    if (!whole) return false;
-    const set = (side: Side): string => [...new Set(on(side).map((j) => Math.round(states[j]![e])))].sort((a, b) => a - b).join(",");
+    // With an average among them, only the SIGN of each state is known (Fe₃O₄'s hidden states are positive): a free
+    // element (0) or a negative state appearing on one side only is still shown (Fe₃O₄ → Fe + Fe₂O₃).
+    const key = whole ? (x: number): number => Math.round(x) : (x: number): number => (Math.abs(x) < 1e-9 ? 0 : Math.sign(x));
+    const set = (side: Side): string => [...new Set(on(side).map((j) => key(states[j]![e])))].sort((a, b) => a - b).join(",");
     return set("left") !== set("right");
   });
 }
@@ -1441,8 +1443,8 @@ function balanceHalf(p: ParsedEquation, medium: "acid" | "base", forceHalf = fal
   const notes = resolvedNotes(p.species);
   const ionName = medium === "acid" ? "H⁺" : "OH⁻";
   // Name only the helpers that were actually added: a non-zero coefficient, and not a species already typed.
-  const typed = new Set(p.species.map((s) => formatSpecies(s)));
-  const added = aux.filter((s, j) => v[skel.length + j] !== 0n && !typed.has(formatSpecies(s))).map((s) => formatSpecies(s));
+  const typed = new Set(p.species.map((s) => speciesKey({ ...s, state: null })));
+  const added = aux.filter((s, j) => v[skel.length + j] !== 0n && !typed.has(speciesKey({ ...s, state: null }))).map((s) => formatSpecies(s));
   notes.push(
     added.length
       ? `Balanced in ${medium === "acid" ? "acidic" : "basic"} solution: ${nameList(added)} ${added.length === 1 ? "was" : "were"} added.`

@@ -869,10 +869,12 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
     const code = m[1].replace(/\s+/g, " ");
     // fix3: in a state whose code numbers its sections with hyphens ("Ga. Code Ann. § 9-11-12", "N.J. Stat. Ann.
     // § 2A:14-1", "Ariz. Rev. Stat. Ann. § 12-341") the section is ONE number: the sign is the one written and the
-    // hyphen is kept. fix3e: in a plain-number code (Cal., N.Y., Tex., …) a hyphen between two numbers is a RANGE,
-    // as in a federal cite: "§ 1714-1716" → "§§ 1714–1716", and "§§ 1714-1715" / "§§ 1714–1715" merge (base).
+    // hyphen is kept. fix3e: in a plain-number code (Cal., N.Y., Tex., …) a hyphen after a written "§§" is a RANGE,
+    // as in a federal cite: "§§ 1714-1715" and "§§ 1714–1715" merge as "§§ 1714–1715".
     const raw = trimSection(m[3]).replace(/\s+/g, " ");
-    const hyphenated = HYPHEN_SECTION_STATE_RE.test(code) || /-.*-/.test(raw) || /\d:\d/.test(raw);
+    // A single "§" names ONE section (Rule 3.3: a range takes "§§"), so its hyphen is part of the number in every
+    // state ("N.Y. Gen. Oblig. Law § 5-701", "Del. Code Ann. tit. 6, § 2-725"); only a written "§§" is a range.
+    const hyphenated = m[2] === "§" || HYPHEN_SECTION_STATE_RE.test(code) || /-.*-/.test(raw) || /\d:\d/.test(raw);
     const sec = hyphenated ? raw : normalizeSection(m[3]);
     const sign = hyphenated ? m[2] : sectionSymbol(sec);
     plain("statutes", `${code} ${sign} ${sec}`, `${code} ${sign} ${sec}`.toLowerCase(), m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length), {

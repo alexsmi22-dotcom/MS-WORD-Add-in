@@ -144,7 +144,8 @@ export function tableRowsNote(sent: string[][], reported: number | null | void):
   const hasHeader = detectHeader(sent);
   const data = Math.max(0, sent.length - (hasHeader ? 1 : 0));
   const said = `${data} row${data === 1 ? "" : "s"}`;
-  if (typeof reported === "number" && reported !== sent.length) {
+  // A table that exists has at least one row: 0 (or a non-number) means the host could not say, never "Word kept none".
+  if (typeof reported === "number" && Number.isFinite(reported) && reported > 0 && reported !== sent.length) {
     const got = Math.max(0, reported - (hasHeader ? 1 : 0));
     return `${said} sent, but Word reports ${got}`;
   }

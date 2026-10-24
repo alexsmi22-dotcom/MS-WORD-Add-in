@@ -242,3 +242,12 @@ describe("4. gate: the library-side Stats, Bio/Assay and stoichiometry tools, on
     if (out.svg) expect({ id, svg: violations(svgText(out.svg)) }).toEqual({ id, svg: [] });
   });
 });
+
+describe("a row count of 0 is the host not saying, not Word keeping none", () => {
+  test("0 or NaN reported → just the row count", () => {
+    const rows = [["k", "x"], ["1", "2"], ["3", "4"]];
+    expect(tableRowsNote(rows, 0)).toBe("2 rows");
+    expect(tableRowsNote(rows, NaN)).toBe("2 rows");
+    expect(tableRowsNote(rows, 2)).toBe("2 rows sent, but Word reports 1");
+  });
+});

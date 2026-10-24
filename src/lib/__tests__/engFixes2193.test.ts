@@ -270,8 +270,10 @@ describe("7. AC sweep corner is solved, not the first sample past it", () => {
     if ("ok" in sw) throw new Error("sweep");
     expect(sweepCorner3dB(net.elements, "2", sw.points, sw.points[0].magnitude)).toBeNull();
   });
-  test("pane uses it", () => {
-    expect(toolSource("circuit-ac")).toMatch(/sweepCorner3dB\(parsed\.elements, out, pts, ref\)/);
+  // Superseded in fix2-eng2: the pane measures its −3 dB points from the passband (sweepPassbandCorners, the same
+  // bisection on the circuit), so a high-pass swept from below its corner is found too. See eng2Fixes2.test.ts.
+  test("pane uses the solved passband corners", () => {
+    expect(toolSource("circuit-ac")).toMatch(/sweepPassbandCorners\(parsed\.elements, out, pts\)/);
   });
 });
 
@@ -445,7 +447,8 @@ describe("11. The display pass (subscriptText.ts) and per-tool noise snapping", 
     expect(toolSource("robotics-jacobian")).toMatch(/snapNoise\(res\.jointTorques\[1\], torqueScale\)/);
     expect(toolSource("robotics-dh")).toMatch(/snapNoise\(\(v \* 180\) \/ Math\.PI, 180\)/);
     expect(PANE).toMatch(/function fmtComplexPlain\(c: \{ re: number; im: number \}, scale = /);
-    expect(PANE).toMatch(/for \(const c of ENG_CALCS\) \{\n\s+const raw = c\.compute;\n\s+c\.compute = \(read\) => tidyResultSubscripts\(raw\(read\)\);/);
+    // fix2-eng2: the same wrap now also runs the central non-finite guard (guardEngResult) inside the display pass.
+    expect(PANE).toMatch(/for \(const c of ENG_CALCS\) \{\n\s+const raw = c\.compute;\n\s+c\.compute = \(read\) => tidyResultSubscripts\(guardEngResult\(raw\(read\)\)\);/);
     // The shared unit note no longer shows input syntax with an exponent and a caret.
     expect(PANE).not.toMatch(/"\(200 GPa, 1e6 mm\^4/);
     expect(toolSource("fatigue-life")).not.toMatch(/N\^\$\{engNum/);

@@ -344,6 +344,17 @@ export function forcedResponse(
 
   const { wn, zeta } = p;
   const r = w / wn;
+  // RESONANCE WITH NO DAMPING has no steady state: the amplitude grows without bound (linearly in time), so there is
+  // no magnification to report — refused by name rather than printed as "not finite" (fix2-eng2).
+  if (zeta === 0 && Math.abs(r - 1) < 1e-12) {
+    return {
+      ok: false,
+      error:
+        "Resonance with no damping (ζ = 0 at r = ω/ωn = 1): the magnification is unbounded — the amplitude grows " +
+        "without limit and there is no steady state. Give a damping ratio above zero, or a forcing frequency away " +
+        "from ωn.",
+    };
+  }
   const mag = magnification(r, zeta);
   const tr = transmissibility(r, zeta);
   const staticDefl = f0 / k;
@@ -356,7 +367,8 @@ export function forcedResponse(
   let peakMag: number | null = null;
   if (zeta < 1 / Math.SQRT2) {
     peakR = Math.sqrt(1 - 2 * zeta * zeta);
-    peakMag = 1 / (2 * zeta * Math.sqrt(1 - zeta * zeta));
+    // Undamped: the peak at r = 1 is unbounded, reported as null (the caller says so), never as Infinity.
+    peakMag = zeta > 0 ? 1 / (2 * zeta * Math.sqrt(1 - zeta * zeta)) : null;
     if (zeta > 0) {
       notes.push(
         `The magnification peaks at r = ${peakR.toFixed(4)}, BELOW the natural frequency, not at ` +

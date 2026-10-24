@@ -406,12 +406,89 @@ const KET_MAX_TERMS = 1024;
 export function parseKet(text: string): KetParse | { error: string } {
   const src = (text ?? "").replace(/[−–]/g, "-").trim();
   if (!src) return { error: "No state was typed. Write it in Dirac form, e.g. 0.6|0⟩ + 0.8i|1⟩." };
+  const raw = ketSum(src, 0);
+  if ("error" in raw) return raw;
+  const { sum, n } = raw;
+  const nz = normalise(sum);
+  if (!nz) return { error: "The state is zero (or not finite): it cannot be normalised." };
+  const notes: string[] = [];
+  if (Math.abs(nz.norm2 - 1) > 1e-9)
+    notes.push(`The state as typed has ‖ψ‖² = ${norm2Text(nz.norm, 6, nz.log10norm)}, not 1; it was normalised (divided by ${nz.norm >= 1e-6 && nz.norm < 1e6 ? fmtReal(nz.norm).text : trimZeros(fmtSig(nz.norm, 6))}).`);
+  return { state: nz.state, n, norm2: nz.norm2, norm: nz.norm, log10norm: nz.log10norm, notes };
+}
+
+/** "√2", "√(3)", "2√2" → "sqrt(2)", "sqrt(3)", "2*sqrt(2)" for the expression parser. */
+const sqrtToFn = (s: string): string =>
+  s.replace(/(\d|\))\s*√/g, "$1*√").replace(/√\s*(\d+(?:\.\d+)?|\([^()]*\))/g, (_m, a: string) => `sqrt(${a.startsWith("(") ? a.slice(1, -1) : a})`);
+
+/** A scalar written around a bracketed sum ("1/√2", "e^(iπ/4)·", "/√2", "/ 2"): its value, or an error. */
+function ketScalar(text: string, where: string): Cx | { error: string } {
+  const t = text.replace(/[*·]\s*$/, "").replace(/^\s*[*·]/, "").trim();
+  if (!t) return C1;
+  const z = parseComplex(sqrtToFn(t));
+  if ("error" in z) return { error: `The factor ${where} the brackets ("${text.trim()}"): ${z.error}` };
+  return z;
+}
+
+/**
+ * The UNNORMALISED sum a ket expression denotes (parseKet normalises once at the end, so the norm note reports what
+ * was typed). Beyond term-by-term sums it reads the forms the app itself prints (fix2-eng2): a bracketed sum with a
+ * scalar factor before it and/or a divisor after it — "(|0⟩ + |1⟩)/√2", "1/√2(|0⟩ + |1⟩)", "e^(iπ/4)·((|0⟩ + i|1⟩)/√2)",
+ * "(|00⟩ + |11⟩)/sqrt(2)" — and tensor products of kets with ⊗ ("|0⟩⊗|+⟩", "|1⟩ ⊗ |0⟩ ⊗ |1⟩").
+ */
+function ketSum(src: string, depth: number): { sum: State; n: number } | { error: string } {
+  if (depth > 8) return { error: "Brackets are nested too deeply to read." };
+  // A bracketed group containing a ket, with only scalars outside it.
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] !== "(") continue;
+    let d = 0;
+    let j = i;
+    for (; j < src.length; j++) {
+      if (src[j] === "(") d++;
+      else if (src[j] === ")" && --d === 0) break;
+    }
+    if (j >= src.length) return { error: `A "(" in "${src}" is never closed.` };
+    const inner = src.slice(i + 1, j);
+    if (!/\|/.test(inner)) {
+      i = j;
+      continue;
+    }
+    const before = src.slice(0, i);
+    const after = src.slice(j + 1).trim();
+    if (/\|/.test(before) || /\|/.test(after)) break; // a group among other terms: read term by term below
+    let div: Cx = C1;
+    if (after) {
+      const dm = /^\/\s*(.+)$/.exec(after);
+      const mm = /^[*·]\s*(.+)$/.exec(after);
+      if (!dm && !mm) return { error: `"${after}" after the brackets is not a factor: write the state as (…)/√2 or 1/√2·(…).` };
+      const z = ketScalar((dm ?? mm)![1], "after");
+      if ("error" in z) return z;
+      div = dm ? z : cDiv(C1, z);
+    }
+    const pre = ketScalar(before, "before");
+    if ("error" in pre) return pre;
+    if (cAbs(div) === 0) return { error: "The divisor after the brackets is zero." };
+    const got = ketSum(inner.trim(), depth + 1);
+    if ("error" in got) return got;
+    const k = cDiv(pre, div);
+    return { sum: got.sum.map((z) => cMul(k, z)), n: got.n };
+  }
   const re = /\|([^|⟩〉>]*)[⟩〉>]/g;
-  const kets: { label: string; start: number; end: number }[] = [];
+  const found: { label: string; start: number; end: number }[] = [];
   let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) && kets.length <= KET_MAX_TERMS) kets.push({ label: m[1].trim(), start: m.index, end: m.index + m[0].length });
-  if (!kets.length) return { error: `No ket was found in "${src}". Write each term as coefficient|label⟩, e.g. 0.6|0⟩ + 0.8i|1⟩.` };
-  if (kets.length > KET_MAX_TERMS) return { error: `At most ${KET_MAX_TERMS} terms can be read.` };
+  while ((m = re.exec(src)) && found.length <= KET_MAX_TERMS) found.push({ label: m[1].trim(), start: m.index, end: m.index + m[0].length });
+  if (!found.length) return { error: `No ket was found in "${src}". Write each term as coefficient|label⟩, e.g. 0.6|0⟩ + 0.8i|1⟩.` };
+  if (found.length > KET_MAX_TERMS) return { error: `At most ${KET_MAX_TERMS} terms can be read.` };
+  // Kets joined only by ⊗ form ONE term: their tensor product.
+  const kets: { labels: string[]; label: string; start: number; end: number }[] = [];
+  for (const f of found) {
+    const prev = kets[kets.length - 1];
+    if (prev && /^\s*⊗\s*$/.test(src.slice(prev.end, f.start))) {
+      prev.labels.push(f.label);
+      prev.label += `⟩⊗|${f.label}`;
+      prev.end = f.end;
+    } else kets.push({ labels: [f.label], label: f.label, start: f.start, end: f.end });
+  }
   if (src.slice(kets[kets.length - 1].end).trim())
     return { error: `Text after the last ket ("${src.slice(kets[kets.length - 1].end).trim()}") is not part of a term. Put each coefficient BEFORE its ket: 1/sqrt(2)|0⟩ + 1/sqrt(2)|1⟩.` };
   let n = 0;
@@ -432,27 +509,36 @@ export function parseKet(text: string): KetParse | { error: string } {
     if (/\(\s*$/.test(c) || /\|/.test(c)) return { error: "Brackets around several kets are not read: write each term as coefficient|label⟩ (1/sqrt(2)|0⟩ + 1/sqrt(2)|1⟩)." };
     let coef: Cx = C1;
     if (c) {
-      const z = parseComplex(c);
+      const z = parseComplex(sqrtToFn(c));
       if ("error" in z) return { error: `The coefficient of |${k.label}⟩: ${z.error}` };
       coef = z;
     }
     coef = cScale(coef, sign);
-    // The label: a bit string, a named one-qubit state, or a Bell state.
-    let vec: State;
-    let kn: number;
-    const lab = k.label.replace(/\s+/g, "");
-    if (/^[01]+$/.test(lab)) {
-      kn = lab.length;
-      if (kn > MAX_QUBITS) return { error: `|${lab}⟩ has ${kn} qubits; states are limited to ${MAX_QUBITS} qubits (1024 amplitudes).` };
-      vec = basisState(kn, parseInt(lab, 2));
-    } else if (NAMED_1Q[lab]) {
-      kn = 1;
-      vec = NAMED_1Q[lab].slice();
-    } else if (BELL_ALIASES[lab] || BELL_ALIASES[lab.toLowerCase()]) {
-      kn = 2;
-      vec = BELL_STATES[BELL_ALIASES[lab] ?? BELL_ALIASES[lab.toLowerCase()]].slice();
-    } else {
-      return { error: `|${k.label}⟩ is not a label this reader knows: use 0/1 strings (|0⟩, |01⟩), |+⟩, |−⟩, |i⟩, |−i⟩ or a Bell state |Φ⁺⟩ |Φ⁻⟩ |Ψ⁺⟩ |Ψ⁻⟩.` };
+    // Each label: a bit string, a named one-qubit state, or a Bell state; a ⊗ product is their Kronecker product.
+    let vec: State = [C1];
+    let kn = 0;
+    for (const label of k.labels) {
+      const lab = label.replace(/\s+/g, "");
+      let v: State;
+      let ln: number;
+      if (/^[01]+$/.test(lab)) {
+        ln = lab.length;
+        if (ln > MAX_QUBITS) return { error: `|${lab}⟩ has ${ln} qubits; states are limited to ${MAX_QUBITS} qubits (1024 amplitudes).` };
+        v = basisState(ln, parseInt(lab, 2));
+      } else if (NAMED_1Q[lab]) {
+        ln = 1;
+        v = NAMED_1Q[lab].slice();
+      } else if (BELL_ALIASES[lab] || BELL_ALIASES[lab.toLowerCase()]) {
+        ln = 2;
+        v = BELL_STATES[BELL_ALIASES[lab] ?? BELL_ALIASES[lab.toLowerCase()]].slice();
+      } else {
+        return { error: `|${label}⟩ is not a label this reader knows: use 0/1 strings (|0⟩, |01⟩), |+⟩, |−⟩, |i⟩, |−i⟩ or a Bell state |Φ⁺⟩ |Φ⁻⟩ |Ψ⁺⟩ |Ψ⁻⟩.` };
+      }
+      if (kn + ln > MAX_QUBITS) return { error: `|${k.label}⟩ has ${kn + ln} qubits; states are limited to ${MAX_QUBITS} qubits (1024 amplitudes).` };
+      const next: State = [];
+      for (const a of vec) for (const b of v) next.push(cMul(a, b));
+      vec = next;
+      kn += ln;
     }
     if (n && kn !== n) return { error: `|${k.label}⟩ has ${kn} qubit${kn > 1 ? "s" : ""} but an earlier ket has ${n}: every term must have the same number of qubits.` };
     n = kn;
@@ -460,12 +546,7 @@ export function parseKet(text: string): KetParse | { error: string } {
   }
   const sum: State = Array.from({ length: 1 << n }, () => C0);
   for (const t of terms) for (let b = 0; b < sum.length; b++) sum[b] = cAdd(sum[b], cMul(t.coef, t.vec[b]));
-  const nz = normalise(sum);
-  if (!nz) return { error: "The state is zero (or not finite): it cannot be normalised." };
-  const notes: string[] = [];
-  if (Math.abs(nz.norm2 - 1) > 1e-9)
-    notes.push(`The state as typed has ‖ψ‖² = ${norm2Text(nz.norm, 6, nz.log10norm)}, not 1; it was normalised (divided by ${nz.norm >= 1e-6 && nz.norm < 1e6 ? fmtReal(nz.norm).text : trimZeros(fmtSig(nz.norm, 6))}).`);
-  return { state: nz.state, n, norm2: nz.norm2, norm: nz.norm, log10norm: nz.log10norm, notes };
+  return { sum, n };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

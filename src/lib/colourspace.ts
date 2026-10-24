@@ -584,6 +584,12 @@ export function cctMcCamy(x: number, y: number): CctResult | ColourTempError {
   // by McCamy, and must not be told it is outside the band that ends at D65.
   const inMcCamyRange = rob.cctK >= lo && rob.cctK <= hi;
   const fmt = (t: number): string => t.toFixed(1);
+  // A value that rounds to zero is "0.0000", never "−0.0000" (a planckian point's Duv is −3×10⁻⁷); a negative one
+  // gets the true minus.
+  const fixedNoNegZero = (v: number, places: number): string => {
+    const t = Math.abs(v).toFixed(places);
+    return Number(t) === 0 || v >= 0 ? t : `−${t}`;
+  };
   return {
     ok: true,
     cctK: cct,
@@ -597,7 +603,7 @@ export function cctMcCamy(x: number, y: number): CctResult | ColourTempError {
           `${MCCAMY_ERROR_K} K over ${lo}–${hi} K (illuminant A to D65).`
         : `McCamy gives ${fmt(cct)} K, but this is outside McCamy's range (${lo}–${hi} K) — accuracy worse, approx. ` +
           `Robertson's method here gives ${fmt(rob.cctK)} K.`,
-      `Robertson's method (1968 isotemperature lines): ${fmt(rob.cctK)} K, Duv ${rob.duv.toFixed(4)}. ` +
+      `Robertson's method (1968 isotemperature lines): ${fmt(rob.cctK)} K, Duv ${fixedNoNegZero(rob.duv, 4)}. ` +
         `Measured against the true blackbody locus it is within 1.5 K over ${lo}–${hi} K and 0.11% over ` +
         "1667–25000 K, so prefer it where the two disagree.",
       "CCT says only where the colour sits ALONG the blackbody locus; two lights with the same CCT " +

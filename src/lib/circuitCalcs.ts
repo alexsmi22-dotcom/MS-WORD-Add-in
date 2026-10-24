@@ -387,6 +387,7 @@ export const CIRCUIT_CALCS: CircuitCalc[] = [
       const lines = transientLines(res, pick.nodes);
       if (pick.note) lines.push(`Note: ${pick.note}`);
       for (const n of res.notes) lines.push(`Note: ${n}`);
+      for (const n of parsed.notes) lines.push(`Note: ${n}`);
       lines.push("Units: SI throughout (seconds, volts, ohms, farads, henries); values are not converted.");
 
       const fig = transientFigure(res);

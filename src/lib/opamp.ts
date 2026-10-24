@@ -67,10 +67,12 @@ export interface OpampResult {
   config: OpampConfig;
   /** Closed-loop gain. Negative for inverting configurations. */
   gain: number;
-  /** Gain magnitude, which is what sets the bandwidth. */
+  /** Gain magnitude, which is what sets the bandwidth; NaN for the differentiator, whose noise gain 1 + jωRfC varies. */
   noiseGain: number;
-  /** Input resistance seen by the source, ohms; Infinity for a high-Z input. */
+  /** Input resistance seen by the source, ohms; Infinity for a high-Z input; NaN for a capacitive input. */
   inputResistance: number;
+  /** True for the differentiator: the source sees Zin = 1/(jωC), |Zin| = Rf at the corner. */
+  capacitiveInput: boolean;
   /** Small-signal closed-loop bandwidth, Hz; null without a GBW. */
   bandwidth: number | null;
   /** Full-power bandwidth, Hz; null without a slew rate and output swing. */
@@ -108,6 +110,7 @@ export function analyzeOpamp(inp: OpampInput): OpampResult | OpampError {
   }
 
   let gain: number;
+  let capacitiveInput = false;
   let noiseGain: number;
   let inputResistance: number;
   let cornerFrequency: number | null = null;
@@ -222,8 +225,13 @@ export function analyzeOpamp(inp: OpampInput): OpampResult | OpampError {
       const rc = rf * c;
       cornerFrequency = 1 / (2 * Math.PI * rc);
       gain = -1;
-      noiseGain = 1;
-      inputResistance = Infinity;
+      // NEITHER THE INPUT IMPEDANCE NOR THE NOISE GAIN IS A CONSTANT HERE. The source drives the capacitor straight
+      // into the virtual earth, so Zin = 1/(jωC): capacitive, falling with frequency (|Zin| = Rf at fc, and a
+      // near-short to a fast edge). The feedback network divides the output by 1 + jωRfC, so the noise gain RISES
+      // at 20 dB/decade from fc, and it meets the op-amp's falling open-loop gain at √(GBW·fc), not at GBW.
+      noiseGain = NaN;
+      inputResistance = NaN;
+      capacitiveInput = true;
       notes.push(
         `The transfer function is -sRC with RC = ${rc.toExponential(3)} s, so the gain is 1 at ` +
           `${cornerFrequency.toExponential(3)} Hz and RISES at 20 dB per decade above it.`,
@@ -235,6 +243,13 @@ export function analyzeOpamp(inp: OpampInput): OpampResult | OpampError {
           "with the capacitor to stop the gain rising past a chosen frequency. Prefer integrating " +
           "somewhere else in the signal chain if you can.",
       );
+      notes.push(
+        "STABILITY NEEDS A SERIES INPUT RESISTOR. Without one the noise gain 1 + jωRfC keeps rising until it " +
+          "meets the open-loop roll-off at about √(GBW·fc), where the loop has close to 180° of phase shift and " +
+          "rings or oscillates. A resistor R1 in series with C (and often a small capacitor across Rf) caps the " +
+          "noise gain at 1 + Rf/R1 above 1/(2πR1C); choose that corner below √(GBW·fc). The input impedance then " +
+          "never falls below R1.",
+      );
       break;
     }
   }
@@ -242,7 +257,16 @@ export function analyzeOpamp(inp: OpampInput): OpampResult | OpampError {
   // --- Real limits -------------------------------------------------------
   let bandwidth: number | null = null;
   const gbw = inp.gbw ?? 0;
-  if (Number.isFinite(gbw) && gbw > 0) {
+  if (Number.isFinite(gbw) && gbw > 0 && capacitiveInput && cornerFrequency !== null) {
+    // The rising noise gain f/fc meets the open-loop GBW/f where f² = GBW·fc.
+    bandwidth = Math.sqrt(gbw * cornerFrequency);
+    notes.push(
+      `Closed-loop bandwidth ≈ √(GBW·fc) = √(${gbw.toExponential(3)} × ${cornerFrequency.toExponential(3)}) ` +
+        `= ${bandwidth.toExponential(3)} Hz: the noise gain 1 + jωRfC rises at 20 dB per decade from fc and meets ` +
+        "the open-loop roll-off GBW/f there, so the differentiator stops differentiating at that frequency (and, " +
+        "without a series input resistor, peaks there).",
+    );
+  } else if (Number.isFinite(gbw) && gbw > 0) {
     bandwidth = gbw / noiseGain;
     notes.push(
       `Closed-loop bandwidth = GBW / noise gain = ${gbw.toExponential(3)} / ${noiseGain.toFixed(3)} ` +
@@ -291,6 +315,7 @@ export function analyzeOpamp(inp: OpampInput): OpampResult | OpampError {
     bandwidth,
     fullPowerBandwidth,
     cornerFrequency,
+    capacitiveInput,
     inputGains,
     notes,
   };

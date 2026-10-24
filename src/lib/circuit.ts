@@ -205,7 +205,9 @@ const SUFFIX: [string, number][] = [
  * both means the DC path stays exact for values a user actually types.
  */
 export function parseValue(text: string): { value: number; exact: Rat | null } | null {
-  const t = text.trim().toLowerCase();
+  // A true minus (U+2212, or an en dash) reads as a minus, and a trailing Ω or "ohm(s)" is the unit, not a suffix
+  // (fix2-eng2: "−5" and "1kΩ" in a netlist were refused).
+  const t = text.trim().replace(/[−–]/g, "-").replace(/\s*(?:Ω|ohms?)$/i, "").toLowerCase();
 
   // RKM notation puts the multiplier WHERE THE DECIMAL POINT GOES: 2k2 is
   // 2.2 kilo, 4r7 is 4.7 ohms, 1m5 is 1.5 milli. It is how values are printed
@@ -283,9 +285,32 @@ export function parseFieldValue(
   return { ok: true, value: v.value };
 }
 
+/**
+ * A frequency field that may carry its unit: "1 MHz", "1MHz", "100 kHz", "2.5GHz", "50 Hz" — or a bare value read by
+ * parseFieldValue ("1e6", "100k"). With "Hz" written the prefix's case decides: MHz is mega and mHz milli (SI). A
+ * mis-cased "mhz"/"MHZ" cannot tell the two apart and is refused by name.
+ */
+export function parseHertz(text: string, what: string): { ok: true; value: number } | { ok: false; error: string } {
+  const t = text.trim().replace(/[−–]/g, "-");
+  const m = /^(.*?)\s*([kKMGmuµμ]?)(hz)$/i.exec(t);
+  if (!m) return parseFieldValue(t, what);
+  const [, num, prefix, unit] = m;
+  if (!num) return { ok: false, error: `${what}: "${text.trim()}" has a unit but no number.` };
+  if (unit !== "Hz" && (prefix === "m" || prefix === "M"))
+    return { ok: false, error: `${what}: "${text.trim()}" is ambiguous: write MHz for megahertz or mHz for millihertz.` };
+  const scale: Record<string, number> = { "": 1, k: 1e3, K: 1e3, M: 1e6, G: 1e9, m: 1e-3, u: 1e-6, "µ": 1e-6, "μ": 1e-6 };
+  const pv = parseFieldValue(num, what);
+  if (!pv.ok) return pv;
+  const value = pv.value * scale[prefix];
+  if (!Number.isFinite(value)) return { ok: false, error: `${what}: "${text.trim()}" is not a finite frequency.` };
+  return { ok: true, value };
+}
+
 export interface ParsedNetlist {
   elements: Element[];
   errors: string[];
+  /** Readings worth saying (an "M" suffix read as milli, the SPICE convention). */
+  notes: string[];
 }
 
 /**
@@ -492,6 +517,7 @@ export function sourceValueAt(e: Element, t: number, h: number): number {
 export function parseNetlist(text: string): ParsedNetlist {
   const elements: Element[] = [];
   const errors: string[] = [];
+  const notes: string[] = [];
   const seen = new Set<string>();
   for (const line of netlistLines(text)) {
     const parts = line.split(/[\s,]+/).filter(Boolean);
@@ -580,6 +606,11 @@ export function parseNetlist(text: string): ParsedNetlist {
       );
       continue;
     }
+    // SPICE reads "M" as MILLI (mega is MEG), the opposite of everyday use: "R1 1 2 1M" is 1 mΩ. Read the SPICE way,
+    // and said so, because a megohm typed as 1M otherwise gives a confidently wrong circuit (fix2-eng2).
+    if (/\dM(?:Ω|ohms?)?$/i.test(valueText) && /M(?:Ω|ohms?)?$/.test(valueText) && !/meg/i.test(valueText)) {
+      notes.push(`${name} = ${valueText} is read as ${v.value} (M is MILLI in SPICE notation). For mega write MEG, e.g. 1MEG.`);
+    }
     elements.push({ kind: kindChar as ElementKind, name, a, b, value: v.value, exact: v.exact });
   }
   if (elements.length > MAX_ELEMENTS) errors.push(`At most ${MAX_ELEMENTS} elements.`);
@@ -607,7 +638,7 @@ export function parseNetlist(text: string): ParsedNetlist {
   }
   // Only a netlist with a controlled source or a coupling has anything to resolve.
   if (elements.some((e) => e.kind === "H" || e.kind === "F" || e.kind === "K")) errors.push(...resolveControls(elements));
-  return { elements, errors };
+  return { elements, errors, notes };
 }
 
 /** What an element is, in words, for a refusal that names it. */
@@ -1719,6 +1750,118 @@ export function sweepCorner3dB(
     } else {
       lo = mid;
       mLo = node.magnitude;
+    }
+  }
+  return interp();
+}
+
+/** One crossing of the −3 dB level, refined on the circuit: `rising` when the response climbs into the passband. */
+export interface PassbandCrossing {
+  f: number;
+  rising: boolean;
+}
+
+export interface PassbandCorners {
+  /** The passband level the −3 dB points are measured from. */
+  ref: number;
+  /** Which level that is: the low-frequency level (low-pass, notch, flat), the high-frequency level (high-pass), or the peak (band-pass / resonance). */
+  basis: "low-frequency level" | "high-frequency level" | "peak";
+  /** Every crossing of ref/√2 inside the sweep, in frequency order (at most 8). */
+  crossings: PassbandCrossing[];
+}
+
+/**
+ * The −3 dB points of a swept response measured from its PASSBAND, not from the first sweep point (fix2-eng2: a C–R
+ * high-pass swept from 1 Hz has its first point 44 dB down, so "3 dB below the first point" landed nowhere near its
+ * 159.15 Hz corner). The reference: the low-frequency level when the sweep starts inside the passband (within 3 dB of
+ * the peak: low-pass, notch, flat); else the high-frequency level when the sweep ends inside it (high-pass); else the
+ * peak itself (band-pass, a resonance), whose two −3 dB points bracket it. Each crossing of ref/√2 is bracketed by the
+ * sweep and refined by bisection in log f on the circuit itself (sweepCorner3dB's method). Null for an empty or
+ * all-zero sweep.
+ */
+export function sweepPassbandCorners(elements: Element[], outNode: string, points: SweepPoint[]): PassbandCorners | null {
+  if (!points.length) return null;
+  const mags = points.map((p) => p.magnitude);
+  const peak = Math.max(...mags);
+  if (!(peak > 0) || !Number.isFinite(peak)) return null;
+  const lim = peak / Math.SQRT2;
+  const first = mags[0];
+  const last = mags[mags.length - 1];
+  const [ref0, basis]: [number, PassbandCorners["basis"]] =
+    first >= lim ? [first, "low-frequency level"] : last >= lim ? [last, "high-frequency level"] : [peak, "peak"];
+  // A peak between samples: the sampled maximum is a little low (a 1.6 kHz resonance on a 160-point sweep read 0.998),
+  // which moved both −3 dB points outward; the true peak is found by golden-section search on the circuit.
+  const ref = basis === "peak" ? refinePeak(elements, outNode, points, mags.indexOf(peak)) : ref0;
+  const target = ref / Math.SQRT2;
+  const crossings: PassbandCrossing[] = [];
+  for (let i = 1; i < points.length && crossings.length < 8; i++) {
+    const wasAbove = mags[i - 1] > target;
+    if (wasAbove === mags[i] > target) continue;
+    crossings.push({ f: refineCrossing(elements, outNode, points[i - 1], points[i], target, ref), rising: !wasAbove });
+  }
+  return { ref, basis, crossings };
+}
+
+/** The largest magnitude between the sweep points either side of sample `k`: golden-section in log f (≤ 60 solves). */
+function refinePeak(elements: Element[], outNode: string, points: SweepPoint[], k: number): number {
+  let best = points[k].magnitude;
+  if (k <= 0 || k >= points.length - 1) return best;
+  const mag = (lf: number): number => {
+    const r = solveAc(elements, Math.exp(lf));
+    const node = r.ok ? r.nodes.find((x) => x.name === outNode) : undefined;
+    return node && Number.isFinite(node.magnitude) ? node.magnitude : -Infinity;
+  };
+  const g = (Math.sqrt(5) - 1) / 2;
+  let a = Math.log(points[k - 1].f);
+  let b = Math.log(points[k + 1].f);
+  let c = b - g * (b - a);
+  let d = a + g * (b - a);
+  let fc = mag(c);
+  let fd = mag(d);
+  for (let i = 0; i < 60 && b - a > 1e-10; i++) {
+    if (fc > fd) {
+      b = d;
+      d = c;
+      fd = fc;
+      c = b - g * (b - a);
+      fc = mag(c);
+    } else {
+      a = c;
+      c = d;
+      fc = fd;
+      d = a + g * (b - a);
+      fd = mag(d);
+    }
+  }
+  best = Math.max(best, fc, fd);
+  return best;
+}
+
+/** The frequency between two bracketing sweep points where the magnitude crosses `target`: bisection in log f. */
+function refineCrossing(elements: Element[], outNode: string, a: SweepPoint, b: SweepPoint, target: number, ref: number): number {
+  const aAbove = a.magnitude > target;
+  let lo = Math.log(a.f);
+  let hi = Math.log(b.f);
+  let mLo = a.magnitude;
+  let mHi = b.magnitude;
+  const interp = (): number => {
+    const dLo = mLo > 0 ? 20 * Math.log10(mLo / ref) : -Infinity;
+    const dHi = mHi > 0 ? 20 * Math.log10(mHi / ref) : -Infinity;
+    const want = -20 * Math.log10(Math.SQRT2);
+    const f = Number.isFinite(dHi) && Number.isFinite(dLo) && dHi !== dLo ? (want - dLo) / (dHi - dLo) : 0.5;
+    return Math.exp(lo + Math.min(1, Math.max(0, f)) * (hi - lo));
+  };
+  for (let i = 0; i < 60 && hi - lo > 1e-9; i++) {
+    const mid = (lo + hi) / 2;
+    const r = solveAc(elements, Math.exp(mid));
+    const node = r.ok ? r.nodes.find((x) => x.name === outNode) : undefined;
+    if (!node) return interp();
+    if (node.magnitude > target === aAbove) {
+      lo = mid;
+      mLo = node.magnitude;
+    } else {
+      hi = mid;
+      mHi = node.magnitude;
     }
   }
   return interp();

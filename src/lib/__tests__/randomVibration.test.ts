@@ -413,7 +413,9 @@ describe("the three calculators", () => {
     [{ fn: "" }, /Natural frequency: this field is required/],
     [{ f: "0" }, /excitation frequency must be a positive/],
     [{ amp: "0" }, /amplitude must be a positive/],
-    [{ dkind: "zeta", damp: "0" }, /ζ must be/],
+    // fix2-eng2: ζ = 0 is accepted away from resonance (the sine formula is general); refused only at r = 1.
+    [{ dkind: "zeta", damp: "-0.1" }, /ζ must be/],
+    [{ dkind: "zeta", damp: "0", f: "25" }, /Resonance with no damping/],
   ])("base refuses %p", (over, msg) => {
     const o = run("vib-base-excitation", over as Record<string, string>);
     expect(o.ok).toBe(false);

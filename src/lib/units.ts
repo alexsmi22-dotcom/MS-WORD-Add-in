@@ -9,6 +9,7 @@
 
 import { trueMinus } from "./numberList";
 import { parseCellNumber, isDecimalComma } from "./dataimport";
+import { typesetCarets } from "./subscriptText";
 
 const SUP: Record<string, string> = {
   "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
@@ -958,7 +959,7 @@ export function parseMeasured(text: string, targetUnit: string): Measured | { er
     const known = parseCompoundUnit(written) || lookup(written);
     return {
       error: known
-        ? `"${written}" is not compatible with ${targetUnit} — check which quantity this field wants.`
+        ? `"${written}" is not compatible with ${typesetCarets(targetUnit)} — check which quantity this field wants.`
         : `"${written}" is not a unit this recognises.`,
     };
   }

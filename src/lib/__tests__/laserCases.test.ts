@@ -284,7 +284,8 @@ describe("SHG (oracle rows)", () => {
 describe("named refusals", () => {
   test.each([
     ["laser-fabry-perot", { R1: "99" }, /above 1/],
-    ["laser-fabry-perot", { R1: "1" }, /strictly between 0 and 1/],
+    // fix2-eng2: R = 1 is named as a perfect mirror rather than the generic range refusal.
+    ["laser-fabry-perot", { R1: "1" }, /R₁ = 1 is a perfect mirror/],
     ["laser-fabry-perot", { R2: "0" }, /strictly between 0 and 1/],
     ["laser-fabry-perot", { R1: "-0.5" }, /strictly between 0 and 1/],
     ["laser-fabry-perot", { L: "0 m" }, /greater than zero/],

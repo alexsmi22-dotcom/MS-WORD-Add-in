@@ -1141,13 +1141,21 @@ export function aspect(input: {
     const c = parseRatio(input.content);
     if ("ok" in c) return c;
     const cx = ratToNumber(c);
-    const frameR = rat(frameW, frameH);
+    // An ANAMORPHIC raster framed in itself (720×576 at 16:9) displays at its DAR, not its storage shape: the
+    // content is fitted to what the viewer SEES (fix2-eng2: 1.33 content in 16:9 PAL was letterboxed against 5:4).
+    // Bars are then counted in storage pixels, on the full-line pixel aspect. A separate delivery frame is square-pixel.
+    const anamorphic = frameW === width && frameH === height && ratCmp(par, rat(1)) !== 0;
+    const frameR = anamorphic ? dar : rat(frameW, frameH);
+    const frameRx = ratToNumber(frameR);
+    const pixelNote = anamorphic
+      ? ` The picture's pixels are not square (pixel aspect ${ratioText(par)}): the fit is to its ${ratioText(dar)} display aspect, and the counts are storage pixels.`
+      : " Square delivery pixels are assumed.";
     const cmp = ratCmp(c, frameR);
     if (cmp === 0) {
       framing = { frameW, frameH, contentAspect: cx, kind: "none", activeExact: frameH, activeEven: frameH, barEach: 0, barEachExact: 0 };
       rects.push({ label: "Active picture", x: 0, y: 0, w: frameW, h: frameH });
     } else if (cmp > 0) {
-      const activeExact = frameW / cx;
+      const activeExact = (frameH * frameRx) / cx;
       const activeEven = 2 * Math.round(activeExact / 2);
       framing = {
         frameW,
@@ -1162,10 +1170,10 @@ export function aspect(input: {
       rects.push({ label: "Active picture", x: 0, y: (frameH - activeEven) / 2, w: frameW, h: activeEven });
       notes.push(
         `Letterbox: ${cx} content in ${frameW}×${frameH} is ${activeExact.toFixed(3)} lines tall exactly; at an even ` +
-          `${activeEven} lines the bars are ${framing.barEach} lines each. Square delivery pixels are assumed.`,
+          `${activeEven} lines the bars are ${framing.barEach} lines each.${pixelNote}`,
       );
     } else {
-      const activeExact = frameH * cx;
+      const activeExact = (frameW * cx) / frameRx;
       const activeEven = 2 * Math.round(activeExact / 2);
       framing = {
         frameW,
@@ -1180,7 +1188,7 @@ export function aspect(input: {
       rects.push({ label: "Active picture", x: (frameW - activeEven) / 2, y: 0, w: activeEven, h: frameH });
       notes.push(
         `Pillarbox: ${ratToNumber(c).toFixed(4)} content in ${frameW}×${frameH} is ${activeExact.toFixed(3)} pixels wide; ` +
-          `at ${activeEven} the side bars are ${framing.barEach} pixels each. Square delivery pixels are assumed.`,
+          `at ${activeEven} the side bars are ${framing.barEach} pixels each.${pixelNote}`,
       );
     }
   }

@@ -501,6 +501,35 @@ export function readSBlock(text: string, fmt: "ma" | "db" | "ri"): { s: Record<s
   return { s, notes: b.notes };
 }
 
+/**
+ * One port's power balance 1 − |Sᵢᵢ|² − |Sⱼᵢ|² in words, as a magnitude: a negative balance is power ADDED, and
+ * "−438.975 % is added" said the same thing twice (fix2-eng2).
+ */
+export function portBalance(dissipated: number): string {
+  return dissipated >= 0 ? `${n6(100 * dissipated)} % is dissipated` : `${n6(100 * Math.abs(dissipated))} % more comes out than goes in (gain)`;
+}
+
+/**
+ * Why the unilateral figure of merit U = |S₁₂||S₂₁||S₁₁||S₂₂|/((1 − |S₁₁|²)(1 − |S₂₂|²)) is zero: whichever factors
+ * vanish, named (fix2-eng2: S₁₁ = S₂₂ = 0 with |S₁₂| = 1 was reported as "S₁₂ = 0"). With S₁₂ = 0 the device is
+ * unilateral; with S₁₁ = 0 (or S₂₂ = 0) the conjugate match of that port is Z₀ itself, so the feedback term S₁₂S₂₁ΓₛΓₗ
+ * in the transducer gain vanishes at the matched terminations. Either way G_T = G_TU exactly there.
+ */
+export function unilateralZeroReason(S11: Cx, S21: Cx, S12: Cx, S22: Cx): string {
+  const zero: string[] = [];
+  if (cAbs(S12) === 0) zero.push("S₁₂");
+  if (cAbs(S21) === 0) zero.push("S₂₁");
+  if (cAbs(S11) === 0) zero.push("S₁₁");
+  if (cAbs(S22) === 0) zero.push("S₂₂");
+  const which = zero.length ? `${zero.join(" = ")} = 0` : "a factor is zero";
+  const why = zero.includes("S₁₂")
+    ? "the device is unilateral"
+    : zero.includes("S₂₁")
+      ? "nothing is transmitted forward"
+      : `${zero.filter((z) => z === "S₁₁" || z === "S₂₂").length > 1 ? "both ports are" : `port ${zero.includes("S₁₁") ? 1 : 2} is`} already matched to Z₀, so the conjugate-match termination is Z₀ and the feedback term S₁₂S₂₁ΓₛΓₗ is zero there`;
+  return `Unilateral figure of merit U = 0 because ${which}: ${why}. The transducer gain therefore equals the unilateral one exactly.`;
+}
+
 const twoPortCalc: ElecCalc = {
   id: "tl-two-port",
   name: "Two-port S-parameters (return/insertion loss, VSWR, stability, GTU)",
@@ -556,7 +585,7 @@ const twoPortCalc: ElecCalc = {
     lines.push(
       t.lossless
         ? `Lossless: SᴴS = I within ${LOSSLESS_TOL} (largest deviation ${n6(t.losslessDev)}).`
-        : `Not lossless (SᴴS departs from I by ${n6(t.losslessDev)}, tolerance ${LOSSLESS_TOL}): of the power into port 1, ${n6(100 * t.dissipated1)} % is ${t.dissipated1 >= 0 ? "dissipated" : "added (gain)"}; into port 2, ${n6(100 * t.dissipated2)} % is ${t.dissipated2 >= 0 ? "dissipated" : "added (gain)"} (1 − |S₁₁|² − |S₂₁|², 1 − |S₁₂|² − |S₂₂|²).`,
+        : `Not lossless (SᴴS departs from I by ${n6(t.losslessDev)}, tolerance ${LOSSLESS_TOL}): for power into port 1, ${portBalance(t.dissipated1)}; into port 2, ${portBalance(t.dissipated2)} (1 − |S₁₁|² − |S₂₁|², 1 − |S₁₂|² − |S₂₂|²).`,
     );
     const kText = t.K === null ? "K unbounded (S₁₂S₂₁ = 0)" : `K = ${n6(t.K)}`;
     lines.push(
@@ -576,8 +605,8 @@ const twoPortCalc: ElecCalc = {
       if (t.unilateral)
         lines.push(
           t.unilateral.U === 0
-            ? "Unilateral figure of merit U = 0: S₁₂ = 0, so the transducer gain equals the unilateral one exactly."
-            : `Unilateral figure of merit U = ${n6(t.unilateral.U)}: at those terminations the true transducer gain is between ${db4(t.unilateral.loDb)} dB and +${db4(t.unilateral.hiDb)} dB of the unilateral value.`,
+            ? unilateralZeroReason(S11, S21, S12, S22)
+            :`Unilateral figure of merit U = ${n6(t.unilateral.U)}: at those terminations the true transducer gain is between ${db4(t.unilateral.loDb)} dB and +${db4(t.unilateral.hiDb)} dB of the unilateral value.`,
         );
       else lines.push("Unilateral figure of merit U ≥ 1: the unilateral approximation is not usable for this device.");
     } else lines.push("The maximum unilateral transducer gain is not defined: |S₁₁| ≥ 1 or |S₂₂| ≥ 1 (a port with negative resistance).");

@@ -15251,7 +15251,7 @@ const ENG_CALCS: EngCalc[] = [
         height: 250,
         xlabel: "Time (s)",
         ylabel: "Temperature (°C)",
-        title: `Cooling curve, τ = ${res.tau.toPrecision(3)} s`,
+        title: `Cooling curve, τ = ${trueMinus(typesetENotation(engNum(res.tau, 3)))} s`,
       });
       return withOutputs([
         { key: "Tend", label: "Temperature at that time", value: res.temperature, unit: "°C" },
@@ -17901,6 +17901,17 @@ const ENG_CALCS: EngCalc[] = [
       // threshold of nothing) was the trap. The engine takes Pa·√m.
       const deltaKthMPa = thRaw ? u.opt("dkth", "MPa*m^0.5", "Threshold ΔK", 0) : undefined;
       const deltaKth = deltaKthMPa === undefined ? undefined : deltaKthMPa * 1e6;
+      // A threshold at or above the toughness cannot be (ΔKth is always well below KIC). It is also exactly what
+      // "20e6" typed in the KIC field's Pa·√m habit becomes, and "no growth, unlimited life" would be the answer.
+      if (deltaKth !== undefined && Number.isFinite(kic) && deltaKth >= kic) {
+        return {
+          text:
+            `Threshold ΔK: ${trueMinus(typesetENotation(engNum(deltaKthMPa as number, 4)))} MPa·√m is at or above the fracture toughness ` +
+            `(${trueMinus(typesetENotation(engNum(kic / 1e6, 4)))} MPa·√m), which no material has. A bare threshold is read in MPa·√m, ` +
+            "the unit C is quoted for: write 5 for 5 MPa·√m, or write the unit with the number (5000000 Pa·√m).",
+          ok: false,
+        };
+      }
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const Y = Number(r("Y"));
       const C = Number(r("C"));
@@ -19709,7 +19720,8 @@ const ENG_CALCS: EngCalc[] = [
           { points: pts(2), type: "line", color: "#059669", label: "head (N²)" },
           { points: pts(3), type: "line", color: "#b91c1c", label: "power (N³)" },
           {
-            points: [{ x: res.speedRatio * 100, y: Math.pow(res.speedRatio, 3) * 100 }],
+            // The power this case actually draws (speed AND diameter): N³ alone put a trimmed impeller at 100 %.
+            points: [{ x: res.speedRatio * 100, y: res.powerFraction * 100 }],
             type: "scatter",
             color: "#111111",
             label: "this case",

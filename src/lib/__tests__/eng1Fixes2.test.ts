@@ -172,6 +172,13 @@ describe("6. Unit traps", () => {
     const src = toolSource("fracture-paris");
     expect(src).toMatch(/u\.opt\("dkth", "MPa\*m\^0\.5"/);
     expect(src).toMatch(/Threshold ΔKth = .*MPa·√m \(a bare threshold is read in MPa·√m/);
+    // "20e6" in the KIC field's Pa·√m habit is 2×10⁷ MPa·√m: refused (ΔKth ≥ KIC is impossible), never "no growth".
+    expect(src).toMatch(/if \(deltaKth !== undefined && Number\.isFinite\(kic\) && deltaKth >= kic\)/);
+    expect(src).toMatch(/is at or above the fracture toughness/);
+  });
+  test("affinity marker plots the power actually drawn; cooling title typeset", () => {
+    expect(toolSource("affinity")).toMatch(/points: \[\{ x: res\.speedRatio \* 100, y: res\.powerFraction \* 100 \}\]/);
+    expect(PANE).toMatch(/title: `Cooling curve, τ = \$\{trueMinus\(typesetENotation\(engNum\(res\.tau, 3\)\)\)\} s`/);
   });
 });
 

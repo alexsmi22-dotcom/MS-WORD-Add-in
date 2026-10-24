@@ -499,10 +499,14 @@ export function sectionShapeSvg(inp: SectionShapeInput): string {
   p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(yNA + 3).toFixed(1)}" fill="${POINT}" font-size="8">neutral axis</text>`);
   // "c (top)" / "c (bot)": the house style for a subscript with no Unicode form (an underscore form reached the figure before),
   // with the value on its own line so a four-digit dimension still fits the 92 px right margin.
-  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(Y(depth) + 8).toFixed(1)}" font-size="7.5">c (top) =</text>`);
-  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(Y(depth) + 17).toFixed(1)}" font-size="7.5">${esc(n1(depth - inp.yBar))} ${esc(inp.unit)}</text>`);
-  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(Y(0) - 13).toFixed(1)}" font-size="7.5">c (bot) =</text>`);
-  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(Y(0) - 4).toFixed(1)}" font-size="7.5">${esc(n1(inp.yBar))} ${esc(inp.unit)}</text>`);
+  // A neutral axis within a label's height of a fibre would run into its label ("neutral axis" sits at yNA + 3), so
+  // that label moves outside the section, above the top fibre or below the bottom one.
+  const topY = yNA - Y(depth) < 22 ? Y(depth) - 12 : Y(depth) + 8;
+  const botY = Y(0) - yNA < 22 ? Y(0) + 9 : Y(0) - 13;
+  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${topY.toFixed(1)}" font-size="7.5">c (top) =</text>`);
+  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(topY + 9).toFixed(1)}" font-size="7.5">${esc(n1(depth - inp.yBar))} ${esc(inp.unit)}</text>`);
+  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${botY.toFixed(1)}" font-size="7.5">c (bot) =</text>`);
+  p.push(`<text x="${(ML + pw + 12).toFixed(1)}" y="${(botY + 9).toFixed(1)}" font-size="7.5">${esc(n1(inp.yBar))} ${esc(inp.unit)}</text>`);
   p.push(`<text x="${W / 2}" y="${H - 6}" text-anchor="middle" font-size="8">to scale, dimensions in ${esc(inp.unit)}</text>`);
   p.push("</g></svg>");
   return p.join("");

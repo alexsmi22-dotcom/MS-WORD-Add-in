@@ -6,6 +6,43 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.193.0] — 2026-10-24 — A comprehensive bug test of all of JurisLab
+
+Six independent testers went through every mode against outside references (RDKit, OPSIN, Biopython, REBASE, scipy,
+sympy, CoolProp, citeproc-js with the official CSL styles, published Bluebook tables) and real Word. What they found:
+
+### Fixed: wrong answers
+- **ST.26 sequence listings:** an RNA sequence lost every "t" (ST.26 writes uracil as t); a CDS with an internal stop
+  got a truncated /translation with no warning; a synthetic construct defaulted to "genomic DNA" (now "other DNA/RNA").
+- **Table of Authorities:** case names were cut short after abbreviations ("Co. v. Mee Indus." for Dow Chem. Co.);
+  missing Table T6 words gave duplicate rows; Fed. R. Evid. was missed and bare "Rule 403" filed as Fed. R. Civ. P.;
+  Federal Register cites duplicated; Restatements, treatises, articles and court rules left out — now listed under
+  Other Authorities. Short forms follow Rule 10.9 ("Gen. Elec.", not "Gen"); 2d/3d Cir.; T6/T10 checked against the
+  21st edition (Env't, Lab'y, Telecomms., Haw.).
+- **Chemistry:** "*" attachment points were counted as carbon; invalid SMILES (pentavalent carbon, unclosed
+  branches) were drawn; esters and acids were predicted at 280 nm in UV; an alkyl C–H band appeared for aldehydes;
+  charged species now show m/z with the electron mass, agreeing across modes; Hg₂²⁺ and O₂²⁻ read correctly.
+- **Assays:** fits on molar concentrations (EC50 or Kd below 10⁻⁷) returned wrong parameters reported as converged.
+- **Plasmids:** features crossing the origin covered the whole map; minus-strand joins were drawn on the plus strand;
+  two enzymes had wrong cut positions (PleI, BciVI); EcoP15I (Type III) removed. Alignment now scores as EMBOSS does.
+- **Engineering:** the fatigue temperature factor (Shigley Eq. 6-27); pump NPSH with hot water used the 20 °C vapour
+  pressure; multi-axis moves were not straight; repeated oral dosing with ka = k; finite life above ultimate strength;
+  step metrics labelled exact for systems with a zero; the AC 3 dB corner.
+- **Maths:** limits refused by cancellation now solved; derivatives of log and 2ˣ exact; ln(e) folded.
+
+### Fixed: freezes
+- A long SMILES froze the pane (27 s for 800 carbons); a long sentence with many commas froze citation parsing.
+
+### Fixed: inserts and display
+- Editable Word tables were cut to 40 rows (antibody numbering, XRPD peak lists); reaction-scheme captions, Solve and
+  reaction-balance figures now go in as one piece; Stats, Finance and Assay figures land below their text.
+- Equations: e^sin(x), ∂u/∂t, 2(½), 90 deg, dot products, binomials, LaTeX export and import.
+- True minus signs, ×10ⁿ instead of e-notation and superscript units across Engineering, Stats, Analyze, Finance and
+  Assay results and figure labels; rounding noise (3.5×10⁻¹⁵) printed as 0.
+
+### Changed
+- The landing page: new highlights for the quantum section and the engineering release; claims corrected.
+
 ## [2.192.1] — 2026-10-23 — Inserted results read cleanly on Mac and PC
 
 ### Fixed (from a 62-page demo document inserted in Word)

@@ -10,6 +10,16 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0eg. New in v2.193.0 — Bug-test fixes
+
+- [ ] **Antibody ▸ Example ▸ Numbering ▸ Insert:** each chain's table has all its rows (121 for the heavy chain).
+- [ ] **Citations ▸ Table of Authorities** on a brief citing "Dow Chem. Co. v. Mee Indus., 341 F.3d 1370 (Fed. Cir.
+  2003)", "Fed. R. Evid. 702" and a Restatement → full case name under D; the rule under Rules; the Restatement under
+  Other Authorities.
+- [ ] **Structure:** type a 1000-carbon SMILES (paste "C" × 1000) → refused at once, no freeze.
+- [ ] **Reaction scheme** with "Scheme caption above" → caption (Caption style), scheme and footnote all land.
+- [ ] **Stats ▸ two-sample t-test ▸ Insert** → the figure lands below the text; t = −4.45 with a true minus.
+
 ## 0ef. New in v2.192.1 — Clean inserts on Mac and PC
 
 - [ ] **On the Mac:** Quantum computing ▸ Bipartite entanglement → Insert: no "?" anywhere (sₖ, |0⟩, ⊗ all drawn);

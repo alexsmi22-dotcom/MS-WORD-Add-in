@@ -182,7 +182,7 @@ Because a 2D structure needs connectivity (not just an atom count), the input is
 resolved in this order:
 
 1. **Common name** — e.g. `aspirin`, `caffeine`, `water`, `ethanol`, `glucose`,
-   `ibuprofen`, `violacein`, `morphine`, `paclitaxel`. **359 compounds** are built
+   `ibuprofen`, `violacein`, `morphine`, `paclitaxel`. **359 compound names** (306 distinct structures plus common synonyms) are built
    in (drugs, amino acids, acids, salts, solvents, aromatics, sugars, nucleobases,
    steroids, alkaloids, vitamins, and large natural products). For a systematic
    IUPAC name the dictionary doesn't know, the opt-in **online lookup** (OPSIN)

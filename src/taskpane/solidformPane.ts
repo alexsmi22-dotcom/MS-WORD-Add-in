@@ -4,6 +4,7 @@
 
 import { analyzeSolid, solidExample, SolidKind, SolidResult } from "../lib/solidformAnalyze";
 import type { WavelengthId } from "../lib/solidform";
+import { tableRowsNote } from "../lib/tablefigure";
 
 export interface SolidformPaneDeps {
   setStatus: (text: string, kind?: "success" | "error" | "") => void;
@@ -11,7 +12,8 @@ export interface SolidformPaneDeps {
   insertFigure: (o: { svg: string; render: (w: number) => string; alt: string; chartKind: string }) => Promise<string>;
   /** Resolves false when the insert did not happen (the host has already said why). */
   insertText: (text: string) => Promise<boolean>;
-  insertTable: (rows: string[][], label: string) => Promise<void>;
+  /** Resolves to the row count Word reports for the table (null/void when it cannot say). */
+  insertTable: (rows: string[][], label: string) => Promise<number | null | void>;
 }
 
 export interface SolidformPaneApi {
@@ -213,8 +215,8 @@ export function initSolidformPane(deps: SolidformPaneDeps): SolidformPaneApi {
   };
   const insertTableNow = async (): Promise<string> => {
     const c = current!;
-    await deps.insertTable(c.rows, c.tableLabel);
-    return `${c.tableLabel} inserted (${c.rows.length - 1} row${c.rows.length === 2 ? "" : "s"}).`;
+    const got = await deps.insertTable(c.rows, c.tableLabel);
+    return `${c.tableLabel} inserted (${tableRowsNote(c.rows, got)}).`;
   };
   const insertTextNow = async (): Promise<string | null> => ((await deps.insertText(current!.text)) ? "Sentence inserted." : null);
   // Each listener names its insert handler on its own line (the host-trace gate finds the insert buttons that way).

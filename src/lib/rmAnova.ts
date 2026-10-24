@@ -193,7 +193,7 @@ export interface RmAnovaResult {
 export type RmAnovaOutcome = RmAnovaResult | { ok: false; reason: string };
 
 const LEAD_RULE =
-  "Leads with Greenhouse–Geisser when ε_GG < 0.75, otherwise Huynh–Feldt (Girden 1992); with a singular contrast covariance, the lower bound ε = 1/(k − 1). Mauchly's test does not choose the correction: it has low power at small n.";
+  "Leads with Greenhouse–Geisser when ε(GG) < 0.75, otherwise Huynh–Feldt (Girden 1992); with a singular contrast covariance, the lower bound ε = 1/(k − 1). Mauchly's test does not choose the correction: it has low power at small n.";
 const MISSING_ADVICE = "a linear mixed model handles missing visits; this calculator does not";
 
 function fail(reason: string): { ok: false; reason: string } {
@@ -647,9 +647,9 @@ export function rmAnova(rows: number[][], groups?: string[], opts?: RmAnovaOptio
         ? `Leading p: lower bound (ε = 1/(k − 1) = ${lowerBound.toFixed(3)}): F(${fmt2(within.lowerBound.df1)}, ${fmt2(within.lowerBound.df2)}), because the contrast covariance is singular.`
         : lead === "gg"
           ? gg < 0.75
-            ? `Leading p: Greenhouse–Geisser (ε_GG = ${gg.toFixed(3)} < 0.75): F(${fmt2(within.gg.df1)}, ${fmt2(within.gg.df2)}).`
-            : `Leading p: Greenhouse–Geisser (ε_GG = ${gg.toFixed(3)}), because Huynh–Feldt ε is undefined at this sample size.`
-          : `Leading p: Huynh–Feldt (ε_GG = ${gg.toFixed(3)} ≥ 0.75).`,
+            ? `Leading p: Greenhouse–Geisser (ε(GG) = ${gg.toFixed(3)} < 0.75): F(${fmt2(within.gg.df1)}, ${fmt2(within.gg.df2)}).`
+            : `Leading p: Greenhouse–Geisser (ε(GG) = ${gg.toFixed(3)}), because Huynh–Feldt ε is undefined at this sample size.`
+          : `Leading p: Huynh–Feldt (ε(GG) = ${gg.toFixed(3)} ≥ 0.75).`,
     );
 
   return {
@@ -686,7 +686,7 @@ export function rmAnova(rows: number[][], groups?: string[], opts?: RmAnovaOptio
     leadRule: LEAD_RULE,
     ssConvention: mixed
       ? "Sequential (Type I) sums of squares with weighted means, as R aov/anova.mlm; equals SPSS Type III when group sizes are equal."
-      : "Classical subjects × conditions partition: SS_total = SS_subjects + SS_conditions + SS_error.",
+      : "Classical subjects × conditions partition: SS(total) = SS(subjects) + SS(conditions) + SS(error).",
     posthoc,
     posthocMethod,
     profile,

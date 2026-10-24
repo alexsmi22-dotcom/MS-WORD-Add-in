@@ -54,3 +54,13 @@ export function hasBrokenNumber(text: string): boolean {
 export function insertableResultText(text: string): boolean {
   return !!text && !text.includes("—") && !hasBrokenNumber(text);
 }
+
+/**
+ * Every matrix block's entries are finite (v2.193.0). A matrix block is inserted as a Word table from its NUMBERS, not
+ * from the result text, so the text gate above never sees a non-finite entry when the text does not print the matrix:
+ * the table would go in with "—" cells. Blocks of other kinds pass.
+ */
+export function matrixBlocksFinite(blocks: ReadonlyArray<{ kind: string; m?: ReadonlyArray<ReadonlyArray<number>> }> | null | undefined): boolean {
+  if (!blocks) return true;
+  return blocks.every((b) => b.kind !== "matrix" || !b.m || b.m.every((r) => r.every((v) => Number.isFinite(v))));
+}

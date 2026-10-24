@@ -63,10 +63,13 @@ describe("defect 0.31 — a displayed root re-parses and uses one minus characte
       const viaLinalg = formatComplex({ re, im }, 12);
       const root = solveEquation(`x^2 - ${2 * re}*x + ${re * re + im * im} = 0`)!.roots[0];
       expect(typeof root.display).toBe("string");
-      expect(viaLinalg).toMatch(/^-?(\d|i)/);
+      // linalg's formatter writes a TRUE minus since v2.193.0 (Analyze output, display contract); Solve's root display
+      // keeps its ASCII "-" because it re-parses (below). The shape — sign, digits or i — is what is shared.
+      expect(viaLinalg).toMatch(/^−?(\d|i)/);
     }
     expect(formatComplex({ re: 0, im: 1 }, 12)).toBe("i");
-    expect(formatComplex({ re: 0, im: -1 }, 12)).toBe("-i");
+    expect(formatComplex({ re: 0, im: -1 }, 12)).toBe("−i");
+    expect(formatComplex({ re: 1, im: -2 }, 12)).toBe("1 − 2i");
     expect(solveEquation("x^2 + 1 = 0")!.roots.map((x) => x.display).sort()).toEqual(["-i", "i"]);
   });
 

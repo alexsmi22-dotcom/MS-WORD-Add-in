@@ -121,11 +121,12 @@ describe("one broken-number rule: the lib helper and both QC drivers agree", () 
 
   test("the pane imports the gate instead of keeping its own copy", () => {
     const pane = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
-    expect(pane).toMatch(/import \{ insertableResultText \} from "\.\.\/lib\/insertGate";/);
+    expect(pane).toMatch(/import \{ insertableResultText, matrixBlocksFinite \} from "\.\.\/lib\/insertGate";/);
     expect(pane).not.toMatch(/function insertableResultText/);
     // Every registry's insert gate is the shared one (the five call sites plus the Engineering Explore panel's since
-    // v2.191.0, Finance's "no solution" kept).
-    expect(pane.match(/insertableResultText\(/g)?.length).toBe(6);
+    // v2.191.0, Finance's "no solution" kept; since v2.193.0 Finance also gates its composed text, notes and
+    // assumptions included).
+    expect(pane.match(/insertableResultText\(/g)?.length).toBe(7);
     expect(pane).toMatch(/insertableResultText\(text\) && !text\.includes\("no solution"\)/);
   });
 });

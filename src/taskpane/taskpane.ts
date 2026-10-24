@@ -205,7 +205,7 @@ import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
 import { tidyResultSubscripts, tidySubscripts } from "../lib/subscriptText";
-import { buildResultOoxml, type ResultPackageItem } from "../lib/resultOoxml";
+import { buildResultOoxml, packageBodyXml, type ResultPackageItem } from "../lib/resultOoxml";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -528,7 +528,7 @@ import { getPrefs, setPref, HomeFilter } from "../lib/prefs";
 import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
 import { buildHeatmapSvg } from "../lib/heatmap";
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
-import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
+import { buildTableFigureSvg, prepareTableFigure, tableRowsNote } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
 import { align, alignSizeRefusal, formatAlignment, AlignMode, SeqKind } from "../lib/align";
 import {
@@ -583,6 +583,7 @@ import {
   qrDecompose,
   svd,
   formatMatrix,
+  formatMatrixCells,
   formatNum,
   formatComplex,
   rows as matRows,
@@ -819,7 +820,9 @@ import {
   escapeSpeed,
 } from "../lib/orbital";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
-import { insertableResultText } from "../lib/insertGate";
+import { insertableResultText, matrixBlocksFinite } from "../lib/insertGate";
+import { pictureNotKeptText } from "../lib/insertKept";
+import { proseDashes } from "../lib/proseDashes";
 import { debouncedPreview, flushBeforeInsert, previewListener } from "../lib/previewDebounce";
 import {
   planParagraphNumbering,
@@ -4495,9 +4498,10 @@ async function insertTableFigure(): Promise<void> {
     });
     // Surface any truncation warning on insert so it isn't missed — a filed
     // figure that silently omits rows/steps/branches would be a drafting error.
-    const base = alsoText ? `Figure + editable table inserted ${how}.` : `Figure inserted ${how}.`;
+    // The editable table carries EVERY row (its own grid, v2.193.0); a row cap the warnings name is the figure's.
+    const base = alsoText && currentTableRows ? `Figure + editable table (${tableRowsNote(currentTableRows, null)}) inserted ${how}.` : `Figure inserted ${how}.`;
     if (rendered.warnings.length) {
-      setStatus(`${base} Note: ${rendered.warnings.join(" ")}`, "");
+      setStatus(`${base} Note${alsoText ? " (the figure)" : ""}: ${rendered.warnings.join(" ")}`, "");
     } else {
       setStatus(base, "success");
     }
@@ -4515,8 +4519,9 @@ async function insertEditableWordTable(): Promise<void> {
   setStatus("Inserting editable table…");
   try {
     const figLabel = pptFigLabelInput.value.trim();
-    await docHost.insertEditableTable({ rows: currentTableRows as string[][], label: figLabel });
-    setStatus("Editable Word table inserted — the text can be edited normally.", "success");
+    const rows = currentTableRows as string[][];
+    const got = await docHost.insertEditableTable({ rows, label: figLabel });
+    setStatus(`Editable Word table inserted (${tableRowsNote(rows, got)}); the text can be edited normally.`, "success");
   } catch (error) {
     setStatus(`Could not insert the table: ${(error as Error).message}`, "error");
   } finally {
@@ -6999,7 +7004,7 @@ async function runCompositeInsert(btn: HTMLButtonElement, fn: () => Promise<void
  * caller stops instead of falling through and inserting the FIGURE a second
  * time beside one copy of the text.
  */
-async function insertPlainText(text: string, label: string): Promise<boolean> {
+async function insertPlainText(text: string, label: string, caretAfterText = false): Promise<boolean> {
   if (!text.trim()) {
     setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
     return false;
@@ -7017,7 +7022,12 @@ async function insertPlainText(text: string, label: string): Promise<boolean> {
     // SEQ ID refs, and it used to overwrite whatever the user had selected —
     // every other insert in the product appends. Losing a selected word to a
     // button labelled "Insert" is not a trade anyone agreed to.
-    await docHost.insertAtSelection({ kind: "text", content: text, at: "after", select: "selection" });
+    //
+    // caretAfterText (v2.193.0): a FIGURE follows this text in a second batch (Statistics, Finance, Bio/Assay), and
+    // that batch inserts after the selection. With the caret left on the original selection — which is BEFORE the
+    // text just inserted after it — the figure landed ABOVE its own result. Those callers put the caret at the end
+    // of the inserted text instead.
+    await docHost.insertAtSelection({ kind: "text", content: text, at: "after", select: caretAfterText ? "inserted" : "selection" });
     setStatus(`${label} inserted. Ctrl/⌘+Z undoes it.`, "success");
     return true;
   } catch (error) {
@@ -7114,35 +7124,67 @@ async function insertDerivation(blocks: DerivationBlock[], plain: string, label:
  * entering Word.run, because that conversion is async and Word.run batches.
  */
 async function insertSolveResult(): Promise<void> {
-  // ONLY IF THE DERIVATION LANDED. This function was the one text-plus-figure
-  // handler left out of that contract: `insertDerivation` returned void, so a
-  // second rapid click hit its "still inserting" branch, returned nothing, and
-  // this went on to insert the FIGURE anyway — leaving an orphan picture, no
-  // second derivation, and a green "Solution and figure inserted" written over
-  // the error. The same hole let a figure land alone when the host rejected the
-  // OOXML and the plain-text fallback failed too.
-  if (!(await insertDerivation(currentSolveBlocks, currentSolveText, "solution"))) return;
-  if (!currentSolveSvg) return;
-  try {
-    const svg = currentSolveSvg;
-    const { w, h } = readSvgDims(svg, 460, 300);
-    const png = await renderFigurePng(svg, w, h);
-    // The caption the producing branch set, never a hardcoded one: Solve now
-    // draws four different figures through this single path.
-    await docHost.insertPictureAtSelection({
-      base64: png,
-      widthPt: figurePoints(w),
-      heightPt: figurePoints(h),
-      alt: currentSolveAlt || "Figure for the solution above.",
-      selectAfter: false,
-    });
-    // Two separate Word.run batches (derivation, then figure), and the
-    // derivation itself commits twice — so this needs several undos.
-    setStatus("Solution and figure inserted. Ctrl/⌘+Z undoes it — press it more than once.", "success");
-  } catch (error) {
-    // The text already landed; say the figure did not rather than failing silently.
-    setStatus(`Solution inserted, but the figure could not be: ${(error as Error).message}`, "error");
+  // ONLY IF THE DERIVATION LANDED (a figure is never appended to nothing), and
+  // since v2.193.0 IN ONE PACKAGE: the derivation and its figure were two
+  // batches, the figure inserted after a selection the derivation batch had left
+  // BEFORE the derivation, so it could land above the text it illustrates.
+  if (!currentSolveSvg) {
+    await insertDerivation(currentSolveBlocks, currentSolveText, "solution");
+    return;
   }
+  // The caption the producing branch set, never a hardcoded one: Solve
+  // draws four different figures through this single path.
+  await insertDerivationWithFigure(currentSolveBlocks, currentSolveText, "solution", {
+    svg: currentSolveSvg,
+    fallbackW: 460,
+    fallbackH: 300,
+    alt: currentSolveAlt || "Figure for the solution above.",
+    done: "Solution and figure inserted.",
+  });
+}
+
+/**
+ * A derivation (prose and equations) and the figure under it as ONE flat-OPC package (resultOoxml.ts), so the
+ * figure cannot land anywhere but after the text, and Word's own picture count is checked. When Word refuses the
+ * package, the text goes in alone as plain text (insertDerivation's fallback) and the status says the figure did
+ * not. Resolves true when the text landed.
+ */
+async function insertDerivationWithFigure(
+  blocks: DerivationBlock[],
+  plain: string,
+  label: string,
+  fig: { svg: string; fallbackW: number; fallbackH: number; alt: string; done: string },
+): Promise<boolean> {
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return false;
+  }
+  insertTextBusy = true;
+  setStatus(`Inserting ${label.toLowerCase()}…`);
+  let why = "";
+  try {
+    const { w, h } = readSvgDims(fig.svg, fig.fallbackW, fig.fallbackH);
+    const png = await renderFigurePng(fig.svg, w, h);
+    const built = buildResultOoxml([
+      { kind: "xml", content: packageBodyXml(buildDerivationOoxml(blocks)) },
+      { kind: "picture", caption: "", base64: png, widthPt: figurePoints(w), heightPt: figurePoints(h), alt: fig.alt },
+    ]);
+    const kept = await docHost.insertResultLayout([{ kind: "ooxml", ooxml: built.ooxml }]);
+    if (kept !== null && kept < built.pictures) {
+      setStatus(`${label[0].toUpperCase()}${label.slice(1)} inserted, but ${pictureNotKeptText(png.length)}`, "error");
+      return true;
+    }
+    setStatus(`${fig.done} Ctrl/⌘+Z undoes it.`, "success");
+    return true;
+  } catch (error) {
+    why = (error as Error).message;
+  } finally {
+    insertTextBusy = false;
+  }
+  // The package was refused (or the figure would not rasterise): the text alone, and say the figure is missing.
+  const ok = await insertPlainText(plain, label);
+  if (ok) setStatus(`${label[0].toUpperCase()}${label.slice(1)} inserted as text, but the figure could not be: ${why}`, "error");
+  return ok;
 }
 
 /** Runs the six-frame ORF finder and renders the results table. */
@@ -7413,21 +7455,18 @@ async function insertReactionBalance(): Promise<void> {
   const plain = [rep.headline, ...rep.lines, ...rep.caveats].join("\n");
   reactionInsertBtn.disabled = true;
   try {
-    if (!(await insertDerivation(blocks, plain, "Balanced equation"))) return;
-    if (!rep.svg) return;
-    const svg = rep.svg;
-    const { w, h } = readSvgDims(svg, 380, 260);
-    const png = await renderFigurePng(svg, w, h);
-    await docHost.insertPictureAtSelection({
-      base64: png,
-      widthPt: figurePoints(w),
-      heightPt: figurePoints(h),
+    if (!rep.svg) {
+      await insertDerivation(blocks, plain, "Balanced equation");
+      return;
+    }
+    // One package, text then chart (v2.193.0): two batches could put the chart above the equation.
+    await insertDerivationWithFigure(blocks, plain, "Balanced equation", {
+      svg: rep.svg,
+      fallbackW: 380,
+      fallbackH: 260,
       alt: rep.alt,
-      selectAfter: false,
+      done: "Balanced equation and conservation chart inserted.",
     });
-    setStatus("Balanced equation and conservation chart inserted.", "success");
-  } catch (error) {
-    setStatus(`Equation inserted, but the figure could not be: ${(error as Error).message}`, "error");
   } finally {
     reactionInsertBtn.disabled = false;
   }
@@ -7465,7 +7504,11 @@ async function insertReactionNow(): Promise<void> {
   reactionInsertBtn.disabled = true;
   setStatus("Inserting reaction scheme…");
   try {
-    const items: ResultLayoutItem[] = [];
+    // ONE PACKAGE: caption, picture and footnote (v2.193.0). They were three inserts chained through
+    // insertResultLayout, each anchored on the range the one before returned; Word gives no usable insertion point
+    // after an inserted OOXML package, so the picture and the footnote could silently not land. The caption keeps its
+    // SEQ Scheme field and its Caption style (the package defines the style; measured in Word via COM).
+    const items: ResultPackageItem[] = [];
     let n = 0;
     if (reactionCaptionCheck.checked) {
       // The number Word shows until it updates the field: the Scheme captions already here, plus one.
@@ -7477,14 +7520,14 @@ async function insertReactionNow(): Promise<void> {
       }
       n = countSchemeCaptions(paras) + 1;
       const labels = sc.compounds.map((c) => c.label).filter((l): l is string => !!l);
-      items.push({ kind: "ooxml", ooxml: schemeCaptionOoxml(n, schemeTitleHtml(reactionTitleInput.value, labels)) });
+      items.push({ kind: "xml", content: packageBodyXml(schemeCaptionOoxml(n, schemeTitleHtml(reactionTitleInput.value, labels))) });
     }
     const base64 = await renderFigurePng(sc.svg, w, h);
     const numbered = sc.compounds.filter((c) => c.label).map((c) => `${c.label} = ${c.smiles}`);
     const alt = `Reaction scheme (JurisLab): ${reactionInput.value.trim().replace(/\s*\n\s*/g, "\n")}` + (numbered.length ? `. Compounds: ${numbered.join("; ")}` : "");
     items.push({ kind: "picture", caption: "", base64, widthPt: figurePoints(w), heightPt: figurePoints(h), alt });
-    if (sc.footnote) items.push({ kind: "ooxml", ooxml: inlineParagraphsOoxml([sc.footnote.html]) });
-    const kept = await docHost.insertResultLayout(items);
+    if (sc.footnote) items.push({ kind: "xml", content: packageBodyXml(inlineParagraphsOoxml([sc.footnote.html])) });
+    const kept = await docHost.insertResultLayout([{ kind: "ooxml", ooxml: buildResultOoxml(items).ooxml }]);
     if (kept === 0) return setStatus("Word did not keep the scheme picture — try again with the cursor in a body paragraph.", "error");
     const parts = [n ? `Scheme ${n}` : "Reaction scheme", sc.footnote ? "with its Reagents and conditions footnote" : ""].filter(Boolean).join(" ");
     // The numbers go into the document's register only once the scheme is in the document.
@@ -9425,8 +9468,12 @@ function updateFinancePreview(): void {
   // Carry the assumptions into the DOCUMENT too. A number that leaves the pane
   // without them is the same defect one step further downstream — and the
   // document is where it gets relied on. pkaAsText already does this.
-  currentFinText = insertable ? [text, ...listNotes.map((n) => `Note: ${n}`), ...(calc.assumes ? [`Assumes: ${calc.assumes}`] : [])].join("\n") : "";
-  finInsertBtn.disabled = !insertable;
+  // v2.193.0: the notes and assumptions were appended AFTER the gate, so their em dashes (Black–Scholes, Greeks,
+  // bond, IRR, depreciation) reached the document; they are punctuated as prose (proseDashes) and the COMPOSED text
+  // is what the gate judges.
+  const composed = [text, ...listNotes.map((n) => `Note: ${proseDashes(n)}`), ...(calc.assumes ? [`Assumes: ${proseDashes(calc.assumes)}`] : [])].join("\n");
+  currentFinText = insertable && insertableResultText(composed) ? composed : "";
+  finInsertBtn.disabled = !currentFinText;
 
   // THE FIGURE, under the number and the assumptions.
   //
@@ -9434,7 +9481,7 @@ function updateFinancePreview(): void {
   // for being non-finite must not leave a chart behind as the one thing a user
   // can still put in a document. That exact defect was found in the Statistics
   // registry by an adversarial pass and is not being reproduced here.
-  currentFinSvg = insertable ? svg : "";
+  currentFinSvg = currentFinText ? svg : "";
   if (currentFinSvg) {
     const figure = document.createElement("div");
     figure.className = "stats-figure";
@@ -11387,7 +11434,7 @@ async function insertStatsResult(): Promise<void> {
   // insertPlainText returned void and swallowed its own error — so a failed
   // text insert still appended the chart, and this line wrote "Result and chart
   // inserted" over the error explaining that it had not been.
-  if (!(await insertPlainText(currentStatsText, "Statistics"))) return;
+  if (!(await insertPlainText(currentStatsText, "Statistics", !!currentStatsSvg))) return;
   if (!currentStatsSvg) return;
   if (await insertStatsChart()) {
     setStatus("Result and chart inserted.", "success");
@@ -11414,7 +11461,7 @@ async function insertFinanceResult(): Promise<void> {
     setStatus("Nothing to insert.", "error");
     return;
   }
-  if (!(await insertPlainText(currentFinText, "Result"))) return;
+  if (!(await insertPlainText(currentFinText, "Result", !!currentFinSvg))) return;
   if (!currentFinSvg) return;
   try {
     // Intrinsic size from the SVG itself, never the size it was asked for: a
@@ -30236,7 +30283,8 @@ function updateAnalyzePreview(): void {
   // disables Insert AND suppresses the rich preview (the reader falls back to the
   // plain-text branch below, so plots vanish). If you are writing a calculator,
   // use a comma or a hyphen in prose. analyzeCalcText.test.ts pins this.
-  const insertable = out.ok !== false && insertableResultText(out.text);
+  // A matrix block inserts from its numbers, so its entries are checked too (matrixBlocksFinite, v2.193.0).
+  const insertable = out.ok !== false && insertableResultText(out.text) && matrixBlocksFinite(out.blocks);
   analyzeResult.innerHTML =
     out.blocks && insertable ? analyzeBlocksToPreviewHtml(out.blocks) : esc(out.text).replace(/\n/g, "<br>");
   currentAnalyzeText = insertable ? out.text : "";
@@ -30508,7 +30556,7 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
         layout.push({ kind: "matrix", label: block.label ?? "", values: block.rows });
         continue;
       }
-      layout.push({ kind: "matrix", label: block.label ?? "", values: block.m.map((row) => row.map((v) => formatNum(v, 6))) });
+      layout.push({ kind: "matrix", label: block.label ?? "", values: formatMatrixCells(block.m, 6) });
     }
     flushRun();
     // ONE PACKAGE WHEN THE RESULT MIXES EQUATIONS OR TABLES WITH ANYTHING ELSE (lib/resultOoxml.ts).
@@ -30538,7 +30586,7 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           const dims = imageDims[i] ?? { w: b.w, h: b.h };
           pkg.push({ kind: "picture", caption: b.caption, base64: images[i], widthPt: figurePoints(dims.w), heightPt: figurePoints(dims.h), alt: b.alt });
         } else if (b.kind === "table") pkg.push({ kind: "table", label: b.label ?? "", rows: b.rows });
-        else pkg.push({ kind: "table", label: b.label ?? "", rows: b.m.map((row) => row.map((v) => formatNum(v, 6))) });
+        else pkg.push({ kind: "table", label: b.label ?? "", rows: formatMatrixCells(b.m, 6) });
       }
       layout.splice(0, layout.length, { kind: "ooxml", ooxml: buildResultOoxml(pkg).ooxml });
     }
@@ -34656,7 +34704,7 @@ const ASSAY_CALCS: AssayCalc[] = [
             { name: "this enzyme", value: keff },
             { name: "diffusion limit", value: 1e9, colour: "#6b7280" },
           ],
-          { title: "kcat/Km against the diffusion limit (M^-1 s^-1)", unit: "", w: 360 },
+          { title: "kcat/Km against the diffusion limit (M⁻¹ s⁻¹)", unit: "", w: 360 },
         ),
       };
     },
@@ -35026,7 +35074,7 @@ const ASSAY_CALCS: AssayCalc[] = [
               colour: "#6b7280",
             },
           ].filter((row) => Number.isFinite(row.value) && row.value > 0),
-          { title: "What makes up epsilon at 280 nm (M^-1 cm^-1)", unit: "", w: 360 },
+          { title: "What makes up epsilon at 280 nm (M⁻¹ cm⁻¹)", unit: "", w: 360 },
         ),
       };
     },
@@ -35220,7 +35268,8 @@ function updateAssayPreview(): void {
   // and the periodic table already carry their notes across.
   // The typed-comma note goes into the document with the caveats, as Finance and Stats carry theirs.
   const assayNotes = [...(out.caveats ?? []), ...assayListNotes];
-  currentAssayText = insertable ? (assayNotes.length ? `${out.text}\n${assayNotes.map((c) => `Note: ${c}`).join("\n")}` : out.text) : "";
+  // proseDashes: the notes are appended AFTER the insert gate, so their em dashes must not reach the document (v2.193.0).
+  currentAssayText = insertable ? (assayNotes.length ? `${out.text}\n${assayNotes.map((c) => `Note: ${proseDashes(c)}`).join("\n")}` : out.text) : "";
   assayInsertBtn.disabled = !insertable;
 }
 
@@ -35254,7 +35303,7 @@ async function insertAssayResult(): Promise<void> {
   // insert puts it somewhere the user did not ask for, and a second rapid click
   // would otherwise fall through the "still inserting" branch and add the
   // figure twice beside one copy of the text.
-  if (!(await insertPlainText(currentAssayText, "Assay result"))) return;
+  if (!(await insertPlainText(currentAssayText, "Assay result", !!currentAssayPlotSvg))) return;
   if (!currentAssayPlotSvg) return;
   // The success message is only claimed if the figure also landed; otherwise
   // insertAssayPlot's own error message is what the user should be left with,
@@ -36181,7 +36230,7 @@ async function insertFigure(o: FigureInsert): Promise<string> {
   }
   const t = rasterTarget(prepared, o.supersample ?? 1);
   const png = await renderFigurePng(prepared.svg, t.w, t.h);
-  await docHost.insertFigurePng({
+  const kept = await docHost.insertFigurePng({
     base64: png,
     widthPt: prepared.widthPt,
     heightPt: prepared.heightPt,
@@ -36189,6 +36238,9 @@ async function insertFigure(o: FigureInsert): Promise<string> {
     tag: o.tag,
     tail: o.tail,
   });
+  // WORD'S OWN COUNT, NOT OURS (v2.193.0). renderFigurePng steps the scale down while the PNG is over its payload
+  // size, but at 1× it sends what it has; Word can accept a large picture and keep nothing, with no error.
+  if (kept === 0) throw new Error(pictureNotKeptText(png.length));
   // The dpi of the PNG that was inserted, read from its own header (pngPixelSize),
   // not the factor that was asked for: the payload loop may have stepped it down.
   const px = pngPixelSize(png);

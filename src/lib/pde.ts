@@ -174,7 +174,7 @@ export function solveHeat(
   if (keep[keep.length - 1] !== levels.length - 1) keep.push(levels.length - 1);
 
   const steps = [
-    `Heat equation u_t = ${alpha} u_xx on [0, ${L}] to t = ${tEnd}.`,
+    `Heat equation uₜ = ${alpha} uₓₓ on [0, ${L}] to t = ${tEnd}.`,
     scheme === "explicit"
       ? `Explicit FTCS on ${nx} intervals, ${nt} time steps. Stability number r = αΔt/Δx² = ${r.toFixed(4)} (must be ≤ 0.5).`
       : `Crank-Nicolson on ${nx} intervals, ${nt} time steps; each step is a tridiagonal solve. r = ${r.toFixed(4)} — no bound needed, the scheme is unconditionally stable.`,
@@ -281,9 +281,9 @@ export function solveWave(
   if (keep[keep.length - 1] !== levels.length - 1) keep.push(levels.length - 1);
 
   const steps = [
-    `Wave equation u_tt = ${c}² u_xx on [0, ${L}] to t = ${tEnd}.`,
+    `Wave equation uₜₜ = ${c}² uₓₓ on [0, ${L}] to t = ${tEnd}.`,
     `Explicit leapfrog on ${nx} intervals, ${nt} steps. Courant number C = cΔt/Δx = ${C.toFixed(4)} (must be ≤ 1).`,
-    `The first time level uses a Taylor step with u_tt = c² u_xx substituted, so the run is second-order throughout.`,
+    `The first time level uses a Taylor step with uₜₜ = c² uₓₓ substituted, so the run is second-order throughout.`,
   ];
   if (C === 1) {
     steps.push("At C = 1 this scheme is not merely stable but EXACT for the 1D wave equation — it reproduces d'Alembert's solution on the grid.");

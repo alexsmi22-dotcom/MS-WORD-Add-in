@@ -17,7 +17,8 @@ describe("finance formatters never print NaN or Infinity", () => {
   });
   it("finite values format as before", () => {
     expect(finMoney(1647.0095)).toBe("1,647.01");
-    expect(finMoney(-0.004)).toBe("-0.00");
+    expect(finMoney(-0.004)).toBe("0.00"); // v2.193.0: no negative zero; a true negative carries U+2212
+    expect(finMoney(-12.5)).toBe("−12.50");
     expect(finPct(0.0525)).toBe("5.25%");
     expect(finFixed(Math.PI, 4)).toBe("3.1416");
   });

@@ -278,12 +278,14 @@ export interface Host {
   insertPictureWithLegend(o: LegendedPictureInsert): Promise<void>;
   /** Pictures one per paragraph, each anchored at the END of the previous paragraph. */
   insertPictureParagraphs(items: GalleryItem[]): Promise<void>;
-  insertEditableTable(o: EditableTableInsert): Promise<void>;
+  /** Returns the row count Word reports for the inserted table (null when it cannot say). */
+  insertEditableTable(o: EditableTableInsert): Promise<number | null>;
   /** A native table with pictures in some cells, at the cursor, with an optional centred label after it. */
   insertPictureTable(o: PictureTableInsert): Promise<void>;
   /** Returns how many pictures Word KEPT (null when it cannot say). */
   insertResultLayout(items: ResultLayoutItem[]): Promise<number | null>;
-  insertFigurePng(o: FigureInsertWord & { base64: string }): Promise<void>;
+  /** Returns how many pictures Word KEPT (null when it cannot say). */
+  insertFigurePng(o: FigureInsertWord & { base64: string }): Promise<number | null>;
   /** Vector SVG via setSelectedDataAsync, re-found and sized. Throws when Word says yes but the picture cannot be found. */
   insertFigureVector(o: FigureInsertWord & { svg: string }): Promise<FigureVectorResult>;
   capability(): HostCaps;

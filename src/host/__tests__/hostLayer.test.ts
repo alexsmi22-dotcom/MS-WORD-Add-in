@@ -346,6 +346,67 @@ describe("pictures (v2.145.0)", () => {
     expect(log.some((l) => l.includes('.load("items")'))).toBe(true); // clearTableListFormatting ran
   });
 
+  // v2.193.0 (xcutFixes2193): the editable table has its own grid (every row) and continues ONLY from supported points.
+  const tableId = (): string => log.find((l) => l.includes(".insertTable("))!.split(" ")[0];
+
+  it("an editable table: EVERY row (121, not the figure's 40), the label made by the TABLE, no .after anchor, Word's row count returned", async () => {
+    withRange();
+    const rows = [["Residue", "IMGT"], ...Array.from({ length: 120 }, (_, i) => ["A", String(i + 1)])];
+    reads["#2.rowCount"] = 121; // the table (#2) as Word reports it
+    const got = await wordHost.insertEditableTable({ rows, label: "VH: numbering" });
+    expect(got).toBe(121);
+    const t = tableId();
+    expect(t).toBe("#2");
+    expect(log.find((l) => l.includes(".insertTable("))).toMatch(/insertTable\(121, 2, "After", /);
+    const cap = log.find((l) => l.endsWith(`= ${t}.insertParagraph("VH: numbering", "After")`))!;
+    expect(cap).toBeDefined();
+    const capId = cap.split(" ")[0];
+    expect(log).toContain(`set ${capId}.alignment = "Centered"`);
+    expect(log.some((l) => l.includes('getRange("After")'))).toBe(false);
+    const end = log.find((l) => l.endsWith(`= ${capId}.getRange("End")`))!;
+    expect(log.some((l) => l.endsWith(`= ${end.split(" ")[0]}.select("End")`))).toBe(true);
+    // no band shading: only the header row is shaded
+    expect(log.filter((l) => l.includes(".shadingColor =")).length).toBe(2);
+  });
+
+  it("an editable table without a label still puts the caret on a paragraph the TABLE made", async () => {
+    withRange();
+    await wordHost.insertEditableTable({ rows: [["x", "y"], ["1", "2"]], label: "" });
+    expect(log.some((l) => l.endsWith(`= ${tableId()}.insertParagraph("", "After")`))).toBe(true);
+    expect(log.some((l) => l.includes('getRange("After")'))).toBe(false);
+  });
+
+  it("Table → Chart's data table: a fresh paragraph at the picture's END inserts the table; the caret goes on the table's own paragraph", async () => {
+    withRange();
+    await wordHost.insertFigurePng({
+      base64: "P",
+      widthPt: 1,
+      heightPt: 1,
+      alt: "chart",
+      tail: { kind: "tableChart", rows: () => [["a", "b"], ...Array.from({ length: 60 }, (_, i) => [String(i), "2"])], tag: "formula-inserter:tablechart" },
+    });
+    expect(log.some((l) => l.includes('getRange("After")'))).toBe(false);
+    const ins = log.find((l) => l.includes(".insertTable("))!;
+    expect(ins).toMatch(/insertTable\(61, 2, "After", /);
+    const paraId = ins.split(" = ")[1].split(".")[0];
+    expect(log.some((l) => l.startsWith(`${paraId} = `) && l.includes('.insertParagraph("", "After")'))).toBe(true);
+    expect(log.some((l) => l.includes(`${tableId()}.insertParagraph("", "After")`))).toBe(true);
+  });
+
+  it("the PNG figure path returns how many pictures Word KEPT (0 = accepted and discarded)", async () => {
+    withRange();
+    reads["ctx.document.body.inlinePictures.items"] = [];
+    await expect(wordHost.insertFigurePng({ base64: "P", widthPt: 1, heightPt: 1, alt: "f" })).resolves.toBe(0);
+    let n = 0;
+    reads["ctx.document.body.inlinePictures.items"] = { get length() { return n; } };
+    const count = log.push.bind(log);
+    log.push = (...a: string[]): number => {
+      for (const l of a) if (l.includes("insertInlinePictureFromBase64")) n++;
+      return count(...a);
+    };
+    await expect(wordHost.insertFigurePng({ base64: "P", widthPt: 1, heightPt: 1, alt: "f" })).resolves.toBe(1);
+  });
+
   it("a picture table: the caption above, then the grid, each picture in its own cell (centred, sized, with alt text)", async () => {
     withRange();
     reads["#3.getCell()"] = undefined;

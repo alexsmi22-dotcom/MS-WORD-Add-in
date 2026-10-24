@@ -83,7 +83,8 @@ describe("Antibody pane", () => {
     expect(tables[10].rows[0]).toEqual(["SEQ ID NO", "Description", "Sequence"]);
     expect(html[0]).toContain("<b><u>DTYIH</u></b>");
     expect(texts[0]).toBe($("ab-claims").textContent);
-    expect(status.at(-1)).toBe("SEQ ID table inserted.");
+    // The status states the table's true row count (v2.193.0): the data rows, header not counted.
+    expect(status.at(-1)).toBe(`SEQ ID table inserted (${tables[10].rows.length - 1} rows).`);
   });
 
   it("a claim insert the host declined says nothing of success", async () => {

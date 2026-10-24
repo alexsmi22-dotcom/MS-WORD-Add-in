@@ -180,7 +180,7 @@ export function stoichChartSvg(r: StoichOk): string {
       { label: "available", values: r.chart.map((c) => c.available) },
       { label: "needed", values: r.chart.map((c) => c.needed) },
     ],
-    { title: `Moles available vs needed — limiting: ${limiting.join(", ")} ★`, ylabel: "mol" },
+    { title: `Moles available vs needed; limiting: ${limiting.join(", ")} ★`, ylabel: "mol" },
   );
 }
 

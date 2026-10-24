@@ -373,6 +373,13 @@ export function formatP(p: number): string {
   return `p = ${p.toFixed(3).replace(/^0/, "")}`;
 }
 
+/** x.toFixed(n) with a true minus (U+2212), and no "−0.00" for a value that rounds to zero. */
+function fixedMinus(x: number, n: number): string {
+  const s = x.toFixed(n);
+  if (/^-0(?:\.0*)?$/.test(s)) return s.slice(1);
+  return s.startsWith("-") ? "−" + s.slice(1) : s;
+}
+
 /** APA-style t report, e.g. "t(18) = 2.41, p = .027". */
 export function reportT(r: TTestResult): string {
   // Degenerate input: with no variance in either sample t is 0/0, and the line
@@ -384,13 +391,15 @@ export function reportT(r: TTestResult): string {
   // APA order: statistic, p, then the effect size and the interval on the
   // difference. Journals require the last two; reporting p alone confounds
   // effect size with sample size, which is the whole reason d is mandated.
-  const label = r.dKind === "dz" ? "d_z" : "d";
-  const d = Number.isFinite(r.d) ? `, ${label} = ${r.d.toFixed(2)}` : "";
+  // d(z), not "d_z" (v2.193.0): no underscore-as-subscript in output, and z has no Unicode subscript letter, so the
+  // house convention (subscriptText.ts) writes the subscript in parentheses. Negatives carry a true minus.
+  const label = r.dKind === "dz" ? "d(z)" : "d";
+  const d = Number.isFinite(r.d) ? `, ${label} = ${fixedMinus(r.d, 2)}` : "";
   const ci =
     Number.isFinite(r.ci95[0]) && Number.isFinite(r.ci95[1])
-      ? `, 95% CI [${r.ci95[0].toFixed(3)}, ${r.ci95[1].toFixed(3)}]`
+      ? `, 95% CI [${fixedMinus(r.ci95[0], 3)}, ${fixedMinus(r.ci95[1], 3)}]`
       : "";
-  return `t(${r.df.toFixed(r.df % 1 ? 1 : 0)}) = ${r.t.toFixed(2)}, ${formatP(r.p)}${d}${ci}`;
+  return `t(${r.df.toFixed(r.df % 1 ? 1 : 0)}) = ${fixedMinus(r.t, 2)}, ${formatP(r.p)}${d}${ci}`;
 }
 
 /** APA-style F report, e.g. "F(2, 27) = 4.31, p = .024". */

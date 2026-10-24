@@ -17,7 +17,10 @@
 // the condition number, and a polynomial design matrix is exactly where that
 // bites — a cubic fit on x in the hundreds is already badly conditioned.
 
-import { qrDecompose, transpose, multiply, type Matrix } from "./linalg";
+import { qrDecompose, transpose, multiply, formatNum, type Matrix } from "./linalg";
+
+/** Powers 0–6 as superscripts (the polynomial degree is capped at 6). */
+const SUPERSCRIPT_POWER = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶"];
 import { tTestP, fTestP, mean } from "./stats";
 
 export interface RegressionCoefficient {
@@ -289,12 +292,12 @@ export function polynomialRegression(
   const names: string[] = [];
   for (let d = 1; d <= deg; d++) {
     cols.push(x.map((v) => Math.pow(v - centre, d)));
-    names.push(d === 1 ? "(x − x̄)" : `(x − x̄)^${d}`);
+    names.push(d === 1 ? "(x − x̄)" : `(x − x̄)${SUPERSCRIPT_POWER[d]}`); // ², never ^2 (display contract)
   }
   const res = multipleRegression(y, cols, names);
   if (res.ok) {
     res.caveats.unshift(
-      `x was centred on x̄ = ${centre} before taking powers, so the coefficients apply to ` +
+      `x was centred on x̄ = ${formatNum(centre, 15)} before taking powers, so the coefficients apply to ` +
         "(x − x̄). Uncentred powers of a large x are numerically unstable.",
     );
     res.caveats.push(

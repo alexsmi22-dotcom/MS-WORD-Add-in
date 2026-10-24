@@ -158,6 +158,9 @@ function rangeIsPlausible(a: number, b: number, sortedKnown: number[]): boolean 
   for (let i = 1; i < inside.length; i++) g = gcd(g, inside[i] - inside[i - 1]);
   if (g <= 0) return false;
   const slots = (b - a) / g + 1;
+  // A callout range spans a handful of a figure's parts; one over more than 12 slots is a quantity even when the
+  // table is dense ("(10–200) particles" against 10, 12, …, 1000 or 10, 20, …, 1000).
+  if (slots > 12) return false;
   return inside.length / slots >= 0.5;
 }
 

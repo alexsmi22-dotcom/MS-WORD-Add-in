@@ -47,6 +47,13 @@ describe("item 4: real range callouts are found again; citation and quantity ran
   ] as Array<[string, number[]]>)("2c2e68e intent kept: %p marks nothing", (text, want) => {
     expect(extractNumerals(text, K)).toEqual(want);
   });
+  test.each([
+    ["even 10…1000", Array.from({ length: 496 }, (_, i) => 10 + 2 * i)],
+    ["tens 10…1000", Array.from({ length: 100 }, (_, i) => 10 * (i + 1))],
+  ])("a dense table (%s): (10–200) is still a quantity", (_n, dense) => {
+    expect(extractNumerals("(10–200) particles", dense as number[])).toEqual([]);
+    expect(extractNumerals("comprising (10–200) particles", dense as number[])).toEqual([]);
+  });
   test("a single member beside a vetoed range keeps the plain rule", () => {
     expect(extractNumerals("see claims (12, 14-16)", K)).toEqual([12]);
   });

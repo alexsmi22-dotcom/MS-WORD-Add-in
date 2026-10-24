@@ -529,6 +529,20 @@ function readModSuffix(out: Parsed, code: string, suffix: string, at: number, cy
     );
   }
   const mod = lookupMod(inner);
+  const delta = /^\s*([+\-−])\s*(\d+(?:\.\d+)?)\s*$/.exec(inner);
+  if (!mod && delta) {
+    // A ProForma MASS DELTA (T[+79.966]) names a mass, not a composition: the formula, the average mass and the
+    // structure this pane gives would all be invented. Refused by name, with the named modification it matches.
+    const d = (delta[1] === "+" ? 1 : -1) * Number(delta[2]);
+    const near = (Object.values(MODS) as ModDef[]).find((m) => m.key !== "Dehydro" && Math.abs(m.unimodMono - d) < 0.01);
+    refuse(
+      "unknown-mod",
+      `Mass delta “${suffix}” at position ${pos} is not read: a mass alone gives no formula, average mass or structure.` +
+        (near ? ` It matches ${near.key} (${near.unimodMono.toFixed(4)} Da) — write ${code}[${near.key}].` : ` Write a named modification: ${SUPPORTED_BRACKET_NAMES.join("; ")}.`),
+      pos,
+      suffix
+    );
+  }
   if (!mod) {
     refuse("unknown-mod", `Unknown modification “${suffix}” at position ${pos}. Supported: ${SUPPORTED_BRACKET_NAMES.join("; ")}.`, pos, suffix);
   }
@@ -920,7 +934,9 @@ function typesetComposition(c: Composition): string {
 function displayOf(p: Parsed, three: boolean): string {
   const resText = p.residues.map((r) => {
     if (three) {
-      if (r.mod === "Gln->pyro-Glu") return "pGlu";
+      // Pyroglutamate is one residue whichever amino acid it formed from (the same composition): pGlu, never
+      // "Glu[Glu->pyro-Glu]" in three-letter form.
+      if (r.mod === "Gln->pyro-Glu" || r.mod === "Glu->pyro-Glu") return "pGlu";
       return r.mod ? `${r.three}[${r.mod}]` : r.three;
     }
     return r.mod ? `${r.code}[${r.mod}]` : r.code;

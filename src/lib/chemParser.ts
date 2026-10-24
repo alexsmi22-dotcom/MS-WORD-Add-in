@@ -48,13 +48,24 @@ export function parseChemical(input: string): Segment[] {
   return segments;
 }
 
+/**
+ * A charge sign as typeset: the TRUE MINUS (U+2212) for a negative charge, never the ASCII hyphen (display contract:
+ * Cl⁻ is "Cl" + superscript "−"). Input accepts either.
+ */
+const MINUS = "−";
+const signOf = (ch: string): string => (ch === "-" || ch === MINUS ? MINUS : ch);
+const isSign = (ch: string | undefined): boolean => ch === "+" || ch === "-" || ch === MINUS;
+
 function parseSpeciesInto(segments: Segment[], input: string): void {
   let i = 0;
   const n = input.length;
   // A monatomic ion ("Ca2+", "Fe3+") renders the digit as the charge; polyatomic
   // ions ("NH4+", "NO3-") keep the digit as a subscript with a separate ± charge.
   // A leading coefficient does not change that (2Cr3+ in a reaction is 2 Cr³⁺).
-  const isMonatomic = /^\d*[A-Z][a-z]?\d+[+-]$/.test(input);
+  // A monatomic charge is ONE digit: "Hg22+" is the dimercury(I) ion Hg₂²⁺ and "O22-" peroxide O₂²⁻ — the count
+  // and then a one-digit charge — never a +22 charge. A trailing 0 is never a charge (C60- is C₆₀⁻).
+  const isMonatomic = /^\d*[A-Z][a-z]?[1-9][+\-−]$/.test(input);
+  const homonuclear = /^\d*[A-Z][a-z]?\d+[1-9][+\-−]$/.test(input);
 
   while (i < n) {
     const ch = input[i];
@@ -73,7 +84,7 @@ function parseSpeciesInto(segments: Segment[], input: string): void {
       i++;
       let charge = "";
       while (i < n && isDigit(input[i])) charge += input[i++];
-      if (i < n && (input[i] === "+" || input[i] === "-")) charge += input[i++];
+      if (i < n && isSign(input[i])) charge += signOf(input[i++]);
       pushSegment(segments, charge, "sup");
       continue;
     }
@@ -85,14 +96,20 @@ function parseSpeciesInto(segments: Segment[], input: string): void {
       const startIdx = i;
       let num = "";
       while (i < n && isDigit(input[i])) num += input[i++];
-      const nextIsSign = i < n && (input[i] === "+" || input[i] === "-");
+      const nextIsSign = i < n && isSign(input[i]);
       const prevChar = input[startIdx - 1] ?? "";
       const afterGroup = prevChar === ")" || prevChar === "]" || prevChar === "}";
       // A digit run before a sign is the ion charge only for a group charge
       // ([Fe(CN)6]3-) or a monatomic ion (Ca2+); otherwise the digit is a
       // subscript and the following sign is a separate ± charge (NH4+ → NH₄⁺).
       if (nextIsSign && (afterGroup || isMonatomic)) {
-        pushSegment(segments, num + input[i++], "sup");
+        pushSegment(segments, num + signOf(input[i++]), "sup");
+        continue;
+      }
+      // One element, a count and a one-digit charge: Hg22+ → Hg₂²⁺, O22- → O₂²⁻.
+      if (nextIsSign && homonuclear && startIdx > 0 && /[A-Za-z]/.test(prevChar) && num.length >= 2 && Number(num.slice(0, -1)) >= 2) {
+        pushSegment(segments, num.slice(0, -1), "sub");
+        pushSegment(segments, num.slice(-1) + signOf(input[i++]), "sup");
         continue;
       }
       const prev = segments[segments.length - 1];
@@ -115,9 +132,9 @@ function parseSpeciesInto(segments: Segment[], input: string): void {
       continue;
     }
 
-    // A standalone trailing sign (e.g. Na+, Cl-) is a charge -> superscript.
-    if (ch === "+" || ch === "-") {
-      pushSegment(segments, ch, "sup");
+    // A standalone trailing sign (e.g. Na+, Cl-, Cl−) is a charge -> superscript (a true minus).
+    if (isSign(ch)) {
+      pushSegment(segments, signOf(ch), "sup");
       i++;
       continue;
     }

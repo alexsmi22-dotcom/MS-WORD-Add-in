@@ -153,6 +153,8 @@ export function computeProperties(input: string): PhysChemProperties | null {
     return null;
   }
   if (mol.getAllAtoms() === 0) return null;
+  // Attachment points (*) make a fragment whose atoms carry no hydrogens: no property of it is a molecule's.
+  if (mol.isFragment()) return null;
 
   const mf = mol.getMolecularFormula();
   const mw = round(mf.relativeWeight, 2);

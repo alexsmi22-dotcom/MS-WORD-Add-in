@@ -133,7 +133,10 @@ export function massSpecText(spec: MassSpecResult | null): string {
   const lines = [
     `Mass spectrometry — ${typesetHill(spec.formula, spec.netCharge)}`,
     ...(spec.labelledIsotopes.length ? [`Labelled isotopes: ${spec.labelledIsotopes.join(", ")}`] : []),
-    `Monoisotopic mass: ${spec.monoisotopicMass.toFixed(4)}`,
+    spec.ionMz === null
+      ? `Monoisotopic mass: ${spec.monoisotopicMass.toFixed(4)}`
+      : `Monoisotopic mass (neutral atoms): ${spec.monoisotopicMass.toFixed(4)}`,
+    ...(spec.ionMz === null ? [] : [`m/z of the ion (${chargeText(spec.netCharge)}, electron mass counted): ${spec.ionMz.toFixed(4)}`]),
     `Average mass: ${spec.averageMass.toFixed(2)}`,
     "Isotope pattern (relative intensity):",
     // pk.label — "M−2" with a true minus. "M+" + offset printed "M+-2".

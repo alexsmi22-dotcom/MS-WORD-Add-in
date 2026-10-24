@@ -9,7 +9,7 @@
 
 import { Molecule } from "openchemlib";
 import { NAME_TO_SMILES, FORMULA_TO_SMILES } from "./compounds";
-import { validateFormula, normalizeFormulaText } from "./chemValidate";
+import { validateFormula, normalizeFormulaText, hillFormula } from "./chemValidate";
 import { atomicNumber, elementName } from "./periodic";
 
 export interface StructureResult {
@@ -21,6 +21,11 @@ export interface StructureResult {
   formula: string;
   idcode: string;
   mw: number;
+  /**
+   * True when the SMILES carried two attachment points (*): a polymer's repeat unit. formula and mw are then PER
+   * REPEAT UNIT (the two * are the bonds to the neighbouring units), never a molecule's.
+   */
+  repeatUnit?: boolean;
 }
 
 /** Looks up a SMILES for a known name or formula. Returns null if not in the dictionaries. */
@@ -104,9 +109,181 @@ function parseSmilesOnly(smiles: string): Molecule | null {
   }
 }
 
+// ---------------------------------------------------------------------------
+// THE SMILES GATE (v2.193): validity, attachment points and the drawing cap
+// ---------------------------------------------------------------------------
+//
+// OpenChemLib is a forgiving parser, and each forgiveness was a confident wrong answer:
+//   - "C(" (an unclosed branch) parsed as methane;
+//   - "CCC(C)(C)(C)C" (a carbon with five bonds) was drawn and given the formula C₇H₁₇;
+//     "C[N](C)(C)(C)C" was drawn with a five-bonded neutral nitrogen;
+//   - "*" (an attachment point) is read as a QUERY carbon: the molecule turns into a fragment, every atom loses its
+//     implicit hydrogens, and "*CC*" came out as C₄;
+//   - a long SMILES froze the pane: the default parse already lays the molecule out in 2D, and that layout grows
+//     steeply ("C" × 800 took 27 s in the pane, "C" × 3000 over 5 minutes).
+// So every SMILES is read FIRST without coordinates (milliseconds even for thousands of atoms), checked, and only
+// then — under the heavy-atom cap — parsed for drawing.
+
+/**
+ * The heavy-atom cap for a 2D drawing, checked BEFORE any layout. The same 250 as the peptide pane
+ * (chembioCalcs.PEPTIDE_DRAW_MAX_HEAVY_ATOMS: ≈ 0.5 s measured in jest at 251 atoms); the largest dictionary compound,
+ * tannic acid, has 122 heavy atoms, vancomycin 101.
+ */
+export const STRUCTURE_DRAW_MAX_HEAVY_ATOMS = 250;
+
+/** Above this, no dictionary name can match (largest entry: 122 heavy atoms), so no idcode is computed for one. */
+const DICTIONARY_NAME_MAX_HEAVY_ATOMS = 150;
+
+/** The element OpenChemLib parses in place of an attachment point "*" (oganesson: never in a real input). */
+const WILDCARD_SENTINEL_Z = 118;
+const WILDCARD_SENTINEL = "[Og]";
+
+/**
+ * The SMILES with every attachment point — a bare "*" or a bracket atom whose symbol is * ([*], [1*], [*:1]) —
+ * replaced by the sentinel, and how many there were.
+ */
+function substituteWildcards(smiles: string): { text: string; count: number } {
+  let out = "";
+  let count = 0;
+  for (let i = 0; i < smiles.length; i++) {
+    const c = smiles[i];
+    if (c === "[") {
+      const j = smiles.indexOf("]", i);
+      if (j < 0) return { text: out + smiles.slice(i), count };
+      const inner = smiles.slice(i + 1, j);
+      if (/^\d*\*/.test(inner)) {
+        out += WILDCARD_SENTINEL;
+        count++;
+      } else out += smiles.slice(i, j + 1);
+      i = j;
+    } else if (c === "*") {
+      out += WILDCARD_SENTINEL;
+      count++;
+    } else out += c;
+  }
+  return { text: out, count };
+}
+
+/** Unbalanced branch parentheses or atom brackets (outside atom brackets), named; or null. */
+function bracketProblem(smiles: string): string | null {
+  let depth = 0;
+  for (let i = 0; i < smiles.length; i++) {
+    const c = smiles[i];
+    if (c === "[") {
+      const j = smiles.indexOf("]", i);
+      if (j < 0) return `the atom bracket “[” at position ${i + 1} is never closed`;
+      i = j;
+    } else if (c === "]") return `the “]” at position ${i + 1} closes no atom bracket`;
+    else if (c === "(") depth++;
+    else if (c === ")") {
+      if (depth === 0) return `the “)” at position ${i + 1} closes no branch`;
+      depth--;
+    }
+  }
+  return depth ? `${depth} branch${depth === 1 ? "" : "es"} opened with “(” ${depth === 1 ? "is" : "are"} never closed (unbalanced parentheses)` : null;
+}
+
+/**
+ * An atom of boron, carbon, nitrogen, oxygen or fluorine whose bonds plus hydrogens exceed its valence (charge
+ * counted: N⁺ takes 4, C⁻ 3, B⁻ 4), named; or null. Second-row atoms only — they have no expanded octet, so a sixth
+ * bond is never a valid structure; S, P, the halogens and the metals have real higher valences and are left to the
+ * parser. A bracket atom with an explicit charge ([N+](C)(C)(C)C) is valid and passes.
+ */
+function valenceProblem(mol: Molecule): string | null {
+  mol.ensureHelperArrays(Molecule.cHelperNeighbours);
+  for (let i = 0; i < mol.getAllAtoms(); i++) {
+    const z = mol.getAtomicNo(i);
+    if (z < 5 || z > 9) continue;
+    const used = mol.getOccupiedValence(i) + mol.getImplicitHydrogens(i);
+    const max = mol.getDefaultMaxValenceUncharged(i) + mol.getElectronValenceCorrection(i, used);
+    if (used > max) {
+      const q = mol.getAtomCharge(i);
+      const charge = q ? ` with charge ${q > 0 ? "+" : "−"}${Math.abs(q) === 1 ? "" : Math.abs(q)}` : "";
+      return `atom ${i + 1} (${mol.getAtomLabel(i)}${charge}) has ${used} bonds, above its valence of ${max} (abnormal valence)`;
+    }
+  }
+  return null;
+}
+
+/** Heavy (non-hydrogen, non-attachment-point) atoms of a parsed molecule. */
+function heavyAtomCount(mol: Molecule): number {
+  let n = 0;
+  for (let i = 0; i < mol.getAllAtoms(); i++) {
+    const z = mol.getAtomicNo(i);
+    if (z !== 1 && z !== WILDCARD_SENTINEL_Z) n++;
+  }
+  return n;
+}
+
+export type SmilesCheck =
+  | {
+      ok: true;
+      /** The SMILES with attachment points replaced by the sentinel — what is parsed. */
+      parsed: string;
+      /** The coordinate-free molecule (attachment points as the sentinel element). */
+      mol: Molecule;
+      /** Attachment points (*) in the input. */
+      wildcards: number;
+      heavyAtoms: number;
+    }
+  /** invalid: OpenChemLib would have accepted it, but it is not valid SMILES (brackets, valence). */
+  | { ok: false; message: string; invalid?: boolean };
+
+/**
+ * Reads a SMILES WITHOUT 2D layout and checks it: balanced brackets, a parse, second-row valences. Attachment
+ * points are counted, not judged — what they mean is the caller's (a repeat unit for Structure, a refusal for a
+ * mass). Returns the coordinate-free molecule for reading counts; never draw from it.
+ */
+export function checkSmiles(smiles: string): SmilesCheck {
+  const s = smiles.trim();
+  if (!s) return { ok: false, message: "Type a SMILES string." };
+  const br = bracketProblem(s);
+  if (br) return { ok: false, message: `“${s}” is not valid SMILES: ${br}.`, invalid: true };
+  const sub = substituteWildcards(s);
+  if (sub.count && /\[\d*Og/.test(s)) return { ok: false, message: `“${s}” mixes attachment points (*) with oganesson, which this tool does not read.` };
+  const mol = parseSmilesOnly(sub.text);
+  if (!mol) return { ok: false, message: `“${s}” is not a SMILES string this tool can read.` };
+  const v = valenceProblem(mol);
+  if (v) return { ok: false, message: `“${s}” is not a valid structure: ${v}.`, invalid: true };
+  return { ok: true, parsed: sub.text, mol, wildcards: sub.count, heavyAtoms: heavyAtomCount(mol) };
+}
+
+/** Why a structure cannot be drawn (too large, or attachment points other than a repeat unit's two), or null. */
+export function drawRefusal(check: Extract<SmilesCheck, { ok: true }>): string | null {
+  if (check.heavyAtoms > STRUCTURE_DRAW_MAX_HEAVY_ATOMS) {
+    return (
+      `Structure not drawn: ${check.heavyAtoms} heavy atoms is above the ${STRUCTURE_DRAW_MAX_HEAVY_ATOMS}-atom drawing limit ` +
+      `(2D layout time grows steeply with size and would freeze Word). Mass Spec gives its formula and masses.`
+    );
+  }
+  if (check.wildcards) {
+    if (check.wildcards !== 2) {
+      return (
+        `The SMILES has ${check.wildcards} attachment point${check.wildcards === 1 ? "" : "s"} (*). Two * mark a polymer's ` +
+        `repeat unit (*CC* is polyethylene's –[CH₂CH₂]ₙ–); ${check.wildcards === 1 ? "one marks a substituent, which" : "any other number"} has no formula of its own here.`
+      );
+    }
+    const mol = check.mol;
+    for (let i = 0; i < mol.getAllAtoms(); i++) {
+      if (mol.getAtomicNo(i) !== WILDCARD_SENTINEL_Z) continue;
+      if (mol.getConnAtoms(i) !== 1 || mol.getConnBondOrder(i, 0) !== 1 || mol.getAtomicNo(mol.getConnAtom(i, 0)) === WILDCARD_SENTINEL_Z) {
+        return "Each attachment point (*) of a repeat unit must hang from one atom by a single bond.";
+      }
+    }
+  }
+  return null;
+}
+
+/** OpenChemLib's formula string ("C2H3O2Na") in Hill order ("C2H3NaO2"; with no carbon, all alphabetical). */
+export function hillFromOcl(formula: string): string {
+  return formula ? hillFormula(oclCounts(formula)) : formula;
+}
+
 /**
  * Renders a 2D structure SVG for the given input, or returns null when the input
- * is neither a known name/formula nor a parseable SMILES string.
+ * is neither a known name/formula nor a parseable SMILES string — or is refused
+ * (invalid SMILES, over the drawing cap, attachment points other than a repeat
+ * unit's two; resolveStructure says why by name).
  */
 export function renderStructure(input: string, width = 280, height = 220): StructureResult | null {
   // An explicit "smiles:" prefix bypasses the name/formula dictionary. The
@@ -117,33 +294,37 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
   const explicit = input.trim().match(/^smiles:\s*(.+)$/i);
   const looked = explicit ? null : lookupSmiles(input);
 
-  let mol: Molecule | null = null;
   let smiles = "";
   let source: StructureResult["source"] = "smiles";
 
   if (explicit) {
-    const candidate = explicit[1].trim();
+    smiles = explicit[1].trim();
     // Never draw OpenChemLib's reading of an invalid ring closure (C6Cl6 → CH₃Cl).
-    mol = duplicateRingClosure(candidate) === null ? safeFromSmiles(candidate) : null;
-    smiles = candidate;
+    if (duplicateRingClosure(smiles) !== null) return null;
   } else if (looked) {
-    mol = safeFromSmiles(looked.smiles);
     smiles = looked.smiles;
     source = looked.source;
   } else {
     // Fall back to treating the raw input as SMILES.
-    const candidate = input.trim();
-    mol = safeFromSmiles(candidate);
-    smiles = candidate;
+    smiles = input.trim();
     source = "smiles";
   }
 
+  // The gate, BEFORE any parse that lays the molecule out.
+  const check = checkSmiles(smiles);
+  if (!check.ok || drawRefusal(check)) return null;
+  const mol = safeFromSmiles(check.parsed);
   if (!mol) return null;
 
   try {
     mol.inventCoordinates();
   } catch {
     // Coordinates may already be present; ignore.
+  }
+  // Attachment points are drawn as "*" (OpenChemLib would draw its query atom as "?").
+  const repeatUnit = check.wildcards === 2;
+  if (repeatUnit) {
+    for (let i = 0; i < mol.getAllAtoms(); i++) if (mol.getAtomicNo(i) === WILDCARD_SENTINEL_Z) mol.setAtomCustomLabel(i, "*");
   }
 
   // autoCrop trims the wide empty margins OpenChemLib leaves around a molecule
@@ -176,14 +357,31 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
     /* ignore */
   }
   try {
-    const mf = mol.getMolecularFormula();
-    formula = mf.formula;
-    mw = Math.round(mf.relativeWeight * 100) / 100;
+    if (repeatUnit) {
+      // Per repeat unit: cap each * with a hydrogen (the bond it stands for holds a valence, as any bond does), then
+      // take those two hydrogens back off — *CC* → C₂H₆ → C₂H₄.
+      const capped = mol.getCompactCopy();
+      for (let i = 0; i < capped.getAllAtoms(); i++) if (capped.getAtomicNo(i) === WILDCARD_SENTINEL_Z) capped.setAtomicNo(i, 1);
+      const mf = capped.getMolecularFormula();
+      const counts = oclCounts(mf.formula);
+      counts.H = (counts.H ?? 0) - 2;
+      if (!counts.H) delete counts.H;
+      formula = hillFormula(counts);
+      const hWeight = Molecule.fromSmiles("[H][H]", { noCoordinates: true }).getMolecularFormula().relativeWeight / 2;
+      mw = Math.round((mf.relativeWeight - 2 * hWeight) * 100) / 100;
+      canonicalSmiles = canonicalSmiles.split(WILDCARD_SENTINEL).join("*");
+      // The idcode would carry the sentinel element: no name lookup, namer or canvas may read it as a compound.
+      idcode = "";
+    } else {
+      const mf = mol.getMolecularFormula();
+      formula = hillFromOcl(mf.formula);
+      mw = Math.round(mf.relativeWeight * 100) / 100;
+    }
   } catch {
     /* ignore */
   }
 
-  return { svg, smiles: canonicalSmiles, source, formula, idcode, mw };
+  return { svg, smiles: canonicalSmiles, source, formula, idcode, mw, ...(repeatUnit ? { repeatUnit: true } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +665,19 @@ function readAsSmiles(input: string): Molecule | null {
   const s = input.trim();
   if (!s || !aromaticAtomsCanBeInRings(s)) return null;
   if (duplicateRingClosure(s) !== null) return null;
-  return parseSmilesOnly(s);
+  const c = checkSmiles(s);
+  return c.ok ? c.mol : null;
+}
+
+/**
+ * Why a string OpenChemLib would accept is still not valid SMILES (unbalanced brackets, an abnormal valence), or
+ * null when it is valid or not SMILES-like at all.
+ */
+function invalidSmilesReason(input: string): string | null {
+  const s = input.trim();
+  if (!s) return null;
+  const c = checkSmiles(s);
+  return !c.ok && c.invalid ? c.message : null;
 }
 
 function netCharge(mol: Molecule): number {
@@ -484,10 +694,14 @@ function describeFormula(f: FormulaReading): string {
 function describeSmiles(mol: Molecule): string {
   const mf = mol.getMolecularFormula();
   let name: string | null = null;
-  try {
-    name = nameForIdcode(mol.getIDCode());
-  } catch {
-    name = null;
+  // The idcode (canonicalisation) of a long chain takes tens of seconds (48 s for "C" × 3000), and nothing that size
+  // is in the dictionary (its largest entry, tannic acid, has 122 heavy atoms): no name lookup above 150.
+  if (heavyAtomCount(mol) <= DICTIONARY_NAME_MAX_HEAVY_ATOMS) {
+    try {
+      name = nameForIdcode(mol.getIDCode());
+    } catch {
+      name = null;
+    }
   }
   const q = netCharge(mol);
   const formula = typesetHill(mf.formula, q);
@@ -513,9 +727,8 @@ export function resolveChemInput(
     // silently drop the duplicate bond and draw a different molecule (C6Cl6 → CH₃Cl).
     const dup = duplicateClosureRefusal(s);
     if (dup) return { kind: "none", message: dup };
-    return parseSmilesOnly(s)
-      ? { kind: "smiles", smiles: s }
-      : { kind: "none", message: `“${s}” is not a SMILES string this tool can read.` };
+    const c = checkSmiles(s);
+    return c.ok ? { kind: "smiles", smiles: s } : { kind: "none", message: c.message };
   }
   const formulaPrefix = /^formula:\s*(.+)$/i.exec(raw);
   if (formulaPrefix) {
@@ -541,9 +754,9 @@ export function resolveChemInput(
   if (mode === "smiles") {
     const dup = duplicateClosureRefusal(raw);
     if (dup) return { kind: "none", message: dup };
-    return parseSmilesOnly(raw)
-      ? { kind: "smiles", smiles: raw }
-      : { kind: "none", message: `“${raw}” is not a known name or a SMILES string this tool can read.` };
+    const c = checkSmiles(raw);
+    if (c.ok) return { kind: "smiles", smiles: raw };
+    return { kind: "none", message: c.invalid ? c.message : `“${raw}” is not a known name or a SMILES string this tool can read.` };
   }
 
   const f = readAsFormula(raw);
@@ -554,6 +767,11 @@ export function resolveChemInput(
   }
 
   const mol = readAsSmiles(raw);
+  // Valid SMILES with attachment points (*CC*): the * are atoms, not hydrate dots, so there is no formula reading to
+  // weigh against it ("*CC*" is not "carbon, C₂"). A real hydrate (CuSO4*5H2O) is never valid SMILES.
+  if (mol && [...Array(mol.getAllAtoms()).keys()].some((i) => mol.getAtomicNo(i) === WILDCARD_SENTINEL_Z)) {
+    return { kind: "smiles", smiles: raw };
+  }
   if (f && mol) {
     const mf = mol.getMolecularFormula();
     if (sameCounts(f.counts, oclCounts(mf.formula)) && f.charge === netCharge(mol)) {
@@ -581,7 +799,15 @@ export function resolveChemInput(
   if (f) {
     let note: string | undefined;
     const dup = duplicateRingClosure(raw);
-    if (dup !== null && parseSmilesOnly(raw)) {
+    const invalid = invalidSmilesReason(raw);
+    // Written as SMILES (no explicit counts) but not valid SMILES: say so, rather than answer for a formula reading
+    // nobody meant — "CCC(C)(C)(C)C" is a five-bonded carbon, not "carbon, C₇".
+    if (invalid && !looksWrittenAsFormula(raw)) {
+      return { kind: "none", message: `${invalid} As a formula it would be ${describeFormula(f)} — type formula:${raw} for that.` };
+    }
+    if (invalid) {
+      note = `Read as a formula. As SMILES: ${invalid}`;
+    } else if (dup !== null && parseSmilesOnly(raw)) {
       note =
         `Read as a formula. “${raw}” is not valid SMILES: ring closure ${dup} would join two atoms that are already bonded.`;
     } else if (parseSmilesOnly(raw)) {
@@ -590,7 +816,12 @@ export function resolveChemInput(
     return { kind: "formula", formula: f, note };
   }
   if (mol) return { kind: "smiles", smiles: raw };
+  const invalid = invalidSmilesReason(raw);
   const v = validateFormula(raw);
+  if (invalid) {
+    // A typo'd FORMULA (Fe2(SO4 3) keeps its formula diagnosis beside the SMILES one.
+    return { kind: "none", message: `${invalid}${v.errors.length ? ` As a formula: ${v.errors.join("; ")}.` : ""}` };
+  }
   const why = v.errors.length ? ` As a formula: ${v.errors.join("; ")}.` : "";
   return { kind: "none", message: `“${raw}” is not a known name, a formula, or a SMILES string this tool can read.${why}` };
 }
@@ -609,16 +840,32 @@ export type StructureResolution =
  */
 export function resolveStructure(input: string, mode: ChemReadMode = "auto", width = 280, height = 220): StructureResolution {
   const r = resolveChemInput(input, mode, "structure");
+  // The drawing refusals by NAME (too large to lay out, attachment points other than a repeat unit's two), before
+  // renderStructure would only say null.
+  const refusalFor = (smiles: string): string | null => {
+    const c = checkSmiles(smiles);
+    return c.ok ? drawRefusal(c) : c.message;
+  };
+  const repeatNote = (res: StructureResult, note?: string): string | undefined =>
+    res.repeatUnit
+      ? [note, "Formula and MW are per repeat unit: the two * are the bonds to the neighbouring units (end groups not counted)."]
+          .filter(Boolean)
+          .join(" ")
+      : note;
   switch (r.kind) {
     case "none":
       return r;
     case "dictionary": {
+      const why = refusalFor(r.smiles);
+      if (why) return { kind: "none", message: why };
       const res = renderStructure(input, width, height);
       return res ? { kind: "ok", result: res, note: r.note } : { kind: "none", message: `The dictionary entry for “${input.trim()}” could not be drawn.` };
     }
     case "smiles": {
+      const why = refusalFor(r.smiles);
+      if (why) return { kind: "none", message: why };
       const res = renderStructure(`smiles:${r.smiles}`, width, height);
-      return res ? { kind: "ok", result: res, note: r.note } : { kind: "none", message: `“${r.smiles}” could not be drawn.` };
+      return res ? { kind: "ok", result: res, note: repeatNote(res, r.note) } : { kind: "none", message: `“${r.smiles}” could not be drawn.` };
     }
     case "formula":
       return {
@@ -626,7 +873,7 @@ export function resolveStructure(input: string, mode: ChemReadMode = "auto", wid
         formula: r.formula,
         message:
           `“${input.trim()}” is a formula — ${describeFormula(r.formula)} — and a formula has no single structure to draw. ` +
-          `For a structure, type a name or a SMILES string.`,
+          `For a structure, type a name or a SMILES string.${r.note && /not valid/.test(r.note) ? ` ${r.note}` : ""}`,
       };
     case "ambiguous": {
       const res = renderStructure(`smiles:${r.smiles}`, width, height);

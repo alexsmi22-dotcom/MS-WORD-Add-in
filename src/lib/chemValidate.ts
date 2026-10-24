@@ -292,11 +292,21 @@ export function validateFormula(input: string): FormulaValidation {
 
   // Monatomic ion (e.g. "Ca2+", "Fe3+"): the digit is the charge, not a count —
   // one atom, charge = ±digits. (Polyatomic ions like NH4+ parse normally.)
-  const mono = /^([A-Z][a-z]?)(\d+)([+-])$/.exec(src);
+  // The charge is ONE digit (as chemParser typesets it): "Hg22+" is Hg₂²⁺ (two atoms, 2+) and "O22-" peroxide O₂²⁻ —
+  // read as a +22 / −22 charge on one atom until v2.193; "C60-" (a trailing 0 is never a charge) is C₆₀⁻ and parses
+  // normally below.
+  const mono = /^([A-Z][a-z]?)([1-9])([+-])$/.exec(src);
   if (mono && isElement(mono[1])) {
     const el = mono[1];
     const q = (mono[3] === "-" ? -1 : 1) * parseInt(mono[2], 10);
     return { valid: true, errors: [], counts: { [el]: 1 }, charge: q, mass: PERIODIC[el], hill: el, fractional: false, notes: [] };
+  }
+  const homo = /^([A-Z][a-z]?)(\d+)([1-9])([+-])$/.exec(src);
+  if (homo && isElement(homo[1]) && parseInt(homo[2], 10) >= 2) {
+    const el = homo[1];
+    const n = parseInt(homo[2], 10);
+    const q = (homo[4] === "-" ? -1 : 1) * parseInt(homo[3], 10);
+    return { valid: true, errors: [], counts: { [el]: n }, charge: q, mass: PERIODIC[el] * n, hill: `${el}${n}`, fractional: false, notes: [] };
   }
 
   // HYDRATE PARTS. Each part may carry a leading coefficient, which is a NUMBER
@@ -496,19 +506,22 @@ function dedupe(a: string[]): string[] {
   return a.filter((x, k) => a.indexOf(x) === k);
 }
 
-/** Hill system: carbon first, hydrogen second, then all others alphabetically. */
+/**
+ * Hill system: carbon first, hydrogen second (then deuterium and tritium, as hydrogen isotopes — CDCl₃, the same
+ * order as characterization.hillHtml), then all others alphabetically; with no carbon, all alphabetically.
+ */
 export function hillFormula(counts: Record<string, number>): string {
   const keys = Object.keys(counts);
   if (!keys.length) return "";
+  const lead = ["C", "H", "D", "T"];
   const order = keys.slice().sort((a, b) => {
     if (a === b) return 0;
     if ("C" in counts) {
-      if (a === "C") return -1;
-      if (b === "C") return 1;
-      if (a === "H") return -1;
-      if (b === "H") return 1;
+      const ia = lead.indexOf(a);
+      const ib = lead.indexOf(b);
+      if (ia >= 0 || ib >= 0) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
     }
-    return a.localeCompare(b);
+    return a < b ? -1 : 1;
   });
   return order.map((k) => (counts[k] === 1 ? k : `${k}${counts[k]}`)).join("");
 }

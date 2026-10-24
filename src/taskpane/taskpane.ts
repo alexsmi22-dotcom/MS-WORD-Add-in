@@ -4769,6 +4769,14 @@ function updateStructurePreview(): void {
   renderPropertiesFor(result);
   insertStructureBtn.disabled = false;
   editInDrawBtn.disabled = false;
+  if (result.repeatUnit) {
+    // A polymer repeat unit (*…*) is not a compound: no name, and the canvas does not take attachment points.
+    editInDrawBtn.disabled = true;
+    currentStructureName = "";
+    structureNameEl.textContent = "No name: a polymer repeat unit (attachment points *) is not a single compound.";
+    insertNameBtn.disabled = true;
+    return;
+  }
 
   // Names: the curated dictionary first (retained names — aspirin, toluene);
   // on a miss, the offline SYSTEMATIC subset namer speaks if — and only if —
@@ -5338,7 +5346,7 @@ async function insertStructure(): Promise<void> {
     const base64 = await renderFigurePng(structure.svg, d.w, d.h);
     const label = inputEl.value.trim();
     const alt = provenanceAltText(
-      `2D structure of ${label}`,
+      structure.repeatUnit ? `2D structure of ${label} (polymer repeat unit; formula and MW per repeat unit)` : `2D structure of ${label}`,
       structure.formula,
       structure.mw,
       structure.smiles,
@@ -30789,7 +30797,9 @@ function updateMassSpec(): void {
   const masses = document.createElement("div");
   masses.className = "ms-masses";
   for (const [k, v] of [
-    ["Monoisotopic mass", spec.monoisotopicMass.toFixed(4)],
+    [spec.ionMz === null ? "Monoisotopic mass" : "Monoisotopic mass (neutral atoms)", spec.monoisotopicMass.toFixed(4)],
+    // An ion's m/z counts the electrons it lacks or carries — the value Characterization's [M] gives.
+    ...(spec.ionMz === null ? [] : [[`m/z of the ion (${chargeText(spec.netCharge)}, electron mass counted)`, spec.ionMz.toFixed(4)]]),
     ["Average mass", spec.averageMass.toFixed(2)],
     // Typeset, like the INSERT path already was. The pane used to show C7H8
     // while the document received C₇H₈ — preview and insert disagreeing, and

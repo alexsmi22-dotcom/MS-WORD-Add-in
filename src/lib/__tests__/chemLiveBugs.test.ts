@@ -26,7 +26,7 @@ import { isotopeMass } from "../isotopes";
 const html = (formula: string) => segmentsToHtml(parseChemical(formula));
 
 const SUB: Record<string, string> = { "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉" };
-const SUP: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻" };
+const SUP: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "−": "⁻" }; // v2.193: parseChemical emits the true minus (U+2212) in a superscript charge
 /** The plain-text form of the typeset segments — what lands in the document. */
 const printed = (formula: string): string =>
   parseChemical(formula)
@@ -243,10 +243,10 @@ describe("live bug 2 — a hydrate coefficient is full size, preview AND insert"
   test("everything else typesets exactly as before", () => {
     expect(html("2H2O")).toBe("2H<sub>2</sub>O");
     expect(html("CuSO4 · 5H2O")).toBe("CuSO<sub>4</sub> · 5H<sub>2</sub>O");
-    expect(html("SO4^2-")).toBe("SO<sub>4</sub><sup>2-</sup>");
+    expect(html("SO4^2-")).toBe("SO<sub>4</sub><sup>2−</sup>");
     expect(html("Fe3+")).toBe("Fe<sup>3+</sup>");
     expect(html("NH4+")).toBe("NH<sub>4</sub><sup>+</sup>");
-    expect(html("[Fe(CN)6]3-")).toBe("[Fe(CN)<sub>6</sub>]<sup>3-</sup>");
+    expect(html("[Fe(CN)6]3-")).toBe("[Fe(CN)<sub>6</sub>]<sup>3−</sup>");
     expect(html("C6H12O6")).toBe("C<sub>6</sub>H<sub>12</sub>O<sub>6</sub>");
   });
 });
@@ -383,7 +383,7 @@ describe("live bug 3 — a formula is not read as SMILES on a dictionary miss", 
     const hf = resolveMassSpec("Hf", "auto");
     expect(hf.kind === "ok" && hf.result.averageMass).toBeCloseTo(178.49, 1);
     const HF = resolveMassSpec("HF", "auto");
-    expect(HF.kind === "ok" && HF.result.formula).toBe("HF");
+    expect(HF.kind === "ok" && HF.result.formula).toBe("FH"); // Hill order (v2.193): no carbon, so all alphabetical — FH, as ClH and BH₄N
     const sn = resolveMassSpec("Sn", "auto");
     expect(sn.kind === "ok" && sn.result.formula).toBe("Sn");
     const SN = resolveMassSpec("SN", "auto");

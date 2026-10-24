@@ -19,7 +19,7 @@
 // monoisotopic mass and an ion mass shift.
 
 import { Molecule } from "openchemlib";
-import { lookupSmiles, resolveChemInput, ChemReadMode, FormulaReading } from "./structures";
+import { lookupSmiles, resolveChemInput, ChemReadMode, FormulaReading, checkSmiles, hillFromOcl } from "./structures";
 import { ELECTRON_MASS, elementIsotopes, elementRefusal, isotopeLabel, isotopeMass, monoisotopicElementMass } from "./isotopes";
 
 const ELECTRON = ELECTRON_MASS;
@@ -336,6 +336,13 @@ export interface MassSpecResult {
    * (mass and isotope pattern are still valid for the given formula).
    */
   netCharge: number;
+  /**
+   * For a charged input (netCharge z ≠ 0), the ion's own m/z: (M − z·mₑ)/|z|, with M = monoisotopicMass (the sum of
+   * the atoms' masses, electrons of the neutral atoms included) and mₑ the electron mass — the electrons a cation
+   * lacks (or an anion carries) are counted, as Characterization's [M] and RDKit's ExactMolWt do
+   * (tetramethylammonium: 74.09643). Null for a neutral input.
+   */
+  ionMz: number | null;
   adducts: { name: string; mz: number; charge: number }[];
   /** What the pattern leaves out and why (threshold, cap, no fine structure). */
   patternNote: string;
@@ -361,16 +368,17 @@ export function computeMassSpec(input: string): MassSpecResult | null {
   const looked = lookupSmiles(input);
   const raw = looked ? looked.smiles : input.trim();
   if (!raw) return null;
-  let mol: Molecule;
-  try {
-    mol = Molecule.fromSmiles(raw);
-  } catch {
-    return null;
-  }
-  if (mol.getAllAtoms() === 0) return null;
-  const r = massSpecFromMolecule(mol);
+  // No 2D layout: a mass needs counts, not coordinates (a long chain's layout froze the pane for minutes).
+  const c = checkSmiles(raw);
+  if (!c.ok || c.wildcards) return null;
+  const r = massSpecFromMolecule(c.mol);
   return typeof r === "string" ? null : r;
 }
+
+/** The refusal for attachment points (*) in a mass: a fragment has no molecular ion. */
+const WILDCARD_MASS_REFUSAL =
+  "The structure has attachment points (*): a substituent or a polymer's repeat unit is not a whole molecule and " +
+  "has no molecular ion. Replace each * with its end group (H for a capped chain) for a mass.";
 
 /**
  * The composition of a parsed molecule, by WALKING ITS ATOMS — not by re-reading
@@ -384,8 +392,12 @@ export function compositionFromMolecule(mol: Molecule): Composition | string {
   const add = (sym: string, n: number) => {
     if (n > 0) natural[sym] = (natural[sym] ?? 0) + n;
   };
+  // An attachment point "*" is a QUERY atom that OpenChemLib reports as carbon (atomic number 6), and it turns the
+  // molecule into a fragment whose atoms carry no implicit hydrogens: *CC* read as C₄. Never a mass.
+  if (mol.isFragment()) return WILDCARD_MASS_REFUSAL;
   for (let i = 0; i < mol.getAllAtoms(); i++) {
     const z = mol.getAtomicNo(i);
+    if (z === 118) return WILDCARD_MASS_REFUSAL; // the sentinel structures.checkSmiles parses in place of "*"
     const sym = mol.getAtomLabel(i);
     if (!(z >= 1) || !/^[A-Z][a-z]?$/.test(sym)) return `The structure contains a non-element atom (“${sym}”), which has no mass.`;
     const A = mol.getAtomMass(i);
@@ -411,7 +423,9 @@ function massSpecFromMolecule(mol: Molecule): MassSpecResult | string {
   for (let i = 0; i < mol.getAllAtoms(); i++) netCharge += mol.getAtomCharge(i);
   const comp = compositionFromMolecule(mol);
   if (typeof comp === "string") return comp;
-  return assemble(mf.formula, comp, netCharge, mf.formula);
+  // Hill order, as every other formula row (OpenChemLib writes C2H3O2Na; Hill is C2H3NaO2).
+  const hill = hillFromOcl(mf.formula);
+  return assemble(hill, comp, netCharge, hill);
 }
 
 /**
@@ -484,12 +498,17 @@ function assemble(formula: string, comp: Composition, netCharge: number, display
     pattern: pat.peaks,
     unsupportedInPattern: pat.unsupported,
     netCharge,
+    ionMz: netCharge === 0 ? null : (monoisotopicMass - netCharge * ELECTRON) / Math.abs(netCharge),
     adducts,
     // The natural-composition note is not true of a labelled atom: say that the
     // named isotopes are fixed (100 %), and that the rest is natural.
-    patternNote: labelledIsotopes.length
-      ? `${pat.note} Labelled atoms (${labelledIsotopes.join(", ")}) are fixed at their named isotope (100 %, no enrichment distribution); only the unlabelled atoms follow natural composition.`
-      : pat.note,
+    patternNote:
+      (labelledIsotopes.length
+        ? `${pat.note} Labelled atoms (${labelledIsotopes.join(", ")}) are fixed at their named isotope (100 %, no enrichment distribution); only the unlabelled atoms follow natural composition.`
+        : pat.note) +
+      (netCharge === 0
+        ? ""
+        : ` Peak masses are sums of neutral-atom masses; each peak's m/z is (mass − z·mₑ)/|z| for charge z (mₑ = ${ELECTRON.toFixed(9)} u), as for the ion's m/z.`),
     belowThreshold: pat.belowThreshold,
     beyondCap: pat.beyondCap,
     labelledIsotopes,
@@ -613,13 +632,11 @@ const joinNotes = (...n: (string | undefined)[]): string | undefined => {
 
 /** The MS readout for a SMILES, parsed as SMILES only (no dictionary or formula lookup first). */
 export function smilesSpec(smiles: string): MassSpecResult | string | null {
-  let mol: Molecule;
-  try {
-    mol = Molecule.fromSmiles(smiles);
-  } catch {
-    return null;
-  }
-  return mol.getAllAtoms() ? massSpecFromMolecule(mol) : null;
+  // Coordinate-free: a mass needs counts, and the default parse's 2D layout took 38.7 s for "C" × 3000.
+  const c = checkSmiles(smiles);
+  if (!c.ok) return c.invalid ? c.message : null;
+  if (c.wildcards) return WILDCARD_MASS_REFUSAL;
+  return massSpecFromMolecule(c.mol);
 }
 
 /** The MS readout for typed input, reading formulas as formulas (see above). */

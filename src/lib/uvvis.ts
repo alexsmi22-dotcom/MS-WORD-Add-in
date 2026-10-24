@@ -67,6 +67,7 @@ import {
   isFusedAromatic,
   parseToMolecule,
   SubstKey,
+  type CarbonylKind,
 } from "./molgraph";
 
 /**
@@ -1070,26 +1071,67 @@ export function predictUvVis(input: string): UvResult | null {
   }
 
   // --- Isolated carbonyl ---------------------------------------------------
-  let isolatedCarbonyl = false;
+  // The n→π* band of an isolated C=O depends on the CLASS: a heteroatom on the carbonyl (OH, OR, NR₂) raises the
+  // π* level and moves the band far to the blue. Every carbonyl used to be handed the ketone's 280 nm, so acetic acid
+  // and ethyl acetate were "280 nm" — 75 nm off. Tabulated n→π* (Silverstein, Spectrometric Identification of
+  // Organic Compounds, simple-chromophore table; Pavia, Introduction to Spectroscopy): acetone 279, acetaldehyde 290,
+  // acetic acid 204, ethyl acetate 207, acetamide 214 nm. Classes with no value tabulated here (anhydride, acid halide,
+  // carbonate, urea, carbamate, thioester, isocyanate) are named, never given a guessed band.
+  const ISOLATED_NPI: Partial<Record<CarbonylKind, { nm: number; name: string }>> = {
+    aldehyde: { nm: 290, name: "aldehyde" },
+    ketone: { nm: 280, name: "ketone" },
+    amide: { nm: 214, name: "amide" },
+    ester: { nm: 207, name: "ester" },
+    acid: { nm: 204, name: "carboxylic acid" },
+  };
+  const tabulated = new Map<string, number>();
+  const untabulated = new Set<string>();
   let isolatedCarboxylate = false;
   for (let a = 0; a < mol.getAllAtoms(); a++) {
     const k = carbonylKind(mol, a);
-    if (k === "carboxylate") isolatedCarboxylate = true;
-    else if (k) isolatedCarbonyl = true;
+    if (!k) continue;
+    if (k === "carboxylate") {
+      isolatedCarboxylate = true;
+      continue;
+    }
+    const t = ISOLATED_NPI[k];
+    if (t) tabulated.set(t.name, t.nm);
+    else untabulated.add(k);
   }
-  if (isolatedCarbonyl) {
+  if (tabulated.size) {
+    // The longest-wavelength tabulated band is λmax (a ketone's 280 over an ester's 207 in a keto ester).
+    const [bestName, bestNm] = [...tabulated.entries()].sort((p, q) => q[1] - p[1])[0];
+    // An untabulated class might absorb longer than an ester/acid/amide band: then λmax is not known.
+    if (untabulated.size && bestNm < 280) {
+      return refuse(
+        `isolated carbonyl (${[...untabulated].join(", ")}: no tabulated band)`,
+        `The structure has an isolated ${[...untabulated].join(", ")} carbonyl, whose n→π* band is not tabulated here, ` +
+          `so the longest-wavelength band cannot be named (the ${bestName} band alone is ≈ ${bestNm} nm).`
+      );
+    }
     caveats.add(
-      "An isolated (unconjugated) carbonyl has only a weak n→π* band near 280 nm (ε ≈ 10-20); its strong π→π* band is below 200 nm."
+      `An isolated (unconjugated) ${bestName} C=O has only a weak n→π* band (ε ≈ 10–100), tabulated near ${bestNm} nm; its strong π→π* band is below 200 nm.`
     );
+    if (tabulated.size > 1) {
+      caveats.add(`Other isolated carbonyls: ${[...tabulated.entries()].filter(([n]) => n !== bestName).map(([n, nm]) => `${n} ≈ ${nm} nm`).join(", ")}.`);
+    }
+    if (untabulated.size) caveats.add(`No band is tabulated here for the isolated ${[...untabulated].join(", ")} carbonyl.`);
     return {
       smiles,
-      lambdaMax: 280,
-      chromophore: "isolated carbonyl (weak n→π*)",
-      contributions: [{ label: "n→π* of isolated C=O (tabulated, weak)", nm: 280 }],
+      lambdaMax: bestNm,
+      chromophore: `isolated carbonyl, ${bestName} (weak n→π*)`,
+      contributions: [{ label: `n→π* of isolated ${bestName} C=O (tabulated, weak)`, nm: bestNm }],
       transparent: false,
       outOfDomain: false,
       caveats: [...caveats],
     };
+  }
+  if (untabulated.size) {
+    return refuse(
+      `isolated carbonyl (${[...untabulated].join(", ")}: no tabulated band)`,
+      `The only carbonyl here is an isolated ${[...untabulated].join(", ")}, whose n→π* band is not tabulated here ` +
+        `(it is not the ketone's 280 nm).`
+    );
   }
 
   // --- Isolated carboxylate: not the 280 nm n→π* of a C=O ------------------

@@ -143,7 +143,9 @@ interface Piece {
 // ---------------------------------------------------------------------------
 
 const HEAD_RE = /^\s*fourier\s+series(?:\s+of)?\s*[:]?\s*(.+)$/i;
-const PIECE_RE = /^(.+?)\s+(?:on|for|over)\s*\(?\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)?\s*$/i;
+// The interval may be written (−π, π) or [−π, π] — brackets were captured INTO the bounds and the user was told
+// "[-pi, pi]" was not a multiple of pi (review 2026-10-24).
+const PIECE_RE = /^(.+?)\s+(?:on|for|over)\s*[([]?\s*([^,()[\]]+?)\s*,\s*([^,()[\]]+?)\s*[)\]]?\s*$/i;
 
 export interface FourierRequest {
   pieces: Piece[];

@@ -46,6 +46,9 @@ const PRODUCTION_LINE = /^\s*(?:<[^>\n]+>|[A-Z][A-Za-z0-9_']*)\s*(?:->|→|::=)/
 
 const HM_OPEN = /^\s*(?:hm|hindley[-\s]milner|algorithm\s+w|type\s+scheme(?:\s+of)?|principal\s+type\s+scheme|infer\s+scheme)\b/i;
 const LET_IN = /^\s*let\s+(?:rec\s+)?[A-Za-z_]\w*\s*=[\s\S]*\bin\s/;
+const TYPE_OPEN = /^\s*(?:type(?:\s+of)?|typeof|infer(?:\s+the)?\s+type(?:\s+of)?|principal\s+type(?:\s+of)?)\s/i;
+const LAMBDA_LEAD = /^\s*(?:λ|\\)\s*[A-Za-z_]\w*\s*\./;
+const LAMBDA_ABS = /(?:λ|\\)\s*[A-Za-z_]\w*\s*\./;
 
 export function computationKindFor(raw0: string): "discrete" | "lambda" | null {
   const raw = raw0.replace(/\r/g, "").trim();
@@ -73,6 +76,18 @@ export function computationKindFor(raw0: string): "discrete" | "lambda" | null {
     if (answered || (keywordLed && refused)) return "discrete";
   }
 
+  // "type λx.λy.x" and a bare λ-abstraction typed into the default kind were
+  // "Couldn't parse that equation" (review 2026-10-24). Only the abstraction
+  // shape λx. … (or \x. …) claims a line — "λ = 1e6" is a Poisson rate.
+  if (!hasEquation && (TYPE_OPEN.test(raw) || LAMBDA_LEAD.test(raw)) && LAMBDA_ABS.test(raw)) {
+    let lr = null;
+    try {
+      lr = solveLambda(raw);
+    } catch {
+      lr = null;
+    }
+    if (lr && lr.title !== "Not recognised") return "lambda";
+  }
   const hmOpen = HM_OPEN.test(raw);
   if (hmOpen || LET_IN.test(raw)) {
     let lr = null;

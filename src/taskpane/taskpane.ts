@@ -467,14 +467,15 @@ import { tryInterpolate, INTERP_VERB_RE } from "../lib/interpolate";
 import { trySpline, SPLINE_VERB_RE } from "../lib/spline";
 import { tryComplex } from "../lib/complexAlgebra";
 import { tryStatsIntent } from "../lib/statsIntent";
-import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest, isSeriesOrRadiusRequest, rootDisplayIsComplex, seriesFailureMessage } from "../lib/solveTypeset";
+import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest, isSeriesOrRadiusRequest, seriesFailureMessage, sciDisplay, sciMath, eNotationToText } from "../lib/solveTypeset";
 import { tryRadius, radiusSvg } from "../lib/radius";
 import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords, resolveTaskVerb } from "../lib/pasteMath";
+import { parseCalculusTask } from "../lib/calcTask";
 import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts, chargeSuperscript, Mol3dView, Mol3dStyle } from "../lib/mol3d";
 import { iupacName, nameWithDescriptors } from "../lib/iupacName";
 import { stereoText } from "../lib/cipText";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
-import { solveOdeSymbolic } from "../lib/odeSymbolic";
+import { solveOdeSymbolic, solveFirstOrderIvp } from "../lib/odeSymbolic";
 import { solveWithUnits } from "../lib/unitSolve";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import {
@@ -32660,8 +32661,7 @@ function canvasInsertSize(r: { widthPt: number; heightPt: number }, selectionOnl
 
 /** Formats a number for the pane: up to 8 significant digits, no trailing zeros. */
 function trimNum(v: number): string {
-  if (Number.isInteger(v)) return String(v);
-  return String(Number(v.toPrecision(8)));
+  return sciDisplay(v);
 }
 
 /**
@@ -32809,7 +32809,9 @@ function updateSolve(): void {
     lines.push(plain);
     blocks.push({ kind: "math", content: math });
   };
-  const finish = (caveats: string[]) => {
+  const finish = (rawCaveats: string[]) => {
+    // The display contract holds in caveats too: "agrees to 1.0e-12" → 1.0×10⁻¹².
+    const caveats = rawCaveats.map(eNotationToText);
     if (caveats.length) solveResult.appendChild(specCaveats(caveats));
     for (const c of caveats) {
       lines.push(c);
@@ -32828,9 +32830,11 @@ function updateSolve(): void {
       // turns it into what mathToHtml/mathToOmml render properly — without
       // it, the pane's fallback raises only the "(" of a superscript.
       const math = w.math ? solveToTypesetDsl(w.math) : undefined;
-      solveResult.appendChild(solveWorkLine({ text: w.text, math }));
-      if (math) sayMath(math, w.text ?? w.math);
-      else if (w.text) say(w.text);
+      // Prose work lines keep the display contract: no e-notation, no *10^(n).
+      const text = w.text !== undefined ? eNotationToText(w.text) : undefined;
+      solveResult.appendChild(solveWorkLine({ text, math }));
+      if (math) sayMath(math, text ?? w.math);
+      else if (text) say(text);
     }
   };
 
@@ -32889,7 +32893,7 @@ function updateSolve(): void {
             solveLine(
               owner === "discrete"
                 ? "This is computation theory (a grammar, a machine, first-order logic or SAT) — switched to the Discrete kind, which owns it, and answered."
-                : "This is Hindley–Milner type inference — switched to the λ-calculus kind, which owns it, and answered."
+                : "This is λ-calculus (a λ-term or its type) — switched to the λ-calculus kind, which owns it, and answered."
             ),
             solveResult.firstChild
           );
@@ -32899,8 +32903,15 @@ function updateSolve(): void {
       const wantsDerivative = !transformVerb && /\b(derivative|differentiate)\b/i.test(text);
       const wantsIntegral = !transformVerb && /\b(integral|integrate|antiderivative)\b/i.test(text);
       if (wantsDerivative || wantsIntegral) {
+        // The target kind reads the task itself (calcTask.ts); switch when it can.
+        const task = parseCalculusTask(text, wantsDerivative ? "derivative" : "integral");
+        const taskWorks =
+          !!task && task.ok &&
+          (wantsDerivative
+            ? differentiate(task.expr, task.variable) !== null
+            : task.from !== undefined || antiderivative(task.expr, task.variable) !== null);
         const ex = extractSingleEquation(text) ?? extractExpression(text);
-        const works = ex && (wantsDerivative ? differentiate(ex) !== null : antiderivative(ex) !== null);
+        const works = taskWorks || (ex && (wantsDerivative ? differentiate(ex) !== null : antiderivative(ex) !== null));
         if (works) {
           const target: SolveKind = wantsDerivative ? "derivative" : "integral";
           solveKind.value = target;
@@ -33202,7 +33213,9 @@ function updateSolve(): void {
                 ? r.unknowns && r.unknowns.length > 1 && !solveVarChoice
                   ? "This has more than one unknown — choose which one to solve for:"
                   : `Couldn't isolate ${r.variable} in closed form here. Giving the other symbols values can make it solvable numerically.`
-                : "No real roots found in the range searched.";
+                : r.method === "no reliable root found"
+                  ? "No reliable root — see the note below."
+                  : "No real roots found in the range searched.";
         solveResult.appendChild(solveLine(msg, "ms-masses"));
         say(msg);
       } else {
@@ -33214,7 +33227,8 @@ function updateSolve(): void {
         const ROOT_LINES_MAX = 24;
         const shownRoots = r.roots.slice(0, ROOT_LINES_MAX);
         for (const root of shownRoots) {
-          solveResult.appendChild(solveLine(`${r.variable} = ${root.display}`, "ms-masses"));
+          // Never e-notation on screen: 1.70463116806e-11 → 1.70463116806×10⁻¹¹.
+          solveResult.appendChild(solveLine(eNotationToText(`${r.variable} = ${root.display}`), "ms-masses"));
           // A root is an equation — typeset it. Complex roots (0 + 1i) and
           // multiplicity markers (×2) are not linear math, so those stay text.
           // The test is TOKEN-aware (v2.136.0): the old /[i×]/ matched the i in
@@ -33222,8 +33236,10 @@ function updateSolve(): void {
           // form goes through solveToTypesetDsl, which draws cbrt(u) and
           // c^(1/4) as real radicals — sayMath alone hands Word the raw text.
           const plain = `${r.variable} = ${root.display}`;
-          if (rootDisplayIsComplex(root.display)) say(plain);
-          else sayMath(solveToTypesetDsl(plain), plain);
+          // A complex root (1 + 2i) is still an equation and is typeset; only a
+          // multiplicity marker "(×2)" keeps a root as text (review 2026-10-24).
+          if (/×/.test(root.display)) say(eNotationToText(plain));
+          else sayMath(solveToTypesetDsl(plain), eNotationToText(plain));
         }
         if (r.roots.length > ROOT_LINES_MAX) {
           const more = `… and ${r.roots.length - ROOT_LINES_MAX} more roots in the range searched (${r.roots.length} total) — not listed one per line.`;
@@ -33235,9 +33251,9 @@ function updateSolve(): void {
       // for whichever one the user picks, carrying the rest symbolically.
       if (r.unknowns && r.unknowns.length > 1) solveResult.appendChild(solveVarChipsRow(r.unknowns));
       solveResult.appendChild(solveLine(`Method: ${r.method}`));
-      for (const s of r.steps) solveResult.appendChild(solveLine(s));
+      for (const s of r.steps) solveResult.appendChild(solveLine(eNotationToText(s)));
       say(`Method: ${r.method}`);
-      for (const s of r.steps) say(s);
+      for (const s of r.steps) say(eNotationToText(s));
       // THE CURVE, WITH THE ROOTS ON IT. A root is where the function crosses
       // zero, and the list of values does not say how many crossings there
       // were, whether two of them nearly coincide, or that the solver searched
@@ -33246,7 +33262,8 @@ function updateSolve(): void {
       //
       // Plotted as LHS minus RHS so zero is the thing being crossed, which is
       // the same rearrangement the solver did.
-      {
+      // No curve for an overflow refusal or a constants-only line ("0 = 0").
+      if (r.method !== "no reliable root found" && !(r.unknowns && r.unknowns.length === 0)) {
         // Real roots only: `im` near zero. A symbolic root (a = F/m) has NaN
         // for both parts and is filtered out by the finiteness check, which is
         // correct - there is no point on a number line to put it at.
@@ -33342,7 +33359,19 @@ function updateSolve(): void {
         }
         return finish(sr.caveats);
       }
-      let r = differentiate(text);
+      // TASK PROSE AND d/dx ARE NOT FACTORS: "derivative of x^3" and "d/dx sin(x)"
+      // were differentiated with "derivative", "of" and d/dx as constants
+      // (calcTask.ts; review 2026-10-24).
+      let dVar: string | undefined;
+      {
+        const task = parseCalculusTask(text, "derivative");
+        if (task && !task.ok) return void solveResult.appendChild(solveLine(task.reason));
+        if (task && task.ok) {
+          text = task.expr;
+          dVar = task.variable;
+        }
+      }
+      let r = differentiate(text, dVar);
       if (!r) {
         // "Find the derivative of the function f(x) = 3x² + 4x − 2." pasted
         // whole — dig the function out of the sentence, like the equation kind.
@@ -33405,8 +33434,24 @@ function updateSolve(): void {
       // after subtracting; this is the route that hands it back. Clearing the
       // two limit boxes is the discoverable way to ask for it, and it cannot
       // collide with a definite request because a definite one needs numbers.
-      if (!solveA.value.trim() && !solveB.value.trim()) {
-        const ar = antiderivative(text);
+      //
+      // TASK PROSE FIRST (calcTask.ts): "integrate x^2 from 0 to 3" was "0 + C"
+      // and "x^2 dx" integrated dx as a constant. "from a to b" in the text is a
+      // DEFINITE request and wins over the limit boxes.
+      let iVar: string | undefined;
+      let textLo: string | undefined, textHi: string | undefined;
+      {
+        const task = parseCalculusTask(text, "integral");
+        if (task && !task.ok) return void solveResult.appendChild(solveLine(task.reason));
+        if (task && task.ok) {
+          text = task.expr;
+          iVar = task.variable;
+          textLo = task.from;
+          textHi = task.to;
+        }
+      }
+      if (textLo === undefined && !solveA.value.trim() && !solveB.value.trim()) {
+        const ar = antiderivative(text, iVar);
         if (!ar) {
           return void solveResult.appendChild(
             solveLine(
@@ -33421,7 +33466,9 @@ function updateSolve(): void {
         const fx = `∫ (${text}) d${ar.variable} = ${ar.antiderivative} + C`;
         solveResult.appendChild(solveLine(fx, "ms-masses"));
         say("Indefinite integral:", "heading");
-        sayMath(`int(${text}, ${ar.variable}) = ${ar.antiderivative} + C`, fx);
+        // The typeset grammar is int(lower, upper, body) — empty limits for the
+        // indefinite form. int(f, x) was not that grammar and reached Word as raw text.
+        sayMath(`int(, , (${text}) d${ar.variable}) = ${ar.antiderivative} + C`, fx);
         // SHOW THE CHECK. The derivative is printed back so the reader can see
         // the answer returns the integrand, and the status says whether that
         // was proved or merely sampled — because the printed form often does
@@ -33443,19 +33490,29 @@ function updateSolve(): void {
         solveResult.appendChild(solveLine(`Method: ${ar.method}`));
         return finish(ar.caveats);
       }
-      const a = parseBound(solveA.value.trim() || "0");
-      const b = parseBound(solveB.value.trim() || "1");
+      const lo = textLo ?? (solveA.value.trim() || "0");
+      const hi = textHi ?? (solveB.value.trim() || "1");
+      const a = parseBound(lo);
+      const b = parseBound(hi);
       if (!Number.isFinite(a) || !Number.isFinite(b)) return void solveResult.appendChild(solveLine("Enter numeric limits (numbers, or expressions like pi/2)."));
-      const r = integrate(text, a, b);
+      const r = integrate(text, a, b, iVar);
       if (!r) return void solveResult.appendChild(solveLine("Couldn't integrate that. Use one variable and numeric limits."));
       solveResult.appendChild(msEyebrow("Definite integral"));
-      const lo = solveA.value.trim() || "0";
-      const hi = solveB.value.trim() || "1";
       // An integrand undefined inside the interval has NO value — say that,
-      // rather than printing "NaN" as though it were a number.
+      // rather than printing "NaN" as though it were a number. A divergent
+      // integral says so by name (integrate's noValue).
+      // An error-bounded value (oscillatory singularity) is shown only to the
+      // digits the bound supports, with the bound — never eight false digits.
+      const shownValue = r.errorBound !== undefined && Number.isFinite(r.value)
+        ? `${r.value.toFixed(Math.max(0, Math.min(15, Math.floor(-Math.log10(r.errorBound) + 1e-9))))} (± ${sciDisplay(r.errorBound, 1)})`
+        : sciDisplay(r.value);
+      // The typeset twin: mathParse grammar (×10^{n}, +- for ±) — superscript glyphs and a bare ± do not typeset.
+      const shownValueMath = r.errorBound !== undefined && Number.isFinite(r.value)
+        ? `${r.value.toFixed(Math.max(0, Math.min(15, Math.floor(-Math.log10(r.errorBound) + 1e-9))))} +- ${sciMath(r.errorBound, 1)}`
+        : sciMath(r.value);
       const val = Number.isFinite(r.value)
-        ? `∫ (${text}) d${r.variable}, from ${lo} to ${hi} = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`
-        : `∫ (${text}) d${r.variable}, from ${lo} to ${hi} — no value: the integrand is undefined somewhere in this interval.`;
+        ? `∫ (${text}) d${r.variable}, from ${lo} to ${hi} ${r.errorBound !== undefined ? "≈" : "="} ${shownValue}`
+        : `∫ (${text}) d${r.variable}, from ${lo} to ${hi} — no value: ${r.noValue ?? "the integrand is undefined somewhere in this interval"}.`;
       solveResult.appendChild(solveLine(val, "ms-masses"));
       say("Definite integral:", "heading");
       // A real ∫ with its limits, typeset — the notation is the whole point.
@@ -33467,7 +33524,7 @@ function updateSolve(): void {
       // reading "= NaN" into the user's document while the pane, two lines above,
       // correctly said there was no value. Preview is not insert.
       if (Number.isFinite(r.value)) {
-        sayMath(`int(${lo}, ${hi}, ${text}) = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`, val);
+        sayMath(`int(${lo}, ${hi}, ${text}) ${r.errorBound !== undefined ? "≈" : "="} ${shownValueMath}`, val);
       } else {
         // Prose, not math: there is no equation to typeset when there is no value.
         sayMath(`int(${lo}, ${hi}, ${text})`, val);
@@ -33520,6 +33577,30 @@ function updateSolve(): void {
       // y(0) and y'(0) through the algebra and returns the single solution.
       if (hasInitialConditions(text)) {
         const ivp = solveIvpLaplace(text);
+        // VARIABLE COEFFICIENTS (y' = x·y, y(0) = 1): the transform table
+        // refuses, the first-order families answer (odeSymbolic.ts).
+        const fo = !ivp || !ivp.solution ? solveFirstOrderIvp(text) : null;
+        if (fo) {
+          solveResult.appendChild(msEyebrow(`ODE — ${fo.classification}`));
+          say(`ODE — ${fo.classification}:`, "heading");
+          say(text);
+          sayWork(fo.steps);
+          solveResult.appendChild(solveLine(fo.particular, "ms-masses"));
+          sayMath(fo.particular);
+          currentSolveSvg = solveFunctionSvg({
+            exprs: fo.family.map((f) => ({ expr: f.expr, label: f.label, color: "#2563eb" })),
+            variable: "x",
+            title: "y(x) — the solution of the initial-value problem",
+          });
+          currentSolveAlt = `Solution of ${text}: ${fo.particular}.`;
+          if (currentSolveSvg) {
+            const fig = document.createElement("div");
+            fig.className = "stats-figure";
+            fig.innerHTML = currentSolveSvg;
+            solveResult.appendChild(fig);
+          }
+          return finish(fo.caveats);
+        }
         if (ivp) {
           solveResult.appendChild(msEyebrow(`ODE — ${ivp.classification}`));
           say(`ODE — ${ivp.classification}:`, "heading");

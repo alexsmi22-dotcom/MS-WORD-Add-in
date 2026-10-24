@@ -85,7 +85,7 @@ describe("combinatorics", () => {
 describe("recurrences", () => {
   it("2. initial conditions on their own lines", () => {
     expect(run("a(n) = a(n-1) + a(n-2)\na(0) = 0\na(1) = 1").display.join(" ")).toMatch(/First terms: 0, 1, 1, 2, 3, 5/);
-    expect(run("T(n) = T(n-1) + n\nT(0) = 0").display[0]).toBe("T(n) = 1/2n + 1/2n²");
+    expect(run("T(n) = T(n-1) + n\nT(0) = 0").display[0]).toBe("T(n) = n/2 + n²/2");
   });
   it("7. an ill-conditioned numeric system is NOT shown as a closed form, and never says FAILED", () => {
     const r = run("a(n) = 123456789a(n-1) - 987654321a(n-2) + 555555a(n-3) - 777777a(n-4), a(0)=1, a(1)=1, a(2)=1, a(3)=1");

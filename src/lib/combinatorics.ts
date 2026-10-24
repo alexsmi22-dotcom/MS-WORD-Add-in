@@ -813,7 +813,9 @@ function parseSymbolic(original: string, t: string): DiscreteResult | null {
   if ((m = original.match(/^([sS])\s*\(\s*(\d+)\s*[,;]\s*(\d+)\s*\)$/))) {
     return m[1] === "S" ? buildStirling2(num(m[2]), num(m[3])) : buildStirling1(num(m[2]), num(m[3]));
   }
-  if ((m = t.match(/^stirling\s*(1|2)?(?:\s+(?:numbers?\s+)?(?:of\s+the\s+)?(first|second)\s+kind)?\s*\(?\s*(\d+)\s*[,\s]\s*(\d+)\s*\)?$/))) {
+  // The kind digit must stand alone: "stirling 10 3" is S(10, 3), and a bare
+  // `\s*(1|2)?` ate the first digit of n (S(0, 3) = 0, review 2026-10-24).
+  if ((m = t.match(/^stirling(?:\s*(1|2)(?!\d))?(?:\s+(?:numbers?\s+)?(?:of\s+the\s+)?(first|second)\s+kind)?\s*\(?\s*(\d+)\s*[,\s]\s*(\d+)\s*\)?$/))) {
     const first = m[1] === "1" || m[2] === "first";
     return first ? buildStirling1(num(m[3]), num(m[4])) : buildStirling2(num(m[3]), num(m[4]));
   }

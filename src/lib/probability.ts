@@ -57,8 +57,28 @@ export type { VerbResult };
 const DIST_WORD =
   "binomial|binom|bernoulli|poisson|normal|gaussian|standard\\s+normal|student(?:'s)?\\s+t|t\\s+dist(?:ribution)?|t(?=\\s*\\(\\s*\\d|\\s+\\d+(?:\\.\\d+)?\\s*df|\\s+df\\b|\\s+\\d+\\s+degrees)|chi-?\\s?squared?|chisq|chi2|χ2|χ²|f\\s+dist(?:ribution)?|f(?=\\s*\\(\\s*\\d|\\s+\\d+\\s*,?\\s*\\d+|\\s+df1)|exponential|uniform|geometric|hypergeometric|negative\\s+binomial|negbin|gamma|beta|discrete\\s+uniform";
 
+/**
+ * "mean and variance of binomial(20, 0.3)" — the moments asked FIRST, the distribution after "of". The verb grammar
+ * reads distribution-first ("binomial(20, 0.3) mean and variance"); this returns that reordering, or null. The pane
+ * asks it BEFORE the descriptive-statistics intent, which read the line as the data set {20, 0.3} (review 2026-10-24).
+ */
+export function momentQuestionReorder(text: string): string | null {
+  const MOMENT = "(?:mean|variance|var|standard\\s+deviation|sd|std|mode|median|expected\\s+value|expectation)";
+  const re = new RegExp(
+    `^\\s*(?:(?:find|what\\s+(?:is|are)|compute|calculate|give)\\s+)?(?:the\\s+)?(${MOMENT}(?:\\s*(?:,|and|&)\\s*(?:the\\s+)?${MOMENT})*)\\s+(?:of|for)\\s+(?:an?\\s+|the\\s+)?((?:${DIST_WORD})(?:\\s+distribution)?\\s*\\(.*\\))\\s*[?.]?\\s*$`,
+    "i",
+  );
+  const m = re.exec(text);
+  return m ? `${m[2].trim()} ${m[1].trim()}` : null;
+}
+
 /** Claims a line for the probability verbs so the pane's prose switches and the solver stand aside. */
 export const PROB_VERB_RE = new RegExp(
+  // Moments asked first ("mean and variance of binomial(20, 0.3)") — claimed here so the descriptive-statistics
+  // intent never reads the parameters as a data set; tryProbability reorders them (momentQuestionReorder).
+  "^\\s*(?:(?:find|what\\s+(?:is|are)|compute|calculate|give)\\s+)?(?:the\\s+)?(?:mean|variance|var|standard\\s+deviation|sd|std|mode|median|expected\\s+value|expectation)(?:\\s*(?:,|and|&)\\s*(?:the\\s+)?(?:mean|variance|var|standard\\s+deviation|sd|std|mode|median|expected\\s+value|expectation))*\\s+(?:of|for)\\s+(?:an?\\s+|the\\s+)?(?:" +
+    DIST_WORD +
+    ")(?:\\s+distribution)?\\s*\\(|" +
   "^\\s*(?:(?:X|Y|Z|T)\\s*~\\s*)?(?:" +
     DIST_WORD +
     ")\\s*[(\\s]|\\bP\\s*\\(|\\bPr\\s*\\(|\\bprob\\s*\\(|^\\s*(?:quantile|inv\\s*norm|invnorm|z-?\\s?score|z\\s+for|critical\\s+value|percentile|cdf\\s+of|pmf\\s+of|pdf\\s+of|mgf\\s+of|moment\\s+generating|bayes|expected\\s+value|E\\s*\\[|clt\\b|central\\s+limit|confidence\\s+interval|(?:an?\\s+)?(?:\\d+(?:\\.\\d+)?\\s*%\\s*|0?\\.\\d+\\s+)(?:(?:one|two)[- ]sided\\s+|upper\\s+|lower\\s+)?(?:confidence\\s+(?:interval|bound|limit)|ci\\b|wilson\\b|clopper[-\\s]?pearson|exact\\s+binomial\\s+(?:confidence|interval|ci)\\b)|wilson\\s+(?:score\\s+)?(?:interval|ci|confidence|bound)|clopper[-\\s]?pearson\\b|exact\\s+binomial\\s+(?:confidence|interval|ci)\\b|(?:one|two)[- ]sided\\s+(?:\\d+(?:\\.\\d+)?\\s*%\\s*)?(?:confidence|wilson|clopper|upper|lower)|(?:upper|lower)\\s+(?:\\d+(?:\\.\\d+)?\\s*%\\s*)?confidence\\s+(?:bound|limit|interval)|probability\\s+(?:of|that)|odds\\s+(?:of|that)|birthday|roll|flip|toss|draw|a\\s+(?:fair\\s+)?(?:die|coin|bag|urn|box)|two\\s+dice|normal\\s+approximation|variance\\s+of\\s+.*equally\\s+likely|mean\\s+of\\s+(?:a\\s+)?(?:fair\\s+)?(?:die|dice|coin|binomial|poisson|normal|geometric|exponential|uniform|gamma|beta)|standard\\s+deviation\\s+of\\s+(?:a\\s+)?(?:binomial|poisson|normal|geometric|exponential|uniform|gamma|beta)|lambda\\s*=|λ\\s*=)" +
@@ -584,7 +604,18 @@ function distVerb(text: string): VerbResult | null {
   // "P(X = 3) for binomial n = 10, p = 0.4": the question first
   {
     const qf = /^((?:P|Pr)\s*\([^()]*\))\s*(?:for|of|with|where|,|given|under|if)\s+(?:a\s+|the\s+)?(?:X\s*~\s*)?(.+)$/i.exec(text);
-    if (qf && !/\|/.test(qf[1])) text = `${qf[2].replace(/\s*,\s*/g, " ")} ${qf[1]}`;
+    // Commas OUTSIDE brackets only: "binomial(10, 0.5)" keeps its parameter
+    // list — flattening it to "(10 0.5)" lost both parameters and the user was
+    // told "p is required" for a p they had given (review 2026-10-24).
+    if (qf && !/\|/.test(qf[1])) {
+      let depth = 0, flat = "";
+      for (const ch of qf[2]) {
+        if (ch === "(") depth++;
+        else if (ch === ")") depth = Math.max(0, depth - 1);
+        flat += ch === "," && depth === 0 ? " " : ch;
+      }
+      text = `${flat.replace(/\s+/g, " ").trim()} ${qf[1]}`;
+    }
   }
   let lambdaNote: string | null = null;
   if (/^lambda\s*=\s*[\d.]+\s*,?\s*(?:P|Pr)\s*\(/i.test(text)) {
@@ -1782,7 +1813,8 @@ function normalApproxVerb(text: string): VerbResult | null {
 
 /** All probability verbs; null when the input is none of them. */
 export function tryProbability(input: string): VerbResult | null {
-  const text = norm(input);
+  // "mean and variance of binomial(20, 0.3)" → the distribution-first grammar.
+  const text = norm(momentQuestionReorder(input) ?? input);
   if (!text) return null;
   return (
     proportionCiVerb(text) ??

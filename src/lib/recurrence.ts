@@ -78,11 +78,13 @@ class QN {
   toString(): string {
     const sq = `√${this.D.den === 1n ? this.D.num : `(${this.D})`}`;
     if (this.b.isZero()) return showRat(this.a);
-    const bs = this.b.eq(R1) ? sq : this.b.eq(R1.neg()) ? `−${sq}` : `${showRat(this.b)}${sq}`;
+    // p/q·√D is written p√D/q: "1/5√5" read as 1/(5√5) (review 2026-10-24).
+    const surd = (m: Rat): string => (m.den === 1n ? `${m.eq(R1) ? "" : showRat(m)}${sq}` : `${m.num === 1n ? "" : m.num}${sq}/${m.den}`);
+    const babs = new Rat(this.b.num < 0n ? -this.b.num : this.b.num, this.b.den);
+    const bs = `${this.b.num < 0n ? "−" : ""}${surd(babs)}`;
     if (this.a.isZero()) return bs;
     const bpos = this.b.num > 0n;
-    const babs = new Rat(this.b.num < 0n ? -this.b.num : this.b.num, this.b.den);
-    const bterm = babs.eq(R1) ? sq : `${showRat(babs)}${sq}`;
+    const bterm = surd(babs);
     return `(${showRat(this.a)} ${bpos ? "+" : "−"} ${bterm})`;
   }
 }
@@ -567,7 +569,15 @@ function showPolyRat(poly: Rat[], shift: number): string {
     if (c.isZero()) return;
     const k = j + shift;
     const mag = new Rat(c.num < 0n ? -c.num : c.num, c.den);
-    const body = k === 0 ? showRat(mag) : mag.eq(R1) ? nPow(k) : `${showRat(mag)}${nPow(k)}`;
+    // A fractional coefficient goes OVER the power: n/2 + n²/2, never "1/2n + 1/2n²",
+    // which reads as 1/(2n) (review 2026-10-24).
+    const body = k === 0
+      ? showRat(mag)
+      : mag.eq(R1)
+        ? nPow(k)
+        : mag.den === 1n
+          ? `${showRat(mag)}${nPow(k)}`
+          : `${mag.num === 1n ? "" : mag.num}${nPow(k)}/${mag.den}`;
     parts.push({ neg: c.num < 0n, body });
   });
   return joinSigned(parts);
@@ -616,7 +626,10 @@ function solveLinearRecurrence(p: Parsed): DiscreteResult {
   const rootMult = (b: Rat): number => roots.find((r) => (r.exact ? r.exact.b.isZero() && r.exact.a.eq(b) : Math.abs(r.approx.re - b.toNumber()) < 1e-12 && Math.abs(r.approx.im) < 1e-12))?.mult ?? 0;
   const parts = particular(p.coeffs, p.forcing, rootMult);
 
-  const generalHom = joinSigned(basis.map((bs, i) => ({ neg: false, body: `C${sub(i + 1)}${bs.j ? `·${nPow(bs.j)}` : ""}·(${bs.root.exact ? bs.root.exact.toString() : CField.show(bs.root.approx)})ⁿ` })));
+  const generalHom = joinSigned(basis.map((bs, i) => {
+    const rs = bs.root.exact ? bs.root.exact.toString() : CField.show(bs.root.approx);
+    return { neg: false, body: `C${sub(i + 1)}${bs.j ? `·${nPow(bs.j)}` : ""}·${/^\(.*\)$/.test(rs) ? rs : `(${rs})`}ⁿ` };
+  }));
   const partText = joinSigned(parts.map((pt) => {
     const poly = showPolyRat(pt.poly, pt.m);
     const nonzero = pt.poly.filter((c) => !c.isZero()).length;
@@ -678,7 +691,9 @@ function solveLinearRecurrence(p: Parsed): DiscreteResult {
       const neg = (c.b.isZero() && c.a.num < 0n) || (c.a.isZero() && c.b.num < 0n);
       const mag = neg ? new QN(c.a.neg(), c.b.neg(), c.D) : c;
       const cs = mag.a.eq(R1) && mag.b.isZero() ? "" : `${mag.toString()}·`;
-      return { neg, body: `${cs}${bs.j ? `${nPow(bs.j)}·` : ""}(${rootS})ⁿ` };
+      // QN.toString already brackets a two-part root: no "((1/2 + √5/2))ⁿ".
+      const base = /^\(.*\)$/.test(rootS) ? rootS : `(${rootS})`;
+      return { neg, body: `${cs}${bs.j ? `${nPow(bs.j)}·` : ""}${base}ⁿ` };
     }).filter((x): x is Signed => x !== null));
     for (let i = 0; i < 16; i++) if (!F.close(closed(base + i), F.fromRat(terms[i]))) verified = false;
   } else {

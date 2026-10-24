@@ -134,6 +134,9 @@ export function solveToTypesetDsl(line: string): string {
   // level of nesting inside the exponent ((n+1)/2 etc.); deeper nesting falls
   // back to visible brackets, which is displayed-but-ugly rather than wrong.
   s = s.replace(/\^\(((?:[^()]|\([^()]*\))*)\)/g, "^{$1}");
+  // E-notation never reaches a typeset line: 1.70463116806e-11 → 1.70463116806×10^{-11}.
+  s = s.replace(/(^|[^A-Za-z0-9_.])(\d+(?:\.\d+)?)[eE]([+-]?)(\d+)(?!\d|\.\d|[A-Za-z_])/g, (_w, pre: string, m: string, sg: string, ex: string) =>
+    `${pre}${m}×10^{${sg === "-" ? "-" : ""}${Number(ex)}}`);
   // Solve's normalizer writes subscripts as _1; mathParse reads those as-is.
   // Whitespace implicit multiplication is shared by both grammars.
   return s.replace(/\s+/g, " ").trim();
@@ -149,4 +152,43 @@ export function solveInputToTypesetLines(input: string): string[] {
     .map((l) => l.trim())
     .filter(Boolean)
     .map(solveToTypesetDsl);
+}
+
+const SCI_SUP: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻" };
+
+/**
+ * A number as the pane prints it: up to `sig` significant digits, no trailing zeros, and NEVER e-notation — a
+ * magnitude past what plain digits carry is written m×10ⁿ (5.22×10⁻⁷, 2.1408763×10²⁹⁸; review 2026-10-24).
+ * Non-finite values are the caller's to refuse; NaN comes back as an em dash (the insert gate blocks it), never "NaN".
+ */
+/**
+ * sciDisplay for a TYPESET line: the same digits, with the exponent in mathParse grammar (m×10^{n}). Superscript
+ * glyphs are display text — mathToOmml rejects "×10²⁹⁸" and the insert fell back to raw text.
+ */
+export function sciMath(v: number, sig = 8): string {
+  const s = sciDisplay(v, sig);
+  return s.replace(/×10([⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+)$/, (_w, sup: string) => {
+    const back: Record<string, string> = Object.fromEntries(Object.entries(SCI_SUP).map(([k, g]) => [g, k]));
+    return `×10^{${[...sup].map((c) => back[c]).join("")}}`;
+  });
+}
+
+/** Every e-notation number in a display line written m×10ⁿ (a root "7.50194007667e+64" → "7.50194007667×10⁶⁴"). */
+export function eNotationToText(s: string): string {
+  const sup = (sg: string, ex: string): string => [...((sg === "-" ? "-" : "") + String(Number(ex)))].map((c) => SCI_SUP[c]).join("");
+  return s
+    .replace(/(^|[^A-Za-z0-9_.])(-?\d+(?:\.\d+)?)[eE]([+-]?)(\d+)(?!\d|\.\d|[A-Za-z_])/g, (_w, pre: string, m: string, sg: string, ex: string) =>
+      Number(ex) === 0 ? `${pre}${m}` : `${pre}${m}×10${sup(sg, ex)}`)
+    // The work lines' re-parseable m*10^(n) form, shown as prose.
+    .replace(/(\d)\*10\^\((-?)(\d+)\)/g, (_w, d: string, sg: string, ex: string) => `${d}×10${sup(sg, ex)}`);
+}
+
+export function sciDisplay(v: number, sig = 8): string {
+  if (Number.isNaN(v)) return "—";
+  if (!Number.isFinite(v)) return v > 0 ? "∞" : "−∞";
+  if (Number.isInteger(v) && Math.abs(v) < 1e21) return String(v);
+  const s = String(Number(v.toPrecision(sig)));
+  const m = /^(-?\d+(?:\.\d+)?)e([+-])(\d+)$/.exec(s);
+  if (!m) return s;
+  return `${m[1]}×10${[...((m[2] === "-" ? "-" : "") + m[3])].map((c) => SCI_SUP[c]).join("")}`;
 }

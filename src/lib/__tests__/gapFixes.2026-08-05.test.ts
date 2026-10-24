@@ -141,12 +141,12 @@ describe("0.5 — a refused integral never inserts a number", () => {
     expect(guard).toBeGreaterThan(0);
     const sayMathCalls = region.match(/sayMath\(`int\([^`]*`/g) ?? [];
     expect(sayMathCalls.length).toBe(2);
-    // Exactly one formats the value, and it is the one after the guard.
-    const formatting = sayMathCalls.filter((c) => c.includes("r.value.toPrecision"));
+    // Exactly one formats the value (shownValue = sciDisplay(r.value) since 2026-10-24: never e-notation), after the guard.
+    const formatting = sayMathCalls.filter((c) => c.includes("shownValue"));
     expect(formatting.length).toBe(1);
     expect(region.indexOf(formatting[0])).toBeGreaterThan(guard);
     // The else branch must not print a number at all.
-    const bare = sayMathCalls.filter((c) => !c.includes("r.value"));
+    const bare = sayMathCalls.filter((c) => !c.includes("r.value") && !c.includes("shownValue"));
     expect(bare.length).toBe(1);
   });
 });

@@ -84,9 +84,14 @@ describe("2. spelled-out federal rules: singular and in range only", () => {
 });
 
 describe("3. deg is the degree sign only after a number", () => {
-  test("90 deg → 90°; 25 deg C → 25° C", () => {
+  test("90 deg → 90°; 25 deg C → 25 °C", () => {
     expect(mathToHtml("90 deg")).toBe("90°");
-    expect(mathToHtml("25 deg C")).toContain("25°");
+    // 2026-10-24 math review: "25 deg C" is the temperature unit °C — upright, after a thin space (SI), never "deg" and
+    // never an italic C. (Was pinned as the glued "25°" followed by an italic C.)
+    const html = mathToHtml("25 deg C");
+    expect(html).toContain("°C");
+    expect(html).not.toContain("deg");
+    expect(html).toBe('25<span class="m-fn">&#8201;°C</span>');
   });
   test("deg f + deg g is the upright function name, never °", () => {
     const html = mathToHtml("deg f + deg g");

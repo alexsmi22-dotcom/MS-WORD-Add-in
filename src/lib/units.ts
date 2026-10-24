@@ -25,7 +25,7 @@ const UNIT_TOKENS: Array<[RegExp, string]> = [
   [/\bdeg\s*C\b/g, "°C"],
   [/\bdeg\s*F\b/g, "°F"],
   [/\bdeg\b/g, "°"],
-  [/\bohms?\b/g, "Ω"],
+  [/\b[Oo]hms?\b/g, "Ω"],
   [/\bangstrom\b/gi, "Å"],
   // Spelled-out micro-units → µ-symbol (mapped to the short SI symbol).
   [/\bmicrograms?\b/g, "µg"],
@@ -72,8 +72,10 @@ export interface ParsedQuantity {
 }
 
 // value, optional ± uncertainty, optional ×10^exp, then the unit (the rest).
+// The value takes thousands separators (1,000) and a trailing point (5.); anything left glued to it (1.5.2, 1,5) makes
+// the whole quantity unreadable rather than a value with a unit ".2 m" (it printed "1.5 .2·m").
 const QTY_RE =
-  /^\s*([-+]?\d*\.?\d+)\s*(?:(?:±|\+-|\+\/-)\s*(\d*\.?\d+))?\s*(?:[eE]\s*([-+]?\d+)|(?:×|x|\*)\s*10\^?\{?([-+]?\d+)\}?)?\s*(.*)$/;
+  /^\s*([-+]?(?:\d{1,3}(?:,\d{3})+(?:\.\d*)?|\d+\.\d*|\d*\.?\d+))(?![\d.,])\s*(?:(?:±|\+-|\+\/-)\s*(\d*\.?\d+))?\s*(?:[eE]\s*([-+]?\d+)|(?:×|x|\*)\s*10\^?\{?([-+]?\d+)\}?)?\s*(.*)$/;
 
 /** Splits "5.0 +- 0.2 kg" / "1.2e3 m/s" into value, uncertainty, exponent, unit. */
 export function parseQuantity(input: string): ParsedQuantity | null {

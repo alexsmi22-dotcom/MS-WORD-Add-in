@@ -86,6 +86,11 @@ function emit(node: Node): string {
         `<m:lim>${emit(node.sub)}</m:lim></m:limLow></m:fName><m:e>${emit(node.body)}</m:e></m:func>`
       );
     case "acc":
+      // A bar over more than one letter (bar(xy), the mean of a product) is an overbar spanning the whole base: Word
+      // draws a combining macron as a short mark centred over the group (seen in Word, 2026-10-24).
+      if ((node.chr === "̄" || node.chr === "̅") && !(node.base.k === "text" && [...node.base.v].length === 1)) {
+        return `<m:bar><m:barPr><m:pos m:val="top"/></m:barPr><m:e>${emit(node.base)}</m:e></m:bar>`;
+      }
       return `<m:acc><m:accPr><m:chr m:val="${node.chr}"/></m:accPr><m:e>${emit(node.base)}</m:e></m:acc>`;
     case "matrix": {
       const cols = node.rows[0].length;

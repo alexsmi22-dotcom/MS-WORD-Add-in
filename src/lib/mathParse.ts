@@ -218,6 +218,11 @@ function startsSide(tokens: Token[], numIndex: number): boolean {
 function unitAfterNumber(input: string, at: number): { text: string; len: number } | null {
   // The OHM SIGN is the same unit as the Greek capital omega (one UTF-16 unit each, so lengths are unchanged).
   const rest = input.slice(at, at + 80).split(OHM_SIGN).join("Ω");
+  // A degree scale written out: "25 deg C", "25 degC", "25 degrees F", "25 ° C" — one unit, °C.
+  const scale = /^( *)(?:deg(?:rees?)?|°) *([CFR])(?![A-Za-z])/.exec(rest);
+  if (scale && (scale[1].length > 0 || rest.startsWith("°")) && AFTER_UNIT.test(rest.slice(scale[0].length))) {
+    return { text: `°${scale[2]}`, len: scale[0].length };
+  }
   const m = UNIT_RUN.exec(rest);
   if (!m) return null;
   const spaced = m[1].length > 0;

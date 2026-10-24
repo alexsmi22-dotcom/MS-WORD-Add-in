@@ -141,6 +141,10 @@ describe("9. a wide accent covers its whole base in the preview", () => {
   });
   it("hat(ab) is wide too", () => expect(mathToHtml("hat(ab)")).toContain("m-acc-wide"));
   it("a single letter keeps its combining accent", () => expect(mathToHtml("bar(x)")).toBe("x̄"));
+  it("in Word, bar(xy) is an overbar over both letters (a macron accent sat short in the middle)", () => {
+    expect(omml("bar(xy)")).toContain('<m:bar><m:barPr><m:pos m:val="top"/></m:barPr>');
+    expect(omml("bar(x)")).toContain("<m:acc>");
+  });
 });
 
 describe("11. pathological nesting is a named refusal, never a RangeError", () => {
@@ -190,6 +194,18 @@ describe("12. a unit after a number is upright, its slash a solidus", () => {
     "y = 2 x + 3 m",
   ])("%s keeps its letters italic", (dsl) =>
     expect(runs(omml(dsl)).some((r) => r.startsWith("[up]" + String.fromCharCode(0x2009)))).toBe(false));
+  it.each([
+    // The reviewer's own probes, verbatim.
+    ["25 deg C", "[up] °C"],
+    ["25 degC", "[up] °C"],
+    ["25 degrees F", "[up] °F"],
+    ["100 ohm", "[up] Ω"],
+    ["5 kg", "[up] kg"],
+  ])("reviewer probe %s", (dsl, run) => {
+    const o = omml(dsl);
+    expect(runs(o)).toContain(run.replace(" ", String.fromCharCode(0x2009)));
+    expect(runs(o)).not.toContain("C");
+  });
   it("the unit exports as \\mathrm and previews upright", () => {
     expect(astToLatex(parseMathAst("v = 3 m/s"))).toBe("v = 3 \\,\\mathrm{m/s}");
     expect(mathToHtml("5 kg")).toBe('5<span class="m-fn">&#8201;kg</span>');
@@ -436,6 +452,16 @@ describe("10/13/22/24. the unit converter", () => {
     // A temperature DIFFERENCE may be negative.
     expect(parseMeasured("-5 K", "K")).toMatchObject({ inTarget: -5 });
     expect(convert(-10, "Δ°C", "Δ°F")).toBeCloseTo(-18, 12);
+  });
+  it("the Units-mode quantity line reads 5. m, 1,000 m, 5 Ohm and m^(-1); a garbled number is refused", () => {
+    expect(formatQuantityHtml("5. m")).toBe("5.&#8201;m");
+    expect(formatQuantityHtml("1,000 m")).toBe("1,000&#8201;m");
+    expect(formatQuantityHtml("5 Ohm")).toBe("5&#8201;Ω");
+    expect(formatQuantityHtml("5 m^(-1)")).toBe("5&#8201;m⁻¹");
+    expect(formatQuantityHtml("1.0e+6 Pa")).toBe("1.0 × 10⁶&#8201;Pa");
+    expect(formatQuantityHtml("1.5.2 m")).toBe("");
+    expect(formatQuantityHtml("1,5 m")).toBe("");
+    expect(formatSig(5e-324)).toBe("4.941e-324"); // the smallest subnormal, honestly rounded (was "NaN")
   });
   it("rpm → Hz is refused by name with the 1/60 relation", () => expect(err("60", "rpm", "Hz")).toMatch(/1 rpm = 1\/60 Hz/));
 });

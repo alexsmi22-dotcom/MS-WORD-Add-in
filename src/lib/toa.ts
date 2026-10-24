@@ -225,7 +225,7 @@ const STAT_RE = /\b(\d{1,3})\s+Stat\.\s+(\d[\d,]*\d|\d)/g;
 const STATE_ABBR =
   "Ala\\.|Alaska|Ariz\\.|Ark\\.|Cal\\.|Colo\\.|Conn\\.|Del\\.|D\\.C\\.|Fla\\.|Ga\\.|Haw\\.|Idaho|Ill\\.|Ind\\.|Iowa|Kan\\.|Ky\\.|La\\.|Me\\.|Md\\.|Mass\\.|Mich\\.|Minn\\.|Miss\\.|Mo\\.|Mont\\.|Neb\\.|Nev\\.|N\\.H\\.|N\\.J\\.|N\\.M\\.|N\\.Y\\.|N\\.C\\.|N\\.D\\.|Ohio|Okla\\.|Or\\.|Pa\\.|R\\.I\\.|S\\.C\\.|S\\.D\\.|Tenn\\.|Tex\\.|Utah|Vt\\.|Va\\.|Wash\\.|W\\. Va\\.|Wis\\.|Wyo\\.";
 const STATE_CODE_RE = new RegExp(
-  `(?<![\\w.])((?:${STATE_ABBR})(?:[ \\t\\u00a0]+(?:[A-Z][a-z]{0,8}\\.?|&)){0,5}?[ \\t\\u00a0]+(?:Code|Law|Stat\\.|Rev\\.[ \\t\\u00a0]+Stat\\.|Comp\\.[ \\t\\u00a0]+Laws|Gen\\.[ \\t\\u00a0]+Laws)(?:[ \\t\\u00a0]+Ann\\.)?(?:[ \\t\\u00a0]+tit\\.[ \\t\\u00a0]+\\d+,)?)[ \\t\\u00a0]*(§{1,2})[ \\t\\u00a0]*(${"[\\w.()–—\\-]+(?![\\w.()–—\\-])"})`,
+  `(?<![\\w.])((?:${STATE_ABBR})(?:[ \\t\\u00a0]+(?:[A-Z][a-z]{0,8}\\.?|&)){0,5}?[ \\t\\u00a0]+(?:Code|Law|Stat\\.|Rev\\.[ \\t\\u00a0]+Stat\\.|Comp\\.[ \\t\\u00a0]+Laws|Gen\\.[ \\t\\u00a0]+Laws)(?:[ \\t\\u00a0]+Ann\\.)?(?:[ \\t\\u00a0]+tit\\.[ \\t\\u00a0]+\\d+,)?)[ \\t\\u00a0]*(§{1,2})[ \\t\\u00a0]*(${"[\\w.()–—\\-]+(?::[\\w.()–—\\-]+)*(?![\\w.()–—\\-]|:[\\w(])"})`,
   "g",
 );
 
@@ -859,8 +859,12 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
   STATE_CODE_RE.lastIndex = 0;
   while ((m = STATE_CODE_RE.exec(text))) {
     const code = m[1].replace(/\s+/g, " ");
-    const sec = normalizeSection(m[3]);
-    plain("statutes", `${code} ${sectionSymbol(sec)} ${sec}`, `${code} ${sectionSymbol(sec)} ${sec}`.toLowerCase(), m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length), {
+    // fix3: a state section number holds its hyphens and colons ("Ga. Code Ann. § 9-11-12", "N.J. Stat. Ann.
+    // § 2A:14-1", "Ariz. Rev. Stat. Ann. § 12-341"): ONE section, so the sign is the one written and the hyphen is
+    // kept (normalizeSection's range en dash and sectionSymbol's "§§" are for federal ranges like "§§ 101-103").
+    const sec = trimSection(m[3]).replace(/\s+/g, " ");
+    const sign = m[2];
+    plain("statutes", `${code} ${sign} ${sec}`, `${code} ${sign} ${sec}`.toLowerCase(), m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length), {
       span: text.slice(m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length)),
     });
   }

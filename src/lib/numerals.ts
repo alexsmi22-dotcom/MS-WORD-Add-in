@@ -117,6 +117,27 @@ function spelledNumberBefore(text: string, at: number): number {
   return total + cur;
 }
 
+/** Words before a bracket that make the numbers in it citations or quantities: "claims (1-20)", "from (10–200)". */
+const RANGE_STOP_BEFORE =
+  /(?:^|[^A-Za-z])(?:claims?|pages?|pp?|paragraphs?|paras?|columns?|cols?|lines?|ll|sections?|steps?|examples?|tables?|figs?|figures?|of|from|between|about|approximately|approx|around|roughly|ca|range|ranging|ranges|by|at|to)\.?[ \t ]*$|[§¶][ \t ]*$/i;
+/** A unit or count noun right after the bracket: "(10–20) mm", "(10–200) particles". */
+const RANGE_UNIT_AFTER =
+  /^[ \t ]*(?:%|‰|°|µ|μ|(?:nm|um|µm|μm|mm|cm|m|km|inch(?:es)?|ft|mg|g|kg|lbs?|s|ms|sec|min|h|hrs?|hours?|days?|weeks?|months?|years?|wt|vol|mol|mmol|mM|M|mV|kV|V|mA|kW|W|Hz|kHz|MHz|GHz|Pa|kPa|MPa|psi|bar|rpm|ppm|ppb|mL|ml|L|µL|μL|K|percent|degrees?|cycles?|times|particles?|molecules?|atoms?|carbons?|residues?|amino|nucleotides?|bases?|copies|units?)(?![A-Za-z]))/;
+
+/**
+ * Whether the bracket at [start, end) holding a range reads as a quantity or a citation, not a callout: a stop word
+ * before it, nothing word-like before it (it opens the text or a sentence), or a unit after it.
+ */
+function rangeIsQuantity(text: string, start: number, end: number): boolean {
+  const before = text.slice(Math.max(0, start - 40), start);
+  if (RANGE_STOP_BEFORE.test(before)) return true;
+  // A callout follows its element's name ("walls (30–34)"); a bracket opening the text or a sentence does not.
+  const opens = start < 40 ? /(?:^|[.!?:;(\[\n])[ \t ]*$/ : /[.!?:;(\[\n][ \t ]*$/;
+  // ... and a word after it: "(10–200) particles". A bare "(12, 14–18)" is still a callout list.
+  if (opens.test(before) && /^\s*[A-Za-z]/.test(text.slice(end, end + 4))) return true;
+  return RANGE_UNIT_AFTER.test(text.slice(end, end + 40));
+}
+
 /**
  * Distinct reference numerals called out in a block of document text, ascending.
  *
@@ -162,14 +183,26 @@ export function extractNumerals(documentText: string, known?: number[]): number[
   // a FIG. 18 numbered 1800/1802/1804 had every callout dropped and the Audit
   // reported all three as "defined but never called out".
   const knownSet = new Set(known ?? []);
+  const hasTable = knownSet.size > 0;
   while ((m = CALLOUT_RE.exec(documentText)) !== null) {
+    // fix3: a bracket holding a RANGE is a quantity, not a callout, when its
+    // context says so: "see claims (1-20)", "pages (10–12)", "from (10–200)",
+    // a bracket opening the sentence "(10–200) particles", or one followed by
+    // a unit "(10–20) mm". Then nothing in it is a callout, ends included (the
+    // range rule must never mark what the plain "(12)" rule would not).
+    const rangeQuantity = /\d\s*[-–]\s*\d/.test(m[1]) && rangeIsQuantity(documentText, m.index, m.index + m[0].length);
+    if (rangeQuantity) continue;
     const members: string[] = [];
     for (const mm of m[1].matchAll(CALLOUT_MEMBER)) {
-      members.push(mm[1]);
-      if (mm[2] === undefined) continue;
-      members.push(mm[2]);
-      // The table's numerals inside the range are called out by it too.
+      if (mm[2] === undefined) {
+        members.push(mm[1]);
+        continue;
+      }
       const a = parseInt(mm[1], 10), b = parseInt(mm[2], 10);
+      // With a table, a range calls out only between two of ITS numerals: "(1-20)" against 10…1000 is no callout.
+      if (hasTable && !(knownSet.has(a) && knownSet.has(b))) continue;
+      members.push(mm[1], mm[2]);
+      // The table's numerals inside the range are called out by it too.
       if (a < b) for (const k of knownSet) if (k > a && k < b) members.push(String(k));
     }
     for (const raw of members) {

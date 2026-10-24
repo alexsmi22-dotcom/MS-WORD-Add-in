@@ -18,6 +18,18 @@ import { flatOpcPackage } from "./mathOmml";
 
 export type CaptionLabel = "Figure" | "Table" | "Scheme" | "Equation";
 
+/**
+ * Whether the document's chapters are numbered, from the list string of each Heading 1 paragraph (null for one that
+ * is not in a list). A thesis has unnumbered Heading 1 front matter ("Abstract", "Acknowledgements") beside numbered
+ * chapters, and Word's STYLEREF 1 \s finds the nearest NUMBERED Heading 1 above, so it prints "Figure 1.1", "2.1"
+ * correctly there (fix3 regression: requiring EVERY Heading 1 to be numbered refused it). Numbered = at least one
+ * Heading 1 carries a list string with a digit or roman numeral ("1", "Chapter 2", "IV").
+ */
+export function heading1Verdict(listStrings: Array<string | null>): "numbered" | "unnumbered" | "none" {
+  if (!listStrings.length) return "none";
+  return listStrings.some((s) => s !== null && /[0-9IVXLivxl]/.test(s)) ? "numbered" : "unnumbered";
+}
+
 /** The labels a caption can carry (Word's Insert Caption labels, plus Scheme for chemistry). */
 export const CAPTION_LABELS: CaptionLabel[] = ["Figure", "Table", "Scheme"];
 

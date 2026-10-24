@@ -1296,57 +1296,65 @@ export function feedRows(rows: string[][], what: "regression" | "counts"): Table
   // a spreadsheet usually carries a Total row and a Total column; read as cells
   // they double every count and add a row and a column of degrees of freedom,
   // so a 2×2 became a 3×3 with a confident wrong p.
+  // A margin sits at the END: only the LAST column and the last non-blank row
+  // can be one by label. "Overall" or "All" anywhere else is a category with
+  // real counts (fix3 regression: a first row "Overall" was dropped).
   const totalsDropped: string[] = [];
+  const totalsKept: string[] = [];
   const TOTAL_LABEL = /^\s*(grand\s+)?(totals?|sums?|all|overall)\s*:?\s*$/i;
-  const keepCol: boolean[] = Array.from({ length: width }, (_, j) => j >= start);
+  // The label decides a margin only at the end; the numbers decide the rest.
+  let colLabelled = false;
   if (what === "counts" && header) {
     for (let j = start; j < width; j++) {
-      if (TOTAL_LABEL.test(header[j] ?? "")) {
-        keepCol[j] = false;
-        totalsDropped.push(`the ${(header[j] ?? "").trim()} column`);
-      }
+      if (!TOTAL_LABEL.test(header[j] ?? "")) continue;
+      if (j === width - 1 && width - start >= 3) colLabelled = true;
+      else totalsKept.push(`The ${(header[j] ?? "").trim()} column was read as data (only a last column can be a total).`);
     }
   }
+  let lastRow = -1;
+  body.forEach((r, i) => {
+    if (!r.slice(start).every(isBlank)) lastRow = i;
+  });
+  let rowLabel = "";
   const countRows: string[][] = [];
-  for (const r of body) {
-    if (what === "counts" && start === 1 && TOTAL_LABEL.test(r[0] ?? "")) {
-      totalsDropped.push(`the ${(r[0] ?? "").trim()} row`);
-      continue;
-    }
-    const vals = r.filter((_, j) => keepCol[j]);
+  for (const [i, r] of body.entries()) {
+    const vals = r.slice(start);
     if (vals.every(isBlank)) continue;
+    if (what === "counts" && start === 1 && TOTAL_LABEL.test(r[0] ?? "")) {
+      if (i === lastRow) rowLabel = (r[0] ?? "").trim();
+      else totalsKept.push(`The ${(r[0] ?? "").trim()} row was read as data (only a last row can be a total).`);
+    }
     if (!vals.every(isNumericCell)) {
       return { error: "Every cell must be a number (blank cells and words are not allowed here)." };
     }
     countRows.push(vals.map(numText));
-    lines.push(vals.map(numText).join(" "));
   }
-  let cols = keepCol.filter(Boolean).length;
-  if (what === "counts" && countRows.length && cols) {
-    // An UNLABELLED margin: a last row (or column) equal, cell by cell, to the
-    // sum of the others. Only with at least two others — with one, "the sum of
-    // the others" is just a repeated row, which real counts can be.
+  let rowsN = countRows.length;
+  let cols = width - start;
+  if (what === "counts" && rowsN && cols) {
+    // An UNLABELLED margin is dropped only beside another margin: the last row
+    // equals the column sums AND the last column equals the row sums (or the
+    // other margin is labelled), the corner (grand total) agreeing with both
+    // since each check runs through it. One sum-like row or column alone is a
+    // coincidence real counts can have (x 1 2 / y 1 0 / z 2 2), so it stays
+    // data and the note says so. A labelled margin needs two others beside it.
     const g = countRows.map((row) => row.map((c) => num(c)));
     const near = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
-    let rowsN = g.length;
-    let colsN = cols;
-    const lastRowIsSum = (): boolean =>
-      rowsN >= 3 && g[rowsN - 1].slice(0, colsN).every((v, j) => near(v, g.slice(0, rowsN - 1).reduce((s, row) => s + row[j], 0)));
-    const lastColIsSum = (): boolean =>
-      colsN >= 3 && g.slice(0, rowsN).every((row) => near(row[colsN - 1], row.slice(0, colsN - 1).reduce((s, v) => s + v, 0)));
-    if (lastRowIsSum()) {
-      rowsN--;
-      totalsDropped.push("the last row (it equals the sum of the rows above it)");
-    }
-    if (lastColIsSum()) {
-      colsN--;
-      totalsDropped.push("the last column (it equals the sum of the columns before it)");
-    }
-    if (rowsN !== g.length || colsN !== cols) {
-      lines = countRows.slice(0, rowsN).map((row) => row.slice(0, colsN).join(" "));
-      cols = colsN;
-    }
+    const R = rowsN;
+    const C = cols;
+    const rowLabelled = !!rowLabel && R >= 3;
+    const lastRowIsSum = R >= 3 && g[R - 1].every((v, j) => near(v, g.slice(0, R - 1).reduce((s, row) => s + row[j], 0)));
+    const lastColIsSum = C >= 3 && g.every((row) => near(row[C - 1], row.slice(0, C - 1).reduce((s, v) => s + v, 0)));
+    const dropRow = rowLabelled || (lastRowIsSum && (lastColIsSum || colLabelled));
+    const dropCol = colLabelled || (lastColIsSum && (lastRowIsSum || rowLabelled));
+    if (dropRow) totalsDropped.push(rowLabelled ? `the ${rowLabel} row` : "the last row (it equals the sum of the rows above it)");
+    else if (lastRowIsSum) totalsKept.push("The last row equals the sum of the rows above it; it was read as data (if it is a total, delete it).");
+    if (dropCol) totalsDropped.push(colLabelled ? `the ${(header?.[width - 1] ?? "").trim()} column` : "the last column (it equals the sum of the columns before it)");
+    else if (lastColIsSum) totalsKept.push("The last column equals the sum of the columns before it; it was read as data (if it is a total, delete it).");
+    if (dropRow) rowsN--;
+    if (dropCol) cols--;
   }
+  lines = countRows.slice(0, rowsN).map((row) => row.slice(0, cols).join(" "));
   if (lines.length < 2 || cols < 2) return { error: "Need at least two rows and two numeric columns." };
   const hasTime = !!header && header.some((h) => {
     const role = headerRole(h ?? "");
@@ -1381,6 +1389,7 @@ export function feedRows(rows: string[][], what: "regression" | "counts"): Table
       `Read a ${lines.length} × ${cols} table of counts${header ? " (header row dropped)" : ""}.` +
       dropped +
       (totalsDropped.length ? ` Marginal totals are not data, so ${totalsDropped.join(" and ")} ${totalsDropped.length > 1 ? "were" : "was"} dropped.` : "") +
+      totalsKept.map((k) => ` ${k}`).join("") +
       (header ? "" : " No header row found, so the first row was read as counts; if it holds category names, make it a header.") +
       commaNote(body),
   };

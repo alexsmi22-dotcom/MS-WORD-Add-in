@@ -149,6 +149,8 @@ export interface Step {
   text: string;
   decision: boolean;
   terminator: boolean;
+  /** The ids down the steps are exactly 1, 2, …, n (or "Step 1" …): an ordering, not reference numerals. */
+  ordinal?: boolean;
 }
 
 /** Rows → steps: optional header skipped, optional id column, "?" = decision. */
@@ -176,6 +178,11 @@ export function parseSteps(rows: string[][]): { steps: Step[]; warnings: string[
       };
     })
     .filter((s) => s.text);
+  // Ids that are exactly 1, 2, …, n are an ORDERING; any other ids (10, 20, 30;
+  // S101 …) are reference numerals the user chose and are kept as typed.
+  if (steps.length && steps.every((s, i) => s.id.replace(/^step\s*/i, "") === String(i + 1))) {
+    steps = steps.map((s) => ({ ...s, ordinal: true }));
+  }
   if (steps.length > MAX_STEPS) {
     warnings.push(`Only the first ${MAX_STEPS} of ${steps.length} steps are drawn.`);
     steps = steps.slice(0, MAX_STEPS);
@@ -252,11 +259,11 @@ function layoutSteps(steps: Step[], title: string, style: ChartStyle, opts: Step
     // Reference numeral: the step's own id, or an auto callout (102, 104, …)
     // when the patent numeral option is on and the row had no id. Free-standing
     // with a straight lead line to the box edge, alternating sides.
-    // fix2-paf: with the patent numeral option ON, a bare ordinal id ("1", "2",
-    // "3", "Step 3") is an ordering, not a reference numeral, so it takes the
-    // 100-series callout like an id-less row; "S101", "102" are kept as typed.
-    const ordinal = /^(?:step\s*)?\d{1,2}$/i.test(s.id.trim());
-    const refId = (style.numerals && ordinal ? "" : s.id) || (style.numerals ? String(opts.numeralStart + i * 2) : "");
+    // fix2-paf: with the patent numeral option ON, ids that are exactly
+    // 1, 2, …, n down the steps are an ordering, not reference numerals, so
+    // they take the 100-series callout like id-less rows; "10, 20, 30" and
+    // "S101" are the user's own numerals and are kept as typed.
+    const refId = (style.numerals && s.ordinal ? "" : s.id) || (style.numerals ? String(opts.numeralStart + i * 2) : "");
     if (refId) {
       const ext = s.decision ? boxW / 2 - 24 : boxW / 2;
       const right = (opts.sideStart + i) % 2 === 0;

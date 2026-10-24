@@ -297,6 +297,10 @@ export function robustRange(values: number[]): { lo: number; hi: number } | null
  * Null when the range is already honest.
  */
 export function robustYLimits(series: Series[]): AxisLimits | null {
+  // ONLY WHERE A POLE OR A GAP WAS DETECTED (samplePlot's `gap`): a narrow
+  // finite peak (a Lorentzian 1/(x² + 0.001)) is data, and clipping it would
+  // misdraw it.
+  if (!series.some((s) => s.points.some((p) => p.gap))) return null;
   const ys = series.flatMap((s) => s.points.map((p) => p.y)).filter(Number.isFinite);
   const r = robustRange(ys);
   if (!r) return null;
@@ -522,7 +526,9 @@ export function bwTextMarkup(text: string, fontPx: number): string {
       continue;
     }
     const dy = Math.round((at - r.level) * shift * 10) / 10;
-    out += `<tspan dy="${dy}">${escapeXml(r.s)}</tspan>`;
+    // A space at a tspan's edge collapses ("10³ m" drew as "10³m"): kept as a no-break space.
+    const NBSP = String.fromCharCode(160);
+    out += `<tspan dy="${dy}">${escapeXml(r.s.replace(/^ | $/g, NBSP))}</tspan>`;
     at = r.level;
   }
   return out;

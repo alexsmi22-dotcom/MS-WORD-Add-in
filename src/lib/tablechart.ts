@@ -180,12 +180,38 @@ export function parseTableData(values: string[][]): TableChart {
   const warnings: string[] = [];
   const cols = rows[0].length;
 
+  // AMBIGUOUS COMMAS ARE REFUSED (fix2-paf). A cell's comma rule alone reads a
+  // table holding both "3,5" and "1,000" as 3.5 and 1000 — but beside decimal
+  // commas, "1,000" may just as well be 1.000. When any cell uses a decimal
+  // comma, cells shaped like grouping (1,000 / 12,345,678) are left blank and
+  // counted in a warning rather than guessed.
+  const squash = (c: string): string => c.replace(/\s+/g, "").replace(/^\(|\)$/g, "").replace(/^[-+−–]?[$€£¥]?/, "");
+  const DECIMAL_COMMA = /^\d+,(?:\d{1,2}|\d{4,})(?![\d,.])/;
+  const GROUPING = /^\d{1,3}(?:,\d{3})+(?![\d,.])/;
+  const decimalCommaSeen = rows.some((r) => r.some((c) => DECIMAL_COMMA.test(squash(c))));
+  let ambiguous = 0;
+  const num = (c: string): number | null => {
+    if (decimalCommaSeen && GROUPING.test(squash(c))) {
+      ambiguous++;
+      return null;
+    }
+    return parseNumberCell(c);
+  };
+  const ambiguityNote = (): void => {
+    if (ambiguous) {
+      warnings.push(
+        `${ambiguous} cell${ambiguous === 1 ? " like" : "s like"} “1,000” ${ambiguous === 1 ? "is" : "are"} ambiguous beside decimal commas (“3,5”) and ${ambiguous === 1 ? "is" : "are"} left blank; write 1000 or 1,0 to say which.`,
+      );
+    }
+  };
+
   // A lone row reads as one series across generated categories.
   if (rows.length === 1 && cols >= 2) {
     const first = rows[0][0];
     const firstIsLabel = parseNumberCell(first) === null;
     const cells = firstIsLabel ? rows[0].slice(1) : rows[0];
-    const series = [{ name: firstIsLabel && first ? first : "Values", values: cells.map(parseNumberCell) }];
+    const series = [{ name: firstIsLabel && first ? first : "Values", values: cells.map(num) }];
+    ambiguityNote();
     if (!series[0].values.some((v) => v !== null)) {
       throw new Error("No numeric data found — the table needs at least one row or column of numbers.");
     }
@@ -204,8 +230,9 @@ export function parseTableData(values: string[][]): TableChart {
     const headerish = parseNumberCell(rows[0][0]) === null && rows.length >= 2;
     const dataRows = headerish ? rows.slice(1) : rows;
     const series = [
-      { name: headerish && rows[0][0] ? rows[0][0] : "Values", values: dataRows.map((r) => parseNumberCell(r[0])) },
+      { name: headerish && rows[0][0] ? rows[0][0] : "Values", values: dataRows.map((r) => num(r[0])) },
     ];
+    ambiguityNote();
     if (!series[0].values.some((v) => v !== null)) {
       throw new Error("No numeric data found — the table needs at least one row or column of numbers.");
     }
@@ -286,7 +313,7 @@ export function parseTableData(values: string[][]): TableChart {
   for (let j = 0; j < cols; j++) {
     if (j === labelCol || j === sectionCol || skipCols.has(j)) continue;
     const name = headers[j] || `Series ${j}`;
-    const vals = dataRows.map((r) => parseNumberCell(r[j]));
+    const vals = dataRows.map((r) => num(r[j]));
     const numeric = vals.filter((v) => v !== null).length;
     if (numeric === 0) {
       warnings.push(`Column “${name}” has no numbers — skipped.`);
@@ -296,12 +323,15 @@ export function parseTableData(values: string[][]): TableChart {
     series.push({ name, values: vals });
   }
 
+  ambiguityNote();
   if (!series.length) {
     throw new Error("No numeric data found — the table needs at least one column of numbers after the label column.");
   }
-  if (skippedCells > 0) {
+  // The ambiguous-comma cells have their own warning above.
+  const unreadable = skippedCells - ambiguous;
+  if (unreadable > 0) {
     warnings.push(
-      `${skippedCells} cell${skippedCells === 1 ? "" : "s"} couldn't be read as a number and will be blank in the chart.`
+      `${unreadable} cell${unreadable === 1 ? "" : "s"} couldn't be read as a number and will be blank in the chart.`
     );
   }
   if (categories.length > 24) {
@@ -398,6 +428,8 @@ function errorSvg(message: string, W: number, H: number): string {
 export interface ChartPreview {
   svg: string;
   warnings: string[];
+  /** The figure is a refusal that explains itself (fix2-paf: a pie of negative values): shown, never inserted. */
+  refused?: boolean;
 }
 
 /**
@@ -446,6 +478,7 @@ export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title =
           H,
         ),
         warnings: [],
+        refused: true,
       };
     }
     const zeros = chart.categories.filter((_, i) => s0?.values[i] === 0);

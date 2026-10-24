@@ -166,7 +166,7 @@ import { parseTable, analyzeData } from "../insights";
 import { svd, inverse, solve, determinant, rank, parseMatrix, conditionLines, conditionNumber } from "../linalg";
 import { samplePlot, robustYLimits, typesetExprLabel, plotAxisTicks, buildPlotSvg } from "../plot";
 import { nonBlackWhitePaints } from "../figureStyle";
-import { cashFlowLadderSvg, withFinFig, moneyOverTimeSvg } from "../financeFigures";
+import { cashFlowLadderSvg, withFinFig, moneyOverTimeSvg, currentFinFig as currentFinFigForTest } from "../financeFigures";
 import { textWidthPt } from "../arialMetrics";
 
 describe("7. Table→Chart cells follow the decimal-comma rule", () => {
@@ -456,6 +456,66 @@ describe("14. USPTO style draws y = f(x), Finance and polar figures (no refusal)
     const samples = Array.from({ length: 361 }, (_, i) => ({ theta: (i * Math.PI) / 180, r: 1 + 2 * Math.cos((i * Math.PI) / 180) }));
     const svg = polarPlotSvg({ samples, angleUnit: "rad", bw: true });
     if (svg.includes(">r</text>")) expect(svg).toMatch(/font-size="14"[^>]*>r<\/text>/);
+  });
+});
+
+import { hBarSvg } from "../mechchart";
+import { parseDefinitions, evalMatrixExpression } from "../matrixExpr";
+
+describe("Review round: regressions the first pass could introduce", () => {
+  it("flowchart: user numerals 10, 20, 30 are kept with the numeral option on", () => {
+    const nums = (rows: string[][]) =>
+      layoutFlowchart(rows, "", { numerals: true }).texts.map((t) => t.text).filter((t) => /^\d+$/.test(t));
+    expect(nums([["10", "Start"], ["20", "Measure"], ["30", "End"]])).toEqual(["10", "20", "30"]);
+    expect(nums([["2", "Start"], ["3", "End"]])).toEqual(["2", "3"]); // not 1..n
+  });
+  it("insights: a tab-separated US paste 1,250<TAB>3,400 is grouping, not decimal commas", () => {
+    const t = parseTable("a\tb\n1,250\t3,400\n2,000\t4,100");
+    expect(t.columns.flat()).toContain("1,250"); // left as typed, never rewritten to 1.25
+    expect(t.columns.flat()).not.toContain("1.250");
+  });
+  it("Table→Chart: 1,000 beside 3,5 is ambiguous and refused, with a warning", () => {
+    const c = parseTableData([
+      ["Item", "Value"],
+      ["A", "3,5"],
+      ["B", "1,000"],
+      ["C", "2,25"],
+    ]);
+    expect(c.series[0].values).toEqual([3.5, null, 2.25]);
+    expect(c.warnings.join(" ")).toMatch(/ambiguous beside decimal commas/);
+    // without any decimal comma, 1,000 is grouping as before
+    expect(parseTableData([["Item", "Value"], ["A", "1,000"], ["B", "2,500"]]).series[0].values).toEqual([1000, 2500]);
+  });
+  it("a narrow finite peak (Lorentzian) is not clipped; only poles/gaps trigger the robust range", () => {
+    expect(robustYLimits([{ points: samplePlot("1/(x^2+0.001)", -1, 1, 240), type: "line" }])).toBeNull();
+  });
+  it("a refused pie is flagged so the pane does not insert it", () => {
+    const c = parseTableData([["P", "S"], ["A", "5"], ["B", "−1"]]);
+    expect(buildChartPreviewSvg(c, "pie").refused).toBe(true);
+    expect(buildChartPreviewSvg(parseTableData([["P", "S"], ["A", "5"], ["B", "1"]]), "pie").refused).toBeUndefined();
+  });
+  it("matrix expressions accept the true minus and ×", () => {
+    const d = parseDefinitions("A = 1 −2; 3 4\nB = 1 0; 0 1");
+    expect(d.ok).toBe(true);
+    if (d.ok) {
+      const r = evalMatrixExpression("A − B × 2", d.env);
+      expect(r.ok && r.value.kind === "matrix" && r.value.m).toEqual([[-1, -2], [3, 2]]);
+    }
+  });
+  it("the Effective-annual-rate bar figure passes USPTO through the Finance re-render", () => {
+    const draw = () => {
+      const fig = currentFinFigForTest();
+      return hBarSvg(
+        [
+          { name: "annual", value: 12 },
+          { name: "monthly", value: 12.68, colour: "#b91c1c" },
+          { name: "daily", value: 12.75 },
+        ],
+        { title: "Effective annual rate by compounding frequency (%)", unit: "", w: fig?.width ?? 360, bw: fig?.bw },
+      );
+    };
+    const r = prepareFigure({ svg: draw(), preset: "uspto", width: "single", render: ((w: number, st?: { color?: string }) => withFinFig({ width: w, bw: st?.color === "bw" }, draw)) as never });
+    expect(r.ok ? "" : `${r.reason}: ${r.problems.join("; ")}`).toBe("");
   });
 });
 

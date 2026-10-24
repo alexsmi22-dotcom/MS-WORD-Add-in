@@ -4434,7 +4434,7 @@ function tableGraphicRender(): ((w: number) => string) | null {
  * Renders the currently selected representation (chart or diagram) as SVG.
  * Returns null — with a reason in `error` — when it can't be drawn.
  */
-function renderTableGraphic(): { svg: string; warnings: string[] } | { svg: null; error: string } {
+function renderTableGraphic(): { svg: string; warnings: string[]; refused?: boolean } | { svg: null; error: string } {
   const kind = pptKindSelect.value as RenderKind;
   // USPTO 1.84: no title inside the artwork (the preset's allowTitle is false).
   const title = currentFigurePreset() === "uspto" ? "" : pptTitleInput.value.trim();
@@ -4457,7 +4457,7 @@ function renderTableGraphic(): { svg: string; warnings: string[] } | { svg: null
   // and are NOT counted as zero". Rows vanished from a chart with no notice,
   // which is the graph-that-lies case these renderers were written to prevent.
   const preview = buildChartPreviewSvg(currentTableChart, kind, title, style);
-  return { svg: preview.svg, warnings: [...currentTableChart.warnings, ...preview.warnings] };
+  return { svg: preview.svg, warnings: [...currentTableChart.warnings, ...preview.warnings], refused: preview.refused === true };
 }
 
 /** Refreshes the preview, info line, and warnings for the loaded table. */
@@ -4491,14 +4491,16 @@ function updatePptPreview(): void {
   pptPreview.innerHTML = rendered.svg;
   pptWarnings.className = rendered.warnings.length ? "seq-warnings warn" : "seq-warnings";
   pptWarnings.textContent = rendered.warnings.join(" ");
-  pptInsertFigBtn.disabled = false;
-  pptDownloadBtn.disabled = false;
+  // A refusal figure (a pie of negative values) explains itself in the
+  // preview but is not a figure to insert (fix2-paf).
+  pptInsertFigBtn.disabled = rendered.refused === true;
+  pptDownloadBtn.disabled = rendered.refused === true;
 }
 
 /** Inserts the previewed graphic into the document as a figure at the cursor. */
 async function insertTableFigure(): Promise<void> {
   const rendered = renderTableGraphic();
-  if (rendered.svg === null) return;
+  if (rendered.svg === null || rendered.refused) return;
   pptInsertFigBtn.disabled = true;
   setStatus("Inserting figure…");
   try {

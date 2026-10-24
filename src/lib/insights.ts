@@ -170,14 +170,16 @@ function isNumericText(c: string): boolean {
  */
 export function parseTable(text: string): ParsedTable {
   const firstLine = text.split(/\r?\n/).find((l) => l.trim() !== "") ?? "";
-  // SEMICOLON (OR TAB) DATA WITH DECIMAL COMMAS (fix2-paf): "a;b / 1,5;2,5" is
-  // the European CSV convention — the semicolon is used precisely because the
-  // comma is the decimal mark — and its numbers were read as text. In such a
-  // table a cell like "1,5" or "1.234,5" is a number in decimal-comma form and
-  // is rewritten as the plain decimal before anything is counted.
+  // SEMICOLON DATA WITH DECIMAL COMMAS (fix2-paf): "a;b / 1,5;2,5" is the
+  // European CSV convention — the semicolon is used precisely because the comma
+  // is the decimal mark — and its numbers were read as text. In such a table a
+  // cell like "1,5" or "1.234,5" is a number in decimal-comma form and is
+  // rewritten as the plain decimal before anything is counted. SEMICOLON ONLY:
+  // a tab-separated US Excel paste of "1,250<TAB>3,400" is grouping, and
+  // reading it as 1.25 would be a confident wrong number.
   const delim = /[\t;,]/.test(firstLine) ? sniffDelimiter(text.replace(/\r\n?/g, "\n")) : "";
   const decimalComma = (c: string): string => {
-    if (delim === "," || !c.includes(",")) return c;
+    if (delim !== ";" || !c.includes(",")) return c;
     const m = /^([-−]?)(\d{1,3}(?:\.\d{3})+|\d+),(\d+)$/.exec(c);
     return m ? `${m[1] ? "-" : ""}${m[2].replace(/\./g, "")}.${m[3]}` : c;
   };

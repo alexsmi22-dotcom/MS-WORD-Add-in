@@ -79,7 +79,7 @@ describe("2. T6 words that were missing", () => {
     ["Northern Natural Gas Co. v. Eastern Pipeline", "N. Nat. Gas Co. v. E. Pipeline"],
     ["Southern Pacific v. Southwestern Bell", "S. Pac. v. Sw. Bell"],
     ["Washington Mutual Bank v. Ohio", "Wash. Mut. Bank v. Ohio"],
-    ["Environmental Defense v. Duke Energy", "Envtl. Def. v. Duke Energy"],
+    ["Environmental Defense v. Duke Energy", "Env't Def. v. Duke Energy"],
     ["Microsoft Corp. v. i4i Limited Partnership", "Microsoft Corp. v. i4i Ltd. P'ship"],
     ["State Street Bank & Trust Co. v. Signature", "State St. Bank & Tr. Co. v. Signature"],
     ["Consolidated Edison v. Construction Industry", "Consol. Edison v. Constr. Indus."],

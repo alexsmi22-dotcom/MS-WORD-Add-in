@@ -35,10 +35,14 @@ describe("T10 abbreviates the 50 U.S. states inside a case name", () => {
     expect(abbreviateCaseName(name)).toContain(abbrev);
   });
 
+  test("Hawaii abbreviates to Haw. (T10)", () => {
+    expect(abbreviateCaseName("Smith v. Hawaii Dep't of Revenue")).toContain("Haw. Dep't");
+  });
+
   test("the never-abbreviated states stay whole even as modifiers", () => {
-    // T10 lists these six with no abbreviation at all, so they must survive the
-    // modifier path that shortens California -> Cal.
-    for (const s of ["Alaska", "Hawaii", "Idaho", "Iowa", "Ohio", "Utah"]) {
+    // T10 lists these five with no abbreviation at all, so they must survive the
+    // modifier path that shortens California -> Cal. (Hawaii abbreviates: Haw.)
+    for (const s of ["Alaska", "Idaho", "Iowa", "Ohio", "Utah"]) {
       expect(abbreviateCaseName(`Smith v. ${s} Dep't of Revenue`)).toContain(s);
     }
   });

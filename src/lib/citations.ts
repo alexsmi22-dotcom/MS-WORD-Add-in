@@ -585,7 +585,8 @@ const T6: Record<string, string> = {
   enterprise: "Enter.",
   enterprises: "Enters.",
   environment: "Env't",
-  environmental: "Envtl.",
+  // 21st ed. T6: Environment(al) → Env't (Envtl. was the 20th-edition form).
+  environmental: "Env't",
   equipment: "Equip.",
   federal: "Fed.",
   finance: "Fin.",
@@ -602,8 +603,9 @@ const T6: Record<string, string> = {
   institution: "Inst.",
   insurance: "Ins.",
   international: "Int'l",
-  laboratory: "Lab.",
-  laboratories: "Labs.",
+  // T6: Laborator[y, ies] → Lab'y, Lab'ys.
+  laboratory: "Lab'y",
+  laboratories: "Lab'ys",
   limited: "Ltd.",
   machine: "Mach.",
   machines: "Machs.",
@@ -637,7 +639,7 @@ const T6: Record<string, string> = {
   systems: "Sys.",
   technology: "Tech.",
   technologies: "Techs.",
-  telecommunications: "Telecomm.",
+  telecommunications: "Telecomms.",
   telephone: "Tel.",
   transportation: "Transp.",
   university: "Univ.",
@@ -777,7 +779,8 @@ const T10_MULTI: [string, string][] = [
 ];
 /** Bluebook Table T10 — single-word U.S. state abbreviations. */
 const T10_SINGLE: [string, string][] = [
-  ["Alabama", "Ala."], ["Arizona", "Ariz."], ["Arkansas", "Ark."], ["California", "Cal."], ["Colorado", "Colo."],
+  // Hawaii abbreviates (T10: Haw.); Alaska, Idaho, Iowa, Ohio and Utah do not.
+  ["Alabama", "Ala."], ["Arizona", "Ariz."], ["Hawaii", "Haw."], ["Arkansas", "Ark."], ["California", "Cal."], ["Colorado", "Colo."],
   ["Connecticut", "Conn."], ["Delaware", "Del."], ["Florida", "Fla."], ["Georgia", "Ga."], ["Illinois", "Ill."],
   ["Indiana", "Ind."], ["Kansas", "Kan."], ["Kentucky", "Ky."], ["Louisiana", "La."], ["Maine", "Me."],
   ["Maryland", "Md."], ["Massachusetts", "Mass."], ["Michigan", "Mich."], ["Minnesota", "Minn."], ["Mississippi", "Miss."],
@@ -789,7 +792,7 @@ const T10_SINGLE: [string, string][] = [
 const STATE_NAMES = new Set(
   [...T10_MULTI, ...T10_SINGLE]
     .map(([full]) => full.toLowerCase())
-    .concat(["alaska", "hawaii", "idaho", "iowa", "ohio", "utah"])
+    .concat(["alaska", "idaho", "iowa", "ohio", "utah"])
 );
 const GEO_PARTY_PREFIX = /^(?:State|Commonwealth|People|City|County|Town|Village|Borough|Parish|Township)\s+of\b/i;
 
@@ -839,12 +842,12 @@ const NAME_ABBREVIATIONS = new Set<string>(
     "Ams.", "Holdings.", "Bancorp.", "Bankcorp.", "Ry.", "Tr.", "Trs.",
     ...T10_MULTI.map(([, a]) => a),
     ...T10_SINGLE.map(([, a]) => a),
-    "Inc.", "Corp.", "Co.", "Cos.", "Ltd.", "Bros.", "Labs.", "Servs.", "Sys.", "Techs.", "Assocs.", "Mfg.",
+    "Inc.", "Corp.", "Co.", "Cos.", "Ltd.", "Bros.", "Labs.", "Lab'y", "Lab'ys", "Servs.", "Sys.", "Techs.", "Assocs.", "Mfg.",
     "Pharms.", "Prods.", "Indus.", "Elecs.", "Machs.", "Enters.", "Holdings.", "Grp.", "Ins.", "Fin.",
     "Sav.", "Mut.", "Coop.", "Ry.", "R.R.", "Mktg.", "Comput.", "Cmty.", "Cnty.", "Twp.", "Hous.",
     "Ret.", "Sch.", "Sec.", "Admin.", "Ctr.", "Dist.", "Div.", "Gen.", "Hosp.", "Inst.", "Mgmt.",
     "Org.", "Pub.", "Rsch.", "Res.", "Sci.", "Serv.", "Tel.", "Transp.", "Univ.", "Util.", "Educ.",
-    "Distrib.", "Envtl.", "Equip.", "Found.", "Telecomm.", "Comm.", "Auth.", "Auto.", "Bldg.", "Bus.",
+    "Distrib.", "Envtl.", "Env't", "Equip.", "Found.", "Telecomm.", "Telecomms.", "Comm.", "Auth.", "Auto.", "Bldg.", "Bus.",
     "Cent.", "Dev.", "Elec.", "Fed.", "Agric.", "Acad.", "Assoc.", "Mach.", "Med.", "Pharm.", "Bd.",
     "Jr.", "Sr.", "Mfrs.", "Mfr.", "Bancorp.", "Int'l.", "Nat'l.", "Am.", "Cal.", "No.", "Nos.", "St.",
   ]

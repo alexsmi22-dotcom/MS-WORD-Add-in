@@ -650,8 +650,11 @@ export function radiationExchange(inp: RadiationInput): RadiationResult | Heat2E
       : Q / (inp.area * dT);
   const qConv = inp.hConv && inp.hConv > 0 ? inp.hConv * inp.area * dT : null;
 
+  // A temperature typed in kelvin arrives here as 26.850000000000023 °C: shown to 10 significant figures, so the
+  // binary noise of the conversion never reaches the note (and with a true minus below zero).
+  const showC = (c: number): string => String(Number(c.toPrecision(10))).replace(/^-/, "−");
   notes.push(
-    `Temperatures converted to absolute: ${inp.t1C} °C = ${T1.toFixed(2)} K and ${inp.t2C} °C = ` +
+    `Temperatures converted to absolute: ${showC(inp.t1C)} °C = ${T1.toFixed(2)} K and ${showC(inp.t2C)} °C = ` +
       `${T2.toFixed(2)} K. The fourth power means Celsius is NOT a shifted scale here - using it ` +
       "would be wrong by orders of magnitude rather than by an offset.",
     `The equivalent coefficient is ${hRad.toPrecision(4)} W/(m²·K), which is the number to compare ` +

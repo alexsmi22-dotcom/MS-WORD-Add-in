@@ -106,13 +106,38 @@ export function readTlc(input: TlcInput): TlcOk | TlcRefusal {
   const eluent = (input.eluent ?? "").trim();
   if (eluent.length > TLC_MAX_ELUENT) return refuse(`Eluent: ${eluent.length} characters; at most ${TLC_MAX_ELUENT} fit above the plate.`);
 
+  // Distances may carry their unit ("4.96 cm", "49.6 mm"): each is rewritten into the solvent front's unit before
+  // the one number reader sees it. (They used to be refused as "“cm” is not a number".)
+  let frontUnit: string | null = null;
+  if (input.mode === "distance") {
+    if (!(input.front ?? "").trim()) return refuse("Solvent front: give the distance the solvent front travelled from the origin (same unit as the spot distances).");
+    const f0 = readLength(input.front as string, "Solvent front");
+    if (typeof f0 === "string") return refuse(f0);
+    frontUnit = f0.unit;
+  }
+  const UNIT_ON_NUMBER = /((?:\d+(?:\.\d*)?|\.\d+))\s*(cm|mm)\b/gi;
   const labels: string[] = [];
   const valueLines = lines.map(() => "");
   const valueTexts: string[][] = [];
+  for (const r of rows) {
+    const c = r.text.indexOf(":");
+    const vals = c >= 0 ? r.text.slice(c + 1) : r.text;
+    if (!/\d\s*(cm|mm)\b/i.test(vals)) continue;
+    if (input.mode !== "distance") return refuse(`Lanes: “${vals.trim()}” carries a length unit, but the spots are set to Rf values (no unit). Choose “Distances from the origin”, or give Rf values.`);
+  }
   rows.forEach((r, k) => {
     const c = r.text.indexOf(":");
     const label = c >= 0 ? r.text.slice(0, c).trim() : String(k + 1);
-    const vals = c >= 0 ? r.text.slice(c + 1).trim() : r.text;
+    let vals = c >= 0 ? r.text.slice(c + 1).trim() : r.text;
+    if (input.mode === "distance" && frontUnit) {
+      const fu = frontUnit;
+      vals = vals.replace(UNIT_ON_NUMBER, (_m, n: string, u: string) => {
+        const v = Number(n);
+        const lu = u.toLowerCase();
+        const conv = lu === fu ? v : lu === "mm" ? v / 10 : v * 10;
+        return String(Number(conv.toPrecision(12)));
+      });
+    }
     labels.push(label);
     valueLines[r.line - 1] = vals;
     valueTexts.push(vals.split(/,\s+|\s+|;|\t/).filter(Boolean));

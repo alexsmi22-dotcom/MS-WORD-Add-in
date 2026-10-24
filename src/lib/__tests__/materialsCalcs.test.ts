@@ -473,7 +473,10 @@ describe("tolerance stack-up", () => {
     expect(t).toContain("Centred gap        0.530");
     expect(t).toContain("0.530 ±0.260");
     expect(t).toContain("0.530 ±0.129");
-    expect(t).toContain("60.2 % of RSS variance");
+    // fix2-eng1: the dimensions are a table block; the share column's header carries the unit.
+    expect(t).toContain("Share of RSS variance (%)");
+    const tbl = (out.blocks ?? []).find((b) => b.kind === "table");
+    expect(tbl && tbl.kind === "table" ? tbl.rows[1][3] : "").toBe("60.2");
     expect(t).toContain("+0.00/−0.06");
   });
   test("engine numbers", () => {

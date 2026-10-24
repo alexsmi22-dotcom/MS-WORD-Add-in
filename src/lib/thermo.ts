@@ -57,7 +57,8 @@ export function toKelvin(value: number, unit: TempUnit): number | ThermoError {
     return {
       ok: false,
       error:
-        `${value} ${unit} is ${k.toFixed(2)} K, at or below absolute zero. Check the unit — this ` +
+        // True minus and the unit as written (°C, °F): "-5 K is -5.00 K" carried hyphens, and "-300 C" no degree sign.
+        `${String(value).replace(/^-/, "−")} ${unit === "K" ? "K" : `°${unit}`} is ${k.toFixed(2).replace(/^-/, "−")} K, at or below absolute zero. Check the unit — this ` +
         "is almost always a Celsius value entered as kelvin, or the other way round.",
     };
   }
@@ -828,10 +829,10 @@ export function checkAgainstCarnot(
   const possible = claimed <= bound * (1 + 1e-9);
   const label = kind === "efficiency" ? "efficiency" : "COP";
   const message = possible
-    ? `A ${label} of ${claimed} is below the Carnot bound of ${bound.toFixed(4)} between ` +
+    ? `${label === "efficiency" ? "An" : "A"} ${label} of ${claimed} is below the Carnot bound of ${bound.toFixed(4)} between ` +
       `${thK.toFixed(2)} K and ${tcK.toFixed(2)} K, so it is thermodynamically possible. Whether it ` +
       "is achievable is a separate question about the machine."
-    : `A ${label} of ${claimed} EXCEEDS the Carnot bound of ${bound.toFixed(4)} between ` +
+    : `${label === "efficiency" ? "An" : "A"} ${label} of ${claimed} EXCEEDS the Carnot bound of ${bound.toFixed(4)} between ` +
       `${thK.toFixed(2)} K and ${tcK.toFixed(2)} K, so it is IMPOSSIBLE — no device of any design ` +
       "can do this. The commonest cause by far is a temperature entered in Celsius where the " +
       "formula needs kelvin; the second commonest is a heat input that omits a term.";

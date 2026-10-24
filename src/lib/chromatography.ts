@@ -306,7 +306,7 @@ export function readPeakTable(text: string, opts: PeakTableOptions = {}): PeakTa
 
 const COLUMN_NAME: Record<PeakColumn, string> = {
   name: "the peak name",
-  tR: "the retention time tR",
+  tR: "the retention time t(R)",
   area: "the area",
   height: "the height",
   w50: "W₀.₅ (width at half height)",
@@ -387,7 +387,7 @@ export function analyzePeaks(rows: PeakRow[], tM: number | null): ChromResult | 
     if (r.w05 !== null && r.w50 !== null && r.w05 < r.w50)
       return refuse(`Peak table: ${who}: W₀.₀₅ (${showNum(r.w05)}) is narrower than W₀.₅ (${showNum(r.w50)}), which no peak is (the width at 5 % height is the wider one). Are the columns swapped?`);
     if (tM !== null && r.tR <= tM)
-      return refuse(`Peak table: ${who} elutes at ${showNum(r.tR)}, not after the dead time tM = ${showNum(tM)}; every retained peak has tR > tM. Check tM and the time unit.`);
+      return refuse(`Peak table: ${who} elutes at ${showNum(r.tR)}, not after the dead time t(M) = ${showNum(tM)}; every retained peak has t(R) > t(M). Check t(M) and the time unit.`);
   }
   // Sorted by retention time (stable); a tie is refused rather than ordered by guess.
   for (let j = 1; j < order.length; j++)
@@ -397,7 +397,7 @@ export function analyzePeaks(rows: PeakRow[], tM: number | null): ChromResult | 
     }
   const sorted = order.some((o, j) => o.i !== j);
   const notes: string[] = [];
-  if (sorted) notes.push("The rows were not in retention order; they were sorted by tR (peak numbers and “next peak” follow elution order).");
+  if (sorted) notes.push("The rows were not in retention order; they were sorted by t(R) (peak numbers and “next peak” follow elution order).");
   const allArea = rows.every((r) => r.area !== null);
   const sumArea = allArea ? rows.reduce((s, r) => s + (r.area as number), 0) : 0;
   const peaks: PeakResult[] = order.map(({ r }, j) => ({
@@ -429,7 +429,7 @@ export function analyzePeaks(rows: PeakRow[], tM: number | null): ChromResult | 
     const missing = peaks.filter((p) => p.area === null).map((p) => p.ref);
     notes.push(rows.some((r) => r.area !== null) ? `Area % not computed: no area for ${listOf(missing)} (the percentages need every peak's area).` : "Area % not computed: the table has no areas.");
   } else if (!Number.isFinite(sumArea)) return refuse("Peak table: the areas are too large to add up.");
-  if (tM === null) notes.push("Retention factor k and separation factor α not computed: no dead time tM given.");
+  if (tM === null) notes.push("Retention factor k and separation factor α not computed: no dead time t(M) given.");
   const noW = peaks.filter((p) => p.w50 === null).map((p) => p.ref);
   if (noW.length) notes.push(noW.length === peaks.length ? "Plate number N and resolution Rs not computed: the table has no W₀.₅ (width at half height)." : `N and Rs not computed for ${listOf(noW)}: no W₀.₅ (width at half height).`);
   const noT = peaks.filter((p) => p.T === null).map((p) => p.ref);
@@ -476,7 +476,14 @@ export function drawPlan(peaks: PeakResult[]): { draw: DrawPeak[]; notes: string
     if (skipped.length) notes.push(`Not drawn: ${listOf(skipped)} (needs a height, or an area and W₀.₅).`);
   } else {
     raw = peaks.map(() => 1);
-    notes.push("No heights or areas in the table: every peak is drawn at the same height.");
+    // Said from what the table holds: "No heights or areas" was printed beside a table full of areas.
+    const anyArea = peaks.some((p) => p.area !== null);
+    const anyHeight = peaks.some((p) => p.height !== null);
+    notes.push(
+      anyArea || anyHeight
+        ? `${anyHeight ? "Heights are not given for every peak" : "No heights in the table"}${anyArea ? ", and the areas have no W₀.₅ to turn them into heights" : ""}: every peak is drawn at the same height.`
+        : "No heights or areas in the table: every peak is drawn at the same height.",
+    );
   }
   const max = Math.max(...raw.map((v) => (v === null ? 0 : v)));
   const draw: DrawPeak[] = [];

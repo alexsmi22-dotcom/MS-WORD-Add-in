@@ -13,7 +13,7 @@
 // ×10ⁿ, U+2212) and every line through trueMinus (numberList.ts).
 
 import type { EngUnitContract } from "./engCalc";
-import { engReport, plainDashes, type EngLine } from "./engReport";
+import { engReport, plainDashes, type EngLine, type EngReportLine } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput } from "./analyzeBlocks";
 import { fmtSig, superscript } from "./axis";
 import { trueMinus } from "./numberList";
@@ -115,7 +115,7 @@ function ppmText(ppm: number): string {
   return `${f(ppm, 3)} ppm`;
 }
 const refuse = (text: string): AnalyzeOutput => ({ text: trueMinus(plainDashes(text)), ok: false });
-function report(lines: EngLine[], plots: AnalyzeBlock[]): AnalyzeOutput {
+function report(lines: EngReportLine[], plots: AnalyzeBlock[]): AnalyzeOutput {
   return engReport(lines.map((l) => (typeof l === "string" ? trueMinus(l) : l)), plots);
 }
 function plot(svg: string, caption: string, alt: string, w: number, h: number): AnalyzeBlock {
@@ -192,7 +192,7 @@ function blockOf(text: string, what: string, lone: boolean): DataBlock | { error
 }
 
 /** A numeric table of `min`–`max` columns. */
-function numericTable(text: string, min: number, max: number, what: string): { data: number[][]; notes: string[] } | { error: string } {
+function numericTable(text: string, min: number, max: number, what: string): { data: number[][]; notes: string[]; header?: string[] | null } | { error: string } {
   const b = blockOf(text, what, false);
   if ("error" in b) return b;
   const out: number[][] = [];
@@ -204,7 +204,18 @@ function numericTable(text: string, min: number, max: number, what: string): { d
     out.push(row);
   }
   if (!out.length) return { error: `Enter the data: ${what}, one row per line.` };
-  return { data: out, notes: b.notes };
+  return { data: out, notes: b.notes, header: b.header };
+}
+
+/**
+ * The stress unit a column header names ("stress MPa", "σ (GPa)", "Stress, ksi"), or null when it names none.
+ * Longest first, so "MPa" is not read as "Pa" and "ksi" not as "psi".
+ */
+function headerStressUnit(cell: string | undefined): string | null {
+  if (!cell) return null;
+  const m = /(?:^|[^A-Za-z])(GPa|MPa|kPa|ksi|psi|N\/mm²|N\/mm\^2)(?![A-Za-z])/.exec(cell);
+  if (!m) return null;
+  return /^N\/mm/.test(m[1]) ? "MPa" : m[1];
 }
 
 /** A flat list of numbers in any separator. A lone "4,76" is refused as ambiguous (one decimal or two values). */
@@ -420,6 +431,15 @@ const tensileCalc: MatCalc = {
     let strainPct: boolean;
     const conv: string[] = [];
     if (mode === "ss") {
+      // A header that names a stress unit must agree with the unit selected: "stress MPa" read as GPa is a factor of
+      // 1000 in every number, so the conflict is refused rather than one side guessed.
+      const hU = headerStressUnit(tblR.header?.[1]);
+      if (hU !== null && hU !== sUnit) {
+        return refuse(
+          `The stress column header says ${hU} ("${tblR.header?.[1]}"), but the stress unit selected is ${sUnit}. ` +
+            `Choose ${hU} as the stress unit, or correct the header.`,
+        );
+      }
       strainPct = r("strainUnit") !== "frac";
       strain = tbl.map((row) => (strainPct ? row[0] / 100 : row[0]));
       stress = tbl.map((row) => row[1] * kOut);
@@ -806,15 +826,22 @@ const scherrerCalc: MatCalc = {
     const nm = (a: number): string => (a > SIZE_CAP_A ? "> 200 nm (beyond the method's range)" : `${f(a / 10, 3)} nm`);
     const modeText =
       mode === "gauss" ? "Gaussian quadrature, β² = β²obs − β²inst" : mode === "lorentz" ? "Lorentzian, β = βobs − βinst" : "none";
-    const lines: EngLine[] = [
+    // A real table block (header row with units), not padded text (fix2-eng1).
+    const lines: EngReportLine[] = [
       `Crystallite size (Scherrer), K = ${f(K, 3)}, λ = ${lambdaName}`,
       `Instrumental correction: ${modeText}`,
-      "",
-      "  2θ (°)     FWHM obs (°)   inst (°)   β (°)     τ",
-      ...res.peaks.map(
-        (p) =>
-          `  ${p.twoTheta.toFixed(2).padEnd(10)} ${f(p.fwhmObs, 3).padEnd(14)} ${f(p.inst, 3).padEnd(10)} ${f(p.beta, 3).padEnd(9)} ${nm(p.size)}`,
-      ),
+      {
+        table: [
+          ["2θ (°)", "FWHM observed (°)", "Instrumental FWHM (°)", "β (°)", "Crystallite size τ"],
+          ...res.peaks.map((p) => [
+            p.twoTheta.toFixed(2),
+            f(p.fwhmObs, 3),
+            f(p.inst, 3),
+            f(p.beta, 3),
+            nm(p.size),
+          ]),
+        ],
+      },
     ];
     const big = res.peaks.some((p) => p.size > 1000);
     if (res.wh) {
@@ -1212,23 +1239,29 @@ const stackCalc: MatCalc = {
     const d = (v: number): string => fmtAt(v, dp + 1);
     const signed = (v: number): string => (v >= 0 ? `+${di(v)}` : di(v));
     const shifted = res.rows.some((x) => x.plus !== -x.minus);
-    const lines: EngLine[] = [
+    // Real table blocks (header row, units in the header), not padded text (fix2-eng1).
+    const uH = parsed.unit ? ` (${parsed.unit})` : "";
+    const lines: EngReportLine[] = [
       `Tolerance stack-up, ${res.rows.length} dimensions`,
-      "",
-      ...res.rows.map(
-        (x) =>
-          `  ${x.sign > 0 ? "+" : "−"} ${x.name.padEnd(22)} ${di(x.nominal)}` +
-          (x.plus === -x.minus ? ` ±${di(x.half)}` : ` ${signed(x.plus)}/${signed(x.minus)} (as ${d(x.mid)} ±${d(x.half)})`) +
-          `   ${pct(x.share, 3)} of RSS variance`,
-      ),
-      "",
-      `  Nominal gap        ${d(res.nominal)}`,
+      {
+        table: [
+          ["Dimension (sign as it adds to the gap)", `Nominal${uH}`, `Tolerance${uH}`, "Share of RSS variance (%)"],
+          ...res.rows.map((x) => [
+            `${x.sign > 0 ? "+" : "−"} ${x.name}`,
+            di(x.nominal),
+            x.plus === -x.minus ? `±${di(x.half)}` : `${signed(x.plus)}/${signed(x.minus)} (as ${d(x.mid)} ±${d(x.half)})`,
+            pct(x.share, 3).replace(/\s*%$/, ""),
+          ]),
+        ],
+      },
     ];
-    if (shifted) lines.push(`  Centred gap        ${d(res.centre)}   (unequal tolerances re-centred)`);
-    lines.push(
-      `  Worst case         ${d(res.centre)} ±${d(res.worst)}   →  ${d(res.centre - res.worst)} to ${d(res.centre + res.worst)}`,
-      `  RSS (statistical)  ${d(res.centre)} ±${d(res.rss)}   →  ${d(res.centre - res.rss)} to ${d(res.centre + res.rss)}`,
+    const gapRows: string[][] = [["Result", `Gap${uH}`, `Range${uH}`], ["Nominal gap", d(res.nominal), ""]];
+    if (shifted) gapRows.push(["Centred gap", d(res.centre), "(unequal tolerances re-centred)"]);
+    gapRows.push(
+      ["Worst case", `${d(res.centre)} ±${d(res.worst)}`, `${d(res.centre - res.worst)} to ${d(res.centre + res.worst)}`],
+      ["RSS (statistical)", `${d(res.centre)} ±${d(res.rss)}`, `${d(res.centre - res.rss)} to ${d(res.centre + res.rss)}`],
     );
+    lines.push({ table: gapRows });
     const sigma = res.rss / k;
     if (gMin !== null || gMax !== null) {
       const wcOk = (gMin === null || res.centre - res.worst >= gMin) && (gMax === null || res.centre + res.worst <= gMax);

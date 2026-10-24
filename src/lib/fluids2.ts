@@ -435,6 +435,12 @@ export interface AffinityInput {
   /** Impeller diameters, any consistent unit. Equal when only speed changes. */
   diameter1?: number;
   diameter2?: number;
+  /**
+   * How a diameter change scales. "trim" (the default): the SAME pump with its impeller turned down in the same
+   * casing — Q ∝ D, H ∝ D², P ∝ D³, the trimming law of Karassik's Pump Handbook and the Hydraulic Institute.
+   * "similar": a geometrically similar pump of another size (every dimension scaled) — Q ∝ D³, H ∝ D², P ∝ D⁵.
+   */
+  diameterLaw?: "trim" | "similar";
 }
 
 export interface AffinityResult {
@@ -476,9 +482,10 @@ export function affinityLaws(inp: AffinityInput): AffinityResult | Fluids2Error 
 
   const n = inp.speed2 / inp.speed1;
   const d = d2 / d1;
-  const flow2 = inp.flow1 * n * Math.pow(d, 3);
+  const trim = (inp.diameterLaw ?? "trim") === "trim";
+  const flow2 = inp.flow1 * n * Math.pow(d, trim ? 1 : 3);
   const head2 = inp.head1 * n * n * d * d;
-  const power2 = inp.power1 * Math.pow(n, 3) * Math.pow(d, 5);
+  const power2 = inp.power1 * Math.pow(n, 3) * Math.pow(d, trim ? 3 : 5);
   if (![flow2, head2, power2].every(Number.isFinite)) {
     return { ok: false, error: "Those ratios overflow the arithmetic. Check the magnitudes." };
   }
@@ -513,13 +520,18 @@ export function affinityLaws(inp: AffinityInput): AffinityResult | Fluids2Error 
   }
   if (d !== 1) {
     notes.push(
-      `Diameter ratio ${d.toFixed(4)}: trimming an impeller scales flow with D³, head with D² and ` +
-        "power with D⁵ on the strict laws. Real trimming departs from this because the casing " +
-        "does not shrink with the impeller, so treat a large trim as indicative.",
+      trim
+        ? `Diameter ratio ${d.toFixed(4)}: an impeller TRIMMED in the same casing scales flow with D, head with D² ` +
+            "and power with D³ (the trimming law: Karassik, Pump Handbook; Hydraulic Institute). It is reliable only " +
+            "for small trims; for larger ones efficiency falls and the manufacturer's trimmed curves govern. For a geometrically similar pump of another size, choose the similarity law " +
+            "(Q ∝ D³, P ∝ D⁵) instead."
+        : `Diameter ratio ${d.toFixed(4)}: a GEOMETRICALLY SIMILAR pump (every dimension scaled, casing included) ` +
+            "scales flow with D³, head with D² and power with D⁵. For an impeller trimmed in the same casing, " +
+            "choose the trimming law (Q ∝ D, P ∝ D³) instead.",
     );
   }
   notes.push(
-    "The affinity laws assume geometric similarity and constant efficiency. Efficiency does fall " +
+    "The affinity laws assume constant efficiency (and similar flow conditions at the two points). Efficiency does fall " +
       "away from the best point and at low speed, so a large change is an estimate rather than a " +
       "guarantee.",
   );

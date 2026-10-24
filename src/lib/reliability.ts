@@ -97,7 +97,7 @@ export interface WeibullResult {
   medianLife: number;
   failures: number;
   censored: number;
-  /** "infant mortality" | "constant hazard" | "wear-out" | "not resolved". */
+  /** "infant mortality" | "not distinguishable from constant at 95 %" | "wear-out" | "not resolved". */
   regime: string;
   /** Probability-plot points: x = ln t, y = ln(-ln(1 - F)). */
   points: { x: number; y: number }[];
@@ -260,7 +260,7 @@ export function weibullFit(inp: WeibullInput): WeibullOut {
   let regime: string;
   if (betaLow !== null && betaLow > 1) regime = "wear-out";
   else if (betaHigh !== null && betaHigh < 1) regime = "infant mortality";
-  else if (betaLow !== null && betaHigh !== null && betaLow <= 1 && betaHigh >= 1) regime = "constant hazard";
+  else if (betaLow !== null && betaHigh !== null && betaLow <= 1 && betaHigh >= 1) regime = "not distinguishable from constant at 95 %";
   else regime = "not resolved";
 
   // Plotting positions. The FIT above used none of this - the points are drawn
@@ -310,11 +310,13 @@ export function weibullFit(inp: WeibullInput): WeibullOut {
       "The hazard rate FALLS with age, so the survivors are the good ones - this is infant mortality. " +
         "Burn-in helps and scheduled replacement actively hurts, because it swaps a proven part for a fresh one.",
     );
-  } else if (regime === "constant hazard") {
+  } else if (regime === "not distinguishable from constant at 95 %") {
     notes.push(
-      "The interval on beta straddles 1, so the data is consistent with a constant hazard: an old part " +
-        "is no more likely to fail in the next hour than a new one. Replacing on age achieves nothing here, " +
-        "and this is the only case where quoting a single failure rate 1/eta is defensible.",
+      `The 95 % interval on beta (${sig(betaLow as number, 3)} to ${sig(betaHigh as number, 3)}) includes 1, so the ` +
+        `hazard is NOT DISTINGUISHABLE FROM CONSTANT at 95 %, which is not the same as constant: the fitted beta of ` +
+        `${sig(beta, 3)} may still be a rising or falling hazard that this sample is too small to resolve. Only if ` +
+        "the hazard really is constant is an old part no more likely to fail than a new one, replacing on age " +
+        "pointless, and a single failure rate 1/eta defensible.",
     );
   } else {
     notes.push(

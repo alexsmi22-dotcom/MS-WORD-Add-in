@@ -389,7 +389,7 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "vib-forced": "ENG_VIB_UNIT_NOTE",
   "vib-modal": "ENG_VIB_UNIT_NOTE",
   "vib-mdof-forced": "ENG_VIB_UNIT_NOTE",
-  "thermo-process": "ENG_THERMO_UNIT_NOTE",
+  "thermo-process": "ENG_UNIT_NOTE",
   "thermo-cycle": "ENG_THERMO_UNIT_NOTE",
   "thermo-vapour": "ENG_THERMO_UNIT_NOTE",
   "fatigue-endurance": "ENG_FATIGUE_UNIT_NOTE",
@@ -401,7 +401,7 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   // The two fluids additions share the converting contract with pipe flow.
   "open-channel": "ENG_UNIT_NOTE",
   "pump-npsh": "ENG_UNIT_NOTE",
-  compressible: "ENG_THERMO_UNIT_NOTE",
+  compressible: "ENG_UNIT_NOTE",
   haemodynamics: "ENG_BIOMED_UNIT_NOTE",
   biomechanics: "ENG_BIOMED_UNIT_NOTE",
   biosignal: "ENG_BIOMED_UNIT_NOTE",
@@ -529,7 +529,9 @@ describe("every Engineering tool declares one unit contract", () => {
   // ENG_LEVEL_UNIT_NOTE (v2.140.0) is hybrid in the same way: a decibel level
   // is never converted (it is logarithmic), while the distances, frequencies,
   // powers and temperatures beside it go through the unit layer.
-  const CONVERTING: string[] = ["ENG_UNIT_NOTE", "ENG_RELIABILITY_UNIT_NOTE", "ENG_LEVEL_UNIT_NOTE"];
+  // ENG_FATIGUE_UNIT_NOTE joined in fix2-eng1: "100 ksi" / "1 in" / "572 °F" in the fatigue tools were refused by
+  // Number(); the stresses, diameter and temperature now convert, and every fatigue tool must parse.
+  const CONVERTING: string[] = ["ENG_UNIT_NOTE", "ENG_RELIABILITY_UNIT_NOTE", "ENG_LEVEL_UNIT_NOTE", "ENG_FATIGUE_UNIT_NOTE"];
 
   // A tool that claims to convert must actually read its fields through the
   // unit layer. This is the assertion that would have caught the original bug:

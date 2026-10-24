@@ -212,7 +212,7 @@ import { TLINE_CALCS } from "../lib/tlineCalcs";
 import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
-import { tidyResultSubscripts, tidySubscripts, snapNoise, snapGroup } from "../lib/subscriptText";
+import { tidyResultSubscripts, tidySubscripts, snapNoise, snapGroup, typesetENotation } from "../lib/subscriptText";
 import { buildResultOoxml, packageBodyXml, type ResultPackageItem } from "../lib/resultOoxml";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
@@ -13329,7 +13329,8 @@ const ENG_THERMO_UNIT_NOTE =
  * is the least of what the reader needs told.
  */
 const ENG_FATIGUE_UNIT_NOTE =
-  "Units: stresses and strengths in MPa throughout, diameters in mm, and nothing is converted. " +
+  "Units: a bare stress or strength is MPa, a diameter mm and a temperature °C; write another unit " +
+  "(100 ksi, 1 in, 572 °F) and it is converted (the load-spectrum lines are MPa only). " +
   "Sut and Sy are asked for rather than looked up in a table, because they move by a factor of " +
   "three with heat treatment for the same alloy designation — take them from your drawing or " +
   "material certificate.";
@@ -13713,12 +13714,12 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Second moment I = ${engNum(p.I, figs)} ${dimUnit}^4`);
       lines.push(`Centroid above the bottom fibre = ${engNum(p.yBar, figs)} ${dimUnit}`);
       if (p.symmetric) {
-        lines.push(`Section modulus S = ${engNum(p.sTop, figs)} (c = ${engNum(p.cTop, figs)})`);
+        lines.push(`Section modulus S = ${engNum(p.sTop, figs)} ${dimUnit}³ (c = ${engNum(p.cTop, figs)} ${dimUnit})`);
       } else {
-        lines.push(`Section modulus, top fibre = ${engNum(p.sTop, figs)} (c = ${engNum(p.cTop, figs)})`);
-        lines.push(`Section modulus, bottom fibre = ${engNum(p.sBot, figs)} (c = ${engNum(p.cBot, figs)})`);
+        lines.push(`Section modulus, top fibre = ${engNum(p.sTop, figs)} ${dimUnit}³ (c = ${engNum(p.cTop, figs)} ${dimUnit})`);
+        lines.push(`Section modulus, bottom fibre = ${engNum(p.sBot, figs)} ${dimUnit}³ (c = ${engNum(p.cBot, figs)} ${dimUnit})`);
       }
-      lines.push(`Radius of gyration r = ${engNum(p.r, figs)}`);
+      lines.push(`Radius of gyration r = ${engNum(p.r, figs)} ${dimUnit}`);
       // THE MINOR AXIS, because that is the one a column buckles about. An
       // I-beam's Iy is routinely an order of magnitude below its Ix - the
       // default section here is 12.6 times - so handing the bending I to a
@@ -13744,7 +13745,7 @@ const ENG_CALCS: EngCalc[] = [
             "buckling check needs this value rather than the bending one.",
         );
       }
-      lines.push(`First moment Q at the neutral axis = ${engNum(p.Q, figs)}, width there = ${engNum(p.tNA, figs)}`);
+      lines.push(`First moment Q at the neutral axis = ${engNum(p.Q, figs)} ${dimUnit}³, width there = ${engNum(p.tNA, figs)} ${dimUnit}`);
 
       const mRaw = r("M").trim();
       const vRaw = r("V").trim();
@@ -14392,9 +14393,9 @@ const ENG_CALCS: EngCalc[] = [
         // wide tee, in a note whose entire job is to show the conversion.
         sectionNote =
           `Section computed here: ${p.name}, A = ${engNum(p.A, 5)} ${dimUnit}² and ` +
-          `I = ${engNum(p.Imin, 5)} ${dimUnit}⁴ about the ` +
-          (p.minorAxis === "equal" ? "either (both equal)" : p.minorAxis) +
-          ` axis, converted to ${engNum(Aval, 5)} m² and ${engNum(Ival, 5)} m⁴. The WEAKER axis ` +
+          `I = ${engNum(p.Imin, 5)} ${dimUnit}⁴ ` +
+          (p.minorAxis === "equal" ? "about either axis (both are equal)" : `about the ${p.minorAxis} axis`) +
+          `, converted to ${engNum(Aval, 5)} m² and ${engNum(Ival, 5)} m⁴. The WEAKER axis ` +
           "was used, because that is the one a column buckles about" +
           (p.minorAxis === "equal"
             ? "; both axes are the same here, so the choice does not bite."
@@ -15091,7 +15092,7 @@ const ENG_CALCS: EngCalc[] = [
             width: 380,
             height: 250,
             xlabel: "Fraction along the exchanger",
-            ylabel: "Temperature (deg C)",
+            ylabel: "Temperature (°C)",
             title: `${counter ? "Counterflow" : "Parallel flow"} temperature profile`,
           },
         );
@@ -15391,8 +15392,8 @@ const ENG_CALCS: EngCalc[] = [
         width: 380,
         height: 250,
         xlabel: "Time (s)",
-        ylabel: "Temperature (deg C)",
-        title: `Cooling curve, tau = ${res.tau.toPrecision(3)} s`,
+        ylabel: "Temperature (°C)",
+        title: `Cooling curve, τ = ${trueMinus(typesetENotation(engNum(res.tau, 3)))} s`,
       });
       return withOutputs([
         { key: "Tend", label: "Temperature at that time", value: res.temperature, unit: "°C" },
@@ -15508,7 +15509,7 @@ const ENG_CALCS: EngCalc[] = [
       const svg = buildPlotSvg(series, {
         width: 380,
         height: 260,
-        xlabel: "Surface 1 temperature (deg C)",
+        xlabel: "Surface 1 temperature (°C)",
         ylabel: "Heat rate (kW)",
         title: "Radiation against convection",
       });
@@ -16211,11 +16212,11 @@ const ENG_CALCS: EngCalc[] = [
       const ncaRows: Array<[string, string, string]> = [
         ["Cmax (observed)", engNum(res.cmax), "mg/L"],
         ["Tmax (observed)", engNum(res.tmax), "h"],
-        [`λz, from the last ${res.lambdaPoints} points (adjusted R² = ${engNum(res.lambdaR2, 4)})`, engNum(res.lambdaZ), "1/h"],
+        [`λz, from the last ${res.lambdaPoints} positive points (adjusted R² = ${engNum(res.lambdaR2, 4)})`, engNum(res.lambdaZ), "1/h"],
         ["Half-life", engNum(res.halfLife), "h"],
-        ["AUC to the last sample", engNum(res.aucLast), "mg·h/L"],
+        ["AUClast, to the last positive concentration", engNum(res.aucLast), "mg·h/L"],
         ["AUC to infinity", engNum(res.aucInf), "mg·h/L"],
-        ["Extrapolated beyond the last sample", engNum(res.percentExtrapolated), "%"],
+        ["Extrapolated beyond the last positive concentration", engNum(res.percentExtrapolated), "%"],
         [`Clearance CL${apparent} = Dose/AUC∞`, engNum(res.clearance), "L/h"],
         [`Terminal volume Vz${apparent} = Dose/(λz·AUC∞)`, engNum(res.volume), "L"],
         ["Mean residence time", engNum(res.mrt), "h"],
@@ -16861,25 +16862,39 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const tunit = (r("tunit") || "C") as TempUnit;
-      const t1 = toKelvin(Number(r("t1") || "0"), tunit);
+      // Mass, pressures and volume read through the unit layer ("10 bar", "2 L"); a bare temperature is in the
+      // picker's unit, and one written with its own unit ("300 K", "80 °F") is read as written.
+      const u = engUnits(r);
+      const mIn = u.opt("m", "kg", "Mass", 0);
+      const p1In = u.opt("p1", "Pa", "Initial pressure", 0);
+      const p2In = u.optNull("p2", "Pa", "End pressure");
+      const v2In = u.optNull("v2", "m^3", "End volume");
+      const tempK = (key: string, label: string): number | { error: string } => {
+        const raw = r(key).trim();
+        if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*$/.test(raw) || !raw) return toKelvin(Number(raw || "0"), tunit);
+        const k = u.optNull(key, "K", label);
+        return k === null || !Number.isFinite(k) ? { error: u.errors.join("\n") || `${label}: unreadable.` } : k;
+      };
+      const t1 = tempK("t1", "Initial temperature");
       if (typeof t1 === "object") return { text: t1.error, ok: false };
       let t2: number | undefined;
       if (r("t2").trim()) {
-        const k2 = toKelvin(Number(r("t2")), tunit);
+        const k2 = tempK("t2", "End temperature");
         if (typeof k2 === "object") return { text: k2.error, ok: false };
         t2 = k2;
       }
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
 
       const res = idealGasProcess({
         gasId: r("gas") || "air",
-        m: Number(r("m") || "0"),
-        p1: Number(r("p1") || "0"),
+        m: mIn,
+        p1: p1In,
         t1,
         kind: (r("kind") || "isentropic") as ProcessKind,
         n: r("n").trim() ? Number(r("n")) : undefined,
-        p2: r("p2").trim() ? Number(r("p2")) : undefined,
+        p2: p2In ?? undefined,
         t2,
-        v2: r("v2").trim() ? Number(r("v2")) : undefined,
+        v2: v2In ?? undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
 
@@ -16916,7 +16931,12 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Change in entropy ΔS = ${engNum(eS)} J/K`);
       lines.push(`  First law check: ΔU + W = ${engNum(eLaw)} J, which is Q.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
-      lines.push(ENG_THERMO_UNIT_NOTE);
+      u.report(lines);
+      lines.push(ENG_UNIT_NOTE);
+      lines.push(
+        "Temperature is absolute in every formula: a bare temperature is read in the unit picked above and converted " +
+          "to kelvin before anything is divided.",
+      );
 
       // The process on the P-v plane — the area under this path IS the
       // boundary work the numbers report. Isochoric (n = ∞) is a vertical
@@ -17386,15 +17406,21 @@ const ENG_CALCS: EngCalc[] = [
       { key: "q", label: "Notch sensitivity q, 0-1 (1 is conservative)", default: "1", kind: "text" },
     ],
     compute: (r) => {
-      const sutV = Number(r("sut") || "0");
+      // Strengths, diameter and temperature read through the unit layer: "100 ksi", "1 in" and "572 °F" were
+      // refused as "must be greater than zero" / "a finite number" by Number().
+      const u = engUnits(r);
+      const sutV = u.opt("sut", "MPa", "Ultimate tensile strength", 0);
+      const diaV = u.opt("dia", "mm", "Diameter", 0);
+      const tempV = u.opt("temp", "°C", "Operating temperature", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const mclassV = (r("mclass") || "steel") as MaterialClass;
       const res = enduranceLimit({
         sut: sutV,
         materialClass: mclassV,
         surface: (r("surface") || "machined") as SurfaceFinish,
-        diameter: Number(r("dia") || "0"),
+        diameter: diaV,
         load: (r("load") || "bending") as LoadKind,
-        tempC: Number(r("temp") || "0"),
+        tempC: tempV,
         reliability: Number(r("rel") || "0"),
       });
       if (!res.ok) return { text: res.error, ok: false };
@@ -17434,6 +17460,7 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
+      u.report(lines);
       lines.push(ENG_FATIGUE_UNIT_NOTE);
 
       // The S-N sketch the Marin factors imply. Both curves leave 0.9·Sut at
@@ -17547,12 +17574,12 @@ const ENG_CALCS: EngCalc[] = [
         label: "Surface finish (Marin source)",
         default: "machined",
         kind: "select",
-        options: [
-          { value: "ground", label: "Ground" },
-          { value: "machined", label: "Machined / cold-drawn" },
-          { value: "hotrolled", label: "Hot-rolled" },
-          { value: "forged", label: "As-forged" },
-        ],
+        // The option values ARE the SURFACE_FACTORS keys: hand-typed values without the hyphen / "as-"
+        // prefix once missed the table and silently fell back to machined.
+        options: (Object.keys(SURFACE_FACTORS) as SurfaceFinish[]).map((k) => ({
+          value: k,
+          label: SURFACE_FACTORS[k].label,
+        })),
       },
       { key: "mdia", label: "Diameter or equivalent dimension, mm (Marin source)", default: "25", kind: "text" },
       {
@@ -17588,25 +17615,35 @@ const ENG_CALCS: EngCalc[] = [
       if (!Number.isFinite(kf) || kf < 1 || kf > 10) {
         return { text: "The notch factor Kf is 1 or greater (1 = unnotched); values above ~5 are unusual.", ok: false };
       }
-      const saNominal = Number(r("sa") || "0");
+      // Every stress and strength reads through the unit layer (MPa when bare; "100 ksi" converts).
+      const u = engUnits(r);
+      const saNominal = u.opt("sa", "MPa", "Alternating stress", 0);
+      const smIn = u.opt("sm", "MPa", "Mean stress", 0);
+      const fromMarin = r("sesrc") === "marin";
+      // A typed Se is read only when it is the source; a leftover value is ignored under the Marin source, as before.
+      const seTyped = fromMarin ? 0 : u.opt("se", "MPa", "Endurance limit", 0);
+      const sutIn = u.opt("sut", "MPa", "Ultimate tensile strength", 0);
+      const syIn = u.opt("sy", "MPa", "Yield strength", 0);
+      const mdiaIn = fromMarin ? u.opt("mdia", "mm", "Diameter", 25) : 25;
+      const mtempIn = fromMarin ? u.opt("mtemp", "°C", "Operating temperature", 20) : 20;
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const saEffective = saNominal * kf;
 
       // Se: typed, or the Marin chain computed here from the same inputs the
       // endurance tool takes.
-      const fromMarin = r("sesrc") === "marin";
-      let seVal = Number(r("se") || "0");
+      let seVal = seTyped;
       let marinNote: string | null = null;
       let marinNotes: string[] = [];
       if (fromMarin) {
-        const sutM = Number(r("sut") || "0");
+        const sutM = sutIn;
         const relM = Number(r("mrel") || "0.9");
         const end = enduranceLimit({
           sut: sutM,
           materialClass: (r("mclass") || "steel") as MaterialClass,
           surface: (r("surface") || "machined") as SurfaceFinish,
-          diameter: Number(r("mdia") || "25"),
+          diameter: mdiaIn,
           load: (r("mload") || "bending") as LoadKind,
-          tempC: Number(r("mtemp") || "20"),
+          tempC: mtempIn,
           reliability: relM,
         });
         if (!end.ok) return { text: `Endurance limit: ${end.error}`, ok: false };
@@ -17629,10 +17666,10 @@ const ENG_CALCS: EngCalc[] = [
 
       const res = meanStressAnalysis(
         saEffective,
-        Number(r("sm") || "0"),
+        smIn,
         seVal,
-        Number(r("sut") || "0"),
-        Number(r("sy") || "0"),
+        sutIn,
+        syIn,
         (r("crit") || "goodman") as Criterion,
       );
       if (!res.ok) return { text: res.error, ok: false };
@@ -17644,7 +17681,7 @@ const ENG_CALCS: EngCalc[] = [
         "asme-elliptic": engEq("fatigue-safety:asme-elliptic"),
       };
       const lines: EngReportLine[] = [...(critEq[r("crit") || "goodman"] ?? []), ...engEq("fatigue-safety")];
-      lines.push(`Mean-stress analysis, σa = ${engNum(saEffective)} MPa, σm = ${engNum(Number(r("sm")))} MPa`);
+      lines.push(`Mean-stress analysis, σa = ${engNum(saEffective)} MPa, σm = ${engNum(smIn)} MPa`);
       lines.push(`  Se = ${engNum(seVal)} MPa`);
       if (marinNote) lines.push(`Note: ${marinNote}`);
       for (const mn of marinNotes) lines.push(`Note: ${mn}`);
@@ -17676,16 +17713,17 @@ const ENG_CALCS: EngCalc[] = [
               "root; for a brittle material apply it to σm as well.",
       );
       for (const note of res.notes) lines.push(`Note: ${note}`);
+      u.report(lines);
       lines.push(ENG_FATIGUE_UNIT_NOTE);
 
       // THE GOODMAN DIAGRAM. Each locus is that criterion at n = 1 - the
       // failure boundary - so the operating point's position relative to them
       // IS the margin. Gerber and the ASME ellipse are sampled because they are
       // curves; Goodman, Soderberg and Langer are straight and need two points.
-      const sutV = Number(r("sut") || "0");
-      const syV = Number(r("sy") || "0");
+      const sutV = sutIn;
+      const syV = syIn;
       // Compressive mean is drawn at zero, matching what the engine computes.
-      const smV = Math.max(0, Number(r("sm") || "0"));
+      const smV = Math.max(0, smIn);
       const sample = (f: (m: number) => number, mMax: number): { m: number; a: number }[] =>
         Array.from({ length: 41 }, (_, i) => {
           const m = (mMax * i) / 40;
@@ -17702,7 +17740,7 @@ const ENG_CALCS: EngCalc[] = [
                   // The Langer line uses the MAGNITUDE of the mean, while the
                   // four fatigue criteria clamp a compressive one to zero, so
                   // the two families see different points and both are drawn.
-                  yieldSigmaM: Math.abs(Number(r("sm") || "0")),
+                  yieldSigmaM: Math.abs(smIn),
                   sutMPa: sutV,
                   seMPa: seVal,
                   lines: [
@@ -17761,8 +17799,10 @@ const ENG_CALCS: EngCalc[] = [
       },
     ],
     compute: (r) => {
-      const se = Number(r("se") || "0");
-      const sut = Number(r("sut") || "0");
+      const u = engUnits(r);
+      const se = u.opt("se", "MPa", "Endurance limit", 0);
+      const sut = u.opt("sut", "MPa", "Ultimate tensile strength", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const mclass = (r("mclass") || "steel") as MaterialClass;
 
       const blocks: { sigmaA: number; cycles: number }[] = [];
@@ -17819,6 +17859,7 @@ const ENG_CALCS: EngCalc[] = [
           : `The whole spectrum can be repeated about ${engNum(dmg.repeats, 3)} times.`,
       );
       for (const note of dmg.notes) lines.push(`Note: ${note}`);
+      u.report(lines);
       lines.push(ENG_FATIGUE_UNIT_NOTE);
 
       // The load blocks against the S-N line they are consuming. A point left
@@ -17912,7 +17953,7 @@ const ENG_CALCS: EngCalc[] = [
       // Release E: the result as a quantity / value / unit table.
       const kRows: Array<[string, string, string]> = [
         ["K", engNum(res.K / 1e6, 5), "MPa·√m"],
-        [`K / K_IC${res.fractures ? " (FRACTURES)" : ""}`, engNum(res.ratio, 4), ""],
+        [`K / KIC${res.fractures ? " (FRACTURES)" : ""}`, engNum(res.ratio, 4), ""],
         ["Safety on stress", engNum(res.safetyOnStress, 4), ""],
         ["Critical crack size", engNum(res.criticalCrack * 1000, 5), "mm"],
         ["Your crack size", engNum(crack * 1000, 5), "mm"],
@@ -17946,7 +17987,7 @@ const ENG_CALCS: EngCalc[] = [
             points: [{ x: 0, y: kic / 1e6 }, { x: aMax * 1000, y: kic / 1e6 }],
             type: "line",
             color: "#b91c1c",
-            label: "toughness K_IC",
+            label: "toughness KIC",
           },
           { points: [{ x: crack * 1000, y: res.K / 1e6 }], type: "scatter", color: "#111111", label: "this flaw" },
         ],
@@ -17954,13 +17995,13 @@ const ENG_CALCS: EngCalc[] = [
           width: 380,
           height: 260,
           xlabel: "Crack length (mm)",
-          ylabel: "Stress intensity (MPa·sqrt(m))",
+          ylabel: "Stress intensity (MPa·√m)",
           title: "Where this flaw becomes critical",
         },
       );
       return withOutputs([
         { key: "Kstress", label: "Stress intensity K", value: res.K / 1e6, unit: "MPa·√m" },
-        { key: "KoverKIC", label: "K / K_IC", value: res.ratio, unit: "" },
+        { key: "KoverKIC", label: "K / KIC", value: res.ratio, unit: "" },
         { key: "acrit", label: "Critical crack size", value: res.criticalCrack * 1000, unit: "mm" },
         { key: "sigmaCrit", label: "Critical stress", value: res.criticalStress / 1e6, unit: "MPa" },
       ], engReport(lines, [
@@ -17990,7 +18031,7 @@ const ENG_CALCS: EngCalc[] = [
       { key: "C", label: "Paris C (da/dN in m/cycle for ΔK in MPa√m)", default: "6.9e-12", kind: "text" },
       { key: "m", label: "Paris exponent m (typically 3 to 4)", default: "3", kind: "text" },
       { key: "kic", label: "Fracture toughness K_IC, Pa·√m (MPa·√m, ksi·√in convert)", default: "50e6", kind: "text" },
-      { key: "dkth", label: "Threshold ΔK, Pa·√m (blank to assume growth always)", default: "", kind: "text" },
+      { key: "dkth", label: "Threshold ΔK in the unit C uses, MPa·√m (Pa·√m, ksi·√in convert; blank to assume growth always)", default: "", kind: "text" },
     ],
     compute: (r) => {
       const u = engUnits(r);
@@ -17998,7 +18039,21 @@ const ENG_CALCS: EngCalc[] = [
       const stressRange = u.req("ds", "Pa", "Stress range");
       const kic = u.req("kic", "Pa*m^0.5", "Fracture toughness");
       const thRaw = r("dkth").trim();
-      const deltaKth = thRaw ? u.opt("dkth", "Pa*m^0.5", "Threshold ΔK", 0) : undefined;
+      // A bare threshold is MPa·√m, the unit the Paris C beside it is quoted for: "20" read as 20 Pa·√m (a
+      // threshold of nothing) was the trap. The engine takes Pa·√m.
+      const deltaKthMPa = thRaw ? u.opt("dkth", "MPa*m^0.5", "Threshold ΔK", 0) : undefined;
+      const deltaKth = deltaKthMPa === undefined ? undefined : deltaKthMPa * 1e6;
+      // A threshold at or above the toughness cannot be (ΔKth is always well below KIC). It is also exactly what
+      // "20e6" typed in the KIC field's Pa·√m habit becomes, and "no growth, unlimited life" would be the answer.
+      if (deltaKth !== undefined && Number.isFinite(kic) && deltaKth >= kic) {
+        return {
+          text:
+            `Threshold ΔK: ${trueMinus(typesetENotation(engNum(deltaKthMPa as number, 4)))} MPa·√m is at or above the fracture toughness ` +
+            `(${trueMinus(typesetENotation(engNum(kic / 1e6, 4)))} MPa·√m), which no material has. A bare threshold is read in MPa·√m, ` +
+            "the unit C is quoted for: write 5 for 5 MPa·√m, or write the unit with the number (5000000 Pa·√m).",
+          ok: false,
+        };
+      }
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const Y = Number(r("Y"));
       const C = Number(r("C"));
@@ -18029,6 +18084,9 @@ const ENG_CALCS: EngCalc[] = [
         );
       } else {
         lines.push("  The crack reaches critical size before it can double, so there is no doubling figure.");
+      }
+      if (deltaKthMPa !== undefined) {
+        lines.push(`  Threshold ΔKth = ${engNum(deltaKthMPa, 4)} MPa·√m (a bare threshold is read in MPa·√m, the unit C is quoted for).`);
       }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -18536,7 +18594,7 @@ const ENG_CALCS: EngCalc[] = [
                 points: res.standbySweep.map((p) => ({ x: p.n, y: p.mttf })),
                 type: "line",
                 color: "#2563eb",
-                label: "standby (perfect switch)",
+                label: "standby, ideal switch",
               },
               {
                 points: res.activeSweep.map((p) => ({ x: p.n, y: p.mttf })),
@@ -19441,7 +19499,12 @@ const ENG_CALCS: EngCalc[] = [
       { key: "T", label: "Static temperature, K", default: "288.15", kind: "text" },
     ],
     compute: (r) => {
-      const res = compressibleFlow(Number(r("mach") || "0"), Number(r("k") || "1.4"), Number(r("T") || "288.15"));
+      // The temperature reads through the unit layer ("59 °F", "15 °C" → K); a bare number is kelvin. It used to go to
+      // Number() under a note pointing at a temperature picker this tool does not have.
+      const u = engUnits(r);
+      const tK = u.opt("T", "K", "Static temperature", 288.15);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = compressibleFlow(Number(r("mach") || "0"), Number(r("k") || "1.4"), tK);
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: EngReportLine[] = [...engEq("compressible")];
@@ -19459,7 +19522,8 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Critical pressure ratio p*/p0 = ${engNum(res.criticalPressureRatio)}`);
       lines.push(res.choked ? "The flow is CHOKED." : "The flow is not choked.");
       for (const note of res.notes) lines.push(`Note: ${note}`);
-      lines.push(ENG_THERMO_UNIT_NOTE);
+      u.report(lines);
+      lines.push(ENG_UNIT_NOTE);
       // Mass flow against pressure ratio, with the choke plateau visible. The
       // flat part IS the result: past the critical ratio, lowering the
       // downstream pressure buys nothing.
@@ -19598,7 +19662,7 @@ const ENG_CALCS: EngCalc[] = [
         height: 260,
         xlabel: "Differential (kPa)",
         ylabel: "Flow (m³/h)",
-        title: `Square-root response, beta = ${res.beta.toFixed(3)}`,
+        title: `Square-root response, β = ${res.beta.toFixed(3)}`,
       });
       return withOutputs([
         { key: "Qflow", label: "Volumetric flow", value: res.Q, unit: "m³/s" },
@@ -19739,6 +19803,16 @@ const ENG_CALCS: EngCalc[] = [
       { key: "N2", label: "New speed", default: "1160", kind: "text" },
       { key: "D1", label: "Original impeller diameter (blank = unchanged)", default: "", kind: "text" },
       { key: "D2", label: "New impeller diameter", default: "", kind: "text" },
+      {
+        key: "dlaw",
+        label: "Diameter change",
+        default: "trim",
+        kind: "select",
+        options: [
+          { value: "trim", label: "Impeller trimmed in the same casing (Q ∝ D, H ∝ D², P ∝ D³)" },
+          { value: "similar", label: "Geometrically similar pump of another size (Q ∝ D³, H ∝ D², P ∝ D⁵)" },
+        ],
+      },
     ],
     compute: (r) => {
       const nums: Record<string, number> = {};
@@ -19757,11 +19831,12 @@ const ENG_CALCS: EngCalc[] = [
         speed2: nums.N2,
         diameter1: d1Raw ? Number(d1Raw) : undefined,
         diameter2: d2Raw ? Number(d2Raw) : undefined,
+        diameterLaw: r("dlaw") === "similar" ? "similar" : "trim",
       });
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: EngReportLine[] = [
-        ...engEq("affinity"),
+        ...(res.diameterRatio !== 1 && r("dlaw") !== "similar" ? engEq("affinity:trim") : engEq("affinity")),
         `Affinity scaling, speed ratio ${engNum(res.speedRatio, 5)}`,
         "",
         kvTable([
@@ -19787,7 +19862,8 @@ const ENG_CALCS: EngCalc[] = [
           { points: pts(2), type: "line", color: "#059669", label: "head (N²)" },
           { points: pts(3), type: "line", color: "#b91c1c", label: "power (N³)" },
           {
-            points: [{ x: res.speedRatio * 100, y: Math.pow(res.speedRatio, 3) * 100 }],
+            // The power this case actually draws (speed AND diameter): N³ alone put a trimmed impeller at 100 %.
+            points: [{ x: res.speedRatio * 100, y: res.powerFraction * 100 }],
             type: "scatter",
             color: "#111111",
             label: "this case",
@@ -20060,8 +20136,8 @@ const ENG_CALCS: EngCalc[] = [
     group: "Biomedical",
     hint:
       "Static equilibrium about a joint. The body is built almost entirely from third-class " +
-      "levers, so the muscle force is many times the external load — and the JOINT REACTION is " +
-      "larger than either, which is the number a prosthesis has to survive.",
+      "levers, so the muscle force is many times the external load — and the JOINT REACTION, the " +
+      "number a prosthesis has to survive, is reported beside both with how it compares.",
     fields: [
       { key: "load", label: "External load, N", default: "100", kind: "text" },
       { key: "loadArm", label: "Joint to load distance, m", default: "0.35", kind: "text" },
@@ -25008,14 +25084,15 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const res = capacityFactor(mw, mwh, hours ?? undefined);
       if (!res.ok) return { text: res.error, ok: false };
-      const sig = engFigures([r("mw"), r("mwh")]);
+      // One precision for the whole table: a 4-figure CF sat beside "18000 MWh" and "3100 h" rounded to the inputs' figures.
+      const sig = Math.max(4, engFigures([r("mw"), r("mwh")]));
       const lines: EngReportLine[] = [
         ...engEq("energy-capacity-factor"),
         "Capacity factor",
         "",
         kvTable([
-          ["Capacity factor", engNum(res.capacityFactor, 4), ""],
-          ["Capacity factor", engNum(res.capacityFactor * 100, 4), "%"],
+          ["Capacity factor", engNum(res.capacityFactor, sig), ""],
+          ["Capacity factor", engNum(res.capacityFactor * 100, sig), "%"],
           ["Maximum possible energy", engNum(res.maximumMWh, sig), "MWh"],
           ["Equivalent full-load hours", engNum(res.equivalentFullLoadHours, sig), "h"],
         ]),
@@ -30309,7 +30386,8 @@ function refreshEngWorkbench(calc: EngCalc, out: AnalyzeOutput | null): void {
     b.type = "button";
     b.className = "draw-pop-btn";
     b.textContent = handoffGroupLabel(g.rows, target.name);
-    b.title = `${g.rows.map((h) => `${h.value.label} = ${engNum(h.value.value)} ${formatUnit(h.value.unit)}`).join("; ")}, into ${target.name}`;
+    // Typeset like every result (×10ⁿ, true minus): the tooltip showed "1.670e-6 m⁴".
+    b.title = `${g.rows.map((h) => `${h.value.label} = ${trueMinus(typesetENotation(engNum(h.value.value)))} ${formatUnit(h.value.unit)}`).join("; ")}, into ${target.name}`;
     b.addEventListener("click", () => {
       // Every row of the group goes in together, after the switch (which re-renders the target's fields).
       const sent = g.rows.map((h) => ({ h, text: fieldText(h.value.value, h.unit ?? h.value.unit) }));

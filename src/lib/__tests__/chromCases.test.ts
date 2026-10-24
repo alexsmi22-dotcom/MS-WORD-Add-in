@@ -14,9 +14,16 @@ import { readPeakTable, analyzePeaks, drawPlan, N_HALF_HEIGHT, RS_HALF_HEIGHT } 
 /** Plate numbers are grouped with THIN SPACES (U+2009); the expectations below are written with ordinary spaces. */
 const thin = (s: string): string => s.split(String.fromCharCode(0x2009)).join(" ");
 const calc = CHROM_CALCS.find((c) => c.id === "chem-peak-table")!;
+// fix2-eng1: the results are a table block (header row with units), no longer tab-separated text lines. The rows
+// below still match cells by tab, so the result's text is read with each table row tab-joined.
 const run = (data: string, tm = "", unit = "min") => {
   const f: Record<string, string> = { data, tm, unit };
-  return calc.compute((k) => f[k] ?? "");
+  const out = calc.compute((k) => f[k] ?? "");
+  if (out.ok === false || !out.blocks) return out;
+  const text = out.blocks
+    .map((b) => (b.kind === "line" ? b.text : b.kind === "table" ? b.rows.map((r) => r.join("\t")).join("\n") : b.kind === "plot" ? b.caption : b.kind === "math" ? b.fallback : ""))
+    .join("\n");
+  return { ...out, text };
 };
 const peaksOf = (data: string, tM: number | null = null) => {
   const t = readPeakTable(data);
@@ -73,14 +80,16 @@ describe("chromatography fixed case table", () => {
     const a = peaksOf("RT\tArea\n2\t100\n3\t300");
     expect(a.peaks.map((p) => p.areaPct)).toEqual([25, 75]);
     const out = run("RT\tArea\n2\t100\n3\t300");
-    expect(out.text).toContain("25.0 %");
-    expect(out.text).toContain("75.0 %");
+    // fix2-eng1: the results are a table block with "Area (%)" in the header, so the cell is the bare number.
+    expect(out.text).toMatch(/\t25\.0\t/);
+    expect(out.text).toMatch(/\t75\.0\t/);
+    expect(out.text).toContain("Area (%)");
   });
 
   test("6: no tM → k/α omitted with a named note, result still ok", () => {
     const out = run("RT\tW0.5\n5.0\t0.10\n5.5\t0.12");
     expect(out.ok).not.toBe(false);
-    expect(out.text).toContain("Retention factor k and separation factor α not computed: no dead time tM given.");
+    expect(out.text).toContain("Retention factor k and separation factor α not computed: no dead time t(M) given.");
     const a = peaksOf("RT\tW0.5\n5.0\t0.10\n5.5\t0.12");
     expect(a.peaks.every((p) => p.k === null && p.alpha === null)).toBe(true);
   });
@@ -129,7 +138,7 @@ describe("chromatography fixed case table", () => {
     expect(a.sorted).toBe(true);
     expect(a.peaks.map((p) => p.label)).toEqual(["Early", "Late"]);
     expect(a.peaks[0].Rs).toBeCloseTo(2.6818181818, 8);
-    expect(run("Peak\tRT\tW0.5\nLate\t5.5\t0.12\nEarly\t5.0\t0.10").text).toContain("were sorted by tR");
+    expect(run("Peak\tRT\tW0.5\nLate\t5.5\t0.12\nEarly\t5.0\t0.10").text).toContain("were sorted by t(R)");
   });
 
   test("12: 201 peaks → cap refusal; 200 is accepted", () => {
@@ -191,11 +200,11 @@ describe("chromatography adversarial rows", () => {
     expect(refusalOf("Area\tHeight\n10\t5")).toMatch(/no retention-time column/);
   });
   test("tR ≤ tM refused naming the peak", () => {
-    expect(refusalOf("Peak\tRT\nUracil\t1.0\nX\t3", 1.0)).toMatch(/peak 1 \(Uracil, line 2\) elutes at 1, not after the dead time tM = 1/);
+    expect(refusalOf("Peak\tRT\nUracil\t1.0\nX\t3", 1.0)).toMatch(/peak 1 \(Uracil, line 2\) elutes at 1, not after the dead time t\(M\) = 1/);
     expect(run("RT\n3\n4", "5").text).toMatch(/not after the dead time/);
   });
   test("tM with a mismatched unit or junk is refused; matching unit accepted", () => {
-    expect(run("RT\n3\n4", "60 s").text).toMatch(/tM is in s but the table's time unit is min/);
+    expect(run("RT\n3\n4", "60 s").text).toMatch(/t\(M\) is in s but the table's time unit is min/);
     expect(run("RT\n3\n4", "abc").ok).toBe(false);
     expect(run("RT\n3\n4", "1 min").ok).not.toBe(false);
     expect(run("RT\n3\n4", "0").ok).toBe(false);
@@ -283,10 +292,10 @@ describe("chromatography adversarial rows", () => {
 describe("chromatography review round 1", () => {
   test("R01: the lowest-resolution pair is named by elution number (as the table numbers it), and is the real min-Rs row", () => {
     const out = run("Peak\tRT\tW0.5\n1\t6\t0.1\n2\t4\t0.1\n3\t4.3\t0.1");
-    expect(out.text).toContain("Lowest resolution: Rs = 1.77 between peak 1 (ID 2) and peak 2 (ID 3).");
+    expect(out.text).toContain("Lowest resolution: Rₛ = 1.77 between peak 1 (ID 2) and peak 2 (ID 3).");
     const rows = out.text.split("\n").filter((l) => /^\d\t/.test(l));
-    expect(rows[0]).toMatch(/^1\tID 2\t4 min\t.*\t1\.77\t/);
-    expect(rows[1]).toMatch(/^2\tID 3\t4\.3 min\t.*\t10\.03\t/);
+    expect(rows[0]).toMatch(/^1\tID 2\t4\t.*\t1\.77\t/);
+    expect(rows[1]).toMatch(/^2\tID 3\t4\.3\t.*\t10\.03\t/);
     const named = run("Peak\tRT\tW0.5\nC\t6\t0.1\nA\t4\t0.1\nB\t4.3\t0.1");
     expect(named.text).toContain("between peak 1 (A) and peak 2 (B).");
   });
@@ -301,7 +310,8 @@ describe("chromatography review round 1", () => {
     expect(run("RT (min)\tW0.5 (min)\n5\t0.1", "", "s").text).toMatch(/the RT column header says min but the time unit is set to s; set the time unit to min/);
     // Matching units: read as written, no conversion note.
     const same = run("RT (s)\tW0.5 (s)\n300\t6\n330\t6.6", "", "s");
-    expect(thin(same.text)).toMatch(/^1\t–\t300 s\t.*\t13 850\t/m);
+    expect(thin(same.text)).toMatch(/^1\t–\t300\t.*\t13 850\t/m);
+    expect(same.text).toContain("t(R) (s)");
     expect(same.text).not.toMatch(/converted/);
     expect(run("RT (min)\tW0.5 (min)\n5\t0.1", "", "min").text).not.toMatch(/converted/);
     expect(run("RT (min)\tW0.5 (mm)\n5\t0.1").text).toMatch(/the column “W0\.5 \(mm\)” is in “mm”; retention times and widths must be in min or s/);
@@ -332,14 +342,14 @@ describe("chromatography review round 1", () => {
   test("a word in a numeric column names the field and its column, not the header advice", () => {
     const out = run("Peak\tRT\tW0.5\nＡ\t４.0\t0.1");
     expect(out.ok).toBe(false);
-    expect(out.text).toContain("line 2: “４.0” is not a number, in the column read as the retention time tR (“RT”)");
+    expect(out.text).toContain("line 2: “４.0” is not a number, in the column read as the retention time t(R) (“RT”)");
     expect(out.text).not.toMatch(/put a header on its own/);
     // An unused text column (Comment) is peeled and never trips the number reader.
     expect(run("RT\tComment\tW0.5\n4\tshoulder\t0.1\n5\tok\t0.1").ok).not.toBe(false);
   });
   test("large magnitudes print without trailing mantissa zeros", () => {
     const out = run("RT\tW0.5\n4000000\t0.000001");
-    expect(out.text).toContain("4×10⁶ min");
+    expect(out.text).toContain("4×10⁶");
     expect(out.text).not.toMatch(/4\.0+×/);
   });
 });
@@ -350,14 +360,14 @@ describe("chromatography review round 2", () => {
     expect(run("Peak\tRT (s)\tW0.5\nA\t300\t6\nB\t330\t6.6", "", "min").text).toMatch(/the RT column header says s but the time unit is set to min; set the time unit to s/);
     expect(run("Peak\tRT (min)\tW0.5\nA\t5.00\t0.10\nB\t5.50\t0.11", "", "s").text).toMatch(/the RT column header says min but the time unit is set to s; set the time unit to min/);
     // Control: no units, select min.
-    expect(thin(run("Peak\tRT\tW0.5\nA\t5.00\t0.10\nB\t5.50\t0.11", "", "min").text)).toMatch(/^1\tA\t5 min\t.*\t13 850\t/m);
+    expect(thin(run("Peak\tRT\tW0.5\nA\t5.00\t0.10\nB\t5.50\t0.11", "", "min").text)).toMatch(/^1\tA\t5\t.*\t13 850\t/m);
   });
   test("R2-02 (RULE U): header in min, select s, tM 1.05 → refused (tM is always in the select's unit)", () => {
     const out = run("Peak\tRT (min)\tW0.5 (min)\nA\t5.00\t0.10\nB\t6.50\t0.12", "1.05", "s");
     expect(out.ok).toBe(false);
     expect(out.text).toMatch(/header says min but the time unit is set to s; set the time unit to min \(all time columns and tM must be in one unit\)/);
     // With the select on min the same table gives k = (5 − 1.05)/1.05 = 3.76, α = 5.19/3.76 = 1.38.
-    expect(run("Peak\tRT (min)\tW0.5 (min)\nA\t5.00\t0.10\nB\t6.50\t0.12", "1.05", "min").text).toMatch(/^1\tA\t5 min\t–\t3\.76\t.*\t1\.38\t/m);
+    expect(run("Peak\tRT (min)\tW0.5 (min)\nA\t5.00\t0.10\nB\t6.50\t0.12", "1.05", "min").text).toMatch(/^1\tA\t5\t–\t3\.76\t.*\t1\.38\t/m);
   });
   test("R2-03 (RULE I): numeric IDs are named as the table numbers them in every note and sentence", () => {
     const a = run("Peak\tRT\tW0.5\n1\t6\t0.1\n2\t4\t\n3\t4.3\t0.1\n4\t7\t0.1");
@@ -365,7 +375,7 @@ describe("chromatography review round 2", () => {
     expect(a.text).not.toMatch(/for peak 2[^ ]/);
     const b = run("Peak\tRT\tArea\tW0.5\n1\t6\t5\t0.1\n2\t4\t\t0.1\n3\t4.3\t6\t0.1");
     expect(b.text).toContain("no area for peak 1 (ID 2)");
-    expect(b.text).toContain("Lowest resolution: Rs = 1.77 between peak 1 (ID 2) and peak 2 (ID 3).");
+    expect(b.text).toContain("Lowest resolution: Rₛ = 1.77 between peak 1 (ID 2) and peak 2 (ID 3).");
     // A refusal before sorting uses the same form.
     expect(run("Peak\tRT\tW0.5\n1\t6\t0.1\n2\t4\t-0.1").text).toContain("peak 1 (ID 2, line 3) has a W₀.₅ of −0.1");
     // A drawing note (inside the figure) too.

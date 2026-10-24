@@ -196,13 +196,23 @@ describe("affinity laws", () => {
     expect(r.powerFraction).toBeCloseTo(0.125, 10);
   });
 
-  it("impeller diameter scales flow by D cubed and power by D to the fifth", () => {
-    const r = ok(affinityLaws({ ...base, speed2: 1450, diameter1: 200, diameter2: 180 }));
+  // fix2-eng1: D³ / D⁵ is the law for a geometrically SIMILAR pump; an impeller trimmed in the same casing (the
+  // default, and what "D1 → D2 on this pump" means) follows Q ∝ D, H ∝ D², P ∝ D³ (Karassik; Hydraulic Institute).
+  it("a geometrically similar pump scales flow by D cubed and power by D to the fifth", () => {
+    const r = ok(affinityLaws({ ...base, speed2: 1450, diameter1: 200, diameter2: 180, diameterLaw: "similar" }));
     const d = 0.9;
     expect(r.flow2).toBeCloseTo(100 * d ** 3, 9);
     expect(r.head2).toBeCloseTo(50 * d ** 2, 9);
     expect(r.power2).toBeCloseTo(20000 * d ** 5, 6);
-    expect(r.notes.join(" ")).toMatch(/trimming an impeller/i);
+    expect(r.notes.join(" ")).toMatch(/GEOMETRICALLY SIMILAR/);
+  });
+  it("an impeller trimmed in the same casing (default) scales flow by D and power by D cubed", () => {
+    const r = ok(affinityLaws({ ...base, speed2: 1450, diameter1: 200, diameter2: 180 }));
+    const d = 0.9;
+    expect(r.flow2).toBeCloseTo(100 * d, 9);
+    expect(r.head2).toBeCloseTo(50 * d ** 2, 9);
+    expect(r.power2).toBeCloseTo(20000 * d ** 3, 6);
+    expect(r.notes.join(" ")).toMatch(/TRIMMED in the same casing/);
   });
 
   it("no change is no change", () => {

@@ -368,7 +368,7 @@ export function steadyState(p: PkParams, tau: number): SteadyState | PkError {
     const bolusPeak = ((p.f * p.dose) / p.vd) * accumulation;
     notes.push(
       `The absorption rate constant equals the elimination rate constant (ka = ke = ${k.toPrecision(4)}), where the ` +
-        "standard oral solution is 0/0; its exact limit is used, C(t) = F·D·k/V · t·e^(−kt) per dose, summed over " +
+        "standard oral solution is 0/0; its exact limit is used, C(t) = F·D·k/V · t·e⁻ᵏᵗ per dose, summed over " +
         `the doses. The steady-state peak is ${cMaxSs.toPrecision(4)} at ${tm.toPrecision(3)} after each dose; an IV ` +
         `bolus of the same bioavailable dose would peak at ${bolusPeak.toPrecision(4)}.`,
     );
@@ -580,10 +580,24 @@ export function nca(
   }
   if (cmax <= 0) return { ok: false, error: "Every concentration is zero; there is nothing to analyse." };
 
+  // AUClast, Clast and λz end at the LAST POSITIVE concentration (tlast), the NCA definition: trailing samples below
+  // the assay limit (entered as 0) are not "Clast = 0" — that made the tail extrapolation C/λz vanish and added a
+  // trapezoid down to zero that no measurement supports.
+  let iLast = n - 1;
+  while (iLast > 0 && !(concentrations[iLast] > 0)) iLast--;
+  const nL = iLast + 1;
+  if (nL < n) {
+    notes.push(
+      `The last ${n - nL === 1 ? "sample is" : `${n - nL} samples are`} zero (below the limit of quantitation), so AUClast, ` +
+        `Clast and the terminal slope end at the last positive concentration, at t = ${times[iLast]}; the area beyond it ` +
+        "is the extrapolated Clast/λz, as standard NCA does.",
+    );
+  }
+
   // AUC by the linear trapezoidal rule, and AUMC for the mean residence time.
   let aucLast = 0;
   let aumcLast = 0;
-  for (let i = 1; i < n; i++) {
+  for (let i = 1; i < nL; i++) {
     const dt = times[i] - times[i - 1];
     aucLast += ((concentrations[i] + concentrations[i - 1]) / 2) * dt;
     aumcLast += ((times[i] * concentrations[i] + times[i - 1] * concentrations[i - 1]) / 2) * dt;
@@ -673,11 +687,11 @@ export function nca(
   // the best adjusted R^2.
   let best: { lambda: number; r2: number; points: number; intercept: number } | null = null;
   const startFrom = times.findIndex((t) => t > tmax);
-  const earliest = startFrom < 0 ? n - 3 : startFrom;
-  for (let s = Math.max(0, earliest); s <= n - 3; s++) {
+  const earliest = startFrom < 0 ? nL - 3 : startFrom;
+  for (let s = Math.max(0, earliest); s <= nL - 3; s++) {
     const xs: number[] = [];
     const ys: number[] = [];
-    for (let i = s; i < n; i++) {
+    for (let i = s; i < nL; i++) {
       if (concentrations[i] > 0) {
         xs.push(times[i]);
         ys.push(Math.log(concentrations[i]));
@@ -717,11 +731,12 @@ export function nca(
 
   const lambdaZ = best.lambda;
   const halfLife = Math.LN2 / lambdaZ;
-  const clast = concentrations[n - 1];
+  const clast = concentrations[iLast];
+  const tlast = times[iLast];
   const aucInf = aucLast + clast / lambdaZ;
   const percentExtrapolated = (100 * (clast / lambdaZ)) / aucInf;
   const aumcInf =
-    aumcLast + (times[n - 1] * clast) / lambdaZ + clast / (lambdaZ * lambdaZ);
+    aumcLast + (tlast * clast) / lambdaZ + clast / (lambdaZ * lambdaZ);
   const clearance = dose / aucInf;
   const volume = dose / (lambdaZ * aucInf);
   const mrt = aumcInf / aucInf;
@@ -775,9 +790,9 @@ export function nca(
     );
   }
 
-  if (times[n - 1] < 3 * halfLife) {
+  if (tlast < 3 * halfLife) {
     notes.push(
-      `Sampling stopped at ${times[n - 1]}, which is less than three estimated half-lives ` +
+      `${nL < n ? "The last measurable concentration is" : "Sampling stopped"} at ${tlast}, which is less than three estimated half-lives ` +
         `(${halfLife.toPrecision(3)} each). A terminal half-life estimated over less than that is ` +
         "routinely too short, because a slower phase further out has not been observed yet.",
     );

@@ -571,3 +571,19 @@ describe("v2.140.0 pane review — confirmed correct (plain it: PASS)", () => {
     expect(textOf(run("video-framerate", { src: "29.97", dst: "" }))).toContain("5 frames = 8008 samples (3 × 1602 + 2 × 1601)");
   });
 });
+
+// regFixes2193 (low): no caret survives into a pane result — 10^(L/10) and 2^EV were written in prose notes.
+describe("no carets in audio-levelmath / light-exposure pane output", () => {
+  it.each([
+    ["audio-levelmath", {}],
+    ["audio-levelmath", { op: "subtract", levels: "85", bg: "80" }],
+    ["audio-levelmath", { op: "average" }],
+    ["audio-levelmath", { op: "coherent" }],
+    ["audio-levelmath", { op: "weight" }],
+    ["light-exposure", {}],
+    ["light-exposure", { n: "1.4", t: "30 s" }],
+  ] as Array<[string, Record<string, string>]>)("%s %j", (id, over) => {
+    const o = run(id, over);
+    expect(textOf(o)).not.toContain("^");
+  });
+});

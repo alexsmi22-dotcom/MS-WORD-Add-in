@@ -100,9 +100,12 @@ export interface PictureTableInsert {
 
 /** One piece of a result report, in document order. */
 export type ResultLayoutItem =
-  /** captionFirst: the package's first paragraph is a caption — styled by Word's built-in Caption name after the
-   *  insert, so the document's own Caption style applies (the package carries only the pStyle, no style part). */
-  | { kind: "ooxml"; ooxml: string; captionFirst?: boolean }
+  /** captionPrefix: the package's first paragraph is a caption beginning with this text ("Scheme ") — after the insert
+   *  it is set in Word's built-in Caption style by name, so the document's own Caption style applies. Without a
+   *  styles part Word leaves a pStyle-only paragraph Normal (measured via COM). Styled only when that paragraph
+   *  really starts with the prefix: an insert at the end of a non-empty paragraph merges into it, and the user's
+   *  own paragraph must never be restyled. */
+  | { kind: "ooxml"; ooxml: string; captionPrefix?: string }
   | { kind: "paragraph"; text: string }
   | { kind: "picture"; caption: string; base64: string; widthPt: number; heightPt: number; alt: string }
   | { kind: "matrix"; label: string; values: string[][] };

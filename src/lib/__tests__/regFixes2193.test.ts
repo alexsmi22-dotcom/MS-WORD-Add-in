@@ -10,7 +10,7 @@ import { mathToOmml } from "../mathOmml";
 import { latexToDsl } from "../latex";
 import { buildResultOoxml, packageBodyXml } from "../resultOoxml";
 import { schemeCaptionOoxml } from "../bibOoxml";
-import { parseNumberCell } from "../tablechart";
+import { parseNumberCell, parseTableData } from "../tablechart";
 import { parseCellNumber } from "../dataimport";
 import { classifyTable } from "../tableclassify";
 import { tidyDisplay, tidySvgText, typesetMinus } from "../subscriptText";
@@ -119,10 +119,17 @@ describe("4. the scheme caption package carries no styles part", () => {
     expect(only).not.toContain("document.xml.rels");
   });
   test("the host styles the package's first paragraph by built-in Caption name when asked; the pane asks for the scheme", () => {
-    expect(HOST).toMatch(/if \(item\.captionFirst\)[\s\S]{0,400}inserted\.paragraphs\.getFirst\(\)\.styleBuiltIn = Word\.BuiltInStyleName\.caption/);
+    // The first paragraph is loaded with the content, and styled in its OWN guarded batch after the main sync, only
+    // when it really starts with the caption text (an insert at the end of "my text" merges into it — COM measured).
+    expect(HOST).toMatch(/if \(item\.captionPrefix\)[\s\S]{0,200}inserted\.paragraphs\.getFirst\(\)[\s\S]{0,80}load\("text"\)/);
+    const iMain = HOST.indexOf("anchor.select(Word.SelectionMode.end);\n    await context.sync();");
+    const iStyle = HOST.indexOf("c.para.styleBuiltIn = Word.BuiltInStyleName.caption");
+    expect(iMain).toBeGreaterThan(0);
+    expect(iStyle).toBeGreaterThan(iMain);
+    expect(HOST.slice(iMain, iStyle)).toMatch(/startsWith\(c\.prefix\)[\s\S]*try \{/);
     const start = PANE.indexOf("async function insertReactionNow()");
     const body = PANE.slice(start, PANE.indexOf("mergeIntoRegister", start));
-    expect(body).toContain("captionFirst: n > 0");
+    expect(body).toContain('captionPrefix: n > 0 ? "Scheme " : undefined');
   });
 });
 
@@ -165,9 +172,15 @@ describe("6. ×10ⁿ table cells read as the whole number", () => {
     expect(parseNumberCell("1.2e5")).toBe(1.2e5);
     expect(parseNumberCell("-$300")).toBe(-300);
   });
-  test("tableclassify sees a ×10ⁿ column as numeric", () => {
-    const rec = classifyTable([["Sample", "Count"], ["A", "3.3×10⁷"], ["B", "2.5×10⁷"], ["C", "1.1×10⁷"]]);
-    expect(JSON.stringify(rec)).not.toMatch(/no numeric/i);
+  test("Table → Chart charts the whole value; tableclassify agrees with a plain-number column", () => {
+    const rows = [["Sample", "Count"], ["A", "3.3×10⁷"], ["B", "2.5×10⁻⁷"], ["C", "−4×10³"]];
+    expect(parseTableData(rows).series[0].values).toEqual([3.3e7, 2.5e-7, -4e3]);
+    const plain = [["Sample", "Count"], ["A", "33000000"], ["B", "0.00000025"], ["C", "-4000"]];
+    expect(classifyTable(rows).kind).toBe(classifyTable(plain).kind);
+  });
+  test("resultOoxml right-aligns a ×10ⁿ cell (looksNumeric agrees)", () => {
+    const x = buildResultOoxml([{ kind: "table", label: "", rows: [["Count"], ["3.3×10⁷"], ["−4×10³"]] }]).ooxml;
+    expect(x.match(/<w:jc w:val="right"\/>/g)).toHaveLength(2);
   });
 });
 

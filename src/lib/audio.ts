@@ -1405,7 +1405,7 @@ export function levelSubtract(totalDb: number, backgroundDb: number): LevelSubtr
   }
   const sourceDb = totalDb + 10 * Math.log10(1 - Math.pow(10, -delta / 10));
   const notes = [
-    "Subtraction is by POWER: 10·log₁₀(10^(Lt/10) − 10^(Lb/10)). Subtracting the dB values (85 − 80 = 5) is meaningless.",
+    "Subtraction is by POWER: 10·log₁₀ of (10 to the power Lt/10 minus 10 to the power Lb/10). Subtracting the dB values (85 − 80 = 5) is meaningless.",
     `Δ = ${delta.toFixed(2)} dB between total and background; the correction is ${(sourceDb - totalDb).toFixed(3)} dB.`,
   ];
   if (delta >= 10) notes.push("At Δ ≥ 10 dB the correction is under 0.46 dB and is usually neglected.");
@@ -1477,7 +1477,7 @@ export function levelAverage(levels: number[], durations?: number[]): LevelAvera
     arithmeticMeanDb: mean,
     shares,
     notes: [
-      "ENERGY average (Leq): 10·log₁₀(Σ tᵢ·10^(Lᵢ/10) / Σ tᵢ). Averaging the dB numbers " +
+      "ENERGY average (Leq): 10·log₁₀ of (Σ tᵢ times 10 to the power Lᵢ/10, divided by Σ tᵢ). Averaging the dB numbers " +
         `(${mean.toFixed(2)} dB here) understates it whenever the levels differ.`,
       durations ? "Weighted by the durations given." : "Equal durations assumed (none given).",
     ],
@@ -1570,7 +1570,7 @@ export function coherentSum(levels: number[], phasesDeg: number[]): CoherentSumR
     incoherentDb: incoherent,
     notes: [
       "COHERENT sum — the same signal by different paths adds by PRESSURE, as phasors: " +
-        "20·log₁₀|Σ 10^(L/20)·e^{jφ}|. Two equal levels give +6.02 dB in phase, +3.01 dB at 90° and cancel at 180°.",
+        "20·log₁₀ of |Σ (10 to the power L/20) at phase φ|. Two equal levels give +6.02 dB in phase, +3.01 dB at 90° and cancel at 180°.",
       `The incoherent (power) sum of the same levels would be ${incoherent.toFixed(4)} dB; use that for unrelated sources.`,
     ],
     figure: {
@@ -1787,7 +1787,7 @@ export function bandsToWeighted(
   const totalZDb = powerSumDb(levels);
   const snapped = bands.filter((b) => b.snapped);
   const notes = [
-    `${curve === "Z" ? "dB(Z)" : `dB(${curve})`} = 10·log₁₀ Σ 10^((Lᵢ + ${curve}ᵢ)/10). Each band's level is taken ` +
+    `${curve === "Z" ? "dB(Z)" : `dB(${curve})`} = 10·log₁₀ of the sum of 10 to the power (Lᵢ + ${curve}ᵢ)/10. Each band's level is taken ` +
       "to sit at its centre frequency.",
     `Unweighted (Z) total: ${totalZDb.toFixed(3)} dB.`,
   ];

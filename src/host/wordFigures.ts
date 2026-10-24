@@ -271,17 +271,14 @@ export async function insertResultLayout(items: ResultLayoutItem[]): Promise<num
     }
 
     let anchor = context.document.getSelection().getRange(Word.RangeLocation.end);
+    const captions: Array<{ para: Word.Paragraph; prefix: string }> = [];
     for (const item of items) {
       if (item.kind === "ooxml") {
         const inserted = anchor.insertOoxml(item.ooxml, Word.InsertLocation.after);
-        if (item.captionFirst) {
-          // By Word's built-in name (a localized Word's Caption style id is not "Caption"): the document's own Caption
-          // style, which a package-carried style part would have overwritten (measured in Word, v2.193 review).
-          try {
-            inserted.paragraphs.getFirst().styleBuiltIn = Word.BuiltInStyleName.caption;
-          } catch {
-            // Built-in styles unavailable on this build — the package's pStyle stands.
-          }
+        if (item.captionPrefix) {
+          const first = inserted.paragraphs.getFirst();
+          first.load("text");
+          captions.push({ para: first, prefix: item.captionPrefix });
         }
         anchor = inserted.getRange(Word.RangeLocation.after);
       } else if (item.kind === "paragraph") {
@@ -319,6 +316,21 @@ export async function insertResultLayout(items: ResultLayoutItem[]): Promise<num
     }
     anchor.select(Word.SelectionMode.end);
     await context.sync();
+
+    // A caption paragraph in Word's built-in Caption style, by name (a localized Word's style id is not "Caption"),
+    // so the document's OWN Caption style applies. Its own batch, after the content is in: a property set fails at
+    // sync, and a failure here must never roll back the insert. Only a paragraph that really starts with the caption
+    // text — an insert at the end of a non-empty paragraph merges into it (measured via COM), and the user's
+    // paragraph is never restyled.
+    const toStyle = captions.filter((c) => c.para.text.trimStart().startsWith(c.prefix));
+    if (toStyle.length) {
+      try {
+        for (const c of toStyle) c.para.styleBuiltIn = Word.BuiltInStyleName.caption;
+        await context.sync();
+      } catch {
+        // Built-in styles unavailable on this build — the caption stays as inserted.
+      }
+    }
 
     if (picturesBefore !== null) {
       try {

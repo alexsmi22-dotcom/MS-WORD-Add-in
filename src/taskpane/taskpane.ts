@@ -7521,8 +7521,9 @@ async function insertReactionNow(): Promise<void> {
     // ONE PACKAGE: caption, picture and footnote (v2.193.0). They were three inserts chained through
     // insertResultLayout, each anchored on the range the one before returned; Word gives no usable insertion point
     // after an inserted OOXML package, so the picture and the footnote could silently not land. The caption keeps its
-    // SEQ Scheme field and its Caption pStyle; the host then sets the built-in Caption style on that first paragraph,
-    // so the document's own Caption style applies (a package style part rewrote it — measured in Word via COM).
+    // SEQ Scheme field and its Caption pStyle. The package has NO styles part (one rewrote the document's own Caption
+    // style), and without it Word leaves the paragraph Normal (measured via COM), so the host sets the built-in Caption
+    // style on that first paragraph afterwards (captionPrefix), applying the document's own definition.
     const items: ResultPackageItem[] = [];
     let n = 0;
     if (reactionCaptionCheck.checked) {
@@ -7542,7 +7543,7 @@ async function insertReactionNow(): Promise<void> {
     const alt = `Reaction scheme (JurisLab): ${reactionInput.value.trim().replace(/\s*\n\s*/g, "\n")}` + (numbered.length ? `. Compounds: ${numbered.join("; ")}` : "");
     items.push({ kind: "picture", caption: "", base64, widthPt: figurePoints(w), heightPt: figurePoints(h), alt });
     if (sc.footnote) items.push({ kind: "xml", content: packageBodyXml(inlineParagraphsOoxml([sc.footnote.html])) });
-    const kept = await docHost.insertResultLayout([{ kind: "ooxml", ooxml: buildResultOoxml(items).ooxml, captionFirst: n > 0 }]);
+    const kept = await docHost.insertResultLayout([{ kind: "ooxml", ooxml: buildResultOoxml(items).ooxml, captionPrefix: n > 0 ? "Scheme " : undefined }]);
     if (kept === 0) return setStatus("Word did not keep the scheme picture — try again with the cursor in a body paragraph.", "error");
     const parts = [n ? `Scheme ${n}` : "Reaction scheme", sc.footnote ? "with its Reagents and conditions footnote" : ""].filter(Boolean).join(" ");
     // The numbers go into the document's register only once the scheme is in the document.

@@ -182,9 +182,9 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
   const part = (name: string, type: string, inner: string): string => `<pkg:part pkg:name="${name}" pkg:contentType="${type}">${inner}</pkg:part>`;
   const relsXml = `<Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${OFFICE_DOC_REL}" Target="word/document.xml"/></Relationships>`;
   // NO styles part. A package-carried Caption definition (v2.193.0) REWROTE the document's own Caption style (Aptos 9,
-  // no base — measured in Word via COM). A caption paragraph keeps only its <w:pStyle w:val="Caption"/>, so a
-  // document that has the style uses its own; the host then sets the built-in Caption style on it by name
-  // (ResultLayoutItem captionFirst), which also covers a document where Caption is only latent.
+  // no base — measured in Word via COM). A caption paragraph keeps its <w:pStyle w:val="Caption"/>, but without a
+  // styles part Word lands it as Normal even in a document that uses Caption (measured via COM); the host applies the
+  // built-in Caption style by name after the insert (ResultLayoutItem captionPrefix), which uses the document's own.
   const docRels =
     `<Relationships xmlns="${REL_NS}">` +
     images.map((im) => `<Relationship Id="${im.id}" Type="${IMAGE_REL}" Target="media/${im.name}"/>`).join("") +

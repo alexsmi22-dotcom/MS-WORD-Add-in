@@ -909,9 +909,9 @@ export function modalForcedResponse(
     if (modal.frequencies.some((w) => w === 0) && !isRayleigh(damping)) {
       notes.push(
         "This structure has a rigid-body mode, and a damping RATIO cannot describe damping on it " +
-          "— 2*zeta*wn is zero whatever ratio you give, so that mode is being treated as UNDAMPED. " +
+          "— 2ζωₙ is zero whatever ratio you give, so that mode is being treated as UNDAMPED. " +
           "If the damping really is Rayleigh, pass alpha and beta instead: the modal coefficient is " +
-          "alpha + beta*wn^2, which is well defined at wn = 0 and generally is NOT zero.",
+          "α + β·ωₙ², which is well defined at ωₙ = 0 and generally is NOT zero.",
       );
     }
   }

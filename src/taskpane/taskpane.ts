@@ -73,7 +73,7 @@ import { ARRHENIUS_SOURCE, arrhenius, parseStability } from "../lib/arrhenius";
 import { ELECTROCHEM_SOURCE, butlerVolmer, nernst, tafelFit, thermalVoltage } from "../lib/electrochem";
 import { FRAME_CHART_SIZE, frameChartSvg } from "../lib/frameChart";
 import { PLATE_CHART_WIDTH, arrheniusChartSvg, butlerVolmerChartSvg, nernstChartSvg, plateChartSvg, tafelChartSvg } from "../lib/engCharts2026";
-import { PresetWidth, USPTO_REQUIRED_FONT_PT } from "../lib/figureStyle";
+import { PresetWidth, USPTO_REQUIRED_FONT_PT, type FigureStylePreset } from "../lib/figureStyle";
 import { solveBvp, BvpMethod } from "../lib/bvp";
 import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
 import { parseDaeSystem } from "../lib/daeParse";
@@ -87,6 +87,8 @@ import {
   buildPlotSvg,
   combineSvgs,
   dropForScales,
+  robustYLimits,
+  typesetExprLabel,
   type AxisScale,
   type ErrorBarKind,
 } from "../lib/plot";
@@ -128,7 +130,6 @@ import {
   OptionType,
   effectiveAnnualRate,
   growingAnnuityPV,
-  amortizationSchedule,
   dcf,
   xirr,
   bondYTM,
@@ -149,8 +150,13 @@ import {
   cagr,
   bondPeriodRefusal,
   IRR_SEARCH_RANGE_TEXT,
+  XIRR_SEARCH_RANGE_TEXT,
+  readFinanceField,
+  amortizationSummary,
+  amortizationRowAt,
+  sigmaZeroAtForward,
 } from "../lib/finance";
-import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg } from "../lib/financeFigures";
+import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, withFinFig, currentFinFig } from "../lib/financeFigures";
 import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
 import { CONC_UNITS, RATE_UNITS, catalyticEfficiencyCalc, dilutionRefusal, proteinSequenceRefusal, readAssayScalars, serialRefusal } from "../lib/assayInputs";
 import { renderStructure, resolveStructure, resolveChemInput, lookupSmiles, typesetHill, nameForIdcode, StructureResult, gallerySubstituent } from "../lib/structures";
@@ -589,6 +595,7 @@ import {
   eigenvaluesGeneral,
   qrDecompose,
   svd,
+  conditionLines,
   formatMatrix,
   formatMatrixCells,
   formatNum,
@@ -1149,7 +1156,7 @@ let plotInsertBtn: HTMLButtonElement;
 /** The plot SVG from the most recent preview, for insertion. */
 let currentPlotSvg = "";
 /** Re-renders the current plot at a canvas width, keeping its aspect (figure styles, panels). */
-let currentPlotRender: ((w: number) => string) | null = null;
+let currentPlotRender: ((w: number, style?: FigureStylePreset) => string) | null = null;
 /** Plot ▸ Plot type (plotKinds.ts): "fx" is the y = f(x) path below; the rest are drawn by the lib. */
 let plotKindSel: HTMLSelectElement;
 /** Alt text and figure-style chart kind of the current non-fx plot ("" / undefined for y = f(x)). */
@@ -1318,6 +1325,8 @@ let currentTableChartError = "";
 /** The finance result text from the most recent computation, for insertion. */
 let currentFinText = "";
 let currentFinSvg = "";
+/** The Finance figure re-drawn for a figure style (fix2-paf: a canvas width, and black and white for USPTO). */
+let currentFinRender: ((w: number, style?: FigureStylePreset) => string) | null = null;
 /** The assay result text and fitted-curve SVG from the most recent computation. */
 let currentAssayText = "";
 let currentAssayPlotSvg = "";
@@ -4429,7 +4438,7 @@ function tableGraphicRender(): ((w: number) => string) | null {
  * Renders the currently selected representation (chart or diagram) as SVG.
  * Returns null — with a reason in `error` — when it can't be drawn.
  */
-function renderTableGraphic(): { svg: string; warnings: string[] } | { svg: null; error: string } {
+function renderTableGraphic(): { svg: string; warnings: string[]; refused?: boolean } | { svg: null; error: string } {
   const kind = pptKindSelect.value as RenderKind;
   // USPTO 1.84: no title inside the artwork (the preset's allowTitle is false).
   const title = currentFigurePreset() === "uspto" ? "" : pptTitleInput.value.trim();
@@ -4452,7 +4461,7 @@ function renderTableGraphic(): { svg: string; warnings: string[] } | { svg: null
   // and are NOT counted as zero". Rows vanished from a chart with no notice,
   // which is the graph-that-lies case these renderers were written to prevent.
   const preview = buildChartPreviewSvg(currentTableChart, kind, title, style);
-  return { svg: preview.svg, warnings: [...currentTableChart.warnings, ...preview.warnings] };
+  return { svg: preview.svg, warnings: [...currentTableChart.warnings, ...preview.warnings], refused: preview.refused === true };
 }
 
 /** Refreshes the preview, info line, and warnings for the loaded table. */
@@ -4486,14 +4495,16 @@ function updatePptPreview(): void {
   pptPreview.innerHTML = rendered.svg;
   pptWarnings.className = rendered.warnings.length ? "seq-warnings warn" : "seq-warnings";
   pptWarnings.textContent = rendered.warnings.join(" ");
-  pptInsertFigBtn.disabled = false;
-  pptDownloadBtn.disabled = false;
+  // A refusal figure (a pie of negative values) explains itself in the
+  // preview but is not a figure to insert (fix2-paf).
+  pptInsertFigBtn.disabled = rendered.refused === true;
+  pptDownloadBtn.disabled = rendered.refused === true;
 }
 
 /** Inserts the previewed graphic into the document as a figure at the cursor. */
 async function insertTableFigure(): Promise<void> {
   const rendered = renderTableGraphic();
-  if (rendered.svg === null) return;
+  if (rendered.svg === null || rendered.refused) return;
   pptInsertFigBtn.disabled = true;
   setStatus("Inserting figure…");
   try {
@@ -7926,7 +7937,7 @@ function buildPlotSeries(): { series: Series[]; error: string; warning: string; 
       const fns = fnText.split(";").map((s) => s.trim()).filter(Boolean);
       for (const fn of fns) {
         try {
-          series.push({ points: samplePlot(fn, xmin, xmax, 240), type: "line", label: fns.length > 1 ? fn : undefined });
+          series.push({ points: samplePlot(fn, xmin, xmax, 240), type: "line", label: fns.length > 1 ? typesetExprLabel(fn) : undefined });
         } catch {
           failed.push(fn);
         }
@@ -8024,9 +8035,16 @@ function updatePlotPreview(): void {
   //
   // The canvas grows to fit them, so the insert path must keep sizing from
   // readSvgDims on the actual SVG rather than from any nominal height.
-  const svg = buildPlotSvg(filtered.series, { ...opts, notes });
-  // The same plot at another canvas width, height in proportion (380 × 270 default).
-  currentPlotRender = (w: number): string => buildPlotSvg(filtered.series, { ...opts, notes, width: w, height: Math.round((270 * w) / 380) });
+  // POLES DO NOT SET THE RANGE (fix2-paf): on a linear y axis, sampled
+  // functions whose extremes run far past their bulk (tan x, 1/x) are drawn on
+  // a robust range, the rest clipped at the frame and counted in a note.
+  const yLimits = opts.yScale !== "log" ? robustYLimits(filtered.series.filter((sr) => sr.type === "line")) : null;
+  const plotOpts = yLimits ? { ...opts, yLimits } : opts;
+  const svg = buildPlotSvg(filtered.series, { ...plotOpts, notes });
+  // The same plot at another canvas width, height in proportion (380 × 270 default), in the figure
+  // style's colours: black-and-white line art for USPTO (fix2-paf; it was refused for colour).
+  currentPlotRender = (w: number, style?: FigureStylePreset): string =>
+    buildPlotSvg(filtered.series, { ...plotOpts, notes, width: w, height: Math.round((270 * w) / 380), bw: style?.color === "bw" });
   plotPreview.innerHTML = notes.length
     ? `${svg}<div class="hint" style="margin-top:4px">${esc(notes.join(" "))}</div>`
     : svg;
@@ -8141,7 +8159,9 @@ interface FinField {
  * nothing useful to draw stay exactly as they were and the change is provably a
  * no-op for them.
  */
-type FinResult = string | { text: string; svg?: string };
+type FinResult = string | { text: string; svg?: string; ok?: boolean };
+/** A Finance refusal: shown, never insertable (fix2-paf: refusal sentences used to be insertable results). */
+const finRefuse = (text: string): FinResult => ({ text, ok: false });
 
 interface FinCalc {
   id: string;
@@ -8168,6 +8188,33 @@ function finList(s: string): number[] {
   const r = readCalcList(s);
   if (r.note) calcListNotes.add(r.note);
   return r.values;
+}
+
+/** Loan terms from the four loan fields (amount, annual %, years, payments/year), or why not. */
+function finLoanTerms(r: (k: string) => string): { p: number; i: number; n: number } | string {
+  const m = +r("m");
+  const years = +r("t");
+  if (!(m > 0) || !(years > 0)) return "Enter a positive number of years and payments per year.";
+  const n = years * m;
+  if (Math.abs(n - Math.round(n)) > 1e-9 * Math.max(1, n)) {
+    return `Years × payments per year must be a whole number of payments (here ${finFixed(n, 2)}).`;
+  }
+  if (Math.round(n) > 1e7) return "More than ten million payments is outside this calculator.";
+  return { p: +r("p"), i: +r("rate") / 100 / m, n: Math.round(n) };
+}
+
+/**
+ * At most ~240 rows of the level-payment schedule, in closed form
+ * (amortizationRowAt), always ending on the last payment — so a figure of a
+ * loan of ANY length is the loan typed, not a capped one.
+ */
+function finLoanRows(loan: { p: number; i: number; n: number }): ReturnType<typeof amortizationRowAt>[] {
+  const CAP = 240;
+  const stride = Math.max(1, Math.ceil(loan.n / CAP));
+  const rows: ReturnType<typeof amortizationRowAt>[] = [];
+  for (let k = 1; k <= loan.n; k += stride) rows.push(amortizationRowAt(loan.p, loan.i, loan.n, k));
+  if (rows.length && rows[rows.length - 1].period !== loan.n) rows.push(amortizationRowAt(loan.p, loan.i, loan.n, loan.n));
+  return rows;
 }
 
 const FIN_CALCS: FinCalc[] = [
@@ -8225,7 +8272,7 @@ const FIN_CALCS: FinCalc[] = [
       { key: "m", label: "Compounds / year", default: "12" },
       { key: "t", label: "Years", default: "10" },
     ],
-    compute: (r) => ({
+    compute: (r) => (!(+r("m") > 0) ? finRefuse("Compounds / year must be positive (0 compounds a year divides by zero).") : {
       text: `Amount = ${finMoney(compoundInterest(+r("p"), +r("rate") / 100, +r("m"), +r("t")))}`,
       // Year by year rather than compounding period by period: the answer moves
       // with the number of compounds per year, but the SHAPE a reader wants is
@@ -8251,40 +8298,24 @@ const FIN_CALCS: FinCalc[] = [
       { key: "m", label: "Payments / year", default: "12" },
     ],
     compute: (r) => {
-      const m = +r("m");
-      const sched = amortizationSchedule(+r("p"), +r("rate") / 100 / m, +r("t") * m);
-      // THE TEXT REPORTS THE PAYMENT THE FIGURE WAS DRAWN FROM.
-      //
-      // `amortizationSchedule` silently clamps to MAX_AMORT_PERIODS = 12000 and
-      // RECOMPUTES its own payment from the clamped count, while `loanPayment`
-      // uses the count as typed. On a 40-year daily loan (14,600 periods) the
-      // text said 31.69 and the curve was drawn from a loan paying 33.96 and
-      // finishing seven years early. Two different loans, no indication.
-      //
-      // Taking the schedule's own first payment when one exists makes them the
-      // same loan by construction; the clamp is then disclosed rather than
-      // hidden, because the horizon on the axis stops where the schedule does.
-      const periodsAsked = +r("t") * m;
-      const clamped = sched.length > 0 && sched.length < Math.floor(periodsAsked);
-      const payment = sched.length ? sched[0].payment : loanPayment(+r("p"), +r("rate") / 100 / m, periodsAsked);
+      const loan = finLoanTerms(r);
+      if (typeof loan === "string") return finRefuse(loan);
+      // THE TEXT REPORTS THE PAYMENT THE FIGURE WAS DRAWN FROM — both in closed
+      // form (fix2-paf). The figure used to come from amortizationSchedule,
+      // which stops at MAX_AMORT_PERIODS = 12,000 and recomputes its own
+      // payment, so a 40-year daily loan was drawn as a different loan.
+      const payment = loanPayment(loan.p, loan.i, loan.n);
       return {
-        text:
-          `Payment = ${finMoney(payment)} per period` +
-          (clamped
-            ? `\n(Schedule capped at ${sched.length} periods; the payment shown is for that horizon.)`
-            : ""),
+        text: `Payment = ${finMoney(payment)} per period`,
         // THE BALANCE CURVE. A level payment does not pay the loan down at a
         // level rate: the balance barely moves for years and then falls away,
         // because early payments are mostly interest. That is the single most
         // useful thing to know about a mortgage and a payment figure cannot say
-        // it. Drawn from the engine's own schedule, thinned to keep the shape.
+        // it. Sampled rows of the closed-form schedule, thinned to keep the shape.
         svg: (() => {
-          const CAP = 240;
-          const stride = Math.max(1, Math.ceil(sched.length / CAP));
-          const pick = sched.filter((_, k) => k % stride === 0);
-          if (sched.length && pick[pick.length - 1] !== sched[sched.length - 1]) pick.push(sched[sched.length - 1]);
+          const pick = finLoanRows(loan);
           if (pick.length < 2) return undefined;
-          return buildPlotSvg(
+          return finPlotSvg(
             [{ points: pick.map((x) => ({ x: x.period, y: x.balance })), type: "line", color: "#2563eb", label: "balance" }],
             { width: 360, height: 240, title: "Balance remaining", xlabel: "payment number", ylabel: "balance" },
           );
@@ -8327,7 +8358,7 @@ const FIN_CALCS: FinCalc[] = [
       // IRR", which is a much stronger claim than "no rate in the interval I
       // searched zeroes the NPV". The old ceiling was 1000%, so an ordinary
       // venture-style 20x single-period return came back as no solution.
-      if (v === null) return `IRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})`;
+      if (v === null) return finRefuse(`IRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})`);
       return {
         text: `IRR = ${finPct(v)}`,
         // DISCOUNTED AT THE IRR ITSELF, which is what an IRR MEANS: the rate at
@@ -8368,8 +8399,14 @@ const FIN_CALCS: FinCalc[] = [
       { key: "sig", label: "Volatility % (annual)", default: "20" },
     ],
     compute: (r) =>
-      ({
-        text: `Price = ${finMoney(blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100))}`,
+      !(+r("s") > 0) || !(+r("k") > 0) || !(+r("t") >= 0) || !(+r("sig") >= 0)
+        ? finRefuse("Spot and strike must be positive, time to expiry and volatility zero or more.")
+        : ({
+        text:
+          `Price = ${finMoney(blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100))}` +
+          (+r("sig") === 0 && +r("t") > 0
+            ? "\n(σ = 0: the deterministic limit, max(S − K·e⁻ʳᵗ, 0) for a call, max(K·e⁻ʳᵗ − S, 0) for a put.)"
+            : ""),
         svg: optionCurveSvg({
           type: r("type") as OptionType,
           s: +r("s"),
@@ -8401,7 +8438,7 @@ const FIN_CALCS: FinCalc[] = [
       // means accrued interest, and this is a clean-price model. Without it the
       // price silently rounded 10.25, 10.4 and 10.5 years to the same answer.
       const why = bondPeriodRefusal(+r("years"), +r("freq"));
-      if (why) return why;
+      if (why) return finRefuse(why);
       const price = bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq"));
       return {
         text: `Price = ${finMoney(price)}`,
@@ -8445,7 +8482,7 @@ const FIN_CALCS: FinCalc[] = [
               colour: f === Math.round(+r("m")) ? "#b91c1c" : "#2563eb",
             }))
             .filter((row) => Number.isFinite(row.value)),
-          { title: "Effective annual rate by compounding frequency (%)", unit: "", w: 360 },
+          { title: "Effective annual rate by compounding frequency (%)", unit: "", w: currentFinFig()?.width ?? 360, bw: currentFinFig()?.bw },
         );
       })(),
     }),
@@ -8460,20 +8497,22 @@ const FIN_CALCS: FinCalc[] = [
       { key: "m", label: "Payments / year", default: "12" },
     ],
     compute: (r) => {
-      const m = +r("m");
-      const years = +r("t");
-      if (!Number.isFinite(m) || m <= 0 || !Number.isFinite(years) || years <= 0) {
-        return "Enter a positive number of years and payments per year.";
-      }
-      const rows = amortizationSchedule(+r("p"), +r("rate") / 100 / m, years * m);
-      if (!rows.length) return "—";
-      const interest = rows.reduce((a, x) => a + x.interest, 0);
-      const paid = rows.reduce((a, x) => a + x.payment, 0);
+      const loan = finLoanTerms(r);
+      if (typeof loan === "string") return finRefuse(loan);
+      // CLOSED FORM, NO CAP (fix2-paf). The totals were summed from
+      // amortizationSchedule rows, which silently stop at 12,000 periods: a
+      // 40-year daily loan was summarised as a shorter loan with a bigger
+      // payment. numpy-financial agrees with these to the cent.
+      const sum = amortizationSummary(loan.p, loan.i, loan.n);
+      if (!Number.isFinite(sum.payment)) return finRefuse("Check the loan amount and rate.");
+      const rows = finLoanRows(loan);
+      const thinned = rows.length < loan.n;
       return {
         text: [
-          `Payment        ${finMoney(rows[0].payment)} / period`,
-          `Total interest ${finMoney(interest)}`,
-          `Total paid     ${finMoney(paid)}`,
+          `Payment        ${finMoney(sum.payment)} / period`,
+          `Total interest ${finMoney(sum.totalInterest)}`,
+          `Total paid     ${finMoney(sum.totalPaid)}`,
+          ...(thinned ? [`(${loan.n.toLocaleString("en-US")} payments; the figure plots ${rows.length} of them, evenly spaced.)`] : []),
         ].join("\n"),
         // WHERE THE MONEY GOES, PERIOD BY PERIOD — the fact about a long loan
         // that the three totals above cannot convey and that surprises almost
@@ -8493,10 +8532,7 @@ const FIN_CALCS: FinCalc[] = [
         // final row is appended unconditionally so the curve always reaches the
         // end of the loan instead of stopping short of it.
         svg: (() => {
-          const CAP = 240;
-          const stride = Math.max(1, Math.ceil(rows.length / CAP));
-          const pick = rows.filter((_, k) => k % stride === 0);
-          if (pick[pick.length - 1] !== rows[rows.length - 1]) pick.push(rows[rows.length - 1]);
+          const pick = rows;
           // A ONE-ROW SCHEDULE DRAWS NOTHING, so draw nothing rather than a
           // frame. buildPlotSvg emits a single point as `<path d="M216,198"/>`
           // — a moveto with no lineto, which renders as empty space inside a
@@ -8504,7 +8540,7 @@ const FIN_CALCS: FinCalc[] = [
           // and these two did not. A one-year, one-payment-a-year loan is an
           // ordinary thing to type.
           if (pick.length < 2) return undefined;
-          return buildPlotSvg(
+          return finPlotSvg(
             [
               {
                 points: pick.map((x) => ({ x: x.period, y: x.interest })),
@@ -8568,7 +8604,7 @@ const FIN_CALCS: FinCalc[] = [
       const rate = +r("rate") / 100;
       const flows = finList(r("cf"));
       const v = dcf(rate, flows, +r("g") / 100);
-      if (!Number.isFinite(v)) return "Value = — (need rate > terminal growth)";
+      if (!Number.isFinite(v)) return finRefuse("Value = — (need rate > terminal growth)");
       return {
         text: `Value = ${finMoney(v)}`,
         // The explicit forecast period only. The TERMINAL value is deliberately
@@ -8605,9 +8641,14 @@ const FIN_CALCS: FinCalc[] = [
       { key: "days", label: "Days from first flow", default: "0, 180, 300, 450", kind: "list" },
     ],
     compute: (r) => {
+      const nCf = finList(r("cf")).length;
+      const nDays = finList(r("days")).length;
+      if (nCf !== nDays) {
+        return finRefuse(`There are ${nCf} cash flows and ${nDays} dates: each cash flow needs exactly one day count.`);
+      }
       const v = xirr(finList(r("cf")), finList(r("days")));
       // Same reasoning as IRR above.
-      if (v === null) return `XIRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})`;
+      if (v === null) return finRefuse(`XIRR = no solution (searched ${XIRR_SEARCH_RANGE_TEXT})`);
       // Discounted at the solved annual rate over the ACTUAL day counts, which
       // is what makes this different from IRR: irregular timing is the whole
       // reason to reach for it, and the bars show the timing doing the work.
@@ -8641,10 +8682,21 @@ const FIN_CALCS: FinCalc[] = [
       { key: "freq", label: "Coupons / year", default: "2" },
     ],
     compute: (r) => {
+      if (!(+r("freq") > 0) || !(+r("years") > 0)) return finRefuse("Years to maturity and coupons per year must be positive.");
       const y = bondYTM(+r("price"), +r("face"), +r("coupon") / 100, +r("years"), +r("freq"));
-      if (y === null) return "YTM = no solution";
+      if (y === null) return finRefuse("YTM = no solution");
+      // THE ROUNDING IS DISCLOSED (fix2-paf). bondYTM solves on whole coupon
+      // periods; a fractional maturity used to be rounded with nothing said.
+      const exactPeriods = +r("years") * +r("freq");
+      const wholePeriods = Math.round(exactPeriods);
+      const rounded = Math.abs(exactPeriods - wholePeriods) > 1e-9;
       return {
-        text: `YTM = ${finPct(y)}`,
+        text:
+          `YTM = ${finPct(y)}` +
+          (rounded
+            ? `\n(Solved on ${wholePeriods} whole coupon periods, ${finFixed(wholePeriods / +r("freq"), 4).replace(/\.?0+$/, "")} years, ` +
+              `not the ${finFixed(exactPeriods, 2)} periods that ${finFixed(+r("years"), 2)} years make: a settlement between coupon dates needs accrued interest, which this model omits.)`
+            : ""),
         // The same curve as the pricing tool, read the other way round: the
         // solver found where the quoted price meets it, and the marked point IS
         // the answer rather than an illustration of it.
@@ -8683,7 +8735,7 @@ const FIN_CALCS: FinCalc[] = [
       // carry. Without this branch the refusal reaches the UI as "NaN yrs",
       // because only finMoney gates non-finite values.
       const why = bondPeriodRefusal(years, freq);
-      if (why) return why;
+      if (why) return finRefuse(why);
       const a = bondAnalytics(+r("face"), +r("coupon") / 100, +r("ytm") / 100, years, freq);
       return {
         text: [
@@ -8733,6 +8785,15 @@ const FIN_CALCS: FinCalc[] = [
       { key: "sig", label: "Volatility % (annual)", default: "20" },
     ],
     compute: (r) => {
+      if (!(+r("s") > 0) || !(+r("k") > 0) || !(+r("t") > 0) || !(+r("sig") >= 0)) {
+        return finRefuse("Spot and strike must be positive, time to expiry positive and volatility zero or more.");
+      }
+      if (sigmaZeroAtForward(+r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100)) {
+        return finRefuse(
+          "At σ = 0 with S = K·e⁻ʳᵗ the option is exactly at the money forward: delta jumps from 0 to 1 there " +
+            "and gamma is infinite, so the Greeks are undefined. Move S or K, or use a volatility above zero.",
+        );
+      }
       const g = blackScholesGreeks(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100);
       return {
         text: [
@@ -8760,13 +8821,18 @@ const FIN_CALCS: FinCalc[] = [
           const k = +r("k");
           if (!(k > 0)) return undefined;
           const pts: Point[] = [];
+          // The range covers the strike AND the spot (fix2-paf: a fixed
+          // 0.5K–1.5K put S = 300, K = 100 off the chart).
+          const spot = +r("s");
+          const lo = 0.5 * Math.min(k, spot > 0 ? spot : k);
+          const hi = 1.5 * Math.max(k, spot > 0 ? spot : k);
           for (let i = 0; i <= 60; i++) {
-            const x = k * 0.5 + ((k * 1.0) * i) / 60;
+            const x = lo + ((hi - lo) * i) / 60;
             const gg = blackScholesGreeks(type, x, k, +r("t"), +r("r") / 100, +r("sig") / 100);
             if (Number.isFinite(gg.delta)) pts.push({ x, y: gg.delta });
           }
           if (pts.length < 2) return undefined;
-          return buildPlotSvg(
+          return finPlotSvg(
             [
               { points: pts, type: "line", color: "#2563eb", label: "delta" },
               { points: [{ x: +r("s"), y: g.delta }], type: "scatter", color: "#b91c1c", label: "this option" },
@@ -8804,7 +8870,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const v = impliedVolatility(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r") / 100);
-      if (v === null) return "Implied vol = no solution";
+      if (v === null) return finRefuse("Implied vol = no solution");
       return {
         text: `Implied vol = ${finPct(v)}`,
         // The curve the solver walked: option value against volatility, with
@@ -8821,7 +8887,7 @@ const FIN_CALCS: FinCalc[] = [
             if (Number.isFinite(val)) pts.push({ x: sig * 100, y: val });
           }
           if (pts.length < 2) return undefined;
-          return buildPlotSvg(
+          return finPlotSvg(
             [
               { points: pts, type: "line", color: "#2563eb", label: "option value" },
               { points: [{ x: v * 100, y: +r("price") }], type: "scatter", color: "#b91c1c", label: "quoted price" },
@@ -8847,10 +8913,20 @@ const FIN_CALCS: FinCalc[] = [
       { key: "factor", label: "Factor (2 = double)", default: "2" },
     ],
     compute: (r) => {
+      if (!(+r("life") > 0)) return finRefuse("Useful life must be a positive number of years.");
+      if (!(+r("factor") > 0)) return finRefuse("The factor must be positive (2 = double declining).");
+      if (+r("salvage") > +r("cost")) return finRefuse("Salvage value cannot exceed the cost.");
       const rows = decliningBalanceSchedule(+r("cost"), +r("salvage"), +r("life"), +r("factor"));
-      if (!rows.length) return "—";
+      if (!rows.length) return finRefuse("Useful life must be a positive number of years.");
+      const fracLife = +r("life") - Math.floor(+r("life"));
       return {
-        text: rows.map((x) => `Year ${x.year}:  dep ${finMoney(x.depreciation)}   book ${finMoney(x.bookValue)}`).join("\n"),
+        text: rows
+          .map(
+            (x, k) =>
+              `Year ${x.year}:  dep ${finMoney(x.depreciation)}   book ${finMoney(x.bookValue)}` +
+              (k === rows.length - 1 && fracLife > 1e-9 && x.year > Math.floor(+r("life")) ? `   (part year: ${finFixed(fracLife, 2)} of a full year)` : ""),
+          )
+          .join("\n"),
         // Book value down the asset's life. Declining balance is front-loaded
         // by design, and the curve shows exactly how front-loaded - which is
         // the whole reason to choose it over straight line, and the thing a
@@ -8860,7 +8936,7 @@ const FIN_CALCS: FinCalc[] = [
         svg:
           rows.length < 2
             ? undefined
-            : buildPlotSvg(
+            : finPlotSvg(
                 [{ points: rows.map((x) => ({ x: x.year, y: x.bookValue })), type: "line", color: "#2563eb", label: "book value" }],
                 { width: 360, height: 240, title: "Book value over the asset's life", xlabel: "year", ylabel: "book value" },
               ),
@@ -8892,7 +8968,8 @@ const FIN_CALCS: FinCalc[] = [
       const salvage = +r("salvage");
       const life = +r("life");
       const annual = straightLineDepreciation(cost, salvage, life);
-      if (!Number.isFinite(annual) || life <= 0) return "Useful life must be a positive number of years.";
+      if (!Number.isFinite(annual) || life <= 0) return finRefuse("Useful life must be a positive number of years.");
+      if (salvage > cost) return finRefuse("Salvage value cannot exceed the cost (the asset would appreciate, not depreciate).");
       const lines = [`Annual depreciation  ${finMoney(annual)}`, ""];
       // A fractional life used to be truncated by Math.floor while the closing
       // sentence still asserted the book value "reaches salvage in the final
@@ -8957,7 +9034,7 @@ const FIN_CALCS: FinCalc[] = [
       const n = +r("n");
       const pv = annuityPV(pmt, rate, n);
       const fv = annuityFV(pmt, rate, n);
-      if (!Number.isFinite(pv) || !Number.isFinite(fv)) return "Check the rate and the number of periods.";
+      if (!Number.isFinite(pv) || !Number.isFinite(fv)) return finRefuse("Check the rate and the number of periods.");
       return {
         text: [
           `Present value   ${finMoney(pv)}`,
@@ -8999,9 +9076,14 @@ const FIN_CALCS: FinCalc[] = [
       const rate = +r("rate") / 100;
       const g = +r("g") / 100;
       if (g >= rate) {
-        return (
+        return finRefuse(
           "Growth must be below the discount rate. At or above it the sum does not converge — the " +
           "value is infinite, which is a statement about the assumption rather than about the asset."
+        );
+      }
+      if (!(rate > 0)) {
+        return finRefuse(
+          "The discount rate must be above zero: a level perpetuity at a zero or negative rate does not converge.",
         );
       }
       const level = perpetuity(pmt, rate);
@@ -9056,7 +9138,7 @@ const FIN_CALCS: FinCalc[] = [
       const rate = +r("rate") / 100;
       const years = +r("years");
       const m = +r("m");
-      if (!(m > 0)) return "Compounds per year must be positive.";
+      if (!(m > 0)) return finRefuse("Compounds per year must be positive.");
       const cont = continuousCompound(p, rate, years);
       const eff = effectiveAnnualRate(rate, m);
       const nominal = nominalAnnualRate(eff, m);
@@ -9085,7 +9167,7 @@ const FIN_CALCS: FinCalc[] = [
             { name: "continuous", value: cont, colour: "#b91c1c" },
           ].filter((row) => Number.isFinite(row.value)),
           // Unrounded, for the same reason as the compounding title above.
-          { title: "Amount after " + finFixed(years, 2) + " years, by compounding", unit: "", w: 360 },
+          { title: "Amount after " + finFixed(years, 2) + " years, by compounding", unit: "", w: currentFinFig()?.width ?? 360, bw: currentFinFig()?.bw },
         ),
       };
     },
@@ -9099,8 +9181,13 @@ const FIN_CALCS: FinCalc[] = [
       { key: "years", label: "Years", default: "5" },
     ],
     compute: (r) => {
+      // CAGR BLAMES THE RIGHT FIELD (fix2-paf): one sentence used to cover a
+      // negative ending value as "Beginning value and years must be positive".
+      if (!(+r("begin") > 0)) return finRefuse("Beginning value must be positive.");
+      if (!(+r("years") > 0)) return finRefuse("Years must be positive.");
+      if (!(+r("end") >= 0)) return finRefuse("Ending value cannot be negative: there is no real growth rate from a positive start to a negative end.");
       const g = cagr(+r("begin"), +r("end"), +r("years"));
-      if (!Number.isFinite(g)) return "Beginning value and years must be positive.";
+      if (!Number.isFinite(g)) return finRefuse("Beginning value and years must be positive.");
       return {
         text: [
           `CAGR  ${finPct(g)}`,
@@ -9150,7 +9237,7 @@ const FIN_CALCS: FinCalc[] = [
         // return and a volatility describe a distribution; only the series
         // shows whether the losses were scattered or arrived together, and a
         // run of consecutive negatives is what a drawdown actually feels like.
-        svg: buildPlotSvg(
+        svg: finPlotSvg(
           [{ points: rets.map((v, k) => ({ x: k + 1, y: v * 100 })), type: "line", color: "#2563eb", label: "return" }],
           { width: 360, height: 240, title: "Return by period", xlabel: "period", ylabel: "return (%)" },
         ),
@@ -9427,10 +9514,25 @@ function renderFinanceInputs(): void {
 /** Computes and shows the result for the current calculator inputs. */
 function updateFinancePreview(): void {
   const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
-  const read = (k: string): string => {
+  const rawRead = (k: string): string => {
     const el = finInputs.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-key="${k}"]`);
     return el ? el.value : "";
   };
+  // NUMBER FIELDS GO THROUGH THE PRODUCT'S CELL READER (fix2-paf). `+r("x")`
+  // read "−5" (true minus), "1,000" and "5%" as NaN and "0x10" as 16. Each
+  // number field is read once here; a calculator sees the plain decimal.
+  let fieldRefusal = "";
+  const numeric = new Map<string, string>();
+  for (const f of calc.fields) {
+    if (f.kind === "select" || f.kind === "list") continue;
+    const raw = rawRead(f.key);
+    if (!raw.trim()) continue;
+    const v = readFinanceField(raw);
+    if (!Number.isFinite(v)) {
+      if (!fieldRefusal) fieldRefusal = `${f.label}: “${raw.trim()}” is not a number.`;
+    } else numeric.set(f.key, String(v));
+  }
+  const read = (k: string): string => numeric.get(k) ?? rawRead(k);
   // A blank number/list field would coerce to 0 and produce a misleading result —
   // require all non-select inputs to be filled before computing.
   if (calc.fields.some((f) => f.kind !== "select" && read(f.key).trim() === "")) {
@@ -9442,14 +9544,16 @@ function updateFinancePreview(): void {
   let text = "";
   let svg = "";
   let refusal = "";
+  let refused = false;
   calcListNotes.clear();
   try {
-    const out = calc.compute(read);
+    const out = fieldRefusal ? finRefuse(fieldRefusal) : calc.compute(read);
     if (typeof out === "string") {
       text = out;
     } else {
       text = out.text;
       svg = out.svg ?? "";
+      refused = out.ok === false;
     }
   } catch (error) {
     text = "";
@@ -9463,7 +9567,7 @@ function updateFinancePreview(): void {
   // can still produce these, and a document is the wrong place to find out.
   // The shared gate, plus the one condition that is Finance's alone: a solver
   // that reports "no solution" has produced a sentence, not a result.
-  const insertable = insertableResultText(text) && !text.includes("no solution");
+  const insertable = insertableResultText(text) && !text.includes("no solution") && !refused;
   if (!text) {
     finResult.innerHTML = '<span class="hint">Enter values to compute.</span>';
     if (refusal) finResult.firstElementChild!.textContent = refusal;
@@ -9503,6 +9607,16 @@ function updateFinancePreview(): void {
   // can still put in a document. That exact defect was found in the Statistics
   // registry by an adversarial pass and is not being reproduced here.
   currentFinSvg = currentFinText ? svg : "";
+  // The same calculator re-run with its figure drawn at another width (and in
+  // black and white for USPTO), so a figure style re-renders it instead of
+  // scaling — and refusing — the colour figure.
+  currentFinRender = currentFinSvg
+    ? (w: number, style?: FigureStylePreset): string =>
+        withFinFig({ width: w, bw: style?.color === "bw" }, () => {
+          const o = calc.compute(read);
+          return typeof o === "string" ? "" : (o.svg ?? "");
+        })
+    : null;
   if (currentFinSvg) {
     const figure = document.createElement("div");
     figure.className = "stats-figure";
@@ -11448,6 +11562,7 @@ async function insertFinanceResult(): Promise<void> {
       fallbackH: dims.h,
       alt: `Finance chart: ${calc?.name ?? "result"}`,
       tag: "formula-inserter:finance-chart",
+      render: currentFinRender ?? undefined,
       // Finance rendered at 2× its natural size before figureScale; kept.
       supersample: 2,
     });
@@ -11648,6 +11763,8 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       return analyzeResultOf(
         [
           { kind: "matrix" as const, label: "Solution x =", m: x },
+          // κ₂ always, and a warning above 10¹² (fix2-paf).
+          ...conditionLines(A).map((t) => ({ kind: "line" as const, text: t })),
           // The solution as bars: which unknowns are large, which are near
           // zero, and whether any single component dominates the answer.
           {
@@ -11678,6 +11795,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       return analyzeResultOf(
         [
           { kind: "matrix" as const, label: "Inverse =", m: inv },
+          ...conditionLines(M).map((t) => ({ kind: "line" as const, text: t })),
           // The inverse's STRUCTURE, which the table of numbers beside it
           // cannot show: a near-singular matrix inverts to entries that are
           // orders of magnitude apart, and that is visible here long before
@@ -11702,6 +11820,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         lines.unshift(`Determinant = ${formatNum(det ?? 0, 6)}`);
         lines.push(`Trace = ${formatNum(trace(M), 6)}`);
         if (det === 0) lines.push("(singular: determinant is 0, so no inverse exists)");
+        else lines.push(...conditionLines(M));
       } else {
         lines.push("(determinant & trace need a square matrix)");
       }
@@ -11977,8 +12096,12 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const res = fitCurve(xs, ys, r("model"), { start });
       if (!res.ok) return { text: plainDashes(res.error), ok: false };
 
+      // ROUNDING NOISE SNAPPED (fix2-paf): an exact fit printed b = 1.546×10⁻¹⁶
+      // for a parameter that is 0. Values and their errors are snapped together
+      // against the largest of them (snapGroup, 10⁻¹⁰ relative).
+      const snapped = snapGroup([...res.values, ...res.errors]);
       const lines = res.names.map(
-        (n, i) => `  ${n} = ${formatNum(res.values[i], 6)}  ± ${formatNum(res.errors[i], 4)}`,
+        (n, i) => `  ${n} = ${formatNum(snapped[i], 6)}  ± ${formatNum(snapped[res.values.length + i], 4)}`,
       );
       // Reduction, not spread — same 8 MB CSV ceiling as the regression plot.
       const lo = minOf(xs);
@@ -11999,7 +12122,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         { kind: "line", text: "" },
         ...lines.map((t) => ({ kind: "line" as const, text: t })),
         { kind: "line", text: "" },
-        { kind: "line", text: `  R² = ${formatNum(res.rSquared, 6)}   RMSE = ${formatNum(res.rmse, 6)}` },
+        { kind: "line", text: `  R² = ${formatNum(res.rSquared, 6)}   RMSE = ${formatNum(snapNoise(res.rmse, Math.max(...ys.map(Math.abs))), 6)}` },
         {
           kind: "line",
           text: `  ${res.converged ? "Converged" : "DID NOT CONVERGE"} in ${res.iterations} iterations`,
@@ -12270,7 +12393,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
   {
     id: "fft",
     name: "FFT / frequency spectrum",
-    hint: "Paste a uniformly sampled signal (one value per line, or comma/space separated) and its sample rate. Non-power-of-two lengths are zero-padded.",
+    hint: "Paste a uniformly sampled signal (one value per line, or comma/space separated) and its sample rate. Any length: the bins sit at k·fs/N for the record's own N.",
     fields: [
       {
         key: "signal",
@@ -12413,7 +12536,8 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         { kind: "line", text: `${kind} filter, cutoff ${formatNum(cutoff, 4)} Hz${cutoffHigh ? ` to ${formatNum(cutoffHigh, 4)} Hz` : ""}` },
         { kind: "line", text: `Transform ran at ${res.paddedLength} points, ${formatNum(res.binWidth, 4)} Hz per bin` },
         { kind: "plot", svg, caption: "Filtered signal", alt: "Original and filtered signal", w: 380, h: 270 },
-        { kind: "line", text: `Filtered samples: ${res.signal.map((y) => formatNum(y, 4)).join(", ")}` },
+        // Snapped against the signal's own scale (fix2-paf: "4.163×10⁻¹⁷" for a sample that is 0).
+        { kind: "line", text: `Filtered samples: ${snapGroup([...res.signal, ...signal]).slice(0, res.signal.length).map((y) => formatNum(y, 4)).join(", ")}` },
       ];
       // The module's caveats are the reason it is trustworthy — never dropped.
       // The em dash is formatNum's non-finite sentinel and the insertable
@@ -12838,6 +12962,16 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
   },
 ];
 
+// THE DISPLAY CONTRACT FOR ANALYZE TOO (fix2-paf): Engineering's results have
+// gone through tidyResultSubscripts since 2.193, Analyze's had not, so BVP
+// "3.61e-7", DAE "rtol 1e-10", "observed order of -2.00" reached documents.
+// An ok result's prose, tables, captions and figure text get ×10ⁿ and U+2212;
+// a refusal keeps its wording (it quotes what to type).
+for (const c of ANALYZE_CALCS) {
+  const raw = c.compute;
+  c.compute = (read) => tidyResultSubscripts(raw(read));
+}
+
 /**
  * Shared rendering for the two time-dependent PDEs. Both produce u(x, t), so
  * both are shown the same way: a few time levels drawn as curves, because a
@@ -12871,15 +13005,22 @@ function fieldBlocks(
   downName: string,
   rows: number[][],
 ): AnalyzeBlock[] {
+  // The field's rounding noise snapped against the field's own scale (fix2-paf:
+  // Laplace printed 1.531×10⁻¹⁷ where sin(π)·y is 0); coordinates against theirs.
+  const flat = snapGroup(rows.flat());
+  let at = 0;
+  const field = rows.map((r) => r.map(() => flat[at++]));
+  const acrossS = snapGroup(across);
+  const downS = snapGroup(down);
   return [
     {
       kind: "line",
-      text: `${acrossName} = ${across.map((v) => formatNum(v, 4)).join(", ")}`,
+      text: `${acrossName} = ${acrossS.map((v) => formatNum(v, 4)).join(", ")}`,
     },
     {
       kind: "matrix",
       label: `u sampled (first column is ${downName}):`,
-      m: rows.map((r, k) => [down[k], ...r]),
+      m: field.map((r, k) => [downS[k], ...r]),
     },
   ];
 }
@@ -36387,7 +36528,7 @@ interface FigureInsert {
   /** tagInserted tag, if the site tags its picture. */
   tag?: string;
   /** Re-render the same figure on a canvas `w` units wide (lets a preset fit it). */
-  render?: (w: number) => string;
+  render?: (w: number, style?: FigureStylePreset) => string;
   chartKind?: string;
   /**
    * The site's own supersampling before figureScale (Stats and Finance rendered

@@ -3,9 +3,46 @@
  * docs/SCOPE-HOST-ADAPTER.md §E, so they can be imported by tests instead of
  * sliced out of the pane's source text). The bodies are unchanged.
  */
-import { buildPlotSvg, Point } from "./plot";
+import { buildPlotSvg, Point, Series, PlotOptions } from "./plot";
 import { blackScholes, bondPrice, OptionType } from "./finance";
 import { ladderSvg, LadderRow } from "./mechchart";
+
+/**
+ * A FIGURE-STYLE RE-RENDER FOR FINANCE (fix2-paf). Finance figures had no
+ * re-render, so a journal or USPTO style could only scale the colour figure as
+ * drawn — and USPTO refused every one of them. The pane re-runs a calculator
+ * inside withFinFig({ width, bw }), and every Finance figure builder draws at
+ * that canvas width (height in proportion) and, for USPTO, in black and white.
+ */
+export interface FinFig {
+  width: number;
+  bw: boolean;
+}
+let finFig: FinFig | null = null;
+
+/** Runs `fn` with every Finance figure drawn at `fig`'s width and colour mode. */
+export function withFinFig<T>(fig: FinFig, fn: () => T): T {
+  const prev = finFig;
+  finFig = fig;
+  try {
+    return fn();
+  } finally {
+    finFig = prev;
+  }
+}
+
+/** buildPlotSvg under the current Finance figure style (unchanged outside withFinFig). */
+export function finPlotSvg(series: Series[], opts: PlotOptions): string {
+  if (!finFig) return buildPlotSvg(series, opts);
+  const w0 = opts.width ?? 380;
+  const h0 = opts.height ?? 270;
+  return buildPlotSvg(series, { ...opts, width: finFig.width, height: Math.round((h0 * finFig.width) / w0), bw: finFig.bw });
+}
+
+/** The current Finance figure style, for builders outside plot.ts (the ladder). */
+export function currentFinFig(): FinFig | null {
+  return finFig;
+}
 
 /** A formatted number's leading hyphen as a true minus, and a negative zero ("-0.00", "-0.00%") as plain zero. */
 function trueMinusFixed(s: string): string {
@@ -80,7 +117,7 @@ export function moneyOverTimeSvg(o: {
     if (Number.isFinite(y)) pts.push({ x: end, y });
   }
   if (pts.length < 2) return undefined;
-  return buildPlotSvg(
+  return finPlotSvg(
     [{ points: pts, type: "line", color: "#2563eb", label: o.label ?? "value" }],
     {
       width: 360,
@@ -147,7 +184,20 @@ export function cashFlowLadderSvg(
     gain: total >= 0,
     result: true,
   });
-  return ladderSvg(rows, { title, axisLabel: "present value", fmt: (v) => finMoney(v) });
+  // DECIMALS FOLLOW THE SCALE (fix2-paf). A project whose discounted flows are
+  // a few thousandths labelled all five ticks "0.00". Two decimals stay the
+  // floor (money); a tiny span gets as many as its tick step needs.
+  let run = 0;
+  const edges = [0, total];
+  for (const r of rows) if (!r.result) edges.push((run += r.delta));
+  const span = Math.max(...edges) - Math.min(...edges);
+  const dp = span > 0 && Number.isFinite(span) ? Math.min(10, Math.max(2, Math.ceil(-Math.log10(span / 5)) + 1)) : 2;
+  const fmt = (v: number): string =>
+    !Number.isFinite(v)
+      ? "—"
+      : trueMinusFixed(v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp }));
+  const fig = currentFinFig();
+  return ladderSvg(rows, { title, axisLabel: "present value", fmt, ...(fig ? { width: fig.width, bw: fig.bw } : {}) });
 }
 
 /**
@@ -190,7 +240,7 @@ export function bondPriceCurveSvg(o: {
     if (Number.isFinite(v)) pts.push({ x: y * 100, y: v });
   }
   if (pts.length < 2) return undefined;
-  return buildPlotSvg(
+  return finPlotSvg(
     [
       { points: pts, type: "line", color: "#2563eb", label: "price" },
       { points: [{ x: o.ytm * 100, y: o.price }], type: "scatter", color: "#b91c1c", label: "this bond" },
@@ -221,8 +271,10 @@ export function optionCurveSvg(o: {
   price: number;
 }): string | undefined {
   if (![o.s, o.k, o.t, o.r, o.sig, o.price].every(Number.isFinite) || !(o.k > 0)) return undefined;
-  const lo = o.k * 0.5;
-  const hi = o.k * 1.5;
+  // Covers the strike AND the spot (fix2-paf): a fixed 0.5K–1.5K window left
+  // a deep in-the-money position (S = 300, K = 100) off the chart.
+  const lo = 0.5 * Math.min(o.k, o.s > 0 ? o.s : o.k);
+  const hi = 1.5 * Math.max(o.k, o.s > 0 ? o.s : o.k);
   const value: Point[] = [];
   const intrinsic: Point[] = [];
   for (let i = 0; i <= 60; i++) {
@@ -232,7 +284,7 @@ export function optionCurveSvg(o: {
     intrinsic.push({ x, y: o.type === "call" ? Math.max(0, x - o.k) : Math.max(0, o.k - x) });
   }
   if (value.length < 2) return undefined;
-  return buildPlotSvg(
+  return finPlotSvg(
     [
       { points: value, type: "line", color: "#2563eb", label: "option value" },
       { points: intrinsic, type: "line", color: "#6b7280", label: "intrinsic" },

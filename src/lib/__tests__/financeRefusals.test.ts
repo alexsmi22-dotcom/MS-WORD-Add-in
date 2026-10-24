@@ -112,7 +112,7 @@ describe("defect 0.31 — IRR states the range it searched", () => {
   });
 
   it("the searched range is stated, and names both bounds in percent", () => {
-    expect(IRR_SEARCH_RANGE_TEXT).toContain("-99%");
+    expect(IRR_SEARCH_RANGE_TEXT).toContain("−99%");
     expect(IRR_SEARCH_RANGE_TEXT).toContain("10,000%");
     expect(IRR_SEARCH_MIN).toBe(-0.99);
     expect(IRR_SEARCH_MAX).toBe(100);
@@ -121,7 +121,7 @@ describe("defect 0.31 — IRR states the range it searched", () => {
   it("the stated range is the range actually searched", () => {
     // The text and the numbers are two facts that must not drift apart: a refusal
     // naming a bound the code does not use is worse than one naming none.
-    expect(IRR_SEARCH_RANGE_TEXT).toContain(`${Math.round(IRR_SEARCH_MIN * 100)}%`);
+    expect(IRR_SEARCH_RANGE_TEXT).toContain(`${Math.round(IRR_SEARCH_MIN * 100)}%`.replace("-", "−")); // true minus (display contract)
     expect(IRR_SEARCH_RANGE_TEXT).toContain(`${(IRR_SEARCH_MAX * 100).toLocaleString("en-US")}%`);
   });
 

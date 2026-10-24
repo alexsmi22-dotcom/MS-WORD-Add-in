@@ -95,6 +95,13 @@ function tokenize(src: string): Token[] {
       i++;
       continue;
     }
+    // The true minus (U+2212) the pane's own hint prints, and × or · for times
+    // (fix2-paf: "A − B" was "Unexpected character").
+    if (ch === "−" || ch === "×" || ch === "·") {
+      toks.push({ t: "op", v: ch === "−" ? "-" : "*" });
+      i++;
+      continue;
+    }
     throw new Error(`Unexpected character "${ch}".`);
   }
   return toks;

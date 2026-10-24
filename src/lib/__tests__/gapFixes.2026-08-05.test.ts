@@ -240,7 +240,8 @@ describe("0.20 — caveats reach the screen and the document", () => {
   it("the log-axis drop warning is drawn INTO the plot, not beside it", () => {
     // `currentPlotSvg` is what gets inserted, so a note living in a sibling
     // <div> never reached the document.
-    expect(pane).toMatch(/buildPlotSvg\(filtered\.series, \{ \.\.\.opts, notes \}\)/);
+    // fix2-paf: `plotOpts` is `opts` plus the robust y limits for poles.
+    expect(pane).toMatch(/buildPlotSvg\(filtered\.series, \{ \.\.\.plotOpts, notes \}\)/);
   });
 });
 
@@ -460,7 +461,8 @@ describe("wiring — library fixes that a user can actually reach", () => {
 
   it("IRR names the range it searched instead of claiming none exists", () => {
     expect(pane).toMatch(/IRR = no solution \(searched \$\{IRR_SEARCH_RANGE_TEXT\}\)/);
-    expect(pane).toMatch(/XIRR = no solution \(searched \$\{IRR_SEARCH_RANGE_TEXT\}\)/);
+    // fix2-paf: XIRR names ITS OWN range (an annual rate from −99.99%), not IRR's.
+    expect(pane).toMatch(/XIRR = no solution \(searched \$\{XIRR_SEARCH_RANGE_TEXT\}\)/);
   });
 
   it("the numeral report renders the inverse (one element, two numerals) finding", () => {

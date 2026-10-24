@@ -11,7 +11,7 @@
 //
 // Pure logic — no Office.js, no PptxGenJS — fully unit-testable.
 
-import { linearAxis } from "./axis";
+import { linearAxis, fmtValue } from "./axis";
 import { parseCellNumber, SCI_TAIL } from "./dataimport";
 import { buildHeatmapSvg } from "./heatmap";
 import { buildCandlestickSvg } from "./candlestick";
@@ -96,10 +96,28 @@ export function parseNumberCell(raw: string): number | null {
   }
   // Normalize a Unicode minus, then drop a currency symbol whether it comes
   // before or after the sign ("-$300", "$-300", "£300" all work).
-  s = s
-    .replace(/^[−–]/, "-")
-    .replace(/^([-+]?)[$€£¥]/, "$1")
-    .replace(/,/g, "");
+  s = s.replace(/^[−–]/, "-").replace(/^([-+]?)[$€£¥]/, "$1");
+  // THE DECIMAL-COMMA RULE, as dataimport.parseCellNumber applies it (fix2-paf):
+  // every comma used to be stripped, so "3,5" charted as 35 and "0,5" as 5.
+  // On the number at the start of the cell: "1,234.5" and "1.234,5" are grouped
+  // (1234.5); "1,000" / "12,345,678" are grouping; "3,5" / "0,5" are a decimal
+  // comma; any other comma shape is refused rather than guessed.
+  {
+    const head = /^([-+]?)([\d.,]+)/.exec(s);
+    if (head && head[2].includes(",")) {
+      const t = head[2];
+      let norm: string | null;
+      if (t.includes(".")) {
+        if (/^\d{1,3}(\.\d{3})+,\d+$/.test(t)) norm = t.replace(/\./g, "").replace(",", ".");
+        else if (/^\d{1,3}(,\d{3})+\.\d*$/.test(t)) norm = t.replace(/,/g, "");
+        else norm = null;
+      } else if (/^\d{1,3}(,\d{3})+$/.test(t)) norm = t.replace(/,/g, "");
+      else if (/^\d+,\d+$/.test(t)) norm = t.replace(",", ".");
+      else norm = null;
+      if (norm === null) return null;
+      s = head[1] + norm + s.slice(head[0].length);
+    }
+  }
   if (s.endsWith("%")) s = s.slice(0, -1);
   const m = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/.exec(s);
   if (!m) return null;
@@ -162,12 +180,38 @@ export function parseTableData(values: string[][]): TableChart {
   const warnings: string[] = [];
   const cols = rows[0].length;
 
+  // AMBIGUOUS COMMAS ARE REFUSED (fix2-paf). A cell's comma rule alone reads a
+  // table holding both "3,5" and "1,000" as 3.5 and 1000 — but beside decimal
+  // commas, "1,000" may just as well be 1.000. When any cell uses a decimal
+  // comma, cells shaped like grouping (1,000 / 12,345,678) are left blank and
+  // counted in a warning rather than guessed.
+  const squash = (c: string): string => c.replace(/\s+/g, "").replace(/^\(|\)$/g, "").replace(/^[-+−–]?[$€£¥]?/, "");
+  const DECIMAL_COMMA = /^\d+,(?:\d{1,2}|\d{4,})(?![\d,.])/;
+  const GROUPING = /^\d{1,3}(?:,\d{3})+(?![\d,.])/;
+  const decimalCommaSeen = rows.some((r) => r.some((c) => DECIMAL_COMMA.test(squash(c))));
+  let ambiguous = 0;
+  const num = (c: string): number | null => {
+    if (decimalCommaSeen && GROUPING.test(squash(c))) {
+      ambiguous++;
+      return null;
+    }
+    return parseNumberCell(c);
+  };
+  const ambiguityNote = (): void => {
+    if (ambiguous) {
+      warnings.push(
+        `${ambiguous} cell${ambiguous === 1 ? " like" : "s like"} “1,000” ${ambiguous === 1 ? "is" : "are"} ambiguous beside decimal commas (“3,5”) and ${ambiguous === 1 ? "is" : "are"} left blank; write 1000 or 1,0 to say which.`,
+      );
+    }
+  };
+
   // A lone row reads as one series across generated categories.
   if (rows.length === 1 && cols >= 2) {
     const first = rows[0][0];
     const firstIsLabel = parseNumberCell(first) === null;
     const cells = firstIsLabel ? rows[0].slice(1) : rows[0];
-    const series = [{ name: firstIsLabel && first ? first : "Values", values: cells.map(parseNumberCell) }];
+    const series = [{ name: firstIsLabel && first ? first : "Values", values: cells.map(num) }];
+    ambiguityNote();
     if (!series[0].values.some((v) => v !== null)) {
       throw new Error("No numeric data found — the table needs at least one row or column of numbers.");
     }
@@ -186,8 +230,9 @@ export function parseTableData(values: string[][]): TableChart {
     const headerish = parseNumberCell(rows[0][0]) === null && rows.length >= 2;
     const dataRows = headerish ? rows.slice(1) : rows;
     const series = [
-      { name: headerish && rows[0][0] ? rows[0][0] : "Values", values: dataRows.map((r) => parseNumberCell(r[0])) },
+      { name: headerish && rows[0][0] ? rows[0][0] : "Values", values: dataRows.map((r) => num(r[0])) },
     ];
+    ambiguityNote();
     if (!series[0].values.some((v) => v !== null)) {
       throw new Error("No numeric data found — the table needs at least one row or column of numbers.");
     }
@@ -206,7 +251,20 @@ export function parseTableData(values: string[][]): TableChart {
   const probe = rows[0].slice(1);
   const numericInRow0 = probe.filter((c) => c !== "" && parseNumberCell(c) !== null).length;
   const nonEmptyRow0 = probe.filter((c) => c !== "").length;
-  const hasHeader = rows.length >= 2 && (nonEmptyRow0 === 0 || numericInRow0 / nonEmptyRow0 < 0.5);
+  // A HEADER OF YEARS (fix2-paf): "Region | 2021 | 2022 | 2023" is numeric past
+  // the corner, so it was charted as a data row. A first row whose cells are
+  // all distinct four-digit years (1800–2200) is a header when the body holds
+  // numbers that are not years.
+  const yearLike = (c: string): boolean => /^\d{4}$/.test(c.trim()) && +c >= 1800 && +c <= 2200;
+  const yearCells = probe.filter((c) => c !== "");
+  const yearHeader =
+    rows.length >= 2 &&
+    yearCells.length >= 2 &&
+    yearCells.every(yearLike) &&
+    new Set(yearCells.map((c) => c.trim())).size === yearCells.length &&
+    parseNumberCell(rows[0][0]) === null &&
+    rows.slice(1).some((r) => r.slice(1).some((c) => c !== "" && parseNumberCell(c) !== null && !yearLike(c)));
+  const hasHeader = rows.length >= 2 && (nonEmptyRow0 === 0 || numericInRow0 / nonEmptyRow0 < 0.5 || yearHeader);
 
   const headers = hasHeader ? rows[0] : rows[0].map(() => "");
   const dataRows = hasHeader ? rows.slice(1) : rows;
@@ -255,7 +313,7 @@ export function parseTableData(values: string[][]): TableChart {
   for (let j = 0; j < cols; j++) {
     if (j === labelCol || j === sectionCol || skipCols.has(j)) continue;
     const name = headers[j] || `Series ${j}`;
-    const vals = dataRows.map((r) => parseNumberCell(r[j]));
+    const vals = dataRows.map((r) => num(r[j]));
     const numeric = vals.filter((v) => v !== null).length;
     if (numeric === 0) {
       warnings.push(`Column “${name}” has no numbers — skipped.`);
@@ -265,12 +323,15 @@ export function parseTableData(values: string[][]): TableChart {
     series.push({ name, values: vals });
   }
 
+  ambiguityNote();
   if (!series.length) {
     throw new Error("No numeric data found — the table needs at least one column of numbers after the label column.");
   }
-  if (skippedCells > 0) {
+  // The ambiguous-comma cells have their own warning above.
+  const unreadable = skippedCells - ambiguous;
+  if (unreadable > 0) {
     warnings.push(
-      `${skippedCells} cell${skippedCells === 1 ? "" : "s"} couldn't be read as a number and will be blank in the chart.`
+      `${unreadable} cell${unreadable === 1 ? "" : "s"} couldn't be read as a number and will be blank in the chart.`
     );
   }
   if (categories.length > 24) {
@@ -367,6 +428,8 @@ function errorSvg(message: string, W: number, H: number): string {
 export interface ChartPreview {
   svg: string;
   warnings: string[];
+  /** The figure is a refusal that explains itself (fix2-paf: a pie of negative values): shown, never inserted. */
+  refused?: boolean;
 }
 
 /**
@@ -398,7 +461,32 @@ export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title =
     const r = buildHeatmapSvg(chart, title, { grey: style.patent === true }, W, H);
     return { svg: r.svg, warnings: r.notes };
   }
-  if (kind === "pie" || kind === "doughnut") return { svg: buildPieSvg(chart, kind, title, style, W, H), warnings: [] };
+  if (kind === "pie" || kind === "doughnut") {
+    // A NEGATIVE SLICE IS REFUSED BY NAME (fix2-paf): it was filtered out with
+    // nothing said, so the remaining slices' percentages silently changed
+    // meaning. Zeros draw nothing and are said so.
+    const s0 = chart.series[0];
+    const fmt = fmtValue;
+    const neg = chart.categories.map((c, i) => ({ c, v: s0?.values[i] })).filter((e) => e.v !== null && e.v !== undefined && e.v < 0);
+    if (neg.length) {
+      const named = neg.slice(0, 3).map((e) => `“${e.c}” (${fmt(e.v as number)})`).join(", ");
+      return {
+        svg: errorSvg(
+          `A pie chart cannot show negative values: ${named}${neg.length > 3 ? ` and ${neg.length - 3} more` : ""}. ` +
+            "A slice is a share of a whole; use a column or bar chart for data with negatives.",
+          W,
+          H,
+        ),
+        warnings: [],
+        refused: true,
+      };
+    }
+    const zeros = chart.categories.filter((_, i) => s0?.values[i] === 0);
+    const warnings = zeros.length
+      ? [`${zeros.length === 1 ? `“${zeros[0]}” is` : `${zeros.length} categories are`} zero and ${zeros.length === 1 ? "has" : "have"} no slice.`]
+      : [];
+    return { svg: buildPieSvg(chart, kind, title, style, W, H), warnings };
+  }
   return { svg: buildAxisSvg(chart, kind, title, style, W, H), warnings: [] };
 }
 
@@ -609,6 +697,25 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
     else mt += patent ? 16 : 11;
     ph = H - mt - mb;
   }
+  // PATENT CATEGORY LABELS ARE STAGGERED OR TURNED, NOT DROPPED (fix2-paf). At
+  // USPTO lettering (12–17 px) a column or line chart of ordinary month names
+  // kept only every other label. When the widest label does not fit its slot:
+  // if it fits two slots, alternate labels drop to a second row; otherwise the
+  // labels are set vertically (reading upward, each centred just below the
+  // axis). Both in room taken from the plot height, so every category keeps its
+  // name (up to 30 categories; beyond that, thinned as before).
+  const catText = (c: string): string => truncate(c, horizontal ? 7 : 9);
+  let catMode: "flat" | "stagger" | "vertical" = "flat";
+  if (patent && !horizontal && n <= 30) {
+    const widest = Math.max(...chart.categories.map((c) => estW(catText(c), runPx(true, catText(c), 10))));
+    const slotEst = pw / n;
+    if (widest + 6 > slotEst) {
+      catMode = widest + 6 <= 2 * slotEst ? "stagger" : "vertical";
+      mb += catMode === "stagger" ? 20 : Math.min(110, Math.ceil(widest)) - 10;
+      ph = H - mt - mb;
+    }
+  }
+  const rotateCats = catMode === "vertical";
   const tickDy = patent ? 18 : 15;
   // Value axis maps to y for column/line/area and to x for horizontal bars.
   const vLen = horizontal ? pw : ph;
@@ -657,8 +764,13 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
 
   // Category tick labels (thinned so they never overlap).
   let labelEvery = Math.ceil(n / (horizontal ? Math.floor(ph / 14) || 1 : 7));
-  const catText = (c: string): string => truncate(c, horizontal ? 7 : 9);
-  if (patent) {
+  if (rotateCats) {
+    // Vertical, the pitch a label needs along the axis is its glyph height.
+    const fmax = Math.max(...chart.categories.map((c) => runPx(true, catText(c), 10)));
+    labelEvery = Math.max(1, Math.ceil((fmax * 1.05) / Math.max(1e-9, slot)));
+  } else if (catMode === "stagger") {
+    labelEvery = 1;
+  } else if (patent) {
     // Patent labels are 12-17 px, so thin by what they actually need: a row
     // pitch of 20 across, or the widest label's estimated width along.
     const need = horizontal ? 20 : Math.max(...chart.categories.map((c) => estW(catText(c), runPx(true, catText(c), 10)) + 6));
@@ -672,9 +784,18 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
     if (horizontal) {
       const cy = mt + slot * (i + 0.5);
       parts.push(`<text x="${ml - 6}" y="${(cy + (patent ? 4 : 3)).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="${fsz}" fill="${ink}">${label}</text>`);
+    } else if (rotateCats) {
+      // Centred on its own half-length below the axis, so every label starts
+      // just under the axis; x nudged so the glyphs centre on the slot.
+      const cx = ml + slot * (i + 0.5) + fsz * 0.35;
+      const cy = mt + ph + 8 + estW(raw, fsz) / 2;
+      parts.push(
+        `<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" transform="rotate(-90 ${cx.toFixed(1)} ${cy.toFixed(1)})" font-family="sans-serif" font-size="${fsz}" fill="${ink}">${label}</text>`,
+      );
     } else {
       const cx = ml + slot * (i + 0.5);
-      parts.push(`<text x="${cx.toFixed(1)}" y="${mt + ph + tickDy}" text-anchor="middle" font-family="sans-serif" font-size="${fsz}" fill="${ink}">${label}</text>`);
+      const dy = catMode === "stagger" && i % 2 === 1 ? 20 : 0;
+      parts.push(`<text x="${cx.toFixed(1)}" y="${mt + ph + tickDy + dy}" text-anchor="middle" font-family="sans-serif" font-size="${fsz}" fill="${ink}">${label}</text>`);
     }
   });
 
@@ -790,10 +911,18 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   }
 
   if (showLegend) {
+    // THE LEGEND DRAWS WHAT THE PLOT DRAWS (fix2-paf): a USPTO scatter's legend
+    // showed hatched squares beside data drawn as ●○■□▲△, and an area chart's
+    // swatches were two patterns off from its fills (PATENT_FILLS[si + 2]).
     const swatch = patent
       ? kind === "line"
         ? patentLineSwatch()
-        : patentFillSwatch()
+        : kind === "scatter"
+          ? ((i: number, x: number, cy: number) => markerSvg(i, x + 7, cy - 3)) as SwatchFn
+          : kind === "area"
+            ? ((i: number, x: number, cy: number) =>
+                `<rect x="${x}" y="${cy - 7}" width="10" height="10" fill="${PATENT_FILLS[(i + 2) % PATENT_FILLS.length]}" stroke="#000" stroke-width="0.8"/>`) as SwatchFn
+            : patentFillSwatch()
       : okabe && (kind === "line" || kind === "scatter")
         ? okabeLineSwatch(kind === "scatter")
         : colorSwatch(pal);

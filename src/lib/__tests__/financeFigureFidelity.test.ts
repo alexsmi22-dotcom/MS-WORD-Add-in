@@ -129,10 +129,13 @@ describe("loan: the printed payment is the one the figure was drawn from", () =>
     expect(sched[0].payment).toBeGreaterThan(31.7);
   });
 
-  test("the pane reports the schedule's own payment and discloses the cap", () => {
+  // fix2-paf: superseded — text AND figure now both come from the closed form
+  // (loanPayment + amortizationRowAt via finLoanRows), so there is no cap to
+  // disclose and no second loan to draw.
+  test("the pane draws the closed-form schedule, not the capped one", () => {
     const body = calcBody("loan");
-    expect(body).toMatch(/sched\.length \? sched\[0\]\.payment/);
-    expect(body).toMatch(/Schedule capped at/);
+    expect(body).toMatch(/finLoanRows\(loan\)/);
+    expect(body).not.toMatch(/amortizationSchedule\(/);
   });
 });
 

@@ -15,7 +15,9 @@ function parseRefSpan(span: string): number[] {
   for (const p of parts) {
     if (/^\d+$/.test(p)) {
       const n = parseInt(p, 10);
-      if (rangePending && prev !== null) {
+      // A range wider than 100,000 ("SEQ ID NOs: 1-100000000") is not expanded:
+      // it froze the document audit (fix2). Only its ends count.
+      if (rangePending && prev !== null && Math.abs(n - prev) <= 100000) {
         for (let k = Math.min(prev, n); k <= Math.max(prev, n); k++) out.push(k);
       } else {
         out.push(n);

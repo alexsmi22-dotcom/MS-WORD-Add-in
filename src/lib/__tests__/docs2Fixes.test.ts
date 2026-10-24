@@ -295,3 +295,72 @@ describe("12. pin ranges, § doubling, patent numbers, native italics, In re sor
     expect(rows(t, "Cases").map((r) => r.split(",")[0])).toEqual(["Hall v. Doe", "In re Wands", "Xu v. Yi"]);
   });
 });
+
+// --- 7 / 8. audit figure spans -------------------------------------------------
+import { auditDocument, extractFigureRefs } from "../audit";
+import { extractRefNumbers } from "../refs";
+import { extractSeqIdRefs } from "../seqid";
+import { extractNumerals, reconcileNumerals } from "../numerals";
+
+describe("7. an enormous figure range is capped, not expanded", () => {
+  it('"FIGS. 1-1000000" returns at once, is flagged by name, and lists no gaps', () => {
+    const text = "FIGS. 1-1000000 show the device.";
+    expect(ms(() => auditDocument({ documentText: text, numerals: [], listingCount: 0 }))).toBeLessThan(100);
+    const figs = auditDocument({ documentText: text, numerals: [], listingCount: 0 }).sections.find((s) => s.title === "Figures")!;
+    expect(figs.issues.join(" ")).toMatch(/1–1000000 spans more than 500 figures/);
+    expect(extractFigureRefs(text)).toEqual([1, 1000000]);
+    expect(extractFigureRefs("FIGS. 1-12")).toHaveLength(12);
+    expect(ms(() => extractRefNumbers("Figs. 1-100000000", "figure"))).toBeLessThan(100);
+    expect(ms(() => extractSeqIdRefs("SEQ ID NOs: 1-1000000000"))).toBeLessThan(100);
+  });
+  it("FIG. 1 … FIG. 900000 far apart: one named issue, no enumeration", () => {
+    const r = auditDocument({ documentText: "FIG. 1 shows it. FIG. 900000 shows more.", numerals: [], listingCount: 0 });
+    const issues = r.sections.find((s) => s.title === "Figures")!.issues;
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatch(/more than 500 apart/);
+  });
+});
+
+describe("8. a singular FIG. never takes a comma-joined number", () => {
+  it('"As shown in FIG. 2, 10 sensors (18)" is FIG. 2 only; FIGS. lists still read', () => {
+    expect(extractFigureRefs("As shown in FIG. 2, 10 sensors (18) are mounted.")).toEqual([2]);
+    expect(extractFigureRefs("FIGS. 1, 2 and 4 show it.")).toEqual([1, 2, 4]);
+    expect(extractRefNumbers("As shown in Fig. 2, 10 sensors are used.", "figure")).toEqual([2]);
+  });
+  it("hostile figure lists stay linear (5 kB < 100 ms)", () => {
+    const s = "FIGS. " + "1, ".repeat(1700);
+    expect(ms(() => auditDocument({ documentText: s, numerals: [], listingCount: 0 }))).toBeLessThan(100);
+  });
+});
+
+// --- N1–N3. numerals ----------------------------------------------------------
+describe("N. numerals: grouped callouts, curly primes, a cleared box", () => {
+  const table = [
+    { numeral: 10, element: "housing" },
+    { numeral: 12, element: "wall" },
+    { numeral: 14, element: "wall second" },
+    { numeral: 16, element: "lid" },
+  ];
+  it('N1 "walls (12, 14)" and "(12 and 14)" call out both numerals', () => {
+    expect(extractNumerals("the walls (12, 14) of the housing (10)", [10, 12, 14, 16])).toEqual([10, 12, 14]);
+    expect(extractNumerals("walls (12 and 14)", [10, 12, 14])).toEqual([12, 14]);
+    expect(extractNumerals("walls (12, 14, and 16)", [10, 12, 14, 16])).toEqual([12, 14, 16]);
+    const f = reconcileNumerals(table, extractNumerals("housing (10) with walls (12, 14) and a lid (16)", [10, 12, 14, 16]));
+    expect(f.unused).toEqual([]);
+  });
+  it("N2 curly apostrophe and prime sub-parts count, so an undefined (18’) is flagged", () => {
+    expect(extractNumerals("a wall (12’) and a wall (12′) and (14')", [10, 12, 14])).toEqual([12, 14]);
+    const f = reconcileNumerals(table, extractNumerals("housing (10), walls (12, 14), lid (16), flange (18’)", [10, 12, 14, 16]));
+    expect(f.orphans).toEqual([18]);
+  });
+  it("N3 a cleared numeral box (0 / NaN) is no constraint — no false gaps", () => {
+    const f = reconcileNumerals([...table, { numeral: 0, element: "new part" }, { numeral: NaN, element: "other" }], [10, 12, 14, 16]);
+    expect(f.gaps).toEqual([]);
+    expect(extractNumerals("enumerated (1) and (2) and housing (10)", [0, 10, 12])).toEqual([10]);
+  });
+  it("hostile callout lists stay linear (5 kB < 100 ms)", () => {
+    const s = "(" + "12, ".repeat(1300);
+    const t = "(1".repeat(2500);
+    for (const x of [s, t]) expect(ms(() => extractNumerals(x, [10, 12]))).toBeLessThan(100);
+  });
+});

@@ -51,7 +51,15 @@ export interface NumeralFindings {
  * optional trailing sub-part letter or prime — "(12a)", "(12')" — is captured
  * as the base numeral 12, so sub-part callouts aren't reported as orphans.
  */
-const CALLOUT_RE = /\((\d+)[A-Za-z']?\)/g;
+//
+// fix2: Word's AutoCorrect turns the prime into a curly apostrophe "(12’)" and
+// drafters type a real prime "(12′)" — both are sub-part callouts too. And one
+// bracket may group several numerals, EPO-claim style: "walls (12, 14)",
+// "(12 and 14)", "(12, 14, and 16)"; each is a callout (they were reported
+// "never called out"). Group 1 is the whole list; at most 20 members, and the
+// separators hold no digit, so the scan is linear.
+const SUB = "[A-Za-z'’′]?";
+const CALLOUT_RE = new RegExp(`\\((\\d+${SUB}(?:\\s*(?:,\\s*(?:and|or|&)?|and|or|&)\\s*\\d+${SUB}){0,20})\\)`, "g");
 
 /**
  * A parenthesized four-digit year. A patent spec or brief is full of these
@@ -125,8 +133,10 @@ export function extractNumerals(documentText: string, known?: number[]): number[
   // see it flagged as undefined, which is the tool working.
   let lo = -Infinity;
   let hi = Infinity;
-  if (known && known.length) {
-    const sorted = [...known].sort((a, b) => a - b);
+  // A cleared numeral box (0 / NaN) is no numeral — it must not widen the span.
+  const real = (known ?? []).filter((n) => Number.isInteger(n) && n > 0);
+  if (real.length) {
+    const sorted = [...real].sort((a, b) => a - b);
     const min = sorted[0];
     const max = sorted[sorted.length - 1];
     // Enumeration markers "(1)", "(2)", "(3)" are small integers BELOW any real
@@ -144,16 +154,23 @@ export function extractNumerals(documentText: string, known?: number[]): number[
   // reported all three as "defined but never called out".
   const knownSet = new Set(known ?? []);
   while ((m = CALLOUT_RE.exec(documentText)) !== null) {
-    const raw = m[1];
-    const n = parseInt(raw, 10);
-    // "twenty (20) minutes", "thirty (30) days": a spelled-out number with its
-    // figures in parentheses is a quantity, not a reference numeral.
-    if (spelledNumberBefore(documentText, m.index) === n) continue;
-    if (looksLikeYear(n, raw) && !knownSet.has(n)) continue;
-    if (n < lo || n > hi) continue;
-    seen.add(n);
+    const members = m[1].match(/\d+/g) ?? [];
+    for (const raw of members) {
+      const n = parseInt(raw, 10);
+      // "twenty (20) minutes", "thirty (30) days": a spelled-out number with its
+      // figures in parentheses is a quantity, not a reference numeral.
+      if (members.length === 1 && spelledNumberBefore(documentText, m.index) === n) continue;
+      if (looksLikeYear(n, raw) && !knownSet.has(n)) continue;
+      if (n < lo || n > hi) continue;
+      seen.add(n);
+    }
   }
   return Array.from(seen).sort((a, b) => a - b);
+}
+
+/** A real reference numeral: a positive whole number (a cleared box is 0/NaN). */
+function hasNumeral(e: NumeralEntry): boolean {
+  return Number.isInteger(e.numeral) && e.numeral > 0;
 }
 
 function normalize(element: string): string {
@@ -187,7 +204,9 @@ export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: num
   // A numeral with a blank element name is an incomplete row — treat it as "not
   // defined" everywhere (consistent with buildNumeralListHtml, which drops it),
   // so gaps/unused don't disagree with the rendered list.
-  const defined = entries.filter((e) => e.element.trim() !== "");
+  // A cleared numeral box arrives as 0 (or NaN): no numeral, so no constraint —
+  // it used to anchor the grid at 0 and report false gaps 2, 4, 6, 8 (fix2).
+  const defined = entries.filter((e) => e.element.trim() !== "" && hasNumeral(e));
 
   // Collisions: group distinct (normalized) element names per numeral.
   const elementsByNumeral = new Map<number, { norm: Set<string>; display: string[] }>();
@@ -299,7 +318,7 @@ export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: num
  */
 export function suggestNextNumeral(entries: NumeralEntry[]): number {
   // Ignore incomplete (blank-element) rows, consistent with reconcileNumerals.
-  const nums = tableNumerals(entries.filter((e) => e.element.trim() !== ""));
+  const nums = tableNumerals(entries.filter((e) => e.element.trim() !== "" && hasNumeral(e)));
   if (!nums.length) return 10;
   const max = nums[nums.length - 1];
   const allEven = nums.every((n) => n % 2 === 0);

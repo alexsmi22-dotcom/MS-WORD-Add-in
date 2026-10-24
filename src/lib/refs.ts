@@ -63,7 +63,9 @@ function parseRefSpan(span: string): number[] {
   for (const p of parts) {
     if (/^\d+$/.test(p)) {
       const n = parseInt(p, 10);
-      if (rangePending && prev !== null) for (let k = Math.min(prev, n); k <= Math.max(prev, n); k++) out.push(k);
+      // A range wider than 500 ("Figs. 1-1000000") is not expanded — it froze
+      // Word (fix2); only its ends count.
+      if (rangePending && prev !== null && Math.abs(n - prev) <= 500) for (let k = Math.min(prev, n); k <= Math.max(prev, n); k++) out.push(k);
       else out.push(n);
       rangePending = false;
       prev = n;
@@ -90,7 +92,13 @@ export function extractRefNumbers(text: string, kind: RefKind): number[] {
         : /\btables?\s+(\d+(?:\s*(?:[-–—]|to|and|or|,)\s*\d+)*)/gi;
   const nums = new Set<number>();
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) for (const n of parseRefSpan(m[1])) nums.add(n);
+  while ((m = re.exec(text)) !== null) {
+    // A singular head ("Fig. 2", "Table 2") names one item, so a comma ends it:
+    // "Fig. 2, 10 sensors" is Fig. 2, never Fig. 10 (fix2).
+    const head = m[0].slice(0, m[0].length - m[1].length);
+    const span = /^(?:fig(?:ure)?\.?|scheme|table)\s*$/i.test(head) ? m[1].split(",")[0] : m[1];
+    for (const n of parseRefSpan(span)) nums.add(n);
+  }
   return Array.from(nums).sort((a, b) => a - b);
 }
 

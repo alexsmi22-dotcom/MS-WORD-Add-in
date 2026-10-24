@@ -55,18 +55,32 @@ export interface AuditReport {
 // A patent audit that cries wolf at that volume is one nobody reads.
 const FIG_RE = /\bfig(?:ures?|s)?\.?\s*(\d+(?:\s*(?:[-–—]|through|thru|to|and|or|,)\s*\d+)*)/gi;
 
-function parseRefSpan(span: string): number[] {
+/**
+ * The widest figure range that is expanded ("FIGS. 1-12" → 1…12). A wider one
+ * ("FIGS. 1-1000000") froze Word expanding it (fix2); it is reported by name
+ * and only its two ends are counted.
+ */
+export const MAX_FIG_SPAN = 500;
+
+function parseRefSpan(span: string, oversized?: string[]): number[] {
   const parts = span.match(/\d+|[-–—]|through|thru|to|and|or|,/gi) || [];
-  const out: number[] = [];
+  const out = new Set<number>();
   let prev: number | null = null;
   let rangePending = false;
   for (const p of parts) {
     if (/^\d+$/.test(p)) {
       const n = parseInt(p, 10);
       if (rangePending && prev !== null) {
-        for (let k = Math.min(prev, n); k <= Math.max(prev, n); k++) out.push(k);
+        const lo = Math.min(prev, n);
+        const hi = Math.max(prev, n);
+        if (hi - lo > MAX_FIG_SPAN) {
+          oversized?.push(`${prev}–${n}`);
+          out.add(n);
+        } else {
+          for (let k = lo; k <= hi; k++) out.add(k);
+        }
       } else {
-        out.push(n);
+        out.add(n);
       }
       rangePending = false;
       prev = n;
@@ -76,18 +90,34 @@ function parseRefSpan(span: string): number[] {
       rangePending = false;
     }
   }
-  return Array.from(new Set(out)).sort((a, b) => a - b);
+  return Array.from(out).sort((a, b) => a - b);
+}
+
+/**
+ * The figure numbers one FIG_RE match names. A SINGULAR head ("FIG.",
+ * "Figure") names one figure, so a comma ends it: "As shown in FIG. 2, 10
+ * sensors (18) …" is FIG. 2, never FIG. 10 (fix2). A plural head ("FIGS.
+ * 1, 2 and 4") keeps its comma list.
+ */
+function figureSpan(m: RegExpExecArray): string {
+  const head = m[0].slice(0, m[0].length - m[1].length);
+  return /^fig(?:ure)?\.?\s*$/i.test(head) ? m[1].split(",")[0] : m[1];
+}
+
+function figureRefsDetailed(text: string): { nums: number[]; oversized: string[] } {
+  const nums = new Set<number>();
+  const oversized: string[] = [];
+  let m: RegExpExecArray | null;
+  FIG_RE.lastIndex = 0;
+  while ((m = FIG_RE.exec(text)) !== null) {
+    for (const n of parseRefSpan(figureSpan(m), oversized)) nums.add(n);
+  }
+  return { nums: Array.from(nums).sort((a, b) => a - b), oversized };
 }
 
 /** Distinct figure numbers referenced in the text, ascending. */
 export function extractFigureRefs(text: string): number[] {
-  const nums = new Set<number>();
-  let m: RegExpExecArray | null;
-  FIG_RE.lastIndex = 0;
-  while ((m = FIG_RE.exec(text)) !== null) {
-    for (const n of parseRefSpan(m[1])) nums.add(n);
-  }
-  return Array.from(nums).sort((a, b) => a - b);
+  return figureRefsDetailed(text).nums;
 }
 
 /**
@@ -241,12 +271,22 @@ export function auditDocument(input: AuditInput): AuditReport {
   // 3. Figures — continuity of referenced figure numbers, and cover against the
   //    Brief Description of the Drawings.
   {
-    const figs = extractFigureRefs(text);
+    const { nums: figs, oversized } = figureRefsDetailed(text);
     const issues: string[] = [];
+    for (const r of oversized) {
+      issues.push(`FIGS. ${r} spans more than ${MAX_FIG_SPAN} figures — not expanded; check for a mistyped number`);
+    }
     if (figs.length >= 2) {
-      const gaps: number[] = [];
-      for (let n = figs[0]; n <= figs[figs.length - 1]; n++) if (!figs.includes(n)) gaps.push(n);
-      if (gaps.length) issues.push(`Figure number(s) referenced with gaps; missing: ${gaps.join(", ")}`);
+      const first = figs[0];
+      const last = figs[figs.length - 1];
+      if (last - first > MAX_FIG_SPAN) {
+        issues.push(`Figure numbers run from FIG. ${first} to FIG. ${last} (more than ${MAX_FIG_SPAN} apart) — gaps not listed; check for a mistyped number`);
+      } else {
+        const have = new Set(figs);
+        const gaps: number[] = [];
+        for (let n = first; n <= last; n++) if (!have.has(n)) gaps.push(n);
+        if (gaps.length) issues.push(`Figure number(s) referenced with gaps; missing: ${gaps.join(", ")}`);
+      }
     }
     const described = briefDescriptionFigures(text);
     if (described) {

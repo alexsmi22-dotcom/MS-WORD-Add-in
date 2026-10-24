@@ -81,6 +81,22 @@ describe("1 — long SMILES are refused by name BEFORE any 2D layout", () => {
     expect(failed).toEqual([]);
   });
 
+  it("typed WITHOUT smiles: (also a formula, C₃₀₀₀) every pane answers promptly and lays nothing out", () => {
+    const spy = jest.spyOn(Molecule, "fromSmiles");
+    try {
+      const t = Date.now();
+      expect(resolveStructure(chain3000).kind).toBe("none");
+      const ms = resolveMassSpec(chain3000);
+      expect(ms.kind).toBe("ok");
+      const c = resolveCompound(chain3000);
+      expect("refusal" in c && /could not|not a/.test(c.refusal)).toBe(false);
+      expect(Date.now() - t).toBeLessThan(2000);
+      for (const call of spy.mock.calls) expect(call[1]).toEqual(expect.objectContaining({ noCoordinates: true }));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("a 250-atom chain is drawn; 251 is refused", () => {
     expect(resolveStructure(`smiles:${"C".repeat(250)}`).kind).toBe("ok");
     expect(resolveStructure(`smiles:${"C".repeat(251)}`).kind).toBe("none");
@@ -106,6 +122,15 @@ describe("2 — attachment points (*) are never counted as carbon", () => {
     expect(r.kind === "ok" && r.result.formula).toBe("C8H8");
     const b = resolveStructure("smiles:[*]CC[*]");
     expect(b.kind === "ok" && b.result.formula).toBe("C2H4");
+  });
+
+  it("the sentinel element never leaks: no Og in a formula, SMILES, idcode, note or message", () => {
+    for (const input of ["*CC*", "smiles:*CC(c1ccccc1)*", "smiles:C*", "smiles:*C(*)C*", "[*]CC[*]"]) {
+      const r = resolveStructure(input);
+      expect(JSON.stringify(r)).not.toMatch(/Og|oganesson/);
+      if (r.kind === "ok") expect(r.result.idcode).toBe("");
+    }
+    for (const input of ["*CC*", "smiles:*CC*"]) expect(JSON.stringify(resolveMassSpec(input))).not.toMatch(/Og|oganesson/);
   });
 
   it("one or three attachment points are refused by name", () => {
@@ -173,6 +198,12 @@ describe("8 — invalid SMILES are refused by name, never drawn", () => {
     const ms = resolveMassSpec(`smiles:${smi}`);
     expect(ms.kind).toBe("none");
     if (ms.kind === "none") expect(ms.message).toMatch(why);
+  });
+
+  it("a typo'd formula keeps its formula diagnosis", () => {
+    const r = resolveStructure("Fe2(SO4 3");
+    expect(r.kind).toBe("none");
+    if (r.kind === "none") expect(r.message).toMatch(/unbalanced parentheses.*As a formula:/);
   });
 
   it.each(["C[N+](C)(C)C", "[NH4+]", "[BH4-]", "C[C-](C)C", "CS(=O)(=O)C", "[CH3]", "C[N+](=O)[O-]", "OP(=O)(O)O", "F[P-](F)(F)(F)(F)F", "C[H]", "[2H]C([2H])([2H])Cl"])(
@@ -299,6 +330,7 @@ describe("minor fixes", () => {
     expect(formatBotanicalNameHtml("Rosa canina L.")).toBe("<i>Rosa</i> <i>canina</i> L.");
     expect(formatBotanicalNameHtml("Rosa canina var. alba hort")).toBe("<i>Rosa</i> <i>canina</i> var. <i>alba</i> hort");
     expect(formatBotanicalNameHtml("Abies alba de Candolle")).toBe("<i>Abies</i> <i>alba</i> de Candolle");
+    expect(formatBotanicalNameHtml("Rosa canina sensu lato")).toBe("<i>Rosa</i> <i>canina</i> sensu lato");
   });
 
   it("characterization: Rf messages say Rf (no R_f); the line keeps R with a real subscript f", () => {

@@ -14,7 +14,7 @@ const RANK_CONNECTORS = new Set([
 // Unranked / qualifier markers — roman, and the rest of the name stays roman.
 const UNRANKED = new Set(["sp.", "spp.", "spec.", "aff.", "cf.", "gen."]);
 // Lowercase words that begin an author citation, not an epithet ("Aster ... de Candolle", "ex", "in", "et").
-const AUTHOR_PARTICLES = new Set(["de", "van", "von", "der", "den", "du", "la", "le", "ex", "in", "et", "d'", "dos", "da", "di", "y"]);
+const AUTHOR_PARTICLES = new Set(["de", "van", "von", "der", "den", "du", "la", "le", "ex", "in", "et", "d'", "dos", "da", "di", "y", "sensu", "non", "nec", "partim", "auct", "sec"]);
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

@@ -131,6 +131,9 @@ function parseSmilesOnly(smiles: string): Molecule | null {
  */
 export const STRUCTURE_DRAW_MAX_HEAVY_ATOMS = 250;
 
+/** Above this, no dictionary name can match (largest entry: 122 heavy atoms), so no idcode is computed for one. */
+const DICTIONARY_NAME_MAX_HEAVY_ATOMS = 150;
+
 /** The element OpenChemLib parses in place of an attachment point "*" (oganesson: never in a real input). */
 const WILDCARD_SENTINEL_Z = 118;
 const WILDCARD_SENTINEL = "[Og]";
@@ -367,6 +370,8 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
       const hWeight = Molecule.fromSmiles("[H][H]", { noCoordinates: true }).getMolecularFormula().relativeWeight / 2;
       mw = Math.round((mf.relativeWeight - 2 * hWeight) * 100) / 100;
       canonicalSmiles = canonicalSmiles.split(WILDCARD_SENTINEL).join("*");
+      // The idcode would carry the sentinel element: no name lookup, namer or canvas may read it as a compound.
+      idcode = "";
     } else {
       const mf = mol.getMolecularFormula();
       formula = hillFromOcl(mf.formula);
@@ -690,8 +695,8 @@ function describeSmiles(mol: Molecule): string {
   const mf = mol.getMolecularFormula();
   let name: string | null = null;
   // The idcode (canonicalisation) of a long chain takes tens of seconds (48 s for "C" × 3000), and nothing that size
-  // is in the dictionary (its largest entry has 122 heavy atoms): no name lookup above the drawing cap.
-  if (heavyAtomCount(mol) <= STRUCTURE_DRAW_MAX_HEAVY_ATOMS) {
+  // is in the dictionary (its largest entry, tannic acid, has 122 heavy atoms): no name lookup above 150.
+  if (heavyAtomCount(mol) <= DICTIONARY_NAME_MAX_HEAVY_ATOMS) {
     try {
       name = nameForIdcode(mol.getIDCode());
     } catch {
@@ -762,6 +767,11 @@ export function resolveChemInput(
   }
 
   const mol = readAsSmiles(raw);
+  // Valid SMILES with attachment points (*CC*): the * are atoms, not hydrate dots, so there is no formula reading to
+  // weigh against it ("*CC*" is not "carbon, C₂"). A real hydrate (CuSO4*5H2O) is never valid SMILES.
+  if (mol && [...Array(mol.getAllAtoms()).keys()].some((i) => mol.getAtomicNo(i) === WILDCARD_SENTINEL_Z)) {
+    return { kind: "smiles", smiles: raw };
+  }
   if (f && mol) {
     const mf = mol.getMolecularFormula();
     if (sameCounts(f.counts, oclCounts(mf.formula)) && f.charge === netCharge(mol)) {
@@ -807,8 +817,11 @@ export function resolveChemInput(
   }
   if (mol) return { kind: "smiles", smiles: raw };
   const invalid = invalidSmilesReason(raw);
-  if (invalid) return { kind: "none", message: invalid };
   const v = validateFormula(raw);
+  if (invalid) {
+    // A typo'd FORMULA (Fe2(SO4 3) keeps its formula diagnosis beside the SMILES one.
+    return { kind: "none", message: `${invalid}${v.errors.length ? ` As a formula: ${v.errors.join("; ")}.` : ""}` };
+  }
   const why = v.errors.length ? ` As a formula: ${v.errors.join("; ")}.` : "";
   return { kind: "none", message: `“${raw}” is not a known name, a formula, or a SMILES string this tool can read.${why}` };
 }

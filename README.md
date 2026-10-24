@@ -40,7 +40,7 @@ Pick a tool from the home screen — **31 tools** (grouped STEM + legal):
 | **Botanical** | plant-patent scientific-name typesetting + varietal trait tables |
 | **Numerals** | reference-numeral management (callouts, collision/gap/orphan checks, list) |
 | **Refs** | auto-numbered figure/table captions and cross-references |
-| **DNA** | reverse complement (RNA-aware), transcription, six-frame translation, ORF finder, primer Tm, protein MW/pI/GRAVY, and **restriction mapping** — 122 enzymes with cut positions and overhangs, **both strands searched** (so asymmetric **Type IIS** sites — BsaI/BsmBI/BbsI for Golden Gate — are found either way), IUPAC degenerate sites, and unique cutters flagged |
+| **DNA** | reverse complement (RNA-aware), transcription, six-frame translation, ORF finder, primer Tm, protein MW/pI/GRAVY, and **restriction mapping** — 121 enzymes with cut positions and overhangs, **both strands searched** (so asymmetric **Type IIS** sites — BsaI/BsmBI/BbsI for Golden Gate — are found either way), IUPAC degenerate sites, and unique cutters flagged |
 | **Reaction** | numbered reaction schemes drawn like ChemDraw: bold compound numbers, reagents and conditions on every arrow, multi-step rows at the column width, lettered footnotes, a Scheme N. caption |
 | **Citations** | Bluebook citations (cases/statutes/patents/Fed. Reg./MPEP), practitioner/academic styles, T6/T10 abbreviation, **Table of Contents**, **Table of Authorities**, citation register |
 | **Audit** | one-pass whole-document consistency check (numerals, SEQ ID NO, figures, cross-references) |
@@ -85,7 +85,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**10,000+ unit tests** across **666 test files**), `npm run build` (production bundle),
+> `npm test` (**10,000+ unit tests** across **667 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool, and an

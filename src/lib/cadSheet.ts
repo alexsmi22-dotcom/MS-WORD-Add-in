@@ -154,7 +154,32 @@ export interface Sheet {
 }
 
 const PX_PER_MM = 96 / 25.4;
-const ORTHO = new Set(["front", "top", "right", "left", "back", "bottom"]);
+
+/** A box on the sheet, px: [x, y, w, h] (y down). */
+type Box = [number, number, number, number];
+/** A line segment on the sheet, px: [x1, y1, x2, y2]. */
+type Seg = [number, number, number, number];
+
+const boxesMeet = (a: Box, b: Box): boolean => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+
+/** Does the segment cross or touch the inside of the box? (Liang–Barsky clipping.) */
+function segMeetsBox([x1, y1, x2, y2]: Seg, [bx, by, bw, bh]: Box): boolean {
+  const dx = x2 - x1, dy = y2 - y1;
+  let t0 = 0, t1 = 1;
+  for (const [p, q] of [[-dx, x1 - bx], [dx, bx + bw - x1], [-dy, y1 - by], [dy, by + bh - y1]] as const) {
+    if (p === 0) {
+      if (q < 0) return false;
+    } else {
+      const t = q / p;
+      if (p < 0) t0 = Math.max(t0, t);
+      else t1 = Math.min(t1, t);
+      if (t0 > t1) return false;
+    }
+  }
+  return true;
+}
+
+const ORTHO =new Set(["front", "top", "right", "left", "back", "bottom"]);
 
 /** Grid cell (col, row) of each orthographic view, per projection; the pictorial view takes "pic". */
 const CELLS: Record<"third" | "first", Record<OrthoKind | "pic", [number, number]>> = {
@@ -913,6 +938,22 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   let parts: string[] = layer.visible;
   const labels: string[] = [];
   const calloutSeen = new Array(callouts.length).fill(false);
+  // What a detail's tag must keep clear of, gathered over every view: the names and numerals set (cutting-line names,
+  // callouts, other tags), the lines drawn (parts, cutting lines and arrows, detail circles, callout leads) and
+  // each view's box (a tag never sits inside another figure).
+  const keepClear: Box[] = [];
+  // The view titles, kept further off: a tag just under or beside another figure's "FIG. n" reads as part of it.
+  const titleBoxes: Box[] = [];
+  const inkSegs: Seg[] = [];
+  const viewBoxes: Array<[number, Box]> = [];
+  const pendingTags: Array<{
+    idx: number;
+    dt: (typeof details)[number];
+    X: (x: number) => number;
+    Y: (y: number) => number;
+    cell: { x: number; y: number; w: number; h: number; ci: number; ri: number };
+    slot: number;
+  }> = [];
   const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
   for (const [idx, it] of items.entries()) {
@@ -970,8 +1011,15 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     // The cutting line of each section taken from this view, arrows toward the direction of sight, each end named:
     // USPTO by the section's FIG number (1.84(h)(3): "numerals corresponding to the view number of the sectional
     // view"), ASME / ISO by its letter.
-    // Where the cutting-line names landed: a detail's tag keeps clear of them.
-    const cutBoxes: Array<[number, number, number, number]> = [];
+    // What the detail tags (placed after every view, below) keep clear of: this view's box, the lines drawn in it.
+    viewBoxes.push([idx, [X(b.minX), Y(b.maxY), vw, vh]]);
+    const addInk = (lines: Polyline[]): void => {
+      for (const l of lines) for (let i = 1; i < l.length; i++) inkSegs.push([X(l[i - 1][0]), Y(l[i - 1][1]), X(l[i][0]), Y(l[i][1])]);
+    };
+    addInk(it.d.visible);
+    if (showHidden) addInk(it.d.hidden);
+    if (it.d.boundary) addInk([it.d.boundary]);
+    if (hatch?.length) addInk(hatch);
     for (const sc of sections) {
       if (sc.spec.of !== viewKey(it.spec)) continue;
       const c = cuttingLine(drawingOf({ kind: sc.spec.of }).bounds, sc.spec);
@@ -979,6 +1027,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       // ASME Y14.2 draws the cutting plane thick, and 1.84(h)(3) asks for "a broken line".
       const cutting: LineType = { ...types.phantom, widthMm: types.visible.widthMm };
       layer.visible.push(`<path data-cutting="${esc(sc.spec.label)}" d="${path([c.line])}" ${strokeAttrs(cutting, PX_PER_MM)}/>`);
+      addInk([c.line]);
       const name = std.viewLabels === "fig" ? String(figOf.get(sc)) : sc.spec.label;
       // A FIG number at the cutting line is a view number: 1.84(u)(2) wants it larger than the reference numerals,
       // so it is set at the heading size, as the FIG. label it points to is.
@@ -993,36 +1042,26 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
         const bx = tx - sx * head, by = ty - sy * head;
         layer.visible.push(`<path data-arrow="${esc(sc.spec.label)}" d="M${fmt(ex0)} ${fmt(ey0)}L${fmt(bx)} ${fmt(by)}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
         layer.visible.push(`<path data-arrow="${esc(sc.spec.label)}" d="M${fmt(tx)} ${fmt(ty)}L${fmt(bx - sy * half)} ${fmt(by + sx * half)}L${fmt(bx + sy * half)} ${fmt(by - sx * half)}Z" fill="#000" stroke="none"/>`);
+        inkSegs.push([ex0, ey0, tx, ty], [bx - sy * half, by + sx * half, bx + sy * half, by - sx * half]);
         // Beyond the arrow's point, kept inside the figure's cell.
         const lx = Math.max(cellX + nameW / 2, Math.min(cellX + cw - nameW / 2, tx + sx * namePx * 0.9));
         // Its centre may reach the cell's foot (its lower half then lies in the title row's top gap, clear of the
         // title): a heading-size view number held wholly inside the cell was pulled up onto the part.
-        const ly = Math.max(cellY + namePx / 2, Math.min(cellY + chh - (std.viewLabels === "fig" ? 0 : namePx / 2), ty + sy * namePx * 0.9));
-        cutBoxes.push([lx - nameW / 2, ly - namePx / 2, nameW, namePx]);
+        // Likewise its centre may reach the cell's top (its upper half then lies in the row gap above): held inside,
+        // the name over the cutting line's top end sat on the outline of a thin part (fix3c).
+        const ly = Math.max(cellY + (std.viewLabels === "fig" ? 0 : namePx / 2), Math.min(cellY + chh - (std.viewLabels === "fig" ? 0 : namePx / 2), ty + sy * namePx * 0.9));
+        keepClear.push([lx - nameW / 2, ly - namePx / 2, nameW, namePx]);
         layer.titles.push(`<text data-cutting-label="${esc(sc.spec.label)}" x="${fmt(lx)}" y="${fmt(ly)}" dy="0.35em" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(namePx)}" fill="#000">${esc(name)}</text>`);
       }
     }
-    // The circle of each detail taken from this view, named as the detail is.
+    // The circle of each detail taken from this view; its name (the tag) is set once every view is drawn (below).
     for (const dt of details) {
       if (dt.spec.of !== viewKey(it.spec)) continue;
-      const [cx, cy] = dt.spec.at, rr = dt.spec.r;
-      layer.visible.push(`<path d="${path([circlePolyline([cx, cy], rr)])}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
-      const tag = std.viewLabels === "fig" ? `FIG. ${figOf.get(dt)}` : dt.spec.letter;
-      // "FIG. n" at the circle is a view number too (1.84(u)(2)): heading size.
-      const tagPx = std.viewLabels === "fig" ? headingPx : fontPx;
-      const tagW = tag.length * tagPx * 0.62;
-      // Up and right of the circle; else down and right, up and left, down and left — the first clear of the
-      // cutting-line names (a heading-size "FIG. 4" ran into the section's "3").
-      const placeTag = (sx: number, sy: number): [number, number] => {
-        const ax = X(cx + sx * rr * Math.SQRT1_2), ay = Y(cy + sy * rr * Math.SQRT1_2);
-        const x0 = sx > 0 ? ax + tagPx * 0.4 : ax - tagPx * 0.4 - tagW;
-        const y0 = sy > 0 ? ay - tagPx * 0.4 : ay + tagPx * 1.1;
-        return [Math.max(cellX, Math.min(cellX + cw - tagW, x0)), Math.max(cellY + tagPx, Math.min(cellY + chh, y0))];
-      };
-      const clear = ([x, y]: [number, number]): boolean => !cutBoxes.some((b) => x < b[0] + b[2] && b[0] < x + tagW && y - tagPx * 0.8 < b[1] + b[3] && b[1] < y + tagPx * 0.2);
-      const tries = ([[1, 1], [1, -1], [-1, 1], [-1, -1]] as const).map(([sx, sy]) => placeTag(sx, sy));
-      const [lx, ly] = tries.find(clear) ?? tries[0];
-      layer.titles.push(`<text x="${fmt(lx)}" y="${fmt(ly)}" font-family="${esc(std.font)}" font-size="${fmt(tagPx)}" fill="#000">${esc(tag)}</text>`);
+      const circle = circlePolyline(dt.spec.at, dt.spec.r);
+      layer.visible.push(`<path d="${path([circle])}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
+      addInk([circle]);
+      // Its place in the titles layer is kept (the tag comes before the detail's own title, as it always did).
+      pendingTags.push({ idx, dt, X, Y, cell: { x: cellX, y: cellY, w: cw, h: chh, ci, ri }, slot: layer.titles.push("") - 1 });
     }
     // 37 CFR 1.84(h)(1): an exploded view on a sheet with another figure is placed in brackets.
     if (it.spec.kind === "exploded" && o.standard === "uspto" && items.length > 1) {
@@ -1072,6 +1111,8 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       dy /= dl;
       if (std.callouts === "balloon") {
         const ex = lx - dx * r, ey = ly - dy * r;
+        inkSegs.push([ax, ay, ex, ey]);
+        keepClear.push([lx - r, ly - r, 2 * r, 2 * r]);
         parts.push(`<path d="M${fmt(ax)} ${fmt(ay)}L${fmt(ex)} ${fmt(ey)}" fill="none" stroke="#000" stroke-width="${fmt(strokeH)}"/>`);
         parts.push(`<circle cx="${fmt(ax)}" cy="${fmt(ay)}" r="${fmt(strokeV * 1.2)}" fill="#000"/>`);
         parts.push(`<circle cx="${fmt(lx)}" cy="${fmt(ly)}" r="${fmt(r)}" fill="#fff" stroke="#000" stroke-width="${fmt(strokeH)}"/>`);
@@ -1079,6 +1120,9 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       } else {
         // A lead line from the part to just short of the numeral (1.84(q)).
         const ex = lx - dx * fontPx * 0.9, ey = ly - dy * fontPx * 0.9;
+        inkSegs.push([ax, ay, ex, ey]);
+        const numW = c.label.length * fontPx * 0.62;
+        keepClear.push([lx - numW / 2, ly - fontPx / 2, numW, fontPx]);
         parts.push(`<path d="M${fmt(ax)} ${fmt(ay)}L${fmt(ex)} ${fmt(ey)}" fill="none" stroke="#000" stroke-width="${fmt(strokeH)}"/>`);
         parts.push(`<text x="${fmt(lx)}" y="${fmt(ly)}" dy="0.35em" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">${esc(c.label)}</text>`);
       }
@@ -1092,7 +1136,90 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       // Centred under the view, but kept inside its own column (sized to hold it).
       const half = (titleMm[ci] / 2) * PX_PER_MM;
       const tx = Math.max(cellX + half, Math.min(cellX + cw - half, ox + vw / 2));
-      label.split("\n").forEach((line, li) => parts.push(`<text x="${fmt(tx)}" y="${fmt(ly + li * headingPx * 1.2)}" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(headingPx)}" fill="#000">${esc(line)}</text>`));
+      label.split("\n").forEach((line, li) => {
+        const lw = Math.max(line.length * headingPx * 0.62, ptToMm(textWidthPt(line, std.headingPt)) * PX_PER_MM);
+        titleBoxes.push([tx - lw / 2, ly + li * headingPx * 1.2 - headingPx * 0.8, lw, headingPx]);
+        parts.push(`<text x="${fmt(tx)}" y="${fmt(ly + li * headingPx * 1.2)}" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(headingPx)}" fill="#000">${esc(line)}</text>`);
+      });
+    }
+  }
+
+  // Each detail's tag ("FIG. n" at the heading size, 1.84(u)(2), or the ASME / ISO letter), set once every view is
+  // drawn: up and right of its circle, else down and right, up and left, down and left; when none of those is clear,
+  // the nearest place to the circle that clears every name, numeral and line (and every other figure's box), searched
+  // over the figure's own row of the sheet: from the row gap above down through its title row. fix3c: a heading-size
+  // "FIG. 4" fell back onto the section's "3" and the part outline when all four corners were blocked.
+  {
+    const edge = 1 * PX_PER_MM;
+    const sheetL = (frame ? area.x * PX_PER_MM : 0) + edge, sheetR = (frame ? (area.x + area.w) * PX_PER_MM : W) - edge;
+    const sheetT = (frame ? area.y * PX_PER_MM : 0) + edge, sheetB = (frame ? (area.y + area.h) * PX_PER_MM : H) - edge;
+    for (const { idx, dt, X, Y, cell, slot } of pendingTags) {
+      const [cx, cy] = dt.spec.at, rr = dt.spec.r;
+      const tag = std.viewLabels === "fig" ? `FIG. ${figOf.get(dt)}` : dt.spec.letter;
+      const tagPx = std.viewLabels === "fig" ? headingPx : fontPx;
+      const tagW = Math.max(tag.length * tagPx * 0.62, ptToMm(textWidthPt(tag, (tagPx / PX_PER_MM) * (72 / 25.4))) * PX_PER_MM);
+      const pad = tagPx * 0.15, far = tagPx * 0.4;
+      // The figure's row of the sheet (px), across the sheet's width: other figures and their titles are kept off by
+      // their (padded) boxes, so a tag never moves into another figure's row or onto another figure.
+      const bandL = sheetL, bandR = sheetR;
+      const bandT = Math.max(sheetT, cell.y - rowGapMm * PX_PER_MM), bandB = Math.min(sheetB, cell.y + cell.h + labelRowMm[cell.ri] * PX_PER_MM);
+      // The text's box from its baseline y: the cap height above, a little below.
+      const boxAt = (x: number, y: number): Box => [x - pad, y - tagPx * 0.8 - pad, tagW + 2 * pad, tagPx + 2 * pad];
+      const band: Box = [bandL, bandT, bandR - bandL, bandB - bandT];
+      // Only what lies in the band can be hit: filtered once per tag.
+      const padded = (q: Box): Box => [q[0] - far, q[1] - far, q[2] + 2 * far, q[3] + 2 * far];
+      const boxesIn = [...keepClear, ...viewBoxes.filter(([j]) => j !== idx).map(([, q]) => padded(q)), ...titleBoxes.map(padded)].filter((q) => boxesMeet(q, band));
+      const segsIn = inkSegs.filter((sg) => segMeetsBox(sg, band));
+      const hits = (x: number, y: number): number => {
+        const bx = boxAt(x, y);
+        let n = 0;
+        for (const q of boxesIn) if (boxesMeet(bx, q)) n++;
+        for (const sg of segsIn) if (segMeetsBox(sg, bx)) n++;
+        return n;
+      };
+      const clampX = (x: number): number => Math.max(bandL + pad, Math.min(bandR - tagW - pad, x));
+      const clampY = (y: number): number => Math.max(bandT + tagPx * 0.8 + pad, Math.min(bandB - tagPx * 0.2 - pad, y));
+      const corners = ([[1, 1], [1, -1], [-1, 1], [-1, -1]] as const).map(([sx, sy]): [number, number] => {
+        const ax = X(cx + sx * rr * Math.SQRT1_2), ay = Y(cy + sy * rr * Math.SQRT1_2);
+        return [clampX(sx > 0 ? ax + tagPx * 0.4 : ax - tagPx * 0.4 - tagW), clampY(sy > 0 ? ay - tagPx * 0.4 : ay + tagPx * 1.1)];
+      });
+      // Then a grid over the band, nearest the circle first (a few thousand places at most).
+      const ccx = X(cx), ccy = Y(cy), rpx = Math.abs(X(cx + rr) - ccx);
+      const x0 = clampX(-Infinity), x1 = clampX(Infinity), y0 = clampY(-Infinity), y1 = clampY(Infinity);
+      const step = Math.max(tagPx * 0.25, Math.sqrt(((x1 - x0 + 1) * (y1 - y0 + 1)) / 4000));
+      const grid: Array<[number, number, number]> = [];
+      for (let x = x0; x <= x1 + 1e-9; x += step)
+        for (let y = y0; y <= y1 + 1e-9; y += step) {
+          const [bx, by, bw, bh] = boxAt(x, y);
+          const gx = Math.max(bx - ccx, 0, ccx - bx - bw), gy = Math.max(by - ccy, 0, ccy - by - bh);
+          grid.push([x, y, Math.max(0, Math.hypot(gx, gy) - rpx)]);
+        }
+      grid.sort((p, q) => p[2] - q[2]);
+      // First choice: a clear place outside the view's own box, within a few letter heights of the circle (a tag on
+      // a blank face of the part reads as naming that face); else the nearest clear place, inside the box or not.
+      const ownBox = viewBoxes.find(([j]) => j === idx)?.[1];
+      const outside = (x: number, y: number): boolean => !ownBox || !boxesMeet(boxAt(x, y), ownBox);
+      const nearGrid = grid.filter((g) => g[2] <= tagPx * 4);
+      let best: [number, number] = corners[0];
+      let bestHits = Infinity;
+      const tiers: Array<{ at: Array<[number, number] | [number, number, number]>; ok: (x: number, y: number) => boolean }> = [
+        { at: [...corners, ...nearGrid], ok: outside },
+        { at: [...corners, ...grid], ok: () => true },
+      ];
+      search: for (const tier of tiers)
+        for (const [x, y] of tier.at) {
+          if (!tier.ok(x, y)) continue;
+          const h = hits(x, y);
+          if (h < bestHits) {
+            best = [x, y];
+            bestHits = h;
+            if (h === 0) break search;
+          }
+        }
+      const [lx, ly] = best;
+      if (bestHits > 0) notes.push(`The name of detail ${dt.spec.letter} could not be set clear of every line and name on this sheet, so it touches one: try a larger sheet or move the detail circle.`);
+      keepClear.push(boxAt(lx, ly));
+      layer.titles[slot] = `<text x="${fmt(lx)}" y="${fmt(ly)}" font-family="${esc(std.font)}" font-size="${fmt(tagPx)}" fill="#000">${esc(tag)}</text>`;
     }
   }
 

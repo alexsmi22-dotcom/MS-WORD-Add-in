@@ -5,6 +5,7 @@
 // Pure string logic — no Office.js, no OpenChemLib — so it is fully unit-testable.
 
 import { atomicNumber } from "./periodic";
+import { trueMinus } from "./numberList";
 
 /** The arrow drawn between two stages. */
 export type ArrowType = "forward" | "reversible" | "retro";
@@ -112,13 +113,19 @@ const SUPER: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "
  * capital, is touched; "0 °C", "2 h", "rt", "1,4-dioxane", "10 mol%" are left as typed.
  */
 export function typesetConditions(text: string): string {
+  // A negative number in conditions takes the true minus (−78 °C, never -78 °C): the display contract, and the
+  // scheme's SVG/CDXML text runs are all built from this string.
+  return trueMinus(typesetConditionsInner(text));
+}
+
+function typesetConditionsInner(text: string): string {
   // A charge right after a formula is + or − (a hyphen only at the end of a word: "CH2Cl2-MeOH" is a solvent mixture,
   // not a charge — review): Mg2+ → Mg²⁺, NH4+ → NH₄⁺, H2SO4− → H₂SO₄⁻.
   return text.replace(/([A-Z][A-Za-z0-9()]*)([+−]|-(?![A-Za-z0-9]))?/g, (whole, tok: string, charge: string | undefined) => {
     if (charge) {
       const ion = /^([A-Z][a-z]?)([0-9]+)$/.exec(tok);
       if (ion && atomicNumber(ion[1]) !== null) return ion[1] + [...ion[2], charge].map((c) => SUPER[c]).join("");
-      const counted = typesetConditions(tok);
+      const counted = typesetConditionsInner(tok);
       return counted === tok && !/^[A-Z][a-z]?$/.test(tok) && !counted.match(/[₀-₉]/) ? whole : counted + SUPER[charge];
     }
     if (!/[0-9]/.test(tok)) return whole;

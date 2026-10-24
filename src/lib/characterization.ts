@@ -247,9 +247,14 @@ export function resolveCompound(input: string): CharCompound | { refusal: string
       // what was TYPED — the reading's display merges whole adducts into one Hill formula.
       parts: typedParts(input),
       formulaHtml: typedParts(input) > 1 ? typedFormulaHtml(input) : /[·.]/.test(f.display) ? unicodeFormulaHtml(f.display) : hillHtml(counts, labelled),
-      note: "Read as a formula: the checks that need the structure (exchangeable protons, distinct carbons) are skipped.",
+      note: [r.note, "Read as a formula: the checks that need the structure (exchangeable protons, distinct carbons) are skipped."].filter(Boolean).join(" "),
     };
   }
+  // The reader's own note (e.g. "NO" read as the SMILES of hydroxylamine, not
+  // nitric oxide) travels with the compound — Mass Spec already shows it.
+  const readNote = r.note;
+  const withReadNote = (c: CharCompound | { refusal: string }): CharCompound | { refusal: string } =>
+    "refusal" in c || !readNote ? c : { ...c, note: c.note ? `${readNote} ${c.note}` : readNote };
   // Read WITHOUT 2D layout first: the default parse lays the molecule out, and that took 28.6 s for a long chain.
   const check = checkSmiles(r.smiles);
   if (!check.ok) return { refusal: check.invalid ? check.message : `“${input.trim()}” could not be read as a structure.` };
@@ -261,11 +266,11 @@ export function resolveCompound(input: string): CharCompound | { refusal: string
     // carbons) need stereo perceived from coordinates, so they are skipped rather than run without it.
     const c = compoundFromMolecule(check.mol);
     if ("refusal" in c) return c;
-    return {
+    return withReadNote({
       ...c,
       mol: null,
       note: `Above ${STRUCTURE_DRAW_MAX_HEAVY_ATOMS} heavy atoms (${check.heavyAtoms}): formula and masses only — the checks that need the structure (exchangeable protons, distinct carbons) are skipped.`,
-    };
+    });
   }
   let mol: Molecule;
   try {
@@ -274,7 +279,7 @@ export function resolveCompound(input: string): CharCompound | { refusal: string
     return { refusal: `“${input.trim()}” could not be read as a structure.` };
   }
   if (!mol.getAllAtoms()) return { refusal: `“${input.trim()}” could not be read as a structure.` };
-  return compoundFromMolecule(mol);
+  return withReadNote(compoundFromMolecule(mol));
 }
 
 /** The compound for a drawn structure (Build). */
@@ -678,7 +683,8 @@ function splitTopLevel(s: string, separators: RegExp): string[] {
 }
 
 /** One J value: a number, or a range "7.0–7.5" — never a number that is an integration (2H) or carbon count (2C). */
-const J_VALUE = String.raw`\d+(?:\.\d+)?(?:\s*[${EN_DASH}-]\s*\d+(?:\.\d+)?)?(?![\d.]*\s*[HC]\b)`;
+// A leading sign (hyphen-minus or U+2212) is a SIGNED J (²J is often negative): read, and printed with the true minus.
+const J_VALUE = String.raw`(?:[-${MINUS}](?=\d))?\d+(?:\.\d+)?(?:\s*[${EN_DASH}-]\s*\d+(?:\.\d+)?)?(?![\d.]*\s*[HC]\b)`;
 
 function parsePeak(seg: string, nucleus: Nucleus): NmrPeak | null {
   // A number run into a letter ("2C", "13C-labelled", "2H") is never a shift.
@@ -732,7 +738,9 @@ function parsePeak(seg: string, nucleus: Nucleus): NmrPeak | null {
     const label = (jm[2] ?? jm[3] ?? "").replace(/\s+/g, "").replace(/[,-]/g, EN_DASH);
     for (const v of jm[4].split(/\s*(?:,|and|&|\/)\s*/)) {
       if (!v) continue;
-      peak.J.push(v.replace(/\s*[–-]\s*/, EN_DASH));
+      const neg = v[0] === "-" || v[0] === MINUS;
+      const body = neg ? v.slice(1) : v;
+      peak.J.push((neg ? MINUS : "") + body.replace(/\s*[–-]\s*/, EN_DASH));
       peak.jLabels.push(label);
       peak.jBonds.push(bond);
     }
@@ -883,6 +891,8 @@ function solventOf(parse: NmrParse, o: NmrFormatOptions): Solvent | { typed: str
 
 /** The journal line, as html. Peaks are listed high δ to low, as journals list them. */
 export function formatNmr(parse: NmrParse, o: NmrFormatOptions): string {
+  // No signal read: there is no line to write ("¹H NMR: δ ." was printed).
+  if (!parse.peaks.length) return "";
   const nucleus = parse.nucleus;
   const freq = freqOf(parse, o);
   const solv = solventOf(parse, o);
@@ -914,7 +924,10 @@ export function checkNmr(parse: NmrParse, compound: CharCompound | null, o: NmrF
   }
   for (const i of parse.issues) msgs.push({ level: "error", text: i });
   for (const u of parse.unread) msgs.push({ level: "error", text: `Not read as a signal, and left out of the line: “${u}”.` });
-  if (!parse.peaks.length) return msgs;
+  if (!parse.peaks.length) {
+    msgs.push({ level: "error", text: `No ${nuc} signal was read, so there is no NMR line to write.` });
+    return msgs;
+  }
   const bad = badFreq(o);
   if (bad) msgs.push({ level: "warn", text: `Frequency “${bad}” is not a number of MHz — left out${parse.freq ? `; the header's ${parse.freq} MHz is used` : ""}.` });
   if (parse.headerExtras?.length) msgs.push({ level: "info", text: `From the header, printed as typed: ${parse.headerExtras.join(", ")}.` });
@@ -959,7 +972,12 @@ export function checkNmr(parse: NmrParse, compound: CharCompound | null, o: NmrF
     }
     if (parse.nucleus === "1H") {
       const homo = (l: string): boolean => !l || /^H[–,]?H$/i.test(l);
-      const big = p.J.filter((j, i) => homo(p.jLabels[i] ?? "") && (Number(j.split(EN_DASH).pop()) > 25 || Number(j.split(EN_DASH)[0]) <= 0));
+      const jNum = (x: string | undefined): number => Number((x ?? "").replace(MINUS, "-"));
+      const signedJ = p.J.filter((j) => j.startsWith(MINUS));
+      if (signedJ.length) {
+        msgs.push({ level: "info", text: `${where}: J = ${signedJ.join(", ")} Hz is a SIGNED coupling constant. A first-order multiplet gives only |J|; journals report the magnitude unless the sign was determined.` });
+      }
+      const big = p.J.filter((j, i) => homo(p.jLabels[i] ?? "") && !j.startsWith(MINUS) && (jNum(j.split(EN_DASH).pop()) > 25 || jNum(j.split(EN_DASH)[0]) <= 0));
       if (big.length) msgs.push({ level: "warn", text: `${where}: J = ${big.join(", ")} Hz is outside 0–25 Hz for ¹H–¹H coupling (a heteronuclear J? label it, e.g. J_HF).` });
     }
   }

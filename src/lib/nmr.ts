@@ -59,12 +59,12 @@ import {
 export type Nucleus = "1H" | "13C";
 
 /** How many protons a carbon carries — the quantity DEPT separates. */
-export type DeptClass = "C" | "CH" | "CH2" | "CH3";
+export type DeptClass = "C" | "CH" | "CH2" | "CH3" | "CH4";
 
 /** DEPT class of a carbon, read exactly from the structure. */
 export function deptClass(mol: Molecule, a: number): DeptClass {
   const h = mol.getAllHydrogens(a);
-  return h === 0 ? "C" : h === 1 ? "CH" : h === 2 ? "CH2" : "CH3";
+  return h === 0 ? "C" : h === 1 ? "CH" : h === 2 ? "CH2" : h === 3 ? "CH3" : "CH4";
 }
 
 /**
@@ -83,6 +83,10 @@ export function deptBehaviour(cls: DeptClass): { dept135: string; dept90: string
     case "CH":
       return { dept135: "up", dept90: "present" };
     case "CH2":
+      return { dept135: "DOWN", dept90: "absent" };
+    // Methane: DEPT intensity ∝ n·sinθ·cosⁿ⁻¹θ; at θ = 135° and n = 4 that is
+    // −1.0 — NEGATIVE, like CH₂ (and zero at 90°).
+    case "CH4":
       return { dept135: "DOWN", dept90: "absent" };
     default:
       return { dept135: "up", dept90: "absent" };
@@ -136,11 +140,31 @@ export interface NmrResult {
   caveats: string[];
 }
 
+/**
+ * The substituent classes this module prices: molgraph's SubstKey plus a
+ * trialkyl/aryl SILYL group (Si bonded only to C and H), which the shared
+ * classifier calls "other". TMS is the reference compound of both scales, so
+ * the methyl-on-silicon increments are anchored on it (δ 0.00 by definition)
+ * and cross-checked on PhSiMe₃.
+ */
+type NmrKey = SubstKey | "SiR3" | "NAr";
+
+function nmrKey(mol: Molecule, atom: number, from: number): NmrKey {
+  // A ring nitrogen of an aromatic ring (N-methylpyrrole, N-methylimidazole):
+  // not an amine (1.6 ppm ¹H increment) — its N–CH₃ is ≈3.6 ppm.
+  if (mol.getAtomicNo(atom) === 7 && mol.isAromaticAtom(atom) && !mol.isAromaticAtom(from)) return "NAr";
+  if (mol.getAtomicNo(atom) === 14 && mol.getAtomCharge(atom) === 0) {
+    const others = neighbors(mol, atom).filter((nb) => nb.atom !== from);
+    if (others.every((nb) => nb.order === 1 && (mol.getAtomicNo(nb.atom) === 6 || mol.getAtomicNo(nb.atom) === 1))) return "SiR3";
+  }
+  return classifySubstituent(mol, atom, from);
+}
+
 // ---------------------------------------------------------------------------
 // 13C — aromatic substituent increments, relative to benzene (128.5 ppm).
 // [ipso, ortho, meta, para]
 // ---------------------------------------------------------------------------
-const AR13C: Partial<Record<SubstKey, [number, number, number, number]>> = {
+const AR13C: Partial<Record<NmrKey, [number, number, number, number]>> = {
   CH3: [9.3, 0.7, -0.1, -2.9],
   alkyl: [15.7, -0.6, -0.1, -2.8],
   OH: [26.9, -12.7, 1.4, -7.3],
@@ -165,13 +189,15 @@ const AR13C: Partial<Record<SubstKey, [number, number, number, number]>> = {
   Ph: [13.0, -1.1, 0.5, -1.0],
   vinyl: [9.5, -2.0, 0.2, -0.5],
   alkynyl: [-6.1, 3.8, 0.4, -0.2],
+  // SiMe₃ (Pretsch): PhSiMe₃ measured 140.2 / 133.3 / 127.8 / 128.8.
+  SiR3: [11.6, 4.9, -0.7, 0.4],
 };
 
 // ---------------------------------------------------------------------------
 // 1H — aromatic substituent increments, relative to benzene (7.26 ppm).
 // [ortho, meta, para]
 // ---------------------------------------------------------------------------
-const AR1H: Partial<Record<SubstKey, [number, number, number]>> = {
+const AR1H: Partial<Record<NmrKey, [number, number, number]>> = {
   CH3: [-0.17, -0.09, -0.18],
   alkyl: [-0.14, -0.06, -0.17],
   OH: [-0.56, -0.12, -0.45],
@@ -196,12 +222,13 @@ const AR1H: Partial<Record<SubstKey, [number, number, number]>> = {
   Ph: [0.3, 0.12, 0.1],
   vinyl: [0.06, -0.03, -0.1],
   alkynyl: [0.15, -0.02, -0.01],
+  SiR3: [0.22, -0.02, -0.02],
 };
 
 // ---------------------------------------------------------------------------
 // 13C — heteroatom/functional substituent effects on sp3 carbons (α, β, γ).
 // ---------------------------------------------------------------------------
-const SP3_13C: Partial<Record<SubstKey, [number, number, number]>> = {
+const SP3_13C: Partial<Record<NmrKey, [number, number, number]>> = {
   OH: [48, 10, -5],
   OR: [58, 8, -4],
   OAc: [51, 6, -3],
@@ -224,12 +251,17 @@ const SP3_13C: Partial<Record<SubstKey, [number, number, number]>> = {
   Ph: [23, 9, -2],
   vinyl: [20, 6, -2],
   alkynyl: [4, 6, -2],
+  // α only, anchored on TMS (δ 0.0 by definition: −2.3 + 2.3); PhSiMe₃'s
+  // Si–CH₃ is −1.1. No β/γ value is tabulated — set to 0 and caveated.
+  SiR3: [2.3, 0, 0],
+  // N-methylpyrrole CH₃ 36.0, N-ethylpyrrole CH₂ 44.4 / CH₃ 16.6 (SDBS).
+  NAr: [38, 10, -3],
 };
 
 // ---------------------------------------------------------------------------
 // 1H — α substituent effects on CH3 / CH2 / CH (Shoolery-type).
 // ---------------------------------------------------------------------------
-const SP3_1H: Partial<Record<SubstKey, number>> = {
+const SP3_1H: Partial<Record<NmrKey, number>> = {
   OH: 2.5,
   OR: 2.4,
   OAc: 3.1,
@@ -252,10 +284,15 @@ const SP3_1H: Partial<Record<SubstKey, number>> = {
   Ph: 1.5,
   vinyl: 0.9,
   alkynyl: 0.9,
+  // Anchored on TMS (δ 0.00 by definition: 0.87 − 0.87); PhSiMe₃'s Si–CH₃
+  // is 0.26 (SDBS), Et₄Si's CH₂ ≈ 0.5.
+  SiR3: -0.87,
+  // N-methylpyrrole 3.62, N-methylimidazole 3.64 (SDBS, CDCl₃).
+  NAr: 2.77,
 };
 
 /** β effect on 1H (substituent one carbon further away) — small and uniform. */
-const BETA_1H: Partial<Record<SubstKey, number>> = {
+const BETA_1H: Partial<Record<NmrKey, number>> = {
   OH: 0.3,
   OR: 0.3,
   OAc: 0.4,
@@ -292,6 +329,103 @@ const CARBONYL_13C: Record<string, number> = {
   thioester: 193,
   isocyanate: 122,
 };
+
+const FORMYL_13C: Record<string, { shift: number; assignment: string }> = {
+  amide: { shift: 162.6, assignment: "CHO (formamide C=O)" },
+  ester: { shift: 161.3, assignment: "HCO₂R (formate C=O)" },
+  acid: { shift: 166.3, assignment: "HCO₂H (formic acid C=O)" },
+};
+
+/**
+ * Grant–Paul steric corrections (Grant & Paul, J. Am. Chem. Soc. 1964, 86,
+ * 2984; as reproduced by Pretsch et al.): [degree of this carbon][degree of
+ * the neighbouring skeleton carbon], degree = number of non-hydrogen
+ * neighbours (1° … 4°). Without them a branched carbon next to a branched
+ * carbon is over-counted by ≈10 ppm (valine Cβ printed 39.0 against ≈31).
+ */
+const GP_STERIC: number[][] = [
+  [0, 0, -1.1, -3.4],
+  [0, 0, -2.5, -7.2],
+  [0, -3.7, -9.5, -15.0],
+  [-1.5, -8.4, -15.0, -25.0],
+];
+
+function heavyDegree(mol: Molecule, a: number): number {
+  return neighbors(mol, a).filter((nb) => mol.getAtomicNo(nb.atom) !== 1).length;
+}
+
+/** A tertiary amide N (no N–H): its α carbon sits ≈8 ppm downfield of an N–H amide's. */
+const AMIDE_N_TERTIARY_13C: [number, number, number] = [36, 8, -3];
+
+// ---------------------------------------------------------------------------
+// Heteroaromatic parent rings. Values: unsubstituted parent in CDCl₃ —
+// pyridine from Fulmer et al., Organometallics 2010, 29, 2176 (Table 1/2);
+// pyrrole, furan, thiophene from SDBS (AIST) CDCl₃ spectra. Substituents on
+// these rings then add the benzene increments by ring distance (approximate).
+// ---------------------------------------------------------------------------
+type HeteroRing = "pyridine" | "pyrrole" | "furan" | "thiophene";
+const HETERO_PARENT: Record<HeteroRing, { c: number[]; h: number[]; pos: string[] }> = {
+  // index = ring distance from the heteroatom − 1 (α, β, γ)
+  pyridine: { c: [149.9, 123.8, 136.0], h: [8.62, 7.29, 7.68], pos: ["α to N", "β to N", "γ to N"] },
+  pyrrole: { c: [118.0, 108.1], h: [6.74, 6.24], pos: ["α to N", "β to N"] },
+  furan: { c: [142.8, 109.7], h: [7.42, 6.38], pos: ["α to O", "β to O"] },
+  thiophene: { c: [125.6, 127.3], h: [7.33, 7.12], pos: ["α to S", "β to S"] },
+};
+
+const HETERO_SUPPORTED_CAVEAT =
+  "Heteroaromatic ring (pyridine, pyrrole, furan or thiophene): ring positions start from the measured parent " +
+  "ring (CDCl₃); any substituent on it adds a BENZENE increment by ring distance, which is approximate on a " +
+  "heteroaromatic ring (±5 ppm ¹³C, ±0.4 ppm ¹H).";
+
+const HETERO_OMITTED =
+  "OUT OF DOMAIN — ring positions OMITTED: this structure has a heteroaromatic system other than an isolated " +
+  "pyridine, pyrrole, furan or thiophene (a fused ring such as indole or quinoline, a ring with two or more " +
+  "heteroatoms such as imidazole, pyrimidine or a purine, or a charged ring). Benzene increments would put every " +
+  "position at ≈128.5 ppm (¹³C) / 7.26 ppm (¹H), but real values in these rings span ≈100–165 ppm and ≈6.3–9.3 ppm " +
+  "— errors of up to ≈30 ppm and ≈2 ppm, far outside this model's stated accuracy. No value is printed for them. " +
+  "Groups ATTACHED to such a ring (an N–CH₃ of caffeine) are still listed but are less certain (≈±0.5 ppm ¹H, ±8 ppm ¹³C).";
+
+/**
+ * The heteroaromatic class of aromatic atom `a`: null for an all-carbon
+ * aromatic system (the benzene model applies), "unsupported" for any
+ * heteroaromatic system this model has no parent values for, else the ring
+ * and the ring distance (1 = α) from its heteroatom.
+ */
+function heteroRingOf(mol: Molecule, a: number): { ring: HeteroRing; d: number } | "unsupported" | null {
+  const dist = aromaticRingDistances(mol, a);
+  const system: number[] = [];
+  for (let b = 0; b < mol.getAllAtoms(); b++) if (dist[b] >= 0) system.push(b);
+  const hetero = system.filter((b) => mol.getAtomicNo(b) !== 6);
+  if (!hetero.length) return null;
+  if (hetero.length !== 1 || isFusedAromatic(mol, a)) return "unsupported";
+  // An exocyclic C=O / C=S / C=N on the ring (2-pyridone, a uracil) is not the
+  // aromatic parent at all.
+  if (system.some((b) => neighbors(mol, b).some((nb) => !nb.aromatic && nb.order >= 2))) return "unsupported";
+  const x = hetero[0];
+  if (mol.getAtomCharge(x) !== 0 || system.some((b) => mol.getAtomCharge(b) !== 0)) return "unsupported";
+  const z = mol.getAtomicNo(x);
+  const d = dist[x];
+  if (system.length === 6 && z === 7) return { ring: "pyridine", d };
+  if (system.length === 5 && z === 7) return { ring: "pyrrole", d };
+  if (system.length === 5 && z === 8) return { ring: "furan", d };
+  if (system.length === 5 && z === 16) return { ring: "thiophene", d };
+  return "unsupported";
+}
+
+/**
+ * A ring atom whose ring shares atoms with an out-of-domain heteroaromatic ring: the C=O carbons of a xanthine
+ * (caffeine 155.4 and 151.7 ppm, against the acyclic amide/urea 170/158) sit in such a ring.
+ */
+function inRingFusedToUnsupportedHetero(mol: Molecule, a: number): boolean {
+  if (!mol.isRingAtom(a)) return false;
+  const rings = mol.getRingSet();
+  for (let r = 0; r < rings.getSize(); r++) {
+    const atoms = rings.getRingAtoms(r);
+    if (!atoms.includes(a)) continue;
+    if (atoms.some((b) => b !== a && mol.isAromaticAtom(b) && heteroRingOf(mol, b) === "unsupported")) return true;
+  }
+  return false;
+}
 
 function hybridization(mol: Molecule, a: number): "sp" | "sp2" | "sp3" {
   const nbrs = neighbors(mol, a);
@@ -330,7 +464,7 @@ function aromaticCaveats(mol: Molecule, a: number, dist: number[], caveats: Set<
   for (let b = 0; b < mol.getAllAtoms(); b++) {
     if (!mol.isAromaticAtom(b) || dist[b] < 0 || dist[b] > 3) continue;
     for (const s of aromaticSubstituents(mol, b)) {
-      const key = classifySubstituent(mol, s, b);
+      const key = nmrKey(mol, s, b);
       if (key === "other" || !AR13C[key]) unknown.add(unknownSubstituentName(mol, s, key));
     }
   }
@@ -345,7 +479,7 @@ function aromaticCaveats(mol: Molecule, a: number, dist: number[], caveats: Set<
 
   for (let x = 0; x < mol.getAllAtoms(); x++) {
     if (dist[x] >= 0 && mol.isAromaticAtom(x) && mol.getAtomicNo(x) !== 6) {
-      caveats.add("Heteroaromatic ring: benzene-based increments are approximate (±5-10 ppm).");
+      caveats.add(HETERO_SUPPORTED_CAVEAT);
       return;
     }
   }
@@ -381,8 +515,8 @@ const NITRILE_OXIDE_OMITTED =
  * class's own name where the classifier gave it one (a phenoxide must be
  * reported as a phenoxide, not as "attached via O"), else the atom label.
  */
-function unknownSubstituentName(mol: Molecule, atom: number, key: SubstKey): string {
-  return substKeyLabel(key) ?? mol.getAtomLabel(atom);
+function unknownSubstituentName(mol: Molecule, atom: number, key: NmrKey): string {
+  return (key === "SiR3" || key === "NAr" ? null : substKeyLabel(key)) ?? mol.getAtomLabel(atom);
 }
 
 const CUMULATED_H_OMITTED =
@@ -457,7 +591,18 @@ function shift13C(
     caveats.add(CUMULATED_OMITTED);
     return null;
   }
+  // A C=O that is PART of a heteroaromatic ring system (caffeine, uracil, a
+  // pyridone): the acyclic carbonyl table is ≈15 ppm out there (caffeine's C=O
+  // are 155.4 and 151.7, not 170/158). Omitted with the ring.
+  if (kind && (mol.isAromaticAtom(a) ? heteroRingOf(mol, a) !== null : inRingFusedToUnsupportedHetero(mol, a))) {
+    caveats.add(HETERO_OMITTED);
+    return null;
+  }
   if (kind) {
+    // A FORMYL carbon (H–C(=O)–N/O) sits well upfield of its class: DMF 162.6,
+    // methyl formate 161.3, formic acid 166.3 (Pretsch; Fulmer et al. 2010 for
+    // DMF in CDCl₃) — against 172/171/178 for the acetyl analogues.
+    if (hCount === 1 && FORMYL_13C[kind] !== undefined) return FORMYL_13C[kind]!;
     let shift = CARBONYL_13C[kind] ?? 200;
     // Conjugation to an aromatic ring or C=C shifts C=O upfield ~6 ppm.
     if (isConjugated(mol, a) && (kind === "ketone" || kind === "aldehyde")) shift -= 6;
@@ -483,7 +628,13 @@ function shift13C(
   // --- Aromatic -----------------------------------------------------------
   if (mol.isAromaticAtom(a)) {
     if (mol.getAtomicNo(a) !== 6) return { shift: 150, assignment: "aromatic heteroatom C" };
-    let shift = 128.5;
+    const het = heteroRingOf(mol, a);
+    if (het === "unsupported") {
+      caveats.add(HETERO_OMITTED);
+      return null;
+    }
+    const parent = het ? HETERO_PARENT[het.ring] : null;
+    let shift = parent && het ? parent.c[het.d - 1] : 128.5;
     const dist = aromaticPositions(mol, a);
     // Sum increments from every substituent on the ring system.
     for (let b = 0; b < mol.getAllAtoms(); b++) {
@@ -491,13 +642,16 @@ function shift13C(
       const d = dist[b];
       if (d < 0 || d > 3) continue;
       for (const s of aromaticSubstituents(mol, b)) {
-        const key = classifySubstituent(mol, s, b);
+        const key = nmrKey(mol, s, b);
         const inc = AR13C[key];
         if (!inc) continue;
         shift += inc[d];
       }
     }
     aromaticCaveats(mol, a, dist, caveats);
+    if (parent && het) {
+      return { shift, assignment: `${het.ring} ${hCount >= 1 ? "CH" : "C (substituted)"}, ${parent.pos[het.d - 1]}` };
+    }
     return { shift, assignment: hCount >= 1 ? "aromatic CH" : "aromatic C (substituted)" };
   }
 
@@ -516,12 +670,12 @@ function shift13C(
       let shift = 123.3;
       for (const nb of neighbors(mol, a)) {
         if (nb.atom === dbl.atom) continue;
-        const key = classifySubstituent(mol, nb.atom, a);
+        const key = nmrKey(mol, nb.atom, a);
         shift += alkeneAlpha(key);
       }
       for (const nb of neighbors(mol, dbl.atom)) {
         if (nb.atom === a) continue;
-        const key = classifySubstituent(mol, nb.atom, dbl.atom);
+        const key = nmrKey(mol, nb.atom, dbl.atom);
         shift += alkeneBeta(key);
       }
       return { shift, assignment: hCount >= 1 ? "=CH (alkene)" : "=C (alkene, substituted)" };
@@ -568,8 +722,9 @@ function shift13C(
     if (d < 0 || d > 2) continue; // α, β, γ  →  d = 0, 1, 2
     for (const nb of neighbors(mol, s)) {
       if (skeleton[nb.atom] >= 0) continue; // still the skeleton, already counted
-      const key = classifySubstituent(mol, nb.atom, s);
-      const inc = SP3_13C[key];
+      const key = nmrKey(mol, nb.atom, s);
+      const inc = key === "NHAc" && mol.getAllHydrogens(nb.atom) === 0 ? AMIDE_N_TERTIARY_13C : SP3_13C[key];
+      if (key === "SiR3") caveats.add(SILICON_CAVEAT);
       // SAME SILENCE THE AROMATIC PATH ALREADY BREAKS. A substituent with no
       // tabulated increment contributes ZERO, so the shift comes out as if the
       // group were not attached at all — and until now the sp3 path said
@@ -591,12 +746,33 @@ function shift13C(
     );
   }
 
-  const label = hCount === 3 ? "CH3" : hCount === 2 ? "CH2" : hCount === 1 ? "CH" : "C (quaternary)";
+  // Grant–Paul steric corrections against each directly bonded skeleton carbon.
+  const degA = heavyDegree(mol, a);
+  for (const nb of neighbors(mol, a)) {
+    if (skeleton[nb.atom] !== 1) continue;
+    const degB = heavyDegree(mol, nb.atom);
+    if (degA >= 1 && degB >= 1) shift += GP_STERIC[Math.min(degA, 4) - 1][Math.min(degB, 4) - 1];
+  }
+  // α-AMINO-ACID CARBON: an amine/amide N and a carboxyl-type C=O on the same
+  // carbon. Their α increments are not additive — the sum over-counts by ≈5 ppm
+  // across the proteinogenic amino acids (Gly, Ala, Val, Leu, Ile, Phe, Ser,
+  // Thr: residuals of the uncorrected model 3.5–6.7 ppm against BMRB entries,
+  // DSS-referenced, moved to the TMS scale). One mean correction is applied.
+  const subKeys = neighbors(mol, a).map((nb) => nmrKey(mol, nb.atom, a));
+  if (subKeys.some((k) => k === "NH2" || k === "NR2" || k === "NHAc") && subKeys.some((k) => k === "COOH" || k === "COOR" || k === "CONH2")) {
+    shift -= 5;
+  }
+
+  const label = hCount === 4 ? "CH4" : hCount === 3 ? "CH3" : hCount === 2 ? "CH2" : hCount === 1 ? "CH" : "C (quaternary)";
   return { shift, assignment: label };
 }
 
-function alkeneAlpha(key: SubstKey): number {
-  const t: Partial<Record<SubstKey, number>> = {
+const SILICON_CAVEAT =
+  "A carbon on silicon (Si–CH₃, Si–CH₂): the silyl increment is anchored on TMS (δ 0.00 by definition) and checked " +
+  "on PhSiMe₃ only; no β/γ silicon increment is tabulated. Treat these values as ±2 ppm (¹³C) / ±0.3 ppm (¹H).";
+
+function alkeneAlpha(key: NmrKey): number {
+  const t: Partial<Record<NmrKey, number>> = {
     CH3: 10.6,
     alkyl: 12.9,
     OH: 25,
@@ -619,8 +795,8 @@ function alkeneAlpha(key: SubstKey): number {
   return t[key] ?? 0;
 }
 
-function alkeneBeta(key: SubstKey): number {
-  const t: Partial<Record<SubstKey, number>> = {
+function alkeneBeta(key: NmrKey): number {
+  const t: Partial<Record<NmrKey, number>> = {
     CH3: -7.9,
     alkyl: -9.4,
     OH: -35,
@@ -663,23 +839,38 @@ function shift1HonCarbon(
   if (carbonylKind(mol, a) === "aldehyde") {
     return { shift: isConjugated(mol, a) ? 9.9 : 9.7, assignment: "CHO (aldehyde)" };
   }
+  // FORMYL H on N or O (formamide, formate ester, formic acid): ≈8.0, not an
+  // aldehyde's 9.7 — and never the sp3 sum (DMF's CHO printed 6.05 against
+  // 8.02, Fulmer et al. 2010; methyl formate 8.07, formic acid 8.05).
+  const fk = carbonylKind(mol, a);
+  if (hCount === 1 && (fk === "amide" || fk === "ester" || fk === "acid")) {
+    const label = fk === "amide" ? "CHO (formamide)" : fk === "ester" ? "HCO₂R (formate)" : "HCO₂H (formic acid)";
+    return { shift: fk === "amide" ? 8.02 : 8.05, assignment: label };
+  }
 
   // Aromatic H — benzene 7.26 + ortho/meta/para increments.
   if (mol.isAromaticAtom(a)) {
-    let shift = 7.26;
+    const het = heteroRingOf(mol, a);
+    if (het === "unsupported") {
+      caveats.add(HETERO_OMITTED);
+      return null;
+    }
+    const parent = het ? HETERO_PARENT[het.ring] : null;
+    let shift = parent && het ? parent.h[het.d - 1] : 7.26;
     const dist = aromaticPositions(mol, a);
     for (let b = 0; b < mol.getAllAtoms(); b++) {
       if (!mol.isAromaticAtom(b)) continue;
       const d = dist[b];
       if (d < 1 || d > 3) continue;
       for (const s of aromaticSubstituents(mol, b)) {
-        const key = classifySubstituent(mol, s, b);
+        const key = nmrKey(mol, s, b);
         const inc = AR1H[key];
         if (!inc) continue;
         shift += inc[d - 1];
       }
     }
     aromaticCaveats(mol, a, dist, caveats);
+    if (parent && het) return { shift, assignment: `${het.ring} CH, ${parent.pos[het.d - 1]}` };
     return { shift, assignment: "aromatic CH" };
   }
 
@@ -695,7 +886,7 @@ function shift1HonCarbon(
     let shift = 5.25;
     for (const nb of nbrs) {
       if (nb.atom === dbl.atom) continue;
-      const key = classifySubstituent(mol, nb.atom, a);
+      const key = nmrKey(mol, nb.atom, a);
       if (key === "Ph") shift += 1.35;
       else if (key === "OR" || key === "OH") shift += 1.2;
       else if (key === "CHO" || key === "COR" || key === "COOH" || key === "COOR") shift += 1.1;
@@ -707,16 +898,19 @@ function shift1HonCarbon(
   if (nbrs.some((nb) => nb.order === 3)) return { shift: 2.4, assignment: "≡CH (alkyne)" };
 
   // sp3 CH3 / CH2 / CH — Shoolery-type additivity.
+  // Methane: no substituent at all; δ 0.22 (Fulmer et al. 2010, CDCl₃).
+  if (hCount === 4) return { shift: 0.22, assignment: "CH4" };
   const base = hCount === 3 ? 0.87 : hCount === 2 ? 1.2 : 1.55;
   let shift = base;
   let alphaCount = 0;
   const unknownAlpha = new Set<string>();
   for (const nb of nbrs) {
-    const key = classifySubstituent(mol, nb.atom, a);
+    const key = nmrKey(mol, nb.atom, a);
     const inc = SP3_1H[key];
     if (inc !== undefined) {
-      shift += inc;
+      shift += inc + arylConjugationExtra(mol, nb.atom, a, key);
       alphaCount++;
+      if (key === "SiR3") caveats.add(SILICON_CAVEAT);
       continue;
     }
     // THE SILENCE THE ¹³C PATH ALREADY BREAKS (see the sp3 sweep in shift13C).
@@ -745,7 +939,7 @@ function shift1HonCarbon(
     if (!isPlainAlkylCarbon(mol, nb.atom)) continue;
     for (const nb2 of neighbors(mol, nb.atom)) {
       if (nb2.atom === a) continue;
-      const key = classifySubstituent(mol, nb2.atom, nb.atom);
+      const key = nmrKey(mol, nb2.atom, nb.atom);
       const inc = BETA_1H[key];
       if (inc !== undefined) shift += inc;
     }
@@ -758,9 +952,21 @@ function shift1HonCarbon(
 
   const label = hCount === 3 ? "CH3" : hCount === 2 ? "CH2" : "CH";
   const on = nbrs
-    .map((nb) => classifySubstituent(mol, nb.atom, a))
+    .map((nb) => nmrKey(mol, nb.atom, a))
     .filter((k) => k !== "CH3" && k !== "alkyl" && k !== "other");
   return { shift, assignment: on.length ? `${label} (on ${on[0]})` : label };
+}
+
+/**
+ * The extra deshielding when the α group is itself attached to an ARYL ring:
+ * an aryl ether's O–CH₃ (anisole 3.80 against dimethyl ether 3.24) and an aryl
+ * ketone's C(=O)–CH₃ (acetophenone 2.61 against acetone 2.17) — both ≈+0.5.
+ */
+function arylConjugationExtra(mol: Molecule, sub: number, from: number, key: NmrKey): number {
+  if (key !== "OR" && key !== "COR") return 0;
+  const arylOnSub = neighbors(mol, sub).some((nb) => nb.atom !== from && nb.order === 1 && mol.isAromaticAtom(nb.atom));
+  if (!arylOnSub) return 0;
+  return key === "OR" ? 0.53 : 0.54;
 }
 
 /** Nominal ranges for exchangeable protons — genuinely variable, not predicted. */
@@ -775,6 +981,8 @@ function heteroatomProton(mol: Molecule, a: number): { shift: number; assignment
     return { shift: 2.0, assignment: "OH (variable, 1-5)" };
   }
   if (z === 7) {
+    // Pyrrole/indole N–H: ≈8 ppm broad in CDCl₃ (pyrrole 8.0, SDBS), not an amine's 1–5.
+    if (mol.isAromaticAtom(a)) return { shift: 8.0, assignment: "aromatic NH (variable, 7-11)" };
     if (neighbors(mol, a).some((nb) => isCarbonyl(mol, nb.atom)))
       return { shift: 6.5, assignment: "amide NH (variable, 5-9)" };
     return { shift: 1.5, assignment: "NH (variable, 1-5)" };
@@ -896,6 +1104,7 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
   const n = mol.getAllAtoms();
   const dia = diastereotopicFor(mol);
   let sawDiastereotopic = false;
+  if (hasTertiaryAmide(mol)) caveats.add(AMIDE_ROTAMER_CAVEAT);
 
   if (nucleus === "13C") {
     const carbons: number[] = [];
@@ -998,6 +1207,22 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
   finishDiastereotopicCaveats(dia, sawDiastereotopic, caveats);
   signals.sort(bySignalOrder);
   return { smiles, nucleus, signals, caveats: [...caveats] };
+}
+
+const AMIDE_ROTAMER_CAVEAT =
+  "Tertiary amide: rotation about the C(=O)–N bond is slow on the NMR time scale, so the two N-substituents are " +
+  "INEQUIVALENT (one cis, one trans to the C=O) and give separate signals even when they are the same group — " +
+  "DMF shows two N–CH₃ singlets (δH 2.96 and 2.88; δC 36.5 and 31.4 in CDCl₃, Fulmer et al. 2010). This model " +
+  "lists such a pair as one signal at their average.";
+
+/** An amide (or formamide) nitrogen carrying two non-hydrogen substituents besides the acyl carbon. */
+function hasTertiaryAmide(mol: Molecule): boolean {
+  for (let a = 0; a < mol.getAllAtoms(); a++) {
+    if (mol.getAtomicNo(a) !== 7 || mol.isAromaticAtom(a) || mol.isRingAtom(a) || mol.getAllHydrogens(a) !== 0) continue;
+    const nbs = neighbors(mol, a);
+    if (nbs.length === 3 && nbs.every((nb) => nb.order === 1) && nbs.some((nb) => carbonylKind(mol, nb.atom) === "amide")) return true;
+  }
+  return false;
 }
 
 /**

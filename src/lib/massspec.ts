@@ -299,6 +299,8 @@ export interface Adduct {
   charge: number;
   /** Mass added to (or removed from) the neutral M, before dividing by charge. */
   massShift: number;
+  /** ¹H atoms the adduct removes ([M−H]⁻: 1) — it does not apply to a compound with fewer. */
+  removesH?: number;
 }
 
 // Common ESI adducts. Mass shifts use the exact ion mass (± electron for the
@@ -313,10 +315,10 @@ export const ADDUCTS: Adduct[] = [
   { name: "[M+K]+", charge: 1, massShift: mono("K") - ELECTRON },
   { name: "[M+NH4]+", charge: 1, massShift: NH4 - ELECTRON },
   { name: "[M+2H]2+", charge: 2, massShift: 2 * (H1 - ELECTRON) },
-  { name: "[M-H]-", charge: 1, massShift: -(H1 - ELECTRON) },
+  { name: "[M-H]-", charge: 1, massShift: -(H1 - ELECTRON), removesH: 1 },
   { name: "[M+Cl]-", charge: 1, massShift: mono("Cl") + ELECTRON },
   { name: "[M+HCOO]-", charge: 1, massShift: HCOO + ELECTRON },
-  { name: "[M-2H]2-", charge: 2, massShift: -2 * (H1 - ELECTRON) },
+  { name: "[M-2H]2-", charge: 2, massShift: -2 * (H1 - ELECTRON), removesH: 2 },
 ];
 
 /** m/z for an adduct given the neutral monoisotopic mass. */
@@ -488,7 +490,14 @@ function assemble(formula: string, comp: Composition, netCharge: number, display
   const pat = isotopePattern(comp.natural, { labelled: comp.labelled });
   const adducts =
     netCharge === 0
-      ? ADDUCTS.map((a) => ({ name: a.name, mz: adductMz(monoisotopicMass, a), charge: a.charge }))
+      ? // A deprotonation needs a ¹H to remove (Characterization's ionOf applies the
+        // same check): Br₂, NaCl, CCl₄, W(CO)₆ have none, and C₂D₆O's [M−H]⁻
+        // would remove a ¹H that is not there.
+        ADDUCTS.filter((a) => !a.removesH || (comp.natural.H ?? 0) >= a.removesH).map((a) => ({
+          name: a.name,
+          mz: adductMz(monoisotopicMass, a),
+          charge: a.charge,
+        }))
       : [];
 
   return {

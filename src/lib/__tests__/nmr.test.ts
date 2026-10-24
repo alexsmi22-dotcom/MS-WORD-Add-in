@@ -130,9 +130,13 @@ describe("robustness and honesty", () => {
   });
 
   test("resolves dictionary names as well as SMILES", () => {
+    // chemb2: caffeine's xanthine ring carbons are now OMITTED as out of domain (named), so its count fell to the
+    // three N–CH₃; a name still resolves, and an in-domain name keeps every carbon.
     const r = predictNmr("caffeine", "13C");
     expect(r).not.toBeNull();
-    expect(r!.signals.length).toBeGreaterThan(3);
+    expect(r!.signals.length).toBe(3);
+    expect(r!.caveats.join(" ")).toMatch(/OUT OF DOMAIN/);
+    expect(predictNmr("ibuprofen", "13C")!.signals.length).toBeGreaterThan(3);
   });
 
   test("signals are sorted downfield-first, as a spectrum reads", () => {

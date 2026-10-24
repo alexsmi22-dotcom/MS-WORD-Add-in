@@ -35,6 +35,14 @@ import { Molecule } from "openchemlib";
 import { PERIODIC, isElement, normalizeFormulaText, validateFormula } from "./chemValidate";
 import { lookupSmiles } from "./structures";
 
+// Hydrogen isotopes written as their own symbols (D₂O, NaOD, T₂). They are
+// conserved separately from ¹H in a balance; masses are the AME2020 atomic
+// masses of ²H and ³H.
+const ISOTOPE_MASS: Record<string, number> = { D: 2.01410177812, T: 3.0160492779 };
+function isElementOrIsotope(sym: string): boolean {
+  return isElement(sym) || sym in ISOTOPE_MASS;
+}
+
 // ---------------------------------------------------------------- rationals
 
 /** An exact rational number, always reduced, denominator > 0. */
@@ -179,6 +187,13 @@ const AMBIGUOUS_MONO: Record<string, string> = {
 function splitCharge(nb: string): { core: string; charge: number } | { error: string } {
   let m: RegExpExecArray | null;
   const sgn = (c: string): number => (c === "-" ? -1 : 1);
+  // Fe^(3+), SO4^(2-), Fe^(+3): a bracketed caret charge.
+  if ((m = /\^\((\d*)([+-])\)$/.exec(nb))) {
+    return { core: nb.slice(0, m.index), charge: sgn(m[2]) * (m[1] ? parseInt(m[1], 10) : 1) };
+  }
+  if ((m = /\^\(([+-])(\d+)\)$/.exec(nb))) {
+    return { core: nb.slice(0, m.index), charge: sgn(m[1]) * parseInt(m[2], 10) };
+  }
   if ((m = /\^(\d*)([+-])$/.exec(nb))) {
     return { core: nb.slice(0, m.index), charge: sgn(m[2]) * (m[1] ? parseInt(m[1], 10) : 1) };
   }
@@ -291,7 +306,7 @@ function readComposition(nb: string): Composition | { error: string } {
         let sym = ch;
         i++;
         while (i < n && core[i] >= "a" && core[i] <= "z") sym += core[i++];
-        if (!isElement(sym)) return { error: `“${sym}” is not an element symbol` };
+        if (!isElementOrIsotope(sym)) return { error: `“${sym}” is not an element symbol` };
         let num = "";
         while (i < n && core[i] >= "0" && core[i] <= "9") num += core[i++];
         // Cu1.8S, Fe0.95O: a DECIMAL subscript (a nonstoichiometric phase), never
@@ -393,7 +408,7 @@ function hillOf(counts: Record<string, Rat>): { ascii: string; display: string }
 
 function massOf(counts: Record<string, Rat>): number {
   let m = 0;
-  for (const [k, v] of Object.entries(counts)) m += PERIODIC[k] * ratToNumber(v);
+  for (const [k, v] of Object.entries(counts)) m += (PERIODIC[k] ?? ISOTOPE_MASS[k]) * ratToNumber(v);
   return m;
 }
 
@@ -998,10 +1013,10 @@ function speciesKey(s: Species): string {
  * With `medium`, it is a half-reaction skeleton: H₂O, H⁺ (acid) or OH⁻ (base)
  * and e⁻ are added as free species, and the sign of each decides its side.
  */
-export function balanceReaction(input: string, options: { medium?: "acid" | "base" } = {}): BalanceResult {
+export function balanceReaction(input: string, options: { medium?: "acid" | "base"; halfReaction?: boolean } = {}): BalanceResult {
   const p = parseEquation(input);
   if (!p.ok) return { ok: false, kind: p.error.includes("refused before any work") ? "cap" : "syntax", message: p.error };
-  if (options.medium) return balanceHalf(p, options.medium);
+  if (options.medium) return balanceHalf(p, options.medium, options.halfReaction === true);
   const { species, sides, arrow } = p;
 
   // A species on BOTH sides adds a trivial null vector (X → X). Refuse by name.
@@ -1237,7 +1252,44 @@ function skeletonRatio(skel: Species[], sides: Side[]): bigint[] | null {
   return null;
 }
 
-function balanceHalf(p: ParsedEquation, medium: "acid" | "base"): BalanceResult {
+/**
+ * A FULL redox (or acid–base) equation in a medium: "MnO4^- + Fe^2+ -> Mn^2+ +
+ * Fe^3+ in acid". Only H⁺ (or OH⁻) and H₂O are added — the electrons lost by
+ * one species are gained by another, so the net equation carries no free e⁻.
+ * Returns null when that does not give ONE positive balancing (then the
+ * skeleton is a half-reaction and e⁻ are needed).
+ */
+function balanceFullInMedium(p: ParsedEquation, skel: Species[], skelSides: Side[], aux: Species[], medium: "acid" | "base"): BalanceResult | null {
+  const all = [...skel, ...aux];
+  const allSides: Side[] = [...skelSides, ...aux.map(() => "left" as Side)];
+  const { matrix } = compositionMatrix(all, allSides);
+  const ns = nullSpace(matrix, all.length);
+  if (ns.length !== 1) return null;
+  let v = primitive(ns[0]);
+  if (v.slice(0, skel.length).every((x) => x <= 0n)) v = v.map((x) => -x);
+  if (!v.slice(0, skel.length).every((x) => x > 0n)) return null;
+  const species: Species[] = [];
+  const sides: Side[] = [];
+  const coefs: bigint[] = [];
+  const push = (s: Species, side: Side, c: bigint): void => {
+    species.push(s);
+    sides.push(side);
+    coefs.push(c);
+  };
+  skel.forEach((s, j) => skelSides[j] === "left" && push(s, "left", v[j]));
+  aux.forEach((s, j) => v[skel.length + j] > 0n && push(s, "left", v[skel.length + j]));
+  skel.forEach((s, j) => skelSides[j] === "right" && push(s, "right", v[j]));
+  aux.forEach((s, j) => v[skel.length + j] < 0n && push(s, "right", -v[skel.length + j]));
+  const notes = resolvedNotes(p.species);
+  const ionName = medium === "acid" ? "H⁺" : "OH⁻";
+  notes.push(
+    `Balanced in ${medium === "acid" ? "acidic" : "basic"} solution: H₂O and ${ionName} were added where needed. ` +
+      "This is a full equation, so no free electrons appear — the electrons lost and gained cancel.",
+  );
+  return finishOk(species, sides, coefs, p.arrow, notes, null);
+}
+
+function balanceHalf(p: ParsedEquation, medium: "acid" | "base", forceHalf = false): BalanceResult {
   const aux = [auxSpecies(medium === "acid" ? "H+" : "OH-"), auxSpecies("H2O"), auxSpecies("e-")];
   const auxKeys = aux.map((a) => speciesKey({ ...a, state: null }));
   // Skeleton species that ARE an auxiliary become free-sign columns.
@@ -1250,6 +1302,11 @@ function balanceHalf(p: ParsedEquation, medium: "acid" | "base"): BalanceResult 
     }
   });
   if (!skel.length) return { ok: false, kind: "syntax", message: "The half-reaction has no species besides H₂O, H⁺/OH⁻ and e⁻." };
+  if (p.species.some((s) => s.electron)) forceHalf = true;
+  if (!forceHalf && skel.length >= 3) {
+    const full = balanceFullInMedium(p, skel, skelSides, aux.slice(0, 2), medium);
+    if (full) return full;
+  }
   const all = [...skel, ...aux];
   const allSides: Side[] = [...skelSides, "left", "left", "left"];
   const { matrix } = compositionMatrix(all, allSides);
@@ -1333,9 +1390,9 @@ function balanceHalf(p: ParsedEquation, medium: "acid" | "base"): BalanceResult 
  * cancel, then cross-checks the net equation against balancing it directly.
  */
 export function combineHalfReactions(first: string, second: string, medium: "acid" | "base"): BalanceResult {
-  const a = balanceReaction(first, { medium });
+  const a = balanceReaction(first, { medium, halfReaction: true });
   if (!a.ok) return { ...a, message: `First half-reaction: ${a.message}` };
-  const b = balanceReaction(second, { medium });
+  const b = balanceReaction(second, { medium, halfReaction: true });
   if (!b.ok) return { ...b, message: `Second half-reaction: ${b.message}` };
   const ha = a.halfReaction!;
   const hb = b.halfReaction!;
@@ -1402,6 +1459,8 @@ export interface BalanceRequest {
   kind: "balance" | "half-reaction" | "redox-pair";
   medium: "acid" | "base" | null;
   equations: string[];
+  /** True when the verb itself said "half-reaction" (electrons always added). */
+  explicitHalf?: boolean;
 }
 
 const VERB_RE = /^\s*(balance|half[- ]reactions?)\b(?:\s+(?:the\s+)?(?:chemical\s+)?(?:equation|reaction)\b)?\s*:?\s*/i;
@@ -1437,7 +1496,7 @@ export function readBalanceRequest(raw: string): BalanceRequest | null {
   if (!eqs.length) return null;
   if (eqs.length > 2) return null;
   if (eqs.length === 2) return { kind: "redox-pair", medium, equations: eqs };
-  return { kind: half || medium ? "half-reaction" : "balance", medium, equations: eqs };
+  return { kind: half || medium ? "half-reaction" : "balance", medium, equations: eqs, ...(half ? { explicitHalf: true } : {}) };
 }
 
 /** One entry point for Solve: verb, medium and one or two equations. */
@@ -1450,7 +1509,7 @@ export function balanceText(raw: string): BalanceResult {
   }
   if (req.kind === "half-reaction") {
     if (!req.medium) return { ok: false, kind: "syntax", message: "A half-reaction is balanced in acid (H⁺, H₂O) or in base (OH⁻, H₂O) — say which." };
-    return balanceReaction(req.equations[0], { medium: req.medium });
+    return balanceReaction(req.equations[0], { medium: req.medium, halfReaction: req.explicitHalf === true });
   }
   return balanceReaction(req.equations[0]);
 }

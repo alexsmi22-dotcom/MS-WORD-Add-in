@@ -159,6 +159,7 @@ import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { resolveMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, deptBehaviour, DeptClass, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, predictHmbc, predictTocsy, Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "../lib/nmr2d";
+import { spectraSizeRefusal } from "../lib/molgraph";
 import { solveEquation, differentiate, integrate, antiderivative, parseBound } from "../lib/solve";
 import { solveSystem, splitEquations } from "../lib/systems";
 import { limit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
@@ -31365,6 +31366,11 @@ function renderSpectraPrediction(): void {
     // so the most careful sentence in the module was the one nobody could read.
     if (caveats.length) specResult.appendChild(specCaveats(caveats));
   };
+
+  // Heavy-atom cap BEFORE any predictor (read without coordinates): a long
+  // SMILES must be refused by name, never laid out (it froze Word).
+  const tooBig = spectraSizeRefusal(text);
+  if (tooBig) return fail(tooBig);
 
   try {
     if (kind === "1H" || kind === "13C") {

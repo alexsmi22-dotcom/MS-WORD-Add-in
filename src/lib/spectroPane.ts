@@ -79,8 +79,16 @@ export function nucleusName(n: string): string {
   return n === "1H" ? "¹H" : n === "13C" ? "¹³C" : n;
 }
 
+/** A chemical shift with the true minus (δ −2.3, never δ -2.3). */
+export function shiftText(v: number, decimals: number): string {
+  const t = v.toFixed(decimals);
+  return t.startsWith("-") ? (/^-0\.0*$/.test(t) ? t.slice(1) : "−" + t.slice(1)) : t;
+}
+
 /** The ¹H/¹³C table as inserted text: shift, count, multiplet, assignment, note mark. */
 export function nmrTableText(r: NmrResult, coupling: CoupledSignal[] | undefined): string[] {
+  // An empty list is not a table: "δ ." was inserted for it. The caller refuses with the predictor's caveats.
+  if (!r.signals.length) return [];
   const { marks, notes } = diastereotopicNotes(r.signals);
   const rows = r.signals.map((s, i) => {
     const mk = marks[i] ? `  [${marks[i]}]` : "";
@@ -88,9 +96,9 @@ export function nmrTableText(r: NmrResult, coupling: CoupledSignal[] | undefined
     const a = typesetLabel(s.assignment);
     if (r.nucleus !== "1H") {
       const d = s.dept ? `  ${typesetLabel(s.dept).padEnd(3)}` : "";
-      return `  δ ${s.shift.toFixed(1)}${d}  ${a}${s.count > 1 ? `  (${s.count} equivalent C)` : ""}${mk}`;
+      return `  δ ${shiftText(s.shift, 1)}${d}  ${a}${s.count > 1 ? `  (${s.count} equivalent C)` : ""}${mk}`;
     }
-    return `  δ ${s.shift.toFixed(2)}  (${s.count}H, ${multipletText(coupling?.[i], s.multiplicity)})  ${a}${mk}`;
+    return `  δ ${shiftText(s.shift, 2)}  (${s.count}H, ${multipletText(coupling?.[i], s.multiplicity)})  ${a}${mk}`;
   });
   return notes.length ? [...rows, "Diastereotopic notes:", ...notes.map((n) => `  ${n}`)] : rows;
 }

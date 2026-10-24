@@ -45,6 +45,8 @@ function tokenizeName(s: string): string[] {
 interface NamePart {
   text: string;
   italic: boolean;
+  /** No space after this part: the hybrid sign written against its epithet (×ananassa). */
+  attach?: boolean;
 }
 
 /** Classifies a scientific name into italic/roman parts (see module header). */
@@ -83,6 +85,19 @@ export function parseBotanicalName(input: string): NamePart[] {
       parts.push({ text: t, italic: false });
       epithetNext = true;
       roman = false;
+      continue;
+    }
+
+    // A nothospecies epithet written with the sign against it — "Fragaria
+    // ×ananassa", "Mentha ×piperita L." — is the × (roman) placed against the
+    // italic epithet with no space (ICN Art. H.3.1, Rec. H.3A.1).
+    // Only the true sign: a word starting with "x" is an ordinary epithet
+    // (xanthocarpa).
+    if (!roman && !speciesDone && t.length > 1 && t[0] === "×" && isEpithet(t.slice(1))) {
+      parts.push({ text: "×", italic: false, attach: true });
+      parts.push({ text: t.slice(1), italic: true });
+      speciesDone = true;
+      epithetNext = false;
       continue;
     }
 
@@ -126,8 +141,8 @@ export function parseBotanicalName(input: string): NamePart[] {
 export function formatBotanicalNameHtml(input: string): string {
   const parts = parseBotanicalName(input);
   return parts
-    .map((p) => (p.italic ? `<i>${escapeHtml(p.text)}</i>` : escapeHtml(p.text)))
-    .join(" ");
+    .map((p, i) => (p.italic ? `<i>${escapeHtml(p.text)}</i>` : escapeHtml(p.text)) + (i < parts.length - 1 && !p.attach ? " " : ""))
+    .join("");
 }
 
 /**

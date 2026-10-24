@@ -243,6 +243,39 @@ export function predictIr(input: string): IrResult | null {
       }
     }
 
+    // --- C-O stretch of alcohols, phenols and ethers --------------------------
+    // The strong fingerprint band an organic chemist looks for first after O–H
+    // (Silverstein, "Spectrometric Identification of Organic Compounds", Table
+    // 2.x: primary alcohol ≈1050, secondary ≈1100, tertiary ≈1150, phenol
+    // ≈1230; dialkyl ether C–O–C asym. 1150–1085; aryl alkyl ether 1275–1200
+    // and 1075–1020). Not for an ester's or acid's O (their C–O band is above).
+    if (z === 8 && mol.getAtomCharge(a) === 0 && nbrs.length >= 1 && nbrs.every((nb) => nb.order === 1)) {
+      const cs = nbrs.filter((nb) => mol.getAtomicNo(nb.atom) === 6);
+      const acyl = cs.some((nb) => isCarbonyl(mol, nb.atom));
+      if (!acyl && cs.length === nbrs.length) {
+        if (h >= 1 && cs.length === 1) {
+          const c = cs[0].atom;
+          if (mol.isAromaticAtom(c)) {
+            add({ wavenumber: 1230, range: [1180, 1260], intensity: "strong", assignment: "C-O stretch (phenol)" });
+          } else if (neighbors(mol, c).every((nb) => nb.order === 1)) {
+            const heavy = neighbors(mol, c).filter((nb) => nb.atom !== a && mol.getAtomicNo(nb.atom) !== 1).length;
+            if (heavy <= 1) add({ wavenumber: 1050, range: [1000, 1075], intensity: "strong", assignment: "C-O stretch (primary alcohol)" });
+            else if (heavy === 2) add({ wavenumber: 1100, range: [1075, 1150], intensity: "strong", assignment: "C-O stretch (secondary alcohol)" });
+            else add({ wavenumber: 1150, range: [1100, 1210], intensity: "strong", assignment: "C-O stretch (tertiary alcohol)" });
+          }
+        } else if (h === 0 && cs.length === 2) {
+          const aryl = cs.filter((nb) => mol.isAromaticAtom(nb.atom)).length;
+          const vinyl = cs.some((nb) => !mol.isAromaticAtom(nb.atom) && neighbors(mol, nb.atom).some((x) => x.order === 2));
+          if (aryl === 1 && !vinyl) {
+            add({ wavenumber: 1250, range: [1200, 1275], intensity: "strong", assignment: "C-O-C asym. stretch (aryl alkyl ether)" });
+            add({ wavenumber: 1040, range: [1020, 1075], intensity: "medium", assignment: "C-O-C sym. stretch (aryl alkyl ether)" });
+          } else if (aryl === 0 && !vinyl) {
+            add({ wavenumber: 1120, range: [1085, 1150], intensity: "strong", assignment: "C-O-C stretch (dialkyl ether)" });
+          }
+        }
+      }
+    }
+
     // --- N-H ---------------------------------------------------------------
     if (z === 7 && h >= 1) {
       if (isAmideN(mol, a)) {

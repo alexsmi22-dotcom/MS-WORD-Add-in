@@ -7,7 +7,7 @@
 // stretching frequency, or a fragmentation pathway.
 
 import { Molecule } from "openchemlib";
-import { lookupSmiles } from "./structures";
+import { lookupSmiles, STRUCTURE_DRAW_MAX_HEAVY_ATOMS } from "./structures";
 
 export interface Neighbor {
   atom: number;
@@ -520,6 +520,38 @@ export function substKeyLabel(key: SubstKey): string | null {
   }
 }
 
+/** The same heavy-atom cap as Structure mode (structures.STRUCTURE_DRAW_MAX_HEAVY_ATOMS). */
+export const SPECTRA_MAX_HEAVY_ATOMS = STRUCTURE_DRAW_MAX_HEAVY_ATOMS;
+
+function heavyAtomCount(mol: Molecule): number {
+  let n = 0;
+  for (let a = 0; a < mol.getAllAtoms(); a++) if (mol.getAtomicNo(a) !== 1) n++;
+  return n;
+}
+
+/**
+ * A named refusal for a structure above the Spectra heavy-atom cap (read without
+ * coordinates, so the check itself is fast), or null. parseToMolecule returns
+ * null for the same inputs; the pane shows this message instead of "no structure".
+ */
+export function spectraSizeRefusal(input: string): string | null {
+  const looked = lookupSmiles(input);
+  const raw = looked ? looked.smiles : input.trim();
+  if (!raw) return null;
+  let mol: Molecule;
+  try {
+    mol = Molecule.fromSmiles(raw, { noCoordinates: true });
+  } catch {
+    return null;
+  }
+  const n = heavyAtomCount(mol);
+  if (n <= SPECTRA_MAX_HEAVY_ATOMS) return null;
+  return (
+    `Spectrum not predicted: ${n} heavy atoms is above the ${SPECTRA_MAX_HEAVY_ATOMS}-atom limit for spectrum prediction ` +
+    "(the same limit as Structure mode). The additive-increment predictors are not meant for polymers or biomolecules this size."
+  );
+}
+
 /** Parses an input (dictionary name, formula-free SMILES, or SMILES) to a Molecule. */
 export function parseToMolecule(input: string): { mol: Molecule; smiles: string } | null {
   const looked = lookupSmiles(input);
@@ -527,6 +559,12 @@ export function parseToMolecule(input: string): { mol: Molecule; smiles: string 
   if (!raw) return null;
   let mol: Molecule;
   try {
+    // Read FIRST without a 2D layout and check the heavy-atom cap: the default
+    // parse's layout grows steeply ("C" × 800 took 17 s — a frozen Word). Only
+    // under the cap is it parsed again with coordinates (the diastereotopic and
+    // stereo perception read them), exactly as Structure mode does.
+    const bare = Molecule.fromSmiles(raw, { noCoordinates: true });
+    if (bare.getAllAtoms() === 0 || heavyAtomCount(bare) > SPECTRA_MAX_HEAVY_ATOMS) return null;
     mol = Molecule.fromSmiles(raw);
   } catch {
     return null;

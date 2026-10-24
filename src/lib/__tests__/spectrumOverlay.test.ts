@@ -264,7 +264,7 @@ describe("§D2 ¹H 2-methyl-1-propanol vs 2Methyl1Propanol.jdx (ppm, 300.15 MHz)
 });
 
 describe("§D2 IR vs NIST gas-phase files (synthetic, same peak values)", () => {
-  test("ethanol: O–H 3350 [3200–3600] → nearest 3658 OUTSIDE (free O–H, gas); the phase caveat; unmatched lead with 1066", () => {
+  test("ethanol: O–H 3350 [3200–3600] → nearest 3658 OUTSIDE (free O–H, gas); the phase caveat; C–O stretch matched (1054)", () => {
     const f = textBlock(syntheticIr("Ethanol", "C 2 H 6 O", ETHANOL_IR));
     const r = ok(overlaySpectrum(f, predictedFromIr(predictIr("CCO")!)));
     const oh = row(r, 3350);
@@ -276,8 +276,10 @@ describe("§D2 IR vs NIST gas-phase files (synthetic, same peak values)", () => 
     expect(row(r, 2925).within).toBe(true);
     expect(row(r, 1460).nearest).toBe(1454);
     expect(row(r, 1460).within).toBe(true);
-    expect(r.matched).toBe(2);
-    expect(r.unmatchedMeasured[0].x).toBe(1066);
+    // chemb2: the primary-alcohol C–O stretch (1050 [1000–1075]) is now predicted; NIST's 1054/1066 lie inside it.
+    expect(row(r, 1050).nearest).toBe(1054);
+    expect(row(r, 1050).within).toBe(true);
+    expect(r.matched).toBe(3);
     expect(r.caveats.join(" ")).toMatch(/Gas-phase spectrum \(##STATE=gas\)/);
     // MOLFORM with spaces is read, and matches ethanol: no identity caveat.
     expect(r.caveats.join(" ")).not.toMatch(/Identity:/);
@@ -309,13 +311,14 @@ describe("§D2 IR vs NIST gas-phase files (synthetic, same peak values)", () => 
 });
 
 describe("§D2 MS vs NIST EI (synthetic, same peak values)", () => {
-  test("acetone: 58, 43, 15 matched; 30 absent and listed unmatched (3/4); head-to-tail signs", () => {
+  // chemb2: the old "loss of CO from M⁺•" row (m/z 30) was wrong chemistry — CO is lost from the acylium
+  // (43 → 15) — so 30 is no longer predicted at all.
+  test("acetone: 58, 43, 15 matched; no m/z 30 predicted; head-to-tail signs", () => {
     const f = textBlock(syntheticMs("Acetone", "C3 H6 O", ACETONE_MS));
     const r = ok(overlaySpectrum(f, predictedFromFragments(predictFragments("CC(C)=O")!)));
     expect(r.matched).toBe(3);
     expect(row(r, r.rows[0].predicted).within).toBe(true);
-    const thirty = r.rows.find((q) => Math.round(q.predicted) === 30)!;
-    expect(thirty.within).toBe(false);
+    expect(r.rows.find((q) => Math.round(q.predicted) === 30)).toBeUndefined();
     const m58 = r.measured.find((p) => p.x === 58)!;
     expect(m58.y).toBeCloseTo(24.84, 1);
     expect(r.measured.find((p) => p.x === 15)!.y).toBeCloseTo(12.01, 1);

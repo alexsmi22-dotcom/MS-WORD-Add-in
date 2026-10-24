@@ -355,6 +355,49 @@ function resolveComponent(text: string): { ok: true; mol: Molecule; smiles: stri
   return { ok: true, mol, smiles };
 }
 
+/** Elements drawn as labels that are never metals (a metal's label is what this layout fix is about). */
+const NONMETAL_Z = new Set([1, 2, 5, 6, 7, 8, 9, 10, 14, 15, 16, 17, 18, 33, 34, 35, 36, 52, 53, 54, 85, 86]);
+
+/**
+ * A terminal heteroatom on a METAL (the Br of PhMgBr, the Cl of a ZnCl): placed straight on from the metal's other
+ * bond and 1.6 bond lengths out. OpenChemLib's 120° layout put "Br" against the two-letter "Mg" label — the label
+ * clearances ate the whole Br–Mg bond (invisible at 400 dpi). Pure geometry on the laid-out molecule; nothing else moves.
+ */
+function spreadMetalTerminals(mol: Molecule): void {
+  const n = mol.getAllAtoms();
+  if (n < 2) return;
+  let bl: number;
+  try {
+    bl = mol.getAverageBondLength(true) || 1;
+  } catch {
+    return;
+  }
+  mol.ensureHelperArrays(Molecule.cHelperNeighbours);
+  for (let m = 0; m < mol.getAtoms(); m++) {
+    if (NONMETAL_Z.has(mol.getAtomicNo(m))) continue;
+    const nbs: number[] = [];
+    for (let i = 0; i < mol.getConnAtoms(m); i++) nbs.push(mol.getConnAtom(m, i));
+    const terminals = nbs.filter((t) => mol.getConnAtoms(t) === 1 && mol.getAtomicNo(t) !== 6);
+    const others = nbs.filter((t) => !terminals.includes(t));
+    // Only the simple case — one terminal halide/heteroatom and at most one other bond (R–M–X) — is moved.
+    if (terminals.length !== 1 || others.length > 1) continue;
+    const t = terminals[0];
+    const mx = mol.getAtomX(m), my = mol.getAtomY(m);
+    let dx: number, dy: number;
+    if (others.length === 1) {
+      dx = mx - mol.getAtomX(others[0]);
+      dy = my - mol.getAtomY(others[0]);
+    } else {
+      dx = mol.getAtomX(t) - mx;
+      dy = mol.getAtomY(t) - my;
+    }
+    const len = Math.hypot(dx, dy);
+    if (!(len > 0)) continue;
+    mol.setAtomX(t, mx + (dx / len) * 1.6 * bl);
+    mol.setAtomY(t, my + (dy / len) * 1.6 * bl);
+  }
+}
+
 type Item =
   | { kind: "compound"; id: string; box: Box; label: string | null }
   | { kind: "plus" }
@@ -407,6 +450,7 @@ export function buildScheme(parsed: ParsedScheme, opts: SchemeOptions = {}): Sch
     } catch {
       /* coordinates from the parser */
     }
+    spreadMetalTerminals(r.mol);
     // After the layout: an idcode without coordinates carries no stereo ((R) and (S) would compare equal).
     const idcode = r.mol.getIDCode();
     ids.set(r.mol, idcode);

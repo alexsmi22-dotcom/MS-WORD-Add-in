@@ -22,6 +22,15 @@
 
 import { balanceReaction, balanceAsWritten, parseSpecies, formatSpecies, Species, BalanceOk } from "./balance";
 import { convert, formatSig, resultFigures } from "./units";
+import { fmtSig, timesTen } from "./axis";
+
+/**
+ * An amount as the user typed it, made fit for display: "6e-5 mol" → "6×10⁻⁵ mol"
+ * (the display contract never prints e-notation).
+ */
+function typesetAmount(text: string): string {
+  return text.trim().replace(/(\d(?:\.\d*)?)[eE]([+-]?\d+)/g, (_m, mant: string, ex: string) => `${mant}${timesTen(Number(ex))}`);
+}
 
 /** CODATA 2018 molar gas constant, exact. */
 export const R_GAS = 8.314462618;
@@ -156,9 +165,9 @@ function toMoles(a: StoichAmount, sp: Species, gas: StoichInput["gas"], allowZer
   const figures = [n.figuresText];
   const M = sp.molarMass;
   const g = convert(n.value, n.unit, "g");
-  if (g !== null) return { mol: g / M, how: `${a.amount.trim()} ÷ ${formatSig(M, 6)} g/mol`, figures };
+  if (g !== null) return { mol: g / M, how: `${typesetAmount(a.amount)} ÷ ${formatSig(M, 6)} g/mol`, figures };
   const mol = convert(n.value, n.unit, "mol");
-  if (mol !== null) return { mol, how: a.amount.trim(), figures };
+  if (mol !== null) return { mol, how: typesetAmount(a.amount), figures };
   const L = convert(n.value, n.unit, "L");
   if (L === null) return { error: `${name}: “${n.unit}” is not a mass, amount or volume unit.` };
   if (a.molarity) {
@@ -167,7 +176,7 @@ function toMoles(a: StoichAmount, sp: Species, gas: StoichInput["gas"], allowZer
     if (!(c.value > 0)) return { error: `${name}: the molarity must be positive.` };
     const M2 = convert(c.value, c.unit || "M", "M") ?? convert(c.value, c.unit, "mol/L");
     if (M2 === null) return { error: `${name}: “${c.unit}” is not a molarity unit (M, mM, mol/L).` };
-    return { mol: L * M2, how: `${a.amount.trim()} × ${a.molarity.trim()}`, figures: [...figures, c.figuresText] };
+    return { mol: L * M2, how: `${typesetAmount(a.amount)} × ${typesetAmount(a.molarity)}`, figures: [...figures, c.figuresText] };
   }
   if (a.density) {
     const d = readNumber(a.density, `${name} density`);
@@ -176,7 +185,7 @@ function toMoles(a: StoichAmount, sp: Species, gas: StoichInput["gas"], allowZer
     const rho = d.unit ? convert(d.value, d.unit, "g/mL") : null;
     if (rho === null) return { error: `${name}: give the density with a unit, e.g. 1.082 g/mL.` };
     const mass = L * 1000 * rho;
-    return { mol: mass / M, how: `${a.amount.trim()} × ${a.density.trim()} ÷ ${formatSig(M, 6)} g/mol`, figures: [...figures, d.figuresText] };
+    return { mol: mass / M, how: `${typesetAmount(a.amount)} × ${typesetAmount(a.density)} ÷ ${formatSig(M, 6)} g/mol`, figures: [...figures, d.figuresText] };
   }
   const st = (sp.state ?? "").toLowerCase();
   if (st === "(l)" || st === "(s)" || st === "(cr)") {
@@ -194,7 +203,7 @@ function toMoles(a: StoichAmount, sp: Species, gas: StoichInput["gas"], allowZer
   if ("error" in cond) return { error: `${a.amount.trim()} of ${name}: ${cond.error}` };
   const molGas = (cond.P * (L / 1000)) / (R_GAS * cond.T);
   const vm = (R_GAS * cond.T) / cond.P * 1000;
-  return { mol: molGas, how: `${a.amount.trim()} of gas at ${cond.label} (ideal gas, V_m = ${formatSig(vm, 5)} L/mol)`, figures };
+  return { mol: molGas, how: `${typesetAmount(a.amount)} of gas at ${cond.label} (ideal gas, V_m = ${formatSig(vm, 5)} L/mol)`, figures };
 }
 
 function sameSpecies(a: Species, b: Species): boolean {
@@ -264,7 +273,9 @@ export function stoichiometry(input: StoichInput): StoichResult {
     figureTexts.push(...m.figures);
   }
   const sig = resultFigures(figureTexts);
-  const f = (x: number): string => formatSig(x, sig);
+  // KEEPS trailing zeros at the quoted figures (64.0 g O₂ → 2.00 mol, not 2) and
+  // writes large/small values as m×10ⁿ, never e-notation (fmtSig, axis.ts).
+  const f = (x: number): string => fmtSig(x, sig);
 
   // Extents.
   let xi = Infinity;

@@ -18,6 +18,7 @@ import { Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "./nmr2d";
 import { buildPlotSvg, Series, Point } from "./plot";
 import { rowLabeller, titleWithMultiplier } from "./flippedAxis";
 import { minOf, maxOf } from "./minmax";
+import { nucleusName } from "./spectroPane";
 
 const WIDTH = 380;
 const HEIGHT = 240;
@@ -80,7 +81,7 @@ export function nmrChartSvg(r: NmrResult): string | null {
     color: "#94a3b8",
   });
   return buildPlotSvg(series, {
-    title: `Predicted ${r.nucleus} NMR (estimate)`,
+    title: `Predicted ${nucleusName(r.nucleus)} NMR (estimate)`,
     width: WIDTH,
     height: HEIGHT,
     ...flipped(series, false, "δ (ppm) — increases leftward", r.nucleus === "1H" ? "rel. integration" : ""),
@@ -108,6 +109,21 @@ export function irChartSvg(bands: IrBand[]): string | null {
 export function msChartSvg(r: FragmentResult): string | null {
   if (!r.fragments.length) return null;
   const weight: Record<Likelihood, number> = { high: 1.0, medium: 0.6, low: 0.3 };
+  // A grey baseline a margin beyond the outermost sticks (as the isotope chart
+  // does): buildPlotSvg pads y only, so the M⁺• stick and the lowest fragment
+  // were drawn ON the plot frame.
+  const xs = [...r.fragments.map((f) => f.mz), r.molecularIon];
+  const lo = minOf(xs);
+  const hi = maxOf(xs);
+  const xPad = Math.max(3, (hi - lo) * 0.05);
+  const baseline: Series = {
+    points: [
+      { x: Math.max(0, lo - xPad), y: 0 },
+      { x: hi + xPad, y: 0 },
+    ],
+    type: "line",
+    color: "#94a3b8",
+  };
   const series: Series[] = r.fragments.map((f) => ({
     points: [
       { x: f.mz, y: 0 },
@@ -125,6 +141,7 @@ export function msChartSvg(r: FragmentResult): string | null {
     type: "line",
     color: "#dc2626",
   });
+  series.unshift(baseline);
   return buildPlotSvg(series, {
     title: "Predicted EI fragments (ranking, not intensity)",
     xlabel: "m/z",
@@ -171,10 +188,18 @@ export function hsqcChartSvg(r: Hsqc2D): string | null {
   if (!r.peaks.length) return null;
   const points: Point[] = r.peaks.map((p) => ({ x: -p.f2, y: -p.f1 }));
   const series: Series[] = [{ points, type: "scatter", color: "#2563eb", label: "¹J(C,H)" }];
+  // Pad both shift axes so no cross-peak sits in a corner of the frame (the
+  // aromatic peak of ibuprofen was drawn on the top-left corner).
+  const f2 = r.peaks.map((p) => p.f2);
+  const f1 = r.peaks.map((p) => p.f1);
+  const pad2 = Math.max(0.3, (maxOf(f2) - minOf(f2)) * 0.08);
+  const pad1 = Math.max(5, (maxOf(f1) - minOf(f1)) * 0.08);
   return buildPlotSvg(series, {
     title: "Predicted ¹H–¹³C HSQC (estimate)",
     width: SIZE_2D,
     height: SIZE_2D,
+    xLimits: { min: -(maxOf(f2) + pad2), max: -(minOf(f2) - pad2) },
+    yLimits: { min: -(maxOf(f1) + pad1), max: -(minOf(f1) - pad1) },
     ...flipped(series, true, "δ ¹H (ppm) — increases leftward", "δ ¹³C (ppm) — increases downward"),
   });
 }

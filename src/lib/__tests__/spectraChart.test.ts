@@ -55,7 +55,7 @@ function expectCleanSvg(svg: string | null): string {
 describe("NMR chart", () => {
   test("renders a clean stick spectrum", () => {
     const svg = expectCleanSvg(nmrChartSvg(predictNmr("Cc1ccccc1", "1H")!));
-    expect(svg).toContain("Predicted 1H NMR");
+    expect(svg).toContain("Predicted ¹H NMR"); // chemb2: nucleusName, never "1H"
   });
 
   test("δ axis increases leftward, and says so", () => {

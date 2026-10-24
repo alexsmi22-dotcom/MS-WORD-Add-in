@@ -252,6 +252,10 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
     );
   }
 
+  // Every acylium ion (R–C≡O⁺) formed below, so its CO loss can be derived
+  // from IT — never from M⁺• (acetophenone: 105 → 77, not 120 → 92).
+  const acyliums: { mz: number; mass: number; counts: Map<number, number>; lost: string }[] = [];
+
   // --- Single-bond cleavages ---------------------------------------------
   for (let a = 0; a < n; a++) {
     for (const nb of neighbors(mol, a)) {
@@ -329,6 +333,7 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
         }
         if (!pathway) continue;
 
+        if (keepIsCarbonyl) acyliums.push({ mz: keep.mass - ELECTRON, mass: keep.mass, counts: massOf(mol, keepSide).counts, lost: `•${lost.formula}` });
         // The fragment ion keeps the charge; the neutral radical leaves.
         add({
           mz: keep.mass - ELECTRON,
@@ -347,6 +352,9 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
   // For toluene this IS the base peak (m/z 91) — without it the predicted
   // spectrum would miss the single most diagnostic alkylbenzene fragment.
   for (let a = 0; a < n; a++) {
+    // An aryl ALDEHYDE's CHO carbon is "benzylic" by position, but losing its H
+    // gives the benzoyl acylium (C₇H₅O⁺, m/z 105 for benzaldehyde), not C₇H₇⁺.
+    if (isCarbonyl(mol, a)) continue;
     if (!isBenzylic(mol, a) || mol.getAllHydrogens(a) < 1) continue;
     const mz = molMass - MONO[1] - ELECTRON;
     const counts = new Map(molCounts);
@@ -360,6 +368,49 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
       likelihood: "high",
     });
     break; // one tropylium ion per molecule, however many benzylic H there are
+  }
+
+  // --- Aldehyde M − H• → acylium -------------------------------------------
+  // The aldehyde C–H α-cleavage (implicit H, so the bond loop above never sees
+  // it): benzaldehyde 106 → 105 (C₆H₅CO⁺), a strong peak.
+  for (let a = 0; a < n; a++) {
+    if (carbonylKind(mol, a) !== "aldehyde") continue;
+    const counts = new Map(molCounts);
+    counts.set(1, (counts.get(1) ?? 0) - 1);
+    if ((counts.get(1) ?? 0) === 0) counts.delete(1);
+    const mass = molMass - MONO[1];
+    add({
+      mz: mass - ELECTRON,
+      formula: hillFormula(counts),
+      pathway: "α-cleavage at C=O, loss of H• (acylium ion)",
+      neutralLoss: "•H",
+      lossMass: MONO[1],
+      likelihood: "high",
+    });
+    acyliums.push({ mz: mass - ELECTRON, mass, counts, lost: "•H" });
+    break; // one per molecule (two CHO groups give the same M − H)
+  }
+
+  // --- CO loss from each acylium ------------------------------------------
+  for (const ac of acyliums) {
+    const c = ac.counts.get(6) ?? 0;
+    const o = ac.counts.get(8) ?? 0;
+    if (c < 2 || o < 1) continue; // HCO⁺ → H⁺ is not a fragment
+    const counts = new Map(ac.counts);
+    counts.set(6, c - 1);
+    if (o - 1 === 0) counts.delete(8);
+    else counts.set(8, o - 1);
+    const coMass = MONO[6] + MONO[8];
+    add({
+      mz: ac.mass - coMass - ELECTRON,
+      formula: hillFormula(counts),
+      pathway: `loss of CO from the acylium ion m/z ${Math.round(ac.mz)} (→ R⁺)`,
+      // Counted from M⁺•, like every other row: the radical lost to make the
+      // acylium, then CO.
+      neutralLoss: `${ac.lost} + CO`,
+      lossMass: molMass - ac.mass + coMass,
+      likelihood: "medium",
+    });
   }
 
   // --- McLafferty rearrangement ------------------------------------------
@@ -431,19 +482,6 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
       mass: MONO[6] + 2 * MONO[8],
       label: "decarboxylation (loss of CO2)",
       like: "high",
-    },
-    {
-      need: () => {
-        for (let a = 0; a < n; a++) {
-          const k = carbonylKind(mol, a);
-          if (k === "ketone" || k === "aldehyde") return true;
-        }
-        return false;
-      },
-      formula: "CO",
-      mass: MONO[6] + MONO[8],
-      label: "loss of CO (from acylium / after α-cleavage)",
-      like: "medium",
     },
     {
       need: () => {

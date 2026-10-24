@@ -376,6 +376,26 @@ export function pickPeaks(points: XY[], lambdaA: number, opts: PickOptions = {})
       return !parent;
     });
     if (dropped.length) notes.push(`Left out as Cu Kα2 shoulders of stronger peaks: ${dropped.join(", ")}. Strip Kα2 in the instrument software to be sure.`);
+  } else if (Math.abs(lambdaA - 1.540598) < 1e-4) {
+    // Cu Kα1 chosen: the data are taken as Kα2-stripped (or monochromated) and nothing is dropped — but a weaker peak
+    // exactly where a stronger peak's Kα2 falls is most likely an UNSTRIPPED Kα2 component, listed as a peak of its
+    // own. Said, never silently kept (NaCl: 56.62° beside 56.47°, 75.51° beside 75.29°).
+    const paired: string[] = [];
+    for (const q of merged) {
+      const parent = merged.find((p) => {
+        if (p === q || p.height <= q.height) return false;
+        const t2 = (2 * Math.asin(Math.min(1, (CU_KA2 / 1.540598) * Math.sin((p.twoTheta * Math.PI) / 360))) * 180) / Math.PI;
+        const r = q.height / p.height;
+        return Math.abs(q.twoTheta - t2) <= Math.max(0.03, 2 * step) && r >= 0.3 && r <= 0.7;
+      });
+      if (parent) paired.push(`${q.twoTheta.toFixed(2)}° (at the Kα2 position of ${parent.twoTheta.toFixed(2)}°)`);
+    }
+    if (paired.length) {
+      notes.push(
+        `These peaks pair with stronger ones at the Cu Kα1/Kα2 separation and are probably Kα2 components, not separate reflections: ${paired.join(", ")}. ` +
+          "With Cu Kα1 chosen the data are taken as Kα2-stripped, so they are listed. If the pattern was not stripped, choose Cu Kα (weighted) to leave them out, or strip Kα2 in the instrument software.",
+      );
+    }
   }
   const top = peaks.length ? maxOf(peaks.map((p) => p.height)) : 0;
   peaks = peaks.filter((p) => (p.height / top) * 100 >= minRel);

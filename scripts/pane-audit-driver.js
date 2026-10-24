@@ -214,6 +214,19 @@
           };
         },
         getRange: function () { return makeRange(tag + ".range"); },
+        // blockTarget (src/host/wordShared.ts) reads the cursor's paragraph: an empty Normal one here, so a
+        // package goes in at the cursor as into a fresh document.
+        paragraphs: {
+          getLast: function () {
+            return {
+              text: "", isListItem: false, styleBuiltIn: "Normal",
+              load: function () {},
+              detachFromList: function () {},
+              insertParagraph: function (text) { ops.push("para:" + String(text).slice(0, 20)); return makeRange("para"); },
+              getRange: function () { return makeRange("para.range"); },
+            };
+          },
+        },
         select: function () { ops.push("select"); },
       };
     }

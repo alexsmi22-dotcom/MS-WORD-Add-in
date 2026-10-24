@@ -451,7 +451,7 @@ export function parisGrowth(inp: ParisInput): ParisResult | FractureError {
           `rises by a factor of ${(rateFinal / rateInitial).toPrecision(3)} on the way.`,
     "C IS QUOTED FOR ΔK IN MPa√m and that is how it is used here - a coefficient of a power law " +
       "is meaningless without the units of its argument, and feeding a handbook C a ΔK in " +
-      "pascals inflates the growth rate by 10^(6m), a factor of 10^18 at m = 3.",
+      "pascals inflates the growth rate by a factor of 10⁶ᵐ, which is 10¹⁸ at m = 3.",
     "C and m are YOUR inputs and are not material constants in any clean sense: they depend on " +
       "the environment and the stress ratio, and quoted values scatter by orders of magnitude " +
       "across sources. The exponent is what matters most, since it is a power.",

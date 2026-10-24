@@ -307,8 +307,10 @@ export function steadyState(p: PkParams, tau: number): SteadyState | PkError {
   // the assumption unstated.
   const notes: string[] = [];
   const ka = p.ka;
-  const oralAbsorption =
-    ka !== undefined && Number.isFinite(ka) && ka > 0 && Math.abs(ka - k) > 1e-9 * Math.max(ka, k);
+  // Within 1e-7 (relative) of ke the general formula loses digits to the (ka − ke) cancellation, and the ka = ke
+  // limit below is used instead; its own error there is of order 1e-7, so the two agree to about 7 figures.
+  const kaEqualsK = ka !== undefined && Number.isFinite(ka) && ka > 0 && Math.abs(ka - k) <= 1e-7 * Math.max(ka, k);
+  const oralAbsorption = ka !== undefined && Number.isFinite(ka) && ka > 0 && !kaEqualsK;
 
   let cMaxSs: number;
   let cMinSs: number;
@@ -350,20 +352,34 @@ export function steadyState(p: PkParams, tau: number): SteadyState | PkError {
           "equal to one another.",
       };
     }
+  } else if (kaEqualsK) {
+    // ka = ke: the standard solution's 1/(ka − ke) is 0/0, and its limit is the single-dose C = F·D·k/V · t·e^(−kt).
+    // Superposing doses n = 0, 1, 2 … at t + nτ and summing the series (r = e^(−kτ)):
+    //   C_ss(t) = F·D·k/V · e^(−kt) · [ t/(1 − r) + τ·r/(1 − r)² ],   0 ≤ t ≤ τ
+    //   tmax,ss = 1/k − τ·r/(1 − r)   (clamped to [0, τ])
+    // Previously this case fell back to the IV-bolus formula, overstating the peak.
+    const r = decay;
+    const B = (p.f * p.dose * k) / p.vd;
+    const cAt = (t: number): number => B * Math.exp(-k * t) * (t / (1 - r) + (tau * r) / ((1 - r) * (1 - r)));
+    const tm = Math.min(tau, Math.max(0, 1 / k - (tau * r) / (1 - r)));
+    tMaxSs = tm;
+    cMaxSs = cAt(tm);
+    cMinSs = cAt(tau);
+    const bolusPeak = ((p.f * p.dose) / p.vd) * accumulation;
+    notes.push(
+      `The absorption rate constant equals the elimination rate constant (ka = ke = ${k.toPrecision(4)}), where the ` +
+        "standard oral solution is 0/0; its exact limit is used, C(t) = F·D·k/V · t·e^(−kt) per dose, summed over " +
+        `the doses. The steady-state peak is ${cMaxSs.toPrecision(4)} at ${tm.toPrecision(3)} after each dose; an IV ` +
+        `bolus of the same bioavailable dose would peak at ${bolusPeak.toPrecision(4)}.`,
+    );
+    if (!(cMinSs >= 0) || !(cMaxSs > 0)) {
+      return { ok: false, error: "The steady-state concentrations came out non-physical for these rates." };
+    }
   } else {
     const c0 = (p.f * p.dose) / p.vd;
     cMaxSs = c0 * accumulation;
     cMinSs = cMaxSs * decay;
-    if (ka !== undefined && Number.isFinite(ka) && ka > 0) {
-      // ka was given but is indistinguishable from ke, where the standard solution
-      // divides by zero.
-      notes.push(
-        "The absorption rate constant supplied is equal (or numerically indistinguishable) to the " +
-          "elimination rate constant, and the standard oral solution divides by their difference. " +
-          "The peak and trough below therefore use the instantaneous-input formula, which " +
-          "OVERSTATES the peak for an absorbed dose. Treat the peak as an upper bound.",
-      );
-    } else {
+    {
       notes.push(
         "The peak and trough below assume the whole bioavailable dose appears INSTANTANEOUSLY — " +
           "that is, an IV bolus. For an orally absorbed dose the real peak is lower and later, by " +

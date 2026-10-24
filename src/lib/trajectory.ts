@@ -718,29 +718,63 @@ export function multiAxisMove(axes: AxisSpec[]): MultiAxisResult | TrajectoryErr
     }
   }
 
-  const solo = axes.map((a) => {
-    if (a.distanceM === 0) return 0;
+  const trapTime = (d: number, v: number, a: number): number => {
+    if (d === 0) return 0;
     // Trapezoidal: triangular if the move is too short to reach vmax.
-    const dRamp = (a.vmax * a.vmax) / a.amax;
-    return a.distanceM >= dRamp ? a.vmax / a.amax + a.distanceM / a.vmax : 2 * Math.sqrt(a.distanceM / a.amax);
-  });
-  const moveTime = Math.max(...solo);
+    return d >= (v * v) / a ? v / a + d / v : 2 * Math.sqrt(d / a);
+  };
+  const solo = axes.map((a) => trapTime(a.distanceM, a.vmax, a.amax));
+  const slowestSolo = Math.max(...solo);
   const moving = solo.filter((t) => t > 0);
   const earliest = Math.min(...moving);
-  const limitingIndex = solo.indexOf(moveTime);
+
+  // A STRAIGHT LINE NEEDS ONE PROFILE SHAPE. Each axis i must sit at the same fraction s(t) of its own distance at
+  // every instant: xᵢ(t) = dᵢ·s(t). So ONE trapezoid is planned in the path fraction s ∈ [0, 1], with speed limit
+  // V = min vᵢ/dᵢ and acceleration limit A = min aᵢ/dᵢ over the moving axes, and every axis is commanded dᵢ·V and
+  // dᵢ·A. Scaling each axis's own profile by its own time ratio (the method this replaced) finishes them together
+  // but with different cruise fractions, which bends the path (6.1 mm off a straight line on the default move).
+  let V = Infinity;
+  let A = Infinity;
+  let vIndex = -1;
+  let aIndex = -1;
+  axes.forEach((a, i) => {
+    if (a.distanceM === 0) return;
+    if (a.vmax / a.distanceM < V) {
+      V = a.vmax / a.distanceM;
+      vIndex = i;
+    }
+    if (a.amax / a.distanceM < A) {
+      A = a.amax / a.distanceM;
+      aIndex = i;
+    }
+  });
+  if (!Number.isFinite(V) || !Number.isFinite(A) || !(V > 0) || !(A > 0)) {
+    return { ok: false, error: "The axis limits overflow the arithmetic. Check the magnitudes of the distance, speed and acceleration." };
+  }
+  const moveTime = trapTime(1, V, A);
+  const reachesCruise = 1 >= (V * V) / A;
+  // The axis that sets the move: the speed-limited axis on a cruising move, the acceleration-limited one on a
+  // triangular move (which never reaches V).
+  const limitingIndex = reachesCruise ? vIndex : aIndex;
 
   const plans: AxisPlan[] = axes.map((a, i) => {
     // A ZERO-DISTANCE AXIS IS NOT THROTTLED TO ZERO. It has no move to stretch,
     // so its limits are left as they are — emitting 0 would hand back a plan
     // this very function refuses as input.
-    const s = solo[i] > 0 ? solo[i] / moveTime : 1;
+    if (a.distanceM === 0) {
+      return { label: a.label, distanceM: 0, soloTimeS: 0, scaledVmax: a.vmax, scaledAmax: a.amax, utilisation: 0, limiting: false };
+    }
+    const vCmd = a.distanceM * V;
+    const aCmd = a.distanceM * A;
+    // Utilisation: the larger share of its own limit the axis actually reaches (peak speed or acceleration).
+    const vPeak = reachesCruise ? vCmd : a.distanceM * Math.sqrt(A);
     return {
       label: a.label,
       distanceM: a.distanceM,
       soloTimeS: solo[i],
-      scaledVmax: a.distanceM === 0 ? a.vmax : a.vmax * s,
-      scaledAmax: a.distanceM === 0 ? a.amax : a.amax * s * s,
-      utilisation: s,
+      scaledVmax: vCmd,
+      scaledAmax: aCmd,
+      utilisation: Math.min(1, Math.max(vPeak / a.vmax, aCmd / a.amax)),
       limiting: i === limitingIndex,
     };
   });
@@ -748,21 +782,29 @@ export function multiAxisMove(axes: AxisSpec[]): MultiAxisResult | TrajectoryErr
   // Every moving axis already finishing together means there is nothing to
   // synchronise, and claiming a dog-leg that this very result disproves would
   // be a false statement in the output.
-  const alreadySynchronised = Math.abs(earliest - moveTime) <= 1e-12 * moveTime;
+  const alreadySynchronised = Math.abs(earliest - slowestSolo) <= 1e-12 * slowestSolo;
+  const extra = moveTime - slowestSolo;
+  const costsNothing = extra <= 1e-9 * moveTime;
   const notes: string[] = [
-    `${axes[limitingIndex].label} is the limiting axis at ${moveTime.toFixed(3)} s, and it sets ` +
-      "the move time on its own." +
-      (alreadySynchronised ? "" : " Slowing every other axis to match COSTS NOTHING in cycle time."),
-    alreadySynchronised
+    costsNothing
+      ? `${axes[limitingIndex].label} is the limiting axis at ${moveTime.toFixed(3)} s, and it sets the move time on ` +
+        "its own." +
+        (alreadySynchronised ? "" : " Slowing every other axis to match COSTS NOTHING in cycle time.")
+      : `The straight-line move takes ${moveTime.toFixed(3)} s, ${extra.toFixed(3)} s longer than the slowest axis ` +
+        `alone (${slowestSolo.toFixed(3)} s): ${axes[vIndex].label} limits the path speed and ` +
+        `${axes[aIndex].label} limits the path acceleration, and a straight line has to respect both at once. ` +
+        "That extra time is the price of the straight path.",
+    alreadySynchronised && costsNothing
       ? "Every moving axis already finishes at the same moment at its own full limits, so nothing " +
         "is throttled and the path is straight as it stands. There is no dog-leg to remove here."
       : `Unsynchronised, the quickest axis would finish in ${earliest.toFixed(3)} s and then sit ` +
         "still while the others caught up — which traces a dog-leg through space rather than a " +
         "straight line. Synchronising is what makes the path straight.",
-    "Speed scales by the time ratio and acceleration by its square, which reproduces the same " +
-      "profile shape in slowed time.",
+    "Every axis runs the same profile shape, scaled by its share of the move (commanded speed dᵢ·V and acceleration " +
+      "dᵢ·A, with V and A the tightest per-unit-distance limits), so each axis is at the same fraction of its " +
+      "distance at every instant and the tool moves along a straight line.",
     "Trapezoidal profiles assumed. For the jerk-limited case use the S-curve calculator; the " +
-      "same scaling applies, with jerk scaling by the cube of the ratio.",
+      "same scaling applies, with jerk scaled by the axis distance too.",
   ];
   return {
     ok: true,
@@ -785,8 +827,9 @@ export interface GreatCircleResult {
   distanceNmi: number;
   /** Bearing at the start, degrees from north. */
   initialBearingDeg: number;
-  /** Bearing on arrival, degrees from north. */
+  /** Bearing on arrival, degrees from north. NaN (with bearingsUndefinedReason) for coincident or antipodal points. */
   finalBearingDeg: number;
+  bearingsUndefinedReason?: "same point" | "antipodal points";
   notes: string[];
 }
 
@@ -828,9 +871,13 @@ export function greatCircle(
     const x = Math.cos(from) * Math.sin(to) - Math.sin(from) * Math.cos(to) * Math.cos(dLon);
     return ((Math.atan2(y, x) / DEG) + 360) % 360;
   };
-  const initial = bearing(p1, p2, dl);
+  // COINCIDENT OR ANTIPODAL POINTS HAVE NO BEARING: every direction leads from a point to itself, and every great
+  // circle joins antipodes. atan2(0, 0) returned 0° (or 180°) there as if it were a heading.
+  const samePoint = c < 1e-12;
+  const antipodal = Math.PI - c < 1e-7;
+  const initial = samePoint || antipodal ? NaN : bearing(p1, p2, dl);
   // Final bearing is the reverse of the bearing from the destination back.
-  const final = (bearing(p2, p1, -dl) + 180) % 360;
+  const final = samePoint || antipodal ? NaN : (bearing(p2, p1, -dl) + 180) % 360;
 
   return {
     ok: true,
@@ -838,10 +885,17 @@ export function greatCircle(
     distanceNmi: distance / 1852,
     initialBearingDeg: initial,
     finalBearingDeg: final,
+    ...(samePoint || antipodal ? { bearingsUndefinedReason: samePoint ? "same point" : "antipodal points" } : {}),
     notes: [
-      "The initial and final bearings DIFFER because a great circle continuously changes its " +
-        "compass heading. A constant-heading rhumb-line course is simpler to fly and always " +
-        "longer, which is why long-haul routes look bent on a Mercator map.",
+      ...(samePoint
+        ? ["The two points coincide, so the distance is zero and no bearing is defined: every direction leads from the point to itself."]
+        : antipodal
+          ? ["The two points are antipodal, so every great circle through them is equally short and no unique bearing is defined."]
+          : [
+              "The initial and final bearings DIFFER because a great circle continuously changes its " +
+                "compass heading. A constant-heading rhumb-line course is simpler to fly and always " +
+                "longer, which is why long-haul routes look bent on a Mercator map.",
+            ]),
       `Spherical Earth of mean radius ${(EARTH_MEAN_RADIUS / 1000).toFixed(1)} km. The real ` +
         "figure is an ellipsoid, so this is out by up to about 0.5% — fine for planning, not " +
         "for surveying, where Vincenty's formulae on WGS-84 are the right tool.",

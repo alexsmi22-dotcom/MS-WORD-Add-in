@@ -216,7 +216,7 @@ export function freeResponse(
   if (p.kind === "underdamped" && zeta > 0) {
     logDec = (2 * Math.PI * zeta) / Math.sqrt(1 - zeta * zeta);
     notes.push(
-      `Successive peaks fall by a factor of e^${logDec.toFixed(4)} = ${Math.exp(logDec).toFixed(4)}. ` +
+      `Successive peaks fall by a factor of exp(${logDec.toFixed(4)}) = ${Math.exp(logDec).toFixed(4)}. ` +
         "That ratio is what makes the logarithmic decrement a practical way to measure damping " +
         "from a recorded trace: it needs no force measurement and no calibration.",
     );

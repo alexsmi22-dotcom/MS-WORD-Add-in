@@ -212,6 +212,42 @@ export function displayValue(text: string): string {
   return trueMinus(num) + (u ? (u === "%" ? " %" : ` ${formatUnit(u)}`) : "");
 }
 
+/**
+ * The unit a bare number in field `key` is read in, when the tool states it: a temperature field governed by the
+ * tool's "Temperature unit" select (key `tunit`, values C/K/F), or a unit named in the label — ", °C" / "(°C)" /
+ * ", Pa" at the end of the label (before any trailing parenthesis). Only a unit the unit layer knows is returned;
+ * compound or rate labels such as "%/°C" or "0-1" give undefined, and the field is then treated as before.
+ */
+export function fieldUnitOf(
+  fields: Array<{ key: string; label: string; kind?: string; options?: Array<{ value: string; label: string }> }>,
+  key: string,
+  read: (k: string) => string,
+): string | undefined {
+  const f = fields.find((x) => x.key === key);
+  if (!f || f.kind === "select" || f.kind === "block") return undefined;
+  const sel = fields.find((x) => x.key === "tunit" && x.kind === "select" && (x.options ?? []).some((o) => o.value === "C"));
+  if (
+    sel &&
+    (/temperature/i.test(f.label) || /\bT[₀-₉]?\b/.test(f.label)) &&
+    !/[,(]\s*(?:K|°C|°F)\b/.test(f.label) &&
+    !/%|\/\s*(?:°|K\b)|coefficient/i.test(f.label)
+  ) {
+    const v = read("tunit") || "C";
+    return v === "K" ? "K" : v === "F" ? "°F" : "°C";
+  }
+  // Drop one trailing parenthetical that is not itself the unit ("(blank to skip)", "(water source, 0-100)").
+  let label = f.label.trim();
+  const paren = /\s*\(([^()]*)\)\s*$/.exec(label);
+  if (paren && !/^\s*(?:°C|°F|K)\s*$/.test(paren[1])) label = label.slice(0, paren.index).trim();
+  const m = /(?:,\s*|\(\s*)(°C|°F|[A-Za-zµΩ°][A-Za-z0-9µΩ°·/*^²³⁻.-]*)\s*\)?$/.exec(label);
+  if (!m) return undefined;
+  const cand = m[1];
+  if (/%/.test(cand)) return undefined;
+  if (OFFSET_TEMPERATURE.test(cand)) return cand;
+  const ok = convert(1, cand, cand);
+  return ok !== null && Number.isFinite(ok) ? cand : undefined;
+}
+
 /** Lone temperature units, where a percentage depends on the scale the value was typed in. */
 const OFFSET_TEMPERATURE = /^(°C|°F|degC|degF|C°|F°|celsius|fahrenheit)$/i;
 
@@ -220,11 +256,17 @@ const OFFSET_TEMPERATURE = /^(°C|°F|degC|degF|C°|F°|celsius|fahrenheit)$/i;
  * field's unit, as a difference), or "2 %" / "2 percent" (relative). Refused: a unit of the wrong quantity, or a
  * percentage of a temperature on an offset scale (1 % of 20 °C is not 1 % of 293.15 K).
  */
-export function parseUncertainty(text: string, fieldValue: string): { u: number; relative: boolean } | { error: string } {
+export function parseUncertainty(
+  text: string,
+  fieldValue: string,
+  /** The unit a BARE number in this field is read in (fieldUnitOf), so "24 °C"-style checks apply to "24" too. */
+  fieldUnit?: string,
+): { u: number; relative: boolean } | { error: string } {
   const t = text.trim().replace(/−/g, "-");
   const v = splitValue(t);
-  const fv = splitValue(fieldValue);
-  if (!v || v.value < 0 || !fv) return { error: `"${text}" is not an uncertainty: write a number in the field's unit, or a percentage such as 2 %.` };
+  const fv0 = splitValue(fieldValue);
+  if (!v || v.value < 0 || !fv0) return { error: `"${text}" is not an uncertainty: write a number in the field's unit, or a percentage such as 2 %.` };
+  const fv = !fv0.unit.trim() && fieldUnit ? { ...fv0, unit: fieldUnit } : fv0;
   const unit = v.unit.trim();
   if (unit === "%" || /^per\s*cent$|^percent$/i.test(unit)) {
     if (fv.unit.trim() === "%")

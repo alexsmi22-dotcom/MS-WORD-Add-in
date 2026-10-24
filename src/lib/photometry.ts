@@ -530,7 +530,7 @@ export function fNumberExact(marked: number, scale: StopScale = "third"): FNumbe
     exact,
     onScale: true,
     stopsFromF1: (2 * k) / n,
-    note: `f/${marked} on the ${scale}-stop scale is exactly 2^(${k}/${n}) = ${exact.toPrecision(7)}.`,
+    note: `f/${marked} on the ${scale}-stop scale is exactly 2 to the power ${k}/${n} = ${exact.toPrecision(7)}.`,
   };
 }
 

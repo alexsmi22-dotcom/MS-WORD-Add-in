@@ -1202,6 +1202,108 @@ function settlingTimeHeavilyDamped(zeta: number, wn: number, tolerance = 0.02): 
   return Number.isFinite(t) && t >= 0 ? t : null;
 }
 
+export interface SimulatedStepMetrics {
+  /** Fractional overshoot above the final value (0 when the response never exceeds it). */
+  overshoot: number;
+  peakTime: number;
+  /** 10–90 % rise time, s; null when the response never reaches 90 % in the window. */
+  riseTime: number | null;
+  /** 2 % settling time, s; null when the response has not settled inside the window. */
+  settlingTime: number | null;
+}
+
+/**
+ * Step-response metrics MEASURED from a simulated trace (t, y) with final value yf — what a system with zeros, or of
+ * higher order, actually does, where the second-order identities do not apply. Crossings are interpolated linearly
+ * between samples. Null when there is no non-zero finite final value to measure against.
+ */
+export function stepMetricsFromResponse(t: number[], y: number[], yf: number | null): SimulatedStepMetrics | null {
+  const n = Math.min(t.length, y.length);
+  if (n < 2 || yf === null || !Number.isFinite(yf) || yf === 0) return null;
+  const s = Math.sign(yf);
+  const z = (i: number): number => (y[i] * s) / Math.abs(yf); // normalised so the final value is +1
+  let peakI = 0;
+  for (let i = 1; i < n; i++) if (z(i) > z(peakI)) peakI = i;
+  const overshoot = Math.max(0, z(peakI) - 1);
+  const cross = (level: number): number | null => {
+    if (z(0) >= level) return t[0];
+    for (let i = 1; i < n; i++) {
+      if (z(i - 1) < level && z(i) >= level) {
+        const f = (level - z(i - 1)) / (z(i) - z(i - 1));
+        return t[i - 1] + f * (t[i] - t[i - 1]);
+      }
+    }
+    return null;
+  };
+  const t10 = cross(0.1);
+  const t90 = cross(0.9);
+  const riseTime = t10 !== null && t90 !== null ? t90 - t10 : null;
+  let settlingTime: number | null = null;
+  if (Math.abs(z(n - 1) - 1) <= 0.02) {
+    let last = -1;
+    for (let i = n - 1; i >= 0; i--) {
+      if (Math.abs(z(i) - 1) > 0.02) {
+        last = i;
+        break;
+      }
+    }
+    if (last < 0) settlingTime = t[0];
+    else {
+      // Interpolate the exit from the band between samples last and last + 1.
+      const a = z(last);
+      const b = z(last + 1);
+      const edge = a > 1 ? 1.02 : 0.98;
+      const f = b !== a ? (edge - a) / (b - a) : 0;
+      settlingTime = t[last] + Math.min(1, Math.max(0, f)) * (t[last + 1] - t[last]);
+    }
+  }
+  return { overshoot, peakTime: t[peakI], riseTime, settlingTime };
+}
+
+export interface ReportedTransient {
+  /** "exact": second-order identities (constant numerator, second-order denominator); "simulated": measured from
+   * the step trace; "none": an impulse response, which has no step metrics. */
+  source: "exact" | "simulated" | "none";
+  overshoot: number | null;
+  peakTime: number | null;
+  riseTime: number | null;
+  /** The rise-time convention: "0–100 %" for the identity, "10–90 %" when measured. */
+  riseLabel: string;
+  settlingTime: number | null;
+}
+
+/**
+ * The transient metrics a step tool may print for this system: the closed-form identities only where they are
+ * exact, the simulated trace's measured values otherwise, and nothing for an impulse input (whose peak is reported
+ * from the trace by the caller).
+ */
+export function reportedTransient(
+  m: SecondOrderMetrics | ControlError,
+  res: { t: number[]; y: number[]; finalValue: number | null },
+  kind: "step" | "impulse",
+): ReportedTransient {
+  const none: ReportedTransient = { source: "none", overshoot: null, peakTime: null, riseTime: null, riseLabel: "", settlingTime: null };
+  if (kind === "impulse") return none;
+  if (m.ok && m.exact) {
+    return { source: "exact", overshoot: m.overshoot, peakTime: m.peakTime, riseTime: m.riseTime, riseLabel: "0–100 %", settlingTime: m.settlingTime };
+  }
+  const sim = stepMetricsFromResponse(res.t, res.y, res.finalValue);
+  if (!sim) return { ...none, source: "simulated" };
+  return { source: "simulated", overshoot: sim.overshoot, peakTime: sim.peakTime, riseTime: sim.riseTime, riseLabel: "10–90 %", settlingTime: sim.settlingTime };
+}
+
+/**
+ * The secondOrderMetrics notes that still apply once the transient metrics are MEASURED rather than taken from the
+ * closed-form formulas: the caveats about those formulas (envelope settling estimate, dominant-pole approximation,
+ * a nearby zero) describe numbers that are no longer printed, so they are dropped for a simulated or impulse report.
+ */
+export function transientNotes(m: SecondOrderMetrics, source: ReportedTransient["source"]): string[] {
+  if (source === "exact") return m.notes;
+  return m.notes.filter(
+    (n) => !/envelope estimate|approximation, not an identity|formulas above are derived|faster than the dominant pair/.test(n),
+  );
+}
+
 /**
  * Damping ratio, natural frequency and the transient metrics that follow.
  *
@@ -1245,7 +1347,17 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
     }
     wn = Math.sqrt(q);
     zeta = wn > 0 ? p / (2 * wn) : Infinity;
-    exact = true;
+    // EXACT ONLY WITHOUT ZEROS. The overshoot/peak/rise identities are for K/(s² + 2ζωn·s + ωn²); a numerator with
+    // an s term adds a derivative of the response and changes all of them — (s+1)/(s²+2s+4) overshoots 69.9 %,
+    // not the 16.3 % the pole formulas give. ωn and ζ stay exact (they are the poles'); the transient metrics do not.
+    exact = polyDegree(trimPoly(tf.num)) <= 0;
+    if (!exact) {
+      notes.push(
+        "This system has a ZERO, and the standard second-order formulas for overshoot, peak, rise and settling " +
+          "time ignore zeros entirely, so they are not used for it: the natural frequency and damping ratio " +
+          "describe the poles, and the transient metrics come from the simulated response.",
+      );
+    }
   } else {
     const poles = polyRoots(den);
     if (!poles) return { ok: false, error: "The poles could not be computed." };

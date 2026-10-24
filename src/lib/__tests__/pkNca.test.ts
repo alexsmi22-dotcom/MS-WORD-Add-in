@@ -272,14 +272,18 @@ describe("A7: the steady-state peak accounts for absorption when it can", () => 
     expect(withKa.cAvgSs).toBeCloseTo((1 * dose) / (2 * tau), 12);
   });
 
-  test("ka equal to ke is refused an oral solution, because the formula divides by their difference", () => {
+  // Fix round 2.193: ka = ke used to fall back to the IV-bolus formula (an overstated peak). It now uses the exact
+  // ka = ke limit of the oral solution (engFixes2193.test.ts pins the values against numeric superposition).
+  test("ka equal to ke uses the exact limit of the oral solution, below the bolus peak", () => {
     const ss = steadyState({ dose, vd: V, cl: 2, f: 1, ka: 0.2 }, tau);
     expect(ss.ok).toBe(true);
     if (!ss.ok) return;
     // ke = cl/vd = 0.2, so ka == ke exactly.
-    expect(ss.tMaxSs).toBeNull();
-    expect(ss.notes.join(" ")).toMatch(/indistinguishable/);
-    expect(ss.notes.join(" ")).toMatch(/upper bound/);
+    expect(ss.tMaxSs).not.toBeNull();
+    expect(ss.notes.join(" ")).toMatch(/exact limit/);
+    const bolus = steadyState({ dose, vd: V, cl: 2, f: 1 }, tau);
+    if (!bolus.ok) return;
+    expect(ss.cMaxSs).toBeLessThan(bolus.cMaxSs);
   });
 
   test("bioavailability still scales the peak and the average together", () => {

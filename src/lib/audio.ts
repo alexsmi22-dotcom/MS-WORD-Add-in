@@ -1354,7 +1354,7 @@ export function levelSum(levels: number[]): LevelSumResult | AudioError {
     aboveLoudestDb: total - loudest,
     shares,
     notes: [
-      "INCOHERENT sum — levels add by POWER, 10·log₁₀ Σ 10^(L/10). Two equal sources are +3.01 dB, never +6 " +
+      "INCOHERENT sum — levels add by POWER: 10·log₁₀ of the sum of 10 to the power L/10. Two equal sources are +3.01 dB, never +6 " +
         "(that is the coherent, in-phase case) and never the arithmetic sum.",
       "A source 10 dB below the loudest adds about 0.4 dB: the loudest item dominates.",
     ],

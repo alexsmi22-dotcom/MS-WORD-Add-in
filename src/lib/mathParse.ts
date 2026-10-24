@@ -472,7 +472,9 @@ class Parser {
         const pow: Node = t.exp.startsWith("-")
           ? { k: "row", items: [{ k: "text", v: "-", plain: true }, { k: "text", v: t.exp.slice(1) }] }
           : { k: "text", v: t.exp };
-        return { k: "row", items: [{ k: "text", v: t.v }, { k: "text", v: "×", plain: true }, { k: "sup", base: { k: "text", v: "10" }, sup: pow }] };
+        const sci: Node = { k: "row", items: [{ k: "text", v: t.v }, { k: "text", v: "×", plain: true }, { k: "sup", base: { k: "text", v: "10" }, sup: pow }] };
+        // As the base of a power it is bracketed: 1e-3^2 is (1×10⁻³)², never 1×10⁻³ with a stacked ² (reads 10⁻³²).
+        return this.peek()?.t === "caret" ? { k: "delim", inner: sci, open: "(", close: ")" } : sci;
       }
       return { k: "text", v: t.v };
     }
@@ -602,11 +604,13 @@ class Parser {
     }
     // An accent takes exactly one bracketed argument. "dot" is also the dot product: bare (nabla dot E) it is "·", and
     // with two arguments, dot(a, b), it is a function as it always was (v2.192.1 made both fail to parse).
-    if (ACCENTS[lower] && (lower !== "dot" || this.oneParenArg())) {
+    // A space before the bracket makes "dot" the operator: a dot (b × c) is a·(b × c), not a times dot-accented (b × c).
+    const dotSpaced = lower === "dot" && this.peek()?.t === "lparen" && !!this.peek()!.sp;
+    if (ACCENTS[lower] && (lower !== "dot" || (!dotSpaced && this.oneParenArg()))) {
       const [base] = this.parseArgs(1);
       return { k: "acc", chr: ACCENTS[lower], base };
     }
-    if (lower === "dot" && this.peek()?.t !== "lparen") return { k: "text", v: "·", plain: true };
+    if (lower === "dot" && (this.peek()?.t !== "lparen" || dotSpaced)) return { k: "text", v: "·", plain: true };
     if (MATRIX_DELIMS[lower]) {
       const rows = this.parseRows();
       const cols = rows[0].length;
@@ -640,8 +644,10 @@ class Parser {
       return { k: "func", name: id, arg, known: KNOWN_FUNCS.has(lower) };
     }
 
-    // "deg" is the degree sign (90 deg → 90°), checked before the upright-function rule below.
-    if (SYMBOLS[id] && KNOWN_FUNCS.has(lower)) return { k: "text", v: SYMBOLS[id] };
+    // "deg" is the degree sign only right after a number (90 deg → 90°, 25 deg C → 25° C); anywhere else it is the
+    // upright function name (deg f + deg g, the degree of a polynomial), via the rule below. parseBase has consumed
+    // this identifier, so the token before it is tokens[pos − 2].
+    if (lower === "deg" && this.tokens[this.pos - 2]?.t === "num") return { k: "text", v: "°" };
 
     // Words that stay upright without parentheses (e.g. "a mod n", "Pr[A]"); and a known function written with a power
     // or subscript before its argument — sin^2(x), log_2 ρ, tr_B(…) — is still a function name: upright, never sin².

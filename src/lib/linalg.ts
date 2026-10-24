@@ -85,17 +85,13 @@ export function formatNum(x: number, sig = 4): string {
 }
 
 /**
- * A matrix's entries for display, each through formatNum, with round-off snapped to 0: an entry smaller than 10⁻¹⁴
- * of the matrix's largest finite entry is floating-point residue (a product A·A⁻¹ printing "1.63376×10⁻¹⁷" where
- * the identity has a 0), not a value. 10⁻¹⁴ (about 45 ulps), not 10⁻¹²: at 10⁻¹² an honest entry of a badly scaled
- * matrix — the 1 in diag(10¹³, 1) — would print as a confident 0, and residue left unsnapped is merely untidy.
- * Non-finite entries stay "—" so the insert gate still refuses the result.
+ * A matrix's entries for display, each through formatNum (true minus, ×10ⁿ). NO snapping to 0: a scale-relative
+ * threshold turned honest entries of badly scaled matrices into confident zeros (inverse of diag(10¹⁵, 1) showed 0
+ * for 10⁻¹⁵; [[2×10¹¹, 0.001], [0.001, 1]] lost its 0.001s). Round-off residue left visible is merely untidy; a
+ * wrong 0 is a wrong answer. Non-finite entries stay "—" so the insert gate still refuses the result.
  */
 export function formatMatrixCells(m: number[][], sig = 6): string[][] {
-  let scale = 0;
-  for (const row of m) for (const v of row) if (Number.isFinite(v)) scale = Math.max(scale, Math.abs(v));
-  const tiny = scale * 1e-14;
-  return m.map((row) => row.map((v) => (Number.isFinite(v) && Math.abs(v) < tiny ? "0" : formatNum(v, sig))));
+  return m.map((row) => row.map((v) => formatNum(v, sig)));
 }
 
 export function identity(n: number): Matrix {

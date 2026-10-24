@@ -200,9 +200,24 @@ const RULE_ABBR: Record<string, string> = { Civ: "Civ.", App: "App.", Evid: "Evi
 const RULE_RE = /\bFed\.\s+R\.\s+(?:(Evid)\.|(Civ|App|Crim|Bankr)\.\s+P\.)\s+(\d+(?:\.\d+)?)(?:\([\w'.]+\))*/g;
 // Spelled-out forms: "Rule 702 of the Federal Rules of Evidence", "Federal
 // Rule of Civil Procedure 12(b)(6)". Groups: (A) 1 number, 2 set; (B) 3 set, 4 number.
+// SINGULAR "Rule"/"Federal Rule" only: the plural "Federal Rules of Civil Procedure 2015 amendments" names the
+// rule set and a year, not Rule 2015. A number outside the set's range (RULE_RANGE) is not a rule either.
 const RULE_WORDS_RE =
-  /\bRules?\s+(\d+(?:\.\d+)?)(?:\([\w'.]+\))*\s+of\s+the\s+Federal\s+Rules\s+of\s+(Evidence|Civil\s+Procedure|Criminal\s+Procedure|Appellate\s+Procedure|Bankruptcy\s+Procedure)\b|\bFederal\s+Rules?\s+of\s+(Evidence|Civil\s+Procedure|Criminal\s+Procedure|Appellate\s+Procedure|Bankruptcy\s+Procedure)\s+(\d+(?:\.\d+)?)/g;
+  /\bRule\s+(\d+(?:\.\d+)?)(?:\([\w'.]+\))*\s+of\s+the\s+Federal\s+Rules\s+of\s+(Evidence|Civil\s+Procedure|Criminal\s+Procedure|Appellate\s+Procedure|Bankruptcy\s+Procedure)\b|\bFederal\s+Rule\s+of\s+(Evidence|Civil\s+Procedure|Criminal\s+Procedure|Appellate\s+Procedure|Bankruptcy\s+Procedure)\s+(\d+(?:\.\d+)?)(?![\d.]*\d)/g;
 const RULE_SET_OF: Record<string, string> = { evidence: "Evid", civil: "Civ", criminal: "Crim", appellate: "App", bankruptcy: "Bankr" };
+/** The numbers each federal rule set actually uses (base rule number): FRE 101–1103, Bankr. 1001–9037. */
+const RULE_RANGE: Record<string, [number, number]> = {
+  Civ: [1, 86],
+  Evid: [101, 1103],
+  Crim: [1, 61],
+  App: [1, 48],
+  Bankr: [1001, 9037],
+};
+function ruleInRange(set: string, num: string): boolean {
+  const n = parseInt(num, 10);
+  const r = RULE_RANGE[set];
+  return !!r && n >= r[0] && n <= r[1];
+}
 // Court rules (FRAP 28(a)(3) lists them with the rules): "Fed. Cir. R. 36",
 // "Sup. Ct. R. 10", "D.C. Cir. R. 28", "9th Cir. R. 36-3". Groups: 1 court, 2 number.
 const COURT_RULE_RE = /\b(Fed\.\s+Cir\.|Sup\.\s+Ct\.|D\.C\.\s+Cir\.|(?:1st|2d|3d|[4-9]th|1[01]th)\s+Cir\.)\s+R\.\s+(\d+(?:[.-]\d+)*)/g;
@@ -738,6 +753,12 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
   while ((m = RULE_WORDS_RE.exec(text))) {
     const num = m[1] ?? m[4];
     const set = RULE_SET_OF[(m[2] ?? m[3]).split(/\s+/)[0].toLowerCase()];
+    if (!ruleInRange(set, num)) {
+      spelledRuleSpans.push([m.index, m.index + m[0].length]);
+      const [lo, hi] = RULE_RANGE[set];
+      refusals.push({ index: m.index, text: m[0], reason: `"${m[0]}" — that rule set runs from Rule ${lo} to Rule ${hi}; not listed` });
+      continue;
+    }
     const r = ruleText(set, num);
     plain("rules", r.text, r.sortKey, m.index, m.index + m[0].length, { span: m[0] });
     spelledRuleSpans.push([m.index, m.index + m[0].length]);

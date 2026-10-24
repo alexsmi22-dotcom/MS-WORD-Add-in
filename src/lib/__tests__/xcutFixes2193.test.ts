@@ -89,10 +89,12 @@ describe("3. a reaction scheme is ONE package: caption (SEQ field, Caption style
     expect(doc.match(/<w:document /g)).toHaveLength(1);
   });
 
-  test("the package defines Word's built-in Caption style, so a new document keeps it (measured via COM: without it, Normal)", () => {
-    expect(pkg.ooxml).toContain('pkg:name="/word/styles.xml"');
-    expect(pkg.ooxml).toContain('<w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/>');
-    expect(pkg.ooxml).toContain('Target="styles.xml"');
+  // Superseded by regFixes2193 item 4: a styles part REWROTE the document's own Caption style (measured via COM). The
+  // caption paragraph carries only its pStyle; the host sets the built-in Caption style on it after the insert.
+  test("the package carries the Caption pStyle but NO styles part (the document's own Caption style is kept)", () => {
+    expect(pkg.ooxml).toContain('<w:pStyle w:val="Caption"/>');
+    expect(pkg.ooxml).not.toContain("styles.xml");
+    expect(pkg.ooxml).not.toContain("<w:styles");
   });
 
   test("a package with no Caption paragraph carries no styles part", () => {
@@ -137,12 +139,12 @@ describe("4. display contract outside Engineering", () => {
     expect(formatNum(-Infinity)).toBe("—");
   });
 
-  test("a matrix snaps round-off to 0 below 10⁻¹⁴ of its scale; a non-finite entry still blocks the insert", () => {
-    expect(formatMatrixCells([[1, 1.6e-17], [-5.5e-17, 1]], 6)).toEqual([["1", "0"], ["0", "1"]]);
-    expect(formatMatrixCells([[1e-20, 2e-20]], 6)).toEqual([["1×10⁻²⁰", "2×10⁻²⁰"]]); // a small matrix is not round-off
-    // An honest entry of a badly scaled matrix is never snapped to a confident 0 (the threshold is 10⁻¹⁴ of scale).
+  // Superseded by regFixes2193 item 1: NO snapping at all (a scale-relative snap zeroed honest entries).
+  test("a matrix is never snapped to 0 (true minus, ×10ⁿ); a non-finite entry still blocks the insert", () => {
+    expect(formatMatrixCells([[1, 1.6e-17], [-5.5e-17, 1]], 6)).toEqual([["1", "1.6×10⁻¹⁷"], ["−5.5×10⁻¹⁷", "1"]]);
+    expect(formatMatrixCells([[1e-20, 2e-20]], 6)).toEqual([["1×10⁻²⁰", "2×10⁻²⁰"]]);
     expect(formatMatrixCells([[1e13, 0], [0, 1]], 6)).toEqual([["10000000000000", "0"], ["0", "1"]]);
-    expect(formatMatrixCells([[1, 2e-15]], 6)).toEqual([["1", "0"]]);
+    expect(formatMatrixCells([[1, 2e-15]], 6)).toEqual([["1", "2×10⁻¹⁵"]]);
     expect(formatMatrixCells([[1, 3e-14]], 6)).toEqual([["1", "3×10⁻¹⁴"]]);
     expect(formatMatrix([[1, -2]])).toBe(" 1  −2");
     const bad = [[1, NaN]];

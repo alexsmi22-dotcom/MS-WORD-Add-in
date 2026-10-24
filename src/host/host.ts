@@ -100,7 +100,9 @@ export interface PictureTableInsert {
 
 /** One piece of a result report, in document order. */
 export type ResultLayoutItem =
-  | { kind: "ooxml"; ooxml: string }
+  /** captionFirst: the package's first paragraph is a caption — styled by Word's built-in Caption name after the
+   *  insert, so the document's own Caption style applies (the package carries only the pStyle, no style part). */
+  | { kind: "ooxml"; ooxml: string; captionFirst?: boolean }
   | { kind: "paragraph"; text: string }
   | { kind: "picture"; caption: string; base64: string; widthPt: number; heightPt: number; alt: string }
   | { kind: "matrix"; label: string; values: string[][] };

@@ -64,10 +64,15 @@ export function typesetCarets(s: string): string {
 /**
  * The true minus (U+2212) for a hyphen-minus used as a numeric SIGN ("Max shear: -42.5", "(-3", "≈ -7") or as the
  * binary minus between two numbers ("0.6624 - 0.5623j"). Hyphens inside words and digit-hyphen-digit ranges and
- * references ("0-100", "Eq. 6-27", "2019-2020") are left alone.
+ * references ("0-100", "Eq. 6-27", "2019-2020") are left alone. A SPACED hyphen between two plain numbers is a
+ * subtraction ("10 - 20" → "10 − 20") except in a range context — right after "range (of)", "ranging", "from",
+ * "between" or "within" — where it is an en-dash range ("a range of 10 - 20" → "a range of 10–20").
  */
 export function typesetMinus(s: string): string {
-  return s.replace(/(^|[\s(=,;:[/×≈~<>≤≥±→^])-(?=\.?\d)/g, "$1−").replace(/([\dj)]) - (?=\.?\d)/g, "$1 − ");
+  return s
+    .replace(/(^|[\s(=,;:[/×≈~<>≤≥±→^])-(?=\.?\d)/g, "$1−")
+    .replace(/\b(ranges?|ranging|from|between|within)(\s+(?:of\s+)?)(\d+(?:\.\d+)?) - (\d+(?:\.\d+)?)(?![\d.])/gi, "$1$2$3–$4")
+    .replace(/([\dj)]) - (?=\.?\d)/g, "$1 − ");
 }
 
 /**
@@ -84,7 +89,9 @@ export function tidyDisplay(text: string): string {
 
 /** The text nodes of an SVG figure (labels, legends, notes) through tidyDisplay; markup and attributes untouched. */
 export function tidySvgText(svg: string): string {
-  return svg.replace(/(<(?:text|tspan)\b[^>]*>)([^<]+)/g, (_m, tag: string, body: string) => tag + tidyDisplay(body));
+  // A text node follows an opening <text>/<tspan> OR a closing </tspan> (mixed content: "<text>a<tspan>b</tspan>c</text>"
+  // — the "c" was skipped). A </tspan> only ever occurs inside a <text>, so no node outside text is touched.
+  return svg.replace(/(<(?:text|tspan)\b[^>]*>|<\/tspan>)([^<]+)/g, (_m, tag: string, body: string) => tag + tidyDisplay(body));
 }
 
 /**

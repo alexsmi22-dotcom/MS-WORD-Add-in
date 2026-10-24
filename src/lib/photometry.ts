@@ -390,7 +390,7 @@ export function exposureValue(
       "EV = log₂(N²/t). Each +1 EV is one stop less exposure: half the time or √2 more f-number.",
       `At ISO ${iso} these settings suit a scene of EV₁₀₀ ${ev100.toFixed(2)}` +
         (iso === 100 ? "." : ` (EV₁₀₀ = EV − log₂(S/100); doubling ISO suits a scene one stop darker).`),
-      `Meter equations (ISO 2720): incident E = C·2^EV/S with C = ${incidentC}, reflected L = K·2^EV/S ` +
+      `Meter equations (ISO 2720): incident E = C·(2 to the power EV)/S with C = ${incidentC}, reflected L = K·(2 to the power EV)/S ` +
         `with K = ${reflectedK}. ISO 2720 allows a range for both and meters differ, so these are inputs.`,
       "Negative EV is legitimate (night scenes, long exposures): f/2 for 4 s is EV 0.",
     ],

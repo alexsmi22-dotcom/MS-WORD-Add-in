@@ -274,6 +274,15 @@ export async function insertResultLayout(items: ResultLayoutItem[]): Promise<num
     for (const item of items) {
       if (item.kind === "ooxml") {
         const inserted = anchor.insertOoxml(item.ooxml, Word.InsertLocation.after);
+        if (item.captionFirst) {
+          // By Word's built-in name (a localized Word's Caption style id is not "Caption"): the document's own Caption
+          // style, which a package-carried style part would have overwritten (measured in Word, v2.193 review).
+          try {
+            inserted.paragraphs.getFirst().styleBuiltIn = Word.BuiltInStyleName.caption;
+          } catch {
+            // Built-in styles unavailable on this build — the package's pStyle stands.
+          }
+        }
         anchor = inserted.getRange(Word.RangeLocation.after);
       } else if (item.kind === "paragraph") {
         const para = anchor.insertParagraph(item.text, Word.InsertLocation.after);

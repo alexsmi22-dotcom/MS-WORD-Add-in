@@ -665,7 +665,7 @@ export function modalAnalysis(M: Matrix, K: Matrix): ModalResult | VibError {
     );
   }
   notes.push(
-    "Mode shapes are MASS-NORMALISED (phi^T*M*phi = 1) and have no absolute scale — read the " +
+    "Mode shapes are MASS-NORMALISED (φᵀMφ = 1) and have no absolute scale — read the " +
       "pattern of signs and relative magnitudes, not the values. A sign change between entries " +
       "means those degrees of freedom move in opposite directions in that mode.",
   );

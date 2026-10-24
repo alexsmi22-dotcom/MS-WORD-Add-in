@@ -12,6 +12,7 @@
 // Pure logic — no Office.js, no PptxGenJS — fully unit-testable.
 
 import { linearAxis } from "./axis";
+import { parseCellNumber, SCI_TAIL } from "./dataimport";
 import { buildHeatmapSvg } from "./heatmap";
 import { buildCandlestickSvg } from "./candlestick";
 import { CATEGORICAL_PALETTE, seriesStyle, seriesMarkerSvg } from "./categoricalPalette";
@@ -86,6 +87,13 @@ export function parseNumberCell(raw: string): number | null {
   } else if (paren) {
     s = paren[1];
   }
+  // Scientific notation as the app displays it ("3.3×10⁷", "2.5×10⁻⁷", "−4×10³", "3x10^-4") is read by the ONE
+  // reader that knows it (dataimport.parseCellNumber: ×10ⁿ, true minus, superscripts) — this function used to read
+  // only the mantissa, so 3.3×10⁷ charted as 3.3.
+  if (SCI_TAIL.test(s)) {
+    const v = parseCellNumber(s);
+    return Number.isFinite(v) ? (negative ? -v : v) : null;
+  }
   // Normalize a Unicode minus, then drop a currency symbol whether it comes
   // before or after the sign ("-$300", "$-300", "£300" all work).
   s = s
@@ -100,6 +108,8 @@ export function parseNumberCell(raw: string): number | null {
   // Magnitude suffix, but ONLY when it's the whole remainder — so "1.2K" → 1200
   // while a unit like "12kg" stays 12 (the "kg" is not a lone multiplier).
   const rest = s.slice(m[0].length);
+  // A ×10ⁿ tail the reader above could not take ("3.3×10⁷kg", "2×10³×10²") is refused, never read as its mantissa.
+  if (/^[×xX·]10(?:[⁻⁺⁰¹²³⁴⁵⁶⁷⁸⁹]|\^)/.test(rest)) return null;
   if (rest && MULTIPLIER[rest] !== undefined) v *= MULTIPLIER[rest];
   return negative ? -v : v;
 }

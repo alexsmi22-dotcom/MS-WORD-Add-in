@@ -58,7 +58,7 @@ const NARY: Record<string, string> = { sum: "sum", prod: "prod", int: "int", oin
 const FUNC_CMDS = new Set([
   "sin", "cos", "tan", "csc", "sec", "cot",
   "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh",
-  "ln", "log", "exp",
+  "ln", "log", "exp", "deg",
 ]);
 const NARY_GLYPH: Record<string, string> = { sum: "∑", prod: "∏", int: "∫", oint: "∮", iint: "∬", iiint: "∭" };
 const MATRIX_ENV: Record<string, string> = {
@@ -323,7 +323,9 @@ export function latexToDsl(src: string): string {
       if (next?.t === "lbrace") {
         return `${name}(${group()})`;
       }
-      return name; // \sin(x+1): the "(" atom follows and joins tight
+      // \sin(x+1): the "(" atom follows and joins tight. A bare \deg is braced so the DSL never reads it as the degree
+      // sign after a number ("2\deg" → 2{deg}, not 2°): LaTeX's \deg is always the function.
+      return name === "deg" ? "{deg}" : name;
     }
     // Unknown command: strip the backslash.
     return name;

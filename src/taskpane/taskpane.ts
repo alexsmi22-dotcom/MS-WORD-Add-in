@@ -5059,7 +5059,10 @@ function updateAlign(): void {
   }
 
   const block = formatAlignment(r, 60, "A", "B");
-  const stats =
+  // A local alignment with no positive-scoring segment has nothing to count: say so, not "Length 0 · Identity 0/0".
+  const stats = r.noAlignment
+    ? `${r.mode === "global" ? "Global (Needleman–Wunsch)" : "Local (Smith–Waterman)"} · ${r.noAlignment}`
+    :
     `${r.mode === "global" ? "Global (Needleman–Wunsch)" : "Local (Smith–Waterman)"} · ` +
     `${r.kind === "protein" ? "BLOSUM62" : "DNA +5/−4"}\n` +
     `Score ${r.score} · Length ${r.length}\n` +

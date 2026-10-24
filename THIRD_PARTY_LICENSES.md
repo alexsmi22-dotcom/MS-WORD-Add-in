@@ -18,6 +18,8 @@ regenerate a full list of bundled-license texts if required by policy.
 
 Test fixtures `src/lib/__tests__/fixtures/US*.cdx` are drawings from published US patents (public documents), as used in RDKit's ChemDraw test data (BSD-3-Clause).
 
+Test fixtures `src/lib/__tests__/fixtures/snapgene/*.dna` are SnapGene sample files from Biopython's test suite (Tests/SnapGene), distributed under the Biopython License Agreement / BSD-3-Clause (https://github.com/biopython/biopython/blob/master/LICENSE.rst). They are test data only and are not shipped in `dist/`.
+
 ## License texts
 
 Full license texts are available in each package under

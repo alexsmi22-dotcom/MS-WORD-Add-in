@@ -335,11 +335,11 @@ const coherenceCalc: OptCalc = {
     if (!res.ok) return refuse(res.error);
     const name = shape === "lorentzian" ? "Lorentzian" : "Gaussian";
     if (shape === "lorentzian") {
-      lines.push({ math: "abs(γ(τ)) = e^(-π Δν abs(τ))", fallback: "|γ(τ)| = exp(−πΔν|τ|), the degree of coherence of a Lorentzian line" });
+      lines.push({ math: "abs(γ(τ)) = e^{-π Δν abs(τ)}", fallback: "|γ(τ)| = exp(−πΔν|τ|), the degree of coherence of a Lorentzian line" });
       lines.push({ math: "τ_coh = 1/(π Δν)", fallback: "τ(coh) = 1/(πΔν) (|γ| = 1/e)" });
       lines.push({ math: "L_coh = c τ_coh", fallback: "L(coh) = cτ(coh)" });
     } else {
-      lines.push({ math: "abs(γ(τ)) = e^(-(π Δν τ)^2/(4 ln 2))", fallback: "|γ(τ)| = exp(−(πΔντ)²/(4 ln 2)), the degree of coherence of a Gaussian line" });
+      lines.push({ math: "abs(γ(τ)) = e^{-(π Δν τ)^2/(4 ln 2)}", fallback: "|γ(τ)| = exp(−(πΔντ)²/(4 ln 2)), the degree of coherence of a Gaussian line" });
       lines.push({ math: "L_coh = (2 ln 2)/π c/Δν = (2 ln 2)/π λ^2/Δλ", fallback: "L(coh) = (2 ln 2/π)·c/Δν = (2 ln 2/π)·λ²/Δλ (|γ| = 1/2)" });
     }
     lines.push(`${name} line, FWHM ${pre(dnu, "Hz")}: coherence time ${pre(res.tauCoh, "s")}, coherence length ${pre(res.Lcoh, "m")} (quoted at |γ| = ${res.convention}${shape === "lorentzian" ? ", the decay constant of the field correlation" : ", where fringe visibility falls to 50 %"}).`);

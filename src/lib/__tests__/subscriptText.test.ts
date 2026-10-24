@@ -73,6 +73,15 @@ describe("every library registry tool, on its defaults", () => {
     expect({ id, left }).toEqual({ id, left: [] });
   });
 
+  // A bracketed script keeps its brackets when typeset (the Tier 1.8 rule: e^(-x) shows them, e^{-x} groups), so a
+  // tool's own equation that means a group must use braces: K = … (H P Hᵀ + R)^(-1) went into Word as ^((−1)).
+  test.each(tools.map((c) => [c.id, c] as const))("%s: no math line groups a script with brackets", (id, c) => {
+    const out = run(c);
+    if (out.ok === false) return;
+    const bad = (out.blocks ?? []).filter((b) => b.kind === "math" && /[\^_]\(/.test((b as { math: string }).math)).map((b) => (b as { math: string }).math);
+    expect({ id, bad }).toEqual({ id, bad: [] });
+  });
+
   test.each(tools.map((c) => [c.id, c] as const))("%s: every math line typesets", (id, c) => {
     const out = run(c);
     if (out.ok === false) return;

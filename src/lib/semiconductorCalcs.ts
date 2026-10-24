@@ -250,7 +250,7 @@ const pnCalc: SemiCalc = {
     lines.push({ math: "x_p = (W N_D)/(N_A + N_D)", fallback: "xₚ = W·ND/(NA + ND)" });
     lines.push({ math: "E_max = (q N_D x_n)/ε_s", fallback: "Eₘₐₓ = q·ND·xₙ/εₛ" });
     lines.push({ math: "C_j = ε_s/W", fallback: "C′ⱼ = εₛ/W (per unit area)" });
-    if (diode) lines.push({ math: "I = I_s (e^(V/(n V_t)) - 1)", fallback: "I = Iₛ(exp(V/(nVₜ)) − 1), Vₜ = kT/q" });
+    if (diode) lines.push({ math: "I = I_s (e^{V/(n V_t)} - 1)", fallback: "I = Iₛ(exp(V/(nVₜ)) − 1), Vₜ = kT/q" });
     lines.push(`Built-in potential Vbi = ${n6(res.vbi)} V.`);
     lines.push(`Depletion width W = ${um(res.w)} (n side xₙ = ${um(res.xn)}, p side xₚ = ${um(res.xp)}); peak field ${n6(res.emax / 1e5)} kV/cm.`);
     if (res.w1 !== null)

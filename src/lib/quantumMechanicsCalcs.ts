@@ -455,7 +455,7 @@ const oscCalc: QmCalc = {
     const lines: EngReportLine[] = [];
     lines.push(`Harmonic oscillator, ω = ${n6(omega)} rad/s${how ? ` (${how})` : ""}; ${mass.text}.`);
     lines.push({ math: "E_n = hbar ω (n + 1/2)", fallback: "Eₙ = ħω(n + ½)" });
-    lines.push({ math: "ψ_{n}(x) = 1/sqrt(2^n n!) ((m ω)/(π hbar))^(1/4) H_{n}(ξ) e^(-ξ^2/2)", fallback: "ψₙ(x) = ∜(mω/πħ)·Hₙ(ξ)·exp(−ξ²/2)/√(2ⁿn!)" });
+    lines.push({ math: "ψ_{n}(x) = 1/sqrt(2^n n!) ((m ω)/(π hbar))^{1/4} H_{n}(ξ) e^{-ξ^2/2}", fallback: "ψₙ(x) = ∜(mω/πħ)·Hₙ(ξ)·exp(−ξ²/2)/√(2ⁿn!)" });
     lines.push({ math: "ξ = x/x_0", fallback: "ξ = x/x₀" });
     lines.push({ math: "x_0 = sqrt(hbar/(m ω))", fallback: "x₀ = √(ħ/(mω))" });
     lines.push({ math: "x_t = sqrt(((2 n + 1) hbar)/(m ω))", fallback: "turning points x = ±√((2n + 1)ħ/(mω))" });
@@ -694,7 +694,7 @@ const tunnelCalc: QmCalc = {
     if (b.regime === "below") {
       lines.push({ math: "T = 1/(1 + (V_0^2 sinh^2(κ a))/(4 (V_0 - E) E))", fallback: "T = [1 + V₀²sinh²(κa)/(4E(V₀ − E))]⁻¹" });
       lines.push({ math: "κ = sqrt(2 (V_0 - E) m)/hbar", fallback: "κ = √(2m(V₀ − E))/ħ" });
-      lines.push({ math: "T_WKB ≈ e^(-2 κ a)", fallback: "T(WKB) ≈ exp(−2κa)" });
+      lines.push({ math: "T_WKB ≈ e^{-2 κ a}", fallback: "T(WKB) ≈ exp(−2κa)" });
       const kap = b.phase / a;
       lines.push(`Tunnelling (E < V₀): κ = ${n6(kap)} m⁻¹, κa = ${n6(b.phase)}, decay length 1/κ = ${lenText(1 / kap)}.`);
       lines.push(`Transmission T ${relLog10(b.log10T)}; reflection R = 1 − T = ${b.T > 1e-6 ? n6(Rr, 8) : "1 (to display precision)"}.`);
@@ -975,10 +975,10 @@ const twoLevelCalc: QmCalc = {
     const psi0 = st.state.map((z) => ({ re: z.re / n0, im: z.im / n0 }));
     const s0 = fmtState(psi0, 1);
     const s1 = fmtState(ev.psi, 1);
-    lines.push({ math: "ket(ψ(t)) = e^(-i H t/hbar) ket(ψ(0))", fallback: "|ψ(t)⟩ = exp(−iHt/ħ)|ψ(0)⟩" });
+    lines.push({ math: "ket(ψ(t)) = e^{-i H t/hbar} ket(ψ(0))", fallback: "|ψ(t)⟩ = exp(−iHt/ħ)|ψ(0)⟩" });
     const bm = Math.hypot(...ev.b);
     lines.push({ math: "H = bar(E) I + b·σ", fallback: "H = ĒI + b·σ (the Pauli decomposition)" });
-    lines.push({ math: "e^(-i H t/hbar) = e^(-i bar(E) t/hbar)(cos(θ) I - i sin(θ) n·σ)", fallback: "exp(−iHt/ħ) = exp(−iĒt/ħ)(cos θ·I − i sin θ·n̂·σ), n̂ = b/|b|" });
+    lines.push({ math: "e^{-i H t/hbar} = e^{-i bar(E) t/hbar}(cos(θ) I - i sin(θ) n·σ)", fallback: "exp(−iHt/ħ) = exp(−iĒt/ħ)(cos θ·I − i sin θ·n̂·σ), n̂ = b/|b|" });
     lines.push({ math: "θ = (abs(b) t)/hbar", fallback: "θ = |b|t/ħ" });
     if (gyroLine) lines.push(gyroLine);
     else {

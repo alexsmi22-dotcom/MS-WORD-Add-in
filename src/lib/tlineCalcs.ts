@@ -433,7 +433,7 @@ const matchCalc: ElecCalc = {
     });
     if (!bwMeaningful) lines.push(`The load's own VSWR (${n6(rf.vswr as number)}) is already within the limit (${n6(vmax)}), so no band edge exists and bandwidths are not reported: lower the limit.`);
     lines.push({ math: "Z_T = sqrt(Z_0 R)", fallback: "Zₜ = √(Z₀R), R = Z₀·VSWR at a voltage maximum or Z₀/VSWR at a minimum" });
-    lines.push({ math: "Γ(d) = Γ_L e^(-j 4 π d/λ)", fallback: "Γ(d) = Γₗ·exp(−j4πd/λ)" });
+    lines.push({ math: "Γ(d) = Γ_L e^{-j 4 π d/λ}", fallback: "Γ(d) = Γₗ·exp(−j4πd/λ)" });
     lines.push({ math: "y(d) = (1 - Γ(d))/(1 + Γ(d)) = 1 + j b", fallback: "y(d) = (1 − Γ(d))/(1 + Γ(d)) = 1 + jb at the stub" });
     lines.push(
       kind === "short"

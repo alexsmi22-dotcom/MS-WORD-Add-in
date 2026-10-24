@@ -619,8 +619,8 @@ const formatsCalc: AiCalc = {
     const f = FLOAT_FORMATS[id];
     const lines: EngReportLine[] = [];
     lines.push(`${f.label}: ${f.bits} bits = 1 sign + ${f.nexp} exponent + ${f.nmant} mantissa bits; round to nearest, ties to even.`);
-    lines.push({ math: `ε = 2^(-${f.nmant})`, fallback: `ε = 2${superscript(-f.nmant)} (the spacing just above 1)` });
-    lines.push({ math: "ulp(x) = 2^(e - p)", fallback: "ulp(x) = 2ᵉ⁻ᵖ with e = ⌊log₂|x|⌋ (e = eₘᵢₙ below the smallest normal), p mantissa bits" });
+    lines.push({ math: `ε = 2^{-${f.nmant}}`, fallback: `ε = 2${superscript(-f.nmant)} (the spacing just above 1)` });
+    lines.push({ math: "ulp(x) = 2^{e - p}", fallback: "ulp(x) = 2ᵉ⁻ᵖ with e = ⌊log₂|x|⌋ (e = eₘᵢₙ below the smallest normal), p mantissa bits" });
     lines.push({ math: "|x - x_r|/|x| ≤ ε/2", fallback: "|x − x̃|/|x| ≤ ε/2 for x̃ the rounded value, in the normal range (round to nearest)" });
     lines.push(
       `Machine epsilon ε = ${exactDec(rep.epsilon)}; about ${trimSig(rep.digits, 3)} decimal digits; largest finite ${exactDec(rep.max)}; smallest normal ${exactDec(rep.smallestNormal)}; smallest subnormal ${exactDec(rep.smallestSubnormal)}.`,

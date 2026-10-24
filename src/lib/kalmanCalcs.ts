@@ -230,8 +230,8 @@ const KALMAN_ASSUMPTIONS =
   "Assumes a linear time-invariant model with zero-mean white process and measurement noise, uncorrelated with each other; every covariance is in your own consistent units.";
 
 const DARE_MATH = [
-  { math: "P_pri = F P_pri F^T - F P_pri H^T (H P_pri H^T + R)^(-1) H P_pri F^T + Q", fallback: "P⁻ = FP⁻Fᵀ − FP⁻Hᵀ(HP⁻Hᵀ + R)⁻¹HP⁻Fᵀ + Q (steady a-priori covariance: the discrete algebraic Riccati equation)" },
-  { math: "K = P_pri H^T (H P_pri H^T + R)^(-1)", fallback: "K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹" },
+  { math: "P_pri = F P_pri F^T - F P_pri H^T (H P_pri H^T + R)^{-1} H P_pri F^T + Q", fallback: "P⁻ = FP⁻Fᵀ − FP⁻Hᵀ(HP⁻Hᵀ + R)⁻¹HP⁻Fᵀ + Q (steady a-priori covariance: the discrete algebraic Riccati equation)" },
+  { math: "K = P_pri H^T (H P_pri H^T + R)^{-1}", fallback: "K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹" },
   { math: "P_post = (I - K H) P_pri", fallback: "P⁺ = (I − KH)P⁻ (steady a-posteriori covariance)" },
   "In the equations the subscript pri marks the predicted (a-priori) values, written P⁻ and x̂⁻ in the tables, and post the updated (a-posteriori) ones, written P⁺ and x̂⁺.",
 ];
@@ -373,7 +373,7 @@ function computeRun(r: (k: string) => string): AnalyzeOutput {
   lines.push(...mr.extraLines);
   lines.push(
     { math: "hat(x)_post = hat(x)_pri + K (z - H hat(x)_pri)", fallback: "x̂⁺ = x̂⁻ + K(z − Hx̂⁻)" },
-    { math: "K = P_pri H^T (H P_pri H^T + R)^(-1)", fallback: "K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹" },
+    { math: "K = P_pri H^T (H P_pri H^T + R)^{-1}", fallback: "K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹" },
     { math: "hat(x)_pri = F hat(x)_post", fallback: "x̂⁻ = Fx̂⁺ (predict to the next step)" },
     { math: "P_pri = F P_post F^T + Q", fallback: "P⁻ = FP⁺Fᵀ + Q (predict to the next step)" },
     "In the equations the subscript pri marks the predicted (a-priori) values, written P⁻ and x̂⁻ in the tables, and post the updated (a-posteriori) ones, written P⁺ and x̂⁺.",

@@ -289,7 +289,11 @@ class Parser {
         node = { k: "row", items: [node, { k: "text", v: "×", plain: true }, this.parseFactor()] };
       } else if (t?.t === "op" && t.v === "/") {
         this.next();
-        node = { k: "frac", num: node, den: this.parseFactor() };
+        // Brackets typed only to group a numerator or denominator are not drawn in a built-up fraction:
+        // "σ = P/A + (M c)/I" typesets Mc over I, as "(M c)/I" alone always did (the inserted equation showed (Mc)
+        // over I — v2.192.0, seen in Word). Brackets with a power or a function are not a group and stay.
+        const ungroup = (n: Node): Node => (n.k === "delim" && n.open === "(" && n.close === ")" ? n.inner : n);
+        node = { k: "frac", num: ungroup(node), den: ungroup(this.parseFactor()) };
       } else if (this.startsBase(t)) {
         // implicit multiplication: juxtaposition, no visible operator
         node = { k: "row", items: [node, this.parseFactor()] };
@@ -537,8 +541,10 @@ class Parser {
       return { k: "stack", rows: this.parseStackRows() };
     }
 
-    // Function application: an identifier immediately followed by "(".
-    if (this.peek()?.t === "lparen") {
+    // Function application: an identifier IMMEDIATELY followed by "(". A space before the bracket makes it a product
+    // (a known function such as sin, log or exp still takes it): "H^T (H P H^T + R)" is Hᵀ times the bracket, not a
+    // function T applied to it, which typeset the whole bracket inside the superscript (the Kalman gain, v2.192.0).
+    if (this.peek()?.t === "lparen" && (!this.peek()!.sp || KNOWN_FUNCS.has(lower))) {
       const arg = this.parseParenGroup();
       return { k: "func", name: id, arg, known: KNOWN_FUNCS.has(lower) };
     }

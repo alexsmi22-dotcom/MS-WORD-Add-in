@@ -15,6 +15,10 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   filter, Combined loading and most of the quantum tools among them, on Mac and PC. The result now goes in as one
   Word package (text, real equations, real tables and the figures together) instead of a chain of separate inserts.
   Results with no equation or table insert exactly as before.
+- **Equations as typeset in Word:** brackets that only group a numerator or denominator are no longer drawn
+  (σ = P/A + Mc/I, not (Mc)/I); a space before a bracket is a product, not a function call (the Kalman gain
+  K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹ had the whole bracket inside the superscript T); and the Engineering equations that meant a
+  grouped exponent now show it without brackets (… + R)⁻¹, e^(−2κa) → e⁻²ᵏᵃ). Checked in Word itself.
 - **Prose subscripts:** names like η_geo, D_t and S_a in result text are typeset (η(geo), Dₜ, Sₐ); two quantum-link
   equations that went in as plain text are now real equations.
 - **Quantum states with tiny amplitudes:** a state typed with amplitudes of 10⁻²⁰⁰ now reports ‖ψ‖² = 2×10⁻⁴⁰⁰ (it said 0,

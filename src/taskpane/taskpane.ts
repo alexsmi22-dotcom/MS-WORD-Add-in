@@ -23,7 +23,7 @@ import { mathToHtml } from "../lib/mathHtml";
 import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
-import { formatQuantityHtml, convert, formatSig, formatUnit, toSuperscript } from "../lib/units";
+import { formatQuantityHtml, convert, formatUnit, toSuperscript, convertForDisplay } from "../lib/units";
 import { parseJcamp, JcampSpectrum, JcampRefusal } from "../lib/jcamp";
 import { overlaySpectrum, formatMatchTable, displayUnits, typesetLabel, OverlayOk } from "../lib/spectrumOverlay";
 import { overlayChartSvg, OVERLAY_CHART_SIZE } from "../lib/overlayChart";
@@ -3390,7 +3390,14 @@ function convertLatex(): void {
     setStatus("Paste some LaTeX first.", "error");
     return;
   }
-  const dsl = latexToDsl(src);
+  let dsl: string;
+  try {
+    dsl = latexToDsl(src);
+  } catch (error) {
+    // A named refusal (e.g. nesting deeper than the reader's cap), never an uncaught exception in the pane.
+    setStatus(`Couldn't read that LaTeX: ${(error as Error).message}`, "error");
+    return;
+  }
   if (!dsl) {
     setStatus("Couldn't read that LaTeX.", "error");
     return;
@@ -7716,34 +7723,14 @@ async function insertQuantity(): Promise<void> {
 function doConvert(): void {
   currentConvHtml = "";
   convInsertBtn.disabled = true;
-  const value = parseFloat(convValue.value);
-  if (!Number.isFinite(value)) {
-    convResult.textContent = "Enter a numeric value.";
+  // The whole reading (thousands separators, overflow, absolute zero, typeset refusals) is units.convertForDisplay.
+  const res = convertForDisplay(convValue.value, convFrom.value, convTo.value);
+  if (!res.ok) {
+    convResult.textContent = res.error;
     return;
   }
-  const from = convFrom.value.trim();
-  const to = convTo.value.trim();
-  if (!from || !to) {
-    convResult.textContent = "Enter both units.";
-    return;
-  }
-  const r = convert(value, from, to);
-  if (r === null) {
-    // Two fixes here. (1) The units are typeset: this product's display rule
-    // covers ERROR messages too, and echoing the raw text put "m/s^2" on screen.
-    // (2) parseMeasured already distinguishes "not a unit this recognises" from
-    // "not compatible with X — check which quantity this field wants", which is
-    // a far more useful sentence than the merged "unknown or incompatible" and
-    // was previously unreachable from this pane.
-    const why = parseMeasured(`${value} ${from}`, to);
-    const detail = "error" in why ? why.error : "";
-    convResult.textContent = detail
-      ? `Can't convert ${formatUnit(from)} → ${formatUnit(to)}: ${detail}`
-      : `Can't convert ${formatUnit(from)} → ${formatUnit(to)} (incompatible quantities).`;
-    return;
-  }
-  currentConvHtml = formatQuantityHtml(`${formatSig(r)} ${to}`);
-  convResult.innerHTML = `${formatQuantityHtml(`${value} ${from}`)} = <strong>${currentConvHtml}</strong>`;
+  currentConvHtml = res.resultHtml;
+  convResult.innerHTML = `${res.fromHtml} = <strong>${currentConvHtml}</strong>`;
   convInsertBtn.disabled = false;
 }
 

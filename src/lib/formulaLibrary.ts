@@ -86,7 +86,7 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
     formulas: [
       { label: "Derivative (limit definition)", expr: "(df)/(dx) = lim(h -> 0, (f(x + h) - f(x))/h)" },
       { label: "Power rule", expr: "(d/dx) x^n = n x^{n - 1}" },
-      { label: "Fundamental theorem", expr: "int(a, b, f(x)) = F(b) - F(a)" },
+      { label: "Fundamental theorem", expr: "int(a, b, f(x) dx) = F(b) - F(a)" },
       { label: "Sum of first n integers", expr: "sum(i=1, n, i) = n(n + 1)/2" },
       { label: "Geometric series", expr: "sum(n=0, infinity, r^n) = 1/(1 - r)" },
       { label: "Definition of e", expr: "e = lim(n -> infinity, (1 + 1/n)^n)" },
@@ -194,7 +194,7 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
     name: "Special functions",
     formulas: [
       { label: "Gamma function", expr: "Γ(n) = (n - 1)!" },
-      { label: "Error function", expr: "erf(x) = (2/sqrt(π)) int(0, x, e^{-t^2})" },
+      { label: "Error function", expr: "erf(x) = (2/sqrt(π)) int(0, x, e^{-t^2} dt)" },
       { label: "Riemann zeta", expr: "ζ(s) = sum(n=1, infinity, 1/n^s)" },
       { label: "Sign function", expr: "sgn(x)" },
       { label: "Factorial", expr: "n! = prod(k=1, n, k)" },

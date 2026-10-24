@@ -54,7 +54,7 @@ describe("Tier 1.8 — no library entry uses the parenthesised exponent form", (
     expect(ALL["Sinh"]).toBe("sinh(x) = (e^x - e^{-x})/2");
     expect(ALL["Cosh"]).toBe("cosh(x) = (e^x + e^{-x})/2");
     expect(ALL["Logistic / sigmoid"]).toBe("σ(x) = 1/(1 + e^{-x})");
-    expect(ALL["Error function"]).toBe("erf(x) = (2/sqrt(π)) int(0, x, e^{-t^2})");
+    expect(ALL["Error function"]).toBe("erf(x) = (2/sqrt(π)) int(0, x, e^{-t^2} dt)");
     expect(ALL["Binomial theorem"]).toBe("(x + y)^n = sum(k=0, n, C(n, k) x^{n - k} y^k)");
   });
 

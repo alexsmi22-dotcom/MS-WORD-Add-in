@@ -198,7 +198,7 @@ describe("pane wiring (taskpane.ts cannot be imported; its source is pinned)", (
   test("statDroppedTokens exempts the cox header and the subjects-between labels — narrowly", () => {
     expect(PANE).toMatch(/if \(f\.table === "cox"\) \{\s*text = text\.replace/);
     expect(PANE).toMatch(/f\.table === "subjects-between"/);
-    expect(PANE).toContain("const reading = readNumberList(text);");
+    expect(PANE).toContain("const reading = readNumberList(nbspSeparators(text));");
   });
   test("the typed-comma note is produced on every Stats compute", () => {
     expect(PANE).toContain("statCommaLog.clear();");

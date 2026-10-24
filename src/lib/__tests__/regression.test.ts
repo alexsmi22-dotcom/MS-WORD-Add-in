@@ -78,7 +78,12 @@ describe("R squared and its adjustment", () => {
 
   test("the overall F test rejects for a real relationship and not for noise", () => {
     const x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    const real = multipleRegression(x.map((v) => 2 * v + 1), [x]);
+    // Fix round 2: y = 2x + 1 EXACTLY is an exact fit, whose F is undefined (it was 10³⁰-scale noise); a real
+    // relationship with noise is what the F test is for.
+    const exact = multipleRegression(x.map((v) => 2 * v + 1), [x]);
+    expect(exact.exactFit).toBe(true);
+    expect(Number.isNaN(exact.pOverall)).toBe(true);
+    const real = multipleRegression(x.map((v, i) => 2 * v + 1 + [0.3, -0.2, 0.1, -0.4, 0.2, 0, -0.1, 0.3, -0.2, 0.1][i]), [x]);
     expect(real.pOverall).toBeLessThan(0.001);
 
     const flat = multipleRegression([5, 5.1, 4.9, 5, 5.05, 4.95, 5, 5.02, 4.98, 5], [x]);

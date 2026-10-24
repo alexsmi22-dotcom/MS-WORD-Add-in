@@ -123,7 +123,8 @@ describe("Stats calculator defaults produce a result, not a validation error", (
     expect(PANE).toContain("function statGroups(s: string): number[][] {");
     expect(PANE).toContain(".split(/\\n\\s*\\n|;/)");
     // statList delegates to the shared reader — no second comma rule in the pane.
-    expect(PANE).toContain("const r = readNumberList(s, { cells, decimalField: cells });");
+    // nbspSeparators (fix round 2) only rewrites no-break spaces, which these defaults do not contain.
+    expect(PANE).toContain("const r = readNumberList(nbspSeparators(s), { cells, decimalField: cells });");
     expect(PANE).toContain("const cells = !sep && statFieldProvesDecimalCommas(groups);");
     expect(PANE).not.toMatch(/function statList[^}]*split\(\/\[\\s,\]\+\//);
   });

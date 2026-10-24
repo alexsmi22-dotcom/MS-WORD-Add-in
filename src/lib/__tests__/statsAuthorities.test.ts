@@ -50,14 +50,18 @@ describe("log-rank: the Freireich 6-MP trial", () => {
     expect(r.p).toBeGreaterThan(3e-5);
   });
 
-  test("more than two groups says its statistic is an approximation", () => {
+  // Fix round 2 (2026-10-24): k > 2 is now the exact covariance-form statistic, not the Pearson approximation.
+  // lifelines multivariate_logrank_test(T, G, E) on these data -> 3.823205984329926, p 0.14784320504683549.
+  test("more than two groups uses the exact k-group statistic (lifelines)", () => {
     const r = logRankTest([
       { times: [1, 2, 3, 4], events: [1, 1, 1, 0] },
       { times: [2, 3, 5, 6], events: [1, 1, 0, 1] },
       { times: [4, 5, 7, 8], events: [1, 0, 1, 1] },
     ]);
     expect(r.ok).toBe(true);
-    expect(r.caveats.join(" ")).toMatch(/APPROXIMATION/);
+    expect(r.chi2).toBeCloseTo(3.823205984329926, 8);
+    expect(r.p).toBeCloseTo(0.14784320504683549, 8);
+    expect(r.caveats.join(" ")).not.toMatch(/APPROXIMATION/);
   });
 });
 

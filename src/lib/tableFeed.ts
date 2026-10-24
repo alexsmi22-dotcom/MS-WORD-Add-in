@@ -68,7 +68,8 @@ const fmt = (n: number): string => String(n);
 /** A value cell as field text: the user's own spelling where it is already a plain number. */
 const numText = (s: string): string => cellNumberText(s);
 /** Missing-value placeholders count as blank cells everywhere. */
-const NA_CELL = /^(n\/?a|nan|-|—|–|\.|null|none|missing|\?|#n\/a|#value!|#div\/0!)$/i;
+// "ND" / "n.d." / "n/d" (not determined) are the lab spellings of a missing value.
+const NA_CELL = /^(n\/?a|nan|n\.?d\.?|n\/d|-|—|–|\.|null|none|missing|\?|#n\/a|#value!|#div\/0!)$/i;
 const isBlank = (s: string): boolean => s.trim() === "" || NA_CELL.test(s.trim());
 
 /**
@@ -1290,16 +1291,62 @@ export function feedRows(rows: string[][], what: "regression" | "counts"): Table
     start = 1;
     dropped = ` The first column (${name(header, 0, isTextColumn(col0) ? "row labels" : "a row counter")}) was dropped.`;
   }
-  const lines: string[] = [];
+  let lines: string[] = [];
+  // MARGINAL TOTALS ARE NOT DATA (counts only). A contingency table pasted from
+  // a spreadsheet usually carries a Total row and a Total column; read as cells
+  // they double every count and add a row and a column of degrees of freedom,
+  // so a 2×2 became a 3×3 with a confident wrong p.
+  const totalsDropped: string[] = [];
+  const TOTAL_LABEL = /^\s*(grand\s+)?(totals?|sums?|all|overall)\s*:?\s*$/i;
+  const keepCol: boolean[] = Array.from({ length: width }, (_, j) => j >= start);
+  if (what === "counts" && header) {
+    for (let j = start; j < width; j++) {
+      if (TOTAL_LABEL.test(header[j] ?? "")) {
+        keepCol[j] = false;
+        totalsDropped.push(`the ${(header[j] ?? "").trim()} column`);
+      }
+    }
+  }
+  const countRows: string[][] = [];
   for (const r of body) {
-    const vals = r.slice(start);
+    if (what === "counts" && start === 1 && TOTAL_LABEL.test(r[0] ?? "")) {
+      totalsDropped.push(`the ${(r[0] ?? "").trim()} row`);
+      continue;
+    }
+    const vals = r.filter((_, j) => keepCol[j]);
     if (vals.every(isBlank)) continue;
     if (!vals.every(isNumericCell)) {
       return { error: "Every cell must be a number (blank cells and words are not allowed here)." };
     }
+    countRows.push(vals.map(numText));
     lines.push(vals.map(numText).join(" "));
   }
-  const cols = width - start;
+  let cols = keepCol.filter(Boolean).length;
+  if (what === "counts" && countRows.length && cols) {
+    // An UNLABELLED margin: a last row (or column) equal, cell by cell, to the
+    // sum of the others. Only with at least two others — with one, "the sum of
+    // the others" is just a repeated row, which real counts can be.
+    const g = countRows.map((row) => row.map((c) => num(c)));
+    const near = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+    let rowsN = g.length;
+    let colsN = cols;
+    const lastRowIsSum = (): boolean =>
+      rowsN >= 3 && g[rowsN - 1].slice(0, colsN).every((v, j) => near(v, g.slice(0, rowsN - 1).reduce((s, row) => s + row[j], 0)));
+    const lastColIsSum = (): boolean =>
+      colsN >= 3 && g.slice(0, rowsN).every((row) => near(row[colsN - 1], row.slice(0, colsN - 1).reduce((s, v) => s + v, 0)));
+    if (lastRowIsSum()) {
+      rowsN--;
+      totalsDropped.push("the last row (it equals the sum of the rows above it)");
+    }
+    if (lastColIsSum()) {
+      colsN--;
+      totalsDropped.push("the last column (it equals the sum of the columns before it)");
+    }
+    if (rowsN !== g.length || colsN !== cols) {
+      lines = countRows.slice(0, rowsN).map((row) => row.slice(0, colsN).join(" "));
+      cols = colsN;
+    }
+  }
   if (lines.length < 2 || cols < 2) return { error: "Need at least two rows and two numeric columns." };
   const hasTime = !!header && header.some((h) => {
     const role = headerRole(h ?? "");
@@ -1333,6 +1380,7 @@ export function feedRows(rows: string[][], what: "regression" | "counts"): Table
     note:
       `Read a ${lines.length} × ${cols} table of counts${header ? " (header row dropped)" : ""}.` +
       dropped +
+      (totalsDropped.length ? ` Marginal totals are not data, so ${totalsDropped.join(" and ")} ${totalsDropped.length > 1 ? "were" : "was"} dropped.` : "") +
       (header ? "" : " No header row found, so the first row was read as counts; if it holds category names, make it a header.") +
       commaNote(body),
   };

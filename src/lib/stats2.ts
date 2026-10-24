@@ -498,8 +498,39 @@ function fmtCount(x: number): string {
   return Number.isFinite(x) ? String(Number(x.toPrecision(3))) : "n/a";
 }
 
+/** A number in a refusal, with a true minus. */
+const signed = (v: number): string => String(v).replace(/^-/, "−");
+
 /** Chi-square goodness-of-fit test: observed vs expected counts. */
 export function chiSquareGoodnessOfFit(observed: number[], expected: number[]): ChiSquareResult {
+  const refuse = (reason: string): ChiSquareResult => ({
+    chi2: NaN,
+    df: NaN,
+    p: NaN,
+    minExpected: NaN,
+    cellsBelowFive: 0,
+    cellCount: 0,
+    warnings: [],
+    reason,
+  });
+  // COUNTS ARE NON-NEGATIVE, and a category the model calls impossible (expected
+  // ≤ 0) that was nevertheless OBSERVED rejects the model outright — χ² is
+  // infinite there. The loop below used to SKIP such a cell while still counting
+  // it in df, so "observed 5 5, expected 10 0" came back as an ordinary p.
+  {
+    const bad = observed.findIndex((o) => !Number.isFinite(o) || o < 0);
+    if (bad >= 0) return refuse(`Observed counts cannot be negative (category ${bad + 1} is ${signed(observed[bad])}).`);
+    const badE = expected.findIndex((e) => !Number.isFinite(e) || e < 0);
+    if (badE >= 0) return refuse(`Expected counts cannot be negative (category ${badE + 1} is ${signed(expected[badE])}).`);
+    const imp = observed.findIndex((o, k) => o > 0 && !(expected[k] > 0));
+    if (imp >= 0) {
+      return refuse(
+        `Category ${imp + 1} has an expected count of 0 but ${observed[imp]} observed: the model says it cannot ` +
+          "happen and it did, so the fit is rejected outright (χ² is infinite). Give every category a positive " +
+          "expected count, or remove a category that is truly impossible and was never observed.",
+      );
+    }
+  }
   // THE TOTALS MUST AGREE. chi-square goodness of fit compares counts against
   // EXPECTED COUNTS, not proportions: with observed summing to 60 and expected
   // to 6 it happily returned chi2 = 486, p = 0, and the number means nothing.
@@ -526,16 +557,17 @@ export function chiSquareGoodnessOfFit(observed: number[], expected: number[]): 
       };
     }
   }
-  const df = observed.length - 1;
   let chi2 = 0;
   for (let i = 0; i < observed.length; i++) {
     if (expected[i] <= 0) continue;
     chi2 += (observed[i] - expected[i]) ** 2 / expected[i];
   }
-  // A zero expected count contributes nothing to chi2 (see the loop above) and
-  // is not a cell the approximation can be judged on, so the rule is applied to
-  // the cells the test actually used.
+  // A category with expected 0 (and, after the refusal above, observed 0) is not
+  // part of the test: it adds nothing to χ² and it is NOT counted in df either —
+  // counting it gave an extra degree of freedom and a p that was too large.
   const used = expected.filter((e) => e > 0);
+  if (used.length < 2) return refuse("Need at least two categories with a positive expected count.");
+  const df = used.length - 1;
   return {
     chi2,
     df,
@@ -597,6 +629,8 @@ export function fisherExact2x2(table: number[][]): number | undefined {
   const r1 = a + b;
   const r2 = c + d;
   const c1 = a + c;
+  // A zero margin admits exactly one table, so p = 1 by construction: no test.
+  if (r1 === 0 || r2 === 0 || c1 === 0 || b + d === 0) return undefined;
 
   // log P(a) for the hypergeometric with these margins, up to a constant that
   // cancels in the ratio — kept in logs so a table of a few hundred counts does
@@ -620,9 +654,41 @@ export function fisherExact2x2(table: number[][]): number | undefined {
 /** Chi-square test of independence for an r×c contingency table of counts. */
 export function chiSquareIndependence(table: number[][]): ChiSquareIndependence {
   const r = table.length;
-  const c = table[0].length;
+  const c = table[0]?.length ?? 0;
+  const refuse = (reason: string): ChiSquareIndependence => ({
+    chi2: NaN,
+    df: NaN,
+    p: NaN,
+    expected: [],
+    minExpected: NaN,
+    cellsBelowFive: 0,
+    cellCount: 0,
+    warnings: [],
+    reason,
+  });
+  if (r < 2 || c < 2 || table.some((row) => row.length !== c)) {
+    return refuse("Enter a rectangular table with at least 2 rows and 2 columns.");
+  }
+  for (let i = 0; i < r; i++) {
+    for (let j = 0; j < c; j++) {
+      const v = table[i][j];
+      if (!Number.isFinite(v) || v < 0) return refuse(`Counts cannot be negative (row ${i + 1}, column ${j + 1} is ${signed(v)}).`);
+    }
+  }
   const rowSums = table.map((row) => row.reduce((s, v) => s + v, 0));
   const colSums = Array.from({ length: c }, (_, j) => table.reduce((s, row) => s + row[j], 0));
+  // A ZERO MARGIN is a row or column with no observations: its expected counts
+  // are all 0, the loop below skipped them, and df still counted the row — a
+  // p for a table that is really smaller than the one tested. Fisher's exact
+  // test on such a table is p = 1 by construction, which is no test either.
+  const zr = rowSums.findIndex((s) => s === 0);
+  const zc = colSums.findIndex((s) => s === 0);
+  if (zr >= 0 || zc >= 0) {
+    return refuse(
+      `${zr >= 0 ? `Row ${zr + 1}` : `Column ${zc + 1}`} has no observations (every count is 0), so it carries no ` +
+        "information about association and the degrees of freedom would be wrong. Remove that row or column.",
+    );
+  }
   const total = rowSums.reduce((s, v) => s + v, 0);
   const expected: number[][] = table.map((_, i) => colSums.map((cs) => (rowSums[i] * cs) / total));
   let chi2 = 0;

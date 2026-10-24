@@ -35,7 +35,7 @@ describe("each engine's own p, and the test named in the caption", () => {
     const r = bracketedBoxPlot(two, {}, { kind: "t", result: res }, exact);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.caption).toBe("t-test.");
+    expect(r.caption).toBe("Welch t-test."); // fix round 2: the variance model is named
     expect(r.svg).toContain(`data-p="${String(res.p)}"`);
     expect(r.svg).toContain(xml(formatPValue(res.p)));
   });

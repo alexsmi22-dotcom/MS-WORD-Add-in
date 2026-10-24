@@ -55,7 +55,7 @@ const BRAND: unique symbol = Symbol("sigBracket");
 const SET_BRAND: unique symbol = Symbol("sigBracketSet");
 const MADE = new WeakSet<object>();
 
-export type BracketTest = "Tukey HSD" | "t-test" | "paired t-test" | "Mann–Whitney U" | "Wilcoxon signed-rank" | "Dunn";
+export type BracketTest = "Tukey HSD" | "t-test" | "Welch t-test" | "Student t-test" | "paired t-test" | "Mann–Whitney U" | "Wilcoxon signed-rank" | "Dunn";
 
 export interface SigBracket {
   readonly [BRAND]: true;
@@ -302,7 +302,8 @@ export function bracketsFromPairwise(comparisons: PairwiseComparison[], correcti
         throw new RangeError(`the t-test for (${i}, ${j}) has no reportable p value: t is ${Number.isNaN(c.result.t) ? "undefined" : "infinite"} because ${what}`);
       }
       if (!tTestOk(c.result)) throw new RangeError(`the t-test result for (${i}, ${j}) is not self-consistent (p must equal the two-tailed p of its t and df)`);
-      test = c.result.dKind === "dz" ? "paired t-test" : "t-test";
+      // Name the variance model (fix round 2): "t-test" alone leaves Welch vs Student to guesswork.
+      test = c.result.dKind === "dz" ? "paired t-test" : c.result.variant === "welch" ? "Welch t-test" : c.result.variant === "student" ? "Student t-test" : "t-test";
     } else if (c.kind === "mann-whitney" || c.kind === "wilcoxon") {
       const why = rankOk(c.result, c.kind);
       if (why) throw new RangeError(`the rank-test result for (${i}, ${j}) was refused: ${why}`);

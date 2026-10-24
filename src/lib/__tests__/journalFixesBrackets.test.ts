@@ -100,8 +100,10 @@ describe("brackets follow the engine's α (item 1)", () => {
   });
 
   test("α = 0.05 output is byte-identical to before the fix (captions and SVG)", () => {
-    // Less the title mark (data-figure-title, item 2), the only other deliberate byte change.
-    const hash = (s: string) => createHash("sha256").update(s.split(' data-figure-title=\\"1\\"').join("")).digest("hex").slice(0, 16);
+    // Less the title mark (data-figure-title, item 2), the only other deliberate byte change — and, since fix round 2
+    // (2026-10-24), the t-test caption naming its variance model ("Welch t-test"), mapped back to "t-test" here.
+    const hash = (s: string) =>
+      createHash("sha256").update(s.split(' data-figure-title=\\"1\\"').join("").split("Welch t-test").join("t-test")).digest("hex").slice(0, 16);
     const groups = boxes(G4);
     const got: string[] = [];
     for (const choice of [

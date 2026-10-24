@@ -431,13 +431,27 @@ export function buildTree(rows: string[][]): { roots: TreeNode[]; warnings: stri
   // A HEADER ROW IS NOT A BRANCH (fix2-paf), detected as the flowchart detects
   // its own: "System | Subsystem | Component" used to be drawn as a tree of
   // three boxes beside the real one.
+  let parentChildHeader = false;
   if (rows.length >= 2 && isTreeHeader(rows[0])) {
+    const head = rows[0].map((c) => c.replace(/[:.]$/, "").trim()).filter(Boolean);
+    parentChildHeader = head.length === 2 && /^parents?$/i.test(head[0]) && /^child(?:ren)?$/i.test(head[1]);
     rows = rows.slice(1);
     warnings.push("The first row looked like a header — not drawn as part of the hierarchy.");
   }
   const used = rows.length > MAX_TREE_ROWS ? rows.slice(0, MAX_TREE_ROWS) : rows;
   if (used.length < rows.length) {
     warnings.push(`Only the first ${MAX_TREE_ROWS} of ${rows.length} rows are drawn.`);
+  }
+  // A TWO-COLUMN PARENT | CHILD TABLE IS A LIST OF EDGES (fix2-cad): "Robot | Arm", "Arm | Gripper" drew Arm twice —
+  // once under Robot and again as a second root. Read as edges when the header says Parent | Child, or when a child
+  // is itself a parent on another row (as root→leaf paths that would draw one box twice).
+  const pairs = used.map((r) => r.map((c) => c.trim())).filter((r) => r.some(Boolean));
+  const twoCol = pairs.length > 0 && pairs.every((r) => r.length >= 2 && r[0] && r[1] && r.slice(2).every((c) => !c));
+  if (twoCol) {
+    const parentsSet = new Set(pairs.map((r) => r[0]));
+    if (parentChildHeader || pairs.some((r) => r[0] !== r[1] && parentsSet.has(r[1]))) {
+      return buildTreeFromEdges(pairs.map((r) => [r[0], r[1]] as [string, string]), warnings);
+    }
   }
   for (const row of used) {
     let last = -1;
@@ -451,8 +465,10 @@ export function buildTree(rows: string[][]): { roots: TreeNode[]; warnings: stri
     prev = filled;
     let level = roots;
     for (const label of path.slice(0, MAX_DEPTH)) {
-      let node = level.length ? level[level.length - 1] : undefined;
-      if (!node || node.label !== label) {
+      // The same label under one parent is one box, wherever its rows are (fix2-cad: "Robot" on rows 1 and 3 with
+      // "Car" between them was drawn as two Robot trees).
+      let node = level.find((n) => n.label === label);
+      if (!node) {
         node = { label, children: [] };
         level.push(node);
       }
@@ -461,6 +477,62 @@ export function buildTree(rows: string[][]): { roots: TreeNode[]; warnings: stri
     if (path.length > MAX_DEPTH) warnings.push(`Levels beyond ${MAX_DEPTH} are not drawn.`);
   }
   return { roots, warnings: [...new Set(warnings)] };
+}
+
+/**
+ * A tree from Parent | Child edges: one box per label anywhere in the table, so each box keeps one numeral. A child
+ * with a second parent stays under its first (a tree cannot draw both; said); a box listed as its own child is
+ * skipped; a loop (A → B → A) is refused by name — a hierarchy cannot loop. Separate trees only when the edges are
+ * truly disconnected.
+ */
+function buildTreeFromEdges(edges: Array<[string, string]>, warnings: string[]): { roots: TreeNode[]; warnings: string[] } {
+  const nodes = new Map<string, TreeNode>();
+  const order: string[] = [];
+  const parentOf = new Map<string, string>();
+  const get = (label: string): TreeNode => {
+    let n = nodes.get(label);
+    if (!n) {
+      n = { label, children: [] };
+      nodes.set(label, n);
+      order.push(label);
+    }
+    return n;
+  };
+  for (const [p, c] of edges) {
+    if (p === c) {
+      get(p);
+      warnings.push(`“${p} | ${c}” is skipped — a box cannot be its own child.`);
+      continue;
+    }
+    const had = parentOf.get(c);
+    if (had !== undefined) {
+      get(p);
+      if (had !== p) warnings.push(`“${c}” has two parents (${had} and ${p}) — a tree shows it under ${had} only.`);
+      continue;
+    }
+    // A loop: c is already p or one of p's ancestors. The walk is bounded by the number of boxes.
+    const loop: string[] = [p];
+    for (let a = parentOf.get(p), k = 0; a !== undefined && k <= nodes.size; a = parentOf.get(a), k++) {
+      loop.push(a);
+      if (a === c) break;
+    }
+    if (loop[loop.length - 1] === c) {
+      const cycle = [...loop].reverse(); // c … p, then back to c
+      return { roots: [], warnings: [...new Set([...warnings, `The Parent | Child rows form a loop (${[...cycle, c].join(" → ")}) — a hierarchy cannot loop, so nothing is drawn.`])] };
+    }
+    get(p).children.push(get(c));
+    parentOf.set(c, p);
+  }
+  const roots = order.filter((l) => !parentOf.has(l)).map((l) => nodes.get(l)!);
+  // Deeper than the drawing allows: cut there, said once.
+  const cut = (n: TreeNode, depth: number): TreeNode => {
+    if (depth >= MAX_DEPTH && n.children.length) {
+      warnings.push(`Levels beyond ${MAX_DEPTH} are not drawn.`);
+      return { label: n.label, children: [] };
+    }
+    return { label: n.label, children: n.children.map((ch) => cut(ch, depth + 1)) };
+  };
+  return { roots: roots.map((r) => cut(r, 1)), warnings: [...new Set(warnings)] };
 }
 
 export function countLeaves(n: TreeNode): number {

@@ -186,38 +186,45 @@ export function drawSchematic(input: string, opts: DiagramOptions = {}): Diagram
       out.push(`<circle cx="${f(X(gx))}" cy="${f(Y(gy))}" r="3" fill="#000"/>`);
     }
   }
-  // Designator labels that collide (parts too close together) are said: lettering is never shrunk to make room.
-  const boxes: Array<{ ref: string; b: [number, number, number, number] }> = [];
-  for (const p of parts) {
-    if (p.kind === "wire" || p.kind === "ground" || p.kind === "label") continue;
+  // Designators, placed once and drawn from that place: the first spot clear of every OTHER part's symbol and of
+  // the designators already placed, else the usual spot and a note (fix2-cad: LED1 sat on the battery's "+", and
+  // only label against label was checked). Lettering is never shrunk to make room.
+  const hit = (a: Box, b: Box): boolean => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+  const glyphs = parts.map((p) => glyphBoxes(p, at));
+  const placedLabels: Array<{ ref: string; b: Box }> = [];
+  const allBoxes: Box[] = glyphs.flat();
+  parts.forEach((p, i) => {
+    if (p.kind === "wire" || p.kind === "ground" || p.kind === "supply" || p.kind === "label") return;
     const lab = p.value ? `${p.ref} ${p.value}` : p.ref;
-    const w = textW(lab);
-    if ((TWO as readonly string[]).includes(p.kind)) {
-      const [a, b] = [at(p.pts[0]), at(p.pts[1])];
-      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-      const half = p.kind === "vsource" || p.kind === "isource" ? Math.min(Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.6, 0.9 * U) / 2 : p.kind === "led" ? 28 : 14;
-      boxes.push({ ref: p.ref, b: Math.abs(b[1] - a[1]) > Math.abs(b[0] - a[0]) ? [mx + half + 8, my - FONT_PT * 0.7, w, FONT_PT] : [mx - w / 2, my - half - 8 - FONT_PT * 0.75, w, FONT_PT] });
+    const spots = labelSpots(p, at);
+    const clashes = (b0: Box): { glyph: string | null; label: string | null } => {
+      // A little air between a label and any line.
+      const b: Box = [b0[0] - 1.5, b0[1] - 1.5, b0[2] + 3, b0[3] + 3];
+      return {
+      glyph: parts.find((q, j) => j !== i && glyphs[j].some((g) => hit(b, g)))?.ref ?? null,
+      label: placedLabels.find((l) => hit(b, l.b))?.ref ?? null,
+      };
+    };
+    let spot = spots.find((s) => {
+      const c = clashes(spotBox(s, lab));
+      return !c.glyph && !c.label;
+    });
+    if (!spot) {
+      spot = spots[0];
+      const c = clashes(spotBox(spot, lab));
+      if (c.label) notes.push(`The labels of ${c.label} and ${p.ref} overlap — place the parts further apart.`);
+      else if (c.glyph !== null) notes.push(`The label of ${p.ref} overlaps ${c.glyph ? `the symbol of ${c.glyph}` : "a wire"} — place the parts further apart.`);
     }
-  }
-  for (let i = 0; i < boxes.length; i++) {
-    for (let j = i + 1; j < boxes.length; j++) {
-      const a = boxes[i].b, b = boxes[j].b;
-      if (a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]) notes.push(`The labels of ${boxes[i].ref} and ${boxes[j].ref} overlap — place the parts further apart.`);
-    }
-  }
-  // Labels to the right of a part may reach past the grid: the figure is as wide as what is drawn.
-  let reach = (maxX - minX) * U;
-  for (const p of parts) {
-    if (p.kind === "wire") continue;
-    const lab = p.kind === "label" ? p.ref : p.value ? `${p.ref} ${p.value}` : p.ref;
-    if ((TWO as readonly string[]).includes(p.kind)) {
-      const [a, b] = [at(p.pts[0]), at(p.pts[1])];
-      if (Math.abs(b[1] - a[1]) > Math.abs(b[0] - a[0])) reach = Math.max(reach, (a[0] + b[0]) / 2 + 30 + 8 + textW(lab));
-      else reach = Math.max(reach, (a[0] + b[0]) / 2 + textW(lab) / 2);
-    } else if (p.kind === "label") reach = Math.max(reach, at(p.pts[0])[0] + 6 + textW(lab));
-    else if (p.kind !== "ground") reach = Math.max(reach, at(p.pts[0])[0] + U * 0.6 + 6 + textW(lab));
-  }
-  const fin = finishFigure(out.join(""), reach + 4, (maxY - minY) * U, opts, notes);
+    const b = spotBox(spot, lab);
+    placedLabels.push({ ref: p.ref, b });
+    allBoxes.push(b);
+    out.push(text(spot.x, spot.y, lab, spot.anchor === "middle" ? {} : { anchor: spot.anchor }));
+  });
+  // The figure is as wide as what is drawn: a label may reach past the grid on either side.
+  const left = Math.min(0, ...allBoxes.map((b) => b[0] - 2));
+  const reach = Math.max((maxX - minX) * U, ...allBoxes.map((b) => b[0] + b[2])) - left;
+  const content = left < 0 ? `<g transform="translate(${f(-left)},0)">${out.join("")}</g>` : out.join("");
+  const fin = finishFigure(content, reach + 4, (maxY - minY) * U, opts, notes);
   return { ok: true, svg: fin.svg, widthPt: fin.widthPt, heightPt: fin.heightPt, notes, numerals: parts.map((p) => p.numeral).filter((x): x is string => !!x) };
 }
 
@@ -288,12 +295,119 @@ function twoTerminal(p: Part, a: P, b: P): string {
       out.push(line(...pt(0, 0), ...pt(0.15, 0)), line(...pt(0.85, 0), ...pt(1, 0)), `<circle cx="${f(pt(0.15, 0)[0])}" cy="${f(pt(0.15, 0)[1])}" r="2.5" fill="#fff" stroke="#000"/>`, `<circle cx="${f(pt(0.85, 0)[0])}" cy="${f(pt(0.85, 0)[1])}" r="2.5" fill="#fff" stroke="#000"/>`, line(...pt(0.15, 0), ...pt(0.8, -14)));
       break;
   }
-  // Designator and value beside the body, clear of it: above a horizontal part, right of a vertical one.
-  const half = p.kind === "vsource" || p.kind === "isource" ? body / 2 : p.kind === "led" ? 28 : 14;
-  const label = p.value ? `${p.ref} ${p.value}` : p.ref;
-  if (Math.abs(uy) > Math.abs(ux)) out.push(text(m[0] + half + 8, m[1] + FONT_PT * 0.35, label, { anchor: "start" }));
-  else out.push(text(m[0], m[1] - half - 8, label));
   return out.join("");
+}
+
+/** A label's place: x, baseline y, anchor. */
+type Spot = { x: number; y: number; anchor: "start" | "middle" | "end" };
+/** A box: x, y (top), w, h, in points. */
+type Box = [number, number, number, number];
+
+/** Where a part's designator may go, best first: the first is where it always went. */
+function labelSpots(p: Part, at: (q: P) => P): Spot[] {
+  if ((TWO as readonly string[]).includes(p.kind)) {
+    const [a, b] = [at(p.pts[0]), at(p.pts[1])];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const body = Math.min(len * 0.6, 0.9 * U);
+    const m: P = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const half = p.kind === "vsource" || p.kind === "isource" ? body / 2 : p.kind === "led" ? 28 : 14;
+    if (Math.abs(b[1] - a[1]) > Math.abs(b[0] - a[0])) {
+      // Right of a vertical part; else left of it; else right, a line lower or higher.
+      const y = m[1] + FONT_PT * 0.35;
+      return [
+        { x: m[0] + half + 8, y, anchor: "start" },
+        { x: m[0] - half - 8, y, anchor: "end" },
+        { x: m[0] + half + 8, y: y + FONT_PT * 1.3, anchor: "start" },
+        { x: m[0] + half + 8, y: y - FONT_PT * 1.3, anchor: "start" },
+      ];
+    }
+    // Above a horizontal part; else below it.
+    return [
+      { x: m[0], y: m[1] - half - 8, anchor: "middle" },
+      { x: m[0], y: m[1] + half + 8 + FONT_PT * 0.75, anchor: "middle" },
+    ];
+  }
+  const [x, y] = at(p.pts[0]);
+  // Transistors and op-amps: up and to the right of the body; else down and right; else to the left.
+  return [
+    { x: x + U * 0.6 + 6, y: y - U * 0.5, anchor: "start" },
+    { x: x + U * 0.6 + 6, y: y + U * 0.5 + FONT_PT * 0.75, anchor: "start" },
+    { x: x - U - 6, y: y - U * 0.5, anchor: "end" },
+  ];
+}
+
+/** The box a line of text takes at a spot. */
+function spotBox(s: Spot, t: string): Box {
+  const w = textW(t);
+  const x = s.anchor === "start" ? s.x : s.anchor === "end" ? s.x - w : s.x - w / 2;
+  return [x, s.y - FONT_PT * 0.8, w, FONT_PT * 1.05];
+}
+
+/** What a part's symbol covers (its body, plates, arrows and signs — not its straight leads), in points. */
+function glyphBoxes(p: Part, at: (q: P) => P): Box[] {
+  const bbox = (ps: P[]): Box => {
+    const xs = ps.map((q) => q[0]), ys = ps.map((q) => q[1]);
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+  };
+  if (p.kind === "wire") {
+    // Each straight run of the wire, as a thin box.
+    return p.pts.slice(0, -1).map((q, k) => {
+      const box = bbox([at(q), at(p.pts[k + 1])]);
+      return [box[0] - 1.5, box[1] - 1.5, box[2] + 3, box[3] + 3] as Box;
+    });
+  }
+  if (p.kind === "label") {
+    const [x, y] = at(p.pts[0]);
+    return [[x - 3, y - 3, 6, 6], spotBox({ x: x + 6, y: y - 6, anchor: "start" }, p.ref)];
+  }
+  if ((TWO as readonly string[]).includes(p.kind)) {
+    const [a, b] = [at(p.pts[0]), at(p.pts[1])];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+    const body = Math.min(len * 0.6, 0.9 * U);
+    const m: P = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const s: P = [m[0] - (ux * body) / 2, m[1] - (uy * body) / 2];
+    const pt = (t: number, o: number): P => [s[0] + ux * body * t + nx * o, s[1] + uy * body * t + ny * o];
+    const span = (t0: number, t1: number, o0: number, o1: number): Box => bbox([pt(t0, o0), pt(t1, o0), pt(t0, o1), pt(t1, o1)]);
+    // The leads, end to end (a label on a lead reads as part of the circuit).
+    const lead = bbox([a, b]);
+    const leads: Box = [lead[0] - 1.5, lead[1] - 1.5, lead[2] + 3, lead[3] + 3];
+    return [leads, ...symbolBoxes()];
+    function symbolBoxes(): Box[] {
+    switch (p.kind) {
+      case "resistor": return [span(0, 1, -7, 7)];
+      case "fuse": return [span(0, 1, -5, 5)];
+      case "capacitor": return [span(0.42, 0.58, -12, 12)];
+      case "battery": {
+        // The plates, and the "+" drawn beside the long one.
+        const plus = pt(0.3, 20);
+        return [span(0.42, 0.58, -13, 13), [plus[0] - FONT_PT * 0.35, plus[1] - FONT_PT * 0.75, FONT_PT * 0.7, FONT_PT * 0.85]];
+      }
+      case "inductor": return [span(0, 1, -11, 0)];
+      case "diode": return [span(0.25, 0.75, -10, 10)];
+      case "led": return [span(0.25, 0.75, -10, 10), span(0.4, 0.8, -26, -14)];
+      case "vsource":
+      case "isource": return [span(0, 1, -body / 2, body / 2)];
+      case "switch": return [span(0.15, 0.85, -14, 2)];
+    }
+    return [];
+    }
+  }
+  const [x, y] = at(p.pts[0]);
+  switch (p.kind) {
+    case "ground": return [[x - 12, y, 24, 20]];
+    case "supply": {
+      const half = Math.max(10, textW(p.value || p.ref) / 2);
+      return [[x - half, y - 18 - FONT_PT * 0.8, 2 * half, 18 + FONT_PT * 0.8]];
+    }
+    case "npn":
+    case "pnp": return [[x - U, y - U, U * 1.62 - 4, U * 2]];
+    case "nmos":
+    case "pmos": return [[x - U - 2, y - U, U + 4, U * 2]];
+    case "opamp": return [[x - U * 1.5, y - U, U * 3, U * 2]];
+  }
+  return [];
 }
 
 /** A symbol at one point: ground, supply, transistors, an op-amp (pins as in pins()). */
@@ -335,8 +449,6 @@ function atSymbol(p: Part, c: P): string {
       break;
     }
   }
-  // Ground needs no designator; transistors and op-amps carry theirs beside the body.
-  if (p.kind !== "ground") out.push(text(x + U * 0.6 + 6, y - U * 0.5, p.value ? `${p.ref} ${p.value}` : p.ref, { anchor: "start" }));
-  void textW;
+  // Ground needs no designator; transistors and op-amps carry theirs beside the body, placed by drawSchematic.
   return out.join("");
 }

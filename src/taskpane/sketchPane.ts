@@ -24,7 +24,7 @@ import {
   formatDimension,
   dimensionFor,
 } from "../lib/sketchEdit";
-import { Snapped, fmt, gridLabel, gridStep, liveSize, parseTyped, placeTyped, promptFor, snapCursor, typedFields } from "../lib/sketchInput";
+import { AMBIGUOUS_COMMA, Snapped, decimalComma, fmt, gridLabel, gridStep, liveSize, parseTyped, placeTyped, promptFor, snapCursor, typedFields } from "../lib/sketchInput";
 import { measure } from "../lib/sketch";
 import { SketchView, frameSketch, sketchOps, toSketch } from "../lib/sketchRender";
 import { SketchOp, sketchBody } from "../lib/sketchDoc";
@@ -70,7 +70,10 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
 
   /** A number typed in the value box (comma decimal accepted; sign allowed), or null. */
   const valueBox = (allowR = false, allowDeg = false): number | null => {
-    let t = dimIn.value.trim().replace(",", ".").replace(allowDeg ? /\s*(°|º|deg)$/i : /(mm)$/i, "");
+    // "1,000" (a thousand, or 1.000?) is no number here: decimalComma refuses the guess.
+    const dc = decimalComma(dimIn.value.trim());
+    if (dc === null) return null;
+    let t = dc.replace(allowDeg ? /\s*(°|º|deg)$/i : /(mm)$/i, "");
     if (allowR) t = t.replace(/^(R|r)/, "");
     // A Ø (a diameter) is not a radius or a distance: refused rather than stripped.
     return /^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null;
@@ -99,7 +102,10 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   onClick("cad-sketch-mirror", () => apply(mirror(st)));
   onClick("cad-sketch-pattern", () => {
     // dx, or dx and dy, separated by a space or ";" — a comma is a decimal ("2,5" = 2.5).
-    const parts = dimIn.value.trim().split(/[;\s]+/).filter(Boolean).map((t) => Number(t.replace(",", ".")));
+    const parts = dimIn.value.trim().split(/[;\s]+/).filter(Boolean).map((t) => {
+      const d = decimalComma(t); // "1,000" is refused, not read as 1
+      return d === null ? NaN : Number(d);
+    });
     const [dx, dy] = parts.length >= 2 ? parts : [parts[0], 0];
     if (!Number.isFinite(dx) || !Number.isFinite(dy ?? 0)) return say("Type the spacing in the value box: dx, or dx and dy with a space between (for example 20, or 0 15).", true);
     apply(linearPattern(st, Number(countIn?.value ?? 3), dx, dy ?? 0));
@@ -689,8 +695,11 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
 
   // Done: the sketch must make a solid.
   doneBtn.addEventListener("click", () => {
-    const op: SketchOp = opSel.value === "revolve" ? { kind: "revolve", axis: axis ?? "" } : { kind: "extrude", depth: Number(depthIn.value.replace(",", ".")) };
+    // "1,000" is refused by name (a thousand, or 1.000?) rather than read as 1.
+    const depthText = decimalComma(depthIn.value.trim());
+    const op: SketchOp = opSel.value === "revolve" ? { kind: "revolve", axis: axis ?? "" } : { kind: "extrude", depth: depthText === null ? NaN : Number(depthText) };
     if (op.kind === "revolve" && !axis) return say("Select the line to revolve about, then choose Revolve.", true);
+    if (op.kind === "extrude" && depthText === null) return say(`Depth: ${AMBIGUOUS_COMMA(depthIn.value)}.`, true);
     const r = sketchBody(st.sketch, op);
     if (!r.ok) return say(r.reason, true);
     open = false;

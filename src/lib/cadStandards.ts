@@ -22,6 +22,9 @@
  */
 import { CAP_HEIGHT_EM, FONT_STACK_SANS, USPTO_REQUIRED_FONT_PT, ptToMm } from "./figureStyle";
 
+/** USPTO view numbers (FIG. labels) over reference numerals: 1.84(u)(2) asks for larger; diagramCore draws 1.6×. */
+export const USPTO_VIEW_NUMBER_RATIO = 1.6;
+
 /** The font size (pt) whose CAPITALS are `mm` tall in Arial, the worst member of the sans stack. */
 export function capMmToPt(mm: number): number {
   return mm / ptToMm(1) / CAP_HEIGHT_EM.arial;
@@ -59,8 +62,6 @@ export interface DrawingStandard {
   areaMm: { w: number; h: number };
   /** Draw the projection symbol (first/third angle) on the sheet. */
   projectionSymbol: boolean;
-  /** The figure-style preset the insert goes through (uspto = 1.84 checks enforced). */
-  figurePreset: "uspto" | "asdrawn";
   /**
    * Snap the drawing scale DOWN to a standard ratio (ISO 5455: 1:1, 1:2, 1:5,
    * 1:10 … and 2:1, 5:1, 10:1 …) and state it on the sheet. Engineering
@@ -108,7 +109,6 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     callouts: "balloon",
     areaMm: { w: 254, h: 178 }, // PRODUCT: ANSI A (11 × 8.5 in) landscape inside a border
     projectionSymbol: true,
-    figurePreset: "asdrawn",
     standardScale: true,
   },
   iso: {
@@ -133,7 +133,6 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     // (Sheet: A4 gives that framed sheet); see docs/DRAFTING-STANDARDS-REFERENCE.md.
     areaMm: { w: 267, h: 180 },
     projectionSymbol: true,
-    figurePreset: "asdrawn",
     standardScale: true,
   },
   uspto: {
@@ -151,12 +150,14 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     dash: [10, 4],
     font: FONT_STACK_SANS,
     textPt: USPTO_REQUIRED_FONT_PT, // 3.2 mm + the 10 % margin the USPTO figure style requires
-    headingPt: USPTO_REQUIRED_FONT_PT, // FIG. labels are characters too: the same 1.84(p)(3) floor
+    // 1.84(u)(2): "View numbers must be larger than the numbers used for reference characters." FIG. labels and the
+    // view numbers at a section's cutting line are 1.6 × the numerals, the ratio the diagram figures use
+    // (diagramCore: FIG. at 22.4 pt over 14 pt numerals).
+    headingPt: USPTO_REQUIRED_FONT_PT * USPTO_VIEW_NUMBER_RATIO,
     viewLabels: "fig",
     callouts: "leader",
     areaMm: { w: 170, h: 244 },
     projectionSymbol: false,
-    figurePreset: "uspto",
     standardScale: false, // 1.84(k): a scale is not to be indicated on patent drawings
   },
   journal: {
@@ -176,7 +177,6 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     callouts: "leader",
     areaMm: { w: 180, h: 200 },
     projectionSymbol: false,
-    figurePreset: "asdrawn",
     standardScale: false,
   },
   plain: {
@@ -196,7 +196,6 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     callouts: "leader",
     areaMm: { w: 170, h: 170 },
     projectionSymbol: false,
-    figurePreset: "asdrawn",
     standardScale: false,
   },
 };

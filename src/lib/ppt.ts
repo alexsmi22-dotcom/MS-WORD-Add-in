@@ -236,7 +236,9 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
     const data = source.map((s) => ({
       name: s.name,
       labels: chart.categories,
-      values: s.values.map((v) => v ?? 0),
+      // A blank cell stays blank (fix2-cad: it was plotted as 0, a measurement nobody made). pptxgenjs writes it as an
+      // empty point and the chart says dispBlanksAs="gap" below, so PowerPoint leaves a gap there.
+      values: s.values.map((v) => v ?? null) as unknown as number[],
     }));
 
     // A HEAT MAP HAS NO NATIVE POWERPOINT CHART TYPE, and there is no "closest fit"
@@ -278,6 +280,8 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
       barDir: kind === "bar" || kind === "stacked-bar" ? "bar" : "col",
       ...(isStacked ? { barGrouping: "stacked" as const } : {}),
       chartColors: PPT_COLORS,
+      // pptxgenjs defaults to "span", which joins a line straight across a blank and hides it.
+      displayBlanksAs: "gap",
       showLegend: pie || chart.series.length > 1,
       legendPos: "b",
       showTitle: false,

@@ -245,6 +245,12 @@ export function layoutFlow(kind: FlowKind, graph: FlowGraph, opts: DiagramOption
     const lanes = Math.max(1, ...pairs.values(), new Set(graph.edges.filter((e) => e.to === node.id && e.from !== node.id).map((e) => e.from)).size);
     const rx = node.shape === "start" || node.shape === "end" ? h / 2 : node.shape === "state" ? 10 : 0;
     if (node.shape !== "diamond") w = Math.max(w, 2 * rx + (lanes - 1) * 14 + 12);
+    // Arrows to several targets may each leave from their own point on the flat bottom, 14 pt apart either side of
+    // the centre, two steps either way past an entry point (fix2-cad: see the stems below), inside the rounded corners.
+    const outs = new Set(graph.edges.filter((e) => e.from === node.id && e.to !== node.id).map((e) => e.to)).size;
+    // State diagrams only: their boxes are small and every transition is its own arrow. Block and flowchart boxes
+    // fan out on one shared bus (and are wide with their text), so they are not widened.
+    if (kind === "state" && node.shape === "state" && outs > 1) w = Math.max(w, 2 * (rx + 4 + 14 * outs));
     return { node, lines, x: 0, y: 0, w, h, layer: layer[i] };
   });
 
@@ -442,6 +448,57 @@ export function layoutFlow(kind: FlowKind, graph: FlowGraph, opts: DiagramOption
         p.tx = x;
         if (!p.trackKey) p.trackKey = `src:${p.u}`;
       });
+    }
+  }
+  // Two edges leaving one box's bottom at the same point ran down one line until they parted, and a label on either
+  // read as belonging to both (fix2-cad: "C -> A : reset" and "C -> [*]" from a box whose right side was taken by a
+  // self-loop). Each stem — an edge with its own track, a straight drop, or one fan-out bus — leaves from its own
+  // point: the first keeps its place, the others step 14 pt aside along the flat bottom (toward where they go first), clear of
+  // the arrows' entry points (worked out just above).
+  const stems = new Map<number, Map<string, number[]>>();
+  plans.forEach((p, k) => {
+    if (p.kind !== "down" || p.side || placed[p.u].node.shape === "diamond" || portY(p.u, k, "out") !== null) return;
+    const key = p.trackKey && p.trackKey.startsWith("src:") ? p.trackKey : `own:${k}`;
+    const m = stems.get(p.u) ?? new Map<string, number[]>();
+    m.set(key, [...(m.get(key) ?? []), k]);
+    stems.set(p.u, m);
+  });
+  for (const [u, byKey] of stems) {
+    if (byKey.size < 2) continue;
+    const a = placed[u];
+    const lo = a.x + cornerR(a) + 4, hi = a.x + a.w - cornerR(a) - 4;
+    // Straight drops first (they hold their target's centre), then in plan order.
+    const groups = [...byKey.values()].sort((m, n) => Number(!!(plans[m[0]] as Down).trackKey) - Number(!!(plans[n[0]] as Down).trackKey) || m[0] - n[0]);
+    const taken: number[] = [];
+    for (const g of groups) {
+      const sx0 = (plans[g[0]] as Down).sx;
+      // Clear of this box's other stems and of every arrow's entry point (an entry into the box below runs up the same
+      // gap: a stem moved onto it would share its line).
+      const clash = (x: number): boolean => taken.some((t) => Math.abs(t - x) < 10);
+      const entryAt = (x: number): boolean => plans.some((q, k) => q.kind === "down" && !g.includes(k) && Math.abs(q.tx - x) < 10);
+      let sx = sx0;
+      if (clash(sx)) {
+        const tries: number[] = [];
+        // Toward where the arrow goes first (a channel lies to the right), so its run never crosses its siblings.
+        const head = plans[g[0]] as Down;
+        const d = head.viaChannel || head.tx >= sx0 ? 1 : -1;
+        for (let j = 1; j <= 8; j++) tries.push(sx0 + d * 14 * j);
+        for (let j = 1; j <= 8; j++) tries.push(sx0 - d * 14 * j);
+        const free = tries.find((x) => x >= lo && x <= hi && !clash(x) && !entryAt(x)) ?? tries.find((x) => x >= lo && x <= hi && !clash(x));
+        if (free === undefined) {
+          taken.push(sx0);
+          continue;
+        }
+        sx = free;
+      }
+      taken.push(sx);
+      if (sx === sx0) continue;
+      for (const k of g) {
+        const p = plans[k] as Down;
+        p.sx = sx;
+        // No longer a straight drop: it takes a track of its own.
+        if (!p.trackKey) p.trackKey = `edge:${k}`;
+      }
     }
   }
   // Tracks per gap: gap a.layer for the run out of the source; gap b.layer−1 for the run into the target (channels).

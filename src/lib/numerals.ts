@@ -58,11 +58,16 @@ export interface NumeralFindings {
 // "(12 and 14)", "(12, 14, and 16)"; each is a callout (they were reported
 // "never called out"). Group 1 is the whole list; at most 20 members, and the
 // separators hold no digit, so the scan is linear.
-const SUB = "[A-Za-z'’′]?";
+// fix2-cad: a double prime "(12″)" is a sub-part callout too, and a RANGE "(30-34)" / "(30–34)" (Word's AutoCorrect
+// makes the en dash) calls out its two ends — and any numeral of the table between them.
+const SUB = "[A-Za-z'’′″]?";
 // Each separator has ONE way to match its spaces (an optional "\s*" on both
 // sides of an optional word split the same spaces two ways: 2²⁰ tries on an
-// unclosed "(12, 12, …").
-const CALLOUT_SEP = "(?:\\s*,\\s*(?:(?:and|or|&)\\s*)?|\\s*(?:and|or|&)\\s*)";
+// unclosed "(12, 12, …"). Every alternative starts "\s*" and then needs a
+// different character, so the spaces are still read one way.
+const CALLOUT_SEP = "(?:\\s*,\\s*(?:(?:and|or|&)\\s*)?|\\s*(?:and|or|&)\\s*|\\s*[-–]\\s*)";
+/** One member of a callout list: a numeral, or a range "30-34" / "30–34". */
+const CALLOUT_MEMBER = /(\d+)[A-Za-z'’′″]?(?:\s*[-–]\s*(\d+)[A-Za-z'’′″]?)?/g;
 const CALLOUT_RE = new RegExp(`\\((\\d+${SUB}(?:${CALLOUT_SEP}\\d+${SUB}){0,20})\\)`, "g");
 
 /**
@@ -158,7 +163,15 @@ export function extractNumerals(documentText: string, known?: number[]): number[
   // reported all three as "defined but never called out".
   const knownSet = new Set(known ?? []);
   while ((m = CALLOUT_RE.exec(documentText)) !== null) {
-    const members = m[1].match(/\d+/g) ?? [];
+    const members: string[] = [];
+    for (const mm of m[1].matchAll(CALLOUT_MEMBER)) {
+      members.push(mm[1]);
+      if (mm[2] === undefined) continue;
+      members.push(mm[2]);
+      // The table's numerals inside the range are called out by it too.
+      const a = parseInt(mm[1], 10), b = parseInt(mm[2], 10);
+      if (a < b) for (const k of knownSet) if (k > a && k < b) members.push(String(k));
+    }
     for (const raw of members) {
       const n = parseInt(raw, 10);
       // "twenty (20) minutes", "thirty (30) days": a spelled-out number with its
@@ -172,9 +185,30 @@ export function extractNumerals(documentText: string, known?: number[]): number[
   return Array.from(seen).sort((a, b) => a - b);
 }
 
-/** A real reference numeral: a positive whole number (a cleared box is 0/NaN). */
+/**
+ * The largest reference numeral: five digits, as the figure builders read them (diagramCore.NUMERAL). A numeral
+ * past it (a damaged setting, "1e20" typed into the box) is no numeral — counting on from 2⁵³ never moves.
+ */
+export const MAX_NUMERAL = 99999;
+
+/** A real reference numeral: a positive whole number up to MAX_NUMERAL (a cleared box is 0/NaN). */
+export function isValidNumeral(n: number): boolean {
+  return Number.isInteger(n) && n > 0 && n <= MAX_NUMERAL;
+}
+
+/**
+ * The Numerals table's numeral box as a number: digits only, 1 to MAX_NUMERAL; anything else (blank, "1e20",
+ * "12.5", 100000) is 0, the cleared box.
+ */
+export function parseNumeralInput(raw: string): number {
+  const t = raw.trim();
+  if (!/^\d{1,5}$/.test(t)) return 0;
+  const n = Number(t);
+  return isValidNumeral(n) ? n : 0;
+}
+
 function hasNumeral(e: NumeralEntry): boolean {
-  return Number.isInteger(e.numeral) && e.numeral > 0;
+  return isValidNumeral(e.numeral);
 }
 
 function normalize(element: string): string {
@@ -326,7 +360,9 @@ export function suggestNextNumeral(entries: NumeralEntry[]): number {
   if (!nums.length) return 10;
   const max = nums[nums.length - 1];
   const allEven = nums.every((n) => n % 2 === 0);
-  return max + (allEven ? 2 : 1);
+  const next = max + (allEven ? 2 : 1);
+  // At the five-digit cap the next numeral is found by nextFreeNumeral's search, from 10.
+  return next <= MAX_NUMERAL ? next : 10;
 }
 
 /**

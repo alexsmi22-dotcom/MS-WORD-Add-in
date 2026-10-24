@@ -401,12 +401,31 @@ export function formatDimension(c: SConstraint, value = "value" in c ? c.value :
 }
 
 /**
+ * A comma decimal ("2,5" → "2.5"), or null when the comma could as well group thousands: one comma followed by
+ * exactly three digits ("1,000" — one thousand, or 1.000 mm?). The decimal-comma rule of the Table→Chart reader
+ * (tablechart.parseNumberCell) reads "1,000" as a thousand; a DIMENSION cannot guess, so it is refused by name.
+ * Whitespace is left as it is (the callers strip what they allow).
+ */
+export function decimalComma(t: string): string | null {
+  if (/^[^,]*\d,\d{3}(?!\d)[^,]*$/.test(t) && !/\./.test(t)) return null;
+  return t.replace(",", ".");
+}
+
+/** Why a typed size with an ambiguous comma is refused. */
+export const AMBIGUOUS_COMMA = (text: string): string => {
+  const t = text.trim();
+  return `"${t}" is ambiguous — type ${t.replace(",", "")} for a thousand, or ${t.replace(",", ".")} with a point`;
+};
+
+/**
  * A typed dimension value: accepts what is displayed ("Ø20", "R5", "45°") and the
  * plain number, a comma decimal ("2,5"), and an "mm" suffix; refuses a mismatched
  * prefix by name (an R on a diameter). Angles return radians.
  */
 export function parseDimension(text: string, kind: SConstraint["kind"]): number | string {
-  let t = text.trim().replace(/\s+/g, "").replace(",", ".");
+  const dc = decimalComma(text.trim().replace(/\s+/g, ""));
+  if (dc === null) return AMBIGUOUS_COMMA(text);
+  let t = dc;
   if (!t) return "type a value";
   let prefix = "";
   const m = /^(Ø|⌀|ø|R|r)/.exec(t);

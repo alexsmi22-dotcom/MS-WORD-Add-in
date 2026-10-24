@@ -26,6 +26,7 @@ import type { Mesh, Vec3 } from "./cadModel";
 import { baryIn, drawLines, LineBudget, lineBudget, LineDrawing, LineWorkExceeded, spendBudget, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
 import { DRAWING_STANDARDS, DrawingStandard, StandardId, STANDARD_SCALES, snapScale, scaleLabel } from "./cadStandards";
 import { ptToMm } from "./figureStyle";
+import { textWidthPt } from "./arialMetrics";
 import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues } from "./cadFormats";
 import { LineType, lineTypesFor, strokeAttrs } from "./cadLineTypes";
 import { markSvg, marksExtent, SheetMark } from "./cadMarks";
@@ -781,7 +782,15 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     );
   let needMm = needOf();
   // (A detail's scale is not known yet: room for the longest, "10:1" or "1:200".)
-  const titleMm = cols.map((c) => (titlesOn ? Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => (Math.max(...labelOf(it).split("\n").map((l) => l.length)) + (it.spec.kind === "detail" ? 3 : 0)) * 0.62 * headingMm)) : 0));
+  // A "FIG. n" title is measured in Arial (+10 %), and may reach 4 mm into the gap or edge on each side of its column
+  // (every gap and edge is at least 10 / 6 mm, and the title row holds no callouts): set at 1.6 × the numerals
+  // (1.84(u)(2)), the 0.62 em-per-character estimate made a lone title a column of its own and refused long notes
+  // that fit before. Named titles keep the estimate (their sheets are pinned).
+  const titleW = (it: (typeof items)[number]): number =>
+    std.viewLabels === "fig"
+      ? Math.max(0, ptToMm(textWidthPt(labelOf(it), std.headingPt)) * 1.1 - 8)
+      : (Math.max(...labelOf(it).split("\n").map((l) => l.length)) + (it.spec.kind === "detail" ? 3 : 0)) * 0.62 * headingMm;
+  const titleMm = cols.map((c) => (titlesOn ? Math.max(0, ...items.filter((it) => it.cell[0] === c).map(titleW)) : 0));
 
   // Horizontal room: every gap between two views holds two callout columns,
   // an outer edge holds one. Vertical room needs only the view title.
@@ -961,6 +970,8 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     // The cutting line of each section taken from this view, arrows toward the direction of sight, each end named:
     // USPTO by the section's FIG number (1.84(h)(3): "numerals corresponding to the view number of the sectional
     // view"), ASME / ISO by its letter.
+    // Where the cutting-line names landed: a detail's tag keeps clear of them.
+    const cutBoxes: Array<[number, number, number, number]> = [];
     for (const sc of sections) {
       if (sc.spec.of !== viewKey(it.spec)) continue;
       const c = cuttingLine(drawingOf({ kind: sc.spec.of }).bounds, sc.spec);
@@ -969,7 +980,10 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       const cutting: LineType = { ...types.phantom, widthMm: types.visible.widthMm };
       layer.visible.push(`<path data-cutting="${esc(sc.spec.label)}" d="${path([c.line])}" ${strokeAttrs(cutting, PX_PER_MM)}/>`);
       const name = std.viewLabels === "fig" ? String(figOf.get(sc)) : sc.spec.label;
-      const nameW = name.length * fontPx * 0.62;
+      // A FIG number at the cutting line is a view number: 1.84(u)(2) wants it larger than the reference numerals,
+      // so it is set at the heading size, as the FIG. label it points to is.
+      const namePx = std.viewLabels === "fig" ? headingPx : fontPx;
+      const nameW = name.length * namePx * 0.62;
       // On paper the sight points (sx, −sy): the sheet's y runs down.
       const sx = c.sight[0], sy = -c.sight[1];
       const head = fontPx * 0.8, half = head * 0.35;
@@ -980,9 +994,12 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
         layer.visible.push(`<path data-arrow="${esc(sc.spec.label)}" d="M${fmt(ex0)} ${fmt(ey0)}L${fmt(bx)} ${fmt(by)}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
         layer.visible.push(`<path data-arrow="${esc(sc.spec.label)}" d="M${fmt(tx)} ${fmt(ty)}L${fmt(bx - sy * half)} ${fmt(by + sx * half)}L${fmt(bx + sy * half)} ${fmt(by - sx * half)}Z" fill="#000" stroke="none"/>`);
         // Beyond the arrow's point, kept inside the figure's cell.
-        const lx = Math.max(cellX + nameW / 2, Math.min(cellX + cw - nameW / 2, tx + sx * fontPx * 0.9));
-        const ly = Math.max(cellY + fontPx / 2, Math.min(cellY + chh - fontPx / 2, ty + sy * fontPx * 0.9));
-        layer.titles.push(`<text data-cutting-label="${esc(sc.spec.label)}" x="${fmt(lx)}" y="${fmt(ly)}" dy="0.35em" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">${esc(name)}</text>`);
+        const lx = Math.max(cellX + nameW / 2, Math.min(cellX + cw - nameW / 2, tx + sx * namePx * 0.9));
+        // Its centre may reach the cell's foot (its lower half then lies in the title row's top gap, clear of the
+        // title): a heading-size view number held wholly inside the cell was pulled up onto the part.
+        const ly = Math.max(cellY + namePx / 2, Math.min(cellY + chh - (std.viewLabels === "fig" ? 0 : namePx / 2), ty + sy * namePx * 0.9));
+        cutBoxes.push([lx - nameW / 2, ly - namePx / 2, nameW, namePx]);
+        layer.titles.push(`<text data-cutting-label="${esc(sc.spec.label)}" x="${fmt(lx)}" y="${fmt(ly)}" dy="0.35em" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(namePx)}" fill="#000">${esc(name)}</text>`);
       }
     }
     // The circle of each detail taken from this view, named as the detail is.
@@ -991,10 +1008,21 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       const [cx, cy] = dt.spec.at, rr = dt.spec.r;
       layer.visible.push(`<path d="${path([circlePolyline([cx, cy], rr)])}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
       const tag = std.viewLabels === "fig" ? `FIG. ${figOf.get(dt)}` : dt.spec.letter;
-      const tagW = tag.length * fontPx * 0.62;
-      const lx = Math.max(cellX, Math.min(cellX + cw - tagW, X(cx + rr * Math.SQRT1_2) + fontPx * 0.4));
-      const ly = Math.max(cellY + fontPx, Math.min(cellY + chh, Y(cy + rr * Math.SQRT1_2) - fontPx * 0.4));
-      layer.titles.push(`<text x="${fmt(lx)}" y="${fmt(ly)}" font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">${esc(tag)}</text>`);
+      // "FIG. n" at the circle is a view number too (1.84(u)(2)): heading size.
+      const tagPx = std.viewLabels === "fig" ? headingPx : fontPx;
+      const tagW = tag.length * tagPx * 0.62;
+      // Up and right of the circle; else down and right, up and left, down and left — the first clear of the
+      // cutting-line names (a heading-size "FIG. 4" ran into the section's "3").
+      const placeTag = (sx: number, sy: number): [number, number] => {
+        const ax = X(cx + sx * rr * Math.SQRT1_2), ay = Y(cy + sy * rr * Math.SQRT1_2);
+        const x0 = sx > 0 ? ax + tagPx * 0.4 : ax - tagPx * 0.4 - tagW;
+        const y0 = sy > 0 ? ay - tagPx * 0.4 : ay + tagPx * 1.1;
+        return [Math.max(cellX, Math.min(cellX + cw - tagW, x0)), Math.max(cellY + tagPx, Math.min(cellY + chh, y0))];
+      };
+      const clear = ([x, y]: [number, number]): boolean => !cutBoxes.some((b) => x < b[0] + b[2] && b[0] < x + tagW && y - tagPx * 0.8 < b[1] + b[3] && b[1] < y + tagPx * 0.2);
+      const tries = ([[1, 1], [1, -1], [-1, 1], [-1, -1]] as const).map(([sx, sy]) => placeTag(sx, sy));
+      const [lx, ly] = tries.find(clear) ?? tries[0];
+      layer.titles.push(`<text x="${fmt(lx)}" y="${fmt(ly)}" font-family="${esc(std.font)}" font-size="${fmt(tagPx)}" fill="#000">${esc(tag)}</text>`);
     }
     // 37 CFR 1.84(h)(1): an exploded view on a sheet with another figure is placed in brackets.
     if (it.spec.kind === "exploded" && o.standard === "uspto" && items.length > 1) {

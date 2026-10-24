@@ -143,7 +143,7 @@ describe("into Word, and out at true size", () => {
     const back = parseDoc(modelFromAlt(ins.alt)!);
     expect(back.ok && back.doc.sheet).toEqual({ size: "A3" });
   });
-  it("an unframed ASME drawing (254 mm wide) is fitted too; a patent drawing goes in as drawn", async () => {
+  it("an unframed ASME drawing (254 mm wide) is fitted too; a patent sheet wider than the column is fitted with its lettering kept ≥ 3.2 mm", async () => {
     const t = setup(starterDoc("asme"));
     await t.pane.insert();
     await flush();
@@ -152,7 +152,10 @@ describe("into Word, and out at true size", () => {
     const u = setup(starterDoc("uspto"));
     await u.pane.insert();
     await flush();
-    expect(u.inserted[0].alt).not.toContain("to fit the page");
+    // fix2-cad: the 170 mm USPTO sight overflowed Word's 159 mm column (A4, 1-inch margins); now fitted and said.
+    expect(u.inserted[0].w / PX).toBeLessThanOrEqual(159 + 0.1);
+    expect(u.inserted[0].alt).toMatch(/The patent sheet is inserted at \d+ % to fit the page's text column; its lettering stays at least 3\.2 mm high/);
+    expect(u.inserted[0].alt).not.toMatch(/SCALE/);
   });
   it("a title block field reading 'Model: …' does not break re-opening the drawing", async () => {
     const t = setup();

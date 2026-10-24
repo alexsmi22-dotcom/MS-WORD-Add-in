@@ -111,7 +111,8 @@ function fileTitle(t: string): string {
 export function yearOf(r: BibRecord): number | null {
   const y = r.issued?.["date-parts"]?.[0]?.[0];
   if (typeof y === "number" && Number.isFinite(y)) return y;
-  const m = /\b(\d{4})\b/.exec(r.issued?.literal ?? "");
+  // "2019a" (a year-suffixed clone) is 2019 too — \b failed between "9" and "a".
+  const m = /(?<!\d)(\d{4})(?!\d)/.exec(r.issued?.literal ?? "");
   return m ? Number(m[1]) : null;
 }
 

@@ -34,6 +34,9 @@ import {
   CHICAGO_SMALL_WORDS, escapeHtml, italicize, normalizeRich, plainOf, sentenceCase, titleCase,
 } from "./bibCase";
 import { journalTitle } from "./journalAbbrev";
+// The reference-list order itself (APA in-text order follows it, §8.12).
+// bibliography.ts imports only types from this side, so there is no cycle.
+import { alphabeticalOrder } from "./bibliography";
 
 // ======================================================================== refusals & info
 
@@ -912,6 +915,26 @@ function apaCiteNames(rec: BibRecord, narrative: boolean): string {
 
 function apaMarker(items: Array<{ rec: BibRecord; n?: number; item: CiteItem }>, opts?: { narrative?: boolean }): Formatted {
   const narrative = !!opts?.narrative;
+  // APA 7 §8.12: several works in one parenthetical citation are in the order
+  // they appear in the reference list, and works by the same authors are
+  // collapsed — "(Alpha, 2019a, 2019b; Mu, 2018; Zeta, 2020)" (fix2: they were
+  // in the order cited). Narrative citations, and a group carrying a prefix or
+  // suffix ("see …"), keep the writer's order.
+  if (!narrative && items.length > 1 && !items.some(({ item }) => item.prefix || item.suffix || item.suppressAuthor)) {
+    const order = alphabeticalOrder(items.map((x) => x.rec));
+    const rank = new Map<BibRecord, number>();
+    order.forEach((r, i) => rank.set(r, i));
+    const sorted = [...items].sort((a, b) => (rank.get(a.rec) ?? 0) - (rank.get(b.rec) ?? 0));
+    const groups: Array<{ names: string; bits: string[] }> = [];
+    for (const { rec, item } of sorted) {
+      const names = apaCiteNames(rec, false);
+      const bit = joinNonEmpty([yearOf(rec.issued) ?? "n.d.", locatorText(item, "apa")], ", ");
+      const last = groups[groups.length - 1];
+      if (last && last.names === names) last.bits.push(bit);
+      else groups.push({ names, bits: [bit] });
+    }
+    return out(esc(`(${groups.map((g) => joinNonEmpty([g.names, ...g.bits], ", ")).join("; ")})`));
+  }
   const parts = items.map(({ rec, item }) => {
     const year = yearOf(rec.issued) ?? "n.d.";
     const loc = locatorText(item, "apa");
@@ -1176,6 +1199,10 @@ export function referenceWarnings(id: StyleId, rec: BibRecord): string[] {
     w.push("No journal name in the record; the reference prints without one. Add the journal (container-title).");
   }
   if (!yearOf(rec.issued)) w.push("No year in the record.");
+  if (rec.type === "patent") {
+    if (!rec.number?.trim()) w.push("No patent number in the record; the reference prints without one. Add it (RIS PN, BibTeX number).");
+    if (!rec.authority?.trim()) w.push("No issuing country in the record (and none in the number's prefix); add it (e.g. US, EP, WO).");
+  }
   if (!STYLE_INFO[id]?.types.includes(rec.type)) {
     w.push(`${STYLE_INFO[id]?.name ?? id} does not format ${rec.type} references.`);
   }

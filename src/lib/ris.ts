@@ -193,14 +193,24 @@ function toRecord(rec: RawRecord, tyRaw: string): Omit<BibRecord, "id"> & { idHi
     if (sn && !ISBN_ISSN.test(sn)) out.number = sn;
   }
   if (ty === "PAT") {
-    const num = first(rec, "SN", "IS");
+    // PN is the patent-number tag several exporters write ("PN  - US7469381B2");
+    // it was dropped (fix2). Then SN (Zotero), M1 and IS (EndNote).
+    const num = first(rec, "PN", "SN", "M1", "IS");
     if (num) out.number = num;
-    const auth = first(rec, "A2", "C3");
+    // The issuing office: A2 / C3, else the number's own country prefix.
+    const auth = first(rec, "A2", "C3") ?? patentCountryOf(num);
     if (auth) out.authority = auth;
   }
   const id = first(rec, "ID");
   if (id) out.idHint = id;
   return out;
+}
+
+/** The issuing office from a patent number's WIPO ST.3 prefix ("US7469381B2",
+ *  "EP 1674995", "WO 2020/123456"), or undefined. */
+export function patentCountryOf(num: string | undefined): string | undefined {
+  const m = /^\s*(US|EP|WO|JP|CN|KR|DE|GB|FR|CA|AU|CH|NL|SE|IT|ES|IN|BR|RU|TW|IL|DK|AT|BE|FI|NO|NZ|MX|SG)(?=\s*[\d/A-Z])/i.exec(num ?? "");
+  return m ? m[1].toUpperCase() : undefined;
 }
 
 /** Family name + year, then a, b, … z, aa, ab … on collision. `next` remembers each base's counter. */

@@ -26,6 +26,7 @@ import { MAX_IMPORT_CHARS, lineIndex, nfcRecord, normalizePage, normalizeRichTex
 import { normalizeDoi } from "./doi";
 import { NameError, parseBibtexNameList, splitBibtexNames } from "./bibNames";
 import { latexToPlain, latexToRich } from "./latexUnicode";
+import { patentCountryOf } from "./ris";
 
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 const MONTH_MACROS: Record<string, string> = {};
@@ -498,7 +499,8 @@ function toRecord(e: RawEntry, fieldsIn: Map<string, string>): BibRecord {
   } else if (recType === "report" && typeField) rec.genre = typeField;
   if (recType === "patent") {
     const t = (typeField ?? "").toLowerCase();
-    const authority = PATENT_TYPES[t] ?? plain("nationality") ?? plain("location") ?? plain("address");
+    // …else the number's own country prefix: number = {US 7,469,381} is a US patent (fix2).
+    const authority = PATENT_TYPES[t] ?? plain("nationality") ?? plain("location") ?? plain("address") ?? patentCountryOf(number);
     if (authority) rec.authority = authority;
   }
 

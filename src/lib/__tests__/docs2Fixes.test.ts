@@ -364,3 +364,52 @@ describe("N. numerals: grouped callouts, curly primes, a cleared box", () => {
     for (const x of [s, t]) expect(ms(() => extractNumerals(x, [10, 12]))).toBeLessThan(100);
   });
 });
+
+// --- 6. APA 7 §8.12 in-text order ---------------------------------------------
+import { STYLES, referenceWarnings } from "../bibStyles";
+import { parseRis } from "../ris";
+import { parseBibtex } from "../bibtex";
+import type { BibRecord } from "../bibRecord";
+
+describe("6. APA parenthetical citations follow the reference-list order, same author collapsed", () => {
+  const rec = (id: string, family: string, issued: BibRecord["issued"], title: string): BibRecord => ({
+    id, type: "article-journal", title, author: [{ family, given: "A." }], issued, "container-title": "J",
+  });
+  it('"(Alpha, 2019a, 2019b; Mu, 2018; Zeta, 2020)"', () => {
+    const z = rec("z", "Zeta", { "date-parts": [[2020]] }, "Z");
+    const a2 = rec("a2", "Alpha", { literal: "2019b" }, "B");
+    const m = rec("m", "Mu", { "date-parts": [[2018]] }, "M");
+    const a1 = rec("a1", "Alpha", { literal: "2019a" }, "A");
+    const items = [z, a2, m, a1].map((r) => ({ rec: r, item: { id: r.id } }));
+    expect(STYLES.apa7!.marker(items).plain).toBe("(Alpha, 2019a, 2019b; Mu, 2018; Zeta, 2020)");
+  });
+  it("a same-author earlier year sorts first; a prefixed group keeps the writer's order", () => {
+    const a = rec("a", "Alpha", { "date-parts": [[2021]] }, "A");
+    const b = rec("b", "Alpha", { literal: "2019a" }, "B");
+    expect(STYLES.apa7!.marker([{ rec: a, item: { id: "a" } }, { rec: b, item: { id: "b" } }]).plain).toBe("(Alpha, 2019a, 2021)");
+    const z = rec("z", "Zeta", { "date-parts": [[2020]] }, "Z");
+    expect(STYLES.apa7!.marker([{ rec: z, item: { id: "z", prefix: "see" } }, { rec: a, item: { id: "a" } }]).plain).toBe("(see Zeta, 2020; Alpha, 2021)");
+  });
+});
+
+// --- 11. RIS / BibTeX patents --------------------------------------------------
+describe("11. patents keep their number and country", () => {
+  it("RIS PN is read; the country comes from the number's prefix", () => {
+    const r = parseRis("TY  - PAT\nAU  - Smith, John\nTI  - Water filter\nPN  - US7469381B2\nPY  - 2008\nER  - \n").records[0];
+    expect(r.number).toBe("US7469381B2");
+    expect(r.authority).toBe("US");
+    expect(referenceWarnings("vancouver", r).join(" ")).not.toMatch(/patent number|issuing country/);
+    const ep = parseRis("TY  - PAT\nTI  - X\nM1  - EP 1674995 A1\nPY  - 2006\nER  - \n").records[0];
+    expect(ep.authority).toBe("EP");
+  });
+  it("a patent with neither is warned about by name", () => {
+    const r = parseRis("TY  - PAT\nTI  - X\nPY  - 2006\nER  - \n").records[0];
+    const w = referenceWarnings("vancouver", r).join(" ");
+    expect(w).toMatch(/No patent number/);
+    expect(w).toMatch(/No issuing country/);
+  });
+  it("BibTeX number = {US 7,469,381} → country US", () => {
+    const r = parseBibtex("@patent{k, author = {Smith, John}, title = {Water filter}, number = {US 7,469,381}, year = {2008}}").records[0];
+    expect(r.authority).toBe("US");
+  });
+});

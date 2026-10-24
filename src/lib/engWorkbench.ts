@@ -446,10 +446,14 @@ export function runUncertainty(
     const v = inUnit(o, centreUnit);
     // An angle wraps (Euler angles, IK joint angles report −180° to 180°): a draw just past the seam is taken on the
     // centre's side, so 179° ± 2° spreads as 177° to 181°, not as 177° and −179°.
-    const period = ANGLE_PERIOD[centreUnit];
+    const period = unwrap ? ANGLE_PERIOD[centreUnit] : undefined;
     return v === null || period === undefined || centreValue === null ? v : centreValue + wrapHalf(v - centreValue, period);
   };
   let centreValue: number | null = null;
+  // Set after the first-order pass: only an angle that sits in one turn (−P/2 … P) and whose spread is well under a
+  // turn is unwrapped. An angle of twist of 3000° ± 150° is not periodic output, and folding it would contradict the
+  // first-order line beside it (round-2 review of v2.192.0).
+  let unwrap = false;
   let centreOut: EngOutput | null = null;
   {
     let out: AnalyzeOutput | null = null;
@@ -487,6 +491,10 @@ export function runUncertainty(
     contrib.push(slope * b.u);
   }
   const var1 = noSlope.length ? NaN : contrib.reduce((s, c) => s + c * c, 0);
+  {
+    const P = ANGLE_PERIOD[centre.unit];
+    unwrap = P !== undefined && centre.value >= -P / 2 && centre.value <= P && Number.isFinite(var1) && Math.sqrt(var1) < P / 8;
+  }
   const shares = base.map((b, i) => ({ field: b.field, share: var1 > 0 ? (contrib[i] * contrib[i]) / var1 : 0 }));
   // The draws, within the time budget.
   const state = new Int32Array([seed | 0]);

@@ -286,7 +286,16 @@ export async function insertResultLayout(items: ResultLayoutItem[]): Promise<num
         for (let i2 = 0; i2 < values.length; i2++)
           for (let j = 0; j < values[0].length; j++)
             table.getCell(i2, j).body.paragraphs.getFirst().alignment = Word.Alignment.right;
-        anchor = table.getRange(Word.RangeLocation.after);
+        // THE TABLE ITSELF MAKES THE PARAGRAPH THAT FOLLOWS IT.
+        //
+        // v2.191.0 inserts results tables before most figures, and chaining off table.getRange(after) lost them:
+        // "Engineering result inserted, but Word kept 0 of 1 figures" on Combined loading and the quantum tools
+        // (user, Word on Mac and PC, 2026-10-23), every one a table immediately followed by a figure, while tools
+        // with no table there kept theirs. The point after a table is not a paragraph Word can insert after;
+        // Table.insertParagraph(after) is the supported way to continue below a table, and the empty paragraph it
+        // makes is also the gap Word needs between a table and what follows.
+        const below = table.insertParagraph("", Word.InsertLocation.after);
+        anchor = below.getRange(Word.RangeLocation.end);
       }
     }
     anchor.select(Word.SelectionMode.end);

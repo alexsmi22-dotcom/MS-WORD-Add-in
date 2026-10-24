@@ -10,6 +10,18 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ee. New in v2.192.0 — Results insert completely
+
+- [ ] **Kalman filter: run on data** → Insert: every line, the equations, the tables and both figures arrive; the
+  status says 2 figures and does NOT say "Word kept 0 of …". Repeat on the Mac.
+- [ ] **Combined loading (shaft, beam-column)** and three quantum tools (Circuit simulator, Grover, Hong–Ou–Mandel)
+  → Insert: the whole result, figure included, on PC and Mac.
+- [ ] **Beam** (no equations) → Insert: unchanged from before.
+- [ ] Click an inserted equation: the equation ribbon appears; click a table: it is an editable Word table.
+- [ ] **Equations:** type `x^- 1` → x⁻¹; type `a - b` → the preview shows a true minus (−), and Word the same.
+- [ ] **Quantum computing ▸ States (Dirac):** |ψ⟩ = `1e-200|0⟩ + 1e-200|1⟩` → "‖ψ‖² as typed = 2×10⁻⁴⁰⁰" (not 0).
+- [ ] **Robotics ▸ Attitude:** a yaw near 179°, Explore ▸ ± 2 on that angle → the interval sits around 179°.
+
 ## 0ed. New in v2.191.0 — Engineering gap release and quantum mathematics
 
 - [ ] **Engineering panels:** the panel list shows **Quantum computing** and **Quantum mechanics** after Quantum optics;

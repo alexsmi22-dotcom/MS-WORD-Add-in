@@ -728,7 +728,11 @@ describe("every non-text block kind reaches the rich insert path", () => {
     // The final flush must come immediately before the layout is handed to Word
     // (the host then moves the selection after the last item).
     const tail = body.slice(body.lastIndexOf("flushRun()"));
-    expect(tail).toMatch(/^flushRun\(\);[\s]*picturesConfirmed = await docHost\.insertResultLayout\(layout\)/);
+    // (v2.192.0: between them only the one-package switch, which replaces a layout holding an equation run or a
+    // table by a single package — lib/resultOoxml.ts.)
+    expect(tail).toMatch(
+      /^flushRun\(\);[\s\S]*?if \(layout\.some\(\(it\) => it\.kind === "ooxml" \|\| it\.kind === "matrix"\)\) \{[\s\S]*?layout\.splice\(0, layout\.length, \{ kind: "ooxml", ooxml: buildResultOoxml\(pkg\)\.ooxml \}\);\n\s*\}\n\s*picturesConfirmed = await docHost\.insertResultLayout\(layout\)/,
+    );
     expect(hostLayoutBody()).toMatch(/\n\s*\}\n\s*anchor\.select\(Word\.SelectionMode\.end\);/);
   });
 

@@ -452,10 +452,12 @@ class Parser {
       return { k: "delim", inner, open: "|", close: "|" };
     }
 
-    if (t.t === "op" && (t.v === "+" || t.v === "-" || (t.v === "−" && this.diracDepth > 0))) {
+    if (t.t === "op" && (t.v === "+" || t.v === "-" || t.v === "−")) {
       this.next();
-      // Inside a ket or bra the sign is typeset as a true minus: |−i⟩.
-      return { k: "row", items: [{ k: "text", v: this.diracDepth > 0 && t.v === "-" ? "−" : t.v, plain: true }, this.parseBase()] };
+      // Inside a ket or bra the sign is typeset as a true minus: |−i⟩. A typed true minus (U+2212, as JurisLab's own
+      // results print it, so it comes back in pasted text) is a unary minus anywhere: x^−1, x^− 1, −x.
+      const v = t.v === "−" && this.diracDepth === 0 ? "-" : this.diracDepth > 0 && t.v === "-" ? "−" : t.v;
+      return { k: "row", items: [{ k: "text", v, plain: true }, this.parseBase()] };
     }
 
     throw new Error(`Unexpected "${t.v}" in math expression.`);

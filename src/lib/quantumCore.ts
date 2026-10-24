@@ -179,17 +179,23 @@ export function basisState(n: number, index: number): State {
 export const stateNorm2 = (s: State): number => s.reduce((t, z) => t + cAbs2(z), 0);
 
 /** The state divided by its norm; null for a zero or non-finite vector. */
-export function normalise(s: State): { state: State; norm2: number; norm: number } | null {
+export function normalise(s: State): { state: State; norm2: number; norm: number; log10norm: number } | null {
   if (!s.every(finiteCx)) return null;
   // Scaled by the largest modulus first, so 10⁻²⁰⁰|0⟩ + 10⁻²⁰⁰|1⟩ neither underflows to zero nor 10²⁰⁰ overflows.
-  const big = Math.max(...s.map(cAbs));
+  // A denormal largest modulus (below about 2×10⁻³⁰⁸) is first brought up by 2⁶⁰⁰, exactly: 1/big would overflow.
+  const pre = Math.max(...s.map(cAbs)) < 1e-300 ? Math.pow(2, 600) : 1;
+  const u = pre === 1 ? s : s.map((z) => cScale(z, pre));
+  const big = Math.max(...u.map(cAbs));
   if (!(big > 0) || !Number.isFinite(big)) return null;
-  const t = s.map((z) => cScale(z, 1 / big));
+  const t = u.map((z) => cScale(z, 1 / big));
   const n2t = stateNorm2(t);
   const k = 1 / Math.sqrt(n2t);
+  if (!Number.isFinite(k) || !t.every(finiteCx)) return null;
   // norm2 itself can under- or overflow (10⁻²⁰⁰ amplitudes give 2×10⁻⁴⁰⁰ = 0 in a double); `norm` = √n2t·big cannot
-  // while the amplitudes are finite, and is what a caller should print or divide by.
-  return { state: t.map((z) => cScale(z, k)), norm2: n2t * big * big, norm: Math.sqrt(n2t) * big };
+  // while the amplitudes are finite, and is what a caller should print or divide by. (For a denormal state `norm` is
+  // itself denormal and loses digits: norm2Text works from `log10norm`, which does not.)
+  const log10norm = Math.log10(Math.sqrt(n2t) * big) - Math.log10(pre);
+  return { state: t.map((z) => cScale(z, k)), norm2: (n2t * big * big) / pre / pre, norm: (Math.sqrt(n2t) * big) / pre, log10norm };
 }
 
 /**
@@ -371,6 +377,8 @@ export interface KetParse {
   norm2: number;
   /** ‖ψ‖ as typed: what ‖ψ‖² is shown from, since the square can underflow. */
   norm: number;
+  /** log₁₀‖ψ‖, exact where ‖ψ‖ itself is denormal. */
+  log10norm: number;
   notes: string[];
 }
 
@@ -456,8 +464,8 @@ export function parseKet(text: string): KetParse | { error: string } {
   if (!nz) return { error: "The state is zero (or not finite): it cannot be normalised." };
   const notes: string[] = [];
   if (Math.abs(nz.norm2 - 1) > 1e-9)
-    notes.push(`The state as typed has ‖ψ‖² = ${norm2Text(nz.norm)}, not 1; it was normalised (divided by ${nz.norm >= 1e-6 && nz.norm < 1e6 ? fmtReal(nz.norm).text : trimZeros(fmtSig(nz.norm, 6))}).`);
-  return { state: nz.state, n, norm2: nz.norm2, norm: nz.norm, notes };
+    notes.push(`The state as typed has ‖ψ‖² = ${norm2Text(nz.norm, 6, nz.log10norm)}, not 1; it was normalised (divided by ${nz.norm >= 1e-6 && nz.norm < 1e6 ? fmtReal(nz.norm).text : trimZeros(fmtSig(nz.norm, 6))}).`);
+  return { state: nz.state, n, norm2: nz.norm2, norm: nz.norm, log10norm: nz.log10norm, notes };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -476,17 +484,20 @@ const trimZeros = (s: string): string => s.replace(/(\.\d*?)0+(?=$|×)/, "$1").r
  * ‖ψ‖² for display, from ‖ψ‖: never "0" for a nonzero state. The square itself can underflow (amplitudes of 10⁻²⁰⁰
  * give 2×10⁻⁴⁰⁰, which is 0 in a double), so the exponent is doubled by hand.
  */
-export function norm2Text(norm: number, sig = 6): string {
+export function norm2Text(norm: number, sig = 6, log10norm?: number): string {
   if (!(norm > 0) || !Number.isFinite(norm)) return trimNum(norm * norm, sig);
   const sq = norm * norm;
-  if (sq >= 1e-300 && Number.isFinite(sq)) return trimZeros(fmtSig(sq, sig));
-  const e = Math.floor(Math.log10(norm));
-  let m2 = (norm / Math.pow(10, e)) ** 2, e2 = 2 * e;
-  if (m2 >= 10) {
-    m2 /= 10;
+  if (sq >= 1e-300 && sq < 1e300) return trimZeros(fmtSig(sq, sig));
+  // In the log domain: ‖ψ‖² = 10^(2·log₁₀‖ψ‖), exponent and mantissa split after rounding (so 9.9999999 rounds to
+  // 1×10ⁿ⁺¹, never "10×10ⁿ"); log10norm, when the caller has it, keeps a denormal norm's digits.
+  const l = 2 * (log10norm ?? Math.log10(norm));
+  let e2 = Math.floor(l);
+  let mant = trimZeros(fmtSig(Math.pow(10, l - e2), sig));
+  if (mant === "10") {
+    mant = "1";
     e2++;
   }
-  return `${trimZeros(fmtSig(m2, sig))}×10${String(e2).replace(/[-0-9]/g, (c) => "⁻⁰¹²³⁴⁵⁶⁷⁸⁹"["-0123456789".indexOf(c)])}`;
+  return `${mant}×10${String(e2).replace(/[-0-9]/g, (c) => "⁻⁰¹²³⁴⁵⁶⁷⁸⁹"["-0123456789".indexOf(c)])}`;
 }
 
 /** a·√b/d with a, d > 0 coprime-reduced; `neg` the sign. a = 0 is zero. */

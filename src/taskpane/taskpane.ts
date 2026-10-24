@@ -205,6 +205,7 @@ import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
 import { tidyResultSubscripts, tidySubscripts } from "../lib/subscriptText";
+import { buildResultOoxml, type ResultPackageItem } from "../lib/resultOoxml";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -30502,6 +30503,35 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
       layout.push({ kind: "matrix", label: block.label ?? "", values: block.m.map((row) => row.map((v) => formatNum(v, 6))) });
     }
     flushRun();
+    // ONE PACKAGE WHEN THE RESULT MIXES EQUATIONS OR TABLES WITH ANYTHING ELSE (lib/resultOoxml.ts).
+    //
+    // The chain above anchors each insert on the range the previous one returned, and Word gives no usable
+    // insertion point after an OOXML package or a table: everything past the first equation run or table was lost.
+    // v2.191.0 put governing equations and results tables into most Engineering reports, and Word then kept "only a
+    // few lines … nothing else, even the table" (Kalman filter, run on data) and "0 of 1 figures" (Combined loading,
+    // the quantum tools), on Mac and PC. A result that is only paragraphs and pictures keeps the chained path, which
+    // has always landed; anything with an equation or a table goes in as a single package, with no chain to break.
+    if (layout.some((it) => it.kind === "ooxml" || it.kind === "matrix")) {
+      const pkg: ResultPackageItem[] = [];
+      for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        if (b.kind === "line") pkg.push({ kind: "text", content: b.text });
+        else if (b.kind === "math") {
+          let parses = true;
+          try {
+            mathToOmml(b.math);
+          } catch {
+            parses = false;
+          }
+          pkg.push(parses ? { kind: "math", content: b.math } : { kind: "text", content: b.fallback });
+        } else if (b.kind === "plot") {
+          const dims = imageDims[i] ?? { w: b.w, h: b.h };
+          pkg.push({ kind: "picture", caption: b.caption, base64: images[i], widthPt: figurePoints(dims.w), heightPt: figurePoints(dims.h), alt: b.alt });
+        } else if (b.kind === "table") pkg.push({ kind: "table", label: b.label ?? "", rows: b.rows });
+        else pkg.push({ kind: "table", label: b.label ?? "", rows: b.m.map((row) => row.map((v) => formatNum(v, 6))) });
+      }
+      layout.splice(0, layout.length, { kind: "ooxml", ooxml: buildResultOoxml(pkg).ooxml });
+    }
     picturesConfirmed = await docHost.insertResultLayout(layout);
     // SAY WHAT WENT IN, NOT JUST THAT SOMETHING DID.
     //

@@ -257,9 +257,9 @@ const statesCalc: QCalc = {
     else lines.push("Convention: ⟨φ|ψ⟩ = Σₖ φₖ* ψₖ, conjugate-linear in φ.");
     for (const n of ps.notes) lines.push(`|ψ⟩: ${n}`);
     for (const n of ph.notes) lines.push(`|φ⟩: ${n}`);
-    lines.push(`|ψ⟩ = ${sP.text}${sP.globalPhase ? ` (global phase ${sP.globalPhase.text} factored out)` : ""}; ‖ψ‖² as typed = ${norm2Text(ps.norm)}.`);
+    lines.push(`|ψ⟩ = ${sP.text}${sP.globalPhase ? ` (global phase ${sP.globalPhase.text} factored out)` : ""}; ‖ψ‖² as typed = ${norm2Text(ps.norm, 6, ps.log10norm)}.`);
     if (sP.math) lines.push({ math: `ket(ψ) = ${sP.math}`, fallback: `|ψ⟩ = ${sP.text}` });
-    lines.push(`|φ⟩ = ${sF.text}${sF.globalPhase ? ` (global phase ${sF.globalPhase.text} factored out)` : ""}; ‖φ‖² as typed = ${norm2Text(ph.norm)}.`);
+    lines.push(`|φ⟩ = ${sF.text}${sF.globalPhase ? ` (global phase ${sF.globalPhase.text} factored out)` : ""}; ‖φ‖² as typed = ${norm2Text(ph.norm, 6, ph.log10norm)}.`);
     if (sF.math) lines.push({ math: `ket(φ) = ${sF.math}`, fallback: `|φ⟩ = ${sF.text}` });
     lines.push("Both states are used normalised (‖ψ‖ = ‖φ‖ = 1).");
     const ex = exactCx(ip);
@@ -274,8 +274,9 @@ const statesCalc: QCalc = {
       { key: "ipRe", label: "Re ⟨φ|ψ⟩", value: ip.re, unit: "" },
       { key: "ipIm", label: "Im ⟨φ|ψ⟩", value: ip.im, unit: "" },
       { key: "overlap", label: "|⟨φ|ψ⟩|²", value: ov, unit: "" },
-      { key: "normPsi2", label: "‖ψ‖² as typed", value: ps.norm2, unit: "" },
-      { key: "normPhi2", label: "‖φ‖² as typed", value: ph.norm2, unit: "" },
+      // A square that under- or overflowed a double is not a value to send on (the text above still states it).
+      { key: "normPsi2", label: "‖ψ‖² as typed", value: representable(ps.norm2), unit: "" },
+      { key: "normPhi2", label: "‖φ‖² as typed", value: representable(ph.norm2), unit: "" },
       { key: "dim", label: "Dimension", value: d, unit: "" },
     ];
     const labels = labelsFor(d).map((l, k) => (qb !== null ? l : String(k)));
@@ -994,5 +995,8 @@ const bipartiteCalc: QCalc = {
     return finish(lines, extra, outputs);
   },
 };
+
+/** A squared norm as an output value: NaN (left out of the named outputs) when it under- or overflowed. */
+const representable = (v: number): number => (v >= 1e-300 && v < 1e300 ? v : NaN);
 
 export const QUANTUM_DIRAC_CALCS: QCalc[] = [statesCalc, operatorsCalc, measurementCalc, densityCalc, bipartiteCalc];

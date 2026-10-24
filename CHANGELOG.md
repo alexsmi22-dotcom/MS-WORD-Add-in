@@ -6,6 +6,24 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.192.0] — 2026-10-23 — Results with equations and tables insert completely
+
+### Fixed
+- **Inserting a result that has equations or tables** now puts the WHOLE result into Word. Since v2.191.0 most
+  Engineering reports carry their governing equations and results tables, and Word was keeping only the first lines:
+  the tables, the figures ("Word kept 0 of 1 figures") and everything after the first equation were lost — Kalman
+  filter, Combined loading and most of the quantum tools among them, on Mac and PC. The result now goes in as one
+  Word package (text, real equations, real tables and the figures together) instead of a chain of separate inserts.
+  Results with no equation or table insert exactly as before.
+- **Prose subscripts:** names like η_geo, D_t and S_a in result text are typeset (η(geo), Dₜ, Sₐ); two quantum-link
+  equations that went in as plain text are now real equations.
+- **Quantum states with tiny amplitudes:** a state typed with amplitudes of 10⁻²⁰⁰ now reports ‖ψ‖² = 2×10⁻⁴⁰⁰ (it said 0,
+  and "divided by 0").
+- **Equations:** a stray space in an exponent no longer changes the formula (`x^- 1` is x⁻¹, as `x^-1` is); the
+  preview shows a true minus sign (−) rather than a hyphen.
+- **Uncertainty of an angle:** angles that wrap at ±180° (Euler angles, joint angles) spread about the value as typed:
+  179° ± 2° gives 177° to 181°, not a mixture of 177° and −179°.
+
 ## [2.191.0] — 2026-10-23 — Engineering gap release and a quantum mathematics section
 
 Everything from the 2026-10-23 engineering gap analysis (docs/GAP-ANALYSIS-ENGINEERING-2026-10-23.md, all fifteen

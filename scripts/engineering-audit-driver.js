@@ -486,6 +486,10 @@
           return {
             getCell: function () { return { body: { paragraphs: { getFirst: function () { return { alignment: "" }; } } } }; },
             getRange: function () { return makeRange("table"); },
+            insertParagraph: function (text) {
+              ops.push("para:" + String(text).slice(0, 20));
+              return makeRange("para");
+            },
           };
         },
         getRange: function () { return makeRange(tag + ".range"); },
@@ -504,7 +508,8 @@
             inlinePictures: {
               items: [],
               load: function () {
-                this.items = ops.filter(function (o) { return o === "picture"; }).map(function () { return {}; });
+                this.items = ops.filter(function (o) { return o === "picture"; }).map(function () { return {}; })
+                  .concat((packages || []).reduce(function (acc, x) { return acc.concat((String(x).match(/<w:drawing>/g) || []).map(function () { return {}; })); }, []));
               },
             },
           },
@@ -608,7 +613,16 @@
         // to work. So wait for the log to STOP GROWING instead of guessing.
         settle(function () {
           var paras = ops.filter(function (o) { return o.indexOf("para:") === 0; }).length;
-          var pics = ops.filter(function (o) { return o === "picture"; }).length;
+          // Pictures go in one call each on the chained path, or embedded in the single result package
+          // (src/lib/resultOoxml.ts, v2.192.0) — an embedded picture counts only if its image part is there too.
+          var pics = ops.filter(function (o) { return o === "picture"; }).length +
+            packages.reduce(function (s, x) {
+              var ids = (x.match(/r:embed="([^"]+)"/g) || []).map(function (m) { return m.slice(9, -1); });
+              return s + ids.filter(function (id) {
+                return new RegExp('Id="' + id + '"[^>]*Target="media/([^"]+)"').test(x) &&
+                  x.indexOf("/word/media/") >= 0;
+              }).length;
+            }, 0);
           var pkgs = ops.filter(function (o) { return o.indexOf("ooxml:") === 0; });
           var eqIn = pkgs.reduce(function (s, o) { return s + Number((/equations=(\d+)/.exec(o) || [, 0])[1]); }, 0);
           var syncs = ops.filter(function (o) { return o === "sync"; }).length;

@@ -104,8 +104,9 @@ export interface QVec {
   /** The number of qubits when the state is a qubit register (dim = 2ⁿ, read from 0/1 labels); null for a qudit. */
   qubits: number | null;
   norm2: number;
-  /** ‖ψ‖ as typed (shown instead of a square that underflows). */
+  /** ‖ψ‖ as typed (shown instead of a square that underflows), and its log₁₀ (exact for a denormal norm). */
   norm: number;
+  log10norm: number;
   notes: string[];
 }
 
@@ -142,14 +143,14 @@ export function readState(text: string, dimText = ""): QVec | { error: string } 
     const nz = normalise(amps);
     if (!nz) return { error: "The state is zero (or not finite): it cannot be normalised." };
     const notes: string[] = [];
-    if (Math.abs(nz.norm2 - 1) > 1e-9) notes.push(`The state as typed has ‖ψ‖² = ${norm2Text(nz.norm)}, not 1; it was normalised.`);
+    if (Math.abs(nz.norm2 - 1) > 1e-9) notes.push(`The state as typed has ‖ψ‖² = ${norm2Text(nz.norm, 6, nz.log10norm)}, not 1; it was normalised.`);
     const d = cells.length;
-    return { state: nz.state, dim: d, qubits: isPow2(d) && !dim ? Math.log2(d) : null, norm2: nz.norm2, norm: nz.norm, notes };
+    return { state: nz.state, dim: d, qubits: isPow2(d) && !dim ? Math.log2(d) : null, norm2: nz.norm2, norm: nz.norm, log10norm: nz.log10norm, notes };
   }
   if (dim === null) {
     const k = parseKet(src);
     if ("error" in k) return k;
-    return { state: k.state, dim: 1 << k.n, qubits: k.n, norm2: k.norm2, norm: k.norm, notes: k.notes };
+    return { state: k.state, dim: 1 << k.n, qubits: k.n, norm2: k.norm2, norm: k.norm, log10norm: k.log10norm, notes: k.notes };
   }
   // A d-level system: integer labels 0 … d−1 (|+⟩, |−⟩, |i⟩, |−i⟩ only when d = 2).
   const bits = Math.max(1, Math.ceil(Math.log2(dim)));
@@ -173,7 +174,7 @@ export function readState(text: string, dimText = ""): QVec | { error: string } 
   if (bad) return { error: bad };
   const k = parseKet(relabelled);
   if ("error" in k) return { error: k.error.replace(/\|([01]+)⟩/g, (_m, b: string) => `|${parseInt(b, 2)}⟩`) };
-  return { state: k.state.slice(0, dim), dim, qubits: dim === 2 ? 1 : null, norm2: k.norm2, norm: k.norm, notes: k.notes };
+  return { state: k.state.slice(0, dim), dim, qubits: dim === 2 ? 1 : null, norm2: k.norm2, norm: k.norm, log10norm: k.log10norm, notes: k.notes };
 }
 
 /** Six significant figures, U+2212, ×10ⁿ outside 10⁻³…10⁵ (quantumCore.trimNum). */

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.193.0)
+# JurisLab — Manual Test Script (v2.194.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 14,000+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0eh. New in v2.194.0 — Second bug test
+
+- [ ] **Insert placement:** put the cursor inside a Heading 1, run any Stats tool ▸ Insert → the result lands in a new
+  Normal paragraph below the heading; the heading is unchanged. Repeat inside a bulleted list item.
+- [ ] **Captions by chapter** in a document whose first Heading 1 "Abstract" is unnumbered and later chapters are
+  numbered → Figure 1.1, then Figure 2.1 after the next chapter.
+- [ ] **Structure:** porphine `C1=Cc2cc3ccc(cc4ccc(cc5nc(cc1n2)C=C5)[nH]4)[nH]3` draws (C₂₀H₁₄N₄); `c1cccc1` is
+  refused; `SF6` shows no SMILES warning.
+- [ ] **Equations:** `alpha = 45°` → 45° (no gap); `T = 25 °C` → a thin space before °C; `Z_in` → Z with subscript "in".
+- [ ] **Citations ▸ Table of Authorities** citing "Ga. Code Ann. § 9-11-12" → one § and the hyphens kept.
+- [ ] **Engineering ▸ Pipe** with velocity 0 → refused: no flow, friction factor undefined (never "overflow").
+- [ ] **Stats ▸ χ²** on a table with a group named "Overall" (not last) → read as data, 2×2.
 
 ## 0eg. New in v2.193.0 — Bug-test fixes
 

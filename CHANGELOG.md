@@ -6,6 +6,44 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.194.0] — 2026-10-24 — A second, exhaustive bug test
+
+Twelve testers each listed every feature in one area from the source (every calculator, dropdown, input mode, output
+and file format) and checked each against an outside reference (RDKit, OPSIN, Biopython, scipy, sympy, mpmath,
+CoolProp, citeproc-js, published tables) and real Word; a regression review then re-ran the fixes against v2.193.0.
+
+### Fixed: wrong answers
+- **Table of Authorities:** sentence boundaries after abbreviations, signals and *Id.* (Rule 4.1), constitutional
+  provisions, PTAB decisions and other new categories, state codes (Ga. Code Ann. § 9-11-12 stays one section),
+  parallel citations keep the year, chapter captions; RIS patents and APA in-text order in Citations.
+- **Chemistry:** isotopic, charged and lone carbons labelled (H₃¹³C–OH); SMILES that cannot be kekulised are refused
+  while porphyrins, heme and chlorophyll still draw; charge carried into the formula; sugars drawn as pyranoses with
+  correct stereo; IUPAC chain seniority (2013 rules), vowel elision and prefixes; balancing in acid/base names only
+  the H⁺, OH⁻ or H₂O actually added; NMR shifts for heteroaromatics, amides, formyl and Si with out-of-domain flags;
+  MS adducts and fragments; botanical × names; stoichiometry significant figures.
+- **Biology:** SnapGene primers off by one and on the wrong strand; Dam/Dcm methylation; IGLV6 numbering; alignment
+  gaps; circular-map labels.
+- **Statistics:** χ² validation and Total rows (a real "Overall" group is kept as data); exact k-group log-rank;
+  Kaplan–Meier log-log confidence intervals and censoring ticks; inhibition fits in molar units.
+- **Solve and maths:** conic centres; singular integrals detected before integrating; underflowing roots; exact
+  forms; Taylor series exact; LaTeX import overhaul; units upright after numbers (45°, 25 °C); Z_in, P_in read as
+  labels, not ∈; 19 new units; temperatures below absolute zero refused.
+- **Plots, Analyze, Finance:** FFT scaling and periodic windows; Black–Scholes at σ = 0; closed-form loans; declining
+  balance; decimal commas in tables; header detection; plots break at poles; USPTO black-and-white figures.
+- **Engineering:** NCA, Scherrer, tolerance and peak tables; affinity laws; frame scaling; differentiator and
+  root-locus tags; repeated roots; AC −3 dB points; great circles across the antimeridian; valid inputs no longer
+  refused (kets, ζ ≥ 1, netlists, 90° launch, minterms); a result that is undefined says so (pipe at zero flow).
+- **CAD:** PowerPoint chart gaps; USPTO view numbers at heading size and never over another label or the part;
+  concave OBJ faces; DXF units; numerals cap; reference numerals in a range like "claims (1-20)" are not callouts.
+
+### Fixed: inserting
+- Results with text and a figure go in as one package, in a new Normal paragraph below the cursor's paragraph, so
+  nothing merges into a heading or list; captions stay with their figure.
+- Chapter-numbered captions work in a thesis with an unnumbered "Abstract" heading.
+
+### Display
+- Every Engineering result passes one guard: no NaN or Infinity is ever shown, and the reason is named.
+
 ## [2.193.0] — 2026-10-24 — A comprehensive bug test of all of JurisLab
 
 Six independent testers went through every mode against outside references (RDKit, OPSIN, Biopython, REBASE, scipy,

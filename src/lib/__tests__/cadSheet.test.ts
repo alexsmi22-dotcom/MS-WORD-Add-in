@@ -6,6 +6,7 @@ import { DRAWING_STANDARDS, capMmToPt } from "../cadStandards";
 import { STANDARD_VIEWS } from "../cadLines";
 import { fitView, pickAt, previewOps, shadeRaster } from "../cadPreview";
 import { ptToMm, CAP_HEIGHT_EM, USPTO_REQUIRED_CHAR_HEIGHT_MM } from "../figureStyle";
+import { textWidthPt } from "../arialMetrics";
 
 let n = 0;
 const body = (spec: BodySpec, placement: Placement = IDENTITY_PLACEMENT, name = `b${++n}`): Body => ({ id: name, name, spec, placement });
@@ -165,7 +166,9 @@ describe("callouts", () => {
 function sheetBoxes(svg: string): { balloons: Array<{ x: number; y: number; r: number }>; titles: Array<{ x0: number; x1: number; y0: number; y1: number; t: string }> } {
   const balloons = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)" fill="#fff"/g)].map((m) => ({ x: +m[1], y: +m[2], r: +m[3] }));
   const titles = [...svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)" text-anchor="middle" font-family="[^"]*" font-size="([\d.]+)"[^>]*>([A-Z][A-Z .0-9]+)<\/text>/g)].map((m) => {
-    const x = +m[1], y = +m[2], f = +m[3], w = m[4].length * 0.62 * f;
+    // "FIG. n" titles (heading size, 1.6 × the numerals since fix2-cad) by their Arial advance widths — the layout
+    // measures them so; named titles by the 0.62 em-per-character estimate the layout uses for them.
+    const x = +m[1], y = +m[2], f = +m[3], w = /^FIG\. /.test(m[4]) ? textWidthPt(m[4], f) : m[4].length * 0.62 * f;
     return { x0: x - w / 2, x1: x + w / 2, y0: y - 0.75 * f, y1: y + 0.25 * f, t: m[4] };
   });
   return { balloons, titles };

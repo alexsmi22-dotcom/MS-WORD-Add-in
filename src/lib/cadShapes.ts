@@ -30,6 +30,7 @@ import {
   Vec3,
 } from "./cadModel";
 import type { StandardId } from "./cadStandards";
+import { MAX_NUMERAL } from "./numerals";
 import type { Sketch } from "./sketch";
 import { combinedFor, isMeshRef, MeshRef, meshFor, meshKey } from "./cadMeshStore";
 import { BOOL_OPS, type BoolOp } from "./meshBoolean";
@@ -757,8 +758,15 @@ export type { Pt2 };
  * the large canvas.
  */
 export function nextFreeNumeral(base: number, taken: number[]): number {
-  let n = Number.isInteger(base) && base > 0 ? base : 10;
+  // Numerals are at most five digits (diagramCore.NUMERAL, numerals.MAX_NUMERAL): a base past that (a damaged
+  // setting, 2⁵³ where `n += 2` no longer moves) starts again at 10 rather than looping for ever.
+  let n = Number.isInteger(base) && base > 0 && base <= MAX_NUMERAL ? base : 10;
   const step = n % 2 === 0 ? 2 : 1;
-  while (taken.includes(n)) n += step;
-  return n;
+  const used = new Set(taken);
+  // Each step lands on a taken numeral or a free one, so taken.length + 1 steps always find one.
+  for (let i = 0; i <= used.size && n <= MAX_NUMERAL; i++, n += step) if (!used.has(n)) return n;
+  // Past 99999 in this parity: the smallest free numeral from 10 up (then from 1).
+  for (let k = 10; k <= MAX_NUMERAL; k++) if (!used.has(k)) return k;
+  for (let k = 1; k < 10; k++) if (!used.has(k)) return k;
+  return 10;
 }

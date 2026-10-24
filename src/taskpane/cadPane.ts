@@ -22,7 +22,7 @@ import { DetailSpec, layoutSheet, SectionSpec, SheetFrame, SheetOptions, ViewSpe
 import { PERSPECTIVE_DISTANCE, PERSPECTIVE_DISTANCES } from "../lib/cadPerspective";
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../lib/cadExplode";
 import { DETAIL_FACTORS, nextDetailLetter } from "../lib/cadDetail";
-import { ptToMm } from "../lib/figureStyle";
+import { ptToMm, USPTO_MIN_CHAR_HEIGHT_MM, USPTO_REQUIRED_CHAR_HEIGHT_MM } from "../lib/figureStyle";
 import { DRAWING_STANDARDS, DEFAULT_STANDARD, StandardId } from "../lib/cadStandards";
 import {
   SHAPES,
@@ -133,6 +133,19 @@ const fmtMm = (v: number): string => String(+v.toFixed(2));
  * figures are sized by their own rules and go in as drawn.
  */
 export function fitNote(sheet: { standard: StandardId; wMm: number; hMm: number; sizeName?: string; scale: number }): { k: number; note: string } {
+  if (sheet.standard === "uspto") {
+    // The 170 × 244 mm sight (1.84(g)) is wider than Word's text column on A4 with 1-inch margins (159 mm): fit it to
+    // the column, keeping its shape, while its lettering stays at least 3.2 mm (1.84(p)(3)) — the sheet is drawn
+    // 10 % above that floor. Below the floor it goes in as drawn and says what to change instead.
+    const k = Math.min(1, FIT_MM.w / sheet.wMm, FIT_MM.h / sheet.hMm);
+    if (k >= 1) return { k: 1, note: "" };
+    const pct = Math.round(k * 100);
+    const margins = "set the Word page margins to 2.5 cm top and left, 1.5 cm right, 1.0 cm bottom (37 CFR 1.84(g)) to insert it at full size";
+    if (k * USPTO_REQUIRED_CHAR_HEIGHT_MM < USPTO_MIN_CHAR_HEIGHT_MM - 1e-9) {
+      return { k: 1, note: `The patent sheet is wider than the page's text column, and fitting it would take its lettering under 3.2 mm (37 CFR 1.84(p)(3)), so it is inserted at full size — ${margins}.` };
+    }
+    return { k, note: `The patent sheet is inserted at ${pct} % to fit the page's text column; its lettering stays at least 3.2 mm high (37 CFR 1.84(p)(3)). Or ${margins}.` };
+  }
   const engineering = sheet.standard === "asme" || sheet.standard === "iso";
   const k = engineering ? Math.min(1, FIT_MM.w / sheet.wMm, FIT_MM.h / sheet.hMm) : 1;
   if (k >= 1) return { k: 1, note: "" };

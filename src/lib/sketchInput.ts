@@ -16,7 +16,8 @@
  * Pure functions over the sketch and the view scale; the pane only wires them.
  */
 import type { Sketch, SPoint } from "./sketch";
-import { EditResult, EditState, SketchTool, applyDimension, click, snapPoint } from "./sketchEdit";
+import { AMBIGUOUS_COMMA, EditResult, EditState, SketchTool, applyDimension, click, decimalComma, snapPoint } from "./sketchEdit";
+export { AMBIGUOUS_COMMA, decimalComma };
 
 /** px on screen per sketch mm, at which the grid stays readable (12 px between lines). */
 const GRID_MIN_PX = 12;
@@ -103,7 +104,9 @@ export function typedFields(tool: SketchTool): Array<{ label: string; kind: "len
 
 /** A typed size: the number, or why it is refused (by name). Empty = not typed (null). */
 export function parseTyped(text: string, kind: "length" | "angle", label: string): number | null | string {
-  let t = text.trim().replace(",", ".");
+  const dc = decimalComma(text.trim());
+  if (dc === null) return `${label}: ${AMBIGUOUS_COMMA(text)}`;
+  let t = dc;
   if (!t) return null;
   t = kind === "angle" ? t.replace(/\s*(°|º|deg)$/i, "") : t.replace(/^[Ø⌀]/, "").replace(/\s*mm$/i, "");
   if (!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t)) return `${label}: "${text.trim()}" is not a number`;

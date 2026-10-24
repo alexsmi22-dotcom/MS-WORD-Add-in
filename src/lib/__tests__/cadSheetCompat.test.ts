@@ -34,7 +34,10 @@ function elements(svg: string): string[] {
 describe("a drawing without a sheet format is drawn as v2.148.0 drew it", () => {
   const L = meshOf(body(box(4, 2, 1)), body(box(4, 0.5, 3), { translate: [0, 1.5, 0], rotateDeg: [0, 0, 0] }));
   const views: ViewSpec[] = [{ kind: "front" }, { kind: "top" }, { kind: "right" }, { kind: "iso" }];
-  it.each(Object.keys(GOLDEN).filter((k) => k !== "asme|one"))("%s", (key) => {
+  // The USPTO sheets changed ON PURPOSE in fix2-cad: 37 CFR 1.84(u)(2) wants view numbers larger than the reference
+  // numerals, so FIG. labels are now 1.6 × the numerals and the rows taller to hold them. They are pinned in
+  // cad2Fixes.test.ts instead; every other standard must still draw exactly as v2.148.0 did.
+  it.each(Object.keys(GOLDEN).filter((k) => k !== "asme|one" && !k.startsWith("uspto|")))("%s", (key) => {
     const [standard, hid, withCallouts] = key.split("|");
     const showHidden = hid === "undefined" ? undefined : hid === "true";
     const sh = layoutSheet(L, {

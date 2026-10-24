@@ -113,7 +113,9 @@ describe("detail views", () => {
     const click = (x: number, y: number): void => void t.$("cad-preview").dispatchEvent(new MouseEvent("pointerdown", { clientX: x, clientY: y, button: 0, bubbles: true }));
     // The empty middle of the front view (between the legs) holds nothing: refused by name.
     const title = Array.from(document.querySelectorAll("#cad-preview text")).find((q) => /^FIG\./.test(q.textContent ?? ""))!;
-    click(Number(title.getAttribute("x")), Number(title.getAttribute("y")) - 40);
+    // Above the title by its own height and more: the FIG. title is 1.6 × the numerals since fix2-cad (1.84(u)(2)),
+    // so a fixed 40 px no longer reached the figure.
+    click(Number(title.getAttribute("x")), Number(title.getAttribute("y")) - 64);
     expect(t.last()[0]).toBe("Detail A's circle holds nothing of the figure, so it is not drawn: take it again on the part to enlarge.");
     // The table top's left end: the first corner of the visible outline.
     t.$<HTMLButtonElement>("cad-detail").click();

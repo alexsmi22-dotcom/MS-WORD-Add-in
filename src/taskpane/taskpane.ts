@@ -504,6 +504,9 @@ import {
   formatCallout,
   buildNumeralListHtml,
   NUMERAL_LIST_HEADING,
+  MAX_NUMERAL,
+  isValidNumeral,
+  parseNumeralInput,
 } from "../lib/numerals";
 import { MODE_EXAMPLES, ExampleMode } from "../lib/examples";
 import {
@@ -6470,7 +6473,8 @@ function loadNumerals(): void {
     numeralEntries = Array.isArray(parsed)
       ? parsed
           .filter((e) => e && Number.isFinite(e.numeral) && typeof e.element === "string")
-          .map((e) => ({ numeral: Math.floor(e.numeral), element: e.element }))
+          // A numeral past five digits (a damaged setting) loads as a cleared box, not as 2⁵³.
+          .map((e) => ({ numeral: isValidNumeral(Math.floor(e.numeral)) ? Math.floor(e.numeral) : 0, element: e.element }))
       : [];
   } catch {
     numeralEntries = [];
@@ -6495,12 +6499,13 @@ function makeNumeralRow(entry: NumeralEntry, idx: number): HTMLElement {
   const numInput = document.createElement("input");
   numInput.type = "number";
   numInput.min = "1";
+  numInput.max = String(MAX_NUMERAL);
   numInput.className = "rgroup-input num-numeral";
   numInput.value = String(entry.numeral);
-  numInput.setAttribute("aria-label", "Reference numeral");
+  numInput.setAttribute("aria-label", "Reference numeral (1 to 99999)");
   numInput.addEventListener("input", () => {
-    const n = parseInt(numInput.value, 10);
-    numeralEntries[idx].numeral = Number.isFinite(n) ? n : 0;
+    // Digits only, 1 to 99999: parseInt("1e20") was 1 and 2⁵³ hung the next-numeral search.
+    numeralEntries[idx].numeral = parseNumeralInput(numInput.value);
     saveNumerals();
   });
 

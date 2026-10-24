@@ -116,7 +116,22 @@ const UNIT_NAMES: Record<number, [string, number | null]> = {
   14: ["decimetres", 100],
   15: ["decametres", 10000],
   16: ["hectometres", 100000],
+  // The US survey foot is 1200/3937 m exactly (NIST; DXF reference $INSUNITS 21). 22–24 are not added from memory.
+  21: ["US survey feet", 1200000 / 3937],
 };
+
+/** The group codes an entity cannot be drawn without: a file cut short mid-entity is refused by name, never drawn
+ *  with the missing numbers read as 0 (a LINE to the origin, a zero-length line, a circle of no size). */
+const REQUIRED_CODES: Record<string, Array<[number, string]>> = {
+  LINE: [[10, "start point"], [20, "start point"], [11, "end point"], [21, "end point"]],
+  // Angles are not required: a writer may leave out a 0° angle.
+  CIRCLE: [[40, "radius"]],
+  ARC: [[40, "radius"]],
+};
+
+/** The largest bulge read as drawn. A bulge of 1000 is a 359.8° arc already; far past it (1e9, 1e308) the arc's
+ *  radius runs to 10¹⁶ × its chord and the drawing's extent with it. */
+export const MAX_BULGE = 1000;
 
 /** Why a file cannot be read here, by its name (native Solid Edge, DWG, binary DXF), or null. */
 export function importRefusal(fileName: string, head: Uint8Array): string | null {
@@ -420,6 +435,10 @@ export function readDxf(text: string): ReadResult {
   };
 
   let points = 0, work = 0, tooMuchWork = false, tooManyPoints = false;
+  /** A bulge past MAX_BULGE was read as MAX_BULGE (said in the notes). */
+  let capped = false;
+  /** The first entity missing a number it cannot be drawn without (the file refused by name). */
+  let truncated: string | null = null;
   /** Every number of a shape finite, and its sizes positive: otherwise it is skipped and counted. */
   const sound = (s: DxfShape): boolean => {
     const fin = (...v: number[]): boolean => v.every(Number.isFinite);
@@ -478,7 +497,9 @@ export function readDxf(text: string): ReadResult {
   };
 
   /** A bulged segment from (x1, y1) to (x2, y2) in OCS, through m. */
-  const bulgeSeg = (x1: number, y1: number, x2: number, y2: number, bulge: number, m: M): DxfShape | null => {
+  const bulgeSeg = (x1: number, y1: number, x2: number, y2: number, bulge0: number, m: M): DxfShape | null => {
+    if (Math.abs(bulge0) > MAX_BULGE) capped = true;
+    const bulge = Number.isFinite(bulge0) ? Math.max(-MAX_BULGE, Math.min(MAX_BULGE, bulge0)) : 0;
     if (Math.abs(bulge) < 1e-12) {
       const [a, b] = ap(m, x1, y1), [c, d] = ap(m, x2, y2);
       return { kind: "line", x1: a, y1: b, x2: c, y2: d };
@@ -501,6 +522,13 @@ export function readDxf(text: string): ReadResult {
     // Every entity visited counts, drawn or not: arrays of arrays of points must not run for hours.
     if (++work > DXF_LIMITS.work) {
       tooMuchWork = true;
+      return;
+    }
+    const need = REQUIRED_CODES[e.type];
+    const gone = need?.find(([code]) => !e.pairs.some((q) => q[0] === code));
+    if (gone) {
+      const handle = str(e, 5, "");
+      truncated ??= `a ${e.type}${handle ? ` (handle ${handle})` : ""} has no ${gone[1]} (group code ${gone[0]}) — the file may be cut short; save it again from the CAD program`;
       return;
     }
     let layer = str(e, 8, "0");
@@ -700,6 +728,7 @@ export function readDxf(text: string): ReadResult {
   if (tooMany) return { ok: false, reason: `the drawing has more than ${DXF_LIMITS.items.toLocaleString("en-US")} items once its blocks are expanded — this importer stops there` };
   if (tooMuchWork) return { ok: false, reason: `expanding the drawing's blocks takes more than ${DXF_LIMITS.work.toLocaleString("en-US")} steps (arrays of blocks inside arrays) — this importer stops there` };
   if (tooManyPoints) return { ok: false, reason: `the drawing's curves need more than ${DXF_LIMITS.points.toLocaleString("en-US")} points to draw — this importer stops there` };
+  if (truncated) return { ok: false, reason: truncated };
 
   // Notes, by count, for what was not drawn exactly as the file has it.
   const notes: string[] = [];
@@ -728,6 +757,7 @@ export function readDxf(text: string): ReadResult {
   say(c("hugeArray"), "1 block array of more than 10 000 copies was not drawn.", "# block arrays of more than 10 000 copies were not drawn.");
   say(c("badSpline"), "1 spline could not be read and was skipped.", "# splines could not be read and were skipped.");
   say(c("badNumber"), "1 item with a number that could not be read (or a size of zero or less) was skipped.", "# items with numbers that could not be read (or sizes of zero or less) were skipped.");
+  if (capped) notes.push(`A polyline bulge larger than ${MAX_BULGE} (an arc of almost a full turn) was drawn as a bulge of ${MAX_BULGE}.`);
   say(c("degenerate"), "1 item with no size (a repeated vertex, an ellipse with no axis) was skipped.", "# items with no size (repeated vertices, ellipses with no axis) were skipped.");
   const others = [...counts.keys()].filter((k) => k.startsWith("other:")).map((k) => `${k.slice(6)} (${counts.get(k)})`);
   if (others.length) notes.push(`Not drawn (not supported yet): ${others.join(", ")}.`);

@@ -297,6 +297,8 @@ import { QUANTUM_MECHANICS_CALCS } from "../src/lib/quantumMechanicsCalcs";
 import { curvesSvg, hydrogenLevelSvg, levelFigureSvg, tunnelSvg } from "../src/lib/quantumMechanicsCharts";
 // --- end Release E: quantum mechanics ---
 
+import { kaplanMeier } from "../src/lib/survival";
+import { kaplanMeierSvg } from "../src/lib/survivalFigure";
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -3695,4 +3697,13 @@ rotator 15` }, "jones elliptical");
 }
 // --- end Release E: quantum mechanics ---
 
+{
+  // Kaplan–Meier (v2.194.0): curve to last follow-up, y fixed 0–1, censoring + ticks (incl. one at S = 1).
+  const t = [6, 6, 6, 7, 10, 13, 16, 22, 23, 6, 9, 10, 11, 17, 19, 20, 25, 32, 32, 34, 35];
+  const e = [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  figures.push(["kaplan-meier with censoring ticks", kaplanMeierSvg([{ km: kaplanMeier(t, e), label: "S(t)" }], { title: "Kaplan-Meier" })]);
+  const t2 = [1, 1, 2, 2, 3, 4, 4, 5, 5, 8, 8, 8, 8, 11, 11, 12, 12, 15, 17, 22, 23];
+  const e2 = t2.map(() => 1);
+  figures.push(["kaplan-meier two groups", kaplanMeierSvg([{ km: kaplanMeier(t, e), label: "treated" }, { km: kaplanMeier(t2, e2), label: "control" }], { title: "Kaplan-Meier" })]);
+}
 export { figures };

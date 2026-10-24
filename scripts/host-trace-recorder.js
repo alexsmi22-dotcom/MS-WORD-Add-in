@@ -160,6 +160,9 @@
         log("  " + id + " = " + path + "(" + args.map(function (a) { return summ(a); }).join(", ") + ")");
         if (k === "load" || k === "track" || k === "untrack") return ensure();
         if (k === "insertInlinePictureFromBase64") window.__ht.bodyPics++;
+        // A result package (src/lib/resultOoxml.ts, v2.192.0) carries its pictures as inline drawings: Word adds one
+        // inline picture per drawing, so the body count follows them too.
+        if (k === "insertOoxml" && typeof args[0] === "string") window.__ht.bodyPics += (args[0].match(/<w:drawing>/g) || []).length;
         var fx = fixture(path, "()");
         if (fx) return materialise(id, fx.v);
         return obj(id);

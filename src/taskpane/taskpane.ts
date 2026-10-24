@@ -49,7 +49,7 @@ import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
 import { engEq } from "../lib/engEquations";
-import { carryOver, displayValue, fieldNames, fieldText, handoffGroupLabel, handoffGroups, parseUncertainty, runSweep, runUncertainty, sweepReport, uncertaintyReport, variableField, type UncertainInput } from "../lib/engWorkbench";
+import { carryOver, displayValue, fieldNames, fieldText, fieldUnitOf, handoffGroupLabel, handoffGroups, parseUncertainty, runSweep, runUncertainty, sweepReport, uncertaintyReport, variableField, type UncertainInput } from "../lib/engWorkbench";
 import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
 import {
   HostCapability,
@@ -256,10 +256,10 @@ import {
   SectionStrip,
 } from "../lib/mechchart";
 import { boxPlotSvg, forestPlotSvg, groupedBarSvg } from "../lib/statchart";
-import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
+import { parseNetlist, parseValue, parseFieldValue, solveDc, solveAc, frequencySweep, sweepCorner3dB, dB } from "../lib/circuit";
 import { analyzeStress, transformPlane, factorOfSafety, analyzeTorsion, analyzeColumn, EndCondition } from "../lib/stress";
 import { analyzeTruss, parseTruss } from "../lib/truss";
-import { analyzePipe, waterProperties, ROUGHNESS } from "../lib/fluids";
+import { analyzePipe, waterProperties, waterNpshVapourPressure, ROUGHNESS } from "../lib/fluids";
 import {
   flowMeter,
   pumpSystemCurve,
@@ -281,6 +281,8 @@ import {
   analyzeStability,
   timeResponse,
   secondOrderMetrics,
+  reportedTransient,
+  transientNotes,
   frequencyResponse,
   autoFrequencies,
   margins,
@@ -13333,6 +13335,18 @@ const ENG_CALCS: EngCalc[] = [
 
       const res = analyzeBeam({ length: L, supports: sup.supports, loads: lds.loads, ei: eiExact });
       if (!res.ok) return { text: res.error, ok: false };
+      // OVERFLOW GUARD: the solve is exact, but the moments are printed and drawn as doubles, and a moment is of
+      // order span × force. Past ~10³⁰⁰ that overflows and the moment read 0 (span 10³⁰⁰ with a 10³⁰⁰ load).
+      {
+        const fScale = res.reactions.reduce((s, re) => s + Math.abs(re.force), 0) + Math.abs(res.maxShear.value);
+        const mScale = Math.abs(res.length) * fScale;
+        if (!Number.isFinite(res.length) || !Number.isFinite(fScale) || !(mScale < 1e300)) {
+          return {
+            text: "These magnitudes overflow double precision: the bending moments (span × force) exceed 10³⁰⁰. Rescale the units (for example MN and km instead of N and m) and enter the beam again.",
+            ok: false,
+          };
+        }
+      }
 
       const parts = (r("unit") || "kN,m").split(",");
       const fu = (parts[0] || "").trim();
@@ -13823,14 +13837,9 @@ const ENG_CALCS: EngCalc[] = [
         xScale: "log",
       });
 
-      // The corner is where the response has fallen 3 dB from its starting value.
-      let corner: number | null = null;
-      for (const p of pts) {
-        if (dB(p.magnitude, ref) <= -3.0103) {
-          corner = p.f;
-          break;
-        }
-      }
+      // The corner is where the response has fallen 3 dB from its starting value: bracketed by the sweep, then
+      // solved on the circuit (circuit.ts sweepCorner3dB) rather than read off the first sample past it.
+      const corner = sweepCorner3dB(parsed.elements, out, pts, ref);
 
       const lines: EngReportLine[] = [...engEq("circuit-ac")];
       lines.push(`Frequency response at node ${out}`);
@@ -13839,7 +13848,7 @@ const ENG_CALCS: EngCalc[] = [
       const last = pts[pts.length - 1];
       lines.push(`  at ${engNum(last.f)} Hz: ${engNum(last.magnitude)} at ${engNum(last.phaseDeg)} deg`);
       if (corner !== null) {
-        lines.push(`  falls 3 dB by about ${engNum(corner)} Hz`);
+        lines.push(`  falls 3 dB at ${engNum(corner, 5)} Hz`);
       } else {
         lines.push("  does not fall 3 dB anywhere in this range, so the corner is outside it.");
       }
@@ -14528,6 +14537,10 @@ const ENG_CALCS: EngCalc[] = [
 
       const vRaw = r("V").trim();
       const qRaw = r("Q").trim();
+      // Both given would silently drop the flow rate; two flows for one pipe is ambiguous, so it is refused.
+      if (vRaw && qRaw) {
+        return { text: "Give the mean velocity OR the volumetric flow rate, not both: clear one of the two fields.", ok: false };
+      }
       const pipeD = u.req("D", "m", "Internal diameter");
       const pipeL = u.req("L", "m", "Pipe length");
       const res = analyzePipe({
@@ -15490,28 +15503,42 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("");
 
       const m = secondOrderMetrics(tf);
+      // Closed-form metrics only where they are exact (constant numerator, second-order denominator); measured
+      // from the simulation otherwise; none for an impulse (control.ts reportedTransient).
+      const tr = reportedTransient(m, res, kind);
       if (m.ok) {
-        if (m.kind === "underdamped" && m.wd > 0) lines.push(...engEq("control-step:underdamped"));
-        lines.push(m.exact ? "Second-order metrics (exact for this system)" : "Transient metrics from the dominant poles");
-        lines.push(`  Natural frequency wn = ${engNum(m.wn)} rad/s`);
-        lines.push(`  Damping ratio zeta = ${engNum(m.zeta)} (${m.kind})`);
-        if (m.wd > 0) lines.push(`  Damped frequency wd = ${engNum(m.wd)} rad/s`);
-        if (m.overshoot !== null) lines.push(`  Overshoot = ${engNum(m.overshoot * 100)}%`);
-        if (m.peakTime !== null) lines.push(`  Peak time = ${engNum(m.peakTime)} s`);
-        if (m.riseTime !== null) lines.push(`  Rise time (0-100%) = ${engNum(m.riseTime)} s`);
-        if (m.settlingTime !== null) lines.push(`  Settling time (2%) = ${engNum(m.settlingTime)} s`);
-        for (const note of m.notes) lines.push(`  Note: ${note}`);
+        if (tr.source === "exact" && m.kind === "underdamped" && m.wd > 0) lines.push(...engEq("control-step:underdamped"));
+        lines.push(
+          tr.source === "exact" ? "Second-order metrics (exact for this system)" : "The dominant pole pair",
+        );
+        lines.push(`  Natural frequency ωn = ${engNum(m.wn)} rad/s`);
+        lines.push(`  Damping ratio ζ = ${engNum(m.zeta)} (${m.kind})`);
+        if (m.wd > 0) lines.push(`  Damped frequency ωd = ${engNum(m.wd)} rad/s`);
+        if (tr.source === "simulated") lines.push("Transient metrics measured from the simulated step response");
+        if (tr.overshoot !== null) lines.push(`  Overshoot = ${engNum(tr.overshoot * 100)} %`);
+        if (tr.peakTime !== null) lines.push(`  Peak time = ${engNum(tr.peakTime)} s`);
+        if (tr.riseTime !== null) lines.push(`  Rise time (${tr.riseLabel}) = ${engNum(tr.riseTime)} s`);
+        if (tr.settlingTime !== null) lines.push(`  Settling time (2 %) = ${engNum(tr.settlingTime)} s`);
+        else if (tr.source === "simulated") lines.push("  Settling time (2 %): not settled inside the window");
+        // Caveats about closed-form numbers that are not printed for a measured response are dropped.
+        for (const note of transientNotes(m, tr.source)) lines.push(`  Note: ${note}`);
         lines.push("");
       }
 
       if (res.finalValue !== null) lines.push(`Final value = ${engNum(res.finalValue)}`);
       lines.push(`Peak of the simulated response: ${engNum(res.peak.y)} at t = ${engNum(res.peak.t)} s`);
-      if (res.finalValue !== null && res.finalValue !== 0) {
+      if (kind === "step" && tr.source === "exact" && res.finalValue !== null && res.finalValue !== 0) {
         const os = (res.peak.y - res.finalValue) / res.finalValue;
-        if (os > 1e-6) lines.push(`  which is ${engNum(os * 100)}% overshoot, measured from the simulation`);
+        if (os > 1e-6) lines.push(`  which is ${engNum(os * 100)} % overshoot, measured from the simulation`);
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
-      lines.push("The response is integrated numerically; the metrics above it are closed-form.");
+      lines.push(
+        tr.source === "exact"
+          ? "The response is integrated numerically; the metrics above it are closed-form."
+          : kind === "impulse"
+            ? "The response is integrated numerically. Overshoot, rise and settling time are step-response metrics and are not given for an impulse; ωn and ζ describe the poles."
+            : "The response is integrated numerically, and the transient metrics are measured from it.",
+      );
       lines.push(ENG_CONTROL_UNIT_NOTE);
 
       const svg = buildPlotSvg(
@@ -15521,8 +15548,8 @@ const ENG_CALCS: EngCalc[] = [
       return withOutputs([
         { key: "wn", label: "Natural frequency ωn", value: m.ok ? m.wn : NaN, unit: "rad/s" },
         { key: "zeta", label: "Damping ratio ζ", value: m.ok ? m.zeta : NaN, unit: "" },
-        { key: "Mp", label: "Overshoot", value: m.ok && m.overshoot !== null ? m.overshoot * 100 : NaN, unit: "%" },
-        { key: "ts", label: "Settling time (2 %)", value: m.ok && m.settlingTime !== null ? m.settlingTime : NaN, unit: "s" },
+        { key: "Mp", label: "Overshoot", value: tr.overshoot !== null ? tr.overshoot * 100 : NaN, unit: "%" },
+        { key: "ts", label: "Settling time (2 %)", value: tr.settlingTime !== null ? tr.settlingTime : NaN, unit: "s" },
         { key: "yFinal", label: "Final value", value: res.finalValue ?? NaN, unit: "" },
       ], engReport(lines, [
         {
@@ -15681,13 +15708,21 @@ const ENG_CALCS: EngCalc[] = [
       }
 
       const m = secondOrderMetrics(closed);
+      // The closed-loop step, simulated once: drawn below, and the source of the transient metrics whenever the
+      // closed loop has zeros (a PID's always does) or is above second order (control.ts reportedTransient).
+      const slowest = st.poles.length
+        ? Math.min(...st.poles.map((p) => Math.abs(p.re)).filter((v) => v > 1e-9))
+        : NaN;
+      const tEnd = Number.isFinite(slowest) && slowest > 0 ? 6 / slowest : 10;
+      const sim = timeResponse(closed, "step", tEnd, 400);
+      const tr = reportedTransient(m, sim.ok ? sim : { t: [], y: [], finalValue: null }, "step");
       if (m.ok) {
         lines.push("");
-        lines.push(m.exact ? "Closed-loop transient (exact)" : "Closed-loop transient, from the dominant poles");
-        lines.push(`  wn = ${engNum(m.wn)} rad/s, zeta = ${engNum(m.zeta)} (${m.kind})`);
-        if (m.overshoot !== null) lines.push(`  Overshoot = ${engNum(m.overshoot * 100)}%`);
-        if (m.settlingTime !== null) lines.push(`  Settling time (2%) = ${engNum(m.settlingTime)} s`);
-        for (const note of m.notes) lines.push(`  Note: ${note}`);
+        lines.push(tr.source === "exact" ? "Closed-loop transient (exact)" : "Closed-loop transient, measured from the simulated step");
+        lines.push(`  ωn = ${engNum(m.wn)} rad/s, ζ = ${engNum(m.zeta)} (${m.kind}) for the dominant poles`);
+        if (tr.overshoot !== null) lines.push(`  Overshoot = ${engNum(tr.overshoot * 100)} %`);
+        if (tr.settlingTime !== null) lines.push(`  Settling time (2 %) = ${engNum(tr.settlingTime)} s`);
+        for (const note of transientNotes(m, tr.source)) lines.push(`  Note: ${note}`);
       }
 
       if (ratNum(gains.ki!) === 0) {
@@ -15708,14 +15743,9 @@ const ENG_CALCS: EngCalc[] = [
       const pidOutputs: EngOutput[] = [
         { key: "GM", label: "Gain margin", value: mg.ok && mg.gainMarginDb !== null ? mg.gainMarginDb : NaN, unit: "dB" },
         { key: "PM", label: "Phase margin", value: mg.ok && mg.phaseMarginDeg !== null ? mg.phaseMarginDeg : NaN, unit: "°" },
-        { key: "Mp", label: "Closed-loop overshoot", value: m.ok && m.overshoot !== null ? m.overshoot * 100 : NaN, unit: "%" },
-        { key: "ts", label: "Closed-loop settling time (2 %)", value: m.ok && m.settlingTime !== null ? m.settlingTime : NaN, unit: "s" },
+        { key: "Mp", label: "Closed-loop overshoot", value: m.ok && tr.overshoot !== null ? tr.overshoot * 100 : NaN, unit: "%" },
+        { key: "ts", label: "Closed-loop settling time (2 %)", value: m.ok && tr.settlingTime !== null ? tr.settlingTime : NaN, unit: "s" },
       ];
-      const slowest = st.poles.length
-        ? Math.min(...st.poles.map((p) => Math.abs(p.re)).filter((v) => v > 1e-9))
-        : NaN;
-      const tEnd = Number.isFinite(slowest) && slowest > 0 ? 6 / slowest : 10;
-      const sim = timeResponse(closed, "step", tEnd, 400);
       if (sim.ok) {
         const pts = sim.t
           .map((t, i) => ({ x: t, y: sim.y[i] }))
@@ -16123,7 +16153,8 @@ const ENG_CALCS: EngCalc[] = [
         ...engEq("shelf-life"),
         ...(order === "first" ? engEq("shelf-life:first") : engEq("shelf-life:zero")),
         `Activation energy Ea = ${engNum(res.EaKJ)} kJ/mol${res.EaCI ? ` (95 % interval ${engNum(res.EaCI[0])} to ${engNum(res.EaCI[1])})` : ""}; ln A = ${engNum(res.lnA)}; r² = ${res.r2.toFixed(4)}.`,
-        `At ${engNum(store)} °C: k = ${engNum(res.storage.k)} per ${tu.length >= 4 ? tu.replace(/s$/, "") : tu}${res.storage.kUpper ? ` (upper 95 % bound ${engNum(res.storage.kUpper)})` : ""}.`,
+        // Zero order: k is a rate of loss of assay, % (of label claim) per time unit — stated, not left as "per month".
+        `At ${engNum(store)} °C: k = ${engNum(res.storage.k)} ${order === "zero" ? "% " : ""}per ${tu.length >= 4 ? tu.replace(/s$/, "") : tu}${order === "zero" ? " (zero order: percentage points of assay lost per time unit)" : ""}${res.storage.kUpper ? ` (upper 95 % bound ${engNum(res.storage.kUpper)})` : ""}.`,
         `Shelf life t₉₀ (${order} order): ${engNum(res.storage.t90)} ${tu}${res.storage.t90Lower ? `; at the upper bound of k, ${engNum(res.storage.t90Lower)} ${tu}` : ""}.`,
         ...res.notes.map((n) => `Note: ${n}`),
         ARRHENIUS_SOURCE,
@@ -17597,9 +17628,9 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(
           life.infiniteLife
             ? "Cycles to failure: INFINITE — the stress is below the endurance limit."
-            : `Cycles to failure ≈ ${engNum(life.cycles, 3)}  (10^${engNum(Math.log10(life.cycles), 3)})`,
+            : `Cycles to failure ≈ ${engNum(life.cycles, 3)}  (log₁₀ N = ${engNum(Math.log10(life.cycles), 3)})`,
         );
-        lines.push(`S-N line: S = ${engNum(life.a)} · N^${engNum(life.b, 4)}`);
+        lines.push(`S-N line: S = a·Nᵇ with a = ${engNum(life.a)} MPa, b = ${engNum(life.b, 4)}`);
         for (const note of life.notes) lines.push(`Note: ${note}`);
       }
 
@@ -17801,7 +17832,7 @@ const ENG_CALCS: EngCalc[] = [
       const stressRange = u.req("ds", "Pa", "Stress range");
       const kic = u.req("kic", "Pa*m^0.5", "Fracture toughness");
       const thRaw = r("dkth").trim();
-      const deltaKth = thRaw ? u.opt("dkth", "Pa", "Threshold", 0) : undefined;
+      const deltaKth = thRaw ? u.opt("dkth", "Pa*m^0.5", "Threshold ΔK", 0) : undefined;
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const Y = Number(r("Y"));
       const C = Number(r("C"));
@@ -18499,19 +18530,34 @@ const ENG_CALCS: EngCalc[] = [
       { key: "vs", label: "Supply rail, V (blank to skip the clipping check)", default: "15", kind: "text" },
     ],
     compute: (r) => {
-      const rin = r("rin")
-        .split(/[,\s]+/)
-        .filter(Boolean)
-        .map(Number);
+      // Engineering suffixes as circuit-dc reads them (100k, 4.7n, 2k2) — circuit.ts parseFieldValue.
+      const rin: number[] = [];
+      for (const part of r("rin").split(/,/).map((s) => s.trim()).filter(Boolean)) {
+        const pv = parseFieldValue(part, "Input resistor", true);
+        if (!pv.ok) return { text: pv.error, ok: false };
+        rin.push(pv.value);
+      }
+      const opt = (key: string, what: string, resistor = false): number | undefined | string => {
+        if (!r(key).trim()) return undefined;
+        const pv = parseFieldValue(r(key), what, resistor);
+        return pv.ok ? pv.value : pv.error;
+      };
+      const rfV = opt("rf", "Feedback resistor", true);
+      const cV = opt("c", "Capacitor");
+      const gbwV0 = opt("gbw", "Gain-bandwidth product");
+      const srV = opt("sr", "Slew rate");
+      const voutV = opt("vout", "Output swing");
+      const vsV = opt("vs", "Supply rail");
+      for (const v of [rfV, cV, gbwV0, srV, voutV, vsV]) if (typeof v === "string") return { text: v, ok: false };
       const res = analyzeOpamp({
         config: (r("config") || "non-inverting") as OpampConfig,
         rin: rin.length ? rin : [0],
-        rf: Number(r("rf") || "0"),
-        c: r("c").trim() ? Number(r("c")) : undefined,
-        gbw: r("gbw").trim() ? Number(r("gbw")) : undefined,
-        slewRate: r("sr").trim() ? Number(r("sr")) : undefined,
-        vout: r("vout").trim() ? Number(r("vout")) : undefined,
-        vsupply: r("vs").trim() ? Number(r("vs")) : undefined,
+        rf: (rfV as number | undefined) ?? 0,
+        c: cV as number | undefined,
+        gbw: gbwV0 as number | undefined,
+        slewRate: srV as number | undefined,
+        vout: voutV as number | undefined,
+        vsupply: vsV as number | undefined,
       });
       if (!res.ok) return { text: res.error, ok: false };
 
@@ -18569,7 +18615,7 @@ const ENG_CALCS: EngCalc[] = [
         { key: "fpbw", label: "Full-power bandwidth", value: res.fullPowerBandwidth ?? NaN, unit: "Hz" },
         { key: "fcorner", label: "Unity-gain corner frequency", value: res.cornerFrequency ?? NaN, unit: "Hz" },
       ];
-      const gbwV = r("gbw").trim() ? Number(r("gbw")) : NaN;
+      const gbwV = typeof gbwV0 === "number" ? gbwV0 : NaN;
       const toDb = (g: number): number => 20 * Math.log10(Math.max(g, 1e-12));
       const gainSeries: Series[] = [];
       let fLo = NaN;
@@ -18608,7 +18654,7 @@ const ENG_CALCS: EngCalc[] = [
           }
           gainSeries.push({ points: ol, type: "line", color: "#9ca3af", label: "open-loop roll-off" });
         }
-        gainSeries.push({ points: [{ x: bw, y: toDb(sigGain) - 3.01 }], type: "scatter", color: "#b91c1c", label: "-3 dB" });
+        gainSeries.push({ points: [{ x: bw, y: toDb(sigGain) - 3.01 }], type: "scatter", color: "#b91c1c", label: "−3 dB" });
         if (res.fullPowerBandwidth !== null && res.fullPowerBandwidth > fLo && res.fullPowerBandwidth < fHi) {
           gainSeries.push({
             points: [{ x: res.fullPowerBandwidth, y: toDb(sigGain / Math.sqrt(1 + (res.fullPowerBandwidth / bw) ** 2)) }],
@@ -18981,7 +19027,7 @@ const ENG_CALCS: EngCalc[] = [
       "liquid gets hotter, which is what catches people out.",
     fields: [
       { key: "psurf", label: "Absolute pressure on the liquid surface, Pa", default: "101325", kind: "text" },
-      { key: "pvap", label: "Vapour pressure at the pumping temperature, Pa", default: "2339", kind: "text" },
+      { key: "pvap", label: "Vapour pressure at the pumping temperature, Pa (water source: blank = table value)", default: "2339", kind: "text" },
       // THE TWO HANDOFFS. Density and the suction-line loss are both numbers
       // this product computes elsewhere and used to make the user carry across
       // by hand. Density comes from the shipped water table; the loss comes
@@ -19084,7 +19130,19 @@ const ENG_CALCS: EngCalc[] = [
       }
 
       const pSurfaceV = u.req("psurf", "Pa", "Surface pressure");
-      const pVapourV = u.req("pvap", "Pa", "Vapour pressure");
+      // Water source: the vapour pressure comes from the same water (fluids.ts waterNpshVapourPressure) — the 20 °C
+      // default no longer rides along with 80 °C water.
+      let pVapourV: number;
+      if (fromWater) {
+        const pvTyped = r("pvap").trim() ? u.opt("pvap", "Pa", "Vapour pressure", NaN) : NaN;
+        if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+        const pvRes = waterNpshVapourPressure(tempC, r("pvap"), pvTyped);
+        if (!pvRes.ok) return { text: pvRes.error, ok: false };
+        pVapourV = pvRes.pv;
+        handoffs.push(pvRes.note);
+      } else {
+        pVapourV = u.req("pvap", "Pa", "Vapour pressure");
+      }
       const staticHeadV = u.opt("hstat", "m", "Static head", 0);
       const npshrV = u.req("npshr", "m", "Required NPSH");
       const res = npshAnalysis({
@@ -19119,19 +19177,15 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Suction-line loss   ${engNum(hLoss, 5)} m`);
       for (const h of handoffs) lines.push(`Note: ${h}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
-      // WHY VAPOUR PRESSURE IS NOT FILLED IN FOR YOU. It is the one number on
-      // this panel the product will not invent. Density and viscosity come from
-      // a table that ships with a source; a saturation-pressure correlation
-      // would have to be typed from memory, and that is exactly the class of
-      // unverifiable constant this product refuses - the same reason no steam
-      // tables are built in. It matters more than the others, too: NPSH
-      // available falls as the liquid warms, entirely through this term.
+      // Vapour pressure: from the sourced saturation table when the liquid is water at a stated temperature
+      // (fluids.ts WATER_PSAT, CoolProp-checked); the user's input for any other liquid.
       lines.push(
-        "Note: vapour pressure is YOUR input and is deliberately not filled in. Density and " +
-          "viscosity come from a shipped water table; a saturation-pressure correlation would " +
-          "have to be reconstructed from memory, which is the one thing this product will not " +
-          "do with a physical constant. Look it up at your pumping temperature - and note it is " +
-          "the term through which NPSH available collapses as the liquid gets hotter.",
+        fromWater
+          ? "Note: vapour pressure is the term through which NPSH available collapses as water gets hotter; it " +
+              "was taken at the same water temperature as the density."
+          : "Note: vapour pressure is YOUR input for a typed-density liquid. Look it up at the pumping " +
+              "temperature – it is the term through which NPSH available collapses as the liquid gets hotter. " +
+              "For water, choose the water-table density source and it is filled in at the temperature.",
       );
       lines.push(ENG_UNIT_NOTE);
 
@@ -22945,9 +22999,9 @@ const ENG_CALCS: EngCalc[] = [
         ...(res.waistM !== null ? engEq("optics-resonator:mode") : []),
         "Two-mirror resonator",
         "",
-        `  g1 = ${engNum(res.g1, 6)}    g2 = ${engNum(res.g2, 6)}`,
-        `  g1*g2 = ${engNum(res.product, 6)}`,
-        `  ${res.stable ? "STABLE (0 <= g1*g2 <= 1)" : "UNSTABLE"}`,
+        `  g₁ = ${engNum(res.g1, 6)}    g₂ = ${engNum(res.g2, 6)}`,
+        `  g₁g₂ = ${engNum(res.product, 6)}`,
+        `  ${res.marginal ? "MARGINALLY STABLE (g₁g₂ on the stability boundary): no confined mode, so no mode size" : res.stable ? "STABLE (0 ≤ g₁g₂ ≤ 1)" : "UNSTABLE"}`,
       ];
       if (res.waistM !== null) {
         lines.push("");
@@ -29540,8 +29594,9 @@ const ENG_CALCS: EngCalc[] = [
     group: "Trajectory & orbits",
     hint:
       "SYNCHRONISING IS WHAT MAKES THE PATH STRAIGHT. Run every axis flat out and each finishes " +
-      "at a different moment, tracing a dog-leg. Throttling the fast axes to match the slowest " +
-      "costs NOTHING in cycle time — the slowest axis sets that regardless.",
+      "at a different moment, tracing a dog-leg. Every axis here runs one profile shape scaled by its " +
+      "distance, so the path is straight; when one axis limits speed and another acceleration, the " +
+      "result says what the straight line costs in time.",
     fields: [
       {
         key: "axes",
@@ -29672,8 +29727,12 @@ const ENG_CALCS: EngCalc[] = [
         "",
         `  Distance            ${engNum(res.distanceM / 1000, 6)} km`,
         `  Distance            ${engNum(res.distanceNmi, 6)} nmi`,
-        `  Initial bearing     ${engNum(res.initialBearingDeg, 4)}°`,
-        `  Final bearing       ${engNum(res.finalBearingDeg, 4)}°`,
+        ...(res.bearingsUndefinedReason
+          ? [
+              `  Initial bearing     not defined (${res.bearingsUndefinedReason})`,
+              `  Final bearing       not defined (${res.bearingsUndefinedReason})`,
+            ]
+          : [`  Initial bearing     ${engNum(res.initialBearingDeg, 4)}°`, `  Final bearing       ${engNum(res.finalBearingDeg, 4)}°`]),
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
@@ -30184,7 +30243,7 @@ function runEngUncertainty(): void {
     const t = el.value.trim();
     if (!t) continue;
     const key = el.dataset.unc ?? "";
-    const parsed = parseUncertainty(t, read(key));
+    const parsed = parseUncertainty(t, read(key), fieldUnitOf(calc.fields, key, read));
     if ("error" in parsed) return showExplore({ text: parsed.error, ok: false });
     inputs.push({ field: key, u: parsed.u, relative: parsed.relative });
     described.push({ label: names[key] ?? key, text: `${displayValue(read(key))} ± ${displayValue(t)}` });

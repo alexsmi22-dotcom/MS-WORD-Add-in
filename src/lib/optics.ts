@@ -349,6 +349,8 @@ export interface ResonatorResult {
   g2: number;
   product: number;
   stable: boolean;
+  /** True when g1·g2 sits on the stability boundary (0 or 1): marginally stable, with no confined mode. */
+  marginal?: boolean;
   /** Intracavity waist radius, metres — only when stable and not at a boundary. */
   waistM: number | null;
   /** Spot radius on each mirror, metres. */
@@ -404,7 +406,7 @@ export function resonator(L: number, R1: number, R2: number, lambda: number): Re
         "live here. The mode size is either undetermined or diverges, and any real misalignment " +
         "pushes the cavity out of stability, so no mode size is reported.",
     );
-    return { g1, g2, product, stable: true, waistM: null, spot1M: null, spot2M: null, waistFromM1: null, notes };
+    return { g1, g2, product, stable: true, marginal: true, waistM: null, spot1M: null, spot2M: null, waistFromM1: null, notes };
   }
 
   const sum = g1 + g2 - 2 * product;

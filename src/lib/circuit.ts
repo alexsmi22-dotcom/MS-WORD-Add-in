@@ -257,6 +257,32 @@ export function parseValue(text: string): { value: number; exact: Rat | null } |
   return { value, exact };
 }
 
+/**
+ * A component value typed into a form field (not a netlist): parseValue's engineering suffixes (100k, 4.7u, 2k2,
+ * 1e-7, 10meg), with a trailing Ω/ohm allowed on a resistor. A bare m/M suffix on a RESISTOR is refused by name:
+ * SPICE reads it as milli, but "1M" in a resistor field almost always means a megohm, and guessing either way is a
+ * confident wrong number by a factor of 10⁹. On any other field an upper-case M is refused for the same reason.
+ */
+export function parseFieldValue(
+  text: string,
+  what: string,
+  resistor = false,
+): { ok: true; value: number } | { ok: false; error: string } {
+  let t = text.trim();
+  if (resistor) t = t.replace(/\s*(?:Ω|ohms?)$/i, "");
+  const suffix = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*([mM])$/.exec(t);
+  if (suffix && (resistor || suffix[1] === "M")) {
+    return {
+      ok: false,
+      error: `${what}: "${text.trim()}" is ambiguous: m is milli in SPICE notation and M usually means mega. Write "1meg" or "1e6" for a megohm, or "1e-3" for milli.`,
+    };
+  }
+  // "100 k" reads as 100k; any other space ("1000 2000") is not one value and is refused.
+  const v = parseValue(t.replace(/^(\S+)\s+([a-zA-Z]+)$/, "$1$2"));
+  if (!v) return { ok: false, error: `${what}: "${text.trim()}" is not a number (suffixes like 100k, 4.7u, 2k2 and 1e-7 are accepted).` };
+  return { ok: true, value: v.value };
+}
+
 export interface ParsedNetlist {
   elements: Element[];
   errors: string[];
@@ -1650,6 +1676,52 @@ export function frequencySweep(
         .filter(Boolean)
         .join(" ") || undefined,
   };
+}
+
+/**
+ * The frequency where the magnitude at `outNode` first falls 3.0103 dB (1/√2) below `ref` — the swept response's
+ * corner. The sweep only brackets it; the crossing is then found by bisection in log frequency on the circuit itself
+ * (each step a full AC solve, at most 60, stopping once the bracket is within 1 part in 10⁹), so the corner is the
+ * circuit's, not the first sample past it (an RC of 1 kΩ and 1 µF read 170.9 Hz against the true 159.15 Hz).
+ * Null when the sweep never falls 3 dB. If a refining solve fails, the bracket is interpolated in log f instead.
+ */
+export function sweepCorner3dB(
+  elements: Element[],
+  outNode: string,
+  points: SweepPoint[],
+  ref: number,
+): number | null {
+  if (!(ref > 0) || points.length < 1) return null;
+  const target = ref / Math.SQRT2;
+  const k = points.findIndex((p) => p.magnitude <= target);
+  if (k < 0) return null;
+  if (k === 0) return points[0].f;
+  let lo = Math.log(points[k - 1].f);
+  let hi = Math.log(points[k].f);
+  let mLo = points[k - 1].magnitude;
+  let mHi = points[k].magnitude;
+  const interp = (): number => {
+    // dB is linear-ish in log f near a corner: interpolate the dB values.
+    const dLo = 20 * Math.log10(mLo / ref);
+    const dHi = mHi > 0 ? 20 * Math.log10(mHi / ref) : -Infinity;
+    const want = -20 * Math.log10(Math.SQRT2);
+    const f = Number.isFinite(dHi) && dHi !== dLo ? (want - dLo) / (dHi - dLo) : 0.5;
+    return Math.exp(lo + Math.min(1, Math.max(0, f)) * (hi - lo));
+  };
+  for (let i = 0; i < 60 && hi - lo > 1e-9; i++) {
+    const mid = (lo + hi) / 2;
+    const r = solveAc(elements, Math.exp(mid));
+    const node = r.ok ? r.nodes.find((x) => x.name === outNode) : undefined;
+    if (!node) return interp();
+    if (node.magnitude <= target) {
+      hi = mid;
+      mHi = node.magnitude;
+    } else {
+      lo = mid;
+      mLo = node.magnitude;
+    }
+  }
+  return interp();
 }
 
 /** Decibels relative to a reference, for the magnitude axis of a Bode plot. */

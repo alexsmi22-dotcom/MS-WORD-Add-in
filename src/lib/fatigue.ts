@@ -119,6 +119,25 @@ export interface EnduranceResult {
 }
 
 /**
+ * The Marin temperature factor kd for steel: Shigley's Mechanical Engineering Design, Eq. 6-27 (fourth-order fit
+ * to the Table 6-4 strength-at-temperature data), in °F:
+ *
+ *   kd = 0.975 + 0.432×10⁻³ T − 0.115×10⁻⁵ T² + 0.104×10⁻⁸ T³ − 0.595×10⁻¹² T⁴,   70 ≤ T ≤ 1000 °F.
+ *
+ * Below 70 °F (21.1 °C) the factor is held at 1, room temperature being the reference the endurance data were
+ * measured at (the fit itself gives 1.000 at 70 °F). Above 1000 °F (537.8 °C) the fit is undefined and null is
+ * returned so the caller refuses by name. It replaced an invented linear derating 1 − 0.0006(T − 20) that was
+ * 4 % low at 200 °C (0.892 against the fit's 1.016) — steel's strength RISES slightly up to about 250 °C.
+ */
+export function temperatureFactorKd(tempC: number): number | null {
+  if (!Number.isFinite(tempC)) return null;
+  const tF = (tempC * 9) / 5 + 32;
+  if (tF > 1000) return null;
+  if (tF <= 70) return 1;
+  return 0.975 + 0.432e-3 * tF - 0.115e-5 * tF ** 2 + 0.104e-8 * tF ** 3 - 0.595e-12 * tF ** 4;
+}
+
+/**
  * The corrected endurance limit by the Marin factor method.
  *
  * EVERY FACTOR IS AN EMPIRICAL FIT with its own scatter, and multiplying five
@@ -220,13 +239,14 @@ export function enduranceLimit(inp: EnduranceInput): EnduranceResult | FatigueEr
         "deformation dominates; this needs creep data, not an S-N curve.",
     };
   }
-  if (tempC > 20) {
-    // The standard linear-ish derating for steel between room temperature and 450 C.
-    kd = 1 - 0.0006 * (tempC - 20);
-    if (kd < 0.5) kd = 0.5;
+  const kdFit = temperatureFactorKd(tempC);
+  if (kdFit !== null && tempC > 21.11) {
+    kd = kdFit;
     notes.push(
-      `Temperature factor ${kd.toFixed(3)} for ${tempC} °C. Above about 250 °C also check that the ` +
-        "material is not losing strength faster than this linear derating suggests.",
+      `Temperature factor kd = ${kd.toFixed(3)} for ${tempC} °C, from Shigley's fourth-order fit to steel ` +
+        "tensile-strength-at-temperature data (Eq. 6-27, valid 70 to 1000 °F). It is a fit to steels; for " +
+        "any other material use its own strength at temperature." +
+        (inp.materialClass === "steel" ? "" : " THIS MATERIAL IS NOT A STEEL, so treat the factor as indicative only."),
     );
   }
   if (tempC < -50) {
@@ -514,6 +534,16 @@ export function finiteLife(
   if (!Number.isFinite(sigmaA) || sigmaA <= 0) return { ok: false, error: "The alternating stress must be greater than zero." };
   if (!Number.isFinite(se) || se <= 0) return { ok: false, error: "The endurance limit must be greater than zero." };
   if (!Number.isFinite(sut) || sut <= 0) return { ok: false, error: "The ultimate strength must be greater than zero." };
+  // AT OR ABOVE Sut THE PART BREAKS ON THE FIRST LOAD. Extrapolating the S-N line past 0.9·Sut handed a finite
+  // (if small) cycle count to a stress the material cannot carry even once.
+  if (sigmaA >= sut) {
+    return {
+      ok: false,
+      error:
+        `STATIC FAILURE: the alternating stress ${sigmaA} MPa is at or above the ultimate tensile strength ` +
+        `${sut} MPa, so the part fails on the first load cycle. There is no fatigue life to compute.`,
+    };
+  }
   if (se >= 0.9 * sut) {
     return {
       ok: false,
@@ -625,7 +655,7 @@ export function minerDamage(
       return { ok: false, error: `Block ${i + 1}: the cycle count cannot be negative.` };
     }
     const life = finiteLife(b.sigmaA, se, sut, materialClass);
-    if (!life.ok) return life;
+    if (!life.ok) return blocks.length > 1 ? { ok: false, error: `Block ${i + 1}: ${life.error}` } : life;
     const allowable = life.cycles;
     const damage = allowable === Infinity ? 0 : b.cycles / allowable;
     if (allowable === Infinity) anyInfinite = true;

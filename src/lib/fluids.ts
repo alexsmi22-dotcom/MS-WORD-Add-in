@@ -334,6 +334,88 @@ export function waterProperties(tempC: number): { rho: number; mu: number } | nu
   return null;
 }
 
+/**
+ * Saturation (vapour) pressure of water, Pa, every 5 °C from the triple point to 100 °C.
+ *
+ * SOURCE (checked 2026-10-24): IAPWS-95 saturation pressure, PropsSI('P','T',T,'Q',0,'Water') in CoolProp 8.0.0
+ * (Bell et al., Ind. Eng. Chem. Res. 53 (2014) 2498); the 0 °C row is the triple point, 0.01 °C. Interpolated
+ * linearly in ln p, which is within 0.19 % of CoolProp at every 0.1 °C step over 0–100 °C (worst 0.181 %).
+ * Oracle: the same PropsSI call over T = 0.01, 5, 10 … 100 °C.
+ */
+export const WATER_PSAT: { tempC: number; p: number }[] = [
+  { tempC: 0, p: 611.65 },
+  { tempC: 5, p: 872.58 },
+  { tempC: 10, p: 1228.2 },
+  { tempC: 15, p: 1705.8 },
+  { tempC: 20, p: 2339.3 },
+  { tempC: 25, p: 3169.9 },
+  { tempC: 30, p: 4247.0 },
+  { tempC: 35, p: 5629.0 },
+  { tempC: 40, p: 7384.9 },
+  { tempC: 45, p: 9595.0 },
+  { tempC: 50, p: 12352 },
+  { tempC: 55, p: 15762 },
+  { tempC: 60, p: 19946 },
+  { tempC: 65, p: 25042 },
+  { tempC: 70, p: 31201 },
+  { tempC: 75, p: 38595 },
+  { tempC: 80, p: 47414 },
+  { tempC: 85, p: 57867 },
+  { tempC: 90, p: 70182 },
+  { tempC: 95, p: 84608 },
+  { tempC: 100, p: 101418 },
+];
+
+/** Vapour pressure of liquid water at 0–100 °C, Pa (interpolated in ln p); null outside the table. */
+export function waterVapourPressure(tempC: number): number | null {
+  if (!Number.isFinite(tempC) || tempC < 0 || tempC > 100) return null;
+  for (let i = 0; i < WATER_PSAT.length - 1; i++) {
+    const a = WATER_PSAT[i];
+    const b = WATER_PSAT[i + 1];
+    if (tempC >= a.tempC && tempC <= b.tempC) {
+      const t = (tempC - a.tempC) / (b.tempC - a.tempC);
+      return Math.exp(Math.log(a.p) + t * (Math.log(b.p) - Math.log(a.p)));
+    }
+  }
+  return null;
+}
+
+/**
+ * The vapour pressure the NPSH tool uses when its density comes from the water table at `tempC`.
+ *
+ * The field's default (2339 Pa, water at 20 °C) used to be kept whatever the water temperature, so water at 80 °C
+ * reported NPSHa 11.89 m and "no cavitation" where the real vapour pressure (47.4 kPa) gives 7.16 m. Now: blank or
+ * the untouched default takes the table value at the temperature; a typed value within 2 % of it is accepted (the
+ * table value is used); a typed value further away is REFUSED by name, because the two cannot both describe the
+ * same water.
+ */
+export function waterNpshVapourPressure(
+  tempC: number,
+  typedText: string,
+  typedPa: number,
+  defaultText = "2339",
+): { ok: true; pv: number; note: string } | { ok: false; error: string } {
+  const table = waterVapourPressure(tempC);
+  if (table === null) return { ok: false, error: `The water vapour-pressure table covers 0–100 °C; ${tempC} °C is outside it.` };
+  const t = typedText.trim();
+  const shown = (p: number): string => (p >= 1e4 ? `${(p / 1000).toPrecision(4)} kPa` : `${p.toPrecision(4)} Pa`);
+  const note =
+    `Vapour pressure ${shown(table)} for water at ${tempC} °C, from the shipped IAPWS-95 saturation table ` +
+    "(CoolProp 8.0.0, within 0.2 %), consistent with the density.";
+  if (!t || t === defaultText) return { ok: true, pv: table, note };
+  if (!Number.isFinite(typedPa) || typedPa < 0) return { ok: false, error: "The vapour pressure must be a number of pascals." };
+  if (Math.abs(typedPa - table) > 0.02 * table) {
+    return {
+      ok: false,
+      error:
+        `The typed vapour pressure (${shown(typedPa)}) does not match water at ${tempC} °C (${shown(table)}, IAPWS-95). ` +
+        "Clear the vapour-pressure field to use the table value, or switch the density source to a typed density " +
+        "for a liquid that is not pure water.",
+    };
+  }
+  return { ok: true, pv: table, note };
+}
+
 // ---------------------------------------------------------------------------
 // Open-channel flow
 // ---------------------------------------------------------------------------

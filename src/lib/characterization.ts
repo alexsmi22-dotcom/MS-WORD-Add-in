@@ -10,7 +10,7 @@
 // Word insert (bibOoxml.inlineParagraphsOoxml → runs) are the same text.
 
 import { Molecule } from "openchemlib";
-import { resolveChemInput } from "./structures";
+import { resolveChemInput, checkSmiles, STRUCTURE_DRAW_MAX_HEAVY_ATOMS } from "./structures";
 import { compositionFromMolecule } from "./massspec";
 import { ELECTRON_MASS, elementIsotopes, elementRefusal, isotopeMass } from "./isotopes";
 import { carbonEnvironmentCount } from "./nmr";
@@ -248,6 +248,23 @@ export function resolveCompound(input: string): CharCompound | { refusal: string
       parts: typedParts(input),
       formulaHtml: typedParts(input) > 1 ? typedFormulaHtml(input) : /[·.]/.test(f.display) ? unicodeFormulaHtml(f.display) : hillHtml(counts, labelled),
       note: "Read as a formula: the checks that need the structure (exchangeable protons, distinct carbons) are skipped.",
+    };
+  }
+  // Read WITHOUT 2D layout first: the default parse lays the molecule out, and that took 28.6 s for a long chain.
+  const check = checkSmiles(r.smiles);
+  if (!check.ok) return { refusal: check.invalid ? check.message : `“${input.trim()}” could not be read as a structure.` };
+  if (check.wildcards) {
+    return { refusal: "The structure has attachment points (*): a substituent or a polymer's repeat unit is not a whole compound, so it has no formula, mass or analysis here. Replace each * with its end group." };
+  }
+  if (check.heavyAtoms > STRUCTURE_DRAW_MAX_HEAVY_ATOMS) {
+    // Formula and masses from the coordinate-free reading; the structure checks (exchangeable protons, distinct
+    // carbons) need stereo perceived from coordinates, so they are skipped rather than run without it.
+    const c = compoundFromMolecule(check.mol);
+    if ("refusal" in c) return c;
+    return {
+      ...c,
+      mol: null,
+      note: `Above ${STRUCTURE_DRAW_MAX_HEAVY_ATOMS} heavy atoms (${check.heavyAtoms}): formula and masses only — the checks that need the structure (exchangeable protons, distinct carbons) are skipped.`,
     };
   }
   let mol: Molecule;
@@ -1272,10 +1289,10 @@ export function physicalLines(c: CharCompound | null, p: PhysicalInput): Physica
   }
   const rf = (p.rf ?? "").trim();
   if (rf) {
-    if (!/^(?:0?\.\d+|0|1(?:\.0+)?)$/.test(rf)) return { refusal: `R_f “${rf}” is not a value between 0 and 1.` };
+    if (!/^(?:0?\.\d+|0|1(?:\.0+)?)$/.test(rf)) return { refusal: `Rf “${rf}” is not a value between 0 and 1.` };
     const el = (p.eluent ?? "").trim();
     lines.push(`<i>R</i><sub>f</sub> = ${esc(rf.startsWith(".") ? `0${rf}` : rf)}${el ? ` (${esc(el)})` : ""}.`);
-    if (!el) msgs.push({ level: "warn", text: "An R_f without its eluent cannot be reproduced." });
+    if (!el) msgs.push({ level: "warn", text: "An Rf without its eluent cannot be reproduced." });
   }
   return res;
 }

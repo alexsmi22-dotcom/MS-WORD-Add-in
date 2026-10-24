@@ -30789,7 +30789,9 @@ function updateMassSpec(): void {
   const masses = document.createElement("div");
   masses.className = "ms-masses";
   for (const [k, v] of [
-    ["Monoisotopic mass", spec.monoisotopicMass.toFixed(4)],
+    [spec.ionMz === null ? "Monoisotopic mass" : "Monoisotopic mass (neutral atoms)", spec.monoisotopicMass.toFixed(4)],
+    // An ion's m/z counts the electrons it lacks or carries — the value Characterization's [M] gives.
+    ...(spec.ionMz === null ? [] : [[`m/z of the ion (${chargeText(spec.netCharge)}, electron mass counted)`, spec.ionMz.toFixed(4)]]),
     ["Average mass", spec.averageMass.toFixed(2)],
     // Typeset, like the INSERT path already was. The pane used to show C7H8
     // while the document received C₇H₈ — preview and insert disagreeing, and

@@ -383,7 +383,7 @@ describe("live bug 3 — a formula is not read as SMILES on a dictionary miss", 
     const hf = resolveMassSpec("Hf", "auto");
     expect(hf.kind === "ok" && hf.result.averageMass).toBeCloseTo(178.49, 1);
     const HF = resolveMassSpec("HF", "auto");
-    expect(HF.kind === "ok" && HF.result.formula).toBe("HF");
+    expect(HF.kind === "ok" && HF.result.formula).toBe("FH"); // Hill order (v2.193): no carbon, so all alphabetical — FH, as ClH and BH₄N
     const sn = resolveMassSpec("Sn", "auto");
     expect(sn.kind === "ok" && sn.result.formula).toBe("Sn");
     const SN = resolveMassSpec("SN", "auto");

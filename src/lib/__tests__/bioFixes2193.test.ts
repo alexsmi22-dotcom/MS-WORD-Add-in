@@ -11,6 +11,8 @@ import { parseSnapGeneDna } from "../seqdna";
 import { buildCircularMapSvg } from "../seqmapcirc";
 import { ENZYMES, findSites, formatSite, type Enzyme } from "../enzymes";
 import { align } from "../align";
+import { bandText, buildGel, LADDERS } from "../gel";
+import { gelAlt } from "../gelChart";
 
 const META: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", applicantFileReference: "R1", productionDate: "2026-10-24" };
 
@@ -422,5 +424,22 @@ describe("8. EMBOSS-equivalent alignment scores", () => {
     expect(r.score).toBe(0);
     expect(r.a.replace(/-/g, "")).toBe("W");
     expect(r.b.replace(/-/g, "")).toBe("P");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gel: two off-scale small fragments merged into one band are both named.
+// ---------------------------------------------------------------------------
+describe("gel band text names every merged size", () => {
+  test("250 + 100 bp below the NEB 1 kb ladder → 'below the ladder: 250 and 100 bp'", () => {
+    const m = buildGel({ ladder: LADDERS[0], lanes: [{ name: "digest", sizes: [3000, 250, 100] }] });
+    if ("error" in m) throw new Error(m.error);
+    const texts = m.lanes[1].bands.map(bandText);
+    expect(texts).toEqual(["3,000 bp", "below the ladder: 250 and 100 bp [drawn as one band at the bottom edge, not to scale]"]);
+    expect(texts.join(" ")).not.toMatch(/2 fragments/);
+    expect(gelAlt(m)).toMatch(/250 and 100 bp/);
+  });
+  test("two copies of one size still read as fragments", () => {
+    expect(bandText({ sizes: [1200, 1200], size: 1200, offScale: null })).toBe("1,200 bp (2 fragments)");
   });
 });

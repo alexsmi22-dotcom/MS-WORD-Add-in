@@ -32,6 +32,7 @@ import {
   laneFromDigest,
   ladderById,
   sizeText,
+  bandText,
   type GelSampleLane,
   type Ladder,
 } from "./gel";
@@ -299,7 +300,7 @@ const gelCalc: CloningCalc = {
     for (const l of model.lanes) {
       if (l.isLadder) continue;
       lines.push(
-        `${l.name}: ${l.bands.length ? l.bands.map((b) => `${whole(b.size)} bp${b.sizes.length > 1 ? ` (${b.sizes.length} fragments)` : ""}${b.offScale ? ` [off scale, drawn at the ${b.offScale === "above" ? "top" : "bottom"} edge]` : ""}`).join(", ") : "no bands"}`,
+        `${l.name}: ${l.bands.length ? l.bands.map((b) => bandText(b)).join(", ") : "no bands"}`,
       );
     }
     lines.push(

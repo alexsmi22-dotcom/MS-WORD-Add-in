@@ -17,7 +17,7 @@
 // Colours are literal hex, never a CSS variable or the inherited-colour keyword:
 // this artwork goes into a Word document and must not follow the pane's theme.
 
-import { GEL_BAND_PX, GEL_RUN_PX, GelModel, PlacedLane, ladderBandLabel, sizeText } from "./gel";
+import { GEL_BAND_PX, GEL_RUN_PX, GelModel, PlacedLane, bandText, ladderBandLabel } from "./gel";
 
 const PAPER = "#ffffff";
 const INK = "#111111";
@@ -191,7 +191,7 @@ export function gelAlt(model: GelModel): string {
   const parts = model.lanes.map((l: PlacedLane, i) =>
     l.isLadder
       ? `lane ${i + 1} ${l.name}`
-      : `lane ${i + 1} ${l.name}: ${l.bands.length ? l.bands.map((b) => sizeText(b.size)).join(", ") : "no bands"}`,
+      : `lane ${i + 1} ${l.name}: ${l.bands.length ? l.bands.map((b) => bandText(b)).join(", ") : "no bands"}`,
   );
   return `Schematic agarose gel. ${parts.join("; ")}.`;
 }

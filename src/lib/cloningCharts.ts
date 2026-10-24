@@ -319,7 +319,8 @@ export function primerMapSvg(r: PcrOk, templateLength: number): string {
   // Forward primer: an arrow on the top strand pointing right from the region start.
   const fw = Math.max(16, ((r.forward.anneal.length / span) * (W - 2 * PAD)) || 16);
   arrow(p, xs, yT - 16, Math.min(fw, (W - PAD) - xs), 1);
-  p.push(placedLabel(`F ${r.forward.anneal.length} nt · ${r.forward.tm.tm.toFixed(1)} °C`, xs + 3, yT - 20, W, ARROW));
+  // Baseline 4.6 px clear of the arrow head (head top at yT − 19.4): at yT − 20 the label sat ON the head.
+  p.push(placedLabel(`F ${r.forward.anneal.length} nt · ${r.forward.tm.tm.toFixed(1)} °C`, xs + 3, yT - 24, W, ARROW));
   // Reverse primer: an arrow on the bottom strand pointing left from the region end.
   const rw = Math.max(16, ((r.reverse.anneal.length / span) * (W - 2 * PAD)) || 16);
   arrow(p, xe, yT + 16, Math.min(rw, xe - PAD), -1);

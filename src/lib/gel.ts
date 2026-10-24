@@ -532,6 +532,29 @@ function clampIntensity(frac: number): number {
 }
 
 /** "3,001 bp" / "10.0 kb" — the way a gel is labelled. */
+/**
+ * A drawn sample band in words, naming EVERY size it holds.
+ *
+ * Two off-scale small fragments (250 and 100 bp below a ladder that ends at
+ * 500) are pinned to the same bottom edge and drawn as one band; the result
+ * used to read "250 bp (2 fragments)", which hides the 100 bp fragment and
+ * implies two copies of 250. Now: "below the ladder: 250 and 100 bp".
+ */
+export function bandText(b: Pick<PlacedBand, "sizes" | "size" | "offScale">): string {
+  const fmt = (v: number): string => Math.round(v).toLocaleString("en-US");
+  const distinct = [...new Set(b.sizes.map((s) => Math.round(s)))].sort((p, q) => q - p);
+  const list = (xs: number[]): string =>
+    xs.length <= 2 ? xs.map(fmt).join(" and ") : `${xs.slice(0, -1).map(fmt).join(", ")} and ${fmt(xs[xs.length - 1])}`;
+  if (distinct.length > 1) {
+    const where = b.offScale === "above" ? "above the ladder" : b.offScale === "below" ? "below the ladder" : "";
+    const edge = b.offScale ? ` [drawn as one band at the ${b.offScale === "above" ? "top" : "bottom"} edge, not to scale]` : " (drawn as one band)";
+    return where ? `${where}: ${list(distinct)} bp${edge}` : `${list(distinct)} bp${edge}`;
+  }
+  const copies = b.sizes.length > 1 ? ` (${b.sizes.length} fragments)` : "";
+  const off = b.offScale ? ` [off scale, drawn at the ${b.offScale === "above" ? "top" : "bottom"} edge]` : "";
+  return `${fmt(b.size)} bp${copies}${off}`;
+}
+
 export function sizeText(bp: number): string {
   if (!Number.isFinite(bp)) return "not a size";
   return bp >= 1000 ? `${(bp / 1000).toFixed(bp % 1000 === 0 ? 1 : 2)} kb` : `${Math.round(bp)} bp`;

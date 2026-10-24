@@ -980,6 +980,32 @@ function sciDisplayNum(v: number): string {
   return m ? `${m[1]}×10${[...((m[2] === "-" ? "-" : "") + m[3])].map((c) => SCI_DIGITS[c]).join("")}` : s;
 }
 
+/** A number for PROSE at full precision (12 significant figures): true minus, ×10ⁿ instead of e-notation. */
+function displayNum(v: number): string {
+  const s = fmtNum(v);
+  const m = /^(-?\d+(?:\.\d+)?)e([+-])(\d+)$/.exec(s);
+  const t = m ? `${m[1]}×10${[...((m[2] === "-" ? "-" : "") + m[3])].map((c) => SCI_DIGITS[c]).join("")}` : s;
+  return t.replace(/^-/, "−");
+}
+
+/**
+ * A polynomial (coefficients lowest power first) as typeset prose: "x² − 5x + 6". Zero terms dropped, unit
+ * coefficients unwritten, signs as operators with true minus.
+ */
+export function polyDisplay(coeffs: readonly number[], x: string): string {
+  const parts: string[] = [];
+  for (let k = coeffs.length - 1; k >= 0; k--) {
+    const c = coeffs[k];
+    if (c === 0) continue;
+    const mag = Math.abs(c);
+    const num = k > 0 && mag === 1 ? "" : displayNum(mag);
+    const pow = k === 0 ? "" : k === 1 ? x : `${x}${[...String(k)].map((d) => SCI_DIGITS[d]).join("")}`;
+    const term = num && pow && /×/.test(num) ? `(${num})${pow}` : `${num}${pow}`;
+    parts.push(parts.length ? `${c < 0 ? " − " : " + "}${term}` : `${c < 0 ? "−" : ""}${term}`);
+  }
+  return parts.length ? parts.join("") : "0";
+}
+
 export function format(e: Expr): string {
   const wrap = (child: Expr, parentPrec: number): string => {
     const s = format(child);
@@ -2322,8 +2348,7 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
     }
     const exact = solvePolyExact(trimmed, polyCoeffsRat(f, x));
     if (exact) {
-      const terms = trimmed.map((c, k) => `${fmtNum(c)}·${x}^${k}`).reverse().join(" + ");
-      steps.push(`Polynomial form: ${terms} = 0.`);
+      steps.push(`Polynomial form: ${polyDisplay(trimmed, x)} = 0.`);
       // A leading coefficient dwarfed by the next one produces a genuine but
       // enormous root — and if that coefficient is rounding dust from cancellation
       // rather than something the user typed, the root is an artefact. Since
@@ -2338,8 +2363,8 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
       // separates it from a legitimately large constant term.
       if (lead > 0 && next > 0 && lead < 1e-8 && next / lead > 1e14) {
         caveats.push(
-          `The ${x}^${trimmed.length - 1} coefficient (${fmtNum(trimmed[trimmed.length - 1])}) is more than ` +
-            `1e14 times smaller than the next one, which makes one root correspondingly enormous. ` +
+          `The ${x}${[...String(trimmed.length - 1)].map((d) => SCI_DIGITS[d]).join("")} coefficient (${displayNum(trimmed[trimmed.length - 1])}) is more than ` +
+            `10¹⁴ times smaller than the next one, which makes one root correspondingly enormous. ` +
             `That root is mathematically correct for the coefficients as given, but if the small ` +
             `coefficient came from subtracting two nearly equal quantities it is rounding noise and ` +
             `the root is an artefact. Check it against the equation you meant to write.`,
@@ -2350,8 +2375,8 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
         const disc = b * b - 4 * a * cc;
         steps.push(
           Number.isFinite(disc)
-            ? `Quadratic a=${fmtNum(a)}, b=${fmtNum(b)}, c=${fmtNum(cc)}; discriminant b²−4ac = ${fmtNum(disc)}.`
-            : `Quadratic a=${fmtNum(a)}, b=${fmtNum(b)}, c=${fmtNum(cc)}; b²−4ac exceeds the double range, so the roots were computed from the coefficients scaled by their largest magnitude.`,
+            ? `Quadratic a = ${displayNum(a)}, b = ${displayNum(b)}, c = ${displayNum(cc)}; discriminant b² − 4ac = ${displayNum(disc)}.`
+            : `Quadratic a = ${displayNum(a)}, b = ${displayNum(b)}, c = ${displayNum(cc)}; b² − 4ac exceeds the double range, so the roots were computed from the coefficients scaled by their largest magnitude.`,
         );
         if (disc < 0) caveats.push("The discriminant is negative, so the two roots are a complex-conjugate pair.");
       }

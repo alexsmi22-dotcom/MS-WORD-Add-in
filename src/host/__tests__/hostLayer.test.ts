@@ -90,6 +90,7 @@ beforeEach(() => {
 // Imported after the mock exists only in the sense that every Word read in the
 // host happens at CALL time — nothing reads Word at module load (wordLocation).
 import { wordHost } from "../word";
+import { isMultiBlockOoxml } from "../wordShared";
 
 describe("insertAtSelection: one batch, the caret where each site put it, the tag after the content syncs", () => {
   it("HTML replacing the selection, caret at the end of what was inserted", async () => {
@@ -666,6 +667,100 @@ describe("the end state: the pane holds no document code", () => {
     expect(host.match(wordApi)?.length).toBeGreaterThan(0);
     const office = fs.readFileSync(path.join(ROOT, "src", "host", "officeHost.ts"), "utf8");
     expect(office.match(officeApi)?.length).toBeGreaterThan(0);
+  });
+});
+
+// fix2-plat item 3: a multi-paragraph package at the cursor goes in a paragraph of its own. Verified in real Word via
+// COM (scratchpad com/cur.ps1): end of a Heading 1, mid body paragraph, list item, empty paragraph, table cell.
+describe("a block of its own never joins the cursor's paragraph (fix2-plat)", () => {
+  const MULTI = "<pkg><w:body><w:p><w:r><w:t>a</w:t></w:r></w:p><w:p><w:r><w:t>b</w:t></w:r></w:p></w:body></pkg>";
+  const ONE = "<pkg><w:body><w:p><m:oMath/></w:p></w:body></pkg>";
+  const setup = (para: { text: string; style?: string; list?: boolean }): void => {
+    const W = (globalThis as unknown as { Word: Record<string, unknown> }).Word;
+    W.RangeLocation = { end: "End", after: "After", start: "Start" };
+    W.BuiltInStyleName = { normal: "Normal", heading2: "Heading2", caption: "Caption" };
+    reads["#2.text"] = para.text;
+    reads["#2.styleBuiltIn"] = para.style ?? "Normal";
+    reads["#2.isListItem"] = !!para.list;
+  };
+
+  it("isMultiBlockOoxml: two paragraphs or any table is a block; one paragraph (an inline equation) is not", () => {
+    expect(isMultiBlockOoxml(MULTI)).toBe(true);
+    expect(isMultiBlockOoxml(ONE)).toBe(false);
+    expect(isMultiBlockOoxml("<w:body><w:tbl><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl></w:body>")).toBe(true);
+    expect(isMultiBlockOoxml("<w:body><w:p/><w:p/></w:body>")).toBe(true);
+  });
+
+  it("at the end of a Heading 1: a NEW Normal paragraph after it, the package in at its start", async () => {
+    setup({ text: "Heading One", style: "Heading1" });
+    await wordHost.insertAtSelection({ kind: "ooxml", content: MULTI, at: "after", select: "selection" });
+    expect(log).toEqual([
+      "RUN {",
+      "#1 = ctx.document.getSelection()",
+      "#2 = #1.paragraphs.getLast()",
+      '#3 = #2.load("text,isListItem,styleBuiltIn")',
+      "ctx.sync()",
+      '#4 = #2.insertParagraph("", "After")',
+      'set #4.styleBuiltIn = "Normal"',
+      '#5 = #4.getRange("Start")',
+      `#6 = #5.insertOoxml(${JSON.stringify(MULTI)}, "After")`,
+      '#7 = #1.select("End")',
+      "ctx.sync()",
+      "}",
+    ]);
+  });
+
+  it("in a list item: the new paragraph is taken out of the list", async () => {
+    setup({ text: "Item one", style: "ListParagraph", list: true });
+    await wordHost.insertAtSelection({ kind: "ooxml", content: MULTI, at: "after", select: "selection" });
+    expect(log).toContain("#5 = #4.detachFromList()");
+    expect(log).toContain('set #4.styleBuiltIn = "Normal"');
+  });
+
+  it("in an empty plain paragraph: inserted where the cursor is, no new paragraph (no blank line)", async () => {
+    setup({ text: "" });
+    await wordHost.insertAtSelection({ kind: "ooxml", content: MULTI, at: "after", select: "selection" });
+    expect(log.some((l) => l.includes("insertParagraph"))).toBe(false);
+    expect(log).toContain('#4 = #1.getRange("End")');
+    expect(log.some((l) => l.includes("styleBuiltIn ="))).toBe(false);
+  });
+
+  it("in an empty Heading paragraph: that paragraph is made Normal, the package goes in there", async () => {
+    setup({ text: " ", style: "Heading1" });
+    await wordHost.insertAtSelection({ kind: "ooxml", content: MULTI, at: "after", select: "selection" });
+    expect(log).toContain('set #2.styleBuiltIn = "Normal"');
+    expect(log.some((l) => l.includes("insertParagraph"))).toBe(false);
+  });
+
+  it("a ONE-paragraph package (an equation typed mid-sentence) stays inline: no paragraph read at all", async () => {
+    setup({ text: "Heading One", style: "Heading1" });
+    await wordHost.insertAtSelection({ kind: "ooxml", content: ONE, at: "after", select: "selection" });
+    expect(log).toEqual(["RUN {", "#1 = ctx.document.getSelection()", `#2 = #1.insertOoxml(${JSON.stringify(ONE)}, "After")`, '#3 = #1.select("End")', "ctx.sync()", "}"]);
+  });
+
+  it("ownParagraph (the Characterization text): one paragraph, still its own", async () => {
+    setup({ text: "Heading One", style: "Heading1" });
+    await wordHost.insertAtSelection({ kind: "ooxml", content: ONE, at: "after", select: "selection", ownParagraph: true });
+    expect(log).toContain('#4 = #2.insertParagraph("", "After")');
+  });
+
+  it("a REPLACE of a real selection still replaces what the user selected", async () => {
+    setup({ text: "Heading One", style: "Heading1" });
+    reads["#1.isEmpty"] = false;
+    await wordHost.insertAtSelection({ kind: "ooxml", content: MULTI, at: "replace", select: null });
+    expect(log.some((l) => l.includes("insertParagraph"))).toBe(false);
+    expect(log).toContain(`#3 = #1.insertOoxml(${JSON.stringify(MULTI)}, "Replace")`);
+  });
+
+  it("insertResultLayout: the package goes in the new paragraph, the rest chains as before", async () => {
+    setup({ text: "Heading One", style: "Heading1" });
+    // #1 inlinePictures.load … the selection is #2 here: re-key the paragraph reads.
+    reads["#4.text"] = "Heading One";
+    reads["#4.styleBuiltIn"] = "Heading1";
+    reads["#4.isListItem"] = false;
+    await wordHost.insertResultLayout([{ kind: "ooxml", ooxml: MULTI }]);
+    const ins = log.filter((l) => /insertParagraph|insertOoxml|getRange\("Start"\)/.test(l));
+    expect(ins).toEqual(['#6 = #4.insertParagraph("", "After")', '#7 = #6.getRange("Start")', `#8 = #7.insertOoxml(${JSON.stringify(MULTI)}, "After")`]);
   });
 });
 

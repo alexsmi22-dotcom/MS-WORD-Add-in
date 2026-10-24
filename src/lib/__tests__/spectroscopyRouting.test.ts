@@ -256,7 +256,8 @@ describe("the pane is wired to all of it (read from taskpane.ts / .html)", () =>
     expect(body("showJcampBlock")).toMatch(/jcampSummaryLines\(/);
     // Insert is disabled for a corrupt block — the only place the y-check reaches the user.
     expect(body("setJcampButtons")).toMatch(/!currentJcamp\.corrupt/);
-    expect(body("jcampAsText")).toMatch(/s\.corrupt\) return ""/);
+    // fix2-plat: the data go in as a package (a real table), still never for a corrupt block.
+    expect(body("jcampPackage")).toMatch(/s\.corrupt\) return null/);
   });
 
   test("Mass Spec: pk.label, the notes, the labelled isotopes and the isotope figure", () => {

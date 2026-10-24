@@ -994,3 +994,17 @@ function parseNtuples(lines: string[], start: number, fileStart: number, meta: R
     ntuples: { type, usedPage: `${real.label}${names[yi] ? ` (${names[yi]})` : ""}`, unusedPages: unused },
   });
 }
+
+const SUP_DIGIT: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻" };
+
+/**
+ * One value of a measured trace as a document table cell (fix2-plat): six significant figures (an instrument's
+ * ordinate carries no more; the raw doubles read 0.30000000000000004), a true minus, ×10ⁿ instead of e-notation.
+ */
+export function traceCell(v: number): string {
+  if (!Number.isFinite(v)) return "";
+  const s = String(Number(v.toPrecision(6)));
+  const m = /^(-?\d+(?:\.\d+)?)e([+-])(\d+)$/.exec(s);
+  const t = m ? `${m[1]}×10${[...((m[2] === "-" ? "-" : "") + m[3])].map((c) => SUP_DIGIT[c]).join("")}` : s;
+  return t.replace(/^-/, "−");
+}

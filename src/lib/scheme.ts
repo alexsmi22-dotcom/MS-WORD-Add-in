@@ -335,7 +335,14 @@ function resolveComponent(text: string): { ok: true; mol: Molecule; smiles: stri
     if (atoms > MAX_ATOMS * 2) return { ok: false, reason: `“${short(text)}” has about ${atoms} atoms — a scheme draws compounds of up to ${MAX_ATOMS}; insert a larger one from Build` };
   }
   // Mode "smiles" (the Reaction tool's Structures reading): dictionary name, then SMILES.
-  const r = resolveChemInput(text, "smiles", "structure");
+  let r = resolveChemInput(text, "smiles", "structure");
+  // Not a name and not valid SMILES: read it as Structure mode reads it, so a formula (NO2, CS2 before it was in the
+  // dictionary) is answered as a formula — never "ring bond 2 is opened but never closed".
+  // A duplicated ring closure (C1C1) keeps that diagnosis: it is written as SMILES, not as a formula.
+  if (r.kind === "none" && duplicateRingClosure(text.trim()) === null) {
+    const auto = resolveChemInput(text, "auto", "structure");
+    if (auto.kind === "formula") r = auto;
+  }
   if (r.kind !== "dictionary" && r.kind !== "smiles") {
     if (/^\d+\s*[A-Z([]/.test(text)) return { ok: false, reason: `“${text}”: coefficients are not drawn — switch the reading to Formulas to balance the equation` };
     // The resolver's own words (a duplicated ring closure, a formula with no single structure) say more than "could not".

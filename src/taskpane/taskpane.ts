@@ -24,7 +24,7 @@ import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
 import { formatQuantityHtml, convert, formatUnit, toSuperscript, convertForDisplay } from "../lib/units";
-import { parseJcamp, JcampSpectrum, JcampRefusal } from "../lib/jcamp";
+import { parseJcamp, JcampSpectrum, JcampRefusal, traceCell } from "../lib/jcamp";
 import { overlaySpectrum, formatMatchTable, displayUnits, typesetLabel, OverlayOk } from "../lib/spectrumOverlay";
 import { overlayChartSvg, OVERLAY_CHART_SIZE } from "../lib/overlayChart";
 import { isotopeChartSvg, isotopePeakList, ISOTOPE_CHART_SIZE } from "../lib/isotopeChart";
@@ -2410,7 +2410,7 @@ Office.onReady((info) => {
   jcampOpenBtn.addEventListener("click", () => jcampFile.click());
   jcampFile.addEventListener("change", onJcampFile);
   jcampBlockSel.addEventListener("change", () => showJcampBlock(Number(jcampBlockSel.value)));
-  jcampInsertBtn.addEventListener("click", () => insertPlainText(jcampAsText(), "measured spectrum data"));
+  jcampInsertBtn.addEventListener("click", () => void insertJcampData());
   jcampInsertChartBtn.addEventListener("click", insertJcampChart);
   specCompareBtn.addEventListener("click", () => {
     specOverlayActive = true;
@@ -4961,8 +4961,8 @@ function renderProperties(input: string): void {
   const estimatesInDomain = p.druglikenessApplicable;
   const metrics: [string, string][] = [
     ["MW", `${p.mw}`],
-    ["cLogP", estimatesInDomain ? `${p.logP}` : "n/a"],
-    ["logS", estimatesInDomain ? `${p.logS}` : "n/a"],
+    ["cLogP", estimatesInDomain ? trueMinus(String(p.logP)) : "n/a"],
+    ["logS", estimatesInDomain ? trueMinus(String(p.logS)) : "n/a"],
     ["tPSA", `${p.tpsa} Å²`],
     ["H-bond donors", `${p.hbd}`],
     ["H-bond acceptors", `${p.hba}`],
@@ -5168,8 +5168,8 @@ function propertiesAsText(p: PhysChemProperties | null): string {
   const est = p.druglikenessApplicable; // cLogP/logS QSAR estimates apply to organic small molecules only
   return [
     `Physicochemical properties — ${formatFormula(p.formula)} (MW ${p.mw} g/mol)`,
-    `cLogP: ${est ? p.logP : "n/a (outside model domain)"}`,
-    `logS: ${est ? `${p.logS} (log mol/L)` : "n/a (outside model domain)"}`,
+    `cLogP: ${est ? trueMinus(String(p.logP)) : "n/a (outside model domain)"}`,
+    `logS: ${est ? `${trueMinus(String(p.logS))} (log mol/L)` : "n/a (outside model domain)"}`,
     `Topological PSA: ${p.tpsa} Å²`,
     `H-bond donors: ${p.hbd}`,
     `H-bond acceptors: ${p.hba}`,
@@ -7109,7 +7109,8 @@ async function insertRunsText(ooxml: string, label: string): Promise<boolean> {
   insertTextBusy = true;
   setStatus(`Inserting ${label.toLowerCase()}…`);
   try {
-    await docHost.insertAtSelection({ kind: "ooxml", content: ooxml, at: "after", select: "selection" });
+    // A paragraph of its own (fix2-plat): at the end of a heading it became part of the heading.
+    await docHost.insertAtSelection({ kind: "ooxml", content: ooxml, at: "after", select: "selection", ownParagraph: true });
     setStatus(`${label} inserted. Ctrl/⌘+Z undoes it.`, "success");
     return true;
   } catch (error) {
@@ -11521,11 +11522,24 @@ async function insertStatsResult(): Promise<void> {
   // insertPlainText returned void and swallowed its own error — so a failed
   // text insert still appended the chart, and this line wrote "Result and chart
   // inserted" over the error explaining that it had not been.
-  if (!(await insertPlainText(currentStatsText, "Statistics", !!currentStatsSvg))) return;
-  if (!currentStatsSvg) return;
-  if (await insertStatsChart()) {
-    setStatus("Result and chart inserted.", "success");
+  if (!currentStatsSvg) {
+    await insertPlainText(currentStatsText, "Statistics");
+    return;
   }
+  // ONE PACKAGE (fix2-plat): text then chart in its own paragraph, the bracket legend under it.
+  const natural = svgNaturalSize(currentStatsSvg);
+  const statsCalc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value);
+  const caption = currentStatsCaption;
+  await insertTextWithFigure(currentStatsText, "Statistics", {
+    svg: currentStatsSvg,
+    fallbackW: natural.width,
+    fallbackH: natural.height,
+    alt: `Statistics figure: ${statsCalc?.name ?? "diagnostic plot"}${caption ? `. ${caption}` : ""}`,
+    tag: "formula-inserter:stats-chart",
+    render: currentStatsRender ?? undefined,
+    supersample: 2,
+    tail: captionTail(caption),
+  }, "Result and chart inserted");
 }
 
 /**
@@ -11548,32 +11562,24 @@ async function insertFinanceResult(): Promise<void> {
     setStatus("Nothing to insert.", "error");
     return;
   }
-  if (!(await insertPlainText(currentFinText, "Result", !!currentFinSvg))) return;
-  if (!currentFinSvg) return;
-  try {
-    // Intrinsic size from the SVG itself, never the size it was asked for: a
-    // legend outside the plot frame widens the canvas, and pinning the nominal
-    // size would squash every labelled figure.
-    const dims = readSvgDims(currentFinSvg, 380, 250);
-    const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value);
-    const how = await insertFigure({
-      svg: currentFinSvg,
-      fallbackW: dims.w,
-      fallbackH: dims.h,
-      alt: `Finance chart: ${calc?.name ?? "result"}`,
-      tag: "formula-inserter:finance-chart",
-      render: currentFinRender ?? undefined,
-      // Finance rendered at 2× its natural size before figureScale; kept.
-      supersample: 2,
-    });
-    setStatus(`Result and chart inserted (chart ${how}).`, "success");
-  } catch (error) {
-    // THE TEXT ALREADY LANDED — say so. "Could not insert chart" on its own
-    // reads as "nothing was inserted", and the reasonable response to that is
-    // to click again, which duplicates the result. Solve words this correctly
-    // and Finance did not.
-    setStatus(`Result inserted, but the chart could not be: ${(error as Error).message}`, "error");
+  if (!currentFinSvg) {
+    await insertPlainText(currentFinText, "Result");
+    return;
   }
+  // ONE PACKAGE (fix2-plat): the summary lines, then the chart in its own paragraph below them. Intrinsic size from
+  // the SVG itself, never the size it was asked for (a legend outside the plot frame widens the canvas).
+  const dims = readSvgDims(currentFinSvg, 380, 250);
+  const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value);
+  await insertTextWithFigure(currentFinText, "Result", {
+    svg: currentFinSvg,
+    fallbackW: dims.w,
+    fallbackH: dims.h,
+    alt: `Finance chart: ${calc?.name ?? "result"}`,
+    tag: "formula-inserter:finance-chart",
+    render: currentFinRender ?? undefined,
+    // Finance rendered at 2× its natural size before figureScale; kept.
+    supersample: 2,
+  }, "Result and chart inserted");
 }
 
 /** The width/height an SVG declares on its own root element. */
@@ -32195,16 +32201,19 @@ function showJcampBlock(index: number): void {
   refreshSpecOverlay();
 }
 
-/** The measured trace as text, for insertion as a data table. */
-function jcampAsText(): string {
+/**
+ * The measured trace as a result package (fix2-plat): its heading lines, the "Showing N of M" note, then a REAL Word
+ * table — header row (units), then the points at six significant figures with true minus. It was ~2,000 rows of raw
+ * doubles as tab-separated text, hyphen-minus, with the note between the header and the data.
+ */
+function jcampPackage(): ResultPackageItem[] | null {
   const s = currentJcamp;
-  if (!s || s.corrupt) return "";
+  if (!s || s.corrupt) return null;
   const head = [
     `${s.title || "Measured spectrum"} (${s.dataType || "spectrum"})`,
     `Measured data read from a JCAMP-DX file — not predicted.`,
     ...jcampSummaryLines(s, currentJcampFile?.name ?? "").slice(1),
     ...s.caveats.map((c) => `Note: ${c}`),
-    `${displayUnits(s.xUnits) || "x"}\t${displayUnits(s.yUnits) || "y"}`,
   ];
   // A full trace can be 30,000 rows, which is not a table anyone wants in a
   // document. Say what was written rather than truncating silently.
@@ -32216,7 +32225,33 @@ function jcampAsText(): string {
         `(peaks preserved — every local minimum and maximum is kept).`
     );
   }
-  return head.concat(pts.map((p) => `${p.x}\t${p.y}`)).join("\n");
+  const rows = [[displayUnits(s.xUnits) || "x", displayUnits(s.yUnits) || "y"], ...pts.map((p) => [traceCell(p.x), traceCell(p.y)])];
+  return [
+    ...head.map((line): ResultPackageItem => ({ kind: "text", content: line })),
+    { kind: "table", label: "", rows },
+  ];
+}
+
+async function insertJcampData(): Promise<void> {
+  const pkg = jcampPackage();
+  if (!pkg) {
+    setStatus("Nothing to insert for measured spectrum data.", "error");
+    return;
+  }
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return;
+  }
+  insertTextBusy = true;
+  setStatus("Inserting measured spectrum data…");
+  try {
+    await docHost.insertResultLayout([{ kind: "ooxml", ooxml: buildResultOoxml(pkg).ooxml }]);
+    setStatus("Measured spectrum data inserted. Ctrl/⌘+Z undoes it.", "success");
+  } catch (error) {
+    setStatus(`Could not insert measured spectrum data: ${(error as Error).message}`, "error");
+  } finally {
+    insertTextBusy = false;
+  }
 }
 
 async function insertJcampChart(): Promise<void> {
@@ -35726,14 +35761,21 @@ async function insertAssayResult(): Promise<void> {
   // insert puts it somewhere the user did not ask for, and a second rapid click
   // would otherwise fall through the "still inserting" branch and add the
   // figure twice beside one copy of the text.
-  if (!(await insertPlainText(currentAssayText, "Assay result", !!currentAssayPlotSvg))) return;
-  if (!currentAssayPlotSvg) return;
-  // The success message is only claimed if the figure also landed; otherwise
-  // insertAssayPlot's own error message is what the user should be left with,
-  // not a cheerful sentence written over the top of it.
-  if (await insertAssayPlot()) {
-    setStatus("Result and fit plot inserted.", "success");
+  if (!currentAssayPlotSvg) {
+    await insertPlainText(currentAssayText, "Assay result");
+    return;
   }
+  // ONE PACKAGE (fix2-plat): the result lines, then the fit plot in its own paragraph below them. The success
+  // message is only claimed if the figure also landed (insertTextWithFigure says when only the text did).
+  const fitDims = readSvgDims(currentAssayPlotSvg, 380, 270);
+  const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value);
+  await insertTextWithFigure(currentAssayText, "Assay result", {
+    svg: currentAssayPlotSvg,
+    fallbackW: fitDims.w,
+    fallbackH: fitDims.h,
+    alt: `Assay fit: ${calc?.name ?? "curve"}`,
+    tag: "formula-inserter:assay",
+  }, "Result and fit plot inserted");
 }
 
 async function insertAssayPlot(): Promise<boolean> {
@@ -36676,6 +36718,95 @@ async function insertFigure(o: FigureInsert): Promise<string> {
   const px = pngPixelSize(png);
   const dpi = px ? rasterDpi(px.width, prepared.widthPt) : null;
   return `as ${insertedDescription("png", dpi)}${style}${rasterWhy ? `; not vector: ${rasterWhy}` : ""}`;
+}
+
+/**
+ * A result's TEXT AND ITS FIGURE as ONE package (fix2-plat): the text lines as paragraphs, the picture in its own
+ * paragraph below them, then the figure's caption line — the Engineering path. Two inserts (text, then picture after
+ * the caret) put the chart on the last text line in Word (measured via COM). The figure goes through the pane's
+ * figure style exactly as insertFigure takes it (prepareFigure, rasterTarget); the vector route, which a package
+ * cannot carry, keeps the two-step insert with the text ending on a paragraph break.
+ *
+ * Contract kept from the three callers (Statistics, Finance, Bio/Assay): nothing is claimed that did not land; a
+ * second click while one insert runs is refused; when the text lands without the figure the status says the text
+ * is in, so a retry does not duplicate it. Resolves true when the text landed.
+ */
+async function insertTextWithFigure(text: string, label: string, o: FigureInsert, done: string): Promise<boolean> {
+  if (!text.trim()) {
+    setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
+    return false;
+  }
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return false;
+  }
+  const textOnly = async (why: string): Promise<boolean> => {
+    const ok = await insertPlainText(text, label);
+    if (ok) setStatus(`${label} inserted, but the figure could not be: ${why}`, "error");
+    return ok;
+  };
+  const prepared = prepareFigure(
+    { svg: o.svg, preset: currentFigurePreset(), width: currentFigureWidth(), render: o.render, chartKind: o.chartKind },
+    o.fallbackW,
+    o.fallbackH,
+  );
+  if (!prepared.ok) return textOnly(refusalText(prepared));
+  if (decideInsertRoute(hostCapability()).route === "svg") {
+    // Vector: the text first, ending on its own paragraph, then the picture on the paragraph after it.
+    if (!(await insertPlainText(`${text.replace(/\s+$/, "")}\n`, label, true))) return false;
+    try {
+      const how = await insertFigure(o);
+      setStatus(`${done} (figure ${how}).`, "success");
+    } catch (error) {
+      setStatus(`${label} inserted, but the figure could not be: ${(error as Error).message}`, "error");
+    }
+    return true;
+  }
+  let png: string;
+  try {
+    const t = rasterTarget(prepared, o.supersample ?? 1);
+    png = await renderFigurePng(prepared.svg, t.w, t.h);
+  } catch (error) {
+    return textOnly((error as Error).message);
+  }
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return false;
+  }
+  insertTextBusy = true;
+  setStatus(`Inserting ${label.toLowerCase()}…`);
+  let why = "";
+  try {
+    const items: ResultPackageItem[] = [
+      { kind: "text", content: text.replace(/\s+$/, "") },
+      {
+        kind: "picture",
+        caption: "",
+        base64: png,
+        widthPt: prepared.widthPt,
+        heightPt: prepared.heightPt,
+        alt: o.alt,
+        below: o.tail?.kind === "caption" && o.tail.text ? o.tail.text : undefined,
+      },
+    ];
+    const built = buildResultOoxml(items);
+    const kept = await docHost.insertResultLayout([{ kind: "ooxml", ooxml: built.ooxml }]);
+    if (kept !== null && kept < built.pictures) {
+      setStatus(`${label} inserted, but ${pictureNotKeptText(png.length)}`, "error");
+      return true;
+    }
+    const px = pngPixelSize(png);
+    const dpi = px ? rasterDpi(px.width, prepared.widthPt) : null;
+    const style = prepared.presetNote ? ` (${prepared.presetNote})` : "";
+    setStatus(`${done} (figure as ${insertedDescription("png", dpi)}${style}). Ctrl/⌘+Z undoes it.`, "success");
+    return true;
+  } catch (error) {
+    why = (error as Error).message;
+  } finally {
+    insertTextBusy = false;
+  }
+  // The package was refused: the text alone, and say the figure is missing.
+  return textOnly(why);
 }
 
 // ---------------------------------------------------------------------------

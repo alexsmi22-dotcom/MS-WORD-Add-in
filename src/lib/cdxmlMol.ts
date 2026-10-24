@@ -20,6 +20,7 @@ import type { XNode } from "./xmlLite";
 import { findById, nextIdFrom, setAtomLabel, writeElementLabel } from "./cdxmlEdit";
 import { symbolFor } from "./periodic";
 import { groupSmilesBySide } from "./labelExpand";
+import { linearCarbons } from "./linearCarbons";
 import { applyAtomQuery, applyBondQuery, atomQueryAttrs, atomQueryConstrains, baseBondType, bondQueryAttrs, bondQueryConstrains, comparableCopy, elementListLabel, hasStereoGroup, isQueryOrder, parseElementList, queryOrders, stereoGroupOf } from "./cdxQuery";
 import { atomicNumber } from "./periodic";
 
@@ -764,8 +765,27 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
   const L = doc.style.bondLength || 30;
   const avg = n > 1 ? mol.getAverageBondLength(true) || 1 : 1;
   const k = L / avg;
+  // A molecule whose atoms all lie on one line (HC≡CH, HC≡N, O=C=O) is laid level, as it is printed: OCL lays
+  // acetylene at 30°, and labelled ends on a slant read as two loose labels.
+  const ax: number[] = [], ay: number[] = [];
+  for (let a = 0; a < n; a++) ax.push(mol.getAtomX(a)), ay.push(mol.getAtomY(a));
+  if (n >= 2) {
+    let far = 0;
+    for (let a = 1; a < n; a++) if (Math.hypot(ax[a] - ax[0], ay[a] - ay[0]) > Math.hypot(ax[far] - ax[0], ay[far] - ay[0])) far = a;
+    const dx = ax[far] - ax[0], dy = ay[far] - ay[0], d = Math.hypot(dx, dy);
+    // Off the line by under 2 % of a bond (OCL's zigzag chains are off by half a bond): an absolute tolerance.
+    const onLine = d > 0 && ax.every((x, a) => Math.abs((x - ax[0]) * dy - (ay[a] - ay[0]) * dx) / d < 0.02 * avg);
+    if (onLine && Math.abs(dy) > 1e-9 * d) {
+      const c = dx / d, s = dy / d, x0 = ax[0], y0 = ay[0];
+      for (let a = 0; a < n; a++) {
+        const x = ax[a] - x0, y = ay[a] - y0;
+        ax[a] = x * c + y * s;
+        ay[a] = -x * s + y * c;
+      }
+    }
+  }
   let minX = Infinity, minY = Infinity;
-  for (let a = 0; a < n; a++) (minX = Math.min(minX, mol.getAtomX(a))), (minY = Math.min(minY, mol.getAtomY(a)));
+  for (let a = 0; a < n; a++) (minX = Math.min(minX, ax[a])), (minY = Math.min(minY, ay[a]));
   const id = nextIdFrom(doc.root);
   const fmt = (v: number): string => String(Math.round(v * 100) / 100);
   const frag: XNode = { name: "fragment", attrs: { id: id() }, children: [], text: "", line: 0 };
@@ -774,7 +794,7 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
     const z = mol.getAtomicNo(a);
     const nid = id();
     nodeIds.push(nid);
-    const attrs: Record<string, string> = { id: nid, p: `${fmt(origin[0] + (mol.getAtomX(a) - minX) * k)} ${fmt(origin[1] + (mol.getAtomY(a) - minY) * k)}` };
+    const attrs: Record<string, string> = { id: nid, p: `${fmt(origin[0] + (ax[a] - minX) * k)} ${fmt(origin[1] + (ay[a] - minY) * k)}` };
     const q = mol.getAtomCharge(a);
     if (q) attrs.Charge = String(q);
     const r = mol.getAtomRadical(a);
@@ -851,6 +871,8 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
   page.children.push(frag);
   // Labels as ChemDraw draws them: heteroatoms and charged / isotopic carbons with their hydrogens; R groups.
   let notLists: Set<number> | null = null;
+  // Carbons at 180° (O=C=O, allene, an alkyne run) are labelled, or the vertex vanishes (IUPAC 2008 GR-2.1).
+  const linear = linearCarbons(mol, (a) => pos[a]);
   for (let a = 0; a < n; a++) {
     const z = mol.getAtomicNo(a);
     const rk = Z_TO_R(z);
@@ -876,7 +898,7 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
     // A charged or radical carbon INSIDE a chain or ring (Cp⁻, the tert-butyl cation) stays a vertex with its sign or dot,
     // as ChemDraw draws it (an "HC" label in a ring read badly); at a chain end or alone it is labelled (CH₃⁻, CH₂⁻).
     const end = mol.getAllConnAtomsPlusMetalBonds(a) <= 1;
-    if (z === 6 && !mass && !unusual && !lone && !(end && (node.attrs.Radical || mol.getAtomCharge(a)))) continue;
+    if (z === 6 && !mass && !unusual && !lone && !linear.has(a) && !(end && (node.attrs.Radical || mol.getAtomCharge(a)))) continue;
     if (z === 1 && (mass === 2 || mass === 3)) {
       const r = setAtomLabel(doc, nodeIds[a], mass === 2 ? "D" : "T"); // D / T: their own label
       if (!r.ok) return { ok: false, reason: r.reason };

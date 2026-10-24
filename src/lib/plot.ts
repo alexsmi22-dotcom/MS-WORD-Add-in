@@ -998,11 +998,16 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // Series.
   // 10 distinct colors (matplotlib "tab10") so series stay distinguishable.
   const palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
+  const plusMark = (cx: number, cy: number, color: string): string =>
+    `<path d="M${(cx - 3.5).toFixed(1)},${cy.toFixed(1)} L${(cx + 3.5).toFixed(1)},${cy.toFixed(1)} M${cx.toFixed(1)},${(cy - 3.5).toFixed(1)} L${cx.toFixed(1)},${(cy + 3.5).toFixed(1)}" stroke="${color}" stroke-width="1.3" fill="none"/>`;
   series.forEach((sObj, idx) => {
     const color = sObj.color ?? palette[idx % palette.length];
     // Both coordinates, matching the domain filter above — a finite-y point
     // with Infinity x otherwise draws "LNaN,…" into the path.
     const pts = sObj.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    // A + mark ON the frame (a censoring tick at S = 1) would be cut in half by
+    // the clip: under limits these are drawn after the clip group, below.
+    if (clipped && sObj.type === "scatter" && sObj.marker === "plus") return;
     if (sObj.type === "line") {
       const d = pts.map((p, k) => `${k === 0 ? "M" : "L"}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(" ");
       parts.push(`<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/>`);
@@ -1031,18 +1036,28 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
             );
         }
         if (sObj.marker === "plus") {
-          const cx = sx(p.x);
-          const cy = sy(p.y);
-          parts.push(
-            `<path d="M${(cx - 3.5).toFixed(1)},${cy.toFixed(1)} L${(cx + 3.5).toFixed(1)},${cy.toFixed(1)} M${cx.toFixed(1)},${(cy - 3.5).toFixed(1)} L${cx.toFixed(1)},${(cy + 3.5).toFixed(1)}" stroke="${color}" stroke-width="1.3" fill="none"/>`,
-          );
+          parts.push(plusMark(sx(p.x), sy(p.y), color));
         } else {
           parts.push(`<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.6" fill="${color}"/>`);
         }
       }
     }
   });
-  if (clipped) parts.push(`</g>`);
+  if (clipped) {
+    parts.push(`</g>`);
+    // + marks inside the frame (edges included), unclipped so one on the frame line stays whole.
+    series.forEach((sObj, idx) => {
+      if (sObj.type !== "scatter" || sObj.marker !== "plus") return;
+      const color = sObj.color ?? palette[idx % palette.length];
+      for (const p of sObj.points) {
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+        const cx = sx(p.x);
+        const cy = sy(p.y);
+        if (cx < ml - 0.5 || cx > ml + pw + 0.5 || cy < mt - 0.5 || cy > mt + ph + 0.5) continue;
+        parts.push(plusMark(cx, cy, color));
+      }
+    });
+  }
 
   // Legend, in the gutter right of the plot frame — outside the data area, so
   // it can never cover a curve. (Its predecessor sat inside the frame; opacity

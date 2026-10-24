@@ -10210,7 +10210,7 @@ const STAT_CALCS: StatCalc[] = [
             label: `cond. ${j + 1}`,
             values: rows.map((row) => row[j]).filter((v) => Number.isFinite(v)),
           })),
-          { title: `Friedman - ${res.blocks} subjects x ${res.treatments} conditions`, ylabel: "value" },
+          { title: `Friedman - ${res.blocks} subjects × ${res.treatments} conditions`, ylabel: "value" },
         ),
       };
     },
@@ -34746,7 +34746,7 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "e", label: "[Enzyme] total", default: "0.001" },
       { key: "eu", label: "[Enzyme] unit", default: "uM", kind: "select", options: CONC_UNITS.map((u) => ({ value: u.value, label: u.label })) },
       { key: "km", label: "Km", default: "8" },
-      { key: "kmu", label: "Km unit", default: "uM", kind: "select", options: CONC_UNITS.map((u) => ({ value: u.value, label: u.label })) },
+      { key: "kmu", label: "Km unit", default: "mM", kind: "select", options: CONC_UNITS.map((u) => ({ value: u.value, label: u.label })) },
     ],
     // UNITS, converted (assayInputs.catalyticEfficiencyCalc): kcat in s⁻¹ and
     // kcat/Km in M⁻¹ s⁻¹, and the diffusion-limit comparison only when every
@@ -35217,11 +35217,7 @@ const ASSAY_CALCS: AssayCalc[] = [
         options: GAS_CONDITION_OPTIONS,
       },
     ],
-    // "V_m" (stoich.ts's gas line) typeset as Vₘ for display; stoich.ts itself is owned by the chemistry branch.
-    compute: (r) => {
-      const o = stoichCalc(r("rxn"), r("amounts"), r("actual"), r("gas"));
-      return { ...o, text: o.text.replace(/\bV_m\b/g, "Vₘ"), caveats: o.caveats?.map((c) => c.replace(/\bV_m\b/g, "Vₘ")) };
-    },
+    compute: (r) => stoichCalc(r("rxn"), r("amounts"), r("actual"), r("gas")),
   },
   // Quantitation: standard curve back-calculation, plates, qPCR (src/lib/assayQuantCalcs.ts).
   ...ASSAY_QUANT_CALCS,
@@ -35272,6 +35268,8 @@ function updateAssayPreview(): void {
     // A list holding a non-number says which (it used to be dropped without a word).
     out = { text: error instanceof ListTokenError ? error.message : "Could not compute — check the inputs.", ok: false };
   }
+  // "V_m" (the stoichiometry gas line, from stoich.ts, owned by the chemistry branch) typeset as Vₘ for display.
+  out = { ...out, text: out.text.replace(/\bV_m\b/g, "Vₘ") };
   const assayListNotes = [...calcListNotes];
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.

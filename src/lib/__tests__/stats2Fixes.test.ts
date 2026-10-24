@@ -26,7 +26,8 @@ import { insertableResultText } from "../insertGate";
 import { displayFormula, droppedTokensNote, lineEquation, nbspSeparators, regressionReport } from "../statsDisplay";
 import { polynomialRegression, multipleRegression } from "../regression";
 import { assaySig } from "../assayFormat";
-import { kaplanMeier, logLogCI, logRankTest, survivalCensorMarks, survivalCurvePoints } from "../survival";
+import { kaplanMeier, logLogCI, logRankTest, readSurvivalRows, survivalCensorMarks, survivalCurvePoints } from "../survival";
+import { rmAnovaCalc } from "../statsBatchCalcs";
 import { kaplanMeierSvg } from "../survivalFigure";
 import { twoSampleTTest } from "../stats";
 import { bracketsFromPairwise, bracketLegend } from "../sigBrackets";
@@ -167,10 +168,15 @@ describe("4/9. assay single values: validation and decimal commas", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toBeCloseTo(v, 12);
   });
-  test.each(["1,250", "12,500", "1,000,000"])("%p is ambiguous → refused by name", (t) => {
+  test.each(["1,250", "12,500"])("%p is ambiguous → refused by name", (t) => {
     const r = readAssayScalar(t, "[Enzyme]");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/ambiguous/);
+  });
+  test("two grouping commas can only be grouping: refused, offering the plain number", () => {
+    const r = readAssayScalar("1,000,000", "[Enzyme]");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/type it without them \(1000000\)/);
   });
   test("a non-number is named, never a bare dash", () => {
     const r = readAssayScalar("abc", "A260");
@@ -314,7 +320,8 @@ describe("7. rounding noise and display", () => {
     expect(assayBlock).not.toMatch(/ x\$\{eps\.counts/);
     expect(assayBlock).not.toMatch(/" x " \+/);
     expect(PANE).toMatch(/`p\$\{label\} = \$\{assaySig\(fit\.pEC50, 3\)\}/);
-    expect(PANE).toMatch(/replace\(\/\\bV_m\\b\/g, "Vₘ"\)/);
+    expect(PANE).toMatch(/out = \{ \.\.\.out, text: out\.text\.replace\(\/\\bV_m\\b\/g, "Vₘ"\) \};/);
+    expect(PANE).not.toMatch(/(?:Friedman|subjects)[^\n`]*\} x \$\{/); // × for multiplication in titles
     expect(PANE).toMatch(/\$\{lineEquation\(res\.slope, res\.intercept\)\}/);
     expect(PANE).toMatch(/\$\{displayFormula\(formula\)\} = /);
   });
@@ -391,6 +398,37 @@ describe("9. small ones", () => {
     expect(nbspSeparators("plain 1 2")).toBe("plain 1 2");
     expect(PANE).toMatch(/readNumberList\(nbspSeparators\(s\), \{ cells, decimalField: cells \}\)/);
     expect(PANE).toMatch(/return finList\(nbspSeparators\(s\)\);/);
+  });
+  test("profile-plot condition labels longer than 12 characters end in an ellipsis", () => {
+    const out = rmAnovaCalc(
+      "Baseline_visit_one Week_four_follow_up Week_twelve_follow_up\n45 50 55\n42 42 45\n36 41 43\n39 35 40\n51 55 59\n44 49 56",
+      "holm",
+    );
+    expect(out.ok).toBe(true);
+    const labels = [...(out.svg ?? "").matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).filter((t) => /…$/.test(t));
+    expect(labels.length).toBe(3);
+    for (const l of labels) expect([...l].length).toBeLessThanOrEqual(12);
+  });
+  test("survival rows separated by no-break spaces are read", () => {
+    const r = readSurvivalRows("5 1\n6 0");
+    expect(r).toEqual({ times: [5, 6], events: [1, 0] });
+  });
+  test("a censoring + on the top frame line is drawn whole (outside the clip)", () => {
+    const k = kaplanMeier([2, 5, 6, 8], [0, 1, 1, 0]);
+    const svg = kaplanMeierSvg([{ km: k, label: "S(t)" }], { title: "KM" });
+    const clipEnd = svg.indexOf("</g>");
+    const plusAtTop = /<path d="M[\d.]+,26\.0 L[\d.]+,26\.0 M/.exec(svg);
+    expect(plusAtTop).not.toBeNull();
+    expect(plusAtTop!.index).toBeGreaterThan(clipEnd);
+  });
+  test("efficiency pane default units: µM/s, µM, mM (an ordinary enzyme, below the limit)", () => {
+    const at = PANE.indexOf('id: "efficiency"');
+    expect(PANE.slice(at, at + 1200)).toMatch(/key: "kmu", label: "Km unit", default: "mM"/);
+    const o = catalyticEfficiencyCalc({ vmax: 12, vmaxUnit: "uM/s", e: 0.001, eUnit: "uM", km: 8, kmUnit: "mM" });
+    expect(o.text).toMatch(/kcat\/Km = 1500000 M⁻¹ s⁻¹/); // plain digits below 10⁹ (assaySig)
+    expect(o.text).toMatch(/67-fold below/);
+    const hi = catalyticEfficiencyCalc({ vmax: 12, vmaxUnit: "uM/s", e: 0.001, eUnit: "uM", km: 8, kmUnit: "uM" });
+    expect(hi.text).toMatch(/at or slightly above/);
   });
   test("t-test brackets name Welch or Student", () => {
     const a = [1.2, 3.4, 2.2, 5.6, 4.1, 3.3];

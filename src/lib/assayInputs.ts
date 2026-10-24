@@ -8,6 +8,7 @@ import { parseCellNumber } from "./dataimport";
 import { assaySig } from "./assayFormat";
 import { hBarSvg } from "./mechchart";
 import { buildPlotSvg } from "./plot";
+import { catalyticEfficiency, kcat as kcatOf } from "./assay";
 
 export type ScalarRead = { ok: true; value: number; note?: string } | { ok: false; error: string };
 
@@ -23,6 +24,9 @@ export function readAssayScalar(text: string, label: string): ScalarRead {
     if (/^-?0,\d+$/.test(t) || (/^-?\d+,\d+$/.test(t) && !/^-?\d{1,3}(,\d{3})+$/.test(t))) {
       const v = Number(t.replace(",", "."));
       return { ok: true, value: v, note: `${label}: “${t}” read as ${String(v)} (decimal comma).` };
+    }
+    if (/^-?\d{1,3}(,\d{3}){2,}$/.test(t)) {
+      return { ok: false, error: `${label}: “${t}” has digit-grouping commas; type it without them (${t.replace(/,/g, "")}).` };
     }
     if (/^-?\d{1,3}(,\d{3})+$/.test(t)) {
       const asDec = t.replace(/,(\d+)$/, ".$1");
@@ -160,9 +164,10 @@ export function catalyticEfficiencyCalc(o: {
   const kmM = CONC_UNITS.find((u) => u.value === o.kmUnit)?.toM ?? NaN;
   const kcatKnown = Number.isFinite(rate) && Number.isFinite(eM);
   const allKnown = kcatKnown && Number.isFinite(kmM);
-  const kcatRaw = o.vmax / o.e;
-  const kcat = kcatKnown ? (o.vmax * rate) / (o.e * eM) : kcatRaw;
-  const eff = allKnown ? kcat / (o.km * kmM) : kcatRaw / o.km;
+  // The engine's own kcat and kcat/Km (assay.ts), on SI-converted values when the units are known.
+  const kcatRaw = kcatOf(o.vmax, o.e);
+  const kcat = kcatKnown ? kcatOf(o.vmax * rate, o.e * eM) : kcatRaw;
+  const eff = allKnown ? catalyticEfficiency(kcat, o.km * kmM) : catalyticEfficiency(kcatRaw, o.km);
   const lines = [
     kcatKnown ? `kcat = ${assaySig(kcat)} s⁻¹` : `kcat = Vmax/[E] = ${assaySig(kcatRaw)} (units of Vmax/[E]; state them to get s⁻¹)`,
     allKnown ? `kcat/Km = ${assaySig(eff)} M⁻¹ s⁻¹` : `kcat/Km = ${assaySig(eff)} (in your units, not M⁻¹ s⁻¹)`,
@@ -171,9 +176,11 @@ export function catalyticEfficiencyCalc(o: {
   let svg: string;
   if (allKnown) {
     const where =
-      eff >= DIFFUSION_LIMIT.low
-        ? "at the diffusion limit (10⁸ to 10⁹ M⁻¹ s⁻¹): catalysis is limited by encounter, not chemistry"
-        : `${assaySig(DIFFUSION_LIMIT.low / eff, 2)}-fold below the diffusion limit (10⁸ to 10⁹ M⁻¹ s⁻¹)`;
+      eff > DIFFUSION_LIMIT.high
+        ? "at or slightly above the diffusion limit (10⁸ to 10⁹ M⁻¹ s⁻¹): catalysis is limited by encounter, not chemistry"
+        : eff >= DIFFUSION_LIMIT.low
+          ? "at the diffusion limit (10⁸ to 10⁹ M⁻¹ s⁻¹): catalysis is limited by encounter, not chemistry"
+          : `${assaySig(DIFFUSION_LIMIT.low / eff, 2)}-fold below the diffusion limit (10⁸ to 10⁹ M⁻¹ s⁻¹)`;
     lines.push(`This enzyme is ${where}.`);
     if (eff > 1e10) caveats.push("kcat/Km above 10¹⁰ M⁻¹ s⁻¹ exceeds the diffusion limit: check the units of Vmax, [E] and Km.");
     svg = hBarSvg(

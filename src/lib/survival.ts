@@ -15,6 +15,7 @@
 
 import { chiSquareP, normalCdf } from "./stats2";
 import { readNumberList } from "./numberList";
+import { nbspSeparators } from "./statsDisplay";
 
 export interface SurvivalPoint {
   time: number;
@@ -447,7 +448,7 @@ export function readSurvivalRows(text: string): { times: number[]; events: numbe
   for (const l of lines) {
     if (!l) continue;
     row++;
-    const r = readNumberList(l);
+    const r = readNumberList(nbspSeparators(l));
     if (r.dropped.length) return { error: `Row ${row} ("${l}"): "${r.dropped[0]}" is not a number. Each row is: time, then 1 (event) or 0 (censored).` };
     if (r.values.length !== 2) {
       return {

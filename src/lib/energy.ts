@@ -1445,12 +1445,15 @@ export function flueGas(inp: FlueGasInput): FlueGasResult | EnergyError {
   if (!Number.isFinite(inp.o2DryPct) || inp.o2DryPct < 0) {
     return { ok: false, error: "The flue O₂ reading must be zero or a positive percentage." };
   }
-  if (f >= o2AirFraction) {
+  // Air itself reads 20.9 % (21.0 % in the 1 : 3.76 model). A reading there is INFINITE excess air — no combustion
+  // oxygen consumed — and is said so, rather than surfacing as "4 000 000 % excess air" from the e > 10 guard.
+  if (f >= o2AirFraction || inp.o2DryPct >= 20.9) {
     return {
       ok: false,
       error:
-        `${inp.o2DryPct}% O₂ is at or above air itself (${(o2AirFraction * 100).toFixed(1)}% in the ` +
-        "dry-air model) — the analyser is reading air, not flue gas, or the probe is leaking.",
+        `${inp.o2DryPct}% O₂ is the oxygen content of air itself (20.9 % measured, ${(o2AirFraction * 100).toFixed(1)}% in the ` +
+        "dry-air model): that is infinite excess air (no combustion oxygen consumed) — the analyser is reading air, " +
+        "not flue gas, or the probe is leaking.",
     };
   }
 

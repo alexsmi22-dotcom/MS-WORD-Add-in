@@ -324,9 +324,10 @@ export interface JointResult {
  * more from biceps — and every newton of that also presses the joint surfaces
  * together.
  *
- * THE JOINT REACTION FORCE IS THE NUMBER THAT MATTERS CLINICALLY, and it is
- * almost always larger than either the load or the muscle force alone, because
- * the muscle pulls the bones together while the load pulls them apart. It is
+ * THE JOINT REACTION FORCE IS THE NUMBER THAT MATTERS CLINICALLY. In this
+ * one-muscle model it is |muscle − load| along the perpendicular combined with
+ * the muscle's along-bone component, so it usually exceeds the external load but
+ * not the muscle force; the result states the comparison from the values. It is
  * what a prosthesis has to survive and what an arthritic joint feels, and it is
  * routinely left out of a first analysis.
  *
@@ -394,12 +395,26 @@ export function jointStatics(inp: JointInput): JointResult | BiomedError {
         "joint are far larger than anything acting on the body from outside.",
     );
   }
-  notes.push(
-    `The JOINT REACTION FORCE is ${jointReaction.toFixed(0)} N — larger than either the load or ` +
-      "the muscle force acting alone, because the muscle presses the bones together while the load " +
-      "pulls them apart. This is the number a prosthesis has to survive and the one an arthritic " +
-      "joint feels, and it is the one most often left out.",
-  );
+  // The comparison is stated from the values, never asserted: with the muscle and load on opposite sides of the
+  // joint the reaction is muscle − load (smaller than the muscle force), and the old fixed sentence claimed it was
+  // larger than both.
+  {
+    const fN = (v: number): string => `${Number(v.toPrecision(3))} N`;
+    const ext = load + segW;
+    const big = jointReaction > muscleForce && jointReaction > ext;
+    const cmp = big
+      ? `larger than both the external load (${fN(ext)}) and the muscle force (${fN(muscleForce)})`
+      : jointReaction > ext
+        ? `larger than the external load (${fN(ext)}) but smaller than the muscle force (${fN(muscleForce)}), ` +
+          "because the load pulls against part of the muscle's pull"
+        : jointReaction > muscleForce
+          ? `larger than the muscle force (${fN(muscleForce)}) but smaller than the external load (${fN(ext)})`
+          : `smaller than both the external load (${fN(ext)}) and the muscle force (${fN(muscleForce)})`;
+    notes.push(
+      `The JOINT REACTION FORCE is ${fN(jointReaction)}: ${cmp}. This is the number a prosthesis has to ` +
+        "survive and the one an arthritic joint feels, and it is the one most often left out.",
+    );
+  }
   if (angle !== 90) {
     notes.push(
       `At a pull angle of ${angle} degrees only ${(sinA * 100).toFixed(0)}% of the muscle force ` +

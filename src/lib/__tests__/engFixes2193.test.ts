@@ -275,9 +275,12 @@ describe("7. AC sweep corner is solved, not the first sample past it", () => {
   });
 });
 
-describe("8. Paris threshold ΔK is read as Pa·√m", () => {
+// Superseded in fix2-eng1 (reviewer): a bare threshold is now read in MPa·√m, the unit the Paris C beside it is
+// quoted for, and converted to Pa·√m for the engine; a typed unit still converts. See eng1Fixes2.test.ts.
+describe("8. Paris threshold ΔK reads through the unit layer (bare = MPa·√m since fix2-eng1)", () => {
   test("source", () => {
-    expect(toolSource("fracture-paris")).toMatch(/u\.opt\("dkth", "Pa\*m\^0\.5"/);
+    expect(toolSource("fracture-paris")).toMatch(/u\.opt\("dkth", "MPa\*m\^0\.5"/);
+    expect(toolSource("fracture-paris")).toMatch(/deltaKthMPa \* 1e6/);
   });
 });
 

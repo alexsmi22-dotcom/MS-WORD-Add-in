@@ -173,13 +173,24 @@ export function enduranceLimit(inp: EnduranceInput): EnduranceResult | FatigueEr
         "non-ferrous alloys keep failing at ever-lower stresses — the S-N curve never flattens — so " +
         "there is NO stress below which the part is safe indefinitely, and infinite-life design is " +
         "not available at any stress. The figure used here stands in for a fatigue strength quoted " +
-        "at about 5x10^8 cycles; treat every result below as a FINITE-LIFE estimate at that " +
+        "at about 5×10⁸ cycles; treat every result below as a FINITE-LIFE estimate at that " +
         "endurance, never as a guarantee of survival.",
     );
   }
 
   // ka — surface.
-  const sf = SURFACE_FACTORS[inp.surface] ?? SURFACE_FACTORS.machined;
+  // An unknown finish is REFUSED, never defaulted: a silent fallback to machined once turned the
+  // pane's "hotrolled"/"forged" options into a machined ka (0.80 instead of 0.52 / 0.40 at 700 MPa),
+  // an endurance limit too high by half — the unsafe direction.
+  if (!Object.prototype.hasOwnProperty.call(SURFACE_FACTORS, inp.surface)) {
+    return {
+      ok: false,
+      error:
+        `Unknown surface finish "${String(inp.surface)}": choose ` +
+        Object.values(SURFACE_FACTORS).map((f) => f.label.toLowerCase()).join(", ") + ".",
+    };
+  }
+  const sf = SURFACE_FACTORS[inp.surface];
   let ka = sf.a * Math.pow(sut, sf.b);
   if (ka > 1) ka = 1;
 
@@ -585,7 +596,7 @@ export function finiteLife(
 
   if (sigmaA > s1000) {
     notes.push(
-      `The alternating stress exceeds 0.9 x Sut, which is where the S-N line starts at 10^3 cycles. ` +
+      `The alternating stress exceeds 0.9 × Sut, which is where the S-N line starts at 10³ cycles. ` +
         "This is LOW-CYCLE fatigue, where the part is yielding every cycle and life is governed by " +
         "strain rather than stress. A stress-life calculation does not apply below about 1000 " +
         "cycles; a strain-life (Coffin-Manson) analysis does.",
@@ -645,6 +656,7 @@ export function minerDamage(
   let total = 0;
   const notes: string[] = [];
   let anyInfinite = false;
+  const lowCycle: number[] = [];
 
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
@@ -657,12 +669,22 @@ export function minerDamage(
     const life = finiteLife(b.sigmaA, se, sut, materialClass);
     if (!life.ok) return blocks.length > 1 ? { ok: false, error: `Block ${i + 1}: ${life.error}` } : life;
     const allowable = life.cycles;
+    if (allowable < 1000) lowCycle.push(i + 1);
     const damage = allowable === Infinity ? 0 : b.cycles / allowable;
     if (allowable === Infinity) anyInfinite = true;
     out.push({ sigmaA: b.sigmaA, applied: b.cycles, allowable, damage });
     total += damage;
   }
 
+  // A block whose allowable life is under 10³ cycles is LOW-CYCLE fatigue, outside the stress-life line; a spectrum
+  // carried that block's damage with no word about it (the single-block path already warned).
+  if (lowCycle.length && blocks.length > 1) {
+    notes.push(
+      `LOW-CYCLE: block${lowCycle.length > 1 ? "s" : ""} ${lowCycle.join(", ")} allow${lowCycle.length > 1 ? "" : "s"} ` +
+        "fewer than 1000 cycles, where the part yields every cycle and a stress-life line does not apply — " +
+        "its damage here is indicative only; use a strain-life (Coffin–Manson) analysis for it.",
+    );
+  }
   if (anyInfinite) {
     notes.push(
       "One or more blocks are below the endurance limit and contribute NO damage in this model. " +

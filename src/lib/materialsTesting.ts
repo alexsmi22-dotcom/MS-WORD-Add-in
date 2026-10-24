@@ -339,7 +339,7 @@ export function tensileTest(inp: TensileInput): TensileResult | Fail {
       }
     }
     idx = idx.filter((i) => stress[i] >= sLo);
-    windowRule = "automatic: the rising curve between 10 % and 40 % of the maximum stress";
+    windowRule = "the automatic window (the rising curve between 10 % and 40 % of the maximum stress)";
     wLo = idx.length ? strain[idx[0]] : NaN;
     wHi = idx.length ? strain[idx[idx.length - 1]] : NaN;
   }
@@ -404,7 +404,7 @@ export function tensileTest(inp: TensileInput): TensileResult | Fail {
   // With fewer than SMALL_WINDOW points noise and curvature cannot be told apart, so a large apparent change withholds too (tiebreak: never guess).
   if (q && q.span > CURVATURE_REFUSE && realCurvature) {
     return noModulus(
-      `No linear elastic region: over the elastic window (${windowRule}) the slope changes by ${Math.round(q.span * 100)} % from one end ` +
+      `No linear elastic region: over ${windowRule} the slope changes by ${Math.round(q.span * 100)} % from one end ` +
         "to the other. For plastics ISO 527-1 takes the modulus as the chord between 0.05 % and 0.25 % strain (enter that as the strain window).",
         "no linear elastic region",
     );

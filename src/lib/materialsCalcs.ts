@@ -192,7 +192,7 @@ function blockOf(text: string, what: string, lone: boolean): DataBlock | { error
 }
 
 /** A numeric table of `min`–`max` columns. */
-function numericTable(text: string, min: number, max: number, what: string): { data: number[][]; notes: string[] } | { error: string } {
+function numericTable(text: string, min: number, max: number, what: string): { data: number[][]; notes: string[]; header?: string[] | null } | { error: string } {
   const b = blockOf(text, what, false);
   if ("error" in b) return b;
   const out: number[][] = [];
@@ -204,7 +204,18 @@ function numericTable(text: string, min: number, max: number, what: string): { d
     out.push(row);
   }
   if (!out.length) return { error: `Enter the data: ${what}, one row per line.` };
-  return { data: out, notes: b.notes };
+  return { data: out, notes: b.notes, header: b.header };
+}
+
+/**
+ * The stress unit a column header names ("stress MPa", "σ (GPa)", "Stress, ksi"), or null when it names none.
+ * Longest first, so "MPa" is not read as "Pa" and "ksi" not as "psi".
+ */
+function headerStressUnit(cell: string | undefined): string | null {
+  if (!cell) return null;
+  const m = /(?:^|[^A-Za-z])(GPa|MPa|kPa|ksi|psi|N\/mm²|N\/mm\^2)(?![A-Za-z])/.exec(cell);
+  if (!m) return null;
+  return /^N\/mm/.test(m[1]) ? "MPa" : m[1];
 }
 
 /** A flat list of numbers in any separator. A lone "4,76" is refused as ambiguous (one decimal or two values). */
@@ -420,6 +431,15 @@ const tensileCalc: MatCalc = {
     let strainPct: boolean;
     const conv: string[] = [];
     if (mode === "ss") {
+      // A header that names a stress unit must agree with the unit selected: "stress MPa" read as GPa is a factor of
+      // 1000 in every number, so the conflict is refused rather than one side guessed.
+      const hU = headerStressUnit(tblR.header?.[1]);
+      if (hU !== null && hU !== sUnit) {
+        return refuse(
+          `The stress column header says ${hU} ("${tblR.header?.[1]}"), but the stress unit selected is ${sUnit}. ` +
+            `Choose ${hU} as the stress unit, or correct the header.`,
+        );
+      }
       strainPct = r("strainUnit") !== "frac";
       strain = tbl.map((row) => (strainPct ? row[0] / 100 : row[0]));
       stress = tbl.map((row) => row[1] * kOut);

@@ -39,7 +39,7 @@
 // another tool) is parsed directly.
 
 import { Molecule } from "openchemlib";
-import { lookupSmiles, resolveChemInput } from "./structures";
+import { chargeSuffix, lookupSmiles, resolveChemInput, tidyOclCharges } from "./structures";
 
 export interface BuildResult {
   svg: string;
@@ -385,13 +385,13 @@ function finish(mol: Molecule, width: number, height: number, needCoords: boolea
   // (No picture when the caller draws its own: the canvas's page is what inserts. OCL's picture of
   // a 200-atom page took half a second on every click, to be thrown away.)
   const svg = picture
-    ? mol.toSVG(width, height, undefined, {
+    ? tidyOclCharges(mol.toSVG(width, height, undefined, {
         autoCrop: true,
         autoCropMargin: 8,
         suppressChiralText: true,
         suppressCIPParity: true,
         suppressESR: true,
-      })
+      }))
     : "";
   const generic = mol.isFragment();
   let smiles = "";
@@ -418,7 +418,10 @@ function finish(mol: Molecule, width: number, height: number, needCoords: boolea
   } else {
     try {
       const mf = mol.getMolecularFormula();
-      formula = mf.formula;
+      let q = 0;
+      for (let i = 0; i < mol.getAllAtoms(); i++) q += mol.getAtomCharge(i);
+      // The net charge raised after the formula (C4H12N⁺): the readout and the alt text carry it.
+      formula = mf.formula + chargeSuffix(q);
       mw = Math.round(mf.relativeWeight * 100) / 100;
     } catch {
       /* leave blank */

@@ -152,7 +152,7 @@ import {
 } from "../lib/finance";
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg } from "../lib/financeFigures";
 import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
-import { renderStructure, resolveStructure, resolveChemInput, lookupSmiles, typesetHill, nameForIdcode, StructureResult } from "../lib/structures";
+import { renderStructure, resolveStructure, resolveChemInput, lookupSmiles, typesetHill, nameForIdcode, StructureResult, gallerySubstituent } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
 import { predictPka, PkaResult } from "../lib/pka";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
@@ -3771,16 +3771,23 @@ function updateGalleryPreview(): void {
       lab.textContent = `${it.label} =`;
       card.appendChild(lab);
     }
-    const r = renderStructure(it.input, GALLERY_W, GALLERY_H);
-    if (r) {
+    // Read as Structure mode reads it (CO is methanol there, Co cobalt — not a radical), one * allowed (the bond to the parent).
+    const g = gallerySubstituent(it.input, GALLERY_W, GALLERY_H);
+    if (g.ok) {
       const fig = document.createElement("div");
-      fig.innerHTML = r.svg;
+      fig.innerHTML = g.result.svg;
       card.appendChild(fig);
+      if (g.note) {
+        const note = document.createElement("span");
+        note.className = "hint";
+        note.textContent = g.note;
+        card.appendChild(note);
+      }
       any = true;
     } else {
       const bad = document.createElement("span");
       bad.className = "hint";
-      bad.textContent = `couldn't render "${it.input}"`;
+      bad.textContent = g.message;
       card.appendChild(bad);
     }
     galleryPreviewEl.appendChild(card);
@@ -3793,8 +3800,9 @@ async function insertGallery(): Promise<void> {
   const items = parseSubstituents(galleryInput.value);
   const rendered: { label: string; base64: string; alt: string; w: number; h: number }[] = [];
   for (const it of items) {
-    const r = renderStructure(it.input, GALLERY_W, GALLERY_H);
-    if (!r) continue;
+    const g = gallerySubstituent(it.input, GALLERY_W, GALLERY_H);
+    if (!g.ok) continue;
+    const r = g.result;
     const d = readSvgDims(r.svg, GALLERY_W, GALLERY_H);
     const base64 = await renderFigurePng(r.svg, d.w, d.h);
     const label = it.label ? `substituent ${it.label}` : "substituent";

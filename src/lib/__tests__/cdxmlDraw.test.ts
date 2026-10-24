@@ -144,11 +144,9 @@ describe("polymer brackets", () => {
     const again = readCdxml(writeCdxml(d.root));
     expect(again.ok && again.doc.brackets[0].attachments.map((a) => a.bondId)).toEqual(["23", "21"]);
   });
-  test("an end group: one bond leaves the box — one bracket crosses it, the other has its attachment with none (as ChemDraw)", () => {
+  test("a box crossing a bond on one side only is refused: a repeat unit is joined through BOTH brackets (fix2-chem)", () => {
     const d = open(ROW);
-    expect(addBrackets(d, [85, 85, 145, 115])).toBeNull();
-    const b = reread(d).brackets[0];
-    expect(b.attachments.map((a) => a.bondId)).toEqual(["22", ""]);
+    expect(addBrackets(d, [85, 85, 145, 115])).toMatch(/cross 0 bonds on the left and 1 on the right/);
   });
   test("bracketing a structure makes ChemDraw's computed name for it out of date (it named the monomer)", () => {
     const d = open(ROW.replace("</page>", '<t id="30" p="100 160"><s font="3" size="12">butane</s></t><chemicalproperty id="31" ChemicalPropertyDisplayID="30" ChemicalPropertyType="1" BasisObjects="10"/></page>'));

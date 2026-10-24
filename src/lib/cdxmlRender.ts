@@ -11,7 +11,7 @@
  */
 import { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxGraphic, CdxItem, CdxNode, CdxRun, CdxStyle, CdxText, cssColor, Pt } from "./cdxml";
 import { arcOf, arcPoint } from "./cdxArrows";
-import { chargeGlyph, pieceDrop, pieceSize, textInk, textLayout, textPieces } from "./cdxGlyphs";
+import { chargeGlyph, glyph, pieceDrop, pieceSize, textInk, textLayout, textPieces } from "./cdxGlyphs";
 import { atomQueryMarks, bondQueryMarks, showsMarks, stereoGroupMark } from "./cdxQuery";
 
 const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
@@ -291,6 +291,73 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       if (from[0] < bx[0] || from[0] > bx[2] || from[1] < bx[1] || from[1] > bx[3]) return from; // the atom is outside its own label box
       return addp(from, mul(d, Math.max(0, Math.min(1, tmax))));
     };
+    /**
+     * A label carrying a superscript mass number (¹³C, H₂¹⁵N): its letters' own boxes (grown by the margin), one per
+     * character. The mass hangs high beside the element letter, and one box round the whole label swallowed the bond
+     * that runs under it (HO–¹³CH₃ and O=¹³C=O lost their bonds). Null for any other label (clipped at its box).
+     */
+    const glyphBoxes = (n: CdxNode): Box[] | null => {
+      if (!n.label || !n.label.runs.some((q) => (q.face & 0x60) === 0x40 && /^\d+$/.test(q.text))) return null;
+      const lay = textLayout(n.label, n);
+      if (!lay || lay.lines.length !== 1) return null;
+      const pieces = lay.lines[0].flatMap((run) => textPieces(run).map((p) => ({ p, run })));
+      const adv = pieces.reduce((s, { p, run }) => s + [...p.text].reduce((w, ch) => w + glyph(ch).adv * pieceSize(run, p.shift), 0), 0);
+      let pen = lay.anchor === "start" ? lay.x : lay.anchor === "end" ? lay.x - adv : lay.x - adv / 2;
+      const m = st.marginWidth;
+      const out: Box[] = [];
+      for (const { p, run } of pieces) {
+        const s = pieceSize(run, p.shift), base = lay.y0 + pieceDrop(run, p.shift);
+        for (const ch of p.text) {
+          const g = glyph(ch);
+          if (g.ink) out.push([pen + g.ink[0] * s - m, base - g.ink[3] * s - m, pen + g.ink[2] * s + m, base - g.ink[1] * s + m]);
+          pen += g.adv * s;
+        }
+      }
+      return out.length ? out : null;
+    };
+    /** Where the segment from the atom toward `to` leaves the union of its letters' boxes; null if the atom is in none. */
+    const exitGlyphs = (from: Pt, to: Pt, boxes: Box[]): Pt | null => {
+      const d = sub(to, from);
+      const inside = (q: Pt, b: Box): boolean => q[0] >= b[0] - 1e-9 && q[0] <= b[2] + 1e-9 && q[1] >= b[1] - 1e-9 && q[1] <= b[3] + 1e-9;
+      if (!boxes.some((b) => inside(from, b))) return null;
+      let t = 0;
+      for (let k = 0; k <= boxes.length; k++) {
+        const q = addp(from, mul(d, t));
+        let next = t;
+        for (const b of boxes) {
+          if (!inside(q, b)) continue;
+          let tmax = 1;
+          const clip = (pp: number, qq: number): void => {
+            if (pp > 0) tmax = Math.min(tmax, qq / pp);
+          };
+          clip(d[0], b[2] - from[0]);
+          clip(-d[0], from[0] - b[0]);
+          clip(d[1], b[3] - from[1]);
+          clip(-d[1], from[1] - b[1]);
+          next = Math.max(next, Math.min(1, tmax));
+        }
+        if (next <= t + 1e-9) break;
+        t = next;
+      }
+      return addp(from, mul(d, t));
+    };
+    /** The segment far → near cut where it first enters one of the boxes (near itself when it enters none). */
+    const entryGlyphs = (far: Pt, near: Pt, boxes: Box[]): Pt => {
+      const d = sub(near, far);
+      let best = 1;
+      for (const b of boxes) {
+        let t0 = 0, t1 = 1;
+        const edge = (pp: number, qq: number): boolean => {
+          if (Math.abs(pp) < 1e-12) return qq >= 0;
+          const r = qq / pp;
+          if (pp < 0) t0 = Math.max(t0, r);
+          else t1 = Math.min(t1, r);
+          return t0 <= t1;
+        };
+        if (edge(-d[0], far[0] - b[0]) && edge(d[0], b[2] - far[0]) && edge(-d[1], far[1] - b[1]) && edge(d[1], b[3] - far[1])) best = Math.min(best, t0);
+      }
+      return addp(far, mul(d, best));
+    };
     /** Is the bond in a ring (a path back of at most 7 bonds without it), and the ring's centre. */
     const ringSide = (bd: CdxBond): Pt | null => {
       const prev = new Map<string, string>([[bd.b, ""]]);
@@ -319,8 +386,9 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       if (!nb || !ne) continue;
       const cb = clipBox(nb), ce = clipBox(ne);
       let p0 = nb.p, p1 = ne.p;
-      if (cb) p0 = exitBox(nb.p, ne.p, cb);
-      if (ce) p1 = exitBox(ne.p, nb.p, ce);
+      const gb = cb ? glyphBoxes(nb) : null, ge = ce ? glyphBoxes(ne) : null;
+      if (cb) p0 = (gb && exitGlyphs(nb.p, ne.p, gb)) || exitBox(nb.p, ne.p, cb);
+      if (ce) p1 = (ge && exitGlyphs(ne.p, nb.p, ge)) || exitBox(ne.p, nb.p, ce);
       if (cb && ce && (p1[0] - p0[0]) * (ne.p[0] - nb.p[0]) + (p1[1] - p0[1]) * (ne.p[1] - nb.p[1]) <= 0) {
         // Two labels whose boxes (with their margins) overlap along the bond: clipped at the boxes the bond would run
         // backwards, its end on the far label's letters (a Br–Br from a file). Clipped instead at the letters' own ink
@@ -421,8 +489,11 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
             styled(p0, p1, disp);
             // The inner line is shortened where it meets other bonds (not at a clipped label end).
             const trim = gap * 0.6;
-            const a = addp(addp(p0, mul(n, side * gap)), cb ? [0, 0] : mul(d, trim));
-            const c = addp(addp(p1, mul(n, side * gap)), ce ? [0, 0] : mul(d, -trim));
+            let a = addp(addp(p0, mul(n, side * gap)), cb ? [0, 0] : mul(d, trim));
+            let c = addp(addp(p1, mul(n, side * gap)), ce ? [0, 0] : mul(d, -trim));
+            // At a label clipped by its letters (a mass number), the inner line stops at the letters too.
+            if (gb) a = entryGlyphs(c, a, gb);
+            if (ge) c = entryGlyphs(a, c, ge);
             if (len(sub(c, a)) > 0.5) styled(a, c, second);
           }
         }

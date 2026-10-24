@@ -187,7 +187,9 @@
   "thiourea",
   "melamine",
   "glucose",
+  "fructose",
   "galactose",
+  "ribose",
   "deoxyribose",
   "glycine",
   "alanine",
@@ -407,26 +409,6 @@
    "cid": 14778,
    "bucket": "ISOMER",
    "reason": "Same composition; ours depicts CaO ionically, which is what it is. PubChem draws it covalently."
-  },
-  {
-   "name": "fructose",
-   "ours": "OCC(=O)C(O)C(O)C(O)CO",
-   "pubchem": "C1[C@H]([C@H]([C@@H](C(O1)(CO)O)O)O)O",
-   "ourFormula": "C6H12O6",
-   "pcFormula": "C6H12O6",
-   "cid": 2723872,
-   "bucket": "ISOMER",
-   "reason": "Ours is the OPEN-CHAIN keto form, which is how fructose is drawn when teaching and how its ketose chemistry is explained; PubChem gives the cyclic furanose. This one is a real choice, not a notation difference — the open chain is a small fraction of fructose in solution — but it is the conventional textbook depiction and is recorded here rather than hidden."
-  },
-  {
-   "name": "ribose",
-   "ours": "OCC1OC(O)C(O)C1O",
-   "pubchem": "C1[C@H]([C@H]([C@H](C(O1)O)O)O)O",
-   "ourFormula": "C5H10O5",
-   "pcFormula": "C5H10O5",
-   "cid": 10975657,
-   "bucket": "ISOMER",
-   "reason": "Furanose ring without stereocentres assigned; PubChem gives the fully-specified D-ribofuranose. Ours is deliberately unspecified, and is flagged rather than hidden."
   },
   {
    "name": "histamine",

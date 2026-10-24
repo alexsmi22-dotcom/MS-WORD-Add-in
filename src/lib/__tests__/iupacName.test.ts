@@ -259,7 +259,7 @@ describe("ADVERSARIAL PASS — wrong names made impossible, garbling made refusa
 
   test("substituents that carry locants get enclosing marks and bis/tris", () => {
     expect(nameOf("CCCC(C(C)C)CCC")).toBe("4-(propan-2-yl)heptane");
-    expect(nameOf("CC(C)C1CCC(C(C)C)CC1")).toBe("1,4-bis(propan-2-yl)cyclohexane");
+    expect(nameOf("CC(C)C1CCC(C(C)C)CC1")).toBe("1,4-di(propan-2-yl)cyclohexane");
   });
 
   test("rings beyond OCL's 7-ring perception refuse by the honest boundary", () => {

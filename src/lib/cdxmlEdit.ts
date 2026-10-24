@@ -426,15 +426,10 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
   const iso = /^(\d{1,3})([A-Z][a-z]?)$/.exec(t);
   if (iso && atomicNumber(iso[2]) !== null) {
     const z = atomicNumber(iso[2])!;
-    node.attrs.Element = String(z);
-    node.attrs.Isotope = iso[1];
+    const mass = Number(iso[1]);
+    if (!(mass >= 1)) return { ok: false, reason: `${t} has no mass number` };
     const h = hydrogensFor(z, charge, frag, nodeId) ?? 0;
-    node.attrs.NumHydrogens = String(h);
-    const lt = labelText(doc, node, iso[2] + (h ? "H" + (h > 1 ? h : "") : ""));
-    const s0 = lt.children[0];
-    lt.children.unshift({ name: "s", attrs: { ...s0.attrs, face: String(0x20) }, children: [], text: iso[1], line: 0 });
-    fitLabel(doc, node, lt);
-    node.children.push(lt);
+    writeElementLabel(doc, nodeId, z, h, mass);
     return { ok: true, note: null };
   }
   // "[Ac]": the element itself, where its symbol is also a group's name.
@@ -634,13 +629,14 @@ function relabel(doc: CdxDoc, node: XNode): void {
   const runs = t.children.filter((c) => c.name === "s");
   if (!runs.length) return;
   if (node.attrs.Isotope) {
-    // "13CH3" as setAtomLabel writes it: the mass number, then the symbol and its hydrogens.
-    if (runs.length !== 2 || runs[0].text !== node.attrs.Isotope || !new RegExp(`^${sym}(H\\d*)?$`).test(runs[1].text)) return;
+    // "¹³CH₃" / "H₂¹⁵N" as writeElementLabel writes it: the mass number (one run) before the symbol, hydrogens beside.
+    const massRuns = runs.filter((r) => r.text === node.attrs.Isotope);
+    const rest = runs.filter((r) => r !== massRuns[0]).map((r) => r.text).join("");
+    if (massRuns.length !== 1 || !new RegExp(`^(H\\d*)?${sym}(H\\d*)?$`).test(rest)) return;
     const f = fragmentOf(doc.root, node.attrs.id ?? "")?.frag;
     const hi = f ? hydrogensFor(Number(node.attrs.Element ?? 6), Number(node.attrs.Charge ?? 0) || 0, f, node.attrs.id ?? "") : null;
     if (hi === null) return;
-    node.attrs.NumHydrogens = String(hi);
-    runs[1].text = sym + (hi ? "H" + (hi > 1 ? hi : "") : "");
+    writeElementLabel(doc, node.attrs.id ?? "", Number(node.attrs.Element ?? 6), hi, Number(node.attrs.Isotope));
     return;
   }
   const text = runs.map((r) => r.text).join("");
@@ -710,12 +706,63 @@ function placeHydrogens(doc: CdxDoc, node: XNode, t: XNode, sym: string, hs: str
   fitLabel(doc, node, t);
 }
 
+/**
+ * Writes an element atom's label with the hydrogens it shows and its mass number — any element, carbon included (an
+ * isolated, isotopic, charged or radical carbon is labelled, as ChemDraw labels it: CH₄, ¹³CH₃, CH₃⁻). The mass number
+ * is a SUPERSCRIPT (face 0x40) set immediately before the element symbol: ¹³CH₃, H₂¹⁵N (never ¹⁵H₂N — the mass belongs
+ * to the element, not to its hydrogens). An isotopic label keeps its hydrogens beside it (right or left), not stacked.
+ */
+export function writeElementLabel(doc: CdxDoc, nodeId: string, z: number, h: number, mass = 0): boolean {
+  const hit = fragmentOf(doc.root, nodeId);
+  const sym = symbolFor(z);
+  if (!hit || !sym) return false;
+  const { frag, node } = hit;
+  node.children = node.children.filter((c) => c.name !== "t");
+  if (z === 6) delete node.attrs.Element;
+  else node.attrs.Element = String(z);
+  node.attrs.NumHydrogens = String(h);
+  if (mass) node.attrs.Isotope = String(mass);
+  else delete node.attrs.Isotope;
+  const hs = h ? "H" + (h > 1 ? h : "") : "";
+  const t = labelText(doc, node, sym, false);
+  let side = hs ? hSide(frag, node) : "right";
+  if (mass && (side === "below" || side === "above")) side = "right";
+  placeHydrogens(doc, node, t, sym, hs, side);
+  if (mass) {
+    const s0 = t.children.find((c) => c.name === "s")!;
+    const sup: XNode = { name: "s", attrs: { ...s0.attrs, face: String(0x40) }, children: [], text: String(mass), line: 0 };
+    if (hs && side === "left") {
+      // H₂ ¹⁵N: hydrogens, then the mass, then the element (the element letter stays on the atom: right-justified).
+      const el: XNode = { ...s0, attrs: { ...s0.attrs }, text: sym };
+      s0.text = hs;
+      t.children.splice(t.children.indexOf(s0) + 1, 0, sup, el);
+    } else t.children.splice(t.children.indexOf(s0), 0, sup);
+    fitLabel(doc, node, t);
+  }
+  node.children.push(t);
+  return true;
+}
+
 /** Sets an atom's charge (−9…9); a labelled atom's hydrogens follow. */
 export function setCharge(doc: CdxDoc, nodeId: string, charge: number): string | null {
   const hit = fragmentOf(doc.root, nodeId);
   if (!hit) return "that atom is no longer in the document";
   if (isHaptoCentre(hit.node)) return HAPTO_CENTRE;
   if (!Number.isInteger(charge) || Math.abs(charge) > 9) return "a charge is a whole number from −9 to 9";
+  // B, C, N, O, F have no expanded octet: with e valence electrons left after the charge, an atom holds at most
+  // min(e, 8 − e) bonds and hydrogens together (N⁺ 4, C⁺ 3, O⁻ 1). N³⁺ on methylamine came out as "NH₅³⁺".
+  const z0 = Number(hit.node.attrs.Element ?? 6);
+  if ((!hit.node.attrs.NodeType || hit.node.attrs.NodeType === "Element") && z0 >= 5 && z0 <= 9 && charge) {
+    const e = z0 - 2 - charge;
+    const bonds = bondOrderSum(hit.frag, nodeId);
+    const sym = symbolFor(z0)!;
+    const max = e < 0 || e > 8 ? -1 : Math.min(e, 8 - e);
+    const h = hit.node.children.some((c) => c.name === "t") ? (implicitH(sym, charge, bonds) ?? 0) : 0;
+    if (max < 0 || bonds > max + 1e-9 || bonds + h > max + 1e-9) {
+      const q = `${Math.abs(charge) === 1 ? "" : Math.abs(charge)}${charge > 0 ? "+" : "−"}`;
+      return `${sym} with a ${q} charge can hold at most ${Math.max(0, max)} bond${max === 1 ? "" : "s"} and hydrogens (it has no expanded octet) — an impossible valence here`;
+    }
+  }
   if (charge) hit.node.attrs.Charge = String(charge);
   else delete hit.node.attrs.Charge;
   const symbols: Array<{ el: XNode; parent: XNode | null }> = [];
@@ -1250,8 +1297,35 @@ export function addBrackets(doc: CdxDoc, box: [number, number, number, number], 
   }
   if (throughEnds) return "a bond leaves the box through its top or bottom, where no bracket crosses it — make the box taller, so only its sides cut the bonds that leave the repeat unit";
   if (!crossings.length) return "no bond leaves the box — a repeat unit is bonded on, through the brackets";
+  // A repeat unit (–[A]ₙ–) is joined to its neighbours by exactly two bonds, one through each bracket: a box crossing
+  // bonds on one side only, or more than one on a side, or cutting a ring, is not a repeat unit's.
+  const nl = crossings.filter((c) => c.left).length, nr = crossings.length - nl;
+  if (nl !== 1 || nr !== 1)
+    return `the box's sides cross ${nl} bond${nl === 1 ? "" : "s"} on the left and ${nr} on the right — a repeat unit is joined by exactly one bond through each bracket; put each side across the one bond to the next unit`;
+  for (const c of crossings) {
+    const b = f.children.find((q) => q.name === "b" && q.attrs.id === c.bond)!;
+    if (inCycle(f, b.attrs.B, b.attrs.E, c.bond)) return "a side of the box cuts a ring — a bracket crosses only the chain bond to the next repeat unit";
+  }
   writeBrackets(doc, page, [x0, y0, x1, y1], insideIds, crossings, text);
   return null;
+}
+
+/** Is the bond a–b (id `skip`) in a ring: are a and b still joined without it (bounded by the fragment's size)? */
+function inCycle(f: XNode, a: string, b: string, skip: string): boolean {
+  const adj = new Map<string, string[]>();
+  for (const q of f.children) {
+    if (q.name !== "b" || q.attrs.id === skip || !q.attrs.B || !q.attrs.E) continue;
+    (adj.get(q.attrs.B) ?? adj.set(q.attrs.B, []).get(q.attrs.B)!).push(q.attrs.E);
+    (adj.get(q.attrs.E) ?? adj.set(q.attrs.E, []).get(q.attrs.E)!).push(q.attrs.B);
+  }
+  const seen = new Set([a]);
+  const stack = [a];
+  while (stack.length) {
+    const v = stack.pop()!;
+    if (v === b) return true;
+    for (const w of adj.get(v) ?? []) if (!seen.has(w)) (seen.add(w), stack.push(w));
+  }
+  return false;
 }
 
 /**

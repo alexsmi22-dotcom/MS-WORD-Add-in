@@ -355,6 +355,11 @@ export function validateFormula(input: string): FormulaValidation {
   }
 
   if (!errors.length && !Object.keys(counts).length) errors.push("No elements found.");
+  // A bound, not chemistry: the largest real molecular formulas (titin, C₁₆₉₇₁₉H₂₇₀₄₆₆…) stay far below it, while a
+  // runaway count ("H99999999999O", 10¹¹ g/mol) is a typo, not a substance.
+  for (const [k, v] of Object.entries(counts)) {
+    if (v > MAX_ELEMENT_COUNT) errors.push(`${k} × ${Math.round(v).toLocaleString("en-US")} is above the ${MAX_ELEMENT_COUNT.toLocaleString("en-US")}-atom limit for one element in a formula — check the count`);
+  }
   const valid = errors.length === 0;
   let mass: number | null = null;
   if (valid) {
@@ -410,6 +415,9 @@ function coefficientGlyph(c: Rational): string {
 function typesetPlain(hill: string): string {
   return hill.replace(/\d/g, (ch) => "₀₁₂₃₄₅₆₇₈₉"[Number(ch)]);
 }
+
+/** The most atoms of one element a formula may hold (titin, the largest protein, has about 270 000 H). */
+export const MAX_ELEMENT_COUNT = 10_000_000;
 
 /** Longest digit run accepted in one coefficient field — a bound, not a chemistry limit. */
 const MAX_COEF_DIGITS = 9;

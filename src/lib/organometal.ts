@@ -311,8 +311,11 @@ export function addMetalloceneTemplate(doc: CdxDoc, at: P2, kind: MetalloceneTem
   } else {
     const { top } = sandwich();
     // –[CH₂–CH]ₙ– above the top ring, its CH carrying a CH₂ down to the ring's back (270°) atom.
-    const back = posOf(frag.children.find((c) => c.attrs.id === top[2])!);
-    const linker = add([back[0], back[1] - L]);
+    const ring = posOf(frag.children.find((c) => c.attrs.id === top[2])!);
+    // The CH₂ linker set off to the right (150° at it): straight above the ring atom and below the CH, its vertex
+    // lay on one line and the CH₂ was invisible. Everything above follows it.
+    const back: P2 = [ring[0] + 0.5 * L, ring[1] + 0.13 * L];
+    const linker = add([ring[0] + 0.5 * L, ring[1] - 0.87 * L]);
     link(linker, top[2]);
     const ch = add([back[0], back[1] - 2 * L]);
     link(ch, linker);

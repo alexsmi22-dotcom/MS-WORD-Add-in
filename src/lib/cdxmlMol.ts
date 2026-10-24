@@ -870,10 +870,13 @@ export function moleculeToPage(doc: CdxDoc, mol: Molecule, origin: P2 = [60, 60]
     const mass = mol.getAtomMass(a);
     const unusual = mol.getAtomAbnormalValence(a) !== -1;
     // A carbon is a bare vertex unless something about it must be read: no bonds (methane is "CH₄", not a blank),
-    // a mass number, a charge, a radical or an unusual valence — then it is labelled with its hydrogens, as ChemDraw
+    // a mass number, a charge or radical at a chain end, or an unusual valence — then it is labelled with its hydrogens, as ChemDraw
     // labels it (¹³CH₃, CH₃⁻, CH₃ with its dot). Without the label, O=[¹³C]=O was drawn as O=O.
     const lone = mol.getAllConnAtomsPlusMetalBonds(a) === 0;
-    if (z === 6 && !mass && !node.attrs.Radical && !unusual && !mol.getAtomCharge(a) && !lone) continue;
+    // A charged or radical carbon INSIDE a chain or ring (Cp⁻, the tert-butyl cation) stays a vertex with its sign or dot,
+    // as ChemDraw draws it (an "HC" label in a ring read badly); at a chain end or alone it is labelled (CH₃⁻, CH₂⁻).
+    const end = mol.getAllConnAtomsPlusMetalBonds(a) <= 1;
+    if (z === 6 && !mass && !unusual && !lone && !(end && (node.attrs.Radical || mol.getAtomCharge(a)))) continue;
     if (z === 1 && (mass === 2 || mass === 3)) {
       const r = setAtomLabel(doc, nodeIds[a], mass === 2 ? "D" : "T"); // D / T: their own label
       if (!r.ok) return { ok: false, reason: r.reason };

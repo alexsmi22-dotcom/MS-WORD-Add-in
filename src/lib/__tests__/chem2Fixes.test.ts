@@ -11,6 +11,9 @@
 //     cyclohexane-1,2,4,5-tetrone, benzene-1,2,3,4,5,6-hexol, 3-methylidenepentane, 3-methylidenepentanoic acid,
 //     5-methylidenenonane, 5-ethynylnonane, 2,6-dimethyl-4-(2-methylpropyl)heptane, 3,3-diethylpent-1-ene,
 //     4-ethylhexa-1,3-diene, 1,4-di(propan-2-yl)cyclohexane, butan-2-yl acetate, 3-ethylidenepentane — all identical.
+//   PubChem IUPACName (pug/compound/smiles/<smiles>/property/IUPACName): CCC(=C)CC 3-methylidenepentane, C=C(CC)CC(=O)O
+//     3-methylidenepentanoic acid, C=C(CCCC)CCCC 5-methylidenenonane, C#CC(CCCC)CCCC 5-ethynylnonane,
+//     CC(C)CC(CC(C)C)CC(C)C 2,6-dimethyl-4-(2-methylpropyl)heptane — all identical to the namer.
 //   IUPAC Blue Book 2013: P-16.7.1(c) (benzenehexol, -tetramine), P-44.3 (chain length before unsaturation),
 //     P-29.6.1 (tert-butyl IS a preferred prefix: "tert-butyldi(methyl)phosphane (PIN)"), P-29.6.3 (not isobutyl →
 //     2-methylpropyl, not sec-butyl → butan-2-yl), P-61.2.3 ("di(propan-2-yl) (preferred prefix)").
@@ -322,6 +325,23 @@ describe("lower — templates, brackets, charges, pictures", () => {
       expect(overlapX && overlapY).toBe(false);
     }
     expect(tidyOclCharges("<svg><text x=\"1\" y=\"2\" font-size=\"9\">-</text></svg>")).toContain(">−</text>");
+  });
+
+  test("charged / radical carbons inside a ring or chain stay vertices with their sign (Cp⁻, tert-butyl cation)", () => {
+    expect(labelsOf("[cH-]1cccc1").every((l) => l === "·")).toBe(true);
+    expect(labelsOf("C[C+](C)C").every((l) => l === "·")).toBe(true);
+    expect(labelsOf("CC(=O)[CH2-]")).toContain("H2C{96}");
+  });
+
+  test("Build ▸ Draw pictures use a true minus too", () => {
+    const svg = resultFromMolecule(Molecule.fromSmiles("CC(=O)[O-]")).svg;
+    expect(svg).toMatch(/>−<\/text>/);
+    expect(svg).not.toMatch(/>-<\/text>/);
+  });
+
+  test("Co read as a formula keeps the plain SMILES reason (no rewrite to CO, which is another substance)", () => {
+    const r = resolveChemInput("Co");
+    expect(r.kind === "formula" && r.note).toMatch(/lowercase \(aromatic\) atom must sit in a ring/);
   });
 
   test("pictures written by JurisLab contain no control characters", () => {

@@ -985,7 +985,8 @@ export function resolveChemInput(
       return { kind: "none", message: `${invalid} As a formula it would be ${describeFormula(f)} — type formula:${raw} for that.` };
     }
     if (invalid) {
-      note = `Read as a formula. As SMILES: ${invalid}`;
+      // A lowercase atom in no ring ("Co"): the plain reason — a suggested SMILES rewrite ("CO") would name another substance.
+      note = !aromaticAtomsCanBeInRings(raw) ? `Read as a formula. “${raw}” is not valid SMILES: a lowercase (aromatic) atom must sit in a ring.` : `Read as a formula. As SMILES: ${invalid}`;
     } else if (dup !== null && parseSmilesOnly(raw)) {
       note =
         `Read as a formula. “${raw}” is not valid SMILES: ring closure ${dup} would join two atoms that are already bonded.`;

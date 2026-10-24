@@ -3,7 +3,7 @@
 // finding; every row keeps its outcome in later rounds.
 import { DRAWING_STANDARDS, USPTO_VIEW_NUMBER_RATIO } from "../cadStandards";
 import { USPTO_REQUIRED_FONT_PT } from "../figureStyle";
-import { FONT_PT } from "../diagramCore";
+import { FONT_PT, textW } from "../diagramCore";
 import { Assembly, Body, BodySpec, box, IDENTITY_PLACEMENT, Mesh, Placement, tessellate } from "../cadModel";
 import { layoutSheet, ViewSpec } from "../cadSheet";
 import { buildTree } from "../tablediagram";
@@ -261,7 +261,11 @@ describe("6b. Schematic: labels clear of other parts' symbols", () => {
     const r = buildDiagram("schematic", "R1 resistor 0,0 0,-2 10k\nR2 resistor 1,0 1,-2 22k");
     if (!r.ok) throw new Error(r.errors.join(" "));
     const [x] = boxOf(r.svg, "R1 10k");
-    expect(x).toBeGreaterThanOrEqual(0);
+    // R2 takes R1's right side, so R1's label goes left (anchored at its end) and the content shifts right to hold it.
+    expect(r.svg).toMatch(/<text x="[\d.]+" y="[\d.]+" text-anchor="end"[^>]*>R1 10k</);
+    const shift = Number(/<g transform="translate\(([\d.]+),0\)">/.exec(r.svg)?.[1] ?? 0);
+    // The figure's own 10 pt padding is a translate too; the label's left end is inside the drawing either way.
+    expect(shift + x - textW("R1 10k")).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -280,6 +284,10 @@ describe("DXF: $INSUNITS 21, truncated entities, huge bulges", () => {
     expect(r).toEqual({ ok: false, reason: "a LINE (handle 2A) has no end point (group code 11) — the file may be cut short; save it again from the CAD program" });
     const c = readDxf(dxf([], ["0", "CIRCLE", "8", "0", "10", "3", "20", "4"]));
     expect(c.ok).toBe(false);
+  });
+  test("a file cut short inside ENTITIES (no ENDSEC) is refused by name — a cut-off ARC is never drawn as a circle", () => {
+    const cut = ["0", "SECTION", "2", "ENTITIES", ...LINE, "0", "ARC", "8", "0", "10", "0", "20", "0", "40", "5"].join(String.fromCharCode(13, 10)) + String.fromCharCode(13, 10);
+    expect(readDxf(cut)).toEqual({ ok: false, reason: "the drawing's ENTITIES section has no end (ENDSEC) — the file is cut short; save it again from the CAD program" });
   });
   test("an ARC with its 0° start angle left out is still read", () => {
     const r = readDxf(dxf([], ["0", "ARC", "8", "0", "10", "0", "20", "0", "40", "5", "51", "90"]));

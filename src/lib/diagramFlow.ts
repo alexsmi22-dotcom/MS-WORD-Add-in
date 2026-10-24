@@ -248,7 +248,9 @@ export function layoutFlow(kind: FlowKind, graph: FlowGraph, opts: DiagramOption
     // Arrows to several targets may each leave from their own point on the flat bottom, 14 pt apart either side of
     // the centre, two steps either way past an entry point (fix2-cad: see the stems below), inside the rounded corners.
     const outs = new Set(graph.edges.filter((e) => e.from === node.id && e.to !== node.id).map((e) => e.to)).size;
-    if (node.shape !== "diamond" && outs > 1) w = Math.max(w, 2 * (rx + 4 + 14 * outs));
+    // State diagrams only: their boxes are small and every transition is its own arrow. Block and flowchart boxes
+    // fan out on one shared bus (and are wide with their text), so they are not widened.
+    if (kind === "state" && node.shape === "state" && outs > 1) w = Math.max(w, 2 * (rx + 4 + 14 * outs));
     return { node, lines, x: 0, y: 0, w, h, layer: layer[i] };
   });
 

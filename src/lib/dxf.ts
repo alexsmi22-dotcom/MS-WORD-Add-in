@@ -262,6 +262,9 @@ function sections(pairs: Pair[]): Parsed | string {
       }
     } else if (name === "ENTITIES") {
       p.entities = readEnts(["ENDSEC"]);
+      // A file cut short mid-ENTITIES: its last entity may be missing any number (an ARC without its angles drew
+      // as a whole circle) — refused by name rather than drawn from what is left.
+      if (i >= pairs.length) return "the drawing's ENTITIES section has no end (ENDSEC) — the file is cut short; save it again from the CAD program";
     } else {
       while (i < pairs.length && !(pairs[i][0] === 0 && pairs[i][1] === "ENDSEC")) i++;
     }

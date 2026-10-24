@@ -24,7 +24,7 @@ import {
   formatDimension,
   dimensionFor,
 } from "../lib/sketchEdit";
-import { Snapped, decimalComma, fmt, gridLabel, gridStep, liveSize, parseTyped, placeTyped, promptFor, snapCursor, typedFields } from "../lib/sketchInput";
+import { AMBIGUOUS_COMMA, Snapped, decimalComma, fmt, gridLabel, gridStep, liveSize, parseTyped, placeTyped, promptFor, snapCursor, typedFields } from "../lib/sketchInput";
 import { measure } from "../lib/sketch";
 import { SketchView, frameSketch, sketchOps, toSketch } from "../lib/sketchRender";
 import { SketchOp, sketchBody } from "../lib/sketchDoc";
@@ -695,8 +695,11 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
 
   // Done: the sketch must make a solid.
   doneBtn.addEventListener("click", () => {
-    const op: SketchOp = opSel.value === "revolve" ? { kind: "revolve", axis: axis ?? "" } : { kind: "extrude", depth: Number(depthIn.value.replace(",", ".")) };
+    // "1,000" is refused by name (a thousand, or 1.000?) rather than read as 1.
+    const depthText = decimalComma(depthIn.value.trim());
+    const op: SketchOp = opSel.value === "revolve" ? { kind: "revolve", axis: axis ?? "" } : { kind: "extrude", depth: depthText === null ? NaN : Number(depthText) };
     if (op.kind === "revolve" && !axis) return say("Select the line to revolve about, then choose Revolve.", true);
+    if (op.kind === "extrude" && depthText === null) return say(`Depth: ${AMBIGUOUS_COMMA(depthIn.value)}.`, true);
     const r = sketchBody(st.sketch, op);
     if (!r.ok) return say(r.reason, true);
     open = false;

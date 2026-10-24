@@ -4,7 +4,7 @@
 // Why affine and not linear: a linear penalty charges the same for every gap
 // position, so it scatters many short gaps instead of opening one long one. Real
 // indels are single events of some length, which is what affine gaps model
-// (open + n*extend). Every serious aligner uses affine; a linear-gap alignment
+// (open + (n − 1)·extend, the EMBOSS convention). Every serious aligner uses affine; a linear-gap alignment
 // looks wrong to anyone who reads alignments for a living, and this is the one
 // place JurisLab must not be a toy.
 //
@@ -20,9 +20,9 @@ export type SeqKind = "protein" | "dna";
 export interface AlignOptions {
   mode?: AlignMode;
   kind?: SeqKind;
-  /** Cost to OPEN a gap (charged once, in addition to the first extend). */
+  /** Cost of a gap's FIRST position (EMBOSS gapopen); a gap of length n costs gapOpen + (n − 1)·gapExtend. */
   gapOpen?: number;
-  /** Cost per gap position. */
+  /** Cost of each further gap position (EMBOSS gapextend). */
   gapExtend?: number;
   /** Nucleotide scores; ignored for protein (BLOSUM62 is used). */
   match?: number;
@@ -221,7 +221,7 @@ function makeScorer(kind: SeqKind, match: number, mismatch: number): Scorer {
 
 /**
  * Aligns two sequences. Gotoh's algorithm: three DP layers so an affine gap
- * (open + n*extend) is charged correctly rather than per-position.
+ * (open + (n − 1)·extend) is charged correctly rather than per-position.
  *
  *   M  — column ends in a residue/residue pair
  *   Ix — column ends in a gap in B (a residue of A over '-')
@@ -288,9 +288,11 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
     for (let i = 0; i <= n; i++) M[i][0] = 0;
     for (let j = 0; j <= m; j++) M[0][j] = 0;
   } else {
-    // Global: a leading gap is a real gap and is charged.
-    for (let i = 1; i <= n; i++) Ix[i][0] = -(gapOpen + i * gapExtend);
-    for (let j = 1; j <= m; j++) Iy[0][j] = -(gapOpen + j * gapExtend);
+    // Global: END GAPS ARE FREE, as in EMBOSS needle's default (-endweight N).
+    // They used to be charged open + n·extend, so needle's own textbook pair
+    // scored differently here than in the tool the caveat named.
+    for (let i = 1; i <= n; i++) Ix[i][0] = 0;
+    for (let j = 1; j <= m; j++) Iy[0][j] = 0;
   }
 
   let best = local ? 0 : NEG;
@@ -314,13 +316,16 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
       M[i][j] = mv;
       tM[i][j] = mt;
 
-      // Ix: gap in B. Open from M, or extend an existing Ix.
-      const oX = M[i - 1][j] - (gapOpen + gapExtend);
+      // Ix: gap in B. Open from M, or extend an existing Ix. EMBOSS charges a
+      // gap of length n as open + (n − 1)·extend: the FIRST position costs the
+      // open penalty alone. (It was open + n·extend here — every gap 0.5 dearer
+      // than in the tool the caveat named.)
+      const oX = M[i - 1][j] - gapOpen;
       const eX = Ix[i - 1][j] - gapExtend;
       if (oX >= eX) { Ix[i][j] = oX; tIx[i][j] = 0; } else { Ix[i][j] = eX; tIx[i][j] = 1; }
 
       // Iy: gap in A.
-      const oY = M[i][j - 1] - (gapOpen + gapExtend);
+      const oY = M[i][j - 1] - gapOpen;
       const eY = Iy[i][j - 1] - gapExtend;
       if (oY >= eY) { Iy[i][j] = oY; tIy[i][j] = 0; } else { Iy[i][j] = eY; tIy[i][j] = 2; }
 
@@ -328,17 +333,29 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
     }
   }
 
+  // Global with free end gaps: the alignment proper may end at any cell of the
+  // last row or column (in M), the rest of the longer sequence trailing as an
+  // uncharged end gap. An all-gap alignment scores 0 and is the fallback.
+  let allGap = false;
   if (!local) {
-    // Global: the alignment must reach the far corner, in whichever layer is best.
-    best = M[n][m];
-    bi = n; bj = m; bLayer = 0;
-    if (Ix[n][m] > best) { best = Ix[n][m]; bLayer = 1; }
-    if (Iy[n][m] > best) { best = Iy[n][m]; bLayer = 2; }
+    best = NEG;
+    for (let ii = 1; ii <= n; ii++) if (M[ii][m] > best) { best = M[ii][m]; bi = ii; bj = m; }
+    for (let jj = 1; jj <= m; jj++) if (M[n][jj] > best) { best = M[n][jj]; bi = n; bj = jj; }
+    bLayer = 0;
+    if (best < 0) { best = 0; allGap = true; }
   }
 
   // --- traceback ----------------------------------------------------------
   const outA: string[] = [];
   const outB: string[] = [];
+  if (!local) {
+    // Trailing end gaps first (the output is built backwards).
+    const ei = allGap ? 0 : bi;
+    const ej = allGap ? 0 : bj;
+    for (let k = m - 1; k >= ej; k--) { outA.push("-"); outB.push(b[k]); }
+    for (let k = n - 1; k >= ei; k--) { outA.push(a[k]); outB.push("-"); }
+    if (allGap) { bi = 0; bj = 0; }
+  }
   let i = bi;
   let j = bj;
   let layer = bLayer;
@@ -417,10 +434,13 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
   );
   caveats.push(
     kind === "protein"
-      ? `BLOSUM62 with gap open ${gapOpen} / extend ${gapExtend} (EMBOSS needle/water defaults). ` +
+      ? `BLOSUM62 with gap open ${gapOpen} / extend ${gapExtend} (EMBOSS needle/water defaults: a gap of length n costs ` +
+        `open + (n − 1)·extend${mode === "global" ? ", and end gaps are free as in needle's default" : ""}). ` +
         "BLOSUM62 is tuned for distant homologues (~62% identity clustering); a different " +
         "matrix will give a different alignment, and neither is 'the' answer."
-      : `Match ${opts.match ?? 5} / mismatch ${opts.mismatch ?? -4}, gap open ${gapOpen} / extend ${gapExtend}. ` +
+      : `Match ${String(opts.match ?? 5).replace(/^-/, "−")} / mismatch ${String(opts.mismatch ?? -4).replace(/^-/, "−")}, ` +
+        `gap open ${gapOpen} / extend ${gapExtend} (a gap of length n costs open + (n − 1)·extend` +
+        `${mode === "global" ? "; end gaps are free, as in EMBOSS needle's default" : ""}). ` +
         "N scores 0 against anything, and U is treated as T."
   );
   caveats.push(

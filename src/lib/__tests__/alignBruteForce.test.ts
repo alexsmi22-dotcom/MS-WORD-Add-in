@@ -15,8 +15,23 @@ import { align, blosum62 } from "../align";
 const GAP_OPEN = 10;
 const GAP_EXTEND = 0.5;
 
-/** Score a candidate alignment from first principles. Deliberately naive. */
-function scoreAlignment(a: string, b: string, kind: "protein" | "dna"): number {
+/**
+ * Score a candidate alignment from first principles. Deliberately naive.
+ *
+ * EMBOSS needle/water convention (v2.193): a gap of length n costs
+ * GAP_OPEN + (n − 1)·GAP_EXTEND; with `endFree` (global mode, needle's default
+ * -endweight N) a gap before a row's first residue or after its last is free.
+ * The previous scorer charged open + n·extend and every end gap — the same
+ * wrong convention as the aligner, so both agreed and both differed from EMBOSS.
+ */
+function scoreAlignment(a: string, b: string, kind: "protein" | "dna", endFree = false): number {
+  const first = (row: string): number => row.search(/[^-]/);
+  const last = (row: string): number => {
+    let k = row.length - 1;
+    while (k >= 0 && row[k] === "-") k--;
+    return k;
+  };
+  const isEnd = (row: string, i: number): boolean => endFree && (i < first(row) || i > last(row));
   let s = 0;
   let prev: "" | "gapA" | "gapB" | "match" = "";
   for (let i = 0; i < a.length; i++) {
@@ -24,10 +39,10 @@ function scoreAlignment(a: string, b: string, kind: "protein" | "dna"): number {
     const y = b[i];
     if (x === "-" && y === "-") return -Infinity; // meaningless column
     if (x === "-") {
-      s -= prev === "gapA" ? GAP_EXTEND : GAP_OPEN + GAP_EXTEND;
+      if (!isEnd(a, i)) s -= prev === "gapA" ? GAP_EXTEND : GAP_OPEN;
       prev = "gapA";
     } else if (y === "-") {
-      s -= prev === "gapB" ? GAP_EXTEND : GAP_OPEN + GAP_EXTEND;
+      if (!isEnd(b, i)) s -= prev === "gapB" ? GAP_EXTEND : GAP_OPEN;
       prev = "gapB";
     } else {
       s += kind === "protein" ? blosum62(x, y) : x === y ? 5 : -4;
@@ -48,10 +63,10 @@ function* allGlobal(a: string, b: string, ai = 0, bi = 0, accA = "", accB = ""):
   if (bi < b.length) yield* allGlobal(a, b, ai, bi + 1, accA + "-", accB + b[bi]);
 }
 
-function bruteForceGlobal(a: string, b: string, kind: "protein" | "dna"): number {
+function bruteForceGlobal(a: string, b: string, kind: "protein" | "dna", endFree = true): number {
   let best = -Infinity;
   for (const [x, y] of allGlobal(a, b)) {
-    const s = scoreAlignment(x, y, kind);
+    const s = scoreAlignment(x, y, kind, endFree);
     if (s > best) best = s;
   }
   return Math.round(best * 10) / 10;
@@ -64,7 +79,7 @@ function bruteForceLocal(a: string, b: string, kind: "protein" | "dna"): number 
     for (let j = i + 1; j <= a.length; j++) {
       for (let k = 0; k < b.length; k++) {
         for (let l = k + 1; l <= b.length; l++) {
-          const s = bruteForceGlobal(a.slice(i, j), b.slice(k, l), kind);
+          const s = bruteForceGlobal(a.slice(i, j), b.slice(k, l), kind, false);
           if (s > best) best = s;
         }
       }

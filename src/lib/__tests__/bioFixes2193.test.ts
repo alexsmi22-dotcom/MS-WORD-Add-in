@@ -10,6 +10,7 @@ import { featureLength, parseGenBank, parseLocation, type SeqRecord } from "../s
 import { parseSnapGeneDna } from "../seqdna";
 import { buildCircularMapSvg } from "../seqmapcirc";
 import { ENZYMES, findSites, formatSite, type Enzyme } from "../enzymes";
+import { align } from "../align";
 
 const META: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", applicantFileReference: "R1", productionDate: "2026-10-24" };
 
@@ -381,5 +382,45 @@ describe("6. restriction enzymes", () => {
     expect(h[0].cutPosition).toBeNull();
     // One base more and both strands are cut.
     expect(findSites(seq + "A", { only: ["Sau3AI"] })[0].cutPosition).toBe(796);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Alignment scores are EMBOSS needle/water's.
+// ---------------------------------------------------------------------------
+//   from Bio import Align; from Bio.Align import substitution_matrices
+//   a = Align.PairwiseAligner(); a.substitution_matrix = substitution_matrices.load("BLOSUM62")
+//   a.open_gap_score = -10; a.extend_gap_score = -0.5
+//   global: a.mode = "global"; a.end_gap_score = 0  |  local: a.mode = "local"
+//   (DNA: a.match_score = 5; a.mismatch_score = -4 instead of the matrix)
+describe("8. EMBOSS-equivalent alignment scores", () => {
+  test.each([
+    ["HEAGAWGHEE", "PAWHEAE", "protein", 15.0, 18.0],
+    ["MKTAYIAKQRQISFVKSHFSRQ", "MKTAYIAKQISFVKSHFSRQLEERLGLIEVQ", "protein", 88.5, 88.5],
+    ["ACGTACGTTTGACCA", "ACGTACGACCA", "dna", 43.5, 43.5],
+    ["GATTACAGATTACA", "TTACAGAT", "dna", 40.0, 40.0],
+  ])("%s vs %s (%s): global %p, local %p", (a, b, kind, g, l) => {
+    const k = kind as "protein" | "dna";
+    expect(align(a as string, b as string, { mode: "global", kind: k })!.score).toBe(g);
+    expect(align(a as string, b as string, { mode: "local", kind: k })!.score).toBe(l);
+  });
+  test("global end gaps are free and shown: GATTACAGATTACA / TTACAGAT", () => {
+    const r = align("GATTACAGATTACA", "TTACAGAT", { mode: "global", kind: "dna" })!;
+    expect(r.a.replace(/-/g, "")).toBe("GATTACAGATTACA");
+    expect(r.b.replace(/-/g, "")).toBe("TTACAGAT");
+    expect(r.b).toMatch(/^--/);
+    expect(r.b).toMatch(/-$/);
+  });
+  test("the caveat states the convention, with a true minus", () => {
+    const c = align("ACGT", "ACGT", { kind: "dna" })!.caveats.join(" ");
+    expect(c).toMatch(/mismatch −4/);
+    expect(c).toMatch(/open \+ \(n − 1\)·extend/);
+    expect(c).toMatch(/end gaps are free/);
+  });
+  test("two unrelated residues align with an all-gap global score of 0, not a −4 mismatch", () => {
+    const r = align("W", "P", { mode: "global", kind: "protein" })!;
+    expect(r.score).toBe(0);
+    expect(r.a.replace(/-/g, "")).toBe("W");
+    expect(r.b.replace(/-/g, "")).toBe("P");
   });
 });

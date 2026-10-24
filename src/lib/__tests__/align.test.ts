@@ -90,9 +90,19 @@ describe("BLOSUM62 is the real matrix, not an approximation of one", () => {
 
 // ---------------------------------------------------------------------------
 
-/** Re-derives an alignment's score from its own columns, independently of the DP. */
+/**
+ * Re-derives an alignment's score from its own columns, independently of the DP,
+ * under the EMBOSS needle/water convention (v2.193): a gap of length n costs
+ * open + (n − 1)·extend, and in GLOBAL mode end gaps (gaps before a sequence's
+ * first residue or after its last) are free (needle -endweight N). Verified
+ * against Biopython PairwiseAligner(open_gap_score=−10, extend_gap_score=−0.5,
+ * end_gap_score=0): HEAGAWGHEE/PAWHEAE BLOSUM62 global 15.0, local 18.0.
+ */
 function rescore(r: ReturnType<typeof align>, gapOpen = 10, gapExtend = 0.5): number {
   if (!r) throw new Error("no alignment");
+  const firstRes = (row: string): number => row.search(/[^-]/);
+  const lastRes = (row: string): number => row.length - 1 - row.split("").reverse().join("").search(/[^-]/);
+  const endGap = (row: string, k: number): boolean => r.mode === "global" && (k < firstRes(row) || k > lastRes(row));
   let s = 0;
   let inGapA = false;
   let inGapB = false;
@@ -100,11 +110,11 @@ function rescore(r: ReturnType<typeof align>, gapOpen = 10, gapExtend = 0.5): nu
     const x = r.a[k];
     const y = r.b[k];
     if (x === "-") {
-      s -= inGapA ? gapExtend : gapOpen + gapExtend;
+      if (!endGap(r.a, k)) s -= inGapA ? gapExtend : gapOpen;
       inGapA = true;
       inGapB = false;
     } else if (y === "-") {
-      s -= inGapB ? gapExtend : gapOpen + gapExtend;
+      if (!endGap(r.b, k)) s -= inGapB ? gapExtend : gapOpen;
       inGapB = true;
       inGapA = false;
     } else {
@@ -299,7 +309,7 @@ describe("caveats state what the numbers do not", () => {
 
   test("every alignment names its scoring parameters", () => {
     expect(align("MKTA", "MKTA", { kind: "protein" })!.caveats.join(" ")).toMatch(/BLOSUM62/);
-    expect(align("ATGC", "ATGC", { kind: "dna" })!.caveats.join(" ")).toMatch(/Match 5 \/ mismatch -4/);
+    expect(align("ATGC", "ATGC", { kind: "dna" })!.caveats.join(" ")).toMatch(/Match 5 \/ mismatch −4/);
   });
 });
 

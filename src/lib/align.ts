@@ -56,7 +56,17 @@ export interface AlignResult {
   mode: AlignMode;
   kind: SeqKind;
   caveats: string[];
+  /**
+   * Set when there is no alignment to show: a local alignment where no segment
+   * scores above zero. Its statistics are all zero and mean nothing — show this
+   * sentence instead of "Length 0".
+   */
+  noAlignment?: string;
 }
+
+/** What a local alignment with no positive-scoring segment reports. */
+export const NO_LOCAL_ALIGNMENT =
+  "No local alignment scores above zero: no stretch of these two sequences matches well enough, under these scores, to beat an empty alignment.";
 
 // ---------------------------------------------------------------------------
 // BLOSUM62
@@ -424,6 +434,8 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
   // The multi-record warning goes FIRST: it says the input was not what the
   // user thought, which changes how every number below it should be read.
   const caveats: string[] = [...preCaveats];
+  const noAlignment = local && length === 0 ? NO_LOCAL_ALIGNMENT : undefined;
+  if (noAlignment) caveats.unshift(noAlignment);
   caveats.push(
     mode === "global"
       ? "Global (Needleman-Wunsch): forces an end-to-end alignment. If the two sequences " +
@@ -475,6 +487,7 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
     mode,
     kind,
     caveats,
+    ...(noAlignment ? { noAlignment } : {}),
   };
 }
 
@@ -485,6 +498,7 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
 export function formatAlignment(r: AlignResult, width = 60, nameA = "Seq_A", nameB = "Seq_B"): string {
   const w = Math.max(String(r.aEnd).length, String(r.bEnd).length);
   const label = Math.max(nameA.length, nameB.length);
+  if (r.noAlignment || !r.length) return r.noAlignment ?? "";
   const out: string[] = [];
   let posA = r.aStart;
   let posB = r.bStart;

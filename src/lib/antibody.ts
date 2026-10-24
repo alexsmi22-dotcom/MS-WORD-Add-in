@@ -175,6 +175,7 @@ function jMotif(tail: string, heavy: boolean): number {
 function findAnchors(seq: string): { a: Anchors | null; why: string } {
   let best: { a: Anchors; score: number } | null = null;
   let why = "No first cysteine with a framework-2 tryptophan after it — this does not read as an antibody variable domain.";
+  let endsInFr3 = false;
   for (let c1 = 0; c1 < seq.length && c1 < 60; c1++) {
     if (seq[c1] !== "C") continue;
     for (const heavy of [true, false]) {
@@ -194,7 +195,11 @@ function findAnchors(seq: string): { a: Anchors | null; why: string } {
             if (seq[k] === "C" && /[YFH]/.test(seq[k - 2] ?? "") && /[YFHC]/.test(seq[k - 1] ?? "")) c2 = k;
           }
         }
-        if (c2 < 0) continue;
+        if (c2 < 0) {
+          // The search window ran past the end: the domain is cut off inside framework 3, not "not an antibody".
+          if (want + 12 >= seq.length) endsInFr3 = true;
+          continue;
+        }
         // J motif: heavy W-G-x-G after CDR3 (Kabat H3 starts at Cys2+3; H3s run past 50 residues in cattle and some
         // human antibodies), light F-G-x-G (L3 starts at Cys2+1).
         const tail = seq.slice(c2 + (heavy ? 4 : 5), c2 + (heavy ? 90 : 22));
@@ -213,6 +218,14 @@ function findAnchors(seq: string): { a: Anchors | null; why: string } {
       }
     }
   }
+  // A framework-2 tryptophan whose second cysteine would lie past the end of the sequence: say THAT. A truncated VH
+  // used to get "does not read as an antibody variable domain", or — when a stray C sat where a light chain's
+  // cysteine would — a light-chain "no framework 4" message about a chain it is not.
+  if (endsInFr3) {
+    why =
+      "The sequence ends inside framework 3: there is a framework-2 tryptophan but no second cysteine (Kabat H92 / L88) " +
+      "before the end. Paste the whole variable domain.";
+  }
   if (best) why = "";
   return { a: best?.a ?? null, why };
 }
@@ -228,7 +241,7 @@ export function numberChain(text: string): ChainResult | ChainError {
   const notes: string[] = [];
   const H = a.chain === "H";
   const lambda = a.chain === "L";
-  // Some light V genes (λ IGLV6) carry two extra framework-3 residues, Kabat L65A–B / IMGT 81–82: seen by where the
+  // Some light V genes (λ IGLV6) carry two extra framework-3 residues, Kabat L66A–B / Chothia L68A–B / IMGT 81–82: seen by where the
   // conserved R61-F62-S/T-G sits before the cysteine (26 residues before it as a rule, 28 here).
   const fr3Extra = !H && !(seq[a.cys2 - 26] === "F" && seq[a.cys2 - 27] === "R") && seq[a.cys2 - 28] === "F" && seq[a.cys2 - 29] === "R" && /^[ST]G/.test(seq.slice(a.cys2 - 27, a.cys2 - 25)) ? 2 : 0;
 
@@ -283,7 +296,7 @@ export function numberChain(text: string): ChainResult | ChainError {
     push(cho, kab.slice(cho.length));
   } else {
     const l1 = a.trp - (a.cys1 + 1);
-    const l2End = a.cys2 - 31 - fr3Extra; // exclusive: FR3 is L57–L88, 32 residues ending at the cysteine (+ L65A–B)
+    const l2End = a.cys2 - 31 - fr3Extra; // exclusive: FR3 is L57–L88, 32 residues ending at the cysteine (+ the two IGLV6 insertions)
     const l2 = l2End - (a.trp + 15);
     const l3 = a.j - (a.cys2 + 1);
     const kL1 = linear(l1, range(24, 34), 27, [28, 29, 30, 31, 32]);
@@ -294,18 +307,21 @@ export function numberChain(text: string): ChainResult | ChainError {
     // Natural L2s are seven residues and L1s at least ten: shorter ones have no agreed gap position.
     if (l2 !== 7) notes.push(`CDR-L2 has ${l2} residues (natural ones have 7): where Kabat and Chothia put its ${l2 < 7 ? "gaps" : "insertions"} is a convention, and other tools may differ.`);
     if (l1 < 10) notes.push(`CDR-L1 has ${l1} residues (natural ones have 10–17): where its gaps go is a convention, and other tools may differ.`);
-    const tail = (arr: string[], l1Labels: string[]) => {
+    // The two extra IGLV6 framework-3 residues sit at a scheme-specific place: ANARCI 2026.2.13.2 numbers
+    // IGLV6-57 …GSIDSSSNSA… as Kabat 66 I, 66A D, 66B S, 67 S and Chothia 67 D, 68 S, 68A S, 68B S, 69 N.
+    const fr3With = (at: number) => [...range(57, at).map(String), ...[`${at}A`, `${at}B`].slice(0, fr3Extra), ...range(at + 1, 88).map(String)];
+    const tail = (arr: string[], l1Labels: string[], fr3: string[]) => {
       push(arr, fr1Labels);
       push(arr, ["23"]);
       push(arr, l1Labels);
       push(arr, range(35, 49).map(String));
       push(arr, kL2);
-      push(arr, [...range(57, 65).map(String), ...["65A", "65B"].slice(0, fr3Extra), ...range(66, 88).map(String)]);
+      push(arr, fr3);
       push(arr, kL3);
       push(arr, range(98, 98 + fr4Len - 1).map(String));
     };
-    tail(kab, kL1);
-    tail(cho, cL1);
+    tail(kab, kL1, fr3With(66));
+    tail(cho, cL1, fr3With(68));
   }
 
   // ---- IMGT ----

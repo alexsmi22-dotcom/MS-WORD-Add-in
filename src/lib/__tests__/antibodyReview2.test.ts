@@ -1,5 +1,5 @@
 // Round 2 of the Antibody review, pinned: a J motif inside CDR3 when framework 4 is cut short, 60-residue H3s, the
-// IGLV6 framework-3 insertion (checked against AntPack: Kabat L65A–B, IMGT 81–82, L2 EDNQRPS), name forms that pair,
+// IGLV6 framework-3 insertion (Kabat L66A–B per ANARCI since fix round 2; IMGT 81–82, L2 EDNQRPS), name forms that pair,
 // distinct antibody names, the light-chain refusal wording, mislabelled chains and the VHH hallmark rule.
 import * as fs from "fs";
 import * as path from "path";
@@ -40,15 +40,17 @@ describe("CDR3 with an internal J motif and a short framework 4", () => {
   });
 });
 
-describe("IGLV6: two extra framework-3 residues (AntPack: Kabat L65A–B, IMGT 81–82)", () => {
+// Fix round 2 (bio2Fixes.test.ts §8): the Kabat insertion follows ANARCI 2026.2.13.2 — 66A/66B (Chothia 68A/68B) —
+// where AntPack, cited here first, puts it at 65A/65B. The two tools disagree; the task directs ANARCI.
+describe("IGLV6: two extra framework-3 residues (ANARCI: Kabat L66A–B, IMGT 81–82)", () => {
   const V6 = "NFMLTQPHSVSESPGKTVTISCTRSSGSIASNYVQWYQQRPGSSPTTVIYEDNQRPSGVPDRFSGSIDSSSNSASLTISGLKTEDEADYYCQSYDSSNVVFGGGTKLTVL";
-  test("CDR-L2 is EDNQRPS (Kabat) and EDN (IMGT); the insertions are 65A, 65B and IMGT 81, 82", () => {
+  test("CDR-L2 is EDNQRPS (Kabat) and EDN (IMGT); the insertions are 66A, 66B and IMGT 81, 82", () => {
     const r = ok(V6);
     expect(r.chain).toBe("L");
     expect(r.cdrs.kabat.cdr2.seq).toBe("EDNQRPS");
     expect(r.cdrs.imgt.cdr2.seq).toBe("EDN");
     const k = r.numbering.kabat, i = r.numbering.imgt;
-    expect(r.domain[k.indexOf("65A")] + r.domain[k.indexOf("65B")]).toBe("ID");
+    expect(r.domain[k.indexOf("66A")] + r.domain[k.indexOf("66B")]).toBe("DS");
     expect(r.domain[i.indexOf("80")] + r.domain[i.indexOf("81")] + r.domain[i.indexOf("82")]).toBe("IDS");
     expect(r.notes.join(" ")).not.toMatch(/CDR-L2 has/);
   });

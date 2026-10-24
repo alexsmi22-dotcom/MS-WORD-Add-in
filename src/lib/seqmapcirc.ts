@@ -53,7 +53,13 @@ function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-const textWidth = (s: string, px: number): number => s.length * px * 0.55;
+const FONT = "Arial, Helvetica, sans-serif";
+/**
+ * Approximate text width, with the figure-layout audit's advance width
+ * (scripts/figure-layout-audit.js ADVANCE = 0.58 em): measured the same way the
+ * gate measures, so a canvas sized by this holds what the gate checks.
+ */
+const textWidth = (s: string, px: number): number => s.length * px * 0.58;
 
 // Tick positions and labels: seqmap.ts bpAxisTicks (one axis.ts row).
 
@@ -187,7 +193,9 @@ function placeLabels(
   cy: number,
   rRing: number,
   rLabel: number,
-  fontPx: number
+  fontPx: number,
+  yMin: number,
+  yMax: number
 ): Label[] {
   const labels: Label[] = [];
   const lineH = fontPx + 3;
@@ -200,28 +208,35 @@ function placeLabels(
     ["right", right],
     ["left", left],
   ] as ["right" | "left", typeof items][]) {
-    let lastY = -Infinity;
-    for (const it of list) {
+    // Push each label down until it clears the one before it on this side…
+    const ys: number[] = [];
+    for (const it of list) ys.push(Math.max(polar(cx, cy, rLabel, it.angle).y, (ys.length ? ys[ys.length - 1] : -Infinity) + lineH));
+    // …then, if the stack ran off the bottom of the canvas, pull it back up from
+    // the bottom (a crowded lower half used to push labels past the edge), and
+    // re-clear from the top. Whatever still overflows makes the canvas taller.
+    for (let i = ys.length - 1; i >= 0; i--) ys[i] = Math.min(ys[i], i === ys.length - 1 ? yMax : ys[i + 1] - lineH);
+    for (let i = 0; i < ys.length; i++) ys[i] = Math.max(ys[i], i === 0 ? yMin : ys[i - 1] + lineH);
+    list.forEach((it, i) => {
       const anchorPt = polar(cx, cy, rRing, it.angle);
-      const want = polar(cx, cy, rLabel, it.angle);
-      // Push down until this label clears the one before it on this side.
-      const y = Math.max(want.y, lastY + lineH);
-      lastY = y;
       const x = side === "right" ? cx + rLabel * 0.72 : cx - rLabel * 0.72;
       labels.push({
         text: it.text,
         angle: it.angle,
         x,
-        y,
+        y: ys[i],
         anchor: side === "right" ? "start" : "end",
         fromX: anchorPt.x,
         fromY: anchorPt.y,
         color: it.color,
       });
-    }
+    });
   }
   return labels;
 }
+
+/** Longest label drawn in full; a longer feature name is cut with an ellipsis (the whole name stays in the record). */
+const MAX_LABEL_CHARS = 32;
+const fitLabel = (s: string): string => (s.length > MAX_LABEL_CHARS ? `${s.slice(0, MAX_LABEL_CHARS - 1).trimEnd()}…` : s);
 
 /**
  * Draws a circular plasmid map. Returns null when there is nothing to draw.
@@ -248,9 +263,8 @@ export function buildCircularMapSvg(record: SeqRecord, opts: CircularMapOptions 
   const ringW = 11;
   const ringGap = 2;
 
+  // The SVG header and background are added last: the canvas grows to fit the labels.
   const out: string[] = [];
-  out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">`);
-  out.push(`<rect width="${S}" height="${S}" fill="#fff"/>`);
 
   // Backbone.
   const bb = mono ? "#000" : "#334155";
@@ -272,7 +286,7 @@ export function buildCircularMapSvg(record: SeqRecord, opts: CircularMapOptions 
     );
     const t = polar(cx, cy, rRing + 12, a);
     out.push(
-      `<text x="${t.x.toFixed(1)}" y="${t.y.toFixed(1)}" font-family="sans-serif" font-size="7.5" fill="${tickC}" text-anchor="middle" dominant-baseline="middle">${label}</text>`
+      `<text x="${t.x.toFixed(1)}" y="${t.y.toFixed(1)}" font-family="${FONT}" font-size="7.5" fill="${tickC}" text-anchor="middle" dominant-baseline="middle">${label}</text>`
     );
   }
 
@@ -291,37 +305,63 @@ export function buildCircularMapSvg(record: SeqRecord, opts: CircularMapOptions 
   // Labels with leader lines.
   const fontPx = 9;
   const items = placed.map((p) => ({
-    text: p.f.name,
+    text: fitLabel(p.f.name),
     angle: (p.a0 + p.a1) / 2,
     color: mono ? "#1b1b1f" : TYPE_COLOR[p.f.type] ?? DEFAULT_COLOR,
   }));
-  for (const l of placeLabels(items, cx, cy, rRing - 2, rLabel, fontPx)) {
+  // Canvas extent: starts as the S×S square and grows to hold every label in full
+  // (they used to run off the left/right edge, and a crowded lower half pushed
+  // labels below the bottom).
+  const pad = 6;
+  let x0 = 0, x1 = S, y1 = S;
+  const labelsPlaced = placeLabels(items, cx, cy, rRing - 2, rLabel, fontPx, fontPx + pad, S - pad - 3);
+  for (const l of labelsPlaced) {
+    const w = textWidth(l.text, fontPx);
+    if (l.anchor === "start") x1 = Math.max(x1, l.x + w + pad);
+    else x0 = Math.min(x0, l.x - w - pad);
+    y1 = Math.max(y1, l.y + 3 + pad);
+  }
+  // Widened symmetrically, so the ring stays centred.
+  const ext = Math.ceil(Math.max(-x0, x1 - S));
+  x0 = -ext;
+  x1 = S + ext;
+  y1 = Math.ceil(y1);
+  for (const l of labelsPlaced) {
     const leader = mono ? "#000" : "#cbd5e1";
     out.push(
       `<line x1="${l.fromX.toFixed(1)}" y1="${l.fromY.toFixed(1)}" x2="${l.x.toFixed(1)}" y2="${l.y.toFixed(1)}" stroke="${leader}" stroke-width="0.6"/>`
     );
     out.push(
-      `<text x="${l.x.toFixed(1)}" y="${(l.y + 3).toFixed(1)}" font-family="sans-serif" font-size="${fontPx}" fill="${l.color}" text-anchor="${l.anchor}">${escapeXml(l.text)}</text>`
+      `<text x="${l.x.toFixed(1)}" y="${(l.y + 3).toFixed(1)}" font-family="${FONT}" font-size="${fontPx}" fill="${l.color}" text-anchor="${l.anchor}">${escapeXml(l.text)}</text>`
     );
   }
 
   // Centre caption: the name and size, as every plasmid map has.
   const title = opts.title ?? record.name;
   out.push(
-    `<text x="${cx}" y="${cy - 4}" font-family="sans-serif" font-size="13" font-weight="600" fill="#1b1b1f" text-anchor="middle">${escapeXml(title)}</text>`
+    `<text x="${cx}" y="${cy - 4}" font-family="${FONT}" font-size="13" font-weight="600" fill="#1b1b1f" text-anchor="middle">${escapeXml(title)}</text>`
   );
   out.push(
-    `<text x="${cx}" y="${cy + 12}" font-family="sans-serif" font-size="10" fill="${mono ? "#000" : "#64748b"}" text-anchor="middle">${bpEndLabel(record.length)} bp</text>`
+    `<text x="${cx}" y="${cy + 12}" font-family="${FONT}" font-size="10" fill="${mono ? "#000" : "#64748b"}" text-anchor="middle">${bpEndLabel(record.length)} bp</text>`
   );
 
   // If features ran out of rings, say so rather than silently omitting them.
   const dropped = placed.filter((p) => rRing - 3 - p.ring * (ringW + ringGap) - ringW < 20).length;
   if (dropped) {
     out.push(
-      `<text x="${cx}" y="${S - 4}" font-family="sans-serif" font-size="8" fill="#8a5a00" text-anchor="middle">${dropped} feature${dropped === 1 ? "" : "s"} could not be placed — filter by type to see them.</text>`
+      `<text x="${cx}" y="${y1 - 4}" font-family="${FONT}" font-size="8" fill="#8a5a00" text-anchor="middle">${dropped} feature${dropped === 1 ? "" : "s"} could not be placed — filter by type to see them.</text>`
     );
   }
 
   out.push("</svg>");
-  return out.join("");
+  // The viewBox keeps its origin at 0 (every insert/render path reads plain width/height); the drawing is shifted
+  // right by the extra left margin instead.
+  const W = x1 - x0;
+  out.pop(); // "</svg>", re-added after the group closes
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${y1}" viewBox="0 0 ${W} ${y1}">` +
+    `<rect width="${W}" height="${y1}" fill="#fff"/>` +
+    (ext ? `<g transform="translate(${ext},0)">${out.join("")}</g>` : out.join("")) +
+    "</svg>"
+  );
 }

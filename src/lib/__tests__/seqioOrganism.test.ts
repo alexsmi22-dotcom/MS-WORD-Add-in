@@ -101,7 +101,7 @@ describe("GenBank organism — defect 0.3", () => {
     // nothing to read and this XML said "synthetic construct".
     const rec = first(HUMAN);
     const xml = buildSt26Xml(
-      { applicantName: "A", inventionTitle: "T", productionDate: "2026-08-05" },
+      { applicantName: "A", inventionTitle: "T", applicantFileReference: "R1", productionDate: "2026-08-05" },
       [{ moltype: "DNA", residues: rec.sequence, organism: rec.organism ?? "" }],
     );
     expect(xml).toContain("<INSDQualifier_value>Homo sapiens</INSDQualifier_value>");

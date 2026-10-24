@@ -18,7 +18,7 @@ import {
   SequenceEntry,
 } from "../sequence";
 
-const META = { applicantName: "A", inventionTitle: "T", productionDate: "2026-08-05" };
+const META = { applicantName: "A", inventionTitle: "T", applicantFileReference: "R1", productionDate: "2026-08-05" };
 const build = (entries: SequenceEntry[]) => buildSt26Xml(META, entries);
 
 // 61 bases. With /codon_start=2 the codable region is 60 — a valid 20-codon frame.
@@ -70,9 +70,11 @@ describe("featureWarnings honours /codon_start — defect 0.31", () => {
     expect(featureWarnings(sixty)).toEqual([]);
   });
 
-  test("a nonsense /codon_start falls back to frame 1, as translateCds does", () => {
+  // Fix round 2: a nonsense /codon_start no longer falls back to frame 1 (it sat in the XML beside a frame-1
+  // translation); the warning names the qualifier, and no frame/length claim is made on an unknown frame.
+  test("a nonsense /codon_start is named, and no /translation is generated", () => {
     expect(featureWarnings(entry([{ name: "codon_start", value: "banana" }])))
-      .toEqual([expect.stringContaining("not a multiple of 3")]);
+      .toEqual([expect.stringContaining("no /translation was generated — /codon_start “banana” is not 1, 2 or 3")]);
   });
 
   test("a region too short to hold a codon says so", () => {
@@ -135,7 +137,8 @@ describe("ST.26 minimum length — defect 0.31", () => {
     const mostlyN: SequenceEntry = { moltype: "DNA", residues: "acgtnnnnnnnn" };
     expect(st26Exclusions([mostlyN]).length).toBe(1);
     expect(st26Exclusions([mostlyN])[0].reason).toMatch(/specifically defined/);
-    expect(build([mostlyN])).toContain("<SequenceTotalQuantity>0</SequenceTotalQuantity>");
+    // Fix round 2: a listing left with no sequences is refused by name (the DTD needs SequenceData+).
+    expect(() => build([mostlyN])).toThrow(/every sequence is below the ST\.26 minimum/);
   });
 
   test("an amino-acid sequence needs 4, not 10", () => {

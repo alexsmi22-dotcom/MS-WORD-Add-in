@@ -21,7 +21,7 @@ import {
 import { buildOrfTableHtml, findOrfs, orfSearchCaption, resolveCodon, translate, translateReport } from "../dna";
 import { buildSt26Xml, featureNotes, featureWarnings, translateCds, type SequenceEntry } from "../sequence";
 
-const META = { applicantName: "Test Applicant", inventionTitle: "Test Invention", productionDate: "2026-10-14" };
+const META = { applicantName: "Test Applicant", inventionTitle: "Test Invention", applicantFileReference: "R1", productionDate: "2026-10-14" };
 
 function cdsEntry(residues: string, quals: Array<[string, string]>, location = `1..${residues.length}`): SequenceEntry {
   return {

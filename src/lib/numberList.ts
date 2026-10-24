@@ -155,7 +155,10 @@ export function fieldNumber(text: string, strip?: RegExp): number {
  */
 export function trueMinus<T>(line: T): T {
   if (typeof line !== "string") return line;
-  return line.replace(/(^|[\s(=,;:[/×])-(?=\.?\d)/g, "$1−") as unknown as T;
+  // After a range dash too ("0–-5" is zero to minus five → "0–−5"), and inside
+  // the curly quotes a refusal echoes typed input in ("“-5” is not …"). Not
+  // after a straight " — that is SVG/HTML attribute syntax (dy="-5").
+  return line.replace(/(^|[\s(=,;:[/×–—−“])-(?=\.?\d)/g, "$1−") as unknown as T;
 }
 
 /**

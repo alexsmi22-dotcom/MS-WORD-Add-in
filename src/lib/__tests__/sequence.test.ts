@@ -41,7 +41,7 @@ describe("buildSt26Xml — XML safety", () => {
   it("strips XML-illegal control characters from free-text fields", () => {
     const bell = String.fromCharCode(7); // U+0007, illegal in XML 1.0
     const xml = buildSt26Xml(
-      { applicantName: "Acme Corp", inventionTitle: "Wid" + bell + "get", productionDate: "2026-06-17" },
+      { applicantName: "Acme Corp", inventionTitle: "Wid" + bell + "get", applicantFileReference: "R1", productionDate: "2026-06-17" },
       [{ moltype: "DNA", residues: "acgtacgtac" }],
     );
     expect(xml).toContain("Widget");
@@ -97,7 +97,7 @@ describe("buildSt26Xml", () => {
   });
 
   it("uses a chosen ST.26 mol_type (mRNA) and rejects an invalid one", () => {
-    const m: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", productionDate: "2026-06-17" };
+    const m: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", applicantFileReference: "R1", productionDate: "2026-06-17" };
     // A naturally occurring organism: mRNA is kept. (With a blank organism —
     // "synthetic construct" — ST.26 ¶84(a) requires "other RNA"; bioFixes2193.)
     // RNA residues are written with t (ST.26 ¶14), so a typed u becomes t.
@@ -112,7 +112,8 @@ describe("buildSt26Xml", () => {
 
   it("omits ApplicationIdentification when no office/number/date given", () => {
     const slim = buildSt26Xml(
-      { applicantName: "A", inventionTitle: "B", productionDate: "2026-06-17" },
+      // A file reference stands in for the application identification (the DTD needs one of the two).
+      { applicantName: "A", inventionTitle: "B", applicantFileReference: "R1", productionDate: "2026-06-17" },
       [{ moltype: "DNA", residues: "acgtacgtac" }],
     );
     expect(slim).not.toContain("<ApplicationIdentification>");
@@ -134,7 +135,7 @@ describe("translateCds", () => {
 // listable sequence, so the toy fixtures were lengthened past the minimum. The
 // exclusion behaviour itself is pinned in st26Compliance.test.ts.
 describe("ST.26 features (CDS / annotation)", () => {
-  const meta: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", productionDate: "2026-07-05" };
+  const meta: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", applicantFileReference: "R1", productionDate: "2026-07-05" };
 
   it("auto-generates /translation and /codon_start for a CDS", () => {
     const xml = buildSt26Xml(meta, [

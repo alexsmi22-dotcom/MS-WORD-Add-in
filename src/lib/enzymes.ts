@@ -132,7 +132,9 @@ export const ENZYMES: Enzyme[] = [
   { name: "AvrII", site: "CCTAGG", cutTop: 1, cutBottom: 5 },
   // TGATCA always contains GATC, so Dam always blocks it — no context needed.
   { name: "BclI", site: "TGATCA", cutTop: 1, cutBottom: 5, methylation: { dam: "blocked" } },
-  { name: "BspEI", site: "TCCGGA", cutTop: 1, cutBottom: 5 },
+  // REBASE methylation sensitivity (rebase.neb.com/cgi-bin/msget?BspEI), MS#684: TCCGGA with m6A from an overlapping
+  // GATC (TCCGGATC) is NOT cut — "tested on Dam methylated pBR322 DNA" (ref 3965).
+  { name: "BspEI", site: "TCCGGA", cutTop: 1, cutBottom: 5, methylation: { dam: "blocked-in-context" } },
   { name: "BsrGI", site: "TGTACA", cutTop: 1, cutBottom: 5 },
   { name: "MfeI", site: "CAATTG", cutTop: 1, cutBottom: 5 },
   { name: "MluI", site: "ACGCGT", cutTop: 1, cutBottom: 5 },
@@ -141,7 +143,10 @@ export const ENZYMES: Enzyme[] = [
   { name: "PciI", site: "ACATGT", cutTop: 1, cutBottom: 5, isoschizomers: ["AflIII"] },
   { name: "BspHI", site: "TCATGA", cutTop: 1, cutBottom: 5 },
   { name: "StyI", site: "CCWWGG", cutTop: 1, cutBottom: 5 },
-  { name: "Acc65I", site: "GGTACC", cutTop: 1, cutBottom: 5, isoschizomers: ["KpnI (3' overhang)"] },
+  // REBASE msget?Acc65I, MS#986: GGTACC with m5C at the bases an overlapping Dcm site (GGTACCWGG / CCWGGTACC) methylates
+  // is NOT cut (ref 6097, tested on synthetic oligonucleotides — REBASE has no row on Dcm-grown DNA itself). Its
+  // neoschizomer KpnI is not affected by Dcm (MS#805, below), which is why the warning suggests it.
+  { name: "Acc65I", site: "GGTACC", cutTop: 1, cutBottom: 5, isoschizomers: ["KpnI (3' overhang)"], methylation: { dcm: "blocked-in-context" } },
   { name: "BsiWI", site: "CGTACG", cutTop: 1, cutBottom: 5 },
   { name: "XmaI", site: "CCCGGG", cutTop: 1, cutBottom: 5, isoschizomers: ["SmaI (blunt)", "TspMI"] },
   { name: "BssHII", site: "GCGCGC", cutTop: 1, cutBottom: 5 },
@@ -155,11 +160,13 @@ export const ENZYMES: Enzyme[] = [
   // --- 6-cutters, 3' overhang ---------------------------------------------
   { name: "PstI", site: "CTGCAG", cutTop: 5, cutBottom: 1 },
   { name: "SacI", site: "GAGCTC", cutTop: 5, cutBottom: 1 },
-  { name: "KpnI", site: "GGTACC", cutTop: 5, cutBottom: 1 },
+  // REBASE msget?KpnI, MS#805: cut — "tested on Dcm methylated DNA" (ref 1626).
+  { name: "KpnI", site: "GGTACC", cutTop: 5, cutBottom: 1, methylation: { dcm: "insensitive" } },
   { name: "SphI", site: "GCATGC", cutTop: 5, cutBottom: 1 },
   { name: "NsiI", site: "ATGCAT", cutTop: 5, cutBottom: 1 },
   { name: "AatII", site: "GACGTC", cutTop: 5, cutBottom: 1 },
-  { name: "ApaI", site: "GGGCCC", cutTop: 5, cutBottom: 1 },
+  // REBASE msget?ApaI, MS#623: GGGCCC with m5C from an overlapping CCWGG is NOT cut — "tested on Dcm methylated DNA" (ref 3057).
+  { name: "ApaI", site: "GGGCCC", cutTop: 5, cutBottom: 1, methylation: { dcm: "blocked-in-context" } },
   { name: "Bsp1286I", site: "GDGCHC", cutTop: 5, cutBottom: 1 },
   { name: "SbfI", site: "CCTGCAGG", cutTop: 6, cutBottom: 2 },
   { name: "FseI", site: "GGCCGGCC", cutTop: 6, cutBottom: 2 },
@@ -175,7 +182,8 @@ export const ENZYMES: Enzyme[] = [
   { name: "DraI", site: "TTTAAA", cutTop: 3, cutBottom: 3 },
   { name: "SspI", site: "AATATT", cutTop: 3, cutBottom: 3 },
   { name: "NaeI", site: "GCCGGC", cutTop: 3, cutBottom: 3 },
-  { name: "MscI", site: "TGGCCA", cutTop: 3, cutBottom: 3 },
+  // REBASE msget?MscI, MS#1418: TGGCCA with m5C from an overlapping CCWGG (TGGCCAGG) is NOT cut — "tested on Dcm methylated pBR322" (ref 5551).
+  { name: "MscI", site: "TGGCCA", cutTop: 3, cutBottom: 3, methylation: { dcm: "blocked-in-context" } },
   { name: "SnaBI", site: "TACGTA", cutTop: 3, cutBottom: 3 },
   { name: "PmlI", site: "CACGTG", cutTop: 3, cutBottom: 3 },
   { name: "ZraI", site: "GACGTC", cutTop: 3, cutBottom: 3, isoschizomers: ["AatII (3' overhang)"] },
@@ -223,10 +231,12 @@ export const ENZYMES: Enzyme[] = [
   { name: "BstXI", site: "CCANNNNNNTGG", cutTop: 8, cutBottom: 4 },
   { name: "SfiI", site: "GGCCNNNNNGGCC", cutTop: 8, cutBottom: 5 },
   { name: "DraIII", site: "CACNNNGTG", cutTop: 6, cutBottom: 3 },
-  { name: "AlwNI", site: "CAGNNNCTG", cutTop: 6, cutBottom: 3 },
+  // REBASE msget?AlwNI, MS#411: NOT cut — "tested on overlapping Dcm methylated DNA" (ref 227).
+  { name: "AlwNI", site: "CAGNNNCTG", cutTop: 6, cutBottom: 3, methylation: { dcm: "blocked-in-context" } },
   { name: "XcmI", site: "CCANNNNNNNNNTGG", cutTop: 8, cutBottom: 7 },
   { name: "BglI", site: "GCCNNNNNGGC", cutTop: 7, cutBottom: 4 },
-  { name: "PflMI", site: "CCANNNNNTGG", cutTop: 7, cutBottom: 4 },
+  // REBASE msget?PflMI, MS#943: NOT cut — "tested on overlapping Dcm methylated DNA" (ref 2328).
+  { name: "PflMI", site: "CCANNNNNTGG", cutTop: 7, cutBottom: 4, methylation: { dcm: "blocked-in-context" } },
   { name: "Bsu36I", site: "CCTNAGG", cutTop: 2, cutBottom: 5 },
   { name: "BstEII", site: "GGTNACC", cutTop: 1, cutBottom: 6 },
   { name: "EcoO109I", site: "RGGNCCY", cutTop: 2, cutBottom: 5 },
@@ -239,7 +249,9 @@ export const ENZYMES: Enzyme[] = [
   { name: "AseI", site: "ATTAAT", cutTop: 2, cutBottom: 4 },
   { name: "Tth111I", site: "GACNNNGTC", cutTop: 4, cutBottom: 5 },
   { name: "EcoNI", site: "CCTNNNNNAGG", cutTop: 5, cutBottom: 6 },
-  { name: "BsaBI", site: "GATNNNNATC", cutTop: 5, cutBottom: 5 },
+  // REBASE msget?BsaBI, MS#922: GATNNNNATC with m6A from an overlapping GATC (GATCNNNATC / GATNNNGATC) is NOT cut —
+  // "tested on Dam methylated lambda DNA" (ref 4443).
+  { name: "BsaBI", site: "GATNNNNATC", cutTop: 5, cutBottom: 5, methylation: { dam: "blocked-in-context" } },
   { name: "BstAPI", site: "GCANNNNNTGC", cutTop: 7, cutBottom: 4 },
   { name: "PflFI", site: "GACNNNGTC", cutTop: 4, cutBottom: 5 },
   { name: "BciVI", site: "GTATCC", cutTop: 12, cutBottom: 11, typeIIS: true }, // GTATCC(6/5): Bio.Restriction fst5 12, ovhg +1
@@ -261,7 +273,9 @@ export const ENZYMES: Enzyme[] = [
   { name: "HgaI", site: "GACGC", cutTop: 10, cutBottom: 15, typeIIS: true },
   { name: "MlyI", site: "GAGTC", cutTop: 10, cutBottom: 10, typeIIS: true },
   { name: "PleI", site: "GAGTC", cutTop: 9, cutBottom: 10, typeIIS: true }, // GAGTC(4/5): Bio.Restriction fst5 9, ovhg −1
-  { name: "AlwI", site: "GGATC", cutTop: 9, cutBottom: 10, typeIIS: true },
+  // GGATC always contains GATC, so Dam always methylates it. REBASE msget?AlwI, MS#721: NOT cut — "tested on Dam
+  // methylated DNA" (ref 1687, cited in ref 1691).
+  { name: "AlwI", site: "GGATC", cutTop: 9, cutBottom: 10, typeIIS: true, methylation: { dam: "blocked" } },
   { name: "MmeI", site: "TCCRAC", cutTop: 26, cutBottom: 24, typeIIS: true },
   { name: "BsgI", site: "GTGCAG", cutTop: 22, cutBottom: 20, typeIIS: true },
   { name: "BpmI", site: "CTGGAG", cutTop: 22, cutBottom: 20, typeIIS: true },

@@ -874,7 +874,9 @@ function collectAll(text: string): { raws: Raw[]; refusals: ToaRefusal[] } {
     const raw = trimSection(m[3]).replace(/\s+/g, " ");
     // A single "§" names ONE section (Rule 3.3: a range takes "§§"), so its hyphen is part of the number in every
     // state ("N.Y. Gen. Oblig. Law § 5-701", "Del. Code Ann. tit. 6, § 2-725"); only a written "§§" is a range.
-    const hyphenated = m[2] === "§" || HYPHEN_SECTION_STATE_RE.test(code) || /-.*-/.test(raw) || /\d:\d/.test(raw);
+    // An en dash, or a hyphen between two decimal sections ("§ 768.81-768.82"), is a range whatever the sign.
+    const oneSection = m[2] === "§" && !raw.includes("–") && !/\.\d+-\d+\./.test(raw);
+    const hyphenated = oneSection || HYPHEN_SECTION_STATE_RE.test(code) || /-.*-/.test(raw) || /\d:\d/.test(raw);
     const sec = hyphenated ? raw : normalizeSection(m[3]);
     const sign = hyphenated ? m[2] : sectionSymbol(sec);
     plain("statutes", `${code} ${sign} ${sec}`, `${code} ${sign} ${sec}`.toLowerCase(), m.index, m.index + m[0].length - (m[3].length - trimSection(m[3]).length), {

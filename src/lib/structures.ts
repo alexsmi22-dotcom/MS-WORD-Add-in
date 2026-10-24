@@ -284,8 +284,9 @@ export function checkSmiles(smiles: string): SmilesCheck {
     // Radicals written in the SMILES ([CH3], [O], a nitroxide) survive the re-read; only the resolver's go.
     if (kMol && !valenceProblem(kMol) && radicalCount(kMol) < radicalCount(mol)) kekule = { parsed: kParsed, mol: kMol };
   }
-  // A Kekulé matching found (kek is a string) settles the aromatic system even when the re-read cannot be used.
-  const k = inventedRadical(s, mol, kek === false ? false : typeof kek === "string" ? true : null);
+  // A Kekulé form settles the aromatic system only when its re-read is usable; a re-read that fails (an [nH] given a
+  // third bond) leaves the radical check to judge the SMILES as written.
+  const k = inventedRadical(s, mol, kek === false ? false : kekule ? true : null);
   if (k) return { ok: false, message: `“${s}” is not valid SMILES: ${k}`, invalid: true };
   if (kekule) {
     mol = kekule.mol;

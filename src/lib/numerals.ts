@@ -124,14 +124,14 @@ function spelledNumberBefore(text: string, at: number): number {
  * ("each of") are callout positions (fix3e: every one of those dropped a real callout).
  */
 const RANGE_STOP_BEFORE =
-  /(?:^|[^A-Za-z])(?:claims?|pages?|pp?|paragraphs?|paras?|approximately|approx|about|roughly|circa|ca)\.?[ \t ]*$|[§¶][ \t ]*$|(?:^|[^A-Za-z])col(?:umn)?s?\.?[ \t ]*\d+[ \t ]*,?[ \t ]*(?:lines?|ll\.?)[ \t ]*$/i;
+  /(?:^|[^A-Za-z])(?:claims?|pages?|pp|p(?=\.)|paragraphs?|paras?|approximately|approx|about|roughly|circa|ca)\.?[ \t ]*$|[§¶][ \t ]*$|(?:^|[^A-Za-z])col(?:umn)?s?\.?[ \t ]*\d+[ \t ]*,?[ \t ]*(?:lines?|ll\.?)[ \t ]*$/i;
 /**
  * A real unit right after the bracket, then a space, punctuation (not a hyphen) or the end: "(10–20) mm wide",
  * "(10–20)%". Never a single letter ("L-shaped", "s-bend", "(30–34) M") and never a count noun ("units",
  * "times"): those followed real callouts.
  */
 const RANGE_UNIT_AFTER =
-  /^[ \t ]*(?:%|‰|°[CFK]?|(?:nm|µm|μm|um|mm|cm|km|inch(?:es)?|ft|ng|µg|μg|mg|kg|lbs?|ms|sec|min|hrs?|hours?|days?|weeks?|months?|years?|wt\.?[ \t]?%|vol\.?[ \t]?%|mol[ \t]?%|mol|mmol|µmol|μmol|nM|µM|μM|mM|mV|kV|mA|kW|MW|Hz|kHz|MHz|GHz|kPa|MPa|GPa|Pa|psi|bar|rpm|ppm|ppb|mL|ml|µL|μL|nL|kDa|Da|bp|kb|percent|degrees?)(?=[ \t\n.,;:)\]/·⋅\-%⁻]|$))/;
+  /^[ \t ]*(?:%|‰|°[CFK]?|(?:nm|µm|μm|um|mm|cm|km|inch(?:es)?|ft|ng|µg|μg|mg|kg|lbs?|ms|sec|min|hrs?|hours?|days?|weeks?|months?|years?|wt\.?[ \t]?%|vol\.?[ \t]?%|mol[ \t]?%|mol|mmol|µmol|μmol|nM|µM|μM|mM|mV|kV|mA|kW|MW|Hz|kHz|MHz|GHz|kPa|MPa|GPa|Pa|psi|bar|rpm|ppm|ppb|mL|ml|µL|μL|nL|kDa|Da|bp|kb|percent|degrees?)(?=[ \t\n.,;:)\]·⋅%⁻]|\/(?:kg|g|s|min|h|hr|L|mL|ml|m|cm|mm|m²|cm²|day|d|mol|K)(?![A-Za-z])|-(?:thick|thin|wide|long|deep|high|tall)\b|$))/;
 
 /** Whether the range in the bracket at [start, end) reads as a citation or a quantity: a stop word before it or a unit after it. */
 function rangeIsQuantity(text: string, start: number, end: number): boolean {
@@ -159,9 +159,9 @@ function rangeIsPlausible(a: number, b: number, sortedKnown: number[]): boolean 
   if (g <= 0) return false;
   const slots = (b - a) / g + 1;
   // A callout range spans a handful of a figure's parts; one over more than 12 slots is a quantity even when the table
-  // is dense ("(10–200) particles" against 10, 12, …, 1000 or 10, 20, …, 1000), unless every slot is a numeral and the
-  // span is short ("teeth (100–124)", thirteen parts numbered by twos).
-  if (slots > 12 && !(inside.length === slots && b - a <= 50)) return false;
+  // is dense ("(10–200) particles" against 10, 12, …, 1000 or 10, 20, …, 1000; "(10–30) times" against 1…60), unless
+  // every slot is a numeral, the parts go by twos or more, and there are at most 16 ("teeth (100–124)", thirteen).
+  if (slots > 12 && !(inside.length === slots && g >= 2 && slots <= 16)) return false;
   return inside.length / slots >= 0.5;
 }
 

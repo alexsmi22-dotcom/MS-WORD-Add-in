@@ -64,3 +64,34 @@ describe("TOA: one § is one section in every state (Rule 3.3)", () => {
     expect(rows("Cal. Civ. Code §§ 1714-1715.", "Statutes")).toEqual(["Cal. Civ. Code §§ 1714–1715"]);
   });
 });
+
+describe("narrow pass on the fourth fixes", () => {
+  test("an [nH] given a third bond is still refused (RDKit: valence error)", () => {
+    expect(checkSmiles("c1cc2cc3ccc(cc4ccc(cc5ccc(cc1n2)[nH]5)n4)[nH]3C").ok).toBe(false);
+  });
+  test.each([
+    "CH3COOH + C3H7OH -> C5H10O2 + H2O in acid",
+    "C5H10O2 + H2O -> CH3COOH + C3H7OH in acid",
+    "CH3COO- + C3H7OH -> C5H10O2 + OH- in base",
+  ])("%s: no electron sentence (carbon averages are not mixed valence)", (q) => {
+    expect(notes(q)).not.toContain("electrons lost and gained cancel");
+  });
+  const DENSE = Array.from({ length: 60 }, (_, i) => i + 1);
+  test.each(["repeated (10–30) times", "for (10–30) cycles", "(12–40) seconds", "spaced (2–40) apart", "a ratio of (10–30):1"])(
+    "%s against 1…60 is a quantity",
+    (t) => expect(extractNumerals(t, DENSE)).toEqual([]),
+  );
+  const T = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
+  test.each([
+    ["layer p (10–20)", [10, 12, 14, 16, 18, 20]],
+    ["Group P (10–20)", [10, 12, 14, 16, 18, 20]],
+    ["rods (10–20) bar-shaped", [10, 12, 14, 16, 18, 20]],
+    ["parts (10–20) min-max", [10, 12, 14, 16, 18, 20]],
+    ["regions p (10-20) and n (22-30)", [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]],
+  ])("%s is a callout", (t, want) => expect(extractNumerals(t as string, T)).toEqual(want));
+  test.each([
+    ["Cal. Civ. Code § 1714–1716.", "Cal. Civ. Code §§ 1714–1716"],
+    ["Fla. Stat. § 768.81-768.82.", "Fla. Stat. §§ 768.81–768.82"],
+    ["Va. Code Ann. § 8.01-243.", "Va. Code Ann. § 8.01-243"],
+  ])("%s", (text, want) => expect(rows(text, "Statutes")).toEqual([want]));
+});

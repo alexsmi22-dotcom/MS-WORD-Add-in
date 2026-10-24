@@ -152,9 +152,13 @@ describe("persistence: the pane honours every header the engine reads", () => {
   });
 
   it("source: the Solve figure is inserted at the size READ FROM THE SVG, never a nominal one", () => {
-    const at = PANE.indexOf("const svg = currentSolveSvg;");
+    // Since v2.193.0 the derivation and its figure go in as one package (insertDerivationWithFigure), which reads the
+    // size from the SVG with 460 × 300 only as the fallback.
+    const at = PANE.indexOf("async function insertSolveResult");
     expect(at).toBeGreaterThan(0);
-    expect(PANE.slice(at, at + 200)).toMatch(/readSvgDims\(svg, 460, 300\)/);
+    expect(PANE.slice(at, at + 1200)).toMatch(/svg: currentSolveSvg,\s*fallbackW: 460,\s*fallbackH: 300,/);
+    const helper = PANE.indexOf("async function insertDerivationWithFigure");
+    expect(PANE.slice(helper, helper + 1500)).toMatch(/readSvgDims\(fig\.svg, fig\.fallbackW, fig\.fallbackH\)/);
   });
 
   it("`compare` reaches the engine and draws two stacked panels, 460 × 600", () => {

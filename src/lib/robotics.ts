@@ -21,6 +21,8 @@
 //     and only their sum is determined. Reporting an arbitrary split as if it were
 //     the orientation is the same class of lie.
 
+import { snapNoise } from "./subscriptText";
+
 export interface Pose2 {
   x: number;
   y: number;
@@ -62,10 +64,21 @@ export function planarFk(links: number[], angles: number[]): PlanarFkResult | nu
     joints.push({ x, y });
   }
 
+  // Rounding residue snapped against the chain's own scale: cos 90° = 6.12×10⁻¹⁷, so L = 1, 1 at 90°, 90° put J1 at
+  // x = 6.12×10⁻¹⁷ m instead of 0 (fix2-eng2). The scale is the total reach.
+  const maxReach = links.reduce((a, b) => a + b, 0);
+  const snap = (v: number): number => snapNoise(v, maxReach, 1e-12);
+  for (const j of joints) {
+    j.x = snap(j.x);
+    j.y = snap(j.y);
+  }
+  x = snap(x);
+  y = snap(y);
+
   return {
     tip: { x, y, theta },
     joints,
-    maxReach: links.reduce((a, b) => a + b, 0),
+    maxReach,
     notes: [
       "Joint angles are RELATIVE to the previous link, so the absolute orientation of each link " +
         "is the running sum. Feeding absolute angles into this gives a wrong pose and no error.",

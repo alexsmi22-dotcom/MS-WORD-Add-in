@@ -227,6 +227,8 @@ export interface BaseExcitationResult {
 
 /** Peak of the absolute transmissibility: r_p = √(√(1 + 8ζ²) − 1)/(2ζ). */
 export function transmissibilityPeak(zeta: number): { r: number; T: number } {
+  // Undamped: the peak is the resonance itself, unbounded (callers print "unbounded", never the number).
+  if (zeta === 0) return { r: 1, T: Infinity };
   const r = Math.sqrt(Math.sqrt(1 + 8 * zeta * zeta) - 1) / (2 * zeta);
   return { r, T: transmissibility(r, zeta) };
 }
@@ -235,10 +237,15 @@ export function transmissibilityPeak(zeta: number): { r: number; T: number } {
 export function baseExcitation(fn: number, zeta: number, f: number, input: BaseInput): BaseExcitationResult | RvError {
   if (!(fn > 0) || !Number.isFinite(fn)) return fail("The natural frequency must be a positive number of hertz.");
   if (!(f > 0) || !Number.isFinite(f)) return fail("The excitation frequency must be a positive number of hertz.");
-  if (!(zeta >= ZETA_MIN && zeta < 1)) return fail(`The damping ratio must be at least ${ZETA_MIN} and below 1.`);
+  // The sine transmissibility formula holds for ANY ζ ≥ 0 (overdamped included); only undamped resonance has no
+  // steady state (fix2-eng2: ζ ≥ 1 and ζ = 0 were refused).
+  if (!(zeta >= 0) || !Number.isFinite(zeta)) return fail("The damping ratio must be zero or greater.");
+  if (zeta > 100) return fail("A damping ratio above 100 is not an isolator: check whether Q was typed as ζ.");
   if (!(input.amplitude > 0) || !Number.isFinite(input.amplitude)) return fail("The base input amplitude must be a positive number.");
   const r = f / fn;
   if (!(r >= 1e-3 && r <= 1e3)) return fail("The frequency ratio f/fn is outside 0.001–1000; check the frequencies and their units.");
+  if (zeta === 0 && Math.abs(r - 1) < 1e-9)
+    return fail("Resonance with no damping (ζ = 0 at f = fn): the transmissibility is unbounded and there is no steady state. Give a damping ratio above zero, or move the excitation frequency.");
   const w = 2 * Math.PI * f;
   const wn2 = Math.pow(2 * Math.PI * fn, 2);
   const baseAcc = input.kind === "acc" ? input.amplitude : input.amplitude * w * w;
@@ -266,13 +273,14 @@ export function transmissibilityCurve(zeta: number, lo: number, hi: number): Arr
   const N = 300;
   for (let i = 0; i <= N; i++) xs.push(lo * Math.pow(hi / lo, i / N));
   const pk = transmissibilityPeak(zeta).r;
-  const band = Math.max(4 * zeta, 0.002);
+  const band = Math.min(Math.max(4 * zeta, 0.002), 1);
   for (let i = 0; i <= 160; i++) {
     const x = pk * Math.exp(-band + (2 * band * i) / 160);
     if (x > lo && x < hi) xs.push(x);
   }
   xs.sort((a, b) => a - b);
-  return xs.map((x) => [x, transmissibility(x, zeta)]);
+  // Undamped: the pole at r = 1 is not sampled (T is infinite there).
+  return xs.filter((x) => zeta > 0 || Math.abs(x - 1) > 1e-6).map((x) => [x, transmissibility(x, zeta)]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

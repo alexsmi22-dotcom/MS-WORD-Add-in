@@ -91,9 +91,19 @@ const DAMP_OPTIONS = [
 ];
 
 /** ζ from the Q/ζ select and its value field; a string is a refusal. */
-function readDamping(r: (k: string) => string, kindKey: string, valueKey: string): number | string {
+function readDamping(r: (k: string) => string, kindKey: string, valueKey: string, anyZeta = false): number | string {
   const kind = r(kindKey) === "zeta" ? "zeta" : "q";
   const v = plain(r(valueKey));
+  if (anyZeta) {
+    // Sine base excitation (fix2-eng2): any ζ ≥ 0 — overdamped mounts and the undamped ideal both have a steady state
+    // away from resonance. Q = 1/(2ζ) > 0.
+    if (kind === "q") {
+      if (!(v > 0) || !Number.isFinite(v)) return "Q must be a positive number (Q = 1/(2ζ); Q ≤ 0.5 is critically damped or more).";
+      return 1 / (2 * v);
+    }
+    if (!(v >= 0) || !Number.isFinite(v)) return "ζ must be a number, zero or greater.";
+    return v;
+  }
   if (kind === "q") {
     if (!(v > 0.5)) return "Q must be a number greater than 0.5 (Q = 1/(2ζ); Q ≤ 0.5 is critically damped or more).";
     const z = 1 / (2 * v);
@@ -265,19 +275,20 @@ const baseCalc: VibCalc = {
       input = { kind: "disp", amplitude: (u.req("amp", "mm", "mm", "Base displacement") ?? NaN) / 1000 };
     }
     if (u.errors.length) return refuse(u.errors.join("\n"));
-    const zeta = readDamping(r, "dkind", "damp");
+    const zeta = readDamping(r, "dkind", "damp", true);
     if (typeof zeta === "string") return refuse(zeta);
     const res = baseExcitation(fn, zeta, f, input);
     if (!res.ok) return refuse(res.error);
     const g = STANDARD_GRAVITY;
+    const undamped = zeta === 0;
     const lines: EngLine[] = [];
-    lines.push(`r = f/fn = ${n4(res.r)} (f = ${trimSig(f)} Hz, fn = ${trimSig(fn)} Hz), ζ = ${trimSig(zeta)} (Q = ${trimSig(1 / (2 * zeta))}).`);
+    lines.push(`r = f/fn = ${n4(res.r)} (f = ${trimSig(f)} Hz, fn = ${trimSig(fn)} Hz), ζ = ${trimSig(zeta)} (${undamped ? "no damping: Q unbounded" : `Q = ${trimSig(1 / (2 * zeta))}`}).`);
     lines.push({ math: "T = sqrt({1 + (2 ζ r)^2}/{(1 - r^2)^2 + (2 ζ r)^2})", fallback: "T = √((1 + (2ζr)²)/((1 − r²)² + (2ζr)²))" });
     lines.push({ math: "Z = A/{ω_n^2} 1/sqrt((1 - r^2)^2 + (2 ζ r)^2)", fallback: "Z = (A/ωn²)/√((1 − r²)² + (2ζr)²), the isolator deflection for a base acceleration amplitude A" });
     lines.push(`Transmissibility T = ${n4(res.T)}: ${res.isolating ? `the mount ISOLATES (r > √2), passing ${pct(res.T)} of the input; isolation ${pct(1 - res.T)}.` : res.r > 1 / Math.SQRT2 ? "the mount AMPLIFIES: it is near resonance (r below √2, isolation only begins at r = √2)." : "the mount AMPLIFIES slightly (r below √2): the item follows its base."}`);
     lines.push(`Mass acceleration ${n4(res.absAcc / g)} g (${n4(res.absAcc)} m/s²) for a base input of ${n4(res.baseAcc / g)} g (${n4(res.baseAcc)} m/s²), 0-to-peak.`);
     lines.push(`Isolator deflection (relative displacement) ${n4(res.relDisp * 1000)} mm; base displacement ${n4(res.baseDisp * 1000)} mm, mass displacement ${n4(res.absDisp * 1000)} mm (0-to-peak).`);
-    lines.push(`Resonance: T peaks at ${n4(res.peak.T)} at r = ${n4(res.peak.r)} (${n4(res.peak.r * fn)} Hz); the item passes through it on every sweep or run-up through ${n4(res.peak.r * fn)} Hz.`);
+    lines.push(`Resonance: T peaks at ${undamped ? "an unbounded value (no damping)" : n4(res.peak.T)} at r = ${n4(res.peak.r)} (${n4(res.peak.r * fn)} Hz); the item passes through it on every sweep or run-up through ${n4(res.peak.r * fn)} Hz.`);
     lines.push("Model: linear SDOF on a rigid base with viscous damping, steady-state sine (no start-up transient); T is vibration.ts's transmissibility, the same as Vibration › Forced response & isolation. Above √2 more damping RAISES T.");
     const table: string[][] = [
       ["Quantity", "Value"],
@@ -285,7 +296,7 @@ const baseCalc: VibCalc = {
       ["Transmissibility T", n4(res.T)],
       ["Mass acceleration (g, 0-pk)", n4(res.absAcc / g)],
       ["Isolator deflection (mm, 0-pk)", n4(res.relDisp * 1000)],
-      ["Peak T (at r)", `${n4(res.peak.T)} (r = ${n4(res.peak.r)})`],
+      ["Peak T (at r)", `${undamped ? "unbounded" : n4(res.peak.T)} (r = ${n4(res.peak.r)})`],
     ];
     const outputs: EngOutput[] = [
       { key: "r", label: "Frequency ratio", value: res.r, unit: "" },

@@ -342,6 +342,24 @@ export interface ExposureResult {
   figure: PhotoFigure;
 }
 
+/** The engraved third-stop markings, f/1 to f/64: position k is 2^(k/6). */
+const THIRD_STOP_MARKINGS = [
+  "1", "1.1", "1.2", "1.4", "1.6", "1.8", "2", "2.2", "2.5", "2.8", "3.2", "3.5", "4", "4.5", "5", "5.6", "6.3", "7.1",
+  "8", "9", "10", "11", "13", "14", "16", "18", "20", "22", "25", "28", "32", "36", "40", "45", "51", "57", "64",
+];
+
+/**
+ * An f-number as a figure label: a value ON the third-stop scale (2^(k/6) to 1 part in 10⁶ — what f-stop arithmetic
+ * produces, e.g. 2√2 = 2.8284…) is written as its engraved marking (f/2.8, f/5.6, f/11, f/22); any other value with
+ * at most three significant figures (fix2-eng2: "f/2.8284271247461903" in a figure title and legend).
+ */
+export function fNumberLabel(n: number): string {
+  if (!(n > 0) || !Number.isFinite(n)) return String(n);
+  const k = Math.round(6 * Math.log2(n));
+  if (k >= 0 && k < THIRD_STOP_MARKINGS.length && Math.abs(n / Math.pow(2, k / 6) - 1) < 1e-6) return THIRD_STOP_MARKINGS[k];
+  return String(Number(n.toPrecision(3)));
+}
+
 /**
  * Exposure value from f-number N, shutter time t (seconds) and ISO speed S.
  *
@@ -395,13 +413,13 @@ export function exposureValue(
       "Negative EV is legitimate (night scenes, long exposures): f/2 for 4 s is EV 0.",
     ],
     figure: {
-      title: `Shutter time against scene brightness at f/${fNumber}, ISO ${iso}`,
+      title: `Shutter time against scene EV at f/${fNumberLabel(fNumber)}, ISO ${iso}`,
       xlabel: "scene EV at ISO 100",
       ylabel: "shutter time (s)",
       xScale: "linear",
       yScale: "log",
       series: [
-        { type: "line", label: `f/${fNumber}, ISO ${iso}`, points: evs.map((ev) => ({ x: ev, y: tFor(ev) })) },
+        { type: "line", label: `f/${fNumberLabel(fNumber)}, ISO ${iso}`, points: evs.map((ev) => ({ x: ev, y: tFor(ev) })) },
         { type: "scatter", label: "entered settings", points: [{ x: ev100, y: shutterS }] },
       ],
     },
@@ -643,7 +661,7 @@ export function depthOfField(focalM: number, fNumber: number, cocM: number, subj
     totalM: farM === Infinity ? Infinity : farM - nearM,
     notes,
     figure: {
-      title: `Depth of field, ${(f * 1000).toPrecision(3)} mm at f/${fNumber}`,
+      title: `Depth of field, ${(f * 1000).toPrecision(3)} mm at f/${fNumberLabel(fNumber)}`,
       xlabel: "subject distance (m)",
       ylabel: "limit of sharpness (m)",
       xScale: "log",

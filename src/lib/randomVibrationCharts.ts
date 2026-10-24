@@ -93,14 +93,17 @@ export function psdChartSvg(p: PsdProfile, sdof?: { fn: number; zeta: number; gr
 /** Absolute transmissibility T against r (log-log), T = 1 and r = √2 drawn, the operating point marked. */
 export function transmissibilityChartSvg(zeta: number, rOp: number, width = 440): string {
   const lo = Math.min(0.1, rOp / 2), hi = Math.max(10, rOp * 2);
-  const curve = transmissibilityCurve(zeta, lo, hi).map(([x, y]) => ({ x, y }));
+  // Undamped (ζ = 0): T has a pole at r = 1, so the curve is drawn as two branches clipped at T = 1000.
+  const curve = transmissibilityCurve(zeta, lo, hi).map(([x, y]) => ({ x, y })).filter((q) => zeta > 0 || q.y <= 1000);
+  const branches = zeta > 0 ? [curve] : [curve.filter((q) => q.x < 1), curve.filter((q) => q.x > 1)];
   const ys = curve.map((q) => q.y);
   const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const opT = transmissibility(rOp, zeta);
   const series: Series[] = [
-    { points: curve, type: "line", color: "#000000", label: `T (ζ = ${sig(zeta, 3)})` },
+    ...branches.map((pts, i): Series => ({ points: pts, type: "line", color: "#000000", label: i === 0 ? `T (ζ = ${sig(zeta, 3)})` : undefined })),
     { points: [{ x: lo, y: 1 }, { x: hi, y: 1 }], type: "line", color: "#999999", label: "T = 1" },
     { points: [{ x: Math.SQRT2, y: yMin }, { x: Math.SQRT2, y: yMax }], type: "line", color: "#2e7d32", label: "r = √2" },
-    { points: [{ x: rOp, y: transmissibility(rOp, zeta) }], type: "scatter", color: "#c00000", label: "operating point" },
+    { points: Number.isFinite(opT) ? [{ x: rOp, y: opT }] : [], type: "scatter", color: "#c00000", label: "operating point" },
   ];
   return buildPlotSvg(series, {
     xlabel: "Frequency ratio r = f/fn",

@@ -48,6 +48,11 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   "opamp:integrator": [eq("V_out = -1/(R_1 C) int(0, t, V_i dt)", "Vout = −(1/(R₁·C))·∫₀ᵗ Vᵢ dt"), eq("f_c = 1/(2 pi R_1 C)", "fc = 1/(2π·R₁·C)")],
   "opamp:differentiator": [eq("V_out = -R_f C {d V_i}/{d t}", "Vout = −Rf·C·dVᵢ/dt"), eq("f_c = 1/(2 pi R_f C)", "fc = 1/(2π·Rf·C)")],
   "opamp:bandwidth": [eq("f_BW = GBW/G_n", "fBW = GBW/Gₙ")],
+  "opamp:differentiator-limits": [
+    eq("Z_C = 1/(j omega C)", "ZC = 1/(jωC)"),
+    eq("G_n = 1 + j omega R_f C", "Gₙ = 1 + jωRf·C"),
+    eq("f_BW approx sqrt(GBW f_c)", "fBW ≈ √(GBW·fc)"),
+  ],
   "opamp:full-power": [eq("f_p = SR/(2 pi V_p)", "fp = SR/(2π·Vp)")],
   "filter-design:butterworth": [eq("n = log((10^{0.1 A_s} - 1)/(10^{0.1 A_p} - 1))/(2 log(Omega))", "n = log((10⁰·¹ᴬˢ − 1)/(10⁰·¹ᴬᵖ − 1))/(2·log Ω)")],
   "filter-design:chebyshev": [eq("n = arccosh(sqrt((10^{0.1 A_s} - 1)/(10^{0.1 A_p} - 1)))/arccosh(Omega)", "n = arccosh(√((10⁰·¹ᴬˢ − 1)/(10⁰·¹ᴬᵖ − 1)))/arccosh Ω")],

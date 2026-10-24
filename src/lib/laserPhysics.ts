@@ -93,6 +93,13 @@ export function fabryPerot(inp: FabryPerotInput): FabryPerotResult | Fail {
   if (!(L > 0)) return fail("The mirror spacing must be greater than zero.");
   if (L < 1e-9) return fail("The mirror spacing is below 1 nm, shorter than any optical cavity: check the unit.");
   if (!(n >= 1) || n > 10) return fail("The refractive (group) index must be from 1 to 10.");
+  // A PERFECT MIRROR, named (fix2-eng2: R₁ = 1 fell into the generic range refusal). Both perfect: a closed lossless
+  // cavity, finesse and photon lifetime infinite. One perfect: nothing is ever transmitted (a Gires–Tournois
+  // reflector), so the transmission peaks, their linewidth and the Airy curve this tool draws do not exist.
+  if (R1 === 1 && R2 === 1)
+    return fail("R₁ = R₂ = 1: two perfect mirrors make a closed, lossless cavity — the finesse and photon lifetime are infinite and nothing gets in or out. Give a real reflectivity below 1 (e.g. 0.9999) for at least one mirror.");
+  if (R1 === 1 || R2 === 1)
+    return fail(`${R1 === 1 ? "R₁" : "R₂"} = 1 is a perfect mirror: it transmits nothing, so the etalon's transmission is zero at every frequency (a Gires–Tournois reflector) and there are no transmission peaks, transmission linewidth or Airy curve to compute. Give its real reflectivity below 1 (e.g. 0.9999); for a laser cavity with a 100 % high reflector use Laser threshold & slope efficiency, which accepts R = 1.`);
   for (const [R, name] of [[R1, "R₁"], [R2, "R₂"]] as const)
     if (!(R > 0 && R < 1)) return fail(`${name} must be a reflectivity strictly between 0 and 1 (a fraction: 0.99, or 99 %).`);
   if (lambda !== null && !(Number.isFinite(lambda) && lambda > 0)) return fail("The wavelength must be greater than zero.");

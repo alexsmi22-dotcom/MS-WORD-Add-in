@@ -306,7 +306,9 @@ describe("the core", () => {
     expect(parseKet("")).toHaveProperty("error");
     expect(parseKet("0|0⟩")).toHaveProperty("error");
     expect((parseKet("|0⟩ + |01⟩") as { error: string }).error).toMatch(/same number of qubits/);
-    expect((parseKet("(|0⟩ + |1⟩)/sqrt(2)") as { error: string }).error).toMatch(/coefficient|BEFORE|Brackets/);
+    // fix2-eng2: the app's own output form "(…)/√2" is read; text after the last ket is still refused by name.
+    expect(parseKet("(|0⟩ + |1⟩)/sqrt(2)")).not.toHaveProperty("error");
+    expect((parseKet("|0⟩ + |1⟩ 2") as { error: string }).error).toMatch(/coefficient|BEFORE|Brackets/);
     expect((parseKet("|00000000000⟩") as { error: string }).error).toMatch(/10 qubits/);
   });
 

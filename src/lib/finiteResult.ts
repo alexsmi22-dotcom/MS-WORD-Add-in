@@ -27,6 +27,20 @@ export const NON_FINITE_REFUSAL =
   "A result overflowed or underflowed double precision (it is not a finite number) at these input magnitudes; " +
   "refused rather than shown. Give inputs of a physically realistic size.";
 
+/**
+ * THE CENTRAL GUARD every Engineering calculator's compute runs through (taskpane.ts wraps ENG_CALCS once, beside the
+ * display pass), fix2-eng2: typing 1e300 reached 31 tools whose OK results printed "Setup not finite … PASS",
+ * "zR not finite" or "order Infinity". A declared output that is not finite is DROPPED — NaN is the tools' own
+ * "not applicable" marker (withOutputs drops it the same way), so it never reaches a sweep — and an OK result whose
+ * text still prints a non-finite number (insertGate's rule, or the formatters' "not finite") becomes the named
+ * refusal. A refusal passes unchanged, keeping its wording.
+ */
+export function guardEngResult(o: AnalyzeOutput, what?: string): AnalyzeOutput {
+  if (o.ok === false) return o;
+  const outputs = o.outputs ? o.outputs.filter((e) => Number.isFinite(e.value)) : o.outputs;
+  return refuseNonFinite(outputs === o.outputs ? o : { ...o, outputs }, what);
+}
+
 /** Returns `o` unchanged, or a named refusal when an OK result carries a non-finite number. */
 export function refuseNonFinite(o: AnalyzeOutput, what?: string): AnalyzeOutput {
   if (!hasNonFinite(o)) return o;

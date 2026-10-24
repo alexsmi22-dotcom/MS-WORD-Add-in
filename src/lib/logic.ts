@@ -43,6 +43,8 @@ export interface TruthTable {
   /** Row indices where the output is true. */
   minterms: number[];
   notes: string[];
+  /** Don't-care minterms given with the expression (Σm(…) + d(…)); absent for an ordinary expression. */
+  dontCares?: number[];
 }
 
 // ---------------------------------------------------------------------------
@@ -265,10 +267,38 @@ export function truthTable(expression: string, variableList: string): TruthTable
     seen.add(v);
   }
 
+  const n = variables.length;
+
+  // MINTERM NOTATION Σm(1, 3, 5) / m(1,3,5), optionally + d(…) don't-cares (fix2-eng2: refused as an expression).
+  // Only integer lists count, so a variable called m applied to a bracket ("m(A + B)") is still an expression.
+  const mt = /^\s*(?:[Σ∑]\s*)?m\s*\(\s*([\d\s,]*)\)\s*(?:\+\s*(?:[Σ∑]\s*)?d\s*\(\s*([\d\s,]*)\)\s*)?$/i.exec(expression);
+  if (mt) {
+    const list = (s: string | undefined): number[] => (s ?? "").split(/[\s,]+/).filter(Boolean).map(Number);
+    const ms = list(mt[1]);
+    const ds = list(mt[2]);
+    const size = 1 << n;
+    for (const v of [...ms, ...ds]) {
+      if (!Number.isInteger(v) || v >= size)
+        return { ok: false, error: `Minterm ${v} is outside 0–${size - 1}, the range for ${n} variable${n === 1 ? "" : "s"}.` };
+    }
+    const on = new Set(ms);
+    const overlap = ds.filter((d) => on.has(d));
+    if (overlap.length) return { ok: false, error: `Minterm${overlap.length > 1 ? "s" : ""} ${overlap.join(", ")} listed both as true and as don't-care.` };
+    const rows: TruthRow[] = [];
+    for (let row = 0; row < size; row++) {
+      const inputs: boolean[] = [];
+      for (let b = 0; b < n; b++) inputs.push(((row >> (n - 1 - b)) & 1) === 1);
+      rows.push({ inputs, output: on.has(row) });
+    }
+    const minterms = [...on].sort((a, b) => a - b);
+    const notes = [`Read as minterm notation Σm(${minterms.join(", ")})${ds.length ? ` with don't-cares d(${ds.join(", ")})` : ""}: minterm k is the row whose inputs, ${variables[0]} most significant, spell k in binary.`];
+    if (!minterms.length) notes.push("The output is FALSE for every input: this expression is a contradiction.");
+    return { ok: true, variables, rows, minterms, notes, dontCares: ds };
+  }
+
   const ast = parseExpression(expression, variables);
   if ("ok" in ast) return ast;
 
-  const n = variables.length;
   const rows: TruthRow[] = [];
   const minterms: number[] = [];
   for (let row = 0; row < 1 << n; row++) {

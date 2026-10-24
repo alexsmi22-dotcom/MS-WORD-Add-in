@@ -2644,7 +2644,7 @@ export function cableDamping(input: CableInput): CableResult | AudioError {
     if (!Number.isInteger(n) || n < -3 || n > 40) return fail("AWG is a whole number from 0000 (−3) to 40.");
     const d = awgDiameterMm(n);
     area = (Math.PI * d * d) / 4;
-    notes.push(`AWG ${n < 1 ? "0".repeat(1 - n) : n}: d = 0.127 × 92^((36 − n)/39) = ${d.toFixed(5)} mm, A = ${area.toFixed(5)} mm² (ASTM B258).`);
+    notes.push(`AWG ${n < 1 ? "0".repeat(1 - n) : n}: d = 0.127 × 92 to the power (36 − n)/39 = ${d.toFixed(5)} mm, A = ${area.toFixed(5)} mm² (ASTM B258).`);
   } else {
     const b2 = finitePositive([["conductor area", input.areaM2!]]);
     if (b2) return b2;

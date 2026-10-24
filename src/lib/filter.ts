@@ -194,7 +194,8 @@ export function designFilter(spec: FilterSpec): FilterResult | FilterError {
     return {
       ok: false,
       error:
-        `This specification needs order ${order}, which is beyond what an analogue filter is built ` +
+        // An unattainable attenuation (1e300 dB) makes the order infinite: said in words (fix2-eng2).
+        `This specification needs ${Number.isFinite(order) ? `order ${order}` : "an unbounded order (no finite filter meets it)"}, which is beyond what an analogue filter is built ` +
         "as in practice — component tolerance and op-amp limits dominate above about 8th order, " +
         "and the filter will not behave like the design. Relax the transition band, accept less " +
         "stopband attenuation, or move to a digital implementation.",

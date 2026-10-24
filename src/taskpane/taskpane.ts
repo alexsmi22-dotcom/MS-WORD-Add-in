@@ -213,6 +213,7 @@ import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
 import { tidyResultSubscripts, tidySubscripts, snapNoise, snapGroup, typesetENotation } from "../lib/subscriptText";
+import { guardEngResult } from "../lib/finiteResult";
 import { buildResultOoxml, packageBodyXml, type ResultPackageItem } from "../lib/resultOoxml";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
@@ -264,7 +265,7 @@ import {
   SectionStrip,
 } from "../lib/mechchart";
 import { boxPlotSvg, forestPlotSvg, groupedBarSvg } from "../lib/statchart";
-import { parseNetlist, parseValue, parseFieldValue, solveDc, solveAc, frequencySweep, sweepCorner3dB, dB } from "../lib/circuit";
+import { parseNetlist, parseValue, parseFieldValue, parseHertz, solveDc, solveAc, frequencySweep, sweepPassbandCorners, dB } from "../lib/circuit";
 import { analyzeStress, transformPlane, factorOfSafety, analyzeTorsion, analyzeColumn, EndCondition } from "../lib/stress";
 import { analyzeTruss, parseTruss } from "../lib/truss";
 import { analyzePipe, waterProperties, waterNpshVapourPressure, ROUGHNESS } from "../lib/fluids";
@@ -290,6 +291,8 @@ import {
   timeResponse,
   secondOrderMetrics,
   reportedTransient,
+  poleSide,
+  defaultResponseWindow,
   transientNotes,
   frequencyResponse,
   autoFrequencies,
@@ -827,6 +830,7 @@ import {
   multiAxisMove,
   sCurveProfile,
   greatCircle,
+  chartLineSegments,
   windTriangle,
   EARTH_MEAN_RADIUS,
 } from "../lib/trajectory";
@@ -13902,6 +13906,7 @@ const ENG_CALCS: EngCalc[] = [
         ...res.nodes.map((n) => ({ key: `V_${n.name.replace(/[^A-Za-z0-9_]/g, "_")}`, label: `Node voltage V(${n.name})`, value: n.volts, unit: "V" })),
       ];
       for (const n of res.notes) lines.push(`Note: ${n}`);
+      for (const n of parsed.notes) lines.push(`Note: ${n}`);
       lines.push(ENG_SAME_UNIT_NOTE);
 
       // The power balance, drawn: dissipation right in blue, delivery left in
@@ -13973,6 +13978,7 @@ const ENG_CALCS: EngCalc[] = [
           ],
         });
         for (const n of res.notes) lines.push(`Note: ${n}`);
+        for (const n of parsed.notes) lines.push(`Note: ${n}`);
         return withOutputs(
           res.nodes.flatMap((n) => [
             { key: `Vmag_${n.name.replace(/[^A-Za-z0-9_]/g, "_")}`, label: `Magnitude of V(${n.name})`, value: n.magnitude, unit: "" },
@@ -13986,10 +13992,22 @@ const ENG_CALCS: EngCalc[] = [
       if ("ok" in sweep && sweep.ok === false) return { text: sweep.error, ok: false };
       const pts = (sweep as { points: { f: number; magnitude: number; phaseDeg: number }[] }).points;
 
-      const ref = pts[0].magnitude;
-      const series: Series[] = [
-        { points: pts.map((p) => ({ x: p.f, y: dB(p.magnitude, ref) })), type: "line" },
-      ];
+      // The −3 dB points are measured from the PASSBAND (circuit.ts sweepPassbandCorners): the low-frequency level, the
+      // high-frequency level of a high-pass, or the peak of a band-pass / resonance — never just the first sample.
+      const pb = sweepPassbandCorners(parsed.elements, out, pts);
+      const ref = pb ? pb.ref : pts[0].magnitude;
+      const dbs = pts.map((p) => dB(p.magnitude, ref));
+      const finiteDb = dbs.filter(Number.isFinite);
+      // A response that does not change (a resistive divider) is drawn as the flat line it is on a ±1 dB axis; its
+      // 10⁻¹⁵ dB rounding ripple is not data.
+      const flat = finiteDb.length === dbs.length && finiteDb.length > 0 && Math.max(...finiteDb) - Math.min(...finiteDb) < 1e-9;
+      const series: Series[] = flat
+        ? [
+            { points: pts.map((p) => ({ x: p.f, y: 0 })), type: "line" },
+            { points: [{ x: pts[0].f, y: -1 }], type: "line" },
+            { points: [{ x: pts[0].f, y: 1 }], type: "line" },
+          ]
+        : [{ points: pts.map((p, i) => ({ x: p.f, y: dbs[i] })), type: "line" }];
       // A log frequency axis is the whole point of a Bode plot: it makes a
       // decade occupy equal width, so a first-order roll-off is a straight line
       // at 20 dB per decade instead of a curve crushed against the left edge.
@@ -14002,9 +14020,9 @@ const ENG_CALCS: EngCalc[] = [
         xScale: "log",
       });
 
-      // The corner is where the response has fallen 3 dB from its starting value: bracketed by the sweep, then
-      // solved on the circuit (circuit.ts sweepCorner3dB) rather than read off the first sample past it.
-      const corner = sweepCorner3dB(parsed.elements, out, pts, ref);
+      const crossings = pb ? pb.crossings : [];
+      const corner = crossings.length === 1 ? crossings[0].f : null;
+      const band = crossings.length === 2 && crossings[0].rising && !crossings[1].rising ? crossings : null;
 
       const lines: EngReportLine[] = [...engEq("circuit-ac")];
       lines.push(`Frequency response at node ${out}`);
@@ -14012,16 +14030,33 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`  at ${engNum(pts[0].f)} Hz: ${engNum(pts[0].magnitude)} at ${engNum(pts[0].phaseDeg)} deg`);
       const last = pts[pts.length - 1];
       lines.push(`  at ${engNum(last.f)} Hz: ${engNum(last.magnitude)} at ${engNum(last.phaseDeg)} deg`);
-      if (corner !== null) {
-        lines.push(`  falls 3 dB at ${engNum(corner, 5)} Hz`);
-      } else {
-        lines.push("  does not fall 3 dB anywhere in this range, so the corner is outside it.");
+      if (flat) {
+        lines.push("  flat: the magnitude does not change across the sweep, so there is no −3 dB point.");
+      } else if (pb) {
+        const refText = pb.basis === "peak" ? `the peak, ${engNum(ref)}` : `the ${pb.basis}, ${engNum(ref)}`;
+        lines.push(`  −3 dB points measured from ${refText}`);
+        if (!crossings.length) {
+          lines.push("  the response stays within 3 dB of that level across this range, so the −3 dB points are outside it.");
+        } else if (band) {
+          lines.push(`  lower −3 dB point ${engNum(band[0].f, 5)} Hz, upper −3 dB point ${engNum(band[1].f, 5)} Hz`);
+          lines.push(`  −3 dB bandwidth ${engNum(band[1].f - band[0].f, 5)} Hz`);
+        } else {
+          for (const c of crossings) {
+            lines.push(c.rising ? `  rises to within 3 dB at ${engNum(c.f, 5)} Hz (lower corner)` : `  falls 3 dB at ${engNum(c.f, 5)} Hz (upper corner)`);
+          }
+          if (pb.basis === "peak" && crossings.length === 1) {
+            lines.push(`  the ${crossings[0].rising ? "upper" : "lower"} −3 dB point around the peak is outside this range.`);
+          }
+        }
       }
+      for (const n of parsed.notes) lines.push(`Note: ${n}`);
       lines.push("AC results are floating point, and phase is in degrees relative to the source.");
       lines.push(ENG_SAME_UNIT_NOTE);
 
       return withOutputs([
         { key: "fc", label: "3 dB frequency", value: corner ?? NaN, unit: "Hz" },
+        { key: "fLow", label: "Lower −3 dB point", value: band ? band[0].f : NaN, unit: "Hz" },
+        { key: "fHigh", label: "Upper −3 dB point", value: band ? band[1].f : NaN, unit: "Hz" },
         { key: "magEnd", label: "Magnitude at the sweep stop", value: last.magnitude, unit: "" },
       ], engReport(lines, [
         {
@@ -15563,7 +15598,8 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("");
       lines.push("Poles");
       for (const p of res.poles) {
-        const tag = p.re > 0 ? "right half plane" : Math.abs(p.re) < 1e-12 ? "on the imaginary axis" : "stable";
+        // The axis test first, at analyzeStability's own tolerance (control.ts poleSide).
+        const tag = poleSide(p);
         lines.push(`  ${fmtComplexPlain(p, complexScale(res.poles))}   (${tag})`);
       }
       if (res.zeros.length) {
@@ -15652,12 +15688,10 @@ const ENG_CALCS: EngCalc[] = [
       let tEnd = Number(r("tEnd"));
       let chosen = false;
       if (!r("tEnd").trim() || !Number.isFinite(tEnd) || tEnd <= 0) {
+        // Sized from the slowest mode AND its multiplicity (control.ts defaultResponseWindow): a repeated pole settles
+        // later than a simple one at the same σ.
         const st = analyzeStability(tf);
-        const slowest =
-          st.ok && st.poles.length
-            ? Math.min(...st.poles.map((p) => Math.abs(p.re)).filter((v) => v > 1e-9))
-            : NaN;
-        tEnd = Number.isFinite(slowest) && slowest > 0 ? 6 / slowest : 10;
+        tEnd = st.ok && st.poles.length ? defaultResponseWindow(st.poles) : 10;
         chosen = true;
       }
 
@@ -15677,14 +15711,17 @@ const ENG_CALCS: EngCalc[] = [
       if (m.ok) {
         if (tr.source === "exact" && m.kind === "underdamped" && m.wd > 0) lines.push(...engEq("control-step:underdamped"));
         lines.push(
-          tr.source === "exact" ? "Second-order metrics (exact for this system)" : "The dominant pole pair",
+          tr.source === "exact" ? "Second-order metrics (exact for this system)" : m.kind === "critically damped" && m.wd === 0 ? "The dominant (slowest) mode: a repeated real pole" : "The dominant pole pair",
         );
         lines.push(`  Natural frequency ωn = ${engNum(m.wn)} rad/s`);
         lines.push(`  Damping ratio ζ = ${engNum(m.zeta)} (${m.kind})`);
         if (m.wd > 0) lines.push(`  Damped frequency ωd = ${engNum(m.wd)} rad/s`);
         if (tr.source === "simulated") lines.push("Transient metrics measured from the simulated step response");
         if (tr.overshoot !== null) lines.push(`  Overshoot = ${engNum(tr.overshoot * 100)} %`);
-        if (tr.peakTime !== null) lines.push(`  Peak time = ${engNum(tr.peakTime)} s`);
+        // A maximum on the window's last sample is not a peak (a monotonic rise, e.g. (s+1)³): said so, not timed.
+        const peakAtEnd = tr.source === "simulated" && tr.peakTime !== null && tr.peakTime >= tEnd * (1 - 1e-9);
+        if (peakAtEnd) lines.push("  Peak time: none, the response rises monotonically through the window");
+        else if (tr.peakTime !== null) lines.push(`  Peak time = ${engNum(tr.peakTime)} s`);
         if (tr.riseTime !== null) lines.push(`  Rise time (${tr.riseLabel}) = ${engNum(tr.riseTime)} s`);
         if (tr.settlingTime !== null) lines.push(`  Settling time (2 %) = ${engNum(tr.settlingTime)} s`);
         else if (tr.source === "simulated") lines.push("  Settling time (2 %): not settled inside the window");
@@ -15694,7 +15731,11 @@ const ENG_CALCS: EngCalc[] = [
       }
 
       if (res.finalValue !== null) lines.push(`Final value = ${engNum(res.finalValue)}`);
-      lines.push(`Peak of the simulated response: ${engNum(res.peak.y)} at t = ${engNum(res.peak.t)} s`);
+      lines.push(
+        res.peak.t >= tEnd * (1 - 1e-9)
+          ? `Largest value of the simulated response: ${engNum(res.peak.y)}, at the end of the window (no interior peak)`
+          : `Peak of the simulated response: ${engNum(res.peak.y)} at t = ${engNum(res.peak.t)} s`,
+      );
       if (kind === "step" && tr.source === "exact" && res.finalValue !== null && res.finalValue !== 0) {
         const os = (res.peak.y - res.finalValue) / res.finalValue;
         if (os > 1e-6) lines.push(`  which is ${engNum(os * 100)} % overshoot, measured from the simulation`);
@@ -16476,7 +16517,11 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("");
       if (res.peakR !== null) {
         lines.push(`Resonant peak at r = ${engNum(res.peakR)} (ω = ${engNum(res.peakR * p.wn)} rad/s)`);
-        lines.push(`  peak magnification = ${engNum(res.peakMagnification as number)}`);
+        lines.push(
+          res.peakMagnification === null
+            ? "  peak magnification: unbounded (no damping: resonance at r = 1 has no steady state)"
+            : `  peak magnification = ${engNum(res.peakMagnification)}`,
+        );
       }
       lines.push(
         res.isolating
@@ -18773,7 +18818,8 @@ const ENG_CALCS: EngCalc[] = [
       };
       const rfV = opt("rf", "Feedback resistor", true);
       const cV = opt("c", "Capacitor");
-      const gbwV0 = opt("gbw", "Gain-bandwidth product");
+      // "1 MHz" / "1MHz" / "100 kHz" read with their unit (circuit.ts parseHertz: MHz is mega, mHz milli).
+      const gbwV0 = r("gbw").trim() ? (((h) => (h.ok ? h.value : h.error))(parseHertz(r("gbw"), "Gain-bandwidth product"))) : undefined;
       const srV = opt("sr", "Slew rate");
       const voutV = opt("vout", "Output swing");
       const vsV = opt("vs", "Supply rail");
@@ -18801,7 +18847,7 @@ const ENG_CALCS: EngCalc[] = [
       };
       const lines: EngReportLine[] = [
         ...(cfgEq[r("config") || "non-inverting"] ?? []),
-        ...(res.bandwidth !== null ? engEq("opamp:bandwidth") : []),
+        ...(res.capacitiveInput ? engEq("opamp:differentiator-limits") : res.bandwidth !== null ? engEq("opamp:bandwidth") : []),
         ...(res.fullPowerBandwidth !== null ? engEq("opamp:full-power") : []),
       ];
       lines.push(`${res.config} amplifier`);
@@ -18814,16 +18860,24 @@ const ENG_CALCS: EngCalc[] = [
       } else if (res.cornerFrequency === null) {
         lines.push(`Closed-loop gain = ${engNum(res.gain)}`);
       }
-      lines.push(`Noise gain = ${engNum(res.noiseGain)}  (this is what sets the bandwidth)`);
-      lines.push(
-        `Input resistance = ${res.inputResistance === Infinity ? "essentially infinite" : engNum(res.inputResistance) + " Ω"}`,
-      );
+      if (res.capacitiveInput && res.cornerFrequency !== null) {
+        // Differentiator: both vary with frequency (opamp.ts) — stated as the law plus a reference point.
+        lines.push("Noise gain = 1 + jωRf·C: 1 below fc, rising at 20 dB per decade above it (this is what sets the bandwidth)");
+        lines.push(
+          `Input impedance = 1/(jωC), capacitive: |Zin| = 1/(2πfC) falls with frequency: ${engNum(rfV as number)} Ω (= Rf) at fc = ${engNum(res.cornerFrequency)} Hz, a tenth of that at 10·fc`,
+        );
+      } else {
+        lines.push(`Noise gain = ${engNum(res.noiseGain)}  (this is what sets the bandwidth)`);
+        lines.push(
+          `Input resistance = ${res.inputResistance === Infinity ? "essentially infinite" : engNum(res.inputResistance) + " Ω"}`,
+        );
+      }
       if (res.cornerFrequency !== null) {
         lines.push(`Corner frequency (unity gain) = ${engNum(res.cornerFrequency)} Hz`);
       }
       if (res.bandwidth !== null) {
         lines.push("");
-        lines.push(`Small-signal bandwidth = ${engNum(res.bandwidth)} Hz`);
+        lines.push(`Small-signal bandwidth${res.capacitiveInput ? " ≈ √(GBW·fc)" : ""} = ${engNum(res.bandwidth)} Hz`);
       }
       if (res.fullPowerBandwidth !== null) {
         lines.push(`Full-power bandwidth = ${engNum(res.fullPowerBandwidth)} Hz`);
@@ -19060,6 +19114,8 @@ const ENG_CALCS: EngCalc[] = [
       if (dc.some((v) => !Number.isInteger(v))) {
         return { text: "Don't-care minterms must be whole numbers.", ok: false };
       }
+      // Σm(…) + d(…) in the expression field (logic.ts truthTable): its don't-cares join the field's.
+      for (const d of t.dontCares ?? []) if (!dc.includes(d)) dc.push(d);
 
       const m = minimise(t.minterms, t.variables, dc);
       if (!m.ok) return { text: m.error, ok: false };
@@ -21157,7 +21213,7 @@ const ENG_CALCS: EngCalc[] = [
       // 1023, not 1024: 2^1024 is Infinity, so the old bound advertised a width
       // it then rejected with a message blaming the value space instead.
       if (bits && (d0 <= 0 || d0 > 1023)) {
-        return { text: "Hash width must be between 1 and 1023 bits (2^1024 is beyond the range of a double).", ok: false };
+        return { text: "Hash width must be between 1 and 1023 bits (2¹⁰²⁴ is beyond the range of a double).", ok: false };
       }
       const space = bits ? Math.pow(2, d0) : d0;
       if (!Number.isFinite(space) || space <= 0) {
@@ -21272,7 +21328,8 @@ const ENG_CALCS: EngCalc[] = [
         ["Machine epsilon (spacing just above 1.0)", engNum(res.epsilon, 6), ""],
         ["Decimal digits", engNum(res.decimalDigits, 4), ""],
         [`Spacing (1 ULP) at ${engNum(v, 6)}`, engNum(res.ulp, 6), ""],
-        [`Relative spacing at ${engNum(v, 6)}`, engNum(res.relativeSpacing, 6), ""],
+        // ULP/|v| has no value at v = 0 (the spacing there is the smallest subnormal, divided by zero).
+        [`Relative spacing at ${engNum(v, 6)}`, v === 0 ? "undefined (relative spacing at 0: ULP ÷ |v| divides by zero)" : engNum(res.relativeSpacing, 6), ""],
       ];
       if (res.cancellationFactor !== null) {
         flRows.push([
@@ -21291,7 +21348,7 @@ const ENG_CALCS: EngCalc[] = [
       ];
       const flOutputs: EngOutput[] = [
         { key: "ulp", label: "Spacing (1 ULP) at the value", value: res.ulp, unit: "" },
-        { key: "relSpacing", label: "Relative spacing", value: res.relativeSpacing, unit: "" },
+        { key: "relSpacing", label: "Relative spacing", value: v === 0 ? NaN : res.relativeSpacing, unit: "" },
         { key: "kappa", label: "Error amplification", value: res.cancellationFactor ?? NaN, unit: "" },
         { key: "digitsLost", label: "Digits lost", value: res.digitsLost ?? NaN, unit: "" },
       ];
@@ -22215,7 +22272,7 @@ const ENG_CALCS: EngCalc[] = [
       if (!a) {
         return {
           text:
-            "Outside the model: it is defined from -5 km to 84.852 km geopotential. Above that " +
+            "Outside the model: it is defined from −5 km to 84.852 km geopotential. Above that " +
             "the 1976 standard uses a different formulation and this tool will not extrapolate.",
           ok: false,
         };
@@ -22884,7 +22941,7 @@ const ENG_CALCS: EngCalc[] = [
     fields: [
       { key: "w0", label: "Waist radius w0, m", default: "1 mm", kind: "text" },
       { key: "lam", label: "Wavelength, m", default: "1064 nm", kind: "text" },
-      { key: "m2", label: "Beam quality M^2 (1 = diffraction limited)", default: "1", kind: "text" },
+      { key: "m2", label: "Beam quality M² (1 = diffraction limited)", default: "1", kind: "text" },
       { key: "z", label: "Distance from the waist, m", default: "1", kind: "text" },
       {
         key: "want",
@@ -22901,7 +22958,7 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const m2 = Number(r("m2") || "1");
       if (!Number.isFinite(m2) || m2 < 1) {
-        return { text: "M^2 must be at least 1: nothing propagates better than the diffraction limit.", ok: false };
+        return { text: "M² must be at least 1: nothing propagates better than the diffraction limit.", ok: false };
       }
       const g = gaussianBeam({ w0, lambda: lam, m2, z });
       if (!g) return { text: "Enter a positive waist and wavelength.", ok: false };
@@ -22973,7 +23030,7 @@ const ENG_CALCS: EngCalc[] = [
               ],
               type: "line",
               color: "#9ca3af",
-              label: "z_R",
+              label: "±zR",
             },
             {
               points: [
@@ -23957,7 +24014,7 @@ const ENG_CALCS: EngCalc[] = [
     name: "CHSH / Bell test",
     group: "Quantum optics",
     hint:
-      "Four measured correlation values, each between -1 and +1, combined as " +
+      "Four measured correlation values, each between −1 and +1, combined as " +
       "S = E1 - E2 + E3 + E4. |S| > 2 rules out local hidden variables. |S| > 2sqrt(2) is " +
       "impossible even quantum mechanically, so it is flagged as an error rather than a " +
       "stronger result.",
@@ -23991,7 +24048,7 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = chsh(nums[0], nums[1], nums[2], nums[3], sd);
       if (!res) {
-        return { text: "Each correlation must lie between -1 and +1. Outside that range it is not a measured correlation.", ok: false };
+        return { text: "Each correlation must lie between −1 and +1. Outside that range it is not a measured correlation.", ok: false };
       }
       const lines: EngReportLine[] = [
         ...engEq("quantum-chsh"),
@@ -30026,15 +30083,10 @@ const ENG_CALCS: EngCalc[] = [
           const gcSeries: Series[] = segs
             .filter((s2) => s2.length > 1)
             .map((s2, i2) => ({ points: s2, type: "line" as const, color: "#2563eb", label: i2 === 0 ? "great circle" : undefined }));
-          gcSeries.push({
-            points: [
-              { x: vals[1], y: vals[0] },
-              { x: vals[3], y: vals[2] },
-            ],
-            type: "line",
-            color: "#9ca3af",
-            label: "straight on the chart",
-          });
+          // The shorter way in longitude, split at the antimeridian like the track (trajectory.ts chartLineSegments).
+          chartLineSegments(vals[0], vals[1], vals[2], vals[3]).forEach((seg, i2) =>
+            gcSeries.push({ points: seg, type: "line", color: "#9ca3af", label: i2 === 0 ? "straight on the chart" : undefined }),
+          );
           gcSeries.push({
             points: [
               { x: vals[1], y: vals[0] },
@@ -30177,9 +30229,11 @@ const ENG_CALCS: EngCalc[] = [
 
 // Underscore subscripts in every tool's prose, tables, captions and output names typeset (subscriptText.ts); the math
 // sources keep theirs for Word to typeset. Wrapped once here so the preview, the insert, sweeps and uncertainty agree.
+// The same wrap is the central non-finite guard (finiteResult.ts guardEngResult, fix2-eng2): no tool returns ok with
+// "not finite", Infinity or NaN in its text, and non-finite outputs are dropped; a refusal keeps its wording.
 for (const c of ENG_CALCS) {
   const raw = c.compute;
-  c.compute = (read) => tidyResultSubscripts(raw(read));
+  c.compute = (read) => tidyResultSubscripts(guardEngResult(raw(read)));
 }
 
 /** A transfer function as a typeset fraction, with a readable text fallback. */

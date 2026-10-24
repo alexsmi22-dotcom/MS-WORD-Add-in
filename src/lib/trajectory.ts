@@ -84,6 +84,38 @@ export interface VacuumShotResult {
  *   θ_opt = arctan( v / √(v² + 2gh) )
  * which reduces to 45° exactly when h = 0.
  */
+/**
+ * cos of a launch angle in degrees, exactly 0 for a vertical launch (±90°): Math.cos(π/2) is 6.1×10⁻¹⁷, which put a
+ * straight-up shot 10⁻¹⁵ m downrange instead of back where it started.
+ */
+export function launchCos(angleDeg: number): number {
+  return Math.abs(angleDeg) === 90 ? 0 : Math.cos(angleDeg * DEG);
+}
+
+/**
+ * The straight chart line (constant-heading rhumb line on an equirectangular chart) between two points, as segments in
+ * longitude/latitude degrees, taking the SHORTER way in longitude. When that way crosses the antimeridian the line is
+ * split there — one segment ending at ±180°, the next starting at ∓180° at the same latitude — exactly as the
+ * great-circle track is split, so LAX → SYD runs west across the Pacific instead of the long way through longitude 0
+ * (fix2-eng2). Δλ of exactly 180° keeps the eastward direction.
+ */
+export function chartLineSegments(lat1: number, lon1: number, lat2: number, lon2: number): { x: number; y: number }[][] {
+  const wrap = (lon: number): number => ((((lon + 180) % 360) + 360) % 360) - 180;
+  const a = wrap(lon1);
+  let dLon = wrap(lon2) - a;
+  if (dLon > 180) dLon -= 360;
+  else if (dLon < -180) dLon += 360;
+  const end = a + dLon; // unwrapped: may lie beyond ±180
+  if (end <= 180 && end >= -180) return [[{ x: a, y: lat1 }, { x: end, y: lat2 }]];
+  const edge = end > 180 ? 180 : -180;
+  const f = (edge - a) / dLon;
+  const latX = lat1 + f * (lat2 - lat1);
+  return [
+    [{ x: a, y: lat1 }, { x: edge, y: latX }],
+    [{ x: -edge, y: latX }, { x: end - 2 * edge, y: lat2 }],
+  ];
+}
+
 export function vacuumShot(
   speedMs: number,
   angleDeg: number,
@@ -91,15 +123,15 @@ export function vacuumShot(
 ): VacuumShotResult | TrajectoryError {
   const bad = finitePositive([["launch speed", speedMs]]);
   if (bad) return bad;
-  if (!Number.isFinite(angleDeg) || angleDeg <= -90 || angleDeg >= 90) {
-    return { ok: false, error: "The launch angle must be between -90 and 90 degrees." };
+  if (!Number.isFinite(angleDeg) || angleDeg < -90 || angleDeg > 90) {
+    return { ok: false, error: "The launch angle must be between −90 and 90 degrees (90 is straight up)." };
   }
   if (!Number.isFinite(launchHeightM) || launchHeightM < 0) {
     return { ok: false, error: "The launch height must be zero or more." };
   }
 
   const th = angleDeg * DEG;
-  const vx = speedMs * Math.cos(th);
+  const vx = speedMs * launchCos(angleDeg);
   const vy = speedMs * Math.sin(th);
   // Time to return to y = 0 from y = h: solve h + vy t - g t²/2 = 0.
   const disc = vy * vy + 2 * G * launchHeightM;
@@ -185,8 +217,8 @@ export function dragShot(
     ["drag coefficient", dragCoefficient],
   ]);
   if (bad) return bad;
-  if (!Number.isFinite(angleDeg) || angleDeg <= -90 || angleDeg >= 90) {
-    return { ok: false, error: "The launch angle must be between -90 and 90 degrees." };
+  if (!Number.isFinite(angleDeg) || angleDeg < -90 || angleDeg > 90) {
+    return { ok: false, error: "The launch angle must be between −90 and 90 degrees (90 is straight up)." };
   }
   if (!Number.isFinite(launchHeightM) || launchHeightM < 0) {
     return { ok: false, error: "The launch height must be zero or more." };
@@ -209,7 +241,7 @@ export function dragShot(
 
   const th = angleDeg * DEG;
   // State: [x, y, vx, vy].
-  const y0 = [0, launchHeightM, speedMs * Math.cos(th), speedMs * Math.sin(th)];
+  const y0 = [0, launchHeightM, speedMs * launchCos(angleDeg), speedMs * Math.sin(th)];
   const k = (dragCoefficient * areaM2) / (2 * massKg);
 
   const deriv = (_t: number, s: number[]): number[] => {
@@ -302,10 +334,14 @@ export function dragShot(
     };
   }
 
+  const vertical = Math.abs(angleDeg) === 90;
   const notes: string[] = [
-    `Drag reduces the range to ${fraction !== null ? (fraction * 100).toFixed(1) + "%" : "an unknown fraction"} ` +
-      "of the vacuum figure. Drag is not a correction — for anything small, fast or light it is " +
-      "the dominant term.",
+    vertical
+      ? `A vertical launch has no range: it comes straight back down. Drag lowers the apex (vacuum: ${vac.ok ? engRound(vac.apexM) : "n/a"} m) and ` +
+        "slows the fall towards terminal speed. Drag is not a correction: for anything small, fast or light it is the dominant term."
+      : `Drag reduces the range to ${fraction !== null ? (fraction * 100).toFixed(1) + "%" : "an unknown fraction"} ` +
+        "of the vacuum figure. Drag is not a correction — for anything small, fast or light it is " +
+        "the dominant term.",
     "Quadratic drag, F = ½ρv²CdA, with density from the standard atmosphere so it thins with " +
       "height exactly as the aviation tools say. No wind, no lift, no spin, no Magnus effect.",
     "Cd is YOUR input and is not constant in reality: it varies with Mach number and Reynolds " +

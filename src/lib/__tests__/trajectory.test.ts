@@ -51,7 +51,8 @@ describe("vacuum projectile", () => {
   });
 
   it("refuses impossible angles and heights", () => {
-    expect(vacuumShot(20, 90).ok).toBe(false);
+    // fix2-eng2: 90° is a vertical launch (range 0); beyond ±90 is still refused.
+    expect(vacuumShot(20, 90.5).ok).toBe(false);
     expect(vacuumShot(20, 45, -1).ok).toBe(false);
     expect(vacuumShot(0, 45).ok).toBe(false);
   });

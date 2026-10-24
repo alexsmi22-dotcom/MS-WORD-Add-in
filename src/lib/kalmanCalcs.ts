@@ -324,18 +324,52 @@ function nisRange(count: number, m: number): [number, number] {
   return [d.quantile(0.025) / count, d.quantile(0.975) / count];
 }
 
+/**
+ * An EMPTY item between two commas ("1, 2, , 4") is a missing sample at that step, exactly like NaN or "-": it is
+ * rewritten to the missing-value token before the one number reader sees it, because a whitespace-separated row drops
+ * empty fields and the samples after the gap then ran one step early (fix2-eng2). Tab- and semicolon-separated rows
+ * and bare-comma rows already keep their empty cells. Leading and trailing commas are left alone (a stray separator,
+ * not a step).
+ */
+export function markEmptyItems(raw: string): { text: string; count: number } {
+  let count = 0;
+  const text = raw
+    .split(/\r?\n/)
+    .map((line) => {
+      // Only a whitespace-separated row drops empty fields; a bare-comma row ("1,2,,4") already keeps them as missing.
+      if (!line.includes(",") || /[\t;]/.test(line) || !/[ \f\v]/.test(line)) return line;
+      const fields = line.split(",");
+      if (fields.length < 3) return line;
+      let changed = false;
+      for (let i = 1; i < fields.length - 1; i++) {
+        if (fields[i].trim() === "") {
+          fields[i] = " -";
+          count++;
+          changed = true;
+        }
+      }
+      return changed ? fields.map((f) => f.trim()).join(", ") : line;
+    })
+    .join("\n");
+  return { text, count };
+}
+
 function readSeries(raw: string, m: number): { rows: (number | null)[][]; notes: string[] } | string {
-  const b = readDataBlock(raw, "Measurements", { maxRows: MAX_SAMPLES, singleColumn: m === 1 });
+  const empty = markEmptyItems(raw);
+  const b = readDataBlock(empty.text, "Measurements", { maxRows: MAX_SAMPLES, singleColumn: m === 1 });
   if (!b.ok) return b.error;
+  const emptyNote = empty.count
+    ? [`${empty.count} empty item${empty.count === 1 ? "" : "s"} between commas ${empty.count === 1 ? "was" : "were"} read as a missing sample (like a blank cell, "-" or NA): that step is predicted, not updated, and the samples after it keep their places.`]
+    : [];
   if (m === 1 && b.rows.length === 1 && b.rows[0].length > 1) {
     if (b.rows[0].length > MAX_SAMPLES) return `Measurements: ${b.rows[0].length} values; this tool takes at most ${MAX_SAMPLES}.`;
-    return { rows: b.rows[0].map((v) => [v]), notes: b.notes };
+    return { rows: b.rows[0].map((v) => [v]), notes: [...emptyNote, ...b.notes] };
   }
   for (let i = 0; i < b.rows.length; i++) {
     if (b.rows[i].length !== m)
       return `Measurements: line ${b.lines[i]} has ${b.rows[i].length} value${b.rows[i].length === 1 ? "" : "s"}, but the model measures ${m} quantit${m === 1 ? "y" : "ies"} (the rows of H). Paste one column per measured quantity, without a time column.`;
   }
-  return { rows: b.rows, notes: b.notes };
+  return { rows: b.rows, notes: [...emptyNote, ...b.notes] };
 }
 
 function computeRun(r: (k: string) => string): AnalyzeOutput {

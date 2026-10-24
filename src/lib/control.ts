@@ -427,6 +427,77 @@ export function routhHurwitz(den: Rat[]): RouthResult | ControlError {
 // Stability
 // ---------------------------------------------------------------------------
 
+/** How close to the imaginary axis a computed pole must be to count as ON it: relative to the pole's own size. */
+export const poleAxisTol = (p: { re: number; im: number }): number => Math.max(1e-12, 1e-9 * Math.hypot(p.re, p.im));
+
+/**
+ * Which side of the imaginary axis a computed pole lies on, with the SAME tolerance analyzeStability counts by, so a
+ * pole's tag can never contradict the verdict (fix2-eng2: ±1i computed as 1.1×10⁻¹⁶ ± 1i was tagged "right half
+ * plane" beside a "marginally stable" verdict). The axis test comes first.
+ */
+export function poleSide(p: { re: number; im: number }): "on the imaginary axis" | "right half plane" | "stable" {
+  if (Math.abs(p.re) <= poleAxisTol(p)) return "on the imaginary axis";
+  return p.re > 0 ? "right half plane" : "stable";
+}
+
+/**
+ * Computed roots grouped into clusters of one repeated root. A root of multiplicity m comes back from the eigenvalue
+ * solve split into m copies a distance of order ε^(1/m)·|p| apart ((s+1)³ gives −1 ± 7.9×10⁻⁶i and −1.00001), so
+ * roots are grouped when they lie within 20·ε^(1/m) of their centroid's magnitude (multiplicities up to 4, the
+ * largest consistent one taken), and each group is replaced by its centroid, which recovers the root to about machine
+ * precision. A centroid's imaginary part below the same tolerance is taken as zero (a repeated REAL root).
+ */
+export function clusterRoots(roots: Complex[]): { re: number; im: number; m: number }[] {
+  const EPS = 2.220446049250313e-16;
+  const REL = 20;
+  const MAX_M = 4;
+  const left = roots.slice();
+  const out: { re: number; im: number; m: number }[] = [];
+  while (left.length) {
+    const seed = left.shift() as Complex;
+    // The largest multiplicity (at most MAX_M) whose group — the seed and its nearest neighbours — is consistent
+    // with that multiplicity's splitting. Tried from the largest down: a triple root's copies are ~10⁻⁵ apart, too
+    // far for a double root's tolerance, so growing one root at a time would never reach it.
+    const order = left.map((z, i) => ({ i, d: Math.hypot(z.re - seed.re, z.im - seed.im) })).sort((a, b) => a.d - b.d);
+    let group = [seed];
+    for (let k = Math.min(MAX_M - 1, order.length); k >= 1; k--) {
+      const trial = [seed, ...order.slice(0, k).map((o) => left[o.i])];
+      const m = trial.length;
+      const tRe = trial.reduce((s, z) => s + z.re, 0) / m;
+      const tIm = trial.reduce((s, z) => s + z.im, 0) / m;
+      const tol = REL * Math.pow(EPS, 1 / m) * Math.max(Math.hypot(tRe, tIm), 1e-300);
+      if (trial.every((z) => Math.hypot(z.re - tRe, z.im - tIm) <= tol)) {
+        group = trial;
+        const used = new Set(order.slice(0, k).map((o) => o.i));
+        for (let i = left.length - 1; i >= 0; i--) if (used.has(i)) left.splice(i, 1);
+        break;
+      }
+    }
+    const m = group.length;
+    const re = group.reduce((s, z) => s + z.re, 0) / m;
+    let im = group.reduce((s, z) => s + z.im, 0) / m;
+    if (m > 1 && Math.abs(im) <= REL * Math.pow(EPS, 1 / m) * Math.max(Math.hypot(re, im), 1e-300)) im = 0;
+    out.push({ re, im, m });
+  }
+  return out;
+}
+
+/**
+ * The default simulation window for a step or impulse response: long enough for the slowest mode to settle. A simple
+ * pole at σ settles (2 %) in about 4/|σ| and gets 6/|σ|; a pole of multiplicity m carries t^(m−1)·e^(σt) and settles
+ * in about (4 + 2(m − 1))/|σ|, so it gets 1.5 times that ((s+1)³ settles at 7.52 s and is drawn to 12 s, where the
+ * old 6 s window cut it off unsettled). Poles within 10⁻⁹ of the axis are ignored; 10 s when nothing is left.
+ */
+export function defaultResponseWindow(poles: Complex[]): number {
+  let t = 0;
+  for (const c of clusterRoots(poles)) {
+    const s = Math.abs(c.re);
+    if (!(s > 1e-9)) continue;
+    t = Math.max(t, Math.max(6, 1.5 * (4 + 2 * (c.m - 1))) / s);
+  }
+  return t > 0 && Number.isFinite(t) ? t : 10;
+}
+
 export interface StabilityResult {
   ok: true;
   poles: Complex[];
@@ -721,8 +792,7 @@ export function analyzeStability(
   // Scaling each pole by its own magnitude asks the right question — is this
   // pole's real part negligible compared with THIS pole? — and leaves an absolute
   // floor for a pole genuinely at the origin.
-  const poleTol = (p: { re: number; im: number }): number =>
-    Math.max(1e-12, 1e-9 * Math.hypot(p.re, p.im));
+  const poleTol = poleAxisTol;
 
   const rhpPolesNumeric = poles.filter((p) => p.re > poleTol(p)).length;
   const imaginaryAxisPoles = poles.filter((p) => Math.abs(p.re) <= poleTol(p)).length;
@@ -1359,10 +1429,17 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
       );
     }
   } else {
-    const poles = polyRoots(den);
-    if (!poles) return { ok: false, error: "The poles could not be computed." };
+    const rawPoles = polyRoots(den);
+    if (!rawPoles) return { ok: false, error: "The poles could not be computed." };
+    // Repeated roots clustered first (clusterRoots): (s+1)³'s triple pole comes back split into a fake complex pair
+    // −1 ± 7.9×10⁻⁶i, which read as "ζ = 1 (underdamped)" with ωd = 7.9×10⁻⁶ rad/s.
+    const clusters = clusterRoots(rawPoles);
+    const poles: Complex[] = clusters.flatMap((c) => Array.from({ length: c.m }, () => ({ re: c.re, im: c.im })));
     const complexPairs = poles.filter((z) => Math.abs(z.im) > 1e-12 && z.re < 0);
-    if (!complexPairs.length) {
+    // A REPEATED stable real pole is the critically damped mode (ζ = 1, ωn = |p|): (s + a)² is the critically damped
+    // second-order denominator, and higher multiplicities are its slower relatives.
+    const repeatedReal = clusters.filter((c) => c.m >= 2 && c.im === 0 && c.re < 0);
+    if (!complexPairs.length && !repeatedReal.length) {
       return {
         ok: false,
         error:
@@ -1371,14 +1448,22 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
       };
     }
     // Dominant = smallest |Re|, i.e. slowest to decay.
-    const dom = complexPairs.reduce((best, z) => (Math.abs(z.re) < Math.abs(best.re) ? z : best));
+    const candidates: Complex[] = [...complexPairs, ...repeatedReal.map((c) => ({ re: c.re, im: 0 }))];
+    const dom = candidates.reduce((best, z) => (Math.abs(z.re) < Math.abs(best.re) ? z : best));
+    const domRepeated = dom.im === 0 ? (repeatedReal.find((c) => c.re === dom.re) as { m: number }) : null;
     wn = Math.hypot(dom.re, dom.im);
-    zeta = wn > 0 ? -dom.re / wn : 0;
-    const others = poles.filter((z) => z !== dom && Math.abs(z.im - -dom.im) > 1e-12);
+    zeta = domRepeated ? 1 : wn > 0 ? -dom.re / wn : 0;
+    const others = domRepeated
+      ? poles.filter((z) => z.re !== dom.re || z.im !== 0)
+      : poles.filter((z) => z !== dom && Math.abs(z.im - -dom.im) > 1e-12);
     const ratio = others.length ? Math.min(...others.map((z) => Math.abs(z.re))) / Math.abs(dom.re) : Infinity;
     notes.push(
-      `This is order ${n}, so these figures come from the DOMINANT pole pair and are an ` +
-        "approximation, not an identity.",
+      domRepeated
+        ? `This is order ${n}, and its slowest mode is a REPEATED real pole (multiplicity ${domRepeated.m} at ` +
+            `s = ${Number(dom.re.toPrecision(6))}): critically damped, ζ = 1, with no oscillation. These figures describe that ` +
+            "pole and are an approximation to the whole response, not an identity."
+        : `This is order ${n}, so these figures come from the DOMINANT pole pair and are an ` +
+            "approximation, not an identity.",
     );
     if (Number.isFinite(ratio) && ratio < 5) {
       notes.push(

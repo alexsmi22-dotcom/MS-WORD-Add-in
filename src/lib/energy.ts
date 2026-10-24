@@ -1722,7 +1722,7 @@ const DEG = Math.PI / 180;
 export function solarGeometry(inp: SolarGeometryInput): SolarGeometryResult | EnergyError {
   const lat = inp.latitudeDeg;
   if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
-    return { ok: false, error: "Latitude runs -90 to 90 degrees (north positive)." };
+    return { ok: false, error: "Latitude runs −90 to 90 degrees (north positive)." };
   }
   if (!Number.isFinite(inp.dayOfYear) || !Number.isInteger(inp.dayOfYear) || inp.dayOfYear < 1 || inp.dayOfYear > 366) {
     return { ok: false, error: "The day of year is a whole number from 1 to 366 (Jun 21 is 172)." };

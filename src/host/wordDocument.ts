@@ -333,7 +333,7 @@ export async function buildNativeToa(): Promise<NativeToaReport> {
         const markIndex = step.assign[k];
         if (markIndex === null) return;
         const mark = marks[markIndex];
-        hit.insertOoxml(taFieldOoxml(mark.name, mark.rest, mark.categoryNum), Word.InsertLocation.before);
+        hit.insertOoxml(taFieldOoxml(mark.name, mark.rest, mark.categoryNum, mark.html), Word.InsertLocation.before);
         categoryNums.add(mark.categoryNum);
         markedAuthorities.add(markIndex);
         occurrences++;

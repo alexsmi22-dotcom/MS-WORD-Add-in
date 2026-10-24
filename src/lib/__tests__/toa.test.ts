@@ -305,9 +305,10 @@ describe("findPrecedingAuthority", () => {
     expect(auth).toEqual({ plain: "35 U.S.C. § 101", category: "statutes" });
   });
 
-  test("picks the closest preceding case when it comes last", () => {
+  test("an Id. after a string cite of several authorities is refused (Rule 4.1; fix2)", () => {
     const auth = findPrecedingAuthority("35 U.S.C. § 101; see Mayo v. Prometheus, 566 U.S. 66 (2012)");
-    expect(auth).toEqual({ plain: "Mayo v. Prometheus, 566 U.S. 66", category: "cases" });
+    expect(auth?.plain).toBe("");
+    expect(auth?.refused).toMatch(/string citation/);
   });
 
   test("returns null when there is no preceding authority", () => {

@@ -169,6 +169,29 @@ export function dashRanges(pin: string): string {
 }
 
 /**
+ * A PAGE span per Rule 3.2(a): an en dash, and repetitious digits dropped
+ * except the last two — "216-218" → "216–18", "1312–1317" → "1312–17",
+ * "100-105" → "100–05". A second number that is already short ("1335-36"),
+ * longer ("99-100") or not larger is kept as written. Pages only: never a
+ * section (§/¶ spans keep every digit) nor a patent column/line pin.
+ */
+export function pageRanges(pin: string): string {
+  if (/[§¶]/.test(pin)) return dashRanges(pin);
+  return pin.replace(/(?<![\d.])(\d{1,7})\s*[-–—]\s*(\d{1,7})(?![\d.])/g, (_all, a: string, b: string) => {
+    if (b.length !== a.length || parseInt(b, 10) <= parseInt(a, 10)) return `${a}–${b}`;
+    let p = 0;
+    while (p < a.length && a[p] === b[p]) p++;
+    return `${a}–${b.slice(Math.min(p, b.length - 2))}`;
+  });
+}
+
+/** A section typed with its own sign ("§ 101", "§§ 1.97-1.98", "sec. 101")
+ *  loses the sign, which the formatter adds (fix2: "§ §" was printed). */
+function bareSection(section: string): string {
+  return section.replace(/^\s*(?:§+|sec(?:tions?|s)?\.?)\s*/i, "");
+}
+
+/**
  * Section ranges with an en dash ("101-103" → "101–103", "1.97-1.98" →
  * "1.97–1.98", Rule 3.3(b)) — but never the hyphen INSIDE one section number
  * ("1.6011-4", "2000e-2"): a token is a range only when sectionSymbol calls
@@ -194,6 +217,13 @@ export const REPORTER_NAMES: string[] = [
   "U.S.P.Q.", "U.S.P.Q.2d",
   "A.", "A.2d", "A.3d", "P.", "P.2d", "P.3d", "N.E.", "N.E.2d", "N.E.3d", "N.W.", "N.W.2d",
   "S.E.", "S.E.2d", "S.W.", "S.W.2d", "S.W.3d", "So.", "So. 2d", "So. 3d", "Cal.", "N.Y.", "N.Y.2d", "N.Y.3d",
+  // T1 gaps a patent / commercial litigator hits (docs2 review, fix2): federal
+  // specialised courts, California, New York and the larger state reporters.
+  "F. Cas.", "B.R.", "T.C.", "Vet. App.", "Cl. Ct.", "Ct. Cl.", "Ct. Int'l Trade", "C.M.A.", "M.J.",
+  "Cal. 2d", "Cal. 3d", "Cal. 4th", "Cal. 5th", "Cal. App.", "Cal. App. 2d", "Cal. App. 3d", "Cal. App. 4th", "Cal. App. 5th",
+  "Cal. Rptr.", "Cal. Rptr. 2d", "Cal. Rptr. 3d", "N.Y.S.", "N.Y.S.2d", "N.Y.S.3d", "A.D.2d", "A.D.3d", "Misc. 2d", "Misc. 3d",
+  "Ill. 2d", "Ill. App. 3d", "Ill. Dec.", "Mass.", "Mass. App. Ct.", "N.J.", "N.J. Super.", "Pa.", "Pa. Super.",
+  "Wash. 2d", "Wash. App.", "Ohio St. 3d", "Wis. 2d", "Mich.", "Mich. App.", "Del. Ch.", "Ga.", "Ga. App.", "Va.",
 ];
 
 /**
@@ -276,6 +306,7 @@ export const SIGNALS: { value: string; label: string }[] = [
   { value: "", label: "(no signal)" },
   { value: "See", label: "See" },
   { value: "See also", label: "See also" },
+  { value: "See generally", label: "See generally" },
   { value: "See, e.g.,", label: "See, e.g.," },
   { value: "E.g.,", label: "E.g.," },
   { value: "Cf.", label: "Cf." },
@@ -290,10 +321,31 @@ export const SIGNALS: { value: string; label: string }[] = [
 export function applySignal(signal: string, cite: CitationResult): CitationResult {
   const s = signal.trim();
   if (!s) return cite;
-  return { plain: `${s} ${cite.plain}`, html: `${it(s)} ${cite.html}` };
+  // Rule 4.1: "id." is capitalised only when it begins a citation sentence —
+  // after a signal it is "See id. at 217", never "See Id.".
+  const plain = cite.plain.replace(/^Id\./, "id.");
+  const html = cite.html.replace(/^<i>Id\./, "<i>id.");
+  return { plain: `${s} ${plain}`, html: `${it(s)} ${html}` };
+}
+
+/**
+ * "Id." or "id." for an Id. typed at the cursor, from the text before it
+ * (Rule 4.1): capitalised only when it begins a citation sentence — at the
+ * start, or after a sentence end — and lowercase after a signal ("See id."),
+ * a comma or semicolon, or inside a sentence.
+ */
+export function idForm(textBefore: string): "Id." | "id." {
+  const t = textBefore.replace(/[\s ]+$/, "");
+  if (!t) return "Id.";
+  return /[.!?]["”’)\]]*$/.test(t) && !/(?:^|[\s(])(?:See|see|Cf|cf|E\.g|e\.g)\.$/.test(t) ? "Id." : "id.";
 }
 
 // --- citation types ----------------------------------------------------------
+
+/** The explanatory phrases of subsequent history (Rule 10.7, T8). */
+const HISTORY_PHRASE_SRC =
+  "(?:aff['’]d|rev['’]d|vacated|modified|cert\\.\\s+(?:denied|granted|dismissed)|reh['’]g(?:\\s+en\\s+banc)?\\s+denied|appeal\\s+dismissed|overruled\\s+by)(?:\\s+in\\s+part)?(?:\\s+mem\\.)?(?:\\s+on\\s+other\\s+grounds)?";
+const HISTORY_PHRASE_HTML = new RegExp(`(?<![A-Za-z])(?:${HISTORY_PHRASE_SRC}|sub\\s+nom\\.)`, "g");
 
 export const CITATIONS: CitationType[] = [
   {
@@ -314,12 +366,14 @@ export const CITATIONS: CitationType[] = [
       // Rule 10.6.1: "(en banc)", "(per curiam)", "(quoting …)" follow the
       // court/year parenthetical and are part of the citation.
       { key: "explan", label: "Parenthetical(s)", placeholder: "(en banc)", optional: true },
+      // Rule 10.7: subsequent history follows the parentheticals (R. 1.5(b)).
+      { key: "history", label: "Subsequent history", placeholder: "cert. denied, 143 S. Ct. 1783 (2023)", optional: true },
     ],
     format: (g, style) => {
       const reporter = normalizeReporter(g("reporter"));
       const court = normalizeCourt(g("court"));
       const loc = join([g("vol"), reporter, g("page")]);
-      const pinText = dashRanges(g("pin"));
+      const pinText = pageRanges(g("pin"));
       const withPin = pinText ? `${loc}, ${pinText}` : loc;
       // Parallel reporters (Rule 10.3.1) follow the primary cite, before the year.
       const withParallel = g("parallel") ? `${withPin}, ${g("parallel")}` : withPin;
@@ -330,9 +384,16 @@ export const CITATIONS: CitationType[] = [
       const paren = (inner ? ` (${inner})` : "") + (explan ? ` ${/^\(/.test(explan) ? explan : `(${explan})`}` : "");
       // Practitioner italicizes the case name; academic full citations set it roman.
       const nameHtml = style === "academic" ? esc(g("name")) : it(g("name"));
+      // Subsequent history: the explanatory phrase ("cert. denied", "aff'd")
+      // is italic in practitioner style (Bluepages B10.1.6) and roman in academic.
+      const history = g("history").replace(/^,\s*/, "");
+      const histPlain = history ? `, ${history}` : "";
+      const histHtml = history
+        ? `, ${style === "academic" ? esc(history) : esc(history).replace(HISTORY_PHRASE_HTML, (p: string) => `<i>${p}</i>`)}`
+        : "";
       return {
-        plain: `${g("name")}, ${withDocket}${paren}`,
-        html: `${nameHtml}, ${esc(withDocket)}${esc(paren)}`,
+        plain: `${g("name")}, ${withDocket}${paren}${histPlain}`,
+        html: `${nameHtml}, ${esc(withDocket)}${esc(paren)}${histHtml}`,
       };
     },
   },
@@ -347,7 +408,7 @@ export const CITATIONS: CitationType[] = [
     ],
     // Short-form case names are italicized in both styles.
     format: (g) => {
-      const tail = `${join([g("vol"), normalizeReporter(g("reporter"))])} at ${g("pin")}`;
+      const tail = `${join([g("vol"), normalizeReporter(g("reporter"))])} at ${pageRanges(g("pin"))}`;
       return { plain: `${g("name")}, ${tail}`, html: `${it(g("name"))}, ${esc(tail)}` };
     },
   },
@@ -358,7 +419,7 @@ export const CITATIONS: CitationType[] = [
     // "Id." (italic, including the period) refers to the immediately preceding
     // authority; add a pincite when the page differs. Rule 4.1.
     format: (g) => {
-      const pin = g("pin");
+      const pin = pageRanges(g("pin"));
       return {
         plain: pin ? `Id. at ${pin}` : "Id.",
         html: pin ? `<i>Id.</i> at ${esc(pin)}` : "<i>Id.</i>",
@@ -377,7 +438,7 @@ export const CITATIONS: CitationType[] = [
     // secondary sources (books, articles, …) — not cases, statutes, or regs.
     format: (g) => {
       const note = g("note") ? ` note ${g("note")}` : "";
-      const pin = g("pin") ? `, at ${g("pin")}` : "";
+      const pin = g("pin") ? `, at ${pageRanges(g("pin"))}` : "";
       return {
         plain: `${g("name")}, supra${note}${pin}`,
         html: `${esc(g("name"))}, <i>supra</i>${esc(note)}${esc(pin)}`,
@@ -395,7 +456,8 @@ export const CITATIONS: CitationType[] = [
     ],
     format: (g) => {
       const sub = g("sub") ? `(${g("sub")})` : "";
-      const core = `${g("title")} U.S.C. ${sectionSymbol(g("section"))} ${sectionRanges(g("section"))}${sub}`;
+      const sec = bareSection(g("section"));
+      const core = `${g("title")} U.S.C. ${sectionSymbol(sec)} ${sectionRanges(sec)}${sub}`;
       const plain = g("year") ? `${core} (${g("year")})` : core;
       return { plain, html: esc(plain) };
     },
@@ -409,7 +471,8 @@ export const CITATIONS: CitationType[] = [
       { key: "year", label: "Year", placeholder: "2023", optional: true },
     ],
     format: (g) => {
-      const core = `${g("title")} C.F.R. ${sectionSymbol(g("section"))} ${sectionRanges(g("section"))}`;
+      const sec = bareSection(g("section"));
+      const core = `${g("title")} C.F.R. ${sectionSymbol(sec)} ${sectionRanges(sec)}`;
       const plain = g("year") ? `${core} (${g("year")})` : core;
       return { plain, html: esc(plain) };
     },
@@ -423,7 +486,13 @@ export const CITATIONS: CitationType[] = [
       { key: "date", label: "Issue date", placeholder: "2019-05-14 or May 14, 2019", optional: true },
     ],
     format: (g) => {
-      const core = join([`U.S. Patent No. ${formatPatentNumber(g("number"))}`, dashRanges(g("pin"))]);
+      // A patent number is digits (with an optional RE/PP/D/… prefix) — "abc"
+      // is refused by name instead of printed as "U.S. Patent No. abc" (fix2).
+      const num = formatPatentNumber(g("number"));
+      if (!/^(?:RE|PP|AI|[DHTX])?\d{1,3}(?:,\d{3})*$/.test(num)) {
+        throw new Error(`“${g("number")}” is not a U.S. patent number — type the digits, e.g. 10,123,456, RE45,678 or D900,000.`);
+      }
+      const core = join([`U.S. Patent No. ${num}`, dashRanges(g("pin"))]);
       const plain = g("date") ? `${core} (issued ${formatDate(g("date"))})` : core;
       return { plain, html: esc(plain) };
     },
@@ -466,7 +535,8 @@ export const CITATIONS: CitationType[] = [
       { key: "edition", label: "Edition", placeholder: "9th ed. Rev. 10.2019, June 2020", optional: true },
     ],
     format: (g) => {
-      const core = `MPEP ${sectionSymbol(g("section"))} ${sectionRanges(g("section"))}`;
+      const sec = bareSection(g("section"));
+      const core = `MPEP ${sectionSymbol(sec)} ${sectionRanges(sec)}`;
       const plain = g("edition") ? `${core} (${g("edition")})` : core;
       return { plain, html: esc(plain) };
     },
@@ -485,11 +555,11 @@ export const CITATIONS: CitationType[] = [
     ],
     format: (g, style) => {
       const loc = join([g("vol"), g("journal"), g("page")]);
-      const withPin = g("pin") ? `${loc}, ${g("pin")}` : loc;
+      const withPin = g("pin") ? `${loc}, ${pageRanges(g("pin"))}` : loc;
       // Academic sets the journal in large-and-small caps; practitioner roman.
       const locHtml =
         style === "academic"
-          ? join([esc(g("vol")), sc(g("journal")), esc(g("page"))]) + (g("pin") ? `, ${esc(g("pin"))}` : "")
+          ? join([esc(g("vol")), sc(g("journal")), esc(g("page"))]) + (g("pin") ? `, ${esc(pageRanges(g("pin")))}` : "")
           : esc(withPin);
       // A journal whose volumes are designated by year ("2013 Wis. L. Rev.")
       // takes no date parenthetical — the year is already the volume (Bluebook
@@ -516,13 +586,13 @@ export const CITATIONS: CitationType[] = [
     format: (g, style) => {
       // A multi-volume work cites the volume before the author (Rule 3.2).
       const volPrefix = g("vol") ? `${g("vol")} ` : "";
-      const withPin = g("pin") ? `${volPrefix}${g("author")}, ${g("title")} ${g("pin")}` : `${volPrefix}${g("author")}, ${g("title")}`;
+      const withPin = g("pin") ? `${volPrefix}${g("author")}, ${g("title")} ${pageRanges(g("pin"))}` : `${volPrefix}${g("author")}, ${g("title")}`;
       // Nothing to put in the parenthetical → no "()" at all.
       const innerParen = join([g("edition"), g("year")]);
       const paren = innerParen ? `(${innerParen})` : "";
       // Academic sets the author and title in large-and-small caps; practitioner
       // uses roman author + italic title. The volume number stays roman in both.
-      const pinHtml = g("pin") ? " " + esc(g("pin")) : "";
+      const pinHtml = g("pin") ? " " + esc(pageRanges(g("pin"))) : "";
       const bodyHtml =
         style === "academic"
           ? `${esc(volPrefix)}${sc(g("author"))}, ${sc(g("title"))}${pinHtml}`
@@ -1027,6 +1097,9 @@ export interface ParsedCitation {
   typeId: string;
   fields: Record<string, string>;
   signal: string;
+  /** What followed the first authority in a "Compare A, with B" or "A; B"
+   *  string — a separate citation, not parsed into these fields. */
+  remainder?: string;
 }
 
 const CASE_NAME_SIGNAL = /(\bv\.\s)|(^in re\b)|(^ex parte\b)|(^matter of\b)|(^in the matter of\b)/i;
@@ -1242,7 +1315,36 @@ function peelParentheticals(t: string): { core: string; explan: string } {
   return { core: peeled.length ? core : t, explan: peeled.join(" ") };
 }
 
-const detectCase: Detector = (t) => {
+/** Index of the first character of `t` at parenthesis depth 0 where `re`
+ *  (sticky) matches, or -1. Linear: one pass, one sticky test per position. */
+function atDepthZero(t: string, re: RegExp, from = 0): number {
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && i >= from) {
+      re.lastIndex = i;
+      if (re.test(t)) return i;
+    }
+  }
+  return -1;
+}
+
+/** ", cert. denied, …" after a full cite's parentheticals (Rule 10.7). */
+const HISTORY_START = new RegExp(`,\\s*(?=${HISTORY_PHRASE_SRC}\\s*,|${HISTORY_PHRASE_SRC}\\s+sub\\s+nom\\.)`, "iy");
+
+const detectCase: Detector = (raw) => {
+  // Subsequent history ("…(Fed. Cir. 2022), cert. denied, 143 S. Ct. 1783
+  // (2023)") is split off first, so the history cite is never read as the
+  // case and its words never join the case name (fix2).
+  let t = raw;
+  let history = "";
+  const h = atDepthZero(raw, HISTORY_START);
+  if (h > 0 && /\)\s*$/.test(raw.slice(0, h))) {
+    t = raw.slice(0, h);
+    history = raw.slice(h).replace(/^\s*,\s*/, "").replace(/\.\s*$/, "").trim();
+  }
   const { core, explan } = peelParentheticals(t);
   const m = CITE_HEAD.exec(core);
   if (!m) return null;
@@ -1263,6 +1365,7 @@ const detectCase: Detector = (t) => {
   const fields: Record<string, string> = { name, vol: m[2], reporter, page: m[4], pin, parallel, court, year };
   if (docket) fields.docket = docket;
   if (explan) fields.explan = explan;
+  if (history) fields.history = history;
   return { typeId: "case", fields };
 };
 
@@ -1289,15 +1392,21 @@ const detectArticle: Detector = (t) => {
 
 // Federal Register runs FIRST: its "(to be codified at 37 C.F.R. pt. 1)"
 // parenthetical would otherwise be read as a C.F.R. (or U.S.C.) cite.
+// The case detector runs NEXT (fix2): a case's own parenthetical — "(quoting
+// 35 U.S.C. § 101)", "(citing MPEP § 2106)" — contains a statute / MPEP /
+// patent cite, and those detectors scan the whole string, so they used to win
+// and the case was lost. detectCase only accepts "Name, vol Reporter page
+// (… year)" with a case-name signal or a known reporter, so a statute, rule,
+// article or patent string does not pass it.
 const DETECTORS: Detector[] = [
   detectFedReg,
+  detectCase,
   detectStatute,
   detectCFR,
   detectMPEP,
   detectPatentApp,
   detectPatent,
   detectBarePatent,
-  detectCase,
   detectArticle,
 ];
 
@@ -1309,10 +1418,21 @@ const DETECTORS: Detector[] = [
 export function parseCitation(raw: string): ParsedCitation | null {
   const collapsed = raw.replace(/\s+/g, " ").trim();
   if (!collapsed) return null;
-  const { signal, rest } = extractSignal(collapsed);
+  const { signal, rest: whole } = extractSignal(collapsed);
+  // One authority per parse (fix2): "Compare A, with B" and a string cite
+  // "A; B" are split at the first top-level ", with" / ";" — the form gets A,
+  // and the rest is handed back (`remainder`) to parse on its own, instead of
+  // "A, 409 U.S. 63 (1972), with Parker v. Flook" becoming one case name.
+  let rest = whole;
+  let remainder = "";
+  const cut = atDepthZero(whole, /,\s+with\s+|;\s+/y);
+  if (cut > 0) {
+    rest = whole.slice(0, cut).trim();
+    remainder = whole.slice(cut).replace(/^[,;]\s*/, "").trim();
+  }
   for (const d of DETECTORS) {
     const hit = d(rest);
-    if (hit) return { ...hit, signal };
+    if (hit) return remainder ? { ...hit, signal, remainder } : { ...hit, signal };
   }
   return null;
 }

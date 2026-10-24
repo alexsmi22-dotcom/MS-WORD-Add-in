@@ -499,12 +499,10 @@ describe("cosmetic / contested (it.failing)", () => {
     expect(scan(t).occ).toHaveLength(2);
   });
 
-  // "Under Alice Corp. v. …" is filed under U. The code keeps "Under" on purpose
-  // ("Under Armour"); a refusal/flag would beat both outcomes.
-  // KEPT AS IS (fix round, coordinator decision): stripping "Under" would corrupt
-  // real parties (Under Armour, Inc.; Under Seal) — a wrong name in a filed TOA
-  // is worse than a prose word the drafter can see and delete.
-  it.failing("'Under Alice Corp. v. …' is filed as Alice", () => {
+  // FIXED (fix2, docs2 review): "Under" is stripped except before the real
+  // parties that start with it (Under Armour, Under Seal, Under Sea), which a
+  // test in docs2Fixes pins as kept whole.
+  it("'Under Alice Corp. v. …' is filed as Alice", () => {
     expect(scan(`Under ${ALICE}, courts apply two steps.`).longs[0]).toMatch(/^Alice/);
   });
 });

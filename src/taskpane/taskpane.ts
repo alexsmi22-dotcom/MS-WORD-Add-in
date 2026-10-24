@@ -542,6 +542,8 @@ import {
   caseShortForm,
   abbreviateCaseName,
   isKnownReporter,
+  idForm,
+  pageRanges,
   CitationResult,
   CitationStyle,
 } from "../lib/citations";
@@ -35534,7 +35536,9 @@ function parseAndFillCitation(): void {
   }
   updateCitationPreview();
   citeParseMsg.className = "build-readout";
-  citeParseMsg.textContent = `Detected: ${type?.name ?? parsed.typeId}. Review the fields, then insert.`;
+  citeParseMsg.textContent = parsed.remainder
+    ? `Detected: ${type?.name ?? parsed.typeId} — the first authority only. The rest (“${parsed.remainder}”) is a separate citation: paste it on its own. Review the fields, then insert.`
+    : `Detected: ${type?.name ?? parsed.typeId}. Review the fields, then insert.`;
 }
 
 /** Formats and previews the citation for the current inputs. */
@@ -35559,8 +35563,9 @@ function updateCitationPreview(): void {
   }
   try {
     currentCitation = applySignal(citeSignalSelect.value, type.format(read, citeStyleSelect.value as CitationStyle));
-  } catch {
-    citePreview.innerHTML = '<span class="hint">Couldn’t format this citation — check the fields.</span>';
+  } catch (e) {
+    const why = e instanceof Error && e.message ? e.message : "Couldn’t format this citation — check the fields.";
+    citePreview.innerHTML = `<span class="hint">${esc(why)}</span>`;
     return;
   }
   citePreview.innerHTML = currentCitation.html;
@@ -35601,15 +35606,19 @@ async function insertIdForPreceding(): Promise<void> {
     let authority: ReturnType<typeof findPrecedingAuthority> = null;
     await docHost.replaceSelectionFromTextBefore((textBefore) => {
       authority = findPrecedingAuthority(textBefore);
-      if (!authority) return null;
-      const pin = (citeInputs.querySelector<HTMLInputElement>('[data-key="pin"]')?.value ?? "").trim();
-      return { html: pin ? `<i>Id.</i> at ${esc(pin)}` : "<i>Id.</i>", tag: "formula-inserter:citation" };
+      if (!authority || authority.refused) return null;
+      const pin = pageRanges((citeInputs.querySelector<HTMLInputElement>('[data-key="pin"]')?.value ?? "").trim());
+      // Rule 4.1: "Id." only when it begins a citation sentence; "id." after a signal or mid-sentence.
+      const id = idForm(textBefore);
+      return { html: pin ? `<i>${id}</i> at ${esc(pin)}` : `<i>${id}</i>`, tag: "formula-inserter:citation" };
     });
     const found = authority as ReturnType<typeof findPrecedingAuthority>;
-    if (!found) {
+    if (!found || found.refused) {
       citeIdDetectMsg.className = "build-readout warn";
-      citeIdDetectMsg.textContent = "No preceding authority found above the cursor — “Id.” needs one.";
-      setStatus("No preceding authority found.", "");
+      citeIdDetectMsg.textContent = found?.refused
+        ? `“Id.” not inserted: ${found.refused} Cite the authority in short form instead.`
+        : "No preceding authority found above the cursor — “Id.” needs one.";
+      setStatus(found?.refused ? "Id. would not name one authority — not inserted." : "No preceding authority found.", "");
       return;
     }
     citeIdDetectMsg.className = "build-readout";

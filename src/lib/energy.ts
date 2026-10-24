@@ -1451,7 +1451,7 @@ export function flueGas(inp: FlueGasInput): FlueGasResult | EnergyError {
     return {
       ok: false,
       error:
-        `${inp.o2DryPct}% O₂ is the oxygen content of air itself (20.9 % measured, ${(o2AirFraction * 100).toFixed(1)}% in the ` +
+        `${inp.o2DryPct}% O₂ is the oxygen content of air itself (20.9 % measured, ${(o2AirFraction * 100).toFixed(1)} % in the ` +
         "dry-air model): that is infinite excess air (no combustion oxygen consumed) — the analyser is reading air, " +
         "not flue gas, or the probe is leaking.",
     };

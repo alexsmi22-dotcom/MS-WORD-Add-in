@@ -531,7 +531,7 @@ export function affinityLaws(inp: AffinityInput): AffinityResult | Fluids2Error 
     );
   }
   notes.push(
-    "The affinity laws assume geometric similarity and constant efficiency. Efficiency does fall " +
+    "The affinity laws assume constant efficiency (and similar flow conditions at the two points). Efficiency does fall " +
       "away from the best point and at low speed, so a large change is an estimate rather than a " +
       "guarantee.",
   );

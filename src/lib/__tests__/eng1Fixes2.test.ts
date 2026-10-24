@@ -259,7 +259,8 @@ describe("5. Display", () => {
   test("section drawing reads c (top) / c (bot); Nernst legend fits the 22-character legend", () => {
     const mech = fs.readFileSync(path.join(__dirname, "..", "mechchart.ts"), "utf8");
     expect(mech).not.toMatch(/c_top|c_bot/);
-    expect(mech).toMatch(/c \(top\) = /);
+    expect(mech).toMatch(/>c \(top\) =</);
+    expect(mech).toMatch(/>c \(bot\) =</);
     const charts = fs.readFileSync(path.join(__dirname, "..", "engCharts2026.ts"), "utf8");
     expect(charts).toMatch(/label: `slope −\$\{fmtSig\(slopePerDecade \* 1000, 4\)\} mV\/decade`/);
     expect("slope −29.58 mV/decade".length).toBeLessThanOrEqual(22);

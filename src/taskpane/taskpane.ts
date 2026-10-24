@@ -16074,7 +16074,7 @@ const ENG_CALCS: EngCalc[] = [
         ["Half-life", engNum(res.halfLife), "h"],
         ["AUClast, to the last positive concentration", engNum(res.aucLast), "mg·h/L"],
         ["AUC to infinity", engNum(res.aucInf), "mg·h/L"],
-        ["Extrapolated beyond the last sample", engNum(res.percentExtrapolated), "%"],
+        ["Extrapolated beyond the last positive concentration", engNum(res.percentExtrapolated), "%"],
         [`Clearance CL${apparent} = Dose/AUC∞`, engNum(res.clearance), "L/h"],
         [`Terminal volume Vz${apparent} = Dose/(λz·AUC∞)`, engNum(res.volume), "L"],
         ["Mean residence time", engNum(res.mrt), "h"],
@@ -19683,7 +19683,7 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: EngReportLine[] = [
-        ...engEq(res.diameterRatio !== 1 && r("dlaw") !== "similar" ? "affinity:trim" : "affinity"),
+        ...(res.diameterRatio !== 1 && r("dlaw") !== "similar" ? engEq("affinity:trim") : engEq("affinity")),
         `Affinity scaling, speed ratio ${engNum(res.speedRatio, 5)}`,
         "",
         kvTable([

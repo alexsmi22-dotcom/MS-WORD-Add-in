@@ -1281,12 +1281,67 @@ function balanceFullInMedium(p: ParsedEquation, skel: Species[], skelSides: Side
   skel.forEach((s, j) => skelSides[j] === "right" && push(s, "right", v[j]));
   aux.forEach((s, j) => v[skel.length + j] < 0n && push(s, "right", -v[skel.length + j]));
   const notes = resolvedNotes(p.species);
-  const ionName = medium === "acid" ? "H⁺" : "OH⁻";
+  // Only the helpers that took a non-zero coefficient are named ("AgNO3 + NaCl -> AgCl + NaNO3 in acid" needs none).
+  // A helper the equation already had as typed (HCl + NaOH -> NaCl + H2O) was not added either.
+  const typed = new Set(p.species.map((s) => speciesKey({ ...s, state: null })));
+  const added = aux.filter((a, j) => v[skel.length + j] !== 0n && !typed.has(speciesKey({ ...a, state: null }))).map((a) => a.display);
+  const solution = medium === "acid" ? "acidic" : "basic";
   notes.push(
-    `Balanced in ${medium === "acid" ? "acidic" : "basic"} solution: H₂O and ${ionName} were added where needed. ` +
-      "This is a full equation, so no free electrons appear — the electrons lost and gained cancel.",
+    added.length
+      ? `Balanced in ${solution} solution: ${added.join(" and ")} ${added.length === 1 ? "was" : "were"} added where needed.`
+      : `Balanced in ${solution} solution: no ${aux.map((a) => a.display).join(" or ")} had to be added.`,
   );
+  // The electron sentence only where an oxidation state is shown to change (a precipitation is not a redox).
+  if (redoxShown(species, sides)) notes.push("This is a full equation, so no free electrons appear: the electrons lost and gained cancel.");
   return finishOk(species, sides, coefs, p.arrow, notes, null);
+}
+
+/** Elements whose oxidation state in a compound is fixed by the usual rules. */
+const FIXED_OXIDATION: Record<string, number> = { F: -1, Li: 1, Na: 1, K: 1, Rb: 1, Cs: 1, Be: 2, Mg: 2, Ca: 2, Sr: 2, Ba: 2, Al: 3, Zn: 2, Ag: 1 };
+const HYDRIDE_PARTNERS = new Set(["Li", "Na", "K", "Rb", "Cs", "Be", "Mg", "Ca", "Sr", "Ba", "Al"]);
+
+/**
+ * Each element's oxidation state in one species by the usual assignment rules (F −1; alkali +1; alkaline earth +2;
+ * Al +3, Zn +2, Ag +1; H +1, or −1 in a metal hydride; O −2 unless bonded to F; Cl/Br/I −1 when no O or F is present;
+ * the one element left over takes what balances the charge). Null when that does not settle every element.
+ */
+function oxidationStates(s: Species): Record<string, number> | null {
+  const els = Object.keys(s.counts).map((e) => (e === "D" || e === "T" ? "H" : e));
+  const count: Record<string, number> = {};
+  for (const [e, c] of Object.entries(s.counts)) {
+    const k = e === "D" || e === "T" ? "H" : e;
+    count[k] = (count[k] ?? 0) + ratToNumber(c);
+  }
+  const uniq = [...new Set(els)];
+  if (uniq.length === 1) return { [uniq[0]]: s.charge / count[uniq[0]] };
+  const ox: Record<string, number> = {};
+  for (const e of uniq) {
+    if (e in FIXED_OXIDATION) ox[e] = FIXED_OXIDATION[e];
+    else if (e === "H") ox[e] = uniq.every((x) => x === "H" || HYDRIDE_PARTNERS.has(x)) ? -1 : 1;
+    else if (e === "O" && !uniq.includes("F")) ox[e] = -2;
+    else if ((e === "Cl" || e === "Br" || e === "I") && !uniq.includes("O") && !uniq.includes("F") && uniq.filter((x) => x === "Cl" || x === "Br" || x === "I").length === 1) ox[e] = -1;
+  }
+  const open = uniq.filter((e) => !(e in ox));
+  const fixedSum = uniq.filter((e) => e in ox).reduce((t, e) => t + ox[e] * count[e], 0);
+  if (open.length === 1) {
+    ox[open[0]] = (s.charge - fixedSum) / count[open[0]];
+    return ox;
+  }
+  return open.length === 0 && Math.abs(fixedSum - s.charge) < 1e-9 ? ox : null;
+}
+
+/** True only when the balanced equation is SHOWN to change an oxidation state (else the electron sentence is left out). */
+function redoxShown(species: Species[], sides: Side[]): boolean {
+  const states: Array<Record<string, number> | null> = species.map((s) => (s.electron ? {} : oxidationStates(s)));
+  const sets = (side: Side, e: string): string =>
+    [...new Set(species.flatMap((_, j) => (sides[j] === side && states[j] && e in states[j]! ? [states[j]![e].toFixed(6)] : [])))].sort().join(",");
+  const hydrogenOf = (e: string): string => (e === "D" || e === "T" ? "H" : e);
+  const elements = [...new Set(species.flatMap((s) => Object.keys(s.counts).map(hydrogenOf)))];
+  // An element changed when every species holding it is settled and its states differ between the two sides.
+  return elements.some((e) => {
+    const holders = species.map((_, j) => j).filter((j) => Object.keys(species[j].counts).some((k) => hydrogenOf(k) === e));
+    return holders.every((j) => states[j]) && sets("left", e) !== sets("right", e);
+  });
 }
 
 function balanceHalf(p: ParsedEquation, medium: "acid" | "base", forceHalf = false): BalanceResult {

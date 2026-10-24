@@ -250,16 +250,234 @@ export function checkSmiles(smiles: string): SmilesCheck {
   // the FORMULA reading "carbon, C₃". Said as a SMILES error where the string is written as SMILES (no bare H — a
   // formula's "C7H8O2" digits are counts, not ring bonds) and reads once the open labels are taken out.
   const ring = unclosedRing(s);
-  if (ring && /^[BCNOPSFIbcnops]*$/.test(s.replace(/\[[^\]]*\]|Cl|Br/g, "").replace(/[^A-Za-z]/g, ""))) {
+  if (ring && !readsAsFormula(s) && /^[BCNOPSFIbcnops]*$/.test(s.replace(/\[[^\]]*\]|Cl|Br/g, "").replace(/[^A-Za-z]/g, ""))) {
     if (parseSmilesOnly(parsed.replace(/%\d\d|\d(?![^[]*\])/g, ""))) return { ok: false, message: `“${s}” is not valid SMILES: ring bond ${ring} is opened but never closed (each ring-closure digit must appear twice).`, invalid: true };
   }
-  const mol = parseSmilesOnly(parsed);
+  let mol = parseSmilesOnly(parsed);
   if (!mol) return { ok: false, message: `“${s}” is not a SMILES string this tool can read.` };
   const v = valenceProblem(mol);
   if (v) return { ok: false, message: `“${s}” is not a valid structure: ${v}.`, invalid: true };
-  const k = inventedRadical(s, mol);
+  // OpenChemLib's radical flag alone is not a refusal: its aromaticity resolver gives up on some systems that DO have
+  // a Kekulé form (porphine, tetraphenylporphyrin, phthalocyanine, heme as RDKit writes it). A real Kekulé matching
+  // over the SMILES's own aromatic atoms and bonds decides; where it finds one, the molecule is repaired to it.
+  const kek = kekuleRepair(s, mol);
+  const k = inventedRadical(s, mol, !!kek?.ok);
   if (k) return { ok: false, message: `“${s}” is not valid SMILES: ${k}`, invalid: true };
+  if (kek?.ok) mol = kek.mol;
   return { ok: true, parsed, mol, wildcards: sub.count, heavyAtoms: heavyAtomCount(mol) };
+}
+
+type SmilesGraphAtom = { el: string; aromatic: boolean; bracket: boolean; h: number; charge: number };
+type SmilesGraph = { atoms: SmilesGraphAtom[]; bonds: Array<{ a: number; b: number; sym: string }> };
+
+/**
+ * The SMILES's own graph: atoms (element, written aromatic, bracket H count and charge) and bonds with the symbol
+ * written on each ("" when implicit). Read from the TEXT, because OpenChemLib has already turned aromatic bonds into
+ * single/double ones and an explicit "-" between aromatic atoms (biphenyl, phthalocyanine's "nc-2n1") looks like any
+ * other single bond there. Null on anything it does not understand.
+ */
+function smilesGraph(s: string): SmilesGraph | null {
+  const atoms: SmilesGraphAtom[] = [];
+  const bonds: SmilesGraph["bonds"] = [];
+  const stack: number[] = [];
+  const open = new Map<string, { atom: number; sym: string }>();
+  let prev = -1;
+  let pending = "";
+  const addAtom = (atom: SmilesGraphAtom): void => {
+    atoms.push(atom);
+    const i = atoms.length - 1;
+    if (prev >= 0) bonds.push({ a: prev, b: i, sym: pending });
+    pending = "";
+    prev = i;
+  };
+  for (let i = 0; i < s.length; ) {
+    const c = s[i];
+    if (c === "[") {
+      const j = s.indexOf("]", i);
+      if (j < 0) return null;
+      const m = /^\[(\d*)(se|te|as|[cnospb]|[A-Z][a-z]?|\*)(@(?:@|TH[12]|AL[12]|SP[123]|TB\d\d?|OH\d\d?)?)?(?:H(\d*))?([+-]+\d*)?(?::\d+)?\]$/.exec(s.slice(i, j + 1));
+      if (!m) return null;
+      let charge = 0;
+      if (m[5]) {
+        const sign = m[5][0] === "+" ? 1 : -1;
+        const digits = m[5].replace(/[+-]/g, "");
+        charge = sign * (digits ? Number(digits) : m[5].replace(/\d/g, "").length);
+      }
+      const aromatic = /^[a-z]/.test(m[2]);
+      addAtom({ el: m[2].toLowerCase(), aromatic, bracket: true, h: m[4] === undefined ? 0 : m[4] ? Number(m[4]) : 1, charge });
+      i = j + 1;
+    } else if (s.startsWith("Cl", i) || s.startsWith("Br", i)) {
+      addAtom({ el: s.slice(i, i + 2).toLowerCase(), aromatic: false, bracket: false, h: 0, charge: 0 });
+      i += 2;
+    } else if (/[BCNOPSFIbcnops*]/.test(c)) {
+      addAtom({ el: c.toLowerCase(), aromatic: /[a-z]/.test(c), bracket: false, h: 0, charge: 0 });
+      i++;
+    } else if (/[-=#$:/\\]/.test(c)) {
+      pending = c;
+      i++;
+    } else if (c === "(") {
+      if (prev < 0) return null;
+      stack.push(prev);
+      i++;
+    } else if (c === ")") {
+      if (!stack.length) return null;
+      prev = stack.pop()!;
+      pending = "";
+      i++;
+    } else if (c === ".") {
+      prev = -1;
+      pending = "";
+      i++;
+    } else if (/\d/.test(c) || c === "%") {
+      const label = c === "%" ? s.slice(i, i + 3) : c;
+      if (c === "%" && !/^%\d\d$/.test(label)) return null;
+      if (prev < 0) return null;
+      const o = open.get(label);
+      if (o) {
+        bonds.push({ a: o.atom, b: prev, sym: pending || o.sym });
+        open.delete(label);
+      } else open.set(label, { atom: prev, sym: pending });
+      pending = "";
+      i += label.length;
+    } else return null;
+  }
+  return open.size ? null : { atoms, bonds };
+}
+
+/**
+ * A Kekulé form for the SMILES's aromatic atoms, checked by a real matching (RDKit's "Can't kekulize mol" test), and
+ * OpenChemLib's molecule repaired to it where its own resolver left radicals. Returns null when the SMILES could not
+ * be read here (the caller keeps its own judgement); { ok: false } when no Kekulé form exists; otherwise ok with the
+ * molecule to use — repaired when the repair keeps the hydrogen count the SMILES implies, else the original.
+ */
+function kekuleRepair(s: string, mol: Molecule): { ok: true; mol: Molecule } | { ok: false } | null {
+  let radicals = 0;
+  for (let i = 0; i < mol.getAllAtoms(); i++) if (mol.getAtomRadical(i)) radicals++;
+  if (!radicals) return { ok: true, mol };
+  const g = smilesGraph(s);
+  if (!g) return null;
+  const n = g.atoms.length;
+  const degree = new Array<number>(n).fill(0);
+  const hasMultiple = new Array<boolean>(n).fill(false);
+  for (const b of g.bonds) {
+    degree[b.a]++;
+    degree[b.b]++;
+    if (b.sym === "=" || b.sym === "#" || b.sym === "$") hasMultiple[b.a] = hasMultiple[b.b] = true;
+  }
+  // Which aromatic atoms must take one ring double bond (RDKit's rules for the common elements).
+  const needs = g.atoms.map((a, i): boolean => {
+    if (!a.aromatic || hasMultiple[i]) return false;
+    const heavy = degree[i];
+    switch (a.el) {
+      case "c":
+      case "b":
+        return a.charge === 0;
+      case "n":
+      case "p":
+      case "as":
+        if (a.charge > 0) return true;
+        if (a.charge < 0 || a.h > 0) return false;
+        return heavy + a.h <= 2;
+      case "o":
+      case "s":
+      case "se":
+      case "te":
+        return a.charge > 0;
+      default:
+        return false;
+    }
+  });
+  const aromaticBond = (b: SmilesGraph["bonds"][number]): boolean => g.atoms[b.a].aromatic && g.atoms[b.b].aromatic && (b.sym === "" || b.sym === ":");
+  const nbrs: number[][] = Array.from({ length: n }, () => []);
+  for (const b of g.bonds) {
+    if (aromaticBond(b) && needs[b.a] && needs[b.b]) {
+      nbrs[b.a].push(b.b);
+      nbrs[b.b].push(b.a);
+    }
+  }
+  // Perfect matching of the atoms that need a double bond: backtracking, most-constrained atom first.
+  const mate = new Array<number>(n).fill(-1);
+  let budget = 200000;
+  let exhausted = false;
+  const solve = (): boolean => {
+    if (--budget < 0) {
+      exhausted = true;
+      return false;
+    }
+    let pick = -1;
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      if (!needs[i] || mate[i] >= 0) continue;
+      const free = nbrs[i].filter((j) => mate[j] < 0).length;
+      if (free < best) {
+        best = free;
+        pick = i;
+        if (free <= 1) break;
+      }
+    }
+    if (pick < 0) return true;
+    if (best === 0) return false;
+    for (const j of nbrs[pick]) {
+      if (mate[j] >= 0) continue;
+      mate[pick] = j;
+      mate[j] = pick;
+      if (solve()) return true;
+      mate[pick] = mate[j] = -1;
+      if (exhausted) return false;
+    }
+    return false;
+  };
+  const found = solve();
+  // Out of search budget: no proof either way — accepted as OpenChemLib read it (a false refusal is the worse error).
+  if (exhausted) return { ok: true, mol };
+  if (!found) return { ok: false };
+  // The repair: every aromatic bond set single or double by the matching, the radicals cleared — kept only when the
+  // atoms line up with the text one for one and the hydrogen count comes out as the SMILES implies.
+  if (mol.getAllAtoms() !== n) return { ok: true, mol };
+  const fixed = mol.getCompactCopy();
+  for (let i = 0; i < n; i++) {
+    const a = g.atoms[i];
+    if (a.el !== "*" && fixed.getAtomLabel(i).toLowerCase() !== a.el) return { ok: true, mol };
+  }
+  fixed.ensureHelperArrays(Molecule.cHelperNeighbours);
+  const bondIdx = g.bonds.map((b) => (aromaticBond(b) ? fixed.getBond(b.a, b.b) : -1));
+  for (const [k, b] of g.bonds.entries()) {
+    if (!aromaticBond(b)) continue;
+    const idx = bondIdx[k];
+    if (idx < 0) return { ok: true, mol };
+    fixed.setBondType(idx, mate[b.a] === b.b ? Molecule.cBondTypeDouble : Molecule.cBondTypeSingle);
+  }
+  for (let i = 0; i < n; i++) if (g.atoms[i].aromatic) fixed.setAtomRadical(i, 0);
+  const hOf = (m: Molecule): number => oclCounts(m.getMolecularFormula().formula).H ?? 0;
+  const expected = impliedHydrogens(g, mate);
+  if (expected === null || hOf(fixed) !== expected) return { ok: true, mol };
+  return { ok: true, mol: fixed };
+}
+
+/** The hydrogens a SMILES implies once its aromatic bonds are set by `mate` (null for an element it cannot judge). */
+function impliedHydrogens(g: SmilesGraph, mate: number[]): number | null {
+  const VALENCES: Record<string, number[]> = { b: [3], c: [4], n: [3, 5], o: [2], p: [3, 5], s: [2, 4, 6], f: [1], cl: [1], br: [1], i: [1] };
+  const order = new Array<number>(g.atoms.length).fill(0);
+  for (const b of g.bonds) {
+    let o = b.sym === "=" ? 2 : b.sym === "#" ? 3 : b.sym === "$" ? 4 : 1;
+    if (g.atoms[b.a].aromatic && g.atoms[b.b].aromatic && (b.sym === "" || b.sym === ":")) o = mate[b.a] === b.b ? 2 : 1;
+    order[b.a] += o;
+    order[b.b] += o;
+  }
+  let total = 0;
+  for (let i = 0; i < g.atoms.length; i++) {
+    const a = g.atoms[i];
+    if (a.bracket || a.el === "*") {
+      total += a.h;
+      continue;
+    }
+    const vals = VALENCES[a.el];
+    if (!vals) return null;
+    const v = vals.find((x) => x >= order[i]);
+    if (v === undefined) return null;
+    total += v - order[i];
+  }
+  return total;
 }
 
 /** The SMILES atoms in order: each one's text and whether it was written in brackets. Null on anything unexpected. */
@@ -284,6 +502,17 @@ function smilesAtomTokens(s: string): Array<{ text: string; bracket: boolean; st
   return out;
 }
 
+/**
+ * True when the text reads as a molecular formula and has nothing only SMILES has: element symbols each written once,
+ * each with an optional count other than 1 ("SF6", "CO2", "P4O10", "SO2Cl2"). Its digits are counts, not ring bonds.
+ * "C1CC" stays SMILES: a count of 1 is never written in a formula, and the same element twice is a chain.
+ */
+function readsAsFormula(s: string): boolean {
+  if (!/^(?:(?:Cl|Br|[BCNOPSFI])(?:[2-9]|[1-9]\d+)?)+$/.test(s)) return false;
+  const els = s.match(/Cl|Br|[A-Z]/g) ?? [];
+  return new Set(els).size === els.length;
+}
+
 /** The first ring-closure label (outside atom brackets) opened and never closed, or null. */
 function unclosedRing(s: string): string | null {
   const open = new Set<string>();
@@ -302,7 +531,7 @@ function unclosedRing(s: string): string | null {
  * no Kekulé form: c1ccnc1 (pyrrole's N–H left out) came out as C₄H₄N with a radical nitrogen, c1ccccc1c as a benzyl
  * radical. RDKit refuses both ("Can't kekulize mol").
  */
-function inventedRadical(s: string, mol: Molecule): string | null {
+function inventedRadical(s: string, mol: Molecule, kekulisable = false): string | null {
   let radicals = 0;
   for (let i = 0; i < mol.getAllAtoms(); i++) if (mol.getAtomRadical(i)) radicals++;
   if (!radicals) return null;
@@ -319,6 +548,8 @@ function inventedRadical(s: string, mol: Molecule): string | null {
       return `atom ${j + 1} (${q.text}) is written aromatic (lowercase) but is in no ring, so it would be left as a radical — an aromatic atom must sit in an aromatic ring; write it as ${up} (${fixed}).`;
     }
   }
+  // A Kekulé form exists (kekuleRepair found one): OpenChemLib's radicals were its resolver giving up, not the SMILES.
+  if (kekulisable) return null;
   for (let i = 0; i < mol.getAllAtoms(); i++) {
     if (!mol.getAtomRadical(i)) continue;
     const tok = sameOrder ? toks![i] : null;
@@ -486,8 +717,11 @@ export function renderStructure(input: string, width = 280, height = 220, opts: 
   // The gate, BEFORE any parse that lays the molecule out.
   const check = checkSmiles(smiles);
   if (!check.ok || drawRefusal(check, opts)) return null;
-  const mol = safeFromSmiles(check.parsed);
-  if (!mol) return null;
+  const parsedMol = safeFromSmiles(check.parsed);
+  if (!parsedMol) return null;
+  // The same Kekulé repair as the gate's (porphine drawn without OpenChemLib's leftover radicals).
+  const kek = kekuleRepair(smiles.trim(), parsedMol);
+  const mol = kek?.ok ? kek.mol : parsedMol;
 
   try {
     mol.inventCoordinates();

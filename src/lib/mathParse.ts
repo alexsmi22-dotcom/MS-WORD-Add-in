@@ -737,6 +737,9 @@ class Parser {
 
     if (t.t === "unit") {
       this.next();
+      // A plane-angle sign (45°, like 30 deg → 30°) is written against its number, with no space — SI's one exception;
+      // the degree SCALES keep theirs (25 °C). Emitted as the bare glyph, the same node "30 deg" gives.
+      if (t.v === "°" || t.v === "′" || t.v === "″") return { k: "text", v: t.v };
       return { k: "text", v: t.v, plain: true, unit: true };
     }
     if (t.t === "str") {

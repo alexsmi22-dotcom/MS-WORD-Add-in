@@ -6,6 +6,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { initCaptionsPane, CAPTIONS_SETTING, CAPTIONS_MODE_SETTING, type CaptionsPaneHost } from "../../taskpane/captionsPane";
+import { heading1Verdict } from "../captionFields";
 
 const HTML = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.html"), "utf8");
 const SECTION = /<section id="refs-section">[\s\S]*?<\/section>/.exec(HTML)![0];
@@ -172,7 +173,7 @@ describe("Captions with Word fields", () => {
 // fix2 (docs2 review): chapter-numbered captions broke in real Word ("Figure 0.1", "Error! No text of specified
 // style") when Heading 1 is not list-numbered — they are now refused by name in that case.
 describe("chapter numbering needs numbered Heading 1 chapters", () => {
-  test.each(["unnumbered", "none", "unknown"] as const)("Heading 1 %s → caption and equation refused, nothing inserted", async (h1) => {
+  test.each(["unnumbered", "none"] as const)("Heading 1 %s → caption and equation refused, nothing inserted", async (h1) => {
     const t = setup({ h1 });
     t.$<HTMLInputElement>("ref-chapter").checked = true;
     await t.pane.insertCaption("Figure", "x");
@@ -185,5 +186,44 @@ describe("chapter numbering needs numbered Heading 1 chapters", () => {
     const t = setup({ h1: "unnumbered" });
     await t.pane.insertCaption("Figure", "x");
     expect(t.inserted).toHaveLength(1);
+  });
+});
+
+// fix3 regression: a thesis with an unnumbered Heading 1 "Abstract" beside numbered chapters was refused (Word prints
+// Figure 1.1 / 2.1 right there), and a Word without WordApi 1.3 ("unknown") was refused where it used to work.
+describe("fix3: chapter numbering refused only when NO Heading 1 is numbered", () => {
+  test("heading1Verdict: unnumbered front matter beside numbered chapters is numbered", () => {
+    expect(heading1Verdict([null, "1", "2"])).toBe("numbered");
+    expect(heading1Verdict(["", "Chapter 1", null])).toBe("numbered");
+    expect(heading1Verdict([null, "IV"])).toBe("numbered");
+    expect(heading1Verdict(["1", "2", "3"])).toBe("numbered");
+  });
+  test("heading1Verdict: no numbered Heading 1 is unnumbered; none at all is none", () => {
+    expect(heading1Verdict([null, null])).toBe("unnumbered");
+    expect(heading1Verdict(["", "•"])).toBe("unnumbered");
+    expect(heading1Verdict([])).toBe("none");
+  });
+  test("unknown (no WordApi 1.3): the caption IS inserted, with a caution and not a success", async () => {
+    const t = setup({ h1: "unknown" });
+    t.$<HTMLInputElement>("ref-chapter").checked = true;
+    await t.pane.insertCaption("Figure", "x");
+    expect(t.inserted).toHaveLength(1);
+    const [text, kind] = last(t.status);
+    expect(text).toMatch(/^Figure caption inserted by chapter\. This version of Word cannot say/);
+    expect(text).not.toMatch(/—/);
+    expect(kind).toBe("");
+  });
+  test("unknown: the equation is numbered by chapter and the caution reaches the inserted status", async () => {
+    const t = setup({ h1: "unknown" });
+    expect(await t.pane.equationNumber("E = mc^2", true)).not.toBeNull();
+    expect(await t.pane.afterEquation()).toMatch(/^ This version of Word cannot say/);
+    // Said once: the next equation's note does not repeat it.
+    expect(await t.pane.afterEquation()).not.toMatch(/cannot say/);
+  });
+  test("numbered: no caution", async () => {
+    const t = setup({ h1: "numbered" });
+    t.$<HTMLInputElement>("ref-chapter").checked = true;
+    await t.pane.insertCaption("Figure", "x");
+    expect(last(t.status)).toEqual([expect.stringMatching(/^Figure caption inserted with Word's numbering \(by chapter\)/), "success"]);
   });
 });

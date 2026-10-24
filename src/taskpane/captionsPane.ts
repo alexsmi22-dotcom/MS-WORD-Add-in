@@ -188,27 +188,33 @@ export function initCaptionsPane(host: CaptionsPaneHost): CaptionsPane {
   /**
    * Chapter numbering (STYLEREF 1 \s + SEQ … \s 1) only works when Heading 1 is list-numbered; otherwise Word prints
    * "Figure 0.1" or "Error! No text of specified style" in the user's document (fix2, seen in real Word). The reason
-   * it is refused, or "" when chapter numbering can go ahead.
+   * it is refused (`refuse`), or a caution to show with the success when this Word cannot tell (`warn`).
+   * Refused only when NO Heading 1 is numbered: unnumbered front matter beside numbered chapters is a normal thesis,
+   * and Word numbers it right (fix3). "unknown" (no WordApi 1.3) inserts as before, with a caution.
    */
-  async function chapterRefusal(): Promise<string> {
+  async function chapterCheck(): Promise<{ refuse: string; warn: string }> {
     let state: Awaited<ReturnType<CaptionsPaneHost["docHost"]["heading1Numbering"]>>;
     try {
       state = await host.docHost.heading1Numbering();
     } catch {
       state = "unknown";
     }
-    if (state === "numbered") return "";
-    if (state === "none") return "Chapter numbering needs chapters: no paragraph uses the Heading 1 style. Style each chapter title Heading 1 with a numbered list (Home ▸ Multilevel List), or untick “by chapter”.";
-    if (state === "unnumbered") return "Chapter numbering needs numbered chapters: the Heading 1 paragraphs carry no list numbering, so Word would print “Figure 0.1” or an error. Number them (Home ▸ Multilevel List, linked to Heading 1), or untick “by chapter”.";
-    return "This version of Word cannot say whether the chapters (Heading 1) are numbered, so chapter numbering is not used — untick “by chapter”, or check the headings are numbered and try in a newer Word.";
+    if (state === "numbered") return { refuse: "", warn: "" };
+    if (state === "none") return { refuse: "Chapter numbering needs chapters: no paragraph uses the Heading 1 style. Style each chapter title Heading 1 with a numbered list (Home ▸ Multilevel List), or untick “by chapter”.", warn: "" };
+    if (state === "unnumbered") return { refuse: "Chapter numbering needs numbered chapters: no Heading 1 paragraph carries list numbering, so Word would print “Figure 0.1” or an error. Number them (Home ▸ Multilevel List, linked to Heading 1), or untick “by chapter”.", warn: "" };
+    return { refuse: "", warn: "This version of Word cannot say whether the chapters (Heading 1) are numbered; if they are not, Word prints “Figure 0.1”. Number them with Home ▸ Multilevel List, linked to Heading 1." };
   }
+  /** The caution from the last chapter-numbered equation, shown when it is inserted (afterEquation). */
+  let equationWarn = "";
 
   async function insertCaption(label: CaptionLabel, text: string): Promise<void> {
     const bookmark = newBookmark();
     const chapter = !!chapterBox?.checked;
+    let warn = "";
     if (chapter) {
-      const why = await chapterRefusal();
-      if (why) return host.setStatus(`Caption not inserted. ${why}`, "error");
+      const check = await chapterCheck();
+      if (check.refuse) return host.setStatus(`Caption not inserted. ${check.refuse}`, "error");
+      warn = check.warn;
     }
     let ooxml: string;
     try {
@@ -224,16 +230,19 @@ export function initCaptionsPane(host: CaptionsPaneHost): CaptionsPane {
     }
     saveRegistry([...registry(), { bookmark, label, text: text.trim().slice(0, 200) }]);
     const note = await renumber();
+    if (warn) return host.setStatus(`${label} caption inserted by chapter. ${warn}${note ? ` ${note}` : ""}`, "");
     host.setStatus(note ? `${label} caption inserted. ${note}` : `${label} caption inserted with Word's numbering${chapter ? " (by chapter)" : ""} — it renumbers when Update numbers runs (or F9).`, note ? "" : "success");
   }
 
   async function equationNumber(source: string, chapter: boolean): Promise<string | null> {
+    equationWarn = "";
     if (chapter) {
-      const why = await chapterRefusal();
-      if (why) {
-        host.setStatus(`Equation not numbered by chapter. ${why}`, "error");
+      const check = await chapterCheck();
+      if (check.refuse) {
+        host.setStatus(`Equation not numbered by chapter. ${check.refuse}`, "error");
         return null;
       }
+      equationWarn = check.warn;
     }
     try {
       await refresh();
@@ -308,8 +317,10 @@ export function initCaptionsPane(host: CaptionsPaneHost): CaptionsPane {
     insertCaption: (label, text) => insertCaption(label, text),
     equationNumber,
     afterEquation: async () => {
+      const warn = equationWarn;
+      equationWarn = "";
       const note = await renumber();
-      return note ? ` ${note}` : "";
+      return `${warn ? ` ${warn}` : ""}${note ? ` ${note}` : ""}`;
     },
     refresh,
   };

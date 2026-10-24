@@ -36,6 +36,7 @@ import { fmtSqrtRat, sqrtRatToNumber, fmtRat } from "./geometry";
 import { symbolicIntegrate } from "./casint";
 import { ambiguousImplicitProduct } from "./ambiguous";
 import { exactPolyRoots } from "./polyRoots";
+import { scanSingularities, integrateAcross, type SingularPoint } from "./integrandSingular";
 
 // ---------------------------------------------------------------------------
 // AST
@@ -380,7 +381,36 @@ export function normalizeUnicodeMath(input: string): string {
     // arcsinh and a variable such as "arcsine" are untouched. A captured prefix,
     // not \b: "2arcsin(x)" has no word boundary between the 2 and the a.
     .replace(/(^|[^A-Za-z_])arc(sin|cos|tan)(?![A-Za-z_\d])/g, "$1a$2");
-  return expandRadicals(folded);
+  return expandRadicals(foldLogBase(folded));
+}
+
+/**
+ * log_b(u) — the subscript form of a base-b logarithm (and log₂ after the subscript fold). "log_2(x) = 5" was read
+ * as the DEFINITION of a function called log_2 (review 2026-10-24); it is log2(x), log10(x), ln(x), or ln(u)/ln(b).
+ * Bracket-aware and bounded; the output contains no "log_", so the fold is idempotent.
+ */
+function foldLogBase(s: string): string {
+  let out = "";
+  let i = 0;
+  const re = /(^|[^A-Za-z0-9_])log_\{?(\d+(?:\.\d+)?|e)\}?\s*\(/g;
+  let m: RegExpExecArray | null;
+  let guard = 0;
+  while ((m = re.exec(s)) && guard++ < 100) {
+    const open = m.index + m[0].length - 1;
+    let depth = 0, close = -1;
+    for (let k = open; k < s.length; k++) {
+      if (s[k] === "(") depth++;
+      else if (s[k] === ")" && --depth === 0) { close = k; break; }
+    }
+    if (close < 0) break;
+    const arg = foldLogBase(s.slice(open + 1, close));
+    const b = m[2];
+    const rep = b === "2" ? `log2(${arg})` : b === "10" ? `log10(${arg})` : b === "e" ? `ln(${arg})` : `(ln(${arg})/ln(${b}))`;
+    out += s.slice(i, m.index) + m[1] + rep;
+    i = close + 1;
+    re.lastIndex = i;
+  }
+  return out + s.slice(i);
 }
 
 // ---------------------------------------------------------------------------
@@ -942,6 +972,14 @@ function fmtNum(v: number): string {
   return String(Number(v.toPrecision(12)));
 }
 
+const SCI_DIGITS: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻" };
+/** A number for PROSE (never re-parsed): 2 significant digits, ×10ⁿ instead of e-notation. */
+function sciDisplayNum(v: number): string {
+  const s = String(Number(v.toPrecision(2)));
+  const m = /^(-?\d+(?:\.\d+)?)e([+-])(\d+)$/.exec(s);
+  return m ? `${m[1]}×10${[...((m[2] === "-" ? "-" : "") + m[3])].map((c) => SCI_DIGITS[c]).join("")}` : s;
+}
+
 export function format(e: Expr): string {
   const wrap = (child: Expr, parentPrec: number): string => {
     const s = format(child);
@@ -1474,8 +1512,15 @@ function solvePolyExactFloat(c: number[]): Root[] | null {
     return [{ display: fmtNum(root), re: root, im: 0, exact: true }];
   }
   if (deg === 2) {
-    const [cc, b, a] = c;
+    let [cc, b, a] = c;
+    // OVERFLOW IN b² − 4ac (x² = 1e308 answered "x = Infinity"): the roots do
+    // not change when every coefficient is divided by the largest one.
+    if (!Number.isFinite(b * b - 4 * a * cc)) {
+      const m = Math.max(Math.abs(a), Math.abs(b), Math.abs(cc));
+      if (Number.isFinite(m) && m > 0) { cc /= m; b /= m; a /= m; }
+    }
     const disc = b * b - 4 * a * cc;
+    if (!Number.isFinite(disc)) return null;
     if (disc >= 0) {
       const s = Math.sqrt(disc);
       const r1 = (-b + s) / (2 * a);
@@ -1832,9 +1877,12 @@ function tryTrigGeneral(f: Expr, x: string, vars: string[]): EquationResult | nu
     steps.push(`Substituting t = ${atom.key}: the equation is quadratic in t.`);
   }
   const period = (2 * Math.PI) / Math.abs(a);
-  const periodTxt = atom.fn === "tan"
-    ? (a === 1 ? "pi" : `pi/${fmtNum(Math.abs(a))}`)
-    : (a === 1 ? "2*pi" : `2*pi/${fmtNum(Math.abs(a))}`);
+  // An integer a reduces: cos(2x) has period π, never "2*pi/2" (review 2026-10-24).
+  const periodTxt = Number.isInteger(a)
+    ? piStr(atom.fn === "tan" ? 1 : 2, Math.abs(a))
+    : atom.fn === "tan"
+      ? `pi/${fmtNum(Math.abs(a))}`
+      : `2*pi/${fmtNum(Math.abs(a))}`;
 
   const roots: Root[] = [];
   const families: string[] = [];
@@ -1930,6 +1978,17 @@ function tryTrigGeneral(f: Expr, x: string, vars: string[]): EquationResult | nu
     return null;
   }
 
+  // Two families that are mirror images (x = π/6 + πn and x = −π/6 + πn) are
+  // one ± family, as a textbook writes them.
+  for (let i = 0; i < families.length; i++) {
+    const m = new RegExp(`^${x} = (-?)(.+) \\+ (.+)\\*n$`).exec(families[i]);
+    if (!m) continue;
+    const twin = families.findIndex((f, j) => j !== i && f === `${x} = ${m[1] ? "" : "-"}${m[2]} + ${m[3]}*n`);
+    if (twin < 0) continue;
+    families[i] = `${x} = ±${m[2]} + ${m[3]}*n`;
+    families.splice(twin, 1);
+    if (twin < i) i--;
+  }
   steps.push(`General solution famil${families.length === 1 ? "y" : "ies"} (n any integer): ${families.join(" ; ")}.`);
   caveats.push(
     `A trigonometric equation has infinitely many solutions. The root${roots.length === 1 ? "" : "s"} shown ` +
@@ -2141,6 +2200,8 @@ function readFnDefinition(input: string): { rewritten: string; arg: string; body
   const lower = name.toLowerCase();
   // sin(x) = 1/2 is an EQUATION; u(x) = x^2 is a definition (u is a bare-ok name).
   if ((lower in EVAL_FN && !BARE_OK.has(lower)) || lower === "pi" || lower === "e") return null;
+  // log_2(x) = 5 is an equation in a base-2 logarithm (foldLogBase), not a definition.
+  if (/^log_(\d+(?:\.\d+)?|e)$/.test(lower)) return null;
   if (!body.trim()) return null;
   const out = body.includes("y") || arg === "y" ? name : "y";
   return {
@@ -2149,6 +2210,28 @@ function readFnDefinition(input: string): { rewritten: string; arg: string; body
     body,
     note: `Read “${name}(${arg}) = …” as a function DEFINITION: ${out} stands for the output ${name}(${arg}).`,
   };
+}
+
+/** The source text of the first variable-free subexpression that evaluates past the double range, or null. */
+function overflowingConstant(e: Expr): string | null {
+  const walk = (n: Expr): string | null => {
+    if (n.t === "num" || n.t === "var") return null;
+    if (freeVars(n).length === 0) {
+      let v: number;
+      try { v = evalAst(n, {}); } catch { return null; }
+      // 1/0 is a division by zero, refused elsewhere by that name — not an overflow.
+      if (n.t === "div") {
+        let d: number;
+        try { d = evalAst(n.r, {}); } catch { return null; }
+        if (d === 0) return null;
+      }
+      return v === Infinity || v === -Infinity ? format(n) : null;
+    }
+    if (n.t === "neg") return walk(n.e);
+    if (n.t === "fn") return walk(n.arg);
+    return walk(n.l) ?? walk(n.r);
+  };
+  return walk(e);
 }
 
 export function solveEquation(input: string, variable?: string, range = 1000): EquationResult | null {
@@ -2172,6 +2255,40 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
   // f = LHS - RHS, solve f = 0.
   const f: Expr = { t: "sub", l: lhs, r: rhs };
   const vars = freeVars(f);
+  // A CONSTANT PAST THE DOUBLE RANGE IS REFUSED BY NAME. The literal guard in
+  // the parser catches 1e999 but not 10^400, which arrived as Infinity and was
+  // reported "x = NaN, exact" (review 2026-10-24).
+  {
+    const huge = overflowingConstant(f);
+    if (huge) {
+      return {
+        variable: variable ?? vars[0] ?? "x",
+        roots: [],
+        method: "no reliable root found",
+        steps: [],
+        caveats: [
+          `${huge} is too large to represent — beyond about 1.8×10³⁰⁸, the largest double-precision number — so this equation cannot be solved reliably here. Rescale it (divide both sides by a power of ten) and solve again.`,
+        ],
+        unknowns: vars,
+      };
+    }
+  }
+  // NO UNKNOWN AT ALL: "0 = 0" is an identity, "1 = 2" has no solution — both
+  // are answers, not parse failures.
+  if (!vars.length && !variable) {
+    let l: number, r: number;
+    try { l = evalAst(lhs, {}); r = evalAst(rhs, {}); } catch { return null; }
+    if (!Number.isFinite(l) || !Number.isFinite(r)) return null;
+    const same = Math.abs(l - r) <= 64 * Number.EPSILON * Math.max(1, Math.abs(l), Math.abs(r));
+    return {
+      variable: "x",
+      roots: [],
+      method: same ? "identity" : "no-solution",
+      steps: [`Both sides are constants: ${fmtNum(l)} ${same ? "=" : "≠"} ${fmtNum(r)}.`],
+      caveats: [same ? "An identity: it holds for every value of every variable." : "No solution: the two sides are different constants."],
+      unknowns: [],
+    };
+  }
   const x = variable ?? (vars.length === 1 ? vars[0] : vars.includes("x") ? "x" : vars[0]);
   if (!x) return null; // no unknown at all
   if (!variable && vars.length > 1) {
@@ -2231,7 +2348,11 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
       if (deg === 2) {
         const [cc, b, a] = trimmed;
         const disc = b * b - 4 * a * cc;
-        steps.push(`Quadratic a=${fmtNum(a)}, b=${fmtNum(b)}, c=${fmtNum(cc)}; discriminant b²−4ac = ${fmtNum(disc)}.`);
+        steps.push(
+          Number.isFinite(disc)
+            ? `Quadratic a=${fmtNum(a)}, b=${fmtNum(b)}, c=${fmtNum(cc)}; discriminant b²−4ac = ${fmtNum(disc)}.`
+            : `Quadratic a=${fmtNum(a)}, b=${fmtNum(b)}, c=${fmtNum(cc)}; b²−4ac exceeds the double range, so the roots were computed from the coefficients scaled by their largest magnitude.`,
+        );
         if (disc < 0) caveats.push("The discriminant is negative, so the two roots are a complex-conjugate pair.");
       }
       return { variable: x, roots: exact, method: `exact (${deg === 1 ? "linear" : "quadratic"})`, steps, caveats };
@@ -2322,7 +2443,9 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
       steps.push(
         sym.verified
           ? "Verified: substituting the solution back reduces the equation to exactly 0."
-          : "Verified by substituting back at sample values of the other symbols."
+          : others.length
+            ? "Verified by substituting back at sample values of the other symbols."
+            : "Verified by substituting each root back into the equation."
       );
       for (const c of sym.nonzeroConditions) {
         // A condition that EVALUATES to a nonzero constant (4π/3) is trivially
@@ -2519,7 +2642,29 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
 
   // Transcendental: numeric root-finding.
   steps.push(`Not a polynomial in ${x}; solving numerically for real roots in [−${range}, ${range}].`);
-  const roots = numericRealRoots(fNum, -range, range);
+  // UNDERFLOW IS NOT A ROOT. 3^(x+1) = 5^x "had" 643 roots and eˣ = e²ˣ 511:
+  // below x ≈ −680 both sides fall under the smallest double, read 0 = 0, and
+  // the dense-run check below could not see the run because the one genuine
+  // root sat far away and widened the spread (review 2026-10-24). A candidate
+  // where BOTH sides are below 1e-290 at the root AND a quarter step either side
+  // is an artefact; a genuine root where both sides are 0 (sin x = x at 0) has
+  // ordinary values a quarter step away.
+  const tinyBoth = (t: number): boolean => {
+    try {
+      const l = evalAst(lhs, { [x]: t }), r = evalAst(rhs, { [x]: t });
+      return Number.isFinite(l) && Number.isFinite(r) && Math.max(Math.abs(l), Math.abs(r)) < 1e-290;
+    } catch {
+      return false;
+    }
+  };
+  const underflowed = (t: number): boolean => tinyBoth(t) && tinyBoth(t - 0.25) && tinyBoth(t + 0.25);
+  const rawRoots = numericRealRoots(fNum, -range, range);
+  const roots = rawRoots.filter((r) => !underflowed(r.re));
+  if (roots.length < rawRoots.length) {
+    caveats.push(
+      `${rawRoots.length - roots.length} candidate point${rawRoots.length - roots.length === 1 ? "" : "s"} where both sides fall below the smallest representable number (underflow, not equality) ${rawRoots.length - roots.length === 1 ? "was" : "were"} discarded.`,
+    );
+  }
   caveats.push(`Numeric solution: only real roots this method could bracket in [−${range}, ${range}] are reported; it can miss roots that are complex, tangential, or outside the range.`);
   // A RUN of grid points that are all numerically zero is not a set of isolated
   // roots, and it must be WITHHELD rather than warned about.
@@ -2661,6 +2806,10 @@ export interface IntegralResult {
   method: string;
   /** The symbolic antiderivative F(x), when one was found (exact path). */
   antiderivative?: string;
+  /** Why there is no value (value NaN): "the integral DIVERGES — …", "the integrand OVERFLOWS — …". */
+  noValue?: string;
+  /** Absolute error bound when the value could not be had to full precision (oscillatory singularity). */
+  errorBound?: number;
   caveats: string[];
 }
 
@@ -3293,14 +3442,19 @@ function compositeGaussLegendre(f: (x: number) => number, a: number, b: number, 
 function gaussLegendreConverged(f: (x: number) => number, a: number, b: number): number | null {
   let previous = compositeGaussLegendre(f, a, b, 8);
   if (!Number.isFinite(previous)) return null;
+  let lastGap = Infinity;
   for (const panels of [16, 32, 64, 128, 256]) {
     const next = compositeGaussLegendre(f, a, b, panels);
     if (!Number.isFinite(next)) return null;
     const scale = Math.max(Math.abs(next), Math.abs(previous), 1e-300);
-    if (Math.abs(next - previous) <= 1e-11 * scale) return next;
+    lastGap = Math.abs(next - previous) / scale;
+    if (lastGap <= 1e-11) return next;
     previous = next;
   }
-  return previous;
+  // The last two panel counts must at least agree to the eight figures the
+  // pane prints — an unconverged value was returned here regardless, and
+  // x·sin(1/x) on [0, 1] printed 0.37850613 for 0.37853002 (review 2026-10-24).
+  return lastGap <= 1e-9 ? previous : null;
 }
 
 /** Adaptive Simpson quadrature of f over [a, b]. */
@@ -3405,6 +3559,151 @@ export function integrate(input: string, a: number, b: number, variable?: string
   const x = variable ?? (vars.length === 1 ? vars[0] : "x");
   const others = vars.filter((v) => v !== x);
   if (others.length) return null; // cannot integrate with unresolved parameters
+
+  // LOCATE AND CLASSIFY THE SINGULARITIES FIRST (integrandSingular.ts; review
+  // 2026-10-24). Every denominator, negative-power base, tan/sec/cot/csc and log
+  // argument is searched for zeros by bracketing (sign changes AND touching
+  // minima of |denominator|), and each point is classified from the integrand's
+  // own one-sided behaviour. A divergent point is refused BY NAME before any
+  // antiderivative is evaluated, so the fundamental theorem is never applied
+  // across a pole (∫₀¹ 1/(eˣ − 2) was "exact"), and an integrable one
+  // (1/√|x| at 0) is split out and integrated by tanh-sinh instead of being
+  // refused or under-integrated.
+  const loI = Math.min(a, b), hiI = Math.max(a, b);
+  const scan = loI < hiI
+    ? scanSingularities(e, x, loI, hiI, (sub, t) => evalAst(sub, { [x]: t }))
+    : { points: [] as SingularPoint[], overflowAt: undefined };
+  {
+    const fmtP = (p: number | undefined): string => (p === undefined || !Number.isFinite(p) ? "" : `, order p ≈ ${p.toFixed(2)}`);
+    // THE ORDER ESTIMATE CANNOT TELL p = 0.999 FROM p = 1 — but an exact
+    // antiderivative can: ∫₀¹ x^(−0.999) = 1000 because F = x^0.001/0.001 is
+    // FINITE at 0, while 1/x has F = ln|x| → −∞ there. An ENDPOINT judged
+    // divergent or undecided whose antiderivative evaluates finite AT the
+    // endpoint is integrable, and the exact path below answers it.
+    if (scan.points.some((p) => p.endpoint && (p.kind === "divergent" || p.kind === "undecided"))) {
+      let Fe: Expr | null = null;
+      try {
+        Fe = symbolicIntegrate(simplify(e), x, derivative)?.F ?? symbolicAntideriv(simplify(e), x);
+      } catch {
+        Fe = null;
+      }
+      if (Fe) {
+        for (const p of scan.points) {
+          if (!p.endpoint || (p.kind !== "divergent" && p.kind !== "undecided")) continue;
+          // Only where the singularity is EXACTLY at the representable endpoint
+          // (f there is ±∞ or 0/0): tan at the double nearest π/2 is a finite
+          // 1.6×10¹⁶, and ln|cos| there is a finite −37 that means nothing.
+          let fAt = 0;
+          try { fAt = evalAst(e, { [x]: p.at }); } catch { fAt = NaN; }
+          if (Number.isFinite(fAt)) continue;
+          let v = NaN;
+          try { v = evalAst(simplify(Fe), { [x]: p.at }); } catch { v = NaN; }
+          if (Number.isFinite(v)) p.kind = "integrable";
+        }
+      }
+    }
+    const div = scan.points.find((p) => p.kind === "divergent");
+    if (div) {
+      // The antiderivative, when one exists, is still worth showing — as a
+      // reference, never as the value (its endpoint difference is not the integral).
+      let ref: string | undefined;
+      try {
+        const Fr = symbolicIntegrate(simplify(e), x, derivative)?.F ?? symbolicAntideriv(simplify(e), x);
+        if (Fr) ref = format(simplify(Fr));
+      } catch {
+        ref = undefined;
+      }
+      return {
+        variable: x,
+        value: NaN,
+        method: "does not exist on this interval",
+        antiderivative: ref,
+        noValue: `the integral DIVERGES — the integrand has a POLE at ${x} ≈ ${fmtNum(div.at)}`,
+        caveats: [
+          `The integrand has a POLE — a non-integrable singularity — at ${x} ≈ ${fmtNum(div.at)}${div.endpoint ? " (an endpoint)" : ", strictly inside the interval"}: ` +
+            `near that point |f| grows like 1/|${x} − ${fmtNum(div.at)}|^p with p ≥ 1${fmtP(div.p)}, so the integral DIVERGES. ` +
+            `No value is reported. Quadrature can step straight over a pole and return a plausible finite number, and the ` +
+            `fundamental theorem of calculus does not apply across a pole of the antiderivative.`,
+          ...(ref ? [`For reference, the antiderivative found was F(${x}) = ${ref}; its endpoint difference does not answer the question asked.`] : []),
+        ],
+      };
+    }
+    const und = scan.points.find((p) => p.kind === "undecided");
+    if (und) {
+      return {
+        variable: x,
+        value: NaN,
+        method: "does not exist on this interval",
+        noValue: `the integrand is singular at ${x} ≈ ${fmtNum(und.at)} and it could not be decided whether the integral converges`,
+        caveats: [
+          `The integrand is unbounded or erratic at ${x} ≈ ${fmtNum(und.at)}${fmtP(und.p)}, and its behaviour there sits too close to the ` +
+            `convergence boundary (p = 1) to decide with margin. No value is reported rather than a guess.`,
+        ],
+      };
+    }
+    if (scan.overflowAt !== undefined) {
+      return {
+        variable: x,
+        value: NaN,
+        method: "does not exist on this interval",
+        noValue: `the integrand OVERFLOWS — it exceeds the largest representable number (about 1.8×10³⁰⁸) from ${x} ≈ ${fmtNum(scan.overflowAt)}`,
+        caveats: [
+          `The integrand is finite everywhere on the interval but grows past the largest double-precision number ` +
+            `(about 1.8×10³⁰⁸) near ${x} ≈ ${fmtNum(scan.overflowAt)}, so the integral is far too large to compute here. ` +
+            `It is not a pole: shrink the interval, or rescale the integrand (for example integrate its logarithm's dominant term by hand).`,
+        ],
+      };
+    }
+  }
+  const specialPts = scan.points.filter((p) => p.kind === "integrable" || p.kind === "jump" || p.kind === "oscillatory");
+  const splitRequired = specialPts.some((p) => !p.endpoint || p.kind === "oscillatory");
+  const splitIntegral = (): IntegralResult => {
+    const fx = (t: number): number => evalAst(e, { [x]: t });
+    const cuts = [...specialPts, ...scan.points.filter((p) => p.kind === "removable" && !p.endpoint)];
+    const r = integrateAcross(fx, loI, hiI, cuts);
+    if (r === null || !Number.isFinite(r.value)) {
+      return {
+        variable: x,
+        value: NaN,
+        method: "does not exist on this interval",
+        noValue: "the quadrature across the integrand's singularities did not converge to a reliable value",
+        caveats: [
+          `The integrand is singular at ${specialPts.map((p) => `${x} ≈ ${fmtNum(p.at)}`).join(", ")}. The singularities look integrable, ` +
+            `but splitting there and integrating each piece did not converge, so no value is reported.`,
+        ],
+      };
+    }
+    const sign = b < a ? -1 : 1;
+    const where = specialPts.map((p) => `${x} ≈ ${fmtNum(p.at)} (${p.kind === "integrable" ? `integrable${p.p !== undefined ? `, order p ≈ ${p.p.toFixed(2)} < 1` : ""}` : p.kind === "jump" ? "a jump" : "bounded, oscillating without a limit"})`);
+    const caveats = [
+      `Improper integral: the integrand is singular at ${where.join("; ")}. The interval was split there and each piece ` +
+        (r.errorBound !== undefined
+          ? `integrated numerically without ever evaluating the singular point (adaptive Gauss-Legendre up to a sliver next to the oscillation) — an approximation, not a closed form.`
+          : `integrated by tanh-sinh quadrature, which never evaluates the singular point — an approximation, not a closed form.`),
+    ];
+    // Pieces that cancel (∫₀² (x − 1)^(−1/3), odd about the singularity) leave
+    // quadrature dust like −1.2×10⁻¹³: that is zero to the precision achieved.
+    let shown = r.value;
+    if (r.errorBound === undefined && r.scale > 0 && Math.abs(r.value) <= 1e-9 * r.scale) {
+      shown = 0;
+      caveats.push("The pieces cancel: their sum is zero to within the quadrature's precision (below 10⁻⁹ of the pieces' size), so 0 is reported.");
+    }
+    if (r.errorBound !== undefined) {
+      caveats.push(
+        `An oscillating singularity cannot be integrated to full precision: the sliver nearest it was cut off and its ` +
+          `contribution bounded by its width times the integrand's largest size there, so the value is good to about ` +
+          `±${sciDisplayNum(r.errorBound)} and is shown only to that precision.`,
+      );
+    }
+    return {
+      variable: x,
+      value: shown === 0 ? 0 : sign * shown,
+      method: r.errorBound !== undefined ? "numeric with an error bound (oscillatory singularity)" : "tanh-sinh (singularity split out)",
+      errorBound: r.errorBound,
+      caveats,
+    };
+  };
+  if (splitRequired) return splitIntegral();
 
   // Prefer an EXACT symbolic antiderivative. The CAS integrator (Release 2:
   // substitution, by parts, partial fractions) is tried first and is
@@ -3573,6 +3872,9 @@ export function integrate(input: string, a: number, b: number, variable?: string
   //
   // Two paths sharing one wrong answer is the shape of this bug, so they now
   // share the guard.
+  // An integrable ENDPOINT singularity (1/√x on [0, 1], ln x at 0) the exact
+  // path could not evaluate: tanh-sinh never samples the endpoint.
+  if (specialPts.length) return splitIntegral();
   const numericGap = undefinedPointIn(e, x, a, b);
   if (numericGap !== null) {
     const cause =
@@ -3681,7 +3983,12 @@ export function integrate(input: string, a: number, b: number, variable?: string
     return isGenuinePole(e, x, t);
   };
 
-  if (!Number.isFinite(value) && !endpointBlocks(a) && !endpointBlocks(b)) {
+  // "REMOVABLE" IS A CLAIM, AND IT NEEDS THE TWO-SIDED CHECK: the Gauss-Legendre
+  // rescue (and its "removable singularity" caveat) runs only when the scan above
+  // verified a removable point — both one-sided limits exist and agree. ∫₀¹
+  // 1/(sin x − 0.5) was called removable at a pole the old detector never saw.
+  const verifiedRemovable = scan.points.some((p) => p.kind === "removable");
+  if (!Number.isFinite(value) && verifiedRemovable && !endpointBlocks(a) && !endpointBlocks(b)) {
     const gl = gaussLegendreConverged(f, a, b);
     if (gl !== null && Number.isFinite(gl)) {
       value = gl;

@@ -553,16 +553,25 @@ export function taylorSeries(input: string, variable = "x", centre = 0, order = 
     steps.push(`${variable} = ${centre} is removable (proved exactly), so the coefficients come from dividing the numerator's series by the denominator's.`);
   }
 
+  if (order > MAX_ORDER) {
+    caveats.push(`Order ${order} was asked for; this engine expands to order ${MAX_ORDER} at most, so the series below stops there.`);
+  }
   let d: Expr = e;
   let factorial = 1;
+  let factBig = 1n;
   for (let k = 0; k <= n; k++) {
     let c: number;
+    // EXACT COEFFICIENTS PAST ORDER 7 (review 2026-10-24): f⁽ᵏ⁾(c0) is usually a
+    // small rational, and k! is exact as a BigInt, so 1/40320·x⁸ stays a
+    // fraction instead of 0.0000248015873.
+    let exactCoeff: string | null = null;
     if (removed) {
       c = removed[k];
     } else {
       if (k > 0) {
         d = simp(derivative(d, variable));
         factorial *= k;
+        factBig *= BigInt(k);
       }
       const value = at(d, variable, centre);
       if (!Number.isFinite(value)) {
@@ -572,10 +581,12 @@ export function taylorSeries(input: string, variable = "x", centre = 0, order = 
         break;
       }
       c = value / factorial;
+      exactCoeff = exactOverFactorial(value, factBig);
     }
     coefficients.push(c);
-    if (Math.abs(c) < 1e-14) continue; // a genuinely zero term
-    const cs = fmtCoeff(c);
+    if (Math.abs(c) < 1e-14 && exactCoeff === null) continue; // a genuinely zero term
+    if (exactCoeff === "0") continue;
+    const cs = exactCoeff ?? fmtCoeff(c);
     const varPart =
       k === 0 ? "" : centre === 0 ? (k === 1 ? variable : `${variable}^${k}`)
         : k === 1 ? `(${variable} - ${centre})` : `(${variable} - ${centre})^${k}`;
@@ -667,7 +678,7 @@ function removableCentreSeries(input: string, x: string, c: number, n: number, r
 }
 
 function fmtCoeff(c: number): string {
-  if (Number.isInteger(c)) return String(c);
+  if (Number.isInteger(c) && Math.abs(c) < 1e21) return String(c);
   // Recognise small rationals so 1/6 does not print as 0.16666666666666666.
   for (let d = 2; d <= 5040; d++) {
     const n = c * d;
@@ -676,7 +687,37 @@ function fmtCoeff(c: number): string {
       if (Math.abs(num) < 1e9) return d === 1 ? String(num) : `${num}/${d}`;
     }
   }
-  return String(Number(c.toPrecision(10)));
+  // Never e-notation in a line that is typeset: 2.755731922e-7 → 2.755731922*10^(-7).
+  const s = String(Number(c.toPrecision(10)));
+  const m = /^(-?[\d.]+)e([+-]\d+)$/.exec(s);
+  return m ? `${m[1]}*10^(${Number(m[2])})` : s;
+}
+
+/**
+ * f⁽ᵏ⁾(c₀)/k! exactly, when the derivative value is (numerically) a small rational p/q: the fraction p/(q·k!) in
+ * lowest terms, by BigInt. Null when the value is not recognisably rational (π, √2 …) — the float path then prints it.
+ */
+function exactOverFactorial(value: number, kFact: bigint): string | null {
+  if (!Number.isFinite(value)) return null;
+  if (value === 0) return "0";
+  for (let q = 1; q <= 720; q++) {
+    const p = value * q;
+    const pr = Math.round(p);
+    if (Math.abs(pr) > Number.MAX_SAFE_INTEGER / 2) return null;
+    if (Math.abs(p - pr) <= 1e-9 * Math.max(1, Math.abs(p))) {
+      let num = BigInt(pr);
+      let den = BigInt(q) * kFact;
+      const g = (a: bigint, b: bigint): bigint => {
+        a = a < 0n ? -a : a;
+        while (b) { const t = a % b; a = b; b = t; }
+        return a;
+      };
+      const gg = g(num, den);
+      if (gg > 1n) { num /= gg; den /= gg; }
+      return den === 1n ? String(num) : `${num}/${den}`;
+    }
+  }
+  return null;
 }
 
 /** Parses "limit sin(x)/x as x -> 0" style requests. Returns null if it is not one. */

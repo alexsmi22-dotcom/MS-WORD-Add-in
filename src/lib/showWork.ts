@@ -32,9 +32,10 @@ const TOL = 1e-9;
 
 /** Trims a float for display: integers plain, else up to 6 significant digits. */
 function fmtN(v: number): string {
-  if (Number.isInteger(v)) return String(v);
-  const r = Number(v.toPrecision(6));
-  return String(r);
+  const s = Number.isInteger(v) && Math.abs(v) < 1e21 ? String(v) : String(Number(v.toPrecision(6)));
+  // Never e-notation in a work line (2.1408763380345e+298 reached Word): m*10^(n) re-parses to the same value.
+  const m = /^(-?\d+(?:\.\d+)?)e([+-]\d+)$/.exec(s);
+  return m ? `${m[1]}*10^(${Number(m[2])})` : s;
 }
 
 /** ax term with a human coefficient: 1→x, −1→−x, else 3x. */
@@ -220,6 +221,8 @@ function polyWork(input: string | null, coeffsIn: number[], result: EquationResu
     }
 
     const disc = c1 * c1 - 4 * c2 * c0;
+    // b² − 4ac past the double range (x² = 1e308): no work rather than "√∞".
+    if (!Number.isFinite(disc)) return [];
     // A zero discriminant means one repeated root — the formula with ± around
     // sqrt(0) reads as two answers that happen to agree; say what it is.
     if (disc === 0 && r1) {

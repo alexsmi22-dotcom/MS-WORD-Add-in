@@ -64,8 +64,9 @@ describe("the pane source is wired (§E.13, §E.12, §E.8)", () => {
   });
   it("the root typesetting test is token-aware and the old /[i×]/ test is gone", () => {
     expect(PANE).not.toContain("if (/[i×]/.test(root.display)) say(plain);");
-    expect(PANE).toContain("if (rootDisplayIsComplex(root.display)) say(plain);");
-    expect(PANE).toContain("else sayMath(solveToTypesetDsl(plain), plain);");
+    // Review 2026-10-24: complex roots are typeset too; only a multiplicity marker keeps a root as text.
+    expect(PANE).toContain("if (/×/.test(root.display)) say(eNotationToText(plain));");
+    expect(PANE).toContain("else sayMath(solveToTypesetDsl(plain), eNotationToText(plain));");
   });
   it("the transformVerb guard copied above is still the pane's", () => {
     for (const piece of ["MULTIVAR_VERB_RE.test(text) ||", "PROB_VERB_RE.test(text) ||", "MARKOV_VERB_RE.test(text) ||", "LP_VERB_RE.test(text) ||", "isLpInput(text) ||", "LP_WORDS_RE.test(text) ||", "INTERP_VERB_RE.test(text) ||", "SPLINE_VERB_RE.test(text);"]) {

@@ -1465,7 +1465,9 @@ export function solveRationalInVar(f: Expr, x: string): SymbolicSolution | null 
     const numer: Expr = { t: sign, l: negB, r: sqrtD };
     const raw: Expr = { t: "div", l: numer, r: twoA };
     try {
-      return casSimplify(raw);
+      // exactRadicals: √8 stays 2√2. Without it the roots of 1/(x−1) + 1/(x+1) = 1
+      // came back as 2.41421356237 under "exact (symbolic rearrangement)".
+      return casSimplify(raw, { exactRadicals: true });
     } catch (err) {
       if (err instanceof CasBail) return raw;
       throw err;

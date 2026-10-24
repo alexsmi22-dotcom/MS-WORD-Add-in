@@ -152,7 +152,7 @@ export function quadraticCoeffs(e: Expr, xv = "x", yv = "y"): Map<string, Rat> |
 /** Pulls "(1,2)" / "(1, -2)" / "1,2" coordinate pairs out of a string. */
 function parsePoints(s: string): Pt[] {
   const out: Pt[] = [];
-  const re = /\(\s*(-?\d+(?:\.\d+)?(?:\/\d+)?)\s*,\s*(-?\d+(?:\.\d+)?(?:\/\d+)?)\s*\)/g;
+  const re = /\(\s*(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?)\s*,\s*(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?)\s*\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(s))) out.push(pt(ratOf(m[1]), ratOf(m[2])));
   return out;
@@ -189,7 +189,7 @@ function ratOf(t: string): Rat {
 /** Named values: "r=5 h=2 A=30" → { r: 5, h: 2, A: 30 }. Case-sensitive. */
 function parseNamed(s: string): Record<string, number> {
   const out: Record<string, number> = {};
-  const re = /\b([A-Za-z]\w*)\s*=\s*(-?\d+(?:\.\d+)?(?:\/\d+)?)/g;
+  const re = /\b([A-Za-z]\w*)\s*=\s*(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(s))) out[m[1]] = numOf(m[2]);
   return out;
@@ -198,7 +198,7 @@ function parseNamed(s: string): Record<string, number> {
 /** The same named values, kept EXACT for callers that can use them. */
 function parseNamedExact(s: string): Record<string, Rat> {
   const out: Record<string, Rat> = {};
-  const re = /\b([A-Za-z]\w*)\s*=\s*(-?\d+(?:\.\d+)?(?:\/\d+)?)/g;
+  const re = /\b([A-Za-z]\w*)\s*=\s*(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(s))) out[m[1]] = ratOf(m[2]);
   return out;
@@ -208,16 +208,16 @@ function parseNamedExact(s: string): Record<string, Rat> {
 function bareNumbers(s: string): number[] {
   const stripped = s
     .replace(/\([^)]*\)/g, " ")
-    .replace(/\b[A-Za-z]\w*\s*=\s*-?\d+(?:\.\d+)?(?:\/\d+)?/g, " ");
-  return (stripped.match(/-?\d+(?:\.\d+)?(?:\/\d+)?/g) || []).map(numOf);
+    .replace(/\b[A-Za-z]\w*\s*=\s*-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?/g, " ");
+  return (stripped.match(/-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?/g) || []).map(numOf);
 }
 
 /** The same positional numbers, kept EXACT (see ratOf). */
 function bareRats(s: string): Rat[] {
   const stripped = s
     .replace(/\([^)]*\)/g, " ")
-    .replace(/\b[A-Za-z]\w*\s*=\s*-?\d+(?:\.\d+)?(?:\/\d+)?/g, " ");
-  return (stripped.match(/-?\d+(?:\.\d+)?(?:\/\d+)?/g) || []).map(ratOf);
+    .replace(/\b[A-Za-z]\w*\s*=\s*-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?/g, " ");
+  return (stripped.match(/-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?/g) || []).map(ratOf);
 }
 
 const fmtPt = (p: Pt): string => `(${fmtRat(p.x)}, ${fmtRat(p.y)})`;
@@ -469,16 +469,28 @@ function triangleRequest(
   const sides = ["a", "b", "c"].filter(has);
 
   let sol;
+  // The solver works in ITS letters (SAS: the angle is A between b and c);
+  // `relabel` maps them back to the user's, so "triangle a=5 b=7 C=60" reports
+  // a = 5, b = 7, C = 60° and c = √39 — not a = 6.245, b = 5, c = 7, A = 60
+  // (review 2026-10-24). Identity unless set below.
+  let relabel: Record<"a" | "b" | "c", "a" | "b" | "c"> = { a: "a", b: "b", c: "c" };
   if (!angles.length && (sides.length === 3 || bare.length >= 3)) {
     const [a, b, c] = sides.length === 3 ? [named.a, named.b, named.c] : bare;
     sol = solveTriangle({ kind: "SSS", a, b, c });
   } else if (angles.length === 1 && sides.length === 2) {
     const ang = angles[0];
     // Included angle (SAS) when the angle is NOT opposite either given side.
-    const opposite = ang.toLowerCase();
-    sol = sides.includes(opposite)
-      ? solveTriangle({ kind: "SSA", a: named[opposite], b: named[sides.find((s) => s !== opposite)!], A: named[ang] })
-      : solveTriangle({ kind: "SAS", b: named[sides[0]], c: named[sides[1]], A: named[ang] });
+    const opposite = ang.toLowerCase() as "a" | "b" | "c";
+    if (sides.includes(opposite)) {
+      const other = sides.find((s) => s !== opposite)! as "a" | "b" | "c";
+      const rest = (["a", "b", "c"] as const).find((s) => s !== opposite && s !== other)!;
+      relabel = { a: opposite, b: other, c: rest };
+      sol = solveTriangle({ kind: "SSA", a: named[opposite], b: named[other], A: named[ang] });
+    } else {
+      const [s1, s2] = sides as Array<"a" | "b" | "c">;
+      relabel = { a: opposite, b: s1, c: s2 };
+      sol =solveTriangle({ kind: "SAS", b: named[s1], c: named[s2], A: named[ang] });
+    }
   } else if (angles.length === 2 && sides.length === 1) {
     sol = solveTriangle({
       kind: "ASA", A: named[angles[0]], B: named[angles[1]],
@@ -493,10 +505,21 @@ function triangleRequest(
   }
   const values: GeoValue[] = [];
   const steps: string[] = [`Solved as ${sol.kind}.`];
-  sol.triangles.forEach((t, i) => {
-    const tag = sol!.triangles.length > 1 ? ` (solution ${i + 1})` : "";
+  // Back into the user's letters (see relabel above).
+  const tris = sol.triangles.map((t) => {
+    const u: Record<string, number> = {};
+    const ex: Record<string, string | undefined> = {};
+    for (const k of ["a", "b", "c"] as const) {
+      u[relabel[k]] = t[k];
+      u[relabel[k].toUpperCase()] = t[k.toUpperCase() as "A" | "B" | "C"];
+    }
+    ex[relabel.a] = t.aExact;
+    return { ...t, a: u.a, b: u.b, c: u.c, A: u.A, B: u.B, C: u.C, ex };
+  });
+  tris.forEach((t, i) => {
+    const tag = tris.length > 1 ? ` (solution ${i + 1})` : "";
     values.push(
-      V(`a${tag}`, t.a), V(`b${tag}`, t.b), V(`c${tag}`, t.c),
+      V(`a${tag}`, t.a, t.ex.a), V(`b${tag}`, t.b, t.ex.b), V(`c${tag}`, t.c, t.ex.c),
       V(`A${tag}`, t.A), V(`B${tag}`, t.B), V(`C${tag}`, t.C),
       { label: `area${tag}`, value: t.area, exact: t.areaExact },
       { label: `inradius${tag}`, value: t.inradius, exact: t.inradiusExact },
@@ -507,7 +530,7 @@ function triangleRequest(
   // Only triangles whose every part is finite AND whose area is genuinely
   // positive are drawable — a float-degenerate flat "triangle" would render as
   // a line (or, before the clamp above, as an all-NaN path).
-  const drawable = sol.triangles.filter(
+  const drawable = tris.filter(
     (t) => [t.a, t.b, t.c, t.A, t.B, t.C].every(Number.isFinite) && t.area > 0
   );
   return {
@@ -644,7 +667,7 @@ function transform2dRequest(raw: string, lower: string, P: Pt[]): GeoResult | nu
         "or as a triple (x,y,z) for the 3D toolkit.",
     };
   }
-  const numPat = String.raw`-?\d+(?:\.\d+)?(?:\/\d+)?`;
+  const numPat = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?`;
   const pairRe = new RegExp(String.raw`\(\s*(${numPat})\s*,\s*(${numPat})\s*\)`, "g");
   const aboutRe = new RegExp(String.raw`\b(?:about|around)\s*\(\s*(${numPat})\s*,\s*(${numPat})\s*\)`);
   const steps: string[] = [];
@@ -945,7 +968,7 @@ function tryConic(raw: string): GeoResult | null {
 /** Pulls "(1,2,3)" triples out of a string. Pairs are left for the 2D grammar. */
 function parseTriples(s: string): Vec3[] {
   const out: Vec3[] = [];
-  const num = String.raw`-?\d+(?:\.\d+)?(?:\/\d+)?`;
+  const num = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?`;
   const re = new RegExp(String.raw`\(\s*(${num})\s*,\s*(${num})\s*,\s*(${num})\s*\)`, "g");
   let m: RegExpExecArray | null;
   while ((m = re.exec(s))) out.push(v3(ratOf(m[1]), ratOf(m[2]), ratOf(m[3])));
@@ -998,7 +1021,7 @@ function transformRequest(raw: string, lower: string, P: Vec3[]): GeoResult | nu
   // "mirror the point (1,2,3) in the yz plane" puts the plane at the end, and
   // cutting the string at the first "(" threw it away and silently reflected in
   // xy instead.
-  const numPat = String.raw`-?\d+(?:\.\d+)?(?:\/\d+)?`;
+  const numPat = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+)?`;
   const tripleRe = new RegExp(String.raw`\(\s*${numPat}\s*,\s*${numPat}\s*,\s*${numPat}\s*\)`, "g");
   const headLower = lower.replace(tripleRe, " ");
   const steps: string[] = [];

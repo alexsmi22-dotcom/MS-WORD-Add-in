@@ -438,7 +438,10 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
     let degraded = 0;
     // [ \t]*, NOT \s*: \s crosses newlines, and "… = 3\nx1 …" — a two-line
     // SYSTEM — was welded into "3x^1", destroying both equations at once.
-    s = s.replace(/(\d)[ \t]*([a-zA-Z])(\d+)\b/g, (_m, c: string, v: string, p: string) => {
+    // E-NOTATION IS A NUMBER: "x = 2e3", "1.5e2", "1E6" are floats, never
+    // 2·e³ — an e/E glued between digits is left alone (review 2026-10-24).
+    s = s.replace(/(\d)([ \t]*)([a-zA-Z])(\d+)\b/g, (whole, c: string, gap: string, v: string, p: string) => {
+      if (!gap && (v === "e" || v === "E")) return whole;
       degraded++;
       return `${c}${v}^${p}`;
     });

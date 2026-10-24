@@ -416,6 +416,8 @@ export interface SolvedTriangle {
   area: number;
   /** Exact area when the sides are rational and Heron's radicand is rational. */
   areaExact?: string;
+  /** Exact form of the COMPUTED side a (SAS with a rational cos A: √39). */
+  aExact?: string;
   /** Radius of the inscribed circle, r = area / s. */
   inradius: number;
   inradiusExact?: string;
@@ -459,6 +461,11 @@ function finishFromSides(a: number, b: number, c: number): SolvedTriangle {
   // so r² = rad/s² and R² = (abc)²/(16·rad) are rational whenever rad is.
   try {
     const rs = [a, b, c].map(ratFromNumber);
+    // ONLY TYPED-LOOKING SIDES. A side the solver COMPUTED (√39 as the double
+    // 6.244997998398398) is not a rational, and running Heron on its 16-digit
+    // decimal typeset a 63-digit surd as "exact" (review 2026-10-24). A side
+    // with more than nine decimals is a computed float: leave it numeric.
+    if (rs.some((r) => r.d > 1000000000n)) return out;
     const S = ratMul(ratAdd(ratAdd(rs[0], rs[1]), rs[2]), ratMake(1n, 2n));
     const rad = ratMul(
       ratMul(S, ratSub(S, rs[0])),
@@ -495,6 +502,11 @@ export function solveTriangle(spec: {
   const caveats: string[] = [];
   const bad = (msg: string): TriangleSolution => ({ kind: spec.kind, triangles: [], caveats, impossible: msg });
   const pos = (v: number | undefined): boolean => typeof v === "number" && Number.isFinite(v) && v > 0;
+  // The law of cosines squares the sides: past ~10¹⁵⁰ that overflows and the
+  // angles came back undefined beside a 300-digit "exact" area (review 2026-10-24).
+  if ([spec.a, spec.b, spec.c].some((v) => typeof v === "number" && Math.abs(v) > 1e150)) {
+    return bad("Side lengths beyond about 10¹⁵⁰ overflow double precision in the law of cosines — rescale the units and solve again.");
+  }
 
   switch (spec.kind) {
     case "SSS": {
@@ -512,7 +524,35 @@ export function solveTriangle(spec: {
       if (!pos(b) || !pos(c) || !pos(A)) return bad("Two positive sides and the included angle are required.");
       if (A! >= 180) return bad("The included angle must be less than 180°.");
       const a = Math.sqrt(b! * b! + c! * c! - 2 * b! * c! * Math.cos(toRad(A!)));
-      return { kind: "SAS", triangles: [finishFromSides(a, b!, c!)], caveats };
+      const t = finishFromSides(a, b!, c!);
+      // EXACT SAS where it genuinely is: rational b, c and an angle whose sin²
+      // is rational give area² = (bc/2)²·sin²A rational (5, 7, 60° → 35√3/4);
+      // when cos A is rational too, a² = b² + c² − 2bc·cos A is rational (√39)
+      // and R² = a²/(4 sin²A) (√13). The inradius involves a + b + c and stays numeric.
+      try {
+        const SPECIAL: Record<number, { sin2: Rat; cos?: Rat }> = {
+          30: { sin2: ratMake(1n, 4n) }, 150: { sin2: ratMake(1n, 4n) },
+          45: { sin2: ratMake(1n, 2n) }, 135: { sin2: ratMake(1n, 2n) },
+          60: { sin2: ratMake(3n, 4n), cos: ratMake(1n, 2n) }, 120: { sin2: ratMake(3n, 4n), cos: ratMake(-1n, 2n) },
+          90: { sin2: ratInt(1), cos: RAT_ZERO },
+        };
+        const sp = SPECIAL[A!];
+        const rb = ratFromNumber(b!), rc = ratFromNumber(c!);
+        if (sp && rb.d <= 1000000000n && rc.d <= 1000000000n) {
+          const half = ratMul(ratMul(rb, rc), ratMake(1n, 2n));
+          t.areaExact = fmtSqrtRat(ratMul(R2(half), sp.sin2)) ?? undefined;
+          delete t.inradiusExact;
+          delete t.circumradiusExact;
+          if (sp.cos) {
+            const a2 = ratSub(ratAdd(R2(rb), R2(rc)), ratMul(ratMul(ratInt(2), ratMul(rb, rc)), sp.cos));
+            t.aExact = fmtSqrtRat(a2) ?? undefined;
+            t.circumradiusExact = fmtSqrtRat(ratDiv(a2, ratMul(ratInt(4), sp.sin2))) ?? undefined;
+          }
+        }
+      } catch {
+        /* numeric only */
+      }
+      return { kind: "SAS", triangles: [t], caveats };
     }
     case "ASA": case "AAS": {
       const { A, B, a, b } = spec;
@@ -676,9 +716,11 @@ export function classifyConic(
   // Centre, where one exists (δ ≠ 0): solve the 2×2 system.
   let centre: { x: number; y: number } | undefined;
   if (dSign !== 0) {
-    const den = num(delta);
-    const cx = (2 * num(C) * num(D) - num(B) * num(E)) / -den;
-    const cy = (2 * num(A) * num(E) - num(B) * num(D)) / -den;
+    // ∇ = 0: 2A·x + B·y + D = 0 and B·x + 2C·y + E = 0, whose determinant is
+    // 4AC − B² = −δ. Cramer: x = (B·E − 2C·D)/(4AC − B²), y = (B·D − 2A·E)/(4AC − B²).
+    const den = -num(delta);
+    const cx = (num(B) * num(E) - 2 * num(C) * num(D)) / den;
+    const cy = (num(B) * num(D) - 2 * num(A) * num(E)) / den;
     centre = { x: cx, y: cy };
     steps.push(`δ ≠ 0, so there is a centre at (${cx.toFixed(6)}, ${cy.toFixed(6)}).`);
   }

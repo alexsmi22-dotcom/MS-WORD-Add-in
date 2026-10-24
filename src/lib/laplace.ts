@@ -966,7 +966,13 @@ export function inverseLaplace(Fin: Expr, s = "s", t = "t"): LaplaceInverse | La
       steps.push({ text: `${pfTermText(term, s)} ↦ ${format(inv.f)}   (${inv.rule})` });
       f = add(f, inv.f);
     }
-    if (pf.terms.length > 1) steps.unshift({ text: `Partial fractions: ${format(G)} = ${termTexts.join(" + ")}` });
+    // The decomposition is an EQUATION: a math step (typeset, inserted as a Word
+    // equation), not caret/asterisk prose (review 2026-10-24).
+    if (pf.terms.length > 1) {
+      const rhs = termTexts.join(" + ").replace(/\+ -/g, "- ");
+      steps.unshift({ text: `${format(G)} = ${rhs}`, math: true });
+      steps.unshift({ text: "Partial fractions:" });
+    }
     if (d !== null && constValue(d) !== 0) {
       // e^{−ds}G(s) ↦ g(t − d)·u(t − d); a pure impulse just moves to t = d.
       const shifted = substituteVar(f, t, SUB(V(t), d));
@@ -1070,7 +1076,7 @@ export function tryLaplace(input: string): VerbResult | null {
     if (check === null) caveats.push("The numeric check of the defining integral did not agree — treat with care.");
     return {
       title,
-      lines: [...lines, ...r.steps.map((st) => ({ text: st.text }))],
+      lines: [...lines, ...r.steps.map((st) => (st.math ? { text: st.text, math: true } : { text: st.text }))],
       caveats,
       plot: { exprs: [{ expr: fText, label: "f(t)" }], variable: "t", window: { lo: 0, hi: 8 }, title: "f(t) = ℒ⁻¹{F}(t)" },
     };
@@ -1099,7 +1105,7 @@ export function tryLaplace(input: string): VerbResult | null {
   const caveats: string[] = [];
   if (check === "verified") caveats.push("Verified against the defining integral ∫₀^∞ e^{−st} f(t) dt at three values of s.");
   else caveats.push("Not checked numerically (an impulse has no pointwise value, or the region of convergence is not rational).");
-  const lines = [{ text: `F(s) = ${format(r.F)}${regionText(r.region)}`, math: true }, ...r.steps.map((st) => ({ text: st.text }))];
+  const lines = [{ text: `F(s) = ${format(r.F)}${regionText(r.region)}`, math: true }, ...r.steps.map((st) => (st.math ? { text: st.text, math: true } : { text: st.text }))];
   return {
     title,
     lines,
@@ -1238,13 +1244,21 @@ export function solveIvpLaplace(input: string): IvpResult | null {
   const Y = DIV(add(G.F, numExtra), den);
   const steps: Array<{ text?: string; math?: string }> = [];
   steps.push({ text: `Transform both sides, using ℒ{y'} = sY − y(0) and ℒ{y''} = s²Y − s·y(0) − y'(0):` });
-  steps.push({ math: `${format(S2(add(mul(rat(ar), POW(S, N(2))), mul(rat(br), S), rat(cr))))} * Y - (${format(S2(numExtra))}) = ${format(G.F)}` });
-  for (const st of G.steps) steps.push({ text: st.text });
+  // The characteristic polynomial is BRACKETED as Y's coefficient: without it
+  // the line read "s² + 3·s + 2·Y − (s+3) = 0" — Y multiplying only the 2
+  // (review 2026-10-24). A single-term coefficient needs no bracket.
+  {
+    // "3*s" → "3s": a numeric coefficient on s reads as juxtaposition, as in print.
+    const charPoly = format(S2(add(mul(rat(ar), POW(S, N(2))), mul(rat(br), S), rat(cr)))).replace(/(\d)\*s\b/g, "$1s");
+    const coef = /[+-]/.test(charPoly.replace(/^-/, "")) ? `(${charPoly})` : charPoly;
+    steps.push({ math: `${coef} * Y - (${format(S2(numExtra))}) = ${format(G.F)}` });
+  }
+  for (const st of G.steps) steps.push(st.math ? { math: st.text } : { text: st.text });
   const Ysimpl: Expr = exactSimplify(Y);
   steps.push({ math: `Y(s) = ${format(Ysimpl)}` });
   const inv = inverseLaplace(Ysimpl, "s", t);
   if ("refusal" in inv) return refuseIvp("inverse not in the table", `Y(s) = ${format(Ysimpl)} could not be inverted: ${inv.refusal}.`);
-  for (const st of inv.steps) steps.push({ text: st.text });
+  for (const st of inv.steps) steps.push(st.math ? { math: st.text } : { text: st.text });
   const y = inv.f;
 
   // VERIFY against the ORIGINAL equation and the initial conditions.

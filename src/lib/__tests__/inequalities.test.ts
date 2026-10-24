@@ -35,7 +35,7 @@ describe("polynomial inequalities", () => {
   });
   it("always true and never true are both stated plainly", () => {
     expect(D("x^2 + 1 > 0")).toBe("(−∞, ∞)");
-    expect(D("x^2 + 1 < 0")).toBe("no value satisfies this");
+    expect(D("x^2 + 1 < 0")).toBe("∅ (no solution)");
     expect(S("x^2 + 1 < 0")!.caveats.join(" ")).toMatch(/NO value/);
   });
   it("touching intervals are merged into one", () => {

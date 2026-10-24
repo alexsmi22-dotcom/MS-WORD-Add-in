@@ -67,7 +67,8 @@ describe("Solve draws for every kind that has something to draw", () => {
     // plots f(t), Fourier plots f and its partial sum — and the initial-value
     // problem's single solution curve. Plus the topology barcode elsewhere.
     const produced = (src.match(/currentSolveSvg = solveFunctionSvg\(/g) ?? []).length;
-    expect(produced).toBe(6);
+    // Seven since 2026-10-24: the first-order IVP fallback (y' = x·y, y(0) = 1) draws its curve.
+    expect(produced).toBe(7);
   });
 
   test("the ODE branch draws its solution family with its own caption", () => {

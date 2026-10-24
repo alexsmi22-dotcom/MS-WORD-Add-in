@@ -424,7 +424,7 @@ function solveInequalityCore(text: string, variable?: string): InequalityResult 
 
   const display = intervals.length
     ? intervals.map(fmtInterval).join(" ∪ ")
-    : "no value satisfies this";
+    : "∅ (no solution)";
 
   if (!intervals.length) {
     caveats.push("NO value of the variable satisfies this inequality. That is the answer, not a failure to find one.");

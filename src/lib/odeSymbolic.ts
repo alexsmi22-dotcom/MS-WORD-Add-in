@@ -420,7 +420,23 @@ export function solveOdeSymbolic(input: string): SymbolicOdeResult | null {
     if (onlyIn(q, "x")) {
       const Pint = antiderivative(format(p), "x");
       if (!Pint) return refuse("linear first order", `∫p(x) dx = ∫(${format(p)}) dx has no elementary form here.`);
-      const mu = `exp(${Pint.antiderivative})`;
+      // ∫p = k·ln|G| gives μ = |G|^k; on any interval where G ≠ 0, |G| = ±G and a
+      // constant multiple of an integrating factor is still one, so μ = G^k.
+      // exp(ln(abs(x))) defeated the integrator: x·y' + y = x² was refused
+      // (review 2026-10-24) where y = x²/3 + C/x.
+      let mu = `exp(${Pint.antiderivative})`;
+      let muNote: string | null = null;
+      {
+        const lm = /^(?:(-?\d+(?:\.\d+)?(?:\/\d+)?)\*)?ln\(abs\((.+)\)\)(?:\/(\d+))?$/.exec(Pint.antiderivative.replace(/\s+/g, ""));
+        if (lm) {
+          const k = (lm[1] ? Number(lm[1].includes("/") ? Number(lm[1].split("/")[0]) / Number(lm[1].split("/")[1]) : Number(lm[1])) : 1) / (lm[3] ? Number(lm[3]) : 1);
+          if (Number.isFinite(k) && k !== 0) {
+            const g = /^[A-Za-z0-9_.]+$/.test(lm[2]) ? lm[2] : `(${lm[2]})`;
+            mu = k === 1 ? g : `${g}^(${fmt(k)})`;
+            muNote = `On any interval where ${lm[2]} ≠ 0: there |${lm[2]}| = ±${lm[2]}, and a constant multiple of an integrating factor is still one.`;
+          }
+        }
+      }
       const integrand = `(${mu}) * (${format(q)})`;
       const Mint = antiderivative(integrand, "x");
       if (!Mint) {
@@ -444,7 +460,7 @@ export function solveOdeSymbolic(input: string): SymbolicOdeResult | null {
           { math: `μ y = ${Mint.antiderivative} + C` },
           { math: `y = ${solution}` },
         ],
-        caveats: [`All integrals were checked by differentiating back (${Pint.verified}, ${Mint.verified}).`],
+        caveats: [`All integrals were checked by differentiating back (${Pint.verified}, ${Mint.verified}).`, ...(muNote ? [muNote] : [])],
         verified: "verified",
         family: familyOf(solution),
       };
@@ -466,4 +482,76 @@ function familyOf(solutionWithC: string): SymbolicOdeResult["family"] {
     expr: solutionWithC.replace(/\bC\b/g, `(${C})`),
     label: `C = ${C}`,
   }));
+}
+
+/**
+ * A FIRST-ORDER initial-value problem the transform table cannot take (variable coefficients: y' = x·y, y(0) = 1)
+ * — solved by the symbolic families above, then the one constant fixed from y(x₀) = y₀. The Laplace route refused
+ * these ("not constant-coefficient") although the separable solver answers them (review 2026-10-24).
+ *
+ * Only an explicit general solution that is LINEAR in C (C·e^{…}, (F + C)/μ, F + C) is used; C is solved from the
+ * condition, the particular solution is checked against the condition and the ODE, and anything else is null.
+ */
+export function solveFirstOrderIvp(input: string): (SymbolicOdeResult & { particular: string }) | null {
+  const parts = input.split(/[\n;,]+/).map((p) => p.trim()).filter(Boolean);
+  const ics: Array<{ x0: number; y0: number; y0Text: string; x0Text: string }> = [];
+  const odeParts: string[] = [];
+  for (const p of parts) {
+    const m = /^y\s*\(\s*([^()]+)\s*\)\s*=\s*(.+)$/.exec(p);
+    if (m) {
+      let x0: number, y0: number;
+      try { x0 = evalAst(parseExpr(m[1]), {}); y0 = evalAst(parseExpr(m[2]), {}); } catch { return null; }
+      if (!Number.isFinite(x0) || !Number.isFinite(y0)) return null;
+      ics.push({ x0, y0, y0Text: m[2].trim(), x0Text: m[1].trim() });
+      continue;
+    }
+    // y'(x₀) = c is a second condition — not a first-order problem.
+    if (/^y\s*['′]+\s*\(\s*[^()]+\)\s*=\s*[^xy]*$/.test(p)) return null;
+    odeParts.push(p);
+  }
+  if (ics.length !== 1 || odeParts.length !== 1) return null;
+  const gen = solveOdeSymbolic(odeParts[0]);
+  if (!gen || !gen.solution || !gen.explicit || !/^y = /.test(gen.solution) || /\bC[12]\b/.test(gen.solution)) return null;
+  const body = gen.solution.slice(4);
+  if (!/\bC\b/.test(body)) return null;
+  const { x0, y0 } = ics[0];
+  const at = (C: number, xv: number): number => evalAst(parseExpr(body.replace(/\bC\b/g, `(${C})`)), { x: xv });
+  let e0: number, e1: number, e2: number;
+  try { e0 = at(0, x0); e1 = at(1, x0); e2 = at(2, x0); } catch { return null; }
+  if (![e0, e1, e2].every(Number.isFinite)) return null;
+  // Linear in C: e(2) − e(1) = e(1) − e(0), and the slope must not vanish.
+  const slope = e1 - e0;
+  if (Math.abs(slope) < 1e-12 || Math.abs(e2 - e1 - slope) > 1e-9 * Math.max(1, Math.abs(slope))) return null;
+  const Cv = (y0 - e0) / slope;
+  // A rational C (1, −2, 1/3) is written exactly; anything else as a 12-figure decimal.
+  let Ctext = String(Number(Cv.toPrecision(12)));
+  for (let q = 1; q <= 1000; q++) {
+    const p = Math.round(Cv * q);
+    if (Math.abs(Cv * q - p) <= 1e-10 * Math.max(1, Math.abs(Cv * q))) {
+      Ctext = q === 1 ? String(p) : `${p}/${q}`;
+      break;
+    }
+  }
+  let particular: string;
+  try {
+    particular = format(simplify(parseExpr(body.replace(/\bC\b/g, `(${Ctext})`))));
+  } catch {
+    return null;
+  }
+  // The particular solution must meet the condition and the equation.
+  let yAt: number;
+  try { yAt = evalAst(parseExpr(particular), { x: x0 }); } catch { return null; }
+  if (!(Math.abs(yAt - y0) <= 1e-9 * Math.max(1, Math.abs(y0)))) return null;
+  return {
+    ...gen,
+    classification: `initial-value problem — ${gen.classification}`,
+    particular: `y = ${particular}`,
+    steps: [
+      ...gen.steps,
+      { text: `The condition y(${ics[0].x0Text}) = ${ics[0].y0Text} fixes the constant: C = ${Ctext}.` },
+      { math: `y = ${particular}` },
+    ],
+    caveats: [...gen.caveats.filter((c) => !/^y = 0 is also a solution/.test(c)), `Checked: y(${ics[0].x0Text}) = ${ics[0].y0Text}, and the general solution was verified against the equation.`],
+    family: [{ expr: particular, label: `y(${ics[0].x0Text}) = ${ics[0].y0Text}` }],
+  };
 }

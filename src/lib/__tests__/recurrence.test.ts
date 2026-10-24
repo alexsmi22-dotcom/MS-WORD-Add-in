@@ -57,7 +57,7 @@ describe("characteristic roots", () => {
     const r = solveCharacteristic([Rat.of(1), Rat.of(1)]);
     expect(r.exactField).toBe(true);
     expect(r.D!.toString()).toBe("5");
-    expect(r.roots.map((x) => x.exact!.toString()).sort()).toEqual(["(1/2 + 1/2√5)", "(1/2 − 1/2√5)"]);
+    expect(r.roots.map((x) => x.exact!.toString()).sort()).toEqual(["(1/2 + √5/2)", "(1/2 − √5/2)"]);
   });
   it("complex roots are numeric and labelled", () => {
     const r = solveCharacteristic([Rat.of(0), Rat.of(-1)]); // r² + 1
@@ -69,7 +69,7 @@ describe("characteristic roots", () => {
 describe("closed forms", () => {
   it("Fibonacci: Binet, exact, verified", () => {
     const r = run("a(n) = a(n-1) + a(n-2), a(0)=0, a(1)=1");
-    expect(r.display[0]).toBe("a(n) = 1/5√5·((1/2 + 1/2√5))ⁿ − 1/5√5·((1/2 − 1/2√5))ⁿ");
+    expect(r.display[0]).toBe("a(n) = √5/5·(1/2 + √5/2)ⁿ − √5/5·(1/2 − √5/2)ⁿ");
     expect(r.display.join(" ")).toMatch(/First terms: 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89/);
     expect(r.steps.join(" ")).toMatch(/Verified: the closed form reproduces a\(0\) … a\(15\) from direct iteration exactly/);
     expect(r.caveats.join(" ")).toMatch(/Exact in ℚ\(√5\)/);
@@ -92,7 +92,7 @@ describe("closed forms", () => {
   });
   it("resonance: T(n) = T(n-1) + n gives n(n+1)/2", () => {
     const r = run("T(n) = T(n-1) + n, T(0) = 0");
-    expect(r.display[0]).toBe("T(n) = 1/2n + 1/2n²");
+    expect(r.display[0]).toBe("T(n) = n/2 + n²/2");
     expect(r.display.join(" ")).toMatch(/First terms: 0, 1, 3, 6, 10, 15/);
     expect(r.steps.join(" ")).toMatch(/resonance/);
   });

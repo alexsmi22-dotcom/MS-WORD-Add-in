@@ -325,6 +325,54 @@ export function solveBvp(
     steps.push(`Richardson estimate of the error in the reported solution: ${errorEstimate.toExponential(2)}.`);
   }
 
+  // NO SOLUTION IS NOT AN ANSWER (fix2-paf). y'' = −y on [0, π] with y(0) = 0,
+  // y(π) = 1 has no solution (the homogeneous problem has the nontrivial
+  // solution sin x: resonance), and this returned "values" of order 10⁵ that
+  // GREW with refinement — an observed order of −2 — as an insertable result.
+  // A refinement that makes the answer worse, or an error estimate as large as
+  // the answer itself, means the grids are not converging to anything.
+  const scale = Math.max(...fine.y.map(Math.abs));
+  const NO_SOLUTION =
+    "These grids do not converge to a solution: refining the grid makes the answer change more, not less" +
+    (observedOrder !== undefined ? ` (observed order ${observedOrder.toFixed(2).replace(/^-/, "−")})` : "") +
+    ". The problem most likely has NO solution — or infinitely many. That happens at resonance: when the " +
+    "homogeneous problem (same equation, both boundary values zero) has a nontrivial solution, as y'' = −y on " +
+    "[0, π] does with sin x, the boundary values can only be met for special choices, and y(π) = 1 is not one of them.";
+  // Below a roundoff floor the grids AGREE (an exact problem such as y'' = 0):
+  // the "order" of two roundoff differences is noise and says nothing.
+  const atRoundoff = maxDiff <= 1e-9 * Math.max(scale, 1e-300);
+  if (
+    (!atRoundoff && observedOrder !== undefined && observedOrder <= 0) ||
+    (!atRoundoff && errorEstimate !== undefined && errorEstimate >= scale) ||
+    !Number.isFinite(scale)
+  ) {
+    return { ok: false, error: NO_SOLUTION, caveats };
+  }
+  // A second opinion from the other method on the fine grid: when both
+  // succeed and disagree by more than a tenth of the solution's size, at least
+  // one is not a solution of the stated problem (or there are several).
+  if (fine.converged) {
+    const other = method === "fd" ? shoot(f, a, b, alpha, beta, 2 * n) : fdSolve(f, a, b, alpha, beta, 2 * n);
+    if (other && other.converged && !gf.error) {
+      let d = 0;
+      for (let i = 0; i <= 2 * n; i++) d = Math.max(d, Math.abs(other.y[i] - fine.y[i]));
+      // Against the solution's size or the boundary values, whichever is larger:
+      // an all-zero solution is compared with nothing and never refused on noise.
+      const ref = Math.max(scale, Math.abs(alpha), Math.abs(beta));
+      if (ref > 0 && d > 0.1 * ref) {
+        const pct = (100 * d) / ref;
+        return {
+          ok: false,
+          caveats,
+          error:
+            "Finite differences and shooting found different solutions (they differ by " +
+            `${pct > 1000 ? "more than ten times" : `up to ${Math.round(pct)}% of`} the solution's size). The problem has several ` +
+            "solutions or none, and this tool cannot say which one you mean.",
+        };
+      }
+    }
+  }
+
   if (observedOrder !== undefined && (observedOrder < 1.3 || observedOrder > 3)) {
     caveats.push(
       `The observed convergence order is ${observedOrder.toFixed(2)}, not the ~2 this method should give. ` +

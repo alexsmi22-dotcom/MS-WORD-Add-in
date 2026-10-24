@@ -62,7 +62,13 @@ export function formatCodeBlock(input: string, opts: CodeBlockOptions): string {
     let content = escapeHtml(line);
     if (opts.style === "algorithm") content = boldKeywords(content);
     if (content === "") content = "&#160;"; // keep blank lines from collapsing
-    const codeCell = `<td style="${MONO}white-space:pre;padding:0 6px;">${content}</td>`;
+    // ONE PARAGRAPH PER LINE WITH ZERO SPACING (fix2-paf): Word turns each
+    // cell's text into a Normal paragraph, which carries the document's space
+    // after (8 pt in the default template), so an inserted listing read
+    // double-spaced. An explicit zero-margin <p> keeps the lines together.
+    const codeCell =
+      `<td style="${MONO}white-space:pre;padding:0 6px;">` +
+      `<p style="margin:0;margin-top:0;margin-bottom:0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;${MONO}white-space:pre;">${content}</p></td>`;
     if (opts.lineNumbers) {
       const numCell =
         `<td style="${MONO}color:#888888;text-align:right;padding:0 8px 0 4px;vertical-align:top;">${i + 1}</td>`;

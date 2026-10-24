@@ -6,6 +6,20 @@
 // Rate conventions: rates are per-period decimals unless a function name says
 // otherwise (e.g. compoundInterest takes an annual rate + compounds/year).
 
+import { parseCellNumber } from "./dataimport";
+
+/**
+ * A Finance number field as typed: the product's one cell reader (true minus
+ * "−5", grouping "1,000", decimal comma "3,5", a trailing "%", ×10ⁿ), and a
+ * leading "+". NaN for anything else — including "0x10", which Number() read
+ * as 16 — so the pane refuses it by name instead of computing with it.
+ */
+export function readFinanceField(raw: string): number {
+  const t = (raw ?? "").trim().replace(/^\+/, "");
+  if (!t) return NaN;
+  return parseCellNumber(t);
+}
+
 /** Future value of a single sum: pv compounded at `rate` for `n` periods. */
 export function futureValue(pv: number, rate: number, n: number): number {
   return pv * Math.pow(1 + rate, n);
@@ -86,7 +100,9 @@ export const IRR_SEARCH_MAX = 100;
  * exactly the "computed, tested, and never read" shape this release is fixing
  * elsewhere, so it is written down here rather than left to be discovered.
  */
-export const IRR_SEARCH_RANGE_TEXT = "-99% to 10,000% per period";
+export const IRR_SEARCH_RANGE_TEXT = "−99% to 10,000% per period";
+/** XIRR searches an ANNUAL rate over a slightly different interval (findRoot below). */
+export const XIRR_SEARCH_RANGE_TEXT = "−99.99% to 10,000% a year";
 
 /**
  * A WIDER RANGE AT THE SAME STEP IS A SLOWER PANE, AND THE SCAN IS SYNCHRONOUS.
@@ -167,9 +183,16 @@ export type OptionType = "call" | "put";
 
 /** Black–Scholes price of a European option (no dividends). t in years. */
 export function blackScholes(type: OptionType, S: number, K: number, t: number, r: number, sigma: number): number {
-  if (t <= 0 || sigma <= 0) {
-    const intrinsic = type === "call" ? Math.max(S - K, 0) : Math.max(K - S, 0);
-    return intrinsic;
+  if (!(t >= 0) || !(sigma >= 0)) return NaN;
+  if (t === 0) return type === "call" ? Math.max(S - K, 0) : Math.max(K - S, 0);
+  if (sigma === 0) {
+    // THE DETERMINISTIC LIMIT, not intrinsic value. With no volatility the
+    // stock grows at r for certain, so the option pays max(S·e^(rt) − K, 0) at
+    // expiry; discounted, that is max(S − K·e^(−rt), 0). Intrinsic max(S − K, 0)
+    // ignored the time value of the strike (a 1-year put, S 90, K 100, r 5%
+    // read 10.00 against the true 5.12).
+    const pvK = K * Math.exp(-r * t);
+    return type === "call" ? Math.max(S - pvK, 0) : Math.max(pvK - S, 0);
   }
   const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * t) / (sigma * Math.sqrt(t));
   const d2 = d1 - sigma * Math.sqrt(t);
@@ -335,12 +358,13 @@ export function nominalAnnualRate(effective: number, m: number): number {
 
 /** Present value of a level perpetuity: pmt / rate. */
 export function perpetuity(pmt: number, rate: number): number {
-  return rate === 0 ? NaN : pmt / rate;
+  // rate ≤ 0: Σ pmt/(1+r)^k does not converge (a negative "value" was printed).
+  return rate > 0 ? pmt / rate : NaN;
 }
 
-/** PV of a growing perpetuity (Gordon): pmt / (rate − g); requires rate > g. */
+/** PV of a growing perpetuity (Gordon): pmt / (rate − g); requires rate > g (and g > −100%). */
 export function growingPerpetuity(pmt: number, rate: number, g: number): number {
-  return rate <= g ? NaN : pmt / (rate - g);
+  return rate <= g || g <= -1 ? NaN : pmt / (rate - g);
 }
 
 /** PV of a growing ordinary annuity: first payment `pmt`, growing at g, n periods. */
@@ -370,6 +394,44 @@ export interface AmortRow {
  * monthly payments — past any real loan, and small enough to render.
  */
 export const MAX_AMORT_PERIODS = 12000;
+
+export interface AmortSummary {
+  payment: number;
+  totalPaid: number;
+  totalInterest: number;
+}
+
+/**
+ * Loan totals in CLOSED FORM, with no schedule and so no period cap.
+ *
+ * The summary calculator used to sum amortizationSchedule rows, and that
+ * schedule silently stops at MAX_AMORT_PERIODS: a 40-year daily loan (14,600
+ * periods) was summarised as a different, 12,000-period loan. Payment =
+ * P·i/(1 − (1+i)^−N); total paid = N·payment; interest = total − P.
+ * numpy-financial: npf.pmt(0.05/365, 14600, −200000) = 31.686094…,
+ * ×14600 − 200000 = 262,616.9757.
+ */
+export function amortizationSummary(principal: number, ratePerPeriod: number, nPeriods: number): AmortSummary {
+  const payment = loanPayment(principal, ratePerPeriod, nPeriods);
+  const totalPaid = payment * nPeriods;
+  return { payment, totalPaid, totalInterest: totalPaid - principal };
+}
+
+/**
+ * Row k (1-based) of the level-payment schedule in closed form, for thinned
+ * figures of loans of any length: balance after k payments is
+ * P(1+i)^k − pmt·((1+i)^k − 1)/i.
+ */
+export function amortizationRowAt(principal: number, ratePerPeriod: number, nPeriods: number, k: number): AmortRow {
+  const pmt = loanPayment(principal, ratePerPeriod, nPeriods);
+  const i = ratePerPeriod;
+  const bal = (j: number): number =>
+    i === 0 ? principal - pmt * j : principal * Math.pow(1 + i, j) - (pmt * (Math.pow(1 + i, j) - 1)) / i;
+  const before = bal(k - 1);
+  const interest = before * i;
+  const balance = k >= nPeriods ? 0 : Math.max(0, bal(k));
+  return { period: k, payment: pmt, interest, principal: pmt - interest, balance };
+}
 
 export function amortizationSchedule(principal: number, ratePerPeriod: number, nPeriods: number): AmortRow[] {
   const rows: AmortRow[] = [];
@@ -518,7 +580,26 @@ export interface Greeks {
 
 /** Black–Scholes Greeks for a European option (no dividends). */
 export function blackScholesGreeks(type: OptionType, S: number, K: number, t: number, r: number, sigma: number): Greeks {
-  if (t <= 0 || sigma <= 0) return { delta: NaN, gamma: NaN, vega: NaN, theta: NaN, rho: NaN };
+  const none = { delta: NaN, gamma: NaN, vega: NaN, theta: NaN, rho: NaN };
+  if (!(t > 0) || !(sigma >= 0) || !(S > 0) || !(K > 0)) return none;
+  if (sigma === 0) {
+    // The σ → 0 limit: d1 = d2 = ±∞ by the sign of ln(S/K) + rt, so N(d) is 0
+    // or 1 and φ(d) = 0 — delta is a step, gamma and vega vanish, theta and rho
+    // are those of the forward max(S − K·e^(−rt), 0). EXACTLY at the money
+    // forward (S = K·e^(−rt)) the step is the point itself: delta jumps 0 → 1
+    // and gamma is infinite, so nothing is returned (sigmaZeroAtForward names it).
+    const m = Math.log(S / K) + r * t;
+    if (Math.abs(m) <= 1e-12 * Math.max(1, Math.abs(r * t))) return none;
+    const n1 = m > 0 ? 1 : 0;
+    const disc0 = K * Math.exp(-r * t);
+    return {
+      delta: type === "call" ? n1 : n1 - 1,
+      gamma: 0,
+      vega: 0,
+      theta: type === "call" ? -r * disc0 * n1 : r * disc0 * (1 - n1),
+      rho: type === "call" ? t * disc0 * n1 : -t * disc0 * (1 - n1),
+    };
+  }
   const sqt = Math.sqrt(t);
   const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * t) / (sigma * sqt);
   const d2 = d1 - sigma * sqt;
@@ -533,6 +614,13 @@ export function blackScholesGreeks(type: OptionType, S: number, K: number, t: nu
       : (-S * pdf * sigma) / (2 * sqt) + r * disc * normCdf(-d2);
   const rho = type === "call" ? t * disc * normCdf(d2) : -t * disc * normCdf(-d2);
   return { delta, gamma, vega, theta, rho };
+}
+
+/** True when σ = 0 and S = K·e^(−rt): the Greeks' σ → 0 limit has its step exactly here (undefined). */
+export function sigmaZeroAtForward(S: number, K: number, t: number, r: number, sigma: number): boolean {
+  if (sigma !== 0 || !(t > 0) || !(S > 0) || !(K > 0)) return false;
+  const m = Math.log(S / K) + r * t;
+  return Math.abs(m) <= 1e-12 * Math.max(1, Math.abs(r * t));
 }
 
 /** Implied volatility from an observed option `price` (annual decimal, or null). */
@@ -564,15 +652,22 @@ export function decliningBalanceSchedule(cost: number, salvage: number, life: nu
   // Same shape as amortizationSchedule: `life <= 0` does not reject Infinity,
   // and `year <= Infinity` never ends. A depreciation life is in years.
   if (!Number.isFinite(life) || life <= 0) return rows;
-  life = Math.min(Math.floor(life), MAX_AMORT_PERIODS);
+  // A FRACTIONAL LIFE IS KEPT. It used to be floored (7.5 → 7), so the rate was
+  // 2/7 instead of 2/7.5 and the last half-year vanished. Now the rate is
+  // factor/life and a final part year takes its fraction of a full year's
+  // charge, as straight line does.
+  const whole = Math.min(Math.floor(life), MAX_AMORT_PERIODS);
+  const fraction = life > MAX_AMORT_PERIODS ? 0 : life - Math.floor(life);
   let book = cost;
   const rate = factor / life;
-  for (let year = 1; year <= life; year++) {
-    let dep = book * rate;
+  const step = (year: number, share: number): void => {
+    let dep = book * rate * share;
     if (book - dep < salvage) dep = Math.max(0, book - salvage);
     book -= dep;
     rows.push({ year, depreciation: dep, bookValue: book });
-  }
+  };
+  for (let year = 1; year <= whole; year++) step(year, 1);
+  if (fraction > 1e-9) step(whole + 1, fraction);
   return rows;
 }
 

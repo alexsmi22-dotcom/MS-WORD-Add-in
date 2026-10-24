@@ -44,7 +44,11 @@ describe("item 3: a narrow span at a large magnitude is not a zero span", () => 
   test("buildPlotSvg x from 4.5e14 to 4.5e14+500 labels several distinct x ticks", () => {
     const svg = buildPlotSvg([{ points: [{ x: 4.5e14, y: 1 }, { x: 4.5e14 + 250, y: 3 }, { x: 4.5e14 + 500, y: 2 }] }] as never);
     const texts = Array.from(svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)).map((m) => m[1]);
-    const xLike = texts.filter((t) => /^4[.\d ]*/.test(t) && t.length > 4);
+    // fix2-paf: offset notation. The ticks are labelled relative to a round
+    // offset stated once on the axis title ("ticks + 4.5×10¹⁴") instead of as
+    // 15-digit numbers that ran into each other; still several DISTINCT ticks.
+    expect(texts.some((t) => /^ticks \+ 4\.5×10/.test(t))).toBe(true);
+    const xLike = texts.filter((t) => /^\d+$/.test(t));
     expect(new Set(xLike).size).toBeGreaterThan(1);
     expect(texts).not.toContain("4.5×10¹⁴");
   });

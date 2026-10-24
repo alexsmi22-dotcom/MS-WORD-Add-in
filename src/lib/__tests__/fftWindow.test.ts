@@ -12,11 +12,13 @@ function offBinTone(n: number, fs: number, freq: number, amp = 1): number[] {
 
 describe("window coefficients", () => {
   it("are the textbook definitions at the ends and the middle", () => {
-    const n = 65;
+    // PERIODIC (spectral-analysis) form since fix2-paf: zero at i = 0, peak at
+    // n/2, and w[i] = w[n − i] (the record repeats).
+    const n = 64;
     const hann = windowCoefficients("hann", n);
     expect(hann[0]).toBeCloseTo(0, 12);
-    expect(hann[n - 1]).toBeCloseTo(0, 12);
-    expect(hann[(n - 1) / 2]).toBeCloseTo(1, 12);
+    expect(hann[1]).toBeCloseTo(hann[n - 1], 12);
+    expect(hann[n / 2]).toBeCloseTo(1, 12);
     // Hamming does NOT reach zero at the ends — that is the difference.
     const hamming = windowCoefficients("hamming", n);
     expect(hamming[0]).toBeCloseTo(0.08, 12);
@@ -27,7 +29,7 @@ describe("window coefficients", () => {
     expect(windowCoefficients("none", 8)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
     for (const k of KINDS) {
       const w = windowCoefficients(k, 64);
-      for (let i = 0; i < 32; i++) expect(w[i]).toBeCloseTo(w[63 - i], 12);
+      for (let i = 1; i < 32; i++) expect(w[i]).toBeCloseTo(w[64 - i], 12);
       for (const x of w) {
         expect(x).toBeGreaterThanOrEqual(-1e-12);
         expect(x).toBeLessThanOrEqual(1 + 1e-12);

@@ -44,7 +44,9 @@ describe("Black–Scholes: the European/no-dividend limit is real, not pedantry"
 
   test("degenerate inputs fall back to intrinsic value rather than NaN", () => {
     expect(blackScholes("call", 110, 100, 0, 0.05, 0.2)).toBe(10);
-    expect(blackScholes("put", 90, 100, 1, 0.05, 0)).toBe(10);
+    // fix2-paf: σ = 0 with t > 0 is the deterministic limit max(K·e^(−rt) − S, 0)
+    // = 100·e^(−0.05) − 90 = 5.1229…, not intrinsic 10.
+    expect(blackScholes("put", 90, 100, 1, 0.05, 0)).toBeCloseTo(100 * Math.exp(-0.05) - 90, 12);
   });
 
   test("normCdf meets the ~1e-7 accuracy its own docstring claims", () => {

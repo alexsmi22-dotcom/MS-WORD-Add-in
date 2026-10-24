@@ -8,7 +8,8 @@
 // --- Expression evaluator ----------------------------------------------------
 
 import { minOf, maxOf } from "./minmax";
-import { linearAxis, logAxis, fmtValue, resolveLimits, outsideNote, type AxisLimits } from "./axis";
+import { linearAxis, logAxis, fmtValue, fmtSig, resolveLimits, outsideNote, type AxisLimits } from "./axis";
+import { usptoMarkerSvg, USPTO_DASHES } from "./figureStyle";
 
 /** Factorial for non-negative integers (else NaN). */
 function factorial(n: number): number {
@@ -233,12 +234,23 @@ export interface Point {
   x: number;
   y: number;
   err?: number;
+  /** A line series starts a new piece here (no connector from the previous point): a pole or a gap. */
+  gap?: boolean;
 }
 
-/** Samples y = f(x) across [xmin, xmax], dropping non-finite points. */
+/**
+ * Samples y = f(x) across [xmin, xmax], dropping non-finite points.
+ *
+ * POLES BREAK THE LINE (fix2-paf). tan(x) and 1/x used to be drawn with a
+ * near-vertical connector from +big to −big across every pole, and samples
+ * either side of a non-finite stretch were joined across it. A point after a
+ * dropped sample, or after a sign-changing jump larger than twice the
+ * function's robust (5th–95th percentile) span, starts a new piece.
+ */
 export function samplePlot(expr: string, xmin: number, xmax: number, samples = 200): Point[] {
   const pts: Point[] = [];
   const n = Math.max(2, Math.floor(samples));
+  let dropped = false;
   for (let k = 0; k < n; k++) {
     const x = xmin + ((xmax - xmin) * k) / (n - 1);
     let y: number;
@@ -247,9 +259,69 @@ export function samplePlot(expr: string, xmin: number, xmax: number, samples = 2
     } catch {
       throw new Error("Could not evaluate the function.");
     }
-    if (Number.isFinite(y)) pts.push({ x, y });
+    if (Number.isFinite(y)) {
+      pts.push(dropped && pts.length ? { x, y, gap: true } : { x, y });
+      dropped = false;
+    } else dropped = true;
+  }
+  const r = robustRange(pts.map((p) => p.y));
+  if (r) {
+    const span = Math.max(r.hi - r.lo, 1e-300);
+    for (let k = 1; k < pts.length; k++) {
+      const a = pts[k - 1].y;
+      const b = pts[k].y;
+      if (a * b < 0 && Math.abs(b - a) > 2 * span) pts[k].gap = true;
+    }
   }
   return pts;
+}
+
+/** The 5th and 95th percentiles of the finite values (null for fewer than 4). */
+export function robustRange(values: number[]): { lo: number; hi: number } | null {
+  const v = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (v.length < 4) return null;
+  const q = (p: number): number => {
+    const i = p * (v.length - 1);
+    const f = Math.floor(i);
+    return v[f] + (v[Math.min(f + 1, v.length - 1)] - v[f]) * (i - f);
+  };
+  return { lo: q(0.05), hi: q(0.95) };
+}
+
+/**
+ * y-axis limits for sampled functions whose poles would otherwise set the
+ * range (fix2-paf: tan(x) on [−5, 5] drew a flat line between ±10⁷ spikes).
+ * When the extremes run more than three robust spans past the 5th–95th
+ * percentiles, the axis is limited to those percentiles plus a quarter span
+ * each side (points beyond are clipped at the frame and counted in a note).
+ * Null when the range is already honest.
+ */
+export function robustYLimits(series: Series[]): AxisLimits | null {
+  const ys = series.flatMap((s) => s.points.map((p) => p.y)).filter(Number.isFinite);
+  const r = robustRange(ys);
+  if (!r) return null;
+  const span = r.hi - r.lo;
+  if (!(span > 0)) return null;
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  if (hi <= r.hi + 3 * span && lo >= r.lo - 3 * span) return null;
+  return { min: Math.max(lo, r.lo - 0.25 * span), max: Math.min(hi, r.hi + 0.25 * span) };
+}
+
+/**
+ * A y = f(x) expression as a legend label under the display contract (fix2-paf):
+ * "x^2/50" → "x²/50", "exp(-x^2)" → "exp(−x²)", "2*x" → "2·x". Every hyphen
+ * in an expression is a minus.
+ */
+export function typesetExprLabel(expr: string): string {
+  const SUP: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻" };
+  return expr
+    .replace(/\*\*/g, "^")
+    .replace(/\^(?:\((-?\d+)\)|(-?\d+)(?![\d.]))/g, (_m, a: string | undefined, b: string | undefined) =>
+      [...(a ?? b ?? "")].map((c) => SUP[c] ?? c).join(""),
+    )
+    .replace(/\s*\*\s*/g, "·")
+    .replace(/-/g, "−");
 }
 
 /** Most data rows the y = f(x) data box reads (a figure of more points is not a figure anyone reads). */
@@ -406,7 +478,58 @@ export interface PlotOptions {
    */
   xLimits?: AxisLimits;
   yLimits?: AxisLimits;
+  /**
+   * Black-and-white line art (USPTO, 37 CFR 1.84(a)(1)), fix2-paf: every paint
+   * black, no grid, line series told apart by dash patterns and scatter series
+   * by the USPTO marker set (●○■□▲△), legend swatches drawn the same way, and
+   * lowercase lettering 1.4× (bwPx) so it prints as tall as the numerals.
+   */
+  bw?: boolean;
 }
+
+const SUP_ASCII: Record<string, string> = {
+  "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "−", "⁺": "+",
+};
+const SUB_ASCII: Record<string, string> = {
+  "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9", "₋": "−", "₊": "+",
+};
+
+/**
+ * Text markup for a black-and-white (USPTO) figure: superscript and subscript
+ * CHARACTERS (², ⁻¹, ₂) are set as full-size digits raised or lowered with a
+ * tspan, as tablechart's patent multiplier already is — a Unicode superscript
+ * glyph is a fraction of the letter height, so 37 CFR 1.84(p)(3) cannot be met
+ * (the figure-style check refuses them as unmeasurable). Plain text is escaped
+ * as usual.
+ */
+export function bwTextMarkup(text: string, fontPx: number): string {
+  const shift = Math.round(fontPx * 0.38 * 10) / 10;
+  // Runs of one level (−1 sub, 0 base, +1 sup); every run after the first is a
+  // tspan whose dy moves the baseline from the previous run's level to its own.
+  const runs: { level: number; s: string }[] = [];
+  for (const ch of text) {
+    const l = ch in SUP_ASCII ? 1 : ch in SUB_ASCII ? -1 : 0;
+    const c = l > 0 ? SUP_ASCII[ch] : l < 0 ? SUB_ASCII[ch] : ch;
+    if (runs.length && runs[runs.length - 1].level === l) runs[runs.length - 1].s += c;
+    else runs.push({ level: l, s: c });
+  }
+  if (runs.every((r) => r.level === 0)) return escapeXml(text);
+  let out = "";
+  let at = 0;
+  for (const r of runs) {
+    if (r.level === at && out === "") {
+      out += escapeXml(r.s);
+      continue;
+    }
+    const dy = Math.round((at - r.level) * shift * 10) / 10;
+    out += `<tspan dy="${dy}">${escapeXml(r.s)}</tspan>`;
+    at = r.level;
+  }
+  return out;
+}
+
+/** Dash patterns for black-and-white line series, in order (solid first). */
+export const BW_DASHES = USPTO_DASHES;
 
 /** What an error bar represents. `custom` is for a half-width the caller computed. */
 export type ErrorBarKind = "sd" | "sem" | "ci95" | "range" | "custom";
@@ -532,6 +655,37 @@ export function plotAxisTicks(
       multiplier: "",
     };
   }
+  // OFFSET NOTATION (fix2-paf): on [10⁹, 10⁹ + 1] every tick read
+  // "1 000 000 000.2" and the labels ran into each other. When the span is
+  // under a thousandth of the magnitude, the ticks are labelled relative to a
+  // round offset (the first tick floored to a power of ten above the span) and
+  // the axis title says "ticks + offset".
+  const mag = Math.max(Math.abs(lo), Math.abs(hi));
+  if (!custom && step === undefined && hi > lo && mag > 0 && (hi - lo) / mag < 1e-3) {
+    // The roundest offset (fewest significant figures) that leaves every tick
+    // within 100 spans of it, so the labels are short and the offset exact.
+    const span = hi - lo;
+    let off = NaN;
+    let sig = 0;
+    for (let d = 1; d <= 15; d++) {
+      const cand = Number(((lo + hi) / 2).toPrecision(d));
+      if (Math.abs(cand - lo) <= 100 * span && Math.abs(hi - cand) <= 100 * span) {
+        off = cand;
+        sig = d;
+        break;
+      }
+    }
+    if (Number.isFinite(off) && off !== 0) {
+      const shifted = linearAxis(lo - off, hi - off, { target });
+      const offText = fmtSig(Math.abs(off), sig);
+      const sign = off < 0 ? "−" : "+";
+      return {
+        ticks: shifted.values.map((v, i) => ({ v: v + off, text: shifted.labels[i] })),
+        minor: [],
+        multiplier: shifted.multiplier ? `ticks ${shifted.multiplier} ${sign} ${offText}` : `ticks ${sign} ${offText}`,
+      };
+    }
+  }
   const row = linearAxis(lo, hi, { target, step });
   return {
     ticks: row.values.map((v, i) => ({ v, text: custom ? custom(snapNearZero(v, row.step || 1)) : row.labels[i] })),
@@ -614,7 +768,8 @@ function leftMarginFor(yAxis: PlotAxisTicks, options: PlotOptions): number {
   // first draft reserved 16, which is less than that, and a five-character
   // negative tick then grazed it in about 4% of ranges — a real overlap, small
   // enough to be missed by eye and not by a detector.
-  const titleRight = options.ylabel ? Y_TITLE_X + (Y_TITLE_SIZE * 0.78) / 2 : 0;
+  const titleSize = options.ylabel ? bwPx(options.ylabel, Y_TITLE_SIZE, options.bw === true) : Y_TITLE_SIZE;
+  const titleRight = options.ylabel ? Y_TITLE_X + (titleSize * 0.78) / 2 : 0;
   const needed = widest * 6 + 7 + (options.ylabel ? titleRight + 4 : 4);
   return Math.min(Math.max(48, Math.ceil(needed)), 130);
 }
@@ -912,15 +1067,18 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // SVG's own height, so the growth is what keeps the notes on the figure.
   // Wrapped to W rather than to the widened canvas, so the block stays in the
   // plot's own column whether or not there is a legend.
-  const noteLines = layoutNotes(options.notes, W);
-  const notesH = noteLines.length ? noteLines.length * NOTE_LH + 4 : 0;
+  const bw = options.bw === true;
+  const noteSize = bw ? BW_NOTE_SIZE : NOTE_SIZE;
+  const noteLh = bw ? BW_NOTE_LH : NOTE_LH;
+  const noteLines = layoutNotes(options.notes, W, noteSize);
+  const notesH = noteLines.length ? noteLines.length * noteLh + 4 : 0;
   const outH = H + notesH;
   /** The footnote block, drawn below the plot canvas in both return paths. */
   const notesSvg = (): string =>
     noteLines
       .map(
         (line, i) =>
-          `<text x="8" y="${H + 11 + i * NOTE_LH}" font-family="sans-serif" font-size="${NOTE_SIZE}" fill="#555">${escapeXml(line)}</text>`,
+          `<text x="8" y="${H + (bw ? 15 : 11) + i * noteLh}" font-family="sans-serif" font-size="${noteSize}" fill="${bw ? "#000" : "#555"}">${bw ? bwTextMarkup(line, noteSize) : escapeXml(line)}</text>`,
       )
       .join("");
 
@@ -938,7 +1096,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // CANVAS, not by shrinking the plot: Word inserts figures at the SVG's
   // intrinsic size, so the data area every caller laid out for stays exactly
   // as large as it was, and an unlabeled plot's canvas does not change at all.
-  const LEGEND_LH = 14;
+  const LEGEND_LH = bw ? 19 : 14;
   const legendLabelOf = (s: Series): string => {
     const maxChars = 22;
     const t = (s.label as string).trim();
@@ -950,37 +1108,43 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // ~9.4 px for "M"/"W", and out here the canvas edge is 4 px past the box —
   // there is no plot-frame slack left to absorb an underestimate, so a
   // capital-heavy label would be cut off by the viewport.
-  const legendW = legendRows.length ? Math.ceil(14 + maxOf(legendRows.map((s) => legendLabelOf(s).length)) * 7 + 10) : 0;
+  const legendTextPx = (s: Series): number => bwPx(legendLabelOf(s), 10, bw);
+  const legendW = legendRows.length
+    ? Math.ceil(14 + maxOf(legendRows.map((s) => legendLabelOf(s).length * 0.7 * legendTextPx(s))) + 10)
+    : 0;
   const outW = legendRows.length ? W + 4 + legendW + 4 : W;
 
   const sx = (x: number): number => ml + ((tx(x) - xmin) / (xmax - xmin)) * pw;
   const sy = (y: number): number => mt + ph - ((ty(y) - ymin) / (ymax - ymin)) * ph;
 
+  const RULE = bw ? "#000" : "#888";
+  const INK = bw ? "#000" : "#333";
   const parts: string[] = [`<rect width="${outW}" height="${outH}" fill="#fff"/>`];
   // Plot frame.
-  parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="#888" stroke-width="1"/>`);
+  parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="${RULE}" stroke-width="1"/>`);
 
   // Ticks + gridlines: exactly the PlotAxisTicks the margins were sized from.
   // Tick POSITIONS are data values (log axes included); sx/sy transform them.
-  for (const v of xAxis.minor) {
+  // Black and white: no grid (patent figures carry none).
+  for (const v of bw ? [] : xAxis.minor) {
     const px = sx(v);
     parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#f5f5f5"/>`);
   }
   for (const t of xAxis.ticks) {
     const px = sx(t.v);
-    parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
-    parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
-    parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(t.text)}</text>`);
+    if (!bw) parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
+    parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="${RULE}"/>`);
+    parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="${bwPx(t.text, 10, bw)}" fill="${INK}">${bw ? bwTextMarkup(t.text, bwPx(t.text, 10, bw)) : escapeXml(t.text)}</text>`);
   }
-  for (const v of yAxis.minor) {
+  for (const v of bw ? [] : yAxis.minor) {
     const py = sy(v);
     parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#f5f5f5"/>`);
   }
   for (const t of yAxis.ticks) {
     const py = sy(t.v);
-    parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
-    parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
-    parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(t.text)}</text>`);
+    if (!bw) parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
+    parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="${RULE}"/>`);
+    parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="${bwPx(t.text, 10, bw)}" fill="${INK}">${bw ? bwTextMarkup(t.text, bwPx(t.text, 10, bw)) : escapeXml(t.text)}</text>`);
   }
 
   // Under user limits the data may run past the frame: clip it there.
@@ -993,14 +1157,23 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // Series.
   // 10 distinct colors (matplotlib "tab10") so series stay distinguishable.
   const palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
+  // Black and white: the k-th line series takes the k-th dash, the k-th
+  // scatter series the k-th USPTO marker — counted per type, so the first of
+  // each is solid / a filled disc.
+  const styleIdx = series.map((s, i) => series.slice(0, i).filter((o) => o.type === s.type).length);
+  const colorOf = (s: Series, idx: number): string => (bw ? "#000" : s.color ?? palette[idx % palette.length]);
+  const markerAt = (idx: number, x: number, y: number, color: string): string =>
+    bw ? usptoMarkerSvg(styleIdx[idx], x, y) : `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.6" fill="${color}"/>`;
   series.forEach((sObj, idx) => {
-    const color = sObj.color ?? palette[idx % palette.length];
+    const color = colorOf(sObj, idx);
     // Both coordinates, matching the domain filter above — a finite-y point
     // with Infinity x otherwise draws "LNaN,…" into the path.
     const pts = sObj.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
     if (sObj.type === "line") {
-      const d = pts.map((p, k) => `${k === 0 ? "M" : "L"}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(" ");
-      parts.push(`<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/>`);
+      // A point marked `gap` (a pole, or samples left out) starts a new piece.
+      const d = pts.map((p, k) => `${k === 0 || p.gap ? "M" : "L"}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(" ");
+      const dash = bw ? BW_DASHES[styleIdx[idx] % BW_DASHES.length] : "";
+      parts.push(`<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`);
     } else {
       for (const p of pts) {
         if (p.err && Number.isFinite(p.err)) {
@@ -1025,7 +1198,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
               `<line x1="${(x - cap).toFixed(1)}" y1="${yLo.toFixed(1)}" x2="${(x + cap).toFixed(1)}" y2="${yLo.toFixed(1)}" stroke="${color}" stroke-width="1"/>`,
             );
         }
-        parts.push(`<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.6" fill="${color}"/>`);
+        parts.push(markerAt(idx, sx(p.x), sy(p.y), color));
       }
     }
   });
@@ -1039,33 +1212,43 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   if (legendRows.length) {
     const lx = W + 4;
     const ly = mt + 4;
-    parts.push(`<rect x="${lx}" y="${ly}" width="${legendW}" height="${legendRows.length * LEGEND_LH + 6}" fill="#ffffff" stroke="#ccc"/>`);
+    parts.push(`<rect x="${lx}" y="${ly}" width="${legendW}" height="${legendRows.length * LEGEND_LH + 6}" fill="#ffffff" stroke="${bw ? "#000" : "#ccc"}"/>`);
     legendRows.forEach((s, i) => {
-      const color = s.color ?? palette[series.indexOf(s) % palette.length];
-      const cyl = ly + 9 + i * LEGEND_LH;
-      parts.push(`<line x1="${lx + 6}" y1="${cyl}" x2="${lx + 20}" y2="${cyl}" stroke="${color}" stroke-width="2"/>`);
-      parts.push(`<text x="${lx + 24}" y="${cyl + 3.5}" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(legendLabelOf(s))}</text>`);
+      const idx = series.indexOf(s);
+      const color = colorOf(s, idx);
+      const cyl = ly + 9 + i * LEGEND_LH + (bw ? 2 : 0);
+      // THE SWATCH IS DRAWN LIKE THE DATA (fix2-paf): a scatter series showed a
+      // line in its legend, and in black and white the line swatches carried
+      // no dash, so neither could be matched to its curve.
+      if (s.type === "line") {
+        const dash = bw ? BW_DASHES[styleIdx[idx] % BW_DASHES.length] : "";
+        parts.push(`<line x1="${lx + 6}" y1="${cyl}" x2="${lx + 20}" y2="${cyl}" stroke="${color}" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`);
+      } else {
+        parts.push(markerAt(idx, lx + 13, cyl, color));
+      }
+      parts.push(`<text x="${lx + 24}" y="${cyl + (bw ? 5 : 3.5)}" font-family="sans-serif" font-size="${legendTextPx(s)}" fill="${INK}">${bw ? bwTextMarkup(legendLabelOf(s), legendTextPx(s)) : escapeXml(legendLabelOf(s))}</text>`);
     });
   }
 
   // Labels.
   if (options.title) {
-    parts.push(`<text data-figure-title="1" x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#222">${escapeXml(options.title)}</text>`);
+    parts.push(`<text data-figure-title="1" x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${bw ? "#000" : "#222"}">${escapeXml(options.title)}</text>`);
   }
   if (hasErrNote) {
+    const errText = options.errorBars ? ERROR_BAR_LABEL[options.errorBars] : ERROR_BAR_UNSTATED;
     parts.push(
-      `<text x="${ml + pw / 2}" y="${H - 8}" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#555">${escapeXml(options.errorBars ? ERROR_BAR_LABEL[options.errorBars] : ERROR_BAR_UNSTATED)}</text>`,
+      `<text x="${ml + pw / 2}" y="${H - 8}" text-anchor="middle" font-family="sans-serif" font-size="${bw ? bwPx(errText, 10, true) : 9}" fill="${bw ? "#000" : "#555"}">${escapeXml(errText)}</text>`,
     );
   }
   if (options.xlabel) {
-    parts.push(`<text x="${ml + pw / 2}" y="${H - (hasErrNote ? 21 : 8)}" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#333">${escapeXml(options.xlabel)}</text>`);
+    parts.push(`<text x="${ml + pw / 2}" y="${H - (hasErrNote ? 21 : 8)}" text-anchor="middle" font-family="sans-serif" font-size="${bwPx(options.xlabel, 11, bw)}" fill="${INK}">${bw ? bwTextMarkup(options.xlabel, bwPx(options.xlabel, 11, bw)) : escapeXml(options.xlabel)}</text>`);
   }
   if (options.ylabel) {
     // The same constants the margin reserves room from, so the two cannot
     // drift apart — which is how the title came to be wider than its space.
     const cx = Y_TITLE_X;
     const cy = mt + ph / 2;
-    parts.push(`<text x="${cx}" y="${cy}" text-anchor="middle" font-family="sans-serif" font-size="${Y_TITLE_SIZE}" fill="#333" transform="rotate(-90 ${cx} ${cy})">${escapeXml(options.ylabel)}</text>`);
+    parts.push(`<text x="${cx}" y="${cy}" text-anchor="middle" font-family="sans-serif" font-size="${bwPx(options.ylabel, Y_TITLE_SIZE, bw)}" fill="${INK}" transform="rotate(-90 ${cx} ${cy})">${bw ? bwTextMarkup(options.ylabel, bwPx(options.ylabel, Y_TITLE_SIZE, bw)) : escapeXml(options.ylabel)}</text>`);
   }
 
   parts.push(notesSvg());

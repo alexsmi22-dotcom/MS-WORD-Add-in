@@ -252,7 +252,11 @@ function layoutSteps(steps: Step[], title: string, style: ChartStyle, opts: Step
     // Reference numeral: the step's own id, or an auto callout (102, 104, …)
     // when the patent numeral option is on and the row had no id. Free-standing
     // with a straight lead line to the box edge, alternating sides.
-    const refId = s.id || (style.numerals ? String(opts.numeralStart + i * 2) : "");
+    // fix2-paf: with the patent numeral option ON, a bare ordinal id ("1", "2",
+    // "3", "Step 3") is an ordering, not a reference numeral, so it takes the
+    // 100-series callout like an id-less row; "S101", "102" are kept as typed.
+    const ordinal = /^(?:step\s*)?\d{1,2}$/i.test(s.id.trim());
+    const refId = (style.numerals && ordinal ? "" : s.id) || (style.numerals ? String(opts.numeralStart + i * 2) : "");
     if (refId) {
       const ext = s.decision ? boxW / 2 - 24 : boxW / 2;
       const right = (opts.sideStart + i) % 2 === 0;
@@ -397,6 +401,17 @@ export function numberTree(roots: TreeNode[]): void {
   roots.forEach((r, i) => assign(r, 100 + rootStride * i, 0));
 }
 
+/** Words a block-diagram table's header cells are made of ("System", "Sub-assembly", "Level 2"…). */
+const TREE_HEADER_WORD =
+  /^(?:(?:level|tier|layer)\s*\d{0,2}|(?:sub-?\s?|major\s+|minor\s+)?(?:system|assembly|component|module|unit|part|element|group|category|item|parent|child|node|section|division|department|stage|function|block|subsystem)s?|name|description)$/i;
+
+/** True when a row reads as the column headings of a hierarchy table, not as a path. */
+export function isTreeHeader(row: string[]): boolean {
+  const cells = row.map((c) => c.replace(/[:.]$/, "").trim()).filter(Boolean);
+  if (cells.length < 2 || !TREE_HEADER_WORD.test(cells[0])) return false;
+  return cells.filter((c) => TREE_HEADER_WORD.test(c)).length * 2 >= cells.length;
+}
+
 /**
  * Rows are root→leaf paths (e.g. System | Subsystem | Component). An empty
  * cell inherits from the row above only when the row has content further
@@ -406,6 +421,13 @@ export function buildTree(rows: string[][]): { roots: TreeNode[]; warnings: stri
   const warnings: string[] = [];
   const roots: TreeNode[] = [];
   let prev: string[] = [];
+  // A HEADER ROW IS NOT A BRANCH (fix2-paf), detected as the flowchart detects
+  // its own: "System | Subsystem | Component" used to be drawn as a tree of
+  // three boxes beside the real one.
+  if (rows.length >= 2 && isTreeHeader(rows[0])) {
+    rows = rows.slice(1);
+    warnings.push("The first row looked like a header — not drawn as part of the hierarchy.");
+  }
   const used = rows.length > MAX_TREE_ROWS ? rows.slice(0, MAX_TREE_ROWS) : rows;
   if (used.length < rows.length) {
     warnings.push(`Only the first ${MAX_TREE_ROWS} of ${rows.length} rows are drawn.`);

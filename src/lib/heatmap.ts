@@ -41,6 +41,7 @@ import {
 } from "./chartPalette";
 import { fmtTick } from "./plot";
 import { fmtSig, formatValueRow, trueMinus } from "./axis";
+import { textWidthPt } from "./arialMetrics";
 
 export interface HeatmapOptions {
   /** Sequential (magnitude) or diverging (polarity about a midpoint). */
@@ -301,7 +302,8 @@ export function buildHeatmapSvg(
   // 9840.0"): then each end is labelled on its own ("0.79 … 9840").
   const barRow = (vals: number[]): string[] => {
     const r = formatValueRow(vals, 3);
-    return r.labels.map((l) => (r.multiplier ? l + r.multiplier : l));
+    // A zero is "0", never "0×10⁻⁸" (fix2-paf): the shared multiplier means nothing on it.
+    return r.labels.map((l) => (/^[−-]?0(?:\.0+)?$/.test(l) ? "0" : r.multiplier ? l + r.multiplier : l));
   };
   let midLabel = "";
   if (scale === "diverging") {
@@ -316,10 +318,16 @@ export function buildHeatmapSvg(
     parts.push(tickText(barX, l0, "start"));
     parts.push(tickText(barX + barW, l1, "end"));
   }
+  // MEASURED (fix2-paf): "diverging about 0.50×10⁻⁸" beside a 240-unit bar ran
+  // off the canvas. When it does not fit to the right of the bar it sits just
+  // above the bar's right end instead.
+  const caption = scale === "diverging" ? `diverging about ${midLabel}` : "low to high";
+  const capW = textWidthPt(caption, 9.5);
+  const fitsRight = barX + barW + 10 + capW <= W - 4;
   parts.push(
-    `<text x="${(barX + barW + 10).toFixed(1)}" y="${(barY + barH - 1).toFixed(1)}" ` +
-      `font-family="Segoe UI, Arial, sans-serif" font-size="9.5" fill="${INK.muted}">` +
-      `${esc(scale === "diverging" ? `diverging about ${midLabel}` : "low to high")}</text>`,
+    `<text x="${(fitsRight ? barX + barW + 10 : barX + barW).toFixed(1)}" y="${(fitsRight ? barY + barH - 1 : barY - 3).toFixed(1)}" ` +
+      `${fitsRight ? "" : 'text-anchor="end" '}font-family="Segoe UI, Arial, sans-serif" font-size="9.5" fill="${INK.muted}">` +
+      `${esc(caption)}</text>`,
   );
 
   parts.push("</svg>");

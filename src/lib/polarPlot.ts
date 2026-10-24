@@ -227,7 +227,8 @@ export function polarPlotSvg(fig: PolarFigure): string {
   if (toScale.length) {
     const y0 = cyc + R + pad - 4 + 6;
     parts.push(`<line x1="${f1(cx)}" y1="${f1(y0)}" x2="${f1(cx + R)}" y2="${f1(y0)}" stroke="${RULE}" stroke-width="1"/>`);
-    parts.push(`<text x="${f1(cx - 6)}" y="${f1(y0 + 3.5)}" text-anchor="end" font-family="${FONT}" font-size="10" fill="${INK}">r</text>`);
+    // "r" is lowercase: measured on its x-height it printed 2.56 mm under USPTO (fix2-paf), so it is lettered 1.4× in black and white like every other lowercase run.
+    parts.push(`<text x="${f1(cx - 6)}" y="${f1(y0 + 3.5)}" text-anchor="end" font-family="${FONT}" font-size="${bwPx("r", 10, bw)}" fill="${INK}">r</text>`);
     for (const t of [{ v: 0, text: "0" }, ...ringText]) {
       const x = cx + (t.v / rOuter) * R;
       parts.push(`<line x1="${f1(x)}" y1="${f1(y0)}" x2="${f1(x)}" y2="${f1(y0 + 4)}" stroke="${RULE}"/>`);

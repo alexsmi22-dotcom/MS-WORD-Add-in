@@ -15,6 +15,8 @@
 
 import { xyToUv, Chromaticity } from "./colourspace";
 import { linearAxis, fmtSig, trueMinus } from "./axis";
+import { textWidthPt } from "./arialMetrics";
+import { usptoPatternDefs } from "./figureStyle";
 
 const INK = "#111111";
 const RULE = "#888888";
@@ -843,16 +845,22 @@ export interface HBarRow {
  * timing ledger. Height grows with the row count so twenty rows do not
  * crush into an unreadable stripe.
  */
-export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?: number }): string {
+export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?: number; bw?: boolean }): string {
   const W = opts.w ?? 400;
+  const bw = opts.bw === true;
   const shown = rows.slice(0, 24);
-  const H = 46 + shown.length * HBAR_ROW_H + 18;
+  const S = (base: number, text: string): number =>
+    bw ? Math.round(base * 1.45 * (/\p{Ll}/u.test(text) ? 1.4 : 1) * 10) / 10 : base;
+  const RH = bw ? 34 : HBAR_ROW_H;
+  const H = 46 + shown.length * RH + 18;
   if (!shown.length || !shown.every((r) => Number.isFinite(r.value))) {
     return emptyChart(W, 160, "There are no finite values to chart");
   }
   const longest = Math.max(...shown.map((r) => r.name.length));
-  const ML = Math.min(150, Math.max(60, longest * 5.6 + 10));
-  const MR = 58;
+  const ML = bw
+    ? Math.min(W * 0.45, Math.max(60, ...shown.map((r) => textWidthPt(r.name, S(8, r.name)) + 12)))
+    : Math.min(150, Math.max(60, longest * 5.6 + 10));
+  const MR = bw ? 90 : 58;
   const MT = 26;
   const pw = W - ML - MR;
   const lo = Math.min(0, ...shown.map((r) => r.value));
@@ -884,26 +892,33 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
   p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
   p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
   p.push(`<text data-figure-title="1" x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
-  p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + shown.length * HBAR_ROW_H}" stroke="${RULE}"/>`);
+  p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + shown.length * RH}" stroke="${RULE}"/>`);
   shown.forEach((rw, i) => {
-    const y = MT + i * HBAR_ROW_H + 4;
-    const h = HBAR_ROW_H - 8;
+    const y = MT + i * RH + 4;
+    const h = RH - 8;
     const x0 = Math.min(X(0), X(rw.value));
     const wBar = Math.max(Math.abs(X(rw.value) - X(0)), 0.75);
     const fill = rw.colour ?? (rw.value >= 0 ? CIRCLE : POINT);
-    p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h}" fill="${fill}" fill-opacity="0.85"/>`);
-    p.push(labelText(ML - 5, y + h / 2 + 3, rw.name, { anchor: "end" }));
+    if (bw) {
+      // Black and white: an emphasised row (its own colour) solid, the rest open.
+      p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h}" fill="${rw.colour ? "#000000" : "#ffffff"}" stroke="#000000" stroke-width="0.8"/>`);
+    } else
+      p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h}" fill="${fill}" fill-opacity="0.85"/>`);
+    const dyT = bw ? 5 : 3;
+    p.push(labelText(ML - 5, y + h / 2 + dyT, rw.name, { anchor: "end", size: S(8, rw.name) }));
     const txt = `${fmtVal(rw.value)} ${opts.unit}`;
+    const vSize = S(8, txt);
     const wantX = Math.max(X(0), X(rw.value)) + 4;
-    const estW = txt.length * 8 * 0.56 + 4;
-    if (wantX + estW <= W - 2) p.push(labelText(wantX, y + h / 2 + 3, txt, { size: 8 }));
-    else p.push(labelText(Math.max(X(0), X(rw.value)) - 4, y + h / 2 + 3, txt, { size: 8, anchor: "end" }));
+    const estW = bw ? textWidthPt(txt, vSize) * 1.1 + 4 : txt.length * 8 * 0.56 + 4;
+    if (wantX + estW <= W - 2) p.push(labelText(wantX, y + h / 2 + dyT, txt, { size: vSize }));
+    else p.push(labelText(Math.max(X(0), X(rw.value)) - 4, y + h / 2 + dyT, txt, { size: vSize, anchor: "end" }));
   });
   if (rows.length > shown.length) {
-    p.push(labelText(ML, H - 6, `…and ${rows.length - shown.length} more (see the table above)`, { size: 8, fill: RULE }));
+    const more = `…and ${rows.length - shown.length} more (see the table above)`;
+    p.push(labelText(ML, H - 6, more, { size: S(8, more), fill: RULE }));
   }
   p.push("</g></svg>");
-  return p.join("");
+  return bw ? p.join("").replace(/#(?:111111|888888|b91c1c|2563eb)/g, "#000000") : p.join("");
 }
 
 export interface LogicWaveInput {
@@ -1474,9 +1489,19 @@ export function ladderSvg(
     limitOkAbove?: boolean;
     okText?: string;
     failText?: string;
+    /** Canvas width (a figure style's re-render); default LADDER_CHART_SIZE_W. */
+    width?: number;
+    /** Black-and-white line art (USPTO): gains open, losses hatched, the result solid black, all ink black. */
+    bw?: boolean;
   },
 ): string {
-  const W = LADDER_CHART_SIZE_W;
+  const W = opts.width !== undefined && Number.isFinite(opts.width) && opts.width >= 200 ? opts.width : LADDER_CHART_SIZE_W;
+  const bw = opts.bw === true;
+  // Black-and-white (USPTO) lettering: every run 1.45× and a run with a
+  // lowercase letter 1.4× again (measured on its x-height), so at a full
+  // 170 mm sight the 8–9 px ledger text prints at 3.2 mm (37 CFR 1.84(p)(3)).
+  const S = (base: number, text: string): number =>
+    bw ? Math.round(base * 1.45 * (/\p{Ll}/u.test(text) ? 1.4 : 1) * 10) / 10 : base;
   // The RESULT row survives any cap: a ledger whose bottom line was silently
   // sliced off would be the latency-chart defect all over again.
   const resultRows = rows.filter((rw) => rw.result);
@@ -1494,7 +1519,27 @@ export function ladderSvg(
   // there was". `hBarSvg` next door has said "…and N more" since it was
   // written; this did not.
   const droppedRows = rows.length - shown.length;
-  const H = 56 + shown.length * 34 + 12;
+  // THE TITLE IS MEASURED AND WRAPPED (fix2-paf): the DCF ladder's
+  // "Explicit forecast, discounted (excludes terminal value)" ran off the right
+  // edge. Centred on the plot when it fits there, else on the canvas, in as
+  // many lines as the canvas width needs.
+  const titleLines = ((): string[] => {
+    const maxW = W - 16;
+    const words = opts.title.split(/\s+/).filter(Boolean);
+    const out: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (cur && textWidthPt(next, 11) * 1.25 > maxW) {
+        out.push(cur);
+        cur = w;
+      } else cur = next;
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : [""];
+  })();
+  const titleExtra = 13 * (titleLines.length - 1);
+  const H = 56 + shown.length * (bw ? 46 : 34) + 12 + titleExtra + (bw ? 16 : 0);
   if (!shown.length || !shown.every((rw) => Number.isFinite(rw.delta)) || (opts.limit !== undefined && !Number.isFinite(opts.limit))) {
     return emptyChart(W, 180, "The inputs do not define a ledger");
   }
@@ -1512,10 +1557,10 @@ export function ladderSvg(
   const hi = Math.max(1e-9, ...edges, opts.limit ?? 0) * 1.12;
   if (!(hi > lo) || !Number.isFinite(hi - lo)) return emptyChart(W, 180, "The inputs do not define a ledger");
 
-  const ML = 118;
+  const ML = bw ? Math.max(70, ...shown.map((rw) => textWidthPt(rw.name, S(8, rw.name)) + 14)) : 118;
   const MR = 16;
-  const MT = 26;
-  const MB = 30;
+  const MT = 26 + titleExtra;
+  const MB = bw ? 46 : 30;
   const pw = W - ML - MR;
   const ph = H - MT - MB;
   const X = (v: number): number => ML + ((v - lo) / (hi - lo)) * pw;
@@ -1524,14 +1569,28 @@ export function ladderSvg(
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
   p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
   p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
-  p.push(`<text data-figure-title="1" x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
+  {
+    const plotMid = ML + pw / 2;
+    const half = Math.max(...titleLines.map((l) => textWidthPt(l, 11))) * 0.625; // Arial widths +25%: the figure is set in "sans-serif", which may fall back to a wider face
+    const tx = titleLines.length === 1 && plotMid - half >= 4 && plotMid + half <= W - 4 ? plotMid : W / 2;
+    const spans =
+      titleLines.length === 1
+        ? esc(titleLines[0])
+        : titleLines.map((l, i) => `<tspan x="${tx.toFixed(1)}" dy="${i === 0 ? 0 : 13}">${esc(i < titleLines.length - 1 ? l + " " : l)}</tspan>`).join("");
+    p.push(`<text data-figure-title="1" x="${tx.toFixed(1)}" y="15" text-anchor="middle" font-size="11">${spans}</text>`);
+  }
 
   // Positions from the shared engine; the TEXT is the caller's `fmt` (money,
   // durations…), which owns its own precision.
-  for (const tk of axisRow(lo, hi, 5)) {
+  // As many ticks as their labels have room for (fix2-paf: at a narrow figure
+  // style width "−1,000.00" and "−750.00" ran into each other).
+  const labelW = Math.max(...[lo, hi].map((v) => { const s = trueMinus(opts.fmt(v)); return textWidthPt(s, S(9, s)); })) + 10;
+  const nTicks = Math.max(2, Math.min(5, Math.floor(pw / labelW)));
+  for (const tk of axisRow(lo, hi, nTicks)) {
     const t = tk.v;
+    const s = trueMinus(opts.fmt(t));
     p.push(`<line x1="${X(t).toFixed(1)}" y1="${MT}" x2="${X(t).toFixed(1)}" y2="${MT + ph}" stroke="#f0f0f0"/>`);
-    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(trueMinus(opts.fmt(t)))}</text>`);
+    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + (bw ? 18 : 12)}" text-anchor="middle"${bw ? ` font-size="${S(9, s)}"` : ""}>${esc(s)}</text>`);
   }
   p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + ph}" stroke="${RULE}"/>`);
 
@@ -1550,15 +1609,21 @@ export function ladderSvg(
     const x0 = Math.min(X(b.from), X(b.to));
     const wBar = Math.max(Math.abs(X(b.to) - X(b.from)), 0.75);
     const fill = b.result ? (opts.limit !== undefined ? (ok ? "#059669" : POINT) : "#059669") : b.gain ? CIRCLE : POINT;
-    p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" fill-opacity="${b.result ? "1" : "0.75"}"/>`);
-    p.push(labelText(ML - 6, y + h / 2 + 3, b.name, { anchor: "end" }));
+    if (bw) {
+      // Gains open, losses hatched, the result solid: told apart without colour.
+      const bwFill = b.result ? "#000000" : b.gain ? "#ffffff" : "url(#fi-diag)";
+      p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h.toFixed(1)}" fill="${bwFill}" stroke="#000000" stroke-width="0.8"/>`);
+    } else
+      p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" fill-opacity="${b.result ? "1" : "0.75"}"/>`);
+    p.push(labelText(ML - 6, y + h / 2 + (bw ? 5 : 3), b.name, { anchor: "end", size: S(8, b.name) }));
     const delta = b.result ? b.to : b.to - b.from;
     // The caller's formatter owns the digits; the minus is made true here.
     const txt = `${delta >= 0 && !b.result ? "+" : ""}${trueMinus(opts.fmt(delta))}`;
+    const vSize = S(8, txt);
     const wantX = Math.max(X(b.from), X(b.to)) + 4;
-    const estW = txt.length * 8 * 0.56 + 4;
-    if (wantX + estW <= W - 2) p.push(labelText(wantX, y + h / 2 + 3, txt, { size: 8 }));
-    else p.push(labelText(Math.max(X(b.from), X(b.to)) - 4, y + h / 2 + 3, txt, { size: 8, anchor: "end" }));
+    const estW = bw ? textWidthPt(txt, vSize) * 1.1 + 4 : txt.length * 8 * 0.56 + 4;
+    if (wantX + estW <= W - 2) p.push(labelText(wantX, y + h / 2 + (bw ? 5 : 3), txt, { size: vSize }));
+    else p.push(labelText(Math.max(X(b.from), X(b.to)) - 4, y + h / 2 + (bw ? 5 : 3), txt, { size: vSize, anchor: "end" }));
   });
 
   if (opts.limit !== undefined && opts.limitLabel) {
@@ -1566,7 +1631,7 @@ export function ladderSvg(
     p.push(labelText(Math.min(Math.max(X(opts.limit), half + 2), W - half - 2), MT - 3, opts.limitLabel, { anchor: "middle", fill: POINT }));
     p.push(labelText(ML + pw - 2, MT + ph - 4, ok ? (opts.okText ?? "within limit") : (opts.failText ?? "OVER LIMIT"), { anchor: "end", fill: ok ? "#059669" : POINT, size: 9 }));
   }
-  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(opts.axisLabel)}</text>`);
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle"${bw ? ` font-size="${S(9, opts.axisLabel)}"` : ""}>${esc(opts.axisLabel)}</text>`);
   // SAY WHAT WAS DROPPED. The row cap was silent: forty rows in, ten bars out,
   // nothing on the artwork — which reads as "that is all the data there was".
   // Worse on a WATERFALL than on a bar chart, because the running edges then
@@ -1576,7 +1641,13 @@ export function ladderSvg(
     p.push(labelText(ML + pw, H - 6, `…and ${droppedRows} more`, { size: 8, anchor: "end", fill: POINT }));
   }
   p.push("</g></svg>");
-  return p.join("");
+  if (!bw) return p.join("");
+  // Black and white: no grid, every ink black, and the hatch pattern defined.
+  return p
+    .join("")
+    .replace(/<line [^>]*stroke="#f0f0f0"[^>]*\/>/g, "")
+    .replace(/#(?:111111|888888|b91c1c|059669|2563eb)/g, "#000000")
+    .replace(/(<rect width="[\d.]+" height="[\d.]+" fill="#ffffff"\/>)/, `${usptoPatternDefs()}$1`);
 }
 
 export const NPSH_CHART_SIZE = { w: 400, h: 240 };

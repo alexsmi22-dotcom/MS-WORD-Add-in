@@ -8,14 +8,55 @@
 // eigenvalues of a symmetric matrix. Parsing and formatting are separated from
 // the math so both can be unit-tested in isolation.
 
-import { MINUS, timesTen, trueMinus } from "./axis";
+import { MINUS, timesTen, trueMinus, fmtSig } from "./axis";
 
 export type Matrix = number[][];
 
 /** A parsed matrix, or a human-readable reason the text wasn't a valid matrix. */
 export type MatrixParse = { ok: true; matrix: Matrix } | { ok: false; error: string };
 
-const TOL = 1e-12;
+
+
+/**
+ * THE SINGULARITY TEST IS RELATIVE (fix2-paf). A pivot was "zero" below an
+ * absolute 1e-12, so a perfectly conditioned matrix scaled by 10⁻¹⁵
+ * ([[2, 1], [1, 3]]·10⁻¹⁵, condition number 2.6) was refused as singular. A
+ * pivot is now zero below max(m, n)·16·ε·(largest |entry| of ITS OWN original
+ * row) — rounding level for that row's scale, so an exactly singular matrix's
+ * cancelled pivot is caught, a uniformly scaled matrix is not, and neither is a
+ * badly row-scaled but exactly invertible one (diag(10¹⁵, 1)). The per-row
+ * tolerances travel with their rows through the pivoting swaps.
+ */
+export function pivotTolerance(m: Matrix): number[] {
+  const k = Math.max(rows(m), cols(m)) * 16 * 2.220446049250313e-16;
+  return m.map((r) => k * r.reduce((s, v) => Math.max(s, Math.abs(v)), 0));
+}
+
+/**
+ * The condition-number report for a square matrix result: always the number,
+ * and above 10¹² a warning that about log₁₀(κ) of the ~16 digits are lost
+ * (Hilbert-10: κ ≈ 1.6×10¹³).
+ */
+export function conditionLines(m: Matrix): string[] {
+  const k = conditionNumber(m);
+  if (!Number.isFinite(k)) return [];
+  const lines = [`Condition number κ₂ = ${fmtSig(k, 4)}`];
+  if (k > 1e12) {
+    lines.push(
+      `Warning: κ₂ is above 10¹², so about ${Math.round(Math.log10(k))} of the ~16 significant digits can be lost to rounding; ` +
+        "the trailing digits of this result are not reliable.",
+    );
+  }
+  return lines;
+}
+
+/** 2-norm condition number σ₁/σₙ of a square matrix (Infinity when singular). */
+export function conditionNumber(m: Matrix): number {
+  if (!isSquare(m) || !m.length) return NaN;
+  const s = svd(m).S;
+  const lo = s[s.length - 1];
+  return lo > 0 ? s[0] / lo : Infinity;
+}
 
 /**
  * Parses a matrix from text. Rows are separated by newlines or `;`, and the
@@ -34,7 +75,11 @@ export function parseMatrix(text: string): MatrixParse {
     const cells = rt.split(/[,\s]+/).filter((c) => c.length > 0);
     const row: number[] = [];
     for (const c of cells) {
-      const v = Number(c);
+      // A true minus (U+2212) or en dash as the sign reads as minus (fix2-paf:
+      // "−1", as the product itself prints it, was refused as not a number).
+      const t = c.replace(/^[−–]/, "-").replace(/(?<=[eE])[−–]/, "-");
+      // Number() reads "0x10" as 16: a hex literal is not a matrix entry anyone typed on purpose.
+      const v = /^[-+]?0[xXbBoO]/.test(t) ? NaN : Number(t);
       if (!Number.isFinite(v)) return { ok: false, error: `"${c}" is not a number.` };
       row.push(v);
     }
@@ -136,13 +181,15 @@ export function determinant(m: Matrix): number | null {
   if (!isSquare(m)) return null;
   const n = rows(m);
   const a = clone(m);
+  const tol = pivotTolerance(m);
   let det = 1;
   for (let col = 0; col < n; col++) {
     let pivot = col;
     for (let r = col + 1; r < n; r++) if (Math.abs(a[r][col]) > Math.abs(a[pivot][col])) pivot = r;
-    if (Math.abs(a[pivot][col]) < TOL) return 0;
+    if (Math.abs(a[pivot][col]) <= tol[pivot]) return 0;
     if (pivot !== col) {
       [a[pivot], a[col]] = [a[col], a[pivot]];
+      [tol[pivot], tol[col]] = [tol[col], tol[pivot]];
       det = -det;
     }
     det *= a[col][col];
@@ -160,12 +207,14 @@ export function inverse(m: Matrix): Matrix | null {
   const n = rows(m);
   const a = clone(m);
   const inv = identity(n);
+  const tol = pivotTolerance(m);
   for (let col = 0; col < n; col++) {
     let pivot = col;
     for (let r = col + 1; r < n; r++) if (Math.abs(a[r][col]) > Math.abs(a[pivot][col])) pivot = r;
-    if (Math.abs(a[pivot][col]) < TOL) return null;
+    if (Math.abs(a[pivot][col]) <= tol[pivot]) return null;
     if (pivot !== col) {
       [a[pivot], a[col]] = [a[col], a[pivot]];
+      [tol[pivot], tol[col]] = [tol[col], tol[pivot]];
       [inv[pivot], inv[col]] = [inv[col], inv[pivot]];
     }
     const p = a[col][col];
@@ -199,12 +248,14 @@ export function solve(A: Matrix, b: Matrix): Matrix | null {
   if (!rhs || rhs.length !== n) return null;
   const a = clone(A);
   const x = rhs.slice();
+  const tol = pivotTolerance(A);
   for (let col = 0; col < n; col++) {
     let pivot = col;
     for (let r = col + 1; r < n; r++) if (Math.abs(a[r][col]) > Math.abs(a[pivot][col])) pivot = r;
-    if (Math.abs(a[pivot][col]) < TOL) return null;
+    if (Math.abs(a[pivot][col]) <= tol[pivot]) return null;
     if (pivot !== col) {
       [a[pivot], a[col]] = [a[col], a[pivot]];
+      [tol[pivot], tol[col]] = [tol[col], tol[pivot]];
       [x[pivot], x[col]] = [x[col], x[pivot]];
     }
     for (let r = col + 1; r < n; r++) {
@@ -225,14 +276,18 @@ export function solve(A: Matrix, b: Matrix): Matrix | null {
 /** Matrix rank via row reduction with a relative tolerance. */
 export function rank(m: Matrix): number {
   const a = clone(m);
+  // Relative to the matrix's own scale (was an absolute 1e-9, so any matrix of
+  // entries below 10⁻⁹ had rank 0), the same rule as the singularity test.
+  const rankTol = pivotTolerance(m);
   const nr = rows(a);
   const nc = cols(a);
   let r = 0;
   for (let col = 0; col < nc && r < nr; col++) {
     let pivot = r;
     for (let i = r + 1; i < nr; i++) if (Math.abs(a[i][col]) > Math.abs(a[pivot][col])) pivot = i;
-    if (Math.abs(a[pivot][col]) < 1e-9) continue;
+    if (Math.abs(a[pivot][col]) <= rankTol[pivot]) continue;
     [a[pivot], a[r]] = [a[r], a[pivot]];
+    [rankTol[pivot], rankTol[r]] = [rankTol[r], rankTol[pivot]];
     for (let i = 0; i < nr; i++) {
       if (i === r) continue;
       const factor = a[i][col] / a[r][col];
@@ -460,8 +515,39 @@ export function svd(A: Matrix): SVDResult {
     sv[j] = Math.sqrt(norm);
   }
   const order = Array.from({ length: n }, (_, i) => i).sort((a2, b2) => sv[b2] - sv[a2]);
-  const S = order.map((i) => sv[i]);
-  const Uout = Array.from({ length: m }, (_, r) => order.map((i) => (sv[i] > 1e-300 ? U[r][i] / sv[i] : 0)));
+  // A singular value at rounding level (≤ max(m, n)·ε·σ₁) is zero: the matrix is
+  // rank-deficient and that column of U carries no information.
+  const zeroTol = Math.max(m, n) * 2.220446049250313e-16 * (sv[order[0]] || 0);
+  const isZero = (i: number): boolean => !(sv[i] > zeroTol) || !(sv[i] > 1e-300);
+  const S = order.map((i) => (isZero(i) ? 0 : sv[i]));
+  const Uout = Array.from({ length: m }, (_, r) => order.map((i) => (isZero(i) ? 0 : U[r][i] / sv[i])));
+  // RANK-DEFICIENT U IS COMPLETED TO AN ORTHONORMAL BASIS (fix2-paf). The
+  // columns for zero singular values were left as zero vectors, so for
+  // [[1, 1], [1, 1]] U = [[0.707, 0], [0.707, 0]] — not orthogonal, and
+  // UᵀU ≠ I. Gram–Schmidt (twice, for stability) against the columns already
+  // set, trying the standard basis vectors in turn.
+  for (let c = 0; c < n; c++) {
+    if (!isZero(order[c])) continue;
+    let best: number[] | null = null;
+    let bestNorm = 0;
+    for (let e = 0; e < m; e++) {
+      const v: number[] = Array.from({ length: m }, (_, r) => (r === e ? 1 : 0));
+      for (let pass = 0; pass < 2; pass++) {
+        for (let o = 0; o < n; o++) {
+          if (o === c) continue;
+          let dot = 0;
+          for (let r = 0; r < m; r++) dot += Uout[r][o] * v[r];
+          for (let r = 0; r < m; r++) v[r] -= dot * Uout[r][o];
+        }
+      }
+      const norm = Math.sqrt(v.reduce((s2, x) => s2 + x * x, 0));
+      if (norm > bestNorm) {
+        bestNorm = norm;
+        best = v;
+      }
+    }
+    if (best && bestNorm > 1e-8) for (let r = 0; r < m; r++) Uout[r][c] = best[r] / bestNorm;
+  }
   const Vout = Array.from({ length: n }, (_, r) => order.map((i) => V[r][i]));
   return transposed ? { U: Vout, S, V: Uout } : { U: Uout, S, V: Vout };
 }

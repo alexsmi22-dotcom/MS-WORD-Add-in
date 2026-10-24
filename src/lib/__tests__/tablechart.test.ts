@@ -248,8 +248,18 @@ describe("buildChartPreviewSvg", () => {
     "stacked-column", "stacked-bar", "stacked-area", "pie", "doughnut",
   ];
 
+  // fix2-paf: a pie refuses a negative slice by name, so the pie kinds draw the
+  // same table with its negative replaced.
+  const pieSafe = parseTableData([
+    ["Year", "Sales", "Costs"],
+    ["2022", "100", "80"],
+    ["2023", "150", "90"],
+    ["2024", "30", "95"],
+  ]);
+  const forKind = (kind: ChartKind): TableChart => (kind === "pie" || kind === "doughnut" ? pieSafe : chart);
+
   test.each(kinds)("%s renders valid-looking SVG", (kind) => {
-    const svg = previewSvg(chart, kind, "My chart");
+    const svg = previewSvg(forKind(kind), kind, "My chart");
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg.endsWith("</svg>")).toBe(true);
     expect(svg).toContain("My chart");
@@ -288,17 +298,21 @@ describe("buildChartPreviewSvg", () => {
     expect((svg.match(/<polyline /g) || []).length).toBe(2);
   });
 
-  test("pie uses only positive values of the first series", () => {
-    const svg = previewSvg(chart, "pie");
-    // 2022 and 2023 are positive; -30 (2024) is excluded → 2 slices
-    expect((svg.match(/<path /g) || []).length).toBe(2);
+  test("pie draws the first series; a negative value is refused by name (fix2-paf), not dropped", () => {
+    const svg = previewSvg(pieSafe, "pie");
+    expect((svg.match(/<path /g) || []).length).toBe(3);
     expect(svg).toContain("first data column only");
+    // -30 (2024) used to be dropped silently, re-proportioning the other slices.
+    const refused = previewSvg(chart, "pie");
+    expect(refused).toContain("This chart cannot be drawn");
+    expect(refused).toContain("“2024” (−30)");
+    expect((refused.match(/<path /g) || []).length).toBe(0);
   });
 
   test("patent style is pure black & white with hatching and a FIG. label", () => {
     const kinds: ChartKind[] = ["column", "bar", "pie", "doughnut", "area"];
     for (const kind of kinds) {
-      const svg = previewSvg(chart, kind, "", { patent: true, figLabel: "FIG. 2" });
+      const svg = previewSvg(forKind(kind), kind, "", { patent: true, figLabel: "FIG. 2" });
       expect(svg).toContain("<pattern");
       expect(svg).toContain("FIG. 2");
       for (const color of ["#1f77b4", "#d62728", "#2ca02c"]) {

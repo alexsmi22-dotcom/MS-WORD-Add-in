@@ -150,7 +150,10 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
   const body: string[] = [];
   const images: Array<{ id: string; name: string; base64: string }> = [];
   for (const it of items) {
-    if (it.kind === "text") body.push(textPara(it.content));
+    // ONE PARAGRAPH PER LINE (fix2-paf): a text item's embedded newlines went
+    // into a single <w:t>, where Word reads a newline as a space — a Finance
+    // summary's three lines landed as one run-on line.
+    if (it.kind === "text") for (const line of it.content.split(/\r\n?|\n/)) body.push(line ? textPara(line) : "<w:p/>");
     else if (it.kind === "xml") {
       if (it.content.trim()) body.push(it.content);
     }

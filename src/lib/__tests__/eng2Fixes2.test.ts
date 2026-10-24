@@ -35,12 +35,13 @@ import { parseMeasured } from "../units";
 import { fNumberLabel, exposureValue } from "../photometry";
 import { vacuumShot, dragShot, chartLineSegments } from "../trajectory";
 import { cctMcCamy } from "../colourspace";
-import { parseKet } from "../quantumCore";
+import { parseKet, fmtState } from "../quantumCore";
 import { baseExcitation, transmissibilityPeak } from "../randomVibration";
 import { RANDOM_VIBRATION_CALCS } from "../randomVibrationCalcs";
 import { fabryPerot } from "../laserPhysics";
 import { truthTable, minimise } from "../logic";
 import { aspect } from "../video";
+import { designFilter } from "../filter";
 import { hasBrokenNumber } from "../insertGate";
 import type { AnalyzeOutput } from "../analyzeBlocks";
 
@@ -270,6 +271,14 @@ describe("10. No ok result carries a non-finite number", () => {
     const refusal = { text: "Give a value: \"Infinity\" is not one.", ok: false } as AnalyzeOutput;
     expect(guardEngResult(refusal)).toBe(refusal);
   });
+  test("filter-design at 1e300 dB names an unbounded order, never 'order Infinity'", () => {
+    const r = designFilter({ family: "butterworth", kind: "lowpass", wp: 1, ws: 2, ap: 1, as: 1e300 } as Parameters<typeof designFilter>[0]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toMatch(/an unbounded order/);
+      expect(hasBrokenNumber(r.error)).toBe(false);
+    }
+  });
   test("the guard wraps every ENG_CALCS compute centrally", () => {
     expect(PANE).toMatch(/for \(const c of ENG_CALCS\) \{\n  const raw = c\.compute;\n  c\.compute = \(read\) => tidyResultSubscripts\(guardEngResult\(raw\(read\)\)\);/);
   });
@@ -321,6 +330,7 @@ describe("12. Refusal minus signs and no negative zero", () => {
     const r = cctMcCamy(0.44757, 0.40745);
     if (!r.ok) throw new Error((r as { error: string }).error);
     expect(r.notes.join(" ")).not.toMatch(/Duv [−-]0\.0000/);
+    expect(r.notes.join(" ")).toMatch(/Duv 0\.0000/);
   });
 });
 
@@ -367,6 +377,31 @@ describe("14. Wrong refusals now accepted", () => {
     expect(t3.n).toBe(3);
     expect(t3.state[5].re).toBeCloseTo(1, 12);
     expect("error" in parseKet("(|0⟩ + |1⟩")).toBe(true);
+  });
+  test("round trip: whatever fmtState prints, parseKet reads back (up to global phase)", () => {
+    const s = Math.SQRT1_2;
+    const e = (th: number, k = 1) => ({ re: k * Math.cos(th), im: k * Math.sin(th) });
+    const states: { re: number; im: number }[][] = [
+      [e(0, s), e(0, s)],
+      [e(0, Math.sqrt(3) / 2), e(0, 0.5)],
+      [e(Math.PI / 4, s), e(-Math.PI / 4, s)], // printed with a factored global phase exp(iπ/4)·(…)
+      [e(0, 0.6), e(Math.PI / 2, 0.8)],
+      [e(0, s), e(0, 0), e(0, 0), e(Math.PI, s)],
+      [e(0.3, 0.6), e(1.1, 0.8)],
+    ];
+    for (const st of states) {
+      const n = Math.log2(st.length);
+      const shown = fmtState(st, n).text;
+      const back = parseKet(shown);
+      if ("error" in back) throw new Error(`${shown}: ${back.error}`);
+      let re = 0, im = 0;
+      st.forEach((a, i) => {
+        const b = back.state[i];
+        re += a.re * b.re + a.im * b.im;
+        im += a.re * b.im - a.im * b.re;
+      });
+      expect(Math.hypot(re, im)).toBeCloseTo(1, 5);
+    }
   });
   test("base excitation: ζ ≥ 1 and ζ = 0 (away from r = 1) accepted", () => {
     const over = baseExcitation(25, 2, 100, { kind: "acc", amplitude: 9.80665 });

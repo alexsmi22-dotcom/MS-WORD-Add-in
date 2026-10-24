@@ -15713,7 +15713,10 @@ const ENG_CALCS: EngCalc[] = [
         if (m.wd > 0) lines.push(`  Damped frequency ωd = ${engNum(m.wd)} rad/s`);
         if (tr.source === "simulated") lines.push("Transient metrics measured from the simulated step response");
         if (tr.overshoot !== null) lines.push(`  Overshoot = ${engNum(tr.overshoot * 100)} %`);
-        if (tr.peakTime !== null) lines.push(`  Peak time = ${engNum(tr.peakTime)} s`);
+        // A maximum on the window's last sample is not a peak (a monotonic rise, e.g. (s+1)³): said so, not timed.
+        const peakAtEnd = tr.source === "simulated" && tr.peakTime !== null && tr.peakTime >= tEnd * (1 - 1e-9);
+        if (peakAtEnd) lines.push("  Peak time: none, the response rises monotonically through the window");
+        else if (tr.peakTime !== null) lines.push(`  Peak time = ${engNum(tr.peakTime)} s`);
         if (tr.riseTime !== null) lines.push(`  Rise time (${tr.riseLabel}) = ${engNum(tr.riseTime)} s`);
         if (tr.settlingTime !== null) lines.push(`  Settling time (2 %) = ${engNum(tr.settlingTime)} s`);
         else if (tr.source === "simulated") lines.push("  Settling time (2 %): not settled inside the window");
@@ -15723,7 +15726,11 @@ const ENG_CALCS: EngCalc[] = [
       }
 
       if (res.finalValue !== null) lines.push(`Final value = ${engNum(res.finalValue)}`);
-      lines.push(`Peak of the simulated response: ${engNum(res.peak.y)} at t = ${engNum(res.peak.t)} s`);
+      lines.push(
+        res.peak.t >= tEnd * (1 - 1e-9)
+          ? `Largest value of the simulated response: ${engNum(res.peak.y)}, at the end of the window (no interior peak)`
+          : `Peak of the simulated response: ${engNum(res.peak.y)} at t = ${engNum(res.peak.t)} s`,
+      );
       if (kind === "step" && tr.source === "exact" && res.finalValue !== null && res.finalValue !== 0) {
         const os = (res.peak.y - res.finalValue) / res.finalValue;
         if (os > 1e-6) lines.push(`  which is ${engNum(os * 100)} % overshoot, measured from the simulation`);
@@ -16507,7 +16514,7 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`Resonant peak at r = ${engNum(res.peakR)} (ω = ${engNum(res.peakR * p.wn)} rad/s)`);
         lines.push(
           res.peakMagnification === null
-            ? "  peak magnification: unbounded (no damping — resonance at r = 1 has no steady state)"
+            ? "  peak magnification: unbounded (no damping: resonance at r = 1 has no steady state)"
             : `  peak magnification = ${engNum(res.peakMagnification)}`,
         );
       }
@@ -18852,7 +18859,7 @@ const ENG_CALCS: EngCalc[] = [
         // Differentiator: both vary with frequency (opamp.ts) — stated as the law plus a reference point.
         lines.push("Noise gain = 1 + jωRf·C: 1 below fc, rising at 20 dB per decade above it (this is what sets the bandwidth)");
         lines.push(
-          `Input impedance = 1/(jωC), capacitive: |Zin| = 1/(2πfC) falls with frequency — ${engNum(rfV as number)} Ω (= Rf) at fc = ${engNum(res.cornerFrequency)} Hz, a tenth of that at 10·fc`,
+          `Input impedance = 1/(jωC), capacitive: |Zin| = 1/(2πfC) falls with frequency: ${engNum(rfV as number)} Ω (= Rf) at fc = ${engNum(res.cornerFrequency)} Hz, a tenth of that at 10·fc`,
         );
       } else {
         lines.push(`Noise gain = ${engNum(res.noiseGain)}  (this is what sets the bandwidth)`);

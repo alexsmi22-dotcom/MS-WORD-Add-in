@@ -338,7 +338,7 @@ export function dragShot(
   const notes: string[] = [
     vertical
       ? `A vertical launch has no range: it comes straight back down. Drag lowers the apex (vacuum: ${vac.ok ? engRound(vac.apexM) : "n/a"} m) and ` +
-        "slows the fall towards terminal speed. Drag is not a correction — for anything small, fast or light it is the dominant term."
+        "slows the fall towards terminal speed. Drag is not a correction: for anything small, fast or light it is the dominant term."
       : `Drag reduces the range to ${fraction !== null ? (fraction * 100).toFixed(1) + "%" : "an unknown fraction"} ` +
         "of the vacuum figure. Drag is not a correction — for anything small, fast or light it is " +
         "the dominant term.",

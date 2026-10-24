@@ -903,7 +903,8 @@ const bipartiteCalc: QCalc = {
       extra.push(
         plot(
           quantumBarsSvg({ values: sc.coeffs, labels: sc.coeffs.map((_, k) => `s${k + 1}`), yTitle: "Schmidt coefficient", xTitle: "Schmidt coefficients (largest first)" }),
-          `Schmidt coefficients of |ψ⟩ for the ${dA} × ${dB} split (one bar: a product state).`,
+          // The caption states what the chart shows (it said "one bar: a product state" over a rank-2 chart).
+          `Schmidt coefficients of |ψ⟩ for the ${dA} × ${dB} split: ${sc.coeffs.length === 1 ? "one bar, so a product state" : `${sc.coeffs.length} bars, so entangled (a product state has one)`}.`,
           "Bar chart of the Schmidt coefficients.",
         ),
       );

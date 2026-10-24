@@ -78,3 +78,26 @@ describe("buildResultOoxml", () => {
     parse(r.ooxml);
   });
 });
+
+describe("v2.192.1: fonts, alignment, spacing", () => {
+  test("subscript and superscript characters become formatted base characters (Mac fonts lack ₖ, ₐ …)", () => {
+    const r = buildResultOoxml([{ kind: "text", content: "sₖ² and Sₐ = 10⁻⁴" }]);
+    expect(r.ooxml).not.toMatch(/[ₖₐ²⁻⁴]/);
+    expect(r.ooxml).toContain('<w:vertAlign w:val="subscript"/></w:rPr><w:t xml:space="preserve">k</w:t>');
+    expect(r.ooxml).toContain('<w:vertAlign w:val="superscript"/></w:rPr><w:t xml:space="preserve">−4</w:t>');
+  });
+  test("ket brackets and ⊗ are set in Cambria Math; − and ≈ stay in the text font", () => {
+    const r = buildResultOoxml([{ kind: "text", content: "|0⟩ ⊗ |1⟩ − 2 ≈ 3" }]);
+    expect(r.ooxml).toMatch(/Cambria Math"\/><\/w:rPr><w:t xml:space="preserve">⟩<\/w:t>/);
+    expect(r.ooxml).toContain('<w:t xml:space="preserve"> − 2 ≈ 3</w:t>');
+  });
+  test("table words are left-aligned, numbers right-aligned", () => {
+    const r = buildResultOoxml([{ kind: "table", label: "", rows: [["Quantity", "Value"], ["Rabi frequency Ω/2π", "1 MHz"], ["P₁", "0.5"]] }]);
+    const cells = [...r.ooxml.matchAll(/<w:jc w:val="(\w+)"\/>/g)].map((m) => m[1]);
+    expect(cells).toEqual(["left", "left", "left", "right", "left", "right"]);
+  });
+  test("a result ending on a figure ends on an empty paragraph", () => {
+    const r = buildResultOoxml([{ kind: "picture", caption: "c", base64: "AA==", widthPt: 10, heightPt: 10, alt: "a" }]);
+    expect(r.ooxml).toMatch(/<\/w:drawing><\/w:r><\/w:p><w:p\/><\/w:body>/);
+  });
+});

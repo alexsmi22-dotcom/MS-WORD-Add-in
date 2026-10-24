@@ -111,7 +111,8 @@ const ATOM_GLYPHS = new Set([
   "†",
 ]);
 
-const ACCENTS: Record<string, string> = { bar: "̄", hat: "̂", vec: "⃗" };
+// overline/tilde/dot/ddot (v2.192.1: "overline(y)" printed as the literal word in the Bell-state formula).
+const ACCENTS: Record<string, string> = { bar: "̄", hat: "̂", vec: "⃗", overline: "̅", tilde: "̃", dot: "̇", ddot: "̈" };
 
 // N-ary operator keywords → big-operator glyph (sum/prod sit limits under/over).
 const NARY_CHR: Record<string, string> = {
@@ -387,7 +388,10 @@ class Parser {
       // A lone sign as the script (Phi^+, x_-), i.e. a sign with nothing after it to apply to, is the sign itself.
       if (Parser.isSign(this.peek()) && this.closesScript(this.tokens[this.pos + 1], tok.t === "caret")) {
         s = { k: "text", v: Parser.signText(this.next().v), plain: true, label: true };
-      } else s = this.parseBase();
+      } else {
+        this.scriptBaseNext = true;
+        s = this.parseBase();
+      }
       // A repeated script nests right-associatively (x^2^3 → x^(2^3)) instead of
       // silently overwriting the earlier one.
       if (tok.t === "caret") sup = sup ? { k: "sup", base: sup, sup: s } : s;
@@ -398,7 +402,9 @@ class Parser {
     if (sub && sup) node = { k: "subsup", base, sub, sup };
     else if (sup) node = { k: "sup", base, sup };
     else if (sub) node = { k: "sub", base, sub };
-    else node = base;
+    // A built-up fraction groups itself: (ħ/2)(Ωσx + Δσz) and (1/2)(I + r·σ) need no brackets around the fraction
+    // (v2.192.1, seen in Word). With a power or subscript, (a/b)^2, the brackets stay.
+    else node = base.k === "delim" && base.open === "(" && base.close === ")" && base.inner.k === "frac" ? base.inner : base;
 
     // Factorial postfix.
     while (this.peek()?.t === "op" && this.peek()?.v === "!") {
@@ -408,7 +414,12 @@ class Parser {
     return node;
   }
 
+  /** Set just before a script's base is parsed: an identifier there takes no function brackets (tr_B(ρ), r_i(S)). */
+  private scriptBaseNext = false;
+
   private parseBase(): Node {
+    const asScript = this.scriptBaseNext;
+    this.scriptBaseNext = false;
     const t = this.peek();
     if (!t) throw new Error("Unexpected end of math expression.");
 
@@ -419,7 +430,7 @@ class Parser {
 
     if (t.t === "id") {
       this.next();
-      return this.parseIdentifier(t.v);
+      return this.parseIdentifier(t.v, asScript);
     }
 
     if (t.t === "lbrack") {
@@ -467,7 +478,7 @@ class Parser {
     throw new Error(`Unexpected "${t.v}" in math expression.`);
   }
 
-  private parseIdentifier(id: string): Node {
+  private parseIdentifier(id: string, asScript = false): Node {
     const lower = id.toLowerCase();
 
     if (lower === "sqrt") return { k: "rad", radicand: this.parseSingleGroup() };
@@ -544,13 +555,16 @@ class Parser {
     // Function application: an identifier IMMEDIATELY followed by "(". A space before the bracket makes it a product
     // (a known function such as sin, log or exp still takes it): "H^T (H P H^T + R)" is Hᵀ times the bracket, not a
     // function T applied to it, which typeset the whole bracket inside the superscript (the Kalman gain, v2.192.0).
-    if (this.peek()?.t === "lparen" && (!this.peek()!.sp || KNOWN_FUNCS.has(lower))) {
+    // In a script, an identifier never takes the brackets after it: "tr_B(|ψ⟩⟨ψ|)" is tr_B applied to the bracket and
+    // "r_i(S_k)" is r_i of S_k — not a subscript B(…) or i(…) (v2.192.1, seen in Word).
+    if (this.peek()?.t === "lparen" && !asScript && (!this.peek()!.sp || KNOWN_FUNCS.has(lower))) {
       const arg = this.parseParenGroup();
       return { k: "func", name: id, arg, known: KNOWN_FUNCS.has(lower) };
     }
 
-    // Words that stay upright without parentheses (e.g. "a mod n", "Pr[A]").
-    if (UPRIGHT_WORDS.has(id) || UPRIGHT_WORDS.has(lower)) return { k: "text", v: id, plain: true };
+    // Words that stay upright without parentheses (e.g. "a mod n", "Pr[A]"); and a known function written with a power
+    // or subscript before its argument — sin^2(x), log_2 ρ, tr_B(…) — is still a function name: upright, never sin².
+    if (UPRIGHT_WORDS.has(id) || UPRIGHT_WORDS.has(lower) || (KNOWN_FUNCS.has(lower) && !GREEK[id] && !GREEK[lower])) return { k: "text", v: id, plain: true };
 
     if (GREEK[id]) return { k: "text", v: GREEK[id] };
     if (GREEK[lower]) return { k: "text", v: GREEK[lower] };

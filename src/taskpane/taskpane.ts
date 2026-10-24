@@ -30511,7 +30511,9 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
     // few lines … nothing else, even the table" (Kalman filter, run on data) and "0 of 1 figures" (Combined loading,
     // the quantum tools), on Mac and PC. A result that is only paragraphs and pictures keeps the chained path, which
     // has always landed; anything with an equation or a table goes in as a single package, with no chain to break.
-    if (layout.some((it) => it.kind === "ooxml" || it.kind === "matrix")) {
+    // (v2.192.1: a figure too — on the chained path the picture sat at the end of its caption paragraph, so a long
+    // caption wrapped around it, and the next insert could start on the figure's line.)
+    if (layout.some((it) => it.kind === "ooxml" || it.kind === "matrix" || it.kind === "picture")) {
       const pkg: ResultPackageItem[] = [];
       for (let i = 0; i < blocks.length; i++) {
         const b = blocks[i];

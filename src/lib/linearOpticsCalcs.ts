@@ -245,7 +245,7 @@ const mzCalc: QoCalc = {
     lines.push(BS_CONVENTION);
     lines.push(`Mach–Zehnder: BS(R₁ = ${t6(R1)}), the phase φ = ${ph.label} on arm 1, then BS(R₂ = ${t6(R2)}); one photon enters port ${input}. Port 0 is the output path transmitted at both splitters.`);
     lines.push({ math: "U_BS = pmatrix(sqrt(T), i sqrt(R); i sqrt(R), sqrt(T))", fallback: "U_BS = [[√T, i√R], [i√R, √T]]" });
-    lines.push({ math: "U_MZ = U_BS2 pmatrix(1, 0; 0, e^{i φ}) U_BS1", fallback: "U_MZ = U_BS2 · diag(1, exp(iφ)) · U_BS1" });
+    lines.push({ math: "U_MZ = U_{BS2} pmatrix(1, 0; 0, e^{i φ}) U_{BS1}", fallback: "U_MZ = U_{BS2} · diag(1, exp(iφ)) · U_{BS1}" });
     if (input === 0) lines.push({ math: "P_0 = T_1 T_2 + R_1 R_2 - 2 sqrt(T_1 T_2 R_1 R_2) cos φ", fallback: "P₀ = T₁T₂ + R₁R₂ − 2√(T₁T₂R₁R₂) cos φ" });
     else lines.push({ math: "P_0 = T_1 R_2 + R_1 T_2 + 2 sqrt(T_1 T_2 R_1 R_2) cos φ", fallback: "P₀ = T₁R₂ + R₁T₂ + 2√(T₁T₂R₁R₂) cos φ" });
     if (Math.abs(R1 - 0.5) < 1e-12 && Math.abs(R2 - 0.5) < 1e-12)

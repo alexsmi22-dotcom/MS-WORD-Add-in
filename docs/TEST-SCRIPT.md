@@ -10,6 +10,14 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ef. New in v2.192.1 — Clean inserts on Mac and PC
+
+- [ ] **On the Mac:** Quantum computing ▸ Bipartite entanglement → Insert: no "?" anywhere (sₖ, |0⟩, ⊗ all drawn);
+  tables have words on the left and numbers on the right.
+- [ ] Density matrix → Insert: S(ρ) = −tr(ρ log₂ ρ) with upright log; ρ = ½(I + r·σ) with no brackets round ½.
+- [ ] Any tool with a long figure caption → the caption sits on its own line above the figure.
+- [ ] Insert two results one after the other → the second starts on a new line below the first one's figure.
+
 ## 0ee. New in v2.192.0 — Results insert completely
 
 - [ ] **Kalman filter: run on data** → Insert: every line, the equations, the tables and both figures arrive; the

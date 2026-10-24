@@ -731,7 +731,7 @@ describe("every non-text block kind reaches the rich insert path", () => {
     // (v2.192.0: between them only the one-package switch, which replaces a layout holding an equation run or a
     // table by a single package — lib/resultOoxml.ts.)
     expect(tail).toMatch(
-      /^flushRun\(\);[\s\S]*?if \(layout\.some\(\(it\) => it\.kind === "ooxml" \|\| it\.kind === "matrix"\)\) \{[\s\S]*?layout\.splice\(0, layout\.length, \{ kind: "ooxml", ooxml: buildResultOoxml\(pkg\)\.ooxml \}\);\n\s*\}\n\s*picturesConfirmed = await docHost\.insertResultLayout\(layout\)/,
+      /^flushRun\(\);[\s\S]*?if \(layout\.some\(\(it\) => it\.kind === "ooxml" \|\| it\.kind === "matrix" \|\| it\.kind === "picture"\)\) \{[\s\S]*?layout\.splice\(0, layout\.length, \{ kind: "ooxml", ooxml: buildResultOoxml\(pkg\)\.ooxml \}\);\n\s*\}\n\s*picturesConfirmed = await docHost\.insertResultLayout\(layout\)/,
     );
     expect(hostLayoutBody()).toMatch(/\n\s*\}\n\s*anchor\.select\(Word\.SelectionMode\.end\);/);
   });

@@ -38,8 +38,63 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-const textPara = (text: string, jc?: "center" | "right"): string =>
-  `<w:p>${jc ? `<w:pPr><w:jc w:val="${jc}"/></w:pPr>` : ""}<w:r><w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
+// Unicode sub- and superscript characters, written as the base character with Word's own subscript/superscript
+// formatting: fonts on the Mac lack many of them (ₖ, ₐ, ₜ, ᵢ…) and Word drew "?" (user, 2026-10-23).
+const SUBSCRIPT: Record<string, string> = {
+  "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+  "₊": "+", "₋": "−", "₌": "=", "₍": "(", "₎": ")",
+  "ₐ": "a", "ₑ": "e", "ₕ": "h", "ᵢ": "i", "ⱼ": "j", "ₖ": "k", "ₗ": "l", "ₘ": "m", "ₙ": "n", "ₒ": "o", "ₚ": "p",
+  "ᵣ": "r", "ₛ": "s", "ₜ": "t", "ᵤ": "u", "ᵥ": "v", "ₓ": "x", "ᵦ": "β", "ᵧ": "γ", "ᵨ": "ρ", "ᵩ": "φ", "ᵪ": "χ",
+};
+const SUPERSCRIPT: Record<string, string> = {
+  "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+  "⁺": "+", "⁻": "−", "⁼": "=", "⁽": "(", "⁾": ")", "ⁿ": "n", "ⁱ": "i", "ᵀ": "T", "ᵉ": "e", "ᵏ": "k", "ᵖ": "p",
+};
+// Mathematical symbols outside the text fonts' usual repertoire (angle brackets of kets, ⊗, ∏, ‖, ∓, ≪, √ …): set in
+// Cambria Math, which Office installs on Mac and PC alike.
+// Common symbols every text font carries stay in the text font: − ≈ ≠ ≤ ≥ → ← ↔ √ ∞ ∑ ∂ ∆ ∫ ±.
+const TEXT_FONT_SYMBOLS = new Set([0x2212, 0x2248, 0x2260, 0x2264, 0x2265, 0x2192, 0x2190, 0x2194, 0x221a, 0x221e, 0x2211, 0x2202, 0x2206, 0x222b]);
+const isMathSymbol = (c: string): boolean => {
+  const u = c.codePointAt(0) ?? 0;
+  if (TEXT_FONT_SYMBOLS.has(u)) return false;
+  return (u >= 0x2190 && u <= 0x22ff) || (u >= 0x27c0 && u <= 0x27ef) || (u >= 0x2980 && u <= 0x2aff) || u === 0x2016 || u === 0x210f;
+};
+
+type RunKind = "plain" | "sub" | "sup" | "math";
+const kindOf = (c: string): RunKind => (c in SUBSCRIPT ? "sub" : c in SUPERSCRIPT ? "sup" : isMathSymbol(c) ? "math" : "plain");
+
+/** Text as runs: plain, subscript, superscript, and Cambria Math for symbols. */
+export function textRuns(text: string): string {
+  const out: string[] = [];
+  let cur = "";
+  let kind: RunKind = "plain";
+  const flush = (): void => {
+    if (!cur) return;
+    const rPr =
+      kind === "sub" ? `<w:rPr><w:vertAlign w:val="subscript"/></w:rPr>`
+      : kind === "sup" ? `<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>`
+      : kind === "math" ? `<w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math" w:cs="Cambria Math"/></w:rPr>`
+      : "";
+    out.push(`<w:r>${rPr}<w:t xml:space="preserve">${esc(cur)}</w:t></w:r>`);
+    cur = "";
+  };
+  for (const c of text) {
+    const k = kindOf(c);
+    if (k !== kind) {
+      flush();
+      kind = k;
+    }
+    cur += k === "sub" ? SUBSCRIPT[c] : k === "sup" ? SUPERSCRIPT[c] : c;
+  }
+  flush();
+  return out.join("");
+}
+
+const textPara = (text: string, jc?: "center" | "right" | "left"): string =>
+  `<w:p>${jc ? `<w:pPr><w:jc w:val="${jc}"/></w:pPr>` : ""}${textRuns(text)}</w:p>`;
+
+/** A table cell that reads as a number (−5.2, 1.4×10⁻⁴, ½, 2/9 ≈ 0.22, 45 %) is right-aligned; words are left. */
+const looksNumeric = (c: string): boolean => /^[\s+\-−±≈~]*[\d.,½¼¾⅓⅔]/.test(c) && !/[A-Za-z]{5,}/.test(c);
 
 function tableXml(rows: string[][]): string {
   const nCols = Math.max(1, ...rows.map((r) => r.length));
@@ -52,7 +107,7 @@ function tableXml(rows: string[][]): string {
   const body = rows
     .map((r) => {
       const cells = Array.from({ length: nCols }, (_, j) => r[j] ?? "");
-      return `<w:tr>${cells.map((c) => `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>${textPara(c, "right")}</w:tc>`).join("")}</w:tr>`;
+      return `<w:tr>${cells.map((c) => `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>${textPara(c, looksNumeric(c) ? "right" : "left")}</w:tc>`).join("")}</w:tr>`;
     })
     .join("");
   return `<w:tbl>${tblPr}${grid}${body}</w:tbl>`;
@@ -100,6 +155,9 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
       body.push(`<w:p>${pictureRun(id, n, it.widthPt, it.heightPt, it.alt)}</w:p>`);
     }
   }
+  // A result that ends on a figure or table ends on an empty paragraph too, so the next insert starts on its own line
+  // (one began on the same line as the figure above it in the user's demo document).
+  if (body.length && !body[body.length - 1].startsWith("<w:p/>") && /<w:drawing>|<w:tbl>/.test(body[body.length - 1])) body.push(`<w:p/>`);
   const documentXml =
     `<w:document xmlns:w="${W_NS}" xmlns:m="${M_NS}" xmlns:r="${R_NS}" xmlns:wp="${WP_NS}" xmlns:a="${A_NS}" xmlns:pic="${PIC_NS}">` +
     `<w:body>${body.join("")}</w:body></w:document>`;

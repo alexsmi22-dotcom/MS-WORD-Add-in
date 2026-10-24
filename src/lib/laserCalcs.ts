@@ -428,7 +428,7 @@ const shgCalc: OptCalc = {
     const lines: EngLine[] = [];
     const adk = Math.abs(res.dk);
     lines.push(`Fundamental λ = ${trimSig(lamNm)} nm, n(ω) = ${trimSig(nW)}, n(2ω) = ${trimSig(n2W)}.`);
-    lines.push({ math: "Δk = k_2ω - 2 k_ω = (4 π)/λ (n_2ω - n_ω)", fallback: "Δk = k(2ω) − 2k(ω) = (4π/λ)(n(2ω) − n(ω))" });
+    lines.push({ math: "Δk = k_{2ω} - 2 k_ω = (4 π)/λ (n_{2ω} - n_ω)", fallback: "Δk = k(2ω) − 2k(ω) = (4π/λ)(n(2ω) − n(ω))" });
     lines.push({ math: "l_c = π/Δk", fallback: "ℓ(c) = π/Δk (coherence length)" });
     lines.push({ math: "Λ = (2 π)/Δk = 2 l_c", fallback: "Λ = 2π/Δk = 2ℓ(c) (first-order QPM period)" });
     if (adk === 0) lines.push("n(2ω) = n(ω): Δk = 0, the interaction is phase-matched as it stands; the coherence length is unbounded and no QPM grating is needed.");
@@ -451,7 +451,7 @@ const shgCalc: OptCalc = {
       outputs.push({ key: "sinc2", label: "Phase-matching factor sinc²", value: res.sinc2, unit: "" }, { key: "dkFwhm", label: "Acceptance FWHM in Δk", value: res.dkFwhm, unit: "m⁻¹" });
     }
     if (res.eta !== null && deffPm !== null && I !== null && Lmm !== null) {
-      lines.push({ math: "η = I_2ω/I_ω = (2 ω^2 d^2 L^2)/(n_2ω n_ω^2 c^3 ε_0) I_ω (sin(Δk L/2)/(Δk L/2))^2", fallback: "η = I(2ω)/I(ω) = 2ω²d²L²I(ω)/(n(2ω) n(ω)² c³ ε₀)·sinc²(ΔkL/2), ω the fundamental angular frequency" });
+      lines.push({ math: "η = I_{2ω}/I_ω = (2 ω^2 d^2 L^2)/(n_{2ω} n_ω^2 c^3 ε_0) I_ω (sin(Δk L/2)/(Δk L/2))^2", fallback: "η = I(2ω)/I(ω) = 2ω²d²L²I(ω)/(n(2ω) n(ω)² c³ ε₀)·sinc²(ΔkL/2), ω the fundamental angular frequency" });
       if (res.eta > 0.1)
         lines.push(`Efficiency NOT reported: the low-conversion formula gives ${fmtSig(res.eta * 100, 3)} %, above 10 %, where the undepleted-pump assumption fails (the formula would overstate it and can pass 100 %). Lower the intensity or the length, or use a pump-depletion (tanh²) model.`);
       else {

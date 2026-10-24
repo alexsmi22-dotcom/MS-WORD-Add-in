@@ -6,6 +6,20 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.192.1] — 2026-10-23 — Inserted results read cleanly on Mac and PC
+
+### Fixed (from a 62-page demo document inserted in Word)
+- **No more "?" in tables and text on the Mac:** subscripts and superscripts in inserted text (sₖ, Sₐ, 10⁻⁴) go in
+  as Word's own subscript and superscript formatting rather than special characters the Mac fonts lack, and symbols
+  such as ⟨ ⟩, ⊗ and ‖ are set in Cambria Math.
+- **Equations:** sin², cos², log₂ and other function names with a power or subscript are upright; tr_B(ρ) and
+  r_i(S) keep their argument outside the subscript; a fraction is no longer wrapped in brackets, as in ħ/2(…) and ½(…);
+  overline/tilde/dot accents (the Bell-state formula showed "overline(y)"); k_{2ω}, n_{2ω} and U_{BS2} subscripted whole.
+- **Tables:** words are left-aligned and numbers right-aligned (every cell was right-aligned).
+- **Figures:** every result with a figure now goes in as one package — the caption on its own line above the figure
+  (a long caption used to wrap around it), and the next insert starts on a new line, never beside a figure.
+- The Schmidt-coefficient caption described the chart wrongly ("one bar: a product state" over two bars).
+
 ## [2.192.0] — 2026-10-23 — Results with equations and tables insert completely
 
 ### Fixed

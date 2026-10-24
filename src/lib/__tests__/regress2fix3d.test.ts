@@ -3,7 +3,7 @@
 // (porphyrins, heme and chlorophyll still draw). Verdicts and formulas checked against RDKit 2024 (MolFromSmiles).
 import { Molecule } from "openchemlib";
 import { checkSmiles, renderStructure, resolveStructure } from "../structures";
-import { balanceText, BalanceResult, BalanceOk } from "../balance";
+import { balanceReaction, balanceText, BalanceResult, BalanceOk } from "../balance";
 
 function counts(f: string): Record<string, number> {
   const c: Record<string, number> = {};
@@ -163,4 +163,14 @@ describe("6: the electron sentence only where a redox is shown (a mixed-valence 
     expect(r.equation).toBe(eq);
     expect(r.notes.join(" ")).toMatch(ELECTRONS);
   });
+});
+
+describe("half-reactions name only the helpers actually added", () => {
+  const note = (q: string): string =>
+    ((balanceReaction(q, { medium: "acid", halfReaction: true }) as { notes?: string[] }).notes ?? []).join(" / ");
+  test.each([
+    ["Cr2O7^2- + H2O -> CrO4^2- + H+", "no H₂O, H⁺ or e⁻ had to be added"],
+    ["MnO4^- -> Mn^2+", "H⁺, H₂O and e⁻ were added"],
+    ["MnO4^- + H+ -> Mn^2+ + H2O", "e⁻ was added"],
+  ])("%s → %s", (q, want) => expect(note(q)).toContain(want));
 });

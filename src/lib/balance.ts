@@ -1440,7 +1440,14 @@ function balanceHalf(p: ParsedEquation, medium: "acid" | "base", forceHalf = fal
   const kind: "reduction" | "oxidation" | "none" = eIdx < 0 ? "none" : sides[eIdx] === "left" ? "reduction" : "oxidation";
   const notes = resolvedNotes(p.species);
   const ionName = medium === "acid" ? "H⁺" : "OH⁻";
-  notes.push(`Balanced in ${medium === "acid" ? "acidic" : "basic"} solution: H₂O, ${ionName} and e⁻ were added where needed.`);
+  // Name only the helpers that were actually added: a non-zero coefficient, and not a species already typed.
+  const typed = new Set(p.species.map((s) => formatSpecies(s)));
+  const added = aux.filter((s, j) => v[skel.length + j] !== 0n && !typed.has(formatSpecies(s))).map((s) => formatSpecies(s));
+  notes.push(
+    added.length
+      ? `Balanced in ${medium === "acid" ? "acidic" : "basic"} solution: ${nameList(added)} ${added.length === 1 ? "was" : "were"} added.`
+      : `Balanced in ${medium === "acid" ? "acidic" : "basic"} solution: no H₂O, ${ionName} or e⁻ had to be added.`,
+  );
   notes.push(...halfNotes);
   const summary =
     kind === "none"

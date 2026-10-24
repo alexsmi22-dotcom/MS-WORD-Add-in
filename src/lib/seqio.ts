@@ -22,7 +22,12 @@ export interface SeqFeature {
   type: string;
   /** Best display label, from /label, /gene, /product, /note — else the type. */
   name: string;
-  /** 1-based inclusive span across all segments (min start, max end). */
+  /**
+   * 1-based inclusive span across all segments (min start, max end) — EXCEPT an
+   * origin-spanning feature of a circular record (`wraps`), where start > end is
+   * possible: start is where it begins (e.g. 2801) and end where it finishes
+   * after the origin (e.g. 150). Use featureLength() rather than end − start.
+   */
   start: number;
   end: number;
   /** +1 forward, -1 on the complement strand. */
@@ -62,6 +67,14 @@ export interface SeqRecord {
 }
 
 export type SeqParse = { ok: true; records: SeqRecord[] } | { ok: false; error: string };
+
+/**
+ * A feature's span in bp, origin-aware: an origin-spanning feature 2801→150 on
+ * a 3000 bp ring is (3000 − 2801 + 1) + 150 = 350 bp, not 150 − 2801.
+ */
+export function featureLength(f: Pick<SeqFeature, "start" | "end">, seqLen: number): number {
+  return f.end >= f.start ? f.end - f.start + 1 : seqLen - f.start + 1 + f.end;
+}
 
 const RESIDUE_RE = /[^A-Za-z*-]/g;
 
@@ -141,6 +154,12 @@ export function parseLocation(loc: string): ParsedLocation | null {
   const s = loc.replace(/\s+/g, "");
   if (!s) return null;
 
+  // Each segment's own strand, in the order written. The strand used to be read
+  // only from an OUTERMOST complement(), so join(complement(1400..1600),
+  // complement(1000..1200)) — every exon on the minus strand, the form NCBI
+  // writes for minus-strand genes — came back as +1 and its arrow pointed the
+  // wrong way.
+  const strands: (1 | -1)[] = [];
   const inner = (text: string, strand: 1 | -1): FeatureSegment[] | null => {
     // complement(...) flips the strand for everything inside it.
     const comp = /^complement\((.*)\)$/.exec(text);
@@ -169,6 +188,7 @@ export function parseLocation(loc: string): ParsedLocation | null {
     if (range) {
       const a = Number(range[1]);
       const b = Number(range[2]);
+      strands.push(strand);
       return [{ start: Math.min(a, b), end: Math.max(a, b) }];
     }
     // A single base, or the rare 102^103 (between two bases).
@@ -176,6 +196,7 @@ export function parseLocation(loc: string): ParsedLocation | null {
     if (single) {
       const a = Number(single[1]);
       const b = single[2] ? Number(single[2]) : a;
+      strands.push(strand);
       return [{ start: Math.min(a, b), end: Math.max(a, b) }];
     }
     return null;
@@ -183,11 +204,21 @@ export function parseLocation(loc: string): ParsedLocation | null {
 
   const segments = inner(s, 1);
   if (!segments) return null;
-  // Work out the strand by re-reading the outermost complement, since `inner`
-  // folds it into the recursion.
-  const strand: 1 | -1 = /^complement\(/.test(s) ? -1 : 1;
   if (!segments.length) return null;
+  // Minus strand when EVERY segment is complemented — complement(join(…)) and
+  // join(complement(…),complement(…)) alike. A mixed-strand join is drawn +1.
+  const strand: 1 | -1 = strands.length > 0 && strands.every((x) => x === -1) ? -1 : 1;
   return { segments, strand };
+}
+
+/**
+ * The segments in top-strand 5′→3′ order. complement(join(a,b)) writes them in
+ * top-strand order already; join(complement(b),complement(a)) writes them 5′→3′
+ * on the minus strand, i.e. reversed.
+ */
+function forwardOrder(locText: string, loc: ParsedLocation): FeatureSegment[] {
+  const outerComplement = /^complement\(/.test(locText.replace(/\s+/g, ""));
+  return loc.strand === -1 && !outerComplement ? [...loc.segments].reverse() : loc.segments;
 }
 
 /** Splits on commas that are not inside parentheses. */
@@ -307,7 +338,7 @@ function parseGenBankRecord(text: string): SeqRecord | null {
       // source feature and no ORGANISM header line, so dropping the feature
       // without reading it is what made every import "synthetic construct".
       if (cur.key === "source" && !organism) organism = cleanOrganism(quals.organism ?? "");
-      const f = buildFeature(cur.key, cur.loc.join(""), quals, sequence.length);
+      const f = buildFeature(cur.key, cur.loc.join(""), quals, sequence.length, circular);
       if (f) features.push(f);
       cur = null;
     };
@@ -388,18 +419,40 @@ function buildFeature(
   key: string,
   locText: string,
   qualifiers: Record<string, string>,
-  seqLen: number
+  seqLen: number,
+  circular = false
 ): SeqFeature | null {
   if (SKIP_FEATURES.has(key)) return null;
   const loc = parseLocation(locText);
   if (!loc) return null;
 
   const label = LABEL_KEYS.map((k) => qualifiers[k]).find((v) => v && v.trim()) || key;
-  const start = minOf(loc.segments.map((s) => s.start));
-  const end = maxOf(loc.segments.map((s) => s.end));
+  let start = minOf(loc.segments.map((s) => s.start));
+  let end = maxOf(loc.segments.map((s) => s.end));
   // A feature running past the end means it wraps the origin of a circular
   // plasmid. Flag it rather than silently drawing a bar off the edge.
-  const wraps = end > seqLen;
+  let wraps = end > seqLen;
+  // THE INSDC ORIGIN-SPANNING FORM: join(2801..3000,1..150) on a 3000 bp
+  // circular record is ONE 350 bp feature running through the origin. Read as
+  // min..max it became 1..3000 — the whole plasmid — and the circular map drew
+  // a full ring. Detected strictly: in top-strand order exactly one segment
+  // ends at the last base and the next starts at base 1.
+  const fwd = forwardOrder(locText, loc);
+  if (circular && fwd.length >= 2) {
+    let descents = 0;
+    let atOrigin = false;
+    for (let k = 0; k + 1 < fwd.length; k++) {
+      if (fwd[k + 1].start <= fwd[k].end) {
+        descents++;
+        if (fwd[k].end === seqLen && fwd[k + 1].start === 1) atOrigin = true;
+      }
+    }
+    if (descents === 1 && atOrigin) {
+      start = fwd[0].start;
+      end = fwd[fwd.length - 1].end;
+      wraps = true;
+    }
+  }
 
   return {
     type: key,

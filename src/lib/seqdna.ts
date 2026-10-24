@@ -104,7 +104,28 @@ const attr = (tag: string, name: string): string | null => {
  * other than 2 is treated as forward, which is the safe reading: mislabelling a
  * forward feature as reverse would flip an arrow on the map.
  */
-function parseFeaturesXml(xml: string): SeqFeature[] {
+/**
+ * One SnapGene range "a-b" (1-based inclusive) as segments. a > b is SnapGene's
+ * origin-spanning form: `<Segment range="2801-150"/>` on a 3000 bp molecule is
+ * 2801..3000 then 1..150 — Biopython's SnapGeneIO reads it as
+ * join{[2800:3000],[0:150]}. It used to become min..max = 150..2801, the
+ * COMPLEMENTARY arc of the plasmid. Returns null when a > b cannot wrap
+ * (a beyond the sequence).
+ */
+function snapRange(a: number, b: number, seqLen: number): { segments: FeatureSegment[]; wraps: boolean } | null {
+  if (a <= b) return { segments: [{ start: a, end: b }], wraps: false };
+  if (!(seqLen > 0) || a > seqLen) return null;
+  return { segments: [{ start: a, end: seqLen }, { start: 1, end: b }], wraps: true };
+}
+
+/** A feature's start/end from its segments: an origin-spanning one runs first segment start → last segment end. */
+function spanOf(segments: FeatureSegment[], wraps: boolean): { start: number; end: number } {
+  return wraps
+    ? { start: segments[0].start, end: segments[segments.length - 1].end }
+    : { start: minOf(segments.map((s) => s.start)), end: maxOf(segments.map((s) => s.end)) };
+}
+
+function parseFeaturesXml(xml: string, seqLen = 0): SeqFeature[] {
   const out: SeqFeature[] = [];
   // An exec loop rather than matchAll: the project targets ES2017, and moving
   // the whole build's goalposts for one convenience method isn't worth it.
@@ -119,6 +140,7 @@ function parseFeaturesXml(xml: string): SeqFeature[] {
     const strand: 1 | -1 = dir === "2" ? -1 : 1;
 
     const segments: FeatureSegment[] = [];
+    let wraps = false;
     const segRe = /<Segment\b([^>]*)\/?>/g;
     let sm: RegExpExecArray | null;
     while ((sm = segRe.exec(body)) !== null) {
@@ -129,7 +151,10 @@ function parseFeaturesXml(xml: string): SeqFeature[] {
       const a = Number(r[1]);
       const b = Number(r[2]);
       if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
-      segments.push({ start: Math.min(a, b), end: Math.max(a, b) });
+      const sr = snapRange(a, b, seqLen);
+      if (!sr) continue;
+      segments.push(...sr.segments);
+      wraps = wraps || sr.wraps;
     }
     // A feature with no readable range can't be drawn; skip it rather than
     // place it at a made-up coordinate.
@@ -146,10 +171,10 @@ function parseFeaturesXml(xml: string): SeqFeature[] {
     out.push({
       type,
       name: label.replace(/\s+/g, " ").trim() || type,
-      start: minOf(segments.map((s) => s.start)),
-      end: maxOf(segments.map((s) => s.end)),
+      ...spanOf(segments, wraps),
       strand,
       segments,
+      wraps: wraps || undefined,
       qualifiers: {},
     });
   }
@@ -157,7 +182,7 @@ function parseFeaturesXml(xml: string): SeqFeature[] {
 }
 
 /** Reads the <Primers> XML into primer_bind features. */
-function parsePrimersXml(xml: string): SeqFeature[] {
+function parsePrimersXml(xml: string, seqLen = 0): SeqFeature[] {
   const out: SeqFeature[] = [];
   const primRe = /<Primer\b([^>]*)>([\s\S]*?)<\/Primer>|<Primer\b([^>]*)\/>/g;
   let m: RegExpExecArray | null;
@@ -175,13 +200,15 @@ function parsePrimersXml(xml: string): SeqFeature[] {
     const b = Number(r[2]);
     const strandAttr = attr(site[1], "strand");
     const strand: 1 | -1 = strandAttr === "bottom" ? -1 : 1;
+    const sr = snapRange(a, b, seqLen);
+    if (!sr) continue;
     out.push({
       type: "primer_bind",
       name,
-      start: Math.min(a, b),
-      end: Math.max(a, b),
+      ...spanOf(sr.segments, sr.wraps),
       strand,
-      segments: [{ start: Math.min(a, b), end: Math.max(a, b) }],
+      segments: sr.segments,
+      wraps: sr.wraps || undefined,
       qualifiers: {},
     });
   }
@@ -222,9 +249,9 @@ export function parseSnapGeneDna(bytes: Uint8Array): DnaParse {
 
   const features: SeqFeature[] = [];
   const fp = packets.find((p) => p.tag === TAG_FEATURES);
-  if (fp) features.push(...parseFeaturesXml(decodeUtf8(fp.data)));
+  if (fp) features.push(...parseFeaturesXml(decodeUtf8(fp.data), sequence.length));
   const pp = packets.find((p) => p.tag === TAG_PRIMERS);
-  if (pp) features.push(...parsePrimersXml(decodeUtf8(pp.data)));
+  if (pp) features.push(...parsePrimersXml(decodeUtf8(pp.data), sequence.length));
 
   // Name and description live in the notes XML, when present.
   let name = "SnapGene construct";

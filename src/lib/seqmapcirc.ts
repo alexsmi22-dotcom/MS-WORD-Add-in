@@ -14,7 +14,7 @@
 //
 // Pure: takes a SeqRecord from seqio.ts, returns an SVG string.
 
-import { SeqRecord, SeqFeature } from "./seqio";
+import { SeqRecord, SeqFeature, featureLength } from "./seqio";
 import { bpAxisTicks, bpEndLabel } from "./seqmap";
 
 export interface CircularMapOptions {
@@ -131,12 +131,16 @@ interface RingFeature {
 function assignRings(features: SeqFeature[], len: number): RingFeature[] {
   const out: RingFeature[] = [];
   const rings: { a0: number; a1: number }[][] = [];
-  const sorted = [...features].sort((a, b) => b.end - b.start - (a.end - a.start));
+  const sorted = [...features].sort((a, b) => featureLength(b, len) - featureLength(a, len));
 
   for (const f of sorted) {
     const a0 = bpToAngle(f.start, len);
+    // An origin-spanning feature (2801→150 on 3000 bp) ends one turn later: its
+    // end angle is taken past 2π, so the arc is the 350 bp it covers rather
+    // than a sliver (or, read as min..max, the whole ring).
+    const endBp = f.end < f.start ? f.end + len : f.end;
     // A 1 bp feature would be invisible; give every arc a floor.
-    const a1 = Math.max(bpToAngle(f.end, len), a0 + 0.012);
+    const a1 = Math.max(bpToAngle(endBp, len), a0 + 0.012);
     let ring = 0;
     for (;;) {
       const occupied = rings[ring];
@@ -144,7 +148,11 @@ function assignRings(features: SeqFeature[], len: number): RingFeature[] {
         rings[ring] = [];
         break;
       }
-      const clash = occupied.some((o) => a0 < o.a1 + 0.02 && a1 + 0.02 > o.a0);
+      // Compared one turn either way too, so an arc past 2π still clashes with one near the origin.
+      const TAU = Math.PI * 2;
+      const clash = occupied.some((o) =>
+        [-TAU, 0, TAU].some((sh) => a0 < o.a1 + sh + 0.02 && a1 + 0.02 > o.a0 + sh),
+      );
       if (!clash) break;
       ring++;
     }

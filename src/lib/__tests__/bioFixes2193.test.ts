@@ -6,6 +6,9 @@ import { buildSt26Xml, cleanResidues, definedResidueCount, featureNotes, feature
 import { fitDoseResponse, fitSaturationBinding, levenbergMarquardt } from "../assay";
 import { standardCurve } from "../assayQuant";
 import { assaySig } from "../assayFormat";
+import { featureLength, parseGenBank, parseLocation, type SeqRecord } from "../seqio";
+import { parseSnapGeneDna } from "../seqdna";
+import { buildCircularMapSvg } from "../seqmapcirc";
 
 const META: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", applicantFileReference: "R1", productionDate: "2026-10-24" };
 
@@ -204,5 +207,135 @@ describe("7. assaySig display contract", () => {
   test("no e-notation anywhere in the molar fit's caveats", () => {
     const f = fitDoseResponse(LOGX.slice(0, 4), LOGY.slice(0, 4));
     for (const c of f.caveats) expect(c).not.toMatch(/\de[+-]?\d/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3 + 5. GenBank locations: origin-spanning joins; all-complement joins.
+// ---------------------------------------------------------------------------
+function genbank(locs: string[], len = 3000, topology = "circular"): string {
+  const feats = locs.map((l, i) => `     misc_feature    ${l}\n                     /label="f${i + 1}"`).join("\n");
+  const seq = "acgt".repeat(len / 4);
+  const rows: string[] = [];
+  for (let i = 0; i < seq.length; i += 60) rows.push(`${String(i + 1).padStart(9)} ${seq.slice(i, i + 60)}`);
+  return (
+    `LOCUS       TEST                    ${len} bp    DNA     ${topology} SYN 01-JAN-2026\n` +
+    `FEATURES             Location/Qualifiers\n${feats}\nORIGIN\n${rows.join("\n")}\n//\n`
+  );
+}
+function only(text: string): SeqRecord {
+  const r = parseGenBank(text);
+  if (!r.ok) throw new Error(r.error);
+  return r.records[0];
+}
+
+describe("3. origin-spanning join on a circular record", () => {
+  test("join(2801..3000,1..150) on 3000 bp → start 2801, end 150, wraps, 350 bp", () => {
+    const f = only(genbank(["join(2801..3000,1..150)"])).features[0];
+    expect(f.start).toBe(2801);
+    expect(f.end).toBe(150);
+    expect(f.wraps).toBe(true);
+    expect(f.segments).toEqual([{ start: 2801, end: 3000 }, { start: 1, end: 150 }]);
+    expect(featureLength(f, 3000)).toBe(350);
+  });
+  test("complement(join(2801..3000,1..150)) wraps too, on the minus strand", () => {
+    const f = only(genbank(["complement(join(2801..3000,1..150))"])).features[0];
+    expect([f.start, f.end, f.wraps, f.strand]).toEqual([2801, 150, true, -1]);
+  });
+  test("join(complement(1..150),complement(2801..3000)) (minus-strand order) wraps, strand −1", () => {
+    const f = only(genbank(["join(complement(1..150),complement(2801..3000))"])).features[0];
+    expect([f.start, f.end, f.wraps, f.strand]).toEqual([2801, 150, true, -1]);
+  });
+  test("an ordinary exon join is NOT a wrap", () => {
+    const f = only(genbank(["join(10..100,2900..2990)"])).features[0];
+    expect([f.start, f.end, f.wraps]).toEqual([10, 2990, undefined]);
+  });
+  test("on a LINEAR record the same location is not read as a wrap", () => {
+    const f = only(genbank(["join(2801..3000,1..150)"], 3000, "linear")).features[0];
+    expect(f.wraps).toBeUndefined();
+  });
+  test("the circular map draws a 350 bp arc (≈42°), not the whole ring", () => {
+    const rec = only(genbank(["join(2801..3000,1..150)"]));
+    const svg = buildCircularMapSvg(rec, { size: 460 }) as string;
+    const path = /<path d="M([\d.]+),([\d.]+) A[\d.]+,[\d.]+ 0 (\d) 1 ([\d.]+),([\d.]+)/.exec(svg);
+    expect(path).not.toBeNull();
+    const [, x1, y1, large, x2, y2] = path as RegExpExecArray;
+    expect(large).toBe("0"); // a short arc, not the >180° one
+    const c = 230;
+    const ang = (x: string, y: string): number => Math.atan2(Number(y) - c, Number(x) - c);
+    let sweep = ang(x2, y2) - ang(x1, y1);
+    if (sweep < 0) sweep += 2 * Math.PI;
+    // 350 bp of 3000 = 42°, less the arrow head (≤ 0.09 rad ≈ 5.2°) drawn on the body arc.
+    expect((sweep * 180) / Math.PI).toBeGreaterThan(36);
+    expect((sweep * 180) / Math.PI).toBeLessThan(42.1);
+    // It starts just left of 12 o'clock (bp 2801 ≈ 336°) and crosses the top.
+    expect(Number(x1)).toBeLessThan(c);
+    expect(Number(x2)).toBeGreaterThan(c);
+  });
+});
+
+describe("5. all-complement joins are on the minus strand", () => {
+  test.each([
+    ["join(complement(1400..1600),complement(1000..1200))", -1],
+    ["complement(join(1000..1200,1400..1600))", -1],
+    ["complement(1000..1200)", -1],
+    ["join(1000..1200,1400..1600)", 1],
+    ["join(complement(1000..1200),1400..1600)", 1], // mixed: not one strand
+    ["complement(complement(1000..1200))", 1],
+  ])("%s → %p", (loc, strand) => {
+    expect(parseLocation(loc as string)?.strand).toBe(strand);
+  });
+  test("segments keep their written order", () => {
+    expect(parseLocation("join(complement(1400..1600),complement(1000..1200))")?.segments).toEqual([
+      { start: 1400, end: 1600 },
+      { start: 1000, end: 1200 },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. SnapGene <Segment range="2801-150"/> wraps the origin.
+// ---------------------------------------------------------------------------
+function packet(tag: number, data: string): number[] {
+  const bytes = [...data].map((c) => c.charCodeAt(0));
+  const len = bytes.length;
+  return [tag, (len >>> 24) & 0xff, (len >>> 16) & 0xff, (len >>> 8) & 0xff, len & 0xff, ...bytes];
+}
+function snapgene(featuresXml: string, primersXml = "", len = 3000): Uint8Array {
+  return new Uint8Array([
+    ...packet(0x09, "SnapGene" + "\x00\x01\x00\x0e\x00\x0e"),
+    ...packet(0x00, String.fromCharCode(0x02) + "acgt".repeat(len / 4)),
+    ...packet(0x0a, featuresXml),
+    ...(primersXml ? packet(0x05, primersXml) : []),
+  ]);
+}
+
+describe("4. SnapGene origin-spanning segments (Biopython: join{[2800:3000],[0:150]})", () => {
+  test("Feature range 2801-150 → 2801→150, wraps, 350 bp", () => {
+    const r = parseSnapGeneDna(
+      snapgene(`<Features><Feature name="ori" type="rep_origin" directionality="1"><Segment range="2801-150" type="standard"/></Feature></Features>`),
+    );
+    if (!r.ok) throw new Error(r.error);
+    const f = r.record.features[0];
+    expect([f.start, f.end, f.wraps]).toEqual([2801, 150, true]);
+    expect(f.segments).toEqual([{ start: 2801, end: 3000 }, { start: 1, end: 150 }]);
+    expect(featureLength(f, 3000)).toBe(350);
+  });
+  test("Primer binding site 2990-10 wraps as well; an ordinary range does not", () => {
+    const r = parseSnapGeneDna(
+      snapgene(
+        `<Features><Feature name="x" type="CDS" directionality="1"><Segment range="100-400"/></Feature></Features>`,
+        `<Primers><Primer name="P"><BindingSite location="2990-10" strand="top"/></Primer></Primers>`,
+      ),
+    );
+    if (!r.ok) throw new Error(r.error);
+    const [cds, primer] = r.record.features;
+    expect([cds.start, cds.end, cds.wraps]).toEqual([100, 400, undefined]);
+    expect([primer.start, primer.end, primer.wraps]).toEqual([2990, 10, true]);
+  });
+  test("a reversed range that starts beyond the sequence is skipped, not invented", () => {
+    const r = parseSnapGeneDna(snapgene(`<Features><Feature name="x" type="CDS"><Segment range="5000-10"/></Feature></Features>`));
+    if (!r.ok) throw new Error(r.error);
+    expect(r.record.features).toEqual([]);
   });
 });

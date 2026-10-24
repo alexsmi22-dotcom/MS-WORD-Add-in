@@ -16,7 +16,7 @@ import { parseScheme, buildScheme } from "../scheme";
 import { resolveStructure } from "../structures";
 import { solveEquation, polyDisplay } from "../solve";
 import { predictFragments } from "../fragment";
-import { traceCell } from "../jcamp";
+import { traceCell, traceColumn } from "../jcamp";
 import { buildResultOoxml, keepWithNext } from "../resultOoxml";
 import type { XNode } from "../xmlLite";
 
@@ -175,6 +175,24 @@ describe("5. inserted text is typeset", () => {
     [NaN, ""],
   ])("JCAMP cell %p → %s", (v, s) => {
     expect(traceCell(v)).toBe(s);
+  });
+
+  test("JCAMP x column: a fine grid far from zero keeps every abscissa distinct (more figures only there)", () => {
+    expect(traceColumn([4000.0001, 4000.0002, 4000.0003])).toEqual(["4000.0001", "4000.0002", "4000.0003"]);
+    expect(traceColumn([1.0000001, 2.0000001])).toEqual(["1", "2"]);
+    expect(traceColumn([-5, -5])).toEqual(["−5", "−5"]); // equal values are not a collision
+  });
+
+  test("a tab in result text is Word's own <w:tab/>, not a raw tab in <w:t>", () => {
+    const x = buildResultOoxml([{ kind: "text", content: "a\tb" }]).ooxml;
+    expect(x).toContain('a</w:t><w:tab/><w:t xml:space="preserve">b');
+    expect(x).not.toContain("\t");
+  });
+
+  test("Solve: an equation that reduces to a negative constant says so with a true minus", () => {
+    const r = solveEquation("x - x + 3 = 5");
+    if (!r) throw new Error("no result");
+    expect(r.steps.join("\n")).toMatch(/Reduced to −2 = 0\./);
   });
 });
 

@@ -54,20 +54,19 @@ export function isMultiBlockOoxml(ooxml: string): boolean {
  * - Empty, but a heading or a list item: that paragraph is made Normal and taken out of the list first.
  * - Not empty: a NEW empty paragraph after it, Normal and out of any list, and the package goes in at its start.
  *
- * Returns the range and location to insert at. The paragraph is read in its own sync; on a host without WordApi 1.3
- * (styleBuiltIn, isListItem) the new paragraph is still made for a non-empty one, its style left as Word gives it.
+ * Returns the range and location to insert at. The paragraph is read in its own sync. On a host without WordApi 1.3
+ * (paragraphs.getLast, styleBuiltIn, isListItem) nothing is read and the insert goes after the cursor as before.
  */
 export async function blockTarget(context: Word.RequestContext, sel: Word.Range): Promise<{ range: Word.Range; at: Word.InsertLocation }> {
+  if (!wordApiSupported("1.3")) return { range: sel.getRange(Word.RangeLocation.end), at: Word.InsertLocation.after };
   const para = sel.paragraphs.getLast();
-  const styled = wordApiSupported("1.3");
-  para.load(styled ? "text,isListItem,styleBuiltIn" : "text");
+  para.load("text,isListItem,styleBuiltIn");
   await context.sync();
   const text = typeof para.text === "string" ? para.text : "";
-  const list = styled && para.isListItem === true;
-  const style = styled && typeof para.styleBuiltIn === "string" ? para.styleBuiltIn : "";
+  const list = para.isListItem === true;
+  const style = typeof para.styleBuiltIn === "string" ? para.styleBuiltIn : "";
   const special = list || /^(Heading|Title|Subtitle)/i.test(style);
   const plain = (p: Word.Paragraph, wasList: boolean): void => {
-    if (!styled) return;
     p.styleBuiltIn = Word.BuiltInStyleName.normal;
     if (wasList) p.detachFromList();
   };

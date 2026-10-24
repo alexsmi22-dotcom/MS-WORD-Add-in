@@ -1001,10 +1001,24 @@ const SUP_DIGIT: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3
  * One value of a measured trace as a document table cell (fix2-plat): six significant figures (an instrument's
  * ordinate carries no more; the raw doubles read 0.30000000000000004), a true minus, ×10ⁿ instead of e-notation.
  */
-export function traceCell(v: number): string {
+export function traceCell(v: number, sig = 6): string {
   if (!Number.isFinite(v)) return "";
-  const s = String(Number(v.toPrecision(6)));
+  const s = String(Number(v.toPrecision(sig)));
   const m = /^(-?\d+(?:\.\d+)?)e([+-])(\d+)$/.exec(s);
   const t = m ? `${m[1]}×10${[...((m[2] === "-" ? "-" : "") + m[3])].map((c) => SUP_DIGIT[c]).join("")}` : s;
   return t.replace(/^-/, "−");
+}
+
+/**
+ * A column of trace values as cells: six significant figures, more (up to 12) only where six would print two
+ * different adjacent values the same (a fine x grid far from zero) — a table with repeated abscissae is wrong.
+ */
+export function traceColumn(values: readonly number[]): string[] {
+  for (let sig = 6; sig <= 12; sig++) {
+    const cells = values.map((v) => traceCell(v, sig));
+    let merged = false;
+    for (let i = 1; i < values.length && !merged; i++) merged = cells[i] === cells[i - 1] && values[i] !== values[i - 1];
+    if (!merged || sig === 12) return cells;
+  }
+  return values.map((v) => traceCell(v, 12));
 }

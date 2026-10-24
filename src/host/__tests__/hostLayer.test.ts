@@ -752,6 +752,17 @@ describe("a block of its own never joins the cursor's paragraph (fix2-plat)", ()
     expect(log).toContain(`#3 = #1.insertOoxml(${JSON.stringify(MULTI)}, "Replace")`);
   });
 
+  it("a host without WordApi 1.3 (getLast, isEmpty, styleBuiltIn): nothing is read, the insert goes after the cursor as before", async () => {
+    setup({ text: "Heading One", style: "Heading1" });
+    (globalThis as unknown as { Office: unknown }).Office = { context: { requirements: { isSetSupported: () => false } } };
+    try {
+      await wordHost.insertAtSelection({ kind: "ooxml", content: MULTI, at: "after", select: "selection" });
+    } finally {
+      delete (globalThis as unknown as { Office?: unknown }).Office;
+    }
+    expect(log).toEqual(["RUN {", "#1 = ctx.document.getSelection()", `#2 = #1.insertOoxml(${JSON.stringify(MULTI)}, "After")`, '#3 = #1.select("End")', "ctx.sync()", "}"]);
+  });
+
   it("insertResultLayout: the package goes in the new paragraph, the rest chains as before", async () => {
     setup({ text: "Heading One", style: "Heading1" });
     // #1 inlinePictures.load … the selection is #2 here: re-key the paragraph reads.

@@ -2342,7 +2342,7 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
         variable: x,
         roots: [],
         method: identity ? "identity" : "no-solution",
-        steps: [`Reduced to ${fmtNum(trimmed[0])} = 0.`],
+        steps: [`Reduced to ${displayNum(trimmed[0])} = 0.`],
         caveats: [identity ? "Every value of the variable satisfies this equation (an identity)." : "No value of the variable satisfies this equation."],
       };
     }

@@ -28,6 +28,8 @@ import { blockTarget, tagInserted, wordApiSupported } from "./wordShared";
  * goes in a paragraph of its own (wordShared blockTarget) — it joined the heading or list item the cursor was in.
  */
 async function collapsedBlockTarget(context: Word.RequestContext, selection: Word.Range): Promise<{ range: Word.Range; at: Word.InsertLocation }> {
+  // Range.isEmpty and paragraphs.getLast are WordApi 1.3: an older host replaces at the selection, as before.
+  if (!wordApiSupported("1.3")) return { range: selection, at: Word.InsertLocation.replace };
   selection.load("isEmpty");
   await context.sync();
   return selection.isEmpty === true ? blockTarget(context, selection) : { range: selection, at: Word.InsertLocation.replace };

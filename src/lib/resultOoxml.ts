@@ -91,7 +91,8 @@ export function textRuns(text: string): string {
       : kind === "sup" ? `<w:rPr><w:vertAlign w:val="superscript"/></w:rPr>`
       : kind === "math" ? `<w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math" w:cs="Cambria Math"/></w:rPr>`
       : "";
-    out.push(`<w:r>${rPr}<w:t xml:space="preserve">${esc(cur)}</w:t></w:r>`);
+    // A tab is Word's own <w:tab/> (insertText made real tabs; a raw tab inside <w:t> is not one).
+    out.push(`<w:r>${rPr}<w:t xml:space="preserve">${esc(cur).split("\t").join('</w:t><w:tab/><w:t xml:space="preserve">')}</w:t></w:r>`);
     cur = "";
   };
   for (const c of text) {

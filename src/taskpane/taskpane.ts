@@ -24,7 +24,7 @@ import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
 import { formatQuantityHtml, convert, formatUnit, toSuperscript, convertForDisplay } from "../lib/units";
-import { parseJcamp, JcampSpectrum, JcampRefusal, traceCell } from "../lib/jcamp";
+import { parseJcamp, JcampSpectrum, JcampRefusal, traceCell, traceColumn } from "../lib/jcamp";
 import { overlaySpectrum, formatMatchTable, displayUnits, typesetLabel, OverlayOk } from "../lib/spectrumOverlay";
 import { overlayChartSvg, OVERLAY_CHART_SIZE } from "../lib/overlayChart";
 import { isotopeChartSvg, isotopePeakList, ISOTOPE_CHART_SIZE } from "../lib/isotopeChart";
@@ -32225,7 +32225,9 @@ function jcampPackage(): ResultPackageItem[] | null {
         `(peaks preserved — every local minimum and maximum is kept).`
     );
   }
-  const rows = [[displayUnits(s.xUnits) || "x", displayUnits(s.yUnits) || "y"], ...pts.map((p) => [traceCell(p.x), traceCell(p.y)])];
+  // x keeps every point distinct (more figures only where six would repeat one); y at six significant figures.
+  const xs = traceColumn(pts.map((p) => p.x));
+  const rows = [[displayUnits(s.xUnits) || "x", displayUnits(s.yUnits) || "y"], ...pts.map((p, i) => [xs[i], traceCell(p.y)])];
   return [
     ...head.map((line): ResultPackageItem => ({ kind: "text", content: line })),
     { kind: "table", label: "", rows },

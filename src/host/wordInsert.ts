@@ -5,7 +5,7 @@
  * the calls it makes and the order it makes them.
  */
 import type { SelectionInsert } from "./host";
-import { blockTarget, isMultiBlockOoxml, tagInserted, wordLocation } from "./wordShared";
+import { blockTarget, isMultiBlockOoxml, tagInserted, wordApiSupported, wordLocation } from "./wordShared";
 
 export async function insertAtSelection(o: SelectionInsert): Promise<void> {
   await Word.run(async (context) => {
@@ -14,7 +14,7 @@ export async function insertAtSelection(o: SelectionInsert): Promise<void> {
     // A block of its own (a multi-paragraph package, or a caller's own paragraph) never joins the cursor's paragraph
     // (fix2-plat, wordShared blockTarget). A "replace" of a real selection still replaces what the user selected.
     let target: Word.Range = range;
-    if (o.kind === "ooxml" && (o.ownParagraph || isMultiBlockOoxml(o.content))) {
+    if (o.kind === "ooxml" && (o.ownParagraph || isMultiBlockOoxml(o.content)) && wordApiSupported("1.3")) {
       let collapsed = true;
       if (o.at === "replace") {
         range.load("isEmpty");

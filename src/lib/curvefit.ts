@@ -178,6 +178,14 @@ export function fitCurve(
   const bigSE = fit.se
     .map((s, i) => ({ s, i }))
     .filter((o) => Number.isFinite(o.s) && Math.abs(o.s) > Math.abs(fit.params[o.i]));
+  // A singular JᵀJ leaves the standard errors undefined (levenbergMarquardt then
+  // reports not-converged): that IS the "not determined" case, said in words.
+  if (xs.length > start.length && fit.se.some((s) => !Number.isFinite(s))) {
+    notes.push(
+      "The standard errors could not be computed: the parameters are not determined by this data " +
+        "(two or more trade off exactly, so the fit has no unique answer).",
+    );
+  }
   if (bigSE.length) {
     notes.push(
       `Standard error exceeds the value itself for ${bigSE.map((o) => names[o.i]).join(", ")} — ` +

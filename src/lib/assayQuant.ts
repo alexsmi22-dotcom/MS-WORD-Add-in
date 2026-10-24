@@ -53,6 +53,21 @@ export function replicateStats(values: number[]): ReplicateStats {
 
 /** Gauss–Jordan inverse of a small matrix; null when singular. */
 function invert(A: number[][]): number[][] | null {
+  // Equilibrate to a unit diagonal first. The 4PL normal matrix of molar
+  // standards (EC50 ~10⁻⁸ M beside plateaus ~1) spans 10¹⁶ on its diagonal, and
+  // the RELATIVE pivot test below then called every molar curve "not
+  // identifiable" although the same standards in nM fitted. inv(A) = D·inv(DAD)·D.
+  const d: number[] = [];
+  for (let i = 0; i < A.length; i++) {
+    const v = A[i][i];
+    if (!(v > 0) || !Number.isFinite(v)) return null;
+    d.push(1 / Math.sqrt(v));
+  }
+  const inv = invertRaw(A.map((row, i) => row.map((v, j) => v * d[i] * d[j])));
+  return inv ? inv.map((row, i) => row.map((v, j) => v * d[i] * d[j])) : null;
+}
+
+function invertRaw(A: number[][]): number[][] | null {
   const n = A.length;
   const M = A.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]);
   const scale = Math.max(1e-300, ...A.map((r) => Math.max(...r.map(Math.abs))));
@@ -513,7 +528,11 @@ export function standardCurve(standardsIn: StandardInput[], unknownsIn: UnknownI
       [B, T, h] = [T, B, -h];
       fit.params = [B, T, C, h];
     }
-    if (!fit.converged) {
+    // Not-converged has two causes now (v2.193): the iteration limit, or a fit
+    // whose JᵀJ is singular / non-finite. The second gets the specific
+    // flat / not-identifiable diagnosis below; a non-converged fit that slips
+    // past every specific check is still refused after them.
+    if (!fit.converged && fit.iterations >= 1000) {
       return { ok: false, error: "The 4-parameter logistic fit did not converge on these standards (the optimiser stopped at its iteration limit), so its parameters are not a best fit and nothing is read from it." };
     }
     if (!fit.params.every(Number.isFinite) || !(C > 0) || h === 0) {
@@ -603,6 +622,23 @@ export function standardCurve(standardsIn: StandardInput[], unknownsIn: UnknownI
           };
         }
       }
+    }
+    // MIDPOINT OR SLOPE NOT DETERMINED: a standard error larger than the
+    // estimate itself. A step between two adjacent standards (0,0,0,1,1) fits
+    // exactly with any midpoint between them and an arbitrarily steep slope; the
+    // optimiser stops at Hill ≈ 250 with EC50 ± 1100 %. It used to be refused
+    // only because that search happened to run out of iterations.
+    if (!(se[2] < C) || !(se[3] < Math.abs(h))) {
+      return {
+        ok: false,
+        error:
+          `The 4PL midpoint and slope are not determined by these standards (EC50 = ${qNum(C)} ± ${qNum(se[2], 2)}, ` +
+          `Hill slope = ${qNum(h, 3)} ± ${qNum(se[3], 2)}: a standard error larger than the estimate). The response steps between ` +
+          "standards with nothing measured where the curve bends, so the fit did not converge to a usable curve. Add standards in the transition.",
+      };
+    }
+    if (!fit.converged) {
+      return { ok: false, error: "The 4-parameter logistic fit did not converge on these standards (its parameters could not be determined), so nothing is read from it." };
     }
     let ssTot = 0;
     const my = ys.reduce((a, b2) => a + b2, 0) / n;

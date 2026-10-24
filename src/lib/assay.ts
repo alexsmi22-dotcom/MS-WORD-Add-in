@@ -14,10 +14,49 @@
 // --- linear algebra helpers --------------------------------------------------
 
 import { maxOf, minOf } from "./minmax";
+import { fmtSig } from "./axis";
+
+/**
+ * Jacobi (diagonal) equilibration of a symmetric positive semi-definite matrix:
+ * returns d with d[i] = 1/√A[i][i], or null when a diagonal entry is not a
+ * positive finite number (an undetermined parameter).
+ *
+ * WHY: the normal matrix JᵀJ of a molar fit mixes parameters of wildly
+ * different scale — a plateau of ~100 response units next to an EC50 of 2×10⁻⁸ M
+ * puts 1 and 10¹⁸ on the same diagonal. The absolute pivot tests below
+ * (1e-14) then call a perfectly determined fit singular, or accept a genuinely
+ * singular one. Scaling to a unit diagonal first makes both tests relative.
+ */
+function jacobiScale(A: number[][]): number[] | null {
+  const d: number[] = [];
+  for (let i = 0; i < A.length; i++) {
+    const v = A[i][i];
+    if (!(v > 0) || !Number.isFinite(v)) return null;
+    d.push(1 / Math.sqrt(v));
+  }
+  return d;
+}
+
+/** Solves A·x = b for a symmetric PSD A, equilibrated first (see jacobiScale). Null if singular. */
+function solveLinear(A: number[][], b: number[]): number[] | null {
+  const d = jacobiScale(A);
+  if (!d) return null;
+  const As = A.map((row, i) => row.map((v, j) => v * d[i] * d[j]));
+  const y = solveLinearRaw(As, b.map((v, i) => v * d[i]));
+  return y ? y.map((v, i) => v * d[i]) : null;
+}
+
+/** Inverts a symmetric PSD A, equilibrated first (see jacobiScale). Null if singular. */
+function invertMatrix(A: number[][]): number[][] | null {
+  const d = jacobiScale(A);
+  if (!d) return null;
+  const inv = invertMatrixRaw(A.map((row, i) => row.map((v, j) => v * d[i] * d[j])));
+  return inv ? inv.map((row, i) => row.map((v, j) => v * d[i] * d[j])) : null;
+}
 
 /** Solves the linear system A·x = b (A is n×n, row-major) by Gaussian
  *  elimination with partial pivoting. Returns null if A is singular. */
-function solveLinear(A: number[][], b: number[]): number[] | null {
+function solveLinearRaw(A: number[][], b: number[]): number[] | null {
   const n = b.length;
   // Work on augmented copies so the inputs aren't mutated.
   const M = A.map((row, i) => [...row, b[i]]);
@@ -37,7 +76,7 @@ function solveLinear(A: number[][], b: number[]): number[] | null {
 
 /** Inverts an n×n matrix by Gauss-Jordan elimination. Returns null if singular.
  *  Used for the parameter covariance matrix (small: ≤4×4 here). */
-function invertMatrix(A: number[][]): number[][] | null {
+function invertMatrixRaw(A: number[][]): number[][] | null {
   const n = A.length;
   const M = A.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]);
   for (let col = 0; col < n; col++) {
@@ -213,11 +252,21 @@ export function levenbergMarquardt(
   const residuals = (pr: number[]): number[] => x.map((xi, i) => sw[i] * (y[i] - model(pr, xi)));
   const cost = (pr: number[]): number => residuals(pr).reduce((a, r) => a + r * r, 0);
 
+  // Each parameter's own scale, for the finite-difference step when it sits at 0.
+  const scale = initial.map((v) => (Number.isFinite(v) && v !== 0 ? Math.abs(v) : 1));
+
   // Central-difference Jacobian of the (weighted) residuals w.r.t. each param.
+  //
+  // The step is RELATIVE to the parameter. It used to be max(1e-7, 1e-7·|p|):
+  // an absolute floor of 10⁻⁷ is LARGER than every molar EC50/Kd below 10⁻⁷ M,
+  // so p − h went negative, (EC50/x)^hill became NaN, every trial step was
+  // rejected, and the loop reported "converged" with the parameters still at
+  // the seed — a confident wrong answer. Only a parameter that is exactly 0
+  // falls back to its starting value's scale.
   const jacobian = (pr: number[]): number[][] => {
     const J: number[][] = Array.from({ length: n }, () => new Array(p).fill(0));
     for (let j = 0; j < p; j++) {
-      const h = Math.max(1e-7, 1e-7 * Math.abs(pr[j]));
+      const h = 1e-6 * (pr[j] !== 0 ? Math.abs(pr[j]) : scale[j]);
       const up = [...pr];
       const dn = [...pr];
       up[j] += h;
@@ -234,10 +283,17 @@ export function levenbergMarquardt(
   let currentCost = cost(params);
   let iterations = 0;
   let converged = false;
+  // A NaN/∞ Jacobian or cost means the optimiser cannot see the surface; it must
+  // never be reported as convergence (a rejected step used to be read as "at a minimum").
+  let broken = !Number.isFinite(currentCost);
 
-  for (let iter = 0; iter < maxIter; iter++) {
+  for (let iter = 0; iter < maxIter && !broken; iter++) {
     iterations = iter + 1;
     const J = jacobian(params);
+    if (J.some((row) => row.some((v) => !Number.isFinite(v)))) {
+      broken = true;
+      break;
+    }
     const r = residuals(params);
     // JᵀJ (p×p) and Jᵀr (p).
     const JtJ: number[][] = Array.from({ length: p }, () => new Array(p).fill(0));
@@ -294,6 +350,7 @@ export function levenbergMarquardt(
   const rmse = Math.sqrt(ssResid / n);
 
   const se = new Array(p).fill(NaN);
+  if (broken) converged = false;
   if (n > p) {
     const J = jacobian(params);
     const JtJ: number[][] = Array.from({ length: p }, () => new Array(p).fill(0));
@@ -304,6 +361,13 @@ export function levenbergMarquardt(
       const s2 = ssResid / (n - p);
       for (let j = 0; j < p; j++) se[j] = Math.sqrt(Math.max(0, s2 * cov[j][j]));
     }
+    // A singular JᵀJ (a parameter the data cannot determine) or non-finite
+    // standard errors are not a fit anyone may report: say NOT converged, which
+    // every caller already refuses on. With n ≤ p the SEs are undefined by
+    // construction and commonFitCaveats says so instead.
+    if (!cov || !se.every(Number.isFinite) || !params.every(Number.isFinite)) converged = false;
+  } else if (!params.every(Number.isFinite)) {
+    converged = false;
   }
 
   const base = {
@@ -364,8 +428,8 @@ function kineticsCaveats(s: number[], km: number, vmax: number, vmaxSE: number):
 
   if (!Number.isFinite(ratio) || ratio < 1) {
     out.push(
-      `SUBSTRATE RANGE TOO LOW: your highest [S] (${maxS.toPrecision(3)}) is BELOW the ` +
-        `fitted Km (${km.toPrecision(3)}). Every point is on the linear part of the curve, ` +
+      `SUBSTRATE RANGE TOO LOW: your highest [S] (${fmtSig(maxS, 3)}) is BELOW the ` +
+        `fitted Km (${fmtSig(km, 3)}). Every point is on the linear part of the curve, ` +
         "where v ≈ (Vmax/Km)·[S] — so Vmax and Km are NOT separately determined here and " +
         "a high R² does not change that. Only their ratio Vmax/Km is meaningful. To pin " +
         "Vmax you need points approaching saturation, ideally up to ~5×Km."
@@ -548,20 +612,20 @@ function doseResponseCaveats(
     );
   } else if (Number.isFinite(hi) && ec50 > hi) {
     out.push(
-      `EC50/IC50 (${ec50.toPrecision(3)}) is ABOVE the highest concentration tested ` +
-        `(${hi.toPrecision(3)}) — it is an extrapolation past the end of your data, not a measured ` +
+      `EC50/IC50 (${fmtSig(ec50, 3)}) is ABOVE the highest concentration tested ` +
+        `(${fmtSig(hi, 3)}) — it is an extrapolation past the end of your data, not a measured ` +
         "midpoint. Every point sits on one shoulder of the curve, which is why R² can still look " +
         "excellent. Test higher concentrations, up to a clear upper plateau."
     );
   } else if (Number.isFinite(lo) && ec50 < lo) {
     out.push(
-      `EC50/IC50 (${ec50.toPrecision(3)}) is BELOW the lowest concentration tested ` +
-        `(${lo.toPrecision(3)}) — it is extrapolated off the bottom of your data. The lower plateau ` +
+      `EC50/IC50 (${fmtSig(ec50, 3)}) is BELOW the lowest concentration tested ` +
+        `(${fmtSig(lo, 3)}) — it is extrapolated off the bottom of your data. The lower plateau ` +
         "was never observed, so both it and the midpoint are guesses. Test lower concentrations."
     );
   } else if (Number.isFinite(lo) && Number.isFinite(hi) && hi / Math.max(lo, Number.MIN_VALUE) < 100) {
     out.push(
-      `The tested range spans only ${(hi / lo).toPrecision(2)}-fold. A 4-parameter logistic needs ` +
+      `The tested range spans only ${fmtSig((hi / lo), 2)}-fold. A 4-parameter logistic needs ` +
         "both plateaus to pin four parameters; a conventional dose-response covers 4–6 log units " +
         "(a 10 000-fold range or more)."
     );
@@ -798,7 +862,7 @@ export function fitSubstrateInhibition(s: number[], v: number[]): SubstrateInhib
     );
   } else if (ksi > 100 * Math.max(...s)) {
     caveats.unshift(
-      `Ksi (${ksi.toPrecision(3)}) is far above the highest substrate tested, so the descending ` +
+      `Ksi (${fmtSig(ksi, 3)}) is far above the highest substrate tested, so the descending ` +
         "limb is barely constrained: the data may not actually show inhibition. Compare the fit " +
         "against Michaelis-Menten before reporting three parameters.",
     );
@@ -934,8 +998,8 @@ function bindingCaveats(ligand: number[], kd: number, bmax: number, bmaxSE: numb
     out.push("The fitted Kd is not a positive concentration — this data did not determine it. Do not report it.");
   } else if (!Number.isFinite(ratio) || ratio < 1) {
     out.push(
-      `LIGAND RANGE TOO LOW: your highest [L] (${hi.toPrecision(3)}) is BELOW the fitted Kd ` +
-        `(${kd.toPrecision(3)}), so the curve never approaches saturation. Bmax and Kd are NOT ` +
+      `LIGAND RANGE TOO LOW: your highest [L] (${fmtSig(hi, 3)}) is BELOW the fitted Kd ` +
+        `(${fmtSig(kd, 3)}), so the curve never approaches saturation. Bmax and Kd are NOT ` +
         "separately determined here — only their ratio is — and a high R² does not change that. " +
         "Points up to ~5×Kd are what pin Bmax."
     );

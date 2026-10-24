@@ -209,9 +209,14 @@ describe("§D3 initiator rule (Biopython cds=True)", () => {
 });
 
 describe("§D3 ST.26 /translation honours /transl_table", () => {
-  test("§A-1: table-2 CDS → M (was MR)", () => {
-    const xml = buildSt26Xml(META, [cdsEntry("ATGAGATGATGGAAACCCTAA", [["transl_table", "2"]])]);
-    expect(translationOf(xml)).toBe("M");
+  test("§A-1: table-2 CDS — AGA is a stop in table 2, so it is an INTERNAL stop (was MR, then M)", () => {
+    // v2.193 (bioFixes2193 item 9): a CDS with an in-frame stop before its last
+    // codon gets NO auto /translation and a warning — "M" was a truncation that
+    // contradicted the 7-codon location.
+    const e = cdsEntry("ATGAGATGATGGAAACCCTAA", [["transl_table", "2"]]);
+    expect(translationOf(buildSt26Xml(META, [e]))).toBeNull();
+    expect(featureWarnings(e).join(" ")).toMatch(/in-frame stop codon AGA at bases 4\.\.6 \(codon 2\)/);
+    expect(featureNotes(e)).toEqual([]);
   });
 
   test("§A-2: table-11 GTG CDS → MKPGFK (was VKPGFK)", () => {
@@ -238,9 +243,11 @@ describe("§D3 ST.26 /translation honours /transl_table", () => {
   });
 
   test("no qualifier → table 1, unchanged, no initiator, nothing added", () => {
+    // TGA at codon 3 is an internal stop under table 1: no auto /translation (bioFixes2193 item 9; was "MR").
     const xml = buildSt26Xml(META, [cdsEntry("ATGAGATGATGGAAACCCTAA", [])]);
-    expect(translationOf(xml)).toBe("MR");
+    expect(translationOf(xml)).toBeNull();
     expect(xml).not.toMatch(/transl_table/);
+    expect(translationOf(buildSt26Xml(META, [cdsEntry("ATGAGACCCTAA", [])]))).toBe("MRP");
     // TTG is a table-1 start, but the initiator rule needs an EXPLICIT qualifier (§E10).
     expect(translationOf(buildSt26Xml(META, [cdsEntry("TTGAAACCCTAA", [])])) ).toBe("LKP");
     expect(featureNotes(cdsEntry("TTGAAACCCTAA", []))).toEqual([]);

@@ -98,10 +98,14 @@ describe("buildSt26Xml", () => {
 
   it("uses a chosen ST.26 mol_type (mRNA) and rejects an invalid one", () => {
     const m: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", productionDate: "2026-06-17" };
-    const mrna = buildSt26Xml(m, [{ moltype: "RNA", residues: "acguacguac", sourceMolType: "mRNA" }]);
+    // A naturally occurring organism: mRNA is kept. (With a blank organism —
+    // "synthetic construct" — ST.26 ¶84(a) requires "other RNA"; bioFixes2193.)
+    // RNA residues are written with t (ST.26 ¶14), so a typed u becomes t.
+    const mrna = buildSt26Xml(m, [{ moltype: "RNA", residues: "acguacguac", organism: "Homo sapiens", sourceMolType: "mRNA" }]);
     expect(mrna).toContain("<INSDQualifier_value>mRNA</INSDQualifier_value>");
+    expect(mrna).toContain("<INSDSeq_sequence>acgtacgtac</INSDSeq_sequence>");
     // An invalid value for the molecule falls back to the default.
-    const bad = buildSt26Xml(m, [{ moltype: "DNA", residues: "acgtacgtac", sourceMolType: "mRNA" }]);
+    const bad = buildSt26Xml(m, [{ moltype: "DNA", residues: "acgtacgtac", organism: "Homo sapiens", sourceMolType: "mRNA" }]);
     expect(bad).toContain("<INSDQualifier_value>genomic DNA</INSDQualifier_value>");
     expect(bad).not.toContain(">mRNA<");
   });

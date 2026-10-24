@@ -305,6 +305,8 @@ describe("ST.26 /transl_table junk values", () => {
     const e = (residues: string): SequenceEntry => ({
       moltype: "DNA",
       residues,
+      // A natural organism, so the ST.26 ¶84(a) synthetic-construct mol_type note does not appear.
+      organism: "Escherichia coli",
       features: [{ key: "CDS", location: `1..${residues.length}`, qualifiers: [{ name: "transl_table", value: "11" }] }],
     });
     for (const r of ["TAAAAACCC", "AT"]) {
@@ -338,7 +340,9 @@ describe("ST.26 /transl_table junk values", () => {
   });
 
   test("aa:TERM makes a stop; absolute coordinates honour the CDS start and codon_start", () => {
-    expect(tr(buildSt26Xml(META, [withExcept("ATGAAACCCGGGTAA", [["transl_except", "(pos:7..9,aa:TERM)"]])]))).toBe("MK");
+    // aa:TERM at codon 3 of 5 is an internal stop: no auto /translation (bioFixes2193 item 9; was "MK").
+    expect(tr(buildSt26Xml(META, [withExcept("ATGAAACCCGGGTAA", [["transl_except", "(pos:7..9,aa:TERM)"]])]))).toBeNull();
+    expect(tr(buildSt26Xml(META, [withExcept("ATGAAACCCGGG", [["transl_except", "(pos:10..12,aa:TERM)"]])]))).toBe("MKP");
     const e: SequenceEntry = {
       moltype: "DNA",
       residues: "CCATGAAATGACCCTAA",
@@ -357,7 +361,9 @@ describe("ST.26 /transl_table junk values", () => {
   );
 
   test("no /transl_except → output unchanged", () => {
-    expect(tr(buildSt26Xml(META, [withExcept("ATGAAATGACCCTAA", [])]))).toBe("MK");
+    // TGA at codon 3 with no exception is an internal stop: no /translation (bioFixes2193 item 9; was "MK").
+    expect(tr(buildSt26Xml(META, [withExcept("ATGAAATGACCCTAA", [])]))).toBeNull();
+    expect(featureWarnings(withExcept("ATGAAATGACCCTAA", [])).join(" ")).toMatch(/in-frame stop codon TGA at bases 7\.\.9/);
   });
 
   test("RNA CDS under table 2", () => {
@@ -366,6 +372,10 @@ describe("ST.26 /transl_table junk values", () => {
       residues: "AUGAGAUGAUGGAAACCCUAA",
       features: [{ key: "CDS", location: "1..21", qualifiers: [{ name: "transl_table", value: "2" }] }],
     };
-    expect(tr(buildSt26Xml(META, [e]))).toBe("M");
+    // AGA is a table-2 stop at codon 2 of 7: internal stop, no /translation (bioFixes2193 item 9; was "M").
+    expect(tr(buildSt26Xml(META, [e]))).toBeNull();
+    // Without the internal stop, the RNA (written with t, ST.26 ¶14) still translates under table 2: AUA → M.
+    const ok: SequenceEntry = { ...e, residues: "AUGAUAUGGUAA", features: [{ key: "CDS", location: "1..12", qualifiers: [{ name: "transl_table", value: "2" }] }] };
+    expect(tr(buildSt26Xml(META, [ok]))).toBe("MMW");
   });
 });

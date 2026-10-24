@@ -4,12 +4,27 @@
  * them instead of reading the pane's source). The bodies are unchanged.
  */
 import { buildPlotSvg, Point, Series } from "./plot";
+import { timesTen } from "./axis";
 
-/** Formats to `sig` significant figures without trailing-zero noise. */
+/**
+ * Formats to `sig` significant figures without trailing-zero noise, a true
+ * minus (U+2212) for negatives, and ×10ⁿ — never e-notation — when the number
+ * is too large or small for plain digits (an EC50 of 1.209×10⁻⁸ M used to print
+ * as "1.209e-8").
+ *
+ * A NON-FINITE value still returns the EM DASH. That is deliberate and load-
+ * bearing: the pane's insert gate treats an em dash in a result as
+ * "not computable" and refuses to insert it (assumptionNotesInsertable.test.ts),
+ * so the dash is the refusal, not a display. Fits that cannot produce finite
+ * numbers are refused upstream (levenbergMarquardt reports not-converged).
+ */
 export function assaySig(x: number, sig = 4): string {
   if (!Number.isFinite(x)) return "—";
   if (x === 0) return "0";
-  return Number(x.toPrecision(sig)).toString();
+  const s = Number(x.toPrecision(sig)).toString();
+  const m = /^(-?)(\d+(?:\.\d+)?)e([+-]\d+)$/.exec(s);
+  if (m) return `${m[1] ? "−" : ""}${m[2]}${timesTen(Number(m[3]))}`;
+  return s.replace(/^-/, "−");
 }
 /** "value ± se", dropping the ± part when the standard error is unavailable. */
 export function assayValSE(val: number, se: number): string {

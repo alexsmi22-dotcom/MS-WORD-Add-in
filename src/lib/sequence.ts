@@ -83,8 +83,15 @@ export function st26MetaProblems(meta: SequenceListingMeta): string[] {
 }
 
 // Allowed residue alphabets (lowercase for nucleotides, uppercase for amino acids).
+//
+// RNA uses "t", not "u". WIPO ST.26 paragraph 14: "The symbol "t" will be
+// construed as thymine in DNA and uracil in RNA" (Annex I, Section 1, Table 1
+// lists t as "thymine in DNA/uracil in RNA (t/u)"; there is no "u" symbol). The
+// alphabet used to be "acgu…", so every t typed into an RNA box was DROPPED as
+// invalid and a listing written with u was rejected by WIPO Sequence. A typed u
+// in an RNA entry is now written as t, and featureNotes says so.
 const DNA = "acgtryswkmbdhvn";
-const RNA = "acguryswkmbdhvn";
+const RNA = "acgtryswkmbdhvn";
 const AA = "ABCDEFGHIJKLMNPQRSTVWYZXUO"; // 20 + ambiguity (B,Z,J,X) + U(Sec) + O(Pyl)
 
 const ALPHABET: Record<MolType, string> = { DNA, RNA, AA };
@@ -95,12 +102,19 @@ export interface CleanedResidues {
   length: number;
   /** Distinct invalid characters that were dropped (for a UI warning). */
   invalid: string[];
+  /** RNA only: how many typed "u" were written as the ST.26 symbol "t" (paragraph 14). */
+  uracilAsT?: number;
 }
 
 /** Strips whitespace/digits, normalizes case, and validates against the alphabet. */
 export function cleanResidues(moltype: MolType, raw: string): CleanedResidues {
   const letters = raw.replace(/[^A-Za-z]/g, "");
-  const normalized = moltype === "AA" ? letters.toUpperCase() : letters.toLowerCase();
+  let normalized = moltype === "AA" ? letters.toUpperCase() : letters.toLowerCase();
+  let uracilAsT = 0;
+  if (moltype === "RNA") {
+    uracilAsT = (normalized.match(/u/g) ?? []).length;
+    if (uracilAsT) normalized = normalized.replace(/u/g, "t");
+  }
   const allowed = ALPHABET[moltype];
   let residues = "";
   const invalid: Record<string, true> = {};
@@ -108,7 +122,9 @@ export function cleanResidues(moltype: MolType, raw: string): CleanedResidues {
     if (allowed.indexOf(ch) >= 0) residues += ch;
     else invalid[ch] = true;
   }
-  return { residues, length: residues.length, invalid: Object.keys(invalid) };
+  const out: CleanedResidues = { residues, length: residues.length, invalid: Object.keys(invalid) };
+  if (uracilAsT) out.uracilAsT = uracilAsT;
+  return out;
 }
 
 // --- ST.26 minimum length ---------------------------------------------------
@@ -123,7 +139,7 @@ export function cleanResidues(moltype: MolType, raw: string): CleanedResidues {
 export const ST26_MIN_DEFINED: Record<MolType, number> = { DNA: 10, RNA: 10, AA: 4 };
 
 const DEFINED_DNA = "acgt";
-const DEFINED_RNA = "acgu";
+const DEFINED_RNA = "acgt"; // ST.26 ¶14: t is uracil in RNA
 // The 20 standard residues plus Sec (U) and Pyl (O). B, Z, J and X are ambiguity
 // codes, not specifically defined amino acids.
 const DEFINED_AA = "ACDEFGHIKLMNPQRSTVWYUO";
@@ -235,11 +251,37 @@ function qual(name: string, value: string): string {
   );
 }
 
-function sourceFeatureInner(moltype: MolType, length: number, organism: string, sourceMolType?: string): string {
-  const org = organism.trim() || "synthetic construct";
-  // Use the caller's mol_type only if it's valid for this molecule; else default.
+/** True when the organism of record resolves to ST.26's "synthetic construct" (blank defaults to it). */
+function isSyntheticConstruct(organism: string | undefined): boolean {
+  const org = (organism ?? "").trim() || "synthetic construct";
+  return org.toLowerCase() === "synthetic construct";
+}
+
+/** The mol_type ST.26 ¶84(a) requires for a synthetic construct of this molecule ("other DNA" / "other RNA"). */
+const SYNTHETIC_MOL_TYPE: Record<MolType, string> = { DNA: "other DNA", RNA: "other RNA", AA: "protein" };
+
+/**
+ * The source mol_type written to the listing. WIPO ST.26 paragraph 84(a): "If the
+ * sequence is not naturally occurring, i.e. the value of the "organism"
+ * qualifier is "synthetic construct", the "mol_type" qualifier value must be
+ * either "other RNA" or "other DNA"". The pane's dropdown starts on "genomic
+ * DNA" and a blank organism means "synthetic construct", so the default card
+ * used to file genomic DNA from a synthetic construct — a pairing the standard
+ * forbids. Such a pairing is now written as other DNA/RNA (featureWarnings says so).
+ */
+function resolvedMolType(moltype: MolType, organism: string | undefined, sourceMolType?: string): string {
   const molType =
     sourceMolType && MOL_TYPE_OPTIONS[moltype].indexOf(sourceMolType) >= 0 ? sourceMolType : MOL_TYPE_QUAL[moltype];
+  if (moltype !== "AA" && isSyntheticConstruct(organism) && molType !== "other DNA" && molType !== "other RNA") {
+    return SYNTHETIC_MOL_TYPE[moltype];
+  }
+  return molType;
+}
+
+function sourceFeatureInner(moltype: MolType, length: number, organism: string, sourceMolType?: string): string {
+  const org = organism.trim() || "synthetic construct";
+  // Use the caller's mol_type only if it's valid for this molecule; else default; ST.26 ¶84(a) for synthetic constructs.
+  const molType = resolvedMolType(moltype, organism, sourceMolType);
   return (
     "<INSDFeature>" +
     el("INSDFeature_key", "source") +
@@ -262,10 +304,45 @@ function sourceFeatureInner(moltype: MolType, length: number, organism: string, 
  * is a wrong protein of record.
  */
 export function translateCds(nucleotides: string, codonStart: 1 | 2 | 3 = 1, options: CdsTranslateOptions = {}): string {
+  let protein = "";
+  for (const aa of translateCodons(nucleotides, codonStart, options)) {
+    if (aa === "*") break;
+    protein += aa;
+  }
+  return protein;
+}
+
+/**
+ * The first IN-FRAME stop codon that is not the CDS's last codon, or null.
+ *
+ * translateCds stops at the first stop, so a CDS 1..24 reading
+ * ATG AAA TAG CCC GGG TTT AAA TAA used to emit /translation="MK" beside a
+ * location claiming eight codons: the listing contradicted itself, and the
+ * protein of record was a truncation. Read on the same path as translateCds
+ * (table, initiator rule, /transl_except), so a Sec exception at TGA is not a stop.
+ */
+export function cdsInternalStop(
+  nucleotides: string,
+  codonStart: 1 | 2 | 3 = 1,
+  options: CdsTranslateOptions = {},
+): { codon: number; triplet: string; offset: number } | null {
+  const aas = translateCodons(nucleotides, codonStart, options);
+  const s = nucleotides.toUpperCase().replace(/U/g, "T");
+  for (let k = 0; k < aas.length - 1; k++) {
+    if (aas[k] === "*") {
+      const offset = codonStart - 1 + 3 * k;
+      return { codon: k + 1, triplet: s.substring(offset, offset + 3), offset };
+    }
+  }
+  return null;
+}
+
+/** Every complete codon read to one residue ("*" for a stop), not stopping. */
+function translateCodons(nucleotides: string, codonStart: 1 | 2 | 3, options: CdsTranslateOptions): string[] {
   const table = options.table ?? 1;
   const code = geneticCodeById(table);
   const s = nucleotides.toUpperCase().replace(/U/g, "T");
-  let protein = "";
+  const out: string[] = [];
   for (let i = codonStart - 1, n = 0; i + 3 <= s.length; i += 3, n++) {
     const codon = s.substring(i, i + 3);
     // Initiator rule: a 5′-complete CDS (codon_start 1) whose first codon is an
@@ -278,10 +355,9 @@ export function translateCds(nucleotides: string, codonStart: 1 | 2 | 3 = 1, opt
     // translation continues, and aa:TERM ends it.
     const ex = options.exceptions?.get(n);
     if (ex !== undefined) aa = ex;
-    if (aa === "*") break;
-    protein += aa;
+    out.push(aa);
   }
-  return protein;
+  return out;
 }
 
 export interface CdsTranslateOptions {
@@ -430,10 +506,10 @@ function featureInner(feature: St26Feature, moltype: MolType, residues: string):
       // The initiator rule applies only when /transl_table is EXPLICIT (scope §E10):
       // applying it to qualifier-less table-1 CDSs (TTG/CTG are table-1 starts)
       // would change emitted XML product-wide and is a separate decision.
-      const protein =
-        tt.kind === "ok"
-          ? translateCds(region, codonStart, { table: tt.code.id, initiator: codonStart === 1, exceptions: te.map })
-          : translateCds(region, codonStart, { exceptions: te.map });
+      const opts: CdsTranslateOptions =
+        tt.kind === "ok" ? { table: tt.code.id, initiator: codonStart === 1, exceptions: te.map } : { exceptions: te.map };
+      // An in-frame stop before the last codon: no /translation (featureWarnings says why).
+      const protein = cdsInternalStop(region, codonStart, opts) ? "" : translateCds(region, codonStart, opts);
       if (protein) {
         if (!supplied) quals.push({ name: "codon_start", value: "1" });
         quals.push({ name: "translation", value: protein });
@@ -478,6 +554,24 @@ export function featureWarnings(entry: SequenceEntry): string[] {
           `CDS (${f.location || "whole"}): no /translation was generated — ${te.message}. Fix the /transl_except qualifier or supply /translation yourself.`,
         );
       }
+      if (te.kind === "ok" && tt.kind !== "refused") {
+        const cs1 = readCodonStart(cs?.value);
+        const opts: CdsTranslateOptions =
+          tt.kind === "ok" ? { table: tt.code.id, initiator: cs1 === 1, exceptions: te.map } : { exceptions: te.map };
+        const stop = cdsInternalStop(region, cs1, opts);
+        if (stop) {
+          const locStart = /^(\d+)\.\./.exec(f.location.trim());
+          const base0 = locStart ? parseInt(locStart[1], 10) : 1;
+          const a = base0 + stop.offset;
+          warnings.push(
+            `CDS (${f.location || "whole"}) has an in-frame stop codon ${stop.triplet} at bases ${a}..${a + 2} ` +
+              `(codon ${stop.codon}) before its last codon` +
+              (hasTranslation
+                ? " — check the location and reading frame; your /translation was kept as typed."
+                : " — no /translation was generated. Check the location and reading frame, or supply /translation yourself."),
+          );
+        }
+      }
     }
     // /codon_start says which base of the region is the first base of the first
     // codon, so the CODABLE length is region.length − (codon_start − 1). Testing
@@ -513,7 +607,25 @@ export function featureWarnings(entry: SequenceEntry): string[] {
 export function featureNotes(entry: SequenceEntry): string[] {
   const notes: string[] = [];
   if (entry.moltype === "AA") return notes;
-  const { residues } = cleanResidues(entry.moltype, entry.residues);
+  const { residues, uracilAsT } = cleanResidues(entry.moltype, entry.residues);
+  if (uracilAsT) {
+    notes.push(
+      `${uracilAsT} “u” written as “t”: WIPO ST.26 paragraph 14 construes “t” as uracil in RNA and has no “u” symbol, ` +
+        "so WIPO Sequence rejects a u in the listing.",
+    );
+  }
+  const chosen =
+    entry.sourceMolType && MOL_TYPE_OPTIONS[entry.moltype].indexOf(entry.sourceMolType) >= 0
+      ? entry.sourceMolType
+      : MOL_TYPE_QUAL[entry.moltype];
+  const written = resolvedMolType(entry.moltype, entry.organism, entry.sourceMolType);
+  if (written !== chosen) {
+    notes.push(
+      `mol_type “${chosen}” was written as “${written}”: the organism is “synthetic construct”, and WIPO ST.26 ` +
+        "paragraph 84(a) requires mol_type “other DNA” or “other RNA” for a sequence that is not naturally occurring. " +
+        "If the sequence is naturally occurring, enter its source organism instead.",
+    );
+  }
   for (const f of entry.features ?? []) {
     if (f.key.trim().toUpperCase() !== "CDS") continue;
     const tt = readTranslTable(f.qualifiers);
@@ -526,7 +638,9 @@ export function featureNotes(entry: SequenceEntry): string[] {
     // Same computation as featureInner: no protein → no /translation emitted → no note.
     const te = readTranslExcept(f.qualifiers, f.location, codonStart, region.length);
     if (te.kind === "refused") continue;
-    const protein = translateCds(region, codonStart, { table: tt.code.id, initiator: codonStart === 1, exceptions: te.map });
+    const opts: CdsTranslateOptions = { table: tt.code.id, initiator: codonStart === 1, exceptions: te.map };
+    if (cdsInternalStop(region, codonStart, opts)) continue; // no /translation was emitted
+    const protein = translateCds(region, codonStart, opts);
     if (!protein) continue;
     let note = `CDS (${f.location || "whole"}): /translation generated with ${geneticCodeLabel(tt.code)}`;
     const first = region.toUpperCase().replace(/U/g, "T").substring(0, 3);

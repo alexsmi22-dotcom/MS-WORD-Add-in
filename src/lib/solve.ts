@@ -2426,13 +2426,18 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
   if (sym) {
     const verified = sym.verified || verifySymbolicRoots(f, x, sym.roots, others);
     if (verified) {
-      const roots: Root[] = sym.roots.map((r) => ({
-        display: format(r),
-        re: NaN,
-        im: NaN,
-        exact: true,
-        symbolic: true,
-      }));
+      // With no other symbol the root is a NUMBER (1 ± √2): give it its value,
+      // so the figure marks it — re: NaN left the plot titled "no real root
+      // was found" under two exact roots (review 2026-10-24).
+      const roots: Root[] = sym.roots.map((r) => {
+        let v = NaN;
+        if (!others.length) {
+          try { v = evalAst(r, {}); } catch { v = NaN; }
+        }
+        return Number.isFinite(v)
+          ? { display: format(r), re: v, im: 0, exact: true }
+          : { display: format(r), re: NaN, im: NaN, exact: true, symbolic: true };
+      });
       steps.push(
         sym.kind === "power"
           ? `Isolated ${x}^${sym.power} and took the ${sym.power! % 2 ? "odd" : "even"} root` +

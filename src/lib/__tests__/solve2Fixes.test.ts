@@ -325,16 +325,41 @@ describe("8/9 · triangle labels and exact forms", () => {
     expect(v["c (solution 1)"].value).toBe(8);
     expect(v["B (solution 1)"].value).toBeCloseTo(30, 9);
   });
+  it.each([
+    // given (user letters) → law of sines in the same letters
+    ["triangle B=40 C=60 a=5", { A: 80, B: 40, C: 60, a: 5, b: (5 * Math.sin((40 * Math.PI) / 180)) / Math.sin((80 * Math.PI) / 180), c: (5 * Math.sin(Math.PI / 3)) / Math.sin((80 * Math.PI) / 180) }],
+    ["triangle A=30 C=45 b=4", { A: 30, B: 105, C: 45, b: 4, a: (4 * 0.5) / Math.sin((105 * Math.PI) / 180), c: (4 * Math.SQRT1_2) / Math.sin((105 * Math.PI) / 180) }],
+    ["triangle A=30 B=60 c=10", { A: 30, B: 60, C: 90, c: 10, a: 5, b: 5 * Math.sqrt(3) }],
+  ] as const)("ASA/AAS keeps the user's letters: %s", (s, want) => {
+    const v = vals(s);
+    for (const [k, w] of Object.entries(want)) expect(v[k].value).toBeCloseTo(w as number, 9);
+  });
   it("a computed side never earns a fake exact Heron surd", () => {
     const v = vals("triangle b=2 c=3 A=40");
     expect(v.area.exact).toBeUndefined();
   });
-  it("1/(x − 1) + 1/(x + 1) = 1 → 1 ± √2, exact", () => {
+  it("1/(x − 1) + 1/(x + 1) = 1 → 1 ± √2, exact — and with real values the figure can mark", () => {
     const r = solveEquation("1/(x-1)+1/(x+1)=1")!;
     const d = r.roots.map((x) => x.display).join(" ; ");
     expect(d).toMatch(/sqrt\(2\)/);
     expect(d).not.toMatch(/\d\.\d{5}/);
+    expect(r.roots.map((x) => x.re).sort((p, q) => p - q)).toEqual([1 - Math.SQRT2, 1 + Math.SQRT2].map((v) => expect.closeTo(v, 12)));
+    expect(r.roots.every((x) => x.im === 0 && x.exact)).toBe(true);
+    const r4 = solveEquation("1/x + 1/(x+2) = 1/3")!;
+    expect(r4.roots.every((x) => Number.isFinite(x.re))).toBe(true);
+    // A root with another symbol in it stays symbolic (no number to mark).
+    expect(Number.isNaN(solveEquation("F = m*a", "a")!.roots[0].re)).toBe(true);
   });
+  it.each(["x^2 + 2x + 5 = 0", "x^4 + 4 = 0", "x^4 + x + 1 = 0", "x^30 - 1 = 0", "x^2 + 1 = 0"])(
+    "complex roots of %s typeset (the pane now inserts them as equations)",
+    (eq) => {
+      const r = solveEquation(eq)!;
+      for (const root of r.roots) {
+        if (/×/.test(root.display)) continue; // multiplicity marker: stays text
+        expect(() => mathToOmml(solveToTypesetDsl(`x = ${root.display}`))).not.toThrow();
+      }
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

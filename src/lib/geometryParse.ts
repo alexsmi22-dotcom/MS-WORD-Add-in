@@ -492,10 +492,16 @@ function triangleRequest(
       sol =solveTriangle({ kind: "SAS", b: named[s1], c: named[s2], A: named[ang] });
     }
   } else if (angles.length === 2 && sides.length === 1) {
-    sol = solveTriangle({
-      kind: "ASA", A: named[angles[0]], B: named[angles[1]],
-      a: named.a, b: named.b, c: named.c,
-    });
+    // Same relabelling as SAS: the solver's A and B are the user's two angles,
+    // its C the third, and the given side goes in under the solver letter
+    // opposite the same angle — "triangle B=40 C=60 a=5" was solved as A=40,
+    // B=60 with a opposite the 40° angle.
+    const [g1, g2] = angles.map((s) => s.toLowerCase()) as Array<"a" | "b" | "c">;
+    const third = (["a", "b", "c"] as const).find((s) => s !== g1 && s !== g2)!;
+    relabel = { a: g1, b: g2, c: third };
+    const given = sides[0] as "a" | "b" | "c";
+    const solverSide = (["a", "b", "c"] as const).find((k) => relabel[k] === given)!;
+    sol = solveTriangle({ kind: "ASA", A: named[angles[0]], B: named[angles[1]], [solverSide]: named[given] });
   } else {
     return null;
   }

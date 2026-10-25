@@ -312,6 +312,14 @@ describe("100,000 rows", () => {
     expect(r.out.text).toContain("from 0 to 68");
     expect(r.ms).toBeLessThan(6000);
   }, 20000);
+  test("ts-unitroot: a hand-entered lag of 1,000 is refused by its work, before any design is built", () => {
+    for (const adfMode of ["aic", "fixed"]) {
+      const r = timed(() => tsUnitRootCalc(reader(TS_UNITROOT_DEFAULTS, { data, series: "", adfMode, adfLag: "1000" })));
+      expect(r.out.ok).toBe(false);
+      expect(r.out.text).toMatch(/more work than the pane allows; use a lag of at most \d+/);
+      expect(r.ms).toBeLessThan(3000);
+    }
+  }, 20000);
   test("ts-hp", () => {
     const r = timed(() => tsHpCalc(reader(TS_HP_DEFAULTS, { data, series: "", lambdaRule: "custom", lambda: "1600" })));
     expectOk(r.out);

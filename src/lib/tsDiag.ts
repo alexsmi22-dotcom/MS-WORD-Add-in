@@ -335,6 +335,25 @@ export interface AdfResult {
   autolag: boolean;
 }
 
+/**
+ * The most work one ADF fit may take, rows × columns² of its QR (a pane must never freeze): the Schwert default at
+ * 100,000 rows (68 lags, ≈ 4.9×10⁸) fits, a hand-entered lag of thousands does not.
+ */
+export const ADF_WORK_MAX = 1e9;
+
+/** The ADF QR's work for lag L on n values: (n − 1 − L)·(ndet + 1 + L)². */
+function adfWork(n: number, ndet: number, L: number): number {
+  return (n - 1 - L) * (ndet + 1 + L) * (ndet + 1 + L);
+}
+
+/** The largest lag whose ADF fit stays within ADF_WORK_MAX. */
+export function adfWorkLagCap(n: number, reg: AdfRegression): number {
+  const ndet = reg === "n" ? 0 : reg.length;
+  let L = 0;
+  while (L < n && adfWork(n, ndet, L + 1) <= ADF_WORK_MAX) L++;
+  return L;
+}
+
 /** Schwert's rule as statsmodels applies it: min(n // 2 − ntrend − 1, ceil(12·(n/100)^¼)). */
 export function adfDefaultMaxLag(n: number, reg: AdfRegression): number {
   const ntrend = reg === "n" ? 0 : reg.length;
@@ -410,6 +429,12 @@ export function adfTest(
   }
   const v = sc.v;
   const ndet = reg === "n" ? 0 : reg.length;
+  if (adfWork(n, ndet, maxLag) > ADF_WORK_MAX) {
+    return {
+      ok: false,
+      reason: `An ADF lag of ${maxLag.toLocaleString("en-US")} on ${n.toLocaleString("en-US")} values is more work than the pane allows; use a lag of at most ${adfWorkLagCap(n, reg).toLocaleString("en-US")}.`,
+    };
+  }
   let usedLag = maxLag;
   let icBest: number | undefined;
   if (opts.autolag) {

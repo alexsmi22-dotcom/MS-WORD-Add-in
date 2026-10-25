@@ -255,12 +255,14 @@ describe("100,000 rows do not freeze the pane", () => {
     expect(r.text).toContain("The figure shows the last 240 of 100,000 observations.");
     expect(ms).toBeLessThan(ARIMA_100K_BOUND_MS);
   });
-  it("ts-arima, ARIMA(5, 1, 5): refused by name up front (work budget), not ground through", () => {
+  it("ts-arima, ARIMA(5, 1, 5): an answer or a named refusal within the pane's clock, never a frozen pane", () => {
+    // Since the review round the work estimate leaves room for high orders and the real-time stop (ARIMA_WALL_MS, 6 s)
+    // is the guarantee: measured 4.6 s alone before the computation-limit refusal. Bound allows for QC's four workers.
     const t0 = Date.now();
     const r = arima({ data: seriesText(big), p: "5", q: "5" });
-    expect(r.ok).toBe(false);
-    expect(r.text).toContain("needs more computation than the pane allows; use at most");
-    expect(Date.now() - t0).toBeLessThan(REFUSE_100K_BOUND_MS);
+    if (r.ok === false) expect(r.text).toMatch(/needs more computation than the pane allows|within the pane's computation limit/);
+    else expectDisplayContract(r);
+    expect(Date.now() - t0).toBeLessThan(15000);
   });
   it("ts-ets, damped Holt", () => {
     const s = big.map((v) => v + 300);

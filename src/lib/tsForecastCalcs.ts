@@ -119,8 +119,10 @@ export const TS_FIGURE_HISTORY = 240;
 function readWhole(read: Read, key: string, label: string, def: number, lo: number, hi: number): number | { error: string } {
   const raw = (read(key) ?? "").trim();
   if (raw === "") return def;
-  const v = Number(raw.replace(/−/g, "-"));
-  if (!Number.isFinite(v) || !Number.isInteger(v) || v < lo || v > hi) {
+  // Plain digits only (Number() would take "0x3" as 3 and "1e1" as 10); "8.0" is 8.
+  const s = raw.replace(/[−–]/g, "-");
+  const v = /^[-+]?\d{1,7}(\.0+)?$/.test(s) ? Math.trunc(Number(s)) : NaN;
+  if (!Number.isFinite(v) || v < lo || v > hi) {
     return { error: `${label}: ${q(raw)} is not a whole number from ${lo} to ${hi}.` };
   }
   return v;

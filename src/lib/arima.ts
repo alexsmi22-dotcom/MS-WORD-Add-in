@@ -49,10 +49,21 @@ export const ARIMA_MAX_H = 200;
 /** BFGS iterations per start before the fit is refused as not converged. */
 export const ARIMA_MAX_ITER = 400;
 /**
- * Likelihood work allowed per fit, in filter steps × r² (r = max(p, q + 1)): about 3 seconds on the build machine.
- * Optimisation and the Hessian share it; a fit that would exceed it is refused by name.
+ * Likelihood work allowed per fit, in estimated nanoseconds on the build machine (about 2.5 s), charged per evaluation
+ * for the work it actually did (evalCostNs): the steps before the filter's covariance settles cost O(r²) each, the rest
+ * O(r), plus the dense Lyapunov solve for the stationary start. Charging a flat N·r² was wrong both ways: near an MA unit
+ * root the covariance never settles (ARIMA(1, 1, 1) on 100,000 rows of noise ran for 140 s), and at high orders on short
+ * series the r² × r² solve dominates (ARIMA(5, 0, 5) on 60 rows ran for 16 s). Optimisation and the Hessian share it;
+ * a fit that would exceed it is refused by name. The charge is deterministic, so a refusal does not depend on the machine.
  */
-export const ARIMA_WORK_BUDGET = 3e9;
+export const ARIMA_WORK_BUDGET = 2.5e9;
+/** Extra work for the standard errors' Hessian beyond what the optimiser left (estimated ns). */
+const HESS_ALLOWANCE = 1e9;
+
+/** Estimated cost of one likelihood evaluation, ns (calibrated 2026-10-25: 200 ns per unsettled step per r², 20 ns per settled step per r, 3r⁶ for the start). */
+function evalCostNs(N: number, r: number, unsteady: number): number {
+  return 200 * unsteady * r * r + 20 * (N - unsteady) * r + 3 * r ** 6 + 2000;
+}
 
 const LOG2PI = Math.log(2 * Math.PI);
 
@@ -255,6 +266,8 @@ export interface FilterResult {
   /** Predicted state and covariance for period N + 1 (σ² = 1 units). */
   aNext: Float64Array;
   PNext: Float64Array[];
+  /** Steps run before the covariance reached its steady state (each costs O(r²); the rest O(r)). */
+  unsteadySteps: number;
 }
 
 /**
@@ -280,6 +293,7 @@ export function kalmanArma(z: ArrayLike<number>, phi: number[], theta: number[],
   let sumLogF = 0;
   let sumV2F = 0;
   let steady = false;
+  let unsteadySteps = 0;
   const K = new Float64Array(r); // P[:,0]/F, frozen in steady state
   let F = 1;
   let logF = 0;
@@ -301,6 +315,7 @@ export function kalmanArma(z: ArrayLike<number>, phi: number[], theta: number[],
     for (let i = 0; i < r - 1; i++) a[i] = t0[i] * f0 + af[i + 1];
     a[r - 1] = t0[r - 1] * f0;
     if (!steady) {
+      unsteadySteps++;
       // Pf = P − P[:,0]P[0,:]/F; A = T·Pf; Pn = A·T′ + RR′ — in preallocated buffers.
       for (let i = 0; i < r; i++) {
         const Pi = P[i];
@@ -337,7 +352,7 @@ export function kalmanArma(z: ArrayLike<number>, phi: number[], theta: number[],
       }
     }
   }
-  return { sumLogF, sumV2F, N, std, aNext: a, PNext: P };
+  return { sumLogF, sumV2F, N, std, aNext: a, PNext: P, unsteadySteps };
 }
 
 /** Full log likelihood for given σ² (in the units of z). */
@@ -460,10 +475,12 @@ function unpack(x: number[], pk: Packed): { phi: number[]; theta: number[]; muZ:
   return { phi, theta, muZ };
 }
 
-function negMeanLlf(z: Float64Array, x: number[], pk: Packed): number {
+function negMeanLlf(z: Float64Array, x: number[], pk: Packed, cost?: { ns: number }): number {
   const { phi, theta, muZ } = unpack(x, pk);
   const zz = muZ === 0 ? z : z.map((v) => v - muZ);
   const f = kalmanArma(zz, phi, theta);
+  const r = Math.max(pk.p, pk.q + 1);
+  if (cost) cost.ns = evalCostNs(z.length, r, f ? f.unsteadySteps : 0);
   if (!f) return Infinity;
   const v = -llfConcentrated(f) / f.N;
   return Number.isFinite(v) ? v : Infinity;
@@ -688,22 +705,28 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   }
   const { z, center, scale } = sc;
   const pk: Packed = { p, q, hasMu };
-  // Work budget, in filter steps × r² (deterministic, so a refusal does not depend on the machine).
+  // Work budget, in estimated ns charged per evaluation (deterministic, so a refusal does not depend on the machine).
+  // A fit that cannot afford the Hessian plus 50 evaluations even with a settled covariance is refused up front,
+  // naming the most rows these orders allow. The Hessian then draws on what the optimiser left plus HESS_ALLOWANCE;
+  // if that runs out, the estimates stand and the standard errors are reported as not computed.
   const r = Math.max(p, q + 1);
-  const unit = N * r * r;
   const hessEvals = 2 * k * k + 1;
-  const minEvals = hessEvals + 60 * (2 * (k - 1) + 4);
-  if (minEvals * unit > ARIMA_WORK_BUDGET) {
-    const maxN = Math.floor(ARIMA_WORK_BUDGET / (minEvals * r * r));
+  const upfront = (hessEvals + 50) * evalCostNs(N, r, Math.min(N, r * r));
+  if (upfront > ARIMA_WORK_BUDGET) {
+    const perRow = (hessEvals + 50) * 20 * r;
+    const fixed = (hessEvals + 50) * (200 * r ** 4 + 3 * r ** 6 + 2000);
+    const maxN = Math.max(0, Math.floor((ARIMA_WORK_BUDGET - fixed) / perRow));
     return {
       ok: false,
       reason: `ARIMA(${p}, ${d}, ${q}) on ${N.toLocaleString("en-US")} observations needs more computation than the pane allows; use at most ${maxN.toLocaleString("en-US")} rows for these orders, or smaller p and q.`,
     };
   }
-  const budget = { left: Math.floor(ARIMA_WORK_BUDGET / unit) - hessEvals };
+  const budget = { left: ARIMA_WORK_BUDGET };
+  const cost = { ns: 0 };
   const fn = (x: number[]): number => {
-    budget.left--;
-    return negMeanLlf(z, x, pk);
+    const v = negMeanLlf(z, x, pk, cost);
+    budget.left -= cost.ns;
+    return v;
   };
 
   const starts: number[][] = [];
@@ -714,6 +737,17 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
     if (q > 0 && p > 0) {
       const xa = packShrunk(hr.phi, new Array<number>(q).fill(0), pk);
       if (xa) starts.push(xa);
+    }
+    // Short series: also start with θ₁ near each edge. An over-parametrised ARMA can have its maximum at the
+    // invertibility boundary (θ → −1) with an interior local maximum that every interior start finds first (an AR(1)
+    // fitted as ARIMA(2, 0, 1) stopped 0.025 short of statsmodels).
+    if (q > 0 && N <= 5000) {
+      for (const edge of [-0.8, 0.8]) {
+        const th = new Array<number>(q).fill(0);
+        th[0] = edge;
+        const xe = packShrunk(hr.phi, th, pk);
+        if (xe) starts.push(xe);
+      }
     }
   }
   starts.push(new Array<number>(p + q + (hasMu ? 1 : 0)).fill(0));
@@ -739,7 +773,7 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
     return {
       ok: false,
       reason: exhausted
-        ? `The likelihood maximisation did not converge within the pane's computation limit for ${N.toLocaleString("en-US")} observations, so no estimate is reported. Use fewer rows or smaller p and q.`
+        ? `The likelihood maximisation did not converge within the pane's computation limit for ${N.toLocaleString("en-US")} observations, so no estimate is reported. Use fewer rows or smaller p and q.${q > 0 && d > 0 ? " An MA root near −1 (a series differenced once too often) makes the likelihood slow and flat; try d one lower." : ""}`
         : `The likelihood maximisation did not converge within ${ARIMA_MAX_ITER} iterations from any start, so no estimate is reported. Try a smaller p or q.`,
     };
   }
@@ -766,15 +800,24 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
     o += q;
     const s2 = v[o];
     if (!(s2 > 0) || !isStationary(ph) || !isInvertible(th)) return NaN;
+    if (hessBudget.left <= 0) {
+      hessBudget.out = true;
+      return NaN;
+    }
     const zz = m === 0 ? z : z.map((x) => x - m);
     const f = kalmanArma(zz, ph, th);
+    hessBudget.left -= evalCostNs(N, r, f ? f.unsteadySteps : 0);
     return f ? llfFromFilter(f, s2) : NaN;
   };
+  const hessBudget = { left: Math.max(0, budget.left) + HESS_ALLOWANCE, out: false };
   const hess = numericalHessian(llfAt, theta0);
   let se: number[] | null = null;
   let seWhy: string | undefined;
-  if (!hess) seWhy = "a coefficient is at the edge of the stationary or invertible region, where the Hessian cannot be formed";
-  else {
+  if (!hess) {
+    seWhy = hessBudget.out
+      ? "the pane's computation limit was reached before the Hessian was complete (the estimates are unaffected)"
+      : "a coefficient is at the edge of the stationary or invertible region, where the Hessian cannot be formed";
+  } else {
     const neg = hess.map((row) => row.map((v) => -v));
     const cov = invertSpd(neg);
     if (!cov) seWhy = "the Hessian of the log likelihood is not negative definite at the maximum (a flat or boundary likelihood)";

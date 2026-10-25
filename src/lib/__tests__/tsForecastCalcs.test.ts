@@ -283,3 +283,37 @@ describe("100,000 rows do not freeze the pane", () => {
 const ARIMA_100K_BOUND_MS = 4000;
 const ETS_100K_BOUND_MS = 3500;
 const REFUSE_100K_BOUND_MS = 1500;
+
+describe("E3 review round: integer fields", () => {
+  test("hex, exponent and fractional orders and horizons are refused; 8.0 is 8", () => {
+    for (const bad of ["0x3", "1e1", "2.5", "abc"]) {
+      expect(tsArimaCalc((k) => ({ h: bad } as Record<string, string>)[k] ?? TS_ARIMA_DEFAULTS[k] ?? "").ok).toBe(false);
+    }
+    expect(tsArimaCalc((k) => ({ h: "8.0" } as Record<string, string>)[k] ?? TS_ARIMA_DEFAULTS[k] ?? "").ok).not.toBe(false);
+  });
+});
+
+describe("E3 review round: ARIMA work is charged as it is done", () => {
+  // Differenced white noise puts θ at −1, where the filter's covariance never settles (no steady-state shortcut), and
+  // ARIMA(5, 0, 5) on a short series is dominated by the Lyapunov solve. Both used to run for minutes (140 s, 16 s);
+  // measured now at 3.4 s and 2.5 s alone before refusing. Bounds allow for QC's four jest workers.
+  const noise = (n: number, seed: number): string => {
+    let s = seed;
+    const out: string[] = [];
+    for (let i = 0; i < n; i++) {
+      s = (s * 1103515245 + 12345) % 2147483648;
+      out.push(((s / 2147483648 - 0.5) * 3).toFixed(4));
+    }
+    return out.join("\n");
+  };
+  test("ARIMA(1, 1, 1) on 100,000 rows of noise answers within the limit", () => {
+    const t0 = Date.now();
+    arima({ data: noise(100000, 11), p: "1", d: "1", q: "1" });
+    expect(Date.now() - t0).toBeLessThan(12000);
+  });
+  test("ARIMA(5, 0, 5) on 60 rows answers within the limit", () => {
+    const t0 = Date.now();
+    arima({ data: noise(60, 11), p: "5", d: "0", q: "5" });
+    expect(Date.now() - t0).toBeLessThan(9000);
+  });
+});

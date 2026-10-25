@@ -103,7 +103,9 @@ export function acfBands(r: Float64Array, n: number, z = Z975): Float64Array {
  * PACF by Yule–Walker with the adjusted autocovariances (divisor n − k), statsmodels' default "ywadjusted": for each
  * order k the last coefficient of the solution of Toeplitz(γ_0…γ_{k−1}) φ = (γ_1…γ_k). Levinson–Durbin solves the same
  * systems. Values above 1 in magnitude can occur with these autocovariances and are returned as statsmodels returns
- * them; a recursion whose innovation variance reaches zero or below (a singular system) is refused by lag.
+ * them. With the n − k autocovariances the innovation variance can turn negative (a seasonal series does at lag 3 or
+ * 13) while every system stays non-singular, and Levinson still solves them exactly, as statsmodels' direct solves do;
+ * only a variance of zero (relative to γ₀) or a non-finite one, a singular system, is refused by lag.
  */
 export function pacfYwAdjusted(x: ArrayLike<number>, K: number): { ok: true; pacf: Float64Array } | Refusal {
   const sc = scaled(x);
@@ -125,7 +127,7 @@ export function pacfYwAdjusted(x: ArrayLike<number>, K: number): { ok: true; pac
   for (let k = 1; k <= K; k++) {
     let num = g[k];
     for (let j = 1; j < k; j++) num -= phi[j] * g[k - j];
-    if (!(sig > 0) || !Number.isFinite(sig)) {
+    if (!Number.isFinite(sig) || Math.abs(sig) <= 1e-12 * g[0]) {
       return { ok: false, reason: `The Yule–Walker system is singular at lag ${k} for these data; ask for fewer lags.` };
     }
     const a = num / sig;

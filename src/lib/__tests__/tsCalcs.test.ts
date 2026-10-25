@@ -16,6 +16,7 @@ import {
   TS_CALCULATORS,
 } from "../tsCalcs";
 import { fmtFixed, fmtP } from "../regTable";
+import { pacfYwAdjusted } from "../tsDiag";
 import { insertableResultText } from "../insertGate";
 import { tableCellsInsertable } from "../damagesInterest";
 import type { StatOutput } from "../analyzeBlocks";
@@ -326,5 +327,22 @@ describe("100,000 rows", () => {
     expect(r.out.tables ?? []).toHaveLength(0);
     expect(r.out.text).toContain("The figure shows every 50th row.");
     expect(r.ms).toBeLessThan(3000);
+  });
+});
+
+describe("E3 review round: seasonal series", () => {
+  // x = 10 + 3·sin(2πi/12) + N(0, sd²), n = 120, seeds 1–4 (numpy default_rng), PACF to lag 20 by statsmodels 0.15
+  // pacf (method "ywadjusted"). The Levinson innovation variance turns negative on these; they used to be refused.
+  const cases: { x: number[]; pacf: number[] }[] = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "fixtures", "ts-pacf-seasonal-oracle.json"), "utf8"),
+  );
+  test("PACF matches statsmodels to 1e−9 and the correlogram is not refused", () => {
+    for (const c of cases) {
+      const r = pacfYwAdjusted(c.x, 20);
+      if (!r.ok) throw new Error(r.reason);
+      for (let k = 1; k <= 20; k++) expect(Math.abs(r.pacf[k] - c.pacf[k])).toBeLessThan(1e-9 * Math.max(1, Math.abs(c.pacf[k])));
+      const out = tsAcfCalc(reader(TS_ACF_DEFAULTS, { data: c.x.join("\n"), series: "" }));
+      expect(out.ok).not.toBe(false);
+    }
   });
 });

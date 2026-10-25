@@ -10,10 +10,12 @@
  */
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { fitOls, olsDiagnostics, type OlsFit, type SeType, type OlsDiagnostics } from "./olsInference";
-import { parseRegData, parseSpec, parseSpecList, selectColumns, type RegDataset, type RegSpec } from "./regData";
+import { parseRegData, parseSpec, selectColumns, type RegDataset, type RegSpec } from "./regData";
 import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, intText, NBSP, P_BELOW, type StarScheme } from "./regTable";
 import { buildPlotSvg } from "./plot";
 import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal } from "./logitProbit";
+import { estimatorLabel, type FittedModel } from "./regModel";
+import { parseModelLine, fitModelLine } from "./regTableModels";
 
 /** Longley (1967): total employment and six macro series, US 1947–1962 (statsmodels `longley`, public domain). */
 export const LONGLEY_DEFAULT = [
@@ -312,29 +314,58 @@ export function econRegTableCalc(read: Read): StatOutput {
   if ("error" in o) return refuse(o.error);
   const parsed = parseRegData(read("data"));
   if (!parsed.ok) return refuse(parsed.reason);
-  const specs = parseSpecList(read("specs"));
-  if ("error" in specs) return refuse(specs.error);
-  if (specs.length > 12) return refuse("At most 12 models fit side by side in one table.");
-  const fits: OlsFit[] = [];
+  // v2.200.0: a line may name its estimator ("iv: …", "fe: …", "q 0.5: …"); a plain line is OLS, as before.
+  const rawLines = read("specs").replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!rawLines.length) return refuse("Enter one model per line, such as “y ~ x1 + x2”.");
+  if (rawLines.length > 12) return refuse("At most 12 models fit side by side in one table.");
+  const models: FittedModel[] = [];
   const dataNotes = new Set<string>();
-  for (const [i, s] of specs.entries()) {
-    const r = fitSpec(parsed.data, s, o);
-    if ("error" in r) return refuse(specs.length > 1 ? `Model ${i + 1} (${s.text}): ${r.error}` : r.error);
-    fits.push(r.fit);
-    r.notes.forEach((n) => dataNotes.add(specs.length > 1 ? `Model ${i + 1}: ${n}` : n));
+  const started = Date.now();
+  for (const [i, raw] of rawLines.entries()) {
+    const where = (msg: string): string => (rawLines.length > 1 ? `Model ${i + 1} (${raw}): ${msg}` : msg);
+    const line = parseModelLine(raw);
+    if ("error" in line) return refuse(where(line.error));
+    if (line.kind === "ols") {
+      const s = parseSpec(line.spec);
+      if ("error" in s) return refuse(where(s.error));
+      const r = fitSpec(parsed.data, s, o);
+      if ("error" in r) return refuse(where(r.error));
+      models.push(r.fit.model);
+      r.notes.forEach((n) => dataNotes.add(rawLines.length > 1 ? `Model ${i + 1}: ${n}` : n));
+      continue;
+    }
+    // Each estimator keeps its own time limit; the table as a whole stops by name rather than chaining them.
+    if (Date.now() - started > 3000) return refuse(`The table stopped before model ${i + 1}: the models so far took more than 3 seconds. Fit the slow models in their own calculators.`);
+    const m = fitModelLine(line, read("data"), parsed.data, o.constant);
+    if ("error" in m) return refuse(where(m.error));
+    models.push(m);
   }
-  const models = fits.map((f) => f.model);
   const table = buildRegTable(models, { stars: o.stars, decimals: o.decimals });
   const deps = [...new Set(models.map((m) => m.depName))];
+  const allOls = models.every((m) => m.kind === "ols");
   const lines: string[] = [];
-  lines.push(`Regression table: ${models.length} OLS model${models.length === 1 ? "" : "s"} of ${deps.join(", ")}`);
+  lines.push(`Regression table: ${models.length} ${allOls ? "OLS " : ""}model${models.length === 1 ? "" : "s"} of ${deps.join(", ")}`);
   lines.push(`Standard errors: ${[...new Set(models.map((m) => m.seLabel))].join("; ")}`);
   lines.push("");
   lines.push(...conventionNotes(o, parsed.data.named), ...dataNotes);
   // The SE convention once (identical across models).
   const seNotes = new Set<string>();
-  for (const m of models) for (const n of m.notes) seNotes.add(n);
+  // OLS notes once (identical across OLS columns); every other model's notes name their column.
+  models.forEach((m, i) => {
+    for (const n of m.notes) seNotes.add(m.kind === "ols" ? n : `Model ${i + 1} (${estimatorLabel(m)}): ${n}`);
+  });
   lines.push(...seNotes);
+  if (!allOls) {
+    if (!o.constant && models.some((m) => m.kind === "fe" || m.kind === "re" || m.kind === "did")) {
+      lines.push("No constant applies to the OLS, 2SLS, quantile, logit and probit lines; FE, RE and DiD columns keep the intercept their estimator reports.");
+    }
+    lines.push(
+      "Models other than OLS are fitted by their own calculators' engines with those calculators' conventions, " +
+        "on the rows each model uses; the OLS standard-error choice above applies to the OLS lines only.",
+    );
+    if (models.some((m) => m.kind === "fe" || m.kind === "did")) lines.push("For FE and DiD columns the R² row is the within R²; for RE it is the R² of the quasi-demeaned regression.");
+    if (models.some((m) => m.kind === "quantile")) lines.push("For quantile columns the row shows the pseudo R¹ (Koenker and Machado).");
+  }
   lines.push(`${o.decimals} decimals; terms a model leaves out are blank.`);
   return { text: lines.join("\n"), tables: [{ label: table.label, rows: table.rows, note: table.legend, align: table.align }] };
 }

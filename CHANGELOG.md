@@ -6,6 +6,23 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.200.0] — 2026-10-25 — One regression table for every estimator; panel figures
+
+### New
+- **Regression table, any estimator:** a model line may start with its estimator — `iv:`, `fe:`, `re:`, `did:`,
+  `q 0.5:` (quantile), `logit:` or `probit:` — with options after `|` (for example
+  `iv: lwage ~ exper | endog = educ | instruments = dist + sibs`). Each column is fitted by that estimator's own
+  calculator, so it prints the same numbers; an Estimator row names each column, the fit row reads R², pseudo R² or
+  pseudo R¹ as each model reports, and each model's notes name their column. Plain lines are OLS, unchanged.
+- **Panel fixed effects** now draws pooled OLS against fixed effects, and **panel random effects** draws fixed against
+  random effects (the picture behind the Hausman test), each with 95% intervals.
+
+### Fixed
+- The table's legend names each model's reference distribution (t or z) correctly once 2SLS, panel and quantile
+  models sit beside OLS; "R² (uncentered)" now labels only the columns without a constant.
+- A one-second timing check in the damages tests failed on GitHub's shared runner and held back the v2.199.0 deploy;
+  it is now three seconds.
+
 ## [2.199.0] — 2026-10-25 — Inequality, concentration, micro, games, macro, input–output, currency
 
 The last release of the quantitative-economics plan: nine new Statistics calculators (Statistics now 52) and one

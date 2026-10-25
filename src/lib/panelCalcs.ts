@@ -26,7 +26,8 @@ import { readIntField } from "./eventStudy";
 import { fmtFixed, fmtP, intText, P_BELOW } from "./regTable";
 import type { FittedModel, ModelTerm } from "./regModel";
 import { tCritical } from "./stats";
-import { buildPlotSvg } from "./plot";
+import { buildPlotSvg, type Series } from "./plot";
+import { fitOls, type SeType } from "./olsInference";
 
 type Read = (k: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
@@ -286,7 +287,7 @@ export function panelFeModel(read: Read): FittedModel | { error: string } {
   return "error" in r ? r : r.fit.model;
 }
 
-function runFe(read: Read): { fit: FeResult; p: PanelColumns } | { error: string } {
+function runFe(read: Read): { fit: FeResult; p: PanelColumns; se: PanelSe } | { error: string } {
   const get = getter(read, PANEL_FE_DEFAULTS);
   const se = readSe(get("se"), ["cluster-entity", "robust", "classical", "cluster-column"]);
   if (typeof se !== "string") return se;
@@ -297,11 +298,59 @@ function runFe(read: Read): { fit: FeResult; p: PanelColumns } | { error: string
   const rd = readCommon(get, se === "cluster-column", spec);
   if (!rd.ok) return { error: rd.reason };
   try {
-    return { fit: fitFixedEffects(rd.p, { effects: eff, se }), p: rd.p };
+    return { fit: fitFixedEffects(rd.p, { effects: eff, se }), p: rd.p, se };
   } catch (e) {
     if (e instanceof PanelRefusal) return { error: e.message };
     return { error: `The fixed-effects model could not be computed for these data (${(e as Error).message}).` };
   }
+}
+
+/**
+ * v2.200.0: two estimates of each common slope side by side with 95% intervals (pooled OLS vs FE; FE vs RE), so the
+ * figure shows what absorbing the effects changes. Null when the models share no slope.
+ */
+function compareFigure(a: FittedModel, aLabel: string, b: FittedModel, bLabel: string, title: string, note: string): string | null {
+  const crit = (m: FittedModel): number => (m.statLabel === "z" ? 1.959963984540054 : tCritical(0.05, m.df ?? 1));
+  const names = b.terms.filter((t) => t.name !== "Constant" && a.terms.some((u) => u.name === t.name)).map((t) => t.name);
+  if (!names.length) return null;
+  const aPts: { x: number; y: number; err: number }[] = [];
+  const bPts: { x: number; y: number; err: number }[] = [];
+  names.forEach((nm, j) => {
+    const ta = a.terms.find((t) => t.name === nm)!;
+    const tb = b.terms.find((t) => t.name === nm)!;
+    aPts.push({ x: j + 1 - 0.15, y: ta.coef, err: crit(a) * ta.se });
+    bPts.push({ x: j + 1 + 0.15, y: tb.coef, err: crit(b) * tb.se });
+  });
+  if ([...aPts, ...bPts].some((q) => !Number.isFinite(q.y) || !Number.isFinite(q.err))) return null;
+  const k = names.length;
+  const series: Series[] = [
+    { type: "scatter", points: aPts, color: "#64748b", label: aLabel },
+    { type: "scatter", points: bPts, color: "#0369a1", label: bLabel },
+    { type: "line", points: [{ x: 0.4, y: 0 }, { x: k + 0.6, y: 0 }], color: "#94a3b8" },
+  ];
+  return buildPlotSvg(series, {
+    width: 380,
+    height: 250,
+    title,
+    ylabel: "Coefficient",
+    errorBars: "ci95",
+    xLimits: { min: 0.4, max: k + 0.6 },
+    xTickLabel: (v: number) => {
+      const j = Math.round(v);
+      return Math.abs(v - j) < 1e-9 && j >= 1 && j <= k ? names[j - 1] : "";
+    },
+    notes: [note],
+  });
+}
+
+/** Pooled OLS on the FE rows, with the standard errors closest to the FE choice (for the comparison figure only). */
+function pooledOls(p: PanelColumns, se: PanelSe): FittedModel | null {
+  const map: Record<PanelSe, SeType> = { classical: "classical", robust: "hc1", "cluster-entity": "cluster", "cluster-column": "cluster" };
+  const clusters =
+    se === "cluster-entity" ? Array.from(p.entity, (e) => String(e)) : se === "cluster-column" && p.cluster ? Array.from(p.cluster.codes, (c) => String(c)) : undefined;
+  if (map[se] === "cluster" && !clusters) return null;
+  const r = fitOls({ y: p.y, depName: p.depName, X: p.X, names: p.names, constant: true, se: map[se], clusters, clusterName: se === "cluster-entity" ? p.entityName : p.cluster?.name });
+  return r.ok ? r.model : null;
 }
 
 /** panel-fe: panel fixed effects. */
@@ -309,7 +358,7 @@ export function panelFeCalc(read: Read): StatOutput {
   return catchRefusal(() => {
     const r = runFe(read);
     if ("error" in r) return refuse(r.error);
-    const { fit, p } = r;
+    const { fit, p, se } = r;
     const m = fit.model;
     const k = m.terms.length - 1;
     const lines: string[] = [];
@@ -334,7 +383,11 @@ export function panelFeCalc(read: Read): StatOutput {
       coefTable(m, `Fixed effects: ${m.depName}, ${m.seLabel}`),
       { label: "Fit", rows: fitStatsRows(fit, extra), align: ["left", "right"] },
     ];
-    return { text: lines.join("\n"), tables };
+    const ols = pooledOls(p, se);
+    const svg = ols
+      ? compareFigure(ols, "Pooled OLS", m, "Fixed effects", "Pooled OLS vs fixed effects", "Pooled OLS on the same rows, with the matching standard-error type (HC1 for robust, clustered alike); the gap is what absorbing the effects changes.")
+      : null;
+    return { text: lines.join("\n"), tables, ...(svg ? { svg } : {}) };
   }, "fixed-effects model");
 }
 
@@ -435,7 +488,18 @@ export function panelReCalc(read: Read): StatOutput {
       { label: "Fit", rows: fitStatsRows(re), align: ["left", "right"] },
       { label: "Hausman test", rows: hausRows, align: ["left", "left", "right", "right"] },
     ];
-    return { text: lines.join("\n"), tables };
+    // v2.200.0: FE beside RE on the regressors that vary within entities, both under the standard errors chosen above.
+    let svg: string | null = null;
+    if (tvIdx.length) {
+      try {
+        const pf: PanelColumns = { ...p, X: tvIdx.map((j) => p.X[j]), names: tvIdx.map((j) => p.names[j]) };
+        const feShown = fitFixedEffects(pf, { effects: "entity", se, started, skipPooled: true });
+        svg = compareFigure(feShown.model, "Fixed effects", m, "Random effects", "Fixed vs random effects", "Both under the standard errors chosen above, on the regressors that vary within entities; the Hausman test asks whether the gap is systematic.");
+      } catch (e) {
+        if (!(e instanceof PanelRefusal) || e instanceof PanelTimeout) throw e;
+      }
+    }
+    return { text: lines.join("\n"), tables, ...(svg ? { svg } : {}) };
   }, "random-effects model");
 }
 

@@ -162,9 +162,11 @@ describe("regTable", () => {
     );
     const r2 = t.rows.find((r) => r[0] === "R² / pseudo R²")!;
     expect(r2).toEqual(["R² / pseudo R²", "0.40", "0.21"]);
-    expect(t.rows[2]).toEqual(["x", "0.50***", "0.50***"]);
-    expect(t.rows[3]).toEqual(["", "(0.10)", "(0.10)"]);
-    expect(t.legend).toContain("t (OLS) or z (logit, probit)");
+    // v2.200.0: a table that is not all OLS names each column's estimator.
+    expect(t.rows[2]).toEqual(["Estimator", "OLS", "Logit"]);
+    expect(t.rows[3]).toEqual(["x", "0.50***", "0.50***"]);
+    expect(t.rows[4]).toEqual(["", "(0.10)", "(0.10)"]);
+    expect(t.legend).toContain("p-values from each model's own reference distribution");
   });
   test("decimals option 2–4 and the no-star legend", () => {
     const t = buildRegTable([model({})], { decimals: 4, stars: "none" });

@@ -23,7 +23,7 @@
  * e-notation (m×10ⁿ with 4 significant digits, trailing zeros kept, for a value that would round to zero at the chosen
  * decimals or is 10⁹ or more), never "−0.000", no NaN/Infinity, and "< 0.001" with a no-break space.
  */
-import { isLinearKind, type FittedModel } from "./regModel";
+import { estimatorLabel, isLinearKind, type FittedModel } from "./regModel";
 import { timesTen } from "./axis";
 
 export type StarScheme = "econ" | "sci" | "none";
@@ -131,7 +131,8 @@ export function starLegend(scheme: StarScheme = "econ", statLabels: ("t" | "z")[
         ? ` * p ${lt}0.10, ** p ${lt}0.05, *** p ${lt}0.01.`
         : ` * p ${lt}0.05, ** p ${lt}0.01, *** p ${lt}0.001.`;
   const ref = new Set(statLabels);
-  const refText = ref.size === 2 ? " p-values from t (OLS) or z (logit, probit) statistics." : "";
+  // Mixed references (v2.200.0: IV can be z, panel and quantile models t): each column's SE row names its type.
+  const refText = ref.size === 2 ? " p-values from each model's own reference distribution: t for OLS, panel, quantile and small-sample 2SLS models; z for logit, probit and large-sample 2SLS." : "";
   return se + stars + refText;
 }
 
@@ -141,7 +142,7 @@ export function hasNoConstant(m: FittedModel): boolean {
 }
 
 function r2Of(m: FittedModel): { label: string; value: number } | null {
-  const want = isLinearKind(m.kind) ? "R²" : "Pseudo R²";
+  const want = isLinearKind(m.kind) ? "R²" : m.kind === "quantile" ? "Pseudo R¹" : "Pseudo R²";
   const s = m.stats.find((x) => x.label === want);
   return s ? { label: want, value: s.value } : null;
 }
@@ -158,6 +159,8 @@ export function buildRegTable(models: FittedModel[], opts: RegTableOptions = {})
   const rows: string[][] = [];
   rows.push(["", ...models.map((_, i) => `(${i + 1})`)]);
   rows.push(["", ...models.map((m) => m.depName)]);
+  // v2.200.0: once the models are not all OLS, a row names each column's estimator.
+  if (models.some((m) => m.kind !== "ols")) rows.push(["Estimator", ...models.map((m) => estimatorLabel(m))]);
   for (const name of order) {
     const coef: string[] = [name];
     const se: string[] = [""];
@@ -175,10 +178,14 @@ export function buildRegTable(models: FittedModel[], opts: RegTableOptions = {})
   }
   rows.push(["N", ...models.map((m) => intText(m.n))]);
   const r2s = models.map(r2Of);
-  const kinds = new Set(models.map((m) => (isLinearKind(m.kind) ? "ols" : "ml")));
+  const kinds = new Set(models.map((m) => (isLinearKind(m.kind) ? "ols" : m.kind === "quantile" ? "q" : "ml")));
   // An OLS model without a constant reports the uncentered R² (1 − SSE/Σy²): the row says so.
-  const olsR2 = models.some((m) => isLinearKind(m.kind) && hasNoConstant(m)) ? "R² (uncentered)" : "R²";
-  const r2Label = kinds.size === 2 ? `${olsR2} / pseudo R²` : kinds.has("ols") ? olsR2 : "Pseudo R²";
+  // Uncentered only for the linear columns that have no constant; said per column when the table mixes the two.
+  const lin = models.filter((m) => isLinearKind(m.kind));
+  const noConst = lin.filter((m) => hasNoConstant(m)).length;
+  const olsR2 = noConst === 0 ? "R²" : noConst === lin.length ? "R² (uncentered)" : "R² (uncentered where no constant)";
+  const parts = [kinds.has("ols") ? olsR2 : "", kinds.has("ml") ? "pseudo R²" : "", kinds.has("q") ? "pseudo R¹" : ""].filter(Boolean);
+  const r2Label = parts.map((x, i) => (i === 0 ? x[0].toUpperCase() + x.slice(1) : x)).join(" / ");
   if (r2s.some(Boolean)) rows.push([r2Label, ...r2s.map((r) => (r ? fmtFixed(r.value, dec) : ""))]);
   rows.push(["SE type", ...models.map((m) => m.seLabel)]);
   const legend = starLegend(scheme, models.map((m) => m.statLabel));

@@ -51,3 +51,12 @@ export interface FittedModel {
 export function isLinearKind(kind: FittedModel["kind"]): boolean {
   return kind === "ols" || kind === "iv" || kind === "fe" || kind === "re" || kind === "did";
 }
+
+/** The short estimator label for the publication table's Estimator row (v2.200.0). */
+export function estimatorLabel(m: FittedModel): string {
+  if (m.kind === "quantile") {
+    const tau = m.stats.find((s) => s.label === "Quantile τ")?.value;
+    return tau === undefined ? "Quantile" : `Quantile τ = ${tau}`;
+  }
+  return { ols: "OLS", iv: "2SLS", fe: "FE", re: "RE", did: "DiD", logit: "Logit", probit: "Probit" }[m.kind];
+}

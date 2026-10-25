@@ -10677,7 +10677,7 @@ const STAT_CALCS: StatCalc[] = [
     name: "Regression table (several models side by side)",
     fields: [
       { key: "data", label: "Data: a header row of column names, then one row per observation", default: LONGLEY_DEFAULT, kind: "block" },
-      { key: "specs", label: "Models, one per line (response ~ predictors)", default: ECON_SPECS_DEFAULT, kind: "line" },
+      { key: "specs", label: "Models, one per line (response ~ predictors); start a line with iv:, fe:, re:, did:, q 0.5:, logit: or probit: for another estimator, options after | (iv: y ~ x | endog = d | instruments = z1 + z2)", default: ECON_SPECS_DEFAULT, kind: "line" },
       ...ECON_OPTION_FIELDS,
     ],
     compute: (r) => {

@@ -10,6 +10,14 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0en. New in v2.200.0 — One regression table for every estimator; panel figures
+
+- [ ] **Stats ▸ Regression table**: paste the IV worked-default table, models
+  `lwage ~ educ + exper` / `iv: lwage ~ exper | endog = educ | instruments = dist + sibs` / `q 0.5: lwage ~ educ + exper`
+  ▸ Insert → three columns with an Estimator row (OLS, 2SLS, Quantile τ = 0.5).
+- [ ] **Panel fixed effects ▸ Insert** → the pooled OLS vs fixed effects figure lands with the tables.
+- [ ] **Panel random effects ▸ Insert** → the fixed vs random effects figure.
+
 ## 0em. New in v2.199.0 — Inequality, concentration, micro, games, macro, input–output, currency
 
 - [ ] **Stats ▸ Inequality ▸ Insert**: measures table, Lorenz-at-deciles table and the Lorenz figure together.

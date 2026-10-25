@@ -67,7 +67,8 @@ const BASELINES = {
   // v2.198.0 (E4): 39 of 43 — panel-fe and panel-re are coefficient tables (no figure).
   // v2.199.0 (E5): 48 of 52 — all nine new calculators draw (Lorenz, share bars, linkages, supply–demand, best
   // responses, game best responses, Solow, IS–LM/AD–AS, Taylor).
-  stats: { label: "Statistics", figures: 48, total: 52 },
+  // v2.200.0: 50 of 52 — panel-fe (pooled OLS vs FE) and panel-re (FE vs RE) now draw coefficient comparisons.
+  stats: { label: "Statistics", figures: 50, total: 52 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it

@@ -157,6 +157,8 @@ import {
   sigmaZeroAtForward,
 } from "../lib/finance";
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, withFinFig, currentFinFig } from "../lib/financeFigures";
+import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
+import { lostEarningsReport } from "../lib/lostEarnings";
 import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
 import { CONC_UNITS, RATE_UNITS, catalyticEfficiencyCalc, dilutionRefusal, proteinSequenceRefusal, readAssayScalars, serialRefusal } from "../lib/assayInputs";
 import { renderStructure, resolveStructure, resolveChemInput, lookupSmiles, typesetHill, nameForIdcode, StructureResult, gallerySubstituent } from "../lib/structures";
@@ -1332,6 +1334,8 @@ let currentTableChartError = "";
 /** The finance result text from the most recent computation, for insertion. */
 let currentFinText = "";
 let currentFinSvg = "";
+/** The Finance result's Word table (the damages calculators), inserted in the same package as the text and figure. */
+let currentFinTable: { label: string; rows: string[][] } | null = null;
 /** The Finance figure re-drawn for a figure style (fix2-paf: a canvas width, and black and white for USPTO). */
 let currentFinRender: ((w: number, style?: FigureStylePreset) => string) | null = null;
 /** The assay result text and fitted-curve SVG from the most recent computation. */
@@ -8154,7 +8158,11 @@ interface FinField {
   key: string;
   label: string;
   default: string;
-  kind?: "number" | "select" | "list";
+  /**
+   * "text" is a one-line text field read as typed (a date); "block" is a multi-line table field (rows of a date and
+   * a value) with the "Use table at cursor" / "Open CSV…" bar. Neither goes through the number reader.
+   */
+  kind?: "number" | "select" | "list" | "text" | "block";
   options?: { value: string; label: string }[];
 }
 /**
@@ -8169,7 +8177,7 @@ interface FinField {
  * nothing useful to draw stay exactly as they were and the change is provably a
  * no-op for them.
  */
-type FinResult = string | { text: string; svg?: string; ok?: boolean };
+type FinResult = string | { text: string; svg?: string; ok?: boolean; table?: { label: string; rows: string[][] } };
 /** A Finance refusal: shown, never insertable (fix2-paf: refusal sentences used to be insertable results). */
 const finRefuse = (text: string): FinResult => ({ text, ok: false });
 
@@ -9254,6 +9262,139 @@ const FIN_CALCS: FinCalc[] = [
       };
     },
   },
+  // Litigation damages: interest and lost earnings (E1a)
+  //
+  // Engines and parsers in lib/damagesInterest.ts and lib/lostEarnings.ts; each returns the text, a Word table and a
+  // figure, inserted as one package. Rates are always the user's: none is bundled as law. The table fields are
+  // `block` fields, so "Use table at cursor" and "Open CSV…" fill them from a Word or Excel table.
+  {
+    id: "dmg-prejudgment",
+    name: "Damages: prejudgment interest",
+    fields: [
+      {
+        key: "tranches",
+        label: "Damages rows: date (or period: 2019, 2019-Q3, 2019-07, from-date to-date), amount",
+        default: ["Date\tDamages", "2019-03-15\t125,000.00", "2020-12-31\t250,000.50", "2022-06-30\t98,765.43"].join("\n"),
+        kind: "block",
+      },
+      {
+        key: "rates",
+        label: "Rate table: from-date (optional to-date), annual rate %",
+        default: ["From\tRate %", "2018-01-01\t5.00", "2020-07-01\t3.25", "2022-01-01\t7.50"].join("\n"),
+        kind: "block",
+      },
+      { key: "end", label: "Interest up to (not including) this date", default: "2024-02-29", kind: "text" },
+      {
+        key: "method",
+        label: "Method",
+        default: "annual",
+        kind: "select",
+        options: [
+          { value: "simple", label: "Simple interest" },
+          { value: "annual", label: "Compounded annually" },
+          { value: "quarterly", label: "Compounded quarterly" },
+          { value: "monthly", label: "Compounded monthly" },
+          { value: "daily", label: "Compounded daily" },
+        ],
+      },
+      {
+        key: "dayCount",
+        label: "Day count",
+        default: "act365",
+        kind: "select",
+        options: [
+          { value: "act365", label: "Actual/365" },
+          { value: "act360", label: "Actual/360" },
+          { value: "actact", label: "Actual/actual" },
+        ],
+      },
+      {
+        key: "mid",
+        label: "Period rows accrue from",
+        default: "off",
+        kind: "select",
+        options: [
+          { value: "off", label: "The period's last day" },
+          { value: "on", label: "The period's midpoint (mid-period)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const out = prejudgmentReport({ tranches: r("tranches"), rates: r("rates"), end: r("end"), method: r("method"), dayCount: r("dayCount"), midPeriod: r("mid") });
+      return out.ok ? out : finRefuse(out.text);
+    },
+  },
+  {
+    id: "dmg-postjudgment",
+    name: "Damages: post-judgment interest (28 U.S.C. § 1961)",
+    fields: [
+      { key: "amount", label: "Judgment amount", default: "1,500,000.00" },
+      { key: "rate", label: "Annual rate % (the weekly average 1-year CMT yield for the week before judgment, as you enter it)", default: "4.12" },
+      { key: "judgment", label: "Judgment entered on", default: "2024-03-15", kind: "text" },
+      { key: "payment", label: "Payment date", default: "2026-10-24", kind: "text" },
+      {
+        key: "dayCount",
+        label: "Day count",
+        default: "act365",
+        kind: "select",
+        options: [
+          { value: "act365", label: "Actual/365" },
+          { value: "actact", label: "Actual/actual (1/366 in a leap year)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const out = postjudgmentReport({ amount: +r("amount"), ratePct: +r("rate"), judgment: r("judgment"), payment: r("payment"), dayCount: r("dayCount") });
+      return out.ok ? out : finRefuse(out.text);
+    },
+  },
+  {
+    id: "dmg-lost-earnings",
+    name: "Damages: lost earnings (present value)",
+    fields: [
+      { key: "base", label: "Annual earnings in year 1", default: "65,000" },
+      { key: "growth", label: "Earnings growth % a year", default: "3" },
+      { key: "discount", label: "Discount rate % a year", default: "4.5" },
+      {
+        key: "horizonMode",
+        label: "Horizon given as",
+        default: "years",
+        kind: "select",
+        options: [
+          { value: "years", label: "Years of loss" },
+          { value: "age", label: "End age" },
+        ],
+      },
+      { key: "horizon", label: "Years of loss (or end age)", default: "20" },
+      { key: "age", label: "Age at the start of year 1", default: "45" },
+      { key: "consumption", label: "Personal consumption % (0 unless deducted)", default: "0" },
+      { key: "fringe", label: "Fringe benefits % of earnings", default: "22" },
+      {
+        key: "mid",
+        label: "Discounting",
+        default: "off",
+        kind: "select",
+        options: [
+          { value: "off", label: "End of year" },
+          { value: "on", label: "Mid-year" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const out = lostEarningsReport({
+        base: +r("base"),
+        growthPct: +r("growth"),
+        discountPct: +r("discount"),
+        horizonMode: r("horizonMode"),
+        horizon: +r("horizon"),
+        startAge: +r("age"),
+        consumptionPct: +r("consumption"),
+        fringePct: +r("fringe"),
+        midYear: r("mid"),
+      });
+      return out.ok ? out : finRefuse(out.text);
+    },
+  },
 ];
 
 /** Fills the calculator dropdown. */
@@ -9521,6 +9662,43 @@ function renderFinanceInputs(): void {
   renderCalcFields(calc.fields, finInputs, "fin", updateFinancePreview);
 }
 
+/**
+ * A Finance results table as the pane shows it: the header, at most 40 rows and the totals row, with a line saying
+ * how many more rows go into the document (a 10,000-row damages list must not be rebuilt in the DOM on each keystroke).
+ */
+function finTablePreview(t: { label: string; rows: string[][] }): HTMLElement {
+  const SHOW = 40;
+  const wrap = document.createElement("div");
+  wrap.className = "fin-table-preview";
+  wrap.style.overflowX = "auto";
+  const cap = document.createElement("div");
+  cap.className = "ms-note";
+  cap.textContent = t.label;
+  const table = document.createElement("table");
+  table.className = "solid-table";
+  const [head, ...body] = t.rows;
+  const shown = body.length > SHOW + 1 ? [...body.slice(0, SHOW), body[body.length - 1]] : body;
+  const addRow = (cells: string[], tag: "th" | "td"): void => {
+    const tr = document.createElement("tr");
+    for (const c of cells) {
+      const cell = document.createElement(tag);
+      cell.textContent = c;
+      tr.appendChild(cell);
+    }
+    table.appendChild(tr);
+  };
+  if (head) addRow(head, "th");
+  shown.forEach((r) => addRow(r, "td"));
+  wrap.append(cap, table);
+  if (shown.length < body.length) {
+    const more = document.createElement("div");
+    more.className = "ms-note";
+    more.textContent = `${(body.length - shown.length).toLocaleString("en-US")} more rows are not shown here; the inserted table has all ${body.length.toLocaleString("en-US")}.`;
+    wrap.appendChild(more);
+  }
+  return wrap;
+}
+
 /** Computes and shows the result for the current calculator inputs. */
 function updateFinancePreview(): void {
   const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
@@ -9534,7 +9712,7 @@ function updateFinancePreview(): void {
   let fieldRefusal = "";
   const numeric = new Map<string, string>();
   for (const f of calc.fields) {
-    if (f.kind === "select" || f.kind === "list") continue;
+    if (f.kind === "select" || f.kind === "list" || f.kind === "text" || f.kind === "block") continue;
     const raw = rawRead(f.key);
     if (!raw.trim()) continue;
     const v = readFinanceField(raw);
@@ -9549,10 +9727,12 @@ function updateFinancePreview(): void {
     finResult.innerHTML = '<span class="hint">Enter all values to compute.</span>';
     finInsertBtn.disabled = true;
     currentFinText = "";
+    currentFinTable = null;
     return;
   }
   let text = "";
   let svg = "";
+  let table: { label: string; rows: string[][] } | null = null;
   let refusal = "";
   let refused = false;
   calcListNotes.clear();
@@ -9563,11 +9743,13 @@ function updateFinancePreview(): void {
     } else {
       text = out.text;
       svg = out.svg ?? "";
+      table = out.table ?? null;
       refused = out.ok === false;
     }
   } catch (error) {
     text = "";
     svg = "";
+    table = null;
     // A list holding a non-number says which (it used to be dropped without a word).
     if (error instanceof ListTokenError) refusal = error.message;
   }
@@ -9607,8 +9789,14 @@ function updateFinancePreview(): void {
   // bond, IRR, depreciation) reached the document; they are punctuated as prose (proseDashes) and the COMPOSED text
   // is what the gate judges.
   const composed = [text, ...listNotes.map((n) => `Note: ${proseDashes(n)}`), ...(calc.assumes ? [`Assumes: ${proseDashes(calc.assumes)}`] : [])].join("\n");
+  // A results table goes into Word from its cells, so its cells pass the same gate as the text (an empty cell is a
+  // blank, not a broken number).
+  const tableOk = !table || tableCellsInsertable(table.rows);
   currentFinText = insertable && insertableResultText(composed) ? composed : "";
+  if (!tableOk) currentFinText = "";
+  currentFinTable = currentFinText && table ? table : null;
   finInsertBtn.disabled = !currentFinText;
+  if (currentFinTable) finResult.appendChild(finTablePreview(currentFinTable));
 
   // THE FIGURE, under the number and the assumptions.
   //
@@ -11572,7 +11760,8 @@ async function insertFinanceResult(): Promise<void> {
     return;
   }
   if (!currentFinSvg) {
-    await insertPlainText(currentFinText, "Result");
+    if (currentFinTable) await insertTextAndTable(currentFinText, currentFinTable, "Result");
+    else await insertPlainText(currentFinText, "Result");
     return;
   }
   // ONE PACKAGE (fix2-plat): the summary lines, then the chart in its own paragraph below them. Intrinsic size from
@@ -11588,7 +11777,8 @@ async function insertFinanceResult(): Promise<void> {
     render: currentFinRender ?? undefined,
     // Finance rendered at 2× its natural size before figureScale; kept.
     supersample: 2,
-  }, "Result and chart inserted");
+    table: currentFinTable ?? undefined,
+  }, currentFinTable ? "Result, table and chart inserted" : "Result and chart inserted");
 }
 
 /** The width/height an SVG declares on its own root element. */
@@ -36729,6 +36919,12 @@ interface FigureInsert {
   supersample?: number;
   /** What follows the picture in the same batch: a caption line, or Table → Chart's data table. */
   tail?: FigureTail;
+  /**
+   * A results table between the text and the picture, in the same package (insertTextWithFigure only; the Finance
+   * damages calculators). A result with a table always goes in as one package: the vector route's chained second
+   * insert has no usable anchor after a table.
+   */
+  table?: { label: string; rows: string[][] };
 }
 
 /** A caption line under the figure, with the cursor after it — or no tail when there is no caption. */
@@ -36792,6 +36988,38 @@ async function insertFigure(o: FigureInsert): Promise<string> {
 }
 
 /**
+ * A result's text and its results TABLE as one package (no figure): the damages calculators when their figure is
+ * absent or could not be made. Same contract as insertPlainText: refused while another insert runs, and success is
+ * claimed only when Word took the package.
+ */
+async function insertTextAndTable(text: string, table: { label: string; rows: string[][] }, label: string): Promise<boolean> {
+  if (!text.trim()) {
+    setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
+    return false;
+  }
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return false;
+  }
+  insertTextBusy = true;
+  setStatus(`Inserting ${label.toLowerCase()}…`);
+  try {
+    const built = buildResultOoxml([
+      { kind: "text", content: text.replace(/\s+$/, "") },
+      { kind: "table", label: table.label, rows: table.rows },
+    ]);
+    await docHost.insertResultLayout([{ kind: "ooxml", ooxml: built.ooxml }]);
+    setStatus(`${label} and table inserted. Ctrl/⌘+Z undoes it.`, "success");
+    return true;
+  } catch (error) {
+    setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
+    return false;
+  } finally {
+    insertTextBusy = false;
+  }
+}
+
+/**
  * A result's TEXT AND ITS FIGURE as ONE package (fix2-plat): the text lines as paragraphs, the picture in its own
  * paragraph below them, then the figure's caption line — the Engineering path. Two inserts (text, then picture after
  * the caret) put the chart on the last text line in Word (measured via COM). The figure goes through the pane's
@@ -36812,7 +37040,7 @@ async function insertTextWithFigure(text: string, label: string, o: FigureInsert
     return false;
   }
   const textOnly = async (why: string): Promise<boolean> => {
-    const ok = await insertPlainText(text, label);
+    const ok = o.table ? await insertTextAndTable(text, o.table, label) : await insertPlainText(text, label);
     if (ok) setStatus(`${label} inserted, but the figure could not be: ${why}`, "error");
     return ok;
   };
@@ -36822,7 +37050,7 @@ async function insertTextWithFigure(text: string, label: string, o: FigureInsert
     o.fallbackH,
   );
   if (!prepared.ok) return textOnly(refusalText(prepared));
-  if (decideInsertRoute(hostCapability()).route === "svg") {
+  if (!o.table && decideInsertRoute(hostCapability()).route === "svg") {
     // Vector: the text first, ending on its own paragraph, then the picture on the paragraph after it.
     if (!(await insertPlainText(`${text.replace(/\s+$/, "")}\n`, label, true))) return false;
     try {
@@ -36850,6 +37078,7 @@ async function insertTextWithFigure(text: string, label: string, o: FigureInsert
   try {
     const items: ResultPackageItem[] = [
       { kind: "text", content: text.replace(/\s+$/, "") },
+      ...(o.table ? [{ kind: "table" as const, label: o.table.label, rows: o.table.rows }] : []),
       {
         kind: "picture",
         caption: "",

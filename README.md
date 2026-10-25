@@ -29,7 +29,7 @@ Pick a tool from the home screen — **31 tools** (grouped STEM + legal):
 | **Solid form** | XRPD peaks picked from your pattern (or typed) with Bragg d-spacings and the "characterized by … peaks at 2θ angles of about …" text; DSC onsets (tangent method) and TGA weight-loss steps; figures in USPTO or journal style |
 | **Diagrams** | patent figures from text in USPTO style: block diagrams, flowcharts, state and sequence diagrams, timing diagrams, schematics; numerals in the box or on lead lines, FIG labels, lettering ≥ 1/8 in |
 | **Table → Chart** | charts (column/bar/line/area/scatter/stacked), flowcharts, block diagrams, table figures; B&W patent figures or editable PowerPoint |
-| **Finance** | 24 calculators — TVM / loan / NPV / IRR / DCF / Black–Scholes + Greeks / bond analytics, plus a finance equation library |
+| **Finance** | 27 calculators — TVM / loan / NPV / IRR / DCF / Black–Scholes + Greeks / bond analytics / damages interest and lost earnings, plus a finance equation library |
 | **Build** | molecules from atom/bond lists or molfiles; Markush/R-group genus + substituent gallery |
 | **Code** | algorithm (bold-keyword) and verbatim code listings |
 | **Drawing (CAD)** | build a part from shapes (plates with hole grids, L-brackets, stepped shafts, bolt-circle flanges, tubes, cylinders, cones, spheres), assemble it, **turn it in 3D like the molecule view**, and insert a drawing with **hidden lines worked out**: **ASME** (third-angle, default) or **ISO** (first-angle) engineering sheets at a standard scale, **USPTO 1.84** patent sheets (FIG. labels, numerals on lead lines), or journal / plain line art. Balloons and numerals anchor to the part and appear only where visible; the model travels in the alt text so **Edit drawing at cursor** reopens it |
@@ -85,7 +85,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**10,000+ unit tests** across **692 test files**), `npm run build` (production bundle),
+> `npm test` (**10,000+ unit tests** across **695 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool, and an

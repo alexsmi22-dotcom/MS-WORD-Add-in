@@ -75,7 +75,9 @@ const BASELINES = {
   // could return only a bare string - there was nowhere to put a figure. The
   // type change landed with ONE wired calculator so the path was proven before
   // 23 more were written against it.
-  finance: { label: "Finance", figures: 24, total: 24 },
+  // v2.195.0 (E1a): 27 of 27 — prejudgment interest, post-judgment interest (§ 1961) and lost earnings, each
+  // inserting its text, a Word table and a figure as one package.
+  finance: { label: "Finance", figures: 27, total: 27 },
 };
 
 function findBrowser() {

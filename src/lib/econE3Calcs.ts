@@ -68,8 +68,8 @@ export const ES_EVENT_FIELDS: E3Field[] = [
     kind: "select",
     options: [
       { value: "returns", label: "Returns" },
-      { value: "simple", label: "Prices (simple returns P_t/P_{t−1} − 1)" },
-      { value: "log", label: "Prices (log returns ln(P_t/P_{t−1}))" },
+      { value: "simple", label: "Prices (simple returns Pₜ/Pₜ₋₁ − 1)" },
+      { value: "log", label: "Prices (log returns ln(Pₜ/Pₜ₋₁))" },
     ],
   },
   {
@@ -153,13 +153,14 @@ export function esEventCalc(read: Read): StatOutput {
   lines.push(
     `Tests: a single event's t is its SCAR = CAR/σ̂(CAR), Student t with L₁ − 2 = ${L1 - 2} df (CLM eq. 4.4.14); ` +
       "J₁ = CAAR/√((1/N²)Σσ̂²ᵢ) and J₂ = √(N(L₁ − 4)/(L₁ − 2))·mean SCAR, both against N(0, 1) (CLM eqs. 4.4.22, 4.4.24); " +
-      "BMP = mean SCAR·√N/S with S the cross-sectional SD of the SCARs (divisor N − 1), against t(N − 1) (Boehmer, Musumeci & Poulsen 1991, " +
-      "as given by Kolari & Pynnönen 2009); the cross-sectional test divides the CAAR by √((1/N²)Σ(CARᵢ − CAAR)²), MacKinlay's eq. 21, against N(0, 1). p-values are two-sided.",
+      "BMP = mean SCAR·√N/S with S the cross-sectional SD of the SCARs, divisor N − 1 (Boehmer, Musumeci & Poulsen 1991, " +
+      "as given by Kolari & Pynnönen 2009), read here against t(N − 1) as a one-sample t on the SCARs; the cross-sectional test divides the CAAR by √((1/N²)Σ(CARᵢ − CAAR)²), MacKinlay's eq. 21, against N(0, 1). p-values are two-sided.",
   );
   lines.push(
     `An event date that is not a trading day in the table moves to the next trading day. ${percentIn ? "Returns are read as percent." : "Returns, α and σε are shown in percent."}` +
-      (input === "simple" ? " Returns are simple returns P_t/P_{t−1} − 1 dated by the later day." : input === "log" ? " Returns are log returns ln(P_t/P_{t−1}) dated by the later day." : ""),
+      (input === "simple" ? " Returns are simple returns Pₜ/Pₜ₋₁ − 1 dated by the later day." : input === "log" ? " Returns are log returns ln(Pₜ/Pₜ₋₁) dated by the later day." : ""),
   );
+  if (!has11 && !(evFrom === -1 && evTo === 1)) lines.push(`CAR(−1, +1) is not reported: the event window ${win} does not contain days −1 to +1.`);
   lines.push(...res.notes);
 
   const head = ["Event", "Day used", "α (%)", "β", "σε (%)", `CAR${win} (%)`, "t (SCAR)", "p"];
@@ -286,8 +287,8 @@ export function idxPriceCalc(read: Read): StatOutput {
   lines.push(formulas.map((f, j) => `${INDEX_NAMES[f]} ${tbl.periods[last]}: ${fmtFixed(series[j][last], 3)}`).join(" · "));
   lines.push("");
   lines.push(
-    "Conventions (ILO/IMF CPI Manual, 2004): Laspeyres Σp_t q_s/Σp_s q_s; Paasche Σp_t q_t/Σp_s q_t; Fisher √(Laspeyres × Paasche); " +
-      "Törnqvist exp Σ ½(w_s + w_t) ln(p_t/p_s) with expenditure shares w = pq/Σpq.",
+    "Conventions (ILO/IMF CPI Manual, 2004), comparing period t with period s: Laspeyres Σpₜqₛ/Σpₛqₛ; Paasche Σpₜqₜ/Σpₛqₜ; Fisher √(Laspeyres × Paasche); " +
+      "Törnqvist exp Σ ½(wₛ + wₜ) ln(pₜ/pₛ) with expenditure shares w = pq/Σpq.",
   );
   lines.push(
     chained

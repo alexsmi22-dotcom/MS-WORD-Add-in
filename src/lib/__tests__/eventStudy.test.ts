@@ -37,6 +37,7 @@ function clean(out: StatOutput): string[] {
     if (/NaN|Infinity|undefined/.test(s)) bad.push(`broken: ${s}`);
     if (/\d[eE][-+]?\d/.test(s)) bad.push(`e-notation: ${s}`);
     if (s.includes("—")) bad.push(`em dash: ${s}`);
+    if (/[_^{}]/.test(s)) bad.push(`ASCII sub/superscript notation: ${s}`);
     if (/(^|[\s(])-\d/.test(s)) bad.push(`hyphen minus: ${s}`);
   }
   if (!insertableResultText(out.text)) bad.push("gate: text");
@@ -128,8 +129,18 @@ describe("es-event against the numpy oracle", () => {
     const rows = out.tables![2].rows;
     expect(rows.find((r) => r[0].startsWith("BMP"))![2]).toBe("needs 2 or more events");
     expect(rows.find((r) => r[0].startsWith("Cross"))![2]).toBe("needs 2 or more events");
-    // A one-day event window has no CAR(−1, +1) columns.
+    // A one-day event window has no CAR(−1, +1) columns, and the text says why.
     expect(out.tables![0].rows[0]).toHaveLength(8);
+    expect(out.text).toContain("CAR(−1, +1) is not reported: the event window (0, 0) does not contain days −1 to +1.");
+  });
+
+  test("price inputs print clean, with the return definition", () => {
+    for (const c of [fixture.cases[1], fixture.cases[2]]) {
+      const out = calc({ data: c.data, events: c.events, ...c.fields });
+      expect(out.ok).not.toBe(false);
+      expect(clean(out)).toEqual([]);
+      expect(out.text).toContain(c.fields.input === "log" ? "log returns ln(Pₜ/Pₜ₋₁)" : "simple returns Pₜ/Pₜ₋₁ − 1");
+    }
   });
 });
 
@@ -239,7 +250,7 @@ describe("es-event refusals", () => {
 });
 
 describe("es-event at scale", () => {
-  function bigTable(rows: number): { text: string; dates: string[] } {
+  function bigTable(rows: number, weekdaysOnly = true): { text: string; dates: string[] } {
     let seed = 7;
     const u = (): number => {
       seed = (seed * 1103515245 + 12345) % 2147483648;
@@ -249,7 +260,7 @@ describe("es-event at scale", () => {
     const dates: string[] = [];
     let day = civilDay(1901, 1, 2);
     for (let i = 0; i < rows; i++) {
-      while ((day + 4) % 7 === 0 || (day + 4) % 7 === 6) day++;
+      while (weekdaysOnly && ((day + 4) % 7 === 0 || (day + 4) % 7 === 6)) day++;
       const { y, m, d } = civilFromDay(day);
       const iso = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       dates.push(iso);
@@ -260,15 +271,15 @@ describe("es-event at scale", () => {
     return { text: lines.join("\n"), dates };
   }
 
-  test("75,000 trading days with 200 events stays bounded", () => {
-    const { text, dates } = bigTable(75000);
-    const events = Array.from({ length: 200 }, (_, k) => `${k % 2 ? "F2" : "F1"}: ${dates[200 + k * 370]}`).join("\n");
+  test("100,000 daily rows (consecutive days 1901–2174) with 200 events stays bounded", () => {
+    const { text, dates } = bigTable(100000, false);
+    const events = Array.from({ length: 200 }, (_, k) => `${k % 2 ? "F2" : "F1"}: ${dates[200 + k * 495]}`).join("\n");
     const t0 = Date.now();
     const out = calc({ data: text, events, est_from: "−130", est_to: "−11", ev_from: "−5", ev_to: "5" });
     const ms = Date.now() - t0;
     expect(out.ok).not.toBe(false);
     expect(clean(out)).toEqual([]);
-    // Measured 1.09 s alone (one worker, most of it reading the table); bounded at 3.7× for QC's 4 workers.
+    // Measured 0.6–1.0 s alone (one worker, cold run the slower; most of it reading the table); bounded at 4×.
     expect(ms).toBeLessThan(4000);
   });
 

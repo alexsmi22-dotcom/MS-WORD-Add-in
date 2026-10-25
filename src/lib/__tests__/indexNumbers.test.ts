@@ -23,6 +23,7 @@ function clean(out: StatOutput): string[] {
     if (/NaN|Infinity|undefined/.test(s)) bad.push(`broken: ${s}`);
     if (/\d[eE][-+]?\d/.test(s)) bad.push(`e-notation: ${s}`);
     if (s.includes("—")) bad.push(`em dash: ${s}`);
+    if (/[_^{}]/.test(s)) bad.push(`ASCII sub/superscript notation: ${s}`);
     if (/(^|[\s(])-\d/.test(s)) bad.push(`hyphen minus: ${s}`);
   }
   if (!insertableResultText(out.text)) bad.push("gate: text");

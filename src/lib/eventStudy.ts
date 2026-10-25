@@ -15,8 +15,9 @@
  *  - Across N events: CAAR = mean CAR, var = (1/N²)Σσ̂²i, J₁ = CAAR/√var ~ N(0, 1) (CLM eqs. 4.4.19–4.4.22;
  *    MacKinlay eqs. 17, 18, 20); J₂ = √(N(L1 − 4)/(L1 − 2))·mean SCAR ~ N(0, 1) (CLM eq. 4.4.24).
  *  - BMP (Boehmer, Musumeci & Poulsen 1991): mean SCAR·√N / S, S the cross-sectional standard deviation of the SCARs
- *    with divisor N − 1 (as transcribed by Kolari & Pynnönen, EFMA 2009, eqs. 5–7 and 21); p from t(N − 1), the
- *    one-sample t on the SCARs.
+ *    with divisor N − 1 (as transcribed by Kolari & Pynnönen, EFMA 2009, eqs. 5–7 and 21). The p-value from t(N − 1)
+ *    is this module's choice (the one-sample t on the SCARs); the transcription read does not state a reference
+ *    distribution.
  *  - Cross-sectional test: CAAR / √((1/N²)Σ(CARi − CAAR)²), the variance estimator of MacKinlay eq. (21) (divisor N²,
  *    as printed), p from N(0, 1).
  *

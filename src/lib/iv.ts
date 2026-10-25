@@ -37,14 +37,25 @@ export const IV_WALL_MS = 6000;
 export const IV_MAX_COLUMNS = 40;
 /**
  * Up-front work bound, in units of rows × (1,500 + (k + k_Z)² + k_endog·k_Z²): the per-row passes, the QR
- * factorisations and covariances, and one first-stage covariance per endogenous regressor. Measured on the build
- * machine at about 2.8–3.5 ns a unit (100,000 rows with 4 coefficients and 6 instruments: 0.41 s; 100,000 rows with
- * 10 + 10 regressors and 20 instruments, clustered: 3.9 s), so the largest admitted input runs in about 2 s.
+ * factorisations, the thin Q factors and covariances, and one first-stage covariance per endogenous regressor. The
+ * whole calculator (parsing the table, selecting columns, the fit, the OLS fit for the figure) was measured in jest
+ * at about 10 ns a unit on the widest shape (60,000 rows × 18 exogenous + 2 endogenous + 20 instruments, clustered:
+ * 4.9×10⁸ units, 5.1–5.5 s with 0.9 s of parsing; 30,000 rows: 2.4–3.0 s). At 2×10⁸ the largest admitted input of
+ * that shape (about 24,500 rows) runs in about 2.4 s, and the calculator refuses an oversized table right after
+ * parsing, before reading its columns.
  */
-export const IV_MAX_WORK = 5e8;
+export const IV_MAX_WORK = 2e8;
 /** The work units of a fit (see IV_MAX_WORK). */
 export function ivWorkUnits(n: number, P: number, Pz: number, k2: number): number {
   return n * (1500 + (P + Pz) * (P + Pz) + k2 * Pz * Pz);
+}
+/** The up-front refusal past IV_MAX_WORK, naming the limit; null when the input is admitted. */
+export function ivWorkRefusal(n: number, P: number, Pz: number, k2: number): string | null {
+  if (ivWorkUnits(n, P, Pz, k2) <= IV_MAX_WORK) return null;
+  return (
+    `${intText(n)} rows with ${P} coefficients and ${Pz} instruments is beyond the work this calculator allows in the task pane ` +
+    `(about ${intText(Math.floor(IV_MAX_WORK / ivWorkUnits(1, P, Pz, k2)))} rows for this model). Use fewer rows, or fewer regressors and instruments.`
+  );
 }
 /** The 97.5% point of the standard normal. */
 const Z975 = 1.959963984540054;
@@ -98,6 +109,8 @@ export interface IvFirstStage {
   fRobust?: { value: number; df1: number; wald: number; p: number };
   /** Why the robust F is missing under robust or clustered SEs (a singular covariance of the instrument block). */
   fRobustWhy?: string;
+  /** Why some instrument's SE, statistic, p and interval are not computed (those entries are NaN in `terms`). */
+  termsWhy?: string;
 }
 
 export interface IvFit {
@@ -271,6 +284,46 @@ function annihilate(qr: Qr, b: Float64Array): Float64Array {
   for (let k = 0; k < qr.p; k++) a[k] = 0;
   for (let k = qr.p - 1; k >= 0; k--) reflect(qr.v[k], qr.vtv[k], k, a, qr.n);
   return a;
+}
+
+/** The thin Q's columns (n × p): the reflectors applied to e₁…e_p. */
+function thinQ(qr: Qr): Float64Array[] {
+  const out: Float64Array[] = [];
+  for (let j = 0; j < qr.p; j++) {
+    const e = new Float64Array(qr.n);
+    e[j] = 1;
+    for (let k = qr.p - 1; k >= 0; k--) reflect(qr.v[k], qr.vtv[k], k, e, qr.n);
+    out.push(e);
+  }
+  return out;
+}
+
+/**
+ * γᵀ(BᵀB)⁻¹γ for B given by its columns (length m), by a Householder QR of B (never the cross product BᵀB):
+ * BᵀB = RᵀR, so the form is ‖R⁻ᵀγ‖². Null when B is rank-deficient (a column within 10⁻¹⁰ of the others' span).
+ */
+function quadFormQr(Bcols: Float64Array[], m: number, gamma: number[]): number | null {
+  const f = qrFactor(Bcols, m, 1e-10, false);
+  if (f.failAt >= 0 || f.qr.p !== gamma.length) return null;
+  const R = f.qr.R;
+  const p = gamma.length;
+  const v = new Array<number>(p).fill(0);
+  let s2 = 0;
+  for (let i = 0; i < p; i++) {
+    let s = gamma[i];
+    for (let j = 0; j < i; j++) s -= R[j][i] * v[j];
+    v[i] = s / R[i][i];
+    s2 += v[i] * v[i];
+  }
+  return Number.isFinite(s2) ? s2 : null;
+}
+
+/** Whether the column of ones lies in the factor's column space: ‖M·1‖/√n ≤ √ε (linearmodels has_constant). */
+function spansConstant(qr: Qr): boolean {
+  const n = qr.n;
+  if (qr.p >= n) return false;
+  const r = annihilate(qr, new Float64Array(n).fill(1));
+  return colNorm(r, 0) / Math.sqrt(n) <= Math.sqrt(EPS);
 }
 
 function project(qr: Qr, b: Float64Array): Float64Array {
@@ -488,14 +541,8 @@ export function fitIv(input: IvInput): IvResult {
   if (k1 + k2 + nq > IV_MAX_COLUMNS) {
     return { ok: false, reason: `At most ${IV_MAX_COLUMNS} columns in all (exogenous regressors, endogenous regressors and instruments); this model has ${k1 + k2 + nq}.` };
   }
-  if (ivWorkUnits(n, P, Pz, k2) > IV_MAX_WORK) {
-    return {
-      ok: false,
-      reason:
-        `${intText(n)} rows with ${P} coefficients and ${Pz} instruments is beyond the work this calculator allows in the task pane ` +
-        `(about ${intText(Math.floor(IV_MAX_WORK / ivWorkUnits(1, P, Pz, k2)))} rows for this model). Use fewer rows, or fewer regressors and instruments.`,
-    };
-  }
+  const tooBig = ivWorkRefusal(n, P, Pz, k2);
+  if (tooBig) return { ok: false, reason: tooBig };
   // The diagnostics need residual degrees of freedom beyond every regression they run.
   if (n <= Math.max(P, Pz) + 1) {
     return {
@@ -649,33 +696,31 @@ export function fitIv(input: IvInput): IvResult {
 
   const small = input.small;
   const df = n - P;
-  /** The covariance (internal scaled coordinates) of an OLS-type fit with regressors `reg` (the X̂ or Z columns). */
-  const covOf = (qr: Qr, reg: Float64Array[], resid: Float64Array, k: number, classicalSmall: boolean): number[][] => {
+  /** The finite-sample factor on a robust or clustered covariance with k coefficients (1 for classical). */
+  const robustFactor = (k: number): number =>
+    input.se === "cluster" ? (small ? (G / (G - 1)) * ((n - 1) / (n - k)) : 1) : input.se === "hc1" ? n / (n - k) : 1;
+  /**
+   * The covariance (internal scaled coordinates) of an OLS-type fit whose regressors factor as QR (the X̂ or Z
+   * columns; Q its thin factor): (RᵀR)⁻¹ = R⁻¹R⁻ᵀ and the sandwich R⁻¹(QᵀΩQ)R⁻ᵀ, so no cross product of data columns
+   * is ever inverted and the rounding follows the conditioning of the regressors, not its square.
+   */
+  const covOf = (qr: Qr, Q: Float64Array[], resid: Float64Array, k: number, classicalSmall: boolean): number[][] => {
     const Rinv = invUpper(qr.R);
-    const p = reg.length;
-    const A: number[][] = Array.from({ length: p }, (_, i) => Array.from({ length: p }, (_, j) => {
-      let s = 0;
-      for (let l = Math.max(i, j); l < p; l++) s += Rinv[i][l] * Rinv[j][l];
-      return s;
-    }));
-    const ee = dotF(resid, resid);
+    const p = Q.length;
     if (input.se === "classical") {
-      const s2 = ee / (classicalSmall ? n - k : n);
-      return A.map((r) => r.map((v) => v * s2));
+      const s2 = dotF(resid, resid) / (classicalSmall ? n - k : n);
+      return Array.from({ length: p }, (_, i) => Array.from({ length: p }, (_, j) => {
+        let s = 0;
+        for (let l = Math.max(i, j); l < p; l++) s += Rinv[i][l] * Rinv[j][l];
+        return s * s2;
+      }));
     }
-    let M: number[][];
-    let f = 1;
-    if (input.se === "cluster") {
-      M = clusterCross(reg, resid, gOf!, G);
-      if (small) f = (G / (G - 1)) * ((n - 1) / (n - k));
-    } else {
-      M = weightedCross(reg, squares(resid));
-      if (input.se === "hc1") f = n / (n - k);
-    }
-    const V = sandwich(A, M);
-    return V.map((r) => r.map((v) => v * f));
+    const M = input.se === "cluster" ? clusterCross(Q, resid, gOf!, G) : weightedCross(Q, squares(resid));
+    const f = robustFactor(k);
+    return sandwich(Rinv, M).map((r) => r.map((v) => v * f));
   };
-  const V = covOf(qrH, XhatCols, e, P, small);
+  const QH = thinQ(qrH);
+  const V = covOf(qrH, QH, e, P, small);
 
   // Reference distribution.
   const pOf = (stat: number, dfr: number): number => (small ? tTestP(stat, dfr) : chiSquareP(stat * stat, 1));
@@ -719,8 +764,15 @@ export function fitIv(input: IvInput): IvResult {
       wald = small ? { stat: W / kq, df1: kq, df2: df, p: fTestP(W / kq, kq, df), dist: "F" } : { stat: W, df1: kq, p: chiSquareP(W, kq), dist: "chi2" };
     }
   }
-  const r2 = 1 - rss / tss;
-  const adjR2 = 1 - ((n - (hasConst ? 1 : 0)) / (n - P)) * (1 - r2);
+  // Without a named constant, the regressors may still span one (a column of ones, a full set of dummies): R² is then
+  // centred, as linearmodels decides it (has_constant on [exogenous, endogenous]: ‖M·1‖/√n ≤ √ε).
+  const implicitConst = !hasConst && spansConstant(qrX);
+  const tssR2 = implicitConst ? centredSS(y, true) : tss;
+  if (implicitConst && !(tssR2 > 1e-24 * n * yScale * yScale)) {
+    return { ok: false, reason: `${q(input.depName)} is constant, and the regressors span a constant, so there is nothing to explain.` };
+  }
+  const r2 = 1 - rss / tssR2;
+  const adjR2 = 1 - ((n - (hasConst || implicitConst ? 1 : 0)) / (n - P)) * (1 - r2);
   const s2 = (rss / (small ? n - P : n)) * ys * ys;
 
   const late2 = clock("first stage");
@@ -729,44 +781,67 @@ export function fitIv(input: IvInput): IvResult {
   // First stage: each endogenous regressor on Z, under the same covariance and reference.
   const firstStage: IvFirstStage[] = [];
   const qrExog = qrFactor(exogSet.map((c0) => c0.col), n, tol, true).qr;
-  const Zcols = Zs.map((c0) => c0.col);
+  const QZ = thinQ(qrZ);
   const dfz = n - Pz;
   const critZ = critOf(dfz);
   const instIdx = Z2.map((_, l) => nexog + l);
+  // Whether the instruments [exogenous, excluded] span a constant without one being named (first-stage R²).
+  const zConst = hasConst || spansConstant(qrZ);
+  // Nearly collinear instruments: |R_ll| is the part of instrument l (unit norm) outside the columns before it.
+  {
+    let worst = 1;
+    let worstName = "";
+    for (const l of instIdx) {
+      const a = Math.abs(qrZ.R[l][l]);
+      if (a < worst) {
+        worst = a;
+        worstName = Zs[l].name;
+      }
+    }
+    if (worst < 1e-5) {
+      // Digits measured against 60-digit mpmath (z2 = z1 + ε·noise, n = 200), relative errors at ε = 1e−8, 1e−9, 1e−10:
+      // split coefficients 1.6e−6, 2.3e−7, 7.8e−6; F statistics and 2SLS 1.4e−9, 3.1e−8, 8.7e−7.
+      const digits = Math.max(1, Math.floor(14 + Math.log10(worst)));
+      const digitsF = Math.max(1, Math.min(15, Math.floor(16.5 + Math.log10(worst))));
+      notes.push(
+        `The instruments are nearly collinear: the part of ${q(worstName)} outside the columns before it is ${numText(Number(worst.toPrecision(2)))} of its size. ` +
+          `Their individual first-stage coefficients and standard errors keep only about ${digits} significant digit${digits === 1 ? "" : "s"}; the first-stage F statistics and the 2SLS estimates do not depend on that split and keep about ${digitsF}.`,
+      );
+    }
+  }
   for (let j = 0; j < k2; j++) {
     const lateJ = clock("first stage");
     if (lateJ) return { ok: false, reason: lateJ };
     const x = X2[j].col;
-    const cz = backSolve(qrZ.R, qtApply(qrZ, x));
+    const w = qtApply(qrZ, x);
+    const cz = backSolve(qrZ.R, w);
     const r = annihilate(qrZ, x);
     const ssr = dotF(r, r);
-    const tssx = centredSS(x, hasConst);
+    const tssx = centredSS(x, zConst);
     const rr = annihilate(qrExog, x);
     const ssrR = dotF(rr, rr);
-    const Vz = covOf(qrZ, Zcols, r, Pz, small);
+    const Vz = covOf(qrZ, QZ, r, Pz, small);
     const fsTerms: ModelTerm[] = [];
+    const skippedSe: string[] = [];
     for (const l of instIdx) {
       const unit = X2[j].s / Zs[l].s;
       const coef = cz[l] * unit;
       const se = Math.sqrt(Math.max(Vz[l][l], 0)) * unit;
       const stat = coef / se;
-      if (!(se > 0) || !Number.isFinite(stat)) {
-        return { ok: false, reason: `First stage of ${q(X2[j].name)}: the standard error of ${q(Zs[l].name)} is zero or not finite, so its test is undefined.` };
+      if (!(se > 0) || !Number.isFinite(stat) || !Number.isFinite(coef)) {
+        // That coefficient's test alone is skipped, by name; the fit and the F statistics stand.
+        skippedSe.push(Zs[l].name);
+        fsTerms.push({ name: Zs[l].name, coef, se: NaN, stat: NaN, p: NaN, ciLo: NaN, ciHi: NaN });
+        continue;
       }
       fsTerms.push({ name: Zs[l].name, coef, se, stat, p: pOf(stat, dfz), ciLo: coef - critZ * se, ciHi: coef + critZ * se });
     }
-    const cI = instIdx.map((l) => cz[l]);
-    // Textbook non-robust F: s² = SSR/(n − k_Z).
+    // The coefficients on the excluded instruments in the Q basis: with Z = QR (exogenous columns first), γ = R_II·c_I
+    // is the last k_I entries of Qᵀx, and every test of c_I = 0 is a test of γ = 0 with R_II cancelling.
+    const gamma = instIdx.map((l) => w[l]);
+    // Textbook non-robust partial F: (SSR_restricted − SSR)/q over SSR/(n − k_Z); SSR_restricted − SSR = ‖γ‖².
     const s2tb = ssr / dfz;
-    const RinvZ = invUpper(qrZ.R);
-    const AII = instIdx.map((a) => instIdx.map((b) => {
-      let s = 0;
-      for (let l = Math.max(a, b); l < Pz; l++) s += RinvZ[a][l] * RinvZ[b][l];
-      return s * s2tb;
-    }));
-    const xtb = cholSolve(AII, cI);
-    if (!xtb) return { ok: false, reason: `First stage of ${q(X2[j].name)}: the covariance of the instrument coefficients is singular.` };
-    const Ftb = dot(cI, xtb) / nq;
+    const Ftb = gamma.reduce((s, g) => s + g * g, 0) / nq / s2tb;
     const fs: IvFirstStage = {
       endog: X2[j].name,
       terms: fsTerms,
@@ -776,9 +851,26 @@ export function fitIv(input: IvInput): IvResult {
       partialR2: 1 - ssr / ssrR,
       fClassical: { value: Ftb, df1: nq, df2: dfz, p: fTestP(Ftb, nq, dfz) },
     };
+    if (skippedSe.length) fs.termsWhy = `the standard error of ${joinNames(skippedSe)} is zero or not a finite number for these data, so its test is not computed`;
     if (input.se !== "classical") {
-      const xr = cholSolve(instIdx.map((a) => instIdx.map((b) => Vz[a][b])), cI);
-      if (!xr) {
+      // Robust Wald of γ = 0: γᵀ(Q_Iᵀ Ω Q_I)⁻¹γ / f, the meat's square root formed row by row (eᵢ·q_{i,I}, or the
+      // cluster sums of those rows) and factored by QR.
+      let Bcols: Float64Array[];
+      let m: number;
+      if (input.se === "cluster") {
+        m = G;
+        Bcols = instIdx.map((l) => {
+          const out = new Float64Array(G);
+          const ql = QZ[l];
+          for (let i = 0; i < n; i++) out[gOf![i]] += r[i] * ql[i];
+          return out;
+        });
+      } else {
+        m = n;
+        Bcols = instIdx.map((l) => product(QZ[l], r));
+      }
+      const W0 = quadFormQr(Bcols, m, gamma);
+      if (W0 === null) {
         // Not a reason to lose the 2SLS estimate: the robust F alone is omitted, by name (as the OLS calculator omits
         // its clustered F when the restrictions exceed G − 1).
         fs.fRobustWhy =
@@ -786,7 +878,7 @@ export function fitIv(input: IvInput): IvResult {
             ? `not computed: the clustered covariance of the ${nq} instrument coefficients is singular with only ${intText(G)} clusters (G − 1 < ${nq})`
             : `not computed: the ${input.se === "cluster" ? "clustered" : "robust"} covariance of the instrument coefficients is singular`;
       } else {
-        const W = dot(cI, xr);
+        const W = W0 / robustFactor(Pz);
         fs.fRobust = { value: W / nq, df1: nq, wald: W, p: chiSquareP(W, nq) };
       }
     }
@@ -800,7 +892,7 @@ export function fitIv(input: IvInput): IvResult {
   const diagnostics: IvDiag[] = [];
   const e0 = annihilate(qrX, y); // OLS residuals, endogenous treated as exogenous
   const e0e0 = dotF(e0, e0);
-  const qrZX = qrFactor([...Zcols, ...X2.map((c0) => c0.col)], n, tol, true).qr;
+  const qrZX = qrFactor([...Zs.map((c0) => c0.col), ...X2.map((c0) => c0.col)], n, tol, true).qr;
   const e1 = project(qrZX, e0);
   const e2 = project(qrZ, e);
   const delta = dotF(e1, e1) - dotF(e2, e2);
@@ -886,7 +978,19 @@ export function fitIv(input: IvInput): IvResult {
   notes.push(
     hasConst
       ? "R² = 1 − RSS/TSS with the 2SLS residuals; it can be negative and is not a measure of fit for IV."
-      : "No constant: R² is uncentered (1 − RSS/Σy²) and can be negative.",
+      : implicitConst
+        ? "No constant term is named, but the regressors span one (a column of ones or a full set of dummies), so R² = 1 − RSS/TSS is centred and the adjusted R² counts that constant, as linearmodels detects it (has_constant: the column of ones within √ε, relative, of the regressors' span). It can be negative."
+        : "No constant: R² is uncentered (1 − RSS/Σy²) and can be negative.",
+  );
+  if (!hasConst) {
+    notes.push(
+      zConst
+        ? "First-stage R²: the instruments (exogenous regressors and excluded instruments) span a constant, so it is centred, as linearmodels decides it."
+        : "First-stage R²: no constant, so it is uncentered.",
+    );
+  }
+  notes.push(
+    "Numerics: every covariance is R⁻¹(QᵀΩQ)R⁻ᵀ from a Householder QR of the regressors (never an inverted cross product), and the first-stage F statistics are formed in the Q basis, so nearly collinear instruments cost only the digits their own conditioning costs.",
   );
 
   const stats: ModelStat[] = [
@@ -906,7 +1010,7 @@ export function fitIv(input: IvInput): IvResult {
   }
   for (const fs of firstStage) {
     const vals = [fs.r2, fs.partialR2, fs.fClassical.value, fs.fClassical.p, ...(fs.fRobust ? [fs.fRobust.value, fs.fRobust.p] : [])];
-    for (const t of fs.terms) vals.push(t.coef, t.se, t.stat, t.p, t.ciLo, t.ciHi);
+    for (const t of fs.terms) vals.push(t.coef, ...(Number.isNaN(t.se) && fs.termsWhy ? [] : [t.se, t.stat, t.p, t.ciLo, t.ciHi]));
     if (vals.some((v) => !Number.isFinite(v))) return { ok: false, reason: `The first stage of ${q(fs.endog)} is not finite at this scale; rescale the data.` };
   }
   for (let i = 0; i < diagnostics.length; i++) {

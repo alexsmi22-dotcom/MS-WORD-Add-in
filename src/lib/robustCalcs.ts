@@ -8,11 +8,12 @@
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import type { FittedModel, ModelTerm } from "./regModel";
 import { BOOT_STATS, BOOT_MAX_B, BOOT_MIN_B, BOOT_MIN_N, runBootstrap, type BootMethod, type BootStat, type BootResult } from "./bootstrap";
-import { fitQuantileLp, qrCovariance, interceptOnlyObjective, QR_MAX_ROWS, QR_MAX_ROW_QUANTILES, QR_WALL_MS, type QrVcov } from "./quantReg";
+import { fitQuantileLp, qrCovariance, qrDesign, interceptOnlyObjective, QR_MAX_ROWS, QR_MAX_ROW_QUANTILES, QR_WALL_MS, type QrVcov } from "./quantReg";
 import { Pcg32, PCG_MAX_SEED } from "./prng";
 import { parseRegData, parseSpec, selectColumns, findColumn, type RegSpec } from "./regData";
 import { fitOls, magnitudeReason } from "./olsInference";
-import { fmtFixed, fmtP, intText } from "./regTable";
+import { fmtFixed, fmtP, intText, groupThousands } from "./regTable";
+import { timesTen } from "./axis";
 import { tTestP, tCritical } from "./stats";
 import { buildPlotSvg, type Series } from "./plot";
 import { composePanels } from "./panels";
@@ -118,15 +119,44 @@ export function readQuantiles(raw: string | undefined): number[] | { error: stri
   return out.sort((a, b) => a - b);
 }
 
-/** Decimals for values whose bootstrap SE is `se`: two significant digits of the SE, 0 to 6. */
-function decimalsFor(se: number, v: number): number {
-  const ref = se > 0 ? se : Math.abs(v);
-  if (!(ref > 0) || !Number.isFinite(ref)) return 3;
-  return Math.max(0, Math.min(6, 1 - Math.floor(Math.log10(ref))));
+/**
+ * One formatter for every value a bootstrap result prints (θ, SE, bias, the bounds), at the precision of the SE: the
+ * SE's second significant digit always shows, at any scale.
+ *   - values below 10¹⁵, and either an SE needing at most 6 decimals or values of 0.001 and up: plain decimals,
+ *     1 − ⌊log₁₀ SE⌋ of them (never fewer than 0), thousands grouped (1,234,519,233; 5.0000016);
+ *   - otherwise (tiny values with a tinier SE, or 10¹⁵ and up) one ×10ⁿ shared by every value (n from the largest),
+ *     with enough mantissa decimals for the SE (3.007×10⁻⁶ with SE 0.015×10⁻⁶).
+ * True minus, never e-notation.
+ */
+export function bootFormatter(se: number, values: number[]): (v: number) => string {
+  const mag = values.reduce((m, v) => (Number.isFinite(v) ? Math.max(m, Math.abs(v)) : m), 0);
+  const ref = se > 0 && Number.isFinite(se) ? se : mag > 0 ? mag : 1;
+  const d = 1 - Math.floor(Math.log10(ref));
+  const sign = (s: string): string => {
+    const t = /^-0(?:\.0*)?$/.test(s) ? s.slice(1) : s;
+    return t.startsWith("-") ? MINUS_SIGN + t.slice(1) : t;
+  };
+  // Plain decimals unless the values are tiny (below 0.001) with an SE needing more than 6 decimals, or 10¹⁵ and up.
+  if (mag < 1e15 && (d <= 6 || mag >= 1e-3)) {
+    const dd = Math.max(0, Math.min(20, d));
+    return (v) => sign(groupThousands(v.toFixed(dd)));
+  }
+  const E = mag > 0 ? Math.floor(Math.log10(mag)) : 0;
+  const md = Math.max(0, Math.min(15, d + E));
+  const unit = Math.pow(10, E);
+  return (v) => `${sign((v / unit).toFixed(md))}${timesTen(E)}`;
 }
 
-function intervalText(lo: number, hi: number, d: number): string {
-  return `[${fmtFixed(lo, d)}; ${fmtFixed(hi, d)}]`;
+const MINUS_SIGN = "−";
+
+/** The confidence level as a percentage with as many decimals as it has (95%, 95.5%, 95.55%). */
+export function confText(c: number): string {
+  const v = c * 100;
+  for (let d = 0; d <= 3; d++) {
+    const r = Number(v.toFixed(d));
+    if (Math.abs(v - r) < 1e-9) return `${v.toFixed(d)}%`;
+  }
+  return `${v.toFixed(3)}%`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -219,11 +249,31 @@ export function bootCiCalc(read: Read): StatOutput {
   }
   if (stat === "ratio") {
     let sx = 0;
-    for (const v of x!) sx += v;
-    if (sx === 0) return refuse(`The mean of ${q(c.names[0])} is 0, so the ratio of means is undefined.`);
+    let sa = 0;
+    for (const v of x!) {
+      sx += v;
+      sa += Math.abs(v);
+    }
+    // The rounding bound of the sum: a mean this close to 0 is 0 for all the data can tell (a demeaned column).
+    if (Math.abs(sx) <= n * Number.EPSILON * sa) {
+      return refuse(
+        `The mean of ${q(c.names[0])} is 0${sx === 0 ? "" : " up to rounding (|Σx| is within n·ε·Σ|x| of zero, the rounding bound of the sum, ε = 2⁻⁵²)"}, so the ratio of means is undefined.`,
+      );
+    }
   }
   const r = runBootstrap({ stat, y, x, B, confidence: conf, seed });
-  if (!r.ok) return refuse(r.reason);
+  if (!r.ok) {
+    if (r.denominatorCrossed) {
+      const dc = r.denominatorCrossed;
+      const f = bootFormatter(0, [dc.min, dc.max]);
+      return refuse(
+        `The ratio of means is not bootstrapped: in ${intText(dc.count)} of ${intText(B)} resamples the mean of ${q(c.names[0])} is 0 or has the other sign from its full-sample mean ` +
+          `(the resampled means run from ${f(dc.min)} to ${f(dc.max)}), so the ratio passes through infinity and its bootstrap distribution is unbounded. ` +
+          `The mean of ${q(c.names[0])} is too close to 0, relative to its spread, for a ratio of means.`,
+      );
+    }
+    return refuse(r.reason);
+  }
   return bootReport(r, { stat, label: statDef.label, depName: c.depName, xName: x ? c.names[0] : undefined, B, conf, seed, method: methodRaw, notes: c.notes, named: parsed.data.named });
 }
 
@@ -249,11 +299,12 @@ function bootReport(r: BootResult, k: BootCtx): StatOutput {
         : k.stat === "slope"
           ? `the slope of ${k.depName} on ${k.xName}`
           : `the ${k.label.toLowerCase()} of ${k.depName}`;
-  const confPct = `${fmtFixed(k.conf * 100, Number.isInteger(Math.round(k.conf * 1000) / 10) ? 0 : 1)}%`;
+  const confPct = confText(k.conf);
   const vals = [r.thetaHat, r.se, r.bias, r.percentile.lo, r.percentile.hi, r.basic.lo, r.basic.hi, r.normal.lo, r.normal.hi];
   if ("lo" in r.bca) vals.push(r.bca.lo, r.bca.hi);
   if (vals.some((v) => !Number.isFinite(v))) return refuse("The bootstrap produced a value that is not a finite number (an extreme scale); the result is not reported.");
-  const d = decimalsFor(r.se, r.thetaHat);
+  const fv = bootFormatter(r.se, vals);
+  const intervalText = (lo: number, hi: number): string => `[${fv(lo)}; ${fv(hi)}]`;
   const bcaOk = "lo" in r.bca;
   let headline = k.method;
   const lines: string[] = [];
@@ -266,9 +317,9 @@ function bootReport(r: BootResult, k: BootCtx): StatOutput {
   };
   if (headline === "bca" && !bcaOk) headline = "percentile";
   const h = iv[headline]!;
-  lines.push(`${METHOD_NAMES[headline]} interval: ${intervalText(h[0], h[1], d)}`);
+  lines.push(`${METHOD_NAMES[headline]} interval: ${intervalText(h[0], h[1])}`);
   if (k.method === "bca" && !bcaOk) lines.push(`BCa is not available: ${(r.bca as { refused: string }).refused}. The percentile interval is shown instead.`);
-  lines.push(`Estimate θ = ${fmtFixed(r.thetaHat, d)}, bootstrap SE = ${fmtFixed(r.se, d)}, bias = ${fmtFixed(r.bias, d)}`);
+  lines.push(`Estimate θ = ${fv(r.thetaHat)}, bootstrap SE = ${fv(r.se)}, bias = ${fv(r.bias)}`);
   if (r.dropped) {
     lines.push(
       `${intText(r.dropped)} of ${intText(k.B)} resamples left the statistic undefined and were dropped (Stata's policy for a failed replicate); the intervals use the other ${intText(r.reps.length)}.`,
@@ -293,18 +344,21 @@ function bootReport(r: BootResult, k: BootCtx): StatOutput {
   if (k.stat === "median") lines.push("The median of an even count is the mean of the two middle values.");
   if (k.stat === "slope") lines.push(`The slope is the least-squares slope of ${k.depName} on ${k.xName} with a constant (pairs bootstrap, so it allows heteroskedasticity).`);
   if (!k.named) lines.push("The table had no header row, so its columns are named y, x1, x2… in order.");
+  lines.push(
+    "Digits: every value is printed to the precision of the bootstrap SE (its second significant digit shows), with thousands grouped for large values and one shared ×10ⁿ for very small or very large ones.",
+  );
   lines.push(...k.notes);
 
   const rows: string[][] = [["Method", "Lower", "Upper"]];
-  rows.push(["Percentile", fmtFixed(r.percentile.lo, d), fmtFixed(r.percentile.hi, d)]);
-  rows.push(["Basic", fmtFixed(r.basic.lo, d), fmtFixed(r.basic.hi, d)]);
-  rows.push(["Normal (bias-corrected)", fmtFixed(r.normal.lo, d), fmtFixed(r.normal.hi, d)]);
-  if ("lo" in r.bca) rows.push(["BCa", fmtFixed(r.bca.lo, d), fmtFixed(r.bca.hi, d)]);
-  else rows.push(["BCa", `not available: ${r.bca.refused}`, ""]);
+  rows.push(["Percentile", fv(r.percentile.lo), fv(r.percentile.hi)]);
+  rows.push(["Basic", fv(r.basic.lo), fv(r.basic.hi)]);
+  rows.push(["Normal (bias-corrected)", fv(r.normal.lo), fv(r.normal.hi)]);
+  if ("lo" in r.bca) rows.push(["BCa", fv(r.bca.lo), fv(r.bca.hi)]);
+  else rows.push(["BCa", "not computed", "not computed"]);
   const sumRows: string[][] = [["Quantity", "Value"]];
-  sumRows.push(["θ (full sample)", fmtFixed(r.thetaHat, d)]);
-  sumRows.push(["Bootstrap SE", fmtFixed(r.se, d)]);
-  sumRows.push(["Bias (mean of replicates − θ)", fmtFixed(r.bias, d)]);
+  sumRows.push(["θ (full sample)", fv(r.thetaHat)]);
+  sumRows.push(["Bootstrap SE", fv(r.se)]);
+  sumRows.push(["Bias (mean of replicates − θ)", fv(r.bias)]);
   if ("lo" in r.bca) {
     sumRows.push(["Bias correction z₀", fmtFixed(r.bca.z0, 4)]);
     sumRows.push(["Acceleration â", fmtFixed(r.bca.a, 4)]);
@@ -313,13 +367,18 @@ function bootReport(r: BootResult, k: BootCtx): StatOutput {
   sumRows.push(["Replicates used", intText(r.reps.length)]);
   sumRows.push(["Seed", String(k.seed)]);
   const tables: StatTable[] = [
-    { label: `${confPct} bootstrap confidence intervals`, rows, align: ["left", "right", "right"] },
+    {
+      label: `${confPct} bootstrap confidence intervals`,
+      rows,
+      align: ["left", "right", "right"],
+      ...("refused" in r.bca ? { note: `BCa not computed: ${r.bca.refused}.` } : {}),
+    },
     { label: "Bootstrap summary", rows: sumRows, align: ["left", "right"] },
   ];
-  return { text: lines.join("\n"), tables, svg: bootFigure(r, d, k) };
+  return { text: lines.join("\n"), tables, svg: bootFigure(r, k) };
 }
 
-function bootFigure(r: BootResult, d: number, k: BootCtx): string {
+function bootFigure(r: BootResult, k: BootCtx): string {
   const sorted = Float64Array.from(r.reps).sort();
   const B = sorted.length;
   const lo = sorted[0];
@@ -350,7 +409,6 @@ function bootFigure(r: BootResult, d: number, k: BootCtx): string {
   } else {
     series.push({ type: "scatter", points: [{ x: lo, y: B }], color: "#64748b", label: "Replicates" });
   }
-  void d;
   return buildPlotSvg(series, {
     width: 420,
     height: 260,
@@ -477,6 +535,12 @@ export function runQreg(read: Read): QregRun | { ok: false; reason: string } {
   const res = ols.resid;
   const sortedRes = Float64Array.from(res).sort();
   const deadline = t0 + QR_WALL_MS;
+  const late = (stage: string): string | null =>
+    Date.now() > deadline ? `Quantile regression stopped at ${stage}: it ran past its ${QR_WALL_MS / 1000} s limit, so the task pane is not frozen. Use fewer rows, predictors or quantiles.` : null;
+  // The design is the same for every τ: factored once (centred, scaled, Householder QR) for the covariances.
+  const design = qrDesign(cols);
+  const lateD = late("the design factorisation");
+  if (lateD) return { ok: false, reason: lateD };
   const df = n - p;
   const tcrit = tCritical(0.05, df);
   const fits: QregQuantile[] = [];
@@ -489,8 +553,10 @@ export function runQreg(read: Read): QregRun | { ok: false; reason: string } {
     const order = Int32Array.from({ length: n }, (_, i) => i).sort((a, b) => dist[a] - dist[b] || a - b);
     const lp = fitQuantileLp({ y: c.y, cols, tau, startOrder: order, deadline });
     if (!lp.ok) return { ok: false, reason: lp.reason };
-    const cov = qrCovariance(c.y, cols, lp.resid, tau, vcov);
+    const cov = qrCovariance(c.y, cols, lp.resid, tau, vcov, design);
     if (!cov.ok) return { ok: false, reason: `τ = ${tau}: ${cov.reason}` };
+    const lateC = late(`the standard errors for τ = ${tau}`);
+    if (lateC) return { ok: false, reason: lateC };
     const v0 = interceptOnlyObjective(c.y, tau);
     const r1 = v0 > 0 ? 1 - lp.objective / v0 : NaN;
     const terms: ModelTerm[] = termNames.map((name, k) => {
@@ -574,9 +640,9 @@ export function qregCalc(read: Read): StatOutput {
       : "Standard errors as statsmodels QuantReg.fit(vcov=\"iid\"), evaluated at the exact solution: τ(1 − τ)/f̂²·(XᵀX)⁻¹, f̂ an Epanechnikov kernel density of the residuals at 0 with Hall and Sheather's bandwidth.",
   );
   lines.push(
-    "The covariance formula is evaluated on a column-scaled design and scaled back, which is identical in exact arithmetic; statsmodels inverts the unscaled XᵀX with a pseudo-inverse, which can lose standard errors when column scales differ greatly (10⁶ against 10⁻⁶), so results can differ from statsmodels there.",
+    "Numerics: the covariance formula is evaluated without forming XᵀX. With a constant, the other columns are centred (an exact reparameterisation, mapped back); every column is scaled by a power of two; and a Householder QR, X = QR, gives (XᵀX)⁻¹ = R⁻¹R⁻ᵀ and the sandwich R⁻¹(QᵀDQ)R⁻ᵀ, so rounding follows the conditioning of X rather than of XᵀX. statsmodels inverts the unscaled XᵀX with a pseudo-inverse, which can lose digits on uncentred polynomial terms (year and year²) or on columns of very different scales (10⁶ against 10⁻⁶), so results can differ from statsmodels there.",
   );
-  lines.push(`t statistics, p-values and 95% intervals on n − p =${intText(r.n - r.names.length)} degrees of freedom (statsmodels' use_t).`);
+  lines.push(`t statistics, p-values and 95% intervals on n − p = ${intText(r.n - r.names.length)} degrees of freedom (statsmodels' use_t).`);
   lines.push(
     "Pseudo R¹ = 1 − V(τ)/V₀(τ), V the minimised check-function sum and V₀ that of the intercept-only model, at its exact minimiser (the sample τ-quantile order statistic)" +
       (r.constant ? "." : "; without a constant the model can fit worse than the intercept-only one, so R¹ can be negative."),

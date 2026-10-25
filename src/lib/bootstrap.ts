@@ -27,6 +27,11 @@
  * observations"), not redrawn: a redraw would silently condition the distribution on the resample being usable. The
  * intervals use the remaining replicates and the count is printed; more than 10% dropped is refused by name.
  *
+ * RATIO OF MEANS: a full-sample x̄ that is zero up to rounding (|Σx| ≤ n·ε·Σ|x|, the rounding bound of the sum) is
+ * refused, and so is any run in which a resampled x̄ has the other sign from x̄ or is 0: the ratio then passes
+ * through infinity and its bootstrap distribution is unbounded (the run reports how many resamples crossed, and the
+ * range of the resampled x̄).
+ *
  * FREEZE GUARANTEE: the work n·B·(cost of the statistic) is charged up front against BOOT_MAX_WORK (refused by name
  * above it), and the wall clock is checked every 8 replicates against BOOT_WALL_MS.
  */
@@ -109,7 +114,7 @@ export interface BootResult {
   jack: Float64Array | null;
 }
 
-export type BootOutcome = BootResult | { ok: false; reason: string };
+export type BootOutcome = BootResult | { ok: false; reason: string; denominatorCrossed?: { count: number; min: number; max: number } };
 
 const isTwo = (s: BootStat): boolean => s === "corr" || s === "ratio" || s === "slope";
 
@@ -140,7 +145,8 @@ export function bootWork(stat: BootStat, n: number, B: number): number {
  * one add), measured at 2×10⁸ units: mean (n = 100,000, B = 2,000) 4.2 s; slope 6.5 s (×1.6); median and trimmed mean
  * (n = 10,000, B = 1,400) 1.5–1.8 s, i.e. 0.37 per element per log₂n of the sort.
  */
-const BOOT_ELEMENT_COST: Record<BootStat, number> = { mean: 1, sd: 1.2, var: 1.2, ratio: 1.4, corr: 1.6, slope: 1.6, median: 0.42, trim10: 0.42 };
+// The ratio is charged one more pass than before (1.4 + 0.4): each resample's x̄ is also checked for a sign change.
+const BOOT_ELEMENT_COST: Record<BootStat, number> = { mean: 1, sd: 1.2, var: 1.2, ratio: 1.8, corr: 1.6, slope: 1.6, median: 0.42, trim10: 0.42 };
 
 // ---------------------------------------------------------------------------------------------------------------
 // The statistics. Each returns NaN when undefined on these rows (dropped replicate).
@@ -362,8 +368,28 @@ export function runBootstrap(inp: BootInput): BootOutcome {
     };
   }
   const yy = y;
+  if (stat === "ratio") {
+    let sx = 0;
+    let sa = 0;
+    for (let i = 0; i < n; i++) {
+      sx += x![i];
+      sa += Math.abs(x![i]);
+    }
+    if (Math.abs(sx) <= n * Number.EPSILON * sa) {
+      return {
+        ok: false,
+        reason:
+          "The mean of the denominator column is 0 up to rounding (|Σx| is within n·ε·Σ|x| of zero, the rounding bound of the sum, ε = 2⁻⁵²), " +
+          "so the ratio of means is undefined.",
+      };
+    }
+  }
   const thetaHat = statOf(stat, Float64Array.from(yy), x ? Float64Array.from(x) : null, n);
   if (!Number.isFinite(thetaHat)) return { ok: false, reason: "The statistic is undefined on the full data (a constant column, or a zero mean in the denominator)." };
+  const denSign = stat === "ratio" ? Math.sign(meanOf(Float64Array.from(x!), n)) : 0;
+  let crossed = 0;
+  let denMin = Infinity;
+  let denMax = -Infinity;
 
   const wall = inp.wallMs ?? BOOT_WALL_MS;
   const started = Date.now();
@@ -392,9 +418,24 @@ export function runBootstrap(inp: BootInput): BootOutcome {
     } else {
       for (let i = 0; i < n; i++) a[i] = yy[idx[i]];
     }
+    if (denSign !== 0) {
+      const mx = meanOf(b!, n);
+      if (Math.sign(mx) !== denSign) crossed++;
+      if (mx < denMin) denMin = mx;
+      if (mx > denMax) denMax = mx;
+    }
     const t = statOf(stat, a, b, n);
     if (Number.isFinite(t)) reps[kept++] = t;
     else dropped++;
+  }
+  if (crossed > 0) {
+    return {
+      ok: false,
+      denominatorCrossed: { count: crossed, min: denMin, max: denMax },
+      reason:
+        `In ${crossed.toLocaleString("en-US")} of ${B.toLocaleString("en-US")} resamples the mean of the denominator column is 0 or has the other sign from its full-sample mean, ` +
+        "so the ratio of means passes through infinity across the resamples and its bootstrap distribution is unbounded: no interval is reported.",
+    };
   }
   if (dropped > BOOT_MAX_DROP_SHARE * B) {
     return {

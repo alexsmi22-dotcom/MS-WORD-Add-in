@@ -48,7 +48,7 @@ import {
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, StatTable, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { econOlsCalc, econRegTableCalc, econLogitCalc, LONGLEY_DEFAULT, ECON_SPEC_DEFAULT, ECON_SPECS_DEFAULT, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT } from "../lib/econCalcs";
-import { TS_CALCULATORS } from "../lib/tsCalcs";
+import { TS_ACF_FIELDS, TS_UNITROOT_FIELDS, TS_HP_FIELDS, tsAcfCalc, tsUnitRootCalc, tsHpCalc } from "../lib/tsCalcs";
 import { tsArimaCalc, tsEtsCalc, TS_ARIMA_DEFAULTS, TS_ETS_DEFAULTS, TS_ARIMA_TREND_OPTIONS } from "../lib/tsForecastCalcs";
 import {
   ES_EVENT_FIELDS,
@@ -10663,7 +10663,33 @@ const STAT_CALCS: StatCalc[] = [
     },
   },
   // Release E3: time-series diagnostics (lib/tsCalcs.ts → lib/tsDiag.ts; series read by lib/tsData.ts).
-  ...TS_CALCULATORS.map((c): StatCalc => ({ id: c.id, name: c.name, fields: c.fields, compute: c.compute })),
+  {
+    id: "ts-acf",
+    name: "Correlogram (ACF, PACF) and Ljung–Box",
+    fields: TS_ACF_FIELDS,
+    compute: (r) => {
+      // ACF and PACF with 95% bands, Ljung–Box Q by lag (statsmodels acf/pacf/acorr_ljungbox conventions), two-panel figure.
+      return tsAcfCalc(r);
+    },
+  },
+  {
+    id: "ts-unitroot",
+    name: "Unit-root tests: ADF and KPSS",
+    fields: TS_UNITROOT_FIELDS,
+    compute: (r) => {
+      // ADF (AIC lag, MacKinnon p and critical values) beside KPSS (Hobijn bandwidth, table p), with a reading of the pair.
+      return tsUnitRootCalc(r);
+    },
+  },
+  {
+    id: "ts-hp",
+    name: "Hodrick–Prescott filter (trend and cycle)",
+    fields: TS_HP_FIELDS,
+    compute: (r) => {
+      // Trend and cycle from a banded O(n) solve; λ from the frequency (1600 quarterly) or the user's own.
+      return tsHpCalc(r);
+    },
+  },
   // Release E3: forecasting (lib/tsForecastCalcs.ts → lib/arima.ts, lib/holtWinters.ts).
   {
     id: "ts-arima",
@@ -10677,7 +10703,10 @@ const STAT_CALCS: StatCalc[] = [
       { key: "trend", label: "Constant or drift", default: TS_ARIMA_DEFAULTS.trend, kind: "select", options: TS_ARIMA_TREND_OPTIONS },
       { key: "h", label: "Forecast horizon (periods, 1–200)", default: TS_ARIMA_DEFAULTS.h, kind: "text" },
     ],
-    compute: tsArimaCalc,
+    compute: (r) => {
+      // Exact Kalman likelihood, MLE under stationarity and invertibility, forecasts with 95% intervals and the figure.
+      return tsArimaCalc(r);
+    },
   },
   {
     id: "ts-ets",
@@ -10719,13 +10748,40 @@ const STAT_CALCS: StatCalc[] = [
       { key: "m", label: "Seasonal period m (blank = 4 for quarters, 12 for months)", default: TS_ETS_DEFAULTS.m, kind: "text" },
       { key: "h", label: "Forecast horizon (periods, 1–200)", default: TS_ETS_DEFAULTS.h, kind: "text" },
     ],
-    compute: tsEtsCalc,
+    compute: (r) => {
+      // statsmodels ExponentialSmoothing recursions; textbook forecasts, closed-form intervals where they exist.
+      return tsEtsCalc(r);
+    },
   },
   // Release E3: event study and index numbers (lib/econE3Calcs.ts → lib/eventStudy.ts, lib/indexNumbers.ts).
   // Their fields keep the defaults in a separate map; withDefaults joins the two.
-  { id: "es-event", name: "Securities event study (market model)", fields: withDefaults(ES_EVENT_FIELDS, ES_EVENT_DEFAULTS), compute: esEventCalc },
-  { id: "idx-price", name: "Price indexes (Laspeyres, Paasche, Fisher, Törnqvist)", fields: withDefaults(IDX_PRICE_FIELDS, IDX_PRICE_DEFAULTS), compute: idxPriceCalc },
-  { id: "idx-deflate", name: "Constant dollars (deflate by a price index)", fields: withDefaults(IDX_DEFLATE_FIELDS, IDX_DEFLATE_DEFAULTS), compute: idxDeflateCalc },
+  {
+    id: "es-event",
+    name: "Securities event study (market model)",
+    fields: withDefaults(ES_EVENT_FIELDS, ES_EVENT_DEFAULTS),
+    compute: (r) => {
+      // Market-model abnormal returns, CAR with the full prediction-error covariance, J₁/J₂/BMP tests, average-CAR figure.
+      return esEventCalc(r);
+    },
+  },
+  {
+    id: "idx-price",
+    name: "Price indexes (Laspeyres, Paasche, Fisher, Törnqvist)",
+    fields: withDefaults(IDX_PRICE_FIELDS, IDX_PRICE_DEFAULTS),
+    compute: (r) => {
+      // Fixed-base or chained indexes from an item × period price and quantity table, rebased to any period = 100.
+      return idxPriceCalc(r);
+    },
+  },
+  {
+    id: "idx-deflate",
+    name: "Constant dollars (deflate by a price index)",
+    fields: withDefaults(IDX_DEFLATE_FIELDS, IDX_DEFLATE_DEFAULTS),
+    compute: (r) => {
+      // Real = nominal × index(base) / index(t), the rebased index and cumulative inflation, with the nominal-vs-real figure.
+      return idxDeflateCalc(r);
+    },
+  },
   {
     id: "polyregress",
     name: "Polynomial regression",

@@ -128,7 +128,9 @@ describe("everything shipped is reachable", () => {
     // identity). The engine itself only needs h(T); cp is exported so the
     // data's provenance stays verifiable, which is the condition under which
     // bundled thermodynamic data was accepted at all.
-    const BASELINE = 10;
+    // v2.197.0 (E3): 11 — arima.arimaLoglike is a test-facing correctness hook: the oracle pins the exact Kalman
+    // log likelihood evaluated AT statsmodels' fitted parameters (optimisers differ, so that is the real check).
+    const BASELINE = 11;
     const dead = deadExports();
     expect({ count: dead.length, over: dead.length > BASELINE ? dead : [] }).toEqual({
       count: dead.length <= BASELINE ? dead.length : BASELINE,

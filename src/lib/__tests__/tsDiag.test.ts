@@ -9,7 +9,6 @@ import {
   acfBands,
   pacfYwAdjusted,
   ljungBox,
-  acfDefaultLags,
   pacfDefaultLags,
   ljungBoxDefaultLags,
   adfTest,
@@ -56,7 +55,6 @@ test("z for 95% bands is scipy's norm.ppf(0.975)", () => {
 describe("default lag rules (exact at the powers of ten)", () => {
   for (const r of FX.defaultLags) {
     test(`n = ${r.n}`, () => {
-      expect(acfDefaultLags(r.n)).toBe(r.acf);
       expect(pacfDefaultLags(r.n)).toBe(r.pacf);
       expect(ljungBoxDefaultLags(r.n)).toBe(r.lb);
     });

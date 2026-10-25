@@ -16,7 +16,7 @@ import { buildPlotSvg } from "./plot";
 import { normalCdfPrecise } from "./probdist";
 import { fmtFixed, fmtP, intText, numText } from "./regTable";
 import { parseSeriesTable, pickSeries, type SeriesData } from "./tsData";
-import { ljungBox as tsDiagLjungBox } from "./tsDiag";
+import { ljungBox as tsDiagLjungBox, ljungBoxDefaultLags } from "./tsDiag";
 
 type Read = (key: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
@@ -279,7 +279,7 @@ export function tsArimaCalc(read: Read): StatOutput {
   lines.push(
     `AIC = ${fmtFixed(fit.aic, 3)} · AICc = ${fit.aicc === null ? "not defined (too few observations for the parameters)" : fmtFixed(fit.aicc, 3)} · BIC = ${fmtFixed(fit.bic, 3)}`,
   );
-  const lags = Math.min(10, Math.floor(N / 5));
+  const lags = ljungBoxDefaultLags(N);
   let lbLine: string;
   if (lags < 1) lbLine = "Ljung–Box not computed: fewer than 5 differenced observations.";
   else {

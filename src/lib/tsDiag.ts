@@ -58,11 +58,6 @@ export function isConstantSeries(x: ArrayLike<number>): boolean {
 
 // --- ACF, PACF, Ljung–Box ---------------------------------------------------------------------------------------
 
-/** statsmodels' acf default nlags: min(int(10·log10 n), n − 1). */
-export function acfDefaultLags(n: number): number {
-  return Math.min(Math.trunc(10 * Math.log10(n)), n - 1);
-}
-
 /** statsmodels' pacf default nlags: max(min(int(10·log10 n), n // 2 − 1), 1). */
 export function pacfDefaultLags(n: number): number {
   return Math.max(Math.min(Math.trunc(10 * Math.log10(n)), Math.floor(n / 2) - 1), 1);

@@ -41,6 +41,8 @@ function shown(o: StatOutput): string {
   return [o.text, ...(o.tables ?? []).flatMap((t) => [t.label, t.note ?? "", ...t.rows.flat()])].join("\n");
 }
 
+const COMBINING = new RegExp(`[${String.fromCharCode(0x300)}-${String.fromCharCode(0x36f)}]`);
+
 function expectDisplayContract(o: StatOutput): void {
   expect(o.ok).not.toBe(false);
   const s = shown(o);
@@ -49,8 +51,8 @@ function expectDisplayContract(o: StatOutput): void {
   expect(s).not.toMatch(/\d[eE][+-]?\d/);
   expect(s).not.toMatch(/(^|[\s([;:=,])-\d/m);
   expect(s).not.toContain("—");
-  // No combining diacritic anywhere (θ̂ renders detached in Word).
-  expect(s).not.toMatch(/[̀-ͯ]/);
+  // No combining diacritic anywhere (a hat over theta renders detached in Word): U+0300 to U+036F.
+  expect(s).not.toMatch(COMBINING);
   for (const t of o.tables ?? []) {
     expect(t.align).toBeDefined();
     expect(t.align!.length).toBe(t.rows[0].length);
@@ -364,6 +366,35 @@ describe("micro-market hostile fields", () => {
     expectDisplayContract(edge);
     expect(edge.text).toContain("sellers receive 0");
   });
+  it("a non-zero value whose double underflows to 0 is refused, not read as 0", () => {
+    for (const v of ["1e-400", "1e-330", "−1e-330"]) {
+      refused({ b: v }, /smaller in magnitude than 10⁻⁹/);
+      refused({ d: v }, /smaller in magnitude than 10⁻⁹/);
+      refused({ amount: v }, /smaller in magnitude than 10⁻⁹/);
+    }
+    expect(olig({ costs: "A\t1e-400\nB\t2" }).text).toMatch(/smaller in magnitude than 10⁻⁹/);
+  });
+  it("tiny scales print four significant digits and still draw a clean figure", () => {
+    const o = market({ a: "0.00002", b: "0.000001", c: "0.00001", d: "0.000002", amount: "0.000001" });
+    expectDisplayContract(o);
+    expectEdgesOnLines(o.svg!);
+    expect(o.text).toContain("P* = 1/60000 ≈ 1.667×10⁻⁵");
+    expect(o.text).toContain("deadweight loss 1/6000000 ≈ 1.667×10⁻⁷ ($)");
+    const t = market({ a: "1.0000000000000000000000000000000000001", b: "1", c: "1", d: "1", policy: "none" });
+    expectDisplayContract(t);
+    expect(t.text).toContain("Q* ≈ 5.000×10⁻³⁸");
+    expect(t.text).not.toContain("= ≈");
+    expectEdgesOnLines(t.svg!);
+  });
+  it("labels at their maximum length keep the figures' layout clean", () => {
+    const o = market({ qunit: "kilowatt-hour xx", cur: "pounds sterling", a: "120000000", b: "2", c: "20000000", d: "3", amount: "10000000" });
+    expectDisplayContract(o);
+    const names = "A very long firm name number1\t10\nA very long firm name number2\t20";
+    const g = olig({ costs: names, qunit: "kilowatt-hour xx" });
+    expectDisplayContract(g);
+    expect(g.svg).toContain("q₁, output of firm 1 (kilowatt-hour xx)");
+    expect(g.svg).toContain("Firm 1 is A very long firm name number1.");
+  });
   it("accepts a true minus, decimal commas, grouped thousands and fractions", () => {
     const o = market({ a: "1,200", b: "2,5", c: "−20", d: "7/2", amount: "10" });
     expectDisplayContract(o);
@@ -412,7 +443,7 @@ describe("micro-oligopoly behaviour", () => {
     expect(o.text).toContain("Bertrand: price 20, total output 100");
     expect(o.svg).toContain("Cournot best responses");
     expect(o.svg).toContain("Stackelberg");
-    expect(o.svg).toContain("Output of Firm 1, q₁ (unit)");
+    expect(o.svg).toContain("q₁, output of Firm 1 (unit)");
     const m = o.tables![0];
     expect(m.rows.map((r) => r[0])).toEqual(["Market structure", "Perfect competition", "Monopoly", "Cournot–Nash", "Bertrand", "Stackelberg (firm 1 leads)"]);
   });

@@ -26,7 +26,7 @@ import {
   parseRatLiteral,
   RAT_ZERO,
 } from "./cas";
-import { fmtFixed, groupThousands, NBSP } from "./regTable";
+import { fmtFixed, fmtSci, groupThousands, NBSP } from "./regTable";
 import { linearAxis, THIN_SPACE } from "./axis";
 
 export const MINUS = "−";
@@ -70,7 +70,8 @@ export function readRatField(raw: string | undefined | null, label: string): Rat
   if (!r) return { ok: false, error: `${label}: ${quote(original)} is not a number.` };
   const v = ratToNumber(r);
   if (!Number.isFinite(v) || Math.abs(v) > INPUT_MAX) return { ok: false, error: `${label}: ${quote(original)} is larger in magnitude than 10¹², the largest value accepted (rescale the units).` };
-  if (v !== 0 && Math.abs(v) < INPUT_MIN) return { ok: false, error: `${label}: ${quote(original)} is smaller in magnitude than 10⁻⁹, the smallest non-zero value accepted (rescale the units).` };
+  // Tested on the rational, not the double: 1e−400 is a non-zero rational whose double is 0.
+  if (!ratIsZero(r) && (v === 0 || Math.abs(v) < INPUT_MIN)) return { ok: false, error: `${label}: ${quote(original)} is smaller in magnitude than 10⁻⁹, the smallest non-zero value accepted (rescale the units).` };
   return { ok: true, v: r };
 }
 
@@ -78,6 +79,8 @@ export function readRatField(raw: string | undefined | null, label: string): Rat
 export function fmtDec(v: number): string {
   if (v === 0) return "0";
   const a = Math.abs(v);
+  // Below 10⁻³, four significant digits as m×10ⁿ (six fixed decimals would leave one digit of 3.333×10⁻⁶).
+  if (a < 1e-3) return fmtSci(v);
   const dec = a >= 1 ? 3 : Math.min(6, 3 + Math.ceil(-Math.log10(a)));
   return fmtFixed(v, dec);
 }
@@ -123,6 +126,12 @@ export function fmtExact(r: Rat): string {
   const an = r.n < 0n ? -r.n : r.n;
   if (an < 10n ** 7n && r.d < 10n ** 7n) return `${r.n < 0n ? MINUS : ""}${an}/${r.d} ≈ ${dec}`;
   return `≈ ${dec}`;
+}
+
+/** "Q* = 70/3 ≈ 23.333", or "Q* ≈ 5.000×10⁻³⁸" when only a decimal can be shown (never "= ≈"). */
+export function eqText(name: string, r: Rat): string {
+  const s = fmtExact(r);
+  return s.startsWith("≈ ") ? `${name} ${s}` : `${name} = ${s}`;
 }
 
 /** A share as a percent: exact when it terminates ("40%"), else "≈ 33.333%". */

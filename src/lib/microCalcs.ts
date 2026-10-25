@@ -15,6 +15,7 @@ import {
   marketFigureSvg,
   fmtExact,
   fmtExactShort,
+  eqText,
   fmtPct,
   linText,
   cmp,
@@ -148,8 +149,8 @@ export function microMarketCalc(read: Read): StatOutput {
 
   const lines: string[] = [];
   lines.push(`Supply and demand: demand P = ${linText(a, b, -1)}, supply P = ${linText(c, d, 1)} (P in ${cur} per ${qunit}, Q in ${qunit})`);
-  lines.push(`Equilibrium: Q* = ${fmtExact(r.qe)}, P* = ${fmtExact(r.pe)}`);
-  lines.push(`Point elasticities at the equilibrium: demand ε = ${fmtExact(r.eps)}, supply η = ${r.eta ? fmtExact(r.eta) : "perfectly elastic (d = 0)"}`);
+  lines.push(`Equilibrium: ${eqText("Q*", r.qe)}, ${eqText("P*", r.pe)}`);
+  lines.push(`Point elasticities at the equilibrium: demand ${eqText("ε", r.eps)}, supply ${r.eta ? eqText("η", r.eta) : "η = perfectly elastic (d = 0)"}`);
   const amt = amount ? fmtExactShort(amount) : "";
   const tsOf = (o: { cs: Rat; ps: Rat; rev: Rat; sub: Rat }): Rat => ratSub(ratAdd(ratAdd(o.cs, o.ps), o.rev), o.sub);
   if (policy === "tax" || policy === "subsidy") {
@@ -170,7 +171,7 @@ export function microMarketCalc(read: Read): StatOutput {
     const name = policy === "ceiling" ? "price ceiling" : "price floor";
     if (!r.binding) {
       lines.push(
-        `The ${name} ${amt} is ${policy === "ceiling" ? "at or above" : "at or below"} P* = ${fmtExact(r.pe)}: it does not bind, and the market clears at the equilibrium.`,
+        `The ${name} ${amt} is ${policy === "ceiling" ? "at or above" : "at or below"} ${eqText("P*", r.pe)}: it does not bind, and the market clears at the equilibrium.`,
       );
       lines.push(`Consumer surplus ${fmtExact(r.csE)}, producer surplus ${fmtExact(r.psE)} (${cur})`);
     } else {
@@ -221,7 +222,7 @@ export function microMarketCalc(read: Read): StatOutput {
       "Efficient production is assumed: only the quantity demanded is produced, by the lowest-cost sellers, and no unsold output is produced (if it were, its cost would be a further loss, not counted here). Deadweight loss is the surplus on the units no longer traded.",
     );
   }
-  if (ratSign(c) < 0) lines.push(`The supply intercept c = ${fmtExactShort(c)} is negative: supply reaches P = 0 at Q = ${fmtExact(ratDiv(ratSub(RAT_ZERO, c), d))}, and producer surplus counts prices P ≥ 0 only.`);
+  if (ratSign(c) < 0) lines.push(`The supply intercept c = ${fmtExactShort(c)} is negative: supply reaches P = 0 at ${eqText("Q", ratDiv(ratSub(RAT_ZERO, c), d))}, and producer surplus counts prices P ≥ 0 only.`);
   if (ratIsZero(d)) lines.push("Supply is perfectly elastic (d = 0): sellers supply any quantity at P = c, so producer surplus is zero without a policy.");
   lines.push("A non-binding control is reported as such (not refused); a tax that closes the market, a subsidy that would make the buyers' price negative, and a ceiling below every supply price are refused.");
 
@@ -339,7 +340,9 @@ export function parseFirms(text: string): { ok: true; firms: Firm[] } | { ok: fa
     if (!name) name = `Firm ${firms.length + 1}`;
     const r = readRatField(costText, `Marginal cost of ${name}`);
     if (!r.ok || r.v === null) {
-      if (li === 0 && raw.length > 1) continue; // a header row ("Firm<Tab>MC")
+      // A header row ("Firm<Tab>MC"): only a first line whose cost text has no digit at all, so a mistyped first cost
+      // ("1e-400", "1O") is still refused rather than skipped.
+      if (li === 0 && raw.length > 1 && !/\d/.test(costText)) continue;
       const bare = costText === line;
       return { ok: false, reason: r.ok || bare ? `Line ${li + 1} (“${line.slice(0, 40)}”) has no marginal cost (write Name<Tab>MC, or the MC alone).` : r.error };
     }
@@ -434,6 +437,11 @@ export function microOligopolyCalc(read: Read): StatOutput {
   return { text: lines.join("\n"), tables, svg };
 }
 
+/** A firm's name on an axis title, or "firm k" when the name is too long for the axis (the figure's note names it). */
+function axisName(name: string, k: number): string {
+  return name.length <= 14 ? name : `firm ${k}`;
+}
+
 function bestResponseFigure(a: Rat, b: Rat, firms: Firm[], cournot: Structure, stack: Structure | undefined, qunit: string): string {
   const num = ratToNumber;
   const { A1, A2, others } = bestResponseIntercepts(a, b, firms, cournot.q);
@@ -472,14 +480,16 @@ function bestResponseFigure(a: Rat, b: Rat, firms: Firm[], cournot: Structure, s
   ];
   if (stack) series.push({ type: "scatter", points: [{ x: num(stack.q[0]), y: num(stack.q[1]) }], color: "#be123c", label: "Stackelberg" });
   const notes: string[] = [];
+  const renamed = [0, 1].filter((i) => axisName(firms[i].name, i + 1) !== firms[i].name);
+  if (renamed.length) notes.push(renamed.map((i) => `Firm ${i + 1} is ${firms[i].name}.`).join(" "));
   if (firms.length === 3) notes.push(`${firms[2].name} is held at its Cournot output, ${fmtExactShort(others)} (${qunit}).`);
   if (firms.length > 3) notes.push(`The other ${firms.length - 2} firms are held at their Cournot outputs, ${fmtExactShort(others)} in total (${qunit}).`);
   return buildPlotSvg(series, {
     width: 420,
     height: 300,
     title: "Cournot best responses",
-    xlabel: `Output of ${firms[0].name}, q₁ (${qunit})`,
-    ylabel: `Output of ${firms[1].name}, q₂ (${qunit})`,
+    xlabel: `q₁, output of ${axisName(firms[0].name, 1)} (${qunit})`,
+    ylabel: `q₂, output of ${axisName(firms[1].name, 2)} (${qunit})`,
     xLimits: { min: 0, max: top },
     yLimits: { min: 0, max: top },
     notes,

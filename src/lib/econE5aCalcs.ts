@@ -9,7 +9,7 @@
  */
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { parseRegData, readRegCell, isMissingCell } from "./regData";
-import { fmtFixed, intText } from "./regTable";
+import { fmtFixed, intText, numText } from "./regTable";
 import { readCalcList } from "./calcList";
 import { groupedBarSvg } from "./statchart";
 import { linearAxis } from "./axis";
@@ -25,6 +25,7 @@ import {
   rasmussen,
   IO_MAX_N,
   IO_EXACT_MAX,
+  IO_EXACT_DIGITS,
   IO_WALL_MS,
   type Mat,
 } from "./leontief";
@@ -74,9 +75,10 @@ function readScalar(raw: string, label: string): number | { error: string } {
  * A header cell shaped like a number ("1e400", "−0") means the first row was data whose number overflowed, not a
  * header of names: refused, never read as a column name.
  */
+const NUMBER_SHAPE = /^[-−+]?(\d[\d.,]*|\.\d+)([eE][-+−]?\d+)?%?$/;
 function numberShapedHeader(names: string[], named: boolean): string | undefined {
   if (!named) return undefined;
-  const bad = names.find((nm) => /^[-−+]?(\d[\d.,]*|\.\d+)([eE][-+−]?\d+)?%?$/.test(nm.trim()));
+  const bad = names.find((nm) => NUMBER_SHAPE.test(nm.trim()));
   return bad === undefined ? undefined : `Row 1: ${q(bad)} is not a finite number.`;
 }
 
@@ -142,7 +144,8 @@ function pickNumericColumns(rows: string[][], width: number, want: number): Colu
   for (let j = 0; j < width && cols.length < want; j++) {
     const first = rows.find((r) => !isMissingCell(r[j] ?? ""));
     if (!first) continue;
-    if (Number.isFinite(readRegCell(first[j], false).value)) cols.push(j);
+    // A number-shaped cell that overflows ("1e400") still marks a numeric column; its row is then refused by name.
+    if (Number.isFinite(readRegCell(first[j], false).value) || NUMBER_SHAPE.test(first[j].trim())) cols.push(j);
     else if (label === null) label = j;
   }
   if (cols.length < want) return { error: want === 1 ? "The table has no column of numbers." : `A grouped table needs two columns of numbers (income or mean, then count or weight); found ${cols.length}.` };
@@ -168,22 +171,29 @@ export function ineqGiniCalc(read: Read): StatOutput {
   if (!text.trim()) return refuse("Paste incomes, one per row, or a grouped table (income or mean | count).");
   // A bare column of numbers has no header, and parseRegData reads its first number as data: good. A one-column
   // paste headed by words with spaces ("Household income") would split the header into columns: read it whole.
-  let src = text;
-  let headerName: string | undefined;
-  if (!grouped && !text.includes("\t")) {
-    const ls = text.replace(/\r\n?/g, "\n").split("\n").filter((l) => l.trim() !== "");
-    if (ls.length > 1 && /\s/.test(ls[0].trim()) && !/\d/.test(ls[0]) && ls.slice(1).every((l) => !/\s/.test(l.trim()))) {
-      headerName = ls[0].trim();
-      src = ["Income", ...ls.slice(1)].join("\n");
-    }
+  // A single column (no tab or semicolon, one value per line) is read line by line: through the table reader a
+  // decimal comma ("0,5") would make it a comma-separated file and split every value in two. Its header may be
+  // words with spaces ("Household income").
+  let rows: string[][];
+  let names: string[];
+  let semicolon = false;
+  const ls = text.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  const oneColumn = !grouped && !/[\t;]/.test(text) && ls.slice(1).every((l) => !/\s/.test(l));
+  if (oneColumn) {
+    const head = ls.length > 0 && !/\d/.test(ls[0]) && !isMissingCell(ls[0]) ? ls[0] : undefined;
+    if (head === undefined && /\s/.test(ls[0] ?? "")) return refuse(`Row 1, ${q(ls[0])}: one income per row (a header row is optional).`);
+    names = [head ?? "Income"];
+    rows = (head === undefined ? ls : ls.slice(1)).map((l) => [l]);
+    if (!rows.length) return refuse("The table has a header row but no incomes.");
+  } else {
+    const pr = parseRegData(text);
+    if (!pr.ok) return refuse(pr.reason);
+    rows = pr.data.rows;
+    names = pr.data.names;
+    semicolon = !!pr.data.semicolon;
+    const nh = numberShapedHeader(names, pr.data.named);
+    if (nh) return refuse(nh);
   }
-  const pr = parseRegData(src);
-  if (!pr.ok) return refuse(pr.reason);
-  const { rows } = pr.data;
-  const names = headerName ? [headerName, ...pr.data.names.slice(1)] : pr.data.names;
-  const nh = numberShapedHeader(names, pr.data.named);
-  if (nh) return refuse(nh);
-  const semicolon = !!pr.data.semicolon;
   if (rows.length > INEQ_MAX_ROWS) return refuse(`The table has ${intText(rows.length)} rows; at most ${intText(INEQ_MAX_ROWS)} are accepted.`);
   const pick = pickNumericColumns(rows, names.length, grouped ? 2 : 1);
   if ("error" in pick) return refuse(pick.error);
@@ -347,7 +357,7 @@ function ineqOutput(
 }
 
 function epsText(e: number): string {
-  return String(e);
+  return numText(e);
 }
 
 // =================================================================================================================
@@ -415,13 +425,39 @@ export function concHhiCalc(read: Read): StatOutput {
   const show2010 = (get("show2010") || "no") === "yes";
   const text = get("data");
   if (!text.trim()) return refuse("Paste the firms: one per row, the firm's name then its share (or sales).");
-  const pr = parseRegData(text);
-  if (!pr.ok) return refuse(pr.reason);
-  const { rows, names } = pr.data;
-  const semicolon = !!pr.data.semicolon;
-  if (names.length < 2) return refuse("Each row needs the firm's name and its share (or sales): two columns.");
-  const nh = numberShapedHeader(names, pr.data.named);
-  if (nh) return refuse(nh);
+  // Space-separated rows ("Alder 28,5", "Acme Corp 28") are split at the LAST space: the name may hold spaces and
+  // the number may hold a decimal comma (through the table reader that comma would make a CSV and split the row).
+  const ls = text.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  const splitLast = (l: string): RegExpExecArray | null => /^(.*\S)\s+(\S+)$/.exec(l);
+  // Not when a name part ends in a comma ("Alder, 28" is a CSV row).
+  const spaced = !/[\t;]/.test(text) && ls.length > 0 && ls.every((l) => {
+    const m = splitLast(l);
+    return m !== null && !m[1].endsWith(",");
+  });
+  let rows: string[][];
+  let semicolon = false;
+  if (spaced) {
+    rows = ls.map((l) => {
+      const m = splitLast(l)!;
+      return [m[1], m[2]];
+    });
+    for (let i = 0; i < rows.length; i++) {
+      const lastWord = rows[i][0].split(/\s+/).pop() ?? "";
+      if (Number.isFinite(readRegCell(lastWord, false).value) && Number.isFinite(readRegCell(rows[i][1], false).value)) {
+        return refuse(`Row ${i + 1}, ${q(ls[i])}: two numbers at the end of the row. Each row is a firm's name and ONE share; separate the cells with tabs if the name ends in a number.`);
+      }
+    }
+    // A header row: its last cell is not a number and not a missing marker ("Firm Share").
+    if (rows.length && !Number.isFinite(readRegCell(rows[0][1], false).value) && !/\d/.test(rows[0][1])) rows = rows.slice(1);
+  } else {
+    const pr = parseRegData(text);
+    if (!pr.ok) return refuse(pr.reason);
+    rows = pr.data.rows;
+    semicolon = !!pr.data.semicolon;
+    if (pr.data.names.length < 2) return refuse("Each row needs the firm's name and its share (or sales): two columns.");
+    const nh = numberShapedHeader(pr.data.names, pr.data.named);
+    if (nh) return refuse(nh);
+  }
   if (rows.length > HHI_MAX_FIRMS) return refuse(`At most ${intText(HHI_MAX_FIRMS)} firms are accepted; the table has ${intText(rows.length)}.`);
   const firms: { name: string; v: Rat }[] = [];
   const seen = new Map<string, number>();
@@ -467,6 +503,9 @@ export function concHhiCalc(read: Read): StatOutput {
     const sumNum = ratToNumber(sum);
     const word = units === "fraction" ? "Read as fractions of the market (0.28 = 28%)." : "Read as percentage shares.";
     notes.push(word);
+    if (units === "percent" && !pctSign && sumNum > 0 && sumNum <= 1 + 1e-9) {
+      return refuse(`The shares add to ${ptsText(sum)}% of the market, which looks like fractions (0.28 = 28%). Choose “Shares as fractions”, or type percentages.`);
+    }
     if (sumNum > 100 + HHI_TOLERANCE) {
       return refuse(
         `The shares add to ${ptsText(sum)}%, more than 100% (beyond the ${HHI_TOLERANCE} point rounding allowance). Check the shares${units === "percent" ? ", or choose “Sales or output” if they are sales" : ""}.`,
@@ -716,11 +755,17 @@ function readIoMatrix(text: string, what: string): IoTable | { error: string } {
   let src = text.replace(/\r\n?/g, "\n");
   // A blank corner cell ("\tFarming\t…" or ",Farming,…") is the usual input–output layout: name it.
   const firstLine = src.split("\n").find((l) => l.trim() !== "") ?? "";
-  if (/^[ \t]*[\t,;]/.test(firstLine)) src = src.replace(firstLine, "Sector" + firstLine.replace(/^[ ]*/, ""));
+  if (/^[ \t]*[\t,;]/.test(firstLine)) src = src.replace(firstLine, () => "Sector" + firstLine.replace(/^[ ]*/, ""));
   const pr = parseRegData(src);
   if (!pr.ok) return { error: pr.reason };
   const { rows, names: hdr, named } = pr.data;
   const semicolon = !!pr.data.semicolon;
+  // Sector codes as numbers ("11", "21") make the header look like data.
+  // (n + 1 rows of n + 1 cells: a header plus n sectors; a header-less labelled table has n rows of n + 1.)
+  if (!named && rows.length > 1 && rows.length === hdr.length && !Number.isFinite(readRegCell(rows[0][0] ?? "", semicolon).value)) {
+    const codes = rows[0].slice(1).filter((c) => Number.isFinite(readRegCell(c, semicolon).value));
+    if (codes.length) return { error: `The header row names sectors with numbers (${q(codes[0])}); give each sector a name that contains a letter (S${codes[0]}).` };
+  }
   const nh = numberShapedHeader(hdr, named);
   if (nh) return { error: nh };
   const labelled = rows.length > 0 && !Number.isFinite(readRegCell(rows[0][0] ?? "", semicolon).value) && !isMissingCell(rows[0][0] ?? "");
@@ -839,7 +884,7 @@ export function ioLeontiefCalc(read: Read): StatOutput {
   let flName: string;
   let fl: number[];
   if (mode === "Z") {
-    // Ghosh: B = x̂⁻¹Z, G = (I − B)⁻¹, forward linkage = row sums of G (Rasmussen-normalised).
+    // Ghosh: B = diag(x)⁻¹Z, G = (I − B)⁻¹, forward linkage = row sums of G (Rasmussen-normalised).
     const B = tab.M.map((r, i) => r.map((v) => v / x![i]));
     const Bex = tab.exact && xEx ? tab.exact.map((r, i) => r.map((v) => ratDiv(v, xEx![i]))) : undefined;
     const g = leontiefInverse(B, Bex, "B", deadline);
@@ -868,7 +913,7 @@ export function ioLeontiefCalc(read: Read): StatOutput {
     "Conventions: Aᵢⱼ is the input from sector i per unit of sector j's output; L = (I − A)⁻¹, x = Lf (Miller & Blair 2009, Input–Output Analysis, 2nd ed., ch. 2). " +
       "Output multiplier of j = Σᵢ Lᵢⱼ (simple, type I). Backward linkage = n·(column sum of L)/(sum of all of L), Rasmussen's normalised index; " +
       (mode === "Z"
-        ? "forward linkage = the same normalisation of the row sums of the Ghosh inverse (I − B)⁻¹, B = x̂⁻¹Z (allocation coefficients). "
+        ? "forward linkage = the same normalisation of the row sums of the Ghosh inverse (I − B)⁻¹, B = diag(x)⁻¹Z (allocation coefficients). "
         : "forward linkage = the same normalisation of the row sums of L (Rasmussen); Ghosh forward linkages need a transactions table with total output. ") +
       "A key sector has both linkages above 1.",
   );
@@ -885,7 +930,7 @@ export function ioLeontiefCalc(read: Read): StatOutput {
   else {
     const c = inv.cond ?? 1;
     lines.push(
-      `Computed in floating point (${n > IO_EXACT_MAX ? `n = ${n} is above the exact limit of ${IO_EXACT_MAX}` : "an input could not be held exactly"}); condition number κ₁(I − A) = ${fmtFixed(c, c < 1000 ? 2 : 0)}, so about ${Math.max(0, Math.ceil(Math.log10(Math.max(c, 1))))} of the 16 significant digits may be lost.`,
+      `Computed in floating point (${n > IO_EXACT_MAX ? `n = ${n} is above the exact limit of ${IO_EXACT_MAX}` : inv.exactTimedOut ? `the exact fractions are too long: an entry of A has more than ${IO_EXACT_DIGITS} digits as a fraction, or the exact inverse did not finish within ${IO_WALL_MS / 2000} s` : "an input could not be held exactly"}); condition number κ₁(I − A) = ${fmtFixed(c, c < 1000 ? 2 : 0)}, so about ${Math.max(0, Math.ceil(Math.log10(Math.max(c, 1))))} of the 16 significant digits may be lost.`,
     );
   }
   if (fImplied) lines.push("Final demand was not typed, so f = x − Z·1 (each sector's output less its sales to other sectors); then (I − A)⁻¹f reproduces x.");
@@ -1013,6 +1058,10 @@ export const FX_MAX_RATES = 60;
 export const FX_MAX_AMOUNTS = 500;
 export const FX_MATRIX_MAX = 12;
 export const FX_MAX_AMOUNT = 1e15;
+/** Rates are accepted from 10⁻⁹ to 10⁹ units per base unit; a converted amount must stay below 10¹⁸. */
+export const FX_MIN_RATE = 1e-9;
+export const FX_MAX_RATE = 1e9;
+export const FX_MAX_CONVERTED = 1e18;
 
 const listDate = `the list dated ${ISO4217_DATE}`;
 
@@ -1060,6 +1109,7 @@ export function finCurrencyCalc(read: Read): FinOutput {
     const rv = readRegCell(m[2].trim(), false);
     if (!Number.isFinite(rv.value)) return finRefuse(`Rate line ${i + 1}: ${q(m[2].trim())} is not a finite number.`);
     if (!(rv.value > 0)) return finRefuse(`Rate line ${i + 1}: the rate for ${c} must be positive; ${q(m[2].trim())} was typed.`);
+    if (rv.value < FX_MIN_RATE || rv.value > FX_MAX_RATE) return finRefuse(`Rate line ${i + 1}: the rate for ${c}, ${q(m[2].trim())}, is outside the range accepted (10⁻⁹ to 10⁹ units per 1 ${base}).`);
     if (rv.decimalComma) decComma = true;
     const ex = ratOf(rv.value);
     if (!ex || ratSign(ex) <= 0) return finRefuse(`Rate line ${i + 1}: the rate for ${c} cannot be held exactly.`);
@@ -1111,6 +1161,7 @@ export function finCurrencyCalc(read: Read): FinOutput {
     const from = a.code;
     const rate = cross(rates.get(from)!, rates.get(target)!);
     const conv = convert(a.amount, rates.get(from)!, rates.get(target)!);
+    if (Math.abs(ratToNumber(conv)) >= FX_MAX_CONVERTED) return finRefuse(`${a.line} converts to 10¹⁸ ${target} or more, beyond the largest converted amount accepted.`);
     const fm = minorOf(from);
     const amtText = `${exactText(a.amount, fm ?? 0)} ${from}`;
     const crossText = `1 ${from} = ${sigText(rate)} ${target}`;
@@ -1124,7 +1175,8 @@ export function finCurrencyCalc(read: Read): FinOutput {
   lines.push("");
   lines.push(
     `Conventions: each rate line reads “1 ${base} = rate CODE”. The cross rate from A to B is rate(B)/rate(A), the exact quotient of the typed rates; a conversion multiplies by it exactly and rounds once, ` +
-      "half away from zero, to the target currency's ISO 4217 minor unit (the damages calculators' cent rounding, generalised from 2 decimals to the currency's own minor unit). Cross rates are shown to 6 significant digits; that display rounding is not used in the conversions.",
+      "half away from zero, to the target currency's ISO 4217 minor unit (the damages calculators' cent rounding, generalised from 2 decimals to the currency's own minor unit). Cross rates are shown to 6 significant digits; that display rounding is not used in the conversions. " +
+      "Rates are accepted from 10⁻⁹ to 10⁹ units per base unit, amounts up to 10¹⁵ and converted amounts below 10¹⁸.",
   );
   const tm = minorOf(target);
   lines.push(

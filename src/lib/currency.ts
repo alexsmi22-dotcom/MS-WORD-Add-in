@@ -268,7 +268,14 @@ export function sigText(r: Rat, sig = 6): string {
   const ge = (k: number): boolean => (k >= 0 ? a >= r.d * ten(k) : a * ten(k) >= r.d);
   if (!ge(e)) e--;
   else if (ge(e + 1)) e++;
-  const dp = Math.max(0, sig - 1 - e);
+  if (e >= sig - 1) {
+    // Integer part longer than `sig` digits: round it to `sig` significant digits (123,456,789 → 123,457,000).
+    const k = e - (sig - 1);
+    const p = 10n ** BigInt(k);
+    const u = roundUnits({ n: r.n, d: r.d * p }, 0) * p;
+    return unitsText(u, 0);
+  }
+  const dp = sig - 1 - e;
   const t = unitsText(roundUnits(r, dp), dp);
   return t.includes(".") ? t.replace(/0+$/, "").replace(/\.$/, "") : t;
 }

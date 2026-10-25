@@ -16,17 +16,20 @@ import { ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratIsZero, ratSign, ratToNumber
 
 export const IO_MAX_N = 60;
 export const IO_EXACT_MAX = 8;
+/** Largest numerator or denominator (in digits) of an entry of A taken down the exact path. */
+export const IO_EXACT_DIGITS = 40;
 export const IO_WALL_MS = 6000;
 /** Collatz–Wielandt iterations at most. */
 export const IO_RHO_MAX_ITER = 20000;
 
 export type Mat = number[][];
 
-/** Exact inverse of M by Gauss–Jordan; null when singular. */
-export function ratInverse(M: Rat[][]): Rat[][] | null {
+/** Exact inverse of M by Gauss–Jordan; null when singular, "time" past the deadline (checked once per row step). */
+export function ratInverse(M: Rat[][], deadline = Infinity): Rat[][] | null | "time" {
   const n = M.length;
   const a = M.map((r, i) => [...r, ...Array.from({ length: n }, (_, j) => (i === j ? RAT_ONE : RAT_ZERO))]);
   for (let c = 0; c < n; c++) {
+    if (Date.now() > deadline) return "time";
     let p = -1;
     for (let r = c; r < n; r++) if (!ratIsZero(a[r][c])) { p = r; break; }
     if (p < 0) return null;
@@ -119,7 +122,7 @@ export interface IoInput {
   /** Technical coefficients (floats) and, when every entry was exact, the same as fractions. */
   A: Mat;
   Aexact?: Rat[][];
-  /** Ghosh needs Z and x: allocation coefficients B = x̂⁻¹Z. */
+  /** Ghosh needs Z and x: allocation coefficients B = diag(x)⁻¹Z. */
   Z?: Mat;
   Zexact?: Rat[][];
   x?: number[];
@@ -127,7 +130,7 @@ export interface IoInput {
 }
 
 export type IoInverse =
-  | { ok: true; L: Mat; exact: boolean; Lexact?: Rat[][]; cond?: number }
+  | { ok: true; L: Mat; exact: boolean; Lexact?: Rat[][]; cond?: number; exactTimedOut?: boolean }
   | { ok: false; reason: string };
 
 function identityMinus(A: Mat): Mat {
@@ -139,12 +142,21 @@ function identityMinus(A: Mat): Mat {
  */
 export function leontiefInverse(M: Mat, Mexact: Rat[][] | undefined, label: string, deadline: number): IoInverse {
   const n = M.length;
-  if (Mexact && n <= IO_EXACT_MAX) {
+  let exactTimedOut = false;
+  // Digit budget: an entry like 1.23456789012345×10⁻²⁹⁵ is a 310-digit fraction, and Gauss–Jordan multiplies such
+  // sizes together (measured: 4.8 s for 8 × 8). Above IO_EXACT_DIGITS digits the float path answers instead.
+  const tooLong = !!Mexact && Mexact.some((r) => r.some((v) => v.d.toString().length > IO_EXACT_DIGITS || (v.n < 0n ? -v.n : v.n).toString().length > IO_EXACT_DIGITS));
+  if (tooLong) exactTimedOut = true;
+  if (Mexact && n <= IO_EXACT_MAX && !tooLong) {
     const IM = Mexact.map((r, i) => r.map((v, j) => (i === j ? ratSub(RAT_ONE, v) : ratNeg(v))));
-    const inv = ratInverse(IM);
-    if (!inv) return { ok: false, reason: singular(label) };
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (ratSign(inv[i][j]) < 0) return { ok: false, reason: nonProductive(label) };
-    return { ok: true, exact: true, Lexact: inv, L: inv.map((r) => r.map((v) => ratToNumber(v))) };
+    // Exact work gets at most half the budget; past it the float path below answers (and says so).
+    const inv = ratInverse(IM, Date.now() + Math.max(0, (deadline - Date.now()) / 2));
+    if (inv === "time") exactTimedOut = true;
+    else {
+      if (!inv) return { ok: false, reason: singular(label) };
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (ratSign(inv[i][j]) < 0) return { ok: false, reason: nonProductive(label) };
+      return { ok: true, exact: true, Lexact: inv, L: inv.map((r) => r.map((v) => ratToNumber(v))) };
+    }
   }
   const IM = identityMinus(M);
   const inv = floatInverse(IM, deadline);
@@ -159,7 +171,7 @@ export function leontiefInverse(M: Mat, Mexact: Rat[][] | undefined, label: stri
     if (inv[i][j] < -tol) return { ok: false, reason: nonProductive(label) };
     if (inv[i][j] < 0) inv[i][j] = 0;
   }
-  return { ok: true, exact: false, L: inv, cond: norm1(IM) * norm1(inv) };
+  return { ok: true, exact: false, L: inv, cond: norm1(IM) * norm1(inv), exactTimedOut };
 }
 
 function singular(label: string): string {

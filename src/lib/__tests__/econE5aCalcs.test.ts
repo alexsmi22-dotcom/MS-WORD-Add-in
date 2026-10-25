@@ -52,6 +52,9 @@ function contract(out: { text: string; ok?: boolean; tables?: { rows: string[][]
   expect(all).not.toMatch(/\d[eE][+-]?\d/);
   expect(all).not.toMatch(/(^|[\s(=;:])-\d/m);
   expect(all).not.toContain("—");
+  // No combining diacritic (a hat over x or theta renders detached in Word): U+0300 to U+036F.
+  const combining = new RegExp(`[${String.fromCharCode(0x300)}-${String.fromCharCode(0x36f)}]`);
+  expect(all).not.toMatch(combining);
   // eslint-disable-next-line no-control-regex
   expect(all).not.toMatch(/[\u0000-\u0008\u000b-\u001f]/);
   for (const t of out.tables ?? []) {
@@ -309,7 +312,10 @@ describe("conc-hhi against the oracle", () => {
       [{ data: "A\t0\nB\t0", units: "sales" }, /add to zero/],
       [{ data: "A\t50%\nB\t50%", units: "fraction" }, /% signs/],
       [{ units: "bogus" }, /Unknown units/],
-      [{ data: "A 1 2\nB 3 4" }, /more than two cells/],
+      [{ data: "A 1 2\nB 3 4" }, /two numbers at the end of the row/],
+      [{ data: "A\t1\t2\nB\t3\t4" }, /more than two cells/],
+      [{ data: "Alder 0.28\nBirch 0.72" }, /looks like fractions/],
+      [{ data: "A 1e400\nB 50" }, /not a finite number/],
     ];
     for (const [over, re] of bad) {
       const out = hhiRun(over);
@@ -474,7 +480,9 @@ describe("fin-currency against the oracle", () => {
     expect(roundUnits({ n: 1005n, d: 1000n }, 2)).toBe(101n);
     expect(sigText({ n: 1n, d: 1478n })).toBe("0.00067659"); // 0.000676590|0 → trailing zero dropped
     expect(sigText({ n: 1n, d: 1477n })).toBe("0.000677048");
-    expect(sigText({ n: 123456789n, d: 1n })).toBe("123,456,789");
+    expect(sigText({ n: 123456789n, d: 1n })).toBe("123,457,000");
+    expect(sigText({ n: 999999n, d: 1n })).toBe("999,999");
+    expect(sigText({ n: 9999995n, d: 1n })).toBe("10,000,000");
     expect(sigText({ n: 100n, d: 92n })).toBe("1.08696");
   });
 
@@ -533,6 +541,88 @@ describe("fin-currency against the oracle", () => {
     expect(fxRun({ rates: `${rates}\n${extraCode} 2`, amounts: "", target: codes[0] }).ok).toBe(false);
     expect(fxRun({ rates, amounts: `${amounts}\n1 ${codes[0]}`, target: codes[0] }).ok).toBe(false);
   }, 30000);
+});
+
+describe("review round: readers, scales, bounds", () => {
+  test("ineq: a one-column paste with decimal commas is read whole (G = 8/27, not 4/9)", () => {
+    for (const data of ["0,5\n1,5\n2,5", "Income\n0,5\n1,5\n2,5", "Household income\n0,5\n1,5\n2,5"]) {
+      const out = ineqRun({ data });
+      contract(out);
+      expect(out.text).toContain("Gini G = 0.2963 (exactly 8/27)");
+      expect(out.text).toContain("decimal commas");
+    }
+    // Thousands commas stay thousands: 1,500, 2,500, 3,000 → G = 6000/(2·9·2333.33…) = 1/7.
+    expect(ineqRun({ data: "1,500\n2,500\n3,000" }).text).toContain("Gini G = 0.1429 (exactly 1/7)");
+  });
+
+  test("ineq: a tiny user ε prints without e-notation", () => {
+    const out = ineqRun({ eps: "0.0000001" });
+    contract(out);
+    expect(out.text).toContain("A(1×10⁻⁷)");
+  });
+
+  test("hhi: space-separated rows split at the last space (decimal commas, names with spaces)", () => {
+    const a = hhiRun({ data: "Alder 28,5\nBirch 71,5", merging: "" });
+    contract(a);
+    expect(a.text).toContain("HHI = 5,924.5");
+    const b = hhiRun({ data: "Firm Share\nAcme Corp 28\nBeta Holdings Ltd 72", merging: "Acme Corp\nBeta Holdings Ltd" });
+    contract(b);
+    expect(b.text).toContain("Merger of Acme Corp + Beta Holdings Ltd: merged share 100%, ΔHHI = 4,032");
+    const csv = hhiRun({ data: "Firm, Share\nAlder, 60\nBirch, 40", merging: "" });
+    contract(csv);
+    expect(csv.text).toContain("HHI = 5,200");
+  });
+
+  test("hhi: huge sales and tiny shares give exact shares", () => {
+    const huge = hhiRun({ data: "A\t3e14\nB\t1e14", units: "sales", merging: "A\nB" });
+    contract(huge);
+    expect(huge.text).toContain("HHI = 6,250");
+    expect(huge.text).toContain("ΔHHI = 3,750");
+    const tiny = hhiRun({ data: "A\t0.0000003\nB\t0.0000001", units: "sales", merging: "" });
+    contract(tiny);
+    expect(tiny.text).toContain("HHI = 6,250");
+  });
+
+  test("io: numeric sector codes are refused with a hint; extreme scales", () => {
+    const codes = ioRun({ matrix: "\t11\t21\n11\t0.1\t0.2\n21\t0.3\t0.1", fd: "", emp: "" });
+    expect(codes.ok).toBe(false);
+    expect(codes.text).toContain("names sectors with numbers (“11”)");
+    // A header-less labelled table is still read.
+    const bare = ioRun({ matrix: "A 0.1 0.2\nB 0.3 0.1", fd: "", emp: "" });
+    contract(bare);
+    // 15-digit entries near 10⁻²⁹⁵: too long for the exact path, answered in floating point in milliseconds.
+    const big = Array.from({ length: 8 }, (_, i) => Array.from({ length: 8 }, (_, j) => `${(1.23456789012345 + i * 0.1 + j * 0.01).toFixed(14)}e-${290 + ((i + j) % 9)}`));
+    const m = "\t" + big.map((_, j) => "S" + j).join("\t") + "\n" + big.map((r, i) => "S" + i + "\t" + r.join("\t")).join("\n");
+    const t0 = Date.now();
+    const tiny = ioRun({ matrix: m, fd: "", emp: "" });
+    expect(Date.now() - t0).toBeLessThan(6000);
+    contract(tiny);
+    expect(tiny.text).toContain("more than 40 digits as a fraction");
+    // Flows of 10¹¹ against outputs of 10¹³ (transactions table, two exact inverses).
+    const zb = big.map((r) => r.map((v) => v.replace(/e-\d+$/, "e11")));
+    const mz = "\t" + big.map((_, j) => "S" + j).join("\t") + "\n" + zb.map((r, i) => "S" + i + "\t" + r.join("\t")).join("\n");
+    const huge = ioRun({ mode: "Z", matrix: mz, xout: Array(8).fill("98765432109876.5").join(", "), fd: "", emp: "" });
+    contract(huge);
+    expect(huge.text).toContain("exact fractions");
+  });
+
+  test("fx: rate and converted-amount bounds refuse by name; tiny rates work", () => {
+    const r1 = fxRun({ rates: "EUR 1e300" });
+    expect(r1.ok).toBe(false);
+    expect(r1.text).toContain("outside the range accepted (10⁻⁹ to 10⁹");
+    const r2 = fxRun({ rates: "EUR 1e-12" });
+    expect(r2.ok).toBe(false);
+    const r3 = fxRun({ rates: "IRR 900000000", amounts: "9e14 USD", target: "IRR" });
+    expect(r3.ok).toBe(false);
+    expect(r3.text).toContain("beyond the largest converted amount");
+    const ok = fxRun({ rates: "XAU 0.000000002\nEUR 0.92", amounts: "0.000001 EUR", target: "EUR" });
+    contract(ok);
+    const huge = fxRun({ rates: "VND 999999999", amounts: "999999999 USD", target: "VND" });
+    contract(huge);
+    // 999,999,999 shown to 6 significant digits.
+    expect(huge.text).toContain("1 USD = 1,000,000,000 VND");
+    expect(huge.text).toContain("999,999,999.00 USD = 999,999,998,000,000,001 VND");
+  });
 });
 
 describe("field declarations", () => {

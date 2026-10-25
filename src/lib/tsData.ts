@@ -176,12 +176,16 @@ export function parseSeriesTable(text: string, opts: { minRows?: number; require
     let firstWith = -1;
     let firstWithout = -1;
     for (let i = 0; i < rows.length; i++) {
-      if ((rows[i][j] ?? "").trim().endsWith("%")) {
+      const cell = (rows[i][j] ?? "").trim();
+      // A bare zero is zero in any units, so it neither sets nor breaks a column's % convention.
+      if (/^[-−+]?0+([.,]0+)?$/.test(cell)) continue;
+      if (cell.endsWith("%")) {
         withSign++;
         if (firstWith < 0) firstWith = i;
       } else if (firstWithout < 0) firstWithout = i;
     }
-    if (withSign && withSign < rows.length) {
+    const zeros = rows.filter((r) => /^[-−+]?0+([.,]0+)?$/.test((r[j] ?? "").trim())).length;
+    if (withSign && withSign < rows.length - zeros) {
       return {
         ok: false,
         reason:

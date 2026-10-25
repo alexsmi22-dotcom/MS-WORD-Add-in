@@ -84,3 +84,9 @@ describe("E3 review round", () => {
     expect(bad("a\n1%\n2\n3%")).toContain("some values with a % sign (row 1) and some without (row 2)");
   });
 });
+
+describe("E3 review round 2", () => {
+  test("a bare 0 in a % column is zero in any units", () => {
+    expect(ok("a\n1%\n0\n3%").percent).toEqual([true]);
+  });
+});

@@ -49,20 +49,26 @@ export const ARIMA_MAX_H = 200;
 /** BFGS iterations per start before the fit is refused as not converged. */
 export const ARIMA_MAX_ITER = 400;
 /**
- * Likelihood work allowed per fit, in estimated nanoseconds on the build machine (about 2.5 s), charged per evaluation
+ * Likelihood work allowed per fit, in estimated nanoseconds on the build machine (about 8 s, bounded in real time by ARIMA_WALL_MS), charged per evaluation
  * for the work it actually did (evalCostNs): the steps before the filter's covariance settles cost O(r²) each, the rest
  * O(r), plus the dense Lyapunov solve for the stationary start. Charging a flat N·r² was wrong both ways: near an MA unit
  * root the covariance never settles (ARIMA(1, 1, 1) on 100,000 rows of noise ran for 140 s), and at high orders on short
  * series the r² × r² solve dominates (ARIMA(5, 0, 5) on 60 rows ran for 16 s). Optimisation and the Hessian share it;
  * a fit that would exceed it is refused by name. The charge is deterministic, so a refusal does not depend on the machine.
  */
-export const ARIMA_WORK_BUDGET = 2.5e9;
+export const ARIMA_WORK_BUDGET = 8e9;
+/**
+ * A hard stop on real time, ms: the estimate above is within a factor of about two either way (it overestimates a settled
+ * high-order filter, underestimates an unsettled one), so the pane's guarantee against a frozen Word is this clock. Only
+ * a fit that would have run past it is affected, and its refusal says so.
+ */
+export const ARIMA_WALL_MS = 6000;
 /** Extra work for the standard errors' Hessian beyond what the optimiser left (estimated ns). */
 const HESS_ALLOWANCE = 1e9;
 
-/** Estimated cost of one likelihood evaluation, ns (calibrated 2026-10-25: 200 ns per unsettled step per r², 20 ns per settled step per r, 3r⁶ for the start). */
+/** Estimated cost of one likelihood evaluation, ns (calibrated 2026-10-25: 300 ns per unsettled step per r², 20 ns per settled step per r, 3r⁶ for the start; a review measured 200 as 1.2–1.8× low at r = 6). */
 function evalCostNs(N: number, r: number, unsteady: number): number {
-  return 200 * unsteady * r * r + 20 * (N - unsteady) * r + 3 * r ** 6 + 2000;
+  return 300 * unsteady * r * r + 20 * (N - unsteady) * r + 3 * r ** 6 + 2000;
 }
 
 const LOG2PI = Math.log(2 * Math.PI);
@@ -610,6 +616,8 @@ function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number, budget
     let fn1 = f;
     let accepted = false;
     for (let ls = 0; ls < 60; ls++) {
+      // Out of budget mid-search: stop here rather than overrun it by up to 60 evaluations.
+      if (budget.left <= 0) return { x, f, converged: false, iterations: it, exhausted: true };
       xn = x.map((v, i) => v + step * dir[i]);
       fn1 = fn(xn);
       if (Number.isFinite(fn1) && fn1 <= f + 1e-4 * step * slope) {
@@ -706,15 +714,17 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   const { z, center, scale } = sc;
   const pk: Packed = { p, q, hasMu };
   // Work budget, in estimated ns charged per evaluation (deterministic, so a refusal does not depend on the machine).
-  // A fit that cannot afford the Hessian plus 50 evaluations even with a settled covariance is refused up front,
+  // A fit that cannot afford the Hessian plus max(100, 20k) evaluations (a BFGS run needs far more than one gradient per
+  // parameter) even with a settled covariance is refused up front,
   // naming the most rows these orders allow. The Hessian then draws on what the optimiser left plus HESS_ALLOWANCE;
   // if that runs out, the estimates stand and the standard errors are reported as not computed.
   const r = Math.max(p, q + 1);
   const hessEvals = 2 * k * k + 1;
-  const upfront = (hessEvals + 50) * evalCostNs(N, r, Math.min(N, r * r));
+  const minEvals = hessEvals + Math.max(100, 20 * k);
+  const upfront = minEvals * evalCostNs(N, r, Math.min(N, r * r));
   if (upfront > ARIMA_WORK_BUDGET) {
-    const perRow = (hessEvals + 50) * 20 * r;
-    const fixed = (hessEvals + 50) * (200 * r ** 4 + 3 * r ** 6 + 2000);
+    const perRow = minEvals * 20 * r;
+    const fixed = minEvals * (300 * r ** 4 + 3 * r ** 6 + 2000);
     const maxN = Math.max(0, Math.floor((ARIMA_WORK_BUDGET - fixed) / perRow));
     return {
       ok: false,
@@ -723,9 +733,13 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   }
   const budget = { left: ARIMA_WORK_BUDGET };
   const cost = { ns: 0 };
+  const started = Date.now();
+  // The Hessian keeps a share of the clock: the optimiser stops at 75% of it.
+  const optDeadline = started + 0.75 * ARIMA_WALL_MS;
   const fn = (x: number[]): number => {
     const v = negMeanLlf(z, x, pk, cost);
     budget.left -= cost.ns;
+    if (Date.now() > optDeadline) budget.left = Math.min(budget.left, 0);
     return v;
   };
 
@@ -769,11 +783,16 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   runs.sort((a, b) => a.f - b.f);
   // The best converged maximum, provided no unconverged run found a clearly higher likelihood.
   const best = runs.find((x) => x.converged);
+  // For the refusal's advice: is the highest likelihood found sitting at the MA invertibility edge?
+  const maNearEdge = q > 0 && (() => {
+    const u = unconstrainStationary(unpack(runs[0].x, pk).theta.map((t) => -t));
+    return !u || u.some((v) => Math.abs(v) > 6);
+  })();
   if (!best || best.f > runs[0].f + 1e-10) {
     return {
       ok: false,
       reason: exhausted
-        ? `The likelihood maximisation did not converge within the pane's computation limit for ${N.toLocaleString("en-US")} observations, so no estimate is reported. Use fewer rows or smaller p and q.${q > 0 && d > 0 ? " An MA root near −1 (a series differenced once too often) makes the likelihood slow and flat; try d one lower." : ""}`
+        ? `The likelihood maximisation did not converge within the pane's computation limit for ARIMA(${p}, ${d}, ${q}) on ${N.toLocaleString("en-US")} observations, so no estimate is reported. Use smaller p and q, or fewer rows.${maNearEdge && d > 0 ? " The best value found has an MA root near −1, the mark of a series differenced once too often; try d one lower." : ""}`
         : `The likelihood maximisation did not converge within ${ARIMA_MAX_ITER} iterations from any start, so no estimate is reported. Try a smaller p or q.`,
     };
   }
@@ -800,7 +819,7 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
     o += q;
     const s2 = v[o];
     if (!(s2 > 0) || !isStationary(ph) || !isInvertible(th)) return NaN;
-    if (hessBudget.left <= 0) {
+    if (hessBudget.left <= 0 || Date.now() > started + ARIMA_WALL_MS) {
       hessBudget.out = true;
       return NaN;
     }

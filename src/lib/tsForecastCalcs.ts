@@ -304,7 +304,7 @@ export function tsArimaCalc(read: Read): StatOutput {
     );
   }
   lines.push(
-    "Estimation: σ² concentrated out; BFGS in statsmodels' unconstrained parametrisation (Monahan 1984; Jones 1980), so every iterate is stationary and invertible; starts from Hannan–Rissanen (1982) and from zero, best maximum kept.",
+    "Estimation: σ² concentrated out; BFGS in statsmodels' unconstrained parametrisation (Monahan 1984; Jones 1980), so every iterate is stationary and invertible; starts from Hannan–Rissanen (1982), from zero and (up to 5,000 observations) with θ₁ = ±0.8, best converged maximum kept; refused if an unconverged start found a higher likelihood.",
   );
   lines.push(
     "Standard errors: inverse of the negative numerical Hessian of the log likelihood (central differences in the constrained parameters, σ² included; statsmodels' cov_type=\"approx\", whose default is the outer-product estimate). z and p from the normal distribution.",

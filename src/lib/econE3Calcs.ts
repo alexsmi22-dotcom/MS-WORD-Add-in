@@ -401,7 +401,8 @@ export function idxDeflateCalc(read: Read): StatOutput {
   const n = d.n;
   for (let i = 0; i < n; i++) {
     if (!(cpi.values[i] > 0)) return refuse(`${q(cpi.name)} on ${tokens[i].label} is ${fmtFixed(cpi.values[i], 3)}; a price index must be greater than zero.`);
-    if (Math.abs(nom.values[i]) >= MONEY_MAX) return refuse(`${q(nom.name)} on ${tokens[i].label} is too large to show to the cent (the limit is 10¹³, as the damages calculators).`);
+    // Checked on the amount as shown (cents rounded), so 9,999,999,999,999.995 cannot slip through and print as 10¹³.
+    if (Math.abs(toCents(nom.values[i])) >= MONEY_MAX * 100) return refuse(`${q(nom.name)} on ${tokens[i].label} is too large to show to the cent (the limit is 10¹³, as the damages calculators).`);
   }
   const findRow = (raw: string, label: string, dflt: number): number | { error: string } => {
     const s = raw.trim();

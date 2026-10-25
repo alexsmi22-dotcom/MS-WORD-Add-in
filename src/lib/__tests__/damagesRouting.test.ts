@@ -46,13 +46,12 @@ describe("damages calculators in the Finance registry", () => {
     expect(PANE).toContain('if (f.kind === "select" || f.kind === "list" || f.kind === "text" || f.kind === "block") continue;');
   });
   test("the table rides with the text and figure in one package; without a figure, text and table together", () => {
-    expect(PANE).toContain("table = out.table ?? null;");
-    expect(PANE).toContain("table: currentFinTable ?? undefined,");
-    expect(PANE).toContain("if (currentFinTable) await insertTextAndTable(currentFinText, currentFinTable, \"Result\");");
-    expect(PANE).toMatch(/\.\.\.\(o\.table \? \[\{ kind: "table" as const, label: o\.table\.label, rows: o\.table\.rows \}\] : \[\]\)/);
-    // the vector route chains a second insert, which cannot follow a table
-    expect(PANE).toContain('if (!o.table && decideInsertRoute(hostCapability()).route === "svg") {');
+    // One table (E1a) or several (E1b) become the same list, inserted by insertTextTablesFigure as one package
+    // (figure or none).
+    expect(PANE).toContain("tables = out.tables ?? (out.table ? [out.table] : []);");
+    expect(PANE).toMatch(/if \(currentFinTables\.length\) \{[\s\S]{0,400}await insertTextTablesFigure\(/);
     // table cells pass the insert gate too
-    expect(PANE).toContain("const tableOk = !table || tableCellsInsertable(table.rows);");
+    expect(PANE).toContain("const tableOk = tables.every((t) => tableCellsInsertable(t.rows));");
   });
+});
 });

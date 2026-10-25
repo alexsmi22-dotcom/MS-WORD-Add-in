@@ -799,10 +799,13 @@ export function fitIv(input: IvInput): IvResult {
       }
     }
     if (worst < 1e-5) {
-      const digits = Math.max(1, Math.floor(13 + Math.log10(worst)));
+      // Digits measured against 60-digit mpmath (z2 = z1 + ε·noise, n = 200), relative errors at ε = 1e−8, 1e−9, 1e−10:
+      // split coefficients 1.6e−6, 2.3e−7, 7.8e−6; F statistics and 2SLS 1.4e−9, 3.1e−8, 8.7e−7.
+      const digits = Math.max(1, Math.floor(14 + Math.log10(worst)));
+      const digitsF = Math.max(1, Math.min(15, Math.floor(16.5 + Math.log10(worst))));
       notes.push(
         `The instruments are nearly collinear: the part of ${q(worstName)} outside the columns before it is ${numText(Number(worst.toPrecision(2)))} of its size. ` +
-          `Their individual first-stage coefficients and standard errors keep only about ${digits} significant digits; the first-stage F statistics and the 2SLS estimates do not depend on that split and keep about nine digits or more.`,
+          `Their individual first-stage coefficients and standard errors keep only about ${digits} significant digit${digits === 1 ? "" : "s"}; the first-stage F statistics and the 2SLS estimates do not depend on that split and keep about ${digitsF}.`,
       );
     }
   }

@@ -462,11 +462,65 @@ export interface QrCov {
   sparsity: number;
 }
 
+/** The factored design behind qrCovariance (the same for every τ, so a run factors it once). */
+export interface QrDesign {
+  ok: true;
+  /** Thin Q of the centred, scaled design (p columns of length n). */
+  Q: Float64Array[];
+  /** R⁻¹ (upper triangular). */
+  Rinv: number[][];
+  /** Column scales (powers of two) and means (0 for uncentred columns). */
+  cs: number[];
+  means: number[];
+  /** Index of the constant column (−1 if none) and its value. */
+  ci: number;
+  cval: number;
+}
+
+/**
+ * The design, reparameterised exactly: with a constant column (every value the same nonzero k), every other column is
+ * centred (the intercept then absorbs the means); each column is divided by a power of two near its largest magnitude.
+ * Householder QR of that design, X = QR, gives (XᵀX)⁻¹ = R⁻¹R⁻ᵀ and XᵀDX = Rᵀ(QᵀDQ)R, so the sandwich is
+ * R⁻¹(QᵀDQ)R⁻ᵀ: the rounding follows the condition number of X, never that of XᵀX (its square).
+ */
+export function qrDesign(cols: Float64Array[]): QrDesign | { ok: false; reason: string } {
+  const p = cols.length;
+  const n = p ? cols[0].length : 0;
+  const isConst = cols.map((col) => col[0] !== 0 && col.every((v) => v === col[0]));
+  const ci = isConst.indexOf(true);
+  const means = cols.map((col, k) => {
+    if (ci < 0 || isConst[k]) return 0;
+    let s = 0;
+    for (let i = 0; i < n; i++) s += col[i];
+    return s / n;
+  });
+  const Xc = cols.map((col, k) => (means[k] === 0 ? Float64Array.from(col) : Float64Array.from(col, (v) => v - means[k])));
+  const cs = Xc.map((col) => {
+    let m = 0;
+    for (let i = 0; i < n; i++) m = mMax(m, mAbs(col[i]));
+    return m > 0 ? pow2Near(m) : 1;
+  });
+  for (let k = 0; k < p; k++) {
+    const col = Xc[k];
+    for (let i = 0; i < n; i++) col[i] /= cs[k];
+  }
+  const qr = householderThin(Xc, n);
+  if (!qr) return { ok: false, reason: "The design is numerically rank-deficient (a column is a combination of the others), so the standard errors cannot be formed." };
+  return { ok: true, Q: qr.Q, Rinv: invUpperTri(qr.R), cs, means, ci, cval: ci >= 0 ? cols[ci][0] : 1 };
+}
+
 /**
  * The covariance of β̂ by statsmodels QuantReg's formula at the given residuals (exact zeros on the basis).
- * `cols` include the constant column if any.
+ * `cols` include the constant column if any; `design` is qrDesign(cols), computed here when not given.
  */
-export function qrCovariance(y: Float64Array, cols: Float64Array[], resid: Float64Array, q: number, vcov: QrVcov): QrCov | { ok: false; reason: string } {
+export function qrCovariance(
+  y: Float64Array,
+  cols: Float64Array[],
+  resid: Float64Array,
+  q: number,
+  vcov: QrVcov,
+  design?: QrDesign | { ok: false; reason: string },
+): QrCov | { ok: false; reason: string } {
   const n = y.length;
   const p = cols.length;
   const iqre = percentileLinear(resid, 75) - percentileLinear(resid, 25);
@@ -496,45 +550,35 @@ export function qrCovariance(y: Float64Array, cols: Float64Array[], resid: Float
   if (!(fhat0 > 0)) {
     return { ok: false, reason: "No residual lies within the kernel bandwidth of zero, so the density estimate f̂(0) is 0 and the standard errors are undefined." };
   }
-  // The design, reparameterised exactly: with a constant column, every other column is centred (the intercept then
-  // absorbs the means); each column is divided by a power of two near its largest magnitude. Householder QR of that
-  // design, X = QR, gives (XᵀX)⁻¹ = R⁻¹R⁻ᵀ and XᵀDX = Rᵀ(QᵀDQ)R, so the sandwich is R⁻¹(QᵀDQ)R⁻ᵀ: the rounding
-  // follows the condition number of X, never that of XᵀX (its square).
-  const isConst = cols.map((col) => col[0] !== 0 && col.every((v) => v === col[0]));
-  const ci = isConst.indexOf(true);
-  const means = cols.map((col, k) => {
-    if (ci < 0 || isConst[k]) return 0;
-    let s = 0;
-    for (let i = 0; i < n; i++) s += col[i];
-    return s / n;
-  });
-  const Xc = cols.map((col, k) => (means[k] === 0 ? Float64Array.from(col) : Float64Array.from(col, (v) => v - means[k])));
-  const cs = Xc.map((col) => {
-    let m = 0;
-    for (let i = 0; i < n; i++) m = mMax(m, mAbs(col[i]));
-    return m > 0 ? pow2Near(m) : 1;
-  });
-  for (let k = 0; k < p; k++) {
-    const col = Xc[k];
-    for (let i = 0; i < n; i++) col[i] /= cs[k];
-  }
-  const qr = householderThin(Xc, n);
-  if (!qr) return { ok: false, reason: "The design is numerically rank-deficient (a column is a combination of the others), so the standard errors cannot be formed." };
-  const Rinv = invUpperTri(qr.R);
+  const des = design ?? qrDesign(cols);
+  if (!des.ok) return des;
+  const { Q, Rinv, cs, means, ci, cval } = des;
   let S: number[][];
   let f = 1;
   if (vcov === "robust") {
     const dPos = Math.pow(q / fhat0, 2);
     const dNeg = Math.pow((1 - q) / fhat0, 2);
+    // QᵀDQ with D taking two values: QᵀQ = I, so QᵀDQ = d_rest·I + (d_set − d_rest)·Σ_{i∈set} qᵢqᵢᵀ over the SMALLER of
+    // the positive-residual and the other rows (min(τ, 1 − τ)·n rows instead of n).
+    let nPos = 0;
+    for (let i = 0; i < n; i++) if (resid[i] > 0) nPos++;
+    const usePos = nPos <= n - nPos;
+    const idx = new Int32Array(usePos ? nPos : n - nPos);
+    let m = 0;
+    for (let i = 0; i < n; i++) if (resid[i] > 0 === usePos) idx[m++] = i;
+    const dSet = usePos ? dPos : dNeg;
+    const dRest = usePos ? dNeg : dPos;
+    const rows = Q.map((col) => Float64Array.from(idx, (i) => col[i]));
     S = Array.from({ length: p }, () => new Array<number>(p).fill(0));
     for (let a = 0; a < p; a++) {
-      const qa = qr.Q[a];
+      const qa = rows[a];
       for (let b = a; b < p; b++) {
-        const qb = qr.Q[b];
+        const qb = rows[b];
         let s = 0;
-        for (let i = 0; i < n; i++) s += qa[i] * (resid[i] > 0 ? dPos : dNeg) * qb[i];
-        S[a][b] = s;
-        S[b][a] = s;
+        for (let r = 0; r < m; r++) s += qa[r] * qb[r];
+        const v = (dSet - dRest) * s + (a === b ? dRest : 0);
+        S[a][b] = v;
+        S[b][a] = v;
       }
     }
   } else {
@@ -552,8 +596,9 @@ export function qrCovariance(y: Float64Array, cols: Float64Array[], resid: Float
     for (let k = 0; k < p; k++) s += RS[a][k] * Rinv[b][k];
     return (f * s) / (cs[a] * cs[b]);
   }));
-  // Back to the user's parameters: β_const = c_const − Σ mⱼcⱼ, every other βⱼ = cⱼ; V = G·Vc·Gᵀ.
-  const G = Array.from({ length: p }, (_, a) => Array.from({ length: p }, (_, b) => (a === b ? 1 : a === ci ? -means[b] : 0)));
+  // Back to the user's parameters: with the constant column equal to k in every row, β_const = c_const − Σ (mⱼ/k)·cⱼ
+  // and every other βⱼ = cⱼ; V = G·Vc·Gᵀ.
+  const G = Array.from({ length: p }, (_, a) => Array.from({ length: p }, (_, b) => (a === b ? 1 : a === ci ? -means[b] / cval : 0)));
   const GV = G.map((ga) => Array.from({ length: p }, (_, j) => {
     let s = 0;
     for (let k = 0; k < p; k++) if (ga[k] !== 0) s += ga[k] * Vc[k][j];

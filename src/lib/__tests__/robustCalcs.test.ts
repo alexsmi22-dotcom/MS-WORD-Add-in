@@ -369,6 +369,18 @@ describe("boot-ci at large and tiny scales; ratio near a zero denominator", () =
     expect(ticks.join(" ")).not.toMatch(/\d[eE][+-]?\d/);
   });
 
+  it("values near 5 with an SE of 10⁻⁷: plain decimals, never ×10⁰", () => {
+    const data = table(40, (i) => (5 + 1e-6 * Math.sin(i * 2.3)).toFixed(12), "v");
+    const o = boot({ data, vars: "v", stat: "mean", B: "500" });
+    expectDisplayContract(o);
+    expectNoEmptyCell(o);
+    expect(shown(o)).not.toContain("×10⁰");
+    for (const r of o.tables![0].rows.slice(1)) {
+      expect(r[1]).toMatch(/^(4\.9|5\.0)\d{7}$/);
+      expect(r[1]).not.toBe(r[2]);
+    }
+  });
+
   it("confidence 95.55 prints as 95.55%", () => {
     expect(boot({ conf: "95.55", B: "300" }).text).toMatch(/^Bootstrap 95\.55% confidence/);
     expect(boot({ conf: "0.9555", B: "300" }).text).toMatch(/^Bootstrap 95\.55% confidence/);

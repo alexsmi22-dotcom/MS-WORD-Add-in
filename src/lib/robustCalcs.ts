@@ -8,7 +8,7 @@
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import type { FittedModel, ModelTerm } from "./regModel";
 import { BOOT_STATS, BOOT_MAX_B, BOOT_MIN_B, BOOT_MIN_N, runBootstrap, type BootMethod, type BootStat, type BootResult } from "./bootstrap";
-import { fitQuantileLp, qrCovariance, interceptOnlyObjective, QR_MAX_ROWS, QR_MAX_ROW_QUANTILES, QR_WALL_MS, type QrVcov } from "./quantReg";
+import { fitQuantileLp, qrCovariance, qrDesign, interceptOnlyObjective, QR_MAX_ROWS, QR_MAX_ROW_QUANTILES, QR_WALL_MS, type QrVcov } from "./quantReg";
 import { Pcg32, PCG_MAX_SEED } from "./prng";
 import { parseRegData, parseSpec, selectColumns, findColumn, type RegSpec } from "./regData";
 import { fitOls, magnitudeReason } from "./olsInference";
@@ -122,10 +122,10 @@ export function readQuantiles(raw: string | undefined): number[] | { error: stri
 /**
  * One formatter for every value a bootstrap result prints (θ, SE, bias, the bounds), at the precision of the SE: the
  * SE's second significant digit always shows, at any scale.
- *   - SE at 0.000001 or above and every value below 10¹⁵: plain decimals, 1 − ⌊log₁₀ SE⌋ of them (never fewer than 0),
- *     thousands grouped (1,234,519,233);
- *   - otherwise one ×10ⁿ shared by every value (n from the largest), with enough mantissa decimals for the SE
- *     (3.007×10⁻⁶ with SE 0.015×10⁻⁶).
+ *   - values below 10¹⁵, and either an SE needing at most 6 decimals or values of 0.001 and up: plain decimals,
+ *     1 − ⌊log₁₀ SE⌋ of them (never fewer than 0), thousands grouped (1,234,519,233; 5.0000016);
+ *   - otherwise (tiny values with a tinier SE, or 10¹⁵ and up) one ×10ⁿ shared by every value (n from the largest),
+ *     with enough mantissa decimals for the SE (3.007×10⁻⁶ with SE 0.015×10⁻⁶).
  * True minus, never e-notation.
  */
 export function bootFormatter(se: number, values: number[]): (v: number) => string {
@@ -136,8 +136,9 @@ export function bootFormatter(se: number, values: number[]): (v: number) => stri
     const t = /^-0(?:\.0*)?$/.test(s) ? s.slice(1) : s;
     return t.startsWith("-") ? MINUS_SIGN + t.slice(1) : t;
   };
-  if (d <= 6 && mag < 1e15) {
-    const dd = Math.max(0, d);
+  // Plain decimals unless the values are tiny (below 0.001) with an SE needing more than 6 decimals, or 10¹⁵ and up.
+  if (mag < 1e15 && (d <= 6 || mag >= 1e-3)) {
+    const dd = Math.max(0, Math.min(20, d));
     return (v) => sign(groupThousands(v.toFixed(dd)));
   }
   const E = mag > 0 ? Math.floor(Math.log10(mag)) : 0;
@@ -534,6 +535,12 @@ export function runQreg(read: Read): QregRun | { ok: false; reason: string } {
   const res = ols.resid;
   const sortedRes = Float64Array.from(res).sort();
   const deadline = t0 + QR_WALL_MS;
+  const late = (stage: string): string | null =>
+    Date.now() > deadline ? `Quantile regression stopped at ${stage}: it ran past its ${QR_WALL_MS / 1000} s limit, so the task pane is not frozen. Use fewer rows, predictors or quantiles.` : null;
+  // The design is the same for every τ: factored once (centred, scaled, Householder QR) for the covariances.
+  const design = qrDesign(cols);
+  const lateD = late("the design factorisation");
+  if (lateD) return { ok: false, reason: lateD };
   const df = n - p;
   const tcrit = tCritical(0.05, df);
   const fits: QregQuantile[] = [];
@@ -546,8 +553,10 @@ export function runQreg(read: Read): QregRun | { ok: false; reason: string } {
     const order = Int32Array.from({ length: n }, (_, i) => i).sort((a, b) => dist[a] - dist[b] || a - b);
     const lp = fitQuantileLp({ y: c.y, cols, tau, startOrder: order, deadline });
     if (!lp.ok) return { ok: false, reason: lp.reason };
-    const cov = qrCovariance(c.y, cols, lp.resid, tau, vcov);
+    const cov = qrCovariance(c.y, cols, lp.resid, tau, vcov, design);
     if (!cov.ok) return { ok: false, reason: `τ = ${tau}: ${cov.reason}` };
+    const lateC = late(`the standard errors for τ = ${tau}`);
+    if (lateC) return { ok: false, reason: lateC };
     const v0 = interceptOnlyObjective(c.y, tau);
     const r1 = v0 > 0 ? 1 - lp.objective / v0 : NaN;
     const terms: ModelTerm[] = termNames.map((name, k) => {

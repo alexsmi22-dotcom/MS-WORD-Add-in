@@ -10,7 +10,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { runQreg, qregCalc, type QregRun } from "../robustCalcs";
-import { fitQuantileLp, checkObjective, interceptOnlyObjective, qrCovariance, QR_MAX_ROWS } from "../quantReg";
+import { fitQuantileLp, checkObjective, interceptOnlyObjective, qrCovariance, qrDesign, QR_MAX_ROWS } from "../quantReg";
 import { fmtFixed } from "../regTable";
 import { Pcg32 } from "../prng";
 import { fitOls } from "../olsInference";
@@ -234,4 +234,34 @@ describe("qreg covariance by QR on uncentred polynomial designs (mpmath oracle)"
       });
     }
   }
+
+  it("a constant column that is not 1 (constant = no, a column of 2s) maps back exactly", () => {
+    const c = FX2.qreg.find((q) => q.name.startsWith("year + year², tau 0.373"))!;
+    const lines = c.data.split("\n");
+    const data = [lines[0] + "\ttwo", ...lines.slice(1).map((l) => `${l}\t2`)].join("\n");
+    const a = runQreg((k) => ({ data, spec: "y ~ year + year2 + two", quantiles: "0.373", se: "robust", constant: "no" })[k] ?? "");
+    const b = runQreg((k) => ({ data, spec: "y ~ year + year2", quantiles: "0.373", se: "robust", constant: "yes" })[k] ?? "");
+    if (!a.ok || !b.ok) throw new Error("refused");
+    const ta = a.fits[0].model.terms;
+    const tb = b.fits[0].model.terms;
+    rel(ta[0].se, tb[0].se, tb[0].se, 1e-9);
+    rel(ta[1].se, tb[1].se, tb[1].se, 1e-9);
+    rel(2 * ta[2].se, tb[2].se, tb[2].se, 1e-9);
+    rel(tb[2].se, c.seMp[2], c.seMp[2], 1e-9);
+  });
+
+  it("100,000 rows × 30 predictors: the design is factored once; six covariances cost little beyond it", () => {
+    const { y, cols } = synth(QR_MAX_ROWS, 30, 30);
+    const resid = Float64Array.from(y, (v, i) => v - 1 - 0.01 * i / QR_MAX_ROWS);
+    let t = Date.now();
+    const des = qrDesign(cols);
+    const msDesign = Date.now() - t;
+    if (!des.ok) throw new Error(des.reason);
+    t = Date.now();
+    for (const tau of [0.05, 0.1, 0.25, 0.5, 0.75, 0.95]) expect(qrCovariance(y, cols, resid, tau, "robust", des).ok).toBe(true);
+    const msCov = Date.now() - t;
+    // Measured 0.7–0.8 s for the design and 1.1 s for six covariances (1.9 s together); bounded at about 3×. runQreg
+    // also checks its 6 s clock after the design and after every covariance, refusing by name past it.
+    expect(msDesign + msCov).toBeLessThan(6000);
+  });
 });

@@ -62,7 +62,9 @@ const BASELINES = {
   // v2.196.0 (E2a): 27 of 28 — econ-ols draws residuals vs fitted; econ-regtable is a publication TABLE (text + a Word
   // table, no figure: models with different responses and scales have no shared plot), so figures rises by one only.
   // v2.196.0 (E2b): 27 of 29 — econ-logit is a coefficient and marginal-effects TABLE result (no figure).
-  stats: { label: "Statistics", figures: 27, total: 29 },
+  // v2.197.0 (E3): 35 of 37 — all eight new calculators draw: correlogram, unit-root series, HP trend/cycle, ARIMA and
+  // Holt–Winters forecasts, event-study average CAR, price-index and nominal-vs-real lines.
+  stats: { label: "Statistics", figures: 35, total: 37 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it

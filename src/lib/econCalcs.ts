@@ -11,7 +11,7 @@
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { fitOls, olsDiagnostics, type OlsFit, type SeType, type OlsDiagnostics } from "./olsInference";
 import { parseRegData, parseSpec, parseSpecList, selectColumns, type RegDataset, type RegSpec } from "./regData";
-import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, type StarScheme } from "./regTable";
+import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, intText, P_BELOW, type StarScheme } from "./regTable";
 import { buildPlotSvg } from "./plot";
 import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal } from "./logitProbit";
 
@@ -194,10 +194,13 @@ export function econOlsCalc(read: Read): StatOutput {
   const m = fit.model;
   const d = o.decimals;
   const diag = olsDiagnostics(fit);
+  // An ok result never carries a blank computed cell (fmtFixed writes "" for a value that is not a number).
+  const bad = nonFiniteDiagnostic(diag);
+  if (bad) return refuse(`${bad} is not a finite number for these data (an extreme scale or a degenerate residual pattern), so the result is not reported.`);
   const k = m.terms.filter((t) => t.name !== "Constant").length;
 
   const lines: string[] = [];
-  lines.push(`OLS regression of ${m.depName} on ${k} predictor${k === 1 ? "" : "s"} (n = ${m.n})`);
+  lines.push(`OLS regression of ${m.depName} on ${k} predictor${k === 1 ? "" : "s"} (n = ${intText(m.n)})`);
   lines.push(`Standard errors: ${m.seLabel}`);
   lines.push(`R² = ${fmtFixed(fit.r2, 3)}, adjusted R² = ${fmtFixed(fit.adjR2, 3)}`);
   if (fit.f) lines.push(`F(${fit.f.df1}, ${fit.f.df2}) = ${fmtFixed(fit.f.value, d)}, p ${pText(fit.f.p)}`);
@@ -264,7 +267,22 @@ export function econOlsCalc(read: Read): StatOutput {
 }
 
 function pText(p: number): string {
-  return p < 0.001 ? "< 0.001" : `= ${fmtP(p)}`;
+  return p < 0.001 ? P_BELOW : `= ${fmtP(p)}`;
+}
+
+/** The first diagnostic that is not a finite number, by name, or null. */
+export function nonFiniteDiagnostic(diag: OlsDiagnostics): string | null {
+  const checks: [string, number][] = [["Durbin–Watson", diag.durbinWatson]];
+  const test = (name: string, t: OlsDiagnostics["white"]): void => {
+    if (!("skipped" in t)) checks.push([name, t.stat], [`${name} p-value`, t.p]);
+  };
+  test("Breusch–Pagan", diag.breuschPagan);
+  test("White's test", diag.white);
+  if (!("skipped" in diag.reset)) checks.push(["Ramsey RESET", diag.reset.f], ["Ramsey RESET p-value", diag.reset.p]);
+  checks.push(["Jarque–Bera", diag.jarqueBera.jb], ["Jarque–Bera p-value", diag.jarqueBera.p]);
+  for (const v of diag.vif) checks.push([`The VIF of “${v.name}”`, v.vif]);
+  const hit = checks.find(([, v]) => !Number.isFinite(v));
+  return hit ? hit[0] : null;
 }
 
 /** The diagnostics as table rows: Test, Statistic, df, p. */
@@ -315,7 +333,7 @@ export function econRegTableCalc(read: Read): StatOutput {
   for (const m of models) for (const n of m.notes) seNotes.add(n);
   lines.push(...seNotes);
   lines.push(`${o.decimals} decimals; terms a model leaves out are blank.`);
-  return { text: lines.join("\n"), tables: [{ label: table.label, rows: table.rows, note: table.legend }] };
+  return { text: lines.join("\n"), tables: [{ label: table.label, rows: table.rows, note: table.legend, align: table.align }] };
 }
 
 /** One logit or probit model (lib/logitProbit.ts): the summary, the coefficient table and the marginal effects. */
@@ -337,11 +355,12 @@ export function econLogitCalc(read: Read): StatOutput {
     const fit = kind === "probit" ? fitProbit : fitLogit;
     const model = fit(y, X, c.names, { constant, se, depName: c.depName });
     const rep = logitProbitReport(model);
-    // The OLS notes minus the constant's position (this table lists the constant first, as statsmodels does).
-    const notes = [...conventionNotes({ se: "classical", constant, decimals: 3, stars: "econ" }, parsed.data.named).slice(1), ...c.notes];
+    // The same conventions as OLS, the constant's position included: the coefficient table lists it last.
+    const notes = [...conventionNotes({ se: "classical", constant, decimals: 3, stars: "econ" }, parsed.data.named), ...c.notes];
     return { text: [rep.text, ...notes].join("\n"), tables: rep.tables };
   } catch (e) {
     if (e instanceof LogitProbitRefusal) return refuse(e.message);
-    throw e;
+    // Never an uncaught error in the pane: anything else (a RangeError from a value the report cannot print) refuses.
+    return refuse(`The ${kind} model could not be reported for these data (${(e as Error).message}). Check the columns for extreme values.`);
   }
 }

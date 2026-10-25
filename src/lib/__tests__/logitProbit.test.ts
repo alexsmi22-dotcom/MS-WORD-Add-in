@@ -75,7 +75,9 @@ describe("statsmodels oracle: coefficients, SEs, z, p, CI, LR, pseudo R², AIC/B
       expect(m.kind).toBe(c.kind);
       expect(m.statLabel).toBe("z");
       expect(m.n).toBe(d.y.length);
-      expect(m.terms.map((t) => t.name)).toEqual(c.names.map((nm) => (nm === "const" ? "Constant" : nm)));
+      // The constant LAST (E2 fix round), as in the OLS tables and Stata; statsmodels lists it first.
+      const want = c.names.map((nm) => (nm === "const" ? "Constant" : nm));
+      expect(m.terms.map((t) => t.name)).toEqual([...want.filter((nm) => nm !== "Constant"), ...want.filter((nm) => nm === "Constant")]);
       c.names.forEach((nm, j) => {
         const t = term(m.terms, nm === "const" ? "Constant" : nm);
         expectRel(t.coef, c.params[j], 1e-6, `${nm} coef`);
@@ -179,6 +181,60 @@ describe("named refusals", () => {
     const X = a.map((v, i) => [v, b[i]]);
     const r = expectRefusal(() => fitLogit(y, X, ["a", "b"]), "quasi-separation");
     expect(r.variables.sort()).toEqual(["a", "b"]);
+  });
+
+  // The label must match the evidence (E2 fix round): "perfect" only when a linear predictor puts EVERY observation on
+  // its own side with a margin; a boundary block or a tie with both outcomes is quasi-complete. The first build called
+  // a 60-row perfect separation by a + b "quasi" under logit, and a quasi one "perfect" under probit.
+  const lcg = (seed: number) => () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648 - 0.5;
+  };
+  test("perfect separation by a combination on 60 rows is labelled perfect under logit and probit", () => {
+    const r = lcg(42);
+    const a = Array.from({ length: 60 }, () => 4 * r());
+    const b = Array.from({ length: 60 }, () => 4 * r());
+    const y = a.map((v, i) => (v + b[i] > 0 ? 1 : 0));
+    const X = a.map((v, i) => [v, b[i]]);
+    expectRefusal(() => fitLogit(y, X, ["a", "b"]), "perfect-separation");
+    expectRefusal(() => fitProbit(y, X, ["a", "b"]), "perfect-separation");
+  });
+  test("quasi-complete separation by a combination (a mixed block on a + b = 0) is labelled quasi under logit and probit", () => {
+    const r = lcg(7);
+    const a: number[] = [];
+    const b: number[] = [];
+    const y: number[] = [];
+    for (let i = 0; i < 50; i++) {
+      const u = 4 * r();
+      const v = 4 * r();
+      if (Math.abs(u + v) < 0.05) continue;
+      a.push(u);
+      b.push(v);
+      y.push(u + v > 0 ? 1 : 0);
+    }
+    for (let i = 0; i < 10; i++) {
+      const u = 2 * r();
+      a.push(u);
+      b.push(-u);
+      y.push(i % 2);
+    }
+    const X = a.map((v, i) => [v, b[i]]);
+    expectRefusal(() => fitLogit(y, X, ["a", "b"]), "quasi-separation");
+    expectRefusal(() => fitProbit(y, X, ["a", "b"]), "quasi-separation");
+  });
+  test("quasi-separation with tied rows (both outcomes at the same x) is never labelled perfect, with no constant", () => {
+    // Without a constant η = βx, so the tied rows at x = 0 sit on the boundary whatever β is.
+    const x = [-3, -2, -1, 0, 0, 1, 2, 3];
+    const y = [0, 0, 0, 0, 1, 1, 1, 1];
+    const X = x.map((v) => [v]);
+    for (const f of [fitLogit, fitProbit]) {
+      const e = expectRefusal(() => f(y, X, ["x"], { constant: false }), "quasi-separation");
+      expect(e.message).not.toMatch(/^Perfect/);
+    }
+    // And the strictly separated version (no tie) is perfect, by the single predictor's name.
+    const Xp = [-3, -2, -1, -0.5, 0.5, 1, 2, 3].map((v) => [v]);
+    const e2 = expectRefusal(() => fitLogit(y, Xp, ["x"], { constant: false }), "perfect-separation");
+    expect(e2.message).toMatch(/^Perfect separation: “x” predicts every y exactly/);
   });
 
   test("quasi-separation on a continuous predictor prints the boundary in the user's units", () => {
@@ -304,7 +360,10 @@ describe("report under the display contract", () => {
     expect(all).not.toMatch(/(^|[\s(,])-\d/m);
     expect(all).toMatch(/−/);
     expect(all).toMatch(/pseudo R²/);
-    expect(all).toMatch(/< 0\.001/);
+    // "< 0.001" with a NO-BREAK space, so it never wraps between "<" and the number.
+    expect(all).toMatch(new RegExp(`<${String.fromCharCode(0xa0)}0\\.001`));
+    expect(all).not.toMatch(/< 0\.001/);
+    expect(rep.tables[0].rows[rep.tables[0].rows.length - 1][0]).toBe("Constant");
     expect(rep.text).toMatch(/Robust \(HC0\)/);
     // The income coefficient (≈ 10⁻⁵) keeps its significant digits rather than printing as 0.0000.
     const inc = rep.tables[0].rows.find((r) => r[0] === "income")!;
@@ -314,13 +373,31 @@ describe("report under the display contract", () => {
 
   test("fmtFixed: true minus, ×10ⁿ for tiny or huge magnitudes, no negative zero", () => {
     expect(fmtFixed(-1.23456, 3)).toBe(`${MINUS}1.235`);
-    expect(fmtFixed(-4e-8, 3)).toBe(`${MINUS}4×10⁻⁸`);
-    expect(fmtFixed(-0.0004, 3)).toBe(`${MINUS}4×10⁻⁴`);
+    // ONE significant-digit rule (E2 fix round): 4 significant digits, trailing zeros kept, as the regression table.
+    expect(fmtFixed(-4e-8, 3)).toBe(`${MINUS}4.000×10⁻⁸`);
+    expect(fmtFixed(-0.0004, 3)).toBe(`${MINUS}4.000×10⁻⁴`);
     expect(fmtFixed(-0.0006, 3)).toBe(`${MINUS}0.001`);
-    expect(fmtFixed(9.9996e-5, 3)).toBe("1×10⁻⁴");
-    expect(fmtFixed(2.5e12, 3)).toBe("2.5×10¹²");
-    expect(fmtP(0.0004)).toBe("< 0.001");
+    expect(fmtFixed(9.9996e-5, 3)).toBe("1.000×10⁻⁴");
+    expect(fmtFixed(2.5e12, 3)).toBe("2.500×10¹²");
+    expect(fmtFixed(1.2e-5, 4)).toBe("1.200×10⁻⁵");
+    expect(fmtFixed(1.25e-5, 4)).toBe("1.250×10⁻⁵");
+    expect(fmtFixed(1234567.891, 3)).toBe("1,234,567.891");
+    expect(fmtP(0.0004)).toBe(`<${String.fromCharCode(0xa0)}0.001`);
     expect(fmtP(0.04)).toBe("0.040");
+  });
+
+  test("a predictor near 10⁻¹⁶⁰ is refused by name (it threw an uncaught RangeError)", () => {
+    const x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => v * 1e-160);
+    const y = [0, 1, 0, 0, 1, 0, 1, 1, 0, 1];
+    expectRefusal(() => fitLogit(y, x.map((v) => [v]), ["tiny"]), "bad-input", ["tiny"]);
+    const out = econLogitCalc((k) => ({ data: ["y x", ...y.map((v, i) => `${v} ${x[i]}`)].join("\n"), spec: "y ~ x", model: "logit" } as Record<string, string>)[k] ?? "");
+    expect(out.ok).toBe(false);
+    expect(out.text).toMatch(/^“x”, row 1: 1×10⁻¹⁶⁰ is outside the magnitudes/);
+  });
+
+  test("a predictor named Constant is refused with or without a constant in the model", () => {
+    const s = dataset("simS");
+    expectRefusal(() => fitLogit(s.y, s.X, ["GPA", "constant", "PSI"], { constant: false }), "bad-input", ["constant"]);
   });
 });
 
@@ -334,7 +411,9 @@ describe("the econ-logit calculator (lib/econCalcs.ts, wired in the Stats pane)"
     expect(out.ok).not.toBe(false);
     expect(out.tables?.length).toBe(2);
     expect(out.text).toMatch(/^Logit regression of grade on GPA, TUCE, PSI/);
-    expect(out.text).not.toMatch(/shown last/);
+    // The constant is last in the coefficient table, and the notes say so truthfully.
+    expect(out.text).toContain("a constant is included (shown last");
+    expect(out.tables![0].rows[out.tables![0].rows.length - 1][0]).toBe("Constant");
     const probit = econLogitCalc(read({ model: "probit", se: "hc0" }));
     expect(probit.text).toMatch(/^Probit regression/);
   });

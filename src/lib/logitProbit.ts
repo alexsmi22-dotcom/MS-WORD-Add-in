@@ -23,7 +23,7 @@ import type { FittedModel, ModelStat, ModelTerm } from "./regModel";
 import { normalQuantile } from "./probdist";
 import { chiSquareP } from "./stats2";
 import { formatNum } from "./linalg";
-import { MINUS, timesTen } from "./axis";
+import { fmtFixed as tableFixed, fmtP as tableP, numText, P_BELOW } from "./regTable";
 
 export type LogitProbitSE = "classical" | "hc0";
 
@@ -548,9 +548,25 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
     );
   }
 
+  // Magnitudes outside 10⁻¹⁰⁰…10¹⁰⁰ (zero is fine): the back-transform to the user's units squares 1/scale, which
+  // overflowed for a predictor near 10⁻¹⁶⁰ and reached the report as an uncaught RangeError.
+  for (let j = 0; j < k; j++) {
+    for (let i = 0; i < n; i++) {
+      const a = MATH.abs(X[i][j]);
+      if (a !== 0 && (a < 1e-100 || a > 1e100)) {
+        throw new LogitProbitRefusal(
+          "bad-input",
+          `“${names[j]}”, row ${i + 1}: ${numText(X[i][j])} is outside the magnitudes this model accepts (10⁻¹⁰⁰ to 10¹⁰⁰, or 0). Rescale the column and fit again.`,
+          [names[j]],
+        );
+      }
+    }
+  }
+
   const seen = new Set<string>();
   for (const nm of names) {
-    if (constant && nm.trim().toLowerCase() === "constant") {
+    // The tables find the constant by its name, with or without a constant in the model.
+    if (nm.trim().toLowerCase() === "constant") {
       throw new LogitProbitRefusal("bad-input", `A predictor is named “${nm}”, the name of the constant term. Rename the column.`, [nm]);
     }
     if (seen.has(nm)) throw new LogitProbitRefusal("bad-input", `Two predictors are named “${nm}”. Give each column its own name.`, [nm]);
@@ -611,15 +627,35 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
     if (!(mx > 0)) return [];
     return labels.filter((l, j) => l !== "Constant" && MATH.abs(step[j]) >= 0.1 * mx);
   };
-  const perfect = (step: Float64Array): never => {
-    const vs = separationNames(step);
-    throw new LogitProbitRefusal(
-      "perfect-separation",
-      `Perfect separation: a combination of the predictors${vs.length ? ` (${listNames(vs)})` : ""} predicts every ${depName} exactly ` +
-        "(every fitted probability reaches 0 or 1), so the maximum-likelihood coefficients are infinite and no estimate exists. " +
-        "Remove a predictor, or use a penalised (Firth) or exact logistic method.",
-      vs,
-    );
+  /**
+   * True when direction d of the scaled coefficients separates EVERY observation with a margin: (2yᵢ − 1)·xᵢd above
+   * 10⁻⁶ of max|xᵢd| for all i. That is the evidence for "perfect" separation; anything less (an observation on the
+   * boundary, a tie with both outcomes) is quasi-complete.
+   */
+  const strictlySeparates = (d: Float64Array): boolean => {
+    let mx = 0;
+    let mn = Infinity;
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      const off = i * p;
+      for (let j = 0; j < p; j++) s += Xs[off + j] * d[j];
+      mx = MATH.max(mx, MATH.abs(s));
+      mn = MATH.min(mn, (2 * yv[i] - 1) * s);
+    }
+    return mx > 0 && mn > 1e-6 * mx;
+  };
+  const perfectMessage = (vs: string[]): string =>
+    `Perfect separation: ${vs.length === 1 ? `“${vs[0]}”` : `a combination of the predictors${vs.length ? ` (${listNames(vs)})` : ""}`} predicts every ${depName} exactly ` +
+    "(a linear predictor puts every observation on its own side with a margin), so the maximum-likelihood coefficients are infinite and no estimate exists. " +
+    "Remove a predictor, or use a penalised (Firth) or exact logistic method.";
+  /** Separation detected: perfect only when the current estimate or the diverging step separates every observation. */
+  const separated = (step: Float64Array, extreme: number): never => {
+    if (strictlySeparates(beta) || strictlySeparates(step)) {
+      const d = strictlySeparates(step) ? step : beta;
+      const vs = separationNames(d);
+      throw new LogitProbitRefusal("perfect-separation", perfectMessage(vs), vs);
+    }
+    return quasi(step, extreme);
   };
 
   /** One Newton step with halving; null when the information is singular or no step increases ℓ. */
@@ -643,7 +679,7 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
   };
 
   for (;;) {
-    if (cur.extreme === n) perfect(lastStep);
+    if (cur.extreme === n) separated(lastStep, cur.extreme);
     let gmax = 0;
     for (let j = 0; j < p; j++) gmax = MATH.max(gmax, MATH.abs(cur.g[j]));
     if (gmax <= SCORE_TOL) {
@@ -671,16 +707,18 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
 
   // --- divergence probe: at a true maximum further Newton steps move nothing; under separation the linear predictor
   // keeps running off towards ±∞ along the separating direction.
-  const quasi = (step: Float64Array, extreme: number): never => {
+  // (A function declaration, hoisted: `separated` above calls it from inside the Newton loop.)
+  function quasi(step: Float64Array, extreme: number): never {
     const vs = separationNames(step);
     throw new LogitProbitRefusal(
       "quasi-separation",
       `Quasi-complete separation: ${plural(extreme, "observation")} ${extreme === 1 ? "is" : "are"} fitted with probability within 10⁻¹⁰ of 0 or 1 ` +
         `while the coefficient${vs.length === 1 ? "" : "s"}${vs.length ? ` on ${listNames(vs)}` : ""} keep${vs.length === 1 ? "s" : ""} growing, ` +
-        "so the maximum-likelihood estimate does not exist. Remove or merge the predictor, or use a penalised (Firth) method.",
+        "but no linear predictor puts every observation strictly on its own side, so the maximum-likelihood estimate does not exist. " +
+        "Remove or merge the predictor, or use a penalised (Firth) method.",
       vs,
     );
-  };
+  }
   if (converged) {
     // One more full Newton step: |Δη| ≈ 1 (logit) or 1/η (probit) on separated observations, ~0 at a true maximum.
     const st = newtonStep(beta, cur);
@@ -693,13 +731,12 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
         dEta = MATH.max(dEta, MATH.abs(d));
       }
       const ext = design.extremeCount();
-      if (ext === n) perfect(st.step);
-      if (dEta > 1e-4) quasi(st.step, MATH.max(cur.extreme, ext));
+      if (ext === n || dEta > 1e-4) separated(st.step, MATH.max(cur.extreme, ext));
     } else if (cur.extreme > 0) {
-      quasi(lastStep, cur.extreme);
+      separated(lastStep, cur.extreme);
     }
   } else if (cur.extreme > 0) {
-    quasi(lastStep, cur.extreme);
+    separated(lastStep, cur.extreme);
   } else if (singular) {
     throw new LogitProbitRefusal(
       "collinear",
@@ -845,11 +882,25 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
   }
   if (!constant) notes.push("No constant: the model is forced through η = 0 (P = 0.5) at x = 0.");
 
+  // Never a model with a value that is not a number (the report would throw on it).
+  for (const t of [...terms, ...marginalEffects]) {
+    for (const v of [t.coef, t.se, t.stat, t.p, t.ciLo, t.ciHi]) {
+      if (!Number.isFinite(v)) {
+        throw new LogitProbitRefusal("bad-input", `The estimate for “${t.name}” is not a finite number at this scale. Rescale the column and fit again.`, [t.name]);
+      }
+    }
+  }
+  for (const s of stats) {
+    if (!Number.isFinite(s.value)) throw new LogitProbitRefusal("bad-input", `${s.label} is not a finite number for these data.`);
+  }
+
+  // The constant LAST, as in the OLS tables and Stata (the fit above keeps it at index 0 for its algebra).
+  const ordered = constant ? [...terms.slice(1), terms[0]] : terms;
   return {
     kind,
     depName,
     n,
-    terms,
+    terms: ordered,
     statLabel: "z",
     seLabel,
     stats,
@@ -871,30 +922,20 @@ export function fitProbit(y: number[], X: number[][], names: string[], opts: Log
 // ---------------------------------------------------------------------------
 // The report (display contract: true minus, ×10ⁿ, no NaN, p < 0.001 as "< 0.001")
 
-/** A number to `d` decimals with a true minus; very small or very large magnitudes in ×10ⁿ form. */
+/**
+ * A number to `d` decimals under the display contract, by the publication table's own rule (regTable.fmtFixed):
+ * a true minus, thousands grouped, and m×10ⁿ with 4 significant digits, trailing zeros kept, for a magnitude that
+ * would round to zero or is 10⁹ or more. One rule, so the logit report and the regression table agree.
+ */
 export function fmtFixed(x: number, d = 3): string {
   if (!Number.isFinite(x)) throw new RangeError("non-finite value reached the logit/probit report");
-  if (x === 0) return (0).toFixed(d);
-  const ax = MATH.abs(x);
-  if (ax < 0.5 * MATH.pow(10, -d) || ax >= 1e9) {
-    // Four significant figures as m×10ⁿ (formatNum would write 2500000000000 or 0.00001799).
-    let e = MATH.floor(MATH.log10(ax));
-    let m = Number((x / MATH.pow(10, e)).toPrecision(4));
-    if (MATH.abs(m) >= 10) {
-      m /= 10;
-      e += 1;
-    }
-    return `${formatNum(m, 4)}${timesTen(e)}`;
-  }
-  const s = x.toFixed(d);
-  if (/^-0\.?0*$/.test(s)) return s.slice(1);
-  return s.replace(/^-/, MINUS);
+  return tableFixed(x, d);
 }
 
-/** A p-value: "< 0.001" below 0.001, else three decimals. */
+/** A p-value: "< 0.001" (no-break space) below 0.001, else three decimals. */
 export function fmtP(p: number): string {
   if (!Number.isFinite(p)) throw new RangeError("non-finite p-value reached the logit/probit report");
-  return p < 0.001 ? "< 0.001" : p.toFixed(3);
+  return tableP(p);
 }
 
 export function logitProbitReport(model: FittedModel): { text: string; tables: { label: string; rows: string[][] }[] } {
@@ -915,8 +956,8 @@ export function logitProbitReport(model: FittedModel): { text: string; tables: {
   for (const s of model.stats) if (s.label === "Prob > χ²") pLR = s.value;
   for (const s of model.stats) {
     if (s.label === "Prob > χ²") continue;
-    if (s.label === "N") parts.push(`N = ${s.value}`);
-    else if (s.label.startsWith("LR χ²")) parts.push(`${s.label} = ${fmtFixed(s.value, 3)}${pLR !== undefined ? `, p ${pLR < 0.001 ? "< 0.001" : `= ${pLR.toFixed(3)}`}` : ""}`);
+    if (s.label === "N") parts.push(`N = ${fmtFixed(s.value, 0)}`);
+    else if (s.label.startsWith("LR χ²")) parts.push(`${s.label} = ${fmtFixed(s.value, 3)}${pLR !== undefined ? `, p ${pLR < 0.001 ? P_BELOW : `= ${pLR.toFixed(3)}`}` : ""}`);
     else if (s.label === "Pseudo R²") parts.push(`McFadden pseudo R² = ${fmtFixed(s.value, s.decimals ?? 3)}`);
     else if (s.label === "Correctly predicted (%)") parts.push(`correctly predicted ${fmtFixed(s.value, 1)}%`);
     else parts.push(`${s.label} = ${fmtFixed(s.value, s.decimals ?? 3)}`);

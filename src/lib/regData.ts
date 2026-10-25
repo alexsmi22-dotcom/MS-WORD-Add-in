@@ -7,6 +7,13 @@
  * otherwise a header line holding a comma or semicolon means comma- or semicolon-separated (a CSV file); otherwise
  * whitespace. Only the tab and delimited forms can leave a cell empty; in whitespace form every row needs every
  * value. Missing cells ("", NA, N/A, ., -, NaN, null…) drop their row from a model that uses that column.
+ *
+ * DECIMAL COMMAS (E2 fix round: "0,125" was silently read as 125). A semicolon-separated table is the European CSV
+ * convention, so every comma in its cells is a decimal comma ("1.234,5" with a point grouping thousands). In any other
+ * table a cell with a leading zero before the comma ("0,125", "−0,5") is a decimal, as is any comma not followed by
+ * exactly three digits ("1,5"), while "1,500" groups thousands; a column holding both an unambiguous decimal comma
+ * and a thousands-shaped cell is refused by name. The notes say when commas were read as decimals. The shared
+ * parseCellNumber is unchanged for every other mode of the product.
  */
 import { parseCellNumber, parseDelimited } from "./dataimport";
 
@@ -17,6 +24,36 @@ export interface RegDataset {
   rows: string[][];
   /** True when the first line was a header of names. */
   named: boolean;
+  /** True for a semicolon-separated table: its commas are decimal commas. */
+  semicolon?: boolean;
+}
+
+/** "1,500", "12,345,678" (not "0,125"): the shape of a thousands separator. */
+const THOUSANDS_SHAPE = /^[-−+]?[1-9]\d{0,2}(,\d{3})+$/;
+/** A comma that can only be a decimal comma: a leading zero ("0,125", "−0,5") or not exactly three digits after it. */
+function unambiguousDecimalComma(t: string): boolean {
+  return /^[-−+]?0,\d+$/.test(t) || (/^[-−+]?\d+,\d+$/.test(t) && !/^[-−+]?\d+,\d{3}$/.test(t));
+}
+
+/**
+ * Reads one cell as a number under the table's comma convention: { value, decimalComma } with value NaN when the
+ * cell is not a number.
+ */
+export function readRegCell(cell: string, semicolon: boolean): { value: number; decimalComma: boolean } {
+  const t = cell.trim();
+  if (!t.includes(",")) return { value: parseCellNumber(t), decimalComma: false };
+  if (semicolon) {
+    let s = t;
+    if (/^[-−+]?\d{1,3}(\.\d{3})+,\d+/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
+    else if (!s.includes(".") && (s.match(/,/g) ?? []).length === 1) s = s.replace(",", ".");
+    else return { value: NaN, decimalComma: false };
+    return { value: parseCellNumber(s), decimalComma: true };
+  }
+  // A leading-zero mantissa ("0,125", "0,125×10⁻³") is a decimal whatever follows it.
+  const lead = /^([-−+]?0),(\d+)/.exec(t);
+  if (lead) return { value: parseCellNumber(`${lead[1]}.${lead[2]}${t.slice(lead[0].length)}`), decimalComma: true };
+  const mant = t.split(/[×xX·]/)[0].trim();
+  return { value: parseCellNumber(t), decimalComma: unambiguousDecimalComma(mant) };
 }
 
 export type RegDataResult = { ok: true; data: RegDataset } | { ok: false; reason: string };
@@ -39,10 +76,12 @@ export function parseRegData(text: string): RegDataResult {
   if (!lines.length) return { ok: false, reason: "Paste a table: a header row of column names, then one row per observation." };
   let grid: string[][];
   let delimited = true;
+  let semicolon = false;
   if (src.includes("\t")) grid = parseDelimited(lines.join("\n"), "\t");
   else if (/[,;]/.test(lines[0]) && !/^\s*[-+−]?[\d.,]+(\s+[-+−]?[\d.,]+)+\s*$/.test(lines[0])) {
     // A delimited header (a CSV file). A first line of space-separated decimal-comma numbers ("1,5 2,3") is not.
-    grid = parseDelimited(lines.join("\n"), lines[0].includes(";") ? ";" : ",");
+    semicolon = lines[0].includes(";");
+    grid = parseDelimited(lines.join("\n"), semicolon ? ";" : ",");
   } else {
     grid = lines.map((l) => l.trim().split(/\s+/));
     delimited = false;
@@ -51,7 +90,7 @@ export function parseRegData(text: string): RegDataResult {
   if (!grid.length) return { ok: false, reason: "The table is empty." };
   const first = grid[0];
   const nonEmpty = first.filter((c) => c !== "");
-  const named = nonEmpty.length > 0 && nonEmpty.every((c) => !Number.isFinite(parseCellNumber(c)) && !isMissingCell(c));
+  const named = nonEmpty.length > 0 && nonEmpty.every((c) => !Number.isFinite(readRegCell(c, semicolon).value) && !isMissingCell(c));
   const width = Math.max(...grid.map((r) => r.length));
   let names: string[];
   let body: string[][];
@@ -80,7 +119,7 @@ export function parseRegData(text: string): RegDataResult {
       body[i] = [...body[i], ...new Array<string>(width - body[i].length).fill("")];
     }
   }
-  return { ok: true, data: { names, rows: body, named } };
+  return { ok: true, data: { names, rows: body, named, semicolon } };
 }
 
 export interface RegSpec {
@@ -189,11 +228,17 @@ export function selectColumns(
   const droppedAt: number[] = [];
   const values: number[][] = used.map(() => []);
   const clusters: string[] = [];
+  const semicolon = data.semicolon === true;
+  let decimalCommas = 0;
+  /** Per used column: the first unambiguous decimal-comma cell and the first thousands-shaped cell. */
+  const decSeen: ({ cell: string; row: number } | null)[] = used.map(() => null);
+  const kSeen: ({ cell: string; row: number } | null)[] = used.map(() => null);
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     let missing = clusterIdx >= 0 && isMissingCell(r[clusterIdx] ?? "");
     const vals: number[] = [];
-    for (const j of used) {
+    for (let u = 0; u < used.length; u++) {
+      const j = used[u];
       const cell = r[j] ?? "";
       // Fast path for a plain decimal (a 50,000 × 20 paste is a million cells); everything else takes the product's
       // cell reader (decimal commas, U+2212, ×10ⁿ, thousands separators).
@@ -205,9 +250,26 @@ export function selectColumns(
         missing = true;
         continue;
       }
-      const v = parseCellNumber(cell);
+      const { value: v, decimalComma } = readRegCell(cell, semicolon);
       if (!Number.isFinite(v)) {
         return { ok: false, reason: `Column ${q(names[j])}, row ${i + 1}: ${q(cell)} is not a number.` };
+      }
+      if (decimalComma) {
+        decimalCommas++;
+        if (!decSeen[u]) decSeen[u] = { cell, row: i + 1 };
+      } else if (!semicolon && THOUSANDS_SHAPE.test(cell.split(/[×xX·]/)[0].trim())) {
+        if (!kSeen[u]) kSeen[u] = { cell, row: i + 1 };
+      }
+      const d = decSeen[u];
+      const k = kSeen[u];
+      if (d && k) {
+        return {
+          ok: false,
+          reason:
+            `Column ${q(names[j])} mixes a decimal comma (${q(d.cell)}, row ${d.row}) with a thousands separator ` +
+            `(${q(k.cell)}, row ${k.row}), so which one a comma means is ambiguous. Write decimals with a point, or ` +
+            "separate the table with semicolons so that every comma is a decimal comma.",
+        };
       }
       vals.push(v);
     }
@@ -221,6 +283,13 @@ export function selectColumns(
     if (clusterIdx >= 0) clusters.push(r[clusterIdx]);
   }
   const notes: string[] = [];
+  if (decimalCommas) {
+    notes.push(
+      semicolon
+        ? `The table is separated by semicolons, so its commas were read as decimal commas (${decimalCommas.toLocaleString("en-US")} cell${decimalCommas === 1 ? "" : "s"}; “0,125” is 0.125).`
+        : `${decimalCommas.toLocaleString("en-US")} cell${decimalCommas === 1 ? "" : "s"} with a decimal comma ${decimalCommas === 1 ? "was" : "were"} read as decimals (“0,125” is 0.125, “1,5” is 1.5).`,
+    );
+  }
   if (dropped) {
     notes.push(
       `${dropped} row${dropped === 1 ? "" : "s"} with a missing cell in the model's columns ${dropped === 1 ? "was" : "were"} ` +

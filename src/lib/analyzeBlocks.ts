@@ -45,6 +45,8 @@ export interface StatTable {
   label: string;
   rows: string[][];
   note?: string;
+  /** Per-column cell alignment in Word (default: numbers right, words left). The regression table centres its models. */
+  align?: ("left" | "center" | "right")[];
 }
 
 /** A piece of an Analyze result: a text line, a matrix (→ table), or a plot (→ image). */

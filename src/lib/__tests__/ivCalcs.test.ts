@@ -6,7 +6,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { iv2slsCalc, iv2slsModel, ivFitFromRead, ivDefaultTable, IV_2SLS_DEFAULTS, IV_2SLS_FIELDS } from "../ivCalcs";
-import { fitIv, IV_WALL_MS } from "../iv";
+import { fitIv, IV_WALL_MS, IV_MAX_WORK, ivWorkUnits } from "../iv";
 import { fitOls } from "../olsInference";
 
 interface Run {
@@ -478,6 +478,68 @@ describe("hostile inputs", () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/At most 40 columns/);
+  });
+});
+
+describe("skips instead of refusals", () => {
+  test("Wu–Hausman with no denominator df is skipped by name, with a true minus", () => {
+    // 5 endogenous regressors, 5 instruments and a constant on n = 8 rows (the fewest the fit accepts):
+    // n − 1 − 2·5 = −3.
+    const n = 8;
+    const col = (f: (i: number) => number) => Array.from({ length: n }, (_, i) => f(i));
+    const Z = [1, 2, 3, 4, 5].map((k) => col((i) => Math.sin((i + 1) * k * 1.37)));
+    const D = Z.map((z, k) => z.map((v, i) => v + 0.3 * Math.cos((i + 1) * (k + 2))));
+    const y = col((i) => D[0][i] - D[1][i] + Math.cos(i * 2.3));
+    const r = fitIv({ y, depName: "y", exog: [], exogNames: [], endog: D, endogNames: D.map((_, k) => `d${k}`), instr: Z, instrNames: Z.map((_, k) => `z${k}`), constant: true, se: "classical", small: false });
+    if (!r.ok) throw new Error(r.reason);
+    const wh = r.diagnostics.find((x) => x.name.startsWith("Wu–Hausman"))!;
+    expect("skipped" in wh && wh.skipped).toBe("no denominator degrees of freedom (n − exogenous − 2 × endogenous = −3)");
+  });
+  test("a singular clustered instrument block omits the robust F, not the estimate", () => {
+    // 3 clusters, 3 instruments: Σ_g ξ_g = 0, so the 3×3 clustered covariance has rank at most G − 1 = 2.
+    const rows = smallTable(80).split("\n");
+    const data = [rows[0] + "\tg", ...rows.slice(1).map((l, i) => `${l}\t${["A", "B", "C"][i % 3]}`)].join("\n");
+    const out = iv2slsCalc(reader(base({ data, instruments: "z1 + z2 + z3", se: "cluster", cluster: "g" })));
+    expect(out.ok).not.toBe(false);
+    expect(out.text).toContain("robust F not computed: the clustered covariance of the 3 instrument coefficients is singular with only 3 clusters (G − 1 < 3)");
+    expect(out.text).toContain("Only 3 clusters");
+    const sum = out.tables!.find((t) => t.label === "First stage: instrument strength")!;
+    expect(sum.rows[1]).toContain("not computed");
+  });
+});
+
+describe("the up-front work bound", () => {
+  const shape = (n: number) => {
+    let s = 99;
+    const u = (): number => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 4294967296 - 0.5;
+    };
+    const mk = (k: number) => Array.from({ length: k }, () => Float64Array.from({ length: n }, u));
+    const X1 = mk(10), Z = mk(20), X2 = mk(10);
+    for (let j = 0; j < 10; j++) for (let i = 0; i < n; i++) X2[j][i] += Z[j][i] + 0.5 * Z[(j + 1) % 20][i];
+    const y = Float64Array.from({ length: n }, (_, i) => X2[0][i] + u());
+    const g = Array.from({ length: n }, (_, i) => `c${i % 500}`);
+    return () =>
+      fitIv({ y, depName: "y", exog: X1, exogNames: X1.map((_, j) => `x${j}`), endog: X2, endogNames: X2.map((_, j) => `d${j}`), instr: Z, instrNames: Z.map((_, j) => `z${j}`), constant: true, se: "cluster", small: true, clusters: g, clusterName: "g" });
+  };
+  test("just under the bound (36,000 rows, 10 + 10 regressors, 20 instruments, clustered) finishes", () => {
+    expect(ivWorkUnits(36000, 21, 31, 10)).toBeLessThanOrEqual(IV_MAX_WORK);
+    const run = shape(36000);
+    const t0 = Date.now();
+    const r = run();
+    const ms = Date.now() - t0;
+    expect(r.ok).toBe(true);
+    // Measured 0.97–1.15 s on the build machine; bounded at 3× the slowest.
+    expect(ms).toBeLessThan(3500);
+  });
+  test("just over the bound is refused up front, naming the limit", () => {
+    expect(ivWorkUnits(37000, 21, 31, 10)).toBeGreaterThan(IV_MAX_WORK);
+    const t0 = Date.now();
+    const r = shape(37000)();
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/37,000 rows with 21 coefficients and 31 instruments is beyond the work .* \(about 36,195 rows for this model\)/);
   });
 });
 

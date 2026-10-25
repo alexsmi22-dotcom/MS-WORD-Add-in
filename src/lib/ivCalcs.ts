@@ -87,8 +87,8 @@ export const IV_2SLS_FIELDS: IvField[] = [
     label: "Reference distribution",
     kind: "select",
     options: [
-      { value: "z", label: "z, large-sample (linearmodels' default; Stata ivregress)" },
-      { value: "t", label: "t, small-sample (debiased; Stata ivregress …, small)" },
+      { value: "z", label: "z, large-sample (linearmodels' default)" },
+      { value: "t", label: "t, small-sample (linearmodels debiased: n − k)" },
     ],
   },
   { key: "decimals", label: "Decimals", kind: "select", options: [{ value: "2", label: "2" }, { value: "3", label: "3" }, { value: "4", label: "4" }] },
@@ -283,12 +283,15 @@ export function iv2slsCalc(read: Read): StatOutput {
     const tb = fs.fClassical;
     let s = `First stage for ${fs.endog}: partial R² = ${fmtFixed(fs.partialR2, 3)}, non-robust F(${tb.df1}, ${intText(tb.df2)}) = ${fmtFixed(tb.value, d)}`;
     if (fs.fRobust) s += `; ${p.se === "cluster" ? "cluster-robust" : "robust"} F = Wald/${fs.fRobust.df1} = ${fmtFixed(fs.fRobust.value, d)}`;
+    else if (fs.fRobustWhy) s += `; robust F ${fs.fRobustWhy}`;
     lines.push(s);
   }
-  const weak = fit.firstStage.filter((fs) => (fs.fRobust ? fs.fRobust.value : fs.fClassical.value) < 10);
-  if (weak.length) {
+  const weakRobust = fit.firstStage.filter((fs) => fs.fRobust && fs.fRobust.value < 10);
+  const weakClassical = fit.firstStage.filter((fs) => !fs.fRobust && fs.fClassical.value < 10);
+  for (const [list, which] of [[weakRobust, "robust "], [weakClassical, robust ? "non-robust " : ""]] as const) {
+    if (!list.length) continue;
     lines.push(
-      `Weak instruments: the first-stage ${robust ? "robust " : ""}F for ${weak.map((w) => w.endog).join(", ")} is below 10, the Staiger–Stock rule of thumb. ` +
+      `Weak instruments: the first-stage ${which}F for ${list.map((w) => w.endog).join(", ")} is below 10, the Staiger–Stock rule of thumb. ` +
         "2SLS is then biased toward OLS and its intervals can be badly wrong.",
     );
   }
@@ -339,6 +342,7 @@ export function iv2slsCalc(read: Read): StatOutput {
   for (const fs of fit.firstStage) {
     const row = [fs.endog, fmtFixed(fs.r2, 3), fmtFixed(fs.partialR2, 3), fmtFixed(fs.fClassical.value, d), `${fs.fClassical.df1},${NBSP}${intText(fs.fClassical.df2)}`, fmtP(fs.fClassical.p)];
     if (fs.fRobust) row.push(fmtFixed(fs.fRobust.value, d), fmtP(fs.fRobust.p));
+    else if (robust) row.push("not computed", "");
     sumRows.push(row);
   }
   tables.push({

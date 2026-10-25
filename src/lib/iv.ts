@@ -35,8 +35,17 @@ export type IvSe = "classical" | "hc0" | "hc1" | "cluster";
 export const IV_WALL_MS = 6000;
 /** At most this many columns in all (exogenous + endogenous + instruments). */
 export const IV_MAX_COLUMNS = 40;
-/** Up-front work bound: rows × (columns of Z + columns of X)². */
-export const IV_MAX_WORK = 4e9;
+/**
+ * Up-front work bound, in units of rows × (1,500 + (k + k_Z)² + k_endog·k_Z²): the per-row passes, the QR
+ * factorisations and covariances, and one first-stage covariance per endogenous regressor. Measured on the build
+ * machine at about 2.8–3.5 ns a unit (100,000 rows with 4 coefficients and 6 instruments: 0.41 s; 100,000 rows with
+ * 10 + 10 regressors and 20 instruments, clustered: 3.9 s), so the largest admitted input runs in about 2 s.
+ */
+export const IV_MAX_WORK = 5e8;
+/** The work units of a fit (see IV_MAX_WORK). */
+export function ivWorkUnits(n: number, P: number, Pz: number, k2: number): number {
+  return n * (1500 + (P + Pz) * (P + Pz) + k2 * Pz * Pz);
+}
 /** The 97.5% point of the standard normal. */
 const Z975 = 1.959963984540054;
 const EPS = Number.EPSILON;
@@ -87,6 +96,8 @@ export interface IvFirstStage {
   fClassical: { value: number; df1: number; df2: number; p: number };
   /** Under robust or clustered SEs: the robust Wald divided by q, p from χ²_q (linearmodels' f.stat is the Wald). */
   fRobust?: { value: number; df1: number; wald: number; p: number };
+  /** Why the robust F is missing under robust or clustered SEs (a singular covariance of the instrument block). */
+  fRobustWhy?: string;
 }
 
 export interface IvFit {
@@ -477,10 +488,12 @@ export function fitIv(input: IvInput): IvResult {
   if (k1 + k2 + nq > IV_MAX_COLUMNS) {
     return { ok: false, reason: `At most ${IV_MAX_COLUMNS} columns in all (exogenous regressors, endogenous regressors and instruments); this model has ${k1 + k2 + nq}.` };
   }
-  if (n * (P + Pz) * (P + Pz) > IV_MAX_WORK) {
+  if (ivWorkUnits(n, P, Pz, k2) > IV_MAX_WORK) {
     return {
       ok: false,
-      reason: `${intText(n)} rows × ${P + Pz} columns is beyond the work this calculator allows in the task pane (rows × columns² at most ${intText(IV_MAX_WORK)}). Use fewer rows or columns.`,
+      reason:
+        `${intText(n)} rows with ${P} coefficients and ${Pz} instruments is beyond the work this calculator allows in the task pane ` +
+        `(about ${intText(Math.floor(IV_MAX_WORK / ivWorkUnits(1, P, Pz, k2)))} rows for this model). Use fewer rows, or fewer regressors and instruments.`,
     };
   }
   // The diagnostics need residual degrees of freedom beyond every regression they run.
@@ -721,6 +734,8 @@ export function fitIv(input: IvInput): IvResult {
   const critZ = critOf(dfz);
   const instIdx = Z2.map((_, l) => nexog + l);
   for (let j = 0; j < k2; j++) {
+    const lateJ = clock("first stage");
+    if (lateJ) return { ok: false, reason: lateJ };
     const x = X2[j].col;
     const cz = backSolve(qrZ.R, qtApply(qrZ, x));
     const r = annihilate(qrZ, x);
@@ -764,13 +779,16 @@ export function fitIv(input: IvInput): IvResult {
     if (input.se !== "classical") {
       const xr = cholSolve(instIdx.map((a) => instIdx.map((b) => Vz[a][b])), cI);
       if (!xr) {
-        return {
-          ok: false,
-          reason: `First stage of ${q(X2[j].name)}: the ${input.se === "cluster" ? "clustered" : "robust"} covariance of the instrument coefficients is singular${input.se === "cluster" ? ` (${nq} instruments and only ${G} clusters?)` : ""}.`,
-        };
+        // Not a reason to lose the 2SLS estimate: the robust F alone is omitted, by name (as the OLS calculator omits
+        // its clustered F when the restrictions exceed G − 1).
+        fs.fRobustWhy =
+          input.se === "cluster" && nq > G - 1
+            ? `not computed: the clustered covariance of the ${nq} instrument coefficients is singular with only ${intText(G)} clusters (G − 1 < ${nq})`
+            : `not computed: the ${input.se === "cluster" ? "clustered" : "robust"} covariance of the instrument coefficients is singular`;
+      } else {
+        const W = dot(cI, xr);
+        fs.fRobust = { value: W / nq, df1: nq, wald: W, p: chiSquareP(W, nq) };
       }
-      const W = dot(cI, xr);
-      fs.fRobust = { value: W / nq, df1: nq, wald: W, p: chiSquareP(W, nq) };
     }
     firstStage.push(fs);
   }
@@ -796,11 +814,13 @@ export function fitIv(input: IvInput): IvResult {
     note: homNote,
   });
   const whDf2 = n - nexog - k2 - k2;
-  if (whDf2 <= 0) diagnostics.push({ name: "Wu–Hausman (endogeneity)", skipped: `no denominator degrees of freedom (n − exogenous − 2 × endogenous = ${whDf2})` });
+  if (whDf2 <= 0) diagnostics.push({ name: "Wu–Hausman (endogeneity)", skipped: `no denominator degrees of freedom (n − exogenous − 2 × endogenous = ${intText(whDf2)})` });
   else {
     const fwh = delta / k2 / ((e0e0 - delta) / whDf2);
     diagnostics.push({ name: "Wu–Hausman (endogeneity)", stat: fwh, df: k2, df2: whDf2, p: fTestP(fwh, k2, whDf2), dist: "F", note: homNote });
   }
+  const lateW = clock("diagnostics");
+  if (lateW) return { ok: false, reason: lateW };
   if (input.se !== "classical") {
     // Wooldridge's score test (heteroskedasticity-robust): n − SSR of 1 on rⱼ·e₀.
     const tf = X2.map((c0) => {
@@ -811,6 +831,8 @@ export function fitIv(input: IvInput): IvResult {
     const st = n - dotF(res, res);
     diagnostics.push({ name: "Wooldridge score (endogeneity)", stat: st, df: k2, p: chiSquareP(st, k2), dist: "chi2", note: "robust to heteroskedasticity (not to clustering)" });
   }
+  const lateO = clock("diagnostics");
+  if (lateO) return { ok: false, reason: lateO };
   const over = nq - k2;
   if (over === 0) {
     diagnostics.push({ name: "Sargan (overidentification)", skipped: "exactly identified" });
@@ -850,12 +872,13 @@ export function fitIv(input: IvInput): IvResult {
           : `Clustered by ${cname}, ${intText(G)} clusters`;
   notes.unshift(
     small
-      ? `Small-sample mode (linearmodels debiased=True; Stata ivregress …, small): t with n − k = ${intText(df)} df` +
-          (input.se === "classical" ? ", σ² = eᵀe/(n − k)" : input.se === "cluster" ? ", cluster factor G/(G − 1)·(n − 1)/(n − k)" : "") +
+      ? `Small-sample mode (linearmodels debiased=True): t with n − k = ${intText(df)} df` +
+          (input.se === "classical" ? ", σ² = eᵀe/(n − k), the formula of Stata's ivregress …, small" : input.se === "cluster" ? ", cluster factor G/(G − 1)·(n − 1)/(n − k)" : "") +
           (input.se === "cluster" ? " (linearmodels uses n − k df for clustered SEs; Stata's regress uses G − 1)." : ".")
-      : "Large-sample mode (linearmodels' default, debiased=False; Stata ivregress's default): z statistics and normal intervals" +
-          (input.se === "classical" ? ", σ² = eᵀe/n." : input.se === "cluster" ? ", and no finite-sample factor on the clustered covariance (as linearmodels)." : "."),
+      : "Large-sample mode (linearmodels' default, debiased=False): z statistics and normal intervals" +
+          (input.se === "classical" ? ", σ² = eᵀe/n, the formula of Stata's ivregress default." : input.se === "cluster" ? ", and no finite-sample factor on the clustered covariance (as linearmodels)." : "."),
   );
+  if (input.se !== "classical") notes.push("The robust and clustered forms are pinned to linearmodels 7.1; they have not been checked against Stata's ivregress.");
   if (input.se === "hc0") notes.push("Robust SEs: HC0, White's sandwich with the 2SLS fitted regressors X̂ and the residuals e = y − Xβ, no n/(n − k) factor (linearmodels cov_type=\"robust\", debiased=False).");
   if (input.se === "hc1") notes.push("Robust SEs: HC1, White's sandwich with X̂ and e = y − Xβ times n/(n − k) (linearmodels cov_type=\"robust\", debiased=True).");
   if (input.se === "cluster") notes.push(`Clustered SEs by ${cname}: Σ_g ξ_g ξ_gᵀ with ξ_g = Σ eᵢx̂ᵢ (linearmodels cov_type="clustered").`);

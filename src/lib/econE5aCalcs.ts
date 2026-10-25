@@ -95,6 +95,8 @@ function decimalCommaNote(any: boolean): string[] {
 
 /** "1,500", "12,345,678": the shape of a thousands comma (regData THOUSANDS_SHAPE). */
 const THOUSANDS_SHAPE = /^[-−+]?[1-9]\d{0,2}(,\d{3})+$/;
+/** "1,250.00": thousands commas before a decimal point. */
+const ENGLISH_FORM = /^[-−+]?[1-9]\d{0,2}(,\d{3})+\.\d+$/;
 /** "2.345": one point and exactly three digits after it, so it may be a thousands group (regData ONE_DOT_GROUP). */
 const ONE_DOT_GROUP = /^[1-9]\d{0,2}\.\d{3}$/;
 const MULTI_DOT_GROUPS = /^[1-9]\d{0,2}(\.\d{3}){2,}$/;
@@ -173,7 +175,9 @@ function readConsistent(items: CellItem[], scope: string): Consistent {
     if (r.decimalComma) {
       if (!dec) dec = it;
     } else {
-      if (THOUSANDS_SHAPE.test(it.cell.trim().split(/[×xX·%]/)[0].trim())) {
+      const m = it.cell.trim().split(/[×xX·%]/)[0].trim();
+      // "1,250.00" (English form) shows a thousands comma as surely as "1,250" does.
+      if (THOUSANDS_SHAPE.test(m) || ENGLISH_FORM.test(m)) {
         if (!kSeen) kSeen = it;
         thousands.push(it);
       }
@@ -184,7 +188,7 @@ function readConsistent(items: CellItem[], scope: string): Consistent {
     const d = mantissaOf(kSeen.cell);
     const whole = d.replace(/,/g, "");
     const commas = (d.match(/,/g) ?? []).length;
-    const asDec = commas === 1 ? decimalReading(d.replace(",", ".")) : undefined;
+    const asDec = commas === 1 && !d.includes(".") ? decimalReading(d.replace(",", ".")) : undefined;
     return {
       ok: false,
       reason:
@@ -1247,7 +1251,8 @@ export function ioLeontiefCalc(read: Read): StatOutput {
   lines.push(`A is productive: ${rhoPhrase(rho)}, and (I − A)⁻¹ is non-negative${inv.exact ? " (checked in exact fractions)" : ""}.`);
   // On the floating-point path κ₁(I − A) eats digits: the output is printed to the significant digits it leaves.
   const lost = inv.exact ? 0 : Math.max(0, Math.ceil(Math.log10(Math.max(inv.cond ?? 1, 1))));
-  const keepSig = Math.max(2, 15 - lost);
+  // The same count the κ sentence below prints: about `lost` of the 16 significant digits may be lost.
+  const keepSig = Math.max(2, 16 - lost);
   const outText = (v: number): string => sigLimited(v, keepSig);
   if (out) {
     const top = out.map((v, i) => `${tab.names[i]} ${outText(v)}`).slice(0, 8).join(", ");

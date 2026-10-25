@@ -646,6 +646,10 @@ describe("E5 fix round: the adversary's cases", () => {
     expect(lone.text).toContain("“151,250” (rate line 1 (JPY)) was read with a thousands comma (151250)");
     expect(lone.text).toContain("151,250 JPY = 0.92 EUR");
     expect(fxRun({ rates: "JPY 151,250\nEUR 0,92", amounts: "", target: "EUR" }).ok).toBe(false);
+    // An English "1,250.00" is a thousands comma too: beside "0,92" the input mixes the two conventions.
+    const eng = fxRun({ rates: "EUR 0,92", amounts: "1,250.00 EUR", target: "EUR" });
+    expect(eng.ok).toBe(false);
+    expect(eng.text).toContain("“1,250.00” could be 1250.00 (a thousands comma)");
   });
 
   // 5 (MED) currency: a point group with more decimals than the minor unit.

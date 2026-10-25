@@ -9,8 +9,9 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { runQreg, type QregRun } from "../robustCalcs";
-import { fitQuantileLp, checkObjective, interceptOnlyObjective, QR_MAX_ROWS } from "../quantReg";
+import { runQreg, qregCalc, type QregRun } from "../robustCalcs";
+import { fitQuantileLp, checkObjective, interceptOnlyObjective, qrCovariance, QR_MAX_ROWS } from "../quantReg";
+import { fmtFixed } from "../regTable";
 import { Pcg32 } from "../prng";
 import { fitOls } from "../olsInference";
 
@@ -191,4 +192,46 @@ describe("quantile LP: optimality and the freeze guarantee", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/at most 100,000 rows/);
   });
+});
+
+/**
+ * Adversarial review E4: uncentred polynomial designs. The covariance used to come from Gauss–Jordan on XᵀX (its
+ * condition number squared) and printed SE 5,581.530 for the constant where 60-digit mpmath gives 5,581.686. Pinned
+ * here against scripts/econ-e4fix-oracle.py: statsmodels' formula in mpmath at the SAME residual vector.
+ */
+describe("qreg covariance by QR on uncentred polynomial designs (mpmath oracle)", () => {
+  interface QrFx { name: string; data: string; spec: string; tau: number; se: "robust" | "iid"; n: number; nTauWhole: boolean; beta: number[]; resid: number[]; seMp: number[]; bandwidth: number; sparsity: number }
+  const FX2: { qreg: QrFx[] } = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "econ-e4fix-oracle.json"), "utf8"));
+  const columns = (data: string): Float64Array[] => {
+    const lines = data.split("\n").slice(1).map((l) => l.split("\t").map(Number));
+    return lines[0].map((_, j) => Float64Array.from(lines, (r) => r[j]));
+  };
+  for (const c of FX2.qreg) {
+    it(`qrCovariance: ${c.name}`, () => {
+      const [y, ...X] = columns(c.data);
+      const cols = [...X, new Float64Array(y.length).fill(1)];
+      const cov = qrCovariance(y, cols, Float64Array.from(c.resid), c.tau, c.se);
+      if (!cov.ok) throw new Error(cov.reason);
+      c.seMp.forEach((s, k) => rel(Math.sqrt(cov.cov[k][k]), s, s, 1e-9));
+      rel(cov.bandwidth, c.bandwidth, c.bandwidth, 1e-12);
+      rel(cov.sparsity, c.sparsity, c.sparsity, 1e-10);
+    });
+    if (!c.nTauWhole) {
+      it(`end to end (unique vertex): ${c.name}`, () => {
+        const fields: Record<string, string> = { data: c.data, spec: c.spec, quantiles: String(c.tau), se: c.se, constant: "yes" };
+        const r = runQreg((k) => fields[k] ?? "");
+        if (!r.ok) throw new Error(r.reason);
+        const terms = r.fits[0].model.terms;
+        terms.forEach((t, k) => {
+          rel(t.coef, c.beta[k], Math.max(Math.abs(c.beta[k]), c.seMp[k]), 1e-9);
+          rel(t.se, c.seMp[k], c.seMp[k], 1e-9);
+        });
+        // The printed SE digits are the oracle's.
+        const out = qregCalc((k) => fields[k] ?? "");
+        const rows = out.tables![0].rows.slice(1);
+        rows.forEach((row, k) => expect(row[2]).toBe(fmtFixed(c.seMp[k], 3)));
+        expect(out.text).toContain(`n − p = ${c.n - 3} degrees`);
+      });
+    }
+  }
 });

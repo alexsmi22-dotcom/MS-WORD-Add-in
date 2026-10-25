@@ -243,7 +243,9 @@ describe("the calculator's default", () => {
     const out = iv2slsCalc(reader({ ...IV_2SLS_DEFAULTS, instruments: "dist" }));
     expect(out.ok).not.toBe(false);
     const diag = out.tables!.find((t) => t.label === "Diagnostics")!;
-    expect(diag.rows.flat().join(" ")).toContain("not computed: exactly identified");
+    expect(diag.rows.find((r) => r[0] === "Sargan (overidentification)")).toEqual(["Sargan (overidentification)", "not computed", "not computed", "not computed", "not computed"]);
+    expect(diag.note).toContain("Not computed: Sargan (overidentification): exactly identified.");
+    for (const t of out.tables!) for (const cell of t.rows.flat()) expect(cell.trim()).not.toBe("");
   });
 
   test("empty right-hand side = constant only", () => {
@@ -356,7 +358,8 @@ describe("weak instruments", () => {
     expect(c.ok).not.toBe(false);
     expect(c.text).toMatch(/Weak instruments: the first-stage F for d is below 10/);
     const h = iv2slsCalc(reader(base({ data, se: "hc1" })));
-    expect(h.text).toMatch(/Weak instruments: the first-stage robust F for d is below 10/);
+    expect(h.text).toMatch(/Weak instruments: the first-stage non-robust F for d is below 10/);
+    expect(h.text).toMatch(/The robust F \(d: [\d.]+\) is shown for context only; no threshold is applied to it\./);
     expect(h.text).toContain("were derived for the NON-robust F");
   });
 });
@@ -523,23 +526,66 @@ describe("the up-front work bound", () => {
     return () =>
       fitIv({ y, depName: "y", exog: X1, exogNames: X1.map((_, j) => `x${j}`), endog: X2, endogNames: X2.map((_, j) => `d${j}`), instr: Z, instrNames: Z.map((_, j) => `z${j}`), constant: true, se: "cluster", small: true, clusters: g, clusterName: "g" });
   };
-  test("just under the bound (36,000 rows, 10 + 10 regressors, 20 instruments, clustered) finishes", () => {
-    expect(ivWorkUnits(36000, 21, 31, 10)).toBeLessThanOrEqual(IV_MAX_WORK);
-    const run = shape(36000);
+  test("just under the bound (14,400 rows, 10 + 10 regressors, 20 instruments, clustered) finishes", () => {
+    expect(ivWorkUnits(14400, 21, 31, 10)).toBeLessThanOrEqual(IV_MAX_WORK);
+    const run = shape(14400);
     const t0 = Date.now();
     const r = run();
     const ms = Date.now() - t0;
     expect(r.ok).toBe(true);
-    // Measured 0.97–1.15 s on the build machine; bounded at 3× the slowest.
+    // fitIv alone, well under the calculator's whole budget; bounded at 3.5 s like the earlier 36,000-row pin.
     expect(ms).toBeLessThan(3500);
   });
   test("just over the bound is refused up front, naming the limit", () => {
-    expect(ivWorkUnits(37000, 21, 31, 10)).toBeGreaterThan(IV_MAX_WORK);
+    expect(ivWorkUnits(14500, 21, 31, 10)).toBeGreaterThan(IV_MAX_WORK);
     const t0 = Date.now();
-    const r = shape(37000)();
+    const r = shape(14500)();
     expect(Date.now() - t0).toBeLessThan(2000);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/37,000 rows with 21 coefficients and 31 instruments is beyond the work .* \(about 36,195 rows for this model\)/);
+    if (!r.ok) expect(r.reason).toMatch(/14,500 rows with 21 coefficients and 31 instruments is beyond the work .* \(about 14,478 rows for this model\)/);
+  });
+
+  // Adversarial review E4: 60,000 rows × 18 exogenous + 2 endogenous + 20 instruments, clustered, took 5.4–6.3 s
+  // through the calculator. The worst admitted table of that shape (24,563 rows) was measured at 1.9 s for the whole
+  // calculator (parse, columns, fit, the OLS figure); the 60,000-row table is refused right after parsing.
+  const wide = (n: number): Record<string, string> => {
+    let s = 7;
+    const u = (): number => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 4294967296 - 0.5;
+    };
+    const xs = Array.from({ length: 18 }, (_, j) => `x${j + 1}`);
+    const zs = Array.from({ length: 20 }, (_, j) => `z${j + 1}`);
+    const lines = [["y", ...xs, "w1", "w2", ...zs, "g"].join("\t")];
+    for (let i = 0; i < n; i++) {
+      const X = Array.from({ length: 18 }, u);
+      const Z = Array.from({ length: 20 }, u);
+      const v = u();
+      const w1 = Z[0] + 0.2 * Z[2] + v + u();
+      const w2 = Z[1] + 0.2 * Z[3] + v + u();
+      const y = w1 + w2 + X.reduce((a, b) => a + b, 0) + v;
+      lines.push([y, ...X, w1, w2, ...Z].map((c) => c.toFixed(15)).join("\t") + `\tc${i % 1000}`);
+    }
+    return { data: lines.join("\n"), spec: `y ~ ${xs.join(" + ")}`, endog: "w1 + w2", instruments: zs.join(" + "), constant: "yes", se: "cluster", cluster: "g", small: "t", decimals: "3" };
+  };
+  test("the widest shape at its bound: the whole calculator stays inside the pane's budget", () => {
+    expect(ivWorkUnits(24563, 21, 39, 2)).toBeLessThanOrEqual(IV_MAX_WORK);
+    const f = wide(24563);
+    const t0 = Date.now();
+    const out = iv2slsCalc(reader(f));
+    const ms = Date.now() - t0;
+    expect(out.ok).not.toBe(false);
+    // Measured 1.9 s; bounded at 3× (QC runs four workers).
+    expect(ms).toBeLessThan(6000);
+  });
+  test("the widest shape past its bound is refused after parsing, before the columns are read", () => {
+    const f = wide(60000);
+    const t0 = Date.now();
+    const out = iv2slsCalc(reader(f));
+    expect(out.ok).toBe(false);
+    expect(out.text).toMatch(/^60,000 rows with 21 coefficients and 39 instruments is beyond the work this calculator allows in the task pane \(about 24,563 rows for this model\)/);
+    // Measured 1.0 s (all of it parsing the 2.5 million cells).
+    expect(Date.now() - t0).toBeLessThan(4000);
   });
 });
 
@@ -566,5 +612,93 @@ describe("100,000 rows", () => {
     // the 2SLS fit with first stage and every diagnostic ≈ 0.4–0.6 s, the OLS fit for the figure ≈ 0.4 s); bounded at
     // 3× the slowest measurement.
     expect(ms).toBeLessThan(6000);
+  });
+});
+
+/** Adversarial review E4, pinned to scripts/econ-e4fix-oracle.py (mpmath at 60 digits, and linearmodels 7.1). */
+describe("adversarial review E4", () => {
+  interface Ncol { name: string; eps: number; data: string; beta2sls: number[]; F: number; seClassical: number[]; waldHc0: number; seHc0: number[]; coef: number[] }
+  interface Weak { name: string; data: string; spec: string; instruments: string; fClassical: number[]; waldHc0: number[] }
+  interface Const { name: string; data: string; spec: string; se: string; small: string; r2: number; adjR2: number; fsR2: number[] }
+  const FX: { ivNcol: Ncol[]; ivWeak: Weak[]; ivConst: Const[] } = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "econ-e4fix-oracle.json"), "utf8"));
+  const noEmpty = (o: ReturnType<typeof iv2slsCalc>): void => {
+    for (const t of o.tables ?? []) for (const cell of t.rows.flat()) expect(cell.trim()).not.toBe("");
+  };
+
+  describe("near-collinear instruments z2 = z1 + ε·noise: the first stage by QR, never refused", () => {
+    // Digits lost to the instruments' own conditioning (≈ 1/ε): the F statistics stay tight because they are formed in
+    // the Q basis; the individual SEs of z1 and z2 (each ≈ 1/ε) carry the conditioning.
+    // At ε = 1e−8 the split between z1 and z2 is computed from a difference 10⁻⁸ of their size, and Householder's
+    // backward error (≈ n·ε_mach) leaves about six significant digits (measured 1.6e−6 relative); the result says so.
+    const seTol = (eps: number): number => (eps >= 1e-4 ? 1e-9 : eps >= 1e-6 ? 1e-8 : 1e-5);
+    for (const c of FX.ivNcol) {
+      for (const se of ["classical", "hc0"]) {
+        test(`${c.name}, ${se}`, () => {
+          const read = reader({ data: c.data, spec: "y ~ x1", endog: "w1", instruments: "z1 + z2", constant: "yes", se, small: "t", decimals: "4" });
+          const r = ivFitFromRead(read);
+          if ("error" in r) throw new Error(r.error);
+          const fs0 = r.fit.firstStage[0];
+          // F, robust Wald and 2SLS do not depend on the z1/z2 split: 1e−9, or 1e−8 at ε = 1e−8 (measured 1.4e−9).
+          const tight = c.eps <= 1e-8 ? 1e-8 : 1e-9;
+          close(fs0.fClassical.value, c.F, tight, "non-robust partial F");
+          const tol = seTol(c.eps);
+          const want = se === "classical" ? c.seClassical : c.seHc0;
+          fs0.terms.forEach((t, k) => {
+            close(t.se, want[k], tol, `SE ${t.name}`);
+            close(t.coef, c.coef[k], tol, `coef ${t.name}`);
+          });
+          if (se === "hc0") {
+            expect(fs0.fRobust).toBeDefined();
+            close(fs0.fRobust!.wald, c.waldHc0, tight, "robust Wald");
+          }
+          r.fit.model.terms.forEach((t, k) => close(t.coef, c.beta2sls[k], tight, `2SLS ${t.name}`));
+          expect(r.fit.notes.join(" ").includes("The instruments are nearly collinear")).toBe(c.eps <= 1e-6);
+          const out = iv2slsCalc(read);
+          expect(out.ok).not.toBe(false);
+          noEmpty(out);
+        });
+      }
+    }
+  });
+
+  describe("weak-instrument warning follows the non-robust F whatever the SE type", () => {
+    for (const c of FX.ivWeak) {
+      test(c.name, () => {
+        expect(c.fClassical[0]).toBeLessThan(10);
+        const q = c.instruments.split("+").length;
+        expect(c.waldHc0[0] / q).toBeGreaterThanOrEqual(10);
+        for (const se of ["hc0", "hc1", "classical"]) {
+          const read = reader({ data: c.data, spec: c.spec, endog: "w1", instruments: c.instruments, constant: "yes", se, small: "z", decimals: "3" });
+          const r = ivFitFromRead(read);
+          if ("error" in r) throw new Error(r.error);
+          close(r.fit.firstStage[0].fClassical.value, c.fClassical[0], 1e-9, "non-robust F");
+          if (se === "hc0") close(r.fit.firstStage[0].fRobust!.wald, c.waldHc0[0], 1e-9, "robust Wald");
+          const out = iv2slsCalc(read);
+          expect(out.text).toMatch(new RegExp(`Weak instruments: the first-stage ${se === "classical" ? "" : "non-robust "}F for w1 is below 10`));
+          if (se !== "classical") expect(out.text).toMatch(/The robust F \(w1: [\d.]+\) is shown for context only; no threshold is applied to it\./);
+        }
+      });
+    }
+  });
+
+  describe("constant = no with an implicit constant: R² centred as linearmodels detects it", () => {
+    for (const c of FX.ivConst) {
+      test(c.name, () => {
+        const read = reader({ data: c.data, spec: c.spec, endog: "w1", instruments: "z1 + z2", constant: "no", se: c.se, small: c.small, decimals: "3" });
+        const r = ivFitFromRead(read);
+        if ("error" in r) throw new Error(r.error);
+        close(r.fit.r2, c.r2, 1e-9, "R²");
+        close(r.fit.adjR2, c.adjR2, 1e-9, "adjusted R²");
+        close(r.fit.firstStage[0].r2, c.fsR2[0], 1e-9, "first-stage R²");
+        const out = iv2slsCalc(read);
+        expect(out.text).toContain("the regressors span one (a column of ones or a full set of dummies), so R² = 1 − RSS/TSS is centred");
+        expect(out.text).toContain("First-stage R²: the instruments (exogenous regressors and excluded instruments) span a constant, so it is centred");
+      });
+    }
+    test("without an implicit constant R² stays uncentred", () => {
+      const r = ivFitFromRead(reader({ data: FX.ivConst[0].data, spec: "y ~ x1", endog: "w1", instruments: "z1 + z2", constant: "no", se: "classical", small: "z" }));
+      if ("error" in r) throw new Error(r.error);
+      expect(r.fit.notes.join(" ")).toContain("No constant: R² is uncentered");
+    });
   });
 });

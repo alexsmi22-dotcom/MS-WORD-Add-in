@@ -8,7 +8,7 @@
  */
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import type { FittedModel } from "./regModel";
-import { fitIv, type IvFit, type IvSe } from "./iv";
+import { fitIv, ivWorkRefusal, type IvFit, type IvSe } from "./iv";
 import { fitOls, type SeType } from "./olsInference";
 import { parseRegData, findColumn, selectColumns, type RegDataset } from "./regData";
 import { fmtFixed, fmtP, intText, P_BELOW, NBSP } from "./regTable";
@@ -216,6 +216,12 @@ export function ivFitFromRead(read: Read): Fitted | { error: string } {
   const p = prepare(read);
   if ("error" in p) return p;
   const preds = [...p.exog, ...p.endog, ...p.instr];
+  // The work bound on the raw row count, before the columns are read (the fit checks it again on the rows used).
+  {
+    const nexog = p.exog.length + (p.constant ? 1 : 0);
+    const tooBig = ivWorkRefusal(p.data.rows.length, nexog + p.endog.length, nexog + p.instr.length, p.endog.length);
+    if (tooBig) return { error: tooBig };
+  }
   const sel = selectColumns(p.data, { dep: p.dep, preds, text: "" }, { cluster: p.cluster });
   if (!sel.ok) return { error: sel.reason };
   const c = sel.cols;
@@ -286,13 +292,17 @@ export function iv2slsCalc(read: Read): StatOutput {
     else if (fs.fRobustWhy) s += `; robust F ${fs.fRobustWhy}`;
     lines.push(s);
   }
-  const weakRobust = fit.firstStage.filter((fs) => fs.fRobust && fs.fRobust.value < 10);
-  const weakClassical = fit.firstStage.filter((fs) => !fs.fRobust && fs.fClassical.value < 10);
-  for (const [list, which] of [[weakRobust, "robust "], [weakClassical, robust ? "non-robust " : ""]] as const) {
-    if (!list.length) continue;
+  // The rule of thumb was derived for the NON-robust F, so it is applied to that F whatever the SE type; a robust F
+  // is printed beside it for context only (no threshold is applied to it).
+  const weak = fit.firstStage.filter((fs) => fs.fClassical.value < 10);
+  if (weak.length) {
+    const ctx = robust
+      ? weak.filter((w) => w.fRobust).map((w) => `${w.endog}: ${fmtFixed(w.fRobust!.value, d)}`)
+      : [];
     lines.push(
-      `Weak instruments: the first-stage ${which}F for ${list.map((w) => w.endog).join(", ")} is below 10, the Staiger–Stock rule of thumb. ` +
-        "2SLS is then biased toward OLS and its intervals can be badly wrong.",
+      `Weak instruments: the first-stage ${robust ? "non-robust " : ""}F for ${weak.map((w) => w.endog).join(", ")} is below 10, the Staiger–Stock rule of thumb (derived for this F). ` +
+        "2SLS is then biased toward OLS and its intervals can be badly wrong." +
+        (ctx.length ? ` The ${p.se === "cluster" ? "cluster-robust" : "robust"} F (${ctx.join("; ")}) is shown for context only; no threshold is applied to it.` : ""),
     );
   }
   lines.push("");
@@ -300,7 +310,8 @@ export function iv2slsCalc(read: Read): StatOutput {
     robust
       ? "Which F: each first stage shows the non-robust partial F (s² = SSR/(n − k), Wald/q, F(q, n − k)) and the robust Wald/q under the chosen " +
           "standard errors, with p from χ²(q) (linearmodels' f.stat is that Wald, not divided by q). The rule of thumb F < 10 (Staiger and Stock, 1997) " +
-          "and the Stock–Yogo critical values were derived for the NON-robust F; the robust F is not directly comparable to them. No Stock–Yogo table is applied."
+          "and the Stock–Yogo critical values were derived for the NON-robust F, so the weak-instrument warning is given whenever the non-robust F is below 10, whatever the standard errors; " +
+          "the robust F is not directly comparable to that threshold and is printed only as context. No Stock–Yogo table is applied."
       : "Which F: the first-stage F is the textbook non-robust partial F on the excluded instruments (s² = SSR/(n − k), Wald/q, F(q, n − k)); the rule of thumb " +
           "F < 10 (Staiger and Stock, 1997) applies to it. linearmodels' own f.stat in large-sample mode is n/(n − k) times this. No Stock–Yogo table is applied.",
   );
@@ -339,40 +350,56 @@ export function iv2slsCalc(read: Read): StatOutput {
   const sumHead = ["Endogenous", "R²", "Partial R²", "F (non-robust)", "df", "p"];
   if (robust) sumHead.push("Robust F (Wald/q)", "p (χ²)");
   const sumRows: string[][] = [sumHead];
+  const NC = "not computed";
+  const robustWhy: string[] = [];
   for (const fs of fit.firstStage) {
     const row = [fs.endog, fmtFixed(fs.r2, 3), fmtFixed(fs.partialR2, 3), fmtFixed(fs.fClassical.value, d), `${fs.fClassical.df1},${NBSP}${intText(fs.fClassical.df2)}`, fmtP(fs.fClassical.p)];
     if (fs.fRobust) row.push(fmtFixed(fs.fRobust.value, d), fmtP(fs.fRobust.p));
-    else if (robust) row.push("not computed", "");
+    else if (robust) {
+      row.push(NC, NC);
+      robustWhy.push(`${fs.endog}: robust F ${fs.fRobustWhy ?? NC}.`);
+    }
     sumRows.push(row);
   }
   tables.push({
     label: "First stage: instrument strength",
     rows: sumRows,
     align: sumHead.map((_, i) => (i === 0 ? "left" : "right")),
-    note: robust
-      ? "The F < 10 rule of thumb was derived for the non-robust F. The robust F is the Wald statistic under the chosen standard errors divided by the number of excluded instruments."
-      : "F < 10 (Staiger–Stock rule of thumb) signals weak instruments.",
+    note:
+      (robust
+        ? "The F < 10 rule of thumb was derived for the non-robust F and is applied to it whatever the standard errors. The robust F is the Wald statistic under the chosen standard errors divided by the number of excluded instruments, shown for context."
+        : "F < 10 (Staiger–Stock rule of thumb) signals weak instruments.") + (robustWhy.length ? ` ${robustWhy.join(" ")}` : ""),
   });
   for (const fs of fit.firstStage) {
     const rows: string[][] = [["Instrument", "Coef.", "SE", fs.statLabel, "p", "95% CI"]];
-    for (const t of fs.terms) rows.push([t.name, fmtFixed(t.coef, d), fmtFixed(t.se, d), fmtFixed(t.stat, d), fmtP(t.p), `[${fmtFixed(t.ciLo, d)}; ${fmtFixed(t.ciHi, d)}]`]);
+    for (const t of fs.terms) {
+      if (!Number.isFinite(t.se)) rows.push([t.name, fmtFixed(t.coef, d), NC, NC, NC, NC]);
+      else rows.push([t.name, fmtFixed(t.coef, d), fmtFixed(t.se, d), fmtFixed(t.stat, d), fmtP(t.p), `[${fmtFixed(t.ciLo, d)}; ${fmtFixed(t.ciHi, d)}]`]);
+    }
     tables.push({
       label: `First stage: ${fs.endog} on the instruments, ${m.seLabel}`,
       rows,
       align: ["left", "right", "right", "right", "right", "right"],
-      note: `Excluded instruments only; the regression also includes ${included.length ? included.join(", ") : "nothing else"}. ${fs.statLabel === "z" ? "z" : `t with ${intText(fs.df)} df`}.`,
+      note:
+        `Excluded instruments only; the regression also includes ${included.length ? included.join(", ") : "nothing else"}. ${fs.statLabel === "z" ? "z" : `t with ${intText(fs.df)} df`}.` +
+        (fs.termsWhy ? ` Not computed: ${fs.termsWhy}.` : ""),
     });
   }
   const diagRows: string[][] = [["Test", "Statistic", "df", "p", "Assumes"]];
+  const skipped: string[] = [];
   for (const t of fit.diagnostics) {
-    if ("skipped" in t) diagRows.push([t.name, `not computed: ${t.skipped}`, "", "", ""]);
-    else diagRows.push([t.name, `${t.dist === "F" ? "F" : "χ²"} = ${fmtFixed(t.stat, d)}`, t.df2 !== undefined ? `${t.df},${NBSP}${intText(t.df2)}` : String(t.df), fmtP(t.p), t.note]);
+    if ("skipped" in t) {
+      diagRows.push([t.name, NC, NC, NC, NC]);
+      skipped.push(`${t.name}: ${t.skipped}.`);
+    } else diagRows.push([t.name, `${t.dist === "F" ? "F" : "χ²"} = ${fmtFixed(t.stat, d)}`, t.df2 !== undefined ? `${t.df},${NBSP}${intText(t.df2)}` : String(t.df), fmtP(t.p), t.note]);
   }
   tables.push({
     label: "Diagnostics",
     rows: diagRows,
     align: ["left", "left", "right", "right", "left"],
-    note: "Endogeneity tests: H₀ the instrumented regressors are exogenous (OLS is consistent). Overidentification tests: H₀ every instrument is valid.",
+    note:
+      "Endogeneity tests: H₀ the instrumented regressors are exogenous (OLS is consistent). Overidentification tests: H₀ every instrument is valid." +
+      (skipped.length ? ` Not computed: ${skipped.join(" ")}` : ""),
   });
 
   // Figure: each endogenous coefficient, OLS against 2SLS, with 95% intervals.

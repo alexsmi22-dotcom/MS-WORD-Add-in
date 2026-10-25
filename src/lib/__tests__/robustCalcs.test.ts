@@ -3,6 +3,8 @@
  * display contract, hostile tables and hostile parameter fields, 100,000-row inputs, and the FittedModel hand-off.
  */
 import { bootCiCalc, qregCalc, qregModels, runQreg, BOOT_CI_DEFAULTS, BOOT_CI_FIELDS, QREG_DEFAULTS, QREG_FIELDS, readCount, readConfidence, readQuantiles } from "../robustCalcs";
+import * as fs from "fs";
+import * as path from "path";
 import type { StatOutput } from "../analyzeBlocks";
 import { Pcg32 } from "../prng";
 
@@ -31,6 +33,11 @@ function expectDisplayContract(o: StatOutput): void {
     expect(t.align![0]).toBe("left");
     for (const r of t.rows) expect(r.length).toBe(t.rows[0].length);
   }
+}
+
+/** No empty computed cell in an ok result (a quantity not computed says so). */
+function expectNoEmptyCell(o: StatOutput): void {
+  for (const t of o.tables ?? []) for (const cell of t.rows.flat()) expect(cell.trim()).not.toBe("");
 }
 
 function table(rows: number, f: (i: number) => string, header: string): string {
@@ -143,7 +150,9 @@ describe("boot-ci", () => {
     expectDisplayContract(o);
     expect(o.text).toMatch(/BCa is not available: all the jackknife values are equal/);
     expect(o.text).toMatch(/^Percentile interval: /m);
-    expect(o.tables![0].rows[4][1]).toMatch(/^not available: /);
+    expect(o.tables![0].rows[4]).toEqual(["BCa", "not computed", "not computed"]);
+    expect(o.tables![0].note).toMatch(/^BCa not computed: all the jackknife values are equal/);
+    expectNoEmptyCell(o);
   });
 
   it("dropped (undefined) resamples are counted in the text", () => {
@@ -296,5 +305,98 @@ describe("qreg", () => {
     const r = runQreg(reader(QREG_DEFAULTS, { data: data + "\n1\t1\t1\t1", spec: "y ~ a + b + c" }));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/at most 100,000 rows/);
+  });
+});
+
+/**
+ * Adversarial review E4. boot-ci printed the mean of 1.2345×10⁹ + 10⁵·N(0,1) as [1.234×10⁹; 1.235×10⁹] (bounds 35 SEs
+ * off) and values near 3×10⁻⁶ as [0.000003; 0.000003]; a ratio with a demeaned denominator came back ok with
+ * θ = 9.5×10¹⁶. Pinned against scripts/econ-e4fix-oracle.py (the calculator's PCG32 stream replayed in Python).
+ */
+describe("boot-ci at large and tiny scales; ratio near a zero denominator", () => {
+  const FX = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "econ-e4fix-oracle.json"), "utf8"));
+  interface BootFx { name: string; data: string; theta: number; se: number; bias: number; percentile: number[]; basic: number[]; normal: number[]; bca: number[] }
+  const [big, tiny] = FX.boot as BootFx[];
+  const run = (c: BootFx, method = "bca"): StatOutput => bootCiCalc(reader(BOOT_CI_DEFAULTS, { data: c.data.replace(/^y/, "v"), vars: "v", stat: "mean", B: "2000", conf: "95", seed: "12345", method }));
+  /** A printed value back to a number: grouped digits, true minus, an optional ×10ⁿ. */
+  const SUP: Record<string, string> = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-" };
+  const num = (s: string): number => {
+    const m = /^([−\d,.]+)(?:×10([⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+))?$/.exec(s.trim());
+    if (!m) throw new Error(`not a printed number: ${s}`);
+    const mant = Number(m[1].replace(/,/g, "").replace("−", "-"));
+    return m[2] ? mant * Math.pow(10, Number([...m[2]].map((ch) => SUP[ch]).join(""))) : mant;
+  };
+  const svgTexts = (svg: string): string[] => [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+
+  it("1.2345×10⁹: whole units, grouped, every bound the oracle's to the unit, lower ≠ upper", () => {
+    const o = run(big);
+    expectDisplayContract(o);
+    expectNoEmptyCell(o);
+    const rows = o.tables![0].rows;
+    const want: Record<string, number[]> = { Percentile: big.percentile, Basic: big.basic, "Normal (bias-corrected)": big.normal, BCa: big.bca };
+    for (const r of rows.slice(1)) {
+      expect(r[1]).toMatch(/^\d{1,3}(,\d{3})+$/);
+      expect(Math.abs(num(r[1]) - want[r[0]][0])).toBeLessThanOrEqual(0.5 + 1e-6);
+      expect(Math.abs(num(r[2]) - want[r[0]][1])).toBeLessThanOrEqual(0.5 + 1e-6);
+      expect(r[1]).not.toBe(r[2]);
+    }
+    const sum = Object.fromEntries(o.tables![1].rows.slice(1).map((r) => [r[0], r[1]]));
+    expect(Math.abs(num(sum["θ (full sample)"]) - big.theta)).toBeLessThanOrEqual(0.5 + 1e-6);
+    expect(Math.abs(num(sum["Bootstrap SE"]) - big.se)).toBeLessThanOrEqual(0.5 + 1e-6);
+    expect(Math.abs(num(sum["Bias (mean of replicates − θ)"]) - big.bias)).toBeLessThanOrEqual(0.5 + 1e-6);
+    expect(o.text).toContain(`BCa interval: [${rows[4][1]}; ${rows[4][2]}]`);
+    // The histogram's tick labels: distinct, no e-notation.
+    const ticks = svgTexts(o.svg!).filter((t) => /\d/.test(t));
+    expect(ticks.join(" ")).not.toMatch(/\d[eE][+-]?\d/);
+  });
+
+  it("3×10⁻⁶ with SE 1.5×10⁻⁸: one shared ×10⁻⁶, the SE's second digit shows, lower ≠ upper", () => {
+    const o = run(tiny);
+    expectDisplayContract(o);
+    expectNoEmptyCell(o);
+    const rows = o.tables![0].rows;
+    const want: Record<string, number[]> = { Percentile: tiny.percentile, Basic: tiny.basic, "Normal (bias-corrected)": tiny.normal, BCa: tiny.bca };
+    for (const r of rows.slice(1)) {
+      expect(r[1]).toMatch(/^\d\.\d{3}×10⁻⁶$/);
+      expect(Math.abs(num(r[1]) - want[r[0]][0])).toBeLessThanOrEqual(0.0005e-6 * (1 + 1e-9));
+      expect(Math.abs(num(r[2]) - want[r[0]][1])).toBeLessThanOrEqual(0.0005e-6 * (1 + 1e-9));
+      expect(r[1]).not.toBe(r[2]);
+    }
+    const sum = Object.fromEntries(o.tables![1].rows.slice(1).map((r) => [r[0], r[1]]));
+    expect(sum["Bootstrap SE"]).toBe("0.015×10⁻⁶");
+    expect(Math.abs(num(sum["θ (full sample)"]) - tiny.theta)).toBeLessThanOrEqual(0.0005e-6);
+    const ticks = svgTexts(o.svg!).filter((t) => /\d/.test(t));
+    expect(ticks.join(" ")).not.toMatch(/\d[eE][+-]?\d/);
+  });
+
+  it("confidence 95.55 prints as 95.55%", () => {
+    expect(boot({ conf: "95.55", B: "300" }).text).toMatch(/^Bootstrap 95\.55% confidence/);
+    expect(boot({ conf: "0.9555", B: "300" }).text).toMatch(/^Bootstrap 95\.55% confidence/);
+    expect(boot({ conf: "95.5", B: "300" }).text).toMatch(/^Bootstrap 95\.5% confidence/);
+  });
+
+  // A denominator column demeaned in floating point: its sum is rounding noise, not 0.
+  const xs = Array.from({ length: 30 }, (_, i) => Math.sin(i * 1.7) * 3.1 + 0.37 * i);
+  const mx = xs.reduce((s, v) => s + v, 0) / 30;
+  const xd = xs.map((v) => v - mx);
+  const ratioData = (x: number[]): string => table(30, (i) => `${(2 + Math.cos(i)).toFixed(6)}\t${String(x[i]).replace("-", "−")}`, "y\tx");
+
+  it("ratio of means: a denominator mean of 0 up to rounding is refused, stating the threshold", () => {
+    expect(xd.reduce((s, v) => s + v, 0)).not.toBe(0);
+    const o = boot({ stat: "ratio", data: ratioData(xd), vars: "y ~ x" });
+    expect(o.ok).toBe(false);
+    expect(o.text).toMatch(/mean of “x” is 0 up to rounding \(\|Σx\| is within n·ε·Σ\|x\| of zero/);
+  });
+
+  it("ratio of means: resampled denominator means that change sign are refused (the ratio is unbounded)", () => {
+    const x = xd.map((v) => v + 0.3); // x̄ = 0.3, well above rounding, but resampled means cross 0
+    const o = boot({ stat: "ratio", data: ratioData(x), vars: "y ~ x" });
+    expect(o.ok).toBe(false);
+    expect(o.text).toMatch(/^The ratio of means is not bootstrapped: in [\d,]+ of 2,000 resamples the mean of “x” is 0 or has the other sign/);
+    expect(o.text).toMatch(/passes through infinity/);
+    expect(o.text).not.toMatch(/\d[eE][+-]?\d|-\d/);
+    // A denominator far from 0 still bootstraps.
+    const ok = boot({ stat: "ratio", data: ratioData(xd.map((v) => v + 40)), vars: "y ~ x" });
+    expectDisplayContract(ok);
   });
 });

@@ -34,6 +34,10 @@
  *   robust (statsmodels' default): (XᵀX)⁻¹ XᵀDX (XᵀX)⁻¹, Dᵢ = (τ/f̂)² if eᵢ > 0 else ((1 − τ)/f̂)²;
  *   iid: (1/f̂)²·τ(1 − τ)·(XᵀX)⁻¹.
  *   t statistics on n − p degrees of freedom (statsmodels' use_t and df_resid).
+ *   Evaluated without forming XᵀX: with a constant the other columns are centred (exact reparameterisation, mapped
+ *   back), columns are scaled by powers of two, and X = QR by Householder, so (XᵀX)⁻¹ = R⁻¹R⁻ᵀ and the sandwich is
+ *   R⁻¹(QᵀDQ)R⁻ᵀ. On uncentred polynomial designs (year and year², x and x² on [1000, 1010]) this matches a 60-digit
+ *   mpmath evaluation to 1e−9 relative; Gauss–Jordan on XᵀX lost the fifth significant digit there.
  *
  * PSEUDO R¹ (Koenker & Machado 1999): 1 − V̂(τ)/Ṽ(τ), Ṽ the minimised objective of the intercept-only model, whose
  * minimiser is the order statistic y₍⌈nτ⌉₎ (exact; statsmodels' prsquared uses the linearly interpolated percentile
@@ -492,51 +496,137 @@ export function qrCovariance(y: Float64Array, cols: Float64Array[], resid: Float
   if (!(fhat0 > 0)) {
     return { ok: false, reason: "No residual lies within the kernel bandwidth of zero, so the density estimate f̂(0) is 0 and the standard errors are undefined." };
   }
-  // XᵀX in column-scaled space (powers of two, exact), then unscaled.
-  const cs = cols.map((col) => {
+  // The design, reparameterised exactly: with a constant column, every other column is centred (the intercept then
+  // absorbs the means); each column is divided by a power of two near its largest magnitude. Householder QR of that
+  // design, X = QR, gives (XᵀX)⁻¹ = R⁻¹R⁻ᵀ and XᵀDX = Rᵀ(QᵀDQ)R, so the sandwich is R⁻¹(QᵀDQ)R⁻ᵀ: the rounding
+  // follows the condition number of X, never that of XᵀX (its square).
+  const isConst = cols.map((col) => col[0] !== 0 && col.every((v) => v === col[0]));
+  const ci = isConst.indexOf(true);
+  const means = cols.map((col, k) => {
+    if (ci < 0 || isConst[k]) return 0;
+    let s = 0;
+    for (let i = 0; i < n; i++) s += col[i];
+    return s / n;
+  });
+  const Xc = cols.map((col, k) => (means[k] === 0 ? Float64Array.from(col) : Float64Array.from(col, (v) => v - means[k])));
+  const cs = Xc.map((col) => {
     let m = 0;
     for (let i = 0; i < n; i++) m = mMax(m, mAbs(col[i]));
-    return pow2Near(m);
+    return m > 0 ? pow2Near(m) : 1;
   });
-  const Xs = cols.map((col, k) => Float64Array.from(col, (v) => v / cs[k]));
-  const xtx: number[][] = [];
-  for (let a = 0; a < p; a++) {
-    const row: number[] = [];
-    for (let b = 0; b < p; b++) {
-      let s = 0;
-      const ca = Xs[a];
-      const cb = Xs[b];
-      for (let i = 0; i < n; i++) s += ca[i] * cb[i];
-      row.push(s);
-    }
-    xtx.push(row);
+  for (let k = 0; k < p; k++) {
+    const col = Xc[k];
+    for (let i = 0; i < n; i++) col[i] /= cs[k];
   }
-  const xtxi = invert(xtx);
-  if (!xtxi) return { ok: false, reason: "XᵀX is numerically singular, so the standard errors cannot be formed." };
-  let Vs: number[][];
+  const qr = householderThin(Xc, n);
+  if (!qr) return { ok: false, reason: "The design is numerically rank-deficient (a column is a combination of the others), so the standard errors cannot be formed." };
+  const Rinv = invUpperTri(qr.R);
+  let S: number[][];
+  let f = 1;
   if (vcov === "robust") {
     const dPos = Math.pow(q / fhat0, 2);
     const dNeg = Math.pow((1 - q) / fhat0, 2);
-    const xtdx: number[][] = [];
+    S = Array.from({ length: p }, () => new Array<number>(p).fill(0));
     for (let a = 0; a < p; a++) {
-      const row: number[] = [];
-      for (let b = 0; b < p; b++) {
+      const qa = qr.Q[a];
+      for (let b = a; b < p; b++) {
+        const qb = qr.Q[b];
         let s = 0;
-        const ca = Xs[a];
-        const cb = Xs[b];
-        for (let i = 0; i < n; i++) s += ca[i] * (resid[i] > 0 ? dPos : dNeg) * cb[i];
-        row.push(s);
+        for (let i = 0; i < n; i++) s += qa[i] * (resid[i] > 0 ? dPos : dNeg) * qb[i];
+        S[a][b] = s;
+        S[b][a] = s;
       }
-      xtdx.push(row);
     }
-    const mul = (A: number[][], B: number[][]): number[][] => A.map((ra) => B[0].map((_, j) => ra.reduce((s, v, k) => s + v * B[k][j], 0)));
-    Vs = mul(mul(xtxi, xtdx), xtxi);
   } else {
-    const f = Math.pow(1.0 / fhat0, 2) * q * (1 - q);
-    Vs = xtxi.map((r) => r.map((v) => f * v));
+    S = Array.from({ length: p }, (_, a) => Array.from({ length: p }, (_, b) => (a === b ? 1 : 0)));
+    f = Math.pow(1.0 / fhat0, 2) * q * (1 - q);
   }
-  const cov = Vs.map((r, a) => r.map((v, b) => v / (cs[a] * cs[b])));
+  // Vc = R⁻¹ S R⁻ᵀ (R⁻¹ upper triangular).
+  const RS = Rinv.map((ra) => Array.from({ length: p }, (_, j) => {
+    let s = 0;
+    for (let k = 0; k < p; k++) s += ra[k] * S[k][j];
+    return s;
+  }));
+  const Vc = Rinv.map((_, a) => Array.from({ length: p }, (_, b) => {
+    let s = 0;
+    for (let k = 0; k < p; k++) s += RS[a][k] * Rinv[b][k];
+    return (f * s) / (cs[a] * cs[b]);
+  }));
+  // Back to the user's parameters: β_const = c_const − Σ mⱼcⱼ, every other βⱼ = cⱼ; V = G·Vc·Gᵀ.
+  const G = Array.from({ length: p }, (_, a) => Array.from({ length: p }, (_, b) => (a === b ? 1 : a === ci ? -means[b] : 0)));
+  const GV = G.map((ga) => Array.from({ length: p }, (_, j) => {
+    let s = 0;
+    for (let k = 0; k < p; k++) if (ga[k] !== 0) s += ga[k] * Vc[k][j];
+    return s;
+  }));
+  const cov = GV.map((ra) => Array.from({ length: p }, (_, b) => {
+    let s = 0;
+    for (let k = 0; k < p; k++) if (G[b][k] !== 0) s += ra[k] * G[b][k];
+    return s;
+  }));
   return { ok: true, cov, bandwidth: h, sparsity: 1.0 / fhat0 };
+}
+
+/**
+ * Householder QR of p columns (each length n): R (p×p upper triangular) and the thin Q's p columns, formed by applying
+ * the reflectors to e₁…e_p. Null when a column's part outside the earlier ones is at rounding level.
+ */
+function householderThin(cols: Float64Array[], n: number): { Q: Float64Array[]; R: number[][] } | null {
+  const p = cols.length;
+  if (p > n) return null;
+  const A = cols.map((c) => Float64Array.from(c));
+  const V: Float64Array[] = [];
+  const vtv: number[] = [];
+  const R: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
+  const reflect = (k: number, a: Float64Array): void => {
+    const v = V[k];
+    let dot = 0;
+    for (let i = k; i < n; i++) dot += v[i] * a[i];
+    const fct = (2 * dot) / vtv[k];
+    if (fct !== 0) for (let i = k; i < n; i++) a[i] -= fct * v[i];
+  };
+  for (let j = 0; j < p; j++) {
+    const a = A[j];
+    let full = 0;
+    for (let i = 0; i < n; i++) full += a[i] * a[i];
+    for (let k = 0; k < j; k++) reflect(k, a);
+    let nrm = 0;
+    for (let i = j; i < n; i++) nrm += a[i] * a[i];
+    nrm = Math.sqrt(nrm);
+    if (!(nrm > 1e-13 * Math.sqrt(full))) return null;
+    const alpha = a[j] > 0 ? -nrm : nrm;
+    const v = new Float64Array(n);
+    v[j] = a[j] - alpha;
+    for (let i = j + 1; i < n; i++) v[i] = a[i];
+    let vv = 0;
+    for (let i = j; i < n; i++) vv += v[i] * v[i];
+    V.push(v);
+    vtv.push(vv);
+    for (let i = 0; i < j; i++) R[i][j] = a[i];
+    R[j][j] = alpha;
+  }
+  const Q: Float64Array[] = [];
+  for (let j = 0; j < p; j++) {
+    const e = new Float64Array(n);
+    e[j] = 1;
+    for (let k = p - 1; k >= 0; k--) reflect(k, e);
+    Q.push(e);
+  }
+  return { Q, R };
+}
+
+/** The inverse of an upper-triangular matrix by back substitution. */
+function invUpperTri(R: number[][]): number[][] {
+  const p = R.length;
+  const X: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
+  for (let col = 0; col < p; col++) {
+    for (let i = col; i >= 0; i--) {
+      let s = i === col ? 1 : 0;
+      for (let j = i + 1; j <= col; j++) s -= R[i][j] * X[j][col];
+      X[i][col] = s / R[i][i];
+    }
+  }
+  return X;
 }
 
 /** Koenker–Machado's restricted objective: Σ ρ_τ(y − y₍⌈nτ⌉₎), the intercept-only minimum. */

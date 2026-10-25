@@ -462,7 +462,9 @@ export function tsEtsCalc(read: Read): StatOutput {
   const variance = hwForecastVariance(spec, prm, fit.sse, n, h);
   const bands = variance ? hwIntervals(mean, variance) : null;
   const finite = [fit.sse, fit.aic, fit.bic, prm.l0, prm.b0, ...prm.s0, ...mean, ...(bands ? [...bands.lower, ...bands.upper] : [])];
-  if (!finite.every(Number.isFinite)) return refuse("A fitted quantity is not a finite number for this series (an extreme scale), so the result is not reported.");
+  if (!finite.every(Number.isFinite)) {
+    return refuse("The sum of squared errors or a forecast overflows double precision for values this large (near 10³⁰⁸), so the result is not reported; rescale the series (for example, to millions).");
+  }
 
   const lines: string[] = [];
   lines.push(`${modelName(spec)} for ${name} (n = ${intText(n)})`);

@@ -379,10 +379,13 @@ export function fitHoltWinters(yIn: ArrayLike<number>, spec: HwSpec): HwFitResul
   const n = yIn.length;
   const L = layoutOf(spec);
   // Scale only (a multiplicative model cannot be shifted): the SSE scales by scale², the smoothing parameters not at all.
-  let scale = 0;
-  for (let i = 0; i < n; i++) scale += (yIn[i] * yIn[i]) / n;
-  scale = Math.sqrt(scale);
-  if (!(scale > 0) || !Number.isFinite(scale)) return { ok: false, reason: "The series is zero throughout or not finite." };
+  let M = 0;
+  for (let i = 0; i < n; i++) M = Math.max(M, Math.abs(yIn[i]));
+  if (!Number.isFinite(M)) return { ok: false, reason: "A value is not a finite number." };
+  if (!(M > 0)) return { ok: false, reason: "The series is zero throughout, so there is nothing to smooth." };
+  let ms = 0;
+  for (let i = 0; i < n; i++) ms += (yIn[i] / M) * (yIn[i] / M);
+  const scale = M * Math.sqrt(ms / n);
   const y = new Float64Array(n);
   for (let i = 0; i < n; i++) y[i] = yIn[i] / scale;
   const st = heuristicStates(y, spec, L);

@@ -10,7 +10,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { arimaForecast, arimaLoglike, fitArima, type ArimaSpec, type ArimaTrend } from "../arima";
+import { arimaForecast, arimaLoglike, fitArima, kalmanArma, type ArimaSpec, type ArimaTrend } from "../arima";
 import { fitHoltWinters, hwFilter, hwForecast, hwForecastVariance, hwIntervals, type HwSpec } from "../holtWinters";
 import { ljungBox } from "../tsForecastCalcs";
 
@@ -118,6 +118,21 @@ describe("ARIMA vs statsmodels (simple differencing, mean form)", () => {
         f.se.forEach((v, i) => tol(v, c.forecastSe[i], c.forecastSe[0]));
         f.lower.forEach((v, i) => tol(v, c.lower[i], lev));
         f.upper.forEach((v, i) => tol(v, c.upper[i], lev));
+      });
+      it("Ljung–Box at statsmodels' parameters matches acorr_ljungbox exactly (TEMP copy; the swap to tsDiag must keep this)", () => {
+        const w = c.d ? c.y.slice(1).map((v, i) => v - c.y[i]) : c.y.slice();
+        const w2 = c.d === 2 ? w.slice(1).map((v, i) => v - w[i]) : w;
+        const mu = c.trend === "none" ? 0 : c.mu;
+        const f = kalmanArma(
+          w2.map((v) => v - mu),
+          c.phi,
+          c.theta,
+          true,
+        );
+        if (!f) throw new Error("filter failed");
+        const lb = ljungBox(f.std as Float64Array, c.ljungBox.lags, c.p + c.q);
+        expect(rel(lb.q, c.ljungBox.q)).toBeLessThan(1e-9);
+        expect(Math.abs((lb.p as number) - c.ljungBox.p)).toBeLessThan(1e-9);
       });
       it("Ljung–Box on the standardized residuals (model df = p + q) matches acorr_ljungbox", () => {
         if (!fit.ok) throw new Error(fit.reason);

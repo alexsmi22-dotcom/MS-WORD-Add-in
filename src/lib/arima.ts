@@ -372,20 +372,25 @@ interface Scaled {
 
 function standardize(w: Float64Array, withMean: boolean): Scaled | null {
   const N = w.length;
-  let c = 0;
-  for (let i = 0; i < N; i++) c += w[i] / N;
+  // Moments of w / M (M = max |w|), so squares cannot overflow even near 10³⁰⁸.
+  let M = 0;
+  for (let i = 0; i < N; i++) M = Math.max(M, Math.abs(w[i]));
+  if (!(M > 0) || !Number.isFinite(M)) return null;
+  let cm = 0;
+  for (let i = 0; i < N; i++) cm += w[i] / M / N;
   let ss = 0;
   for (let i = 0; i < N; i++) {
-    const e = w[i] - c;
+    const e = w[i] / M - cm;
     ss += e * e;
   }
-  const s = Math.sqrt(ss / N);
+  const c = cm * M;
+  const s = Math.sqrt(ss / N) * M;
   if (!(s > 0) || !Number.isFinite(s) || !Number.isFinite(c)) return null;
   // Below ~1e-13 of the level the differences are rounding noise, not a series.
   if (s < 1e-13 * Math.abs(c)) return null;
   // Without a mean term the model has no centre: scale only (by the root mean square).
   const center = withMean ? c : 0;
-  const scale = withMean ? s : Math.sqrt(s * s + c * c);
+  const scale = withMean ? s : M * Math.sqrt((s / M) * (s / M) + (c / M) * (c / M));
   const z = new Float64Array(N);
   for (let i = 0; i < N; i++) z[i] = (w[i] - center) / scale;
   return { z, center, scale };
@@ -664,6 +669,13 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   const N = w.length;
   const hasMu = trend !== "none";
   const k = p + q + (hasMu ? 1 : 0) + 1;
+  // Overflow first, so it is not misreported as a constant series: the differences and their squares must be finite.
+  if (!w.every(Number.isFinite)) {
+    return {
+      ok: false,
+      reason: "The differences of the values overflow double precision (beyond about 1.8×10³⁰⁸), so no model can be fitted; rescale the series (for example, to millions).",
+    };
+  }
   const sc = standardize(w, hasMu);
   if (!sc) {
     return {

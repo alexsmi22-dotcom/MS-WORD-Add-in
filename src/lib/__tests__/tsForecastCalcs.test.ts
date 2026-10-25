@@ -182,10 +182,25 @@ describe("hostile inputs", () => {
     const v = arimaSeries(60, 4).map((x, i) => (i % 2 ? 1.5e308 : -1.5e308) + x);
     const a = arima({ data: seriesText(v) });
     expect(a.ok).toBe(false);
+    expect(a.text).toContain("differences of the values overflow double precision");
     expect(a.text).not.toMatch(/NaN|Infinity/);
     const e = ets({ data: seriesText(v), seasonal: "none" });
     expect(e.ok).toBe(false);
+    expect(e.text).toContain("overflows double precision");
     expect(e.text).not.toMatch(/NaN|Infinity/);
+  });
+  it("values near 10¹⁶⁰ (σ² and SSE beyond double precision) are refused for overflow, never as a constant series", () => {
+    const base = arimaSeries(150, 11);
+    const r = arima({ data: seriesText(base.map((x) => x * 1e160)), d: "0" });
+    expect(r.ok).toBe(false);
+    expect(r.text).toContain("extreme scale");
+    expect(r.text).not.toContain("constant");
+    const e = ets({ data: seriesText(base.map((x) => x * 1e160)), seasonal: "none" });
+    expect(e.ok).toBe(false);
+    expect(e.text).toContain("overflows double precision");
+    // Just inside the range both fit.
+    expectDisplayContract(arima({ data: seriesText(base.map((x) => x * 1e150)), d: "0" }));
+    expectDisplayContract(ets({ data: seriesText(base.map((x) => x * 1e150)), seasonal: "none" }));
   });
   it("multiplicative seasonality refuses a zero or negative value by row and date", () => {
     const lines = TS_ETS_DATA_DEFAULT.split("\n");

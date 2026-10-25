@@ -39,6 +39,8 @@ export interface SolowSteady {
   yStar: number;
   cStar: number;
   sGold: number;
+  /** False when the golden-rule k is outside 10⁻¹⁵ to 10¹⁵: kGold, yGold and cGold are then NaN and not shown. */
+  goldOk: boolean;
   kGold: number;
   yGold: number;
   cGold: number;
@@ -69,11 +71,14 @@ export function solowSteady(p: SolowParams): SolowSteady | { error: string } {
   const e = 1 / (1 - alpha);
   const kStar = Math.pow(s / D, e);
   const kGold = Math.pow(alpha / D, e);
-  if (!Number.isFinite(kStar) || !Number.isFinite(kGold) || kStar <= 0 || kGold <= 0 || kStar > 1e15 || kGold > 1e15 || kStar < 1e-15 || kGold < 1e-15) {
-    return { error: "The steady state k* (s/(n + g + ng + δ) raised to the power 1/(1 − α)) or the golden-rule k is outside 10⁻¹⁵ to 10¹⁵ for these parameters; it cannot be shown reliably." };
+  const inRange = (k: number): boolean => Number.isFinite(k) && k >= 1e-15 && k <= 1e15;
+  if (!inRange(kStar)) {
+    return { error: "The steady state k* (s/(n + g + ng + δ) raised to the power 1/(1 − α)) is outside 10⁻¹⁵ to 10¹⁵ for these parameters; it cannot be shown reliably." };
   }
+  // The golden rule alone out of range does not refuse the run: the caller reports the rest and says why it is missing.
+  const goldOk = inRange(kGold);
   const yStar = Math.pow(kStar, alpha);
-  const yGold = Math.pow(kGold, alpha);
+  const yGold = goldOk ? Math.pow(kGold, alpha) : NaN;
   const phi = (alpha * D + (1 - delta)) / G;
   const lambda = -Math.log(phi);
   const lambdaC = (1 - alpha) * (n + g + delta);
@@ -84,9 +89,10 @@ export function solowSteady(p: SolowParams): SolowSteady | { error: string } {
     yStar,
     cStar: (1 - s) * yStar,
     sGold: alpha,
-    kGold,
+    goldOk,
+    kGold: goldOk ? kGold : NaN,
     yGold,
-    cGold: (1 - alpha) * yGold,
+    cGold: goldOk ? (1 - alpha) * yGold : NaN,
     phi,
     lambda,
     halfLife: Math.LN2 / lambda,

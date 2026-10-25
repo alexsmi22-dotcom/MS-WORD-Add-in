@@ -15,6 +15,8 @@ import {
   marketFigureSvg,
   fmtExact,
   fmtExactShort,
+  fmtCell,
+  CELL_NOTE,
   eqText,
   fmtPct,
   linText,
@@ -25,7 +27,7 @@ import {
   type Policy,
   type Side,
 } from "./microMarket";
-import { solveOligopoly, bestResponseIntercepts, OLIGOPOLY_MAX_FIRMS, type Firm, type Structure } from "./oligopoly";
+import { solveOligopoly, bestResponseIntercepts, OLIGOPOLY_MAX_FIRMS, type Firm, type Structure, type StructureKey } from "./oligopoly";
 import { buildPlotSvg, type Series } from "./plot";
 
 type Read = (k: string) => string;
@@ -149,21 +151,31 @@ export function microMarketCalc(read: Read): StatOutput {
 
   const lines: string[] = [];
   lines.push(`Supply and demand: demand P = ${linText(a, b, -1)}, supply P = ${linText(c, d, 1)} (P in ${cur} per ${qunit}, Q in ${qunit})`);
-  lines.push(`Equilibrium: ${eqText("Q*", r.qe)}, ${eqText("P*", r.pe)}`);
-  lines.push(`Point elasticities at the equilibrium: demand ${eqText("ε", r.eps)}, supply ${r.eta ? eqText("η", r.eta) : "η = perfectly elastic (d = 0)"}`);
+  if (r.closed) {
+    lines.push(
+      `Without the policy the market is closed: the demand intercept a = ${fmtExactShort(a)} is not above the supply intercept c = ${fmtExactShort(c)}, so nothing is traded (Q = 0, no surplus). There is no no-policy price, so P*, the elasticities ε and η at it, and the incidence shares do not exist.`,
+    );
+  } else {
+    lines.push(`Equilibrium: ${eqText("Q*", r.qe)}, ${eqText("P*", r.pe)}`);
+    lines.push(`Point elasticities at the equilibrium: demand ${eqText("ε", r.eps)}, supply ${r.eta ? eqText("η", r.eta) : "η = perfectly elastic (d = 0)"}`);
+  }
   const amt = amount ? fmtExactShort(amount) : "";
   const tsOf = (o: { cs: Rat; ps: Rat; rev: Rat; sub: Rat }): Rat => ratSub(ratAdd(ratAdd(o.cs, o.ps), o.rev), o.sub);
   if (policy === "tax" || policy === "subsidy") {
-    const w = r.ways![side];
     const word = policy === "tax" ? "tax" : "subsidy";
     lines.push(
       `Per-unit ${word} ${policy === "tax" ? "t" : "s"} = ${amt} ${policy === "tax" ? "levied on" : "paid to"} ${side}: quantity ${fmtExact(r.q)}, buyers pay ${fmtExact(r.buyers)}, sellers receive ${fmtExact(r.sellers)}`,
     );
-    lines.push(
-      policy === "tax"
-        ? `Incidence: buyers bear ${fmtPct(w.buyerShare)} of the tax and sellers ${fmtPct(w.sellerShare)}, the same whichever side it is levied on (table).`
-        : `Incidence: buyers receive ${fmtPct(w.buyerShare)} of the subsidy and sellers ${fmtPct(w.sellerShare)}, the same whichever side it is paid to (table).`,
-    );
+    if (r.closed) {
+      lines.push(`The subsidy opens the market: it exceeds c − a = ${fmtExactShort(ratSub(c, a))}, so supply shifted down by s meets demand at a positive quantity. The outcome is the same whichever side it is paid to.`);
+    } else {
+      const w = r.ways![side];
+      lines.push(
+        policy === "tax"
+          ? `Incidence: buyers bear ${fmtPct(w.buyerShare)} of the tax and sellers ${fmtPct(w.sellerShare)}, the same whichever side it is levied on (table).`
+          : `Incidence: buyers receive ${fmtPct(w.buyerShare)} of the subsidy and sellers ${fmtPct(w.sellerShare)}, the same whichever side it is paid to (table).`,
+      );
+    }
     lines.push(
       `Consumer surplus ${fmtExact(r.cs)}, producer surplus ${fmtExact(r.ps)}, ${policy === "tax" ? `tax revenue ${fmtExact(r.rev)}` : `subsidy cost ${fmtExact(r.sub)}`}, deadweight loss ${fmtExact(r.dwl)} (${cur})`,
     );
@@ -180,6 +192,13 @@ export function microMarketCalc(read: Read): StatOutput {
         `The ${name} ${amt} binds: quantity demanded ${fmtExact(r.qd!)}, quantity supplied ${r.qs ? fmtExact(r.qs) : "unbounded (perfectly elastic supply)"}, ` +
           `${policy === "ceiling" ? "shortage" : "excess supply"} ${gap ? fmtExact(gap) : "unbounded"}; quantity traded ${fmtExact(r.q)}`,
       );
+      if (r.closes) {
+        lines.push(
+          policy === "ceiling"
+            ? `The market closes (Q = 0): the ceiling is at or below the lowest price at which anything is supplied (c = ${fmtExactShort(c)}), so nothing is sold and the whole no-policy surplus is lost.`
+            : `The market closes (Q = 0): the floor is at or above the demand intercept a = ${fmtExactShort(a)}, so nothing is bought and the whole no-policy surplus is lost.`,
+        );
+      }
       lines.push(`Consumer surplus ${fmtExact(r.cs)}, producer surplus ${fmtExact(r.ps)}, deadweight loss ${fmtExact(r.dwl)} (${cur})`);
     }
   } else {
@@ -224,7 +243,9 @@ export function microMarketCalc(read: Read): StatOutput {
   }
   if (ratSign(c) < 0) lines.push(`The supply intercept c = ${fmtExactShort(c)} is negative: supply reaches P = 0 at ${eqText("Q", ratDiv(ratSub(RAT_ZERO, c), d))}, and producer surplus counts prices P ≥ 0 only.`);
   if (ratIsZero(d)) lines.push("Supply is perfectly elastic (d = 0): sellers supply any quantity at P = c, so producer surplus is zero without a policy.");
-  lines.push("A non-binding control is reported as such (not refused); a tax that closes the market, a subsidy that would make the buyers' price negative, and a ceiling below every supply price are refused.");
+  lines.push(
+    "A non-binding control is reported as such (not refused); a ceiling at or below every supply price or a floor at or above every demand price closes the market (Q = 0, reported with its welfare); a subsidy that opens a market closed without it is reported against the no-trade market; a tax that closes the market and a subsidy that would make the buyers' price negative are refused.",
+  );
 
   // Tables.
   const tables: StatTable[] = [];
@@ -232,28 +253,37 @@ export function microMarketCalc(read: Read): StatOutput {
   const pL = `(${cur} per ${qunit})`;
   const mL = `(${cur})`;
   tables.push({
-    label: "Equilibrium without a policy",
-    rows: [
-      ["Measure", "Value"],
-      [`Quantity Q* ${qL}`, fmtExact(r.qe)],
-      [`Price P* ${pL}`, fmtExact(r.pe)],
-      ["Demand elasticity ε", fmtExact(r.eps)],
-      ["Supply elasticity η", r.eta ? fmtExact(r.eta) : "perfectly elastic"],
-      [`Consumer surplus ${mL}`, fmtExact(r.csE)],
-      [`Producer surplus ${mL}`, fmtExact(r.psE)],
-      [`Total surplus ${mL}`, fmtExact(ratAdd(r.csE, r.psE))],
-    ],
+    label: r.closed ? "Without a policy: no trade" : "Equilibrium without a policy",
+    rows: r.closed
+      ? [
+          ["Measure", "Value"],
+          [`Quantity Q* ${qL}`, "0 (no trade)"],
+          [`Consumer surplus ${mL}`, "0"],
+          [`Producer surplus ${mL}`, "0"],
+          [`Total surplus ${mL}`, "0"],
+        ]
+      : [
+          ["Measure", "Value"],
+          [`Quantity Q* ${qL}`, fmtExact(r.qe)],
+          [`Price P* ${pL}`, fmtExact(r.pe)],
+          ["Demand elasticity ε", fmtExact(r.eps)],
+          ["Supply elasticity η", r.eta ? fmtExact(r.eta) : "perfectly elastic"],
+          [`Consumer surplus ${mL}`, fmtExact(r.csE)],
+          [`Producer surplus ${mL}`, fmtExact(r.psE)],
+          [`Total surplus ${mL}`, fmtExact(ratAdd(r.csE, r.psE))],
+        ],
     align: ["left", "right"],
   });
   if (r.binding) {
     const head = policy === "tax" ? "With the tax" : policy === "subsidy" ? "With the subsidy" : policy === "ceiling" ? "With the ceiling" : "With the floor";
     const rows: string[][] = [["Measure", "No policy", head, "Change"]];
-    const row = (name: string, before: Rat, after: Rat | null): void => {
-      rows.push([name, fmtExact(before), after ? fmtExact(after) : "unbounded", after ? fmtExact(ratSub(after, before)) : "unbounded"]);
+    // Decimal cells only (fractions in the text). A price that does not exist without the policy is "no trade".
+    const row = (name: string, before: Rat | null, after: Rat | null): void => {
+      rows.push([name, before ? fmtCell(before) : "no trade", after ? fmtCell(after) : "unbounded", !after ? "unbounded" : before ? fmtCell(ratSub(after, before)) : "not defined"]);
     };
     row(`Quantity traded ${qL}`, r.qe, r.q);
-    row(`Buyers' price ${pL}`, r.pe, r.buyers);
-    row(`Sellers' price ${pL}`, r.pe, r.sellers);
+    row(`Buyers' price ${pL}`, r.closed ? null : r.pe, r.buyers);
+    row(`Sellers' price ${pL}`, r.closed ? null : r.pe, r.sellers);
     if (policy === "ceiling" || policy === "floor") {
       row(`Quantity demanded ${qL}`, r.qe, r.qd!);
       row(`Quantity supplied ${qL}`, r.qe, r.qs ?? null);
@@ -270,7 +300,8 @@ export function microMarketCalc(read: Read): StatOutput {
       label: `${head}: welfare`,
       rows,
       align: ["left", "right", "right", "right"],
-      note: policy === "subsidy" ? "Total surplus = consumer surplus + producer surplus − subsidy cost." : policy === "tax" ? "Total surplus = consumer surplus + producer surplus + tax revenue." : undefined,
+      note:
+        (policy === "subsidy" ? "Total surplus = consumer surplus + producer surplus − subsidy cost. " : policy === "tax" ? "Total surplus = consumer surplus + producer surplus + tax revenue. " : "") + CELL_NOTE,
     });
     if (r.ways) {
       const verb = policy === "tax" ? "Levied on" : "Paid to";
@@ -279,14 +310,14 @@ export function microMarketCalc(read: Read): StatOutput {
         const bq = w!.buyers;
         return [
           ["Measure", `${verb} sellers`, `${verb} buyers`],
-          [`Quantity traded ${qL}`, fmtExact(s.q), fmtExact(bq.q)],
-          [`Buyers' price ${pL}`, fmtExact(s.buyers), fmtExact(bq.buyers)],
-          [`Sellers' price ${pL}`, fmtExact(s.sellers), fmtExact(bq.sellers)],
+          [`Quantity traded ${qL}`, fmtCell(s.q), fmtCell(bq.q)],
+          [`Buyers' price ${pL}`, fmtCell(s.buyers), fmtCell(bq.buyers)],
+          [`Sellers' price ${pL}`, fmtCell(s.sellers), fmtCell(bq.sellers)],
           [`Buyers' share of the ${policy}`, fmtPct(s.buyerShare), fmtPct(bq.buyerShare)],
           [`Sellers' share of the ${policy}`, fmtPct(s.sellerShare), fmtPct(bq.sellerShare)],
         ];
       };
-      tables.push({ label: `Incidence: the ${policy} on either side of the market`, rows: wr(r.ways), align: ["left", "right", "right"], note: "Each column is computed separately from its own shifted curve." });
+      tables.push({ label: `Incidence: the ${policy} on either side of the market`, rows: wr(r.ways), align: ["left", "right", "right"], note: `Each column is computed separately from its own shifted curve. ${CELL_NOTE}` });
     }
   }
   const svg = marketFigureSvg(spec, r, { qunit, cur });
@@ -355,6 +386,15 @@ export function parseFirms(text: string): { ok: true; firms: Firm[] } | { ok: fa
   return { ok: true, firms };
 }
 
+/** Short column headers for the structures (the text and the conventions use the full labels). */
+const SHORT_LABEL: Record<StructureKey, string> = {
+  competition: "Competition",
+  monopoly: "Monopoly",
+  cournot: "Cournot",
+  bertrand: "Bertrand",
+  stackelberg: "Stackelberg",
+};
+
 /** micro-oligopoly: market structures compared. */
 export function microOligopolyCalc(read: Read): StatOutput {
   const get = (k: string): string => {
@@ -385,7 +425,13 @@ export function microOligopolyCalc(read: Read): StatOutput {
   lines.push(
     `Market structures: inverse demand P = ${linText(a, b, -1)}, ${n} firm${n === 1 ? "" : "s"} with constant marginal cost${n === 1 ? "" : "s"} (${firms.map((f) => `${f.name} ${fmtExactShort(f.c)}`).join(", ")})`,
   );
-  for (const s of r.structures) lines.push(`${s.label}: price ${fmtExact(s.price)}, total output ${fmtExact(s.total)}, deadweight loss ${fmtExact(s.dwl)}`);
+  // Exact values (fractions with their decimals) live here; the tables show decimals only.
+  for (const s of r.structures) {
+    lines.push(
+      `${s.label}: price ${fmtExact(s.price)}, total output ${fmtExact(s.total)}, deadweight loss ${fmtExact(s.dwl)}` +
+        `; consumer surplus ${fmtExact(s.cs)}, total profit ${fmtExact(s.ps)}, Lerner index ${ratSign(s.price) === 0 ? "0 (P = MC = 0)" : fmtExact(s.lerner)}, HHI ${fmtExact(s.hhi)}`,
+    );
+  }
   if (r.cournotOut.length) lines.push(`Cournot exits: ${r.cournotOut.map((i) => firms[i].name).join(", ")} (cost at or above the Cournot price ${fmtExact(cournot.price)}, so ${r.cournotOut.length === 1 ? "it produces" : "they produce"} 0).`);
   lines.push("");
   lines.push(
@@ -411,25 +457,37 @@ export function microOligopolyCalc(read: Read): StatOutput {
     "Consumer surplus = bQ²/2; total surplus = consumer surplus + total profit; deadweight loss is measured against perfect competition. Lerner index = Σ sᵢ(P − cᵢ)/P with output shares sᵢ (0 when P = MC = 0). HHI = Σ(100·sᵢ)² on the 0 to 10,000 scale.",
   );
 
+  // Tables: one row per measure and one column per structure (at most six columns, short headers), decimal cells only
+  // (Word broke "250000/49 ≈ 5,102.041" mid-number in the nine-column layout); the text above gives exact values.
   const tables: StatTable[] = [];
+  const sHead = ["Measure", ...r.structures.map((s) => SHORT_LABEL[s.key])];
+  const sAlign = sHead.map((_, j): "left" | "right" => (j === 0 ? "left" : "right"));
+  const zeroP = r.structures.some((s) => ratSign(s.price) === 0);
   const mRows: string[][] = [
-    ["Market structure", `Price (${cur} per ${qunit})`, `Total output (${qunit})`, `Consumer surplus (${cur})`, `Total profit (${cur})`, `Total surplus (${cur})`, `Deadweight loss (${cur})`, "Lerner index", "HHI"],
+    sHead,
+    [`Price (${cur} per ${qunit})`, ...r.structures.map((s) => fmtCell(s.price))],
+    [`Total output (${qunit})`, ...r.structures.map((s) => fmtCell(s.total))],
+    [`Consumer surplus (${cur})`, ...r.structures.map((s) => fmtCell(s.cs))],
+    [`Total profit (${cur})`, ...r.structures.map((s) => fmtCell(s.ps))],
+    [`Total surplus (${cur})`, ...r.structures.map((s) => fmtCell(s.ts))],
+    [`Deadweight loss (${cur})`, ...r.structures.map((s) => fmtCell(s.dwl))],
+    ["Lerner index", ...r.structures.map((s) => fmtCell(s.lerner))],
+    ["HHI", ...r.structures.map((s) => fmtCell(s.hhi))],
   ];
-  for (const s of r.structures) {
-    const lerner = ratSign(s.price) === 0 ? "0 (P = MC = 0)" : fmtExact(s.lerner);
-    mRows.push([s.label, fmtExact(s.price), fmtExact(s.total), fmtExact(s.cs), fmtExact(s.ps), fmtExact(s.ts), fmtExact(s.dwl), lerner, fmtExact(s.hhi)]);
-  }
-  tables.push({ label: "Market outcomes by structure", rows: mRows, align: ["left", "right", "right", "right", "right", "right", "right", "right", "right"] });
-  const head = ["Firm", `Marginal cost (${cur} per ${qunit})`, ...r.structures.map((s) => s.label)];
-  const qRows: string[][] = [head];
-  const pRows: string[][] = [head];
+  const structNote = `${r.structures.some((s) => s.key === "stackelberg") ? "Stackelberg: firm 1 leads. " : ""}${zeroP ? "The Lerner index is 0 where P = MC = 0. " : ""}${CELL_NOTE}`;
+  tables.push({ label: "Market outcomes by structure", rows: mRows, align: sAlign, note: structNote });
+  // Per-firm tables: the marginal cost goes in the firm's cell, so the table stays at six columns.
+  const fHead = ["Firm (marginal cost)", ...r.structures.map((s) => SHORT_LABEL[s.key])];
+  const qRows: string[][] = [fHead];
+  const pRows: string[][] = [fHead];
   firms.forEach((f, i) => {
-    qRows.push([f.name, fmtExact(f.c), ...r.structures.map((s) => fmtExact(s.q[i]))]);
-    pRows.push([f.name, fmtExact(f.c), ...r.structures.map((s) => fmtExact(s.profit[i]))]);
+    const who = `${f.name} (${fmtCell(f.c)})`;
+    qRows.push([who, ...r.structures.map((s) => fmtCell(s.q[i]))]);
+    pRows.push([who, ...r.structures.map((s) => fmtCell(s.profit[i]))]);
   });
-  const align = head.map((_, j): "left" | "right" => (j === 0 ? "left" : "right"));
-  tables.push({ label: `Output by firm (${qunit})`, rows: qRows, align });
-  tables.push({ label: `Profit by firm (${cur})`, rows: pRows, align });
+  const fNote = `Marginal cost in ${cur} per ${qunit}. ${CELL_NOTE}`;
+  tables.push({ label: `Output by firm (${qunit})`, rows: qRows, align: sAlign, note: fNote });
+  tables.push({ label: `Profit by firm (${cur})`, rows: pRows, align: sAlign, note: fNote });
 
   let svg: string | undefined;
   if (n >= 2) svg = bestResponseFigure(a, b, firms, cournot, by("stackelberg"), qunit);

@@ -156,7 +156,8 @@ export function twoByTwo(p: PanelColumns, info: TreatmentInfo): TwoByTwo | null 
   const s = [0, 0, 0, 0];
   const c = [0, 0, 0, 0];
   for (let i = 0; i < p.n; i++) {
-    const g = info.first[p.entity[i]] >= 0 ? 0 : 2;
+    // Group membership from the adoption dates (every row of the treatment column when the panel carries them).
+    const g = info.event.firstRank[p.entity[i]] >= 0 ? 0 : 2;
     const k = g + p.time[i];
     s[k] += p.y[i];
     c[k]++;

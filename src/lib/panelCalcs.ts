@@ -15,6 +15,7 @@ import {
   hausman,
   thetaText,
   PanelRefusal,
+  PanelTimeout,
   type PanelSe,
   type FeResult,
   type PanelFitResult,
@@ -379,9 +380,9 @@ export function panelReCalc(read: Read): StatOutput {
       try {
         const pf: PanelColumns = { ...p, X: tvIdx.map((j) => p.X[j]), names: tvIdx.map((j) => p.names[j]) };
         const fe = fitFixedEffects(pf, { effects: "entity", se: "classical", started, skipPooled: true });
-        haus = hausman(fe, re);
+        haus = hausman(fe, re, started);
       } catch (e) {
-        if (!(e instanceof PanelRefusal)) throw e;
+        if (!(e instanceof PanelRefusal) || e instanceof PanelTimeout) throw e;
         haus = { skipped: `the fixed-effects fit failed (${e.message.replace(/\.$/, "")})` };
       }
     }
@@ -535,7 +536,10 @@ export function panelDidCalc(read: Read): StatOutput {
     lines.push(`DiD estimate = ${fmtFixed(d.coef, 3)} (SE ${fmtFixed(d.se, 3)}), t = ${fmtFixed(d.stat, 3)}, p ${pText(d.p)}, 95% CI [${fmtFixed(d.ciLo, 3)}; ${fmtFixed(d.ciHi, 3)}]`);
     lines.push(`Standard errors: ${m.seLabel}`);
     lines.push("");
-    if (info.staggered) {
+    // Adoption timing is a property of the treatment column, so staggering is judged on the adoption dates read
+    // from every row (a missing outcome in an adoption row must not make one cohort look like two).
+    const staggered = info.event.cohortLabels.length > 1;
+    if (staggered) {
       lines.push(
         "WARNING: staggered adoption. Treatment starts in different periods, and the two-way fixed-effects estimate then compares later-treated with earlier-treated units, " +
           "whose weights can be negative when effects differ across cohorts or grow over time (Goodman-Bacon 2021; Sun & Abraham 2021; de Chaisemartin & D'Haultfœuille 2020). " +
@@ -609,7 +613,7 @@ export function panelDidCalc(read: Read): StatOutput {
             `binned at the window ends (${relLabel(-leads, leads, lags)} and ${relLabel(lags, leads, lags)}), ${relLabel(-1, leads, lags)} omitted as the reference, never-treated entities as controls, entity and time effects, same standard errors as above.`,
         );
         if (ev.empty.length) lines.push(`No row falls in relative period${ev.empty.length === 1 ? "" : "s"} ${ev.empty.map((x) => relLabel(x, leads, lags)).join(", ")}, so ${ev.empty.length === 1 ? "it has" : "they have"} no dummy.`);
-        if (info.staggered) lines.push("With staggered adoption the event-study coefficients can also mix effects across cohorts (Sun & Abraham 2021).");
+        if (staggered) lines.push("With staggered adoption the event-study coefficients can also mix effects across cohorts (Sun & Abraham 2021).");
         let ylo = 0;
         let yhi = 0;
         for (const pt of pts) {

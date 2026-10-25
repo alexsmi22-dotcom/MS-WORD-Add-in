@@ -345,6 +345,23 @@ describe("difference-in-differences", () => {
     expect(out.text).toMatch(/12 treated entities, 18 never treated; treatment starts in 1 period \(2014\)/);
     expect(out.text).toMatch(/Adoption period of each unit: the first period its treatment is 1, read from the treatment column over every row/);
     expect(out.tables!.some((t) => /DiD event study/.test(t.label))).toBe(true);
+    // One cohort in the treatment column: no staggered-adoption warning, though the surviving rows start in 2014 and 2015.
+    expect(out.text).not.toMatch(/staggered/);
+  });
+  test("2×2: a treated unit whose post outcome is NA stays in the treated group", () => {
+    const d = didTable(30, 2, (i) => (i < 12 ? 1 : null)).split("\n");
+    d[2] = d[2].replace(/^(c0\t2011\t)[^\t]+/, "$1NA");
+    const out = did({ data: d.join("\n"), leads: "1", lags: "0" });
+    contract(out);
+    const rows = d.slice(1).map((l) => l.split("\t"));
+    const mean = (f: (r: string[]) => boolean): number => {
+      const v = rows.filter((r) => f(r) && r[2] !== "NA").map((r) => Number(r[2]));
+      return v.reduce((s, x) => s + x, 0) / v.length;
+    };
+    const treated = (r: string[]): boolean => Number(r[0].slice(1)) < 12;
+    const tb = out.tables!.find((t) => /2×2/.test(t.label))!;
+    expect(Number(tb.rows[1][1])).toBeCloseTo(mean((r) => treated(r) && r[1] === "2010"), 3);
+    expect(Number(tb.rows[2][1].replace("−", "-"))).toBeCloseTo(mean((r) => !treated(r) && r[1] === "2010"), 3);
   });
   test("an NA treatment cell that hides an adoption refuses the event study only, by entity and row", () => {
     const d = didTable(30, 8, (i) => (i < 12 ? 4 : null)).split("\n");

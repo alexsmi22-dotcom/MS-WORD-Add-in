@@ -1167,7 +1167,7 @@ const JACOBI_MAX_SWEEPS = 100;
  * Hausman FE vs RE on the regressors both estimate that vary within entities: the classic form when V_FE − V_RE is
  * positive definite; otherwise Stata's sigmamore form; otherwise the Moore–Penrose inverse with df = rank.
  */
-export function hausman(fe: FeResult, re: ReResult): HausmanResult {
+export function hausman(fe: FeResult, re: ReResult, started: number = Date.now()): HausmanResult {
   const names = re.timeVarying.filter((nm) => fe.names.includes(nm));
   if (!names.length) return { skipped: "no regressor varies within entities, so fixed effects estimate nothing to compare" };
   const fi = names.map((nm) => fe.names.indexOf(nm));
@@ -1201,7 +1201,7 @@ export function hausman(fe: FeResult, re: ReResult): HausmanResult {
     return done(quad(Ls), q0, "sigmamore", `${whyNotClassic}; both covariances are put on the efficient (RE) estimator's σ², Stata's sigmamore form, which makes the difference positive definite`);
   }
   // Moore–Penrose inverse of the symmetric difference.
-  const eig = jacobiEigen(S);
+  const eig = jacobiEigen(S, started);
   if (!eig) return { skipped: "the eigenvalues of V_FE − V_RE did not converge" };
   const tol = HAUSMAN_RANK_TOL * r * scale;
   const lmin = Math.min(...eig.values);
@@ -1232,13 +1232,14 @@ export function hausman(fe: FeResult, re: ReResult): HausmanResult {
 }
 
 /** Eigenvalues and eigenvectors (columns) of a small symmetric matrix by cyclic Jacobi rotations, or null. */
-function jacobiEigen(S0: Float64Array[]): { values: number[]; vectors: number[][] } | null {
+function jacobiEigen(S0: Float64Array[], started: number): { values: number[]; vectors: number[][] } | null {
   const m = S0.length;
   const A = S0.map((r) => Array.from(r));
   const V: number[][] = Array.from({ length: m }, (_, i) => Array.from({ length: m }, (__, j): number => (i === j ? 1 : 0)));
   let total = 0;
   for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) total += A[i][j] * A[i][j];
   for (let sweep = 0; sweep < JACOBI_MAX_SWEEPS; sweep++) {
+    checkClock(started, "Hausman test");
     let off = 0;
     for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) off += A[i][j] * A[i][j];
     if (!(off > 1e-30 * total)) return { values: A.map((r, i) => r[i]), vectors: V };

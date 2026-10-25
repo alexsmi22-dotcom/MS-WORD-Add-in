@@ -14,7 +14,7 @@
  */
 import { findColumn, isMissingCell, readRegCell, selectColumns, type RegDataset, type RegSpec } from "./regData";
 import { readDateToken } from "./damagesInterest";
-import { intText } from "./regTable";
+import { intText, numText } from "./regTable";
 
 /**
  * Past this many data rows a panel is refused up front. 100,000 rows fit inside the pane's time budget; the shared
@@ -323,7 +323,7 @@ function rawAdoption(
       continue;
     }
     if (v !== 0 && v !== 1 && !error) {
-      error = `The treatment column ${q(data.names[c.di])} must be 0 or 1 in every row (row ${i + 1} holds ${q(cell)}).`;
+      error = `The treatment column ${q(data.names[c.di])} must be 0 or 1 in every row (row ${i + 1} holds ${numText(v)}).`;
     }
     rawKeys.add(k);
     if (!label.has(k)) label.set(k, (data.rows[i][c.tIdx] ?? "").trim());

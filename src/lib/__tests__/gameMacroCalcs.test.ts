@@ -817,6 +817,12 @@ describe("E5 fix round: game-nash figure and tables", () => {
     const c = gameNashRun("Row\\Col\tL\tR\nU\t2\t0\nD\t0\t1", "Row\\Col\tL\tR\nU\t1\t1\nD\t1\t1", "none");
     expectDisplayContract(c);
     expect(words(c.svg!)).toContain("The column player is indifferent between L and R whatever the row player does");
+    // The hatch is drawn UNDER the other player's correspondence: hatch lines at p = 0 and 1 must not cover the row
+    // player's vertical segments there.
+    const rowFirst = c.svg!.indexOf('stroke="#0369a1" stroke-width="1.6"');
+    const colLast = c.svg!.lastIndexOf('stroke="#b45309" stroke-width="1.6"');
+    expect(rowFirst).toBeGreaterThan(colLast);
+    expect((c.svg!.match(/stroke="#b45309" stroke-width="1.6"/g) ?? []).length).toBe(11);
   });
   it("an 8 × 8 payoff table is split into tables of at most five strategy columns", () => {
     const g = ORACLE.games.find((x) => /8x8/.test(x.name))!;

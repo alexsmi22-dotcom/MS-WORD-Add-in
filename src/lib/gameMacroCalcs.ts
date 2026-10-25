@@ -182,7 +182,10 @@ export function fmtSig(v: number, minDec: number): string {
  * places). Fractions stay in the text; a wide table of "5400/7 ≈ 771.4286" cells breaks numbers mid-digit in Word.
  */
 export function cellDec(r: Rat): string {
-  return exactDecimal(r, 4) ?? fmtSig(ratToNumber(r), 4);
+  const v = ratToNumber(r);
+  // From 10⁹ up, m×10ⁿ (as fmtFixed does) so a cell never runs to "1,800,000,000,000".
+  if (Math.abs(v) >= 1e9) return fmtSig(v, 4);
+  return exactDecimal(r, 4) ?? fmtSig(v, 4);
 }
 
 const R = (n: number): Rat => ({ n: BigInt(n), d: 1n });
@@ -416,8 +419,9 @@ export function gameNashRun(rowText: string, colText: string, elimMode: string, 
 
   // Tables
   const pureSet = new Set(pures.map(([i, j]) => `${i},${j}`));
-  const eqRows: string[][] = [["Equilibrium", "Type", "Row player's strategy", "Column player's strategy", "Row payoff", "Column payoff"]];
-  eqs.forEach((e, k) => eqRows.push([String(k + 1), e.pure ? "Pure" : "Mixed", mixText(g.rowNames, e.x), mixText(g.colNames, e.y), fmtExact(e.u1), fmtExact(e.u2)]));
+  // Six columns with short headers; payoffs as decimals (the exact payoffs are in the "Equilibrium k" lines above).
+  const eqRows: string[][] = [["No.", "Type", "Row", "Column", "Row payoff", "Column payoff"]];
+  eqs.forEach((e, k) => eqRows.push([String(k + 1), e.pure ? "Pure" : "Mixed", mixText(g.rowNames, e.x), mixText(g.colNames, e.y), cellDec(e.u1), cellDec(e.u2)]));
   // At most PAY_COLS column strategies per table (six columns with the row names), so Word never squeezes a cell
   // until it breaks a number; a wider game is split into consecutive tables.
   const tables: StatTable[] = [];
@@ -433,7 +437,7 @@ export function gameNashRun(rowText: string, colText: string, elimMode: string, 
       note: pures.length ? "* marks a pure Nash equilibrium." : "No cell is a pure Nash equilibrium.",
     });
   }
-  if (eqs.length) tables.push({ label: "Nash equilibria", rows: eqRows, align: ["left", "left", "left", "left", "right", "right"], note: "A mixed strategy lists the probability of each strategy it plays." });
+  if (eqs.length) tables.push({ label: "Nash equilibria", rows: eqRows, align: ["left", "left", "left", "left", "right", "right"], note: "Row and Column: each player's strategy; a mixed strategy lists the probability of each strategy it plays. Payoffs: exact when they terminate within four places, else rounded to four places (four significant digits below 1); the text gives them exactly." });
   if (el.steps.length) tables.push({ label: "Iterated elimination of strictly dominated strategies", rows: elimRows, align: ["left", "left", "left", "left"] });
 
   const out: StatOutput = { text: lines.join("\n"), tables };
@@ -451,7 +455,10 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
   let colLabelled = false;
   const notes: string[] = [];
   const HATCH = 10;
-  const seg = (pts: { x: number; y: number }[], color: string, who: "row" | "col"): void => {
+  // Hatching for an everywhere-indifferent player goes UNDER the other player's correspondence (drawn first), so
+  // hatch lines at p or q = 0 and 1 never cover the other player's segments there.
+  const under: Series[] = [];
+  const seg = (pts: { x: number; y: number }[], color: string, who: "row" | "col", target: Series[] = series): void => {
     let label: string | undefined;
     // Short legend names (the title says these are best responses): longer ones are cut with "…" in the legend.
     if (who === "row" && !rowLabelled) {
@@ -462,7 +469,7 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
       label = "Column player";
       colLabelled = true;
     }
-    series.push({ type: "line", points: pts, color, label });
+    target.push({ type: "line", points: pts, color, label });
   };
   // Row player: diff(q) = payoff(row 1) − payoff(row 2) = (A11 − A21)q + (A12 − A22)(1 − q).
   const d1 = ratSub(g.A[0][0], g.A[1][0]);
@@ -475,7 +482,7 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
     // filled area, so the region is hatched (horizontal lines across it) and the caption says so.
     for (let i = 0; i <= HATCH; i++) {
       const at = lo + ((hi - lo) * i) / HATCH;
-      seg([{ x: 0, y: at }, { x: 1, y: at }], rowColor, "row");
+      seg([{ x: 0, y: at }, { x: 1, y: at }], rowColor, "row", under);
     }
     notes.push(`The row player is indifferent between ${g.rowNames[0]} and ${g.rowNames[1]} whatever the column player does: every p is a best response (hatched: the whole square).`);
   });
@@ -489,12 +496,12 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
     // Indifferent at every p: the whole square, hatched with vertical lines.
     for (let i = 0; i <= HATCH; i++) {
       const at = lo + ((hi - lo) * i) / HATCH;
-      seg([{ x: at, y: 0 }, { x: at, y: 1 }], colColor, "col");
+      seg([{ x: at, y: 0 }, { x: at, y: 1 }], colColor, "col", under);
     }
     notes.push(`The column player is indifferent between ${g.colNames[0]} and ${g.colNames[1]} whatever the row player does: every q is a best response (hatched: the whole square).`);
   });
   if (eqs.length) series.push({ type: "scatter", points: eqs.map((e) => ({ x: num(e.x[0]), y: num(e.y[0]) })), color: "#15803d", label: "Nash equilibria" });
-  return buildPlotSvg(series, {
+  return buildPlotSvg([...under, ...series], {
     width: 400,
     height: 300,
     title: "Best-response correspondences",
@@ -937,7 +944,7 @@ export function macroIslmCalc(read: Read): StatOutput {
 
   // Table cells are decimals only (the text gives the exact fractions): a fraction-and-decimal cell breaks mid-number in Word.
   const C = cellDec;
-  const DEC_NOTE = "Decimals: exact when they terminate within four places, else rounded to four places (four significant digits below 1); exact fractions are in the text.";
+  const DEC_NOTE = "Decimals: exact when they terminate within four places, else rounded to four places (four significant digits below 1; m×10ⁿ from 10⁹ up); exact fractions are in the text.";
   const eqRows: string[][] = [
     ["Quantity", "Before", "After", "Change"],
     ["Output Y", C(s0.Y), C(s1.Y), C(dY)],

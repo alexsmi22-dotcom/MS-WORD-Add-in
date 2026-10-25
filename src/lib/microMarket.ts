@@ -91,13 +91,16 @@ export function fmtDec(v: number): string {
  * table cell is broken mid-number by Word.
  */
 export function fmtCell(r: Rat): string {
+  const v = ratToNumber(r);
+  // From 10⁹ up, m×10ⁿ (fmtDec through fmtFixed) so a cell never runs to "400,000,000,000,000".
+  if (Math.abs(v) >= 1e9) return fmtDec(v);
   const k = terminatingPlaces(r);
-  if (k !== null && k <= 3 && (r.n < 0n ? -r.n : r.n) < 10n ** 15n) return exactDecimal(r, k);
-  return fmtDec(ratToNumber(r));
+  if (k !== null && k <= 3) return exactDecimal(r, k);
+  return fmtDec(v);
 }
 
 /** The note every decimal-cell table carries. */
-export const CELL_NOTE = "Decimals: exact when they terminate within three places, else rounded to three places (four significant digits below 1); the text gives exact fractions.";
+export const CELL_NOTE = "Decimals: exact when they terminate within three places, else rounded to three places (four significant digits below 1; m×10ⁿ from 10⁹ up); the text gives exact fractions.";
 
 /** The power of ten that makes a rational's decimal terminate, if it does within six places. */
 function terminatingPlaces(r: Rat): number | null {

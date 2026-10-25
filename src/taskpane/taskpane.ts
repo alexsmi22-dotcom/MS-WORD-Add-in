@@ -62,6 +62,8 @@ import {
   idxDeflateCalc,
   type E3Field,
 } from "../lib/econE3Calcs";
+import { iv2slsCalc, IV_2SLS_FIELDS, IV_2SLS_DEFAULTS } from "../lib/ivCalcs";
+import { bootCiCalc, BOOT_CI_FIELDS, BOOT_CI_DEFAULTS, qregCalc, QREG_FIELDS, QREG_DEFAULTS } from "../lib/robustCalcs";
 import { SE_TYPES } from "../lib/olsInference";
 import { STAR_SCHEMES } from "../lib/regTable";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
@@ -10780,6 +10782,33 @@ const STAT_CALCS: StatCalc[] = [
     compute: (r) => {
       // Real = nominal × index(base) / index(t), the rebased index and cumulative inflation, with the nominal-vs-real figure.
       return idxDeflateCalc(r);
+    },
+  },
+  {
+    id: "iv-2sls",
+    name: "Instrumental variables (2SLS)",
+    fields: withDefaults(IV_2SLS_FIELDS, IV_2SLS_DEFAULTS),
+    compute: (r) => {
+      // Two-stage least squares with first-stage strength, Durbin/Wu–Hausman endogeneity and Sargan/Basmann overidentification.
+      return iv2slsCalc(r);
+    },
+  },
+  {
+    id: "boot-ci",
+    name: "Bootstrap confidence interval",
+    fields: withDefaults(BOOT_CI_FIELDS, BOOT_CI_DEFAULTS),
+    compute: (r) => {
+      // Seeded PCG32 resampling: percentile, basic, normal and BCa intervals, with the replicate histogram.
+      return bootCiCalc(r);
+    },
+  },
+  {
+    id: "qreg",
+    name: "Quantile regression",
+    fields: withDefaults(QREG_FIELDS, QREG_DEFAULTS),
+    compute: (r) => {
+      // Exact simplex fit at each quantile, kernel-sandwich standard errors, and the coefficient-across-τ figure.
+      return qregCalc(r);
     },
   },
   {

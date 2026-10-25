@@ -34,7 +34,8 @@ describe("Stats tables reach Word as one package", () => {
   });
   test("a table's note goes in right after the table, and in the plain-text fallback", () => {
     const b = bodyOf("insertTextTablesFigure");
-    expect(b).toContain('items.push({ kind: "table", label: t.label, rows: t.rows });\n      // A table\'s legend line');
+    // E2 fix round: the table's column alignment rides along (the regression table centres its models).
+    expect(b).toContain('items.push({ kind: "table", label: t.label, rows: t.rows, align: t.align });\n      // A table\'s legend line');
     expect(b).toContain('if (t.note) items.push({ kind: "text", content: t.note });');
     expect(b).toContain('(t.note ? `\\n${t.note}` : "")');
   });

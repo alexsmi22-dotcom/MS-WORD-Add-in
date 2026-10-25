@@ -19,9 +19,10 @@
  *     digits, and every SE type is equivariant under it;
  *   - β by back-substitution on R; residuals by applying the reflectors to the tail of Qᵀy (no cancelling Xβ);
  *   - every reported coefficient (each slope, and the intercept in the user's parameterisation) is a linear
- *     functional gᵀγ of the QR coefficients; w = R⁻ᵀg by forward substitution and a = Qw, so its variance is
- *     s²‖w‖² (classical), Σ ωᵢaᵢ² (HC), c·Σ_g(Σ_{i∈g} eᵢaᵢ)² (clustered) or c·Bartlett(eᵢaᵢ) (HAC): sums of squares,
- *     never a difference of huge covariances (the old intercept back-transform cancelled 10 digits);
+ *     functional gᵀγ of the QR coefficients; w = R⁻ᵀg by forward substitution, and its variance is s²‖w‖²
+ *     (classical) or wᵀMw with M the meat in Q coordinates (HC: Qᵀdiag(ω)Q; clustered: Σ_g u_g u_gᵀ, u_g = Σ eᵢQᵢ;
+ *     HAC: the Bartlett sum of eᵢQᵢ), formed once; Q is orthonormal, so M carries none of X's ill-conditioning, and
+ *     no difference of huge covariances is ever taken (the old intercept back-transform cancelled 10 digits);
  *   - the Wald F of the slopes needs no inverse of R at all: with the constant first the slopes are R's trailing
  *     block S, so W = z_Sᵀ M_SS⁻¹ z_S with z = Qᵀy and M the meat in Q coordinates (classical: ‖z_S‖²/s²), by
  *     Cholesky;
@@ -557,15 +558,24 @@ export function fitOls(input: OlsInput): OlsResult {
     );
   }
 
-  /** The standard deviation (in scaled-y units) of gᵀγ for g in QR coordinates. */
+  // The meat in Q coordinates, once (times the type's factor): M = Qᵀ diag(ω) Q (HC), Σ_g u_g u_gᵀ with u_g = Σ eᵢQᵢ
+  // (clustered), or the Bartlett sum of the scores eᵢQᵢ (HAC). Q is orthonormal, so M is as well conditioned as the
+  // weights allow, whatever the condition number of X.
+  let Mq: number[][] | null = null;
+  if (se !== "classical") {
+    const M = omega ? weightedCross(Q, omega, n, p) : gOf ? clusterMeat(Q, e, gOf, G) : hacMeat(Q, e, L);
+    Mq = M.map((r) => r.map((v) => v * factor));
+  }
+  /** The standard deviation (in scaled-y units) of gᵀγ for g in QR coordinates: w = R⁻ᵀg, then s‖w‖ or √(wᵀMw). */
   const sdOf = (g: Float64Array): number => {
     const w = forwardSolveT(R, g);
-    if (se === "classical") return Math.sqrt(s2) * Math.hypot(...w);
-    const a = combine(Q, w, n);
-    let v: number;
-    if (omega) v = hcVar(a, omega);
-    else if (gOf) v = factor * clusterVar(a, e, gOf, G);
-    else v = factor * hacVar(a, e, L);
+    if (!Mq) return Math.sqrt(s2) * Math.hypot(...w);
+    let v = 0;
+    for (let a = 0; a < p; a++) {
+      let s = 0;
+      for (let b = 0; b < p; b++) s += Mq[a][b] * w[b];
+      v += w[a] * s;
+    }
     return Math.sqrt(Math.max(v, 0));
   };
 
@@ -619,9 +629,7 @@ export function fitOls(input: OlsInput): OlsResult {
       for (const z of zS) w += z * z;
       w /= s2;
     } else {
-      const QS = S.map((i) => Q[i]);
-      const M = omega ? weightedCross(QS, omega, n, q1) : gOf ? clusterMeat(QS, e, gOf, G) : hacMeat(QS, e, L);
-      const Mf = M.map((r) => r.map((v) => v * factor));
+      const Mf = S.map((a) => S.map((b) => Mq![a][b]));
       const x = cholSolve(Mf, zS);
       if (!x) singular = true;
       else for (let a = 0; a < q1; a++) w += zS[a] * x[a];
@@ -722,48 +730,6 @@ function rowNormsSq(Q: Float64Array[], n: number): Float64Array {
   const h = new Float64Array(n);
   for (const c of Q) for (let i = 0; i < n; i++) h[i] += c[i] * c[i];
   return h;
-}
-
-/** Q·w (the influence vector of a functional). */
-function combine(Q: Float64Array[], w: Float64Array, n: number): Float64Array {
-  const a = new Float64Array(n);
-  for (let k = 0; k < Q.length; k++) {
-    const wk = w[k];
-    if (wk === 0) continue;
-    const c = Q[k];
-    for (let i = 0; i < n; i++) a[i] += wk * c[i];
-  }
-  return a;
-}
-
-function hcVar(a: Float64Array, omega: Float64Array): number {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += omega[i] * a[i] * a[i];
-  return s;
-}
-
-function clusterVar(a: Float64Array, e: Float64Array, gOf: Int32Array, G: number): number {
-  const u = new Float64Array(G);
-  for (let i = 0; i < a.length; i++) u[gOf[i]] += e[i] * a[i];
-  let s = 0;
-  for (let g = 0; g < G; g++) s += u[g] * u[g];
-  return s;
-}
-
-/** Σ s_t² + 2 Σ_l (1 − l/(L+1)) Σ_t s_t s_{t−l}, s = e∘a. */
-function hacVar(a: Float64Array, e: Float64Array, L: number): number {
-  const n = a.length;
-  const s = new Float64Array(n);
-  for (let i = 0; i < n; i++) s[i] = e[i] * a[i];
-  let v = 0;
-  for (let i = 0; i < n; i++) v += s[i] * s[i];
-  for (let l = 1; l <= L; l++) {
-    const wl = 1 - l / (L + 1);
-    let c = 0;
-    for (let t = l; t < n; t++) c += s[t] * s[t - l];
-    v += 2 * wl * c;
-  }
-  return v;
 }
 
 /** The residuals Q_full·[0; (Qᵀy)_{p..n}]. */

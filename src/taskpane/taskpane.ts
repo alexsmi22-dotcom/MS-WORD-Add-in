@@ -9992,7 +9992,8 @@ function updateFinancePreview(): void {
   // A results table goes into Word from its cells, so its cells pass the same gate as the text (an empty cell is a
   // blank, not a broken number).
   const tableOk = tables.every((t) => tableCellsInsertable(t.rows));
-  currentFinText = insertable && tableOk && insertableResultText(composed) ? composed : "";
+  currentFinText = insertable && insertableResultText(composed) ? composed : "";
+  if (!tableOk) currentFinText = "";
   finInsertBtn.disabled = !currentFinText;
 
   // THE FIGURE, under the number and the assumptions.

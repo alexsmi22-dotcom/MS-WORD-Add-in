@@ -6,6 +6,37 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.199.0] — 2026-10-25 — Inequality, concentration, micro, games, macro, input–output, currency
+
+The last release of the quantitative-economics plan: nine new Statistics calculators (Statistics now 52) and one
+Finance calculator (Finance now 33). Answers are exact (rational arithmetic) wherever the inputs are, checked against
+sympy / fractions / mpmath oracles, and each result prints its conventions.
+
+### New
+- **Inequality:** Gini (optional n/(n − 1)), Theil T and L, Atkinson, Palma and P90/P10, with the Lorenz curve; grouped
+  tables by named income and weight columns, labelled a lower bound where that is what they are.
+- **Market concentration:** HHI, CR4 and a merger's ΔHHI against the 2023 Merger Guidelines' screen (Guideline 1,
+  quoted and cited; shown as the Guidelines' screen, not a legal conclusion), an unnamed fringe shown as a range, and
+  the superseded 2010 bands on request.
+- **Input–output (Leontief):** (I − A)⁻¹ exactly for up to 8 sectors, output and employment multipliers, backward and
+  forward linkages, key sectors; from coefficients or a transactions table with total output (Ghosh linkages).
+- **Supply and demand:** exact equilibrium, elasticities, consumer and producer surplus, a tax or subsidy on either
+  side, price ceilings and floors, with the shaded welfare figure whose areas are the printed numbers.
+- **Monopoly, Cournot, Bertrand, Stackelberg:** side by side for up to 20 firms with exits and corner cases handled,
+  and the best-response figure.
+- **Two-player games:** dominance, every pure equilibrium and the mixed ones by exact support enumeration (up to
+  8×8), the zero-sum value, and the best-response figure for 2×2 games.
+- **Solow growth model:** steady state, golden rule, the convergence rate and half-life of the simulated (discrete)
+  map, and the convergence and break-even figures.
+- **IS–LM and AD–AS:** equilibrium, fiscal and monetary multipliers with and without crowding out, a policy shift,
+  and both figures. **Taylor rule:** one period or a series, Taylor (1993) weights by default, an optional floor.
+- **Currency conversion with your rates** (Finance): exact conversions from the rates you type (JurisLab has no live
+  rates), cross rates, and rounding to each currency's ISO 4217 minor unit (SIX list, 2026-09-17).
+
+### Fixed
+- The table reader refuses an English "1,250.00" beside a decimal-comma "0,5" as ambiguous, as it already refused
+  "1,250".
+
 ## [2.198.0] — 2026-10-25 — Causal inference, bootstrap, quantile regression
 
 The fourth release of the quantitative-economics plan: six new Statistics calculators (Statistics now 43). Every

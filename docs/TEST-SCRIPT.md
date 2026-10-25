@@ -10,6 +10,21 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0em. New in v2.199.0 — Inequality, concentration, micro, games, macro, input–output, currency
+
+- [ ] **Stats ▸ Inequality ▸ Insert**: measures table, Lorenz-at-deciles table and the Lorenz figure together.
+- [ ] **Market concentration ▸ Insert** → HHI 1,952 before, ΔHHI and the 2023 Guidelines screen table; the bars show
+  the merging firms.
+- [ ] **Input–output (Leontief) ▸ Insert** → (I − A)⁻¹ in decimals and exact fractions; the multipliers table headers
+  do not break mid-word.
+- [ ] **Supply and demand ▸ Insert** (tax on sellers) → the shaded figure; switch the tax to buyers → same incidence.
+- [ ] **Monopoly, Cournot, Bertrand, Stackelberg ▸ Insert** → a six-column outcomes table, no number broken across
+  lines.
+- [ ] **Two-player games ▸ Insert** → three equilibria (two pure, one mixed) and the best-response figure.
+- [ ] **Solow growth model**, **IS–LM and AD–AS**, **Taylor rule ▸ Insert** → each with its figure.
+- [ ] **Finance ▸ Currency conversion with your rates ▸ Insert** → conversions, the rates table and the cross-rate
+  matrix; JPY amounts with no decimals.
+
 ## 0el. New in v2.198.0 — Causal inference, bootstrap, quantile regression
 
 - [ ] **Stats ▸ Instrumental variables (2SLS) ▸ Insert** (wage default): coefficient table, first-stage table,

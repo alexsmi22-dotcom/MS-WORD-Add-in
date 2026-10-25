@@ -65,7 +65,7 @@ describe("econ-ols on the Longley default", () => {
     expect(rows[0]).toEqual(["Term", "Coef.", "SE", "t", "p", "95% CI"]);
     expect(rows.map((r) => r[0])).toEqual(["Term", "GNPDEFL", "GNP", "UNEMP", "ARMED", "POP", "YEAR", "Constant"]);
     // statsmodels: UNEMP −2.0202 (SE 0.4884, t −4.136, p 0.0025); Constant −3482258.63.
-    expect(rows[3]).toEqual(["UNEMP", "−2.020***", "0.488", "−4.136", "0.003", "[−3.125, −0.915]"]);
+    expect(rows[3]).toEqual(["UNEMP", "−2.020***", "0.488", "−4.136", "0.003", "[−3.125; −0.915]"]);
     expect(rows[7][1]).toBe("−3,482,258.635***");
     expect(out.tables![0].note).toContain("* p < 0.10, ** p < 0.05, *** p < 0.01");
   });

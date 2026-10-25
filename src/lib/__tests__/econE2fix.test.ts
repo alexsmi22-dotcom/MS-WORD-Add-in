@@ -149,6 +149,9 @@ describe("extreme magnitudes: refused by name outside 10⁻¹⁰⁰…10¹⁰⁰
       const o = ols(scaled(sy, sx), "y ~ x + z");
       expect(o.ok).not.toBe(false);
       expect(clean(o)).toEqual([]);
+      // The residual figure goes into Word as a picture: its axis labels obey the contract too.
+      expect(o.svg).toBeTruthy();
+      expect(o.svg).not.toMatch(/NaN|Infinity|\d[eE][-+]?\d/);
     }
   });
   function fromTable(t: string) {
@@ -195,6 +198,12 @@ describe("clusters", () => {
     expect(a.text).toContain("Standard errors: Clustered by g, 4 clusters");
     expect(a.tables![0].rows).toEqual(b.tables![0].rows);
     expect(a.text).toContain("Every cluster id in “g” reads as a number, so the ids are compared as numbers (“01”, “1” and “1.0” are one cluster): 12 distinct spellings, 4 clusters.");
+  });
+  test("long numeric ids (more digits than a double holds) stay text: two 19-digit ids differing in the last digit are two clusters", () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `123456789012345678${i % 4}`);
+    const o = ols(base(ids), "y ~ x", { se: "cluster", cluster: "g" });
+    expect(o.text).toContain("Clustered by g, 4 clusters");
+    expect(o.text).not.toContain("reads as a number");
   });
   test("text ids stay text", () => {
     const o = ols(base(["a", "A", "b", "B", "a", "A", "b", "B", "c", "C", "c", "C"]), "y ~ x", { se: "cluster", cluster: "g" });

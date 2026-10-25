@@ -814,8 +814,13 @@ function clusterIds(cl: ArrayLike<string>): { gOf: Int32Array; G: number; numeri
   const nums = new Float64Array(n);
   let numeric = n > 0;
   for (let i = 0; i < n && numeric; i++) {
-    const v = parseCellNumber(String(cl[i]));
-    if (!Number.isFinite(v)) numeric = false;
+    const text = String(cl[i]).trim();
+    // Only plain decimals that a double holds EXACTLY (at most 15 significant digits): a 19-digit account id would
+    // otherwise lose its last digits and merge with its neighbour.
+    const m = /^[-+−]?0*(\d*?)(?:\.(\d*?)0*)?$/.exec(text);
+    const digits = m ? (m[1] + (m[2] ?? "")).replace(/^0+/, "") : "";
+    const v = parseCellNumber(text);
+    if (!m || !/\d/.test(text) || digits.length > 15 || !Number.isFinite(v)) numeric = false;
     else nums[i] = v;
   }
   const ids = new Map<string, number>();

@@ -227,7 +227,8 @@ export function econOlsCalc(read: Read): StatOutput {
       fmtFixed(t.se, d),
       fmtFixed(t.stat, d),
       fmtP(t.p),
-      `[${fmtFixed(t.ciLo, d)}, ${fmtFixed(t.ciHi, d)}]`,
+      // "; " between the bounds: a comma would be read as one more thousands separator ("[−5,657.181; 13,996.001]").
+      `[${fmtFixed(t.ciLo, d)}; ${fmtFixed(t.ciHi, d)}]`,
     ]);
   }
   const tables: StatTable[] = [

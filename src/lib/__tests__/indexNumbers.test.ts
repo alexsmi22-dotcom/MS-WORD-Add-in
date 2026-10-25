@@ -229,3 +229,27 @@ describe("idx-deflate refusals and scale", () => {
     expect(ms).toBeLessThan(3000);
   });
 });
+
+describe("E3 review round", () => {
+  test("money rounds cents half away from zero, as the damages calculators", () => {
+    expect(fmtMoney(1.005)).toBe("1.01");
+    expect(fmtMoney(2.675)).toBe("2.68");
+    expect(fmtMoney(-2.675)).toBe("−2.68");
+  });
+  test("a base period may be named by the label the result prints", () => {
+    const data = "Month\tSales\tCPI\n2023-01\t100\t300\n2023-02\t110\t301\n2023-03\t120\t303";
+    const byLabel = deflate({ data, base: "January 2023", from: "", to: "" });
+    const byIso = deflate({ data, base: "2023-01", from: "", to: "" });
+    expect(byLabel.ok).not.toBe(false);
+    expect(byLabel.text).toBe(byIso.text);
+  });
+  test("a blank index field takes the first column that is not the nominal amount", () => {
+    const out = deflate({ data: "Year\tSales\tCost\tCPI\n2020\t1\t2\t100\n2021\t3\t4\t110\n2022\t5\t6\t120", nominal: "Cost", index: "" });
+    expect(out.ok).not.toBe(false);
+    expect(out.text).toContain("Sales");
+  });
+  test("Prices 2022 / Quantities 2022 headers read", () => {
+    const t = parsePriceTable("Item\tPrices 2022\tQuantities 2022\tPrices 2023\tQuantities 2023\nA\t1\t10\t2\t10\nB\t3\t5\t3\t6");
+    expect(t.ok).toBe(true);
+  });
+});

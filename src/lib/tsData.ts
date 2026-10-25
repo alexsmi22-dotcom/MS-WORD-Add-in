@@ -37,6 +37,11 @@ export interface SeriesData {
   dates?: SeriesDates;
   /** Reader notes to print with the result (decimal commas read, and the like). */
   notes: string[];
+  /**
+   * Per value column: every cell carries a % sign ("0.12%"). The number reader drops the sign, so the value is in
+   * percent units; a calculator that cares (returns) reads that column as percent. A column mixing the two is refused.
+   */
+  percent: boolean[];
 }
 
 export type SeriesResult = { ok: true; data: SeriesData } | { ok: false; reason: string };
@@ -48,7 +53,11 @@ const q = (s: string): string => `“${s}”`;
 
 /** The whole cell as one date or period, a named error for a bad one, or null for "not a date". */
 function wholeDate(cell: string): DateToken | { error: string } | null {
-  const s = cell.trim();
+  // Spreadsheet exports: "2024-01-02 00:00:00" (a midnight time) and "2024/01/02" are the ISO day.
+  const s = cell
+    .trim()
+    .replace(/^(\d{4})\/(\d{1,2})\/(\d{1,2})(?=$|\s)/, "$1-$2-$3")
+    .replace(/^(\d{4}-\d{1,2}-\d{1,2})[ T]00:00(:00(\.0+)?)?$/, "$1");
   if (!s) return null;
   const t = readDateToken(s, true);
   if (t && "error" in t) return t;
@@ -122,7 +131,8 @@ export function parseSeriesTable(text: string, opts: { minRows?: number; require
             : `Row ${i + 1} (${tokens[i].label}) comes before row ${i} (${tokens[i - 1].label}); list the rows oldest first.`,
         };
       }
-      if (tokens[i].period !== "day" && tokens[i - 1].period !== "day" && tokens[i].from <= tokens[i - 1].to) {
+      // Any row starting inside the one before ("2020-01" then "2020-01-15", or "2020" then "2020-06-15") overlaps.
+      if (tokens[i].from <= tokens[i - 1].to) {
         return { ok: false, reason: `Row ${i + 1} (${tokens[i].label}) overlaps row ${i} (${tokens[i - 1].label}).` };
       }
     }
@@ -160,7 +170,28 @@ export function parseSeriesTable(text: string, opts: { minRows?: number; require
   const sel = selectColumns(data, { dep: valueNames[0], preds: valueNames.slice(1), text: "" });
   if (!sel.ok) return sel;
   const cols = [sel.cols.y, ...sel.cols.X];
-  return { ok: true, data: { names: valueNames, cols, n: rows.length, dates, notes: sel.cols.notes } };
+  const percent: boolean[] = [];
+  for (let j = 0; j < valueNames.length; j++) {
+    let withSign = 0;
+    let firstWith = -1;
+    let firstWithout = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if ((rows[i][j] ?? "").trim().endsWith("%")) {
+        withSign++;
+        if (firstWith < 0) firstWith = i;
+      } else if (firstWithout < 0) firstWithout = i;
+    }
+    if (withSign && withSign < rows.length) {
+      return {
+        ok: false,
+        reason:
+          `${q(valueNames[j])} writes some values with a % sign (row ${firstWith + 1}) and some without (row ` +
+          `${firstWithout + 1}), so its units are ambiguous. Write every value the same way.`,
+      };
+    }
+    percent.push(withSign > 0);
+  }
+  return { ok: true, data: { names: valueNames, cols, n: rows.length, dates, notes: sel.cols.notes, percent } };
 }
 
 /** The named column (or the only one) of a series table. */

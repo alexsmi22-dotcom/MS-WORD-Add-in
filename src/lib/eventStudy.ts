@@ -94,6 +94,8 @@ export interface EventStudyResult {
   notes: string[];
   firmNames: string[];
   marketName: string;
+  /** The table's value columns carry % signs (tsData), so the returns are in percent units. */
+  percentCells: boolean;
 }
 
 export const MAX_EVENTS = 500;
@@ -149,9 +151,10 @@ export function normalP(z: number): number {
 
 /** A whole-number field: "−130" (U+2212) reads; "abc", "1e400", "" and out-of-range values are refused by name. */
 export function readIntField(raw: string, label: string, lo: number, hi: number): number | { error: string } {
-  const s = (raw ?? "").trim().replace(/−/g, "-");
-  if (!/^[-+]?\d{1,7}$/.test(s)) return { error: `${label}: ${q((raw ?? "").trim())} is not a whole number.` };
-  const v = Number(s);
+  // A Word minus or an en dash typed as a minus; "5.0" is the whole number 5.
+  const s = (raw ?? "").trim().replace(/[−–]/g, "-");
+  if (!/^[-+]?\d{1,7}(\.0+)?$/.test(s)) return { error: `${label}: ${q((raw ?? "").trim())} is not a whole number.` };
+  const v = Math.trunc(Number(s));
   if (v < lo || v > hi) return { error: `${label}: ${String(v).replace("-", "−")} is outside ${String(lo).replace("-", "−")} to ${String(hi).replace("-", "−")}.` };
   return v === 0 ? 0 : v;
 }
@@ -246,6 +249,15 @@ export function runEventStudy(tableText: string, eventsText: string, o: EventStu
     return { ok: false, reason: `The date column holds ${what}${dates.gap ? ` (${dates.gap})` : ""}; an event study here takes one row per trading day (2024-03-05).` };
   }
   if (data.cols.length < 2) return { ok: false, reason: "The table needs a market column and at least one firm column." };
+  // A % sign must be on every column or none: a market in percent beside a firm in decimals would mix units.
+  const percentCells = data.percent.some(Boolean);
+  if (percentCells && !data.percent.every(Boolean)) {
+    const plain = data.names[data.percent.indexOf(false)];
+    return { ok: false, reason: `Some columns are written with % signs and ${q(plain)} is not; write every return column the same way.` };
+  }
+  if (percentCells && o.input !== "returns") {
+    return { ok: false, reason: "The cells carry % signs, which prices do not have; choose “Returns” for a table of returns." };
+  }
   let mIdx = 0;
   if (o.market.trim()) {
     mIdx = data.names.findIndex((nm) => nm.toLowerCase() === o.market.trim().toLowerCase());
@@ -416,5 +428,5 @@ export function runEventStudy(tableText: string, eventsText: string, o: EventStu
     if (t.stat !== undefined && !Number.isFinite(t.stat)) return { ok: false, reason: `${t.name} is not a finite number for these returns (an extreme scale).` };
   }
 
-  return { ok: true, result: { events, taus, aar, caar, caarSe, tests, L1, notes, firmNames, marketName } };
+  return { ok: true, result: { events, taus, aar, caar, caarSe, tests, L1, notes, firmNames, marketName, percentCells } };
 }

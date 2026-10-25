@@ -69,3 +69,18 @@ describe("parseSeriesTable", () => {
     expect(!missing.ok && missing.reason).toBe("No column is named “Bond”; the columns are “Firm”, “Market”.");
   });
 });
+
+describe("E3 review round", () => {
+  test("spreadsheet date spellings: 2024/01/02 and a midnight time", () => {
+    const d = ok("Date\tx\n2024/01/02\t1\n2024-01-03 00:00:00\t2\n2024-01-04T00:00\t3");
+    expect(d.dates!.tokens.map((t) => t.label)).toEqual(["January 2, 2024", "January 3, 2024", "January 4, 2024"]);
+  });
+  test("a day inside the period before it overlaps", () => {
+    expect(bad("2020-01\t1\n2020-01-15\t2\n2020-03\t3")).toContain("overlaps");
+    expect(bad("2020\t1\n2020-06-15\t2\n2021\t3")).toContain("overlaps");
+  });
+  test("% signs: a whole column is flagged percent; a mixed column is refused", () => {
+    expect(ok("a\tb\n1%\t1\n2%\t2\n3%\t3").percent).toEqual([true, false]);
+    expect(bad("a\n1%\n2\n3%")).toContain("some values with a % sign (row 1) and some without (row 2)");
+  });
+});

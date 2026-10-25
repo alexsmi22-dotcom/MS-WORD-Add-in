@@ -294,3 +294,29 @@ describe("es-event at scale", () => {
     expect(ms).toBeLessThan(2000);
   });
 });
+
+describe("E3 review round", () => {
+  const pctTable = (ES_EVENT_DEFAULTS.data as string)
+    .split("\n")
+    .map((line, i) => (i === 0 ? line : line.split("\t").map((c, j) => (j === 0 ? c : `${c}%`)).join("\t")))
+    .join("\n");
+  test("cells written with % are read as percent even with Decimal units, and the result says so", () => {
+    const withSign = calc({ data: pctTable, units: "decimal" });
+    const asPercent = calc({ data: ES_EVENT_DEFAULTS.data as string, units: "percent" });
+    expect(withSign.ok).not.toBe(false);
+    expect(withSign.text).toContain("The returns carry % signs, so they were read as percent");
+    expect(withSign.tables!.map((t) => t.rows)).toEqual(asPercent.tables!.map((t) => t.rows));
+  });
+  test("percent numbers read as decimals draw a units warning", () => {
+    const out = calc({ units: "decimal", data: (ES_EVENT_DEFAULTS.data as string).split("\n").map((line, i) => (i === 0 ? line : line.split("\t").map((c, j) => (j === 0 ? c : String(Number(c) * 100))).join("\t"))).join("\n") });
+    expect(out.text).toContain("Check the units");
+  });
+  test("prices with % signs are refused", () => {
+    expect(calc({ data: pctTable, input: "simple" }).text).toContain("which prices do not have");
+  });
+  test("window fields accept an en dash minus and 5.0", () => {
+    expect(readIntField("–130", "x", -1000, 1000)).toBe(-130);
+    expect(readIntField("5.0", "x", -1000, 1000)).toBe(5);
+    expect(typeof readIntField("5.5", "x", -1000, 1000)).toBe("object");
+  });
+});

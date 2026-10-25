@@ -39,9 +39,9 @@ export const MAX_ITEMS = 10000;
 export const MAX_PERIODS = 200;
 
 const q = (s: string): string => `“${s}”`;
-/** "Price 2022", "Price_2022", "P2022", "PY1" (the period label is the rest: "2022", "Y1"). */
-const PRICE_HEAD = /^(?:price(?![a-z])|p)[\s_:.-]*(.*)$/i;
-const QTY_HEAD = /^(?:quantity(?![a-z])|qty(?![a-z])|q)[\s_:.-]*(.*)$/i;
+/** "Price 2022", "Prices 2022", "Price_2022", "P2022", "PY1" (the period label is the rest: "2022", "Y1"). */
+const PRICE_HEAD = /^(?:prices?(?![a-z])|p)[\s_:.-]*(.*)$/i;
+const QTY_HEAD = /^(?:quantit(?:y|ies)(?![a-z])|qty(?![a-z])|q)[\s_:.-]*(.*)$/i;
 
 /** Reads the wide table. */
 export function parsePriceTable(text: string): { ok: true; table: PriceTable } | { ok: false; reason: string } {

@@ -11,7 +11,7 @@ import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { runEventStudy, readIntField, windowText, MAX_TAU, type ReturnInput } from "./eventStudy";
 import { parsePriceTable, indexSeries, rebase, INDEX_FORMULAS, INDEX_NAMES, type IndexFormula } from "./indexNumbers";
 import { parseSeriesTable, pickSeries } from "./tsData";
-import { readDateToken, civilDay, civilFromDay, decimalYear } from "./damagesInterest";
+import { readDateToken, civilDay, civilFromDay, decimalYear, toCents } from "./damagesInterest";
 import { fmtFixed, fmtP, groupThousands, intText } from "./regTable";
 import { buildPlotSvg } from "./plot";
 
@@ -112,8 +112,7 @@ export function esEventCalc(read: Read): StatOutput {
   if (!["returns", "simple", "log"].includes(input)) return refuse(`Unknown input type ${q(get("input"))}.`);
   const unitsRaw = get("units") || "decimal";
   if (unitsRaw !== "decimal" && unitsRaw !== "percent") return refuse(`Unknown return units ${q(unitsRaw)}.`);
-  const percentIn = input === "returns" && unitsRaw === "percent";
-  const scale = percentIn ? 1 : 100;
+  let percentIn = input === "returns" && unitsRaw === "percent";
   const ints: number[] = [];
   const specs: [string, string][] = [
     ["est_from", "Estimation window start"],
@@ -131,6 +130,13 @@ export function esEventCalc(read: Read): StatOutput {
   const r = runEventStudy(get("data"), get("events"), { input, market: get("market"), estFrom, estTo, evFrom, evTo });
   if (!r.ok) return refuse(r.reason);
   const res = r.result;
+  // "0.12%" cells are percent whatever the units field says (the number reader drops the sign, never the meaning).
+  const percentNotes: string[] = [];
+  if (res.percentCells && !percentIn) {
+    percentIn = true;
+    percentNotes.push("The returns carry % signs, so they were read as percent (as if Percent had been chosen).");
+  }
+  const scale = percentIn ? 1 : 100;
   const N = res.events.length;
   const L1 = res.L1;
   const win = windowText(evFrom, evTo);
@@ -161,6 +167,11 @@ export function esEventCalc(read: Read): StatOutput {
       (input === "simple" ? " Returns are simple returns Pₜ/Pₜ₋₁ − 1 dated by the later day." : input === "log" ? " Returns are log returns ln(Pₜ/Pₜ₋₁) dated by the later day." : ""),
   );
   if (!has11 && !(evFrom === -1 && evTo === 1)) lines.push(`CAR(−1, +1) is not reported: the event window ${win} does not contain days −1 to +1.`);
+  lines.push(...percentNotes);
+  // Read as decimals, a residual SD above 20% a day is almost always percent numbers ("1.2" meaning 1.2%).
+  if (!percentIn && input === "returns" && res.events.some((e) => Math.sqrt(e.fit.sigma2) > 0.2)) {
+    lines.push("Check the units: read as decimals, a residual SD above 20% a day suggests the returns are percent numbers; if so, choose Percent.");
+  }
   lines.push(...res.notes);
 
   const head = ["Event", "Day used", "α (%)", "β", "σε (%)", `CAR${win} (%)`, "t (SCAR)", "p"];
@@ -341,14 +352,15 @@ export const IDX_DEFLATE_DEFAULTS: Record<string, string> = {
 /** At most this many rows in the deflation table and points in its figure (every m-th row beyond, said in the text). */
 export const DEFLATE_TABLE_MAX_ROWS = 400;
 export const DEFLATE_FIGURE_MAX_POINTS = 2000;
-const MONEY_MAX = 1e15;
+const MONEY_MAX = 1e13;
 
 /** Money with grouped thousands and two decimals, true minus ("−1,234.50"). */
 export function fmtMoney(v: number): string {
-  let s = v.toFixed(2);
-  if (/^-0\.00$/.test(s)) s = "0.00";
-  s = groupThousands(s);
-  return s.startsWith("-") ? MINUS + s.slice(1) : s;
+  // Cents half away from zero, as the damages calculators round (toCents: 1.005 is 1.01, not toFixed's 1.00).
+  const c = toCents(v);
+  const a = Math.abs(c);
+  const s = groupThousands(`${Math.floor(a / 100)}.${String(a % 100).padStart(2, "0")}`);
+  return c < 0 ? MINUS + s : s;
 }
 
 /** Real amounts in base-row dollars and the index rebased to the base row = 100. */
@@ -376,17 +388,21 @@ export function idxDeflateCalc(read: Read): StatOutput {
     raw.trim() ? pickSeries(d, raw) : { ok: true, name: d.names[j], values: d.cols[j] };
   const nom = pickOr(get("nominal"), 0);
   if (!nom.ok) return refuse(nom.reason);
-  const cpi = pickOr(get("index"), 1);
+  // A blank index field takes the first column that is not the nominal amount.
+  const cpi = pickOr(get("index"), d.names[0] === nom.name ? 1 : 0);
   if (!cpi.ok) return refuse(cpi.reason);
   if (nom.name === cpi.name) return refuse(`${q(nom.name)} cannot be both the nominal amount and the price index.`);
   const n = d.n;
   for (let i = 0; i < n; i++) {
     if (!(cpi.values[i] > 0)) return refuse(`${q(cpi.name)} on ${tokens[i].label} is ${fmtFixed(cpi.values[i], 3)}; a price index must be greater than zero.`);
-    if (Math.abs(nom.values[i]) >= MONEY_MAX) return refuse(`${q(nom.name)} on ${tokens[i].label} is too large to show to the cent (the limit is 10¹⁵).`);
+    if (Math.abs(nom.values[i]) >= MONEY_MAX) return refuse(`${q(nom.name)} on ${tokens[i].label} is too large to show to the cent (the limit is 10¹³, as the damages calculators).`);
   }
   const findRow = (raw: string, label: string, dflt: number): number | { error: string } => {
     const s = raw.trim();
     if (!s) return dflt;
+    // The labels the result table prints ("January 2023", "2019 Q3") name their rows too.
+    const byLabel = tokens.findIndex((x) => x.label.toLowerCase() === s.toLowerCase());
+    if (byLabel >= 0) return byLabel;
     const t = readDateToken(s, true);
     if (!t || "error" in t || t.len !== s.length) return { error: `${label}: ${q(s)} is not a date or period in the table's form (${tokens[0].label}).` };
     const i = tokens.findIndex((x) => x.from === t.from && x.to === t.to);

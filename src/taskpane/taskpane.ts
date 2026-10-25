@@ -37494,7 +37494,7 @@ async function insertTextWithFigure(text: string, label: string, o: FigureInsert
  */
 async function insertTextTablesFigure(
   text: string,
-  tables: { label: string; rows: string[][]; note?: string }[],
+  tables: { label: string; rows: string[][]; note?: string; align?: ("left" | "center" | "right")[] }[],
   o: FigureInsert | null,
   label: string,
 ): Promise<boolean> {
@@ -37532,7 +37532,8 @@ async function insertTextTablesFigure(
   try {
     const items: ResultPackageItem[] = [{ kind: "text", content: text.replace(/\s+$/, "") }];
     for (const t of tables) {
-      items.push({ kind: "table", label: t.label, rows: t.rows });
+      // `align`: the regression table centres its model columns (coefficient, "(SE)" and "(1)" on one axis).
+      items.push({ kind: "table", label: t.label, rows: t.rows, align: t.align });
       // A table's legend line (E2: the star legend) goes directly under it.
       if (t.note) items.push({ kind: "text", content: t.note });
     }

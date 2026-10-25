@@ -11,7 +11,7 @@
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { fitOls, olsDiagnostics, type OlsFit, type SeType, type OlsDiagnostics } from "./olsInference";
 import { parseRegData, parseSpec, parseSpecList, selectColumns, type RegDataset, type RegSpec } from "./regData";
-import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, type StarScheme } from "./regTable";
+import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, intText, P_BELOW, type StarScheme } from "./regTable";
 import { buildPlotSvg } from "./plot";
 import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal } from "./logitProbit";
 
@@ -194,13 +194,16 @@ export function econOlsCalc(read: Read): StatOutput {
   const m = fit.model;
   const d = o.decimals;
   const diag = olsDiagnostics(fit);
+  // An ok result never carries a blank computed cell (fmtFixed writes "" for a value that is not a number).
+  const bad = nonFiniteDiagnostic(diag);
+  if (bad) return refuse(`${bad} is not a finite number for these data (an extreme scale or a degenerate residual pattern), so the result is not reported.`);
   const k = m.terms.filter((t) => t.name !== "Constant").length;
 
   const lines: string[] = [];
-  lines.push(`OLS regression of ${m.depName} on ${k} predictor${k === 1 ? "" : "s"} (n = ${m.n})`);
+  lines.push(`OLS regression of ${m.depName} on ${k} predictor${k === 1 ? "" : "s"} (n = ${intText(m.n)})`);
   lines.push(`Standard errors: ${m.seLabel}`);
   lines.push(`R² = ${fmtFixed(fit.r2, 3)}, adjusted R² = ${fmtFixed(fit.adjR2, 3)}`);
-  if (fit.f) lines.push(`F(${fit.f.df1}, ${fit.f.df2}) = ${fmtFixed(fit.f.value, d)}, p ${pText(fit.f.p)}`);
+  if (fit.f) lines.push(`F(${fit.f.df1}, ${intText(fit.f.df2)}) = ${fmtFixed(fit.f.value, d)}, p ${pText(fit.f.p)}`);
   else if (fit.fWhy) lines.push(fit.fWhy);
   const stat = (label: string): number => m.stats.find((s) => s.label === label)?.value ?? NaN;
   lines.push(
@@ -224,7 +227,8 @@ export function econOlsCalc(read: Read): StatOutput {
       fmtFixed(t.se, d),
       fmtFixed(t.stat, d),
       fmtP(t.p),
-      `[${fmtFixed(t.ciLo, d)}, ${fmtFixed(t.ciHi, d)}]`,
+      // "; " between the bounds: a comma would be read as one more thousands separator ("[−5,657.181; 13,996.001]").
+      `[${fmtFixed(t.ciLo, d)}; ${fmtFixed(t.ciHi, d)}]`,
     ]);
   }
   const tables: StatTable[] = [
@@ -233,7 +237,7 @@ export function econOlsCalc(read: Read): StatOutput {
       rows: coefRows,
       note: [
         o.stars === "none" ? "" : starLegend(o.stars).replace("Standard errors in parentheses. ", ""),
-        `p-values and intervals from the t distribution with ${m.df} df.`,
+        `p-values and intervals from the t distribution with ${intText(m.df ?? 0)} df.`,
       ]
         .filter(Boolean)
         .join(" "),
@@ -264,7 +268,22 @@ export function econOlsCalc(read: Read): StatOutput {
 }
 
 function pText(p: number): string {
-  return p < 0.001 ? "< 0.001" : `= ${fmtP(p)}`;
+  return p < 0.001 ? P_BELOW : `= ${fmtP(p)}`;
+}
+
+/** The first diagnostic that is not a finite number, by name, or null. */
+export function nonFiniteDiagnostic(diag: OlsDiagnostics): string | null {
+  const checks: [string, number][] = [["Durbin–Watson", diag.durbinWatson]];
+  const test = (name: string, t: OlsDiagnostics["white"]): void => {
+    if (!("skipped" in t)) checks.push([name, t.stat], [`${name} p-value`, t.p]);
+  };
+  test("Breusch–Pagan", diag.breuschPagan);
+  test("White's test", diag.white);
+  if (!("skipped" in diag.reset)) checks.push(["Ramsey RESET", diag.reset.f], ["Ramsey RESET p-value", diag.reset.p]);
+  checks.push(["Jarque–Bera", diag.jarqueBera.jb], ["Jarque–Bera p-value", diag.jarqueBera.p]);
+  for (const v of diag.vif) checks.push([`The VIF of “${v.name}”`, v.vif]);
+  const hit = checks.find(([, v]) => !Number.isFinite(v));
+  return hit ? hit[0] : null;
 }
 
 /** The diagnostics as table rows: Test, Statistic, df, p. */
@@ -273,12 +292,12 @@ export function diagnosticsRows(diag: OlsDiagnostics, d: number): string[][] {
   rows.push(["Durbin–Watson", fmtFixed(diag.durbinWatson, d), "", ""]);
   const chi = (name: string, t: OlsDiagnostics["white"]): void => {
     if ("skipped" in t) rows.push([name, `not computed: ${t.skipped}`, "", ""]);
-    else rows.push([name, `χ² = ${fmtFixed(t.stat, d)}`, String(t.df), fmtP(t.p)]);
+    else rows.push([name, `χ² = ${fmtFixed(t.stat, d)}`, intText(t.df), fmtP(t.p)]);
   };
   chi("Breusch–Pagan (Koenker)", diag.breuschPagan);
   chi("White", diag.white);
   if ("skipped" in diag.reset) rows.push(["Ramsey RESET (ŷ², ŷ³)", `not computed: ${diag.reset.skipped}`, "", ""]);
-  else rows.push(["Ramsey RESET (ŷ², ŷ³)", `F = ${fmtFixed(diag.reset.f, d)}`, `${diag.reset.df1}, ${diag.reset.df2}`, fmtP(diag.reset.p)]);
+  else rows.push(["Ramsey RESET (ŷ², ŷ³)", `F = ${fmtFixed(diag.reset.f, d)}`, `${diag.reset.df1}, ${intText(diag.reset.df2)}`, fmtP(diag.reset.p)]);
   const jb = diag.jarqueBera;
   rows.push(["Jarque–Bera", `χ² = ${fmtFixed(jb.jb, d)}`, "2", fmtP(jb.p)]);
   for (const v of diag.vif) rows.push([`VIF: ${v.name}`, fmtFixed(v.vif, 2), "", ""]);
@@ -315,7 +334,7 @@ export function econRegTableCalc(read: Read): StatOutput {
   for (const m of models) for (const n of m.notes) seNotes.add(n);
   lines.push(...seNotes);
   lines.push(`${o.decimals} decimals; terms a model leaves out are blank.`);
-  return { text: lines.join("\n"), tables: [{ label: table.label, rows: table.rows, note: table.legend }] };
+  return { text: lines.join("\n"), tables: [{ label: table.label, rows: table.rows, note: table.legend, align: table.align }] };
 }
 
 /** One logit or probit model (lib/logitProbit.ts): the summary, the coefficient table and the marginal effects. */
@@ -337,11 +356,12 @@ export function econLogitCalc(read: Read): StatOutput {
     const fit = kind === "probit" ? fitProbit : fitLogit;
     const model = fit(y, X, c.names, { constant, se, depName: c.depName });
     const rep = logitProbitReport(model);
-    // The OLS notes minus the constant's position (this table lists the constant first, as statsmodels does).
-    const notes = [...conventionNotes({ se: "classical", constant, decimals: 3, stars: "econ" }, parsed.data.named).slice(1), ...c.notes];
+    // The same conventions as OLS, the constant's position included: the coefficient table lists it last.
+    const notes = [...conventionNotes({ se: "classical", constant, decimals: 3, stars: "econ" }, parsed.data.named), ...c.notes];
     return { text: [rep.text, ...notes].join("\n"), tables: rep.tables };
   } catch (e) {
     if (e instanceof LogitProbitRefusal) return refuse(e.message);
-    throw e;
+    // Never an uncaught error in the pane: anything else (a RangeError from a value the report cannot print) refuses.
+    return refuse(`The ${kind} model could not be reported for these data (${(e as Error).message}). Check the columns for extreme values.`);
   }
 }

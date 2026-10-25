@@ -17,7 +17,8 @@ import { mathToOmml } from "./mathOmml";
 export type ResultPackageItem =
   | { kind: "text"; content: string }
   | { kind: "math"; content: string }
-  | { kind: "table"; label: string; rows: string[][] }
+  /** `align` (optional) sets each column's alignment; without it a cell that reads as a number is right-aligned. */
+  | { kind: "table"; label: string; rows: string[][]; align?: ("left" | "center" | "right")[] }
   /** `caption` is set above the picture; `below` (optional) is a caption line under it (Statistics' bracket legend). */
   | { kind: "picture"; caption: string; base64: string; widthPt: number; heightPt: number; alt: string; below?: string }
   /**
@@ -113,7 +114,7 @@ const textPara = (text: string, jc?: "center" | "right" | "left"): string =>
 /** A table cell that reads as a number (−5.2, 1.4×10⁻⁴, ½, 2/9 ≈ 0.22, 45 %) is right-aligned; words are left. */
 const looksNumeric = (c: string): boolean => /^[\s+\-−±≈~]*[\d.,½¼¾⅓⅔]/.test(c) && !/[A-Za-z]{5,}/.test(c);
 
-function tableXml(rows: string[][]): string {
+function tableXml(rows: string[][], align?: ("left" | "center" | "right")[]): string {
   const nCols = Math.max(1, ...rows.map((r) => r.length));
   const border = (side: string): string => `<w:${side} w:val="single" w:sz="4" w:space="0" w:color="auto"/>`;
   const tblPr =
@@ -124,7 +125,7 @@ function tableXml(rows: string[][]): string {
   const body = rows
     .map((r) => {
       const cells = Array.from({ length: nCols }, (_, j) => r[j] ?? "");
-      return `<w:tr>${cells.map((c) => `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>${textPara(c, looksNumeric(c) ? "right" : "left")}</w:tc>`).join("")}</w:tr>`;
+      return `<w:tr>${cells.map((c, j) => `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>${textPara(c, align?.[j] ?? (looksNumeric(c) ? "right" : "left"))}</w:tc>`).join("")}</w:tr>`;
     })
     .join("");
   return `<w:tbl>${tblPr}${grid}${body}</w:tbl>`;
@@ -187,7 +188,7 @@ export function buildResultOoxml(items: ResultPackageItem[]): { ooxml: string; p
     } else if (it.kind === "table") {
       // A label stays on the page of its table (keepNext); a label with no table is plain text.
       if (it.label) body.push(it.rows.length ? keepWithNext(textPara(it.label)) : textPara(it.label));
-      if (it.rows.length) body.push(tableXml(it.rows));
+      if (it.rows.length) body.push(tableXml(it.rows, it.align));
       // A table is always followed by a paragraph: Word needs one between a table and whatever comes next.
       body.push(`<w:p/>`);
     } else {

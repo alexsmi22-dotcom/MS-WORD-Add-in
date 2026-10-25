@@ -13,6 +13,9 @@ import { tableCellsInsertable } from "../damagesInterest";
 import type { StatOutput } from "../analyzeBlocks";
 import type { FittedModel } from "../regModel";
 
+/** U+00A0: "< 0.001" never breaks. */
+const NB = String.fromCharCode(0xa0);
+
 const reader =
   (over: Record<string, string>) =>
   (k: string): string =>
@@ -53,7 +56,7 @@ describe("econ-ols on the Longley default", () => {
     expect(out.ok).not.toBe(false);
     expect(out.text).toContain("OLS regression of TOTEMP on 6 predictors (n = 16)");
     expect(out.text).toContain("R² = 0.995, adjusted R² = 0.992");
-    expect(out.text).toContain("F(6, 9) = 330.285, p < 0.001");
+    expect(out.text).toContain(`F(6, 9) = 330.285, p <${NB}0.001`);
     expect(out.tables?.map((t) => t.label)).toEqual(["Coefficients: TOTEMP, Classical", "Diagnostics"]);
     expect(out.svg).toContain("Residuals vs fitted");
   });
@@ -62,8 +65,8 @@ describe("econ-ols on the Longley default", () => {
     expect(rows[0]).toEqual(["Term", "Coef.", "SE", "t", "p", "95% CI"]);
     expect(rows.map((r) => r[0])).toEqual(["Term", "GNPDEFL", "GNP", "UNEMP", "ARMED", "POP", "YEAR", "Constant"]);
     // statsmodels: UNEMP −2.0202 (SE 0.4884, t −4.136, p 0.0025); Constant −3482258.63.
-    expect(rows[3]).toEqual(["UNEMP", "−2.020***", "0.488", "−4.136", "0.003", "[−3.125, −0.915]"]);
-    expect(rows[7][1]).toBe("−3482258.635***");
+    expect(rows[3]).toEqual(["UNEMP", "−2.020***", "0.488", "−4.136", "0.003", "[−3.125; −0.915]"]);
+    expect(rows[7][1]).toBe("−3,482,258.635***");
     expect(out.tables![0].note).toContain("* p < 0.10, ** p < 0.05, *** p < 0.01");
   });
   test("diagnostics table, White skipped by name (28 auxiliary regressors, 16 rows)", () => {
@@ -71,7 +74,7 @@ describe("econ-ols on the Longley default", () => {
     expect(rows[0]).toEqual(["Test", "Statistic", "df", "p"]);
     expect(rows.find((r) => r[0] === "White")![1]).toMatch(/^not computed: needs more rows than its 28 auxiliary regressors/);
     expect(rows.find((r) => r[0] === "Durbin–Watson")![1]).toBe("2.559");
-    expect(rows.find((r) => r[0] === "VIF: GNP")![1]).toBe("1788.51");
+    expect(rows.find((r) => r[0] === "VIF: GNP")![1]).toBe("1,788.51");
   });
   test("the display contract holds everywhere", () => {
     expect(contractViolations(out)).toEqual([]);
@@ -121,7 +124,10 @@ describe("regTable", () => {
     kind: "ols",
     depName: "y",
     n: 50,
-    terms: [{ name: "x", coef: 0.5, se: 0.1, stat: 5, p: 0.00001, ciLo: 0.3, ciHi: 0.7 }],
+    terms: [
+      { name: "x", coef: 0.5, se: 0.1, stat: 5, p: 0.00001, ciLo: 0.3, ciHi: 0.7 },
+      { name: "Constant", coef: 1, se: 0.5, stat: 2, p: 0.05, ciLo: 0, ciHi: 2 },
+    ],
     statLabel: "t",
     df: 48,
     seLabel: "Classical",
@@ -135,14 +141,14 @@ describe("regTable", () => {
     expect(starsFor(0.0001, "none")).toBe("");
   });
   test("numbers under the display contract", () => {
-    expect(fmtFixed(-0.0004, 3)).toBe("−4.00×10⁻⁴");
-    expect(fmtFixed(-0.0001, 0)).toBe("−1.00×10⁻⁴");
+    expect(fmtFixed(-0.0004, 3)).toBe("−4.000×10⁻⁴");
+    expect(fmtFixed(-0.0001, 0)).toBe("−1.000×10⁻⁴");
     expect(fmtFixed(-0.00001 + 0.00001, 3)).toBe("0.000");
     expect(fmtFixed(-1e-20 * 0, 3)).toBe("0.000");
-    expect(fmtFixed(2.5e7, 2)).toBe("25000000.00");
+    expect(fmtFixed(2.5e7, 2)).toBe("25,000,000.00");
     expect(fmtFixed(2.5e10, 2)).toBe("2.500×10¹⁰");
     expect(fmtFixed(-1.23456, 2)).toBe("−1.23");
-    expect(fmtP(0.0004)).toBe("< 0.001");
+    expect(fmtP(0.0004)).toBe(`<${NB}0.001`);
     expect(fmtP(0.0456)).toBe("0.046");
   });
   test("any FittedModel drops in: logit beside OLS uses pseudo R² and z", () => {

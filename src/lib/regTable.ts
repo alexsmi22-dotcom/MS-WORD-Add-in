@@ -14,11 +14,14 @@
  *   Standard errors in parentheses. * p < 0.10, ** p < 0.05, *** p < 0.01.
  *
  * One column per model, a row per term with the coefficient and its stars and the standard error in parentheses on
- * the row below, terms absent from a model blank, the constant last, then N, R² (pseudo R² for logit/probit) and the
- * standard-error type. It takes any FittedModel (regModel.ts), so OLS, logit and probit sit in one table.
+ * the row below, terms absent from a model blank, the constant last, then N, R² (pseudo R² for logit/probit; "R²
+ * (uncentered)" when a model has no constant) and the standard-error type. The model columns are CENTRED (journal
+ * style), so a coefficient, its "(0.011)" and the "(1)" header share one axis. It takes any FittedModel
+ * (regModel.ts), so OLS, logit and probit sit in one table.
  *
- * Numbers follow the display contract: a true minus (U+2212), no e-notation (×10ⁿ for a value that would round to
- * zero at the chosen decimals, 4 significant figures from 10⁹ up), never "−0.000", no NaN/Infinity.
+ * Numbers follow the display contract: a true minus (U+2212), thousands grouped with commas (−3,482,258.635), no
+ * e-notation (m×10ⁿ with 4 significant digits, trailing zeros kept, for a value that would round to zero at the chosen
+ * decimals or is 10⁹ or more), never "−0.000", no NaN/Infinity, and "< 0.001" with a no-break space.
  */
 import type { FittedModel } from "./regModel";
 import { timesTen } from "./axis";
@@ -37,30 +40,53 @@ export interface RegTableOptions {
   decimals?: number;
 }
 
+export type CellAlign = "left" | "center" | "right";
+
 export interface RegTable {
   label: string;
   /** Header row first; cells are display text ("" is blank). */
   rows: string[][];
   /** The legend line printed under the table. */
   legend: string;
+  /** Per-column alignment: the term column left, every model column centred. */
+  align: CellAlign[];
 }
 
 const MINUS = "−";
+/** U+00A0: "< 0.001" must never break across a line. */
+export const NBSP = String.fromCharCode(0xa0);
+/** How a p-value below 0.001 is printed. */
+export const P_BELOW = `<${NBSP}0.001`;
+/** Significant digits of every m×10ⁿ this module prints (one rule, trailing zeros kept). */
+export const SCI_SIG = 4;
 
-/** A number at fixed decimals under the display contract ("" for a non-finite value). */
+/** Groups the integer digits of a plain decimal in threes with commas: "-3482258.635" → "-3,482,258.635". */
+export function groupThousands(s: string): string {
+  const m = /^([-−]?)(\d+)(\.\d*)?$/.exec(s);
+  if (!m) return s;
+  return m[1] + m[2].replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (m[3] ?? "");
+}
+
+/** A whole number with grouped thousands ("50,000"). */
+export function intText(n: number): string {
+  return groupThousands(String(Math.round(n))).replace(/^-/, MINUS);
+}
+
+/** A number at fixed decimals under the display contract ("" for a non-finite value: callers refuse first). */
 export function fmtFixed(v: number, decimals = 3): string {
   if (!Number.isFinite(v)) return "";
   const d = Math.max(0, Math.min(6, Math.round(decimals)));
   const a = Math.abs(v);
-  if (v !== 0 && a < 0.5 * Math.pow(10, -d)) return fmtSci(v, 3);
-  if (a >= 1e9) return fmtSci(v, 4);
+  if (v !== 0 && a < 0.5 * Math.pow(10, -d)) return fmtSci(v);
+  if (a >= 1e9) return fmtSci(v);
   let s = v.toFixed(d);
   if (/^-0(?:\.0*)?$/.test(s)) s = s.slice(1);
+  s = groupThousands(s);
   return s.startsWith("-") ? MINUS + s.slice(1) : s;
 }
 
-/** m×10ⁿ with `sig` significant digits and a true minus. */
-export function fmtSci(v: number, sig = 3): string {
+/** m×10ⁿ with `sig` significant digits (trailing zeros kept) and a true minus. */
+export function fmtSci(v: number, sig = SCI_SIG): string {
   if (!Number.isFinite(v)) return "";
   if (v === 0) return "0";
   const m = /^(-?)(\d(?:\.\d+)?)e([+-]\d+)$/.exec(v.toExponential(Math.max(0, sig - 1)));
@@ -68,10 +94,21 @@ export function fmtSci(v: number, sig = 3): string {
   return `${m[1] ? MINUS : ""}${m[2]}${timesTen(Number(m[3]))}`;
 }
 
-/** A p-value: "< 0.001" below 0.001, else three decimals. */
+/**
+ * A value quoted back in a message, exactly as JavaScript holds it but under the display contract: "1e-7" → "1×10⁻⁷",
+ * "-1e+21" → "−1×10²¹", "-2.5" → "−2.5".
+ */
+export function numText(v: number): string {
+  const s = String(v);
+  const m = /^(-?)(\d+(?:\.\d+)?)e([+-]\d+)$/.exec(s);
+  if (!m) return s.replace(/^-/, MINUS);
+  return `${m[1] ? MINUS : ""}${m[2]}${timesTen(Number(m[3]))}`;
+}
+
+/** A p-value: "< 0.001" (no-break space) below 0.001, else three decimals. */
 export function fmtP(p: number): string {
   if (!Number.isFinite(p)) return "";
-  if (p < 0.001) return "< 0.001";
+  if (p < 0.001) return P_BELOW;
   return p.toFixed(3);
 }
 
@@ -89,6 +126,11 @@ export function starLegend(scheme: StarScheme = "econ", statLabels: ("t" | "z")[
   const ref = new Set(statLabels);
   const refText = ref.size === 2 ? " p-values from t (OLS) or z (logit, probit) statistics." : "";
   return se + stars + refText;
+}
+
+/** True when the model has no constant term (the tables find the constant by its name; a predictor may not take it). */
+export function hasNoConstant(m: FittedModel): boolean {
+  return !m.terms.some((t) => t.name === "Constant");
 }
 
 function r2Of(m: FittedModel): { label: string; value: number } | null {
@@ -124,12 +166,15 @@ export function buildRegTable(models: FittedModel[], opts: RegTableOptions = {})
     }
     rows.push(coef, se);
   }
-  rows.push(["N", ...models.map((m) => String(m.n))]);
+  rows.push(["N", ...models.map((m) => intText(m.n))]);
   const r2s = models.map(r2Of);
   const kinds = new Set(models.map((m) => (m.kind === "ols" ? "ols" : "ml")));
-  const r2Label = kinds.size === 2 ? "R² / pseudo R²" : kinds.has("ols") ? "R²" : "Pseudo R²";
+  // An OLS model without a constant reports the uncentered R² (1 − SSE/Σy²): the row says so.
+  const olsR2 = models.some((m) => m.kind === "ols" && hasNoConstant(m)) ? "R² (uncentered)" : "R²";
+  const r2Label = kinds.size === 2 ? `${olsR2} / pseudo R²` : kinds.has("ols") ? olsR2 : "Pseudo R²";
   if (r2s.some(Boolean)) rows.push([r2Label, ...r2s.map((r) => (r ? fmtFixed(r.value, dec) : ""))]);
   rows.push(["SE type", ...models.map((m) => m.seLabel)]);
   const legend = starLegend(scheme, models.map((m) => m.statLabel));
-  return { label: `Regression table: ${models.length} model${models.length === 1 ? "" : "s"}`, rows, legend };
+  const align: CellAlign[] = ["left", ...models.map((): CellAlign => "center")];
+  return { label: `Regression table: ${models.length} model${models.length === 1 ? "" : "s"}`, rows, legend, align };
 }

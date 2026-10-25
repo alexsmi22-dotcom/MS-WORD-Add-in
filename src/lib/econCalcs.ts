@@ -139,7 +139,9 @@ export function econOlsCalc(read: Read): StatOutput {
   lines.push(...conventionNotes(o, parsed.data.named), ...r.notes, ...m.notes, ...diag.notes);
   lines.push(
     "Diagnostics use the OLS residuals whatever the standard errors: Breusch–Pagan is Koenker's studentized form; " +
-      "RESET adds the squared and cubed fitted values (F form); Jarque–Bera uses the residuals' moments.",
+      "RESET adds the squared and cubed fitted values, standardised before they are raised to powers (the same F as " +
+      "statsmodels' linear_reset(power=3, use_f=True) whenever its augmented design keeps full rank, and exact when " +
+      "large fitted values make that design numerically singular); Jarque–Bera uses the residuals' moments.",
   );
 
   const coefRows: string[][] = [["Term", "Coef.", "SE", m.statLabel, "p", "95% CI"]];

@@ -137,8 +137,14 @@ describe("diagnostics match statsmodels", () => {
     });
   }
   test("statsmodels' own RESET agrees where its design keeps full rank", () => {
-    for (const g of oracle.diagnostics.filter((x) => x.name !== "longley")) {
+    for (const g of oracle.diagnostics.filter((x) => !x.name.startsWith("longley"))) {
       expect(close(g.reset_f, g.reset_scaled_f, 1e-9)).toBe(true);
+    }
+    // On both Longley designs statsmodels' pinv drops a column of the augmented design: its denominator df is one
+    // too many (8 for 7, 11 for 10) and its F is wrong (6.949 for 2.273; 3978 for 7.311). The exact Longley value
+    // F(2, 7) = 2.27271031290876 was confirmed with mpmath at 80 digits on the raw, unstandardised ŷ² and ŷ³.
+    for (const g of oracle.diagnostics.filter((x) => x.name.startsWith("longley"))) {
+      expect(g.reset_df2).toBe(g.reset_scaled_df2 + 1);
     }
   });
 });

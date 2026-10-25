@@ -304,10 +304,14 @@ export function fitOls(input: OlsInput): OlsResult {
   const y = Float64Array.from(input.y);
   for (let i = 0; i < n; i++) if (!Number.isFinite(y[i])) return { ok: false, reason: `${q(input.depName)}, row ${i + 1}: not a finite number.` };
   const names = [...input.names, ...(hasConst ? ["Constant"] : [])];
-  const raw: ArrayLike<number>[] = [...input.X, ...(hasConst ? [new Float64Array(n).fill(1)] : [])];
-  for (let j = 0; j < k0; j++)
-    for (let i = 0; i < n; i++)
-      if (!Number.isFinite(raw[j][i])) return { ok: false, reason: `${q(names[j])}, row ${i + 1}: not a finite number.` };
+  // HOT LOOPS LIVE IN SMALL HELPERS (columnSums, scaleColumn, fitResiduals, hacMeat, clusterMeat): V8 optimises a
+  // small function quickly, while a loop inside this long one ran interpreted (measured: 200 ms of a 300 ms fit at
+  // 50,000 × 20 before the move).
+  const raw: Float64Array[] = [...input.X.map((c) => Float64Array.from(c)), ...(hasConst ? [new Float64Array(n).fill(1)] : [])];
+  for (let j = 0; j < k0; j++) {
+    const bad = firstNonFinite(raw[j]);
+    if (bad >= 0) return { ok: false, reason: `${q(names[j])}, row ${bad + 1}: not a finite number.` };
+  }
 
   // CENTRED, unit-norm columns. With a constant the predictors are centred first: the same column space, so the
   // fitted values, residuals, slopes and every slope covariance are unchanged (each SE type is equivariant under the
@@ -315,35 +319,15 @@ export function fitOls(input: OlsInput): OlsResult {
   // 1947–1962, is 99.6% constant). Without it the robust Wald F on Longley drifted 6×10⁻⁶ from the exact value.
   // The intercept and its covariances are mapped back at the end.
   const means = new Float64Array(k0);
-  if (hasConst) {
-    for (let j = 0; j < k0; j++) {
-      let s = 0;
-      const c = raw[j];
-      for (let i = 0; i < n; i++) s += c[i];
-      means[j] = s / n;
-    }
-  }
+  if (hasConst) for (let j = 0; j < k0; j++) means[j] = columnSum(raw[j]) / n;
   // The constant goes FIRST into the QR (so "x is collinear with the constant" names it), but is reported last.
   const order = hasConst ? [p - 1, ...Array.from({ length: k0 }, (_, j) => j)] : Array.from({ length: k0 }, (_, j) => j);
   const colScale = new Float64Array(p);
   const xs: Float64Array[] = new Array(p);
   for (let j = 0; j < p; j++) {
-    let s = 0;
-    const c = j < k0 && hasConst ? Float64Array.from(raw[j], (v) => v - means[j]) : raw[j];
-    for (let i = 0; i < n; i++) s += c[i] * c[i];
-    s = Math.sqrt(s);
-    if (!Number.isFinite(s)) {
-      // Overflow of the sum of squares (values near 10¹⁵⁴): scale by the largest magnitude first.
-      let m = 0;
-      for (let i = 0; i < n; i++) m = Math.max(m, Math.abs(c[i]));
-      let t = 0;
-      for (let i = 0; i < n; i++) t += (c[i] / m) * (c[i] / m);
-      s = m * Math.sqrt(t);
-    }
-    colScale[j] = s > 0 && Number.isFinite(s) ? s : 1;
-    const col = new Float64Array(n);
-    for (let i = 0; i < n; i++) col[i] = c[i] / colScale[j];
-    xs[j] = col;
+    const s = scaleColumn(raw[j], j < k0 && hasConst ? means[j] : 0);
+    colScale[j] = s.scale;
+    xs[j] = s.col;
   }
   const ordCols = order.map((j) => xs[j]);
   const { qr, failAt } = householder(ordCols, n, false);
@@ -372,30 +356,10 @@ export function fitOls(input: OlsInput): OlsResult {
 
   // Fitted values and residuals.
   const fitted = new Float64Array(n);
-  for (let j = 0; j < p; j++) {
-    const c = xs[j];
-    const b = bs[j];
-    for (let i = 0; i < n; i++) fitted[i] += c[i] * b;
-  }
+  for (let j = 0; j < p; j++) axpy(bs[j], xs[j], fitted);
   const resid = new Float64Array(n);
-  let sse = 0;
-  let ySum = 0;
-  for (let i = 0; i < n; i++) {
-    resid[i] = y[i] - fitted[i];
-    sse += resid[i] * resid[i];
-    ySum += y[i];
-  }
-  const yBar = ySum / n;
-  let sst = 0;
-  let yScale = 0;
-  for (let i = 0; i < n; i++) {
-    const d = hasConst ? y[i] - yBar : y[i];
-    sst += d * d;
-    yScale = Math.max(yScale, Math.abs(y[i] - yBar), Math.abs(y[i]) * 1e-6);
-  }
+  const { sse, sst, yScale, maxRes } = residualStats(y, fitted, resid, hasConst);
   // EXACT FIT: residuals at rounding level of the data's scale. SE = 0, t and F are then rounding noise.
-  let maxRes = 0;
-  for (let i = 0; i < n; i++) maxRes = Math.max(maxRes, Math.abs(resid[i]));
   if (maxRes <= 1e-10 * Math.max(yScale, Number.MIN_VALUE) || sse === 0) {
     return {
       ok: false,
@@ -432,11 +396,7 @@ export function fitOls(input: OlsInput): OlsResult {
         }
       }
     }
-    for (let i = 0; i < n; i++) {
-      const e2 = resid[i] * resid[i];
-      omega[i] =
-        se === "hc0" ? e2 : se === "hc1" ? (e2 * n) / dfResid : se === "hc2" ? e2 / (1 - lev![i]) : e2 / ((1 - lev![i]) * (1 - lev![i]));
-    }
+    hcWeights(resid, lev, se === "hc0" ? 0 : se === "hc1" ? 1 : se === "hc2" ? 2 : 3, n / dfResid, omega);
     const M = weightedCross(xs, omega, n, p);
     Vs = sandwich(A, M);
     seLabel = se === "hc1" ? "HC1 (Stata robust)" : se.toUpperCase();
@@ -449,32 +409,14 @@ export function fitOls(input: OlsInput): OlsResult {
     const cl = input.clusters;
     const cname = input.clusterName ?? "cluster";
     if (!cl || cl.length !== n) return { ok: false, reason: "Clustered standard errors need a cluster column." };
-    const ids = new Map<string, number>();
-    const gOf = new Int32Array(n);
-    for (let i = 0; i < n; i++) {
-      const key = String(cl[i]);
-      let g = ids.get(key);
-      if (g === undefined) {
-        g = ids.size;
-        ids.set(key, g);
-      }
-      gOf[i] = g;
-    }
-    const G = ids.size;
+    const { gOf, G } = clusterIds(cl);
     if (G < 2) {
       return {
         ok: false,
         reason: `Clustered standard errors need at least two clusters; ${q(cname)} has one value in every row used.`,
       };
     }
-    const U: number[][] = Array.from({ length: G }, () => new Array<number>(p).fill(0));
-    for (let i = 0; i < n; i++) {
-      const u = U[gOf[i]];
-      const e = resid[i];
-      for (let j = 0; j < p; j++) u[j] += e * xs[j][i];
-    }
-    const M: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
-    for (const u of U) for (let a = 0; a < p; a++) for (let b = 0; b < p; b++) M[a][b] += u[a] * u[b];
+    const M = clusterMeat(xs, resid, gOf, G);
     const c = (G / (G - 1)) * ((n - 1) / (n - p));
     Vs = sandwich(A, M).map((r) => r.map((v) => v * c));
     df = G - 1;
@@ -489,28 +431,7 @@ export function fitOls(input: OlsInput): OlsResult {
     const L = input.hacLag === undefined ? hacDefaultLag(n) : input.hacLag;
     if (!Number.isInteger(L) || L < 0) return { ok: false, reason: "The Newey–West lag must be a whole number, 0 or more." };
     if (L >= n) return { ok: false, reason: `The Newey–West lag (${L}) must be less than the number of rows (${n}).` };
-    const S = new Float64Array(n * p);
-    for (let j = 0; j < p; j++) {
-      const c = xs[j];
-      for (let i = 0; i < n; i++) S[i * p + j] = resid[i] * c[i];
-    }
-    const M: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
-    for (let lag = 0; lag <= L; lag++) {
-      const w = lag === 0 ? 1 : 1 - lag / (L + 1);
-      const G0: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
-      for (let t = lag; t < n; t++) {
-        const o = t * p;
-        const ol = (t - lag) * p;
-        for (let a = 0; a < p; a++) {
-          const sa = S[o + a];
-          if (sa === 0) continue;
-          const row = G0[a];
-          for (let b = 0; b < p; b++) row[b] += sa * S[ol + b];
-        }
-      }
-      for (let a = 0; a < p; a++)
-        for (let b = 0; b < p; b++) M[a][b] += lag === 0 ? G0[a][b] : w * (G0[a][b] + G0[b][a]);
-    }
+    const M = hacMeat(xs, resid, L);
     const c = n / dfResid;
     Vs = sandwich(A, M).map((r) => r.map((v) => v * c));
     seLabel = `Newey–West HAC, lag ${L}`;
@@ -643,6 +564,159 @@ function leverages(xs: Float64Array[], A: number[][], n: number, p: number): Flo
     h[i] = s;
   }
   return h;
+}
+
+function firstNonFinite(c: Float64Array): number {
+  for (let i = 0; i < c.length; i++) if (!Number.isFinite(c[i])) return i;
+  return -1;
+}
+
+function columnSum(c: Float64Array): number {
+  let s = 0;
+  for (let i = 0; i < c.length; i++) s += c[i];
+  return s;
+}
+
+/** (c − centre) / ‖c − centre‖, guarding the sum of squares against overflow (values near 10¹⁵⁴). */
+function scaleColumn(c: Float64Array, centre: number): { col: Float64Array; scale: number } {
+  const n = c.length;
+  const col = new Float64Array(n);
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const v = c[i] - centre;
+    col[i] = v;
+    s += v * v;
+  }
+  s = Math.sqrt(s);
+  if (!Number.isFinite(s)) {
+    let m = 0;
+    for (let i = 0; i < n; i++) m = Math.max(m, Math.abs(col[i]));
+    let t = 0;
+    for (let i = 0; i < n; i++) t += (col[i] / m) * (col[i] / m);
+    s = m * Math.sqrt(t);
+  }
+  const scale = s > 0 && Number.isFinite(s) ? s : 1;
+  for (let i = 0; i < n; i++) col[i] /= scale;
+  return { col, scale };
+}
+
+/** out += a·x */
+function axpy(a: number, x: Float64Array, out: Float64Array): void {
+  for (let i = 0; i < x.length; i++) out[i] += a * x[i];
+}
+
+/** Fills resid = y − fitted; returns SSE, SST (centred with a constant), the data's scale and the largest |residual|. */
+function residualStats(
+  y: Float64Array,
+  fitted: Float64Array,
+  resid: Float64Array,
+  hasConst: boolean,
+): { sse: number; sst: number; yScale: number; maxRes: number } {
+  const n = y.length;
+  let sse = 0;
+  let ySum = 0;
+  let maxRes = 0;
+  for (let i = 0; i < n; i++) {
+    const e = y[i] - fitted[i];
+    resid[i] = e;
+    sse += e * e;
+    ySum += y[i];
+    const a = Math.abs(e);
+    if (a > maxRes) maxRes = a;
+  }
+  const yBar = ySum / n;
+  let sst = 0;
+  let yScale = 0;
+  for (let i = 0; i < n; i++) {
+    const d = hasConst ? y[i] - yBar : y[i];
+    sst += d * d;
+    yScale = Math.max(yScale, Math.abs(y[i] - yBar), Math.abs(y[i]) * 1e-6);
+  }
+  return { sse, sst, yScale, maxRes };
+}
+
+/** White's ω: e² (HC0), e²·n/(n − k) (HC1), e²/(1 − h) (HC2), e²/(1 − h)² (HC3). */
+function hcWeights(resid: Float64Array, lev: Float64Array | null, kind: 0 | 1 | 2 | 3, hc1: number, out: Float64Array): void {
+  for (let i = 0; i < resid.length; i++) {
+    const e2 = resid[i] * resid[i];
+    if (kind === 0) out[i] = e2;
+    else if (kind === 1) out[i] = e2 * hc1;
+    else {
+      const m = 1 - lev![i];
+      out[i] = kind === 2 ? e2 / m : e2 / (m * m);
+    }
+  }
+}
+
+/** Dense cluster ids in order of first appearance. */
+function clusterIds(cl: ArrayLike<string>): { gOf: Int32Array; G: number } {
+  const ids = new Map<string, number>();
+  const gOf = new Int32Array(cl.length);
+  for (let i = 0; i < cl.length; i++) {
+    const key = String(cl[i]);
+    let g = ids.get(key);
+    if (g === undefined) {
+      g = ids.size;
+      ids.set(key, g);
+    }
+    gOf[i] = g;
+  }
+  return { gOf, G: ids.size };
+}
+
+/** Σ_g u_g u_gᵀ, u_g = Σ_{i∈g} e_i x_i (scaled columns). */
+function clusterMeat(xs: Float64Array[], resid: Float64Array, gOf: Int32Array, G: number): number[][] {
+  const p = xs.length;
+  const n = resid.length;
+  const U = new Float64Array(G * p);
+  for (let j = 0; j < p; j++) {
+    const c = xs[j];
+    for (let i = 0; i < n; i++) U[gOf[i] * p + j] += resid[i] * c[i];
+  }
+  const M: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
+  for (let g = 0; g < G; g++) {
+    const o = g * p;
+    for (let a = 0; a < p; a++) {
+      const ua = U[o + a];
+      const row = M[a];
+      for (let b = 0; b < p; b++) row[b] += ua * U[o + b];
+    }
+  }
+  return M;
+}
+
+/** Newey–West meat: Γ₀ + Σ_{l=1..L} (1 − l/(L+1))(Γ_l + Γ_lᵀ), Γ_l = Σ_t s_t s_{t−l}ᵀ, s_t = e_t x_t. */
+function hacMeat(xs: Float64Array[], resid: Float64Array, L: number): number[][] {
+  const p = xs.length;
+  const n = resid.length;
+  const S = new Float64Array(n * p);
+  for (let j = 0; j < p; j++) {
+    const c = xs[j];
+    for (let i = 0; i < n; i++) S[i * p + j] = resid[i] * c[i];
+  }
+  // M = A + Aᵀ with A = Σ_t s_t z_tᵀ, z_t = ½s_t + Σ_l w_l s_{t−l}: the same sum in n(pL + p²) operations instead of
+  // n·p²·(L + 1) (50,000 × 21 at lag 15: about 60 million, not 350 million).
+  const A = new Float64Array(p * p);
+  const z = new Float64Array(p);
+  const w = new Float64Array(L + 1);
+  for (let l = 1; l <= L; l++) w[l] = 1 - l / (L + 1);
+  for (let t = 0; t < n; t++) {
+    const o = t * p;
+    for (let b = 0; b < p; b++) z[b] = 0.5 * S[o + b];
+    const top = Math.min(L, t);
+    for (let l = 1; l <= top; l++) {
+      const wl = w[l];
+      const ol = (t - l) * p;
+      for (let b = 0; b < p; b++) z[b] += wl * S[ol + b];
+    }
+    for (let a = 0; a < p; a++) {
+      const sa = S[o + a];
+      if (sa === 0) continue;
+      const ra = a * p;
+      for (let b = 0; b < p; b++) A[ra + b] += sa * z[b];
+    }
+  }
+  return Array.from({ length: p }, (_, a) => Array.from({ length: p }, (_, b) => A[a * p + b] + A[b * p + a]));
 }
 
 /** Σ ω_i x_i x_iᵀ over the scaled columns. */

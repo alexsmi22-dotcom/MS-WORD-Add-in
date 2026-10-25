@@ -140,6 +140,8 @@ def main():
     cases.append(case("grunfeld HAC default", grunfeld, "invest", ["value", "capital"], "HAC", lag=hac_default(220))[0])
     cases.append(case("grunfeld cluster firm", grunfeld, "invest", ["value", "capital"], "cluster", cluster="firm")[0])
     cases.append(case("grunfeld cluster year", grunfeld, "invest", ["value", "capital"], "cluster", cluster="year")[0])
+    cases.append(case("grunfeld cluster firm one predictor", grunfeld, "invest", ["value"], "cluster", cluster="firm")[0])
+    cases.append(case("longley small nonrobust", longley, "TOTEMP", ["GNP", "UNEMP", "ARMED"], "nonrobust")[0])
     cases.append(case("stackloss no constant", stack, "STACKLOSS", SX, "nonrobust", const=False)[0])
     cases.append(case("stackloss no constant HC1", stack, "STACKLOSS", SX, "HC1", const=False)[0])
 
@@ -147,6 +149,7 @@ def main():
         diagnostics("longley", longley, "TOTEMP", LX),
         diagnostics("stackloss", stack, "STACKLOSS", SX),
         diagnostics("grunfeld", grunfeld, "invest", ["value", "capital"]),
+        diagnostics("longley small", longley, "TOTEMP", ["GNP", "UNEMP", "ARMED"]),
     ]
     meta = {
         "generator": "scripts/econ-ols-oracle.py",

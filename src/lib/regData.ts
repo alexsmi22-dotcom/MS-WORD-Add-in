@@ -29,6 +29,8 @@ export function isMissingCell(s: string): boolean {
 }
 
 const q = (s: string): string => `“${s}”`;
+/** A cell Number() reads exactly as parseCellNumber would (no comma, no exponent, at most 15 integer digits). */
+const PLAIN_DECIMAL = /^-?\d{1,15}(\.\d+)?$/;
 
 /** Reads the table text into names and cells. */
 export function parseRegData(text: string): RegDataResult {
@@ -193,6 +195,12 @@ export function selectColumns(
     const vals: number[] = [];
     for (const j of used) {
       const cell = r[j] ?? "";
+      // Fast path for a plain decimal (a 50,000 × 20 paste is a million cells); everything else takes the product's
+      // cell reader (decimal commas, U+2212, ×10ⁿ, thousands separators).
+      if (PLAIN_DECIMAL.test(cell)) {
+        vals.push(Number(cell));
+        continue;
+      }
       if (isMissingCell(cell)) {
         missing = true;
         continue;

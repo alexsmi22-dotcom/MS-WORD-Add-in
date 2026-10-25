@@ -18,7 +18,7 @@
  * standard-error type. It takes any FittedModel (regModel.ts), so OLS, logit and probit sit in one table.
  *
  * Numbers follow the display contract: a true minus (U+2212), no e-notation (×10ⁿ for a value that would round to
- * zero at the chosen decimals or is a million or more), never "−0.000", no NaN/Infinity.
+ * zero at the chosen decimals, 4 significant figures from 10⁹ up), never "−0.000", no NaN/Infinity.
  */
 import type { FittedModel } from "./regModel";
 import { timesTen } from "./axis";
@@ -52,7 +52,8 @@ export function fmtFixed(v: number, decimals = 3): string {
   if (!Number.isFinite(v)) return "";
   const d = Math.max(0, Math.min(6, Math.round(decimals)));
   const a = Math.abs(v);
-  if (v !== 0 && (a < 0.5 * Math.pow(10, -d) || a >= 1e6)) return fmtSci(v, 3);
+  if (v !== 0 && a < 0.5 * Math.pow(10, -d)) return fmtSci(v, 3);
+  if (a >= 1e9) return fmtSci(v, 4);
   let s = v.toFixed(d);
   if (/^-0(?:\.0*)?$/.test(s)) s = s.slice(1);
   return s.startsWith("-") ? MINUS + s.slice(1) : s;

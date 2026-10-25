@@ -61,9 +61,9 @@ describe("econ-ols on the Longley default", () => {
     const rows = out.tables![0].rows;
     expect(rows[0]).toEqual(["Term", "Coef.", "SE", "t", "p", "95% CI"]);
     expect(rows.map((r) => r[0])).toEqual(["Term", "GNPDEFL", "GNP", "UNEMP", "ARMED", "POP", "YEAR", "Constant"]);
-    // statsmodels: UNEMP −2.0202 (SE 0.4884, t −4.136, p 0.0025); Constant −3.482×10⁶.
+    // statsmodels: UNEMP −2.0202 (SE 0.4884, t −4.136, p 0.0025); Constant −3482258.63.
     expect(rows[3]).toEqual(["UNEMP", "−2.020***", "0.488", "−4.136", "0.003", "[−3.125, −0.915]"]);
-    expect(rows[7][1]).toBe("−3.48×10⁶***");
+    expect(rows[7][1]).toBe("−3482258.635***");
     expect(out.tables![0].note).toContain("* p < 0.10, ** p < 0.05, *** p < 0.01");
   });
   test("diagnostics table, White skipped by name (28 auxiliary regressors, 16 rows)", () => {
@@ -139,7 +139,8 @@ describe("regTable", () => {
     expect(fmtFixed(-0.0001, 0)).toBe("−1.00×10⁻⁴");
     expect(fmtFixed(-0.00001 + 0.00001, 3)).toBe("0.000");
     expect(fmtFixed(-1e-20 * 0, 3)).toBe("0.000");
-    expect(fmtFixed(2.5e7, 2)).toBe("2.50×10⁷");
+    expect(fmtFixed(2.5e7, 2)).toBe("25000000.00");
+    expect(fmtFixed(2.5e10, 2)).toBe("2.500×10¹⁰");
     expect(fmtFixed(-1.23456, 2)).toBe("−1.23");
     expect(fmtP(0.0004)).toBe("< 0.001");
     expect(fmtP(0.0456)).toBe("0.046");
@@ -306,8 +307,13 @@ describe("50,000 rows × 20 predictors does not freeze the pane", () => {
     const ms = Date.now() - t0;
     expect("skipped" in d.white && d.white.skipped).toMatch(/up to 10 predictors/);
     expect(r.model.terms[0].coef).toBeCloseTo(1, 1);
-    // Generous for a loaded CI machine; measured ~0.3 s locally.
-    expect(ms).toBeLessThan(2500);
+    // Measured 2026-10-25 (jest, 2 workers busy elsewhere): HC1 fit 354 ms + diagnostics 29 ms. Bound with headroom.
+    expect(ms).toBeLessThan(1000);
+    // Newey–West at the default lag (15 for n = 50,000): measured 410 ms (the z_t accumulation, not n·p²·(L + 1)).
+    const t1 = Date.now();
+    const h = fitOls({ y, depName: "y", X, names: X.map((_, j) => `x${j + 1}`), constant: true, se: "hac" });
+    expect(h.ok && h.model.seLabel).toBe("Newey–West HAC, lag 15");
+    expect(Date.now() - t1).toBeLessThan(1000);
   });
   test("the full calculator path on a 50,000-row pasted table", () => {
     let seed = 7;
@@ -322,7 +328,8 @@ describe("50,000 rows × 20 predictors does not freeze the pane", () => {
     const ms = Date.now() - t0;
     expect(o.ok).not.toBe(false);
     expect(o.text).toContain("The figure shows every 25th row (2,000 of 50,000 points).");
-    expect(ms).toBeLessThan(4000);
+    // Measured 808 ms end to end (read the 50,000 × 21 table, fit HC1, diagnostics, figure).
+    expect(ms).toBeLessThan(1500);
   });
 });
 

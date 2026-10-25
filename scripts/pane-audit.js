@@ -64,7 +64,10 @@ const BASELINES = {
   // v2.196.0 (E2b): 27 of 29 — econ-logit is a coefficient and marginal-effects TABLE result (no figure).
   // v2.197.0 (E3): 35 of 37 — all eight new calculators draw: correlogram, unit-root series, HP trend/cycle, ARIMA and
   // Holt–Winters forecasts, event-study average CAR, price-index and nominal-vs-real lines.
-  stats: { label: "Statistics", figures: 39, total: 43 },
+  // v2.198.0 (E4): 39 of 43 — panel-fe and panel-re are coefficient tables (no figure).
+  // v2.199.0 (E5): 48 of 52 — all nine new calculators draw (Lorenz, share bars, linkages, supply–demand, best
+  // responses, game best responses, Solow, IS–LM/AD–AS, Taylor).
+  stats: { label: "Statistics", figures: 48, total: 52 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it
@@ -84,7 +87,8 @@ const BASELINES = {
   // inserting its text, a Word table and a figure as one package.
   // v2.195.0 (E1b): 30 of 32 — reasonable royalty, lost profits and the damages summary draw; the Georgia-Pacific and
   // Panduit worksheets are fill-in tables with nothing to plot.
-  finance: { label: "Finance", figures: 30, total: 32 },
+  // v2.199.0 (E5): 30 of 33 — fin-currency is conversion tables (no figure).
+  finance: { label: "Finance", figures: 30, total: 33 },
 };
 
 function findBrowser() {

@@ -75,6 +75,35 @@ import {
   PANEL_DID_DEFAULTS,
 } from "../lib/panelCalcs";
 import { bootCiCalc, BOOT_CI_FIELDS, BOOT_CI_DEFAULTS, qregCalc, QREG_FIELDS, QREG_DEFAULTS } from "../lib/robustCalcs";
+import {
+  ineqGiniCalc,
+  INEQ_GINI_FIELDS,
+  INEQ_GINI_DEFAULTS,
+  concHhiCalc,
+  CONC_HHI_FIELDS,
+  CONC_HHI_DEFAULTS,
+  ioLeontiefCalc,
+  IO_LEONTIEF_FIELDS,
+  IO_LEONTIEF_DEFAULTS,
+  finCurrencyCalc,
+  FIN_CURRENCY_FIELDS,
+  FIN_CURRENCY_DEFAULTS,
+} from "../lib/econE5aCalcs";
+import { microMarketCalc, MICRO_MARKET_FIELDS, MICRO_MARKET_DEFAULTS, microOligopolyCalc, MICRO_OLIGOPOLY_FIELDS, MICRO_OLIGOPOLY_DEFAULTS } from "../lib/microCalcs";
+import {
+  gameNashCalc,
+  GAME_NASH_FIELDS,
+  GAME_NASH_DEFAULTS,
+  macroSolowCalc,
+  MACRO_SOLOW_FIELDS,
+  MACRO_SOLOW_DEFAULTS,
+  macroIslmCalc,
+  MACRO_ISLM_FIELDS,
+  MACRO_ISLM_DEFAULTS,
+  macroTaylorCalc,
+  MACRO_TAYLOR_FIELDS,
+  MACRO_TAYLOR_DEFAULTS,
+} from "../lib/gameMacroCalcs";
 import { SE_TYPES } from "../lib/olsInference";
 import { STAR_SCHEMES } from "../lib/regTable";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
@@ -1377,7 +1406,7 @@ let currentTableChartError = "";
 let currentFinText = "";
 let currentFinSvg = "";
 /** The current Finance result's Word tables (E1b: litigation damages), inserted with the text in one package. */
-let currentFinTables: { label: string; rows: string[][] }[] = [];
+let currentFinTables: FinTable[] = [];
 /** The Finance figure re-drawn for a figure style (fix2-paf: a canvas width, and black and white for USPTO). */
 let currentFinRender: ((w: number, style?: FigureStylePreset) => string) | null = null;
 /** The assay result text and fitted-curve SVG from the most recent computation. */
@@ -8227,7 +8256,9 @@ interface FinField {
  * no-op for them.
  */
 // `table` (E1a) / `tables` (E1b): Word tables inserted with the text and the figure as ONE package (litigation damages).
-type FinResult = string | { text: string; svg?: string; ok?: boolean; table?: { label: string; rows: string[][] }; tables?: { label: string; rows: string[][] }[] };
+// E5: a table may carry per-column alignment and a note under it (fin-currency), as Stats tables do.
+type FinTable = { label: string; rows: string[][]; align?: ("left" | "center" | "right")[]; note?: string };
+type FinResult = string | { text: string; svg?: string; ok?: boolean; table?: FinTable; tables?: FinTable[] };
 /** A Finance refusal: shown, never insertable (fix2-paf: refusal sentences used to be insertable results). */
 const finRefuse = (text: string): FinResult => ({ text, ok: false });
 
@@ -9632,6 +9663,16 @@ const FIN_CALCS: FinCalc[] = [
       return damagesToFin(panduitWorksheet());
     },
   },
+  {
+    id: "fin-currency",
+    name: "Currency conversion with your rates",
+    fields: FIN_CURRENCY_FIELDS.map((f) => ({ ...f, default: FIN_CURRENCY_DEFAULTS[f.key] ?? "" })),
+    compute: (r) => {
+      // Your own rates against a base currency (no live rates: offline), cross rates, ISO 4217 minor units.
+      return finCurrencyCalc(r);
+    },
+    assumes: "the rates you typed; JurisLab has no live exchange rates (it works offline)",
+  },
 ];
 
 /** Fills the calculator dropdown. */
@@ -9980,7 +10021,7 @@ function updateFinancePreview(): void {
   let svg = "";
   let refusal = "";
   let refused = false;
-  let tables: { label: string; rows: string[][] }[] = [];
+  let tables: FinTable[] = [];
   calcListNotes.clear();
   try {
     const out = fieldRefusal ? finRefuse(fieldRefusal) : calc.compute(read);
@@ -10847,6 +10888,87 @@ const STAT_CALCS: StatCalc[] = [
     compute: (r) => {
       // Exact simplex fit at each quantile, kernel-sandwich standard errors, and the coefficient-across-τ figure.
       return qregCalc(r);
+    },
+  },
+  {
+    id: "ineq-gini",
+    name: "Inequality: Gini, Lorenz, Theil, Atkinson",
+    fields: withDefaults(INEQ_GINI_FIELDS, INEQ_GINI_DEFAULTS),
+    compute: (r) => {
+      // Gini (optional n/(n − 1)), Theil T and L, Atkinson, Palma and P90/P10, with the Lorenz curve figure.
+      return ineqGiniCalc(r);
+    },
+  },
+  {
+    id: "conc-hhi",
+    name: "Market concentration: HHI and a merger's ΔHHI",
+    fields: withDefaults(CONC_HHI_FIELDS, CONC_HHI_DEFAULTS),
+    compute: (r) => {
+      // HHI, CR4, post-merger HHI and ΔHHI against the 2023 Merger Guidelines' screen, with pre/post share bars.
+      return concHhiCalc(r);
+    },
+  },
+  {
+    id: "io-leontief",
+    name: "Input–output (Leontief)",
+    fields: withDefaults(IO_LEONTIEF_FIELDS, IO_LEONTIEF_DEFAULTS),
+    compute: (r) => {
+      // (I − A)⁻¹, output and employment multipliers, backward and forward linkages, key sectors.
+      return ioLeontiefCalc(r);
+    },
+  },
+  {
+    id: "micro-market",
+    name: "Supply and demand: equilibrium, surplus, tax incidence",
+    fields: withDefaults(MICRO_MARKET_FIELDS, MICRO_MARKET_DEFAULTS),
+    compute: (r) => {
+      // Exact equilibrium, elasticities, CS/PS, tax or subsidy incidence, ceilings and floors, with the shaded figure.
+      return microMarketCalc(r);
+    },
+  },
+  {
+    id: "micro-oligopoly",
+    name: "Monopoly, Cournot, Bertrand, Stackelberg",
+    fields: withDefaults(MICRO_OLIGOPOLY_FIELDS, MICRO_OLIGOPOLY_DEFAULTS),
+    compute: (r) => {
+      // Market structures side by side under linear demand and constant marginal costs, with best-response figure.
+      return microOligopolyCalc(r);
+    },
+  },
+  {
+    id: "game-nash",
+    name: "Two-player games: Nash equilibria",
+    fields: withDefaults(GAME_NASH_FIELDS, GAME_NASH_DEFAULTS),
+    compute: (r) => {
+      // Dominance, every pure equilibrium and the mixed ones by exact support enumeration; 2×2 best-response figure.
+      return gameNashCalc(r);
+    },
+  },
+  {
+    id: "macro-solow",
+    name: "Solow growth model",
+    fields: withDefaults(MACRO_SOLOW_FIELDS, MACRO_SOLOW_DEFAULTS),
+    compute: (r) => {
+      // Steady state, golden rule, the discrete map's convergence rate and half-life, and the simulated path.
+      return macroSolowCalc(r);
+    },
+  },
+  {
+    id: "macro-islm",
+    name: "IS–LM and AD–AS (linear)",
+    fields: withDefaults(MACRO_ISLM_FIELDS, MACRO_ISLM_DEFAULTS),
+    compute: (r) => {
+      // Equilibrium, fiscal and monetary multipliers with crowding out, a policy shift, and the IS–LM and AD–AS figures.
+      return macroIslmCalc(r);
+    },
+  },
+  {
+    id: "macro-taylor",
+    name: "Taylor rule",
+    fields: withDefaults(MACRO_TAYLOR_FIELDS, MACRO_TAYLOR_DEFAULTS),
+    compute: (r) => {
+      // i = rⁿ + π + a(π − π*) + b·gap (Taylor 1993 weights by default), one period or a series.
+      return macroTaylorCalc(r);
     },
   },
   {

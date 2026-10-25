@@ -8242,6 +8242,8 @@ interface FinField {
    */
   kind?: "number" | "select" | "list" | "text" | "block";
   options?: { value: string; label: string }[];
+  /** A field that may be left blank (fin-currency's "rates as of" date): it does not hold back the result. */
+  optional?: boolean;
 }
 /**
  * What a Finance calculator returns.
@@ -9346,7 +9348,8 @@ const FIN_CALCS: FinCalc[] = [
   {
     id: "fin-currency",
     name: "Currency conversion with your rates",
-    fields: FIN_CURRENCY_FIELDS.map((f) => ({ ...f, default: FIN_CURRENCY_DEFAULTS[f.key] ?? "" })),
+    // The "as of" date may be blank: the result then says "rates as typed, no date given".
+    fields: FIN_CURRENCY_FIELDS.map((f) => ({ ...f, default: FIN_CURRENCY_DEFAULTS[f.key] ?? "", optional: f.key === "asof" })),
     compute: (r) => {
       // Your own rates against a base currency (no live rates: offline), cross rates, ISO 4217 minor units.
       return finCurrencyCalc(r);
@@ -10010,7 +10013,7 @@ function updateFinancePreview(): void {
   const read = (k: string): string => numeric.get(k) ?? rawRead(k);
   // A blank number/list field would coerce to 0 and produce a misleading result —
   // require all non-select inputs to be filled before computing.
-  if (calc.fields.some((f) => f.kind !== "select" && read(f.key).trim() === "")) {
+  if (calc.fields.some((f) => f.kind !== "select" && !f.optional && read(f.key).trim() === "")) {
     finResult.innerHTML = '<span class="hint">Enter all values to compute.</span>';
     finInsertBtn.disabled = true;
     currentFinText = "";

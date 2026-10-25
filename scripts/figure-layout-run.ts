@@ -89,6 +89,8 @@ import { predictCosy, predictHsqc, predictHmbc, predictTocsy } from "../src/lib/
 import { beamDiagramSvg } from "../src/lib/beamChart";
 import { analyzeBeam, BeamInput, BeamResult, Support, Load } from "../src/lib/beam";
 import { Rat, ratInt, ratDiv } from "../src/lib/cas";
+import { inequality, lorenzSvg } from "../src/lib/inequality";
+import { solveMarket, marketFigureSvg, type MarketSpec } from "../src/lib/microMarket";
 import { buildPeriodicTableSvg, buildBohrSvg, buildOrbitalSvg } from "../src/lib/periodicChart";
 import { buildLinearMapSvg } from "../src/lib/seqmap";
 import { buildCircularMapSvg } from "../src/lib/seqmapcirc";
@@ -3705,5 +3707,29 @@ rotator 15` }, "jones elliptical");
   const t2 = [1, 1, 2, 2, 3, 4, 4, 5, 5, 8, 8, 8, 8, 11, 11, 12, 12, 15, 17, 22, 23];
   const e2 = t2.map(() => 1);
   figures.push(["kaplan-meier two groups", kaplanMeierSvg([{ km: kaplanMeier(t, e), label: "treated" }, { km: kaplanMeier(t2, e2), label: "control" }], { title: "Kaplan-Meier" })]);
+}
+
+{
+  // Release E5 (v2.199.0): the Lorenz curve (individual and grouped) and the supply-and-demand figure under every policy.
+  const incomes = [8, 12, 15, 18, 22, 25, 30, 41, 55, 120];
+  const ind = inequality({ x: incomes, w: incomes.map(() => 1), grouped: false }, [0.5, 1, 2]);
+  figures.push(["lorenz curve individual", lorenzSvg(ind.lorenz, "0.4117", false)]);
+  const grp = inequality({ x: [5, 15, 30, 80], w: [40, 30, 20, 10], grouped: true }, [0.5, 1, 2]);
+  figures.push(["lorenz curve grouped", lorenzSvg(grp.lorenz, "0.4400", true)]);
+  const Rq = (n: number): Rat => ratInt(n);
+  const markets: [string, MarketSpec][] = [
+    ["supply demand no policy", { a: Rq(120), b: Rq(2), c: Rq(20), d: Rq(3), policy: "none", amount: null, side: "sellers" }],
+    ["supply demand tax on sellers", { a: Rq(120), b: Rq(2), c: Rq(20), d: Rq(3), policy: "tax", amount: Rq(10), side: "sellers" }],
+    ["supply demand tax on buyers", { a: Rq(120), b: Rq(2), c: Rq(20), d: Rq(3), policy: "tax", amount: Rq(10), side: "buyers" }],
+    ["supply demand subsidy", { a: Rq(120), b: Rq(2), c: Rq(20), d: Rq(3), policy: "subsidy", amount: Rq(10), side: "sellers" }],
+    ["supply demand price ceiling", { a: Rq(120), b: Rq(2), c: Rq(20), d: Rq(3), policy: "ceiling", amount: Rq(50), side: "sellers" }],
+    ["supply demand price floor", { a: Rq(120), b: Rq(2), c: Rq(20), d: Rq(3), policy: "floor", amount: Rq(90), side: "sellers" }],
+    ["supply demand flat supply", { a: Rq(120), b: Rq(2), c: Rq(20), d: Rq(0), policy: "tax", amount: Rq(10), side: "sellers" }],
+  ];
+  for (const [name, spec] of markets) {
+    const r = solveMarket(spec);
+    if (!r.ok) throw new Error(`corpus: ${name}: ${r.reason}`);
+    figures.push([name, marketFigureSvg(spec, r.r, { qunit: "unit", cur: "$" })]);
+  }
 }
 export { figures };

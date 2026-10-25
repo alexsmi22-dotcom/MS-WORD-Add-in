@@ -331,7 +331,7 @@ export function lorenzSvg(points: { p: number; L: number }[], giniText: string, 
   parts.push(`<text x="${ML + 137}" y="${ly0 + 3.5}" font-family="${FONT}" font-size="10" fill="${INK}">Line of equality</text>`);
   const ly1 = ly0 + 17;
   parts.push(`<rect x="${ML + 3}" y="${ly1 - 5}" width="16" height="10" fill="${SHADE}" fill-opacity="0.55"/>`);
-  parts.push(`<text x="${ML + 27}" y="${ly1 + 3.5}" font-family="${FONT}" font-size="10" fill="${INK}">${esc(`Area between the line and the curve = G/2 (G = ${giniText})`)}</text>`);
+  parts.push(`<text x="${ML + 27}" y="${ly1 + 3.5}" font-family="${FONT}" font-size="10" fill="${INK}">${esc(`Shaded area = G/2 (Gini G = ${giniText})`)}</text>`);
   parts.push("</svg>");
   return parts.join("");
 }

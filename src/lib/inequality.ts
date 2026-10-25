@@ -92,9 +92,12 @@ export function lorenzAt(points: { p: number; L: number }[], p: number): number 
   }
   const a = points[lo];
   const b = points[hi];
-  const v = b.p === a.p ? b.L : a.L + ((b.L - a.L) * (p - a.p)) / (b.p - a.p);
-  // Rounding leaves a true zero share (negative incomes cancelling) as ±1e−15: snap it.
-  return Math.abs(v) < 1e-12 ? 0 : v;
+  // No absolute snap (one dropped a genuine share of 1e−13 and with it the Palma ratio). Residue is snapped to 0
+  // RELATIVE to the values combined: at the Lorenz points when the curve is built, and here when the interpolation
+  // between a negative and a positive point lands on a true 0 (−0.05 and 0.05 halfway gave ±1e−18).
+  if (b.p === a.p) return b.L;
+  const v = a.L + ((b.L - a.L) * (p - a.p)) / (b.p - a.p);
+  return Math.abs(v) <= 8 * Number.EPSILON * (Math.abs(a.L) + Math.abs(b.L)) ? 0 : v;
 }
 
 /** Hyndman–Fan definition 1 on weighted data sorted ascending: the smallest x with cumulative weight ≥ p·W. */
@@ -152,7 +155,9 @@ export function inequality(inp: IneqInput, epsList: number[], exact?: { x: Rat[]
     before += w[k];
     cum[k] = before;
   }
-  const gini = D / (2 * W * T);
+  // Every term of D is ≥ 0 in exact arithmetic, so G ≥ 0: a negative value is rounding (constant incomes).
+  const equal = x[0] === x[n - 1];
+  let gini = equal ? 0 : Math.max(0, D / (2 * W * T));
   let giniExact: Rat | undefined;
   if (exact && n <= GINI_EXACT_MAX) {
     const ex = order.map((i) => exact.x[i]);
@@ -172,12 +177,18 @@ export function inequality(inp: IneqInput, epsList: number[], exact?: { x: Rat[]
     }
     // D = 2·ED; G = D/(2·W·T) = ED/(W·T).
     giniExact = ratDiv(ED, ratMul(EW, ET));
+    // The exact path exists: the printed Gini is the exact value (constant incomes give exactly 0, not 2.3×10⁻¹⁷).
+    gini = ratToNumber(giniExact);
   }
   const lorenz: { p: number; L: number }[] = [{ p: 0, L: 0 }];
   let s = 0;
+  let sAbs = 0;
   for (let k = 0; k < n; k++) {
     s += w[k] * x[k];
-    lorenz.push({ p: cum[k] / W, L: s / T });
+    sAbs += Math.abs(w[k] * x[k]);
+    // A running sum within rounding of 0 RELATIVE TO THE TERMS ADDED (negative incomes cancelling) is exactly 0.
+    const zero = Math.abs(s) <= 4 * Number.EPSILON * (k + 1) * sAbs;
+    lorenz.push({ p: cum[k] / W, L: zero ? 0 : s / T });
   }
   lorenz[lorenz.length - 1] = { p: 1, L: 1 };
 
@@ -191,15 +202,20 @@ export function inequality(inp: IneqInput, epsList: number[], exact?: { x: Rat[]
   } else {
     let t = 0;
     for (let i = 0; i < n; i++) if (x[i] > 0) t += w[i] * (x[i] / mean) * Math.log(x[i] / mean);
-    theilT = t / W;
+    // Theil T, Theil L and the Atkinson indices are ≥ 0 (Jensen): constant incomes give exactly 0, and a
+    // negative value is rounding, clamped to 0 (never printed as a negative inequality).
+    theilT = equal ? 0 : Math.max(0, t / W);
     if (zeros > 0) theilLWhy = `it needs every income positive (${zeros} zero income${zeros === 1 ? "" : "s"})`;
     else {
       let l = 0;
       for (let i = 0; i < n; i++) l += w[i] * Math.log(mean / x[i]);
-      theilL = l / W;
+      theilL = equal ? 0 : Math.max(0, l / W);
     }
   }
-  const atkinson = epsList.map((e) => atkinsonOf(x, w, W, mean, e, zeros, negatives));
+  const atkinson = epsList.map((e) => {
+    const a = atkinsonOf(x, w, W, mean, e, zeros, negatives);
+    return a.value === undefined ? a : { ...a, value: equal ? 0 : Math.max(0, a.value) };
+  });
   const L40 = lorenzAt(lorenz, 0.4);
   const L90 = lorenzAt(lorenz, 0.9);
   return {

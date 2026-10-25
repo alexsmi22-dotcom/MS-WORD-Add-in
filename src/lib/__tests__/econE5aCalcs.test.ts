@@ -206,8 +206,8 @@ describe("ineq-gini against the oracle", () => {
     const bad: [Record<string, string>, RegExp][] = [
       [{ data: "" }, /Paste incomes/],
       [{ data: "abc\ndef" }, /no column of numbers|not a finite number/],
-      [{ data: "Income\n100\nabc\n300" }, /Row 2: “abc” is not a finite number/],
-      [{ data: "1e400\n5" }, /not a finite number|beyond the largest income/],
+      [{ data: "Income\n100\nabc\n300" }, /Column “Income”, row 2: “abc” is not a number/],
+      [{ data: "1e400\n5" }, /not a number|beyond the largest income/],
       [{ data: "2e15\n5" }, /beyond the largest income/],
       [{ data: "0\n0\n0" }, /mean income is zero/],
       [{ data: "−5\n1\n2" }, /mean income is negative/],
@@ -351,14 +351,14 @@ describe("io-leontief against the oracle", () => {
       const mult = out.tables!.find((t) => t.label === "Multipliers and linkages")!;
       const head = mult.rows[0];
       const col = (name: string): number[] => mult.rows.slice(1).map((r) => num(r[head.indexOf(name)]));
-      col("Output multiplier").forEach((v, j) => expect(v).toBeCloseTo(c.output_mult[j], 4));
-      col("Backward linkage").forEach((v, j) => expect(v).toBeCloseTo(c.bl[j], 4));
-      const flCol = head.find((h) => h.startsWith("Forward linkage"))!;
-      col(flCol).forEach((v, j) => expect(v).toBeCloseTo(c.fl_ghosh ? c.fl_ghosh[j] : c.fl_rasmussen[j], 4));
+      col("Output mult.").forEach((v, j) => expect(v).toBeCloseTo(c.output_mult[j], 4));
+      col("Backward").forEach((v, j) => expect(v).toBeCloseTo(c.bl[j], 4));
+      col("Forward").forEach((v, j) => expect(v).toBeCloseTo(c.fl_ghosh ? c.fl_ghosh[j] : c.fl_rasmussen[j], 4));
+      expect(mult.note).toContain(c.fl_ghosh ? "Forward = forward linkage (Ghosh" : "Forward = forward linkage (Rasmussen");
       if (c.emp_effect) {
-        col("Employment effect").forEach((v, j) => expect(v).toBeCloseTo(c.emp_effect[j], 4));
+        col("Empl. effect").forEach((v, j) => expect(v).toBeCloseTo(c.emp_effect[j], 4));
         mult.rows.slice(1).forEach((r, j) => {
-          const cell = r[head.indexOf("Type I employment multiplier")];
+          const cell = r[head.indexOf("Type I mult.")];
           if (c.emp_type1[j] === null) expect(cell).toContain("not defined");
           else expect(num(cell)).toBeCloseTo(c.emp_type1[j], 4);
         });
@@ -392,7 +392,10 @@ describe("io-leontief against the oracle", () => {
     expect(out.tables!.some((t) => t.label === "Leontief inverse, exact fractions")).toBe(true);
     expect(out.svg).toContain("Backward linkage (Rasmussen index, 1 = average)");
     expect(out.text).toContain("forward linkage = the same normalisation of the row sums of L (Rasmussen)");
-    expect(out.tables!.find((t) => t.label === "Multipliers and linkages")!.rows[0]).toContain("Forward linkage (Rasmussen)");
+    const mult = out.tables!.find((t) => t.label === "Multipliers and linkages")!;
+    expect(mult.rows[0]).toEqual(["Sector", "Output mult.", "Empl. effect", "Type I mult.", "Backward", "Forward", "Key sector"]);
+    expect(mult.note).toContain("Forward = forward linkage (Rasmussen, normalised row sums of L)");
+    expect(mult.note).toContain("Empl. effect = employment effect");
   });
 
   test("A = [[0, 1.5], [0.1, 0]] is productive (a column sum above 1) and accepted", () => {
@@ -416,7 +419,7 @@ describe("io-leontief against the oracle", () => {
       [{ matrix: "\tA\tB\nA\tabc\t0.2\nB\t0.1\t0.2" }, /“abc”.*not a finite number/],
       [{ matrix: "\tA\tB\nA\t1e400\t0.2\nB\t0.1\t0.2" }, /not a finite number/],
       [{ fd: "1, 2" }, /Final demand f has 2 values; the table has 3 sectors/],
-      [{ fd: "1, abc, 3" }, /Final demand f:/],
+      [{ fd: "1, abc, 3" }, /Final demand f, value 2: “abc” is not a finite number/],
       [{ emp: "−1, 2, 3" }, /cannot be negative/],
       [{ mode: "Q" }, /Unknown table type/],
     ];
@@ -549,7 +552,7 @@ describe("review round: readers, scales, bounds", () => {
       const out = ineqRun({ data });
       contract(out);
       expect(out.text).toContain("Gini G = 0.2963 (exactly 8/27)");
-      expect(out.text).toContain("decimal commas");
+      expect(out.text).toContain("3 cells with a decimal comma were read as decimals");
     }
     // Thousands commas stay thousands: 1,500, 2,500, 3,000 → G = 6000/(2·9·2333.33…) = 1/7.
     expect(ineqRun({ data: "1,500\n2,500\n3,000" }).text).toContain("Gini G = 0.1429 (exactly 1/7)");
@@ -622,6 +625,225 @@ describe("review round: readers, scales, bounds", () => {
     // 999,999,999 shown to 6 significant digits.
     expect(huge.text).toContain("1 USD = 1,000,000,000 VND");
     expect(huge.text).toContain("999,999,999.00 USD = 999,999,998,000,000,001 VND");
+  });
+});
+
+describe("E5 fix round: the adversary's cases", () => {
+  const giniCell = (o: StatOutput): string => o.tables![0].rows.find((r) => r[0] === "Gini G")![1];
+
+  // 1 (HIGH) currency: one comma convention across every rate and amount line.
+  test("fx: “CHF 1,105” beside “EUR 0,92” is refused naming both readings; a lone “JPY 151,250” is thousands, said", () => {
+    const bad = fxRun({ rates: "EUR 0,92\nCHF 1,105", amounts: "100 CHF", target: "EUR" });
+    expect(bad.ok).toBe(false);
+    expect(bad.text).toContain("Rate line 2 (CHF): “1,105” could be 1.105 (a decimal comma) or 1105 (a thousands comma)");
+    expect(bad.text).toContain("Rate line 1 (EUR) writes a decimal comma (“0,92”)");
+    // The decimal comma in an AMOUNT line counts too.
+    const viaAmount = fxRun({ rates: "EUR 0.92\nCHF 1,105", amounts: "12,5 EUR", target: "EUR" });
+    expect(viaAmount.ok).toBe(false);
+    expect(viaAmount.text).toContain("“1,105” could be 1.105");
+    const lone = fxRun({ rates: "JPY 151,250\nEUR 0.92", amounts: "151250 JPY", target: "EUR" });
+    contract(lone);
+    expect(lone.text).toContain("“151,250” (rate line 1 (JPY)) was read with a thousands comma (151250)");
+    expect(lone.text).toContain("151,250 JPY = 0.92 EUR");
+    expect(fxRun({ rates: "JPY 151,250\nEUR 0,92", amounts: "", target: "EUR" }).ok).toBe(false);
+  });
+
+  // 5 (MED) currency: a point group with more decimals than the minor unit.
+  test("fx: “1.000 JPY”, “250.000 JPY”, “1.250 EUR” are refused naming both readings; “420.125 KWD” and “10.003 USD” are read", () => {
+    for (const [amt, a, b] of [
+      ["1.000 JPY", "1,000 JPY", "1 JPY"],
+      ["250.000 JPY", "250,000 JPY", "250 JPY"],
+      ["1.250 EUR", "1,250 EUR", "1.25 EUR"],
+    ]) {
+      const out = fxRun({ amounts: amt });
+      expect(out.ok).toBe(false);
+      expect(out.text).toContain(`could be ${a} (a point grouping thousands) or ${b} (a decimal point`);
+    }
+    // Beside a decimal-comma amount the point is a thousands separator candidate whatever the minor unit.
+    const mixed = fxRun({ amounts: "1.250,00 EUR\n1.250 EUR" });
+    expect(mixed.ok).toBe(false);
+    expect(mixed.text).toContain("“1.250” could be 1250 (a point grouping thousands) or 1.25 (a decimal point)");
+    contract(fxRun({ amounts: "420.125 KWD\n10.003 USD\n0.001 USD" }));
+  });
+
+  // 7 (MED) currency: amounts and rates exact from the typed text.
+  test("fx: 500000000000000.13 and 999999999999999.99 stay exact; the 10¹⁵ cap is exact", () => {
+    const out = fxRun({ amounts: "500000000000000.13 USD\n999999999999999.99 USD", target: "USD" });
+    contract(out);
+    const conv = out.tables!.find((t) => t.label.startsWith("Conversions"))!.rows.slice(1);
+    expect(conv.map((r) => r[0])).toEqual(["500,000,000,000,000.13 USD", "999,999,999,999,999.99 USD"]);
+    expect(conv.map((r) => r[2])).toEqual(["500,000,000,000,000.13 USD", "999,999,999,999,999.99 USD"]);
+    // 10¹⁵ + 0.01 is the double 10¹⁵: only an exact comparison refuses it.
+    const over = fxRun({ amounts: "1000000000000000.01 USD", target: "USD" });
+    expect(over.ok).toBe(false);
+    expect(over.text).toContain("beyond the largest amount accepted");
+    // A typed rate is exact too: 1/3-ish decimals multiply exactly.
+    const r = fxRun({ rates: "EUR 0.333333333333333333", amounts: "3000000000000000 USD", target: "EUR" });
+    expect(r.ok).toBe(false);
+    // 3×10¹⁴ × 0.333333333333333333 = 10¹⁴ − 0.0001 → 100,000,000,000,000.00; through the double 0.33333333333333331
+    // it was 99,999,999,999,999.99.
+    const r2 = fxRun({ rates: "EUR 0.333333333333333333", amounts: "300000000000000 USD", target: "EUR" });
+    contract(r2);
+    expect(r2.text).toContain("= 100,000,000,000,000.00 EUR");
+  });
+
+  // 2 (HIGH) gini: space-grouped thousands in a one-column paste.
+  test("gini: “12 500 / 15 000 / 8 750 / 40 000” is four incomes in thousands, said; never 12, 15, 8, 40 in a column “y”", () => {
+    const out = ineqRun({ data: "12 500\n15 000\n8 750\n40 000" });
+    contract(out);
+    const plain = ineqRun({ data: "12500\n15000\n8750\n40000" });
+    expect(giniCell(out)).toBe(giniCell(plain));
+    expect(out.text).toContain("Inequality of 4 incomes, column “Income”");
+    expect(out.text).toContain("4 incomes were written with spaces between digit groups (“12 500”) and read as one number each (12500)");
+    expect(out.text).not.toContain("“y”");
+    const headed = ineqRun({ data: "Household income\n12 500\n15 000\n8 750\n40 000" });
+    expect(giniCell(headed)).toBe(giniCell(plain));
+  });
+
+  // 3 (HIGH) gini: decimal comma and thousands shape in one column.
+  test("gini: “0,5 / 1,500 / 2,5 / 3,25” is refused as regData refuses it", () => {
+    const out = ineqRun({ data: "0,5\n1,500\n2,5\n3,25" });
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain("mixes a decimal comma (“0,5”, row 1) with a thousands separator (“1,500”, row 2)");
+  });
+
+  // 4 (MED-HIGH) grouped gini: columns by name.
+  test("grouped gini: three numeric columns are refused and named; the fields pick income and weight; the headline says which", () => {
+    const data = "Decile\tMean\tPop\n1\t5000\t10\n2\t15000\t20\n3\t40000\t10";
+    const amb = ineqRun({ data, layout: "grouped" });
+    expect(amb.ok).toBe(false);
+    expect(amb.text).toContain("3 columns of numbers (“Decile”, “Mean”, “Pop”)");
+    expect(amb.text).toContain("“Income column” and “Count or weight column”");
+    const ok = ineqRun({ data, layout: "grouped", xcol: "mean", wcol: "Pop" });
+    contract(ok);
+    expect(ok.text).toContain("income column “Mean”, count or weight column “Pop”");
+    // Same answer as the two-column table.
+    const two = ineqRun({ data: "Mean\tPop\n5000\t10\n15000\t20\n40000\t10", layout: "grouped" });
+    expect(giniCell(ok)).toBe(giniCell(two));
+    expect(ineqRun({ data, layout: "grouped", xcol: "Mean" }).text).toContain("name the count or weight column too");
+    expect(ineqRun({ data, layout: "grouped", xcol: "Mean", wcol: "Mean" }).ok).toBe(false);
+    expect(ineqRun({ data, layout: "grouped", xcol: "Median", wcol: "Pop" }).text).toContain("Income column: No column is named “Median”");
+  });
+
+  // 5 (MED) gini: point groups.
+  test("gini: “12.500 / 15.000 / 8.750 / 40.000” and a tab table mixing 12.500 with 8,75 are refused; a proven decimal point is read", () => {
+    const dots = ineqRun({ data: "12.500\n15.000\n8.750\n40.000" });
+    expect(dots.ok).toBe(false);
+    expect(dots.text).toContain("Row 1: “12.500” could be 12500 (a point grouping thousands) or 12.5 (a decimal point)");
+    const mix = ineqRun({ data: "Income\tHousehold\n12.500\tA\n8,75\tB\n9\tC" });
+    expect(mix.ok).toBe(false);
+    expect(mix.text).toContain("may be a thousands separator");
+    contract(ineqRun({ data: "12.500\n15.000\n3.25" }));
+  });
+
+  // 6 (MED) constant incomes: exact zeros, never negative.
+  test("gini: constant incomes print exactly 0 for every measure (exact and floating-point paths)", () => {
+    for (const data of ["500\n500\n500\n500", Array(2500).fill("0.1").join("\n"), Array(7).fill("123456.789").join("\n")]) {
+      const out = ineqRun({ data, eps: "3.5" });
+      contract(out);
+      expect(out.text).not.toMatch(/×10|−0/);
+      for (const r of out.tables![0].rows.slice(1)) {
+        if (/^(Gini|Theil|Atkinson)/.test(r[0])) expect(r[1]).toBe("0.0000");
+      }
+      expect(out.svg).toContain("G = 0.0000");
+    }
+  });
+
+  test("gini: a bottom-40% share of 10⁻¹⁵ keeps its Palma ratio (no absolute snap); the reason for leaving it out is true", () => {
+    const out = ineqRun({ data: [...Array(4).fill("0.000001"), ...Array(6).fill("1000000000")].join("\n") });
+    contract(out);
+    expect(out.tables![0].rows.some((r) => r[0] === "Palma ratio")).toBe(true);
+    const zeros = ineqRun({ data: "0\n0\n0\n0\n10\n20\n30\n40\n50\n60" });
+    expect(zeros.text).toContain("The Palma ratio is left out: the bottom 40% hold no income (their share is exactly 0)");
+  });
+
+  test("grouped gini: P90/P10 is not called a lower bound", () => {
+    const out = ineqRun({ data: "Mean\tCount\n100\t5\n200\t5\n900\t2", layout: "grouped" });
+    contract(out);
+    expect(out.text).toContain("P10, P90 and P90/P10 are quantiles of the group incomes");
+    expect(out.text).toContain("not bounds in either direction");
+    expect(out.text).not.toContain("every other measure here");
+  });
+
+  // 8 (MED) HHI: "28 %" and "n/a" in the first row.
+  test("hhi: “A 28 %” is 28 percent, never a header; “Alder n/a” is refused by row", () => {
+    const out = hhiRun({ data: "A 28 %\nB 72 %", merging: "" });
+    contract(out);
+    expect(out.text).toContain("HHI = 5,968");
+    expect(out.text).toContain("Market concentration: 2 firms");
+    const tab = hhiRun({ data: "A\t28 %\nB\t72 %", merging: "" });
+    expect(tab.text).toContain("HHI = 5,968");
+    const na = hhiRun({ data: "Alder n/a\nBirch 50\nCedar 50", merging: "" });
+    expect(na.ok).toBe(false);
+    expect(na.text).toContain("Row 1 (“Alder”) has no share (“n/a”)");
+    expect(hhiRun({ data: "Firm\tShare\nAlder\tNA\nBirch\t50", merging: "" }).text).toContain("(“Alder”) has no share (“NA”)");
+  });
+
+  // 5 (MED) HHI sales.
+  test("hhi: sales “1.250 / 980 / 2.000” are refused naming both readings", () => {
+    const out = hhiRun({ data: "A 1.250\nB 980\nC 2.000", units: "sales", merging: "" });
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain("“1.250” could be 1250 (a point grouping thousands) or 1.25 (a decimal point)");
+    contract(hhiRun({ data: "A 1.250\nB 980.5\nC 2.000", units: "sales", merging: "" }));
+    const mixed = hhiRun({ data: "A\t0,5\nB\t1,500", units: "sales", merging: "" });
+    expect(mixed.ok).toBe(false);
+    expect(mixed.text).toContain("mixes a decimal comma");
+  });
+
+  test("hhi: shares adding to 100.4 are said to be used as typed", () => {
+    const out = hhiRun({ data: "A\t50\nB\t50.4", merging: "" });
+    contract(out);
+    expect(out.text).toContain("The shares add to 100.4%, within 0.5 point of 100%: read as rounding and used as typed (not rescaled).");
+  });
+
+  test("hhi: with more than 16 firms the figure still shows the merged firm, the merging firms and Other", () => {
+    const rows = Array.from({ length: 22 }, (_, i) => `F${i + 1}\t${(i < 11 ? 6 : 3).toString()}`);
+    const out = hhiRun({ data: rows.join("\n"), merging: "F21\nF22" });
+    contract(out);
+    const labels = [...out.svg!.matchAll(/>([^<]+)<\/text>/g)].map((m) => m[1]);
+    for (const want of ["Merged", "F21", "F22", "Other"]) expect(labels).toContain(want);
+    expect(out.text).toContain("the 12 largest other firms; the remaining 8 firms are combined as “Other”");
+    // With a fringe too.
+    const fr = hhiRun({ data: rows.slice(0, 20).join("\n"), merging: "F19\nF20" });
+    const fl = [...fr.svg!.matchAll(/>([^<]+)<\/text>/g)].map((m) => m[1]);
+    for (const want of ["Merged", "F19", "F20", "Other"]) expect(fl).toContain(want);
+    expect(fr.text).toContain("combined as “Other” with the unnamed fringe");
+  });
+
+  // 9 (MED-LOW) Leontief list fields.
+  test("io: “1 000 2 000 3 000” is refused naming both readings; commas or plain spaces are read", () => {
+    const bad = ioRun({ fd: "1 000 2 000 3 000" });
+    expect(bad.ok).toBe(false);
+    expect(bad.text).toContain("Final demand f: “1 000” may be one number with a space grouping its digits (1000) or separate values (1, 000)");
+    expect(ioRun({ fd: "1 000 2 000" }).ok).toBe(false);
+    const commas = ioRun({ fd: "1 000, 2 000, 3 000" });
+    const plain = ioRun({ fd: "1000, 2000, 3000" });
+    contract(commas);
+    expect(commas.tables!.find((t) => t.label === "Output for the final demand")!.rows).toEqual(plain.tables!.find((t) => t.label === "Output for the final demand")!.rows);
+    contract(ioRun({ fd: "100 200 300" }));
+    const mix = ioRun({ fd: "0,5, 1,500, 2" });
+    expect(mix.ok).toBe(false);
+    expect(mix.text).toContain("“1,500” could be 1.5 (a decimal comma) or 1500 (a thousands comma)");
+    const tbl = ioRun({ matrix: "\tA\tB\nA\t0,1\t1.250\nB\t0,2\t0,1", fd: "", emp: "" });
+    expect(tbl.ok).toBe(false);
+  });
+
+  test("io: ρ is printed so that “< 1” is visibly true; a huge κ rounds the output to the digits it leaves", () => {
+    const a = ioRun({ matrix: "\tA\nA\t0.99999", fd: "1", emp: "" });
+    contract(a);
+    expect(a.text).toContain("ρ(A) = 0.99999 < 1");
+    const b = ioRun({ matrix: "\tA\nA\t0.9999999", fd: "", emp: "" });
+    contract(b);
+    expect(b.text).toContain("0.999999 < ρ(A) < 1");
+    const n = 9;
+    const rows = ["\t" + Array.from({ length: n }, (_, j) => `S${j + 1}`).join("\t")];
+    for (let i = 0; i < n; i++) rows.push(`S${i + 1}\t` + Array(n).fill("0.11111111").join("\t"));
+    const big = ioRun({ matrix: rows.join("\n"), fd: Array(n).fill("1").join(", "), emp: "" });
+    contract(big);
+    expect(big.text).toContain("condition number κ₁(I − A)");
+    expect(big.text).toMatch(/so the output is rounded to \d+ significant digits rather than printed to 2 decimals/);
+    const outCells = big.tables!.find((t) => t.label === "Output for the final demand")!.rows.slice(1).map((r) => r[2]);
+    for (const c of outCells) expect(c).not.toMatch(/\.\d\d$/);
   });
 });
 

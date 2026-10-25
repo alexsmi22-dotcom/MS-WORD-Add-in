@@ -8,12 +8,12 @@
  * The worked defaults are invented numbers (no textbook table, no official data).
  */
 import type { StatOutput, StatTable } from "./analyzeBlocks";
-import { parseRegData, readRegCell, isMissingCell } from "./regData";
-import { fmtFixed, intText, numText } from "./regTable";
-import { readCalcList } from "./calcList";
+import { parseRegData, readRegCell, isMissingCell, selectColumns, findColumn, type RegDataset } from "./regData";
+import { fmtFixed, intText, numText, groupThousands } from "./regTable";
+import { semicolonCommaRefusal } from "./numberList";
 import { groupedBarSvg } from "./statchart";
 import { linearAxis } from "./axis";
-import { ratAdd, ratSub, ratMul, ratDiv, ratSign, ratToNumber, RAT_ZERO, type Rat } from "./cas";
+import { ratAdd, ratSub, ratMul, ratDiv, ratSign, ratToNumber, parseRatLiteral, RAT_ZERO, type Rat } from "./cas";
 import { inequality, lorenzAt, lorenzSvg, exactOf, shortFraction, type IneqResult } from "./inequality";
 import {
   leontiefInverse,
@@ -86,6 +86,149 @@ function decimalCommaNote(any: boolean): string[] {
   return any ? ["Commas inside numbers were read as decimal commas (“0,5” is 0.5)."] : [];
 }
 
+// -----------------------------------------------------------------------------------------------------------------
+// Number reading under the table rules of regData.ts (E5 fix round: these calculators had readers of their own).
+// Table cells go through parseRegData + selectColumns; numbers typed one per line or in a list field go through
+// readRegCell with the SAME whole-input rules selectColumns applies to a table: a decimal comma anywhere makes a
+// thousands-shaped "1,105" ambiguous, and a point followed by three digits ("1.250") ambiguous, and both are refused
+// naming the two readings. The patterns below are regData's own.
+
+/** "1,500", "12,345,678": the shape of a thousands comma (regData THOUSANDS_SHAPE). */
+const THOUSANDS_SHAPE = /^[-−+]?[1-9]\d{0,2}(,\d{3})+$/;
+/** "2.345": one point and exactly three digits after it, so it may be a thousands group (regData ONE_DOT_GROUP). */
+const ONE_DOT_GROUP = /^[1-9]\d{0,2}\.\d{3}$/;
+const MULTI_DOT_GROUPS = /^[1-9]\d{0,2}(\.\d{3}){2,}$/;
+/** "1.234,5": points grouping thousands before a decimal comma (regData GERMAN_FORM). */
+const GERMAN_FORM = /^[-−+]?\d{1,3}(\.\d{3})+,\d+/;
+/** "12 500", "1 000 000,5": digit groups separated by single spaces (the cell reader joins them into one number). */
+const SPACE_GROUPED = /^[-−+]?\d{1,3}( \d{3})+([.,]\d+)?$/;
+
+/** A cell's digits without its sign, ×10ⁿ tail or % sign. */
+function mantissaOf(cell: string): string {
+  return cell.trim().replace(/^[-−+]/, "").split(/[×xX·%]/)[0].trim();
+}
+function isOneDotGroup(cell: string): boolean {
+  return cell.includes(".") && ONE_DOT_GROUP.test(mantissaOf(cell));
+}
+/** "1.250" read with a decimal point, trailing zeros dropped: "1.25", "40". */
+function decimalReading(digits: string): string {
+  return digits.includes(".") ? digits.replace(/0+$/, "").replace(/\.$/, "") : digits;
+}
+
+interface CellItem {
+  cell: string;
+  /** Where the cell is, for messages: "Row 3", "Rate line 2 (CHF)". */
+  where: string;
+}
+
+/**
+ * Beyond regData (which refuses "1.250" only beside a decimal comma): a column in which every number with a point
+ * has exactly three digits after it ("12.500", "15.000"; or "1.250" beside plain integers) gives no sign of what the
+ * point means, so it is refused naming both readings. A cell such as "3.25" or "0.500" proves a decimal point.
+ */
+function dotGroupAmbiguity(items: CellItem[], scope: string): string | undefined {
+  let first: CellItem | undefined;
+  for (const it of items) {
+    const t = it.cell.trim();
+    if (!t.includes(".")) continue;
+    if (isOneDotGroup(t)) {
+      if (!first) first = it;
+      continue;
+    }
+    if (GERMAN_FORM.test(t) || MULTI_DOT_GROUPS.test(mantissaOf(t))) continue;
+    if (/\.\d/.test(t)) return undefined;
+  }
+  if (!first) return undefined;
+  const d = mantissaOf(first.cell);
+  const whole = d.replace(".", "");
+  const dec = decimalReading(d);
+  return (
+    `${first.where}: ${q(first.cell)} could be ${whole} (a point grouping thousands) or ${dec} (a decimal point). ` +
+    `Every point in ${scope} is followed by exactly three digits, so nothing shows which. Write ${q(whole)} if it is a whole number, or ${q(dec)} if the point is a decimal point.`
+  );
+}
+
+type Consistent =
+  | { ok: true; values: number[]; decimalComma: boolean[]; decimalCommas: number; thousands: CellItem[] }
+  | { ok: false; reason: string };
+
+/**
+ * Reads numbers typed outside a table (rate lines, amount lines, list fields) with regData's cell reader under ONE
+ * convention for the whole input, as selectColumns does for a table: a decimal comma ("0,92") beside a
+ * thousands-shaped comma ("1,105") or beside a point group ("1.250") is refused naming both readings; a lone
+ * "151,250" with no decimal comma anywhere is the thousands reading (reported in `thousands` so the caller says so).
+ */
+function readConsistent(items: CellItem[], scope: string): Consistent {
+  const values: number[] = [];
+  const dcs: boolean[] = [];
+  let dec: CellItem | undefined;
+  let kSeen: CellItem | undefined;
+  let dot: CellItem | undefined;
+  const thousands: CellItem[] = [];
+  for (const it of items) {
+    const r = readRegCell(it.cell, false);
+    if (!Number.isFinite(r.value)) return { ok: false, reason: `${it.where}: ${q(it.cell.trim())} is not a finite number.` };
+    values.push(r.value);
+    dcs.push(r.decimalComma);
+    if (r.decimalComma) {
+      if (!dec) dec = it;
+    } else {
+      if (THOUSANDS_SHAPE.test(it.cell.trim().split(/[×xX·%]/)[0].trim())) {
+        if (!kSeen) kSeen = it;
+        thousands.push(it);
+      }
+      if (isOneDotGroup(it.cell) && !dot) dot = it;
+    }
+  }
+  if (dec && kSeen) {
+    const d = mantissaOf(kSeen.cell);
+    const whole = d.replace(/,/g, "");
+    const commas = (d.match(/,/g) ?? []).length;
+    const asDec = commas === 1 ? decimalReading(d.replace(",", ".")) : undefined;
+    return {
+      ok: false,
+      reason:
+        `${kSeen.where}: ${q(kSeen.cell.trim())} could be ${asDec !== undefined ? `${asDec} (a decimal comma) or ` : ""}${whole} (a thousands comma). ` +
+        `${dec.where} writes a decimal comma (${q(dec.cell.trim())}), and ${scope} must use one convention, so which one this comma means is ambiguous. ` +
+        `Type ${asDec !== undefined ? `${q(asDec)} or ` : ""}${q(whole)}.`,
+    };
+  }
+  if (dec && dot) {
+    const d = mantissaOf(dot.cell);
+    const whole = d.replace(".", "");
+    const asDec = decimalReading(d);
+    return {
+      ok: false,
+      reason:
+        `${dot.where}: ${q(dot.cell.trim())} could be ${whole} (a point grouping thousands) or ${asDec} (a decimal point). ` +
+        `${dec.where} writes a decimal comma (${q(dec.cell.trim())}), so in ${scope} a point may group thousands. Type ${q(whole)} or ${q(asDec.replace(".", ","))}.`,
+    };
+  }
+  return { ok: true, values, decimalComma: dcs, decimalCommas: dcs.filter(Boolean).length, thousands };
+}
+
+/**
+ * A typed number as an exact fraction straight from its text (never through a double): U+2212 to "-", a decimal
+ * comma to a point, thousands commas and space groups removed, then the decimal text read as digits over a power of
+ * ten. null when the text is not a plain decimal (or e-notation) after that.
+ */
+function exactFromCell(cell: string, decimalComma: boolean): Rat | null {
+  let t = cell.trim().replace(/^\+/, "").replace(/^[−–]/, "-");
+  if (SPACE_GROUPED.test(t)) t = t.replace(/ /g, "");
+  if (decimalComma) t = GERMAN_FORM.test(t) ? t.replace(/\./g, "").replace(",", ".") : t.replace(",", ".");
+  else t = t.replace(/,/g, "");
+  if (!/^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t)) return null;
+  return parseRatLiteral(t);
+}
+
+/** |r| compared with 10^k exactly: −1, 0 or 1. */
+function cmpPow10(r: Rat, k: number): number {
+  const a = r.n < 0n ? -r.n : r.n;
+  const lhs = k >= 0 ? a : a * 10n ** BigInt(-k);
+  const rhs = k >= 0 ? r.d * 10n ** BigInt(k) : r.d;
+  return lhs < rhs ? -1 : lhs > rhs ? 1 : 0;
+}
+
 // =================================================================================================================
 // ineq-gini
 
@@ -101,9 +244,11 @@ export const INEQ_GINI_FIELDS: E5Field[] = [
     kind: "select",
     options: [
       { value: "individual", label: "One income per row (the first numeric column)" },
-      { value: "grouped", label: "Groups: income or mean | count or weight (the first two numeric columns)" },
+      { value: "grouped", label: "Groups: income or mean | count or weight (name the columns below if there are more than two numeric columns)" },
     ],
   },
+  { key: "xcol", label: "Income column by name (blank = the first numeric column; a grouped table with exactly two numeric columns uses the first)", kind: "text" },
+  { key: "wcol", label: "Count or weight column by name, grouped tables (blank = the second numeric column when there are exactly two)", kind: "text" },
   {
     key: "correction",
     label: "Gini small-sample correction",
@@ -123,6 +268,8 @@ export const INEQ_GINI_DEFAULTS: Record<string, string> = {
     "34200", "37900", "41500", "45800", "51200", "57600", "66300", "78900", "97500", "164000",
   ].join("\n"),
   layout: "individual",
+  xcol: "",
+  wcol: "",
   correction: "none",
   eps: "",
 };
@@ -132,24 +279,24 @@ export const INEQ_MAX_ROWS = 200000;
 /** Largest |income| and weight accepted, so Σ wᵢxᵢ·W stays far inside the double range. */
 export const INEQ_MAX_ABS = 1e15;
 
-interface ColumnPick {
-  cols: number[];
-  label: number | null;
-}
-
-/** The first `want` numeric columns (a column whose first non-missing cell is not a number is a label column). */
-function pickNumericColumns(rows: string[][], width: number, want: number): ColumnPick | { error: string } {
+/** Every numeric column (a column whose first non-missing cell is not a number is a label column). */
+function numericColumns(rows: string[][], width: number, semicolon: boolean): number[] {
   const cols: number[] = [];
-  let label: number | null = null;
-  for (let j = 0; j < width && cols.length < want; j++) {
+  for (let j = 0; j < width; j++) {
     const first = rows.find((r) => !isMissingCell(r[j] ?? ""));
     if (!first) continue;
     // A number-shaped cell that overflows ("1e400") still marks a numeric column; its row is then refused by name.
-    if (Number.isFinite(readRegCell(first[j], false).value) || NUMBER_SHAPE.test(first[j].trim())) cols.push(j);
-    else if (label === null) label = j;
+    if (Number.isFinite(readRegCell(first[j], semicolon).value) || NUMBER_SHAPE.test(first[j].trim())) cols.push(j);
   }
-  if (cols.length < want) return { error: want === 1 ? "The table has no column of numbers." : `A grouped table needs two columns of numbers (income or mean, then count or weight); found ${cols.length}.` };
-  return { cols, label };
+  return cols;
+}
+
+/** A column named in a field: its index, or a refusal naming the field. */
+function namedColumn(names: string[], numeric: number[], raw: string, what: string): number | { error: string } {
+  const c = findColumn(names, raw);
+  if (typeof c !== "number") return { error: `${what}: ${c.error}` };
+  if (!numeric.includes(c)) return { error: `${what}: column ${q(names[c])} does not hold numbers.` };
+  return c;
 }
 
 export function ineqGiniCalc(read: Read): StatOutput {
@@ -169,71 +316,135 @@ export function ineqGiniCalc(read: Read): StatOutput {
   }
   const text = get("data");
   if (!text.trim()) return refuse("Paste incomes, one per row, or a grouped table (income or mean | count).");
-  // A bare column of numbers has no header, and parseRegData reads its first number as data: good. A one-column
-  // paste headed by words with spaces ("Household income") would split the header into columns: read it whole.
-  // A single column (no tab or semicolon, one value per line) is read line by line: through the table reader a
-  // decimal comma ("0,5") would make it a comma-separated file and split every value in two. Its header may be
-  // words with spaces ("Household income").
-  let rows: string[][];
-  let names: string[];
-  let semicolon = false;
+  // A single column (no tab or semicolon, one value per line) is read line by line, each line one CELL of the table
+  // reader: through parseRegData a decimal comma ("0,5") would make it a comma-separated file and split every value
+  // in two, and "12 500" would become two columns. Its header may be words with spaces ("Household income"). A line
+  // of digit groups separated by single spaces ("12 500") is one cell, which regData's cell reader reads as 12500
+  // (its space-thousands rule); that is said in a note. The cells then go through selectColumns, regData's
+  // whole-column rules (a decimal comma beside "1,500" or "1.250" is refused).
+  let ds: RegDataset;
+  let spaceGrouped: string | undefined;
+  let spaceGroupedCount = 0;
   const ls = text.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter((l) => l !== "");
-  const oneColumn = !grouped && !/[\t;]/.test(text) && ls.slice(1).every((l) => !/\s/.test(l));
+  const oneColumn = !grouped && !/[\t;]/.test(text) && ls.slice(1).every((l) => !/\s/.test(l) || SPACE_GROUPED.test(l));
   if (oneColumn) {
-    const head = ls.length > 0 && !/\d/.test(ls[0]) && !isMissingCell(ls[0]) ? ls[0] : undefined;
-    if (head === undefined && /\s/.test(ls[0] ?? "")) return refuse(`Row 1, ${q(ls[0])}: one income per row (a header row is optional).`);
-    names = [head ?? "Income"];
-    rows = (head === undefined ? ls : ls.slice(1)).map((l) => [l]);
-    if (!rows.length) return refuse("The table has a header row but no incomes.");
+    const first = ls[0] ?? "";
+    const head = ls.length > 0 && !/\d/.test(first) && !isMissingCell(first) ? first : undefined;
+    if (head === undefined && /\s/.test(first) && !SPACE_GROUPED.test(first)) return refuse(`Row 1, ${q(first)}: one income per row (a header row is optional).`);
+    const body = head === undefined ? ls : ls.slice(1);
+    if (!body.length) return refuse("The table has a header row but no incomes.");
+    for (const l of body) {
+      if (SPACE_GROUPED.test(l)) {
+        spaceGroupedCount++;
+        if (spaceGrouped === undefined) spaceGrouped = l;
+      }
+    }
+    ds = { names: [head ?? "Income"], rows: body.map((l) => [l]), named: head !== undefined, semicolon: false };
   } else {
     const pr = parseRegData(text);
     if (!pr.ok) return refuse(pr.reason);
-    rows = pr.data.rows;
-    names = pr.data.names;
-    semicolon = !!pr.data.semicolon;
-    const nh = numberShapedHeader(names, pr.data.named);
+    const nh = numberShapedHeader(pr.data.names, pr.data.named);
     if (nh) return refuse(nh);
+    ds = pr.data.named ? pr.data : { ...pr.data, names: pr.data.names.map((_, j) => `Column ${j + 1}`) };
   }
+  const { names, rows } = ds;
+  const semicolon = !!ds.semicolon;
   if (rows.length > INEQ_MAX_ROWS) return refuse(`The table has ${intText(rows.length)} rows; at most ${intText(INEQ_MAX_ROWS)} are accepted.`);
-  const pick = pickNumericColumns(rows, names.length, grouped ? 2 : 1);
-  if ("error" in pick) return refuse(pick.error);
-  const [xc, wc] = pick.cols;
+
+  // Which columns: by name from the fields, else automatic only when that is unambiguous.
+  const numeric = numericColumns(rows, names.length, semicolon);
+  const xRaw = get("xcol").trim();
+  const wRaw = get("wcol").trim();
+  const pickNotes: string[] = [];
+  let xc: number | undefined;
+  let wc: number | undefined;
+  if (xRaw) {
+    const c = namedColumn(names, numeric, xRaw, "Income column");
+    if (typeof c !== "number") return refuse(c.error);
+    xc = c;
+  }
+  const listCols = (cols: number[]): string => cols.map((j) => q(names[j])).join(", ");
+  if (grouped) {
+    if (wRaw) {
+      const c = namedColumn(names, numeric, wRaw, "Count or weight column");
+      if (typeof c !== "number") return refuse(c.error);
+      wc = c;
+    }
+    if (xc === undefined && wc === undefined) {
+      if (numeric.length < 2) return refuse(`A grouped table needs two columns of numbers (income or mean, then count or weight); found ${numeric.length}.`);
+      if (numeric.length > 2) {
+        return refuse(
+          `The table has ${numeric.length} columns of numbers (${listCols(numeric)}), so which is the income and which the count or weight is not clear. ` +
+            "Name them in the fields “Income column” and “Count or weight column”.",
+        );
+      }
+      [xc, wc] = numeric;
+    } else if (xc === undefined || wc === undefined) {
+      const known = (xc ?? wc)!;
+      const rest = numeric.filter((j) => j !== known);
+      if (rest.length !== 1) {
+        return refuse(
+          `The table has ${numeric.length} columns of numbers (${listCols(numeric)}); name the ${xc === undefined ? "income column" : "count or weight column"} too.`,
+        );
+      }
+      if (xc === undefined) xc = rest[0];
+      else wc = rest[0];
+    }
+    if (xc === wc) return refuse(`${q(names[xc!])} cannot be both the income column and the count or weight column.`);
+  } else {
+    if (wRaw) pickNotes.push(`The count or weight column (${q(wRaw)}) was ignored: the table was read as one income per row.`);
+    if (xc === undefined) {
+      if (!numeric.length) return refuse("The table has no column of numbers.");
+      xc = numeric[0];
+      if (numeric.length > 1) pickNotes.push(`The table has ${numeric.length} columns of numbers; the first, ${q(names[xc])}, was read as the incomes (name another in “Income column”).`);
+    }
+  }
+  const xi = xc!;
+  const wi = grouped ? wc! : -1;
+  const sub: RegDataset = {
+    names: grouped ? [names[xi], names[wi]] : [names[xi]],
+    rows: rows.map((r) => (grouped ? [r[xi] ?? "", r[wi] ?? ""] : [r[xi] ?? ""])),
+    named: true,
+    semicolon,
+  };
+  const sel = selectColumns(sub, { dep: "", preds: grouped ? ["."] : [], text: "" });
+  if (!sel.ok) return refuse(sel.reason);
+  const { y: colX, X: colW, rowNumbers } = sel.cols;
+  for (let u = 0; u < sub.names.length; u++) {
+    const amb = dotGroupAmbiguity(
+      rowNumbers.map((rn) => ({ cell: sub.rows[rn - 1][u], where: `Row ${rn}` })),
+      `column ${q(sub.names[u])}`,
+    );
+    if (amb) return refuse(amb);
+  }
+  const readNotes = sel.cols.notes.filter((t) => !/listwise deletion/.test(t));
+  const dropped = sel.cols.dropped;
   const xs: number[] = [];
   const ws: number[] = [];
   const exX: Rat[] = [];
   const exW: Rat[] = [];
   let exactOk = true;
-  let dropped = 0;
   let zeroWeight = 0;
-  let decComma = false;
-  for (let i = 0; i < rows.length; i++) {
-    const cx = rows[i][xc] ?? "";
-    const cw = grouped ? rows[i][wc] ?? "" : "1";
-    if (isMissingCell(cx) || isMissingCell(cw)) {
-      dropped++;
-      continue;
-    }
-    const rx = readRegCell(cx, semicolon);
-    if (!Number.isFinite(rx.value)) return refuse(`Row ${i + 1}: ${q(cx)} is not a finite number (column ${q(names[xc])}).`);
-    if (Math.abs(rx.value) > INEQ_MAX_ABS) return refuse(`Row ${i + 1}: ${q(cx)} is beyond the largest income accepted (10¹⁵ in absolute value).`);
+  for (let k = 0; k < colX.length; k++) {
+    const rn = rowNumbers[k];
+    const cx = sub.rows[rn - 1][0];
+    const xv = colX[k];
+    if (Math.abs(xv) > INEQ_MAX_ABS) return refuse(`Row ${rn}: ${q(cx)} is beyond the largest income accepted (10¹⁵ in absolute value).`);
     let wv = 1;
     if (grouped) {
-      const rw = readRegCell(cw, semicolon);
-      if (!Number.isFinite(rw.value)) return refuse(`Row ${i + 1}: ${q(cw)} is not a finite number (column ${q(names[wc])}).`);
-      if (rw.value < 0) return refuse(`Row ${i + 1}: the count or weight ${q(cw)} is negative.`);
-      if (rw.value > INEQ_MAX_ABS) return refuse(`Row ${i + 1}: the count or weight ${q(cw)} is beyond 10¹⁵.`);
-      if (rw.decimalComma) decComma = true;
-      wv = rw.value;
+      const cw = sub.rows[rn - 1][1];
+      wv = colW[0][k];
+      if (wv < 0) return refuse(`Row ${rn}: the count or weight ${q(cw)} is negative.`);
+      if (wv > INEQ_MAX_ABS) return refuse(`Row ${rn}: the count or weight ${q(cw)} is beyond 10¹⁵.`);
       if (wv === 0) {
         zeroWeight++;
         continue;
       }
     }
-    if (rx.decimalComma) decComma = true;
-    xs.push(rx.value);
+    xs.push(xv);
     ws.push(wv);
     if (exactOk) {
-      const a = exactOf(rx.value);
+      const a = exactOf(xv);
       const b = exactOf(wv);
       if (a && b) {
         exX.push(a);
@@ -255,7 +466,14 @@ export function ineqGiniCalc(read: Read): StatOutput {
   const epsList = [0.5, 1, 2];
   if (userEps !== undefined && !epsList.includes(userEps)) epsList.push(userEps);
   const r = inequality({ x: xs, w: ws, grouped }, epsList, exactOk ? { x: exX, w: exW } : undefined);
-  return ineqOutput(r, { grouped, corr: corr === "nn1", dropped, zeroWeight, decComma, colName: names[xc], weightName: grouped ? names[wc] : "" });
+  const extra = [...pickNotes, ...readNotes];
+  if (spaceGrouped !== undefined) {
+    const joined = spaceGrouped.replace(/ /g, "");
+    extra.push(
+      `${spaceGroupedCount} income${spaceGroupedCount === 1 ? " was" : "s were"} written with spaces between digit groups (${q(spaceGrouped)}) and read as one number each (${joined}), as the table reader reads such a cell. Separate the values with tabs if they are different columns.`,
+    );
+  }
+  return ineqOutput(r, { grouped, corr: corr === "nn1", dropped, zeroWeight, extra, colName: names[xi], weightName: grouped ? names[wi] : "" });
 }
 
 const f4 = (v: number): string => fmtFixed(v, 4);
@@ -264,14 +482,18 @@ const pct2 = (v: number): string => fmtFixed(v * 100, 2);
 
 function ineqOutput(
   r: IneqResult,
-  o: { grouped: boolean; corr: boolean; dropped: number; zeroWeight: number; decComma: boolean; colName: string; weightName: string },
+  o: { grouped: boolean; corr: boolean; dropped: number; zeroWeight: number; extra: string[]; colName: string; weightName: string },
 ): StatOutput {
   const lines: string[] = [];
   const notes: string[] = [];
   const who = o.grouped
     ? `${intText(r.n)} group${r.n === 1 ? "" : "s"} (total weight ${fmtFixed(r.W, Number.isInteger(r.W) ? 0 : 2)})`
     : `${intText(r.n)} income${r.n === 1 ? "" : "s"}`;
-  lines.push(`Inequality of ${who}, column ${q(o.colName)}${o.grouped ? ` weighted by ${q(o.weightName)}` : ""}`);
+  lines.push(
+    o.grouped
+      ? `Inequality of ${who}: income column ${q(o.colName)}, count or weight column ${q(o.weightName)}`
+      : `Inequality of ${who}, column ${q(o.colName)}`,
+  );
   const giniText = f4(r.gini);
   const fr = r.giniExact ? shortFraction(r.giniExact) : undefined;
   // The exact fraction is added when the four decimals shown are not already the exact value.
@@ -287,6 +509,8 @@ function ineqOutput(
   if (r.theilL !== undefined) parts.push(`Theil L = ${f4(r.theilL)}`);
   for (const a of r.atkinson) if (a.value !== undefined) parts.push(`A(${epsText(a.eps)}) = ${f4(a.value)}`);
   if (parts.length) lines.push(parts.join(", "));
+  // The bottom 40% share is compared with 0 after inequality() has snapped rounding residue to an exact 0 relative to
+  // the incomes' own scale (not an absolute 1e−12, which dropped a genuine share of 1e−13).
   const palmaOk = r.bottom40 > 0;
   const ratioOk = r.p10 > 0;
   const pp: string[] = [];
@@ -310,7 +534,7 @@ function ineqOutput(
   rows.push(["Bottom 40% income share (%)", pct2(r.bottom40), "Lorenz curve at 40%"]);
   rows.push(["Top 10% income share (%)", pct2(r.top10), "100% − Lorenz curve at 90%"]);
   if (palmaOk) rows.push(["Palma ratio", fmtFixed(r.top10 / r.bottom40, 3), "top 10% share / bottom 40% share"]);
-  else notes.push("The Palma ratio is left out: the bottom 40% hold no positive share of income.");
+  else notes.push(`The Palma ratio is left out: the bottom 40% hold ${r.bottom40 === 0 ? "no income (their share is exactly 0)" : "a negative share of income (negative incomes)"}, so the ratio is not defined.`);
   rows.push(["P10", money(r.p10), "smallest income with cumulative population share ≥ 10%"]);
   rows.push(["P90", money(r.p90), "smallest income with cumulative population share ≥ 90%"]);
   if (ratioOk) rows.push(["P90/P10", fmtFixed(r.p90 / r.p10, 3), "P90 / P10"]);
@@ -337,15 +561,17 @@ function ineqOutput(
   );
   if (o.grouped) {
     conv.push(
-      "Grouped data: every member of a group is given the group's income, so inequality inside groups is ignored and the Gini (and every other measure here) is a LOWER BOUND on the true value.",
+      "Grouped data: every member of a group is given the group's income, so inequality inside groups is ignored. The Gini, Theil T and L, the Atkinson indices, the top 10% share and the Palma ratio are therefore LOWER BOUNDS on the true values (and the bottom 40% share an upper bound). " +
+        "P10, P90 and P90/P10 are quantiles of the group incomes, not of individual incomes, and are not bounds in either direction.",
     );
   }
   if (r.giniExact && fr) conv.push("The Gini was also computed in exact fractions from the typed decimals.");
+  if (r.n > 1 && r.min === r.max) conv.push("Every income is the same, so every measure is exactly 0 (set exactly, not left to rounding).");
   if (o.dropped) notes.push(`${o.dropped} row${o.dropped === 1 ? "" : "s"} with a missing cell ${o.dropped === 1 ? "was" : "were"} left out.`);
   if (o.zeroWeight) notes.push(`${o.zeroWeight} group${o.zeroWeight === 1 ? "" : "s"} with a zero count ${o.zeroWeight === 1 ? "was" : "were"} left out.`);
   if (r.n === 1) notes.push("With a single income or group every inequality measure is 0.");
   if (r.negatives) notes.push(`${r.negatives} income${r.negatives === 1 ? " is" : "s are"} negative.`);
-  notes.push(...decimalCommaNote(o.decComma));
+  notes.push(...o.extra);
   lines.push(...conv, ...notes);
 
   const tables: StatTable[] = [
@@ -395,6 +621,8 @@ export const CONC_HHI_DEFAULTS: Record<string, string> = {
 };
 
 export const HHI_MAX_FIRMS = 2000;
+/** Bars the share figure draws (statchart groupedBarSvg draws at most 16 categories). */
+export const HHI_FIG_CAP = 16;
 /** Percent shares (or fractions ×100) may sum to 100 ± this before the remainder counts as a fringe or is refused. */
 export const HHI_TOLERANCE = 0.5;
 
@@ -427,7 +655,13 @@ export function concHhiCalc(read: Read): StatOutput {
   if (!text.trim()) return refuse("Paste the firms: one per row, the firm's name then its share (or sales).");
   // Space-separated rows ("Alder 28,5", "Acme Corp 28") are split at the LAST space: the name may hold spaces and
   // the number may hold a decimal comma (through the table reader that comma would make a CSV and split the row).
-  const ls = text.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  // "A 28 %": a space before the % sign belongs to the number ("28 %" is 28 percent, as the cell reader reads it),
+  // so it is joined before the row is split; otherwise "%" was the share and the row was eaten as a header.
+  const ls = text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((l) => l.trim().replace(/(\d)[ \t]+%$/, (_m, d: string) => `${d}%`))
+    .filter((l) => l !== "");
   const splitLast = (l: string): RegExpExecArray | null => /^(.*\S)\s+(\S+)$/.exec(l);
   // Not when a name part ends in a comma ("Alder, 28" is a CSV row).
   const spaced = !/[\t;]/.test(text) && ls.length > 0 && ls.every((l) => {
@@ -447,8 +681,9 @@ export function concHhiCalc(read: Read): StatOutput {
         return refuse(`Row ${i + 1}, ${q(ls[i])}: two numbers at the end of the row. Each row is a firm's name and ONE share; separate the cells with tabs if the name ends in a number.`);
       }
     }
-    // A header row: its last cell is not a number and not a missing marker ("Firm Share").
-    if (rows.length && !Number.isFinite(readRegCell(rows[0][1], false).value) && !/\d/.test(rows[0][1])) rows = rows.slice(1);
+    // A header row: its last cell is not a number, holds no digit and is not a missing marker ("Firm Share"). A first
+    // row "Alder n/a" is a firm with a missing share (refused by row below), never a header.
+    if (rows.length && !Number.isFinite(readRegCell(rows[0][1], false).value) && !/\d/.test(rows[0][1]) && !isMissingCell(rows[0][1])) rows = rows.slice(1);
   } else {
     const pr = parseRegData(text);
     if (!pr.ok) return refuse(pr.reason);
@@ -462,7 +697,6 @@ export function concHhiCalc(read: Read): StatOutput {
   const firms: { name: string; v: Rat }[] = [];
   const seen = new Map<string, number>();
   let pctSign = false;
-  let decComma = false;
   for (let i = 0; i < rows.length; i++) {
     const nm = (rows[i][0] ?? "").trim();
     const cell = (rows[i][1] ?? "").trim();
@@ -470,12 +704,11 @@ export function concHhiCalc(read: Read): StatOutput {
     if (nm === "") return refuse(`Row ${i + 1} has no firm name.`);
     if (Number.isFinite(readRegCell(nm, semicolon).value)) return refuse(`Row ${i + 1}: the first column should name the firm; ${q(nm)} is a number.`);
     for (let j = 2; j < rows[i].length; j++) if ((rows[i][j] ?? "").trim() !== "") return refuse(`Row ${i + 1} has more than two cells (name, share). Separate the cells with tabs if a name contains spaces.`);
-    if (isMissingCell(cell)) return refuse(`Row ${i + 1} (${q(nm)}) has no share.`);
+    if (isMissingCell(cell)) return refuse(`Row ${i + 1} (${q(nm)}) has no share${cell ? ` (${q(cell)})` : ""}: every firm needs a number. Leave the firm out to count it in the unnamed fringe.`);
     if (cell.includes("%")) pctSign = true;
     const rv = readRegCell(cell, semicolon);
     if (!Number.isFinite(rv.value)) return refuse(`Row ${i + 1} (${q(nm)}): ${q(cell)} is not a finite number.`);
     if (rv.value < 0) return refuse(`Row ${i + 1} (${q(nm)}): a share or sales figure cannot be negative (${q(cell)}).`);
-    if (rv.decimalComma) decComma = true;
     const key = nm.toLowerCase();
     if (seen.has(key)) return refuse(`${q(nm)} is listed twice (rows ${seen.get(key)! + 1} and ${i + 1}).`);
     seen.set(key, i);
@@ -485,6 +718,19 @@ export function concHhiCalc(read: Read): StatOutput {
   }
   if (!firms.length) return refuse("No firms were read.");
   if (pctSign && units !== "percent") return refuse("The numbers carry % signs, but the units say otherwise: choose “Shares in percent”.");
+  // The share column under regData's whole-column rules (a decimal comma beside "1,500" or "1.250" is refused).
+  const shareCol: RegDataset = { names: ["Share"], rows: rows.map((r) => [(r[1] ?? "").trim()]), named: true, semicolon };
+  const sel = selectColumns(shareCol, { dep: "", preds: [], text: "" });
+  if (!sel.ok) return refuse(sel.reason);
+  const readNotes = sel.cols.notes.filter((t) => !/listwise deletion/.test(t));
+  if (units === "sales") {
+    // Sales typed with point groups ("1.250", "2.000") beside plain integers ("980"): 1,250 or 1.25 is not shown.
+    const amb = dotGroupAmbiguity(
+      rows.map((r, i) => ({ cell: (r[1] ?? "").trim(), where: `Row ${i + 1} (${q((r[0] ?? "").trim())})` })).filter((it) => it.cell !== ""),
+      "the sales column",
+    );
+    if (amb) return refuse(amb);
+  }
 
   // Shares in percent, exactly.
   let shares: Rat[];
@@ -604,7 +850,7 @@ export function concHhiCalc(read: Read): StatOutput {
     `Source: ${MG2023_CITATION}. This is the Guidelines' structural screen, not a legal conclusion: the presumption can be rebutted or disproved, and the other guidelines can apply when it is not met. ` +
       "The 2023 edition is applied as issued; whether it is the current enforcement standard is not asserted here.",
   );
-  lines.push(...notes, ...decimalCommaNote(decComma));
+  lines.push(...notes, ...readNotes);
 
   // Tables.
   const order = firms.map((_, i) => i).sort((a, b) => cmp(shares[b], shares[a]));
@@ -678,23 +924,51 @@ export function concHhiCalc(read: Read): StatOutput {
   }
 
   // Figure: share bars, pre vs post.
+  // The chart draws at most HHI_FIG_CAP categories: the merged firm, the merging firms and "Other" always have a
+  // place; the largest other firms fill the rest and the smallest are combined into "Other" (said in a note).
   const cats: string[] = [];
   const pre: number[] = [];
   const postV: number[] = [];
-  for (const i of order) {
+  const mergingOrd = order.filter((i) => mIdx.includes(i));
+  const othersOrd = order.filter((i) => !mIdx.includes(i));
+  const fits = (merger ? 1 : 0) + mergingOrd.length + othersOrd.length + (hasFringe ? 1 : 0) <= HHI_FIG_CAP;
+  const lumpMerging = !fits && mergingOrd.length > HHI_FIG_CAP - 4;
+  const room = fits ? othersOrd.length : HHI_FIG_CAP - (merger ? 1 : 0) - (lumpMerging ? 1 : mergingOrd.length) - 1;
+  const shownOthers = othersOrd.slice(0, room);
+  const lumped = othersOrd.slice(room);
+  if (merger) {
+    cats.push("Merged");
+    pre.push(0);
+    postV.push(ratToNumber(mShare));
+    if (lumpMerging) {
+      cats.push(`Merging firms (${mergingOrd.length})`);
+      pre.push(ratToNumber(mShare));
+      postV.push(0);
+    } else {
+      for (const i of mergingOrd) {
+        cats.push(firms[i].name);
+        pre.push(ratToNumber(shares[i]));
+        postV.push(0);
+      }
+    }
+  }
+  for (const i of shownOthers) {
     cats.push(firms[i].name);
     pre.push(ratToNumber(shares[i]));
-    postV.push(merger && mIdx.includes(i) ? 0 : ratToNumber(shares[i]));
+    postV.push(ratToNumber(shares[i]));
   }
-  if (merger) {
-    cats.unshift("Merged");
-    pre.unshift(0);
-    postV.unshift(ratToNumber(mShare));
-  }
-  if (hasFringe) {
+  if (hasFringe || lumped.length) {
+    let rest: Rat = fringe;
+    for (const i of lumped) rest = ratAdd(rest, shares[i]);
+    // (The chart cuts category labels at 10 characters: the bar is "Other" and the note says what it holds.)
     cats.push("Other");
-    pre.push(ratToNumber(fringe));
-    postV.push(ratToNumber(fringe));
+    pre.push(ratToNumber(rest));
+    postV.push(ratToNumber(rest));
+  }
+  if (lumped.length || lumpMerging) {
+    lines.push(
+      `The figure shows ${lumpMerging ? "the merging firms combined" : "every merging firm"}${lumped.length ? ` and the ${shownOthers.length} largest other firms; the remaining ${lumped.length} firm${lumped.length === 1 ? " is" : "s are"} combined as “Other”${hasFringe ? " with the unnamed fringe" : ""}` : ""} (the chart has room for ${HHI_FIG_CAP} bars). The tables list every firm.`,
+    );
   }
   const svg = groupedBarSvg(
     cats,
@@ -731,17 +1005,56 @@ export const IO_LEONTIEF_DEFAULTS: Record<string, string> = {
   emp: "0.8, 0.5, 1.2",
 };
 
+/**
+ * A list field of n numbers. Separators, as the product's list fields decide them: a comma followed by a space, or
+ * a semicolon, separates values (and then a space inside a value groups digits, "1 000, 2 000"); a field that is one
+ * run with commas ("100,200,300") is comma-separated; otherwise spaces separate. Spaces are refused when they may
+ * be grouping digits instead: "1 000 2 000" is 1000 and 2000, or 1, 0, 2 and 0 — a three-digit value with a leading
+ * zero after a short one, or a count that matches n only when the space groups are joined, names both readings.
+ * The values then go through regData's cell reader under one convention (readConsistent).
+ */
 function readListField(raw: string, label: string, n: number): { values: number[]; note: string } | { error: string } | null {
-  if (!raw.trim()) return null;
-  let r: { values: number[]; note: string };
-  try {
-    r = readCalcList(raw);
-  } catch (e) {
-    return { error: `${label}: ${(e as Error).message}` };
+  const text = raw.trim();
+  if (!text) return null;
+  let tokens: string[];
+  if (text.includes(";")) {
+    const amb = semicolonCommaRefusal(text, "numbers");
+    if (amb) return { error: `${label}: ${amb}` };
+    tokens = text.split(/\s*;\s*/);
+  } else if (/,\s/.test(text)) {
+    tokens = text.split(/\s*,\s+/);
+  } else if (!/\s/.test(text) && text.includes(",") && !(n === 1 && THOUSANDS_SHAPE.test(text))) {
+    tokens = text.split(",");
+  } else {
+    tokens = text.split(/\s+/);
+    // The space-grouped reading: maximal runs "d{1,3}( ddd)+" joined, as the cell reader would read each run.
+    const grouped = text.match(/[-−+]?\d{1,3}(?: \d{3})+(?:[.,]\d+)?(?=\s|$)|\S+/g) ?? [];
+    let leadingZero: string | undefined;
+    for (let k = 1; k < tokens.length; k++) {
+      if (/^0\d{2}$/.test(tokens[k]) && /^[-−+]?\d{1,3}$/.test(tokens[k - 1])) {
+        leadingZero = `${tokens[k - 1]} ${tokens[k]}`;
+        break;
+      }
+    }
+    const joinMatches = grouped.length !== tokens.length && tokens.length !== n && grouped.length === n;
+    if (leadingZero !== undefined || joinMatches) {
+      const run = leadingZero ?? grouped.find((g) => / /.test(g))!;
+      return {
+        error:
+          `${label}: ${q(run)} may be one number with a space grouping its digits (${run.replace(/ /g, "")}) or separate values (${run.split(" ").join(", ")}). ` +
+          `Separate the values with a comma and a space (“1000, 2000”), and write each number without spaces.`,
+      };
+    }
   }
-  if (r.values.length !== n) return { error: `${label} has ${r.values.length} value${r.values.length === 1 ? "" : "s"}; the table has ${n} sectors.` };
-  for (const v of r.values) if (!Number.isFinite(v)) return { error: `${label} holds a value that is not a finite number.` };
-  return r;
+  tokens = tokens.map((t) => t.trim()).filter((t) => t !== "");
+  for (const [k, t] of tokens.entries()) if (isMissingCell(t)) return { error: `${label}: value ${k + 1} (${q(t)}) is missing; every sector needs a number.` };
+  const rc = readConsistent(tokens.map((t, k) => ({ cell: t, where: `${label}, value ${k + 1}` })), label.toLowerCase());
+  if (!rc.ok) return { error: rc.reason };
+  if (rc.values.length !== n) return { error: `${label} has ${rc.values.length} value${rc.values.length === 1 ? "" : "s"}; the table has ${n} sectors.` };
+  const notes: string[] = [];
+  if (rc.decimalCommas) notes.push(`${label}: ${rc.decimalCommas} decimal comma${rc.decimalCommas === 1 ? "" : "s"} read as decimal${rc.decimalCommas === 1 ? "" : "s"} (“0,5” is 0.5).`);
+  if (rc.thousands.length) notes.push(`${label}: ${rc.thousands.map((t) => q(t.cell)).join(", ")} read with a thousands comma (${rc.thousands.map((t) => t.cell.replace(/,/g, "")).join(", ")}).`);
+  return { values: rc.values, note: notes.join(" ") };
 }
 
 interface IoTable {
@@ -805,10 +1118,41 @@ function readIoMatrix(text: string, what: string): IoTable | { error: string } {
     M.push(r);
     ex.push(er);
   }
+  // Every cell is a number; now regData's whole-table rules over them (a decimal comma beside "1,500" or "1.250" is
+  // refused, as selectColumns refuses it in a regression table).
+  if (n > 0) {
+    const numSet: RegDataset = { names: names.slice(), rows: rows.map((r) => r.slice(off, off + n)), named: true, semicolon };
+    const sel = selectColumns(numSet, { dep: "", preds: n > 1 ? ["."] : [], text: "" });
+    if (!sel.ok) return { error: `${what}: ${sel.reason}` };
+  }
   return { names, M, exact: exactOk ? ex : undefined, decComma };
 }
 
 const f4io = (v: number): string => fmtFixed(v, 4);
+
+/**
+ * "ρ(A) = 0.6123 < 1", with enough decimals that the printed value is visibly below 1 ("1.0000 < 1" was printed for
+ * ρ = 0.99996); when even 6 decimals round to 1, the bracket is stated instead ("0.999999 < ρ(A) < 1").
+ */
+function rhoPhrase(rho: { lo: number; hi: number; converged: boolean }): string {
+  if (!(rho.converged && rho.hi < 1)) return "ρ(A) < 1";
+  const mid = (rho.lo + rho.hi) / 2;
+  for (let d = 4; d <= 6; d++) {
+    const s = fmtFixed(mid, d);
+    if (Number(s) < 1) return `ρ(A) = ${s} < 1`;
+  }
+  return "0.999999 < ρ(A) < 1";
+}
+
+/** A value to 2 decimals, or to `sig` significant digits when 2 decimals would show digits the computation lost. */
+function sigLimited(v: number, sig: number): string {
+  if (v === 0) return fmtFixed(0, 2);
+  const intDigits = Math.floor(Math.log10(Math.abs(v))) + 1;
+  if (intDigits + 2 <= sig) return fmtFixed(v, 2);
+  if (intDigits <= sig) return fmtFixed(v, Math.max(0, sig - intDigits));
+  const p = Math.pow(10, intDigits - sig);
+  return fmtFixed(Math.round(v / p) * p, 0);
+}
 
 export function ioLeontiefCalc(read: Read): StatOutput {
   const get = getter(read);
@@ -900,11 +1244,17 @@ export function ioLeontiefCalc(read: Read): StatOutput {
   const rho = spectralRadiusBracket(A, deadline);
   const lines: string[] = [];
   lines.push(`Input–output (Leontief) model, ${n} sector${n === 1 ? "" : "s"}${mode === "Z" ? ", A = Z·diag(x)⁻¹ from the transactions table" : ""}`);
-  const rhoText = rho.converged && rho.hi < 1 ? `ρ(A) = ${fmtFixed((rho.lo + rho.hi) / 2, 4)} < 1` : "ρ(A) < 1";
-  lines.push(`A is productive: ${rhoText}, and (I − A)⁻¹ is non-negative${inv.exact ? " (checked in exact fractions)" : ""}.`);
+  lines.push(`A is productive: ${rhoPhrase(rho)}, and (I − A)⁻¹ is non-negative${inv.exact ? " (checked in exact fractions)" : ""}.`);
+  // On the floating-point path κ₁(I − A) eats digits: the output is printed to the significant digits it leaves.
+  const lost = inv.exact ? 0 : Math.max(0, Math.ceil(Math.log10(Math.max(inv.cond ?? 1, 1))));
+  const keepSig = Math.max(2, 15 - lost);
+  const outText = (v: number): string => sigLimited(v, keepSig);
   if (out) {
-    const top = out.map((v, i) => `${tab.names[i]} ${fmtFixed(v, 2)}`).slice(0, 8).join(", ");
+    const top = out.map((v, i) => `${tab.names[i]} ${outText(v)}`).slice(0, 8).join(", ");
     lines.push(`Output x = (I − A)⁻¹f: ${top}${n > 8 ? ", …" : ""}`);
+    if (out.some((v) => outText(v) !== fmtFixed(v, 2))) {
+      notes.push(`The condition number leaves about ${keepSig} trustworthy significant digits, so the output is rounded to ${keepSig} significant digits rather than printed to 2 decimals.`);
+    }
   }
   const keys = tab.names.filter((_, i) => bl[i] > 1 && fl[i] > 1);
   lines.push(keys.length ? `Key sector${keys.length === 1 ? "" : "s"} (both linkages above 1): ${keys.join(", ")}` : "No key sector (no sector has both linkages above 1).");
@@ -949,18 +1299,25 @@ export function ioLeontiefCalc(read: Read): StatOutput {
   }
   if (f && out) {
     const oh = ["Sector", fImplied ? "Final demand f = x − Z·1" : "Final demand f", "Output x = Lf"];
-    tables.push({ label: "Output for the final demand", rows: [oh, ...tab.names.map((nm, i) => [nm, fmtFixed(f![i], 2), fmtFixed(out![i], 2)])], align: ["left", "right", "right"] });
+    tables.push({ label: "Output for the final demand", rows: [oh, ...tab.names.map((nm, i) => [nm, fmtFixed(f![i], 2), outText(out![i])])], align: ["left", "right", "right"] });
   }
-  const mh = ["Sector", "Output multiplier", "Backward linkage", flName.split(" (")[0] + (mode === "Z" ? " (Ghosh)" : " (Rasmussen)"), "Type"];
-  if (e) mh.splice(2, 0, "Employment effect", "Type I employment multiplier");
+  // Short headers (long ones broke mid-word in a Word table: "Employmen/t effect"); defined in the table note.
+  const mh = ["Sector", "Output mult.", "Backward", "Forward", "Key sector"];
+  if (e) mh.splice(2, 0, "Empl. effect", "Type I mult.");
   const mrows: string[][] = [mh];
   for (let j = 0; j < n; j++) {
-    const type = bl[j] > 1 && fl[j] > 1 ? "Key sector" : bl[j] > 1 ? "Backward-oriented" : fl[j] > 1 ? "Forward-oriented" : "Weak linkages";
+    const type = bl[j] > 1 && fl[j] > 1 ? "Yes" : bl[j] > 1 ? "No: backward" : fl[j] > 1 ? "No: forward" : "No: weak";
     const row = [tab.names[j], f4io(outMult[j]), f4io(bl[j]), f4io(fl[j]), type];
     if (e && empEffect) row.splice(2, 0, f4io(empEffect[j]), e[j] > 0 ? f4io(empEffect[j] / e[j]) : "not defined (eⱼ = 0)");
     mrows.push(row);
   }
-  tables.push({ label: "Multipliers and linkages", rows: mrows, align: ["left", ...mh.slice(1, -1).map((): Align => "right"), "left"], note: `${flName}.` });
+  const multNote =
+    "Output mult. = output multiplier of sector j, Σᵢ Lᵢⱼ (simple, type I). " +
+    (e ? "Empl. effect = employment effect, Σᵢ eᵢLᵢⱼ (jobs in all sectors per unit of final demand for j); Type I mult. = type I employment multiplier, Empl. effect / eⱼ. " : "") +
+    "Backward = backward linkage (Rasmussen, normalised column sums of L). " +
+    `Forward = ${flName.charAt(0).toLowerCase()}${flName.slice(1)}. ` +
+    "Key sector: Yes when both linkages are above 1; No: backward = only the backward linkage above 1; No: forward = only the forward linkage above 1; No: weak = neither.";
+  tables.push({ label: "Multipliers and linkages", rows: mrows, align: ["left", ...mh.slice(1, -1).map((): Align => "right"), "left"], note: multNote });
 
   // Figure: backward vs forward linkages with the key-sector quadrant lines at 1.
   return { text: lines.join("\n"), tables, svg: linkageSvg(tab.names, bl, fl, mode === "Z" ? "Ghosh" : "Rasmussen") };
@@ -1094,9 +1451,8 @@ export function finCurrencyCalc(read: Read): FinOutput {
   const rateLines = get("rates").replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter((l) => l !== "");
   if (!rateLines.length) return finRefuse(`Type the rates, one per line: a code and how many units of it 1 ${base} buys (EUR 0.92).`);
   if (rateLines.length > FX_MAX_RATES) return finRefuse(`At most ${FX_MAX_RATES} rates are accepted; ${rateLines.length} were typed.`);
-  const rates = new Map<string, Rat>([[base, { n: 1n, d: 1n }]]);
-  const typed: { code: string; text: string }[] = [];
-  let decComma = false;
+  // 1. The lines: codes checked, number texts kept as typed.
+  const rateItems: { code: string; text: string; line: number }[] = [];
   for (let i = 0; i < rateLines.length; i++) {
     const line = rateLines[i];
     const m = /^([A-Za-z]{3})[\s:=\t]+(.+)$/.exec(line);
@@ -1106,26 +1462,12 @@ export function finCurrencyCalc(read: Read): FinOutput {
     }
     const c = isoCode(m[1], `Rate line ${i + 1}`);
     if (typeof c !== "string") return finRefuse(c.error);
-    const rv = readRegCell(m[2].trim(), false);
-    if (!Number.isFinite(rv.value)) return finRefuse(`Rate line ${i + 1}: ${q(m[2].trim())} is not a finite number.`);
-    if (!(rv.value > 0)) return finRefuse(`Rate line ${i + 1}: the rate for ${c} must be positive; ${q(m[2].trim())} was typed.`);
-    if (rv.value < FX_MIN_RATE || rv.value > FX_MAX_RATE) return finRefuse(`Rate line ${i + 1}: the rate for ${c}, ${q(m[2].trim())}, is outside the range accepted (10⁻⁹ to 10⁹ units per 1 ${base}).`);
-    if (rv.decimalComma) decComma = true;
-    const ex = ratOf(rv.value);
-    if (!ex || ratSign(ex) <= 0) return finRefuse(`Rate line ${i + 1}: the rate for ${c} cannot be held exactly.`);
-    if (c === base) {
-      if (!(ex.n === 1n && ex.d === 1n)) return finRefuse(`Rate line ${i + 1}: ${c} is the base currency, so its rate is 1 by definition; ${q(m[2].trim())} was typed.`);
-      continue;
-    }
-    if (typed.some((t) => t.code === c)) return finRefuse(`${c} has two rate lines; keep one.`);
-    rates.set(c, ex);
-    typed.push({ code: c, text: m[2].trim() });
+    if (c !== base && rateItems.some((t) => t.code === c)) return finRefuse(`${c} has two rate lines; keep one.`);
+    rateItems.push({ code: c, text: m[2].trim(), line: i + 1 });
   }
-  if (!rates.has(target)) return finRefuse(`There is no rate for the target currency ${target}. Add a line “${target} rate” (1 ${base} = rate ${target}).`);
-
   const amountLines = get("amounts").replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter((l) => l !== "");
   if (amountLines.length > FX_MAX_AMOUNTS) return finRefuse(`At most ${FX_MAX_AMOUNTS} amounts are accepted; ${amountLines.length} were typed.`);
-  const amounts: { amount: Rat; code: string; line: string }[] = [];
+  const amountItems: { code: string; text: string; line: string; at: number }[] = [];
   for (let i = 0; i < amountLines.length; i++) {
     const line = amountLines[i];
     let m = /^(.+?)\s+([A-Za-z]{3})$/.exec(line);
@@ -1142,14 +1484,76 @@ export function finCurrencyCalc(read: Read): FinOutput {
     }
     const c = isoCode(codeText, `Amount line ${i + 1}`);
     if (typeof c !== "string") return finRefuse(c.error);
-    const rv = readRegCell(numText.trim(), false);
-    if (!Number.isFinite(rv.value)) return finRefuse(`Amount line ${i + 1}: ${q(numText.trim())} is not a finite number.`);
-    if (Math.abs(rv.value) > FX_MAX_AMOUNT) return finRefuse(`Amount line ${i + 1}: ${q(numText.trim())} is beyond the largest amount accepted (10¹⁵).`);
-    if (rv.decimalComma) decComma = true;
-    if (!rates.has(c)) return finRefuse(`Amount line ${i + 1}: there is no rate for ${c}. Add a line “${c} rate” (1 ${base} = rate ${c}).`);
-    const ex = ratOf(rv.value);
-    if (!ex) return finRefuse(`Amount line ${i + 1}: ${q(numText.trim())} cannot be held exactly.`);
-    amounts.push({ amount: ex, code: c, line });
+    amountItems.push({ code: c, text: numText.trim(), line, at: i + 1 });
+  }
+
+  // 2. Every rate and amount under ONE comma convention (regData's rules across the whole input): "CHF 1,105" beside
+  //    "EUR 0,92" is 1.105 or 1105 and is refused naming both; a lone "JPY 151,250" is the thousands reading, said.
+  const items: CellItem[] = [
+    ...rateItems.map((r) => ({ cell: r.text, where: `Rate line ${r.line} (${r.code})` })),
+    ...amountItems.map((a) => ({ cell: a.text, where: `Amount line ${a.at} (${q(a.line)})` })),
+  ];
+  const rc = readConsistent(items, "the rates and amounts");
+  if (!rc.ok) return finRefuse(rc.reason);
+  const decComma = rc.decimalCommas > 0;
+  // 3. Exact fractions straight from the typed text (never through a double: "500000000000000.13" stays .13).
+  const exactAt = (k: number): Rat | { error: string } => {
+    const ex = exactFromCell(items[k].cell, rc.decimalComma[k]);
+    // The text and regData's reading of it must agree; anything else (a fraction, ×10ⁿ) is asked for as a decimal.
+    if (!ex || Math.abs(ratToNumber(ex) - rc.values[k]) > 1e-9 * Math.max(1, Math.abs(rc.values[k]))) {
+      return { error: `${items[k].where}: type ${q(items[k].cell.trim())} as a plain decimal number (such as 1250.50) so that it can be read exactly.` };
+    }
+    return ex;
+  };
+  const rates = new Map<string, Rat>([[base, { n: 1n, d: 1n }]]);
+  const typed: { code: string; text: string }[] = [];
+  for (let k = 0; k < rateItems.length; k++) {
+    const { code: c, text, line } = rateItems[k];
+    if (!(rc.values[k] > 0)) return finRefuse(`Rate line ${line}: the rate for ${c} must be positive; ${q(text)} was typed.`);
+    const ex = exactAt(k);
+    if ("error" in ex) return finRefuse(ex.error);
+    if (ratSign(ex) <= 0) return finRefuse(`Rate line ${line}: the rate for ${c} must be positive; ${q(text)} was typed.`);
+    if (cmpPow10(ex, -9) < 0 || cmpPow10(ex, 9) > 0) return finRefuse(`Rate line ${line}: the rate for ${c}, ${q(text)}, is outside the range accepted (10⁻⁹ to 10⁹ units per 1 ${base}).`);
+    if (c === base) {
+      if (!(ex.n === 1n && ex.d === 1n)) return finRefuse(`Rate line ${line}: ${c} is the base currency, so its rate is 1 by definition; ${q(text)} was typed.`);
+      continue;
+    }
+    rates.set(c, ex);
+    typed.push({ code: c, text });
+  }
+  if (!rates.has(target)) return finRefuse(`There is no rate for the target currency ${target}. Add a line “${target} rate” (1 ${base} = rate ${target}).`);
+  const amounts: { amount: Rat; code: string; line: string }[] = [];
+  for (let a = 0; a < amountItems.length; a++) {
+    const k = rateItems.length + a;
+    const { code: c, text, at } = amountItems[a];
+    if (!rates.has(c)) return finRefuse(`Amount line ${at}: there is no rate for ${c}. Add a line “${c} rate” (1 ${base} = rate ${c}).`);
+    const ex = exactAt(k);
+    if ("error" in ex) return finRefuse(ex.error);
+    if (cmpPow10(ex, 15) > 0) return finRefuse(`Amount line ${at}: ${q(text)} is beyond the largest amount accepted (10¹⁵).`);
+    // "1.000 JPY", "1.250 EUR": a point followed by three digits, more decimals than the currency's minor unit and
+    // nothing but zeros past it: 1,000 JPY with a point grouping thousands, or 1 JPY padded with zeros. Asked, not
+    // guessed. ("10.003 USD", a non-zero digit past the cent, is a deliberate sub-minor amount and is read as typed.)
+    const fm = minorOf(c);
+    if (!rc.decimalComma[k] && fm !== null && isOneDotGroup(text)) {
+      const d = mantissaOf(text);
+      const frac = d.split(".")[1];
+      if (frac.length > fm && /^0*$/.test(frac.slice(fm))) {
+        const whole = d.replace(".", "");
+        const dec = decimalReading(d);
+        return finRefuse(
+          `Amount line ${at}: ${q(`${text} ${c}`)} could be ${groupThousands(whole)} ${c} (a point grouping thousands) or ${dec} ${c} (a decimal point; ${frac.length} decimals is more than ${c}'s ISO 4217 minor unit of ${fm}). ` +
+            `Type ${q(`${whole} ${c}`)} or ${q(`${dec} ${c}`)}.`,
+        );
+      }
+    }
+    amounts.push({ amount: ex, code: c, line: amountItems[a].line });
+  }
+  const readNotes: string[] = [];
+  if (rc.thousands.length) {
+    readNotes.push(
+      `${rc.thousands.map((t) => `${q(t.cell.trim())} (${t.where.charAt(0).toLowerCase()}${t.where.slice(1)})`).join(", ")} ${rc.thousands.length === 1 ? "was" : "were"} read with a thousands comma ` +
+        `(${rc.thousands.map((t) => mantissaOf(t.cell).replace(/,/g, "")).join(", ")}), as the table reader reads a comma followed by three digits; no decimal comma appears in the rates or amounts.`,
+    );
   }
 
   const asof = get("asof").trim();
@@ -1161,7 +1565,8 @@ export function finCurrencyCalc(read: Read): FinOutput {
     const from = a.code;
     const rate = cross(rates.get(from)!, rates.get(target)!);
     const conv = convert(a.amount, rates.get(from)!, rates.get(target)!);
-    if (Math.abs(ratToNumber(conv)) >= FX_MAX_CONVERTED) return finRefuse(`${a.line} converts to 10¹⁸ ${target} or more, beyond the largest converted amount accepted.`);
+    // Exact comparison with 10¹⁸ (FX_MAX_CONVERTED), not through a double.
+    if (cmpPow10(conv, 18) >= 0) return finRefuse(`${a.line} converts to 10¹⁸ ${target} or more, beyond the largest converted amount accepted.`);
     const fm = minorOf(from);
     const amtText = `${exactText(a.amount, fm ?? 0)} ${from}`;
     const crossText = `1 ${from} = ${sigText(rate)} ${target}`;
@@ -1184,7 +1589,7 @@ export function finCurrencyCalc(read: Read): FinOutput {
   );
   if (tm === null) notes.push(`ISO 4217 gives no minor unit for ${target} (N.A.), so ${target} amounts are shown to ${FX_NA_DECIMALS} decimal places, not rounded to a minor unit.`);
   for (const c of new Set(amounts.map((a) => a.code))) if (minorOf(c) === null) notes.push(`ISO 4217 gives no minor unit for ${c} (N.A.).`);
-  lines.push(...notes, ...decimalCommaNote(decComma));
+  lines.push(...notes, ...decimalCommaNote(decComma), ...readNotes);
 
   const rateRows: string[][] = [["Rate as read", "Currency (ISO 4217 name)", "Minor units"]];
   rateRows.push([`1 ${base} = 1 ${base} (base)`, ISO4217.get(base)!.name, String(minorOf(base) ?? "N.A.")]);

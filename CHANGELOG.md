@@ -26,6 +26,13 @@ statsmodels; each result prints the conventions it used.
   quasi-complete separation are refused by name.
 - RESET is computed exactly where statsmodels' own version loses precision (on the classic Longley data it reports
   p = 0.018 where the exact value is 0.174).
+- Fits stay accurate on nearly collinear data (checked against an 80-digit exact oracle up to condition number
+  10¹⁰); only a numerically rank-deficient design is refused, naming its columns.
+- Decimal commas are understood: a semicolon-separated table reads every comma as a decimal comma, and "0,125" or
+  "1,5" anywhere reads as a decimal. A table that mixes decimal commas with thousands-shaped commas, or that groups
+  thousands with points beside a bare "2.345", is refused rather than guessed.
+- Large numbers are grouped (3,482,258.635); interval bounds are separated by "; "; the model columns of the
+  publication table are centred so each standard error sits under its coefficient.
 
 ## [2.195.0] — 2026-10-24 — Litigation damages
 

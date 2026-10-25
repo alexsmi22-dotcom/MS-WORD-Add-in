@@ -10,9 +10,13 @@
  *    D'Haultfœuille 2020), so the TWFE estimate is not robust to it.
  *  - Event study: relative period = rank of the row's period − rank of the entity's first treated period, among the
  *    periods present in the data (ranks, not calendar distance), binned at the window ends (≤ −leads and ≥ +lags),
- *    period −1 omitted as the reference, never-treated entities 0 in every dummy (the controls).
+ *    period −1 omitted as the reference, never-treated entities 0 in every dummy (the controls). When the panel was
+ *    read with its treatment column (readPanel's `treatment`), the adoption period and the ranks come from every row
+ *    with a treatment cell, before rows with a missing outcome or control are dropped, so an NA outcome in a unit's
+ *    adoption row does not shift its relative periods; an NA treatment cell that hides an adoption is refused.
  */
 import type { PanelColumns } from "./panelData";
+import { numText } from "./regTable";
 
 const q = (s: string): string => `“${s}”`;
 const MINUS = "−";
@@ -28,6 +32,29 @@ export interface TreatmentInfo {
   staggered: boolean;
   /** Entities treated in their first observed row (no pre-period of their own). */
   alwaysTreated: number;
+  /**
+   * Adoption dating for the event study and the description: from the treatment column over ALL rows when the panel
+   * carries it (PanelColumns.adoption: rows with a missing outcome do not move a unit's adoption period), else from
+   * the rows used. Periods are ranks.
+   */
+  event: EventDating;
+}
+
+export interface EventDating {
+  /** Rank of each entity's adoption period, −1 when never treated. */
+  firstRank: Int32Array;
+  /** Rank of each panel period (time code). */
+  timeRank: Int32Array;
+  /** Labels of the distinct adoption periods, in time order. */
+  cohortLabels: string[];
+  nTreated: number;
+  nNever: number;
+  /** Treated entities with no untreated row before adoption. */
+  noPre: number;
+  /** Treated entities whose adoption an NA treatment cell may hide. */
+  hidden: { entity: number; row: number }[];
+  /** True when dated from every row of the treatment column, not only the rows used. */
+  raw: boolean;
 }
 
 /** Reads the treatment column (regressor j of the panel): 0/1, absorbing. */
@@ -36,7 +63,7 @@ export function analyseTreatment(p: PanelColumns, j: number): { ok: true; info: 
   const name = p.names[j];
   for (let i = 0; i < p.n; i++) {
     if (d[i] !== 0 && d[i] !== 1) {
-      return { ok: false, reason: `The treatment column ${q(name)} must be 0 or 1 in every row (row ${p.rowNumbers[i]} holds ${String(d[i]).replace("-", MINUS)}).` };
+      return { ok: false, reason: `The treatment column ${q(name)} must be 0 or 1 in every row (row ${p.rowNumbers[i]} holds ${numText(d[i])}).` };
     }
   }
   // Rows of each entity in time order.
@@ -72,9 +99,44 @@ export function analyseTreatment(p: PanelColumns, j: number): { ok: true; info: 
     }
   }
   const sorted = [...cohorts].sort((a, b) => a - b);
+  let event: EventDating;
+  const a = p.adoption;
+  if (a) {
+    if (a.error) return { ok: false, reason: a.error };
+    let nt = 0;
+    let noPre = 0;
+    const ranks = new Set<number>();
+    for (let e = 0; e < p.N; e++) {
+      if (a.firstRank[e] < 0) continue;
+      nt++;
+      ranks.add(a.firstRank[e]);
+      if (!a.hasPre[e]) noPre++;
+    }
+    event = {
+      firstRank: a.firstRank,
+      timeRank: a.timeRank,
+      cohortLabels: [...ranks].sort((x, y) => x - y).map((r) => a.rankLabels[r]),
+      nTreated: nt,
+      nNever: p.N - nt,
+      noPre,
+      hidden: a.hidden,
+      raw: true,
+    };
+  } else {
+    event = {
+      firstRank: first,
+      timeRank: Int32Array.from({ length: p.T }, (_, t) => t),
+      cohortLabels: sorted.map((c) => p.timeLabels[c]),
+      nTreated,
+      nNever: p.N - nTreated,
+      noPre: alwaysTreated,
+      hidden: [],
+      raw: false,
+    };
+  }
   return {
     ok: true,
-    info: { first, nTreated, nNever: p.N - nTreated, cohorts: sorted, staggered: sorted.length > 1, alwaysTreated },
+    info: { first, nTreated, nNever: p.N - nTreated, cohorts: sorted, staggered: sorted.length > 1, alwaysTreated, event },
   };
 }
 
@@ -146,9 +208,19 @@ export function buildEventDummies(
   if (!Number.isInteger(lags) || lags < 0 || lags > EVENT_MAX_WINDOW) return { ok: false, reason: `Lags must be a whole number from 0 to ${EVENT_MAX_WINDOW}.` };
   const t = analyseTreatment(p, treatIdx);
   if (!t.ok) return t;
-  const info = t.info;
-  if (info.nTreated === 0) return { ok: false, reason: "No entity is ever treated, so there is no event to study." };
-  if (info.nNever === 0) {
+  const ev = t.info.event;
+  if (ev.nTreated === 0) return { ok: false, reason: "No entity is ever treated, so there is no event to study." };
+  if (ev.hidden.length) {
+    const h = ev.hidden[0];
+    const more = ev.hidden.length - 1;
+    return {
+      ok: false,
+      reason:
+        `The adoption period of entity ${q(p.entityNames[h.entity])} cannot be dated: its treatment cell is empty or NA in row ${h.row}, after its last untreated period and before its first treated one` +
+        `${more ? ` (and ${more} more entit${more === 1 ? "y" : "ies"} like it)` : ""}, so its periods relative to treatment are unknown. Fill in the treatment cell.`,
+    };
+  }
+  if (ev.nNever === 0) {
     return {
       ok: false,
       reason:
@@ -161,9 +233,9 @@ export function buildEventDummies(
   const cols = rels.map(() => new Float64Array(p.n));
   const counts = new Array<number>(rels.length).fill(0);
   for (let i = 0; i < p.n; i++) {
-    const f = info.first[p.entity[i]];
+    const f = ev.firstRank[p.entity[i]];
     if (f < 0) continue;
-    const r = Math.min(Math.max(p.time[i] - f, -leads), lags);
+    const r = Math.min(Math.max(ev.timeRank[p.time[i]] - f, -leads), lags);
     const k = rels.indexOf(r);
     if (k >= 0) {
       cols[k][i] = 1;

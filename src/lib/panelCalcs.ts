@@ -18,8 +18,9 @@ import {
   type PanelSe,
   type FeResult,
   type PanelFitResult,
+  type HausmanForm,
 } from "./panel";
-import { analyseTreatment, twoByTwo, buildEventDummies, relLabel, EVENT_MAX_WINDOW } from "./did";
+import { analyseTreatment, twoByTwo, buildEventDummies, relLabel, EVENT_MAX_WINDOW, type EventDating } from "./did";
 import { readIntField } from "./eventStudy";
 import { fmtFixed, fmtP, intText, P_BELOW } from "./regTable";
 import type { FittedModel, ModelTerm } from "./regModel";
@@ -212,8 +213,24 @@ function termRow(name: string, t: ModelTerm): string[] {
 
 function shapeLine(p: PanelColumns): string {
   const s = panelShape(p);
-  const bal = s.balanced ? "balanced" : `unbalanced, ${intText(s.minT)} to ${intText(s.maxT)} rows per entity`;
+  const bal = s.balanced
+    ? "balanced"
+    : s.minT === s.maxT
+      ? `unbalanced: every entity has ${intText(s.minT)} row${s.minT === 1 ? "" : "s"}, but not all in the same periods`
+      : `unbalanced, ${intText(s.minT)} to ${intText(s.maxT)} rows per entity`;
   return `n = ${intText(p.n)} rows, ${intText(p.N)} entities (${p.entityName}), ${intText(p.T)} periods (${p.timeName}); ${bal}.`;
+}
+
+/** At most this many adoption periods are listed inline; more are summarised by the first and last. */
+const COHORTS_INLINE = 8;
+
+function cohortLine(ev: EventDating): string {
+  const c = ev.cohortLabels;
+  const list = c.length <= COHORTS_INLINE ? c.join(", ") : `from ${c[0]} to ${c[c.length - 1]}`;
+  return (
+    `${intText(ev.nTreated)} treated entit${ev.nTreated === 1 ? "y" : "ies"}, ${intText(ev.nNever)} never treated; ` +
+    `treatment starts in ${intText(c.length)} period${c.length === 1 ? "" : "s"} (${list}).`
+  );
 }
 
 function fitStatsRows(r: PanelFitResult, extra: [string, string][] = []): string[][] {
@@ -375,18 +392,23 @@ export function panelReCalc(read: Read): StatOutput {
     lines.push(`Standard errors: ${m.seLabel}`);
     lines.push(`σ²ᵤ = ${fmtFixed(re.sigma2u, 3)}, σ²ε = ${fmtFixed(re.sigma2e, 3)}, ρ = ${fmtFixed(re.rho, 3)}; θ = ${thetaText(re)}`);
     lines.push(`R² = ${fmtFixed(re.r2, 3)} (quasi-demeaned), within ${fmtFixed(re.r2Within, 3)}, between ${fmtFixed(re.r2Between, 3)}, overall ${fmtFixed(re.r2Overall, 3)}`);
+    const formName = (f: HausmanForm): string => (f === "classic" ? "classic form" : f === "sigmamore" ? "sigmamore form" : "sigmamore form, generalised inverse");
     if ("skipped" in haus) lines.push(`Hausman test not computed: ${haus.skipped}.`);
     else {
       lines.push(
-        `Hausman χ²(${haus.df}) = ${fmtFixed(haus.stat, 3)}, p ${pText(haus.p)}: ` +
+        `Hausman χ²(${haus.df}) = ${fmtFixed(haus.stat, 3)}, p ${pText(haus.p)} (${formName(haus.form)}): ` +
           (haus.p < 0.05 ? "the FE and RE estimates differ systematically at the 5% level, so the random-effects assumption is rejected (prefer fixed effects)." : "no systematic difference at the 5% level (random effects not rejected)."),
       );
+      if (haus.form === "pinv") lines.push(`WARNING: Hausman test by a generalised inverse. ${haus.why}. The test then has ${haus.df} df instead of ${haus.names.length}.`);
     }
     lines.push("");
     lines.push(...p.notes, ...m.notes);
     lines.push(
-      "Hausman test: (b_FE − b_RE)ᵀ(V_FE − V_RE)⁻¹(b_FE − b_RE) against χ² with one df per regressor that varies within entities, from the CONVENTIONAL (classical) covariances of both models whatever standard errors are displayed above; the FE fit has entity effects. linearmodels has no Hausman test; the formula is checked against numpy on linearmodels' covariances.",
+      "Hausman test: (b_FE − b_RE)ᵀ(V_FE − V_RE)⁻¹(b_FE − b_RE) against χ² with one df per regressor that varies within entities, from the CONVENTIONAL (classical) covariances of both models whatever standard errors are displayed above; the FE fit has entity effects. " +
+        "When V_FE − V_RE is not positive definite, both covariances are put on the efficient (RE) estimator's disturbance variance, as Stata's hausman, sigmamore (whose documented σ² for xtreg, re is e(rmse)², the s² = SSE/(n − k) of the quasi-demeaned regression): V_FE is multiplied by s²_RE/s²_FE. " +
+        "If that difference is singular, the Moore–Penrose inverse is used with df = its rank, as Stata does. linearmodels has no Hausman test; the formulas are checked against numpy on linearmodels' covariances.",
     );
+    if (!("skipped" in haus) && haus.form !== "pinv") lines.push(`Hausman form used: ${haus.why}.`);
     if (re.timeVarying.length < k) {
       const tinv = p.names.filter((nm) => !re.timeVarying.includes(nm));
       lines.push(`${tinv.map(q).join(", ")} ${tinv.length === 1 ? "does" : "do"} not vary within entities: estimated by random effects, absorbed by fixed effects, so left out of the Hausman test.`);
@@ -395,7 +417,7 @@ export function panelReCalc(read: Read): StatOutput {
     lines.push("Rows with an empty or NA cell in a column the model uses are dropped (listwise deletion). Entity ids are compared as text.");
     const hausRows: string[][] = [["Test", "Statistic", "df", "p"]];
     if ("skipped" in haus) hausRows.push(["Hausman (FE vs RE)", `not computed: ${haus.skipped}`, "", ""]);
-    else hausRows.push(["Hausman (FE vs RE)", `χ² = ${fmtFixed(haus.stat, 3)}`, String(haus.df), fmtP(haus.p)]);
+    else hausRows.push([`Hausman (FE vs RE), ${formName(haus.form)}`, `χ² = ${fmtFixed(haus.stat, 3)}`, String(haus.df), fmtP(haus.p)]);
     const tables: StatTable[] = [
       coefTable(m, `Random effects: ${m.depName}, ${m.seLabel}`),
       {
@@ -426,6 +448,8 @@ interface DidRun {
   controls: string[];
   /** Start of the calculator's wall clock (one deadline for every fit it runs). */
   started: number;
+  /** The standard-error type as read and checked for the main fit (the event study uses the same). */
+  se: PanelSe;
 }
 
 function runDid(read: Read): DidRun | { error: string } {
@@ -446,7 +470,7 @@ function runDid(read: Read): DidRun | { error: string } {
   const ti = findColumn(d.data.names, treat);
   if (typeof ti !== "number") return { error: `Treatment column: ${ti.error}` };
   const spec = { dep: outcome, preds: [treat, ...controls], text: `${outcome} ~ ${[treat, ...controls].join(" + ")}` };
-  const r = readPanel(d.data, { spec, entity: get("entity"), time: get("time") });
+  const r = readPanel(d.data, { spec, entity: get("entity"), time: get("time"), treatment: treat });
   if (!r.ok) return { error: r.reason };
   const p = r.panel;
   const t = analyseTreatment(p, 0);
@@ -468,7 +492,7 @@ function runDid(read: Read): DidRun | { error: string } {
   const started = Date.now();
   try {
     const fit = fitFixedEffects(p, { effects: "twoway", se, started });
-    return { p, fit, treatName: p.names[0], controls: p.names.slice(1), started };
+    return { p, fit, treatName: p.names[0], controls: p.names.slice(1), started, se };
   } catch (e) {
     if (e instanceof PanelRefusal && e.message.startsWith(q(p.names[0])) && /absorb/.test(e.message)) {
       return {
@@ -507,7 +531,7 @@ export function panelDidCalc(read: Read): StatOutput {
     const lines: string[] = [];
     lines.push(`Difference-in-differences (two-way fixed effects): ${m.depName} on ${q(r.treatName)}${r.controls.length ? ` with ${r.controls.length} control${r.controls.length === 1 ? "" : "s"}` : ""}`);
     lines.push(shapeLine(p));
-    lines.push(`${intText(info.nTreated)} treated entit${info.nTreated === 1 ? "y" : "ies"}, ${intText(info.nNever)} never treated; treatment starts in ${info.cohorts.length} period${info.cohorts.length === 1 ? "" : "s"} (${info.cohorts.map((c) => p.timeLabels[c]).join(", ")}).`);
+    lines.push(cohortLine(info.event));
     lines.push(`DiD estimate = ${fmtFixed(d.coef, 3)} (SE ${fmtFixed(d.se, 3)}), t = ${fmtFixed(d.stat, 3)}, p ${pText(d.p)}, 95% CI [${fmtFixed(d.ciLo, 3)}; ${fmtFixed(d.ciHi, 3)}]`);
     lines.push(`Standard errors: ${m.seLabel}`);
     lines.push("");
@@ -519,7 +543,12 @@ export function panelDidCalc(read: Read): StatOutput {
       );
     }
     if (info.nNever === 0) lines.push("No entity is never treated: the estimate is identified only from differences in timing.");
-    if (info.alwaysTreated > 0) lines.push(`${intText(info.alwaysTreated)} entit${info.alwaysTreated === 1 ? "y is" : "ies are"} treated from its first row (no pre-period of its own).`);
+    const np = info.event.noPre;
+    if (np > 0) lines.push(np === 1 ? "1 entity is treated from its first row (no pre-period of its own)." : `${intText(np)} entities are treated from their first row (no pre-period of their own).`);
+    lines.push(
+      "Adoption period of each unit: the first period its treatment is 1, read from the treatment column over every row that has a treatment cell, " +
+        "before rows with a missing outcome or control are dropped, so a missing outcome in the adoption row does not move it.",
+    );
     lines.push(
       `Conventions: the DiD coefficient is the coefficient on the treatment dummy D (= treated group × post) in a regression with entity and time fixed effects ` +
         "(linearmodels PanelOLS(entity_effects=True, time_effects=True) with the same dummy).",
@@ -552,7 +581,7 @@ export function panelDidCalc(read: Read): StatOutput {
     if (!ev.ok) lines.push(`DiD event study not computed: ${ev.reason}`);
     else {
       try {
-        const es = fitFixedEffects(ev.panel, { effects: "twoway", se: get("se") === "robust" ? "robust" : "cluster-entity", started: r.started, skipPooled: true });
+        const es = fitFixedEffects(ev.panel, { effects: "twoway", se: r.se, started: r.started, skipPooled: true });
         const df = es.dfResid;
         const tc = tCritical(0.05, df);
         const rowsEs: string[][] = [["Relative period", "Coef.", "SE", "t", "p", "95% CI"]];
@@ -576,7 +605,7 @@ export function panelDidCalc(read: Read): StatOutput {
           note: `Two-way FE with relative-period dummies; ${relLabel(-1, leads, lags)} omitted (reference). ${es.model.seLabel}; t with ${intText(df)} df.`,
         });
         lines.push(
-          `DiD event study: relative period = rank of the period − rank of the entity's first treated period among the periods in the data (ranks, not calendar distance), ` +
+          `DiD event study: relative period = rank of the period − rank of the entity's adoption period among the periods of the rows with a treatment cell (ranks, not calendar distance), ` +
             `binned at the window ends (${relLabel(-leads, leads, lags)} and ${relLabel(lags, leads, lags)}), ${relLabel(-1, leads, lags)} omitted as the reference, never-treated entities as controls, entity and time effects, same standard errors as above.`,
         );
         if (ev.empty.length) lines.push(`No row falls in relative period${ev.empty.length === 1 ? "" : "s"} ${ev.empty.map((x) => relLabel(x, leads, lags)).join(", ")}, so ${ev.empty.length === 1 ? "it has" : "they have"} no dummy.`);

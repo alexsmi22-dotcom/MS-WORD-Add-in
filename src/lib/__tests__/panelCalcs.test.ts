@@ -18,6 +18,7 @@ import {
 } from "../panelCalcs";
 import type { StatOutput } from "../analyzeBlocks";
 import { parseRegData } from "../regData";
+import { P_BELOW } from "../regTable";
 import { readPanel } from "../panelData";
 import { fitFixedEffects, twoWayTransform, makeGroups, PanelRefusal } from "../panel";
 
@@ -149,6 +150,21 @@ describe("conventions printed and estimates sane", () => {
     contract(out);
     expect(out.text).toMatch(/θ = /);
     expect(out.text).toMatch(/CONVENTIONAL \(classical\) covariances/);
+    expect(out.text).toMatch(/Hausman form used: |WARNING: Hausman test by a generalised inverse/);
+  });
+  test("Hausman prints which form it used and why (the oracle fixture's review panels)", () => {
+    const fx = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "fixtures", "econ-panel-oracle.json"), "utf8")) as { data: Record<string, string> };
+    const sm = re({ data: fx.data.adv_P, entity: "firm", time: "year", spec: "y ~ x1 + x2 + z", se: "classical" });
+    contract(sm);
+    expect(sm.text).toMatch(/Hausman χ²\(2\) = 47\.865, p <\s0\.001 \(sigmamore form\)/);
+    expect(sm.text).toMatch(/Hausman form used: V_FE − V_RE is not positive definite on the conventional covariances, because the two fits estimate σ² differently \(FE s² = 2\.7822, RE s² = 3\.4569\); both covariances are put on the efficient \(RE\) estimator's σ², Stata's sigmamore form/);
+    const pv = re({ data: fx.data.adv_B, entity: "firm", time: "year", spec: "y ~ x1 + trend", se: "classical" });
+    contract(pv);
+    expect(pv.text).toMatch(/Hausman χ²\(1\) = 24\.218, p <\s0\.001 \(sigmamore form, generalised inverse\)/);
+    expect(pv.text).toMatch(/WARNING: Hausman test by a generalised inverse\..*singular, rank 1 of 2.*df = its rank.*The test then has 1 df instead of 2\./);
+    expect(pv.tables!.find((t) => t.label === "Hausman test")!.rows[1]).toEqual(["Hausman (FE vs RE), sigmamore form, generalised inverse", "χ² = 24.218", "1", P_BELOW]);
+    const cl = re({ data: fx.data.adv_B, entity: "firm", time: "year", spec: "y ~ x1 + trend", se: "cluster-entity" });
+    contract(cl);
   });
   test("dates and quarters as time", () => {
     const q = panel(10, 4, 5, (i, t, x1, x2, y) => [`e${i}`, `${2020 + Math.floor(t / 4)} Q${(t % 4) + 1}`, y.toFixed(6), x1.toFixed(6), x2.toFixed(6)]);
@@ -217,7 +233,7 @@ describe("hostile inputs", () => {
     d.push(d[2].replace(/\t[^\t]+$/, "\tNA"));
     refused(fe({ data: d.join("\n"), ...P }), /Rows 2 and 16 both hold entity “e0”/);
   });
-  test("a disconnected panel is refused for two-way effects", () => {
+  test("a disconnected panel is fitted with two-way effects, the effects counted at the dummies' rank (pinned in the oracle test)", () => {
     const rows: (string | number)[][] = [];
     for (let i = 0; i < 6; i++)
       for (let t = 0; t < 3; t++) {
@@ -225,8 +241,19 @@ describe("hostile inputs", () => {
         rows.push([`e${i}`, yr, (i + t + Math.sin(i * 7 + t)).toFixed(4), Math.cos(i * 3 + t * 5).toFixed(4), Math.sin(i * 11 + t * 2).toFixed(4)]);
       }
     const d = table(["id", "yr", "y", "x1", "x2"], rows);
-    refused(fe({ data: d, ...P, effects: "twoway" }), /separate groups of entities/);
+    const out = fe({ data: d, ...P, effects: "twoway", se: "classical" });
+    contract(out);
+    // 6 entities, 6 periods, 2 groups: 6 + 6 − 1 − 2 = 9 effects.
+    expect(out.text).toMatch(/splits into 2 groups.*N \+ T − 1 − 2 = 9.*linearmodels counts N \+ T − 2 = 10/);
+    expect(out.tables![1].rows.find((r) => r[0] === "Effects counted")![1]).toBe("9");
     contract(fe({ data: d, ...P }));
+  });
+  test("every entity with the same number of rows but not the same periods is not called “100 to 100 rows”", () => {
+    const d = panel(6, 4, 3, (i, t, x1, x2, y) => [`e${i}`, 2000 + t + (i % 2), y.toFixed(6), x1.toFixed(6), x2.toFixed(6)]);
+    const out = fe({ data: d, ...P });
+    contract(out);
+    expect(out.text).toMatch(/unbalanced: every entity has 4 rows, but not all in the same periods/);
+    expect(out.text).not.toMatch(/4 to 4 rows/);
   });
   test("huge and tiny scales", () => {
     const d = panel(30, 5, 4, (i, t, x1, x2, y) => [`e${i}`, 2000 + t, `${(y * 1e12).toPrecision(12)}`, `${(x1 * 1e-12).toPrecision(12)}`, x2.toFixed(6)]);
@@ -303,6 +330,48 @@ describe("difference-in-differences", () => {
   test("a treatment that is not 0/1 is refused", () => {
     const d = didTable(10, 5, () => null, 7, (i, t) => (i < 3 && t > 2 ? 2 : 0));
     refused(did({ data: d }), /must be 0 or 1/);
+    // A tiny non-0/1 value is shown under the display contract, not in e-notation.
+    const tiny = didTable(10, 5, () => null, 7, (i, t) => (i < 3 && t > 2 ? 1e-7 : 0));
+    const out = did({ data: tiny });
+    refused(out, /holds 1×10⁻⁷/);
+    expect(out.text).not.toMatch(/\de-\d/);
+  });
+  test("an NA outcome in the adoption row does not move the unit's adoption period (pinned in the oracle test)", () => {
+    const d = didTable(30, 8, (i) => (i < 12 ? 4 : null)).split("\n");
+    // c0…c2 lose their 2014 (adoption-period) outcome.
+    for (let r = 1; r < d.length; r++) if (/^c[012]\t2014\t/.test(d[r])) d[r] = d[r].replace(/^(c\d\t2014\t)[^\t]+/, "$1NA");
+    const out = did({ data: d.join("\n"), leads: "3", lags: "3" });
+    contract(out);
+    expect(out.text).toMatch(/12 treated entities, 18 never treated; treatment starts in 1 period \(2014\)/);
+    expect(out.text).toMatch(/Adoption period of each unit: the first period its treatment is 1, read from the treatment column over every row/);
+    expect(out.tables!.some((t) => /DiD event study/.test(t.label))).toBe(true);
+  });
+  test("an NA treatment cell that hides an adoption refuses the event study only, by entity and row", () => {
+    const d = didTable(30, 8, (i) => (i < 12 ? 4 : null)).split("\n");
+    // c5's 2013 treatment cell (data row 44: entity 5 × 8 + period 3 + 1) is NA, between its last 0 and first 1.
+    d[44] = d[44].replace(/^(c5\t2013\t[^\t]+\t)0/, "$1NA");
+    expect(d[44]).toMatch(/^c5\t2013\t[^\t]+\tNA/);
+    const out = did({ data: d.join("\n") });
+    contract(out);
+    expect(out.text).toMatch(/DiD estimate = /);
+    expect(out.text).toMatch(/DiD event study not computed: The adoption period of entity “c5” cannot be dated: its treatment cell is empty or NA in row 44/);
+  });
+  test("plural wording for units with no pre-period; many cohorts summarised", () => {
+    const d = didTable(40, 12, (i) => (i < 3 ? 0 : i < 20 ? 2 + (i % 9) : null));
+    const out = did({ data: d });
+    contract(out);
+    expect(out.text).toMatch(/3 entities are treated from their first row \(no pre-period of their own\)/);
+    expect(out.text).toMatch(/treatment starts in 10 periods \(from 2010 to 2020\)/);
+    const one = did({ data: didTable(30, 8, (i) => (i < 1 ? 0 : i < 12 ? 4 : null)) });
+    expect(one.text).toMatch(/1 entity is treated from its first row \(no pre-period of its own\)/);
+  });
+  test("the event study uses the main fit's standard errors", () => {
+    const d = didTable(30, 8, (i) => (i < 12 ? 4 : null));
+    for (const se of ["robust", "cluster-entity"]) {
+      const out = did({ data: d, se });
+      const main = /Standard errors: (.+)/.exec(out.text)![1];
+      expect(out.tables!.find((t) => /DiD event study/.test(t.label))!.note).toContain(main);
+    }
   });
   test("no never-treated: the DiD estimate stands, the event study is refused by name", () => {
     const out = did({ data: didTable(30, 6, (i) => (i % 2 ? 2 : 4)) });

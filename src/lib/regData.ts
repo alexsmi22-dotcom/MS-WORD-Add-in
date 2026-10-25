@@ -266,6 +266,9 @@ export function selectColumns(
   const clusters: string[] = [];
   const semicolon = data.semicolon === true;
   let decimalCommas = 0;
+  // A % sign is read as the number before it ("5%" is 5): say so. (A thousands comma alone, "1,234", is the
+  // ordinary English reading and gets no note.)
+  let percentCells = 0;
   /**
    * The first unambiguous decimal-comma cell and the first thousands-shaped cell in the model's columns. The decision
    * is table-wide: once "0,5" in one column shows the table writes decimal commas, "1,250" in another is as likely
@@ -318,6 +321,7 @@ export function selectColumns(
       } else if (!semicolon && THOUSANDS_SHAPE.test(cell.split(/[×xX·]/)[0].trim())) {
         if (!kSeen) kSeen = { cell, row: i + 1, col: j };
       }
+      if (cell.includes("%")) percentCells++;
       if (decSeen && kSeen) {
         const d = decSeen;
         const k = kSeen;
@@ -349,6 +353,11 @@ export function selectColumns(
       semicolon
         ? `The table is separated by semicolons, so its commas were read as decimal commas (${decimalCommas.toLocaleString("en-US")} cell${decimalCommas === 1 ? "" : "s"}; “0,125” is 0.125).`
         : `${decimalCommas.toLocaleString("en-US")} cell${decimalCommas === 1 ? "" : "s"} with a decimal comma ${decimalCommas === 1 ? "was" : "were"} read as decimals (“0,125” is 0.125, “1,5” is 1.5).`,
+    );
+  }
+  if (percentCells) {
+    notes.push(
+      `${percentCells.toLocaleString("en-US")} cell${percentCells === 1 ? "" : "s"} with a % sign ${percentCells === 1 ? "was" : "were"} read as the number before the sign, in percent units (“5%” is 5, not 0.05).`,
     );
   }
   if (dropped) {

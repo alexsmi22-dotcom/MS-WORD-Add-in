@@ -38,7 +38,7 @@ import type { FittedModel, ModelStat, ModelTerm } from "./regModel";
 import { tTestP, fTestP, tCritical } from "./stats";
 import { chiSquareP } from "./stats2";
 import { magnitudeReason } from "./olsInference";
-import { fmtFixed, intText } from "./regTable";
+import { fmtFixed, intText, numText } from "./regTable";
 import type { PanelColumns } from "./panelData";
 
 const q = (s: string): string => `“${s}”`;
@@ -542,6 +542,11 @@ function checkInputs(p: PanelColumns): void {
   p.X.forEach((c, j) => {
     const m = magnitudeReason(c, p.names[j]);
     if (m) throw new PanelRefusal(m);
+    let same = true;
+    for (let i = 1; i < c.length && same; i++) if (c[i] !== c[0]) same = false;
+    if (same) {
+      throw new PanelRefusal(`${q(p.names[j])} is constant (every value is ${numText(c[0])}), so it is perfectly collinear with the constant. Remove it.`);
+    }
   });
 }
 

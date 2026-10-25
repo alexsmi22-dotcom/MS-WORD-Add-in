@@ -90,7 +90,7 @@ export interface TwoByTwo {
 /** The four group means when the design is exactly 2 groups × 2 periods (treatment only in period 2), else null. */
 export function twoByTwo(p: PanelColumns, info: TreatmentInfo): TwoByTwo | null {
   if (p.T !== 2 || info.nTreated === 0 || info.nNever === 0) return null;
-  if (info.cohorts.length !== 1 || info.cohorts[0] !== 1 || info.alwaysTreated > 0) return null;
+  if (info.cohorts.length !== 1 || info.cohorts[0] !== 1) return null;
   const s = [0, 0, 0, 0];
   const c = [0, 0, 0, 0];
   for (let i = 0; i < p.n; i++) {
@@ -130,7 +130,7 @@ export interface EventDummies {
 /** "τ ≤ −4", "τ = −2", "τ = 0", "τ = +1", "τ ≥ +4". */
 export function relLabel(r: number, leads: number, lags: number): string {
   const s = r > 0 ? `+${r}` : r < 0 ? `${MINUS}${-r}` : "0";
-  if (r === -leads && leads > 1) return `τ ≤ ${s}`;
+  if (r === -leads) return `τ ≤ ${s}`;
   if (r === lags) return `τ ≥ ${s}`;
   return `τ = ${s}`;
 }

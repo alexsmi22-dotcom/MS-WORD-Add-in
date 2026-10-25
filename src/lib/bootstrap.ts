@@ -7,13 +7,13 @@
  *   - Quantiles of the bootstrap distribution: Hyndman–Fan type 7 (scipy.stats.quantile method "linear", scipy's
  *     default): jg = p·B + (1 − p), j = floor(jg) − 1, g = jg mod 1, value (1 − g)·θ*₍ⱼ₎ + g·θ*₍ⱼ₊₁₎, indices clipped
  *     to 0 … B − 1.
- *   - percentile: [q(α), q(1 − α)].  basic: [2θ̂ − q(1 − α), 2θ̂ − q(α)].
+ *   - percentile: [q(α), q(1 − α)].  basic: [2θ − q(1 − α), 2θ − q(α)].
  *   - BCa (Efron & Tibshirani 1993, eq. 14.14 and 15.36, as scipy's _bca_interval): z₀ = Φ⁻¹(p₀) with
- *     p₀ = (#{θ* < θ̂} + #{θ* ≤ θ̂})/(2B), so ties with θ̂ count one half; the acceleration from the leave-one-out
+ *     p₀ = (#{θ* < θ} + #{θ* ≤ θ})/(2B), so ties with θ count one half; the acceleration from the leave-one-out
  *     jackknife, U = (n − 1)(θ̄₍.₎ − θ₍ᵢ₎), â = ΣU³/(6(ΣU²)^{3/2}); α₁ = Φ(z₀ + (z₀ + z_α)/(1 − â(z₀ + z_α))), α₂ the
  *     same with z₁₋α; interval [q(α₁), q(α₂)].
  *   - normal: scipy has no normal interval. This is R boot.ci's type "norm" (Davison & Hinkley 1997, eq. 5.5):
- *     (θ̂ − bias) ± z₁₋α·SE, with bias = mean(θ*) − θ̂ and SE the standard deviation of θ* (divisor B − 1, as scipy's
+ *     (θ − bias) ± z₁₋α·SE, with bias = mean(θ*) − θ and SE the standard deviation of θ* (divisor B − 1, as scipy's
  *     standard_error).
  *   - Two-column statistics resample ROWS (pairs), as scipy's paired=True: one index vector, and the jackknife leaves
  *     out one row.
@@ -442,7 +442,7 @@ export function runBootstrap(inp: BootInput): BootOutcome {
   return { ok: true, n, thetaHat, reps: used, dropped, se, bias, alpha, percentile, basic, normal, bca, jack };
 }
 
-/** p₀ = (#{θ* < θ̂} + #{θ* ≤ θ̂})/(2B): scipy's _percentile_of_score ("mean" kind). */
+/** p₀ = (#{θ* < θ} + #{θ* ≤ θ})/(2B): scipy's _percentile_of_score ("mean" kind). */
 export function bcaP0(reps: ArrayLike<number>, thetaHat: number): number {
   let below = 0;
   let atOrBelow = 0;
@@ -454,14 +454,14 @@ export function bcaP0(reps: ArrayLike<number>, thetaHat: number): number {
 }
 
 /**
- * The BCa interval from the sorted replicates, θ̂ and the jackknife values (scipy's _bca_interval), or the reason it
- * cannot be formed: z₀ infinite (every replicate on one side of θ̂), an undefined leave-one-out statistic, or equal
+ * The BCa interval from the sorted replicates, θ and the jackknife values (scipy's _bca_interval), or the reason it
+ * cannot be formed: z₀ infinite (every replicate on one side of θ), an undefined leave-one-out statistic, or equal
  * jackknife values (0/0 acceleration).
  */
 export function bcaInterval(sorted: Float64Array, thetaHat: number, jack: Float64Array, alpha: number): BootResult["bca"] {
   const p0 = bcaP0(sorted, thetaHat);
   if (p0 === 0 || p0 === 1) {
-    return { refused: `every replicate lies ${p0 === 0 ? "above" : "below"} θ̂, so the bias correction z₀ is infinite` };
+    return { refused: `every replicate lies ${p0 === 0 ? "above" : "below"} θ, so the bias correction z₀ is infinite` };
   }
   const n = jack.length;
   const badJ = jack.findIndex((v) => !Number.isFinite(v));

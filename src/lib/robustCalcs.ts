@@ -268,7 +268,7 @@ function bootReport(r: BootResult, k: BootCtx): StatOutput {
   const h = iv[headline]!;
   lines.push(`${METHOD_NAMES[headline]} interval: ${intervalText(h[0], h[1], d)}`);
   if (k.method === "bca" && !bcaOk) lines.push(`BCa is not available: ${(r.bca as { refused: string }).refused}. The percentile interval is shown instead.`);
-  lines.push(`Estimate θ̂ = ${fmtFixed(r.thetaHat, d)}, bootstrap SE = ${fmtFixed(r.se, d)}, bias = ${fmtFixed(r.bias, d)}`);
+  lines.push(`Estimate θ = ${fmtFixed(r.thetaHat, d)}, bootstrap SE = ${fmtFixed(r.se, d)}, bias = ${fmtFixed(r.bias, d)}`);
   if (r.dropped) {
     lines.push(
       `${intText(r.dropped)} of ${intText(k.B)} resamples left the statistic undefined and were dropped (Stata's policy for a failed replicate); the intervals use the other ${intText(r.reps.length)}.`,
@@ -284,9 +284,9 @@ function bootReport(r: BootResult, k: BootCtx): StatOutput {
       : "Resampling: n values drawn with replacement per resample; the jackknife for BCa leaves out one value at a time.",
   );
   lines.push(
-    "Intervals (scipy.stats.bootstrap conventions): quantiles of the replicates by linear interpolation (Hyndman–Fan type 7); percentile [q(α), q(1 − α)]; basic [2θ̂ − q(1 − α), 2θ̂ − q(α)]; " +
-      "BCa with z₀ = Φ⁻¹ of the share of replicates below θ̂ (ties count one half) and the acceleration from the jackknife; normal (θ̂ − bias) ± z·SE, as R's boot.ci type \"norm\" (scipy has no normal interval). " +
-      "SE is the standard deviation of the replicates (divisor B − 1); bias = mean of the replicates − θ̂.",
+    "θ is the statistic on the full sample and θ* its value on a resample. Intervals (scipy.stats.bootstrap conventions): quantiles of the replicates by linear interpolation (Hyndman–Fan type 7); percentile [q(α), q(1 − α)]; basic [2θ − q(1 − α), 2θ − q(α)]; " +
+      "BCa with z₀ = Φ⁻¹ of the share of replicates below θ (ties count one half) and the acceleration from the jackknife; normal (θ − bias) ± z·SE, as R's boot.ci type \"norm\" (scipy has no normal interval). " +
+      "SE is the standard deviation of the replicates (divisor B − 1); bias = mean of the replicates − θ.",
   );
   if (k.stat === "sd" || k.stat === "var") lines.push("The standard deviation and variance use the divisor n − 1.");
   if (k.stat === "trim10") lines.push("The 10% trimmed mean cuts floor(0.1·n) values from each end, as scipy.stats.trim_mean(x, 0.1).");
@@ -302,9 +302,9 @@ function bootReport(r: BootResult, k: BootCtx): StatOutput {
   if ("lo" in r.bca) rows.push(["BCa", fmtFixed(r.bca.lo, d), fmtFixed(r.bca.hi, d)]);
   else rows.push(["BCa", `not available: ${r.bca.refused}`, ""]);
   const sumRows: string[][] = [["Quantity", "Value"]];
-  sumRows.push(["θ̂ (full sample)", fmtFixed(r.thetaHat, d)]);
+  sumRows.push(["θ (full sample)", fmtFixed(r.thetaHat, d)]);
   sumRows.push(["Bootstrap SE", fmtFixed(r.se, d)]);
-  sumRows.push(["Bias (mean of replicates − θ̂)", fmtFixed(r.bias, d)]);
+  sumRows.push(["Bias (mean of replicates − θ)", fmtFixed(r.bias, d)]);
   if ("lo" in r.bca) {
     sumRows.push(["Bias correction z₀", fmtFixed(r.bca.z0, 4)]);
     sumRows.push(["Acceleration â", fmtFixed(r.bca.a, 4)]);
@@ -337,7 +337,7 @@ function bootFigure(r: BootResult, d: number, k: BootCtx): string {
     pts.push({ x: hi, y: 0 });
     series.push({ type: "line", points: pts, color: "#64748b", label: "Replicates" });
     const top = Math.max(...counts);
-    series.push({ type: "line", points: [{ x: r.thetaHat, y: 0 }, { x: r.thetaHat, y: top }], color: "#0369a1", label: "θ̂" });
+    series.push({ type: "line", points: [{ x: r.thetaHat, y: 0 }, { x: r.thetaHat, y: top }], color: "#0369a1", label: "θ" });
     if ("lo" in r.bca) {
       const b = r.bca;
       series.push({

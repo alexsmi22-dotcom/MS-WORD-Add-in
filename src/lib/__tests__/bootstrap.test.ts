@@ -92,9 +92,9 @@ describe("bootstrap: pinned to the oracle's PCG32 replay and scipy's interval fo
       close(r.basic.lo, c.scipy.basic[0], scale, 1e-12);
       close(r.basic.hi, c.scipy.basic[1], scale, 1e-12);
       if (c.scipyTheta !== c.theta && c.tiesAtTheta > 0) {
-        // scipy's θ̂ (numpy pairwise sums) differs from the sequential θ̂ in the last bits, and some replicates equal
-        // θ̂ exactly (resamples that permute the data), so scipy counts them on the other side in z₀: a rounding
-        // artefact of scipy's θ̂, not a convention difference. The oracle's replay (above) pins this case at 1e−12.
+        // scipy's θ (numpy pairwise sums) differs from the sequential θ in the last bits, and some replicates equal
+        // θ exactly (resamples that permute the data), so scipy counts them on the other side in z₀: a rounding
+        // artefact of scipy's θ, not a convention difference. The oracle's replay (above) pins this case at 1e−12.
         expect(Math.abs(c.scipyTheta - c.theta)).toBeLessThan(1e-14 * scale);
       } else {
         close(r.bca.lo, c.scipy.BCa[0], scale, 1e-9);
@@ -139,13 +139,13 @@ describe("bootstrap internals", () => {
 });
 
 describe("bootstrap refusals by name", () => {
-  it("BCa: z₀ infinite when every replicate lies on one side of θ̂ (both sides), by name", () => {
+  it("BCa: z₀ infinite when every replicate lies on one side of θ (both sides), by name", () => {
     const jack = Float64Array.from([1, 2, 3, 4, 5]);
     const above = bcaInterval(Float64Array.from([2, 3, 4]), 1, jack, 0.025);
     const below = bcaInterval(Float64Array.from([2, 3, 4]), 5, jack, 0.025);
-    expect(above).toEqual({ refused: expect.stringMatching(/every replicate lies above θ̂.*z₀ is infinite/) });
-    expect(below).toEqual({ refused: expect.stringMatching(/every replicate lies below θ̂.*z₀ is infinite/) });
-    // A tie with θ̂ counts one half, so replicates that all EQUAL θ̂ give z₀ = 0, not infinity.
+    expect(above).toEqual({ refused: expect.stringMatching(/every replicate lies above θ.*z₀ is infinite/) });
+    expect(below).toEqual({ refused: expect.stringMatching(/every replicate lies below θ.*z₀ is infinite/) });
+    // A tie with θ counts one half, so replicates that all EQUAL θ give z₀ = 0, not infinity.
     expect(bcaP0([3, 3, 3], 3)).toBe(0.5);
   });
 

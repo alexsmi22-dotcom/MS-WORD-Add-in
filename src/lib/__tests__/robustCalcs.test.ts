@@ -130,6 +130,11 @@ describe("boot-ci", () => {
     expect(readConfidence("0.95")).toBe(0.95);
     expect(readConfidence("90")).toBe(0.9);
     expect(readConfidence("")).toBe(0.95);
+    expect(readConfidence("99.9")).toBe(99.9 / 100);
+    expect(readConfidence("99.9%")).toBe(99.9 / 100);
+    expect(readConfidence("0.999")).toBe(0.999);
+    expect(readConfidence("50")).toBe(0.5);
+    expect(boot({ conf: "99.9", B: "300" }).text).toMatch(/^Bootstrap 99.9% confidence/);
     expect(boot({ conf: "90%", B: "300" }).text).toMatch(/^Bootstrap 90% confidence/);
   });
 

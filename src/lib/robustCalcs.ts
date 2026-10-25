@@ -82,12 +82,20 @@ export function readConfidence(raw: string | undefined): number | { error: strin
   const t = (raw ?? "").trim();
   if (t === "") return 0.95;
   const m = /^(\d+(?:\.\d+)?)\s*(%?)$/.exec(t);
+  // The range is tested on the scale the user typed: 99.9/100 is 0.9990000000000001 in binary, just above 0.999.
+  let ok = false;
   let c = NaN;
   if (m) {
     const v = Number(m[1]);
-    c = m[2] === "%" || v > 1 ? v / 100 : v;
+    if (m[2] === "%" || v > 1) {
+      ok = v >= 50 && v <= 99.9;
+      c = v / 100;
+    } else {
+      ok = v >= 0.5 && v <= 0.999;
+      c = v;
+    }
   }
-  if (!(c >= 0.5 && c <= 0.999)) return { error: `Confidence: ${q(t)} is not a level from 50% to 99.9% (write 95, 95% or 0.95).` };
+  if (!ok) return { error: `Confidence: ${q(t)} is not a level from 50% to 99.9% (write 95, 95% or 0.95).` };
   return c;
 }
 
@@ -565,7 +573,10 @@ export function qregCalc(read: Read): StatOutput {
       ? "Standard errors as statsmodels QuantReg.fit(vcov=\"robust\", kernel=\"epa\", bandwidth=\"hsheather\"), evaluated at the exact solution: the sandwich (XᵀX)⁻¹XᵀDX(XᵀX)⁻¹ with D = (τ/f̂)² for positive residuals and ((1 − τ)/f̂)² otherwise; f̂ is an Epanechnikov kernel density of the residuals at 0, bandwidth min(sd(y), IQR(residuals)/1.34)·(Φ⁻¹(τ + h) − Φ⁻¹(τ − h)) with Hall and Sheather's h."
       : "Standard errors as statsmodels QuantReg.fit(vcov=\"iid\"), evaluated at the exact solution: τ(1 − τ)/f̂²·(XᵀX)⁻¹, f̂ an Epanechnikov kernel density of the residuals at 0 with Hall and Sheather's bandwidth.",
   );
-  lines.push(`t statistics, p-values and 95% intervals on n − p = ${intText(r.n - r.names.length)} degrees of freedom (statsmodels' use_t).`);
+  lines.push(
+    "The covariance formula is evaluated on a column-scaled design and scaled back, which is identical in exact arithmetic; statsmodels inverts the unscaled XᵀX with a pseudo-inverse, which can lose standard errors when column scales differ greatly (10⁶ against 10⁻⁶), so results can differ from statsmodels there.",
+  );
+  lines.push(`t statistics, p-values and 95% intervals on n − p =${intText(r.n - r.names.length)} degrees of freedom (statsmodels' use_t).`);
   lines.push(
     "Pseudo R¹ = 1 − V(τ)/V₀(τ), V the minimised check-function sum and V₀ that of the intercept-only model, at its exact minimiser (the sample τ-quantile order statistic)" +
       (r.constant ? "." : "; without a constant the model can fit worse than the intercept-only one, so R¹ can be negative."),

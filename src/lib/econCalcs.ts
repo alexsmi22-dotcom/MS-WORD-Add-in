@@ -1,7 +1,8 @@
 /**
  * The two Release E2 Stats calculators, as pure functions of the field reader so jest can run them:
  *  - econ-ols       one OLS model: summary, coefficient table, diagnostics table, residual-vs-fitted figure;
- *  - econ-regtable  several OLS models side by side in the publication table (regTable.ts).
+ *  - econ-regtable  several OLS models side by side in the publication table (regTable.ts);
+ *  - econ-logit     a logit or probit model: coefficients, average marginal effects, fit statistics.
  * taskpane.ts only declares the fields and calls these.
  *
  * Worked default: Longley (1967), the US macro series statsmodels bundles as `longley` (public domain), the classic
@@ -12,6 +13,7 @@ import { fitOls, olsDiagnostics, type OlsFit, type SeType, type OlsDiagnostics }
 import { parseRegData, parseSpec, parseSpecList, selectColumns, type RegDataset, type RegSpec } from "./regData";
 import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, type StarScheme } from "./regTable";
 import { buildPlotSvg } from "./plot";
+import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal } from "./logitProbit";
 
 /** Longley (1967): total employment and six macro series, US 1947–1962 (statsmodels `longley`, public domain). */
 export const LONGLEY_DEFAULT = [
@@ -36,6 +38,76 @@ export const LONGLEY_DEFAULT = [
 
 export const ECON_SPEC_DEFAULT = "TOTEMP ~ GNPDEFL + GNP + UNEMP + ARMED + POP + YEAR";
 export const ECON_SPECS_DEFAULT = ["TOTEMP ~ GNP + POP", "TOTEMP ~ GNP + POP + UNEMP + ARMED", ECON_SPEC_DEFAULT].join("\n");
+
+/**
+ * A synthetic teaching-method study (60 rows, seed 1980; the same data as the logit oracle's simS fixture): grade
+ * (1 = improved) on GPA, a test score (TUCE) and a treatment dummy (PSI). Synthetic so it can ship.
+ */
+export const LOGIT_DEFAULT = [
+  "grade GPA TUCE PSI",
+  "0 2.56 20 0",
+  "0 2.22 14 1",
+  "0 2.54 25 0",
+  "1 2.26 20 1",
+  "0 2.25 25 0",
+  "0 2.26 18 1",
+  "1 2.91 34 1",
+  "0 3.58 13 0",
+  "1 3.59 25 1",
+  "0 2.62 18 1",
+  "0 3.31 31 0",
+  "1 3.87 23 0",
+  "1 2.64 16 0",
+  "1 2.32 18 1",
+  "0 2.67 22 0",
+  "1 3.03 20 1",
+  "0 3.2 19 0",
+  "0 2.4 17 1",
+  "0 2.95 24 1",
+  "0 2.02 19 0",
+  "1 3.42 27 1",
+  "1 3.74 17 0",
+  "1 3.8 16 1",
+  "0 2.05 20 0",
+  "0 2.5 29 0",
+  "1 3.19 25 1",
+  "0 2.66 21 0",
+  "1 3.95 25 0",
+  "0 3.76 22 0",
+  "0 2.16 22 1",
+  "0 2.45 21 0",
+  "0 2.99 16 1",
+  "0 2.1 19 1",
+  "0 3.37 20 0",
+  "0 2.04 27 0",
+  "0 2.06 20 0",
+  "0 3.02 17 0",
+  "0 3.16 22 0",
+  "0 2.99 23 0",
+  "0 3.89 21 0",
+  "0 2.1 13 1",
+  "0 3.06 21 0",
+  "1 3.89 18 1",
+  "1 2.95 24 1",
+  "0 2.05 17 0",
+  "1 3.82 31 0",
+  "0 2.92 31 1",
+  "0 2.05 16 1",
+  "0 2.22 23 0",
+  "1 3.58 17 0",
+  "0 2.81 25 0",
+  "0 2.39 20 1",
+  "1 2.53 25 0",
+  "0 2.08 20 0",
+  "0 2.79 23 0",
+  "0 3.17 18 0",
+  "1 3.83 27 0",
+  "1 2.75 18 1",
+  "0 2.95 24 0",
+  "1 3.52 21 1",
+].join("\n");
+
+export const LOGIT_SPEC_DEFAULT = "grade ~ GPA + TUCE + PSI";
 
 /** At most this many points in the residual figure (every m-th row beyond it, said in the text). */
 export const RESID_FIGURE_MAX_POINTS = 2000;
@@ -244,4 +316,32 @@ export function econRegTableCalc(read: Read): StatOutput {
   lines.push(...seNotes);
   lines.push(`${o.decimals} decimals; terms a model leaves out are blank.`);
   return { text: lines.join("\n"), tables: [{ label: table.label, rows: table.rows, note: table.legend }] };
+}
+
+/** One logit or probit model (lib/logitProbit.ts): the summary, the coefficient table and the marginal effects. */
+export function econLogitCalc(read: Read): StatOutput {
+  const parsed = parseRegData(read("data"));
+  if (!parsed.ok) return refuse(parsed.reason);
+  const spec = parseSpec(read("spec"));
+  if ("error" in spec) return refuse(spec.error);
+  const sel = selectColumns(parsed.data, spec, {});
+  if (!sel.ok) return refuse(sel.reason);
+  const c = sel.cols;
+  const constant = (read("constant") || "yes") !== "no";
+  const se = read("se") === "hc0" ? "hc0" : "classical";
+  const kind = read("model") === "probit" ? "probit" : "logit";
+  // The engine wants one row per observation; the reader gives columns.
+  const y = Array.from(c.y);
+  const X = y.map((_, i) => c.X.map((col) => col[i]));
+  try {
+    const fit = kind === "probit" ? fitProbit : fitLogit;
+    const model = fit(y, X, c.names, { constant, se, depName: c.depName });
+    const rep = logitProbitReport(model);
+    // The OLS notes minus the constant's position (this table lists the constant first, as statsmodels does).
+    const notes = [...conventionNotes({ se: "classical", constant, decimals: 3, stars: "econ" }, parsed.data.named).slice(1), ...c.notes];
+    return { text: [rep.text, ...notes].join("\n"), tables: rep.tables };
+  } catch (e) {
+    if (e instanceof LogitProbitRefusal) return refuse(e.message);
+    throw e;
+  }
 }

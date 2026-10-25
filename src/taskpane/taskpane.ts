@@ -47,7 +47,7 @@ import {
 } from "../lib/spectroPane";
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, StatTable, analyzeBlocksToText } from "../lib/analyzeBlocks";
-import { econOlsCalc, econRegTableCalc, LONGLEY_DEFAULT, ECON_SPEC_DEFAULT, ECON_SPECS_DEFAULT } from "../lib/econCalcs";
+import { econOlsCalc, econRegTableCalc, econLogitCalc, LONGLEY_DEFAULT, ECON_SPEC_DEFAULT, ECON_SPECS_DEFAULT, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT } from "../lib/econCalcs";
 import { SE_TYPES } from "../lib/olsInference";
 import { STAR_SCHEMES } from "../lib/regTable";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
@@ -10603,6 +10603,39 @@ const STAT_CALCS: StatCalc[] = [
       // lib/econCalcs.ts: one OLS fit per line under the same options, then the publication table (lib/regTable.ts)
       // with its star legend as the line under it.
       return econRegTableCalc(r);
+    },
+  },
+  {
+    id: "econ-logit",
+    name: "Logit / probit regression (binary outcome)",
+    fields: [
+      { key: "data", label: "Data: a header row of column names, then one row per observation (response 0 or 1)", default: LOGIT_DEFAULT, kind: "block" },
+      { key: "spec", label: "Model (response ~ predictors; blank = first column on all others)", default: LOGIT_SPEC_DEFAULT, kind: "text" },
+      {
+        key: "model",
+        label: "Model",
+        default: "logit",
+        kind: "select",
+        options: [
+          { value: "logit", label: "Logit" },
+          { value: "probit", label: "Probit" },
+        ],
+      },
+      {
+        key: "se",
+        label: "Standard errors",
+        default: "classical",
+        kind: "select",
+        options: [
+          { value: "classical", label: "Classical (inverse observed information)" },
+          { value: "hc0", label: "Robust (HC0 sandwich)" },
+        ],
+      },
+      ECON_OPTION_FIELDS[0],
+    ],
+    compute: (r) => {
+      // lib/econCalcs.ts → lib/logitProbit.ts: the summary, the coefficient table and the average marginal effects.
+      return econLogitCalc(r);
     },
   },
   {

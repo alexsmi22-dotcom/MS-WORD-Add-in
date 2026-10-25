@@ -40,18 +40,26 @@ function unambiguousDecimalComma(t: string): boolean {
  * cell is not a number.
  */
 export function readRegCell(cell: string, semicolon: boolean): { value: number; decimalComma: boolean } {
-  const t = cell.trim();
+  // A leading plus is only a sign ("+1,5", "+1,500"); the readers below take the rest.
+  const t0 = cell.trim();
+  const t = t0.startsWith("+") ? t0.slice(1) : t0;
+  // "1.000.000": two or more point groups can only be thousands, and a semicolon table writes thousands that way.
+  if (semicolon && MULTI_DOT_GROUPS.test(t.split(/[×xX·%]/)[0].trim())) return { value: parseCellNumber(t.replace(/\./g, "")), decimalComma: false };
   if (!t.includes(",")) return { value: parseCellNumber(t), decimalComma: false };
+  // "1.234,5": points group the thousands and the comma is the decimal, in any table.
+  if (GERMAN_FORM.test(t)) return { value: parseCellNumber(t.replace(/\./g, "").replace(",", ".")), decimalComma: true };
   if (semicolon) {
-    let s = t;
-    if (/^[-−+]?\d{1,3}(\.\d{3})+,\d+/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
-    else if (!s.includes(".") && (s.match(/,/g) ?? []).length === 1) s = s.replace(",", ".");
-    else return { value: NaN, decimalComma: false };
-    return { value: parseCellNumber(s), decimalComma: true };
+    if (t.includes(".") || (t.match(/,/g) ?? []).length !== 1) return { value: NaN, decimalComma: false };
+    return { value: parseCellNumber(t.replace(",", ".")), decimalComma: true };
   }
-  // A leading-zero mantissa ("0,125", "00,125", "0,125×10⁻³") is a decimal whatever follows it.
-  const lead = /^([-−+]?)0+,(\d+)/.exec(t);
-  if (lead) return { value: parseCellNumber(`${lead[1]}0.${lead[2]}${t.slice(lead[0].length)}`), decimalComma: true };
+  // A leading-zero mantissa ("0,125", "00,125", "0,125×10⁻³") is a decimal whatever follows it, except more digit
+  // groups ("0,125,000" is not a number).
+  const lead = /^([-−]?)0+,(\d+)/.exec(t);
+  if (lead) {
+    const rest = t.slice(lead[0].length);
+    if (/^[,.]/.test(rest)) return { value: NaN, decimalComma: false };
+    return { value: parseCellNumber(`${lead[1]}0.${lead[2]}${rest}`), decimalComma: true };
+  }
   const mant = t.split(/[×xX·]/)[0].trim();
   if (unambiguousDecimalComma(mant)) return { value: parseCellNumber(t.replace(",", ".")), decimalComma: true };
   return { value: parseCellNumber(t), decimalComma: false };
@@ -69,20 +77,30 @@ export function isMissingCell(s: string): boolean {
 const q = (s: string): string => `“${s}”`;
 /** A cell Number() reads exactly as parseCellNumber would (no comma, no exponent, at most 15 integer digits). */
 const PLAIN_DECIMAL = /^-?\d{1,15}(\.\d+)?$/;
-/** "2.345", "1.000.000": a point that, in a semicolon (European) table, may be a thousands separator. */
-const DOT_GROUPS = /^-?\d{1,3}(\.\d{3})+$/;
+/** "2.345", "−2.345", "+2.345 %", "2.345×10³": one point and exactly three digits, so it may be a thousands group. */
+const ONE_DOT_GROUP = /^[1-9]\d{0,2}\.\d{3}$/;
+function oneDotGroup(cell: string): boolean {
+  if (!cell.includes(".")) return false;
+  const m = cell.trim().replace(/^[-−+]/, "").split(/[×xX·%]/)[0].trim();
+  return ONE_DOT_GROUP.test(m);
+}
+/** "1.000.000": two or more point groups. */
+const MULTI_DOT_GROUPS = /^[-−]?[1-9]\d{0,2}(\.\d{3}){2,}$/;
+/** "1.234,5": points grouping thousands before a decimal comma. */
+const GERMAN_FORM = /^[-−]?\d{1,3}(\.\d{3})+,\d+/;
 
 function dotAmbiguity(
   name: string,
   k: { cell: string; row: number },
   g: { cell: string; row: number },
 ): { ok: false; reason: string } {
+  const digits = g.cell.trim().replace(/^[-−+]/, "").split(/[×xX·%]/)[0].trim();
   return {
     ok: false,
     reason:
       `Column ${q(name)} writes decimals with a comma (${q(k.cell)}, row ${k.row}), so the point in ${q(g.cell)} ` +
-      `(row ${g.row}) may be a thousands separator rather than a decimal point. Write every cell of the column with ` +
-      `its decimal comma (${q(`${g.cell},0`)}) or without thousands separators.`,
+      `(row ${g.row}) may be a thousands separator rather than a decimal point. Write ${q(digits.replace(".", ""))} ` +
+      `if it is a whole number, or ${q(digits.replace(".", ","))} if the point is a decimal point.`,
   };
 }
 
@@ -250,8 +268,9 @@ export function selectColumns(
   /**
    * The first unambiguous decimal-comma cell and the first thousands-shaped cell in the model's columns. The decision
    * is table-wide: once "0,5" in one column shows the table writes decimal commas, "1,250" in another is as likely
-   * 1.25 as 1,250, so the two together are refused. In a semicolon table a column that writes decimal commas ("3,5",
-   * "1.234,5") uses the point as its thousands separator, so a bare "2.345" in it may be 2,345 and is refused.
+   * 1.25 as 1,250, so the two together are refused. Likewise a column that writes decimal commas ("3,5", "1.234,5")
+   * uses the point as its thousands separator, so a bare "2.345" (or "−2.345", "2.345 %") in it may be 2,345 and is
+   * refused, in any table and whichever cell comes first.
    */
   type Seen = { cell: string; row: number; col: number } | null;
   let decSeen: Seen = null;
@@ -268,7 +287,7 @@ export function selectColumns(
       // Fast path for a plain decimal (a 50,000 × 20 paste is a million cells); everything else takes the product's
       // cell reader (decimal commas, U+2212, ×10ⁿ, thousands separators).
       if (PLAIN_DECIMAL.test(cell)) {
-        if (semicolon && DOT_GROUPS.test(cell)) {
+        if (oneDotGroup(cell)) {
           if (!dotGroupSeen[u]) dotGroupSeen[u] = { cell, row: i + 1, col: j };
           const c = commaSeen[u];
           if (c) return dotAmbiguity(names[j], c, dotGroupSeen[u]!);
@@ -284,14 +303,17 @@ export function selectColumns(
       if (!Number.isFinite(v)) {
         return { ok: false, reason: `Column ${q(names[j])}, row ${i + 1}: ${q(cell)} is not a number.` };
       }
+      if (!decimalComma && oneDotGroup(cell)) {
+        if (!dotGroupSeen[u]) dotGroupSeen[u] = { cell, row: i + 1, col: j };
+        const c = commaSeen[u];
+        if (c) return dotAmbiguity(names[j], c, dotGroupSeen[u]!);
+      }
       if (decimalComma) {
         decimalCommas++;
         if (!decSeen) decSeen = { cell, row: i + 1, col: j };
-        if (semicolon) {
-          if (!commaSeen[u]) commaSeen[u] = { cell, row: i + 1, col: j };
-          const dg = dotGroupSeen[u];
-          if (dg) return dotAmbiguity(names[j], commaSeen[u]!, dg);
-        }
+        if (!commaSeen[u]) commaSeen[u] = { cell, row: i + 1, col: j };
+        const dg = dotGroupSeen[u];
+        if (dg) return dotAmbiguity(names[j], commaSeen[u]!, dg);
       } else if (!semicolon && THOUSANDS_SHAPE.test(cell.split(/[×xX·]/)[0].trim())) {
         if (!kSeen) kSeen = { cell, row: i + 1, col: j };
       }

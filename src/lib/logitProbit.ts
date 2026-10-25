@@ -938,17 +938,20 @@ export function fmtP(p: number): string {
   return tableP(p);
 }
 
-export function logitProbitReport(model: FittedModel): { text: string; tables: { label: string; rows: string[][] }[] } {
+export function logitProbitReport(model: FittedModel): { text: string; tables: { label: string; rows: string[][]; align?: ("left" | "right")[] }[] } {
   const title = model.kind === "logit" ? "Logit" : model.kind === "probit" ? "Probit" : "Model";
   const head = ["Term", "Coefficient", "SE", "z", "p", "95% CI low", "95% CI high"];
   const termRow = (t: ModelTerm): string[] => [t.name, fmtFixed(t.coef, 4), fmtFixed(t.se, 4), fmtFixed(t.stat, 2), fmtP(t.p), fmtFixed(t.ciLo, 4), fmtFixed(t.ciHi, 4)];
-  const tables: { label: string; rows: string[][] }[] = [
-    { label: `${title} coefficients (dependent variable: ${model.depName}; standard errors: ${model.seLabel})`, rows: [head, ...model.terms.map(termRow)] },
+  // Terms left, every number column right, headers with their columns ("< 0.001" with the other p-values).
+  const align: ("left" | "right")[] = ["left", "right", "right", "right", "right", "right", "right"];
+  const tables: { label: string; rows: string[][]; align?: ("left" | "right")[] }[] = [
+    { label: `${title} coefficients (dependent variable: ${model.depName}; standard errors: ${model.seLabel})`, rows: [head, ...model.terms.map(termRow)], align },
   ];
   if (model.marginalEffects && model.marginalEffects.length) {
     tables.push({
       label: `Average marginal effects on P(${model.depName} = 1) (delta-method standard errors)`,
       rows: [["Term", "dP/dx", "SE", "z", "p", "95% CI low", "95% CI high"], ...model.marginalEffects.map(termRow)],
+      align,
     });
   }
   const parts: string[] = [];

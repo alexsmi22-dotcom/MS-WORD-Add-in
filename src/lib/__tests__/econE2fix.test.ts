@@ -85,6 +85,50 @@ describe("decimal commas are never misread", () => {
     expect(s.ok && Array.from(s.cols.X[0])).toEqual([2.345, 3.125, 4.75]);
     expect(s.ok && Array.from(s.cols.X[1])).toEqual([2.5, 3.5, 4.25]);
   });
+  test("review round 2: the point-group refusal holds for a Word minus, a plus, a percent and ×10ⁿ, in any row order", () => {
+    const cols = (text: string) => {
+      const d = parseRegData(text);
+      if (!d.ok) throw new Error(d.reason);
+      return selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
+    };
+    for (const bad of ["−2.345", "+2.345", "2.345%", "2.345×10³"]) {
+      for (const text of [`y;x\n1;3,5\n2;${bad}\n3;4,1`, `y;x\n2;${bad}\n1;3,5\n3;4,1`]) {
+        const s = cols(text);
+        expect(s.ok).toBe(false);
+        expect(!s.ok && s.reason).toContain("may be a thousands separator rather than a decimal point");
+      }
+    }
+    // The advice names both readings, and neither suggestion flips the meaning.
+    const s = cols("y;x\n1;3,5\n2;2.345\n3;4,1");
+    expect(!s.ok && s.reason).toContain("Write “2345” if it is a whole number, or “2,345” if the point is a decimal point.");
+    // A leading zero is never a thousands group.
+    expect(cols("y;x\n1;3,5\n2;0.125\n3;4,1").ok).toBe(true);
+  });
+  test("review round 2: German 1.234,5 is a decimal comma in any table, so 1,500 or 2.345 beside it is refused", () => {
+    for (const text of ["y\tx\n1.234,5\t1\n1,500\t2\n3\t3", "y\tx\n1.234,5\t1\n2.345\t2\n3\t3"]) {
+      const d = parseRegData(text);
+      if (!d.ok) throw new Error(d.reason);
+      expect(selectColumns(d.data, { dep: "y", preds: ["x"], text: "" }).ok).toBe(false);
+    }
+    const d = parseRegData("y\tx\n1.234,5\t1\n2,5\t2\n3\t3");
+    if (!d.ok) throw new Error(d.reason);
+    const s = selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
+    expect(s.ok && Array.from(s.cols.y)).toEqual([1234.5, 2.5, 3]);
+  });
+  test("review round 2: 0,125,000 is not a number; +1,500 and a semicolon 1.000.000 read", () => {
+    const bad = parseRegData("y\tx\n0,125,000\t1\n2\t2\n3\t3");
+    if (!bad.ok) throw new Error(bad.reason);
+    const b = selectColumns(bad.data, { dep: "y", preds: ["x"], text: "" });
+    expect(!b.ok && b.reason).toContain("is not a number");
+    const d = parseRegData("y\tx\n+1,500\t1\n2,000\t2\n3,000\t3");
+    if (!d.ok) throw new Error(d.reason);
+    const s = selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
+    expect(s.ok && Array.from(s.cols.y)).toEqual([1500, 2000, 3000]);
+    const e = parseRegData("y;x\n1.000.000;1\n2.000.000;2\n3,5;3");
+    if (!e.ok) throw new Error(e.reason);
+    const t = selectColumns(e.data, { dep: "y", preds: ["x"], text: "" });
+    expect(t.ok && Array.from(t.cols.y)).toEqual([1000000, 2000000, 3.5]);
+  });
   test("review round: a decimal comma in one column makes a thousands-shaped comma in another ambiguous", () => {
     const d = parseRegData("y\tx\n0,5\t1,250\n1,5\t2,500\n2,5\t3,125\n3,7\t4,750");
     if (!d.ok) throw new Error(d.reason);

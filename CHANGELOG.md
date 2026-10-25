@@ -6,6 +6,17 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.196.1] — 2026-10-25 — Decimal commas read safely; regression tables aligned
+
+### Fixed
+- **Decimal commas never misread silently:** a column that writes decimal commas ("3,5", or German "1.234,5" in any
+  table) now refuses a bare "2.345" in the same column (with a Word minus, a plus, a percent or ×10ⁿ too), because its
+  point may group thousands; the refusal offers both readings ("2345" or "2,345"). "1.000.000" in a semicolon table
+  reads as one million; "+1,500" reads; "0,125,000" is refused as not a number.
+- **Tables in Word:** each column of the coefficient, marginal-effect and diagnostics tables is aligned one way with
+  its header (numbers right, "< 0.001" with the other p-values); RESET's "2, 7" no longer wraps; the star legend's
+  thresholds keep their "<" with a no-break space; degrees of freedom are printed without a thousands comma.
+
 ## [2.196.0] — 2026-10-25 — Publishable regression
 
 The second release of the quantitative-economics plan. Three new Statistics calculators, each inserting its summary

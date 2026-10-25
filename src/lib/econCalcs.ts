@@ -11,7 +11,7 @@
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { fitOls, olsDiagnostics, type OlsFit, type SeType, type OlsDiagnostics } from "./olsInference";
 import { parseRegData, parseSpec, parseSpecList, selectColumns, type RegDataset, type RegSpec } from "./regData";
-import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, intText, P_BELOW, type StarScheme } from "./regTable";
+import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, intText, NBSP, P_BELOW, type StarScheme } from "./regTable";
 import { buildPlotSvg } from "./plot";
 import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal } from "./logitProbit";
 
@@ -235,14 +235,16 @@ export function econOlsCalc(read: Read): StatOutput {
     {
       label: `Coefficients: ${m.depName}, ${m.seLabel}`,
       rows: coefRows,
+      // Each column one way, header included ("Coef." over its numbers, "< 0.001" with the other p-values).
+      align: ["left", "right", "right", "right", "right", "right"],
       note: [
         o.stars === "none" ? "" : starLegend(o.stars).replace("Standard errors in parentheses. ", ""),
-        `p-values and intervals from the t distribution with ${intText(m.df ?? 0)} df.`,
+        `p-values and intervals from the t distribution with ${m.df ?? 0} df.`,
       ]
         .filter(Boolean)
         .join(" "),
     },
-    { label: "Diagnostics", rows: diagnosticsRows(diag, d) },
+    { label: "Diagnostics", rows: diagnosticsRows(diag, d), align: ["left", "left", "right", "right"] },
   ];
 
   // Residuals against fitted values: curvature or a funnel is what the summary numbers cannot show.
@@ -297,7 +299,7 @@ export function diagnosticsRows(diag: OlsDiagnostics, d: number): string[][] {
   chi("Breusch–Pagan (Koenker)", diag.breuschPagan);
   chi("White", diag.white);
   if ("skipped" in diag.reset) rows.push(["Ramsey RESET (ŷ², ŷ³)", `not computed: ${diag.reset.skipped}`, "", ""]);
-  else rows.push(["Ramsey RESET (ŷ², ŷ³)", `F = ${fmtFixed(diag.reset.f, d)}`, `${diag.reset.df1}, ${diag.reset.df2}`, fmtP(diag.reset.p)]);
+  else rows.push(["Ramsey RESET (ŷ², ŷ³)", `F = ${fmtFixed(diag.reset.f, d)}`, `${diag.reset.df1},${NBSP}${diag.reset.df2}`, fmtP(diag.reset.p)]);
   const jb = diag.jarqueBera;
   rows.push(["Jarque–Bera", `χ² = ${fmtFixed(jb.jb, d)}`, "2", fmtP(jb.p)]);
   for (const v of diag.vif) rows.push([`VIF: ${v.name}`, fmtFixed(v.vif, 2), "", ""]);

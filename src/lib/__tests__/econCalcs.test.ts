@@ -10,9 +10,6 @@ import { parseRegData, parseSpec, parseSpecList, selectColumns } from "../regDat
 import { buildRegTable, fmtFixed, fmtP, starsFor } from "../regTable";
 import { insertableResultText } from "../insertGate";
 import { tableCellsInsertable } from "../damagesInterest";
-
-/** The no-break space the star legend puts after "<". */
-const NB = String.fromCharCode(160);
 import type { StatOutput } from "../analyzeBlocks";
 import type { FittedModel } from "../regModel";
 

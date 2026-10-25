@@ -69,6 +69,30 @@ export function flushBeforeInsert(preview: DebouncedPreview, button: { disabled:
   return !button.disabled;
 }
 
+/**
+ * The pause after the last keystroke in a Finance BLOCK (multi-line table) field. E1 fix, measured in jest before the
+ * row caps were lowered: a 50,000-row prejudgment table compounded monthly took 3.9 s per keystroke and a 100,000-row
+ * damages summary 3.4 s; at the 10,000-row cap a run is a few hundred ms, still too much per character.
+ */
+export const FIN_BLOCK_DEBOUNCE_MS = 300;
+
+/**
+ * A field listener for a registry whose number fields are cheap but whose block fields are not: an "input" event
+ * from a TEXTAREA (a block field: a pasted or typed table) waits for the pause; every other event (a number field's
+ * keystroke, a select's "change", leaving a field) and a direct call (no event) drops any pending run and runs now.
+ */
+export function blockFieldListener(preview: DebouncedPreview, runNow: () => void): (e?: Event | { type: string; target?: unknown }) => void {
+  return (e) => {
+    const t = e && (e as { target?: unknown }).target;
+    const isBlock = !!t && typeof t === "object" && (t as { tagName?: unknown }).tagName === "TEXTAREA";
+    if (e && e.type === "input" && isBlock) preview.schedule();
+    else {
+      preview.cancel();
+      runNow();
+    }
+  };
+}
+
 /** A field listener: "input" (a keystroke) waits for the pause; "change" or a direct call (no event) runs now. */
 export function previewListener(preview: DebouncedPreview, runNow: () => void): (e?: Event | { type: string }) => void {
   return (e) => {

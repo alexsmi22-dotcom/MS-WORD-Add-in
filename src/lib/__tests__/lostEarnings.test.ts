@@ -89,14 +89,14 @@ describe("lost earnings report", () => {
     expect(rep({ base: NaN }).ok).toBe(false);
     expect(rep({ base: 2e15 }).text).toContain("outside this calculator");
   });
-  test("negative growth prints a true minus; 1e15 stays grouped; zero base is zeros", () => {
+  test("negative growth prints a true minus; 1e12 (the cap) stays grouped; zero base is zeros", () => {
     const r = rep({ growthPct: -2.5 });
     expect(r.ok).toBe(true);
     expect(r.text).toContain(`growth ${MINUS}2.5%`);
-    const big = rep({ base: 1e15, horizon: 2 });
+    const big = rep({ base: 4e11, horizon: 2, growthPct: 0, fringePct: 0, consumptionPct: 0 });
     expect(big.ok).toBe(true);
     expect(big.text).not.toMatch(/e\+/);
-    expect(big.table!.rows[1][2]).toBe("1,000,000,000,000,000.00");
+    expect(big.table!.rows[1][2]).toBe("400,000,000,000.00");
     expect(rep({ base: 0 }).text).toContain("Present value 0.00");
   });
 });

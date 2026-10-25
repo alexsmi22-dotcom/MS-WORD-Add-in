@@ -11,6 +11,8 @@
  *  - Discounting is end-of-year by default: year t is discounted over (t − 1) + its fraction of a year; with
  *    mid-year discounting, over (t − 1) + half its fraction.
  *  - Each year's amounts are rounded to the cent; totals are sums of the rounded rows.
+ *  - The base and every amount shown (each year and each total) are at most one trillion (MAX_AMOUNT), so the cents
+ *    are exact integers in a double; past it the result is refused by name.
  */
 import { finFixed, finMoney, finPlotSvg } from "./financeFigures";
 import { MAX_AMOUNT, moneyCents, toCents, type DamagesReport } from "./damagesInterest";
@@ -88,6 +90,12 @@ export function lostEarnings(o: LostEarningsInput): LostEarningsResult | { error
     if (![row.earningsCents, row.netCents, row.pvCents, df].every(Number.isFinite)) {
       return { error: "These inputs grow past what this calculator can carry; lower the growth rate or the horizon." };
     }
+    // Every amount shown, rows and totals, at most one trillion: past it the cents are not exact (the value itself
+    // is not printed in the refusal: at 1,000% growth it has a hundred digits).
+    const cap = MAX_AMOUNT * 100;
+    if (Math.max(row.earningsCents, row.netCents, row.pvCents, te + row.earningsCents, tn + row.netCents, tp + row.pvCents) > cap) {
+      return { error: `Year ${t}: an amount or a running total is above ${finMoney(MAX_AMOUNT)}, outside this calculator; lower the earnings, the growth rate or the horizon.` };
+    }
     rows.push(row);
     te += row.earningsCents;
     tn += row.netCents;
@@ -160,7 +168,7 @@ export function lostEarningsReport(f: {
       { points: res.rows.map((r) => ({ x: r.year, y: r.netCents / 100 })), type: "line", color: "#b45309", label: "net loss" },
       { points: res.rows.map((r) => ({ x: r.year, y: r.pvCents / 100 })), type: "line", color: "#2563eb", label: "present value" },
     ],
-    { width: 380, height: 250, title: "Lost earnings by year (from the inputs given)", xlabel: "year of loss", ylabel: "amount" },
+    { width: 380, height: 250, title: "Lost earnings by year (from the inputs given)", xlabel: "year of loss", ylabel: "amount", yGrouping: "comma" },
   );
   return { ok: true, text, table: { label: "Lost earnings by year", rows }, svg: res.rows.length >= 2 ? svg : undefined };
 }

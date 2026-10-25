@@ -17,6 +17,14 @@
  *  - Each tranche's interest is rounded to the cent; totals are the sums of the rounded rows, so the table adds up.
  *  - Post-judgment: interest computed daily and compounded annually on each anniversary of the judgment date; each
  *    year's interest is rounded to the cent and added to the balance (a ledger); a partial final year is simple.
+ *
+ * PRECISION. Amounts are at most 10^12 (MAX_AMOUNT) and every row and total at most 10^13 (MAX_TOTAL), so whole cents
+ * are exact integers in a double (2^53 cents is about 9 × 10^13 dollars). The interest itself is computed exactly
+ * enough to round to the right cent: simple and post-judgment interest in BigInt (an integer number of cents times
+ * integer rate units and days, over an integer denominator), compounding in double-double arithmetic (about 32
+ * significant digits): anniversary compounding updates a double-double balance, and daily compounding divides
+ * double-double prefix products of (1 + daily rate). A plain double carries only 16 digits, which at 10^12 dollars
+ * of interest is a tenth of a cent.
  */
 import { parseCellNumber } from "./dataimport";
 import { finMoney, finPlotSvg } from "./financeFigures";
@@ -186,9 +194,37 @@ function capital(s: string): string {
 // ---------------------------------------------------------------------------------------------------------------
 
 /** Past this many rows a list is refused by name (10,000 rows compute in well under a second). */
-export const MAX_ROWS = 50000;
-/** Amounts beyond this are refused: arithmetic to the cent is not meaningful past it in double precision. */
-export const MAX_AMOUNT = 1e15;
+export const MAX_ROWS = 10000;
+/** Amounts above one trillion are refused by name, in every damages calculator (see PRECISION above). */
+export const MAX_AMOUNT = 1e12;
+/** A computed row, interest or total above ten trillion is refused by name: its cents would no longer be exact. */
+export const MAX_TOTAL = 1e13;
+
+/**
+ * A totals line: its label STARTS with total(s), subtotal, grand total or sum (any case, anything after it):
+ * "Total", "Subtotal", "Total damages", "TOTAL (2021–2024)", "Totals (USD)", "Grand total:", "Sum". Never a period:
+ * counting it would double the damages. "Summer 2023" and "Summary" are not totals lines.
+ */
+const TOTALS_RE = /^(?:sub[-\s]?totals?|grand[-\s]+totals?|totals?|sum)(?![A-Za-z])/i;
+export function isTotalsLabel(line: string): boolean {
+  return TOTALS_RE.test(line.trim());
+}
+
+/**
+ * Integer cents, half away from zero. A binary near-half (1.005 is 100.4999… cents) counts as the half it was typed
+ * as, but only within the value's own float precision (2 ulps of the cents value): an absolute tolerance would make
+ * 100,000,000,000.0048 (0.48 of a cent) a half and round it up.
+ */
+export function toCents(x: number): number {
+  if (!Number.isFinite(x)) return NaN;
+  const s = Math.abs(x) * 100;
+  const f = Math.floor(s);
+  const frac = s - f;
+  // At and above 2^52 every double is a whole number of cents already (frac is 0).
+  const half = s < 4503599627370496 && Math.abs(frac - 0.5) <= Math.max(1e-9, 2 * Number.EPSILON * s);
+  const r = half || frac > 0.5 ? f + 1 : f;
+  return x < 0 && r !== 0 ? -r : r;
+}
 
 export interface Tranche {
   /** 1-based row of the field. */
@@ -226,16 +262,37 @@ interface LineRead {
 /** No-break spaces (U+00A0, U+2007, U+202F) as Word and Excel write them, read as spaces. */
 const NBSP_RE = new RegExp("[" + String.fromCharCode(0xa0, 0x2007, 0x202f) + "]", "g");
 
-/** Splits the field into rows: (date [second date] rest). A first row with no date and a letter is a header. */
-function readRows(text: string, periods: boolean, what: string, valueName: string): Parsed<LineRead[]> {
+/** A line quoted in a note or refusal: tabs as spaces, at most 40 characters. */
+const clip = (line0: string): string => {
+  const line = line0.replace(/\t+/g, " ");
+  return line.length > 40 ? line.slice(0, 40) + "…" : line;
+};
+
+/**
+ * Splits the field into rows: (date [second date] rest). A first row with no date and a letter is a header. With
+ * `totals`, a totals line (isTotalsLabel) as the LAST row is skipped with a note; anywhere else it is refused by name
+ * (a subtotal between rows is ambiguous: which rows does it sum?).
+ */
+function readRows(text: string, periods: boolean, what: string, valueName: string, totals = false): Parsed<LineRead[]> {
   const lines = (text ?? "").split(/\r\n?|\n/);
   const out: LineRead[] = [];
   const notes: string[] = [];
   let seenData = false;
+  let totalsRow: { row: number; text: string } | null = null;
   for (let i = 0; i < lines.length; i++) {
     const row = i + 1;
     const line = lines[i].replace(NBSP_RE, " ").trim();
     if (!line) continue;
+    if (totalsRow) {
+      return {
+        ok: false,
+        error: `${capital(what)}, row ${totalsRow.row}: “${totalsRow.text}” is a totals line with rows after it; a subtotal between rows is ambiguous. Remove it (totals are computed here, not read).`,
+      };
+    }
+    if (totals && isTotalsLabel(line)) {
+      totalsRow = { row, text: clip(line) };
+      continue;
+    }
     if (out.length >= MAX_ROWS) return { ok: false, error: `${capital(what)}: more than ${MAX_ROWS.toLocaleString("en-US")} rows is outside this calculator.` };
     const first = readDateToken(line, periods);
     if (first && "error" in first) return { ok: false, error: `${capital(what)}, row ${row}: ${first.error}` };
@@ -270,6 +327,7 @@ function readRows(text: string, periods: boolean, what: string, valueName: strin
     }
     out.push({ row, first, second, rest });
   }
+  if (totalsRow) notes.push(`${capital(what)}: row ${totalsRow.row} (“${totalsRow.text}”) is a totals line and was skipped: totals are computed here, not read.`);
   return { ok: true, value: out, notes };
 }
 
@@ -310,7 +368,7 @@ function readValue(rest: string, where: string, valueName: string): { text: stri
  * midpoint with `midPeriod`. A first row of column titles is skipped.
  */
 export function parseTranches(text: string, midPeriod: boolean): Parsed<Tranche[]> {
-  const rows = readRows(text, true, "damages list", "an amount");
+  const rows = readRows(text, true, "damages list", "an amount", true);
   if (!rows.ok) return rows;
   const out: Tranche[] = [];
   let ignoredText = false;
@@ -408,8 +466,9 @@ export function parseRateTable(text: string): Parsed<RateRow[]> {
  * Prefix sums over the days [base, end), EXACT: each day's annual rate is an integer number of millionths (a rate is
  * entered to at most four decimals of a percent), so A[i] (days in common years, or every day for actual/365 and
  * actual/360) and B[i] (days in leap years, actual/actual only) are integer sums well inside 2^53. The year fraction
- * of [a, b) is then (ΔA/365 + ΔB/366)/10^6 (or ΔA/360 or ΔA/365), computed once: a damages amount of 10^15 still
- * comes out to the cent on simple interest. L[i] sums log(1 + daily rate) for daily compounding.
+ * of [a, b) is then (ΔA/365 + ΔB/366)/10^6 (or ΔA/360 or ΔA/365): an integer over an integer (rateTimeFrac).
+ * PH[i] + PL[i] is the double-double product of (1 + daily rate) over the days [base, base + i), for daily
+ * compounding (built only for that method).
  */
 interface Timeline {
   base: number;
@@ -417,7 +476,8 @@ interface Timeline {
   dayCount: DayCount;
   A: Float64Array;
   B: Float64Array;
-  L: Float64Array;
+  PH: Float64Array | null;
+  PL: Float64Array | null;
   /** Month index (year × 12 + month − 1) of the first month in the month table. */
   month0: number;
   /** First civil day and length of each month from the base date's month to the month after the end date. */
@@ -425,7 +485,7 @@ interface Timeline {
   monthLen: Int32Array;
 }
 
-function buildTimeline(rates: RateRow[], base: number, end: number, dayCount: DayCount): Timeline | { error: string } {
+function buildTimeline(rates: RateRow[], base: number, end: number, dayCount: DayCount, daily: boolean): Timeline | { error: string } {
   if (base < end && base < rates[0].from) {
     return {
       error: `The rate table starts on ${longDate(rates[0].from)}, but interest accrues from ${longDate(base)}: there is no rate for ${longDate(base)}${
@@ -440,7 +500,9 @@ function buildTimeline(rates: RateRow[], base: number, end: number, dayCount: Da
   const span = end - base;
   const A = new Float64Array(span + 1);
   const B = new Float64Array(span + 1);
-  const L = new Float64Array(span + 1);
+  const PH = daily ? new Float64Array(span + 1) : null;
+  const PL = daily ? new Float64Array(span + 1) : null;
+  if (PH) PH[0] = 1;
   let k = 0;
   let { y } = civilFromDay(base);
   let nextYear = civilDay(y + 1, 1, 1);
@@ -457,8 +519,15 @@ function buildTimeline(rates: RateRow[], base: number, end: number, dayCount: Da
     const inB = dayCount === "actact" && leap;
     A[i + 1] = A[i] + (inB ? 0 : units);
     B[i + 1] = B[i] + (inB ? units : 0);
-    const basis = dayCount === "act360" ? 360 : inB ? 366 : 365;
-    L[i + 1] = L[i] + Math.log1p(units / 1e6 / basis);
+    if (PH && PL) {
+      // (1 + units / (basis × 10^6)) as a double-double, times the running product.
+      const basis = dayCount === "act360" ? 360 : inB ? 366 : 365;
+      const q = ddDivInt(units, basis * 1e6);
+      const f = ddAdd(1, 0, q[0], q[1]);
+      const p = ddMul(PH[i], PL[i], f[0], f[1]);
+      PH[i + 1] = p[0];
+      PL[i + 1] = p[1];
+    }
   }
   const b0 = civilFromDay(base);
   const e0 = civilFromDay(end);
@@ -472,10 +541,21 @@ function buildTimeline(rates: RateRow[], base: number, end: number, dayCount: Da
     monthStart[i] = civilDay(yy, mm, 1);
     monthLen[i] = daysInMonth(yy, mm);
   }
-  return { base, end, dayCount, A, B, L, month0, monthStart, monthLen };
+  return { base, end, dayCount, A, B, PH, PL, month0, monthStart, monthLen };
 }
 
-/** Rate × time over the days [from, to): the sum of the daily rates. */
+/** Rate × time over the days [from, to) as an exact fraction: an integer numerator over an integer denominator. */
+function rateTimeFrac(tl: Timeline, from: number, to: number): [number, number] {
+  const i = from - tl.base;
+  const j = to - tl.base;
+  const dA = tl.A[j] - tl.A[i];
+  if (tl.dayCount === "act360") return [dA, 360e6];
+  if (tl.dayCount === "act365") return [dA, 365e6];
+  // At most ~110,000 days × 10^6 × 366: an exact integer in a double.
+  return [dA * 366 + (tl.B[j] - tl.B[i]) * 365, 365 * 366 * 1e6];
+}
+
+/** Rate × time over the days [from, to): the sum of the daily rates (a double, for the figure). */
 function rateTime(tl: Timeline, from: number, to: number): number {
   const i = from - tl.base;
   const j = to - tl.base;
@@ -483,6 +563,82 @@ function rateTime(tl: Timeline, from: number, to: number): number {
   if (tl.dayCount === "act360") return dA / 360e6;
   if (tl.dayCount === "act365") return dA / 365e6;
   return (dA * 366 + (tl.B[j] - tl.B[i]) * 365) / (365 * 366 * 1e6);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Double-double arithmetic (a value is hi + lo, |lo| ≤ ulp(hi)/2: about 106 bits). Dekker / Knuth error-free sums
+// and products; enough to carry 10^13 dollars of compounded interest to a small fraction of a cent.
+// ---------------------------------------------------------------------------------------------------------------
+
+type DD = [number, number];
+const SPLITTER = 134217729; // 2^27 + 1
+
+function twoProd(a: number, b: number): DD {
+  const p = a * b;
+  const ca = SPLITTER * a;
+  const ah = ca - (ca - a);
+  const al = a - ah;
+  const cb = SPLITTER * b;
+  const bh = cb - (cb - b);
+  const bl = b - bh;
+  return [p, ah * bh - p + ah * bl + al * bh + al * bl];
+}
+
+function quickTwoSum(a: number, b: number): DD {
+  const s = a + b;
+  return [s, b - (s - a)];
+}
+
+function ddAdd(ah: number, al: number, bh: number, bl: number): DD {
+  const s = ah + bh;
+  const bb = s - ah;
+  const e = ah - (s - bb) + (bh - bb);
+  return quickTwoSum(s, e + al + bl);
+}
+
+function ddMul(ah: number, al: number, bh: number, bl: number): DD {
+  const [p, e] = twoProd(ah, bh);
+  return quickTwoSum(p, e + (ah * bl + al * bh));
+}
+
+/** n / d for exact doubles n and d, as a double-double. */
+function ddDivInt(n: number, d: number): DD {
+  const q = n / d;
+  const [p, e] = twoProd(q, d);
+  return quickTwoSum(q, (n - p - e) / d);
+}
+
+/** (ah + al) / (bh + bl). */
+function ddDiv(ah: number, al: number, bh: number, bl: number): DD {
+  const q1 = ah / bh;
+  const [ph, pl] = ddMul(bh, bl, q1, 0);
+  const [rh, rl] = ddAdd(ah, al, -ph, -pl);
+  const q2 = (rh + rl) / bh;
+  return quickTwoSum(q1, q2);
+}
+
+/** A double-double rounded to an integer, half away from zero (NaN when not finite or beyond 2^52). */
+function ddRound(h: number, l: number): number {
+  if (!Number.isFinite(h) || Math.abs(h) >= 4503599627370496) return NaN;
+  let f = Math.floor(h);
+  let frac = h - f + l;
+  if (frac < 0) {
+    f -= 1;
+    frac += 1;
+  } else if (frac >= 1) {
+    f += 1;
+    frac -= 1;
+  }
+  const v = h + l;
+  const up = v >= 0 ? frac >= 0.5 : frac > 0.5;
+  return up ? f + 1 : f;
+}
+
+/** round(c × n / d) half away from zero, exactly, for integers c, n ≥ 0 and d > 0 (BigInt). */
+function exactRatio(c: number, n: number, d: number): number {
+  const num = BigInt(c) * BigInt(n);
+  const den = BigInt(d);
+  return Number((2n * num + den) / (2n * den));
 }
 
 const MONTHS_PER_PERIOD: Record<InterestMethod, number> = { simple: 0, annual: 12, quarterly: 3, monthly: 1, daily: 0 };
@@ -498,22 +654,12 @@ function interestPath(tl: Timeline, amount: number, accrual: number, method: Int
     return out;
   }
   if (method === "daily") {
-    const a = accrual - tl.base;
-    for (const d of days) out.push(amount * Math.expm1(tl.L[d - tl.base] - tl.L[a]));
+    const P = tl.PH!;
+    const a = P[accrual - tl.base];
+    for (const d of days) out.push(amount * (P[d - tl.base] / a - 1));
     return out;
   }
-  const step = MONTHS_PER_PERIOD[method];
-  // addMonthsClamped, unrolled: the accrual date is decomposed once (10,000 rows compounded monthly over a decade is
-  // over a million anniversaries).
-  const ad = civilFromDay(accrual);
-  const m0 = ad.y * 12 + ad.m - 1 - tl.month0;
-  const { monthStart, monthLen } = tl;
-  const anniversary = (k: number): number => {
-    const i = m0 + step * k;
-    // Past the table (an anniversary after the end date): any day after the end stops the sweep.
-    if (i >= monthStart.length) return tl.end + 1;
-    return monthStart[i] + Math.min(ad.d, monthLen[i]) - 1;
-  };
+  const anniversary = anniversaries(tl, accrual, MONTHS_PER_PERIOD[method]);
   let balance = amount;
   let p0 = accrual;
   let k = 1;
@@ -530,9 +676,110 @@ function interestPath(tl: Timeline, amount: number, accrual: number, method: Int
   return out;
 }
 
-/** Rounds to the cent, half away from zero, through integer cents. */
-export function toCents(x: number): number {
-  return Math.sign(x) * Math.round(Math.abs(x) * 100 + 1e-7);
+/**
+ * The compounding points of a row accruing on `accrual`: k × `step` months after it, from the ORIGINAL day of month,
+ * clamped to the month's end (addMonthsClamped, unrolled: the accrual date is decomposed once; 10,000 rows
+ * compounded monthly over a decade is over a million anniversaries). Past the end date, any day after it.
+ */
+function anniversaries(tl: Timeline, accrual: number, step: number): (k: number) => number {
+  const ad = civilFromDay(accrual);
+  const m0 = ad.y * 12 + ad.m - 1 - tl.month0;
+  const { monthStart, monthLen } = tl;
+  return (k: number): number => {
+    const i = m0 + step * k;
+    if (i >= monthStart.length) return tl.end + 1;
+    // A comparison, not Math.min: under jest's vm context every Math.* call is ~100× slower, and this runs per step.
+    return monthStart[i] + (ad.d < monthLen[i] ? ad.d : monthLen[i]) - 1;
+  };
+}
+
+/**
+ * A row's interest to the end date in whole cents, computed exactly enough to round to the right cent (see
+ * PRECISION): `amountCents` is the amount in whole cents. NaN when the interest is beyond what a double holds in cents.
+ */
+function interestCentsExact(tl: Timeline, amountCents: number, accrual: number, method: InterestMethod): number {
+  const end = tl.end;
+  if (method === "simple") {
+    const [n, d] = rateTimeFrac(tl, accrual, end);
+    return exactRatio(amountCents, n, d);
+  }
+  if (method === "daily") {
+    const PH = tl.PH!;
+    const PL = tl.PL!;
+    const i = accrual - tl.base;
+    const j = end - tl.base;
+    const [fh, fl] = ddDiv(PH[j], PL[j], PH[i], PL[i]);
+    const [gh, gl] = ddAdd(fh, fl, -1, 0);
+    const [ih, il] = ddMul(amountCents, 0, gh, gl);
+    return ddRound(ih, il);
+  }
+  return compoundedCents(tl, amountCents, accrual, MONTHS_PER_PERIOD[method]);
+}
+
+/**
+ * Anniversary compounding: balance += balance × (rate × time) at each anniversary (every `step` months), in
+ * double-double. The operations of twoProd / ddDivInt / ddMul / ddAdd are written out on scalars, with no arrays:
+ * 10,000 rows compounded monthly over a decade is over a million steps.
+ */
+function compoundedCents(tl: Timeline, amountCents: number, accrual: number, step: number): number {
+  const end = tl.end;
+  const { A, B, base, monthStart, monthLen } = tl;
+  const actact = tl.dayCount === "actact";
+  const den = tl.dayCount === "act360" ? 360e6 : tl.dayCount === "act365" ? 365e6 : 365 * 366 * 1e6;
+  let c = SPLITTER * den;
+  const dh = c - (c - den);
+  const dl = den - dh;
+  const ad = civilFromDay(accrual);
+  const m0 = ad.y * 12 + ad.m - 1 - tl.month0;
+  let bh = amountCents;
+  let bl = 0;
+  let i0 = accrual - base;
+  const iEnd = end - base;
+  for (let k = 1; ; k++) {
+    const mi = m0 + step * k;
+    let i1 = iEnd;
+    let last = true;
+    if (mi < monthStart.length) {
+      const p1 = monthStart[mi] + (ad.d < monthLen[mi] ? ad.d : monthLen[mi]) - 1; // not Math.min (see anniversaries)
+      if (p1 <= end) {
+        i1 = p1 - base;
+        last = false;
+      }
+    }
+    // r = n / den (double-double rh + rl), n an exact integer.
+    const n = actact ? (A[i1] - A[i0]) * 366 + (B[i1] - B[i0]) * 365 : A[i1] - A[i0];
+    const rh = n / den;
+    c = SPLITTER * rh;
+    const rhh = c - (c - rh);
+    const rhl = rh - rhh;
+    let p = rh * den;
+    let e = rhh * dh - p + rhh * dl + rhl * dh + rhl * dl;
+    const rl = (n - p - e) / den;
+    // x = b × r: twoProd(bh, rh) plus the cross terms.
+    c = SPLITTER * bh;
+    const bhh = c - (c - bh);
+    const bhl = bh - bhh;
+    p = bh * rh;
+    e = bhh * rhh - p + bhh * rhl + bhl * rhh + bhl * rhl + (bh * rl + bl * rh);
+    if (last) {
+      // interest = (b − amount) + x, rounded to the cent; b − amount by twoSum (its rounding error kept in e1).
+      const s1 = bh - amountCents;
+      const v = s1 - bh;
+      const e1 = bh - (s1 - v) + (-amountCents - v);
+      const s = s1 + p;
+      const bb = s - s1;
+      const t = s1 - (s - bb) + (p - bb) + e1 + bl + e;
+      return ddRound(s + t, t - (s + t - s));
+    }
+    // b = b + x: twoSum(bh, p) then the tails.
+    const s = bh + p;
+    const bb = s - bh;
+    const t = bh - (s - bb) + (p - bb) + bl + e;
+    bh = s + t;
+    bl = t - (bh - s);
+    if (!(bh <= 1e300)) return NaN; // NaN or overflow (a comparison: builtins are slow per step under jest)
+    i0 = i1;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -578,19 +825,26 @@ export function prejudgmentInterest(input: PrejudgmentInput): PrejudgmentResult 
     }
     if (t.accrual < base) base = t.accrual;
   }
-  const tl = buildTimeline(rates, base, end, dayCount);
+  const tl = buildTimeline(rates, base, end, dayCount, method === "daily");
   if ("error" in tl) return tl;
   const rows: PrejudgmentRow[] = [];
   let totalAmount = 0;
   let totalAmountCents = 0;
   let totalInterestCents = 0;
+  const maxCents = MAX_TOTAL * 100;
   for (const t of tranches) {
-    const interest = interestPath(tl, t.amount, t.accrual, method, [end])[0];
-    const cents = toCents(interest);
+    const amountCents = toCents(t.amount);
+    const cents = interestCentsExact(tl, amountCents, t.accrual, method);
+    if (!(Math.abs(cents) <= maxCents) || !(amountCents + cents <= maxCents)) {
+      return { error: `Damages list, row ${t.row}: the interest on ${t.label} is above ${money(maxCents)}, outside this calculator.` };
+    }
     rows.push({ tranche: t, days: end - t.accrual, interestCents: cents });
     totalAmount += t.amount;
-    totalAmountCents += toCents(t.amount);
+    totalAmountCents += amountCents;
     totalInterestCents += cents;
+  }
+  if (totalAmountCents + totalInterestCents > maxCents) {
+    return { error: `The damages and interest total above ${money(maxCents)}, outside this calculator.` };
   }
   return { rows, totalAmount, totalAmountCents, totalInterestCents, timeline: tl, input };
 }
@@ -702,6 +956,7 @@ function prejudgmentFigure(res: PrejudgmentResult): string | undefined {
     title: "Cumulative damages and interest (from the inputs given)",
     xlabel: "year",
     ylabel: "amount",
+    yGrouping: "comma",
   });
 }
 
@@ -764,10 +1019,13 @@ export function prejudgmentReport(f: {
     ...(method === "annual" || method === "quarterly" || method === "monthly"
       ? ["Note: compounding falls on anniversaries of each row's own accrual date (month ends clamped); a final partial period accrues simply."]
       : []),
+    ...(method === "annual" && tr.value.some((t) => civilFromDay(t.accrual).m === 2 && civilFromDay(t.accrual).d === 29)
+      ? ["Note: an anniversary of a February 29 accrual falls on February 28 in a common year (and on February 29 in a leap year)."]
+      : []),
     ...(tr.value.some((t) => t.period)
       ? [mid ? "Note: a period row accrues from the period's midpoint (mid-period convention)." : "Note: a period row accrues from the last day of its period."]
       : []),
-    "Note: each row's interest is rounded to the cent; totals are sums of the rounded rows.",
+    "Note: each row's amount is taken to the cent and its interest rounded to the cent; totals are sums of the rounded rows.",
     ...tr.notes.map((s) => `Note: ${s}`),
     ...rt.notes.map((s) => `Note: ${s}`),
   ].join("\n");
@@ -794,18 +1052,23 @@ export interface PostjudgmentResult {
   totalInterestCents: number;
 }
 
-/** Days of [from, to) counted against the basis: days/365, or for actual/actual each day against its year's length. */
-function yearFraction(from: number, to: number, dayCount: "act365" | "actact"): number {
-  if (dayCount === "act365") return (to - from) / 365;
-  let f = 0;
+/**
+ * Days of [from, to) counted against the basis, as an exact fraction: days/365, or for actual/actual each day
+ * against its year's length ((common days × 366 + leap days × 365) / (365 × 366)).
+ */
+function yearFractionFrac(from: number, to: number, dayCount: "act365" | "actact"): [number, number] {
+  if (dayCount === "act365") return [to - from, 365];
+  let common = 0;
+  let leap = 0;
   let d = from;
   while (d < to) {
     const { y } = civilFromDay(d);
     const next = Math.min(to, civilDay(y + 1, 1, 1));
-    f += (next - d) / (isLeapYear(y) ? 366 : 365);
+    if (isLeapYear(y)) leap += next - d;
+    else common += next - d;
     d = next;
   }
-  return f;
+  return [common * 366 + leap * 365, 365 * 366];
 }
 
 /** Post-judgment interest: daily accrual, compounded on each anniversary of the judgment date. */
@@ -828,11 +1091,19 @@ export function postjudgmentInterest(o: {
   let balance = toCents(o.amount);
   const amountCents = balance;
   let total = 0;
+  // The rate in whole millionths (4.1234% is 41,234) when it has at most four decimals of a percent, so a year's
+  // interest is balance × units × days / (10^6 × basis), rounded exactly (a half-cent tie is a tie).
+  const units = Math.round(o.rate * 1e6);
+  const exact = Math.abs(o.rate * 1e6 - units) < 1e-6;
   for (let k = 0; ; k++) {
     const from = addMonthsClamped(o.judgment, 12 * k);
     if (from >= o.payment && k > 0) break;
     const to = Math.min(addMonthsClamped(o.judgment, 12 * (k + 1)), o.payment);
-    const interest = toCents((balance / 100) * o.rate * yearFraction(from, to, o.dayCount));
+    const [n, d] = yearFractionFrac(from, to, o.dayCount);
+    const interest = exact ? exactRatio(balance, units * n, 1e6 * d) : toCents((balance / 100) * o.rate * (n / d));
+    if (!(balance + interest <= MAX_TOTAL * 100)) {
+      return { error: `With interest the balance passes ${moneyCents(MAX_TOTAL * 100)}, outside this calculator.` };
+    }
     years.push({ from, to, days: to - from, openingCents: balance, interestCents: interest, closingCents: balance + interest });
     balance += interest;
     total += interest;
@@ -851,6 +1122,7 @@ function postjudgmentFigure(res: PostjudgmentResult): string | undefined {
     title: "Balance with post-judgment interest (from the inputs given)",
     xlabel: "year",
     ylabel: "amount",
+    yGrouping: "comma",
   });
 }
 
@@ -892,6 +1164,7 @@ export function postjudgmentReport(f: { amount: number; ratePct: number; judgmen
     "Note: 28 U.S.C. § 1961(b): “Interest shall be computed daily to the date of payment … and shall be compounded annually.”",
     "Note: § 1961(a) sets the rate as “the weekly average 1-year constant maturity Treasury yield … for the calendar week preceding the date of the judgment”; the rate here is the one entered.",
     "Note: interest is compounded on each anniversary of the judgment date; each year's interest is rounded to the cent and added to the balance; a partial final year is simple.",
+    "Note: an anniversary of a February 29 judgment falls on February 28 in a common year (and on February 29 in a leap year).",
   ].join("\n");
   return { ok: true, text, table: { label: "Post-judgment interest by year", rows }, svg: postjudgmentFigure(res) };
 }

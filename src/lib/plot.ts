@@ -8,7 +8,7 @@
 // --- Expression evaluator ----------------------------------------------------
 
 import { minOf, maxOf } from "./minmax";
-import { linearAxis, logAxis, fmtValue, fmtSig, resolveLimits, outsideNote, type AxisLimits } from "./axis";
+import { linearAxis, logAxis, fmtValue, fmtSig, resolveLimits, outsideNote, THIN_SPACE, type AxisLimits } from "./axis";
 import { usptoMarkerSvg, USPTO_DASHES } from "./figureStyle";
 
 /** Factorial for non-negative integers (else NaN). */
@@ -457,6 +457,11 @@ export interface PlotOptions {
    */
   xTickLabel?: (v: number) => string;
   yTickLabel?: (v: number) => string;
+  /**
+   * "comma": the y tick labels group thousands with commas (1,500,000) instead of thin spaces, for a money axis
+   * whose text and tables print commas (the damages figures). Left unset, labelling is unchanged.
+   */
+  yGrouping?: "comma";
   /**
    * Short notes drawn INTO the figure, beneath everything else.
    *
@@ -1040,9 +1045,12 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const xAxis = all.length
     ? plotAxisTicks(xmin, xmax, logX, 6, options.xTickLabel, xStep)
     : { ticks: [], minor: [], multiplier: "" };
-  const yAxis = all.length
+  const yAxis0 = all.length
     ? plotAxisTicks(ymin, ymax, logY, 5, options.yTickLabel, yStep)
     : { ticks: [], minor: [], multiplier: "" };
+  // Before the margins are sized, so the left margin fits the labels as drawn.
+  const yAxis =
+    options.yGrouping === "comma" ? { ...yAxis0, ticks: yAxis0.ticks.map((t) => ({ v: t.v, text: t.text.split(THIN_SPACE).join(",") })) } : yAxis0;
   // A ×10ⁿ multiplier is stated ONCE, on the axis title — never as e-notation
   // on every tick.
   options = {

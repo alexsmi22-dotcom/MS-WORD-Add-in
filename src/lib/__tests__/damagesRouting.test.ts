@@ -54,4 +54,3 @@ describe("damages calculators in the Finance registry", () => {
     expect(PANE).toContain("const tableOk = tables.every((t) => tableCellsInsertable(t.rows));");
   });
 });
-});

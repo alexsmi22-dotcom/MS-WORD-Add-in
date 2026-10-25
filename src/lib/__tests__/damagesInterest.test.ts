@@ -3,7 +3,8 @@
 // Every money figure below is pinned from an INDEPENDENT Python oracle
 // (C:\Users\AlexanderSmith\jurislab-relE\oracle_e1a_interest.py): a naive day-by-day loop with datetime.date and
 // Decimal (no prefix sums, daily compounding multiplied day by day), rounded half-up to the cent. The engine uses
-// prefix sums, expm1 of summed log1p, and integer civil days, so agreement to the cent checks the shortcuts.
+// prefix sums, double-double prefix products for daily compounding, and integer civil days, so agreement to the cent
+// checks the shortcuts (the 10¹² cap cases are in damagesE1fix.test.ts).
 import {
   addMonthsClamped,
   civilDay,
@@ -221,10 +222,10 @@ describe("prejudgment refusals and hostile input", () => {
     );
     // The calculator's own inserted table, read back with Use table at cursor.
     const own = prejudgmentReport({ tranches: TR_A, rates: RATES_A, end: "2024-02-29", method: "annual", dayCount: "act365", midPeriod: "off" });
-    // Whole table: the Totals row is refused by name first (rows are read before values).
+    // Whole table: the trailing Totals row is a totals line (skipped), and the rows are still refused by name below.
     const whole = rep(own.table!.rows.map((r) => r.join("\t")).join("\n"));
     expect(whole.ok).toBe(false);
-    expect(whole.text).toContain("row 5: “Total");
+    expect(whole.text).toContain("Damages list, row 2 has 4 number columns after the date");
     // Without the Totals row: the Days | Amount | Interest | Total columns are refused, not read as an amount.
     const back = own.table!.rows.slice(0, -1).map((r) => r.join("\t")).join("\n");
     const r = rep(back);
@@ -243,17 +244,17 @@ describe("prejudgment refusals and hostile input", () => {
     const t = okTranches("2019-01-01 1,234,567.89\n2019-01-02 1.234.567,89\n2019-01-03 €1 234,50\n2019-01-04 $0.01");
     expect(t.map((x) => x.amount)).toEqual([1234567.89, 1234567.89, 1234.5, 0.01]);
   });
-  test("1e15 amounts stay grouped, never e-notation; above is refused", () => {
-    const r = rep("2020-01-01 1000000000000000", "2010-01-01 5", "2021-01-01");
+  test("1e12 (the cap) stays grouped, never e-notation, exact to the cent; above is refused", () => {
+    const r = rep("2020-01-01 1000000000000", "2010-01-01 5", "2021-01-01");
     expect(r.ok).toBe(true);
-    expect(r.text).toContain("Damages 1,000,000,000,000,000.00 + interest 50,136,986,301,369.86");
-    // Compounded annually, actual/actual, 3.5 years: the oracle's exact-fraction answer is 186,327,756,849,315.07;
-    // a double carries about 16 significant digits, so at 10^15 the cents are held to a relative 1e-15.
-    const c = rep("2020-01-01 1000000000000000", "2010-01-01 5", "2023-07-01", { method: "annual", dayCount: "actact" });
-    const got = Number(c.table!.rows[1][4].replace(/,/g, ""));
-    expect(Math.abs(got - 186327756849315.07) / 186327756849315.07).toBeLessThan(1e-15);
+    expect(r.text).toContain("Damages 1,000,000,000,000.00 + interest 50,136,986,301.37");
+    // Compounded annually, actual/actual, 3.5 years: the oracle's exact-fraction answer, now to the cent (the
+    // engine compounds in double-double; it used to hold 10^15 only to a relative 1e-15).
+    const c = rep("2020-01-01 1000000000000", "2010-01-01 5", "2023-07-01", { method: "annual", dayCount: "actact" });
+    expect(c.table!.rows[1][4]).toBe("186,327,756,849.32");
     expect(r.text).not.toMatch(/e\+|E\+/);
-    expect(rep("2020-01-01 2000000000000000").text).toContain("outside this calculator");
+    expect(rep("2020-01-01 1000000000000.01").text).toContain("outside this calculator");
+    expect(rep("2020-01-01 1000000000000000").text).toContain("outside this calculator");
   });
   test("10,000 rows compute fast and the table adds up", () => {
     const lines: string[] = [];

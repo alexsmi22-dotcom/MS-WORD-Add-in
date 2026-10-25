@@ -10,6 +10,24 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ek. New in v2.197.0 — Time series, event studies, index numbers
+
+- [ ] **Stats ▸ Correlogram (ACF, PACF) and Ljung–Box ▸ Insert** (quarterly default): the lag table and the two-panel
+  figure land together; "Outside the 95% band" names the lags.
+- [ ] **Unit-root tests: ADF and KPSS ▸ Insert** → both tests in one table with 1/5/10% critical values, and the
+  reading-the-pair table marks this result.
+- [ ] **Hodrick–Prescott filter ▸ Insert** → λ = 1,600 for the quarterly default; trend and cycle figures.
+- [ ] **ARIMA(p, d, q) fit and forecast ▸ Insert** (1, 1, 1 default) → coefficient table, 8 forecasts with 95%
+  intervals, forecast figure. Set p = 5, q = 5 → an answer or a named refusal within a few seconds (never a frozen
+  pane).
+- [ ] **Exponential smoothing (Holt–Winters) ▸ Insert** (monthly default) → m = 12 from the dates; 12 forecasts.
+- [ ] **Securities event study ▸ Insert** → two event tables (market model; CARs), the by-day table, the aggregate
+  tests and the average-CAR figure; the Saturday event moves to Monday and says so.
+- [ ] **Price indexes ▸ Insert** → Laspeyres, Paasche, Fisher and Törnqvist columns; the figure's axis shows the years.
+- [ ] **Constant dollars ▸ Insert** → nominal, index, rebased index and constant dollars to the cent; type the base
+  as it is printed (`2019`) → the column rebases.
+- [ ] Paste returns written with % signs into the event study with units Decimal → read as percent, said in a note.
+
 ## 0ej. New in v2.196.0 — Publishable regression
 
 - [ ] **Stats ▸ OLS regression with robust standard errors ▸ Insert** (Longley default, standard errors HC1): a

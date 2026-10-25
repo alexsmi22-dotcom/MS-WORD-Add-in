@@ -6,6 +6,32 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.197.0] — 2026-10-25 — Time series, event studies, index numbers
+
+The third release of the quantitative-economics plan: eight new Statistics calculators (Statistics now 37), each
+inserting its summary, real Word tables and a figure as one package. Every number is checked against statsmodels
+or an independent oracle, and each result prints the conventions it used.
+
+### New
+- **Correlogram and Ljung–Box:** ACF and PACF with 95% bands (Bartlett for the ACF), Ljung–Box Q by lag, with a
+  model-degrees-of-freedom option for ARIMA residuals.
+- **Unit-root tests:** ADF (lag by AIC or fixed; MacKinnon p-values and critical values) beside KPSS (automatic
+  bandwidth; p outside the table shown as "p > 0.10" or "p < 0.01"), with a reading of what the pair says.
+- **Hodrick–Prescott filter:** trend and cycle, λ from the frequency (1,600 quarterly) or your own.
+- **ARIMA(p, d, q):** exact Kalman likelihood, estimates kept stationary and invertible, standard errors, AIC/AICc/BIC,
+  Ljung–Box on the residuals, and forecasts with 95% intervals. A fit that would take too long is refused by name
+  within seconds rather than freezing the pane.
+- **Exponential smoothing (Holt–Winters):** simple, Holt (optionally damped) and additive or multiplicative
+  seasonality, with closed-form prediction intervals where they exist.
+- **Securities event study:** market-model abnormal returns, CARs with the full prediction-error covariance
+  (MacKinlay 1997; Campbell, Lo & MacKinlay 1997), J₁, J₂, BMP and cross-sectional tests, and the average-CAR figure;
+  returns or prices, decimals or percent (cells written with % read as percent).
+- **Price indexes:** Laspeyres, Paasche, Fisher and Törnqvist, fixed base or chained, rebased to any period.
+- **Constant dollars:** deflate a nominal series by your own price index to any base period, with cumulative
+  inflation between any two rows (cents rounded as the damages calculators round them).
+- One reader for dated series across all of them: years, quarters (2019-Q3), months (2019-07) and days in the usual
+  spellings, the same decimal-comma rules as the regression calculators, and a missing value refused by row and date.
+
 ## [2.196.1] — 2026-10-25 — Decimal commas read safely; regression tables aligned
 
 ### Fixed

@@ -6,6 +6,27 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.196.0] — 2026-10-25 — Publishable regression
+
+The second release of the quantitative-economics plan. Three new Statistics calculators, each inserting its summary
+and real Word tables (and a figure where one means something) as one package. Every number is checked against
+statsmodels; each result prints the conventions it used.
+
+### New
+- **OLS regression with robust standard errors:** classical, HC0–HC3 (HC1 is Stata's `robust`), clustered (Stata's
+  finite-sample factor, t with G − 1 df) and Newey–West (Bartlett kernel; your lag or the Newey–West rule of thumb).
+  R², adjusted R², the Wald F under the chosen errors, root MSE, AIC and BIC; diagnostics: Durbin–Watson,
+  Breusch–Pagan (Koenker), White, VIF, Ramsey RESET and Jarque–Bera; a residuals-versus-fitted figure. Models are
+  written "y ~ x1 + x2" against a table with a header row, pasted or read from the table at the cursor.
+- **Regression table:** several models side by side in the journal layout — coefficients with stars, standard errors
+  in parentheses below, N and R² at the foot, a legend under the table (* 0.10, ** 0.05, *** 0.01, or the
+  0.05/0.01/0.001 scheme, or none).
+- **Logit and probit:** maximum likelihood with classical or robust standard errors, average marginal effects with
+  delta-method errors, the likelihood-ratio test, McFadden's pseudo R² and the share correctly predicted; perfect and
+  quasi-complete separation are refused by name.
+- RESET is computed exactly where statsmodels' own version loses precision (on the classic Longley data it reports
+  p = 0.018 where the exact value is 0.174).
+
 ## [2.195.0] — 2026-10-24 — Litigation damages
 
 The first release of the quantitative-economics plan (docs/GAP-ANALYSIS-ECONOMICS-2026-10-24.md). Eight new Finance

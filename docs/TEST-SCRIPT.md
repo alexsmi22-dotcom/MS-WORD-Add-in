@@ -10,6 +10,18 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ej. New in v2.196.0 — Publishable regression
+
+- [ ] **Stats ▸ OLS regression with robust standard errors ▸ Insert** (Longley default, standard errors HC1): a
+  coefficient table, a diagnostics table and a residual figure land together; the constant is the last row.
+- [ ] Change the model line to `TOTEMP ~ GNP + POP` → the result updates; standard errors "Clustered" with no
+  cluster column → refused by name.
+- [ ] **Regression table ▸ Insert** → three columns (1) (2) (3), standard errors in parentheses under each
+  coefficient, the star legend under the table.
+- [ ] **Logit / probit ▸ Insert** → a coefficient table and a marginal-effects table; switch to Probit → the values
+  change, the layout does not.
+- [ ] Paste a semicolon table with decimal commas (`y;x` then `0,5;1,25` …) → read as decimals, said in a note.
+
 ## 0ei. New in v2.195.0 — Litigation damages
 
 - [ ] **Finance ▸ Damages: prejudgment interest ▸ Insert:** summary, a table of three rows plus Total, and a chart;

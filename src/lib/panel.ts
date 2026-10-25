@@ -11,6 +11,9 @@
  *    from group sums. The grand means are added back and a constant estimated (Stata's _cons).
  *  - a regressor the effects absorb (less than 10⁻⁵ of its norm left, linearmodels' check_absorbed rule) is refused.
  *  - effects counted: N − 1 for entities, plus T − 1 for periods. df_resid = n − k − effects (k counts the constant).
+ *    A disconnected two-way panel (c groups of entities in periods that never overlap) is fitted exactly: the first
+ *    period (or entity) dummy of each group is dropped, and N + T − 1 − c effects are counted, the dummies' rank
+ *    (linearmodels counts N + T − 2 whatever c; its slopes are the same).
  *  - covariance (debiased=True, linearmodels' default): classical s²(XᵀX)⁻¹ with s² = SSE/df_resid; robust is
  *    White's HC0 times n/(n − effects − k); clustered is Σ_g u_g u_gᵀ times n/(n − extra − k) times
  *    G/(G − 1)·(n − 1)/n (group_debias=True). extra = 0 when the model has ONE effect nested in the clusters (entity
@@ -31,8 +34,12 @@
  *  - covariance scaled by n/(n − k), no effects counted; clustered also by G/(G − 1)·(n − 1)/n; t(n − k).
  *
  * HAUSMAN: (b_FE − b_RE)ᵀ (V_FE − V_RE)⁻¹ (b_FE − b_RE) ~ χ²(q), from the CONVENTIONAL (classical) covariances of
- * both fits whatever SE type is displayed, on the q regressors that vary within entities (no constant). linearmodels
- * has no Hausman test; the oracle is the same formula in numpy on linearmodels' classical covariances.
+ * both fits whatever SE type is displayed, on the q regressors that vary within entities (no constant). When that
+ * difference is not positive definite (usual when a regressor is correlated with the entity effect, because the
+ * two fits estimate σ² differently), Stata's `hausman, sigmamore`: both covariances on the efficient (RE)
+ * estimator's disturbance variance, e(rmse)² of xtreg, re; if that difference is singular, the Moore–Penrose
+ * inverse with df = its rank (Stata's documented rule). linearmodels has no Hausman test; the oracle is the same
+ * formulas in numpy on linearmodels' classical covariances.
  */
 import type { FittedModel, ModelStat, ModelTerm } from "./regModel";
 import { tTestP, fTestP, tCritical } from "./stats";
@@ -93,8 +100,11 @@ export function demean(v: ArrayLike<number>, g: Groups): Float64Array {
   return out;
 }
 
-/** True when every entity's rows and every period's rows are linked (the entity–period graph is connected). */
-export function connected(ent: Groups, time: Groups): boolean {
+/**
+ * The connected components of the entity–period graph (an edge for every row): the component of each entity
+ * (nodes 0…N−1) and each period (nodes N…N+T−1), numbered 0… in order of first node.
+ */
+export function components(ent: Groups, time: Groups): { count: number; comp: Int32Array } {
   const parent = Int32Array.from({ length: ent.G + time.G }, (_, i) => i);
   const find = (a: number): number => {
     while (parent[a] !== a) {
@@ -108,9 +118,20 @@ export function connected(ent: Groups, time: Groups): boolean {
     const b = find(ent.G + time.codes[i]);
     if (a !== b) parent[a] = b;
   }
-  const root = find(0);
-  for (let j = 1; j < ent.G + time.G; j++) if (find(j) !== root) return false;
-  return true;
+  const label = new Int32Array(ent.G + time.G).fill(-1);
+  const comp = new Int32Array(ent.G + time.G);
+  let count = 0;
+  for (let j = 0; j < ent.G + time.G; j++) {
+    const r = find(j);
+    if (label[r] < 0) label[r] = count++;
+    comp[j] = label[r];
+  }
+  return { count, comp };
+}
+
+/** True when every entity's rows and every period's rows are linked (the entity–period graph is connected). */
+export function connected(ent: Groups, time: Groups): boolean {
+  return components(ent, time).count === 1;
 }
 
 /**
@@ -121,8 +142,20 @@ export function twoWayTransform(cols: ArrayLike<number>[], ent: Groups, time: Gr
   // linearmodels: if nentity > nperiods demean by entity and take time dummies, else the reverse.
   const big = ent.G > time.G ? ent : time;
   const small = ent.G > time.G ? time : ent;
-  const m = small.G - 1;
   const n = big.codes.length;
+  // The dummies of the small dimension, less the first level of each connected component: on a connected panel
+  // only level 0 is dropped; each further component adds one exact dependency (its dummies sum to a function of the
+  // big groups it holds), so its first level is dropped too.
+  const cc = components(ent, time);
+  const offset = small === ent ? 0 : ent.G;
+  const seen = new Uint8Array(cc.count);
+  const colOf = new Int32Array(small.G).fill(-1);
+  let m = 0;
+  for (let s = 0; s < small.G; s++) {
+    const c = cc.comp[offset + s];
+    if (!seen[c]) seen[c] = 1;
+    else colOf[s] = m++;
+  }
   if (m <= 0) return cols.map((c) => demean(c, big));
   // Rows of each big group.
   const start = new Int32Array(big.G + 1);
@@ -131,15 +164,15 @@ export function twoWayTransform(cols: ArrayLike<number>[], ent: Groups, time: Gr
   const fill = start.slice(0, big.G);
   const rows = new Int32Array(n);
   for (let i = 0; i < n; i++) rows[fill[big.codes[i]]++] = i;
-  // S = D'D − Σ_g c_g c_gᵀ / n_g over the dummies 1…m of the small dimension (level 0 dropped).
+  // S = D'D − Σ_g c_g c_gᵀ / n_g over the kept dummies of the small dimension.
   const S: Float64Array[] = Array.from({ length: m }, () => new Float64Array(m));
-  for (let j = 1; j <= m; j++) S[j - 1][j - 1] = small.counts[j];
+  for (let s = 0; s < small.G; s++) if (colOf[s] >= 0) S[colOf[s]][colOf[s]] = small.counts[s];
   const lev: number[] = [];
   for (let g = 0; g < big.G; g++) {
     lev.length = 0;
     for (let r = start[g]; r < start[g + 1]; r++) {
-      const s = small.codes[rows[r]];
-      if (s > 0) lev.push(s - 1);
+      const s = colOf[small.codes[rows[r]]];
+      if (s >= 0) lev.push(s);
     }
     const ng = start[g + 1] - start[g];
     for (let a = 0; a < lev.length; a++) {
@@ -154,14 +187,14 @@ export function twoWayTransform(cols: ArrayLike<number>[], ent: Groups, time: Gr
     const v = demean(c, big);
     const r = new Float64Array(m);
     for (let i = 0; i < n; i++) {
-      const s = small.codes[i];
-      if (s > 0) r[s - 1] += v[i];
+      const s = colOf[small.codes[i]];
+      if (s >= 0) r[s] += v[i];
     }
     const b = cholSolve(L, r);
     const db = new Float64Array(n);
     for (let i = 0; i < n; i++) {
-      const s = small.codes[i];
-      db[i] = s > 0 ? b[s - 1] : 0;
+      const s = colOf[small.codes[i]];
+      db[i] = s >= 0 ? b[s] : 0;
     }
     const dbm = demean(db, big);
     for (let i = 0; i < n; i++) v[i] -= dbm[i];
@@ -713,13 +746,10 @@ export function fitFixedEffects(
         `and at most ${intText(TWOWAY_MAX_SMALL_DIM)} are allowed in the smaller one.`,
     );
   }
-  if (twoway && p.N > 1 && p.T > 1 && !connected(ent, tim)) {
-    throw new PanelRefusal(
-      "The panel splits into separate groups of entities observed in periods that never overlap, so the entity and time effects " +
-        "cannot be told apart across the groups. Fit each group separately, or use entity effects only.",
-    );
-  }
-  const neffects = p.N - 1 + (twoway ? p.T - 1 : 0);
+  // A disconnected panel (groups of entities observed in periods that never overlap): the slopes are identified, and
+  // the entity and period dummies have rank N + T − c with c components, so N + T − 1 − c effects beside the constant.
+  const ncomp = twoway && p.N > 1 && p.T > 1 ? components(ent, tim).count : 1;
+  const neffects = p.N - 1 + (twoway ? p.T - 1 - (ncomp - 1) : 0);
   const dfResid = n - k - neffects;
   if (dfResid <= 0) {
     throw new PanelRefusal(
@@ -813,6 +843,14 @@ export function fitFixedEffects(
       ? "Entity and time effects, removed exactly (demeaning by the larger dimension and partialling out the other's dummies, as linearmodels' PanelOLS); a constant is estimated with the grand means added back (Stata's _cons)."
       : "Entity effects removed by demeaning each entity; a constant is estimated with the grand means added back (Stata's _cons).",
   );
+  if (ncomp > 1) {
+    notes.push(
+      `The panel splits into ${ncomp} groups of entities observed in periods that never overlap (the entity–period graph is disconnected). ` +
+        `The slopes are still identified and are estimated exactly; the entity and time effects are identified only within each group, so the ` +
+        `effects counted are N + T − 1 − ${ncomp} = ${intText(neffects)}, the rank of the dummies beside the constant. linearmodels counts N + T − 2 = ` +
+        `${intText(p.N + p.T - 2)} whatever the groups, so its residual df is ${intText(ncomp - 1)} lower (${intText(dfResid - (ncomp - 1))}) and its standard errors slightly larger; the slopes agree.`,
+    );
+  }
   notes.push("Entities with a single row (singletons) are kept, as linearmodels' default singletons=True; they add nothing to the slopes but are counted among the effects.");
   notes.push(
     twoway
@@ -925,16 +963,18 @@ export function fitRandomEffects(p: PanelColumns, opts: { se: PanelSe; started?:
   // Between regression: entity means, unweighted, with the constant.
   const ybar = groupMeans(p.y, ent);
   const Xbar = p.X.map((c) => groupMeans(c, ent));
-  let between: LinFit;
-  try {
-    between = linFit(ybar, Xbar, p.names, { constant: true });
-  } catch (e) {
-    if (!(e instanceof PanelRefusal) || e instanceof PanelTimeout) throw e;
-    throw new PanelRefusal(`σ²ᵤ cannot be estimated from the between regression on the entity means: ${e.message}`);
-  }
-  const dfB = p.N - k;
+  // linearmodels: lstsq on the means, so a regressor collinear with the others in the means (a trend or year dummies
+  // on a balanced panel, whose means are the same for every entity) has no coefficient there, and the residual df is
+  // N − rank of the between regression.
+  const between = linFit(ybar, Xbar, p.names, { constant: true, skipCollinear: true, started });
+  const rankB = between.kept.length + 1;
+  const droppedB = p.names.filter((_, j) => !between.kept.includes(j));
+  const dfB = p.N - rankB;
   if (dfB <= 0) {
-    throw new PanelRefusal(`σ²ᵤ cannot be estimated: the between regression on ${intText(p.N)} entity means has no residual degrees of freedom for ${k} coefficients (at least ${k + 1} entities are needed).`);
+    throw new PanelRefusal(
+      `σ²ᵤ cannot be estimated: the between regression on ${intText(p.N)} entity means has no residual degrees of freedom ` +
+        `(the means of the regressors and the constant have rank ${rankB}, so at least ${rankB + 1} entities are needed).`,
+    );
   }
   let invSum = 0;
   for (let g = 0; g < p.N; g++) invSum += 1 / ent.counts[g];
@@ -1035,9 +1075,16 @@ export function fitRandomEffects(p: PanelColumns, opts: { se: PanelSe; started?:
   const three = threeR2(p, ent, fit.coef.slice(0, k - 1), p.X.map((_, j) => j), fit.coef[k - 1]);
   notes.push(
     "Random effects by feasible GLS (linearmodels RandomEffects, small_sample=False): σ²ε from the within regression, " +
-      "σ²ᵤ = max(0, SSR_between/(N − k) − σ²ε/T̄) from the unweighted regression of the entity means, T̄ the harmonic mean of the rows per entity, " +
+      "σ²ᵤ = max(0, SSR_between/(N − rank) − σ²ε/T̄) from the unweighted regression of the entity means (rank = the coefficients that regression estimates), T̄ the harmonic mean of the rows per entity, " +
       "and θᵢ = 1 − √(σ²ε/(Tᵢσ²ᵤ + σ²ε)) for each entity.",
   );
+  if (droppedB.length) {
+    notes.push(
+      `${droppedB.map(q).join(", ")} ${droppedB.length === 1 ? "is" : "are"} collinear with the constant${droppedB.length < k - 1 ? " and the other regressors" : ""} in the entity means ` +
+        `(the same mean for every entity, as a trend or year dummies on a balanced panel), so the between regression leaves ${droppedB.length === 1 ? "it" : "them"} out and has rank ${rankB}: ` +
+        `σ²ᵤ uses N − ${rankB} = ${intText(dfB)} df, as linearmodels does. ${droppedB.length === 1 ? "It is" : "They are"} still estimated in the GLS regression, from the variation within entities.`,
+    );
+  }
   if (sigma2u === 0) notes.push("σ²ᵤ was estimated below zero and set to 0, so θ = 0 and random effects are pooled OLS.");
   notes.push("R² is linearmodels' rsquared (the quasi-demeaned regression); within, between and overall R² are at the same coefficients.");
   const stats: ModelStat[] = [
@@ -1096,31 +1143,135 @@ export function fitRandomEffects(p: PanelColumns, opts: { se: PanelSe; started?:
 // ---------------------------------------------------------------------------------------------------------------
 // Hausman
 
-export type HausmanResult = { stat: number; df: number; p: number; names: string[] } | { skipped: string };
+/**
+ * Which form of the Hausman statistic was computed:
+ *  - "classic": (b_FE − b_RE)ᵀ(V_FE − V_RE)⁻¹(b_FE − b_RE) on the conventional covariances, each with its own s²;
+ *  - "sigmamore": Stata's hausman, sigmamore: both covariances on the disturbance variance of the efficient (RE)
+ *    estimator, e(rmse)² of xtreg, re (the s² = SSE/(n − k) of the quasi-demeaned GLS regression), so V_FE is
+ *    rescaled by s²_RE/s²_FE and V_RE is unchanged;
+ *  - "pinv": the sigmamore difference is singular, so the Moore–Penrose inverse is used and df = its rank (Stata's
+ *    documented behaviour when the difference is not positive definite).
+ */
+export type HausmanForm = "classic" | "sigmamore" | "pinv";
 
-/** Hausman FE vs RE from the classical covariances, on the regressors both estimate that vary within entities. */
-export function hausman(fe: FeResult, re: ReResult): HausmanResult {
+export type HausmanResult =
+  | { stat: number; df: number; p: number; names: string[]; form: HausmanForm; why: string; s2Fe: number; s2Re: number }
+  | { skipped: string };
+
+/** Relative size (to the largest diagonal of the rescaled V_FE) below which an eigenvalue counts as zero. */
+export const HAUSMAN_RANK_TOL = 1e-10;
+/** Sweeps of the Jacobi eigenvalue method (q ≤ PANEL_MAX_REGRESSORS converges in well under 20). */
+const JACOBI_MAX_SWEEPS = 100;
+
+/**
+ * Hausman FE vs RE on the regressors both estimate that vary within entities: the classic form when V_FE − V_RE is
+ * positive definite; otherwise Stata's sigmamore form; otherwise the Moore–Penrose inverse with df = rank.
+ */
+export function hausman(fe: FeResult, re: ReResult, started: number = Date.now()): HausmanResult {
   const names = re.timeVarying.filter((nm) => fe.names.includes(nm));
   if (!names.length) return { skipped: "no regressor varies within entities, so fixed effects estimate nothing to compare" };
   const fi = names.map((nm) => fe.names.indexOf(nm));
   const ri = names.map((nm) => re.names.indexOf(nm));
+  const q0 = names.length;
   const d = names.map((_, a) => fe.coef[fi[a]] - re.coef[ri[a]]);
-  const S = names.map((_, a) => Float64Array.from(names.map((__, b) => fe.Vclassical[fi[a]][fi[b]] - re.Vclassical[ri[a]][ri[b]])));
+  const s2Fe = fe.sse / fe.dfResid;
+  const s2Re = re.sse / re.dfResid;
+  const diff = (r: number): Float64Array[] => names.map((_, a) => Float64Array.from(names.map((__, b) => r * fe.Vclassical[fi[a]][fi[b]] - re.Vclassical[ri[a]][ri[b]])));
   // Relative tolerance: the difference must be positive definite against the size of V_FE.
   let scale = 0;
-  for (let a = 0; a < names.length; a++) scale = Math.max(scale, Math.abs(fe.Vclassical[fi[a]][fi[a]]));
-  const L = choleskyRel(S, scale);
-  if (!L) {
+  for (let a = 0; a < q0; a++) scale = Math.max(scale, Math.abs(fe.Vclassical[fi[a]][fi[a]]));
+  const quad = (L: Float64Array[]): number => {
+    const x = cholSolve(L, d);
+    let h = 0;
+    for (let a = 0; a < q0; a++) h += d[a] * x[a];
+    return h;
+  };
+  const done = (h: number, df: number, form: HausmanForm, why: string): HausmanResult =>
+    Number.isFinite(h) ? { stat: h, df, p: chiSquareP(h, df), names, form, why, s2Fe, s2Re } : { skipped: "the Hausman statistic is not a finite number at this scale" };
+  const Lc = choleskyRel(diff(1), scale);
+  if (Lc) return done(quad(Lc), q0, "classic", "V_FE − V_RE is positive definite, so the classic statistic on the conventional covariances is used");
+  if (!(s2Fe > 0) || !(s2Re > 0)) return { skipped: "a residual variance is zero, so the covariances cannot be put on a common σ²" };
+  const r = s2Re / s2Fe;
+  const S = diff(r);
+  const whyNotClassic =
+    `V_FE − V_RE is not positive definite on the conventional covariances, because the two fits estimate σ² differently ` +
+    `(FE s² = ${fmtFixed(s2Fe, 4)}, RE s² = ${fmtFixed(s2Re, 4)})`;
+  const Ls = choleskyRel(S, r * scale);
+  if (Ls) {
+    return done(quad(Ls), q0, "sigmamore", `${whyNotClassic}; both covariances are put on the efficient (RE) estimator's σ², Stata's sigmamore form, which makes the difference positive definite`);
+  }
+  // Moore–Penrose inverse of the symmetric difference.
+  const eig = jacobiEigen(S, started);
+  if (!eig) return { skipped: "the eigenvalues of V_FE − V_RE did not converge" };
+  const tol = HAUSMAN_RANK_TOL * r * scale;
+  const lmin = Math.min(...eig.values);
+  if (lmin < -tol) {
     return {
       skipped:
-        "V_FE − V_RE is not positive definite for these data (random effects are not more efficient here), so the Hausman statistic is not defined",
+        "V_FE − V_RE is not positive semi-definite even with both covariances on the RE estimator's σ² (Stata's sigmamore form), so the statistic would be negative: " +
+        "these data do not meet the asymptotic assumptions of the Hausman test",
     };
   }
-  const x = cholSolve(L, d);
   let h = 0;
-  for (let a = 0; a < d.length; a++) h += d[a] * x[a];
-  if (!Number.isFinite(h)) return { skipped: "the Hausman statistic is not a finite number at this scale" };
-  return { stat: h, df: names.length, p: chiSquareP(h, names.length), names };
+  let rank = 0;
+  eig.values.forEach((lam, a) => {
+    if (lam <= tol) return;
+    rank++;
+    let vd = 0;
+    for (let b = 0; b < q0; b++) vd += eig.vectors[b][a] * d[b];
+    h += (vd * vd) / lam;
+  });
+  if (rank === 0) return { skipped: "V_FE − V_RE is zero to rounding even with a common σ², so the Hausman statistic is not defined" };
+  return done(
+    h,
+    rank,
+    "pinv",
+    `${whyNotClassic}; on the RE estimator's σ² (Stata's sigmamore form) the difference is singular, rank ${rank} of ${q0}, ` +
+      "so the Moore–Penrose generalised inverse is used with df = its rank, as Stata's hausman does",
+  );
+}
+
+/** Eigenvalues and eigenvectors (columns) of a small symmetric matrix by cyclic Jacobi rotations, or null. */
+function jacobiEigen(S0: Float64Array[], started: number): { values: number[]; vectors: number[][] } | null {
+  const m = S0.length;
+  const A = S0.map((r) => Array.from(r));
+  const V: number[][] = Array.from({ length: m }, (_, i) => Array.from({ length: m }, (__, j): number => (i === j ? 1 : 0)));
+  let total = 0;
+  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) total += A[i][j] * A[i][j];
+  for (let sweep = 0; sweep < JACOBI_MAX_SWEEPS; sweep++) {
+    checkClock(started, "Hausman test");
+    let off = 0;
+    for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) off += A[i][j] * A[i][j];
+    if (!(off > 1e-30 * total)) return { values: A.map((r, i) => r[i]), vectors: V };
+    for (let p = 0; p < m; p++)
+      for (let qq = p + 1; qq < m; qq++) {
+        const apq = A[p][qq];
+        if (apq === 0) continue;
+        const th = (A[qq][qq] - A[p][p]) / (2 * apq);
+        const t = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1));
+        const c = 1 / Math.sqrt(t * t + 1);
+        const s = t * c;
+        for (let k = 0; k < m; k++) {
+          const akp = A[k][p];
+          const akq = A[k][qq];
+          A[k][p] = c * akp - s * akq;
+          A[k][qq] = s * akp + c * akq;
+        }
+        for (let k = 0; k < m; k++) {
+          const apk = A[p][k];
+          const aqk = A[qq][k];
+          A[p][k] = c * apk - s * aqk;
+          A[qq][k] = s * apk + c * aqk;
+        }
+        for (let k = 0; k < m; k++) {
+          const vkp = V[k][p];
+          const vkq = V[k][qq];
+          V[k][p] = c * vkp - s * vkq;
+          V[k][qq] = s * vkp + c * vkq;
+        }
+      }
+  }
+  return null;
 }
 
 function choleskyRel(S: Float64Array[], scale: number): Float64Array[] | null {

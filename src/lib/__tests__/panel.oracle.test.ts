@@ -134,15 +134,21 @@ describe("RE against linearmodels RandomEffects", () => {
   }
 });
 
-describe("Hausman (numpy formula on linearmodels' classical covariances)", () => {
+describe("Hausman (numpy formulas on linearmodels' classical covariances): classic, sigmamore, generalised inverse", () => {
   const pick = (prefix: string): Case => fx.cases.find((c) => c.name.startsWith(prefix) && c.se === "classical" && c.method === "re")!;
-  for (const [key, prefix] of [
-    ["bal", "re_bal"],
-    ["reu", "re_unbal_tinv"],
-    ["rez", "re_zero"],
-    ["q2", "re_hq2"],
+  for (const [key, prefix, form] of [
+    ["bal", "re_bal", "sigmamore"],
+    ["reu", "re_unbal_tinv", "classic"],
+    ["rez", "re_zero", "classic"],
+    ["q2", "re_hq2", "classic"],
+    // The review's case: x1 correlated with the entity effect; the classic statistic would be χ²(2) = 113.95 on an
+    // indefinite difference.
+    ["adv_classical", "adv_re_classical", "sigmamore"],
+    // A trend / year dummies on a balanced panel: no between variation, so the sigmamore difference is singular.
+    ["adv_trend", "adv_re_trend", "pinv"],
+    ["adv_ydum", "adv_re_ydum_classical", "pinv"],
   ] as const) {
-    test(`${key}`, () => {
+    test(`${key}: ${form}`, () => {
       const c = pick(prefix);
       const p = panelFor(c, c.x);
       const re = fitRandomEffects(p, { se: "classical" });
@@ -150,16 +156,107 @@ describe("Hausman (numpy formula on linearmodels' classical covariances)", () =>
       const pf = panelFor(c, tv);
       const fe = fitFixedEffects(pf, { effects: "entity", se: "classical" });
       const h = hausman(fe, re);
-      const o = fx.hausman[key];
-      if (o.skipped) expect("skipped" in h).toBe(true);
-      else {
-        if ("skipped" in h) throw new Error(h.skipped);
-        close(h.stat, o.stat!, 1e-6);
-        expect(h.df).toBe(o.df);
-        close(h.p, o.p!, 1e-5);
+      const o = fx.hausman[key] as { stat: number; df: number; p: number; form: string; classic_stat?: number; s2_fe?: number; s2_re?: number };
+      expect(o.form).toBe(form);
+      if ("skipped" in h) throw new Error(h.skipped);
+      expect(h.form).toBe(form);
+      close(h.stat, o.stat, 1e-6);
+      expect(h.df).toBe(o.df);
+      close(h.p, o.p, 1e-5);
+      if (form !== "classic") {
+        close(h.s2Fe, o.s2_fe!, 1e-9);
+        close(h.s2Re, o.s2_re!, 1e-9);
+        // FE's s² is RE's σ²ε (the same within regression): sigmamore is NOT a rescaling to σ²ε.
+        close(h.s2Fe, re.sigma2e, 1e-9);
+      }
+      if (key === "adv_classical") expect(o.classic_stat!).toBeCloseTo(113.947, 2);
+    });
+  }
+});
+
+describe("RE with regressors collinear in the entity means (trend, year dummies) against linearmodels", () => {
+  test("the review's numbers: x1 2.2959 (SE 0.1972), σ²ᵤ 0.3954, σ²ε 6.8028, df 173; trend model x1 2.2543, trend 0.1740", () => {
+    const yd = fx.cases.find((c) => c.name === "adv_re_ydum_cluster-entity")!;
+    const r = fitRandomEffects(panelFor(yd, yd.x), { se: "cluster-entity" });
+    expect(r.coef[0]).toBeCloseTo(2.2959, 4);
+    expect(r.model.terms[0].se).toBeCloseTo(0.1972, 4);
+    expect(r.sigma2u).toBeCloseTo(0.3954, 4);
+    expect(r.sigma2e).toBeCloseTo(6.8028, 4);
+    expect(r.dfResid).toBe(173);
+    expect(r.notes.join(" ")).toMatch(/“d1”, “d2”, “d3”, “d4”, “d5” are collinear with the constant and the other regressors in the entity means.*has rank 2: σ²ᵤ uses N − 2 = 28 df/);
+    const tr = fx.cases.find((c) => c.name === "adv_re_trend_classical")!;
+    const t = fitRandomEffects(panelFor(tr, tr.x), { se: "classical" });
+    expect(t.coef[0]).toBeCloseTo(2.2543, 4);
+    expect(t.coef[1]).toBeCloseTo(0.174, 4);
+  });
+  test("the unbalanced variants (symmetric windows keep the trend collinear; dropped rows give full rank) are in the RE loop above", () => {
+    expect(fx.cases.filter((c) => c.method === "re" && /^adv_re_unb/.test(c.name)).length).toBe(2);
+    const u = fx.cases.find((c) => c.name === "adv_re_unbsym_trend_classical")!;
+    const r = fitRandomEffects(panelFor(u, u.x), { se: "classical" });
+    expect(r.notes.join(" ")).toMatch(/“trend” is collinear with the constant/);
+    const b = fx.cases.find((c) => c.name === "adv_re_unb_ydum_robust")!;
+    expect(fitRandomEffects(panelFor(b, b.x), { se: "robust" }).notes.join(" ")).not.toMatch(/collinear with the constant/);
+  });
+});
+
+describe("disconnected two-way panels: slopes = linearmodels, df and SEs = numpy LSDV (the dummies' true rank)", () => {
+  for (const c of fx.cases.filter((k) => k.method === ("fe_disc" as Case["method"]))) {
+    test(c.name, () => {
+      const lsdv = (c as Case & { lsdv: { params: Record<string, number>; se: Record<string, number>; df_resid: number } }).lsdv;
+      const p = panelFor(c, c.x);
+      const r = fitFixedEffects(p, { effects: "twoway", se: c.se });
+      const groups = c.name.startsWith("adv_dc3") ? 3 : 2;
+      // linearmodels counts N + T − 2 effects whatever the groups; the rank is N + T − 1 − groups.
+      expect(r.neffects).toBe(p.N + p.T - 1 - groups);
+      expect(r.dfResid).toBe(lsdv.df_resid);
+      expect(r.dfResid).toBe(c.df_resid + groups - 1);
+      const ratio = Math.sqrt(c.df_resid / r.dfResid);
+      for (const nm of ["x1", "x2", "Constant"]) {
+        const j = r.names.indexOf(nm);
+        close(r.coef[j], c.params[nm], 1e-8);
+        // Every SE type scales by 1/(n − k − effects): linearmodels' SEs times √(df_lm/df).
+        close(r.model.terms[j].se, c.se_[nm] * ratio, 1e-7);
+        if (nm !== "Constant") {
+          close(r.coef[j], lsdv.params[nm], 1e-8);
+          if (c.se === "classical") close(r.model.terms[j].se, lsdv.se[nm], 1e-7);
+        }
+      }
+      expect(r.notes.join(" ")).toMatch(new RegExp(`splits into ${groups} groups`));
+      if (groups === 2) {
+        expect(r.coef[0]).toBeCloseTo(1.5575, 4);
+        expect(r.coef[1]).toBeCloseTo(-0.7121, 4);
       }
     });
   }
+});
+
+describe("DiD event study dates adoption from the raw treatment column (an NA outcome in the adoption row)", () => {
+  test("adv_event_naadopt_3_3 against PanelOLS with dummies built from raw D", () => {
+    const c = fx.cases.find((k) => k.name === "adv_event_naadopt_3_3")!;
+    const d = parseRegData(fx.data[c.data]);
+    if (!d.ok) throw new Error(d.reason);
+    const spec = { dep: "y", preds: ["D"], text: "y ~ D" };
+    const rd = readPanel(d.data, { spec, entity: c.entity, time: c.time, treatment: "D" });
+    if (!rd.ok) throw new Error(rd.reason);
+    const ev = buildEventDummies(rd.panel, 0, { leads: c.leads!, lags: c.lags! });
+    if (!ev.ok) throw new Error(ev.reason);
+    const r = fitFixedEffects(ev.panel, { effects: "twoway", se: c.se });
+    expect(r.dfResid).toBe(c.df_resid);
+    for (const [nm, v] of Object.entries(c.params)) {
+      const m = /^rel_(-?\d+)$/.exec(nm);
+      const j = r.names.indexOf(m ? ev.dummyName(Number(m[1])) : nm);
+      expect(j).toBeGreaterThanOrEqual(0);
+      close(r.coef[j], v, 1e-8);
+      close(r.model.terms[j].se, c.se_[nm], 1e-7);
+    }
+    // Without the raw column the six units would be dated one period late: a different design.
+    const rd0 = readPanel(d.data, { spec, entity: c.entity, time: c.time });
+    if (!rd0.ok) throw new Error(rd0.reason);
+    const ev0 = buildEventDummies(rd0.panel, 0, { leads: c.leads!, lags: c.lags! });
+    if (!ev0.ok) throw new Error(ev0.reason);
+    const r0 = fitFixedEffects(ev0.panel, { effects: "twoway", se: c.se });
+    expect(Math.abs(r0.coef[0] - c.params["rel_-3"])).toBeGreaterThan(1e-3);
+  });
 });
 
 describe("the 2×2 table against the oracle's pandas group means", () => {

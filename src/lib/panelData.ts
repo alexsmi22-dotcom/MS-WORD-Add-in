@@ -12,9 +12,9 @@
  *  - Rows with a missing entity, time or model cell are dropped (listwise deletion, said in the notes). Unbalanced
  *    panels are allowed.
  */
-import { findColumn, isMissingCell, selectColumns, type RegDataset, type RegSpec } from "./regData";
+import { findColumn, isMissingCell, readRegCell, selectColumns, type RegDataset, type RegSpec } from "./regData";
 import { readDateToken } from "./damagesInterest";
-import { intText } from "./regTable";
+import { intText, numText } from "./regTable";
 
 /**
  * Past this many data rows a panel is refused up front. 100,000 rows fit inside the pane's time budget; the shared
@@ -65,6 +65,28 @@ export interface PanelColumns {
   /** 1-based data-row numbers of the rows used. */
   rowNumbers: number[];
   notes: string[];
+  /** Adoption dates read from the treatment column over ALL rows (before listwise deletion), when asked for. */
+  adoption?: RawAdoption;
+}
+
+/**
+ * The treatment column read over every row that has an entity, a time and a treatment cell, before rows with a missing
+ * outcome or control are dropped: a unit's adoption period is the first period its treatment is 1, whichever rows the
+ * regression keeps. Periods are ranked among the periods of those rows.
+ */
+export interface RawAdoption {
+  /** Raw rank of each panel period (time code → rank). */
+  timeRank: Int32Array;
+  /** Label of each raw rank. */
+  rankLabels: string[];
+  /** Raw rank of each panel entity's first treated period, −1 when never treated. */
+  firstRank: Int32Array;
+  /** 1 when the entity has an untreated row (treatment 0) before its adoption period. */
+  hasPre: Uint8Array;
+  /** Treated entities whose adoption an NA treatment cell may hide: the first such row (1-based), per entity. */
+  hidden: { entity: number; row: number }[];
+  /** A refusal found in a row the regression does not use (a treatment that switches off, or a value not 0/1). */
+  error?: string;
 }
 
 export type PanelResult = { ok: true; panel: PanelColumns } | { ok: false; reason: string };
@@ -75,6 +97,8 @@ export interface PanelOptions {
   time: string;
   /** A cluster column other than the entity, by name. */
   cluster?: string;
+  /** The treatment column (0/1), by name: its adoption dates are read over all rows (PanelColumns.adoption). */
+  treatment?: string;
 }
 
 const INT_TIME = /^[-−]?\d{1,9}$/;
@@ -245,9 +269,16 @@ export function readPanel(data: RegDataset, opts: PanelOptions): PanelResult {
     }
   }
   if (times.kind !== "whole numbers") notes.push(`The time column holds ${times.kind}, sorted by calendar day.`);
+  let adoption: RawAdoption | undefined;
+  if (opts.treatment !== undefined) {
+    const di = findColumn(data.names, opts.treatment);
+    if (typeof di !== "number") return { ok: false, reason: `Treatment column: ${di.error}` };
+    adoption = rawAdoption(data, { e, di, key: times.key, entMap, keys, tName: data.names[t], tIdx: t });
+  }
   return {
     ok: true,
     panel: {
+      adoption,
       depName: c.depName,
       y,
       X,
@@ -266,6 +297,75 @@ export function readPanel(data: RegDataset, opts: PanelOptions): PanelResult {
       notes,
     },
   };
+}
+
+/** The adoption dates of the panel's entities from the treatment column over every row (see RawAdoption). */
+function rawAdoption(
+  data: RegDataset,
+  c: { e: number; di: number; key: (number | null)[]; entMap: Map<string, number>; keys: number[]; tName: string; tIdx: number },
+): RawAdoption {
+  const N = c.entMap.size;
+  // Rows with an entity, a time and a treatment cell; NA treatment cells of the panel's entities kept apart.
+  const rows: { i: number; ent: number; k: number; d: number }[] = [];
+  const naRows: { i: number; ent: number; k: number }[] = [];
+  const rawKeys = new Set<number>();
+  const label = new Map<number, string>();
+  let error: string | undefined;
+  for (let i = 0; i < data.rows.length; i++) {
+    const entText = (data.rows[i][c.e] ?? "").trim();
+    const k = c.key[i];
+    if (isMissingCell(entText) || k === null) continue;
+    const ent = c.entMap.get(entText) ?? -1;
+    const cell = (data.rows[i][c.di] ?? "").trim();
+    const v = isMissingCell(cell) ? NaN : readRegCell(cell, !!data.semicolon).value;
+    if (Number.isNaN(v)) {
+      if (ent >= 0) naRows.push({ i, ent, k });
+      continue;
+    }
+    if (v !== 0 && v !== 1 && !error) {
+      error = `The treatment column ${q(data.names[c.di])} must be 0 or 1 in every row (row ${i + 1} holds ${numText(v)}).`;
+    }
+    rawKeys.add(k);
+    if (!label.has(k)) label.set(k, (data.rows[i][c.tIdx] ?? "").trim());
+    if (ent >= 0) rows.push({ i, ent, k, d: v });
+  }
+  const sorted = [...rawKeys].sort((a, b) => a - b);
+  const rankOf = new Map<number, number>(sorted.map((k, r) => [k, r]));
+  // Every panel period has a treatment cell (the treatment is a model column), so it has a raw rank.
+  const timeRank = Int32Array.from(c.keys, (k) => rankOf.get(k) ?? -1);
+  const rankLabels = sorted.map((k) => label.get(k) ?? "");
+  rows.sort((a, b) => a.ent - b.ent || a.k - b.k);
+  const firstKey = new Float64Array(N).fill(NaN);
+  const lastZeroKey = new Float64Array(N).fill(-Infinity);
+  const hasPre = new Uint8Array(N);
+  const entNames: string[] = new Array(N);
+  c.entMap.forEach((code, nm) => (entNames[code] = nm));
+  for (const r of rows) {
+    if (r.d === 1) {
+      if (Number.isNaN(firstKey[r.ent])) firstKey[r.ent] = r.k;
+    } else if (r.d === 0) {
+      if (Number.isNaN(firstKey[r.ent])) {
+        hasPre[r.ent] = 1;
+        lastZeroKey[r.ent] = r.k;
+      } else if (!error) {
+        error =
+          `Entity ${q(entNames[r.ent])} is treated in ${q(label.get(firstKey[r.ent]) ?? "")} but untreated again in ${q(label.get(r.k) ?? "")} (row ${r.i + 1}). ` +
+          "Difference-in-differences here needs an absorbing treatment: once treated, always treated.";
+      }
+    }
+  }
+  const firstRank = new Int32Array(N).fill(-1);
+  for (let g = 0; g < N; g++) if (!Number.isNaN(firstKey[g])) firstRank[g] = rankOf.get(firstKey[g])!;
+  // An NA treatment cell after the entity's last untreated row and before its first treated row may hide an earlier adoption.
+  const hiddenAt = new Int32Array(N).fill(-1);
+  for (const r of naRows) {
+    const f = firstKey[r.ent];
+    if (Number.isNaN(f) || !(r.k < f) || !(r.k > lastZeroKey[r.ent])) continue;
+    if (hiddenAt[r.ent] < 0 || r.i < hiddenAt[r.ent]) hiddenAt[r.ent] = r.i;
+  }
+  const hidden: { entity: number; row: number }[] = [];
+  for (let g = 0; g < N; g++) if (hiddenAt[g] >= 0) hidden.push({ entity: g, row: hiddenAt[g] + 1 });
+  return { timeRank, rankLabels, firstRank, hasPre, hidden, error };
 }
 
 /** Rows per entity: min, max, and whether every entity has every period. */

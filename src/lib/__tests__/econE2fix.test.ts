@@ -358,3 +358,14 @@ describe("notes are truthful", () => {
     expect(o.text).toContain("the rule of thumb of Newey and West, 1994");
   });
 });
+
+describe("E4 review: cells read silently are named", () => {
+  test("a % sign is read as the number before it, and the notes say so", () => {
+    const p = parseRegData("y\tx\n1\t5%\n2\t7%\n3\t6");
+    if (!p.ok) throw new Error(p.reason);
+    const s = selectColumns(p.data, { dep: "y", preds: ["x"], text: "" });
+    if (!s.ok) throw new Error(s.reason);
+    expect(Array.from(s.cols.X[0])).toEqual([5, 7, 6]);
+    expect(s.cols.notes.join(" ")).toContain("2 cells with a % sign were read as the number before the sign, in percent units");
+  });
+});

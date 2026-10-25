@@ -67,7 +67,7 @@ const SPACE_LIKE = new RegExp(`[${String.fromCharCode(0xa0, 0x2009, 0x202f)}]`, 
  * thousands), and "1.5×10⁻⁵". `percent` accepts a trailing % and divides by 100 (`percentAsIs` strips it and keeps the
  * number, for a field already in percent). Magnitudes beyond 10¹⁵, or nonzero below 10⁻¹⁵, are refused by name.
  */
-export function readRat(raw: string, label: string, opts: { percent?: boolean; percentAsIs?: boolean; semicolon?: boolean } = {}): { value: Rat; percent: boolean } | { error: string } {
+export function readRat(raw: string, label: string, opts: { percent?: boolean; percentAsIs?: boolean; semicolon?: boolean } = {}): { value: Rat; percent: boolean; decimalComma: boolean } | { error: string } {
   let t = String(raw ?? "").replace(SPACE_LIKE, " ").trim();
   if (t === "") return { error: `${label} is empty.` };
   const shown = t;
@@ -78,9 +78,11 @@ export function readRat(raw: string, label: string, opts: { percent?: boolean; p
     percent = true;
     t = t.slice(0, -1).trim();
   }
+  let decimalComma = false;
   if (t.includes(",")) {
     const r = readRegCell(t, !!opts.semicolon);
     if (!Number.isFinite(r.value)) return { error: `${label}: ${q(shown)} is not a number.` };
+    decimalComma = r.decimalComma;
     t = r.decimalComma ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
   }
   let v: Rat | null = null;
@@ -100,7 +102,7 @@ export function readRat(raw: string, label: string, opts: { percent?: boolean; p
   const a = Math.abs(ratToNumber(v));
   if (!(a <= VALUE_MAX)) return { error: `${label}: ${q(shown)} is too large (the limit is 10¹⁵ in magnitude).` };
   if (a !== 0 && a < VALUE_MIN) return { error: `${label}: ${q(shown)} is too small (nonzero values must be at least 10⁻¹⁵ in magnitude).` };
-  return { value: v, percent };
+  return { value: v, percent, decimalComma };
 }
 
 const withMinus = (s: string): string => (s.startsWith("-") ? MINUS + s.slice(1) : s);
@@ -225,6 +227,7 @@ function parsePayoffTable(text: string, who: string): ParsedTable | { error: str
   const dc = dup(cols);
   if (dc) return { error: `The column strategy ${q(dc)} appears twice in the ${who}'s payoff table.` };
   const M: Rat[][] = [];
+  const notes: string[] = [];
   for (let i = 0; i < rows.length; i++) {
     const out: Rat[] = [];
     for (let j = 0; j < cols.length; j++) {
@@ -233,11 +236,15 @@ function parsePayoffTable(text: string, who: string): ParsedTable | { error: str
       if (isMissingCell(cell)) return { error: `${where[0].toUpperCase()}${where.slice(1)} is empty or missing; every cell needs a number.` };
       const r = readRat(cell, where[0].toUpperCase() + where.slice(1), { semicolon: !!d.semicolon });
       if ("error" in r) return { error: r.error };
+      // "3,1" is a decimal comma (3.1), never a payoff pair: say so once, since a pasted bimatrix would be misread.
+      if (r.decimalComma && !d.semicolon && !notes.length) {
+        notes.push(`${q(cell)} at (${rows[i]}, ${cols[j]}) in the ${who}'s table was read as ${fmtExact(r.value)} (a decimal comma); each player's payoffs go in their own table, one number per cell.`);
+      }
       out.push(r.value);
     }
     M.push(out);
   }
-  return { corner: d.names[0], rows, cols, M, notes: [] };
+  return { corner: d.names[0], rows, cols, M, notes };
 }
 
 function mixText(names: string[], w: Rat[]): string {
@@ -247,7 +254,7 @@ function mixText(names: string[], w: Rat[]): string {
 }
 
 /** Both payoff tables read into one game (same shape, same names in the same order), or the refusal. */
-export function parseGame(rowText: string, colText: string): { game: Game; corner: string } | { error: string } {
+export function parseGame(rowText: string, colText: string): { game: Game; corner: string; notes: string[] } | { error: string } {
   const a = parsePayoffTable(rowText, "row player");
   if ("error" in a) return a;
   const b = parsePayoffTable(colText, "column player");
@@ -261,7 +268,7 @@ export function parseGame(rowText: string, colText: string): { game: Game; corne
   for (let j = 0; j < a.cols.length; j++) {
     if (a.cols[j].toLowerCase() !== b.cols[j].toLowerCase()) return { error: `Column ${j + 1} is ${q(a.cols[j])} in the row player's table but ${q(b.cols[j])} in the column player's; use the same names in the same order.` };
   }
-  return { game: { rowNames: a.rows, colNames: a.cols, A: a.M, B: b.M }, corner: a.corner };
+  return { game: { rowNames: a.rows, colNames: a.cols, A: a.M, B: b.M }, corner: a.corner, notes: [...a.notes, ...b.notes] };
 }
 
 /** game-nash run with an explicit wall clock (tests pass a negative one to see the refusal). */
@@ -350,6 +357,7 @@ export function gameNashRun(rowText: string, colText: string, elimMode: string, 
   }
 
   lines.push("");
+  lines.push(...parsed.notes);
   lines.push(
     "Conventions: payoffs are von Neumann–Morgenstern utilities; a mixed strategy's payoff is its expected payoff. A strategy is strictly dominated when another strategy" +
       (elimMode === "mixed" ? " (pure, or a mixture found by an exact linear program)" : "") +

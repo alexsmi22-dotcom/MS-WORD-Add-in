@@ -276,6 +276,15 @@ describe("game-nash against the oracle", () => {
     expect(o.text).toContain("row player A 15/23, B 8/23; column player L 19/34, R 15/34; expected payoffs −37/136 and 29/115");
   });
 
+  it("a “3,1” cell (a pasted payoff pair) is read as 3.1 and the reading is said", () => {
+    const row = "Row\\Col\tL\tR\nU\t3,1\t0\nD\t0\t2";
+    const o = gameNashRun(row, row, "pure");
+    expectDisplayContract(o);
+    expect(o.text).toContain("“3,1” at (U, L) in the row player's table was read as 3.1 (a decimal comma); each player's payoffs go in their own table, one number per cell.");
+    // A semicolon table's commas are decimal commas by its convention: nothing to warn about.
+    expect(gameNashRun("Row\\Col;L;R\nU;3,1;0\nD;0;2", "Row\\Col;L;R\nU;3,1;0\nD;0;2", "pure").text).not.toMatch(/decimal comma\)/);
+  });
+
   it("all-equal payoffs: every profile is an equilibrium; reported as degenerate, verified, no crash", () => {
     const t = "Row\\Col\tL\tC\tR\nU\t1\t1\t1\nM\t1\t1\t1\nD\t1\t1\t1";
     const o = gameNashRun(t, t, "mixed");

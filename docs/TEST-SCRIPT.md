@@ -10,6 +10,18 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ei. New in v2.195.0 — Litigation damages
+
+- [ ] **Finance ▸ Damages: prejudgment interest ▸ Insert:** summary, a table of three rows plus Total, and a chart;
+  interest 103,097.83 on the defaults.
+- [ ] Paste your own Excel table of dates and amounts into the damages rows (or click "Use table at cursor" on a Word
+  table) → the header row is skipped with a note; a "Total" row is skipped, not counted.
+- [ ] **Damages: post-judgment interest (§ 1961)** → the ledger compounds on each anniversary of the judgment date.
+- [ ] **Damages: reasonable royalty** → 226,200.00 on the defaults; the lump-sum comparison line appears.
+- [ ] **Damages: summary** with multiplier 2 → the table's enhanced total matches the text.
+- [ ] **Georgia-Pacific worksheet ▸ Insert** → a 15-row table with blank Evidence cells; **Panduit worksheet** → the
+  four factors and the Presidio citation.
+
 ## 0eh. New in v2.194.0 — Second bug test
 
 - [ ] **Insert placement:** put the cursor inside a Heading 1, run any Stats tool ▸ Insert → the result lands in a new

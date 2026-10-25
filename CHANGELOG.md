@@ -6,6 +6,29 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.195.0] — 2026-10-24 — Litigation damages
+
+The first release of the quantitative-economics plan (docs/GAP-ANALYSIS-ECONOMICS-2026-10-24.md). Eight new Finance
+calculators for a damages report, each inserting its summary, a Word table and a figure as one package. Every rate,
+share and multiplier is yours: none is supplied as law. Finance now has 32 calculators.
+
+### New
+- **Prejudgment interest:** dated damages rows (or periods: 2019, 2019-Q3, 2019-07) against a step-wise rate table;
+  simple, or compounded annually, quarterly, monthly or daily; actual/365, actual/360 or actual/actual; optional
+  mid-period accrual. Each row's interest, days and total in a table that adds up to the cent.
+- **Post-judgment interest under 28 U.S.C. § 1961:** computed daily and compounded annually on each anniversary of
+  the judgment, at the rate you enter for the calendar week preceding the judgment; a year-by-year ledger.
+- **Reasonable royalty:** per-period base (revenue or units) × rate, apportionment to the patented feature, and a
+  lump sum compared with the present value of the running royalty.
+- **Lost profits:** captured sales (all, or by the market-share method), spare capacity, incremental margin, price
+  erosion (optionally with a demand elasticity), and the remainder at a reasonable royalty.
+- **Damages summary** by period, with a multiplier from 1 to 3 (35 U.S.C. § 284) applied to damages, never interest.
+- **Lost earnings:** present value year by year (growth, discount, fringe, personal consumption, mid-year option).
+- **Georgia-Pacific and Panduit worksheets:** Word tables to fill in, with the fifteen factors and the four Panduit
+  factors as the courts state them, and the citations.
+- Every result prints the conventions it used (day count, compounding points, rounding), and the inserted tables
+  carry every row; pasted Word and Excel tables, headers and totals rows are read with a note.
+
 ## [2.194.0] — 2026-10-24 — A second, exhaustive bug test
 
 Twelve testers each listed every feature in one area from the source (every calculator, dropdown, input mode, output

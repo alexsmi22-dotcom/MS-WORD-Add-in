@@ -23,6 +23,7 @@ import {
   type InterestMethod,
 } from "../damagesInterest";
 import { insertableResultText } from "../insertGate";
+import { budget } from "./timeBudget";
 
 const D = (s: string): number => {
   const [y, m, d] = s.split("-").map(Number);
@@ -268,7 +269,7 @@ describe("prejudgment refusals and hostile input", () => {
       const t0 = Date.now();
       const r = rep(lines.join("\n"), "2014-01-01 5\n2018-07-01 6.5\n2021-03-15 8", "2024-12-31", { method });
       expect(r.ok).toBe(true);
-      expect(Date.now() - t0).toBeLessThan(3000);
+      expect(Date.now() - t0).toBeLessThan(budget(3000));
       expect(r.table!.rows.length).toBe(10002);
       const total = r.table!.rows[10001];
       expect(total[3]).toBe(want.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));

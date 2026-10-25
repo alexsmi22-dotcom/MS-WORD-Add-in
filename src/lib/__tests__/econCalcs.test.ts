@@ -12,6 +12,7 @@ import { insertableResultText } from "../insertGate";
 import { tableCellsInsertable } from "../damagesInterest";
 import type { StatOutput } from "../analyzeBlocks";
 import type { FittedModel } from "../regModel";
+import { budget } from "./timeBudget";
 
 /** U+00A0: "< 0.001" never breaks. */
 const NB = String.fromCharCode(0xa0);
@@ -316,12 +317,12 @@ describe("50,000 rows × 20 predictors does not freeze the pane", () => {
     // Measured 2026-10-25 (jest, 2 workers busy elsewhere): HC1 fit 354 ms + diagnostics 29 ms; after the QR rewrite
     // about 400 ms alone, but 1,142 ms inside `npm run qc` with three other jest workers competing. The bound catches an
     // algorithmic regression (an O(n²) step would take minutes), not scheduler noise, so it allows for that contention.
-    expect(ms).toBeLessThan(2500);
+    expect(ms).toBeLessThan(budget(2500));
     // Newey–West at the default lag (15 for n = 50,000): measured 410 ms (the z_t accumulation, not n·p²·(L + 1)).
     const t1 = Date.now();
     const h = fitOls({ y, depName: "y", X, names: X.map((_, j) => `x${j + 1}`), constant: true, se: "hac" });
     expect(h.ok && h.model.seLabel).toBe("Newey–West HAC, lag 15");
-    expect(Date.now() - t1).toBeLessThan(2500);
+    expect(Date.now() - t1).toBeLessThan(budget(2500));
   });
   test("the full calculator path on a 50,000-row pasted table", () => {
     let seed = 7;
@@ -338,7 +339,7 @@ describe("50,000 rows × 20 predictors does not freeze the pane", () => {
     expect(o.text).toContain("The figure shows every 25th row (2,000 of 50,000 points).");
     // Measured 808 ms end to end (read the 50,000 × 21 table, fit HC1, diagnostics, figure); bound allows for QC's
     // four-worker contention as above.
-    expect(ms).toBeLessThan(3500);
+    expect(ms).toBeLessThan(budget(3500));
   });
 });
 

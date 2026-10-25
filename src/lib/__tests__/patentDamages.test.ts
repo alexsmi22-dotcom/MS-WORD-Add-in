@@ -28,6 +28,7 @@ import {
 } from "../patentDamages";
 import { hasBrokenNumber, insertableResultText } from "../insertGate";
 import { finMoney } from "../financeFigures";
+import { budget } from "./timeBudget";
 
 const rows = (...r: [string, ...number[]][]): PeriodRow[] => r.map(([label, ...values]) => ({ label, values }));
 const ok = (r: ReturnType<typeof reasonableRoyalty>): DamagesOutput => {
@@ -308,7 +309,7 @@ describe("hostile sizes", () => {
     if ("error" in t) throw new Error(t.error);
     const out = lostProfits(baseLP({ rows: t.rows }));
     if ("error" in out) throw new Error(out.error);
-    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(Date.now() - t0).toBeLessThan(budget(3000));
     expect(out.tables[0].rows.length).toBe(10002);
     expect(out.svg).toContain("cumulative");
     expectDisplayContract(out);

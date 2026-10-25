@@ -8,6 +8,7 @@ import * as path from "path";
 import { iv2slsCalc, iv2slsModel, ivFitFromRead, ivDefaultTable, IV_2SLS_DEFAULTS, IV_2SLS_FIELDS } from "../ivCalcs";
 import { fitIv, IV_WALL_MS, IV_MAX_WORK, ivWorkUnits } from "../iv";
 import { fitOls } from "../olsInference";
+import { budget } from "./timeBudget";
 
 interface Run {
   se: string;
@@ -534,13 +535,13 @@ describe("the up-front work bound", () => {
     const ms = Date.now() - t0;
     expect(r.ok).toBe(true);
     // fitIv alone, well under the calculator's whole budget; bounded at 3.5 s like the earlier 36,000-row pin.
-    expect(ms).toBeLessThan(3500);
+    expect(ms).toBeLessThan(budget(3500));
   });
   test("just over the bound is refused up front, naming the limit", () => {
     expect(ivWorkUnits(14500, 21, 31, 10)).toBeGreaterThan(IV_MAX_WORK);
     const t0 = Date.now();
     const r = shape(14500)();
-    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(Date.now() - t0).toBeLessThan(budget(2000));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/14,500 rows with 21 coefficients and 31 instruments is beyond the work .* \(about 14,478 rows for this model\)/);
   });
@@ -576,7 +577,7 @@ describe("the up-front work bound", () => {
     const ms = Date.now() - t0;
     expect(out.ok).not.toBe(false);
     // Measured 1.9 s; bounded at 3× (QC runs four workers).
-    expect(ms).toBeLessThan(6000);
+    expect(ms).toBeLessThan(budget(6000));
   });
   test("the widest shape past its bound is refused after parsing, before the columns are read", () => {
     const f = wide(60000);
@@ -585,7 +586,7 @@ describe("the up-front work bound", () => {
     expect(out.ok).toBe(false);
     expect(out.text).toMatch(/^60,000 rows with 21 coefficients and 39 instruments is beyond the work this calculator allows in the task pane \(about 24,563 rows for this model\)/);
     // Measured 1.0 s (all of it parsing the 2.5 million cells).
-    expect(Date.now() - t0).toBeLessThan(4000);
+    expect(Date.now() - t0).toBeLessThan(budget(4000));
   });
 });
 
@@ -611,7 +612,7 @@ describe("100,000 rows", () => {
     // Measured 1.3–1.9 s on the build machine with other builders running (parse ≈ 0.2 s, column selection ≈ 0.35 s,
     // the 2SLS fit with first stage and every diagnostic ≈ 0.4–0.6 s, the OLS fit for the figure ≈ 0.4 s); bounded at
     // 3× the slowest measurement.
-    expect(ms).toBeLessThan(6000);
+    expect(ms).toBeLessThan(budget(6000));
   });
 });
 

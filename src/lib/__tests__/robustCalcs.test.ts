@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { StatOutput } from "../analyzeBlocks";
 import { Pcg32 } from "../prng";
+import { budget } from "./timeBudget";
 
 const reader = (base: Record<string, string>, over: Record<string, string> = {}) => (k: string): string => (k in over ? over[k] : base[k] ?? "");
 const boot = (over: Record<string, string> = {}): StatOutput => bootCiCalc(reader(BOOT_CI_DEFAULTS, over));
@@ -175,8 +176,8 @@ describe("boot-ci", () => {
     if (b.ok === false) throw new Error(b.text);
     expectDisplayContract(b);
     // Measured under jest on the build machine: refusal ≈ 0.08 s, mean at B = 200 ≈ 0.45 s (table read included).
-    expect(msA).toBeLessThan(1500);
-    expect(msB).toBeLessThan(3000);
+    expect(msA).toBeLessThan(budget(1500));
+    expect(msB).toBeLessThan(budget(3000));
   });
 });
 
@@ -297,11 +298,11 @@ describe("qreg", () => {
     if (o.ok === false) throw new Error(o.text);
     expectDisplayContract(o);
     // Measured on the build machine: ≈ 1.5 s (read, OLS, three LPs, SEs). Bound with margin for 4 parallel workers.
-    expect(ms).toBeLessThan(6000);
+    expect(ms).toBeLessThan(budget(6000));
     t = Date.now();
     const many = qreg({ data, spec: "y ~ a + b + c", quantiles: Array.from({ length: 19 }, (_, i) => ((i + 1) / 20).toFixed(2)).join(", ") });
     expect(many.text).toMatch(/row-quantiles/);
-    expect(Date.now() - t).toBeLessThan(4000);
+    expect(Date.now() - t).toBeLessThan(budget(4000));
     const r = runQreg(reader(QREG_DEFAULTS, { data: data + "\n1\t1\t1\t1", spec: "y ~ a + b + c" }));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/at most 100,000 rows/);

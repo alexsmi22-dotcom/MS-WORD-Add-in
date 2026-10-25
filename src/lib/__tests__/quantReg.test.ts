@@ -14,6 +14,7 @@ import { fitQuantileLp, checkObjective, interceptOnlyObjective, qrCovariance, qr
 import { fmtFixed } from "../regTable";
 import { Pcg32 } from "../prng";
 import { fitOls } from "../olsInference";
+import { budget } from "./timeBudget";
 
 const FX = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "econ-boot-qreg-oracle.json"), "utf8"));
 
@@ -175,14 +176,14 @@ describe("quantile LP: optimality and the freeze guarantee", () => {
     const r = fitQuantileLp({ y, cols, tau: 0.9, startOrder: order });
     const ms = Date.now() - t;
     expect(r.ok).toBe(true);
-    expect(ms).toBeLessThan(2000);
+    expect(ms).toBeLessThan(budget(2000));
   });
 
   it("a poor start (rows in natural order) at 100,000 rows either solves or refuses by the clock, never hangs", () => {
     const { y, cols } = synth(QR_MAX_ROWS, 3, 15);
     const t = Date.now();
     const r = fitQuantileLp({ y, cols, tau: 0.9, wallMs: 1500 });
-    expect(Date.now() - t).toBeLessThan(4000);
+    expect(Date.now() - t).toBeLessThan(budget(4000));
     if (!r.ok) expect(r.reason).toMatch(/time limit/);
   });
 
@@ -262,6 +263,6 @@ describe("qreg covariance by QR on uncentred polynomial designs (mpmath oracle)"
     const msCov = Date.now() - t;
     // Measured 0.7–0.8 s for the design and 1.1 s for six covariances (1.9 s together); bounded at about 3×. runQreg
     // also checks its 6 s clock after the design and after every covariance, refusing by name past it.
-    expect(msDesign + msCov).toBeLessThan(6000);
+    expect(msDesign + msCov).toBeLessThan(budget(6000));
   });
 });

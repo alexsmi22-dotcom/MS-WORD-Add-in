@@ -30,6 +30,7 @@ import { leontiefInverse, IO_MAX_N } from "../leontief";
 import { ISO4217, ISO4217_DATE, roundUnits, sigText } from "../currency";
 import type { StatOutput } from "../analyzeBlocks";
 import type { Rat } from "../cas";
+import { budget } from "./timeBudget";
 
 const ORACLE = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "econ-e5a-oracle.json"), "utf8"));
 const ISO = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "iso4217-list-one.json"), "utf8"));
@@ -238,7 +239,7 @@ describe("ineq-gini against the oracle", () => {
     const out = ineqRun({ data: xs.join("\n") });
     const ms = Date.now() - t0;
     contract(out);
-    expect(ms).toBeLessThan(6000);
+    expect(ms).toBeLessThan(budget(6000));
     expect(ineqRun({ data: xs.join("\n") + "\n5" }).ok).toBe(false);
   }, 30000);
 });
@@ -328,7 +329,7 @@ describe("conc-hhi against the oracle", () => {
     const rows = Array.from({ length: HHI_MAX_FIRMS }, (_, i) => `F${i}\t${(i % 97) + 1}.25`);
     const t0 = Date.now();
     const out = hhiRun({ data: rows.join("\n"), units: "sales", merging: "F1\nF2\nF3" });
-    expect(Date.now() - t0).toBeLessThan(6000);
+    expect(Date.now() - t0).toBeLessThan(budget(6000));
     contract(out);
     expect(hhiRun({ data: [...rows, "Extra\t1"].join("\n"), units: "sales", merging: "" }).ok).toBe(false);
   }, 30000);
@@ -446,7 +447,7 @@ describe("io-leontief against the oracle", () => {
     };
     const t0 = Date.now();
     const out = ioRun({ matrix: mk(IO_MAX_N), fd: Array(IO_MAX_N).fill("1").join(", "), emp: Array(IO_MAX_N).fill("0.5").join(", ") });
-    expect(Date.now() - t0).toBeLessThan(6000);
+    expect(Date.now() - t0).toBeLessThan(budget(6000));
     contract(out);
     const big = ioRun({ matrix: mk(IO_MAX_N + 1), fd: "", emp: "" });
     expect(big.ok).toBe(false);
@@ -538,7 +539,7 @@ describe("fin-currency against the oracle", () => {
     const amounts = Array.from({ length: FX_MAX_AMOUNTS }, (_, i) => `${(i * 13.37 + 1).toFixed(2)} ${codes[i % codes.length]}`).join("\n");
     const t0 = Date.now();
     const out = fxRun({ rates, amounts, target: codes[0] });
-    expect(Date.now() - t0).toBeLessThan(6000);
+    expect(Date.now() - t0).toBeLessThan(budget(6000));
     contract(out);
     const extraCode = [...ISO4217.keys()].filter((c) => !["USD", "XXX", "XTS"].includes(c))[FX_MAX_RATES];
     expect(fxRun({ rates: `${rates}\n${extraCode} 2`, amounts: "", target: codes[0] }).ok).toBe(false);
@@ -598,7 +599,7 @@ describe("review round: readers, scales, bounds", () => {
     const m = "\t" + big.map((_, j) => "S" + j).join("\t") + "\n" + big.map((r, i) => "S" + i + "\t" + r.join("\t")).join("\n");
     const t0 = Date.now();
     const tiny = ioRun({ matrix: m, fd: "", emp: "" });
-    expect(Date.now() - t0).toBeLessThan(6000);
+    expect(Date.now() - t0).toBeLessThan(budget(6000));
     contract(tiny);
     expect(tiny.text).toContain("more than 40 digits as a fraction");
     // Flows of 10¹¹ against outputs of 10¹³ (transactions table, two exact inverses).

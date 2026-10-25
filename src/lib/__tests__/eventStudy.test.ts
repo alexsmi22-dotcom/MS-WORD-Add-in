@@ -9,6 +9,7 @@ import { esEventCalc, ES_EVENT_DEFAULTS } from "../econE3Calcs";
 import { insertableResultText } from "../insertGate";
 import { tableCellsInsertable, civilDay, civilFromDay } from "../damagesInterest";
 import type { StatOutput } from "../analyzeBlocks";
+import { budget } from "./timeBudget";
 
 type Case = (typeof fixture.cases)[number];
 
@@ -280,7 +281,7 @@ describe("es-event at scale", () => {
     expect(out.ok).not.toBe(false);
     expect(clean(out)).toEqual([]);
     // Measured 0.6–1.0 s alone (one worker, cold run the slower; most of it reading the table); bounded at 4×.
-    expect(ms).toBeLessThan(4000);
+    expect(ms).toBeLessThan(budget(4000));
   });
 
   test("100,000 rows: refused by date range quickly (100,000 weekdays from 1901 pass 2200)", () => {
@@ -291,7 +292,7 @@ describe("es-event at scale", () => {
     expect(out.ok).toBe(false);
     expect(out.text).toMatch(/dates must fall between 1900 and 2200/);
     // Measured 0.54 s alone; bounded at 3.7×.
-    expect(ms).toBeLessThan(2000);
+    expect(ms).toBeLessThan(budget(2000));
   });
 });
 

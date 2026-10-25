@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { runBootstrap, jackknife, quantileType7, bootWork, bcaInterval, bcaP0, BOOT_MAX_WORK, type BootStat, type BootResult } from "../bootstrap";
 import { Pcg32 } from "../prng";
+import { budget } from "./timeBudget";
 
 const FX = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "econ-boot-qreg-oracle.json"), "utf8"));
 
@@ -193,7 +194,7 @@ describe("bootstrap refusals by name", () => {
     const y = new Float64Array(100000).map((_, i) => i % 97);
     const t = Date.now();
     const r = runBootstrap({ stat: "median", y, B: 20000, confidence: 0.95, seed: 1 });
-    expect(Date.now() - t).toBeLessThan(500);
+    expect(Date.now() - t).toBeLessThan(budget(500));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/more work than the bootstrap allows/);
   });

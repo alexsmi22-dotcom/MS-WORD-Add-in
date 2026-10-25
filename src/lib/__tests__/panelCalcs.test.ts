@@ -21,6 +21,7 @@ import { parseRegData } from "../regData";
 import { P_BELOW } from "../regTable";
 import { readPanel } from "../panelData";
 import { fitFixedEffects, twoWayTransform, makeGroups, PanelRefusal } from "../panel";
+import { budget } from "./timeBudget";
 
 type Calc = (read: (k: string) => string) => StatOutput;
 const reader = (defaults: Record<string, string>, over: Record<string, string> = {}) => (k: string): string => (k in over ? over[k] : (defaults[k] ?? ""));
@@ -520,7 +521,7 @@ describe("freeze bound: 100,000 rows", () => {
     expect(out.text).toMatch(/DiD event study: relative period|event study not computed: .*took longer than 6 s/);
     // Measured 2.1 to 2.6 s on the build machine (1 worker, two other builders running); bound 3× that. A slower
     // machine stops by name at the 6 s clock instead of freezing.
-    expect(ms).toBeLessThan(8000);
+    expect(ms).toBeLessThan(budget(8000));
     // One more lead is over the cells cap and is refused up front by name (the DiD estimate itself still stands).
     const over = did({ data: rows.join("\n"), outcome: "y", entity: "id", time: "yr", treat: "policy", controls: "x1 + x2", leads: "10", lags: "8" });
     contract(over);

@@ -36,6 +36,7 @@ import { buildChartPreviewSvg } from "../tablechart";
 import { THIN_SPACE, commaGroupLabel } from "../axis";
 import { insertableResultText } from "../insertGate";
 import { paneCode } from "./paneCode";
+import { budget } from "./timeBudget";
 
 const MINUS = String.fromCharCode(0x2212);
 const rows = (...r: [string, ...number[]][]): PeriodRow[] => r.map(([label, ...values]) => ({ label, values }));
@@ -238,7 +239,7 @@ describe("5. large tables: debounce, 10,000-row cap, fast", () => {
       const ms = performance.now() - t0;
       // 3 s, not 1 s: GitHub's shared runner measured 1,034 ms for lost profits (v2.199.0 deploy blocked); a freeze
       // is minutes, so the bound still catches one, and contention no longer fails a correct build.
-      if (ms >= 3000) throw new Error(`${name}: ${ms.toFixed(0)} ms`);
+      if (ms >= budget(3000)) throw new Error(`${name}: ${ms.toFixed(0)} ms`);
     }
   });
 

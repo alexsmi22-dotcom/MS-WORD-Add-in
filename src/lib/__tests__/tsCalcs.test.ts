@@ -20,6 +20,7 @@ import { pacfYwAdjusted } from "../tsDiag";
 import { insertableResultText } from "../insertGate";
 import { tableCellsInsertable } from "../damagesInterest";
 import type { StatOutput } from "../analyzeBlocks";
+import { budget } from "./timeBudget";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const FX: any = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "ts-diag-oracle.json"), "utf8"));
@@ -305,20 +306,20 @@ describe("100,000 rows", () => {
     const r = timed(() => tsAcfCalc(reader(TS_ACF_DEFAULTS, { data, series: "" })));
     expectOk(r.out);
     expect(r.out.text).toContain("lags 1 to 50");
-    expect(r.ms).toBeLessThan(3000);
+    expect(r.ms).toBeLessThan(budget(3000));
   });
   test("ts-unitroot", () => {
     const r = timed(() => tsUnitRootCalc(reader(TS_UNITROOT_DEFAULTS, { data, series: "" })));
     expectOk(r.out);
     expect(r.out.text).toContain("from 0 to 68");
-    expect(r.ms).toBeLessThan(6000);
+    expect(r.ms).toBeLessThan(budget(6000));
   }, 20000);
   test("ts-unitroot: a hand-entered lag of 1,000 is refused by its work, before any design is built", () => {
     for (const adfMode of ["aic", "fixed"]) {
       const r = timed(() => tsUnitRootCalc(reader(TS_UNITROOT_DEFAULTS, { data, series: "", adfMode, adfLag: "1000" })));
       expect(r.out.ok).toBe(false);
       expect(r.out.text).toMatch(/more work than the pane allows; use a lag of at most \d+/);
-      expect(r.ms).toBeLessThan(3000);
+      expect(r.ms).toBeLessThan(budget(3000));
     }
   }, 20000);
   test("ts-hp", () => {
@@ -326,7 +327,7 @@ describe("100,000 rows", () => {
     expectOk(r.out);
     expect(r.out.tables ?? []).toHaveLength(0);
     expect(r.out.text).toContain("The figure shows every 50th row.");
-    expect(r.ms).toBeLessThan(3000);
+    expect(r.ms).toBeLessThan(budget(3000));
   });
 });
 

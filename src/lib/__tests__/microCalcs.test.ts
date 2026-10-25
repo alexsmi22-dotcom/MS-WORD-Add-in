@@ -20,6 +20,7 @@ import {
 } from "../microCalcs";
 import { solveMarket, readRatField, fmtExact, fmtPct, clipToNonNegativeP, polygonArea, type MarketSpec, type Policy, type Side, type RegionKind } from "../microMarket";
 import { solveOligopoly, stackelberg, OLIGOPOLY_MAX_FIRMS } from "../oligopoly";
+import { budget } from "./timeBudget";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const layoutAudit = require("../../../scripts/figure-layout-audit.js") as { auditSvg: (name: string, svg: string) => { found: string[] } };
@@ -454,7 +455,7 @@ describe("micro-market hostile fields", () => {
       const o = market({ a: "999999999999.123456789012345678901234", b: "0.000000001234567890123456789012345678", c: "1.23456789012345678901234567890123456", d: "0.00000000987654321098765432109876543", policy: pol, amount: pol === "ceiling" ? "300000" : pol === "floor" ? "999999999990" : "12345.6789" });
       if (o.ok !== false) expectDisplayContract(o);
     }
-    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(Date.now() - t0).toBeLessThan(budget(3000));
   });
 });
 
@@ -596,6 +597,6 @@ describe("micro-oligopoly behaviour", () => {
     const o = olig({ a: "999999999999.12345678901234567890123", b: "0.0000000012345678901234567890123", costs });
     const ms = Date.now() - t0;
     expectDisplayContract(o);
-    expect(ms).toBeLessThan(3000);
+    expect(ms).toBeLessThan(budget(3000));
   });
 });

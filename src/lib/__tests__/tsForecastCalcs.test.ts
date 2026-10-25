@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { StatOutput } from "../analyzeBlocks";
 import { tsArimaCalc, tsEtsCalc, TS_ARIMA_DEFAULTS, TS_ETS_DEFAULTS, TS_ARIMA_DATA_DEFAULT, TS_ETS_DATA_DEFAULT } from "../tsForecastCalcs";
+import { budget } from "./timeBudget";
 
 const fx = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "econ-ts-forecast-oracle.json"), "utf8"));
 const defA = fx.arima.find((c: { name: string }) => c.name === "default_arima");
@@ -262,7 +263,7 @@ describe("100,000 rows do not freeze the pane", () => {
     const r = arima({ data: seriesText(big), p: "5", q: "5" });
     if (r.ok === false) expect(r.text).toMatch(/needs more computation than the pane allows|within the pane's computation limit/);
     else expectDisplayContract(r);
-    expect(Date.now() - t0).toBeLessThan(15000);
+    expect(Date.now() - t0).toBeLessThan(budget(15000));
   });
   it("ts-ets, damped Holt", () => {
     const s = big.map((v) => v + 300);
@@ -311,11 +312,11 @@ describe("E3 review round: ARIMA work is charged as it is done", () => {
   test("ARIMA(1, 1, 1) on 100,000 rows of noise answers within the limit", () => {
     const t0 = Date.now();
     arima({ data: noise(100000, 11), p: "1", d: "1", q: "1" });
-    expect(Date.now() - t0).toBeLessThan(12000);
+    expect(Date.now() - t0).toBeLessThan(budget(12000));
   });
   test("ARIMA(5, 0, 5) on 60 rows answers within the limit", () => {
     const t0 = Date.now();
     arima({ data: noise(60, 11), p: "5", d: "0", q: "5" });
-    expect(Date.now() - t0).toBeLessThan(9000);
+    expect(Date.now() - t0).toBeLessThan(budget(9000));
   });
 });

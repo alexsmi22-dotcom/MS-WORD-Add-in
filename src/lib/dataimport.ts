@@ -93,7 +93,8 @@ export function tidyGrid(rows: string[][]): string[][] {
     .map((r) => r.map((c) => c.trim()))
     .filter((r) => r.some((c) => c !== ""));
   if (!cleaned.length) return [];
-  let width = Math.max(...cleaned.map((r) => r.length));
+  // A loop, not Math.max(...rows): spreading 120,000+ rows overflows the call stack.
+  let width = cleaned.reduce((m, r) => (r.length > m ? r.length : m), 0);
   // Drop trailing all-empty columns.
   while (width > 1 && cleaned.every((r) => (r[width - 1] ?? "") === "")) width--;
   return cleaned.map((r) => Array.from({ length: width }, (_, i) => r[i] ?? ""));

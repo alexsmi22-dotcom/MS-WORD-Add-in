@@ -130,7 +130,9 @@ describe("everything shipped is reachable", () => {
     // bundled thermodynamic data was accepted at all.
     // v2.197.0 (E3): 11 — arima.arimaLoglike is a test-facing correctness hook: the oracle pins the exact Kalman
     // log likelihood evaluated AT statsmodels' fitted parameters (optimisers differ, so that is the real check).
-    const BASELINE = 11;
+    // v2.198.0 (E4): 15 — ivCalcs.iv2slsModel and panelCalcs.panelFeModel/panelReModel/panelDidModel hand each fit to
+    // the publication table as a FittedModel (kinds iv/fe/re/did); the tests pin them, the table wiring comes next.
+    const BASELINE = 15;
     const dead = deadExports();
     expect({ count: dead.length, over: dead.length > BASELINE ? dead : [] }).toEqual({
       count: dead.length <= BASELINE ? dead.length : BASELINE,

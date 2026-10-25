@@ -126,7 +126,8 @@ export function parseRegData(text: string): RegDataResult {
   const first = grid[0];
   const nonEmpty = first.filter((c) => c !== "");
   const named = nonEmpty.length > 0 && nonEmpty.every((c) => !Number.isFinite(readRegCell(c, semicolon).value) && !isMissingCell(c));
-  const width = Math.max(...grid.map((r) => r.length));
+  // A loop, not Math.max(...rows): spreading 120,000+ rows overflows the call stack.
+  const width = grid.reduce((m, r) => (r.length > m ? r.length : m), 0);
   let names: string[];
   let body: string[][];
   if (named) {

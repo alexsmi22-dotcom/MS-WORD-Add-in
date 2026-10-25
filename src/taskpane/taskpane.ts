@@ -63,6 +63,17 @@ import {
   type E3Field,
 } from "../lib/econE3Calcs";
 import { iv2slsCalc, IV_2SLS_FIELDS, IV_2SLS_DEFAULTS } from "../lib/ivCalcs";
+import {
+  panelFeCalc,
+  PANEL_FE_FIELDS,
+  PANEL_FE_DEFAULTS,
+  panelReCalc,
+  PANEL_RE_FIELDS,
+  PANEL_RE_DEFAULTS,
+  panelDidCalc,
+  PANEL_DID_FIELDS,
+  PANEL_DID_DEFAULTS,
+} from "../lib/panelCalcs";
 import { bootCiCalc, BOOT_CI_FIELDS, BOOT_CI_DEFAULTS, qregCalc, QREG_FIELDS, QREG_DEFAULTS } from "../lib/robustCalcs";
 import { SE_TYPES } from "../lib/olsInference";
 import { STAR_SCHEMES } from "../lib/regTable";
@@ -10791,6 +10802,33 @@ const STAT_CALCS: StatCalc[] = [
     compute: (r) => {
       // Two-stage least squares with first-stage strength, Durbin/Wu–Hausman endogeneity and Sargan/Basmann overidentification.
       return iv2slsCalc(r);
+    },
+  },
+  {
+    id: "panel-fe",
+    name: "Panel fixed effects",
+    fields: withDefaults(PANEL_FE_FIELDS, PANEL_FE_DEFAULTS),
+    compute: (r) => {
+      // Within estimator (entity or two-way effects, exact on unbalanced panels), clustered SEs, within/between/overall R².
+      return panelFeCalc(r);
+    },
+  },
+  {
+    id: "panel-re",
+    name: "Panel random effects (with Hausman test)",
+    fields: withDefaults(PANEL_RE_FIELDS, PANEL_RE_DEFAULTS),
+    compute: (r) => {
+      // Swamy–Arora GLS with per-entity θ, and the Hausman FE-vs-RE test from the conventional covariances.
+      return panelReCalc(r);
+    },
+  },
+  {
+    id: "panel-did",
+    name: "Difference-in-differences",
+    fields: withDefaults(PANEL_DID_FIELDS, PANEL_DID_DEFAULTS),
+    compute: (r) => {
+      // Two-way FE DiD estimate, the 2×2 means table, and the DiD event-study figure with a staggered-adoption warning.
+      return panelDidCalc(r);
     },
   },
   {

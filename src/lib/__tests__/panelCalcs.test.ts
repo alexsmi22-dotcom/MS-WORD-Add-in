@@ -323,6 +323,11 @@ describe("difference-in-differences", () => {
   test("everyone treated in the same period: no comparison group, said in DiD terms", () => {
     refused(did({ data: didTable(20, 6, () => 3) }), /Every entity is treated, all from “2013”.*no comparison group/);
   });
+  test("treated entities never seen untreated: the entity effects absorb the dummy, said so", () => {
+    const out = did({ data: didTable(20, 6, (i) => (i < 8 ? 0 : null)) });
+    refused(out, /No treated entity is observed before its treatment starts.*entity effects absorb it/);
+    expect(out.text).not.toMatch(/time effects absorb/);
+  });
   test("NA cells and 10¹² / 10⁻¹² scales", () => {
     const d = didTable(30, 6, (i) => (i < 10 ? 3 : null)).split("\n");
     d[4] = d[4].replace(/\t[^\t]+\t(\d)\t/, "\tNA\t$1\t");
@@ -424,7 +429,9 @@ describe("freeze bound: 100,000 rows", () => {
     const out = did({ data: rows.join("\n"), outcome: "y", entity: "id", time: "yr", treat: "policy", controls: "x1 + x2", leads: "9", lags: "8" });
     const ms = Date.now() - t0;
     contract(out);
-    expect(out.text).toMatch(/DiD event study: relative period/);
+    // Either the event study, or (on a loaded machine) its named stop at the calculator's 6 s clock; the DiD estimate
+    // stands either way (the E3 ARIMA 100k pattern).
+    expect(out.text).toMatch(/DiD event study: relative period|event study not computed: .*took longer than 6 s/);
     // Measured 2.1 to 2.6 s on the build machine (1 worker, two other builders running); bound 3× that. A slower
     // machine stops by name at the 6 s clock instead of freezing.
     expect(ms).toBeLessThan(8000);

@@ -458,13 +458,24 @@ function runDid(read: Read): DidRun | { error: string } {
   if (t.info.nNever === 0 && t.info.cohorts.length === 1) {
     return { error: `Every entity is treated, all from ${q(p.timeLabels[t.info.cohorts[0]])}, so the design ${noControl}` };
   }
+  if (t.info.alwaysTreated === t.info.nTreated) {
+    return {
+      error:
+        `No treated entity is observed before its treatment starts (each is treated in every row it has), so ${q(p.names[0])} is constant within each entity ` +
+        "and the entity effects absorb it. Difference-in-differences needs treated entities observed both before and after treatment.",
+    };
+  }
   const started = Date.now();
   try {
     const fit = fitFixedEffects(p, { effects: "twoway", se, started });
     return { p, fit, treatName: p.names[0], controls: p.names.slice(1), started };
   } catch (e) {
     if (e instanceof PanelRefusal && e.message.startsWith(q(p.names[0])) && /absorb/.test(e.message)) {
-      return { error: `The treatment ${q(p.names[0])} is absorbed by the entity and time effects: the design ${noControl}` };
+      return {
+        error:
+          `The treatment ${q(p.names[0])} is absorbed by the entity and time effects (it is, to rounding, a sum of an entity part and a period part), so its effect cannot be estimated. ` +
+          "Difference-in-differences needs treated entities observed before and after treatment, and comparison entities untreated in the same periods.",
+      };
     }
     if (e instanceof PanelRefusal) return { error: e.message };
     return { error: `The difference-in-differences regression could not be computed (${(e as Error).message}).` };

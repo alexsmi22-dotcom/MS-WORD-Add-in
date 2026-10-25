@@ -85,6 +85,23 @@ export function fmtDec(v: number): string {
   return fmtFixed(v, dec);
 }
 
+/**
+ * A table cell: decimals only. The exact decimal when it terminates within three places, else fmtDec (three decimals,
+ * four significant digits below 1, m×10ⁿ below 10⁻³). Exact fractions go in the text: "250000/49 ≈ 5,102.041" in a
+ * table cell is broken mid-number by Word.
+ */
+export function fmtCell(r: Rat): string {
+  const v = ratToNumber(r);
+  // From 10⁹ up, m×10ⁿ (fmtDec through fmtFixed) so a cell never runs to "400,000,000,000,000".
+  if (Math.abs(v) >= 1e9) return fmtDec(v);
+  const k = terminatingPlaces(r);
+  if (k !== null && k <= 3) return exactDecimal(r, k);
+  return fmtDec(v);
+}
+
+/** The note every decimal-cell table carries. */
+export const CELL_NOTE = "Decimals: exact when they terminate within three places, else rounded to three places (four significant digits below 1; m×10ⁿ from 10⁹ up); the text gives exact fractions.";
+
 /** The power of ten that makes a rational's decimal terminate, if it does within six places. */
 function terminatingPlaces(r: Rat): number | null {
   let d = r.d;
@@ -242,6 +259,13 @@ export interface WedgeWay {
 }
 
 export interface MarketOutcome {
+  /**
+   * True when the market trades nothing WITHOUT the policy (a ≤ c) and a subsidy opens it: qe = 0, there is no
+   * no-policy price (pe is set to a, never printed), ε, η and the incidence shares do not exist, and ways is absent.
+   */
+  closed?: boolean;
+  /** True when a price control closes the market (a ceiling at or below c, a floor at or above a): q = 0. */
+  closes?: boolean;
   qe: Rat;
   pe: Rat;
   /** Point elasticity of demand at the equilibrium (negative). */
@@ -285,20 +309,62 @@ export function solveMarket(spec: MarketSpec): MarketResult {
   const fail = (reason: string): MarketResult => ({ ok: false, reason });
   if (ratSign(b) <= 0) return fail(`The demand slope b must be greater than 0 (demand P = a − bQ slopes down); it is ${fmtExactShort(b)}.`);
   if (ratSign(d) < 0) return fail(`The supply slope d must be 0 or more (supply P = c + dQ cannot slope down); it is ${fmtExactShort(d)}.`);
-  if (cmp(a, c) <= 0) {
-    return fail(
-      `No equilibrium with a positive quantity: the demand intercept a = ${fmtExactShort(a)} is not above the supply intercept c = ${fmtExactShort(c)}, so buyers' highest willingness to pay never covers the lowest supply price.`,
-    );
-  }
   const bd = ratAdd(b, d);
   const D = (q: Rat): Rat => ratSub(a, ratMul(b, q));
   const S = (q: Rat): Rat => ratAdd(c, ratMul(d, q));
+  const z = RAT_ZERO;
+  if (cmp(a, c) <= 0) {
+    // Without a policy nothing is traded. A large enough subsidy opens the market: existence is checked on the
+    // post-policy curves (a + s > c), not the pre-policy ones.
+    const s = spec.amount;
+    const closedWhy = `the demand intercept a = ${fmtExactShort(a)} is not above the supply intercept c = ${fmtExactShort(c)}, so buyers' highest willingness to pay never covers the lowest supply price`;
+    if (policy === "subsidy" && s && ratSign(s) > 0 && cmp(ratAdd(a, s), c) > 0) {
+      const q = ratDiv(ratAdd(ratSub(a, c), s), bd);
+      const pb = D(q);
+      const ps = ratAdd(pb, s);
+      if (ratSign(pb) < 0) return fail(`With this subsidy the buyers' price would be ${fmtExactShort(pb)}, below 0 (buyers would be paid to take the good); choose a smaller subsidy.`);
+      const cs = region("cs", [[z, a], [z, pb], [q, pb]]);
+      const prs = region("ps", [[z, c], [q, ps], [z, ps]]);
+      const subR = region("sub", [[z, pb], [q, pb], [q, ps], [z, ps]]);
+      // Every unit traded costs more than it is worth (supply lies above demand from Q = 0): the loss is the whole
+      // area between the curves over the units traded.
+      const dwl = region("dwl", [[z, a], [q, pb], [q, ps], [z, c]]);
+      return {
+        ok: true,
+        r: {
+          closed: true,
+          qe: z,
+          pe: a,
+          eps: z,
+          eta: null,
+          csE: z,
+          psE: z,
+          regionsE: [],
+          policy,
+          binding: true,
+          q,
+          buyers: pb,
+          sellers: ps,
+          cs: cs.area,
+          ps: prs.area,
+          rev: z,
+          sub: subR.area,
+          dwl: dwl.area,
+          regions: [cs, prs, subR, dwl],
+        },
+      };
+    }
+    const hint =
+      policy === "subsidy" && s && ratSign(s) > 0
+        ? ` A subsidy opens the market only when it exceeds c − a = ${fmtExactShort(ratSub(c, a))}.`
+        : "";
+    return fail(`No equilibrium with a positive quantity: ${closedWhy}.${hint}`);
+  }
   const qe = ratDiv(ratSub(a, c), bd);
   const pe = D(qe);
   if (ratSign(pe) <= 0) return fail(`The equilibrium price would be ${fmtExactShort(pe)}, not above 0; this calculator needs a positive equilibrium price (raise c or a).`);
   const eps = ratNeg(ratDiv(pe, ratMul(b, qe)));
   const eta = ratIsZero(d) ? null : ratDiv(pe, ratMul(d, qe));
-  const z = RAT_ZERO;
   const csRegE = region("cs", [[z, a], [z, pe], [qe, pe]]);
   const psRegE = region("ps", [[z, c], [qe, pe], [z, pe]]);
   const base: MarketOutcome = {
@@ -380,7 +446,11 @@ export function solveMarket(spec: MarketSpec): MarketResult {
   if (policy === "ceiling") {
     if (cmp(pc, pe) >= 0) return { ok: true, r: { ...base } };
     if (ratIsZero(d) || cmp(pc, c) <= 0) {
-      return fail(`The ceiling ${fmtExactShort(pc)} is at or below the lowest price at which anything is supplied (c = ${fmtExactShort(c)}): nothing would be sold.`);
+      // At or below the lowest supply price nothing is supplied: the market closes (Q = 0) and the whole no-policy
+      // surplus is lost (with d = 0 a ceiling below P* = c is below c).
+      const qd = ratDiv(ratSub(a, pc), b);
+      const dwl = region("dwl", [[z, a], [qe, pe], [z, c]]);
+      return { ok: true, r: { ...base, binding: true, closes: true, q: z, buyers: pc, sellers: pc, qd, qs: z, cs: z, ps: z, dwl: dwl.area, regions: [dwl] } };
     }
     const qs = ratDiv(ratSub(pc, c), d);
     const qd = ratDiv(ratSub(a, pc), b);
@@ -392,7 +462,12 @@ export function solveMarket(spec: MarketSpec): MarketResult {
   }
   // Floor.
   if (cmp(pc, pe) <= 0) return { ok: true, r: { ...base } };
-  if (cmp(pc, a) >= 0) return fail(`The floor ${fmtExactShort(pc)} is at or above the demand intercept a = ${fmtExactShort(a)}: nothing would be bought.`);
+  if (cmp(pc, a) >= 0) {
+    // At or above the demand intercept nothing is bought: the market closes (Q = 0) and the whole surplus is lost.
+    const qsF = ratIsZero(d) ? null : ratDiv(ratSub(pc, c), d);
+    const dwl = region("dwl", [[z, a], [qe, pe], [z, c]]);
+    return { ok: true, r: { ...base, binding: true, closes: true, q: z, buyers: pc, sellers: pc, qd: z, qs: qsF, cs: z, ps: z, dwl: dwl.area, regions: [dwl] } };
+  }
   const qd = ratDiv(ratSub(a, pc), b);
   const qs = ratIsZero(d) ? null : ratDiv(ratSub(pc, c), d);
   const sq = S(qd);
@@ -527,7 +602,8 @@ export function marketFigureSvg(spec: MarketSpec, r: MarketOutcome, labels: Mark
     const name = spec.policy === "ceiling" ? "Price ceiling" : "Price floor";
     legend.push({ kind: "line", color: COLORS.control, label: policyOn ? name : `${name} (not binding)` });
   }
-  legend.push({ kind: "dot", color: COLORS.ink, label: "Equilibrium E" });
+  // A market closed without the policy has no equilibrium point to mark.
+  if (!r.closed) legend.push({ kind: "dot", color: COLORS.ink, label: "Equilibrium E" });
   const subsidy = policyOn && spec.policy === "subsidy";
   const fillOpacity = subsidy ? 0.5 : 0.85;
   for (const g of regions) {
@@ -606,7 +682,7 @@ export function marketFigureSvg(spec: MarketSpec, r: MarketOutcome, labels: Mark
   out.push(`<line data-role="frame" x1="${fx1}" y1="${fy0}" x2="${fx1}" y2="${fy1}" stroke="#cccccc" stroke-width="1"/>`);
 
   // The equilibrium point.
-  out.push(`<circle cx="${f2(px(n(r.qe)))}" cy="${f2(py(n(r.pe)))}" r="3.2" fill="${COLORS.ink}"/>`);
+  if (!r.closed) out.push(`<circle cx="${f2(px(n(r.qe)))}" cy="${f2(py(n(r.pe)))}" r="3.2" fill="${COLORS.ink}"/>`);
 
   // Ticks and labels.
   xRow.values.forEach((v, i) => {

@@ -25,6 +25,8 @@ import {
   readRat,
   fmtExact,
   fmtExactDec,
+  fmtSig,
+  cellDec,
 } from "../gameMacroCalcs";
 import { enumerateSupports, eliminate, pureEquilibria, degeneracyEvidence, zeroSumValue, solveExact, solveSquare, solveIntSystem, supportPairs, type Game } from "../nash";
 import { solowSteady, solowPath, measuredHalfLife, islmSolve, islmMultipliers, taylorRate } from "../macroModels";
@@ -112,6 +114,8 @@ function expectDisplayContract(o: StatOutput): void {
     expect(t.align).toBeDefined();
     expect(t.align!.length).toBe(t.rows[0].length);
     expect(t.align![0]).toBe("left");
+    // Word layout: at most six columns, so Word never squeezes a cell until it breaks a number.
+    expect(t.rows[0].length).toBeLessThanOrEqual(6);
     for (const r of t.rows) expect(r.length).toBe(t.rows[0].length);
     for (const cell of t.rows.flat()) expect(cell.trim()).not.toBe("");
   }
@@ -430,7 +434,8 @@ describe("macro-solow against the oracle", () => {
       const o = macroSolowCalc(reader(MACRO_SOLOW_DEFAULTS, c.fields));
       expectDisplayContract(o);
       expect(o.text).toContain(`k* = ${c.kStar.toFixed(4)}`);
-      expect(o.text).toContain(`half-life ln 2/λ = ${c.halfLife.toFixed(2)} periods`);
+      // At least two decimals and four significant digits (full depreciation: 0.7565, not 0.76).
+      expect(o.text).toContain(`half-life ln 2/λ = ${fmtSig(c.halfLife, 2)} periods`);
     });
   }
 
@@ -674,6 +679,159 @@ describe("macro-taylor against the oracle", () => {
     expectDisplayContract(o);
     expect(o.tables![0].rows.length).toBe(10001);
     expect(ms).toBeLessThan(TAYLOR_BOUND_MS);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Adversarial-review and Word-pass regressions (E5 fix round)
+
+describe("E5 fix round: magnitudes are tested on the exact rational", () => {
+  it("1e−400 (double 0, rational nonzero) is refused as too small, never read as 0", () => {
+    for (const s of ["1e-400", "−1e-400", "1e-16", "1×10⁻²⁰", "3/10000000000000000"]) {
+      const r = readRat(s, "x");
+      expect("error" in r && r.error).toMatch(/too small/);
+    }
+    expect("error" in readRat("1×10⁻⁴⁰⁰", "x")).toBe(true);
+    // At the floor exactly, and zero itself, are accepted.
+    expect("error" in readRat("1e-15", "x")).toBe(false);
+    expect("error" in readRat("0", "x")).toBe(false);
+    expect("error" in readRat("1e15", "x")).toBe(false);
+    expect("error" in readRat("1000000000000001", "x") && (readRat("1000000000000001", "x") as { error: string }).error).toMatch(/too large/);
+  });
+  it("typed numbers are capped in length (no BigInt on a many-thousand-digit literal)", () => {
+    const r = readRat("1".repeat(5000), "x");
+    expect("error" in r && r.error).toMatch(/longer than 40 characters/);
+    expectRefusal(islm({ G: "0." + "0".repeat(60) + "1" }), /longer than 40 characters/);
+  });
+  it("IS–LM: h = 1e−400 with b = 0 is refused by name (no 400-digit r*)", () => {
+    const o = islm({ h: "1e-400", b: "0" });
+    expectRefusal(o, /interest sensitivity h: “1e-400” is too small/);
+    expect(o.text.length).toBeLessThan(200);
+  });
+  it("Taylor π = 1e−400 and a Nash payoff 1e−400 are refused, not printed as 0 or treated as positive", () => {
+    expectRefusal(taylor({ pi: "1e-400" }), /Inflation π: “1e-400” is too small/);
+    expectRefusal(gameNashRun("Row\\Col\tL\tR\nU\t1e-400\t0\nD\t0\t1", GAME_NASH_DEFAULTS.col, "pure"), /payoff at \(U, L\).*too small/);
+  });
+});
+
+describe("E5 fix round: macro-taylor weights", () => {
+  it("a % sign on a weight is refused (a weight is a coefficient); rates keep percent semantics", () => {
+    expectRefusal(taylor({ aPi: "50%" }), /The weight a: “50%” has a % sign; a weight is a coefficient, not a percent/);
+    expectRefusal(taylor({ aY: "50 %" }), /The weight b: .* a weight is a coefficient/);
+    const o = taylor({ rn: "2%", pi: "3%", piStar: "2%", gap: "1%" });
+    expectDisplayContract(o);
+    expect(o.text).toMatch(/^Taylor rule policy rate: i = 6%/);
+  });
+  it("a series with duplicate column names is refused", () => {
+    expectRefusal(taylor({ series: "Quarter\tInflation\tinflation\n2024 Q1\t3\t1" }), /two columns named “inflation”/i);
+  });
+  it("series cells are decimals only; the headline keeps the exact value", () => {
+    const o = taylor({ aPi: "1/3", series: "Q\tInflation\tGap\nq1\t3\t1\nq2\t2.5\t0" });
+    expectDisplayContract(o);
+    for (const cell of o.tables![0].rows.slice(1).flat()) expect(cell).not.toMatch(/\/|≈/);
+    // q2: 2 + 2.5 + (1/3)(2.5 − 2) + 0.5·0 = 14/3.
+    expect(o.text).toMatch(/q2 policy rate 14\/3 ≈ 4\.6667%/);
+    expect(o.tables![0].rows[2][3]).toBe("4.6667");
+  });
+});
+
+describe("E5 fix round: macro-solow", () => {
+  it("small values keep four significant digits (k* 9.025×10⁻⁵, never 0.0001)", () => {
+    const o = solow({ alpha: "0.5", s: "0.0095", n: "0", g: "0", delta: "1", k0: "0.0001", T: "50" });
+    expectDisplayContract(o);
+    expect(o.text).toContain("k* = 9.025×10⁻⁵, y* = 0.009500");
+    const ss = o.tables![0];
+    expect(ss.rows.find((r) => r[0].startsWith("k* "))![1]).toBe("9.025×10⁻⁵");
+    expect(o.tables![1].rows[1][1]).toBe("1.000×10⁻⁴");
+    expect(fmtSig(8.97e-5, 4)).toBe("8.970×10⁻⁵");
+    expect(fmtSig(0.0123456, 4)).toBe("0.01235");
+    expect(fmtSig(0.0123456, 6)).toBe("0.012346");
+    expect(fmtSig(5.0743391, 4)).toBe("5.0743");
+  });
+  it("only k(gold) out of range: everything else is reported and the reason is said", () => {
+    const o = solow({ alpha: "0.95", s: "0.05", n: "0", g: "0", delta: "0.05" });
+    expectDisplayContract(o);
+    expect(o.text).toContain("k* = 1.0000");
+    expect(o.text).toMatch(/golden-rule k .* is outside 10⁻¹⁵ to 10¹⁵ for these parameters, so k\(gold\), y\(gold\) and c\(gold\) are not shown/);
+    expect(o.text).toMatch(/saving is below the golden rule/);
+    expect(o.tables![0].rows.some((r) => /gold\)/.test(r[0]) && !/saving/.test(r[0]))).toBe(false);
+  });
+});
+
+describe("E5 fix round: macro-islm vertical AS", () => {
+  const vert = (over: Record<string, string>): StatOutput => islm({ as: "vertical", Yf: "1800", ...over });
+  it("a tax rise crowds investment IN (r falls): ΔI = cΔT − ΔG = 30", () => {
+    const o = vert({ dG: "0", dT: "40" });
+    expectDisplayContract(o);
+    expect(o.text).toContain("investment changes by ΔI = cΔT − ΔG = 30; crowding in: r falls");
+    expect(o.text).not.toContain("one for one");
+    const t = o.tables!.find((x) => /AD–AS/.test(x.label))!;
+    expect(t.rows.find((r) => r[0] === "Investment I")![3]).toBe("30");
+  });
+  it("ΔG alone crowds out one for one (ΔI = −ΔG)", () => {
+    const o = vert({ dG: "50", dT: "0" });
+    expectDisplayContract(o);
+    expect(o.text).toContain("investment changes by ΔI = cΔT − ΔG = −50; fiscal policy crowds out investment one for one (ΔI = −ΔG)");
+  });
+  it("Yₚ at or below hA/D: the direction is right and hA/D is printed", () => {
+    for (const Yf of ["1000", "1200"]) {
+      const o = vert({ Yf, dG: "0" });
+      expectDisplayContract(o);
+      expect(o.text).toContain("Yₚ is at or below hA/D = 1,200, the output aggregate demand approaches as P grows without bound");
+      expect(o.text).not.toMatch(/beyond/);
+    }
+    const after = vert({ Yf: "1250", dG: "50" });
+    expectDisplayContract(after);
+    expect(after.text).toContain("no positive price level puts aggregate demand at Yₚ after the policy (Yₚ is at or below hA/D = 1,300");
+  });
+  it("a negative AD–AS interest rate is noted", () => {
+    const o = vert({ Yf: "3000", dG: "0" });
+    expectDisplayContract(o);
+    expect(o.text).toContain("r = −6%");
+    expect(o.text).toContain("Note: an AD–AS (long-run) interest rate is negative.");
+    expect(o.text).not.toContain("Note: an equilibrium interest rate is negative.");
+  });
+  it("IS–LM tables show decimals only, with the exact fractions in the text", () => {
+    const c = ORACLE.islm[1];
+    const o = macroIslmCalc(reader(MACRO_ISLM_DEFAULTS, c.fields));
+    expectDisplayContract(o);
+    for (const t of o.tables!) {
+      for (const cell of t.rows.slice(1).flatMap((r) => r.slice(1))) expect(cell).not.toMatch(/\/|≈/);
+      expect(t.note).toMatch(/Decimals: exact when they terminate within four places/);
+    }
+    expect(o.tables![0].rows[1][1]).toBe(cellDec(rat("40300/29")));
+    expect(cellDec(rat("40300/29"))).toBe("1,389.6552");
+    expect(o.text).toContain("Y* = 40300/29 ≈ 1,389.6552");
+  });
+});
+
+describe("E5 fix round: game-nash figure and tables", () => {
+  it("an everywhere-indifferent player is drawn as a hatched square and the caption says so", () => {
+    const o = gameNashRun("Row\\Col\tL\tR\nU\t1\t1\nD\t1\t1", "Row\\Col\tL\tR\nU\t2\t0\nD\t0\t1", "none");
+    expectDisplayContract(o);
+    // The caption wraps across lines in the figure: test its words with the line breaks removed.
+    const words = (svg: string): string => (svg.match(/>([^<]*)</g) ?? []).map((s) => s.slice(1, -1)).join(" ").replace(/\s+/g, " ");
+    expect(words(o.svg!)).toContain("The row player is indifferent between U and D whatever the column player does: every p is a best response (hatched: the whole square).");
+    // Eleven hatch lines across the square in the row player's colour (not just its outline).
+    expect((o.svg!.match(/stroke="#0369a1" stroke-width="1.6"/g) ?? []).length).toBe(11);
+    const c = gameNashRun("Row\\Col\tL\tR\nU\t2\t0\nD\t0\t1", "Row\\Col\tL\tR\nU\t1\t1\nD\t1\t1", "none");
+    expectDisplayContract(c);
+    expect(words(c.svg!)).toContain("The column player is indifferent between L and R whatever the row player does");
+    // The hatch is drawn UNDER the other player's correspondence: hatch lines at p = 0 and 1 must not cover the row
+    // player's vertical segments there.
+    const rowFirst = c.svg!.indexOf('stroke="#0369a1" stroke-width="1.6"');
+    const colLast = c.svg!.lastIndexOf('stroke="#b45309" stroke-width="1.6"');
+    expect(rowFirst).toBeGreaterThan(colLast);
+    expect((c.svg!.match(/stroke="#b45309" stroke-width="1.6"/g) ?? []).length).toBe(11);
+  });
+  it("an 8 × 8 payoff table is split into tables of at most five strategy columns", () => {
+    const g = ORACLE.games.find((x) => /8x8/.test(x.name))!;
+    const o = gameNashRun(g.row, g.col, "none");
+    expectDisplayContract(o);
+    const pay = o.tables!.filter((t) => t.label.startsWith("Payoffs"));
+    expect(pay.length).toBe(2);
+    expect(pay.map((t) => t.rows[0].length)).toEqual([6, 4]);
+    expect(pay[0].label).toMatch(/columns .* to /);
   });
 });
 

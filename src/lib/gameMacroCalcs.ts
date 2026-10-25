@@ -9,10 +9,11 @@
  */
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import type { E3Field } from "./econE3Calcs";
-import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratSign, ratEq, ratIsZero, ratToNumber, parseRatLiteral, RAT_ZERO, RAT_ONE, CasBail } from "./cas";
+import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratSign, ratEq, ratIsZero, ratToNumber, parseRatLiteral, RAT_ZERO, RAT_ONE, CasBail } from "./cas";
 import { parseRegData, readRegCell, isMissingCell } from "./regData";
-import { fmtFixed, groupThousands, intText } from "./regTable";
+import { fmtFixed, fmtSci, groupThousands, intText } from "./regTable";
 import { buildPlotSvg, combineSvgs, type Series } from "./plot";
+import { FIELD_MAX_CHARS } from "./microMarket";
 import {
   Game,
   Equilibrium,
@@ -54,6 +55,8 @@ const MINUS = "−";
 /** The largest magnitude any field or payoff may have (and the smallest nonzero one). */
 export const VALUE_MAX = 1e15;
 export const VALUE_MIN = 1e-15;
+/** 10¹⁵ as a BigInt: the magnitude tests run on the exact rational. */
+const VALUE_LIMIT = 10n ** 15n;
 
 const PLAIN = /^-?(\d+(\.\d*)?|\.\d+)$/;
 const FRACTION = /^-?\d+\/\d+$/;
@@ -70,6 +73,8 @@ const SPACE_LIKE = new RegExp(`[${String.fromCharCode(0xa0, 0x2009, 0x202f)}]`, 
 export function readRat(raw: string, label: string, opts: { percent?: boolean; percentAsIs?: boolean; semicolon?: boolean } = {}): { value: Rat; percent: boolean; decimalComma: boolean } | { error: string } {
   let t = String(raw ?? "").replace(SPACE_LIKE, " ").trim();
   if (t === "") return { error: `${label} is empty.` };
+  // Refused before parsing: BigInt arithmetic on a many-thousand-digit literal is a hang (the micro calculators' limit).
+  if (t.length > FIELD_MAX_CHARS) return { error: `${label}: ${q(t.slice(0, FIELD_MAX_CHARS) + "…")} is longer than ${FIELD_MAX_CHARS} characters.` };
   const shown = t;
   t = t.replace(/^[−–]/, "-").replace(/^\+/, "");
   let percent = false;
@@ -91,7 +96,11 @@ export function readRat(raw: string, label: string, opts: { percent?: boolean; p
     else {
       // "1.5×10⁻⁵" and the other forms the shared cell reader takes, through the shortest decimal of its double.
       const r = readRegCell(t, !!opts.semicolon);
-      if (Number.isFinite(r.value) && /×|x10|X10|·10/.test(t)) v = parseRatLiteral(String(r.value));
+      if (Number.isFinite(r.value) && /×|x10|X10|·10/.test(t)) {
+        // "1×10⁻⁴⁰⁰" underflows the double to 0: a nonzero mantissa read as exactly zero is refused as too small.
+        if (r.value === 0 && /[1-9]/.test(t.split(/×|x10|X10|·10/)[0])) return { error: `${label}: ${q(shown)} is too small (nonzero values must be at least 10⁻¹⁵ in magnitude).` };
+        v = parseRatLiteral(String(r.value));
+      }
     }
   } catch (e) {
     if (!(e instanceof CasBail)) throw e;
@@ -99,9 +108,10 @@ export function readRat(raw: string, label: string, opts: { percent?: boolean; p
   }
   if (!v) return { error: `${label}: ${q(shown)} is not a number.` };
   if (percent && opts.percent) v = ratDiv(v, { n: 100n, d: 1n });
-  const a = Math.abs(ratToNumber(v));
-  if (!(a <= VALUE_MAX)) return { error: `${label}: ${q(shown)} is too large (the limit is 10¹⁵ in magnitude).` };
-  if (a !== 0 && a < VALUE_MIN) return { error: `${label}: ${q(shown)} is too small (nonzero values must be at least 10⁻¹⁵ in magnitude).` };
+  // Tested on the exact rational, not its double: 1e−400 is a nonzero rational whose double is 0.
+  const an = v.n < 0n ? -v.n : v.n;
+  if (an > VALUE_LIMIT * v.d) return { error: `${label}: ${q(shown)} is too large (the limit is 10¹⁵ in magnitude).` };
+  if (an !== 0n && an * VALUE_LIMIT < v.d) return { error: `${label}: ${q(shown)} is too small (nonzero values must be at least 10⁻¹⁵ in magnitude).` };
   return { value: v, percent, decimalComma };
 }
 
@@ -153,6 +163,29 @@ export function fmtExactDec(r: Rat, dp = 4): string {
   const approx = fmtFixed(ratToNumber(r), dp);
   if (f.length <= 20) return `${f} ≈ ${approx}`;
   return `≈ ${approx}`;
+}
+
+/**
+ * A double with at least `minDec` decimals and at least four significant digits: below 1 the decimals grow to keep
+ * four significant digits (at most six places), and below 10⁻³ it is m×10ⁿ (fmtSci, four significant digits). So
+ * 8.97×10⁻⁵ is never printed as 0.0001.
+ */
+export function fmtSig(v: number, minDec: number): string {
+  const a = Math.abs(v);
+  if (v === 0 || a >= 1) return fmtFixed(v, minDec);
+  if (a < 1e-3) return fmtSci(v);
+  return fmtFixed(v, Math.min(6, Math.max(minDec, 3 + Math.ceil(-Math.log10(a)))));
+}
+
+/**
+ * A table cell: the exact decimal when it terminates within four places, else the decimal alone (fmtSig, four
+ * places). Fractions stay in the text; a wide table of "5400/7 ≈ 771.4286" cells breaks numbers mid-digit in Word.
+ */
+export function cellDec(r: Rat): string {
+  const v = ratToNumber(r);
+  // From 10⁹ up, m×10ⁿ (as fmtFixed does) so a cell never runs to "1,800,000,000,000".
+  if (Math.abs(v) >= 1e9) return fmtSig(v, 4);
+  return exactDecimal(r, 4) ?? fmtSig(v, 4);
 }
 
 const R = (n: number): Rat => ({ n: BigInt(n), d: 1n });
@@ -271,6 +304,9 @@ export function parseGame(rowText: string, colText: string): { game: Game; corne
   return { game: { rowNames: a.rows, colNames: a.cols, A: a.M, B: b.M }, corner: a.corner, notes: [...a.notes, ...b.notes] };
 }
 
+/** Column strategies per payoff table (with the row-name column, six columns: Word keeps numbers whole). */
+const PAY_COLS = 5;
+
 /** game-nash run with an explicit wall clock (tests pass a negative one to see the refusal). */
 export function gameNashRun(rowText: string, colText: string, elimMode: string, wallMs = NASH_WALL_MS): StatOutput {
   if (!["pure", "mixed", "none"].includes(elimMode)) return refuse(`Unknown elimination choice ${q(elimMode)}.`);
@@ -383,19 +419,25 @@ export function gameNashRun(rowText: string, colText: string, elimMode: string, 
 
   // Tables
   const pureSet = new Set(pures.map(([i, j]) => `${i},${j}`));
-  const payRows: string[][] = [[corner, ...g.colNames]];
-  for (let i = 0; i < m; i++) payRows.push([g.rowNames[i], ...g.colNames.map((_, j) => `${fmtExact(g.A[i][j])}, ${fmtExact(g.B[i][j])}${pureSet.has(`${i},${j}`) ? " *" : ""}`)]);
-  const eqRows: string[][] = [["Equilibrium", "Type", "Row player's strategy", "Column player's strategy", "Row payoff", "Column payoff"]];
-  eqs.forEach((e, k) => eqRows.push([String(k + 1), e.pure ? "Pure" : "Mixed", mixText(g.rowNames, e.x), mixText(g.colNames, e.y), fmtExact(e.u1), fmtExact(e.u2)]));
-  const tables: StatTable[] = [
-    {
-      label: "Payoffs (row player, column player)",
+  // Six columns with short headers; payoffs as decimals (the exact payoffs are in the "Equilibrium k" lines above).
+  const eqRows: string[][] = [["No.", "Type", "Row", "Column", "Row payoff", "Column payoff"]];
+  eqs.forEach((e, k) => eqRows.push([String(k + 1), e.pure ? "Pure" : "Mixed", mixText(g.rowNames, e.x), mixText(g.colNames, e.y), cellDec(e.u1), cellDec(e.u2)]));
+  // At most PAY_COLS column strategies per table (six columns with the row names), so Word never squeezes a cell
+  // until it breaks a number; a wider game is split into consecutive tables.
+  const tables: StatTable[] = [];
+  const chunks = Math.ceil(n / PAY_COLS);
+  for (let c = 0; c < chunks; c++) {
+    const js = g.colNames.map((_, j) => j).slice(c * PAY_COLS, (c + 1) * PAY_COLS);
+    const payRows: string[][] = [[corner, ...js.map((j) => g.colNames[j])]];
+    for (let i = 0; i < m; i++) payRows.push([g.rowNames[i], ...js.map((j) => `${fmtExact(g.A[i][j])}, ${fmtExact(g.B[i][j])}${pureSet.has(`${i},${j}`) ? " *" : ""}`)]);
+    tables.push({
+      label: chunks === 1 ? "Payoffs (row player, column player)" : `Payoffs (row player, column player): columns ${g.colNames[js[0]]} to ${g.colNames[js[js.length - 1]]}`,
       rows: payRows,
-      align: ["left", ...g.colNames.map((): "center" => "center")],
+      align: ["left", ...js.map((): "center" => "center")],
       note: pures.length ? "* marks a pure Nash equilibrium." : "No cell is a pure Nash equilibrium.",
-    },
-  ];
-  if (eqs.length) tables.push({ label: "Nash equilibria", rows: eqRows, align: ["left", "left", "left", "left", "right", "right"], note: "A mixed strategy lists the probability of each strategy it plays." });
+    });
+  }
+  if (eqs.length) tables.push({ label: "Nash equilibria", rows: eqRows, align: ["left", "left", "left", "left", "right", "right"], note: "Row and Column: each player's strategy; a mixed strategy lists the probability of each strategy it plays. Payoffs: exact when they terminate within four places, else rounded to four places (four significant digits below 1); the text gives them exactly." });
   if (el.steps.length) tables.push({ label: "Iterated elimination of strictly dominated strategies", rows: elimRows, align: ["left", "left", "left", "left"] });
 
   const out: StatOutput = { text: lines.join("\n"), tables };
@@ -411,7 +453,12 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
   const colColor = "#b45309";
   let rowLabelled = false;
   let colLabelled = false;
-  const seg = (pts: { x: number; y: number }[], color: string, who: "row" | "col"): void => {
+  const notes: string[] = [];
+  const HATCH = 10;
+  // Hatching for an everywhere-indifferent player goes UNDER the other player's correspondence (drawn first), so
+  // hatch lines at p or q = 0 and 1 never cover the other player's segments there.
+  const under: Series[] = [];
+  const seg = (pts: { x: number; y: number }[], color: string, who: "row" | "col", target: Series[] = series): void => {
     let label: string | undefined;
     // Short legend names (the title says these are best responses): longer ones are cut with "…" in the legend.
     if (who === "row" && !rowLabelled) {
@@ -422,7 +469,7 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
       label = "Column player";
       colLabelled = true;
     }
-    series.push({ type: "line", points: pts, color, label });
+    target.push({ type: "line", points: pts, color, label });
   };
   // Row player: diff(q) = payoff(row 1) − payoff(row 2) = (A11 − A21)q + (A12 − A22)(1 − q).
   const d1 = ratSub(g.A[0][0], g.A[1][0]);
@@ -431,11 +478,13 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
     if (sign > 0) seg([{ x: 1, y: lo }, { x: 1, y: hi }], rowColor, "row");
     else if (sign < 0) seg([{ x: 0, y: lo }, { x: 0, y: hi }], rowColor, "row");
   }, (at) => seg([{ x: 0, y: at }, { x: 1, y: at }], rowColor, "row"), (lo, hi) => {
-    // Indifferent on a whole interval: every p is a best response there.
-    seg([{ x: 0, y: lo }, { x: 0, y: hi }], rowColor, "row");
-    seg([{ x: 1, y: lo }, { x: 1, y: hi }], rowColor, "row");
-    seg([{ x: 0, y: lo }, { x: 1, y: lo }], rowColor, "row");
-    seg([{ x: 0, y: hi }, { x: 1, y: hi }], rowColor, "row");
+    // Indifferent at every q: every p is a best response, so the correspondence is the whole square. plot.ts has no
+    // filled area, so the region is hatched (horizontal lines across it) and the caption says so.
+    for (let i = 0; i <= HATCH; i++) {
+      const at = lo + ((hi - lo) * i) / HATCH;
+      seg([{ x: 0, y: at }, { x: 1, y: at }], rowColor, "row", under);
+    }
+    notes.push(`The row player is indifferent between ${g.rowNames[0]} and ${g.rowNames[1]} whatever the column player does: every p is a best response (hatched: the whole square).`);
   });
   // Column player: diff(p) = payoff(col 1) − payoff(col 2) = (B11 − B12)p + (B21 − B22)(1 − p).
   const e1 = ratSub(g.B[0][0], g.B[0][1]);
@@ -444,13 +493,15 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
     if (sign > 0) seg([{ x: lo, y: 1 }, { x: hi, y: 1 }], colColor, "col");
     else if (sign < 0) seg([{ x: lo, y: 0 }, { x: hi, y: 0 }], colColor, "col");
   }, (at) => seg([{ x: at, y: 0 }, { x: at, y: 1 }], colColor, "col"), (lo, hi) => {
-    seg([{ x: lo, y: 0 }, { x: lo, y: 1 }], colColor, "col");
-    seg([{ x: hi, y: 0 }, { x: hi, y: 1 }], colColor, "col");
-    seg([{ x: lo, y: 0 }, { x: hi, y: 0 }], colColor, "col");
-    seg([{ x: lo, y: 1 }, { x: hi, y: 1 }], colColor, "col");
+    // Indifferent at every p: the whole square, hatched with vertical lines.
+    for (let i = 0; i <= HATCH; i++) {
+      const at = lo + ((hi - lo) * i) / HATCH;
+      seg([{ x: at, y: 0 }, { x: at, y: 1 }], colColor, "col", under);
+    }
+    notes.push(`The column player is indifferent between ${g.colNames[0]} and ${g.colNames[1]} whatever the row player does: every q is a best response (hatched: the whole square).`);
   });
   if (eqs.length) series.push({ type: "scatter", points: eqs.map((e) => ({ x: num(e.x[0]), y: num(e.y[0]) })), color: "#15803d", label: "Nash equilibria" });
-  return buildPlotSvg(series, {
+  return buildPlotSvg([...under, ...series], {
     width: 400,
     height: 300,
     title: "Best-response correspondences",
@@ -459,6 +510,7 @@ function bestResponseSvg(g: Game, eqs: Equilibrium[]): string {
     // A small margin so the correspondences on p, q = 0 or 1 and equilibria in the corners are not drawn on the frame.
     xLimits: { min: -0.05, max: 1.05 },
     yLimits: { min: -0.05, max: 1.05 },
+    notes: notes.length ? notes : undefined,
   });
 }
 
@@ -568,12 +620,23 @@ export function macroSolowCalc(read: Read): StatOutput {
       break;
     }
   }
-  const f = (v: number, d = 4): string => fmtFixed(v, d);
+  // Every Solow quantity: at least the decimals shown and at least four significant digits (m×10ⁿ below 10⁻³).
+  const f = (v: number, d = 4): string => fmtSig(v, d);
   const y = (kt: number): number => Math.pow(kt, p.alpha);
 
   const lines: string[] = [];
   lines.push(`Solow model (discrete time, per effective worker): k* = ${f(ss.kStar)}, y* = ${f(ss.yStar)}, c* = ${f(ss.cStar)}`);
-  lines.push(`Golden rule: s = α = ${f(ss.sGold, 3)}, k(gold) = ${f(ss.kGold)}, c(gold) = ${f(ss.cGold)} (${vals.s < ss.sGold ? "saving is below the golden rule: more saving would raise steady-state consumption" : vals.s > ss.sGold ? "saving is above the golden rule (dynamic inefficiency): less saving would raise consumption in every period" : "saving is at the golden rule"}).`);
+  const goldVerdict =
+    vals.s < ss.sGold
+      ? "saving is below the golden rule: more saving would raise steady-state consumption"
+      : vals.s > ss.sGold
+        ? "saving is above the golden rule (dynamic inefficiency): less saving would raise consumption in every period"
+        : "saving is at the golden rule";
+  lines.push(
+    ss.goldOk
+      ? `Golden rule: s = α = ${f(ss.sGold, 3)}, k(gold) = ${f(ss.kGold)}, c(gold) = ${f(ss.cGold)} (${goldVerdict}).`
+      : `Golden rule: s = α = ${f(ss.sGold, 3)} (${goldVerdict}). The golden-rule k (α/(n + g + ng + δ) raised to the power 1/(1 − α)) is outside 10⁻¹⁵ to 10¹⁵ for these parameters, so k(gold), y(gold) and c(gold) are not shown; everything else is unaffected.`,
+  );
   lines.push(
     `Convergence near k*: φ′(k*) = ${f(ss.phi, 6)}, λ = −ln φ′ = ${f(ss.lambda, 6)} a period, half-life ln 2/λ = ${f(ss.halfLife, 2)} periods.` +
       (probeHalf !== null ? ` Check on the simulated map: from 0.1% above k* the gap first falls to half in period ${probeHalf}.` : ""),
@@ -594,6 +657,7 @@ export function macroSolowCalc(read: Read): StatOutput {
     "Convergence: φ′(k*) = (α(n + g + ng + δ) + 1 − δ)/((1 + n)(1 + g)) is the slope of the map at k*; near k* the gap shrinks by that factor each period, so the half-life ln 2/(−ln φ′) is a local measure that is exact as kₜ approaches k* (a path far from k* halves its gap at a different pace). " +
       (Number.isFinite(ss.halfLifeC) ? `The continuous-time approximation λ ≈ (1 − α)(n + g + δ) = ${f(ss.lambdaC, 6)} gives ${f(ss.halfLifeC, 2)} periods.` : "The continuous-time approximation (1 − α)(n + g + δ) is not positive here, so it gives no half-life."),
   );
+  lines.push("Numbers are shown to at least four significant digits (m×10ⁿ below 10⁻³).");
   if (pctUsed.length) lines.push(`Read as percent and divided by 100: ${pctUsed.join(", ")}.`);
   if (p.n < 0 || p.g < 0) lines.push("A negative growth rate is allowed as long as n + g + ng + δ stays positive.");
 
@@ -606,9 +670,13 @@ export function macroSolowCalc(read: Read): StatOutput {
     ["Investment s·y* = (n + g + ng + δ)k*", f(vals.s * ss.yStar)],
     ["Break-even rate n + g + ng + δ", f(ss.D, 6)],
     ["Golden-rule saving s = α", f(ss.sGold, 4)],
-    ["k(gold)", f(ss.kGold)],
-    ["y(gold)", f(ss.yGold)],
-    ["c(gold) = (1 − α)y(gold)", f(ss.cGold)],
+    ...(ss.goldOk
+      ? [
+          ["k(gold)", f(ss.kGold)],
+          ["y(gold)", f(ss.yGold)],
+          ["c(gold) = (1 − α)y(gold)", f(ss.cGold)],
+        ]
+      : []),
     ["φ′(k*)", f(ss.phi, 6)],
     ["λ = −ln φ′ (per period)", f(ss.lambda, 6)],
     ["Half-life ln 2/λ (periods)", f(ss.halfLife, 2)],
@@ -648,7 +716,8 @@ export function macroSolowCalc(read: Read): StatOutput {
     ],
     { width: 420, height: 260, title: "Convergence to the steady state", xlabel: "Period t", ylabel: "Per effective worker (units of output)" },
   );
-  const kMax = 2 * Math.max(ss.kStar, ss.kGold, Math.min(vals.k0, 5 * Math.max(ss.kStar, ss.kGold)));
+  const kRef = ss.goldOk ? Math.max(ss.kStar, ss.kGold) : ss.kStar;
+  const kMax = 2 * Math.max(kRef, Math.min(vals.k0, 5 * kRef));
   const sf: { x: number; y: number }[] = [];
   const fk: { x: number; y: number }[] = [];
   for (let i = 0; i <= 200; i++) {
@@ -812,20 +881,47 @@ export function macroIslmCalc(read: Read): StatOutput {
     const P0 = adPriceAt(p0, Yf!);
     const P1 = adPriceAt(p1, Yf!);
     if (!P0 || !P1) {
-      lines.push(
-        `AD–AS with a vertical AS at Yₚ = ${X(Yf!)}: no positive price level puts aggregate demand at Yₚ ${ratIsZero(v.b) || ratIsZero(v.M) ? "(with b = 0 or M = 0 aggregate demand does not depend on P)" : "(Yₚ is beyond the output aggregate demand reaches at any price level, hA/D)"}; the AD–AS part is not shown.`,
-      );
+      // AD output Y(P) = (hA + bM/P)/D falls toward hA/D as P grows without bound and never reaches it, so a positive
+      // P puts AD at Yₚ only when Yₚ is ABOVE hA/D (with b·M > 0).
+      const which = P0 ? p1 : p0;
+      const sw = islmSolve(which);
+      const floorY = ratDiv(ratMul(which.h, sw.A), sw.D);
+      const when = !policy ? "" : P0 ? "after the policy" : P1 ? "before the policy" : "";
+      const why =
+        ratIsZero(which.b) || ratIsZero(which.M)
+          ? "(with b = 0 or M = 0 aggregate demand does not depend on P)"
+          : `(Yₚ is at or below hA/D = ${X(floorY)}, the output aggregate demand approaches as P grows without bound; AD output is above it at every positive price level)`;
+      lines.push(`AD–AS with a vertical AS at Yₚ = ${X(Yf!)}: no positive price level puts aggregate demand at Yₚ${when ? ` ${when}` : ""} ${why}; the AD–AS part is not shown.`);
     } else {
       // At Yₚ the IS curve gives r directly (b > 0 here, since a positive P needs b·M > 0).
       const rAt = (p: IslmParams): Rat => ratDiv(ratSub(islmSolve(p).A, ratMul(one_c, Yf!)), p.b);
       adas = { P0, P1, Y0: Yf!, Y1: Yf!, r0: rAt(p0), r1: rAt(p1) };
+      // Output is fixed at Yₚ, so Y = C + I + G gives ΔI = −ΔC − ΔG = cΔT − ΔG; it equals −b·Δr (checked exactly).
+      const dIv = ratMul(ratNeg(v.b), ratSub(adas.r1, adas.r0));
+      if (!ratEq(dIv, ratSub(ratMul(v.c, v.dT), v.dG))) throw new Error("macro-islm: ΔI at Yₚ disagrees with cΔT − ΔG");
+      const fiscal = !ratIsZero(v.dG) || !ratIsZero(v.dT);
+      let effect: string;
+      if (!fiscal) effect = "money is neutral: P moves in proportion and r is unchanged";
+      else {
+        const dIText = `investment changes by ΔI = cΔT − ΔG = ${X(dIv)}`;
+        const kind =
+          ratSign(dIv) < 0
+            ? ratIsZero(v.dT)
+              ? "fiscal policy crowds out investment one for one (ΔI = −ΔG)"
+              : "crowding out: r rises"
+            : ratSign(dIv) > 0
+              ? "crowding in: r falls"
+              : "investment is unchanged: the fiscal changes offset";
+        effect = `${dIText}; ${kind}${ratIsZero(v.dM) ? "" : "; the change in M only moves P"}`;
+      }
       lines.push(
         `AD–AS with a vertical AS at Yₚ = ${X(Yf!)}: P = bM/(D·Yₚ − hA) = ${X(P0)}, r = ${X(adas.r0)}%` +
-          (policy ? `; after the policy P = ${X(P1)}, r = ${X(adas.r1)}% and output stays at Yₚ (${!ratIsZero(v.dG) || !ratIsZero(v.dT) ? "fiscal policy crowds out investment one for one" : "money is neutral: P moves in proportion and r is unchanged"}).` : "."),
+          (policy ? `; after the policy P = ${X(P1)}, r = ${X(adas.r1)}% and output stays at Yₚ (${effect}).` : "."),
       );
     }
   }
   if (ratSign(s0.r) < 0 || ratSign(s1.r) < 0) lines.push("Note: an equilibrium interest rate is negative.");
+  if (adas && asType === "vertical" && (ratSign(adas.r0) < 0 || ratSign(adas.r1) < 0)) lines.push("Note: an AD–AS (long-run) interest rate is negative.");
   if (ratSign(s0.I) < 0 || ratSign(s1.I) < 0) lines.push("Note: investment I₀ − b·r is negative at an equilibrium; the linear model allows it, but it signals parameters outside the model's sensible range.");
   if (ratSign(s0.C) < 0 || ratSign(s1.C) < 0) lines.push("Note: consumption is negative at an equilibrium; the linear model allows it, but it signals parameters outside the model's sensible range.");
   if (asType === "vertical") lines.push(`The IS–LM equilibrium, its table and the IS–LM figure hold the price level at the given P = ${X(v.P)} (the short run); the AD–AS lines and figure are the long run, where P adjusts.`);
@@ -846,40 +942,52 @@ export function macroIslmCalc(read: Read): StatOutput {
   if (ratIsZero(v.h)) lines.push("h = 0: the LM curve is vertical (the quantity theory), so fiscal policy changes r but not Y.");
   if (ratIsZero(v.b)) lines.push("b = 0: the IS curve is vertical, so monetary policy changes r but not Y, and fiscal policy has its full Keynesian effect.");
 
+  // Table cells are decimals only (the text gives the exact fractions): a fraction-and-decimal cell breaks mid-number in Word.
+  const C = cellDec;
+  const DEC_NOTE = "Decimals: exact when they terminate within four places, else rounded to four places (four significant digits below 1; m×10ⁿ from 10⁹ up); exact fractions are in the text.";
   const eqRows: string[][] = [
     ["Quantity", "Before", "After", "Change"],
-    ["Output Y", X(s0.Y), X(s1.Y), X(dY)],
-    ["Interest rate r (%)", X(s0.r), X(s1.r), X(dr)],
-    ["Consumption C", X(s0.C), X(s1.C), X(ratSub(s1.C, s0.C))],
-    ["Investment I", X(s0.I), X(s1.I), X(ratSub(s1.I, s0.I))],
-    ["Government spending G", X(p0.G), X(p1.G), X(v.dG)],
-    ["Taxes T", X(p0.T), X(p1.T), X(v.dT)],
-    ["Real balances M/P", X(s0.m), X(s1.m), X(ratSub(s1.m, s0.m))],
+    ["Output Y", C(s0.Y), C(s1.Y), C(dY)],
+    ["Interest rate r (%)", C(s0.r), C(s1.r), C(dr)],
+    ["Consumption C", C(s0.C), C(s1.C), C(ratSub(s1.C, s0.C))],
+    ["Investment I", C(s0.I), C(s1.I), C(ratSub(s1.I, s0.I))],
+    ["Government spending G", C(p0.G), C(p1.G), C(v.dG)],
+    ["Taxes T", C(p0.T), C(p1.T), C(v.dT)],
+    ["Real balances M/P", C(s0.m), C(s1.m), C(ratSub(s1.m, s0.m))],
   ];
   const muRows: string[][] = [
-    ["Multiplier", "IS–LM (with crowding out)", "r held fixed (Keynesian cross)"],
-    ["∂Y/∂G", X(mu.dYdG), X(mu.kG)],
-    ["∂Y/∂T", X(mu.dYdT), X(mu.kT)],
-    ["Balanced budget (ΔG = ΔT)", X(ratAdd(mu.dYdG, mu.dYdT)), "1"],
-    ["∂Y/∂M", X(mu.dYdM), "0 (money works only through r)"],
-    ["∂r/∂G (percentage points)", X(mu.drdG), "0"],
-    ["∂r/∂T (percentage points)", X(mu.drdT), "0"],
-    ["∂r/∂M (percentage points)", X(mu.drdM), "0"],
+    ["Multiplier", "IS–LM", "r held fixed"],
+    ["∂Y/∂G", C(mu.dYdG), C(mu.kG)],
+    ["∂Y/∂T", C(mu.dYdT), C(mu.kT)],
+    ["Balanced budget (ΔG = ΔT)", C(ratAdd(mu.dYdG, mu.dYdT)), "1"],
+    ["∂Y/∂M", C(mu.dYdM), "0"],
+    ["∂r/∂G (percentage points)", C(mu.drdG), "0"],
+    ["∂r/∂T (percentage points)", C(mu.drdT), "0"],
+    ["∂r/∂M (percentage points)", C(mu.drdM), "0"],
   ];
   const tables: StatTable[] = [
-    { label: `IS–LM equilibrium at P = ${X(v.P)}, before and after the policy`, rows: eqRows, align: ["left", "right", "right", "right"] },
-    { label: "Multipliers", rows: muRows, align: ["left", "right", "right"], note: `D = h(1 − c) + b·k = ${X(s0.D)}.` },
+    { label: `IS–LM equilibrium at P = ${X(v.P)}, before and after the policy`, rows: eqRows, align: ["left", "right", "right", "right"], note: DEC_NOTE },
+    {
+      label: "Multipliers",
+      rows: muRows,
+      align: ["left", "right", "right"],
+      note: `IS–LM: with crowding out; r held fixed: the Keynesian cross, where money has no effect (it works only through r). D = h(1 − c) + b·k = ${X(s0.D)}. ${DEC_NOTE}`,
+    },
   ];
   if (adas) {
+    const I0a = ratSub(v.I0, ratMul(v.b, adas.r0));
+    const I1a = ratSub(v.I0, ratMul(v.b, adas.r1));
     tables.push({
       label: `AD–AS (${asType === "horizontal" ? "horizontal AS" : "vertical AS"})`,
       rows: [
         ["Quantity", "Before", "After", "Change"],
-        ["Price level P", X(adas.P0), X(adas.P1), X(ratSub(adas.P1, adas.P0))],
-        ["Output Y", X(adas.Y0), X(adas.Y1), X(ratSub(adas.Y1, adas.Y0))],
-        ["Interest rate r (%)", X(adas.r0), X(adas.r1), X(ratSub(adas.r1, adas.r0))],
+        ["Price level P", C(adas.P0), C(adas.P1), C(ratSub(adas.P1, adas.P0))],
+        ["Output Y", C(adas.Y0), C(adas.Y1), C(ratSub(adas.Y1, adas.Y0))],
+        ["Interest rate r (%)", C(adas.r0), C(adas.r1), C(ratSub(adas.r1, adas.r0))],
+        ["Investment I", C(I0a), C(I1a), C(ratSub(I1a, I0a))],
       ],
       align: ["left", "right", "right", "right"],
+      note: DEC_NOTE,
     });
   }
   const svgs = [islmSvg(p0, p1, s0, s1, policy)];
@@ -1043,7 +1151,12 @@ export function macroTaylorCalc(read: Read): StatOutput {
   const seriesText = get("series");
   const useSeries = seriesText.trim() !== "";
   for (const key of ["rn", "piStar", "aPi", "aY", ...(useSeries ? [] : ["pi", "gap"])]) {
-    const r = readRat(get(key), lab[key], { percentAsIs: true });
+    const weight = key === "aPi" || key === "aY";
+    // A weight is a coefficient (0.5 means half a point per point), not a percent: "50%" would be read as 50.
+    if (weight && get(key).trim().endsWith("%")) {
+      return refuse(`${lab[key]}: ${q(get(key).trim())} has a % sign; a weight is a coefficient, not a percent (Taylor's weight is 0.5, not 50%). Type it without the % sign.`);
+    }
+    const r = readRat(get(key), lab[key], weight ? {} : { percentAsIs: true });
     if ("error" in r) return refuse(r.error);
     v[key] = r.value;
   }
@@ -1116,12 +1229,15 @@ export function macroTaylorCalc(read: Read): StatOutput {
   if (!pd.ok) return refuse(`The series: ${pd.reason}`);
   const d = pd.data;
   if (d.names.length < 3) return refuse("The series needs three columns: Period, Inflation (%), Output gap (%).");
+  const dupName = d.names.find((x, i) => d.names.findIndex((y) => y.trim().toLowerCase() === x.trim().toLowerCase()) !== i);
+  if (dupName !== undefined) return refuse(`The series has two columns named ${q(dupName)}; give each column its own name (Period, Inflation (%), Output gap (%)).`);
   if (d.rows.length > TAYLOR_SERIES_MAX) return refuse(`The series has ${intText(d.rows.length)} rows; the limit is ${intText(TAYLOR_SERIES_MAX)}.`);
   const rowsOut: string[][] = [["Period", "Inflation π (%)", "Output gap (%)", "Rule rate i (%)", ...(floor !== null ? ["Policy rate (%)"] : []), "Real rate i − π (%)"]];
   const iPts: { x: number; y: number }[] = [];
   const piPts: { x: number; y: number }[] = [];
   const periods: string[] = [];
   let nBound = 0;
+  let lastI: Rat = RAT_ZERO;
   for (let t = 0; t < d.rows.length; t++) {
     const row = d.rows[t];
     const label = row[0] || `Row ${t + 1}`;
@@ -1132,14 +1248,14 @@ export function macroTaylorCalc(read: Read): StatOutput {
     if ("error" in gap) return refuse(gap.error);
     const r = apply(pi.value, gap.value);
     if (r.bound) nBound++;
-    rowsOut.push([label, X(pi.value), X(gap.value), X(r.raw), ...(floor !== null ? [X(r.i)] : []), X(r.real)]);
+    lastI = r.i;
+    rowsOut.push([label, cellDec(pi.value), cellDec(gap.value), cellDec(r.raw), ...(floor !== null ? [cellDec(r.i)] : []), cellDec(r.real)]);
     periods.push(label);
     iPts.push({ x: t + 1, y: ratToNumber(r.i) });
     piPts.push({ x: t + 1, y: ratToNumber(pi.value) });
   }
-  const last = rowsOut[rowsOut.length - 1];
   const lines: string[] = [];
-  lines.push(`Taylor rule over ${intText(d.rows.length)} period${d.rows.length === 1 ? "" : "s"}: ${periods[periods.length - 1]} policy rate ${floor !== null ? last[4] : last[3]}%`);
+  lines.push(`Taylor rule over ${intText(d.rows.length)} period${d.rows.length === 1 ? "" : "s"}: ${periods[periods.length - 1]} policy rate ${X(lastI)}%`);
   lines.push(`rⁿ = ${X(v.rn)}%, π* = ${X(v.piStar)}%, a = ${X(v.aPi)}, b = ${X(v.aY)}${floor !== null ? `; the lower bound ${X(floor)}% binds in ${intText(nBound)} period${nBound === 1 ? "" : "s"}` : ""}.`);
   lines.push("");
   lines.push(...conventions);
@@ -1161,7 +1277,16 @@ export function macroTaylorCalc(read: Read): StatOutput {
       },
     },
   );
-  return { text: lines.join("\n"), tables: [{ label: "Taylor rule by period", rows: rowsOut, align: ["left", ...rowsOut[0].slice(1).map((): "right" => "right")] }], svg };
+  return { text: lines.join("\n"), tables: [
+      {
+        label: "Taylor rule by period",
+        rows: rowsOut,
+        align: ["left", ...rowsOut[0].slice(1).map((): "right" => "right")],
+        note: "Decimals: exact when they terminate within four places, else rounded to four places (four significant digits below 1).",
+      },
+    ],
+    svg,
+  };
 }
 
 /** A double as a rational (drawing only: the figure's sample points). */

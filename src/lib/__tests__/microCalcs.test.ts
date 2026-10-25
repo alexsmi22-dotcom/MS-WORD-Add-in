@@ -57,6 +57,8 @@ function expectDisplayContract(o: StatOutput): void {
     expect(t.align).toBeDefined();
     expect(t.align!.length).toBe(t.rows[0].length);
     expect(t.align![0]).toBe("left");
+    // Word layout: at most six columns, so Word never squeezes a cell until it breaks a number.
+    expect(t.rows[0].length).toBeLessThanOrEqual(6);
     for (const r of t.rows) {
       expect(r.length).toBe(t.rows[0].length);
       for (const cell of r) {
@@ -357,14 +359,60 @@ describe("micro-market hostile fields", () => {
     refused({ amount: "120" }, /no quantity would be traded/);
     refused({ amount: "−3" }, /must be greater than 0/);
     refused({ policy: "subsidy", amount: "1000" }, /buyers' price would be/);
-    refused({ policy: "ceiling", amount: "15" }, /nothing would be sold/);
     refused({ policy: "ceiling", amount: "−1" }, /must be 0 or more/);
-    refused({ policy: "floor", amount: "130" }, /nothing would be bought/);
+    // A market closed without a policy stays refused for every policy but a subsidy large enough to open it.
+    refused({ a: "10", c: "12", policy: "tax", amount: "1" }, /No equilibrium with a positive quantity/);
+    refused({ a: "10", c: "12", policy: "ceiling", amount: "11" }, /No equilibrium with a positive quantity/);
+    refused({ a: "10", c: "12", policy: "subsidy", amount: "2" }, /A subsidy opens the market only when it exceeds c − a = 2/);
     refused({ a: "50", b: "0.5", c: "−5", d: "0.25", amount: "45" }, /sellers' price would be −5\/3, below 0/);
     // At exactly a sellers' price of 0 the tax is accepted (producer surplus 0).
     const edge = market({ a: "50", b: "0.5", c: "−5", d: "0.25", amount: "40" });
     expectDisplayContract(edge);
     expect(edge.text).toContain("sellers receive 0");
+  });
+  it("a subsidy that opens a market closed without it is solved on the post-policy curves (a = 10, c = 12, s = 5)", () => {
+    const o = market({ a: "10", b: "1", c: "12", d: "1", policy: "subsidy", amount: "5" });
+    expectDisplayContract(o);
+    expect(o.text).toContain("Without the policy the market is closed");
+    expect(o.text).toContain("quantity 1.5, buyers pay 8.5, sellers receive 13.5");
+    expect(o.text).toContain("Consumer surplus 1.125, producer surplus 1.125, subsidy cost 7.5, deadweight loss 5.25 ($)");
+    expect(o.text).toContain("The subsidy opens the market: it exceeds c − a = 2");
+    // The results block (above the conventions) prints no no-policy price, elasticity or incidence share.
+    expect(o.text.split("\n\n")[0]).not.toMatch(/Incidence:|P\* =|ε =/);
+    const w = o.tables!.find((t) => /welfare/.test(t.label))!;
+    expect(w.rows[1]).toEqual(["Quantity traded (unit)", "0", "1.5", "1.5"]);
+    expect(w.rows[2]).toEqual(["Buyers' price ($ per unit)", "no trade", "8.5", "not defined"]);
+    expect(o.tables!.some((t) => t.label.startsWith("Incidence"))).toBe(false);
+    expect(o.svg).not.toContain("Equilibrium E");
+    expectEdgesOnLines(o.svg!);
+    const res = solveMarket({ a: rat("10"), b: rat("1"), c: rat("12"), d: rat("1"), policy: "subsidy", amount: rat("5"), side: "buyers" });
+    if (!res.ok) throw new Error(res.reason);
+    expect(welfareIdentityHolds(res.r)).toBe(true);
+    expect(rs(res.r.dwl)).toBe("21/4");
+  });
+  it("a ceiling at or below c, or a floor at or above a, closes the market (Q = 0) with welfare, not a refusal", () => {
+    const c = market({ policy: "ceiling", amount: "15" });
+    expectDisplayContract(c);
+    expect(c.text).toContain("The market closes (Q = 0): the ceiling is at or below the lowest price at which anything is supplied (c = 20)");
+    expect(c.text).toContain("quantity demanded 52.5, quantity supplied 0, shortage 52.5; quantity traded 0");
+    expect(c.text).toContain("Consumer surplus 0, producer surplus 0, deadweight loss 1,000 ($)");
+    expectEdgesOnLines(c.svg!);
+    const f = market({ policy: "floor", amount: "130" });
+    expectDisplayContract(f);
+    expect(f.text).toContain("The market closes (Q = 0): the floor is at or above the demand intercept a = 120");
+    expect(f.text).toContain("deadweight loss 1,000 ($)");
+    expectEdgesOnLines(f.svg!);
+    for (const [policy, amount] of [["ceiling", "20"], ["floor", "120"], ["ceiling", "0"]]) {
+      const res = solveMarket({ a: rat("120"), b: rat("2"), c: rat("20"), d: rat("3"), policy: policy as Policy, amount: rat(amount), side: "sellers" });
+      if (!res.ok) throw new Error(res.reason);
+      expect(res.r.closes).toBe(true);
+      expect(rs(res.r.q)).toBe("0");
+      expect(welfareIdentityHolds(res.r)).toBe(true);
+    }
+    // A negative supply intercept: the lost surplus is clipped at P = 0, as the no-policy surplus is.
+    const neg = solveMarket({ a: rat("50"), b: rat("0.5"), c: rat("−5"), d: rat("0.25"), policy: "floor", amount: rat("60"), side: "sellers" });
+    if (!neg.ok) throw new Error(neg.reason);
+    expect(welfareIdentityHolds(neg.r)).toBe(true);
   });
   it("a non-zero value whose double underflows to 0 is refused, not read as 0", () => {
     for (const v of ["1e-400", "1e-330", "−1e-330"]) {
@@ -445,7 +493,31 @@ describe("micro-oligopoly behaviour", () => {
     expect(o.svg).toContain("Stackelberg");
     expect(o.svg).toContain("q₁, output of Firm 1 (unit)");
     const m = o.tables![0];
-    expect(m.rows.map((r) => r[0])).toEqual(["Market structure", "Perfect competition", "Monopoly", "Cournot–Nash", "Bertrand", "Stackelberg (firm 1 leads)"]);
+    expect(m.rows[0]).toEqual(["Measure", "Competition", "Monopoly", "Cournot", "Bertrand", "Stackelberg"]);
+    expect(m.rows.map((r) => r[0])).toEqual(["Measure", "Price ($ per unit)", "Total output (unit)", "Consumer surplus ($)", "Total profit ($)", "Total surplus ($)", "Deadweight loss ($)", "Lerner index", "HHI"]);
+  });
+
+  it("Word layout: the structure table is transposed (≤ 6 columns), cells are decimals only, exact fractions are in the text", () => {
+    // The Word pass: 9 columns with "250000/49 ≈ 5,102.041" cells broke numbers mid-digit.
+    const o = olig({ a: "100", b: "0.7", costs: "A\t3\nB\t9" });
+    expectDisplayContract(o);
+    for (const t of o.tables!) {
+      expect(t.rows[0].length).toBeLessThanOrEqual(6);
+      for (const cell of t.rows.slice(1).flatMap((r) => r.slice(1))) {
+        expect(cell).not.toMatch(/\/|≈/);
+        expect(cell.length).toBeLessThanOrEqual(14);
+      }
+      expect(t.note).toMatch(/Decimals: exact when they terminate within three places/);
+    }
+    const m = o.tables![0];
+    const lerner = m.rows.find((r) => r[0] === "Lerner index")!;
+    expect(lerner.every((c) => !/\//.test(c))).toBe(true);
+    // The exact fraction is in the text with its decimal.
+    expect(o.text).toMatch(/Cournot–Nash: price [\d,]+\/\d+ ≈ [\d,.]+/);
+    expect(o.text).toMatch(/Lerner index \d+\/\d+ ≈ 0\.\d{4}/);
+    // Per-firm tables carry the marginal cost in the firm's cell.
+    expect(o.tables![1].rows[0][0]).toBe("Firm (marginal cost)");
+    expect(o.tables![1].rows[1][0]).toBe("A (3)");
   });
 
   it("Cournot exits are named and never negative; Stackelberg is omitted beyond two firms with a note", () => {
@@ -469,7 +541,10 @@ describe("micro-oligopoly behaviour", () => {
   it("zero marginal cost: the Lerner index is 0 at P = MC = 0 (no 0/0)", () => {
     const o = olig({ a: "90", b: "3", costs: "0\n0" });
     expectDisplayContract(o);
-    expect(o.tables![0].rows[1][7]).toBe("0 (P = MC = 0)");
+    const lerner = o.tables![0].rows.find((r) => r[0] === "Lerner index")!;
+    expect(lerner.slice(1)).toEqual(["0", "1", "1", "0", "1"]);
+    expect(o.tables![0].note).toContain("The Lerner index is 0 where P = MC = 0.");
+    expect(o.text).toContain("Perfect competition: price 0, total output 30, deadweight loss 0; consumer surplus 1,350, total profit 0, Lerner index 0 (P = MC = 0)");
   });
 
   it("one firm: monopoly everywhere, no best-response figure", () => {

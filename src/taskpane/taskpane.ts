@@ -157,6 +157,16 @@ import {
   sigmaZeroAtForward,
 } from "../lib/finance";
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, withFinFig, currentFinFig } from "../lib/financeFigures";
+import {
+  parsePeriodTable,
+  reasonableRoyalty,
+  lostProfits,
+  damagesSummary,
+  georgiaPacificWorksheet,
+  panduitWorksheet,
+  damagesTablesClean,
+  damagesToFin,
+} from "../lib/patentDamages";
 import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
 import { CONC_UNITS, RATE_UNITS, catalyticEfficiencyCalc, dilutionRefusal, proteinSequenceRefusal, readAssayScalars, serialRefusal } from "../lib/assayInputs";
 import { renderStructure, resolveStructure, resolveChemInput, lookupSmiles, typesetHill, nameForIdcode, StructureResult, gallerySubstituent } from "../lib/structures";
@@ -844,6 +854,7 @@ import {
 } from "../lib/orbital";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import { insertableResultText, matrixBlocksFinite } from "../lib/insertGate";
+import { hasBrokenNumber } from "../lib/insertGate";
 import { pictureNotKeptText } from "../lib/insertKept";
 import { proseDashes } from "../lib/proseDashes";
 import { debouncedPreview, flushBeforeInsert, previewListener } from "../lib/previewDebounce";
@@ -1332,6 +1343,8 @@ let currentTableChartError = "";
 /** The finance result text from the most recent computation, for insertion. */
 let currentFinText = "";
 let currentFinSvg = "";
+/** The current Finance result's Word tables (E1b: litigation damages), inserted with the text in one package. */
+let currentFinTables: { label: string; rows: string[][] }[] = [];
 /** The Finance figure re-drawn for a figure style (fix2-paf: a canvas width, and black and white for USPTO). */
 let currentFinRender: ((w: number, style?: FigureStylePreset) => string) | null = null;
 /** The assay result text and fitted-curve SVG from the most recent computation. */
@@ -8154,7 +8167,8 @@ interface FinField {
   key: string;
   label: string;
   default: string;
-  kind?: "number" | "select" | "list";
+  // "block": a pasted per-period table (E1b: litigation damages), with "Use table at cursor" / "Open CSV".
+  kind?: "number" | "select" | "list" | "block";
   options?: { value: string; label: string }[];
 }
 /**
@@ -8169,7 +8183,8 @@ interface FinField {
  * nothing useful to draw stay exactly as they were and the change is provably a
  * no-op for them.
  */
-type FinResult = string | { text: string; svg?: string; ok?: boolean };
+// `tables` (E1b): Word tables inserted with the text and the figure as ONE package (litigation damages).
+type FinResult = string | { text: string; svg?: string; ok?: boolean; tables?: { label: string; rows: string[][] }[] };
 /** A Finance refusal: shown, never insertable (fix2-paf: refusal sentences used to be insertable results). */
 const finRefuse = (text: string): FinResult => ({ text, ok: false });
 
@@ -9254,6 +9269,192 @@ const FIN_CALCS: FinCalc[] = [
       };
     },
   },
+  // Litigation damages: royalty, lost profits, worksheets (E1b)
+  // Engines and parsers in src/lib/patentDamages.ts; every rate, share, price and multiplier is the user's input.
+  {
+    id: "dmg-royalty",
+    name: "Damages: reasonable royalty",
+    fields: [
+      {
+        key: "periods",
+        label: "Periods: period, royalty base (revenue or units), one per line",
+        default: ["2021 4,000,000", "2022 5,500,000", "2023 6,250,000", "2024 3,100,000"].join("\n"),
+        kind: "block",
+      },
+      {
+        key: "basis",
+        label: "Royalty base",
+        default: "revenue",
+        kind: "select",
+        options: [
+          { value: "revenue", label: "Revenue (rate is % of revenue)" },
+          { value: "unit", label: "Units (rate is money per unit)" },
+        ],
+      },
+      { key: "rate", label: "Royalty rate (% of revenue, or money per unit)", default: "3" },
+      { key: "apportion", label: "Apportionment % to the patented feature (100 = none)", default: "40" },
+      { key: "lump", label: "Lump sum to compare (0 = no comparison)", default: "200000" },
+      { key: "disc", label: "Discount rate % per year (lump-sum comparison)", default: "8" },
+      {
+        key: "ppy",
+        label: "Periods per year",
+        default: "1",
+        kind: "select",
+        options: [
+          { value: "1", label: "1 (annual)" },
+          { value: "4", label: "4 (quarterly)" },
+          { value: "12", label: "12 (monthly)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const t = parsePeriodTable(r("periods"), ["royalty base"], 1);
+      if ("error" in t) return finRefuse(t.error);
+      return damagesToFin(
+        reasonableRoyalty({
+          rows: t.rows,
+          basis: r("basis") === "unit" ? "unit" : "revenue",
+          rate: +r("rate"),
+          apportionPct: +r("apportion"),
+          lumpSum: +r("lump"),
+          discountPct: +r("disc"),
+          periodsPerYear: +r("ppy"),
+        }),
+        t.notes,
+      );
+    },
+    assumes: "the rate, apportionment, lump sum and discount rate are the user's inputs; no rate is supplied as law",
+  },
+  {
+    id: "dmg-lost-profits",
+    name: "Damages: lost profits, price erosion",
+    fields: [
+      {
+        key: "periods",
+        label: "Periods: period, infringer's units, patentee's actual units, spare capacity (optional)",
+        default: ["2022 12,000 30,000 5,000", "2023 15,000 32,000 6,000", "2024 9,000 28,000 6,000"].join("\n"),
+        kind: "block",
+      },
+      {
+        key: "method",
+        label: "Capture",
+        default: "share",
+        kind: "select",
+        options: [
+          { value: "share", label: "Capture share % of the infringer's units" },
+          { value: "market", label: "Market-share method" },
+        ],
+      },
+      { key: "capture", label: "Capture share % (100 = all of the infringer's sales)", default: "60" },
+      { key: "pshare", label: "Patentee's market share % (market-share method)", default: "40" },
+      { key: "ishare", label: "Infringer's market share % (market-share method)", default: "25" },
+      { key: "cap", label: "Spare capacity per period, units (0 = no limit; a 3rd column overrides)", default: "0" },
+      {
+        key: "marginMode",
+        label: "Incremental margin",
+        default: "price-cost",
+        kind: "select",
+        options: [
+          { value: "price-cost", label: "Incremental price − incremental cost" },
+          { value: "margin", label: "Incremental margin per unit, as entered" },
+        ],
+      },
+      { key: "price", label: "Incremental price per unit", default: "120" },
+      { key: "cost", label: "Incremental cost per unit", default: "70" },
+      { key: "margin", label: "Incremental margin per unit (if entered directly)", default: "50" },
+      {
+        key: "erosion",
+        label: "Price erosion",
+        default: "yes",
+        kind: "select",
+        options: [
+          { value: "yes", label: "Include price erosion" },
+          { value: "no", label: "No price erosion" },
+        ],
+      },
+      { key: "bfp", label: "But-for price per unit", default: "130" },
+      { key: "ap", label: "Patentee's actual price per unit", default: "120" },
+      { key: "elast", label: "Elasticity (|% change in units| per % price rise; 0 = none)", default: "0" },
+      {
+        key: "remainder",
+        label: "Uncaptured units",
+        default: "unit",
+        kind: "select",
+        options: [
+          { value: "unit", label: "At a reasonable royalty per unit" },
+          { value: "revenue", label: "At a royalty % of the infringer's price" },
+          { value: "none", label: "Not included" },
+        ],
+      },
+      { key: "remRate", label: "Royalty on uncaptured units (per unit, or %)", default: "4" },
+      { key: "iprice", label: "Infringer's price per unit (royalty % basis)", default: "110" },
+    ],
+    compute: (r) => {
+      const t = parsePeriodTable(r("periods"), ["infringer's units", "patentee's actual units", "spare capacity"], 1);
+      if ("error" in t) return finRefuse(t.error);
+      const rem = r("remainder");
+      return damagesToFin(
+        lostProfits({
+          rows: t.rows,
+          method: r("method") === "market" ? "market" : "share",
+          captureSharePct: +r("capture"),
+          patenteeSharePct: +r("pshare"),
+          infringerSharePct: +r("ishare"),
+          capacity: +r("cap"),
+          marginMode: r("marginMode") === "margin" ? "margin" : "price-cost",
+          price: +r("price"),
+          cost: +r("cost"),
+          margin: +r("margin"),
+          erosion: r("erosion") === "yes",
+          butForPrice: +r("bfp"),
+          actualPrice: +r("ap"),
+          elasticity: +r("elast"),
+          remainder: rem === "revenue" ? "revenue" : rem === "none" ? "none" : "unit",
+          remainderRate: +r("remRate"),
+          infringerPrice: +r("iprice"),
+        }),
+        t.notes,
+      );
+    },
+    assumes: "capture share, market shares, capacity, prices, costs, elasticity and royalty are the user's inputs; capacity is spare capacity per period",
+  },
+  {
+    id: "dmg-summary",
+    name: "Damages: summary by period",
+    fields: [
+      {
+        key: "periods",
+        label: "Periods: period, lost profits, price erosion, reasonable royalty, interest (optional)",
+        default: ["2022 300,000 280,000 28,000", "2023 400,000 320,000 36,000", "2024 300,000 280,000 12,000"].join("\n"),
+        kind: "block",
+      },
+      { key: "mult", label: "Multiplier on damages (1 = none; at most 3)", default: "1" },
+    ],
+    compute: (r) => {
+      const t = parsePeriodTable(r("periods"), ["lost profits", "price erosion", "reasonable royalty", "interest"], 1);
+      if ("error" in t) return finRefuse(t.error);
+      return damagesToFin(damagesSummary({ rows: t.rows, multiplier: +r("mult") }), t.notes);
+    },
+    assumes: "the amounts and the multiplier are the user's inputs; no interest is computed here",
+  },
+  {
+    id: "dmg-gp-worksheet",
+    name: "Damages: Georgia-Pacific worksheet",
+    fields: [],
+    compute: () => {
+      // A worksheet, not a calculation: the fifteen verified short titles, the citation line, blank cells to fill.
+      return damagesToFin(georgiaPacificWorksheet());
+    },
+  },
+  {
+    id: "dmg-panduit-worksheet",
+    name: "Damages: Panduit worksheet",
+    fields: [],
+    compute: () => {
+      // A worksheet, not a calculation: the four factors quoted verbatim, the citation line, blank cells to fill.
+      return damagesToFin(panduitWorksheet());
+    },
+  },
 ];
 
 /** Fills the calculator dropdown. */
@@ -9521,6 +9722,44 @@ function renderFinanceInputs(): void {
   renderCalcFields(calc.fields, finInputs, "fin", updateFinancePreview);
 }
 
+/**
+ * A Finance result table in the pane (E1b). At most 60 body rows are shown (a 10,000-period table would make the pane
+ * crawl); the totals row is always shown and the document gets every row.
+ */
+function finTablePreview(t: { label: string; rows: string[][] }): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "fin-table-preview";
+  const table = document.createElement("table");
+  table.className = "solid-table";
+  table.setAttribute("aria-label", t.label);
+  const SHOW = 60;
+  const [head, ...body] = t.rows;
+  const last = body.length && body[body.length - 1][0] === "Total" ? body[body.length - 1] : null;
+  const middle = last ? body.slice(0, -1) : body;
+  const shown = middle.length > SHOW ? [...middle.slice(0, SHOW), ...(last ? [last] : [])] : body;
+  const addRow = (cells: string[], tag: "th" | "td"): void => {
+    const tr = document.createElement("tr");
+    cells.forEach((c, i) => {
+      const cell = document.createElement(tag);
+      cell.textContent = c;
+      if (i === 1 && cells.length === 4 && t.rows[0][1] === "Factor") cell.style.textAlign = "left";
+      if (i === 0) cell.style.textAlign = "left";
+      tr.appendChild(cell);
+    });
+    table.appendChild(tr);
+  };
+  if (head) addRow(head, "th");
+  for (const r of shown) addRow(r, "td");
+  wrap.appendChild(table);
+  if (middle.length > SHOW) {
+    const note = document.createElement("div");
+    note.className = "ms-note";
+    note.textContent = `• ${(middle.length - SHOW).toLocaleString("en-US")} more periods are not shown here; the inserted table has all ${middle.length.toLocaleString("en-US")}.`;
+    wrap.appendChild(note);
+  }
+  return wrap;
+}
+
 /** Computes and shows the result for the current calculator inputs. */
 function updateFinancePreview(): void {
   const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
@@ -9534,7 +9773,7 @@ function updateFinancePreview(): void {
   let fieldRefusal = "";
   const numeric = new Map<string, string>();
   for (const f of calc.fields) {
-    if (f.kind === "select" || f.kind === "list") continue;
+    if (f.kind === "select" || f.kind === "list" || f.kind === "block") continue;
     const raw = rawRead(f.key);
     if (!raw.trim()) continue;
     const v = readFinanceField(raw);
@@ -9555,6 +9794,7 @@ function updateFinancePreview(): void {
   let svg = "";
   let refusal = "";
   let refused = false;
+  let tables: { label: string; rows: string[][] }[] = [];
   calcListNotes.clear();
   try {
     const out = fieldRefusal ? finRefuse(fieldRefusal) : calc.compute(read);
@@ -9564,6 +9804,7 @@ function updateFinancePreview(): void {
       text = out.text;
       svg = out.svg ?? "";
       refused = out.ok === false;
+      tables = out.tables ?? [];
     }
   } catch (error) {
     text = "";
@@ -9577,7 +9818,8 @@ function updateFinancePreview(): void {
   // can still produce these, and a document is the wrong place to find out.
   // The shared gate, plus the one condition that is Finance's alone: a solver
   // that reports "no solution" has produced a sentence, not a result.
-  const insertable = insertableResultText(text) && !text.includes("no solution") && !refused;
+  // The tables reach Word from their cells, not from `text`, so the cells pass the same gate (E1b).
+  const insertable = insertableResultText(text) && !text.includes("no solution") && !refused && damagesTablesClean(tables, hasBrokenNumber);
   if (!text) {
     finResult.innerHTML = '<span class="hint">Enter values to compute.</span>';
     if (refusal) finResult.firstElementChild!.textContent = refusal;
@@ -9617,6 +9859,8 @@ function updateFinancePreview(): void {
   // can still put in a document. That exact defect was found in the Statistics
   // registry by an adversarial pass and is not being reproduced here.
   currentFinSvg = currentFinText ? svg : "";
+  currentFinTables = currentFinText ? tables : [];
+  if (text && tables.length) for (const t of tables) finResult.appendChild(finTablePreview(t));
   // The same calculator re-run with its figure drawn at another width (and in
   // black and white for USPTO), so a figure style re-renders it instead of
   // scaling — and refusing — the colour figure.
@@ -11569,6 +11813,28 @@ async function insertStatsResult(): Promise<void> {
 async function insertFinanceResult(): Promise<void> {
   if (!currentFinText) {
     setStatus("Nothing to insert.", "error");
+    return;
+  }
+  if (currentFinTables.length) {
+    // Litigation damages (E1b): text, tables and figure as ONE package (insertTextTablesFigure).
+    const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value);
+    const dims = currentFinSvg ? readSvgDims(currentFinSvg, 380, 250) : { w: 380, h: 250 };
+    await insertTextTablesFigure(
+      currentFinText,
+      currentFinTables,
+      currentFinSvg
+        ? {
+            svg: currentFinSvg,
+            fallbackW: dims.w,
+            fallbackH: dims.h,
+            alt: `Finance chart: ${calc?.name ?? "result"}`,
+            tag: "formula-inserter:finance-chart",
+            render: currentFinRender ?? undefined,
+            supersample: 2,
+          }
+        : null,
+      "Result",
+    );
     return;
   }
   if (!currentFinSvg) {
@@ -36878,6 +37144,76 @@ async function insertTextWithFigure(text: string, label: string, o: FigureInsert
   }
   // The package was refused: the text alone, and say the figure is missing.
   return textOnly(why);
+}
+
+/**
+ * A result's text, its Word TABLES and (optionally) its figure as ONE package (E1b: litigation damages). Always the
+ * package route: a table cannot ride the vector route's chained insert (Word gives no usable insertion point after a
+ * table, lib/resultOoxml.ts). The figure goes through the pane's figure style (prepareFigure, rasterTarget) as in
+ * insertTextWithFigure. If the figure cannot be drawn, the text and tables go in without it and the status says so;
+ * if Word refuses the package, the text and the tables as tab-separated lines go in as plain text.
+ */
+async function insertTextTablesFigure(
+  text: string,
+  tables: { label: string; rows: string[][] }[],
+  o: FigureInsert | null,
+  label: string,
+): Promise<boolean> {
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return false;
+  }
+  let picture: ResultPackageItem | null = null;
+  let figureWhy = "";
+  let png = "";
+  if (o) {
+    const prepared = prepareFigure(
+      { svg: o.svg, preset: currentFigurePreset(), width: currentFigureWidth(), render: o.render, chartKind: o.chartKind },
+      o.fallbackW,
+      o.fallbackH,
+    );
+    if (!prepared.ok) figureWhy = refusalText(prepared);
+    else {
+      try {
+        const t = rasterTarget(prepared, o.supersample ?? 1);
+        png = await renderFigurePng(prepared.svg, t.w, t.h);
+        picture = { kind: "picture", caption: "", base64: png, widthPt: prepared.widthPt, heightPt: prepared.heightPt, alt: o.alt };
+      } catch (error) {
+        figureWhy = (error as Error).message;
+      }
+    }
+  }
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return false;
+  }
+  insertTextBusy = true;
+  setStatus(`Inserting ${label.toLowerCase()}…`);
+  let why = "";
+  try {
+    const items: ResultPackageItem[] = [{ kind: "text", content: text.replace(/\s+$/, "") }];
+    for (const t of tables) items.push({ kind: "table", label: t.label, rows: t.rows });
+    if (picture) items.push(picture);
+    const built = buildResultOoxml(items);
+    const kept = await docHost.insertResultLayout([{ kind: "ooxml", ooxml: built.ooxml }]);
+    const what = `${label} and ${tables.length === 1 ? "table" : "tables"}`;
+    if (picture && kept !== null && kept < built.pictures) {
+      setStatus(`${what} inserted, but ${pictureNotKeptText(png.length)}`, "error");
+    } else if (figureWhy) {
+      setStatus(`${what} inserted, but the figure could not be: ${figureWhy}`, "error");
+    } else {
+      setStatus(`${what}${picture ? " and chart" : ""} inserted. Ctrl/⌘+Z undoes it.`, "success");
+    }
+    return true;
+  } catch (error) {
+    why = (error as Error).message;
+  } finally {
+    insertTextBusy = false;
+  }
+  const plain = [text.replace(/\s+$/, ""), ...tables.map((t) => t.rows.map((r) => r.join("\t")).join("\n"))].join("\n\n");
+  const ok = await insertPlainText(plain, label);
+  if (ok) setStatus(`${label} inserted as plain text (Word refused the table package: ${why}).`, "error");
+  return ok;
 }
 
 // ---------------------------------------------------------------------------

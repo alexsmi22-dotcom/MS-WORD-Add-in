@@ -49,6 +49,18 @@ import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, StatTable, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { econOlsCalc, econRegTableCalc, econLogitCalc, LONGLEY_DEFAULT, ECON_SPEC_DEFAULT, ECON_SPECS_DEFAULT, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT } from "../lib/econCalcs";
 import { TS_CALCULATORS } from "../lib/tsCalcs";
+import {
+  ES_EVENT_FIELDS,
+  ES_EVENT_DEFAULTS,
+  esEventCalc,
+  IDX_PRICE_FIELDS,
+  IDX_PRICE_DEFAULTS,
+  idxPriceCalc,
+  IDX_DEFLATE_FIELDS,
+  IDX_DEFLATE_DEFAULTS,
+  idxDeflateCalc,
+  type E3Field,
+} from "../lib/econE3Calcs";
 import { SE_TYPES } from "../lib/olsInference";
 import { STAR_SCHEMES } from "../lib/regTable";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
@@ -10285,6 +10297,11 @@ const ECON_OPTION_FIELDS: StatField[] = [
   { key: "stars", label: "Significance stars", default: "econ", kind: "select", options: STAR_SCHEMES },
 ];
 
+/** Release E3: a lib field list plus its defaults map, as the pane's StatField list. */
+function withDefaults(fields: E3Field[], defaults: Record<string, string>): StatField[] {
+  return fields.map((f) => ({ ...f, default: defaults[f.key] ?? "" }));
+}
+
 const STAT_CALCS: StatCalc[] = [
   {
     id: "descriptive",
@@ -10641,6 +10658,11 @@ const STAT_CALCS: StatCalc[] = [
   },
   // Release E3: time-series diagnostics (lib/tsCalcs.ts → lib/tsDiag.ts; series read by lib/tsData.ts).
   ...TS_CALCULATORS.map((c): StatCalc => ({ id: c.id, name: c.name, fields: c.fields, compute: c.compute })),
+  // Release E3: event study and index numbers (lib/econE3Calcs.ts → lib/eventStudy.ts, lib/indexNumbers.ts).
+  // Their fields keep the defaults in a separate map; withDefaults joins the two.
+  { id: "es-event", name: "Securities event study (market model)", fields: withDefaults(ES_EVENT_FIELDS, ES_EVENT_DEFAULTS), compute: esEventCalc },
+  { id: "idx-price", name: "Price indexes (Laspeyres, Paasche, Fisher, Törnqvist)", fields: withDefaults(IDX_PRICE_FIELDS, IDX_PRICE_DEFAULTS), compute: idxPriceCalc },
+  { id: "idx-deflate", name: "Constant dollars (deflate by a price index)", fields: withDefaults(IDX_DEFLATE_FIELDS, IDX_DEFLATE_DEFAULTS), compute: idxDeflateCalc },
   {
     id: "polyregress",
     name: "Polynomial regression",

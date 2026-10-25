@@ -203,7 +203,7 @@ export function econOlsCalc(read: Read): StatOutput {
   lines.push(`OLS regression of ${m.depName} on ${k} predictor${k === 1 ? "" : "s"} (n = ${intText(m.n)})`);
   lines.push(`Standard errors: ${m.seLabel}`);
   lines.push(`R² = ${fmtFixed(fit.r2, 3)}, adjusted R² = ${fmtFixed(fit.adjR2, 3)}`);
-  if (fit.f) lines.push(`F(${fit.f.df1}, ${intText(fit.f.df2)}) = ${fmtFixed(fit.f.value, d)}, p ${pText(fit.f.p)}`);
+  if (fit.f) lines.push(`F(${fit.f.df1}, ${fit.f.df2}) = ${fmtFixed(fit.f.value, d)}, p ${pText(fit.f.p)}`);
   else if (fit.fWhy) lines.push(fit.fWhy);
   const stat = (label: string): number => m.stats.find((s) => s.label === label)?.value ?? NaN;
   lines.push(
@@ -297,7 +297,7 @@ export function diagnosticsRows(diag: OlsDiagnostics, d: number): string[][] {
   chi("Breusch–Pagan (Koenker)", diag.breuschPagan);
   chi("White", diag.white);
   if ("skipped" in diag.reset) rows.push(["Ramsey RESET (ŷ², ŷ³)", `not computed: ${diag.reset.skipped}`, "", ""]);
-  else rows.push(["Ramsey RESET (ŷ², ŷ³)", `F = ${fmtFixed(diag.reset.f, d)}`, `${diag.reset.df1}, ${intText(diag.reset.df2)}`, fmtP(diag.reset.p)]);
+  else rows.push(["Ramsey RESET (ŷ², ŷ³)", `F = ${fmtFixed(diag.reset.f, d)}`, `${diag.reset.df1}, ${diag.reset.df2}`, fmtP(diag.reset.p)]);
   const jb = diag.jarqueBera;
   rows.push(["Jarque–Bera", `χ² = ${fmtFixed(jb.jb, d)}`, "2", fmtP(jb.p)]);
   for (const v of diag.vif) rows.push([`VIF: ${v.name}`, fmtFixed(v.vif, 2), "", ""]);

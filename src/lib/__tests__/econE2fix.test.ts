@@ -70,6 +70,34 @@ describe("decimal commas are never misread", () => {
     expect(s.ok && Array.from(s.cols.y)).toEqual([1.5, 2]);
     expect(s.ok && Array.from(s.cols.X[0])).toEqual([1234.5, 3]);
   });
+  test("review round: a semicolon column that groups thousands with points refuses a bare 2.345 beside 1.234,5", () => {
+    for (const body of ["1;1.234,5\n2;2.345\n4;4.000\n5;1.000,5", "1;2.345\n2;1.234,5\n4;4,5"]) {
+      const d = parseRegData(`y;x\n${body}`);
+      if (!d.ok) throw new Error(d.reason);
+      const s = selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
+      expect(s.ok).toBe(false);
+      expect(!s.ok && s.reason).toContain("uses a point as a thousands separator");
+    }
+    // Without a point-grouped cell in the column, 2.345 stays two and a bit.
+    const d = parseRegData("y;x\n1;2.345\n2;3,5\n4;4,25");
+    if (!d.ok) throw new Error(d.reason);
+    const s = selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
+    expect(s.ok && Array.from(s.cols.X[0])).toEqual([2.345, 3.5, 4.25]);
+  });
+  test("review round: a decimal comma in one column makes a thousands-shaped comma in another ambiguous", () => {
+    const d = parseRegData("y\tx\n0,5\t1,250\n1,5\t2,500\n2,5\t3,125\n3,7\t4,750");
+    if (!d.ok) throw new Error(d.reason);
+    const s = selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
+    expect(s.ok).toBe(false);
+    expect(!s.ok && s.reason).toContain("The table has a decimal comma (column “y”");
+  });
+  test("review round: 00,125 is 0.125 and +1,5 is 1.5", () => {
+    const d = parseRegData("y\tx\n00,125\t+1,5\n0,25\t2,5\n0,5\t3,5\n0,625\t4,25");
+    if (!d.ok) throw new Error(d.reason);
+    const s = selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
+    expect(s.ok && Array.from(s.cols.y)).toEqual([0.125, 0.25, 0.5, 0.625]);
+    expect(s.ok && Array.from(s.cols.X[0])).toEqual([1.5, 2.5, 3.5, 4.25]);
+  });
   test("the brief's case: y;x / 0,125;1,5 reads 0.125, not 125", () => {
     const d = parseRegData("y;x\n0,125;1,5\n0,25;2,5\n0,5;3,5\n0,625;4,25");
     if (!d.ok) throw new Error(d.reason);

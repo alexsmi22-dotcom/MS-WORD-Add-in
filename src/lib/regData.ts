@@ -49,11 +49,12 @@ export function readRegCell(cell: string, semicolon: boolean): { value: number; 
     else return { value: NaN, decimalComma: false };
     return { value: parseCellNumber(s), decimalComma: true };
   }
-  // A leading-zero mantissa ("0,125", "0,125×10⁻³") is a decimal whatever follows it.
-  const lead = /^([-−+]?0),(\d+)/.exec(t);
-  if (lead) return { value: parseCellNumber(`${lead[1]}.${lead[2]}${t.slice(lead[0].length)}`), decimalComma: true };
+  // A leading-zero mantissa ("0,125", "00,125", "0,125×10⁻³") is a decimal whatever follows it.
+  const lead = /^([-−+]?)0+,(\d+)/.exec(t);
+  if (lead) return { value: parseCellNumber(`${lead[1]}0.${lead[2]}${t.slice(lead[0].length)}`), decimalComma: true };
   const mant = t.split(/[×xX·]/)[0].trim();
-  return { value: parseCellNumber(t), decimalComma: unambiguousDecimalComma(mant) };
+  if (unambiguousDecimalComma(mant)) return { value: parseCellNumber(t.replace(",", ".")), decimalComma: true };
+  return { value: parseCellNumber(t), decimalComma: false };
 }
 
 export type RegDataResult = { ok: true; data: RegDataset } | { ok: false; reason: string };
@@ -68,6 +69,24 @@ export function isMissingCell(s: string): boolean {
 const q = (s: string): string => `“${s}”`;
 /** A cell Number() reads exactly as parseCellNumber would (no comma, no exponent, at most 15 integer digits). */
 const PLAIN_DECIMAL = /^-?\d{1,15}(\.\d+)?$/;
+/** "2.345", "1.000.000": a point that, in a semicolon (European) table, may be a thousands separator. */
+const DOT_GROUPS = /^-?\d{1,3}(\.\d{3})+$/;
+/** "1.234,5": a point used as the thousands separator beside a decimal comma. */
+const DOT_THOUSANDS = /^[-−+]?\d{1,3}(\.\d{3})+,\d+/;
+
+function dotAmbiguity(
+  name: string,
+  k: { cell: string; row: number },
+  g: { cell: string; row: number },
+): { ok: false; reason: string } {
+  return {
+    ok: false,
+    reason:
+      `Column ${q(name)} uses a point as a thousands separator (${q(k.cell)}, row ${k.row}), so ${q(g.cell)} ` +
+      `(row ${g.row}) could be read either way. Write every cell of the column with its decimal comma ` +
+      `(${q(`${g.cell},0`)}) or without thousands separators.`,
+  };
+}
 
 /** Reads the table text into names and cells. */
 export function parseRegData(text: string): RegDataResult {
@@ -230,9 +249,17 @@ export function selectColumns(
   const clusters: string[] = [];
   const semicolon = data.semicolon === true;
   let decimalCommas = 0;
-  /** Per used column: the first unambiguous decimal-comma cell and the first thousands-shaped cell. */
-  const decSeen: ({ cell: string; row: number } | null)[] = used.map(() => null);
-  const kSeen: ({ cell: string; row: number } | null)[] = used.map(() => null);
+  /**
+   * The first unambiguous decimal-comma cell and the first thousands-shaped cell in the model's columns. The decision
+   * is table-wide: once "0,5" in one column shows the table writes decimal commas, "1,250" in another is as likely
+   * 1.25 as 1,250, so the two together are refused. In a semicolon table the thousands separator is the point
+   * ("1.234,5"), so a "2.345" beside it in the same column is equally ambiguous.
+   */
+  type Seen = { cell: string; row: number; col: number } | null;
+  let decSeen: Seen = null;
+  let kSeen: Seen = null;
+  const dotKSeen: Seen[] = used.map(() => null);
+  const dotGroupSeen: Seen[] = used.map(() => null);
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     let missing = clusterIdx >= 0 && isMissingCell(r[clusterIdx] ?? "");
@@ -243,6 +270,11 @@ export function selectColumns(
       // Fast path for a plain decimal (a 50,000 × 20 paste is a million cells); everything else takes the product's
       // cell reader (decimal commas, U+2212, ×10ⁿ, thousands separators).
       if (PLAIN_DECIMAL.test(cell)) {
+        if (semicolon && DOT_GROUPS.test(cell)) {
+          if (!dotGroupSeen[u]) dotGroupSeen[u] = { cell, row: i + 1, col: j };
+          const dk = dotKSeen[u];
+          if (dk) return dotAmbiguity(names[j], dk, dotGroupSeen[u]!);
+        }
         vals.push(Number(cell));
         continue;
       }
@@ -256,18 +288,26 @@ export function selectColumns(
       }
       if (decimalComma) {
         decimalCommas++;
-        if (!decSeen[u]) decSeen[u] = { cell, row: i + 1 };
+        if (!decSeen) decSeen = { cell, row: i + 1, col: j };
+        if (semicolon && DOT_THOUSANDS.test(cell.trim())) {
+          if (!dotKSeen[u]) dotKSeen[u] = { cell, row: i + 1, col: j };
+          const dg = dotGroupSeen[u];
+          if (dg) return dotAmbiguity(names[j], dotKSeen[u]!, dg);
+        }
       } else if (!semicolon && THOUSANDS_SHAPE.test(cell.split(/[×xX·]/)[0].trim())) {
-        if (!kSeen[u]) kSeen[u] = { cell, row: i + 1 };
+        if (!kSeen) kSeen = { cell, row: i + 1, col: j };
       }
-      const d = decSeen[u];
-      const k = kSeen[u];
-      if (d && k) {
+      if (decSeen && kSeen) {
+        const d = decSeen;
+        const k = kSeen;
+        const where =
+          d.col === k.col
+            ? `Column ${q(names[d.col])} mixes a decimal comma (${q(d.cell)}, row ${d.row}) with a thousands separator (${q(k.cell)}, row ${k.row})`
+            : `The table has a decimal comma (column ${q(names[d.col])}, row ${d.row}: ${q(d.cell)}) and a thousands-shaped comma (column ${q(names[k.col])}, row ${k.row}: ${q(k.cell)})`;
         return {
           ok: false,
           reason:
-            `Column ${q(names[j])} mixes a decimal comma (${q(d.cell)}, row ${d.row}) with a thousands separator ` +
-            `(${q(k.cell)}, row ${k.row}), so which one a comma means is ambiguous. Write decimals with a point, or ` +
+            `${where}, so which one a comma means is ambiguous. Write decimals with a point, or ` +
             "separate the table with semicolons so that every comma is a decimal comma.",
         };
       }

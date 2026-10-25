@@ -19,7 +19,7 @@ jobs:
       - name: Type-check
         run: npm run lint
       - name: Unit tests
-        run: npm test
+        run: npm test -- --reporters=default --reporters=github-actions
       - name: Validate compound dictionary
         run: npm run validate:compounds
       - name: Production build

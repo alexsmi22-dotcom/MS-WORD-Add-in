@@ -56,6 +56,14 @@
 export const MINUS = String.fromCharCode(0x2212);
 /** U+2009 THIN SPACE, the SI digit-group separator. */
 export const THIN_SPACE = String.fromCharCode(0x2009);
+
+/**
+ * A tick label with comma grouping, for a money axis whose text and tables print commas (the damages figures): the
+ * thin-space groups become commas, and a four-digit value, which the SI style leaves ungrouped, gets one (1,250).
+ */
+export function commaGroupLabel(label: string): string {
+  return label.split(THIN_SPACE).join(",").replace(/^([−-]?)(\d)(\d{3})(?=$|\.)/, "$1$2,$3");
+}
 /** U+00D7 MULTIPLICATION SIGN. */
 const TIMES = String.fromCharCode(0xd7);
 

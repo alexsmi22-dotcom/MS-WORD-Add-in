@@ -11,7 +11,7 @@
 //
 // Pure logic — no Office.js, no PptxGenJS — fully unit-testable.
 
-import { linearAxis, fmtValue, THIN_SPACE } from "./axis";
+import { linearAxis, fmtValue, commaGroupLabel } from "./axis";
 import { parseCellNumber, SCI_TAIL } from "./dataimport";
 import { buildHeatmapSvg } from "./heatmap";
 import { buildCandlestickSvg } from "./candlestick";
@@ -696,7 +696,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   // Patent tick labels are 12 px, so a horizontal value axis asks for fewer.
   const valueAxis0 = linearAxis(vmin, vmax, { target: horizontal ? (patent ? 4 : 6) : 5 });
   const valueAxis =
-    style.grouping === "comma" ? { ...valueAxis0, labels: valueAxis0.labels.map((l) => l.split(THIN_SPACE).join(",")) } : valueAxis0;
+    style.grouping === "comma" ? { ...valueAxis0, labels: valueAxis0.labels.map(commaGroupLabel) } : valueAxis0;
   // The multiplier is stated once, at the end of the value axis, in room made
   // for it INSIDE the fixed canvas (the canvas size is what Word inserts at).
   if (valueAxis.multiplier) {

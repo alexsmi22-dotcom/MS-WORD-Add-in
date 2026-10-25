@@ -8,7 +8,7 @@
 // --- Expression evaluator ----------------------------------------------------
 
 import { minOf, maxOf } from "./minmax";
-import { linearAxis, logAxis, fmtValue, fmtSig, resolveLimits, outsideNote, THIN_SPACE, type AxisLimits } from "./axis";
+import { linearAxis, logAxis, fmtValue, fmtSig, resolveLimits, outsideNote, commaGroupLabel, type AxisLimits } from "./axis";
 import { usptoMarkerSvg, USPTO_DASHES } from "./figureStyle";
 
 /** Factorial for non-negative integers (else NaN). */
@@ -1050,7 +1050,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     : { ticks: [], minor: [], multiplier: "" };
   // Before the margins are sized, so the left margin fits the labels as drawn.
   const yAxis =
-    options.yGrouping === "comma" ? { ...yAxis0, ticks: yAxis0.ticks.map((t) => ({ v: t.v, text: t.text.split(THIN_SPACE).join(",") })) } : yAxis0;
+    options.yGrouping === "comma" ? { ...yAxis0, ticks: yAxis0.ticks.map((t) => ({ v: t.v, text: commaGroupLabel(t.text) })) } : yAxis0;
   // A ×10ⁿ multiplier is stated ONCE, on the axis title — never as e-notation
   // on every tick.
   options = {

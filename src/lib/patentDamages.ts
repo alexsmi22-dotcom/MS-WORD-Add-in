@@ -111,7 +111,18 @@ function readCell(raw: string): number {
  * `names` are the numeric columns in order; the first `required` of them must be present, the rest are optional.
  */
 /** A bare-number period label that IS a period: a year 1900–2100, or a date / month form a cell reader might accept. */
-const PLAUSIBLE_PERIOD_RE = /^(?:19\d\d|20\d\d|2100)$|^\d{4}[-/.]\d{1,2}(?:[-/.]\d{1,2})?$|^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}$|^\d{1,2}\/\d{4}$/;
+const PLAUSIBLE_PERIOD_RE = /^(?:19\d\d|20\d\d|2100)$|^(?:[1-9]\d?|1\d\d|200)$|^(?:19|20)\d\d(?:0[1-9]|1[0-2])$|^\d{4}[-/.]\d{1,2}(?:[-/.]\d{1,2})?$|^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}$|^\d{1,2}\/\d{4}$/;
+
+/** The first number after a totals line's label (tabs, semicolons, bars or spaces), NaN when there is none. */
+function firstNumberAfterLabel(line: string): number {
+  const delim = line.includes("\t") ? "\t" : line.includes(";") ? ";" : line.includes("|") ? "|" : "";
+  const cells = delim ? line.split(delim).slice(1) : line.split(/\s+/);
+  for (const c of cells) {
+    const v = readCell(c);
+    if (Number.isFinite(v)) return v;
+  }
+  return NaN;
+}
 
 /** A line quoted in a note or refusal: tabs as spaces, at most 40 characters. */
 const clip = (s0: string): string => {
@@ -132,7 +143,7 @@ export function parsePeriodTable(text: string, names: string[], required: number
   const max = names.length;
   const negOk = new Set(opts.allowNegative ?? []);
   let firstContent = true;
-  let totalsLine: { li: number; text: string } | null = null;
+  let totalsLine: { li: number; text: string; first: number } | null = null;
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li].replace(/[   ]/g, " ").trim();
     if (!line) continue;
@@ -144,7 +155,7 @@ export function parsePeriodTable(text: string, names: string[], required: number
       };
     }
     if (isTotalsLabel(line)) {
-      totalsLine = { li, text: clip(line) };
+      totalsLine = { li, text: clip(line), first: firstNumberAfterLabel(line) };
       firstContent = false;
       continue;
     }
@@ -173,8 +184,11 @@ export function parsePeriodTable(text: string, names: string[], required: number
       nums = toks.slice(k);
       // "300 000" is one number with a space between its thousands, or two numbers: refused by name, never guessed
       // ("2022 300 000 280 000" read as 300 and 280 otherwise). Tab, semicolon and bar rows are unambiguous.
+      // Accepted as separate numbers only when that reading fits the table and the thousands reading does not ("2023 500
+      // 120" in a two-number table); a lone 0 never starts a thousands group.
+      const fits = (c: number): boolean => c >= required && c <= max;
       for (let j = 1; j < nums.length; j++) {
-        if (/^\d{3}(?:[.,]\d+)?$/.test(nums[j]) && /^[−–-]?\d{1,3}$/.test(nums[j - 1])) {
+        if (/^\d{3}(?:[.,]\d+)?$/.test(nums[j]) && /^[−–-]?[1-9]\d{0,2}$/.test(nums[j - 1]) && !(fits(nums.length) && !fits(nums.length - 1))) {
           return {
             error: `Line ${li + 1}: “${nums[j - 1]} ${nums[j]}” could be one number with a space between its thousands (${nums[j - 1]},${nums[j]}) or two numbers. Write thousands with commas, or separate the columns with tabs, semicolons or vertical bars.`,
           };
@@ -223,7 +237,20 @@ export function parsePeriodTable(text: string, names: string[], required: number
     rows.push({ label, values });
     if (rows.length > MAX_DAMAGES_ROWS) return { error: `More than ${MAX_DAMAGES_ROWS.toLocaleString("en-US")} periods is outside this calculator.` };
   }
-  if (totalsLine) notes.push(`Line ${totalsLine.li + 1} (“${totalsLine.text}”) is a totals line and was skipped: totals are computed here, not read.`);
+  if (totalsLine && !rows.length) {
+    return { error: `Line ${totalsLine.li + 1} (“${totalsLine.text}”) reads as a totals line and there are no periods; start each row with its period, e.g. 2023 or 2023-Q1.` };
+  }
+  if (totalsLine) {
+    // Skipped only when it IS the column total; a last period that merely starts with "Total" or "Sum" ("Total Q1")
+    // is refused by name rather than dropped.
+    const colSum = rows.reduce((t, r) => t + r.values[0], 0);
+    if (!(Number.isFinite(totalsLine.first) && Math.abs(totalsLine.first - colSum) <= 0.005 + 1e-12 * Math.abs(colSum))) {
+      return {
+        error: `Line ${totalsLine.li + 1} (“${totalsLine.text}”) starts like a totals line, but its first number is not the column total; if it is a period, rename it (e.g. 2023-Q1), otherwise remove it.`,
+      };
+    }
+    notes.push(`Line ${totalsLine.li + 1} (“${totalsLine.text}”) is a totals line and was skipped: totals are computed here, not read.`);
+  }
   if (!rows.length) return { error: `Enter at least one period: a label, then ${names.slice(0, required).join(", ")}.` };
   return { rows, notes };
 }

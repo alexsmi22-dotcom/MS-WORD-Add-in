@@ -33,7 +33,7 @@ import {
 import { blockFieldListener, debouncedPreview, FIN_BLOCK_DEBOUNCE_MS } from "../previewDebounce";
 import { finPlotSvg } from "../financeFigures";
 import { buildChartPreviewSvg } from "../tablechart";
-import { THIN_SPACE } from "../axis";
+import { THIN_SPACE, commaGroupLabel } from "../axis";
 import { insertableResultText } from "../insertGate";
 import { paneCode } from "./paneCode";
 
@@ -445,4 +445,36 @@ test("tranches still read space-grouped single amounts (one number per row is un
   const t = parseTranches("June 30, 2022  98 765,43", false);
   if (!t.ok) throw new Error(t.error);
   expect(t.value[0].amount).toBe(98765.43);
+});
+
+describe("narrow pass on the E1 fix", () => {
+  const P = (t: string, n: string[], req: number, o = {}) => parsePeriodTable(t, n, req, o);
+  test("2023 500 120 in a two-number table is two numbers, as with tabs", () => {
+    const r = P("2023 500 120", ["units", "actual units"], 2);
+    expect("error" in r ? r.error : r.rows[0].values).toEqual([500, 120]);
+  });
+  test("a lone 0 never starts a thousands group", () => {
+    const r = P("2023 100 0 250", ["a", "b", "c"], 1);
+    expect("error" in r ? r.error : r.rows[0].values).toEqual([100, 0, 250]);
+  });
+  test("period numbers 1, 2 (forecast years) and a yyyymm code are period labels", () => {
+    const r = P("1\t500000\n2\t600000\n202301\t5", ["base"], 1);
+    expect("error" in r ? r.error : r.rows.map((x) => x.label)).toEqual(["1", "2", "202301"]);
+  });
+  test("a last line starting with Sum or Total that is NOT the column total is refused, never dropped", () => {
+    expect("error" in P("2022\t100\nSum 2023\t200", ["base"], 1)).toBe(true);
+    expect("error" in P("2022\t100\nTotal Q1\t200", ["base"], 1)).toBe(true);
+    const ok = P("2022\t100\n2023\t200\nTotal\t300", ["base"], 1);
+    expect("error" in ok ? ok.error : ok.rows.length).toBe(2);
+  });
+  test("a lone totals line says so", () => {
+    const r = P("Total\t500", ["base"], 1);
+    expect("error" in r && r.error).toMatch(/totals line and there are no periods/);
+  });
+  test("comma money ticks group four-digit values too", () => {
+    expect(commaGroupLabel("1250")).toBe("1,250");
+    expect(commaGroupLabel("12 500")).toBe("12,500");
+    expect(commaGroupLabel("250")).toBe("250");
+    expect(commaGroupLabel("1250.5")).toBe("1,250.5");
+  });
 });

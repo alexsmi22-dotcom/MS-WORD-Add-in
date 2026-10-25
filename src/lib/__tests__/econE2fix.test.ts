@@ -70,19 +70,20 @@ describe("decimal commas are never misread", () => {
     expect(s.ok && Array.from(s.cols.y)).toEqual([1.5, 2]);
     expect(s.ok && Array.from(s.cols.X[0])).toEqual([1234.5, 3]);
   });
-  test("review round: a semicolon column that groups thousands with points refuses a bare 2.345 beside 1.234,5", () => {
-    for (const body of ["1;1.234,5\n2;2.345\n4;4.000\n5;1.000,5", "1;2.345\n2;1.234,5\n4;4,5"]) {
+  test("review round: in a semicolon table a bare 2.345 in a column that writes decimal commas is refused", () => {
+    for (const body of ["1;1.234,5\n2;2.345\n4;4.000\n5;1.000,5", "1;2.345\n2;1.234,5\n4;4,5", "1;2.345\n2;3,5\n4;4,25"]) {
       const d = parseRegData(`y;x\n${body}`);
       if (!d.ok) throw new Error(d.reason);
       const s = selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
       expect(s.ok).toBe(false);
-      expect(!s.ok && s.reason).toContain("uses a point as a thousands separator");
+      expect(!s.ok && s.reason).toContain("may be a thousands separator rather than a decimal point");
     }
-    // Without a point-grouped cell in the column, 2.345 stays two and a bit.
-    const d = parseRegData("y;x\n1;2.345\n2;3,5\n4;4,25");
+    // A column with no comma cell keeps its points as decimal points, and 2.5 is never thousands-shaped.
+    const d = parseRegData("y;x;z\n1,5;2.345;2.5\n2,5;3.125;3,5\n4,25;4.75;4,25");
     if (!d.ok) throw new Error(d.reason);
-    const s = selectColumns(d.data, { dep: "y", preds: ["x"], text: "" });
-    expect(s.ok && Array.from(s.cols.X[0])).toEqual([2.345, 3.5, 4.25]);
+    const s = selectColumns(d.data, { dep: "y", preds: ["x", "z"], text: "" });
+    expect(s.ok && Array.from(s.cols.X[0])).toEqual([2.345, 3.125, 4.75]);
+    expect(s.ok && Array.from(s.cols.X[1])).toEqual([2.5, 3.5, 4.25]);
   });
   test("review round: a decimal comma in one column makes a thousands-shaped comma in another ambiguous", () => {
     const d = parseRegData("y\tx\n0,5\t1,250\n1,5\t2,500\n2,5\t3,125\n3,7\t4,750");

@@ -71,8 +71,6 @@ const q = (s: string): string => `“${s}”`;
 const PLAIN_DECIMAL = /^-?\d{1,15}(\.\d+)?$/;
 /** "2.345", "1.000.000": a point that, in a semicolon (European) table, may be a thousands separator. */
 const DOT_GROUPS = /^-?\d{1,3}(\.\d{3})+$/;
-/** "1.234,5": a point used as the thousands separator beside a decimal comma. */
-const DOT_THOUSANDS = /^[-−+]?\d{1,3}(\.\d{3})+,\d+/;
 
 function dotAmbiguity(
   name: string,
@@ -82,9 +80,9 @@ function dotAmbiguity(
   return {
     ok: false,
     reason:
-      `Column ${q(name)} uses a point as a thousands separator (${q(k.cell)}, row ${k.row}), so ${q(g.cell)} ` +
-      `(row ${g.row}) could be read either way. Write every cell of the column with its decimal comma ` +
-      `(${q(`${g.cell},0`)}) or without thousands separators.`,
+      `Column ${q(name)} writes decimals with a comma (${q(k.cell)}, row ${k.row}), so the point in ${q(g.cell)} ` +
+      `(row ${g.row}) may be a thousands separator rather than a decimal point. Write every cell of the column with ` +
+      `its decimal comma (${q(`${g.cell},0`)}) or without thousands separators.`,
   };
 }
 
@@ -252,13 +250,13 @@ export function selectColumns(
   /**
    * The first unambiguous decimal-comma cell and the first thousands-shaped cell in the model's columns. The decision
    * is table-wide: once "0,5" in one column shows the table writes decimal commas, "1,250" in another is as likely
-   * 1.25 as 1,250, so the two together are refused. In a semicolon table the thousands separator is the point
-   * ("1.234,5"), so a "2.345" beside it in the same column is equally ambiguous.
+   * 1.25 as 1,250, so the two together are refused. In a semicolon table a column that writes decimal commas ("3,5",
+   * "1.234,5") uses the point as its thousands separator, so a bare "2.345" in it may be 2,345 and is refused.
    */
   type Seen = { cell: string; row: number; col: number } | null;
   let decSeen: Seen = null;
   let kSeen: Seen = null;
-  const dotKSeen: Seen[] = used.map(() => null);
+  const commaSeen: Seen[] = used.map(() => null);
   const dotGroupSeen: Seen[] = used.map(() => null);
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -272,8 +270,8 @@ export function selectColumns(
       if (PLAIN_DECIMAL.test(cell)) {
         if (semicolon && DOT_GROUPS.test(cell)) {
           if (!dotGroupSeen[u]) dotGroupSeen[u] = { cell, row: i + 1, col: j };
-          const dk = dotKSeen[u];
-          if (dk) return dotAmbiguity(names[j], dk, dotGroupSeen[u]!);
+          const c = commaSeen[u];
+          if (c) return dotAmbiguity(names[j], c, dotGroupSeen[u]!);
         }
         vals.push(Number(cell));
         continue;
@@ -289,10 +287,10 @@ export function selectColumns(
       if (decimalComma) {
         decimalCommas++;
         if (!decSeen) decSeen = { cell, row: i + 1, col: j };
-        if (semicolon && DOT_THOUSANDS.test(cell.trim())) {
-          if (!dotKSeen[u]) dotKSeen[u] = { cell, row: i + 1, col: j };
+        if (semicolon) {
+          if (!commaSeen[u]) commaSeen[u] = { cell, row: i + 1, col: j };
           const dg = dotGroupSeen[u];
-          if (dg) return dotAmbiguity(names[j], dotKSeen[u]!, dg);
+          if (dg) return dotAmbiguity(names[j], commaSeen[u]!, dg);
         }
       } else if (!semicolon && THOUSANDS_SHAPE.test(cell.split(/[×xX·]/)[0].trim())) {
         if (!kSeen) kSeen = { cell, row: i + 1, col: j };

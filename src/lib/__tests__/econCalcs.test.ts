@@ -10,6 +10,9 @@ import { parseRegData, parseSpec, parseSpecList, selectColumns } from "../regDat
 import { buildRegTable, fmtFixed, fmtP, starsFor } from "../regTable";
 import { insertableResultText } from "../insertGate";
 import { tableCellsInsertable } from "../damagesInterest";
+
+/** The no-break space the star legend puts after "<". */
+const NB = String.fromCharCode(160);
 import type { StatOutput } from "../analyzeBlocks";
 import type { FittedModel } from "../regModel";
 
@@ -67,7 +70,7 @@ describe("econ-ols on the Longley default", () => {
     // statsmodels: UNEMP −2.0202 (SE 0.4884, t −4.136, p 0.0025); Constant −3482258.63.
     expect(rows[3]).toEqual(["UNEMP", "−2.020***", "0.488", "−4.136", "0.003", "[−3.125; −0.915]"]);
     expect(rows[7][1]).toBe("−3,482,258.635***");
-    expect(out.tables![0].note).toContain("* p < 0.10, ** p < 0.05, *** p < 0.01");
+    expect(out.tables![0].note).toContain(`* p <${NB}0.10, ** p <${NB}0.05, *** p <${NB}0.01`);
   });
   test("diagnostics table, White skipped by name (28 auxiliary regressors, 16 rows)", () => {
     const rows = out.tables![1].rows;
@@ -109,7 +112,7 @@ describe("econ-regtable on the Longley default", () => {
     expect(rows[i + 1][3]).toMatch(/^\(\d/);
     expect(rows.slice(-3).map((r) => r[0])).toEqual(["N", "R²", "SE type"]);
     expect(rows[rows.length - 3].slice(1)).toEqual(["16", "16", "16"]);
-    expect(out.tables![0].note).toBe("Standard errors in parentheses. * p < 0.10, ** p < 0.05, *** p < 0.01.");
+    expect(out.tables![0].note).toBe(`Standard errors in parentheses. * p <${NB}0.10, ** p <${NB}0.05, *** p <${NB}0.01.`);
     expect(contractViolations(out)).toEqual([]);
   });
   test("a failing model is named", () => {

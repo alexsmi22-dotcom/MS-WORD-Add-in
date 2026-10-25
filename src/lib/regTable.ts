@@ -122,7 +122,14 @@ export function starsFor(p: number, scheme: StarScheme = "econ"): string {
 /** The legend line for a scheme. */
 export function starLegend(scheme: StarScheme = "econ", statLabels: ("t" | "z")[] = ["t"]): string {
   const se = "Standard errors in parentheses.";
-  const stars = scheme === "none" ? "" : scheme === "econ" ? " * p < 0.10, ** p < 0.05, *** p < 0.01." : " * p < 0.05, ** p < 0.01, *** p < 0.001.";
+  // A no-break space after "<" so a threshold never wraps away from its sign (as P_BELOW).
+  const lt = `<${NBSP}`;
+  const stars =
+    scheme === "none"
+      ? ""
+      : scheme === "econ"
+        ? ` * p ${lt}0.10, ** p ${lt}0.05, *** p ${lt}0.01.`
+        : ` * p ${lt}0.05, ** p ${lt}0.01, *** p ${lt}0.001.`;
   const ref = new Set(statLabels);
   const refText = ref.size === 2 ? " p-values from t (OLS) or z (logit, probit) statistics." : "";
   return se + stars + refText;

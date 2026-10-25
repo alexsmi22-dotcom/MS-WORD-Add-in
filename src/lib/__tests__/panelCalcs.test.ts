@@ -206,7 +206,11 @@ describe("hostile inputs", () => {
     refused(fe({ data: tinv, ...P }), /entity effects absorb it/);
     contract(re({ data: tinv, ...P }));
     const trend = panel(10, 4, 2, (i, t, x1, x2, y) => [`e${i}`, 2000 + t, y.toFixed(6), x1.toFixed(6), String(t + i)]);
-    refused(fe({ data: trend, ...P, effects: "twoway" }), /absorbed by the entity and time effects/);
+    refused(fe({ data: trend, ...P, effects: "twoway" }), /entity and time effects, so it counts as absorbed/);
+    // A large level with real within variation: refused by linearmodels' 10⁻⁵ rule, with the fix named; RE keeps it.
+    const level = panel(10, 4, 2, (i, t, x1, x2, y) => [`e${i}`, 2000 + t, y.toFixed(6), (1e6 + x1).toFixed(6), x2.toFixed(6)]);
+    refused(fe({ data: level, ...P }), /less than 10⁻⁵ of its size left.*subtracting a constant near its mean/);
+    contract(re({ data: level, ...P }));
   });
   test("duplicate entity × period, refused by row before listwise deletion", () => {
     const d = panel(5, 3).split("\n");
@@ -316,6 +320,34 @@ describe("difference-in-differences", () => {
     refused(did({ controls: "pop + " }), /empty term/);
     refused(did({ controls: "nope" }), /No column is named “nope”/);
   });
+  test("everyone treated in the same period: no comparison group, said in DiD terms", () => {
+    refused(did({ data: didTable(20, 6, () => 3) }), /Every entity is treated, all from “2013”.*no comparison group/);
+  });
+  test("NA cells and 10¹² / 10⁻¹² scales", () => {
+    const d = didTable(30, 6, (i) => (i < 10 ? 3 : null)).split("\n");
+    d[4] = d[4].replace(/\t[^\t]+\t(\d)\t/, "\tNA\t$1\t");
+    const na = did({ data: d.join("\n"), controls: "pop" });
+    contract(na);
+    expect(na.text).toMatch(/1 row with a missing cell/);
+    const scaled = didTable(30, 6, (i) => (i < 10 ? 3 : null))
+      .split("\n")
+      .map((l, i) => {
+        if (i === 0) return l;
+        const c = l.split("\t");
+        c[2] = (Number(c[2]) * 1e12).toPrecision(12);
+        c[4] = (Number(c[4]) * 1e-12).toPrecision(12);
+        return c.join("\t");
+      })
+      .join("\n");
+    const big = did({ data: scaled, controls: "pop" });
+    contract(big);
+    const est = panelDidModel(reader(PANEL_DID_DEFAULTS, { data: scaled, controls: "pop" }));
+    if ("error" in est) throw new Error(est.error);
+    expect(Math.abs(est.terms[0].coef / 2e12 - 1)).toBeLessThan(0.3);
+    const reNa = panel(20, 5, 9).split("\n");
+    reNa[5] = reNa[5].replace(/\t[^\t]+$/, "\tNA");
+    contract(re({ data: reNa.join("\n"), ...P }));
+  });
 });
 
 describe("two-way transformation is exact", () => {
@@ -369,6 +401,42 @@ describe("freeze bound: 100,000 rows", () => {
     contract(out);
     expect(ms).toBeLessThan(bound);
   });
+  test("worst corner the caps allow: 100,000 rows, event study with 20 coefficients, clustered; over the rows cap", () => {
+    // mulberry32: the float LCG above cycles early over 10⁶ draws (its product leaves the exact-integer range).
+    let s = 7;
+    const u = (): number => {
+      s = (s + 0x6d2b79f5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const rows: string[] = ["id\tyr\ty\tx1\tx2\tpolicy"];
+    for (let i = 0; i < 5000; i++) {
+      const a = u();
+      const start = i % 4 === 0 ? 8 + (i % 3) : -1;
+      for (let t = 0; t < 20; t++) {
+        const d = start >= 0 && t >= start ? 1 : 0;
+        rows.push(`e${i}\t${2000 + t}\t${(a + u() + d).toFixed(4)}\t${u().toFixed(4)}\t${u().toFixed(4)}\t${d}`);
+      }
+    }
+    const t0 = Date.now();
+    // 9 leads + 8 lags = 17 dummies, 2 controls and the constant: 20 coefficients × 100,000 rows = the 2,000,000 cap.
+    const out = did({ data: rows.join("\n"), outcome: "y", entity: "id", time: "yr", treat: "policy", controls: "x1 + x2", leads: "9", lags: "8" });
+    const ms = Date.now() - t0;
+    contract(out);
+    expect(out.text).toMatch(/DiD event study: relative period/);
+    // Measured 2.1 to 2.6 s on the build machine (1 worker, two other builders running); bound 3× that. A slower
+    // machine stops by name at the 6 s clock instead of freezing.
+    expect(ms).toBeLessThan(8000);
+    // One more lead is over the cells cap and is refused up front by name (the DiD estimate itself still stands).
+    const over = did({ data: rows.join("\n"), outcome: "y", entity: "id", time: "yr", treat: "policy", controls: "x1 + x2", leads: "10", lags: "8" });
+    contract(over);
+    expect(over.text).toMatch(/event study not computed: .*at most 2,000,000 row-coefficient cells/);
+    // More than 100,000 rows is refused before the table is parsed.
+    const extra = rows.join("\n") + "\ne99999\t2000\t1\t0.5\t0.5\t0";
+    refused(did({ data: extra, outcome: "y", entity: "id", time: "yr", treat: "policy" }), /more than 100,000 rows/);
+    refused(fe({ data: extra, ...P }), /more than 100,000 rows/);
+  }, 60000);
   test("the wall clock stops a fit by name (clock mocked to jump 4 s per reading)", () => {
     let t = 1e12;
     const spy = jest.spyOn(Date, "now").mockImplementation(() => (t += 4000));

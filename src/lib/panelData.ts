@@ -16,8 +16,29 @@ import { findColumn, isMissingCell, selectColumns, type RegDataset, type RegSpec
 import { readDateToken } from "./damagesInterest";
 import { intText } from "./regTable";
 
-/** Past this many data rows a panel is refused up front (100,000 rows fit well inside the pane's time budget). */
-export const PANEL_MAX_ROWS = 200_000;
+/**
+ * Past this many data rows a panel is refused up front. 100,000 rows fit inside the pane's time budget; the shared
+ * table reader (regData.parseRegData, dataimport.parseDelimited) spreads one argument per row into Math.max and
+ * overflows the stack at about 125,000 rows, so the limit is checked on the raw text before it is parsed
+ * (panelTextTooLong).
+ */
+export const PANEL_MAX_ROWS = 100_000;
+
+/** A refusal when the pasted text has more data lines than a panel allows (counted before parsing), or null. */
+export function panelTextTooLong(text: string): string | null {
+  let lines = 0;
+  let inLine = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch === 10 || ch === 13) inLine = false;
+    else if (!inLine && ch !== 32 && ch !== 9) {
+      inLine = true;
+      lines++;
+      if (lines > PANEL_MAX_ROWS + 1) return `The table has more than ${intText(PANEL_MAX_ROWS)} rows; a panel is limited to ${intText(PANEL_MAX_ROWS)} rows.`;
+    }
+  }
+  return null;
+}
 
 const q = (s: string): string => `“${s}”`;
 

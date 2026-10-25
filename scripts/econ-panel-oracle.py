@@ -275,6 +275,85 @@ cases.append(run_re("re_zero_classical", rez, "y", ["x1"], "g", "t", "classical"
 cases.append(run_re("re_zero_cluster-entity", rez, "y", ["x1"], "g", "t", "cluster-entity"))
 haus_rez = hausman(rez, "y", ["x1"], ["x1"], "g", "t")
 
+# --- RE 4: a regressor at level 10⁶ with within SD 1 (counted in the within rank, as lstsq does) and a second
+#     regressor; effects uncorrelated with the regressors, so the two-regressor Hausman is positive definite ----------
+rng = np.random.default_rng(4242)
+N, T = 50, 6
+rows = []
+for i in range(N):
+    a = rng.normal(0, 0.8)
+    b = rng.normal(0, 1)
+    cc = rng.normal(0, 1)
+    for t in range(T):
+        if rng.random() < 0.1:
+            continue
+        x1 = 1e6 + 3 * b + rng.normal()
+        x2 = 2 * cc + rng.normal()
+        yv = 2 + a + 0.5 * (x1 - 1e6) - 0.7 * x2 + rng.normal()
+        rows.append({"id": f"i{i + 1}", "t": t + 1, "y": round(yv, 6), "x1": round(x1, 6), "x2": round(x2, 6)})
+rel = pd.DataFrame(rows)
+def mp_re_se(df, c, ent, y, xs):
+    """RE standard errors at 50 digits, at linearmodels' own σ²ε and σ²ᵤ: linearmodels inverts the UNCENTRED
+    quasi-demeaned XᵀX, which loses about 4 digits when a regressor sits at 10⁶ (measured: 5.7×10⁻⁵ relative)."""
+    import mpmath as mp
+
+    mp.mp.dps = 50
+    g = df.groupby(ent)
+    T = g[y].transform("count").values
+    s2e, s2u = c["sigma2_eps"], c["sigma2_u"]
+    theta = 1 - np.sqrt(s2e / (T * s2u + s2e))
+    n, k = len(df), len(xs) + 1
+
+    def qd(col):
+        v, m = df[col].values, g[col].transform("mean").values
+        return [mp.mpf(float(a)) - mp.mpf(float(t)) * mp.mpf(float(b)) for a, b, t in zip(v, m, theta)]
+
+    X = mp.matrix(n, k)
+    for j, col in enumerate(xs):
+        for i, v in enumerate(qd(col)):
+            X[i, j] = v
+    for i in range(n):
+        X[i, k - 1] = 1 - mp.mpf(float(theta[i]))
+    Y = mp.matrix(qd(y))
+    A = (X.T * X) ** -1
+    e = Y - X * (A * (X.T * Y))
+    if c["se"] == "classical":
+        V = A * (sum(v**2 for v in e) / (n - k))
+    else:
+        M = mp.matrix(k, k)
+        if c["se"] == "robust":
+            for i in range(n):
+                for a in range(k):
+                    for b in range(k):
+                        M[a, b] += e[i] ** 2 * X[i, a] * X[i, b]
+            scale = mp.mpf(n) / (n - k)
+        else:
+            codes = pd.Categorical(df[ent]).codes
+            G = len(set(codes))
+            U = [mp.matrix(k, 1) for _ in range(G)]
+            for i in range(n):
+                for a in range(k):
+                    U[codes[i]][a] += e[i] * X[i, a]
+            for u in U:
+                M += u * u.T
+            scale = mp.mpf(G) / (G - 1) * (n - 1) / (n - k)
+        V = A * M * A * scale
+    names = xs + ["Constant"]
+    return {names[j]: float(mp.sqrt(V[j, j])) for j in range(k)}
+
+
+for se in ["classical", "robust", "cluster-entity"]:
+    c = run_re(f"re_level_{se}", rel, "y", ["x1", "x2"], "id", "t", se)
+    c["se_mp"] = mp_re_se(rel, c, "id", "y", ["x1", "x2"])
+    cases.append(c)
+# FE refuses x1 at this level by linearmodels' absorbed rule (less than 1e-5 of its norm survives demeaning), so the
+# two-regressor Hausman case uses the same data with x1 shifted by −10⁶ (FE and RE slopes are unchanged by a shift).
+rel_c = rel.copy()
+rel_c["x1"] = (rel_c["x1"] - 1e6).round(6)
+for se in ["classical"]:
+    cases.append(run_re(f"re_hq2_{se}", rel_c, "y", ["x1", "x2"], "id", "t", se))
+haus_q2 = hausman(rel_c, "y", ["x1", "x2"], ["x1", "x2"], "id", "t")
+
 # --- DiD 1: 2 × 2, balanced ------------------------------------------------------------------------------------------
 rng = np.random.default_rng(1111)
 rows = []
@@ -364,6 +443,11 @@ c = run_fe("event_stagger_3_3", ev, "y", evn, "state", "year", "twoway", "cluste
 c["method"] = "event"
 c["leads"], c["lags"], c["treat"] = 3, 3, "treated"
 cases.append(c)
+ev3, evn3 = event_dummies(dcom, "county", "period", "D", 6, 2)  # bin ≤ −6 has no rows: dropped
+c = run_fe("event_common_6_2_robust", ev3, "y", evn3, "county", "period", "twoway", "robust")
+c["method"] = "event"
+c["leads"], c["lags"], c["treat"] = 6, 2, "D"
+cases.append(c)
 ev2, evn2 = event_dummies(dcom, "county", "period", "D", 4, 4)
 c = run_fe("event_common_4_4", ev2, "y", evn2 + ["x"], "county", "period", "twoway", "cluster-entity")
 c["method"] = "event"
@@ -380,10 +464,12 @@ data = {
     "d22": tsv(d22.drop(columns=["group"])),
     "dcom": tsv(dcom),
     "dst": tsv(dst),
+    "rel": tsv(rel),
+    "rel_c": tsv(rel_c),
 }
 which = {
     "fe_bal": "bal", "re_bal": "bal", "fe_unbal": "unb", "fe_cluster": "nest", "fe_scale": "big", "re_unbal": "reu",
-    "re_zero": "rez", "did_2x2": "d22", "did_common": "dcom", "did_stagger": "dst", "event_stagger": "dst", "event_common": "dcom",
+    "re_zero": "rez", "re_level": "rel", "re_hq2": "rel_c", "did_2x2": "d22", "did_common": "dcom", "did_stagger": "dst", "event_stagger": "dst", "event_common": "dcom",
 }
 for c in cases:
     c["data"] = next(v for k, v in which.items() if c["name"].startswith(k))
@@ -392,7 +478,7 @@ out = {
     "linearmodels": __import__("linearmodels").__version__,
     "data": data,
     "cases": cases,
-    "hausman": {"bal": haus_bal, "reu": haus_reu, "rez": haus_rez},
+    "hausman": {"bal": haus_bal, "reu": haus_reu, "rez": haus_rez, "q2": haus_q2},
     "rez_seed": rez_seed,
 }
 with open(os.path.join(FIX, "econ-panel-oracle.json"), "w", encoding="utf-8") as f:

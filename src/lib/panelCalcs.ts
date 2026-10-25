@@ -8,7 +8,7 @@
  */
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { parseRegData, parseSpec, findColumn } from "./regData";
-import { readPanel, panelShape, type PanelColumns } from "./panelData";
+import { readPanel, panelShape, panelTextTooLong, type PanelColumns } from "./panelData";
 import {
   fitFixedEffects,
   fitRandomEffects,
@@ -221,8 +221,9 @@ function fitStatsRows(r: PanelFitResult, extra: [string, string][] = []): string
   const add = (k: string, v: number, d = 3): void => {
     if (Number.isFinite(v)) rows.push([k, fmtFixed(v, d)]);
   };
-  add(r.model.kind === "fe" ? "R² (linearmodels rsquared)" : "R² (quasi-demeaned)", r.r2);
   add("R² within", r.r2Within);
+  if (r.model.kind === "re") add("R² (quasi-demeaned)", r.r2);
+  else if (Math.abs(r.r2 - r.r2Within) > 1e-12) add("R² (two-way transformed)", r.r2);
   add("R² between", r.r2Between);
   add("R² overall", r.r2Overall);
   if (r.f) rows.push([`F(${r.f.df1}, ${intText(r.f.df2)}), slopes`, `${fmtFixed(r.f.value, 3)} (p ${pText(r.f.p)})`]);
@@ -242,6 +243,8 @@ function catchRefusal(f: () => StatOutput, what: string): StatOutput {
 }
 
 function readCommon(get: (k: string) => string, needCluster: boolean, spec: { dep: string; preds: string[]; text: string }): { ok: true; p: PanelColumns } | { ok: false; reason: string } {
+  const long = panelTextTooLong(get("data"));
+  if (long) return { ok: false, reason: long };
   const d = parseRegData(get("data"));
   if (!d.ok) return d;
   const r = readPanel(d.data, { spec, entity: get("entity"), time: get("time"), cluster: needCluster ? get("cluster") : undefined });
@@ -297,8 +300,8 @@ export function panelFeCalc(read: Read): StatOutput {
     lines.push(`Standard errors: ${m.seLabel}`);
     lines.push(
       fit.effects === "twoway"
-        ? `R² = ${fmtFixed(fit.r2, 3)} (two-way transformed), within ${fmtFixed(fit.r2Within, 3)}, between ${fmtFixed(fit.r2Between, 3)}, overall ${fmtFixed(fit.r2Overall, 3)}`
-        : `R² within = ${fmtFixed(fit.r2, 3)}, between ${fmtFixed(fit.r2Between, 3)}, overall ${fmtFixed(fit.r2Overall, 3)}`,
+        ? `R² within = ${fmtFixed(fit.r2Within, 3)}, between ${fmtFixed(fit.r2Between, 3)}, overall ${fmtFixed(fit.r2Overall, 3)}; two-way transformed ${fmtFixed(fit.r2, 3)}`
+        : `R² within = ${fmtFixed(fit.r2Within, 3)}, between ${fmtFixed(fit.r2Between, 3)}, overall ${fmtFixed(fit.r2Overall, 3)}`,
     );
     if (fit.f) lines.push(`F(${fit.f.df1}, ${intText(fit.f.df2)}) = ${fmtFixed(fit.f.value, 3)}, p ${pText(fit.f.p)} (slopes, under the chosen standard errors)`);
     else if (fit.fWhy) lines.push(fit.fWhy);
@@ -348,7 +351,8 @@ export function panelReCalc(read: Read): StatOutput {
     const rd = readCommon(get, se === "cluster-column", spec);
     if (!rd.ok) return refuse(rd.reason);
     const p = rd.p;
-    const re = fitRandomEffects(p, { se });
+    const started = Date.now();
+    const re = fitRandomEffects(p, { se, started });
     const m = re.model;
     // Hausman: FE on the regressors that vary within entities, classical covariances.
     let haus: ReturnType<typeof hausman>;
@@ -357,7 +361,7 @@ export function panelReCalc(read: Read): StatOutput {
     else {
       try {
         const pf: PanelColumns = { ...p, X: tvIdx.map((j) => p.X[j]), names: tvIdx.map((j) => p.names[j]) };
-        const fe = fitFixedEffects(pf, { effects: "entity", se: "classical" });
+        const fe = fitFixedEffects(pf, { effects: "entity", se: "classical", started, skipPooled: true });
         haus = hausman(fe, re);
       } catch (e) {
         if (!(e instanceof PanelRefusal)) throw e;
@@ -387,7 +391,7 @@ export function panelReCalc(read: Read): StatOutput {
       const tinv = p.names.filter((nm) => !re.timeVarying.includes(nm));
       lines.push(`${tinv.map(q).join(", ")} ${tinv.length === 1 ? "does" : "do"} not vary within entities: estimated by random effects, absorbed by fixed effects, so left out of the Hausman test.`);
     }
-    lines.push("No Stata match is claimed: Stata's xtreg, re uses the same Swamy–Arora components on balanced panels but a different T̄ on unbalanced ones.");
+    lines.push("The components follow linearmodels; no match with another package is claimed.");
     lines.push("Rows with an empty or NA cell in a column the model uses are dropped (listwise deletion). Entity ids are compared as text.");
     const hausRows: string[][] = [["Test", "Statistic", "df", "p"]];
     if ("skipped" in haus) hausRows.push(["Hausman (FE vs RE)", `not computed: ${haus.skipped}`, "", ""]);
@@ -420,6 +424,8 @@ interface DidRun {
   fit: FeResult;
   treatName: string;
   controls: string[];
+  /** Start of the calculator's wall clock (one deadline for every fit it runs). */
+  started: number;
 }
 
 function runDid(read: Read): DidRun | { error: string } {
@@ -433,6 +439,8 @@ function runDid(read: Read): DidRun | { error: string } {
   const ctext = get("controls").trim();
   const controls = ctext ? ctext.split("+").map((s) => s.trim()) : [];
   if (controls.some((s) => s === "")) return { error: `The controls ${q(ctext)} have an empty term (two + in a row?).` };
+  const long = panelTextTooLong(get("data"));
+  if (long) return { error: long };
   const d = parseRegData(get("data"));
   if (!d.ok) return { error: d.reason };
   const ti = findColumn(d.data.names, treat);
@@ -444,10 +452,20 @@ function runDid(read: Read): DidRun | { error: string } {
   const t = analyseTreatment(p, 0);
   if (!t.ok) return { error: t.reason };
   if (t.info.nTreated === 0) return { error: `No row has ${q(p.names[0])} = 1, so nothing is treated.` };
+  const noControl =
+    `has no comparison group: the treatment dummy is then a function of the period alone, which the time effects absorb. ` +
+    "Difference-in-differences needs entities that are never treated, or treated later, in the same periods.";
+  if (t.info.nNever === 0 && t.info.cohorts.length === 1) {
+    return { error: `Every entity is treated, all from ${q(p.timeLabels[t.info.cohorts[0]])}, so the design ${noControl}` };
+  }
+  const started = Date.now();
   try {
-    const fit = fitFixedEffects(p, { effects: "twoway", se });
-    return { p, fit, treatName: p.names[0], controls: p.names.slice(1) };
+    const fit = fitFixedEffects(p, { effects: "twoway", se, started });
+    return { p, fit, treatName: p.names[0], controls: p.names.slice(1), started };
   } catch (e) {
+    if (e instanceof PanelRefusal && e.message.startsWith(q(p.names[0])) && /absorb/.test(e.message)) {
+      return { error: `The treatment ${q(p.names[0])} is absorbed by the entity and time effects: the design ${noControl}` };
+    }
     if (e instanceof PanelRefusal) return { error: e.message };
     return { error: `The difference-in-differences regression could not be computed (${(e as Error).message}).` };
   }
@@ -523,7 +541,7 @@ export function panelDidCalc(read: Read): StatOutput {
     if (!ev.ok) lines.push(`DiD event study not computed: ${ev.reason}`);
     else {
       try {
-        const es = fitFixedEffects(ev.panel, { effects: "twoway", se: get("se") === "robust" ? "robust" : "cluster-entity" });
+        const es = fitFixedEffects(ev.panel, { effects: "twoway", se: get("se") === "robust" ? "robust" : "cluster-entity", started: r.started, skipPooled: true });
         const df = es.dfResid;
         const tc = tCritical(0.05, df);
         const rowsEs: string[][] = [["Relative period", "Coef.", "SE", "t", "p", "95% CI"]];

@@ -51,12 +51,16 @@ export const TWOWAY_MAX_SMALL_DIM = 1000;
 export const PANEL_MAX_REGRESSORS = 60;
 /** linearmodels' check_absorbed: a column is absorbed when less than this share of its norm survives. */
 export const ABSORBED_TOL = 1e-5;
+/** Rows × coefficients for one fit (each n × k copy is 8 bytes a cell; several copies are live during a fit). */
+export const PANEL_MAX_CELLS = 2_000_000;
 
 export class PanelRefusal extends Error {}
+/** The wall clock ran out: never swallowed by an optional step. */
+export class PanelTimeout extends PanelRefusal {}
 
 function checkClock(started: number, what: string): void {
   if (Date.now() - started > PANEL_WALL_MS) {
-    throw new PanelRefusal(`The ${what} took longer than ${PANEL_WALL_MS / 1000} s, the limit for one fit in the pane, so it was stopped. Use fewer rows or fewer groups.`);
+    throw new PanelTimeout(`The ${what} took longer than ${PANEL_WALL_MS / 1000} s, the limit for one fit in the pane, so it was stopped. Use fewer rows or fewer groups.`);
   }
 }
 
@@ -240,8 +244,10 @@ export function linFit(
   y: ArrayLike<number>,
   cols: ArrayLike<number>[],
   names: string[],
-  opts: { constant: boolean; shift?: { y: number; x: number[] }; skipCollinear?: boolean; constName?: string },
+  opts: { constant: boolean; shift?: { y: number; x: number[] }; skipCollinear?: boolean; constName?: string; started?: number },
 ): LinFit {
+  const started = opts.started ?? Date.now();
+  const tick = (): void => checkClock(started, "regression");
   const n = y.length;
   const k0 = cols.length;
   const ys = powerOfTwoAbove(y);
@@ -265,17 +271,10 @@ export function linFit(
     which.push(-1);
   }
   for (let j = 0; j < k0; j++) {
-    const c = cols[j];
     const z = new Float64Array(n);
-    let nrm = 0;
-    let raw = 0;
-    for (let i = 0; i < n; i++) {
-      z[i] = c[i] - means[j];
-      nrm += z[i] * z[i];
-      raw += c[i] * c[i];
-    }
-    nrm = Math.sqrt(nrm);
-    raw = Math.sqrt(raw);
+    const sq = centreInto(z, cols[j], means[j]);
+    const nrm = Math.sqrt(sq.centred);
+    const raw = Math.sqrt(sq.raw);
     if (!(nrm > Math.max(n, 1) * EPS * 16 * Math.max(raw, Number.MIN_VALUE)) || !(nrm > 0)) {
       if (opts.skipCollinear) continue;
       throw new PanelRefusal(
@@ -297,6 +296,7 @@ export function linFit(
   const keptD: number[] = [];
   const tol = Math.max(n, p0) * EPS * Math.sqrt(p0) * 10;
   for (let d = 0; d < p0; d++) {
+    tick();
     const a = Float64Array.from(design[d]);
     for (let r = 0; r < v.length; r++) reflect(v[r], vtv[r], r, a);
     const kk = v.length;
@@ -343,7 +343,7 @@ export function linFit(
   for (let t = 0; t < p; t++) {
     const col = design[keptD[t]];
     const th = theta[t];
-    for (let i = 0; i < n; i++) e[i] -= th * col[i];
+    axpy(e, -th, col);
   }
   let sseS = 0;
   for (let i = 0; i < n; i++) sseS += e[i] * e[i];
@@ -385,6 +385,7 @@ export function linFit(
     if (Qcols) return Qcols;
     Qcols = [];
     for (let t = 0; t < p; t++) {
+      tick();
       const col = new Float64Array(n);
       col[t] = 1;
       for (let r = t; r >= 0; r--) reflect(v[r], vtv[r], r, col);
@@ -404,10 +405,8 @@ export function linFit(
       for (let i = 0; i < n; i++) w[i] = e[i] * e[i];
       for (let a = 0; a < p; a++)
         for (let b = 0; b <= a; b++) {
-          let s = 0;
-          const qa = Q[a];
-          const qb = Q[b];
-          for (let i = 0; i < n; i++) s += w[i] * qa[i] * qb[i];
+          if (b === 0) tick();
+          const s = dot3(w, Q[a], Q[b]);
           M[a][b] = s;
           M[b][a] = s;
         }
@@ -417,8 +416,8 @@ export function linFit(
       const cl = opt.clusters!;
       const U: Float64Array[] = Array.from({ length: Gc }, () => new Float64Array(p));
       for (let a = 0; a < p; a++) {
-        const qa = Q[a];
-        for (let i = 0; i < n; i++) U[cl[i]][a] += e[i] * qa[i];
+        tick();
+        clusterScores(U, cl, e, Q[a], a);
       }
       M = Array.from({ length: p }, () => new Array<number>(p).fill(0));
       for (const u of U)
@@ -444,6 +443,32 @@ export function linFit(
   const outNames = [...keptReg.map((j) => names[j]), ...(hasC ? [opts.constName ?? "Constant"] : [])];
   const resid = Float64Array.from(e, (x) => x * ys);
   return { n, k, names: outNames, coef, resid, sse: sseS * ys * ys, vcov, kept: keptReg };
+}
+
+// Hot loops live in small helpers: V8 optimises a small function quickly (the lesson of olsInference.ts).
+function dot3(w: Float64Array, a: Float64Array, b: Float64Array): number {
+  let s = 0;
+  for (let i = 0; i < w.length; i++) s += w[i] * a[i] * b[i];
+  return s;
+}
+
+function centreInto(z: Float64Array, c: ArrayLike<number>, m: number): { centred: number; raw: number } {
+  let centred = 0;
+  let raw = 0;
+  for (let i = 0; i < z.length; i++) {
+    z[i] = c[i] - m;
+    centred += z[i] * z[i];
+    raw += c[i] * c[i];
+  }
+  return { centred, raw };
+}
+
+function axpy(y: Float64Array, a: number, x: Float64Array): void {
+  for (let i = 0; i < y.length; i++) y[i] += a * x[i];
+}
+
+function clusterScores(U: Float64Array[], cl: Int32Array, e: Float64Array, q: Float64Array, a: number): void {
+  for (let i = 0; i < e.length; i++) U[cl[i]][a] += e[i] * q[i];
 }
 
 function reflect(vk: Float64Array, vv: number, k: number, a: Float64Array): void {
@@ -537,6 +562,12 @@ function clusterSetup(p: PanelColumns, se: PanelSe): { codes: Int32Array; G: num
 function checkInputs(p: PanelColumns): void {
   if (!p.X.length) throw new PanelRefusal("Add at least one regressor after the ~.");
   if (p.X.length > PANEL_MAX_REGRESSORS) throw new PanelRefusal(`At most ${PANEL_MAX_REGRESSORS} regressors fit in one panel model.`);
+  if (p.n * (p.X.length + 1) > PANEL_MAX_CELLS) {
+    throw new PanelRefusal(
+      `${intText(p.n)} rows × ${p.X.length + 1} coefficients is more than one panel fit handles in the pane (at most ${intText(PANEL_MAX_CELLS)} row-coefficient cells). ` +
+        "Use fewer rows, fewer regressors or a shorter event-study window.",
+    );
+  }
   const ym = magnitudeReason(p.y, p.depName);
   if (ym) throw new PanelRefusal(ym);
   p.X.forEach((c, j) => {
@@ -638,9 +669,38 @@ function assertFinite(model: FittedModel): void {
       if (!Number.isFinite(v)) throw new PanelRefusal(`The estimate for ${q(t.name)} is not a finite number at this scale; rescale the data.`);
 }
 
+/** Why regressor j counts as absorbed: exactly constant within entities, or below linearmodels' 10⁻⁵ rule. */
+function absorbedReason(p: PanelColumns, j: number, ent: Groups, twoway: boolean): string {
+  const c = p.X[j];
+  const first = new Float64Array(ent.G).fill(NaN);
+  let exact = true;
+  for (let i = 0; i < p.n && exact; i++) {
+    const g = p.entity[i];
+    if (Number.isNaN(first[g])) first[g] = c[i];
+    else if (first[g] !== c[i]) exact = false;
+  }
+  const name = q(p.names[j]);
+  if (exact) return `${name} does not vary within entities (it is constant for each ${p.entityName}), so the entity effects absorb it. Remove it, or use random effects.`;
+  const m = mean(c);
+  let dev = 0;
+  for (let i = 0; i < p.n; i++) dev = Math.max(dev, Math.abs(c[i] - m));
+  const levelHint =
+    dev < 1e-2 * Math.abs(m)
+      ? ` Its level (about ${fmtFixed(m, 3)}) is large next to its variation: subtracting a constant near its mean from the column leaves the estimate unchanged and passes the check.`
+      : "";
+  return (
+    `${name} has less than 10⁻⁵ of its size left after removing the ${twoway ? "entity and time" : "entity"} effects, so it counts as absorbed ` +
+    `(linearmodels' rule for absorbed variables)${twoway ? "; it is (nearly) a sum of an entity part and a period part" : ""}.${levelHint}` +
+    (levelHint ? "" : twoway ? " Remove it, or use entity effects only." : " Remove it, or use random effects.")
+  );
+}
+
 /** Panel fixed effects (linearmodels PanelOLS). */
-export function fitFixedEffects(p: PanelColumns, opts: { effects: "entity" | "twoway"; se: PanelSe }): FeResult {
-  const started = Date.now();
+export function fitFixedEffects(
+  p: PanelColumns,
+  opts: { effects: "entity" | "twoway"; se: PanelSe; started?: number; skipPooled?: boolean },
+): FeResult {
+  const started = opts.started ?? Date.now();
   checkInputs(p);
   const n = p.n;
   const k = p.X.length + 1;
@@ -676,15 +736,9 @@ export function fitFixedEffects(p: PanelColumns, opts: { effects: "entity" | "tw
   XT.forEach((c, j) => {
     const raw = norm(p.X[j]);
     if (raw === 0) throw new PanelRefusal(`${q(p.names[j])} is zero in every row used. Remove it.`);
-    if (!(norm(c) >= ABSORBED_TOL * raw)) {
-      throw new PanelRefusal(
-        twoway
-          ? `${q(p.names[j])} is absorbed by the entity and time effects (it is a sum of an entity part and a period part), so its effect cannot be estimated. Remove it, or use entity effects only.`
-          : `${q(p.names[j])} does not vary within entities (it is constant for each ${p.entityName}), so the entity effects absorb it. Remove it, or use random effects.`,
-      );
-    }
+    if (!(norm(c) >= ABSORBED_TOL * raw)) throw new PanelRefusal(absorbedReason(p, j, ent, twoway));
   });
-  const fit = linFit(yT, XT, p.names, { constant: true, shift: { y: mean(p.y), x: p.X.map(mean) } });
+  const fit = linFit(yT, XT, p.names, { constant: true, shift: { y: mean(p.y), x: p.X.map(mean) }, started });
   checkClock(started, "fixed-effects fit");
   const cl = clusterSetup(p, opts.se);
   let V: number[][];
@@ -713,9 +767,8 @@ export function fitFixedEffects(p: PanelColumns, opts: { effects: "entity" | "tw
     seLabel = `Clustered by ${c.name}, ${intText(c.G)} clusters`;
     notes.push(
       nested
-        ? `Standard errors: clustered by ${c.name} (${intText(c.G)} clusters). The entity effects are nested in the clusters, so they are not counted: factor G/(G − 1)·(n − 1)/(n − k), Stata's xtreg, fe vce(cluster) (linearmodels cov_type="clustered", debiased=True, group_debias=True).`
-        : `Standard errors: clustered by ${c.name} (${intText(c.G)} clusters), factor n/(n − k − effects)·G/(G − 1)·(n − 1)/n with all ${intText(neffects)} effects counted, as linearmodels does ${twoway ? "whenever the model has entity and time effects" : "when the entity effects are not nested in the clusters"} (cov_type="clustered", debiased=True, group_debias=True)` +
-            (twoway ? "; Stata's xtreg, fe with i.time dummies does not count the nested entity effects and prints smaller standard errors." : "."),
+        ? `Standard errors: clustered by ${c.name} (${intText(c.G)} clusters). The entity effects are nested in the clusters, so they are not counted: factor G/(G − 1)·(n − 1)/(n − k), the xtreg-fe form (linearmodels cov_type="clustered", debiased=True, group_debias=True, which its documentation gives as Stata's xtreg, fe vce(cluster)).`
+        : `Standard errors: clustered by ${c.name} (${intText(c.G)} clusters), factor n/(n − k − effects)·G/(G − 1)·(n − 1)/n with all ${intText(neffects)} effects counted, as linearmodels does ${twoway ? "whenever the model has entity and time effects" : "when the entity effects are not nested in the clusters"} (cov_type="clustered", debiased=True, group_debias=True): an areg-style count, not the xtreg-fe form, so the standard errors are larger than a count that leaves out nested effects.`,
     );
     if (c.G < 30) notes.push(`Only ${c.G} clusters: cluster-robust inference is unreliable with few clusters.`);
   }
@@ -741,7 +794,8 @@ export function fitFixedEffects(p: PanelColumns, opts: { effects: "entity" | "tw
   // Poolability F.
   let pooledF: FeResult["pooledF"];
   try {
-    const pooled = linFit(p.y, p.X, p.names, { constant: true });
+    if (opts.skipPooled) throw new PanelRefusal("not asked for");
+    const pooled = linFit(p.y, p.X, p.names, { constant: true, started });
     const num = (pooled.sse - fit.sse) / neffects;
     const den = fit.sse / dfResid;
     if (neffects <= 0) pooledF = { skipped: "the effects use no degrees of freedom" };
@@ -751,8 +805,8 @@ export function fitFixedEffects(p: PanelColumns, opts: { effects: "entity" | "tw
       pooledF = { value: v, df1: neffects, df2: dfResid, p: fTestP(v, neffects, dfResid) };
     }
   } catch (e) {
-    if (!(e instanceof PanelRefusal)) throw e;
-    pooledF = { skipped: `the pooled regression cannot be fitted (${e.message})` };
+    if (!(e instanceof PanelRefusal) || e instanceof PanelTimeout) throw e;
+    pooledF = { skipped: opts.skipPooled ? "not computed for this fit" : `the pooled regression cannot be fitted (${e.message})` };
   }
   notes.push(
     twoway
@@ -762,13 +816,13 @@ export function fitFixedEffects(p: PanelColumns, opts: { effects: "entity" | "tw
   notes.push("Entities with a single row (singletons) are kept, as linearmodels' default singletons=True; they add nothing to the slopes but are counted among the effects.");
   notes.push(
     twoway
-      ? "R² is the R² of the fully transformed (entity- and time-demeaned) regression, linearmodels' rsquared; the within R² (entity-demeaned only), between R² (entity means) and overall R² (raw data) are at the same coefficients."
-      : "R² is the within R² (entity-demeaned regression), linearmodels' rsquared; between R² (entity means) and overall R² (raw data) are at the same coefficients.",
+      ? "R² (the headline) is the within R², linearmodels' rsquared_within: the entity-demeaned data at the FE coefficients. linearmodels' rsquared, the R² of the fully transformed (entity- and time-demeaned) regression, is also given, with the between R² (entity means) and overall R² (raw data) at the same coefficients."
+      : "R² (the headline) is the within R² of the entity-demeaned regression, linearmodels' rsquared (equal to its rsquared_within); between R² (entity means) and overall R² (raw data) are at the same coefficients.",
   );
-  notes.push(`The pooled F tests that all ${intText(neffects)} included effects are zero against pooled OLS (linearmodels' f_pooled).`);
+  if (!opts.skipPooled) notes.push(`The pooled F tests that all ${intText(neffects)} included effects are zero against pooled OLS (linearmodels' f_pooled).`);
   const stats: ModelStat[] = [
-    { label: "R²", value: r2 },
-    { label: "R² within", value: three.w },
+    { label: "R²", value: three.w },
+    ...(twoway ? [{ label: "R² (two-way transformed)", value: r2 }] : []),
     { label: "R² between", value: three.b },
     { label: "R² overall", value: three.o },
   ];
@@ -827,8 +881,8 @@ export interface ReResult extends PanelFitResult {
 }
 
 /** Panel random effects (linearmodels RandomEffects, small_sample=False). */
-export function fitRandomEffects(p: PanelColumns, opts: { se: PanelSe }): ReResult {
-  const started = Date.now();
+export function fitRandomEffects(p: PanelColumns, opts: { se: PanelSe; started?: number }): ReResult {
+  const started = opts.started ?? Date.now();
   checkInputs(p);
   const n = p.n;
   const k = p.X.length + 1;
@@ -837,16 +891,25 @@ export function fitRandomEffects(p: PanelColumns, opts: { se: PanelSe }): ReResu
   // Within regression: σ²ε. Regressors that do not vary within entities have no coefficient there.
   const yd = demean(p.y, ent);
   const Xd = p.X.map((c) => demean(c, ent));
-  const tv: number[] = [];
-  Xd.forEach((c, j) => {
+  // linearmodels counts the within regression's numerical rank (lstsq on the demeaned columns divided by their norms
+  // before demeaning, rcond = ε·max(n, k)): a column whose demeaned share is at rounding level has no coefficient
+  // there, and one that is collinear with the others once demeaned does not add to the rank.
+  const rel = Xd.map((c, j) => {
     const raw = norm(p.X[j]);
     if (raw === 0) throw new PanelRefusal(`${q(p.names[j])} is zero in every row used. Remove it.`);
-    if (norm(c) >= ABSORBED_TOL * raw) tv.push(j);
+    return norm(c) / raw;
+  });
+  const relMax = Math.max(...rel);
+  const cand: number[] = [];
+  rel.forEach((r, j) => {
+    if (r > Math.max(n, k) * EPS * Math.max(relMax, Number.MIN_VALUE) * 4) cand.push(j);
   });
   let sseW: number;
-  if (tv.length) {
-    const w = linFit(yd, tv.map((j) => Xd[j]), tv.map((j) => p.names[j]), { constant: true, shift: { y: 0, x: tv.map(() => 0) } });
+  let tv: number[] = [];
+  if (cand.length) {
+    const w = linFit(yd, cand.map((j) => Xd[j]), cand.map((j) => p.names[j]), { constant: true, shift: { y: 0, x: cand.map(() => 0) }, skipCollinear: true, started });
     sseW = w.sse;
+    tv = w.kept.map((r) => cand[r]);
   } else {
     sseW = 0;
     for (let i = 0; i < n; i++) sseW += yd[i] * yd[i];
@@ -866,7 +929,7 @@ export function fitRandomEffects(p: PanelColumns, opts: { se: PanelSe }): ReResu
   try {
     between = linFit(ybar, Xbar, p.names, { constant: true });
   } catch (e) {
-    if (!(e instanceof PanelRefusal)) throw e;
+    if (!(e instanceof PanelRefusal) || e instanceof PanelTimeout) throw e;
     throw new PanelRefusal(`σ²ᵤ cannot be estimated from the between regression on the entity means: ${e.message}`);
   }
   const dfB = p.N - k;
@@ -887,20 +950,47 @@ export function fitRandomEffects(p: PanelColumns, opts: { se: PanelSe }): ReResu
     thetaMax = Math.max(thetaMax, theta[g]);
   }
   checkClock(started, "random-effects fit");
-  // Quasi-demeaned regression; the constant becomes 1 − θᵢ.
-  const wy = new Float64Array(n);
-  for (let i = 0; i < n; i++) wy[i] = p.y[i] - theta[p.entity[i]] * ybar[p.entity[i]];
+  // Quasi-demeaned regression; the constant becomes 1 − θᵢ. The data are first centred on their grand means (an exact
+  // reparameterisation: x = m + x_c quasi-demeans to m(1 − θᵢ) + x_c − θᵢx̄_c), so a regressor at a large level is
+  // not nearly collinear with the 1 − θᵢ column; the constant is mapped back below.
+  const my = mean(p.y);
+  const mx = p.X.map(mean);
+  const wyc = new Float64Array(n);
+  for (let i = 0; i < n; i++) wyc[i] = p.y[i] - my - theta[p.entity[i]] * (ybar[p.entity[i]] - my);
   const wX = p.X.map((c, j) => {
     const o = new Float64Array(n);
-    for (let i = 0; i < n; i++) o[i] = c[i] - theta[p.entity[i]] * Xbar[j][p.entity[i]];
+    for (let i = 0; i < n; i++) o[i] = c[i] - mx[j] - theta[p.entity[i]] * (Xbar[j][p.entity[i]] - mx[j]);
     return o;
   });
   const wc = new Float64Array(n);
   for (let i = 0; i < n; i++) wc[i] = 1 - theta[p.entity[i]];
   const CONST = "Constant";
-  const fit = linFit(wy, [...wX, wc], [...p.names, CONST], { constant: false });
+  const fitC = linFit(wyc, [...wX, wc], [...p.names, CONST], { constant: false, started });
   const dfResid = n - k;
   if (dfResid <= 0) throw new PanelRefusal(`${intText(n)} rows leave no residual degrees of freedom for ${k} coefficients.`);
+  // Back to the user's constant: b₀ = c′ − Σ mⱼbⱼ + m_y, a linear map A on the coefficients.
+  const A: number[][] = Array.from({ length: k }, (_, a) => Array.from({ length: k }, (_, b) => (a === b ? 1 : a === k - 1 ? -mx[b] : 0)));
+  const mapV = (W: number[][]): number[][] =>
+    A.map((ra) => A.map((rb) => {
+      let s = 0;
+      for (let a = 0; a < k; a++) {
+        if (ra[a] === 0) continue;
+        let t = 0;
+        for (let b = 0; b < k; b++) t += W[a][b] * rb[b];
+        s += ra[a] * t;
+      }
+      return s;
+    }));
+  const coefU = fitC.coef.slice();
+  for (let j = 0; j < k - 1; j++) coefU[k - 1] -= mx[j] * fitC.coef[j];
+  coefU[k - 1] += my;
+  const fit = {
+    ...fitC,
+    coef: coefU,
+    vcov: (kind: MeatKind, opt?: { s2Denom?: number; clusters?: Int32Array; G?: number }) => mapV(fitC.vcov(kind, opt)),
+  };
+  const wy = new Float64Array(n);
+  for (let i = 0; i < n; i++) wy[i] = wyc[i] + my * wc[i];
   const cl = clusterSetup(p, opts.se);
   const Vc = fit.vcov("classical", { s2Denom: dfResid });
   let V: number[][];

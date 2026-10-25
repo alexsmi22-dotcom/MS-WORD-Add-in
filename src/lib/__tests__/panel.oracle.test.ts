@@ -7,7 +7,7 @@ import * as path from "path";
 import { parseRegData } from "../regData";
 import { readPanel } from "../panelData";
 import { fitFixedEffects, fitRandomEffects, hausman, type PanelSe } from "../panel";
-import { buildEventDummies } from "../did";
+import { buildEventDummies, analyseTreatment, twoByTwo } from "../did";
 
 interface Stat {
   stat: number;
@@ -113,12 +113,23 @@ describe("RE against linearmodels RandomEffects", () => {
       else close(r.sigma2u, c.sigma2_u!, 1e-8);
       close(r.thetaMin, c.theta_min!, 1e-8);
       close(r.thetaMax, c.theta_max!, 1e-8);
-      checkTerms(r.names, r.coef, r.model.terms, c);
+      const mpSe = (c as Case & { se_mp?: Record<string, number> }).se_mp;
+      if (mpSe) {
+        // A regressor at 10⁶: linearmodels' uncentred inverse loses ~4 digits of the SEs (5.7×10⁻⁵ relative), so
+        // the SEs are pinned to a 50-digit mpmath evaluation of the same formula at linearmodels' own σ²s, and to
+        // linearmodels itself only loosely; coefficients still match it to 10⁻⁸.
+        for (const [nm, v] of Object.entries(mpSe)) {
+          const j = r.names.indexOf(nm);
+          close(r.coef[j], c.params[nm], 1e-8);
+          close(r.model.terms[j].se, v, 1e-8);
+          close(r.model.terms[j].se, c.se_[nm], 1e-3);
+        }
+      } else checkTerms(r.names, r.coef, r.model.terms, c);
       close(r.r2, c.r2, 1e-8);
       close(r.r2Within, c.r2w, 1e-8);
       close(r.r2Between, c.r2b, 1e-8);
       close(r.r2Overall, c.r2o, 1e-8);
-      if (c.f && r.f) close(r.f.value, c.f.stat, 1e-7);
+      if (c.f && r.f && !mpSe) close(r.f.value, c.f.stat, 1e-7);
     });
   }
 });
@@ -129,6 +140,7 @@ describe("Hausman (numpy formula on linearmodels' classical covariances)", () =>
     ["bal", "re_bal"],
     ["reu", "re_unbal_tinv"],
     ["rez", "re_zero"],
+    ["q2", "re_hq2"],
   ] as const) {
     test(`${key}`, () => {
       const c = pick(prefix);
@@ -150,6 +162,23 @@ describe("Hausman (numpy formula on linearmodels' classical covariances)", () =>
   }
 });
 
+describe("the 2×2 table against the oracle's pandas group means", () => {
+  test("did_2x2", () => {
+    const c = fx.cases.find((k) => k.name === "did_2x2")! as Case & { means: Record<string, number> };
+    const p = panelFor(c, c.x);
+    const t = analyseTreatment(p, 0);
+    if (!t.ok) throw new Error(t.reason);
+    const tb = twoByTwo(p, t.info)!;
+    close(tb.treatedPre, c.means.treated_pre, 1e-12);
+    close(tb.treatedPost, c.means.treated_post, 1e-12);
+    close(tb.controlPre, c.means.control_pre, 1e-12);
+    close(tb.controlPost, c.means.control_post, 1e-12);
+    // Balanced, no controls: the difference of the four means is the TWFE coefficient.
+    close(tb.did, c.params.treat, 1e-9);
+    expect(tb.balanced).toBe(true);
+  });
+});
+
 describe("Event-study regressions against PanelOLS with the oracle's own relative-time dummies", () => {
   for (const c of fx.cases.filter((k) => k.method === "event")) {
     test(c.name, () => {
@@ -157,6 +186,9 @@ describe("Event-study regressions against PanelOLS with the oracle's own relativ
       const base = panelFor(c, [c.treat!, ...controls]);
       const ev = buildEventDummies(base, 0, { leads: c.leads!, lags: c.lags! });
       if (!ev.ok) throw new Error(ev.reason);
+      // Treatment starts at period 5 of 8, but an entity whose period-5 row is missing is first seen treated in
+      // period 6, so its period-1 row sits at −5: only the ≤ −6 bin is empty (the oracle drops the same one).
+      if (c.leads === 6) expect(ev.empty).toEqual([-6]);
       const r = fitFixedEffects(ev.panel, { effects: "twoway", se: c.se });
       expect(r.dfResid).toBe(c.df_resid);
       for (const [nm, v] of Object.entries(c.params)) {

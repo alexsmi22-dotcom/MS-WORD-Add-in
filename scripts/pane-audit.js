@@ -59,7 +59,9 @@ const BASELINES = {
   // within-subject CIs) and Cox regression (log-axis HR forest plot + adjusted
   // survival curves), both drawing from their shipped defaults.
   // v2.186.0: 26 of 26 — Welch's ANOVA and Games–Howell, each drawing from its shipped default.
-  stats: { label: "Statistics", figures: 26, total: 26 },
+  // v2.196.0 (E2a): 27 of 28 — econ-ols draws residuals vs fitted; econ-regtable is a publication TABLE (text + a Word
+  // table, no figure: models with different responses and scales have no shared plot), so figures rises by one only.
+  stats: { label: "Statistics", figures: 27, total: 28 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it

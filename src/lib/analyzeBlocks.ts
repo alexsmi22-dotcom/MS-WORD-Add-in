@@ -32,6 +32,19 @@ export interface StatOutput {
    * canvas width, for the figure styles.
    */
   brackets?: (choice: BracketChoice, w?: number) => BracketFigure;
+  /**
+   * Release E2: results tables (the regression coefficients, diagnostics, the publication table). Each goes into
+   * Word as a real table, in ONE package with the text and the figure; `note` is a line printed under its table
+   * (the star legend). Cells pass the same insert gate as the text; a blank cell is "".
+   */
+  tables?: StatTable[];
+}
+
+/** A Stats results table: the first row is the header. */
+export interface StatTable {
+  label: string;
+  rows: string[][];
+  note?: string;
 }
 
 /** A piece of an Analyze result: a text line, a matrix (→ table), or a plot (→ image). */

@@ -20,6 +20,11 @@ Test fixtures `src/lib/__tests__/fixtures/US*.cdx` are drawings from published U
 
 Test fixtures `src/lib/__tests__/fixtures/snapgene/*.dna` are SnapGene sample files from Biopython's test suite (Tests/SnapGene), distributed under the Biopython License Agreement / BSD-3-Clause (https://github.com/biopython/biopython/blob/master/LICENSE.rst). They are test data only and are not shipped in `dist/`.
 
+Test fixtures `src/lib/__tests__/fixtures/longley.csv`, `grunfeld.csv` and `stackloss.csv` are the Longley (1967),
+Grunfeld (1958) and Brownlee stack-loss datasets as bundled with statsmodels (`statsmodels.datasets`), exported by
+`scripts/econ-ols-oracle.py`. Each dataset's COPYRIGHT in statsmodels reads: "This is public domain." The Longley
+default typed into the econ-ols calculator is the same public-domain data. Test data only, except that default.
+
 ## License texts
 
 Full license texts are available in each package under

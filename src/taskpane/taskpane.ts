@@ -46,7 +46,10 @@ import {
   OverlaySource,
 } from "../lib/spectroPane";
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
-import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, analyzeBlocksToText } from "../lib/analyzeBlocks";
+import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, StatTable, analyzeBlocksToText } from "../lib/analyzeBlocks";
+import { econOlsCalc, econRegTableCalc, LONGLEY_DEFAULT, ECON_SPEC_DEFAULT, ECON_SPECS_DEFAULT } from "../lib/econCalcs";
+import { SE_TYPES } from "../lib/olsInference";
+import { STAR_SCHEMES } from "../lib/regTable";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
 import { engEq } from "../lib/engEquations";
 import { carryOver, displayValue, fieldNames, fieldText, fieldUnitOf, handoffGroupLabel, handoffGroups, parseUncertainty, runSweep, runUncertainty, sweepReport, uncertaintyReport, variableField, type UncertainInput } from "../lib/engWorkbench";
@@ -1272,6 +1275,8 @@ let currentStatsSvg = "";
 let currentStatsRender: ((w: number) => string) | null = null;
 /** The bracket legend shown under the Stats figure; inserted as its caption. */
 let currentStatsCaption = "";
+/** Release E2: the current Stats result's tables (regression coefficients, diagnostics, publication table). */
+let currentStatsTables: StatTable[] = [];
 let statsBracketsRow: HTMLElement;
 let statsBracketsSelect: HTMLSelectElement;
 let statsBracketsHideNs: HTMLInputElement;
@@ -10048,7 +10053,11 @@ interface StatField {
   key: string;
   label: string;
   default: string;
-  kind: "list" | "groups" | "vars" | "text" | "select";
+  /**
+   * `block` (E2): a data table with a header row of names, filled from a Word table or CSV as tab-separated cells
+   * (lib/regData.ts reads it); `line`: several lines of syntax, one model per line.
+   */
+  kind: "list" | "groups" | "vars" | "text" | "select" | "block" | "line";
   options?: { value: string; label: string }[];
   /**
    * How a Word table maps onto this field's syntax (src/lib/tableFeed.ts).
@@ -10245,6 +10254,35 @@ function regressionFigures(res: { fitted: number[]; residuals: number[]; standar
   // ONE document, not two concatenated roots - see combineSvgs.
   return combineSvgs([resid, qq]).svg;
 }
+
+/** The options both regression calculators share (Release E2). */
+const ECON_OPTION_FIELDS: StatField[] = [
+  {
+    key: "constant",
+    label: "Constant",
+    default: "yes",
+    kind: "select",
+    options: [
+      { value: "yes", label: "Include a constant" },
+      { value: "no", label: "No constant" },
+    ],
+  },
+  { key: "se", label: "Standard errors", default: "classical", kind: "select", options: SE_TYPES },
+  { key: "cluster", label: "Cluster column (clustered standard errors only)", default: "", kind: "text" },
+  { key: "lag", label: "Newey–West lag (blank = the rule of thumb, 4(n/100) to the power 2/9, rounded down)", default: "", kind: "text" },
+  {
+    key: "decimals",
+    label: "Decimals",
+    default: "3",
+    kind: "select",
+    options: [
+      { value: "2", label: "2" },
+      { value: "3", label: "3" },
+      { value: "4", label: "4" },
+    ],
+  },
+  { key: "stars", label: "Significance stars", default: "econ", kind: "select", options: STAR_SCHEMES },
+];
 
 const STAT_CALCS: StatCalc[] = [
   {
@@ -10536,6 +10574,35 @@ const STAT_CALCS: StatCalc[] = [
       const res = multipleRegression(y, preds);
       if (!res.ok) return { text: res.reason ?? "Could not fit the model.", ok: false };
       return { text: regressionReport(res), svg: regressionFigures(res) };
+    },
+  },
+  // Release E2: publishable OLS (lib/econCalcs.ts, lib/olsInference.ts, lib/regData.ts, lib/regTable.ts).
+  {
+    id: "econ-ols",
+    name: "OLS regression with robust standard errors",
+    fields: [
+      { key: "data", label: "Data: a header row of column names, then one row per observation", default: LONGLEY_DEFAULT, kind: "block" },
+      { key: "spec", label: "Model (response ~ predictors; blank = first column on all others)", default: ECON_SPEC_DEFAULT, kind: "text" },
+      ...ECON_OPTION_FIELDS,
+    ],
+    compute: (r) => {
+      // The engine and its report live in lib/econCalcs.ts (testable); the summary, the coefficient and diagnostics
+      // tables and the residual figure come back as one StatOutput.
+      return econOlsCalc(r);
+    },
+  },
+  {
+    id: "econ-regtable",
+    name: "Regression table (several models side by side)",
+    fields: [
+      { key: "data", label: "Data: a header row of column names, then one row per observation", default: LONGLEY_DEFAULT, kind: "block" },
+      { key: "specs", label: "Models, one per line (response ~ predictors)", default: ECON_SPECS_DEFAULT, kind: "line" },
+      ...ECON_OPTION_FIELDS,
+    ],
+    compute: (r) => {
+      // lib/econCalcs.ts: one OLS fit per line under the same options, then the publication table (lib/regTable.ts)
+      // with its star legend as the line under it.
+      return econRegTableCalc(r);
     },
   },
   {
@@ -11850,9 +11917,12 @@ function updateStatsPreview(): void {
     // Tokens quoted (statsDisplay.droppedTokensNote) so an echoed "NaN" does not trip the insert gate.
     if (dropped.length) out = { ...out, text: `${out.text}\n\n${droppedTokensNote(dropped)}` };
   }
+  // Release E2: results tables go into Word from their CELLS (and the line under each), so those pass the same gate.
+  const statTables = out.ok !== false ? (out.tables ?? []) : [];
+  const tablesInsertable = statTables.every((t) => tableCellsInsertable(t.rows) && (!t.note || insertableResultText(t.note)));
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.
-  const insertable = out.ok !== false && insertableResultText(out.text);
+  const insertable = out.ok !== false && insertableResultText(out.text) && tablesInsertable;
   // Significance brackets (v2.143.0): offered only where this result carries its
   // own engine object (out.brackets). A refusal from the bracket builders is shown
   // with its message and the two remedies it names; the plain figure stays.
@@ -11887,6 +11957,21 @@ function updateStatsPreview(): void {
     (figSvg ? `<div class="stats-figure">${figSvg}</div>` : "") +
     (caption ? `<p class="seq-disclaimer stats-caption">${esc(caption)}</p>` : "") +
     (bracketErr ? `<p class="seq-warnings warn">${esc(bracketErr)}</p>` : "");
+  if (statTables.length) {
+    // The tables between the text and the figure, as they are inserted.
+    const fig = statsResult.querySelector(".stats-figure");
+    for (const t of statTables) {
+      const el = finTablePreview(t);
+      if (t.note) {
+        const note = document.createElement("div");
+        note.className = "ms-note";
+        note.textContent = t.note;
+        el.appendChild(note);
+      }
+      statsResult.insertBefore(el, fig);
+    }
+  }
+  currentStatsTables = insertable ? statTables : [];
   currentStatsText = insertable ? out.text : "";
   currentStatsSvg = figSvg;
   currentStatsCaption = caption;
@@ -11928,6 +12013,28 @@ function updateStatsPreview(): void {
 async function insertStatsResult(): Promise<void> {
   if (!currentStatsText) {
     setStatus("Nothing to insert for statistics.", "error");
+    return;
+  }
+  if (currentStatsTables.length) {
+    // Release E2 (regression): text, Word tables (each with its legend line) and the figure as ONE package.
+    const calc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value);
+    const natural = currentStatsSvg ? svgNaturalSize(currentStatsSvg) : null;
+    await insertTextTablesFigure(
+      currentStatsText,
+      currentStatsTables,
+      currentStatsSvg && natural
+        ? {
+            svg: currentStatsSvg,
+            fallbackW: natural.width,
+            fallbackH: natural.height,
+            alt: `Statistics figure: ${calc?.name ?? "diagnostic plot"}`,
+            tag: "formula-inserter:stats-chart",
+            render: currentStatsRender ?? undefined,
+            supersample: 2,
+          }
+        : null,
+      "Statistics",
+    );
     return;
   }
   // Same contract as Bio/Assay: proceed only if the text actually landed, and
@@ -37354,7 +37461,7 @@ async function insertTextWithFigure(text: string, label: string, o: FigureInsert
  */
 async function insertTextTablesFigure(
   text: string,
-  tables: { label: string; rows: string[][] }[],
+  tables: { label: string; rows: string[][]; note?: string }[],
   o: FigureInsert | null,
   label: string,
 ): Promise<boolean> {
@@ -37391,7 +37498,11 @@ async function insertTextTablesFigure(
   let why = "";
   try {
     const items: ResultPackageItem[] = [{ kind: "text", content: text.replace(/\s+$/, "") }];
-    for (const t of tables) items.push({ kind: "table", label: t.label, rows: t.rows });
+    for (const t of tables) {
+      items.push({ kind: "table", label: t.label, rows: t.rows });
+      // A table's legend line (E2: the star legend) goes directly under it.
+      if (t.note) items.push({ kind: "text", content: t.note });
+    }
     if (picture) items.push(picture);
     const built = buildResultOoxml(items);
     const kept = await docHost.insertResultLayout([{ kind: "ooxml", ooxml: built.ooxml }]);
@@ -37409,7 +37520,10 @@ async function insertTextTablesFigure(
   } finally {
     insertTextBusy = false;
   }
-  const plain = [text.replace(/\s+$/, ""), ...tables.map((t) => t.rows.map((r) => r.join("\t")).join("\n"))].join("\n\n");
+  const plain = [
+    text.replace(/\s+$/, ""),
+    ...tables.map((t) => t.rows.map((r) => r.join("\t")).join("\n") + (t.note ? `\n${t.note}` : "")),
+  ].join("\n\n");
   const ok = await insertPlainText(plain, label);
   if (ok) setStatus(`${label} inserted as plain text (Word refused the table package: ${why}).`, "error");
   return ok;

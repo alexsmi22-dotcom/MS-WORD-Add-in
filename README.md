@@ -85,7 +85,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**10,000+ unit tests** across **697 test files**), `npm run build` (production bundle),
+> `npm test` (**10,000+ unit tests** across **700 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool, and an
@@ -402,7 +402,9 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **Stats mode** — descriptive statistics, t-tests, one- & two-way ANOVA, linear
       regression (with p-values), non-parametric tests (Mann–Whitney U, Wilcoxon
       signed-rank), chi-square (goodness-of-fit & independence), multiple-comparison
-      correction (Bonferroni/Holm/Benjamini–Hochberg), and uncertainty propagation.
+      correction (Bonferroni/Holm/Benjamini–Hochberg), uncertainty propagation, and
+      publishable OLS (classical, HC0–HC3, clustered, Newey–West SEs; diagnostics) with a
+      side-by-side regression table inserted as a Word table.
 - [x] **IUPAC name→structure** — opt-in online resolution via the OPSIN web
       service (consented; everything else stays offline).
 - [x] **Analyze mode** — a no-code numerical workbench: linear algebra (solve A·x=b,

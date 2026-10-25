@@ -125,8 +125,8 @@ describe("one broken-number rule: the lib helper and both QC drivers agree", () 
     expect(pane).not.toMatch(/function insertableResultText/);
     // Every registry's insert gate is the shared one (the five call sites plus the Engineering Explore panel's since
     // v2.191.0, Finance's "no solution" kept; since v2.193.0 Finance also gates its composed text, notes and
-    // assumptions included).
-    expect(pane.match(/insertableResultText\(/g)?.length).toBe(7);
+    // assumptions included; since v2.196.0 Stats also gates each results table's legend line).
+    expect(pane.match(/insertableResultText\(/g)?.length).toBe(8);
     expect(pane).toMatch(/insertableResultText\(text\) && !text\.includes\("no solution"\)/);
   });
 });

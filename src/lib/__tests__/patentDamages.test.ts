@@ -394,6 +394,7 @@ describe("the pane reaches the damages tools (routing, from the taskpane source)
   test("tables are gated and inserted as one package", () => {
     expect(PANE).toMatch(/damagesTablesClean\(tables\)/);
     expect(PANE).toMatch(/if \(currentFinTables\.length\) \{[\s\S]{0,400}await insertTextTablesFigure\(/);
-    expect(PANE).toMatch(/for \(const t of tables\) items\.push\(\{ kind: "table", label: t\.label, rows: t\.rows \}\);/);
+    // v2.196.0 (E2): the loop also pushes a table's optional legend line (Stats regression tables) right after it.
+    expect(PANE).toMatch(/for \(const t of tables\) \{\n\s+items\.push\(\{ kind: "table", label: t\.label, rows: t\.rows \}\);/);
   });
 });

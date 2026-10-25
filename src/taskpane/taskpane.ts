@@ -48,6 +48,7 @@ import {
 import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, StatTable, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { econOlsCalc, econRegTableCalc, econLogitCalc, LONGLEY_DEFAULT, ECON_SPEC_DEFAULT, ECON_SPECS_DEFAULT, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT } from "../lib/econCalcs";
+import { TS_CALCULATORS } from "../lib/tsCalcs";
 import { SE_TYPES } from "../lib/olsInference";
 import { STAR_SCHEMES } from "../lib/regTable";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
@@ -10638,6 +10639,8 @@ const STAT_CALCS: StatCalc[] = [
       return econLogitCalc(r);
     },
   },
+  // Release E3: time-series diagnostics (lib/tsCalcs.ts → lib/tsDiag.ts; series read by lib/tsData.ts).
+  ...TS_CALCULATORS.map((c): StatCalc => ({ id: c.id, name: c.name, fields: c.fields, compute: c.compute })),
   {
     id: "polyregress",
     name: "Polynomial regression",

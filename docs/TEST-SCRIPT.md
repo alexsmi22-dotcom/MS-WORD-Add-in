@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.197.0)
+# JurisLab — Manual Test Script (v2.198.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 14,000+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,21 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0el. New in v2.198.0 — Causal inference, bootstrap, quantile regression
+
+- [ ] **Stats ▸ Instrumental variables (2SLS) ▸ Insert** (wage default): coefficient table, first-stage table,
+  diagnostics table and the OLS-vs-2SLS figure land together; the instrumented regressor is listed first.
+- [ ] Change the instruments to `dist` only → Sargan and Basmann say "exactly identified" instead of a number.
+- [ ] **Panel fixed effects ▸ Insert** → within/between/overall R²; switch effects to two-way → the numbers change,
+  the layout does not.
+- [ ] **Panel random effects (with Hausman test) ▸ Insert** → σ²ᵤ, σ²ε, θ range, and a Hausman line that names the
+  form used.
+- [ ] **Difference-in-differences ▸ Insert** → the DiD estimate, the event-study table (period −1 the reference) and
+  the DiD event-study figure with the vertical line before period 0.
+- [ ] **Bootstrap confidence interval ▸ Insert** → four intervals, the seed and B printed; Insert again → the same
+  interval.
+- [ ] **Quantile regression ▸ Insert** → a table per quantile and the coefficient-across-τ figure, fitted to the page.
 
 ## 0ek. New in v2.197.0 — Time series, event studies, index numbers
 

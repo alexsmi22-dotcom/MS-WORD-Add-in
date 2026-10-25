@@ -6,6 +6,37 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.198.0] — 2026-10-25 — Causal inference, bootstrap, quantile regression
+
+The fourth release of the quantitative-economics plan: six new Statistics calculators (Statistics now 43). Every
+number is checked against linearmodels, statsmodels, scipy or an exact (mpmath / linear-programming) oracle, and each
+result prints the conventions it used.
+
+### New
+- **Instrumental variables (2SLS):** robust, clustered or classical standard errors, z or small-sample t; a
+  first-stage table per endogenous regressor (partial R², the non-robust partial F the F < 10 rule applies to, and the
+  robust F as context); Durbin and Wu–Hausman endogeneity tests, Sargan and Basmann overidentification tests (skipped
+  by name when exactly identified), Wooldridge's score tests with robust standard errors; an OLS-vs-2SLS figure.
+- **Panel fixed effects:** entity or two-way effects, exact on unbalanced and disconnected panels; clustered by entity
+  by default; within, between and overall R² and the test that all effects are zero.
+- **Panel random effects with a Hausman test:** Swamy–Arora components with θ per entity; regressors that vary only
+  over time (year dummies, a trend) are kept. The Hausman test is always reported: the classic form, Stata's
+  sigmamore form when the classic covariance difference is not positive definite, and a generalized inverse (with a
+  warning) as the last resort; the output says which.
+- **Difference-in-differences:** the two-way fixed-effects estimate, the 2×2 table of group means, and a DiD event
+  study (leads and lags binned at the window ends, period −1 the reference) with its figure; staggered adoption is
+  detected and warned about by name (Goodman-Bacon; Sun & Abraham; de Chaisemartin & D'Haultfœuille); adoption is
+  dated from the treatment column even where an outcome is missing.
+- **Bootstrap confidence intervals:** mean, median, standard deviation, variance, trimmed mean, correlation, ratio of
+  means or a regression slope; percentile, basic, normal and BCa intervals side by side from a seeded PCG32 generator,
+  so the same inputs give the same interval every run; digits follow the bootstrap SE at any scale.
+- **Quantile regression:** an exact simplex fit at each quantile (not the iterative approximation), kernel-sandwich
+  or iid standard errors computed from a QR factor, pseudo R¹, and the coefficient-across-τ figure.
+
+### Fixed
+- The regression table readers no longer overflow the call stack on tables of 120,000+ rows.
+- A cell written with a % sign is read as the number before it, as before, and the notes now say so.
+
 ## [2.197.0] — 2026-10-25 — Time series, event studies, index numbers
 
 The third release of the quantitative-economics plan: eight new Statistics calculators (Statistics now 37), each

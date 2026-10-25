@@ -174,20 +174,14 @@ export function esEventCalc(read: Read): StatOutput {
   }
   lines.push(...res.notes);
 
-  const head = ["Event", "Day used", "α (%)", "β", "σε (%)", `CAR${win} (%)`, "t (SCAR)", "p"];
-  if (has11) head.push("CAR(−1, +1) (%)", "t (SCAR)", "p");
+  // Two tables, not one of eleven columns: in Word that width wrapped dates, names and headers inside their cells.
+  const mmRows: string[][] = [["Event", "Day used", "α (%)", "β", "σε (%)"]];
+  const head = ["Event", `CAR${win} (%)`, "t", "p"];
+  if (has11) head.push("CAR(−1, +1) (%)", "t", "p");
   const evRows: string[][] = [head];
   for (const e of res.events) {
-    const row = [
-      e.firm,
-      longDay(e.day),
-      pct(e.fit.alpha),
-      fmtFixed(e.fit.beta, 3),
-      pct(Math.sqrt(e.fit.sigma2)),
-      pct(e.car),
-      fmtFixed(e.scar, 3),
-      fmtP(e.p),
-    ];
+    mmRows.push([e.firm, longDay(e.day), pct(e.fit.alpha), fmtFixed(e.fit.beta, 3), pct(Math.sqrt(e.fit.sigma2))]);
+    const row = [e.firm, pct(e.car), fmtFixed(e.scar, 3), fmtP(e.p)];
     if (e.car11) row.push(pct(e.car11.car), fmtFixed(e.car11.scar, 3), fmtP(e.car11.p));
     evRows.push(row);
   }
@@ -196,7 +190,8 @@ export function esEventCalc(read: Read): StatOutput {
   const testRows: string[][] = [["Test", "Window", "Statistic", "Reference", "p"]];
   for (const t of res.tests) testRows.push([t.name, t.window, t.stat === undefined ? t.why ?? "" : fmtFixed(t.stat, 3), t.reference, t.p === undefined ? "" : fmtP(t.p)]);
   const tables: StatTable[] = [
-    { label: "Events: market model and cumulative abnormal returns", rows: evRows, align: ["left", "left", ...head.slice(2).map((): "right" => "right")], note: `t = SCAR, Student t with ${L1 - 2} df.` },
+    { label: "Events: market model on the estimation window", rows: mmRows, align: ["left", "left", "right", "right", "right"] },
+    { label: "Events: cumulative abnormal returns", rows: evRows, align: ["left", ...head.slice(1).map((): "right" => "right")], note: `t = SCAR = CAR/σ̂(CAR), Student t with ${L1 - 2} df.` },
     { label: `Average abnormal returns by event day (N = ${N})`, rows: dayRows, align: ["right", "right", "right", "right"], note: "SE of CAAR = √((1/N²)Σ var(CARᵢ(τ₁, τ))) with the prediction-error covariance." },
     { label: "Aggregate tests", rows: testRows, align: ["left", "left", "right", "left", "right"] },
   ];
@@ -311,7 +306,18 @@ export function idxPriceCalc(read: Read): StatOutput {
   const colors = ["#0369a1", "#b45309", "#15803d", "#7c3aed"];
   const svg = buildPlotSvg(
     series.map((s, j) => ({ type: "line" as const, points: s.map((v, t) => ({ x: t + 1, y: v })), color: colors[j], label: INDEX_NAMES[formulas[j]] })),
-    { width: 400, height: 260, title: "Price index", xlabel: `Period (1 = ${tbl.periods[0]})`, ylabel: `Index (${tbl.periods[r]} = 100)` },
+    {
+      width: 400,
+      height: 260,
+      title: "Price index",
+      xlabel: "Period",
+      ylabel: `Index (${tbl.periods[r]} = 100)`,
+      // The periods by name at the whole-number ticks; a tick between two periods ("1.5") names nothing.
+      xTickLabel: (v: number) => {
+        const t = Math.round(v);
+        return Math.abs(v - t) < 1e-9 && t >= 1 && t <= tbl.periods.length ? tbl.periods[t - 1] : "";
+      },
+    },
   );
   return { text: lines.join("\n"), tables: [{ label: "Price index", rows, align: ["left", ...formulas.map((): "right" => "right")] }], svg };
 }

@@ -116,9 +116,9 @@ describe("es-event against the numpy oracle", () => {
     expect(out.text).toMatch(/Boehmer, Musumeci & Poulsen 1991/);
     // The Saturday event moves to Monday, said per event.
     expect(out.text).toContain("Beta, October 7, 2023 is not a trading day in the table; it moves to the next trading day, October 9, 2023.");
-    const ev = out.tables![0];
-    expect(ev.rows[1][5]).toBe((c.expect.events[0].main.car * 100).toFixed(3).replace("-", "−"));
-    expect(out.tables![2].rows.length).toBe(1 + 8);
+    const ev = out.tables![1];
+    expect(ev.rows[1][1]).toBe((c.expect.events[0].main.car * 100).toFixed(3).replace("-", "−"));
+    expect(out.tables![3].rows.length).toBe(1 + 8);
     expect(out.svg).toContain("<svg");
   });
 
@@ -126,11 +126,11 @@ describe("es-event against the numpy oracle", () => {
     const c = fixture.cases[3];
     const out = calc({ data: c.data, events: c.events, ...c.fields });
     expect(clean(out)).toEqual([]);
-    const rows = out.tables![2].rows;
+    const rows = out.tables![3].rows;
     expect(rows.find((r) => r[0].startsWith("BMP"))![2]).toBe("needs 2 or more events");
     expect(rows.find((r) => r[0].startsWith("Cross"))![2]).toBe("needs 2 or more events");
     // A one-day event window has no CAR(−1, +1) columns, and the text says why.
-    expect(out.tables![0].rows[0]).toHaveLength(8);
+    expect(out.tables![1].rows[0]).toHaveLength(4);
     expect(out.text).toContain("CAR(−1, +1) is not reported: the event window (0, 0) does not contain days −1 to +1.");
   });
 
@@ -159,8 +159,8 @@ describe("es-event worked default and units", () => {
     const a = calc({ data: c.data, events: c.events, ...c.fields });
     const b = calc({ data: pctData, events: c.events, ...c.fields, units: "percent" });
     expect(clean(b)).toEqual([]);
-    expect(b.tables![2].rows).toEqual(a.tables![2].rows);
-    expect(b.tables![0].rows.map((r) => r[5])).toEqual(a.tables![0].rows.map((r) => r[5]));
+    expect(b.tables![3].rows).toEqual(a.tables![3].rows);
+    expect(b.tables![1].rows.map((r) => r[1])).toEqual(a.tables![1].rows.map((r) => r[1]));
   });
 
   test("tiny and huge scales: the test statistics do not move", () => {

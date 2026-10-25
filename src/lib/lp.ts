@@ -1038,7 +1038,8 @@ function enumerateVertices(p: LpProblem): Rat[][] {
   return out;
 }
 
-function solveProblem(p: LpProblem, opts: { light?: boolean; snapshots?: boolean } = {}): LpSolution {
+/** Exported for the game-nash zero-sum value (nash.ts), which builds an LpProblem directly. */
+export function solveProblem(p: LpProblem, opts: { light?: boolean; snapshots?: boolean } = {}): LpSolution {
   const { s: sp, a: ap } = slackPrefixFor(p);
   const base: LpSolution = { status: "incomplete", degenerate: false, phase1Ran: false, artificialNames: [], redundantRows: [], snapshots: [], pivots: 0, slackNames: [], verification: [] };
   if (p.impossibleRow) return { ...base, status: "infeasible", impossible: p.impossibleRow };

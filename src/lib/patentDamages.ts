@@ -23,6 +23,7 @@ import { readFinanceField } from "./finance";
 import { finPct, finPlotSvg, currentFinFig } from "./financeFigures";
 import { buildChartPreviewSvg, type TableChart } from "./tablechart";
 import { proseDashes } from "./proseDashes";
+import { hasBrokenNumber } from "./insertGate";
 
 // ---------------------------------------------------------------------------
 // Formatting
@@ -139,6 +140,12 @@ export function parsePeriodTable(text: string, names: string[], required: number
       if (k === 0 && toks.length > required) k = 1;
       label = toks.slice(0, k).join(" ");
       nums = toks.slice(k);
+    }
+    // A totals line (an inserted result read back, an expert's table) is never a period: counting it would double the
+    // damages. Skipped and said.
+    if (/^(?:grand\s+)?totals?:?$|^sum:?$/i.test(label.trim())) {
+      notes.push(`The “${label}” line was skipped: totals are computed here, not read.`);
+      continue;
     }
     const values: number[] = [];
     let badCell = "";
@@ -287,7 +294,6 @@ export function computeRoyalty(inp: RoyaltyInput): RoyaltyComputed | { error: st
   const mult = (inp.basis === "revenue" ? inp.rate / 100 : inp.rate) * (inp.apportionPct / 100);
   const periods: RoyaltyPeriod[] = [];
   let cum = 0;
-  let pv = 0;
   let totalBase = 0;
   const d = inp.discountPct / 100;
   for (let k = 0; k < inp.rows.length; k++) {
@@ -297,11 +303,11 @@ export function computeRoyalty(inp: RoyaltyInput): RoyaltyComputed | { error: st
     if (!Number.isFinite(royalty) || Math.abs(royalty) > MAX_DAMAGES_AMOUNT) return refuse(`${r.label}: the royalty is beyond 10¹⁸, outside this calculator.`);
     cum = roundCents(cum + royalty);
     totalBase += base;
-    const pvk = inp.lumpSum > 0 ? royalty * Math.pow(1 + d, -(k + 1) / inp.periodsPerYear) : 0;
-    pv += pvk;
+    // Rounded per period like every other money column, so the Present value column foots.
+    const pvk = inp.lumpSum > 0 ? roundCents(royalty * Math.pow(1 + d, -(k + 1) / inp.periodsPerYear)) : 0;
     periods.push({ label: r.label, base, royalty, cumulative: cum, pv: pvk });
   }
-  return { periods, totalBase, total: sumCents(periods.map((p) => p.royalty)), pvTotal: inp.lumpSum > 0 ? roundCents(pv) : null };
+  return { periods, totalBase, total: sumCents(periods.map((p) => p.royalty)), pvTotal: inp.lumpSum > 0 ? sumCents(periods.map((p) => p.pv)) : null };
 }
 
 export function reasonableRoyalty(inp: RoyaltyInput): DamagesResult {
@@ -329,7 +335,7 @@ export function reasonableRoyalty(inp: RoyaltyInput): DamagesResult {
   );
   if (c.pvTotal !== null) {
     lines.push(
-      `Note: each period's royalty is discounted from the end of its period to the start of the first period at the annual effective rate entered, ${inp.periodsPerYear} period${inp.periodsPerYear === 1 ? "" : "s"} a year.`,
+      `Note: each period's royalty is discounted from the end of its period to the start of the first period at the annual effective rate entered, ${inp.periodsPerYear} period${inp.periodsPerYear === 1 ? "" : "s"} a year; each present value is rounded to the cent and the total is their sum.`,
     );
   }
   const head = ["Period", unit ? "Units" : "Revenue", "Royalty", "Cumulative"];
@@ -698,6 +704,6 @@ export function damagesToFin(r: DamagesResult, notes: string[] = []): { text: st
 }
 
 /** Every cell of every table is insertable: no em dash (the non-finite sentinel) and no NaN/Infinity/undefined. */
-export function damagesTablesClean(tables: DamagesTable[], isBroken: (s: string) => boolean): boolean {
-  return tables.every((t) => t.rows.every((r) => r.every((c) => !c.includes("—") && !isBroken(c))));
+export function damagesTablesClean(tables: DamagesTable[]): boolean {
+  return tables.every((t) => t.rows.every((r) => r.every((c) => !c.includes("—") && !hasBrokenNumber(c))));
 }

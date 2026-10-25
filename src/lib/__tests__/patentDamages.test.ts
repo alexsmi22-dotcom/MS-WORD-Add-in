@@ -38,7 +38,7 @@ const ok = (r: ReturnType<typeof reasonableRoyalty>): DamagesOutput => {
 /** The display contract on every ok result: text and every table cell. */
 function expectDisplayContract(out: DamagesOutput): void {
   expect(insertableResultText(out.text)).toBe(true);
-  expect(damagesTablesClean(out.tables, hasBrokenNumber)).toBe(true);
+  expect(damagesTablesClean(out.tables)).toBe(true);
   const all = [out.text, ...out.tables.flatMap((t) => t.rows.flat())].join("\n");
   expect(all).not.toMatch(/\d[eE][+-]?\d/);
   expect(all).not.toMatch(/(?:^|[\s(])-\d/m); // a negative number takes U+2212, never a hyphen
@@ -84,11 +84,12 @@ describe("reasonable royalty: oracle cases to the cent", () => {
     if ("error" in c) throw new Error(c.error);
     expect(c.periods.map((p) => p.royalty)).toEqual([48000, 66000, 75000, 37200]);
     expect(c.total).toBe(226200);
-    expect(c.pvTotal).toBe(187909.34);
+    expect(c.periods.map((p) => p.pv)).toEqual([44444.44, 56584.36, 59537.42, 27343.11]);
+    expect(c.pvTotal).toBe(187909.33); // the column foots: the sum of the rounded cells
     const out = ok(reasonableRoyalty(baseRoyalty()));
     expect(out.text).toContain("Total running royalty: 226,200.00");
-    expect(out.text).toContain("Present value of the running royalty at 8.00% a year: 187,909.34");
-    expect(out.text).toContain("Lump sum entered: 200,000.00; 12,090.66 above that present value.");
+    expect(out.text).toContain("Present value of the running royalty at 8.00% a year: 187,909.33");
+    expect(out.text).toContain("Lump sum entered: 200,000.00; 12,090.67 above that present value.");
     expect(out.text).toContain("computed from the inputs given");
     expectDisplayContract(out);
   });
@@ -112,8 +113,9 @@ describe("reasonable royalty: oracle cases to the cent", () => {
     if ("error" in c) throw new Error(c.error);
     expect(c.periods.map((p) => p.royalty)).toEqual([34722.22, 65972.22, 27777.78, 31250]);
     expect(c.total).toBe(159722.22);
-    expect(c.pvTotal).toBe(151077.25);
-    expect(ok(reasonableRoyalty(inp)).text).toContain("1,077.25 below that present value.");
+    expect(c.periods.map((p) => p.pv)).toEqual([33904.65, 62902.04, 25861.46, 28409.09]);
+    expect(c.pvTotal).toBe(151077.24);
+    expect(ok(reasonableRoyalty(inp)).text).toContain("1,077.24 below that present value.");
   });
   test("the table: header, one row per period, a totals row; a figure is drawn", () => {
     const out = ok(reasonableRoyalty(baseRoyalty()));
@@ -267,6 +269,22 @@ describe("the per-period table parser", () => {
     expect(parsePeriodTable("2021 1 2 3 4", N, 1)).toHaveProperty("error");
     expect(parsePeriodTable("2021 1e19", ["base"], 1)).toHaveProperty("error");
   });
+  test("a Total row (an inserted result read back, an expert's totals line) is skipped, never a period", () => {
+    const out = ok(reasonableRoyalty(baseRoyalty()));
+    const back = out.tables[0].rows.map((r) => r.join("\t")).join("\n");
+    const t = parsePeriodTable(back, ["royalty base"], 1);
+    // The inserted table has 5 columns; read back as a royalty base it is refused by name, not summed.
+    expect(t).toHaveProperty("error");
+    const two = parsePeriodTable("Period\tRevenue\n2021\t1,000\n2022\t2,000\nTotal\t3,000", ["revenue"], 1);
+    if ("error" in two) throw new Error(two.error);
+    expect(two.rows.map((r) => r.label)).toEqual(["2021", "2022"]);
+    expect(two.notes.join(" ")).toMatch(/“Total” line was skipped/);
+    for (const lbl of ["TOTAL", "Totals", "Grand total", "Sum"]) {
+      const r = parsePeriodTable(`2021 5\n${lbl} 5`, ["base"], 1);
+      if ("error" in r) throw new Error(r.error);
+      expect(r.rows.length).toBe(1);
+    }
+  });
   test("zero amounts are accepted", () => {
     const r = parsePeriodTable("2021 0", ["base"], 1);
     expect(r).toEqual({ rows: rows(["2021", 0]), notes: [] });
@@ -371,7 +389,7 @@ describe("the pane reaches the damages tools (routing, from the taskpane source)
     expect(PANE).toMatch(/if \(f\.kind === "select" \|\| f\.kind === "list" \|\| f\.kind === "block"\) continue;/);
   });
   test("tables are gated and inserted as one package", () => {
-    expect(PANE).toMatch(/damagesTablesClean\(tables, hasBrokenNumber\)/);
+    expect(PANE).toMatch(/damagesTablesClean\(tables\)/);
     expect(PANE).toMatch(/if \(currentFinTables\.length\) \{[\s\S]{0,400}await insertTextTablesFigure\(/);
     expect(PANE).toMatch(/for \(const t of tables\) items\.push\(\{ kind: "table", label: t\.label, rows: t\.rows \}\);/);
   });

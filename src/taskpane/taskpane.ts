@@ -854,7 +854,6 @@ import {
 } from "../lib/orbital";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import { insertableResultText, matrixBlocksFinite } from "../lib/insertGate";
-import { hasBrokenNumber } from "../lib/insertGate";
 import { pictureNotKeptText } from "../lib/insertKept";
 import { proseDashes } from "../lib/proseDashes";
 import { debouncedPreview, flushBeforeInsert, previewListener } from "../lib/previewDebounce";
@@ -9819,7 +9818,7 @@ function updateFinancePreview(): void {
   // The shared gate, plus the one condition that is Finance's alone: a solver
   // that reports "no solution" has produced a sentence, not a result.
   // The tables reach Word from their cells, not from `text`, so the cells pass the same gate (E1b).
-  const insertable = insertableResultText(text) && !text.includes("no solution") && !refused && damagesTablesClean(tables, hasBrokenNumber);
+  const insertable = insertableResultText(text) && !text.includes("no solution") && !refused && damagesTablesClean(tables);
   if (!text) {
     finResult.innerHTML = '<span class="hint">Enter values to compute.</span>';
     if (refusal) finResult.firstElementChild!.textContent = refusal;

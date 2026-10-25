@@ -15,15 +15,19 @@ def royalty(bases, basis, rate, apportion, lump, disc, ppy):
     out = []
     cum = D(0)
     pv = D(0)
+    pvs = []
     d = D(disc) / 100
     for k, b in enumerate(bases):
         r = cents(D(b) * mult)
         cum += r
         if D(lump) > 0:
-            pv += r * (1 + d) ** (-(D(k + 1) / D(ppy)))
+            pk = cents(r * (1 + d) ** (-(D(k + 1) / D(ppy))))
+            pvs.append(str(pk))
+            pv += pk
         out.append(str(r))
     res = {"periods": out, "total": str(sum((D(x) for x in out), D(0)))}
     if D(lump) > 0:
+        res["pvs"] = pvs
         res["pv"] = str(cents(pv))
         res["diff"] = str(cents(D(lump) - cents(pv)))
     return res

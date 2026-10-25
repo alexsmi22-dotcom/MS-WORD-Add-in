@@ -132,7 +132,9 @@ describe("everything shipped is reachable", () => {
     // log likelihood evaluated AT statsmodels' fitted parameters (optimisers differ, so that is the real check).
     // v2.198.0 (E4): 15 — ivCalcs.iv2slsModel and panelCalcs.panelFeModel/panelReModel/panelDidModel hand each fit to
     // the publication table as a FittedModel (kinds iv/fe/re/did); the tests pin them, the table wiring comes next.
-    const BASELINE = 15;
+    // v2.199.0 (E5): 16 — microCalcs.welfareIdentityHolds is a test-facing identity check (CS + PS + revenue − subsidy
+    // + DWL = the competitive surplus), pinned on every policy case.
+    const BASELINE = 16;
     const dead = deadExports();
     expect({ count: dead.length, over: dead.length > BASELINE ? dead : [] }).toEqual({
       count: dead.length <= BASELINE ? dead.length : BASELINE,

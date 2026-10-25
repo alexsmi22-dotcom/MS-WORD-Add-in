@@ -9343,6 +9343,16 @@ const FIN_CALCS: FinCalc[] = [
       };
     },
   },
+  {
+    id: "fin-currency",
+    name: "Currency conversion with your rates",
+    fields: FIN_CURRENCY_FIELDS.map((f) => ({ ...f, default: FIN_CURRENCY_DEFAULTS[f.key] ?? "" })),
+    compute: (r) => {
+      // Your own rates against a base currency (no live rates: offline), cross rates, ISO 4217 minor units.
+      return finCurrencyCalc(r);
+    },
+    assumes: "the rates you typed; JurisLab has no live exchange rates (it works offline)",
+  },
   // Litigation damages: interest and lost earnings (E1a)
   //
   // Engines and parsers in lib/damagesInterest.ts and lib/lostEarnings.ts; each returns the text, a Word table and a
@@ -9662,16 +9672,6 @@ const FIN_CALCS: FinCalc[] = [
       // A worksheet, not a calculation: the four factors quoted verbatim, the citation line, blank cells to fill.
       return damagesToFin(panduitWorksheet());
     },
-  },
-  {
-    id: "fin-currency",
-    name: "Currency conversion with your rates",
-    fields: FIN_CURRENCY_FIELDS.map((f) => ({ ...f, default: FIN_CURRENCY_DEFAULTS[f.key] ?? "" })),
-    compute: (r) => {
-      // Your own rates against a base currency (no live rates: offline), cross rates, ISO 4217 minor units.
-      return finCurrencyCalc(r);
-    },
-    assumes: "the rates you typed; JurisLab has no live exchange rates (it works offline)",
   },
 ];
 

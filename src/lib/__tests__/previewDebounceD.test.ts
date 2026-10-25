@@ -95,7 +95,8 @@ describe("debouncedPreview", () => {
 describe("the pane wires it (taskpane.ts is not importable; source scan)", () => {
   const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
   test("Stats and Solve keystrokes are debounced and every Insert flushes first", () => {
-    expect(PANE).toMatch(/import \{ debouncedPreview, flushBeforeInsert, previewListener \} from "\.\.\/lib\/previewDebounce";/);
+    // E1 fix: the same import also brings Finance's block-field debounce (pinned in damagesE1fix.test.ts).
+    expect(PANE).toMatch(/import \{ blockFieldListener, debouncedPreview, FIN_BLOCK_DEBOUNCE_MS, flushBeforeInsert, previewListener \} from "\.\.\/lib\/previewDebounce";/);
     expect(PANE).toContain("const statsPreview = debouncedPreview(() => updateStatsPreview());");
     expect(PANE).toContain("const solvePreview = debouncedPreview(() => updateSolve());");
     expect(PANE).toContain('renderCalcFields(calc.fields, statsInputs, "stats", previewListener(statsPreview, updateStatsPreview));');
@@ -107,7 +108,7 @@ describe("the pane wires it (taskpane.ts is not importable; source scan)", () =>
     expect(PANE).not.toMatch(/solve(Input|A|B)\.addEventListener\("input", updateSolve\)/);
     expect(PANE).not.toMatch(/solveInput\.addEventListener\("input", \(\) => \{ solveVarChoice = null; updateSolve\(\); \}\)/);
     // "Add this figure to the panels" snapshots the current figure: it flushes first too.
-    expect(PANE).toMatch(/function addCurrentFigureToPanels\(\): void \{\n(\s+\/\/[^\n]*\n)?\s+statsPreview\.flush\(\);\n\s+solvePreview\.flush\(\);\n\s+const item = currentModeFigure\(\);/);
+    expect(PANE).toMatch(/function addCurrentFigureToPanels\(\): void \{\n(\s+\/\/[^\n]*\n)?\s+statsPreview\.flush\(\);\n\s+solvePreview\.flush\(\);\n\s+finPreview\.flush\(\);\n\s+const item = currentModeFigure\(\);/);
     // A direct recompute supersedes a pending one.
     expect(PANE).toMatch(/function updateStatsPreview\(\): void \{\n\s+statsPreview\.cancel\(\);/);
     expect(PANE).toMatch(/function updateSolve\(\): void \{\n\s+solvePreview\.cancel\(\);/);

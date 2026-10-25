@@ -11,7 +11,7 @@
 //
 // Pure logic — no Office.js, no PptxGenJS — fully unit-testable.
 
-import { linearAxis, fmtValue } from "./axis";
+import { linearAxis, fmtValue, THIN_SPACE } from "./axis";
 import { parseCellNumber, SCI_TAIL } from "./dataimport";
 import { buildHeatmapSvg } from "./heatmap";
 import { buildCandlestickSvg } from "./candlestick";
@@ -45,6 +45,11 @@ export interface ChartStyle {
    * Omitted: the long-standing default colours, byte-identical.
    */
   palette?: "okabe-ito";
+  /**
+   * "comma": value-axis labels group thousands with commas (1,500,000) instead of thin spaces, for a money axis whose
+   * text and tables print commas (the damages figures). Omitted: unchanged.
+   */
+  grouping?: "comma";
 }
 
 export interface ChartSeries {
@@ -689,7 +694,9 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   // (every Table→Chart kind used to print `5.0e+5`). Bounded there: at most
   // AXIS_TICK_CAP ticks on any input, femtosecond tables included.
   // Patent tick labels are 12 px, so a horizontal value axis asks for fewer.
-  const valueAxis = linearAxis(vmin, vmax, { target: horizontal ? (patent ? 4 : 6) : 5 });
+  const valueAxis0 = linearAxis(vmin, vmax, { target: horizontal ? (patent ? 4 : 6) : 5 });
+  const valueAxis =
+    style.grouping === "comma" ? { ...valueAxis0, labels: valueAxis0.labels.map((l) => l.split(THIN_SPACE).join(",")) } : valueAxis0;
   // The multiplier is stated once, at the end of the value axis, in room made
   // for it INSIDE the fixed canvas (the canvas size is what Word inserts at).
   if (valueAxis.multiplier) {

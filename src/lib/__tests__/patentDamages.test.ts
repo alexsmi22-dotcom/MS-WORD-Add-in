@@ -206,7 +206,9 @@ describe("lost profits: oracle cases to the cent", () => {
     expect("error" in lostProfits(baseLP({ elasticity: -1 }))).toBe(true);
     const neg = lostProfits(baseLP({ elasticity: 20 }));
     expect("error" in neg && neg.error).toMatch(/negative but-for volume/);
-    expect(lostProfits(baseLP({ rows: rows(["A", 100]) }))).toEqual({ error: "Price erosion needs the patentee's actual units: the second number on each line." });
+    expect(lostProfits(baseLP({ rows: rows(["A", 100]) }))).toEqual({
+      error: "A: price erosion needs the patentee's actual units, the second number on each line (enter 0 for a period with none).",
+    });
   });
 });
 
@@ -278,8 +280,8 @@ describe("the per-period table parser", () => {
     const two = parsePeriodTable("Period\tRevenue\n2021\t1,000\n2022\t2,000\nTotal\t3,000", ["revenue"], 1);
     if ("error" in two) throw new Error(two.error);
     expect(two.rows.map((r) => r.label)).toEqual(["2021", "2022"]);
-    expect(two.notes.join(" ")).toMatch(/“Total” line was skipped/);
-    for (const lbl of ["TOTAL", "Totals", "Grand total", "Sum"]) {
+    expect(two.notes.join(" ")).toContain("Line 4 (“Total 3,000”) is a totals line and was skipped");
+    for (const lbl of ["TOTAL", "Totals", "Grand total", "Sum", "Subtotal", "Total damages", "TOTAL (2021–2024)", "Totals (USD)"]) {
       const r = parsePeriodTable(`2021 5\n${lbl} 5`, ["base"], 1);
       if ("error" in r) throw new Error(r.error);
       expect(r.rows.length).toBe(1);
@@ -292,11 +294,12 @@ describe("the per-period table parser", () => {
 });
 
 describe("hostile sizes", () => {
-  test("1e15 amounts stay grouped, never e-notation", () => {
-    const out = ok(reasonableRoyalty(baseRoyalty({ rows: rows(["A", 1e15], ["B", 1e15]), rate: 5, apportionPct: 100, lumpSum: 0 })));
-    expect(out.text).toContain("Total running royalty: 100,000,000,000,000.00");
-    expect(out.text).toContain("Total royalty base: 2,000,000,000,000,000.00");
+  test("1e12 amounts (the cap) stay grouped, never e-notation; above is refused", () => {
+    const out = ok(reasonableRoyalty(baseRoyalty({ rows: rows(["A", 1e12], ["B", 1e12]), rate: 5, apportionPct: 100, lumpSum: 0 })));
+    expect(out.text).toContain("Total running royalty: 100,000,000,000.00");
+    expect(out.text).toContain("Total royalty base: 2,000,000,000,000.00");
     expectDisplayContract(out);
+    expect(parsePeriodTable("2021 1e15", ["base"], 1)).toHaveProperty("error");
   });
   test("10,000 periods parse and compute fast; the figure becomes a cumulative line", () => {
     const text = Array.from({ length: 10000 }, (_, i) => `P${i + 1}\t${1000 + i}\t${2000 + i}\t${500}`).join("\n");

@@ -9,6 +9,11 @@
  * CONVENTIONS (printed in each result's notes, pinned by the jest oracle cases):
  *  - Money is rounded to the cent per period (half away from zero) and totals are the sum of the rounded periods, so
  *    the table foots. Units are not rounded.
+ *  - Every input amount and every per-period amount is at most one trillion (MAX_DAMAGES_AMOUNT) and every total at
+ *    most ten trillion (MAX_DAMAGES_TOTAL), so whole cents are exact integers in a double; past them a result is
+ *    refused by name. At most 10,000 periods.
+ *  - A totals line (Total, Subtotal, Total damages, Grand total, Sum …) as the last row is skipped; anywhere else it
+ *    is refused. A row's first cell is its period: a bare number there must be a year (1900–2100) or a date form.
  *  - Lump-sum comparison: each period's royalty is paid at the END of its period and discounted to the START of the
  *    first period at the annual effective rate d: PV = Σ R_k (1 + d)^(−k/m), m = periods per year.
  *  - Market-share method: the patentee's captured share of the infringer's units is p / (100 − i), the patentee's
@@ -24,28 +29,26 @@ import { finPct, finPlotSvg, currentFinFig } from "./financeFigures";
 import { buildChartPreviewSvg, type TableChart } from "./tablechart";
 import { proseDashes } from "./proseDashes";
 import { hasBrokenNumber } from "./insertGate";
+import { MAX_AMOUNT, MAX_ROWS, MAX_TOTAL, isTotalsLabel, toCents } from "./damagesInterest";
 
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------
 
-/** Inputs and results beyond this magnitude are refused (money still prints grouped, never in e-notation). */
-export const MAX_DAMAGES_AMOUNT = 1e18;
+/** Input amounts, units and per-period amounts above one trillion are refused (whole cents stay exact). */
+export const MAX_DAMAGES_AMOUNT = MAX_AMOUNT;
+/** Totals above ten trillion are refused (still far below 2⁵³ cents, about 9 × 10¹³ dollars). */
+export const MAX_DAMAGES_TOTAL = MAX_TOTAL;
 /** Rows beyond this are refused (10,000 stays well inside the keystroke budget). */
-export const MAX_DAMAGES_ROWS = 100000;
+export const MAX_DAMAGES_ROWS = MAX_ROWS;
 
-/** Rounds to the cent, half away from zero, treating a binary near-half (1.005 → 100.4999…) as the half it is. */
+/**
+ * Rounds to the cent, half away from zero, treating a binary near-half (1.005 → 100.4999…) as the half it is, within
+ * the value's own float precision only (toCents): 100,000,000,000.0048 is 0.48 of a cent, not a half.
+ */
 export function roundCents(x: number): number {
-  if (!Number.isFinite(x)) return NaN;
-  const s = Math.abs(x) * 100;
-  const f = Math.floor(s);
-  const frac = s - f;
-  // "Near" is a few ulps of s, not a fixed fraction: a cent fraction of .4 at a million dollars is not a half.
-  // At and above 2⁵² every double is a whole number of cents already (frac is 0), and nothing there is a half.
-  const half = s < 4503599627370496 && Math.abs(frac - 0.5) <= Math.min(0.02, Math.max(1e-11, s * 2e-15));
-  const r = half || frac > 0.5 ? f + 1 : f;
-  const v = r / 100;
-  return x < 0 && v !== 0 ? -v : v;
+  const c = toCents(x);
+  return Number.isNaN(c) ? NaN : c / 100;
 }
 
 // One formatter per shape, built once: toLocaleString with options builds a formatter per call, and a 10,000-period
@@ -107,16 +110,44 @@ function readCell(raw: string): number {
  *
  * `names` are the numeric columns in order; the first `required` of them must be present, the rest are optional.
  */
-export function parsePeriodTable(text: string, names: string[], required: number): PeriodTable | { error: string } {
+/** A bare-number period label that IS a period: a year 1900–2100, or a date / month form a cell reader might accept. */
+const PLAUSIBLE_PERIOD_RE = /^(?:19\d\d|20\d\d|2100)$|^\d{4}[-/.]\d{1,2}(?:[-/.]\d{1,2})?$|^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}$|^\d{1,2}\/\d{4}$/;
+
+/** A line quoted in a note or refusal: tabs as spaces, at most 40 characters. */
+const clip = (s0: string): string => {
+  const s = s0.replace(/\t+/g, " ");
+  return s.length > 40 ? s.slice(0, 40) + "…" : s;
+};
+
+export interface PeriodTableOptions {
+  /** Column indices (into `names`) that may hold a negative number (the summary's price-erosion offset). */
+  allowNegative?: number[];
+}
+
+export function parsePeriodTable(text: string, names: string[], required: number, opts: PeriodTableOptions = {}): PeriodTable | { error: string } {
   const lines = (text ?? "").split(/\r?\n/);
   const rows: PeriodRow[] = [];
   const notes: string[] = [];
   const seen = new Map<string, number>();
   const max = names.length;
+  const negOk = new Set(opts.allowNegative ?? []);
   let firstContent = true;
+  let totalsLine: { li: number; text: string } | null = null;
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li].replace(/[   ]/g, " ").trim();
     if (!line) continue;
+    // A totals line (an inserted result read back, an expert's table) is never a period: counting it would double the
+    // damages. As the last row it is skipped and said; with rows after it, it is refused (which rows does it sum?).
+    if (totalsLine) {
+      return {
+        error: `Line ${totalsLine.li + 1} (“${totalsLine.text}”) is a totals line with rows after it; a subtotal between periods is ambiguous. Remove it (totals are computed here, not read).`,
+      };
+    }
+    if (isTotalsLabel(line)) {
+      totalsLine = { li, text: clip(line) };
+      firstContent = false;
+      continue;
+    }
     const isFirst = firstContent;
     firstContent = false;
     let label = "";
@@ -140,12 +171,20 @@ export function parsePeriodTable(text: string, names: string[], required: number
       if (k === 0 && toks.length > required) k = 1;
       label = toks.slice(0, k).join(" ");
       nums = toks.slice(k);
+      // "300 000" is one number with a space between its thousands, or two numbers: refused by name, never guessed
+      // ("2022 300 000 280 000" read as 300 and 280 otherwise). Tab, semicolon and bar rows are unambiguous.
+      for (let j = 1; j < nums.length; j++) {
+        if (/^\d{3}(?:[.,]\d+)?$/.test(nums[j]) && /^[−–-]?\d{1,3}$/.test(nums[j - 1])) {
+          return {
+            error: `Line ${li + 1}: “${nums[j - 1]} ${nums[j]}” could be one number with a space between its thousands (${nums[j - 1]},${nums[j]}) or two numbers. Write thousands with commas, or separate the columns with tabs, semicolons or vertical bars.`,
+          };
+        }
+      }
     }
-    // A totals line (an inserted result read back, an expert's table) is never a period: counting it would double the
-    // damages. Skipped and said.
-    if (/^(?:grand\s+)?totals?:?$|^sum:?$/i.test(label.trim())) {
-      notes.push(`The “${label}” line was skipped: totals are computed here, not read.`);
-      continue;
+    // The first cell is the period. A bare number there is a period only as a year or a date: "12,000 30,000 5,000"
+    // would otherwise read 12,000 as the label and shift every column left.
+    if (label && Number.isFinite(readCell(label)) && !PLAUSIBLE_PERIOD_RE.test(label.trim())) {
+      return { error: `Line ${li + 1} has no period label (“${clip(label)}” is a number, not a year or a date); start each row with its period, e.g. 2023 or 2023-Q1.` };
     }
     const values: number[] = [];
     let badCell = "";
@@ -174,8 +213,8 @@ export function parsePeriodTable(text: string, names: string[], required: number
       return { error: `Line ${li + 1}${label ? ` (“${label}”)` : ""}: ${values.length} numbers after the period, but this table takes at most ${max} (${names.join(", ")}).` };
     }
     for (let j = 0; j < values.length; j++) {
-      if (values[j] < 0) return { error: `Line ${li + 1}${label ? ` (“${label}”)` : ""}: ${names[j]} cannot be negative.` };
-      if (Math.abs(values[j]) > MAX_DAMAGES_AMOUNT) return { error: `Line ${li + 1}: ${names[j]} is beyond 10¹⁸, outside this calculator.` };
+      if (values[j] < 0 && !negOk.has(j)) return { error: `Line ${li + 1}${label ? ` (“${label}”)` : ""}: ${names[j]} cannot be negative.` };
+      if (Math.abs(values[j]) > MAX_DAMAGES_AMOUNT) return { error: `Line ${li + 1}${label ? ` (“${label}”)` : ""}: ${names[j]} is above one trillion, outside this calculator.` };
     }
     if (!label) label = `Period ${rows.length + 1}`;
     const key = label.toLowerCase();
@@ -184,6 +223,7 @@ export function parsePeriodTable(text: string, names: string[], required: number
     rows.push({ label, values });
     if (rows.length > MAX_DAMAGES_ROWS) return { error: `More than ${MAX_DAMAGES_ROWS.toLocaleString("en-US")} periods is outside this calculator.` };
   }
+  if (totalsLine) notes.push(`Line ${totalsLine.li + 1} (“${totalsLine.text}”) is a totals line and was skipped: totals are computed here, not read.`);
   if (!rows.length) return { error: `Enter at least one period: a label, then ${names.slice(0, required).join(", ")}.` };
   return { rows, notes };
 }
@@ -225,7 +265,7 @@ export function damagesFigure(labels: string[], series: { name: string; values: 
       rows: [],
       warnings: [],
     };
-    return buildChartPreviewSvg(chart, "stacked-column", title, { patent: fig?.bw === true }, fig?.width ?? 380).svg;
+    return buildChartPreviewSvg(chart, "stacked-column", title, { patent: fig?.bw === true, grouping: "comma" }, fig?.width ?? 380).svg;
   }
   const n = labels.length;
   const stride = Math.max(1, Math.ceil(n / 200));
@@ -241,15 +281,26 @@ export function damagesFigure(labels: string[], series: { name: string; values: 
     title: `${title} (cumulative)`,
     xlabel: "period number",
     ylabel: "cumulative amount",
+    yGrouping: "comma",
   });
 }
 
-/** Sum of cent-rounded values, in integer cents while that is exact. */
+/** Sum of cent-rounded values in integer cents (exact: every total is held under MAX_DAMAGES_TOTAL). */
 function sumCents(xs: number[]): number {
   let s = 0;
   for (const x of xs) s += Math.round(x * 100);
   return s / 100;
 }
+
+/** The first of `checks` whose value is not a finite amount within `cap`, as a refusal naming it; else null. */
+function overCap(checks: [string, number][], cap: number, capText: string): { error: string } | null {
+  for (const [what, v] of checks) {
+    if (!Number.isFinite(v) || Math.abs(v) > cap) return refuse(`${what} is above ${capText}, outside this calculator.`);
+  }
+  return null;
+}
+const ONE_TRILLION = "one trillion";
+const TEN_TRILLION = "ten trillion";
 
 // ---------------------------------------------------------------------------
 // Reasonable royalty
@@ -286,7 +337,8 @@ export function computeRoyalty(inp: RoyaltyInput): RoyaltyComputed | { error: st
   if (!(inp.rate >= 0) || !Number.isFinite(inp.rate)) return refuse("The royalty rate cannot be negative.");
   if (inp.basis === "revenue" && inp.rate > 100) return refuse("A royalty rate on revenue above 100% is outside this calculator.");
   if (!(inp.apportionPct > 0 && inp.apportionPct <= 100)) return refuse("Apportionment must be more than 0% and at most 100% (100% = none).");
-  if (!(inp.lumpSum >= 0) || inp.lumpSum > MAX_DAMAGES_AMOUNT) return refuse("The lump sum cannot be negative (0 = no comparison).");
+  if (!(inp.lumpSum >= 0)) return refuse("The lump sum cannot be negative (0 = no comparison).");
+  if (inp.lumpSum > MAX_DAMAGES_AMOUNT) return refuse("The lump sum is above one trillion, outside this calculator.");
   if (inp.lumpSum > 0) {
     if (!(inp.discountPct > -100) || inp.discountPct > 1000) return refuse("The discount rate must be above −100% and at most 1,000% a year.");
     if (!(inp.periodsPerYear > 0) || inp.periodsPerYear > 366) return refuse("Periods per year must be more than 0 and at most 366.");
@@ -300,13 +352,23 @@ export function computeRoyalty(inp: RoyaltyInput): RoyaltyComputed | { error: st
     const r = inp.rows[k];
     const base = r.values[0];
     const royalty = roundCents(base * mult);
-    if (!Number.isFinite(royalty) || Math.abs(royalty) > MAX_DAMAGES_AMOUNT) return refuse(`${r.label}: the royalty is beyond 10¹⁸, outside this calculator.`);
+    const big = overCap([[`${r.label}: the royalty`, royalty]], MAX_DAMAGES_AMOUNT, ONE_TRILLION);
+    if (big) return big;
     cum = roundCents(cum + royalty);
     totalBase += base;
     // Rounded per period like every other money column, so the Present value column foots.
     const pvk = inp.lumpSum > 0 ? roundCents(royalty * Math.pow(1 + d, -(k + 1) / inp.periodsPerYear)) : 0;
     periods.push({ label: r.label, base, royalty, cumulative: cum, pv: pvk });
   }
+  const big = overCap(
+    [
+      ["The total royalty base", totalBase],
+      ["The total royalty", cum],
+    ],
+    MAX_DAMAGES_TOTAL,
+    TEN_TRILLION,
+  );
+  if (big) return big;
   return { periods, totalBase, total: sumCents(periods.map((p) => p.royalty)), pvTotal: inp.lumpSum > 0 ? sumCents(periods.map((p) => p.pv)) : null };
 }
 
@@ -433,8 +495,10 @@ export function computeLostProfits(inp: LostProfitsInput): LostProfitsComputed |
     if (!(inp.actualPrice > 0)) return refuse("Price erosion needs an actual price above zero.");
     if (!(inp.butForPrice >= inp.actualPrice)) return refuse("Price erosion needs a but-for price at or above the actual price.");
     if (!(inp.elasticity >= 0)) return refuse("The elasticity cannot be negative (0 = the patentee's volume is unchanged).");
-    if (!inp.rows.some((r) => r.values.length >= 2)) {
-      return refuse("Price erosion needs the patentee's actual units: the second number on each line.");
+    // Every row: a row without the column would otherwise erode by zero without a word.
+    const short = inp.rows.find((r) => r.values.length < 2);
+    if (short) {
+      return refuse(`${short.label}: price erosion needs the patentee's actual units, the second number on each line (enter 0 for a period with none).`);
     }
   }
   if (inp.remainder !== "none") {
@@ -471,26 +535,40 @@ export function computeLostProfits(inp: LostProfitsInput): LostProfitsComputed |
     }
     const rem = inp.remainder === "none" ? 0 : roundCents(uncaptured * remPerUnit);
     const total = roundCents(lost + erosion + rem);
-    for (const v of [lost, erosion, rem, total]) {
-      if (!Number.isFinite(v) || Math.abs(v) > MAX_DAMAGES_AMOUNT) return refuse(`${r.label}: an amount is beyond 10¹⁸, outside this calculator.`);
-    }
+    const big = overCap(
+      [
+        [`${r.label}: the lost profits`, lost],
+        [`${r.label}: the price erosion`, erosion],
+        [`${r.label}: the royalty on uncaptured units`, rem],
+        [`${r.label}: the total`, total],
+      ],
+      MAX_DAMAGES_AMOUNT,
+      ONE_TRILLION,
+    );
+    if (big) return big;
     periods.push({ label: r.label, infringerUnits: units, captured, uncaptured, lostProfits: lost, erosion, remainder: rem, total });
   }
   const sum = (f: (p: LostProfitsPeriod) => number): number => periods.reduce((s, p) => s + f(p), 0);
-  return {
-    periods,
-    capture,
-    unitMargin,
-    capped,
-    totals: {
-      infringerUnits: sum((p) => p.infringerUnits),
-      captured: sum((p) => p.captured),
-      lostProfits: sumCents(periods.map((p) => p.lostProfits)),
-      erosion: sumCents(periods.map((p) => p.erosion)),
-      remainder: sumCents(periods.map((p) => p.remainder)),
-      total: sumCents(periods.map((p) => p.total)),
-    },
+  const totals = {
+    infringerUnits: sum((p) => p.infringerUnits),
+    captured: sum((p) => p.captured),
+    lostProfits: sumCents(periods.map((p) => p.lostProfits)),
+    erosion: sumCents(periods.map((p) => p.erosion)),
+    remainder: sumCents(periods.map((p) => p.remainder)),
+    total: sumCents(periods.map((p) => p.total)),
   };
+  const big = overCap(
+    [
+      ["The total lost profits", totals.lostProfits],
+      ["The total price erosion", totals.erosion],
+      ["The total royalty on uncaptured units", totals.remainder],
+      ["The total", totals.total],
+    ],
+    MAX_DAMAGES_TOTAL,
+    TEN_TRILLION,
+  );
+  if (big) return big;
+  return { periods, capture, unitMargin, capped, totals };
 }
 
 export function lostProfits(inp: LostProfitsInput): DamagesResult {
@@ -519,6 +597,11 @@ export function lostProfits(inp: LostProfitsInput): DamagesResult {
         : "Note: price erosion = (but-for price − actual price) × the patentee's actual units.",
     );
     lines.push("Note: captured units are valued at the incremental price entered; enter the but-for price there to value them at it.");
+    if (c.periods.some((p) => p.erosion < 0)) {
+      lines.push(
+        "Note: a negative price erosion (the margin lost on units the higher price would have shed exceeds the price gain) is shown as computed and subtracted in the total, as an offset; the summary tool accepts it in its price-erosion column.",
+      );
+    }
   }
   lines.push("Note: each amount is rounded to the cent per period; totals are the sums of the rounded periods.");
   const head = ["Period", "Infringer's units", "Captured units", "Lost profits"];
@@ -586,9 +669,28 @@ export function damagesSummary(inp: SummaryInput): DamagesResult {
   };
   const enhanced = roundCents(T.dmg * m);
   const grand = roundCents(enhanced + T.it);
-  if (![enhanced, grand, T.total].every((v) => Number.isFinite(v) && Math.abs(v) <= MAX_DAMAGES_AMOUNT * 10)) {
-    return refuse("A total is beyond 10¹⁹, outside this calculator.");
-  }
+  const big =
+    overCap(
+      per.map((p): [string, number] => [`${p.label}: the period total`, p.total]),
+      MAX_DAMAGES_AMOUNT,
+      ONE_TRILLION,
+    ) ??
+    overCap(
+      [
+        ["The total lost profits", T.lp],
+        ["The total price erosion", T.pe],
+        ["The total reasonable royalty", T.rr],
+        ["The total interest", T.it],
+        ["The total damages", T.dmg],
+        ["The total", T.total],
+        ["The damages with the multiplier", enhanced],
+        ["The total with the multiplier", grand],
+      ],
+      MAX_DAMAGES_TOTAL,
+      TEN_TRILLION,
+    );
+  if (big) return big;
+  const negErosion = per.some((p) => p.pe < 0);
   const lines = [
     "Damages summary, computed from the inputs given",
     `Periods: ${per.length.toLocaleString("en-US")}`,
@@ -601,7 +703,8 @@ export function damagesSummary(inp: SummaryInput): DamagesResult {
   if (hasInterest) lines.push(`Interest (as entered): ${dmgMoney(T.it)}`);
   lines.push(`Total: ${dmgMoney(grand)}`);
   lines.push("Note: this summary adds the columns entered; it computes no interest (enter interest from the interest tool as the fourth column).");
-  if (m !== 1) lines.push("Note: the multiplier is applied to the damages columns only, not to interest.");
+  if (m !== 1) lines.push("Note: the multiplier is applied to the damages columns only, not to interest; the table's last two rows show it.");
+  if (negErosion) lines.push("Note: a negative price erosion (as the lost-profits tool can compute) is entered as an offset and subtracted from the damages.");
   lines.push("Note: each amount is rounded to the cent per period; totals are the sums of the rounded periods.");
   const head = ["Period", "Lost profits", "Price erosion", "Reasonable royalty", "Damages"];
   if (hasInterest) head.push("Interest");
@@ -619,6 +722,12 @@ export function damagesSummary(inp: SummaryInput): DamagesResult {
   if (hasInterest) tot.push(dmgMoney(T.it));
   tot.push(dmgMoney(T.total), "");
   rows.push(tot);
+  if (m !== 1) {
+    // The text's "Damages × m" and "Total" lines, in the table too: the inserted table is what a reader relies on.
+    const blank = (n: number): string[] => Array(n).fill("");
+    rows.push(["Multiplier entered", ...blank(3), `× ${dmgNum(m)}`, ...(hasInterest ? [""] : []), "", ""]);
+    rows.push([`Total with damages × ${dmgNum(m)}`, ...blank(3), dmgMoney(enhanced), ...(hasInterest ? [dmgMoney(T.it)] : []), dmgMoney(grand), ""]);
+  }
   const series = [
     { name: "Lost profits", values: per.map((p) => p.lp) },
     { name: "Price erosion", values: per.map((p) => p.pe) },

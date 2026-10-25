@@ -858,7 +858,7 @@ import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import { insertableResultText, matrixBlocksFinite } from "../lib/insertGate";
 import { pictureNotKeptText } from "../lib/insertKept";
 import { proseDashes } from "../lib/proseDashes";
-import { debouncedPreview, flushBeforeInsert, previewListener } from "../lib/previewDebounce";
+import { blockFieldListener, debouncedPreview, FIN_BLOCK_DEBOUNCE_MS, flushBeforeInsert, previewListener } from "../lib/previewDebounce";
 import {
   planParagraphNumbering,
   describeParagraphPlan,
@@ -2386,7 +2386,9 @@ Office.onReady((info) => {
 
   populateFinanceCalcs();
   finCalcSelect.addEventListener("change", renderFinanceInputs);
-  finInsertBtn.addEventListener("click", () => void runCompositeInsert(finInsertBtn, insertFinanceResult));
+  finInsertBtn.addEventListener("click", () => {
+    if (flushBeforeInsert(finPreview, finInsertBtn)) void runCompositeInsert(finInsertBtn, insertFinanceResult);
+  });
 
   msInput.addEventListener("input", updateMassSpec);
   msInsertBtn.addEventListener("click", () => insertPlainText(massSpecText(currentMassSpec), "MS data"));
@@ -6717,6 +6719,11 @@ function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number): (.
  */
 const statsPreview = debouncedPreview(() => updateStatsPreview());
 const solvePreview = debouncedPreview(() => updateSolve());
+/**
+ * E1 fix: Finance recomputes after a pause when the keystroke is in a block (multi-line table) field: a 10,000-row
+ * damages table costs a few hundred ms per run. Number fields stay live; Insert and the panel tray flush first.
+ */
+const finPreview = debouncedPreview(() => updateFinancePreview(), FIN_BLOCK_DEBOUNCE_MS);
 
 /** Minimal HTML escape for findings text. */
 function esc(s: string): string {
@@ -9568,7 +9575,8 @@ const FIN_CALCS: FinCalc[] = [
       { key: "mult", label: "Multiplier on damages (1 = none; at most 3)", default: "1" },
     ],
     compute: (r) => {
-      const t = parsePeriodTable(r("periods"), ["lost profits", "price erosion", "reasonable royalty", "interest"], 1);
+      // A negative price erosion (lost profits can compute one) is an offset; every other column must be ≥ 0.
+      const t = parsePeriodTable(r("periods"), ["lost profits", "price erosion", "reasonable royalty", "interest"], 1, { allowNegative: [1] });
       if ("error" in t) return finRefuse(t.error);
       return damagesToFin(damagesSummary({ rows: t.rows, multiplier: +r("mult") }), t.notes);
     },
@@ -9856,7 +9864,7 @@ const MULTILINE_FIELD_KINDS = new Set(["groups", "vars", "matrix", "block", "lin
 
 function renderFinanceInputs(): void {
   const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
-  renderCalcFields(calc.fields, finInputs, "fin", updateFinancePreview);
+  renderCalcFields(calc.fields, finInputs, "fin", blockFieldListener(finPreview, updateFinancePreview));
 }
 
 /**
@@ -9871,9 +9879,17 @@ function finTablePreview(t: { label: string; rows: string[][] }): HTMLElement {
   table.setAttribute("aria-label", t.label);
   const SHOW = 60;
   const [head, ...body] = t.rows;
-  const last = body.length && body[body.length - 1][0] === "Total" ? body[body.length - 1] : null;
-  const middle = last ? body.slice(0, -1) : body;
-  const shown = middle.length > SHOW ? [...middle.slice(0, SHOW), ...(last ? [last] : [])] : body;
+  // The footer: the "Total" row and any rows after it (the summary's multiplier rows) are always shown.
+  let foot = body.length;
+  for (let i = body.length - 1; i >= 0; i--) {
+    if (body[i][0] === "Total") {
+      foot = i;
+      break;
+    }
+  }
+  const footer = body.slice(foot);
+  const middle = body.slice(0, foot);
+  const shown = middle.length > SHOW ? [...middle.slice(0, SHOW), ...footer] : body;
   const addRow = (cells: string[], tag: "th" | "td"): void => {
     const tr = document.createElement("tr");
     cells.forEach((c, i) => {
@@ -37446,6 +37462,7 @@ function addCurrentFigureToPanels(): void {
   // Release D: the figure of the CURRENT input, never one a pending keystroke is about to replace.
   statsPreview.flush();
   solvePreview.flush();
+  finPreview.flush();
   const item = currentModeFigure();
   if (!item) {
     setStatus("There is no figure here to add — compute a result with a chart first.", "error");

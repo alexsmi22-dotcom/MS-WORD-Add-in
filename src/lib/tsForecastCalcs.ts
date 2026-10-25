@@ -15,35 +15,26 @@ import { fitHoltWinters, hwForecast, hwForecastVariance, hwIntervals, HW_MAX_H, 
 import { buildPlotSvg } from "./plot";
 import { normalCdfPrecise } from "./probdist";
 import { fmtFixed, fmtP, intText, numText } from "./regTable";
-import { chiSquareP } from "./stats2";
 import { parseSeriesTable, pickSeries, type SeriesData } from "./tsData";
+import { ljungBox as tsDiagLjungBox } from "./tsDiag";
 
 type Read = (key: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
 const q = (s: string): string => `“${s}”`;
 
-// TEMP: replace with tsDiag.ljungBox at merge
 /**
- * Ljung–Box Q on x at `lags` (statsmodels acorr_ljungbox: autocorrelations of the demeaned series with denominator n,
- * Q = n(n + 2) Σ_{k≤L} r_k²/(n − k), df = lags − modelDf). p is null when df ≤ 0 (statsmodels returns NaN).
+ * Ljung–Box Q at `lags` for the ARIMA residuals: the last row of E3a's tsDiag.ljungBox (statsmodels acorr_ljungbox),
+ * or a refusal (a constant residual series). p is null when df ≤ 0 (statsmodels returns NaN).
  */
-export function ljungBox(x: ArrayLike<number>, lags: number, modelDf: number): { q: number; df: number; p: number | null } {
-  const n = x.length;
-  const L = Math.max(1, Math.min(Math.floor(lags), n - 1));
-  let mean = 0;
-  for (let i = 0; i < n; i++) mean += x[i] / n;
-  let c0 = 0;
-  for (let i = 0; i < n; i++) c0 += (x[i] - mean) * (x[i] - mean);
-  let qs = 0;
-  for (let k = 1; k <= L; k++) {
-    let ck = 0;
-    for (let i = k; i < n; i++) ck += (x[i] - mean) * (x[i - k] - mean);
-    const rk = c0 > 0 ? ck / c0 : 0;
-    qs += (rk * rk) / (n - k);
-  }
-  qs *= n * (n + 2);
-  const df = L - modelDf;
-  return { q: qs, df, p: df > 0 ? chiSquareP(qs, df) : null };
+export function ljungBox(
+  x: ArrayLike<number>,
+  lags: number,
+  modelDf: number,
+): { q: number; df: number; p: number | null } | { reason: string } {
+  const r = tsDiagLjungBox(x, lags, modelDf);
+  if (!r.ok) return { reason: r.reason };
+  const last = r.rows[r.rows.length - 1];
+  return { q: last.q, df: last.df, p: last.p };
 }
 
 // ---------------------------------------------------------------- worked defaults
@@ -294,7 +285,9 @@ export function tsArimaCalc(read: Read): StatOutput {
   else {
     const lb = ljungBox(fit.stdResid, lags, p + qq);
     lbLine =
-      lb.p === null
+      "reason" in lb
+        ? `Ljung–Box not computed: ${lb.reason}`
+        : lb.p === null
         ? `Ljung–Box not computed: ${lags} lags leave no degrees of freedom after p + q = ${p + qq}.`
         : `Ljung–Box on the standardized residuals: Q(${lags}) = ${fmtFixed(lb.q, 3)}, df = ${lb.df}, p ${lb.p < 0.001 ? fmtP(lb.p) : `= ${fmtP(lb.p)}`}${lb.p < 0.05 ? " (residual autocorrelation remains at 5%)" : ""}`;
   }

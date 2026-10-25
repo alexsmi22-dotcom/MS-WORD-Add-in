@@ -49,6 +49,7 @@ import { bracketedBoxPlot, BracketChoice } from "../lib/statsBrackets";
 import { AnalyzeBlock, AnalyzeOutput, EngOutput, StatOutput, StatTable, analyzeBlocksToText } from "../lib/analyzeBlocks";
 import { econOlsCalc, econRegTableCalc, econLogitCalc, LONGLEY_DEFAULT, ECON_SPEC_DEFAULT, ECON_SPECS_DEFAULT, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT } from "../lib/econCalcs";
 import { TS_CALCULATORS } from "../lib/tsCalcs";
+import { tsArimaCalc, tsEtsCalc, TS_ARIMA_DEFAULTS, TS_ETS_DEFAULTS, TS_ARIMA_TREND_OPTIONS } from "../lib/tsForecastCalcs";
 import {
   ES_EVENT_FIELDS,
   ES_EVENT_DEFAULTS,
@@ -10297,6 +10298,11 @@ const ECON_OPTION_FIELDS: StatField[] = [
   { key: "stars", label: "Significance stars", default: "econ", kind: "select", options: STAR_SCHEMES },
 ];
 
+/** Release E3: the choices 0…max for an ARIMA order. */
+function ORDER_OPTIONS(max: number): { value: string; label: string }[] {
+  return Array.from({ length: max + 1 }, (_, i) => ({ value: String(i), label: String(i) }));
+}
+
 /** Release E3: a lib field list plus its defaults map, as the pane's StatField list. */
 function withDefaults(fields: E3Field[], defaults: Record<string, string>): StatField[] {
   return fields.map((f) => ({ ...f, default: defaults[f.key] ?? "" }));
@@ -10658,6 +10664,63 @@ const STAT_CALCS: StatCalc[] = [
   },
   // Release E3: time-series diagnostics (lib/tsCalcs.ts → lib/tsDiag.ts; series read by lib/tsData.ts).
   ...TS_CALCULATORS.map((c): StatCalc => ({ id: c.id, name: c.name, fields: c.fields, compute: c.compute })),
+  // Release E3: forecasting (lib/tsForecastCalcs.ts → lib/arima.ts, lib/holtWinters.ts).
+  {
+    id: "ts-arima",
+    name: "ARIMA(p, d, q) fit and forecast",
+    fields: [
+      { key: "data", label: "Series table: dates or periods in the first column (optional), then one or more value columns", default: TS_ARIMA_DEFAULTS.data, kind: "block" },
+      { key: "column", label: "Column to model (blank when the table has one value column)", default: TS_ARIMA_DEFAULTS.column, kind: "text" },
+      { key: "p", label: "AR order p", default: TS_ARIMA_DEFAULTS.p, kind: "select", options: ORDER_OPTIONS(5) },
+      { key: "d", label: "Differencing d", default: TS_ARIMA_DEFAULTS.d, kind: "select", options: ORDER_OPTIONS(2) },
+      { key: "q", label: "MA order q", default: TS_ARIMA_DEFAULTS.q, kind: "select", options: ORDER_OPTIONS(5) },
+      { key: "trend", label: "Constant or drift", default: TS_ARIMA_DEFAULTS.trend, kind: "select", options: TS_ARIMA_TREND_OPTIONS },
+      { key: "h", label: "Forecast horizon (periods, 1–200)", default: TS_ARIMA_DEFAULTS.h, kind: "text" },
+    ],
+    compute: tsArimaCalc,
+  },
+  {
+    id: "ts-ets",
+    name: "Exponential smoothing (Holt–Winters)",
+    fields: [
+      { key: "data", label: "Series table: dates or periods in the first column (optional), then one or more value columns", default: TS_ETS_DEFAULTS.data, kind: "block" },
+      { key: "column", label: "Column to smooth (blank when the table has one value column)", default: TS_ETS_DEFAULTS.column, kind: "text" },
+      {
+        key: "trend",
+        label: "Trend",
+        default: TS_ETS_DEFAULTS.trend,
+        kind: "select",
+        options: [
+          { value: "none", label: "None" },
+          { value: "add", label: "Additive (Holt)" },
+        ],
+      },
+      {
+        key: "damped",
+        label: "Damped trend",
+        default: TS_ETS_DEFAULTS.damped,
+        kind: "select",
+        options: [
+          { value: "no", label: "No" },
+          { value: "yes", label: "Yes" },
+        ],
+      },
+      {
+        key: "seasonal",
+        label: "Seasonality",
+        default: TS_ETS_DEFAULTS.seasonal,
+        kind: "select",
+        options: [
+          { value: "none", label: "None" },
+          { value: "add", label: "Additive" },
+          { value: "mul", label: "Multiplicative" },
+        ],
+      },
+      { key: "m", label: "Seasonal period m (blank = 4 for quarters, 12 for months)", default: TS_ETS_DEFAULTS.m, kind: "text" },
+      { key: "h", label: "Forecast horizon (periods, 1–200)", default: TS_ETS_DEFAULTS.h, kind: "text" },
+    ],
+    compute: tsEtsCalc,
+  },
   // Release E3: event study and index numbers (lib/econE3Calcs.ts → lib/eventStudy.ts, lib/indexNumbers.ts).
   // Their fields keep the defaults in a separate map; withDefaults joins the two.
   { id: "es-event", name: "Securities event study (market model)", fields: withDefaults(ES_EVENT_FIELDS, ES_EVENT_DEFAULTS), compute: esEventCalc },

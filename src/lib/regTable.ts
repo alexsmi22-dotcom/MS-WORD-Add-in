@@ -23,7 +23,7 @@
  * e-notation (m×10ⁿ with 4 significant digits, trailing zeros kept, for a value that would round to zero at the chosen
  * decimals or is 10⁹ or more), never "−0.000", no NaN/Infinity, and "< 0.001" with a no-break space.
  */
-import type { FittedModel } from "./regModel";
+import { isLinearKind, type FittedModel } from "./regModel";
 import { timesTen } from "./axis";
 
 export type StarScheme = "econ" | "sci" | "none";
@@ -141,7 +141,7 @@ export function hasNoConstant(m: FittedModel): boolean {
 }
 
 function r2Of(m: FittedModel): { label: string; value: number } | null {
-  const want = m.kind === "ols" ? "R²" : "Pseudo R²";
+  const want = isLinearKind(m.kind) ? "R²" : "Pseudo R²";
   const s = m.stats.find((x) => x.label === want);
   return s ? { label: want, value: s.value } : null;
 }
@@ -175,9 +175,9 @@ export function buildRegTable(models: FittedModel[], opts: RegTableOptions = {})
   }
   rows.push(["N", ...models.map((m) => intText(m.n))]);
   const r2s = models.map(r2Of);
-  const kinds = new Set(models.map((m) => (m.kind === "ols" ? "ols" : "ml")));
+  const kinds = new Set(models.map((m) => (isLinearKind(m.kind) ? "ols" : "ml")));
   // An OLS model without a constant reports the uncentered R² (1 − SSE/Σy²): the row says so.
-  const olsR2 = models.some((m) => m.kind === "ols" && hasNoConstant(m)) ? "R² (uncentered)" : "R²";
+  const olsR2 = models.some((m) => isLinearKind(m.kind) && hasNoConstant(m)) ? "R² (uncentered)" : "R²";
   const r2Label = kinds.size === 2 ? `${olsR2} / pseudo R²` : kinds.has("ols") ? olsR2 : "Pseudo R²";
   if (r2s.some(Boolean)) rows.push([r2Label, ...r2s.map((r) => (r ? fmtFixed(r.value, dec) : ""))]);
   rows.push(["SE type", ...models.map((m) => m.seLabel)]);

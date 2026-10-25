@@ -27,7 +27,9 @@ export interface ModelStat {
 }
 
 export interface FittedModel {
-  kind: "ols" | "logit" | "probit";
+  /** ols, iv (2SLS), fe / re (panel fixed and random effects), did (difference-in-differences, an OLS fit), logit,
+   * probit, quantile. The first five are linear least-squares fits: the table prints their R². */
+  kind: "ols" | "iv" | "fe" | "re" | "did" | "logit" | "probit" | "quantile";
   /** The response's name ("wage"). */
   depName: string;
   n: number;
@@ -43,4 +45,9 @@ export interface FittedModel {
   notes: string[];
   /** Average marginal effects (logit/probit), with delta-method standard errors. */
   marginalEffects?: ModelTerm[];
+}
+
+/** True for the least-squares kinds, whose R² the publication table prints as R² (not pseudo R²). */
+export function isLinearKind(kind: FittedModel["kind"]): boolean {
+  return kind === "ols" || kind === "iv" || kind === "fe" || kind === "re" || kind === "did";
 }

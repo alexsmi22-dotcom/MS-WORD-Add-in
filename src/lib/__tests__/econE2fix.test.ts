@@ -369,3 +369,20 @@ describe("E4 review: cells read silently are named", () => {
     expect(s.cols.notes.join(" ")).toContain("2 cells with a % sign were read as the number before the sign, in percent units");
   });
 });
+
+describe("E5 review: an English thousands-and-decimal cell beside a decimal comma", () => {
+  test("“1,250.00” in a table that also writes “0,5” is refused as ambiguous", () => {
+    const p = parseRegData("y\tx\n1\t0,5\n2\t1,250.00\n3\t2,25");
+    if (!p.ok) throw new Error(p.reason);
+    const s = selectColumns(p.data, { dep: "y", preds: ["x"], text: "" });
+    expect(s.ok).toBe(false);
+    if (!s.ok) expect(s.reason).toContain("ambiguous");
+  });
+  test("“1,250.00” alone is 1250", () => {
+    const p = parseRegData("y\tx\n1\t1,250.00\n2\t3\n3\t4");
+    if (!p.ok) throw new Error(p.reason);
+    const s = selectColumns(p.data, { dep: "y", preds: ["x"], text: "" });
+    if (!s.ok) throw new Error(s.reason);
+    expect(Array.from(s.cols.X[0])).toEqual([1250, 3, 4]);
+  });
+});

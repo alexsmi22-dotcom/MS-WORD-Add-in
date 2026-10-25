@@ -28,8 +28,9 @@ export interface RegDataset {
   semicolon?: boolean;
 }
 
-/** "1,500", "12,345,678" (not "0,125"): the shape of a thousands separator. */
-const THOUSANDS_SHAPE = /^[-−+]?[1-9]\d{0,2}(,\d{3})+$/;
+/** "1,500", "12,345,678", "1,250.00" (not "0,125"): the shape of a thousands separator, with or without a decimal
+ * point after it (an English "1,250.00" beside a decimal-comma "0,5" is as ambiguous as "1,250"). */
+const THOUSANDS_SHAPE = /^[-−+]?[1-9]\d{0,2}(,\d{3})+(\.\d+)?$/;
 /** A comma that can only be a decimal comma: a leading zero ("0,125", "−0,5") or not exactly three digits after it. */
 function unambiguousDecimalComma(t: string): boolean {
   return /^[-−+]?0,\d+$/.test(t) || (/^[-−+]?\d+,\d+$/.test(t) && !/^[-−+]?\d+,\d{3}$/.test(t));

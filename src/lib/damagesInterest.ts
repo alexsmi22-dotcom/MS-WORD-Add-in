@@ -274,11 +274,34 @@ function readRows(text: string, periods: boolean, what: string, valueName: strin
 }
 
 /** The number in a cell's text: a leading currency sign and the product's cell reader (grouping, decimal comma, U+2212). */
-function readValue(rest: string): { text: string; value: number } {
-  // Tab-separated (a Word or Excel table): the first cell after the date(s); further cells (a label) are ignored.
-  const cell = (rest.includes("\t") ? rest.split("\t")[0] : rest).trim();
-  const t = cell.replace(/^([−–-]?)\s*[$€£]\s*/, "$1");
-  return { text: cell, value: parseCellNumber(t) };
+function cellNumber(cell: string): number {
+  return parseCellNumber(cell.replace(/^([−–-]?)\s*[$€£]\s*/, "$1"));
+}
+
+/**
+ * The value after the date(s). A tab-separated row (a Word or Excel table) must hold ONE number after its date(s):
+ * a second number column (Units beside Amount, or this calculator's own Days | Amount | Interest table pasted back)
+ * is refused by name rather than guessed at, since reading the wrong column is a wrong answer dressed as a result.
+ * Text cells after the value (a label) are ignored, and the caller says so in a note.
+ */
+function readValue(rest: string, where: string, valueName: string): { text: string; value: number; ignoredText: boolean } | { error: string } {
+  if (!rest.includes("\t")) {
+    const cell = rest.trim();
+    return { text: cell, value: cellNumber(cell), ignoredText: false };
+  }
+  const cells = rest
+    .split("\t")
+    .map((c) => c.trim())
+    .filter((c) => c !== "");
+  const numeric = cells.filter((c) => Number.isFinite(cellNumber(c)));
+  if (numeric.length > 1) {
+    const shown = numeric.slice(0, 4).join(", ") + (numeric.length > 4 ? ", …" : "");
+    return {
+      error: `${where} has ${numeric.length} number columns after the date (${shown}); keep only the date and ${valueName} (or a from-date, a to-date and ${valueName}).`,
+    };
+  }
+  const cell = cells[0] ?? "";
+  return { text: cell, value: cellNumber(cell), ignoredText: cells.length > 1 };
 }
 
 /**
@@ -290,9 +313,13 @@ export function parseTranches(text: string, midPeriod: boolean): Parsed<Tranche[
   const rows = readRows(text, true, "damages list", "an amount");
   if (!rows.ok) return rows;
   const out: Tranche[] = [];
+  let ignoredText = false;
   for (const r of rows.value) {
     if (!r.rest) return { ok: false, error: `Damages list, row ${r.row}: no amount after the date.` };
-    const { text: amtText, value } = readValue(r.rest);
+    const rv = readValue(r.rest, `Damages list, row ${r.row}`, "the amount");
+    if ("error" in rv) return { ok: false, error: rv.error };
+    const { text: amtText, value } = rv;
+    ignoredText ||= rv.ignoredText;
     if (!Number.isFinite(value)) return { ok: false, error: `Damages list, row ${r.row}: “${amtText}” is not an amount.` };
     if (value < 0) {
       return {
@@ -314,7 +341,7 @@ export function parseTranches(text: string, midPeriod: boolean): Parsed<Tranche[
     out.push({ row: r.row, label, amount: value, accrual, period: { from, to } });
   }
   if (!out.length) return { ok: false, error: "Enter at least one damages row: a date, then an amount." };
-  return { ok: true, value: out, notes: rows.notes };
+  return { ok: true, value: out, notes: ignoredText ? [...rows.notes, "Damages list: text columns after the amount were ignored."] : rows.notes };
 }
 
 /**
@@ -322,6 +349,8 @@ export function parseTranches(text: string, midPeriod: boolean): Parsed<Tranche[
  * or a period ("2019 6.5"). Rows are put in date order. Duplicate start dates, overlaps and gaps between rows are
  * refused by name.
  */
+const RATE_TEXT_NOTE = "Rate table: text columns after the rate were ignored.";
+
 export function parseRateTable(text: string): Parsed<RateRow[]> {
   const rows = readRows(text, true, "rate table", "an annual rate in percent");
   if (!rows.ok) return rows;
@@ -329,7 +358,10 @@ export function parseRateTable(text: string): Parsed<RateRow[]> {
   const raw: { row: number; from: number; to: number | null; rate: number; units: number }[] = [];
   for (const r of rows.value) {
     if (!r.rest) return { ok: false, error: `Rate table, row ${r.row}: no rate after the date.` };
-    const { text: rText, value } = readValue(r.rest);
+    const rv = readValue(r.rest, `Rate table, row ${r.row}`, "the rate");
+    if ("error" in rv) return { ok: false, error: rv.error };
+    const { text: rText, value } = rv;
+    if (rv.ignoredText && !notes.includes(RATE_TEXT_NOTE)) notes.push(RATE_TEXT_NOTE);
     if (!Number.isFinite(value)) return { ok: false, error: `Rate table, row ${r.row}: “${rText}” is not a rate.` };
     if (value < 0) return { ok: false, error: `Rate table, row ${r.row}: the rate is negative (${rText}); negative rates are outside this calculator.` };
     if (value > 100) return { ok: false, error: `Rate table, row ${r.row}: ${rText} is above 100%. Enter the annual rate in percent (5.25 for 5.25%).` };

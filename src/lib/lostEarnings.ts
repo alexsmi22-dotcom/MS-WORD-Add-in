@@ -148,7 +148,7 @@ export function lostEarningsReport(f: {
     `${num(years)} year${years === 1 ? "" : "s"} from age ${num(f.startAge)}; earnings ${money(toCents(f.base))} in year 1, growth ${pct(input.growth)}, discount ${pct(
       input.discount,
     )}, fringe ${pct(input.fringe)}, personal consumption ${pct(input.consumption)}.`,
-    "Note: year t earns the base × (1 + growth)^(t − 1); net loss = earnings × (1 + fringe) × (1 − personal consumption).",
+    "Note: year 1 earns the base and each later year grows by the growth rate; net loss = earnings × (1 + fringe) × (1 − personal consumption).",
     input.midYear
       ? "Note: mid-year discounting: year t is discounted over t − 0.5 years (a partial final year over its midpoint)."
       : "Note: end-of-year discounting: year t is discounted over t years (a partial final year over its end).",

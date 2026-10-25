@@ -214,6 +214,28 @@ describe("prejudgment refusals and hostile input", () => {
     expect(rep("2019-01-01 12abc").text).toBe("Damages list, row 1: “12abc” is not an amount.");
     expect(rep("2023-02-29 100").text).toBe("Damages list, row 1: “2023-02-29” is not a calendar date (2023 is not a leap year).");
   });
+  test("a table with more than one number column is refused by name, never read from the wrong column", () => {
+    // Date | Units | Amount: Units must not be read as the amount.
+    expect(rep("Date\tUnits\tAmount\n2019-01-01\t1,200\t50,000.00").text).toBe(
+      "Damages list, row 2 has 2 number columns after the date (1,200, 50,000.00); keep only the date and the amount (or a from-date, a to-date and the amount).",
+    );
+    // The calculator's own inserted table, read back with Use table at cursor.
+    const own = prejudgmentReport({ tranches: TR_A, rates: RATES_A, end: "2024-02-29", method: "annual", dayCount: "act365", midPeriod: "off" });
+    // Whole table: the Totals row is refused by name first (rows are read before values).
+    const whole = rep(own.table!.rows.map((r) => r.join("\t")).join("\n"));
+    expect(whole.ok).toBe(false);
+    expect(whole.text).toContain("row 5: “Total");
+    // Without the Totals row: the Days | Amount | Interest | Total columns are refused, not read as an amount.
+    const back = own.table!.rows.slice(0, -1).map((r) => r.join("\t")).join("\n");
+    const r = rep(back);
+    expect(r.ok).toBe(false);
+    expect(r.text).toContain("Damages list, row 2 has 4 number columns after the date (1,812, 125,000.00");
+    // A text label after the amount is ignored, with a note.
+    const lab = rep("2019-01-01\t50,000.00\tLicense year 1");
+    expect(lab.ok).toBe(true);
+    expect(lab.text).toContain("Note: Damages list: text columns after the amount were ignored.");
+    expect(rep("2019-01-01 5", "2010-01-01\t5\t6").text).toContain("Rate table, row 1 has 2 number columns");
+  });
   test("mid-period with no period rows is refused by name", () => {
     expect(rep("2019-01-01 100", "2010-01-01 5", "2024-01-01", { midPeriod: "on" }).text).toContain("Mid-period is on, but no damages row names a period");
   });

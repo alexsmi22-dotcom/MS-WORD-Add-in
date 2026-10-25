@@ -66,7 +66,7 @@ describe("lost earnings report", () => {
     expect(r.text).toContain("computed from the inputs given");
     expect(r.text).toContain("Present value 1,327,528.91 (net loss before discounting 2,130,820.71)");
     expect(insertableResultText(r.text)).toBe(true);
-    expect(r.text).not.toMatch(/NaN|Infinity|undefined|e\+/);
+    expect(r.text).not.toMatch(/NaN|Infinity|undefined|e\+|\^/);
     const rows = r.table!.rows;
     expect(rows[0]).toEqual(["Year", "Age", "Earnings", "Net loss", "Discount factor", "Present value"]);
     expect(rows[1]).toEqual(["1", "45", "65,000.00", "79,300.00", "0.956938", "75,885.17"]);

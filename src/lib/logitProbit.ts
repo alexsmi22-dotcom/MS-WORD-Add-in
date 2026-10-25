@@ -385,6 +385,13 @@ function checkCollinear(cols: Float64Array[], labels: string[], hasConstant: boo
     for (let i = 0; i < n; i++) norm0 += c[i] * c[i];
     norm0 = MATH.sqrt(norm0);
     if (norm0 === 0) {
+      if (hasConstant) {
+        throw new LogitProbitRefusal(
+          "collinear",
+          `The predictor “${labels[j]}” has the same value in every row, so it duplicates the constant. Remove it.`,
+          [labels[j]],
+        );
+      }
       throw new LogitProbitRefusal("collinear", `The predictor “${labels[j]}” is zero in every row, so it carries no information. Remove it.`, [labels[j]]);
     }
     const v = Float64Array.from(c);
@@ -444,17 +451,15 @@ function checkCollinear(cols: Float64Array[], labels: string[], hasConstant: boo
 }
 
 /** One predictor alone separating the outcome (valid with a constant: β₀ + βⱼx is in the model). */
-function checkSingleSeparation(y: Float64Array, cols: Float64Array[], labels: string[], depName: string): void {
+function checkSingleSeparation(y: Float64Array, X: number[][], names: string[], depName: string): void {
   const n = y.length;
-  for (let j = 0; j < cols.length; j++) {
-    if (labels[j] === "Constant") continue;
-    const c = cols[j];
+  for (let j = 0; j < names.length; j++) {
     let min0 = Infinity;
     let max0 = -Infinity;
     let min1 = Infinity;
     let max1 = -Infinity;
     for (let i = 0; i < n; i++) {
-      const v = c[i];
+      const v = X[i][j];
       if (y[i] === 1) {
         if (v < min1) min1 = v;
         if (v > max1) max1 = v;
@@ -463,7 +468,7 @@ function checkSingleSeparation(y: Float64Array, cols: Float64Array[], labels: st
         if (v > max0) max0 = v;
       }
     }
-    const lab = labels[j];
+    const lab = names[j];
     if (max0 < min1 || max1 < min0) {
       throw new LogitProbitRefusal(
         "perfect-separation",
@@ -543,9 +548,20 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
     );
   }
 
-  // --- the design, columns scaled by their largest absolute value
+  const seen = new Set<string>();
+  for (const nm of names) {
+    if (constant && nm.trim().toLowerCase() === "constant") {
+      throw new LogitProbitRefusal("bad-input", `A predictor is named “${nm}”, the name of the constant term. Rename the column.`, [nm]);
+    }
+    if (seen.has(nm)) throw new LogitProbitRefusal("bad-input", `Two predictors are named “${nm}”. Give each column its own name.`, [nm]);
+    seen.add(nm);
+  }
+
+  // --- the design: with a constant, each predictor is centred on its mean; every predictor is then scaled by its
+  // largest absolute value, so the fit is invariant to units and offsets (1e12 + small variation stays identified).
   const labels = constant ? ["Constant", ...names] : [...names];
   const scale = new Float64Array(p);
+  const centre = new Float64Array(p);
   const cols: Float64Array[] = [];
   for (let j = 0; j < p; j++) {
     const c = new Float64Array(n);
@@ -554,9 +570,15 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
       scale[j] = 1;
     } else {
       const src = j - (constant ? 1 : 0);
+      let mean = 0;
+      if (constant) {
+        for (let i = 0; i < n; i++) mean += X[i][src];
+        mean /= n;
+      }
+      centre[j] = mean;
       let m = 0;
       for (let i = 0; i < n; i++) {
-        c[i] = X[i][src];
+        c[i] = X[i][src] - mean;
         m = MATH.max(m, MATH.abs(c[i]));
       }
       scale[j] = m > 0 ? m : 1;
@@ -566,7 +588,7 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
   }
   checkCollinear(cols, labels, constant);
   const yv = Float64Array.from(y);
-  if (constant) checkSingleSeparation(yv, cols, labels, depName);
+  if (constant) checkSingleSeparation(yv, X, names, depName);
 
   const Xs = new Float64Array(n * p);
   for (let i = 0; i < n; i++) for (let j = 0; j < p; j++) Xs[i * p + j] = cols[j][i];
@@ -714,10 +736,28 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
   }
   const coef = new Float64Array(p);
   const V = new Float64Array(p * p);
+  // β = T γ: βⱼ = γⱼ/sⱼ, and with a constant β₀ = γ₀ − Σ γⱼ mⱼ/sⱼ; V = T V_γ Tᵀ.
+  const T = new Float64Array(p * p);
+  for (let a = 0; a < p; a++) T[a * p + a] = 1 / scale[a];
+  if (constant) for (let j = 1; j < p; j++) T[j] = -centre[j] / scale[j];
   for (let a = 0; a < p; a++) {
-    coef[a] = beta[a] / scale[a];
-    for (let b = 0; b < p; b++) V[a * p + b] = covS[a * p + b] / (scale[a] * scale[b]);
+    let s = 0;
+    for (let b = 0; b < p; b++) s += T[a * p + b] * beta[b];
+    coef[a] = s;
   }
+  const TV = new Float64Array(p * p);
+  for (let a = 0; a < p; a++)
+    for (let c = 0; c < p; c++) {
+      const t = T[a * p + c];
+      if (t === 0) continue;
+      for (let b = 0; b < p; b++) TV[a * p + b] += t * covS[c * p + b];
+    }
+  for (let a = 0; a < p; a++)
+    for (let b = 0; b < p; b++) {
+      let s = 0;
+      for (let c = 0; c < p; c++) s += TV[a * p + c] * T[b * p + c];
+      V[a * p + b] = s;
+    }
 
   const zCrit = normalQuantile(0.975);
   const makeTerm = (name: string, est: number, se: number): ModelTerm => {
@@ -749,7 +789,7 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
     if ((prob > 0.5 ? 1 : 0) === yv[i]) correct++;
     fBar.v += f;
     const off = i * p;
-    for (let l = 0; l < p; l++) a[l] += fp * Xs[off + l] * scale[l];
+    for (let l = 0; l < p; l++) a[l] += fp * (Xs[off + l] * scale[l] + centre[l]);
   }
   const meanF = fBar.v / n;
   for (let l = 0; l < p; l++) a[l] /= n;
@@ -785,7 +825,7 @@ function fit(kind: Kind, y: number[], X: number[][], names: string[], opts: Logi
 
   const seLabel = seType === "hc0" ? "Robust (HC0)" : "Classical (inverse information)";
   const notes: string[] = [
-    `Maximum likelihood by Newton–Raphson on the column-scaled design (score tolerance 10⁻¹⁰, at most ${maxIter} iterations): converged in ${plural(iterations, "iteration")}.`,
+    `Maximum likelihood by Newton–Raphson on the centred, column-scaled design (score tolerance 10⁻¹⁰, at most ${maxIter} iterations): converged in ${plural(iterations, "iteration")}.`,
     seType === "hc0"
       ? "Standard errors: robust HC0 sandwich H⁻¹(Σ sᵢsᵢᵀ)H⁻¹ with no small-sample factor (statsmodels cov_type=\"HC0\")."
       : `Standard errors: classical, from the inverse of the observed information${kind === "probit" ? " (the observed, not the expected, Hessian)" : ""}.`,

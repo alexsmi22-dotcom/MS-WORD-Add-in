@@ -188,6 +188,31 @@ describe("named refusals", () => {
     expect(r.variables.sort()).toEqual(["a", "b"]);
   });
 
+  test("quasi-separation on a continuous predictor prints the boundary in the user's units", () => {
+    // y = 1 for every x > 4, y = 0 for every x < 4, both at x = 4.
+    const x = [1, 2, 3, 4, 4, 4, 5, 6, 7, 8];
+    const y = [0, 0, 0, 0, 1, 0, 1, 1, 1, 1];
+    const noise = [0.3, 0.1, 0.4, 0.1, 0.5, 0.9, 0.2, 0.6, 0.5, 0.3];
+    const r = expectRefusal(() => fitLogit(y, x.map((v, i) => [noise[i], v]), ["noise", "dose"]), "quasi-separation", ["dose"]);
+    expect(r.message).toMatch(/except at dose = 4 /);
+  });
+
+  test("a predictor of 10¹² plus small variation is identified (centred before scaling), not called constant", () => {
+    const base = fitLogit(spec.y, spec.X, spec.names);
+    const m = fitLogit(spec.y, spec.X.map((r) => [r[0] + 1e6, r[1], r[2]]), spec.names);
+    expectRel(term(m.terms, "GPA").coef, term(base.terms, "GPA").coef, 1e-6, "offset GPA");
+    expectRel(term(m.terms, "GPA").se, term(base.terms, "GPA").se, 1e-6, "offset GPA se");
+    expectRel(term(m.marginalEffects!, "GPA").se, term(base.marginalEffects!, "GPA").se, 1e-6, "offset AME se");
+    const big = fitProbit(spec.y, spec.X.map((r) => [1e12 + r[0] * 1e3, r[1], r[2]]), spec.names);
+    const ref = fitProbit(spec.y, spec.X, spec.names);
+    expectRel(term(big.terms, "GPA").stat, term(ref.terms, "GPA").stat, 1e-4, "1e12 offset z");
+  });
+
+  test("duplicate names and a predictor named Constant refuse", () => {
+    expectRefusal(() => fitLogit(spec.y, spec.X, ["GPA", "GPA", "PSI"]), "bad-input", ["GPA"]);
+    expectRefusal(() => fitLogit(spec.y, spec.X, ["GPA", "Constant", "PSI"]), "bad-input", ["Constant"]);
+  });
+
   test("collinearity names the columns", () => {
     const X = spec.X.map((r) => [r[0], r[1], r[2], 2 * r[0] - r[1]]);
     expectRefusal(() => fitLogit(spec.y, X, [...spec.names, "combo"]), "collinear", ["combo", "GPA", "TUCE"]);

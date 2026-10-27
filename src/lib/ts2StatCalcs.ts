@@ -557,7 +557,7 @@ function lagOrderTable(s: VarSetup): StatTable {
     label: `Lag-order selection (p = 0…${s.maxlags}, common sample of ${intText(s.data.n - s.maxlags)} observations)`,
     rows,
     align: ["right", "right", "right", "right", "right"],
-    note: "* marks each criterion's minimum. AIC, BIC, HQ = ln|Σ̂ᵤ| + c·(pK² + K)/T with c = 2, ln T, 2 ln ln T; FPE = ((T + Kp + 1)/(T − Kp − 1))ᴷ|Σ̂ᵤ| (statsmodels select_order).",
+    note: "* marks each criterion's minimum. AIC, BIC, HQ = ln|Σ̂ᵤ| + c·(pK² + K)/T with c = 2, ln T, 2 ln ln T; FPE = ((T + Kp + 1)/(T − Kp − 1))ᴷ|Σ̂ᵤ| (statsmodels' lag-order selection).",
   };
 }
 

@@ -162,6 +162,13 @@ describe("GARCH optima ON a bound (F2 review round 1) vs arch 8.0", () => {
     if (!r.ok) throw new Error(r.reason);
     expect(r.converged).toBe(true);
     expect(r.llf).toBeGreaterThanOrEqual(c.llf - 1e-6);
+    // Never outside the parameter space, not even by 10⁻¹² (the estimate is projected onto its active bounds).
+    const P = Object.fromEntries(r.names.map((nm, i) => [nm, r.params[i]]));
+    if (c.vol !== "egarch") {
+      expect(P.alpha).toBeGreaterThanOrEqual(0);
+      expect(P.beta).toBeGreaterThanOrEqual(0);
+      if (c.vol === "gjr") expect(P.alpha + P.gamma).toBeGreaterThanOrEqual(0);
+    } else expect(P.beta).toBeGreaterThanOrEqual(0);
     return r;
   };
   test("EGARCH, zero mean: β on 0 matches arch", () => {

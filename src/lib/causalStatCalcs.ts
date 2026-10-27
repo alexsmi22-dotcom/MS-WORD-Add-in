@@ -1686,7 +1686,7 @@ export function pscoreCalc(read: Read): StatOutput {
     label: "Covariate balance (standardized mean differences)",
     rows: balRows,
     align: ["left", "right", "right", "right", "right", "right"],
-    note: "Means before adjustment. SMD = (treated mean − control mean)/√((s²_treated + s²_control)/2), the denominator from the sample before adjustment for both columns; after = with the matching or IPW weights.",
+    note: "Means before adjustment. SMD = (treated mean − control mean)/√((s² of the treated + s² of the controls)/2), the denominator from the sample before adjustment for both columns; after = with the matching or IPW weights.",
   });
   lines.push(
     `Balance: the largest |SMD| after adjustment is ${fmtFixed(worstAfter, 3)} (${worstAfter <= 0.1 ? "within" : "above"} the common 0.1 threshold, Austin 2009). ` +

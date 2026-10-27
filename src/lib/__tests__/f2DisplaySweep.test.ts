@@ -19,7 +19,8 @@ import { TS2_STAT_CALCS } from "../ts2StatCalcs";
 import { LIMDEP_STAT_CALCS } from "../limdepStatCalcs";
 import { CAUSAL_STAT_CALCS } from "../causalStatCalcs";
 
-type Out = { text: string; tables?: { label?: string; rows: string[][] }[]; table?: { label?: string; rows: string[][] }; ok?: boolean };
+type Tab = { label?: string; note?: string; rows: string[][] };
+type Out = { text: string; tables?: Tab[]; table?: Tab; ok?: boolean };
 
 function runFin(c: FinCalcDef, over: Record<string, string> = {}): Out {
   const raw = (k: string): string => over[k] ?? c.fields.find((f) => f.key === k)?.default ?? "";
@@ -59,7 +60,8 @@ const outOf = (label: string, x: Case[1]): Out => {
   if (!outputs.has(label)) outputs.set(label, x.fin ? runFin(x.c as FinCalcDef, x.over) : runStat(x.c as StatCalcDef, x.over));
   return outputs.get(label)!;
 };
-const cellsOf = (o: Out): string[] => [...(o.tables ?? []), ...(o.table ? [o.table] : [])].flatMap((t) => t.rows.flat());
+// Every table cell, plus each table's label and note (both go into Word with the table).
+const cellsOf = (o: Out): string[] => [...(o.tables ?? []), ...(o.table ? [o.table] : [])].flatMap((t) => [...t.rows.flat(), t.label ?? "", t.note ?? ""]);
 
 const BRITISH =
   /\b\w*(?:realis|maximis|minimis|utilis|standardis|normalis|recognis|criticis|organis|summaris|optimis|parametris|generalis|annualis|penalis|randomis|stabilis|capitalis|categoris|amortis|equalis|neutralis|subsidis|visualis|favour|labour|behaviour|colour|honour|neighbour|centre|centred|programme|licence|catalogue|labelled|labelling)\w*/i;

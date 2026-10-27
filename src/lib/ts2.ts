@@ -870,6 +870,12 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     if (Number.isFinite(fBest)) kkt = garchKkt(raw, cons, x, kinkAt0);
   }
   if (!Number.isFinite(fBest)) return { ok: false, reason: "The likelihood could not be evaluated at any feasible parameters for this series." };
+  // On a bound, BFGS can stop 10⁻¹² outside it (α = −1×10⁻¹², inside the rounding tolerance): move the estimate exactly
+  // onto its active rows so no parameter is reported outside the parameter space.
+  if (kkt.active.length) {
+    const xp = projectOnto(cons, kkt.active, x);
+    if (xp.every(Number.isFinite) && raw(xp) <= raw(x) + 1e-12 * Math.max(1, Math.abs(raw(x)))) x = xp;
+  }
   const pr = unpack(s, x);
 
   // Boundaries (arch's bounds and constraints) the estimate is on.

@@ -823,8 +823,9 @@ export function fitCount(y: number[], X: number[][], names: string[], opts: Coun
   for (let i = 0; i < n; i++) sumE += MATH.exp(off[i]);
   if (constant) start[0] = MATH.log(sumY / sumE);
   const POIS_SEP = "Observations with a zero count that a predictor sets apart from the rest drive the rate towards 0 (Santos Silva and Tenreyro); drop that predictor or those observations.";
-  const pr = newton(pois, start, maxIter, "Poisson", POIS_SEP);
-  separationProbe(pois, pr, (s) => pois.linearMove(s), "Poisson", POIS_SEP);
+  const poisWhat = nb ? "Poisson (the starting fit for NB2)" : "Poisson";
+  const pr = newton(pois, start, maxIter, poisWhat, POIS_SEP);
+  separationProbe(pois, pr, (s) => pois.linearMove(s), poisWhat, POIS_SEP);
   const mu = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     let s = off[i];

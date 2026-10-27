@@ -23,7 +23,7 @@ export type MacrsMethod = "gds" | "sl";
 export const MACRS_GDS_CLASSES = [3, 5, 7, 10, 15, 20] as const;
 
 /** The straight-line recovery periods printed in Tables A-8 to A-12 (years). */
-export const MACRS_SL_PERIODS: readonly string[] = Object.keys(PUB946_SL["A-8"]);
+export const MACRS_SL_PERIODS: readonly string[] = Object.keys(PUB946_SL["A-8"]).sort((a, b) => Number(a) - Number(b));
 
 /** The Pub 946 table for a method and convention. */
 export function pub946Table(method: MacrsMethod, conv: MacrsConvention): string {

@@ -397,10 +397,13 @@ export interface AltmanResult {
  *            Journal of Finance 23(4): public manufacturing firms; Z = 1.2X₁ + 1.4X₂ + 3.3X₃ + 0.6X₄ + 1.0X₅ with X₄ the
  *            MARKET value of equity ÷ total liabilities (the paper's own form, 0.012X₁ + 0.014X₂ + 0.033X₃ + 0.006X₄ +
  *            0.999X₅, takes X₁–X₄ in percent); zones above 2.99 / 1.81 to 2.99 / below 1.81.
- *   zprime   Z′ for private firms, X₄ on BOOK equity: 0.717X₁ + 0.847X₂ + 3.107X₃ + 0.420X₄ + 0.998X₅; zones 2.90 / 1.23.
+ *   zprime   Z′ for private firms, X₄ on BOOK equity: 0.717X₁ + 0.847X₂ + 3.107X₃ + 0.420X₄ + 0.998X₅; gray area 1.23 to 2.90.
  *   zdouble  Z″ for non-manufacturers, no sales term, X₄ on book equity: 6.56X₁ + 3.26X₂ + 6.72X₃ + 1.05X₄; zones 2.60 / 1.10
  *            (the emerging-market constant +3.25 is not added).
- *   Z′ and Z″: Altman (2000), "Predicting Financial Distress of Companies: Revisiting the Z-Score and ZETA® Models".
+ * Checked 2026-10-27 against Altman (2000), "Predicting Financial Distress of Companies: Revisiting the Z-Score and ZETA®
+ * Models" (NYU Stern, July 2000): both forms of the 1968 function and why they differ, the 1.81 lower bound, the Z′
+ * coefficients and its 1.23 to 2.90 gray area, the Z″ coefficients and the +3.25 emerging-market constant. NOT in that
+ * paper (conventional values, printed as such): the 2.99 upper bound for Z and Z″'s 1.10 / 2.60 cut-offs.
  */
 export function altmanZ(st: Statement, variant: AltmanVariant): AltmanResult | { error: string } {
   const b = new Book(st, "current", { days: 365, balances: "end" });

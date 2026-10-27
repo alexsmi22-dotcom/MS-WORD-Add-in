@@ -13,7 +13,14 @@
  * defaults are invented numbers (no client data). The bond cash-flow schedule is bond-dates (bondCalcs.ts).
  */
 import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
-import { finRefusal } from "./finCalc";
+import { finRefusal as finRefusalRaw } from "./finCalc";
+
+/**
+ * The em dash is the pane's non-finite sentinel and never belongs in a result; the shared readers (readDataBlock and
+ * the comma readers behind it, readCalcList) write some messages with one, and they reach the user through here.
+ */
+const noEmDash = (s: string): string => s.replace(/\s*—\s*/g, ": ");
+const finRefusal = (s: string): FinResult => finRefusalRaw(noEmDash(s));
 import { readFinanceField } from "./finance";
 import { finPlotSvg } from "./financeFigures";
 import type { Point, Series } from "./plot";
@@ -136,7 +143,7 @@ export function cvpChartSvg(inp: CvpInput, res: CvpResult): string | undefined {
     { points: line(() => inp.fixedCosts), type: "line", color: "#6b7280", label: "fixed cost" },
     { points: [{ x: res.breakEvenUnits, y: res.breakEvenRevenue }], type: "scatter", color: "#111827", label: "break-even" },
   ];
-  if (inp.units > 0) series.push({ points: [{ x: inp.units, y: 0 }, { x: inp.units, y: res.revenue }], type: "line", color: "#16a34a", label: "sales (margin of safety to its left)" });
+  if (inp.units > 0) series.push({ points: [{ x: inp.units, y: 0 }, { x: inp.units, y: res.revenue }], type: "line", color: "#16a34a", label: "sales (margin of safety: from break-even to here)" });
   return finPlotSvg(series, { width: 380, height: 270, title: "Cost-volume-profit: break-even and margin of safety", xlabel: "units sold", ylabel: "amount" });
 }
 
@@ -246,7 +253,7 @@ export function loanScheduleCalc(r: Read): FinResult {
   }
   lines.push(`Total paid = ${money(res.totalPaid)}`);
   lines.push(
-    `Conventions: periodic rate = annual rate ÷ ${m} (nominal, compounded with each payment); interest = balance × periodic rate; payment P·i/(1 − (1 + i)^−n)` +
+    `Conventions: periodic rate = annual rate ÷ ${m} (nominal, compounded with each payment); interest = balance × periodic rate; payment P·i/(1 − (1 + i)⁻ⁿ)` +
       `${balloon ? ", less the balloon’s present value (numpy-financial pmt with fv)" : ""}${amortN ? ", computed over the amortise-over term, the balance at the loan term due as a balloon" : ""}; ` +
       `extra payments go to principal and the scheduled payment stays level (the loan ends sooner); an extra payment larger than the balance is cut to the balance; ` +
       `${changes.length ? "at each rate change the payment is re-amortised over the scheduled payments left (an adjustable-rate recast); " : ""}` +
@@ -465,7 +472,7 @@ function recognitionLines(st: Statement): string[] {
       `Not used (names not recognised): ${st.unknown.slice(0, 12).map((l) => `“${l.label}” (line ${l.line})`).join(", ")}${st.unknown.length > 12 ? ` and ${st.unknown.length - 12} more` : ""}. ` +
         `Recognised names include: ${LINE_ITEMS.map((x) => x.names[0]).join("; ")}.`,
     );
-  out.push(...st.notes);
+  out.push(...st.notes.map(noEmDash));
   return out;
 }
 
@@ -612,8 +619,8 @@ export function altmanCalc(r: Read): FinResult {
     ...a.x.map((x) => `${x.name} = ${x.formula} = ${fx(x.value, 4)}`),
     `Z = ${fx(a.z, 4)}: ${zoneName} (above ${fx(a.cutoffs[1], 2)} safe; ${fx(a.cutoffs[0], 2)} to ${fx(a.cutoffs[1], 2)} grey; below ${fx(a.cutoffs[0], 2)} distress)`,
     variant === "z"
-      ? "Source: E. I. Altman (1968), “Financial Ratios, Discriminant Analysis and the Prediction of Corporate Bankruptcy,” Journal of Finance 23(4). The paper states the function as 0.012X₁ + 0.014X₂ + 0.033X₃ + 0.006X₄ + 0.999X₅ with X₁ to X₄ in percent; 1.2, 1.4, 3.3, 0.6, 1.0 is the same function on ratios."
-      : `Source: E. I. Altman (2000), “Predicting Financial Distress of Companies: Revisiting the Z-Score and ZETA® Models” (the Z′ and Z″ re-estimations).${variant === "zdouble" ? " The emerging-market constant (+3.25) is not added." : ""}`,
+      ? "Source: E. I. Altman (1968), “Financial Ratios, Discriminant Analysis and the Prediction of Corporate Bankruptcy,” Journal of Finance; as Altman (2000) restates it, the function is 0.012X₁ + 0.014X₂ + 0.033X₃ + 0.006X₄ + 0.999X₅ with X₁ to X₄ entered in percent, and 1.2X₁ + 1.4X₂ + 3.3X₃ + 0.6X₄ + 1.0X₅ is the same function on ratios (X₅’s 0.999 rounded to 1.0). Cut-offs: 1.81 is the paper’s lower bound of the zone of ignorance; 2.99 is the conventional upper bound."
+      : `Source: E. I. Altman (2000), “Predicting Financial Distress of Companies: Revisiting the Z-Score and ZETA® Models”.${variant === "zprime" ? " Cut-offs: its gray area, 1.23 to 2.90." : " The emerging-market constant (+3.25) in that paper is not added; the cut-offs 1.10 and 2.60 are the conventional ones for Z″ (not stated in that paper)."}`,
     ...recognitionLines(st),
     "Conventions: working capital = current assets − current liabilities; EBIT is operating income as given, else income before tax + interest; total liabilities as given, else total assets − equity; year-end balances. A screening score from the samples it was estimated on, not a prediction for any one company.",
   ];

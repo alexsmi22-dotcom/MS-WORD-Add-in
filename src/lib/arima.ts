@@ -552,7 +552,7 @@ export function hannanRissanen(z: Float64Array, p: number, q: number): { phi: nu
   return { phi: b.slice(0, p), theta: b.slice(p) };
 }
 
-interface BfgsResult {
+export interface BfgsResult {
   x: number[];
   f: number;
   converged: boolean;
@@ -565,7 +565,7 @@ interface BfgsResult {
  * BFGS with central-difference gradients and a backtracking line search, bounded by `maxIter` and by a shared
  * evaluation budget (`budget.left`, decremented by the caller's objective).
  */
-function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number, budget: { left: number }): BfgsResult {
+export function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number, budget: { left: number }): BfgsResult {
   const k = x0.length;
   let x = x0.slice();
   let f = fn(x);

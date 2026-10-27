@@ -218,6 +218,8 @@ import {
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, withFinFig, currentFinFig } from "../lib/financeFigures";
 import { FIN_GROUP_ORDER, type FinCalcDef, type FinField, type FinResult, type FinTable } from "../lib/finCalc";
 import { readXirrDates } from "../lib/xirrDates";
+import { BOND_CALCS } from "../lib/bondCalcs";
+import { IPVAL_CALCS } from "../lib/ipValuationCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -9713,6 +9715,8 @@ const FIN_CALCS: FinCalc[] = [
   },
   // F1 library registries (src/lib/*Calcs.ts, FinCalcDef arrays) are spread here, one line each: `...BONDS_CALCS,`.
   // finSpreadContract.test.ts holds every spread calculator to the pane's contract.
+  ...BOND_CALCS,
+  ...IPVAL_CALCS,
 ];
 
 /** Fills the calculator dropdown. */

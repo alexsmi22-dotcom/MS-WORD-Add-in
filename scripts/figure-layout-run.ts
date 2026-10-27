@@ -44,6 +44,8 @@ import { rootLocusSvg, nyquistSvg, zPlaneSvg } from "../src/lib/controlCharts";
 import { rootLocus, nyquist, c2d } from "../src/lib/controlDesign";
 import { monteCarlo, mcHistogramSvg } from "../src/lib/monteCarlo";
 import { FILM_CALCS } from "../src/lib/filmCalcs";
+import { BOND_CALCS } from "../src/lib/bondCalcs";
+import { IPVAL_CALCS } from "../src/lib/ipValuationCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2235,6 +2237,36 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   figures.push(["monte carlo a·b/c", mcHistogramSvg(a, "a·b/c")]);
   const e = monteCarlo("exp(a)", [{ name: "a", value: 0, u: 0.5 }], { seed: 1 });
   figures.push(["monte carlo exp(a)", mcHistogramSvg(e, "exp(a)")]);
+}
+
+// --- Fixed income on dates and yield curves (src/lib/bondCalcs.ts, F1) --------
+//
+// Each Finance calculator at its defaults, then Svensson, a bootstrap from bond prices and the Treasury 365/366 bill
+// year: the figures BOND_CALCS draws (bondDatesPriceYieldSvg, bondCallPriceYieldSvg, billYieldsSvg, zeroCurveSvg,
+// nelsonSiegelSvg).
+{
+  const bond = (id: string, over: Record<string, string>, name: string) => {
+    const c = BOND_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: bond calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (typeof out === "string" || out.ok === false || !out.svg) throw new Error(`corpus: bond ${name} did not draw`);
+    figures.push([`bond ${name}`, out.svg]);
+  };
+  for (const c of BOND_CALCS) bond(c.id, {}, `${c.id} default`);
+  bond("curve-nelson-siegel", { model: "svensson" }, "svensson");
+  bond("curve-bootstrap", { mode: "prices" }, "bootstrap from prices");
+  bond("tbill-yields", { year: "treasury" }, "bill treasury year");
+}
+
+// --- IP valuation & licensing (src/lib/ipValuationCalcs.ts, F1): every default that draws ---------------------
+{
+  for (const c of IPVAL_CALCS) {
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    const out = c.compute((k) => vals[k] ?? "");
+    if (typeof out !== "string" && out.ok !== false && out.svg) figures.push([`ipval ${c.id} default`, out.svg]);
+  }
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

@@ -459,9 +459,13 @@ export function frontierFromMoments(mu: number[], S: number[][], rfAnnual: numbe
   let kBest = -1;
   for (let i = 0; i < k; i++) if (ex[i] > 0 && (kBest < 0 || ex[i] / Math.sqrt(S[i][i]) > ex[kBest] / Math.sqrt(S[kBest][kBest]))) kBest = i;
   if (kBest < 0) return { error: "No asset's mean return is above the risk-free rate, so no long-only portfolio has a positive Sharpe ratio (no tangency portfolio)." };
+  // The excess-return row divided by its largest entry keeps y of order 1 when r_f sits just below the top mean (y
+  // would otherwise grow like 1/(μ − r_f) and swamp the step tolerance); w = y/Σy is unchanged by the scaling.
+  const exMax = Math.max(...ex);
+  const exs = ex.map((e) => e / exMax);
   const y0 = new Array<number>(k).fill(0);
-  y0[kBest] = 1 / ex[kBest];
-  const tg = solveQpNonneg({ G: S.map((row) => row.map((v) => 2 * v)), c: new Array(k).fill(0), A: [ex], b: [1], x0: y0 });
+  y0[exs.indexOf(1)] = 1;
+  const tg = solveQpNonneg({ G: S.map((row) => row.map((v) => 2 * v)), c: new Array(k).fill(0), A: [exs], b: [1], x0: y0 });
   if (!tg.ok) return { error: tg.reason };
   const ys = sum(tg.x);
   const tw = tg.x.map((v) => v / ys);

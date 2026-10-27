@@ -10,7 +10,7 @@
 import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
 import { finRefusal } from "./finCalc";
 import { readFinanceField } from "./finance";
-import { finPlotSvg } from "./financeFigures";
+import { currentFinFig, finPlotSvg } from "./financeFigures";
 import type { Point, Series } from "./plot";
 import { readDataBlock } from "./dataBlock";
 import { readCalcList, ListTokenError } from "./calcList";
@@ -136,6 +136,34 @@ function returnsCheck(xs: number[], what: string): number[] | string {
   }
   return xs.map((x) => x / 100);
 }
+
+type SeriesKind = "returns" | "prices";
+const INPUT_FIELD = {
+  key: "input",
+  label: "Pasted values are",
+  default: "returns",
+  kind: "select" as const,
+  options: [
+    { value: "returns", label: "Returns (% per period)" },
+    { value: "prices", label: "Prices or index levels, oldest first" },
+  ],
+};
+const kindOf = (r: Read): SeriesKind => (r("input") === "prices" ? "prices" : "returns");
+
+/** A pasted series as decimal returns: returns in % checked, or prices turned into simple returns pₜ/pₜ₋₁ − 1. */
+function toReturns(xs: number[], kind: SeriesKind, what: string): number[] | string {
+  if (kind === "returns") return returnsCheck(xs, what);
+  if (xs.length < 2) return `${what}: at least 2 prices are needed for one return.`;
+  for (let i = 0; i < xs.length; i++) if (!(xs[i] > 0)) return `${what}: price ${i + 1} (${fx(xs[i], 4)}) must be above 0 (returns are pₜ/pₜ₋₁ − 1).`;
+  const out: number[] = [];
+  for (let i = 1; i < xs.length; i++) {
+    const r = xs[i] / xs[i - 1] - 1;
+    if (r * 100 > RET_MAX_PCT) return `${what}: prices ${i} to ${i + 1} make a return above ${fx(RET_MAX_PCT, 0)}% for one period.`;
+    out.push(r);
+  }
+  return out;
+}
+const PRICE_CONVENTION = "returns computed from the pasted prices as simple returns pₜ/pₜ₋₁ − 1 (n prices give n − 1 returns)";
 
 const PPY_FIELD = { key: "ppy", label: "Periods per year (12 monthly, 52 weekly, 252 trading days)", default: "12" };
 function ppyOf(r: Read): number | string {
@@ -288,7 +316,12 @@ export function dcfSensitivityHeatmapSvg(rowLabels: string[], colLabels: string[
     rows: [],
     warnings: [],
   };
-  return buildHeatmapSvg(chart, title, { scale: "sequential" }, 520, 320).svg;
+  // The Finance figure style (journal width, USPTO black and white) reaches this builder through currentFinFig, as
+  // finPlotSvg's figures get it: plot.ts never sees a heat map.
+  const fig = currentFinFig();
+  const W = fig ? fig.width : 520;
+  const H = Math.round((320 * W) / 520);
+  return buildHeatmapSvg(chart, title, { scale: "sequential", grey: fig?.bw === true }, W, H).svg;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -303,16 +336,19 @@ export function capmCalc(r: Read): FinResult {
   if (typeof ppy === "string") return finRefusal(ppy);
   const seRaw = r("se");
   const se: SeType = seRaw === "hc1" || seRaw === "hac" ? seRaw : "classical";
-  const t = readTable(r("data"), "Returns (%)", 2, 3, 5000);
+  const kind = kindOf(r);
+  const t = readTable(r("data"), kind === "prices" ? "Prices" : "Returns (%)", 2, 3, 5000);
   if (typeof t === "string") return finRefusal(t);
-  const ra = returnsCheck(t.cols[0], "Asset returns");
+  const ra = toReturns(t.cols[0], kind, kind === "prices" ? "Asset prices" : "Asset returns");
   if (typeof ra === "string") return finRefusal(ra);
-  const rm = returnsCheck(t.cols[1], "Market returns");
+  const rm = toReturns(t.cols[1], kind, kind === "prices" ? "Market prices" : "Market returns");
   if (typeof rm === "string") return finRefusal(rm);
   let rf: number[];
   let rfNote: string;
   if (t.cols.length === 3) {
-    const c = returnsCheck(t.cols[2], "Risk-free returns");
+    // The third column is a risk-free RATE in % per period in both modes (with prices, the rate on each row from the
+    // second on, the period each return covers).
+    const c = returnsCheck(kind === "prices" ? t.cols[2].slice(1) : t.cols[2], "Risk-free rate column (%)");
     if (typeof c === "string") return finRefusal(c);
     rf = c;
     rfNote = "the risk-free rate from the third column, period by period";
@@ -338,7 +374,7 @@ export function capmCalc(r: Read): FinResult {
     `Sharpe ratio: ${names[0]} ${c.sharpeAsset !== null ? fx(c.sharpeAsset, 4) : "not defined (no variation)"}; ${names[1]} ${c.sharpeMarket !== null ? fx(c.sharpeMarket, 4) : "not defined"}`,
     `Risk split (annualised variance of excess return): systematic β²σ²_m = ${fx(c.varSys * 1e4, 2)} %², idiosyncratic σ²_ε = ${fx(c.varIdio * 1e4, 2)} %² (${fx(sysShare * 100, 1)}% systematic)`,
     ...t.notes,
-    `Conventions: returns are simple per-period returns in %; excess returns over ${rfNote}; OLS of r − r_f on r_m − r_f with a constant (α); ` +
+    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "returns are simple per-period returns in %"}; excess returns over ${rfNote}; OLS of r − r_f on r_m − r_f with a constant (α); ` +
       `standard errors ${SE_LABEL[se]}${c.hacLag !== undefined ? ` with lag ${c.hacLag} (floor(4(n/100)^(2/9)))` : ""}, t with ${c.df} degrees of freedom; ` +
       `annualised: means × ${ppy}, standard deviations × √${ppy} (sample, n − 1); information ratio on active return r − r_m; idiosyncratic variance SSE/(n − 2).`,
   ];
@@ -359,9 +395,11 @@ export function capmCalc(r: Read): FinResult {
 export function perfCalc(r: Read): FinResult {
   const ppy = ppyOf(r);
   if (typeof ppy === "string") return finRefusal(ppy);
-  const s = readSeries(r("rets"), "Returns (%)", 5000);
+  const kind = kindOf(r);
+  const what = kind === "prices" ? "Prices" : "Returns (%)";
+  const s = readSeries(r("rets"), what, 5000);
   if (typeof s === "string") return finRefusal(s);
-  const rets = returnsCheck(s.values, "Returns (%)");
+  const rets = toReturns(s.values, kind, what);
   if (typeof rets === "string") return finRefusal(rets);
   const rf = num(r, "rf", "risk-free rate (% per period)", { min: -100, max: 100, minOpen: true });
   if (typeof rf === "string") return finRefusal(rf);
@@ -386,7 +424,7 @@ export function perfCalc(r: Read): FinResult {
       : "Maximum drawdown = 0% (the wealth index never fell below a previous peak)",
     p.calmar !== null ? `Calmar ratio = ${fx(p.calmar, 4)} (annualised geometric return ÷ |maximum drawdown|, over the whole sample)` : "Calmar ratio: not defined (no drawdown)",
     ...s.notes,
-    `Conventions: simple per-period returns in %; sample standard deviation (n − 1); annualised: arithmetic mean × ${ppy}, standard deviation × √${ppy}, geometric (∏(1 + r))^(${ppy}/n) − 1; ` +
+    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; sample standard deviation (n − 1); annualised: arithmetic mean × ${ppy}, standard deviation × √${ppy}, geometric (∏(1 + r))^(${ppy}/n) − 1; ` +
       `Sharpe = mean(r − r_f)/sd(r − r_f) × √${ppy} with r_f = ${fx(rf, 4)}% per period; Sortino = (mean(r) − MAR) × ${ppy} ÷ (downside deviation × √${ppy}), downside deviation √(Σ min(r − MAR, 0)²/n) over all n periods; ` +
       `Treynor = mean(r − r_f) × ${ppy} ÷ β; drawdown on a wealth index starting at 1 before the first return (period 0).`,
   ];
@@ -416,9 +454,11 @@ const METHOD_NAME: Record<VarLine["method"], string> = {
 
 /** Value at risk and expected shortfall by four methods. */
 export function varCalc(r: Read): FinResult {
-  const s = readSeries(r("rets"), "Returns (%)", 10000);
+  const kind = kindOf(r);
+  const what = kind === "prices" ? "Prices" : "Returns (%)";
+  const s = readSeries(r("rets"), what, 10000);
   if (typeof s === "string") return finRefusal(s);
-  const rets = returnsCheck(s.values, "Returns (%)");
+  const rets = toReturns(s.values, kind, what);
   if (typeof rets === "string") return finRefusal(rets);
   const conf = num(r, "conf", "confidence level (%)", { min: 50, max: 100, minOpen: true, maxOpen: true });
   if (typeof conf === "string") return finRefusal(conf);
@@ -454,7 +494,7 @@ export function varCalc(r: Read): FinResult {
       (h === 1
         ? "one period, no time scaling; "
         : `horizon ${h} periods: the normal, t and Monte Carlo methods use mean × ${h} and σ × √${h}; the historical VaR and CVaR are the one-period values × √${h} (square-root-of-time, i.i.d. returns assumed); `) +
-      "μ and σ are the sample mean and sample standard deviation (n − 1).",
+      `μ and σ are the sample mean and sample standard deviation (n − 1)${kind === "prices" ? `; ${PRICE_CONVENTION}` : ""}.`,
   ];
   const table: FinTable = {
     label: "Value at risk",
@@ -471,14 +511,16 @@ export function frontierCalc(r: Read): FinResult {
   if (typeof ppy === "string") return finRefusal(ppy);
   const rf = num(r, "rf", "risk-free rate (% a year)", { min: -100, max: 100, minOpen: true });
   if (typeof rf === "string") return finRefusal(rf);
-  const t = readTable(r("data"), "Asset returns (%)", 2, 20, 2000);
+  const kind = kindOf(r);
+  const what = kind === "prices" ? "Asset prices" : "Asset returns (%)";
+  const t = readTable(r("data"), what, 2, 20, 2000);
   if (typeof t === "string") return finRefusal(t);
   const k = t.cols.length;
-  const n = t.cols[0].length;
-  if (n <= k) return finRefusal(`Asset returns (%): ${n} periods for ${k} assets; the covariance matrix needs more periods than assets (n > ${k}).`);
+  const n = t.cols[0].length - (kind === "prices" ? 1 : 0);
+  if (n <= k) return finRefusal(`${what}: ${n} ${kind === "prices" ? "returns" : "periods"} for ${k} assets; the covariance matrix needs more periods than assets (n > ${k}).`);
   const cols: number[][] = [];
   for (let j = 0; j < k; j++) {
-    const c = returnsCheck(t.cols[j], `Asset returns (%), column ${j + 1}`);
+    const c = toReturns(t.cols[j], kind, `${what}, column ${j + 1}`);
     if (typeof c === "string") return finRefusal(c);
     cols.push(c);
   }
@@ -499,7 +541,7 @@ export function frontierCalc(r: Read): FinResult {
     `Capital market line: E[r] = ${fx(rf, 3)}% + ${fx(tg.sharpe, 4)} × σ`,
     `Highest-return portfolio (end of the frontier): ${pct(f.maxRet, 3)} a year`,
     ...t.notes,
-    `Conventions: simple per-period returns in %; expected returns = arithmetic mean × ${ppy}; covariance = sample covariance (n − 1) × ${ppy}; weights ≥ 0 summing to 1 (no short sales, no leverage); ` +
+    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; expected returns = arithmetic mean × ${ppy}; covariance = sample covariance (n − 1) × ${ppy}; weights ≥ 0 summing to 1 (no short sales, no leverage); ` +
       `each frontier point minimises wᵀΣw at a target return (${FRONTIER_TEXT}); tangency by min yᵀΣy subject to (μ − r_f)ᵀy = 1, y ≥ 0, w = y/Σy (PyPortfolioOpt's max_sharpe); ` +
       `solved exactly by a primal active-set quadratic programme; the CML lends and borrows at r_f, which a long-only, unlevered investor can do only to the left of the tangency point.`,
   ];
@@ -911,8 +953,9 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     group: "Portfolio & risk",
     name: "CAPM beta and alpha (regression)",
     fields: [
-      { key: "data", label: "Returns (%): asset, market [, risk-free], one period per line (illustrative numbers by default)", default: CAPM_DEFAULT, kind: "block" },
-      { key: "rf", label: "Risk-free rate (% per period; used without a third column)", default: "0.25" },
+      { key: "data", label: "Asset, market [, risk-free rate %]: returns (%) or prices, one period per line (illustrative numbers by default)", default: CAPM_DEFAULT, kind: "block" },
+      INPUT_FIELD,
+      { key: "rf", label: "Risk-free rate (% per period; used without a third column)", default: "0.25", optional: true },
       PPY_FIELD,
       SE_FIELD,
     ],
@@ -929,7 +972,8 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     group: "Portfolio & risk",
     name: "Sharpe, Sortino, Treynor and maximum drawdown",
     fields: [
-      { key: "rets", label: "Returns (% per period), a list or one per line (illustrative numbers by default)", default: RETURNS_DEFAULT, kind: "block" },
+      { key: "rets", label: "Returns (% per period) or prices, a list or one per line (illustrative numbers by default)", default: RETURNS_DEFAULT, kind: "block" },
+      INPUT_FIELD,
       PPY_FIELD,
       { key: "rf", label: "Risk-free rate (% per period)", default: "0.25" },
       { key: "mar", label: "Minimum acceptable return for Sortino (% per period)", default: "0" },
@@ -946,7 +990,8 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     group: "Portfolio & risk",
     name: "Value at risk and expected shortfall (CVaR)",
     fields: [
-      { key: "rets", label: "Returns (% per period), a list or one per line (illustrative numbers by default)", default: RETURNS_DEFAULT, kind: "block" },
+      { key: "rets", label: "Returns (% per period) or prices, a list or one per line (illustrative numbers by default)", default: RETURNS_DEFAULT, kind: "block" },
+      INPUT_FIELD,
       { key: "conf", label: "Confidence level (%)", default: "95" },
       { key: "horizon", label: "Horizon (periods)", default: "1" },
       { key: "value", label: "Portfolio value", default: "1,000,000" },
@@ -967,7 +1012,8 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     group: "Portfolio & risk",
     name: "Efficient frontier and tangency portfolio (Markowitz)",
     fields: [
-      { key: "data", label: "Asset returns (% per period): one column per asset, one period per line, names in a header row (illustrative numbers by default)", default: FRONTIER_DEFAULT, kind: "block" },
+      { key: "data", label: "Asset returns (% per period) or prices: one column per asset, one period per line, names in a header row (illustrative numbers by default)", default: FRONTIER_DEFAULT, kind: "block" },
+      INPUT_FIELD,
       PPY_FIELD,
       { key: "rf", label: "Risk-free rate (% a year)", default: "3" },
     ],

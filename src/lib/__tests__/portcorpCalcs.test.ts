@@ -1,6 +1,8 @@
 /**
  * PORTCORP_CALCS (F1, gap items #4 and #5, defect D6) through the pane's read path: number fields through
- * readFinanceField first, then compute (run() copied from finSpreadContract.test.ts). Every default must be insertable
+ * readFinanceField first, then compute. run() is the stricter copy in ipValuation.test.ts (finSpreadContract.test.ts's
+ * read plus the pane's two hold-backs: an unreadable number field refused with the pane's own message before compute,
+ * a blank non-optional field holding the result back); runLoose() is finSpreadContract's own. Every default must be insertable
  * with ≤ 6-column tables, a "Conventions:" line and a figure; defaults print the oracle's numbers; hostile field text
  * must refuse by name (never insertable); each compute must finish within 300 ms at its caps.
  */
@@ -9,10 +11,11 @@ import * as path from "path";
 import { PORTCORP_CALCS } from "../portcorpCalcs";
 import { FIN_GROUP_ORDER, type FinCalcDef, type FinResult } from "../finCalc";
 import { readFinanceField } from "../finance";
+import { withFinFig } from "../financeFigures";
 import { insertableResultText } from "../insertGate";
 
-/** The pane's read: number fields through the product's cell reader, everything else as typed. */
-function run(c: FinCalcDef, over: Record<string, string> = {}): FinResult {
+/** finSpreadContract.test.ts's read: number fields through the product's cell reader, everything else as typed. */
+function runLoose(c: FinCalcDef, over: Record<string, string> = {}): FinResult {
   const raw = (k: string): string => over[k] ?? c.fields.find((f) => f.key === k)?.default ?? "";
   const numeric = new Map<string, string>();
   for (const f of c.fields) {
@@ -21,6 +24,25 @@ function run(c: FinCalcDef, over: Record<string, string> = {}): FinResult {
     if (Number.isFinite(v)) numeric.set(f.key, String(v));
   }
   return c.compute((k) => numeric.get(k) ?? raw(k));
+}
+/** The pane's read as updateFinancePreview does it (ipValuation.test.ts's copy, with the two hold-backs). */
+function run(c: FinCalcDef, over: Record<string, string> = {}): FinResult {
+  const raw = (k: string): string => over[k] ?? c.fields.find((f) => f.key === k)?.default ?? "";
+  let fieldRefusal = "";
+  const numeric = new Map<string, string>();
+  for (const f of c.fields) {
+    if (f.kind === "select" || f.kind === "list" || f.kind === "text" || f.kind === "block") continue;
+    const r = raw(f.key);
+    if (!r.trim()) continue;
+    const v = readFinanceField(r);
+    if (!Number.isFinite(v)) {
+      if (!fieldRefusal) fieldRefusal = `${f.label}: “${r.trim()}” is not a number.`;
+    } else numeric.set(f.key, String(v));
+  }
+  const read = (k: string): string => numeric.get(k) ?? raw(k);
+  if (c.fields.some((f) => f.kind !== "select" && !f.optional && read(f.key).trim() === "")) return { text: "Enter all values to compute.", ok: false };
+  if (fieldRefusal) return { text: fieldRefusal, ok: false };
+  return c.compute(read);
 }
 const obj = (o: FinResult) => (typeof o === "string" ? { text: o, ok: undefined, svg: undefined, tables: undefined } : o);
 const calc = (id: string): FinCalcDef => {
@@ -252,18 +274,76 @@ describe("adversarial-pass fixes (F1 builder B)", () => {
   });
 });
 
+describe("review fixes", () => {
+  test("every figure follows the Finance figure style (width, USPTO black and white), the DCF heat map included", () => {
+    for (const c of PORTCORP_CALCS) {
+      const o = withFinFig({ width: 300, bw: true }, () => obj(run(c)));
+      // Black and white: none of the colour figure's series colours survive (plot figures widen past the nominal width
+      // for an outside legend, by design, so only the heat map's width is pinned exactly).
+      expect(o.svg ?? "").not.toMatch(/#(2563eb|b91c1c|ea580c|16a34a|9333ea)/i);
+      if (c.id === "corp-dcf") {
+        expect(o.svg ?? "").toMatch(/<svg[^>]*\swidth="300"/);
+        const fills = [...(o.svg ?? "").matchAll(/fill="(#[0-9a-fA-F]{6})"/g)].map((m) => m[1].toLowerCase());
+        // The house grey ramp (chartPalette SEQUENTIAL_GREY, a warm neutral): every fill within 16 levels across R, G,
+        // B, where the colour figure's blue ramp is far apart.
+        const spread = (f: string): number => {
+          const ch = [1, 3, 5].map((i) => parseInt(f.slice(i, i + 2), 16));
+          return Math.max(...ch) - Math.min(...ch);
+        };
+        expect(fills.length).toBeGreaterThan(20);
+        for (const f of fills) expect(spread(f)).toBeLessThanOrEqual(16);
+        const colour = [...(obj(run(c)).svg ?? "").matchAll(/fill="(#[0-9a-fA-F]{6})"/g)].map((m) => m[1]);
+        expect(colour.some((f) => spread(f) > 40)).toBe(true);
+      }
+    }
+    expect(obj(run(calc("corp-dcf"))).svg).toMatch(/<svg[^>]*\swidth="520"/);
+  });
+  test("prices in place of returns (pₜ/pₜ₋₁ − 1), refusing a price of 0 by name", () => {
+    const o = ok("port-performance", { input: "prices", rets: "100, 102, 99.96, 104.958, 103.90842" }).text;
+    expect(o).toMatch(/^4 periods/);
+    expect(o).toContain("Mean return 1.0000% per period");
+    expect(o).toMatch(/returns computed from the pasted prices as simple returns/);
+    expect(refusal("port-var", { input: "prices", rets: "100, 0, 101" })).toMatch(/^Prices: price 2 \(0\.0000\) must be above 0/);
+    expect(ok("port-var", { input: "prices", rets: "100\n101\n99\n102\n100.5" }).text).toMatch(/from 4 returns/);
+    const capm = ok("port-capm", { input: "prices", data: "Fund Index\n100 50\n103 51\n101 50.2\n106 52\n104 51.5\n108 53" }).text;
+    expect(capm).toMatch(/5 periods/);
+    expect(ok("port-frontier", { input: "prices", data: "A B C\n100 50 20\n103 50.4 20.5\n101 50.9 20.2\n106 51 20.8\n104 51.6 21.1\n108 51.9 20.9" }).text).toMatch(/from 5 periods/);
+  });
+  test("tangency when r_f sits just below the top mean (6.600%)", () => {
+    for (const rf of ["6.5", "6.599", "6.5999999"]) {
+      const o = ok("port-frontier", { rf }).text;
+      expect(o).toMatch(/Tangency \(maximum Sharpe\) portfolio at r_f = 6\.\d+%: Stocks 100\.00%/);
+    }
+  });
+  test("the CAPM risk-free field is optional (a third column supplies the rate)", () => {
+    expect(calc("port-capm").fields.find((f) => f.key === "rf")!.optional).toBe(true);
+    expect(ok("port-capm", { rf: "", data: "1.0 0.8 0.2\n-0.5 -0.9 0.2\n2.1 1.7 0.21\n0.3 0.1 0.21\n-1.4 -1.1 0.22\n0.9 1.2 0.22" }).text).toContain("third column");
+  });
+  test("the pane's old defaults through the new calculators (dcf, irr, npv)", () => {
+    // dcf: 100, 110, 121 at 10%, Gordon g 3% printed Value = 1,610.39.
+    expect(ok("corp-dcf", { fcf: "100, 110, 121", wacc: "10", fade: "0", g: "3", netdebt: "0", shares: "" }).text).toContain("Enterprise value = 1,610.39");
+    // irr / npv: −1000, 500, 500, 500 at 10%.
+    const b = ok("corp-capbudget", { cfa: "-1000, 500, 500, 500", cfb: "" }).text;
+    expect(b).toContain("NPV at 10.000% = 243.43");
+    expect(b).toMatch(/IRR \(Project A\): 23\.3752%/);
+  });
+});
+
 describe("hostile inputs refuse by name (never insertable)", () => {
   test("blank, 1e400, words, NaN", () => {
-    expect(refusal("port-performance", { rets: "" })).toMatch(/Returns \(%\): nothing to read/);
     expect(refusal("port-performance", { rets: "1, 1e400, 2" })).toMatch(/Returns \(%\)/);
     expect(refusal("port-performance", { rets: "1, abc, 2" })).toMatch(/Returns \(%\).*not a number/);
-    expect(refusal("port-performance", { ppy: "1e400" })).toMatch(/periods per year: “1e400” is not a finite number/);
+    expect(refusal("port-performance", { ppy: "1e400" })).toMatch(/^Periods per year \(12 monthly, 52 weekly, 252 trading days\): “1e400” is not a number\.$/);
+    expect(refusal("port-performance", { rets: "" })).toBe("Enter all values to compute.");
+    // Called directly (the loose read), compute names the field itself.
+    expect(obj(runLoose(calc("port-performance"), { ppy: "1e400" })).text).toMatch(/periods per year: “1e400” is not a finite number/);
+    expect(obj(runLoose(calc("port-performance"), { rets: "" })).text).toMatch(/Returns \(%\): nothing to read/);
     expect(refusal("port-performance", { ppy: "0" })).toMatch(/periods per year must be at least 1/);
     expect(refusal("port-performance", { ppy: "12.5" })).toMatch(/periods per year must be a whole number/);
     expect(refusal("port-performance", { rets: "5" })).toMatch(/at least 2 periods/);
     expect(refusal("port-performance", { rets: "5, -100, 3" })).toMatch(/−100% or below/);
-    expect(refusal("port-performance", { beta: "NaN" })).toMatch(/beta \(for Treynor\)/);
-    expect(refusal("port-capm", { data: "" })).toMatch(/Returns \(%\): nothing to read/);
+    expect(refusal("port-performance", { beta: "NaN" })).toMatch(/^Beta for the Treynor ratio \(optional\): “NaN” is not a number\.$/);
+    expect(obj(runLoose(calc("port-capm"), { data: "" })).text).toMatch(/Returns \(%\): nothing to read/);
     expect(refusal("port-capm", { data: "1\n2\n3" })).toMatch(/1 column; expected 2 to 3/);
     expect(refusal("port-capm", { data: "1 2\n2 1e400\n3 4" })).toMatch(/Returns \(%\)/);
     expect(refusal("port-capm", { data: "1 2\n2 3" })).toMatch(/at least 3 periods/);
@@ -276,7 +356,7 @@ describe("hostile inputs refuse by name (never insertable)", () => {
     expect(refusal("port-var", { conf: "50" })).toMatch(/confidence level \(%\) must be above 50/);
     expect(refusal("port-var", { horizon: "0" })).toMatch(/horizon \(periods\) must be at least 1/);
     expect(refusal("port-var", { sims: "1e9" })).toMatch(/Monte Carlo draws must be at most 200,000/);
-    expect(refusal("port-var", { sims: "1e400" })).toMatch(/Monte Carlo draws: “1e400” is not a finite number/);
+    expect(refusal("port-var", { sims: "1e400" })).toMatch(/^Monte Carlo draws: “1e400” is not a number\.$/);
     expect(refusal("port-var", { seed: "-1" })).toMatch(/seed must be at least 0/);
     expect(refusal("port-var", { seed: "1.5" })).toMatch(/seed must be a whole number/);
     expect(refusal("port-var", { nu: "2" })).toMatch(/degrees of freedom ν must be above 2/);
@@ -295,7 +375,8 @@ describe("hostile inputs refuse by name (never insertable)", () => {
     expect(refusal("corp-wacc", { e: "0" })).toMatch(/market value of equity must be above 0/);
     expect(refusal("corp-wacc", { tax: "100" })).toMatch(/tax rate \(%\) must be below 100/);
     expect(refusal("corp-wacc", { betakind: "peer", peerde: "" })).toMatch(/Enter the peer debt-to-equity/);
-    expect(refusal("corp-wacc", { beta: "1e400" })).toMatch(/beta: “1e400”/);
+    expect(refusal("corp-wacc", { beta: "1e400" })).toMatch(/^Beta: “1e400” is not a number\.$/);
+    expect(refusal("corp-wacc", { rd: "" })).toBe("Enter all values to compute.");
   });
   test("capital budgeting", () => {
     expect(refusal("corp-capbudget", { cfa: "-1000" })).toMatch(/Project A cash flows: enter at least 2 flows/);
@@ -311,7 +392,8 @@ describe("hostile inputs refuse by name (never insertable)", () => {
     expect(refusal("corp-dcf", { shares: "0" })).toMatch(/shares outstanding must be above 0/);
     expect(refusal("corp-dcf", { fcf: "100", fadestart: "" })).toMatch(/First fade-year growth \(%\): enter it/);
     expect(refusal("corp-dcf", { fade: "200" })).toMatch(/fade years must be at most 100/);
-    expect(refusal("corp-dcf", { fcf: "" })).toMatch(/Explicit free cash flows: nothing to read/);
+    expect(refusal("corp-dcf", { fcf: "" })).toBe("Enter all values to compute.");
+    expect(obj(runLoose(calc("corp-dcf"), { fcf: "" })).text).toMatch(/Explicit free cash flows: nothing to read/);
     expect(refusal("corp-dcf", { terminal: "exit", multiple: "" })).toMatch(/Enter the exit multiple/);
     expect(refusal("corp-dcf", { wstep: "0" })).toMatch(/sensitivity step for WACC/);
   });

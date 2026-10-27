@@ -100,4 +100,21 @@ describe("space-grouped thousands in a list", () => {
     expect(readCalcList("100, 200\t300").values).toEqual([100, 200, 300]);
     expect(readCalcList("1.5 000.5").values).toEqual([1.5, 0.5]);
   });
+  // F1 review round 2: the exponent's digit started the match, so "1e3 050" was refused quoting “3 050”, the middle of a
+  // token; a tab-grouped run said "spaces" only
+  test("a run never starts mid-token (after a letter or an exponent sign); a tab is named", () => {
+    for (const s of ["1e3 050", "1E3 050", "1.5e3 050", "1.5e-3 050", "1e+3 050", "1e−3 050"]) {
+      let msg = "";
+      try {
+        readCalcList(s);
+      } catch (e) {
+        msg = (e as Error).message;
+      }
+      expect([s, msg]).not.toEqual([s, expect.stringContaining("3 050")]);
+    }
+    expect(readCalcList("1e3 050").values).toEqual([1000, 50]);
+    expect(readCalcList("1.5e3 050").values).toEqual([1500, 50]);
+    expect(() => readCalcList("1\t000; 2")).toThrow(/grouped in thousands with spaces or tabs \(1000\), but a space or tab also separates list values/);
+    expect(() => readCalcList("1 000; 2")).toThrow(/grouped in thousands with spaces \(1000\), but a space also separates/);
+  });
 });

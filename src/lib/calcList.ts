@@ -22,16 +22,21 @@ export class ListTokenError extends Error {
  * values, so "−1 000; 300; 400" was read as −1, 0, 300, 400 and "1 000 000" as 1, 0, 0, silently (F1 builder B,
  * 2026-10-27). The tell is a later group that starts with 0: no list value is written "000" or "050", so
  * "5, 10 100" and "300 400 500" still read as separate values. No-break spaces are not matched: parseCellNumber
- * reads those as grouping.
+ * reads those as grouping. The run must start a token: a letter or sign before it means it is the tail of another token
+ * ("1e3 050", "1e+3 050": the exponent's digit is not the start of a grouped number), so nothing mid-token is quoted.
  */
-const SPACE_GROUPED_RUN = /(^|[^\d.,])([-−–+]?\d{1,3}(?:[ \t]+\d{3})+)(?!\d)/g;
+const SPACE_GROUPED_RUN = /(^|[^\d.,A-Za-z+\-−–])([-−–+]?\d{1,3}(?:[ \t]+\d{3})+)(?!\d)/g;
 
 function spaceGroupedRefusal(text: string): string {
   for (const m of text.matchAll(SPACE_GROUPED_RUN)) {
     const run = m[2];
     if (!run.split(/[ \t]+/).slice(1).some((g) => g.startsWith("0"))) continue;
     const joined = run.replace(/[ \t]+/g, "");
-    return `“${run}” is one number grouped in thousands with spaces (${joined}), but a space also separates list values, so it would be read as ${run.split(/[ \t]+/).join(", ")}. Write it without spaces (${joined}).`;
+    const tab = run.includes("\t");
+    return (
+      `“${run}” is one number grouped in thousands with ${tab ? "spaces or tabs" : "spaces"} (${joined}), but a ${tab ? "space or tab" : "space"} also separates list values, ` +
+      `so it would be read as ${run.split(/[ \t]+/).join(", ")}. Write it without ${tab ? "spaces or tabs" : "spaces"} (${joined}).`
+    );
   }
   return "";
 }

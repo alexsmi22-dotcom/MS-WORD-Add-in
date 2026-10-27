@@ -8368,7 +8368,7 @@ const FIN_CALCS: FinCalc[] = [
         // The frequency as GIVEN, not rounded: a title reading "13x per year"
         // over a curve computed at 12.5 asserts a parameter the chart was not
         // drawn with. Whole frequencies print whole ("12×", not "12.00x": F1 D2).
-        title: `Balance, compounded ${Number.isInteger(+r("m")) ? String(+r("m")) : finFixed(+r("m"), 2).replace(/0+$/, "")}× per year`,
+        title: `Balance, compounded ${Number.isInteger(+r("m")) ? String(+r("m")) : String(Number((+r("m")).toPrecision(6)))}× per year`,
         xlabel: "year",
       }),
     }),
@@ -8498,9 +8498,13 @@ const FIN_CALCS: FinCalc[] = [
       if (!(S > 0) || !(K > 0) || !(t >= 0) || !(sg >= 0) || !Number.isFinite(rr) || !Number.isFinite(q)) {
         return finRefuse("Spot and strike must be positive, time to expiry and volatility zero or more, rate and dividend yield numbers.");
       }
+      if (Math.abs(q) > 1) return finRefuse("Dividend yield q must be between −100% and 100%.");
       const type = r("type") as OptionType;
       const C = blackScholes("call", S, K, t, rr, sg, q);
       const P = blackScholes("put", S, K, t, rr, sg, q);
+      if (!Number.isFinite(C) || !Number.isFinite(P)) {
+        return finRefuse("These inputs overflow the model (exp(−qt) or exp(−rt) is out of range): shorten the time to expiry or reduce the rates.");
+      }
       const price = type === "put" ? P : C;
       return {
         text:
@@ -8745,8 +8749,7 @@ const FIN_CALCS: FinCalc[] = [
       "The Gordon terminal value typically dominates this number and is extremely sensitive "+
       "to the terminal growth rate: it explodes as growth approaches the discount rate, "+
       "and requires growth < discount rate to mean anything. Treat the output as a scenario, "+
-      "not a valuation. For explicit stages, an exit multiple, mid-year discounting, the bridge to equity per share " +
-      "and a sensitivity grid, use Capital budgeting & valuation ▸ Multi-stage DCF."
+      "not a valuation."
   },
   {
     id: "xirr",
@@ -8922,6 +8925,7 @@ const FIN_CALCS: FinCalc[] = [
       if (!(+r("s") > 0) || !(+r("k") > 0) || !(+r("t") > 0) || !(+r("sig") >= 0) || !Number.isFinite(q)) {
         return finRefuse("Spot and strike must be positive, time to expiry positive, volatility zero or more and dividend yield a number.");
       }
+      if (Math.abs(q) > 1) return finRefuse("Dividend yield q must be between −100% and 100%.");
       if (sigmaZeroAtForward(+r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100, q)) {
         return finRefuse(
           "At σ = 0 with S·exp(−qt) = K·exp(−rt) the option is exactly at the money forward: delta jumps from 0 to 1 there " +
@@ -8929,6 +8933,9 @@ const FIN_CALCS: FinCalc[] = [
         );
       }
       const g = blackScholesGreeks(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100, q);
+      if (![g.delta, g.gamma, g.vega, g.theta, g.rho, g.psi].every(Number.isFinite)) {
+        return finRefuse("These inputs overflow the model (exp(−qt) or exp(−rt) is out of range): shorten the time to expiry or reduce the rates.");
+      }
       return {
         text: [
           // finFixed, not toFixed: every other line here is already guarded, and
@@ -9008,6 +9015,7 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const q = +r("q") / 100;
       if (!Number.isFinite(q)) return finRefuse("Dividend yield q must be a number.");
+      if (Math.abs(q) > 1) return finRefuse("Dividend yield q must be between −100% and 100%.");
       const v = impliedVolatility(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r") / 100, q);
       if (v === null) return finRefuse("Implied vol = no solution");
       return {
@@ -9089,9 +9097,7 @@ const FIN_CALCS: FinCalc[] = [
     assumes:
       "Plain declining balance at the factor given, stopping at salvage. This is NOT MACRS and " +
       "does NOT switch to straight line when that would be faster, which is what US tax " +
-      "schedules and most accounting conventions do — so it is a book method, not a filing. " +
-      "For the switch to straight line, SYD, units of production or MACRS as a Word table, use Accounting & " +
-      "statements ▸ Depreciation schedule or MACRS.",
+      "schedules and most accounting conventions do — so it is a book method, not a filing.",
   },
   {
     // STRAIGHT LINE WAS MISSING WHILE DECLINING BALANCE SHIPPED — and it is the
@@ -9391,9 +9397,6 @@ const FIN_CALCS: FinCalc[] = [
         ),
       };
     },
-    assumes:
-      "For Sortino, Treynor, maximum drawdown, Calmar, prices instead of returns, VaR or a CAPM beta, use " +
-      "Portfolio & risk ▸ Sharpe, Sortino, Treynor and maximum drawdown.",
   },
   {
     id: "fin-currency",

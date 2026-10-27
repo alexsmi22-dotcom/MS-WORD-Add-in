@@ -18,20 +18,22 @@ export class ListTokenError extends Error {
 }
 
 /**
- * One value between semicolons or ", " that is a number grouped in thousands with plain spaces ("−1 000",
- * "3 500 000"). The space also separates list values, so "−1 000; 300; 400" was read as −1, 0, 300, 400,
- * silently (F1 builder B, 2026-10-27). No-break spaces are not matched: parseCellNumber reads those as grouping.
+ * A number grouped in thousands with plain spaces ("−1 000", "3 500 000", "1 000,50"). The space also separates list
+ * values, so "−1 000; 300; 400" was read as −1, 0, 300, 400 and "1 000 000" as 1, 0, 0, silently (F1 builder B,
+ * 2026-10-27). The tell is a later group that starts with 0: no list value is written "000" or "050", so
+ * "5, 10 100" and "300 400 500" still read as separate values. No-break spaces are not matched: parseCellNumber
+ * reads those as grouping.
  */
-const SPACE_GROUPED = /^[-−–+]?\d{1,3}([ \t]\d{3})+([.,]\d+)?%?$/;
+const SPACE_GROUPED_RUN = /(^|[^\d.,])([-−–+]?\d{1,3}(?:[ \t]+\d{3})+)(?!\d)/g;
 
-function spaceGroupedRefusal(text: string): string | null {
-  if (!/;|,[ \t]/.test(text)) return null;
-  const hit = text
-    .split(/;|,[ \t]+/)
-    .map((s) => s.trim())
-    .find((s) => SPACE_GROUPED.test(s));
-  if (!hit) return null;
-  return `“${hit}” reads two ways: one number grouped in thousands with spaces (${hit.replace(/[ \t]/g, "")}), or the numbers ${hit.split(/[ \t]+/).join(", ")}. Write the number without spaces (${hit.replace(/[ \t]/g, "")}).`;
+function spaceGroupedRefusal(text: string): string {
+  for (const m of text.matchAll(SPACE_GROUPED_RUN)) {
+    const run = m[2];
+    if (!run.split(/[ \t]+/).slice(1).some((g) => g.startsWith("0"))) continue;
+    const joined = run.replace(/[ \t]+/g, "");
+    return `“${run}” is one number grouped in thousands with spaces (${joined}), but a space also separates list values, so it would be read as ${run.split(/[ \t]+/).join(", ")}. Write it without spaces (${joined}).`;
+  }
+  return "";
 }
 
 /** The numbers of one list field and the sentence about its decimal commas ("" when none were read). */

@@ -78,9 +78,7 @@ function readSeries(text: string, what: string, maxRows: number): { values: numb
   let values: number[];
   const notes: string[] = [];
   if (!/\n/.test(t)) {
-    // A space inside a number in a semicolon list ("−1 000; 300") would be read as two values (−1 and 0): refused.
-    const spaced = t.includes(";") ? t.split(";").find((f) => /\d\s+\d/.test(f.trim())) : undefined;
-    if (spaced) return `${what}: “${spaced.trim()}” has a space inside a number; with semicolons between values, write numbers without spaces (1000 or 1,000).`;
+    // readCalcList refuses a space-grouped number ("−1 000; 300") by name.
     try {
       const l = readCalcList(t);
       values = l.values;

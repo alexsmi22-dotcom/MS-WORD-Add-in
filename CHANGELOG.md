@@ -15,7 +15,7 @@ statsmodels, PyPortfolioOpt, published worked examples); each result prints the 
 
 ### Added
 - **Bonds on real dates and yield curves:** accrued interest, clean and dirty price on settlement/maturity dates
-  (30/360 US, 30E/360, ACT/ACT ICMA and ISDA, ACT/360, ACT/365F), yield to call and yield to worst, T-bill
+  (30/360 US, 30E/360, ACT/ACT ICMA, ACT/360, ACT/365F), yield to call and yield to worst, T-bill
   discount/bond-equivalent/money-market yields, curve bootstrap from par yields or bond prices, Nelson–Siegel and
   Svensson fits.
 - **IP valuation and licensing:** relief-from-royalty, income method, Monte Carlo value with a printed seed, royalty
@@ -53,9 +53,9 @@ statsmodels, PyPortfolioOpt, published worked examples); each result prints the 
 ### Fixed
 - Black–Scholes used an approximate normal CDF (about 7.5 × 10⁻⁸ error, −1.7 % on a deep out-of-the-money call); it
   now uses the exact one.
-- Declining-balance depreciation that never reached salvage now offers the switch to straight line.
-- **List fields:** a number grouped in thousands with spaces between semicolons or ", " (`−1 000; 300; 400`) was read
-  as two values (−1 and 0); it is now refused naming both readings.
+- **List fields:** a number grouped in thousands with spaces was read as several values — `−1 000; 300; 400` as −1, 0,
+  300, 400 and `1 000 000` as 1, 0, 0, silently. A space-separated group that starts with 0 is now refused, naming
+  the number it would be; ordinary lists such as `300 400 500` read as before.
 
 ## [2.201.1] — 2026-10-27 — Damages tables fit the page
 

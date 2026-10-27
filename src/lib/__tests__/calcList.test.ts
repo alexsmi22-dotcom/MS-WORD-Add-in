@@ -79,15 +79,25 @@ describe("grouped thousands in a list", () => {
 // F1 (found by builder B, 2026-10-27): thousands grouped with plain spaces between semicolons were split at the space —
 // "−1 000; 300; 400" was −1, 0, 300, 400, silently.
 describe("space-grouped thousands in a list", () => {
-  test("one value between separators that is space-grouped is refused naming both readings", () => {
-    expect(() => readCalcList("−1 000; 300; 400")).toThrow(/“−1 000” reads two ways.*\(−1000\)/);
+  test("a number grouped with spaces (a later group starting with 0) is refused, whatever the separators", () => {
+    expect(() => readCalcList("−1 000; 300; 400")).toThrow(/“−1 000” is one number grouped in thousands with spaces \(−1000\)/);
     expect(() => readCalcList("3 500 000, 400")).toThrow(/\(3500000\)/);
-    expect(() => readCalcList("100; 2 500.50")).toThrow(/\(2500\.50\)/);
+    expect(() => readCalcList("1 000 000")).toThrow(/\(1000000\)/);
+    expect(() => readCalcList("1  000; 2")).toThrow(/\(1000\)/);
+    expect(() => readCalcList("−1 000,300")).toThrow(/\(−1000\)/);
+    expect(() => readCalcList("−1 000 300")).toThrow(/\(−1000300\)/);
+    expect(() => readCalcList("1 000,50 2 000,25")).toThrow(/\(1000\)/);
+    expect(() => readCalcList("100; 2 050.50")).toThrow(/\(2050\)/);
   });
-  test("plain space lists and separated values still read", () => {
+  test("lists of ordinary values still read", () => {
     expect(readCalcList("-1000 300 400").values).toEqual([-1000, 300, 400]);
     expect(readCalcList("-1000; 300; 400").values).toEqual([-1000, 300, 400]);
     expect(readCalcList("5 100 200").values).toEqual([5, 100, 200]);
     expect(readCalcList("1; 22 33; 4").values).toEqual([1, 22, 33, 4]);
+    expect(readCalcList("-1000, 300 400 500").values).toEqual([-1000, 300, 400, 500]);
+    expect(readCalcList("5, 10 100").values).toEqual([5, 10, 100]);
+    expect(readCalcList("1; 22 333").values).toEqual([1, 22, 333]);
+    expect(readCalcList("100, 200\t300").values).toEqual([100, 200, 300]);
+    expect(readCalcList("1.5 000.5").values).toEqual([1.5, 0.5]);
   });
 });

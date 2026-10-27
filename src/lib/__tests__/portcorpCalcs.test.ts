@@ -271,7 +271,7 @@ describe("adversarial-pass fixes (F1 builder B)", () => {
     expect(o).toMatch(/Minimum-variance portfolio: A 50\.00%, B 50\.00%/);
   });
   test("a space inside a number in a semicolon list is refused, not read as two values", () => {
-    expect(refusal("corp-capbudget", { cfa: "−1 000; 300; 400", cfb: "" })).toMatch(/“−1 000” has a space inside a number/);
+    expect(refusal("corp-capbudget", { cfa: "−1 000; 300; 400", cfb: "" })).toMatch(/“−1 000” is one number grouped in thousands with spaces/);
   });
 });
 

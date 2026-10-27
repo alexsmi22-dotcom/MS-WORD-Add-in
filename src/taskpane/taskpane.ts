@@ -8368,7 +8368,7 @@ const FIN_CALCS: FinCalc[] = [
         // The frequency as GIVEN, not rounded: a title reading "13x per year"
         // over a curve computed at 12.5 asserts a parameter the chart was not
         // drawn with. Whole frequencies print whole ("12×", not "12.00x": F1 D2).
-        title: `Balance, compounded ${Number.isInteger(+r("m")) ? String(+r("m")) : String(Number((+r("m")).toPrecision(6)))}× per year`,
+        title: `Balance, compounded ${(+r("m")).toLocaleString("en-US", { maximumFractionDigits: 12 })}× per year`,
         xlabel: "year",
       }),
     }),
@@ -8922,8 +8922,8 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const q = +r("q") / 100;
-      if (!(+r("s") > 0) || !(+r("k") > 0) || !(+r("t") > 0) || !(+r("sig") >= 0) || !Number.isFinite(q)) {
-        return finRefuse("Spot and strike must be positive, time to expiry positive, volatility zero or more and dividend yield a number.");
+      if (!(+r("s") > 0) || !(+r("k") > 0) || !(+r("t") > 0) || !(+r("sig") >= 0) || !Number.isFinite(q) || !Number.isFinite(+r("r"))) {
+        return finRefuse("Spot and strike must be positive, time to expiry positive, volatility zero or more, and the rate and dividend yield numbers.");
       }
       if (Math.abs(q) > 1) return finRefuse("Dividend yield q must be between −100% and 100%.");
       if (sigmaZeroAtForward(+r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100, q)) {
@@ -9016,6 +9016,13 @@ const FIN_CALCS: FinCalc[] = [
       const q = +r("q") / 100;
       if (!Number.isFinite(q)) return finRefuse("Dividend yield q must be a number.");
       if (Math.abs(q) > 1) return finRefuse("Dividend yield q must be between −100% and 100%.");
+      if (
+        [+r("s"), +r("k"), +r("t"), +r("r")].every(Number.isFinite) &&
+        +r("s") > 0 && +r("k") > 0 && +r("t") > 0 &&
+        !Number.isFinite(blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, 0.2, q))
+      ) {
+        return finRefuse("These inputs overflow the model (exp(−qt) or exp(−rt) is out of range): shorten the time to expiry or reduce the rates.");
+      }
       const v = impliedVolatility(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r") / 100, q);
       if (v === null) return finRefuse("Implied vol = no solution");
       return {

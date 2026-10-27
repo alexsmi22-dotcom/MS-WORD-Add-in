@@ -344,8 +344,14 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
           header = f;
           if (cellMode) headerCols = f.length - 1;
           else {
+            // trailing year headings; "FY 2023" between spaces is two tokens and one heading
             let t = 0;
-            while (t < f.length - 1 && isYear(f[f.length - 1 - t])) t++;
+            let j = f.length - 1;
+            while (j > 0 && isYear(f[j])) {
+              t++;
+              j--;
+              if (j > 0 && /^\(?(?:FY|CY)['’]?$/i.test(f[j])) j--;
+            }
             headerCols = t > 0 ? t : f.length === 2 ? 1 : null;
           }
           return null;
@@ -383,7 +389,11 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
       const words = f.slice(0, cut).filter((x) => x !== "");
       const raw = f.slice(cut);
       const nums = raw.map((x) => (MISSING_TOKEN.test(x) ? "-" : x));
-      const label = spaceMode ? typedName(line, raw.length) || words.join(" ").trim() : words.join(" ").trim();
+      // between spaces the label is the name as typed (its commas kept), when it is the same name the tokens give (a
+      // no-break space before an amount is grouping to the shared reader, not to a plain-space strip)
+      const joined = words.join(" ").trim();
+      const typedLabel = spaceMode ? typedName(line, raw.length) : "";
+      const label = typedLabel && normaliseItemName(typedLabel) === normaliseItemName(joined) ? typedLabel : joined;
       const where = `${what}, line ${line} (“${label || f.join(" ")}”)`;
       // text after the amounts (a "Notes" column): an amount-shaped token inside the words, followed by more words
       // (in space mode only when the line does not end in amounts: that case is the number-in-name rule above)
@@ -400,7 +410,7 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
         if (unit) noAmountWhy.set(line, `“${unit}”: a unit suffix (k, m, bn, million) is not read; write the amount in full, or name the units in a header line`);
         else if (words.length > 1 && isYear(last)) noAmountWhy.set(line, `this looks like a header row (year columns), and only the first line may be a header`);
       }
-      if (!nameTaken && words.length && NUMERIC_TOKEN.test(words[words.length - 1]) && nums.every((x) => x !== "-")) tooMany ||= `line ${line}`;
+      if (!nameTaken && words.length && NUMERIC_TOKEN.test(words[words.length - 1]) && nums.every((x) => x !== "-")) tooMany ||= `line ${line} (“${f.filter((x) => x !== "").join(" ")}”)`;
       // "Revenue,100,900": 100,900 is one amount with a thousands comma or two amounts. Only a first part of 1–3 plain
       // digits followed by exactly three digits (and an optional decimal part, "5,900.25") reads both ways.
       // A line whose two amounts read only one way ("Revenue,1500,1200") settles that the block has two amount columns,

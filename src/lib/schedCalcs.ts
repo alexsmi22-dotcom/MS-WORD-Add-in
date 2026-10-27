@@ -280,14 +280,19 @@ export function loanScheduleCalc(r: Read): FinResult {
     const saved = plain.payoffK - res.payoffK;
     const roundedEarly = plain.payoffK < n ? `; without them the payment rounded up to the cent pays the loan off with payment ${count(plain.payoffK)} of ${count(n)}` : "";
     lines.push(
-      res.payoffK < plain.payoffK
+      res.payoffK > plain.payoffK
+        ? // only after a recast: the extra payments lowered the re-amortized payment (rounded to the cent), and the
+          // plain loan's rounded-up payment ended it sooner
+          `Paid off with payment ${count(res.payoffK)} (${yearsMonths(res.payoffK, m)}) against payment ${count(plain.payoffK)} (${yearsMonths(plain.payoffK, m)}) without the extra payments: ` +
+          `the extra payments lowered the payment re-amortized at the rate change, so the loan runs longer`
+        : res.payoffK < plain.payoffK
         ? `Paid off with payment ${count(res.payoffK)} (${yearsMonths(res.payoffK, m)}) instead of payment ${count(plain.payoffK)} (${yearsMonths(plain.payoffK, m)})${roundedEarly}`
         : res.payoffK < n
           ? `Paid off with payment ${count(res.payoffK)} of ${count(n)} (${yearsMonths(res.payoffK, m)}): the payment rounded up to the cent pays the loan off early, and the extra payments do not end it sooner`
           : `Paid off with the last scheduled payment (payment ${count(n)})${res.balloonPaid > 0 ? "; the extra payments reduce the balloon instead" : ""}`,
     );
     lines.push(`Total interest = ${cents(res.totalsC.interest)} against ${cents(plain.totalsC.interest)} without the extra payments: interest saved = ${cents(plain.totalsC.interest - res.totalsC.interest)}`);
-    lines.push(`Time saved = ${monthsText(saved, m)}`);
+    lines.push(saved >= 0 ? `Time saved = ${monthsText(saved, m)}` : `Time saved: none (the loan runs ${monthsText(-saved, m)} longer)`);
     if (changes.length) lines.push("With rate changes, extra payments made before a change lower the re-amortized payment, so the time saved can be small while the interest saved is not.");
   } else {
     if (res.payoffK < n)

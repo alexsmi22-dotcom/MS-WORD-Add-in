@@ -273,6 +273,8 @@ describe("adversarial-pass fixes (F1 builder B)", () => {
   });
   test("a space inside a number in a semicolon list is refused, not read as two values", () => {
     expect(refusal("corp-capbudget", { cfa: "−1 000; 300; 400", cfb: "" })).toMatch(/“−1 000” is one number grouped in thousands with spaces/);
+    // F1 review round 2: an exponent's digit never starts a grouped run (was refused quoting “3 050”)
+    expect(ok("corp-capbudget", { cfa: "-1e3 050 1100", cfb: "" }).text).toMatch(/^Project A: 3 flows \(t = 0 to 2\); NPV at 10\.000% = −45\.45\nIRR \(Project A\): 7\.4107%/);
   });
 });
 

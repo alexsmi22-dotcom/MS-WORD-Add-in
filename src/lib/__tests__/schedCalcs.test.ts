@@ -560,6 +560,15 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(o.ok).not.toBe(false);
   });
 
+  test("extra payments before a recast that make the loan run longer: said, never a negative time saved", () => {
+    const o = out("loan-schedule", { p: "10", rate: "0", years: "30", extra: "", lumps: "5\t1", changes: "100\t0" }).text;
+    expect(o).toContain(
+      "Paid off with payment 360 (30 years) against payment 334 (27 years 10 months) without the extra payments: the extra payments lowered the payment re-amortized at the rate change, so the loan runs longer",
+    );
+    expect(o).toContain("Time saved: none (the loan runs 26 months longer)");
+    expect(o).not.toMatch(/-\d|−\d/);
+  });
+
   test("years of a long payoff are grouped in thousands", () => {
     const o = out("loan-schedule", { p: "100000", rate: "0", years: "1000", m: "1", extra: "", lumps: "2\t50000", changes: "" }).text;
     expect(o).toContain("Paid off with payment 500 (500 years) instead of payment 1,000 (1,000 years)");
@@ -772,6 +781,19 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(refused("fin-ratios", { stmt: "Revenue 100 90 80\nTotal assets 50" })).toMatch(/^Statement, line 1 \(“Revenue 100 90 80”\): 3 numbers at the end of the line, but a line has at most two amounts/);
     // the earlier reviewer cases still behave
     expect(readStatement("Line item FY2023 FY2022\nRevenue 10 9\nTotal assets 5 4")).toMatchObject({ header: ["Line", "item", "FY2023", "FY2022"] });
+    // "FY 2023" between spaces is one heading in two tokens: two amount columns, not one
+    for (const hdr of ["Line item FY 2023 FY 2022", "Line item CY 2023 CY 2022", "Line item FY’ 2023 FY’ 2022"]) {
+      const fy = readStatement(`${hdr}\nRevenue 10 9\nTotal assets 5 4`);
+      if ("error" in fy) throw new Error(fy.error);
+      expect([hdr, fy.items.get("revenue")?.current, fy.items.get("revenue")?.prior, fy.notes]).toEqual([hdr, 10, 9, []]);
+    }
+    // a no-break space before an amount (from Word or a PDF): the name is still the name
+    const nb = String.fromCharCode(0xa0);
+    const nbs = readStatement(`Revenue${nb}1,000\nTotal assets 500`);
+    if ("error" in nbs) throw new Error(nbs.error);
+    expect(nbs.items.get("revenue")?.current).toBe(1000);
+    // tab-separated, three amounts: the refusal quotes the line
+    expect(refused("fin-ratios", { stmt: "Revenue\t100\t90\t80\nTotal assets\t50" })).toMatch(/^Statement, line 1 \(“Revenue 100 90 80”\): at most two amounts per line/);
     expect("error" in readStatement("Revenue 100\nNotes 5.25% due later 1,000")).toBe(false);
   });
 

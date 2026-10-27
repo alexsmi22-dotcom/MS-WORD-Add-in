@@ -55,6 +55,9 @@ statsmodels, PyPortfolioOpt, published worked examples); each result prints the 
   its share of the total; the compound-interest figure title reads "12×".
 
 ### Fixed
+- Result tables in the pane (currency, damages and every new table) had blank header rows in dark mode — light text
+  on a fixed light grey — and broke words and amounts mid-token ("Explic|it", "1,125.|75"). Headers follow the theme;
+  a wide table scrolls instead.
 - Black–Scholes used an approximate normal CDF (about 7.5 × 10⁻⁸ error, −1.7 % on a deep out-of-the-money call); it
   now uses the exact one.
 - **List fields:** a number grouped in thousands with spaces was read as several values — `−1 000; 300; 400` as −1, 0,

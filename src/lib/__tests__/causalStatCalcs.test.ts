@@ -149,6 +149,10 @@ describe("regression discontinuity", () => {
     // Constant outcome: the IK rule refuses by name; an entered bandwidth gives a zero jump.
     const constY = FIX.defaults.rd.split("\n").map((l: string, i: number) => (i ? l.replace(/\t[^\t]+\t/, "\t7\t") : l)).join("\n");
     expect(run(c, { data: constY }).ok).toBe(false);
+    // An exactly linear outcome: the jump is printed with the caveat (rounding-level SE) or refused (zero SE).
+    const exact = "x\ty\n" + Array.from({ length: 12 }, (_, i) => `${i}\t${i * 2 + (i >= 6 ? 3 : 0)}`).join("\n");
+    const ex = run(c, { data: exact, outcome: "y", running: "x", cutoff: "6", bandwidth: "4" });
+    expect(ex.ok === false ? ex.text : ex.text).toMatch(/exact/);
   });
 });
 
@@ -205,6 +209,13 @@ describe("synthetic control", () => {
     [unsorted[3], unsorted[4]] = [unsorted[4], unsorted[3]];
     expect(run(c, { data: unsorted.join("\n") }).text).toMatch(/must increase/);
     expect(run(c, { data: "1\t2\n3\t4" }).text).toMatch(/header row/);
+    // Adversarial-pass regressions: a constant panel (all gaps zero) refused, not ranked "p = 1/13" on rounding noise;
+    // ISO dates in the period column refused with the period rule.
+    const constant = FIX.defaults.sc.split("\n").map((l: string, i: number) => (i ? l.split("\t").map((v: string, j: number) => (j ? "5" : v)).join("\t") : l));
+    expect(run(c, { data: constant.join("\n") }).text).toMatch(/reproduces “Region A” exactly/);
+    const dated = FIX.defaults.sc.split("\n").map((l: string, i: number) => (i ? l.replace(/^(\d+)/, "$1-01-01") : l));
+    expect(run(c, { data: dated.join("\n") }).text).toMatch(/period column must hold numbers/);
+    expect(run(c, { start: "1992" }).text).toMatch(/Only 2 pre-treatment periods/);
   });
 });
 
@@ -224,9 +235,12 @@ describe("propensity score", () => {
     const m = sc.eta.reduce((a, v) => a + v, 0) / sc.eta.length;
     for (const v of sc.eta) sd += (v - m) ** 2;
     sd = Math.sqrt(sd / (sc.eta.length - 1));
+    const scE =logitScore(T, X.map((row) => [row[1]]), ["educ"]);
+    if ("error" in scE) throw new Error(scE.error);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const c of FIX.ps.filter((c: any) => c.method === "match" && !c.trim)) {
-      const r = psMatch(sc.eta, T, Y, c.estimand, c.k, c.replace, c.caliper === null ? Infinity : c.caliper * sd);
+      const eta = c.covariates === "educ" ? scE.eta : sc.eta;
+      const r = psMatch(eta, T, Y, c.estimand, c.k, c.replace, c.caliper === null ? Infinity : c.caliper * sd);
       if ("error" in r) throw new Error(r.error);
       expect(Math.abs(r.est - c.est)).toBeLessThan(1e-9);
       r.w.forEach((v, i) => expect(Math.abs(v - c.w[i])).toBeLessThan(1e-9));

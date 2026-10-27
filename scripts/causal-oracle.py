@@ -392,6 +392,11 @@ def main():
         calv = math.inf if cal is None else cal * sd
         m, w = match(eta, T, Y, est, k, rep, calv)
         out["ps"].append(dict(method="match", estimand=est, k=k, replace=rep, caliper=cal, est=m, w=w.tolist()))
+    # Heavy ties: the score on educ alone (11 distinct values), so the tie-break (earlier row) decides most matches.
+    _, eta_e, _ = logit(T, X[:, [1]])
+    for est, k, rep in (("att", 2, True), ("att", 1, False), ("ate", 3, True)):
+        m, w = match(eta_e, T, Y, est, k, rep, math.inf)
+        out["ps"].append(dict(method="match", estimand=est, k=k, replace=rep, caliper=None, covariates="educ", est=m, w=w.tolist()))
     Xc = np.column_stack([np.ones(len(T)), X])
     for est in ("att", "ate"):
         for kind in ("hajek", "ht"):

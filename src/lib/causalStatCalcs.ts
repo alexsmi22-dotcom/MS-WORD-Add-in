@@ -508,6 +508,7 @@ export function rdCalc(read: Read): StatOutput {
   }
   const fit = rdFit(x, y, t, c, h, kernel, order);
   if ("error" in fit) return refuse(fit.error);
+  if (!(fit.se > 0)) return refuse(`The local fit is exact within the bandwidth (zero residuals): the jump is ${fmtFixed(fit.tau, 3)}, but no standard error exists. Real data with noise, or a wider bandwidth, gives one.`);
   const d = 3;
   const yName = cols.depName;
   const xName = cols.names[0];
@@ -524,8 +525,15 @@ export function rdCalc(read: Read): StatOutput {
   );
   if (fit.fs && fit.rfY) {
     const F = (fit.fs.est / fit.fs.se) ** 2;
-    lines.push(`First stage: the treatment jumps by ${fmtFixed(fit.fs.est, d)} (SE ${fmtFixed(fit.fs.se, d)}), F = ${fmtFixed(F, 2)}${F < 10 ? " (below 10: a weak first stage, so the ratio and its normal-approximation interval are unreliable)" : ""}.`);
+    if (!(fit.fs.se > 1e-9 * Math.abs(fit.fs.est)) || !Number.isFinite(F)) {
+      lines.push(`First stage: the treatment jumps by ${fmtFixed(fit.fs.est, d)} and is fitted without error within the bandwidth (it follows the cutoff rule exactly), so the design is in effect sharp.`);
+    } else {
+      lines.push(`First stage: the treatment jumps by ${fmtFixed(fit.fs.est, d)} (SE ${fmtFixed(fit.fs.se, d)}), F = ${fmtFixed(F, 2)}${F < 10 ? " (below 10: a weak first stage, so the ratio and its normal-approximation interval are unreliable)" : ""}.`);
+    }
   }
+  let yScale = 0;
+  for (let i = 0; i < n; i++) yScale = Math.max(yScale, Math.abs(y[i]));
+  if (fit.se <= 1e-9 * Math.max(yScale, 1e-300)) lines.push("The local fit is exact (the residuals are zero to rounding), so the standard error, z and interval are not meaningful.");
   lines.push("");
   lines.push(
     `Conventions: one weighted least-squares fit of ${q(yName)} on [1, D, u, D·u${order === 2 ? ", u², D·u²" : ""}] with u = ${xName} − c and D = 1{${xName} ≥ c}, ` +
@@ -877,9 +885,20 @@ export function synthControl(periods: number[], Y: number[][], names: string[], 
   const donors = Array.from({ length: U - 1 }, (_, k) => k + 1);
   const main = scRun(Y, 0, donors, T0);
   if ("error" in main) return main;
-  const scale = Math.max(1e-300, ...Y.slice(0, T0).map((row) => Math.abs(row[0])));
-  const floor = 1e-12 * scale;
-  const ratioOf = (post: number, pre: number): number => post / Math.max(pre, floor);
+  // RMSPEs below 10⁻¹⁰ of the data's scale are rounding: they are 0, and a zero pre-period RMSPE makes the ratio
+  // unbounded (or 0 when the post-period gap is zero too).
+  let scale = 0;
+  for (const row of Y) for (const v of row) scale = Math.max(scale, Math.abs(v));
+  const tiny = 1e-10 * Math.max(scale, 1e-300);
+  const snap = (v: number): number => (v <= tiny ? 0 : v);
+  const ratioOf = (post: number, pre: number): number => {
+    const a = snap(post);
+    const b = snap(pre);
+    return b > 0 ? a / b : a > 0 ? Infinity : 0;
+  };
+  main.pre = snap(main.pre);
+  main.post = snap(main.post);
+  if (main.pre === 0 && main.post === 0) return { error: `The synthetic control reproduces ${q(names[0])} exactly in every period (no gap before or after treatment), so there is no effect to measure.` };
   const ratio = ratioOf(main.post, main.pre);
   let placebos: ScPlacebo[] | null = null;
   let rank = 1;
@@ -890,7 +909,7 @@ export function synthControl(periods: number[], Y: number[][], names: string[], 
       const others = donors.filter((k) => k !== j);
       const r = scRun(Y, j, others, T0);
       if ("error" in r) return { error: `Placebo for ${q(names[j])}: ${r.error}` };
-      placebos.push({ unit: names[j], pre: r.pre, post: r.post, ratio: ratioOf(r.post, r.pre), gaps: r.gap });
+      placebos.push({ unit: names[j], pre: snap(r.pre), post: snap(r.post), ratio: ratioOf(r.post, r.pre), gaps: r.gap });
     }
     // Ties count against the treated unit (≥), so the p-value is conservative.
     rank = 1 + placebos.filter((pl) => pl.ratio >= ratio * (1 - 1e-12)).length;
@@ -946,6 +965,10 @@ export function scDefaultTable(): string {
   return lines.join("\n");
 }
 
+function ratioText(v: number): string {
+  return Number.isFinite(v) ? fmtFixed(v, 3) : "unbounded (exact pre-period fit)";
+}
+
 /** causal-synth: synthetic control. */
 export function synthCalc(read: Read): StatOutput {
   const get = getter(read);
@@ -987,7 +1010,7 @@ export function synthCalc(read: Read): StatOutput {
   if (dIdx.length < 2) return refuse(`The donor pool has ${dIdx.length} unit${dIdx.length === 1 ? "" : "s"}; a synthetic control needs at least 2.`);
   if (dIdx.length > SC_MAX_DONORS) return refuse(`The donor pool has ${intText(dIdx.length)} units; the synthetic-control calculator takes at most ${SC_MAX_DONORS} (name a smaller pool in Donor units).`);
   const sel = selectColumns(data, { dep: data.names[pIdx], preds: [data.names[tIdx], ...dIdx.map((j) => data.names[j])], text: "" });
-  if (!sel.ok) return refuse(sel.reason);
+  if (!sel.ok) return refuse(`${sel.reason} The period column must hold numbers (years such as 1990, 1991, … or period numbers), and each unit column its outcome.`);
   const cols = sel.cols;
   const T = cols.y.length;
   if (T > SC_MAX_PERIODS) return refuse(`The table has ${intText(T)} periods; the synthetic-control calculator takes at most ${SC_MAX_PERIODS}.`);
@@ -1010,7 +1033,7 @@ export function synthCalc(read: Read): StatOutput {
   const att = r.gap.slice(T0).reduce((a, v) => a + v, 0) / (T - T0);
   const lines: string[] = [];
   lines.push(`Synthetic control: ${q(r.treatedName)} against ${J} donors; pre-period ${lab(periods[0])}–${lab(periods[T0 - 1])} (${T0} periods), post-period ${lab(periods[T0])}–${lab(periods[T - 1])} (${T - T0})`);
-  lines.push(`Average post-period gap (treated − synthetic) = ${fmtFixed(att, 3)}; pre-period RMSPE = ${fmtFixed(r.pre, 3)}, post-period RMSPE = ${fmtFixed(r.post, 3)}, post/pre ratio = ${fmtFixed(r.ratio, 3)}`);
+  lines.push(`Average post-period gap (treated − synthetic) = ${fmtFixed(att, 3)}; pre-period RMSPE = ${fmtFixed(r.pre, 3)}, post-period RMSPE = ${fmtFixed(r.post, 3)}, post/pre ratio = ${ratioText(r.ratio)}`);
   if (r.placebos) lines.push(`In-space placebo inference: the treated unit's post/pre RMSPE ratio ranks ${r.rank} of ${J + 1}, permutation p = ${r.rank}/${J + 1} = ${fmtFixed(r.p, 3)}`);
   else lines.push(placeboRaw === "no" ? "Placebo inference not run (switched off)." : "Placebo inference needs at least 2 donors.");
   lines.push("");
@@ -1026,6 +1049,8 @@ export function synthCalc(read: Read): StatOutput {
         "With few donors the smallest attainable p is 1/(J + 1).",
     );
   }
+  if (T0 < 5) lines.push(`Only ${T0} pre-treatment periods: almost any donor mix can match so short a history, so a close pre-period fit is weak evidence that the synthetic control tracks the counterfactual.`);
+  if (r.placebos && r.placebos.some((pl) => !Number.isFinite(pl.ratio))) lines.push("A placebo whose synthetic control fits its pre-period exactly (RMSPE 0) has an unbounded ratio and ranks above the treated unit.");
   if (J >= T0) lines.push(`There are ${J} donors and only ${T0} pre-periods, so many weight vectors fit nearly equally well; the weights are one solution (the ridge picks it), and the synthetic path is better determined than the individual weights.`);
   {
     let outside = 0;
@@ -1051,9 +1076,9 @@ export function synthCalc(read: Read): StatOutput {
   for (let t = 0; t < T; t++) pRows.push([lab(periods[t]) + (t === T0 ? " (treated from)" : ""), fmtFixed(r.treated[t], 3), fmtFixed(r.synth[t], 3), fmtFixed(r.gap[t], 3)]);
   tables.push({ label: "Treated and synthetic paths", rows: pRows, align: ["left", "right", "right", "right"] });
   if (r.placebos) {
-    const all = [{ unit: `${r.treatedName} (treated)`, pre: r.pre, post: r.post, ratio: r.ratio }, ...r.placebos].sort((a, b) => b.ratio - a.ratio);
+    const all = [{ unit: `${r.treatedName} (treated)`, pre: r.pre, post: r.post, ratio: r.ratio }, ...r.placebos].sort((a, b) => (b.ratio > a.ratio ? 1 : b.ratio < a.ratio ? -1 : 0));
     const plRows: string[][] = [["Unit", "Pre RMSPE", "Post RMSPE", "Post/pre ratio", "Rank"]];
-    all.forEach((u, k) => plRows.push([u.unit, fmtFixed(u.pre, 3), fmtFixed(u.post, 3), fmtFixed(u.ratio, 3), String(k + 1)]));
+    all.forEach((u, k) => plRows.push([u.unit, fmtFixed(u.pre, 3), fmtFixed(u.post, 3), ratioText(u.ratio), String(k + 1)]));
     tables.push({ label: "In-space placebos (ranked by post/pre RMSPE ratio)", rows: plRows, align: ["left", "right", "right", "right", "right"] });
   }
   // Figure: (a) treated vs synthetic; (b) the gap with the placebo gaps.

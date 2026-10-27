@@ -219,3 +219,155 @@ describe("refusals by name", () => {
     expect(() => fitCount(y, XX, ["a", "b", "c"], { model: "poisson" })).toThrow(/“c” is an exact linear combination of “a”, “b”/);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------- adversarial
+// Held out of development: second seeds and edge cases (scripts/limdep-oracle.py "adv"), first run after the build.
+describe("held-out adversarial cases", () => {
+  const A = FX.adv;
+  test("Poisson-generated counts: Poisson matches; NB2 refused at the α = 0 boundary", () => {
+    const { y, X, names } = cols(A.countPoisson.data, "visits ~ age + income + female");
+    const off = column(A.countPoisson.data, "years").map(Math.log);
+    const r = fitCount(y, X, names, { model: "poisson", offset: off });
+    closeAll(coefs(r.model.terms), A.countPoisson.poisson.params, 1e-6);
+    closeAll(ses(r.model.terms), A.countPoisson.poisson.bse, 1e-6);
+    expect(() => fitCount(y, X, names, { model: "nb2", offset: off })).toThrow(/boundary α = 0/);
+  });
+  test("no constant and no exposure (Poisson and NB2), llnull as statsmodels", () => {
+    for (const [key, spec, constant] of [
+      ["countNoConst", "visits ~ age + female", false],
+      ["countNoExposure", "visits ~ age + income + female", true],
+    ] as const) {
+      const W = A[key];
+      const { y, X, names } = cols(W.data, spec);
+      const p = fitCount(y, X, names, { model: "poisson", constant });
+      closeAll(coefs(p.model.terms), W.poisson.params, 1e-6);
+      closeAll(ses(p.model.terms), W.poisson.bse, 1e-6);
+      close(p.ll, W.poisson.llf, 1e-9);
+      close(p.llNull, W.poisson.llnull, 1e-9);
+      const nb = fitCount(y, X, names, { model: "nb2", constant });
+      closeAll(coefs(nb.model.terms), W.nb2.params.slice(0, -1), 1e-6);
+      close(nb.alpha!.est, W.nb2.params[W.nb2.params.length - 1], 1e-6);
+      closeAll(ses(nb.model.terms), W.nb2.bse.slice(0, -1), 1e-6);
+      close(nb.ll, W.nb2.llf, 1e-9);
+      close(nb.llNull, W.nb2.llnull, 1e-8);
+    }
+  });
+  test("tobit censored only above, and at both limits", () => {
+    for (const [key, spec, lower, upper] of [
+      ["tobitUpper", "hours ~ educ + age + kids", null, 15],
+      ["tobitTwoLimit", "hours ~ educ + kids", 0, 12],
+    ] as const) {
+      const W = A[key];
+      const { y, X, names } = cols(W.data, spec);
+      const r = fitTobit(y, X, names, { lower, upper });
+      closeAll(coefs(r.model.terms), W.beta, 1e-6);
+      close(r.sigma.est, W.sigma, 1e-6);
+      closeAll(ses(r.model.terms), W.bse, 2e-5);
+      close(r.ll, W.llf, 1e-9);
+      close(r.llNull, W.llnull, 1e-9);
+      expect(r.nLeft).toBe(W.nLeft);
+      expect(r.nRight).toBe(W.nRight);
+      r.ame.forEach((a, j) => {
+        closeAll([a.unconditional.coef, a.conditional.coef, a.probability.coef], W.ame[j].est, 1e-6);
+        closeAll([a.unconditional.se, a.conditional.se, a.probability.se], W.ame[j].se, 2e-5);
+      });
+    }
+  });
+  test("Heckman, second seed", () => {
+    const W = A.heckman2;
+    const sel = cols(W.data, "works ~ educ + exper + kids + married");
+    const d = parseRegData(W.data);
+    if (!d.ok) throw new Error(d.reason);
+    const iw = d.data.names.indexOf("works");
+    const oc = selectColumns({ ...d.data, rows: d.data.rows.filter((r) => r[iw] === "1") }, parseSpec("lwage ~ educ + exper") as never);
+    if (!oc.ok) throw new Error(oc.reason);
+    const yo = Array.from(oc.cols.y);
+    const r = fitHeckman({ s: sel.y, Z: sel.X, zNames: sel.names, selName: "works", y: yo, X: yo.map((_, i) => oc.cols.X.map((c) => c[i])), xNames: oc.cols.names, depName: "lwage" });
+    closeAll(coefs(r.model.terms), W.beta, 1e-6);
+    closeAll(ses(r.model.terms), W.bse, 1e-6);
+    close(r.rho, W.rho, 1e-6);
+    close(r.wald.stat, W.wald, 1e-6);
+  });
+  test("ordered probit with three categories", () => {
+    const W = A.ordered3;
+    const { y, X, names } = cols(W.data, "rating ~ price + online");
+    const r = fitOrdered(y, X, names, "probit");
+    closeAll(coefs(r.model.terms), W.probit.beta, 1e-6);
+    closeAll(coefs(r.cuts), W.probit.cuts, 1e-6);
+    closeAll(ses(r.cuts), W.probit.cutSe, 2e-5);
+    close(r.ll, W.probit.llf, 1e-9);
+  });
+  test("J = 2 ordered model equals binary probit / logit (β same, cut = −constant)", () => {
+    const W = A.ordered2;
+    const { y, X, names } = cols(W.data, "rating ~ price + quality");
+    for (const link of ["probit", "logit"] as const) {
+      const r = fitOrdered(y, X, names, link);
+      const B = W.binary[link];
+      closeAll(coefs(r.model.terms), B.params.slice(0, 2), 1e-6);
+      closeAll(ses(r.model.terms), B.bse.slice(0, 2), 1e-6);
+      close(r.cuts[0].coef, -B.params[2], 1e-6);
+      close(r.cuts[0].se, B.bse[2], 1e-6);
+      close(r.ll, B.llf, 1e-9);
+      closeAll(coefs(r.model.terms), W[link].beta, 1e-6);
+    }
+  });
+  test("multinomial logit with the highest category as the base", () => {
+    const W = A.mnlBase3.fit;
+    const { y, X, names } = cols(A.mnlBase3.data, "mode ~ income + age");
+    const r = fitMnl(y, X, names, { base: 3 });
+    r.equations.forEach((e, j) => {
+      expect(e.category).toBe(W.order[j + 1]);
+      closeAll(coefs(e.terms), W.params[j], 1e-6);
+      closeAll(ses(e.terms), W.bse[j], 1e-6);
+    });
+    W.order.forEach((cat: number, jcol: number) => {
+      const a = r.ame.find((x) => x.category === cat)!;
+      closeAll(coefs(a.terms), W.ame[jcol], 1e-6);
+      closeAll(ses(a.terms), W.ameSe[jcol], 2e-5);
+    });
+    // AMEs sum to zero across categories.
+    for (let j = 0; j < names.length; j++) close(r.ame.reduce((s, a) => s + a.terms[j].coef, 0), 0, 0, 1e-12);
+  });
+  test("separation in ordered and multinomial models is refused by name", () => {
+    const x = Array.from({ length: 30 }, (_, i) => i);
+    const yo = x.map((v) => (v < 10 ? 1 : v < 20 ? 2 : 3));
+    const z = x.map((v) => (v * 7) % 5);
+    expect(() => fitOrdered(yo, x.map((v, i) => [v, z[i]]), ["x", "z"], "logit")).toThrow(/does not exist|did not converge/);
+    expect(() => fitMnl(yo, x.map((v, i) => [v, z[i]]), ["x", "z"])).toThrow(/does not exist|did not converge/);
+  });
+  test("a predictor of 10¹² + small variation stays identified (scaling)", () => {
+    const { y, X, names } = cols(FX.count.data, "visits ~ age + income + female");
+    const off = column(FX.count.data, "years").map(Math.log);
+    const shifted = X.map((r) => [r[0] + 1e12, r[1], r[2]]);
+    const a = fitCount(y, X, names, { model: "poisson", offset: off });
+    const b = fitCount(y, shifted, names, { model: "poisson", offset: off });
+    close(b.model.terms[0].coef, a.model.terms[0].coef, 1e-6);
+    close(b.model.terms[0].se, a.model.terms[0].se, 1e-6);
+    close(b.ll, a.ll, 1e-9);
+  });
+  test("Heckman: a selection indicator that a variable predicts perfectly is refused, naming the equation", () => {
+    const s = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1];
+    const z = s.map((v, i) => [v === 1 ? 10 + i : i, (i * 3) % 4]);
+    const sel = s.filter((v) => v === 1);
+    expect(() =>
+      fitHeckman({ s, Z: z, zNames: ["z1", "z2"], selName: "s", y: sel.map((_, i) => i * 0.3 + (i % 2)), X: sel.map((_, i) => [i % 3]), xNames: ["x"], depName: "y" }),
+    ).toThrow(/^Selection equation \(probit of “s”\): Perfect separation/);
+  });
+});
+
+describe("held-out: counts in the hundreds (NB2's lgamma/digamma/trigamma path for y > 64)", () => {
+  test("Poisson and NB2 match statsmodels", () => {
+    const W = FX.adv.countLarge;
+    const { y, X, names } = cols(W.data, "visits ~ age + income + female");
+    const off = column(W.data, "years").map(Math.log);
+    expect(Math.max(...y)).toBeGreaterThan(64);
+    const nb = fitCount(y, X, names, { model: "nb2", offset: off });
+    closeAll(coefs(nb.model.terms), W.nb2.params.slice(0, -1), 1e-6);
+    close(nb.alpha!.est, W.nb2.params[W.nb2.params.length - 1], 1e-6);
+    closeAll(ses(nb.model.terms), W.nb2.bse.slice(0, -1), 1e-6);
+    close(nb.alpha!.se, W.nb2.bse[W.nb2.bse.length - 1], 1e-6);
+    close(nb.ll, W.nb2.llf, 1e-9);
+    const h = fitCount(y, X, names, { model: "nb2", offset: off, se: "hc0" });
+    closeAll(ses(h.model.terms), W.nb2.bseHC0.slice(0, -1), 1e-6);
+  });
+});

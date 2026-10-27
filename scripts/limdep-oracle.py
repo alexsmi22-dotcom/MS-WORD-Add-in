@@ -82,13 +82,13 @@ def L(a):
 
 
 # ------------------------------------------------------------------------------------------------- count data
-def make_count(seed, n, alpha):
+def make_count(seed, n, alpha, shift=0.0):
     rng = np.random.default_rng(seed)
     age = np.round(rng.uniform(20, 70, n))
     income = np.round(rng.lognormal(3.6, 0.5, n), 1)
     female = (rng.uniform(size=n) < 0.5).astype(float)
     years = np.round(rng.uniform(0.5, 3.0, n), 2)
-    eta = -0.8 + 0.015 * age - 0.006 * income + 0.35 * female + np.log(years)
+    eta = -0.8 + shift + 0.015 * age - 0.006 * income + 0.35 * female + np.log(years)
     mu = np.exp(eta)
     lam = mu * rng.gamma(1 / alpha, alpha, n) if alpha > 0 else mu
     y = rng.poisson(lam).astype(float)
@@ -455,6 +455,8 @@ def main():
     c2 = make_count(4242, 300, 0.0)  # Poisson-generated
     adv["countPoisson"] = {"data": c2, **count_oracle(c2, ["age", "income", "female"], "years")}
     c3 = make_count(777, 150, 1.2)
+    c4 = make_count(31415, 250, 0.3, shift=4.5)  # counts in the hundreds: the lgamma/digamma path (y > 64)
+    adv["countLarge"] = {"data": c4, **count_oracle(c4, ["age", "income", "female"], "years")}
     adv["countNoConst"] = {"data": c3, **count_oracle(c3, ["age", "female"], None, constant=False)}
     adv["countNoExposure"] = {"data": c3, **count_oracle(c3, ["age", "income", "female"], None)}
     t2 = make_tobit(31337, 180, upper_only=True)

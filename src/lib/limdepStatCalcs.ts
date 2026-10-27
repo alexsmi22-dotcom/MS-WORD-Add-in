@@ -221,6 +221,7 @@ export function econCountCalc(read: Read): StatOutput {
     m.notes[0],
     ...readerNotes(data, c.notes),
   );
+  if (r.irrOmitted.length) lines.push(`Not in the IRR table: ${r.irrOmitted.join(", ")}, whose exp(b) or interval is outside the representable range (|b| above 600; rescale or centre the predictors).`);
   const rows = [COEF_HEAD, ...m.terms.map((x) => termRow(x))];
   if (r.alpha) rows.push(["/alpha", fmtFixed(r.alpha.est, D), fmtFixed(r.alpha.se, D), "", "", ci(r.alpha.lo, r.alpha.hi)]);
   const tables: StatTable[] = [
@@ -264,7 +265,7 @@ export function econTobitCalc(read: Read): StatOutput {
     statsLine(m),
     `σ (standard deviation of the latent error) = ${fmtFixed(s.est, D)} (SE ${fmtFixed(s.se, D)}; 95% CI ${ci(s.lo, s.hi)}).`,
     `Conventions: latent y* = xβ + ε, ε ~ N(0, σ²); the observed y equals y* between the limits, and ${[lo !== null ? `a value at or below ${L} is censored at ${L}` : "", hi !== null ? `a value at or above ${U} is censored at ${U}` : ""].filter(Boolean).join(", and ")}. The coefficients are effects on the latent y* (∂E[y*]/∂x = β).`,
-    `Marginal effects are AVERAGES over the sample (each observation's effect, then the mean; not at the means of x): ∂E[y]/∂x on the observed, censored outcome = β·P(${unc}); ∂E[y | ${unc}]/∂x conditional on being uncensored; ∂P(${unc})/∂x on the probability of being uncensored. Delta-method standard errors (numerical Jacobian in β and σ).`,
+    `Marginal effects are AVERAGES over the sample (each observation's effect, then the mean; not at the means of x): ∂E[y]/∂x on the observed, censored outcome = β·P(${unc}); ∂E[y | ${unc}]/∂x conditional on being uncensored; ∂P(${unc})/∂x on the probability of being uncensored. Delta-method standard errors (analytic Jacobian in β and σ).`,
     "Standard errors: classical, the inverse of the observed information (σ by the delta method); z statistics and 95% intervals use the standard normal. Pseudo R² is McFadden's against the constant-only tobit.",
     m.notes[0],
     ...readerNotes(t.data, c.notes),
@@ -300,8 +301,34 @@ export function econHeckmanCalc(read: Read): StatOutput {
   const selSpec = parseSpec(selText);
   if ("error" in selSpec) return refuse(`Selection equation: ${selSpec.error}`);
   if (outSpec.dep === "") return refuse("Outcome equation: name the outcome, as in “wage ~ educ + exper” (the selected rows only need it).");
+  // The two equations name each other's response: the indicator never enters the outcome equation (it is 1 in every
+  // selected row) and the outcome never enters the selection equation (it is missing where s = 0).
+  const oDep = findColumn(data.names, outSpec.dep);
+  if (typeof oDep !== "number") return refuse(`Outcome equation: ${oDep.error}`);
+  const sDep = findColumn(data.names, selSpec.dep);
+  if (typeof sDep !== "number") return refuse(`Selection equation: ${sDep.error}`);
+  if (oDep === sDep) return refuse(`${q(data.names[oDep])} cannot be both the outcome and the selection indicator.`);
+  const expand = (sp: RegSpec, depIdx: number, other: number, what: string): RegSpec | { error: string } => {
+    const preds: string[] = [];
+    for (const pn of sp.preds) {
+      if (pn === ".") {
+        for (let j = 0; j < data.names.length; j++) if (j !== depIdx && j !== other && !preds.includes(data.names[j])) preds.push(data.names[j]);
+        continue;
+      }
+      const pj = findColumn(data.names, pn);
+      if (typeof pj === "number" && pj === other) {
+        return { error: `${what}: ${q(data.names[pj])} is the ${what === "Outcome equation" ? "selection indicator" : "outcome"}; it cannot also be a predictor here.` };
+      }
+      preds.push(pn);
+    }
+    return { ...sp, preds };
+  };
+  const outSpecX = expand(outSpec, oDep, sDep, "Outcome equation");
+  if ("error" in outSpecX) return refuse(outSpecX.error);
+  const selSpecX = expand(selSpec, sDep, oDep, "Selection equation");
+  if ("error" in selSpecX) return refuse(selSpecX.error);
   // 1. The selection equation on every row (s and z present).
-  const sel = toCols(data, selSpec);
+  const sel = toCols(data, selSpecX);
   if ("error" in sel) return refuse(`Selection equation: ${sel.error}`);
   for (let i = 0; i < sel.y.length; i++) {
     if (sel.y[i] !== 0 && sel.y[i] !== 1) return refuse(`Selection indicator ${q(sel.depName)}, row ${sel.rowNumbers[i]}: ${numText(sel.y[i])} is not 0 or 1 (1 = the outcome is observed).`);
@@ -309,7 +336,7 @@ export function econHeckmanCalc(read: Read): StatOutput {
   // 2. The outcome equation on the selected rows only.
   const selectedRows = sel.rowNumbers.filter((_, i) => sel.y[i] === 1);
   const outData: RegDataset = { ...data, rows: selectedRows.map((rn) => data.rows[rn - 1]) };
-  const out = toCols(outData, outSpec);
+  const out = toCols(outData, outSpecX);
   if ("error" in out) return refuse(`Outcome equation (selected rows): ${out.error}`);
   // A selected row with a missing outcome or regressor leaves both equations.
   const keptOut = new Set(out.rowNumbers.map((k) => selectedRows[k - 1]));
@@ -415,6 +442,7 @@ export function econMlogitCalc(read: Read): StatOutput {
     `Maximum likelihood by Newton–Raphson (concave; at most ${LIMDEP_MAX_ITER} iterations): converged in ${r.iterations} iteration${r.iterations === 1 ? "" : "s"}.`,
     ...readerNotes(t.data, c.notes),
   ];
+  if (r.rrrOmitted.length) lines.push(`Not in the RRR table: ${r.rrrOmitted.join(", ")}, whose exp(b) or interval is outside the representable range (|b| above 600; rescale or centre the predictors).`);
   const coefRows = [COEF_HEAD, ...r.equations.flatMap((e) => e.terms.map((x) => termRow(x, lab(e.category, x.name))))];
   const rrrRows = [["Term", "RRR", "SE", "z", "p", "95% CI"], ...r.rrr.flatMap((e) => e.terms.map((x) => termRow(x, lab(e.category, x.name))))];
   const ameRows = [["Term", "dP/dx", "SE", "z", "p", "95% CI"], ...r.ame.flatMap((e) => e.terms.map((x) => termRow(x, `P(${dep} = ${numText(e.category)}): ${x.name}`)))];

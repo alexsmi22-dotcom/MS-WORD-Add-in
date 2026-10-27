@@ -547,6 +547,20 @@ function expTerm(t: ModelTerm): ModelTerm {
   const e = MATH.exp(t.coef);
   return { name: t.name, coef: e, se: e * t.se, stat: t.stat, p: t.p, ciLo: MATH.exp(t.ciLo), ciHi: MATH.exp(t.ciHi) };
 }
+/**
+ * exp(b) is printable only while b and its interval stay inside ±600 (beyond, exp under- or overflows the double
+ * range: a constant of −16,667 when a predictor sits near 10⁶). Such terms are left out of the ratio table, by name.
+ */
+const EXP_LIMIT = 600;
+function expTerms(ts: ModelTerm[]): { kept: ModelTerm[]; omitted: string[] } {
+  const kept: ModelTerm[] = [];
+  const omitted: string[] = [];
+  for (const t of ts) {
+    if (MATH.abs(t.ciLo) <= EXP_LIMIT && MATH.abs(t.ciHi) <= EXP_LIMIT && t.se * MATH.exp(t.coef) > 0) kept.push(expTerm(t));
+    else omitted.push(t.name);
+  }
+  return { kept, omitted };
+}
 
 function assertFinite(terms: ModelTerm[], stats: ModelStat[], what: string): void {
   for (const t of terms) {
@@ -582,6 +596,8 @@ export interface CountResult {
   model: LimdepModel;
   /** Incidence-rate ratios exp(b) (constant last: the baseline rate per unit exposure). */
   irr: ModelTerm[];
+  /** Terms whose exp(b) is outside the double range (left out of `irr`). */
+  irrOmitted: string[];
   /** NB2 dispersion α with its SE and the interval exp(ln α ± 1.96·se(ln α)). */
   alpha?: { est: number; se: number; lo: number; hi: number };
   /** LR test of α = 0 (NB2 against Poisson), boundary p = ½·P(χ²₁ > LR). */
@@ -876,7 +892,7 @@ export function fitCount(y: number[], X: number[][], names: string[], opts: Coun
   stats.push({ label: "Pseudo R²", value: 1 - ll / llNull }, { label: "AIC", value: -2 * ll + 2 * nPar }, { label: "BIC", value: -2 * ll + MATH.log(n) * nPar });
   if (alpha) stats.push({ label: "/alpha", value: alpha.est });
   const ordered = constantLast(terms, constant);
-  const irr = ordered.map(expTerm);
+  const { kept: irr, omitted: irrOmitted } = expTerms(ordered);
   assertFinite([...ordered, ...irr], stats, label);
   const notes: string[] = [
     `Maximum likelihood by Newton–Raphson on the centred, column-scaled design (at most ${plural(maxIter, "iteration")}): converged in ${plural(res.iterations, "iteration")}.`,
@@ -896,6 +912,7 @@ export function fitCount(y: number[], X: number[][], names: string[], opts: Coun
       notes,
     },
     irr,
+    irrOmitted,
     alpha,
     lrAlpha,
     ct,
@@ -1732,6 +1749,8 @@ export interface MnlResult {
   equations: { category: number; terms: ModelTerm[] }[];
   /** Relative-risk ratios exp(b) per equation. */
   rrr: { category: number; terms: ModelTerm[] }[];
+  /** Terms ("2: Constant") whose exp(b) is outside the double range (left out of `rrr`). */
+  rrrOmitted: string[];
   /** Average marginal effects dP(y = c)/dx for every category (sorted), predictors only. */
   ame: { category: number; terms: ModelTerm[] }[];
   ll: number;
@@ -1868,7 +1887,9 @@ export function fitMnl(y: number[], X: number[][], names: string[], opts: { base
     category: cat,
     terms: constantLast(labels.map((nm, j) => makeTerm(nm, est[e * pd + j], MATH.sqrt(V[(e * pd + j) * P + e * pd + j]))), true),
   }));
-  const rrr = equations.map((q2) => ({ category: q2.category, terms: q2.terms.map(expTerm) }));
+  const rrrSplit = equations.map((q2) => ({ category: q2.category, ...expTerms(q2.terms) }));
+  const rrr = rrrSplit.map((x) => ({ category: x.category, terms: x.kept }));
+  const rrrOmitted = rrrSplit.flatMap((x) => x.omitted.map((nm) => `${numText(x.category)}: ${nm}`));
 
   // Average marginal effects (statsmodels get_margeff at="overall", dydx), analytic Jacobian, in original units.
   // Parameters est: equation e, index 0 = constant, j + 1 = predictor j.
@@ -1939,5 +1960,5 @@ export function fitMnl(y: number[], X: number[][], names: string[], opts: { base
   if (df > 0) stats.push({ label: `LR χ²(${df})`, value: lr }, { label: "Prob > χ²", value: chiSquareP(MATH.max(0, lr), df) });
   stats.push({ label: "Pseudo R²", value: 1 - ll / llNull }, { label: "AIC", value: -2 * ll + 2 * P }, { label: "BIC", value: -2 * ll + MATH.log(n) * P });
   assertFinite([...equations.flatMap((e) => e.terms), ...rrr.flatMap((e) => e.terms), ...ameOut.flatMap((e) => e.terms)], stats, what);
-  return { categories: cats, counts, base, equations, rrr, ame: ameOut, ll, llNull, stats, iterations: res.iterations, n };
+  return { categories: cats, counts, base, equations, rrr, rrrOmitted, ame: ameOut, ll, llNull, stats, iterations: res.iterations, n };
 }

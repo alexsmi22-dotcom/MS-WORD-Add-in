@@ -183,7 +183,7 @@ describe("hostile inputs and refusals by field", () => {
   });
   test("Heckman: selection spec blank or not 0/1, outcome without a name, missing regressor in a selected row", () => {
     bad(run("econ-heckman", { selection: "" }), /^Selection equation: write it/);
-    bad(run("econ-heckman", { selection: "educ ~ exper + kids" }), /Selection indicator “educ”, row 1: 18 is not 0 or 1/);
+    bad(run("econ-heckman", { selection: "kids ~ married" }), /Selection indicator “kids”, row 3: 2 is not 0 or 1/);
     bad(run("econ-heckman", { spec: "~ educ" }), /no response/);
     const miss = LIMDEP_HECKMAN_DEFAULT.replace("1 2.667 18 29 0 0", "1 NA 18 29 0 0");
     const o = run("econ-heckman", { data: miss });
@@ -243,5 +243,59 @@ describe("caps and timing", () => {
       if (process.env.LIMDEP_TIMING) console.log(id, ms);
       expect(ms).toBeLessThan(3000);
     }
+  });
+});
+
+describe("adversarial (after the build)", () => {
+  test("a predictor near 10⁶: the constant's IRR is outside the double range and is left out by name", () => {
+    const shifted = LIMDEP_COUNT_DEFAULT.split("\n").map((r, i) => {
+      if (i === 0) return r;
+      const c = r.split(" ");
+      c[1] = String(Number(c[1]) + 1e6);
+      return c.join(" ");
+    }).join("\n");
+    const o = run("econ-count", { data: shifted });
+    expect(o.ok).not.toBe(false);
+    expect(o.text).toMatch(/Not in the IRR table: Constant, whose exp\(b\)/);
+    expect(o.tables![1].rows.map((r) => r[0])).toEqual(["Term", "age", "income", "female"]);
+    // the age coefficient is unchanged by the shift
+    expect(cell(o, 0, "age", 1)).toBe(cell(run("econ-count"), 0, "age", 1));
+  });
+  test("Heckman at the caps stays inside the time budget", () => {
+    const rng = new Pcg32(11);
+    const u = (): number => rng.nextU32() / 4294967296;
+    const lines = ["s y " + Array.from({ length: 15 }, (_, j) => `z${j + 1}`).join(" ")];
+    for (let i = 0; i < LIMDEP_MAX_N; i++) {
+      const z = Array.from({ length: 15 }, () => u() * 2 - 1);
+      const s = z[0] + z[1] - z[2] + Math.log(u() / (1 - u())) > 0 ? 1 : 0;
+      lines.push([s, s ? (z[3] + z[4] + u()).toFixed(4) : "NA", ...z.map((v) => v.toFixed(4))].join(" "));
+    }
+    const t0 = Date.now();
+    const o = run("econ-heckman", {
+      data: lines.join("\n"),
+      spec: "y ~ " + Array.from({ length: 13 }, (_, j) => `z${j + 3}`).join(" + "),
+      selection: "s ~ " + Array.from({ length: 15 }, (_, j) => `z${j + 1}`).join(" + "),
+    });
+    expect(o.ok).not.toBe(false);
+    expect(Date.now() - t0).toBeLessThan(3000);
+  });
+});
+
+describe("adversarial: the Heckman equations name each other's response", () => {
+  test("“.” expands without the other equation's response; naming it explicitly is refused", () => {
+    const dotOut = run("econ-heckman", { spec: "lwage ~ ." });
+    // outcome on every column but lwage and works: educ, exper, kids, married (no exclusion restriction left)
+    expect(dotOut.ok).not.toBe(false);
+    expect(dotOut.text).toContain("lwage on educ, exper, kids, married");
+    expect(dotOut.text).toMatch(/WARNING: every selection variable is also in the outcome equation/);
+    const dotSel = run("econ-heckman", { selection: "works ~ ." });
+    expect(dotSel.ok).not.toBe(false);
+    expect(dotSel.text).toContain("selection: works on educ, exper, kids, married");
+    const o1 = run("econ-heckman", { spec: "lwage ~ educ + works" });
+    expect(o1.ok).toBe(false);
+    expect(o1.text).toBe("Outcome equation: “works” is the selection indicator; it cannot also be a predictor here.");
+    const o2 = run("econ-heckman", { selection: "works ~ educ + lwage" });
+    expect(o2.text).toBe("Selection equation: “lwage” is the outcome; it cannot also be a predictor here.");
+    expect(run("econ-heckman", { selection: "lwage ~ educ" }).text).toBe("“lwage” cannot be both the outcome and the selection indicator.");
   });
 });

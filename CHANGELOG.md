@@ -21,6 +21,11 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   read as lost profits, price erosion, royalty and interest, counting the damages twice. A title row naming a
   Damages, Total or Cumulative column is refused (also as "Damages ($)" or a space-separated title copied from a PDF),
   and so is a result table pasted without its title row, recognised by a column that sums the others or runs a total.
+- **Wrong numbers fixed in list fields** (NPV, IRR, DCF, returns and every other Finance and Assay list, and Stats
+  lists): a list separated by semicolons or spaces whose values had thousands commas was split at every comma —
+  `3,500,000; 5,000,000; 8,000,000` was read as nine cash flows (3, 500, 0, 5, 0, 0, 8, 0, 0) with nothing said. Each
+  grouped number is now one value. A lone `100,200,300` (three values, or one number) and thousands commas beside
+  decimal commas are refused naming both readings.
 - Known limit: amounts up to about $10 billion stay on one line; near the calculators' $1 trillion cap a five-column
   table can still wrap an amount at its decimal point.
 

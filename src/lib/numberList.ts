@@ -40,7 +40,14 @@ export interface NumberListReading {
   example?: string;
   /** Three-digit comma values ("1,250") read as DECIMALS because the field elsewhere proves a decimal comma. */
   reread?: string[];
+  /** The field reads two ways (a lone "100,200,300"; thousands commas beside decimal commas): why, for a refusal. */
+  ambiguous?: string;
 }
+
+/** One number grouped in thousands with commas: "3,500,000", "−1,234,567.89", "12,000,000%". */
+const GROUPED_THOUSANDS = /^[-−–+]?\d{1,3}(,\d{3})+(\.\d+)?%?$/;
+/** A token without its scientific-notation tail ("1,5×10⁻⁵" → "1,5"). */
+const mantissaOf = (t: string): string => t.trim().replace(SCI_TAIL, "");
 
 /** Whitespace (not the no-break spaces parseCellNumber reads as digit grouping), semicolons, and ", ". */
 const SEP = /,?[ \t\r\n\f\v;]+,?|,(?=[ \t\r\n\f\v])/;
@@ -73,7 +80,18 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
     .split(SEP)
     .map((t) => t.replace(/^,+|,+$/g, ""))
     .filter((t) => t !== "");
-  const commaListing = !opts.cells && (runs.length <= 1 || runs.some((t) => (t.match(/,/g) ?? []).length >= 2));
+  // A run with two or more commas is a comma-separated list ("1,2,3") — unless it is one correctly grouped number
+  // ("3,500,000") in a field that already separates its values with spaces or semicolons. Before v2.201.1
+  // "3,500,000; 5,000,000; 8,000,000" was read as nine values (3, 500, 0, 5, 0, 0, 8, 0, 0), silently.
+  const commas = (t: string): number => (t.match(/,/g) ?? []).length;
+  const grouped = (t: string): boolean => commas(t) >= 2 && GROUPED_THOUSANDS.test(mantissaOf(t));
+  const commaListing = !opts.cells && (runs.length <= 1 || runs.some((t) => commas(t) >= 2 && !grouped(t)));
+  // A lone run that reads both ways ("100,200,300": three values, or one number grouped in thousands) is asked.
+  let ambiguous: string | undefined;
+  if (!opts.cells && runs.length === 1 && grouped(runs[0])) {
+    const t = runs[0];
+    ambiguous = `“${t}” reads two ways: the numbers ${t.split(",").join(", ")}, or one number grouped in thousands (${t.replace(/,/g, "")}). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.`;
+  }
   const tokens = commaListing ? runs.flatMap((t) => t.split(",")).filter((t) => t !== "") : runs;
   // WHOLE-FIELD decision (the independent review: "1,250 2,5 3,75" was read
   // as [1250, 2.5, 3.75]). Once any value PROVES the comma is decimal (2,5 —
@@ -83,6 +101,11 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
   // A scientific-notation token's comma is its MANTISSA's ("1,5×10⁻⁵").
   const mantissa = (t: string): string => t.trim().replace(SCI_TAIL, "");
   const decimalField = !commaListing && (!!opts.decimalField || tokens.some((t) => isDecimalComma(mantissa(t))));
+  // A grouped thousands number beside decimal commas ("3,500,000 2,5"): the field writes the comma both ways.
+  if (decimalField && !ambiguous) {
+    const g = tokens.find(grouped);
+    if (g) ambiguous = `“${g}” groups thousands with commas, but the same field writes decimal commas elsewhere; write one style (3500000 or 3.500.000,0).`;
+  }
   const THOUSANDS_SHAPE = /^([-−–]?\d{1,3}),(\d{3})(%?)$/;
   const GERMAN = /^[-−–]?\d{1,3}(\.\d{3})+,\d+%?$/;
   const values: number[] = [];
@@ -107,7 +130,7 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
       if (asDecimal) reread.push(t);
     }
   }
-  return { values, dropped, commaMode: commaListing ? "separator" : "cell", decimalCommas, example, reread };
+  return { values, dropped, commaMode: commaListing ? "separator" : "cell", decimalCommas, example, reread, ...(ambiguous ? { ambiguous } : {}) };
 }
 
 /** "2 decimal commas read as decimals (1,5 → 1.5)." — or "" when none were. */

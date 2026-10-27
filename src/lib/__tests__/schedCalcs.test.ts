@@ -538,6 +538,28 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(e).toContain("Paid off with payment 334 of 360 (27 years 10 months): the payment rounded up to the cent pays the loan off early, and the extra payments do not end it sooner");
   });
 
+  // F1 review round 2, item 6: the float payment formula was a cent off exact half-up in 73 of 30,000 random loans above
+  // about 1.2·10¹⁰ (checked with the reviewer's Decimal oracle, pm.py, prec 60); now exact (0 of 26,033 after the fix)
+  test.each([
+    [7031359672646, 3.466, 12, 39, 190896300923], // exact 190,896,300,922.50027… cents: half up
+    [1222117208044, 0.287, 52, 6, 203725549841],
+    [1343889236550, 0.029, 26, 83, 16199022806],
+    [1337211132149, 0.001, 24, 425, 3146658384],
+    [1841901540856, 0.027, 26, 17, 108357276034],
+  ])("exact level payment: %d cents at %d%%, m = %d, n = %d → %d cents", (pc, rp, m, n, want) => {
+    const r = loanSchedule({ principal: pc / 100, annualRate: rp / 100, n, m });
+    if ("error" in r) throw new Error(r.error);
+    expect(Math.round(r.payment0 * 100)).toBe(want);
+  });
+  test("exact payment through the pane, and 120 recasts on 12,000 payments stay fast", () => {
+    expect(out("loan-schedule", { p: "70313596726.46", rate: "3.466", years: "3.25", extra: "", lumps: "", changes: "" }).text).toContain("Scheduled payment = 1,908,963,009.23");
+    const changes = Array.from({ length: 120 }, (_, j) => `${j + 2}\t${(0.3123456789 + j * 0.0013).toFixed(10)}`).join("\n");
+    const t0 = Date.now();
+    const o = out("loan-schedule", { p: "9876543210000", rate: "0.3123457", years: "1000", extra: "1", lumps: "100\t50", changes });
+    expect(Date.now() - t0).toBeLessThan(300);
+    expect(o.ok).not.toBe(false);
+  });
+
   test("years of a long payoff are grouped in thousands", () => {
     const o = out("loan-schedule", { p: "100000", rate: "0", years: "1000", m: "1", extra: "", lumps: "2\t50000", changes: "" }).text;
     expect(o).toContain("Paid off with payment 500 (500 years) instead of payment 1,000 (1,000 years)");

@@ -8,7 +8,8 @@
  *   - periodic rate i = annual nominal rate / payments per year; each period's interest = balance × i rounded half up
  *     to the cent (computed exactly in integers: the annual rate is taken to 9 decimal places of a fraction);
  *   - level payment P·i/(1 − (1 + i)^−n), or with a balloon B due with the last payment (P − B(1 + i)^−n)·i/(1 − (1 + i)^−n)
- *     (numpy-financial pmt with fv = −B), rounded half up to the cent; "amortize over" a longer term computes the
+ *     (numpy-financial pmt with fv = −B), computed EXACTLY as a rational number at the same 9-decimal rate the
+ *     interest uses, rounded half up to the cent; "amortize over" a longer term computes the
  *     payment on that term and makes the balance at the loan term the balloon;
  *   - principal = payment + extra − interest; the last payment is the remaining balance plus its interest (it adjusts
  *     for the cents, and carries any balloon);
@@ -85,14 +86,6 @@ export interface LoanResult {
   lumpsNotApplied: number[];
 }
 
-/** numpy-financial pmt(i, n, −pv, fv) as a positive payment: pays pv down to `fv` over n periods. */
-export function levelPayment(pv: number, i: number, n: number, fv = 0): number {
-  if (n <= 0) return NaN;
-  if (i === 0) return (pv - fv) / n;
-  const v = Math.pow(1 + i, -n);
-  return ((pv - fv * v) * i) / (1 - v);
-}
-
 /** Dollars → whole cents, half up (amounts entered by the user have at most cents; float noise is absorbed). */
 export function toCents(x: number): number {
   return Math.sign(x) * Math.floor(Math.abs(x) * 100 + 0.5 + 1e-9);
@@ -116,14 +109,62 @@ function interestCents(balC: number, R: bigint, m: number): number {
   return Number((2n * BigInt(balC) * R + D) / (2n * D));
 }
 
-/** The level payment in cents: exact integer division at 0%, else the float formula rounded half up. */
-function paymentCents(pvC: number, i: number, nper: number, fvC: number): number {
-  if (i === 0) {
+const bigGcd = (a: bigint, b: bigint): bigint => {
+  while (b) [a, b] = [b, a % b];
+  return a;
+};
+
+/**
+ * The level payment in cents, EXACT, rounded half up: (P·(1 + i)ⁿ − B)·i / ((1 + i)ⁿ − 1) with i = R/(m·10⁹), the same
+ * nano-rate the interest uses, evaluated as one rational number in integers. (The float formula was a cent off exact
+ * half-up in about 1 case in 400 at amounts above about 10¹⁰.) With i = r/d in lowest terms and a = d + r:
+ * payment = (P·aⁿ − B·dⁿ)·r / (d·(aⁿ − dⁿ)).
+ */
+function paymentCents(pvC: number, R: bigint, m: number, nper: number, fvC: number): number {
+  if (R === 0n) {
     const num = BigInt(pvC - fvC);
     const d = BigInt(nper);
     return Number((2n * num + d) / (2n * d));
   }
-  return toCents(levelPayment(pvC / 100, i, nper, fvC / 100));
+  const D = BigInt(m) * RATE_SCALE;
+  const g = bigGcd(R, D);
+  const r = R / g;
+  const d = D / g;
+  const N = BigInt(nper);
+  const P = BigInt(pvC);
+  const B = BigInt(fvC);
+  // payment = r·(P·v − B)/(d·(v − 1)) with v = (1 + i)ⁿ, which falls as v grows (B ≤ P). The exact aⁿ runs to ~400,000
+  // bits at 12,000 payments (~6 ms, too slow for 120 recasts), so v is first bracketed in 256-bit fixed point (floored
+  // and ceiled at every step: a rigorous lower and upper bound); when both bounds give the same cent, that is the exact
+  // half-up cent. Only when they straddle a half cent is the exact rational evaluated.
+  const halfUp = (num: bigint, den: bigint): number => (num <= 0n ? 0 : Number((2n * num + den) / (2n * den)));
+  const F = 256n;
+  const one = 1n << F;
+  const ceilShift = (x: bigint): bigint => (x + one - 1n) >> F;
+  const q = (d + r) << F;
+  let blo = q / d;
+  let bhi = q % d === 0n ? blo : blo + 1n;
+  let vlo = one;
+  let vhi = one;
+  for (let e = N; e > 0n; ) {
+    if (e & 1n) {
+      vlo = (vlo * blo) >> F;
+      vhi = ceilShift(vhi * bhi);
+    }
+    e >>= 1n;
+    if (e > 0n) {
+      blo = (blo * blo) >> F;
+      bhi = ceilShift(bhi * bhi);
+    }
+  }
+  if (vlo > one) {
+    const hi = halfUp(r * (P * vlo - B * one), d * (vlo - one));
+    const lo = halfUp(r * (P * vhi - B * one), d * (vhi - one));
+    if (hi === lo) return hi;
+  }
+  const an = (d + r) ** N;
+  const dn = d ** N;
+  return halfUp((P * an - B * dn) * r, d * (an - dn));
 }
 
 export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
@@ -139,11 +180,11 @@ export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
   const changeAt = new Map<number, number>();
   for (const c of changes) changeAt.set(c.k, c.rate);
   let annual = inp.annualRate;
-  let i = annual / m;
+  // one rate for the payment and the interest: the annual rate to 9 decimal places of a fraction
   let R = BigInt(Math.round(annual * 1e9));
   const Bc = toCents(inp.balloon ?? 0);
   // payment over the amortization term; with a balloon, to that balloon over the loan term
-  let pmtC = amortN > n ? paymentCents(Pc, i, amortN, 0) : paymentCents(Pc, i, n, Bc);
+  let pmtC = amortN > n ? paymentCents(Pc, R, m, amortN, 0) : paymentCents(Pc, R, m, n, Bc);
   if (!Number.isSafeInteger(pmtC)) return { error: "The payment is not computable for these inputs." };
   const firstInterest = interestCents(Pc, R, m);
   // rounded to the cent, a tiny loan's payment can equal (or fall below) its interest: it would never amortize
@@ -169,12 +210,10 @@ export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
   for (let k = 1; k <= n && bal > 0; k++) {
     if (changeAt.has(k) && k > 1) {
       annual = changeAt.get(k)!;
-      i = annual / m;
       R = BigInt(Math.round(annual * 1e9));
       const left = n - k + 1;
       const fvC = amortN > n ? 0 : Math.min(Bc, bal);
-      if (amortN > n) pmtC = paymentCents(bal, i, amortN - k + 1, 0);
-      else pmtC = paymentCents(bal, i, left, fvC);
+      pmtC = paymentCents(bal, R, m, amortN > n ? amortN - k + 1 : left, fvC);
       if (!Number.isSafeInteger(pmtC)) return { error: "The payment is not computable for these inputs." };
       // the payment-1 rule at every recast: a re-amortized payment that rounds to no more than that period's interest
       // would go interest-only (or grow the balance) until one huge last payment; refused, naming the change

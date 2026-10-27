@@ -224,6 +224,7 @@ import { DERIV_CALCS } from "../lib/derivCalcs";
 import type { StatFieldDef, StatCalcDef } from "../lib/statCalc";
 import { SCHED_CALCS } from "../lib/schedCalcs";
 import { PORTCORP_CALCS } from "../lib/portcorpCalcs";
+import { FORENSIC_CALCS } from "../lib/forensicCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -9753,6 +9754,7 @@ const FIN_CALCS: FinCalc[] = [
   ...DERIV_CALCS,
   ...SCHED_CALCS,
   ...PORTCORP_CALCS,
+  ...FORENSIC_CALCS,
 ];
 
 /** Fills the calculator dropdown. */

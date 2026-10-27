@@ -97,7 +97,8 @@ test("ids are unique against the pane's inline FIN_CALCS and the registries alre
   const inline = [...body.matchAll(/^ {4}id: "([a-z0-9-]+)",/gm)].map((m) => m[1]);
   expect(inline.length).toBeGreaterThan(30);
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const spread = [...body.matchAll(/^\s*\.\.\.([A-Z][A-Z0-9_]*_CALCS),/gm)].flatMap((m) => {
+  // PORTCORP_CALCS itself is skipped once it is spread (it is IDS).
+  const spread = [...body.matchAll(/^\s*\.\.\.([A-Z][A-Z0-9_]*_CALCS),/gm)].filter((m) => m[1] !== "PORTCORP_CALCS").flatMap((m) => {
     const imp = new RegExp(`import \\{[^}]*\\b${m[1]}\\b[^}]*\\} from "\\.\\./lib/([A-Za-z0-9]+)"`).exec(pane)!;
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return (require(path.join(__dirname, "..", imp[1]))[m[1]] as FinCalcDef[]).map((c) => c.id);

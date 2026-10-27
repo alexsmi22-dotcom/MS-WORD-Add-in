@@ -222,6 +222,7 @@ import { BOND_CALCS } from "../lib/bondCalcs";
 import { IPVAL_CALCS } from "../lib/ipValuationCalcs";
 import { DERIV_CALCS } from "../lib/derivCalcs";
 import { SCHED_CALCS } from "../lib/schedCalcs";
+import { PORTCORP_CALCS } from "../lib/portcorpCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -9734,6 +9735,7 @@ const FIN_CALCS: FinCalc[] = [
   ...IPVAL_CALCS,
   ...DERIV_CALCS,
   ...SCHED_CALCS,
+  ...PORTCORP_CALCS,
 ];
 
 /** Fills the calculator dropdown. */

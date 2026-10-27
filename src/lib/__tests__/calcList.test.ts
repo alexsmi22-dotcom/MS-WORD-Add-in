@@ -75,3 +75,19 @@ describe("grouped thousands in a list", () => {
     expect(() => readCalcList("3,500,000 2,5")).toThrow(/writes decimal commas elsewhere/);
   });
 });
+
+// F1 (found by builder B, 2026-10-27): thousands grouped with plain spaces between semicolons were split at the space —
+// "−1 000; 300; 400" was −1, 0, 300, 400, silently.
+describe("space-grouped thousands in a list", () => {
+  test("one value between separators that is space-grouped is refused naming both readings", () => {
+    expect(() => readCalcList("−1 000; 300; 400")).toThrow(/“−1 000” reads two ways.*\(−1000\)/);
+    expect(() => readCalcList("3 500 000, 400")).toThrow(/\(3500000\)/);
+    expect(() => readCalcList("100; 2 500.50")).toThrow(/\(2500\.50\)/);
+  });
+  test("plain space lists and separated values still read", () => {
+    expect(readCalcList("-1000 300 400").values).toEqual([-1000, 300, 400]);
+    expect(readCalcList("-1000; 300; 400").values).toEqual([-1000, 300, 400]);
+    expect(readCalcList("5 100 200").values).toEqual([5, 100, 200]);
+    expect(readCalcList("1; 22 33; 4").values).toEqual([1, 22, 33, 4]);
+  });
+});

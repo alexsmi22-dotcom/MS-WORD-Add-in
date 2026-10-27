@@ -48,6 +48,7 @@ import { BOND_CALCS } from "../src/lib/bondCalcs";
 import { IPVAL_CALCS } from "../src/lib/ipValuationCalcs";
 import { DERIV_CALCS } from "../src/lib/derivCalcs";
 import { SCHED_CALCS } from "../src/lib/schedCalcs";
+import { PORTCORP_CALCS } from "../src/lib/portcorpCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2311,6 +2312,27 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   sched("macrs", { system: "sl", slperiod: "50", basis: "98765432.1" }, "macrs sl 50", true);
   sched("altman-z", { variant: "zdouble" }, "altman z2", true);
   sched("cvp-breakeven", { units: "500" }, "cvp below break-even", true);
+}
+
+// --- Portfolio & risk, capital budgeting & valuation (src/lib/portcorpCalcs.ts, F1) -------------------------------
+{
+  const pc = (id: string, over: Record<string, string>, name: string, must: boolean) => {
+    const c = PORTCORP_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: portcorp calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (typeof out !== "string" && out.ok !== false && out.svg) figures.push([`portcorp ${name}`, out.svg]);
+    else if (must) throw new Error(`corpus: portcorp ${name} did not draw`);
+  };
+  for (const c of PORTCORP_CALCS) pc(c.id, {}, `${c.id} default`, true);
+  pc("port-capm", { se: "hac" }, "capm hac", true);
+  pc("port-var", { horizon: "10", conf: "99" }, "var 10-period 99", true);
+  pc("corp-wacc", { betakind: "peer" }, "wacc peer beta", true);
+  pc("corp-capbudget", { cfa: "-1600, 10000, -10000", cfb: "" }, "capbudget two roots", true);
+  pc("corp-capbudget", { cfb: "" }, "capbudget one project", true);
+  pc("corp-dcf", { terminal: "exit", tstep: "1" }, "dcf exit multiple", true);
+  pc("corp-dcf", { shares: "" }, "dcf no shares", true);
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

@@ -1,0 +1,463 @@
+/**
+ * Release F2 #10, Time series II: the engines (ts2.ts) against arch 8.0 / statsmodels 0.15 (scripts/ts2-oracle.py →
+ * fixtures/ts2-oracle.json), and the five Stats calculators (ts2StatCalcs.ts) through the pane's read path.
+ *
+ * Tolerances (stated): GARCH parameters 3×10⁻⁴ absolute, log likelihood 10⁻⁶, robust and classic SEs 2×10⁻³ relative
+ * (both sides use statsmodels' numerical-derivative steps; the residual gap is the optimum's last digits), variance
+ * forecasts and conditional volatility 10⁻⁵ relative; at FIXED parameters llf 10⁻⁸ and covariances 10⁻³ of
+ * √(Σᵢᵢ Σⱼⱼ). VAR, IRF SEs, FEVD, Granger, Johansen: 10⁻⁹ (closed forms). Engle–Granger τ 10⁻⁹, p 10⁻⁴ relative (the
+ * far normal tail of the MacKinnon surface), critical values 10⁻¹².
+ */
+import * as fs from "fs";
+import * as path from "path";
+import type { StatOutput } from "../analyzeBlocks";
+import { insertableResultText } from "../insertGate";
+import type { StatCalcDef } from "../statCalc";
+import {
+  engleGranger,
+  fitGarch,
+  fitVarOls,
+  garchAtParams,
+  johansen,
+  JOHANSEN_SJA,
+  JOHANSEN_SJT,
+  lgamma,
+  mackinnonCritN,
+  MACKINNON_N,
+  mackinnonPN,
+  varGranger,
+  varIrf,
+  varSelectOrder,
+  type GarchSpec,
+} from "../ts2";
+import { TS2_STAT_CALCS } from "../ts2StatCalcs";
+import { mackinnonP } from "../tsDiag";
+import { P_BELOW } from "../regTable";
+
+const F = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "ts2-oracle.json"), "utf8"));
+const relErr = (a: number, b: number): number => Math.abs(a - b) / Math.max(Math.abs(b), 1e-300);
+const specOf = (c: { vol: string; dist: string; mean: string }): GarchSpec => ({
+  vol: c.vol as GarchSpec["vol"],
+  dist: c.dist as GarchSpec["dist"],
+  mean: c.mean === "Constant" ? "constant" : "zero",
+});
+const colsOf = (rows: number[][]): number[][] => rows[0].map((_, j) => rows.map((r) => r[j]));
+
+/** The pane's read: every field as typed. */
+function run(c: StatCalcDef, over: Record<string, string> = {}): StatOutput {
+  return c.compute((k) => over[k] ?? c.fields.find((f) => f.key === k)?.default ?? "");
+}
+const calc = (id: string): StatCalcDef => {
+  const c = TS2_STAT_CALCS.find((x) => x.id === id);
+  if (!c) throw new Error(id);
+  return c;
+};
+
+// ================================================================ GARCH vs arch
+
+describe("GARCH family vs arch 8.0 (default data)", () => {
+  test.each(F.garch.map((c: { vol: string; dist: string; mean: string }, i: number) => [`${c.vol} ${c.dist} ${c.mean}`, i]) as [string, number][])("%s", (_l, i) => {
+    const c = F.garch[i as number];
+    const r = fitGarch(F.data.garch, specOf(c));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.names.length).toBe(c.params.length);
+    r.params.forEach((v, j) => expect(Math.abs(v - c.params[j])).toBeLessThan(3e-4));
+    expect(Math.abs(r.llf - c.llf)).toBeLessThan(1e-6);
+    r.seRobust!.forEach((v, j) => expect(relErr(v, c.seRobust[j])).toBeLessThan(2e-3));
+    r.seClassic!.forEach((v, j) => expect(relErr(v, c.seClassic[j])).toBeLessThan(2e-3));
+    c.varForecast.forEach((v: number, j: number) => expect(relErr(r.forecast[j], v)).toBeLessThan(1e-5));
+    const vol = Array.from(r.sigma2, Math.sqrt);
+    let worst = 0;
+    vol.forEach((v, t) => (worst = Math.max(worst, relErr(v, c.condVol[t]))));
+    expect(worst).toBeLessThan(1e-5);
+    expect(relErr(r.backcast, c.vol === "egarch" ? Math.log(c.backcast) : c.backcast) < 1e-12 || Math.abs(r.backcast - c.backcast) < 1e-12).toBe(true);
+    expect(r.scale).toBe(1);
+    expect(r.atBounds).toEqual([]);
+  });
+
+  test.each(F.garch.filter((c: { fixedParams?: number[] }) => c.fixedParams).map((c: { vol: string; dist: string; mean: string }) => [`${c.vol} ${c.dist} ${c.mean}`, c]) as [string, unknown][])(
+    "likelihood and covariance at fixed parameters: %s",
+    (_l, c) => {
+      const cc = c as { vol: string; dist: string; mean: string; fixedParams: number[]; fixedLlf: number; fixedCovRobust: number[]; fixedCovClassic: number[] };
+      const a = garchAtParams(F.data.garch, specOf(cc), cc.fixedParams)!;
+      expect(Math.abs(a.llf - cc.fixedLlf)).toBeLessThan(1e-8);
+      const k = cc.fixedParams.length;
+      for (const [mine, theirs] of [
+        [a.covRobust, cc.fixedCovRobust],
+        [a.covClassic, cc.fixedCovClassic],
+      ] as const) {
+        for (let i = 0; i < k; i++)
+          for (let j = 0; j < k; j++) {
+            const scale = Math.sqrt(Math.abs(theirs[i * k + i] * theirs[j * k + j]));
+            expect(Math.abs(mine[i][j] - theirs[i * k + j]) / scale).toBeLessThan(1e-3);
+          }
+      }
+    },
+  );
+
+  test("Student-t log Γ is accurate (the ν term of the likelihood)", () => {
+    expect(lgamma(0.5)).toBeCloseTo(Math.log(Math.sqrt(Math.PI)), 13);
+    expect(lgamma(10)).toBeCloseTo(Math.log(362880), 12);
+    expect(lgamma(4.5)).toBeCloseTo(Math.log(11.631728396567448), 12);
+  });
+});
+
+describe("GARCH holdout cases (not used while building)", () => {
+  test("interior optima match arch", () => {
+    for (const c of F.garchHoldout.slice(0, 2)) {
+      const r = fitGarch(F.data.garchHold, specOf(c));
+      if (!r.ok) throw new Error(r.reason);
+      r.params.forEach((v, j) => expect(Math.abs(v - c.params[j])).toBeLessThan(3e-4));
+      expect(Math.abs(r.llf - c.llf)).toBeLessThan(1e-6);
+      r.seRobust!.forEach((v, j) => expect(relErr(v, c.seRobust[j])).toBeLessThan(2e-3));
+    }
+  });
+  test("near-normal errors: ν drifts up a flat likelihood; ours is never below arch's optimum", () => {
+    // arch's SLSQP stops at ν ≈ 169 and ≈ 139 here; the likelihood keeps rising toward ν = 500 (normal errors).
+    for (const c of F.garchHoldout.slice(2)) {
+      const r = fitGarch(F.data.garchHold, specOf(c));
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.llf).toBeGreaterThanOrEqual(c.llf - 1e-6);
+      const iNu = r.names.indexOf("nu");
+      expect(r.params[iNu]).toBeGreaterThan(100);
+      // The volatility parameters are pinned regardless of ν.
+      r.names.forEach((nm, j) => {
+        if (nm !== "nu") expect(Math.abs(r.params[j] - c.params[j])).toBeLessThan(5e-3);
+      });
+    }
+  });
+  test("scale equivariance: decimal returns (÷100) give the same model in the new units", () => {
+    const y = F.data.garch.map((v: number) => v / 100);
+    const c = F.garch[2]; // gjr normal Constant
+    const r = fitGarch(y, specOf(c));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.scale).toBe(1000);
+    expect(Math.abs(r.params[0] * 100 - c.params[0])).toBeLessThan(3e-4);
+    expect(Math.abs(r.params[1] * 1e4 - c.params[1])).toBeLessThan(3e-4);
+    for (let j = 2; j < 5; j++) expect(Math.abs(r.params[j] - c.params[j])).toBeLessThan(3e-4);
+    expect(Math.abs(r.llf - (c.llf + 500 * Math.log(100)))).toBeLessThan(1e-5);
+    expect(relErr(r.seRobust![1] * 1e4, c.seRobust[1])).toBeLessThan(2e-3);
+    // EGARCH: ω shifts by −2(1 − β) ln c; its SE by the delta method.
+    const e = F.garch[4];
+    const re = fitGarch(y, specOf(e));
+    if (!re.ok) throw new Error(re.reason);
+    expect(Math.abs(re.params[1] - (e.params[1] - 2 * (1 - e.params[4]) * Math.log(100)))).toBeLessThan(1e-3);
+    expect(re.seRobust).not.toBeNull();
+  });
+});
+
+// ================================================================ VAR vs statsmodels
+
+describe("VAR vs statsmodels", () => {
+  const cases = [
+    ["default (p by AIC)", F.var, F.data.var],
+    ["holdout K = 2", F.varHoldout[0], F.data.varHold2],
+    ["holdout K = 4", F.varHoldout[1], F.data.varHold4],
+    ["p = 2", F.varHoldout[2], F.data.var],
+    ["p = 4", F.varHoldout[3], F.data.var],
+  ];
+  test.each(cases)("%s", (_l, c, rows) => {
+    const cols = colsOf(rows);
+    const K = c.names.length;
+    const so = varSelectOrder(cols, c.maxlags);
+    if ("ok" in so) throw new Error(so.reason);
+    so.rows.forEach((r, i) => {
+      expect(Math.abs(r.aic - c.ics.aic[i])).toBeLessThan(1e-9);
+      expect(Math.abs(r.bic - c.ics.bic[i])).toBeLessThan(1e-9);
+      expect(Math.abs(r.hqic - c.ics.hqic[i])).toBeLessThan(1e-9);
+      expect(relErr(r.fpe, c.ics.fpe[i])).toBeLessThan(1e-9);
+    });
+    expect(so.selected).toEqual(c.selected);
+    const f = fitVarOls(cols, c.p)!;
+    expect(f.nobs).toBe(c.nobs);
+    f.B.flat().forEach((v, i) => expect(Math.abs(v - c.params[i])).toBeLessThan(1e-9));
+    f.B.forEach((row, r) => row.forEach((_, e) => expect(Math.abs(Math.sqrt(f.xtxInv[r][r] * f.sigmaU[e][e]) - c.stderr[r * K + e])).toBeLessThan(1e-9)));
+    f.sigmaU.flat().forEach((v, i) => expect(Math.abs(v - c.sigmaU[i])).toBeLessThan(1e-9));
+    let gi = 0;
+    for (let i = 0; i < K; i++)
+      for (let j = 0; j < K; j++) {
+        if (i === j) continue;
+        const g = varGranger(f, i, j);
+        const o = c.causality[gi++];
+        expect(relErr(g.F, o.F)).toBeLessThan(1e-9);
+        expect([g.df1, g.df2]).toEqual([o.df1, o.df2]);
+        expect(Math.abs(g.p - o.p)).toBeLessThan(1e-9);
+      }
+    const ir = varIrf(f, c.periods);
+    if ("ok" in ir) throw new Error(ir.reason);
+    ir.orth.flatMap((m) => m.flat()).forEach((v, i) => expect(Math.abs(v - c.orthIrf[i])).toBeLessThan(1e-9));
+    ir.se.flatMap((m) => m.flat()).forEach((v, i) => expect(Math.abs(v - c.orthIrfSe[i])).toBeLessThan(1e-9));
+    ir.fevd.flatMap((m) => m.flat()).forEach((v, i) => expect(Math.abs(v - c.fevd[i])).toBeLessThan(1e-9));
+  });
+});
+
+// ================================================================ cointegration
+
+describe("Engle–Granger vs statsmodels coint", () => {
+  const sets: [string, { trend: "c" | "ct"; stat: number; p: number; crit: number[] }[], number[][]][] = [
+    ["default", F.eg, F.data.coint],
+    ["holdout 2 series", F.egHoldout.slice(0, 2), F.data.cointHold2],
+    ["holdout 4 series", F.egHoldout.slice(2), F.data.cointHold4],
+  ];
+  test.each(sets)("%s", (_l, cs, rows) => {
+    const cols = colsOf(rows);
+    for (const c of cs) {
+      const r = engleGranger(cols[0], cols.slice(1), c.trend);
+      if (!r.ok) throw new Error(r.reason);
+      expect(Math.abs(r.stat - c.stat)).toBeLessThan(1e-9);
+      expect(relErr(r.p, c.p)).toBeLessThan(1e-4);
+      r.crit.forEach((v, i) => expect(Math.abs(v - c.crit[i])).toBeLessThan(1e-12));
+    }
+  });
+  test("the MacKinnon N-variable tables are statsmodels' entry for entry", () => {
+    for (const reg of ["c", "ct"] as const) {
+      const mine = MACKINNON_N[reg];
+      const theirs = F.tables.mackinnon[reg];
+      for (const key of ["tauStar", "tauMin", "tauMax", "smallp", "largep", "crit2010"] as const) {
+        const a = (mine[key] as unknown[]).flat(2) as number[];
+        const b = (theirs[key] as unknown[]).flat(2) as number[];
+        expect(a.length).toBe(b.length);
+        a.forEach((v, i) => expect(Math.abs(v - b[i])).toBeLessThan(1e-14 * Math.max(1, Math.abs(b[i]))));
+      }
+    }
+    // One-series surface agrees with tsDiag's (N = 1).
+    for (const tau of [-4.2, -2.5, -1, 0.5]) for (const reg of ["c", "ct"] as const) expect(mackinnonPN(tau, reg, 1)).toBeCloseTo(mackinnonP(tau, reg), 14);
+    expect(mackinnonCritN("c", 1, Infinity)[1]).toBeCloseTo(-2.86154, 5);
+  });
+});
+
+describe("Johansen vs statsmodels coint_johansen", () => {
+  const sets: [string, { det: -1 | 0 | 1; kdiff: number; eig: number[]; trace: number[]; maxEig: number[]; cvt: number[]; cvm: number[] }[], number[][]][] = [
+    ["default (det −1, 0, 1 × k 1, 2)", F.johansen, F.data.coint],
+    ["holdout 2 series", F.johansenHoldout.slice(0, 1), F.data.cointHold2],
+    ["holdout 4 series (k = 3, k = 0)", F.johansenHoldout.slice(1), F.data.cointHold4],
+  ];
+  test.each(sets)("%s", (_l, cs, rows) => {
+    const cols = colsOf(rows);
+    for (const c of cs) {
+      const r = johansen(cols, c.det, c.kdiff);
+      if (!r.ok) throw new Error(r.reason);
+      r.eig.forEach((v, i) => expect(Math.abs(v - c.eig[i])).toBeLessThan(1e-9));
+      r.trace.forEach((v, i) => expect(Math.abs(v - c.trace[i])).toBeLessThan(1e-8));
+      r.maxEig.forEach((v, i) => expect(Math.abs(v - c.maxEig[i])).toBeLessThan(1e-8));
+      expect(r.cvt.flat()).toEqual(c.cvt);
+      expect(r.cvm.flat()).toEqual(c.cvm);
+    }
+  });
+  test("the Osterwald-Lenum tables are statsmodels' (n − r = 1…6)", () => {
+    for (const d of ["-1", "0", "1"] as const) {
+      expect(JOHANSEN_SJT[d]).toEqual(F.tables.sjt[d].slice(0, 6));
+      expect(JOHANSEN_SJA[d]).toEqual(F.tables.sja[d].slice(0, 6));
+    }
+  });
+});
+
+// ================================================================ the calculators
+
+describe("TS2_STAT_CALCS: the pane's contract", () => {
+  test("ids are lowercase kebab and unique", () => {
+    const ids = TS2_STAT_CALCS.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    ids.forEach((id) => expect(id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/));
+  });
+  test.each(TS2_STAT_CALCS.map((c) => [c.id, c] as [string, StatCalcDef]))("%s: defaults compute, tables ≤ 6 columns, insertable, figure", (_id, c) => {
+    const cc = c as StatCalcDef;
+    for (const f of cc.fields) if (f.kind === "select") expect((f.options ?? []).map((o) => o.value)).toContain(f.default);
+    const o = run(cc);
+    expect(o.ok).not.toBe(false);
+    expect(insertableResultText(o.text)).toBe(true);
+    expect(o.text).not.toContain("—");
+    expect(o.text).toMatch(/Conventions/);
+    expect(o.svg).toMatch(/^<svg/);
+    for (const t of o.tables ?? []) {
+      expect(t.rows[0].length).toBeLessThanOrEqual(6);
+      for (const row of t.rows) {
+        expect(row.length).toBe(t.rows[0].length);
+        for (const cell of row) if (cell !== "") expect(insertableResultText(cell)).toBe(true);
+      }
+      if (t.align) expect(t.align.length).toBe(t.rows[0].length);
+    }
+    // No ASCII minus before a digit, no e-notation in the printed result.
+    expect(o.text).not.toMatch(/(^|[\s(=])-\d/);
+    expect(o.text).not.toMatch(/\de[+-]?\d/);
+  });
+  test("the registry module draws no Math.random", () => {
+    for (const f of ["ts2StatCalcs.ts", "ts2.ts"]) expect(fs.readFileSync(path.join(__dirname, "..", f), "utf8")).not.toMatch(/Math\.random\s*\(/);
+  });
+});
+
+describe("printed defaults (TEST-SCRIPT values)", () => {
+  test("ts-garch", () => {
+    const o = run(calc("ts-garch"));
+    expect(o.text).toContain("GJR-GARCH(1,1,1) with Student-t errors and a constant mean for Return (n = 500)");
+    expect(o.text).toContain("Log likelihood = −547.305 · AIC = 1,106.610 · BIC = 1,131.898 (k = 6 parameters)");
+    expect(o.text).toContain("Persistence α₁ + γ₁/2 + β₁ = 0.8453; half-life of a volatility shock = ln 0.5 / ln(persistence) = 4.12 periods");
+    expect(o.text).toContain("σ²(T + 1) = 0.48510");
+    expect(o.text).not.toContain("root mean square");
+    const t = o.tables![0].rows;
+    expect(t[5]).toEqual(["β₁", "0.7654", "0.0729", "10.502", P_BELOW, "0.1086"]);
+    expect(t[6][0]).toBe("ν (degrees of freedom)");
+    expect(t[6][1]).toBe("8.732");
+  });
+  test("ts-var", () => {
+    const o = run(calc("ts-var"));
+    expect(o.text).toContain("Lag order selected: AIC 1, BIC 1, HQ 1, FPE 1; p = 1 (chosen by AIC from p = 0…8).");
+    expect(o.text).toContain("Granger causality at 5%: Rate → Inflation (p = 0.011); Growth → Rate (p = 0.002).");
+    expect(o.tables![0].rows[2]).toEqual(["1", "−4.1399*", "−3.8486*", "−4.0217*", "0.01593*"]);
+  });
+  test("ts-var-irf", () => {
+    const o = run(calc("ts-var-irf"));
+    expect(o.text).toContain("FEVD of Rate at h = 10: Growth 35.4%, Inflation 20.7%, Rate 43.9%");
+    expect(o.tables![0].rows[1]).toEqual(["0", "0.827 (0.054)", "0.206 (0.044)", "0.112 (0.034)"]);
+  });
+  test("ts-engle-granger", () => {
+    const o = run(calc("ts-engle-granger"));
+    expect(o.text).toContain(`Residual ADF τ = −6.8215, MacKinnon p ${P_BELOW}; critical values 1% −4.375, 5% −3.789, 10% −3.487.`);
+  });
+  test("ts-johansen", () => {
+    const o = run(calc("ts-johansen"));
+    expect(o.text).toContain("Cointegrating rank at 5%: 1 by the trace test, 1 by the maximum-eigenvalue test.");
+    expect(o.tables![0].rows[1]).toEqual(["r = 0", "0.1508", "40.406*", "27.067", "29.796", "35.463"]);
+    expect(o.tables![1].rows[0][0]).toBe("H₀: rank = r");
+  });
+  test("the calculators reproduce the oracle through the pane read path", () => {
+    // ts-var at p = 2 → the oracle's p = 2 Granger F; ts-johansen det 1, k 2 → its trace.
+    const v = run(calc("ts-var"), { p: "2" });
+    const g = F.varHoldout[2].causality[4];
+    expect(v.tables!.find((t) => t.label.startsWith("Granger"))!.rows[5][2]).toBe(g.F.toFixed(3));
+    const j = run(calc("ts-johansen"), { det: "1", kdiff: "2" });
+    expect(j.tables![0].rows[1][2].replace("*", "")).toBe(F.johansen[5].trace[0].toFixed(3));
+    for (const [model, idx] of [["garch", 1], ["egarch", 5]] as const) {
+      const o = run(calc("ts-garch"), { model });
+      expect(o.ok).not.toBe(false);
+      expect(o.text).toContain(`Log likelihood = ${F.garch[idx].llf.toFixed(3).replace("-", "−")}`);
+    }
+  });
+});
+
+describe("hostile inputs: every refusal names its field", () => {
+  const G = calc("ts-garch");
+  const V = calc("ts-var");
+  const I = calc("ts-var-irf");
+  const E = calc("ts-engle-granger");
+  const J = calc("ts-johansen");
+  const refused = (o: StatOutput, re: RegExp): void => {
+    expect(o.ok).toBe(false);
+    expect(o.text).toMatch(re);
+    expect(o.text).not.toContain("—");
+  };
+  test("blank, too short, too long", () => {
+    refused(run(G, { data: "" }), /./);
+    refused(run(G, { data: "Return\n0.1\n0.2\n0.3\n0.4" }), /at least 100/);
+    const big = ["Return", ...Array.from({ length: 5001 }, (_, i) => String(((i * 7919) % 200) / 100 - 1))].join("\n");
+    refused(run(G, { data: big }), /at most 5,000/);
+    refused(run(V, { data: "A B\n1 2\n2 3\n3 1" }), /at least 12/);
+    refused(run(J, { data: "Y X\n1 2\n2 3\n3 1\n4 4" }), /at least 20/);
+  });
+  test("numbers: NaN, 1e400, decimal commas, thousands, true minus", () => {
+    const rows = F.data.garch.slice(0, 200).map((v: number) => v.toFixed(3));
+    const base = ["Return", ...rows].join("\n");
+    refused(run(G, { data: base.replace(rows[10], "NaN") }), /Row 11|NaN|not a number/i);
+    refused(run(G, { data: base.replace(rows[10], "1e400") }), /Row 11|finite|1e400|large/i);
+    const dot = run(G, { data: base, model: "garch", dist: "normal" });
+    expect(dot.ok).not.toBe(false);
+    const trueMinus = run(G, { data: base.split("-").join("−"), model: "garch", dist: "normal" });
+    expect(trueMinus.text.split("\n")[1]).toBe(dot.text.split("\n")[1]);
+    const comma = run(G, { data: ["Return", ...rows.map((s: string) => s.replace(".", ","))].join("\n"), model: "garch", dist: "normal" });
+    if (comma.ok === false) expect(comma.text).not.toContain("—");
+    else expect(comma.text.split("\n")[1]).toBe(dot.text.split("\n")[1]);
+    const thousands = run(G, { data: ["Return", ...rows.map((s: string, i: number) => (i === 3 ? "1,000" : s))].join("\n"), model: "garch", dist: "normal" });
+    expect(thousands.text).not.toContain("—");
+  });
+  test("whole-number fields", () => {
+    for (const bad of ["0", "-1", "−1", "2.5", "1e400", "NaN", "5%", "abc", "251"]) refused(run(G, { h: bad }), /Forecast horizon/);
+    for (const bad of ["0", "25", "x"]) refused(run(I, { h: bad }), /Impulse-response horizon/);
+    for (const bad of ["0", "13", "x"]) refused(run(V, { maxlags: bad }), /Largest lag/);
+    refused(run(V, { p: "13" }), /Lag order p/);
+    refused(run(J, { kdiff: "13" }), /Lagged differences/);
+    // Thousands and decimal-comma whole numbers read through the shared cell reader.
+    expect(run(G, { h: "1,0" }).ok === false || run(G, { h: "1,0" }).ok === undefined).toBe(true);
+    expect(run(G, { h: "20" }).tables![1].rows.length).toBe(21);
+  });
+  test("selects", () => {
+    refused(run(G, { model: "arch" }), /volatility model/);
+    refused(run(G, { dist: "ged" }), /error distribution/);
+    refused(run(G, { mean: "ar" }), /mean model/);
+    refused(run(E, { trend: "n" }), /deterministic option/);
+    refused(run(J, { det: "2" }), /deterministic option/);
+  });
+  test("columns", () => {
+    refused(run(V, { columns: "Growth" }), /at least 2/);
+    refused(run(V, { columns: "Growth, Nope" }), /No column is named “Nope”/);
+    refused(run(V, { columns: "Growth, Growth" }), /listed twice/);
+    const wide = ["T A B C D E F", ...Array.from({ length: 40 }, (_, i) => `${i + 1} ${[1, 2, 3, 4, 5, 6].map((k) => Math.sin(i * k) + k).join(" ")}`)].join("\n");
+    refused(run(V, { data: wide }), /at most 5 series/);
+    refused(run(E, { data: wide.replace("T A B C D E F", "T A B C D E F G").split("\n").map((l, i) => (i ? `${l} ${Math.cos(i)}` : l)).join("\n") }), /at most 6 series/);
+    const constant = ["A B", ...Array.from({ length: 30 }, (_, i) => `${Math.sin(i)} 5`)].join("\n");
+    refused(run(V, { data: constant }), /“B” is constant/);
+    // Columns named with spaces only: whitespace-separated names.
+    expect(run(V, { columns: "Rate Growth" }).ok).not.toBe(false);
+  });
+  test("gaps in dates are refused, not skipped", () => {
+    const lines = (V.fields[0].default as string).split("\n");
+    lines.splice(10, 1);
+    refused(run(V, { data: lines.join("\n") }), /not evenly spaced/);
+  });
+  test("collinear and singular data", () => {
+    const n = 60;
+    const rows = Array.from({ length: n }, (_, i) => {
+      const x = 10 + Math.sin(i) + i * 0.1;
+      return `${2 * x + 1} ${x}`;
+    });
+    refused(run(E, { data: ["Y X", ...rows].join("\n") }), /exact linear combination/);
+    refused(run(V, { data: ["Y X", ...rows].join("\n") }), /singular|exactly/);
+    refused(run(J, { data: ["Y X", ...rows].join("\n") }), /singular|exact/);
+  });
+  test("Johansen with too many lags for the sample", () => {
+    const short = (J.fields[0].default as string).split("\n").slice(0, 25).join("\n");
+    refused(run(J, { data: short, kdiff: "12" }), /Lagged|fewer lags|usable rows/);
+  });
+  test("maxlags beyond what the sample estimates", () => {
+    const short = (V.fields[0].default as string).split("\n").slice(0, 31).join("\n");
+    refused(run(V, { data: short, maxlags: "12" }), /largest lag can be at most 6/);
+  });
+});
+
+describe("adversarial findings (fixed)", () => {
+  // A deterministic LCG + Box–Muller (test data only; the calculators draw nothing random).
+  const gen = (): (() => number) => {
+    let s = 12345;
+    const rnd = (): number => {
+      s = (s * 1103515245 + 12345) % 2147483648;
+      return s / 2147483648;
+    };
+    return () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
+  };
+  test("integrated GARCH (α + β → 1): no 10¹⁵-period half-life or 10¹³ unconditional variance", () => {
+    const nrm = gen();
+    for (let i = 0; i < 1000; i++) nrm();
+    const y: string[] = [];
+    let v = 1;
+    let e = 0;
+    for (let i = 0; i < 2000; i++) {
+      v = 0.001 + 0.1 * e * e + 0.9 * v;
+      e = Math.sqrt(v) * nrm();
+      y.push(e.toFixed(4));
+    }
+    const o = run(calc("ts-garch"), { data: ["R", ...y].join("\n"), model: "garch", dist: "normal" });
+    expect(o.ok).not.toBe(false);
+    expect(o.text).toContain("at 1 (integrated volatility)");
+    expect(o.text).not.toMatch(/half-life of a volatility shock = /);
+    expect(o.text).not.toContain("Unconditional variance");
+    expect(o.text).toContain("growing by ω each period");
+    expect(o.text).toContain("On the boundary of the parameter space: α + γ/2 + β = 1");
+  });
+  test("white noise into GJR: α on its bound prints 0.0000, not 7×10⁻¹⁵, and is flagged", () => {
+    const nrm = gen();
+    const y = ["Return", ...Array.from({ length: 1000 }, () => nrm().toFixed(3))].join("\n");
+    const o = run(calc("ts-garch"), { data: y, model: "gjr", dist: "t" });
+    expect(o.ok).not.toBe(false);
+    expect(o.text).toContain("a positive one by α₁ε² = 0.0000ε²");
+    expect(o.text).toMatch(/On the boundary of the parameter space: α = 0/);
+  });
+});

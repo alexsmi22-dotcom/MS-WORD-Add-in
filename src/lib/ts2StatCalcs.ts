@@ -276,7 +276,13 @@ export function seriesLinesSvg(o: { x: number[]; names: string[]; cols: ArrayLik
 export function varIrfGridSvg(o: { names: string[]; orth: number[][][]; se: number[][][]; z: number }): string {
   const K = o.names.length;
   const H = o.orth.length - 1;
-  const w = K <= 2 ? 240 : K === 3 ? 200 : 170;
+  // Panel titles "impulse → response" must fit their panel: widen up to 260 px, then shorten long names with "…".
+  const CH = 7.2;
+  const longest = Math.max(...o.names.map((s) => s.length));
+  const base = K <= 2 ? 240 : K === 3 ? 200 : 170;
+  const w = Math.min(260, Math.max(base, Math.ceil((2 * longest + 3) * CH) + 24));
+  const fit = Math.max(4, Math.floor(((w - 24) / CH - 3) / 2));
+  const short = o.names.map((s) => (s.length > fit ? s.slice(0, fit - 1) + "…" : s));
   const h = Math.round(w * 0.7);
   const panels: string[] = [];
   for (let r = 0; r < K; r++)
@@ -288,7 +294,7 @@ export function varIrfGridSvg(o: { names: string[]; orth: number[][][]; se: numb
         { type: "line", points: pts((k) => o.orth[k][r][c] - o.z * o.se[k][r][c]), color: "#7dd3fc" },
         { type: "line", points: pts((k) => o.orth[k][r][c]), color: "#0369a1" },
       ];
-      panels.push(buildPlotSvg(series, { width: w, height: h, title: `${o.names[c]} → ${o.names[r]}`, xlabel: r === K - 1 ? "Horizon" : undefined }));
+      panels.push(buildPlotSvg(series, { width: w, height: h, title: `${short[c]} → ${short[r]}`, xlabel: r === K - 1 ? "Horizon" : undefined }));
     }
   return composePanels(panels, { cols: K, gap: 6, idPrefix: "irf" }).svg;
 }
@@ -415,7 +421,7 @@ export function tsGarchCalc(read: Read): StatOutput {
   );
   if (fit.scale !== 1) {
     lines.push(
-      `The returns' root mean square is outside [0.1, 1,000), so the fit ran on ${fit.scale < 1 ? `the returns ÷ ${intText(1 / fit.scale)}` : `the returns × ${intText(fit.scale)}`} and every estimate was converted back exactly (the model is scale-equivariant; standard errors by the Jacobian of that linear map).`,
+      `The returns' root mean square is outside [0.1, 1,000), so the fit ran on ${fit.scale < 1 ? `the returns ÷ ${intText(1 / fit.scale)}` : `the returns × ${intText(fit.scale)}`} and every estimate was converted back exactly (the model is scale-equivariant; standard errors by the Jacobian of that linear map; their numerical-derivative steps were taken on the rescaled parameters, so their last digits can differ from arch run on the unscaled returns).`,
     );
   }
   if (data.dates?.frequency === "day") lines.push("Daily dates are treated as consecutive observations (trading days), whatever the calendar gaps.");
@@ -482,15 +488,21 @@ function varSetup(read: Read, needTable: boolean): VarSetup | { error: string } 
   const K = names.length;
   const n = data.n;
   const est = varMaxEstimable(n, K);
-  const ml = readWhole(read, "maxlags", "Largest lag for the lag-order table", Math.min(8, Math.max(1, est)), 1, VAR_MAX_P);
-  if (typeof ml !== "number") return ml;
-  if (ml > est) {
-    return {
-      error: `The largest lag can be at most ${Math.max(est, 0)} for ${intText(n)} rows and ${K} series ((n − K − 1) ÷ (K + 1), statsmodels' limit, so that VAR(maxlags) can be estimated).`,
-    };
-  }
   const pRaw = ((read("p") ?? "aic").trim() || "aic").toLowerCase();
-  const so = needTable || pRaw in CRIT_NAME ? varSelectOrder(cols, ml) : { rows: [] as LagOrderRow[], selected: { aic: -1, bic: -1, hqic: -1, fpe: -1 } };
+  // The largest lag matters only for the lag-order table or a criterion; with p entered, ts-var-irf ignores it.
+  const useCriteria = needTable || pRaw in CRIT_NAME;
+  let ml = 0;
+  if (useCriteria) {
+    const mlv = readWhole(read, "maxlags", "Largest lag for the lag-order criteria", Math.min(8, Math.max(1, est)), 1, VAR_MAX_P);
+    if (typeof mlv !== "number") return mlv;
+    if (mlv > est) {
+      return {
+        error: `The largest lag for the lag-order criteria can be at most ${Math.max(est, 0)} for ${intText(n)} rows and ${K} series ((n − K − 1) ÷ (K + 1), statsmodels' limit, so that VAR(maxlags) can be estimated).`,
+      };
+    }
+    ml = mlv;
+  }
+  const so = useCriteria ? varSelectOrder(cols, ml) : { rows: [] as LagOrderRow[], selected: { aic: -1, bic: -1, hqic: -1, fpe: -1 } };
   if ("ok" in so) return { error: so.reason };
   const notes: string[] = [];
   let p: number;
@@ -578,7 +590,7 @@ export function tsVarCalc(read: Read): StatOutput {
   lines.push("");
   lines.push(...varConventions(s));
   lines.push(
-    `Coefficient SEs from Cov(vec B) = (ZᵀZ)⁻¹ ⊗ Σᵤ; z and p from the normal distribution (statsmodels VARResults.pvalues). Granger F: the Wald statistic for the p lags of the causing series in the caused series' equation, divided by p, against F(p, K(T − Kp − 1)) = F(${p}, ${intText(K * fit.dfResid)}) (statsmodels test_causality, kind="f").`,
+    `Coefficient SEs from Cov(vec B) = (ZᵀZ)⁻¹ ⊗ Σᵤ; z and p from the normal distribution (statsmodels VARResults.pvalues). Granger F: the Wald statistic for the p lags of the causing series in the caused series' equation, divided by p, against the F distribution with p and K(T − Kp − 1) degrees of freedom, here ${p} and ${intText(K * fit.dfResid)} (statsmodels test_causality, kind="f").`,
   );
   lines.push(...s.data.notes);
 
@@ -596,9 +608,9 @@ export function tsVarCalc(read: Read): StatOutput {
     }
     tables.push({ label: `Equation for ${names[e]}`, rows, align: ["left", "right", "right", "right", "right"] });
   }
-  const gRows: string[][] = [["Caused", "Causing", "F", "df", "p"]];
-  for (const g of gr) gRows.push([names[g.caused], names[g.causing], fmtFixed(g.F, 3), `${g.df1}, ${intText(g.df2)}`, fmtP(g.p)]);
-  tables.push({ label: "Granger causality (F tests)", rows: gRows, align: ["left", "left", "right", "right", "right"], note: "H₀: the causing series' lags do not enter the caused series' equation." });
+  const gRows: string[][] = [["Caused", "Causing", "F", "df₁", "df₂", "p"]];
+  for (const g of gr) gRows.push([names[g.caused], names[g.causing], fmtFixed(g.F, 3), intText(g.df1), intText(g.df2), fmtP(g.p)]);
+  tables.push({ label: "Granger causality (F tests)", rows: gRows, align: ["left", "left", "right", "right", "right", "right"], note: "H₀: the causing series' lags do not enter the caused series' equation." });
   const sd = colDecimals(fit.sigmaU.flat(), 4);
   const sRows: string[][] = [["Σᵤ", ...names]];
   fit.sigmaU.forEach((r, i) => sRows.push([names[i], ...r.map((v) => fmtFixed(v, Math.max(4, sd)))]));
@@ -768,7 +780,7 @@ export function tsJohansenCalc(read: Read): StatOutput {
   lines.push(`Eigenvalues: ${r.eig.map((v) => fmtFixed(v, 4)).join(", ")}.`);
   lines.push("");
   lines.push(
-    `Conventions (statsmodels 0.15 coint_johansen(endog, det_order = ${det}, k_ar_diff = ${kd})): ${det === -1 ? "no detrending" : det === 0 ? "the levels are demeaned" : "the levels are linearly detrended"}; ${det >= 0 ? "the differences, their lags and the lagged levels are then demeaned" : "nothing else is detrended"} (statsmodels' convention, f = ${det >= 0 ? 0 : -1}). ΔXₜ and the lagged level Xₜ₋ₖ are each regressed on ΔXₜ₋₁…ΔXₜ₋ₖ; the eigenvalues solve |λSₖₖ − Sₖ₀S₀₀⁻¹S₀ₖ| = 0 (moments divided by T).`,
+    `Conventions (statsmodels 0.15 coint_johansen(endog, det_order = ${det < 0 ? `${MINUS}1` : det}, k_ar_diff = ${kd})):${det === -1 ? "no detrending" : det === 0 ? "the levels are demeaned" : "the levels are linearly detrended"}; ${det >= 0 ? "the differences, their lags and the lagged levels are then demeaned" : "nothing else is detrended"} (statsmodels' convention, f = ${det >= 0 ? "0" : `${MINUS}1`}). ΔXₜ and the lagged level Xₜ₋ₖ are each regressed on ΔXₜ₋₁…ΔXₜ₋ₖ; the eigenvalues solve |λSₖₖ − Sₖ₀S₀₀⁻¹S₀ₖ| = 0 (moments divided by T).`,
   );
   lines.push("Trace = −T Σ ln(1 − λᵢ) over i > r; maximum eigenvalue = −T ln(1 − λᵣ₊₁). Critical values: Osterwald-Lenum (1992), as statsmodels' c_sjt / c_sja tables give them (asymptotic, 90%, 95%, 99%).");
   lines.push(`k counts lagged differences (k_ar_diff), so it corresponds to a VAR in levels with p = k + 1 = ${kd + 1} lags.`);

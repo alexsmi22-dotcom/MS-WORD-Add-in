@@ -363,11 +363,17 @@ describe("hostile inputs: every refusal names its field", () => {
     expect(dot.ok).not.toBe(false);
     const trueMinus = run(G, { data: base.split("-").join("−"), model: "garch", dist: "normal" });
     expect(trueMinus.text.split("\n")[1]).toBe(dot.text.split("\n")[1]);
-    const comma = run(G, { data: ["Return", ...rows.map((s: string) => s.replace(".", ","))].join("\n"), model: "garch", dist: "normal" });
-    if (comma.ok === false) expect(comma.text).not.toContain("—");
-    else expect(comma.text.split("\n")[1]).toBe(dot.text.split("\n")[1]);
+    // Decimal commas in a comma-free table where "2,073" could equally be two thousand: refused as ambiguous, by row.
+    refused(run(G, { data: ["Return", ...rows.map((s: string) => s.replace(".", ","))].join("\n"), model: "garch", dist: "normal" }), /mixes a decimal comma .* thousands separator/);
+    // …and read as decimals once the table is semicolon-separated (every comma is then a decimal comma).
+    const semi = run(G, { data: ["Date;Return", ...rows.map((s: string, i: number) => `${2000 + i};${s.replace(".", ",")}`)].join("\n"), model: "garch", dist: "normal" });
+    expect(semi.ok).not.toBe(false);
+    expect(semi.text.split("\n")[1]).toBe(dot.text.split("\n")[1]);
+    // "1,000" among point decimals is one thousand (the shared reader's thousands rule), so the fit changes.
     const thousands = run(G, { data: ["Return", ...rows.map((s: string, i: number) => (i === 3 ? "1,000" : s))].join("\n"), model: "garch", dist: "normal" });
-    expect(thousands.text).not.toContain("—");
+    const thousandsDot = run(G, { data: ["Return", ...rows.map((s: string, i: number) => (i === 3 ? "1000" : s))].join("\n"), model: "garch", dist: "normal" });
+    expect(thousands.ok).not.toBe(false);
+    expect(thousands.text.split("\n")[1]).toBe(thousandsDot.text.split("\n")[1]);
   });
   test("whole-number fields", () => {
     for (const bad of ["0", "-1", "−1", "2.5", "1e400", "NaN", "5%", "abc", "251"]) refused(run(G, { h: bad }), /Forecast horizon/);
@@ -375,8 +381,9 @@ describe("hostile inputs: every refusal names its field", () => {
     for (const bad of ["0", "13", "x"]) refused(run(V, { maxlags: bad }), /Largest lag/);
     refused(run(V, { p: "13" }), /Lag order p/);
     refused(run(J, { kdiff: "13" }), /Lagged differences/);
-    // Thousands and decimal-comma whole numbers read through the shared cell reader.
-    expect(run(G, { h: "1,0" }).ok === false || run(G, { h: "1,0" }).ok === undefined).toBe(true);
+    // Whole numbers go through the shared cell reader: "1,0" is the decimal-comma 1.0, "1,000" is 1000 (too large).
+    expect(run(G, { h: "1,0" }).tables![1].rows.length).toBe(2);
+    refused(run(G, { h: "1,000" }), /Forecast horizon: “1,000” is not a whole number from 1 to 250/);
     expect(run(G, { h: "20" }).tables![1].rows.length).toBe(21);
   });
   test("selects", () => {
@@ -419,7 +426,11 @@ describe("hostile inputs: every refusal names its field", () => {
   });
   test("maxlags beyond what the sample estimates", () => {
     const short = (V.fields[0].default as string).split("\n").slice(0, 31).join("\n");
-    refused(run(V, { data: short, maxlags: "12" }), /largest lag can be at most 6/);
+    refused(run(V, { data: short, maxlags: "12" }), /largest lag for the lag-order criteria can be at most 6/);
+    // ts-var-irf with p entered ignores the largest lag (it is used only to choose p).
+    const irf = run(I, { data: short, maxlags: "12", p: "1" });
+    expect(irf.ok).not.toBe(false);
+    refused(run(I, { data: short, maxlags: "12", p: "aic" }), /can be at most 6/);
   });
 });
 
@@ -459,5 +470,48 @@ describe("adversarial findings (fixed)", () => {
     expect(o.ok).not.toBe(false);
     expect(o.text).toContain("a positive one by α₁ε² = 0.0000ε²");
     expect(o.text).toMatch(/On the boundary of the parameter space: α = 0/);
+  });
+});
+
+describe("sweep: every select option and the numeric edges keep the display contract and the figure layout", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const audit = require(path.join(__dirname, "..", "..", "..", "scripts", "figure-layout-audit.js")) as {
+    auditSvg: (name: string, svg: string) => { found: unknown[] };
+  };
+  const longNames = (() => {
+    const lines = ["Quarter RealGrowthRateAnnualised CoreInflation PolicyRate UnemploymentGap CreditSpread"];
+    (F.data.varHold4 as number[][]).slice(0, 120).forEach((r, i) => lines.push(`${1996 + Math.floor(i / 4)}-Q${(i % 4) + 1} ${r.join(" ")} ${(r[0] * 0.3 + r[2] * 0.2).toFixed(3)}`));
+    return lines.join("\n");
+  })();
+  const cases: [string, Record<string, string>][] = [];
+  for (const c of TS2_STAT_CALCS)
+    for (const f of c.fields) if (f.kind === "select") for (const o of f.options ?? []) if (o.value !== f.default) cases.push([c.id, { [f.key]: o.value }]);
+  cases.push(
+    ["ts-garch", { h: "1" }],
+    ["ts-garch", { h: "250", model: "garch" }],
+    ["ts-garch", { mean: "zero", dist: "normal", model: "egarch" }],
+    ["ts-var", { maxlags: "1" }],
+    ["ts-var", { data: longNames }],
+    ["ts-var-irf", { h: "24" }],
+    ["ts-var-irf", { h: "1" }],
+    ["ts-var-irf", { data: longNames, p: "1", h: "24" }],
+    ["ts-johansen", { kdiff: "0", det: "-1" }],
+    ["ts-johansen", { data: longNames, det: "1" }],
+    ["ts-engle-granger", { data: longNames, trend: "ct" }],
+  );
+  test.each(cases.map(([id, over]) => [`${id} ${JSON.stringify(over).slice(0, 60)}`, id, over] as [string, string, Record<string, string>]))("%s", (_l, id, over) => {
+    const o = run(calc(id), over);
+    expect(o.ok).not.toBe(false);
+    expect(insertableResultText(o.text)).toBe(true);
+    expect(o.text).not.toMatch(/(^|[\s(=])-\d/);
+    expect(o.text).not.toMatch(/\de[+-]?\d/);
+    for (const t of o.tables ?? []) {
+      expect(t.rows[0].length).toBeLessThanOrEqual(6);
+      for (const row of t.rows) for (const cell of row) if (cell !== "") {
+        expect(insertableResultText(cell)).toBe(true);
+        expect(cell).not.toMatch(/^-\d/);
+      }
+    }
+    expect(audit.auditSvg(id, o.svg!).found).toEqual([]);
   });
 });

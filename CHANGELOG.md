@@ -6,6 +6,57 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.203.0] — 2026-10-27 — F2: litigation economics, econometrics II, micro and macro II
+
+Stats grows from 52 to 75 calculators and its dropdown is grouped under ten headings; Finance grows from 65 to 79.
+Every new number is checked against an independent oracle (arch 8.0, statsmodels 0.15, linearmodels, sympy,
+numpy-financial, QuantLib, or an independent Python re-implementation where no library exists), and each result
+prints the conventions it used.
+
+### Added — Finance
+- **Securities damages:** inflation ribbon (constant dollar or constant percentage, from abnormal returns at the
+  corrective disclosures); out-of-pocket loss by purchase/sale window from a trade blotter, FIFO or LIFO; the PSLRA
+  90-day lookback cap, quoting 15 U.S.C. § 78u-4(e)(1)–(3); aggregate damages by one- and two-trader trading models,
+  labelled as models courts have criticised, with every parameter printed.
+- **Antitrust overcharge:** dummy-variable and forecast (before-period) methods with optional controls, pass-through
+  entered or estimated, and a damages table.
+- **Forensic lost earnings:** life × participation × employment (LPE) or your own worklife expectancy; the bundled CDC
+  *United States Life Tables, 2024* (NVSR Vol. 75, No. 5) or your own qx/lx table; household services; residual
+  earning capacity; past/future split at the trial date with prejudgment interest at your rate; growth + discount or a
+  net discount rate. US dollars.
+- **Actuarial and retirement:** life annuity factors (äx, ax, Ax; temporary and deferred) with commutation columns,
+  checked against the Illustrative Life Table; retirement accumulation and drawdown with inflation; safe-withdrawal
+  Monte Carlo (seeded) with the probability of ruin by year.
+- **Cost–benefit analysis** by scenario (NPV, BCR, every EIRR, switching values, shadow-price factors, sensitivity to
+  a social discount rate you enter — none is bundled; check which OMB Circular A-4 version applies); **Pigouvian tax**;
+  **covered and uncovered interest parity** and **purchasing-power parity**.
+
+### Added — Stats
+- **Time series II:** GARCH(1,1), GJR-GARCH and EGARCH by maximum likelihood (normal or Student-t), with robust SEs,
+  persistence, half-life and a volatility forecast; VAR(p) with lag-order criteria and Granger causality; orthogonalised
+  impulse responses with bands and FEVD; Engle–Granger and Johansen cointegration.
+- **Limited dependent and count models:** Poisson and negative binomial with exposure and incidence-rate ratios;
+  tobit with three marginal effects; Heckman two-step; ordered logit/probit; multinomial logit with RRRs and average
+  marginal effects.
+- **Causal inference II:** regression discontinuity (sharp and fuzzy, local linear or quadratic, Imbens–Kalyanaraman
+  bandwidth, conventional SEs) with a binned-scatter figure; synthetic control with placebo inference; propensity-score
+  matching and IPW with a balance table and overlap figure.
+- **Micro II:** constant-elasticity and log-linear demand; consumer choice (Cobb–Douglas, CES, complements,
+  substitutes) with the Hicks and Slutsky decompositions, CV and EV; cost curves with shutdown and break-even points;
+  price discrimination; first- and second-price auctions with revenue equivalence.
+- **Macro II:** growth accounting (Solow residual); Mundell–Fleming under floating and fixed rates; money multiplier;
+  open-economy fiscal multipliers; Phillips-curve estimation with the NAIRU and a delta-method SE.
+
+### Changed
+- The Stats dropdown is grouped (describe & compare, regression, limited dependent & count models, survival, causal
+  inference & panels, time series, event studies & index numbers, microeconomics, macroeconomics, uncertainty &
+  design).
+
+### Fixed
+- A pasted table without a header row whose first row had a grouped number (`2025-03-03 2,401,000`) was taken for a
+  CSV header and refused; it reads as a whitespace table (event study, time series and every tool that reads named
+  columns).
+
 ## [2.202.0] — 2026-10-27 — Finance F1: bonds on dates, IP valuation, portfolio risk, corporate finance, derivatives, schedules
 
 Finance grows from 33 to 65 calculators, listed in nine groups (Time value & loans, Capital budgeting & valuation,

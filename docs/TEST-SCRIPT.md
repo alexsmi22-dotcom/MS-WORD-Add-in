@@ -10,6 +10,34 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0eq. New in v2.203.0 — F2 (Stats 52 → 75, Finance 65 → 79)
+
+- [ ] **Stats dropdown** shows ten group headings; Descriptive statistics is still the first calculator.
+- [ ] **Finance ▸ Securities ▸ PSLRA 90-day lookback** (defaults) → "Mean trading price over the 90-day period: $34.5947
+  (62 closes)", cap per share $6.6053, damages per share after the cap $5.9312; the statute is quoted.
+- [ ] **Out-of-pocket loss** (defaults) → $9,929.37 (FIFO); switch to LIFO → $8,208.42; holdings 1,800 shares.
+- [ ] **Trading model** → one-trader $142,937,391.52, two-trader $90,945,345.73, labelled a model.
+- [ ] **Antitrust overcharge** → dummy method 9.19 % of but-for, damages $468,342.04; forecast method 10.49 %.
+- [ ] **Forensic lost earnings** → total at the trial date $885,891.18 (past $162,056.00 + interest $13,338.74 + PV
+  future $710,496.44); source line names CDC United States Life Tables, 2024 (NVSR Vol. 75, No. 5).
+- [ ] **Life annuity factors** → äₓ = 13.4542, Aₓ = 0.482532; subscripts ₘ ₙ show correctly in Word on the Mac.
+- [ ] **Safe-withdrawal Monte Carlo** → probability of ruin within 30 years 23.445 % (20,000 paths, seed printed).
+- [ ] **Cost–benefit** → Base NPV 54.42, BCR 1.039, EIRR 5.08 %; the result says no discount rate is bundled.
+- [ ] **CIP** → F = 1.262450; **PPP** → foreign currency overvalued 9.09 %.
+- [ ] **Stats ▸ Time series ▸ GARCH** (defaults) → GJR-GARCH(1,1,1), Student-t; persistence 0.8453, half-life 4.12
+  periods; a volatility figure. **VAR** → p = 1 by AIC; Granger: Rate → Inflation (p = 0.011).
+- [ ] **Johansen** → rank 1 by trace and max-eigenvalue; trace r = 0 40.406*.
+- [ ] **Count regression** → log likelihood −321.808; switch to NB2 → α = 0.6026. **Tobit** → σ 5.6039.
+  **Heckman** → ρ = 0.6809, and the text says MLE is not offered.
+- [ ] **Regression discontinuity** → jump τ = 4.756 (SE 0.924), bandwidth 6.3777 (Imbens–Kalyanaraman); fuzzy → 5.808.
+- [ ] **Synthetic control** → post/pre RMSPE ratio 10.113, ranks 1 of 13, p = 0.077. **Propensity score** → ATT 2.500;
+  IPW → 2.390 (SE 0.375).
+- [ ] **Consumer choice** → Hicks substitution −7.3223, income −5.1777; CV 41.4214, EV 29.2893; the figure shows both
+  budget lines. **Auction** → b(v) = 0.75·v, revenue 60 both formats.
+- [ ] **Mundell–Fleming** → fiscal under floating ΔY 0, under fixed ΔY ≈ 142.8571. **Phillips curve** → NAIRU 5.523 %.
+- [ ] **Event study / time series** with a table pasted without a header row whose first row has a grouped number
+  (`2025-03-03 2,401,000`) → reads (it was refused).
+
 ## 0ep. New in v2.202.0 — Finance F1 (33 → 65 calculators)
 
 - [ ] **Finance dropdown** shows group headings (Time value & loans … Currency); Home's Stats tile is visible with the

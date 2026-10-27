@@ -12,7 +12,9 @@ import { insertableResultText } from "../insertGate";
 import { US_LIFE_2024 } from "../usLifeTable2024";
 import { cdcTable, chooseTable, commutation, completeExpectation, isRefusal, lAt, userTable, type LifeTable } from "../lifeTable";
 import { lostEarningsLpe, type LpeInput } from "../forensicEarnings";
-import { retirementSchedule, swrMonteCarlo } from "../retirement";
+import { percentiles109050, quantileScratch, retirementSchedule, swrMonteCarlo } from "../retirement";
+import { quantilesOf } from "../ipValuation";
+import { Pcg32 } from "../prng";
 import { sigText } from "../forensicReports";
 import { civilDay } from "../damagesInterest";
 
@@ -258,6 +260,9 @@ describe("retirement schedule against the oracle", () => {
   });
 });
 
+const SWR_FP_100K = "100.231470000000 82086001.2848564 425307895.522539 1491420766.83453";
+const SWR_FP_60K = "1205.80833333333 29585560.6858002 128039684.532176 4738445135.09169";
+
 describe("safe-withdrawal Monte Carlo against the oracle (same PCG32 stream, exact)", () => {
   test.each<[string | number, unknown]>(ORACLE.swr.map((c: { args: number[] }) => [c.args.join(", "), c] as [string, unknown]))("%s", (_l, cc) => {
     const c = cc as { args: number[]; alive: string | null; ruinBy: number[]; p10: number[]; p50: number[]; p90: number[]; whileAlive: number | null };
@@ -281,6 +286,51 @@ describe("safe-withdrawal Monte Carlo against the oracle (same PCG32 stream, exa
     const ms = Date.now() - t0;
     expect(o.ok).not.toBe(false);
     expect(ms).toBeLessThan(3000);
+  });
+
+  test("F2 review speed-up: the bucketed percentiles are bit-identical to quantilesOf (ties, zeros, outliers, tiny n)", () => {
+    const rng = new Pcg32(5, 54);
+    const u = (): number => (rng.nextU32() + 0.5) / 4294967296;
+    const arrays: Float64Array[] = [
+      Float64Array.from([3]),
+      Float64Array.from([2, 1]),
+      Float64Array.from([5, 5, 5, 5]),
+      Float64Array.from([0, 0, 0, 7, 0, 0, 1e12, 0, 0, 0, 3]),
+    ];
+    for (const n of [10, 11, 999, 1000, 4097, 20000]) {
+      arrays.push(Float64Array.from({ length: n }, () => (u() < 0.3 ? 0 : Math.exp(3 * (u() - 0.5)) * 1e6)));
+      arrays.push(Float64Array.from({ length: n }, () => Math.round(u() * 20)));
+      const a = Float64Array.from({ length: n }, () => u());
+      a[0] = 1e15;
+      arrays.push(a);
+    }
+    for (const a of arrays) {
+      const got = percentiles109050(a, quantileScratch(a.length));
+      expect(got).toEqual(quantilesOf(a, [0.1, 0.5, 0.9]));
+    }
+  });
+
+  test("F2 review speed-up: same seed, same numbers (the v2.203.0-pre fingerprint at 100,000 × 36 and 60,000 × 60)", () => {
+    // Fingerprints of the full result recorded from the quickselect version before the speed-up.
+    const fp = (r: ReturnType<typeof swrMonteCarlo>): string => [r.ruinBy, r.p10, r.p50, r.p90].map((xs) => xs.reduce((s, v, i) => s + v * (i + 1), 0).toPrecision(15)).join(" ");
+    const a = swrMonteCarlo({ balance: 1e6, withdrawal: 4e4, years: 36, mean: 0.04, sd: 0.12, paths: 100000, seed: 1, alive: null });
+    expect(fp(a)).toBe(SWR_FP_100K);
+    const b = swrMonteCarlo({ balance: 1e6, withdrawal: 6e4, years: 60, mean: 0.05, sd: 0.15, paths: 60000, seed: 20261027, alive: null });
+    expect(fp(b)).toBe(SWR_FP_60K);
+  });
+
+  test("at each cap shape the compute is fast (median of 3)", () => {
+    for (const [paths, years] of [["100000", "36"], ["60000", "60"], ["90000", "40"]]) {
+      const ts: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        const t0 = Date.now();
+        out(run(calc("act-swr-mc"), { paths, years, table: "none" }));
+        ts.push(Date.now() - t0);
+      }
+      ts.sort((x, y) => x - y);
+      // About 190 ms on the dev PC; the test allows 1,000 ms so a busy machine does not flake it.
+      expect(ts[1]).toBeLessThan(1000);
+    }
   });
 });
 

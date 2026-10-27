@@ -394,7 +394,7 @@ export function retireCalc(read: Read): FinResult {
 export const SWR_MAX_PATHS = 100000;
 export const SWR_MIN_PATHS = 1000;
 export const SWR_MAX_YEARS = 60;
-/** paths × years (100,000 × 36, 90,000 × 40 or 60,000 × 60; about 280 ms under jest at the cap). */
+/** paths × years (100,000 × 36, 90,000 × 40 or 60,000 × 60; about 190 ms under jest at the cap since the bucketed percentiles). */
 export const SWR_WORK_BUDGET = 3_600_000;
 
 export function swrCalc(read: Read): FinResult {

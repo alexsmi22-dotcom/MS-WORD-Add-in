@@ -25,7 +25,6 @@
  *  - Percentiles by linear interpolation between order statistics (Hyndman–Fan type 7); ruined paths count as 0.
  */
 import { Pcg32, PCG_STREAM } from "./prng";
-import { quantilesOf } from "./ipValuation";
 
 export interface ScheduleInput {
   age: number;
@@ -141,6 +140,131 @@ const M_EXP = Math.exp;
 const TWO32 = 4294967296;
 const TWO_PI = 2 * Math.PI;
 
+/**
+ * Moves the k-th smallest of w[l..r] to w[k] (Hoare partition, median-of-three pivot), leaving w[l..k−1] ≤ w[k] ≤
+ * w[k+1..r]. In place; O(r − l) expected.
+ */
+function selectInPlace(w: Float64Array, l: number, r: number, k: number): void {
+  let guard = 0;
+  const cap = 4 * (r - l + 1) + 64;
+  while (r > l) {
+    if (++guard > cap) throw new Error("selectInPlace did not converge");
+    const m = (l + r) >>> 1;
+    const x = w[l];
+    const y = w[m];
+    const z = w[r];
+    const pivot = x < y ? (y < z ? y : x < z ? z : x) : x < z ? x : y < z ? z : y;
+    let i = l;
+    let j = r;
+    while (i <= j) {
+      while (w[i] < pivot) i++;
+      while (w[j] > pivot) j--;
+      if (i <= j) {
+        const t = w[i];
+        w[i] = w[j];
+        w[j] = t;
+        i++;
+        j--;
+      }
+    }
+    if (k <= j) r = j;
+    else if (k >= i) l = i;
+    else return;
+  }
+}
+
+const BUCKETS = 4096;
+
+/** Scratch arrays for percentiles109050, allocated once per simulation. */
+export interface QuantileScratch {
+  work: Float64Array;
+  bucket: Uint16Array;
+  counts: Int32Array;
+  offset: Int32Array;
+  fill: Int32Array;
+}
+
+export function quantileScratch(n: number): QuantileScratch {
+  return { work: new Float64Array(n), bucket: new Uint16Array(n), counts: new Int32Array(BUCKETS), offset: new Int32Array(BUCKETS), fill: new Int32Array(BUCKETS) };
+}
+
+/**
+ * Type-7 10th, 50th and 90th percentiles of a: the same numbers as quantilesOf(a, [0.1, 0.5, 0.9]) (an order statistic
+ * is an exact element of a, whatever the algorithm finds it), in about three cheap passes instead of a quickselect per
+ * order statistic. The values are counted into 4,096 equal-width buckets between the minimum and the maximum; each
+ * wanted order statistic k (and k + 1, for the interpolation) falls in a known bucket at a known rank; only those
+ * buckets' elements are gathered and selected among.
+ */
+export function percentiles109050(a: Float64Array, sc: QuantileScratch): [number, number, number] {
+  const n = a.length;
+  const last = n - 1;
+  const ps = [0.1, 0.5, 0.9];
+  const kLo = ps.map((p) => Math.floor(last * p));
+  let lo = a[0];
+  let hi = a[0];
+  for (let j = 1; j < n; j++) {
+    const v = a[j];
+    if (v < lo) lo = v;
+    else if (v > hi) hi = v;
+  }
+  if (!(hi > lo)) return [lo, lo, lo];
+  const { work, bucket, counts, offset, fill } = sc;
+  counts.fill(0);
+  const scale = BUCKETS / (hi - lo);
+  const top = BUCKETS - 1;
+  for (let j = 0; j < n; j++) {
+    let b = ((a[j] - lo) * scale) | 0;
+    if (b > top) b = top;
+    bucket[j] = b;
+    counts[b]++;
+  }
+  // The wanted ranks (k and k + 1 for each percentile), ascending and distinct; their buckets and ranks within them.
+  const want = [...new Set(kLo.flatMap((k) => [k, Math.min(last, k + 1)]))].sort((x, y) => x - y);
+  const wb: number[] = [];
+  const wr: number[] = [];
+  let cum = 0;
+  let b = 0;
+  for (const k of want) {
+    while (cum + counts[b] <= k) cum += counts[b++];
+    wb.push(b);
+    wr.push(k - cum);
+  }
+  // Gather the needed buckets' elements into contiguous segments of work.
+  offset.fill(-1);
+  let off = 0;
+  for (const bb of wb) {
+    if (offset[bb] >= 0) continue;
+    offset[bb] = off;
+    fill[bb] = 0;
+    off += counts[bb];
+  }
+  for (let j = 0; j < n; j++) {
+    const o = offset[bucket[j]];
+    if (o >= 0) work[o + fill[bucket[j]]++] = a[j];
+  }
+  // Select within each segment, ranks ascending (each later selection only looks right of the previous one).
+  const val = new Map<number, number>();
+  let prevB = -1;
+  let from = 0;
+  for (let i = 0; i < want.length; i++) {
+    const bb = wb[i];
+    const s = offset[bb];
+    const e = s + counts[bb] - 1;
+    if (bb !== prevB) from = s;
+    selectInPlace(work, from, e, s + wr[i]);
+    val.set(want[i], work[s + wr[i]]);
+    from = s + wr[i] + 1;
+    prevB = bb;
+  }
+  return ps.map((p, i) => {
+    const h = last * p;
+    const k = kLo[i];
+    const a0 = val.get(k)!;
+    const a1 = val.get(Math.min(last, k + 1))!;
+    return a0 + (h - k) * (a1 - a0);
+  }) as [number, number, number];
+}
+
 export function swrMonteCarlo(o: SwrInput): SwrResult {
   const s2 = M_LOG(1 + (o.sd * o.sd) / ((1 + o.mean) * (1 + o.mean)));
   const s = M_SQRT(s2);
@@ -149,6 +273,7 @@ export function swrMonteCarlo(o: SwrInput): SwrResult {
   const n = o.paths;
   const bal = new Float64Array(n).fill(o.balance);
   const ruined = new Uint8Array(n);
+  const scratch = quantileScratch(n);
   let ruinedCount = 0;
   const ruinBy: number[] = [];
   const p10: number[] = [];
@@ -175,7 +300,7 @@ export function swrMonteCarlo(o: SwrInput): SwrResult {
     ruinedCount += newly;
     if (o.alive) whileAlive += (newly / n) * o.alive[t];
     ruinBy.push(ruinedCount / n);
-    const q = quantilesOf(bal, [0.1, 0.5, 0.9]);
+    const q = percentiles109050(bal, scratch);
     p10.push(q[0]);
     p50.push(q[1]);
     p90.push(q[2]);

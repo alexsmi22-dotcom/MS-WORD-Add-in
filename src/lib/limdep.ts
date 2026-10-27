@@ -47,6 +47,8 @@ export const ORDERED_MAX_J = 10;
 export const MNL_MAX_J = 6;
 /** Largest count accepted per observation. */
 export const COUNT_MAX_Y = 10_000_000;
+/** Largest count for which the observed-vs-predicted frequency comparison (and its figure) is formed. */
+export const COUNT_FREQ_MAX = 40;
 /** Newton–Raphson iteration cap (each fit can override it, so tests can force the refusal). */
 export const LIMDEP_MAX_ITER = 100;
 
@@ -603,7 +605,7 @@ export interface CountResult {
   /** LR test of α = 0 (NB2 against Poisson), boundary p = ½·P(χ²₁ > LR). */
   lrAlpha?: { stat: number; p: number };
   /** Cameron–Trivedi auxiliary-regression test of the Poisson fit (NB2 alternative). */
-  ct: { alpha: number; se: number; t: number; p: number };
+  ct: { alpha: number; se: number; t: number; p: number } | null;
   /** Pearson χ² of the Poisson fit and its residual degrees of freedom. */
   pearson: number;
   dfResid: number;
@@ -614,6 +616,8 @@ export interface CountResult {
   llPoisson: number;
   iterations: number;
   nZero: number;
+  /** Observed share and mean fitted probability of each count 0…max(y), or null when max(y) > COUNT_FREQ_MAX. */
+  freq: { count: number; observed: number; predicted: number }[] | null;
 }
 
 /** ln Γ(y + r) − ln Γ(r), ψ(y + r) − ψ(r) and ψ′(y + r) − ψ′(r) for an integer count y (exact sums for small y). */
@@ -823,7 +827,9 @@ export function fitCount(y: number[], X: number[][], names: string[], opts: Coun
   const seCt = MATH.sqrt(sse / (n - 1) / smm);
   const tCt = aCt / seCt;
   const pTwo = tTestP(tCt, n - 1);
-  const ct = { alpha: aCt, se: seCt, t: tCt, p: tCt > 0 ? pTwo / 2 : 1 - pTwo / 2 };
+  const ctRaw = { alpha: aCt, se: seCt, t: tCt, p: tCt > 0 ? pTwo / 2 : 1 - pTwo / 2 };
+  // Omitted (null) rather than printed when a value is not a number (μ̂ identical in every row gives 0/0).
+  const ct = Object.values(ctRaw).every((v) => Number.isFinite(v)) && seCt > 0 ? ctRaw : null;
   // Null model: constant only, with the offset (closed form).
   const c0 = MATH.log(sumY / sumE);
   let llNullPois = 0;
@@ -880,6 +886,30 @@ export function fitCount(y: number[], X: number[][], names: string[], opts: Coun
     const lr = MATH.max(0, 2 * (res.at.ll - pr.at.ll));
     lrAlpha = { stat: lr, p: lr > 0 ? 0.5 * chiSquareP(lr, 1) : 0.5 };
   }
+  // Observed share of each count 0…K against the mean fitted probability (K = the largest count, at most
+  // COUNT_FREQ_MAX; null beyond it), log-pmf recursions so a large μ never underflows to 0.
+  let maxY = 0;
+  for (let i = 0; i < n; i++) if (y[i] > maxY) maxY = y[i];
+  let freq: CountResult["freq"] = null;
+  if (maxY <= COUNT_FREQ_MAX) {
+    const K = maxY;
+    const pred = new Float64Array(K + 1);
+    const obs = new Float64Array(K + 1);
+    const aFit = nb ? MATH.exp(res.theta[p]) : 0;
+    const rr = nb ? 1 / aFit : 0;
+    for (let i = 0; i < n; i++) {
+      obs[y[i]] += 1;
+      let eta = off[i];
+      for (let j = 0; j < p; j++) eta += d.Xs[i * p + j] * res.theta[j];
+      const mu = MATH.exp(eta);
+      let lp = nb ? rr * (MATH.log(rr) - MATH.log(rr + mu)) : -mu;
+      for (let c = 0; c <= K; c++) {
+        pred[c] += MATH.exp(lp);
+        lp += nb ? MATH.log((c + rr) / (c + 1)) + MATH.log(mu / (rr + mu)) : MATH.log(mu / (c + 1));
+      }
+    }
+    freq = Array.from({ length: K + 1 }, (_, c) => ({ count: c, observed: obs[c] / n, predicted: pred[c] / n }));
+  }
   const ll = res.at.ll;
   const k = names.length;
   const nPar = p + (nb ? 1 : 0);
@@ -924,6 +954,7 @@ export function fitCount(y: number[], X: number[][], names: string[], opts: Coun
     llPoisson: pr.at.ll,
     iterations: res.iterations,
     nZero,
+    freq,
   };
 }
 
@@ -1064,7 +1095,27 @@ function tobitFitCore(d: Design, ys: Float64Array, cls: Int8Array, lo: number, h
   for (let j = 0; j < pb; j++) st[j] = b[j] / s0;
   st[pb] = 1 / s0;
   const prob = new TobitProblem(d, ys, cls, lo, hi);
-  return newton(prob, st, maxIter, what);
+  const res = newton(prob, st, maxIter, what);
+  // Separation: a predictor whose every nonzero value sits at a censoring limit drives its coefficient to ±∞ while
+  // the score decays like φ(t), so the decrement test alone can pass; one more Newton step still moves the index.
+  let yMax = MATH.max(MATH.abs(lo), MATH.abs(hi));
+  for (let i = 0; i < n; i++) yMax = MATH.max(yMax, MATH.abs(ys[i]));
+  separationProbe(
+    prob,
+    res,
+    (step) => {
+      let mx = 0;
+      for (let i = 0; i < n; i++) {
+        let s2 = 0;
+        for (let j = 0; j < pb; j++) s2 += d.Xs[i * pb + j] * step[j];
+        mx = MATH.max(mx, MATH.abs(s2));
+      }
+      return mx + MATH.abs(step[pb]) * yMax;
+    },
+    what,
+    "A predictor whose observations all sit at a censoring limit (or beyond one side of it) has no finite coefficient; drop it or the limit.",
+  );
+  return res;
 }
 
 /** Tobit by maximum likelihood, censored at `lower` and/or `upper`. X rows WITHOUT the constant. */
@@ -1304,7 +1355,7 @@ export interface HeckmanResult {
   n: number;
   nSelected: number;
   /** Wald χ² that every outcome predictor's coefficient (not λ, not the constant) is zero. */
-  wald: { stat: number; df: number; p: number };
+  wald: { stat: number; df: number; p: number } | null;
   /** Selection regressors that are excluded from the outcome equation (the exclusion restrictions). */
   excluded: string[];
 }
@@ -1444,7 +1495,7 @@ export function fitHeckman(inp: HeckmanInput): HeckmanResult {
   for (let a = 0; a < pw; a++) for (let c = 0; c < pw; c++) V[a * pw + c] = (sig2 * Vs[a * pw + c]) / (wsc[a] * wsc[c]);
   const terms = [...xNames, MILLS_NAME, "Constant"].map((nm, j) => makeTerm(nm, b[j], MATH.sqrt(MATH.max(0, V[j * pw + j]))));
   // Wald χ² on the outcome predictors.
-  let wald = { stat: 0, df: 0, p: 1 };
+  let wald: { stat: number; df: number; p: number } | null = null;
   if (kx > 0) {
     const Vx = new Float64Array(kx * kx);
     for (let a = 0; a < kx; a++) for (let c = 0; c < kx; c++) Vx[a * kx + c] = V[a * pw + c];
@@ -1454,7 +1505,7 @@ export function fitHeckman(inp: HeckmanInput): HeckmanResult {
       const sol = cholSolve(Lx, kx, bx);
       let w = 0;
       for (let j = 0; j < kx; j++) w += bx[j] * sol[j];
-      wald = { stat: w, df: kx, p: chiSquareP(w, kx) };
+      if (Number.isFinite(w) && w >= 0) wald = { stat: w, df: kx, p: chiSquareP(w, kx) };
     }
   }
   const xl = new Set(xNames.map((x) => x.toLowerCase()));
@@ -1465,7 +1516,7 @@ export function fitHeckman(inp: HeckmanInput): HeckmanResult {
     { label: "ρ", value: rho },
     { label: "σ", value: sig },
   ];
-  if (kx > 0) stats.push({ label: `Wald χ²(${kx})`, value: wald.stat }, { label: "Prob > χ²", value: wald.p });
+  if (wald) stats.push({ label: `Wald χ²(${kx})`, value: wald.stat }, { label: "Prob > χ²", value: wald.p });
   assertFinite([...terms, ...probit.terms], stats, "Heckman two-step");
   const lambda = terms[kx];
   let probitLl = NaN;

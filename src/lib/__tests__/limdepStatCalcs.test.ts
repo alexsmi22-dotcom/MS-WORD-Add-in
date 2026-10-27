@@ -299,3 +299,19 @@ describe("adversarial: the Heckman equations name each other's response", () => 
     expect(run("econ-heckman", { selection: "lwage ~ educ" }).text).toBe("“lwage” cannot be both the outcome and the selection indicator.");
   });
 });
+
+describe("figures (plot.buildPlotSvg)", () => {
+  test("count and ordered defaults draw; counts above 40 say why there is no figure", () => {
+    for (const id of ["econ-count", "econ-ordered"]) {
+      const o = run(id);
+      expect(o.svg).toMatch(/^<svg/);
+      expect(o.svg).not.toMatch(/NaN|Infinity|—/);
+      expect(o.text).toMatch(/^Figure: observed share of each/m);
+    }
+    expect(run("econ-count", { model: "nb2" }).svg).toMatch(/^<svg/);
+    const big = run("econ-count", { data: FX.adv.countLarge.data });
+    expect(big.ok).not.toBe(false);
+    expect(big.svg).toBeUndefined();
+    expect(big.text).toContain("No frequency figure: the largest count exceeds 40.");
+  });
+});

@@ -17,6 +17,7 @@ import type { ModelTerm } from "./regModel";
 import { readFinanceField } from "./finance";
 import { findColumn, parseRegData, parseSpec, selectColumns, type RegDataset, type RegSpec } from "./regData";
 import { fmtFixed, fmtP, intText, numText, P_BELOW } from "./regTable";
+import { buildPlotSvg } from "./plot";
 import {
   fitCount,
   fitHeckman,
@@ -24,6 +25,7 @@ import {
   fitOrdered,
   fitTobit,
   LimdepRefusal,
+  COUNT_FREQ_MAX,
   LIMDEP_MAX_ITER,
   MILLS_NAME,
   type CountResult,
@@ -50,6 +52,8 @@ function termRow(t: ModelTerm, label = t.name): string[] {
   return [label, fmtFixed(t.coef, D), fmtFixed(t.se, D), fmtFixed(t.stat, 2), fmtP(t.p), ci(t.ciLo, t.ciHi)];
 }
 function pText(p: number): string {
+  // Callers check their statistics first; this keeps a non-number out of an ok result whatever happens upstream.
+  if (!Number.isFinite(p)) return "p not computed";
   return p < 0.001 ? `p ${P_BELOW}` : `p = ${p.toFixed(3)}`;
 }
 function list(names: string[]): string {
@@ -110,6 +114,17 @@ function optionalNumber(raw: string, label: string): number | null | { error: st
   const v = readFinanceField(raw);
   if (!Number.isFinite(v)) return { error: `${label}: ${q(raw.trim())} is not a number (leave it blank for none).` };
   return v;
+}
+
+/** Observed shares (dots) against mean predicted probabilities (line), by plot.buildPlotSvg (no new SVG builder). */
+function sharesFigure(pts: { x: number; observed: number; predicted: number }[], title: string, xlabel: string): string {
+  return buildPlotSvg(
+    [
+      { type: "scatter", points: pts.map((p) => ({ x: p.x, y: p.observed })), color: "#0369a1", label: "Observed share" },
+      { type: "line", points: pts.map((p) => ({ x: p.x, y: p.predicted })), color: "#b45309", label: "Mean predicted probability" },
+    ],
+    { width: 420, height: 260, title, xlabel, ylabel: "Share of observations" },
+  );
 }
 
 function fail(e: unknown, what: string): StatOutput {
@@ -196,17 +211,23 @@ export function econCountCalc(read: Read): StatOutput {
   }
   lines.push(statsLine(m));
   const ct = r.ct;
-  const ctLine =
-    `Overdispersion test (Cameron and Trivedi 1990, NB2 form; on the Poisson fit): auxiliary OLS through the origin of ((y − μ̂)² − y)/μ̂ on μ̂ gives ` +
-    `α̂ = ${fmtFixed(ct.alpha, 4)} (SE ${fmtFixed(ct.se, 4)}), t = ${fmtFixed(ct.t, 2)}, one-sided ${pText(ct.p)}; Pearson χ²/df = ${fmtFixed(r.pearson / r.dfResid, 3)} (1 under the Poisson model).`;
-  lines.push(ctLine);
-  if (!nb) {
+  const pearsonDf = r.pearson / r.dfResid;
+  const pearsonText = Number.isFinite(pearsonDf) ? `Pearson χ²/df = ${fmtFixed(pearsonDf, 3)} (1 under the Poisson model).` : "";
+  if (ct) {
+    lines.push(
+      `Overdispersion test (Cameron and Trivedi 1990, NB2 form; on the Poisson fit): auxiliary OLS through the origin of ((y − μ̂)² − y)/μ̂ on μ̂ gives ` +
+        `α̂ = ${fmtFixed(ct.alpha, 4)} (SE ${fmtFixed(ct.se, 4)}), t = ${fmtFixed(ct.t, 2)}, one-sided ${pText(ct.p)}; ${pearsonText}`,
+    );
+  } else {
+    lines.push(`The Cameron–Trivedi overdispersion test cannot be formed for these data (its auxiliary regression is degenerate). ${pearsonText}`.trim());
+  }
+  if (!nb && ct) {
     lines.push(
       ct.p < 0.05 && ct.alpha > 0
         ? "The data are overdispersed at the 5% level: the Poisson coefficients stay consistent, but use robust (HC0) standard errors or the NB2 model."
         : "No evidence of overdispersion at the 5% level.",
     );
-  } else if (r.alpha && r.lrAlpha) {
+  } else if (nb && r.alpha && r.lrAlpha) {
     const a = r.alpha;
     lines.push(
       `NB2 dispersion: α = ${fmtFixed(a.est, 4)} (SE ${fmtFixed(a.se, 4)}; 95% CI ${ci(a.lo, a.hi)}, from ln α), with Var(y | x) = μ + αμ².`,
@@ -228,7 +249,17 @@ export function econCountCalc(read: Read): StatOutput {
     { label: `${title} coefficients (dependent variable: ${m.depName}; standard errors: ${m.seLabel})`, rows, align: ALIGN6 },
     { label: `Incidence-rate ratios exp(b) (dependent variable: ${m.depName})`, rows: [["Term", "IRR", "SE", "z", "p", "95% CI"], ...r.irr.map((x) => termRow(x))], align: ALIGN6 },
   ];
-  return { text: lines.join("\n"), tables };
+  if (!r.freq) {
+    lines.push(`No frequency figure: the largest count exceeds ${COUNT_FREQ_MAX}.`);
+    return { text: lines.join("\n"), tables };
+  }
+  const svg = sharesFigure(
+    r.freq.map((f) => ({ x: f.count, observed: f.observed, predicted: f.predicted })),
+    `${nb ? "NB2" : "Poisson"}: observed vs predicted count frequencies`,
+    `${m.depName} (count)`,
+  );
+  lines.push(`Figure: observed share of each count 0 to ${r.freq.length - 1} (dots) and the mean fitted ${nb ? "NB2" : "Poisson"} probability of that count (line); excess zeros or a fat tail show as dots off the line.`);
+  return { text: lines.join("\n"), svg, tables };
 }
 
 // ---------------------------------------------------------------------------------------------------- econ-tobit
@@ -354,7 +385,7 @@ export function econHeckmanCalc(read: Read): StatOutput {
   const lam = r.lambda;
   const lines = [
     `Heckman selection model, two-step: ${m.depName} on ${list(out.names)}; selection: ${sel.depName} on ${list(sel.names)} (n = ${intText(r.n)}: ${intText(r.nSelected)} selected, ${intText(r.n - r.nSelected)} not selected)`,
-    `ρ = ${fmtFixed(r.rho, 4)}, σ = ${fmtFixed(r.sigma, 4)}, λ coefficient = ρσ = ${fmtFixed(lam.coef, D)} (SE ${fmtFixed(lam.se, D)}); ${r.wald.df > 0 ? `Wald χ²(${r.wald.df}) = ${fmtFixed(r.wald.stat, 3)}, ${pText(r.wald.p)} (outcome predictors); ` : ""}probit log likelihood = ${fmtFixed(r.probitLl, 3)}.`,
+    `ρ = ${fmtFixed(r.rho, 4)}, σ = ${fmtFixed(r.sigma, 4)}, λ coefficient = ρσ = ${fmtFixed(lam.coef, D)} (SE ${fmtFixed(lam.se, D)}); ${r.wald ? `Wald χ²(${r.wald.df}) = ${fmtFixed(r.wald.stat, 3)}, ${pText(r.wald.p)} (outcome predictors); ` : ""}probit log likelihood = ${fmtFixed(r.probitLl, 3)}.`,
     `Test of no selection bias (H₀: ρ = 0): z on λ = ${fmtFixed(lam.stat, 2)}, ${pText(lam.p)}.`,
     "Method (Wooldridge, Econometric Analysis of Cross Section and Panel Data, 2nd ed., 2010, §19.6): (1) probit of the selection indicator on z by maximum likelihood; (2) λᵢ = φ(zᵢγ̂)/Φ(zᵢγ̂), the inverse Mills ratio, for each selected row; (3) OLS of the outcome on x and λ over the selected rows.",
     "Corrected standard errors (Heckman 1979): V = σ²(X*ᵀX*)⁻¹[X*ᵀ(I − ρ²Δ)X* + ρ²(X*ᵀΔZ)V_γ(ZᵀΔX*)](X*ᵀX*)⁻¹ with X* = [x, λ, 1], Δ = diag(δᵢ), δᵢ = λᵢ(λᵢ + zᵢγ̂), σ² = eᵀe/n₁ + b_λ²·mean(δ), ρ = b_λ/σ, V_γ the probit's inverse information. The usual OLS standard errors of step 3 are not valid and are not shown.",
@@ -408,7 +439,13 @@ export function econOrderedCalc(read: Read): StatOutput {
     { label: "Cut points κⱼ", rows: cutRows, align: ["left", "right", "right", "right"] },
     { label: "Observed shares and mean predicted probabilities", rows: shareRows, align: ["left", "right", "right", "right"] },
   ];
-  return { text: lines.join("\n"), tables };
+  const svg = sharesFigure(
+    r.categories.map((v, j) => ({ x: v, observed: r.counts[j] / m.n, predicted: r.meanProb[j] })),
+    `${title}: observed vs predicted shares`,
+    `${m.depName} (category)`,
+  );
+  lines.push(`Figure: observed share of each category (dots) and the mean predicted probability (line).`);
+  return { text: lines.join("\n"), svg, tables };
 }
 
 // ---------------------------------------------------------------------------------------------------- econ-mlogit

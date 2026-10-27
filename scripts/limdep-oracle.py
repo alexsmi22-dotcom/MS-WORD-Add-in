@@ -126,6 +126,9 @@ def count_oracle(text, preds, exposure, constant=True):
     }
     score0 = float(np.sum((y - mu) ** 2 - y)) / 2
     out["poisson"]["alphaScoreAt0"] = score0
+    K = int(np.max(y))
+    if K <= 40:  # mean fitted probability of each count 0..K (scipy.stats pmfs)
+        out["poisson"]["freqPred"] = [float(np.mean(stats.poisson.pmf(c, mu))) for c in range(K + 1)]
     if score0 > 0:
         nm = NegativeBinomial(y, X, loglike_method="nb2", offset=off)
         start = np.append(pr.params, 0.5)
@@ -138,6 +141,10 @@ def count_oracle(text, preds, exposure, constant=True):
             "lrAlpha": float(lr), "pAlpha": float(0.5 * stats.chi2.sf(lr, 1)) if lr > 0 else 0.5,
             "scoreMax": float(np.max(np.abs(nm.score(nr.params)))),
         }
+        if K <= 40:
+            r_ = 1 / nr.params[-1]
+            mu_nb = np.exp(X @ nr.params[:-1] + (off if off is not None else 0))
+            out["nb2"]["freqPred"] = [float(np.mean(stats.nbinom.pmf(c, r_, r_ / (r_ + mu_nb)))) for c in range(K + 1)]
     return out
 
 
@@ -465,6 +472,8 @@ def main():
     adv["tobitTwoLimit"] = {"data": t3, "lower": 0, "upper": 12, **tobit_oracle(t3, ["educ", "kids"], 0.0, 12.0)}
     h2 = make_heckman(2718, 400)
     adv["heckman2"] = {"data": h2, **heckman_oracle(h2, ["educ", "exper"], ["educ", "exper", "kids", "married"])}
+    # No exclusion restriction: identification by functional form only; the two-step rho leaves [-1, 1] (truncated).
+    adv["heckmanTrunc"] = {"data": hk, **heckman_oracle(hk, ["educ", "exper"], ["educ", "exper"])}
     o2 = make_ordered(55, 200, J=3)
     adv["ordered3"] = {"data": o2, "probit": ordered_oracle(o2, ["price", "online"], "probit")}
     o3 = make_ordered(66, 220, J=2)

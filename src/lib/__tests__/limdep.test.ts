@@ -72,10 +72,10 @@ describe("Poisson and NB2 (statsmodels)", () => {
     close(r.llNull, C.poisson.llnull, 1e-9);
     close(r.pearson, C.poisson.pearson, 1e-6);
     close(r.deviance, C.poisson.deviance, 1e-6);
-    close(r.ct.alpha, C.poisson.ct.alpha, 1e-6);
-    close(r.ct.se, C.poisson.ct.se, 1e-6);
-    close(r.ct.t, C.poisson.ct.t, 1e-6);
-    close(r.ct.p, C.poisson.ct.p, 1e-5);
+    close(r.ct!.alpha, C.poisson.ct.alpha, 1e-6);
+    close(r.ct!.se, C.poisson.ct.se, 1e-6);
+    close(r.ct!.t, C.poisson.ct.t, 1e-6);
+    close(r.ct!.p, C.poisson.ct.p, 1e-5);
     const h = fitCount(y, X, names, { model: "poisson", offset: off, se: "hc0" });
     closeAll(ses(h.model.terms), C.poisson.bseHC0, 1e-6);
     // IRR = exp(b), SE exp(b)·se, interval from the exponentiated bounds.
@@ -149,7 +149,7 @@ describe("Heckman two-step (numpy, Wooldridge 2010 §19.6)", () => {
     expect(r.model.terms[2].name).toBe(MILLS_NAME);
     close(r.rho, H.rho, 1e-6);
     close(r.sigma, H.sigma, 1e-6);
-    close(r.wald.stat, H.wald, 1e-6);
+    close(r.wald!.stat, H.wald, 1e-6);
     expect(r.truncated).toBe(H.truncated);
     expect(r.nSelected).toBe(H.nSel);
     close(r.probitLl, H.probitLl, 1e-9);
@@ -286,7 +286,7 @@ describe("held-out adversarial cases", () => {
     closeAll(coefs(r.model.terms), W.beta, 1e-6);
     closeAll(ses(r.model.terms), W.bse, 1e-6);
     close(r.rho, W.rho, 1e-6);
-    close(r.wald.stat, W.wald, 1e-6);
+    close(r.wald!.stat, W.wald, 1e-6);
   });
   test("ordered probit with three categories", () => {
     const W = A.ordered3;
@@ -369,5 +369,60 @@ describe("held-out: counts in the hundreds (NB2's lgamma/digamma/trigamma path f
     close(nb.ll, W.nb2.llf, 1e-9);
     const h = fitCount(y, X, names, { model: "nb2", offset: off, se: "hc0" });
     closeAll(ses(h.model.terms), W.nb2.bseHC0.slice(0, -1), 1e-6);
+  });
+});
+
+describe("adversarial (review): tobit separation and the Heckman ρ truncation", () => {
+  const T = FX.tobit;
+  const { y, X, names } = cols(T.data, "hours ~ educ + age + kids");
+  test("a dummy that is 1 only on censored rows has no finite coefficient: refused (lower and upper limits)", () => {
+    let flag = 0;
+    const Xd = X.map((r, i) => [...r, y[i] <= 0 && flag++ % 2 === 0 ? 1 : 0]);
+    expect(() => fitTobit(y, Xd, [...names, "d"], { lower: 0, upper: null })).toThrow(/does not exist|did not converge/);
+    const U = FX.adv.tobitUpper;
+    const up = cols(U.data, "hours ~ educ + age + kids");
+    let f2 = 0;
+    const Xu = up.X.map((r, i) => [...r, up.y[i] >= 15 && f2++ % 2 === 0 ? 1 : 0]);
+    expect(() => fitTobit(up.y, Xu, [...up.names, "d"], { lower: null, upper: 15 })).toThrow(/does not exist|did not converge/);
+    // the same dummy spread over censored and uncensored rows is fine
+    const Xok = X.map((r, i) => [...r, i % 2]);
+    expect(() => fitTobit(y, Xok, [...names, "d"], { lower: 0, upper: null })).not.toThrow();
+  });
+  test("|ρ| > 1 truncated to ±1 with σ = |b_λ| (no exclusion restriction), against the oracle's same rule", () => {
+    const W = FX.adv.heckmanTrunc;
+    const sel = cols(W.data, "works ~ educ + exper");
+    const d = parseRegData(W.data);
+    if (!d.ok) throw new Error(d.reason);
+    const iw = d.data.names.indexOf("works");
+    const oc = selectColumns({ ...d.data, rows: d.data.rows.filter((r) => r[iw] === "1") }, parseSpec("lwage ~ educ + exper") as never);
+    if (!oc.ok) throw new Error(oc.reason);
+    const yo = Array.from(oc.cols.y);
+    const r = fitHeckman({ s: sel.y, Z: sel.X, zNames: sel.names, selName: "works", y: yo, X: yo.map((_, i) => oc.cols.X.map((c) => c[i])), xNames: oc.cols.names, depName: "lwage" });
+    expect(W.truncated).toBe(true);
+    expect(r.truncated).toBe(true);
+    closeAll(coefs(r.model.terms), W.beta, 1e-6);
+    closeAll(ses(r.model.terms), W.bse, 1e-6);
+    close(r.rho, W.rho, 0, 0);
+    close(r.sigma, W.sigma, 1e-6);
+    close(r.wald!.stat, W.wald, 1e-6);
+    expect(r.excluded).toEqual([]);
+  });
+});
+
+describe("count frequencies (the figure's data) against scipy.stats pmfs", () => {
+  test("Poisson and NB2 mean fitted probability of each count; null above the cap", () => {
+    const C = FX.count;
+    const { y, X, names } = cols(C.data, "visits ~ age + income + female");
+    const off = column(C.data, "years").map(Math.log);
+    for (const [model, want] of [
+      ["poisson", C.poisson.freqPred],
+      ["nb2", C.nb2.freqPred],
+    ] as const) {
+      const r = fitCount(y, X, names, { model, offset: off });
+      closeAll(r.freq!.map((f) => f.predicted), want, 1e-6, 1e-12);
+      expect(r.freq!.reduce((s, f) => s + f.observed, 0)).toBeCloseTo(1, 12);
+    }
+    const big = cols(FX.adv.countLarge.data, "visits ~ age + income + female");
+    expect(fitCount(big.y, big.X, big.names, { model: "poisson" }).freq).toBeNull();
   });
 });

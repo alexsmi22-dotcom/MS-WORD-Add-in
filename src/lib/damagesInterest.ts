@@ -1151,12 +1151,13 @@ export function postjudgmentReport(f: { amount: number; ratePct: number; judgmen
   const res = postjudgmentInterest({ amount: f.amount, rate: f.ratePct / 100, judgment: j, payment: p, dayCount });
   if ("error" in res) return refuse(res.error);
   const final = res.amountCents + res.totalInterestCents;
-  const rows: string[][] = [["Year", "From", "To (day before)", "Days", "Opening balance", "Interest", "Closing balance"]];
+  // Six columns (v2.201.1): the year's first and last days share one column, since Word breaks long amounts
+  // mid-number in tables wider than six.
+  const rows: string[][] = [["Year", "From – to (day before)", "Days", "Opening balance", "Interest", "Closing balance"]];
   res.years.forEach((y, i) => {
     rows.push([
       String(i + 1),
-      longDate(y.from),
-      y.days > 0 ? longDate(y.to - 1) : longDate(y.from),
+      `${longDate(y.from)} – ${y.days > 0 ? longDate(y.to - 1) : longDate(y.from)}`,
       y.days.toLocaleString("en-US"),
       money(y.openingCents),
       money(y.interestCents),
@@ -1164,7 +1165,7 @@ export function postjudgmentReport(f: { amount: number; ratePct: number; judgmen
     ]);
   });
   const days = p - j;
-  rows.push(["Total", "", "", days.toLocaleString("en-US"), money(res.amountCents), money(res.totalInterestCents), money(final)]);
+  rows.push(["Total", "", days.toLocaleString("en-US"), money(res.amountCents), money(res.totalInterestCents), money(final)]);
   const text = [
     "Post-judgment interest, computed from the inputs given",
     `Judgment ${money(res.amountCents)} + interest ${money(res.totalInterestCents)} = ${money(final)} on ${longDate(p)}`,

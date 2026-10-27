@@ -220,7 +220,8 @@ describe("summary by period: oracle cases to the cent", () => {
     const out = S(rows(["2022", 300000, 280000, 28000], ["2023", 400000, 320000, 36000], ["2024", 300000, 280000, 12000]), 1);
     expect(out.text).toContain("Damages: $1,956,000.00");
     expect(out.text).toContain("Total: $1,956,000.00");
-    expect(out.tables[0].rows.slice(1, 4).map((r) => r[5])).toEqual(["$608,000.00", "$756,000.00", "$592,000.00"]);
+    // v2.201.1: the per-period total sits in the second table (Period | Damages | Total | Cumulative).
+    expect(out.tables[1].rows.slice(1, 4).map((r) => r[2])).toEqual(["$608,000.00", "$756,000.00", "$592,000.00"]);
     expect(out.text).toContain("computes no interest");
     expectDisplayContract(out);
   });
@@ -230,7 +231,8 @@ describe("summary by period: oracle cases to the cent", () => {
     expect(out.text).toContain("Damages × 2 (multiplier entered): $519,001.80");
     expect(out.text).toContain("Interest (as entered): $6,421.59");
     expect(out.text).toContain("Total: $525,423.39");
-    expect(out.tables[0].rows[1][6]).toBe("$147,321.44");
+    // Second table: Period | Damages | Interest | Total | Cumulative.
+    expect(out.tables[1].rows[1][3]).toBe("$147,321.44");
   });
   test("S3: binary near-half cents round half up as the decimal oracle does; multiplier 3", () => {
     const out = S(rows(["A", 1000.005, 2000.004, 0.333], ["B", 0, 0, 999.995]), 3);

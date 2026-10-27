@@ -6,6 +6,20 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.201.1] — 2026-10-27 — Damages tables fit the page
+
+### Fixed
+- Word broke long amounts mid-number in tables wider than six columns (`$400,000,` on one line, `000,000.00` on the
+  next), and the `$` added in v2.201.0 made the amounts longer. Every damages table now has at most six columns:
+  - **Damages summary:** two tables — "Damages by period" (lost profits, price erosion, reasonable royalty, damages,
+    and the multiplier rows) and "Interest and totals by period" (damages, interest, total, cumulative, and the total
+    with the multiplier).
+  - **Lost profits:** with both price erosion and the royalty on uncaptured units on, the units and the money are
+    two tables ("Units by period", "Lost profits by period"); otherwise one table, as before.
+  - **Post-judgment interest:** each year's first and last days share one column ("March 15, 2024 – March 14, 2025").
+- A summary table pasted back into the summary is refused by name: its four-number rows would otherwise have been
+  read as lost profits, price erosion, royalty and interest, counting the damages twice.
+
 ## [2.201.0] — 2026-10-26 — Currency symbols; $ on damages
 
 ### Fixed

@@ -24,6 +24,7 @@ import {
   parsePeriodTable,
   reasonableRoyalty,
   roundCents,
+  SUMMARY_RESULT_COLUMNS,
   type DamagesOutput,
   type DamagesResult,
   type LostProfitsInput,
@@ -173,26 +174,43 @@ describe("3. space-grouped numbers are refused by name in space-separated rows",
 });
 
 describe("4. the summary table carries the multiplier and the enhanced total", () => {
-  test("multiplier 2.5 with interest: two rows after Total that agree with the text", () => {
+  test("multiplier 2.5 with interest: rows after Total in both tables that agree with the text", () => {
     const out = ok(damagesSummary({ rows: rows(["2022", 300000, 280000, 28000, 10000.55], ["2023", 400000, 320000, 36000, 5000]), multiplier: 2.5 }));
     expect(out.text).toContain("Damages × 2.5 (multiplier entered): $3,410,000.00");
     expect(out.text).toContain("Total: $3,425,000.55");
+    // v2.201.1: two tables of at most six columns.
+    expect(out.tables.map((t) => t.label)).toEqual(["Damages by period", "Interest and totals by period"]);
     const t = out.tables[0].rows;
-    expect(t[t.length - 3]).toEqual(["Total", "$700,000.00", "$600,000.00", "$64,000.00", "$1,364,000.00", "$15,000.55", "$1,379,000.55", ""]);
-    expect(t[t.length - 2]).toEqual(["Multiplier entered", "", "", "", "× 2.5", "", "", ""]);
-    expect(t[t.length - 1]).toEqual(["Total with damages × 2.5", "", "", "", "$3,410,000.00", "$15,000.55", "$3,425,000.55", ""]);
+    expect(t[t.length - 3]).toEqual(["Total", "$700,000.00", "$600,000.00", "$64,000.00", "$1,364,000.00"]);
+    expect(t[t.length - 2]).toEqual(["Multiplier entered", "", "", "", "× 2.5"]);
+    expect(t[t.length - 1]).toEqual(["Damages × 2.5", "", "", "", "$3,410,000.00"]);
+    const u = out.tables[1].rows;
+    expect(u[0]).toEqual(["Period", "Damages", "Interest", "Total", "Cumulative"]);
+    expect(u[u.length - 2]).toEqual(["Total", "$1,364,000.00", "$15,000.55", "$1,379,000.55", ""]);
+    expect(u[u.length - 1]).toEqual(["Total with damages × 2.5", "$3,410,000.00", "$15,000.55", "$3,425,000.55", ""]);
     expect(damagesTablesClean(out.tables)).toBe(true);
   });
   test("without interest; multiplier 1 adds no rows", () => {
     const out = ok(damagesSummary({ rows: rows(["2022", 100, 0, 0.01]), multiplier: 3 }));
-    expect(out.tables[0].rows.slice(-1)[0]).toEqual(["Total with damages × 3", "", "", "", "$300.03", "$300.03", ""]);
+    expect(out.tables[1].rows.slice(-1)[0]).toEqual(["Total with damages × 3", "$300.03", "$300.03", ""]);
     const one = ok(damagesSummary({ rows: rows(["2022", 100, 0, 0.01]), multiplier: 1 }));
     expect(one.tables[0].rows.slice(-1)[0][0]).toBe("Total");
+    expect(one.tables[1].rows.slice(-1)[0][0]).toBe("Total");
   });
-  test("the inserted enhanced summary pasted back is refused by name, not misread", () => {
-    const out = ok(damagesSummary({ rows: rows(["2022", 300000, 280000, 28000]), multiplier: 2 }));
-    const back = out.tables[0].rows.map((r) => r.join("\t")).join("\n");
-    expect(err(parsePeriodTable(back, SUM_NAMES, 1))).toContain("6 numbers after the period, but this table takes at most 4");
+  test("either inserted summary table pasted back is refused by name, not misread (multiplier 1 and 2)", () => {
+    // v2.201.1: the first table has four numbers per period, which the summary's four input columns would accept
+    // (Damages read as interest, the damages counted twice): the header names a result column and is refused.
+    for (const m of [1, 2]) {
+      const out = ok(damagesSummary({ rows: rows(["2022", 300000, 280000, 28000], ["2023", 1, 2, 3]), multiplier: m }));
+      for (const t of out.tables) {
+        const back = t.rows.map((r) => r.join("\t")).join("\n");
+        const e = err(parsePeriodTable(back, SUM_NAMES, 1, { allowNegative: [1], resultColumns: SUMMARY_RESULT_COLUMNS }));
+        expect(e).toMatch(/names a “(damages|total|cumulative)” column: that is a result table pasted back/);
+      }
+    }
+    // An input table with ordinary titles still reads.
+    const input = parsePeriodTable("Period\tLost profits\tPrice erosion\tReasonable royalty\n2022\t1\t2\t3", SUM_NAMES, 1, { resultColumns: SUMMARY_RESULT_COLUMNS });
+    expect(err(input)).toBe("(no error)");
   });
 });
 
@@ -384,7 +402,9 @@ describe("9. minor fixes", () => {
   });
   test("(b) a negative erosion from lost profits is said, and the summary takes it as an offset", () => {
     const neg = ok(lostProfits(lp({ rows: rows(["2022", 1000, 1000]), butForPrice: 110, actualPrice: 100, elasticity: 5, price: 100 })));
-    const ero = neg.tables[0].rows[1][4];
+    // The price-erosion cell, found by its header (v2.201.1 splits a table wider than six columns in two).
+    const et = neg.tables.find((t) => t.rows[0].includes("Price erosion"))!;
+    const ero = et.rows[1][et.rows[0].indexOf("Price erosion")];
     expect(ero.startsWith(MINUS)).toBe(true);
     expect(neg.text).toContain("Note: a negative price erosion");
     const t = parsePeriodTable(`2022 1,000 ${ero} 50`, SUM_NAMES, 1, { allowNegative: [1] });
@@ -484,5 +504,38 @@ describe("narrow pass on the E1 fix", () => {
     expect(commaGroupLabel("12 500")).toBe("12,500");
     expect(commaGroupLabel("250")).toBe("250");
     expect(commaGroupLabel("1250.5")).toBe("1,250.5");
+  });
+});
+
+// v2.201.1: in real Word, a table wider than six columns broke long amounts mid-number ("$400,000,|000,000.0|0").
+describe("every damages table is at most six columns, at each engine's widest options", () => {
+  const big = 400000000000;
+  const cases: [string, { label: string; rows: string[][] }[]][] = [
+    ["summary, interest + multiplier", ok(damagesSummary({ rows: rows(["2022", big, big / 2, big / 10, big / 40], ["2023", 1, 2, 3, 4]), multiplier: 2.5 })).tables],
+    ["lost profits, erosion + uncaptured royalty", ok(lostProfits(lp())).tables],
+    ["reasonable royalty with present value", ok(reasonableRoyalty(royalty({ discountPct: 8, lumpSum: 1000 }))).tables],
+    ["prejudgment", [pre("2019-01-01\t1,000,000\n2020-06-30\t2,500,000", { method: "monthly" }).table!]],
+    ["post-judgment", [postjudgmentReport({ amount: 1469135.78, ratePct: 4.12, judgment: "2024-03-15", payment: "2026-10-24", dayCount: "actact" }).table!]],
+    [
+      "lost earnings",
+      [lostEarningsReport({ base: 65000, growthPct: 3, discountPct: 4.5, horizonMode: "years", horizon: 20, startAge: 45, consumptionPct: 10, fringePct: 22, midYear: "on" }).table!],
+    ],
+  ];
+  test.each(cases)("%s", (_name, tables) => {
+    expect(tables.length).toBeGreaterThan(0);
+    for (const t of tables) {
+      expect(t.rows[0].length).toBeLessThanOrEqual(6);
+      for (const r of t.rows) expect({ table: t.label, len: r.length }).toEqual({ table: t.label, len: t.rows[0].length });
+    }
+  });
+  test("lost profits with erosion and the uncaptured royalty is split into units and money", () => {
+    const t = ok(lostProfits(lp())).tables;
+    expect(t.map((x) => x.label)).toEqual(["Units by period", "Lost profits by period"]);
+    expect(t[0].rows[0]).toEqual(["Period", "Infringer's units", "Captured units"]);
+    expect(t[1].rows[0]).toEqual(["Period", "Lost profits", "Price erosion", "Royalty on uncaptured units", "Total"]);
+    expect(t[0].rows.length).toBe(t[1].rows.length);
+    expect(t[1].rows[t[1].rows.length - 1][0]).toBe("Total");
+    // Without the uncaptured royalty: one table of six columns, as before.
+    expect(ok(lostProfits(lp({ remainder: "none" }))).tables.map((x) => x.label)).toEqual(["Lost profits by period"]);
   });
 });

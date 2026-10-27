@@ -431,13 +431,13 @@ describe("trading model vs the Python block simulation", () => {
   test("labelled a model, every parameter printed", () => {
     const o = okOut("dmg-sec-aggregate");
     expect(o.text).toContain("TRADING MODEL ESTIMATE");
-    expect(o.text).toContain("they are models that courts have criticised.");
+    expect(o.text).toContain("they are models that courts have criticized.");
     expect(o.text).toContain("float 50,000,000 shares; volume reduction 0%");
     expect(o.text).toContain("active traders hold 20% of the float (10,000,000 shares) and make 80% of the adjusted volume");
     expect(o.text).toContain("One-trader (proportional) model: $142,937,391.52");
     expect(o.text).toContain("Two-trader model: $90,945,345.73");
     expect(okOut("dmg-sec-aggregate", { model: "one" }).tables![0].rows[0]).toHaveLength(4);
-    expect(calc("dmg-sec-aggregate").assumes).toMatch(/courts have criticised/);
+    expect(calc("dmg-sec-aggregate").assumes).toMatch(/courts have criticized/);
   });
 
   test("refusals", () => {

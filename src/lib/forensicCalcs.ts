@@ -45,7 +45,7 @@ export const FORENSIC_CALCS: FinCalcDef[] = [
         ],
       },
       { key: "base", label: "Pre-injury annual earnings", default: "68,000" },
-      { key: "residual", label: "Residual earning capacity a year after the injury (0 if none)", default: "24,000" },
+      { key: "residual", label: "Residual earning capacity per year (offset from loss year 1, in the same base-year terms as the pre-injury earnings and growing with them; 0 if none)", default: "24,000" },
       { key: "growth", label: "Earnings growth (% a year)", default: "3" },
       {
         key: "method",

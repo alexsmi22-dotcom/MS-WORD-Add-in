@@ -256,7 +256,8 @@ describe("adversarial (after the build)", () => {
     }).join("\n");
     const o = run("econ-count", { data: shifted });
     expect(o.ok).not.toBe(false);
-    expect(o.text).toMatch(/Not in the IRR table: Constant, whose exp\(b\)/);
+    // The note says what overflowed (here b itself), not a generic "|b| above 600".
+    expect(o.text).toContain("Not in the IRR table (the coefficient table still has them): Constant (b = −16,666, so exp(b) is outside the representable range).");
     expect(o.tables![1].rows.map((r) => r[0])).toEqual(["Term", "age", "income", "female"]);
     // the age coefficient is unchanged by the shift
     expect(cell(o, 0, "age", 1)).toBe(cell(run("econ-count"), 0, "age", 1));

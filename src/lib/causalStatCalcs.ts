@@ -8,7 +8,7 @@
  *                   reproduce the treated unit's pre-period outcomes (a dedicated simplex active-set solver: the F1
  *                   qpActiveSet.ts cycled on near-collinear donor pools), the treated-vs-synthetic and
  *                   gap figure, pre/post RMSPE, and in-space placebos (post/pre RMSPE ratio rank → permutation p-value).
- *  - causal-pscore  propensity score: a logit score (logitProbit.ts), nearest-neighbour matching (with or without
+ *  - causal-pscore  propensity score: a logit score (logitProbit.ts), nearest-neighbor matching (with or without
  *                   replacement, caliper) or inverse-probability weighting (ATE or ATT, normalised or Horvitz–Thompson),
  *                   the standardised-mean-difference balance table before and after, common support and trimming.
  *
@@ -543,16 +543,16 @@ export function rdCalc(read: Read): StatOutput {
         : `τ = (jump in ${yName})/(jump in ${q(cols.names[1])}) from the same design, the just-identified 2SLS estimate with D instrumenting the treatment (the treatment effect for compliers at the cutoff).`),
   );
   lines.push(
-    "Standard errors: conventional heteroskedasticity-robust HC1, n/(n − k)·(X′WX)⁻¹(Σwᵢ²eᵢ²xᵢxᵢ′)(X′WX)⁻¹ (statsmodels WLS cov_type=\"HC1\"" +
+    "Standard errors: conventional heteroskedasticity-robust HC1, n/(n − k)·(X′WX)⁻¹(Σwᵢ²eᵢ²xᵢxᵢ′)(X′WX)⁻¹ (statsmodels WLS with its HC1 covariance" +
       (design === "fuzzy" ? "; for the ratio the residual is eʸ − τeᵗ, as linearmodels IV2SLS with weights, debiased" : "") +
       "), normal reference. These are NOT the Calonico–Cattaneo–Titiunik robust bias-corrected intervals (rdrobust): no bias correction is made, so the interval assumes the bandwidth is small enough for the smoothing bias to be negligible.",
   );
   if (ik) {
     lines.push(
       `Bandwidth: the Imbens–Kalyanaraman MSE-optimal rule for local linear fits as written in NBER Working Paper 14726 (2009), §4.2, eqs. 4.8–4.13 (the algorithm of Rev. Econ. Stud. 79(3), 2012): ` +
-        "pilot h₁ = 1.84·S_X·N^{−1/5}; f̂(c) = (N₋ + N₊)/(2Nh₁); σ̂²(c) pooled over [c − h₁, c) and [c, c + h₁]; m̂⁽³⁾ = 6γ̂₃ from a global cubic with a jump fitted between the two side medians; " +
-        "h₂,± = 3.56(σ̂²/(f̂·max(m̂⁽³⁾², 0.01)))^{1/7}N±^{−1/7}; m̂⁽²⁾± from quadratics on [c, c + h₂,₊] and [c − h₂,₋, c); r̂± = 720σ̂²/(N₂,±h₂,±⁴); " +
-        `ĥ = C_K(2σ̂²/(f̂((m̂⁽²⁾₊ − m̂⁽²⁾₋)² + r̂₊ + r̂₋)))^{1/5}N^{−1/5} with C_K = ${fmtFixed(IK_CK[kernel], 4)} for the ${KERNEL_NAME[kernel]} kernel (IK Lemma 3.1).` +
+        "pilot h₁ = 1.84·Sₓ·N to the power −1/5 (Sₓ the standard deviation of the running variable); f̂(c) = (N₋ + N₊)/(2Nh₁); σ̂²(c) pooled over [c − h₁, c) and [c, c + h₁]; m̂⁽³⁾ = 6γ̂₃ from a global cubic with a jump fitted between the two side medians; " +
+        "h₂,± = 3.56·(σ̂²/(f̂·max(m̂⁽³⁾², 0.01))) to the power 1/7 × N± to the power −1/7; m̂⁽²⁾± from quadratics on [c, c + h₂,₊] and [c − h₂,₋, c); r̂± = 720σ̂²/(N₂,±h₂,±⁴); " +
+        `ĥ = Cₖ·(2σ̂²/(f̂((m̂⁽²⁾₊ − m̂⁽²⁾₋)² + r̂₊ + r̂₋))) to the power 1/5 × N to the power −1/5 with Cₖ = ${fmtFixed(IK_CK[kernel], 4)} for the ${KERNEL_NAME[kernel]} kernel (IK Lemma 3.1).` +
         (design === "fuzzy" ? " For the fuzzy design the bandwidth is the sharp rule applied to the outcome (as R's rdd package does), not IK's separate fuzzy formula." : ""),
     );
   }
@@ -823,7 +823,7 @@ export function scWeights(z1: ArrayLike<number>, Z: number[][]): ScWeights | { e
     }
   }
   const r = simplexLs(G, cvec, best);
-  if (!r.ok) return { error: `The donor-weight optimisation failed: ${r.reason}` };
+  if (!r.ok) return { error: `The donor-weight optimization failed: ${r.reason}` };
   const s = r.w.reduce((a, v) => a + v, 0);
   const w = r.w.map((v) => (v > 0 ? v / s : 0));
   let e2 = 0;
@@ -1033,14 +1033,34 @@ export function synthCalc(read: Read): StatOutput {
   const att = r.gap.slice(T0).reduce((a, v) => a + v, 0) / (T - T0);
   const lines: string[] = [];
   lines.push(`Synthetic control: ${q(r.treatedName)} against ${J} donors; pre-period ${lab(periods[0])}–${lab(periods[T0 - 1])} (${T0} periods), post-period ${lab(periods[T0])}–${lab(periods[T - 1])} (${T - T0})`);
-  lines.push(`Average post-period gap (treated − synthetic) = ${fmtFixed(att, 3)}; pre-period RMSPE = ${fmtFixed(r.pre, 3)}, post-period RMSPE = ${fmtFixed(r.post, 3)}, post/pre ratio = ${ratioText(r.ratio)}`);
-  if (r.placebos) lines.push(`In-space placebo inference: the treated unit's post/pre RMSPE ratio ranks ${r.rank} of ${J + 1}, permutation p = ${r.rank}/${J + 1} = ${fmtFixed(r.p, 3)}`);
+  // The data's printed precision: the most decimals any outcome value needs (to 10). A pre-period RMSPE below half a
+  // unit in that last place is an exact fit to the data as given: the post/pre ratio is then rounding over rounding
+  // (or unbounded), and its rank is not evidence of anything.
+  let decimals = 0;
+  for (const row of Y)
+    for (const v of row) {
+      for (; decimals < 10; decimals++) {
+        const s = v * Math.pow(10, decimals);
+        if (Math.abs(s - Math.round(s)) <= 1e-9 * Math.max(1, Math.abs(s))) break;
+      }
+    }
+  const halfUlp = 0.5 * Math.pow(10, -decimals);
+  const exactPre = r.pre < halfUlp;
+  const precText = `half a unit in the data's last decimal place, ${fmtFixed(halfUlp, Math.min(6, decimals + 1))}`;
+  lines.push(
+    `Average post-period gap (treated − synthetic) = ${fmtFixed(att, 3)}; pre-period RMSPE = ${fmtFixed(r.pre, 3)}, post-period RMSPE = ${fmtFixed(r.post, 3)}, post/pre ratio = ${exactPre ? `not informative (the pre-period fit is exact to the data's precision: RMSPE below ${precText})` : ratioText(r.ratio)}`,
+  );
+  if (r.placebos && exactPre) {
+    lines.push(
+      `In-space placebo inference is not informative here: the treated unit's pre-period RMSPE is below ${precText}, so its post/pre ratio divides by rounding and its permutation rank and p-value are not evidence of an effect (they are not reported). The placebo table shows the units' RMSPEs.`,
+    );
+  } else if (r.placebos) lines.push(`In-space placebo inference: the treated unit's post/pre RMSPE ratio ranks ${r.rank} of ${J + 1}, permutation p = ${r.rank}/${J + 1} = ${fmtFixed(r.p, 3)}`);
   else lines.push(placeboRaw === "no" ? "Placebo inference not run (switched off)." : "Placebo inference needs at least 2 donors.");
   lines.push("");
   lines.push(
-    "Conventions: weights w ≥ 0 with Σw = 1 minimise the pre-period squared gap Σₜ(Y₁ₜ − ΣⱼwⱼYⱼₜ)² (Abadie, Diamond & Hainmueller 2010, J. Am. Stat. Assoc. 105(490), with the pre-period outcomes as the only predictors and V = I), " +
+    "Conventions: weights w ≥ 0 with Σw = 1 minimize the pre-period squared gap Σₜ(Y₁ₜ − ΣⱼwⱼYⱼₜ)² (Abadie, Diamond & Hainmueller 2010, J. Am. Stat. Assoc. 105(490), with the pre-period outcomes as the only predictors and V = I), " +
       `plus a ridge λ‖w‖², λ = 10⁻⁸·tr(Z′Z)/J, that makes the problem strictly convex when donors outnumber pre-periods (it moves the fit by a negligible amount); solved by a primal active-set quadratic program. ` +
-      "Covariate predictors and ADH's data-driven V (the nested optimisation) are NOT implemented. RMSPE = √(mean squared gap) over the period.",
+      "Covariate predictors and ADH's data-driven V (the nested optimization) are NOT implemented. RMSPE = √(mean squared gap) over the period.",
   );
   if (r.placebos) {
     lines.push(
@@ -1076,9 +1096,9 @@ export function synthCalc(read: Read): StatOutput {
   for (let t = 0; t < T; t++) pRows.push([lab(periods[t]) + (t === T0 ? " (treated from)" : ""), fmtFixed(r.treated[t], 3), fmtFixed(r.synth[t], 3), fmtFixed(r.gap[t], 3)]);
   tables.push({ label: "Treated and synthetic paths", rows: pRows, align: ["left", "right", "right", "right"] });
   if (r.placebos) {
-    const all = [{ unit: `${r.treatedName} (treated)`, pre: r.pre, post: r.post, ratio: r.ratio }, ...r.placebos].sort((a, b) => (b.ratio > a.ratio ? 1 : b.ratio < a.ratio ? -1 : 0));
+    const all = [{ unit: `${r.treatedName} (treated)`, pre: r.pre, post: r.post, ratio: r.ratio, treated: true }, ...r.placebos.map((pl) => ({ ...pl, treated: false }))].sort((a, b) => (b.ratio > a.ratio ? 1 : b.ratio < a.ratio ? -1 : 0));
     const plRows: string[][] = [["Unit", "Pre RMSPE", "Post RMSPE", "Post/pre ratio", "Rank"]];
-    all.forEach((u, k) => plRows.push([u.unit, fmtFixed(u.pre, 3), fmtFixed(u.post, 3), ratioText(u.ratio), String(k + 1)]));
+    all.forEach((u, k) => plRows.push([u.unit, fmtFixed(u.pre, 3), fmtFixed(u.post, 3), u.treated && exactPre ? "not informative" : ratioText(u.ratio), u.treated && exactPre ? "not ranked" : String(k + 1)]));
     tables.push({ label: "In-space placebos (ranked by post/pre RMSPE ratio)", rows: plRows, align: ["left", "right", "right", "right", "right"] });
   }
   // Figure: (a) treated vs synthetic; (b) the gap with the placebo gaps.
@@ -1480,7 +1500,7 @@ export function pscoreCalc(read: Read): StatOutput {
   if (replRaw !== "yes" && replRaw !== "no") return refuse(`With replacement: ${q(replRaw)} is not yes or no.`);
   const replace = replRaw === "yes";
   const kRaw = get("neighbors").trim() || "1";
-  const k = readIntField(kRaw, "Neighbours per unit", 1, 5);
+  const k = readIntField(kRaw, "Neighbors per unit", 1, 5);
   if (typeof k !== "number") return refuse(k.error);
   const wKind = (get("weights").trim() || "hajek") as PsWeights;
   if (wKind !== "hajek" && wKind !== "ht") return refuse(`IPW weights: ${q(wKind)} is not hajek or ht.`);
@@ -1495,7 +1515,7 @@ export function pscoreCalc(read: Read): StatOutput {
     calSd = cv;
   }
   if (method === "match" && !replace && estimand === "ate") return refuse("Matching without replacement estimates the ATT only (controls are used once); choose ATT, or matching with replacement for the ATE.");
-  if (method === "match" && !replace && k > 1) return refuse("Neighbours per unit: matching without replacement takes 1 neighbour; choose 1, or matching with replacement.");
+  if (method === "match" && !replace && k > 1) return refuse("Neighbors per unit: matching without replacement takes 1 neighbor; choose 1, or matching with replacement.");
   const outcome = get("outcome").trim();
   const treatName = get("treatment").trim();
   if (!outcome) return refuse("Outcome column: name the outcome column.");
@@ -1589,13 +1609,13 @@ export function pscoreCalc(read: Read): StatOutput {
       "No standard error is reported (see below).";
     lines = [header, summary];
     lines.push(
-      `Matching: ${k} nearest neighbour${k === 1 ? "" : "s"} ${replace ? "with" : "without"} replacement on η = logit p̂ (the linear predictor), ` +
+      `Matching: ${k} nearest neighbor${k === 1 ? "" : "s"} ${replace ? "with" : "without"} replacement on η = logit p̂ (the linear predictor), ` +
         (Number.isFinite(calSd) ? `caliper ${fmtFixed(calSd, 3)} SD of η = ${fmtFixed(cal, 4)} (SD over the ${intText(n)} rows, divisor n − 1)` : "no caliper") +
         (replace ? "" : "; greedy, treated units in order of decreasing p̂, each taking the nearest unused control") +
         "; ties go to the earlier row.",
     );
     lines.push(
-      "No standard error: the bootstrap is invalid for nearest-neighbour matching (Abadie & Imbens 2008, Econometrica 76(6)), and the Abadie–Imbens (2016) variance for matching on an ESTIMATED score is not implemented. " +
+      "No standard error: the bootstrap is invalid for nearest-neighbor matching (Abadie & Imbens 2008, Econometrica 76(6)), and the Abadie–Imbens (2016) variance for matching on an ESTIMATED score is not implemented. " +
         "For an interval use IPW here, or a dedicated matching package.",
     );
     tables.push({
@@ -1620,8 +1640,8 @@ export function pscoreCalc(read: Read): StatOutput {
     lines.push(
       `Weights: ${estimand === "ate" ? "1/p̂ for treated, 1/(1 − p̂) for controls" : "1 for treated, p̂/(1 − p̂) for controls"}; ` +
         (wKind === "hajek"
-          ? "normalised to sum to 1 within each group (Hájek; the same estimate as stabilised weights)."
-          : `Horvitz–Thompson, unnormalised (means divided by ${estimand === "ate" ? "n" : "n₁"}).`),
+          ? "normalized to sum to 1 within each group (Hájek; the same estimate as stabilized weights)."
+          : `Horvitz–Thompson, unnormalized (means divided by ${estimand === "ate" ? "n" : "n₁"}).`),
     );
     lines.push(
       "Standard error: the stacked M-estimation sandwich A⁻¹BA⁻ᵀ/n over the logit score equations and the weighted means, so the estimation of p̂ is accounted for (Lunceford & Davidian 2004, Stat. Med. 23(19)); normal reference.",
@@ -1634,7 +1654,7 @@ export function pscoreCalc(read: Read): StatOutput {
     }
     if (wmax > 0.1 * wsum) lines.push(`One weight is more than 10% of the total (largest ${fmtFixed(wmax, 2)}): the estimate leans on a few units with p̂ near 0 or 1; consider trimming.`);
     tables.push({
-      label: `IPW estimate (${estimand.toUpperCase()}, ${wKind === "hajek" ? "normalised weights" : "Horvitz–Thompson"})`,
+      label: `IPW estimate (${estimand.toUpperCase()}, ${wKind === "hajek" ? "normalized weights" : "Horvitz–Thompson"})`,
       rows: [
         ["Quantity", "Estimate", "SE", "z", "p", "95% CI"],
         [`${estimand.toUpperCase()}`, fmtFixed(r.est, 3), fmtFixed(r.se, 3), fmtFixed(z, 3), fmtP(zP(z)), ci(r.est, r.se, 3)],
@@ -1663,7 +1683,7 @@ export function pscoreCalc(read: Read): StatOutput {
     balRows.push([bv.name, fmtFixed(t1.m, 3), fmtFixed(c1.m, 3), fmtFixed(before, 3), fmtFixed(after, 3), Number.isFinite(vr) ? fmtFixed(vr, 3) : "not defined"]);
   }
   tables.push({
-    label: "Covariate balance (standardised mean differences)",
+    label: "Covariate balance (standardized mean differences)",
     rows: balRows,
     align: ["left", "right", "right", "right", "right", "right"],
     note: "Means before adjustment. SMD = (treated mean − control mean)/√((s²_treated + s²_control)/2), the denominator from the sample before adjustment for both columns; after = with the matching or IPW weights.",
@@ -1806,7 +1826,7 @@ export const CAUSAL_STAT_CALCS: StatCalcDef[] = [
         default: "match",
         kind: "select",
         options: [
-          { value: "match", label: "Nearest-neighbour matching" },
+          { value: "match", label: "Nearest-neighbor matching" },
           { value: "ipw", label: "Inverse probability weighting (IPW)" },
         ],
       },
@@ -1821,7 +1841,7 @@ export const CAUSAL_STAT_CALCS: StatCalcDef[] = [
         ],
       },
       { key: "replace", label: "Matching with replacement", default: "yes", kind: "select", options: YES_NO },
-      { key: "neighbors", label: "Matching: neighbours per unit (1–5)", default: "1", kind: "text" },
+      { key: "neighbors", label: "Matching: neighbors per unit (1–5)", default: "1", kind: "text" },
       { key: "caliper", label: "Matching caliper in SDs of logit p̂ (blank = none; 0.2 is common)", default: "", kind: "text" },
       {
         key: "weights",
@@ -1829,8 +1849,8 @@ export const CAUSAL_STAT_CALCS: StatCalcDef[] = [
         default: "hajek",
         kind: "select",
         options: [
-          { value: "hajek", label: "Stabilised / normalised (Hájek)" },
-          { value: "ht", label: "Unnormalised (Horvitz–Thompson)" },
+          { value: "hajek", label: "Stabilized / normalized (Hájek)" },
+          { value: "ht", label: "Unnormalized (Horvitz–Thompson)" },
         ],
       },
       {

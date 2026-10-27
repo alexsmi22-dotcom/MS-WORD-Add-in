@@ -234,9 +234,9 @@ export function microDemandCalc(read: Read): StatOutput {
       const cmp1 = rcmp(v.eps, R(-1));
       revenueLine =
         cmp1 === 0
-          ? `Revenue P·Q = A = ${ex(v.A)} at every price (unit elastic everywhere): there is no unique revenue-maximising price.`
+          ? `Revenue P·Q = A = ${ex(v.A)} at every price (unit elastic everywhere): there is no unique revenue-maximizing price.`
           : cmp1 > 0
-            ? "Demand is inelastic at every price (−1 < ε < 0): revenue rises with the price without bound, so there is no revenue-maximising price (the form cannot hold at very high prices)."
+            ? "Demand is inelastic at every price (−1 < ε < 0): revenue rises with the price without bound, so there is no revenue-maximizing price (the form cannot hold at very high prices)."
             : "Demand is elastic at every price (ε < −1): revenue falls as the price rises and grows without bound as P → 0, so there is no interior revenue maximum.";
       if (mc) {
         if (cmp1 < 0 && ratSign(mc) > 0) {
@@ -245,7 +245,7 @@ export function microDemandCalc(read: Read): StatOutput {
           const ps = ratToNumber(pStar);
           starLine = `Monopoly price with marginal cost c = ${ex(mc)}: P* = c·ε/(1 + ε) = ${ex(pStar)} (markup ε/(1 + ε) = ${ex(ratDiv(v.eps, ratAdd(RAT_ONE, v.eps)))} over c; Lerner index (P* − c)/P* = −1/ε = ${ex(lerner)}), Q* = ${nm(qOf(ps))}, profit ${nm((ps - ratToNumber(mc)) * qOf(ps))}.`;
         } else if (ratSign(mc) === 0) {
-          starLine = "With a zero marginal cost the monopolist maximises revenue, which has no interior maximum here.";
+          starLine = "With a zero marginal cost the monopolist maximizes revenue, which has no interior maximum here.";
         } else {
           starLine = `No monopoly price: with ε ≥ −1 marginal revenue P·(1 + 1/ε) is zero or negative at every price, so the monopolist would raise the price without bound.`;
         }
@@ -265,7 +265,7 @@ export function microDemandCalc(read: Read): StatOutput {
       lines.push(`Log-linear (semi-log) demand: ln Q = a − b·P with a = ${ex(v.a)} and b = ${ex(v.b)}; the elasticity is ε = −b·P, rising in magnitude with the price.`);
       pR = ratDiv(RAT_ONE, v.b);
       const pr = ratToNumber(pR);
-      revenueLine = `Revenue is maximised where demand is unit elastic: P = 1/b = ${ex(pR)}, Q = e to the power (a − 1) = ${nm(qOf(pr))}, revenue ${nm(pr * qOf(pr))}.`;
+      revenueLine = `Revenue is maximized where demand is unit elastic: P = 1/b = ${ex(pR)}, Q = e to the power (a − 1) = ${nm(qOf(pr))}, revenue ${nm(pr * qOf(pr))}.`;
       if (mc) {
         pStar = ratAdd(mc, pR);
         const ps = ratToNumber(pStar);
@@ -674,7 +674,19 @@ export function microPriceDiscCalc(read: Read): StatOutput {
     const totU = ratAdd(res.uniform.q[0], res.uniform.q[1]);
     const tot3 = ratAdd(res.third.q[0], res.third.q[1]);
     if (res.uniformServesBoth && res.third.p.every((p) => p !== null)) {
-      lines.push(`Total output is ${ratEq(totU, tot3) ? "the same" : "different"} under uniform pricing (${ex(totU)}) and third-degree discrimination (${ex(tot3)})${ratEq(totU, tot3) ? ", as it must be with linear demands when both markets are served either way; discrimination then lowers total surplus by misallocating that output" : ""}.`);
+      // Identical prices in the two markets (the same demands, or the same monopoly price in each): discrimination changes
+      // nothing, so the "misallocates output" sentence would contradict the 0 change printed below.
+      const samePrices = res.third.p[0] !== null && res.third.p[1] !== null && ratEq(res.third.p[0]!, res.third.p[1]!);
+      const sameOut = ratEq(totU, tot3);
+      lines.push(
+        `Total output is ${sameOut ? "the same" : "different"} under uniform pricing (${ex(totU)}) and third-degree discrimination (${ex(tot3)})${
+          sameOut
+            ? samePrices
+              ? ": the discriminating prices are the same in both markets, so discrimination changes nothing here (the same prices, quantities and surplus as uniform pricing)"
+              : ", as it must be with linear demands when both markets are served either way; discrimination then lowers total surplus by misallocating that output"
+            : ""
+        }.`,
+      );
     } else {
       lines.push(`Total output: uniform ${ex(totU)}, third-degree ${ex(tot3)}${rcmp(tot3, totU) > 0 ? ": discrimination opens a market the uniform price leaves unserved" : ""}.`);
     }
@@ -858,7 +870,7 @@ export function growthAccountingSvg(labels: string[], xs: number[], cum: { y: nu
     [
       { type: "line", points: s(cum.y), color: "#111827", label: "output growth" },
       { type: "line", points: s(cum.k), color: "#0369a1", label: "capital contribution" },
-      { type: "line", points: s(cum.l), color: "#b45309", label: "labour contribution" },
+      { type: "line", points: s(cum.l), color: "#b45309", label: "labor contribution" },
       { type: "line", points: s(cum.a), color: "#15803d", label: "TFP (Solow residual)" },
     ],
     { width: W, height: H, title: "Growth accounting: cumulative contributions", xlabel: labels.length && /^\d{4}$/.test(labels[0]) ? "Year" : "Period", ylabel: "Cumulative growth since the first period (%)" },
@@ -873,7 +885,7 @@ export function macroGrowthCalc(read: Read): StatOutput {
     if (d.n > 2000) return refuse(`Data: ${intText(d.n)} rows; the most is 2,000.`);
     const cols: Float64Array[] = [];
     const names: string[] = [];
-    for (const [key, dflt, what] of [["ycol", "Y", "Output"], ["kcol", "K", "Capital"], ["lcol", "L", "Labour"]] as const) {
+    for (const [key, dflt, what] of [["ycol", "Y", "Output"], ["kcol", "K", "Capital"], ["lcol", "L", "Labor"]] as const) {
       const p = pickSeries(d, get(read, key).trim() || dflt);
       if (!p.ok) return refuse(`${what} column: ${p.reason}`);
       for (let i = 0; i < p.values.length; i++) if (!(p.values[i] > 0) || !Number.isFinite(p.values[i])) return refuse(`${what} column ${q(p.name)}, row ${i + 1}: every value must be a positive number (growth rates need logs or ratios).`);
@@ -897,19 +909,19 @@ export function macroGrowthCalc(read: Read): StatOutput {
     const mL = mean((r) => r.labour);
     const mA = mean((r) => r.tfp);
     const lines: string[] = [];
-    lines.push(`Growth accounting over ${T} period${T === 1 ? "" : "s"} (${labels[0]} to ${labels[d.n - 1]}), output ${q(names[0])}, capital ${q(names[1])}, labour ${q(names[2])}, capital share α = ${ex(alphaR)}.`);
-    lines.push(`Average growth per period: output ${pctN(mY)} = capital α·g_K ${pctN(mK)} + labour (1 − α)·g_L ${pctN(mL)} + TFP (Solow residual) ${pctN(mA)}.`);
-    if (Math.abs(mY) > 1e-12) lines.push(`Shares of average output growth: capital ${pctN(mK / mY, 1)}, labour ${pctN(mL / mY, 1)}, TFP ${pctN(mA / mY, 1)}.`);
-    lines.push(`Labour productivity Y/L grew ${pctN(mean((r) => r.gY - r.gL))} a period on average, of which capital deepening α·g(K/L) ${pctN(mean((r) => alpha * (r.gK - r.gL)))} and TFP ${pctN(mA)}.`);
+    lines.push(`Growth accounting over ${T} period${T === 1 ? "" : "s"} (${labels[0]} to ${labels[d.n - 1]}), output ${q(names[0])}, capital ${q(names[1])}, labor ${q(names[2])}, capital share α = ${ex(alphaR)}.`);
+    lines.push(`Average growth per period: output ${pctN(mY)} = capital α·gK ${pctN(mK)} + labor (1 − α)·gL ${pctN(mL)} + TFP (Solow residual) ${pctN(mA)}.`);
+    if (Math.abs(mY) > 1e-12) lines.push(`Shares of average output growth: capital ${pctN(mK / mY, 1)}, labor ${pctN(mL / mY, 1)}, TFP ${pctN(mA / mY, 1)}.`);
+    lines.push(`Labor productivity Y/L grew ${pctN(mean((r) => r.gY - r.gL))} a period on average, of which capital deepening α·g(K/L) ${pctN(mean((r) => alpha * (r.gK - r.gL)))} and TFP ${pctN(mA)}.`);
     lines.push(`TFP level A = Y/(K^α·L^(1 − α)) indexed to 100 in ${labels[0]}: ${fx(tfp[d.n - 1], 2)} in ${labels[d.n - 1]}.`.replace("K^α·L^(1 − α)", "Kᵅ·L¹⁻ᵅ"));
     lines.push(...d.notes);
     lines.push("");
     lines.push(
-      `Conventions: Cobb–Douglas Y = A·Kᵅ·L¹⁻ᵅ with constant returns and factor shares α and 1 − α; growth rates are ${kind === "log" ? "log differences ln(Xₜ/Xₜ₋₁), so the decomposition gY = α·g_K + (1 − α)·g_L + g_A is exact and the cumulative figure adds up" : "simple rates Xₜ/Xₜ₋₁ − 1; the residual g_A = gY − α·g_K − (1 − α)·g_L absorbs the cross terms (log differences would make it exact)"}. ` +
-        "The Solow residual measures everything not explained by measured capital and labour (technology, efficiency, measurement error, utilisation).",
+      `Conventions: Cobb–Douglas Y = A·Kᵅ·L¹⁻ᵅ with constant returns and factor shares α and 1 − α; growth rates are ${kind === "log" ? "log differences ln(Xₜ/Xₜ₋₁), so the decomposition gY = α·gK + (1 − α)·gL + gA is exact (gX the growth rate of X) and the cumulative figure adds up" : "simple rates Xₜ/Xₜ₋₁ − 1; the residual gA = gY − α·gK − (1 − α)·gL (gX the growth rate of X) absorbs the cross terms (log differences would make it exact)"}. ` +
+        "The Solow residual measures everything not explained by measured capital and labor (technology, efficiency, measurement error, utilization).",
     );
     const showRows = T <= 60 ? rows.map((_, i) => i) : [...Array.from({ length: 40 }, (_, i) => i), -1, ...Array.from({ length: 15 }, (_, i) => T - 15 + i)];
-    const tbl: string[][] = [["Period", "Output growth", "Capital α·g_K", "Labour (1 − α)·g_L", "TFP residual"]];
+    const tbl: string[][] = [["Period", "Output growth", "Capital α·gK", "Labor (1 − α)·gL", "TFP residual"]];
     for (const i of showRows) {
       if (i < 0) tbl.push(["…", "…", "…", "…", "…"]);
       else tbl.push([labels[i + 1], pctN(rows[i].gY), pctN(rows[i].capital), pctN(rows[i].labour), pctN(rows[i].tfp)]);
@@ -1356,7 +1368,7 @@ export function macroPhillipsCalc(read: Read): StatOutput {
     }
     lines.push("");
     lines.push(
-      `Conventions: OLS by olsInference.fitOls (the econ-ols engine), constant included, ${seText} standard errors; NAIRU = −α/β with its delta-method SE computed by reparametrising the regression around the estimate (same covariance estimator); 95% interval ±1.96 SE (normal). Inflation and unemployment in percent.`,
+      `Conventions: OLS by olsInference.fitOls (the econ-ols engine), constant included, ${seText} standard errors; NAIRU = −α/β with its delta-method SE computed by reparametrizing the regression around the estimate (same covariance estimator); 95% interval ±1.96 SE (normal). Inflation and unemployment in percent.`,
     );
     const pText = (p: number): string => fmtP(p);
     const tables: StatTable[] = [
@@ -1403,7 +1415,7 @@ export const MICROMACRO_STAT_CALCS: StatCalcDef[] = [
       { key: "mc", label: "Constant marginal cost c for the monopoly price (blank: none)", default: "4", kind: "text" },
     ],
     compute: (r) => {
-      // Elasticity, revenue, revenue-maximising and monopoly prices for log-log and semi-log demand, with the figure.
+      // Elasticity, revenue, revenue-maximizing and monopoly prices for log-log and semi-log demand, with the figure.
       return microDemandCalc(r);
     },
   },
@@ -1483,10 +1495,10 @@ export const MICROMACRO_STAT_CALCS: StatCalcDef[] = [
     id: "macro-growth-accounting",
     name: "Growth accounting: the Solow residual",
     fields: [
-      { key: "data", label: "Table: period or year first, then output, capital and labour columns (names in a header row)", default: GROWTH_DATA_DEFAULT, kind: "block" },
+      { key: "data", label: "Table: period or year first, then output, capital and labor columns (names in a header row)", default: GROWTH_DATA_DEFAULT, kind: "block" },
       { key: "ycol", label: "Output column", default: "Y", kind: "text" },
       { key: "kcol", label: "Capital column", default: "K", kind: "text" },
-      { key: "lcol", label: "Labour column", default: "L", kind: "text" },
+      { key: "lcol", label: "Labor column", default: "L", kind: "text" },
       { key: "alpha", label: "Capital share α (between 0 and 1)", default: "0.35", kind: "text" },
       {
         key: "growth",

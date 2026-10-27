@@ -445,7 +445,7 @@ export function cipCalc(r: Read): FinResult {
   const lines: string[] = [];
   lines.push(`Spot S = ${fx(S, 6)} (${pair}); domestic rate ${fx(id, 4)}%, foreign rate ${fx(iff, 4)}%; tenor ${days} day${days === 1 ? "" : "s"}.`);
   lines.push(`Forward by covered interest parity: F = ${fx(res.F, 6)}; forward points F − S = ${fx(res.F - S, 6)}; forward premium of the foreign currency F/S − 1 = ${pct(res.F / S - 1, 4)} over the tenor.`);
-  const tag = comp === "simple" ? `F = S·(1 + i_d·d/${bd})/(1 + i_f·d/${bf})` : `F = S·exp(i_d·d/${bd} − i_f·d/${bf})`;
+  const tag = comp === "simple" ? `F = S·(1 + i·d/${bd})/(1 + i*·d/${bf})` : `F = S·exp(i·d/${bd} − i*·d/${bf})`;
   if (fq !== null) {
     const notional = N ?? 1_000_000;
     // Per unit of domestic currency borrowed: borrow domestic, buy foreign spot, deposit foreign, sell it forward.
@@ -463,7 +463,7 @@ export function cipCalc(r: Read): FinResult {
       );
   }
   lines.push(
-    `Conventions: S and F quoted as domestic (quote) currency per unit of foreign (base) currency; ${comp === "simple" ? `simple money-market interest over the tenor, ${tag}, with the domestic rate on ACT/${bd === "360" ? "360" : "365 Fixed"} and the foreign rate on ACT/${bf === "360" ? "360" : "365 Fixed"} (USD and EUR deposits use ACT/360, GBP ACT/365 Fixed)` : `continuous compounding, ${tag}, each year fraction on its currency's basis (ACT/${bd} domestic, ACT/${bf} foreign)`}. ` +
+    `Conventions: S and F quoted as domestic (quote) currency per unit of foreign (base) currency; ${comp === "simple" ? `simple money-market interest over the tenor, ${tag}, with i the domestic rate on ACT/${bd === "360" ? "360" : "365 Fixed"} and i* the foreign rate on ACT/${bf === "360" ? "360" : "365 Fixed"} (USD and EUR deposits use ACT/360, GBP ACT/365 Fixed)` : `continuous compounding, ${tag}, i the domestic and i* the foreign rate, d the days, each year fraction on its currency's basis (ACT/${bd} domestic, ACT/${bf} foreign)`}. ` +
       "The arbitrage check ignores bid–ask spreads, transaction costs, credit and counterparty risk, and settlement lags; real deviations from parity (the cross-currency basis) can persist because of them.",
   );
   const t: FinTable = {
@@ -494,7 +494,7 @@ export function uipCalc(r: Read): FinResult {
   if (typeof iff === "string") return finRefusal(iff);
   const T = num(r, "years", "horizon (years)", { min: 0, minOpen: true, max: 100 });
   if (typeof T === "string") return finRefusal(T);
-  const sT = optNum(r, "st", "realised spot at the horizon", { min: 0, minOpen: true });
+  const sT = optNum(r, "st", "realized spot at the horizon", { min: 0, minOpen: true });
   if (typeof sT === "string") return finRefusal(sT);
   const base = readCode(r, "base", "Foreign (base) currency");
   if (base && typeof base === "object") return finRefusal(base.error);
@@ -507,21 +507,21 @@ export function uipCalc(r: Read): FinResult {
   const eS = S * ratio;
   const lines: string[] = [];
   lines.push(`Spot S = ${fx(S, 6)} (domestic per unit of foreign${base && quote ? `: ${quote} per ${base}` : ""}); domestic rate ${fx(id, 4)}%, foreign rate ${fx(iff, 4)}% a year; horizon ${fx(T, T % 1 ? 2 : 0)} year${T === 1 ? "" : "s"}.`);
-  lines.push(`Uncovered interest parity: expected depreciation of the domestic currency (rise in S) = (1 + i_d)/(1 + i_f) − 1 = ${pct(gd / gf - 1, 4)} a year (approximation i_d − i_f = ${pct((id - iff) / 100, 4)}); over the horizon ${pct(ratio - 1, 4)}.`);
-  lines.push(`Expected spot at the horizon E[S_T] = S·((1 + i_d)/(1 + i_f)) to the power T = ${fx(eS, 6)}; under UIP this equals the forward rate for the same date (annual compounding).`);
+  lines.push(`Uncovered interest parity: expected depreciation of the domestic currency (rise in S) = (1 + i)/(1 + i*) − 1 = ${pct(gd / gf - 1, 4)} a year (approximation i − i* = ${pct((id - iff) / 100, 4)}); over the horizon ${pct(ratio - 1, 4)}.`);
+  lines.push(`Expected spot at the horizon E[S(T)] = S·((1 + i)/(1 + i*)) to the power T = ${fx(eS, 6)}; under UIP this equals the forward rate for the same date (annual compounding).`);
   if (sT !== null) {
     const excess = (sT / S) * Math.pow(gf, T) / Math.pow(gd, T) - 1;
-    lines.push(`Realised spot ${fx(sT, 6)} against the UIP expectation ${fx(eS, 6)} (${pct(sT / eS - 1, 4)}): a foreign deposit funded in domestic currency earned an excess return of ${pct(excess, 4)} over the horizon${excess > 0 ? " (the carry trade paid: UIP failed in its favour)" : excess < 0 ? " (UIP failed against it)" : " (UIP held exactly)"}.`);
+    lines.push(`Realized spot ${fx(sT, 6)} against the UIP expectation ${fx(eS, 6)} (${pct(sT / eS - 1, 4)}): a foreign deposit funded in domestic currency earned an excess return of ${pct(excess, 4)} over the horizon${excess > 0 ? " (the carry trade paid: UIP failed in its favor)" : excess < 0 ? " (UIP failed against it)" : " (UIP held exactly)"}.`);
   }
   lines.push(
-    "Conventions: annual compounding at the quoted yearly rates; S quoted as domestic per unit of foreign currency; risk neutrality and rational expectations (UIP), which the data often reject (the forward-premium puzzle). The expectation is a parity benchmark, not a forecast.",
+    "Conventions: i is the domestic and i* the foreign interest rate; annual compounding at the quoted yearly rates; S quoted as domestic per unit of foreign currency; risk neutrality and rational expectations (UIP), which the data often reject (the forward-premium puzzle). The expectation is a parity benchmark, not a forecast.",
   );
   const t: FinTable = {
     label: "Uncovered interest parity",
     rows: [
       ["Measure", "Value"],
       ["Expected depreciation per year", pct(gd / gf - 1, 4)],
-      ["Approximation i_d − i_f", pct((id - iff) / 100, 4)],
+      ["Approximation i − i* (domestic minus foreign rate)", pct((id - iff) / 100, 4)],
       ["Expected depreciation over the horizon", pct(ratio - 1, 4)],
       ["Expected spot at the horizon", fx(eS, 6)],
       ...(sT !== null ? [["Excess return of the foreign deposit", pct((sT / S) * Math.pow(gf, T) / Math.pow(gd, T) - 1, 4)]] : []),
@@ -552,7 +552,7 @@ export function pppCalc(r: Read): FinResult {
     const S = optNum(r, "spot", "actual spot rate", { min: 0, minOpen: true });
     if (typeof S === "string") return finRefusal(S);
     const sp = pd / pf;
-    lines.push(`Absolute PPP: the basket costs ${amt(pd, quote)} at home and ${amt(pf, base)} abroad, so the PPP exchange rate is S_PPP = P/P* = ${fx(sp, 6)} domestic per unit of foreign currency.`);
+    lines.push(`Absolute PPP: the basket costs ${amt(pd, quote)} at home and ${amt(pf, base)} abroad, so the PPP exchange rate is S(PPP) = P/P* = ${fx(sp, 6)} domestic per unit of foreign currency.`);
     rows.push(["PPP exchange rate P/P*", fx(sp, 6)]);
     if (S !== null) {
       const q = (S * pf) / pd;
@@ -573,7 +573,7 @@ export function pppCalc(r: Read): FinResult {
     const g = (1 + pd / 100) / (1 + pf / 100);
     const ST = S0 * Math.pow(g, T);
     lines.push(`Relative PPP: domestic inflation ${fx(pd, 4)}% and foreign inflation ${fx(pf, 4)}% a year; the exchange rate moves by (1 + π)/(1 + π*) − 1 = ${pct(g - 1, 4)} a year (approximation π − π* = ${pct((pd - pf) / 100, 4)}).`);
-    lines.push(`From S₀ = ${fx(S0, 6)}, after ${fx(T, T % 1 ? 2 : 0)} year${T === 1 ? "" : "s"}: S_T = S₀·((1 + π)/(1 + π*)) to the power T = ${fx(ST, 6)} (${pct(Math.pow(g, T) - 1, 4)}).`);
+    lines.push(`From S₀ = ${fx(S0, 6)}, after ${fx(T, T % 1 ? 2 : 0)} year${T === 1 ? "" : "s"}: S(T) = S₀·((1 + π)/(1 + π*)) to the power T = ${fx(ST, 6)} (${pct(Math.pow(g, T) - 1, 4)}).`);
     rows.push(["Change per year", pct(g - 1, 4)], ["Approximation π − π*", pct((pd - pf) / 100, 4)], ["Spot after the horizon", fx(ST, 6)], ["Change over the horizon", pct(Math.pow(g, T) - 1, 4)]);
     lines.push("Conventions: S quoted as domestic currency per unit of foreign currency; inflation compounded annually; relative PPP holds the real exchange rate constant, so the currency with the higher inflation depreciates by the inflation differential.");
   }
@@ -666,13 +666,13 @@ export const CBA_CALCS: FinCalcDef[] = [
       { key: "id", label: "Domestic interest rate (% a year)", default: "5" },
       { key: "if", label: "Foreign interest rate (% a year)", default: "3" },
       { key: "years", label: "Horizon (years)", default: "1" },
-      { key: "st", label: "Realised spot at the horizon, for the excess return (blank: none)", default: "1.24", optional: true },
+      { key: "st", label: "Realized spot at the horizon, for the excess return (blank: none)", default: "1.24", optional: true },
       { key: "base", label: "Foreign (base) currency, ISO 4217 code (blank: no currency)", default: "", kind: "text", optional: true },
       { key: "quote", label: "Domestic (quote) currency, ISO 4217 code (blank: no currency)", default: "", kind: "text", optional: true },
     ],
     assumes: "Risk-neutral investors with rational expectations, annual compounding; a parity benchmark, not a forecast.",
     compute: (r) => {
-      // expected depreciation and expected spot under UIP, the carry trade's excess return against a realised spot
+      // expected depreciation and expected spot under UIP, the carry trade's excess return against a realized spot
       return uipCalc(r);
     },
   },

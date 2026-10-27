@@ -29,7 +29,7 @@ import { chiSquareP } from "./stats2";
 import { tTestP } from "./stats";
 import { fitProbit, LogitProbitRefusal } from "./logitProbit";
 import { fitOls } from "./olsInference";
-import { numText } from "./regTable";
+import { fmtFixed, numText } from "./regTable";
 
 // ---------------------------------------------------------------------------------------------------- caps
 
@@ -468,13 +468,15 @@ function decrement(A: Float64Array, g: Float64Array, p: number): number {
  * falls below 10⁻¹⁸·(1 + |ℓ|) (the predicted gain in ℓ; the coefficient error is then near 10⁻⁹ standard errors) or
  * the step stops moving any parameter. Refuses non-convergence by name.
  */
-function newton(prob: Problem, theta0: Float64Array, maxIter: number, what: string): NewtonResult {
+function newton(prob: Problem, theta0: Float64Array, maxIter: number, what: string, sepAdvice?: string): NewtonResult {
   const p = prob.p;
   if (!Number.isFinite(maxIter) || maxIter < 1 || maxIter > 10000) throw new LimdepRefusal("bad-input", "The iteration cap must be a whole number from 1 to 10,000.");
   let theta: Float64Array = Float64Array.from(theta0);
   let at = prob.full(theta);
   if (!at || !Number.isFinite(at.ll)) throw new LimdepRefusal("no-convergence", `${what}: the starting values give a log likelihood that is not a number, so the model cannot be fitted to these data.`);
   let iterations = 0;
+  // The largest |coefficient| (scaled design) after each iteration: separation shows as one growing without bound.
+  const sizes: number[] = [];
   for (;;) {
     const dec = decrement(at.A, at.g, p);
     if (dec <= 1e-18 * (1 + MATH.abs(at.ll))) return { theta, at, iterations };
@@ -502,10 +504,24 @@ function newton(prob: Problem, theta0: Float64Array, maxIter: number, what: stri
     let tiny = true;
     for (let j = 0; j < p; j++) if (MATH.abs(moved[j] - theta[j]) > 1e-13 * (1 + MATH.abs(moved[j]))) tiny = false;
     theta = moved;
+    let big = 0;
+    for (let j = 0; j < p; j++) big = MATH.max(big, MATH.abs(theta[j]));
+    sizes.push(big);
     const next = prob.full(theta);
     if (!next || !Number.isFinite(next.ll)) break;
     at = next;
     if (tiny && decrement(at.A, at.g, p) <= 1e-10 * (1 + MATH.abs(at.ll))) return { theta, at, iterations };
+  }
+  // Separation: Newton marched a coefficient off towards infinity until the likelihood flattened out in floating point
+  // (fitted rates or probabilities of 0 or 1 to working precision). On the centered, column-scaled design a coefficient
+  // of 15 or more multiplies a rate or odds by e¹⁵ ≈ 3×10⁶ per standard deviation of a predictor: real data do not do
+  // that, a predictor that sets some observations apart does.
+  const L = sizes.length;
+  if (sepAdvice && L >= 10 && sizes[L - 1] >= 15) {
+    throw new LimdepRefusal(
+      "separation",
+      `${what}: the maximum-likelihood estimate does not exist: the log likelihood keeps rising as a coefficient runs off to infinity (separation). ${sepAdvice}`,
+    );
   }
   throw new LimdepRefusal(
     "no-convergence",
@@ -559,7 +575,19 @@ function expTerms(ts: ModelTerm[]): { kept: ModelTerm[]; omitted: string[] } {
   const omitted: string[] = [];
   for (const t of ts) {
     if (MATH.abs(t.ciLo) <= EXP_LIMIT && MATH.abs(t.ciHi) <= EXP_LIMIT && t.se * MATH.exp(t.coef) > 0) kept.push(expTerm(t));
-    else omitted.push(t.name);
+    else {
+      // Say what overflowed: b itself, one end of its 95% interval, or exp(b)·SE underflowing to 0.
+      const g = (v: number): string => fmtFixed(v, MATH.abs(v) >= 100 ? 0 : 3);
+      const why =
+        MATH.abs(t.coef) > EXP_LIMIT
+          ? `b = ${g(t.coef)}, so exp(b) is outside the representable range`
+          : MATH.abs(t.ciHi) > EXP_LIMIT
+            ? `the upper end of its 95% interval for b is ${g(t.ciHi)}, beyond ±${EXP_LIMIT}, so its exponential is outside the representable range`
+            : MATH.abs(t.ciLo) > EXP_LIMIT
+              ? `the lower end of its 95% interval for b is ${g(t.ciLo)}, beyond ±${EXP_LIMIT}, so its exponential is outside the representable range`
+              : `exp(b)·SE = exp(${g(t.coef)})·${g(t.se)} underflows to 0`;
+      omitted.push(`${t.name} (${why})`);
+    }
   }
   return { kept, omitted };
 }
@@ -794,8 +822,9 @@ export function fitCount(y: number[], X: number[][], names: string[], opts: Coun
   let sumE = 0;
   for (let i = 0; i < n; i++) sumE += MATH.exp(off[i]);
   if (constant) start[0] = MATH.log(sumY / sumE);
-  const pr = newton(pois, start, maxIter, "Poisson");
-  separationProbe(pois, pr, (s) => pois.linearMove(s), "Poisson", "Observations with a zero count that a predictor sets apart from the rest drive the rate towards 0 (Santos Silva and Tenreyro); drop that predictor or those observations.");
+  const POIS_SEP = "Observations with a zero count that a predictor sets apart from the rest drive the rate towards 0 (Santos Silva and Tenreyro); drop that predictor or those observations.";
+  const pr = newton(pois, start, maxIter, "Poisson", POIS_SEP);
+  separationProbe(pois, pr, (s) => pois.linearMove(s), "Poisson", POIS_SEP);
   const mu = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     let s = off[i];
@@ -925,9 +954,9 @@ export function fitCount(y: number[], X: number[][], names: string[], opts: Coun
   const { kept: irr, omitted: irrOmitted } = expTerms(ordered);
   assertFinite([...ordered, ...irr], stats, label);
   const notes: string[] = [
-    `Maximum likelihood by Newton–Raphson on the centred, column-scaled design (at most ${plural(maxIter, "iteration")}): converged in ${plural(res.iterations, "iteration")}.`,
+    `Maximum likelihood by Newton–Raphson on the centered, column-scaled design (at most ${plural(maxIter, "iteration")}): converged in ${plural(res.iterations, "iteration")}.`,
     se === "hc0"
-      ? "Standard errors: robust HC0 sandwich H⁻¹(Σ sᵢsᵢᵀ)H⁻¹, no small-sample factor (statsmodels cov_type=\"HC0\")."
+      ? "Standard errors: robust HC0 sandwich H⁻¹(Σ sᵢsᵢᵀ)H⁻¹, no small-sample factor (statsmodels' HC0 covariance)."
       : "Standard errors: classical, the inverse of the observed information.",
   ];
   return {
@@ -1925,8 +1954,9 @@ export function fitMnl(y: number[], X: number[][], names: string[], opts: { base
   const prob = new MnlProblem(d, eq, m);
   const st = new Float64Array(P);
   for (let e = 0; e < m; e++) st[e * pd] = MATH.log(counts[cats.indexOf(others[e])] / counts[bi]);
-  const res = newton(prob, st, maxIter, what);
-  separationProbe(prob, res, (s) => prob.linearMove(s), what, "A predictor separates one category from another; remove it or merge sparse categories.");
+  const MNL_SEP = "A predictor separates one category from another; remove it or merge sparse categories.";
+  const res = newton(prob, st, maxIter, what, MNL_SEP);
+  separationProbe(prob, res, (s) => prob.linearMove(s), what, MNL_SEP);
   const Vs = invertInformation(res.at.A, P, what);
   const Tb = designTransform(d);
   const T = new Float64Array(P * P);

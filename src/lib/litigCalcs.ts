@@ -211,7 +211,7 @@ export const LITIG_CALCS: FinCalcDef[] = [
       { key: "activeFloat", label: "Two-trader: active traders' share of the float %", default: "20", optional: true },
       { key: "activeVolume", label: "Two-trader: active traders' share of the volume %", default: "80", optional: true },
     ],
-    assumes: "a proportional trading model with the float, volume reduction and trader shares entered: a MODEL that courts have criticised, not a count of claims",
+    assumes: "a proportional trading model with the float, volume reduction and trader shares entered: a MODEL that courts have criticized, not a count of claims",
     compute: (r) => {
       // Proportional one-trader / two-trader trading model: aggregate damages by purchase window, every parameter printed.
       return secAggregateCalc(r);

@@ -611,7 +611,7 @@ export function secOutOfPocketCalc(r: Read): FinResult {
       "Loss per share = the inflation when bought − the inflation when sold (constant-dollar ribbon from the disclosure table); shares still held, or sold on or after the final disclosure, carry no inflation when sold. " +
       "A trade on a disclosure day falls in the window that disclosure opens. Each lot's loss is rounded to the cent; the total is the sum of the rounded lots.",
     "Not applied here: the PSLRA 90-day lookback cap (15 U.S.C. § 78u-4(e)); apply it per share with “Securities: PSLRA 90-day lookback”. No cap by the trading gain or loss, and no netting of gains, is applied.",
-    preShares > 0 ? `${dmgQty(preShares)} share${preShares === 1 ? "" : "s"} bought before the class period (or held at its start) carry no class-period loss; they are matched first under FIFO.` : "",
+    preShares > 0 ? `${dmgQty(preShares)} share${preShares === 1 ? "" : "s"} bought before the class period (or held at its start) carry no class-period loss; ${method === "fifo" ? "under FIFO they are the oldest lot, so sales are matched to them first" : "under LIFO they are the oldest lot, so sales are matched to them only after every later purchase still held"}.` : "",
     postShares > 0 ? `${dmgQty(postShares)} share${postShares === 1 ? "" : "s"} bought on or after the final disclosure carry no loss.` : "",
     ...noteLines([...dt.notes, ...b.notes]),
   ].filter(Boolean);
@@ -941,7 +941,7 @@ export function secAggregateCalc(r: Read): FinResult {
   const pct = (x: number): string => `${Number(x.toFixed(4))}%`;
   const lines = [
     "Securities aggregate damages: TRADING MODEL ESTIMATE, computed from the inputs given",
-    "This is a model, not a count of claims: proportional trading models (one-trader and two-trader) assume how shares changed hands, and they are models that courts have criticised. Claims data, not this model, show who actually traded.",
+    "This is a model, not a count of claims: proportional trading models (one-trader and two-trader) assume how shares changed hands, and they are models that courts have criticized. Claims data, not this model, show who actually traded.",
   ];
   if (one) lines.push(`One-trader (proportional) model: ${dmgMoney(centsOf(one.byWindow) / 100)}; class-bought shares still held at the class end: ${dmgQty(one.retained)}.`);
   if (two) lines.push(`Two-trader model: ${dmgMoney(centsOf(two.byWindow) / 100)}; class-bought shares still held at the class end: ${dmgQty(two.retained)}.`);

@@ -237,12 +237,12 @@ export function econCountCalc(read: Read): StatOutput {
   lines.push(
     "Conventions: incidence-rate ratio IRR = exp(b); its SE by the delta method, exp(b)·SE(b); its 95% CI exponentiates the coefficient's interval; z and p are those of b. " +
       (constant ? `A constant is included (shown last; its IRR is the baseline rate${expCol && expKind === "exposure" ? ` per unit of ${expCol}` : ""} when every predictor is 0).` : "No constant."),
-    `Standard errors: ${se === "hc0" ? "robust HC0 sandwich H⁻¹(Σ sᵢsᵢᵀ)H⁻¹, no small-sample factor (statsmodels cov_type=\"HC0\")" : "classical, the inverse of the observed information"}; z statistics and 95% intervals use the standard normal.`,
+    `Standard errors: ${se === "hc0" ? "robust HC0 sandwich H⁻¹(Σ sᵢsᵢᵀ)H⁻¹, no small-sample factor (statsmodels' HC0 covariance)" : "classical, the inverse of the observed information"}; z statistics and 95% intervals use the standard normal.`,
     `Pseudo R² is McFadden's 1 − ℓ/ℓ₀ against the constant-only ${nb ? "NB2 " : ""}model${expCol ? " with the same offset" : ""}; AIC = −2ℓ + 2k, BIC = −2ℓ + k ln N, k counting ${nb ? "α and " : ""}every coefficient.`,
     m.notes[0],
     ...readerNotes(data, c.notes),
   );
-  if (r.irrOmitted.length) lines.push(`Not in the IRR table: ${r.irrOmitted.join(", ")}, whose exp(b) or interval is outside the representable range (|b| above 600; rescale or centre the predictors).`);
+  if (r.irrOmitted.length) lines.push(`Not in the IRR table (the coefficient table still has them): ${r.irrOmitted.join("; ")}. Rescale or center the predictor to bring it into range.`);
   const rows = [COEF_HEAD, ...m.terms.map((x) => termRow(x))];
   if (r.alpha) rows.push(["/alpha", fmtFixed(r.alpha.est, D), fmtFixed(r.alpha.se, D), "", "", ci(r.alpha.lo, r.alpha.hi)]);
   const tables: StatTable[] = [
@@ -388,10 +388,10 @@ export function econHeckmanCalc(read: Read): StatOutput {
     `ρ = ${fmtFixed(r.rho, 4)}, σ = ${fmtFixed(r.sigma, 4)}, λ coefficient = ρσ = ${fmtFixed(lam.coef, D)} (SE ${fmtFixed(lam.se, D)}); ${r.wald ? `Wald χ²(${r.wald.df}) = ${fmtFixed(r.wald.stat, 3)}, ${pText(r.wald.p)} (outcome predictors); ` : ""}probit log likelihood = ${fmtFixed(r.probitLl, 3)}.`,
     `Test of no selection bias (H₀: ρ = 0): z on λ = ${fmtFixed(lam.stat, 2)}, ${pText(lam.p)}.`,
     "Method (Wooldridge, Econometric Analysis of Cross Section and Panel Data, 2nd ed., 2010, §19.6): (1) probit of the selection indicator on z by maximum likelihood; (2) λᵢ = φ(zᵢγ̂)/Φ(zᵢγ̂), the inverse Mills ratio, for each selected row; (3) OLS of the outcome on x and λ over the selected rows.",
-    "Corrected standard errors (Heckman 1979): V = σ²(X*ᵀX*)⁻¹[X*ᵀ(I − ρ²Δ)X* + ρ²(X*ᵀΔZ)V_γ(ZᵀΔX*)](X*ᵀX*)⁻¹ with X* = [x, λ, 1], Δ = diag(δᵢ), δᵢ = λᵢ(λᵢ + zᵢγ̂), σ² = eᵀe/n₁ + b_λ²·mean(δ), ρ = b_λ/σ, V_γ the probit's inverse information. The usual OLS standard errors of step 3 are not valid and are not shown.",
+    "Corrected standard errors (Heckman 1979): V = σ²(X*ᵀX*)⁻¹[X*ᵀ(I − ρ²Δ)X* + ρ²(X*ᵀΔZ)V(γ̂)(ZᵀΔX*)](X*ᵀX*)⁻¹ with X* = [x, λ, 1], Δ = diag(δᵢ), δᵢ = λᵢ(λᵢ + zᵢγ̂), σ² = eᵀe/n₁ + b(λ)²·mean(δ), ρ = b(λ)/σ, b(λ) the coefficient on λ, V(γ̂) the probit's inverse information. The usual OLS standard errors of step 3 are not valid and are not shown.",
     "Maximum likelihood (full-information) estimation of the selection model is not offered: only the two-step estimator.",
   ];
-  if (r.truncated) lines.push(`The two-step ρ fell outside [−1, 1]; it is truncated to ${fmtFixed(r.rho, 0)} and σ is set to |b_λ| (a sign that the model is misspecified or the exclusion restrictions are weak).`);
+  if (r.truncated) lines.push(`The two-step ρ fell outside [−1, 1]; it is truncated to ${fmtFixed(r.rho, 0)} and σ is set to |b(λ)|, the size of the coefficient on λ (a sign that the model is misspecified or the exclusion restrictions are weak).`);
   if (r.excluded.length) lines.push(`Exclusion restriction${r.excluded.length === 1 ? "" : "s"}: ${r.excluded.join(", ")} enter${r.excluded.length === 1 ? "s" : ""} the selection equation but not the outcome equation.`);
   else lines.push("WARNING: every selection variable is also in the outcome equation, so the model is identified only by the nonlinearity of λ (functional form); estimates are fragile. Add a variable that affects selection but not the outcome.");
   if (dropped.length) lines.push(`${intText(dropped.length)} selected row${dropped.length === 1 ? "" : "s"} (data row${dropped.length === 1 ? "" : "s"} ${dropped.slice(0, 8).join(", ")}${dropped.length > 8 ? ", …" : ""}) had a missing outcome or regressor and ${dropped.length === 1 ? "was" : "were"} dropped from BOTH equations.`);
@@ -474,12 +474,12 @@ export function econMlogitCalc(read: Read): StatOutput {
     `Multinomial logit regression of ${dep} (${r.categories.length} categories: ${r.categories.map((v, j) => `${numText(v)} (n = ${intText(r.counts[j])})`).join(", ")}) on ${list(c.names)} (n = ${intText(r.n)}); base category ${numText(r.base)}`,
     `Log likelihood = ${fmtFixed(r.ll, 3)}; ${lr && pLR ? `${lr.label} = ${fmtFixed(lr.value, 3)}, ${pText(pLR.value)}; ` : ""}McFadden pseudo R² = ${fmtFixed(pr2.value, 4)}; AIC = ${fmtFixed(aic.value, 3)}; BIC = ${fmtFixed(bic.value, 3)}.`,
     `Conventions: P(${dep} = j | x) = exp(xβⱼ)/Σₖ exp(xβₖ) with β = 0 for the base category ${numText(r.base)}; each equation's coefficients are log odds of category j against the base. Relative-risk ratio RRR = exp(b) (SE exp(b)·SE(b), interval from the coefficient's interval). A constant in every equation (shown last).`,
-    "Average marginal effects: ∂P(category)/∂x averaged over the sample, for EVERY category including the base (they sum to 0 across categories); a 0/1 predictor treated as a continuous derivative (statsmodels get_margeff at=\"overall\", method=\"dydx\"); delta-method standard errors from an analytic Jacobian.",
+    "Average marginal effects: ∂P(category)/∂x averaged over the sample, for EVERY category including the base (they sum to 0 across categories); a 0/1 predictor treated as a continuous derivative (statsmodels' marginal effects averaged over the observations, as derivatives); delta-method standard errors from an analytic Jacobian.",
     "Standard errors: classical, the inverse of the observed information; z statistics and 95% intervals use the standard normal.",
     `Maximum likelihood by Newton–Raphson (concave; at most ${LIMDEP_MAX_ITER} iterations): converged in ${r.iterations} iteration${r.iterations === 1 ? "" : "s"}.`,
     ...readerNotes(t.data, c.notes),
   ];
-  if (r.rrrOmitted.length) lines.push(`Not in the RRR table: ${r.rrrOmitted.join(", ")}, whose exp(b) or interval is outside the representable range (|b| above 600; rescale or centre the predictors).`);
+  if (r.rrrOmitted.length) lines.push(`Not in the RRR table (the coefficient table still has them): ${r.rrrOmitted.join("; ")}. Rescale or center the predictor to bring it into range.`);
   const coefRows = [COEF_HEAD, ...r.equations.flatMap((e) => e.terms.map((x) => termRow(x, lab(e.category, x.name))))];
   const rrrRows = [["Term", "RRR", "SE", "z", "p", "95% CI"], ...r.rrr.flatMap((e) => e.terms.map((x) => termRow(x, lab(e.category, x.name))))];
   const ameRows = [["Term", "dP/dx", "SE", "z", "p", "95% CI"], ...r.ame.flatMap((e) => e.terms.map((x) => termRow(x, `P(${dep} = ${numText(e.category)}): ${x.name}`)))];

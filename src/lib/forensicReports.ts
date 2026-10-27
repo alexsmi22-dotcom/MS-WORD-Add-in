@@ -100,7 +100,7 @@ export function lpeCalc(read: Read): FinResult {
   if (isRefusal(table)) return refuse(table);
   const base = readNum(read("base"), "Pre-injury annual earnings", { min: 0, max: 1e12, range: "0 to one trillion" });
   if (isRefusal(base)) return refuse(base);
-  const residual = readNum(read("residual"), "Residual earning capacity a year", { min: 0, max: 1e12, range: "0 to one trillion" });
+  const residual = readNum(read("residual"), "Residual earning capacity per year", { min: 0, max: 1e12, range: "0 to one trillion" });
   if (isRefusal(residual)) return refuse(residual);
   if (residual > base) return refuse({ error: `The residual earning capacity (${usd(amt(residual))}) is above the pre-injury earnings (${usd(amt(base))}): there is no earnings loss to compute.` });
   const growth = readPct(read, "growth", "Earnings growth (% a year)", -100, 100, "above −100% and at most 100% a year", { minExclusive: true });

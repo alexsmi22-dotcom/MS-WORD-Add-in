@@ -285,8 +285,8 @@ describe("propensity score", () => {
     expect(run(c, { caliper: "abc" }).text).toMatch(/^Caliper/);
     expect(run(c, { caliper: "0,2" }).ok).not.toBe(false);
     expect(run(c, { caliper: "1e-9" }).text).toMatch(/caliper/);
-    expect(run(c, { neighbors: "6" }).text).toMatch(/^Neighbours per unit/);
-    expect(run(c, { neighbors: "2", replace: "no" }).text).toMatch(/^Neighbours per unit/);
+    expect(run(c, { neighbors: "6" }).text).toMatch(/^Neighbors per unit/);
+    expect(run(c, { neighbors: "2", replace: "no" }).text).toMatch(/^Neighbors per unit/);
     expect(run(c, { estimand: "ate", replace: "no" }).text).toMatch(/ATT only/);
     expect(run(c, { method: "x" }).text).toMatch(/^Method/);
     expect(run(c, { weights: "x" }).text).toMatch(/^IPW weights/);

@@ -401,7 +401,7 @@ export function tsGarchCalc(read: Read): StatOutput {
   if (!fit.seRobust && fit.seWhy) lines.push(`Standard errors not reported: ${fit.seWhy}.`);
   lines.push("");
   lines.push(
-    `Conventions (arch 8.0 arch_model, rescale=False): mean model ${mean === "constant" ? "“Constant” (rₜ = μ + εₜ)" : "“Zero” (rₜ = εₜ)"}; εₜ = σₜzₜ with zₜ ${dist === "t" ? "a Student-t scaled to unit variance (ν > 2; arch's StudentsT)" : "standard normal"}.`,
+    `Conventions (the arch 8.0 Python package's arch model, no automatic rescaling): mean model ${mean === "constant" ? "“Constant” (rₜ = μ + εₜ)" : "“Zero” (rₜ = εₜ)"}; εₜ = σₜzₜ with zₜ ${dist === "t" ? "a Student-t scaled to unit variance (ν > 2; arch's StudentsT)" : "standard normal"}.`,
   );
   lines.push(
     spec.vol === "garch"
@@ -417,7 +417,7 @@ export function tsGarchCalc(read: Read): StatOutput {
     `Estimation: maximum likelihood within arch's bounds and constraints (${spec.vol === "egarch" ? "0 ≤ β₁ ≤ 1" : spec.vol === "gjr" ? "α₁ ≥ 0, α₁ + γ₁ ≥ 0, β₁ ≥ 0, α₁ + γ₁/2 + β₁ ≤ 1" : "α₁ ≥ 0, β₁ ≥ 0, α₁ + β₁ ≤ 1"}${dist === "t" ? ", 2.05 ≤ ν ≤ 500" : ""}), by BFGS from arch's starting grid; when the optimum is on a bound, an active-set search (BFGS on the free parameters, a bound kept while the likelihood rises toward it) from that point and from arch's next-best starting points. Estimates are reported only when the first-order (KKT) conditions hold: the gradient of −log L/n on the free parameters is below 10⁻⁵ and on each bound it points out of the parameter space${spec.vol === "egarch" && mean === "constant" ? " (for μ, whose |rₜ − μ| term has a kink at each return, the one-sided slopes are checked)" : ""}.`,
   );
   lines.push(
-    "Standard errors: robust (Bollerslev–Wooldridge 1992) sandwich H⁻¹SH⁻¹/n, H the numerical Hessian of −log L/n and S the sample covariance (n − 1 divisor) of the per-observation scores, exactly as arch's cov_type=\"robust\" computes them; the classic column is H⁻¹/n. z and p from the normal distribution.",
+    "Standard errors: robust (Bollerslev–Wooldridge 1992) sandwich H⁻¹SH⁻¹/n, H the numerical Hessian of −log L/n and S the sample covariance (n − 1 divisor) of the per-observation scores, exactly as arch's robust covariance option computes them; the classic column is H⁻¹/n. z and p from the normal distribution.",
   );
   lines.push("Information criteria (arch's definitions): AIC = −2 log L + 2k, BIC = −2 log L + k ln n.");
   lines.push(
@@ -558,7 +558,7 @@ function lagOrderTable(s: VarSetup): StatTable {
 
 function varConventions(s: VarSetup): string[] {
   return [
-    `Conventions (statsmodels 0.15 VAR, trend="c"): each equation by OLS on a constant and lags 1…p of every series; Σᵤ = ε̂ᵀε̂/(T − Kp − 1) (statsmodels sigma_u); T = n − p = ${intText(s.fit.nobs)}.`,
+    `Conventions (statsmodels 0.15 VAR, trend="c"): each equation by OLS on a constant and lags 1…p of every series; Σᵤ = ε̂ᵀε̂/(T − Kp − 1) (statsmodels' residual covariance); T = n − p = ${intText(s.fit.nobs)}.`,
     s.rows.length
       ? `Lag order: ${s.how}. The criteria compare every p on the same ${intText(s.data.n - s.maxlags)} observations (the first ${s.maxlags} rows held back), with the maximum-likelihood Σ̂ᵤ = ε̂ᵀε̂/T.`
       : `Lag order: p = ${s.p}, as entered.`,
@@ -596,7 +596,7 @@ export function tsVarCalc(read: Read): StatOutput {
   lines.push("");
   lines.push(...varConventions(s));
   lines.push(
-    `Coefficient SEs from Cov(vec B) = (ZᵀZ)⁻¹ ⊗ Σᵤ; z and p from the normal distribution (statsmodels VARResults.pvalues). Granger F: the Wald statistic for the p lags of the causing series in the caused series' equation, divided by p, against the F distribution with p and K(T − Kp − 1) degrees of freedom, here ${p} and ${intText(K * fit.dfResid)} (statsmodels test_causality, kind="f").`,
+    `Coefficient SEs from Cov(vec B) = (ZᵀZ)⁻¹ ⊗ Σᵤ; z and p from the normal distribution (statsmodels VARResults.pvalues). Granger F: the Wald statistic for the p lags of the causing series in the caused series' equation, divided by p, against the F distribution with p and K(T − Kp − 1) degrees of freedom, here ${p} and ${intText(K * fit.dfResid)} (statsmodels' Granger causality F test).`,
   );
   lines.push(...s.data.notes);
 
@@ -744,9 +744,9 @@ export function tsEngleGrangerCalc(read: Read): StatOutput {
 // ---------------------------------------------------------------- ts-johansen
 
 const DET_TEXT: Record<string, string> = {
-  "-1": "no deterministic terms (det_order = −1)",
-  "0": "a constant (det_order = 0)",
-  "1": "a linear trend (det_order = 1)",
+  "-1": "no deterministic terms (statsmodels deterministic order −1)",
+  "0": "a constant (statsmodels deterministic order 0)",
+  "1": "a linear trend (statsmodels deterministic order 1)",
 };
 
 export function tsJohansenCalc(read: Read): StatOutput {
@@ -786,10 +786,10 @@ export function tsJohansenCalc(read: Read): StatOutput {
   lines.push(`Eigenvalues: ${r.eig.map((v) => fmtFixed(v, 4)).join(", ")}.`);
   lines.push("");
   lines.push(
-    `Conventions (statsmodels 0.15 coint_johansen(endog, det_order = ${det < 0 ? `${MINUS}1` : det}, k_ar_diff = ${kd})):${det === -1 ? "no detrending" : det === 0 ? "the levels are demeaned" : "the levels are linearly detrended"}; ${det >= 0 ? "the differences, their lags and the lagged levels are then demeaned" : "nothing else is detrended"} (statsmodels' convention, f = ${det >= 0 ? "0" : `${MINUS}1`}). ΔXₜ and the lagged level Xₜ₋ₖ are each regressed on ΔXₜ₋₁…ΔXₜ₋ₖ; the eigenvalues solve |λSₖₖ − Sₖ₀S₀₀⁻¹S₀ₖ| = 0 (moments divided by T).`,
+    `Conventions (statsmodels 0.15 Johansen test, deterministic order ${det < 0 ? `${MINUS}1` : det}, ${kd} lagged difference${kd === 1 ? "" : "s"}): ${det === -1 ? "no detrending" : det === 0 ? "the levels are demeaned" : "the levels are linearly detrended"}; ${det >= 0 ? "the differences, their lags and the lagged levels are then demeaned" : "nothing else is detrended"} (statsmodels' convention, f = ${det >= 0 ? "0" : `${MINUS}1`}). ΔXₜ and the lagged level Xₜ₋ₖ are each regressed on ΔXₜ₋₁…ΔXₜ₋ₖ; the eigenvalues solve |λSₖₖ − Sₖ₀S₀₀⁻¹S₀ₖ| = 0 (moments divided by T).`,
   );
-  lines.push("Trace = −T Σ ln(1 − λᵢ) over i > r; maximum eigenvalue = −T ln(1 − λᵣ₊₁). Critical values: Osterwald-Lenum (1992), as statsmodels' c_sjt / c_sja tables give them (asymptotic, 90%, 95%, 99%).");
-  lines.push(`k counts lagged differences (k_ar_diff), so it corresponds to a VAR in levels with p = k + 1 = ${kd + 1} lags.`);
+  lines.push("Trace = −T Σ ln(1 − λᵢ) over i > r; maximum eigenvalue = −T ln(1 − λᵣ₊₁). Critical values: Osterwald-Lenum (1992), as statsmodels' trace and maximum-eigenvalue critical-value tables give them (asymptotic, 90%, 95%, 99%).");
+  lines.push(`k counts lagged differences, so it corresponds to a VAR in levels with p = k + 1 = ${kd + 1} lags.`);
   lines.push(...data.notes);
   const rowsFor = (stat: number[], cv: number[][], label: string): string[][] => {
     const rows: string[][] = [[label === "Trace" ? "H₀: rank ≤ r" : "H₀: rank = r", "Eigenvalue", label, "90%", "95%", "99%"]];
@@ -924,9 +924,9 @@ export const TS2_STAT_CALCS: StatCalcDef[] = [
         default: "0",
         kind: "select",
         options: [
-          { value: "-1", label: "None (det_order −1)" },
-          { value: "0", label: "Constant (det_order 0)" },
-          { value: "1", label: "Linear trend (det_order 1)" },
+          { value: "-1", label: "None (deterministic order −1)" },
+          { value: "0", label: "Constant (deterministic order 0)" },
+          { value: "1", label: "Linear trend (deterministic order 1)" },
         ],
       },
       {

@@ -197,10 +197,11 @@ export interface GarchSpec {
 }
 
 /**
- * The most observations a GARCH fit takes. The search's work is capped at GARCH_WORK / n likelihood passes (8,000 at
- * n = 2,500), so its worst case takes about the same time at any n (measured 2026-10-27 in Node: about 1 s, an EGARCH-t
- * on ±1 alternating returns refused at the cap). Past 2,500 the cap leaves fewer passes (4,000 at n = 5,000), while
- * the slowest converging fits measured needed about 5,600, so they would be refused rather than printed.
+ * The most observations a GARCH fit takes. The search's work is capped at GARCH_WORK / (n + 150) likelihood passes
+ * (7,547 at n = 2,500), so its worst case takes about the same time at any n (measured 2026-10-27 in Node: about 1 s
+ * alone, up to 2.5 s with other work running, for an EGARCH-t on ±1 alternating returns refused at the cap). Past 2,500
+ * the cap leaves fewer passes (3,883 at n = 5,000), while the slowest converging fits measured needed about 5,600, so
+ * they would be refused rather than printed.
  */
 export const GARCH_MAX_N = 2500;
 export const GARCH_MIN_N = 100;
@@ -846,12 +847,19 @@ function projectOnto(cons: LinCon[], W0: number[], x: number[]): number[] {
 /** Work units: one pass over the series, with or without the exact gradient (garchNllGrad measured 0.6 to 0.85 of garchLls's time), costs 1. */
 const GRAD_COST = 1;
 /**
- * The likelihood search's total work in observation-passes (passes × n): the budget is GARCH_WORK / n passes, so the
- * longest search takes about the same time at every n (measured 2026-10-27, Node on the development laptop: about
- * 1.5 s for the worst series found, an EGARCH-t on ±1 alternating returns at n = 2,500, which is refused at the cap).
- * The fits that converge in the test sweeps used at most about half of it.
+ * The likelihood search's total work in observation-passes: the budget is GARCH_WORK / (n + GARCH_PASS_OVERHEAD)
+ * passes, so the longest search takes about the same time at every n (measured 2026-10-27, Node on the development
+ * laptop: about 1 s alone, up to 2.5 s with other work running, for the worst series found, an EGARCH-t on ±1
+ * alternating returns at n = 2,500, which is refused at the cap). The fits that converge in the test sweeps used at
+ * most 0.7 of it.
  */
 const GARCH_WORK = 2e7;
+/**
+ * A search step's fixed cost (the subspace map, feasibility checks, quasi-Newton update) in observations: measured
+ * about 5 µs per evaluation against 0.044 µs per observation, so short series do not get 10⁵ cheap passes that the
+ * fixed cost makes slow (at n = 100 the cap is 80,000 passes).
+ */
+const GARCH_PASS_OVERHEAD = 150;
 
 type FG = (x: number[]) => { f: number; g: number[] };
 
@@ -1215,7 +1223,8 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   const sc = C.s;
   const s = C.sR;
   const cons = C.cons;
-  const budget = { left: Math.max(400, Math.floor(GARCH_WORK / n)) };
+  const budget = { left: Math.max(400, Math.floor(GARCH_WORK / (n + GARCH_PASS_OVERHEAD))) };
+  let exhausted = false;
   const fg: FG = (v) => {
     if (!garchFeasible(cons, v)) return { f: Infinity, g: [] };
     budget.left -= GRAD_COST;
@@ -1238,12 +1247,14 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   let bestOk: Cand | null = null;
   let bestAny: Cand | null = null;
   for (let ti = 0; ti < tries.length && budget.left > 0; ti++) {
-    // Each start gets a fair share of what is left (unused shares roll over), so one start on a rugged surface (a
-    // non-invertible EGARCH) cannot starve the others of the search that finds the smooth optimum.
-    const share = Math.floor(budget.left / (tries.length - ti));
+    // arch's own start may use 40% of the cap, each later one a fair share of what is left (unused shares roll over),
+    // so one start on a rugged surface (a non-invertible EGARCH) cannot starve the others of the search that finds the
+    // smooth optimum.
+    const share = ti === 0 ? Math.floor(0.4 * budget.left) : Math.floor(budget.left / (tries.length - ti));
     const reserve = budget.left - share;
     budget.left = share;
     let r = activeSetMin(fg, cons, tries[ti], budget);
+    if (budget.left <= 0) exhausted = true;
     if (!Number.isFinite(r.f)) {
       budget.left = Math.max(0, budget.left) + reserve;
       continue;
@@ -1273,6 +1284,7 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
         }
       }
     }
+    if (budget.left <= 0) exhausted = true;
     budget.left = Math.max(0, budget.left) + reserve;
     const cand: Cand = { x: r.x, f: r.f, kkt };
     if (kkt.ok && (!bestOk || r.f < bestOk.f)) bestOk = cand;
@@ -1280,7 +1292,8 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   }
   const chosen = bestOk ?? bestAny;
   if (!chosen) return { ok: false, reason: "The likelihood could not be evaluated at any feasible parameters for this series." };
-  const workLimitHit = !bestOk && budget.left <= 0;
+  // Named when nothing passed the KKT check and some start's search was cut off by its share of the cap.
+  const workLimitHit = !bestOk && exhausted;
   const kkt = chosen.kkt;
   let xk = chosen.x;
   // EGARCH with a mean: an optimum on the kink of |rₜ − μ| reached without the pin can sit 10⁻¹⁴ off the return; put

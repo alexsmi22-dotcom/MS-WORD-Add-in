@@ -41,7 +41,6 @@ import {
   marshallRat,
   expenditureRat,
   indirectRat,
-  utilityValue,
   COST_MAX_DEGREE,
   costAnalysis,
   minMc,
@@ -167,6 +166,8 @@ const H = 280;
 export function demandRevenueSvg(o: {
   qOf: (p: number) => number;
   pMax: number;
+  /** Lowest price drawn (the constant-elasticity curve runs to infinite quantity as P → 0). */
+  pMin: number;
   p0: number;
   pR: number | null;
   pStar: number | null;
@@ -175,8 +176,8 @@ export function demandRevenueSvg(o: {
   const dem: Point[] = [];
   const rev: Point[] = [];
   const N = 120;
-  const pLo = o.pMax / 40;
-  const qCap = o.qOf(pLo);
+  const pLo = o.pMin;
+  const qCap = o.qOf(Math.max(pLo, o.pMax / 1e6));
   for (let i = 0; i <= N; i++) {
     const p = pLo + ((o.pMax - pLo) * i) / N;
     const qq = o.qOf(p);
@@ -283,7 +284,8 @@ export function microDemandCalc(read: Read): StatOutput {
       grid.push([nm(p), nm(qOf(p)), nm(epsOf(p)), nm(p * qOf(p))]);
     }
     tables.push({ label: "Demand at a grid of prices", rows: grid, align: ["right", "right", "right", "right"] });
-    const svg = demandRevenueSvg({ qOf, pMax, p0, pR: pR ? ratToNumber(pR) : null, pStar: pStar ? ratToNumber(pStar) : null, title: form === "loglog" ? "Constant-elasticity demand" : "Log-linear demand" });
+    const pMin = form === "semilog" ? 0 : 0.25 * Math.min(...marks.filter((x) => x > 0));
+    const svg = demandRevenueSvg({ qOf, pMax, pMin, p0, pR: pR ? ratToNumber(pR) : null, pStar: pStar ? ratToNumber(pStar) : null, title: form === "loglog" ? "Constant-elasticity demand" : "Log-linear demand" });
     return { text: lines.join("\n"), tables, svg };
   });
 }
@@ -344,7 +346,7 @@ export function consumerChoiceSvg(o: {
   const series: Series[] = [
     { type: "line", points: budget(o.m, o.p1), color: "#0369a1", label: "budget, old price" },
     { type: "line", points: budget(o.m, o.p1New), color: "#b45309", label: "budget, new price" },
-    { type: "line", points: budget(o.eHicks, o.p1New), color: "#9ca3af", label: "compensated budget (Hicks)" },
+    { type: "line", points: budget(o.eHicks, o.p1New), color: "#9ca3af", label: "compensated budget" },
     { type: "line", points: ic(o.u0), color: "#15803d", label: "indifference curve u₀" },
     { type: "line", points: ic(o.u1), color: "#7c3aed", label: "indifference curve u₁" },
   ];
@@ -432,21 +434,24 @@ export function microConsumerCalc(read: Read): StatOutput {
     lines.push(`After (C): ${bundleText(res.C, exC)}; utility u₁ = ${nm(res.u1)}.`);
     lines.push(`Hicks-compensated (B, utility u₀ at the new prices): income e(p′, u₀) = ${exE ? ex(exE) : nm(res.eHicks)}, ${bundleText(res.B, exB)}.`);
     const fin = (b: Bundle): b is { x: number; y: number } => !b.tie;
+    // Float noise in a difference (a zero price change gives −1.07×10⁻¹⁴) is shown as 0.
+    const scale = Math.max(m, m / p1, m / p1n, m / p2);
+    const snap = (x: number): number => (Math.abs(x) < 1e-11 * scale ? 0 : x);
     if (fin(res.A) && fin(res.B) && fin(res.C)) {
-      const se = res.B.x - res.A.x;
-      const ie = res.C.x - res.B.x;
-      lines.push(`Hicks decomposition of the change in x₁ (${nm(res.C.x - res.A.x)}): substitution effect B − A = ${nm(se)}, income effect C − B = ${nm(ie)}.`);
+      const se = snap(res.B.x - res.A.x);
+      const ie = snap(res.C.x - res.B.x);
+      lines.push(`Hicks decomposition of the change in x₁ (${nm(snap(res.C.x - res.A.x))}): substitution effect B − A = ${nm(se)}, income effect C − B = ${nm(ie)}.`);
     } else {
       lines.push("Hicks decomposition: not defined, because demand at one of A, B, C is not unique (a tie between perfect substitutes).");
     }
     if (res.S && fin(res.S) && fin(res.A) && fin(res.C)) {
       lines.push(
-        `Slutsky decomposition (purchasing power held constant: income m′ = m + Δp₁·x₁ᴬ = ${mPrimeR ? ex(mPrimeR) : nm(res.mSlutsky!)} buys the old bundle): S has ${bundleText(res.S, exS)}; substitution effect S − A = ${exS && exA ? ex(ratSub(exS.x, exA.x)) : nm(res.S.x - res.A.x)}, income effect C − S = ${exS && exC ? ex(ratSub(exC.x, exS.x)) : nm(res.C.x - res.S.x)}.`,
+        `Slutsky decomposition (purchasing power held constant: income m′ = m + Δp₁·x₁ᴬ = ${mPrimeR ? ex(mPrimeR) : nm(res.mSlutsky!)} buys the old bundle): S has ${bundleText(res.S, exS)}; substitution effect S − A = ${exS && exA ? ex(ratSub(exS.x, exA.x)) : nm(snap(res.S.x - res.A.x))}, income effect C − S = ${exS && exC ? ex(ratSub(exC.x, exS.x)) : nm(snap(res.C.x - res.S.x))}.`,
       );
     } else {
       lines.push("Slutsky decomposition: not defined, because demand at the old or new prices, or at the compensated income, is not unique.");
     }
-    lines.push(`Compensating variation CV = e(p′, u₀) − m = ${nm(res.cv)}; equivalent variation EV = m − e(p, u₁) = ${nm(res.ev)} (positive numbers are losses from the price change).`);
+    lines.push(`Compensating variation CV = e(p′, u₀) − m = ${nm(snap(res.cv))}; equivalent variation EV = m − e(p, u₁) = ${nm(snap(res.ev))} (positive numbers are losses from the price change).`);
     if (k === "leontief") lines.push("Perfect complements: the substitution effect is zero by construction (the indifference curves are L-shaped); the whole change is an income effect.");
     lines.push("");
     lines.push(
@@ -457,7 +462,7 @@ export function microConsumerCalc(read: Read): StatOutput {
     );
     const row = (name: string, b: Bundle | null): string[] => (b && !b.tie ? [name, nm(b.x), nm(b.y)] : [name, "not unique", "not unique"]);
     const diff = (name: string, p: Bundle | null, q2: Bundle | null): string[] =>
-      p && q2 && !p.tie && !q2.tie ? [name, nm(q2.x - p.x), nm(q2.y - p.y)] : [name, "not defined", "not defined"];
+      p && q2 && !p.tie && !q2.tie ? [name, nm(snap(q2.x - p.x)), nm(snap(q2.y - p.y))] : [name, "not defined", "not defined"];
     const tables: StatTable[] = [
       {
         label: "Bundles and effects of the price change",
@@ -484,14 +489,13 @@ export function microConsumerCalc(read: Read): StatOutput {
           ["Utility after u₁", nm(res.u1)],
           ["Compensating income e(p′, u₀)", nm(res.eHicks)],
           ["Slutsky income m′", res.mSlutsky === null ? "not defined" : nm(res.mSlutsky)],
-          ["Compensating variation", nm(res.cv)],
-          ["Equivalent variation", nm(res.ev)],
+          ["Compensating variation", nm(snap(res.cv))],
+          ["Equivalent variation", nm(snap(res.ev))],
         ],
         align: ["left", "right"],
       },
     ];
     const svg = consumerChoiceSvg({ u, m, p1, p1New: p1n, p2, eHicks: res.eHicks, u0: res.u0, u1: res.u1, A: res.A, B: res.B, C: res.C });
-    void utilityValue;
     return { text: lines.join("\n"), tables, svg };
   });
 }
@@ -558,7 +562,9 @@ export function microCostCalc(read: Read): StatOutput {
     if (typeof qmax === "string") return refuse(qmax);
     const an = costAnalysis(c, qmax ? ratToNumber(qmax) : null);
     if ("error" in an) return refuse(an.error);
-    let sup: ReturnType<typeof supplyAt> | null = price ? supplyAt(an, price) : null;
+    // A linear TC has a constant MC = c₁: above it output is unbounded, at it any output is optimal (stated, not solved).
+    const linearMc = n === 1 && price ? rcmp(price, c[1]) : null;
+    const sup: ReturnType<typeof supplyAt> | null = price && (linearMc === null || linearMc < 0) ? supplyAt(an, price) : null;
     const checkHi = Math.max(an.qHi, sup?.q ?? 0);
     const low = minMc(c, checkHi);
     if (low.v < 0) return refuse(`Marginal cost MC(q) = TC′(q) is negative near q = ${nm(low.q)} (MC ≈ ${nm(low.v)}): a total cost must not fall as output rises. Check the coefficients.`);
@@ -577,6 +583,13 @@ export function microCostCalc(read: Read): StatOutput {
     if (ratIsZero(c[0])) lines.push("With no fixed cost AC = AVC, so the break-even point is the shutdown point.");
     else if (an.breakEven) lines.push(`Break-even point (minimum AC, where MC = AC): ${ptText(an.breakEven, "AC")}. At prices above this the firm makes an economic profit; between the two points it produces at a loss smaller than its fixed cost.`);
     else lines.push("AC falls at every output (TC is linear, so AC = FC/q + c₁): there is no break-even minimum.");
+    if (price && linearMc !== null && linearMc >= 0) {
+      lines.push(
+        linearMc > 0
+          ? `At the market price P = ${ex(price)}, above the constant marginal cost c₁ = ${ex(c[1])}, every extra unit adds P − c₁ to profit: output is unbounded (no finite profit maximum; a linear TC cannot describe a price-taking firm's supply).`
+          : `At the market price P = ${ex(price)}, equal to the constant marginal cost c₁, every output earns the same profit (−FC): output is not determined.`,
+      );
+    }
     if (price && sup) {
       if (sup.shut) lines.push(`At the market price P = ${ex(price)} (below the shutdown price) the firm shuts down: q = 0, loss = the fixed cost ${ex(c[0])}.`);
       else {
@@ -610,7 +623,6 @@ export function microCostCalc(read: Read): StatOutput {
       },
     ];
     const svg = costCurvesSvg(an, price ? ratToNumber(price) : null, sup && !sup.shut ? sup.q : null);
-    sup = null;
     return { text: lines.join("\n"), tables, svg };
   });
 }
@@ -714,8 +726,8 @@ export function auctionSvg(n: number, lo: number, hi: number, r: number, rStar: 
     if (u >= s && u > 0) fpa.push({ x: v, y: lo + span * (u - (Math.pow(u, n) - Math.pow(s, n)) / (n * Math.pow(u, n - 1))) });
   }
   const bids: Series[] = [
-    { type: "line", points: spa, color: "#b45309", label: "second price: bid = value" },
-    { type: "line", points: fpa, color: "#0369a1", label: "first price: equilibrium bid" },
+    { type: "line", points: spa, color: "#b45309", label: "second price" },
+    { type: "line", points: fpa, color: "#0369a1", label: "first price" },
   ];
   if (s > 0) bids.push({ type: "scatter", points: [{ x: r, y: r }], color: "#b91c1c", label: "reserve" });
   const revAt = (rr: number): number => {
@@ -858,7 +870,7 @@ export function macroGrowthCalc(read: Read): StatOutput {
     const [Y, K, L] = cols;
     const rows = growthAccounting(Y, K, L, alpha, kind as GrowthKind);
     const tfp = tfpIndex(Y, K, L, alpha);
-    const labels = d.dates ? d.dates.tokens.map((t) => t.label) : Array.from({ length: d.n }, (_, i) => String(i + 1));
+    const labels = d.dates ? d.dates.tokens.map((t) => t.label) : Array.from({ length: d.n }, (_, i) => `period ${i + 1}`);
     const xs = d.dates && d.dates.frequency === "year" ? labels.map(Number) : labels.map((_, i) => i);
     const T = rows.length;
     const mean = (f: (r: (typeof rows)[number]) => number): number => rows.reduce((s, r) => s + f(r), 0) / T;
@@ -947,6 +959,11 @@ export function isLmBpSvg(p0: MfParams, s0: MfSolution, p1: MfParams, s1: MfSolu
     { type: "line", points: c0.lm, color: "#b45309", label: "LM" },
     { type: "line", points: c0.bp, color: "#6b7280", label: p0.f === null ? "BP (r = r*)" : "BP" },
   ];
+  // Under floating rates a fiscal shift moves the IS before the exchange rate moves it back (part or all of the way).
+  if (regime === "floating" && !ratEq(p0.G, p1.G)) {
+    const mid = curves(p1, s0).is;
+    if (!same(mid, c1.is)) series.push({ type: "line", points: mid, color: "#c4b5fd", label: "IS before e adjusts" });
+  }
   if (!same(c0.is, c1.is)) series.push({ type: "line", points: c1.is, color: "#7dd3fc", label: "IS after" });
   if (!same(c0.lm, c1.lm)) series.push({ type: "line", points: c1.lm, color: "#fcd34d", label: "LM after" });
   if (!same(c0.bp, c1.bp)) series.push({ type: "line", points: c1.bp, color: "#d1d5db", label: "BP after" });
@@ -1021,7 +1038,6 @@ export function macroMundellFlemingCalc(read: Read): StatOutput {
       return refuse(`${bad.name}: the exchange rate would fall to ${ex(bad.s1.e)} (not positive). Choose a smaller shock or a larger net-export sensitivity n.`);
     }
     if (ratSign(base.floating.e) <= 0) return refuse(`The floating-rate equilibrium exchange rate is ${ex(base.floating.e)} (not positive): raise NX₀ or n, or lower M.`);
-    const s0 = base[regime]!;
     const lines: string[] = [];
     lines.push(
       `Small open economy, ${mob === "perfect" ? "perfect capital mobility (BP: r = r*)" : `imperfect capital mobility (capital inflow f·(r − r*), f = ${ex(f!)})`}, world rate r* = ${ex(v.rw)}%, price level fixed at P = ${ex(v.P)}.`,
@@ -1057,7 +1073,6 @@ export function macroMundellFlemingCalc(read: Read): StatOutput {
     }
     if (note) lines.splice(lines.length - 2, 0, note);
     const svg = isLmBpSvg(p, figExp.s0, figExp.p1, figExp.s1, figExp.regime);
-    void s0;
     return { text: lines.join("\n"), tables, svg };
   });
 }
@@ -1292,6 +1307,7 @@ export function macroPhillipsCalc(read: Read): StatOutput {
     }
     for (let i = 0; i < y.length; i++) if (!Number.isFinite(y[i]) || !Number.isFinite(u[i])) return refuse(`Data, row ${rowLabels[i]}: a value is missing or not a number.`);
     if (y.length < 4) return refuse(`Data: ${y.length} usable observations; at least 4 are needed${form === "accel" ? " (the change in inflation uses up the first row)" : ""}.`);
+    if (u.every((x) => x === u[0])) return refuse(`Unemployment column ${q(un.name)}: every usable value is ${fx(u[0], 2)}, so the slope of the Phillips curve cannot be estimated.`);
     const fit = fitOls({ y, depName, X: [u], names: ["unemployment"], constant: true, se });
     if (!fit.ok) return refuse(`The regression could not be fitted: ${fit.reason}`);
     const terms = fit.model.terms;

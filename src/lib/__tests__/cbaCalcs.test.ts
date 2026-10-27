@@ -154,6 +154,8 @@ describe("Pigouvian tax vs sympy", () => {
     const o = run("cba-pigou", { e0: "200" });
     expect(o.ok).not.toBe(false);
     expect(o.text).toMatch(/Social optimum: no output/);
+    // the DWL is the trapezoid ∫₀⁶⁰ (MSC − MB) dQ = ∫₀⁶⁰ (110 + 1.7Q) dQ = 9,660 (was the triangle ½·60·(MSC − MB)(60))
+    expect(o.text).toMatch(/Deadweight loss of the unregulated market: 9,660\.00/);
   });
 });
 

@@ -194,7 +194,7 @@ const derivR = (c: Rat[]): Rat[] => c.slice(1).map((v, i) => ratMul(v, R(i + 1))
 
 /**
  * The positive real roots of a polynomial (coefficients lowest first) up to `hi`: exact rational roots by the
- * rational-root theorem, the rest by a sign-change scan (8,000 even steps) and bisection. A root of even multiplicity
+ * rational-root theorem, the rest by a sign-change scan (8,000 even and 8,000 geometric steps) and bisection. A root of even multiplicity
  * that is irrational (it touches zero without crossing) can be missed: the callers only need the crossings.
  */
 export function positiveRoots(coeffs: Rat[], hi: number): { exact: Rat[]; approx: number[] } {
@@ -209,38 +209,30 @@ export function positiveRoots(coeffs: Rat[], hi: number): { exact: Rat[]; approx
   const rest = rr.incomplete ? c : rr.rest;
   const rn = rest.map(ratToNumber);
   if (rn.length >= 2) {
+    // The scan grid: 8,000 even steps on (0, hi] merged with 8,000 geometric steps over fifteen decades below hi, so a
+    // root near zero is separated from a far one even when hi is huge (a Cauchy bound for a high price).
     const N = 8000;
+    const grid: number[] = [];
+    for (let i = 1; i <= N; i++) grid.push((hi * i) / N);
+    for (let i = 0; i < N; i++) grid.push(hi * Math.pow(10, -15 + (15 * i) / N));
+    grid.sort((u, v) => u - v);
     let x0 = 0;
     let f0 = polyN(rn, 0);
-    for (let i = 1; i <= N; i++) {
-      const x1 = (hi * i) / N;
+    for (const x1 of grid) {
+      if (!(x1 > x0)) continue;
       const f1 = polyN(rn, x1);
-      if (f1 === 0) {
-        if (x1 > 0) approx.push(x1);
-      } else if (f0 !== 0 && Math.sign(f0) !== Math.sign(f1) && x0 > 0) {
+      if (f1 === 0) approx.push(x1);
+      else if (f0 !== 0 && Math.sign(f0) !== Math.sign(f1)) {
         let lo = x0;
         let up = x1;
-        let flo = f0;
         for (let k = 0; k < 200; k++) {
           const mid = (lo + up) / 2;
+          if (!(mid > lo && mid < up)) break;
           const fm = polyN(rn, mid);
-          if (fm === 0 || up - lo <= 1e-15 * up) {
+          if (fm === 0) {
             lo = up = mid;
             break;
           }
-          if (Math.sign(fm) === Math.sign(flo)) {
-            lo = mid;
-            flo = fm;
-          } else up = mid;
-        }
-        approx.push((lo + up) / 2);
-      } else if (f0 !== 0 && x0 === 0 && Math.sign(f0) !== Math.sign(f1)) {
-        // A crossing in the first step (0, h]: bisect from a tiny positive start.
-        let lo = 0;
-        let up = x1;
-        for (let k = 0; k < 200; k++) {
-          const mid = (lo + up) / 2;
-          const fm = polyN(rn, mid);
           if (Math.sign(fm) === Math.sign(f0)) lo = mid;
           else up = mid;
         }
@@ -372,10 +364,11 @@ export function supplyAt(an: CostAnalysis, P: Rat): { q: number; qExact: Rat | n
   }
   const mc = derivR(an.c);
   const eq = mc.map((v, i) => (i === 0 ? ratSub(v, P) : v));
-  const hi = Math.max(an.qHi * 4, 10);
-  let roots = positiveRoots(eq, hi);
-  // A price far above the plotted range: widen once.
-  if (!roots.exact.length && !roots.approx.length) roots = positiveRoots(eq, hi * 1e3);
+  // The Cauchy bound 1 + max|aᵢ/aₙ| holds every root of MC(q) − P, however high the price.
+  const en = eq.map(ratToNumber);
+  let cauchy = 1;
+  for (let k = 0; k < en.length - 1; k++) cauchy = Math.max(cauchy, 1 + Math.abs(en[k] / en[en.length - 1]));
+  const roots = positiveRoots(eq, Math.max(an.qHi * 4, 10, cauchy));
   const all = [...roots.exact.map((r) => ({ q: ratToNumber(r), e: r as Rat | null })), ...roots.approx.map((q) => ({ q, e: null as Rat | null }))];
   if (!all.length) return { q: 0, qExact: RAT_ZERO, profit: -ratToNumber(fc), profitExact: ratNeg(fc), shut: true };
   all.sort((u, v) => v.q - u.q);

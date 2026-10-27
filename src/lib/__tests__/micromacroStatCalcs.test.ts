@@ -361,6 +361,32 @@ describe("hostile inputs refuse by field name", () => {
   });
 });
 
+describe("adversarial-pass regressions", () => {
+  test("a price far above the cost range still finds the rising-branch output (was: 'below the shutdown price')", () => {
+    const o = run("micro-cost", { price: "1e12" });
+    expect(o.text).toMatch(/output q ≈ 1,154,703\.2050/);
+    expect(o.text).not.toMatch(/shuts down/);
+  });
+  test("a linear TC: output unbounded above c₁, shut below, stated (no false shutdown)", () => {
+    expect(run("micro-cost", { tc: "100, 5", price: "50" }).text).toMatch(/output is unbounded/);
+    expect(run("micro-cost", { tc: "100, 5", price: "5" }).text).toMatch(/output is not determined/);
+    expect(run("micro-cost", { tc: "100, 5", price: "4" }).text).toMatch(/shuts down/);
+  });
+  test("a zero price change prints zero effects, not float noise", () => {
+    const o = run("micro-consumer", { p1new: "2" });
+    expect(o.text).toMatch(/substitution effect B − A = 0\.0000, income effect C − B = 0\.0000/);
+    expect(o.text).not.toMatch(/10⁻¹/);
+  });
+  test("constant unemployment is refused by name before the regression", () => {
+    const o = run("macro-phillips", { data: ["Year,inflation,unemployment", "2001,2,5", "2002,3,5", "2003,2,5", "2004,4,5", "2005,1,5"].join(String.fromCharCode(10)) });
+    expect(o.ok).toBe(false);
+    expect(o.text).toMatch(/^Unemployment column “unemployment”: every usable value is 5\.00/);
+  });
+  test("without a date column the periods are named", () => {
+    expect(run("macro-growth-accounting", { data: ["Y,K,L", "100,300,50", "102,306,50.5"].join(String.fromCharCode(10)) }).text).toMatch(/\(period 1 to period 2\)/);
+  });
+});
+
 describe("caps stay fast", () => {
   const time = (f: () => unknown): number => {
     const t0 = Date.now();

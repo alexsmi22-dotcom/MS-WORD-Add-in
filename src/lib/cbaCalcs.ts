@@ -266,8 +266,9 @@ export function cbaScenariosCalc(r: Read): FinResult {
     note: "The rate entered ±1, 2 and 3 percentage points.",
   };
   const allRoots = ms.flatMap((m) => [...m.irr.roots, ...m.irr.touches]);
-  const lo = Math.max(-0.5, Math.min(0, ...[rate, ...allRoots].map((x) => x - 0.05)));
-  const hi = Math.min(1, Math.max(0.15, rate * 2, ...[rate, ...allRoots].map((x) => x + 0.05)));
+  // −50% … 100% at most so a far root does not flatten the curves, but always around the rate entered.
+  const lo = Math.min(rate - 0.05, Math.max(-0.5, Math.min(0, ...[rate, ...allRoots].map((x) => x - 0.05))));
+  const hi = Math.max(rate + 0.05, Math.min(1, Math.max(0.15, rate * 2, ...[rate, ...allRoots].map((x) => x + 0.05))));
   const svg = cbaNpvRateSvg(scen.map((s, k) => ({ name: s.name, b: s.b, c: s.c, roots: [...ms[k].irr.roots, ...ms[k].irr.touches] })), rate, lo, hi);
   if (allRoots.some((x) => x < lo || x > hi)) lines.splice(lines.length - 1, 0, `The figure runs from ${pct(lo, 0)} to ${pct(hi, 0)}; EIRRs listed above outside that range are not marked on it.`);
   return finish({ text: lines.join("\n"), svg, tables: [metrics, sens] });
@@ -313,7 +314,8 @@ export function pigou(a: number, b: number, c: number, d: number, e0: number, e1
   const tax = corner ? a - c : mec(qs);
   const msc = (q: number): number => c + d * q + mec(q);
   const mb = (q: number): number => a - b * q;
-  const dwl = 0.5 * Math.abs(qm - qs) * Math.abs(msc(qm) - mb(qm));
+  // The area between MSC and demand from Q_s to Q_m: a trapezoid (a triangle when Q_s is interior, where they cross).
+  const dwl = 0.5 * Math.abs(qm - qs) * Math.abs(msc(qm) - mb(qm) + (msc(qs) - mb(qs)));
   const ext = (q: number): number => e0 * q + 0.5 * e1 * q * q;
   return { qm, pm: a - b * qm, qs, ps, tax, revenue: tax * qs, dwl, extM: ext(qm), extS: ext(qs), corner };
 }
@@ -324,12 +326,12 @@ export function pigouSvg(a: number, b: number, c: number, d: number, e0: number,
   const line = (i0: number, s: number): Point[] => [{ x: 0, y: i0 }, { x: hi, y: i0 + s * hi }];
   const mscAt = (q: number): number => c + e0 + (d + e1) * q;
   const series: Series[] = [
-    { type: "line", points: line(a, -b), color: "#0369a1", label: "demand (marginal benefit)" },
+    { type: "line", points: line(a, -b), color: "#0369a1", label: "demand" },
     { type: "line", points: line(c, d), color: "#b45309", label: "marginal private cost" },
     { type: "line", points: line(c + e0, d + e1), color: "#b91c1c", label: "marginal social cost" },
     {
       type: "line",
-      points: [{ x: res.qs, y: a - b * res.qs }, { x: res.qm, y: mscAt(res.qm) }, { x: res.qm, y: res.pm }, { x: res.qs, y: a - b * res.qs }],
+      points: [{ x: res.qs, y: a - b * res.qs }, { x: res.qs, y: mscAt(res.qs) }, { x: res.qm, y: mscAt(res.qm) }, { x: res.qm, y: res.pm }, { x: res.qs, y: a - b * res.qs }],
       color: "#6b7280",
       label: "deadweight loss",
     },

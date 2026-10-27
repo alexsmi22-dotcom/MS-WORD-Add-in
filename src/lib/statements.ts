@@ -121,7 +121,7 @@ export const LOSS_NAMES = new Set([
   "loss for the year",
   "accumulated deficit",
 ]);
-for (const n of LOSS_NAMES) if (!BY_NAME.has(n)) throw new Error(`loss name not in LINE_ITEMS: ${n}`);
+// (schedCalcs.test.ts checks that every loss name is one of LINE_ITEMS' names; no throw at load, which would blank the pane)
 export const ITEM_NAME: Record<ItemKey, string> = Object.fromEntries(LINE_ITEMS.map((x) => [x.key, x.name])) as Record<ItemKey, string>;
 
 /** Lower case; "&" → "and"; apostrophes dropped; any other non-letter/digit run → one space. */

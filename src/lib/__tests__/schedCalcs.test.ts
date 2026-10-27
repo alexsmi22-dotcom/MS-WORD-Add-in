@@ -19,7 +19,7 @@ import { loanSchedule } from "../loanSchedule";
 import { depreciationSchedule } from "../depreciation";
 import { macrsMethodRates, macrsRates, macrsSchedule, PUB946_KNOWN_DEVIATIONS, MACRS_SL_PERIODS } from "../macrs";
 import { PUB946_GDS, PUB946_SL } from "../macrsTables";
-import { readStatement, ratioSuite, duPont, altmanZ, cvp } from "../statements";
+import { readStatement, ratioSuite, duPont, altmanZ, cvp, LINE_ITEMS, LOSS_NAMES } from "../statements";
 
 const FX = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "sched-oracle.json"), "utf8"));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -620,6 +620,18 @@ describe("hostile inputs and the adversarial pass", () => {
     if ("error" in k) throw new Error(k.error);
     expect([k.items.get("netIncome")!.current, k.items.get("retainedEarnings")!.current, k.items.get("ebit")!.current]).toEqual([50, -20, 7]);
     expect(k.notes.join(" ")).not.toContain("read as");
+  });
+
+  test("every loss name is a recognized line-item name", () => {
+    const all = new Set(LINE_ITEMS.flatMap((x) => x.names));
+    expect([...LOSS_NAMES].filter((n) => !all.has(n))).toEqual([]);
+  });
+
+  test("timing: a 12,000-payment loan with extra payments (both schedules) stays under 300 ms", () => {
+    const t0 = Date.now();
+    const o = out("loan-schedule", { years: "1000", m: "12", rate: "3", extra: "1", lumps: "100\t50" });
+    expect(Date.now() - t0).toBeLessThan(300);
+    expect(o.ok).not.toBe(false);
   });
 
   test("F1 review C: percentages in a statement are refused by line, quoting what was typed", () => {

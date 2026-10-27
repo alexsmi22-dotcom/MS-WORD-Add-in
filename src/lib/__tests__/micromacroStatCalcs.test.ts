@@ -13,6 +13,8 @@ import {
   priceDiscrimination,
   auction,
   firstPriceBid,
+  auctionNum,
+  firstPriceBidNum,
   mfSolve,
   growthAccounting,
   tfpIndex,
@@ -395,6 +397,26 @@ describe("caps stay fast", () => {
   };
   test("auction at n = 200 with a rational reserve", () => {
     expect(time(() => expect(run("micro-auction", { n: "200", reserve: "100/3" }).ok).not.toBe(false))).toBeLessThan(1500);
+  });
+  test("highly composite and long-decimal cost coefficients skip the rational-root search (was 670 ms)", () => {
+    for (const tc of ["963761198400, 963761198401, 963761198400, 1, 1, 1, 963761198400", "720720, 360360, 0.000001, 0.0000017, 0.0000013, 0.0000019, 0.0000023"]) {
+      expect(time(() => run("micro-cost", { tc, price: "999999" }))).toBeLessThan(300);
+    }
+  });
+  test("long decimals at n = 200 switch the auction to floating point and say so (was 2.4 s exact)", () => {
+    let o: StatOutput | null = null;
+    expect(time(() => (o = run("micro-auction", { n: "200", lo: "0.1234567890123", hi: "987654.321098765", reserve: "123456.789012345" })))).toBeLessThan(300);
+    expect(o!.ok).not.toBe(false);
+    expect(o!.text).toMatch(/evaluated in floating point/);
+    expect(o!.text).toMatch(/equal to floating-point precision/);
+  });
+  test("the floating-point auction agrees with the exact one", () => {
+    for (const d of ORACLE.auction) {
+      const f = auctionNum(d.n, ratToNumber(Q(d.lo)), ratToNumber(Q(d.hi)), ratToNumber(Q(d.r)));
+      close(f.revFirst, d.revFirstF, 1e-12);
+      close(f.revSecond, d.revSecondF, 1e-12);
+      for (const [v, b] of d.bids as number[][]) close(firstPriceBidNum(d.n, ratToNumber(Q(d.lo)), ratToNumber(Q(d.hi)), f.s, v), b, 1e-12);
+    }
   });
   test("degree-6 cost polynomial", () => {
     expect(time(() => expect(run("micro-cost", { tc: "500, 40, −3, 0.1, 0.002, 0.0001, 0.00001" }).ok).not.toBe(false))).toBeLessThan(1500);

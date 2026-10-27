@@ -13,6 +13,8 @@ Sources:
              deposits and F = S exp((i_d - i_f) tau) with continuous compounding (Hull, Options, Futures, and Other
              Derivatives, ch. 5, forward on a foreign currency, F0 = S0 e^((r - r_f) T)); written here independently,
              at 30-digit sympy precision.
+  CIP (QL)   QuantLib 1.44 InterestRate(r, Actual360 | Actual365Fixed, Simple).compoundFactor over the tenor's days:
+             the growth factors and F, a library check of the simple case.
   UIP, PPP   E[S_T] = S ((1 + i_d)/(1 + i_f))^T and S_T = S0 ((1 + pi)/(1 + pi*))^T, the PPP rate P/P*.
 """
 import json
@@ -106,6 +108,16 @@ out["cip"] = [
     {"in": [1.2700, 4.5, 3.75, 91, 360, 365, "simple"], "F": cip(1.27, 4.5, 3.75, 91, 360, 365, "simple")},
     {"in": [150.25, 0.1, 5.25, 365, 360, 360, "simple"], "F": cip(150.25, 0.1, 5.25, 365, 360, 360, "simple")},
 ]
+# QuantLib 1.44 cross-check of the simple money-market growth factors (Actual360 / Actual365Fixed, Simple compounding)
+import QuantLib as ql
+d0 = ql.Date(2, 1, 2026)
+def ql_factor(rate_pct, days, basis):
+    dc = ql.Actual360() if basis == 360 else ql.Actual365Fixed()
+    return ql.InterestRate(rate_pct / 100, dc, ql.Simple, ql.Annual).compoundFactor(d0, d0 + days)
+out["cipQuantLib"] = []
+for S_, id_, if_, days, bd, bf in ((1.25, 5, 3, 182, 360, 360), (1.27, 4.5, 3.75, 91, 360, 365), (150.25, 0.1, 5.25, 365, 360, 360)):
+    gd_, gf_ = ql_factor(id_, days, bd), ql_factor(if_, days, bf)
+    out["cipQuantLib"].append({"in": [S_, id_, if_, days, bd, bf], "growD": gd_, "growF": gf_, "F": S_ * gd_ / gf_})
 # covered arbitrage profit on 1,000,000 domestic at the default quote 1.265 (simple): (Fq/S)(1 + if tau) - (1 + id tau)
 S, Fq = sp.Rational(5, 4), sp.Rational(1265, 1000)
 gd = 1 + sp.Rational(5, 100) * sp.Rational(182, 360)

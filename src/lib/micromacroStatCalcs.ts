@@ -55,6 +55,10 @@ import {
   auction,
   firstPriceBid,
   optimalReserve,
+  AUCTION_EXACT_BITS,
+  auctionExactCost,
+  auctionNum,
+  firstPriceBidNum,
   mfSolve,
   type MfParams,
   type MfRegime,
@@ -767,50 +771,64 @@ export function microAuctionCalc(read: Read): StatOutput {
     if (typeof v0 === "string") return refuse(v0);
     if (rcmp(reserve!, v.hi) >= 0) return refuse("The reserve price must be below the highest value (otherwise the object is never sold).");
     if (rcmp(v0!, v.hi) >= 0) return refuse("The seller's value must be below the highest value (otherwise the seller never wants to sell).");
-    const res = auction(n, v.lo, v.hi, reserve!);
     const rStar = optimalReserve(v.lo, v.hi, v0!);
-    const resStar = auction(n, v.lo, v.hi, rStar);
-    const payoff = (a: ReturnType<typeof auction>): Rat => ratAdd(a.revFirst, ratMul(v0!, ratSub(RAT_ONE, a.pSale)));
+    // Exact rationals unless the n-th powers would run to thousands of digits (then the same closed forms in floating point).
+    const exact = auctionExactCost(n, [v.lo, v.hi, reserve!, v0!]) <= AUCTION_EXACT_BITS;
+    type V = Rat | number;
+    const N = (x: V): number => (typeof x === "number" ? x : ratToNumber(x));
+    const dv = (x: V): string => (typeof x === "number" ? (Math.abs(x) < 1e-12 * Math.max(1, Math.abs(N(v.hi)), Math.abs(N(v.lo))) ? "0" : `≈ ${nm(x)}`) : ex(x));
+    const cv = (x: V): string => (typeof x === "number" ? nm(x) : cellDec(x));
+    type View = { [K in keyof ReturnType<typeof auctionNum>]: V };
+    const solve = (r: Rat): View => (exact ? auction(n, v.lo, v.hi, r) : auctionNum(n, N(v.lo), N(v.hi), N(r)));
+    const res = solve(reserve!);
+    const resStar = solve(rStar);
+    const sIsZero = N(res.s) === 0;
+    const payoff = (a: View): V =>
+      typeof a.revFirst === "number" || typeof a.pSale === "number" ? N(a.revFirst) + N(v0!) * (1 - N(a.pSale)) : ratAdd(a.revFirst, ratMul(v0!, ratSub(RAT_ONE, a.pSale)));
+    const equalRev = typeof res.revFirst === "number" ? Math.abs(N(res.revFirst) - N(res.revSecond)) <= 1e-9 * Math.max(1, Math.abs(N(res.revFirst))) : ratEq(res.revFirst, res.revSecond as Rat);
     const lines: string[] = [];
-    lines.push(`${n} risk-neutral bidders with private values independent and uniform on [${ex(v.lo)}, ${ex(v.hi)}]; reserve price ${ratSign(res.s) > 0 ? ex(res.r) : "none (at or below the lowest value)"}.`);
+    lines.push(`${n} risk-neutral bidders with private values independent and uniform on [${ex(v.lo)}, ${ex(v.hi)}]; reserve price ${!sIsZero ? ex(reserve!) : "none (at or below the lowest value)"}.`);
     const span = ratSub(v.hi, v.lo);
-    if (ratIsZero(res.s)) {
+    if (sIsZero) {
       lines.push(`First-price auction: the symmetric equilibrium bid is b(v) = lo + ((n − 1)/n)·(v − lo) = ${ratIsZero(v.lo) ? "" : `${ex(v.lo)} + `}${ex({ n: BigInt(n - 1), d: BigInt(n) })}·${ratIsZero(v.lo) ? "v" : `(v ${ratSign(v.lo) > 0 ? MINUS : "+"} ${ex(ratSign(v.lo) > 0 ? v.lo : ratNeg(v.lo))})`}: each bidder shades the bid to the expected second-highest value given that theirs is highest.`);
     } else {
       lines.push(`First-price auction with reserve r: for v ≥ r the equilibrium bid is b(v) = v − (F(v)ⁿ − F(r)ⁿ)/(n·F(v)ⁿ⁻¹)·(hi − lo), F(v) = (v − lo)/(hi − lo); bidders with v < r do not bid.`);
     }
     lines.push("Second-price auction: bidding one's value is a weakly dominant strategy; the winner pays the larger of the second-highest bid and the reserve.");
-    lines.push(`Expected revenue: first price ${ex(res.revFirst)}, second price ${ex(res.revSecond)}: ${ratEq(res.revFirst, res.revSecond) ? "equal exactly (revenue equivalence: same allocation, losers pay nothing)" : "NOT equal (check the inputs)"}.`);
-    if (ratIsZero(res.s)) lines.push(`Without a reserve this is E[second-highest value] = lo + (hi − lo)·(n − 1)/(n + 1) = ${ex(res.eSecond)}; the expected highest value is ${ex(res.eMax)}.`);
-    lines.push(`Probability of a sale ${ex(res.pSale)}; each bidder's expected surplus ${ex(res.bidderSurplus)}; seller's expected payoff (revenue + value × probability of no sale) ${ex(payoff(res))}.`);
-    lines.push(`Optimal (Myerson) reserve for a seller who values the object at v₀ = ${ex(v0!)}: r* = (hi + v₀)/2 = ${ex(rStar)}${rcmp(rStar, v.lo) === 0 && rcmp(ratDiv(ratAdd(v.hi, v0!), R(2)), v.lo) < 0 ? " (raised to the lowest value: no reserve binds)" : ""}, independent of n; expected revenue there ${ex(resStar.revFirst)}, seller's payoff ${ex(payoff(resStar))}.`);
+    lines.push(`Expected revenue: first price ${dv(res.revFirst)}, second price ${dv(res.revSecond)}: ${equalRev ? (exact ? "equal exactly (revenue equivalence: same allocation, losers pay nothing)" : "equal to floating-point precision (revenue equivalence: same allocation, losers pay nothing)") : "NOT equal (check the inputs)"}.`);
+    if (sIsZero) lines.push(`Without a reserve this is E[second-highest value] = lo + (hi − lo)·(n − 1)/(n + 1) = ${dv(res.eSecond)}; the expected highest value is ${dv(res.eMax)}.`);
+    lines.push(`Probability of a sale ${dv(res.pSale)}; each bidder's expected surplus ${dv(res.bidderSurplus)}; seller's expected payoff (revenue + value × probability of no sale) ${dv(payoff(res))}.`);
+    lines.push(`Optimal (Myerson) reserve for a seller who values the object at v₀ = ${ex(v0!)}: r* = (hi + v₀)/2 = ${ex(rStar)}${rcmp(rStar, v.lo) === 0 && rcmp(ratDiv(ratAdd(v.hi, v0!), R(2)), v.lo) < 0 ? " (raised to the lowest value: no reserve binds)" : ""}, independent of n; expected revenue there ${dv(resStar.revFirst)}, seller's payoff ${dv(payoff(resStar))}.`);
     lines.push("");
     lines.push(
       "Conventions: independent private values, uniform on [lo, hi]; risk-neutral bidders; symmetric Bayesian Nash equilibrium (first price) and weakly dominant truthful bidding (second price); the seller's value v₀ only enters the optimal reserve and the seller's payoff. " +
-        "Every result is an exact rational from closed forms (order statistics of the uniform), each auction from its own formula.",
+        (exact
+          ? "Every result is an exact rational from closed forms (order statistics of the uniform), each auction from its own formula."
+          : `The closed forms (order statistics of the uniform, each auction from its own formula) are evaluated in floating point: with these inputs and n = ${n} the exact fractions would run to thousands of digits.`),
     );
     const grid: string[][] = [["Value v", "First-price bid", "Second-price bid"]];
     for (let i = 0; i <= 5; i++) {
       const val = ratAdd(v.lo, ratMul(span, { n: BigInt(i), d: 5n }));
-      const bidOK = rcmp(val, res.r) >= 0;
-      grid.push([cellDec(val), bidOK ? cellDec(firstPriceBid(n, v.lo, v.hi, res.s, val)) : "no bid", bidOK ? cellDec(val) : "no bid"]);
+      const bidOK = N(val) >= N(res.r) && (exact ? rcmp(val, res.r as Rat) >= 0 : true);
+      const bid: V = exact ? firstPriceBid(n, v.lo, v.hi, res.s as Rat, val) : firstPriceBidNum(n, N(v.lo), N(v.hi), N(res.s), N(val));
+      grid.push([cellDec(val), bidOK ? cv(bid) : "no bid", bidOK ? cellDec(val) : "no bid"]);
     }
     const tables: StatTable[] = [
       { label: "Equilibrium bids", rows: grid, align: ["right", "right", "right"] },
       {
         label: "Revenue at the reserve entered and at the optimal reserve",
         rows: [
-          ["Measure", `Reserve ${ratSign(res.s) > 0 ? cellDec(res.r) : "none"}`, `Optimal reserve ${cellDec(rStar)}`],
-          ["Probability of a sale", cellDec(res.pSale), cellDec(resStar.pSale)],
-          ["Expected revenue, first price", cellDec(res.revFirst), cellDec(resStar.revFirst)],
-          ["Expected revenue, second price", cellDec(res.revSecond), cellDec(resStar.revSecond)],
-          ["Seller's expected payoff", cellDec(payoff(res)), cellDec(payoff(resStar))],
-          ["Each bidder's expected surplus", cellDec(res.bidderSurplus), cellDec(resStar.bidderSurplus)],
+          ["Measure", `Reserve ${!sIsZero ? cellDec(reserve!) : "none"}`, `Optimal reserve ${cellDec(rStar)}`],
+          ["Probability of a sale", cv(res.pSale), cv(resStar.pSale)],
+          ["Expected revenue, first price", cv(res.revFirst), cv(resStar.revFirst)],
+          ["Expected revenue, second price", cv(res.revSecond), cv(resStar.revSecond)],
+          ["Seller's expected payoff", cv(payoff(res)), cv(payoff(resStar))],
+          ["Each bidder's expected surplus", cv(res.bidderSurplus), cv(resStar.bidderSurplus)],
         ],
         align: ["left", "right", "right"],
       },
     ];
-    const svg = auctionSvg(n, ratToNumber(v.lo), ratToNumber(v.hi), ratToNumber(res.r), ratToNumber(rStar));
+    const svg = auctionSvg(n, N(v.lo), N(v.hi), N(res.r), N(rStar));
     return { text: lines.join("\n"), tables, svg };
   });
 }
@@ -1311,13 +1329,14 @@ export function macroPhillipsCalc(read: Read): StatOutput {
     const fit = fitOls({ y, depName, X: [u], names: ["unemployment"], constant: true, se });
     if (!fit.ok) return refuse(`The regression could not be fitted: ${fit.reason}`);
     const terms = fit.model.terms;
+    const seText = fit.model.seLabel.replace(/^Classical$/, "classical");
     const tb = terms.find((t) => t.name === "unemployment")!;
     const ta = terms.find((t) => t.name === "Constant")!;
     const alpha = ta.coef;
     const beta = tb.coef;
     const lines: string[] = [];
     lines.push(`Phillips curve by OLS, ${y.length} observations (${rowLabels[0]} to ${rowLabels[rowLabels.length - 1]}): ${depName} = α + β·u, inflation ${q(pi.name)}, unemployment ${q(un.name)}${form === "accel" ? " (Δπₜ = πₜ − πₜ₋₁: expected inflation is last year's, the accelerationist form; the first row is used up)" : " (expected inflation from the named column)"}.`);
-    lines.push(`α = ${fx(alpha, 4)} (SE ${fx(ta.se, 4)}), β = ${fx(beta, 4)} (SE ${fx(tb.se, 4)}, t = ${fx(tb.stat, 3)}, ${fmtP(tb.p).startsWith("<") ? "p " + fmtP(tb.p) : "p = " + fmtP(tb.p)}); R² = ${fx(fit.r2, 4)}; standard errors ${fit.model.seLabel}.`);
+    lines.push(`α = ${fx(alpha, 4)} (SE ${fx(ta.se, 4)}), β = ${fx(beta, 4)} (SE ${fx(tb.se, 4)}, t = ${fx(tb.stat, 3)}, ${fmtP(tb.p).startsWith("<") ? "p " + fmtP(tb.p) : "p = " + fmtP(tb.p)}); R² = ${fx(fit.r2, 4)}; standard errors ${seText}.`);
     let nairu: number | null = null;
     let nSe: number | null = null;
     if (beta === 0) {
@@ -1337,7 +1356,7 @@ export function macroPhillipsCalc(read: Read): StatOutput {
     }
     lines.push("");
     lines.push(
-      `Conventions: OLS by olsInference.fitOls (the econ-ols engine), constant included, ${fit.model.seLabel} standard errors; NAIRU = −α/β with its delta-method SE computed by reparametrising the regression around the estimate (same covariance estimator); 95% interval ±1.96 SE (normal). Inflation and unemployment in percent.`,
+      `Conventions: OLS by olsInference.fitOls (the econ-ols engine), constant included, ${seText} standard errors; NAIRU = −α/β with its delta-method SE computed by reparametrising the regression around the estimate (same covariance estimator); 95% interval ±1.96 SE (normal). Inflation and unemployment in percent.`,
     );
     const pText = (p: number): string => fmtP(p);
     const tables: StatTable[] = [
@@ -1349,7 +1368,7 @@ export function macroPhillipsCalc(read: Read): StatOutput {
           ...(nairu !== null && nSe !== null ? [["NAIRU −α/β", fx(nairu, 4), fx(nSe, 4), "", "", `${fx(nairu - 1.959964 * nSe, 3)} to ${fx(nairu + 1.959964 * nSe, 3)}`]] : []),
         ],
         align: ["left", "right", "right", "right", "right", "right"],
-        note: `n = ${y.length}; R² = ${fx(fit.r2, 4)}; ${fit.model.seLabel} standard errors; the NAIRU row is delta-method (normal interval).`,
+        note: `n = ${y.length}; R² = ${fx(fit.r2, 4)}; ${seText} standard errors; the NAIRU row is delta-method (normal interval).`,
       },
     ];
     const svg = phillipsSvg(u, y, alpha, beta, nairu, form === "accel" ? "Change in inflation Δπ (points)" : "Inflation surprise π − πᵉ (points)");

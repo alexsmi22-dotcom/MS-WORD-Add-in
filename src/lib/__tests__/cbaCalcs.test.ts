@@ -166,6 +166,20 @@ describe("CIP / UIP / PPP vs the parity identities", () => {
     const r = cipForward(S, id / 100, iff / 100, days, String(bd) as "360" | "365", String(bf) as "360" | "365", comp as "simple" | "continuous");
     close(r.F, c.F, 1e-13);
   });
+  test("simple-compounding growth factors and F match QuantLib's InterestRate.compoundFactor", () => {
+    for (const c of ORACLE.cipQuantLib as { in: number[]; growD: number; growF: number; F: number }[]) {
+      const [S, id, iff, days, bd, bf] = c.in;
+      const r = cipForward(S, id / 100, iff / 100, days, String(bd) as "360" | "365", String(bf) as "360" | "365", "simple");
+      close(r.growD, c.growD, 1e-14);
+      close(r.growF, c.growF, 1e-14);
+      close(r.F, c.F, 1e-13);
+    }
+  });
+  test("fx-ppp: the other mode's fields may be left blank", () => {
+    expect(run("fx-ppp", { infd: "", inff: "", years: "" }).ok).not.toBe(false);
+    expect(run("fx-ppp", { mode: "relative", pd: "", pf: "" }).ok).not.toBe(false);
+    expect(calc("fx-ppp").fields.filter((f) => ["pd", "pf", "infd", "inff", "years"].includes(f.key)).every((f) => f.optional)).toBe(true);
+  });
   test("covered arbitrage profit on the default quote", () => {
     const o = run("fx-cip");
     expect(o.text).toContain(`a riskless profit of ${ORACLE.cipProfit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);

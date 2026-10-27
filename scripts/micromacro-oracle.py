@@ -199,7 +199,9 @@ def cost_case(coefs, price):
         res["breakEvenQ"] = f(qb)
         res["breakEvenP"] = f(AC.subs(qq, qb))
     if price is not None:
-        sols = [s for s in sp.solve(sp.Eq(MC, price), qq) if s.is_real and s > 0]
+        # positive real roots of MC(q) - P by nroots (sympy.solve gives unreadable radicals for a cubic MC)
+        mcp = sp.Poly(sp.expand(MC - price).subs(qq, qv), qv)
+        sols = [sp.re(s) for s in mcp.nroots(n=30) if abs(sp.im(s)) < 1e-20 and sp.re(s) > 0]
         if sols and price >= res["shutdownP"]:
             qp = max(sols, key=f)
             res["supplyQ"] = f(qp)
@@ -211,7 +213,7 @@ out["cost"] = [
     cost_case([300, 12, -2, R(1, 4)], R(50)),
     cost_case([100, 20, -3, R(1, 5)], R(30)),
     cost_case([50, 5, R(1, 2)], R(15)),
-    cost_case([200, 30, -2, R(-1, 10), R(1, 100)], R(40)),
+    cost_case([200, 30, -2, R(-1, 20), R(1, 100)], R(40)),  # a quartic with MC > 0 throughout
 ]
 
 # ------------------------------------------------------------------------------------------------ price discrimination

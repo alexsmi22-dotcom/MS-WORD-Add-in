@@ -14,15 +14,9 @@ const HALF: Rat = { n: 1n, d: 2n };
 
 /** r to a whole power n ≥ 0 by repeated squaring (exact). */
 export function ratPow(r: Rat, n: number): Rat {
-  let out = RAT_ONE;
-  let base = r;
-  let k = n;
-  while (k > 0) {
-    if (k & 1) out = ratMul(out, base);
-    base = ratMul(base, base);
-    k >>= 1;
-  }
-  return out;
+  // r is in lowest terms, so rⁿ = nⁿ/dⁿ is too: no gcd on the (possibly thousands-of-digit) result.
+  const k = BigInt(n);
+  return { n: r.n ** k, d: r.d ** k };
 }
 
 // =================================================================================================================
@@ -203,7 +197,19 @@ export function positiveRoots(coeffs: Rat[], hi: number): { exact: Rat[]; approx
   let c = coeffs.slice();
   while (c.length && ratIsZero(c[c.length - 1])) c.pop();
   if (c.length < 2) return { exact, approx };
-  const rr = ratPolyRoots(c);
+  // The rational-root search factors the integer-scaled end coefficients by trial division: past 10⁹ (a 10¹² fixed cost,
+  // a coefficient like 0.0000013) it costs hundreds of milliseconds per call, so such a polynomial is scanned only.
+  let lcm = 1n;
+  const gcd = (x: bigint, y: bigint): bigint => {
+    while (y) [x, y] = [y, x % y];
+    return x < 0n ? -x : x;
+  };
+  for (const v of c) lcm = (lcm / gcd(lcm, v.d)) * v.d;
+  const ends = [c.find((v) => !ratIsZero(v))!, c[c.length - 1]].map((v) => {
+    const t = (v.n * lcm) / v.d;
+    return t < 0n ? -t : t;
+  });
+  const rr = ends.every((t) => t <= 1_000_000_000n) ? ratPolyRoots(c) : { roots: [], rest: c, incomplete: true };
   for (const r of rr.roots) if (ratSign(r.root) > 0 && ratToNumber(r.root) <= hi * (1 + 1e-12)) exact.push(r.root);
   // The remaining factor (no rational roots, unless the candidate search was capped): scanned numerically.
   const rest = rr.incomplete ? c : rr.rest;
@@ -521,6 +527,50 @@ export function firstPriceBid(n: number, lo: Rat, hi: Rat, s: Rat, v: Rat): Rat 
 /** Myerson's optimal reserve for uniform values and seller value v₀: r* = (hi + v₀)/2, at least lo. */
 export function optimalReserve(lo: Rat, hi: Rat, v0: Rat): Rat {
   return rmax(lo, ratDiv(ratAdd(hi, v0), R(2)));
+}
+
+/**
+ * The exact formulas raise fractions to the n-th power: with 15-digit decimals and n = 200 the fractions run to
+ * thousands of digits and one result takes seconds. AUCTION_EXACT_BITS bounds n × (bits of the inputs' numerators and
+ * denominators); past it the calculator uses auctionNum (the same closed forms in floating point) and says so.
+ */
+export const AUCTION_EXACT_BITS = 8000;
+const bitLen = (x: bigint): number => (x < 0n ? -x : x).toString(2).length;
+export function auctionExactCost(n: number, xs: Rat[]): number {
+  return n * xs.reduce((s, x) => s + bitLen(x.n) + bitLen(x.d), 0);
+}
+
+/** auction() in floating point, the same unit-scale closed forms (see there). */
+export function auctionNum(n: number, lo: number, hi: number, reserve: number): { [K in keyof AuctionResult]: number } {
+  const span = hi - lo;
+  const s = reserve <= lo ? 0 : (reserve - lo) / span;
+  const sn = Math.pow(s, n);
+  const sn1 = sn * s;
+  const snm1 = Math.pow(s, n - 1);
+  const pSale = 1 - sn;
+  const unitFirst = ((n - 1) * (1 - sn1)) / (n + 1) + sn * (1 - s);
+  const unitSecond = s * n * (1 - s) * snm1 + (n - 1) * (1 - sn) - (n * (n - 1) * (1 - sn1)) / (n + 1);
+  const revFirst = lo * pSale + span * unitFirst;
+  const revSecond = lo * pSale + span * unitSecond;
+  const eMaxSale = lo * pSale + (span * n * (1 - sn1)) / (n + 1);
+  return {
+    s,
+    r: reserve <= lo ? lo : reserve,
+    pSale,
+    revFirst,
+    revSecond,
+    eMax: lo + (span * n) / (n + 1),
+    eSecond: lo + (span * (n - 1)) / (n + 1),
+    bidderSurplus: (eMaxSale - revFirst) / n,
+  };
+}
+
+/** firstPriceBid in floating point. */
+export function firstPriceBidNum(n: number, lo: number, hi: number, s: number, v: number): number {
+  const span = hi - lo;
+  const u = (v - lo) / span;
+  if (u <= 0) return lo;
+  return lo + span * (u - (Math.pow(u, n) - Math.pow(s, n)) / (n * Math.pow(u, n - 1)));
 }
 
 // =================================================================================================================

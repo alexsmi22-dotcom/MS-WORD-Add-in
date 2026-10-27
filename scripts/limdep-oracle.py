@@ -400,6 +400,41 @@ def binary_probit_logit(text, preds, cut_at):
     return out
 
 
+DEFAULTS = os.path.join(ROOT, "src", "lib", "limdepDefaults.ts")
+
+
+def write_defaults(fx):
+    """The calculators' worked defaults, generated from the SAME rounded text the oracle fitted (no transcription)."""
+    out = [
+        "/**",
+        " * Worked defaults of the F2 #11 limited-dependent calculators (src/lib/limdepStatCalcs.ts): synthetic data, GENERATED",
+        " * by scripts/limdep-oracle.py from the rounded text the oracle fitted (do not edit by hand; rerun the script).",
+        " * Seeds: count 20261027 (NB2, α = 0.6, exposure in years), tobit 1987 (censored at 0), Heckman 1979 (ρ = 0.5),",
+        " * ordered 2026 (four ratings), multinomial 1993 (three modes).",
+        " */",
+        "",
+    ]
+    for key, name, what in [
+        ("count", "COUNT", "200 people: doctor visits, age, income (thousands), female, years observed (the exposure)."),
+        ("tobit", "TOBIT", "200 people: weekly hours of a side job (censored at 0), education, age, children."),
+        ("heckman", "HECKMAN", "300 people: works (0/1), log wage (NA when not working), education, experience, children, married."),
+        ("ordered", "ORDERED", "250 products: rating 1 to 4, price, quality score, sold online."),
+        ("mnl", "MNL", "300 commuters: mode 1, 2 or 3, income (thousands), age."),
+    ]:
+        lines = fx[key]["data"].split("\n")
+        out.append(f"/** {what} */")
+        out.append(f"export const LIMDEP_{name}_DEFAULT = [")
+        out.append(f'  "{lines[0]}",')
+        rows = lines[1:]
+        for i in range(0, len(rows), 8):
+            out.append("  " + ", ".join(f'"{r}"' for r in rows[i:i + 8]) + ",")
+        out.append('].join("' + chr(92) + 'n");')
+        out.append("")
+    with open(DEFAULTS, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(out))
+    print("wrote", DEFAULTS)
+
+
 def main():
     fx = {}
     count = make_count(20261027, 200, 0.6)
@@ -436,9 +471,10 @@ def main():
     m2 = make_mnl(8080, 260)
     adv["mnlBase3"] = {"data": m2, "fit": mnl_oracle(m2, ["income", "age"], 3.0)}
     fx["adv"] = adv
-    with open(OUT, "w", encoding="utf-8") as f:
+    with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         json.dump(fx, f, indent=1)
     print("wrote", OUT)
+    write_defaults(fx)
     for k in ("count", "tobit", "ordered", "mnl"):
         pass
     print("count Poisson score", fx["count"]["poisson"]["scoreMax"], "NB2" in fx["count"] or "nb2" in fx["count"])

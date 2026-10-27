@@ -1127,80 +1127,95 @@ export function fitTobit(y: number[], X: number[][], names: string[], opts: Tobi
   const r0 = tobitFitCore(d0, ys, cls, lo, hi, maxIter, "Tobit, constant-only model");
   const llNull = r0.at.ll - nu * MATH.log(sy);
 
-  // Average marginal effects in original units, delta-method SEs from a central-difference Jacobian in (β, σ).
+  // Average marginal effects in original units with delta-method SEs from the ANALYTIC Jacobian in (β, σ).
+  // Per observation (zL = (L − xβ)/σ, zU = (U − xβ)/σ, absent limits at ∓∞; ρL = φ(zL)/P, ρU = φ(zU)/P):
+  //   P = Φ(zU) − Φ(zL) = P(uncensored); C = 1 + A − r² with r = ρL − ρU, A = zLρL − zUρU (so ∂E[y | unc]/∂x = βC);
+  //   G = φ(zL) − φ(zU) (so ∂P(unc)/∂x = βG/σ). Their z-derivatives:
+  //   ∂P/∂zL = −φL, ∂P/∂zU = φU; ∂G/∂zL = −zLφL, ∂G/∂zU = zUφU;
+  //   ∂C/∂zL = ρL[(1 − zL²) + A + 2r·zL − 2r²], ∂C/∂zU = −ρU[(1 − zU²) + A + 2r·zU − 2r²];
+  // and ∂z/∂βₗ = −xₗ/σ, ∂z/∂σ = −z/σ.
   const k = names.length;
   const off = constant ? 1 : 0;
-  const ameAt = (par: Float64Array): Float64Array => {
-    const out = new Float64Array(3 * k);
-    const s = par[p];
-    let mP = 0;
-    let mC = 0;
-    let mD = 0;
-    for (let i = 0; i < n; i++) {
-      let xb = constant ? par[0] : 0;
-      for (let j = 0; j < k; j++) xb += X[i][j] * par[j + off];
-      let Pl = 0;
-      let Pu = 1;
-      let fl = 0;
-      let fu = 0;
-      let zfl = 0;
-      let zfu = 0;
-      if (lower !== null) {
-        const z = (lower - xb) / s;
-        Pl = normCdf(z);
-        fl = normPdf(z);
-        zfl = z * fl;
-      }
-      if (upper !== null) {
-        const z = (upper - xb) / s;
-        Pu = normCdf(z);
-        fu = normPdf(z);
-        zfu = z * fu;
-      }
-      // P(uncensored) without cancellation when both CDFs are near 1.
-      let Pin: number;
-      let Dm: number;
-      if (lower !== null && upper !== null) {
-        const zl = (lower - xb) / s;
-        const zu = (upper - xb) / s;
-        Pin = zl > 0 ? normCdf(-zl) - normCdf(-zu) : Pu - Pl;
-        Dm = (fl - fu) / Pin;
-      } else if (lower !== null) {
-        const zl = (lower - xb) / s;
-        Pin = normCdf(-zl);
-        Dm = millsRatio(-zl);
-      } else {
-        const zu = (upper! - xb) / s;
-        Pin = Pu;
-        Dm = -millsRatio(zu);
-      }
-      mP += Pin;
-      mC += 1 + (zfl - zfu) / Pin - Dm * Dm;
-      mD += fl - fu;
+  const s = sig;
+  let SP = 0;
+  let SC = 0;
+  let SG = 0;
+  let SPz = 0;
+  let SCz = 0;
+  let SGz = 0;
+  const SPx = new Float64Array(p);
+  const SCx = new Float64Array(p);
+  const SGx = new Float64Array(p);
+  for (let i = 0; i < n; i++) {
+    let xb = constant ? est[0] : 0;
+    for (let j = 0; j < k; j++) xb += X[i][j] * est[j + off];
+    const hasL = lower !== null;
+    const hasU = upper !== null;
+    const zl = hasL ? (lower - xb) / s : 0;
+    const zu = hasU ? (upper - xb) / s : 0;
+    const fl = hasL ? normPdf(zl) : 0;
+    const fu = hasU ? normPdf(zu) : 0;
+    let Pin: number;
+    let rl: number;
+    let ru: number;
+    if (hasL && hasU) {
+      // Without cancellation when both CDFs are near 1.
+      Pin = zl > 0 ? normCdf(-zl) - normCdf(-zu) : normCdf(zu) - normCdf(zl);
+      rl = fl / Pin;
+      ru = fu / Pin;
+    } else if (hasL) {
+      Pin = normCdf(-zl);
+      rl = millsRatio(-zl);
+      ru = 0;
+    } else {
+      Pin = normCdf(zu);
+      rl = 0;
+      ru = millsRatio(zu);
     }
-    mP /= n;
-    mC /= n;
-    mD /= n;
-    for (let j = 0; j < k; j++) {
-      const bj = par[j + off];
-      out[3 * j] = bj * mP;
-      out[3 * j + 1] = bj * mC;
-      out[3 * j + 2] = (bj / s) * mD;
+    const r = rl - ru;
+    const A = zl * rl - zu * ru;
+    const C = 1 + A - r * r;
+    const dPl = -fl;
+    const dPu = fu;
+    const dGl = -zl * fl;
+    const dGu = zu * fu;
+    const dCl = hasL ? rl * (1 - zl * zl + A + 2 * r * zl - 2 * r * r) : 0;
+    const dCu = hasU ? -ru * (1 - zu * zu + A + 2 * r * zu - 2 * r * r) : 0;
+    SP += Pin;
+    SC += C;
+    SG += fl - fu;
+    SPz += dPl * zl + dPu * zu;
+    SCz += dCl * zl + dCu * zu;
+    SGz += dGl * zl + dGu * zu;
+    const dP = dPl + dPu;
+    const dC = dCl + dCu;
+    const dG = dGl + dGu;
+    for (let l = 0; l < p; l++) {
+      const xl = constant ? (l === 0 ? 1 : X[i][l - 1]) : X[i][l];
+      SPx[l] += dP * xl;
+      SCx[l] += dC * xl;
+      SGx[l] += dG * xl;
     }
-    return out;
-  };
-  // Internal order of est: constant first (fit order). ameAt reads par[0] as the constant when there is one.
-  const base = ameAt(est);
+  }
+  const mP = SP / n;
+  const mC = SC / n;
+  const mG = SG / n;
+  const base = new Float64Array(3 * k);
   const Jac = new Float64Array(3 * k * P);
-  for (let c = 0; c < P; c++) {
-    const h = 1e-4 * MATH.sqrt(V[c * P + c]);
-    const up = Float64Array.from(est);
-    const dn = Float64Array.from(est);
-    up[c] += h;
-    dn[c] -= h;
-    const fu = ameAt(up);
-    const fd = ameAt(dn);
-    for (let r = 0; r < 3 * k; r++) Jac[r * P + c] = (fu[r] - fd[r]) / (2 * h);
+  for (let j = 0; j < k; j++) {
+    const bj = est[j + off];
+    base[3 * j] = bj * mP;
+    base[3 * j + 1] = bj * mC;
+    base[3 * j + 2] = (bj / s) * mG;
+    for (let l = 0; l < p; l++) {
+      const own = l === j + off ? 1 : 0;
+      Jac[3 * j * P + l] = own * mP - (bj * SPx[l]) / (n * s);
+      Jac[(3 * j + 1) * P + l] = own * mC - (bj * SCx[l]) / (n * s);
+      Jac[(3 * j + 2) * P + l] = (own * mG) / s - (bj * SGx[l]) / (n * s * s);
+    }
+    Jac[3 * j * P + p] = -(bj * SPz) / (n * s);
+    Jac[(3 * j + 1) * P + p] = -(bj * SCz) / (n * s);
+    Jac[(3 * j + 2) * P + p] = -(bj * mG) / (s * s) - (bj * SGz) / (n * s * s);
   }
   const Vame = sandwich(Jac, V, 3 * k, P);
   const ame: TobitAme[] = names.map((nm, j) => ({
@@ -1862,6 +1877,9 @@ export function fitMnl(y: number[], X: number[][], names: string[], opts: { base
   const pr = new Float64Array(J); // by category index (sorted); base gets index bi
   const bbar = new Float64Array(k);
   const beta = (c: number, j: number): number => (c === bi ? 0 : est[(c < bi ? c : c - 1) * pd + j + 1]);
+  const btab = new Float64Array(J * k);
+  for (let c = 0; c < J; c++) for (let j = 0; j < k; j++) btab[c * k + j] = beta(c, j);
+  const xr = new Float64Array(pd);
   for (let i = 0; i < n; i++) {
     let mx = 0;
     const etas = new Float64Array(J);
@@ -1884,21 +1902,24 @@ export function fitMnl(y: number[], X: number[][], names: string[], opts: { base
       for (let c = 0; c < J; c++) s += pr[c] * beta(c, j);
       bbar[j] = s;
     }
+    xr[0] = 1;
+    for (let j = 0; j < k; j++) xr[j + 1] = X[i][j];
     for (let c = 0; c < J; c++)
       for (let j = 0; j < k; j++) {
-        const dev = beta(c, j) - bbar[j];
-        ame[c * k + j] += pr[c] * dev;
+        const dev = btab[c * k + j] - bbar[j];
+        const pc = pr[c];
+        ame[c * k + j] += pc * dev;
         const row = (c * k + j) * P;
         for (let e = 0; e < m; e++) {
           const mc = e < bi ? e : e + 1; // category index of equation e
           const pm = pr[mc];
           const dcm = c === mc ? 1 : 0;
-          const devm = beta(mc, j) - bbar[j];
-          for (let l = 0; l < pd; l++) {
-            const xl = l === 0 ? 1 : X[i][l - 1];
-            const djl = l === j + 1 ? 1 : 0;
-            Jac[row + e * pd + l] += pr[c] * (dcm - pm) * xl * dev + pr[c] * (dcm * djl - djl * pm - pm * devm * xl);
-          }
+          const devm = btab[mc * k + j] - bbar[j];
+          // ∂[P_c(β_cj − β̄_j)]/∂β_{e,l} = x_l·P_c[(δ_ce − P_e)(β_cj − β̄_j) − P_e(β_ej − β̄_j)] + [l = j]·P_c(δ_ce − P_e).
+          const w = pc * ((dcm - pm) * dev - pm * devm);
+          const o = row + e * pd;
+          for (let l = 0; l < pd; l++) Jac[o + l] += w * xr[l];
+          Jac[o + j + 1] += pc * (dcm - pm);
         }
       }
   }

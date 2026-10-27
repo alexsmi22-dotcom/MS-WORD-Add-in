@@ -178,26 +178,29 @@ describe("GARCH optima ON a bound (F2 review round 1) vs arch 8.0", () => {
     expect(r.params[3]).toBeLessThan(1e-9);
     expect(r.atBounds).toEqual(["β = 0"]);
   });
-  test("GARCH on iid returns: α on 0; ω, β and the unconditional variance match arch", () => {
+  test("GARCH on iid returns: α on 0, and a higher optimum than arch's (β ≈ 0.996, the backcast transient)", () => {
+    // With α on 0 the variance path is deterministic, σ²ₜ = ω + βσ²ₜ₋₁ from the backcast; arch stops at the local
+    // optimum β ≈ 0.356 (it passes our KKT check too), while the multi-start search (F2 review round 2) finds a slow
+    // drift from the backcast, β ≈ 0.996, with log L higher by 0.0886.
     const c = B("garch-iid");
     const r = fitB(c);
-    expect(Math.abs(r.params[0] - c.params[0])).toBeLessThan(3e-4);
-    expect(Math.abs(r.params[1] - c.params[1])).toBeLessThan(5e-4);
+    expect(r.llf - c.llf).toBeGreaterThan(0.088);
     expect(r.params[2]).toBeLessThan(1e-9);
-    expect(Math.abs(r.params[3] - c.params[3])).toBeLessThan(5e-4);
-    const uv = (p: number[]) => p[1] / (1 - p[2] - p[3]);
-    expect(relErr(uv(r.params), uv(c.params))).toBeLessThan(1e-4);
+    expect(Math.abs(r.params[3] - 0.99584)).toBeLessThan(1e-4);
+    expect(garchKktAt(c.y, specOf(c), c.params).ok).toBe(true);
     expect(r.atBounds).toEqual(["α = 0"]);
   });
-  test("GJR-t on iid returns: α and α + γ on 0, ν ≈ 42.5 (not the starting 12)", () => {
+  test("GJR-t on iid returns: α and α + γ on 0, ν ≈ 42.3 (not the starting 12), above arch's optimum", () => {
+    // Round 2's high-persistence start finds the same backcast-drift basin as GARCH on this series (β ≈ 0.997, log L
+    // higher by 0.097 than arch's β ≈ 0.431, which also satisfies the KKT conditions); ν is pinned either way.
     const c = B("gjr-iid-t");
     const r = fitB(c);
-    expect(Math.abs(r.params[0] - c.params[0])).toBeLessThan(3e-4);
-    expect(Math.abs(r.params[1] - c.params[1])).toBeLessThan(5e-4);
+    expect(r.llf - c.llf).toBeGreaterThan(0.097);
     expect(Math.abs(r.params[2])).toBeLessThan(1e-9);
     expect(Math.abs(r.params[3])).toBeLessThan(1e-9);
-    expect(Math.abs(r.params[4] - c.params[4])).toBeLessThan(5e-4);
+    expect(Math.abs(r.params[4] - 0.99658)).toBeLessThan(1e-4);
     expect(relErr(r.params[5], c.params[5])).toBeLessThan(5e-3);
+    expect(garchKktAt(c.y, specOf(c), c.params).ok).toBe(true);
     expect(r.atBounds).toEqual(["α = 0", "α + γ = 0"]);
   });
   test("decimal returns into GJR: α on 0, rescaled fit, likelihood above arch's", () => {
@@ -231,17 +234,15 @@ describe("GARCH optima ON a bound (F2 review round 1) vs arch 8.0", () => {
     const r = fitGarch(c.y, specOf(c));
     if (!r.ok) throw new Error(r.reason);
     expect(garchKktAt(c.y, specOf(c), r.params).ok).toBe(true);
-    // And through the calculator: printed, flagged on the bound, ν ≈ 42.4.
+    // And through the calculator: printed, flagged on the bound, ν ≈ 42.3.
     const o = run(calc("ts-garch"), { data: ["r", ...c.y.map((v) => v.toFixed(3))].join("\n"), model: "gjr", dist: "t", mean: "constant" });
     expect(o.ok).not.toBe(false);
     expect(o.text).toMatch(/On the boundary of the parameter space: α = 0; α \+ γ = 0/);
-    expect(o.tables![0].rows.find((row) => row[0].startsWith("ν"))![1]).toMatch(/^42\.4/);
+    expect(o.tables![0].rows.find((row) => row[0].startsWith("ν"))![1]).toMatch(/^42\.3/);
   });
-  test("a non-invertible EGARCH (rugged likelihood, no smooth maximum) is refused by name, not printed", () => {
-    // Adversarial pass: 150 near-iid returns (σ²ₜ = 0.1 + 0.5σ²ₜ₋₁); the EGARCH optimum drifts to α₁ < 0, where the
-    // recursion expands (mean ln|β₁ − (α₁|zₜ| + γ₁zₜ)/2| > 0) and the likelihood is jagged at 10⁻⁶ steps. arch lands
-    // in the same region (Constant mean, llf −79.148 against our best −78.81) or at β = 0 (Zero mean, −86.315).
-    const rng = new Pcg32(99);
+  const nearIid = (seed: number): number[] => {
+    // 150 near-iid returns (σ²ₜ = 0.1 + 0.5σ²ₜ₋₁), the round-1 adversarial pass's generator.
+    const rng = new Pcg32(seed);
     const u = (): number => (rng.nextU32() + 0.5) / 4294967296;
     const nrm = (): number => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u());
     const y: number[] = [];
@@ -250,17 +251,182 @@ describe("GARCH optima ON a bound (F2 review round 1) vs arch 8.0", () => {
       s2 = 0.1 + 0.5 * s2;
       y.push(Math.round(Math.sqrt(s2) * nrm() * 1000) / 1000);
     }
+    return y;
+  };
+  test("a non-invertible EGARCH (rugged likelihood, no smooth maximum) is refused by name, not printed", () => {
+    // Seed 4: every start ends where the recursion expands (mean ln|β₁ − (α₁|zₜ| + γ₁zₜ)/2| > 0) and the likelihood is
+    // jagged; arch stops at its iteration limit (flag 9) at a point that fails the KKT check by 13.
+    const y = nearIid(4);
     const o = run(calc("ts-garch"), { data: ["r", ...y.map((v) => v.toFixed(3))].join("\n"), model: "egarch", dist: "normal", mean: "zero" });
     expect(o.ok).toBe(false);
     expect(o.text).toMatch(/^The likelihood maximization did not converge for this series: at the best EGARCH parameters found the recursion is not invertible/);
     // GARCH on the same series is fine.
     expect(run(calc("ts-garch"), { data: ["r", ...y.map((v) => v.toFixed(3))].join("\n"), model: "garch", dist: "normal", mean: "zero" }).ok).not.toBe(false);
   });
-  test("EGARCH half-life at β ≈ 0 is not printed as a fraction of a period", () => {
-    const c = B("garch-iid");
-    const o = run(calc("ts-garch"), { data: ["r", ...c.y.map((v) => v.toFixed(3))].join("\n"), model: "garch", dist: "normal" });
+  test("an invertible EGARCH optimum prints even where the non-invertible region reaches a higher likelihood, with a caution", () => {
+    // Seed 99 (round 1 refused it): the first start drifts into the non-invertible region (log L −75.78, no smooth
+    // maximum); the other starts find arch's Zero-mean answer, β on 0 at log L −86.315, which satisfies the KKT check.
+    const y = nearIid(99);
+    const r = fitGarch(y, { vol: "egarch", dist: "normal", mean: "zero" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.converged).toBe(true);
+    expect(r.egarchLyapunov).toBeLessThan(0);
+    expect(Math.abs(r.llf - -86.315)).toBeLessThan(1e-3);
+    expect(r.higherNonKkt!.noninvertible).toBe(true);
+    const o = run(calc("ts-garch"), { data: ["r", ...y.map((v) => v.toFixed(3))].join("\n"), model: "egarch", dist: "normal", mean: "zero" });
+    expect(o.text).toContain("Log likelihood = −86.315");
+    expect(o.text).toMatch(/Caution: the search also reached a higher log likelihood, −75\.\d{3}, at parameters where the first-order conditions do not hold \(an EGARCH recursion that is not invertible/);
+  });
+  test("a half-life under one period is not printed as a fraction of a period", () => {
+    // A GARCH(1,1) with α = 0.35, β = 0.05 (n = 400, Pcg32 seed 3): fitted persistence ≈ 0.428, ln 0.5 / ln 0.428 ≈ 0.82.
+    const rng = new Pcg32(3);
+    const u = (): number => (rng.nextU32() + 0.5) / 4294967296;
+    const nrm = (): number => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u());
+    const y: number[] = [];
+    let s2 = 1;
+    let e = 0;
+    for (let i = 0; i < 400; i++) {
+      s2 = 0.5 + 0.35 * e * e + 0.05 * s2;
+      e = Math.sqrt(s2) * nrm();
+      y.push(Math.round(e * 1000) / 1000);
+    }
+    const o = run(calc("ts-garch"), { data: ["r", ...y.map((v) => v.toFixed(3))].join("\n"), model: "garch", dist: "normal" });
     expect(o.text).toContain("is under 1 period");
     expect(o.text).not.toMatch(/= 0\.\d+ periods/);
+  });
+});
+
+describe("GARCH units, multi-start and degenerate corners (F2 review round 2)", () => {
+  // Tolerances (stated): as the default-data block (parameters 3×10⁻⁴ in the fixture's units, log likelihood 10⁻⁶ after
+  // the exact shift n ln c, SEs 2×10⁻³ relative); reviewer series: log L ≥ arch's − 10⁻⁶, printed (KKT holds).
+  const n = F.data.garch.length;
+  // Back to the fixture's units from data × c: μ/c, ω/c² (EGARCH ω − 2(1 − β) ln c), log L + n ln c.
+  const back = (c: number, vol: string, names: string[], p: number[]): number[] =>
+    p.map((v, j) => {
+      if (names[j] === "mu") return v / c;
+      if (names[j] === "omega") return vol === "egarch" ? v - 2 * (1 - p[names.findIndex((nm) => nm.startsWith("beta"))]) * Math.log(c) : v / (c * c);
+      return v;
+    });
+  const cases: [number, number][] = [];
+  for (const c of [0.14, 600, 1300]) for (let i = 0; i < F.garch.length; i++) cases.push([c, i]);
+  test.each(cases)("default data × %s, spec %s: arch's optimum, exactly rescaled", (c, i) => {
+    const fx = F.garch[i];
+    const r = fitGarch(
+      F.data.garch.map((v: number) => v * c),
+      specOf(fx),
+    );
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.converged).toBe(true);
+    expect(r.atBounds).toEqual([]);
+    back(c, fx.vol, r.names, r.params).forEach((v, j) => expect(Math.abs(v - fx.params[j])).toBeLessThan(3e-4));
+    expect(Math.abs(r.llf + n * Math.log(c) - fx.llf)).toBeLessThan(1e-6);
+    r.names.forEach((nm, j) => {
+      if (nm === "omega" && fx.vol === "egarch") return; // its SE mixes in cov(ω, β): the delta method, checked below
+      const f = nm === "mu" ? c : nm === "omega" ? c * c : 1;
+      expect(relErr(r.seRobust![j] / f, fx.seRobust[j])).toBeLessThan(2e-3);
+    });
+  });
+
+  type R2 = { series: string; vol: string; dist: string; mean: string; params: number[]; llf: number };
+  const R2: R2[] = F.garchRev2;
+  test.each(R2.map((c, i) => [`${c.series} ${c.vol} ${c.dist} ${c.mean}`, i]) as [string, number][])("reviewer series %s: printed, log L ≥ arch's", (_l, i) => {
+    // Low-volatility percent series (RMS 0.12, where round 1's raw-unit KKT gate refused), a zero segment, a β just
+    // below 1 (round 1 crossed the bound with a central difference), and the two multi-start cases (114, 120).
+    const c = R2[i];
+    const y = F.garchRev2Y[c.series];
+    const r = fitGarch(y, { vol: c.vol as GarchSpec["vol"], dist: c.dist as GarchSpec["dist"], mean: c.mean as GarchSpec["mean"] });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.converged).toBe(true);
+    expect(r.llf).toBeGreaterThanOrEqual(c.llf - 1e-6);
+    const o = run(calc("ts-garch"), { data: ["r", ...y.map((v: number) => String(v))].join("\n"), model: c.vol, dist: c.dist, mean: c.mean });
+    expect(o.ok).not.toBe(false);
+  });
+  test("low-volatility series: ω is not flagged at its lower bound (the bound is 10⁻⁸ × mean r², judged relative to itself)", () => {
+    const c = R2[0];
+    const r = fitGarch(F.garchRev2Y[c.series], { vol: "garch", dist: "normal", mean: "constant" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.atBounds).toEqual([]);
+  });
+  test("multi-start: GARCH on iid n = 2,000 is not left at the first start's local optimum (round 1: log L −3,388.3975)", () => {
+    // Three local optima: round 1's (β ≈ 0.377, −3,388.3975), arch's (β on 0, −3,388.3912) and the highest, β ≈ 0.956
+    // with α ≈ 0.0044 (−3,388.1619), all satisfying the KKT conditions; the search keeps the highest.
+    const c = R2.find((x) => x.series === "iid2000")!;
+    const y = F.garchRev2Y.iid2000;
+    const r = fitGarch(y, { vol: "garch", dist: "normal", mean: "constant" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.llf).toBeGreaterThan(c.llf + 0.2);
+    expect(Math.abs(r.llf - -3388.1619)).toBeLessThan(1e-4);
+    expect(garchKktAt(y, { vol: "garch", dist: "normal", mean: "constant" }, c.params).ok).toBe(true);
+    expect(garchKktAt(y, { vol: "garch", dist: "normal", mean: "constant" }, r.params).ok).toBe(true);
+  });
+  test("the exact gradient agrees with central differences, all 12 specs", () => {
+    const specs: GarchSpec[] = [];
+    for (const vol of ["garch", "gjr", "egarch"] as const) for (const dist of ["normal", "t"] as const) for (const mean of ["constant", "zero"] as const) specs.push({ vol, dist, mean });
+    for (const sp of specs) {
+      const fx = F.garch.find((c: { vol: string; dist: string; mean: string }) => c.vol === sp.vol && c.dist === sp.dist && specOf(c).mean === sp.mean);
+      // An interior point: the fixture's optimum when there is one, else a typical one, nudged off the optimum.
+      const names = sp.mean === "constant" ? ["mu"] : [];
+      names.push("omega", "alpha");
+      if (sp.vol !== "garch") names.push("gamma");
+      names.push("beta");
+      if (sp.dist === "t") names.push("nu");
+      const typical: Record<string, number> = { mu: 0.05, omega: sp.vol === "egarch" ? 0.02 : 0.04, alpha: 0.06, gamma: sp.vol === "egarch" ? -0.05 : 0.07, beta: 0.85, nu: 7 };
+      const x = fx ? fx.params.map((v: number, j: number) => v * (1 + 0.03 * (j % 2 ? 1 : -1))) : names.map((nm) => typical[nm]);
+      const q = garchKktAt(F.data.garch, sp, x);
+      q.grad.forEach((g, j) => expect(Math.abs(g - q.numGrad[j]) / Math.max(1e-3, Math.abs(q.numGrad[j]))).toBeLessThan(1e-5));
+    }
+  });
+  test("the canonical rescaling is exact: log L′ = log L − n ln kc, also with periods on the variance bounds", () => {
+    for (const c of [0.14, 1, 600]) {
+      const y = F.data.garch.map((v: number) => v * c);
+      for (const fx of F.garch) {
+        const x = back(1 / c, fx.vol, fx.names, fx.params);
+        const q = garchKktAt(y, specOf(fx), x);
+        expect(Math.abs(q.llfCanon - (q.llf - n * Math.log(q.kc)))).toBeLessThan(1e-9 * Math.abs(q.llf));
+        // …and it is arch's own objective on the data as typed (setup computed in y's units).
+        expect(Math.abs(q.llf - garchAtParams(y, specOf(fx), x)!.llf)).toBeLessThan(1e-9 * Math.abs(q.llf));
+        expect(Number.isInteger(Math.log2(q.kc))).toBe(true);
+      }
+    }
+    // The zero segment with ω = 10⁻⁹: the variance decays onto arch's floor through the 100 zero returns.
+    const z = F.garchRev2Y.zeroseg;
+    for (const [sp, x] of [
+      [{ vol: "garch", dist: "normal", mean: "constant" }, [0.01, 1e-9, 0.4, 0.6]],
+      [{ vol: "egarch", dist: "t", mean: "constant" }, [0.01, -30, 0.2, -0.1, 0.5, 5]],
+    ] as [GarchSpec, number[]][]) {
+      const q = garchKktAt(z, sp, x);
+      expect(Number.isFinite(q.llf)).toBe(true);
+      expect(Math.abs(q.llfCanon - (q.llf - z.length * Math.log(q.kc)))).toBeLessThan(1e-9 * Math.abs(q.llf));
+    }
+  });
+  test("the KKT verdict and the printed model do not depend on the units", () => {
+    const fx = F.garch[1];
+    const texts = [1e-3, 1, 1e4].map((c) => {
+      const r = fitGarch(
+        F.data.garch.map((v: number) => v * c),
+        specOf(fx),
+      );
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.converged).toBe(true);
+      return [r.persistence.toFixed(6), (r.llf + n * Math.log(c)).toFixed(6)].join(" ");
+    });
+    expect(new Set(texts).size).toBe(1);
+  });
+  test("refusal advice names what the user has not tried (round 1 said “try the normal distribution” to normal fits)", () => {
+    const y = F.garchRev2Y.zeroseg.map((v: number) => String(v));
+    const t = run(calc("ts-garch"), { data: ["r", ...y].join("\n"), model: "garch", dist: "t", mean: "constant" });
+    expect(t.ok).toBe(false);
+    expect(t.text).toContain("Try GJR-GARCH or EGARCH, normal errors, or a longer series.");
+    expect(t.text).not.toContain("Try the normal distribution");
+  });
+  test("periods on arch's variance bounds are counted in a caution, and ν on its bound is named", () => {
+    // ±1 alternating returns into EGARCH-t: μ goes to −1, so the floor is hit in every other period; ν to a bound.
+    const y = Array.from({ length: 100 }, (_, i) => (i % 2 ? "1" : "-1"));
+    const o = run(calc("ts-garch"), { data: ["r", ...y].join("\n"), model: "egarch", dist: "t", mean: "constant" });
+    expect(o.ok).not.toBe(false);
+    expect(o.text).toMatch(/Caution: in 49 of the 100 periods the fitted variance sits on arch's variance bounds .* ν is also on its bound \(ν = (2\.05|500)\)\./);
+    // The default fit has none.
+    expect(run(calc("ts-garch")).text).not.toContain("variance bounds (its floor");
   });
 });
 

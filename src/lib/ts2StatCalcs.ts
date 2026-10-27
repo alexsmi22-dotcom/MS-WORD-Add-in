@@ -315,6 +315,7 @@ export function egResidualSvg(o: { x: number[]; resid: ArrayLike<number>; xlabel
 // ---------------------------------------------------------------- ts-garch
 
 const VOL_NAME: Record<GarchVol, string> = { garch: "GARCH(1,1)", gjr: "GJR-GARCH(1,1,1)", egarch: "EGARCH(1,1,1)" };
+const VOL_SHORT: Record<GarchVol, string> = { garch: "GARCH", gjr: "GJR-GARCH", egarch: "EGARCH" };
 const PARAM_LABEL: Record<string, string> = { mu: "μ (mean)", omega: "ω", alpha: "α₁", gamma: "γ₁", beta: "β₁", nu: "ν (degrees of freedom)" };
 
 export function tsGarchCalc(read: Read): StatOutput {
@@ -346,9 +347,17 @@ export function tsGarchCalc(read: Read): StatOutput {
       `The likelihood maximization did not converge for this series: at the best EGARCH parameters found the recursion is not invertible (the mean of ln|β₁ − (α₁|zₜ| + γ₁zₜ)/2| along the path is ${fmtFixed(fit.egarchLyapunov, 4)}, not below 0; Wintenberger 2013), so the fitted variances depend explosively on the parameters, the likelihood has no smooth maximum, and no estimates are reported. Try GARCH or GJR-GARCH for this series.`,
     );
   }
+  // Advice that fits the spec asked for: the other two models, the other error distribution, more data.
+  const otherModels = (["garch", "gjr", "egarch"] as GarchVol[]).filter((v) => v !== spec.vol).map((v) => VOL_SHORT[v]);
+  const advice = `Try ${otherModels.join(" or ")}, ${spec.dist === "t" ? "normal errors" : "Student-t errors"}, or a longer series.`;
+  if (!fit.converged && fit.workLimitHit) {
+    return refuse(
+      `The likelihood maximization did not converge for this series: the likelihood search hit its work limit before reaching parameters where the first-order conditions hold (largest projected gradient component at the best point found ${Number.isFinite(fit.kktGradient) ? fmtFixed(fit.kktGradient, 4) : "not computable"} per observation), so no estimates are reported. ${advice}`,
+    );
+  }
   if (!fit.converged) {
     return refuse(
-      `The likelihood maximization did not converge for this series: at the best parameters found, the gradient of the log likelihood does not vanish on the free parameters (largest projected component ${Number.isFinite(fit.kktGradient) ? fmtFixed(fit.kktGradient, 4) : "not computable"} per observation), so no estimates are reported. Try the normal distribution, a different model, or a longer series.`,
+      `The likelihood maximization did not converge for this series: at the best parameters found, the gradient of the log likelihood does not vanish on the free parameters (largest projected component ${Number.isFinite(fit.kktGradient) ? fmtFixed(fit.kktGradient, 4) : "not computable"} per observation), so no estimates are reported. ${advice}`,
     );
   }
   const P = Object.fromEntries(fit.names.map((nm, i) => [nm, fit.params[i]])) as Record<string, number>;
@@ -404,6 +413,17 @@ export function tsGarchCalc(read: Read): StatOutput {
   );
   if (fit.atBounds.length) lines.push(`On the boundary of the parameter space: ${fit.atBounds.join("; ")}. Standard errors there are not reliable.`);
   if (!fit.seRobust && fit.seWhy) lines.push(`Standard errors not reported: ${fit.seWhy}.`);
+  if (fit.clamped > 0) {
+    const nuBound = fit.atBounds.find((b) => b.startsWith("ν = "));
+    lines.push(
+      `Caution: in ${intText(fit.clamped)} of the ${intText(n)} periods the fitted variance sits on arch's variance bounds (its floor, max(EWMA variance/10⁶, sample variance/10⁸), or above its cap), where the likelihood has a kink rather than a smooth maximum; the estimates may be driven by those periods (a run of zero or repeated returns, say).${nuBound ? ` ν is also on its bound (${nuBound.split(" (")[0]}).` : ""}`,
+    );
+  }
+  if (fit.higherNonKkt) {
+    lines.push(
+      `Caution: the search also reached a higher log likelihood, ${fmtFixed(fit.higherNonKkt.llf, 3)}, at parameters where the first-order conditions do not hold${fit.higherNonKkt.noninvertible ? " (an EGARCH recursion that is not invertible, where the likelihood has no smooth maximum)" : ""}; the estimates above are the highest-likelihood point found that satisfies them.`,
+    );
+  }
   lines.push("");
   lines.push(
     `Conventions (the arch 8.0 Python package's arch model, no automatic rescaling): mean model ${mean === "constant" ? "“Constant” (rₜ = μ + εₜ)" : "“Zero” (rₜ = εₜ)"}; εₜ = σₜzₜ with zₜ ${dist === "t" ? "a Student-t scaled to unit variance (ν > 2; arch's StudentsT)" : "standard normal"}.`,
@@ -419,7 +439,7 @@ export function tsGarchCalc(read: Read): StatOutput {
     `Start of the recursion: arch's backcast, Σ wᵢ ε̂²ᵢ over the first min(75, n) residuals with weights wᵢ ∝ 0.94ⁱ (ε̂ = ${mean === "constant" ? "rₜ − r̄" : "rₜ"}, fixed during the fit) = ${fmtFixed(spec.vol === "egarch" ? Math.exp(fit.backcast) : fit.backcast, 5)}${spec.vol === "egarch" ? " (its logarithm starts ln σ²)" : spec.vol === "gjr" ? " (the asymmetric term starts at half of it)" : ""}; arch's loose variance bounds are applied in the recursion.`,
   );
   lines.push(
-    `Estimation: maximum likelihood within arch's bounds and constraints (${spec.vol === "egarch" ? "0 ≤ β₁ ≤ 1" : spec.vol === "gjr" ? "α₁ ≥ 0, α₁ + γ₁ ≥ 0, β₁ ≥ 0, α₁ + γ₁/2 + β₁ ≤ 1" : "α₁ ≥ 0, β₁ ≥ 0, α₁ + β₁ ≤ 1"}${dist === "t" ? ", 2.05 ≤ ν ≤ 500" : ""}), by BFGS from arch's starting grid; when the optimum is on a bound, an active-set search (BFGS on the free parameters, a bound kept while the likelihood rises toward it) from that point and from arch's next-best starting points. Estimates are reported only when the first-order (KKT) conditions hold: the gradient of −log L/n on the free parameters is below 10⁻⁵ and on each bound it points out of the parameter space${spec.vol === "egarch" && mean === "constant" ? " (for μ, whose |rₜ − μ| term has a kink at each return, the one-sided slopes are checked)" : ""}.`,
+    `Estimation: maximum likelihood within arch's bounds and constraints (${spec.vol === "egarch" ? "0 ≤ β₁ ≤ 1" : spec.vol === "gjr" ? "α₁ ≥ 0, α₁ + γ₁ ≥ 0, β₁ ≥ 0, α₁ + γ₁/2 + β₁ ≤ 1" : "α₁ ≥ 0, β₁ ≥ 0, α₁ + β₁ ≤ 1"}${dist === "t" ? ", 2.05 ≤ ν ≤ 500" : ""}), by an active-set quasi-Newton search (BFGS with the exact gradient on the free parameters, a bound kept while the likelihood rises toward it) from arch's three best starting-grid points and a near-iid start (β₁ = 0)${dist === "t" ? ", and from ν = 5, 30 and 100" : ""}, keeping the highest likelihood that satisfies the first-order conditions. The search runs on the returns rescaled exactly by a power of 2 so that the mean squared residual is near 1, so neither the estimates nor the checks depend on the units. Estimates are reported only when the first-order (KKT) conditions hold: the gradient of −log L/n (in those units) on the free parameters is below 10⁻⁵ and on each bound it points out of the parameter space${spec.vol === "egarch" && mean === "constant" ? " (for μ, whose |rₜ − μ| term has a kink at each return, the one-sided slopes are checked)" : ""}.`,
   );
   lines.push(
     "Standard errors: robust (Bollerslev–Wooldridge 1992) sandwich H⁻¹SH⁻¹/n, H the numerical Hessian of −log L/n and S the sample covariance (n − 1 divisor) of the per-observation scores, exactly as arch's robust covariance option computes them; the classic column is H⁻¹/n. z and p from the normal distribution.",

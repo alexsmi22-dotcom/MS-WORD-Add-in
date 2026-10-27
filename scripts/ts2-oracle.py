@@ -212,6 +212,68 @@ for cid, y, vol, dist, mean in [
     garch_bound.append(c)
 
 
+# F2 review round 2 (units, multi-start, degenerate corners): the reviewer's series, regenerated with the reviewer's
+# generator and seeds (revF2C garch_gen.py / gen2.py: numpy default_rng(seed), 500 burn-in, rounded to 6 decimals),
+# each fitted by arch twice (the default fit, then again from its own optimum, keeping the higher log likelihood).
+def _rev2_sim(n, seed, omega, alpha, gamma, beta, nu=None, mu=0.05, burn=500):
+    rng = np.random.default_rng(seed)
+    z = rng.standard_normal(n + burn) if not nu else rng.standard_t(nu, n + burn) * math.sqrt((nu - 2) / nu)
+    e = np.zeros(n + burn)
+    s2 = np.zeros(n + burn)
+    s2[0] = omega / max(1e-3, 1 - alpha - gamma / 2 - beta)
+    e[0] = math.sqrt(s2[0]) * z[0]
+    for t in range(1, n + burn):
+        s2[t] = omega + (alpha + gamma * (e[t - 1] < 0)) * e[t - 1] ** 2 + beta * s2[t - 1]
+        e[t] = math.sqrt(s2[t]) * z[t]
+    return mu + e[burn:]
+
+
+def _rev2_fit(y, vol, dist, mean):
+    kw = dict(mean="Constant" if mean == "constant" else "Zero", dist=dist, rescale=False)
+    o = 0 if vol == "garch" else 1
+    am = arch_model(y, vol="EGARCH" if vol == "egarch" else "GARCH", p=1, o=o, q=1, **kw)
+    best = am.fit(disp="off", tol=1e-12, options={"maxiter": 3000})
+    again = am.fit(disp="off", tol=1e-12, starting_values=best.params.values, options={"maxiter": 3000})
+    if again.loglikelihood > best.loglikelihood:
+        best = again
+    return {"params": L(best.params.values), "llf": float(best.loglikelihood), "flag": int(best.convergence_flag)}
+
+
+def _rev2_series():
+    out = {}
+    lv = 900
+    for sd in (0.12, 0.3, 0.6):
+        for (a, b) in ((0.05, 0.93), (0.04, 0.95), (0.03, 0.965)):
+            for n in (1000, 2500):
+                lv += 1
+                if lv in (901, 902, 903, 904, 906):
+                    out[f"lowvol-{lv}"] = np.round(_rev2_sim(n, lv, sd * sd * (1 - a - b), a, 0.0, b, mu=0.01), 6)
+    out["g250"] = np.round(_rev2_sim(250, 106, 0.02, 0.05, 0.0, 0.94), 6)
+    y = _rev2_sim(800, 118, 0.02, 0.08, 0.0, 0.9)
+    y[300:400] = 0.0
+    out["zeroseg"] = np.round(y, 6)
+    out["iid300"] = np.round(np.random.default_rng(120).standard_normal(300) * 1.3 + 0.1, 6)
+    out["iid2000"] = np.round(np.random.default_rng(121).standard_normal(2000) * 1.3 + 0.1, 6)
+    return out
+
+
+rev2_y = _rev2_series()
+garch_rev2 = []
+for sid, vol, dist, mean in [
+    ("lowvol-901", "garch", "normal", "constant"), ("lowvol-901", "gjr", "normal", "constant"),
+    ("lowvol-902", "garch", "normal", "constant"), ("lowvol-902", "gjr", "normal", "constant"),
+    ("lowvol-903", "garch", "normal", "constant"), ("lowvol-903", "gjr", "normal", "constant"),
+    ("lowvol-904", "garch", "normal", "constant"), ("lowvol-904", "gjr", "normal", "constant"),
+    ("lowvol-906", "garch", "normal", "constant"), ("lowvol-906", "gjr", "normal", "constant"),
+    ("g250", "garch", "normal", "constant"),
+    ("zeroseg", "garch", "normal", "constant"), ("zeroseg", "gjr", "normal", "zero"),
+    ("iid300", "gjr", "t", "constant"), ("iid2000", "garch", "normal", "constant"),
+]:
+    c = _rev2_fit(rev2_y[sid], vol, dist, mean)
+    c.update({"series": sid, "vol": vol, "dist": dist, "mean": mean})
+    garch_rev2.append(c)
+
+
 # ------------------------------------------------------------------ VAR
 
 def var_case(Y, names, p, maxlags, periods=10):
@@ -308,6 +370,8 @@ fixture = {
     "garch": garch_cases,
     "garchHoldout": garch_holdout,
     "garchBound": garch_bound,
+    "garchRev2": garch_rev2,
+    "garchRev2Y": {k: L(v) for k, v in rev2_y.items()},
     "var": var_default,
     "varHoldout": var_holdout,
     "eg": eg_default,

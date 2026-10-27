@@ -234,6 +234,17 @@ def all_irr(cfs):
     return sorted(out)
 
 
+def repeated_case(cfs, exact):
+    """A repeated IRR (F1 review round 2): numpy.roots splits a k-fold root into a cluster (often complex), so the
+    oracle records the cluster's centroid rate and spread beside the exact constructed root."""
+    coeffs = list(reversed(cfs))
+    vs = [v for v in np.roots(coeffs) if abs(1 / v - 1 - exact) < 1e-3]
+    rates = [complex(1 / v - 1) for v in vs]
+    centroid = sum(rates) / len(rates)
+    return {"cfs": cfs, "exact": exact, "k": len(rates), "numpyCentroid": float(centroid.real),
+            "numpySpread": float(max(abs(r - centroid) for r in rates))}
+
+
 def payback(fl):
     cum = np.cumsum(fl)
     if not fl[0] < 0:
@@ -371,6 +382,16 @@ def main():
         ([100, 50, 25], 0.10, 0.10, 0.10),  # no sign change
     ]
     out["budget"] = [budget(c, r, f, rr) for c, r, f, rr in flows]
+    # repeated roots built exactly: -1000(1 - a v)^3 with a = 1.1000214 (triple root 10.00214%), -(1 - a v)^2 with
+    # a = 1.0000763 (double root 0.00763%), -100(1 - v)^3 (triple root 0); coefficients from Decimal, then float
+    from decimal import Decimal as Dm
+    a3 = Dm("1.1000214")
+    a2 = Dm("1.0000763")
+    out["repeated"] = [
+        repeated_case([float(x) for x in (Dm(-1000), 3000 * a3, -3000 * a3 * a3, 1000 * a3 ** 3)], 0.1000214),
+        repeated_case([float(x) for x in (Dm(-1), 2 * a2, -a2 * a2)], 0.0000763),
+        repeated_case([-100.0, 300.0, -300.0, 100.0], 0.0),
+    ]
     out["msMirr"] = [round(npf.mirr(flows[2][0], 0.10, 0.12), 4), round(npf.mirr(flows[3][0], 0.10, 0.12), 4), round(npf.mirr(flows[4][0], 0.10, 0.14), 4)]
     out["wacc"] = [wacc_case(6000, 2000, 6, 25, 4.2, 5.5, 1.1, "levered"), wacc_case(6000, 2000, 6, 25, 4.2, 5.5, 0.9, "unlevered"),
                    wacc_case(5000, 3000, 7, 21, 3.5, 6, 1.3, "peer", 0.8, 30), wacc_case(1000, 0, 5, 30, 4, 5, 1.0, "levered")]

@@ -62,6 +62,8 @@ export interface IrrRoots {
   touches: number[];
   /** Sign changes in the flow sequence (Descartes' bound on the number of positive-v roots). */
   signChanges: number;
+  /** Repeated (flat) roots among roots/touches, with the accuracy they are known to (± in rate), when any. */
+  repeated?: { rate: number; plusMinus: number }[];
 }
 
 export function signChanges(cfs: number[]): number {
@@ -160,13 +162,50 @@ export function irrAll(cfs: number[]): IrrRoots {
     const um = (lo + hi) / 2;
     if (g(um) < 1e-10 && !roots.some((r) => Math.abs(r - um) < 1e-6)) touches.push(um);
   }
-  // A multiple root (−100, 300, −300, 100 is −100(1 − v)³, root 0) is flat, so bisection stops wherever float noise
-  // flips the sign (−0.0003% there). Snap a root to a rounder rate (whole percent, then 0.01%, then 0.0001%) when NPV
-  // at that rate is at the float noise floor (|NPV| ≤ 10⁻¹⁴ of the flows' discounted magnitude): no false digits.
+  // Each root's resolution: the band around it where |NPV| stays under the float noise floor (10⁻¹³ of the flows'
+  // discounted magnitude), found by stepping outward and bisecting each edge. A simple root's band is tiny (noise ÷
+  // |NPV′|); a repeated root (−100, 300, −300, 100 is −100(1 − v)³) is flat, its band wide, and bisection stops anywhere
+  // in it (−0.0003% there). So:
+  //   - a SIMPLE root (band under 10⁻⁹) is snapped to a rounder rate (whole percent, then 0.01%, then 0.0001%) only
+  //     when NPV there is still at the noise floor (|NPV| ≤ 10⁻¹⁴ of the magnitude): float noise, never a move;
+  //   - a REPEATED root is never snapped (snapping turned a triple root at 10.00214% into 10.0000%): it is reported at
+  //     the middle of its band, with the band's half-width as its stated accuracy.
+  const NOISE = 1e-13;
+  const above = (u: number): boolean => {
+    npvScaledInto(u, C, A, out);
+    return !(out[1] > 0) || Math.abs(out[0]) > NOISE * out[1];
+  };
+  const edge = (u: number, dir: 1 | -1): number => {
+    let t = 1e-13;
+    while (t < 0.5 && !above(u + dir * t)) t *= 2;
+    if (t <= 1e-13) return 0;
+    let a = t / 2;
+    let b = t;
+    for (let k = 0; k < 40; k++) {
+      const m = (a + b) / 2;
+      if (above(u + dir * m)) b = m;
+      else a = m;
+    }
+    return a;
+  };
+  const repeated: { rate: number; plusMinus: number }[] = [];
   const toRate = (u: number): number => {
+    // simple when NPV is already above the noise floor 10⁻⁹ either side (two evaluations; the band search is only run
+    // for a flat root)
+    const simple = above(u - 1e-9) && above(u + 1e-9);
+    const dl = simple ? 0 : edge(u, -1);
+    const dr = simple ? 0 : edge(u, 1);
+    if (Math.max(dl, dr) > 1e-9) {
+      const mid = u + (dr - dl) / 2;
+      const r = Math.expm1(mid);
+      // the band in rate terms: (1 + r)·(e^{±h} − 1)
+      const pm = Math.max(Math.expm1(mid + (dl + dr) / 2) - r, r - Math.expm1(mid - (dl + dr) / 2));
+      repeated.push({ rate: r, plusMinus: pm });
+      return r;
+    }
     const r = Math.expm1(u);
     for (const q of [100, 10000, 1000000]) {
-      const c = Math.round(r * q) / q;
+      const c = Math.round(r * q) / q + 0; // + 0: never −0
       if (c === r || !(c > -1)) continue;
       npvScaledInto(Math.log1p(c), C, A, out);
       if (Math.abs(out[0]) <= 1e-14 * out[1]) return c;
@@ -175,7 +214,9 @@ export function irrAll(cfs: number[]): IrrRoots {
   };
   const inRange = (u: number): boolean => u >= lo0 - 1e-12 && u <= hi0 + 1e-12;
   const uniq = (xs: number[]): number[] => xs.filter((x, k) => xs.indexOf(x) === k);
-  return { roots: uniq(roots.filter(inRange).map(toRate)), touches: uniq(touches.filter(inRange).map(toRate)), signChanges: sc };
+  const res: IrrRoots = { roots: uniq(roots.filter(inRange).map(toRate)), touches: uniq(touches.filter(inRange).map(toRate)), signChanges: sc };
+  if (repeated.length) res.repeated = repeated.filter((x, k) => repeated.findIndex((y) => y.rate === x.rate) === k);
+  return res;
 }
 
 /** Excel MIRR; null when there is no negative or no positive flow (Excel's #DIV/0!). */

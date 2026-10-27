@@ -40,6 +40,12 @@ function fx(x: number, dp: number): string {
   return s.startsWith("-") ? "−" + s.slice(1) : s;
 }
 const pct = (x: number, dp = 4): string => fx(x * 100, dp) + "%";
+/** A small ± width as a percentage to two significant figures, never "0.0000%": 4.3e−5 → "0.0043%". */
+const pctPm = (x: number): string => {
+  const p = x * 100;
+  const dp = Math.min(12, Math.max(4, 1 - Math.floor(Math.log10(Math.max(p, 1e-12)))));
+  return fx(p, dp) + "%";
+};
 /** An operand inside a printed formula: a negative one in parentheses ("4.2% + (−2.0000) × 5.5%"). */
 const op = (s: string): string => (s.startsWith("−") ? `(${s})` : s);
 const pText = (p: number): string => (p < 0.0001 ? "p < 0.0001" : `p = ${fx(p, 4)}`);
@@ -646,9 +652,25 @@ export function waccCalc(r: Read): FinResult {
 }
 
 function rootsText(x: IrrRoots): string {
+  // a repeated root is flat: float arithmetic pins it only to a band, said with its width (no false exactness)
+  const pm = (v: number): string => {
+    const r = x.repeated?.find((y) => y.rate === v);
+    return r ? `accurate only to about ±${pctPm(r.plusMinus)}` : "";
+  };
   const parts: string[] = [];
-  if (x.roots.length) parts.push(x.roots.map((v) => pct(v, 4)).join(", "));
-  if (x.touches.length) parts.push(`${x.touches.map((v) => pct(v, 4)).join(", ")} (NPV touches zero without changing sign: a double root)`);
+  if (x.roots.length)
+    parts.push(
+      x.roots
+        .map((v) => {
+          const a = pm(v);
+          return a ? `${pct(v, 4)} (a repeated root: NPV is flat there, so it is ${a})` : pct(v, 4);
+        })
+        .join(", "),
+    );
+  for (const v of x.touches) {
+    const a = pm(v);
+    parts.push(`${pct(v, 4)} (NPV touches zero without changing sign: a double root${a ? `, ${a}` : ""})`);
+  }
   return parts.join("; ");
 }
 

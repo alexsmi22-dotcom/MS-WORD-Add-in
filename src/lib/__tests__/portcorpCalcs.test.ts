@@ -9,6 +9,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { PORTCORP_CALCS } from "../portcorpCalcs";
+import { irrAll } from "../corpFinance";
 import { FIN_GROUP_ORDER, type FinCalcDef, type FinResult } from "../finCalc";
 import { readFinanceField } from "../finance";
 import { withFinFig } from "../financeFigures";
@@ -182,7 +183,7 @@ describe("options and alternatives", () => {
   });
   test("a double root (NPV touches zero) is reported as one", () => {
     const o = ok("corp-capbudget", { cfa: "-1, 2.2, -1.21", cfb: "" }).text; // (1 − 1.1v)²: r = 10% double
-    expect(o).toMatch(/10\.0000% \(NPV touches zero without changing sign: a double root\)/);
+    expect(o).toContain("10.0000% (NPV touches zero without changing sign: a double root, accurate only to about ±0.000070%)");
   });
   test("all-positive cash flows: no IRR, MIRR and PI not defined, still insertable", () => {
     const o = ok("corp-capbudget", { cfa: "100, 50, 25", cfb: "" }).text;
@@ -443,12 +444,28 @@ describe("F1 review C fixes", () => {
     expect(o).toContain("The NPVs are equal at 10.000% (to the cent shown).");
     expect(o).not.toContain("has the higher NPV");
   });
-  test("a triple root at 0 prints 0.0000%, no false minus", () => {
+  test("a triple root at 0 prints 0.0000%, no false minus, with its accuracy band", () => {
     const o = ok("corp-capbudget", { cfa: "-100, 300, -300, 100", cfb: "" }).text;
-    expect(o).toMatch(/IRR \(Project A\): 0\.0000%/);
+    expect(o).toMatch(/IRR \(Project A\): 0\.0000% \(a repeated root: NPV is flat there, so it is accurate only to about ±0\.00\d\d%\)/);
     expect(o).not.toContain("−0.000");
     // a well-conditioned root is not moved by the snap (the default project, oracle-checked elsewhere)
     expect(ok("corp-capbudget", { cfb: "" }).text).toMatch(/IRR \(Project A\): \d+\.\d{4}%/);
+  });
+  // F1 review round 2, item 5: the snap made repeated roots false round numbers
+  test("repeated roots are never snapped to a round rate; single roots near round numbers are unchanged", () => {
+    const tri = ok("corp-capbudget", { cfa: "-1000, 3300.0642, -3630.14124137388, 1331.0776835112778", cfb: "" }).text;
+    expect(tri).toMatch(/IRR \(Project A\): 10\.0021% \(a repeated root: NPV is flat there, so it is accurate only to about ±0\.0\d+%\)/);
+    expect(tri).not.toContain("10.0000%");
+    const dbl = ok("corp-capbudget", { cfa: "-1, 2.0001526, -1.00015260582169", cfb: "" }).text;
+    expect(dbl).toMatch(/IRR \(Project A\): 0\.0076% \(NPV touches zero without changing sign: a double root, accurate only to about ±0\.0000\d+%\)/);
+    expect(dbl).not.toContain("0.0100%");
+    // simple roots near round numbers keep their digits (not snapped, no band)
+    const a = irrAll([-1, 1.0000005]);
+    expect([a.roots[0], a.repeated]).toEqual([expect.closeTo(5e-7, 15), undefined]);
+    const b = irrAll([-1, 1.09999996]);
+    expect([b.roots[0], b.repeated]).toEqual([expect.closeTo(0.09999996, 15), undefined]);
+    // simple roots at round numbers still snap exactly
+    expect(irrAll([-1, 6, -11, 6]).roots).toEqual([0, 1, 2]);
   });
   test("DCF: a tiny share count prints its digits, never '÷ 0 shares'", () => {
     const o = ok("corp-dcf", { shares: "0.0000001" }).text;

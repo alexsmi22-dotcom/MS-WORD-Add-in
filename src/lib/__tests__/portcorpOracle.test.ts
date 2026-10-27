@@ -157,6 +157,22 @@ describe.each((FX.budget as R[]).map((c) => [(c.cfs as number[]).slice(0, 4).joi
   });
 });
 
+// F1 review round 2: snapping turned repeated roots into false round numbers (triple root 10.00214% → 10.0000%, double
+// root 0.00763% → 0.0100%). A repeated root is now reported unsnapped with its accuracy band; numpy.roots splits it
+// into a cluster, so the check is: the exact constructed root and numpy's cluster centroid both lie within the band.
+describe.each((FX.repeated as R[]).map((c) => [String(c.exact), c] as const))("repeated IRR at %s", (_n, c) => {
+  test("reported unsnapped, within its stated ± of the exact root and of numpy.roots' cluster", () => {
+    const x = irrAll(c.cfs);
+    const near1 = [...x.roots, ...x.touches].filter((r) => Math.abs(r - c.exact) < 1e-3);
+    expect(near1.length).toBe(1);
+    const rep = (x.repeated ?? []).find((y) => y.rate === near1[0]);
+    expect(rep).toBeDefined();
+    expect(rep!.plusMinus).toBeLessThan(1e-3);
+    expect(Math.abs(near1[0] - c.exact)).toBeLessThanOrEqual(rep!.plusMinus);
+    expect(Math.abs(near1[0] - c.numpyCentroid)).toBeLessThanOrEqual(rep!.plusMinus + c.numpySpread);
+  });
+});
+
 test("Microsoft's MIRR example cash flows (support.microsoft.com MIRR page; values from numpy-financial): 12.61%, −4.80%, 13.48%", () => {
   expect(FX.msMirr).toEqual([0.1261, -0.048, 0.1348]);
   expect(mirr([-120000, 39000, 30000, 21000, 37000, 46000], 0.1, 0.12)!.toFixed(4)).toBe("0.1261");

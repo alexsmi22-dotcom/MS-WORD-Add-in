@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.201.0)
+# JurisLab — Manual Test Script (v2.201.1)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 14,000+ automated unit tests, and `npm run qc` now also
@@ -20,6 +20,8 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Finance ▸ Reasonable royalty ▸ Insert** (defaults) → every money amount in the text and the table reads `$…`;
   the figure's axis reads "cumulative amount ($)".
 - [ ] **Prejudgment interest**: type a damages row `2023-01-01 €500` → refused, naming € and US dollars; `$500` reads.
+- [ ] **Damages summary** with interest and a multiplier ▸ Insert at amounts in the billions → two tables, no amount
+  broken across lines (v2.201.1).
 
 ## 0en. New in v2.200.0 — One regression table for every estimator; panel figures
 

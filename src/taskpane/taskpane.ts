@@ -231,6 +231,7 @@ import {
   panduitWorksheet,
   damagesTablesClean,
   damagesToFin,
+  SUMMARY_RESULT_COLUMNS,
 } from "../lib/patentDamages";
 import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
 import { CONC_UNITS, RATE_UNITS, catalyticEfficiencyCalc, dilutionRefusal, proteinSequenceRefusal, readAssayScalars, serialRefusal } from "../lib/assayInputs";
@@ -9687,7 +9688,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       // A negative price erosion (lost profits can compute one) is an offset; every other column must be ≥ 0.
-      const t = parsePeriodTable(r("periods"), ["lost profits", "price erosion", "reasonable royalty", "interest"], 1, { allowNegative: [1] });
+      const t = parsePeriodTable(r("periods"), ["lost profits", "price erosion", "reasonable royalty", "interest"], 1, { allowNegative: [1], resultColumns: SUMMARY_RESULT_COLUMNS });
       if ("error" in t) return finRefuse(t.error);
       return damagesToFin(damagesSummary({ rows: t.rows, multiplier: +r("mult") }), t.notes);
     },

@@ -23,6 +23,7 @@ export function readCalcList(text: string): { values: number[]; note: string } {
   const ambiguous = semicolonCommaRefusal(text, "numbers");
   if (ambiguous) throw new ListTokenError(ambiguous);
   const r = readNumberList(text);
+  if (r.ambiguous) throw new ListTokenError(r.ambiguous);
   if (r.dropped.length) {
     const shown = r.dropped.slice(0, 3).map((t) => `“${t}”`).join(", ") + (r.dropped.length > 3 ? ` and ${r.dropped.length - 3} more` : "");
     throw new ListTokenError(`${shown} ${r.dropped.length === 1 ? "is not a number" : "are not numbers"} — a list takes numbers separated by commas, spaces or semicolons.`);

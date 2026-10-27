@@ -326,8 +326,10 @@ describe("post-judgment interest (28 U.S.C. § 1961) against the oracle", () => 
     expect(r.text).toContain("the rate here is the one entered");
     expect(insertableResultText(r.text)).toBe(true);
     const rows = r.table!.rows;
-    expect(rows[1]).toEqual(["1", "March 15, 2024", "March 14, 2025", "365", "$1,469,135.78", "$60,528.39", "$1,529,664.17"]);
-    expect(rows[rows.length - 1]).toEqual(["Total", "", "", "953", "$1,469,135.78", "$163,640.86", "$1,632,776.64"]);
+    // v2.201.1: six columns, the year's first and last days in one cell.
+    expect(rows[0]).toEqual(["Year", "From – to (day before)", "Days", "Opening balance", "Interest", "Closing balance"]);
+    expect(rows[1]).toEqual(["1", "March 15, 2024 – March 14, 2025", "365", "$1,469,135.78", "$60,528.39", "$1,529,664.17"]);
+    expect(rows[rows.length - 1]).toEqual(["Total", "", "953", "$1,469,135.78", "$163,640.86", "$1,632,776.64"]);
     expect(r.svg).toContain("<svg");
   });
   test("refusals: payment before judgment, negative rate, same-day payment is zero", () => {

@@ -68,6 +68,22 @@ test("ids, groups, names, house form", () => {
   expect(src.match(/^ {4}compute: \(r\) => \{\n {6}\/\/ /gm)?.length).toBe(IDS.length);
 });
 
+test("ids are unique against the pane's inline FIN_CALCS and the registries already spread", () => {
+  const pane = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8").replace(/\r\n/g, "\n");
+  const i = pane.indexOf("const FIN_CALCS: FinCalc[] = [");
+  const body = pane.slice(i, pane.indexOf("\n];", i));
+  const inline = [...body.matchAll(/^ {4}id: "([a-z0-9-]+)",/gm)].map((m) => m[1]);
+  expect(inline.length).toBeGreaterThan(30);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const spread = [...body.matchAll(/^\s*\.\.\.([A-Z][A-Z0-9_]*_CALCS),/gm)].flatMap((m) => {
+    const imp = new RegExp(`import \\{[^}]*\\b${m[1]}\\b[^}]*\\} from "\\.\\./lib/([A-Za-z0-9]+)"`).exec(pane)!;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return (require(path.join(__dirname, "..", imp[1]))[m[1]] as FinCalcDef[]).map((c) => c.id);
+  });
+  const all = [...inline, ...spread, ...IDS];
+  expect(all.filter((id, k) => all.indexOf(id) !== k)).toEqual([]);
+});
+
 test("the modules draw no Math.random", () => {
   for (const f of ["portcorpCalcs", "portfolioRisk", "corpFinance", "qpActiveSet"]) {
     expect(fs.readFileSync(path.join(__dirname, "..", f + ".ts"), "utf8")).not.toMatch(/Math\.random\s*\(/);
@@ -195,6 +211,42 @@ describe("options and alternatives", () => {
     expect(o).toMatch(/Sortino ratio: not defined/);
     expect(o).toMatch(/Maximum drawdown = 0%/);
     expect(ok("port-performance", { beta: "" }).text).toMatch(/Treynor ratio: enter a beta/);
+  });
+});
+
+describe("adversarial-pass fixes (F1 builder B)", () => {
+  test("an IRR exactly on a bound of the searched range is found (−99% and 10,000%)", () => {
+    expect(ok("corp-capbudget", { cfa: "-1, 101", cfb: "" }).text).toMatch(/IRR \(Project A\): 10,000\.0000%/);
+    expect(ok("corp-capbudget", { cfa: "-1, 0.01", cfb: "" }).text).toMatch(/IRR \(Project A\): −99\.0000%/);
+    expect(ok("corp-capbudget", { cfa: "-1, 102", cfb: "" }).text).toMatch(/none found between −99% and 10,000%/);
+  });
+  test("a double root at 0% (−1, 2, −1) is reported", () => {
+    expect(ok("corp-capbudget", { cfa: "-1, 2, -1", cfb: "" }).text).toMatch(/IRR \(Project A\): 0\.0000% \(NPV touches zero/);
+  });
+  test("DCF with zero free cash flows prints (no implied multiple) instead of refusing", () => {
+    expect(ok("corp-dcf", { fcf: "0, 0" }).text).toMatch(/no implied multiple \(the final-year FCF is 0\)/);
+  });
+  test("a figure above 10²¹ (a tiny share count) is refused by name, not printed as 300 digits", () => {
+    expect(refusal("corp-dcf", { shares: "1e-300" })).toMatch(/above 10²¹/);
+  });
+  test("negative operands in printed formulas are parenthesised", () => {
+    const o = ok("corp-wacc", { beta: "-2", rd: "-1" }).text;
+    expect(o).toContain("4.200% + (−2.0000) × 5.500%");
+    expect(o).toContain("(−1.000%) × (1 − 25.00%)");
+    expect(ok("corp-dcf", { g: "-3" }).text).toContain("(9.000% − (−3.000%))");
+  });
+  test("VaR says when a loss above 100% is a model artefact and when the sample is too short for the tail", () => {
+    const o = ok("port-var", { horizon: "250", conf: "99" }).text;
+    expect(o).toMatch(/A loss above 100% is an artefact of the model/);
+    expect(o).toMatch(/Only 48 returns for a 1\.00% tail/);
+    expect(ok("port-var").text).not.toMatch(/Only \d+ returns/);
+  });
+  test("frontier with exactly equal means (the active-set method cycled here before the fix)", () => {
+    const o = ok("port-frontier", { data: "A B C\n1 3 1.1\n3 1 3.2\n2 2 1.9\n0 4 0.2\n4 0 3.7\n1 1 1" }).text;
+    expect(o).toMatch(/Minimum-variance portfolio: A 50\.00%, B 50\.00%/);
+  });
+  test("a space inside a number in a semicolon list is refused, not read as two values", () => {
+    expect(refusal("corp-capbudget", { cfa: "−1 000; 300; 400", cfb: "" })).toMatch(/“−1 000” has a space inside a number/);
   });
 });
 

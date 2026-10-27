@@ -91,6 +91,8 @@ export function solveQpNonneg(p: QpProblem): QpResult {
   const atZero = new Set<number>();
   for (let i = 0; i < n; i++) if (x[i] === 0) atZero.add(i);
   const maxIter = 50 * (n + m) + 50;
+  const stuck = new Set<number>();
+  let lastDropped = -1;
   for (let it = 1; it <= maxIter; it++) {
     const g = G.map((row, i) => row.reduce((s, v, j) => s + v * x[j], 0) + c[i]);
     const F = [...Array(n).keys()].filter((i) => !atZero.has(i));
@@ -118,15 +120,25 @@ export function solveQpNonneg(p: QpProblem): QpResult {
       });
       const z = solveDense(K, rhs);
       if (!z) return { ok: false, reason: "The optimisation's linear system is singular (the covariance matrix is not positive definite)." };
-      step = z.slice(0, F.length);
+      // With as many independent constraints as free variables the point is pinned: the step is zero by
+      // construction (the solve returns rounding noise of 10⁻¹³, which, taken as a step, never ended).
+      step = F.length <= mk ? new Array<number>(F.length).fill(0) : z.slice(0, F.length);
       rowsKept.forEach((r, k) => (nu[r] = z[F.length + k]));
     }
     const pmax = step.reduce((s, v) => Math.max(s, Math.abs(v)), 0);
-    if (pmax <= 1e-13) {
+    if (pmax <= 1e-11) {
       // Multipliers of the active bounds: λᵢ = gᵢ − (Aᵀν)ᵢ must be ≥ 0 at the optimum.
+      // The tolerance is relative to the terms that make λ: with nearly equal mean returns ν is large and λ is a
+      // difference of large numbers, so an absolute threshold saw rounding as a negative multiplier and cycled.
       let worst = -1;
-      let worstVal = -1e-12;
+      let scale = 1;
       for (const i of atZero) {
+        scale = Math.max(scale, Math.abs(g[i]));
+        for (let r = 0; r < m; r++) scale = Math.max(scale, Math.abs(p.A[r][i] * nu[r]));
+      }
+      let worstVal = -1e-10 * scale;
+      for (const i of atZero) {
+        if (stuck.has(i)) continue;
         let lam = g[i];
         for (let r = 0; r < m; r++) lam -= p.A[r][i] * nu[r];
         if (lam < worstVal) {
@@ -136,6 +148,7 @@ export function solveQpNonneg(p: QpProblem): QpResult {
       }
       if (worst < 0) return { ok: true, x, iterations: it };
       atZero.delete(worst);
+      lastDropped = worst;
       continue;
     }
     let alpha = 1;
@@ -153,7 +166,12 @@ export function solveQpNonneg(p: QpProblem): QpResult {
     if (block >= 0) {
       x[block] = 0;
       atZero.add(block);
+      // Anti-cycling: a bound released and re-blocked at once (a zero step) is degenerate; it is not released again
+      // until the iterate actually moves.
+      if (alpha === 0 && block === lastDropped) stuck.add(block);
     }
+    if (alpha > 0) stuck.clear();
+    lastDropped = -1;
     for (let i = 0; i < n; i++) if (x[i] < 0) x[i] = 0;
   }
   return { ok: false, reason: `The optimisation did not settle within ${maxIter} active-set steps.` };

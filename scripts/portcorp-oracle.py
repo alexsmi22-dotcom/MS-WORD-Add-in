@@ -303,8 +303,57 @@ def dcf_case(fcf, wacc, fade, fade_start, terminal, g, multiple, metric, mid, ne
             "perShare": None if shares is None else eq / shares}
 
 
+def frontier_fuzz():
+    """Random long-only problems straight from (mu, S), including equal and nearly equal means (the active-set
+    method cycled on equal means before the F1 adversarial fix) and strongly correlated assets."""
+    g = np.random.default_rng(20261027)
+    cases = []
+    for c in range(40):
+        k = int(g.integers(2, 11))
+        A = g.normal(0, 1, (k, k))
+        corr = 0.95 if c % 5 == 4 else 0.0
+        S = (A @ A.T) / k * 0.02 + np.eye(k) * 0.002
+        if corr:
+            d = np.sqrt(np.diag(S))
+            S = corr * np.outer(d, d) + (1 - corr) * np.diag(d * d)
+        mu = g.uniform(0.02, 0.15, k)
+        if c % 4 == 1:
+            mu[: max(2, k // 2)] = mu[0]  # exactly equal means
+        if c % 4 == 2:
+            mu = mu[0] + g.uniform(0, 1e-3, k)  # nearly equal means
+        rf = float(min(mu) - 0.01) if c % 3 else 0.02
+        if not (mu > rf).any():
+            rf = float(min(mu) - 0.01)
+        try:
+            e = EfficientFrontier(mu, S, weight_bounds=(0, 1))
+            d1 = e.min_volatility()
+            wmv = np.array([d1[i] for i in range(k)])
+            e = EfficientFrontier(mu, S, weight_bounds=(0, 1))
+            d2 = e.max_sharpe(risk_free_rate=rf)
+            wt = np.array([d2[i] for i in range(k)])
+            lo, hi = float(wmv @ mu), float(mu.max())
+            tg = lo + 0.6 * (hi - lo)
+            e = EfficientFrontier(mu, S, weight_bounds=(0, 1))
+            d3 = e.efficient_return(tg)
+            we = np.array([d3[i] for i in range(k)])
+        except Exception as ex:  # cvxpy gives up on a few nearly-equal-mean problems: recorded, not used
+            print("fuzz case", c, "skipped: PyPortfolioOpt", type(ex).__name__)
+            continue
+        # cvxpy returns weights up to about -1e-6 (slightly infeasible), which can overstate the Sharpe ratio; the same
+        # weights clipped at 0 and renormalised are feasible, so the true optimum can be no worse than them.
+        def proj(w):
+            w = np.clip(w, 0, None)
+            return w / w.sum()
+        pmv, pt = proj(wmv), proj(wt)
+        cases.append({"mu": list(mu), "S": S.tolist(), "rf": rf, "minVolVar": float(wmv @ S @ wmv),
+                      "minVolVarFeasible": float(pmv @ S @ pmv), "tanSharpeFeasible": float((pt @ mu - rf) / math.sqrt(pt @ S @ pt)),
+                      "tanSharpe": float((wt @ mu - rf) / math.sqrt(wt @ S @ wt)), "target": tg, "targetVar": float(we @ S @ we)})
+    return cases
+
+
 def main():
     out = {}
+    out["frontierFuzz"] = frontier_fuzz()
     out["perf"] = [perf(RETURNS, 12, 0.25, 0.0, 1.1), perf(EXTRA_RET, 52, 0.05, 0.1, 0.8), perf(list(FRONT[:, 0]), 12, 0.0, -0.5, 1.3)]
     out["capm"] = [capm(CAPM[:, 0], CAPM[:, 1], 0.25, 12, c) for c in ("classical", "hc1", "hac")]
     out["var"] = [var_case(RETURNS, 95, 1, 5, 20000, 1), var_case(RETURNS, 99, 10, 4, 5000, 123456789), var_case(EXTRA_RET, 97.5, 1, 30, 1000, 0)]

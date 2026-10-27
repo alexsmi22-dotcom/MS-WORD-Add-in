@@ -436,9 +436,14 @@ export function efficientReturn(mu: number[], S: number[][], target: number, fro
 export const FRONTIER_POINTS = 41;
 
 export function markowitz(cols: number[][], ppy: number, rfAnnual: number): Frontier | Err {
-  const k = cols.length;
   const mu = cols.map((c) => meanOf(c) * ppy);
   const S = covariance(cols).map((row) => row.map((v) => v * ppy));
+  return frontierFromMoments(mu, S, rfAnnual);
+}
+
+/** The long-only frontier from annual expected returns and covariance. */
+export function frontierFromMoments(mu: number[], S: number[][], rfAnnual: number): Frontier | Err {
+  const k = mu.length;
   const ch = choleskyCheck(S);
   if (!ch.ok) return { error: `The covariance matrix is singular: asset ${ch.at + 1} is constant or a combination of the assets before it (a duplicate column, or weights that are not unique). Remove it.` };
   // Minimum variance: min wᵀΣw, Σw = 1, w ≥ 0, from the lowest-variance single asset.

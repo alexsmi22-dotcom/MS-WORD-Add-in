@@ -9,11 +9,12 @@
  * CAPM coefficients, SEs and p-values 1e-8 relative; Student t VaR/CVaR 1e-8 (the t quantile is a bisection on
  * incompleteBeta); Monte Carlo VaR/CVaR 1e-10 (the same PCG32 stream, so the same draws); IRR roots 1e-9 absolute as a
  * set; Markowitz: portfolio variance and Sharpe ratio 1e-6 relative to PyPortfolioOpt (cvxpy's solver tolerance; ours
- * is never worse by more than that), weights 2e-4 absolute.
+ * is never worse by more than that), weights 2e-4 absolute; 38 random problems (40 generated, 2 that cvxpy itself could not
+ * solve skipped) held to the same objective bounds.
  */
 import * as fs from "fs";
 import * as path from "path";
-import { capmRegression, efficientReturn, markowitz, performance, valueAtRisk } from "../portfolioRisk";
+import { capmRegression, efficientReturn, frontierFromMoments, markowitz, performance, valueAtRisk } from "../portfolioRisk";
 import { dcfValue, eaa, irrAll, mirr, npvAt, payback, profitabilityIndex, wacc } from "../corpFinance";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,6 +108,26 @@ describe.each((FX.frontier as R[]).map((c, i) => [i, c] as const))("Markowitz ca
     expect(e.vol).toBeLessThanOrEqual(p.vol * (1 + 1e-6));
     near(e.vol, p.vol, 1e-6);
     e.w.forEach((w, i) => expect(Math.abs(w - p.w[i])).toBeLessThan(2e-4));
+  });
+});
+
+describe("Markowitz fuzz vs PyPortfolioOpt: 2 to 10 assets, equal and nearly equal means, 0.95 correlation", () => {
+  test.each((FX.frontierFuzz as R[]).map((c, i) => [i, c] as const))("case %i", (_i, c) => {
+    const f = frontierFromMoments(c.mu, c.S, c.rf);
+    if ("error" in f) throw new Error(f.error);
+    // cvxpy's weights can be slightly negative (to about −1e−6), which overstates its Sharpe ratio a little; its
+    // weights clipped and renormalised are feasible, so the exact optimum is never worse than them, and it agrees
+    // with cvxpy's own figures to 1e−5.
+    expect(f.minVol.vol ** 2).toBeLessThanOrEqual(c.minVolVarFeasible * (1 + 1e-12));
+    expect(f.tangency.sharpe).toBeGreaterThanOrEqual(c.tanSharpeFeasible * (1 - 1e-12));
+    expect(rel(f.minVol.vol ** 2, c.minVolVar)).toBeLessThan(1e-5);
+    expect(rel(f.tangency.sharpe, c.tanSharpe)).toBeLessThan(1e-5);
+    const e = efficientReturn(f.mu, f.S, c.target);
+    if ("error" in e) throw new Error(e.error);
+    expect(e.vol ** 2).toBeLessThanOrEqual(c.targetVar * (1 + 1e-6) + 1e-15);
+    for (const w of [...f.minVol.w, ...f.tangency.w, ...e.w]) expect(w).toBeGreaterThanOrEqual(0);
+    expect(Math.abs(e.w.reduce((s, x) => s + x, 0) - 1)).toBeLessThan(1e-12);
+    expect(Math.abs(e.ret - c.target)).toBeLessThan(1e-12);
   });
 });
 

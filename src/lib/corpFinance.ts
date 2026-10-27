@@ -80,9 +80,14 @@ export function irrAll(cfs: number[]): IrrRoots {
   const roots: number[] = [];
   const touches: number[] = [];
   if (cfs.length < 2 || sc === 0) return { roots, touches, signChanges: sc };
-  const u0 = Math.log1p(IRR_SEARCH_MIN);
-  const u1 = Math.log1p(IRR_SEARCH_MAX);
+  // The scan runs one step past each end of the stated range, so a root ON a bound (−1, 101 has r = 10,000%
+  // exactly) is bracketed; roots outside the range by more than rounding are dropped below.
+  const lo0 = Math.log1p(IRR_SEARCH_MIN);
+  const hi0 = Math.log1p(IRR_SEARCH_MAX);
   const N = IRR_SCAN_STEPS;
+  const pad = (hi0 - lo0) / (N - 2);
+  const u0 = lo0 - pad;
+  const u1 = hi0 + pad;
   const C = Float64Array.from(cfs);
   const A = C.map(Math.abs);
   const out = new Float64Array(2);
@@ -156,7 +161,8 @@ export function irrAll(cfs: number[]): IrrRoots {
     if (g(um) < 1e-10 && !roots.some((r) => Math.abs(r - um) < 1e-6)) touches.push(um);
   }
   const toRate = (u: number): number => Math.expm1(u);
-  return { roots: roots.map(toRate), touches: touches.map(toRate), signChanges: sc };
+  const inRange = (u: number): boolean => u >= lo0 - 1e-12 && u <= hi0 + 1e-12;
+  return { roots: roots.filter(inRange).map(toRate), touches: touches.filter(inRange).map(toRate), signChanges: sc };
 }
 
 /** Excel MIRR; null when there is no negative or no positive flow (Excel's #DIV/0!). */

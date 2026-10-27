@@ -26,7 +26,8 @@ import { dcfValue, DcfInput, DcfResult, eaa, irrAll, IrrRoots, mirr, npvAt, payb
 
 const NF = new Map<number, Intl.NumberFormat>();
 function fx(x: number, dp: number): string {
-  if (!Number.isFinite(x)) return "—";
+  // Beyond 10²¹ a grouped figure is dozens of digits of float noise: treated like a non-finite value (refused).
+  if (!Number.isFinite(x) || Math.abs(x) >= 1e21) return "—";
   let f = NF.get(dp);
   if (!f) NF.set(dp, (f = new Intl.NumberFormat("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp })));
   const s = f.format(x);
@@ -34,6 +35,8 @@ function fx(x: number, dp: number): string {
   return s.startsWith("-") ? "−" + s.slice(1) : s;
 }
 const pct = (x: number, dp = 4): string => fx(x * 100, dp) + "%";
+/** An operand inside a printed formula: a negative one in parentheses ("4.2% + (−2.0000) × 5.5%"). */
+const op = (s: string): string => (s.startsWith("−") ? `(${s})` : s);
 const pText = (p: number): string => (p < 0.0001 ? "p < 0.0001" : `p = ${fx(p, 4)}`);
 const plural = (n: number, w: string): string => `${n.toLocaleString("en-US")} ${w}${n === 1 ? "" : "s"}`;
 
@@ -43,7 +46,7 @@ type Read = (k: string) => string;
 function finish(res: { text: string; svg?: string; tables?: FinTable[] }): FinResult {
   const cells = (res.tables ?? []).flatMap((t) => t.rows.flat());
   if (res.text.includes("—") || cells.some((c) => c.includes("—"))) {
-    return finRefusal("A value came out non-finite (an overflow on these inputs); nothing was computed for insertion. Check the inputs' magnitudes.");
+    return finRefusal("A value came out non-finite or above 10²¹ (an overflow on these inputs), so there is nothing to insert. Check the inputs' magnitudes (a tiny share count, an explosive growth rate, returns that compound past the number range).");
   }
   return res;
 }
@@ -75,6 +78,9 @@ function readSeries(text: string, what: string, maxRows: number): { values: numb
   let values: number[];
   const notes: string[] = [];
   if (!/\n/.test(t)) {
+    // A space inside a number in a semicolon list ("−1 000; 300") would be read as two values (−1 and 0): refused.
+    const spaced = t.includes(";") ? t.split(";").find((f) => /\d\s+\d/.test(f.trim())) : undefined;
+    if (spaced) return `${what}: “${spaced.trim()}” has a space inside a number; with semicolons between values, write numbers without spaces (1000 or 1,000).`;
     try {
       const l = readCalcList(t);
       values = l.values;
@@ -430,6 +436,12 @@ export function varCalc(r: Read): FinResult {
     `Value at risk at ${fx(conf, 2)}% confidence over ${hTxt}, from ${plural(rets.length, "return")} (mean ${pct(v.mu, 4)}, standard deviation ${pct(v.sd, 4)} per period), on a portfolio of ${fx(value, 2)}`,
     ...v.lines.map((l) => `${METHOD_NAME[l.method]}: VaR ${pct(l.var, 3)} (${fx(l.var * value, 2)}); CVaR (expected shortfall) ${pct(l.cvar, 3)} (${fx(l.cvar * value, 2)})`),
     ...(v.lines.some((l) => l.var < 0) ? ["A negative VaR means the return at that tail quantile is still a gain."] : []),
+    ...(v.lines.some((l) => l.var > 1 || l.cvar > 1)
+      ? ["A loss above 100% is an artefact of the model (the normal or t tail, or square-root-of-time scaling): a long position without leverage cannot lose more than its value."]
+      : []),
+    ...((rets.length - 1) * v.alpha < 1
+      ? [`Only ${plural(rets.length, "return")} for a ${fx(v.alpha * 100, 2)}% tail: the historical VaR is interpolated between the two smallest returns and the historical CVaR is the worst return alone; more data is needed for a historical tail estimate.`]
+      : []),
     ...s.notes,
     `Conventions: VaR and CVaR are reported as positive losses (fractions of the portfolio's value) at confidence ${fx(conf, 2)}% (tail α = ${fx(v.alpha * 100, 2)}%); ` +
       `historical VaR = −(α percentile of the returns, linear interpolation: numpy's default, Excel PERCENTILE.INC), historical CVaR = −mean of the returns at or below that percentile; ` +
@@ -550,9 +562,9 @@ export function waccCalc(r: Read): FinResult {
   const lines = [
     `Capital structure: equity ${fx(E, 2)}, debt ${fx(D, 2)}, value V = ${fx(w.V, 2)}; E/V = ${pct(w.wE, 2)}, D/V = ${pct(w.wD, 2)}, D/E = ${fx(w.de, 4)}`,
     betaLine,
-    `Cost of equity (CAPM) r_e = r_f + β_L × MRP = ${fx(rf, 3)}% + ${fx(w.betaL, 4)} × ${fx(mrp, 3)}% = ${pct(w.re, 4)}`,
-    `After-tax cost of debt r_d(1 − T) = ${fx(rd, 3)}% × (1 − ${fx(tax, 2)}%) = ${pct(w.rdAfter, 4)}`,
-    `WACC = E/V × r_e + D/V × r_d(1 − T) = ${pct(w.wE, 2)} × ${pct(w.re, 4)} + ${pct(w.wD, 2)} × ${pct(w.rdAfter, 4)} = ${pct(w.wacc, 4)}`,
+    `Cost of equity (CAPM) r_e = r_f + β_L × MRP = ${fx(rf, 3)}% + ${op(fx(w.betaL, 4))} × ${op(fx(mrp, 3) + "%")} = ${pct(w.re, 4)}`,
+    `After-tax cost of debt r_d(1 − T) = ${op(fx(rd, 3) + "%")} × (1 − ${fx(tax, 2)}%) = ${pct(w.rdAfter, 4)}`,
+    `WACC = E/V × r_e + D/V × r_d(1 − T) = ${pct(w.wE, 2)} × ${op(pct(w.re, 4))} + ${pct(w.wD, 2)} × ${op(pct(w.rdAfter, 4))} = ${pct(w.wacc, 4)}`,
     `Conventions: market values for the weights; CAPM cost of equity; Hamada (1972) relevering β_L = β_U(1 + (1 − T)D/E), which assumes riskless debt (debt beta 0) and a constant amount of debt; ` +
       `the tax shield at the marginal rate T; the leverage figure holds the pre-tax cost of debt fixed at ${fx(rd, 3)}% (in practice it rises with leverage).`,
   ];
@@ -782,7 +794,8 @@ export function dcfCalc(r: Read): FinResult {
     `Multi-stage DCF: ${plural(N, "explicit year")}${fade ? ` and ${plural(fade, "fade year")} (growth ${fx(fadeStart, 3)}% fading linearly to ${fx(g, 3)}%)` : ""}, discounted at ${fx(w, 3)}%, ${midYear ? "mid-year" : "end-of-year"} convention`,
     `PV of the explicit years = ${fx(d.pvExplicit, 2)}` + (fade ? `; PV of the fade years = ${fx(d.pvFade, 2)}` : ""),
     terminal === "gordon"
-      ? `Terminal value at year ${T} (Gordon) = FCF_${T} × (1 + g)/(WACC − g) = ${fx(d.years[d.years.length - 1].fcf, 2)} × ${fx(1 + g / 100, 4)}/(${fx(w, 3)}% − ${fx(g, 3)}%) = ${fx(d.tv, 2)}; implied multiple of final-year FCF ${fx(d.implied, 2)}×`
+      ? `Terminal value at year ${T} (Gordon) = FCF_${T} × (1 + g)/(WACC − g) = ${op(fx(d.years[d.years.length - 1].fcf, 2))} × ${fx(1 + g / 100, 4)}/(${fx(w, 3)}% − ${op(fx(g, 3) + "%")}) = ${fx(d.tv, 2)}; ` +
+        (Number.isFinite(d.implied) ? `implied multiple of final-year FCF ${fx(d.implied, 2)}×` : "no implied multiple (the final-year FCF is 0)")
       : `Terminal value at year ${T} (exit multiple) = ${fx(multiple, 2)}× ${metric !== null ? `the final-year metric ${fx(metric, 2)}` : `final-year FCF ${fx(d.years[d.years.length - 1].fcf, 2)}`} = ${fx(d.tv, 2)}; implied perpetual growth of FCF ${Number.isFinite(d.implied) ? pct(d.implied, 3) : "not defined"}`,
     `PV of the terminal value = ${fx(d.pvTv, 2)} (discounted ${fx(d.tvT, 1)} years), ${Number.isFinite(d.tvShare) ? pct(d.tvShare, 1) : "not defined as a share"} of enterprise value`,
     `Enterprise value = ${fx(d.ev, 2)}; less net debt ${fx(netDebt, 2)} = equity value ${fx(d.equity, 2)}` + (d.perShare !== null ? `; ÷ ${fx(shares!, 0)} shares = ${fx(d.perShare, 4)} per share` : ""),

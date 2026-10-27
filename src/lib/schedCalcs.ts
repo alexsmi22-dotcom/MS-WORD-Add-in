@@ -9,7 +9,7 @@
  *  - altman-z         Altman Z, Z′ and Z″                                                     engine statements.ts
  *  - cvp-breakeven    Break-even and cost-volume-profit with the margin of safety              engine statements.ts
  *
- * Schedules are Word tables (≤ 6 columns); long schedules are summarised by year and capped by name. The worked
+ * Schedules are Word tables (≤ 6 columns); long schedules are summarized by year and capped by name. The worked
  * defaults are invented numbers (no client data). The bond cash-flow schedule is bond-dates (bondCalcs.ts).
  */
 import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
@@ -177,18 +177,18 @@ export function loanScheduleCalc(r: Read): FinResult {
   const nRaw = years * m;
   const n = Math.round(nRaw);
   if (Math.abs(nRaw - n) > 1e-9 || n < 1) return finRefusal(`Loan term × payments per year must be a whole number of payments (${fx(years, 4)} × ${m} = ${fx(nRaw, 4)}).`);
-  const amortYears = optNum(r, "amort", "amortise-over term (years)", { min: 0, minOpen: true, max: 1000 });
+  const amortYears = optNum(r, "amort", "amortize-over term (years)", { min: 0, minOpen: true, max: 1000 });
   if (typeof amortYears === "string") return finRefusal(amortYears);
   const balloon = optNum(r, "balloon", "balloon", { min: 0, max: 1e13 });
   if (typeof balloon === "string") return finRefusal(balloon);
-  if (amortYears !== undefined && balloon !== undefined && balloon > 0) return finRefusal("Give either a balloon amount or an amortise-over term, not both (a longer amortization term already sets the balloon).");
+  if (amortYears !== undefined && balloon !== undefined && balloon > 0) return finRefusal("Give either a balloon amount or an amortize-over term, not both (a longer amortization term already sets the balloon).");
   if (balloon !== undefined && balloon > P) return finRefusal(`The balloon (${money(balloon)}) cannot exceed the loan amount (${money(P)}): that is negative amortization, which is not modelled.`);
   let amortN: number | undefined;
   if (amortYears !== undefined) {
     const a = amortYears * m;
     amortN = Math.round(a);
-    if (Math.abs(a - amortN) > 1e-9) return finRefusal(`Amortise-over term × payments per year must be a whole number of payments (got ${fx(a, 4)}).`);
-    if (amortN < n) return finRefusal("The amortise-over term cannot be shorter than the loan term.");
+    if (Math.abs(a - amortN) > 1e-9) return finRefusal(`Amortize-over term × payments per year must be a whole number of payments (got ${fx(a, 4)}).`);
+    if (amortN < n) return finRefusal("The amortize-over term cannot be shorter than the loan term.");
     if (amortN === n) amortN = undefined;
   }
   const extra = optNum(r, "extra", "extra principal each payment", { min: 0, max: 1e13 });
@@ -225,9 +225,9 @@ export function loanScheduleCalc(r: Read): FinResult {
   const per = m === 12 ? "monthly" : m === 1 ? "annually" : `${m} times a year`;
   const lines = [
     `Loan ${money(P)} at ${fx(ratePct, 4).replace(/\.?0+$/, "")}% a year, paid ${per} for ${fx(years, 4).replace(/\.?0+$/, "")} years (${count(n)} payments)`,
-    `Scheduled payment = ${money(res.payment0)}` + (amortN ? ` (amortised over ${count(amortN)} payments)` : ""),
+    `Scheduled payment = ${money(res.payment0)}` + (amortN ? ` (amortized over ${count(amortN)} payments)` : ""),
   ];
-  for (const c of res.recasts) lines.push(`From payment ${count(c.k)}: ${fx(c.rate * 100, 4).replace(/\.?0+$/, "")}% a year, payment re-amortised to ${money(c.payment)}`);
+  for (const c of res.recasts) lines.push(`From payment ${count(c.k)}: ${fx(c.rate * 100, 4).replace(/\.?0+$/, "")}% a year, payment re-amortized to ${money(c.payment)}`);
   const ignoredChanges = changes.filter((c) => c.k > res.payoffK);
   if (ignoredChanges.length) lines.push(`Rate changes after the loan is paid off (payment ${ignoredChanges.map((c) => count(c.k)).join(", ")}) do not apply.`);
   if (res.balloonPaid > 0) lines.push(`Balloon paid with payment ${count(res.payoffK)} = ${money(res.balloonPaid)} (on top of that payment’s ${money(res.rows[res.rows.length - 1].interest + (res.rows[res.rows.length - 1].principal - res.balloonPaid))} of scheduled interest and principal)`);
@@ -247,16 +247,16 @@ export function loanScheduleCalc(r: Read): FinResult {
     );
     lines.push(`Total interest = ${money(res.totalInterest)} against ${money(plain.totalInterest)} without the extra payments: interest saved = ${money(plain.totalInterest - res.totalInterest)}`);
     lines.push(`Time saved = ${monthsText(saved, m)}`);
-    if (changes.length) lines.push("With rate changes, extra payments made before a change lower the re-amortised payment, so the time saved can be small while the interest saved is not.");
+    if (changes.length) lines.push("With rate changes, extra payments made before a change lower the re-amortized payment, so the time saved can be small while the interest saved is not.");
   } else {
     lines.push(`Total interest = ${money(res.totalInterest)}`);
   }
   lines.push(`Total paid = ${money(res.totalPaid)}`);
   lines.push(
     `Conventions: periodic rate = annual rate ÷ ${m} (nominal, compounded with each payment); interest = balance × periodic rate; payment P·i/(1 − (1 + i)⁻ⁿ)` +
-      `${balloon ? ", less the balloon’s present value (numpy-financial pmt with fv)" : ""}${amortN ? ", computed over the amortise-over term, the balance at the loan term due as a balloon" : ""}; ` +
+      `${balloon ? ", less the balloon’s present value (numpy-financial pmt with fv)" : ""}${amortN ? ", computed over the amortize-over term, the balance at the loan term due as a balloon" : ""}; ` +
       `extra payments go to principal and the scheduled payment stays level (the loan ends sooner); an extra payment larger than the balance is cut to the balance; ` +
-      `${changes.length ? "at each rate change the payment is re-amortised over the scheduled payments left (an adjustable-rate recast); " : ""}` +
+      `${changes.length ? "at each rate change the payment is re-amortized over the scheduled payments left (an adjustable-rate recast); " : ""}` +
       `amounts are not rounded to cents (a lender’s cent-rounded schedule differs by cents).`,
   );
 
@@ -291,7 +291,7 @@ export function loanScheduleCalc(r: Read): FinResult {
       align: ["right", "right", "right", "right", "right", "right"],
       note:
         `Year y is payments ${m === 1 ? "y" : `${m}(y − 1) + 1 to ${m}y`}. Principal includes the extra principal.` +
-        (tooLong ? ` The every-payment table holds at most ${EVERY_PAYMENT_MAX} rows and this schedule has ${count(res.rows.length)}, so it is summarised by year.` : "") +
+        (tooLong ? ` The every-payment table holds at most ${EVERY_PAYMENT_MAX} rows and this schedule has ${count(res.rows.length)}, so it is summarized by year.` : "") +
         c.omitted,
     });
   }
@@ -456,8 +456,8 @@ function statementOf(r: Read, key = "stmt"): Statement | string {
   if ("error" in st) return st.error;
   if (!st.items.size) {
     return (
-      `None of the line items is one this calculator recognises (${st.unknown.slice(0, 5).map((l) => `“${l.label}”`).join(", ")}${st.unknown.length > 5 ? " …" : ""}). ` +
-      `Recognised names: ${LINE_ITEMS.map((x) => x.names[0]).join("; ")} (and common synonyms).`
+      `None of the line items is one this calculator recognizes (${st.unknown.slice(0, 5).map((l) => `“${l.label}”`).join(", ")}${st.unknown.length > 5 ? " …" : ""}). ` +
+      `Recognized names: ${LINE_ITEMS.map((x) => x.names[0]).join("; ")} (and common synonyms).`
     );
   }
   return st;
@@ -469,8 +469,8 @@ function recognitionLines(st: Statement): string[] {
   if (mapped.length) out.push(`Read as: ${mapped.map((l) => `“${l.label}” → ${ITEM_NAME[l.key!]}`).join("; ")}.`);
   if (st.unknown.length)
     out.push(
-      `Not used (names not recognised): ${st.unknown.slice(0, 12).map((l) => `“${l.label}” (line ${l.line})`).join(", ")}${st.unknown.length > 12 ? ` and ${st.unknown.length - 12} more` : ""}. ` +
-        `Recognised names include: ${LINE_ITEMS.map((x) => x.names[0]).join("; ")}.`,
+      `Not used (names not recognized): ${st.unknown.slice(0, 12).map((l) => `“${l.label}” (line ${l.line})`).join(", ")}${st.unknown.length > 12 ? ` and ${st.unknown.length - 12} more` : ""}. ` +
+        `Recognized names include: ${LINE_ITEMS.map((x) => x.names[0]).join("; ")}.`,
     );
   out.push(...st.notes.map(noEmDash));
   return out;
@@ -583,7 +583,7 @@ export function commonSizeCalc(r: Read): FinResult {
   if (st.hasPrior) lines.push("Trend: change = (this year − prior year) ÷ |prior year|; a prior-year 0 has no percentage change.");
   if (why.length) lines.push(`Not computed: ${[...new Set(why)].join("; ")}.`);
   lines.push(...recognitionLines(st));
-  lines.push("Conventions: lines appear in a fixed statement order (income statement, then balance sheet); amounts as entered; recognised lines only.");
+  lines.push("Conventions: lines appear in a fixed statement order (income statement, then balance sheet); amounts as entered; recognized lines only.");
   const head = ["Line item", "This year", "% of base", ...(st.hasPrior ? ["Prior year", "% of base", "Change"] : [])];
   return {
     text: lines.join("\n"),
@@ -751,7 +751,7 @@ export const SCHED_CALCS: FinCalcDef[] = [
       { key: "extrafrom", label: "Extra principal starts at payment number", default: "1", optional: true },
       { key: "lumps", label: "One-off extra payments: payment number, amount (one per line; blank = none)", default: "60\t10000", kind: "block", optional: true },
       { key: "balloon", label: "Balloon due with the last payment (blank = none)", default: "", optional: true },
-      { key: "amort", label: "Amortise over (years; blank = the loan term)", default: "", optional: true },
+      { key: "amort", label: "Amortize over (years; blank = the loan term)", default: "", optional: true },
       { key: "changes", label: "Rate changes: payment number, new annual rate (%) (blank = fixed rate)", default: "", kind: "block", optional: true },
       {
         key: "view",
@@ -883,7 +883,7 @@ export const SCHED_CALCS: FinCalcDef[] = [
         ],
       },
     ],
-    assumes: "Line items recognised by exact name (synonyms listed in the result); figures as reported, with no adjustments for leases, one-off items or off-balance-sheet debt.",
+    assumes: "Line items recognized by exact name (synonyms listed in the result); figures as reported, with no adjustments for leases, one-off items or off-balance-sheet debt.",
     compute: (r) => {
       // liquidity, leverage, efficiency and profitability ratios, the cash conversion cycle and DuPont
       return finRatiosCalc(r);
@@ -894,7 +894,7 @@ export const SCHED_CALCS: FinCalcDef[] = [
     group: "Accounting & statements",
     name: "Common-size and trend statement",
     fields: [STATEMENT_FIELD],
-    assumes: "Income-statement lines over revenue and balance-sheet lines over total assets; recognised line items only, in a fixed statement order.",
+    assumes: "Income-statement lines over revenue and balance-sheet lines over total assets; recognized line items only, in a fixed statement order.",
     compute: (r) => {
       // each line as a share of revenue or total assets, and its change on the prior year
       return commonSizeCalc(r);

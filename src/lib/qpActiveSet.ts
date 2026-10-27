@@ -2,7 +2,7 @@
  * A small dense convex quadratic programme with equality constraints and non-negative variables (release F1,
  * gap item #4: the long-only Markowitz frontier and tangency portfolio):
  *
- *     minimise ½ xᵀGx + cᵀx   subject to   A x = b,   x ≥ 0,
+ *     minimize ½ xᵀGx + cᵀx   subject to   A x = b,   x ≥ 0,
  *
  * by the primal active-set method (Nocedal & Wright, Numerical Optimization, 2nd ed., Algorithm 16.3), started from
  * a feasible point the caller supplies (the frontier always has one in closed form: a single asset, or two assets
@@ -119,7 +119,7 @@ export function solveQpNonneg(p: QpProblem): QpResult {
         rhs.push(0);
       });
       const z = solveDense(K, rhs);
-      if (!z) return { ok: false, reason: "The optimisation's linear system is singular (the covariance matrix is not positive definite)." };
+      if (!z) return { ok: false, reason: "The optimization's linear system is singular (the covariance matrix is not positive definite)." };
       // With as many independent constraints as free variables the point is pinned: the step is zero by
       // construction (the solve returns rounding noise of 10⁻¹³, which, taken as a step, never ended).
       step = F.length <= mk ? new Array<number>(F.length).fill(0) : z.slice(0, F.length);
@@ -174,5 +174,5 @@ export function solveQpNonneg(p: QpProblem): QpResult {
     lastDropped = -1;
     for (let i = 0; i < n; i++) if (x[i] < 0) x[i] = 0;
   }
-  return { ok: false, reason: `The optimisation did not settle within ${maxIter} active-set steps.` };
+  return { ok: false, reason: `The optimization did not settle within ${maxIter} active-set steps.` };
 }

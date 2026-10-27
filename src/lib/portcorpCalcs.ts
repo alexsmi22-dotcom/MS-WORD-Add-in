@@ -365,18 +365,18 @@ export function capmCalc(r: Read): FinResult {
   const lines = [
     `CAPM regression of ${names[0]}'s excess return on ${names[1]}'s, ${plural(c.n, "period")}, ${ppy} a year`,
     `β = ${fx(c.beta.coef, 4)} (SE ${fx(c.beta.se, 4)}, t = ${fx(c.beta.t, 2)}, ${pText(c.beta.p)}; 95% CI ${fx(c.beta.lo, 4)} to ${fx(c.beta.hi, 4)})`,
-    `α = ${pct(c.alpha.coef, 4)} per period (SE ${pct(c.alpha.se, 4)}, t = ${fx(c.alpha.t, 2)}, ${pText(c.alpha.p)}); Jensen's alpha annualised α × ${ppy} = ${pct(c.alpha.coef * ppy, 3)}`,
+    `α = ${pct(c.alpha.coef, 4)} per period (SE ${pct(c.alpha.se, 4)}, t = ${fx(c.alpha.t, 2)}, ${pText(c.alpha.p)}); Jensen's alpha annualized α × ${ppy} = ${pct(c.alpha.coef * ppy, 3)}`,
     `R² = ${fx(c.r2, 4)}; residual standard deviation σ_ε = ${pct(c.residSd, 4)} per period`,
-    Number.isFinite(c.treynor) ? `Treynor ratio = annualised mean excess return ÷ β = ${pct(c.treynor, 3)}` : "Treynor ratio: not defined (β = 0)",
+    Number.isFinite(c.treynor) ? `Treynor ratio = annualized mean excess return ÷ β = ${pct(c.treynor, 3)}` : "Treynor ratio: not defined (β = 0)",
     c.infoRatio !== null
-      ? `Information ratio against ${names[1]} = ${fx(c.infoRatio, 4)} (annualised mean active return ÷ tracking error ${pct(c.trackingError, 3)})`
+      ? `Information ratio against ${names[1]} = ${fx(c.infoRatio, 4)} (annualized mean active return ÷ tracking error ${pct(c.trackingError, 3)})`
       : `Information ratio: not defined (the asset tracks ${names[1]} exactly: zero tracking error)`,
     `Sharpe ratio: ${names[0]} ${c.sharpeAsset !== null ? fx(c.sharpeAsset, 4) : "not defined (no variation)"}; ${names[1]} ${c.sharpeMarket !== null ? fx(c.sharpeMarket, 4) : "not defined"}`,
-    `Risk split (annualised variance of excess return): systematic β²σ²_m = ${fx(c.varSys * 1e4, 2)} %², idiosyncratic σ²_ε = ${fx(c.varIdio * 1e4, 2)} %² (${fx(sysShare * 100, 1)}% systematic)`,
+    `Risk split (annualized variance of excess return): systematic β²σ²_m = ${fx(c.varSys * 1e4, 2)} %², idiosyncratic σ²_ε = ${fx(c.varIdio * 1e4, 2)} %² (${fx(sysShare * 100, 1)}% systematic)`,
     ...t.notes,
     `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "returns are simple per-period returns in %"}; excess returns over ${rfNote}; OLS of r − r_f on r_m − r_f with a constant (α); ` +
       `standard errors ${SE_LABEL[se]}${c.hacLag !== undefined ? ` with lag ${c.hacLag} (floor(4(n/100)^(2/9)))` : ""}, t with ${c.df} degrees of freedom; ` +
-      `annualised: means × ${ppy}, standard deviations × √${ppy} (sample, n − 1); information ratio on active return r − r_m; idiosyncratic variance SSE/(n − 2).`,
+      `annualized: means × ${ppy}, standard deviations × √${ppy} (sample, n − 1); information ratio on active return r − r_m; idiosyncratic variance SSE/(n − 2).`,
   ];
   const table: FinTable = {
     label: "CAPM regression",
@@ -391,7 +391,7 @@ export function capmCalc(r: Read): FinResult {
   return finish({ text: lines.join("\n"), svg: capmScatterSvg(c.exMarket, c.exAsset, c.alpha.coef, c.beta.coef), tables: [table] });
 }
 
-/** Annualised return, volatility, Sharpe, Sortino, Treynor, maximum drawdown and Calmar. */
+/** Annualized return, volatility, Sharpe, Sortino, Treynor, maximum drawdown and Calmar. */
 export function perfCalc(r: Read): FinResult {
   const ppy = ppyOf(r);
   if (typeof ppy === "string") return finRefusal(ppy);
@@ -412,8 +412,8 @@ export function perfCalc(r: Read): FinResult {
   const d = p.dd;
   const lines = [
     `${plural(p.n, "period")} at ${ppy} a year; total return ${pct(p.totalReturn, 2)}`,
-    `Mean return ${pct(p.meanPer, 4)} per period; annualised arithmetic ${pct(p.meanAnnual, 3)}; annualised geometric (compound) ${pct(p.geoAnnual, 3)}`,
-    `Volatility ${pct(p.sdPer, 4)} per period; annualised ${pct(p.volAnnual, 3)}`,
+    `Mean return ${pct(p.meanPer, 4)} per period; annualized arithmetic ${pct(p.meanAnnual, 3)}; annualized geometric (compound) ${pct(p.geoAnnual, 3)}`,
+    `Volatility ${pct(p.sdPer, 4)} per period; annualized ${pct(p.volAnnual, 3)}`,
     p.sharpe !== null ? `Sharpe ratio = ${fx(p.sharpe, 4)}` : "Sharpe ratio: not defined (the excess return does not vary: zero volatility)",
     p.sortino !== null
       ? `Sortino ratio = ${fx(p.sortino, 4)} (downside deviation ${pct(p.downsideDev, 4)} per period below a MAR of ${fx(mar, 4)}%)`
@@ -422,16 +422,16 @@ export function perfCalc(r: Read): FinResult {
     d.max < 0
       ? `Maximum drawdown = ${pct(d.max, 2)}: from the peak after period ${d.peak} to the trough after period ${d.trough}; ${d.recovery !== null ? `recovered after period ${d.recovery}` : "not recovered by the last period"}; longest time below a peak ${plural(d.longest, "period")}`
       : "Maximum drawdown = 0% (the wealth index never fell below a previous peak)",
-    p.calmar !== null ? `Calmar ratio = ${fx(p.calmar, 4)} (annualised geometric return ÷ |maximum drawdown|, over the whole sample)` : "Calmar ratio: not defined (no drawdown)",
+    p.calmar !== null ? `Calmar ratio = ${fx(p.calmar, 4)} (annualized geometric return ÷ |maximum drawdown|, over the whole sample)` : "Calmar ratio: not defined (no drawdown)",
     ...s.notes,
-    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; sample standard deviation (n − 1); annualised: arithmetic mean × ${ppy}, standard deviation × √${ppy}, geometric (∏(1 + r))^(${ppy}/n) − 1; ` +
+    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; sample standard deviation (n − 1); annualized: arithmetic mean × ${ppy}, standard deviation × √${ppy}, geometric (∏(1 + r))^(${ppy}/n) − 1; ` +
       `Sharpe = mean(r − r_f)/sd(r − r_f) × √${ppy} with r_f = ${fx(rf, 4)}% per period; Sortino = (mean(r) − MAR) × ${ppy} ÷ (downside deviation × √${ppy}), downside deviation √(Σ min(r − MAR, 0)²/n) over all n periods; ` +
       `Treynor = mean(r − r_f) × ${ppy} ÷ β; drawdown on a wealth index starting at 1 before the first return (period 0).`,
   ];
   const table: FinTable = {
     label: "Performance and risk",
     rows: [
-      ["Measure", "Per period", "Annualised"],
+      ["Measure", "Per period", "Annualized"],
       ["Mean return (arithmetic)", pct(p.meanPer, 4), pct(p.meanAnnual, 3)],
       ["Geometric return", "", pct(p.geoAnnual, 3)],
       ["Volatility", pct(p.sdPer, 4), pct(p.volAnnual, 3)],
@@ -542,7 +542,7 @@ export function frontierCalc(r: Read): FinResult {
     `Highest-return portfolio (end of the frontier): ${pct(f.maxRet, 3)} a year`,
     ...t.notes,
     `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; expected returns = arithmetic mean × ${ppy}; covariance = sample covariance (n − 1) × ${ppy}; weights ≥ 0 summing to 1 (no short sales, no leverage); ` +
-      `each frontier point minimises wᵀΣw at a target return (${FRONTIER_TEXT}); tangency by min yᵀΣy subject to (μ − r_f)ᵀy = 1, y ≥ 0, w = y/Σy (PyPortfolioOpt's max_sharpe); ` +
+      `each frontier point minimizes wᵀΣw at a target return (${FRONTIER_TEXT}); tangency by min yᵀΣy subject to (μ − r_f)ᵀy = 1, y ≥ 0, w = y/Σy (PyPortfolioOpt's max_sharpe); ` +
       `solved exactly by a primal active-set quadratic programme; the CML lends and borrows at r_f, which a long-only, unlevered investor can do only to the left of the tangency point.`,
   ];
   const assetTable: FinTable = {
@@ -730,7 +730,7 @@ export function capBudgetCalc(r: Read): FinResult {
     ...a.notes,
     ...(b ? b.notes : []),
     `Conventions: CF₀ at t = 0 and each later flow at the end of its period; NPV and the paybacks at ${fx(rate, 3)}% per period; every IRR is a rate in −99% to 10,000% per period where NPV = 0 ` +
-      `(6,000 steps even in ln(1 + r), each sign change bisected; a root that only touches zero is found by minimising |NPV|; two roots closer than about 0.15% of (1 + r) can be missed); ` +
+      `(6,000 steps even in ln(1 + r), each sign change bisected; a root that only touches zero is found by minimizing |NPV|; two roots closer than about 0.15% of (1 + r) can be missed); ` +
       `MIRR on Excel's semantics: negative flows discounted to t = 0 at the finance rate ${fx(fr, 3)}%, positive flows compounded to the last period at the reinvestment rate ${fx(rr, 3)}%, (FV/−PV)^(1/(n − 1)) − 1; ` +
       `payback is the first period the cumulative flow reaches zero, interpolated linearly within the period; profitability index = PV of the flows after t = 0 ÷ −CF₀ (later outflows netted in the numerator); ` +
       `equivalent annual annuity = NPV × r/(1 − (1 + r)^−N) over the N periods after t = 0.${padNote}`,
@@ -853,7 +853,7 @@ export function dcfCalc(r: Read): FinResult {
     `Conventions: free cash flows to the firm discounted at the WACC; ${midYear ? "mid-year: year t is discounted (t − 0.5) years" : "end-of-year: year t is discounted t years"}; ` +
       (fade ? `fade year k (1 to ${fade}) grows at g₁ + (g − g₁)(k − 1)/${fade}, g₁ = ${fx(fadeStart, 3)}%; ` : "") +
       (terminal === "gordon"
-        ? `Gordon terminal value on the year ${T + 1} flow FCF_${T}(1 + g), discounted ${midYear ? `${fx(T - 0.5, 1)} years (mid-year, as the flows it capitalises)` : `${T} years`}; `
+        ? `Gordon terminal value on the year ${T + 1} flow FCF_${T}(1 + g), discounted ${midYear ? `${fx(T - 0.5, 1)} years (mid-year, as the flows it capitalizes)` : `${T} years`}; `
         : `exit-multiple terminal value at the end of year ${T}, discounted ${T} years${midYear ? " (a sale at year end, not mid-year)" : ""}; `) +
       `equity = EV − net debt (debt less cash; other claims such as minority interest and preferred stock, if any, belong in net debt); sensitivity: one input moved at a time on the grid, everything else as entered.`,
   ];
@@ -981,7 +981,7 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     ],
     assumes: "Returns are simple period returns in time order; ratios computed on the sample describe the past, not the future.",
     compute: (r) => {
-      // annualised return and volatility, Sharpe, Sortino, Treynor, maximum drawdown and Calmar
+      // annualized return and volatility, Sharpe, Sortino, Treynor, maximum drawdown and Calmar
       return perfCalc(r);
     },
   },

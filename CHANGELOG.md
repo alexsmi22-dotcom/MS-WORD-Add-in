@@ -47,7 +47,7 @@ statsmodels, PyPortfolioOpt, published worked examples); each result prints the 
 ### Changed
 - Finance dropdown grouped by area; Home shows Stats (with its econometrics) to every audience and names damages and
   IP value on the Finance tile.
-- XIRR takes calendar dates (Excel's XIRR example: 37.3363 %); DCF prints the terminal value, its present value and
+- XIRR takes calendar dates (Excel's XIRR example gives 37.34 %); DCF prints the terminal value, its present value and
   its share of the total; the compound-interest figure title reads "12×".
 
 ### Fixed

@@ -6,11 +6,11 @@
  *   - periodic rate i = annual nominal rate / payments per year; interest each period = balance × i; nothing is rounded
  *     to cents (the schedule is exact; a lender's cent-rounded schedule can differ by cents);
  *   - level payment P·i/(1 − (1 + i)^−n), or with a balloon B due with the last payment (P − B(1 + i)^−n)·i/(1 − (1 + i)^−n)
- *     (numpy-financial pmt with fv = −B); "amortise over" a longer term computes the payment on that term and makes
+ *     (numpy-financial pmt with fv = −B); "amortize over" a longer term computes the payment on that term and makes
  *     the balance at the loan term the balloon;
  *   - extra payments go to principal on top of the scheduled payment, which stays level, so the loan pays off sooner
  *     (an extra payment larger than the balance is cut to the balance);
- *   - at a rate change the payment is re-amortised: the balance then outstanding over the scheduled payments left, to
+ *   - at a rate change the payment is re-amortized: the balance then outstanding over the scheduled payments left, to
  *     the same balloon (never more than the balance), as an adjustable-rate loan recasts. Extra payments made before a
  *     rate change therefore lower the new payment rather than shorten the term from that point.
  */

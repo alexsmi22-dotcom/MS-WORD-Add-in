@@ -3,7 +3,7 @@
  * ratio suite, DuPont 3- and 5-step, the cash conversion cycle, common-size and trend statements, the Altman Z-score
  * variants, and break-even / cost-volume-profit. Pure: no Office.js, no DOM.
  *
- * Line items are recognised by EXACT name after normalising case, punctuation and "&" (a fixed list of synonyms per
+ * Line items are recognized by EXACT name after normalizing case, punctuation and "&" (a fixed list of synonyms per
  * item, LINE_ITEMS below); nothing is matched fuzzily. Lines whose names are not on the list are reported back by name
  * as not used, never guessed at; two lines naming the same item are refused.
  */
@@ -40,7 +40,7 @@ export type ItemKey =
 
 export type Section = "income" | "balance" | "market";
 
-/** Display name, statement section, and the accepted names (normalised: lower case, letters/digits and single spaces). */
+/** Display name, statement section, and the accepted names (normalized: lower case, letters/digits and single spaces). */
 export const LINE_ITEMS: { key: ItemKey; name: string; section: Section; names: string[] }[] = [
   { key: "revenue", name: "Revenue", section: "income", names: ["revenue", "revenues", "sales", "net sales", "total revenue", "total revenues", "net revenue", "net revenues", "turnover"] },
   { key: "cogs", name: "Cost of goods sold", section: "income", names: ["cost of goods sold", "cogs", "cost of sales", "cost of revenue", "cost of revenues"] },
@@ -51,7 +51,7 @@ export const LINE_ITEMS: { key: ItemKey; name: string; section: Section; names: 
   { key: "ebt", name: "Income before tax", section: "income", names: ["income before tax", "income before taxes", "income before income taxes", "pretax income", "pre tax income", "earnings before tax", "ebt", "profit before tax"] },
   { key: "tax", name: "Income tax expense", section: "income", names: ["income tax expense", "income taxes", "income tax", "tax expense", "provision for income taxes", "taxes"] },
   { key: "netIncome", name: "Net income", section: "income", names: ["net income", "net profit", "net earnings", "profit for the year", "net income loss", "net loss"] },
-  { key: "depreciation", name: "Depreciation and amortisation", section: "income", names: ["depreciation", "depreciation and amortization", "depreciation and amortisation", "d and a"] },
+  { key: "depreciation", name: "Depreciation and amortization", section: "income", names: ["depreciation", "depreciation and amortization", "depreciation and amortization", "d and a"] },
   { key: "cash", name: "Cash and equivalents", section: "balance", names: ["cash", "cash and equivalents", "cash and cash equivalents"] },
   { key: "securities", name: "Marketable securities", section: "balance", names: ["marketable securities", "short term investments", "short term investment"] },
   { key: "receivables", name: "Accounts receivable", section: "balance", names: ["accounts receivable", "receivables", "accounts receivable net", "trade receivables", "trade and other receivables"] },
@@ -64,7 +64,7 @@ export const LINE_ITEMS: { key: ItemKey; name: string; section: Section; names: 
   { key: "totalLiabilities", name: "Total liabilities", section: "balance", names: ["total liabilities", "liabilities"] },
   { key: "equity", name: "Shareholders’ equity", section: "balance", names: ["equity", "total equity", "shareholders equity", "stockholders equity", "total shareholders equity", "total stockholders equity", "owners equity"] },
   { key: "retainedEarnings", name: "Retained earnings", section: "balance", names: ["retained earnings", "accumulated deficit", "retained earnings accumulated deficit"] },
-  { key: "marketEquity", name: "Market value of equity", section: "market", names: ["market value of equity", "market capitalization", "market capitalisation", "market cap"] },
+  { key: "marketEquity", name: "Market value of equity", section: "market", names: ["market value of equity", "market capitalization", "market capitalization", "market cap"] },
 ];
 
 const BY_NAME = new Map<string, (typeof LINE_ITEMS)[number]>();
@@ -91,7 +91,7 @@ export interface StatementLine {
 
 export interface Statement {
   lines: StatementLine[];
-  /** Recognised items by key. */
+  /** Recognized items by key. */
   items: Map<ItemKey, StatementLine>;
   unknown: StatementLine[];
   hasPrior: boolean;

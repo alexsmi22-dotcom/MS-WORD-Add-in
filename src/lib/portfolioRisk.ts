@@ -4,7 +4,7 @@
  *
  *   performance   arithmetic and geometric means, volatility (sample, n − 1), Sharpe, Sortino (downside deviation
  *                 √(mean(min(r − MAR, 0)²)) over ALL n periods), Treynor (with a beta), maximum drawdown on a wealth
- *                 index that starts at 1 before the first return, Calmar; annualised by ppy (means) and √ppy (σ).
+ *                 index that starts at 1 before the first return, Calmar; annualized by ppy (means) and √ppy (σ).
  *   CAPM          the excess-return regression r − r_f = α + β (r_m − r_f) + ε by the econometrics OLS engine
  *                 (olsInference.ts, classical / HC1 / Newey–West standard errors), information ratio, Treynor.
  *   VaR / CVaR    historical (numpy's default linear percentile, PERCENTILE.INC), parametric normal, parametric
@@ -171,7 +171,7 @@ export interface CapmResult {
   seLabel: string;
   hacLag?: number;
   residSd: number;
-  /** Annualised variances: total, systematic β²σ²_m, idiosyncratic σ²_ε (sample, n − 1 for the total). */
+  /** Annualized variances: total, systematic β²σ²_m, idiosyncratic σ²_ε (sample, n − 1 for the total). */
   varTotal: number;
   varSys: number;
   varIdio: number;

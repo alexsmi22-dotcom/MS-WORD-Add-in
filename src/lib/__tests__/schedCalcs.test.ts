@@ -272,7 +272,7 @@ describe("statements vs exact fractions", () => {
   if ("error" in st0) throw new Error(st0.error);
   const st = st0;
 
-  test("the default statement: every line recognised, a prior year, header taken off", () => {
+  test("the default statement: every line recognized, a prior year, header taken off", () => {
     expect(st.unknown).toEqual([]);
     expect(st.hasPrior).toBe(true);
     expect(st.header).toEqual(["Line item", "This year", "Prior year"]);
@@ -355,7 +355,7 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(refused("loan-schedule", { [k]: v })).toMatch(re);
   });
 
-  test("balloon and amortise-over together are refused; amortise shorter than the term is refused", () => {
+  test("balloon and amortize-over together are refused; amortize shorter than the term is refused", () => {
     expect(refused("loan-schedule", { balloon: "1000", amort: "40" })).toMatch(/either a balloon/);
     expect(refused("loan-schedule", { amort: "20" })).toMatch(/cannot be shorter/);
   });
@@ -446,8 +446,8 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(refused("fin-ratios", { stmt: "Revenue\t100\nSales\t200\nTotal assets\t50" })).toMatch(/lines 1 \(“Revenue”\) and 2 \(“Sales”\) both give Revenue/);
     const o = out("fin-ratios", { stmt: "Revenue\t100\nTotal assets\t50\nNet income\t10\nGoodwill\t5\nRevenu\t3" });
     expect(o.ok).not.toBe(false);
-    expect(o.text).toContain("Not used (names not recognised): “Goodwill” (line 4), “Revenu” (line 5)");
-    expect(refused("fin-ratios", { stmt: "Widgets\t100\nGadgets\t50" })).toMatch(/None of the line items is one this calculator recognises/);
+    expect(o.text).toContain("Not used (names not recognized): “Goodwill” (line 4), “Revenu” (line 5)");
+    expect(refused("fin-ratios", { stmt: "Widgets\t100\nGadgets\t50" })).toMatch(/None of the line items is one this calculator recognizes/);
   });
 
   test("statement: missing items leave ratios 'not computed' with the reason", () => {
@@ -500,7 +500,7 @@ describe("hostile inputs and the adversarial pass", () => {
     // no header: the lone two-amount line is named
     const o = out("fin-ratios", { stmt: "Revenue 100\nLong-term debt 2027 300\nTotal assets 50\nNet income 10" });
     expect(o.text).toContain("only line 2 has a second (prior-year) amount");
-    // a long list of unrecognised names is cut, with the count
+    // a long list of unrecognized names is cut, with the count
     const many = ["Revenue\t100", "Total assets\t50", ...Array.from({ length: 20 }, (_, i) => `Other item ${"abcdefghijklmnopqrst"[i]}\t1`)].join("\n");
     expect(out("fin-ratios", { stmt: many }).text).toContain("and 8 more");
     // currency symbols are taken off and said so

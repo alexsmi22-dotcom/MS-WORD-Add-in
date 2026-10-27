@@ -19,8 +19,8 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   n = 200 European → convergence figure.
 - [ ] **Derivatives ▸ Black-76** → call 55.8874; **strategy** (iron condor) → credit 2.80, breakevens 92.2 and 107.8;
   **swap** → value 77,086.87, par rate 4.372867 %.
-- [ ] **Capital budgeting ▸ NPV, every IRR…**: cash flows `−1600, 10000, −10000` → "2 roots: 25.0000%, 400.0000%" and
-  the NPV profile shows both; defaults → crossover 13.7158 %.
+- [ ] **Capital budgeting ▸ NPV, every IRR…**: cash flows `−1600, 10000, −10000` → "2 roots: 25.0000%, 400.0000%"; the
+  NPV profile (0–100 %) marks 25 % and says the 400 % root is outside its range; defaults → crossover 13.7158 %.
 - [ ] **Portfolio & risk ▸ Efficient frontier** (defaults) → tangency Sharpe 0.5076, CML drawn; Sharpe/Sortino with
   "Prices" and `100, 102, 99.96` → "2 periods".
 - [ ] **Accounting ▸ MACRS** 7-year half-year → year 1 7,145.00 as a Word table, "Not tax advice"; Q2 → 17.85 % with
@@ -32,7 +32,8 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **IP valuation ▸ Nash bargaining split**, method "25% rule of thumb" → refused, quoting *Uniloc*.
 - [ ] **Fixed income ▸ Bond price, yield and accrued interest on dates** → accrued interest and clean/dirty price; Conventions line names the day count.
 - [ ] **NPV** with cash flows `−1 000; 300; 400` → refused, naming −1000 (no silent −1 and 0).
-- [ ] **XIRR** (defaults) → 37.3363 %.
+- [ ] **XIRR** (defaults) → 22.46 % / year; Microsoft's example (`−10000, 2750, 4250, 3250, 2750` on 2008-01-01,
+  2008-03-01, 2008-10-30, 2009-02-15, 2009-04-01, one date per line) → 37.34 %.
 
 ## 0eo. New in v2.201.0 — Currency symbols; $ on damages
 

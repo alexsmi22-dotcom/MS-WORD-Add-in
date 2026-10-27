@@ -226,6 +226,7 @@ import { SCHED_CALCS } from "../lib/schedCalcs";
 import { PORTCORP_CALCS } from "../lib/portcorpCalcs";
 import { FORENSIC_CALCS } from "../lib/forensicCalcs";
 import { LITIG_CALCS } from "../lib/litigCalcs";
+import { TS2_STAT_CALCS } from "../lib/ts2StatCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -12244,6 +12245,7 @@ const STAT_CALCS: StatCalc[] = [
   },
   // F2 library registries (src/lib/*StatCalcs.ts, StatCalcDef arrays) are spread here, one line each: `...TS2_STAT_CALCS,`.
   // statSpreadContract.test.ts holds every spread calculator to the pane's contract.
+  ...TS2_STAT_CALCS,
 ];
 
 function populateStatsCalcs(): void {

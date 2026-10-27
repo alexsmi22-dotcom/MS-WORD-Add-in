@@ -51,6 +51,7 @@ import { SCHED_CALCS } from "../src/lib/schedCalcs";
 import { PORTCORP_CALCS } from "../src/lib/portcorpCalcs";
 import { LITIG_CALCS } from "../src/lib/litigCalcs";
 import { FORENSIC_CALCS } from "../src/lib/forensicCalcs";
+import { TS2_STAT_CALCS } from "../src/lib/ts2StatCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2354,6 +2355,28 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   f2(LITIG_CALCS, "litig", "dmg-sec-aggregate", { model: "one" }, "aggregate one-trader", true);
   f2(LITIG_CALCS, "litig", "dmg-antitrust", { method: "forecast", form: "level" }, "antitrust forecast level", true);
   for (const c of FORENSIC_CALCS) f2(FORENSIC_CALCS, "forensic", c.id, {}, `${c.id} default`, false);
+}
+
+// --- Time series II (F2: ts2StatCalcs.ts): garchVolatilitySvg, seriesLinesSvg, varIrfGridSvg, egResidualSvg ---------
+{
+  const ts2 = (id: string, over: Record<string, string>, name: string) => {
+    const c = TS2_STAT_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ts2 calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (out.ok === false || !out.svg) throw new Error(`corpus: ts2 ${name} did not draw: ${out.text.slice(0, 120)}`);
+    figures.push([`ts2 ${name}`, out.svg]);
+  };
+  for (const c of TS2_STAT_CALCS) ts2(c.id, {}, `${c.id} default`);
+  ts2("ts-garch", { model: "egarch" }, "egarch one-step");
+  ts2("ts-garch", { model: "garch", dist: "normal", h: "250" }, "garch normal h250");
+  ts2("ts-engle-granger", { trend: "ct" }, "engle-granger trend");
+  // long series names stress the panel titles and legends
+  const varData = TS2_STAT_CALCS.find((x) => x.id === "ts-var")!.fields.find((f) => f.key === "data")!.default;
+  const longVar = varData.replace(/^[^\n]*/, (h) => h.replace("Growth", "RealGrowthRateAnnualised").replace("Inflation", "CoreInflationExFoodEnergy").replace("Rate", "PolicyRateEffective"));
+  ts2("ts-var", { data: longVar }, "var long names");
+  ts2("ts-var-irf", { data: longVar, p: "1", h: "24" }, "irf long names h24");
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

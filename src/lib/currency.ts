@@ -219,6 +219,59 @@ export const NOT_A_CURRENCY: Record<string, string> = {
   XTS: "the ISO 4217 code reserved for testing",
 };
 
+export const CURRENCY_SYMBOL_SOURCE = "Unicode CLDR 48, international English (en-001)";
+
+/**
+ * The symbol CLDR 48 gives each code in en-001, CLDR's English for readers anywhere: it tells the dollars and yen apart
+ * (US$, CA$, A$, JP¥, CN¥) where en-US writes plain $ and ¥. Only codes whose symbol is not the code itself are listed;
+ * every other code is printed as its code. scripts/cldr-currency-symbols.mjs writes fixtures/cldr-currency-symbols.json
+ * from CLDR's published currencies.json, and the jest suite checks this table against it code by code.
+ */
+export const CURRENCY_SYMBOLS: Readonly<Record<string, string>> = {
+  AUD: "A$",
+  BRL: "R$",
+  CAD: "CA$",
+  CNY: "CN¥",
+  EUR: "€",
+  GBP: "£",
+  HKD: "HK$",
+  ILS: "₪",
+  INR: "₹",
+  JPY: "JP¥",
+  KRW: "₩",
+  MXN: "MX$",
+  NZD: "NZ$",
+  PHP: "₱",
+  TWD: "NT$",
+  USD: "US$",
+  VND: "₫",
+  XAF: "FCFA",
+  XCD: "EC$",
+  XCG: "Cg.",
+  // CLDR writes a narrow no-break space (U+202F) inside "F CFA".
+  XOF: "F" + String.fromCharCode(0x202f) + "CFA",
+  XPF: "CFPF",
+};
+
+const NBSP = String.fromCharCode(0xa0);
+const NNBSP = String.fromCharCode(0x202f);
+
+/**
+ * An amount with its currency: "€1,234.50 (EUR)", "−US$12.00 (USD)", "FCFA 1,000 (XAF)"; a code with no symbol is
+ * written once, "CHF 1,234.50". `amount` is grouped text with a true minus. The symbol touches the number when it
+ * ends in a currency sign ($, ¥, €, ₹…) and is kept off it by a no-break space when it ends in a letter or a point;
+ * spaces inside the symbol and before the bracketed code are no-break too, so Word never splits an amount across lines.
+ * CLDR's narrow no-break space (XOF) is printed as an ordinary no-break space: not every Word font has U+202F.
+ */
+export function currencyAmount(amount: string, code: string): string {
+  const neg = amount.startsWith("−");
+  const abs = neg ? amount.slice(1) : amount;
+  const sym = CURRENCY_SYMBOLS[code];
+  if (!sym) return `${neg ? "−" : ""}${code}${NBSP}${abs}`;
+  const glued = /\p{Sc}$/u.test(sym);
+  return `${neg ? "−" : ""}${sym.split(" ").join(NBSP).split(NNBSP).join(NBSP)}${glued ? "" : NBSP}${abs}${NBSP}(${code})`;
+}
+
 /** |r| rounded half away from zero to `d` decimals, as an integer count of 10^−d units (sign kept). */
 export function roundUnits(r: Rat, d: number): bigint {
   const scale = 10n ** BigInt(d);

@@ -45,7 +45,12 @@ const ok = (r: DamagesResult): DamagesOutput => {
   return r;
 };
 const err = (r: DamagesResult | { error: string } | object): string => ("error" in r ? (r as { error: string }).error : "(no error)");
-const PERIOD_NAMES_LP = ["infringer's units", "patentee's actual units", "spare capacity"];
+/** A money cell without its "$" (v2.201.0), for comparison with the oracle's verbatim outputs. */
+const bare = (cell: string): string => {
+  expect(cell.startsWith("$")).toBe(true);
+  return cell.slice(1);
+};
+const PERIOD_NAMES_LP =["infringer's units", "patentee's actual units", "spare capacity"];
 const SUM_NAMES = ["lost profits", "price erosion", "reasonable royalty", "interest"];
 
 const royalty = (over: Partial<RoyaltyInput> = {}): RoyaltyInput => ({
@@ -100,13 +105,13 @@ describe("1. totals lines: skipped as the last row, refused anywhere else", () =
       expect(t.rows.map((r) => r.label)).toEqual(["2021", "2022"]);
       expect(t.notes.join(" ")).toContain("is a totals line and was skipped");
       const out = ok(reasonableRoyalty(royalty({ rows: t.rows })));
-      expect(out.text).toContain("Total running royalty: 200,050.00"); // 5% of 4,001,000, not of 8,002,000
+      expect(out.text).toContain("Total running royalty: $200,050.00"); // 5% of 4,001,000, not of 8,002,000
     },
   );
   test("space-separated totals lines too, and the summary", () => {
     const t = parsePeriodTable("2022 300,000 280,000 28,000\nTotal damages 300,000 280,000 28,000", SUM_NAMES, 1);
     if ("error" in t) throw new Error(t.error);
-    expect(ok(damagesSummary({ rows: t.rows, multiplier: 1 })).text).toContain("Damages: 608,000.00");
+    expect(ok(damagesSummary({ rows: t.rows, multiplier: 1 })).text).toContain("Damages: $608,000.00");
   });
   test("a subtotal between periods is refused by name", () => {
     expect(err(parsePeriodTable("2021\t100\nSubtotal\t100\n2022\t200", ["base"], 1))).toBe(
@@ -119,7 +124,7 @@ describe("1. totals lines: skipped as the last row, refused anywhere else", () =
     expect(r.ok).toBe(true);
     expect(r.table!.rows.length).toBe(4); // header, 2 rows, totals
     expect(r.text).toContain("Note: Damages list: row 3 (“Total damages 3,000”) is a totals line and was skipped: totals are computed here, not read.");
-    expect(r.text).toContain("Damages 3,000.00 +");
+    expect(r.text).toContain("Damages $3,000.00 +");
     const mid = pre("2019-03-15\t1,000\nSubtotal\t1,000\n2020-03-15\t2,000");
     expect(mid.ok).toBe(false);
     expect(mid.text).toBe(
@@ -170,17 +175,17 @@ describe("3. space-grouped numbers are refused by name in space-separated rows",
 describe("4. the summary table carries the multiplier and the enhanced total", () => {
   test("multiplier 2.5 with interest: two rows after Total that agree with the text", () => {
     const out = ok(damagesSummary({ rows: rows(["2022", 300000, 280000, 28000, 10000.55], ["2023", 400000, 320000, 36000, 5000]), multiplier: 2.5 }));
-    expect(out.text).toContain("Damages × 2.5 (multiplier entered): 3,410,000.00");
-    expect(out.text).toContain("Total: 3,425,000.55");
+    expect(out.text).toContain("Damages × 2.5 (multiplier entered): $3,410,000.00");
+    expect(out.text).toContain("Total: $3,425,000.55");
     const t = out.tables[0].rows;
-    expect(t[t.length - 3]).toEqual(["Total", "700,000.00", "600,000.00", "64,000.00", "1,364,000.00", "15,000.55", "1,379,000.55", ""]);
+    expect(t[t.length - 3]).toEqual(["Total", "$700,000.00", "$600,000.00", "$64,000.00", "$1,364,000.00", "$15,000.55", "$1,379,000.55", ""]);
     expect(t[t.length - 2]).toEqual(["Multiplier entered", "", "", "", "× 2.5", "", "", ""]);
-    expect(t[t.length - 1]).toEqual(["Total with damages × 2.5", "", "", "", "3,410,000.00", "15,000.55", "3,425,000.55", ""]);
+    expect(t[t.length - 1]).toEqual(["Total with damages × 2.5", "", "", "", "$3,410,000.00", "$15,000.55", "$3,425,000.55", ""]);
     expect(damagesTablesClean(out.tables)).toBe(true);
   });
   test("without interest; multiplier 1 adds no rows", () => {
     const out = ok(damagesSummary({ rows: rows(["2022", 100, 0, 0.01]), multiplier: 3 }));
-    expect(out.tables[0].rows.slice(-1)[0]).toEqual(["Total with damages × 3", "", "", "", "300.03", "300.03", ""]);
+    expect(out.tables[0].rows.slice(-1)[0]).toEqual(["Total with damages × 3", "", "", "", "$300.03", "$300.03", ""]);
     const one = ok(damagesSummary({ rows: rows(["2022", 100, 0, 0.01]), multiplier: 1 }));
     expect(one.tables[0].rows.slice(-1)[0][0]).toBe("Total");
   });
@@ -295,15 +300,15 @@ describe("6. compounding to the cent at the 10¹² cap (oracle)", () => {
   test.each(cases)("%s %s on %s from January 1, 1995 to December 31, 2024", (method, dayCount, amt, wantAmt, wantInt) => {
     const r = pre(`1995-01-01\t${amt}`, { method, dayCount });
     expect(r.ok).toBe(true);
-    expect(r.table!.rows[1].slice(3, 5)).toEqual([wantAmt, wantInt]);
+    expect(r.table!.rows[1].slice(3, 5).map(bare)).toEqual([wantAmt, wantInt]);
   });
   test("odd accrual days at the cap: a January 31 accrual monthly, a February 29 accrual annually (oracle)", () => {
     const tr = (acc: string) => `${acc}\t999999999999.99\n${acc}\t0.01\n${acc}\t333333333333.33`;
     const rates = "1990-01-01\t7.1234\n2015-03-01\t0.5\n2020-02-29\t12.75";
     const m = pre(tr("2000-01-31"), { rates, end: "2025-03-01", method: "monthly", dayCount: "actact" });
-    expect(m.table!.rows.slice(1, 4).map((r) => r[4])).toEqual(["4,641,759,813,974.33", "0.05", "1,547,253,271,324.78"]);
+    expect(m.table!.rows.slice(1, 4).map((r) => bare(r[4]))).toEqual(["4,641,759,813,974.33", "0.05", "1,547,253,271,324.78"]);
     const a = pre(tr("1996-02-29"), { rates, end: "2025-03-01", method: "annual", dayCount: "actact" });
-    expect(a.table!.rows.slice(1, 4).map((r) => r[4])).toEqual(["5,906,713,090,846.08", "0.06", "1,968,904,363,615.36"]);
+    expect(a.table!.rows.slice(1, 4).map((r) => bare(r[4]))).toEqual(["5,906,713,090,846.08", "0.06", "1,968,904,363,615.36"]);
   });
   test("post-judgment at the cap and an exact half-cent tie (oracle)", () => {
     const D = (y: number, m: number, d: number) => civilDay(y, m, d);
@@ -328,14 +333,14 @@ describe("7. one trillion is the amount cap in every damages engine", () => {
   });
   test("prejudgment and post-judgment: 10¹² accepted, a cent more refused by name", () => {
     expect(pre("2020-01-01\t1,000,000,000,000.00").ok).toBe(true);
-    expect(pre("2020-01-01\t1,000,000,000,000.01").text).toBe("Damages list, row 1: amounts above 1,000,000,000,000.00 are outside this calculator.");
+    expect(pre("2020-01-01\t1,000,000,000,000.01").text).toBe("Damages list, row 1: amounts above $1,000,000,000,000.00 are outside this calculator.");
     const j = (amount: number) => postjudgmentReport({ amount, ratePct: 5, judgment: "2024-01-01", payment: "2025-01-01", dayCount: "act365" });
     expect(j(1e12).ok).toBe(true);
-    expect(j(1e12 + 0.01).text).toBe("Judgment amounts above 1,000,000,000,000.00 are outside this calculator.");
+    expect(j(1e12 + 0.01).text).toBe("Judgment amounts above $1,000,000,000,000.00 are outside this calculator.");
   });
   test("royalty, lost profits, summary: inputs, per-period amounts and totals", () => {
     expect(err(parsePeriodTable("2021 1,000,000,000,000.01", ["royalty base"], 1))).toBe("Line 1 (“2021”): royalty base is above one trillion, outside this calculator.");
-    expect(ok(reasonableRoyalty(royalty({ rows: rows(["A", 1e12]), rate: 100 }))).text).toContain("Total running royalty: 1,000,000,000,000.00");
+    expect(ok(reasonableRoyalty(royalty({ rows: rows(["A", 1e12]), rate: 100 }))).text).toContain("Total running royalty: $1,000,000,000,000.00");
     expect(err(reasonableRoyalty(royalty({ rows: rows(["A", 1e12]), basis: "unit", rate: 2 })))).toBe("A: the royalty is above one trillion, outside this calculator.");
     expect(err(reasonableRoyalty(royalty({ lumpSum: 1e12 + 1 })))).toBe("The lump sum is above one trillion, outside this calculator.");
     const eleven = rows(...Array.from({ length: 11 }, (_, i): [string, number] => [`P${i}`, 1e12]));
@@ -374,8 +379,8 @@ describe("9. minor fixes", () => {
       "2023: price erosion needs the patentee's actual units, the second number on each line (enter 0 for a period with none).",
     );
     // Base-correct: an explicit 0 erodes nothing, and no erosion needs no column.
-    expect(ok(lostProfits(lp({ rows: rows(["2022", 12000, 30000], ["2023", 15000, 0]) }))).text).toContain("Price erosion: 300,000.00");
-    expect(ok(lostProfits(lp({ rows: rows(["2022", 12000]), erosion: false }))).text).toContain("Total: 379,200.00");
+    expect(ok(lostProfits(lp({ rows: rows(["2022", 12000, 30000], ["2023", 15000, 0]) }))).text).toContain("Price erosion: $300,000.00");
+    expect(ok(lostProfits(lp({ rows: rows(["2022", 12000]), erosion: false }))).text).toContain("Total: $379,200.00");
   });
   test("(b) a negative erosion from lost profits is said, and the summary takes it as an offset", () => {
     const neg = ok(lostProfits(lp({ rows: rows(["2022", 1000, 1000]), butForPrice: 110, actualPrice: 100, elasticity: 5, price: 100 })));
@@ -406,7 +411,7 @@ describe("9. minor fixes", () => {
       lostEarningsReport({ base: 65000, growthPct: 3, discountPct: 4.5, horizonMode: "years", horizon: 20, startAge: 45, consumptionPct: 0, fringePct: 0, midYear: "off", ...over });
     const huge = le({ base: 1e9, growthPct: 1000, horizon: 100 });
     expect(huge.ok).toBe(false);
-    expect(huge.text).toBe("Year 4: an amount or a running total is above 1,000,000,000,000.00, outside this calculator; lower the earnings, the growth rate or the horizon.");
+    expect(huge.text).toBe("Year 4: an amount or a running total is above $1,000,000,000,000.00, outside this calculator; lower the earnings, the growth rate or the horizon.");
     expect(le({ base: 1e12, growthPct: 0, horizon: 1 }).ok).toBe(true);
     expect(le({ base: 6e11, growthPct: 0, horizon: 2 }).text).toContain("Year 2: an amount or a running total is above");
   });

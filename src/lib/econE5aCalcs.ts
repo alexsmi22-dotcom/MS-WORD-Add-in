@@ -36,6 +36,7 @@ import {
   NOT_A_CURRENCY,
   roundUnits,
   unitsText,
+  currencyAmount,
   exactText,
   sigText,
   convert,
@@ -1573,9 +1574,9 @@ export function finCurrencyCalc(read: Read): FinOutput {
     // Exact comparison with 10¹⁸ (FX_MAX_CONVERTED), not through a double.
     if (cmpPow10(conv, 18) >= 0) return finRefuse(`${a.line} converts to 10¹⁸ ${target} or more, beyond the largest converted amount accepted.`);
     const fm = minorOf(from);
-    const amtText = `${exactText(a.amount, fm ?? 0)} ${from}`;
+    const amtText = currencyAmount(exactText(a.amount, fm ?? 0), from);
     const crossText = `1 ${from} = ${sigText(rate)} ${target}`;
-    const convText = `${moneyText(conv, target)} ${target}`;
+    const convText = currencyAmount(moneyText(conv, target), target);
     lines.push(`${amtText} = ${convText} (${crossText})`);
     convRows.push([amtText, crossText, convText]);
     const td = terminatingDecimals(a.amount);

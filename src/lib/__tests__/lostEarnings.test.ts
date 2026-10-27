@@ -64,13 +64,13 @@ describe("lost earnings report", () => {
     const r = rep();
     expect(r.ok).toBe(true);
     expect(r.text).toContain("computed from the inputs given");
-    expect(r.text).toContain("Present value 1,327,528.91 (net loss before discounting 2,130,820.71)");
+    expect(r.text).toContain("Present value $1,327,528.91 (net loss before discounting $2,130,820.71)");
     expect(insertableResultText(r.text)).toBe(true);
     expect(r.text).not.toMatch(/NaN|Infinity|undefined|e\+|\^/);
     const rows = r.table!.rows;
     expect(rows[0]).toEqual(["Year", "Age", "Earnings", "Net loss", "Discount factor", "Present value"]);
-    expect(rows[1]).toEqual(["1", "45", "65,000.00", "79,300.00", "0.956938", "75,885.17"]);
-    expect(rows[rows.length - 1][5]).toBe("1,327,528.91");
+    expect(rows[1]).toEqual(["1", "45", "$65,000.00", "$79,300.00", "0.956938", "$75,885.17"]);
+    expect(rows[rows.length - 1][5]).toBe("$1,327,528.91");
     expect(r.svg).toContain("<svg");
   });
   test("end age mode", () => {
@@ -96,7 +96,7 @@ describe("lost earnings report", () => {
     const big = rep({ base: 4e11, horizon: 2, growthPct: 0, fringePct: 0, consumptionPct: 0 });
     expect(big.ok).toBe(true);
     expect(big.text).not.toMatch(/e\+/);
-    expect(big.table!.rows[1][2]).toBe("400,000,000,000.00");
-    expect(rep({ base: 0 }).text).toContain("Present value 0.00");
+    expect(big.table!.rows[1][2]).toBe("$400,000,000,000.00");
+    expect(rep({ base: 0 }).text).toContain("Present value $0.00");
   });
 });

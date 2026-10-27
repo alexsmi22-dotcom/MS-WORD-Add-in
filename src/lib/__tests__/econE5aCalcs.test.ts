@@ -27,13 +27,22 @@ import {
 } from "../econE5aCalcs";
 import { inequality, exactOf } from "../inequality";
 import { leontiefInverse, IO_MAX_N } from "../leontief";
-import { ISO4217, ISO4217_DATE, roundUnits, sigText } from "../currency";
+import { CURRENCY_SYMBOLS, ISO4217, ISO4217_DATE, currencyAmount, roundUnits, sigText } from "../currency";
 import type { StatOutput } from "../analyzeBlocks";
 import type { Rat } from "../cas";
 import { budget } from "./timeBudget";
 
 const ORACLE = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "econ-e5a-oracle.json"), "utf8"));
 const ISO = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "iso4217-list-one.json"), "utf8"));
+const CLDR = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "cldr-currency-symbols.json"), "utf8"));
+const NB = String.fromCharCode(0xa0);
+/** No-break spaces as plain spaces, for substring checks written with ordinary spaces. */
+const sp = (s: string): string => s.split(NB).join(" ");
+/** An oracle amount "1,234.50 EUR" as the calculator prints it ("€1,234.50 (EUR)"). */
+const sym = (s: string): string => {
+  const m = /^(\S+) ([A-Z]{3})$/.exec(s);
+  return m ? currencyAmount(m[1], m[2]) : s;
+};
 
 const reader = (defaults: Record<string, string>, over: Record<string, string> = {}) => (k: string): string => (k in over ? over[k] : defaults[k] ?? "");
 const ineqRun = (over: Record<string, string>): StatOutput => ineqGiniCalc(reader(INEQ_GINI_DEFAULTS, over));
@@ -462,7 +471,7 @@ describe("fin-currency against the oracle", () => {
       const out = fxRun({ base: c.base, rates: c.rates, amounts: c.amounts, target: c.target, asof: "2026-10-01" });
       contract(out);
       const conv = out.tables!.find((t) => t.label.startsWith("Conversions"))!.rows.slice(1).map((r) => r[2]);
-      expect(conv).toEqual(c.converted);
+      expect(conv).toEqual(c.converted.map(sym));
       expect(out.text).toContain("as of 2026-10-01");
       expect(out.text).toContain(`the list dated ${ISO4217_DATE}`);
     });
@@ -472,7 +481,7 @@ describe("fin-currency against the oracle", () => {
     const out = fxRun({});
     contract(out);
     expect(out.text).toContain("rates as typed, no date given");
-    expect(out.text).toContain("980.50 GBP = 1,149.12 EUR (1 GBP = 1.17197 EUR)");
+    expect(sp(out.text)).toContain("£980.50 (GBP) = €1,149.12 (EUR) (1 GBP = 1.17197 EUR)");
     const rates = out.tables!.find((t) => t.label.startsWith("Rates as read"))!.rows;
     expect(rates[2][0]).toBe("1 USD = 0.92 EUR");
     expect(out.tables!.some((t) => t.label === "Cross-rate matrix")).toBe(true);
@@ -494,7 +503,7 @@ describe("fin-currency against the oracle", () => {
     const out = fxRun({ rates: "XAU 0.000417", amounts: "1000 USD", target: "XAU" });
     contract(out);
     expect(out.text).toContain("ISO 4217 gives no minor unit for XAU (N.A.)");
-    expect(out.text).toContain("1,000.00 USD = 0.417000 XAU");
+    expect(sp(out.text)).toContain("US$1,000.00 (USD) = XAU 0.417000");
   });
 
   test("hostile inputs refuse by name", () => {
@@ -529,7 +538,7 @@ describe("fin-currency against the oracle", () => {
   test("decimal commas, lower-case codes, code-first amounts, a header line", () => {
     const out = fxRun({ rates: "Currency Rate\neur 0,92", amounts: "EUR 1.234,50", target: "usd" });
     contract(out);
-    expect(out.text).toContain("1,234.50 EUR = 1,341.85 USD");
+    expect(sp(out.text)).toContain("€1,234.50 (EUR) = US$1,341.85 (USD)");
     expect(out.text).toContain("decimal commas");
   });
 
@@ -625,7 +634,7 @@ describe("review round: readers, scales, bounds", () => {
     contract(huge);
     // 999,999,999 shown to 6 significant digits.
     expect(huge.text).toContain("1 USD = 1,000,000,000 VND");
-    expect(huge.text).toContain("999,999,999.00 USD = 999,999,998,000,000,001 VND");
+    expect(sp(huge.text)).toContain("US$999,999,999.00 (USD) = ₫999,999,998,000,000,001 (VND)");
   });
 });
 
@@ -645,7 +654,7 @@ describe("E5 fix round: the adversary's cases", () => {
     const lone = fxRun({ rates: "JPY 151,250\nEUR 0.92", amounts: "151250 JPY", target: "EUR" });
     contract(lone);
     expect(lone.text).toContain("“151,250” (rate line 1 (JPY)) was read with a thousands comma (151250)");
-    expect(lone.text).toContain("151,250 JPY = 0.92 EUR");
+    expect(sp(lone.text)).toContain("JP¥151,250 (JPY) = €0.92 (EUR)");
     expect(fxRun({ rates: "JPY 151,250\nEUR 0,92", amounts: "", target: "EUR" }).ok).toBe(false);
     // An English "1,250.00" is a thousands comma too: beside "0,92" the input mixes the two conventions.
     const eng = fxRun({ rates: "EUR 0,92", amounts: "1,250.00 EUR", target: "EUR" });
@@ -676,8 +685,8 @@ describe("E5 fix round: the adversary's cases", () => {
     const out = fxRun({ amounts: "500000000000000.13 USD\n999999999999999.99 USD", target: "USD" });
     contract(out);
     const conv = out.tables!.find((t) => t.label.startsWith("Conversions"))!.rows.slice(1);
-    expect(conv.map((r) => r[0])).toEqual(["500,000,000,000,000.13 USD", "999,999,999,999,999.99 USD"]);
-    expect(conv.map((r) => r[2])).toEqual(["500,000,000,000,000.13 USD", "999,999,999,999,999.99 USD"]);
+    expect(conv.map((r) => sp(r[0]))).toEqual(["US$500,000,000,000,000.13 (USD)", "US$999,999,999,999,999.99 (USD)"]);
+    expect(conv.map((r) => sp(r[2]))).toEqual(["US$500,000,000,000,000.13 (USD)", "US$999,999,999,999,999.99 (USD)"]);
     // 10¹⁵ + 0.01 is the double 10¹⁵: only an exact comparison refuses it.
     const over = fxRun({ amounts: "1000000000000000.01 USD", target: "USD" });
     expect(over.ok).toBe(false);
@@ -689,7 +698,7 @@ describe("E5 fix round: the adversary's cases", () => {
     // it was 99,999,999,999,999.99.
     const r2 = fxRun({ rates: "EUR 0.333333333333333333", amounts: "300000000000000 USD", target: "EUR" });
     contract(r2);
-    expect(r2.text).toContain("= 100,000,000,000,000.00 EUR");
+    expect(sp(r2.text)).toContain("= €100,000,000,000,000.00 (EUR)");
   });
 
   // 2 (HIGH) gini: space-grouped thousands in a one-column paste.
@@ -866,5 +875,50 @@ describe("field declarations", () => {
         if (f.kind === "select") expect(f.options!.some((o) => o.value === defs[f.key])).toBe(true);
       }
     }
+  });
+});
+
+// =================================================================================================================
+// v2.201.0: currency symbols (user report: "when displaying USD, EUR, ETC... the symbol does not show").
+describe("fin-currency symbols (CLDR 48 en-001)", () => {
+  test("the symbol table is CLDR's, code by code, and every code is an ISO 4217 code", () => {
+    expect(CLDR.identity).toEqual({ language: "en", territory: "001" });
+    expect(CURRENCY_SYMBOLS).toEqual(CLDR.symbols);
+    for (const c of Object.keys(CURRENCY_SYMBOLS)) expect(ISO4217.has(c)).toBe(true);
+    expect(CURRENCY_SYMBOLS.XXX).toBeUndefined();
+  });
+
+  test("a sign-ending symbol touches the number; the code follows after a no-break space", () => {
+    expect(currencyAmount("1,234.50", "EUR")).toBe("€1,234.50" + NB + "(EUR)");
+    expect(currencyAmount("1,345.10", "USD")).toBe("US$1,345.10" + NB + "(USD)");
+    expect(currencyAmount("151,250", "JPY")).toBe("JP¥151,250" + NB + "(JPY)");
+    expect(currencyAmount("10.00", "INR")).toBe("₹10.00" + NB + "(INR)");
+  });
+
+  test("a letter- or point-ending symbol is kept off the number by a no-break space; spaces inside it are no-break", () => {
+    expect(currencyAmount("1,000", "XAF")).toBe("FCFA" + NB + "1,000" + NB + "(XAF)");
+    expect(currencyAmount("1,000", "XOF")).toBe("F" + NB + "CFA" + NB + "1,000" + NB + "(XOF)");
+    expect(currencyAmount("5.00", "XCG")).toBe("Cg." + NB + "5.00" + NB + "(XCG)");
+    for (const c of Object.keys(CURRENCY_SYMBOLS)) expect(currencyAmount("1.00", c)).not.toContain(" ");
+  });
+
+  test("a code with no symbol is written once, before the number", () => {
+    expect(currencyAmount("1,234.50", "CHF")).toBe("CHF" + NB + "1,234.50");
+    expect(currencyAmount("0.417000", "XAU")).toBe("XAU" + NB + "0.417000");
+  });
+
+  test("a negative amount keeps its true minus in front of the symbol", () => {
+    expect(currencyAmount("−12.00", "USD")).toBe("−US$12.00" + NB + "(USD)");
+    expect(currencyAmount("−12.00", "CHF")).toBe("−CHF" + NB + "12.00");
+  });
+
+  test("the result text and the conversions table both carry the symbols; rates and the matrix stay in codes", () => {
+    const out = fxRun({});
+    contract(out);
+    const conv = out.tables!.find((t) => t.label.startsWith("Conversions"))!;
+    expect(conv.rows.slice(1).every((r) => /\(([A-Z]{3})\)$/.test(r[0]) || /^[A-Z]{3}/.test(r[0]))).toBe(true);
+    expect(sp(out.text)).toContain("£980.50 (GBP)");
+    const rates = out.tables!.find((t) => t.label.startsWith("Rates"))!;
+    expect(rates.rows.flat().join(" ")).not.toMatch(/[€£¥₹]/);
   });
 });

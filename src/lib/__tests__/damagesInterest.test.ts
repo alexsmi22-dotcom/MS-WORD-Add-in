@@ -139,15 +139,15 @@ describe("prejudgment interest against the oracle, to the cent", () => {
     const r = prejudgmentReport({ tranches: TR_A, rates: RATES_A, end: "2024-02-29", method: "quarterly", dayCount: "act365", midPeriod: "off" });
     expect(r.ok).toBe(true);
     expect(r.text).toContain("computed from the inputs given");
-    expect(r.text).toContain("Damages 473,765.93 + interest 105,677.35 = 579,443.28");
+    expect(r.text).toContain("Damages $473,765.93 + interest $105,677.35 = $579,443.28");
     expect(r.text).toContain("compounded quarterly");
     expect(r.text).toContain("row 1");
     expect(insertableResultText(r.text)).toBe(true);
     expect(r.text).not.toMatch(/NaN|Infinity|undefined|e\+/);
     const rows = r.table!.rows;
     expect(rows[0]).toEqual(["Damages period / date", "Accrues from", "Days", "Amount", "Interest", "Total"]);
-    expect(rows[1]).toEqual(["March 15, 2019", "March 15, 2019", "1,812", "125,000.00", "39,380.22", "164,380.22"]);
-    expect(rows[rows.length - 1]).toEqual(["Total", "", "", "473,765.93", "105,677.35", "579,443.28"]);
+    expect(rows[1]).toEqual(["March 15, 2019", "March 15, 2019", "1,812", "$125,000.00", "$39,380.22", "$164,380.22"]);
+    expect(rows[rows.length - 1]).toEqual(["Total", "", "", "$473,765.93", "$105,677.35", "$579,443.28"]);
     expect(r.svg).toContain("<svg");
     expect(r.svg).toContain("damages + interest");
   });
@@ -173,10 +173,10 @@ describe("prejudgment refusals and hostile input", () => {
   test("zero amounts compute to zero; negative amounts are refused by name", () => {
     const r = rep("2020-01-01 0");
     expect(r.ok).toBe(true);
-    expect(r.text).toContain("Damages 0.00 + interest 0.00 = 0.00");
+    expect(r.text).toContain("Damages $0.00 + interest $0.00 = $0.00");
     const neg = rep(`2020-01-01 ${MINUS}5,000`);
     expect(neg.ok).toBe(false);
-    expect(neg.text).toBe(`Damages list, row 1: the amount is negative (${MINUS}5,000.00). Enter damages as positive amounts; credits and offsets are outside this calculator.`);
+    expect(neg.text).toBe(`Damages list, row 1: the amount is negative (${MINUS}$5,000.00). Enter damages as positive amounts; credits and offsets are outside this calculator.`);
   });
   test("a tranche after the end date, and an end date before every accrual", () => {
     expect(rep("2025-01-01 100").text).toContain("after the end date (January 1, 2024)");
@@ -184,7 +184,7 @@ describe("prejudgment refusals and hostile input", () => {
   test("a tranche on the end date earns nothing", () => {
     const r = rep("2024-01-01 100", "2023-06-01 5");
     expect(r.ok).toBe(true);
-    expect(r.table!.rows[1][4]).toBe("0.00");
+    expect(r.table!.rows[1][4]).toBe("$0.00");
   });
   test("a gap before the first rate row is refused by name", () => {
     expect(rep("2019-01-01 100", "2020-01-01 5").text).toBe(
@@ -231,7 +231,7 @@ describe("prejudgment refusals and hostile input", () => {
     const back = own.table!.rows.slice(0, -1).map((r) => r.join("\t")).join("\n");
     const r = rep(back);
     expect(r.ok).toBe(false);
-    expect(r.text).toContain("Damages list, row 2 has 4 number columns after the date (1,812, 125,000.00");
+    expect(r.text).toContain("Damages list, row 2 has 4 number columns after the date (1,812, $125,000.00");
     // A text label after the amount is ignored, with a note.
     const lab = rep("2019-01-01\t50,000.00\tLicense year 1");
     expect(lab.ok).toBe(true);
@@ -241,18 +241,27 @@ describe("prejudgment refusals and hostile input", () => {
   test("mid-period with no period rows is refused by name", () => {
     expect(rep("2019-01-01 100", "2010-01-01 5", "2024-01-01", { midPeriod: "on" }).text).toContain("Mid-period is on, but no damages row names a period");
   });
-  test("thousands separators, decimal commas, unicode minus and currency signs read as typed", () => {
-    const t = okTranches("2019-01-01 1,234,567.89\n2019-01-02 1.234.567,89\n2019-01-03 €1 234,50\n2019-01-04 $0.01");
+  test("thousands separators, decimal commas and “$” read as typed; any other currency sign is refused by name", () => {
+    const t = okTranches("2019-01-01 1,234,567.89\n2019-01-02 1.234.567,89\n2019-01-03 $1 234,50\n2019-01-04 $0.01");
     expect(t.map((x) => x.amount)).toEqual([1234567.89, 1234567.89, 1234.5, 0.01]);
+    // v2.201.0: the output prints $, so €1 234,50 would come out as $1,234.50; it is refused instead.
+    for (const [text, sign] of [["2019-01-03 €1 234,50", "€"], ["2023-01-01 £500", "£"], ["2023-01-01\t¥500", "¥"], ["Date\tAmount (€)\n2023-01-01\t500", "€"]]) {
+      const r = parseTranches(text, false);
+      expect(r.ok).toBe(false);
+      const e = (r as { error: string }).error;
+      expect(e).toContain(`“${sign}”`);
+      expect(e).toContain("work in US dollars");
+      expect(rep(text).text).toBe(e);
+    }
   });
   test("1e12 (the cap) stays grouped, never e-notation, exact to the cent; above is refused", () => {
     const r = rep("2020-01-01 1000000000000", "2010-01-01 5", "2021-01-01");
     expect(r.ok).toBe(true);
-    expect(r.text).toContain("Damages 1,000,000,000,000.00 + interest 50,136,986,301.37");
+    expect(r.text).toContain("Damages $1,000,000,000,000.00 + interest $50,136,986,301.37");
     // Compounded annually, actual/actual, 3.5 years: the oracle's exact-fraction answer, now to the cent (the
     // engine compounds in double-double; it used to hold 10^15 only to a relative 1e-15).
     const c = rep("2020-01-01 1000000000000", "2010-01-01 5", "2023-07-01", { method: "annual", dayCount: "actact" });
-    expect(c.table!.rows[1][4]).toBe("186,327,756,849.32");
+    expect(c.table!.rows[1][4]).toBe("$186,327,756,849.32");
     expect(r.text).not.toMatch(/e\+|E\+/);
     expect(rep("2020-01-01 1000000000000.01").text).toContain("outside this calculator");
     expect(rep("2020-01-01 1000000000000000").text).toContain("outside this calculator");
@@ -272,11 +281,11 @@ describe("prejudgment refusals and hostile input", () => {
       expect(Date.now() - t0).toBeLessThan(budget(3000));
       expect(r.table!.rows.length).toBe(10002);
       const total = r.table!.rows[10001];
-      expect(total[3]).toBe(want.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      expect(total[3]).toBe("$" + want.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
       // the interest column of the totals row is the sum of the rounded rows
       let sum = 0;
-      for (let i = 1; i <= 10000; i++) sum += Math.round(Number(r.table!.rows[i][4].replace(/,/g, "")) * 100);
-      expect(Math.round(Number(total[4].replace(/,/g, "")) * 100)).toBe(sum);
+      for (let i = 1; i <= 10000; i++) sum += Math.round(Number(r.table!.rows[i][4].replace(/[$,]/g, "")) * 100);
+      expect(Math.round(Number(total[4].replace(/[$,]/g, "")) * 100)).toBe(sum);
     }
   });
 });
@@ -312,13 +321,13 @@ describe("post-judgment interest (28 U.S.C. § 1961) against the oracle", () => 
   test("the report quotes § 1961 verbatim and never states the rate as law", () => {
     const r = postjudgmentReport({ amount: 1469135.78, ratePct: 4.12, judgment: "2024-03-15", payment: "10/24/2026", dayCount: "act365" });
     expect(r.ok).toBe(true);
-    expect(r.text).toContain("Judgment 1,469,135.78 + interest 163,640.86 = 1,632,776.64 on October 24, 2026");
+    expect(r.text).toContain("Judgment $1,469,135.78 + interest $163,640.86 = $1,632,776.64 on October 24, 2026");
     expect(r.text).toContain("“Interest shall be computed daily to the date of payment … and shall be compounded annually.”");
     expect(r.text).toContain("the rate here is the one entered");
     expect(insertableResultText(r.text)).toBe(true);
     const rows = r.table!.rows;
-    expect(rows[1]).toEqual(["1", "March 15, 2024", "March 14, 2025", "365", "1,469,135.78", "60,528.39", "1,529,664.17"]);
-    expect(rows[rows.length - 1]).toEqual(["Total", "", "", "953", "1,469,135.78", "163,640.86", "1,632,776.64"]);
+    expect(rows[1]).toEqual(["1", "March 15, 2024", "March 14, 2025", "365", "$1,469,135.78", "$60,528.39", "$1,529,664.17"]);
+    expect(rows[rows.length - 1]).toEqual(["Total", "", "", "953", "$1,469,135.78", "$163,640.86", "$1,632,776.64"]);
     expect(r.svg).toContain("<svg");
   });
   test("refusals: payment before judgment, negative rate, same-day payment is zero", () => {
@@ -329,7 +338,7 @@ describe("post-judgment interest (28 U.S.C. § 1961) against the oracle", () => 
     expect(postjudgmentReport({ amount: -100, ratePct: 1, judgment: "2024-03-15", payment: "2025-03-14", dayCount: "act365" }).ok).toBe(false);
     const z = postjudgmentReport({ amount: 100, ratePct: 5, judgment: "2024-03-15", payment: "2024-03-15", dayCount: "act365" });
     expect(z.ok).toBe(true);
-    expect(z.text).toContain("interest 0.00");
+    expect(z.text).toContain("interest $0.00");
     expect(z.svg).toBeUndefined();
   });
 });

@@ -28,6 +28,7 @@
  */
 import { parseCellNumber } from "./dataimport";
 import { finMoney, finPlotSvg } from "./financeFigures";
+import { foreignCurrencyRefusal, stripUsd, usd } from "./damagesUsd";
 import { insertableResultText } from "./insertGate";
 import type { Point, Series } from "./plot";
 
@@ -331,9 +332,12 @@ function readRows(text: string, periods: boolean, what: string, valueName: strin
   return { ok: true, value: out, notes };
 }
 
-/** The number in a cell's text: a leading currency sign and the product's cell reader (grouping, decimal comma, U+2212). */
+/**
+ * The number in a cell's text: its US-dollar marking dropped (damagesUsd stripUsd) and the product's cell reader (grouping, decimal comma, U+2212).
+ * Other currency signs never reach here: parseTranches and parseRateTable refuse them first.
+ */
 function cellNumber(cell: string): number {
-  return parseCellNumber(cell.replace(/^([−–-]?)\s*[$€£]\s*/, "$1"));
+  return parseCellNumber(stripUsd(cell));
 }
 
 /**
@@ -368,6 +372,8 @@ function readValue(rest: string, where: string, valueName: string): { text: stri
  * midpoint with `midPeriod`. A first row of column titles is skipped.
  */
 export function parseTranches(text: string, midPeriod: boolean): Parsed<Tranche[]> {
+  const foreign = foreignCurrencyRefusal(text ?? "", "The damages list");
+  if (foreign) return { ok: false, error: foreign };
   const rows = readRows(text, true, "damages list", "an amount", true);
   if (!rows.ok) return rows;
   const out: Tranche[] = [];
@@ -382,10 +388,10 @@ export function parseTranches(text: string, midPeriod: boolean): Parsed<Tranche[
     if (value < 0) {
       return {
         ok: false,
-        error: `Damages list, row ${r.row}: the amount is negative (${finMoney(value)}). Enter damages as positive amounts; credits and offsets are outside this calculator.`,
+        error: `Damages list, row ${r.row}: the amount is negative (${usd(finMoney(value))}). Enter damages as positive amounts; credits and offsets are outside this calculator.`,
       };
     }
-    if (value > MAX_AMOUNT) return { ok: false, error: `Damages list, row ${r.row}: amounts above ${finMoney(MAX_AMOUNT)} are outside this calculator.` };
+    if (value > MAX_AMOUNT) return { ok: false, error: `Damages list, row ${r.row}: amounts above ${usd(finMoney(MAX_AMOUNT))} are outside this calculator.` };
     const isPeriod = r.second !== null || r.first.period !== "day";
     if (!isPeriod) {
       out.push({ row: r.row, label: r.first.label, amount: value, accrual: r.first.from });
@@ -410,6 +416,9 @@ export function parseTranches(text: string, midPeriod: boolean): Parsed<Tranche[
 const RATE_TEXT_NOTE = "Rate table: text columns after the rate were ignored.";
 
 export function parseRateTable(text: string): Parsed<RateRow[]> {
+  // A currency sign in the rate table is a pasted amount, not a rate: "$5" read as 5 % before v2.201.0.
+  const sign = /\p{Sc}/u.exec(text ?? "");
+  if (sign) return { ok: false, error: `The rate table contains “${sign[0]}”: it holds annual rates in percent (e.g. 2019-01-01 6.5), not amounts.` };
   const rows = readRows(text, true, "rate table", "an annual rate in percent");
   if (!rows.ok) return rows;
   const notes = [...rows.notes];
@@ -875,7 +884,8 @@ export function moneyCents(cents: number): string {
   const grouped = (whole >= 1e21 ? whole.toLocaleString("en-US", { useGrouping: false }) : String(whole)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${neg && abs > 0 ? "−" : ""}${grouped}.${frac < 10 ? "0" : ""}${frac}`;
 }
-const money = moneyCents;
+/** Whole cents as US dollars ("$1,234.50"): the interest calculators work in dollars (28 U.S.C. § 1961). */
+const money = (cents: number): string => usd(moneyCents(cents));
 /** A whole count grouped ("1,812"). */
 const count = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
@@ -955,7 +965,7 @@ function prejudgmentFigure(res: PrejudgmentResult): string | undefined {
     height: 260,
     title: "Cumulative damages and interest (from the inputs given)",
     xlabel: "year",
-    ylabel: "amount",
+    ylabel: "amount ($)",
     yGrouping: "comma",
   });
 }
@@ -1081,7 +1091,7 @@ export function postjudgmentInterest(o: {
   dayCount: "act365" | "actact";
 }): PostjudgmentResult | { error: string } {
   if (!Number.isFinite(o.amount) || o.amount < 0) return { error: "The judgment amount must be zero or positive." };
-  if (o.amount > MAX_AMOUNT) return { error: `Judgment amounts above ${finMoney(MAX_AMOUNT)} are outside this calculator.` };
+  if (o.amount > MAX_AMOUNT) return { error: `Judgment amounts above ${usd(finMoney(MAX_AMOUNT))} are outside this calculator.` };
   if (!Number.isFinite(o.rate) || o.rate < 0) return { error: "The rate must be zero or positive." };
   if (o.rate > 1) return { error: "The rate is above 100%. Enter the annual rate in percent (4.12 for 4.12%)." };
   if (o.payment < o.judgment) {
@@ -1102,7 +1112,7 @@ export function postjudgmentInterest(o: {
     const [n, d] = yearFractionFrac(from, to, o.dayCount);
     const interest = exact ? exactRatio(balance, units * n, 1e6 * d) : toCents((balance / 100) * o.rate * (n / d));
     if (!(balance + interest <= MAX_TOTAL * 100)) {
-      return { error: `With interest the balance passes ${moneyCents(MAX_TOTAL * 100)}, outside this calculator.` };
+      return { error: `With interest the balance passes ${usd(moneyCents(MAX_TOTAL * 100))}, outside this calculator.` };
     }
     years.push({ from, to, days: to - from, openingCents: balance, interestCents: interest, closingCents: balance + interest });
     balance += interest;
@@ -1121,7 +1131,7 @@ function postjudgmentFigure(res: PostjudgmentResult): string | undefined {
     height: 250,
     title: "Balance with post-judgment interest (from the inputs given)",
     xlabel: "year",
-    ylabel: "amount",
+    ylabel: "amount ($)",
     yGrouping: "comma",
   });
 }
@@ -1164,7 +1174,10 @@ export function postjudgmentReport(f: { amount: number; ratePct: number; judgmen
     "Note: 28 U.S.C. § 1961(b): “Interest shall be computed daily to the date of payment … and shall be compounded annually.”",
     "Note: § 1961(a) sets the rate as “the weekly average 1-year constant maturity Treasury yield … for the calendar week preceding the date of the judgment”; the rate here is the one entered.",
     "Note: interest is compounded on each anniversary of the judgment date; each year's interest is rounded to the cent and added to the balance; a partial final year is simple.",
-    "Note: an anniversary of a February 29 judgment falls on February 28 in a common year (and on February 29 in a leap year).",
+    // Only for a judgment entered on February 29 (it printed for every judgment before v2.201.0).
+    ...(civilFromDay(j).m === 2 && civilFromDay(j).d === 29
+      ? ["Note: an anniversary of a February 29 judgment falls on February 28 in a common year (and on February 29 in a leap year)."]
+      : []),
   ].join("\n");
   return { ok: true, text, table: { label: "Post-judgment interest by year", rows }, svg: postjudgmentFigure(res) };
 }

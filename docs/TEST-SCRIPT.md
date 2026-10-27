@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.200.0)
+# JurisLab — Manual Test Script (v2.201.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 14,000+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,17 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0eo. New in v2.201.0 — Currency symbols; $ on damages
+
+- [ ] **Finance ▸ Currency conversion with your rates ▸ Insert** (defaults) → amounts read `£980.50 (GBP) = €1,149.12 (EUR)`,
+  `US$… (USD)`; the cross-rate lines and the rates table stay in codes (`1 GBP = 1.17197 EUR`).
+- [ ] **On the Mac:** change the rates to `INR 83.2`, `KRW 1380`, `VND 25400`, `ILS 3.7`, `PHP 56` and the target to each
+  in turn ▸ Insert → ₹ ₩ ₫ ₪ ₱ show as symbols (not boxes or blanks) in the document font.
+- [ ] An amount never breaks across a line: `€1,149.12 (EUR)` stays on one line at the end of a paragraph.
+- [ ] **Finance ▸ Reasonable royalty ▸ Insert** (defaults) → every money amount in the text and the table reads `$…`;
+  the figure's axis reads "cumulative amount ($)".
+- [ ] **Prejudgment interest**: type a damages row `2023-01-01 €500` → refused, naming € and US dollars; `$500` reads.
 
 ## 0en. New in v2.200.0 — One regression table for every estimator; panel figures
 

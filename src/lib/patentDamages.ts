@@ -29,6 +29,7 @@ import { finPct, finPlotSvg, currentFinFig } from "./financeFigures";
 import { buildChartPreviewSvg, type TableChart } from "./tablechart";
 import { proseDashes } from "./proseDashes";
 import { hasBrokenNumber } from "./insertGate";
+import { foreignCurrencyRefusal, stripUsd, usd } from "./damagesUsd";
 import { MAX_AMOUNT, MAX_ROWS, MAX_TOTAL, isTotalsLabel, toCents } from "./damagesInterest";
 
 // ---------------------------------------------------------------------------
@@ -66,14 +67,14 @@ function signed(nf: Intl.NumberFormat, x: number, zeroBelow: number): string {
   return s.startsWith("-") ? (/[1-9]/.test(s) ? "−" + s.slice(1) : s.slice(1)) : s;
 }
 
-/** Money as the Finance mode prints it (finMoney's output): grouped, two decimals, true minus. */
-export const dmgMoney = (x: number): string => signed(NF_MONEY, roundCents(x), 0.005);
+/** US-dollar money: finMoney's grouping and two decimals, true minus, and "$" ("−$1,234.50"). */
+export const dmgMoney = (x: number): string => usd(signed(NF_MONEY, roundCents(x), 0.005));
 
 /** A unit count: grouped, at most two decimals, no trailing zeros. */
 export const dmgQty = (x: number): string => signed(NF_QTY, x, 0.005);
 
-/** A per-unit price or margin: two decimals, up to four when the input has them; grouped, true minus. */
-export const dmgUnitMoney = (x: number): string => signed(NF_UNIT, x, 5e-5);
+/** A per-unit price or margin in US dollars: two decimals, up to four when the input has them; grouped, true minus, "$". */
+export const dmgUnitMoney = (x: number): string => usd(signed(NF_UNIT, x, 5e-5));
 
 /** A plain input number (an elasticity, a multiplier): grouped, at most six decimals, never e-notation. */
 export const dmgNum = (x: number): string => signed(NF_NUM, x, 5e-7);
@@ -94,10 +95,9 @@ export interface PeriodRow {
 }
 export type PeriodTable = { rows: PeriodRow[]; notes: string[] };
 
-/** A money or count cell: a leading currency sign is dropped, then the product's cell reader. */
+/** A money or count cell: its US-dollar marking is dropped (parsePeriodTable refuses every other currency), then the product's cell reader. */
 function readCell(raw: string): number {
-  const t = raw.trim().replace(/^[+]?[$€£¥]\s*/, "").replace(/^([−–-])\s*[$€£¥]\s*/, "$1");
-  return readFinanceField(t);
+  return readFinanceField(stripUsd(raw));
 }
 
 /**
@@ -136,6 +136,8 @@ export interface PeriodTableOptions {
 }
 
 export function parsePeriodTable(text: string, names: string[], required: number, opts: PeriodTableOptions = {}): PeriodTable | { error: string } {
+  const foreign = foreignCurrencyRefusal(text ?? "", "The table");
+  if (foreign) return { error: foreign };
   const lines = (text ?? "").split(/\r?\n/);
   const rows: PeriodRow[] = [];
   const notes: string[] = [];
@@ -292,7 +294,8 @@ export function damagesFigure(labels: string[], series: { name: string; values: 
       rows: [],
       warnings: [],
     };
-    return buildChartPreviewSvg(chart, "stacked-column", title, { patent: fig?.bw === true, grouping: "comma" }, fig?.width ?? 380).svg;
+    // The column chart has no axis label: the title carries the unit.
+    return buildChartPreviewSvg(chart, "stacked-column", `${title} ($)`,{ patent: fig?.bw === true, grouping: "comma" }, fig?.width ?? 380).svg;
   }
   const n = labels.length;
   const stride = Math.max(1, Math.ceil(n / 200));
@@ -307,7 +310,7 @@ export function damagesFigure(labels: string[], series: { name: string; values: 
     height: 250,
     title: `${title} (cumulative)`,
     xlabel: "period number",
-    ylabel: "cumulative amount",
+    ylabel: "cumulative amount ($)",
     yGrouping: "comma",
   });
 }
@@ -403,7 +406,7 @@ export function reasonableRoyalty(inp: RoyaltyInput): DamagesResult {
   const c = computeRoyalty(inp);
   if ("error" in c) return c;
   const unit = inp.basis === "unit";
-  const rateText = unit ? `${dmgNum(inp.rate)} per unit` : `${dmgPct(inp.rate)} of revenue`;
+  const rateText = unit ? `${usd(dmgNum(inp.rate))} per unit` : `${dmgPct(inp.rate)} of revenue`;
   const lines = [
     "Reasonable royalty, computed from the inputs given",
     `Rate: ${rateText}; apportionment ${dmgPct(inp.apportionPct)}`,

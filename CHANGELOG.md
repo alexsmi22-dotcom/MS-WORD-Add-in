@@ -6,6 +6,26 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.201.0] — 2026-10-26 — Currency symbols; $ on damages
+
+### Fixed
+- **Currency conversion shows currency symbols** (user report: "when displaying USD, EUR, etc. the symbol does not
+  show"). Converted amounts now read `€1,234.50 (EUR)`, `US$1,345.10 (USD)`, `₹10.00 (INR)`: the symbol for
+  readability, the ISO code so the dollars and yen are never confused. Symbols are Unicode CLDR 48's for
+  international English (en-001), which tells US$, CA$, A$, JP¥ and CN¥ apart; 22 currencies have one, and every
+  other code is written once, as `CHF 1,234.50`. No-break spaces keep an amount on one line. Cross rates, the rates
+  table and the matrix stay in codes.
+- **The damages calculators print $** on every money amount — reasonable royalty, lost profits, price erosion,
+  damages summary, prejudgment and post-judgment interest, lost earnings — in the text, the tables, the totals and the
+  refusals (`−$1,234.50`, minus before the sign); figure axes and column-chart titles read "($)".
+- Because those amounts now carry `$`, a pasted damages table that names another currency is refused by name — a sign
+  (€, £, ¥, ₹ …), a prefixed dollar (C$, A$, HK$, R$ …) or an ISO 4217 code (`Revenue (EUR)`, a trailing `CAD`
+  column). Before, the signs were dropped and such column titles skipped silently, which would now have printed
+  €1,000,000 as $1,000,000.00. `$`, `US$` and `USD` read as before.
+- The prejudgment rate table refuses a currency sign (`$5` was read as a 5 % rate).
+- Post-judgment interest printed its "February 29 judgment" note for every judgment; it now appears only for one
+  entered on February 29.
+
 ## [2.200.0] — 2026-10-25 — One regression table for every estimator; panel figures
 
 ### New

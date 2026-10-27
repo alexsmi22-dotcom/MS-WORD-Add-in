@@ -16,6 +16,7 @@
  */
 import { finFixed, finMoney, finPlotSvg } from "./financeFigures";
 import { MAX_AMOUNT, moneyCents, toCents, type DamagesReport } from "./damagesInterest";
+import { usd } from "./damagesUsd";
 
 /** Longest horizon accepted, in years. */
 export const MAX_YEARS = 100;
@@ -59,7 +60,7 @@ export interface LostEarningsResult {
 /** The year-by-year schedule, or a named refusal. */
 export function lostEarnings(o: LostEarningsInput): LostEarningsResult | { error: string } {
   if (!(o.base >= 0)) return { error: "Annual earnings must be zero or positive." };
-  if (o.base > MAX_AMOUNT) return { error: `Annual earnings above ${finMoney(MAX_AMOUNT)} are outside this calculator.` };
+  if (o.base > MAX_AMOUNT) return { error: `Annual earnings above ${usd(finMoney(MAX_AMOUNT))} are outside this calculator.` };
   if (!(o.growth > -1) || o.growth > 10) return { error: "Growth must be above −100% and at most 1,000% a year." };
   if (!(o.discount > -1) || o.discount > 10) return { error: "The discount rate must be above −100% and at most 1,000% a year." };
   if (!(o.years > 0)) return { error: "The years of loss must be positive (an end age above the starting age)." };
@@ -94,7 +95,7 @@ export function lostEarnings(o: LostEarningsInput): LostEarningsResult | { error
     // is not printed in the refusal: at 1,000% growth it has a hundred digits).
     const cap = MAX_AMOUNT * 100;
     if (Math.max(row.earningsCents, row.netCents, row.pvCents, te + row.earningsCents, tn + row.netCents, tp + row.pvCents) > cap) {
-      return { error: `Year ${t}: an amount or a running total is above ${finMoney(MAX_AMOUNT)}, outside this calculator; lower the earnings, the growth rate or the horizon.` };
+      return { error: `Year ${t}: an amount or a running total is above ${usd(finMoney(MAX_AMOUNT))}, outside this calculator; lower the earnings, the growth rate or the horizon.` };
     }
     rows.push(row);
     te += row.earningsCents;
@@ -104,7 +105,8 @@ export function lostEarnings(o: LostEarningsInput): LostEarningsResult | { error
   return { rows, totalEarningsCents: te, totalNetCents: tn, totalPvCents: tp };
 }
 
-const money = moneyCents;
+/** Whole cents as US dollars ("$1,234.50"). */
+const money = (cents: number): string => usd(moneyCents(cents));
 const pct = (x: number): string => `${finFixed(x * 100, 2).replace(/\.?0+$/, "")}%`;
 const num = (x: number): string => (Number.isInteger(x) ? String(x) : finFixed(x, 2));
 
@@ -168,7 +170,7 @@ export function lostEarningsReport(f: {
       { points: res.rows.map((r) => ({ x: r.year, y: r.netCents / 100 })), type: "line", color: "#b45309", label: "net loss" },
       { points: res.rows.map((r) => ({ x: r.year, y: r.pvCents / 100 })), type: "line", color: "#2563eb", label: "present value" },
     ],
-    { width: 380, height: 250, title: "Lost earnings by year (from the inputs given)", xlabel: "year of loss", ylabel: "amount", yGrouping: "comma" },
+    { width: 380, height: 250, title: "Lost earnings by year (from the inputs given)", xlabel: "year of loss", ylabel: "amount ($)", yGrouping: "comma" },
   );
   return { ok: true, text, table: { label: "Lost earnings by year", rows }, svg: res.rows.length >= 2 ? svg : undefined };
 }

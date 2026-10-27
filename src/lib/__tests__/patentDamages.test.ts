@@ -28,6 +28,7 @@ import {
 } from "../patentDamages";
 import { hasBrokenNumber, insertableResultText } from "../insertGate";
 import { finMoney } from "../financeFigures";
+import { usd } from "../damagesUsd";
 import { budget } from "./timeBudget";
 
 const rows = (...r: [string, ...number[]][]): PeriodRow[] => r.map(([label, ...values]) => ({ label, values }));
@@ -88,9 +89,9 @@ describe("reasonable royalty: oracle cases to the cent", () => {
     expect(c.periods.map((p) => p.pv)).toEqual([44444.44, 56584.36, 59537.42, 27343.11]);
     expect(c.pvTotal).toBe(187909.33); // the column foots: the sum of the rounded cells
     const out = ok(reasonableRoyalty(baseRoyalty()));
-    expect(out.text).toContain("Total running royalty: 226,200.00");
-    expect(out.text).toContain("Present value of the running royalty at 8.00% a year: 187,909.33");
-    expect(out.text).toContain("Lump sum entered: 200,000.00; 12,090.67 above that present value.");
+    expect(out.text).toContain("Total running royalty: $226,200.00");
+    expect(out.text).toContain("Present value of the running royalty at 8.00% a year: $187,909.33");
+    expect(out.text).toContain("Lump sum entered: $200,000.00; $12,090.67 above that present value.");
     expect(out.text).toContain("computed from the inputs given");
     expectDisplayContract(out);
   });
@@ -116,15 +117,15 @@ describe("reasonable royalty: oracle cases to the cent", () => {
     expect(c.total).toBe(159722.22);
     expect(c.periods.map((p) => p.pv)).toEqual([33904.65, 62902.04, 25861.46, 28409.09]);
     expect(c.pvTotal).toBe(151077.24);
-    expect(ok(reasonableRoyalty(inp)).text).toContain("1,077.24 below that present value.");
+    expect(ok(reasonableRoyalty(inp)).text).toContain("$1,077.24 below that present value.");
   });
   test("the table: header, one row per period, a totals row; a figure is drawn", () => {
     const out = ok(reasonableRoyalty(baseRoyalty()));
     const t = out.tables[0].rows;
     expect(t[0]).toEqual(["Period", "Revenue", "Royalty", "Cumulative", "Present value"]);
-    expect(t[1]).toEqual(["2021", "4,000,000.00", "48,000.00", "48,000.00", "44,444.44"]);
+    expect(t[1]).toEqual(["2021", "$4,000,000.00", "$48,000.00", "$48,000.00", "$44,444.44"]);
     expect(t[t.length - 1][0]).toBe("Total");
-    expect(t[t.length - 1][2]).toBe("226,200.00");
+    expect(t[t.length - 1][2]).toBe("$226,200.00");
     expect(out.svg).toMatch(/^<svg/);
   });
   test("refusals by name", () => {
@@ -137,13 +138,13 @@ describe("reasonable royalty: oracle cases to the cent", () => {
   test("small rates are shown as entered, not rounded to cents", () => {
     expect(ok(reasonableRoyalty(baseRoyalty({ rate: 0.125, lumpSum: 0 }))).text).toContain("Rate: 0.125% of revenue");
     const u = ok(reasonableRoyalty(baseRoyalty({ basis: "unit", rate: 0.005, apportionPct: 100, lumpSum: 0 })));
-    expect(u.text).toContain("Rate: 0.005 per unit");
-    expect(u.text).toContain("Total running royalty: 94,250.00");
+    expect(u.text).toContain("Rate: $0.005 per unit");
+    expect(u.text).toContain("Total running royalty: $94,250.00");
     expect(u.text).toContain("Total royalty base: 18,850,000 units");
   });
   test("zero rate is a zero royalty, not a refusal", () => {
     const out = ok(reasonableRoyalty(baseRoyalty({ rate: 0, lumpSum: 0 })));
-    expect(out.text).toContain("Total running royalty: 0.00");
+    expect(out.text).toContain("Total running royalty: $0.00");
     expect(out.svg).toBeUndefined();
   });
 });
@@ -160,7 +161,7 @@ describe("lost profits: oracle cases to the cent", () => {
     expect(c.capped).toBe(2);
     const out = lostProfits(baseLP());
     if ("error" in out) throw new Error(out.error);
-    expect(out.text).toContain("Total: 1,798,400.00");
+    expect(out.text).toContain("Total: $1,798,400.00");
     expect(out.text).toContain("Spare capacity limited the captured units in 2 of 3 periods.");
     expectDisplayContract(out);
   });
@@ -217,24 +218,24 @@ describe("summary by period: oracle cases to the cent", () => {
   const S = (r: PeriodRow[], m: number): DamagesOutput => ok(damagesSummary({ rows: r, multiplier: m }));
   test("S1: three columns, no multiplier", () => {
     const out = S(rows(["2022", 300000, 280000, 28000], ["2023", 400000, 320000, 36000], ["2024", 300000, 280000, 12000]), 1);
-    expect(out.text).toContain("Damages: 1,956,000.00");
-    expect(out.text).toContain("Total: 1,956,000.00");
-    expect(out.tables[0].rows.slice(1, 4).map((r) => r[5])).toEqual(["608,000.00", "756,000.00", "592,000.00"]);
+    expect(out.text).toContain("Damages: $1,956,000.00");
+    expect(out.text).toContain("Total: $1,956,000.00");
+    expect(out.tables[0].rows.slice(1, 4).map((r) => r[5])).toEqual(["$608,000.00", "$756,000.00", "$592,000.00"]);
     expect(out.text).toContain("computes no interest");
     expectDisplayContract(out);
   });
   test("S2: interest column, multiplier 2 on damages only", () => {
     const out = S(rows(["2022", 125000.1, 0, 18000.25, 4321.09], ["2023", 98000.55, 1500, 17000, 2100.5]), 2);
-    expect(out.text).toContain("Damages: 259,500.90");
-    expect(out.text).toContain("Damages × 2 (multiplier entered): 519,001.80");
-    expect(out.text).toContain("Interest (as entered): 6,421.59");
-    expect(out.text).toContain("Total: 525,423.39");
-    expect(out.tables[0].rows[1][6]).toBe("147,321.44");
+    expect(out.text).toContain("Damages: $259,500.90");
+    expect(out.text).toContain("Damages × 2 (multiplier entered): $519,001.80");
+    expect(out.text).toContain("Interest (as entered): $6,421.59");
+    expect(out.text).toContain("Total: $525,423.39");
+    expect(out.tables[0].rows[1][6]).toBe("$147,321.44");
   });
   test("S3: binary near-half cents round half up as the decimal oracle does; multiplier 3", () => {
     const out = S(rows(["A", 1000.005, 2000.004, 0.333], ["B", 0, 0, 999.995]), 3);
-    expect(out.text).toContain("Damages: 4,000.34");
-    expect(out.text).toContain("Damages × 3 (multiplier entered): 12,001.02");
+    expect(out.text).toContain("Damages: $4,000.34");
+    expect(out.text).toContain("Damages × 3 (multiplier entered): $12,001.02");
   });
   test("a multiplier above 3 is refused, quoting § 284 exactly", () => {
     const r = damagesSummary({ rows: rows(["A", 1]), multiplier: 3.5 });
@@ -292,13 +293,23 @@ describe("the per-period table parser", () => {
     const r = parsePeriodTable("2021 0", ["base"], 1);
     expect(r).toEqual({ rows: rows(["2021", 0]), notes: [] });
   });
+  test("v2.201.0: “$” cells read; any other currency sign is refused by name (the output prints $)", () => {
+    expect(parsePeriodTable("2023\t$1,000\n2024\t−$5", ["base"], 1, { allowNegative: [0] })).toEqual({ rows: rows(["2023", 1000], ["2024", -5]), notes: [] });
+    for (const [text, sign] of [["2023\t€1,000", "€"], ["2023 £1,000", "£"], ["2023; ¥1000", "¥"], ["2023 50¢", "¢"], ["Period\tAmount (€)\n2023\t1,000", "€"]]) {
+      const r = parsePeriodTable(text, ["base"], 1);
+      expect(r).toHaveProperty("error");
+      const e = (r as { error: string }).error;
+      expect(e).toContain(`“${sign}”`);
+      expect(e).toContain("work in US dollars");
+    }
+  });
 });
 
 describe("hostile sizes", () => {
   test("1e12 amounts (the cap) stay grouped, never e-notation; above is refused", () => {
     const out = ok(reasonableRoyalty(baseRoyalty({ rows: rows(["A", 1e12], ["B", 1e12]), rate: 5, apportionPct: 100, lumpSum: 0 })));
-    expect(out.text).toContain("Total running royalty: 100,000,000,000.00");
-    expect(out.text).toContain("Total royalty base: 2,000,000,000,000.00");
+    expect(out.text).toContain("Total running royalty: $100,000,000,000.00");
+    expect(out.text).toContain("Total royalty base: $2,000,000,000,000.00");
     expectDisplayContract(out);
     expect(parsePeriodTable("2021 1e15", ["base"], 1)).toHaveProperty("error");
   });
@@ -323,9 +334,11 @@ describe("hostile sizes", () => {
     expect(roundCents(1000000.004)).toBe(1000000);
     expect(roundCents(1000000.006)).toBe(1000000.01);
     expect(roundCents(123456789.125)).toBe(123456789.13);
-    for (const x of [0, 1, -1, 1234.5, -98765.4321, 1e15, 0.001, -0.004]) expect(dmgMoney(x)).toBe(finMoney(roundCents(x)));
-    expect(dmgMoney(-1234.5)).toBe("−1,234.50");
-    expect(dmgMoney(-0.001)).toBe("0.00");
+    for (const x of [0, 1, -1, 1234.5, -98765.4321, 1e15, 0.001, -0.004]) expect(dmgMoney(x)).toBe(usd(finMoney(roundCents(x))));
+    expect(dmgMoney(-1234.5)).toBe("−$1,234.50");
+    expect(dmgMoney(-0.001)).toBe("$0.00");
+    // The non-finite sentinel stays bare, so the insert gates still see it.
+    expect(dmgMoney(NaN)).toBe("—");
   });
 });
 

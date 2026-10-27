@@ -484,6 +484,65 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(o.text).toContain("the extra payments reduce the balloon instead");
   });
 
+  // F1 review round 2, item 1: a re-amortized payment that rounds to no more than that period's interest went
+  // interest-only silently (357 payments of 0.02) and ended in a huge last payment called "cent rounding"
+  test("a recast payment that would not amortize is refused, naming the rate change", () => {
+    const a = refused("loan-schedule", { p: "1000", rate: "6", years: "30", extra: "", lumps: "2\t994.00", changes: "3\t6" });
+    expect(a).toMatch(/^At the rate change at payment 3 \(6% a year\) the payment re-amortized over the 358 payments left rounds to 0\.02 a period, no more than that period's interest \(0\.02\)/);
+    expect(a).toContain("or make smaller extra payments before it");
+    const b = refused("loan-schedule", { p: "100000", rate: "1", years: "1000", extra: "", lumps: "", changes: "2\t3" });
+    expect(b).toMatch(/^At the rate change at payment 2 \(3% a year\) the payment re-amortized over the 11,999 payments left rounds to 250\.00 a period, no more than that period's interest \(250\.00\)/);
+    expect(b).not.toContain("extra payments");
+    // interest-only to a balloon equal to the balance is intended, at a recast too
+    const c = out("loan-schedule", { balloon: "250000", extra: "", lumps: "", years: "5", changes: "13\t7" });
+    expect(c.ok).not.toBe(false);
+    expect(c.text).toContain("From payment 13: 7% a year, payment re-amortized to 1,458.33");
+    expect(c.text).toContain("Balloon paid with payment 60 = 250,000.00");
+  });
+
+  test("the last payment says 'cent rounding' only when it is rounding-sized; otherwise its size and why", () => {
+    // a 1,000-year loan at 0.51%: the payment 42.76 is rounded down and the shortfall grows with interest over 12,000
+    // payments to a last payment ten times the scheduled one: stated plainly, never "cent rounding"
+    const t = out("loan-schedule", { p: "100000", rate: "0.51", years: "1000", extra: "", lumps: "", changes: "" }).text;
+    expect(t).toContain(
+      "Last payment (payment 12,000) = 434.59: the remaining balance plus its interest, 391.83 more than the scheduled 42.76: rounding the payment and each period's interest to the cent leaves part of the balance unpaid, and interest over 12,000 payments grows that difference to this size",
+    );
+    expect(t).not.toContain("cent rounding)");
+    // the default 30-year loan: 3.43 less than the payment over 360 payments is rounding-sized
+    const d = out("loan-schedule", { extra: "", lumps: "", changes: "" }).text;
+    expect(d).toContain("Last payment (payment 360) = 1,495.45: the remaining balance plus its interest (the last payment adjusts for the cent rounding)");
+    // an extra payment that does not shorten the loan lowers the last payment: said, not called cent rounding
+    const e = out("loan-schedule", { p: "100000", rate: "0", years: "1000", m: "1", extra: "", lumps: "2\t1", changes: "" }).text;
+    expect(e).toContain("Last payment (payment 1,000) = 99.00: the remaining balance plus its interest (the last payment adjusts after the extra payments)");
+  });
+
+  // F1 review round 2, item 2: a payment rounded UP ended the loan early with no extra payments, silently, and the text
+  // blamed "extra payments"
+  test("a payment rounded up that ends the loan early says so; extra payments are not mentioned when there are none", () => {
+    const a = out("loan-schedule", { p: "10", rate: "0", years: "30", extra: "", lumps: "", changes: "" }).text;
+    expect(a).toContain("Scheduled payment = 0.03");
+    expect(a).toContain("Paid off with payment 334 of 360 (27 years 10 months): the payment rounded up to the cent pays the loan off early");
+    expect(a).toContain("Last payment (payment 334) = 0.01: the remaining balance plus its interest (the last payment is smaller: the payment rounded up to the cent pays the loan off with payment 334 of 360)");
+    expect(a).not.toMatch(/extra payment/i);
+    const b = out("loan-schedule", { p: "2", rate: "0", years: "10", extra: "", lumps: "", changes: "" }).text;
+    expect(b).toContain("Paid off with payment 100 of 120 (8 years 4 months)");
+    const c = out("loan-schedule", { p: "100000", rate: "1", years: "1000", extra: "", lumps: "", changes: "" }).text;
+    expect(c).toContain("Paid off with payment 11,331 of 12,000 (944 years 3 months)");
+    expect(c).not.toMatch(/extra payment/i);
+    // with extras that do shorten it, both payoffs are named and the rounding is said
+    const d = out("loan-schedule", { p: "10", rate: "0", years: "30", extra: "", lumps: "5\t1", changes: "" }).text;
+    expect(d).toMatch(/Paid off with payment \d+ \(.*\) instead of payment 334 \(27 years 10 months\); without them the payment rounded up to the cent pays the loan off with payment 334 of 360/);
+    // an extra payment that changes nothing never yields "payment X instead of payment X"
+    const e = out("loan-schedule", { p: "10", rate: "0", years: "30", extra: "", lumps: "334\t1", changes: "" }).text;
+    expect(e).not.toMatch(/payment (\d+) \([^)]*\) instead of payment \1 /);
+    expect(e).toContain("Paid off with payment 334 of 360 (27 years 10 months): the payment rounded up to the cent pays the loan off early, and the extra payments do not end it sooner");
+  });
+
+  test("years of a long payoff are grouped in thousands", () => {
+    const o = out("loan-schedule", { p: "100000", rate: "0", years: "1000", m: "1", extra: "", lumps: "2\t50000", changes: "" }).text;
+    expect(o).toContain("Paid off with payment 500 (500 years) instead of payment 1,000 (1,000 years)");
+  });
+
   test("rate changes after payoff are named as not applying", () => {
     const o = out("loan-schedule", { lumps: "2\t10000000", extra: "", changes: "100\t7" });
     expect(o.text).toContain("Rate changes after the loan is paid off (payment 100) do not apply");

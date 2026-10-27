@@ -77,7 +77,7 @@ export interface LoanResult {
   totalExtra: number;
   /** Totals in whole cents. */
   totalsC: { interest: number; paid: number; extra: number; principal: number };
-  /** The payment that clears the loan (n unless extra payments ended it sooner). */
+  /** The payment that clears the loan: n, unless extra payments or a payment rounded up to the cent ended it sooner. */
   payoffK: number;
   /** The amount above the level payment paid with the last payment (the balloon), 0 when none. */
   balloonPaid: number;
@@ -96,6 +96,15 @@ export function levelPayment(pv: number, i: number, n: number, fv = 0): number {
 /** Dollars → whole cents, half up (amounts entered by the user have at most cents; float noise is absorbed). */
 export function toCents(x: number): number {
   return Math.sign(x) * Math.floor(Math.abs(x) * 100 + 0.5 + 1e-9);
+}
+
+/** Whole cents as a grouped amount: 123456 → "1,234.56". */
+function centsText(c: number): string {
+  return (c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+/** An annual rate (fraction) as a percentage, trailing zeros dropped: 0.06 → "6%". */
+function pctText(r: number): string {
+  return (r * 100).toLocaleString("en-US", { maximumFractionDigits: 4 }) + "%";
 }
 
 const RATE_SCALE = 1_000_000_000n;
@@ -142,8 +151,8 @@ export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
   if (n > 1 && (pmtC <= 0 || pmtC < firstInterest || (pmtC === firstInterest && Bc < Pc)))
     return {
       error:
-        `Over ${n.toLocaleString("en-US")} payments the payment rounds to ${(pmtC / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} a period, ` +
-        `no more than the first period's interest (${(firstInterest / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}), so rounded to the cent the loan would not amortize. Use fewer payments or a larger amount.`,
+        `Over ${n.toLocaleString("en-US")} payments the payment rounds to ${centsText(pmtC)} a period, ` +
+        `no more than the first period's interest (${centsText(firstInterest)}), so rounded to the cent the loan would not amortize. Use fewer payments or a larger amount.`,
     };
   const payment0 = pmtC / 100;
   const recasts: LoanResult["recasts"] = [];
@@ -163,9 +172,20 @@ export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
       i = annual / m;
       R = BigInt(Math.round(annual * 1e9));
       const left = n - k + 1;
+      const fvC = amortN > n ? 0 : Math.min(Bc, bal);
       if (amortN > n) pmtC = paymentCents(bal, i, amortN - k + 1, 0);
-      else pmtC = paymentCents(bal, i, left, Math.min(Bc, bal));
+      else pmtC = paymentCents(bal, i, left, fvC);
       if (!Number.isSafeInteger(pmtC)) return { error: "The payment is not computable for these inputs." };
+      // the payment-1 rule at every recast: a re-amortized payment that rounds to no more than that period's interest
+      // would go interest-only (or grow the balance) until one huge last payment; refused, naming the change
+      const recastInterest = interestCents(bal, R, m);
+      if (k < n && (pmtC <= 0 || pmtC < recastInterest || (pmtC === recastInterest && fvC < bal)))
+        return {
+          error:
+            `At the rate change at payment ${k.toLocaleString("en-US")} (${pctText(annual)} a year) the payment re-amortized over the ${(amortN > n ? amortN - k + 1 : left).toLocaleString("en-US")} payments left rounds to ${centsText(pmtC)} a period, ` +
+            `no more than that period's interest (${centsText(recastInterest)}) on the balance of ${centsText(bal)}, so rounded to the cent the loan would not amortize from there. ` +
+            `Change or remove that rate change${tExtra > 0n ? ", or make smaller extra payments before it" : ""}.`,
+        };
       recasts.push({ k, rate: annual, payment: pmtC / 100 });
     }
     const interest = interestCents(bal, R, m);

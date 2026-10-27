@@ -172,7 +172,7 @@ function yearsMonths(k: number, m: number): string {
   const months = Math.round((k * 12) / m);
   const y = Math.floor(months / 12);
   const mo = months % 12;
-  return [y ? `${y} year${y === 1 ? "" : "s"}` : "", mo ? `${mo} month${mo === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ") || "0 months";
+  return [y ? `${count(y)} year${y === 1 ? "" : "s"}` : "", mo ?`${mo} month${mo === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ") || "0 months";
 }
 
 export function loanScheduleCalc(r: Read): FinResult {
@@ -244,9 +244,24 @@ export function loanScheduleCalc(r: Read): FinResult {
   if (ignoredChanges.length) lines.push(`Rate changes after the loan is paid off (payment ${ignoredChanges.map((c) => count(c.k)).join(", ")}) do not apply.`);
   if (res.balloonPaid > 0) lines.push(`Balloon paid with payment ${count(res.payoffK)} = ${money(res.balloonPaid)} (on top of that payment’s ${money((lastRow.c.payment - toCents(res.balloonPaid)) / 100)} of scheduled interest and principal)`);
   else {
-    const inForce = res.recasts.filter((c) => c.k <= res.payoffK).pop()?.payment ?? res.payment0;
-    if (res.rows.length > 1 && lastRow.c.payment !== toCents(inForce))
-      lines.push(`Last payment (payment ${count(res.payoffK)}) = ${money(lastRow.payment)}: the remaining balance plus its interest (the last payment adjusts${res.payoffK < n ? " after the extra payments" : " for the cent rounding"})`);
+    const inForce = toCents(res.recasts.filter((c) => c.k <= res.payoffK).pop()?.payment ?? res.payment0);
+    const diff = lastRow.c.payment - inForce;
+    if (res.rows.length > 1 && diff !== 0) {
+      const head = `Last payment (payment ${count(res.payoffK)}) = ${money(lastRow.payment)}: the remaining balance plus its interest`;
+      // the extra payments changed the last payment when it differs from the one without them (or the loan ends sooner)
+      const plainLast = plain ? plain.rows[plain.rows.length - 1].c.payment : lastRow.c.payment;
+      const extrasMatter = res.totalsC.extra > 0 && plain !== null && (res.payoffK < plain.payoffK || plainLast !== lastRow.c.payment);
+      if (extrasMatter) lines.push(`${head} (the last payment adjusts after the extra payments)`);
+      else if (res.payoffK < n) lines.push(`${head} (the last payment is smaller: the payment rounded up to the cent pays the loan off with payment ${count(res.payoffK)} of ${count(n)})`);
+      // a difference of up to a cent per payment is rounding-sized; anything larger is stated plainly, with its size
+      // (it is still the cent rounding of the payment and of each period's interest, grown by interest)
+      else if (Math.abs(diff) <= res.payoffK) lines.push(`${head} (the last payment adjusts for the cent rounding)`);
+      else
+        lines.push(
+          `${head}, ${cents(Math.abs(diff))} ${diff > 0 ? "more" : "less"} than the scheduled ${cents(inForce)}: rounding the payment and each period's interest to the cent ` +
+            `${diff > 0 ? "leaves part of the balance unpaid" : "repays the balance ahead of schedule"}, and interest over ${count(res.payoffK)} payments grows that difference to this size`,
+        );
+    }
   }
   const notApplied = res.lumpsNotApplied.filter((k) => (lumps.get(k) ?? 0) > 0);
   if (notApplied.length)
@@ -263,22 +278,27 @@ export function loanScheduleCalc(r: Read): FinResult {
     const late = lumpList.filter(([k]) => k > res.payoffK && !res.lumpsNotApplied.includes(k));
     if (late.length) lines.push(`One-off payments listed after the payoff (payment ${late.map(([k]) => count(k)).join(", ")}) were not needed.`);
     const saved = plain.payoffK - res.payoffK;
+    const roundedEarly = plain.payoffK < n ? `; without them the payment rounded up to the cent pays the loan off with payment ${count(plain.payoffK)} of ${count(n)}` : "";
     lines.push(
-      res.payoffK < n
-        ? `Paid off with payment ${count(res.payoffK)} (${yearsMonths(res.payoffK, m)}) instead of payment ${count(plain.payoffK)} (${yearsMonths(plain.payoffK, m)})`
-        : `Paid off with the last scheduled payment (payment ${count(n)})${res.balloonPaid > 0 ? "; the extra payments reduce the balloon instead" : ""}`,
+      res.payoffK < plain.payoffK
+        ? `Paid off with payment ${count(res.payoffK)} (${yearsMonths(res.payoffK, m)}) instead of payment ${count(plain.payoffK)} (${yearsMonths(plain.payoffK, m)})${roundedEarly}`
+        : res.payoffK < n
+          ? `Paid off with payment ${count(res.payoffK)} of ${count(n)} (${yearsMonths(res.payoffK, m)}): the payment rounded up to the cent pays the loan off early, and the extra payments do not end it sooner`
+          : `Paid off with the last scheduled payment (payment ${count(n)})${res.balloonPaid > 0 ? "; the extra payments reduce the balloon instead" : ""}`,
     );
     lines.push(`Total interest = ${cents(res.totalsC.interest)} against ${cents(plain.totalsC.interest)} without the extra payments: interest saved = ${cents(plain.totalsC.interest - res.totalsC.interest)}`);
     lines.push(`Time saved = ${monthsText(saved, m)}`);
     if (changes.length) lines.push("With rate changes, extra payments made before a change lower the re-amortized payment, so the time saved can be small while the interest saved is not.");
   } else {
+    if (res.payoffK < n)
+      lines.push(`Paid off with payment ${count(res.payoffK)} of ${count(n)} (${yearsMonths(res.payoffK, m)}): the payment rounded up to the cent pays the loan off early`);
     lines.push(`Total interest = ${cents(res.totalsC.interest)}`);
   }
   lines.push(`Total paid = ${cents(res.totalsC.paid)}`);
   lines.push(
     `Conventions: periodic rate = annual rate ÷ ${m} (nominal, compounded with each payment); interest = balance × periodic rate; payment P·i/(1 − (1 + i)⁻ⁿ)` +
       `${balloon ? ", less the balloon’s present value (numpy-financial pmt with fv)" : ""}${amortN ? ", computed over the amortize-over term, the balance at the loan term due as a balloon" : ""}; ` +
-      `extra payments go to principal and the scheduled payment stays level (the loan ends sooner); an extra payment larger than the balance is cut to the balance; ` +
+      `${hasExtra ? "extra payments go to principal and the scheduled payment stays level (the loan ends sooner); an extra payment larger than the balance is cut to the balance; " : ""}` +
       `${changes.length ? "at each rate change the payment is re-amortized over the scheduled payments left (an adjustable-rate recast); " : ""}` +
       `lender cent convention: the payment is rounded to the cent, interest rounded half up to the cent each period, principal = payment + extra − interest, ` +
       `the last payment adjusts (remaining balance plus its interest), so every row and column adds up exactly.`,

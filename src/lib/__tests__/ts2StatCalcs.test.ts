@@ -468,7 +468,7 @@ describe("hostile inputs: every refusal names its field", () => {
     refused(run(G, { data: "" }), /./);
     refused(run(G, { data: "Return\n0.1\n0.2\n0.3\n0.4" }), /at least 100/);
     const big = ["Return", ...Array.from({ length: 5001 }, (_, i) => String(((i * 7919) % 200) / 100 - 1))].join("\n");
-    refused(run(G, { data: big }), /at most 5,000/);
+    refused(run(G, { data: big }), /at most 2,500/);
     refused(run(V, { data: "A B\n1 2\n2 3\n3 1" }), /at least 12/);
     refused(run(J, { data: "Y X\n1 2\n2 3\n3 1\n4 4" }), /at least 20/);
   });

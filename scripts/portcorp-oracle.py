@@ -362,9 +362,110 @@ def frontier_fuzz():
     return cases
 
 
+def exact_qp(S, rows, rhs):
+    """min wᵀSw s.t. rows·w = rhs, w ≥ 0, in EXACT rational arithmetic (fractions) by enumerating the supports: the
+    support whose equality-constrained KKT solution is non-negative with non-negative bound multipliers is the optimum
+    (unique for positive definite S). An oracle independent of any float solver (F2 review: nearly equal means)."""
+    from fractions import Fraction as Fr
+    from itertools import combinations
+    k = len(S)
+    Sq = [[Fr(v) for v in r] for r in S]
+    A = [[Fr(v) for v in r] for r in rows]
+    b = [Fr(v) for v in rhs]
+    m = len(A)
+
+    def solve(M, r):
+        n = len(r)
+        a = [list(M[i]) + [r[i]] for i in range(n)]
+        for c in range(n):
+            p = next((i for i in range(c, n) if a[i][c] != 0), None)
+            if p is None:
+                return None
+            a[c], a[p] = a[p], a[c]
+            for i in range(n):
+                if i != c and a[i][c] != 0:
+                    f = a[i][c] / a[c][c]
+                    a[i] = [x - f * y for x, y in zip(a[i], a[c])]
+        return [a[i][n] / a[i][i] for i in range(n)]
+
+    for size in range(1, k + 1):
+        for F in combinations(range(k), size):
+            n = size + m
+            M = [[Fr(0)] * n for _ in range(n)]
+            r = [Fr(0)] * n
+            for a_, i in enumerate(F):
+                for b_, j in enumerate(F):
+                    M[a_][b_] = 2 * Sq[i][j]
+                for q in range(m):
+                    M[a_][size + q] = -A[q][i]
+            for q in range(m):
+                for a_, i in enumerate(F):
+                    M[size + q][a_] = A[q][i]
+                r[size + q] = b[q]
+            z = solve(M, r)
+            if z is None or any(v < 0 for v in z[:size]):
+                continue
+            w = [Fr(0)] * k
+            for a_, i in enumerate(F):
+                w[i] = z[a_]
+            nu = z[size:]
+            ok = True
+            for i in range(k):
+                if i in F:
+                    continue
+                lam = 2 * sum(Sq[i][j] * w[j] for j in range(k)) - sum(A[q][i] * nu[q] for q in range(m))
+                if lam < 0:
+                    ok = False
+                    break
+            if ok:
+                return w
+    return None
+
+
+def frontier_near_equal():
+    """Nearly equal annual means (spreads 10⁻⁴ … 10⁻⁸ and 0): minimum variance, tangency and one frontier point,
+    exact (rational arithmetic), cross-checked against scipy SLSQP where SLSQP converges."""
+    from fractions import Fraction as Fr
+    from scipy.optimize import minimize
+    g = np.random.default_rng(20261103)
+    out = []
+    for spread in (1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 0.0):
+        k = 4
+        X = g.normal(0, 0.04, (11, k))
+        S = np.cov(X, rowvar=False, ddof=1) * 12
+        mu = 0.08 + spread * g.uniform(0, 1, k)
+        rf = 0.03
+        wmv = exact_qp(S.tolist(), [[1.0] * k], [1.0])
+        ex = (mu - rf).tolist()
+        y = exact_qp(S.tolist(), [ex], [1.0])
+        sy = sum(y)
+        wt = [v / sy for v in y]
+        Sf = [[Fr(v) for v in r] for r in S.tolist()]
+        var = lambda w: float(sum(w[i] * Sf[i][j] * w[j] for i in range(k) for j in range(k)))
+        ret = lambda w: float(sum(Fr(mu[i]) * w[i] for i in range(k)))
+        case = {"spread": spread, "mu": mu.tolist(), "S": S.tolist(), "rf": rf,
+                "minVolW": [float(v) for v in wmv], "minVolVar": var(wmv), "minVolRet": ret(wmv),
+                "tanW": [float(v) for v in wt], "tanSharpe": (ret(wt) - rf) / math.sqrt(var(wt))}
+        hi, lo = float(mu.max()), float(mu.min())
+        if hi > lo:
+            # A target 60% of the way from the minimum-variance return to the top mean; the row in exact arithmetic.
+            t = Fr(ret(wmv)) + Fr(0.6) * (Fr(hi) - Fr(ret(wmv)))
+            we = exact_qp(S.tolist(), [[1.0] * k, mu.tolist()], [Fr(1), t])
+            case["target"] = float(t)
+            case["targetVar"] = var(we)
+            case["targetW"] = [float(v) for v in we]
+        # SLSQP (float) for the minimum-variance portfolio: agrees with the exact optimum to its tolerance.
+        cons = [{"type": "eq", "fun": lambda w: w.sum() - 1}]
+        r = minimize(lambda w: w @ S @ w, np.full(k, 1 / k), method="SLSQP", bounds=[(0, 1)] * k, constraints=cons, options={"ftol": 1e-16, "maxiter": 500})
+        case["slsqpMinVolVar"] = float(r.fun)
+        out.append(case)
+    return out
+
+
 def main():
     out = {}
     out["frontierFuzz"] = frontier_fuzz()
+    out["frontierNearEqual"] = frontier_near_equal()
     out["perf"] = [perf(RETURNS, 12, 0.25, 0.0, 1.1), perf(EXTRA_RET, 52, 0.05, 0.1, 0.8), perf(list(FRONT[:, 0]), 12, 0.0, -0.5, 1.3)]
     out["capm"] = [capm(CAPM[:, 0], CAPM[:, 1], 0.25, 12, c) for c in ("classical", "hc1", "hac")]
     out["var"] = [var_case(RETURNS, 95, 1, 5, 20000, 1), var_case(RETURNS, 99, 10, 4, 5000, 123456789), var_case(EXTRA_RET, 97.5, 1, 30, 1000, 0)]

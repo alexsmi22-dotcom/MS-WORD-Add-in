@@ -551,6 +551,12 @@ export function frontierCalc(r: Read): FinResult {
     `Tangency (maximum Sharpe) portfolio at rf = ${fx(rf, 3)}%: ${w(tg.w)}; expected return ${pct(tg.ret, 3)}, volatility ${pct(tg.vol, 3)}, Sharpe ratio ${fx(tg.sharpe, 4)}`,
     `Capital market line: E[r] = ${fx(rf, 3)}% + ${fx(tg.sharpe, 4)} × σ`,
     `Highest-return portfolio (end of the frontier): ${pct(f.maxRet, 3)} a year`,
+    ...(f.collapsed
+      ? ["The assets' mean returns are equal to working precision, so every fully invested portfolio has the same expected return: the efficient frontier collapses to the single minimum-variance point (the target-return constraint adds nothing to the budget constraint)."]
+      : []),
+    ...(f.curveError
+      ? [`The efficient frontier could not be traced past ${pct(f.curve[f.curve.length - 1].ret, 3)} a year (${f.curveError.replace(/\.$/, "")}); the minimum-variance and tangency portfolios above are exact, and the frontier table and figure show only the points traced.`]
+      : []),
     ...t.notes,
     `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; expected returns = arithmetic mean × ${ppy}; covariance = sample covariance (n − 1) × ${ppy}; weights ≥ 0 summing to 1 (no short sales, no leverage); ` +
       `each frontier point minimizes wᵀΣw at a target return (${FRONTIER_TEXT}); tangency by min yᵀΣy subject to (μ − rf)ᵀy = 1, y ≥ 0, w = y/Σy (PyPortfolioOpt's max_sharpe); ` +

@@ -131,6 +131,34 @@ describe("Markowitz fuzz vs PyPortfolioOpt: 2 to 10 assets, equal and nearly equ
   });
 });
 
+describe("Markowitz with nearly equal means (F2 review: spreads 10⁻⁴…10⁻⁸ refused) vs the EXACT rational optimum", () => {
+  // Oracle: support enumeration in exact rational arithmetic (scripts/portcorp-oracle.py exact_qp), the minimum-variance
+  // variance cross-checked against scipy SLSQP. Tolerances: variances 1e-10 relative (the frontier point 1e-8), Sharpe
+  // 1e-10, weights 1e-6.
+  test.each((FX.frontierNearEqual as R[]).map((c) => [c.spread, c] as const))("spread %f", (_s, c) => {
+    near(c.slsqpMinVolVar, c.minVolVar, 1e-10);
+    const f = frontierFromMoments(c.mu, c.S, c.rf);
+    if ("error" in f) throw new Error(f.error);
+    expect(f.curveError).toBeUndefined();
+    near(f.minVol.vol ** 2, c.minVolVar, 1e-10);
+    f.minVol.w.forEach((w, i) => expect(Math.abs(w - c.minVolW[i])).toBeLessThan(1e-6));
+    near(f.tangency.sharpe, c.tanSharpe, 1e-10);
+    f.tangency.w.forEach((w, i) => expect(Math.abs(w - c.tanW[i])).toBeLessThan(1e-6));
+    if (c.spread === 0) {
+      expect(f.collapsed).toBe(true);
+      expect(f.curve.length).toBe(1);
+      return;
+    }
+    expect(f.collapsed).toBeUndefined();
+    expect(f.curve.length).toBe(41);
+    const e = efficientReturn(f.mu, f.S, c.target);
+    if ("error" in e) throw new Error(e.error);
+    // The target is a float: (target − μ_lo)/spread carries 10⁻¹⁷/spread of rounding, so 1e-8 at a 10⁻⁸ spread.
+    near(e.vol ** 2, c.targetVar, 1e-8);
+    e.w.forEach((w, i) => expect(Math.abs(w - c.targetW[i])).toBeLessThan(1e-6));
+  });
+});
+
 describe.each((FX.budget as R[]).map((c) => [(c.cfs as number[]).slice(0, 4).join(", "), c] as const))("capital budgeting [%s …]", (_n, c) => {
   test("NPV, every IRR (numpy.roots), MIRR, payback, PI, EAA", () => {
     const v = npvAt(c.rate, c.cfs);

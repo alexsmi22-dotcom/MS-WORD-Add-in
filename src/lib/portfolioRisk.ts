@@ -396,6 +396,13 @@ export interface Frontier {
   tangency: PortPoint & { sharpe: number };
   curve: PortPoint[];
   maxRet: number;
+  /**
+   * The assets' mean returns are equal to working precision (spread ≤ MEAN_SPREAD_TOL relative): every target return
+   * is the same, so the frontier is the single minimum-variance point.
+   */
+  collapsed?: boolean;
+  /** Why the frontier sweep stopped (the minimum-variance and tangency portfolios are still exact); curve holds the points traced before it. */
+  curveError?: string;
 }
 
 const quad = (S: number[][], w: number[]): number => {
@@ -428,10 +435,27 @@ export function efficientReturn(mu: number[], S: number[][], target: number, fro
     x0[hi] = a;
     x0[lo] = 1 - a;
   }
-  const r = solveQpNonneg({ G: S.map((row) => row.map((v) => 2 * v)), c: new Array(k).fill(0), A: [new Array(k).fill(1), mu], b: [1, target], x0 });
+  // The target-return row, centered on the lowest mean and divided by the spread: (μ − μ_lo)ᵀw/(μ_hi − μ_lo) =
+  // (target − μ_lo)/(μ_hi − μ_lo) is the same constraint given Σw = 1, but its entries lie in [0, 1] instead of all
+  // being ≈ μ. With nearly equal means the raw rows [1; μ] are nearly parallel and the KKT systems turned singular or
+  // the active set cycled (F2 review: spreads of 10⁻⁴…10⁻⁸ refused a solvable problem).
+  const spread = mu[hi] - mu[lo];
+  const rows: number[][] = [new Array(k).fill(1)];
+  const rhs: number[] = [1];
+  if (spread > MEAN_SPREAD_TOL * Math.max(1, Math.abs(mu[hi]))) {
+    rows.push(mu.map((m) => (m - mu[lo]) / spread));
+    rhs.push(Math.min(1, Math.max(0, (target - mu[lo]) / spread)));
+  }
+  const r = solveQpNonneg({ G: S.map((row) => row.map((v) => 2 * v)), c: new Array(k).fill(0), A: rows, b: rhs, x0 });
   if (!r.ok) return { error: r.reason };
   return point(r.x, mu, S);
 }
+
+/**
+ * Mean returns closer than this (relative to the largest, or absolute below 1) are equal to working precision: the
+ * target-return constraint is then the budget constraint again, and the frontier is the one minimum-variance point.
+ */
+export const MEAN_SPREAD_TOL = 1e-12;
 
 export const FRONTIER_POINTS = 41;
 
@@ -471,12 +495,20 @@ export function frontierFromMoments(mu: number[], S: number[][], rfAnnual: numbe
   const tw = tg.x.map((v) => v / ys);
   const tp = point(tw, mu, S);
   const maxRet = Math.max(...mu);
-  const curve: PortPoint[] = [];
-  for (let i = 0; i < FRONTIER_POINTS; i++) {
+  const tangency = { ...tp, sharpe: (tp.ret - rfAnnual) / tp.vol };
+  const curve: PortPoint[] = [minVol];
+  const minRet = Math.min(...mu);
+  if (!(maxRet - minRet > MEAN_SPREAD_TOL * Math.max(1, Math.abs(maxRet)))) {
+    // Equal means to working precision: every portfolio earns the same return, so the frontier is one point.
+    return { mu, S, minVol, tangency, curve, maxRet, collapsed: true };
+  }
+  for (let i = 1; i < FRONTIER_POINTS; i++) {
     const t = minVol.ret + ((maxRet - minVol.ret) * i) / (FRONTIER_POINTS - 1);
-    const e = i === 0 ? minVol : efficientReturn(mu, S, t, curve[i - 1]);
-    if ("error" in e) return e;
+    const e = efficientReturn(mu, S, Math.min(t, maxRet), curve[i - 1]);
+    // A failed sweep point never discards the exact minimum-variance and tangency portfolios: report them and say the
+    // frontier could not be traced past this point.
+    if ("error" in e) return { mu, S, minVol, tangency, curve, maxRet, curveError: e.error };
     curve.push(e);
   }
-  return { mu, S, minVol, tangency: { ...tp, sharpe: (tp.ret - rfAnnual) / tp.vol }, curve, maxRet };
+  return { mu, S, minVol, tangency, curve, maxRet };
 }

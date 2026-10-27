@@ -231,6 +231,25 @@ describe("options and alternatives", () => {
     expect(o).toContain(`Sharpe ratio ${FX.frontier[1].tanSharpe.toFixed(4)}`);
     expect(obj(run(calc("port-frontier"), { data: rows, rf: "2" })).tables![0].rows[1][0]).toBe("Asset 1");
   });
+  test("frontier: nearly equal means (F2 review) are solved, not refused; exactly equal means collapse to one point and say so", () => {
+    // 11 periods of 4 assets: every column holds the same 11 numbers in a different order (equal means), then one
+    // entry nudged by 0.0001 (annual mean spread ≈ 1.1×10⁻⁶). Before the fix: "did not settle" or a false
+    // "covariance matrix is not positive definite".
+    const base = [1.2, -0.8, 2.1, 0.4, -1.5, 0.9, 1.7, -0.3, 0.6, -2.2, 1.1];
+    const col = (shift: number): number[] => base.map((_, i) => base[(i * (shift + 2) + shift) % 11]);
+    const cols = [col(0), col(1), col(2), col(3)];
+    const table = (cs: number[][]): string => ["A\tB\tC\tD", ...cs[0].map((_, i) => cs.map((c) => c[i].toFixed(4)).join("\t"))].join("\n");
+    const eq = ok("port-frontier", { data: table(cols), rf: "3" }).text;
+    expect(eq).toContain("collapses to the single minimum-variance point");
+    for (const nudge of [1e-4, 1e-3, 1e-2]) {
+      const c2 = cols.map((c) => c.slice());
+      c2[1][0] += nudge;
+      const o = ok("port-frontier", { data: table(c2), rf: "3" }).text;
+      expect(o).toContain("Tangency (maximum Sharpe) portfolio");
+      expect(o).not.toContain("collapses");
+      expect(o).not.toContain("could not be traced");
+    }
+  });
   test("performance: constant returns and no downside say 'not defined' instead of printing a number", () => {
     const o = ok("port-performance", { rets: "1, 1, 1, 1", rf: "1" }).text;
     expect(o).toMatch(/Sharpe ratio: not defined/);

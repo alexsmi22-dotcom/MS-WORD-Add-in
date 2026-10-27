@@ -92,6 +92,9 @@ export function solveQpNonneg(p: QpProblem): QpResult {
   for (let i = 0; i < n; i++) if (x[i] === 0) atZero.add(i);
   const maxIter = 50 * (n + m) + 50;
   const stuck = new Set<number>();
+  const seen = new Set<string>();
+  let bland = false;
+  let subMinF = "";
   let lastDropped = -1;
   for (let it = 1; it <= maxIter; it++) {
     const g = G.map((row, i) => row.reduce((s, v, j) => s + v * x[j], 0) + c[i]);
@@ -119,13 +122,20 @@ export function solveQpNonneg(p: QpProblem): QpResult {
         rhs.push(0);
       });
       const z = solveDense(K, rhs);
-      if (!z) return { ok: false, reason: "The optimization's linear system is singular (the covariance matrix is not positive definite)." };
+      // G is positive definite (the callers check it first), so a singular system here means the equality rows on the
+      // free variables became numerically dependent at this step, not that the covariance is not positive definite.
+      if (!z) return { ok: false, reason: "The optimization's linear system became singular at an active-set step (the constraints on the assets still in the portfolio are numerically dependent), so it was not solved." };
       // With as many independent constraints as free variables the point is pinned: the step is zero by
       // construction (the solve returns rounding noise of 10⁻¹³, which, taken as a step, never ended).
       step = F.length <= mk ? new Array<number>(F.length).fill(0) : z.slice(0, F.length);
       rowsKept.forEach((r, k) => (nu[r] = z[F.length + k]));
     }
-    const pmax = step.reduce((s, v) => Math.max(s, Math.abs(v)), 0);
+    // After a full, unblocked step the iterate IS the minimizer on this working set, so in exact arithmetic the next
+    // step is zero; an ill-conditioned KKT system (nearly parallel equality rows) returns 10⁻¹¹ of rounding instead,
+    // and taking that as a step repeated forever ("did not settle"). Treat it as the zero step it is.
+    const fKey = F.join(",");
+    const pmax = fKey === subMinF ? 0 : step.reduce((s, v) => Math.max(s, Math.abs(v)), 0);
+    subMinF = "";
     if (pmax <= 1e-11) {
       // Multipliers of the active bounds: λᵢ = gᵢ − (Aᵀν)ᵢ must be ≥ 0 at the optimum.
       // The tolerance is relative to the terms that make λ: with nearly equal mean returns ν is large and λ is a
@@ -136,14 +146,22 @@ export function solveQpNonneg(p: QpProblem): QpResult {
         scale = Math.max(scale, Math.abs(g[i]));
         for (let r = 0; r < m; r++) scale = Math.max(scale, Math.abs(p.A[r][i] * nu[r]));
       }
+      // Anti-cycling (Bland's rule): once a working set recurs at a stationary point, the method is cycling through
+      // degenerate vertices; from then on the LOWEST-index bound with a negative multiplier is released (and the
+      // lowest-index blocking bound is added), which cannot cycle.
+      const key = [...atZero].sort((a, b) => a - b).join(",");
+      if (seen.has(key)) bland = true;
+      seen.add(key);
       let worstVal = -1e-10 * scale;
-      for (const i of atZero) {
-        if (stuck.has(i)) continue;
+      const tol = worstVal;
+      for (const i of bland ? [...atZero].sort((a, b) => a - b) : atZero) {
+        if (stuck.has(i) && !bland) continue;
         let lam = g[i];
         for (let r = 0; r < m; r++) lam -= p.A[r][i] * nu[r];
-        if (lam < worstVal) {
+        if (bland ? lam < tol : lam < worstVal) {
           worstVal = lam;
           worst = i;
+          if (bland) break;
         }
       }
       if (worst < 0) return { ok: true, x, iterations: it };
@@ -156,6 +174,7 @@ export function solveQpNonneg(p: QpProblem): QpResult {
     F.forEach((i, a) => {
       if (step[a] < 0) {
         const t = -x[i] / step[a];
+        // Ties go to the lowest index (F is in index order, so the first strict minimum is it).
         if (t < alpha) {
           alpha = t;
           block = i;
@@ -171,6 +190,7 @@ export function solveQpNonneg(p: QpProblem): QpResult {
       if (alpha === 0 && block === lastDropped) stuck.add(block);
     }
     if (alpha > 0) stuck.clear();
+    if (block < 0) subMinF = fKey;
     lastDropped = -1;
     for (let i = 0; i < n; i++) if (x[i] < 0) x[i] = 0;
   }

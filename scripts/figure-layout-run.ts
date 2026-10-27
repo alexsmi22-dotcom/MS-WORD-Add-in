@@ -52,6 +52,7 @@ import { PORTCORP_CALCS } from "../src/lib/portcorpCalcs";
 import { LITIG_CALCS } from "../src/lib/litigCalcs";
 import { FORENSIC_CALCS } from "../src/lib/forensicCalcs";
 import { TS2_STAT_CALCS } from "../src/lib/ts2StatCalcs";
+import { CAUSAL_STAT_CALCS } from "../src/lib/causalStatCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2377,6 +2378,28 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   const longVar = varData.replace(/^[^\n]*/, (h) => h.replace("Growth", "RealGrowthRateAnnualised").replace("Inflation", "CoreInflationExFoodEnergy").replace("Rate", "PolicyRateEffective"));
   ts2("ts-var", { data: longVar }, "var long names");
   ts2("ts-var-irf", { data: longVar, p: "1", h: "24" }, "irf long names h24");
+}
+
+// --- Causal inference II (F2: causalStatCalcs.ts): RDD binned scatter, synthetic-control gaps, pscore overlap/balance --
+{
+  const cz = (id: string, over: Record<string, string>, name: string) => {
+    const c = CAUSAL_STAT_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: causal calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (out.ok === false || !out.svg) throw new Error(`corpus: causal ${name} did not draw: ${out.text.slice(0, 120)}`);
+    figures.push([`causal ${name}`, out.svg]);
+  };
+  for (const c of CAUSAL_STAT_CALCS) cz(c.id, {}, `${c.id} default`);
+  cz("causal-rdd", { design: "fuzzy" }, "rdd fuzzy");
+  cz("causal-pscore", { method: "ipw" }, "pscore ipw");
+  // long covariate names are the balance plot's y-axis labels
+  const ps = CAUSAL_STAT_CALCS.find((x) => x.id === "causal-pscore")!;
+  const psData = ps.fields.find((f) => f.key === "data")!.default.replace(/^[^\n]*/, (h) =>
+    h.replace("age", "age_at_enrolment_years").replace("educ", "years_of_schooling_completed").replace("income", "household_income_prior_year"),
+  );
+  cz("causal-pscore", { data: psData, covariates: "age_at_enrolment_years + years_of_schooling_completed + household_income_prior_year" }, "pscore long names");
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

@@ -1716,7 +1716,10 @@ export function pscoreCalc(read: Read): StatOutput {
       ylabel: "",
       yTickLabel: (v) => {
         const j = Math.round(v);
-        return Math.abs(v - j) < 1e-9 && j >= 1 && j <= nv ? smd[nv - j].name : "";
+        if (!(Math.abs(v - j) < 1e-9 && j >= 1 && j <= nv)) return "";
+        // a long column name ran off the left edge as a y-axis label (F2 figure check); the table carries it in full
+        const nm = smd[nv - j].name;
+        return nm.length > 16 ? nm.slice(0, 15) + "…" : nm;
       },
       yLimits: { min: 0.5, max: nv + 0.5 },
       notes: ["Vertical line at |SMD| = 0.1."],

@@ -205,7 +205,7 @@ describe("4. the summary table carries the multiplier and the enhanced total", (
       for (const t of out.tables) {
         const back = t.rows.map((r) => r.join("\t")).join("\n");
         const e = err(parsePeriodTable(back, SUM_NAMES, 1, { allowNegative: [1], resultColumns: SUMMARY_RESULT_COLUMNS }));
-        expect(e).toMatch(/names a “(damages|total|cumulative)” column: that is a result table pasted back/);
+        expect(e).toMatch(/names a “(damages|total|cumulative)” column: damages, totals and cumulative amounts are computed here, not read/);
       }
     }
     // An input table with ordinary titles still reads.
@@ -537,5 +537,11 @@ describe("every damages table is at most six columns, at each engine's widest op
     expect(t[1].rows[t[1].rows.length - 1][0]).toBe("Total");
     // Without the uncaptured royalty: one table of six columns, as before.
     expect(ok(lostProfits(lp({ remainder: "none" }))).tables.map((x) => x.label)).toEqual(["Lost profits by period"]);
+  });
+  test("the lost-profits money table pasted into the summary without its title row is refused (review v2.201.1)", () => {
+    const money = ok(lostProfits(lp())).tables.find((x) => x.label === "Lost profits by period")!;
+    const text = money.rows.slice(1).map((r) => r.join("\t")).join("\n");
+    const r = parsePeriodTable(text, ["lost profits", "price erosion", "reasonable royalty", "interest"], 1, { allowNegative: [1], resultColumns: SUMMARY_RESULT_COLUMNS });
+    expect("error" in r && r.error).toContain("result table pasted back");
   });
 });

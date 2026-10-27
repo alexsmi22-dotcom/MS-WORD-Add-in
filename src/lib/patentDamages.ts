@@ -229,10 +229,13 @@ export function parsePeriodTable(text: string, names: string[], required: number
       if (isFirst && nums.every((c) => !Number.isFinite(readCell(c)))) {
         // A header naming one of this calculator's RESULT columns is its own output pasted back (the summary's
         // "Damages" column would otherwise be read as interest and the damages counted twice).
-        const own = [label, ...nums].map((c) => c.trim().toLowerCase()).find((c) => opts.resultColumns?.includes(c));
+        // Matched as a word anywhere in the line, units in brackets dropped: "Damages ($)", "Total (USD)", and a
+        // space-separated title line (text from a PDF), where the whole line is the label.
+        const hdr = [label, ...nums].join(" ").toLowerCase().replace(/\([^)]*\)/g, " ");
+        const own = opts.resultColumns?.find((c) => new RegExp(`(^|[^a-z])${c}([^a-z]|$)`).test(hdr));
         if (own) {
           return {
-            error: `The first line names a “${own}” column: that is a result table pasted back. Enter the columns this table takes (${names.join(", ")}), one row per period.`,
+            error: `The first line names a “${own}” column: damages, totals and cumulative amounts are computed here, not read. Remove that column and enter the columns this table takes (${names.join(", ")}), one row per period.`,
           };
         }
         notes.push(`The first line (“${line}”) was read as a header and skipped.`);
@@ -270,7 +273,35 @@ export function parsePeriodTable(text: string, names: string[], required: number
     notes.push(`Line ${totalsLine.li + 1} (“${totalsLine.text}”) is a totals line and was skipped: totals are computed here, not read.`);
   }
   if (!rows.length) return { error: `Enter at least one period: a label, then ${names.slice(0, required).join(", ")}.` };
+  if (opts.resultColumns) {
+    // One period alone could hold two equal amounts by chance; a pasted result table carries its totals line too.
+    const sig = rows.length > 1 || totalsLine ? resultTableSignature(rows) : undefined;
+    if (sig) return { error: `${sig} That is a result table pasted back without its title row; enter only the columns this table takes (${names.join(", ")}), one row per period.` };
+  }
   return { rows, notes };
+}
+
+/**
+ * A result table pasted back with its title row removed, recognised by its arithmetic, or undefined. Every row must
+ * fit and at least one must be non-zero (an all-zero table fits every pattern):
+ *   - a column that is the sum of the columns before it in every row (a "Damages" or "Total" column);
+ *   - a column that is the running sum of the column before it (a "Cumulative" column).
+ */
+function resultTableSignature(rows: PeriodRow[]): string | undefined {
+  const near = (a: number, b: number): boolean => Math.abs(a - b) <= 0.015 + 1e-9 * Math.abs(b);
+  const width = Math.min(...rows.map((r) => r.values.length));
+  if (!rows.some((r) => r.values.some((v) => v !== 0))) return undefined;
+  for (let k = 1; k < width; k++) {
+    if (rows.every((r) => near(r.values[k], r.values.slice(0, k).reduce((s, v) => s + v, 0))) && rows.some((r) => r.values[k] !== 0)) {
+      // A single-column copy (k = 1, column 2 equals column 1) is a repeated column, the same tell.
+      return `Column ${k + 1} equals the sum of the columns before it in every row.`;
+    }
+    let run = 0;
+    if (rows.length > 1 && rows.every((r) => near(r.values[k], (run += r.values[k - 1])))) {
+      return `Column ${k + 1} is the running total of column ${k}.`;
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------

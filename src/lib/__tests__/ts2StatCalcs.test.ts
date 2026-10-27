@@ -34,6 +34,7 @@ import {
 import { TS2_STAT_CALCS } from "../ts2StatCalcs";
 import { mackinnonP } from "../tsDiag";
 import { P_BELOW } from "../regTable";
+import { Pcg32 } from "../prng";
 
 const F = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "ts2-oracle.json"), "utf8"));
 const relErr = (a: number, b: number): number => Math.abs(a - b) / Math.max(Math.abs(b), 1e-300);
@@ -228,6 +229,25 @@ describe("GARCH optima ON a bound (F2 review round 1) vs arch 8.0", () => {
     expect(o.ok).not.toBe(false);
     expect(o.text).toMatch(/On the boundary of the parameter space: α = 0; α \+ γ = 0/);
     expect(o.tables![0].rows.find((row) => row[0].startsWith("ν"))![1]).toMatch(/^42\.4/);
+  });
+  test("a non-invertible EGARCH (rugged likelihood, no smooth maximum) is refused by name, not printed", () => {
+    // Adversarial pass: 150 near-iid returns (σ²ₜ = 0.1 + 0.5σ²ₜ₋₁); the EGARCH optimum drifts to α₁ < 0, where the
+    // recursion expands (mean ln|β₁ − (α₁|zₜ| + γ₁zₜ)/2| > 0) and the likelihood is jagged at 10⁻⁶ steps. arch lands
+    // in the same region (Constant mean, llf −79.148 against our best −78.81) or at β = 0 (Zero mean, −86.315).
+    const rng = new Pcg32(99);
+    const u = (): number => (rng.nextU32() + 0.5) / 4294967296;
+    const nrm = (): number => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u());
+    const y: number[] = [];
+    let s2 = 1;
+    for (let i = 0; i < 150; i++) {
+      s2 = 0.1 + 0.5 * s2;
+      y.push(Math.round(Math.sqrt(s2) * nrm() * 1000) / 1000);
+    }
+    const o = run(calc("ts-garch"), { data: ["r", ...y.map((v) => v.toFixed(3))].join("\n"), model: "egarch", dist: "normal", mean: "zero" });
+    expect(o.ok).toBe(false);
+    expect(o.text).toMatch(/^The likelihood maximization did not converge for this series: at the best EGARCH parameters found the recursion is not invertible/);
+    // GARCH on the same series is fine.
+    expect(run(calc("ts-garch"), { data: ["r", ...y.map((v) => v.toFixed(3))].join("\n"), model: "garch", dist: "normal", mean: "zero" }).ok).not.toBe(false);
   });
   test("EGARCH half-life at β ≈ 0 is not printed as a fraction of a period", () => {
     const c = B("garch-iid");

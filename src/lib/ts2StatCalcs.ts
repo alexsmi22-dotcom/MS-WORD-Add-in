@@ -341,6 +341,11 @@ export function tsGarchCalc(read: Read): StatOutput {
   const finite = [fit.llf, ...fit.params, ...fit.forecast.slice(0, h), fit.persistence];
   if (!finite.every(Number.isFinite)) return refuse("A fitted quantity is not a finite number for this series, so the result is not reported.");
   // Hard rule: estimates are printed only when the first-order (KKT) conditions hold at them, on a bound or not.
+  if (!fit.converged && spec.vol === "egarch" && fit.egarchLyapunov >= 0) {
+    return refuse(
+      `The likelihood maximization did not converge for this series: at the best EGARCH parameters found the recursion is not invertible (the mean of ln|β₁ − (α₁|zₜ| + γ₁zₜ)/2| along the path is ${fmtFixed(fit.egarchLyapunov, 4)}, not below 0; Wintenberger 2013), so the fitted variances depend explosively on the parameters, the likelihood has no smooth maximum, and no estimates are reported. Try GARCH or GJR-GARCH for this series.`,
+    );
+  }
   if (!fit.converged) {
     return refuse(
       `The likelihood maximization did not converge for this series: at the best parameters found, the gradient of the log likelihood does not vanish on the free parameters (largest projected component ${Number.isFinite(fit.kktGradient) ? fmtFixed(fit.kktGradient, 4) : "not computable"} per observation), so no estimates are reported. Try the normal distribution, a different model, or a longer series.`,

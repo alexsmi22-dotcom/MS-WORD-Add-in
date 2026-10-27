@@ -578,9 +578,12 @@ function activeSetMin(
   let x = x0.slice();
   let W = cons.map((c, i) => (slackOf(c, x) <= 1e-6 * Math.max(1, Math.abs(c.b)) ? i : -1)).filter((i) => i >= 0);
   let fx = f(x);
+  let restarts = 0;
   for (let round = 0; round < 12 && budget.left > 0; round++) {
     const xp = projectOnto(cons, W, x);
     if (garchFeasible(cons, xp) && Number.isFinite(f(xp))) x = xp;
+    fx = f(x);
+    const fStart = fx;
     const Z = nullBasis(
       W.map((i) => cons[i].a),
       k,
@@ -616,9 +619,29 @@ function activeSetMin(
         changed = true;
       }
     }
-    if (!changed) break;
+    if (!changed) {
+      // Same working set: done when the projected gradient is small, or when the round gained nothing; otherwise BFGS
+      // stopped early on a flat, badly scaled valley, and a fresh start (identity Hessian) from here goes on.
+      const resid = Math.max(0, ...m.resid.map(Math.abs));
+      if (resid <= KKT_GTOL / 10 || !(fx < fStart - 1e-12 * Math.max(1, Math.abs(fx))) || ++restarts > 3) break;
+    } else restarts = 0;
   }
   return { x, f: fx };
+}
+
+/** Mean ln|β − (α|zₜ| + γzₜ)/2| along the fitted path (EGARCH's invertibility measure, Wintenberger 2013). */
+function egarchLyap(s: GarchSetup, x: number[]): number {
+  const n = s.n;
+  const resid = new Float64Array(n);
+  const sigma2 = new Float64Array(n);
+  garchLls(s, x, undefined, { resid, sigma2 });
+  const p = unpack(s, x);
+  let acc = 0;
+  for (let t = 0; t < n; t++) {
+    const z = resid[t] / Math.sqrt(sigma2[t]);
+    acc += Math.log(Math.max(1e-300, Math.abs(p.beta - (p.alpha * Math.abs(z) + p.gamma * z) / 2)));
+  }
+  return acc / n;
 }
 
 /** arch's volatility starting grid, best Gaussian log likelihood first, over α × γ × (α + γ/2 + β) (or β for EGARCH). */
@@ -715,6 +738,10 @@ export interface GarchFit {
   converged: boolean;
   /** The largest projected-gradient component in that check. */
   kktGradient: number;
+  /** Periods whose σ² sits on arch's lower (or beyond its upper) variance bound at the estimate. */
+  clamped: number;
+  /** EGARCH: mean ln|β − (α|zₜ| + γzₜ)/2| at the estimate (≥ 0: the recursion is not invertible); NaN otherwise. */
+  egarchLyapunov: number;
   /** Parameters within 10⁻⁴ of a bound or constraint (SEs there are not reliable). */
   atBounds: string[];
   /** α + β (GARCH), α + γ/2 + β (GJR), β (EGARCH). */
@@ -807,6 +834,9 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     tries.push(...starts);
     if (spec.dist === "t") for (const nu0 of [5, 30, 100]) tries.push([...starts[0].slice(0, k - 1), nu0]);
     budget.left = Math.min(budget.left, Math.max(400, Math.floor(1.5e7 / n)));
+    // A non-invertible EGARCH (see egarchLyapunov) has a rugged likelihood with no smooth maximum; the other starts get a
+    // short look for an invertible optimum, not the full budget.
+    if (spec.vol === "egarch" && egarchLyap(s, x) >= 0) budget.left = Math.min(budget.left, Math.max(200, Math.floor(1e6 / n)));
     for (let ti = 0; ti < tries.length; ti++) {
       const x0 = tries[ti];
       if (budget.left <= 0) break;
@@ -888,6 +918,13 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   const resid = new Float64Array(n);
   const sigma2 = new Float64Array(n);
   const llfScaled = garchLls(s, x, undefined, { resid, sigma2 });
+  // Periods where the recursion sits on arch's variance bounds: there the likelihood has kinks (not smooth).
+  let clamped = 0;
+  for (let t = 0; t < n; t++) if (sigma2[t] <= s.lower[t] || sigma2[t] > s.upper[t]) clamped++;
+  // EGARCH invertibility (Wintenberger 2013): the sample mean of ln|∂ln σ²ₜ₊₁/∂ln σ²ₜ| = ln|β − (α|zₜ| + γzₜ)/2|. At 0 or
+  // above the recursion does not contract: the fitted variances depend explosively on the parameters and the likelihood
+  // is rugged (no smooth maximum to find).
+  const lyap = spec.vol === "egarch" ? egarchLyap(s, x) : NaN;
   const persistence = spec.vol === "garch" ? pr.alpha + pr.beta : spec.vol === "gjr" ? pr.alpha + pr.gamma / 2 + pr.beta : pr.beta;
   // One step past the sample with no bound (arch's _one_step_forecast appends bounds [0, ∞)).
   const eT = resid[n - 1];
@@ -945,6 +982,8 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     n,
     converged: kkt.ok,
     kktGradient: kkt.worst,
+    clamped,
+    egarchLyapunov: lyap,
     atBounds,
     persistence,
     forecast: forecastScaled.map((v) => v / (c * c)),

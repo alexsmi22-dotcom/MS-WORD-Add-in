@@ -217,6 +217,7 @@ import {
 } from "../lib/finance";
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, withFinFig, currentFinFig } from "../lib/financeFigures";
 import { FIN_GROUP_ORDER, type FinCalcDef, type FinField, type FinResult, type FinTable } from "../lib/finCalc";
+import { readXirrDates } from "../lib/xirrDates";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -2810,7 +2811,9 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "solve", label: "Solve", desc: "Equations, derivatives, integrals, word problems" },
       { mode: "units", label: "Units", desc: "SI typesetting & conversion" },
       { mode: "plot", label: "Plot", desc: "Function & data charts" },
-      { mode: "stats", audience: ["science"], label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
+      // Shown to every audience (F1): the econometrics and litigation-economics tools live here (regression, event
+      // studies, panel, time series, HHI), and a legal-chip user could not see them.
+      { mode: "stats", label: "Stats", desc: "Statistics, econometrics, event studies, economics" },
       { mode: "analyze", audience: ["science"], label: "Analyze", desc: "Matrix math + data → trends & insights" },
     ],
   },
@@ -2855,7 +2858,7 @@ const HOME_GROUPS: HomeGroup[] = [
       // engineering-economics and lab-budget question on the science side. An
       // untagged tile shows to everyone, which is the honest answer for a tool
       // neither audience owns.
-      { mode: "finance", label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
+      { mode: "finance", label: "Finance", desc: "Valuation, bonds, options, risk, damages, IP value" },
     ],
   },
   {
@@ -8358,8 +8361,8 @@ const FIN_CALCS: FinCalc[] = [
         valueAt: (k) => compoundInterest(+r("p"), +r("rate") / 100, +r("m"), k),
         // The frequency as GIVEN, not rounded: a title reading "13x per year"
         // over a curve computed at 12.5 asserts a parameter the chart was not
-        // drawn with.
-        title: `Balance, compounded ${finFixed(+r("m"), 2)}x per year`,
+        // drawn with. Whole frequencies print whole ("12×", not "12.00x": F1 D2).
+        title: `Balance, compounded ${Number.isInteger(+r("m")) ? String(+r("m")) : finFixed(+r("m"), 2).replace(/0+$/, "")}× per year`,
         xlabel: "year",
       }),
     }),
@@ -8690,8 +8693,22 @@ const FIN_CALCS: FinCalc[] = [
       const flows = finList(r("cf"));
       const v = dcf(rate, flows, +r("g") / 100);
       if (!Number.isFinite(v)) return finRefuse("Value = — (need rate > terminal growth)");
+      // F1 D5: the terminal value, its present value and its share of the total, printed — the caveat below says it
+      // dominates the result, and a reader could not see by how much.
+      const gT = +r("g") / 100;
+      const n = flows.length;
+      const pvForecast = flows.reduce((s, c, k) => s + c / Math.pow(1 + rate, k + 1), 0);
+      const tv = n ? (flows[n - 1] * (1 + gT)) / (rate - gT) : 0;
+      const pvTv = n ? tv / Math.pow(1 + rate, n) : 0;
+      const share = v !== 0 ? (pvTv / v) * 100 : NaN;
       return {
-        text: `Value = ${finMoney(v)}`,
+        text: [
+          `Value = ${finMoney(v)}`,
+          `PV of the explicit forecast (${n} period${n === 1 ? "" : "s"}) = ${finMoney(pvForecast)}`,
+          `Terminal value at period ${n} = ${finMoney(tv)} (Gordon: last cash flow × (1 + g) / (r − g)); its PV = ${finMoney(pvTv)}` +
+            (Number.isFinite(share) ? `, ${finFixed(share, 1)}% of the value` : ""),
+          "Conventions: end-of-period discounting; the terminal value is taken at the last forecast period.",
+        ].join("\n"),
         // The explicit forecast period only. The TERMINAL value is deliberately
         // not drawn as one more bar beside these: on a typical DCF it dwarfs
         // every forecast year, and a chart that made it look like just another
@@ -8724,24 +8741,37 @@ const FIN_CALCS: FinCalc[] = [
     name: "XIRR (dated cash flows)",
     fields: [
       { key: "cf", label: "Cash flows", default: "-1000, 300, 400, 500", kind: "list" },
-      { key: "days", label: "Days from first flow", default: "0, 180, 300, 450", kind: "list" },
+      // F1 D3: calendar dates, as Excel's XIRR takes them (lib/xirrDates.ts); plain numbers still read as day counts.
+      {
+        key: "days",
+        label: "Dates, one per cash flow (or days from the first flow)",
+        default: ["2026-01-01", "2026-06-30", "2026-10-27", "2027-03-26"].join("\n"),
+        kind: "block",
+      },
     ],
     compute: (r) => {
       const nCf = finList(r("cf")).length;
-      const nDays = finList(r("days")).length;
+      const dated = readXirrDates(r("days"));
+      if ("error" in dated) return finRefuse(dated.error);
+      const nDays = dated.days.length;
       if (nCf !== nDays) {
-        return finRefuse(`There are ${nCf} cash flows and ${nDays} dates: each cash flow needs exactly one day count.`);
+        return finRefuse(`There are ${nCf} cash flows and ${nDays} dates: each cash flow needs exactly one date.`);
       }
-      const v = xirr(finList(r("cf")), finList(r("days")));
+      const v = xirr(finList(r("cf")), dated.days);
       // Same reasoning as IRR above.
       if (v === null) return finRefuse(`XIRR = no solution (searched ${XIRR_SEARCH_RANGE_TEXT})`);
       // Discounted at the solved annual rate over the ACTUAL day counts, which
       // is what makes this different from IRR: irregular timing is the whole
       // reason to reach for it, and the bars show the timing doing the work.
       const cfs = finList(r("cf"));
-      const days = finList(r("days"));
+      const days = dated.days;
       return {
-        text: `XIRR = ${finPct(v)} / year`,
+        text: [
+          `XIRR = ${finPct(v)} / year`,
+          ...(dated.span ? [`Cash flows from ${dated.span}.`] : []),
+          ...(dated.note ? [`Note: ${dated.note}`] : []),
+          "Conventions: actual days between dates over a 365-day year, as Excel's XIRR.",
+        ].join("\n"),
         svg:
           cfs.length === days.length
             ? cashFlowLadderSvg(

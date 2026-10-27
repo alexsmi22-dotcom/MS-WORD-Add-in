@@ -220,6 +220,7 @@ import { FIN_GROUP_ORDER, type FinCalcDef, type FinField, type FinResult, type F
 import { readXirrDates } from "../lib/xirrDates";
 import { BOND_CALCS } from "../lib/bondCalcs";
 import { IPVAL_CALCS } from "../lib/ipValuationCalcs";
+import { DERIV_CALCS } from "../lib/derivCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -8483,30 +8484,36 @@ const FIN_CALCS: FinCalc[] = [
       { key: "t", label: "Time to expiry (years)", default: "1" },
       { key: "r", label: "Risk-free rate %", default: "5" },
       { key: "sig", label: "Volatility % (annual)", default: "20" },
+      { key: "q", label: "Dividend yield q (%)", default: "0" },
     ],
-    compute: (r) =>
-      !(+r("s") > 0) || !(+r("k") > 0) || !(+r("t") >= 0) || !(+r("sig") >= 0)
-        ? finRefuse("Spot and strike must be positive, time to expiry and volatility zero or more.")
-        : ({
+    compute: (r) => {
+      const S = +r("s");
+      const K = +r("k");
+      const t = +r("t");
+      const rr = +r("r") / 100;
+      const sg = +r("sig") / 100;
+      const q = +r("q") / 100;
+      if (!(S > 0) || !(K > 0) || !(t >= 0) || !(sg >= 0) || !Number.isFinite(rr) || !Number.isFinite(q)) {
+        return finRefuse("Spot and strike must be positive, time to expiry and volatility zero or more, rate and dividend yield numbers.");
+      }
+      const type = r("type") as OptionType;
+      const C = blackScholes("call", S, K, t, rr, sg, q);
+      const P = blackScholes("put", S, K, t, rr, sg, q);
+      const price = type === "put" ? P : C;
+      return {
         text:
-          `Price = ${finMoney(blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100))}` +
-          (+r("sig") === 0 && +r("t") > 0
-            ? "\n(σ = 0: the deterministic limit, max(S − K·e⁻ʳᵗ, 0) for a call, max(K·e⁻ʳᵗ − S, 0) for a put.)"
-            : ""),
-        svg: optionCurveSvg({
-          type: r("type") as OptionType,
-          s: +r("s"),
-          k: +r("k"),
-          t: +r("t"),
-          r: +r("r") / 100,
-          sig: +r("sig") / 100,
-          price: blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100),
-        }),
-      }),
+          `Price = ${finMoney(price)}` +
+          (sg === 0 && t > 0
+            ? "\n(σ = 0: the deterministic limit, max(S·exp(−qt) − K·exp(−rt), 0) for a call, max(K·exp(−rt) − S·exp(−qt), 0) for a put.)"
+            : "") +
+          `\nPut–call parity: C − P = ${finFixed(C - P, 4)} = S·exp(−qt) − K·exp(−rt) = ${finFixed(S * Math.exp(-q * t) - K * Math.exp(-rr * t), 4)}`,
+        svg: optionCurveSvg({ type, s: S, k: K, t, r: rr, sig: sg, q, price }),
+      };
+    },
     assumes:
-      "EUROPEAN exercise (expiry only) and NO dividends. An American option cannot " +
-      "be priced with this: early exercise makes an American put worth MORE than " +
-      "this figure, and a dividend-paying stock makes a call worth LESS. Also assumes " +
+      "EUROPEAN exercise (expiry only) with a continuous dividend yield q (Merton; 0 = no dividends). " +
+      "An American option cannot be priced with this: early exercise makes an American put worth MORE " +
+      "than this figure (use the binomial tree). Discrete cash dividends are not modelled. Also assumes " +
       "constant volatility and a lognormal price — real options show a volatility smile.",
   },
   {
@@ -8905,18 +8912,20 @@ const FIN_CALCS: FinCalc[] = [
       { key: "t", label: "Time to expiry (yrs)", default: "1" },
       { key: "r", label: "Risk-free rate %", default: "5" },
       { key: "sig", label: "Volatility % (annual)", default: "20" },
+      { key: "q", label: "Dividend yield q (%)", default: "0" },
     ],
     compute: (r) => {
-      if (!(+r("s") > 0) || !(+r("k") > 0) || !(+r("t") > 0) || !(+r("sig") >= 0)) {
-        return finRefuse("Spot and strike must be positive, time to expiry positive and volatility zero or more.");
+      const q = +r("q") / 100;
+      if (!(+r("s") > 0) || !(+r("k") > 0) || !(+r("t") > 0) || !(+r("sig") >= 0) || !Number.isFinite(q)) {
+        return finRefuse("Spot and strike must be positive, time to expiry positive, volatility zero or more and dividend yield a number.");
       }
-      if (sigmaZeroAtForward(+r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100)) {
+      if (sigmaZeroAtForward(+r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100, q)) {
         return finRefuse(
-          "At σ = 0 with S = K·e⁻ʳᵗ the option is exactly at the money forward: delta jumps from 0 to 1 there " +
+          "At σ = 0 with S·exp(−qt) = K·exp(−rt) the option is exactly at the money forward: delta jumps from 0 to 1 there " +
             "and gamma is infinite, so the Greeks are undefined. Move S or K, or use a volatility above zero.",
         );
       }
-      const g = blackScholesGreeks(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100);
+      const g = blackScholesGreeks(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100, q);
       return {
         text: [
           // finFixed, not toFixed: every other line here is already guarded, and
@@ -8932,6 +8941,7 @@ const FIN_CALCS: FinCalc[] = [
           // the number itself.
           `Theta  ${finFixed(g.theta / 365, 4)} per day`,
           `Rho    ${finMoney(g.rho / 100)} per 1% rate`,
+          `Psi    ${finMoney(g.psi / 100)} per 1% dividend yield`,
         ].join("\n"),
         // Delta across the underlying, which is the Greek people actually
         // reason with. Its S-shape IS the option's character: near zero far out
@@ -8950,7 +8960,7 @@ const FIN_CALCS: FinCalc[] = [
           const hi = 1.5 * Math.max(k, spot > 0 ? spot : k);
           for (let i = 0; i <= 60; i++) {
             const x = lo + ((hi - lo) * i) / 60;
-            const gg = blackScholesGreeks(type, x, k, +r("t"), +r("r") / 100, +r("sig") / 100);
+            const gg = blackScholesGreeks(type, x, k, +r("t"), +r("r") / 100, +r("sig") / 100, q);
             if (Number.isFinite(gg.delta)) pts.push({ x, y: gg.delta });
           }
           if (pts.length < 2) return undefined;
@@ -8965,8 +8975,8 @@ const FIN_CALCS: FinCalc[] = [
       };
     },
     assumes:
-      "Same EUROPEAN, no-dividend model as the Black–Scholes price above — these Greeks "+
-      "do not describe an American option or a dividend payer. Theta is shown PER DAY "+
+      "Same EUROPEAN Black–Scholes–Merton model as the price above, with dividend yield q — "+
+      "these Greeks do not describe an American option. Theta is shown PER DAY "+
       "(the model's per-year value divided by 365), which is how trading desks quote it; "+
       "multiply by 365 for the per-year figure."
   },
@@ -8990,9 +9000,12 @@ const FIN_CALCS: FinCalc[] = [
       { key: "k", label: "Strike K", default: "100" },
       { key: "t", label: "Time to expiry (yrs)", default: "1" },
       { key: "r", label: "Risk-free rate %", default: "5" },
+      { key: "q", label: "Dividend yield q (%)", default: "0" },
     ],
     compute: (r) => {
-      const v = impliedVolatility(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r") / 100);
+      const q = +r("q") / 100;
+      if (!Number.isFinite(q)) return finRefuse("Dividend yield q must be a number.");
+      const v = impliedVolatility(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r") / 100, q);
       if (v === null) return finRefuse("Implied vol = no solution");
       return {
         text: `Implied vol = ${finPct(v)}`,
@@ -9006,7 +9019,7 @@ const FIN_CALCS: FinCalc[] = [
           const pts: Point[] = [];
           for (let k = 1; k <= 60; k++) {
             const sig = (2 * k) / 60;
-            const val = blackScholes(type, +r("s"), +r("k"), +r("t"), +r("r") / 100, sig);
+            const val = blackScholes(type, +r("s"), +r("k"), +r("t"), +r("r") / 100, sig, q);
             if (Number.isFinite(val)) pts.push({ x: sig * 100, y: val });
           }
           if (pts.length < 2) return undefined;
@@ -9021,9 +9034,9 @@ const FIN_CALCS: FinCalc[] = [
       };
     },
     assumes:
-      "Solves the EUROPEAN, no-dividend Black–Scholes price for sigma. Feeding it a real "+
-      "American or dividend-paying option's market price yields a sigma that silently "+
-      "absorbs the model error, so it is not that option's true volatility. Returns no "+
+      "Solves the EUROPEAN Black–Scholes–Merton price (dividend yield q) for sigma. Feeding it "+
+      "an American option's market price yields a sigma that silently absorbs the early-exercise "+
+      "value, so it is not that option's true volatility. Returns no "+
       "solution when the price is outside the model's arbitrage bounds."
   },
   {
@@ -9718,6 +9731,7 @@ const FIN_CALCS: FinCalc[] = [
   // finSpreadContract.test.ts holds every spread calculator to the pane's contract.
   ...BOND_CALCS,
   ...IPVAL_CALCS,
+  ...DERIV_CALCS,
 ];
 
 /** Fills the calculator dropdown. */

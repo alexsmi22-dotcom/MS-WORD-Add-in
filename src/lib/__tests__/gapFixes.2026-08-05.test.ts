@@ -186,7 +186,7 @@ describe("0.6 — Finance cannot insert a non-finite number", () => {
 
 describe("0.7 — the Greeks disclosure matches what is displayed", () => {
   it("no longer tells the user to divide an already-per-day theta by 365", () => {
-    const i = pane.indexOf("Same EUROPEAN, no-dividend model");
+    const i = pane.indexOf("Same EUROPEAN Black–Scholes–Merton model");
     expect(i).toBeGreaterThan(0);
     const region = pane.slice(i, i + 500);
     expect(region).not.toMatch(/Theta is per YEAR/);

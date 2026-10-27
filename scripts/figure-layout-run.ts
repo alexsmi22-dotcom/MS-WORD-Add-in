@@ -46,6 +46,7 @@ import { monteCarlo, mcHistogramSvg } from "../src/lib/monteCarlo";
 import { FILM_CALCS } from "../src/lib/filmCalcs";
 import { BOND_CALCS } from "../src/lib/bondCalcs";
 import { IPVAL_CALCS } from "../src/lib/ipValuationCalcs";
+import { DERIV_CALCS } from "../src/lib/derivCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2256,7 +2257,7 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   };
   for (const c of BOND_CALCS) bond(c.id, {}, `${c.id} default`);
   bond("curve-nelson-siegel", { model: "svensson" }, "svensson");
-  bond("curve-bootstrap", { mode: "prices" }, "bootstrap from prices");
+  bond("curve-bootstrap", { mode: "prices", rows: "0.5\t0\t97.9\n1\t0\t95.9\n2\t4\t99.8\n5\t4\t99.1\n10\t4.5\t101.2" }, "bootstrap from prices");
   bond("tbill-yields", { year: "treasury" }, "bill treasury year");
 }
 
@@ -2267,6 +2268,27 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
     const out = c.compute((k) => vals[k] ?? "");
     if (typeof out !== "string" && out.ok !== false && out.svg) figures.push([`ipval ${c.id} default`, out.svg]);
   }
+}
+
+// --- Derivatives (src/lib/derivCalcs.ts, F1): every default that draws, then the tree, convergence, strategy, swap -----
+{
+  const deriv = (c: (typeof DERIV_CALCS)[number], over: Record<string, string>, name: string, must: boolean) => {
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (typeof out !== "string" && out.ok !== false && out.svg) figures.push([`deriv ${name}`, out.svg]);
+    else if (must) throw new Error(`corpus: deriv ${name} did not draw`);
+  };
+  const byId = (id: string) => {
+    const c = DERIV_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: deriv calc ${id} missing`);
+    return c;
+  };
+  for (const c of DERIV_CALCS) deriv(c, {}, `${c.id} default`, false);
+  deriv(byId("deriv-crr"), { style: "european", n: "200" }, "crr european convergence", true);
+  deriv(byId("deriv-crr"), { n: "6" }, "crr tree n6", true);
+  deriv(byId("deriv-strategy"), { legs: "call, 100, 1, 6\nput, 100, 1, 5.5", mult: "100" }, "strategy straddle", true);
+  deriv(byId("deriv-swap"), { tenor: "100", ffix: "12", fflt: "12", curve: "1 0.96\n100 0.02" }, "swap long monthly", true);
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

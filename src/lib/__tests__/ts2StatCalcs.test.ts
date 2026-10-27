@@ -18,6 +18,7 @@ import {
   fitGarch,
   fitVarOls,
   garchAtParams,
+  garchKktAt,
   johansen,
   JOHANSEN_SJA,
   JOHANSEN_SJT,
@@ -143,6 +144,96 @@ describe("GARCH holdout cases (not used while building)", () => {
     if (!re.ok) throw new Error(re.reason);
     expect(Math.abs(re.params[1] - (e.params[1] - 2 * (1 - e.params[4]) * Math.log(100)))).toBeLessThan(1e-3);
     expect(re.seRobust).not.toBeNull();
+  });
+});
+
+describe("GARCH optima ON a bound (F2 review round 1) vs arch 8.0", () => {
+  // The reviewer's series (scripts/ts2-oracle.py regenerates them: garchBound). Before the fix every one printed a
+  // stalled starting point (GJR-t on iid data: ν = 12.000) with a lower likelihood than arch's.
+  // Tolerances (stated): log likelihood ≥ arch's − 10⁻⁶ (ours may exceed it where arch's SLSQP stops early); identified
+  // parameters 3×10⁻⁴; where α → 0 leaves ω and β weakly identified, ω and β 5×10⁻⁴ and the identified unconditional
+  // variance ω/(1 − persistence) 10⁻⁴ relative; ν within 0.5% where the likelihood is flat in ν; parameters on a bound
+  // within 10⁻⁹ of it.
+  type B = { id: string; vol: string; dist: string; mean: string; y: number[]; params: number[]; llf: number; names: string[] };
+  const B = (id: string): B => (F.garchBound as B[]).find((c) => c.id === id)!;
+  const fitB = (c: B) => {
+    const r = fitGarch(c.y, specOf(c));
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.converged).toBe(true);
+    expect(r.llf).toBeGreaterThanOrEqual(c.llf - 1e-6);
+    return r;
+  };
+  test("EGARCH, zero mean: β on 0 matches arch", () => {
+    const c = B("egarch-n160-zero");
+    const r = fitB(c);
+    r.params.forEach((v, j) => expect(Math.abs(v - c.params[j])).toBeLessThan(3e-4));
+    expect(r.params[3]).toBeLessThan(1e-9);
+    expect(r.atBounds).toEqual(["β = 0"]);
+  });
+  test("GARCH on iid returns: α on 0; ω, β and the unconditional variance match arch", () => {
+    const c = B("garch-iid");
+    const r = fitB(c);
+    expect(Math.abs(r.params[0] - c.params[0])).toBeLessThan(3e-4);
+    expect(Math.abs(r.params[1] - c.params[1])).toBeLessThan(5e-4);
+    expect(r.params[2]).toBeLessThan(1e-9);
+    expect(Math.abs(r.params[3] - c.params[3])).toBeLessThan(5e-4);
+    const uv = (p: number[]) => p[1] / (1 - p[2] - p[3]);
+    expect(relErr(uv(r.params), uv(c.params))).toBeLessThan(1e-4);
+    expect(r.atBounds).toEqual(["α = 0"]);
+  });
+  test("GJR-t on iid returns: α and α + γ on 0, ν ≈ 42.5 (not the starting 12)", () => {
+    const c = B("gjr-iid-t");
+    const r = fitB(c);
+    expect(Math.abs(r.params[0] - c.params[0])).toBeLessThan(3e-4);
+    expect(Math.abs(r.params[1] - c.params[1])).toBeLessThan(5e-4);
+    expect(Math.abs(r.params[2])).toBeLessThan(1e-9);
+    expect(Math.abs(r.params[3])).toBeLessThan(1e-9);
+    expect(Math.abs(r.params[4] - c.params[4])).toBeLessThan(5e-4);
+    expect(relErr(r.params[5], c.params[5])).toBeLessThan(5e-3);
+    expect(r.atBounds).toEqual(["α = 0", "α + γ = 0"]);
+  });
+  test("decimal returns into GJR: α on 0, rescaled fit, likelihood above arch's", () => {
+    // arch's SLSQP stops 10⁻⁵ below the optimum here (the β/γ ridge is flat), so β and γ differ from arch's by ~10⁻³;
+    // the unconditional variance (identified) agrees to 10⁻³ relative and the likelihood is higher.
+    const c = B("garch-decimal");
+    const r = fitB(c);
+    expect(r.scale).toBe(1000);
+    expect(r.params[2]).toBeLessThan(1e-9);
+    expect(Math.abs(r.params[3] - c.params[3])).toBeLessThan(2e-3);
+    expect(Math.abs(r.params[4] - c.params[4])).toBeLessThan(2e-3);
+    const uv = (p: number[]) => p[1] / (1 - p[2] - p[3] / 2 - p[4]);
+    expect(relErr(uv(r.params), uv(c.params))).toBeLessThan(1e-3);
+    expect(r.atBounds).toEqual(["α = 0"]);
+  });
+  test("EGARCH-t with leverage: ν climbs to its bound 500 with a higher likelihood than arch's stop at ν ≈ 290; μ on a kink", () => {
+    const c = B("egarch-t-lev");
+    const r = fitB(c);
+    expect(r.llf).toBeGreaterThan(c.llf + 5e-3);
+    expect(r.params[5]).toBe(500);
+    for (let j = 0; j < 5; j++) expect(Math.abs(r.params[j] - c.params[j])).toBeLessThan(3e-3);
+    // μ sits exactly on a return (the kink of |rₜ − μ|): arch finds the same one.
+    expect(c.y).toContain(r.params[0]);
+    expect(Math.abs(r.params[0] - c.params[0])).toBeLessThan(1e-6);
+  });
+  test("the hard rule: the old stalled estimates fail the KKT check, the new ones pass", () => {
+    const c = B("gjr-iid-t");
+    // What v2.203.0-pre printed (reviewer's garch.txt): ν stuck at its start.
+    const stalled = [0.000708275, 0.876672, 1.31817e-18, 0.00526765, 0.491799, 12.0002];
+    expect(garchKktAt(c.y, specOf(c), stalled).ok).toBe(false);
+    const r = fitGarch(c.y, specOf(c));
+    if (!r.ok) throw new Error(r.reason);
+    expect(garchKktAt(c.y, specOf(c), r.params).ok).toBe(true);
+    // And through the calculator: printed, flagged on the bound, ν ≈ 42.4.
+    const o = run(calc("ts-garch"), { data: ["r", ...c.y.map((v) => v.toFixed(3))].join("\n"), model: "gjr", dist: "t", mean: "constant" });
+    expect(o.ok).not.toBe(false);
+    expect(o.text).toMatch(/On the boundary of the parameter space: α = 0; α \+ γ = 0/);
+    expect(o.tables![0].rows.find((row) => row[0].startsWith("ν"))![1]).toMatch(/^42\.4/);
+  });
+  test("EGARCH half-life at β ≈ 0 is not printed as a fraction of a period", () => {
+    const c = B("garch-iid");
+    const o = run(calc("ts-garch"), { data: ["r", ...c.y.map((v) => v.toFixed(3))].join("\n"), model: "garch", dist: "normal" });
+    expect(o.text).toContain("is under 1 period");
+    expect(o.text).not.toMatch(/= 0\.\d+ periods/);
   });
 });
 
@@ -461,7 +552,7 @@ describe("adversarial findings (fixed)", () => {
     expect(o.text).not.toMatch(/half-life of a volatility shock = /);
     expect(o.text).not.toContain("Unconditional variance");
     expect(o.text).toContain("growing by ω each period");
-    expect(o.text).toContain("On the boundary of the parameter space: α + γ/2 + β = 1");
+    expect(o.text).toContain("On the boundary of the parameter space: α + β = 1");
   });
   test("white noise into GJR: α on its bound prints 0.0000, not 7×10⁻¹⁵, and is flagged", () => {
     const nrm = gen();

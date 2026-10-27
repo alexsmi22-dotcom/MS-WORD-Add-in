@@ -173,6 +173,45 @@ garch_holdout = [
 ]
 
 
+# Optima ON a bound (F2 review round 1): the reviewer's series, regenerated with the reviewer's generator, seed and call
+# order (rng 31337: a GARCH(1,1) n = 160, iid normal ×1.3 n = 300, a GARCH-t n = 800, then a GJR n = 250).
+def _bound_series():
+    rng = np.random.default_rng(31337)
+
+    def sim(n, mu, om, a, b, g=0.0, dist="n", nu=6, burn=300):
+        z = rng.standard_normal(n + burn) if dist == "n" else rng.standard_t(nu, n + burn) * math.sqrt((nu - 2) / nu)
+        e = np.zeros(n + burn)
+        s2 = np.full(n + burn, om / max(1e-6, 1 - a - g / 2 - b))
+        for t in range(1, n + burn):
+            s2[t] = om + (a + g * (e[t - 1] < 0)) * e[t - 1] ** 2 + b * s2[t - 1]
+            e[t] = math.sqrt(s2[t]) * z[t]
+        return np.round(mu + e[burn:], 3)
+
+    y1 = sim(160, 0.05, 0.1, 0.12, 0.8)
+    y2 = np.round(rng.standard_normal(300) * 1.3, 3)
+    sim(800, 0.0, 0.01, 0.09, 0.905, dist="t", nu=5)
+    y5 = sim(250, 0.0, 0.05, 0.05, 0.6, g=0.3)
+    return y1, y2, np.round(y1 / 100, 5), y5
+
+
+bound_y1, bound_y2, bound_y4, bound_y5 = _bound_series()
+garch_bound = []
+for cid, y, vol, dist, mean in [
+    ("egarch-n160-zero", bound_y1, "egarch", "normal", "Zero"),
+    ("garch-iid", bound_y2, "garch", "normal", "Constant"),
+    ("gjr-iid-t", bound_y2, "gjr", "t", "Constant"),
+    ("garch-decimal", bound_y4, "gjr", "normal", "Constant"),
+    ("egarch-t-lev", bound_y5, "egarch", "t", "Constant"),
+]:
+    c = garch_case(y, vol, dist, mean)
+    c["id"] = cid
+    c["y"] = L(y)
+    del c["condVol"]
+    for key in ("seRobust", "seClassic"):  # arch's SEs at a bound can be NaN (JSON has no NaN)
+        c[key] = [v if math.isfinite(v) else None for v in c[key]]
+    garch_bound.append(c)
+
+
 # ------------------------------------------------------------------ VAR
 
 def var_case(Y, names, p, maxlags, periods=10):
@@ -268,6 +307,7 @@ fixture = {
     },
     "garch": garch_cases,
     "garchHoldout": garch_holdout,
+    "garchBound": garch_bound,
     "var": var_default,
     "varHoldout": var_holdout,
     "eg": eg_default,

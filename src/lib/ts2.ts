@@ -371,20 +371,258 @@ function garchLls(s: GarchSetup, x: ArrayLike<number>, out?: Float64Array, keep?
   return sum;
 }
 
-/** arch's parameter bounds and linear constraints; true when x satisfies them (with a strict stationarity bound). */
-function garchFeasible(s: GarchSetup, x: number[]): boolean {
-  const p = unpack(s, x);
-  if (!x.every(Number.isFinite)) return false;
-  if (p.omega < s.omegaLo || p.omega > s.omegaHi) return false;
-  if (s.spec.dist === "t" && (p.nu < 2.05 || p.nu > 500)) return false;
-  if (s.spec.vol === "egarch") return p.beta >= 0 && p.beta < 1;
-  if (p.alpha < 0 || p.alpha > 1 || p.beta < 0 || p.beta > 1) return false;
-  if (s.spec.vol === "gjr" && (p.gamma < -1 || p.gamma > 2 || p.alpha + p.gamma < 0)) return false;
-  return p.alpha + p.gamma / 2 + p.beta < 1;
+/** One linear inequality a·x ≥ b of the parameter space (arch's bounds and constraints, written as rows). */
+interface LinCon {
+  a: number[];
+  b: number;
+  label: string;
 }
 
-/** arch's volatility starting grid: the best Gaussian log likelihood over α × γ × (α + γ/2 + β) (or β for EGARCH). */
-function garchStart(s: GarchSetup, ybar: number): number[] {
+const slackOf = (c: LinCon, x: ArrayLike<number>): number => {
+  let s = -c.b;
+  for (let i = 0; i < c.a.length; i++) if (c.a[i] !== 0) s += c.a[i] * x[i];
+  return s;
+};
+
+/**
+ * arch 8.0's parameter bounds and linear constraints as rows a·x ≥ b: GARCH.bounds/constraints (ω in
+ * [10⁻⁸·mean r², 10·mean r²], α, β in [0, 1], γ in [−1, 2], α + γ ≥ 0, α + γ/2 + β ≤ 1), EGARCH (ω in
+ * ln(mean r²) ± ln 10⁴, 0 ≤ β ≤ 1), StudentsT (2.05 ≤ ν ≤ 500). The mean μ and EGARCH's α, γ are free.
+ */
+function garchConstraints(s: GarchSetup, k: number): LinCon[] {
+  const km = s.km;
+  const vol = s.spec.vol;
+  const iO = km;
+  const iA = km + 1;
+  const iG = vol !== "garch" ? km + 2 : -1;
+  const iB = vol !== "garch" ? km + 3 : km + 2;
+  const iNu = s.spec.dist === "t" ? iB + 1 : -1;
+  const row = (pairs: [number, number][], b: number, label: string): LinCon => {
+    const a = new Array<number>(k).fill(0);
+    for (const [i, v] of pairs) a[i] = v;
+    return { a, b, label };
+  };
+  const c: LinCon[] = [row([[iO, 1]], s.omegaLo, "ω at its lower bound"), row([[iO, -1]], -s.omegaHi, "ω at its upper bound")];
+  if (vol === "egarch") c.push(row([[iB, 1]], 0, "β = 0"), row([[iB, -1]], -1, "β = 1"));
+  else {
+    c.push(row([[iA, 1]], 0, "α = 0"), row([[iA, -1]], -1, "α = 1"), row([[iB, 1]], 0, "β = 0"), row([[iB, -1]], -1, "β = 1"));
+    if (vol === "gjr") {
+      c.push(row([[iG, 1]], -1, "γ = −1"), row([[iG, -1]], -2, "γ = 2"), row([[iA, 1], [iG, 1]], 0, "α + γ = 0"));
+      c.push(row([[iA, -1], [iG, -0.5], [iB, -1]], -1, "α + γ/2 + β = 1"));
+    } else c.push(row([[iA, -1], [iB, -1]], -1, "α + β = 1"));
+  }
+  if (iNu >= 0) c.push(row([[iNu, 1]], 2.05, "ν = 2.05"), row([[iNu, -1]], -500, "ν = 500 (the errors look normal)"));
+  return c;
+}
+
+/** Rows with a slack below this are on their constraint (the rescaled data has RMS in [0.1, 1000)). */
+const ACTIVE_TOL = 1e-7;
+const actTol = (c: LinCon): number => ACTIVE_TOL * Math.max(1, Math.abs(c.b));
+
+/** True when x is finite and satisfies every row (to rounding: a projection onto a row can leave 10⁻¹⁶ of it). */
+function garchFeasible(cons: LinCon[], x: number[]): boolean {
+  if (!x.every(Number.isFinite)) return false;
+  return cons.every((c) => slackOf(c, x) >= -1e-12 * Math.max(1, Math.abs(c.b)));
+}
+
+/** Central-difference gradient (one-sided where one side is not finite, e.g. ν ≤ 2); null when neither side is. */
+function numGrad(f: (x: number[]) => number, x: number[], fx: number): number[] | null {
+  const g = new Array<number>(x.length);
+  for (let i = 0; i < x.length; i++) {
+    const h = 1e-6 * Math.max(1, Math.abs(x[i]));
+    const xp = x.slice();
+    const xm = x.slice();
+    xp[i] += h;
+    xm[i] -= h;
+    const fp = f(xp);
+    const fm = f(xm);
+    if (Number.isFinite(fp) && Number.isFinite(fm)) g[i] = (fp - fm) / (2 * h);
+    else if (Number.isFinite(fp)) g[i] = (fp - fx) / h;
+    else if (Number.isFinite(fm)) g[i] = (fx - fm) / h;
+    else return null;
+  }
+  return g;
+}
+
+/** Small dense solve by Gaussian elimination with partial pivoting; null when singular. */
+function solveSmall(A: M, b: number[]): number[] | null {
+  const n = b.length;
+  const m = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r;
+    if (!(Math.abs(m[p][c]) > 1e-14)) return null;
+    [m[c], m[p]] = [m[p], m[c]];
+    for (let r = c + 1; r < n; r++) {
+      const f = m[r][c] / m[c][c];
+      for (let j = c; j <= n; j++) m[r][j] -= f * m[c][j];
+    }
+  }
+  const x = new Array<number>(n).fill(0);
+  for (let r = n - 1; r >= 0; r--) {
+    let s = m[r][n];
+    for (let j = r + 1; j < n; j++) s -= m[r][j] * x[j];
+    x[r] = s / m[r][r];
+  }
+  return x;
+}
+
+/**
+ * Lagrange multipliers for g = Σ λᵢ aᵢ over the rows W, kept non-negative (rows with a negative multiplier are dropped
+ * one at a time, the most negative first: a non-negative least squares for these ≤ 4 rows). Returns λ per kept row
+ * and the residual g − Aᵀλ (the projected gradient).
+ */
+function kktMultipliers(cons: LinCon[], W: number[], g: number[]): { kept: number[]; lambda: number[]; resid: number[]; firstNegative: number | null } {
+  let kept = W.slice();
+  let firstNegative: number | null = null;
+  for (;;) {
+    let lambda: number[] = [];
+    if (kept.length) {
+      const A = kept.map((i) => cons[i].a);
+      const AAt = A.map((ri) => A.map((rj) => ri.reduce((s, v, t) => s + v * rj[t], 0)));
+      const Ag = A.map((ri) => ri.reduce((s, v, t) => s + v * g[t], 0));
+      lambda = solveSmall(AAt, Ag) ?? A.map(() => 0);
+    }
+    const resid = g.slice();
+    kept.forEach((ci, j) => cons[ci].a.forEach((v, t) => (resid[t] -= lambda[j] * v)));
+    let worst = -1;
+    for (let j = 0; j < lambda.length; j++) if (lambda[j] < 0 && (worst < 0 || lambda[j] < lambda[worst])) worst = j;
+    if (worst < 0) return { kept, lambda, resid, firstNegative };
+    if (firstNegative === null) firstNegative = kept[worst];
+    kept = kept.filter((_, j) => j !== worst);
+  }
+}
+
+/** Gradient tolerance of the KKT check, on the per-observation negative log likelihood of the rescaled data. */
+const KKT_GTOL = 1e-5;
+
+/**
+ * The first-order (KKT) conditions at x: the gradient of f is a non-negative combination of the active rows' normals
+ * to within KKT_GTOL (on the free directions the gradient vanishes; on a bound it points out of the region).
+ */
+function garchKkt(f: (x: number[]) => number, cons: LinCon[], x: number[], kinkAt0 = false): { ok: boolean; worst: number; active: number[] } {
+  const fx = f(x);
+  const g = Number.isFinite(fx) ? numGrad(f, x, fx) : null;
+  const active = cons.map((c, i) => (slackOf(c, x) <= actTol(c) ? i : -1)).filter((i) => i >= 0);
+  if (!g) return { ok: false, worst: Infinity, active };
+  if (kinkAt0 && Math.abs(g[0]) > KKT_GTOL) {
+    // EGARCH's |zₜ| = |rₜ − μ|/σₜ has a kink in μ at every observation, and the optimum often sits on one (μ equal to a
+    // return as typed). There the condition is on the one-sided slopes: falling to the left, rising to the right
+    // (0 in the subgradient), checked over a step of 10⁻⁴·max(1, |μ|), so μ is within that of the kink.
+    const h = 1e-4 * Math.max(1, Math.abs(x[0]));
+    const fl = f([x[0] - h, ...x.slice(1)]);
+    const fr = f([x[0] + h, ...x.slice(1)]);
+    if ((fx - fl) / h <= KKT_GTOL && (fr - fx) / h >= -KKT_GTOL) g[0] = 0;
+  }
+  const { resid } = kktMultipliers(cons, active, g);
+  const worst = Math.max(...resid.map(Math.abs));
+  return { ok: worst <= KKT_GTOL, worst, active };
+}
+
+/** An orthonormal basis of the null space of the rows (k − rank vectors), by Gram–Schmidt. */
+function nullBasis(rows: number[][], k: number): number[][] {
+  const q: number[][] = [];
+  const orth = (v: number[], against: number[][]): number[] => {
+    const w = v.slice();
+    for (let pass = 0; pass < 2; pass++)
+      for (const u of against) {
+        const d = u.reduce((s, ui, t) => s + ui * w[t], 0);
+        for (let t = 0; t < k; t++) w[t] -= d * u[t];
+      }
+    return w;
+  };
+  const unit = (w: number[]): number[] | null => {
+    const nrm = Math.sqrt(w.reduce((s, v) => s + v * v, 0));
+    return nrm > 1e-8 ? w.map((v) => v / nrm) : null;
+  };
+  for (const r of rows) {
+    const u = unit(orth(r, q));
+    if (u) q.push(u);
+  }
+  const Z: number[][] = [];
+  for (let j = 0; j < k && q.length + Z.length < k; j++) {
+    const e = new Array<number>(k).fill(0);
+    e[j] = 1;
+    const u = unit(orth(e, [...q, ...Z]));
+    if (u) Z.push(u);
+  }
+  return Z;
+}
+
+/** x moved onto the rows W (a·x = b) by the least change (x − Aᵀ(AAᵀ)⁻¹(Ax − b)); x itself when singular. */
+function projectOnto(cons: LinCon[], W: number[], x: number[]): number[] {
+  if (!W.length) return x;
+  const A = W.map((i) => cons[i].a);
+  const AAt = A.map((ri) => A.map((rj) => ri.reduce((s, v, t) => s + v * rj[t], 0)));
+  const r = W.map((i) => slackOf(cons[i], x));
+  const mu = solveSmall(AAt, r);
+  if (!mu) return x;
+  const out = x.slice();
+  W.forEach((_, j) => A[j].forEach((v, t) => (out[t] -= mu[j] * v)));
+  return out;
+}
+
+/**
+ * Active-set quasi-Newton for f over the polytope: BFGS in the null space of the working rows W (x = x_W + Z z), then
+ * drop a row whose multiplier is negative (the likelihood rises into the interior) or add a row the search ran into
+ * while the gradient points out through it; repeat until neither happens. This reaches an optimum on a bound (α = 0,
+ * β = 0), where a BFGS whose steps outside the region are rejected stalls with every other parameter where it was.
+ */
+function activeSetMin(
+  f: (x: number[]) => number,
+  cons: LinCon[],
+  x0: number[],
+  budget: { left: number },
+): { x: number[]; f: number } {
+  const k = x0.length;
+  let x = x0.slice();
+  let W = cons.map((c, i) => (slackOf(c, x) <= 1e-6 * Math.max(1, Math.abs(c.b)) ? i : -1)).filter((i) => i >= 0);
+  let fx = f(x);
+  for (let round = 0; round < 12 && budget.left > 0; round++) {
+    const xp = projectOnto(cons, W, x);
+    if (garchFeasible(cons, xp) && Number.isFinite(f(xp))) x = xp;
+    const Z = nullBasis(
+      W.map((i) => cons[i].a),
+      k,
+    );
+    if (Z.length) {
+      const base = x.slice();
+      const at = (z: number[]): number[] => base.map((v, t) => v + Z.reduce((s, zi, j) => s + zi[t] * z[j], 0));
+      const sub = (z: number[]): number => {
+        const xx = at(z);
+        return garchFeasible(cons, xx) ? f(xx) : Infinity;
+      };
+      const r = bfgs(sub, new Array<number>(Z.length).fill(0), GARCH_MAX_ITER, budget);
+      if (Number.isFinite(r.f) && r.f <= fx) {
+        x = at(r.x);
+        fx = r.f;
+      }
+    }
+    fx = f(x);
+    const g = numGrad(f, x, fx);
+    if (!g) break;
+    const m = kktMultipliers(cons, W, g);
+    let changed = false;
+    if (m.firstNegative !== null) {
+      W = W.filter((i) => i !== m.firstNegative);
+      changed = true;
+    }
+    for (let i = 0; i < cons.length; i++) {
+      if (W.includes(i) || i === m.firstNegative) continue;
+      const c = cons[i];
+      const outward = c.a.reduce((s, v, t) => s + v * g[t], 0) > 0;
+      if (outward && slackOf(c, x) <= 1e-5 * Math.max(1, Math.abs(c.b))) {
+        W.push(i);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return { x, f: fx };
+}
+
+/** arch's volatility starting grid, best Gaussian log likelihood first, over α × γ × (α + γ/2 + β) (or β for EGARCH). */
+function garchStarts(s: GarchSetup, ybar: number): number[][] {
   const n = s.n;
   const r = new Float64Array(n);
   for (let i = 0; i < n; i++) r[i] = s.y[i] - (s.km ? ybar : 0);
@@ -393,8 +631,7 @@ function garchStart(s: GarchSetup, ybar: number): number[] {
   ms /= n;
   const gauss: GarchSetup = { ...s, spec: { ...s.spec, dist: "normal", mean: "zero" }, y: r, km: 0 };
   const alphas = [0.01, 0.05, 0.1, 0.2];
-  let best = -Infinity;
-  let bestV: number[] = [];
+  const grid: { ll: number; v: number[] }[] = [];
   const egarch = s.spec.vol === "egarch";
   const gammas = egarch ? [-0.1, 0, 0.1] : s.spec.vol === "gjr" ? alphas : [0.01, 0.05, 0.1, 0.2];
   const abgs = [0.5, 0.7, 0.9, 0.98];
@@ -415,14 +652,19 @@ function garchStart(s: GarchSetup, ybar: number): number[] {
           } else v = [om, a, agb];
         }
         const ll = garchLls(gauss, v);
-        if (ll > best) {
-          best = ll;
-          bestV = v;
-        }
+        grid.push({ ll: Number.isFinite(ll) ? ll : -Infinity, v });
       }
+  // Stable sort, best first: ties keep arch's grid order (it takes the first maximum, as this does).
+  grid.sort((p, q) => q.ll - p.ll);
+  return grid.slice(0, 3).map((gp) => withNu(s, ybar, gp.v));
+}
+
+/** A full start vector (μ, the volatility start, then ν by StudentsT.starting_values for t errors). */
+function withNu(s: GarchSetup, ybar: number, vol: number[]): number[] {
+  const n = s.n;
   const out: number[] = [];
   if (s.km) out.push(ybar);
-  out.push(...bestV);
+  out.push(...vol);
   if (s.spec.dist === "t") {
     // StudentsT.starting_values: a moment estimator from the kurtosis of the standardised residuals.
     const sig = new Float64Array(n);
@@ -465,7 +707,14 @@ export interface GarchFit {
   resid: Float64Array;
   backcast: number;
   n: number;
+  /**
+   * The first-order (KKT) conditions hold at the estimate: the projected gradient of the per-observation negative log
+   * likelihood on the free directions is ≤ 10⁻⁵ and on each active bound it points out of the parameter space.
+   * The calculator prints estimates only when this is true.
+   */
   converged: boolean;
+  /** The largest projected-gradient component in that check. */
+  kktGradient: number;
   /** Parameters within 10⁻⁴ of a bound or constraint (SEs there are not reliable). */
   atBounds: string[];
   /** α + β (GARCH), α + γ/2 + β (GJR), β (EGARCH). */
@@ -522,43 +771,81 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   const s = garchSetup(y, spec);
   const names = garchParamNames(spec);
   const k = names.length;
-  const nll = (x: number[]): number => {
-    if (!garchFeasible(s, x)) return Infinity;
+  const cons = garchConstraints(s, k);
+  // The raw negative log likelihood per observation (defined a little outside the region too, for gradients there).
+  const raw = (x: number[]): number => {
+    if (!x.every(Number.isFinite)) return Infinity;
     const v = -garchLls(s, x) / n;
     return Number.isFinite(v) ? v : Infinity;
   };
-  const x0 = garchStart(s, ybar);
-  if (!garchFeasible(s, x0)) return { ok: false, reason: "No feasible starting point was found for this series." };
   const budget = { left: 40000 };
   const counted = (x: number[]): number => {
     budget.left--;
-    return nll(x);
+    return raw(x);
   };
-  let best = bfgs(counted, x0, GARCH_MAX_ITER, budget);
+  const nll = (x: number[]): number => (garchFeasible(cons, x) ? counted(x) : Infinity);
+  const starts = garchStarts(s, ybar).filter((x0) => garchFeasible(cons, x0));
+  if (!starts.length) return { ok: false, reason: "No feasible starting point was found for this series." };
+  let best = bfgs(nll, starts[0], GARCH_MAX_ITER, budget);
   // A second pass from the optimum restarts the inverse-Hessian approximation (polishes a long valley).
   if (budget.left > 0 && Number.isFinite(best.f)) {
-    const again = bfgs(counted, best.x, GARCH_MAX_ITER, budget);
+    const again = bfgs(nll, best.x, GARCH_MAX_ITER, budget);
     if (again.f <= best.f) best = { ...again, converged: again.converged || best.converged };
   }
-  if (!Number.isFinite(best.f)) return { ok: false, reason: "The likelihood could not be evaluated at any feasible parameters for this series." };
-  const x = best.x;
+  let x = best.x;
+  let fBest = best.f;
+  const kinkAt0 = spec.vol === "egarch" && s.km === 1;
+  const noKkt = { ok: false, worst: Infinity, active: [] as number[] };
+  let kkt = Number.isFinite(fBest) ? garchKkt(raw, cons, x, kinkAt0) : noKkt;
+  if (!kkt.ok) {
+    // Escalation (the optimum is on a bound, or the first search stalled): the active-set search from this point, then
+    // from the other starts (arch's next-best grid points; for t errors also ν = 5, 30, 100), keeping the lowest
+    // −log L and stopping once it satisfies the KKT conditions. Its evaluations are capped by the series length
+    // (≈ 1.5·10⁷ observation-passes), so a long series that never settles is refused in bounded time.
+    const tries: number[][] = [];
+    if (Number.isFinite(fBest)) tries.push(x);
+    tries.push(...starts);
+    if (spec.dist === "t") for (const nu0 of [5, 30, 100]) tries.push([...starts[0].slice(0, k - 1), nu0]);
+    budget.left = Math.min(budget.left, Math.max(400, Math.floor(1.5e7 / n)));
+    for (let ti = 0; ti < tries.length; ti++) {
+      const x0 = tries[ti];
+      if (budget.left <= 0) break;
+      if (!garchFeasible(cons, x0)) continue;
+      let r = activeSetMin(nll, cons, x0, budget);
+      if (kinkAt0 && ti === 0 && Number.isFinite(r.f) && !garchKkt(raw, cons, r.x, true).ok) {
+        // EGARCH with a mean: BFGS cannot settle on the kink of |rₜ − μ|; pin μ to the nearest return and refit the rest.
+        let mu = r.x[0];
+        let dBest = Infinity;
+        for (let i = 0; i < n; i++) {
+          const d = Math.abs(s.y[i] - r.x[0]);
+          if (d < dBest) {
+            dBest = d;
+            mu = s.y[i];
+          }
+        }
+        if (dBest <= 1e-3 * Math.max(1, Math.abs(mu))) {
+          const sub = cons.map((c) => ({ ...c, a: c.a.slice(1) }));
+          const f2 = (v: number[]): number => nll([mu, ...v]);
+          const r2 = activeSetMin(f2, sub, r.x.slice(1), budget);
+          if (Number.isFinite(r2.f) && r2.f <= r.f) r = { x: [mu, ...r2.x], f: r2.f };
+        }
+      }
+      if (Number.isFinite(r.f) && r.f <= fBest) {
+        x = r.x;
+        fBest = r.f;
+        kkt = garchKkt(raw, cons, x, kinkAt0);
+        if (kkt.ok) break;
+      }
+    }
+    if (Number.isFinite(fBest)) kkt = garchKkt(raw, cons, x, kinkAt0);
+  }
+  if (!Number.isFinite(fBest)) return { ok: false, reason: "The likelihood could not be evaluated at any feasible parameters for this series." };
   const pr = unpack(s, x);
 
-  // Boundaries (arch's bounds and constraints).
+  // Boundaries (arch's bounds and constraints) the estimate is on.
   const atBounds: string[] = [];
-  const near = (v: number, b: number): boolean => Math.abs(v - b) < 1e-4 * Math.max(1, Math.abs(b));
-  if (spec.vol !== "egarch") {
-    if (near(pr.alpha, 0)) atBounds.push("α = 0");
-    if (near(pr.beta, 0)) atBounds.push("β = 0");
-    if (spec.vol === "gjr" && near(pr.alpha + pr.gamma, 0)) atBounds.push("α + γ = 0");
-    if (near(pr.alpha + pr.gamma / 2 + pr.beta, 1)) atBounds.push("α + γ/2 + β = 1");
-  } else {
-    if (near(pr.beta, 1)) atBounds.push("β = 1");
-    if (near(pr.beta, 0)) atBounds.push("β = 0");
-  }
-  if (near(pr.omega, s.omegaLo)) atBounds.push("ω at its lower bound");
-  if (spec.dist === "t" && near(pr.nu, 500)) atBounds.push("ν = 500 (the errors look normal)");
-  if (spec.dist === "t" && near(pr.nu, 2.05)) atBounds.push("ν = 2.05");
+  const near = (c: LinCon): boolean => slackOf(c, x) < 1e-4 * Math.max(1, Math.abs(c.b));
+  for (const c of cons) if (near(c) && !atBounds.includes(c.label)) atBounds.push(c.label);
 
   // Covariance as arch computes it: Hessian of −Σ log L / n, scores by forward differences, np.cov (ddof 1).
   const negSum = (v: number[]): number => -garchLls(s, v);
@@ -656,12 +943,28 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     resid,
     backcast: spec.vol === "egarch" ? s.backcast - 2 * Math.log(c) : s.backcast / (c * c),
     n,
-    converged: best.converged,
+    converged: kkt.ok,
+    kktGradient: kkt.worst,
     atBounds,
     persistence,
     forecast: forecastScaled.map((v) => v / (c * c)),
     scale: c,
   };
+}
+
+/**
+ * The KKT check fitGarch applies, at given parameters in the units of y (y with RMS in [0.1, 1000), so no rescaling):
+ * the largest projected-gradient component of −log L/n and whether it passes. For tests of the hard rule.
+ */
+export function garchKktAt(y: ArrayLike<number>, spec: GarchSpec, x: number[]): { ok: boolean; worst: number } {
+  const s = garchSetup(Float64Array.from(y), spec);
+  const cons = garchConstraints(s, x.length);
+  const raw = (v: number[]): number => {
+    const r = -garchLls(s, v) / s.n;
+    return Number.isFinite(r) ? r : Infinity;
+  };
+  const r = garchKkt(raw, cons, x, spec.vol === "egarch" && s.km === 1);
+  return { ok: r.ok && garchFeasible(cons, x), worst: r.worst };
 }
 
 /** Log likelihood and arch's covariances at FIXED parameters (the oracle's am.fix / compute_param_cov check). */

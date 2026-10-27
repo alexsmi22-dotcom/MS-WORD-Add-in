@@ -340,8 +340,11 @@ export function tsGarchCalc(read: Read): StatOutput {
   const k = fit.params.length;
   const finite = [fit.llf, ...fit.params, ...fit.forecast.slice(0, h), fit.persistence];
   if (!finite.every(Number.isFinite)) return refuse("A fitted quantity is not a finite number for this series, so the result is not reported.");
-  if (!fit.converged && !fit.atBounds.length) {
-    return refuse("The likelihood maximisation did not converge for this series (the optimiser stopped before the gradient vanished). Try the normal distribution, a different model, or a longer series.");
+  // Hard rule: estimates are printed only when the first-order (KKT) conditions hold at them, on a bound or not.
+  if (!fit.converged) {
+    return refuse(
+      `The likelihood maximization did not converge for this series: at the best parameters found, the gradient of the log likelihood does not vanish on the free parameters (largest projected component ${Number.isFinite(fit.kktGradient) ? fmtFixed(fit.kktGradient, 4) : "not computable"} per observation), so no estimates are reported. Try the normal distribution, a different model, or a longer series.`,
+    );
   }
   const P = Object.fromEntries(fit.names.map((nm, i) => [nm, fit.params[i]])) as Record<string, number>;
   const aic = -2 * fit.llf + 2 * k;
@@ -360,7 +363,10 @@ export function tsGarchCalc(read: Read): StatOutput {
   let halfLife = "";
   if (fit.persistence > 0 && !unitPers) {
     const hl = Math.log(0.5) / Math.log(fit.persistence);
-    halfLife = `; half-life of a volatility shock = ln 0.5 / ln(persistence) = ${fmtFixed(hl, hl < 10 ? 2 : 1)} periods`;
+    halfLife =
+      hl < 1
+        ? "; half-life of a volatility shock = ln 0.5 / ln(persistence) is under 1 period (a shock halves within a period)"
+        : `; half-life of a volatility shock = ln 0.5 / ln(persistence) = ${fmtFixed(hl, hl < 10 ? 2 : 1)} periods`;
   } else if (unitPers) halfLife = "; at 1 (integrated volatility): a shock to volatility does not decay, so there is no finite half-life or unconditional variance";
   else halfLife = "; a shock dies out within one period";
   lines.push(`Persistence ${persWord} = ${fmtFixed(fit.persistence, 4)}${halfLife}`);
@@ -379,7 +385,7 @@ export function tsGarchCalc(read: Read): StatOutput {
   if (spec.vol === "egarch") {
     lines.push(
       P.gamma < 0
-        ? `Leverage: γ₁ = ${fmtFixed(P.gamma, 4)} < 0, so a negative standardised shock raises log variance more than a positive one.`
+        ? `Leverage: γ₁ = ${fmtFixed(P.gamma, 4)} < 0, so a negative standardized shock raises log variance more than a positive one.`
         : `γ₁ = ${fmtFixed(P.gamma, 4)} ≥ 0: no leverage effect.`,
     );
   }
@@ -408,7 +414,7 @@ export function tsGarchCalc(read: Read): StatOutput {
     `Start of the recursion: arch's backcast, Σ wᵢ ε̂²ᵢ over the first min(75, n) residuals with weights wᵢ ∝ 0.94ⁱ (ε̂ = ${mean === "constant" ? "rₜ − r̄" : "rₜ"}, fixed during the fit) = ${fmtFixed(spec.vol === "egarch" ? Math.exp(fit.backcast) : fit.backcast, 5)}${spec.vol === "egarch" ? " (its logarithm starts ln σ²)" : spec.vol === "gjr" ? " (the asymmetric term starts at half of it)" : ""}; arch's loose variance bounds are applied in the recursion.`,
   );
   lines.push(
-    `Estimation: maximum likelihood by BFGS within arch's bounds and constraints (${spec.vol === "egarch" ? "0 ≤ β₁ < 1" : spec.vol === "gjr" ? "α₁ ≥ 0, α₁ + γ₁ ≥ 0, β₁ ≥ 0, α₁ + γ₁/2 + β₁ < 1" : "α₁ ≥ 0, β₁ ≥ 0, α₁ + β₁ < 1"}${dist === "t" ? ", 2.05 ≤ ν ≤ 500" : ""}), started from arch's starting grid; at most 300 iterations per pass.`,
+    `Estimation: maximum likelihood within arch's bounds and constraints (${spec.vol === "egarch" ? "0 ≤ β₁ ≤ 1" : spec.vol === "gjr" ? "α₁ ≥ 0, α₁ + γ₁ ≥ 0, β₁ ≥ 0, α₁ + γ₁/2 + β₁ ≤ 1" : "α₁ ≥ 0, β₁ ≥ 0, α₁ + β₁ ≤ 1"}${dist === "t" ? ", 2.05 ≤ ν ≤ 500" : ""}), by BFGS from arch's starting grid; when the optimum is on a bound, an active-set search (BFGS on the free parameters, a bound kept while the likelihood rises toward it) from that point and from arch's next-best starting points. Estimates are reported only when the first-order (KKT) conditions hold: the gradient of −log L/n on the free parameters is below 10⁻⁵ and on each bound it points out of the parameter space${spec.vol === "egarch" && mean === "constant" ? " (for μ, whose |rₜ − μ| term has a kink at each return, the one-sided slopes are checked)" : ""}.`,
   );
   lines.push(
     "Standard errors: robust (Bollerslev–Wooldridge 1992) sandwich H⁻¹SH⁻¹/n, H the numerical Hessian of −log L/n and S the sample covariance (n − 1 divisor) of the per-observation scores, exactly as arch's cov_type=\"robust\" computes them; the classic column is H⁻¹/n. z and p from the normal distribution.",

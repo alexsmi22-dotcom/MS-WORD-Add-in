@@ -178,7 +178,7 @@ describe("apportionment, EMVR/SSPPU and Nash: exact cents vs Python fractions", 
   });
 });
 
-describe("comparable licence vs the Python oracle (1e-9 relative)", () => {
+describe("comparable license vs the Python oracle (1e-9 relative)", () => {
   test.each(cases(ORACLE.comparable))("%s", (_n, c: any) => {
     const r = computeComparable({ bases: c.bases, labels: c.bases.map((_: number, i: number) => `P${i + 1}`), direction: c.direction, lump: c.lump, ratePct: c.rate, discountPct: c.disc, periodsPerYear: c.ppy });
     if ("error" in r) throw new Error(r.error);
@@ -252,7 +252,7 @@ describe("hostile inputs are refused by field name", () => {
     ["ipv-rfr", { forecast: "100\n200" }, "needs the year"],
     ["ipv-rfr", { forecast: "2027 2e12" }, "above one trillion"],
     ["ipv-rfr", { attr: "decay", decay: "0" }, "Attrition (% a year)"],
-    ["ipv-rfr", { tabyears: "7.5" }, "Amortisation period (years)"],
+    ["ipv-rfr", { tabyears: "7.5" }, "Amortization period (years)"],
     ["ipv-rfr", { mode: "growth", growth: "-100" }, "Revenue growth"],
     ["ipv-rfr", { currency: "ABC" }, "ABC is not in ISO 4217"],
     ["ipv-rfr", { currency: "XXX" }, "Currency: XXX"],
@@ -429,7 +429,7 @@ describe("timing at the caps (≤ 300 ms)", () => {
     const ms = time(() => fast("ipv-mc", over));
     expect(ms).toBeLessThan(budget(300));
   });
-  test("50-year relief-from-royalty and income approach; 1,200-period comparable licence", () => {
+  test("50-year relief-from-royalty and income approach; 1,200-period comparable license", () => {
     const years = Array.from({ length: 50 }, (_, i) => `${2027 + i} ${1000000 + i * 1000}`).join("\n");
     const flows = Array.from({ length: 50 }, (_, i) => `${2027 + i} ${500000 + i * 1000} 1000`).join("\n");
     const periods = Array.from({ length: 1200 }, (_, i) => `M${i + 1} ${100000 + i}`).join("\n");

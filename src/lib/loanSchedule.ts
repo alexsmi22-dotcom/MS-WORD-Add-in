@@ -1,5 +1,5 @@
 /**
- * Loan amortisation with extra payments (recurring and one-off), a balloon, and rate changes (release F1, gap item
+ * Loan amortization with extra payments (recurring and one-off), a balloon, and rate changes (release F1, gap item
  * #9). Pure: no Office.js, no DOM.
  *
  * Conventions (printed by the calculator):
@@ -78,14 +78,14 @@ export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
   if (!Number.isInteger(n) || n < 1) return { error: "The loan term must be at least one payment." };
   if (n > MAX_AMORT_PERIODS) return { error: `The loan has ${n.toLocaleString("en-US")} payments; at most ${MAX_AMORT_PERIODS.toLocaleString("en-US")} are scheduled.` };
   const amortN = inp.amortN ?? n;
-  if (!Number.isInteger(amortN) || amortN < n || amortN > MAX_AMORT_PERIODS) return { error: "The amortisation term must be whole payments, no shorter than the loan term." };
+  if (!Number.isInteger(amortN) || amortN < n || amortN > MAX_AMORT_PERIODS) return { error: "The amortization term must be whole payments, no shorter than the loan term." };
   const changes = [...(inp.rateChanges ?? [])].sort((a, b) => a.k - b.k);
   const changeAt = new Map<number, number>();
   for (const c of changes) changeAt.set(c.k, c.rate);
   let annual = inp.annualRate;
   let i = annual / m;
   const balloonTarget = inp.balloon ?? 0;
-  // payment over the amortisation term; with a balloon, to that balloon over the loan term
+  // payment over the amortization term; with a balloon, to that balloon over the loan term
   let pmt = amortN > n ? levelPayment(P, i, amortN) : levelPayment(P, i, n, balloonTarget);
   if (!Number.isFinite(pmt)) return { error: "The payment is not computable for these inputs." };
   const payment0 = pmt;

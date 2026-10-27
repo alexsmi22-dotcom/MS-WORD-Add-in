@@ -486,14 +486,19 @@
     <div class="try"><b>Try it:</b> a table <code>Year | Revenue</code> with <code>2021 $1,200</code> / <code>2022 $1,500</code> / <code>2023 (200)</code> → the accountant parentheses become −200; “Show as = Column” renders a column chart with a zero line; Patent style hatches the bars and captions “FIG. 1”.</div>
     <p class="out"><b>Inserts:</b> a figure at the cursor (picture), an editable Word table, or a downloaded <code>.pptx</code>. Tables over 24 rows get a “this will be dense — try the table figure” warning.</p>
 
-    <h3>Finance — 33 calculators</h3>
-    <p>Pick a calculator; rates are entered as percentages; the result computes live. Twenty-four calculators, each backed by a pure function:</p>
+    <h3>Finance — 65 calculators</h3>
+    <p>Pick a calculator from the grouped list; rates are entered as percentages; the result computes live. Each calculator is backed by a pure function:</p>
     <ul>
       <li><b>Time value of money:</b> future value, present value, compound interest, growing-annuity PV, effective annual rate.</li>
       <li><b>Loans:</b> payment, amortization summary (payment / total interest / total paid), declining-balance depreciation schedule.</li>
       <li><b>Project &amp; valuation:</b> NPV, IRR, XIRR (dated flows), DCF with a Gordon terminal value, annualized return / volatility / Sharpe.</li>
-      <li><b>Options (Black–Scholes, European, no dividends):</b> price, Greeks (delta/gamma/vega/theta/rho), implied volatility.</li>
-      <li><b>Bonds:</b> price, yield to maturity, duration &amp; convexity.</li>
+      <li><b>Options (Black–Scholes–Merton, European, dividend yield q):</b> price with a put–call parity line, Greeks (delta/gamma/vega/theta/rho/psi), implied volatility.</li>
+      <li><b>Derivatives:</b> Black-76 options on futures, CRR binomial tree (European or American, tree drawn for small n), put–call parity check, cost-of-carry forward, multi-leg strategy payoff, plain-vanilla swap value on your curve.</li>
+      <li><b>Bonds:</b> price, yield to maturity, duration &amp; convexity; on real dates: accrued interest, clean/dirty price, yield to call/worst, T-bill yields; yield curves by bootstrap and Nelson–Siegel/Svensson.</li>
+      <li><b>Portfolio &amp; risk:</b> CAPM beta/alpha with standard errors, Sharpe/Sortino/Treynor and drawdown, VaR/CVaR (historical, normal, t, Monte Carlo), long-only efficient frontier.</li>
+      <li><b>Capital budgeting &amp; valuation:</b> WACC with Hamada, NPV with every IRR root and the NPV profile, MIRR, payback, PI, EAA, multi-stage DCF with a sensitivity heat map.</li>
+      <li><b>Schedules &amp; accounting:</b> loan schedule with extra payments, balloon and rate changes; depreciation (SL, DB→SL, SYD, units) and MACRS (IRS Pub 946) as Word tables; ratio suite, DuPont, common-size, Altman Z, break-even.</li>
+      <li><b>IP valuation &amp; licensing:</b> relief-from-royalty, income method, Monte Carlo, royalty apportionment, comparable licenses, Nash bargaining (the 25 % rule is refused, citing <i>Uniloc</i>).</li>
     </ul>
     <div class="try"><b>Try it:</b> future value pv 1000, 5%, 10 yr → 1,628.89. Bond price face 1000, 5% coupon, 6% YTM, 10 yr → ≈ 925.61 (a discount, since YTM &gt; coupon).</div>
     <p class="out"><b>Inserts:</b> the result as text or a small labelled table. Where a model has hidden assumptions (IRR reinvestment, Black–Scholes no-dividends, DCF terminal-value sensitivity, clean bond price…), an <b>“assumes” note is shown and carried into the inserted text</b>.</p>

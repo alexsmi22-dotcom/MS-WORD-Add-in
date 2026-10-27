@@ -1,6 +1,6 @@
 /**
  * Apportionment and royalty-rate methods (Release F1, v2.202.0, gap item #2): a chained apportionment worksheet, the
- * entire-market-value and smallest-salable-unit royalty bases side by side, comparable-licence unpacking (lump sum ⇄
+ * entire-market-value and smallest-salable-unit royalty bases side by side, comparable-license unpacking (lump sum ⇄
  * running royalty) and a Nash bargaining split. Pure: no Office.js, so jest imports it.
  *
  * US DOLLARS, like the damages tools (damagesUsd.ts): every amount prints with usd(); a field that names another
@@ -11,7 +11,7 @@
  *
  * EXACTNESS. The worksheet, the EMVR/SSPPU comparison and the Nash split are exact rational arithmetic on the typed
  * decimals (cas.ts Rat): every displayed amount is rounded to the cent once, half away from zero, from its exact value
- * (pinned against Python fractions in scripts/ipval-oracle.py). The comparable-licence tool discounts, so it works in
+ * (pinned against Python fractions in scripts/ipval-oracle.py). The comparable-license tool discounts, so it works in
  * doubles with dmg-royalty's convention: per-period amounts rounded to the cent, totals the sums of the rounded periods.
  */
 import { readFinanceField } from "./finance";
@@ -38,7 +38,7 @@ export function rule25Refusal(why: string): string {
   );
 }
 
-/** Rows of a comparable-licence forecast beyond this are refused (100 years monthly is 1,200). */
+/** Rows of a comparable-license forecast beyond this are refused (100 years monthly is 1,200). */
 export const APP_MAX_PERIODS = 1200;
 
 interface Refusal {
@@ -245,7 +245,7 @@ export function emvrCalc(read: Read): FinResult {
 }
 
 // ---------------------------------------------------------------------------
-// Comparable licence: lump sum ⇄ running royalty
+// Comparable license: lump sum ⇄ running royalty
 // ---------------------------------------------------------------------------
 
 export interface ComparableInput {
@@ -328,7 +328,7 @@ export function comparableCalc(read: Read): FinResult {
   if (isRefusal(c)) return refuse(c);
   const n = c.periods.length;
   const lines = [
-    direction === "lump2rate" ? "Comparable licence: lump sum to effective running royalty, computed from the inputs given" : "Comparable licence: running royalty to lump-sum equivalent, computed from the inputs given",
+    direction === "lump2rate" ? "Comparable license: lump sum to effective running royalty, computed from the inputs given" : "Comparable license: running royalty to lump-sum equivalent, computed from the inputs given",
     direction === "lump2rate"
       ? `Effective running rate: ${dmgPct(c.ratePct)} of the royalty base (lump sum ${dmgMoney(c.lump)} ÷ discounted base ${dmgMoney(c.pvBase)})`
       : `Lump-sum equivalent: ${dmgMoney(c.lump)} (${dmgPct(c.ratePct)} × discounted base ${dmgMoney(c.pvBase)})`,

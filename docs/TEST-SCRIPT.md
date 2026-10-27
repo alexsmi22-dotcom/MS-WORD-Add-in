@@ -10,6 +10,30 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ep. New in v2.202.0 — Finance F1 (33 → 65 calculators)
+
+- [ ] **Finance dropdown** shows group headings (Time value & loans … Currency); Home's Stats tile is visible with the
+  legal chip and mentions econometrics.
+- [ ] **Derivatives ▸ Black–Scholes option**, q = 3 → call 8.6525 (put 6.7309); a "Put–call parity" line with equal sides.
+- [ ] **Derivatives ▸ binomial tree** (defaults) → American put 4.4885, tree drawn with 3 shaded early-exercise nodes;
+  n = 200 European → convergence figure.
+- [ ] **Derivatives ▸ Black-76** → call 55.8874; **strategy** (iron condor) → credit 2.80, breakevens 92.2 and 107.8;
+  **swap** → value 77,086.87, par rate 4.372867 %.
+- [ ] **Capital budgeting ▸ NPV, every IRR…**: cash flows `−1600, 10000, −10000` → "2 roots: 25.0000%, 400.0000%" and
+  the NPV profile shows both; defaults → crossover 13.7158 %.
+- [ ] **Portfolio & risk ▸ Efficient frontier** (defaults) → tangency Sharpe 0.5076, CML drawn; Sharpe/Sortino with
+  "Prices" and `100, 102, 99.96` → "2 periods".
+- [ ] **Accounting ▸ MACRS** 7-year half-year → year 1 7,145.00 as a Word table, "Not tax advice"; Q2 → 17.85 % with
+  the IRS-rounding note.
+- [ ] **Time value & loans ▸ loan schedule** (defaults) → paid off with payment 251, interest saved 103,261.08, 109
+  months saved; Insert → Word table no wider than 6 columns.
+- [ ] **Accounting ▸ ratios** → current ratio 2.00×, ROE 22.50 % in both DuPont lines; **Altman Z** → 3.6040, safe
+  zone; **CVP** → break-even 2,000 units, margin of safety 33.33 %.
+- [ ] **IP valuation ▸ Nash bargaining split**, method "25% rule of thumb" → refused, quoting *Uniloc*.
+- [ ] **Fixed income ▸ Bond price, yield and accrued interest on dates** → accrued interest and clean/dirty price; Conventions line names the day count.
+- [ ] **NPV** with cash flows `−1 000; 300; 400` → refused, naming −1000 (no silent −1 and 0).
+- [ ] **XIRR** (defaults) → 37.3363 %.
+
 ## 0eo. New in v2.201.0 — Currency symbols; $ on damages
 
 - [ ] **Finance ▸ Currency conversion with your rates ▸ Insert** (defaults) → amounts read `£980.50 (GBP) = €1,149.12 (EUR)`,

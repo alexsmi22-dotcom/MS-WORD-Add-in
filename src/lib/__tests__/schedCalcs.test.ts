@@ -149,7 +149,7 @@ describe("loans vs the oracle", () => {
 
   test("the every-payment table is capped by name and falls back to the annual summary", () => {
     const o = out("loan-schedule", { view: "every", years: "40", extra: "", lumps: "" });
-    expect(o.tables![0].label).toBe("Amortisation schedule by year");
+    expect(o.tables![0].label).toBe("Amortization schedule by year");
     expect(o.tables![0].note).toContain("at most 360 rows");
     const s = out("loan-schedule", { view: "every", years: "5", extra: "", lumps: "" });
     expect(s.tables![0].rows.length).toBe(1 + 60 + 1);

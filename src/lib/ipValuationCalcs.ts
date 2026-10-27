@@ -1,12 +1,12 @@
 /**
  * Release F1 (v2.202.0) calculators for gap items #1 and #2, spread into the pane's FIN_CALCS under the group
  * "IP valuation & licensing":
- *  - ipv-rfr         Relief-from-royalty valuation (with the optional tax amortisation benefit)     engine ipValuation.ts
+ *  - ipv-rfr         Relief-from-royalty valuation (with the optional tax amortization benefit)     engine ipValuation.ts
  *  - ipv-income      Income approach (multi-period excess earnings, simplified)                       engine ipValuation.ts
  *  - ipv-mc          Monte Carlo patent value (PCG32, seeded)                                         engine ipValuation.ts
  *  - ipv-apportion   Apportionment worksheet (US dollars, exact cents)                                engine apportionment.ts
  *  - ipv-emvr-ssppu  EMVR vs SSPPU royalty base (US dollars)                                          engine apportionment.ts
- *  - ipv-comparable  Comparable licence: lump sum ⇄ running royalty (US dollars)                      engine apportionment.ts
+ *  - ipv-comparable  Comparable license: lump sum ⇄ running royalty (US dollars)                      engine apportionment.ts
  *  - ipv-nash        Nash bargaining split (US dollars; the 25% rule of thumb is refused)             engine apportionment.ts
  *
  * The worked defaults are invented numbers (no client data, no published case figures).
@@ -77,7 +77,7 @@ export const IPVAL_CALCS: FinCalcDef[] = [
       TIMING_FIELD,
       {
         key: "tab",
-        label: "Tax amortisation benefit",
+        label: "Tax amortization benefit",
         default: "yes",
         kind: "select",
         options: [
@@ -85,7 +85,7 @@ export const IPVAL_CALCS: FinCalcDef[] = [
           { value: "no", label: "Leave out" },
         ],
       },
-      { key: "tabyears", label: "Amortisation period (years)", default: "15", optional: true },
+      { key: "tabyears", label: "Amortization period (years)", default: "15", optional: true },
     ],
     assumes:
       "Royalty saved = revenue × royalty rate, taxed at the tax rate and discounted at the annual effective discount rate from the start of year 1; a partial final year is pro rata; " +
@@ -243,7 +243,7 @@ export const IPVAL_CALCS: FinCalcDef[] = [
   {
     id: "ipv-comparable",
     group: "IP valuation & licensing",
-    name: "Comparable licence: lump sum ⇄ running royalty",
+    name: "Comparable license: lump sum ⇄ running royalty",
     fields: [
       {
         key: "direction",
@@ -278,7 +278,7 @@ export const IPVAL_CALCS: FinCalcDef[] = [
     ],
     assumes:
       "The lump sum is paid at the start of the first period; the running royalty is paid at the end of each period on the forecast base; both are compared at the discount rate entered. " +
-      "Unpacking a real licence also needs its terms (scope, field, term, other consideration), which are not modelled.",
+      "Unpacking a real license also needs its terms (scope, field, term, other consideration), which are not modelled.",
     compute: (r) => {
       // Lump sum ⇄ effective running rate over a discounted forecast base.
       return comparableCalc(r);

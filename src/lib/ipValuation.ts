@@ -1,5 +1,5 @@
 /**
- * IP valuation (Release F1, v2.202.0, gap item #1): relief-from-royalty with an optional tax amortisation benefit, a
+ * IP valuation (Release F1, v2.202.0, gap item #1): relief-from-royalty with an optional tax amortization benefit, a
  * simplified income approach (multi-period excess earnings) with an obsolescence curve, and a Monte Carlo patent NPV.
  * Pure: no Office.js, no DOM, so jest imports it; ipValuationCalcs.ts wires the pane's fields to these functions.
  *
@@ -17,7 +17,7 @@
  *    none s_k = 1; straight-line to zero at the end of the remaining life s_k = 1 − m_k/L; % decay a a year
  *    s_k = (1 − a)^m_k.
  *  - Relief-from-royalty: royalty saved = revenue × w_k × s_k × royalty rate; tax = royalty saved × tax rate; PV of the
- *    after-tax royalty saved. TAB factor = 1/(1 − t × A/n), A = Σ_{j=1…n} 1/(1 + d)^τ_j over the n-year amortisation
+ *    after-tax royalty saved. TAB factor = 1/(1 − t × A/n), A = Σ_{j=1…n} 1/(1 + d)^τ_j over the n-year amortization
  *    period with the same timing convention (the convention used in valuation practice; no authority is cited).
  *  - Monte Carlo: PCG32 (prng.ts, stream 54) seeded by the Seed field; uniforms u = (r + 0.5)/2³² from successive
  *    32-bit outputs r; triangular by inverse CDF (one u); lognormal from P10/P90 (median √(P10 × P90), σ of ln =
@@ -189,7 +189,7 @@ export function annuityFactor(n: number, dPct: number, timing: Timing): number {
 export function tabFactor(taxPct: number, n: number, dPct: number, timing: Timing): number | Refusal {
   const a = annuityFactor(n, dPct, timing);
   const den = 1 - ((taxPct / 100) * a) / n;
-  if (!(den > 0)) return { error: `The tax amortisation benefit is undefined here: 1 − t × A/n = ${fixedText(den, 6)} is not positive (tax rate ${pctText(taxPct)}, annuity factor ${factorText(a)} over ${n} years).` };
+  if (!(den > 0)) return { error: `The tax amortization benefit is undefined here: 1 − t × A/n = ${fixedText(den, 6)} is not positive (tax rate ${pctText(taxPct)}, annuity factor ${factorText(a)} over ${n} years).` };
   return 1 / den;
 }
 
@@ -271,7 +271,7 @@ export interface RfrInput {
   attrition: Attrition;
   decayPct: number;
   timing: Timing;
-  /** Amortisation period in whole years for the TAB; 0 = no TAB. */
+  /** Amortization period in whole years for the TAB; 0 = no TAB. */
   tabYears: number;
 }
 export interface RfrYear {
@@ -386,7 +386,7 @@ export function rfrCalc(read: Read): FinResult {
   const timing = readTiming(read("timing"));
   let tabYears = 0;
   if (read("tab") === "yes") {
-    const n = readNum(read("tabyears"), "Amortisation period (years)", { min: 1, max: IPV_MAX_YEARS, integer: true, range: `1 to ${IPV_MAX_YEARS} whole years` });
+    const n = readNum(read("tabyears"), "Amortization period (years)", { min: 1, max: IPV_MAX_YEARS, integer: true, range: `1 to ${IPV_MAX_YEARS} whole years` });
     if (isRefusal(n)) return refuse(n);
     tabYears = n;
   }
@@ -399,7 +399,7 @@ export function rfrCalc(read: Read): FinResult {
     `Present value of the after-tax royalty saved: ${amount(c.pvSum, cur)}`,
   ];
   if (c.tabFactor !== null) {
-    lines.push(`Tax amortisation benefit: ${amount(c.tabAmount!, cur)} (TAB factor ${factorText(c.tabFactor)} over ${tabYears} years)`);
+    lines.push(`Tax amortization benefit: ${amount(c.tabAmount!, cur)} (TAB factor ${factorText(c.tabFactor)} over ${tabYears} years)`);
     lines.push(`TAB factor = 1/(1 − t × A/n), A = the sum of the discount factors of years 1 … n (${factorText(annuityFactor(tabYears, discountPct, timing))} here); value = PV × TAB factor.`);
   }
   lines.push(
@@ -409,7 +409,7 @@ export function rfrCalc(read: Read): FinResult {
   lines.push(
     `Conventions: ${timingText(timing)}, valuation date the start of year 1, annual effective discount rate; ` +
       `a final partial year (w < 1) is taken pro rata; ${attritionText(le.attrition, le.decayPct, "attrition")}; ` +
-      (c.tabFactor !== null ? "TAB factor 1/(1 − t × A/n) as used in valuation practice, A with the same timing convention; " : "no tax amortisation benefit; ") +
+      (c.tabFactor !== null ? "TAB factor 1/(1 − t × A/n) as used in valuation practice, A with the same timing convention; " : "no tax amortization benefit; ") +
       `${currencyNote(cur)}; amounts computed unrounded and rounded for display.`,
   );
   for (const n of notes) lines.push(`Note: ${n}`);

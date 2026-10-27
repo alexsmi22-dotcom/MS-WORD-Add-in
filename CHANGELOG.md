@@ -6,6 +6,57 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.202.0] — 2026-10-27 — Finance F1: bonds on dates, IP valuation, portfolio risk, corporate finance, derivatives, schedules
+
+Finance grows from 33 to 65 calculators, listed in nine groups (Time value & loans, Capital budgeting & valuation,
+Fixed income, Derivatives, Portfolio & risk, Accounting & statements, IP valuation & licensing, Litigation damages,
+Currency). Every new number is checked against an independent oracle (QuantLib 1.44, numpy-financial,
+statsmodels, PyPortfolioOpt, published worked examples); each result prints the conventions it used.
+
+### Added
+- **Bonds on real dates and yield curves:** accrued interest, clean and dirty price on settlement/maturity dates
+  (30/360 US, 30E/360, ACT/ACT ICMA and ISDA, ACT/360, ACT/365F), yield to call and yield to worst, T-bill
+  discount/bond-equivalent/money-market yields, curve bootstrap from par yields or bond prices, Nelson–Siegel and
+  Svensson fits.
+- **IP valuation and licensing:** relief-from-royalty, income method, Monte Carlo value with a printed seed, royalty
+  apportionment, EMVR/SSPPU comparison, comparable-license adjustment, Nash bargaining split. The 25 % rule of thumb is
+  refused with the Federal Circuit's holding (*Uniloc USA, Inc. v. Microsoft Corp.*, 632 F.3d 1292 (Fed. Cir. 2011)).
+  Amounts in an optional ISO 4217 currency; apportionment in US dollars like the damages tools.
+- **Portfolio & risk:** CAPM beta/alpha by regression with classical, HC1 or Newey–West standard errors; Sharpe,
+  Sortino, Treynor, information ratio, maximum drawdown with an underwater figure, Calmar; VaR and CVaR by historical,
+  normal, Student t and seeded Monte Carlo; long-only Markowitz frontier with minimum-variance and tangency portfolios
+  and the capital market line. Each accepts returns or prices.
+- **Capital budgeting & valuation:** WACC with CAPM and Hamada un/relevering; NPV with every IRR root and the NPV
+  profile, Excel-semantics MIRR, payback, discounted payback, PI, EAA and the crossover rate between two projects;
+  multi-stage DCF with fade, Gordon or exit-multiple terminal value, end-year or mid-year discounting, EV → equity →
+  per share, and a sensitivity heat map.
+- **Derivatives:** Black–Scholes, Greeks and implied volatility take a dividend yield q (Merton) and the price prints a
+  put–call parity line; Black-76 options on futures with Greeks; CRR binomial tree, European or American (tree drawn
+  for n ≤ 6, convergence figure otherwise, early-exercise premium); put–call parity check on market prices naming the
+  arbitrage; cost-of-carry forward; multi-leg strategy payoff with breakevens and max profit/loss; plain-vanilla swap
+  value, par rate and PV01 on a pasted curve.
+- **Schedules as Word tables:** loan schedule with recurring and one-off extra payments, balloon and rate changes
+  (interest and months saved); depreciation by straight line, declining balance with or without the switch to
+  straight line, sum-of-the-years'-digits and units of production; MACRS from IRS Publication 946 (2025) Tables A-1
+  to A-5 and A-8 to A-12 (the published values are used; the 26 cells where the IRS rounding differs from the method
+  are named in the result). Not tax advice.
+- **Accounting & statements:** 20-ratio suite from a pasted statement with each formula printed, cash conversion
+  cycle, DuPont 3- and 5-step, common-size and trend statements, Altman Z, Z′ and Z″, break-even/CVP with a
+  margin-of-safety figure.
+
+### Changed
+- Finance dropdown grouped by area; Home shows Stats (with its econometrics) to every audience and names damages and
+  IP value on the Finance tile.
+- XIRR takes calendar dates (Excel's XIRR example: 37.3363 %); DCF prints the terminal value, its present value and
+  its share of the total; the compound-interest figure title reads "12×".
+
+### Fixed
+- Black–Scholes used an approximate normal CDF (about 7.5 × 10⁻⁸ error, −1.7 % on a deep out-of-the-money call); it
+  now uses the exact one.
+- Declining-balance depreciation that never reached salvage now offers the switch to straight line.
+- **List fields:** a number grouped in thousands with spaces between semicolons or ", " (`−1 000; 300; 400`) was read
+  as two values (−1 and 0); it is now refused naming both readings.
+
 ## [2.201.1] — 2026-10-27 — Damages tables fit the page
 
 ### Fixed

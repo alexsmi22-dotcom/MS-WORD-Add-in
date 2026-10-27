@@ -1,7 +1,7 @@
 /**
  * Release F1 (v2.202.0) schedules and statement analysis (gap items #9 and #13, defects D7 and D11, quick wins 5, 6
  * and the break-even half of 12), spread into the pane's FIN_CALCS:
- *  - loan-schedule    Amortisation schedule with extra payments, balloon and rate changes   engine loanSchedule.ts
+ *  - loan-schedule    Amortization schedule with extra payments, balloon and rate changes   engine loanSchedule.ts
  *  - depr-schedule    Depreciation schedule: SL, DB, DB → SL, SYD, units of production      engine depreciation.ts
  *  - macrs            MACRS from IRS Publication 946 Appendix A (GDS and straight line)       engine macrs.ts + macrsTables.ts
  *  - fin-ratios       Ratio suite, DuPont 3- and 5-step, cash conversion cycle                engine statements.ts
@@ -181,8 +181,8 @@ export function loanScheduleCalc(r: Read): FinResult {
   if (typeof amortYears === "string") return finRefusal(amortYears);
   const balloon = optNum(r, "balloon", "balloon", { min: 0, max: 1e13 });
   if (typeof balloon === "string") return finRefusal(balloon);
-  if (amortYears !== undefined && balloon !== undefined && balloon > 0) return finRefusal("Give either a balloon amount or an amortise-over term, not both (a longer amortisation term already sets the balloon).");
-  if (balloon !== undefined && balloon > P) return finRefusal(`The balloon (${money(balloon)}) cannot exceed the loan amount (${money(P)}): that is negative amortisation, which is not modelled.`);
+  if (amortYears !== undefined && balloon !== undefined && balloon > 0) return finRefusal("Give either a balloon amount or an amortise-over term, not both (a longer amortization term already sets the balloon).");
+  if (balloon !== undefined && balloon > P) return finRefusal(`The balloon (${money(balloon)}) cannot exceed the loan amount (${money(P)}): that is negative amortization, which is not modelled.`);
   let amortN: number | undefined;
   if (amortYears !== undefined) {
     const a = amortYears * m;
@@ -266,7 +266,7 @@ export function loanScheduleCalc(r: Read): FinResult {
   const tooLong = every && res.rows.length > EVERY_PAYMENT_MAX;
   if (every && !tooLong) {
     tables.push({
-      label: "Amortisation schedule, every payment",
+      label: "Amortization schedule, every payment",
       rows: [
         ["Payment", "Scheduled payment", "Extra principal", "Interest", "Principal", "Balance"],
         ...res.rows.map((x) => [count(x.k), money(x.payment), money(x.extra), money(x.interest), money(x.principal), money(x.balance)]),
@@ -286,7 +286,7 @@ export function loanScheduleCalc(r: Read): FinResult {
     }
     const c = capRows(body, 6);
     tables.push({
-      label: "Amortisation schedule by year",
+      label: "Amortization schedule by year",
       rows: [["Year", "Interest", "Principal", "Of which extra", "Total paid", "Ending balance"], ...c.rows, ["Total", money(res.totalInterest), money(P), money(res.totalExtra), money(res.totalPaid), ""]],
       align: ["right", "right", "right", "right", "right", "right"],
       note:
@@ -727,7 +727,7 @@ export const SCHED_CALCS: FinCalcDef[] = [
   {
     id: "loan-schedule",
     group: "Time value & loans",
-    name: "Amortisation schedule (extra payments, balloon, rate changes)",
+    name: "Amortization schedule (extra payments, balloon, rate changes)",
     fields: [
       { key: "p", label: "Loan amount", default: "250000" },
       { key: "rate", label: "Annual interest rate (%)", default: "6" },

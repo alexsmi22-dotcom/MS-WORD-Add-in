@@ -29,24 +29,27 @@ export function npvAt(rate: number, cfs: number[]): number {
 }
 
 /** NPV up to a positive factor (no overflow anywhere in the scanned range), and the same sum on |cᵗ| for a scale. */
-function npvScaled(u: number, cfs: number[]): { v: number; s: number } {
-  const n = cfs.length - 1;
+const exp = Math.exp;
+/** Writes [scaled NPV, scale] into `out`; `c` the flows, `a` their absolute values (hot loop: no allocation, no Math lookups). */
+function npvScaledInto(u: number, c: Float64Array, a: Float64Array, out: Float64Array): void {
+  const n = c.length - 1;
   let v = 0;
   let s = 0;
   if (u >= 0) {
-    const x = Math.exp(-u);
+    const x = exp(-u);
     for (let t = n; t >= 0; t--) {
-      v = v * x + cfs[t];
-      s = s * x + Math.abs(cfs[t]);
+      v = v * x + c[t];
+      s = s * x + a[t];
     }
   } else {
-    const y = Math.exp(u);
+    const y = exp(u);
     for (let t = 0; t <= n; t++) {
-      v = v * y + cfs[t];
-      s = s * y + Math.abs(cfs[t]);
+      v = v * y + c[t];
+      s = s * y + a[t];
     }
   }
-  return { v, s };
+  out[0] = v;
+  out[1] = s;
 }
 
 export const IRR_SCAN_STEPS = 6000;
@@ -80,19 +83,26 @@ export function irrAll(cfs: number[]): IrrRoots {
   const u0 = Math.log1p(IRR_SEARCH_MIN);
   const u1 = Math.log1p(IRR_SEARCH_MAX);
   const N = IRR_SCAN_STEPS;
-  const us: number[] = [];
-  const hs: number[] = [];
+  const C = Float64Array.from(cfs);
+  const A = C.map(Math.abs);
+  const out = new Float64Array(2);
+  const scaledV = (u: number): number => {
+    npvScaledInto(u, C, A, out);
+    return out[0];
+  };
+  const us = new Float64Array(N + 1);
+  const hs = new Float64Array(N + 1);
   for (let i = 0; i <= N; i++) {
     const u = u0 + ((u1 - u0) * i) / N;
-    const e = npvScaled(u, cfs);
-    us.push(u);
-    hs.push(e.s > 0 ? e.v / e.s : 0);
+    npvScaledInto(u, C, A, out);
+    us[i] = u;
+    hs[i] = out[1] > 0 ? out[0] / out[1] : 0;
   }
   const bisect = (a: number, b: number, fa: number): number => {
     for (let k = 0; k < 200; k++) {
       const m = (a + b) / 2;
       if (m === a || m === b) break;
-      const fm = npvScaled(m, cfs).v;
+      const fm = scaledV(m);
       if (fm === 0) return m;
       if (Math.sign(fm) === Math.sign(fa)) {
         a = m;
@@ -119,8 +129,8 @@ export function irrAll(cfs: number[]): IrrRoots {
     let lo = us[i - 1];
     let hi = us[i + 1];
     const g = (u: number): number => {
-      const e = npvScaled(u, cfs);
-      return e.s > 0 ? Math.abs(e.v / e.s) : 0;
+      npvScaledInto(u, C, A, out);
+      return out[1] > 0 ? Math.abs(out[0] / out[1]) : 0;
     };
     const R = (Math.sqrt(5) - 1) / 2;
     let x1 = hi - R * (hi - lo);

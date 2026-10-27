@@ -331,7 +331,7 @@ def main():
         dcf_case([100, 110, 120, 128, 135], 9, 0, 2.5, "exit", 2.5, 10, 220, True, 300, None),
         dcf_case([-50, 20, 60, 90], 11, 3, 8, "exit", 2, 8, None, False, -100, 10),
     ]
-    with open(OUT, "w", encoding="utf-8") as fh:
+    with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(out, fh, indent=1)
     print("wrote", OUT)
     print("MS MIRR", out["msMirr"])

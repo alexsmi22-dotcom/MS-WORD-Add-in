@@ -282,10 +282,15 @@ export function monteCarloNormal(mu: number, sd: number, sims: number, seed: num
   const rng = new Pcg32(seed, PCG_STREAM);
   const out = new Float64Array(sims);
   const TWO32 = 4294967296;
+  // Bound once: jest's environment makes each Math.x lookup slow (prng.ts measured 20×); the browser is unaffected.
+  const sqrt = Math.sqrt;
+  const log = Math.log;
+  const cos = Math.cos;
+  const TWO_PI = 2 * Math.PI;
   for (let i = 0; i < sims; i++) {
     const u1 = (rng.nextU32() + 0.5) / TWO32;
     const u2 = (rng.nextU32() + 0.5) / TWO32;
-    out[i] = mu + sd * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    out[i] = mu + sd * sqrt(-2 * log(u1)) * cos(TWO_PI * u2);
   }
   return out;
 }
@@ -402,7 +407,7 @@ const dot = (a: number[], b: number[]): number => a.reduce((s, v, i) => s + v * 
 const point = (w: number[], mu: number[], S: number[][]): PortPoint => ({ w, ret: dot(w, mu), vol: Math.sqrt(Math.max(0, quad(S, w))) });
 
 /** The long-only minimum-variance portfolio at a target annual return (between the lowest and highest asset mean). */
-export function efficientReturn(mu: number[], S: number[][], target: number): PortPoint | Err {
+export function efficientReturn(mu: number[], S: number[][], target: number, from?: PortPoint): PortPoint | Err {
   const k = mu.length;
   let hi = 0;
   let lo = 0;
@@ -411,8 +416,13 @@ export function efficientReturn(mu: number[], S: number[][], target: number): Po
     if (mu[i] < mu[lo]) lo = i;
   }
   if (target > mu[hi] + 1e-15 || target < mu[lo] - 1e-15) return { error: "The target return is outside the assets' range of mean returns (long-only)." };
-  const x0 = new Array<number>(k).fill(0);
-  if (mu[hi] - mu[lo] <= 1e-15 * Math.max(1, Math.abs(mu[hi]))) x0[hi] = 1;
+  let x0 = new Array<number>(k).fill(0);
+  if (from && from.ret <= target && mu[hi] > from.ret) {
+    // Warm start along the frontier: the previous optimum mixed with the highest-mean asset to hit the new target;
+    // its support is close to the new optimum's, so the active-set method needs few steps.
+    const a = Math.min(1, Math.max(0, (target - from.ret) / (mu[hi] - from.ret)));
+    x0 = from.w.map((w, i) => (1 - a) * w + (i === hi ? a : 0));
+  } else if (mu[hi] - mu[lo] <= 1e-15 * Math.max(1, Math.abs(mu[hi]))) x0[hi] = 1;
   else {
     const a = Math.min(1, Math.max(0, (target - mu[lo]) / (mu[hi] - mu[lo])));
     x0[hi] = a;
@@ -455,7 +465,7 @@ export function markowitz(cols: number[][], ppy: number, rfAnnual: number): Fron
   const curve: PortPoint[] = [];
   for (let i = 0; i < FRONTIER_POINTS; i++) {
     const t = minVol.ret + ((maxRet - minVol.ret) * i) / (FRONTIER_POINTS - 1);
-    const e = i === 0 ? minVol : efficientReturn(mu, S, t);
+    const e = i === 0 ? minVol : efficientReturn(mu, S, t, curve[i - 1]);
     if ("error" in e) return e;
     curve.push(e);
   }

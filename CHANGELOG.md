@@ -18,7 +18,11 @@ All notable changes to JurisLab. Dates are release/pilot dates.
     two tables ("Units by period", "Lost profits by period"); otherwise one table, as before.
   - **Post-judgment interest:** each year's first and last days share one column ("March 15, 2024 – March 14, 2025").
 - A summary table pasted back into the summary is refused by name: its four-number rows would otherwise have been
-  read as lost profits, price erosion, royalty and interest, counting the damages twice.
+  read as lost profits, price erosion, royalty and interest, counting the damages twice. A title row naming a
+  Damages, Total or Cumulative column is refused (also as "Damages ($)" or a space-separated title copied from a PDF),
+  and so is a result table pasted without its title row, recognised by a column that sums the others or runs a total.
+- Known limit: amounts up to about $10 billion stay on one line; near the calculators' $1 trillion cap a five-column
+  table can still wrap an amount at its decimal point.
 
 ## [2.201.0] — 2026-10-26 — Currency symbols; $ on damages
 

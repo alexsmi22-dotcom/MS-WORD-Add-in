@@ -28,8 +28,8 @@ test("every Stats calculator has a group", () => {
 test("every group heading is used, and the first calculator stays the first option", () => {
   const all = [...INLINE, ...SPREAD];
   const used = new Set(all.map((id) => statGroupOf(id)));
-  // groups F2 fills later may be empty until their registry is spread; the rest must be in use
-  for (const g of STAT_GROUP_ORDER) if (g !== "Limited dependent & count models") expect(used.has(g)).toBe(true);
+  // every heading has at least one calculator
+  for (const g of STAT_GROUP_ORDER) expect(used.has(g)).toBe(true);
   // the pane falls back to STAT_CALCS[0]; the grouped list must open on the same calculator
   expect(statGroupOf(INLINE[0])).toBe(STAT_GROUP_ORDER[0]);
 });

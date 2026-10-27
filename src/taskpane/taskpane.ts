@@ -229,6 +229,7 @@ import { FORENSIC_CALCS } from "../lib/forensicCalcs";
 import { LITIG_CALCS } from "../lib/litigCalcs";
 import { TS2_STAT_CALCS } from "../lib/ts2StatCalcs";
 import { CAUSAL_STAT_CALCS } from "../lib/causalStatCalcs";
+import { LIMDEP_STAT_CALCS } from "../lib/limdepStatCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -12249,6 +12250,7 @@ const STAT_CALCS: StatCalc[] = [
   // statSpreadContract.test.ts holds every spread calculator to the pane's contract.
   ...TS2_STAT_CALCS,
   ...CAUSAL_STAT_CALCS,
+  ...LIMDEP_STAT_CALCS,
 ];
 
 function populateStatsCalcs(): void {

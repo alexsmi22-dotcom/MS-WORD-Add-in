@@ -89,7 +89,8 @@ const BASELINES = {
   // v2.195.0 (E1b): 30 of 32 — reasonable royalty, lost profits and the damages summary draw; the Georgia-Pacific and
   // Panduit worksheets are fill-in tables with nothing to plot.
   // v2.199.0 (E5): 30 of 33 — fin-currency is conversion tables (no figure).
-  finance: { label: "Finance", figures: 30, total: 33 },
+  // v2.202.0 (F1): 57 of 65 — the 32 F1 calculators; parity, ratios, apportionment, EMVR/SSPPU and Nash are tables.
+  finance: { label: "Finance", figures: 57, total: 65 },
 };
 
 function findBrowser() {

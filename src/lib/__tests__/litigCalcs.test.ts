@@ -252,7 +252,7 @@ describe("out-of-pocket loss vs the Python oracle (FIFO/LIFO)", () => {
     const pasted = rib.tables![0].rows.map((r) => r.join("\t")).join("\n");
     const o = okOut("dmg-sec-oop", { disclosures: pasted });
     expect(o.text).toContain("Out-of-pocket loss $9,929.37");
-    expect(o.text).toContain("the last, “Inflation removed per share”, was read");
+    expect(o.text).toContain("value columns; “Inflation removed per share” was read as the inflation removed per share");
     // The constant-percentage table's last column is in percent: refused, never read as dollars.
     const pct = okOut("dmg-sec-ribbon", { mode: "ar-pct" });
     const pastedPct = pct.tables![0].rows.map((r) => r.join("\t")).join("\n");
@@ -431,7 +431,7 @@ describe("trading model vs the Python block simulation", () => {
   test("labelled a model, every parameter printed", () => {
     const o = okOut("dmg-sec-aggregate");
     expect(o.text).toContain("TRADING MODEL ESTIMATE");
-    expect(o.text).toContain("courts have criticised them");
+    expect(o.text).toContain("they are models that courts have criticised.");
     expect(o.text).toContain("float 50,000,000 shares; volume reduction 0%");
     expect(o.text).toContain("active traders hold 20% of the float (10,000,000 shares) and make 80% of the adjusted volume");
     expect(o.text).toContain("One-trader (proportional) model: $142,937,391.52");
@@ -678,5 +678,58 @@ describe("adversarial", () => {
       expect(t.length).toBeGreaterThan(10);
       expect(t).not.toContain("—");
     }
+  });
+
+  test("a price export with Open, High, Low, Close, Adj Close, Volume: the Close column is read, never Open", () => {
+    const head = "Date,Open,High,Low,Close,Adj Close,Volume";
+    const ribbonRows = (oracle.ribbons[0].days as string[]).map((d, i) => {
+      const c = oracle.ribbons[0].close[i] as number;
+      return [d, c + 5, c + 6, c - 1, c, c - 0.5, 1000000 + i].join(",");
+    });
+    const o = okOut("dmg-sec-ribbon", { prices: [head, ...ribbonRows].join("\n") });
+    expect(o.text).toContain("Inflation per share on March 3, 2025 (the class-period start, the price table's first day): $5.9312");
+    expect(o.text).toContain("“Close” was read as the close (not “Adj Close”)");
+    const lbRows = (oracle.lookbacks[0].rows as (string | number)[][]).map(([d, c], i) => [d, (c as number) + 3, (c as number) + 4, (c as number) - 1, c, (c as number) - 0.25, 500000 + i].join(","));
+    expect(okOut("dmg-pslra", { prices: [head, ...lbRows].join("\n") }).text).toContain("Mean trading price over the 90-day period: $34.5947 (62 closes).");
+    const volRows = (oracle.trading[0].rows as (string | number)[][]).map(([d, v]) => [d, 40, 41, 39, 40, 39.5, v].join(","));
+    expect(okOut("dmg-sec-aggregate", { volume: [head, ...volRows].join("\n") }).text).toContain("One-trader (proportional) model: $142,937,391.52");
+    // Several unnamed value columns: refused, listing them.
+    expect(refusal("dmg-sec-ribbon", { prices: "Date\tA\tB\n2025-03-03\t1\t2\n2025-03-17\t1\t2" })).toMatch(/none is named “Close”/);
+    expect(refusal("dmg-sec-aggregate", { volume: "Date\tA\tB\n2025-03-03\t1\t2" })).toMatch(/none is named “Volume”/);
+  });
+
+  test("each compute at its caps within 300 ms (one run each)", () => {
+    const timed = (f: () => Out): number => {
+      const t0 = Date.now();
+      const o = f();
+      const ms = Date.now() - t0;
+      expect(o.ok).not.toBe(false);
+      return ms;
+    };
+    const prices = ["Date\tClose"];
+    for (let i = 0; i < MAX_SEC_DAYS; i++) prices.push(`${iso(day("1990-01-01") + i)}\t${(100 + (i % 7)).toFixed(2)}`);
+    const ar = ["Date\tAR"];
+    const drops: string[] = [];
+    for (let j = 1; j <= MAX_DISCLOSURES; j++) {
+      ar.push(`${iso(day("1990-01-01") + 150 * j)}\t−1`);
+      drops.push(iso(day("1990-01-01") + 150 * j));
+    }
+    // Warm the module once (first-call JIT), then time.
+    okOut("dmg-sec-ribbon");
+    const times: Record<string, number> = {};
+    times.ribbonDollar = timed(() => out("dmg-sec-ribbon", { prices: prices.join("\n"), disclosures: ar.join("\n") }));
+    times.ribbonPct = timed(() => out("dmg-sec-ribbon", { prices: prices.join("\n"), disclosures: ar.join("\n"), mode: "ar-pct" }));
+    times.pslra = timed(() => out("dmg-pslra", { prices: prices.join("\n"), disclosure: "2000-01-03" }));
+    const vol = ["Date\tVolume", ...prices.slice(1).map((l) => l.split("\t")[0] + "\t1000")];
+    times.aggregate = timed(() => out("dmg-sec-aggregate", { start: "1990-01-01", disclosures: dropText(drops, drops.map(() => 0.5)), volume: vol.join("\n"), float: "1,000,000" }));
+    const trades: (string | number)[][] = [];
+    for (let i = 0; i < MAX_TRADES; i++) trades.push([iso(day("1990-01-01") + i), i % 3 === 2 ? "Sell" : "Buy", 100, 40]);
+    times.oop = timed(() => out("dmg-sec-oop", { start: "1990-01-01", disclosures: dropText(drops, drops.map(() => 0.1)), blotter: blotterText(trades), held: "0" }));
+    const at = ["Month\tPeriod\tPrice\tCost\tDemand"];
+    for (let i = 0; i < 5000; i++) at.push(`R${i}\t${i < 2000 ? "before" : i < 4000 ? "during" : "after"}\t${(100 + (i % 13) + (i >= 2000 && i < 4000 ? 9 : 0)).toFixed(2)}\t${(50 + (i % 11)).toFixed(2)}\t${(200 + (i % 17)).toFixed(1)}`);
+    times.antitrust = timed(() => out("dmg-antitrust", { data: at.join("\n"), se: "hac" }));
+    // eslint-disable-next-line no-console
+    console.log("litig compute times at the caps (ms):", JSON.stringify(times));
+    for (const v of Object.values(times)) expect(v).toBeLessThan(300);
   });
 });

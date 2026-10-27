@@ -108,6 +108,43 @@ function readDaySeries(text: string, what: string, minRows: number): DaySeries |
   return { days: d.tokens.map((t) => t.from), names: s.data.names, cols: s.data.cols, percent: s.data.percent, notes: s.data.notes };
 }
 
+/**
+ * The value column to read when a table has several (a price export: Open, High, Low, Close, Adj Close, Volume): the
+ * first name matching `wants` exactly (any case), in order. One value column is read whatever its name. Several and
+ * no match: refused, listing the columns (reading Open as the close would be a confident wrong number on every row).
+ */
+function pickColumn(s: DaySeries, what: string, role: string, wants: string[]): { j: number; note?: string } | { error: string } {
+  if (s.cols.length === 1) return { j: 0 };
+  const lower = s.names.map((n) => n.trim().toLowerCase());
+  for (const w of wants) {
+    const j = lower.indexOf(w);
+    if (j >= 0) {
+      const adj = lower.findIndex((n) => /^adj(\.|usted)?\s*close$/.test(n));
+      const also = adj >= 0 && adj !== j ? ` (not ${q(s.names[adj])})` : "";
+      return { j, note: `${what} has ${s.cols.length} value columns; ${q(s.names[j])} was read as the ${role}${also}.` };
+    }
+  }
+  return {
+    error: `${what} has ${s.cols.length} value columns (${s.names.map(q).join(", ")}) and none is named ${wants.map((w) => q(w.replace(/^./, (c) => c.toUpperCase()))).join(" or ")}; keep only the ${role} column, or name it so.`,
+  };
+}
+const CLOSE_NAMES = ["close", "closing price", "close price", "price"];
+const VOLUME_NAMES = ["volume", "shares traded", "reported volume"];
+
+/**
+ * Figure points thinned to about 400 (every stride-th, the last, and any index in `keep`): a 10,000-day series drawn
+ * point for point is a slow figure and a heavy one to insert into Word.
+ */
+export function thinIndices(n: number, keep: number[] = []): number[] {
+  const stride = Math.max(1, Math.ceil(n / 400));
+  if (stride === 1) return Array.from({ length: n }, (_, i) => i);
+  const set = new Set<number>();
+  for (let i = 0; i < n; i += stride) set.add(i);
+  set.add(n - 1);
+  for (const i of keep) if (i >= 0 && i < n) set.add(i);
+  return [...set].sort((a, b) => a - b);
+}
+
 /** Per-share money: "$1.2345" (two to four decimals). */
 const ps = (x: number): string => dmgUnitMoney(Math.abs(x) < 5e-5 ? 0 : x);
 /** A percentage from a decimal: −0.085 → "−8.50%". */
@@ -142,16 +179,18 @@ function windowRange(w: number, start: number, disc: number[]): string {
 
 /**
  * The constant-dollar ribbon's input: one row per disclosure, the date and the inflation removed per share (dollars).
- * Several value columns (the ribbon's own disclosure table pasted back): the LAST is the drop.
+ * Several value columns (the ribbon's own disclosure table pasted back): the one named "Inflation removed per share",
+ * else the LAST.
  */
 function readDropTable(text: string, start: number | null): { disc: number[]; drops: number[]; notes: string[] } | { error: string } {
   const what = "The disclosure table";
   const s = readDaySeries(text, what, 1);
   if ("error" in s) return s;
   if (s.days.length > MAX_DISCLOSURES) return { error: `${what} has ${s.days.length} disclosures; the most is ${MAX_DISCLOSURES}.` };
-  const j = s.cols.length - 1;
+  const named = s.names.findIndex((n) => n.trim().toLowerCase() === "inflation removed per share");
+  const j = s.cols.length > 1 && named >= 0 ? named : s.cols.length - 1;
   const notes = [...s.notes];
-  if (s.cols.length > 1) notes.push(`The disclosure table has ${s.cols.length} value columns; the last, ${q(s.names[j])}, was read as the inflation removed per share.`);
+  if (s.cols.length > 1) notes.push(`The disclosure table has ${s.cols.length} value columns; ${named >= 0 ? q(s.names[j]) : `the last, ${q(s.names[j])},`} was read as the inflation removed per share.`);
   if (s.percent[j]) {
     return {
       error: `${what}: ${q(s.names[j])} is in percent; this calculator takes the inflation removed per share in dollars (the ribbon's constant-dollar disclosure table gives it).`,
@@ -267,8 +306,10 @@ export function secRibbonCalc(r: Read): FinResult {
   const p = readDaySeries(r("prices"), "The price table", 2);
   if ("error" in p) return finRefusal(p.error);
   const notes = [...p.notes];
-  if (p.cols.length > 1) notes.push(`The price table has ${p.cols.length} value columns; the first, ${q(p.names[0])}, was read as the close.`);
-  const close = Array.from(p.cols[0]);
+  const pc = pickColumn(p, "The price table", "close", CLOSE_NAMES);
+  if ("error" in pc) return finRefusal(pc.error);
+  if (pc.note) notes.push(pc.note);
+  const close = Array.from(p.cols[pc.j]);
   for (let i = 0; i < close.length; i++) {
     if (!(close[i] > 0)) return finRefusal(`The price table, ${longDate(p.days[i])}: the close (${ps(close[i])}) must be positive.`);
     if (close[i] > MAX_PRICE) return finRefusal(`The price table, ${longDate(p.days[i])}: a close above ${usd("1,000,000")} is outside this calculator.`);
@@ -350,11 +391,12 @@ export function secRibbonCalc(r: Read): FinResult {
     mode !== "ar-pct" ? "The disclosure table (date and inflation removed per share) is the input of “Securities: out-of-pocket loss (FIFO/LIFO)” and “Securities: aggregate damages (trading model)”." : "",
     ...noteLines(notes),
   ].filter(Boolean);
-  const xs = p.days.map(decimalYear);
+  // The days each side of every disclosure stay in a thinned figure, so the steps keep their dates.
+  const fig = thinIndices(p.days.length, res.disc.flatMap((x) => [rowOf.get(x)! - 1, rowOf.get(x)!]));
   const svg = finPlotSvg(
     [
-      { points: xs.map((x, i) => ({ x, y: close[i] })), type: "line", color: "#2563eb", label: "close" },
-      { points: xs.map((x, i) => ({ x, y: close[i] - res.inflation[i] })), type: "line", color: "#b45309", label: "close less inflation" },
+      { points: fig.map((i) => ({ x: decimalYear(p.days[i]), y: close[i] })), type: "line", color: "#2563eb", label: "close" },
+      { points: fig.map((i) => ({ x: decimalYear(p.days[i]), y: close[i] - res.inflation[i] })), type: "line", color: "#b45309", label: "close less inflation" },
     ],
     { width: 380, height: 250, title: "Inflation ribbon (from the inputs given)", xlabel: "date (year)", ylabel: "price per share ($)" },
   );
@@ -668,8 +710,10 @@ export function pslraLookbackCalc(r: Read): FinResult {
   const s = readDaySeries(r("prices"), "The price table", 1);
   if ("error" in s) return finRefusal(s.error);
   const notes = [...s.notes];
-  if (s.cols.length > 1) notes.push(`The price table has ${s.cols.length} value columns; the first, ${q(s.names[0])}, was read as the close.`);
-  const close = Array.from(s.cols[0]);
+  const pc = pickColumn(s, "The price table", "close", CLOSE_NAMES);
+  if ("error" in pc) return finRefusal(pc.error);
+  if (pc.note) notes.push(pc.note);
+  const close = Array.from(s.cols[pc.j]);
   for (let i = 0; i < close.length; i++) {
     if (!(close[i] > 0)) return finRefusal(`The price table, ${longDate(s.days[i])}: the close (${ps(close[i])}) must be positive.`);
     if (close[i] > MAX_PRICE) return finRefusal(`The price table, ${longDate(s.days[i])}: a close above ${usd("1,000,000")} is outside this calculator.`);
@@ -836,15 +880,17 @@ export function secAggregateCalc(r: Read): FinResult {
   const vs = readDaySeries(r("volume"), "The volume table", 1);
   if ("error" in vs) return finRefusal(vs.error);
   const notes = [...vs.notes];
-  if (vs.cols.length > 1) notes.push(`The volume table has ${vs.cols.length} value columns; the first, ${q(vs.names[0])}, was read as the reported volume.`);
-  if (vs.percent[0]) return finRefusal(`The volume table: ${q(vs.names[0])} is in percent; enter the reported volume in shares.`);
+  const vc = pickColumn(vs, "The volume table", "reported volume", VOLUME_NAMES);
+  if ("error" in vc) return finRefusal(vc.error);
+  if (vc.note) notes.push(vc.note.replace(/ \(not “[^”]*”\)/, ""));
+  if (vs.percent[vc.j]) return finRefusal(`The volume table: ${q(vs.names[vc.j])} is in percent; enter the reported volume in shares.`);
   const classEnd = disc[k - 1] - 1;
   const days: number[] = [];
   const vol: number[] = [];
   let before = 0;
   let after = 0;
   for (let i = 0; i < vs.days.length; i++) {
-    const v = vs.cols[0][i];
+    const v = vs.cols[vc.j][i];
     if (!(v >= 0)) return finRefusal(`The volume table, ${longDate(vs.days[i])}: the volume (${dmgQty(v)}) cannot be negative.`);
     if (v > MAX_SHARES) return finRefusal(`The volume table, ${longDate(vs.days[i])}: a volume above one trillion shares is outside this calculator.`);
     if (vs.days[i] < start) before++;
@@ -895,7 +941,7 @@ export function secAggregateCalc(r: Read): FinResult {
   const pct = (x: number): string => `${Number(x.toFixed(4))}%`;
   const lines = [
     "Securities aggregate damages: TRADING MODEL ESTIMATE, computed from the inputs given",
-    "This is a model, not a count of claims: proportional trading models (one-trader and two-trader) assume how shares changed hands, and courts have criticised them as unreliable measures of class-wide damages. Claims data, not this model, show who actually traded.",
+    "This is a model, not a count of claims: proportional trading models (one-trader and two-trader) assume how shares changed hands, and they are models that courts have criticised. Claims data, not this model, show who actually traded.",
   ];
   if (one) lines.push(`One-trader (proportional) model: ${dmgMoney(centsOf(one.byWindow) / 100)}; class-bought shares still held at the class end: ${dmgQty(one.retained)}.`);
   if (two) lines.push(`Two-trader model: ${dmgMoney(centsOf(two.byWindow) / 100)}; class-bought shares still held at the class end: ${dmgQty(two.retained)}.`);

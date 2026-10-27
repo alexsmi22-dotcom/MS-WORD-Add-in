@@ -24,7 +24,7 @@
  *    the amount passed on = rate × damages.
  */
 import { foreignCurrencyRefusal } from "./damagesUsd";
-import { whitespaceTable } from "./securitiesDamages";
+import { whitespaceTable, thinIndices } from "./securitiesDamages";
 import { dmgMoney, dmgUnitMoney, dmgQty, parsePeriodTable, roundCents } from "./patentDamages";
 import { finPlotSvg } from "./financeFigures";
 import { readFinanceField } from "./finance";
@@ -223,6 +223,9 @@ export function estimatePassThrough(text: string): { rate: number; se: number; n
   return { rate: t.coef, se: t.se, n: fit.model.n, costName: sel.cols.names[0], priceName: sel.cols.depName, notes: sel.cols.notes };
 }
 
+/** "= 0.032" or "< 0.001" after a "p". */
+const pText = (p: number): string => (p < 0.001 ? fmtP(p) : `= ${fmtP(p)}`);
+
 /** A coefficient table, at most six columns. */
 function coefTable(label: string, fit: OlsFit): FinTable {
   const rows: string[][] = [["Term", "Coefficient", "SE", "t", "p", "95% CI"]];
@@ -314,8 +317,8 @@ export function antitrustCalc(r: Read): FinResult {
     if (e.dummy) {
       const t = e.dummy;
       s += log
-        ? ` During-period coefficient ${fmtFixed(t.coef, 4)} (SE ${fmtFixed(t.se, 4)}, p ${fmtP(t.p)}); overcharge exp(δ) − 1 = ${pctText(Math.expm1(t.coef))}, 95% CI ${pctText(Math.expm1(t.ciLo))} to ${pctText(Math.expm1(t.ciHi))}.`
-        : ` During-period coefficient ${fmtFixed(t.coef, 4)} per unit (SE ${fmtFixed(t.se, 4)}, p ${fmtP(t.p)}; 95% CI ${fmtFixed(t.ciLo, 4)} to ${fmtFixed(t.ciHi, 4)}).`;
+        ? ` During-period coefficient ${fmtFixed(t.coef, 4)} (SE ${fmtFixed(t.se, 4)}, p ${pText(t.p)}); overcharge exp(δ) − 1 = ${pctText(Math.expm1(t.coef))}, 95% CI ${pctText(Math.expm1(t.ciLo))} to ${pctText(Math.expm1(t.ciHi))}.`
+        : ` During-period coefficient ${fmtFixed(t.coef, 4)} per unit (SE ${fmtFixed(t.se, 4)}, p ${pText(t.p)}; 95% CI ${fmtFixed(t.ciLo, 4)} to ${fmtFixed(t.ciHi, 4)}).`;
     }
     lines.push(s);
   }
@@ -355,8 +358,13 @@ export function antitrustCalc(r: Read): FinResult {
   const colors = ["#b45309", "#16a34a"];
   const svg = finPlotSvg(
     [
-      { points: Array.from(d.price, (p, i) => ({ x: i + 1, y: p })), type: "line", color: "#2563eb", label: "actual price" },
-      ...ests.map((e, m) => ({ points: e.during.map((i, j) => ({ x: i + 1, y: e.butFor[j] })), type: "line" as const, color: colors[m], label: `${methodName(e.method).toLowerCase()} but-for` })),
+      { points: thinIndices(d.price.length).map((i) => ({ x: i + 1, y: d.price[i] })), type: "line", color: "#2563eb", label: "actual price" },
+      ...ests.map((e, m) => ({
+        points: thinIndices(e.during.length).map((j) => ({ x: e.during[j] + 1, y: e.butFor[j] })),
+        type: "line" as const,
+        color: colors[m],
+        label: `${methodName(e.method).toLowerCase()} but-for`,
+      })),
     ],
     { width: 380, height: 250, title: "Actual and but-for prices (from the inputs given)", xlabel: "observation (row order)", ylabel: "price ($)" },
   );

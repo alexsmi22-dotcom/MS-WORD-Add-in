@@ -190,7 +190,10 @@ def cost_case(coefs, price):
     if "shutdownQ" not in res:
         res["shutdownQ"] = 0.0
         res["shutdownP"] = f(AVC.subs(qq, 0))
-    be = [s for s in sp.solve(sp.diff(AC, qq), qq) if s.is_real and s > 0]
+    # min AC: the positive real roots of the numerator of AC' (q TC' - TC), by nroots (sympy.solve misses quartics)
+    qv = sp.symbols("qv")
+    num = sp.Poly(sp.expand(qq * MC - TC).subs(qq, qv), qv)
+    be = [sp.re(s) for s in sp.Poly(num, qv).nroots(n=30) if abs(sp.im(s)) < 1e-20 and sp.re(s) > 0]
     if be:
         qb = min(be, key=lambda s: f(AC.subs(qq, s)))
         res["breakEvenQ"] = f(qb)
@@ -376,7 +379,7 @@ g2 = np.array([a2 / b2**2, -1 / b2])
 ph["expect"] = {"alpha": float(a2), "beta": float(b2), "nairu": float(-a2 / b2), "nairuSe": float(np.sqrt(g2 @ V2 @ g2))}
 out["phillips"] = ph
 
-with open(OUT, "w", encoding="utf-8") as fh:
+with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
     json.dump(out, fh, indent=1, ensure_ascii=False)
 print(out["phillipsTable"])
 print("wrote", OUT)

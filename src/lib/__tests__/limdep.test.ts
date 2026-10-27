@@ -1,0 +1,221 @@
+/**
+ * Release F2 #11 engines (src/lib/limdep.ts) against scripts/limdep-oracle.py (statsmodels 0.15 Poisson,
+ * NegativeBinomial nb2, OrderedModel, MNLogit; an independent scipy tobit MLE; a numpy Heckman two-step following
+ * Wooldridge 2010 §19.6). Tolerances (relative, with an absolute floor for values near zero):
+ *   coefficients and log likelihoods 1e-6 (both sides converge to ~1e-9 of an SE);
+ *   SEs of statsmodels' analytic-Hessian models (Poisson, NB2, MNLogit, Probit) 1e-6;
+ *   SEs that the oracle takes from a NUMERICAL Hessian (tobit approx_hess3, OrderedModel) 2e-5;
+ *   marginal-effect SEs 2e-5 (numerical Jacobians on one side or both).
+ */
+import * as fs from "fs";
+import * as path from "path";
+import { parseRegData, parseSpec, selectColumns } from "../regData";
+import { fitCount, fitTobit, fitHeckman, fitOrdered, fitMnl, LimdepRefusal, lgamma, digamma, trigamma, normLogCdf, millsRatio, MILLS_NAME } from "../limdep";
+import type { ModelTerm } from "../regModel";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const FX: any = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "limdep-oracle.json"), "utf8"));
+
+function cols(text: string, spec: string): { y: number[]; X: number[][]; names: string[]; dep: string } {
+  const d = parseRegData(text);
+  if (!d.ok) throw new Error(d.reason);
+  const s = parseSpec(spec);
+  if ("error" in s) throw new Error(s.error);
+  const c = selectColumns(d.data, s);
+  if (!c.ok) throw new Error(c.reason);
+  const y = Array.from(c.cols.y);
+  return { y, X: y.map((_, i) => c.cols.X.map((col) => col[i])), names: c.cols.names, dep: c.cols.depName };
+}
+function column(text: string, name: string): number[] {
+  const d = parseRegData(text);
+  if (!d.ok) throw new Error(d.reason);
+  const j = d.data.names.indexOf(name);
+  return d.data.rows.map((r) => Number(r[j]));
+}
+function close(a: number, b: number, rel: number, abs = 1e-10): void {
+  if (!(Math.abs(a - b) <= rel * Math.abs(b) + abs)) throw new Error(`${a} vs ${b} (rel ${Math.abs(a - b) / Math.abs(b)})`);
+}
+function closeAll(got: number[], want: number[], rel: number, abs = 1e-10): void {
+  expect(got.length).toBe(want.length);
+  got.forEach((g, i) => close(g, want[i], rel, abs));
+}
+const coefs = (ts: ModelTerm[]): number[] => ts.map((t) => t.coef);
+const ses = (ts: ModelTerm[]): number[] => ts.map((t) => t.se);
+
+describe("special functions", () => {
+  test("lgamma, digamma, trigamma against known values", () => {
+    close(lgamma(1), 0, 0, 1e-13);
+    close(lgamma(0.5), Math.log(Math.sqrt(Math.PI)), 1e-15);
+    close(lgamma(101), 363.73937555556347, 1e-15);
+    close(lgamma(1e-8), 18.420680738180209, 1e-14);
+    close(digamma(1), -0.5772156649015329, 1e-14);
+    close(digamma(0.5), -1.9635100260214235, 1e-14);
+    close(trigamma(1), (Math.PI * Math.PI) / 6, 1e-14);
+    close(trigamma(0.5), (Math.PI * Math.PI) / 2, 1e-14);
+  });
+  test("log Φ and the Mills ratio deep in the tails", () => {
+    close(normLogCdf(-40), -804.6084420137538, 1e-13);
+    close(normLogCdf(10), -7.619853024160527e-24, 1e-10, 0);
+    close(millsRatio(-40), 40.02497, 1e-6);
+  });
+});
+
+describe("Poisson and NB2 (statsmodels)", () => {
+  const C = FX.count;
+  const { y, X, names } = cols(C.data, "visits ~ age + income + female");
+  const off = column(C.data, "years").map(Math.log);
+  test("Poisson coefficients, classical and HC0 SEs, log likelihood, llnull", () => {
+    const r = fitCount(y, X, names, { model: "poisson", offset: off, depName: "visits" });
+    closeAll(coefs(r.model.terms), C.poisson.params, 1e-6);
+    closeAll(ses(r.model.terms), C.poisson.bse, 1e-6);
+    close(r.ll, C.poisson.llf, 1e-9);
+    close(r.llNull, C.poisson.llnull, 1e-9);
+    close(r.pearson, C.poisson.pearson, 1e-6);
+    close(r.deviance, C.poisson.deviance, 1e-6);
+    close(r.ct.alpha, C.poisson.ct.alpha, 1e-6);
+    close(r.ct.se, C.poisson.ct.se, 1e-6);
+    close(r.ct.t, C.poisson.ct.t, 1e-6);
+    close(r.ct.p, C.poisson.ct.p, 1e-5);
+    const h = fitCount(y, X, names, { model: "poisson", offset: off, se: "hc0" });
+    closeAll(ses(h.model.terms), C.poisson.bseHC0, 1e-6);
+    // IRR = exp(b), SE exp(b)·se, interval from the exponentiated bounds.
+    r.irr.forEach((t, j) => {
+      close(t.coef, Math.exp(C.poisson.params[j]), 1e-6);
+      close(t.se, Math.exp(C.poisson.params[j]) * C.poisson.bse[j], 1e-6);
+      close(t.ciLo, Math.exp(r.model.terms[j].ciLo), 1e-12);
+    });
+  });
+  test("NB2 coefficients, α, classical and HC0 SEs, llnull, LR test of α = 0", () => {
+    const r = fitCount(y, X, names, { model: "nb2", offset: off, depName: "visits" });
+    const want = C.nb2.params;
+    closeAll(coefs(r.model.terms), want.slice(0, -1), 1e-6);
+    close(r.alpha!.est, want[want.length - 1], 1e-6);
+    closeAll(ses(r.model.terms), C.nb2.bse.slice(0, -1), 1e-6);
+    close(r.alpha!.se, C.nb2.bse[C.nb2.bse.length - 1], 1e-6);
+    close(r.ll, C.nb2.llf, 1e-9);
+    close(r.llNull, C.nb2.llnull, 1e-8);
+    close(r.lrAlpha!.stat, C.nb2.lrAlpha, 1e-6);
+    close(r.lrAlpha!.p, C.nb2.pAlpha, 1e-5, 1e-15);
+    const h = fitCount(y, X, names, { model: "nb2", offset: off, se: "hc0" });
+    closeAll(ses(h.model.terms), C.nb2.bseHC0.slice(0, -1), 1e-6);
+    close(h.alpha!.se, C.nb2.bseHC0[C.nb2.bseHC0.length - 1], 1e-6);
+  });
+});
+
+describe("tobit (independent scipy MLE)", () => {
+  const T = FX.tobit;
+  const { y, X, names } = cols(T.data, "hours ~ educ + age + kids");
+  test("coefficients, σ, SEs, log likelihood, constant-only log likelihood, marginal effects", () => {
+    const r = fitTobit(y, X, names, { lower: 0, upper: null, depName: "hours" });
+    closeAll(coefs(r.model.terms), T.beta, 1e-6);
+    close(r.sigma.est, T.sigma, 1e-6);
+    closeAll(ses(r.model.terms), T.bse, 2e-5);
+    close(r.sigma.se, T.seSigma, 2e-5);
+    close(r.ll, T.llf, 1e-9);
+    close(r.llNull, T.llnull, 1e-9);
+    expect(r.nLeft).toBe(T.nLeft);
+    r.ame.forEach((a, j) => {
+      closeAll([a.unconditional.coef, a.conditional.coef, a.probability.coef], T.ame[j].est, 1e-6);
+      closeAll([a.unconditional.se, a.conditional.se, a.probability.se], T.ame[j].se, 2e-5);
+    });
+  });
+});
+
+describe("Heckman two-step (numpy, Wooldridge 2010 §19.6)", () => {
+  const H = FX.heckman;
+  test("probit γ, outcome β with λ, corrected SEs, ρ, σ, Wald", () => {
+    const sel = cols(H.data, "works ~ educ + exper + kids + married");
+    const d = parseRegData(H.data);
+    if (!d.ok) throw new Error(d.reason);
+    const iw = d.data.names.indexOf("works");
+    const selected = { ...d.data, rows: d.data.rows.filter((r) => r[iw] === "1") };
+    const oc = selectColumns(selected, parseSpec("lwage ~ educ + exper") as never);
+    if (!oc.ok) throw new Error(oc.reason);
+    const yo = Array.from(oc.cols.y);
+    const r = fitHeckman({
+      s: sel.y,
+      Z: sel.X,
+      zNames: sel.names,
+      selName: "works",
+      y: yo,
+      X: yo.map((_, i) => oc.cols.X.map((c) => c[i])),
+      xNames: oc.cols.names,
+      depName: "lwage",
+    });
+    closeAll(coefs(r.selection), H.gamma, 1e-6);
+    closeAll(ses(r.selection), H.gammaSe, 1e-6);
+    closeAll(coefs(r.model.terms), H.beta, 1e-6);
+    closeAll(ses(r.model.terms), H.bse, 1e-6);
+    expect(r.model.terms[2].name).toBe(MILLS_NAME);
+    close(r.rho, H.rho, 1e-6);
+    close(r.sigma, H.sigma, 1e-6);
+    close(r.wald.stat, H.wald, 1e-6);
+    expect(r.truncated).toBe(H.truncated);
+    expect(r.nSelected).toBe(H.nSel);
+    close(r.probitLl, H.probitLl, 1e-9);
+  });
+});
+
+describe("ordered logit / probit (statsmodels OrderedModel)", () => {
+  const O = FX.ordered;
+  const { y, X, names } = cols(O.data, "rating ~ price + quality + online");
+  test.each(["logit", "probit"] as const)("%s: β, cut points, SEs, log likelihood, mean probabilities", (link) => {
+    const r = fitOrdered(y, X, names, link, { depName: "rating" });
+    const W = O[link];
+    closeAll(coefs(r.model.terms), W.beta, 1e-6);
+    closeAll(coefs(r.cuts), W.cuts, 1e-6);
+    closeAll(ses(r.model.terms), W.bse, 2e-5);
+    closeAll(ses(r.cuts), W.cutSe, 2e-5);
+    close(r.ll, W.llf, 1e-9);
+    close(r.llNull, W.llnull, 1e-12);
+    closeAll(r.meanProb, W.meanProb, 1e-6);
+  });
+});
+
+describe("multinomial logit (statsmodels MNLogit)", () => {
+  const M = FX.mnl;
+  const { y, X, names } = cols(M.data, "mode ~ income + age");
+  test.each([
+    ["base1", 1],
+    ["base2", 2],
+  ] as const)("%s: coefficients, SEs, log likelihood, average marginal effects", (key, base) => {
+    const r = fitMnl(y, X, names, { base, depName: "mode" });
+    const W = M[key];
+    expect(r.equations.map((e) => e.category)).toEqual(W.order.slice(1));
+    r.equations.forEach((e, j) => {
+      closeAll(coefs(e.terms), W.params[j], 1e-6);
+      closeAll(ses(e.terms), W.bse[j], 1e-6);
+    });
+    close(r.ll, W.llf, 1e-9); // ours is the higher of the two (statsmodels stops at its own tolerance)
+    close(r.llNull, W.llnull, 1e-9); // ours is the closed form Σ nⱼ ln(nⱼ/n); statsmodels fits the null model iteratively
+    // statsmodels' margeff columns follow the recoded order (base first); ours are sorted by category value.
+    W.order.forEach((cat: number, jcol: number) => {
+      const a = r.ame.find((x) => x.category === cat)!;
+      closeAll(coefs(a.terms), W.ame[jcol], 1e-6);
+      closeAll(ses(a.terms), W.ameSe[jcol], 2e-5);
+    });
+  });
+});
+
+describe("refusals by name", () => {
+  const C = FX.count;
+  const { y, X, names } = cols(C.data, "visits ~ age + income + female");
+  test("non-convergence is refused, never printed", () => {
+    expect(() => fitCount(y, X, names, { model: "nb2", maxIter: 1 })).toThrow(/did not converge in 1 iteration/);
+    expect(() => fitCount(y, X, names, { model: "poisson", maxIter: 1 })).toThrow(LimdepRefusal);
+  });
+  test("non-count outcomes and all-zero counts", () => {
+    expect(() => fitCount([0, 1.5, 2, 3], [[1], [2], [3], [4]], ["x"], { model: "poisson" })).toThrow(/count .*row 2 has 1\.5/);
+    expect(() => fitCount([0, -1, 2, 3], [[1], [2], [3], [4]], ["x"], { model: "poisson" })).toThrow(/row 2 has −1/);
+    expect(() => fitCount([0, 0, 0, 0], [[1], [2], [3], [4]], ["x"], { model: "poisson" })).toThrow(/Every “y” is 0/);
+  });
+  test("Poisson zeros set apart by a predictor (estimate does not exist)", () => {
+    const yy = [0, 0, 0, 0, 2, 3, 1, 4, 2, 5];
+    const xx = [[0], [0], [0], [0], [1], [1], [1], [1], [1], [1]].map((r, i) => [r[0], i % 3]);
+    expect(() => fitCount(yy, xx, ["d", "z"], { model: "poisson" })).toThrow(/does not exist|did not converge/);
+  });
+  test("collinear predictors are named", () => {
+    const XX = X.map((r) => [r[0], r[1], 2 * r[0] + r[1]]);
+    expect(() => fitCount(y, XX, ["a", "b", "c"], { model: "poisson" })).toThrow(/“c” is an exact linear combination of “a”, “b”/);
+  });
+});

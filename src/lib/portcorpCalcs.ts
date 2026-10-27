@@ -26,6 +26,9 @@ import { dcfValue, DcfInput, DcfResult, eaa, irrAll, IrrRoots, mirr, npvAt, payb
 // Formatting (true minus, grouped thousands; every value is checked finite before it reaches these)
 // ------------------------------------------------------------------------------------------------------------------
 
+/** A whole number as subscript digits: FCF₁₀, not FCF_10 (display contract). */
+const subDigits = (n: number): string => String(n).replace(/[0-9]/g, (d) => "₀₁₂₃₄₅₆₇₈₉"[+d]);
+
 const NF = new Map<number, Intl.NumberFormat>();
 function fx(x: number, dp: number): string {
   // Beyond 10²¹ a grouped figure is dozens of digits of float noise: treated like a non-finite value (refused).
@@ -376,9 +379,9 @@ export function capmCalc(r: Read): FinResult {
     `Sharpe ratio: ${names[0]} ${c.sharpeAsset !== null ? fx(c.sharpeAsset, 4) : "not defined (no variation)"}; ${names[1]} ${c.sharpeMarket !== null ? fx(c.sharpeMarket, 4) : "not defined"}`,
     `Risk split (annualized variance of excess return): systematic β²σ²_m = ${fx(c.varSys * 1e4, 2)} %², idiosyncratic σ²_ε = ${fx(c.varIdio * 1e4, 2)} %² (${fx(sysShare * 100, 1)}% systematic)`,
     ...t.notes,
-    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "returns are simple per-period returns in %"}; excess returns over ${rfNote}; OLS of r − r_f on r_m − r_f with a constant (α); ` +
+    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "returns are simple per-period returns in %"}; excess returns over ${rfNote}; OLS of r − rf on rₘ − rf with a constant (α); ` +
       `standard errors ${SE_LABEL[se]}${c.hacLag !== undefined ? ` with lag ${c.hacLag} (floor(4(n/100)^(2/9)))` : ""}, t with ${c.df} degrees of freedom; ` +
-      `annualized: means × ${ppy}, standard deviations × √${ppy} (sample, n − 1); information ratio on active return r − r_m; idiosyncratic variance SSE/(n − 2).`,
+      `annualized: means × ${ppy}, standard deviations × √${ppy} (sample, n − 1); information ratio on active return r − rₘ; idiosyncratic variance SSE/(n − 2).`,
   ];
   const table: FinTable = {
     label: "CAPM regression",
@@ -427,8 +430,8 @@ export function perfCalc(r: Read): FinResult {
     p.calmar !== null ? `Calmar ratio = ${fx(p.calmar, 4)} (annualized geometric return ÷ |maximum drawdown|, over the whole sample)` : "Calmar ratio: not defined (no drawdown)",
     ...s.notes,
     `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; sample standard deviation (n − 1); annualized: arithmetic mean × ${ppy}, standard deviation × √${ppy}, geometric (∏(1 + r))^(${ppy}/n) − 1; ` +
-      `Sharpe = mean(r − r_f)/sd(r − r_f) × √${ppy} with r_f = ${fx(rf, 4)}% per period; Sortino = (mean(r) − MAR) × ${ppy} ÷ (downside deviation × √${ppy}), downside deviation √(Σ min(r − MAR, 0)²/n) over all n periods; ` +
-      `Treynor = mean(r − r_f) × ${ppy} ÷ β; drawdown on a wealth index starting at 1 before the first return (period 0).`,
+      `Sharpe = mean(r − rf)/sd(r − rf) × √${ppy} with rf = ${fx(rf, 4)}% per period; Sortino = (mean(r) − MAR) × ${ppy} ÷ (downside deviation × √${ppy}), downside deviation √(Σ min(r − MAR, 0)²/n) over all n periods; ` +
+      `Treynor = mean(r − rf) × ${ppy} ÷ β; drawdown on a wealth index starting at 1 before the first return (period 0).`,
   ];
   const table: FinTable = {
     label: "Performance and risk",
@@ -539,13 +542,13 @@ export function frontierCalc(r: Read): FinResult {
   const lines = [
     `Markowitz frontier for ${plural(k, "asset")} from ${plural(n, "period")} (${ppy} a year), long-only, fully invested`,
     `Minimum-variance portfolio: ${w(f.minVol.w)}; expected return ${pct(f.minVol.ret, 3)}, volatility ${pct(f.minVol.vol, 3)} a year`,
-    `Tangency (maximum Sharpe) portfolio at r_f = ${fx(rf, 3)}%: ${w(tg.w)}; expected return ${pct(tg.ret, 3)}, volatility ${pct(tg.vol, 3)}, Sharpe ratio ${fx(tg.sharpe, 4)}`,
+    `Tangency (maximum Sharpe) portfolio at rf = ${fx(rf, 3)}%: ${w(tg.w)}; expected return ${pct(tg.ret, 3)}, volatility ${pct(tg.vol, 3)}, Sharpe ratio ${fx(tg.sharpe, 4)}`,
     `Capital market line: E[r] = ${fx(rf, 3)}% + ${fx(tg.sharpe, 4)} × σ`,
     `Highest-return portfolio (end of the frontier): ${pct(f.maxRet, 3)} a year`,
     ...t.notes,
     `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; expected returns = arithmetic mean × ${ppy}; covariance = sample covariance (n − 1) × ${ppy}; weights ≥ 0 summing to 1 (no short sales, no leverage); ` +
-      `each frontier point minimizes wᵀΣw at a target return (${FRONTIER_TEXT}); tangency by min yᵀΣy subject to (μ − r_f)ᵀy = 1, y ≥ 0, w = y/Σy (PyPortfolioOpt's max_sharpe); ` +
-      `solved exactly by a primal active-set quadratic program; the CML lends and borrows at r_f, which a long-only, unlevered investor can do only to the left of the tangency point.`,
+      `each frontier point minimizes wᵀΣw at a target return (${FRONTIER_TEXT}); tangency by min yᵀΣy subject to (μ − rf)ᵀy = 1, y ≥ 0, w = y/Σy (PyPortfolioOpt's max_sharpe); ` +
+      `solved exactly by a primal active-set quadratic program; the CML lends and borrows at rf, which a long-only, unlevered investor can do only to the left of the tangency point.`,
   ];
   const assetTable: FinTable = {
     label: "Assets and optimal weights",
@@ -603,17 +606,17 @@ export function waccCalc(r: Read): FinResult {
   if ("error" in w) return finRefusal(w.error);
   const betaLine =
     betaKind === "levered"
-      ? `Levered beta β_L = ${fx(w.betaL, 4)} (as entered); unlevered (asset) beta β_U = β_L/(1 + (1 − T)D/E) = ${fx(w.betaU, 4)}`
+      ? `Levered beta β(L) = ${fx(w.betaL, 4)} (as entered); unlevered (asset) beta β(U) = β(L)/(1 + (1 − T)D/E) = ${fx(w.betaU, 4)}`
       : betaKind === "unlevered"
-        ? `Unlevered (asset) beta β_U = ${fx(w.betaU, 4)} (as entered); relevered at D/E ${fx(w.de, 4)}: β_L = β_U(1 + (1 − T)D/E) = ${fx(w.betaL, 4)}`
-        : `Peer levered beta ${fx(beta, 4)} unlevered at the peer's D/E ${fx(peerDE, 4)} and tax ${fx(peerTax, 2)}%: β_U = ${fx(w.betaU, 4)}; relevered at this company's D/E ${fx(w.de, 4)}: β_L = ${fx(w.betaL, 4)}`;
+        ? `Unlevered (asset) beta β(U) = ${fx(w.betaU, 4)} (as entered); relevered at D/E ${fx(w.de, 4)}: β(L) = β(U)(1 + (1 − T)D/E) = ${fx(w.betaL, 4)}`
+        : `Peer levered beta ${fx(beta, 4)} unlevered at the peer's D/E ${fx(peerDE, 4)} and tax ${fx(peerTax, 2)}%: β(U) = ${fx(w.betaU, 4)}; relevered at this company's D/E ${fx(w.de, 4)}: β(L) = ${fx(w.betaL, 4)}`;
   const lines = [
     `Capital structure: equity ${fx(E, 2)}, debt ${fx(D, 2)}, value V = ${fx(w.V, 2)}; E/V = ${pct(w.wE, 2)}, D/V = ${pct(w.wD, 2)}, D/E = ${fx(w.de, 4)}`,
     betaLine,
-    `Cost of equity (CAPM) r_e = r_f + β_L × MRP = ${fx(rf, 3)}% + ${op(fx(w.betaL, 4))} × ${op(fx(mrp, 3) + "%")} = ${pct(w.re, 4)}`,
-    `After-tax cost of debt r_d(1 − T) = ${op(fx(rd, 3) + "%")} × (1 − ${fx(tax, 2)}%) = ${pct(w.rdAfter, 4)}`,
-    `WACC = E/V × r_e + D/V × r_d(1 − T) = ${pct(w.wE, 2)} × ${op(pct(w.re, 4))} + ${pct(w.wD, 2)} × ${op(pct(w.rdAfter, 4))} = ${pct(w.wacc, 4)}`,
-    `Conventions: market values for the weights; CAPM cost of equity; Hamada (1972) relevering β_L = β_U(1 + (1 − T)D/E), which assumes riskless debt (debt beta 0) and a constant amount of debt; ` +
+    `Cost of equity (CAPM) rₑ = rf + β(L) × MRP = ${fx(rf, 3)}% + ${op(fx(w.betaL, 4))} × ${op(fx(mrp, 3) + "%")} = ${pct(w.re, 4)}`,
+    `After-tax cost of debt rd(1 − T) = ${op(fx(rd, 3) + "%")} × (1 − ${fx(tax, 2)}%) = ${pct(w.rdAfter, 4)}`,
+    `WACC = E/V × rₑ + D/V × rd(1 − T) = ${pct(w.wE, 2)} × ${op(pct(w.re, 4))} + ${pct(w.wD, 2)} × ${op(pct(w.rdAfter, 4))} = ${pct(w.wacc, 4)}`,
+    `Conventions: market values for the weights; CAPM cost of equity; Hamada (1972) relevering β(L) = β(U)(1 + (1 − T)D/E), which assumes riskless debt (debt beta 0) and a constant amount of debt; ` +
       `the tax shield at the marginal rate T; the leverage figure holds the pre-tax cost of debt fixed at ${fx(rd, 3)}% (in practice it rises with leverage).`,
   ];
   const comp: FinTable = {
@@ -852,7 +855,7 @@ export function dcfCalc(r: Read): FinResult {
     `Multi-stage DCF: ${plural(N, "explicit year")}${fade ? ` and ${plural(fade, "fade year")} (growth ${fx(fadeStart, 3)}% fading linearly to ${fx(g, 3)}%)` : ""}, discounted at ${fx(w, 3)}%, ${midYear ? "mid-year" : "end-of-year"} convention`,
     `PV of the explicit years = ${fx(d.pvExplicit, 2)}` + (fade ? `; PV of the fade years = ${fx(d.pvFade, 2)}` : ""),
     terminal === "gordon"
-      ? `Terminal value at year ${T} (Gordon) = FCF_${T} × (1 + g)/(WACC − g) = ${op(fx(d.years[d.years.length - 1].fcf, 2))} × ${fx(1 + g / 100, 4)}/(${fx(w, 3)}% − ${op(fx(g, 3) + "%")}) = ${fx(d.tv, 2)}; ` +
+      ? `Terminal value at year ${T} (Gordon) = FCF${subDigits(T)} × (1 + g)/(WACC − g) = ${op(fx(d.years[d.years.length - 1].fcf, 2))} × ${fx(1 + g / 100, 4)}/(${fx(w, 3)}% − ${op(fx(g, 3) + "%")}) = ${fx(d.tv, 2)}; ` +
         (Number.isFinite(d.implied) ? `implied multiple of final-year FCF ${fx(d.implied, 2)}×` : "no implied multiple (the final-year FCF is 0)")
       : `Terminal value at year ${T} (exit multiple) = ${fx(multiple, 2)}× ${metric !== null ? `the final-year metric ${fx(metric, 2)}` : `final-year FCF ${fx(d.years[d.years.length - 1].fcf, 2)}`} = ${fx(d.tv, 2)}; implied perpetual growth of FCF ${Number.isFinite(d.implied) ? pct(d.implied, 3) : "not defined"}`,
     `PV of the terminal value = ${fx(d.pvTv, 2)} (discounted ${fx(d.tvT, 1)} years), ${Number.isFinite(d.tvShare) ? pct(d.tvShare, 1) : "not defined as a share"} of enterprise value`,
@@ -862,7 +865,7 @@ export function dcfCalc(r: Read): FinResult {
     `Conventions: free cash flows to the firm discounted at the WACC; ${midYear ? "mid-year: year t is discounted (t − 0.5) years" : "end-of-year: year t is discounted t years"}; ` +
       (fade ? `fade year k (1 to ${fade}) grows at g₁ + (g − g₁)(k − 1)/${fade}, g₁ = ${fx(fadeStart, 3)}%; ` : "") +
       (terminal === "gordon"
-        ? `Gordon terminal value on the year ${T + 1} flow FCF_${T}(1 + g), discounted ${midYear ? `${fx(T - 0.5, 1)} years (mid-year, as the flows it capitalizes)` : `${T} year${T === 1 ? "" : "s"}`}; `
+        ? `Gordon terminal value on the year ${T + 1} flow FCF${subDigits(T)}(1 + g), discounted ${midYear ? `${fx(T - 0.5, 1)} years (mid-year, as the flows it capitalizes)` : `${T} year${T === 1 ? "" : "s"}`}; `
         : `exit-multiple terminal value at the end of year ${T}, discounted ${T} year${T === 1 ? "" : "s"}${midYear ? " (a sale at year end, not mid-year)" : ""}; `) +
       `equity = EV − net debt (debt less cash; other claims such as minority interest and preferred stock, if any, belong in net debt); sensitivity: one input moved at a time on the grid, everything else as entered.`,
   ];

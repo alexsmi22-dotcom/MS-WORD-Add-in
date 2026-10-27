@@ -2642,9 +2642,12 @@ select {
 .ab-btns .insert-btn { flex: 1 1 45%; }
 /* Solid form (v2.172.0) */
 .solid-preview svg { max-width: 100%; height: auto; }
-.solid-table { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
-.solid-table th, .solid-table td { border: 1px solid #d0d0d0; padding: 2px 6px; text-align: right; }
-.solid-table th { background: #f4f4f4; }
+/* Theme tokens, not fixed greys: in dark mode the header was the dark theme's light ink on #f4f4f4 (blank headers).
+   Words and numbers are not broken mid-token ("Explic|it", "1,125.|75"); a table wider than the pane scrolls. */
+.solid-table { border-collapse: collapse; margin: 6px 0; font-size: 12px; display: block; max-width: 100%; overflow-x: auto; }
+.solid-table th, .solid-table td { border: 1px solid var(--rule, #d0d0d0); padding: 2px 6px; text-align: right; word-break: normal; overflow-wrap: normal; }
+.solid-table td { white-space: nowrap; }
+.solid-table th { background: var(--ground-2, #f4f4f4); color: var(--ink, inherit); }
 .solid-text { font-size: 12px; line-height: 1.4; }
 /* Diagrams (v2.171.0) */
 .diagram-preview svg { max-width: 100%; height: auto; }

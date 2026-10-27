@@ -5,12 +5,12 @@
  *   performance   arithmetic and geometric means, volatility (sample, n − 1), Sharpe, Sortino (downside deviation
  *                 √(mean(min(r − MAR, 0)²)) over ALL n periods), Treynor (with a beta), maximum drawdown on a wealth
  *                 index that starts at 1 before the first return, Calmar; annualized by ppy (means) and √ppy (σ).
- *   CAPM          the excess-return regression r − r_f = α + β (r_m − r_f) + ε by the econometrics OLS engine
+ *   CAPM          the excess-return regression r − rf = α + β (rₘ − rf) + ε by the econometrics OLS engine
  *                 (olsInference.ts, classical / HC1 / Newey–West standard errors), information ratio, Treynor.
  *   VaR / CVaR    historical (numpy's default linear percentile, PERCENTILE.INC), parametric normal, parametric
  *                 Student t (scaled to the sample variance), and Monte Carlo normal on PCG32 (Box–Muller, seed printed).
  *   Markowitz     long-only frontier, minimum-variance and tangency portfolios by the active-set QP (qpActiveSet.ts),
- *                 tangency through PyPortfolioOpt's change of variables (min yᵀΣy, (μ − r_f)ᵀy = 1, y ≥ 0).
+ *                 tangency through PyPortfolioOpt's change of variables (min yᵀΣy, (μ − rf)ᵀy = 1, y ≥ 0).
  */
 import { fitOls, type SeType, hacDefaultLag } from "./olsInference";
 import { normalQuantile, tDist } from "./probdist";
@@ -454,13 +454,13 @@ export function frontierFromMoments(mu: number[], S: number[][], rfAnnual: numbe
   const mv = solveQpNonneg({ G: S.map((row) => row.map((v) => 2 * v)), c: new Array(k).fill(0), A: [new Array(k).fill(1)], b: [1], x0 });
   if (!mv.ok) return { error: mv.reason };
   const minVol = point(mv.x, mu, S);
-  // Tangency (maximum Sharpe, long-only): min yᵀΣy, (μ − r_f)ᵀy = 1, y ≥ 0; w = y/Σy.
+  // Tangency (maximum Sharpe, long-only): min yᵀΣy, (μ − rf)ᵀy = 1, y ≥ 0; w = y/Σy.
   const ex = mu.map((m) => m - rfAnnual);
   let kBest = -1;
   for (let i = 0; i < k; i++) if (ex[i] > 0 && (kBest < 0 || ex[i] / Math.sqrt(S[i][i]) > ex[kBest] / Math.sqrt(S[kBest][kBest]))) kBest = i;
   if (kBest < 0) return { error: "No asset's mean return is above the risk-free rate, so no long-only portfolio has a positive Sharpe ratio (no tangency portfolio)." };
-  // The excess-return row divided by its largest entry keeps y of order 1 when r_f sits just below the top mean (y
-  // would otherwise grow like 1/(μ − r_f) and swamp the step tolerance); w = y/Σy is unchanged by the scaling.
+  // The excess-return row divided by its largest entry keeps y of order 1 when rf sits just below the top mean (y
+  // would otherwise grow like 1/(μ − rf) and swamp the step tolerance); w = y/Σy is unchanged by the scaling.
   const exMax = Math.max(...ex);
   const exs = ex.map((e) => e / exMax);
   const y0 = new Array<number>(k).fill(0);

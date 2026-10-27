@@ -310,10 +310,10 @@ describe("review fixes", () => {
     expect(capm).toMatch(/5 periods/);
     expect(ok("port-frontier", { input: "prices", data: "A B C\n100 50 20\n103 50.4 20.5\n101 50.9 20.2\n106 51 20.8\n104 51.6 21.1\n108 51.9 20.9" }).text).toMatch(/from 5 periods/);
   });
-  test("tangency when r_f sits just below the top mean (6.600%)", () => {
+  test("tangency when rf sits just below the top mean (6.600%)", () => {
     for (const rf of ["6.5", "6.599", "6.5999999"]) {
       const o = ok("port-frontier", { rf }).text;
-      expect(o).toMatch(/Tangency \(maximum Sharpe\) portfolio at r_f = 6\.\d+%: Stocks 100\.00%/);
+      expect(o).toMatch(/Tangency \(maximum Sharpe\) portfolio at rf = 6\.\d+%: Stocks 100\.00%/);
     }
   });
   test("the CAPM risk-free field is optional (a third column supplies the rate)", () => {
@@ -364,7 +364,7 @@ describe("hostile inputs refuse by name (never insertable)", () => {
     expect(refusal("port-var", { rets: "2, 2, 2, 2" })).toMatch(/volatility is zero/);
     expect(refusal("port-var", { value: "0" })).toMatch(/Portfolio value must be above 0/);
   });
-  test("frontier: singular covariance, no asset above r_f, too few periods, too many assets", () => {
+  test("frontier: singular covariance, no asset above rf, too few periods, too many assets", () => {
     expect(refusal("port-frontier", { data: "A B C\n1 1 2\n2 2 1\n3 3 5\n-1 -1 0\n0.5 0.5 1" })).toMatch(/covariance matrix is singular: asset 2 \(B\)/);
     expect(refusal("port-frontier", { rf: "50" })).toMatch(/No asset's mean return is above the risk-free rate/);
     expect(refusal("port-frontier", { data: "1 2 3\n2 1 3\n3 3 1" })).toMatch(/3 periods for 3 assets/);

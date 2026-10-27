@@ -12,7 +12,7 @@
  *   payback     first period the cumulative flow reaches zero, interpolated linearly within the period.
  *   PI          PV of the flows after t = 0 ÷ −CF₀ (later outflows are netted in the numerator).
  *   EAA         NPV × r/(1 − (1 + r)^−N), N = periods after t = 0 (NPV/N at r = 0).
- *   WACC        E/V·r_e + D/V·r_d(1 − T), r_e = r_f + β_L·MRP, Hamada β_L = β_U(1 + (1 − T)D/E).
+ *   WACC        E/V·rₑ + D/V·rd(1 − T), rₑ = rf + β(L)·MRP, Hamada β(L) = β(U)(1 + (1 − T)D/E).
  *   DCF         explicit years, a linear growth fade, a Gordon or exit-multiple terminal value, end-year or mid-year
  *               discounting, EV → equity → per share.
  */

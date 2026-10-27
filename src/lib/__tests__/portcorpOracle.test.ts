@@ -9,8 +9,8 @@
  * CAPM coefficients, SEs and p-values 1e-8 relative; Student t VaR/CVaR 1e-8 (the t quantile is a bisection on
  * incompleteBeta); Monte Carlo VaR/CVaR 1e-10 (the same PCG32 stream, so the same draws); IRR roots 1e-9 absolute as a
  * set; Markowitz: portfolio variance and Sharpe ratio 1e-6 relative to PyPortfolioOpt (cvxpy's solver tolerance; ours
- * is never worse by more than that), weights 2e-4 absolute; 38 random problems (40 generated, 2 that cvxpy itself could not
- * solve skipped) held to the same objective bounds.
+ * is never worse by more than that), weights 2e-4 absolute; 32 random problems (40 generated, 8 that cvxpy itself could not
+ * solve skipped, mostly nearly-equal means) held to objective bounds against cvxpy's weights clipped feasible.
  */
 import * as fs from "fs";
 import * as path from "path";
@@ -157,7 +157,7 @@ describe.each((FX.budget as R[]).map((c) => [(c.cfs as number[]).slice(0, 4).joi
   });
 });
 
-test("Microsoft's MIRR worked examples (support.microsoft.com, MIRR): 12.61%, −4.80%, 13.48%", () => {
+test("Microsoft's MIRR example cash flows (support.microsoft.com MIRR page; values from numpy-financial): 12.61%, −4.80%, 13.48%", () => {
   expect(FX.msMirr).toEqual([0.1261, -0.048, 0.1348]);
   expect(mirr([-120000, 39000, 30000, 21000, 37000, 46000], 0.1, 0.12)!.toFixed(4)).toBe("0.1261");
   expect(mirr([-120000, 39000, 30000, 21000], 0.1, 0.12)!.toFixed(4)).toBe("-0.0480");

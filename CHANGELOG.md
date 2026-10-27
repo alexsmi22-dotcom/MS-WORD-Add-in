@@ -63,6 +63,8 @@ statsmodels, PyPortfolioOpt, published worked examples); each result prints the 
 - **List fields:** a number grouped in thousands with spaces was read as several values — `−1 000; 300; 400` as −1, 0,
   300, 400 and `1 000 000` as 1, 0, 0, silently. A space-separated group that starts with 0 is now refused, naming
   the number it would be; ordinary lists such as `300 400 500` read as before.
+- Known limit (checked in Word): amounts up to about 1 billion stay on one line in every new table; in the widest
+  tables (depreciation, swap cash flows, break-even) amounts in the tens of billions can wrap at the decimal point.
 
 ## [2.201.1] — 2026-10-27 — Damages tables fit the page
 

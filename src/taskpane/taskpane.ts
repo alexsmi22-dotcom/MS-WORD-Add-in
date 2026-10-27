@@ -222,6 +222,7 @@ import { BOND_CALCS } from "../lib/bondCalcs";
 import { IPVAL_CALCS } from "../lib/ipValuationCalcs";
 import { DERIV_CALCS } from "../lib/derivCalcs";
 import type { StatFieldDef, StatCalcDef } from "../lib/statCalc";
+import { STAT_GROUP_ORDER, statGroupOf } from "../lib/statGroups";
 import { SCHED_CALCS } from "../lib/schedCalcs";
 import { PORTCORP_CALCS } from "../lib/portcorpCalcs";
 import { FORENSIC_CALCS } from "../lib/forensicCalcs";
@@ -12250,11 +12251,21 @@ const STAT_CALCS: StatCalc[] = [
 
 function populateStatsCalcs(): void {
   statsCalcSelect.replaceChildren();
-  for (const c of STAT_CALCS) {
-    const opt = document.createElement("option");
-    opt.value = c.id;
-    opt.textContent = c.name;
-    statsCalcSelect.appendChild(opt);
+  // Grouped by area, in STAT_GROUP_ORDER (F2, lib/statGroups.ts): an <optgroup> per heading, as Finance does. A
+  // calculator without a group (statGroups.test.ts fails on one) still appears, under "Other", rather than vanishing.
+  const headings: (string | null)[] = [...STAT_GROUP_ORDER, null];
+  for (const title of headings) {
+    const members = STAT_CALCS.filter((c) => statGroupOf(c.id) === title);
+    if (!members.length) continue;
+    const og = document.createElement("optgroup");
+    og.label = title ?? "Other";
+    for (const c of members) {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      og.appendChild(opt);
+    }
+    statsCalcSelect.appendChild(og);
   }
 }
 

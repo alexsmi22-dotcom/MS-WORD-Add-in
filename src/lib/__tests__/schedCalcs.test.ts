@@ -747,20 +747,21 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(rd("Revenue,1000,900")).toBe("Revenue|1000|900");
     expect(rd("Revenue,-1000,900")).toBe("Revenue|-1000|900");
     expect(rd("Revenue,1000.5,900.25")).toBe("Revenue|1000.5|900.25");
-    expect(rd("Revenue,1500,1200\nCOGS,600,450")).toBe("Revenue|1500|1200;COGS|600|450");
+    expect(rd("Revenue,1500,1200\nCOGS,600,450")).toMatch(/line 2 \(“COGS”\): “600,450” could be one amount/);
     expect(rd('"Revenue","1,000","900"')).toBe("Revenue|1000|900");
-    expect(rd("Cost of sales,600,500\nRevenue,1000,900")).toBe("Cost of sales|600|500;Revenue|1000|900");
+    expect(rd("Cost of sales,1600,1500\nRevenue,1000,900")).toBe("Cost of sales|1600|1500;Revenue|1000|900");
     expect(rd("Revenue,100,900")).toMatch(/^Statement, line 1 \(“Revenue”\): “100,900” could be one amount with a thousands comma or two amounts/);
     expect(rd("Revenue,5,900")).toMatch(/“5,900” could be one amount/);
     expect(rd("Cost of sales,5,900")).toMatch(/“5,900” could be one amount/);
-    // a block whose other lines settle two columns reads the pair as two amounts, and says so
-    const st = readStatement("Revenue,1500,1200\nCOGS,600,450");
-    if ("error" in st) throw new Error(st.error);
-    expect(st.notes.join(" ")).toContain("line 2 (“600,450”): read as two amounts");
+    // F1 review 3: one-column statements with US thousands are refused, never split (was Revenue 1 | 500)
+    expect(rd("Revenue,$1,500\nCOGS,$1,200\nNet income,$300")).toMatch(/“\$1,500” could be one amount|“\$1,500”/);
+    expect(rd("Revenue,+1,500\nCOGS,600")).toMatch(/could be one amount/);
+    expect(rd("Revenue,1,500\nCOGS,600\nNet income,-1,200")).toMatch(/could be one amount/);
+    expect(rd("Revenue,2,500.00\nCOGS,1,200.00\nOther expense,-1,000.00\nNet income,300.00")).toMatch(/could be one amount/);
     // space-separated grouped amounts are unchanged
     expect(rd("Accounts receivable 1,500\nNet sales 12,000")).toBe("Accounts receivable|1500|null;Net sales|12000|null");
     // through the pane
-    expect(out("fin-ratios", { stmt: "Revenue,1000,900\nNet income,100,90\nTotal assets,500,450" }).text).toContain("Net margin = net income ÷ revenue = 10.00%");
+    expect(out("fin-ratios", { stmt: "Revenue,1000,900\nNet income,100,90\nTotal assets,5000,4500" }).text).toContain("Net margin = net income ÷ revenue = 10.00%");
   });
 
   // F1 review round 2, item 4: a number inside a name between spaces is never read silently into the wrong columns;
@@ -908,4 +909,28 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(refused("cvp-breakeven", { price: "1e400" })).toMatch(/^Selling price per unit/);
     expect(refused("cvp-breakeven", { price: "0" })).toMatch(/must be above 0/);
   });
+});
+
+// F1 review round 3: a change to 0% on an interest-only loan whose balloon covers the balance is a 0.00 payment, not a
+// refusal (the recast rule fired on "payment ≤ 0" before the balloon exemption).
+test("a rate change to 0% with the balloon covering the balance is accepted", () => {
+  const o = out("loan-schedule", { p: "100000", rate: "6", years: "5", extra: "", lumps: "", balloon: "100000", changes: "13\t0" });
+  expect(o.ok).not.toBe(false);
+  expect(o.text).not.toMatch(/would not amortize/);
+});
+
+// F1 review round 3: an ordinary space-separated statement where only some lines carry a prior year reads (with the
+// pre-F1 note); only a name that looks cut off before a number, or a bare year as the first amount, is refused.
+test("space-separated statement with a few prior-year amounts reads with a note", () => {
+  const st = readStatement("Revenue 1500 1200\nCost of sales 600 500\nNet income 300\nTotal assets 5000\nEquity 2500");
+  if ("error" in st) throw new Error(st.error);
+  expect(st.lines.map((l) => [l.current, l.prior])).toEqual([[1500, 1200], [600, 500], [300, null], [5000, null], [2500, null]]);
+  expect(st.notes.join(" ")).toMatch(/only lines .* a second \(prior-year\) amount/);
+  expect("error" in readStatement("Revenue 100\nAccounts receivable, net of allowance of $1,200 50,000\nTotal assets 50")).toBe(true);
+});
+
+test("header between spaces: a name that ends as if cut off before a number is named in a note", () => {
+  const st = readStatement("Line item 2025 2024\nAccounts receivable, net of allowance of $1,200 50,000\nNet sales 12,000 11,000");
+  if ("error" in st) throw new Error(st.error);
+  expect(st.notes.join(" ")).toMatch(/check line 2 .*the name ends as if a number belonged to it/);
 });

@@ -218,7 +218,8 @@ export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
       // the payment-1 rule at every recast: a re-amortized payment that rounds to no more than that period's interest
       // would go interest-only (or grow the balance) until one huge last payment; refused, naming the change
       const recastInterest = interestCents(bal, R, m);
-      if (k < n && (pmtC <= 0 || pmtC < recastInterest || (pmtC === recastInterest && fvC < bal)))
+      // (0.00 against 0.00 interest is allowed when the balloon covers the balance: a change to 0% on an interest-only loan)
+      if (k < n && (pmtC < recastInterest || (pmtC === recastInterest && fvC < bal)))
         return {
           error:
             `At the rate change at payment ${k.toLocaleString("en-US")} (${pctText(annual)} a year) the payment re-amortized over the ${(amortN > n ? amortN - k + 1 : left).toLocaleString("en-US")} payments left rounds to ${centsText(pmtC)} a period, ` +

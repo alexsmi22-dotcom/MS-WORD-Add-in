@@ -316,7 +316,6 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
   let headerCols: number | null = null;
   const nameNotes: string[] = [];
   const commaAmbiguous: { line: number; where: string; pair: string }[] = [];
-  let commaTwoClear = false;
   const b = readDataBlock(src, what, {
     maxRows: MAX_STATEMENT_LINES,
     noHeader: true,
@@ -411,13 +410,13 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
         else if (words.length > 1 && isYear(last)) noAmountWhy.set(line, `this looks like a header row (year columns), and only the first line may be a header`);
       }
       if (!nameTaken && words.length && NUMERIC_TOKEN.test(words[words.length - 1]) && nums.every((x) => x !== "-")) tooMany ||= `line ${line} (“${f.filter((x) => x !== "").join(" ")}”)`;
-      // "Revenue,100,900": 100,900 is one amount with a thousands comma or two amounts. Only a first part of 1–3 plain
-      // digits followed by exactly three digits (and an optional decimal part, "5,900.25") reads both ways.
-      // A line whose two amounts read only one way ("Revenue,1500,1200") settles that the block has two amount columns,
-      // and then the ambiguous pairs are two amounts too (decided after the block, noted).
+      // "Revenue,100,900": 100,900 is one amount with a thousands comma or two amounts. A first part of 1–3 digits (after
+      // its sign, currency symbol or parenthesis: "$1,500", "-1,200", "(1,500)") followed by exactly three digits (and an
+      // optional decimal part, "5,900.25") reads both ways and is refused, whatever the other lines do: a one-column
+      // statement with US thousands ("Revenue,$1,500" / "COGS,600") is indistinguishable line by line (F1 review 3).
       if ((commaMode || csvUnquoted.has(line)) && nums.length === 2) {
-        if (/^\d{1,3}$/.test(nums[0]) && /^\d{3}(\.\d+)?$/.test(nums[1])) commaAmbiguous.push({ line, where, pair: raw.join(",") });
-        else commaTwoClear = true;
+        const first = nums[0].replace(/^[(\-−–+]+/, "").replace(/^[$€£¥]/, "");
+        if (/^\d{1,3}$/.test(first) && /^\d{3}(\.\d+)?\)?$/.test(nums[1])) commaAmbiguous.push({ line, where, pair: raw.join(",") });
       }
       labels.set(line, label);
       typed.set(line, raw);
@@ -435,16 +434,11 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
     },
   });
   if (refusal) return { error: refusal };
-  if (commaAmbiguous.length && !commaTwoClear) {
+  if (commaAmbiguous.length) {
     const a = commaAmbiguous[0];
     return { error: `${a.where}: “${a.pair}” could be one amount with a thousands comma or two amounts; separate the columns with tabs or spaces.` };
   }
   if (!b.ok) return { error: b.error };
-  if (commaAmbiguous.length)
-    nameNotes.push(
-      `line${commaAmbiguous.length === 1 ? "" : "s"} ${commaAmbiguous.map((a) => `${a.line} (“${a.pair}”)`).join(", ")}: read as two amounts, as on the lines whose two amounts read only one way ` +
-        `(a thousands comma would make ${commaAmbiguous.length === 1 ? "it" : "each"} one amount; to be sure, separate the columns with tabs)`,
-    );
   if (tooMany) return { error: `${what}, ${tooMany}: at most two amounts per line (this year, then the prior year), and a line-item name must not end in a number.` };
   const lines: StatementLine[] = [];
   const lossNotes: string[] = [];
@@ -496,10 +490,17 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
   // name ("…net of allowance of $1,200 50,000") reads as a current-year amount. Between spaces that is refused (the
   // name cannot be told from the columns); in cells, where the name is its own cell, it is a note.
   const withPrior = lines.filter((l) => l.prior !== null);
+  // Between spaces only a name that looks cut off before a number ("…allowance of", "…at", a digit or currency symbol
+  // left in it) is refused; "Revenue 1500 1200" beside one-amount lines is an ordinary statement with a few prior years
+  // and gets the note, as before F1 (review round 3).
+  const cutOff = (l: StatementLine): boolean =>
+    /\b(of|at|for|to|by|from|in|per|on|due)$/i.test(l.label.trim()) ||
+    /[\d$€£¥]/.test(l.label) ||
+    (l.current !== null && Number.isInteger(l.current) && l.current >= 1900 && l.current <= 2100);
   if (!hdr && withPrior.length && withPrior.length <= lines.length / 2) {
     const which = withPrior.slice(0, 3).map((l) => `${l.line} (“${spaceMode ? (srcLines[l.line - 1] ?? "").trim() : l.label}”)`);
     const list = which.join(", ") + (withPrior.length > 3 ? ` and ${withPrior.length - 3} more` : "");
-    if (spaceMode)
+    if (spaceMode && withPrior.some(cutOff))
       return {
         error:
           `${what}: line${withPrior.length === 1 ? "" : "s"} ${list} ha${withPrior.length === 1 ? "s" : "ve"} two amounts where ${withPrior.length === 1 ? "the other lines have" : "most lines have"} one, and there is no header row, ` +
@@ -508,6 +509,16 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
       };
     if (withPrior.length < lines.length / 2)
       notes.push(`${what}: only line${withPrior.length === 1 ? "" : "s"} ${list} ha${withPrior.length === 1 ? "s" : "ve"} a second (prior-year) amount; check that no number in a line-item name was read as an amount.`);
+  }
+  // With a header between spaces the header's column count decides the amounts, so a name cut off before a number
+  // ("…net of allowance of $1,200 50,000") is read without a refusal: named, so it is checked (review round 3).
+  if (hdr && spaceMode) {
+    const odd = lines.filter((l) => /\b(of|at|for|to|by|from|in|per|on|due)$/i.test(l.label.trim()));
+    if (odd.length)
+      notes.push(
+        `${what}: check line${odd.length === 1 ? "" : "s"} ${odd.slice(0, 3).map((l) => `${l.line} (“${(srcLines[l.line - 1] ?? "").trim()}”)`).join(", ")}: ` +
+          `the name ends as if a number belonged to it, but the header's columns took ${odd.length === 1 ? "that number" : "those numbers"} as amounts.`,
+      );
   }
   if (parens) notes.push(`${what}: amounts in parentheses were read as negative.`);
   if (symbols) notes.push(`${what}: currency symbols were ignored (amounts are read as plain numbers).`);

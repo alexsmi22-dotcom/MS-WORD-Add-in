@@ -117,13 +117,16 @@ export function parseRegData(text: string): RegDataResult {
   // "1,5 2,3") is a whitespace table, not a CSV header: before F2 a headerless date + grouped-number row was split at
   // its thousands commas and refused (found by the F2 securities builder; es-event and the time-series tools read
   // through here). A CSV header has a comma between cells ("Date,Close", "Date, Close").
+  // Only a correctly GROUPED number counts ("2,401,000", "−1,250.50"): "Mar 3 2025,10", "Plant 1,5.2,3.1" and
+  // "GDP 2020,2021" are header-less CSV rows whose first cell has a space, and stay CSV (F2 review). A line of
+  // space-separated numbers ("1,5 2,3") is a whitespace table as before.
   const firstToks = lines[0].trim().split(/\s+/);
+  const commaToks = firstToks.filter((t) => /[,;]/.test(t));
   const commasInsideNumbers =
-    firstToks.length >= 2 &&
-    firstToks.every((t) => !/^[,;]|[,;]$/.test(t)) &&
-    firstToks.filter((t) => /[,;]/.test(t)).every((t) => /^[-+−]?[\d.,]+%?$/.test(t));
+    firstToks.length >= 2 && commaToks.length > 0 && commaToks.every((t) => /^[-+−]?\d{1,3}(,\d{3})+(\.\d+)?%?$/.test(t));
+  const allNumbers = /^\s*[-+−]?[\d.,]+(\s+[-+−]?[\d.,]+)+\s*$/.test(lines[0]);
   if (src.includes("\t")) grid = parseDelimited(lines.join("\n"), "\t");
-  else if (/[,;]/.test(lines[0]) && !commasInsideNumbers) {
+  else if (/[,;]/.test(lines[0]) && !allNumbers && !commasInsideNumbers) {
     // A delimited header (a CSV file). A first line of space-separated decimal-comma numbers ("1,5 2,3") is not.
     semicolon = lines[0].includes(";");
     grid = parseDelimited(lines.join("\n"), semicolon ? ";" : ",");

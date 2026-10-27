@@ -14,3 +14,18 @@ describe("whitespace table with grouped numbers in the first row", () => {
     }
   });
 });
+
+// F2 review: the grouped-number exception must not swallow header-less CSV rows whose first cell has a space.
+describe("header-less CSV rows with a space in the first cell stay CSV", () => {
+  test.each([
+    ["Mar 3 2025,10\nMar 4 2025,11", [["Mar 3 2025", "10"], ["Mar 4 2025", "11"]]],
+    ["Plant 1,5.2,3.1\nPlant 2,6.1,2.9", [["Plant 1", "5.2", "3.1"], ["Plant 2", "6.1", "2.9"]]],
+  ])("%s", (text, rows) => {
+    const r = parseRegData(text);
+    expect(r.ok && r.data.rows).toEqual(rows);
+  });
+  test("decimal-comma whitespace table is unchanged", () => {
+    const r = parseRegData("1,5 2,3\n3,5 4,1");
+    expect(r.ok && r.data.rows).toEqual([["1,5", "2,3"], ["3,5", "4,1"]]);
+  });
+});

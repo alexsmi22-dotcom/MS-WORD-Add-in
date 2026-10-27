@@ -221,6 +221,7 @@ import { readXirrDates } from "../lib/xirrDates";
 import { BOND_CALCS } from "../lib/bondCalcs";
 import { IPVAL_CALCS } from "../lib/ipValuationCalcs";
 import { DERIV_CALCS } from "../lib/derivCalcs";
+import type { StatFieldDef, StatCalcDef } from "../lib/statCalc";
 import { SCHED_CALCS } from "../lib/schedCalcs";
 import { PORTCORP_CALCS } from "../lib/portcorpCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
@@ -10204,29 +10205,9 @@ function updateFinancePreview(): void {
 // Statistics & uncertainty
 // ---------------------------------------------------------------------------
 
-interface StatField {
-  key: string;
-  label: string;
-  default: string;
-  /**
-   * `block` (E2): a data table with a header row of names, filled from a Word table or CSV as tab-separated cells
-   * (lib/regData.ts reads it); `line`: several lines of syntax, one model per line.
-   */
-  kind: "list" | "groups" | "vars" | "text" | "select" | "block" | "line";
-  options?: { value: string; label: string }[];
-  /**
-   * How a Word table maps onto this field's syntax (src/lib/tableFeed.ts).
-   * Present on every `groups` field, so "Use table at cursor" reaches all 21
-   * statistics calculators rather than the ten whose field is a plain list.
-   */
-  table?: TableShape;
-}
-interface StatCalc {
-  id: string;
-  name: string;
-  fields: StatField[];
-  compute: (read: (k: string) => string) => StatOutput;
-}
+// The Stats calculator contract lives in lib/statCalc.ts (F2), shared with the library registries spread into STAT_CALCS.
+type StatField = StatFieldDef;
+type StatCalc = StatCalcDef;
 
 /**
  * Every decimal comma the typed-field reader read during ONE compute, keyed by
@@ -12257,6 +12238,8 @@ const STAT_CALCS: StatCalc[] = [
       };
     },
   },
+  // F2 library registries (src/lib/*StatCalcs.ts, StatCalcDef arrays) are spread here, one line each: `...TS2_STAT_CALCS,`.
+  // statSpreadContract.test.ts holds every spread calculator to the pane's contract.
 ];
 
 function populateStatsCalcs(): void {

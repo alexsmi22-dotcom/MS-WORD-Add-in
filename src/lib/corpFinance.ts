@@ -160,9 +160,22 @@ export function irrAll(cfs: number[]): IrrRoots {
     const um = (lo + hi) / 2;
     if (g(um) < 1e-10 && !roots.some((r) => Math.abs(r - um) < 1e-6)) touches.push(um);
   }
-  const toRate = (u: number): number => Math.expm1(u);
+  // A multiple root (−100, 300, −300, 100 is −100(1 − v)³, root 0) is flat, so bisection stops wherever float noise
+  // flips the sign (−0.0003% there). Snap a root to a rounder rate (whole percent, then 0.01%, then 0.0001%) when NPV
+  // at that rate is at the float noise floor (|NPV| ≤ 10⁻¹⁴ of the flows' discounted magnitude): no false digits.
+  const toRate = (u: number): number => {
+    const r = Math.expm1(u);
+    for (const q of [100, 10000, 1000000]) {
+      const c = Math.round(r * q) / q;
+      if (c === r || !(c > -1)) continue;
+      npvScaledInto(Math.log1p(c), C, A, out);
+      if (Math.abs(out[0]) <= 1e-14 * out[1]) return c;
+    }
+    return r;
+  };
   const inRange = (u: number): boolean => u >= lo0 - 1e-12 && u <= hi0 + 1e-12;
-  return { roots: roots.filter(inRange).map(toRate), touches: touches.filter(inRange).map(toRate), signChanges: sc };
+  const uniq = (xs: number[]): number[] => xs.filter((x, k) => xs.indexOf(x) === k);
+  return { roots: uniq(roots.filter(inRange).map(toRate)), touches: uniq(touches.filter(inRange).map(toRate)), signChanges: sc };
 }
 
 /** Excel MIRR; null when there is no negative or no positive flow (Excel's #DIV/0!). */

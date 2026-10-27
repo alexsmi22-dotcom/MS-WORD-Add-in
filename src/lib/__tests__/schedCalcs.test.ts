@@ -5,7 +5,8 @@
  * every IRS Pub 946 (2025) MACRS column re-derived from the method in exact Fractions; exact Fractions for the ratios,
  * DuPont, Altman Z and CVP.
  *
- * Tolerances: loan payments, interest and balances 1e-7 absolute (measured: about 1e-10); totals 1e-9 relative;
+ * Tolerances: loans EXACT to the cent against the oracle's Decimal ROUND_HALF_UP loop (the lender cent convention), and
+ * within the derived cent-rounding bound of the unrounded numpy-financial schedule (stated at that test); totals exact;
  * depreciation 1e-9 relative; MACRS method rates EXACT (strings); ratios 1e-12 relative to the exact fraction.
  */
 import * as fs from "fs";
@@ -107,9 +108,8 @@ describe("registry contract (the finSpreadContract read path)", () => {
 
 // ------------------------------------------------------------------------------------------------------------------
 describe("loans vs the oracle", () => {
-  test.each((FX.loans as R[]).map((c: R): [string, R] => [c.name, c]))("%s", (_n, c: R) => {
-    const i = c.input;
-    const res = loanSchedule({
+  const loanOf = (i: R) =>
+    loanSchedule({
       principal: i.P,
       annualRate: i.annual,
       n: i.n,
@@ -121,23 +121,115 @@ describe("loans vs the oracle", () => {
       lumps: new Map(i.lumps as [number, number][]),
       rateChanges: (i.changes as [number, number][]).map(([k, rate]) => ({ k, rate })),
     });
+
+  // EXACT: the lender cent convention against the oracle's independent Decimal ROUND_HALF_UP loop, every row, in cents
+  test.each((FX.loansCents as R[]).map((c: R): [string, R] => [c.name, c]))("cents, exact: %s", (name, c: R) => {
+    const res = loanOf(FX.loans.find((x: R) => x.name === name).input);
     if ("error" in res) throw new Error(res.error);
     expect(res.payoffK).toBe(c.payoffK);
-    expect(rel(res.totalInterest, c.totalInterest)).toBeLessThan(1e-9);
-    expect(rel(res.totalPaid, c.totalPaid)).toBeLessThan(1e-9);
-    if (c.npfPayment !== undefined) expect(Math.abs(res.payment0 - c.npfPayment)).toBeLessThan(1e-7);
+    expect(Math.round(res.payment0 * 100)).toBe(c.payment0C);
+    expect(res.totalsC.interest).toBe(c.totalInterestC);
+    expect(res.totalsC.paid).toBe(c.totalPaidC);
+    expect(res.totalsC.extra).toBe(c.totalExtraC);
+    expect(res.rows.map((x) => `${x.k} ${x.c.payment} ${x.c.extra} ${x.c.interest} ${x.c.principal} ${x.c.balance}`)).toEqual(c.rows);
+  });
+
+  // TOLERANCE vs the exact (unrounded) numpy-financial schedule. Cent rounding moves the schedule: the payment is off
+  // by at most ½ cent and each period's interest by at most ½ cent, and those differences compound in the balance, so
+  // after k payments |Δbalance| ≤ 0.01 × ((1 + i)ᵏ − 1)/i (i the largest periodic rate in force); about 5.02 at
+  // payment 360 of a 6% monthly loan. Interest per row is within i × that bound + 0.005; totals within n × 0.01 plus
+  // the final balance bound. The exact cent schedule is pinned above; this checks it stays near the textbook one.
+  test.each((FX.loans as R[]).map((c: R): [string, R] => [c.name, c]))("near numpy-financial: %s", (_n, c: R) => {
+    const i = c.input;
+    const res = loanOf(i);
+    if ("error" in res) throw new Error(res.error);
+    expect(res.payoffK).toBe(c.payoffK);
+    const iMax = Math.max(i.annual, ...(i.changes as [number, number][]).map((x) => x[1])) / i.m;
+    const balBound = (k: number): number => 0.01 * (iMax === 0 ? k : (Math.pow(1 + iMax, k) - 1) / iMax) + 1e-9;
+    const n = res.payoffK;
+    expect(Math.abs(res.totalPaid - c.totalPaid)).toBeLessThanOrEqual(n * 0.01 + balBound(n));
+    expect(Math.abs(res.totalInterest - c.totalInterest)).toBeLessThanOrEqual(n * 0.01 + balBound(n));
+    if (c.npfPayment !== undefined) expect(Math.abs(res.payment0 - c.npfPayment)).toBeLessThanOrEqual(0.005 + 1e-9);
     for (const row of c.rows) {
       const t = res.rows[row.k - 1];
-      for (const key of ["payment", "extra", "interest", "principal", "balance"]) expect(Math.abs(t[key as "payment"] - row[key])).toBeLessThan(1e-7);
+      expect(Math.abs(t.balance - row.balance)).toBeLessThanOrEqual(balBound(row.k));
+      expect(Math.abs(t.interest - row.interest)).toBeLessThanOrEqual(iMax * balBound(row.k - 1) + 0.005 + 1e-9);
     }
+  });
+
+  /** Cells → whole cents (BigInt), exactly as printed. */
+  const C = (s: string): bigint => {
+    const neg = s.startsWith("−");
+    const [w, f] = s.replace("−", "").replace(/,/g, "").split(".");
+    const v = BigInt(w) * 100n + BigInt(f);
+    return neg ? -v : v;
+  };
+  const sumCol = (rows: string[][], j: number): bigint => rows.reduce((a, r) => a + C(r[j]), 0n);
+  test.each([
+    ["default", {}],
+    ["plain 360 payments", { extra: "", lumps: "" }],
+    ["balloon", { balloon: "100000", years: "10" }],
+    ["rate change", { changes: "61\t7.25\n121\t4.125", extra: "", lumps: "" }],
+    ["rate change with extras", { changes: "61\t7.25" }],
+    ["0% loan", { rate: "0", p: "10000", years: "3", extra: "", lumps: "" }],
+    ["very large principal", { p: "9876543210987.65", rate: "7.3", extra: "", lumps: "" }],
+    ["biweekly odd amounts", { p: "123456.78", rate: "5.125", m: "26", years: "13", extra: "37.11", lumps: "100\t5000.55" }],
+  ])("printed tables add up exactly to the cent: %s", (_n, over) => {
+    for (const view of ["every", "annual"]) {
+      // every-payment view needs ≤ 360 rows; the 13-year biweekly loan has 338
+      const o = out("loan-schedule", { ...(over as Record<string, string>), view });
+      expect(o.ok).not.toBe(false);
+      const t = o.tables![0];
+      const body = t.rows.slice(1, -1);
+      const total = t.rows[t.rows.length - 1];
+      expect(body.some((r) => r.includes("…"))).toBe(false);
+      if (t.label === "Amortization schedule, every payment") {
+        let prev: bigint | null = null;
+        for (const r of body) {
+          // scheduled payment + extra = interest + principal; previous balance − principal = balance
+          expect(C(r[1]) + C(r[2])).toBe(C(r[3]) + C(r[4]));
+          if (prev !== null) expect(prev - C(r[4])).toBe(C(r[5]));
+          prev = C(r[5]);
+        }
+        for (const j of [1, 2, 3, 4]) expect(sumCol(body, j)).toBe(C(total[j]));
+      } else {
+        for (const r of body) expect(C(r[1]) + C(r[2])).toBe(C(r[4]));
+        for (const j of [1, 2, 3, 4]) expect(sumCol(body, j)).toBe(C(total[j]));
+      }
+      expect(body[body.length - 1][5]).toBe("0.00");
+      expect(C(total[view === "every" ? 4 : 2])).toBe(C(o.text.match(/^Loan ([\d,.]+)/)![1]));
+    }
+  });
+
+  test("a one-off payment at the last scheduled payment is reported as not applied, never dropped silently", () => {
+    const o = out("loan-schedule", { extra: "", lumps: "360\t5000" });
+    expect(o.text).toContain("One-off extra payment listed for payment 360 is not applied: that payment clears the loan anyway");
+    const b = out("loan-schedule", { extra: "", lumps: "60\t5000", balloon: "100000", years: "5" });
+    expect(b.text).toContain("One-off extra payment listed for payment 60 is not applied");
+    expect(b.text).toContain("balloon included");
+  });
+
+  test("tiny loans: below 1.00 refused; a payment that rounds to no more than its interest refused", () => {
+    expect(refused("loan-schedule", { p: "0.01", extra: "", lumps: "" })).toMatch(/Loan amount must be at least 1/);
+    expect(refused("loan-schedule", { p: "1", extra: "", lumps: "" })).toMatch(/too small for 360 payments: the payment rounds to 0\.01 a period, no more than the first period's interest \(0\.01\)/);
+    expect(out("loan-schedule", { p: "1", years: "1", extra: "", lumps: "" }).ok).not.toBe(false);
+  });
+
+  test("the last payment adjusts for the cents and says so", () => {
+    const o = out("loan-schedule", { rate: "0", p: "10000", years: "3", extra: "", lumps: "" });
+    expect(o.text).toContain("Scheduled payment = 277.78");
+    expect(o.text).toContain("Last payment (payment 36) = 277.70");
+    expect(o.text).toContain("interest rounded half up to the cent each period");
+    expect(o.text).toContain("the last payment adjusts");
   });
 
   test("the calculator prints interest saved and months saved against the plain loan", () => {
     const o = out("loan-schedule");
-    const c = FX.loans.find((x: R) => x.name === "extra 200 + lump 10000 at 60");
-    const p = FX.loans.find((x: R) => x.name.startsWith("plain 250000 0.06 360/12 balloon 0"));
+    const c = FX.loansCents.find((x: R) => x.name === "extra 200 + lump 10000 at 60");
+    const p = FX.loansCents.find((x: R) => x.name.startsWith("plain 250000 0.06 360/12 balloon 0"));
     const fmt = (x: number): string => x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    expect(o.text).toContain(`interest saved = ${fmt(p.totalInterest - c.totalInterest)}`);
+    expect(o.text).toContain(`interest saved = ${fmt((p.totalInterestC - c.totalInterestC) / 100)}`);
+    expect(o.text).toContain("interest saved = 103,259.80");
     expect(o.text).toContain(`Time saved = ${p.payoffK - c.payoffK} months`);
     expect(o.text).toContain(`Paid off with payment ${c.payoffK}`);
   });
@@ -334,15 +426,16 @@ describe("statements vs exact fractions", () => {
 describe("hostile inputs and the adversarial pass", () => {
   test.each([
     ["p", "", /Enter the loan amount/],
-    ["p", "NaN", /loan amount/],
-    ["p", "1e400", /loan amount/],
-    ["p", "−5", /loan amount must be above 0/],
-    ["p", "0", /loan amount must be above 0/],
-    ["rate", "-1", /annual interest rate \(%\) must be at least 0/],
-    ["years", "0", /loan term \(years\) must be above 0/],
+    ["p", "NaN", /^Loan amount/],
+    ["p", "1e400", /^Loan amount/],
+    ["p", "−5", /^Loan amount must be at least 1\./],
+    ["p", "0", /^Loan amount must be at least 1\./],
+    ["p", "0.99", /^Loan amount must be at least 1\./],
+    ["rate", "-1", /^Annual interest rate \(%\) must be at least 0/],
+    ["years", "0", /^Loan term \(years\) must be above 0/],
     ["years", "2.03", /whole number of payments/],
     ["extra", "-50", /Extra principal each payment cannot be negative/],
-    ["extrafrom", "0", /first payment with the extra principal must be at least 1/],
+    ["extrafrom", "0", /^First payment with the extra principal must be at least 1/],
     ["balloon", "300000", /balloon \(300,000.00\) cannot exceed the loan amount/],
     ["lumps", "60\t-100", /cannot be negative/],
     ["lumps", "400\t100", /from 1 to 360/],
@@ -397,17 +490,17 @@ describe("hostile inputs and the adversarial pass", () => {
   });
 
   test.each([
-    [{ life: "0" }, /useful life \(years\) must be at least 1/],
-    [{ life: "2.5" }, /useful life \(years\) must be a whole number/],
+    [{ life: "0" }, /^Useful life \(years\) must be at least 1/],
+    [{ life: "2.5" }, /^Useful life \(years\) must be a whole number/],
     [{ life: "101" }, /at most 100/],
     [{ salvage: "20000" }, /Salvage value cannot exceed the cost/],
-    [{ salvage: "-1" }, /salvage value must be at least 0/],
-    [{ cost: "1e400" }, /cost/],
+    [{ salvage: "-1" }, /^Salvage value must be at least 0/],
+    [{ cost: "1e400" }, /^Cost: /],
     [{ factor: "0" }, /factor must be above 0/],
     [{ method: "uop", units: "" }, /Units produced each year/],
     [{ method: "uop", units: "100, abc" }, /Units produced each year/],
     [{ method: "uop", units: "100, -5" }, /zero or more/],
-    [{ method: "uop", totalunits: "0" }, /total units/],
+    [{ method: "uop", totalunits: "0" }, /^Total units/],
     [{ method: "nope" }, /Choose a depreciation method/],
   ])("depreciation %j is refused by name", (over, re) => {
     expect(refused("depr-schedule", over as Record<string, string>)).toMatch(re);
@@ -430,8 +523,8 @@ describe("hostile inputs and the adversarial pass", () => {
     [{ class: "8" }, /GDS property class must be 3, 5, 7, 10, 15 or 20/],
     [{ system: "sl", slperiod: "41" }, /not one Pub 946 Tables A-8 to A-12 print/],
     [{ conv: "q5" }, /half-year or a mid-quarter/],
-    [{ basis: "0" }, /depreciable basis must be above 0/],
-    [{ basis: "1e400" }, /depreciable basis/],
+    [{ basis: "0" }, /^Depreciable basis must be above 0/],
+    [{ basis: "1e400" }, /^Depreciable basis/],
   ])("MACRS %j is refused by name", (over, re) => {
     expect(refused("macrs", over as Record<string, string>)).toMatch(re);
   });
@@ -483,9 +576,9 @@ describe("hostile inputs and the adversarial pass", () => {
     if ("error" in st) throw new Error(st.error);
     expect(st.items.get("receivables")!.current).toBe(1500000);
     expect(st.items.get("revenue")!.current).toBe(12000);
-    // RULE N: a block whose only comma-numbers are undecidable ("1,500") is refused by name, never guessed
+    // a statement is read in the US style (stated in Conventions): a lone "1,500" is fifteen hundred
     const amb = readStatement("Accounts receivable 1,500\nNet sales 12,000");
-    expect("error" in amb && amb.error).toMatch(/could be a number with a thousands comma/);
+    expect("error" in amb ? amb.error : amb.items.get("receivables")!.current).toBe(1500);
     // a year header is taken off; a first line of words with digits is not a header to drop
     const yr = readStatement("Line item\t2025\t2024\nRevenue\t10\t9");
     expect("error" in yr ? yr.error : yr.header).toEqual(["Line item", "2025", "2024"]);
@@ -507,6 +600,106 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(out("fin-ratios", { stmt: "Revenue\t$1,200,000\nTotal assets\t$1,000,000" }).text).toContain("currency symbols were ignored");
   });
 
+  test("F1 review C: a line named as a loss or deficit is a negative amount, and the result says so", () => {
+    const def = calc("altman-z").fields[0].default.replace("Retained earnings\t350,000", "Accumulated deficit\t350,000");
+    const a = out("altman-z", { stmt: def });
+    expect(a.text).toContain("X₂ = retained earnings ÷ total assets = −0.3500");
+    expect(a.text).toContain("Z = 2.6240: grey zone");
+    expect(a.text).toContain("“Accumulated deficit 350,000” read as retained earnings −350,000: a line named as a loss is a negative amount");
+    // typed negative, parentheses: still −|x|, never flipped back to positive
+    expect(out("altman-z", { stmt: def.replace("350,000", "(350,000)") }).text).toContain("Z = 2.6240");
+    const r = out("fin-ratios", { stmt: "Revenue\t1,000\nNet loss\t50\nTotal assets\t500" });
+    expect(r.text).toContain("Net margin = net income ÷ revenue = −5.00%");
+    expect(r.text).toContain("“Net loss 50” read as net income −50");
+    // two columns, other loss names
+    const t = readStatement("Revenue 1000 900\nOperating loss 30 20\nLoss before income taxes 40 25\nNet loss for the year 45 −10\nTotal assets 500 450");
+    if ("error" in t) throw new Error(t.error);
+    expect([t.items.get("ebit")!.current, t.items.get("ebit")!.prior, t.items.get("ebt")!.current, t.items.get("netIncome")!.prior]).toEqual([-30, -20, -40, -10]);
+    // combined names keep the sign as typed
+    const k = readStatement("Revenue 1000\nNet income (loss) 50\nRetained earnings (accumulated deficit) −20\nOperating income (loss) 7");
+    if ("error" in k) throw new Error(k.error);
+    expect([k.items.get("netIncome")!.current, k.items.get("retainedEarnings")!.current, k.items.get("ebit")!.current]).toEqual([50, -20, 7]);
+    expect(k.notes.join(" ")).not.toContain("read as");
+  });
+
+  test("F1 review C: percentages in a statement are refused by line, quoting what was typed", () => {
+    expect(refused("fin-ratios", { stmt: "Revenue 1000\nGross margin 40% 38%" })).toBe("Statement, line 2 (“Gross margin”): “40%” is a percentage; a statement line takes amounts, not percentages.");
+  });
+
+  test("F1 review C: US accounting formats read; European refused by line; refusals quote the user's text", () => {
+    const st = readStatement("Revenue\t$1,234.5\nCash\t1,234.50\nNet income\t($1,000)\nInventory\t$(1,000)\nTotal assets\t1,250\nAccounts payable\t1,000\nTotal liabilities\t-$2,000");
+    if ("error" in st) throw new Error(st.error);
+    expect(["revenue", "cash", "netIncome", "inventory", "totalAssets", "payables", "totalLiabilities"].map((k) => st.items.get(k as "cash")!.current)).toEqual([1234.5, 1234.5, -1000, -1000, 1250, 1000, -2000]);
+    expect(st.notes.join(" ")).toContain("amounts in parentheses were read as negative");
+    expect(st.notes.join(" ")).toContain("currency symbols were ignored");
+    expect(refused("fin-ratios", { stmt: "Revenue\t1.234,56\nTotal assets\t50" })).toBe(
+      "Statement, line 1 (“Revenue”): “1.234,56” is in the European style (point = thousands, comma = decimal); a statement is read in the US style (comma = thousands, point = decimal): write 1,234.56.",
+    );
+    expect(refused("fin-ratios", { stmt: "Revenue\t3,5\nTotal assets\t50" })).toMatch(/“3,5” has a comma that is not a thousands separator/);
+    expect(refused("fin-ratios", { stmt: "Revenue\t(−1,000)\nTotal assets\t50" })).toMatch(/“\(−1,000\)” has both parentheses and a sign/);
+    expect(refused("fin-ratios", { stmt: "Revenue\t1,00,000\nTotal assets\t50" })).toMatch(/“1,00,000”/);
+    expect(out("fin-ratios", { stmt: "Revenue\t1,200\nTotal assets\t500" }).text).toMatch(/Conventions: statement amounts are read in the US style \(comma = thousands separator, point = decimal/);
+    for (const id of ["fin-common-size", "altman-z"]) expect(out(id).text).toContain("read in the US style");
+  });
+
+  test("F1 review C: an accurate reason instead of “no amount” (unit suffix, header row, extra text column)", () => {
+    expect(refused("fin-ratios", { stmt: "Revenue 50k\nTotal assets 50" })).toMatch(/line 1 \(“Revenue 50k”\): no amount: “50k”: a unit suffix \(k, m, bn, million\) is not read/);
+    expect(refused("fin-ratios", { stmt: "Revenue 100\nTotal assets 50\nLine item FY2023 FY2022" })).toMatch(/line 3 .*no amount: this looks like a header row/);
+    expect(refused("fin-ratios", { stmt: "Revenue\t1,000\tsee note 3\nTotal assets\t50" })).toBe(
+      "Statement, line 1 (“Revenue”): text after the amounts (“see note 3”) is an extra column; remove it (a statement line is: line item, amount, prior-year amount).",
+    );
+    expect(refused("fin-ratios", { stmt: "Revenue 1,000 see note 3\nTotal assets 50" })).toMatch(/text after the amounts \(“see note 3”\)/);
+    // a header of fiscal years is a header
+    const fy = readStatement("Line item FY2023 FY2022\nRevenue 10 9\nTotal assets 5 4");
+    expect("error" in fy ? fy.error : fy.header).toEqual(["Line", "item", "FY2023", "FY2022"]);
+    // a name with a percentage in it is still a name
+    const nm = readStatement("Revenue\t100\nNotes 5.25% due 2027\t1,000");
+    expect("error" in nm ? nm.error : nm.lines[1]).toMatchObject({ label: "Notes 5.25% due 2027", current: 1000 });
+    expect("error" in readStatement("Revenue 100\nNotes 5.25% due later 1,000")).toBe(false);
+  });
+
+  test("F1 review C: a header row (2023) (2022) is a header, not amounts −2023 and −2022", () => {
+    const st = readStatement("Line item\t(2023)\t(2022)\nRevenue\t10\t9\nTotal assets\t5\t4");
+    if ("error" in st) throw new Error(st.error);
+    expect(st.header).toEqual(["Line item", "(2023)", "(2022)"]);
+    expect(st.lines.length).toBe(2);
+  });
+
+  test("F1 review C: a dash of any kind alone is a missing amount", () => {
+    for (const d of ["—", "–", "-", "−"]) {
+      const st = readStatement(`Revenue\t100\t90\nCash\t${d}\t50\nTotal assets\t50\t40`);
+      if ("error" in st) throw new Error(d + st.error);
+      expect([d, st.items.get("cash")!.label, st.items.get("cash")!.current, st.items.get("cash")!.prior]).toEqual([d, "Cash", null, 50]);
+    }
+    const sp = readStatement("Revenue 100 90\nCash — 50\nTotal assets 50 40");
+    expect("error" in sp ? sp.error : [sp.items.get("cash")!.current, sp.items.get("cash")!.prior]).toEqual([null, 50]);
+  });
+
+  test("F1 review C: CVP target met with no sales says so in words, never −500 units", () => {
+    const o = out("cvp-breakeven", { target: "-50000" });
+    expect(o.text).toContain("Units for a target operating profit of −50,000.00: none; the target is met with no sales at all");
+    expect(o.text).not.toMatch(/−[\d,.]+ units/);
+    expect(o.tables![0].rows.find((r) => r[0] === "Units for target profit")![2]).toBe("none (met at 0 units)");
+  });
+
+  test("F1 review C: singular years", () => {
+    expect(out("loan-schedule", { years: "1", extra: "", lumps: "" }).text).toContain("for 1 year (12 payments)");
+    expect(out("loan-schedule", { years: "1", m: "1", extra: "", lumps: "" }).text).toContain("for 1 year (1 payment)");
+    expect(out("depr-schedule", { life: "1" }).text).toContain("useful life 1 year");
+    expect(out("depr-schedule", { life: "1" }).text).not.toContain("1 years");
+  });
+
+  test("F1 review C: every refusal of every schedule calculator starts with a capital", () => {
+    for (const c of SCHED_CALCS)
+      for (const f of c.fields) {
+        if (f.kind === "select" || f.kind === "block" || f.kind === "list" || f.kind === "text") continue;
+        for (const v of ["−5", "0", "1e400", "abc", "2.5", "-0.5"]) {
+          const o = run(c, { [f.key]: v });
+          if (typeof o !== "string" && o.ok === false) expect([c.id, f.key, v, /^[A-Z“(]/.test(o.text)]).toEqual([c.id, f.key, v, true]);
+        }
+      }
+  });
+
   test("Altman: the original needs the market value of equity; Z″ does not need sales", () => {
     const base = calc("altman-z").fields[0].default.split("\n").filter((l) => !l.startsWith("Market")).join("\n");
     expect(refused("altman-z", { stmt: base })).toMatch(/needs the Market value of equity/);
@@ -518,7 +711,7 @@ describe("hostile inputs and the adversarial pass", () => {
   test("CVP: zero sales, break-even exactly (no DOL), huge values", () => {
     expect(out("cvp-breakeven", { units: "0" }).text).toContain("Margin of safety: no sales entered");
     expect(out("cvp-breakeven", { units: "2000", target: "" }).text).toContain("operating income is 0 (at break-even)");
-    expect(refused("cvp-breakeven", { price: "1e400" })).toMatch(/selling price per unit/);
+    expect(refused("cvp-breakeven", { price: "1e400" })).toMatch(/^Selling price per unit/);
     expect(refused("cvp-breakeven", { price: "0" })).toMatch(/must be above 0/);
   });
 });

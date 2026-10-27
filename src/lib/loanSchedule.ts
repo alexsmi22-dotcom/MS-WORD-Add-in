@@ -2,17 +2,22 @@
  * Loan amortization with extra payments (recurring and one-off), a balloon, and rate changes (release F1, gap item
  * #9). Pure: no Office.js, no DOM.
  *
- * Conventions (printed by the calculator):
- *   - periodic rate i = annual nominal rate / payments per year; interest each period = balance × i; nothing is rounded
- *     to cents (the schedule is exact; a lender's cent-rounded schedule can differ by cents);
+ * Conventions (printed by the calculator): the LENDER CENT CONVENTION.
+ *   - every amount is carried in whole cents (integers, never floats), so each row balances and every column sums
+ *     exactly to its total;
+ *   - periodic rate i = annual nominal rate / payments per year; each period's interest = balance × i rounded half up
+ *     to the cent (computed exactly in integers: the annual rate is taken to 9 decimal places of a fraction);
  *   - level payment P·i/(1 − (1 + i)^−n), or with a balloon B due with the last payment (P − B(1 + i)^−n)·i/(1 − (1 + i)^−n)
- *     (numpy-financial pmt with fv = −B); "amortize over" a longer term computes the payment on that term and makes
- *     the balance at the loan term the balloon;
+ *     (numpy-financial pmt with fv = −B), rounded half up to the cent; "amortize over" a longer term computes the
+ *     payment on that term and makes the balance at the loan term the balloon;
+ *   - principal = payment + extra − interest; the last payment is the remaining balance plus its interest (it adjusts
+ *     for the cents, and carries any balloon);
  *   - extra payments go to principal on top of the scheduled payment, which stays level, so the loan pays off sooner
- *     (an extra payment larger than the balance is cut to the balance);
- *   - at a rate change the payment is re-amortized: the balance then outstanding over the scheduled payments left, to
- *     the same balloon (never more than the balance), as an adjustable-rate loan recasts. Extra payments made before a
- *     rate change therefore lower the new payment rather than shorten the term from that point.
+ *     (an extra payment larger than the balance is cut to the balance); an extra payment listed for the payment that
+ *     clears the loan is not applied (that payment pays the whole balance anyway) and is reported as such;
+ *   - at a rate change the payment is re-amortized (rounded to the cent): the balance then outstanding over the
+ *     scheduled payments left, to the same balloon (never more than the balance), as an adjustable-rate loan recasts.
+ *     Extra payments made before a rate change therefore lower the new payment rather than shorten the term.
  */
 import { MAX_AMORT_PERIODS } from "./finance";
 
@@ -37,6 +42,15 @@ export interface LoanInput {
   rateChanges?: { k: number; rate: number }[];
 }
 
+/** One row in whole cents (safe integers). */
+export interface LoanRowCents {
+  payment: number;
+  extra: number;
+  interest: number;
+  principal: number;
+  balance: number;
+}
+
 export interface LoanRow {
   k: number;
   /** Annual rate in force (fraction). */
@@ -48,21 +62,27 @@ export interface LoanRow {
   /** All principal repaid this period (scheduled + extra). */
   principal: number;
   balance: number;
+  /** The same amounts in whole cents. */
+  c: LoanRowCents;
 }
 
 export interface LoanResult {
   rows: LoanRow[];
-  /** The level payment at the start. */
+  /** The level payment at the start (rounded to the cent). */
   payment0: number;
   /** Each recast: payment number, new rate, new payment. */
   recasts: { k: number; rate: number; payment: number }[];
   totalInterest: number;
   totalPaid: number;
   totalExtra: number;
+  /** Totals in whole cents. */
+  totalsC: { interest: number; paid: number; extra: number; principal: number };
   /** The payment that clears the loan (n unless extra payments ended it sooner). */
   payoffK: number;
   /** The amount above the level payment paid with the last payment (the balloon), 0 when none. */
   balloonPaid: number;
+  /** One-off extra payments listed for the payment that cleared the loan, not applied (payment number → amount). */
+  lumpsNotApplied: number[];
 }
 
 /** numpy-financial pmt(i, n, −pv, fv) as a positive payment: pays pv down to `fv` over n periods. */
@@ -73,59 +93,126 @@ export function levelPayment(pv: number, i: number, n: number, fv = 0): number {
   return ((pv - fv * v) * i) / (1 - v);
 }
 
+/** Dollars → whole cents, half up (amounts entered by the user have at most cents; float noise is absorbed). */
+export function toCents(x: number): number {
+  return Math.sign(x) * Math.floor(Math.abs(x) * 100 + 0.5 + 1e-9);
+}
+
+const RATE_SCALE = 1_000_000_000n;
+
+/** Interest in cents on `balC` cents for one period at annual nano-rate R over m payments a year, half up, exact. */
+function interestCents(balC: number, R: bigint, m: number): number {
+  if (balC <= 0 || R === 0n) return 0;
+  const D = BigInt(m) * RATE_SCALE;
+  return Number((2n * BigInt(balC) * R + D) / (2n * D));
+}
+
+/** The level payment in cents: exact integer division at 0%, else the float formula rounded half up. */
+function paymentCents(pvC: number, i: number, nper: number, fvC: number): number {
+  if (i === 0) {
+    const num = BigInt(pvC - fvC);
+    const d = BigInt(nper);
+    return Number((2n * num + d) / (2n * d));
+  }
+  return toCents(levelPayment(pvC / 100, i, nper, fvC / 100));
+}
+
 export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
-  const { principal: P, m, n } = inp;
+  const { m, n } = inp;
   if (!Number.isInteger(n) || n < 1) return { error: "The loan term must be at least one payment." };
   if (n > MAX_AMORT_PERIODS) return { error: `The loan has ${n.toLocaleString("en-US")} payments; at most ${MAX_AMORT_PERIODS.toLocaleString("en-US")} are scheduled.` };
   const amortN = inp.amortN ?? n;
   if (!Number.isInteger(amortN) || amortN < n || amortN > MAX_AMORT_PERIODS) return { error: "The amortization term must be whole payments, no shorter than the loan term." };
+  const Pc = toCents(inp.principal);
+  if (!(Pc >= 100)) return { error: "The loan amount must be at least 1.00." };
+  if (Pc > 1e15) return { error: "The loan amount must be at most 10,000,000,000,000." };
   const changes = [...(inp.rateChanges ?? [])].sort((a, b) => a.k - b.k);
   const changeAt = new Map<number, number>();
   for (const c of changes) changeAt.set(c.k, c.rate);
   let annual = inp.annualRate;
   let i = annual / m;
-  const balloonTarget = inp.balloon ?? 0;
+  let R = BigInt(Math.round(annual * 1e9));
+  const Bc = toCents(inp.balloon ?? 0);
   // payment over the amortization term; with a balloon, to that balloon over the loan term
-  let pmt = amortN > n ? levelPayment(P, i, amortN) : levelPayment(P, i, n, balloonTarget);
-  if (!Number.isFinite(pmt)) return { error: "The payment is not computable for these inputs." };
-  const payment0 = pmt;
+  let pmtC = amortN > n ? paymentCents(Pc, i, amortN, 0) : paymentCents(Pc, i, n, Bc);
+  if (!Number.isSafeInteger(pmtC)) return { error: "The payment is not computable for these inputs." };
+  const firstInterest = interestCents(Pc, R, m);
+  // rounded to the cent, a tiny loan's payment can equal (or fall below) its interest: it would never amortize
+  // (an interest-only loan, balloon = principal, is the one case where payment = interest is intended)
+  if (n > 1 && (pmtC <= 0 || pmtC < firstInterest || (pmtC === firstInterest && Bc < Pc)))
+    return {
+      error:
+        `The loan amount is too small for ${n.toLocaleString("en-US")} payments: the payment rounds to ${(pmtC / 100).toFixed(2)} a period, ` +
+        `no more than the first period's interest (${(firstInterest / 100).toFixed(2)}), so rounded to the cent the loan would not amortize. Use fewer payments or a larger amount.`,
+    };
+  const payment0 = pmtC / 100;
   const recasts: LoanResult["recasts"] = [];
   const rows: LoanRow[] = [];
-  let bal = P;
-  let totalInterest = 0;
-  let totalPaid = 0;
-  let totalExtra = 0;
-  let balloonPaid = 0;
-  const tiny = 1e-9 * Math.max(1, P);
-  for (let k = 1; k <= n && bal > tiny; k++) {
+  const lumpsNotApplied: number[] = [];
+  let bal = Pc;
+  let tInterest = 0n;
+  let tPaid = 0n;
+  let tExtra = 0n;
+  let tPrincipal = 0n;
+  let balloonC = 0;
+  const hasBalloon = Bc > 0 || amortN > n;
+  const extraC = toCents(inp.extra ?? 0);
+  for (let k = 1; k <= n && bal > 0; k++) {
     if (changeAt.has(k) && k > 1) {
       annual = changeAt.get(k)!;
       i = annual / m;
+      R = BigInt(Math.round(annual * 1e9));
       const left = n - k + 1;
-      if (amortN > n) pmt = levelPayment(bal, i, amortN - k + 1);
-      else pmt = levelPayment(bal, i, left, Math.min(balloonTarget, bal));
-      recasts.push({ k, rate: annual, payment: pmt });
+      if (amortN > n) pmtC = paymentCents(bal, i, amortN - k + 1, 0);
+      else pmtC = paymentCents(bal, i, left, Math.min(Bc, bal));
+      if (!Number.isSafeInteger(pmtC)) return { error: "The payment is not computable for these inputs." };
+      recasts.push({ k, rate: annual, payment: pmtC / 100 });
     }
-    const interest = bal * i;
-    let sched = pmt - interest;
-    let pay = pmt;
+    const interest = interestCents(bal, R, m);
+    let sched = pmtC - interest;
+    let pay = pmtC;
     let extra = 0;
+    const lumpC = toCents(inp.lumps?.get(k) ?? 0);
     if (k === n || sched >= bal) {
-      // the last payment (or a scheduled payment that more than clears the balance) pays off everything
-      if (k === n && bal - sched > tiny) balloonPaid = bal - sched;
+      // the last payment (or a scheduled payment that clears the balance) pays off everything: balance + its interest
+      if (k === n && hasBalloon && bal - sched > 0) balloonC = bal - sched;
+      if (lumpC > 0) lumpsNotApplied.push(k);
       sched = bal;
       pay = bal + interest;
     } else {
-      extra = (inp.extra && k >= (inp.extraFrom ?? 1) ? inp.extra : 0) + (inp.lumps?.get(k) ?? 0);
+      extra = (extraC > 0 && k >= (inp.extraFrom ?? 1) ? extraC : 0) + lumpC;
       if (extra > bal - sched) extra = bal - sched;
     }
     const principal = sched + extra;
     bal -= principal;
-    if (Math.abs(bal) <= tiny) bal = 0;
-    totalInterest += interest;
-    totalPaid += pay + extra;
-    totalExtra += extra;
-    rows.push({ k, rate: annual, payment: pay, extra, interest, principal, balance: bal });
+    tInterest += BigInt(interest);
+    tPaid += BigInt(pay + extra);
+    tExtra += BigInt(extra);
+    tPrincipal += BigInt(principal);
+    rows.push({
+      k,
+      rate: annual,
+      payment: pay / 100,
+      extra: extra / 100,
+      interest: interest / 100,
+      principal: principal / 100,
+      balance: bal / 100,
+      c: { payment: pay, extra, interest, principal, balance: bal },
+    });
   }
-  return { rows, payment0, recasts, totalInterest, totalPaid, totalExtra, payoffK: rows.length, balloonPaid };
+  const MAXC = BigInt(Number.MAX_SAFE_INTEGER);
+  if (tPaid > MAXC || tInterest > MAXC) return { error: "The amounts are too large to schedule to the cent." };
+  const totalsC = { interest: Number(tInterest), paid: Number(tPaid), extra: Number(tExtra), principal: Number(tPrincipal) };
+  return {
+    rows,
+    payment0,
+    recasts,
+    totalInterest: totalsC.interest / 100,
+    totalPaid: totalsC.paid / 100,
+    totalExtra: totalsC.extra / 100,
+    totalsC,
+    payoffK: rows.length,
+    balloonPaid: balloonC / 100,
+    lumpsNotApplied,
+  };
 }

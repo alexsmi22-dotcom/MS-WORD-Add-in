@@ -44,13 +44,45 @@ export type Section = "income" | "balance" | "market";
 export const LINE_ITEMS: { key: ItemKey; name: string; section: Section; names: string[] }[] = [
   { key: "revenue", name: "Revenue", section: "income", names: ["revenue", "revenues", "sales", "net sales", "total revenue", "total revenues", "net revenue", "net revenues", "turnover"] },
   { key: "cogs", name: "Cost of goods sold", section: "income", names: ["cost of goods sold", "cogs", "cost of sales", "cost of revenue", "cost of revenues"] },
-  { key: "grossProfit", name: "Gross profit", section: "income", names: ["gross profit", "gross margin"] },
+  { key: "grossProfit", name: "Gross profit", section: "income", names: ["gross profit", "gross margin", "gross loss", "gross profit loss"] },
   { key: "opex", name: "Operating expenses", section: "income", names: ["operating expenses", "total operating expenses", "sga", "sg and a", "selling general and administrative", "selling general and administrative expenses"] },
-  { key: "ebit", name: "Operating income (EBIT)", section: "income", names: ["operating income", "operating profit", "ebit", "income from operations", "operating income ebit"] },
+  {
+    key: "ebit",
+    name: "Operating income (EBIT)",
+    section: "income",
+    names: ["operating income", "operating profit", "ebit", "income from operations", "operating income ebit", "operating loss", "loss from operations", "operating income loss", "income loss from operations", "operating profit loss"],
+  },
   { key: "interest", name: "Interest expense", section: "income", names: ["interest expense", "interest", "finance costs", "interest expense net"] },
-  { key: "ebt", name: "Income before tax", section: "income", names: ["income before tax", "income before taxes", "income before income taxes", "pretax income", "pre tax income", "earnings before tax", "ebt", "profit before tax"] },
+  {
+    key: "ebt",
+    name: "Income before tax",
+    section: "income",
+    names: [
+      "income before tax",
+      "income before taxes",
+      "income before income taxes",
+      "pretax income",
+      "pre tax income",
+      "earnings before tax",
+      "ebt",
+      "profit before tax",
+      "loss before tax",
+      "loss before taxes",
+      "loss before income taxes",
+      "pretax loss",
+      "pre tax loss",
+      "income loss before income taxes",
+      "income loss before taxes",
+      "profit loss before tax",
+    ],
+  },
   { key: "tax", name: "Income tax expense", section: "income", names: ["income tax expense", "income taxes", "income tax", "tax expense", "provision for income taxes", "taxes"] },
-  { key: "netIncome", name: "Net income", section: "income", names: ["net income", "net profit", "net earnings", "profit for the year", "net income loss", "net loss"] },
+  {
+    key: "netIncome",
+    name: "Net income",
+    section: "income",
+    names: ["net income", "net profit", "net earnings", "profit for the year", "net income loss", "net loss", "net loss for the year", "loss for the year", "net profit loss", "profit loss for the year", "net earnings loss"],
+  },
   { key: "depreciation", name: "Depreciation and amortization", section: "income", names: ["depreciation", "depreciation and amortization", "depreciation and amortization", "d and a"] },
   { key: "cash", name: "Cash and equivalents", section: "balance", names: ["cash", "cash and equivalents", "cash and cash equivalents"] },
   { key: "securities", name: "Marketable securities", section: "balance", names: ["marketable securities", "short term investments", "short term investment"] },
@@ -69,6 +101,27 @@ export const LINE_ITEMS: { key: ItemKey; name: string; section: Section; names: 
 
 const BY_NAME = new Map<string, (typeof LINE_ITEMS)[number]>();
 for (const it of LINE_ITEMS) for (const n of it.names) BY_NAME.set(n, it);
+
+/**
+ * Names that themselves denote a loss or deficit (matched on the EXACT normalized name, never a substring): the amount
+ * on such a line is a loss, stored as −|amount| whatever its typed sign, and the result says so. A combined name
+ * ("Net income (loss)" → "net income loss", "Retained earnings (accumulated deficit)") keeps the signed amount as typed.
+ */
+export const LOSS_NAMES = new Set([
+  "gross loss",
+  "operating loss",
+  "loss from operations",
+  "loss before tax",
+  "loss before taxes",
+  "loss before income taxes",
+  "pretax loss",
+  "pre tax loss",
+  "net loss",
+  "net loss for the year",
+  "loss for the year",
+  "accumulated deficit",
+]);
+for (const n of LOSS_NAMES) if (!BY_NAME.has(n)) throw new Error(`loss name not in LINE_ITEMS: ${n}`);
 export const ITEM_NAME: Record<ItemKey, string> = Object.fromEntries(LINE_ITEMS.map((x) => [x.key, x.name])) as Record<ItemKey, string>;
 
 /** Lower case; "&" → "and"; apostrophes dropped; any other non-letter/digit run → one space. */
@@ -100,22 +153,91 @@ export interface Statement {
   notes: string[];
 }
 
-const NUMERIC_TOKEN = /^\(?[-+−–]?[$€£¥]?[-+−–]?[\d.,]*\d[\d.,]*([eE][-+−]?\d+)?%?\)?$/;
-const MISSING_TOKEN = /^(|-|−|–|na|n\/a)$/i;
+/** An amount as typed: signs, a currency symbol and parentheses in either order around digits with , and . (and %). */
+const NUMERIC_TOKEN = /^[-+−–]?[$€£¥]?[-+−–]?\(?[-+−–]?[$€£¥]?[-+−–]?[\d.,]*\d[\d.,]*([eE][-+−]?\d+)?%?\)?$/;
+/** A missing amount: blank, a dash of any kind alone (hyphen, minus, en dash, em dash), NA, N/A. */
+const MISSING_TOKEN = /^(|-|−|–|—|na|n\/a)$/i;
+/** A year column heading: 2023, (2023), FY2023, FY 2023, CY2023, 2023A/E/P, FY23, FY’23. */
+const isYear = (t: string): boolean => /^\(?(?:(?:FY|CY)\s?['’]?)?(?:19|20)\d\d[AEP]?\)?$/i.test(t) || /^\(?(?:FY|CY)['’]?\d\d\)?$/i.test(t);
+/** A number with a unit suffix the reader does not scale: 50k, 1.2m, 3bn, 4 million. */
+const UNIT_SUFFIX = /^\(?[-+−–]?[$€£¥]?\d[\d.,]*(k|m|mm|mn|bn|b|thousand|thousands|million|millions|billion|billions)\)?$/i;
 const MAX_STATEMENT_LINES = 200;
+
+/** An amount for a note: grouped, true minus. */
+function amountText(x: number): string {
+  const s = x.toLocaleString("en-US", { maximumFractionDigits: 6 });
+  return s.startsWith("-") ? "−" + s.slice(1) : s;
+}
+/** An item name inside a sentence: "Net income" → "net income", "Operating income (EBIT)" keeps its acronym. */
+const inSentence = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
+
+/**
+ * One amount token, read in the US style: comma = thousands separator (groups of exactly three digits), point =
+ * decimal; parentheses or a minus for a negative; one leading currency symbol. Returns a plain decimal string for the
+ * shared reader, or why the token is refused (the caller quotes the token as typed).
+ */
+export function usAmount(tok: string): { value: string; paren: boolean; symbol: boolean } | { why: string } {
+  if (tok.includes("%")) return { why: "is a percentage; a statement line takes amounts, not percentages" };
+  let s = tok;
+  let neg = false;
+  let sign = false;
+  let paren = false;
+  let symbol = false;
+  const takeSigns = (): boolean => {
+    for (let guard = 0; guard < 4; guard++) {
+      if (/^[-+−–]/.test(s)) {
+        if (sign) return false;
+        sign = true;
+        neg = s[0] !== "+";
+        s = s.slice(1);
+      } else if (/^[$€£¥]/.test(s)) {
+        if (symbol) return false;
+        symbol = true;
+        s = s.slice(1);
+      } else break;
+    }
+    return true;
+  };
+  const garbled = { why: "is not an amount (more than one sign or currency symbol)" };
+  if (!takeSigns()) return garbled;
+  if (s.startsWith("(") || s.endsWith(")")) {
+    if (!(s.startsWith("(") && s.endsWith(")"))) return { why: "has an unmatched parenthesis" };
+    paren = true;
+    s = s.slice(1, -1);
+    if (!takeSigns()) return garbled;
+  }
+  if (paren && sign) return { why: "has both parentheses and a sign; write a negative amount one way, (1,000) or −1,000" };
+  let plain: string;
+  if (/^(\d+(\.\d*)?|\.\d+)([eE][-+−]?\d+)?$/.test(s)) plain = s.replace("−", "-");
+  else if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) plain = s.replace(/,/g, "");
+  else if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s) || /^\d{1,3}(\.\d{3}){2,}$/.test(s))
+    return { why: `is in the European style (point = thousands, comma = decimal); a statement is read in the US style (comma = thousands, point = decimal): write ${s.replace(/\./g, "#").replace(",", ".").replace(/#/g, ",")}` };
+  else if (/^\d+,\d+$/.test(s)) return { why: "has a comma that is not a thousands separator (the US style groups digits in threes, 1,234.5); for a decimal write it with a point" };
+  else return { why: "is not an amount" };
+  const value = (paren || neg ? "-" : "") + plain;
+  if (!Number.isFinite(Number(value))) return { why: "is not a finite number" };
+  return { value, paren, symbol };
+}
 
 /**
  * Reads "line item, amount[, prior-year amount]" rows. The amounts go through readDataBlock (RULE N); this function
- * only takes the words off each row first (mapRow), plus two accounting spellings: (1,234) for a negative amount and a
- * leading currency symbol, both noted.
+ * only takes the words off each row first (mapRow) and reads each amount token in the US style (usAmount: thousands
+ * commas, (1,234) for a negative, a leading currency symbol), handing the shared reader a plain decimal. A line whose
+ * name denotes a loss (LOSS_NAMES) is stored as a negative amount, and noted.
  */
 export function readStatement(text: string, what = "Statement"): Statement | { error: string } {
   const labels = new Map<number, string>();
+  const typed = new Map<number, string[]>();
+  const noAmountWhy = new Map<number, string>();
   let header: string[] | null = null;
   let first = true;
   let parens = false;
   let symbols = false;
   let tooMany = "";
+  let refusal = "";
+  const src = (text ?? "").replace(/\r\n?/g, "\n");
+  const cellMode = src.includes("\t") || src.includes(";");
+  const commaMode = !cellMode && !/\s/.test(src.replace(/\n/g, ""));
   const b = readDataBlock(text, what, {
     maxRows: MAX_STATEMENT_LINES,
     noHeader: true,
@@ -127,50 +249,83 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
       let cut = f.length;
       while (cut > 0 && f.length - cut < 2 && (NUMERIC_TOKEN.test(f[cut - 1]) || MISSING_TOKEN.test(f[cut - 1]))) cut--;
       const words = f.slice(0, cut).filter((x) => x !== "");
-      const nums = f.slice(cut).map((x) => (MISSING_TOKEN.test(x) ? "-" : x));
-      if (words.length && NUMERIC_TOKEN.test(words[words.length - 1]) && nums.every((x) => x !== "-")) tooMany ||= `line ${line}`;
+      const raw = f.slice(cut);
+      const nums = raw.map((x) => (MISSING_TOKEN.test(x) ? "-" : x));
       const label = words.join(" ").trim();
       if (first) {
         first = false;
-        const allYears = nums.length > 0 && nums.every((x) => /^(19|20)\d\d$/.test(x));
+        const allYears = nums.length > 0 && nums.every((x) => isYear(x));
         const known = BY_NAME.has(normaliseItemName(label));
         // a header has no amounts (or only year columns) and no digits in its words: "Revenue 1e400x" is a bad
         // data line, not a header to drop silently
-        const digitsInWords = words.some((w) => /\d/.test(w) && !/^(19|20)\d\d$/.test(w));
+        const digitsInWords = words.some((w) => /\d/.test(w) && !isYear(w));
         if (!known && !digitsInWords && (!nums.some((x) => x !== "-") || allYears)) {
           header = f;
-          tooMany = "";
           return null;
         }
       }
+      const where = `${what}, line ${line} (“${label || f.join(" ")}”)`;
+      // text after the amounts (a "Notes" column): an amount-shaped token inside the words, followed by more words
+      // (between spaces only a grouped, symbol or bracketed amount counts: "Notes 5.25% due 2027" is a name)
+      const amountShaped = (w: string): boolean => NUMERIC_TOKEN.test(w) && (cellMode || (/[,$€£¥()]/.test(w) && !w.includes("%")));
+      const k0 = words.findIndex((w, k) => k > 0 && amountShaped(w) && words.slice(k + 1).some((x) => !NUMERIC_TOKEN.test(x) && !MISSING_TOKEN.test(x)));
+      if (k0 > 0 && !refusal) {
+        const k1 = words.findIndex((x, k) => k > k0 && !NUMERIC_TOKEN.test(x) && !MISSING_TOKEN.test(x));
+        const extra = [...words.slice(k1), ...raw].join(" ");
+        refusal = `${what}, line ${line} (“${words[0]}”): text after the amounts (“${extra}”) is an extra column; remove it (a statement line is: line item, amount, prior-year amount).`;
+      }
+      if (!nums.some((x) => x !== "-")) {
+        const last = words[words.length - 1] ?? "";
+        const unit = words.find((w, k) => k > 0 && UNIT_SUFFIX.test(w));
+        if (unit) noAmountWhy.set(line, `“${unit}”: a unit suffix (k, m, bn, million) is not read; write the amount in full, or name the units in a header line`);
+        else if (words.length > 1 && isYear(last)) noAmountWhy.set(line, `this looks like a header row (year columns), and only the first line may be a header`);
+      }
+      if (words.length && NUMERIC_TOKEN.test(words[words.length - 1]) && nums.every((x) => x !== "-")) tooMany ||= `line ${line}`;
+      if (commaMode && nums.length === 2 && /^\d{3}(\.\d+)?$/.test(nums[1]) && !refusal)
+        refusal = `${where}: “${raw.join(",")}” could be one amount with a thousands comma or two amounts; separate the columns with tabs or spaces.`;
       labels.set(line, label);
+      typed.set(line, raw);
       return nums.map((x) => {
-        let t = x;
-        if (/^\(.*\)$/.test(t)) {
-          parens = true;
-          t = "-" + t.slice(1, -1);
+        if (x === "-") return x;
+        const a = usAmount(x);
+        if ("why" in a) {
+          refusal ||= `${where}: “${x}” ${a.why}.`;
+          return "-";
         }
-        if (/[$€£¥]/.test(t)) {
-          symbols = true;
-          t = t.replace(/[$€£¥]/g, "");
-        }
-        return t;
+        if (a.paren) parens = true;
+        if (a.symbol) symbols = true;
+        return a.value;
       });
     },
   });
+  if (refusal) return { error: refusal };
   if (!b.ok) return { error: b.error };
   if (tooMany) return { error: `${what}, ${tooMany}: at most two amounts per line (this year, then the prior year), and a line-item name must not end in a number.` };
   const lines: StatementLine[] = [];
+  const lossNotes: string[] = [];
   for (let r = 0; r < b.rows.length; r++) {
     const line = b.lines[r];
     const label = labels.get(line) ?? "";
     const row = b.rows[r];
     if (!label) return { error: `${what}, line ${line}: no line-item name before the amount.` };
-    if (row.length === 0) return { error: `${what}, line ${line} (“${label}”): no amount.` };
+    if (row.length === 0) return { error: `${what}, line ${line} (“${label}”): no amount${noAmountWhy.has(line) ? `: ${noAmountWhy.get(line)}` : ""}.` };
     if (row.length > 2) return { error: `${what}, line ${line} (“${label}”): at most two amounts (this year, then the prior year).` };
     for (const v of row) if (v !== null && !Number.isFinite(v)) return { error: `${what}, line ${line} (“${label}”): an amount is not a finite number.` };
-    const it = BY_NAME.get(normaliseItemName(label));
-    lines.push({ label, line, key: it ? it.key : null, current: row[0] ?? null, prior: row.length > 1 ? row[1] : null });
+    const norm = normaliseItemName(label);
+    const it = BY_NAME.get(norm);
+    let current = row[0] ?? null;
+    let prior = row.length > 1 ? row[1] : null;
+    if (it && LOSS_NAMES.has(norm) && (current || prior)) {
+      // a loss line: the amount is a loss whatever its typed sign
+      const neg = (v: number | null): number | null => (v === null || v === 0 ? v : -Math.abs(v));
+      current = neg(current);
+      prior = neg(prior);
+      const t = (typed.get(line) ?? []).filter((x) => !MISSING_TOKEN.test(x));
+      lossNotes.push(
+        `“${label} ${t.join(" ")}” read as ${inSentence(it.name)} ${current !== null ? amountText(current) : "(blank)"}${prior !== null ? ` (prior year ${amountText(prior)})` : ""}: a line named as a loss is a negative amount`,
+      );
+    }
+    lines.push({ label, line, key: it ? it.key : null, current, prior });
   }
   const items = new Map<ItemKey, StatementLine>();
   for (const l of lines) {
@@ -185,7 +340,7 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
     const two = lines.find((l) => l.prior !== null);
     if (two) return { error: `${what}, line ${two.line} (“${two.label}”): two amounts, but the header names one amount column. Write a number inside a line-item name in words, or add the prior-year column to the header.` };
   }
-  const notes = [...b.notes];
+  const notes = [...b.notes, ...lossNotes.map((s) => `${what}: ${s}.`)];
   // no header to say how many columns there are, and only some lines carry a second amount: say which, not guess
   const withPrior = lines.filter((l) => l.prior !== null);
   if (!hdr && withPrior.length && withPrior.length < lines.length / 2)

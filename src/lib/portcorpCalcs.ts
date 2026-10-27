@@ -8,7 +8,9 @@
  * field is a "block", so it gets the "Use table at cursor" / "Open CSV…" bar).
  */
 import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
-import { finRefusal } from "./finCalc";
+import { finRefusal as finRefusalRaw } from "./finCalc";
+/** A refusal starts with a capital (a lower-case first word raised; a symbol such as "q" or "σ" is left alone). */
+const finRefusal = (s: string): FinResult => finRefusalRaw(/^[a-z][a-z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s);
 import { readFinanceField } from "./finance";
 import { currentFinFig, finPlotSvg } from "./financeFigures";
 import type { Point, Series } from "./plot";
@@ -56,10 +58,12 @@ function num(r: Read, key: string, label: string, o: { min?: number; max?: numbe
   const raw = (r(key) ?? "").trim();
   if (!raw) return `Enter the ${label}.`;
   const v = readFinanceField(raw);
-  if (!Number.isFinite(v)) return `${label}: “${raw}” is not a finite number.`;
-  if (o.int && !Number.isInteger(v)) return `${label} must be a whole number (got ${raw}).`;
-  if (o.min !== undefined && (o.minOpen ? !(v > o.min) : v < o.min)) return `${label} must be ${o.minOpen ? "above" : "at least"} ${fx(o.min, o.min % 1 ? 2 : 0)}.`;
-  if (o.max !== undefined && (o.maxOpen ? !(v < o.max) : v > o.max)) return `${label} must be ${o.maxOpen ? "below" : "at most"} ${fx(o.max, o.max % 1 ? 2 : 0)}.`;
+  // a refusal starts with a capital: the label as written, its first letter raised
+  const Label = label[0].toUpperCase() + label.slice(1);
+  if (!Number.isFinite(v)) return `${Label}: “${raw}” is not a finite number.`;
+  if (o.int && !Number.isInteger(v)) return `${Label} must be a whole number (got ${raw}).`;
+  if (o.min !== undefined && (o.minOpen ? !(v > o.min) : v < o.min)) return `${Label} must be ${o.minOpen ? "above" : "at least"} ${fx(o.min, o.min % 1 ? 2 : 0)}.`;
+  if (o.max !== undefined && (o.maxOpen ? !(v < o.max) : v > o.max)) return `${Label} must be ${o.maxOpen ? "below" : "at most"} ${fx(o.max, o.max % 1 ? 2 : 0)}.`;
   return v;
 }
 /** An optional number field: blank → null. */
@@ -479,7 +483,7 @@ export function varCalc(r: Read): FinResult {
     ...v.lines.map((l) => `${METHOD_NAME[l.method]}: VaR ${pct(l.var, 3)} (${fx(l.var * value, 2)}); CVaR (expected shortfall) ${pct(l.cvar, 3)} (${fx(l.cvar * value, 2)})`),
     ...(v.lines.some((l) => l.var < 0) ? ["A negative VaR means the return at that tail quantile is still a gain."] : []),
     ...(v.lines.some((l) => l.var > 1 || l.cvar > 1)
-      ? ["A loss above 100% is an artefact of the model (the normal or t tail, or square-root-of-time scaling): a long position without leverage cannot lose more than its value."]
+      ? ["A loss above 100% is an artifact of the model (the normal or t tail, or square-root-of-time scaling): a long position without leverage cannot lose more than its value."]
       : []),
     ...((rets.length - 1) * v.alpha < 1
       ? [`Only ${plural(rets.length, "return")} for a ${fx(v.alpha * 100, 2)}% tail: the historical VaR is interpolated between the two smallest returns and the historical CVaR is the worst return alone; more data is needed for a historical tail estimate.`]
@@ -541,7 +545,7 @@ export function frontierCalc(r: Read): FinResult {
     ...t.notes,
     `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; expected returns = arithmetic mean × ${ppy}; covariance = sample covariance (n − 1) × ${ppy}; weights ≥ 0 summing to 1 (no short sales, no leverage); ` +
       `each frontier point minimizes wᵀΣw at a target return (${FRONTIER_TEXT}); tangency by min yᵀΣy subject to (μ − r_f)ᵀy = 1, y ≥ 0, w = y/Σy (PyPortfolioOpt's max_sharpe); ` +
-      `solved exactly by a primal active-set quadratic programme; the CML lends and borrows at r_f, which a long-only, unlevered investor can do only to the left of the tangency point.`,
+      `solved exactly by a primal active-set quadratic program; the CML lends and borrows at r_f, which a long-only, unlevered investor can do only to the left of the tangency point.`,
   ];
   const assetTable: FinTable = {
     label: "Assets and optimal weights",
@@ -702,12 +706,17 @@ export function capBudgetCalc(r: Read): FinResult {
   const B = b ? projectMeasures(b.values, rd, fr / 100, rr / 100) : null;
   let cross: IrrRoots | null = null;
   let padNote = "";
+  let identical = false;
   if (b) {
     const n = Math.max(a.values.length, b.values.length);
     if (a.values.length !== b.values.length) padNote = ` The shorter project is padded with zero flows to ${n} flows for the crossover.`;
     const diff = Array.from({ length: n }, (_, t) => (a.values[t] ?? 0) - (b!.values[t] ?? 0));
+    identical = diff.every((d) => d === 0);
     cross = irrAll(diff);
   }
+  // which project has the higher NPV, judged at the precision printed (equal to the cent says equal)
+  const higher = (): string =>
+    B && fx(A.v, 2) === fx(B.v, 2) ? `The NPVs are equal at ${fx(rate, 3)}% (to the cent shown).` : `${A.v >= B!.v ? "A" : "B"} has the higher NPV at ${fx(rate, 3)}%.`;
   const one = (name: string, P: ReturnType<typeof projectMeasures>, cfs: number[]): string[] => [
     `${name}: ${plural(cfs.length, "flow")} (t = 0 to ${cfs.length - 1}); NPV at ${fx(rate, 3)}% = ${fx(P.v, 2)}`,
     irrSentence(name, cfs, P.roots),
@@ -720,9 +729,11 @@ export function capBudgetCalc(r: Read): FinResult {
     ...(B && b ? one("Project B", B, b.values) : []),
     ...(cross
       ? [
-          cross.roots.length + cross.touches.length
-            ? `Crossover rate (NPV A = NPV B; the IRR of A − B): ${rootsText(cross)}. ${A.v >= B!.v ? "A" : "B"} has the higher NPV at ${fx(rate, 3)}%.`
-            : `Crossover rate: none between −99% and 10,000% (one project's NPV is above the other's at every rate searched). ${A.v >= B!.v ? "A" : "B"} has the higher NPV at ${fx(rate, 3)}%.`,
+          identical
+            ? `Crossover rate: none; the two projects' cash flows are identical, so their NPVs coincide at every rate. The NPVs are equal at ${fx(rate, 3)}%.`
+            : cross.roots.length + cross.touches.length
+              ? `Crossover rate (NPV A = NPV B; the IRR of A − B): ${rootsText(cross)}. ${higher()}`
+              : `Crossover rate: none between −99% and 10,000% (one project's NPV is above the other's at every rate searched). ${higher()}`,
         ]
       : []),
     ...a.notes,
@@ -845,14 +856,14 @@ export function dcfCalc(r: Read): FinResult {
         (Number.isFinite(d.implied) ? `implied multiple of final-year FCF ${fx(d.implied, 2)}×` : "no implied multiple (the final-year FCF is 0)")
       : `Terminal value at year ${T} (exit multiple) = ${fx(multiple, 2)}× ${metric !== null ? `the final-year metric ${fx(metric, 2)}` : `final-year FCF ${fx(d.years[d.years.length - 1].fcf, 2)}`} = ${fx(d.tv, 2)}; implied perpetual growth of FCF ${Number.isFinite(d.implied) ? pct(d.implied, 3) : "not defined"}`,
     `PV of the terminal value = ${fx(d.pvTv, 2)} (discounted ${fx(d.tvT, 1)} years), ${Number.isFinite(d.tvShare) ? pct(d.tvShare, 1) : "not defined as a share"} of enterprise value`,
-    `Enterprise value = ${fx(d.ev, 2)}; less net debt ${fx(netDebt, 2)} = equity value ${fx(d.equity, 2)}` + (d.perShare !== null ? `; ÷ ${fx(shares!, 0)} shares = ${fx(d.perShare, 4)} per share` : ""),
+    `Enterprise value = ${fx(d.ev, 2)}; less net debt ${fx(netDebt, 2)} = equity value ${fx(d.equity, 2)}` + (d.perShare !== null ? `; ÷ ${new Intl.NumberFormat("en-US", { maximumSignificantDigits: 12 }).format(shares!)} share${shares === 1 ? "" : "s"} = ${fx(d.perShare, 4)} per share` : ""),
     ...(d.equity < 0 ? ["Equity value is negative: net debt exceeds the enterprise value."] : []),
     ...s.notes,
     `Conventions: free cash flows to the firm discounted at the WACC; ${midYear ? "mid-year: year t is discounted (t − 0.5) years" : "end-of-year: year t is discounted t years"}; ` +
       (fade ? `fade year k (1 to ${fade}) grows at g₁ + (g − g₁)(k − 1)/${fade}, g₁ = ${fx(fadeStart, 3)}%; ` : "") +
       (terminal === "gordon"
-        ? `Gordon terminal value on the year ${T + 1} flow FCF_${T}(1 + g), discounted ${midYear ? `${fx(T - 0.5, 1)} years (mid-year, as the flows it capitalizes)` : `${T} years`}; `
-        : `exit-multiple terminal value at the end of year ${T}, discounted ${T} years${midYear ? " (a sale at year end, not mid-year)" : ""}; `) +
+        ? `Gordon terminal value on the year ${T + 1} flow FCF_${T}(1 + g), discounted ${midYear ? `${fx(T - 0.5, 1)} years (mid-year, as the flows it capitalizes)` : `${T} year${T === 1 ? "" : "s"}`}; `
+        : `exit-multiple terminal value at the end of year ${T}, discounted ${T} year${T === 1 ? "" : "s"}${midYear ? " (a sale at year end, not mid-year)" : ""}; `) +
       `equity = EV − net debt (debt less cash; other claims such as minority interest and preferred stock, if any, belong in net debt); sensitivity: one input moved at a time on the grid, everything else as entered.`,
   ];
   const yearTable: FinTable = {
@@ -903,7 +914,7 @@ export function dcfCalc(r: Read): FinResult {
     label: `Sensitivity of the ${valueName}`,
     rows: [[terminal === "gordon" ? "WACC / growth" : "WACC / exit multiple", ...ts.map(colLabel)], ...grid.map((row, i) => [rowLabels[i].replace("WACC ", ""), ...row.map((v) => (v === null ? "n/a" : fx(v, dp)))])],
     align: ["left", "right", "right", "right", "right", "right"],
-    note: blanks ? `n/a: ${plural(blanks, "cell")} where the WACC is not above g (Gordon), the WACC is −99% or below, or the multiple is negative.` : `The centre cell is the base case.`,
+    note: blanks ? `n/a: ${plural(blanks, "cell")} where the WACC is not above g (Gordon), the WACC is −99% or below, or the multiple is negative.` : `The center cell is the base case.`,
   };
   const svg = dcfSensitivityHeatmapSvg(rowLabels, ts.map(colLabel), grid, `Sensitivity of the ${valueName}`, "discount rate");
   return finish({ text: lines.join("\n"), svg, tables: [yearTable, bridge, sens] });
@@ -1016,7 +1027,7 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
       { key: "rf", label: "Risk-free rate (% a year)", default: "3" },
     ],
     assumes:
-      "Mean-variance preferences and the sample means and covariances taken as the true ones (the optimiser is sensitive to estimation error in the means); " +
+      "Mean-variance preferences and the sample means and covariances taken as the true ones (the optimizer is sensitive to estimation error in the means); " +
       "long-only and fully invested; no transaction costs or taxes. The default rows are illustrative numbers, not market data.",
     compute: (r) => {
       // long-only minimum-variance, tangency and frontier portfolios, with the capital market line

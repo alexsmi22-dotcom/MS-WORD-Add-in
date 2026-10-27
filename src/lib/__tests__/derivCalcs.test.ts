@@ -255,3 +255,23 @@ describe("timing at the caps (≤ 300 ms each)", () => {
     expect(time("deriv-strategy", { legs })).toBeLessThan(300);
   });
 });
+
+describe("F1 review C fixes", () => {
+  test("backwardation prints the size of the discount, not a negative number", () => {
+    const o = ok("deriv-carry", { q: "10" }).text;
+    expect(o).toMatch(/the forward is at a discount to spot \(backwardation\) of \d[\d,]*\.\d{4}\./);
+    expect(o).not.toMatch(/backwardation\) of −/);
+    expect(ok("deriv-carry").text).toMatch(/premium to spot \(contango\) of \d/);
+    expect(ok("deriv-carry", { r: "0", q: "0", u: "0", stor: "0" }).text).toContain("the forward equals spot (flat).");
+  });
+  test("every refusal of every derivatives calculator starts with a capital", () => {
+    for (const c of DERIV_CALCS)
+      for (const f of c.fields) {
+        if (f.kind === "select" || f.kind === "block" || f.kind === "list" || f.kind === "text") continue;
+        for (const v of ["−5", "0", "1e400", "2.5", "-0.5", "100", "1e9"]) {
+          const o = obj(run(c, { [f.key]: v }));
+          if (o.ok === false) expect([c.id, f.key, v, /^[A-Z“(]/.test(o.text)]).toEqual([c.id, f.key, v, true]);
+        }
+      }
+  });
+});

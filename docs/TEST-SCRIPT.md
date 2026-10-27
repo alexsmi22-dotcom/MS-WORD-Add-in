@@ -26,8 +26,11 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   "Prices" and `100, 102, 99.96` → "2 periods".
 - [ ] **Accounting ▸ MACRS** 7-year half-year → year 1 7,145.00 as a Word table, "Not tax advice"; Q2 → 17.85 % with
   the IRS-rounding note.
-- [ ] **Time value & loans ▸ loan schedule** (defaults) → paid off with payment 251, interest saved 103,261.08, 109
-  months saved; Insert → Word table no wider than 6 columns.
+- [ ] **Time value & loans ▸ loan schedule** (defaults) → scheduled payment 1,498.88, paid off with payment 251,
+  interest saved 103,259.80, 109 months saved; Insert → Word table no wider than 6 columns whose columns add up to
+  the Total row to the cent.
+- [ ] **Accounting ▸ Altman Z** with "Retained earnings" renamed "Accumulated deficit" → X₂ = −0.3500, Z = 2.6240,
+  grey zone, and a note that the deficit was read as −350,000.
 - [ ] **Accounting ▸ ratios** → current ratio 2.00×, ROE 22.50 % in both DuPont lines; **Altman Z** → 3.6040, safe
   zone; **CVP** → break-even 2,000 units, margin of safety 33.33 %.
 - [ ] **IP valuation ▸ Nash bargaining split**, method "25% rule of thumb" → refused, quoting *Uniloc*.

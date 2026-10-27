@@ -6,6 +6,8 @@ Writes src/lib/__tests__/fixtures/sched-oracle.json.
 
 Sources, by part:
   Plain and balloon loans   numpy-financial pmt / ipmt / ppmt (pmt with fv = -balloon), row by row.
+  Lender cent convention    "loansCents": every loan again in Decimal with ROUND_HALF_UP, whole cents (what the
+                            calculator prints); compared for exact equality, every row.
   Extra payments, one-off   an independent loop written here from the stated conventions (extra to principal,
   payments, rate changes    level payment kept, extra cut to the balance, recast on a rate change over the payments
                             left to the same balloon); its no-extra case is checked against numpy-financial first.
@@ -116,6 +118,89 @@ loans.append(loan_case("rate changes with extras", P=300000, annual=0.04, n=360,
 loans.append(loan_case("balloon with extras", P=500000, annual=0.07, n=84, m=12, balloon=350000.0, extra=1000.0))
 loans.append(loan_case("amortise 30y due 7y", P=500000, annual=0.07, n=84, m=12, amortN=360))
 loans.append(loan_case("biweekly", P=200000, annual=0.05, n=26 * 25, m=26, extra=50.0))
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# Loans, LENDER CENT CONVENTION (what the calculator prints since F1 review C): an independent loop in Decimal with
+# ROUND_HALF_UP. Payment = pmt rounded half up to the cent; interest each period = balance × (annual rate / m) rounded
+# half up to the cent (the annual rate taken to 9 decimal places of a fraction, as the TS engine does); principal =
+# payment + extra − interest; the last payment (or a payment that clears the balance) = balance + its interest; an
+# extra payment is cut to the balance; at a rate change the payment is recast (rounded) over the payments left to
+# min(balloon, balance). Every row and total is exact in cents, so the jest test compares for EQUALITY.
+# ----------------------------------------------------------------------------------------------------------------
+from decimal import Decimal as D, ROUND_HALF_UP, getcontext
+
+getcontext().prec = 60
+
+
+def half_up(x):
+    return int(x.quantize(D(1), rounding=ROUND_HALF_UP))
+
+
+def cents_of(x):
+    return half_up(D(repr(float(x))) * 100)
+
+
+def pmt_cents(pv_c, i, nper, fv_c):
+    if i == 0:
+        return half_up(D(pv_c - fv_c) / D(nper))
+    v = (1 + i) ** -nper
+    return half_up((D(pv_c) - D(fv_c) * v) * i / (1 - v))
+
+
+def loan_cents(P, annual, n, m, balloon=0.0, amortN=None, extra=0.0, extra_from=1, lumps=None, changes=None):
+    lumps = {k: cents_of(v) for k, v in (lumps or {}).items()}
+    changes = dict(changes or {})
+    R = round(annual * 1e9)
+    i = D(R) / D(10**9) / D(m)
+    Pc = cents_of(P)
+    Bc = cents_of(balloon)
+    xc = cents_of(extra)
+    pay = pmt_cents(Pc, i, amortN, 0) if amortN else pmt_cents(Pc, i, n, Bc)
+    pay0 = pay
+    bal = Pc
+    rows = []
+    for k in range(1, n + 1):
+        if bal <= 0:
+            break
+        if k in changes and k > 1:
+            R = round(changes[k] * 1e9)
+            i = D(R) / D(10**9) / D(m)
+            pay = pmt_cents(bal, i, amortN - k + 1, 0) if amortN else pmt_cents(bal, i, n - k + 1, min(Bc, bal))
+        # one exact division (bal × R / (m × 10⁹)): a precomputed i = 0.04/12 is inexact in Decimal and turns an exact
+        # half cent (28,828,050 × 0.04/12 = 96,093.5) into 96,093.4999… (rounded down: wrong)
+        interest = half_up(D(bal) * D(R) / D(m * 10**9))
+        sched = pay - interest
+        p = pay
+        ex = 0
+        if k == n or sched >= bal:
+            sched = bal
+            p = bal + interest
+        else:
+            ex = (xc if k >= extra_from else 0) + lumps.get(k, 0)
+            ex = min(ex, bal - sched)
+        bal -= sched + ex
+        rows.append({"k": k, "payment": p, "extra": ex, "interest": interest, "principal": sched + ex, "balance": bal})
+    assert bal == 0
+    return pay0, rows
+
+
+loans_cents = []
+for c in loans:
+    kw = dict(c["input"])
+    kw["lumps"] = {k: v for k, v in kw["lumps"]}
+    kw["changes"] = {k: v for k, v in kw["changes"]}
+    pay0, rows = loan_cents(**kw)
+    loans_cents.append({
+        "name": c["name"],
+        "payment0C": pay0,
+        "payoffK": len(rows),
+        "totalInterestC": sum(r["interest"] for r in rows),
+        "totalPaidC": sum(r["payment"] + r["extra"] for r in rows),
+        "totalExtraC": sum(r["extra"] for r in rows),
+        # every row, one string each: "k payment extra interest principal balance" in cents
+        "rows": [f'{r["k"]} {r["payment"]} {r["extra"]} {r["interest"]} {r["principal"]} {r["balance"]}' for r in rows],
+    })
 
 # ----------------------------------------------------------------------------------------------------------------
 # Depreciation (Excel transcriptions)
@@ -304,6 +389,7 @@ assert all(F(CVP2_DEC[k]) == cvp2_in[k] for k in CVP2_DEC)
 fr = lambda x: [x.numerator, x.denominator]
 out = {
     "loans": loans,
+    "loansCents": loans_cents,
     "depr": depr,
     "uop": uop,
     "macrs": macrs,

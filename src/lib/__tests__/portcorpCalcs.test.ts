@@ -260,9 +260,9 @@ describe("adversarial-pass fixes (F1 builder B)", () => {
     expect(o).toContain("(−1.000%) × (1 − 25.00%)");
     expect(ok("corp-dcf", { g: "-3" }).text).toContain("(9.000% − (−3.000%))");
   });
-  test("VaR says when a loss above 100% is a model artefact and when the sample is too short for the tail", () => {
+  test("VaR says when a loss above 100% is a model artifact and when the sample is too short for the tail", () => {
     const o = ok("port-var", { horizon: "250", conf: "99" }).text;
-    expect(o).toMatch(/A loss above 100% is an artefact of the model/);
+    expect(o).toMatch(/A loss above 100% is an artifact of the model/);
     expect(o).toMatch(/Only 48 returns for a 1\.00% tail/);
     expect(ok("port-var").text).not.toMatch(/Only \d+ returns/);
   });
@@ -337,10 +337,10 @@ describe("hostile inputs refuse by name (never insertable)", () => {
     expect(refusal("port-performance", { ppy: "1e400" })).toMatch(/^Periods per year \(12 monthly, 52 weekly, 252 trading days\): “1e400” is not a number\.$/);
     expect(refusal("port-performance", { rets: "" })).toBe("Enter all values to compute.");
     // Called directly (the loose read), compute names the field itself.
-    expect(obj(runLoose(calc("port-performance"), { ppy: "1e400" })).text).toMatch(/periods per year: “1e400” is not a finite number/);
+    expect(obj(runLoose(calc("port-performance"), { ppy: "1e400" })).text).toMatch(/Periods per year: “1e400” is not a finite number/);
     expect(obj(runLoose(calc("port-performance"), { rets: "" })).text).toMatch(/Returns \(%\): nothing to read/);
-    expect(refusal("port-performance", { ppy: "0" })).toMatch(/periods per year must be at least 1/);
-    expect(refusal("port-performance", { ppy: "12.5" })).toMatch(/periods per year must be a whole number/);
+    expect(refusal("port-performance", { ppy: "0" })).toMatch(/Periods per year must be at least 1/);
+    expect(refusal("port-performance", { ppy: "12.5" })).toMatch(/Periods per year must be a whole number/);
     expect(refusal("port-performance", { rets: "5" })).toMatch(/at least 2 periods/);
     expect(refusal("port-performance", { rets: "5, -100, 3" })).toMatch(/−100% or below/);
     expect(refusal("port-performance", { beta: "NaN" })).toMatch(/^Beta for the Treynor ratio \(optional\): “NaN” is not a number\.$/);
@@ -353,16 +353,16 @@ describe("hostile inputs refuse by name (never insertable)", () => {
     expect(refusal("port-capm", { rf: "" })).toMatch(/Enter the risk-free rate/);
   });
   test("VaR bounds", () => {
-    expect(refusal("port-var", { conf: "100" })).toMatch(/confidence level \(%\) must be below 100/);
-    expect(refusal("port-var", { conf: "50" })).toMatch(/confidence level \(%\) must be above 50/);
-    expect(refusal("port-var", { horizon: "0" })).toMatch(/horizon \(periods\) must be at least 1/);
+    expect(refusal("port-var", { conf: "100" })).toMatch(/Confidence level \(%\) must be below 100/);
+    expect(refusal("port-var", { conf: "50" })).toMatch(/Confidence level \(%\) must be above 50/);
+    expect(refusal("port-var", { horizon: "0" })).toMatch(/Horizon \(periods\) must be at least 1/);
     expect(refusal("port-var", { sims: "1e9" })).toMatch(/Monte Carlo draws must be at most 200,000/);
     expect(refusal("port-var", { sims: "1e400" })).toMatch(/^Monte Carlo draws: “1e400” is not a number\.$/);
-    expect(refusal("port-var", { seed: "-1" })).toMatch(/seed must be at least 0/);
-    expect(refusal("port-var", { seed: "1.5" })).toMatch(/seed must be a whole number/);
+    expect(refusal("port-var", { seed: "-1" })).toMatch(/Seed must be at least 0/);
+    expect(refusal("port-var", { seed: "1.5" })).toMatch(/Seed must be a whole number/);
     expect(refusal("port-var", { nu: "2" })).toMatch(/degrees of freedom ν must be above 2/);
     expect(refusal("port-var", { rets: "2, 2, 2, 2" })).toMatch(/volatility is zero/);
-    expect(refusal("port-var", { value: "0" })).toMatch(/portfolio value must be above 0/);
+    expect(refusal("port-var", { value: "0" })).toMatch(/Portfolio value must be above 0/);
   });
   test("frontier: singular covariance, no asset above r_f, too few periods, too many assets", () => {
     expect(refusal("port-frontier", { data: "A B C\n1 1 2\n2 2 1\n3 3 5\n-1 -1 0\n0.5 0.5 1" })).toMatch(/covariance matrix is singular: asset 2 \(B\)/);
@@ -373,8 +373,8 @@ describe("hostile inputs refuse by name (never insertable)", () => {
     expect(refusal("port-frontier", { data: "A B\n1 2\n2 2\n3 2\n4 2" })).toMatch(/singular: asset 2 \(B\)/);
   });
   test("WACC", () => {
-    expect(refusal("corp-wacc", { e: "0" })).toMatch(/market value of equity must be above 0/);
-    expect(refusal("corp-wacc", { tax: "100" })).toMatch(/tax rate \(%\) must be below 100/);
+    expect(refusal("corp-wacc", { e: "0" })).toMatch(/Market value of equity must be above 0/);
+    expect(refusal("corp-wacc", { tax: "100" })).toMatch(/Tax rate \(%\) must be below 100/);
     expect(refusal("corp-wacc", { betakind: "peer", peerde: "" })).toMatch(/Enter the peer debt-to-equity/);
     expect(refusal("corp-wacc", { beta: "1e400" })).toMatch(/^Beta: “1e400” is not a number\.$/);
     expect(refusal("corp-wacc", { rd: "" })).toBe("Enter all values to compute.");
@@ -384,19 +384,19 @@ describe("hostile inputs refuse by name (never insertable)", () => {
     expect(refusal("corp-capbudget", { cfa: "-1000, 1e400" })).toMatch(/Project A cash flows/);
     expect(refusal("corp-capbudget", { cfa: "-1000, 1e16" })).toMatch(/larger than 1,000,000,000,000,000/);
     expect(refusal("corp-capbudget", { cfb: "x" })).toMatch(/Project B cash flows/);
-    expect(refusal("corp-capbudget", { rate: "-100" })).toMatch(/discount rate \(% per period\) must be above −99/);
+    expect(refusal("corp-capbudget", { rate: "-100" })).toMatch(/Discount rate \(% per period\) must be above −99/);
     const many = Array.from({ length: 1001 }, (_, i) => (i ? 10 : -1000)).join(", ");
     expect(refusal("corp-capbudget", { cfa: many })).toMatch(/more than 1,000 values/);
   });
   test("DCF", () => {
     expect(refusal("corp-dcf", { g: "9" })).toMatch(/WACC\) must be above the terminal growth rate g/);
-    expect(refusal("corp-dcf", { shares: "0" })).toMatch(/shares outstanding must be above 0/);
+    expect(refusal("corp-dcf", { shares: "0" })).toMatch(/Shares outstanding must be above 0/);
     expect(refusal("corp-dcf", { fcf: "100", fadestart: "" })).toMatch(/First fade-year growth \(%\): enter it/);
-    expect(refusal("corp-dcf", { fade: "200" })).toMatch(/fade years must be at most 100/);
+    expect(refusal("corp-dcf", { fade: "200" })).toMatch(/Fade years must be at most 100/);
     expect(refusal("corp-dcf", { fcf: "" })).toBe("Enter all values to compute.");
     expect(obj(runLoose(calc("corp-dcf"), { fcf: "" })).text).toMatch(/Explicit free cash flows: nothing to read/);
     expect(refusal("corp-dcf", { terminal: "exit", multiple: "" })).toMatch(/Enter the exit multiple/);
-    expect(refusal("corp-dcf", { wstep: "0" })).toMatch(/sensitivity step for WACC/);
+    expect(refusal("corp-dcf", { wstep: "0" })).toMatch(/Sensitivity step for WACC/);
   });
 });
 
@@ -427,5 +427,48 @@ describe("timing at the caps (≤ 300 ms each)", () => {
   });
   test("DCF: 100 years", () => {
     expect(time("corp-dcf", { fcf: Array.from({ length: 50 }, (_, i) => 100 + i).join(", "), fade: "50" })).toBeLessThan(300);
+  });
+});
+
+describe("F1 review C fixes", () => {
+  test("identical projects: the NPVs are equal and coincide at every rate (never 'A has the higher NPV')", () => {
+    const o = ok("corp-capbudget", { cfa: "-100, 100", cfb: "-100, 100" }).text;
+    expect(o).toContain("Crossover rate: none; the two projects' cash flows are identical, so their NPVs coincide at every rate. The NPVs are equal at");
+    expect(o).not.toContain("has the higher NPV");
+    expect(o).not.toContain("one project's NPV is above the other's");
+  });
+  test("different flows whose NPVs are equal to the cent at the rate say equal", () => {
+    // at 10%: A = −100 + 110/1.1 = 0, B = −50 + 55/1.1 = 0; A − B = (−50, 55) crosses at 10%
+    const o = ok("corp-capbudget", { rate: "10", cfa: "-100, 110", cfb: "-50, 55" }).text;
+    expect(o).toContain("The NPVs are equal at 10.000% (to the cent shown).");
+    expect(o).not.toContain("has the higher NPV");
+  });
+  test("a triple root at 0 prints 0.0000%, no false minus", () => {
+    const o = ok("corp-capbudget", { cfa: "-100, 300, -300, 100", cfb: "" }).text;
+    expect(o).toMatch(/IRR \(Project A\): 0\.0000%/);
+    expect(o).not.toContain("−0.000");
+    // a well-conditioned root is not moved by the snap (the default project, oracle-checked elsewhere)
+    expect(ok("corp-capbudget", { cfb: "" }).text).toMatch(/IRR \(Project A\): \d+\.\d{4}%/);
+  });
+  test("DCF: a tiny share count prints its digits, never '÷ 0 shares'", () => {
+    const o = ok("corp-dcf", { shares: "0.0000001" }).text;
+    expect(o).not.toContain("÷ 0 shares");
+    expect(o).toContain("÷ 0.0000001 shares");
+    expect(ok("corp-dcf", { shares: "1" }).text).toContain("÷ 1 share =");
+    expect(ok("corp-dcf").text).toContain("÷ 50 shares =");
+  });
+  test("US spelling in user-visible text", () => {
+    const src = fs.readFileSync(path.join(__dirname, "..", "portcorpCalcs.ts"), "utf8") + fs.readFileSync(path.join(__dirname, "..", "qpActiveSet.ts"), "utf8");
+    expect(src).not.toMatch(/centre|programme|optimiser|artefact/);
+  });
+  test("every refusal of every portfolio/corporate calculator starts with a capital", () => {
+    for (const c of PORTCORP_CALCS)
+      for (const f of c.fields) {
+        if (f.kind === "select" || f.kind === "block" || f.kind === "list" || f.kind === "text") continue;
+        for (const v of ["−5", "0", "1e400", "2.5", "-0.5", "100", "1e9"]) {
+          const o = obj(runLoose(c, { [f.key]: v }));
+          if (o.ok === false) expect([c.id, f.key, v, /^[A-Z“(]/.test(o.text)]).toEqual([c.id, f.key, v, true]);
+        }
+      }
   });
 });

@@ -36,13 +36,17 @@ statsmodels, PyPortfolioOpt, published worked examples); each result prints the 
   arbitrage; cost-of-carry forward; multi-leg strategy payoff with breakevens and max profit/loss; plain-vanilla swap
   value, par rate and PV01 on a pasted curve.
 - **Schedules as Word tables:** loan schedule with recurring and one-off extra payments, balloon and rate changes
-  (interest and months saved); depreciation by straight line, declining balance with or without the switch to
+  (interest and months saved), on the lender cent convention (payment rounded to the cent, interest rounded half up
+  to the cent each period, the last payment adjusts), so every row balances and every column sums exactly to its
+  total; depreciation by straight line, declining balance with or without the switch to
   straight line, sum-of-the-years'-digits and units of production; MACRS from IRS Publication 946 (2025) Tables A-1
   to A-5 and A-8 to A-12 (the published values are used; the 26 cells where the IRS rounding differs from the method
   are named in the result). Not tax advice.
 - **Accounting & statements:** 20-ratio suite from a pasted statement with each formula printed, cash conversion
   cycle, DuPont 3- and 5-step, common-size and trend statements, Altman Z, Z′ and Z″, break-even/CVP with a
-  margin-of-safety figure.
+  margin-of-safety figure. Statements are read in the US style ($1,234.50, (1,000), $(1,000); a European 1.234,56
+  or a percentage is refused by line), and a line named as a loss or deficit (net loss, accumulated deficit) counts
+  as negative, with a note.
 
 ### Changed
 - Finance dropdown grouped by area; Home shows Stats (with its econometrics) to every audience and names damages and

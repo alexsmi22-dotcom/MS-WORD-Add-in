@@ -1,5 +1,5 @@
 /**
- * A small dense convex quadratic programme with equality constraints and non-negative variables (release F1,
+ * A small dense convex quadratic program with equality constraints and non-negative variables (release F1,
  * gap item #4: the long-only Markowitz frontier and tangency portfolio):
  *
  *     minimize ½ xᵀGx + cᵀx   subject to   A x = b,   x ≥ 0,
@@ -84,7 +84,7 @@ export function solveQpNonneg(p: QpProblem): QpResult {
   let gs = 0;
   for (let i = 0; i < n; i++) gs = Math.max(gs, Math.abs(p.G[i][i]));
   for (const v of p.c) gs = Math.max(gs, Math.abs(v));
-  if (!(gs > 0) || !Number.isFinite(gs)) return { ok: false, reason: "The quadratic programme has a zero or non-finite objective." };
+  if (!(gs > 0) || !Number.isFinite(gs)) return { ok: false, reason: "The quadratic program has a zero or non-finite objective." };
   const G = p.G.map((row) => row.map((v) => v / gs));
   const c = p.c.map((v) => v / gs);
   const x = p.x0.map((v) => (v > 0 ? v : 0));

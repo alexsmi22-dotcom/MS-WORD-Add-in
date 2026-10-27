@@ -20,14 +20,16 @@ import { finRefusal as finRefusalRaw } from "./finCalc";
  * the comma readers behind it, readCalcList) write some messages with one, and they reach the user through here.
  */
 const noEmDash = (s: string): string => s.replace(/\s*—\s*/g, ": ");
-const finRefusal = (s: string): FinResult => finRefusalRaw(noEmDash(s));
+/** A refusal starts with a capital (a lower-case first word raised; a symbol such as "q" or "σ" is left alone). */
+const capFirst = (s: string): string => (/^[a-z][a-z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s);
+const finRefusal = (s: string): FinResult => finRefusalRaw(capFirst(noEmDash(s)));
 import { readFinanceField } from "./finance";
 import { finPlotSvg } from "./financeFigures";
 import type { Point, Series } from "./plot";
 import { hBarSvg } from "./mechchart";
 import { readDataBlock } from "./dataBlock";
 import { readCalcList, ListTokenError } from "./calcList";
-import { loanSchedule, LoanInput, LoanResult } from "./loanSchedule";
+import { loanSchedule, LoanInput, LoanResult, toCents } from "./loanSchedule";
 import { depreciationSchedule, DeprMethod, DeprRow, MAX_DEPR_LIFE } from "./depreciation";
 import { macrsRates, macrsSchedule, MacrsConvention, MacrsMethod, MACRS_SL_PERIODS, PUB946_SOURCE, MacrsRow } from "./macrs";
 import {
@@ -57,6 +59,12 @@ function fx(x: number, dp: number): string {
   return s.startsWith("-") ? "−" + s.slice(1) : s;
 }
 const money = (x: number): string => fx(x, 2);
+/** Whole cents (a safe integer) as grouped money, exactly: no float rounding on the way. */
+function cents(c: number): string {
+  const a = Math.abs(c);
+  const s = `${Math.floor(a / 100).toLocaleString("en-US")}.${String(a % 100).padStart(2, "0")}`;
+  return c < 0 ? "−" + s : s;
+}
 const pct = (x: number, dp = 2): string => fx(x * 100, dp) + "%";
 const count = (n: number): string => n.toLocaleString("en-US");
 
@@ -67,10 +75,12 @@ function num(r: Read, key: string, label: string, o: { min?: number; max?: numbe
   const raw = (r(key) ?? "").trim();
   if (!raw) return `Enter the ${label}.`;
   const v = readFinanceField(raw);
-  if (!Number.isFinite(v)) return `${label}: “${raw}” is not a finite number.`;
-  if (o.min !== undefined && (o.minOpen ? !(v > o.min) : v < o.min)) return `${label} must be ${o.minOpen ? "above" : "at least"} ${fx(o.min, 0)}.`;
-  if (o.max !== undefined && v > o.max) return `${label} must be at most ${fx(o.max, 0)}.`;
-  if (o.int && !Number.isInteger(v)) return `${label} must be a whole number (got ${raw}).`;
+  // a refusal starts with a capital: the label as written, its first letter raised
+  const Label = label[0].toUpperCase() + label.slice(1);
+  if (!Number.isFinite(v)) return `${Label}: “${raw}” is not a finite number.`;
+  if (o.min !== undefined && (o.minOpen ? !(v > o.min) : v < o.min)) return `${Label} must be ${o.minOpen ? "above" : "at least"} ${fx(o.min, 0)}.`;
+  if (o.max !== undefined && v > o.max) return `${Label} must be at most ${fx(o.max, 0)}.`;
+  if (o.int && !Number.isInteger(v)) return `${Label} must be a whole number (got ${raw}).`;
   return v;
 }
 /** An optional number field: blank → undefined. */
@@ -166,7 +176,7 @@ function yearsMonths(k: number, m: number): string {
 }
 
 export function loanScheduleCalc(r: Read): FinResult {
-  const P = num(r, "p", "loan amount", { min: 0, minOpen: true, max: 1e13 });
+  const P = num(r, "p", "loan amount", { min: 1, max: 1e13 });
   if (typeof P === "string") return finRefusal(P);
   const ratePct = num(r, "rate", "annual interest rate (%)", { min: 0, max: 100 });
   if (typeof ratePct === "string") return finRefusal(ratePct);
@@ -192,7 +202,7 @@ export function loanScheduleCalc(r: Read): FinResult {
     if (amortN === n) amortN = undefined;
   }
   const extra = optNum(r, "extra", "extra principal each payment", { min: 0, max: 1e13 });
-  if (typeof extra === "string") return finRefusal(extra.startsWith("extra principal each payment must be at least") ? "Extra principal each payment cannot be negative." : extra);
+  if (typeof extra === "string") return finRefusal(extra.startsWith("Extra principal each payment must be at least") ? "Extra principal each payment cannot be negative." : extra);
   const extraFrom = optNum(r, "extrafrom", "first payment with the extra principal", { min: 1, int: true });
   if (typeof extraFrom === "string") return finRefusal(extraFrom);
   const lumpRows = readPairs(r("lumps"), "One-off extra payments", "amount", 600);
@@ -223,21 +233,34 @@ export function loanScheduleCalc(r: Read): FinResult {
   for (const x of [res, plain]) if (x && ![x.totalInterest, x.totalPaid, x.payment0].every(Number.isFinite)) return finRefusal("The amounts are too large to schedule.");
 
   const per = m === 12 ? "monthly" : m === 1 ? "annually" : `${m} times a year`;
+  const yearsTxt = fx(years, 4).replace(/\.?0+$/, "");
+  const lastRow = res.rows[res.rows.length - 1];
   const lines = [
-    `Loan ${money(P)} at ${fx(ratePct, 4).replace(/\.?0+$/, "")}% a year, paid ${per} for ${fx(years, 4).replace(/\.?0+$/, "")} years (${count(n)} payments)`,
+    `Loan ${money(P)} at ${fx(ratePct, 4).replace(/\.?0+$/, "")}% a year, paid ${per} for ${yearsTxt} year${years === 1 ? "" : "s"} (${count(n)} payment${n === 1 ? "" : "s"})`,
     `Scheduled payment = ${money(res.payment0)}` + (amortN ? ` (amortized over ${count(amortN)} payments)` : ""),
   ];
   for (const c of res.recasts) lines.push(`From payment ${count(c.k)}: ${fx(c.rate * 100, 4).replace(/\.?0+$/, "")}% a year, payment re-amortized to ${money(c.payment)}`);
   const ignoredChanges = changes.filter((c) => c.k > res.payoffK);
   if (ignoredChanges.length) lines.push(`Rate changes after the loan is paid off (payment ${ignoredChanges.map((c) => count(c.k)).join(", ")}) do not apply.`);
-  if (res.balloonPaid > 0) lines.push(`Balloon paid with payment ${count(res.payoffK)} = ${money(res.balloonPaid)} (on top of that payment’s ${money(res.rows[res.rows.length - 1].interest + (res.rows[res.rows.length - 1].principal - res.balloonPaid))} of scheduled interest and principal)`);
+  if (res.balloonPaid > 0) lines.push(`Balloon paid with payment ${count(res.payoffK)} = ${money(res.balloonPaid)} (on top of that payment’s ${money((lastRow.c.payment - toCents(res.balloonPaid)) / 100)} of scheduled interest and principal)`);
+  else {
+    const inForce = res.recasts.filter((c) => c.k <= res.payoffK).pop()?.payment ?? res.payment0;
+    if (res.rows.length > 1 && lastRow.c.payment !== toCents(inForce))
+      lines.push(`Last payment (payment ${count(res.payoffK)}) = ${money(lastRow.payment)}: the remaining balance plus its interest (the last payment adjusts${res.payoffK < n ? " after the extra payments" : " for the cent rounding"})`);
+  }
+  const notApplied = res.lumpsNotApplied.filter((k) => (lumps.get(k) ?? 0) > 0);
+  if (notApplied.length)
+    lines.push(
+      `One-off extra payment${notApplied.length === 1 ? "" : "s"} listed for payment ${notApplied.map(count).join(", ")} ${notApplied.length === 1 ? "is" : "are"} not applied: ` +
+        `that payment clears the loan anyway (it is the remaining balance plus its interest${res.balloonPaid > 0 ? ", balloon included" : ""}), so an extra payment there changes nothing.`,
+    );
   if (hasExtra && plain && !("error" in plain)) {
     const parts: string[] = [];
     if ((extra ?? 0) > 0) parts.push(`${money(extra!)} each payment from payment ${count(extraFrom ?? 1)}`);
     const lumpList = [...lumps.entries()].filter(([, v]) => v > 0).sort((a, b) => a[0] - b[0]);
     if (lumpList.length) parts.push(`one-off ${lumpList.slice(0, 6).map(([k, v]) => `${money(v)} at payment ${count(k)}`).join(", ")}${lumpList.length > 6 ? ` and ${lumpList.length - 6} more` : ""}`);
     lines.push(`Extra principal: ${parts.join("; ")}; ${money(res.totalExtra)} extra paid in all`);
-    const late = lumpList.filter(([k]) => k > res.payoffK);
+    const late = lumpList.filter(([k]) => k > res.payoffK && !res.lumpsNotApplied.includes(k));
     if (late.length) lines.push(`One-off payments listed after the payoff (payment ${late.map(([k]) => count(k)).join(", ")}) were not needed.`);
     const saved = plain.payoffK - res.payoffK;
     lines.push(
@@ -245,19 +268,20 @@ export function loanScheduleCalc(r: Read): FinResult {
         ? `Paid off with payment ${count(res.payoffK)} (${yearsMonths(res.payoffK, m)}) instead of payment ${count(plain.payoffK)} (${yearsMonths(plain.payoffK, m)})`
         : `Paid off with the last scheduled payment (payment ${count(n)})${res.balloonPaid > 0 ? "; the extra payments reduce the balloon instead" : ""}`,
     );
-    lines.push(`Total interest = ${money(res.totalInterest)} against ${money(plain.totalInterest)} without the extra payments: interest saved = ${money(plain.totalInterest - res.totalInterest)}`);
+    lines.push(`Total interest = ${cents(res.totalsC.interest)} against ${cents(plain.totalsC.interest)} without the extra payments: interest saved = ${cents(plain.totalsC.interest - res.totalsC.interest)}`);
     lines.push(`Time saved = ${monthsText(saved, m)}`);
     if (changes.length) lines.push("With rate changes, extra payments made before a change lower the re-amortized payment, so the time saved can be small while the interest saved is not.");
   } else {
-    lines.push(`Total interest = ${money(res.totalInterest)}`);
+    lines.push(`Total interest = ${cents(res.totalsC.interest)}`);
   }
-  lines.push(`Total paid = ${money(res.totalPaid)}`);
+  lines.push(`Total paid = ${cents(res.totalsC.paid)}`);
   lines.push(
     `Conventions: periodic rate = annual rate ÷ ${m} (nominal, compounded with each payment); interest = balance × periodic rate; payment P·i/(1 − (1 + i)⁻ⁿ)` +
       `${balloon ? ", less the balloon’s present value (numpy-financial pmt with fv)" : ""}${amortN ? ", computed over the amortize-over term, the balance at the loan term due as a balloon" : ""}; ` +
       `extra payments go to principal and the scheduled payment stays level (the loan ends sooner); an extra payment larger than the balance is cut to the balance; ` +
       `${changes.length ? "at each rate change the payment is re-amortized over the scheduled payments left (an adjustable-rate recast); " : ""}` +
-      `amounts are not rounded to cents (a lender’s cent-rounded schedule differs by cents).`,
+      `lender cent convention: the payment is rounded to the cent, interest rounded half up to the cent each period, principal = payment + extra − interest, ` +
+      `the last payment adjusts (remaining balance plus its interest), so every row and column adds up exactly.`,
   );
 
   // tables
@@ -269,8 +293,8 @@ export function loanScheduleCalc(r: Read): FinResult {
       label: "Amortization schedule, every payment",
       rows: [
         ["Payment", "Scheduled payment", "Extra principal", "Interest", "Principal", "Balance"],
-        ...res.rows.map((x) => [count(x.k), money(x.payment), money(x.extra), money(x.interest), money(x.principal), money(x.balance)]),
-        ["Total", money(res.totalPaid - res.totalExtra), money(res.totalExtra), money(res.totalInterest), money(P), ""],
+        ...res.rows.map((x) => [count(x.k), cents(x.c.payment), cents(x.c.extra), cents(x.c.interest), cents(x.c.principal), cents(x.c.balance)]),
+        ["Total", cents(res.totalsC.paid - res.totalsC.extra), cents(res.totalsC.extra), cents(res.totalsC.interest), cents(res.totalsC.principal), ""],
       ],
       align: ["right", "right", "right", "right", "right", "right"],
       note: "Principal includes the extra principal.",
@@ -279,15 +303,16 @@ export function loanScheduleCalc(r: Read): FinResult {
     const body: string[][] = [];
     for (let y = 1; (y - 1) * m < res.rows.length; y++) {
       const rs = res.rows.slice((y - 1) * m, y * m);
-      const interest = rs.reduce((a, x) => a + x.interest, 0);
-      const principal = rs.reduce((a, x) => a + x.principal, 0);
-      const ex = rs.reduce((a, x) => a + x.extra, 0);
-      body.push([count(y), money(interest), money(principal), money(ex), money(interest + principal), money(rs[rs.length - 1].balance)]);
+      // sums in whole cents: each column adds up exactly to the Total row
+      const interest = rs.reduce((a, x) => a + x.c.interest, 0);
+      const principal = rs.reduce((a, x) => a + x.c.principal, 0);
+      const ex = rs.reduce((a, x) => a + x.c.extra, 0);
+      body.push([count(y), cents(interest), cents(principal), cents(ex), cents(interest + principal), cents(rs[rs.length - 1].c.balance)]);
     }
     const c = capRows(body, 6);
     tables.push({
       label: "Amortization schedule by year",
-      rows: [["Year", "Interest", "Principal", "Of which extra", "Total paid", "Ending balance"], ...c.rows, ["Total", money(res.totalInterest), money(P), money(res.totalExtra), money(res.totalPaid), ""]],
+      rows: [["Year", "Interest", "Principal", "Of which extra", "Total paid", "Ending balance"], ...c.rows, ["Total", cents(res.totalsC.interest), cents(res.totalsC.principal), cents(res.totalsC.extra), cents(res.totalsC.paid), ""]],
       align: ["right", "right", "right", "right", "right", "right"],
       note:
         `Year y is payments ${m === 1 ? "y" : `${m}(y − 1) + 1 to ${m}y`}. Principal includes the extra principal.` +
@@ -353,7 +378,7 @@ export function deprScheduleCalc(r: Read): FinResult {
   if ("error" in s) return finRefusal(s.error);
   const total = s.rows.reduce((a, x) => a + x.depreciation, 0);
   const lines = [
-    `${METHOD_NAME[method][0].toUpperCase() + METHOD_NAME[method].slice(1)}: cost ${money(cost)}, salvage ${money(salvage)}, ${method === "uop" ? `${count(s.rows.length)} years of production` : `useful life ${count(life)} years`}` +
+    `${METHOD_NAME[method][0].toUpperCase() + METHOD_NAME[method].slice(1)}: cost ${money(cost)}, salvage ${money(salvage)}, ${method === "uop" ? `${count(s.rows.length)} year${s.rows.length === 1 ? "" : "s"} of production` : `useful life ${count(life)} year${life === 1 ? "" : "s"}`}` +
       (factor !== undefined ? `, factor ${fx(factor, 4).replace(/\.?0+$/, "")} (rate ${pct(factor / life, 4)} of book value a year)` : ""),
     `Depreciable amount = ${money(cost - salvage)}; depreciated over the schedule = ${money(total)}; closing book value = ${money(s.rows[s.rows.length - 1].closing)}`,
   ];
@@ -451,6 +476,11 @@ export function macrsCalc(r: Read): FinResult {
 // Statements
 // ------------------------------------------------------------------------------------------------------------------
 
+/** How a pasted statement is read (printed in every statement result's Conventions line). */
+const US_STYLE =
+  "statement amounts are read in the US style (comma = thousands separator, point = decimal; (1,000) or −1,000 is negative; a European 1.234,56 is refused); " +
+  "a line named as a loss or deficit (net loss, operating loss, accumulated deficit) is a negative amount, while a combined name such as net income (loss) keeps the sign as typed";
+
 function statementOf(r: Read, key = "stmt"): Statement | string {
   const st = readStatement(r(key) ?? "");
   if ("error" in st) return st.error;
@@ -516,7 +546,7 @@ export function finRatiosCalc(r: Read): FinResult {
   if (why.size) lines.push(`Not computed: ${[...why.entries()].map(([k, v]) => `${k} (${v})`).join("; ")}.`);
   lines.push(...recognitionLines(st));
   lines.push(
-    `Conventions: day counts on a ${opts.days}-day year; ${opts.balances === "average" ? "balance-sheet denominators are the average of this and the prior year-end (prior-year ratios use year-end balances)" : "balance-sheet denominators are year-end balances"}; ` +
+    `Conventions: ${US_STYLE}; day counts on a ${opts.days}-day year; ${opts.balances === "average" ? "balance-sheet denominators are the average of this and the prior year-end (prior-year ratios use year-end balances)" : "balance-sheet denominators are year-end balances"}; ` +
       `debt means total liabilities; quick assets are cash + marketable securities + receivables; EBIT is operating income as given, else income before tax + interest; ` +
       `income before tax is as given, else net income + income tax; gross profit is as given, else revenue − cost of goods sold; total liabilities as given, else total assets − equity.`,
   );
@@ -583,7 +613,7 @@ export function commonSizeCalc(r: Read): FinResult {
   if (st.hasPrior) lines.push("Trend: change = (this year − prior year) ÷ |prior year|; a prior-year 0 has no percentage change.");
   if (why.length) lines.push(`Not computed: ${[...new Set(why)].join("; ")}.`);
   lines.push(...recognitionLines(st));
-  lines.push("Conventions: lines appear in a fixed statement order (income statement, then balance sheet); amounts as entered; recognized lines only.");
+  lines.push(`Conventions: ${US_STYLE}; lines appear in a fixed statement order (income statement, then balance sheet); amounts as entered; recognized lines only.`);
   const head = ["Line item", "This year", "% of base", ...(st.hasPrior ? ["Prior year", "% of base", "Change"] : [])];
   return {
     text: lines.join("\n"),
@@ -622,7 +652,7 @@ export function altmanCalc(r: Read): FinResult {
       ? "Source: E. I. Altman (1968), “Financial Ratios, Discriminant Analysis and the Prediction of Corporate Bankruptcy,” Journal of Finance; as Altman (2000) restates it, the function is 0.012X₁ + 0.014X₂ + 0.033X₃ + 0.006X₄ + 0.999X₅ with X₁ to X₄ entered in percent, and 1.2X₁ + 1.4X₂ + 3.3X₃ + 0.6X₄ + 1.0X₅ is the same function on ratios (X₅’s 0.999 rounded to 1.0). Cut-offs: 1.81 is the paper’s lower bound of the zone of ignorance; 2.99 is the conventional upper bound."
       : `Source: E. I. Altman (2000), “Predicting Financial Distress of Companies: Revisiting the Z-Score and ZETA® Models”.${variant === "zprime" ? " Cut-offs: its gray area, 1.23 to 2.90." : " The emerging-market constant (+3.25) in that paper is not added; the cut-offs 1.10 and 2.60 are the conventional ones for Z″ (not stated in that paper)."}`,
     ...recognitionLines(st),
-    "Conventions: working capital = current assets − current liabilities; EBIT is operating income as given, else income before tax + interest; total liabilities as given, else total assets − equity; year-end balances. A screening score from the samples it was estimated on, not a prediction for any one company.",
+    `Conventions: ${US_STYLE}; working capital = current assets − current liabilities; EBIT is operating income as given, else income before tax + interest; total liabilities as given, else total assets − equity; year-end balances. A screening score from the samples it was estimated on, not a prediction for any one company.`,
   ];
   const table: FinTable = {
     label: `Altman ${variant === "z" ? "Z" : variant === "zprime" ? "Z′" : "Z″"}-score`,
@@ -656,7 +686,13 @@ export function cvpCalc(r: Read): FinResult {
       ? `Margin of safety = ${fx(c.marginOfSafetyUnits, 2)} units = ${money(c.marginOfSafetyRevenue)} = ${pct(c.marginOfSafetyPct)} of sales${c.marginOfSafetyUnits < 0 ? " (negative: sales are below break-even)" : ""}`
       : "Margin of safety: no sales entered.",
     c.dol !== null ? `Degree of operating leverage = contribution ÷ operating income = ${fx(c.dol, 4)} (a 1% change in sales moves operating income ${fx(c.dol, 2)}%)` : "Degree of operating leverage: operating income is 0 (at break-even), so it has no value.",
-    ...(c.targetUnits !== null ? [`Units for a target operating profit of ${money(target!)} = (fixed costs + target) ÷ contribution margin = ${fx(c.targetUnits, 2)} units (${money(c.targetUnits * price)} of revenue)`] : []),
+    ...(c.targetUnits !== null
+      ? [
+          c.targetUnits < 0
+            ? `Units for a target operating profit of ${money(target!)}: none; the target is met with no sales at all (at 0 units the operating loss is the fixed costs, ${money(F)}, already within the target), so (fixed costs + target) ÷ contribution margin asks for fewer than 0 units`
+            : `Units for a target operating profit of ${money(target!)} = (fixed costs + target) ÷ contribution margin = ${fx(c.targetUnits, 2)} units (${money(c.targetUnits * price)} of revenue)`,
+        ]
+      : []),
     "Conventions: one product (or a fixed sales mix at these averages); price, variable cost per unit and fixed costs constant over the range shown; operating income before interest and tax; units need not be whole.",
   ];
   const table: FinTable = {
@@ -670,7 +706,7 @@ export function cvpCalc(r: Read): FinResult {
       ["Operating income", "revenue − variable costs − fixed costs", money(c.operatingIncome)],
       ...(units > 0 ? [["Margin of safety", "(sales − break-even) ÷ sales", pct(c.marginOfSafetyPct)]] : []),
       ...(c.dol !== null ? [["Degree of operating leverage", "contribution ÷ operating income", fx(c.dol, 4)]] : []),
-      ...(c.targetUnits !== null ? [["Units for target profit", "(fixed costs + target) ÷ contribution margin", fx(c.targetUnits, 2)]] : []),
+      ...(c.targetUnits !== null ? [["Units for target profit", "(fixed costs + target) ÷ contribution margin", c.targetUnits < 0 ? "none (met at 0 units)" : fx(c.targetUnits, 2)]] : []),
     ],
     align: ["left", "left", "right"],
   };

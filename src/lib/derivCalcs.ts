@@ -6,7 +6,9 @@
  * Every result prints a "Conventions:" line. Amounts are currency-neutral (bare grouped numbers).
  */
 import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
-import { finRefusal } from "./finCalc";
+import { finRefusal as finRefusalRaw } from "./finCalc";
+/** A refusal starts with a capital (a lower-case first word raised; a symbol such as "q" or "σ" is left alone). */
+const finRefusal = (s: string): FinResult => finRefusalRaw(/^[a-z][a-z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s);
 import { blackScholes, readFinanceField, type OptionType } from "./finance";
 import { finPlotSvg } from "./financeFigures";
 import type { Point, Series } from "./plot";
@@ -452,7 +454,7 @@ export function carryCalc(r: Read): FinResult {
   const lines = [
     `Spot S = ${fv(S)}, ${yrs(t)} to delivery, r = ${pctIn(rate)}, yield q = ${pctIn(q)}, storage rate u = ${pctIn(u)}, PV of income I = ${fv(I)}, PV of storage U = ${fv(U)}`,
     `Fair forward price F₀ = (S − I + U)·exp((r − q + u)t) = ${fx(base, 4)} × exp(${fv(carry * t, 8)}) = ${fx(F, 4)}`,
-    `Net cost of carry r − q + u = ${pct(carry)} a year; the forward is at a ${F > S ? "premium" : F < S ? "discount" : "par"} to spot (${F > S ? "contango" : F < S ? "backwardation" : "flat"}) of ${fx(F - S, 4)}.`,
+    `Net cost of carry r − q + u = ${pct(carry)} a year; ${F === S ? "the forward equals spot (flat)." : `the forward is at a ${F > S ? "premium" : "discount"} to spot (${F > S ? "contango" : "backwardation"}) of ${fx(Math.abs(F - S), 4)}.`}`,
   ];
   if (mkt !== null) {
     const gap = mkt - F;

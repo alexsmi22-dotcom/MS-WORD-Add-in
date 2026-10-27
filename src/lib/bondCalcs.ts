@@ -101,7 +101,7 @@ function bondConventions(spec: BondSpec, p: BondPeriod): string {
     `regular schedule dated backward from maturity` +
     `${p.schedule.eom ? ", end-of-month rule in force (maturity is a month's last day, so every coupon is)" : " on the maturity's day of month (clamped in shorter months; the end-of-month rule applies only when maturity is a month's last day)"}; ` +
     `no issue date, so no odd first or last coupon; yield compounded ${times(spec.freq)} with discount exponent (k − 1 + DSC/E) ` +
-    `(Excel PRICE/YIELD), simple interest when one coupon period remains (Excel's one-period formula); ` +
+    `(Excel PRICE/YIELD), simple interest when one coupon period remains (Excel's one-period formula; there modified duration is t/(1 + y·t), where Excel's MDURATION divides by 1 + y/f); ` +
     `duration and convexity on the dirty price; prices per 100 of face.`
   );
 }
@@ -392,7 +392,7 @@ function readRows(text: string, what: string, cols: number, maxRows: number): nu
     const row = b.rows[i];
     if (row.length < cols) return `${what}, line ${b.lines[i]}: needs ${cols} numbers (${cols === 2 ? "maturity in years, then yield %" : "maturity in years, coupon %, clean price per 100"}).`;
     if (row.length > cols) return `${what}, line ${b.lines[i]}: has ${row.length} numbers; expected ${cols} (${cols === 2 ? "maturity, yield %" : "maturity, coupon %, price"}).`;
-    if (row.some((v) => v === null || !Number.isFinite(v))) return `${what}, line ${b.lines[i]}: a value is missing.`;
+    if (row.some((v) => v === null || !Number.isFinite(v))) return `${what}, line ${b.lines[i]}: a value is missing or not a finite number.`;
     out.push(row as number[]);
   }
   return out;
@@ -483,8 +483,8 @@ export const BOND_CALCS: FinCalcDef[] = [
           { value: "yield", label: "Yield from clean price" },
         ],
       },
-      { key: "yld", label: "Yield to maturity (%) (price from yield)", default: "4.6" },
-      { key: "price", label: "Clean price per 100 (yield from price)", default: "97.25" },
+      { key: "yld", label: "Yield to maturity (%) (price from yield)", default: "4.6", optional: true },
+      { key: "price", label: "Clean price per 100 (yield from price)", default: "97.25", optional: true },
       { key: "red", label: "Redemption (per 100)", default: "100" },
       { key: "face", label: "Face value (for cash amounts)", default: "1000" },
     ],

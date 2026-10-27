@@ -93,10 +93,12 @@ describe("30/360 day counts", () => {
     expect(days360US(d(r.d1), d(r.d2))).toBe(r.excel);
     expect(days360E(d(r.d1), d(r.d2))).toBe(r.qlEuropean);
   });
-  test("Excel basis 0 differs from QuantLib Thirty360.USA (SIA) only when D1 is February's last day and D2 a 31st", () => {
+  test("Excel basis 0 (LibreOffice) differs from QuantLib Thirty360.USA (SIA) when D1 is February's last day and D2 a 31st or February's last day", () => {
     const diffs = FX.days360.filter((r: { excel: number; qlUSA: number }) => r.excel !== r.qlUSA).map((r: { d1: string; d2: string }) => [r.d1, r.d2]);
+    diffs.sort((a: string[], b: string[]) => (a.join() < b.join() ? -1 : 1));
     expect(diffs).toEqual([
       ["2027-02-28", "2027-03-31"],
+      ["2027-02-28", "2028-02-29"],
       ["2028-02-29", "2028-08-31"],
     ]);
   });

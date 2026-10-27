@@ -18,11 +18,16 @@
  * QuantLib FixedRateBond pays coupons of rate × actual/360 (or /365) rather than rate/f, so those bases are checked
  * against an independent transcription of Microsoft's formulas instead.
  *
- * 30/360 US IS EXCEL'S BASIS 0, NOT SIA. Excel's basis 0 (and LibreOffice's Excel-compatible ScaDate) applies, in
- * order and stopping at the first that matches: D1 = 31 and D2 = 31 → both 30; D1 = 31 → D1 = 30; D1 = 30 and
- * D2 = 31 → D2 = 30; both dates the last day of February → both 30; D1 the last day of February → D1 = 30. So from
- * the last day of February to the 31st of a month counts D2 as 31, where SIA's 30/360 US (QuantLib Thirty360.USA)
- * counts 30. Both are named in the oracle fixture.
+ * 30/360 US IS EXCEL'S BASIS 0 AS LIBREOFFICE'S EXCEL-COMPATIBLE IMPLEMENTATION COUNTS IT, NOT SIA. LibreOffice
+ * scaddins ScaDate::setDay / ScaDate::getDiff (https://github.com/LibreOffice/core/blob/master/scaddins/source/analysis/
+ * analysishelper.cxx, fetched 2026-10-27; GetCoupdaysnc there also confirms DSC = E − A and E = 360/f for bases 0
+ * and 4), in order, stopping at the first that matches: D1 = 31 and D2 = 31 → both 30; D1 = 31 → D1 = 30; D1 = 30
+ * and D2 = 31 → D2 = 30; both dates the last day of February → D1 = 30, D2 stays February's last day; D1 the last
+ * day of February → D1 = 30. So from the last day of February to the 31st of a month counts D2 as 31, where SIA's
+ * 30/360 US (QuantLib Thirty360.USA) counts 30. Not verified in Excel itself (no Excel here); Microsoft's pages say
+ * only "US (NASD) 30/360". In a bond's accrued days A (previous coupon → settlement, within one period) the only
+ * February cases that can arise are February's last day → a 31st, and settlement on a February-end coupon date
+ * (the same day: zero days, guarded in basisDays).
  */
 import { civilDay, civilFromDay, daysInMonth, isLeapYear, addMonthsClamped, longDate } from "./damagesInterest";
 
@@ -63,7 +68,7 @@ function isLastOfFeb(y: number, m: number, d: number): boolean {
   return m === 2 && d === daysInMonth(y, 2);
 }
 
-/** 30/360 US (NASD) days from d1 to d2 as Excel's basis 0 counts them (rule chain in the header). d1 ≤ d2. */
+/** 30/360 US (NASD) days from d1 to d2, Excel basis 0 as LibreOffice counts it (rule chain in the header). d1 ≤ d2. */
 export function days360US(day1: number, day2: number): number {
   const a = civilFromDay(day1);
   const b = civilFromDay(day2);
@@ -74,10 +79,8 @@ export function days360US(day1: number, day2: number): number {
     d2 = 30;
   } else if (d1 === 31) d1 = 30;
   else if (d1 === 30 && d2 === 31) d2 = 30;
-  else if (isLastOfFeb(a.y, a.m, a.d) && isLastOfFeb(b.y, b.m, b.d)) {
-    d1 = 30;
-    d2 = 30;
-  } else if (isLastOfFeb(a.y, a.m, a.d)) d1 = 30;
+  else if (isLastOfFeb(a.y, a.m, a.d) && isLastOfFeb(b.y, b.m, b.d)) d1 = 30;
+  else if (isLastOfFeb(a.y, a.m, a.d)) d1 = 30;
   return 360 * (b.y - a.y) + 30 * (b.m - a.m) + (d2 - d1);
 }
 
@@ -92,6 +95,9 @@ export function days360E(day1: number, day2: number): number {
 
 /** Days from d1 to d2 by the basis (30/360 counts for the two 30/360 bases, actual days otherwise). */
 export function basisDays(basis: BondBasis, d1: number, d2: number): number {
+  // The same day is zero days under every basis: LibreOffice's both-February-end rule alone would count a settlement
+  // ON a February-end coupon date as −1 (D1 → 30, D2 = 28 or 29).
+  if (d1 === d2) return 0;
   if (basis === "30360us") return days360US(d1, d2);
   if (basis === "30e360") return days360E(d1, d2);
   return d2 - d1;
@@ -308,7 +314,7 @@ export function yieldFromClean(spec: BondSpec, clean: number): { yield: number }
   const pHi = P(Y_HI);
   if (!(pLo >= 0 && pHi <= 0)) {
     return refuse(
-      `No yield between ${pctText(lo0)} and ${pctText(Y_HI)} gives a clean price of ${clean} (the price at those yields runs from ${Number.isFinite(pLo + dirty - accrued) ? fmtPlain(pLo + dirty - accrued) : "an unbounded value"} down to ${fmtPlain(pHi + dirty - accrued)}).`,
+      `No yield between ${pctText(lo0)} and ${pctText(Y_HI)} gives a clean price of ${fmtPlain(clean)} (the price at those yields runs from ${Number.isFinite(pLo + dirty - accrued) ? fmtPlain(pLo + dirty - accrued) : "an unbounded value"} down to ${fmtPlain(pHi + dirty - accrued)}).`,
     );
   }
   let lo = lo0;

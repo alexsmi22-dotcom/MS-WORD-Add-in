@@ -16,8 +16,8 @@ Sources, by convention:
   ACT/360, ACT/365 Fixed bonds            QuantLib's FixedRateBond pays rate x actual/360 coupons, not Excel's rate/f,
                                           so these use an independent transcription of Microsoft's PRICE / ACCRINT
                                           formulas (coupon 100 rate/f, A and DSC actual days, E = 360/f or 365/f).
-  30/360 US February-end                  Excel basis 0 (David A. Wheeler's analysis of Excel's YEARFRAC basis 0,
-                                          and LibreOffice scaddins ScaDate, its Excel-compatible implementation) vs
+  30/360 US February-end                  Excel basis 0 as LibreOffice scaddins ScaDate counts it (its Excel-
+                                          compatible implementation, analysishelper.cxx; not verified in Excel) vs
                                           QuantLib Thirty360.USA (SIA) and Thirty360.BondBasis: recorded side by side.
   Microsoft worked examples               PRICE, YIELD, ACCRINT, DURATION, MDURATION, TBILLEQ, TBILLYIELD, TBILLPRICE
                                           (support.microsoft.com function pages, fetched 2026-10-27).
@@ -103,7 +103,9 @@ def last_of_month(y, m):
 
 
 def days360_excel(d1, d2):
-    """Excel basis 0, elif chain (Wheeler; LibreOffice ScaDate)."""
+    """Excel basis 0 as LibreOffice scaddins ScaDate::setDay/getDiff counts it (analysishelper.cxx)."""
+    if d1 == d2:
+        return 0  # same day (the both-February-end rule alone would give -1)
     y1, m1, a = d1.year(), d1.month(), d1.dayOfMonth()
     y2, m2, b = d2.year(), d2.month(), d2.dayOfMonth()
     feb1 = m1 == 2 and a == last_of_month(y1, 2)
@@ -115,7 +117,7 @@ def days360_excel(d1, d2):
     elif a == 30 and b == 31:
         b = 30
     elif feb1 and feb2:
-        a, b = 30, 30
+        a = 30  # LibreOffice getDiff: D2 stays February's last day
     elif feb1:
         a = 30
     return 360 * (y2 - y1) + 30 * (m2 - m1) + (b - a)

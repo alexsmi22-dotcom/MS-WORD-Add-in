@@ -107,6 +107,13 @@ describe("solve options and alternatives", () => {
     expect(obj(run(calc("bond-dates"), { yld: "0" })).ok).not.toBe(false);
     expect(obj(run(calc("bond-dates"), { coupon: "0" })).ok).not.toBe(false);
   });
+  test("the unused yield/price field may be blank (both are optional; the one in use refuses blank by name)", () => {
+    expect(calc("bond-dates").fields.filter((f) => f.optional).map((f) => f.key)).toEqual(["yld", "price"]);
+    expect(obj(run(calc("bond-dates"), { solve: "price", price: "" })).ok).not.toBe(false);
+    expect(obj(run(calc("bond-dates"), { solve: "yield", yld: "" })).ok).not.toBe(false);
+    expect(refusal("bond-dates", { solve: "price", yld: "" })).toMatch(/Enter the yield to maturity/);
+    expect(refusal("bond-dates", { solve: "yield", price: "" })).toMatch(/Enter the clean price/);
+  });
   test("pasted curve with decimal commas (semicolon-separated) and a header row", () => {
     const o = obj(run(calc("curve-nelson-siegel"), { rows: "Maturity;Yield\n0,25;4,35\n1;4,18\n2;3,98\n5;3,97\n10;4,21\n30;4,47" }));
     expect(o.ok).not.toBe(false);

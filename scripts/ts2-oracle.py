@@ -274,6 +274,58 @@ for sid, vol, dist, mean in [
     garch_rev2.append(c)
 
 
+# F2 review round 3 (units, the EGARCH β = 1 face): the reviewer's stale-run series, regenerated with the reviewer's
+# generators (revF2D gen.py "stale n=1200": seed 9030, zeros at n/3 (40) and 2n/3 (15), 8 significant digits; gen2.py
+# "stale2": seed 50000 + 17·job, 1 + rep runs set to 0 (even rep) or to their first value (odd rep), 6 significant
+# digits; both GJR-t(6) with ω 0.02, α 0.06, γ 0.04, β 0.92, μ 0.03). arch is fitted as typed and on the series times c
+# (c = 1/√(mean squared residual), the canonical rescaling ts2.ts searches on; and c = 0.5, round 2's power of 2, where
+# the reviewer's arch found an invertible β = 1 optimum of stale2-300-3), mapped back to the units as typed.
+def _rev3_stale2(ji, n, rep):
+    sd = 50000 + 17 * ji
+    y = _rev2_sim(n, sd, 0.02, 0.06, 0.04, 0.92, nu=6, mu=0.03)
+    rng = np.random.default_rng(sd)
+    for _ in range(1 + rep):
+        st = int(rng.integers(0, n - 60))
+        ln = int(rng.integers(5, 50))
+        y[st:st + ln] = 0.0 if rep % 2 == 0 else y[st]
+    return np.array([float(f"{v:.6g}") for v in y])
+
+
+def _rev3_stale1200():
+    n = 1200
+    y = _rev2_sim(n, 9030, 0.02, 0.06, 0.04, 0.92, nu=6, mu=0.03)
+    y[n // 3: n // 3 + 40] = 0.0
+    y[2 * n // 3: 2 * n // 3 + 15] = 0.0
+    return np.array([float(f"{v:.8g}") for v in y])
+
+
+def _rev3_fit(y, vol, dist, mean, c):
+    kw = dict(mean="Constant" if mean == "constant" else "Zero", dist=dist, rescale=False)
+    am = arch_model(y * c, vol="EGARCH" if vol == "egarch" else "GARCH", p=1, o=0 if vol == "garch" else 1, q=1, **kw)
+    best = am.fit(disp="off", tol=1e-12, options={"maxiter": 3000})
+    again = am.fit(disp="off", tol=1e-12, starting_values=best.params.values, options={"maxiter": 3000})
+    if again.loglikelihood > best.loglikelihood:
+        best = again
+    p = [float(v) for v in best.params.values]
+    i = 1 if mean == "constant" else 0
+    if mean == "constant":
+        p[0] /= c
+    p[i] = p[i] - 2 * (1 - p[i + 3]) * math.log(c) if vol == "egarch" else p[i] / (c * c)
+    return {"params": p, "llf": float(best.loglikelihood + len(y) * math.log(c)), "flag": int(best.convergence_flag)}
+
+
+rev3_y = {"stale1200": _rev3_stale1200(), "stale2-300-3": _rev3_stale2(4, 300, 3), "stale2-1200-2": _rev3_stale2(11, 1200, 2)}
+garch_rev3 = []
+for sid, vol, dist, mean in [("stale1200", "egarch", "t", "zero"), ("stale2-300-3", "egarch", "normal", "constant"), ("stale2-1200-2", "egarch", "normal", "constant")]:
+    y = rev3_y[sid]
+    r = y - y.mean() if mean == "constant" else y
+    c = {"series": sid, "vol": vol, "dist": dist, "mean": mean, "typed": _rev3_fit(y, vol, dist, mean, 1.0),
+         "canon": _rev3_fit(y, vol, dist, mean, 1 / math.sqrt(float(np.mean(r * r))))}
+    if sid == "stale2-300-3":
+        c["half"] = _rev3_fit(y, vol, dist, mean, 0.5)
+    garch_rev3.append(c)
+
+
 # ------------------------------------------------------------------ VAR
 
 def var_case(Y, names, p, maxlags, periods=10):
@@ -372,6 +424,8 @@ fixture = {
     "garchBound": garch_bound,
     "garchRev2": garch_rev2,
     "garchRev2Y": {k: L(v) for k, v in rev2_y.items()},
+    "garchRev3": garch_rev3,
+    "garchRev3Y": {k: L(v) for k, v in rev3_y.items()},
     "var": var_default,
     "varHoldout": var_holdout,
     "eg": eg_default,

@@ -206,6 +206,23 @@ export interface GarchSpec {
 export const GARCH_MAX_N = 2500;
 export const GARCH_MIN_N = 100;
 export const GARCH_MAX_H = 250;
+/**
+ * The largest share of periods a fit may put at arch's variance floor (σ²ₜ below GARCH_NEAR_FLOOR × max(EWMA
+ * variance/10⁶, sample variance/10⁸)). A period there with a near-zero return adds about ½ ln(10⁸/2π) ≈ 8.3 nats over
+ * an ordinary one, and the likelihood rises without limit as the floor is lowered, so a fit that leans on such periods
+ * is degenerate: its log likelihood and AIC measure the floor, not the data. Measured 2026-10-27: no fit of the 1,200
+ * realistic holdout cases (or the review sets' simulated series) has a single period there, the review sets' stale-run
+ * series at most 3.2% (38 of 1,200, in runs of zero returns), and the degenerate fits of the hostile series 6.2% to
+ * 100% (±1 alternating returns 50%, a run of 2,000 zeros 80%, one 10⁶ return 6.2% to 100%); one hostile fit sits at
+ * exactly 5.0% (125 of 2,500) and prints with the caution.
+ */
+export const GARCH_FLOOR_SHARE = 0.05;
+/**
+ * "At the floor": σ²ₜ below 100 × arch's lower variance bound, still 10⁶ below the sample variance (no realistic
+ * volatility path comes near it), so a variance resting 1% above the bound (a GARCH-t whose ω sits on its own lower
+ * bound, 10⁻⁸ mean r²) counts as well as one clamped onto it.
+ */
+const GARCH_NEAR_FLOOR = 100;
 /** BFGS iterations per start. */
 export const GARCH_MAX_ITER = 300;
 
@@ -639,21 +656,24 @@ function garchNllGrad(s: GarchSetup, x: ArrayLike<number>): { f: number; g: numb
 }
 
 /**
- * The fit runs on the series rescaled EXACTLY by a power of 2, kc, bringing the mean squared residual into [0.5, 2), and
- * arch's setup (backcast, variance bounds, parameter bounds) is computed on that series. So every tolerance (the KKT
- * gate, the active rows, the stopping rules) means the same thing whatever units the returns were typed in, and so do
- * arch's two bounds that are not scale-equivariant (EGARCH's ω in ln(mean r²) ± ln 10⁴, while ω itself shifts by
- * 2(1 − β) ln c under r → c·r; the variance cap's 1 + max r²): the estimates are arch's on kc·r, mapped back. The
- * likelihood maps exactly: σ²ₜ → σ²ₜ/kc², log L → log L + n ln kc. Parameters map affinely, x = M x′ + d: μ = μ′/kc,
- * ω = ω′/kc² (GARCH, GJR); EGARCH ω = ω′ − 2(1 − β) ln kc.
+ * The fit runs on the series rescaled by kc = 1/√(mean squared residual), so the canonical series has mean squared
+ * residual 1 and is the same series (to rounding, 10⁻¹⁶ relative) whatever units the returns were typed in: ×10ᵏ, %
+ * or decimal. arch's setup (backcast, variance bounds, parameter bounds) is computed on that series, and so are the
+ * starts, the search, every tolerance (the KKT gate, the active rows, the stopping rules) and arch's two bounds that are
+ * not scale-equivariant (EGARCH's ω in ln(mean r²) ± ln 10⁴, while ω itself shifts by 2(1 − β) ln c under r → c·r; the
+ * variance cap's 1 + max r²): the estimates are arch's on kc·r, mapped back. The likelihood maps exactly: σ²ₜ →
+ * σ²ₜ/kc², log L → log L + n ln kc. Parameters map affinely, x = M x′ + d: μ = μ′/kc, ω = ω′/kc² (GARCH, GJR); EGARCH
+ * ω = ω′ − 2(1 − β) ln kc.
  */
 interface Canon {
   /** arch's setup on kc·y (the search's units). */
   s: GarchSetup;
-  /** The same setup in y's units (exact: kc is a power of 2), for the log likelihood, variances and forecasts. */
+  /** The same setup in y's units, for garchKktAt's log likelihood in those units. */
   sR: GarchSetup;
   cons: LinCon[];
   kc: number;
+  /** ln kc (computed without forming kc², which can overflow). */
+  lnkc: number;
   /** The Jacobian M of toR (constant: the map is affine). */
   M: M;
   /** Canonical → y's units. */
@@ -662,53 +682,62 @@ interface Canon {
   toK: (x: number[]) => number[];
 }
 
-function garchCanon(yR: Float64Array, spec: GarchSpec, k: number): Canon {
+function garchCanon(yR: Float64Array, spec: GarchSpec, k: number): Canon | null {
   const n = yR.length;
-  let ybar = 0;
-  for (let i = 0; i < n; i++) ybar += yR[i];
-  ybar /= n;
-  let ms = 0;
+  // kc = 1/√(mean squared residual), computed on y/max|y| so that neither the sum nor the squares overflow or
+  // underflow (returns of 10⁻²⁰⁰ or 10²⁰⁰ rescale as well as percent returns).
+  let m = 0;
+  for (let i = 0; i < n; i++) m = Math.max(m, Math.abs(yR[i]));
+  if (!(m > 0) || !Number.isFinite(m)) return null;
+  let ubar = 0;
+  for (let i = 0; i < n; i++) ubar += yR[i] / m;
+  ubar /= n;
+  let q = 0;
   for (let i = 0; i < n; i++) {
-    const r = spec.mean === "constant" ? yR[i] - ybar : yR[i];
-    ms += r * r;
+    const r = spec.mean === "constant" ? yR[i] / m - ubar : yR[i] / m;
+    q += r * r;
   }
-  ms /= n;
-  const kc = ms > 0 && Number.isFinite(ms) ? Math.pow(2, -Math.floor(Math.log2(ms) / 2 + 0.5)) : 1;
-  const k2 = kc * kc;
-  const lnk2 = 2 * Math.log(kc);
+  q /= n;
+  const invSq = 1 / Math.sqrt(q);
+  const kc = invSq / m;
+  const lnkc = -Math.log(m) - 0.5 * Math.log(q);
+  if (!(q > 0) || !Number.isFinite(invSq) || !(kc > 0) || !Number.isFinite(kc) || !Number.isFinite(lnkc)) return null;
+  const lnk2 = 2 * lnkc;
   const egarch = spec.vol === "egarch";
   const yK = new Float64Array(n);
-  for (let i = 0; i < n; i++) yK[i] = yR[i] * kc;
+  for (let i = 0; i < n; i++) yK[i] = (yR[i] / m) * invSq;
   const s = garchSetup(yK, spec);
+  // Division by kc twice (not by kc², which can overflow for returns of 10⁻¹⁶⁰).
+  const d2 = (v: number): number => v / kc / kc;
   const sR: GarchSetup = {
     ...s,
     y: yR,
-    backcast: egarch ? s.backcast - lnk2 : s.backcast / k2,
-    lower: s.lower.map((v) => v / k2),
-    upper: s.upper.map((v) => v / k2),
-    omegaLo: egarch ? s.omegaLo - lnk2 : s.omegaLo / k2,
-    omegaHi: egarch ? s.omegaHi - lnk2 : s.omegaHi / k2,
-    capUnit: s.capUnit / k2,
+    backcast: egarch ? s.backcast - lnk2 : d2(s.backcast),
+    lower: s.lower.map(d2),
+    upper: s.upper.map(d2),
+    omegaLo: egarch ? s.omegaLo - lnk2 : d2(s.omegaLo),
+    omegaHi: egarch ? s.omegaHi - lnk2 : d2(s.omegaHi),
+    capUnit: d2(s.capUnit),
   };
   const iO = s.km;
   const iB = spec.vol !== "garch" ? s.km + 3 : s.km + 2;
   const Mx = eye(k);
   if (s.km) Mx[0][0] = 1 / kc;
   if (egarch) Mx[iO][iB] = lnk2;
-  else Mx[iO][iO] = 1 / k2;
+  else Mx[iO][iO] = 1 / kc / kc;
   const toR = (x: number[]): number[] => {
     const out = x.slice();
     if (s.km) out[0] = x[0] / kc;
-    out[iO] = egarch ? x[iO] - lnk2 * (1 - x[iB]) : x[iO] / k2;
+    out[iO] = egarch ? x[iO] - lnk2 * (1 - x[iB]) : d2(x[iO]);
     return out;
   };
   const toK = (x: number[]): number[] => {
     const out = x.slice();
     if (s.km) out[0] = x[0] * kc;
-    out[iO] = egarch ? x[iO] + lnk2 * (1 - x[iB]) : x[iO] * k2;
+    out[iO] = egarch ? x[iO] + lnk2 * (1 - x[iB]) : x[iO] * kc * kc;
     return out;
   };
-  return { s, sR, cons: garchConstraints(s, k), kc, M: Mx, toR, toK };
+  return { s, sR, cons: garchConstraints(s, k), kc, lnkc, M: Mx, toR, toK };
 }
 
 /** Small dense solve by Gaussian elimination with partial pivoting; null when singular. */
@@ -1161,6 +1190,8 @@ export interface GarchFit {
   higherNonKkt: { llf: number; noninvertible: boolean } | null;
   /** Periods whose σ² sits on arch's lower (or beyond its upper) variance bound at the estimate. */
   clamped: number;
+  /** Periods whose σ² is at the variance floor (below 100 × arch's lower bound; GARCH_FLOOR_SHARE). */
+  floored: number;
   /** EGARCH: mean ln|β − (α|zₜ| + γzₜ)/2| at the estimate (≥ 0: the recursion is not invertible); NaN otherwise. */
   egarchLyapunov: number;
   /** Parameters within 10⁻⁴ of a bound or constraint (SEs there are not reliable). */
@@ -1169,7 +1200,7 @@ export interface GarchFit {
   persistence: number;
   /** One-step-ahead σ²_{T+1} and the analytic k-step path (GARCH/GJR; EGARCH has h = 1 only). */
   forecast: number[];
-  /** The internal scaling factor applied to the data (1 when none). */
+  /** The factor kc the search's canonical series is the returns times (1/√(mean squared residual)). */
   scale: number;
 }
 
@@ -1192,37 +1223,33 @@ function approxHess3(f: (x: number[]) => number, x: number[]): M {
   return H;
 }
 
-/** Fits a GARCH-family model to y (already in the units the user typed; rescaled internally when far from 1). */
+/** Fits a GARCH-family model to y (in the units the user typed; the search runs on the canonical rescaling, garchCanon). */
 export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Refusal {
   const n = yIn.length;
   if (n < GARCH_MIN_N) return { ok: false, reason: `A GARCH fit needs at least ${GARCH_MIN_N} returns; the series has ${n}.` };
   if (n > GARCH_MAX_N) return { ok: false, reason: `The series has ${n.toLocaleString("en-US")} returns; a GARCH fit here takes at most ${GARCH_MAX_N.toLocaleString("en-US")} (the most recent ${GARCH_MAX_N.toLocaleString("en-US")} would do).` };
-  let rms = 0;
+  let nonzero = false;
+  let varies = false;
   for (let i = 0; i < n; i++) {
     if (!Number.isFinite(yIn[i])) return { ok: false, reason: `Return ${i + 1} is not a finite number.` };
-    rms += yIn[i] * yIn[i];
+    if (yIn[i] !== 0) nonzero = true;
+    if (yIn[i] !== yIn[0]) varies = true;
   }
-  rms = Math.sqrt(rms / n);
-  if (!(rms > 0)) return { ok: false, reason: "Every return is zero, so there is no volatility to model." };
-  // Equivariance: fit c·y with c a power of 10 bringing the RMS into [1, 10) when it is outside [0.1, 1000) (decimal returns, say).
-  const scale = rms >= 0.1 && rms < 1000 ? 1 : Math.pow(10, -Math.floor(Math.log10(rms)));
-  if (!Number.isFinite(scale) || scale <= 0) return { ok: false, reason: "The returns are too large or too small to scale." };
-  const y = new Float64Array(n);
-  for (let i = 0; i < n; i++) y[i] = yIn[i] * scale;
-  let ybar = 0;
-  for (let i = 0; i < n; i++) ybar += y[i];
-  ybar /= n;
-  let vy = 0;
-  for (let i = 0; i < n; i++) vy += (y[i] - ybar) * (y[i] - ybar);
-  if (!(vy > 0) && spec.mean === "constant") return { ok: false, reason: "The returns are constant, so there is no volatility to model." };
+  if (!nonzero) return { ok: false, reason: "Every return is zero, so there is no volatility to model." };
+  if (!varies && spec.mean === "constant") return { ok: false, reason: "The returns are constant, so there is no volatility to model." };
+  const y = Float64Array.from(yIn);
 
   const names = garchParamNames(spec);
   const k = names.length;
-  // The fit runs in canonical units (garchCanon): the same answer and the same KKT verdict whatever the units.
+  // The fit runs in canonical units (garchCanon): the same series, so the same answer and the same KKT verdict,
+  // whatever the units.
   const C = garchCanon(y, spec, k);
+  if (!C) return { ok: false, reason: "The returns are too small or too large to rescale in double precision (their mean square is not a representable number)." };
   const sc = C.s;
-  const s = C.sR;
   const cons = C.cons;
+  let ybarK = 0;
+  for (let i = 0; i < n; i++) ybarK += sc.y[i];
+  ybarK /= n;
   const budget = { left: Math.max(400, Math.floor(GARCH_WORK / (n + GARCH_PASS_OVERHEAD))) };
   let exhausted = false;
   const fg: FG = (v) => {
@@ -1230,8 +1257,8 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     budget.left -= GRAD_COST;
     return garchNllGrad(sc, v);
   };
-  const kinkAt0 = spec.vol === "egarch" && s.km === 1;
-  const starts = garchStarts(sc, ybar * C.kc).filter((x0) => garchFeasible(cons, x0));
+  const kinkAt0 = spec.vol === "egarch" && sc.km === 1;
+  const starts = garchStarts(sc, ybarK).filter((x0) => garchFeasible(cons, x0));
   if (!starts.length) return { ok: false, reason: "No feasible starting point was found for this series." };
   // Every start is searched (arch's three best grid points, a near-iid start, and for t errors the ν starts below) and
   // the highest likelihood that satisfies the KKT conditions is kept: a local optimum that passes the check need not be
@@ -1243,21 +1270,40 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     for (const nu0 of [5, 30, 100]) tries.push([...starts[0].slice(0, k - 1), nu0]);
     for (const st of starts.slice(1, 3)) for (const nu0 of [30, 100]) tries.push([...st.slice(0, k - 1), nu0]);
   }
-  type Cand = { x: number[]; f: number; kkt: { ok: boolean; worst: number; active: number[] } };
-  let bestOk: Cand | null = null;
-  let bestAny: Cand | null = null;
-  for (let ti = 0; ti < tries.length && budget.left > 0; ti++) {
-    // arch's own start may use 40% of the cap, each later one a fair share of what is left (unused shares roll over),
-    // so one start on a rugged surface (a non-invertible EGARCH) cannot starve the others of the search that finds the
-    // smooth optimum.
-    const share = ti === 0 ? Math.floor(0.4 * budget.left) : Math.floor(budget.left / (tries.length - ti));
+  // EGARCH: two large-α starts (ω = 0, the canonical mean log variance), α = 0.5 on the β = 1 face and α = 1 at
+  // β = 0.9; arch's grid has α ≤ 0.2. Without them an EGARCH-t whose best optimum is β = 1, ν = 2.05, α ≈ 3 (F2 review
+  // round 3) and a short EGARCH whose best optimum has α ≈ 1.1 (log L 1.56 above the grid's) were missed.
+  if (spec.vol === "egarch") {
+    for (const [a, b] of [
+      [0.5, 1],
+      [1, 0.9],
+    ]) {
+      const v = withNu(sc, ybarK, [0, a, 0, b]);
+      if (garchFeasible(cons, v)) tries.push(v);
+    }
+  }
+  type Cand = { x: number[]; f: number; kkt: { ok: boolean; worst: number; active: number[] }; floored: number };
+  // (Typed by assertion so that TypeScript does not narrow them to null: runStart assigns them.)
+  let bestOk = null as Cand | null;
+  let bestAny = null as Cand | null;
+  let degenerate = null as Cand | null;
+  const fResid = new Float64Array(n);
+  const fSig2 = new Float64Array(n);
+  const flooredAt = (x: number[]): number => {
+    budget.left -= 1;
+    garchLls(sc, x, undefined, { resid: fResid, sigma2: fSig2 });
+    let c = 0;
+    for (let t = 0; t < n; t++) if (fSig2[t] < GARCH_NEAR_FLOOR * sc.lower[t]) c++;
+    return c;
+  };
+  const runStart = (x0: number[], share: number): void => {
     const reserve = budget.left - share;
     budget.left = share;
-    let r = activeSetMin(fg, cons, tries[ti], budget);
+    let r = activeSetMin(fg, cons, x0, budget);
     if (budget.left <= 0) exhausted = true;
     if (!Number.isFinite(r.f)) {
       budget.left = Math.max(0, budget.left) + reserve;
-      continue;
+      return;
     }
     let kkt = garchKkt(sc, cons, r.x, kinkAt0, budget);
     if (!kkt.ok && kinkAt0) {
@@ -1285,16 +1331,63 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
       }
     }
     if (budget.left <= 0) exhausted = true;
+    const cand: Cand = { x: r.x, f: r.f, kkt, floored: flooredAt(r.x) };
     budget.left = Math.max(0, budget.left) + reserve;
-    const cand: Cand = { x: r.x, f: r.f, kkt };
+    // A candidate with more than GARCH_FLOOR_SHARE of its periods at the variance floor is degenerate (its likelihood
+    // grows without bound as the floor is lowered): never chosen, only remembered for the refusal.
+    if (cand.floored > GARCH_FLOOR_SHARE * n) {
+      if (!degenerate || r.f < degenerate.f) degenerate = cand;
+      return;
+    }
     if (kkt.ok && (!bestOk || r.f < bestOk.f)) bestOk = cand;
     if (!bestAny || r.f < bestAny.f) bestAny = cand;
+  };
+  // EGARCH keeps 30% of the cap back for the rescue starts below.
+  const held = spec.vol === "egarch" ? Math.floor(0.3 * budget.left) : 0;
+  budget.left -= held;
+  for (let ti = 0; ti < tries.length && budget.left > 0; ti++) {
+    // arch's own start may use 40% of the cap, each later one a fair share of what is left (unused shares roll over),
+    // so one start on a rugged surface (a non-invertible EGARCH) cannot starve the others of the search that finds the
+    // smooth optimum.
+    runStart(tries[ti], ti === 0 ? Math.floor(0.4 * budget.left) : Math.floor(budget.left / (tries.length - ti)));
+  }
+  budget.left = Math.max(0, budget.left) + held;
+  // EGARCH rescue: when no start found a point satisfying the KKT conditions, or the best one found lies below a higher
+  // point that fails them (a non-invertible recursion, where the likelihood is rugged), eight more starts at or next to
+  // the β = 1 face with strong asymmetry of either sign (γ = ±0.6; arch's grid has |γ| ≤ 0.1). From arch's grid every
+  // search can slide into the non-invertible region while invertible optima with β ≈ 1 and large |γ| exist (F2 review
+  // round 3: a stale-run series refused while such a point satisfies the KKT conditions). Run only then, so smooth
+  // fits pay nothing for it.
+  const higherAny = (): boolean => !!bestOk && !!bestAny && bestAny !== bestOk && (bestOk.f - bestAny.f) * n > 1e-6;
+  if (spec.vol === "egarch" && (!bestOk || higherAny())) {
+    const rescue: number[][] = [];
+    for (const [a, g, b] of [
+      [0.1, -0.6, 0.95],
+      [0.1, 0.6, 0.95],
+      [0.3, -0.6, 0.95],
+      [0.3, 0.6, 0.95],
+      [0.5, -0.6, 0.95],
+      [0.5, 0.6, 0.95],
+      [0.1, -0.6, 1],
+      [0.1, 0.6, 1],
+    ]) {
+      const v = withNu(sc, ybarK, [0, a, g, b]);
+      if (garchFeasible(cons, v)) rescue.push(v);
+    }
+    for (let ri = 0; ri < rescue.length && budget.left > 0; ri++) runStart(rescue[ri], Math.floor(budget.left / (rescue.length - ri)));
+  }
+  if (!bestOk && degenerate) {
+    const d = degenerate;
+    return {
+      ok: false,
+      reason: `The likelihood is unbounded here: at the best parameters found ${d.floored.toLocaleString("en-US")} of the ${n.toLocaleString("en-US")} periods sit at the variance floor (on or within a factor of 100 of arch's lower bound on σ²ₜ), where each period's likelihood grows without limit as the floor is lowered, so the fit and its AIC are not meaningful and no estimates are reported. This happens with long runs of zero or repeated returns (remove them, or fit a stretch without them), or when one huge return lifts arch's floor (sample variance/10⁸) above the typical variance.`,
+    };
   }
   const chosen = bestOk ?? bestAny;
   if (!chosen) return { ok: false, reason: "The likelihood could not be evaluated at any feasible parameters for this series." };
   // Named when nothing passed the KKT check and some start's search was cut off by its share of the cap.
   const workLimitHit = !bestOk && exhausted;
-  const kkt = chosen.kkt;
+  let kkt = chosen.kkt;
   let xk = chosen.x;
   // EGARCH with a mean: an optimum on the kink of |rₜ − μ| reached without the pin can sit 10⁻¹⁴ off the return; put
   // it on the return when that does not lower the likelihood.
@@ -1322,6 +1415,54 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     const fRaw = (v: number[]): number => -garchLls(sc, v) / n;
     if (xp.every(Number.isFinite) && fRaw(xp) <= fRaw(xk) + 1e-12 * Math.max(1, Math.abs(fRaw(xk)))) xk = xp;
   }
+  // Newton polish on the free directions (the null space of the active rows; μ held on its kink for EGARCH with a
+  // mean), with the Hessian from central differences of the exact gradient: where the quasi-Newton search stops on a
+  // flat ridge (ν between 60 and 100, say), its stopping point depends on rounding, so the same returns typed in other
+  // units would stop 10⁻⁶ to 10⁻² away. A step is kept only when it stays feasible, does not lower the likelihood and
+  // (from a point that satisfies the KKT conditions) still satisfies them. It also runs from a best point that just misses them (projected gradient under
+  // 10⁻²), which the search left on a steep, narrow valley (μ beside a run of 2,000 equal returns) where a Newton step
+  // settles it.
+  if (Number.isFinite(kkt.worst) && kkt.worst < 1e-2) {
+    const W = kkt.active.map((i) => cons[i].a);
+    if (kinkAt0) W.push(cons[0].a.map((_, j) => (j === 0 ? 1 : 0)));
+    const Z = nullBasis(W, k);
+    for (let it = 0; it < 4 && Z.length; it++) {
+      const g0 = garchNllGrad(sc, xk);
+      if (!Number.isFinite(g0.f)) break;
+      const H = zeros(k, k);
+      for (let j = 0; j < k; j++) {
+        const h = 1e-5 * Math.max(1, Math.abs(xk[j]));
+        const xp = xk.slice();
+        const xm = xk.slice();
+        xp[j] += h;
+        xm[j] -= h;
+        const gp = garchNllGrad(sc, xp).g;
+        const gm = garchNllGrad(sc, xm).g;
+        for (let i = 0; i < k; i++) H[i][j] = (gp[i] - gm[i]) / (2 * h);
+      }
+      const Hz = Z.map((zi) => Z.map((zj) => {
+        let acc = 0;
+        for (let a = 0; a < k; a++) for (let b = 0; b < k; b++) acc += zi[a] * 0.5 * (H[a][b] + H[b][a]) * zj[b];
+        return acc;
+      }));
+      const gz = Z.map((zi) => zi.reduce((acc, v, t) => acc + v * g0.g[t], 0));
+      const dz = solveSmall(Hz, gz.map((v) => -v));
+      if (!dz || !dz.every(Number.isFinite)) break;
+      const xn = xk.map((v, t) => v + Z.reduce((acc, zi, j) => acc + zi[t] * dz[j], 0));
+      if (!garchFeasible(cons, xn)) break;
+      // Kept when it raises the likelihood beyond rounding; near the optimum, where −log L/n changes by less than its
+      // rounding (10⁻¹⁶ relative), when it shrinks the exact projected gradient without lowering the likelihood beyond it.
+      const fn = garchNllGrad(sc, xn).f;
+      const tol = 1e-13 * Math.abs(g0.f);
+      if (!(fn <= g0.f + tol)) break;
+      const kn = garchKkt(sc, cons, xn, kinkAt0);
+      if ((kkt.ok && !kn.ok) || !(fn < g0.f - tol || kn.worst < kkt.worst)) break;
+      const step = Math.max(...xn.map((v, t) => Math.abs(v - xk[t]) / Math.max(1, Math.abs(xk[t]))));
+      xk = xn;
+      kkt = kn;
+      if (step < 1e-12) break;
+    }
+  }
   // Boundaries (arch's bounds and constraints) the estimate is on, judged in the canonical units. ω's lower bound is
   // 10⁻⁸·mean r², so for it "near" is relative to the bound itself, not 10⁻⁴ absolute.
   const atBounds: string[] = [];
@@ -1330,13 +1471,12 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     return slackOf(c, xk) < (omegaLow ? 1e-4 * Math.abs(c.b) : 1e-4 * Math.max(1, Math.abs(c.b)));
   };
   for (const c of cons) if (near(c) && !atBounds.includes(c.label)) atBounds.push(c.label);
-  const x = C.toR(xk);
-  const pr = unpack(s, x);
+  const params = C.toR(xk);
+  const pk = unpack(sc, xk);
 
   // Covariance as arch computes it (Hessian of −Σ log L / n with statsmodels' steps, scores by forward differences,
   // np.cov with ddof 1), in the canonical units, so the steps are the same relative size whatever the units; then
-  // carried to y's units by the Jacobian of the affine map (Σ = M Σ′ Mᵀ). For mean r² in [0.5, 2) (kc = 1) this is
-  // arch's computation on the data as typed.
+  // carried to y's units by the Jacobian of the affine map (Σ = M Σ′ Mᵀ).
   const negSum = (v: number[]): number => -garchLls(sc, v);
   let covRobust: M | null = null;
   let covClassic: M | null = null;
@@ -1375,81 +1515,68 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     } else seWhy = "the estimated covariance matrix is not positive definite at the estimate (often a parameter on a boundary)";
   }
 
-  const resid = new Float64Array(n);
-  const sigma2 = new Float64Array(n);
-  const llfScaled = garchLls(s, x, undefined, { resid, sigma2 });
+  // Everything below in the canonical units, then mapped to y's: residuals /kc, variances /kc², log L + n ln kc.
+  const residK = new Float64Array(n);
+  const sigma2K = new Float64Array(n);
+  const llfK = garchLls(sc, xk, undefined, { resid: residK, sigma2: sigma2K });
   // Periods where the recursion sits on arch's variance bounds: there the likelihood has kinks (not smooth).
   let clamped = 0;
-  for (let t = 0; t < n; t++) if (sigma2[t] <= s.lower[t] || sigma2[t] > s.upper[t]) clamped++;
+  let floored = 0;
+  for (let t = 0; t < n; t++) {
+    if (sigma2K[t] < GARCH_NEAR_FLOOR * sc.lower[t]) floored++;
+    if (sigma2K[t] <= sc.lower[t] || sigma2K[t] > sc.upper[t]) clamped++;
+  }
   // EGARCH invertibility (Wintenberger 2013): the sample mean of ln|∂ln σ²ₜ₊₁/∂ln σ²ₜ| = ln|β − (α|zₜ| + γzₜ)/2|. At 0 or
   // above the recursion does not contract: the fitted variances depend explosively on the parameters and the likelihood
   // is rugged (no smooth maximum to find).
-  const lyap = spec.vol === "egarch" ? egarchLyap(s, x) : NaN;
-  const persistence = spec.vol === "garch" ? pr.alpha + pr.beta : spec.vol === "gjr" ? pr.alpha + pr.gamma / 2 + pr.beta : pr.beta;
+  const lyap = spec.vol === "egarch" ? egarchLyap(sc, xk) : NaN;
+  const persistence = spec.vol === "garch" ? pk.alpha + pk.beta : spec.vol === "gjr" ? pk.alpha + pk.gamma / 2 + pk.beta : pk.beta;
   // One step past the sample with no bound (arch's _one_step_forecast appends bounds [0, ∞)).
-  const eT = resid[n - 1];
+  const eT = residK[n - 1];
   let f1: number;
   if (spec.vol === "egarch") {
-    const z = eT / Math.sqrt(sigma2[n - 1]);
-    f1 = Math.exp(Math.min(pr.omega + pr.alpha * (Math.abs(z) - SQRT2_OV_PI) + pr.gamma * z + pr.beta * Math.log(sigma2[n - 1]), LNSIGMA_MAX));
-  } else f1 = Math.max(0, pr.omega + pr.alpha * eT * eT + (eT < 0 ? pr.gamma * eT * eT : 0) + pr.beta * sigma2[n - 1]);
-  const forecastScaled = [f1];
-  if (spec.vol !== "egarch") for (let h = 1; h < GARCH_MAX_H; h++) forecastScaled.push(pr.omega + persistence * forecastScaled[h - 1]);
+    const z = eT / Math.sqrt(sigma2K[n - 1]);
+    f1 = Math.exp(Math.min(pk.omega + pk.alpha * (Math.abs(z) - SQRT2_OV_PI) + pk.gamma * z + pk.beta * Math.log(sigma2K[n - 1]), LNSIGMA_MAX));
+  } else f1 = Math.max(0, pk.omega + pk.alpha * eT * eT + (eT < 0 ? pk.gamma * eT * eT : 0) + pk.beta * sigma2K[n - 1]);
+  const forecastK = [f1];
+  if (spec.vol !== "egarch") for (let h = 1; h < GARCH_MAX_H; h++) forecastK.push(pk.omega + persistence * forecastK[h - 1]);
 
-  // Back to the user's units: μ/c, ω/c² (EGARCH: ω − 2(1 − β) ln c), llf − n ln c, variances /c².
-  const c = scale;
-  const back = (v: number[]): number[] => {
-    const out = v.slice();
-    let i = 0;
-    if (s.km) out[i++] /= c;
-    if (spec.vol === "egarch") out[i] = out[i] - 2 * (1 - unpack(s, v).beta) * Math.log(c);
-    else out[i] /= c * c;
-    return out;
-  };
-  const params = back(x);
-  // The back-transform is linear, so the covariances map exactly by its Jacobian J (Σ' = J Σ Jᵀ).
-  const J = eye(k);
-  {
-    let i = 0;
-    if (s.km) J[i][i++] = 1 / c;
-    if (spec.vol === "egarch") J[i][s.km + 3] = 2 * Math.log(c);
-    else J[i][i] = 1 / (c * c);
-  }
-  const seScale = (cov: M | null): number[] | null => {
+  const seOf = (cov: M | null): number[] | null => {
     if (!cov) return null;
-    const out = mul(mul(J, cov), tr(J)).map((r, i) => Math.sqrt(r[i]));
+    const out = cov.map((r, i) => Math.sqrt(r[i]));
     return out.every((v) => Number.isFinite(v) && v > 0) ? out : null;
   };
-  const seR = seScale(covRobust);
-  const seC = seScale(covClassic);
+  const seR = seOf(covRobust);
+  const seC = seOf(covClassic);
   if ((covRobust && !seR) || (covClassic && !seC)) seWhy = "the estimated covariance matrix is not positive definite at the estimate";
-  for (let i = 0; i < n; i++) {
-    sigma2[i] /= c * c;
-    resid[i] /= c;
-  }
+  const kc = C.kc;
+  const toVar = (v: number): number => v / kc / kc;
+  const sigma2 = sigma2K.map(toVar);
+  const resid = residK.map((v) => v / kc);
   return {
     ok: true,
     spec,
     names,
     params,
-    llf: llfScaled + n * Math.log(c),
+    llf: llfK + n * C.lnkc,
     seRobust: seR,
     seClassic: seC,
     seWhy,
     sigma2,
     resid,
-    backcast: spec.vol === "egarch" ? s.backcast - 2 * Math.log(c) : s.backcast / (c * c),
+    backcast: spec.vol === "egarch" ? sc.backcast - 2 * C.lnkc : toVar(sc.backcast),
     n,
     converged: kkt.ok,
     kktGradient: kkt.worst,
     workLimitHit,
-    higherNonKkt: higher ? { llf: -higher.f * n + n * Math.log(C.kc) + n * Math.log(c), noninvertible: spec.vol === "egarch" && egarchLyap(sc, higher.x) >= 0 } : null,
+    higherNonKkt: higher ? { llf: -higher.f * n + n * C.lnkc, noninvertible: spec.vol === "egarch" && egarchLyap(sc, higher.x) >= 0 } : null,
     clamped,
+    floored,
     egarchLyapunov: lyap,
     atBounds,
     persistence,
-    forecast: forecastScaled.map((v) => v / (c * c)),
-    scale: c,
+    forecast: forecastK.map(toVar),
+    scale: kc,
   };
 }
 
@@ -1465,6 +1592,7 @@ export function garchKktAt(
   x: number[],
 ): { ok: boolean; worst: number; grad: number[]; numGrad: number[]; llf: number; llfCanon: number; kc: number } {
   const C = garchCanon(Float64Array.from(y), spec, x.length);
+  if (!C) throw new Error("garchKktAt: the series cannot be rescaled");
   const s = C.sR;
   const xk = C.toK(x);
   const r = garchKkt(C.s, C.cons, xk, spec.vol === "egarch" && s.km === 1);

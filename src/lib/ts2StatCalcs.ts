@@ -21,6 +21,7 @@ import {
   COINT_MAX_K,
   COINT_MAX_N,
   GARCH_MAX_H,
+  GARCH_FLOOR_SHARE,
   GARCH_MAX_N,
   GARCH_MIN_N,
   JOHANSEN_MAX_KDIFF,
@@ -339,17 +340,17 @@ export function tsGarchCalc(read: Read): StatOutput {
   if (!fit.ok) return refuse(fit.reason);
   const n = fit.n;
   const k = fit.params.length;
-  const finite = [fit.llf, ...fit.params, ...fit.forecast.slice(0, h), fit.persistence];
-  if (!finite.every(Number.isFinite)) return refuse("A fitted quantity is not a finite number for this series, so the result is not reported.");
   // Hard rule: estimates are printed only when the first-order (KKT) conditions hold at them, on a bound or not.
   if (!fit.converged && spec.vol === "egarch" && fit.egarchLyapunov >= 0) {
     return refuse(
       `The likelihood maximization did not converge for this series: at the best EGARCH parameters found the recursion is not invertible (the mean of ln|β₁ − (α₁|zₜ| + γ₁zₜ)/2| along the path is ${fmtFixed(fit.egarchLyapunov, 4)}, not below 0; Wintenberger 2013), so the fitted variances depend explosively on the parameters, the likelihood has no smooth maximum, and no estimates are reported. Try GARCH or GJR-GARCH for this series.`,
     );
   }
-  // Advice that fits the spec asked for: the other two models, the other error distribution, more data.
+  // Advice that fits the spec asked for: the other two models, the other error distribution, more data (only when the
+  // series is shorter than the most a fit takes).
   const otherModels = (["garch", "gjr", "egarch"] as GarchVol[]).filter((v) => v !== spec.vol).map((v) => VOL_SHORT[v]);
-  const advice = `Try ${otherModels.join(" or ")}, ${spec.dist === "t" ? "normal errors" : "Student-t errors"}, or a longer series.`;
+  const otherDist = spec.dist === "t" ? "normal errors" : "Student-t errors";
+  const advice = n < GARCH_MAX_N ? `Try ${otherModels.join(" or ")}, ${otherDist}, or a longer series.` : `Try ${otherModels.join(" or ")}, or ${otherDist}.`;
   if (!fit.converged && fit.workLimitHit) {
     return refuse(
       `The likelihood maximization did not converge for this series: the likelihood search hit its work limit before reaching parameters where the first-order conditions hold (largest projected gradient component at the best point found ${Number.isFinite(fit.kktGradient) ? fmtFixed(fit.kktGradient, 4) : "not computable"} per observation), so no estimates are reported. ${advice}`,
@@ -360,6 +361,17 @@ export function tsGarchCalc(read: Read): StatOutput {
       `The likelihood maximization did not converge for this series: at the best parameters found, the gradient of the log likelihood does not vanish on the free parameters (largest projected component ${Number.isFinite(fit.kktGradient) ? fmtFixed(fit.kktGradient, 4) : "not computable"} per observation), so no estimates are reported. ${advice}`,
     );
   }
+  // A quantity that does not fit in a double (a one-step EGARCH forecast past e⁷⁰⁹ in the returns' units, say) is named.
+  const nonFinite = !Number.isFinite(fit.llf)
+    ? "the log likelihood"
+    : fit.params.findIndex((v) => !Number.isFinite(v)) >= 0
+    ? `the estimate of ${PARAM_LABEL[fit.names[fit.params.findIndex((v) => !Number.isFinite(v))]]}`
+    : !Number.isFinite(fit.persistence)
+    ? "the persistence"
+    : fit.forecast.slice(0, spec.vol === "egarch" ? 1 : h).some((v) => !Number.isFinite(v))
+    ? "the variance forecast"
+    : "";
+  if (nonFinite) return refuse(`At the estimates, ${nonFinite} is not a finite double-precision number for this series (it overflows), so the result is not reported.`);
   const P = Object.fromEntries(fit.names.map((nm, i) => [nm, fit.params[i]])) as Record<string, number>;
   const aic = -2 * fit.llf + 2 * k;
   const bic = -2 * fit.llf + k * Math.log(n);
@@ -375,12 +387,22 @@ export function tsGarchCalc(read: Read): StatOutput {
   const unitPers = fit.persistence > 1 - 1e-4;
   const disp = (v: number): number => (Math.abs(v) < 5e-5 ? 0 : v);
   let halfLife = "";
-  // α₁ = 0 (and α₁ + γ₁ = 0 for GJR) on their bounds: returns never move the variance, which stays at ω/(1 − β₁), so a
-  // "half-life of a volatility shock" would describe a shock the model cannot have and β₁ is not identified.
+  // α₁ on 0 (and α₁ + γ₁ on 0 for GJR), by the same 10⁻⁴ test as the boundary list: returns do not move the variance,
+  // which follows a deterministic path from the backcast toward ω/(1 − β₁), the gap shrinking by β₁ each period. A
+  // half-life then describes that drift, not a response to shocks (the model has none).
   const noArch =
-    (spec.vol === "garch" && P.alpha === 0) || (spec.vol === "gjr" && P.alpha === 0 && Math.abs(P.alpha + P.gamma) < 1e-12);
+    (spec.vol === "garch" && fit.atBounds.includes("α = 0")) || (spec.vol === "gjr" && fit.atBounds.includes("α = 0") && fit.atBounds.includes("α + γ = 0"));
   if (noArch) {
-    halfLife = `; ${spec.vol === "garch" ? "α₁ is" : "α₁ and α₁ + γ₁ are"} on 0, so returns do not move the variance: it is constant at ω/(1 − β₁) and neither β₁ nor a half-life is identified`;
+    const who = `${spec.vol === "garch" ? "α₁ is" : "α₁ and α₁ + γ₁ are"} on 0 (within 10⁻⁴), so returns do not move the variance`;
+    const b = P.beta;
+    if (b < 5e-5) halfLife = `; ${who}, and with β₁ = 0 it is constant at ω`;
+    else if (b > 1 - 1e-4) halfLife = `; ${who}, and with β₁ at 1 it follows a deterministic path from the starting (backcast) variance, growing by ω each period, with no response to shocks`;
+    else {
+      const hl = Math.log(0.5) / Math.log(b);
+      halfLife = `; ${who}: it follows a deterministic path from the starting (backcast) variance toward ω/(1 − β₁), the gap shrinking by the factor β₁ each period, ${
+        hl < 1 ? "so the gap halves within a period" : `with half-life ln 0.5 / ln β₁ = ${fmtFixed(hl, hl < 10 ? 2 : 1)} periods`
+      } (the half-life of that drift, not of a response to shocks)`;
+    }
   } else if (fit.persistence > 0 && !unitPers) {
     const hl = Math.log(0.5) / Math.log(fit.persistence);
     halfLife =
@@ -397,7 +419,9 @@ export function tsGarchCalc(read: Read): StatOutput {
   }
   if (spec.vol === "gjr") {
     lines.push(
-      P.gamma > 0
+      noArch
+        ? "Leverage: none to report, since α₁ and α₁ + γ₁ are on 0 and neither a negative nor a positive return moves the variance."
+        : P.gamma > 0
         ? `Leverage: a negative return raises next period's variance by (α₁ + γ₁)ε² = ${fmtFixed(disp(P.alpha + P.gamma), 4)}ε², a positive one by α₁ε² = ${fmtFixed(disp(P.alpha), 4)}ε².`
         : `γ₁ = ${fmtFixed(P.gamma, 4)}: no leverage effect (negative returns do not raise variance more than positive ones).`,
     );
@@ -425,6 +449,11 @@ export function tsGarchCalc(read: Read): StatOutput {
       `Caution: in ${intText(fit.clamped)} of the ${intText(n)} periods the fitted variance sits on arch's variance bounds (its floor, max(EWMA variance/10⁶, sample variance/10⁸), or above its cap), where the likelihood has a kink rather than a smooth maximum; the estimates may be driven by those periods (a run of zero or repeated returns, say).${nuBound ? ` ν is also on its bound (${nuBound.split(" (")[0]}).` : ""}`,
     );
   }
+  if (fit.floored > 0) {
+    lines.push(
+      `Caution: ${intText(fit.floored)} of the ${intText(n)} periods (${fmtFixed((100 * fit.floored) / n, 1)}%) have a fitted variance at arch's variance floor (on or within a factor of 100 of it), where the likelihood keeps rising as the variance falls; those periods inflate the log likelihood and AIC. Above ${fmtFixed(100 * GARCH_FLOOR_SHARE, 0)}% of the periods the fit is refused as degenerate.`,
+    );
+  }
   if (fit.higherNonKkt) {
     lines.push(
       `Caution: the search also reached a higher log likelihood, ${fmtFixed(fit.higherNonKkt.llf, 3)}, at parameters where the first-order conditions do not hold${fit.higherNonKkt.noninvertible ? " (an EGARCH recursion that is not invertible, where the likelihood has no smooth maximum)" : ""}; the estimates above are the highest-likelihood point found that satisfies them.`,
@@ -432,7 +461,7 @@ export function tsGarchCalc(read: Read): StatOutput {
   }
   lines.push("");
   lines.push(
-    `Conventions (the arch 8.0 Python package's arch model, no automatic rescaling): mean model ${mean === "constant" ? "“Constant” (rₜ = μ + εₜ)" : "“Zero” (rₜ = εₜ)"}; εₜ = σₜzₜ with zₜ ${dist === "t" ? "a Student-t scaled to unit variance (ν > 2; arch's StudentsT)" : "standard normal"}.`,
+    `Conventions (the arch 8.0 Python package's arch model, with arch's own rescale option off; the rescaling used here is under Estimation): mean model ${mean === "constant" ? "“Constant” (rₜ = μ + εₜ)" : "“Zero” (rₜ = εₜ)"}; εₜ = σₜzₜ with zₜ ${dist === "t" ? "a Student-t scaled to unit variance (ν > 2; arch's StudentsT)" : "standard normal"}.`,
   );
   lines.push(
     spec.vol === "garch"
@@ -442,13 +471,19 @@ export function tsGarchCalc(read: Read): StatOutput {
       : "Log variance: ln σ²ₜ = ω + α₁(|zₜ₋₁| − √(2/π)) + γ₁zₜ₋₁ + β₁ ln σ²ₜ₋₁ (arch vol=\"EGARCH\", p = 1, o = 1, q = 1; √(2/π) is used whatever the error distribution, as arch does).",
   );
   lines.push(
-    `Start of the recursion: arch's backcast, Σ wᵢ ε̂²ᵢ over the first min(75, n) residuals with weights wᵢ ∝ 0.94ⁱ (ε̂ = ${mean === "constant" ? "rₜ − r̄" : "rₜ"}, fixed during the fit) = ${fmtFixed(spec.vol === "egarch" ? Math.exp(fit.backcast) : fit.backcast, 5)}${spec.vol === "egarch" ? " (its logarithm starts ln σ²)" : spec.vol === "gjr" ? " (the asymmetric term starts at half of it)" : ""}; arch's loose variance bounds are applied in the recursion.`,
+    `Start of the recursion: arch's backcast, Σ wᵢ ε̂²ᵢ over the first min(75, n) residuals with weights wᵢ ∝ 0.94ⁱ (ε̂ = ${mean === "constant" ? "rₜ − r̄" : "rₜ"}, fixed during the fit) = ${fmtFixed(spec.vol === "egarch" ? Math.exp(fit.backcast) : fit.backcast, 5)}${spec.vol === "egarch" ? " (its logarithm starts ln σ²)" : spec.vol === "gjr" ? " (the asymmetric term starts at half of it)" : ""}; arch's loose variance bounds are applied in the recursion (computed, like the backcast, on the rescaled series described under Estimation).`,
   );
   lines.push(
-    `Estimation: maximum likelihood within arch's bounds and constraints (${spec.vol === "egarch" ? "0 ≤ β₁ ≤ 1" : spec.vol === "gjr" ? "α₁ ≥ 0, α₁ + γ₁ ≥ 0, β₁ ≥ 0, α₁ + γ₁/2 + β₁ ≤ 1" : "α₁ ≥ 0, β₁ ≥ 0, α₁ + β₁ ≤ 1"}${dist === "t" ? ", 2.05 ≤ ν ≤ 500" : ""}), by an active-set quasi-Newton search (BFGS with the exact gradient on the free parameters, a bound kept while the likelihood rises toward it) from arch's three best starting-grid points and a near-iid start (β₁ = 0)${dist === "t" ? ", and from ν = 5, 30 and 100" : ""}, keeping the highest likelihood that satisfies the first-order conditions. The search runs on the returns rescaled exactly by a power of 2 so that the mean squared residual is near 1, so neither the estimates nor the checks depend on the units. Estimates are reported only when the first-order (KKT) conditions hold: the gradient of −log L/n (in those units) on the free parameters is below 10⁻⁵ and on each bound it points out of the parameter space${spec.vol === "egarch" && mean === "constant" ? " (for μ, whose |rₜ − μ| term has a kink at each return, the one-sided slopes are checked)" : ""}.`,
+    `Estimation: maximum likelihood within arch's bounds and constraints (${spec.vol === "egarch" ? "0 ≤ β₁ ≤ 1" : spec.vol === "gjr" ? "α₁ ≥ 0, α₁ + γ₁ ≥ 0, β₁ ≥ 0, α₁ + γ₁/2 + β₁ ≤ 1" : "α₁ ≥ 0, β₁ ≥ 0, α₁ + β₁ ≤ 1"}${dist === "t" ? ", 2.05 ≤ ν ≤ 500" : ""}), by an active-set quasi-Newton search (BFGS with the exact gradient on the free parameters, a bound kept while the likelihood rises toward it) from several starts, keeping the highest likelihood that satisfies the first-order conditions: arch's three best starting-grid points (by the normal likelihood), a near-iid start (β₁ = 0) and a high-persistence one (${spec.vol === "egarch" ? "β₁ = 0.98" : "persistence 0.98"}, γ₁ = 0)${
+      dist === "t" ? ", each with ν from the kurtosis of the standardized residuals (arch's moment start), and ν = 5, 30 and 100 at the best grid point and ν = 30 and 100 at the next two" : ""
+    }${
+      spec.vol === "egarch"
+        ? "; two large-α starts (α₁ = 0.5 with β₁ = 1, α₁ = 1 with β₁ = 0.9; γ₁ = 0); and, when no start satisfies the first-order conditions or a higher likelihood was reached where they fail, eight starts with strong asymmetry (γ₁ = ±0.6 with α₁ = 0.1, 0.3 or 0.5 and β₁ = 0.95, or α₁ = 0.1 and β₁ = 1)"
+        : ""
+    }. A fit with more than ${fmtFixed(100 * GARCH_FLOOR_SHARE, 0)}% of its periods on arch's variance floor is not used (its likelihood grows without limit as the floor is lowered). The search runs on the returns divided by their root mean squared residual (so that series has mean squared residual 1 and is the same series, to rounding, whatever units the returns are typed in), with arch's setup computed on it; every estimate, the log likelihood (+ n ln c) and the standard errors (by the Jacobian of that linear map) are converted back exactly, so neither the estimates nor the checks depend on the units. Estimates are reported only when the first-order (KKT) conditions hold: the gradient of −log L/n (in those units) on the free parameters is below 10⁻⁵ and on each bound it points out of the parameter space${spec.vol === "egarch" && mean === "constant" ? " (for μ, whose |rₜ − μ| term has a kink at each return, the one-sided slopes are checked)" : ""}.`,
   );
   lines.push(
-    "Standard errors: robust (Bollerslev–Wooldridge 1992) sandwich H⁻¹SH⁻¹/n, H the numerical Hessian of −log L/n and S the sample covariance (n − 1 divisor) of the per-observation scores, exactly as arch's robust covariance option computes them; the classic column is H⁻¹/n. z and p from the normal distribution.",
+    "Standard errors: robust (Bollerslev–Wooldridge 1992) sandwich H⁻¹SH⁻¹/n, H the numerical Hessian of −log L/n and S the sample covariance (n − 1 divisor) of the per-observation scores, exactly as arch's robust covariance option computes them, with the numerical-derivative steps taken on the rescaled series' parameters (so the last digits can differ from arch run on the returns as typed); the classic column is H⁻¹/n. z and p from the normal distribution.",
   );
   lines.push("Information criteria (arch's definitions): AIC = −2 log L + 2k, BIC = −2 log L + k ln n.");
   lines.push(
@@ -456,11 +491,6 @@ export function tsGarchCalc(read: Read): StatOutput {
       ? "Units: the returns carry % signs, so they are in percent (1.2 = 1.2%); variances are in %² and volatilities in %."
       : "Units: the returns are read as typed; variances are in their squared units. arch recommends returns in percent (100 × the decimal return).",
   );
-  if (fit.scale !== 1) {
-    lines.push(
-      `The returns' root mean square is outside [0.1, 1,000), so the fit ran on ${fit.scale < 1 ? `the returns ÷ ${intText(1 / fit.scale)}` : `the returns × ${intText(fit.scale)}`} and every estimate was converted back exactly (the model is scale-equivariant; standard errors by the Jacobian of that linear map; their numerical-derivative steps were taken on the rescaled parameters, so their last digits can differ from arch run on the unscaled returns).`,
-    );
-  }
   if (data.dates?.frequency === "day") lines.push("Daily dates are treated as consecutive observations (trading days), whatever the calendar gaps.");
   lines.push(...data.notes);
 

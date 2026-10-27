@@ -36,10 +36,15 @@ describe("Black–Scholes: the European/no-dividend limit is real, not pedantry"
     expect(exerciseNow - european).toBeGreaterThan(5);
   });
 
-  test("the model has no dividend input at all", () => {
-    // blackScholes(type, S, K, t, r, sigma) — six parameters, no q. A dividend
-    // payer's call is worth less than this returns and the function cannot know.
+  test("the dividend yield q is optional and defaults to the no-dividend model", () => {
+    // v2.202.0 (gap D8): blackScholes(type, S, K, t, r, sigma, q = 0). Six
+    // required parameters still (Function.length stops at the default), and a
+    // caller that omits q gets exactly the old no-dividend price. A dividend
+    // payer's call is worth LESS once q is given, which is why the pane's
+    // "NO dividends" disclosure became a field.
     expect(blackScholes.length).toBe(6);
+    expect(blackScholes("call", 100, 100, 1, 0.05, 0.2)).toBe(blackScholes("call", 100, 100, 1, 0.05, 0.2, 0));
+    expect(blackScholes("call", 100, 100, 1, 0.05, 0.2, 0.03)).toBeLessThan(blackScholes("call", 100, 100, 1, 0.05, 0.2));
   });
 
   test("degenerate inputs fall back to intrinsic value rather than NaN", () => {
@@ -49,11 +54,14 @@ describe("Black–Scholes: the European/no-dividend limit is real, not pedantry"
     expect(blackScholes("put", 90, 100, 1, 0.05, 0)).toBeCloseTo(100 * Math.exp(-0.05) - 90, 12);
   });
 
-  test("normCdf meets the ~1e-7 accuracy its own docstring claims", () => {
-    // Abramowitz–Stegun 26.2.17. Asserted against the DOCUMENTED tolerance, not a
-    // tighter one invented here: an earlier draft demanded 9 decimals and "failed"
-    // on normCdf(0) = 0.4999999995 — off by 5e-10, i.e. 200x better than promised.
-    // Testing a spec the code never claimed just manufactures false alarms.
+  test("normCdf meets the accuracy its own docstring claims", () => {
+    // Abramowitz–Stegun 26.2.17 (~1e-7) until v2.202.0; since gap D1 it is
+    // probdist's normalCdfPrecise (~1e-16). Asserted against the DOCUMENTED
+    // tolerance, not a tighter one invented here: an earlier draft demanded 9
+    // decimals of the old polynomial and "failed" on normCdf(0) = 0.4999999995.
+    // The reference values below are rounded to 10 decimals, so 1e-10 is the
+    // tightest this table can check; derivOracle.test.ts checks 1e-15 against
+    // Python's math.erfc.
     const cases: [number, number][] = [
       [0, 0.5],
       [1, 0.8413447461],
@@ -63,9 +71,9 @@ describe("Black–Scholes: the European/no-dividend limit is real, not pedantry"
       [2.5, 0.9937903347],
       [-3, 0.0013498980],
     ];
-    for (const [x, want] of cases) expect(Math.abs(normCdf(x) - want)).toBeLessThan(1e-7);
-    // Symmetry is exact in the true CDF; the approximation should preserve it well.
-    for (const x of [0.3, 1.1, 2.2]) expect(normCdf(x) + normCdf(-x)).toBeCloseTo(1, 7);
+    for (const [x, want] of cases) expect(Math.abs(normCdf(x) - want)).toBeLessThan(1e-10);
+    // Symmetry is exact in the true CDF.
+    for (const x of [0.3, 1.1, 2.2]) expect(normCdf(x) + normCdf(-x)).toBeCloseTo(1, 15);
   });
 });
 

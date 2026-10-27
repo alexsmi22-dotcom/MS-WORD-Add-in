@@ -1,5 +1,5 @@
 // Finance calculations for the Finance mode: time value of money, loans,
-// discounted cash flow (NPV/IRR), growth, option pricing (Black-Scholes), and
+// discounted cash flow (NPV/IRR), growth, option pricing (Black–Scholes–Merton), and
 // bond pricing. Pure numeric functions — no Office.js — fully unit-testable. The
 // task pane formats and inserts the results.
 //
@@ -7,6 +7,7 @@
 // otherwise (e.g. compoundInterest takes an annual rate + compounds/year).
 
 import { parseCellNumber } from "./dataimport";
+import { normalCdfPrecise } from "./probdist";
 
 /**
  * A Finance number field as typed: the product's one cell reader (true minus
@@ -170,34 +171,38 @@ export function cagr(begin: number, end: number, years: number): number {
   return Math.pow(end / begin, 1 / years) - 1;
 }
 
-/** Standard normal CDF via an Abramowitz–Stegun erf approximation (~1e-7). */
+/**
+ * Standard normal CDF Φ(x). Since v2.202.0 (gap D1) this is probdist.ts's normalCdfPrecise (erf/erfc, about 1e-16
+ * absolute), not the Abramowitz–Stegun 26.2.17 polynomial (about 7.5e-8), which put an S = K = 100, t = 1, r = 5%,
+ * σ = 20% call 8.0e-6 low and a K = 200 call 1.7% low. Kept under this name for its callers.
+ */
 export function normCdf(x: number): number {
-  const t = 1 / (1 + 0.2316419 * Math.abs(x));
-  const d = 0.3989422804014327 * Math.exp((-x * x) / 2);
-  let p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  if (x > 0) p = 1 - p;
-  return p;
+  return normalCdfPrecise(x);
 }
 
 export type OptionType = "call" | "put";
 
-/** Black–Scholes price of a European option (no dividends). t in years. */
-export function blackScholes(type: OptionType, S: number, K: number, t: number, r: number, sigma: number): number {
-  if (!(t >= 0) || !(sigma >= 0)) return NaN;
+/**
+ * Black–Scholes–Merton price of a European option. t in years; r and q are continuously compounded annual decimals;
+ * q is a continuous dividend yield (Merton 1973), default 0 so every existing caller is the no-dividend model.
+ */
+export function blackScholes(type: OptionType, S: number, K: number, t: number, r: number, sigma: number, q = 0): number {
+  if (!(t >= 0) || !(sigma >= 0) || !Number.isFinite(q)) return NaN;
   if (t === 0) return type === "call" ? Math.max(S - K, 0) : Math.max(K - S, 0);
+  const pvS = S * Math.exp(-q * t);
+  const pvK = K * Math.exp(-r * t);
   if (sigma === 0) {
     // THE DETERMINISTIC LIMIT, not intrinsic value. With no volatility the
-    // stock grows at r for certain, so the option pays max(S·e^(rt) − K, 0) at
-    // expiry; discounted, that is max(S − K·e^(−rt), 0). Intrinsic max(S − K, 0)
-    // ignored the time value of the strike (a 1-year put, S 90, K 100, r 5%
-    // read 10.00 against the true 5.12).
-    const pvK = K * Math.exp(-r * t);
-    return type === "call" ? Math.max(S - pvK, 0) : Math.max(pvK - S, 0);
+    // stock grows at r − q for certain, so the option pays max(S·e^((r−q)t) − K, 0)
+    // at expiry; discounted, that is max(S·e^(−qt) − K·e^(−rt), 0). Intrinsic
+    // max(S − K, 0) ignored the time value of the strike (a 1-year put, S 90,
+    // K 100, r 5% read 10.00 against the true 5.12).
+    return type === "call" ? Math.max(pvS - pvK, 0) : Math.max(pvK - pvS, 0);
   }
-  const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * t) / (sigma * Math.sqrt(t));
+  const d1 = (Math.log(S / K) + (r - q + (sigma * sigma) / 2) * t) / (sigma * Math.sqrt(t));
   const d2 = d1 - sigma * Math.sqrt(t);
-  if (type === "call") return S * normCdf(d1) - K * Math.exp(-r * t) * normCdf(d2);
-  return K * Math.exp(-r * t) * normCdf(-d2) - S * normCdf(-d1);
+  if (type === "call") return pvS * normCdf(d1) - pvK * normCdf(d2);
+  return pvK * normCdf(-d2) - pvS * normCdf(-d1);
 }
 
 /**
@@ -572,61 +577,71 @@ export interface Greeks {
   gamma: number;
   /** ∂price/∂σ, per 1.00 (100%) change in volatility. */
   vega: number;
-  /** ∂price/∂t, per year (negative = time decay). */
+  /** −∂price/∂(time to expiry), per year (negative = time decay). */
   theta: number;
   /** ∂price/∂r, per 1.00 change in rate. */
   rho: number;
+  /** ∂price/∂q, per 1.00 change in the dividend yield (QuantLib's dividendRho). */
+  psi: number;
 }
 
-/** Black–Scholes Greeks for a European option (no dividends). */
-export function blackScholesGreeks(type: OptionType, S: number, K: number, t: number, r: number, sigma: number): Greeks {
-  const none = { delta: NaN, gamma: NaN, vega: NaN, theta: NaN, rho: NaN };
-  if (!(t > 0) || !(sigma >= 0) || !(S > 0) || !(K > 0)) return none;
+/**
+ * Black–Scholes–Merton Greeks for a European option; q is a continuous dividend yield (default 0, the no-dividend
+ * model every existing caller gets).
+ */
+export function blackScholesGreeks(type: OptionType, S: number, K: number, t: number, r: number, sigma: number, q = 0): Greeks {
+  const none = { delta: NaN, gamma: NaN, vega: NaN, theta: NaN, rho: NaN, psi: NaN };
+  if (!(t > 0) || !(sigma >= 0) || !(S > 0) || !(K > 0) || !Number.isFinite(q)) return none;
+  const eq = Math.exp(-q * t);
   if (sigma === 0) {
-    // The σ → 0 limit: d1 = d2 = ±∞ by the sign of ln(S/K) + rt, so N(d) is 0
-    // or 1 and φ(d) = 0 — delta is a step, gamma and vega vanish, theta and rho
-    // are those of the forward max(S − K·e^(−rt), 0). EXACTLY at the money
-    // forward (S = K·e^(−rt)) the step is the point itself: delta jumps 0 → 1
-    // and gamma is infinite, so nothing is returned (sigmaZeroAtForward names it).
-    const m = Math.log(S / K) + r * t;
-    if (Math.abs(m) <= 1e-12 * Math.max(1, Math.abs(r * t))) return none;
+    // The σ → 0 limit: d1 = d2 = ±∞ by the sign of ln(S/K) + (r − q)t, so N(d)
+    // is 0 or 1 and φ(d) = 0 — delta is a step, gamma and vega vanish, theta and
+    // rho are those of the forward max(S·e^(−qt) − K·e^(−rt), 0). EXACTLY at the
+    // money forward (S·e^(−qt) = K·e^(−rt)) the step is the point itself: delta
+    // jumps and gamma is infinite, so nothing is returned (sigmaZeroAtForward names it).
+    const m = Math.log(S / K) + (r - q) * t;
+    if (Math.abs(m) <= 1e-12 * Math.max(1, Math.abs((r - q) * t))) return none;
     const n1 = m > 0 ? 1 : 0;
     const disc0 = K * Math.exp(-r * t);
+    const pvS0 = S * eq;
     return {
-      delta: type === "call" ? n1 : n1 - 1,
+      delta: type === "call" ? eq * n1 : eq * (n1 - 1),
       gamma: 0,
       vega: 0,
-      theta: type === "call" ? -r * disc0 * n1 : r * disc0 * (1 - n1),
+      theta: type === "call" ? (q * pvS0 - r * disc0) * n1 : (r * disc0 - q * pvS0) * (1 - n1),
       rho: type === "call" ? t * disc0 * n1 : -t * disc0 * (1 - n1),
+      psi: type === "call" ? -t * pvS0 * n1 : t * pvS0 * (1 - n1),
     };
   }
   const sqt = Math.sqrt(t);
-  const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * t) / (sigma * sqt);
+  const d1 = (Math.log(S / K) + (r - q + (sigma * sigma) / 2) * t) / (sigma * sqt);
   const d2 = d1 - sigma * sqt;
   const pdf = normPdf(d1);
   const disc = K * Math.exp(-r * t);
-  const delta = type === "call" ? normCdf(d1) : normCdf(d1) - 1;
-  const gamma = pdf / (S * sigma * sqt);
-  const vega = S * pdf * sqt;
+  const pvS = S * eq;
+  const delta = type === "call" ? eq * normCdf(d1) : -eq * normCdf(-d1);
+  const gamma = (eq * pdf) / (S * sigma * sqt);
+  const vega = pvS * pdf * sqt;
   const theta =
     type === "call"
-      ? (-S * pdf * sigma) / (2 * sqt) - r * disc * normCdf(d2)
-      : (-S * pdf * sigma) / (2 * sqt) + r * disc * normCdf(-d2);
+      ? (-pvS * pdf * sigma) / (2 * sqt) + q * pvS * normCdf(d1) - r * disc * normCdf(d2)
+      : (-pvS * pdf * sigma) / (2 * sqt) - q * pvS * normCdf(-d1) + r * disc * normCdf(-d2);
   const rho = type === "call" ? t * disc * normCdf(d2) : -t * disc * normCdf(-d2);
-  return { delta, gamma, vega, theta, rho };
+  const psi = type === "call" ? -t * pvS * normCdf(d1) : t * pvS * normCdf(-d1);
+  return { delta, gamma, vega, theta, rho, psi };
 }
 
-/** True when σ = 0 and S = K·e^(−rt): the Greeks' σ → 0 limit has its step exactly here (undefined). */
-export function sigmaZeroAtForward(S: number, K: number, t: number, r: number, sigma: number): boolean {
-  if (sigma !== 0 || !(t > 0) || !(S > 0) || !(K > 0)) return false;
-  const m = Math.log(S / K) + r * t;
-  return Math.abs(m) <= 1e-12 * Math.max(1, Math.abs(r * t));
+/** True when σ = 0 and S·e^(−qt) = K·e^(−rt): the Greeks' σ → 0 limit has its step exactly here (undefined). */
+export function sigmaZeroAtForward(S: number, K: number, t: number, r: number, sigma: number, q = 0): boolean {
+  if (sigma !== 0 || !(t > 0) || !(S > 0) || !(K > 0) || !Number.isFinite(q)) return false;
+  const m = Math.log(S / K) + (r - q) * t;
+  return Math.abs(m) <= 1e-12 * Math.max(1, Math.abs((r - q) * t));
 }
 
-/** Implied volatility from an observed option `price` (annual decimal, or null). */
-export function impliedVolatility(type: OptionType, price: number, S: number, K: number, t: number, r: number): number | null {
+/** Implied volatility from an observed option `price` (annual decimal, or null); q as in blackScholes (default 0). */
+export function impliedVolatility(type: OptionType, price: number, S: number, K: number, t: number, r: number, q = 0): number | null {
   if (price <= 0 || t <= 0) return null;
-  return findRoot((sig) => blackScholes(type, S, K, t, r, sig) - price, 1e-4, 5, 2000);
+  return findRoot((sig) => blackScholes(type, S, K, t, r, sig, q) - price, 1e-4, 5, 2000);
 }
 
 // --- depreciation ------------------------------------------------------------

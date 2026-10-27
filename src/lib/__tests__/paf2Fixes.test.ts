@@ -84,7 +84,7 @@ describe("3. Black–Scholes at σ = 0", () => {
   });
   it("Greeks at σ = 0: delta a step, gamma and vega 0, theta/rho of the forward", () => {
     const g = blackScholesGreeks("call", 110, 100, 1, 0.05, 0);
-    expect(g).toEqual({ delta: 1, gamma: 0, vega: 0, theta: -0.05 * 100 * Math.exp(-0.05), rho: 100 * Math.exp(-0.05) });
+    expect(g).toEqual({ delta: 1, gamma: 0, vega: 0, theta: -0.05 * 100 * Math.exp(-0.05), rho: 100 * Math.exp(-0.05), psi: -110 });
     const p = blackScholesGreeks("put", 80, 100, 1, 0.05, 0);
     expect(p.delta).toBe(-1);
     expect(p.theta).toBeCloseTo(0.05 * 100 * Math.exp(-0.05), 12);

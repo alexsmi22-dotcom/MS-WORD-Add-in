@@ -269,8 +269,11 @@ export function optionCurveSvg(o: {
   r: number;
   sig: number;
   price: number;
+  /** Continuous dividend yield (v2.202.0); omitted = 0, the no-dividend curve. */
+  q?: number;
 }): string | undefined {
-  if (![o.s, o.k, o.t, o.r, o.sig, o.price].every(Number.isFinite) || !(o.k > 0)) return undefined;
+  const q = o.q ?? 0;
+  if (![o.s, o.k, o.t, o.r, o.sig, o.price, q].every(Number.isFinite) || !(o.k > 0)) return undefined;
   // Covers the strike AND the spot (fix2-paf): a fixed 0.5K–1.5K window left
   // a deep in-the-money position (S = 300, K = 100) off the chart.
   const lo = 0.5 * Math.min(o.k, o.s > 0 ? o.s : o.k);
@@ -279,7 +282,7 @@ export function optionCurveSvg(o: {
   const intrinsic: Point[] = [];
   for (let i = 0; i <= 60; i++) {
     const x = lo + ((hi - lo) * i) / 60;
-    const v = blackScholes(o.type, x, o.k, o.t, o.r, o.sig);
+    const v = blackScholes(o.type, x, o.k, o.t, o.r, o.sig, q);
     if (Number.isFinite(v)) value.push({ x, y: v });
     intrinsic.push({ x, y: o.type === "call" ? Math.max(0, x - o.k) : Math.max(0, o.k - x) });
   }

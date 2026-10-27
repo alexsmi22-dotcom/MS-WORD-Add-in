@@ -53,6 +53,7 @@ import { LITIG_CALCS } from "../src/lib/litigCalcs";
 import { FORENSIC_CALCS } from "../src/lib/forensicCalcs";
 import { TS2_STAT_CALCS } from "../src/lib/ts2StatCalcs";
 import { CAUSAL_STAT_CALCS } from "../src/lib/causalStatCalcs";
+import { LIMDEP_STAT_CALCS } from "../src/lib/limdepStatCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2400,6 +2401,20 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
     h.replace("age", "age_at_enrolment_years").replace("educ", "years_of_schooling_completed").replace("income", "household_income_prior_year"),
   );
   cz("causal-pscore", { data: psData, covariates: "age_at_enrolment_years + years_of_schooling_completed + household_income_prior_year" }, "pscore long names");
+}
+
+// --- Limited dependent & count models (F2: limdepStatCalcs.ts): count and ordered frequency figures ---------------
+{
+  for (const c of LIMDEP_STAT_CALCS) {
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    const out = c.compute((k) => vals[k] ?? "");
+    if (out.ok !== false && out.svg) figures.push([`limdep ${c.id} default`, out.svg]);
+  }
+  const cnt = LIMDEP_STAT_CALCS.find((x) => x.id === "econ-count")!;
+  const vals: Record<string, string> = Object.fromEntries(cnt.fields.map((f) => [f.key, f.default]));
+  const nb = cnt.compute((k) => (k === "model" ? "nb2" : (vals[k] ?? "")));
+  if (nb.ok === false || !nb.svg) throw new Error(`corpus: limdep count NB2 did not draw: ${nb.text.slice(0, 120)}`);
+  figures.push(["limdep econ-count nb2", nb.svg]);
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

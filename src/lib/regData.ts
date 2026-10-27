@@ -113,8 +113,17 @@ export function parseRegData(text: string): RegDataResult {
   let grid: string[][];
   let delimited = true;
   let semicolon = false;
+  // A first line of whitespace-separated cells whose commas all sit INSIDE number cells ("2025-03-03 2,401,000",
+  // "1,5 2,3") is a whitespace table, not a CSV header: before F2 a headerless date + grouped-number row was split at
+  // its thousands commas and refused (found by the F2 securities builder; es-event and the time-series tools read
+  // through here). A CSV header has a comma between cells ("Date,Close", "Date, Close").
+  const firstToks = lines[0].trim().split(/\s+/);
+  const commasInsideNumbers =
+    firstToks.length >= 2 &&
+    firstToks.every((t) => !/^[,;]|[,;]$/.test(t)) &&
+    firstToks.filter((t) => /[,;]/.test(t)).every((t) => /^[-+−]?[\d.,]+%?$/.test(t));
   if (src.includes("\t")) grid = parseDelimited(lines.join("\n"), "\t");
-  else if (/[,;]/.test(lines[0]) && !/^\s*[-+−]?[\d.,]+(\s+[-+−]?[\d.,]+)+\s*$/.test(lines[0])) {
+  else if (/[,;]/.test(lines[0]) && !commasInsideNumbers) {
     // A delimited header (a CSV file). A first line of space-separated decimal-comma numbers ("1,5 2,3") is not.
     semicolon = lines[0].includes(";");
     grid = parseDelimited(lines.join("\n"), semicolon ? ";" : ",");

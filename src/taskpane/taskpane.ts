@@ -8745,7 +8745,8 @@ const FIN_CALCS: FinCalc[] = [
       "The Gordon terminal value typically dominates this number and is extremely sensitive "+
       "to the terminal growth rate: it explodes as growth approaches the discount rate, "+
       "and requires growth < discount rate to mean anything. Treat the output as a scenario, "+
-      "not a valuation."
+      "not a valuation. For explicit stages, an exit multiple, mid-year discounting, the bridge to equity per share " +
+      "and a sensitivity grid, use Capital budgeting & valuation ▸ Multi-stage DCF."
   },
   {
     id: "xirr",
@@ -9088,7 +9089,9 @@ const FIN_CALCS: FinCalc[] = [
     assumes:
       "Plain declining balance at the factor given, stopping at salvage. This is NOT MACRS and " +
       "does NOT switch to straight line when that would be faster, which is what US tax " +
-      "schedules and most accounting conventions do — so it is a book method, not a filing.",
+      "schedules and most accounting conventions do — so it is a book method, not a filing. " +
+      "For the switch to straight line, SYD, units of production or MACRS as a Word table, use Accounting & " +
+      "statements ▸ Depreciation schedule or MACRS.",
   },
   {
     // STRAIGHT LINE WAS MISSING WHILE DECLINING BALANCE SHIPPED — and it is the
@@ -9388,6 +9391,9 @@ const FIN_CALCS: FinCalc[] = [
         ),
       };
     },
+    assumes:
+      "For Sortino, Treynor, maximum drawdown, Calmar, prices instead of returns, VaR or a CAPM beta, use " +
+      "Portfolio & risk ▸ Sharpe, Sortino, Treynor and maximum drawdown.",
   },
   {
     id: "fin-currency",

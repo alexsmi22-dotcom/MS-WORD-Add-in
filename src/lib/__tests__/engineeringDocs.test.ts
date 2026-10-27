@@ -48,7 +48,8 @@ const PANE = read("src/taskpane/taskpane.ts");
  */
 function spreadEntries(slice: string): Array<{ id: string; group?: string }> {
   const out: Array<{ id: string; group?: string }> = [];
-  for (const m of slice.matchAll(/^\s*\.\.\.([A-Z][A-Z_]*_CALCS),/gm)) {
+  // digits allowed (TS2_STAT_CALCS): without them five Stats calculators went uncounted (F2)
+  for (const m of slice.matchAll(/^\s*\.\.\.([A-Z][A-Z0-9_]*_CALCS),/gm)) {
     const name = m[1];
     const imp = new RegExp(`import \\{[^}]*\\b${name}\\b[^}]*\\} from "\\.\\./lib/([A-Za-z0-9]+)"`).exec(PANE);
     if (!imp) throw new Error(`the pane spreads ${name} but no import of it from ../lib was found`);

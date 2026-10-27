@@ -1068,7 +1068,7 @@ describe("every Engineering tool appears under a heading in the menu", () => {
     const used = new Set<string | null>(ENG.map((e) => groupOf(e.body)));
     // Calculators spread in from a lib registry (`...CLONING_CALCS`) are not literal entries in the pane: read their
     // groups from the modules themselves, so a heading filled only by a spread registry is not reported empty.
-    for (const m of PANE.matchAll(/^\s*\.\.\.([A-Z][A-Z_]*_CALCS),/gm)) {
+    for (const m of PANE.matchAll(/^\s*\.\.\.([A-Z][A-Z0-9_]*_CALCS),/gm)) {
       const imp = new RegExp(`import \\{[^}]*\\b${m[1]}\\b[^}]*\\} from "\\.\\./lib/([A-Za-z0-9]+)"`).exec(PANE);
       if (!imp) throw new Error(`the pane spreads ${m[1]} but no import of it from ../lib was found`);
       // eslint-disable-next-line @typescript-eslint/no-require-imports

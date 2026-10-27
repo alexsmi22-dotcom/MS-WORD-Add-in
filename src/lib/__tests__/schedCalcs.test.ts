@@ -669,11 +669,20 @@ describe("hostile inputs and the adversarial pass", () => {
     // tab-separated, the name is one cell: its number stays in the name
     const tab = readStatement("Item\tAmount\nRevenue\t100\nLong-term debt 2027\t300\nTotal assets\t50");
     expect("error" in tab ? tab.error : tab.lines[1]).toMatchObject({ label: "Long-term debt 2027", current: 300, prior: null });
-    // space-separated, a header with one amount column refuses a line with two
-    expect(refused("fin-ratios", { stmt: "Item Amount\nRevenue 100\nLong-term debt 2027 300\nTotal assets 50" })).toMatch(/line 3 \(“Long-term debt”\): two amounts, but the header names one/);
-    // no header: the lone two-amount line is named
-    const o = out("fin-ratios", { stmt: "Revenue 100\nLong-term debt 2027 300\nTotal assets 50\nNet income 10" });
-    expect(o.text).toContain("only line 2 has a second (prior-year) amount");
+    // space-separated, a header with one amount column: the last number is the amount, the rest the name (round 2)
+    const hd = readStatement("Item Amount\nRevenue 100\nLong-term debt 2027 300\nTotal assets 50");
+    if ("error" in hd) throw new Error(hd.error);
+    expect(hd.lines[1]).toMatchObject({ label: "Long-term debt 2027", current: 300, prior: null });
+    expect(hd.notes).toContain("Statement, line 3: the header names 1 amount column, so the last number is the amount and “Long-term debt 2027” is the line-item name, numbers included.");
+    // tab-separated, a header with one amount column still refuses a line with two cells of amounts
+    expect(refused("fin-ratios", { stmt: "Item\tAmount\nRevenue\t100\nLong-term debt\t2027\t300\nTotal assets\t50" })).toMatch(/line 3 \(“Long-term debt”\): two amounts, but the header names one/);
+    // no header, space-separated: the lone two-amount line is refused, quoted as typed (round 2: was a note)
+    expect(refused("fin-ratios", { stmt: "Revenue 100\nLong-term debt 2027 300\nTotal assets 50\nNet income 10" })).toMatch(
+      /^Statement: line 2 \(“Long-term debt 2027 300”\) has two amounts where the other lines have one, and there is no header row/,
+    );
+    // no header, tab-separated: the name is its own cell, so it stays a note
+    const o = out("fin-ratios", { stmt: "Revenue\t100\nLong-term debt\t2027\t300\nTotal assets\t50\nNet income\t10" });
+    expect(o.text).toContain("only line 2 (“Long-term debt”) has a second (prior-year) amount");
     // a long list of unrecognized names is cut, with the count
     const many = ["Revenue\t100", "Total assets\t50", ...Array.from({ length: 20 }, (_, i) => `Other item ${"abcdefghijklmnopqrst"[i]}\t1`)].join("\n");
     expect(out("fin-ratios", { stmt: many }).text).toContain("and 8 more");
@@ -701,6 +710,69 @@ describe("hostile inputs and the adversarial pass", () => {
     if ("error" in k) throw new Error(k.error);
     expect([k.items.get("netIncome")!.current, k.items.get("retainedEarnings")!.current, k.items.get("ebit")!.current]).toEqual([50, -20, 7]);
     expect(k.notes.join(" ")).not.toContain("read as");
+  });
+
+  // F1 review round 2, item 8a: a loss line with an amount typed as negative keeps both signs as typed
+  test("loss line with mixed signs keeps the signs as typed, and says so", () => {
+    const a = readStatement("Revenue\t100\t90\nNet loss\t(50)\t30\nTotal assets\t500\t400");
+    if ("error" in a) throw new Error(a.error);
+    expect([a.items.get("netIncome")!.current, a.items.get("netIncome")!.prior]).toEqual([-50, 30]);
+    expect(a.notes).toContain("Statement: “Net loss (50) 30” read as net income −50 (prior year 30): a loss line with an amount typed as negative keeps each amount’s sign as typed.");
+    const b = readStatement("Revenue 100 90\nNet loss 50 (20)\nTotal assets 500 400");
+    if ("error" in b) throw new Error(b.error);
+    expect([b.items.get("netIncome")!.current, b.items.get("netIncome")!.prior]).toEqual([50, -20]);
+    // bare positives: a loss by the name
+    const c = readStatement("Revenue 100 90\nNet loss 50 20\nTotal assets 500 400");
+    if ("error" in c) throw new Error(c.error);
+    expect([c.items.get("netIncome")!.current, c.items.get("netIncome")!.prior]).toEqual([-50, -20]);
+    // through the pane: net margin of the typed −50
+    expect(out("fin-ratios", { stmt: "Revenue\t1,000\t900\nNet loss\t(50)\t30\nTotal assets\t500\t400" }).text).toContain("Net margin = net income ÷ revenue = −5.00%");
+  });
+
+  // F1 review round 2, item 3: comma rows were refused as possibly one amount whenever the second part had 3 digits
+  test("comma-separated statements: only a 1–3 digit part then 3 digits is ambiguous; CSV names with spaces and quotes read", () => {
+    const rd = (s: string): string => {
+      const r = readStatement(s);
+      return "error" in r ? r.error : r.lines.map((l) => `${l.label}|${l.current}|${l.prior}`).join(";");
+    };
+    expect(rd("Revenue,1000,900")).toBe("Revenue|1000|900");
+    expect(rd("Revenue,-1000,900")).toBe("Revenue|-1000|900");
+    expect(rd("Revenue,1000.5,900.25")).toBe("Revenue|1000.5|900.25");
+    expect(rd("Revenue,1500,1200\nCOGS,600,450")).toBe("Revenue|1500|1200;COGS|600|450");
+    expect(rd('"Revenue","1,000","900"')).toBe("Revenue|1000|900");
+    expect(rd("Cost of sales,600,500\nRevenue,1000,900")).toBe("Cost of sales|600|500;Revenue|1000|900");
+    expect(rd("Revenue,100,900")).toMatch(/^Statement, line 1 \(“Revenue”\): “100,900” could be one amount with a thousands comma or two amounts/);
+    expect(rd("Revenue,5,900")).toMatch(/“5,900” could be one amount/);
+    expect(rd("Cost of sales,5,900")).toMatch(/“5,900” could be one amount/);
+    // a block whose other lines settle two columns reads the pair as two amounts, and says so
+    const st = readStatement("Revenue,1500,1200\nCOGS,600,450");
+    if ("error" in st) throw new Error(st.error);
+    expect(st.notes.join(" ")).toContain("line 2 (“600,450”): read as two amounts");
+    // space-separated grouped amounts are unchanged
+    expect(rd("Accounts receivable 1,500\nNet sales 12,000")).toBe("Accounts receivable|1500|null;Net sales|12000|null");
+    // through the pane
+    expect(out("fin-ratios", { stmt: "Revenue,1000,900\nNet income,100,90\nTotal assets,500,450" }).text).toContain("Net margin = net income ÷ revenue = 10.00%");
+  });
+
+  // F1 review round 2, item 4: a number inside a name between spaces is never read silently into the wrong columns;
+  // refusals quote the whole line as typed
+  test("numbers inside a line-item name between spaces: header decides, else refused quoting the line", () => {
+    expect(refused("fin-ratios", { stmt: "Preferred stock, 5,000 shares authorized 500\nRevenue 1000" })).toMatch(/^Statement, line 1 \(“Preferred stock, 5,000 shares authorized 500”\): a number inside the line-item name \(“5,000”\)/);
+    expect(refused("fin-ratios", { stmt: "Common stock, $0.01 par value 500\nRevenue 1000" })).toMatch(/^Statement, line 1 \(“Common stock, \$0\.01 par value 500”\)/);
+    expect(refused("fin-ratios", { stmt: "Accounts receivable, net of allowance of $1,200 50,000\nRevenue 1000" })).toMatch(
+      /^Statement: line 1 \(“Accounts receivable, net of allowance of \$1,200 50,000”\) has two amounts where the other lines have one, and there is no header row/,
+    );
+    const h = readStatement("Item 2025 2024\nAccounts receivable, net of allowance of $1,200 50,000 40,000\nRevenue 1000 900");
+    if ("error" in h) throw new Error(h.error);
+    expect(h.lines[0]).toMatchObject({ label: "Accounts receivable, net of allowance of $1,200", current: 50000, prior: 40000 });
+    expect(h.notes.join(" ")).toContain("the header names 2 amount columns, so the last 2 numbers are the amounts and “Accounts receivable, net of allowance of $1,200” is the line-item name");
+    const h1 = readStatement("Item 2025\nCommon stock, $0.01 par value 500\nRevenue 1000");
+    if ("error" in h1) throw new Error(h1.error);
+    expect(h1.lines[0]).toMatchObject({ label: "Common stock, $0.01 par value", current: 500, prior: null });
+    expect(refused("fin-ratios", { stmt: "Revenue 100 90 80\nTotal assets 50" })).toMatch(/^Statement, line 1 \(“Revenue 100 90 80”\): 3 numbers at the end of the line, but a line has at most two amounts/);
+    // the earlier reviewer cases still behave
+    expect(readStatement("Line item FY2023 FY2022\nRevenue 10 9\nTotal assets 5 4")).toMatchObject({ header: ["Line", "item", "FY2023", "FY2022"] });
+    expect("error" in readStatement("Revenue 100\nNotes 5.25% due later 1,000")).toBe(false);
   });
 
   test("every loss name is a recognized line-item name", () => {
@@ -744,7 +816,11 @@ describe("hostile inputs and the adversarial pass", () => {
     expect(refused("fin-ratios", { stmt: "Revenue\t1,000\tsee note 3\nTotal assets\t50" })).toBe(
       "Statement, line 1 (“Revenue”): text after the amounts (“see note 3”) is an extra column; remove it (a statement line is: line item, amount, prior-year amount).",
     );
-    expect(refused("fin-ratios", { stmt: "Revenue 1,000 see note 3\nTotal assets 50" })).toMatch(/text after the amounts \(“see note 3”\)/);
+    // between spaces a line ending in a number cannot be told from a name with a number in it: refused, quoted whole
+    expect(refused("fin-ratios", { stmt: "Revenue 1,000 see note 3\nTotal assets 50" })).toMatch(/^Statement, line 1 \(“Revenue 1,000 see note 3”\): a number inside the line-item name \(“1,000”\), or an extra column; .*Separate the columns with tabs/);
+    expect(refused("fin-ratios", { stmt: "Revenue 1,000 see note\nTotal assets 50" })).toBe(
+      "Statement, line 1 (“Revenue 1,000 see note”): text after the amounts (“see note”) is an extra column; remove it (a statement line is: line item, amount, prior-year amount).",
+    );
     // a header of fiscal years is a header
     const fy = readStatement("Line item FY2023 FY2022\nRevenue 10 9\nTotal assets 5 4");
     expect("error" in fy ? fy.error : fy.header).toEqual(["Line", "item", "FY2023", "FY2022"]);

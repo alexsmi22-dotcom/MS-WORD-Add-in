@@ -220,6 +220,63 @@ export function usAmount(tok: string): { value: string; paren: boolean; symbol: 
 }
 
 /**
+ * A comma-separated block as tab-separated cells, or null when it is not CSV-shaped: every non-blank line is a name
+ * and one or two amount cells (the first line may be a header of any cells), commas inside double quotes are part of
+ * the cell ("1,000"), and no comma is followed by a space (that is a label like "Accounts receivable, net", read
+ * between spaces). Only used when a name has a space in it or a cell is quoted; a plain "Revenue,1000,900" block keeps
+ * the comma reading. `unquoted` lists the lines with no quotes (their 100,900 pairs stay ambiguous).
+ */
+function csvToCells(src: string): { text: string; unquoted: number[] } | null {
+  if (!src.includes(",") || /,[ \t]/.test(src)) return null;
+  const out: string[] = [];
+  const unquoted: number[] = [];
+  let useful = false;
+  let firstLine = true;
+  const lines = src.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) {
+      out.push("");
+      continue;
+    }
+    let cells: string[];
+    if (t.includes('"')) {
+      useful = true;
+      cells = [];
+      let cur = "";
+      let inQ = false;
+      for (let j = 0; j < t.length; j++) {
+        const ch = t[j];
+        if (inQ) {
+          if (ch === '"' && t[j + 1] === '"') {
+            cur += '"';
+            j++;
+          } else if (ch === '"') inQ = false;
+          else cur += ch;
+        } else if (ch === '"' && cur.trim() === "") inQ = true;
+        else if (ch === ",") {
+          cells.push(cur.trim());
+          cur = "";
+        } else cur += ch;
+      }
+      if (inQ) return null;
+      cells.push(cur.trim());
+    } else {
+      cells = t.split(",").map((x) => x.trim());
+      unquoted.push(i + 1);
+    }
+    if (cells.length < 2 || cells.length > 3 || !cells[0] || NUMERIC_TOKEN.test(cells[0])) return null;
+    // "Accounts receivable 1,500" is a name and a grouped amount between spaces, not the cells "…receivable 1" and "500"
+    if (!t.includes('"') && /\d$/.test(cells[0])) return null;
+    if (!firstLine && !cells.slice(1).every((x) => NUMERIC_TOKEN.test(x) || MISSING_TOKEN.test(x))) return null;
+    if (/\s/.test(cells[0])) useful = true;
+    firstLine = false;
+    out.push(cells.join("\t"));
+  }
+  return useful ? { text: out.join("\n"), unquoted } : null;
+}
+
+/**
  * Reads "line item, amount[, prior-year amount]" rows. The amounts go through readDataBlock (RULE N); this function
  * only takes the words off each row first (mapRow) and reads each amount token in the US style (usAmount: thousands
  * commas, (1,234) for a negative, a leading currency symbol), handing the shared reader a plain decimal. A line whose
@@ -235,10 +292,32 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
   let symbols = false;
   let tooMany = "";
   let refusal = "";
-  const src = (text ?? "").replace(/\r\n?/g, "\n");
+  let src = (text ?? "").replace(/\r\n?/g, "\n");
+  // CSV ("Revenue","1,000","900" or Cost of sales,600,500): every line is a name and one or two amount cells separated
+  // by commas (quotes honoured), no comma followed by a space. Read as cells (tabs), so a name with spaces stays one cell
+  // and a quoted "1,000" is one amount. An unquoted pair like 100,900 stays ambiguous (checked below).
+  const csv = !src.includes("\t") && !src.includes(";") ? csvToCells(src) : null;
+  const csvUnquoted = new Set<number>();
+  if (csv) {
+    src = csv.text;
+    for (const l of csv.unquoted) csvUnquoted.add(l);
+  }
   const cellMode = src.includes("\t") || src.includes(";");
   const commaMode = !cellMode && !/\s/.test(src.replace(/\n/g, ""));
-  const b = readDataBlock(text, what, {
+  const spaceMode = !cellMode && !commaMode;
+  const srcLines = src.split("\n");
+  /** The line as typed, without its last `k` space-separated tokens (the amounts): the name with its commas. */
+  const typedName = (line: number, k: number): string => {
+    let s = (srcLines[line - 1] ?? "").trim();
+    for (let j = 0; j < k; j++) s = s.replace(/(?:^|,?[ \t]+)\S+$/, "");
+    return s.replace(/[,\s]+$/, "");
+  };
+  /** Amount columns the header names (space mode: trailing year headings, or "Item Amount"); null when unknown. */
+  let headerCols: number | null = null;
+  const nameNotes: string[] = [];
+  const commaAmbiguous: { line: number; where: string; pair: string }[] = [];
+  let commaTwoClear = false;
+  const b = readDataBlock(src, what, {
     maxRows: MAX_STATEMENT_LINES,
     noHeader: true,
     mapRow: (fields, line) => {
@@ -246,33 +325,74 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
       // number is a missing amount ("Revenue<tab><tab>900" or "Revenue - 900": no current-year amount)
       const f = fields.slice();
       while (f.length && f[f.length - 1] === "") f.pop();
+      const amountTok = (x: string): boolean => NUMERIC_TOKEN.test(x) || MISSING_TOKEN.test(x);
       let cut = f.length;
-      while (cut > 0 && f.length - cut < 2 && (NUMERIC_TOKEN.test(f[cut - 1]) || MISSING_TOKEN.test(f[cut - 1]))) cut--;
-      const words = f.slice(0, cut).filter((x) => x !== "");
-      const raw = f.slice(cut);
-      const nums = raw.map((x) => (MISSING_TOKEN.test(x) ? "-" : x));
-      const label = words.join(" ").trim();
+      while (cut > 0 && f.length - cut < 2 && amountTok(f[cut - 1])) cut--;
+      // between spaces only a grouped, symbol or bracketed amount counts as a number inside a name ("Notes 5.25% due
+      // 2027" is a name); in cells any amount-shaped token does
+      const amountShaped = (w: string): boolean => NUMERIC_TOKEN.test(w) && (cellMode || (/[,$€£¥()]/.test(w) && !w.includes("%")));
       if (first) {
         first = false;
-        const allYears = nums.length > 0 && nums.every((x) => isYear(x));
-        const known = BY_NAME.has(normaliseItemName(label));
+        const words0 = f.slice(0, cut).filter((x) => x !== "");
+        const nums0 = f.slice(cut).map((x) => (MISSING_TOKEN.test(x) ? "-" : x));
+        const allYears = nums0.length > 0 && nums0.every((x) => isYear(x));
+        const known = BY_NAME.has(normaliseItemName(words0.join(" ")));
         // a header has no amounts (or only year columns) and no digits in its words: "Revenue 1e400x" is a bad
         // data line, not a header to drop silently
-        const digitsInWords = words.some((w) => /\d/.test(w) && !isYear(w));
-        if (!known && !digitsInWords && (!nums.some((x) => x !== "-") || allYears)) {
+        const digitsInWords = words0.some((w) => /\d/.test(w) && !isYear(w));
+        if (!known && !digitsInWords && (!nums0.some((x) => x !== "-") || allYears)) {
           header = f;
+          if (cellMode) headerCols = f.length - 1;
+          else {
+            let t = 0;
+            while (t < f.length - 1 && isYear(f[f.length - 1 - t])) t++;
+            headerCols = t > 0 ? t : f.length === 2 ? 1 : null;
+          }
           return null;
         }
       }
+      let nameTaken = false;
+      if (spaceMode) {
+        // Between spaces a number inside a line-item name ("Preferred stock, 5,000 shares authorized 500", "Common
+        // stock, $0.01 par value 500") cannot be told from an amount column. With a header naming the amount columns,
+        // the last that many numbers are the amounts and the rest is the name (said in a note); without one, refused.
+        let run = 0;
+        while (run < f.length && amountTok(f[f.length - 1 - run])) run++;
+        const head = f.slice(0, f.length - run);
+        const numInName = head.some((w, k) => k > 0 && amountShaped(w));
+        if (run > 0 && (numInName || run > 2 || (headerCols !== null && run > headerCols))) {
+          if (headerCols !== null) {
+            cut = f.length - Math.min(run, headerCols);
+            nameTaken = true;
+            const k = f.length - cut;
+            nameNotes.push(
+              `line ${line}: the header names ${headerCols} amount column${headerCols === 1 ? "" : "s"}, so the last ${k === 1 ? "number is the amount" : `${k} numbers are the amounts`} ` +
+                `and “${typedName(line, k)}” is the line-item name, numbers included`,
+            );
+          } else if (!refusal) {
+            const typedLine = (srcLines[line - 1] ?? "").trim();
+            refusal =
+              `${what}, line ${line} (“${typedLine}”): ` +
+              (run > 2 && !numInName
+                ? `${run} numbers at the end of the line, but a line has at most two amounts (this year, then the prior year)`
+                : `a number inside the line-item name (“${head.find((w, k) => k > 0 && amountShaped(w))}”), or an extra column`) +
+              `; with spaces between the columns the reader cannot tell which numbers are amounts. Separate the columns with tabs, or add a header row naming the amount columns (for example “Line item 2025 2024”).`;
+          }
+        }
+      }
+      const words = f.slice(0, cut).filter((x) => x !== "");
+      const raw = f.slice(cut);
+      const nums = raw.map((x) => (MISSING_TOKEN.test(x) ? "-" : x));
+      const label = spaceMode ? typedName(line, raw.length) || words.join(" ").trim() : words.join(" ").trim();
       const where = `${what}, line ${line} (“${label || f.join(" ")}”)`;
       // text after the amounts (a "Notes" column): an amount-shaped token inside the words, followed by more words
-      // (between spaces only a grouped, symbol or bracketed amount counts: "Notes 5.25% due 2027" is a name)
-      const amountShaped = (w: string): boolean => NUMERIC_TOKEN.test(w) && (cellMode || (/[,$€£¥()]/.test(w) && !w.includes("%")));
-      const k0 = words.findIndex((w, k) => k > 0 && amountShaped(w) && words.slice(k + 1).some((x) => !NUMERIC_TOKEN.test(x) && !MISSING_TOKEN.test(x)));
+      // (in space mode only when the line does not end in amounts: that case is the number-in-name rule above)
+      const k0 = spaceMode && raw.length ? -1 : words.findIndex((w, k) => k > 0 && amountShaped(w) && words.slice(k + 1).some((x) => !amountTok(x)));
       if (k0 > 0 && !refusal) {
-        const k1 = words.findIndex((x, k) => k > k0 && !NUMERIC_TOKEN.test(x) && !MISSING_TOKEN.test(x));
+        const k1 = words.findIndex((x, k) => k > k0 && !amountTok(x));
         const extra = [...words.slice(k1), ...raw].join(" ");
-        refusal = `${what}, line ${line} (“${words[0]}”): text after the amounts (“${extra}”) is an extra column; remove it (a statement line is: line item, amount, prior-year amount).`;
+        const name = spaceMode ? (srcLines[line - 1] ?? "").trim() : words[0];
+        refusal = `${what}, line ${line} (“${name}”): text after the amounts (“${extra}”) is an extra column; remove it (a statement line is: line item, amount, prior-year amount).`;
       }
       if (!nums.some((x) => x !== "-")) {
         const last = words[words.length - 1] ?? "";
@@ -280,9 +400,15 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
         if (unit) noAmountWhy.set(line, `“${unit}”: a unit suffix (k, m, bn, million) is not read; write the amount in full, or name the units in a header line`);
         else if (words.length > 1 && isYear(last)) noAmountWhy.set(line, `this looks like a header row (year columns), and only the first line may be a header`);
       }
-      if (words.length && NUMERIC_TOKEN.test(words[words.length - 1]) && nums.every((x) => x !== "-")) tooMany ||= `line ${line}`;
-      if (commaMode && nums.length === 2 && /^\d{3}(\.\d+)?$/.test(nums[1]) && !refusal)
-        refusal = `${where}: “${raw.join(",")}” could be one amount with a thousands comma or two amounts; separate the columns with tabs or spaces.`;
+      if (!nameTaken && words.length && NUMERIC_TOKEN.test(words[words.length - 1]) && nums.every((x) => x !== "-")) tooMany ||= `line ${line}`;
+      // "Revenue,100,900": 100,900 is one amount with a thousands comma or two amounts. Only a first part of 1–3 plain
+      // digits followed by exactly three digits (and an optional decimal part, "5,900.25") reads both ways.
+      // A line whose two amounts read only one way ("Revenue,1500,1200") settles that the block has two amount columns,
+      // and then the ambiguous pairs are two amounts too (decided after the block, noted).
+      if ((commaMode || csvUnquoted.has(line)) && nums.length === 2) {
+        if (/^\d{1,3}$/.test(nums[0]) && /^\d{3}(\.\d+)?$/.test(nums[1])) commaAmbiguous.push({ line, where, pair: raw.join(",") });
+        else commaTwoClear = true;
+      }
       labels.set(line, label);
       typed.set(line, raw);
       return nums.map((x) => {
@@ -299,7 +425,16 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
     },
   });
   if (refusal) return { error: refusal };
+  if (commaAmbiguous.length && !commaTwoClear) {
+    const a = commaAmbiguous[0];
+    return { error: `${a.where}: “${a.pair}” could be one amount with a thousands comma or two amounts; separate the columns with tabs or spaces.` };
+  }
   if (!b.ok) return { error: b.error };
+  if (commaAmbiguous.length)
+    nameNotes.push(
+      `line${commaAmbiguous.length === 1 ? "" : "s"} ${commaAmbiguous.map((a) => `${a.line} (“${a.pair}”)`).join(", ")}: read as two amounts, as on the lines whose two amounts read only one way ` +
+        `(a thousands comma would make ${commaAmbiguous.length === 1 ? "it" : "each"} one amount; to be sure, separate the columns with tabs)`,
+    );
   if (tooMany) return { error: `${what}, ${tooMany}: at most two amounts per line (this year, then the prior year), and a line-item name must not end in a number.` };
   const lines: StatementLine[] = [];
   const lossNotes: string[] = [];
@@ -316,14 +451,19 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
     let current = row[0] ?? null;
     let prior = row.length > 1 ? row[1] : null;
     if (it && LOSS_NAMES.has(norm) && (current || prior)) {
-      // a loss line: the amount is a loss whatever its typed sign
-      const neg = (v: number | null): number | null => (v === null || v === 0 ? v : -Math.abs(v));
-      current = neg(current);
-      prior = neg(prior);
       const t = (typed.get(line) ?? []).filter((x) => !MISSING_TOKEN.test(x));
-      lossNotes.push(
-        `“${label} ${t.join(" ")}” read as ${inSentence(it.name)} ${current !== null ? amountText(current) : "(blank)"}${prior !== null ? ` (prior year ${amountText(prior)})` : ""}: a line named as a loss is a negative amount`,
-      );
+      const readAs = (): string => `${inSentence(it.name)} ${current !== null ? amountText(current) : "(blank)"}${prior !== null ? ` (prior year ${amountText(prior)})` : ""}`;
+      // a typed negative (parentheses or a minus) on a loss line says the user chose the signs: both kept as typed
+      // ("Net loss (50) 30" is a loss of 50 and a profit of 30); only bare positives are a loss by the name alone
+      if ((current !== null && current < 0) || (prior !== null && prior < 0)) {
+        if ((current ?? 0) > 0 || (prior ?? 0) > 0)
+          lossNotes.push(`“${label} ${t.join(" ")}” read as ${readAs()}: a loss line with an amount typed as negative keeps each amount’s sign as typed`);
+      } else {
+        const neg = (v: number | null): number | null => (v === null || v === 0 ? v : -Math.abs(v));
+        current = neg(current);
+        prior = neg(prior);
+        lossNotes.push(`“${label} ${t.join(" ")}” read as ${readAs()}: a line named as a loss is a negative amount`);
+      }
     }
     lines.push({ label, line, key: it ? it.key : null, current, prior });
   }
@@ -335,16 +475,30 @@ export function readStatement(text: string, what = "Statement"): Statement | { e
     items.set(l.key, l);
   }
   // a header fixes the number of amount columns: a line with more is a number inside a name, or a stray column
+  // (between spaces the header's column count already decided each line's amounts, above)
   const hdr = header as string[] | null;
-  if (hdr && hdr.length - 1 === 1) {
+  if (hdr && !spaceMode && headerCols === 1) {
     const two = lines.find((l) => l.prior !== null);
     if (two) return { error: `${what}, line ${two.line} (“${two.label}”): two amounts, but the header names one amount column. Write a number inside a line-item name in words, or add the prior-year column to the header.` };
   }
-  const notes = [...b.notes, ...lossNotes.map((s) => `${what}: ${s}.`)];
-  // no header to say how many columns there are, and only some lines carry a second amount: say which, not guess
+  const notes = [...b.notes, ...nameNotes.map((s) => `${what}, ${s}.`), ...lossNotes.map((s) => `${what}: ${s}.`)];
+  // no header to say how many columns there are, and only some lines carry a second amount: a number at the end of a
+  // name ("…net of allowance of $1,200 50,000") reads as a current-year amount. Between spaces that is refused (the
+  // name cannot be told from the columns); in cells, where the name is its own cell, it is a note.
   const withPrior = lines.filter((l) => l.prior !== null);
-  if (!hdr && withPrior.length && withPrior.length < lines.length / 2)
-    notes.push(`${what}: only line${withPrior.length === 1 ? "" : "s"} ${withPrior.map((l) => l.line).join(", ")} ha${withPrior.length === 1 ? "s" : "ve"} a second (prior-year) amount; check that no number in a line-item name was read as an amount.`);
+  if (!hdr && withPrior.length && withPrior.length <= lines.length / 2) {
+    const which = withPrior.slice(0, 3).map((l) => `${l.line} (“${spaceMode ? (srcLines[l.line - 1] ?? "").trim() : l.label}”)`);
+    const list = which.join(", ") + (withPrior.length > 3 ? ` and ${withPrior.length - 3} more` : "");
+    if (spaceMode)
+      return {
+        error:
+          `${what}: line${withPrior.length === 1 ? "" : "s"} ${list} ha${withPrior.length === 1 ? "s" : "ve"} two amounts where ${withPrior.length === 1 ? "the other lines have" : "most lines have"} one, and there is no header row, ` +
+          `so a number at the end of a line-item name could be read as this year's amount. Add a header row naming the amount columns (for example “Line item 2025 2024”), ` +
+          `separate the columns with tabs, or write “–” for a missing prior-year amount.`,
+      };
+    if (withPrior.length < lines.length / 2)
+      notes.push(`${what}: only line${withPrior.length === 1 ? "" : "s"} ${list} ha${withPrior.length === 1 ? "s" : "ve"} a second (prior-year) amount; check that no number in a line-item name was read as an amount.`);
+  }
   if (parens) notes.push(`${what}: amounts in parentheses were read as negative.`);
   if (symbols) notes.push(`${what}: currency symbols were ignored (amounts are read as plain numbers).`);
   return { lines, items, unknown: lines.filter((l) => !l.key), hasPrior: lines.some((l) => l.prior !== null), header, notes };

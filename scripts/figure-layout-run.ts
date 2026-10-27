@@ -49,6 +49,8 @@ import { IPVAL_CALCS } from "../src/lib/ipValuationCalcs";
 import { DERIV_CALCS } from "../src/lib/derivCalcs";
 import { SCHED_CALCS } from "../src/lib/schedCalcs";
 import { PORTCORP_CALCS } from "../src/lib/portcorpCalcs";
+import { LITIG_CALCS } from "../src/lib/litigCalcs";
+import { FORENSIC_CALCS } from "../src/lib/forensicCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2333,6 +2335,25 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   pc("corp-capbudget", { cfb: "" }, "capbudget one project", true);
   pc("corp-dcf", { terminal: "exit", tstep: "1" }, "dcf exit multiple", true);
   pc("corp-dcf", { shares: "" }, "dcf no shares", true);
+}
+
+// --- Securities, antitrust, forensic lost earnings, actuarial (F2: litigCalcs.ts, forensicCalcs.ts) ------------------
+{
+  const f2 = (calcs: typeof LITIG_CALCS, tag: string, id: string, over: Record<string, string>, name: string, must: boolean) => {
+    const c = calcs.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${tag} calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (typeof out !== "string" && out.ok !== false && out.svg) figures.push([`${tag} ${name}`, out.svg]);
+    else if (must) throw new Error(`corpus: ${tag} ${name} did not draw`);
+  };
+  for (const c of LITIG_CALCS) f2(LITIG_CALCS, "litig", c.id, {}, `${c.id} default`, false);
+  f2(LITIG_CALCS, "litig", "dmg-sec-ribbon", { mode: "ar-pct" }, "ribbon percent", true);
+  f2(LITIG_CALCS, "litig", "dmg-pslra", { sale: "2025-05-09" }, "pslra sale in window", true);
+  f2(LITIG_CALCS, "litig", "dmg-sec-aggregate", { model: "one" }, "aggregate one-trader", true);
+  f2(LITIG_CALCS, "litig", "dmg-antitrust", { method: "forecast", form: "level" }, "antitrust forecast level", true);
+  for (const c of FORENSIC_CALCS) f2(FORENSIC_CALCS, "forensic", c.id, {}, `${c.id} default`, false);
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

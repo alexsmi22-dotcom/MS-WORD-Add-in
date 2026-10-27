@@ -253,6 +253,6 @@ export function lpeFigure(res: LpeResult): string | undefined {
       { points: res.rows.map((r) => ({ x: r.ageMid, y: r.totalCents / 100 })), type: "line", color: "#b45309", label: "expected loss" },
       { points: res.rows.map((r) => ({ x: r.ageMid, y: (r.valueCents + r.interestCents) / 100 })), type: "line", color: "#2563eb", label: "value at trial date" },
     ],
-    { width: 380, height: 250, title: "Lost earnings and services by age (from the inputs given)", xlabel: "age", ylabel: "amount ($)", yGrouping: "comma" },
+    { width: 380, height: 250, title: "Losses by age", xlabel: "age", ylabel: "amount ($)", yGrouping: "comma" },
   );
 }

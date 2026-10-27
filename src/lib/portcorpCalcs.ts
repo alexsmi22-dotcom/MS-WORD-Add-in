@@ -380,7 +380,7 @@ export function capmCalc(r: Read): FinResult {
     `Risk split (annualized variance of excess return): systematic β²σ²_m = ${fx(c.varSys * 1e4, 2)} %², idiosyncratic σ²_ε = ${fx(c.varIdio * 1e4, 2)} %² (${fx(sysShare * 100, 1)}% systematic)`,
     ...t.notes,
     `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "returns are simple per-period returns in %"}; excess returns over ${rfNote}; OLS of r − rf on rₘ − rf with a constant (α); ` +
-      `standard errors ${SE_LABEL[se]}${c.hacLag !== undefined ? ` with lag ${c.hacLag} (floor(4(n/100)^(2/9)))` : ""}, t with ${c.df} degrees of freedom; ` +
+      `standard errors ${SE_LABEL[se]}${c.hacLag !== undefined ? ` with lag ${c.hacLag} (floor(4·(n/100) to the power 2/9))` : ""}, t with ${c.df} degrees of freedom; ` +
       `annualized: means × ${ppy}, standard deviations × √${ppy} (sample, n − 1); information ratio on active return r − rₘ; idiosyncratic variance SSE/(n − 2).`,
   ];
   const table: FinTable = {
@@ -429,7 +429,7 @@ export function perfCalc(r: Read): FinResult {
       : "Maximum drawdown = 0% (the wealth index never fell below a previous peak)",
     p.calmar !== null ? `Calmar ratio = ${fx(p.calmar, 4)} (annualized geometric return ÷ |maximum drawdown|, over the whole sample)` : "Calmar ratio: not defined (no drawdown)",
     ...s.notes,
-    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; sample standard deviation (n − 1); annualized: arithmetic mean × ${ppy}, standard deviation × √${ppy}, geometric (∏(1 + r))^(${ppy}/n) − 1; ` +
+    `Conventions: ${kind === "prices" ? PRICE_CONVENTION : "simple per-period returns in %"}; sample standard deviation (n − 1); annualized: arithmetic mean × ${ppy}, standard deviation × √${ppy}, geometric (∏(1 + r)) to the power ${ppy}/n − 1; ` +
       `Sharpe = mean(r − rf)/sd(r − rf) × √${ppy} with rf = ${fx(rf, 4)}% per period; Sortino = (mean(r) − MAR) × ${ppy} ÷ (downside deviation × √${ppy}), downside deviation √(Σ min(r − MAR, 0)²/n) over all n periods; ` +
       `Treynor = mean(r − rf) × ${ppy} ÷ β; drawdown on a wealth index starting at 1 before the first return (period 0).`,
   ];
@@ -743,9 +743,9 @@ export function capBudgetCalc(r: Read): FinResult {
     ...(b ? b.notes : []),
     `Conventions: CF₀ at t = 0 and each later flow at the end of its period; NPV and the paybacks at ${fx(rate, 3)}% per period; every IRR is a rate in −99% to 10,000% per period where NPV = 0 ` +
       `(6,000 steps even in ln(1 + r), each sign change bisected; a root that only touches zero is found by minimizing |NPV|; two roots closer than about 0.15% of (1 + r) can be missed); ` +
-      `MIRR on Excel's semantics: negative flows discounted to t = 0 at the finance rate ${fx(fr, 3)}%, positive flows compounded to the last period at the reinvestment rate ${fx(rr, 3)}%, (FV/−PV)^(1/(n − 1)) − 1; ` +
+      `MIRR on Excel's semantics: negative flows discounted to t = 0 at the finance rate ${fx(fr, 3)}%, positive flows compounded to the last period at the reinvestment rate ${fx(rr, 3)}%, (FV/−PV) to the power 1/(n − 1), minus 1; ` +
       `payback is the first period the cumulative flow reaches zero, interpolated linearly within the period; profitability index = PV of the flows after t = 0 ÷ −CF₀ (later outflows netted in the numerator); ` +
-      `equivalent annual annuity = NPV × r/(1 − (1 + r)^−N) over the N periods after t = 0.${padNote}`,
+      `equivalent annual annuity = NPV × r/(1 − (1 + r)⁻ᴺ) over the N periods after t = 0.${padNote}`,
   ];
   const rowOf = (label: string, f: (P: ReturnType<typeof projectMeasures>, cfs: number[]) => string): string[] => [label, f(A, a.values), ...(B && b ? [f(B, b.values)] : [])];
   const irrCell = (P: ReturnType<typeof projectMeasures>): string => {

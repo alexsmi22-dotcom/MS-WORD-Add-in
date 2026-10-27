@@ -414,7 +414,7 @@ export function curveBootstrapCalc(r: Read): FinResult {
     ...c.knots.map((k) => `${fx(k.t, 2)} years: zero ${pct(k.z, 4)} continuous, ${pct(k.zPeriodic, 4)} compounded ${times(f)}; discount factor ${fx(k.df, 8)}`),
     `Conventions: instruments on a grid of whole coupon periods (${f === 2 ? "half-years" : "years"}), priced on a coupon date (no accrued interest); ` +
       `${mode === "par" ? "a par yield is a bond priced at 100 with that coupon; " : ""}time in years on the grid; linear interpolation on continuously compounded zero rates between knots, flat before the first knot; ` +
-      `discount factor e^(−z·t); periodic zero f·(D^(−1/(f·t)) − 1); forwards between consecutive maturities, continuous (z₂t₂ − z₁t₁)/(t₂ − t₁) and compounded ${times(f)}.`,
+      `discount factor exp(−z·t); periodic zero f·(D to the power −1/(f·t), minus 1); forwards between consecutive maturities, continuous (z₂t₂ − z₁t₁)/(t₂ − t₁) and compounded ${times(f)}.`,
   ];
   const table: FinTable = {
     label: "Zero curve and forward rates",
@@ -447,7 +447,7 @@ export function nelsonSiegelCalc(r: Read): FinResult {
     `λ${model === "svensson" ? "₁" : ""} = ${fx(fit.lambda[0], 6)} years` + (model === "svensson" ? `; λ₂ = ${fx(fit.lambda[1], 6)} years` : ""),
     `Residual sum of squares = ${fx(fit.sse, 8)} (%²); RMSE = ${fx(fit.rmse * 100, 3)} basis points; R² = ${fx(fit.r2, 6)}`,
     ...(fit.atBound ? [`λ ended on its search bound (${fx(NS_LAMBDA_MIN, 2)} to ${fx(NS_LAMBDA_MAX, 0)} years): the data may want a decay outside that range; read β₁ and β₂ with care.`] : []),
-    `Conventions: y(τ) = β₀ + β₁(1 − e^(−τ/λ))/(τ/λ) + β₂[(1 − e^(−τ/λ))/(τ/λ) − e^(−τ/λ)]${model === "svensson" ? " + β₃[(1 − e^(−τ/λ₂))/(τ/λ₂) − e^(−τ/λ₂)]" : ""}, τ in years; ` +
+    `Conventions: y(τ) = β₀ + β₁(1 − exp(−τ/λ))/(τ/λ) + β₂[(1 − exp(−τ/λ))/(τ/λ) − exp(−τ/λ)]${model === "svensson" ? " + β₃[(1 − exp(−τ/λ₂))/(τ/λ₂) − exp(−τ/λ₂)]" : ""}, τ in years; ` +
       `yields fitted as entered (no compounding conversion), unweighted least squares in yield; β solved exactly for each λ, λ bounded to ${fx(NS_LAMBDA_MIN, 2)}–${fx(NS_LAMBDA_MAX, 0)} years ` +
       `(log grid, then golden-section refinement${model === "svensson" ? "; λ₂ ≥ 2·λ₁ keeps the two humps apart" : ""}).`,
   ];

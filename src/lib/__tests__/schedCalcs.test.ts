@@ -211,7 +211,7 @@ describe("loans vs the oracle", () => {
 
   test("tiny loans: below 1.00 refused; a payment that rounds to no more than its interest refused", () => {
     expect(refused("loan-schedule", { p: "0.01", extra: "", lumps: "" })).toMatch(/Loan amount must be at least 1/);
-    expect(refused("loan-schedule", { p: "1", extra: "", lumps: "" })).toMatch(/too small for 360 payments: the payment rounds to 0\.01 a period, no more than the first period's interest \(0\.01\)/);
+    expect(refused("loan-schedule", { p: "1", extra: "", lumps: "" })).toMatch(/^Over 360 payments the payment rounds to 0\.01 a period, no more than the first period's interest \(0\.01\)/);
     expect(out("loan-schedule", { p: "1", years: "1", extra: "", lumps: "" }).ok).not.toBe(false);
   });
 
@@ -629,9 +629,12 @@ describe("hostile inputs and the adversarial pass", () => {
 
   test("timing: a 12,000-payment loan with extra payments (both schedules) stays under 300 ms", () => {
     const t0 = Date.now();
-    const o = out("loan-schedule", { years: "1000", m: "12", rate: "3", extra: "1", lumps: "100\t50" });
+    const o = out("loan-schedule", { years: "1000", m: "12", rate: "0.5", extra: "1", lumps: "100\t50" });
     expect(Date.now() - t0).toBeLessThan(300);
     expect(o.ok).not.toBe(false);
+    // at 3% over 1,000 years the exact payment (625.000000000000…) rounds to the 625.00 interest: refused, not a
+    // 12,000-row schedule that repays nothing until a 250,000 last payment
+    expect(refused("loan-schedule", { years: "1000", rate: "3", extra: "", lumps: "" })).toMatch(/no more than the first period's interest \(625\.00\)/);
   });
 
   test("F1 review C: percentages in a statement are refused by line, quoting what was typed", () => {

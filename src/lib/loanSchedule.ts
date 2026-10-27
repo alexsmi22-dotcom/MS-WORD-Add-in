@@ -142,8 +142,8 @@ export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
   if (n > 1 && (pmtC <= 0 || pmtC < firstInterest || (pmtC === firstInterest && Bc < Pc)))
     return {
       error:
-        `The loan amount is too small for ${n.toLocaleString("en-US")} payments: the payment rounds to ${(pmtC / 100).toFixed(2)} a period, ` +
-        `no more than the first period's interest (${(firstInterest / 100).toFixed(2)}), so rounded to the cent the loan would not amortize. Use fewer payments or a larger amount.`,
+        `Over ${n.toLocaleString("en-US")} payments the payment rounds to ${(pmtC / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} a period, ` +
+        `no more than the first period's interest (${(firstInterest / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}), so rounded to the cent the loan would not amortize. Use fewer payments or a larger amount.`,
     };
   const payment0 = pmtC / 100;
   const recasts: LoanResult["recasts"] = [];

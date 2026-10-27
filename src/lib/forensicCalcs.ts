@@ -44,8 +44,8 @@ export const FORENSIC_CALCS: FinCalcDef[] = [
           { value: "injury", label: "The date of injury (wrongful death)" },
         ],
       },
-      { key: "base", label: "Pre-injury annual earnings ($)", default: "68,000" },
-      { key: "residual", label: "Residual earning capacity a year after the injury ($, 0 if none)", default: "24,000" },
+      { key: "base", label: "Pre-injury annual earnings", default: "68,000" },
+      { key: "residual", label: "Residual earning capacity a year after the injury (0 if none)", default: "24,000" },
       { key: "growth", label: "Earnings growth (% a year)", default: "3" },
       {
         key: "method",
@@ -70,7 +70,7 @@ export const FORENSIC_CALCS: FinCalcDef[] = [
       { key: "tax", label: "Effective tax rate (%)", default: "12" },
       { key: "consumption", label: "Personal consumption (%, wrongful death; 0 otherwise)", default: "0" },
       { key: "hhhours", label: "Household services lost (hours a week, 0 if none)", default: "8" },
-      { key: "hhvalue", label: "Value of household services ($ an hour)", default: "16" },
+      { key: "hhvalue", label: "Value of household services (an hour)", default: "16" },
       { key: "hhgrowth", label: "Household services growth (% a year)", default: "2.5", optional: true },
       { key: "hhend", label: "Household services end age", default: "75", optional: true },
       {
@@ -127,7 +127,7 @@ export const FORENSIC_CALCS: FinCalcDef[] = [
       { key: "rate", label: "Interest rate (% a year, effective)", default: "4" },
       { key: "term", label: "Term n for the temporary values (years)", default: "20" },
       { key: "defer", label: "Deferral m (years)", default: "10" },
-      { key: "payment", label: "Annual payment or benefit (optional, 0 = factors only)", default: "12,000" },
+      { key: "payment", label: "Annual payment or benefit (0 = factors only)", default: "12,000" },
     ],
     assumes:
       "Annual payments at the effective interest rate entered; death benefits at the end of the year of death; the life table is a period table applied as if it were the person's own mortality.",

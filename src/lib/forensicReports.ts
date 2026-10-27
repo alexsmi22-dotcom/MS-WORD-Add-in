@@ -67,12 +67,14 @@ export function readPeBlock(text: string, ageInjury: number): PeRow[] | Refusal 
     if (out.length && !(a > out[out.length - 1].fromAge)) return { error: `${what}, line ${line}: from-age ${ageText(a)} does not follow ${ageText(out[out.length - 1].fromAge)}; list the rows by rising age.` };
     if (!(p >= 0 && p <= 100)) return { error: `${what}, line ${line} (age ${ageText(a)}): participation must be from 0% to 100%.` };
     if (!(e >= 0 && e <= 100)) return { error: `${what}, line ${line} (age ${ageText(a)}): employment must be from 0% to 100%.` };
+    // A value strictly between 0 and 1 is a decimal typed into a percent column (0.88 for 88%): read as 0.88% it would
+    // understate that row a hundredfold, so it is refused rather than guessed.
+    for (const [v, name] of [[p, "participation"], [e, "employment"]] as const) {
+      if (v > 0 && v < 1) return { error: `${what}, line ${line} (age ${ageText(a)}): ${name} ${fixedText(v, 4).replace(/0+$/, "")} reads as less than 1%; enter percentages (88, not 0.88).` };
+    }
     out.push({ fromAge: a, part: p / 100, emp: e / 100 });
   }
   if (!out.length) return { error: `${what}: enter at least one row.` };
-  if (out.every((r) => r.part <= 0.01 && r.emp <= 0.01) && out.some((r) => r.part > 0 || r.emp > 0)) {
-    return { error: `${what}: every value is 1 or less, which reads as at most 1%; enter percentages (85, not 0.85).` };
-  }
   if (out[0].fromAge > ageInjury + 1e-9) return { error: `${what}: the first row starts at age ${ageText(out[0].fromAge)}, after the age at injury (${yrs(ageInjury)}); add a row starting at or before it.` };
   return out;
 }
@@ -272,7 +274,7 @@ export function annuityCalc(read: Read): FinResult {
   const eK = curtateExpectation(table, x);
   const cur = (v: number): string => (pay > 0 ? amt(pay * v) : "");
   const rows: string[][] = [
-    ["Function", "Symbol", "Value", pay > 0 ? `Present value of ${amt(pay)} a year` : "Present value (no payment entered)"],
+    ["Function", "Symbol", "Value", pay > 0 ? `Present value (payment a year, or benefit once, of ${amt(pay)})` : "Present value (no payment entered)"],
     ["Whole life annuity-due (payments at the start of each year)", "äₓ", f4(ad), cur(ad)],
     ["Whole life annuity-immediate (payments at the end of each year)", "aₓ", f4(a), cur(a)],
     ["Whole life insurance (benefit at the end of the year of death)", "Aₓ", f6(A), cur(A)],
@@ -392,8 +394,8 @@ export function retireCalc(read: Read): FinResult {
 export const SWR_MAX_PATHS = 100000;
 export const SWR_MIN_PATHS = 1000;
 export const SWR_MAX_YEARS = 60;
-/** paths × years (100,000 × 40 or 66,666 × 60). */
-export const SWR_WORK_BUDGET = 4_000_000;
+/** paths × years (100,000 × 36, 90,000 × 40 or 60,000 × 60; about 280 ms under jest at the cap). */
+export const SWR_WORK_BUDGET = 3_600_000;
 
 export function swrCalc(read: Read): FinResult {
   const balance = readNum(read("balance"), "Starting portfolio", { min: 0, max: 1e12, minExclusive: true, range: "more than 0, at most one trillion" });

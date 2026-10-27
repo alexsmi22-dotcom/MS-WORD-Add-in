@@ -68,6 +68,10 @@ describe("bundled CDC 2024 life table", () => {
 
   test("the report's text: e65 19.7, e85 6.7, e100 2.2; survivors 99.0% to 20, 84.1% to 65, 43.8% to 85, 2.1% to 100", () => {
     const t = cdcTable("total");
+    // The abstract: life expectancy at birth 79.0 (total), 76.5 (males), 81.4 (females); ex recomputed from qx (UDD).
+    expect(completeExpectation(t, 0).toFixed(1)).toBe("79.0");
+    expect(completeExpectation(cdcTable("male"), 0).toFixed(1)).toBe("76.5");
+    expect(completeExpectation(cdcTable("female"), 0).toFixed(1)).toBe("81.4");
     expect(completeExpectation(t, 65).toFixed(1)).toBe("19.7");
     expect(completeExpectation(t, 85).toFixed(1)).toBe("6.7");
     expect(completeExpectation(t, 100).toFixed(1)).toBe("2.2");
@@ -271,9 +275,9 @@ describe("safe-withdrawal Monte Carlo against the oracle (same PCG32 stream, exa
     if (c.whileAlive !== null) expect(r.ruinWhileAlive).toBeCloseTo(c.whileAlive, 12);
   });
 
-  test("at the work budget (100,000 paths × 40 years) it finishes in time", () => {
+  test("at the work budget (90,000 paths × 40 years = 3,600,000) it finishes in time", () => {
     const t0 = Date.now();
-    const o = out(run(calc("act-swr-mc"), { paths: "100000", years: "40" }));
+    const o = out(run(calc("act-swr-mc"), { paths: "90000", years: "40" }));
     const ms = Date.now() - t0;
     expect(o.ok).not.toBe(false);
     expect(ms).toBeLessThan(3000);
@@ -361,6 +365,8 @@ describe("hostile inputs", () => {
     ["trial", "2020-01-01", "trial date"],
     ["residual", "90,000", "residual earning capacity"],
     ["pe", "40 0.88 0.96", "enter percentages"],
+    ["pe", "40 0.88 96", "participation 0.88 reads as less than 1%"],
+    ["base", "$68,000", "Pre-injury annual earnings"],
     ["pe", "50 88 96", "after the age at injury"],
     ["pe", "40 88 96\n35 80 95", "list the rows by rising age"],
     ["pe", "40 188 96", "participation must be"],

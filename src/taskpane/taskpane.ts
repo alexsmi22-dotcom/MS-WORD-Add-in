@@ -216,6 +216,7 @@ import {
   sigmaZeroAtForward,
 } from "../lib/finance";
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, withFinFig, currentFinFig } from "../lib/financeFigures";
+import { FIN_GROUP_ORDER, type FinCalcDef, type FinField, type FinResult, type FinTable } from "../lib/finCalc";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -8232,19 +8233,7 @@ async function insertPlot(): Promise<void> {
 // Finance calculators
 // ---------------------------------------------------------------------------
 
-interface FinField {
-  key: string;
-  label: string;
-  default: string;
-  /**
-   * "text" is a one-line text field read as typed (a date); "block" is a multi-line table field (rows of a date and
-   * a value) with the "Use table at cursor" / "Open CSV…" bar. Neither goes through the number reader.
-   */
-  kind?: "number" | "select" | "list" | "text" | "block";
-  options?: { value: string; label: string }[];
-  /** A field that may be left blank (fin-currency's "rates as of" date): it does not hold back the result. */
-  optional?: boolean;
-}
+// FinField, FinTable, FinResult and the calculator shape live in lib/finCalc.ts (F1), shared with the library registries.
 /**
  * What a Finance calculator returns.
  *
@@ -8259,28 +8248,11 @@ interface FinField {
  */
 // `table` (E1a) / `tables` (E1b): Word tables inserted with the text and the figure as ONE package (litigation damages).
 // E5: a table may carry per-column alignment and a note under it (fin-currency), as Stats tables do.
-type FinTable = { label: string; rows: string[][]; align?: ("left" | "center" | "right")[]; note?: string };
-type FinResult = string | { text: string; svg?: string; ok?: boolean; table?: FinTable; tables?: FinTable[] };
 /** A Finance refusal: shown, never insertable (fix2-paf: refusal sentences used to be insertable results). */
 const finRefuse = (text: string): FinResult => ({ text, ok: false });
 
-interface FinCalc {
-  id: string;
-  name: string;
-  fields: FinField[];
-  compute: (read: (k: string) => string) => FinResult;
-  /**
-   * The modelling assumptions this calculator silently makes — shown under the
-   * result, and carried into the inserted text.
-   *
-   * finance.ts documents these accurately in its source ("European option (no
-   * dividends)"), but a source comment is not a disclosure: nothing reached the
-   * user. Someone pricing an American put got a number that is simply too low,
-   * with nothing on screen to say so. Every model here that is only valid under
-   * conditions the inputs cannot express must name them.
-   */
-  assumes?: string;
-}
+/** A Finance calculator (lib/finCalc.ts FinCalcDef): `assumes` names the modelling assumptions the inputs cannot express. */
+type FinCalc = FinCalcDef;
 
 /** The decimal-comma sentences of the list fields read by the calculator now computing (shown under its result). */
 const calcListNotes = new Set<string>();
@@ -8321,6 +8293,7 @@ function finLoanRows(loan: { p: number; i: number; n: number }): ReturnType<type
 const FIN_CALCS: FinCalc[] = [
   {
     id: "fv",
+    group: "Time value & loans",
     name: "Future value (TVM)",
     fields: [
       { key: "pv", label: "Present value", default: "1000" },
@@ -8343,6 +8316,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "pv",
+    group: "Time value & loans",
     name: "Present value (TVM)",
     fields: [
       { key: "fv", label: "Future value", default: "1000" },
@@ -8366,6 +8340,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "compound",
+    group: "Time value & loans",
     name: "Compound interest",
     fields: [
       { key: "p", label: "Principal", default: "1000" },
@@ -8391,6 +8366,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "loan",
+    group: "Time value & loans",
     name: "Loan payment",
     fields: [
       { key: "p", label: "Loan amount", default: "200000" },
@@ -8426,6 +8402,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "npv",
+    group: "Capital budgeting & valuation",
     name: "Net present value",
     fields: [
       { key: "rate", label: "Discount rate % per period", default: "10" },
@@ -8450,6 +8427,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "irr",
+    group: "Capital budgeting & valuation",
     name: "Internal rate of return",
     fields: [{ key: "cf", label: "Cash flows (t=0 first)", default: "-1000, 500, 500, 500", kind: "list" }],
     compute: (r) => {
@@ -8481,6 +8459,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "bs",
+    group: "Derivatives",
     name: "Black–Scholes option",
     fields: [
       {
@@ -8526,6 +8505,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "bond",
+    group: "Fixed income",
     name: "Bond price",
     fields: [
       { key: "face", label: "Face value", default: "1000" },
@@ -8560,6 +8540,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "ear",
+    group: "Time value & loans",
     name: "Effective annual rate",
     fields: [
       { key: "nom", label: "Nominal annual rate %", default: "12" },
@@ -8590,6 +8571,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "amort",
+    group: "Time value & loans",
     name: "Loan amortization (summary)",
     fields: [
       { key: "p", label: "Loan amount", default: "200000" },
@@ -8670,6 +8652,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "gann",
+    group: "Time value & loans",
     name: "Growing annuity PV",
     fields: [
       { key: "pmt", label: "First payment", default: "1000" },
@@ -8695,6 +8678,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "dcf",
+    group: "Capital budgeting & valuation",
     name: "DCF valuation (Gordon terminal)",
     fields: [
       { key: "rate", label: "Discount rate % / period", default: "10" },
@@ -8736,6 +8720,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "xirr",
+    group: "Capital budgeting & valuation",
     name: "XIRR (dated cash flows)",
     fields: [
       { key: "cf", label: "Cash flows", default: "-1000, 300, 400, 500", kind: "list" },
@@ -8774,6 +8759,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "ytm",
+    group: "Fixed income",
     name: "Bond yield to maturity",
     fields: [
       { key: "price", label: "Price", default: "950" },
@@ -8818,6 +8804,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "bondrisk",
+    group: "Fixed income",
     name: "Bond duration & convexity",
     fields: [
       { key: "face", label: "Face value", default: "1000" },
@@ -8867,6 +8854,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "greeks",
+    group: "Derivatives",
     name: "Option Greeks (Black–Scholes)",
     fields: [
       {
@@ -8951,6 +8939,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "iv",
+    group: "Derivatives",
     name: "Implied volatility",
     fields: [
       {
@@ -9006,6 +8995,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "depr",
+    group: "Accounting & statements",
     name: "Depreciation (declining balance)",
     fields: [
       { key: "cost", label: "Cost", default: "10000" },
@@ -9058,6 +9048,7 @@ const FIN_CALCS: FinCalc[] = [
     // written and tested the whole time with nothing able to call it, so the
     // pane offered the harder method and not the ordinary one.
     id: "depr-sl",
+    group: "Accounting & statements",
     name: "Depreciation (straight line)",
     fields: [
       { key: "cost", label: "Cost", default: "10000" },
@@ -9123,6 +9114,7 @@ const FIN_CALCS: FinCalc[] = [
     // cannot: a level payment stream, a perpetual one, growth in perpetuity,
     // continuous compounding, and the nominal rate behind a quoted effective.
     id: "annuity",
+    group: "Time value & loans",
     name: "Annuity (level payments)",
     fields: [
       { key: "pmt", label: "Payment per period", default: "1000" },
@@ -9166,6 +9158,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "perpetuity",
+    group: "Time value & loans",
     name: "Perpetuity (with optional growth)",
     fields: [
       { key: "pmt", label: "Payment next period", default: "1000" },
@@ -9227,6 +9220,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "rate-forms",
+    group: "Time value & loans",
     name: "Rate conversions (nominal, effective, continuous)",
     fields: [
       { key: "principal", label: "Principal", default: "10000" },
@@ -9275,6 +9269,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "cagr",
+    group: "Time value & loans",
     name: "CAGR (compound annual growth)",
     fields: [
       { key: "begin", label: "Beginning value", default: "10000" },
@@ -9315,6 +9310,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "returns",
+    group: "Portfolio & risk",
     name: "Return stats (annualized)",
     fields: [
       { key: "rets", label: "Per-period returns %", default: "2, 1, 3, -1, 2, 1.5", kind: "list" },
@@ -9347,6 +9343,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "fin-currency",
+    group: "Currency",
     name: "Currency conversion with your rates",
     // The "as of" date may be blank: the result then says "rates as typed, no date given".
     fields: FIN_CURRENCY_FIELDS.map((f) => ({ ...f, default: FIN_CURRENCY_DEFAULTS[f.key] ?? "", optional: f.key === "asof" })),
@@ -9363,6 +9360,7 @@ const FIN_CALCS: FinCalc[] = [
   // `block` fields, so "Use table at cursor" and "Open CSV…" fill them from a Word or Excel table.
   {
     id: "dmg-prejudgment",
+    group: "Litigation damages",
     name: "Damages: prejudgment interest",
     fields: [
       {
@@ -9420,6 +9418,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "dmg-postjudgment",
+    group: "Litigation damages",
     name: "Damages: post-judgment interest (28 U.S.C. § 1961)",
     fields: [
       { key: "amount", label: "Judgment amount", default: "1,500,000.00" },
@@ -9444,6 +9443,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "dmg-lost-earnings",
+    group: "Litigation damages",
     name: "Damages: lost earnings (present value)",
     fields: [
       { key: "base", label: "Annual earnings in year 1", default: "65,000" },
@@ -9493,6 +9493,7 @@ const FIN_CALCS: FinCalc[] = [
   // Engines and parsers in src/lib/patentDamages.ts; every rate, share, price and multiplier is the user's input.
   {
     id: "dmg-royalty",
+    group: "Litigation damages",
     name: "Damages: reasonable royalty",
     fields: [
       {
@@ -9547,6 +9548,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "dmg-lost-profits",
+    group: "Litigation damages",
     name: "Damages: lost profits, price erosion",
     fields: [
       {
@@ -9640,6 +9642,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "dmg-summary",
+    group: "Litigation damages",
     name: "Damages: summary by period",
     fields: [
       {
@@ -9660,6 +9663,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "dmg-gp-worksheet",
+    group: "Litigation damages",
     name: "Damages: Georgia-Pacific worksheet",
     fields: [],
     compute: () => {
@@ -9669,6 +9673,7 @@ const FIN_CALCS: FinCalc[] = [
   },
   {
     id: "dmg-panduit-worksheet",
+    group: "Litigation damages",
     name: "Damages: Panduit worksheet",
     fields: [],
     compute: () => {
@@ -9676,16 +9681,26 @@ const FIN_CALCS: FinCalc[] = [
       return damagesToFin(panduitWorksheet());
     },
   },
+  // F1 library registries (src/lib/*Calcs.ts, FinCalcDef arrays) are spread here, one line each: `...BONDS_CALCS,`.
+  // finSpreadContract.test.ts holds every spread calculator to the pane's contract.
 ];
 
 /** Fills the calculator dropdown. */
 function populateFinanceCalcs(): void {
   finCalcSelect.replaceChildren();
-  for (const c of FIN_CALCS) {
-    const opt = document.createElement("option");
-    opt.value = c.id;
-    opt.textContent = c.name;
-    finCalcSelect.appendChild(opt);
+  // Grouped by area, in FIN_GROUP_ORDER (F1): an <optgroup> per heading, as Engineering does.
+  for (const title of FIN_GROUP_ORDER) {
+    const members = FIN_CALCS.filter((c) => c.group === title);
+    if (!members.length) continue;
+    const og = document.createElement("optgroup");
+    og.label = title;
+    for (const c of members) {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      og.appendChild(opt);
+    }
+    finCalcSelect.appendChild(og);
   }
 }
 

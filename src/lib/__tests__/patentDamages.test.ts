@@ -402,7 +402,9 @@ describe("the pane reaches the damages tools (routing, from the taskpane source)
     expect(/id: "/.test(body.slice(body.indexOf('id: "dmg-panduit-worksheet"') + 5))).toBe(false);
   });
   test("per-period fields are block fields (Use table at cursor), skipped by the number reader", () => {
-    expect(PANE).toMatch(/kind\?: "number" \| "select" \| "list" \| "text" \| "block";/);
+    // The field shape lives in lib/finCalc.ts since F1 (shared with the library registries).
+    const finCalcSrc = fs.readFileSync(path.join(__dirname, "..", "finCalc.ts"), "utf8");
+    expect(finCalcSrc).toMatch(/kind\?: "number" \| "select" \| "list" \| "text" \| "block";/);
     expect(PANE).toMatch(/if \(f\.kind === "select" \|\| f\.kind === "list" \|\| f\.kind === "text" \|\| f\.kind === "block"\) continue;/);
   });
   test("tables are gated and inserted as one package", () => {

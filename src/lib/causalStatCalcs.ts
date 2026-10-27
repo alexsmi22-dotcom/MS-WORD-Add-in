@@ -429,7 +429,7 @@ export function rdDefaultTable(): string {
   for (let i = 0; i < 1000; i++) {
     const k = Math.floor(u() * 1000);
     const d = k >= 500;
-    const treated = u() < (d ? 0.85 : 0.15) ? 1 : 0;
+    const treated = u() < (d ? 0.95 : 0.05) ? 1 : 0;
     const xc = (k - 500) / 10;
     const yv = 40 + 0.25 * xc - 0.002 * xc * xc + 6 * treated + 2 * g();
     const yk = Math.floor(yv * 100 + 0.5);
@@ -556,7 +556,7 @@ export function rdCalc(read: Read): StatOutput {
         (design === "fuzzy" ? " For the fuzzy design the bandwidth is the sharp rule applied to the outcome (as R's rdd package does), not IK's separate fuzzy formula." : ""),
     );
   }
-  lines.push("No McCrary density (manipulation) test is run; inspect the binned counts in the figure's data, or test the density with a dedicated tool.");
+  lines.push("No McCrary density (manipulation) test is run.");
   lines.push(...cols.notes);
   // Estimate table.
   const head = ["Quantity", "Estimate", "SE", "z", "p", "95% CI"];
@@ -587,7 +587,7 @@ export function rdCalc(read: Read): StatOutput {
         ["Pilot bandwidth h₁", fmtFixed(s.h1, 4)],
         ["Density f̂(c)", fmtFixed(s.f, 4)],
         ["Conditional variance σ̂²(c)", fmtFixed(s.sigma2, 4)],
-        ["Third derivative m̂⁽³⁾(c)", fmtFixed(s.m3, 4)],
+        ["Third derivative m̂⁽³⁾(c)", fmtFixed(s.m3, 4) + (s.m3 * s.m3 < 0.01 ? " (m̂⁽³⁾² < 0.01: floor 0.01 used in h₂)" : "")],
         ["Pilot h₂,₊ / h₂,₋", `${fmtFixed(s.h2p, 4)} / ${fmtFixed(s.h2m, 4)}`],
         ["Curvature m̂⁽²⁾₊ / m̂⁽²⁾₋", `${fmtFixed(s.m2p, 4)} / ${fmtFixed(s.m2m, 4)}`],
         ["Regularisation r̂₊ / r̂₋", `${fmtFixed(s.rp, 4)} / ${fmtFixed(s.rm, 4)}`],

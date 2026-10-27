@@ -59,7 +59,7 @@ def rd_default():
     for _ in range(1000):
         k = math.floor(r.u() * 1000)
         d = k >= 500
-        treated = 1 if r.u() < (0.85 if d else 0.15) else 0
+        treated = 1 if r.u() < (0.95 if d else 0.05) else 0
         xc = (k - 500) / 10
         yv = 40 + 0.25 * xc - 0.002 * xc * xc + 6 * treated + 2 * r.g()
         yk = math.floor(yv * 100 + 0.5)

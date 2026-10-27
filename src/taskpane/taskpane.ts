@@ -230,6 +230,8 @@ import { LITIG_CALCS } from "../lib/litigCalcs";
 import { TS2_STAT_CALCS } from "../lib/ts2StatCalcs";
 import { CAUSAL_STAT_CALCS } from "../lib/causalStatCalcs";
 import { LIMDEP_STAT_CALCS } from "../lib/limdepStatCalcs";
+import { MICROMACRO_STAT_CALCS } from "../lib/micromacroStatCalcs";
+import { CBA_CALCS } from "../lib/cbaCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
 import {
@@ -9761,6 +9763,7 @@ const FIN_CALCS: FinCalc[] = [
   ...PORTCORP_CALCS,
   ...FORENSIC_CALCS,
   ...LITIG_CALCS,
+  ...CBA_CALCS,
 ];
 
 /** Fills the calculator dropdown. */
@@ -12251,6 +12254,7 @@ const STAT_CALCS: StatCalc[] = [
   ...TS2_STAT_CALCS,
   ...CAUSAL_STAT_CALCS,
   ...LIMDEP_STAT_CALCS,
+  ...MICROMACRO_STAT_CALCS,
 ];
 
 function populateStatsCalcs(): void {

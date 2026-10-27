@@ -54,6 +54,8 @@ import { FORENSIC_CALCS } from "../src/lib/forensicCalcs";
 import { TS2_STAT_CALCS } from "../src/lib/ts2StatCalcs";
 import { CAUSAL_STAT_CALCS } from "../src/lib/causalStatCalcs";
 import { LIMDEP_STAT_CALCS } from "../src/lib/limdepStatCalcs";
+import { MICROMACRO_STAT_CALCS } from "../src/lib/micromacroStatCalcs";
+import { CBA_CALCS } from "../src/lib/cbaCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2415,6 +2417,38 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   const nb = cnt.compute((k) => (k === "model" ? "nb2" : (vals[k] ?? "")));
   if (nb.ok === false || !nb.svg) throw new Error(`corpus: limdep count NB2 did not draw: ${nb.text.slice(0, 120)}`);
   figures.push(["limdep econ-count nb2", nb.svg]);
+}
+
+// --- Micro II, macro II (micromacroStatCalcs.ts), CBA, Pigou, CIP/UIP/PPP (cbaCalcs.ts) — F2 ----------------------
+{
+  const mm = (calcs: { id: string; fields: { key: string; default: string }[]; compute: (r: (k: string) => string) => unknown }[], id: string, over: Record<string, string>, name: string, must: boolean) => {
+    const c = calcs.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: micromacro calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "") as string | { ok?: boolean; svg?: string; text: string };
+    if (typeof out !== "string" && out.ok !== false && out.svg) figures.push([`micromacro ${name}`, out.svg]);
+    else if (must) throw new Error(`corpus: micromacro ${name} did not draw`);
+  };
+  for (const c of MICROMACRO_STAT_CALCS) mm(MICROMACRO_STAT_CALCS, c.id, {}, `${c.id} default`, false);
+  for (const c of CBA_CALCS) mm(CBA_CALCS, c.id, {}, `${c.id} default`, false);
+  mm(MICROMACRO_STAT_CALCS, "micro-demand", { form: "semilog" }, "demand semilog", true);
+  mm(MICROMACRO_STAT_CALCS, "micro-consumer", { util: "ces" }, "consumer ces", true);
+  mm(MICROMACRO_STAT_CALCS, "micro-consumer", { util: "leontief", a: "1", b: "2" }, "consumer leontief", true);
+  mm(MICROMACRO_STAT_CALCS, "micro-consumer", { util: "linear", a: "2", b: "1", p1: "1" }, "consumer linear", true);
+  mm(MICROMACRO_STAT_CALCS, "micro-cost", { tc: "200, 30, −2, −0.05, 0.01", price: "40" }, "cost quartic", true);
+  mm(MICROMACRO_STAT_CALCS, "micro-price-disc", { a2: "30", b2: "1" }, "price disc second market", true);
+  mm(MICROMACRO_STAT_CALCS, "micro-auction", { reserve: "50" }, "auction reserve", true);
+  mm(MICROMACRO_STAT_CALCS, "micro-auction", { n: "200", lo: "0.1234567890123", hi: "987654.321098765", reserve: "123456.789012345" }, "auction long decimals", true);
+  mm(MICROMACRO_STAT_CALCS, "macro-growth-accounting", { growth: "simple" }, "growth simple", true);
+  mm(MICROMACRO_STAT_CALCS, "macro-mundell-fleming", { mobility: "imperfect", regime: "fixed", shock: "devaluation" }, "mf fixed devaluation", true);
+  mm(MICROMACRO_STAT_CALCS, "macro-mundell-fleming", { shock: "monetary" }, "mf monetary", true);
+  mm(MICROMACRO_STAT_CALCS, "macro-fiscal-multipliers", { dT: "100" }, "fiscal tax cut", true);
+  mm(MICROMACRO_STAT_CALCS, "macro-phillips", { form: "expect", se: "hac" }, "phillips expectations hac", true);
+  mm(CBA_CALCS, "cba-scenarios", { factors: "1, 0.8", rate: "12" }, "cba shadow 12pct", true);
+  mm(CBA_CALCS, "cba-scenarios", { data: "Year\tProject benefits\tProject costs\n2025\t0\t500\n2027\t400\t0\n2030\t600\t0\n2032\t0\t450", rate: "6", base: "2024" }, "cba gaps", true);
+  mm(CBA_CALCS, "cba-pigou", { e0: "−4", e1: "−0.1", a: "50", c: "5", d: "1" }, "pigou zero efficient", true);
+  mm(CBA_CALCS, "cba-pigou", { e0: "200" }, "pigou large externality", true);
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

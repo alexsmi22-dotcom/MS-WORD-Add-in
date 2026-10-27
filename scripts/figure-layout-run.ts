@@ -47,6 +47,7 @@ import { FILM_CALCS } from "../src/lib/filmCalcs";
 import { BOND_CALCS } from "../src/lib/bondCalcs";
 import { IPVAL_CALCS } from "../src/lib/ipValuationCalcs";
 import { DERIV_CALCS } from "../src/lib/derivCalcs";
+import { SCHED_CALCS } from "../src/lib/schedCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
 import { TITRATION_CALCS } from "../src/lib/titrationCalcs";
@@ -2289,6 +2290,27 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   deriv(byId("deriv-crr"), { n: "6" }, "crr tree n6", true);
   deriv(byId("deriv-strategy"), { legs: "call, 100, 1, 6\nput, 100, 1, 5.5", mult: "100" }, "strategy straddle", true);
   deriv(byId("deriv-swap"), { tenor: "100", ffix: "12", fflt: "12", curve: "1 0.96\n100 0.02" }, "swap long monthly", true);
+}
+
+// --- Schedules and statements (src/lib/schedCalcs.ts, F1): loanBalanceSvg, bookValueSvg, cvpChartSvg, hBarSvg ---
+{
+  const sched = (id: string, over: Record<string, string>, name: string, must: boolean) => {
+    const c = SCHED_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: sched calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (typeof out !== "string" && out.ok !== false && out.svg) figures.push([`sched ${name}`, out.svg]);
+    else if (must) throw new Error(`corpus: sched ${name} did not draw`);
+  };
+  for (const c of SCHED_CALCS) sched(c.id, {}, `${c.id} default`, false);
+  sched("loan-schedule", { balloon: "200000", extra: "", lumps: "", years: "7" }, "balloon", true);
+  sched("depr-schedule", { method: "db", factor: "1.5", salvage: "1000" }, "db shortfall", true);
+  sched("depr-schedule", { method: "uop" }, "units of production", true);
+  sched("depr-schedule", { life: "40", cost: "123456789" }, "long life", true);
+  sched("macrs", { system: "sl", slperiod: "50", basis: "98765432.1" }, "macrs sl 50", true);
+  sched("altman-z", { variant: "zdouble" }, "altman z2", true);
+  sched("cvp-breakeven", { units: "500" }, "cvp below break-even", true);
 }
 
 // --- Thin films, Fresnel s/p, Jones calculus (src/lib/filmCalcs.ts) ----------

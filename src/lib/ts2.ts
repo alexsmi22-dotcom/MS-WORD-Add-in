@@ -197,8 +197,8 @@ export interface GarchSpec {
   mean: GarchMean;
 }
 
-/** The most observations a GARCH fit takes (each likelihood is one pass; the fit and the SEs take ~5,000 passes). */
-export const GARCH_MAX_N = 5000;
+/** The most observations a GARCH fit takes. Each likelihood is one pass and a fit takes thousands; at 2,500 the slowest measured fit (EGARCH, t errors, iid data) is about 2 s, at 5,000 it was 8 s. */
+export const GARCH_MAX_N = 2500;
 export const GARCH_MIN_N = 100;
 export const GARCH_MAX_H = 250;
 /** BFGS iterations per start. */

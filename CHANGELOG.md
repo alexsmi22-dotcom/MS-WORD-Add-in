@@ -17,7 +17,7 @@ prints the conventions it used.
 - **Securities damages:** inflation ribbon (constant dollar or constant percentage, from abnormal returns at the
   corrective disclosures); out-of-pocket loss by purchase/sale window from a trade blotter, FIFO or LIFO; the PSLRA
   90-day lookback cap, quoting 15 U.S.C. § 78u-4(e)(1)–(3); aggregate damages by one- and two-trader trading models,
-  labelled as models courts have criticised, with every parameter printed.
+  labeled as models courts have criticized, with every parameter printed.
 - **Antitrust overcharge:** dummy-variable and forecast (before-period) methods with optional controls, pass-through
   entered or estimated, and a damages table.
 - **Forensic lost earnings:** life × participation × employment (LPE) or your own worklife expectancy; the bundled CDC
@@ -33,7 +33,8 @@ prints the conventions it used.
 
 ### Added — Stats
 - **Time series II:** GARCH(1,1), GJR-GARCH and EGARCH by maximum likelihood (normal or Student-t), with robust SEs,
-  persistence, half-life and a volatility forecast; VAR(p) with lag-order criteria and Granger causality; orthogonalised
+  persistence, half-life and a volatility forecast; estimates print only when the first-order (KKT) conditions hold at
+  the optimum, including optima on a parameter bound, and a non-invertible EGARCH is refused by name; up to 2,500 returns; VAR(p) with lag-order criteria and Granger causality; orthogonalized
   impulse responses with bands and FEVD; Engle–Granger and Johansen cointegration.
 - **Limited dependent and count models:** Poisson and negative binomial with exposure and incidence-rate ratios;
   tobit with three marginal effects; Heckman two-step; ordered logit/probit; multinomial logit with RRRs and average
@@ -56,6 +57,9 @@ prints the conventions it used.
 - A pasted table without a header row whose first row had a grouped number (`2025-03-03 2,401,000`) was taken for a
   CSV header and refused; it reads as a whitespace table (event study, time series and every tool that reads named
   columns).
+- The Markowitz frontier (v2.202.0) stalled or refused with a false "not positive definite" reason when the assets' mean
+  returns were nearly equal. It now solves them, collapses to the minimum-variance point when the means are equal, and
+  keeps the minimum-variance and tangency portfolios if the frontier sweep cannot be traced.
 
 ## [2.202.0] — 2026-10-27 — Finance F1: bonds on dates, IP valuation, portfolio risk, corporate finance, derivatives, schedules
 

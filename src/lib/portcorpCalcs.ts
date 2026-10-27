@@ -249,11 +249,15 @@ export function waccLeverageSvg(w: WaccInput, betaU: number, atDV: number): stri
   );
 }
 
+/** The NPV profile's rate axis: covers the marked rates and the discount rate, capped to −50% … 100% so a far root does not flatten the curve. */
+function profileRange(marked: number[], rate: number): [number, number] {
+  const all = [...marked, rate];
+  return [Math.max(-0.5, Math.min(0, ...all.map((x) => x - 0.05))), Math.min(1, Math.max(0.2, rate * 2, ...all.map((x) => x + 0.05)))];
+}
+
 /** NPV against the discount rate for one or two projects, each IRR and the crossover marked. */
 export function npvProfileSvg(projects: { name: string; cfs: number[]; roots: number[] }[], crossover: number[], rate: number): string | undefined {
-  const all = [...projects.flatMap((p) => p.roots), ...crossover, rate];
-  const lo = Math.max(-0.5, Math.min(0, ...all.map((x) => x - 0.05)));
-  const hi = Math.min(1, Math.max(0.2, rate * 2, ...all.map((x) => x + 0.05)));
+  const [lo, hi] = profileRange([...projects.flatMap((p) => p.roots), ...crossover], rate);
   const colors = ["#2563eb", "#ea580c"];
   const series: Series[] = [];
   projects.forEach((p, k) => {
@@ -726,6 +730,9 @@ export function capBudgetCalc(r: Read): FinResult {
     cross ? [...cross.roots, ...cross.touches] : [],
     rd,
   );
+  const marked = [...A.roots.roots, ...A.roots.touches, ...(B ? [...B.roots.roots, ...B.roots.touches] : []), ...(cross ? [...cross.roots, ...cross.touches] : [])];
+  const [plo, phi] = profileRange(marked, rd);
+  if (marked.some((x) => x < plo || x > phi)) lines.splice(lines.length - 1, 0, `The NPV profile is drawn from ${pct(plo, 0)} to ${pct(phi, 0)} per period; the rates listed above outside that range are not marked on it.`);
   return finish({ text: lines.join("\n"), svg, tables: [metrics, flows] });
 }
 

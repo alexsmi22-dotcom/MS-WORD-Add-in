@@ -152,6 +152,8 @@ describe("options and alternatives", () => {
   test("every IRR listed (D6): two roots and three roots, with Descartes' bound", () => {
     const two = ok("corp-capbudget", { cfa: "-1600, 10000, -10000", cfb: "" }).text;
     expect(two).toMatch(/IRR \(Project A\): 2 roots: 25\.0000%, 400\.0000% \(2 sign changes/);
+    expect(two).toMatch(/The NPV profile is drawn from 0% to 100% per period; the rates listed above outside that range are not marked on it\.\nConventions:/);
+    expect(ok("corp-capbudget").text).not.toMatch(/The NPV profile is drawn/);
     const three = ok("corp-capbudget", { cfa: "-1, 6, -11, 6", cfb: "" }).text;
     expect(three).toMatch(/3 roots: 0\.0000%, 100\.0000%, 200\.0000%/);
   });

@@ -238,6 +238,12 @@ describe("GARCH optima ON a bound (F2 review round 1) vs arch 8.0", () => {
     const o = run(calc("ts-garch"), { data: ["r", ...c.y.map((v) => v.toFixed(3))].join("\n"), model: "gjr", dist: "t", mean: "constant" });
     expect(o.ok).not.toBe(false);
     expect(o.text).toMatch(/On the boundary of the parameter space: α = 0; α \+ γ = 0/);
+    // Returns cannot move the variance there, so no half-life is quoted for it.
+    expect(o.text).toMatch(/α₁ and α₁ \+ γ₁ are on 0, so returns do not move the variance/);
+    expect(o.text).not.toMatch(/half-life of a volatility shock/);
+    const g = B("garch-iid");
+    const og = run(calc("ts-garch"), { data: ["r", ...g.y.map((v) => v.toFixed(6))].join("\n"), model: "garch", dist: "normal", mean: "constant" });
+    expect(og.text).toMatch(/α₁ is on 0, so returns do not move the variance: it is constant at ω\/\(1 − β₁\)/);
     expect(o.tables![0].rows.find((row) => row[0].startsWith("ν"))![1]).toMatch(/^42\.3/);
   });
   const nearIid = (seed: number): number[] => {

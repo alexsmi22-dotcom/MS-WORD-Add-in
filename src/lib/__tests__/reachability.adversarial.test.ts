@@ -134,8 +134,9 @@ describe("everything shipped is reachable", () => {
     // the publication table as a FittedModel (kinds iv/fe/re/did); the tests pin them, the table wiring comes next.
     // v2.199.0 (E5): 16 — microCalcs.welfareIdentityHolds is a test-facing identity check (CS + PS + revenue − subsidy
     // + DWL = the competitive surplus), pinned on every policy case.
-    // v2.203.0 (F2): 17 — ts2.garchKktAt is the GARCH first-order (KKT) check exported for the test that proves the
-    // stalled pre-fix estimates fail it; the fit itself calls the check internally.
+    // v2.203.0 (F2): 17 — ts2.garchKktAt is the GARCH first-order (KKT) check exported as a test instrument: the tests
+    // use it to prove arch's reference optima pass our gate and the stalled pre-fix estimates fail it (like
+    // flame.cpMolar, it keeps the oracle comparison verifiable); the fit itself calls the check internally.
     const BASELINE = 17;
     const dead = deadExports();
     expect({ count: dead.length, over: dead.length > BASELINE ? dead : [] }).toEqual({

@@ -375,7 +375,13 @@ export function tsGarchCalc(read: Read): StatOutput {
   const unitPers = fit.persistence > 1 - 1e-4;
   const disp = (v: number): number => (Math.abs(v) < 5e-5 ? 0 : v);
   let halfLife = "";
-  if (fit.persistence > 0 && !unitPers) {
+  // α₁ = 0 (and α₁ + γ₁ = 0 for GJR) on their bounds: returns never move the variance, which stays at ω/(1 − β₁), so a
+  // "half-life of a volatility shock" would describe a shock the model cannot have and β₁ is not identified.
+  const noArch =
+    (spec.vol === "garch" && P.alpha === 0) || (spec.vol === "gjr" && P.alpha === 0 && Math.abs(P.alpha + P.gamma) < 1e-12);
+  if (noArch) {
+    halfLife = `; ${spec.vol === "garch" ? "α₁ is" : "α₁ and α₁ + γ₁ are"} on 0, so returns do not move the variance: it is constant at ω/(1 − β₁) and neither β₁ nor a half-life is identified`;
+  } else if (fit.persistence > 0 && !unitPers) {
     const hl = Math.log(0.5) / Math.log(fit.persistence);
     halfLife =
       hl < 1

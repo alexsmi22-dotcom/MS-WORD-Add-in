@@ -552,16 +552,33 @@ export function incomeCalc(read: Read): FinResult {
   rows.push(["Total", cell(sumEx, cur), cell(sumAt, cur), "", "", cell(c.value, cur)]);
   const labels = c.years.map((y) => yearLabel(yb.years[0], y.seg));
   const allPos = c.years.every((y) => y.afterTax >= 0);
-  const svg = yearColumnsSvg(
-    labels,
-    allPos
-      ? [
+  // Stacked columns when every year is positive; with a negative year, a line of the present values (the column
+  // chart's tick labels clip below zero).
+  const svg = allPos
+    ? yearColumnsSvg(
+        labels,
+        [
           { name: "Present value", values: c.years.map((y) => y.pv) },
-          { name: "Obsolescence and discounting", values: c.years.map((y) => y.afterTax - y.pv) },
-        ]
-      : [{ name: "Present value", values: c.years.map((y) => y.pv) }],
-    `Excess earnings by year${cur.code ? ` (${cur.code})` : ""}`,
-  );
+          { name: "Obsolescence", values: c.years.map((y) => y.afterTax * (1 - y.survival)) },
+          { name: "Discounting", values: c.years.map((y) => y.afterTax * y.survival - y.pv) },
+        ],
+        `Excess earnings by year${cur.code ? ` (${cur.code})` : ""}`,
+      )
+    : finPlotSvg(
+        [
+          { points: c.years.map((y) => ({ x: yb.years[0] + y.seg.k - 1, y: y.pv })), type: "line", color: "#2563eb", label: "present value" },
+          { points: c.years.map((y) => ({ x: yb.years[0] + y.seg.k - 1, y: y.pv })), type: "scatter", color: "#2563eb" },
+        ],
+        {
+          width: 380,
+          height: 260,
+          title: "Present value of excess earnings by year",
+          xlabel: "year",
+          ylabel: cur.code ? `present value (${cur.code})` : "present value",
+          xTickLabel: (v) => (Number.isInteger(v) ? String(v) : ""),
+          yGrouping: "comma",
+        },
+      );
   return { text: lines.join("\n"), tables: [{ label: "Excess earnings by year", rows, align: ["left", "right", "right", "right", "right", "right"] }], svg };
 }
 
@@ -809,7 +826,8 @@ export function readDist(kindRaw: string, raw: string, label: string, o: { min: 
   const t = (raw ?? "").trim();
   if (!t) return { error: `${label}: enter ${shape}.` };
   if (t.includes("\n")) return { error: `${label}: give ${shape} on one line.` };
-  const b = readDataBlock(t, label, { maxRows: 1 });
+  // A fixed input is one value, so a lone "4,5" is asked about (decimal comma or two values), not read as two.
+  const b = readDataBlock(t, label, { maxRows: 1, loneCommaPairAmbiguous: kind === "fixed" });
   if (!b.ok) return { error: b.error };
   const row = b.rows[0] ?? [];
   if (b.header || row.some((v) => v === null) || row.length !== want) {

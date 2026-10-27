@@ -4,13 +4,16 @@ Writes src/lib/__tests__/fixtures/ipval-oracle.json.
 
 Run:  ~/jurislab-oracle-venv/Scripts/python.exe -I scripts/ipval-oracle.py
 
-Independent re-implementations, written from the conventions in the engines' file headers (not from their code):
-  - Relief-from-royalty, income approach, TAB factor, comparable licence: plain Python floats with ** (pow);
+Re-implementations from the conventions in the engines' file headers:
+  - Relief-from-royalty, income approach, TAB factor, comparable licence: plain Python floats with ** (pow), written
+    from the stated formulas (not from the TS code);
     end-of-year cases are cross-checked against numpy_financial.npv(d, [0] + cash flows) (npv discounts values[0] at
     t = 0, hence the leading 0). Tolerance in jest: 1e-9 relative.
   - Monte Carlo: PCG32 re-implemented with 64-bit integers (pcg_basic.c, srandom(initstate=seed, initseq=54)),
     self-checked against the published pcg-c demo output (seed 42, stream 54); same uniform, triangular, lognormal
-    (Box-Muller) transforms, same draw order and the same year recurrences, so a fixed seed reproduces the TS draws.
+    (Box-Muller) transforms, same draw order and DELIBERATELY the engine's own year recurrences (npv_one mirrors
+    npvOne, including its full-year branch), so a fixed seed reproduces the TS draws; the recurrence path itself is
+    tied to the pow path by a jest test (an all-fixed Monte Carlo equals the relief-from-royalty PV less the price).
     The quantiles are type 7 (cross-checked against numpy.percentile, method "linear"). Tolerance in jest: 1e-12
     relative (V8 and the MSVC C runtime may differ by an ulp in log/cos/pow); the negative-draw count must match exactly.
   - Apportionment worksheet, EMVR vs SSPPU, Nash split: exact fractions.Fraction from the typed decimal text, each

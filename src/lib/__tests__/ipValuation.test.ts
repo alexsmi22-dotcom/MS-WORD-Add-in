@@ -22,16 +22,29 @@ const ORACLE = require("./fixtures/ipval-oracle.json");
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const cases = (arr: any[]): [string, any][] => arr.map((c) => [c.name, c]);
 
-/** The pane's read (copied from finSpreadContract.test.ts): number fields through readFinanceField, the rest as typed. */
+/**
+ * The pane's read, as updateFinancePreview does it (taskpane.ts): number fields through readFinanceField, a number
+ * field it cannot read refused with the pane's own message BEFORE compute, a blank non-optional non-select field
+ * holding the result back ("Enter all values to compute."), everything else handed to compute as typed. (The
+ * finSpreadContract.test.ts run() is the same without the two hold-backs.)
+ */
 function run(c: FinCalcDef, over: Record<string, string> = {}): FinResult {
   const raw = (k: string): string => over[k] ?? c.fields.find((f) => f.key === k)?.default ?? "";
+  let fieldRefusal = "";
   const numeric = new Map<string, string>();
   for (const f of c.fields) {
     if (f.kind === "select" || f.kind === "list" || f.kind === "text" || f.kind === "block") continue;
-    const v = readFinanceField(raw(f.key));
-    if (Number.isFinite(v)) numeric.set(f.key, String(v));
+    const r = raw(f.key);
+    if (!r.trim()) continue;
+    const v = readFinanceField(r);
+    if (!Number.isFinite(v)) {
+      if (!fieldRefusal) fieldRefusal = `${f.label}: “${r.trim()}” is not a number.`;
+    } else numeric.set(f.key, String(v));
   }
-  return c.compute((k) => numeric.get(k) ?? raw(k));
+  const read = (k: string): string => numeric.get(k) ?? raw(k);
+  if (c.fields.some((f) => f.kind !== "select" && !f.optional && read(f.key).trim() === "")) return { text: "Enter all values to compute.", ok: false };
+  if (fieldRefusal) return { text: fieldRefusal, ok: false };
+  return c.compute(read);
 }
 const calc = (id: string): FinCalcDef => {
   const c = IPVAL_CALCS.find((x) => x.id === id);
@@ -40,6 +53,22 @@ const calc = (id: string): FinCalcDef => {
 };
 const obj = (r: FinResult) => (typeof r === "string" ? { text: r, ok: undefined, tables: undefined, svg: undefined } : r);
 const ok = (id: string, over: Record<string, string> = {}) => {
+  const o = obj(run(calc(id), over));
+  if (o.ok === false) throw new Error(`${id} refused: ${o.text}`);
+  // The display contract on every result: insertable text and cells, no caret, no ASCII hyphen before a digit, no
+  // e-notation.
+  expect(insertableResultText(o.text)).toBe(true);
+  expect(o.text).not.toMatch(/\^|(?<![\p{L}\d])-\d|\de[+-]?\d/u);
+  for (const t of o.tables ?? []) {
+    for (const row of t.rows) {
+      expect(row.length).toBeLessThanOrEqual(6);
+      for (const cell of row) if (cell !== "") expect(insertableResultText(cell) && !/(?<![\p{L}\d])-\d|\de[+-]?\d/u.test(cell)).toBe(true);
+    }
+  }
+  return o;
+};
+/** ok() without the per-cell display assertions (they cost more than the calculation on a 1,200-row table): for timing. */
+const fast = (id: string, over: Record<string, string> = {}) => {
   const o = obj(run(calc(id), over));
   if (o.ok === false) throw new Error(`${id} refused: ${o.text}`);
   return o;
@@ -96,6 +125,21 @@ describe("Monte Carlo NPV reproduces the Python PCG32 stream (1e-12 relative, co
   test("the caps case really hits the caps (the counts above are not all zero)", () => {
     const c = ORACLE.mc.find((x: { name: string }) => x.name.startsWith("caps"));
     expect(c.expect.capped.some((n: number) => n > 0)).toBe(true);
+  });
+
+  test.each([
+    ["mid, none, partial life", "mid", false, 7.4],
+    ["end, straight-line, partial life", "end", true, 9.6],
+    ["mid, straight-line, whole life", "mid", true, 12],
+  ] as const)("an all-fixed Monte Carlo equals the relief-from-royalty PV less the price (recurrence vs pow path): %s", (_n, timing, straight, life) => {
+    const g = 4;
+    const revenue = Array.from({ length: 13 }, (_, k) => 2_000_000 * Math.pow(1 + g / 100, k));
+    const rfr = computeRfr({ revenue, firstYear: null, royaltyPct: 3.5, taxPct: 21, discountPct: 12.5, life, attrition: straight ? "straight" : "none", decayPct: 0, timing, tabYears: 0 });
+    if ("error" in rfr) throw new Error(rfr.error);
+    const fx = (v: number): Dist => ({ kind: "fixed", p: [v] });
+    const mc = monteCarloNpv({ revenue: fx(2_000_000), royaltyPct: fx(3.5), life: fx(life), discountPct: fx(12.5), growthPct: g, taxPct: 21, cost: 250_000, timing, straightLine: straight, samples: 1000, seed: 5 });
+    rel(mc.draws[0], rfr.pvSum - 250_000, 1e-12, rfr.pvSum);
+    expect(mc.sd).toBeLessThan(1e-9);
   });
 
   test("the same seed gives the same draws; another seed gives other draws", () => {
@@ -229,6 +273,10 @@ describe("hostile inputs are refused by field name", () => {
     ["ipv-mc", { ratedist: "fixed", rate: "120" }, "Royalty rate (%)"],
     ["ipv-mc", { lifedist: "logn", life: "5, 14", samples: "100000" }, "work budget"],
     ["ipv-mc", { rev: "1e400, 2e400, 3e400" }, "First-year revenue"],
+    ["ipv-mc", { ratedist: "fixed", rate: "4,5" }, "Royalty rate (%)"],
+    ["ipv-rfr", { mode: "growth", base: "" }, "First-year revenue: enter a number"],
+    ["ipv-comparable", { direction: "rate2lump", rate: "" }, "Running royalty rate (%): enter a number"],
+    ["ipv-emvr-ssppu", { basis: "unit", emvprice: "" }, "Entire-product price per unit: enter a number"],
   ])("%s %j", (id, over, needle) => {
     const t = refusal(id, over as Record<string, string>);
     expect(t).toContain(needle);
@@ -373,21 +421,21 @@ describe("timing at the caps (≤ 300 ms)", () => {
   test(`Monte Carlo: ${IPV_MAX_SAMPLES.toLocaleString("en-US")} samples × 40 years, all inputs uncertain`, () => {
     expect(IPV_MAX_SAMPLES * 40).toBe(IPV_WORK_BUDGET);
     const over = { samples: String(IPV_MAX_SAMPLES), revdist: "logn", rev: "2000000, 6000000", ratedist: "logn", rate: "2, 6", lifedist: "tri", life: "30, 36, 40", discdist: "logn", disc: "10, 18", attr: "straight" };
-    const ms = time(() => ok("ipv-mc", over));
+    const ms = time(() => fast("ipv-mc", over));
     expect(ms).toBeLessThan(budget(300));
   });
   test("Monte Carlo: 80,000 samples × 50 years (lognormal life)", () => {
     const over = { samples: "80000", revdist: "logn", rev: "2000000, 6000000", ratedist: "logn", rate: "2, 6", lifedist: "logn", life: "20, 40", discdist: "logn", disc: "10, 18" };
-    const ms = time(() => ok("ipv-mc", over));
+    const ms = time(() => fast("ipv-mc", over));
     expect(ms).toBeLessThan(budget(300));
   });
   test("50-year relief-from-royalty and income approach; 1,200-period comparable licence", () => {
     const years = Array.from({ length: 50 }, (_, i) => `${2027 + i} ${1000000 + i * 1000}`).join("\n");
     const flows = Array.from({ length: 50 }, (_, i) => `${2027 + i} ${500000 + i * 1000} 1000`).join("\n");
     const periods = Array.from({ length: 1200 }, (_, i) => `M${i + 1} ${100000 + i}`).join("\n");
-    expect(time(() => ok("ipv-rfr", { forecast: years, life: "50", attr: "decay" }))).toBeLessThan(budget(300));
-    expect(time(() => ok("ipv-income", { flows, life: "50" }))).toBeLessThan(budget(300));
-    expect(time(() => ok("ipv-comparable", { periods, ppy: "12" }))).toBeLessThan(budget(300));
+    expect(time(() => fast("ipv-rfr", { forecast: years, life: "50", attr: "decay" }))).toBeLessThan(budget(300));
+    expect(time(() => fast("ipv-income", { flows, life: "50" }))).toBeLessThan(budget(300));
+    expect(time(() => fast("ipv-comparable", { periods, ppy: "12" }))).toBeLessThan(budget(300));
     expect(refusal("ipv-comparable", { periods: periods + "\nM1201 5" })).toContain("1,200 periods");
   });
 });

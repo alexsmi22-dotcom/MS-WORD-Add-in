@@ -15,6 +15,8 @@
 // em dash in an ok result (the pane's insert gate reads it as "not computable").
 
 import { formatP } from "./stats";
+import { boundaryClause, printedPVerdict, BOUNDARY_CLAUSE } from "./pReading";
+import { countWord, ofTheCount, ofTheSingular } from "./statPaneReadings";
 import {
   welchAnova,
   gamesHowell,
@@ -89,7 +91,14 @@ function meanExtremes(st: WelchGroupStats[]): { hi: number; lo: number } | null 
 export function welchAnovaReading(res: WelchAnovaResult): string {
   const stat = reportWelchF(res);
   const ext = meanExtremes(res.groups);
-  if (res.p < 0.05) {
+  // The one p rule (lib/pReading.ts): decided on formatP's printed p; ".050" is borderline.
+  const verdict = printedPVerdict(formatP(res.p));
+  if (verdict === "borderline") {
+    return res.k === 2
+      ? `The difference between the two group means (${stat}) is ${BOUNDARY_CLAUSE}.`
+      : `The differences among the ${countWord(res.k)} group means (${stat}) are ${BOUNDARY_CLAUSE}.`;
+  }
+  if (verdict === "clear") {
     const where = ext
       ? `: group ${ext.hi + 1} averages highest (${welchNum(res.groups[ext.hi].mean)}) and group ${ext.lo + 1} lowest (${welchNum(res.groups[ext.lo].mean)})`
       : "";
@@ -99,7 +108,14 @@ export function welchAnovaReading(res: WelchAnovaResult): string {
   const spread = ext
     ? `; the spread from ${welchNum(res.groups[ext.lo].mean)} (group ${ext.lo + 1}) to ${welchNum(res.groups[ext.hi].mean)} (group ${ext.hi + 1}) could be chance`
     : "";
-  return `The data show no clear difference among the ${res.k} group means (${stat})${spread}.`;
+  return res.k === 2
+    ? `The data show no clear difference between the two group means (${stat})${spread}.`
+    : `The data show no clear difference among the ${countWord(res.k)} group means (${stat})${spread}.`;
+}
+
+/** Whether a Games–Howell pair is significant as PRINTED (formatP at the family-wise α): its star and the reading. */
+export function gamesHowellPairClear(p: number, alpha: number): boolean {
+  return printedPVerdict(formatP(p), alpha) === "clear";
 }
 
 /**
@@ -112,19 +128,22 @@ export function gamesHowellReading(res: GamesHowellResult): string {
     const [a, b] = pr.difference >= 0 ? [pr.i, pr.j] : [pr.j, pr.i];
     return `group ${a + 1} averages ${welchNum(Math.abs(pr.difference))} higher than group ${b + 1} (${formatP(pr.p)})`;
   };
-  const sig = res.pairs.filter((p) => p.significant).sort((x, y) => x.p - y.p);
+  const sig = res.pairs.filter((p) => gamesHowellPairClear(p.p, res.alpha)).sort((x, y) => x.p - y.p);
   if (sig.length) {
     const named = sig.slice(0, 2).map(say).join("; ");
-    const more = sig.length > 2 ? `; and ${sig.length - 2} more` : "";
-    const lead =
-      m === 1 ? "The two groups differ" : sig.length === m ? `All ${m} pairs differ` : `${sig.length} of ${m} pairs ${sig.length === 1 ? "differs" : "differ"}`;
+    const more = sig.length > 2 ? `; and ${countWord(sig.length - 2)} more` : "";
+    const lead = m === 1 ? "The two groups differ" : `${ofTheCount(sig.length, m)} pairs ${ofTheSingular(sig.length, m) ? "differs" : "differ"}`;
     return `${lead} at α = ${res.alpha} after allowing for every comparison: ${named}${more}.`;
   }
   const top = res.pairs.reduce((a, b) => (Math.abs(b.difference) > Math.abs(a.difference) ? b : a), res.pairs[0]);
   const [a, b] = top.difference >= 0 ? [top.i, top.j] : [top.j, top.i];
+  const edge = printedPVerdict(formatP(top.p), res.alpha) === "borderline";
+  if (m === 1) {
+    return `The two groups do not differ clearly at α = ${res.alpha}; the gap of ${welchNum(Math.abs(top.difference))} (${formatP(top.p)}) ${edge ? `is ${boundaryClause(res.alpha)}` : "could be chance"}.`;
+  }
   return (
-    `No pair of groups differs clearly at α = ${res.alpha} once all ${m} comparison${m === 1 ? " is" : "s are"} allowed for; ` +
-    `the largest gap, ${welchNum(Math.abs(top.difference))} between group ${a + 1} and group ${b + 1} (${formatP(top.p)}), could be chance.`
+    `No pair of groups differs clearly at α = ${res.alpha} once all ${countWord(m)} comparisons are allowed for; ` +
+    `the largest gap, ${welchNum(Math.abs(top.difference))} between group ${a + 1} and group ${b + 1} (${formatP(top.p)}), ${edge ? `is ${boundaryClause(res.alpha)}` : "could be chance"}.`
   );
 }
 
@@ -159,13 +178,13 @@ export function welchAnovaCalc(groups: number[][]): StatOutput {
 }
 
 /** One Games–Howell row, Tukey's layout plus SE and the pair's own df. */
-function pairLine(pr: GamesHowellResult["pairs"][number], pct: string): string {
+function pairLine(pr: GamesHowellResult["pairs"][number], pct: string, alpha: number): string {
   return (
     `Group ${pr.i + 1} vs ${pr.j + 1}:  diff = ${welchNum(pr.difference)}` +
     `  SE = ${welchNum(pr.se, 3)}  df = ${welchDf(pr.df)}` +
     `  q = ${welchNum(pr.q, 3)}  ${formatP(pr.p)}` +
     `  ${pct}% CI [${welchNum(pr.ciLow)}, ${welchNum(pr.ciHigh)}]` +
-    (pr.significant ? "  *" : "")
+    (gamesHowellPairClear(pr.p, alpha) ? "  *" : "")
   );
 }
 
@@ -185,14 +204,14 @@ export function gamesHowellCalc(groups: number[][], alphaText: string): StatOutp
   const omni = welchAnova(groups);
   const omniLine = omni.ok ? `Welch's ANOVA: ${reportWelchF(omni)}` : "Welch's ANOVA: not computable for these groups";
   const pct = ciPercent(alpha);
-  const anySig = res.pairs.some((p) => p.significant);
+  const anySig = res.pairs.some((p) => gamesHowellPairClear(p.p, alpha));
   const advice = assumptionNotes(groups);
   const lines = [
     `Games–Howell (${res.k} groups), family-wise α = ${alpha}`,
     omniLine,
     "SE = standard error of the difference, √(s₁²/n₁ + s₂²/n₂); df = Welch–Satterthwaite df for that pair; q = √2·|diff|/SE.",
     "",
-    ...res.pairs.map((p) => pairLine(p, pct)),
+    ...res.pairs.map((p) => pairLine(p, pct, alpha)),
     "",
     anySig ? `* significant at α = ${alpha}` : "No pair is significant at this level.",
     "",

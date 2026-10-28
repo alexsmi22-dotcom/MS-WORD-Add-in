@@ -17,6 +17,7 @@ import { timesTen } from "./axis";
 import { tTestP, tCritical } from "./stats";
 import { buildPlotSvg, type Series } from "./plot";
 import { composePanels } from "./panels";
+import { BOUNDARY_CLAUSE, printedPVerdict } from "./pReading";
 
 type Read = (k: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
@@ -192,7 +193,10 @@ export const BOOT_CI_DEFAULTS: Record<string, string> = {
   method: "bca",
 };
 
-const METHOD_NAMES: Record<BootMethod, string> = { bca: "BCa", percentile: "Percentile", basic: "Basic", normal: "Normal" };
+/** The two-column statistics' worked pair on the default table (spending on income). */
+export const BOOT_TWO_COLUMN_EXAMPLE = "spend ~ income";
+
+const METHOD_NAMES: Record<BootMethod, string> ={ bca: "BCa", percentile: "Percentile", basic: "Basic", normal: "Normal" };
 
 /** boot-ci: bootstrap confidence interval. */
 export function bootCiCalc(read: Read): StatOutput {
@@ -216,7 +220,15 @@ export function bootCiCalc(read: Read): StatOutput {
   const parsed = parseRegData(get("data"));
   if (!parsed.ok) return refuse(parsed.reason);
   const names = parsed.data.names;
-  const vars = get("vars").trim();
+  let vars = get("vars").trim();
+  // The column field's shipped default names ONE column ("spend"); a two-column statistic chosen from the dropdown
+  // refused its own default (R4 #8). Left at that default on a table with both columns, it uses the worked pair
+  // "spend ~ income" and says so.
+  let exampleNote = "";
+  if (statDef.twoColumn && vars === BOOT_CI_DEFAULTS.vars && names.includes("spend") && names.includes("income")) {
+    vars = BOOT_TWO_COLUMN_EXAMPLE;
+    exampleNote = `The column field still held its one-column default, so the worked pair “${BOOT_TWO_COLUMN_EXAMPLE}” is used; type y ~ x to choose the columns.`;
+  }
   let spec: RegSpec;
   if (statDef.twoColumn) {
     if (vars === "") {
@@ -274,7 +286,18 @@ export function bootCiCalc(read: Read): StatOutput {
     }
     return refuse(r.reason);
   }
-  return bootReport(r, { stat, label: statDef.label, depName: c.depName, xName: x ? c.names[0] : undefined, B, conf, seed, method: methodRaw, notes: c.notes, named: parsed.data.named });
+  return bootReport(r, {
+    stat,
+    label: statDef.label,
+    depName: c.depName,
+    xName: x ? c.names[0] : undefined,
+    B,
+    conf,
+    seed,
+    method: methodRaw,
+    notes: exampleNote ? [exampleNote, ...c.notes] : c.notes,
+    named: parsed.data.named,
+  });
 }
 
 interface BootCtx {
@@ -653,7 +676,8 @@ export function qregCalc(read: Read): StatOutput {
   );
   lines.push(
     r.vcov === "robust"
-      ? "Standard errors as statsmodels QuantReg.fit(vcov=\"robust\", kernel=\"epa\", bandwidth=\"hsheather\"), evaluated at the exact solution: the sandwich (XᵀX)⁻¹XᵀDX(XᵀX)⁻¹ with D = (τ/f̂)² for positive residuals and ((1 − τ)/f̂)² otherwise; f̂ is an Epanechnikov kernel density of the residuals at 0, bandwidth min(sd(y), IQR(residuals)/1.34)·(Φ⁻¹(τ + h) − Φ⁻¹(τ − h)) with Hall and Sheather's h."
+      ? "Standard errors by the formula of statsmodels QuantReg.fit(vcov=\"robust\", kernel=\"epa\", bandwidth=\"hsheather\"), evaluated at the exact solution: the sandwich (XᵀX)⁻¹XᵀDX(XᵀX)⁻¹ with D = (τ/f̂)² for positive residuals and ((1 − τ)/f̂)² otherwise; f̂ is an Epanechnikov kernel density of the residuals at 0, bandwidth min(sd(y), IQR(residuals)/1.34)·(Φ⁻¹(τ + h) − Φ⁻¹(τ − h)) with Hall and Sheather's h. " +
+        "Tie rule: the rows the exact solution passes through have a residual of exactly 0 and take the ((1 − τ)/f̂)² weight, as \"otherwise\" says. statsmodels' iterative fit leaves those rows small residuals of either sign, so away from τ = 0.5 its robust standard errors can differ from these (by 10–20% on about 100 rows); the coefficients do not."
       : "Standard errors as statsmodels QuantReg.fit(vcov=\"iid\"), evaluated at the exact solution: τ(1 − τ)/f̂²·(XᵀX)⁻¹, f̂ an Epanechnikov kernel density of the residuals at 0 with Hall and Sheather's bandwidth.",
   );
   lines.push(
@@ -709,7 +733,9 @@ export function qregReading(r: QregRun): string {
   const size = fmtFixed(Math.abs(t.coef), 3);
   const dir = t.coef > 0 ? `about ${size} more` : t.coef < 0 ? `about ${size} less` : "no change in";
   const pt = t.p < 0.001 ? "p < 0.001" : `p = ${fmtP(t.p)}`;
-  const sig = t.p < 0.05 ? "an association unlikely to be chance" : "but the data cannot rule out no association";
+  // The one p rule (lib/pReading.ts): decided on the p as the table prints it; exactly 0.050 is borderline.
+  const verdict = printedPVerdict(pt);
+  const sig = verdict === "clear" ? "an association unlikely to be chance" : verdict === "borderline" ? `an association ${BOUNDARY_CLAUSE}` : "but the data cannot rule out no association";
   const first = `${where}, a one-unit rise in ${name} goes with ${dir} ${r.depName} (${pt}), ${sig}.`;
   if (r.fits.length < 2) return first;
   const lo = r.fits[0];

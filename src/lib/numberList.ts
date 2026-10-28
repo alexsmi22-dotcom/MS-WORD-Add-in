@@ -85,10 +85,19 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
   // "3,500,000; 5,000,000; 8,000,000" was read as nine values (3, 500, 0, 5, 0, 0, 8, 0, 0), silently.
   const commas = (t: string): number => (t.match(/,/g) ?? []).length;
   const grouped = (t: string): boolean => commas(t) >= 2 && GROUPED_THOUSANDS.test(mantissaOf(t));
-  const commaListing = !opts.cells && (runs.length <= 1 || runs.some((t) => commas(t) >= 2 && !grouped(t)));
+  // A LONE value grouped in thousands with a group that starts with 0 ("1,000", "−2,050", "10,000.5", "1,000,000"):
+  // read as the one number. As a comma list it was [1, 0] (bug test 2026-10-28, R4 #3) while "1,000 2,000" read as
+  // 1000 and 2000. The tell is calcList's: no list value is written "000" or "050". "100,200" and "100,200,300" (no
+  // such tell) keep their list reading, as a table row "10,20" / "100,200" must (statFields).
+  const loneThousands =
+    !opts.cells &&
+    runs.length === 1 &&
+    GROUPED_THOUSANDS.test(mantissaOf(runs[0])) &&
+    mantissaOf(runs[0]).replace(/\.\d+%?$|%$/, "").split(",").slice(1).some((g) => g.startsWith("0"));
+  const commaListing = !opts.cells && !loneThousands && (runs.length <= 1 || runs.some((t) => commas(t) >= 2 && !grouped(t)));
   // A lone run that reads both ways ("100,200,300": three values, or one number grouped in thousands) is asked.
   let ambiguous: string | undefined;
-  if (!opts.cells && runs.length === 1 && grouped(runs[0])) {
+  if (!opts.cells && !loneThousands && runs.length === 1 && grouped(runs[0])) {
     const t = runs[0];
     ambiguous = `“${t}” reads two ways: the numbers ${t.split(",").join(", ")}, or one number grouped in thousands (${t.replace(/,/g, "")}). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.`;
   }

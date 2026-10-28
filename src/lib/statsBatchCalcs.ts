@@ -23,6 +23,7 @@ import {
   type CoxTies,
 } from "./cox";
 import { readNumberList } from "./numberList";
+import { BOUNDARY_CLAUSE, printedPVerdict } from "./pReading";
 import { parseCellNumber } from "./dataimport";
 import { buildPlotSvg, combineSvgs, type Series } from "./plot";
 import { forestPlotSvg } from "./statchart";
@@ -288,7 +289,16 @@ export function rmAnovaReading(res: RmAnovaResult, f: RmField): string {
   const k = res.nConditions;
   const corr = (w: RmWithinTest): string =>
     w.lead === "gg" ? " after the Greenhouse–Geisser correction" : w.lead === "hf" ? " after the Huynh–Feldt correction" : w.lead === "lowerBound" ? " on the lower-bound correction" : "";
-  if (res.interaction && res.interaction.leadP < 0.05) {
+  // The one p rule (lib/pReading.ts): every decision on the p as pText prints it; exactly 0.05 is borderline.
+  const vd = (p: number): string | null => printedPVerdict(pText(p));
+  if (res.interaction && vd(res.interaction.leadP) === "borderline") {
+    const w = res.interaction;
+    return (
+      `Whether the change across the ${k} conditions differs between the groups (interaction ${pText(w.leadP)}${corr(w)}) is ${BOUNDARY_CLAUSE}; ` +
+      "check the conditions within each group before relying on the overall averages."
+    );
+  }
+  if (res.interaction && vd(res.interaction.leadP) === "clear") {
     const w = res.interaction;
     return (
       `How the mean changes across the ${k} conditions differs between the groups (interaction ${pText(w.leadP)}${corr(w)}), ` +
@@ -304,7 +314,10 @@ export function rmAnovaReading(res: RmAnovaResult, f: RmField): string {
     if (x.mean < d[lo].mean) lo = i;
   });
   const same = sig(d[hi].mean) === sig(d[lo].mean);
-  if (w.leadP < 0.05) {
+  if (vd(w.leadP) === "borderline") {
+    return `The change in the mean across the ${k} conditions (${pText(w.leadP)}${corr(w)}) is ${BOUNDARY_CLAUSE}.`;
+  }
+  if (vd(w.leadP) === "clear") {
     const where = same ? "" : `, from ${sig(d[lo].mean)} (${cName(f, d[lo].condition)}) to ${sig(d[hi].mean)} (${cName(f, d[hi].condition)})`;
     // With two conditions the test itself names the pair; with more it does not.
     return (
@@ -464,7 +477,12 @@ export function coxReading(fit: CoxFit): string {
   const ci = `95% CI ${coxNum(c.ciLow, 4)} to ${coxNum(c.ciHigh, 4)}, ${formatCoxP(c.p)}`;
   // The user's own column name is never re-capitalised, so a sentence never starts with it.
   const many = cs.length > 1;
-  if (c.p < 0.05) {
+  // The one p rule (lib/pReading.ts): decided on the p as formatCoxP prints it; exactly 0.050 is borderline.
+  const verdict = printedPVerdict(formatCoxP(c.p));
+  if (verdict === "borderline") {
+    return `${many ? `Of the ${cs.length} covariates, the clearest is ${c.name}: its` : "The"} hazard ratio of about ${hr} (${ci}) is ${BOUNDARY_CLAUSE}.`;
+  }
+  if (verdict === "clear") {
     const dir = c.hr >= 1 ? "a higher" : "a lower";
     const lead = many ? `Of the ${cs.length} covariates, the clearest link is that ` : "In these data, ";
     return `${lead}${who} goes with about ${hr} times the hazard of the event (${ci}), ${dir} risk; that is an association, not by itself a causal effect.`;

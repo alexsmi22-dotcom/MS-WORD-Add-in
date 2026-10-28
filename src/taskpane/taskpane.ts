@@ -509,6 +509,9 @@ import {
   reportF,
   formatP,
   evalFormula,
+  firstSpreadProblem,
+  regressionRowsProblem,
+  simpleRegressionExactFit,
 } from "../lib/stats";
 import {
   mannWhitneyU,
@@ -769,8 +772,15 @@ import {
   assumptionsReading,
   chiGofReading,
   chiIndReading,
+  descNum,
   descriptiveReading,
+  dunnClear,
+  dunnettClear,
   dunnettReading,
+  kruskalClear,
+  multcompClear,
+  tukeyPairClear,
+  survivalTime,
   friedmanReading,
   kruskalReading,
   largestContributionLine,
@@ -10524,6 +10534,8 @@ const STAT_CALCS: StatCalc[] = [
     compute: (r) => {
       const xs = statList(r("data"));
       if (xs.length < 2) return { text: "Enter at least two numbers.", ok: false };
+      const tooBig = firstSpreadProblem([{ label: "Data", values: xs }]);
+      if (tooBig) return { text: tooBig, ok: false };
       const d = statDescribe(xs);
       // CV = SD/mean is only meaningful for ratio-scale data with a positive
       // mean; it blows up to ±∞ as the mean → 0 and is negative for negative
@@ -10532,11 +10544,13 @@ const STAT_CALCS: StatCalc[] = [
         d.mean > 0 && Number.isFinite(d.cv) ? `${(d.cv * 100).toFixed(1)}%` : "n/a (needs a positive mean)";
       return {
         text:
+          // descNum: assaySig with every integer digit kept and grouped (R4 #10: "2346000" hid its rounding).
           `Descriptive statistics (n = ${d.n})\n` +
-          `Mean = ${assaySig(d.mean)} ± ${assaySig(d.sem, 3)} (SEM)\n` +
-          `SD = ${assaySig(d.sd)} · Variance = ${assaySig(d.variance)}\n` +
-          `Median = ${assaySig(d.median)} · Min = ${assaySig(d.min)} · Max = ${assaySig(d.max)}\n` +
-          `95% CI = [${assaySig(d.ci95[0])}, ${assaySig(d.ci95[1])}]\n` +
+          `Mean = ${descNum(d.mean)} ± ${descNum(d.sem, 3)} (SEM)\n` +
+          `SD = ${descNum(d.sd)} · Variance = ${descNum(d.variance)}\n` +
+          `Median = ${descNum(d.median)} · Min = ${descNum(d.min)} · Max = ${descNum(d.max)}\n` +
+          // "; " between grouped bounds: a comma would read as one more thousands separator (as econCalcs does).
+          `95% CI = [${descNum(d.ci95[0])}${/,/.test(descNum(d.ci95[0]) + descNum(d.ci95[1])) ? ";" : ","} ${descNum(d.ci95[1])}]\n` +
           `CV = ${cvText}`,
         reading: descriptiveReading(d),
         // The distribution the summary above summarises. Mean and SD cannot
@@ -10572,6 +10586,11 @@ const STAT_CALCS: StatCalc[] = [
       const a = statList(r("a"));
       const b = statList(r("b"));
       if (a.length < 2 || b.length < 2) return { text: "Enter at least two numbers per group.", ok: false };
+      const tooBig = firstSpreadProblem([
+        { label: "Group A", values: a },
+        { label: "Group B", values: b },
+      ]);
+      if (tooBig) return { text: tooBig, ok: false };
       const res = twoSampleTTest(a, b, r("type") === "student");
       if (!Number.isFinite(res.t) || !Number.isFinite(res.p))
         return { text: "t-test is undefined — a group has zero variance (all its values are identical).", ok: false };
@@ -10632,6 +10651,8 @@ const STAT_CALCS: StatCalc[] = [
       const a = statList(r("a"));
       const b = statList(r("b"));
       if (a.length < 2 || a.length !== b.length) return { text: "Enter two equal-length paired lists (≥ 2).", ok: false };
+      const tooBig = firstSpreadProblem([{ label: "The paired differences (condition 1 − condition 2)", values: a.map((x, i) => x - b[i]) }]);
+      if (tooBig) return { text: tooBig, ok: false };
       const res = pairedTTest(a, b);
       if (!Number.isFinite(res.t) || !Number.isFinite(res.p))
         return { text: "Paired t-test is undefined — the paired differences have zero variance (all identical).", ok: false };
@@ -10708,7 +10729,8 @@ const STAT_CALCS: StatCalc[] = [
           ? `[${assaySig(p.ci95[0], 3)}, ${assaySig(p.ci95[1], 3)}]`
           : "n/a";
         lines.push(
-          `${p.time}  ${p.atRisk}  ${p.events}${p.censored ? ` (+${p.censored} cens.)` : ""}  ` +
+          // survivalTime, not the raw number: "1e-7" and "0.30000000000000004" broke the display contract (R4 #10).
+          `${survivalTime(p.time)}  ${p.atRisk}  ${p.events}${p.censored ? ` (+${p.censored} cens.)` : ""}  ` +
             `${assaySig(p.survival, 4)}  ${ci}`,
         );
       }
@@ -10798,6 +10820,8 @@ const STAT_CALCS: StatCalc[] = [
         .map((l) => statList(l))
         .filter((v) => v.length >= 2);
       if (rows.length < 3) return { text: "Enter at least three rows: response then predictors.", ok: false };
+      const capped = regressionRowsProblem(rows.length, "Multiple regression");
+      if (capped) return { text: capped, ok: false };
       const width = rows[0].length;
       if (rows.some((v) => v.length !== width)) {
         return { text: "Every row needs the same number of values.", ok: false };
@@ -11151,6 +11175,8 @@ const STAT_CALCS: StatCalc[] = [
       const x = statList(r("x"));
       const y = statList(r("y"));
       if (x.length !== y.length) return { text: "x and y must have the same number of values.", ok: false };
+      const capped = regressionRowsProblem(x.length, "Polynomial regression");
+      if (capped) return { text: capped, ok: false };
       const res = polynomialRegression(x, y, Number(r("degree")) || 2);
       if (!res.ok) return { text: res.reason ?? "Could not fit the model.", ok: false };
       return {
@@ -11189,7 +11215,8 @@ const STAT_CALCS: StatCalc[] = [
         lines.push(
           `Treatment ${c.treatment + 1} − control = ${assaySig(c.meanDifference)}  ` +
             `t = ${assaySig(c.t, 3)}, ${formatP(c.p)}` +
-            `  95% CI [${assaySig(c.ciLow)}, ${assaySig(c.ciHigh)}]${c.significant ? " *" : ""}`,
+            // The star follows the PRINTED p (one p rule, lib/pReading.ts), so ".050" never carries one.
+            `  95% CI [${assaySig(c.ciLow)}, ${assaySig(c.ciHigh)}]${dunnettClear(c.p) ? " *" : ""}`,
         );
       }
       // Why this rather than Tukey — the whole reason the test exists.
@@ -11248,7 +11275,8 @@ const STAT_CALCS: StatCalc[] = [
       // running it anyway is the classic way to manufacture a finding.
       // Kept for the brackets: they carry THIS run's Holm-adjusted p's, nothing else.
       let dunn: ReturnType<typeof dunnTest> | null = null;
-      if (res.p < 0.05) {
+      // Decided on the PRINTED p (one p rule): a ".050" omnibus result gets no post-hoc, as its reading says borderline.
+      if (kruskalClear(res.p)) {
         const d = dunnTest(groups, "holm");
         dunn = d;
         if (d.ok) {
@@ -11257,7 +11285,7 @@ const STAT_CALCS: StatCalc[] = [
           for (const c of d.comparisons) {
             lines.push(
               `  group ${c.a + 1} vs ${c.b + 1}: z = ${assaySig(c.z, 3)}, ` +
-                `${formatP(c.pAdjusted)}${c.significant ? " *" : ""}`,
+                `${formatP(c.pAdjusted)}${dunnClear(c.pAdjusted) ? " *" : ""}`,
             );
           }
         }
@@ -11458,6 +11486,13 @@ const STAT_CALCS: StatCalc[] = [
       } else {
         lines.push("Normality: " + (norm.reason ?? "not tested"));
       }
+      // Notes only, never the numbers — see the two-sample t-test above.
+      const advice = describeAssumptions(groups).map(plainDashes);
+      // The same "too few values" paragraph came twice (the line above and describeAssumptions' note; R4 #11): the
+      // line now points at the note instead of repeating it.
+      if (!norm.ok && norm.reason && advice.some((a) => a.includes(plainDashes(norm.reason!)))) {
+        lines[lines.length - 1] = "Normality: not tested (the note below says why).";
+      }
 
       if (groups.length >= 2) {
         const vh = varianceHomogeneity(groups);
@@ -11472,8 +11507,6 @@ const STAT_CALCS: StatCalc[] = [
         }
       }
 
-      // Notes only, never the numbers — see the two-sample t-test above.
-      const advice = describeAssumptions(groups).map(plainDashes);
       if (advice.length) {
         lines.push("");
         for (const a of advice) lines.push(a);
@@ -11555,6 +11588,8 @@ const STAT_CALCS: StatCalc[] = [
       if (groups.length < 2) return { text: "Enter at least two groups (separate with a blank line).", ok: false };
       if (groups.some((g) => g.length < 2))
         return { text: "Each ANOVA group needs at least two values.", ok: false };
+      const tooBig = firstSpreadProblem(groups.map((g, i) => ({ label: `Group ${i + 1}`, values: g })));
+      if (tooBig) return { text: tooBig, ok: false };
       const res = oneWayAnova(groups);
       if (!Number.isFinite(res.f) || !Number.isFinite(res.p))
         return { text: "ANOVA is undefined — every group has zero within-group variance (identical values).", ok: false };
@@ -11635,6 +11670,8 @@ const STAT_CALCS: StatCalc[] = [
       const groups = statGroups(r("groups"));
       if (groups.length < 2) return { text: "Enter at least two groups (separate with a blank line).", ok: false };
       if (groups.some((g) => g.length < 2)) return { text: "Each group needs at least two values.", ok: false };
+      const tooBig = firstSpreadProblem(groups.map((g, i) => ({ label: `Group ${i + 1}`, values: g })));
+      if (tooBig) return { text: tooBig, ok: false };
       const tooMany = tukeyGroupLimit(groups.length);
       if (tooMany) return { text: tooMany, ok: false };
       const alpha = Number(r("alpha")) || 0.05;
@@ -11663,9 +11700,10 @@ const STAT_CALCS: StatCalc[] = [
           `Group ${pr.i + 1} vs ${pr.j + 1}:  diff = ${assaySig(pr.difference)}` +
           `  q = ${assaySig(pr.q, 3)}  ${formatP(pr.p)}` +
           `  ${ciPct}% CI [${assaySig(pr.ciLow)}, ${assaySig(pr.ciHigh)}]` +
-          (pr.significant ? "  *" : "")
+          // The star follows the PRINTED p (one p rule, lib/pReading.ts): ".050" at alpha 0.05 carries none.
+          (tukeyPairClear(pr.p, res.alpha) ? "  *" : "")
       );
-      const anySig = res.pairs.some((pr) => pr.significant);
+      const anySig = res.pairs.some((pr) => tukeyPairClear(pr.p, res.alpha));
 
       return {
         text: plainDashes(
@@ -11782,8 +11820,19 @@ const STAT_CALCS: StatCalc[] = [
       const x = statList(r("x"));
       const y = statList(r("y"));
       if (x.length < 3 || x.length !== y.length) return { text: "Enter equal-length x and y lists (≥ 3 points).", ok: false };
+      const tooBig = firstSpreadProblem([
+        { label: "x values", values: x },
+        { label: "y values", values: y },
+      ]);
+      if (tooBig) return { text: tooBig, ok: false };
+      // A constant y has nothing to explain: it printed "R² = 1, SE 0, p n/a" with no reading (R4 #6).
+      if (y.every((v) => v === y[0])) {
+        return { text: "y values: every value is the same, so there is no variation for a line to explain.", ok: false };
+      }
       const res = statRegression(x, y);
       if (!Number.isFinite(res.slope)) return { text: "Regression is undefined — the x values must not all be identical.", ok: false };
+      // An exact fit (residuals at rounding level): SE 0 and "p < .001" there were noise (R4 #6), as multiregress says.
+      const exact = simpleRegressionExactFit(x, y, res.slope, res.intercept);
 
       // A FIGURE, like the multiple and polynomial versions already had. Simple
       // linear regression is the one people reach for first and it was the only
@@ -11817,8 +11866,10 @@ const STAT_CALCS: StatCalc[] = [
         text:
           `Linear regression (n = ${res.n})\n` +
           `${lineEquation(res.slope, res.intercept)}\n` +
-          `R² = ${assaySig(res.rSquared, 4)} · slope SE = ${assaySig(res.slopeSE, 3)} · slope ${formatP(res.slopeP)}`,
-        reading: regressionReading(res),
+          (exact
+            ? "R² = 1 · EXACT FIT: every point lies on the line (the residuals are rounding noise), so the slope's standard error is 0 and its t and p are undefined. Real measurements are never exact; check that y was not computed from x."
+            : `R² = ${assaySig(res.rSquared, 4)} · slope SE = ${assaySig(res.slopeSE, 3)} · slope ${formatP(res.slopeP)}`),
+        reading: regressionReading(res, exact),
         svg: combineSvgs([fitPlot, regressionFigures({ fitted, residuals, standardizedResiduals })]).svg,
       };
     },
@@ -12193,7 +12244,10 @@ const STAT_CALCS: StatCalc[] = [
     ],
     compute: (r) => {
       const design = r("design");
-      const effect = statList(r("effect"));
+      // The field's shipped default "0.5" is a Cohen's d; with "Two proportions" chosen it refused its own default
+      // (R4 #8). Left at that default, the proportions design runs its worked example 0.5 vs 0.6 and says so.
+      const proportionsExample = design === "proportions" && r("effect").trim() === "0.5";
+      const effect = proportionsExample ? [0.5, 0.6] : statList(r("effect"));
       const alpha = Number(r("alpha"));
       const tails = (Number(r("tails")) === 1 ? 1 : 2) as 1 | 2;
       const k = Math.round(Number(r("k")));
@@ -12289,7 +12343,10 @@ const STAT_CALCS: StatCalc[] = [
         { width: 320, height: 200, title: "Power curve", xlabel: `n ${unit}`, ylabel: "power" },
       );
       return {
-        text: plainDashes(`Power analysis: ${what}\n${headline}\nAssumes: ${assumes}.`),
+        text: plainDashes(
+          `Power analysis: ${what}\n${headline}\nAssumes: ${assumes}.` +
+            (proportionsExample ? "\nThe effect field still held 0.5, the default Cohen's d, so the worked example p1 = 0.5, p2 = 0.6 is used; type your own two proportions (p1 p2)." : ""),
+        ),
         reading: powerReading({
           solveN: r("solve") === "n",
           n: nStar,
@@ -12330,7 +12387,8 @@ const STAT_CALCS: StatCalc[] = [
         holm: "Holm",
         bonferroni: "Bonferroni",
       };
-      const lines = p.map((raw, i) => `  p = ${assaySig(raw, 3)} → ${assaySig(adj[i], 3)}${adj[i] < 0.05 ? " *" : ""}`);
+      // The star follows the PRINTED adjusted p (one p rule, lib/pReading.ts), as the reading does.
+      const lines = p.map((raw, i) => `  p = ${assaySig(raw, 3)} → ${assaySig(adj[i], 3)}${multcompClear(adj[i]) ? " *" : ""}`);
       return {
         text: `${names[method]} adjusted p-values\n${lines.join("\n")}\n(* significant at 0.05 after correction)`,
         reading: multcompReading(p, adj, names[method]),

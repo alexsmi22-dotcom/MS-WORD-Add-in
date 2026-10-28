@@ -106,7 +106,9 @@ describe("boot-ci", () => {
     expect(boot({ data: "v\n1\n2\n3\n4", vars: "v" }).text).toMatch(/at least 5 complete rows/);
     expect(boot({ data: "v\n3\n3\n3\n3\n3\n3", vars: "v" }).text).toMatch(/constant/);
     expect(boot({ vars: "nosuch" }).text).toMatch(/No column is named “nosuch”/);
-    expect(boot({ stat: "corr", vars: "spend" }).text).toMatch(/Write the model|exactly one column/);
+    // The field's own one-column default "spend" runs the worked pair (R4 #8); any other single column is refused.
+    expect(boot({ stat: "corr", vars: "spend" }).text).toMatch(/worked pair “spend ~ income” is used/);
+    expect(boot({ stat: "corr", vars: "income" }).text).toMatch(/Write the model|exactly one column/);
     expect(boot({ stat: "mean", vars: "spend ~ income" }).text).toMatch(/uses one column/);
     expect(boot({ stat: "ratio", data: "y\tx\n1\t1\n2\t−1\n3\t2\n4\t−2\n5\t0", vars: "y ~ x" }).text).toMatch(/mean of “x” is 0/);
     expect(boot({ data: "v\n1\n2\n1e400\n4\n5\n6", vars: "v" }).ok).toBe(false);
@@ -279,7 +281,7 @@ describe("qreg", () => {
     expect(qreg({ spec: "" }).ok).not.toBe(false); // blank spec: first column on all the others
   });
 
-  it("100,000 rows × 3 quantiles: answered within bounds; 20 quantiles of 100,000 rows refused up front", () => {
+  it("100,000 rows at one quantile: answered within bounds; 3 and 19 quantiles of 100,000 rows refused up front", () => {
     const rng = new Pcg32(21);
     const u = (): number => (rng.nextU32() + 0.5) / 4294967296;
     const data = table(
@@ -293,8 +295,10 @@ describe("qreg", () => {
       "y\ta\tb\tc",
     );
     let t = Date.now();
-    const o = qreg({ data, spec: "y ~ a + b + c" });
+    // QR_MAX_ROW_QUANTILES is 150,000 since 2026-10-28 (R5 MAJOR 10): one quantile of 100,000 rows fits, three do not.
+    const o = qreg({ data, spec: "y ~ a + b + c", quantiles: "0.5" });
     const ms = Date.now() - t;
+    expect(qreg({ data, spec: "y ~ a + b + c" }).text).toMatch(/row-quantiles/);
     if (o.ok === false) throw new Error(o.text);
     expectDisplayContract(o);
     // Measured on the build machine: ≈ 1.5 s (read, OLS, three LPs, SEs). Bound with margin for 4 parallel workers.

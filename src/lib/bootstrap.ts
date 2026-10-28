@@ -64,7 +64,9 @@ export const BOOT_WALL_MS = 6000;
  * the build machine for every statistic (mean n = 40,000 B = 1,900; median n = 20,000 B = 600; corr n = 3,000
  * B = 13,600 …), so they finish inside BOOT_WALL_MS; a slower machine meets the wall clock's named refusal instead.
  */
-export const BOOT_MAX_WORK = 8e7;
+// Lowered from 8×10⁷ (2026-10-28 bug test, R4 #7: the median at n = 2,000, B = 5,000 took 1.7 s and the mean at
+// n = 2,000, B = 20,000 took 2.1 s, both under the old limit). At 2.5×10⁷ the worst run allowed is about 0.5–1 s.
+export const BOOT_MAX_WORK = 2.5e7;
 export const BOOT_MIN_N = 5;
 export const BOOT_MIN_B = 100;
 export const BOOT_MAX_B = 20000;

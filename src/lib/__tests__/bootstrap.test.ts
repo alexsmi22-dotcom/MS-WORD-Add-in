@@ -201,7 +201,8 @@ describe("bootstrap refusals by name", () => {
 
   it("the wall clock refuses by name when a run outlasts it", () => {
     const y = Float64Array.from({ length: 10000 }, (_, i) => (i * 7919) % 1000);
-    const r = runBootstrap({ stat: "median", y, B: 700, confidence: 0.95, seed: 1, wallMs: 50 });
+    // B = 200: inside the 2.5×10⁷ work limit (lowered 2026-10-28), still far past a 50 ms wall clock.
+    const r = runBootstrap({ stat: "median", y, B: 200, confidence: 0.95, seed: 1, wallMs: 50 });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/time limit/);
   });

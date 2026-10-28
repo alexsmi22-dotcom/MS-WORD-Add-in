@@ -47,6 +47,74 @@ export interface Descriptive {
   ci95: [number, number];
 }
 
+/**
+ * THE MAGNITUDE GUARD the pane's descriptive, t-test, ANOVA, Tukey and regression entries run before anything else
+ * (bug test 2026-10-28, R4 #4), with welch.ts's wording. Values near 10²⁰⁰ square to Infinity, so the variance is
+ * Infinity: the paired t printed "t = 0, p = 1.000, no clear change", the two-sample t and ANOVA refused with "zero
+ * variance" (false) and the descriptive SD printed the em dash. Values that differ by less than about 10⁻¹⁶² square
+ * to 0, and "every value is identical" would be just as false. Returns the refusal naming `label`, or null.
+ */
+export function spreadProblem(label: string, xs: number[]): string | null {
+  if (xs.length < 2) return null;
+  const m = mean(xs);
+  const v = variance(xs);
+  if (!Number.isFinite(m) || !Number.isFinite(v)) {
+    return (
+      `${label}: the values are too large to square in double precision, so the variance cannot be computed. ` +
+      "Rescale the data (for example, change the unit) and run it again."
+    );
+  }
+  if (v === 0 && xs.some((x) => x !== xs[0])) {
+    return (
+      `${label}: the values differ, but by so little that their variance is below what double precision can represent. ` +
+      "Rescale the data (for example, change the unit) and run it again."
+    );
+  }
+  return null;
+}
+
+/** The first spreadProblem among labelled samples, or null. */
+export function firstSpreadProblem(samples: { label: string; values: number[] }[]): string | null {
+  for (const s of samples) {
+    const p = spreadProblem(s.label, s.values);
+    if (p) return p;
+  }
+  return null;
+}
+
+/**
+ * Rows the pane's multiple and polynomial regression accept (R4 #2). The thin QR is O(n·p²), but the residual and
+ * Q-Q figures draw every point; past this the pane would stall on the figure, so it refuses by name.
+ */
+export const REGRESSION_MAX_ROWS = 10000;
+
+export function regressionRowsProblem(n: number, what: string): string | null {
+  return n > REGRESSION_MAX_ROWS
+    ? `${what} takes at most ${REGRESSION_MAX_ROWS.toLocaleString("en-US")} rows here; this has ${n.toLocaleString("en-US")}. Use a sample of the rows, or the OLS regression calculator.`
+    : null;
+}
+
+/**
+ * Simple regression's exact fit, the rule multipleRegression uses: residuals at rounding level against the data's
+ * own scale. Then the slope's SE is rounding noise (or 0) and its t and p test nothing (R4 #6: [0.1, 0.2, 0.3] on
+ * [0.3, 0.5, 0.7] printed "slope p < .001" from SE 0).
+ */
+export function simpleRegressionExactFit(x: number[], y: number[], slope: number, intercept: number): boolean {
+  const n = y.length;
+  if (n < 3) return false;
+  const my = mean(y);
+  let ssTot = 0;
+  let ssRes = 0;
+  let yScale = 0;
+  for (let i = 0; i < n; i++) {
+    ssTot += (y[i] - my) * (y[i] - my);
+    const r = y[i] - (slope * x[i] + intercept);
+    ssRes += r * r;
+    yScale = Math.max(yScale, Math.abs(y[i]));
+  }
+  return ssTot > 0 && Math.sqrt(ssRes / n) <= 1e-10 * Math.max(yScale, Math.sqrt(ssTot / n));
+}
+
 /** Full descriptive summary of a sample. */
 export function describe(xs: number[]): Descriptive {
   const n = xs.length;

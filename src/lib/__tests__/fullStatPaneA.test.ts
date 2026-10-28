@@ -153,14 +153,15 @@ describe("readings follow the result", () => {
     const d = good(welchAnovaCalc(groups(WELCH_DEFAULT)));
     expect(d).toMatch(/^The group means differ somewhere \(F\(3, 8\.3\) = 5\.89, p = \.019\): group 3 averages highest/);
     const n = good(welchAnovaCalc([[1, 2, 3, 4], [2, 3, 4, 5], [1.5, 2.5, 3.5, 4.6]]));
-    expect(n).toMatch(/^The data show no clear difference among the 3 group means/);
+    // Counts in words, as every Stats reading writes them (R4 #11 number style).
+    expect(n).toMatch(/^The data show no clear difference among the three group means/);
   });
 
   test("gameshowell: the engine's own significant pairs, larger mean first", () => {
     const d = good(gamesHowellCalc(groups(WELCH_DEFAULT), "0.05"));
-    expect(d).toMatch(/^2 of 6 pairs differ at α = 0\.05 after allowing for every comparison: group 3 averages [\d.]+ higher than group 2 \(p = \.015\)/);
+    expect(d).toMatch(/^Two of the six pairs differ at α = 0\.05 after allowing for every comparison: group 3 averages [\d.]+ higher than group 2 \(p = \.015\)/);
     const n = good(gamesHowellCalc([[1, 2, 3, 4], [2, 3, 4, 5], [1.5, 2.5, 3.5, 4.6]], "0.05"));
-    expect(n).toMatch(/^No pair of groups differs clearly at α = 0\.05 once all 3 comparisons are allowed for/);
+    expect(n).toMatch(/^No pair of groups differs clearly at α = 0\.05 once all three comparisons are allowed for/);
     const two = good(gamesHowellCalc([[1, 2, 3], [10, 11, 12.5]], "0.01"));
     expect(two).toMatch(/^The two groups differ at α = 0\.01 .*group 2 averages [\d.]+ higher than group 1/);
   });

@@ -125,14 +125,20 @@ describe("two-sample and paired t", () => {
     const n = ok(R.pairedReading(pairedTTest([5, 6, 7, 8], [5.2, 5.7, 7.3, 7.6])));
     expect(n).toMatch(/no clear change/);
   });
-  test("the 5% edge: p printed as .050 but below 0.05 says 'only just'", () => {
-    // Find a t-test with 0.0495 ≤ p < 0.05 by shifting B.
-    let hit: string | undefined;
-    for (let s = 0.5; s < 3 && !hit; s += 0.0005) {
+  test("the 5% edge: p printed as .050 is borderline on either side of 0.05 (the one p rule, calcReading.pVerdict)", () => {
+    // Find t-tests with 0.0495 ≤ p < 0.05 and 0.05 ≤ p < 0.0505 by shifting B: both print ".050", so both read the same.
+    let below: string | undefined;
+    let above: string | undefined;
+    for (let s = 0.5; s < 3 && !(below && above); s += 0.0005) {
       const res = twoSampleTTest([1, 2, 3, 4, 5], [1 + s, 2 + s, 3 + s, 4 + s, 5 + s]);
-      if (res.p < 0.05 && formatP(res.p) === "p = .050") hit = R.twoSampleReading(res);
+      if (formatP(res.p) !== "p = .050") continue;
+      if (res.p < 0.05) below = R.twoSampleReading(res);
+      else above = R.twoSampleReading(res);
     }
-    expect(ok(hit)).toMatch(/only just/);
+    for (const r of [ok(below), ok(above)]) {
+      expect(r).toMatch(/right at the conventional 5% threshold, so the evidence is borderline/);
+      expect(r).not.toMatch(/only just|unlikely to be chance|could be chance/);
+    }
   });
 });
 
@@ -379,7 +385,8 @@ describe("survival", () => {
       { times: [1, 2, 3, 4, 5, 6, 7, 8], events: [1, 1, 1, 1, 1, 1, 1, 1] },
       { times: [20, 22, 24, 26, 28, 30, 32, 34], events: [1, 1, 1, 1, 0, 0, 0, 0] },
     ]);
-    expect(ok(R.logRankReading(sig))).toMatch(/differ .* does better/);
+    // The Peto hazard ratio is an estimate, not a verdict on the group (R4 #11).
+    expect(ok(R.logRankReading(sig))).toMatch(/differ .* estimated hazard ratio .* pointing to a lower risk in group 2/);
   });
 });
 
@@ -419,7 +426,8 @@ describe("counts", () => {
     ];
     const res = twoWayAnova(cells);
     const r = ok(R.twoWayReading(res));
-    expect(r).toMatch(/^Factors A and B both shift the mean/);
+    // Associational, not "shift the mean" (R4 #11).
+    expect(r).toMatch(/^The mean differs across the levels of both factors/);
     const inter = twoWayAnova([
       [
         [10, 11],
@@ -449,7 +457,8 @@ describe("power, multiplicity, uncertainty", () => {
     expectNumbersIn(r, p.map((raw, i) => `p = ${assaySig(raw, 3)} → ${assaySig(adj[i], 3)}`).join("\n") + " 0.05");
     const b = ok(R.multcompReading(p, adjustPValues(p, "bonferroni"), "Bonferroni"));
     expect(b).not.toBe(r);
-    expect(ok(R.multcompReading([0.3, 0.5], adjustPValues([0.3, 0.5], "holm"), "Holm"))).toMatch(/none/);
+    // Two p-values: "neither of the two", not "none of the two" (R4 #11 count grammar).
+    expect(ok(R.multcompReading([0.3, 0.5], adjustPValues([0.3, 0.5], "holm"), "Holm"))).toMatch(/neither of the two p-values/);
   });
   test("uncertainty: the tie rule of the line beside it", () => {
     const tied = propagateUncertainty("a*b/c", { a: { value: 10, uncertainty: 0.1 }, b: { value: 20, uncertainty: 0.2 }, c: { value: 5, uncertainty: 0.05 } });

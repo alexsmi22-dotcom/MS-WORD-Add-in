@@ -162,6 +162,17 @@ export function kaplanMeier(times: number[], events: number[]): KaplanMeierResul
       "BECAUSE they were doing badly, every number here is optimistic and nothing in the data can " +
       "reveal that.",
   ];
+  // A curve that sits EXACTLY at 0.5 over a stretch: packages disagree on its median (bug test R4 #12: this
+  // calculator gave 2 where statsmodels gives 3), so the convention is stated rather than left implicit.
+  const halfAt = points.findIndex((p) => Math.abs(p.survival - 0.5) <= 1e-12);
+  if (median !== null && halfAt >= 0) {
+    const next = points.slice(halfAt + 1).find((p) => p.events > 0);
+    caveats.push(
+      "S(t) is exactly 0.5 from the median time" +
+        (next ? ` until the next event time` : " to the end of follow-up") +
+        ". Conventions differ for this case: this calculator reports the first time S(t) reaches 0.5; some packages report the end of that flat stretch (statsmodels) or its midpoint.",
+    );
+  }
   if (median === null) {
     caveats.push(
       "Median survival is NOT REACHED: the curve never falls to 50%. That is a real result — " +

@@ -451,6 +451,54 @@ export function qrDecompose(A: Matrix): QRDecomposition {
   return { Q, R };
 }
 
+/**
+ * THIN Householder QR for least squares: the same reflections as qrDecompose, applied to `y` as they are formed
+ * instead of being accumulated into an m×m Q. Returns the top n×n block of R and the first n entries of Qᵀy, which
+ * is all a least-squares solve needs (R·b = Qᵀy).
+ *
+ * WHY. qrDecompose builds identity(m): at 4,000 rows that is 16 million doubles (about 700 MB in arrays of arrays)
+ * and an O(m²n) update, so multiple and polynomial regression took 2 s at 4,000 rows and 8 s and 2.6 GB at 8,000
+ * (bug test 2026-10-28, R4 #2). This is O(mn²) time and O(mn) memory. qrDecompose keeps its contract (the Matrix
+ * QR calculator shows Q).
+ */
+export function householderLeastSquaresParts(A: Matrix, y: number[]): { R: Matrix; qty: number[] } {
+  const m = rows(A);
+  const n = cols(A);
+  const R = clone(A);
+  const z = y.slice();
+  const kmax = Math.min(m - 1, n);
+  const v = new Array<number>(m).fill(0);
+  for (let k = 0; k < kmax; k++) {
+    let norm = 0;
+    for (let i = k; i < m; i++) norm += R[i][k] * R[i][k];
+    norm = Math.sqrt(norm);
+    if (norm < 1e-300) continue;
+    const alpha = R[k][k] > 0 ? -norm : norm;
+    v[k] = R[k][k] - alpha;
+    for (let i = k + 1; i < m; i++) v[i] = R[i][k];
+    let vv = 0;
+    for (let i = k; i < m; i++) vv += v[i] * v[i];
+    if (vv < 1e-300) continue;
+    for (let j = 0; j < n; j++) {
+      let dot = 0;
+      for (let i = k; i < m; i++) dot += v[i] * R[i][j];
+      const f = (2 * dot) / vv;
+      for (let i = k; i < m; i++) R[i][j] -= f * v[i];
+    }
+    let dot = 0;
+    for (let i = k; i < m; i++) dot += v[i] * z[i];
+    const f = (2 * dot) / vv;
+    for (let i = k; i < m; i++) z[i] -= f * v[i];
+  }
+  const top: Matrix = [];
+  for (let i = 0; i < Math.min(m, n); i++) {
+    const row = R[i].slice(0, n);
+    for (let j = 0; j < i; j++) row[j] = 0;
+    top.push(row);
+  }
+  return { R: top, qty: z.slice(0, n) };
+}
+
 // --- Singular value decomposition (one-sided Jacobi) ------------------------
 
 export interface SVDResult {

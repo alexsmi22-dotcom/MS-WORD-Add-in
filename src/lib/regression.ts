@@ -17,7 +17,7 @@
 // the condition number, and a polynomial design matrix is exactly where that
 // bites — a cubic fit on x in the hundreds is already badly conditioned.
 
-import { qrDecompose, transpose, multiply, formatNum, type Matrix } from "./linalg";
+import { householderLeastSquaresParts, transpose, multiply, formatNum, type Matrix } from "./linalg";
 
 /** Powers 0–6 as superscripts (the polynomial degree is capped at 6). */
 const SUPERSCRIPT_POWER = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶"];
@@ -117,14 +117,9 @@ export function leastSquares(X: Matrix, y: number[]): { beta: number[]; xtxInv: 
   }
   const Xs: Matrix = X.map((row) => row.map((v, j) => v / colScale[j]));
 
-  const { Q, R } = qrDecompose(Xs);
-  // z = Qᵀy, using only the first p columns of Q.
-  const z = new Array<number>(p).fill(0);
-  for (let j = 0; j < p; j++) {
-    let s = 0;
-    for (let i = 0; i < n; i++) s += Q[i][j] * y[i];
-    z[j] = s;
-  }
+  // THIN QR (bug test 2026-10-28, R4 #2): the reflections are applied to y as they are formed, so no n×n Q is ever
+  // built. qrDecompose's full Q made 4,000 rows cost 2 s and ~700 MB, and 8,000 rows 8 s and 2.6 GB.
+  const { R, qty: z } = householderLeastSquaresParts(Xs, y);
   const betaScaled = backSolve(R, z, p);
   if (!betaScaled) return null;
   const beta = betaScaled.map((b, j) => b / colScale[j]);

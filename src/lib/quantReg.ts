@@ -58,8 +58,12 @@ export const QR_WALL_MS = 6000;
  * The wall clock and the work budget still bound any input shape that needs far more steps.
  */
 export const QR_MAX_ROWS = 100000;
-/** Rows × quantiles accepted in one run (100,000 rows × 6 quantiles, ≈ 0.1–0.4 s each measured). */
-export const QR_MAX_ROW_QUANTILES = 600000;
+/**
+ * Rows × quantiles accepted in one run. Was 600,000 (100,000 rows × 6 quantiles), which the 2026-10-28 bug test
+ * timed at 3.3 s (R5 MAJOR 10); 150,000 keeps a run to about 1 s at the cap (100,000 rows at one quantile, 50,000 at
+ * the default three).
+ */
+export const QR_MAX_ROW_QUANTILES = 150000;
 /** Work units (multiply-adds) allowed for one quantile's LP. */
 export const QR_MAX_WORK = 4e9;
 

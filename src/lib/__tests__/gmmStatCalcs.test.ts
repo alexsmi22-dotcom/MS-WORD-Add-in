@@ -9,7 +9,7 @@ import * as path from "path";
 import type { StatCalcDef } from "../statCalc";
 import type { StatOutput } from "../analyzeBlocks";
 import { insertableResultText } from "../insertGate";
-import { GMM_STAT_CALCS, DYN_DEFAULT_TABLE, dynFitFromRead, econGmmFitFromRead } from "../gmmStatCalcs";
+import { GMM_STAT_CALCS, DYN_DEFAULT_TABLE, ci, coefText, dynFitFromRead, econGmmFitFromRead } from "../gmmStatCalcs";
 import { ivDefaultTable } from "../ivCalcs";
 import { fmtFixed } from "../regTable";
 import { symEigen, symInverse } from "../gmm";
@@ -773,6 +773,17 @@ describe("display of small coefficients, figure notes and ticks", () => {
     const [lo, hi] = row[5].split(" to ");
     expect(lo.replace("−", "").split(".")[1].length).toBe(hi.replace("−", "").split(".")[1].length);
     expect(row[5]).not.toMatch(/×10/);
+    // An interval ending near 0 keeps the other bound's format (fmtFixed alone would switch the small one to ×10ⁿ).
+    for (const [a, b] of [[-0.00002, 0.04], [0.00003, 0.0512], [-0.0512, 0.00001], [-0.000004, 0.0009]]) {
+      const t = ci(a, b);
+      expect(t).not.toMatch(/×10/);
+      const [l, h] = t.split(" to ");
+      expect(l.split(".")[1].length).toBe(h.split(".")[1].length);
+    }
+    expect(ci(1.5e-6, 2.5e-5)).toBe("1.50×10⁻⁶ to 2.50×10⁻⁵");
+    expect(coefText(0.000912)).toBe("0.000912");
+    expect(coefText(-0.00674)).toBe("−0.00674");
+    expect(coefText(0.0711)).toBe("0.0711");
   });
   test("the econ-gmm figure names the weight it used and shortens long tick names", () => {
     const words = (svg: string | undefined): string => (svg ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
@@ -782,6 +793,10 @@ describe("display of small coefficients, figure notes and ticks", () => {
     const svg = run("econ-gmm", { data: long, spec: "lwage ~", endog: "years_of_schooling_completed + labor_market_experience_total", instruments: "dist + sibs" }).svg!;
     expect(svg).toContain("…");
     expect(words(svg)).toContain("Ticks, in order: years_of_schooling_completed, labor_market_experience_total.");
+    // Two long names with a common prefix would shorten to the same tick: numbers instead, keyed in the note.
+    const twin = ivDefaultTable().replace(/^lwage(\s)educ(\s)exper/, "lwage$1years_of_schooling_completed_mother$2years_of_schooling_completed_father");
+    const svg2 = run("econ-gmm", { data: twin, spec: "lwage ~", endog: "years_of_schooling_completed_mother + years_of_schooling_completed_father", instruments: "dist + sibs" }).svg!;
+    expect(words(svg2)).toContain("Ticks: 1 = years_of_schooling_completed_mother, 2 = years_of_schooling_completed_father.");
   });
 });
 

@@ -72,7 +72,7 @@ function fixedText(v: number, d: number): string {
  * A coefficient or standard error: four decimals from 0.01 up (at least three significant figures), three significant
  * figures below (0.000912, never "0.0009"), m×10ⁿ below 10⁻⁴.
  */
-function coefText(v: number): string {
+export function coefText(v: number): string {
   if (!Number.isFinite(v)) return "";
   const a = Math.abs(v);
   if (a === 0 || a >= 0.01) return fmtFixed(v, D);
@@ -84,9 +84,11 @@ function coefText(v: number): string {
  * larger bound is at least 0.01, else as many decimals as give the larger bound three significant figures, or m×10ⁿ
  * for both when it is below 10⁻⁴.
  */
-function ci(lo: number, hi: number): string {
+export function ci(lo: number, hi: number): string {
   const m = Math.max(Math.abs(lo), Math.abs(hi));
-  if (!(m < 0.01)) return `${fmtFixed(lo, D)} to ${fmtFixed(hi, D)}`;
+  // One format for the pair: fmtFixed alone would print a bound below 5×10⁻⁵ (an interval ending near 0) as m×10ⁿ.
+  if (m >= 1e9) return `${fmtSci(lo, 4)} to ${fmtSci(hi, 4)}`;
+  if (!(m < 0.01)) return `${Math.abs(lo) < 5e-5 ? fixedText(lo, D) : fmtFixed(lo, D)} to ${Math.abs(hi) < 5e-5 ? fixedText(hi, D) : fmtFixed(hi, D)}`;
   if (m >= 1e-4) {
     const d = 2 - Math.floor(Math.log10(m));
     return `${fixedText(lo, d)} to ${fixedText(hi, d)}`;
@@ -376,7 +378,10 @@ export function gmmCoefFigure(endog: string[], r: LinearGmmResult, weight = "het
   // Tick labels must fit their slot (about 6.5 px a character at the tick font over a 300 px plot): longer names are
   // shortened with an ellipsis, and the note lists them in full.
   const maxChars = Math.max(4, Math.floor(300 / (k + 0.2) / 6.5) - 1);
-  const tick = endog.map((nm) => (nm.length > maxChars ? `${nm.slice(0, maxChars - 1)}…` : nm));
+  let tick = endog.map((nm) => (nm.length > maxChars ? `${nm.slice(0, maxChars - 1)}…` : nm));
+  // Shortened names that coincide (a shared prefix) fall back to numbers, keyed in the note.
+  const numbered = new Set(tick).size < tick.length;
+  if (numbered) tick = endog.map((_, j) => String(j + 1));
   const shortened = tick.some((t, j) => t !== endog[j]);
   const a: { x: number; y: number; err: number }[] = [];
   const b: { x: number; y: number; err: number }[] = [];
@@ -402,7 +407,7 @@ export function gmmCoefFigure(endog: string[], r: LinearGmmResult, weight = "het
     },
     notes: [
       `Both with ${weight} (sandwich) standard errors and normal intervals, on the same rows.`,
-      ...(shortened ? [`Ticks, in order: ${endog.join(", ")}.`] : []),
+      ...(numbered ? [`Ticks: ${endog.map((nm, j) => `${j + 1} = ${nm}`).join(", ")}.`] : shortened ? [`Ticks, in order: ${endog.join(", ")}.`] : []),
     ],
   });
 }

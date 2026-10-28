@@ -17,6 +17,7 @@ import {
   coxForestData,
   coxCurveProfiles,
   coxAdjustedSurvival,
+  formatCoxP,
   type CoxInput,
   type CoxFit,
   type CoxTies,
@@ -272,8 +273,47 @@ export function rmProfileSvg(res: RmAnovaResult, f: RmField): string {
 
 export interface RmOutput {
   text: string;
+  /** The plain-language reading (lib/calcReading.ts); never on a refusal. */
+  reading?: string;
   ok: boolean;
   svg?: string;
+}
+
+/**
+ * The plain-language reading of a repeated-measures ANOVA, from the engine's own fields and the report's formatters:
+ * the interaction first when a mixed design finds one (the change across conditions then depends on the group), else
+ * the within-subject effect on its reported (corrected) p; the highest and lowest condition means as printed.
+ */
+export function rmAnovaReading(res: RmAnovaResult, f: RmField): string {
+  const k = res.nConditions;
+  const corr = (w: RmWithinTest): string =>
+    w.lead === "gg" ? " after the Greenhouse–Geisser correction" : w.lead === "hf" ? " after the Huynh–Feldt correction" : w.lead === "lowerBound" ? " on the lower-bound correction" : "";
+  if (res.interaction && res.interaction.leadP < 0.05) {
+    const w = res.interaction;
+    return (
+      `How the mean changes across the ${k} conditions differs between the groups (interaction ${pText(w.leadP)}${corr(w)}), ` +
+      "so read the conditions within each group rather than the overall averages."
+    );
+  }
+  const w = res.within;
+  const d = res.descriptives;
+  let hi = 0;
+  let lo = 0;
+  d.forEach((x, i) => {
+    if (x.mean > d[hi].mean) hi = i;
+    if (x.mean < d[lo].mean) lo = i;
+  });
+  const same = sig(d[hi].mean) === sig(d[lo].mean);
+  if (w.leadP < 0.05) {
+    const where = same ? "" : `, from ${sig(d[lo].mean)} (${cName(f, d[lo].condition)}) to ${sig(d[hi].mean)} (${cName(f, d[hi].condition)})`;
+    // With two conditions the test itself names the pair; with more it does not.
+    return (
+      `The mean changes across the ${k} conditions (${pText(w.leadP)}${corr(w)}; partial η² = ${sig(w.partialEta2, 4)})${where}.` +
+      (k > 2 ? " The test does not say which conditions differ; the post-hoc comparisons do." : "")
+    );
+  }
+  const spread = same ? "" : `; the means from ${sig(d[lo].mean)} (${cName(f, d[lo].condition)}) to ${sig(d[hi].mean)} (${cName(f, d[hi].condition)}) could differ by chance`;
+  return `The data show no clear change in the mean across the ${k} conditions (${pText(w.leadP)}${corr(w)})${spread}.`;
 }
 
 /** Field text → the calculator's whole output. */
@@ -282,7 +322,7 @@ export function rmAnovaCalc(text: string, posthoc: "holm" | "none"): RmOutput {
   if ("error" in f) return { text: f.error, ok: false };
   const res = rmAnova(f.rows, f.groups, { posthoc });
   if (!res.ok) return { text: plainText(res.reason), ok: false };
-  return { text: rmAnovaReport(res, f), ok: true, svg: rmProfileSvg(res, f) };
+  return { text: rmAnovaReport(res, f), reading: rmAnovaReading(res, f), ok: true, svg: rmProfileSvg(res, f) };
 }
 
 // ===========================================================================
@@ -373,8 +413,66 @@ export function coxFigureParts(fit: CoxFit): [string, string] {
 
 export interface CoxOutput {
   text: string;
+  /** The plain-language reading (lib/calcReading.ts); never on a refusal. */
+  reading?: string;
   ok: boolean;
   svg?: string;
+}
+
+/**
+ * cox.ts's number format (its `num`, not exported): significant figures, true minus, × 10ⁿ outside 10⁻⁴…10¹⁵ —
+ * copied so the reading's hazard ratio is character for character the one in the report.
+ */
+function coxNum(x: number, sigFigs = 4): string {
+  if (!Number.isFinite(x)) return String(x);
+  if (x === 0) return "0";
+  const a = Math.abs(x);
+  const SUP: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻" };
+  let s: string;
+  if (a >= 1e-4 && a < 1e15) s = Number(x.toPrecision(sigFigs)).toString();
+  else {
+    s = x
+      .toExponential(sigFigs - 1)
+      .replace(/e\+?(-?)(\d+)$/, (_m, sgn: string, d: string) => ` × 10${(sgn + d).split("").map((ch) => SUP[ch] ?? ch).join("")}`);
+  }
+  return s.replace(/^-/, "−");
+}
+
+/** cox.ts's label for a coefficient: a dummy-coded factor level reads "Stage II vs I". */
+function coxLabel(fit: CoxFit, name: string): { label: string; level: boolean } {
+  for (const fc of fit.factors) {
+    const idx = fc.columns.indexOf(name);
+    if (idx >= 0) return { label: `${fc.name} ${fc.levels[idx]} vs ${fc.reference}`, level: true };
+  }
+  return { label: name, level: false };
+}
+
+/**
+ * The plain-language reading of a Cox model: the covariate with the smallest p, its hazard ratio and interval as the
+ * report prints them, worded as an association (a Cox model on observational data is not a causal design).
+ */
+export function coxReading(fit: CoxFit): string {
+  const cs = fit.coefficients;
+  const c = cs.reduce((a, b) => (b.p < a.p ? b : a), cs[0]);
+  const { label, level } = coxLabel(fit, c.name);
+  const who = level
+    ? label
+    : c.twoValues
+    ? `${c.name} at ${coxNum(c.twoValues[1])} rather than ${coxNum(c.twoValues[0])}`
+    : `each one-unit increase in ${c.name}`;
+  const hr = coxNum(c.hr, 4);
+  const ci = `95% CI ${coxNum(c.ciLow, 4)} to ${coxNum(c.ciHigh, 4)}, ${formatCoxP(c.p)}`;
+  // The user's own column name is never re-capitalised, so a sentence never starts with it.
+  const many = cs.length > 1;
+  if (c.p < 0.05) {
+    const dir = c.hr >= 1 ? "a higher" : "a lower";
+    const lead = many ? `Of the ${cs.length} covariates, the clearest link is that ` : "In these data, ";
+    return `${lead}${who} goes with about ${hr} times the hazard of the event (${ci}), ${dir} risk; that is an association, not by itself a causal effect.`;
+  }
+  if (many) {
+    return `Of the ${cs.length} covariates, none shows a clear link to the hazard of the event; the closest is ${c.name} (hazard ratio about ${hr}, ${ci}).`;
+  }
+  return `The data give no clear evidence that ${who} changes the hazard of the event (hazard ratio about ${hr}, ${ci}).`;
 }
 
 /** Field text → the calculator's whole output. */
@@ -387,5 +485,5 @@ export function coxCalc(text: string, ties: CoxTies, memo?: { text: string; inpu
   // concordance ≠ calibration, Peto vs Cox HR, the PH-test variant, and what
   // is not supported) — printed as they are, not restated.
   const lines = [...coxReportLines(fit), "", ...fit.caveats];
-  return { text: plainText(lines.join("\n")), ok: true, svg: coxFigureSvg(fit) };
+  return { text: plainText(lines.join("\n")), reading: plainText(coxReading(fit)), ok: true, svg: coxFigureSvg(fit) };
 }

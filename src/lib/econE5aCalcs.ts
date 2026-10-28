@@ -584,7 +584,28 @@ function ineqOutput(
     { label: "Lorenz curve at deciles of population", rows: lzRows, align: ["right", "right"], note: "Linear between observations (between group points for grouped data)." },
   ];
   const svg = lorenzSvg(r.lorenz, giniText, o.grouped);
-  return { text: lines.join("\n"), tables, svg };
+  return { text: lines.join("\n"), reading: ineqReading(r, o.grouped), tables, svg };
+}
+
+/**
+ * ineq-gini's reading: the Gini on its 0-to-1 scale and the top 10% against the bottom 40%, in the table's digits
+ * (f4, pct2). Grouped data give lower bounds, and negative incomes take the Gini off its 0-to-1 scale.
+ */
+export function ineqReading(r: IneqResult, grouped: boolean): string {
+  const g = f4(r.gini);
+  if (r.min === r.max) return `${r.n === 1 ? "With a single income there is nothing to compare" : "Every income is the same"}, so the Gini coefficient is ${g}: no inequality at all.`;
+  const scale = r.negatives ? "" : " on a scale from 0 (everyone has the same income) to 1 (one person has it all)";
+  const first = `The Gini coefficient is ${grouped ? "at least " : ""}${g}${scale}.`;
+  const top = pct2(r.top10);
+  const bottom = pct2(r.bottom40);
+  const cmpWord = top === bottom ? "the same as" : r.top10 > r.bottom40 ? "more than" : "less than";
+  const second = `The richest 10% receive ${top}% of all income, ${cmpWord} the ${bottom}% that goes to the poorest 40%.`;
+  return `${first} ${second}`.length <= 320 ? `${first} ${second}` : first;
+}
+
+/** Two sentences of a reading, or the first alone when both would pass the reading's 320-character limit. */
+function joinTwo(first: string, second: string): string {
+  return `${first} ${second}`.length <= 320 ? `${first} ${second}` : first;
 }
 
 function epsText(e: number): string {
@@ -980,7 +1001,28 @@ export function concHhiCalc(read: Read): StatOutput {
     merger ? [{ label: "Pre-merger", values: pre }, { label: "Post-merger", values: postV }] : [{ label: "Share", values: pre }],
     { title: merger ? `Market shares before and after ${mergedName}`.slice(0, 60) : "Market shares", ylabel: "Market share (%)" },
   );
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: the HHI (or the merger's change) against the 2023 Guideline 1 screen, in the text's exact digits.
+  let reading: string;
+  if (merger) {
+    const who = mIdx.map((k) => firms[k].name);
+    const pair = who.length === 2 ? `${who[0]} and ${who[1]}` : `${who.slice(0, -1).join(", ")} and ${who[who.length - 1]}`;
+    const head = `The merger of ${pair} raises the HHI by ${ptsText(delta)} to ${range(post, postHi)}, with a combined share of ${ptsText(mShare)}%`;
+    reading =
+      presHhi === "yes" || presShare
+        ? joinTwo(`${head}, so it meets the 2023 Merger Guidelines' structural presumption against the merger.`, "That presumption is a screen the parties can rebut, not a legal conclusion.")
+        : presHhi === "depends"
+          ? `${head}; whether it meets the 2023 Merger Guidelines' structural presumption depends on how the unnamed fringe splits.`
+          : joinTwo(`${head}, which does not meet either structural presumption of the 2023 Merger Guidelines' screen.`, "Other parts of the guidelines can still apply.");
+  } else {
+    const level =
+      highly === "yes"
+        ? "above the 1,800 that the 2023 Merger Guidelines treat as highly concentrated"
+        : highly === "no"
+          ? "not above the 1,800 that the 2023 Merger Guidelines treat as highly concentrated"
+          : "and whether it is above the 2023 Merger Guidelines' 1,800 line depends on how the unnamed fringe splits";
+    reading = `The market's HHI is ${range(hhi, hhiHi)}, ${level}; the four largest firms hold ${range(cr4Pre, cr4PreHi)}% of the market.`;
+  }
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // =================================================================================================================
@@ -1326,7 +1368,28 @@ export function ioLeontiefCalc(read: Read): StatOutput {
   tables.push({ label: "Multipliers and linkages", rows: mrows, align: ["left", ...mh.slice(1, -1).map((): Align => "right"), "left"], note: multNote });
 
   // Figure: backward vs forward linkages with the key-sector quadrant lines at 1.
-  return { text: lines.join("\n"), tables, svg: linkageSvg(tab.names, bl, fl, mode === "Z" ? "Ghosh" : "Rasmussen") };
+  return { text: lines.join("\n"), reading: ioReading(tab.names, outMult, keys), tables, svg: linkageSvg(tab.names, bl, fl, mode === "Z" ? "Ghosh" : "Rasmussen") };
+}
+
+/**
+ * io-leontief's reading: the sector with the largest output multiplier (ties named together, compared in the
+ * table's 4 decimals), and the key sectors, under the model's fixed input shares.
+ */
+export function ioReading(names: string[], outMult: number[], keys: string[]): string {
+  const best = outMult.reduce((m, v) => (v > m ? v : m), -Infinity);
+  const top = names.filter((_, j) => f4io(outMult[j]) === f4io(best));
+  const who = top.length === 1 ? top[0] : `${top.slice(0, -1).join(", ")} and ${top[top.length - 1]} (tied)`;
+  const first =
+    names.length === 1
+      ? `Under the model's fixed input shares, each extra unit of final demand for ${names[0]} calls for ${f4io(best)} units of its output in all.`
+      : `Under the model's fixed input shares, each extra unit of final demand for ${who} raises output across all ${names.length} sectors by ${f4io(best)} units, the largest output multiplier.`;
+  const second =
+    names.length === 1
+      ? ""
+      : keys.length
+        ? `${keys.length === 1 ? `${keys[0]} is a key sector,` : `${keys.slice(0, -1).join(", ")} and ${keys[keys.length - 1]} are key sectors, each`} strongly linked both to the sectors that supply it and to those that buy from it.`
+        : "No sector is a key sector, strongly linked both to its suppliers and to its buyers.";
+  return joinTwo(first, second).trim();
 }
 
 function linkageSvg(names: string[], bl: number[], fl: number[], flKind: string): string {

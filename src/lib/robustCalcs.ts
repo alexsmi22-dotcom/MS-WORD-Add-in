@@ -375,7 +375,24 @@ function bootReport(r: BootResult, k: BootCtx): StatOutput {
     },
     { label: "Bootstrap summary", rows: sumRows, align: ["left", "right"] },
   ];
-  return { text: lines.join("\n"), tables, svg: bootFigure(r, k) };
+  const reading = bootReading(what, confPct, METHOD_NAMES[headline], r.n, r.thetaHat, h[0], h[1], fv, k.stat);
+  return { text: lines.join("\n"), reading, tables, svg: bootFigure(r, k) };
+}
+
+/**
+ * boot-ci's reading: the estimate and the headline interval, in the digits the report prints (fv); for a correlation
+ * or a slope, whether the interval keeps zero among the plausible values.
+ */
+export function bootReading(what: string, confPct: string, method: string, n: number, theta: number, lo: number, hi: number, fv: (v: number) => string, stat: BootStat): string {
+  const head = what.charAt(0).toUpperCase() + what.slice(1);
+  let s = `${head} is about ${fv(theta)} in these ${intText(n)} rows, and the ${confPct} ${method} bootstrap interval puts it between ${fv(lo)} and ${fv(hi)}.`;
+  if (stat === "corr" || stat === "slope") {
+    s +=
+      lo > 0 || hi < 0
+        ? ` The interval excludes 0, so the data point to a ${lo > 0 ? "positive" : "negative"} ${stat === "corr" ? "correlation" : "slope"}.`
+        : ` The interval includes 0, so the data are consistent with no ${stat === "corr" ? "correlation" : "slope"} at all.`;
+  }
+  return s;
 }
 
 function bootFigure(r: BootResult, k: BootCtx): string {
@@ -675,7 +692,34 @@ export function qregCalc(read: Read): StatOutput {
     svg = undefined;
   }
   if (!svg && r.fits.length < 3 && !r.x1) lines.push("No figure: with fewer than three quantiles the figure is the fitted lines over a scatter, which needs a single predictor.");
-  return { text: lines.join("\n"), tables, svg };
+  return { text: lines.join("\n"), reading: qregReading(r), tables, svg };
+}
+
+/**
+ * qreg's reading: the first predictor's coefficient at the middle quantile (the median when it was fitted), with
+ * its significance, then how it moves from the lowest to the highest quantile fitted. Association only.
+ */
+export function qregReading(r: QregRun): string {
+  const k = r.fits[0].model.terms.findIndex((t) => t.name !== "Constant");
+  if (k < 0) return `The model has only a constant; its pseudo R¹ is ${fmtFixed(r.fits[0].r1, 3)} at τ = ${tauText(r.fits[0].tau)}.`;
+  const name = r.fits[0].model.terms[k].name;
+  const mid = r.fits.find((f) => f.tau === 0.5) ?? r.fits[Math.floor((r.fits.length - 1) / 2)];
+  const t = mid.model.terms[k];
+  const where = mid.tau === 0.5 ? "At the median (τ = 0.5)" : `At quantile τ = ${tauText(mid.tau)}`;
+  const size = fmtFixed(Math.abs(t.coef), 3);
+  const dir = t.coef > 0 ? `about ${size} more` : t.coef < 0 ? `about ${size} less` : "no change in";
+  const pt = t.p < 0.001 ? "p < 0.001" : `p = ${fmtP(t.p)}`;
+  const sig = t.p < 0.05 ? "an association unlikely to be chance" : "but the data cannot rule out no association";
+  const first = `${where}, a one-unit rise in ${name} goes with ${dir} ${r.depName} (${pt}), ${sig}.`;
+  if (r.fits.length < 2) return first;
+  const lo = r.fits[0];
+  const hi = r.fits[r.fits.length - 1];
+  const a = fmtFixed(lo.model.terms[k].coef, 3);
+  const b = fmtFixed(hi.model.terms[k].coef, 3);
+  // A description of the point estimates only: no test of whether the quantiles differ is run, so none is claimed.
+  const trend = a === b ? "the same at both ends" : hi.model.terms[k].coef > lo.model.terms[k].coef ? "higher toward the top of the distribution" : "lower toward the top of the distribution";
+  const second = `The estimate is ${a} at τ = ${tauText(lo.tau)} and ${b} at τ = ${tauText(hi.tau)}, so the point estimate is ${trend}.`;
+  return (first + " " + second).length <= 320 ? `${first} ${second}` : first;
 }
 
 /** A dashed horizontal line from x0 to x1 at y, as gapped line pieces (the plotter has no dash style). */

@@ -14,7 +14,9 @@ import { parseRegData, parseSpec, selectColumns, type RegDataset, type RegSpec }
 import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, intText, NBSP, P_BELOW, type StarScheme } from "./regTable";
 import { buildPlotSvg } from "./plot";
 import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal } from "./logitProbit";
-import { estimatorLabel, type FittedModel } from "./regModel";
+import { estimatorLabel, isLinearKind, type FittedModel, type ModelTerm } from "./regModel";
+import { logitCoefFigureSvg, regTableFigureSvg } from "./statPaneFigures";
+import { firstThatFits } from "./statPaneReadings";
 import { parseModelLine, fitModelLine } from "./regTableModels";
 
 /** Longley (1967): total employment and six macro series, US 1947–1962 (statsmodels `longley`, public domain). */
@@ -268,11 +270,135 @@ export function econOlsCalc(read: Read): StatOutput {
     { width: 380, height: 250, title: "Residuals vs fitted", xlabel: `Fitted ${m.depName}`, ylabel: "Residual" },
   );
   if (step > 1) lines.push(`The figure shows every ${step}th row (${pts.length.toLocaleString("en-US")} of ${n.toLocaleString("en-US")} points).`);
-  return { text: lines.join("\n"), svg, tables };
+  return { text: lines.join("\n"), reading: olsReading(fit, d), svg, tables };
 }
 
 function pText(p: number): string {
   return p < 0.001 ? P_BELOW : `= ${fmtP(p)}`;
+}
+
+/** Small counts in words, so a count in a reading is never a number the result does not print. */
+function countWord(n: number): string {
+  const w = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+  return Number.isInteger(n) && n >= 0 && n < w.length ? w[n] : String(n);
+}
+
+function r2Words(r2: number): string {
+  return r2 >= 0.7 ? "most" : r2 >= 0.3 ? "a moderate share" : "little";
+}
+
+/** The predictor with the smallest p (ties: the larger |statistic|), constant excluded; null when there is none. */
+function clearestTerm(terms: ModelTerm[]): ModelTerm | null {
+  const xs = terms.filter((t) => t.name !== "Constant" && Number.isFinite(t.p) && Number.isFinite(t.coef));
+  if (!xs.length) return null;
+  return xs.reduce((a, b) => (b.p < a.p || (b.p === a.p && Math.abs(b.stat) > Math.abs(a.stat)) ? b : a));
+}
+
+/**
+ * econ-ols: how much of the response the model explains, and the predictor most clearly related to it, as an
+ * association (OLS on observational data is not a causal design). Numbers are fmtFixed/fmtP, as in the table.
+ */
+export function olsReading(fit: OlsFit, d: number): string | undefined {
+  const m = fit.model;
+  if (!Number.isFinite(fit.r2)) return undefined;
+  const preds = m.terms.filter((t) => t.name !== "Constant");
+  const k = preds.length;
+  const lead = `The ${k === 1 ? "predictor explains" : `${k} predictors together explain`} ${r2Words(fit.r2)} of the variation in ${m.depName} (R² = ${fmtFixed(fit.r2, 3)}).`;
+  const best = clearestTerm(m.terms);
+  if (!best) return lead;
+  const nSig = preds.filter((t) => t.p < 0.05).length;
+  if (best.p >= 0.05) {
+    return firstThatFits(`${lead} None of them is clearly related to ${m.depName} on its own (smallest p ${pText(best.p)}, ${best.name}).`, lead);
+  }
+  const others = k > 1 ? `${capitalCount(nSig)} of the ${countWord(k)} are statistically significant; ` : "";
+  const assoc = `a one-unit rise in ${best.name} goes with a change of about ${fmtFixed(best.coef, d)} in ${m.depName} (p ${pText(best.p)}), an association rather than a proven cause.`;
+  // Long column names: the count clause goes first, then the second sentence, before the length rule breaks.
+  return firstThatFits(`${lead} ${others}holding the others fixed, ${assoc}`, `${lead} Holding the others fixed, ${assoc}`, lead);
+}
+
+function capitalCount(n: number): string {
+  const w = countWord(n);
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
+/**
+ * econ-logit: the clearest predictor's average marginal effect on P(y = 1), as printed (4 decimals), and how often the
+ * model classifies correctly. Logit and probit fitted to observational data describe associations, so "goes with".
+ */
+export function logitReading(model: FittedModel): string | undefined {
+  const pct = model.stats.find((s) => s.label === "Correctly predicted (%)")?.value;
+  const tail = pct !== undefined && Number.isFinite(pct) ? `; the model classifies ${fmtFixed(pct, 1)}% of cases correctly` : "";
+  const me = model.marginalEffects ?? [];
+  const best = clearestTerm(me.length ? me : model.terms);
+  if (!best) return pct !== undefined && Number.isFinite(pct) ? `The model has no predictors${tail}.` : undefined;
+  if (best.p >= 0.05) {
+    return `No predictor is clearly related to whether ${model.depName} = 1 (smallest p ${pText(best.p)}, ${best.name})${tail}.`;
+  }
+  if (!me.length) {
+    return `${best.name} is the clearest predictor: a higher ${best.name} goes with a ${best.coef > 0 ? "higher" : "lower"} chance that ${model.depName} = 1 (p ${pText(best.p)})${tail}.`;
+  }
+  const main =
+    `A one-unit rise in ${best.name} goes with a ${best.coef > 0 ? "rise" : "fall"} of about ${fmtFixed(Math.abs(best.coef), 4)} ` +
+    `in the probability that ${model.depName} = 1, on average (p ${pText(best.p)})`;
+  return firstThatFits(`${main}${tail}.`, `${main}.`);
+}
+
+/**
+ * econ-regtable: the term most of the models share, how its coefficient moves from the first model that has it to the
+ * last, in how many it is clearly non-zero, and (all linear) how R² moves. Numbers as the table prints them.
+ */
+export function regTableReading(models: FittedModel[], dec: number): string | undefined {
+  if (!models.length) return undefined;
+  const names: string[] = [];
+  for (const m of models) for (const t of m.terms) if (t.name !== "Constant" && !names.includes(t.name)) names.push(t.name);
+  if (!names.length) return undefined;
+  const count = (n: string): number => models.filter((m) => m.terms.some((t) => t.name === n)).length;
+  const term = names.reduce((a, b) => (count(b) > count(a) ? b : a));
+  const hits = models.flatMap((m, i) => {
+    const t = m.terms.find((x) => x.name === term);
+    return t && Number.isFinite(t.coef) ? [{ i, t }] : [];
+  });
+  if (!hits.length) return undefined;
+  const first = hits[0];
+  const last = hits[hits.length - 1];
+  const nSig = hits.filter((h) => h.t.p < 0.05).length;
+  const sigText =
+    hits.length === 1
+      ? first.t.p < 0.05
+        ? "clearly different from zero"
+        : "not clearly different from zero"
+      : nSig === hits.length
+        ? hits.length === 2
+          ? "clearly different from zero in both models that include it"
+          : `clearly different from zero in all ${countWord(hits.length)} models that include it`
+        : nSig === 0
+          ? hits.length === 2
+            ? "not clearly different from zero in either model that includes it"
+            : `not clearly different from zero in any of the ${countWord(hits.length)} models that include it`
+        : `clearly different from zero in ${countWord(nSig)} of the ${countWord(hits.length)} models that include it`;
+  // "goes from … to …" only between coefficients on one scale: linear and quantile models are in the response's
+  // units, a logit or probit coefficient is not, so a mixed pair is never set side by side as if one became the other.
+  const scale = (m: FittedModel): string => (m.kind === "logit" || m.kind === "probit" ? m.kind : "linear");
+  const sameScale = hits.every((h) => scale(models[h.i]) === scale(models[first.i]));
+  const coefText =
+    hits.length === 1
+      ? `is ${fmtFixed(first.t.coef, dec)} in model (${first.i + 1})`
+      : sameScale
+        ? `goes from ${fmtFixed(first.t.coef, dec)} in model (${first.i + 1}) to ${fmtFixed(last.t.coef, dec)} in model (${last.i + 1})`
+        : "is on different scales across the models";
+  let s = `The ${term} coefficient ${coefText}, ${sigText}.`;
+  // The table's R² row says "uncentered" for a linear model without a constant; the reading then leaves R² out.
+  const allLinear = models.every((m) => isLinearKind(m.kind) && m.terms.some((t) => t.name === "Constant"));
+  const r2 = (m: FittedModel): number | undefined => m.stats.find((x) => x.label === "R²")?.value;
+  const r0 = r2(models[0]);
+  const rk = r2(models[models.length - 1]);
+  if (allLinear && models.length > 1 && r0 !== undefined && rk !== undefined && Number.isFinite(r0) && Number.isFinite(rk)) {
+    s += ` R² goes from ${fmtFixed(r0, dec)} in model (1) to ${fmtFixed(rk, dec)} in model (${models.length})`;
+    s += models.every((m) => m.kind === "ols") ? "; these are associations, not causal effects." : ".";
+  } else if (models.every((m) => m.kind === "ols")) {
+    s += " These are associations, not causal effects.";
+  }
+  return firstThatFits(s, `The ${term} coefficient ${coefText}, ${sigText}.`);
 }
 
 /** The first diagnostic that is not a finite number, by name, or null. */
@@ -367,7 +493,12 @@ export function econRegTableCalc(read: Read): StatOutput {
     if (models.some((m) => m.kind === "quantile")) lines.push("For quantile columns the row shows the pseudo R¹ (Koenker and Machado).");
   }
   lines.push(`${o.decimals} decimals; terms a model leaves out are blank.`);
-  return { text: lines.join("\n"), tables: [{ label: table.label, rows: table.rows, note: table.legend, align: table.align }] };
+  return {
+    text: lines.join("\n"),
+    reading: regTableReading(models, o.decimals),
+    svg: regTableFigureSvg(models) || undefined,
+    tables: [{ label: table.label, rows: table.rows, note: table.legend, align: table.align }],
+  };
 }
 
 /** One logit or probit model (lib/logitProbit.ts): the summary, the coefficient table and the marginal effects. */
@@ -391,7 +522,7 @@ export function econLogitCalc(read: Read): StatOutput {
     const rep = logitProbitReport(model);
     // The same conventions as OLS, the constant's position included: the coefficient table lists it last.
     const notes = [...conventionNotes({ se: "classical", constant, decimals: 3, stars: "econ" }, parsed.data.named), ...c.notes];
-    return { text: [rep.text, ...notes].join("\n"), tables: rep.tables };
+    return { text: [rep.text, ...notes].join("\n"), reading: logitReading(model), svg: logitCoefFigureSvg(model), tables: rep.tables };
   } catch (e) {
     if (e instanceof LogitProbitRefusal) return refuse(e.message);
     // Never an uncaught error in the pane: anything else (a RangeError from a value the report cannot print) refuses.

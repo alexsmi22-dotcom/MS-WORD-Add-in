@@ -321,7 +321,66 @@ export function microMarketCalc(read: Read): StatOutput {
     }
   }
   const svg = marketFigureSvg(spec, r, { qunit, cur });
-  return { text: lines.join("\n"), tables, svg };
+  return { text: lines.join("\n"), reading: marketReading(policy, side, amt, r, cur), tables, svg };
+}
+
+/** A value for a reading: the exact decimal the text prints, or "about" its rounded decimal for a repeating fraction. */
+function rn(x: Rat): string {
+  const s = fmtExact(x);
+  const m = /≈ (.*)$/.exec(s);
+  return m ? `about ${m[1]}` : s;
+}
+
+/** A share for a reading: fmtPct, with "about" for a repeating one. */
+function rp(x: Rat): string {
+  const s = fmtPct(x);
+  return s.startsWith("≈ ") ? `about ${s.slice(2)}` : s;
+}
+
+/** Two sentences of a reading, or the first alone when both would pass the 320-character limit. */
+function joinTwo(first: string, second: string): string {
+  return `${first} ${second}`.length <= 320 ? `${first} ${second}` : first;
+}
+
+/**
+ * micro-market's reading: what the policy does to prices, quantity and welfare, under the model's straight-line
+ * demand and supply, in the digits the text prints (fmtExact, fmtPct).
+ */
+export function marketReading(policy: Policy, side: Side, amt: string, r: MarketOutcome, cur: string): string {
+  const money = (x: Rat): string => `${rn(x)} (${cur})`;
+  if (policy === "none") {
+    return `Under the model's straight-line demand and supply, the market clears at a quantity of ${rn(r.qe)} and a price of ${rn(r.pe)}, leaving consumers a surplus of ${rn(r.csE)} and producers ${money(r.psE)}.`;
+  }
+  if (policy === "tax" || policy === "subsidy") {
+    const word = policy;
+    if (r.closed) {
+      return `Without the subsidy nothing is traded; the subsidy of ${amt} opens the market at a quantity of ${rn(r.q)}, with buyers paying ${rn(r.buyers)} and sellers receiving ${rn(r.sellers)}, at a deadweight loss of ${money(r.dwl)}.`;
+    }
+    const w = r.ways![side];
+    const moves =
+      policy === "tax"
+        ? `raises the buyers' price from ${rn(r.pe)} to ${rn(r.buyers)} and cuts the sellers' price to ${rn(r.sellers)}, so buyers bear ${rp(w.buyerShare)} of it and sellers ${rp(w.sellerShare)}`
+        : `lowers the buyers' price from ${rn(r.pe)} to ${rn(r.buyers)} and raises the sellers' price to ${rn(r.sellers)}, so buyers receive ${rp(w.buyerShare)} of it and sellers ${rp(w.sellerShare)}`;
+    return joinTwo(
+      `Under the model's straight-line demand and supply, the ${word} of ${amt} ${moves}.`,
+      `Trade ${policy === "tax" ? "falls" : "rises"} from ${rn(r.qe)} to ${rn(r.q)}, and the deadweight loss is ${money(r.dwl)}.`,
+    );
+  }
+  const name = policy === "ceiling" ? "price ceiling" : "price floor";
+  if (!r.binding) {
+    return `The ${name} of ${amt} does not bind, because it is ${policy === "ceiling" ? "at or above" : "at or below"} the market price of ${rn(r.pe)}, so the market still clears at a quantity of ${rn(r.qe)}.`;
+  }
+  if (r.closes) {
+    return `The ${name} of ${amt} closes the market: nothing is traded, and the deadweight loss is ${money(r.dwl)}, the whole surplus the market would have created.`;
+  }
+  const gap = policy === "ceiling" ? ratSub(r.qd!, r.qs!) : r.qs ? ratSub(r.qs, r.qd!) : null;
+  const want =
+    policy === "ceiling"
+      ? `buyers want ${rn(r.qd!)} but sellers supply only ${rn(r.qs!)}, a shortage of ${rn(gap!)}`
+      : r.qs
+        ? `sellers offer ${rn(r.qs)} but buyers take only ${rn(r.qd!)}, an excess supply of ${rn(gap!)}`
+        : `buyers take only ${rn(r.qd!)} while sellers would supply without limit`;
+  return joinTwo(`Under the model's straight-line demand and supply, the ${name} of ${amt} binds: ${want}.`, `The units no longer traded cost a deadweight loss of ${money(r.dwl)}.`);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -492,7 +551,32 @@ export function microOligopolyCalc(read: Read): StatOutput {
   let svg: string | undefined;
   if (n >= 2) svg = bestResponseFigure(a, b, firms, cournot, by("stackelberg"), qunit);
   else lines.push("With one firm there are no best-response functions to draw.");
-  return { text: lines.join("\n"), tables, svg };
+  return { text: lines.join("\n"), reading: oligopolyReading(r.structures, n, cur), tables, svg };
+}
+
+/**
+ * micro-oligopoly's reading: where Cournot competition puts the price between the competitive and the monopoly
+ * price, and the surplus each loses, in the outcome table's digits (fmtCell). Under the model's assumptions.
+ */
+export function oligopolyReading(structures: Structure[], n: number, cur: string): string {
+  const by = (k: StructureKey): Structure | undefined => structures.find((s) => s.key === k);
+  const comp = by("competition")!;
+  const mono = by("monopoly")!;
+  const cour = by("cournot")!;
+  if (n === 1) {
+    return `Under the model's assumptions, a single firm sets the monopoly price of ${fmtCell(mono.price)} against ${fmtCell(comp.price)} under perfect competition, a deadweight loss of ${fmtCell(mono.dwl)} (${cur}).`;
+  }
+  const pc = fmtCell(cour.price);
+  const where =
+    pc === fmtCell(mono.price)
+      ? `the same as the monopoly price, against ${fmtCell(comp.price)} under perfect competition`
+      : pc === fmtCell(comp.price)
+        ? `the same as under perfect competition, against the monopoly ${fmtCell(mono.price)}`
+        : `between the competitive ${fmtCell(comp.price)} and the monopoly ${fmtCell(mono.price)}`;
+  return joinTwo(
+    `Under the model's assumptions, Cournot competition among the ${n} firms sets the price at ${pc}, ${where}.`,
+    `It loses ${fmtCell(cour.dwl)} of surplus, against ${fmtCell(mono.dwl)} under monopoly (${cur}).`,
+  );
 }
 
 /** A firm's name on an axis title, or "firm k" when the name is too long for the axis (the figure's note names it). */

@@ -252,6 +252,69 @@ function fitStatsRows(r: PanelFitResult, extra: [string, string][] = []): string
   return rows;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Plain-language readings (lib/calcReading.ts states the rules): built from the fit's own fields with the same
+// formatters as the tables (fmtFixed to 3 decimals, pText), so every number in the reading is printed below it.
+
+/** Sentences joined, dropping trailing ones while the reading is over the length limit (calcReading.READING_MAX). */
+export function joinReading(sentences: string[]): string {
+  const s = sentences.filter(Boolean);
+  while (s.length > 1 && s.join(" ").length > 320) s.pop();
+  return s.join(" ");
+}
+
+/** The first regressor (not the constant), or undefined. */
+function firstSlope(m: FittedModel): ModelTerm | undefined {
+  return m.terms.find((t) => t.name !== "Constant");
+}
+
+/** "a one-unit rise in x goes with about 0.133 more y (p < 0.001), an association unlikely to be chance" (association only). */
+function slopeClause(t: ModelTerm, dep: string, others: boolean): string {
+  const size = fmtFixed(Math.abs(t.coef), 3);
+  const dir = t.coef > 0 ? `about ${size} more` : t.coef < 0 ? `about ${size} less` : "no change in";
+  const held = others ? ", the other regressors held fixed" : "";
+  const sig = t.p < 0.05 ? "an association unlikely to be chance" : "but the data cannot rule out no association at all";
+  return `a one-unit rise in ${t.name} goes with ${dir} ${dep}${held} (p ${pText(t.p)}), ${sig}`;
+}
+
+/** panel-fe's reading. */
+export function panelFeReading(fit: FeResult, p: PanelColumns): string {
+  const m = fit.model;
+  const t = firstSlope(m);
+  const k = m.terms.filter((x) => x.name !== "Constant").length;
+  const where = fit.effects === "twoway" ? `Within the same ${p.entityName} and net of shifts common to each ${p.timeName}` : `Within the same ${p.entityName} over time`;
+  const r2 = `The within R² is ${fmtFixed(fit.r2Within, 3)}.`;
+  if (!t) return r2;
+  return joinReading([`${where}, ${slopeClause(t, m.depName, k > 1)}.`, r2]);
+}
+
+/** panel-re's reading: the slope under random effects, then what the Hausman test says about trusting it. */
+export function panelReReading(m: FittedModel, haus: { stat: number; p: number; df: number } | { skipped: string }): string {
+  const t = firstSlope(m);
+  const k = m.terms.filter((x) => x.name !== "Constant").length;
+  const first = t ? `Under random effects, ${slopeClause(t, m.depName, k > 1)}.` : "";
+  let second = "";
+  if (!("skipped" in haus)) {
+    second =
+      haus.p < 0.05
+        ? `The Hausman test finds evidence (p ${pText(haus.p)}) that the random-effects assumption fails here, so the fixed-effects estimates are the safer ones to report.`
+        : `The Hausman test finds no clear evidence against random effects (p ${pText(haus.p)}), so their more precise estimates can be used.`;
+  }
+  return joinReading([first, second]) || "The random-effects model has no regressor to report, and the Hausman test was not computed.";
+}
+
+/** panel-did's reading: the estimated effect, its interval, and whether it is distinguishable from none. */
+export function panelDidReading(d: ModelTerm, dep: string, treat: string, staggered: boolean): string {
+  const est = fmtFixed(d.coef, 3);
+  const ci = `95% CI ${fmtFixed(d.ciLo, 3)} to ${fmtFixed(d.ciHi, 3)}`;
+  const first =
+    d.p < 0.05
+      ? `The estimated effect of ${treat} on ${dep} is about ${est} (${ci}, p ${pText(d.p)}), a change unlikely to be chance if treated and comparison units would otherwise have moved in parallel.`
+      : `The estimated effect of ${treat} on ${dep} is about ${est}, but the data cannot rule out no effect (${ci}, p ${pText(d.p)}).`;
+  const second = staggered ? "Treatment starts at different times, so this two-way fixed-effects estimate can mislead when effects differ across cohorts." : "";
+  return joinReading([first, second]);
+}
+
 function catchRefusal(f: () => StatOutput, what: string): StatOutput {
   try {
     return f();
@@ -387,7 +450,7 @@ export function panelFeCalc(read: Read): StatOutput {
     const svg = ols
       ? compareFigure(ols, "Pooled OLS", m, "Fixed effects", "Pooled OLS vs fixed effects", "Pooled OLS on the same rows, with the matching standard-error type (HC1 for robust, clustered alike); the gap is what absorbing the effects changes.")
       : null;
-    return { text: lines.join("\n"), tables, ...(svg ? { svg } : {}) };
+    return { text: lines.join("\n"), reading: panelFeReading(fit, p), tables, ...(svg ? { svg } : {}) };
   }, "fixed-effects model");
 }
 
@@ -499,7 +562,7 @@ export function panelReCalc(read: Read): StatOutput {
         if (!(e instanceof PanelRefusal) || e instanceof PanelTimeout) throw e;
       }
     }
-    return { text: lines.join("\n"), tables, ...(svg ? { svg } : {}) };
+    return { text: lines.join("\n"), reading: panelReReading(m, haus), tables, ...(svg ? { svg } : {}) };
   }, "random-effects model");
 }
 
@@ -709,6 +772,6 @@ export function panelDidCalc(read: Read): StatOutput {
       }
     }
     lines.push("Rows with an empty or NA cell in a column the model uses are dropped (listwise deletion). Entity ids are compared as text.");
-    return { text: lines.join("\n"), tables, svg };
+    return { text: lines.join("\n"), reading: panelDidReading(d, m.depName, q(r.treatName), staggered), tables, svg };
   }, "difference-in-differences");
 }

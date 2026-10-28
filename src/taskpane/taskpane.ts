@@ -62,7 +62,7 @@ import {
   idxDeflateCalc,
   type E3Field,
 } from "../lib/econE3Calcs";
-import { iv2slsCalc, IV_2SLS_FIELDS, IV_2SLS_DEFAULTS } from "../lib/ivCalcs";
+import { IV_2SLS_FIELDS, IV_2SLS_DEFAULTS } from "../lib/ivCalcs";
 import {
   panelFeCalc,
   PANEL_FE_FIELDS,
@@ -91,16 +91,12 @@ import {
 } from "../lib/econE5aCalcs";
 import { microMarketCalc, MICRO_MARKET_FIELDS, MICRO_MARKET_DEFAULTS, microOligopolyCalc, MICRO_OLIGOPOLY_FIELDS, MICRO_OLIGOPOLY_DEFAULTS } from "../lib/microCalcs";
 import {
-  gameNashCalc,
   GAME_NASH_FIELDS,
   GAME_NASH_DEFAULTS,
-  macroSolowCalc,
   MACRO_SOLOW_FIELDS,
   MACRO_SOLOW_DEFAULTS,
-  macroIslmCalc,
   MACRO_ISLM_FIELDS,
   MACRO_ISLM_DEFAULTS,
-  macroTaylorCalc,
   MACRO_TAYLOR_FIELDS,
   MACRO_TAYLOR_DEFAULTS,
 } from "../lib/gameMacroCalcs";
@@ -768,6 +764,39 @@ import { multipleRegression, polynomialRegression, qqPoints } from "../lib/regre
 import { kaplanMeier, logRankTest, readSurvivalRows, KM_CI_NOTE } from "../lib/survival";
 import { kaplanMeierSvg } from "../lib/survivalFigure";
 import { displayFormula, droppedTokensNote, lineEquation, nbspSeparators, regressionReport } from "../lib/statsDisplay";
+import {
+  anovaReading,
+  assumptionsReading,
+  chiGofReading,
+  chiIndReading,
+  descriptiveReading,
+  dunnettReading,
+  friedmanReading,
+  kruskalReading,
+  largestContributionLine,
+  logRankReading,
+  mannWhitneyReading,
+  multcompReading,
+  multipleRegressionReading,
+  pairedReading,
+  powerReading,
+  regressionReading,
+  survivalReading,
+  tukeyReading,
+  twoSampleReading,
+  twoWayReading,
+  uncertaintyReading,
+  wilcoxonReading,
+} from "../lib/statPaneReadings";
+// iv-2sls and the game/macro calculators: their modules are shared with other registries, so the reading is attached
+// by a wrapper (lib/statPaneModelReadings.ts) rather than inside the module.
+import {
+  gameNashWithReading,
+  iv2slsWithReading,
+  macroIslmWithReading,
+  macroSolowWithReading,
+  macroTaylorWithReading,
+} from "../lib/statPaneModelReadings";
 import { minOf, maxOf } from "../lib/minmax";
 import {
   buildBohrSvg,
@@ -10409,36 +10438,8 @@ function statTwoWay(s: string): { cells: number[][][]; aLevels: string[]; bLevel
  *   group A = ten identical values, group B = anything spread out
  *   -> Welch's t and p are both finite, so no earlier guard fires.
  */
-/**
- * Names the dominant uncertainty term, or says there is not one.
- *
- * WHY IT IS NOT `contributions[0].name`. The shipped default is `a*b/c` with
- * every relative uncertainty at 1%, so all three contributions are EXACTLY
- * 0.16 — mathematically tied. `propagateUncertainty` computes its partials by
- * central differences, which leaves c at 0.16000000001630724 and a and b at
- * 0.15999999998788558; the sort then ranks c first and the pane printed
- * "Largest contribution: c" beside three bars of identical length.
- *
- * A reader acts on that sentence — it is the whole point of an uncertainty
- * budget, the answer to "which measurement should I improve". Naming a winner
- * chosen by finite-difference noise is worse than declining to name one.
- *
- * The tolerance is relative and generous (0.1%), because the noise floor here
- * is a property of the differencing step, not of the user's data.
- */
-function largestContributionLine(contributions: { name: string; contribution: number }[]): string {
-  const finite = contributions.filter((c) => Number.isFinite(c.contribution) && c.contribution > 0);
-  if (!finite.length) return "No term dominates: every contribution is zero or not computable.";
-  const top = finite[0].contribution;
-  const tied = finite.filter((c) => Math.abs(c.contribution - top) <= Math.abs(top) * 1e-3);
-  if (tied.length === finite.length && finite.length > 1) {
-    return `No single dominant term: ${tied.map((c) => c.name).join(", ")} contribute equally.`;
-  }
-  if (tied.length > 1) {
-    return `Largest contribution: ${tied.map((c) => c.name).join(" and ")} (equal).`;
-  }
-  return `Largest contribution: ${finite[0].name}`;
-}
+// largestContributionLine (the uncertainty budget's dominant-term rule) lives in lib/statPaneReadings.ts, beside the
+// reading that must use the same tie rule.
 
 // regressionReport (the shared least-squares text, exact fits included) lives in lib/statsDisplay.ts.
 
@@ -10537,6 +10538,7 @@ const STAT_CALCS: StatCalc[] = [
           `Median = ${assaySig(d.median)} · Min = ${assaySig(d.min)} · Max = ${assaySig(d.max)}\n` +
           `95% CI = [${assaySig(d.ci95[0])}, ${assaySig(d.ci95[1])}]\n` +
           `CV = ${cvText}`,
+        reading: descriptiveReading(d),
         // The distribution the summary above summarises. Mean and SD cannot
         // distinguish a bimodal sample from a flat one — they can be identical
         // for both — and this calculator is most often run on the handful of
@@ -10593,6 +10595,7 @@ const STAT_CALCS: StatCalc[] = [
         text:
           `${label} two-sample t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
           (notes.length ? "\n\n" + notes.join("\n") : ""),
+        reading: twoSampleReading(res),
         // The two distributions the test compares. A significant p with the
         // groups drawn side by side is a claim a reader can check; the same p
         // on its own is one they have to take on trust — and the assumption
@@ -10638,6 +10641,7 @@ const STAT_CALCS: StatCalc[] = [
         text:
           `Paired t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
           (notes.length ? "\n\n" + notes.join("\n") : ""),
+        reading: pairedReading(res),
         // THE DIFFERENCES GET THEIR OWN BOX, because they are what a paired
         // test actually examines. Drawing the two conditions alone would invite
         // the reader to compare them as if they were independent groups, which
@@ -10711,7 +10715,7 @@ const STAT_CALCS: StatCalc[] = [
       // Curve to the last follow-up, y fixed 0 to 1, + ticks at censoring (survivalFigure.ts).
       const svg = kaplanMeierSvg([{ km: res, label: "S(t)" }], { title: "Kaplan-Meier" });
       lines.push("", KM_CI_NOTE);
-      return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), svg };
+      return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), reading: survivalReading(res), svg };
     },
   },
   {
@@ -10773,7 +10777,7 @@ const STAT_CALCS: StatCalc[] = [
         groups.map((g, i) => ({ km: kaplanMeier(g.times, g.events), label: `Group ${i + 1}` })),
         { title: "Survival by group" },
       );
-      return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), svg };
+      return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), reading: logRankReading(res), svg };
     },
   },
   {
@@ -10804,7 +10808,7 @@ const STAT_CALCS: StatCalc[] = [
 
       const res = multipleRegression(y, preds);
       if (!res.ok) return { text: res.reason ?? "Could not fit the model.", ok: false };
-      return { text: regressionReport(res), svg: regressionFigures(res) };
+      return { text: regressionReport(res), reading: multipleRegressionReading(res), svg: regressionFigures(res) };
     },
   },
   // Release E2: publishable OLS (lib/econCalcs.ts, lib/olsInference.ts, lib/regData.ts, lib/regTable.ts).
@@ -10995,7 +10999,7 @@ const STAT_CALCS: StatCalc[] = [
     fields: withDefaults(IV_2SLS_FIELDS, IV_2SLS_DEFAULTS),
     compute: (r) => {
       // Two-stage least squares with first-stage strength, Durbin/Wu–Hausman endogeneity and Sargan/Basmann overidentification.
-      return iv2slsCalc(r);
+      return iv2slsWithReading(r);
     },
   },
   {
@@ -11094,7 +11098,7 @@ const STAT_CALCS: StatCalc[] = [
     fields: withDefaults(GAME_NASH_FIELDS, GAME_NASH_DEFAULTS),
     compute: (r) => {
       // Dominance, every pure equilibrium and the mixed ones by exact support enumeration; 2×2 best-response figure.
-      return gameNashCalc(r);
+      return gameNashWithReading(r);
     },
   },
   {
@@ -11103,7 +11107,7 @@ const STAT_CALCS: StatCalc[] = [
     fields: withDefaults(MACRO_SOLOW_FIELDS, MACRO_SOLOW_DEFAULTS),
     compute: (r) => {
       // Steady state, golden rule, the discrete map's convergence rate and half-life, and the simulated path.
-      return macroSolowCalc(r);
+      return macroSolowWithReading(r);
     },
   },
   {
@@ -11112,7 +11116,7 @@ const STAT_CALCS: StatCalc[] = [
     fields: withDefaults(MACRO_ISLM_FIELDS, MACRO_ISLM_DEFAULTS),
     compute: (r) => {
       // Equilibrium, fiscal and monetary multipliers with crowding out, a policy shift, and the IS–LM and AD–AS figures.
-      return macroIslmCalc(r);
+      return macroIslmWithReading(r);
     },
   },
   {
@@ -11121,7 +11125,7 @@ const STAT_CALCS: StatCalc[] = [
     fields: withDefaults(MACRO_TAYLOR_FIELDS, MACRO_TAYLOR_DEFAULTS),
     compute: (r) => {
       // i = rⁿ + π + a(π − π*) + b·gap (Taylor 1993 weights by default), one period or a series.
-      return macroTaylorCalc(r);
+      return macroTaylorWithReading(r);
     },
   },
   {
@@ -11151,6 +11155,7 @@ const STAT_CALCS: StatCalc[] = [
       if (!res.ok) return { text: res.reason ?? "Could not fit the model.", ok: false };
       return {
         text: `Polynomial regression, degree ${res.degree}\n` + regressionReport(res),
+        reading: multipleRegressionReading(res, { degree: res.degree }),
         svg: regressionFigures(res),
       };
     },
@@ -11196,6 +11201,7 @@ const STAT_CALCS: StatCalc[] = [
       );
       return {
         text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")),
+        reading: dunnettReading(res),
         // The same figure as Tukey, for the same reason — but on the SIMULTANEOUS
         // intervals the engine now reports, which are wider than ordinary t
         // intervals and agree with the family-wise p beside them.
@@ -11265,6 +11271,7 @@ const STAT_CALCS: StatCalc[] = [
       );
       return {
         text: plainDashes(lines.join("\n")),
+        reading: kruskalReading(res, dunn),
         // A rank test asks whether the DISTRIBUTIONS differ, so the boxes are a
         // closer picture of its hypothesis than they are for ANOVA. This test
         // is usually reached for because the data are skewed or carry outliers
@@ -11320,6 +11327,7 @@ const STAT_CALCS: StatCalc[] = [
           "\n\nUse when the SAME subjects are measured under every condition. A between-groups " +
           "test on this data would ignore the pairing and lose most of its power.",
         ),
+        reading: friedmanReading(res),
         // BY CONDITION, which means transposing: the input is one row per
         // subject, and what the test compares is the columns. Drawing the rows
         // would show the spread between SUBJECTS, which is precisely the
@@ -11475,6 +11483,7 @@ const STAT_CALCS: StatCalc[] = [
       }
       return {
         text: plainDashes(lines.join("\n")),
+        reading: assumptionsReading(norm, groups.length >= 2 ? varianceHomogeneity(groups) : null, groups.length),
         // A Q-Q PLOT IS THE EVIDENCE FOR THE VERDICT THIS TOOL PRINTS, and
         // inserting the verdict without it inserts the weaker half — the same
         // argument already recorded for the regression diagnostics.
@@ -11583,6 +11592,7 @@ const STAT_CALCS: StatCalc[] = [
         text:
           `One-way ANOVA (${groups.length} groups)\n${reportF(res)}\n${effect}` +
           (advice.length ? `\n\n${advice.join("\n")}` : ""),
+        reading: anovaReading(res, groups.length, reportF(res), effectSize(res.etaSquared, 3)),
         // ANOVA answers only "are these all the same?", and an F with a p is
         // the least informative honest answer to that. The boxes show WHICH
         // group moved, which is the question the user actually had — and which
@@ -11673,6 +11683,7 @@ const STAT_CALCS: StatCalc[] = [
           // describeAssumptions stopped testing the pooled marginal.
           (tukeyAdvice.length ? "\n\n" + tukeyAdvice.join("\n") : ""),
         ),
+        reading: tukeyReading(res),
         // THE FIGURE A POST-HOC TEST IS FOR. Tukey's output IS a list of
         // confidence intervals, and the only question asked of each one is
         // whether it crosses zero — which the table above makes the reader
@@ -11807,6 +11818,7 @@ const STAT_CALCS: StatCalc[] = [
           `Linear regression (n = ${res.n})\n` +
           `${lineEquation(res.slope, res.intercept)}\n` +
           `R² = ${assaySig(res.rSquared, 4)} · slope SE = ${assaySig(res.slopeSE, 3)} · slope ${formatP(res.slopeP)}`,
+        reading: regressionReading(res),
         svg: combineSvgs([fitPlot, regressionFigures({ fitted, residuals, standardizedResiduals })]).svg,
       };
     },
@@ -11839,6 +11851,7 @@ const STAT_CALCS: StatCalc[] = [
             `Uncertainty propagation\n` +
             `${displayFormula(formula)} = ${assaySig(res.value)} ± ${assaySig(res.uncertainty, 3)}\n` +
             largestContributionLine(res.contributions),
+          reading: uncertaintyReading(formula, res),
           // THE UNCERTAINTY BUDGET, which is what this calculation is FOR. The
           // combined figure says how well you know the answer; the budget says
           // which measurement to improve to make it better, and that is the
@@ -11886,6 +11899,7 @@ const STAT_CALCS: StatCalc[] = [
         // The EXACT p at small n (v2.134.0): the normal approximation printed
         // p = 0.081 for 3 v 3, below the smallest p that is possible (0.1).
         text: ["Mann–Whitney U test (two independent samples)", ...rankTestLines(res, "mann-whitney")].join("\n"),
+        reading: mannWhitneyReading(res),
         // The two distributions, which is what a rank test compares. U and z
         // say nothing about shape, and shape is usually why this test was
         // chosen over a t-test in the first place.
@@ -11925,6 +11939,7 @@ const STAT_CALCS: StatCalc[] = [
       if (res.n1 === 0) return { text: "All paired differences are zero — the test is undefined.", ok: false };
       return {
         text: ["Wilcoxon signed-rank test (paired)", ...rankTestLines(res, "wilcoxon")].join("\n"),
+        reading: wilcoxonReading(res),
         // The differences get their own box, as in the paired t-test: this test
         // ranks the paired differences, and two heavily overlapping conditions
         // can still have every difference the same sign.
@@ -11984,6 +11999,7 @@ const STAT_CALCS: StatCalc[] = [
       // format the p-value unconditionally with nothing said about it.
       return {
         text: `Chi-square goodness of fit\nχ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}`,
+        reading: chiGofReading(res),
         caveats: res.warnings,
         // χ² says the table departs from the model; it cannot say WHERE, and
         // "where" is what the user wanted to know. Observed against expected
@@ -12043,6 +12059,7 @@ const STAT_CALCS: StatCalc[] = [
         text:
           `Chi-square test of independence (${table.length}×${table[0].length})\n` +
           `χ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}${exact}`,
+        reading: chiIndReading(res),
         caveats: res.warnings,
         // Cell by cell, observed against the counts independence predicts.
         // The statistic says the table departs from independence; only this
@@ -12088,6 +12105,7 @@ const STAT_CALCS: StatCalc[] = [
           text:
             `Two-way ANOVA (A: ${aLevels.join("/")} × B: ${bLevels.join("/")})\n` +
             `${row("Factor A", res.factorA)}\n${row("Factor B", res.factorB)}\n${row("A × B interaction", res.interaction)}`,
+          reading: twoWayReading(res),
           // THE INTERACTION PLOT — the one figure this test genuinely requires.
           // A significant interaction means the effect of A DEPENDS on the level
           // of B, and that is a statement about the shape of these lines: they
@@ -12272,6 +12290,14 @@ const STAT_CALCS: StatCalc[] = [
       );
       return {
         text: plainDashes(`Power analysis: ${what}\n${headline}\nAssumes: ${assumes}.`),
+        reading: powerReading({
+          solveN: r("solve") === "n",
+          n: nStar,
+          unit,
+          total: design === "anova" ? k * nStar : design === "paired" ? null : 2 * nStar,
+          power: pw(nStar),
+          target,
+        }),
         svg,
       };
     },
@@ -12307,6 +12333,7 @@ const STAT_CALCS: StatCalc[] = [
       const lines = p.map((raw, i) => `  p = ${assaySig(raw, 3)} → ${assaySig(adj[i], 3)}${adj[i] < 0.05 ? " *" : ""}`);
       return {
         text: `${names[method]} adjusted p-values\n${lines.join("\n")}\n(* significant at 0.05 after correction)`,
+        reading: multcompReading(p, adj, names[method]),
         // Raw beside adjusted, which is the entire point of running a
         // correction: the reader can see HOW FAR each p moved and therefore
         // which conclusions survived multiplicity and which were an artefact of

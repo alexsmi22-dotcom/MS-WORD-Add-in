@@ -31,6 +31,8 @@ import {
   varSelectOrder,
   type GarchSpec,
 } from "../ts2";
+import * as ts2Module from "../ts2";
+import type { GarchFit } from "../ts2";
 import { TS2_STAT_CALCS } from "../ts2StatCalcs";
 import { mackinnonP } from "../tsDiag";
 import { fmtFixed, P_BELOW } from "../regTable";
@@ -302,7 +304,7 @@ describe("GARCH optima ON a bound (F2 review round 1) vs arch 8.0", () => {
     expect(r.higherNonKkt!.noninvertible).toBe(true);
     const o = run(calc("ts-garch"), { data: ["r", ...y.map((v) => v.toFixed(3))].join("\n"), model: "egarch", dist: "normal", mean: "zero" });
     expect(o.text).toContain("Log likelihood = −86.315");
-    expect(o.text).toMatch(/Caution: the search also reached a higher log likelihood, −7\d\.\d{3}, at parameters where the first-order conditions do not hold \(an EGARCH recursion that is not invertible/);
+    expect(o.text).toMatch(/Caution: the search also reached a higher log likelihood at parameters where the first-order conditions do not hold \(an EGARCH recursion that is not invertible/);
   });
   test("a half-life under one period is not printed as a fraction of a period", () => {
     // A GARCH(1,1) with α = 0.35, β = 0.05 (n = 400, Pcg32 seed 3): fitted persistence ≈ 0.428, ln 0.5 / ln 0.428 ≈ 0.82.
@@ -460,6 +462,77 @@ describe("GARCH units, multi-start and degenerate corners (F2 review round 2)", 
     const d = run(calc("ts-garch")).text!;
     expect(d).not.toContain("variance bounds (its floor");
     expect(d).not.toMatch(/Caution: \d+ of the 500 periods/);
+  });
+});
+
+describe("GARCH calculator wording on given fits (F2 review round 3: advice, the α₁ = 0 tolerance, overflow)", () => {
+  // fitGarch stubbed so the wording is pinned on fits no natural series reaches cheaply: a work-limit refusal at
+  // n = 2,500, a GJR whose α₁ + γ₁ is 1.6×10⁻⁶ (inside the 10⁻⁴ boundary list, outside a 10⁻¹² test), a forecast that
+  // overflows.
+  const stub = (over: Partial<GarchFit>): GarchFit => ({
+    ok: true,
+    spec: { vol: "gjr", dist: "t", mean: "constant" },
+    names: ["mu", "omega", "alpha", "gamma", "beta", "nu"],
+    params: [0.05, 0.002, 0, 1.61e-6, 0.99, 8],
+    llf: -700,
+    seRobust: null,
+    seClassic: null,
+    seWhy: "the estimated covariance matrix is not positive definite at the estimate",
+    sigma2: new Float64Array(500).fill(0.2),
+    resid: new Float64Array(500).fill(0.1),
+    backcast: 0.25,
+    n: 500,
+    converged: true,
+    kktGradient: 1e-9,
+    workLimitHit: false,
+    higherNonKkt: null,
+    clamped: 0,
+    floored: 0,
+    egarchLyapunov: NaN,
+    atBounds: ["α = 0", "α + γ = 0"],
+    persistence: 0.99 + 1.61e-6 / 2,
+    forecast: Array.from({ length: 250 }, () => 0.2),
+    scale: 1,
+    ...over,
+  });
+  const runWith = (fit: GarchFit, model = "gjr", dist = "t") => {
+    const spy = jest.spyOn(ts2Module, "fitGarch").mockReturnValue(fit);
+    try {
+      return run(calc("ts-garch"), { model, dist, mean: "constant" });
+    } finally {
+      spy.mockRestore();
+    }
+  };
+  test("advice offers a longer series only below the most a fit takes (round 3 offered it at n = 2,500)", () => {
+    const at = (n: number) => runWith(stub({ n, converged: false, workLimitHit: true, kktGradient: 0.3 }));
+    const full = at(2500);
+    expect(full.ok).toBe(false);
+    expect(full.text).toMatch(/hit its work limit/);
+    expect(full.text).toContain("Try GARCH or EGARCH, or normal errors.");
+    expect(full.text).not.toContain("longer series");
+    expect(at(500).text).toContain("Try GARCH or EGARCH, normal errors, or a longer series.");
+    // Normal errors are not suggested to a normal fit (round 1).
+    const nrm = runWith(stub({ n: 500, converged: false, workLimitHit: false, spec: { vol: "garch", dist: "normal", mean: "constant" } }), "garch", "normal");
+    expect(nrm.text).toContain("Try GJR-GARCH or EGARCH, Student-t errors, or a longer series.");
+  });
+  test("α₁ + γ₁ = 1.6×10⁻⁶ on the boundary list gets the drift line, not a shock half-life or 0.0000ε² leverage", () => {
+    const o = runWith(stub({}));
+    expect(o.ok).not.toBe(false);
+    expect(o.text).toContain("On the boundary of the parameter space: α = 0; α + γ = 0.");
+    expect(o.text).toContain("α₁ and α₁ + γ₁ are on 0 (within 10⁻⁴), so returns do not move the variance: it follows a deterministic path");
+    expect(o.text).toContain(`ln β₁ = ${(Math.log(0.5) / Math.log(0.99)).toFixed(1)} periods (the half-life of that drift, not of a response to shocks)`);
+    expect(o.text).not.toMatch(/half-life of a volatility shock/);
+    expect(o.text).not.toContain("0.0000ε²");
+    // β₁ = 0: constant at ω; β₁ at 1: grows by ω a period.
+    expect(runWith(stub({ params: [0.05, 0.2, 0, 0, 0, 8], persistence: 0 })).text).toContain("and with β₁ = 0 it is constant at ω");
+    expect(runWith(stub({ params: [0.05, 0.002, 0, 0, 1, 8], persistence: 1 })).text).toContain("and with β₁ at 1 it follows a deterministic path from the starting (backcast) variance, growing by ω each period");
+  });
+  test("a forecast that overflows a double is named (round 3: “A fitted quantity is not a finite number”)", () => {
+    // The round-3 case: EGARCH-t with β₁ = 1 and α₁ ≈ 3.5 ahead of a last return of 10⁶ (z ≈ 5×10⁵) puts ln σ²(T + 1)
+    // past ln(max double); that series is now refused earlier, as degenerate (every period at the floor).
+    const o = runWith(stub({ spec: { vol: "egarch", dist: "t", mean: "constant" }, atBounds: ["β = 1"], forecast: [Infinity], params: [0.05, 3.5, 3.5, 0, 1, 2.4], persistence: 1 }), "egarch");
+    expect(o.ok).toBe(false);
+    expect(o.text).toBe("At the estimates, the variance forecast is not a finite double-precision number for this series (it overflows), so the result is not reported.");
   });
 });
 

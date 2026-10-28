@@ -198,8 +198,10 @@ export interface GarchSpec {
 
 /**
  * The most observations a GARCH fit takes. The search's work is capped at GARCH_WORK / (n + 150) likelihood passes
- * (7,547 at n = 2,500), so its worst case takes about the same time at any n (measured 2026-10-27 in Node: about 1 s
- * alone, up to 2.5 s with other work running, for an EGARCH-t on ±1 alternating returns refused at the cap). Past 2,500
+ * (7,547 at n = 2,500), so its worst case takes about the same time at any n (measured 2026-10-27 in Node, review
+ * round 3: at most 0.88 s alone over the hostile n = 2,500 series and 0.80 s over the 1,200-case holdout, up to 1.8 s
+ * with six other fits running; the one hostile series found that hits the cap, an EGARCH-normal with one 10⁶ return as
+ * its last, stops there in 0.62 s). Past 2,500
  * the cap leaves fewer passes (3,883 at n = 5,000), while the slowest converging fits measured needed about 5,600, so
  * they would be refused rather than printed.
  */
@@ -878,9 +880,9 @@ const GRAD_COST = 1;
 /**
  * The likelihood search's total work in observation-passes: the budget is GARCH_WORK / (n + GARCH_PASS_OVERHEAD)
  * passes, so the longest search takes about the same time at every n (measured 2026-10-27, Node on the development
- * laptop: about 1 s alone, up to 2.5 s with other work running, for the worst series found, an EGARCH-t on ±1
- * alternating returns at n = 2,500, which is refused at the cap). The fits that converge in the test sweeps used at
- * most 0.7 of it.
+ * laptop, review round 3: at most 0.88 s alone for the slowest n = 2,500 series found, ±1 alternating returns into
+ * EGARCH-t, refused as degenerate). EGARCH searches its main starts within 70% of it and keeps 30% for its rescue
+ * starts.
  */
 const GARCH_WORK = 2e7;
 /**
@@ -1386,7 +1388,7 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   const chosen = bestOk ?? bestAny;
   if (!chosen) return { ok: false, reason: "The likelihood could not be evaluated at any feasible parameters for this series." };
   // Named when nothing passed the KKT check and some start's search was cut off by its share of the cap.
-  const workLimitHit = !bestOk && exhausted;
+  let workLimitHit = !bestOk && exhausted;
   let kkt = chosen.kkt;
   let xk = chosen.x;
   // EGARCH with a mean: an optimum on the kink of |rₜ − μ| reached without the pin can sit 10⁻¹⁴ off the return; put
@@ -1463,6 +1465,8 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
       if (step < 1e-12) break;
     }
   }
+  // A polish that settles a point the capped search left just short of the KKT conditions undoes the work-limit flag.
+  if (kkt.ok) workLimitHit = false;
   // Boundaries (arch's bounds and constraints) the estimate is on, judged in the canonical units. ω's lower bound is
   // 10⁻⁸·mean r², so for it "near" is relative to the bound itself, not 10⁻⁴ absolute.
   const atBounds: string[] = [];

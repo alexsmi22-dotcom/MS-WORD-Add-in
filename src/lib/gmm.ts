@@ -39,7 +39,7 @@ import { intText } from "./regTable";
 export class GmmRefusal extends Error {}
 
 /** At most this many groups (entities) in a dynamic panel. */
-export const DPD_MAX_GROUPS = 5000;
+export const DPD_MAX_GROUPS = 2000;
 /** At most this many periods from the first to the last (gaps included). */
 export const DPD_MAX_PERIODS = 40;
 /** At most this many instrument columns after the dependent ones are dropped. */
@@ -48,8 +48,8 @@ export const DPD_MAX_INSTR = 400;
 export const DPD_MAX_RAW_INSTR = 1200;
 /** At most this many regressors (lags, exogenous terms and kept time dummies). */
 export const DPD_MAX_REGRESSORS = 40;
-/** Work bound N·L²: the two moment-covariance passes and the Windmeijer pass. */
-export const DPD_MAX_WORK = 1.2e8;
+/** Work bound N·L² (the moment-covariance and Windmeijer passes): 500 groups × 222 instruments ran in 0.32 s under Node. */
+export const DPD_MAX_WORK = 2.5e7;
 /** Linear GMM: at most this many rows and this many columns in X and Z together. */
 export const LGMM_MAX_ROWS = 100_000;
 export const LGMM_MAX_COLUMNS = 60;
@@ -592,28 +592,39 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
   const dPer = [...dSet].sort((a, b) => a - b);
   const lPer = [...lSet].sort((a, b) => a - b);
   if (!dPer.length) throw new GmmRefusal("No entity has two consecutive periods with every value the model needs, so no first difference can be formed. Check the lags against the length of each entity's series.");
-  // Instrument columns: keys in a fixed order.
-  const colOf = new Map<string, number>();
+  // Instrument columns, numbered in a fixed order through lookup tables (−1 = no such column):
+  //   dCol[(gi·A + a)·T + t]  GMM-style, differenced equation (collapsed: t = 0 for every period)
+  //   lCol[gi·T + t]          GMM-style, level equation (collapsed: t = 0)
+  //   ivCol[j], tdCol[s], consCol.
   let L0 = 0;
-  const add = (key: string): void => {
-    if (!colOf.has(key)) colOf.set(key, L0++);
-  };
   const a1 = spec.lagFirst;
-  const bMax = spec.lagLast ?? T;
-  spec.gmmVars.forEach((v, gi) => {
+  const bMax = Math.min(spec.lagLast ?? T, T);
+  const A = bMax + 1;
+  const nG = spec.gmmVars.length;
+  const dCol = new Int32Array(nG * A * T).fill(-1);
+  const lCol = new Int32Array(nG * T).fill(-1);
+  for (let gi = 0; gi < nG; gi++) {
     for (let a = a1; a <= bMax; a++) {
-      if (spec.collapse) add(`d|${gi}|${a}`);
-      else for (const t of dPer) if (t - a >= 0) add(`d|${gi}|${a}|${t}`);
+      if (spec.collapse) dCol[(gi * A + a) * T] = L0++;
+      else for (const t of dPer) if (t - a >= 0) dCol[(gi * A + a) * T + t] = L0++;
     }
     if (spec.system) {
-      if (spec.collapse) add(`l|${gi}`);
-      else for (const t of lPer) add(`l|${gi}|${t}`);
+      if (spec.collapse) lCol[gi * T] = L0++;
+      else for (const t of lPer) lCol[gi * T + t] = L0++;
     }
+  }
+  const ivCol = new Int32Array(kt).fill(-1);
+  terms.forEach((tm, j) => {
+    if (tm.kind === "exog") ivCol[j] = L0++;
   });
-  const ivTerms = terms.map((tm, j) => ({ tm, j })).filter((o) => o.tm.kind === "exog");
-  ivTerms.forEach((o) => add(`iv|${o.j}`));
-  if (spec.timeDummies) for (let s = 0; s < T; s++) add(`td|${s}`);
-  if (spec.system) add("cons");
+  const tdCol = new Int32Array(T).fill(-1);
+  if (spec.timeDummies) for (let s = 0; s < T; s++) tdCol[s] = L0++;
+  const consCol = spec.system ? L0++ : -1;
+  const ser = (v: string): Float64Array[] => data.series.get(v)!;
+  const ySer = ser(spec.y);
+  const tSer = terms.map((tm) => ser(tm.v));
+  const gSer = spec.gmmVars.map(ser);
+  const at = (s: Float64Array[], g: number, t: number): number => (t < 0 || t >= T ? NaN : s[g][t]);
   if (L0 > DPD_MAX_RAW_INSTR) {
     throw new GmmRefusal(
       `The instrument set would have ${intText(L0)} columns before reduction (the limit is ${intText(DPD_MAX_RAW_INSTR)}). Choose “collapse”, or a last lag for the GMM-style instruments.`,
@@ -634,41 +645,36 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
     const mkRow = (diff: boolean, t: number): Row => {
       const zi: number[] = [];
       const zv: number[] = [];
-      const put = (key: string, v: number): void => {
-        const c = colOf.get(key);
-        if (c === undefined || v === 0 || Number.isNaN(v)) return;
+      const put = (c: number, v: number): void => {
+        if (c < 0 || v === 0 || Number.isNaN(v)) return;
         zi.push(c);
         zv.push(v);
       };
       const x = new Float64Array(kFull);
       let y: number;
       if (diff) {
-        y = val(spec.y, g, t) - val(spec.y, g, t - 1);
-        terms.forEach((tm, j) => (x[j] = val(tm.v, g, t - tm.lag) - val(tm.v, g, t - 1 - tm.lag)));
+        y = at(ySer, g, t) - at(ySer, g, t - 1);
+        for (let j = 0; j < kt; j++) x[j] = at(tSer[j], g, t - terms[j].lag) - at(tSer[j], g, t - 1 - terms[j].lag);
         if (spec.timeDummies) {
           x[kt + t] += 1;
           x[kt + t - 1] -= 1;
         }
-        spec.gmmVars.forEach((v, gi) => {
-          for (let a = a1; a <= bMax; a++) put(spec.collapse ? `d|${gi}|${a}` : `d|${gi}|${a}|${t}`, val(v, g, t - a));
-        });
-        ivTerms.forEach((o) => put(`iv|${o.j}`, val(o.tm.v, g, t - o.tm.lag) - val(o.tm.v, g, t - 1 - o.tm.lag)));
+        for (let gi = 0; gi < nG; gi++) for (let a = a1; a <= bMax; a++) put(dCol[(gi * A + a) * T + (spec.collapse ? 0 : t)], at(gSer[gi], g, t - a));
+        for (let j = 0; j < kt; j++) if (ivCol[j] >= 0) put(ivCol[j], at(tSer[j], g, t - terms[j].lag) - at(tSer[j], g, t - 1 - terms[j].lag));
         if (spec.timeDummies && !spec.system) {
-          put(`td|${t}`, 1);
-          put(`td|${t - 1}`, -1);
+          put(tdCol[t], 1);
+          put(tdCol[t - 1], -1);
         }
       } else {
-        y = val(spec.y, g, t);
-        terms.forEach((tm, j) => (x[j] = val(tm.v, g, t - tm.lag)));
+        y = at(ySer, g, t);
+        for (let j = 0; j < kt; j++) x[j] = at(tSer[j], g, t - terms[j].lag);
         if (spec.timeDummies) x[kt + t] = 1;
         x[kFull - 1] = 1;
-        spec.gmmVars.forEach((v, gi) => {
-          const lag = a1 - 1;
-          put(spec.collapse ? `l|${gi}` : `l|${gi}|${t}`, val(v, g, t - lag) - val(v, g, t - lag - 1));
-        });
-        ivTerms.forEach((o) => put(`iv|${o.j}`, val(o.tm.v, g, t - o.tm.lag)));
-        if (spec.timeDummies) put(`td|${t}`, 1);
-        put("cons", 1);
+        const lag = a1 - 1;
+        for (let gi = 0; gi < nG; gi++) put(lCol[gi * T + (spec.collapse ? 0 : t)], at(gSer[gi], g, t - lag) - at(gSer[gi], g, t - lag - 1));
+        for (let j = 0; j < kt; j++) if (ivCol[j] >= 0) put(ivCol[j], at(tSer[j], g, t - terms[j].lag));
+        if (spec.timeDummies) put(tdCol[t], 1);
+        put(consCol, 1);
       }
       // Sparse indices in increasing order (a column appears once per row).
       const ord = zi.map((_, i) => i).sort((p, q2) => zi[p] - zi[q2]);

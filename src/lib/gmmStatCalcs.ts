@@ -15,7 +15,7 @@ import type { StatCalcDef } from "./statCalc";
 import { findColumn, parseRegData, selectColumns, type RegDataset } from "./regData";
 import { readPanel, panelTextTooLong } from "./panelData";
 import { readDateToken, civilFromDay } from "./damagesInterest";
-import { fmtFixed, fmtP, intText, P_BELOW } from "./regTable";
+import { fmtFixed, fmtP, intText, numText, P_BELOW } from "./regTable";
 import { buildPlotSvg, type Series } from "./plot";
 import { chiSquareP } from "./stats2";
 import { ivDefaultTable } from "./ivCalcs";
@@ -26,6 +26,8 @@ import {
   olsFeOnLevels,
   GmmRefusal,
   GMM_Z975,
+  DPD_MAX_GROUPS,
+  DPD_MAX_PERIODS,
   type DynData,
   type DynDesign,
   type DynFit,
@@ -55,6 +57,19 @@ function coefRow(name: string, b: number, se: number): string[] {
   // Two-sided normal p as P(χ²₁ > z²): the upper tail keeps its precision far out (1 − Φ would cancel).
   const p = chiSquareP(z * z, 1);
   return [name, fmtFixed(b, D), fmtFixed(se, D), Number.isFinite(z) ? fmtFixed(z, 2) : "not computed", Number.isFinite(z) ? fmtP(p) : "not computed", ci(b - GMM_Z975 * se, b + GMM_Z975 * se)];
+}
+/**
+ * A value outside 10⁻¹⁰⁰…10¹⁰⁰ (or 0) makes the cross-products overflow or vanish, which would surface as a false
+ * "collinear" refusal: refuse it by column and data row instead (olsInference.magnitudeReason's bounds).
+ */
+function magnitude(col: ArrayLike<number>, rows: number[], name: string): string | null {
+  for (let i = 0; i < col.length; i++) {
+    const a = Math.abs(col[i]);
+    if (a !== 0 && (a < 1e-100 || a > 1e100)) {
+      return `${q(name)}, row ${rows[i]}: ${numText(col[i])} is outside the magnitudes GMM here accepts (10⁻¹⁰⁰ to 10¹⁰⁰, or 0). Rescale the column and fit again.`;
+    }
+  }
+  return null;
 }
 function nameList(text: string): string[] | null {
   const t = (text ?? "").trim();
@@ -184,6 +199,10 @@ export function econGmmFitFromRead(read: Read): GmmFitted | { error: string } {
     if (G < 2) return err(`The cluster column ${q(c.clusterName ?? cluster)} has one cluster; clustering needs at least 2.`);
     if (G <= Z.length) return err(`${G} clusters for ${Z.length} instruments: the clustered moment covariance has rank at most ${G}, so the efficient weight matrix is not defined. Use more clusters, fewer instruments, or the robust weight.`);
   }
+  for (const [col, nm] of [[c.y, c.depName], ...c.X.map((x, j) => [x, c.names[j]] as const)] as [Float64Array, string][]) {
+    const big = magnitude(col, c.rowNumbers, nm);
+    if (big) return err(big);
+  }
   // The response must vary.
   if (c.y.every((v) => v === c.y[0])) return err(`The response ${q(c.depName)} is constant in every row used; there is nothing to explain.`);
   let r: LinearGmmResult;
@@ -207,9 +226,10 @@ export function econGmmCalc(read: Read): StatOutput {
   const lines: string[] = [];
   const title = steps === "two" ? "Linear GMM, two-step efficient" : "Linear GMM, one-step (2SLS weight)";
   lines.push(
-    `${title}: ${c.depName} on ${k1 ? `${endog.join(", ")} (instrumented)` : "no endogenous regressor"}` +
-      (k2 ? ` and ${exog.join(", ")}` : "") +
-      ` (n = ${intText(r.n)}, ${r.k} coefficients, ${r.L} instruments)`,
+    `${title}: ${c.depName} on ` +
+      [...(k1 ? [`${endog.join(", ")} (instrumented)`] : []), ...(k2 ? [exog.join(", ")] : []), ...(k1 + k2 === 0 ? ["the constant only"] : [])].join(" and ") +
+      (k1 ? "" : " (no endogenous regressor)") +
+      ` (n = ${intText(r.n)}, ${r.k} coefficient${r.k === 1 ? "" : "s"}, ${r.L} instruments)`,
   );
   lines.push(`Excluded instruments: ${instr.length ? instr.join(", ") : "none"}; the exogenous regressors${constant ? " and the constant" : ""} instrument themselves.`);
   lines.push(`Weight matrix: ${cluster ? `clustered by ${c.clusterName ?? cluster} (${intText(G)} clusters)` : "heteroskedasticity-robust"}; standard errors from the same sandwich, z statistics.`);
@@ -487,6 +507,8 @@ function readDyn(read: Read): DynRead | { error: string } {
       }
       obs.push({ ent: e, per: perOf[p.time[i]], v: p.y[i] });
     }
+    const big = magnitude(p.y, p.rowNumbers, v);
+    if (big) return { error: big };
     perVar.set(v, obs);
     const missing = ds.rows.length - p.n;
     if (missing > 0) notes.push(`${q(v)}: ${intText(missing)} row${missing === 1 ? "" : "s"} with no value (or no entity or time) left out of its series.`);
@@ -499,11 +521,11 @@ function readDyn(read: Read): DynRead | { error: string } {
       if (o.per > pmax) pmax = o.per;
     }
   const T = pmax - pmin + 1;
-  if (!(T >= 1) || T > 40) {
-    return { error: `The time column spans ${Number.isFinite(T) ? intText(T) : "too many"} periods from first to last (gaps included); this calculator allows 40.` };
+  if (!(T >= 1) || T > DPD_MAX_PERIODS) {
+    return { error: `The time column spans ${Number.isFinite(T) ? intText(T) : "too many"} periods from first to last (gaps included); this calculator allows ${DPD_MAX_PERIODS}.` };
   }
   const N = entNames.length;
-  if (N > 5000) return { error: `The panel has ${intText(N)} entities; this calculator allows 5,000.` };
+  if (N > DPD_MAX_GROUPS) return { error: `The panel has ${intText(N)} entities; this calculator allows ${intText(DPD_MAX_GROUPS)}.` };
   const series = new Map<string, Float64Array[]>();
   for (const [v, obs] of perVar) {
     const arr = Array.from({ length: N }, () => new Float64Array(T).fill(NaN));
@@ -623,7 +645,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   }
   if (des.droppedDummies.length) lines.push(`Time dummies dropped (no rows, or collinear with the others${sys ? " and the constant" : ""}): ${des.droppedDummies.join(", ")}.`);
   if (des.emptyGroups) lines.push(`${intText(des.emptyGroups)} entit${des.emptyGroups === 1 ? "y has" : "ies have"} no usable row (too few consecutive periods for the lags) and ${des.emptyGroups === 1 ? "is" : "are"} left out.`);
-  if (fit.singularS) lines.push("The two-step moment covariance is singular (common when instruments approach the number of groups); its Moore–Penrose inverse was used, as xtabond2 does.");
+  if (fit.singularS) lines.push("The two-step moment covariance is singular (common when instruments approach the number of groups); its Moore–Penrose inverse was used, as xtabond2 does. The two-step estimates, their SEs and Hansen J then depend on how that inverse is taken (different software can disagree widely) and should not be relied on: collapse the instruments or set a last lag.");
   lines.push(
     "Conventions (Roodman's xtabond2): " +
       (sys

@@ -279,7 +279,12 @@ describe("panel-dyn-gmm hostile inputs and refusals", () => {
     expect(o.text).toMatch(/collapse/);
     const huge = dynPanel(30, 6).replace(/\n(e1\t2003\t)[^\t]+/, "\n$11e300");
     const h = run("panel-dyn-gmm", { ...DYN, data: huge });
-    if (h.ok !== false) expect(h.text).not.toMatch(/NaN|Infinity/);
+    expect(h.ok).toBe(false);
+    expect(h.text).toMatch(/^“y”, row \d+: 1×10³⁰⁰ is outside the magnitudes/);
+    // More entities than the cap: refused by name before any work.
+    const many = run("panel-dyn-gmm", { ...DYN, data: dynPanel(2001, 3) });
+    expect(many.ok).toBe(false);
+    expect(many.text).toBe("The panel has 2,001 entities; this calculator allows 2,000.");
   });
   test("timing: the default and an N = 500, T = 10 panel stay inside the pane budget", () => {
     let t0 = Date.now();

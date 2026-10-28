@@ -890,10 +890,10 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
     ? Math.min(W * 0.45, Math.max(60, ...shown.map((r) => textWidthPt(r.name, S(8, r.name)) + 12)))
     : Math.min(150, W * 0.4, Math.max(60, longest * 5.6 + 10));
   // The value labels' own width sets the right margin (a caller's "€1,258.60" is longer than three significant
-  // figures), within a third of the canvas.
+  // figures), within 45% of the canvas.
   const labelOf = (rw: HBarRow): string => (rw.text !== undefined ? rw.text : `${fmtVal(rw.value)} ${opts.unit}`.trim());
-  const textW = (t: string, size: number): number => (bw ? textWidthPt(t, size) * 1.1 + 4 : t.length * size * 0.56 + 4);
-  const MR = Math.min(W / 3, Math.max(bw ? 90 : 58, ...shown.map((rw) => textW(labelOf(rw), S(8, labelOf(rw))) + 8)));
+  const textW = (t: string, size: number): number => (bw ? textWidthPt(t, size) * 1.1 + 4 : t.length * size * 0.6 + 4);
+  const MR = Math.min(W * 0.45, Math.max(bw ? 90 : 58, ...shown.map((rw) => textW(labelOf(rw), S(8, labelOf(rw))) + 8)));
   // A name longer than the left margin is cut with an ellipsis (it ran off the canvas at x < 0 at narrow widths).
   const fitName = (name: string): string => {
     const size = S(8, name);

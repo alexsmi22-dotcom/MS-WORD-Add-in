@@ -116,7 +116,7 @@ export function figureRenderer(compute: () => string | undefined | null): (w: nu
     }
     seqCounter.clear();
     const svg = withFigCtx({ width: w, bw: style?.color === "bw", style: style ?? null, widthMm, memo }, () => compute() ?? "");
-    return svg ? styleFigureSvg(svg, style ?? null) : "";
+    return svg ? styleFigure(svg, style ?? null) : "";
   };
 }
 
@@ -224,7 +224,7 @@ const OPACITY_ATTRS = ["opacity", "fill-opacity", "stroke-opacity", "stop-opacit
  * a black outline; every opacity removed (black at 0.35 prints grey). Gradients and images cannot be made black and
  * white here and are left for the style check to refuse by name.
  */
-export function blackAndWhiteSvg(svg: string, hatching = true): string {
+export function blackAndWhite(svg: string, hatching = true): string {
   const hatchOf = new Map<string, string>();
   const hatch = (colour: string): string => {
     const k = colour.trim().toLowerCase();
@@ -289,7 +289,7 @@ export function blackAndWhiteSvg(svg: string, hatching = true): string {
     if (opens) inDefs++;
     return `<${tagName}${a}${selfClose}>`;
   });
-  if (hatching && hatchOf.size > HATCH_IDS.length) return blackAndWhiteSvg(svg, false);
+  if (hatching && hatchOf.size > HATCH_IDS.length) return blackAndWhite(svg, false);
   if (!hatchOf.size) return out;
   return out.replace(/^(\s*<svg\b(?:[^>"']|"[^"]*"|'[^']*')*>)/, `$1${hatchDefs(hatchOf.size)}`);
 }
@@ -355,13 +355,13 @@ export function fitTextBand(svg: string, ratio: number): string {
 }
 
 /** A redrawn figure fitted to `style`: black and white when the style requires it, text inside the style's band. */
-export function styleFigureSvg(svg: string, style: FigureStylePreset | null): string {
+export function styleFigure(svg: string, style: FigureStylePreset | null): string {
   if (!style || !svg) return svg;
   let s = svg;
   // The style's own typeface (Arial/Helvetica, or Times for the thesis): the size fit is computed for it, and a
   // builder's "Segoe UI, Arial" stack has smaller capitals, so its letters missed the USPTO 3.52 mm by 1.7 %.
   if (style.fontFamily && !style.fontFamily.includes('"')) s = s.replace(/(\sfont-family=")[^"]*(")/g, `$1${style.fontFamily}$2`);
-  if (style.color === "bw") s = supSubAll(blackAndWhiteSvg(s));
+  if (style.color === "bw") s = supSubAll(blackAndWhite(s));
   const { min, max } = style.sizesPt;
   if (max !== null && min > 0) s = fitTextBand(s, (max / min) * 0.985);
   return s;

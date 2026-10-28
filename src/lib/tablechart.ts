@@ -633,13 +633,13 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   const figLabel = (style.figLabel ?? "").trim();
   const showLegend = chart.series.length > 1;
   // Patent text is larger (see PATENT_CAPS_PX), so its margins are too.
-  const ml = patent ? 62 : 48;
+  let ml = patent ? 62 : 48;
   const mr = showLegend ? (patent ? 132 : 100) : 14;
   let mt = title ? (patent ? 30 : 26) : 12;
   let mb = (patent ? 40 : 34) + (figLabel ? 26 : 0);
   const okabe = !patent && style.palette === "okabe-ito";
   const pal: readonly string[] = okabe ? CATEGORICAL_PALETTE : CHART_PALETTE;
-  const pw = W - ml - mr;
+  let pw = W - ml - mr;
   let ph = H - mt - mb;
 
   const stacked = kind === "stacked-column" || kind === "stacked-bar" || kind === "stacked-area";
@@ -713,6 +713,15 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
         ? { ...valueAxis0, labels: fixedLabels(), multiplier: "" }
         : { ...valueAxis0, labels: valueAxis0.labels.map(commaGroupLabel) }
       : valueAxis0;
+  // Grouped fixed-point money labels ("25,000,000") are wider than the 48 px margin was sized for: on a vertical value
+  // axis the margin grows to fit them (inside the fixed canvas, taken from the plot width).
+  if (!horizontal && style.grouping === "comma" && bigMult) {
+    const widest = Math.max(...valueAxis.labels.map((l) => l.length)) * 0.6 * (patent ? 13 : 10) + 12;
+    if (widest > ml) {
+      ml = Math.ceil(widest);
+      pw = W - ml - mr;
+    }
+  }
   // The multiplier is stated once, at the end of the value axis, in room made
   // for it INSIDE the fixed canvas (the canvas size is what Word inserts at).
   if (valueAxis.multiplier) {

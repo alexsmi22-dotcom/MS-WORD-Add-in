@@ -198,7 +198,7 @@ export function cbaScenariosCalc(r: Read): FinResult {
   const base = baseRaw ?? years[0];
   if (base > years[0]) return finRefusal(`The base year ${base} is after the first year in the table (${years[0]}): flows before the base year are not discounted forward here.`);
   const T = years[years.length - 1] - base;
-  if (T > CBA_MAX_YEARS) return finRefusal(`The table spans ${T} years from the base year; the most is ${CBA_MAX_YEARS}.`);
+  if (T > CBA_MAX_YEARS) return finRefusal(`The table spans ${T.toLocaleString("en-US")} years from the base year; the most is ${CBA_MAX_YEARS}.`);
   // conversion factors
   let factors: number[] = Array(2 * S).fill(1);
   let factorNote = "";

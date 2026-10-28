@@ -594,6 +594,16 @@ const div = (a: Figure, b: Figure, bName: string): Figure => {
   const v = a.value / b.value;
   return Number.isFinite(v) ? { ok: true, value: v } : { ok: false, why: "the amounts are too large to divide" };
 };
+/** The reason a ratio over negative equity is withheld; figText and the reading recognise it by this prefix. */
+export const NEGATIVE_EQUITY_WHY = "not meaningful: equity is negative";
+/**
+ * A ratio over shareholders' equity (fix-fin R3 B3): over NEGATIVE equity it is withheld, not computed. A net loss
+ * over negative equity printed "ROE 20.00%", and a negative equity multiplier, as if normal.
+ */
+const divEquity = (a: Figure, eq: Figure): Figure => {
+  if (eq.ok && eq.value < 0) return { ok: false, why: NEGATIVE_EQUITY_WHY };
+  return div(a, eq, "equity");
+};
 const sum = (...xs: Figure[]): Figure => {
   for (const x of xs) if (!x.ok) return x;
   return { ok: true, value: xs.reduce((a, x) => a + (x as { value: number }).value, 0) };
@@ -632,8 +642,8 @@ export function ratioSuite(st: Statement, opts: RatioOptions): RatioRow[] {
       },
     },
     { category: "Leverage", name: "Debt ratio", formula: "total liabilities ÷ total assets", unit: "times", f: (b) => div(b.item("totalLiabilities"), b.item("totalAssets"), "total assets") },
-    { category: "Leverage", name: "Debt-to-equity", formula: "total liabilities ÷ shareholders’ equity", unit: "times", f: (b) => div(b.item("totalLiabilities"), b.item("equity"), "equity") },
-    { category: "Leverage", name: "Equity multiplier", formula: `${B("total assets")} ÷ ${B("equity")}`, unit: "times", f: (b) => div(b.bal("totalAssets"), b.bal("equity"), "equity") },
+    { category: "Leverage", name: "Debt-to-equity", formula: "total liabilities ÷ shareholders’ equity", unit: "times", f: (b) => divEquity(b.item("totalLiabilities"), b.item("equity")) },
+    { category: "Leverage", name: "Equity multiplier", formula: `${B("total assets")} ÷ ${B("equity")}`, unit: "times", f: (b) => divEquity(b.bal("totalAssets"), b.bal("equity")) },
     { category: "Leverage", name: "Interest coverage", formula: "EBIT ÷ interest expense", unit: "times", f: (b) => div(b.item("ebit"), b.item("interest"), "interest expense") },
     { category: "Efficiency", name: "Asset turnover", formula: `revenue ÷ ${B("total assets")}`, unit: "times", f: (b) => div(b.item("revenue"), b.bal("totalAssets"), "total assets") },
     { category: "Efficiency", name: "Inventory turnover", formula: `cost of goods sold ÷ ${B("inventory")}`, unit: "times", f: (b) => div(b.item("cogs"), b.bal("inventory"), "inventory") },
@@ -659,7 +669,7 @@ export function ratioSuite(st: Statement, opts: RatioOptions): RatioRow[] {
     { category: "Profitability", name: "Operating margin", formula: "EBIT ÷ revenue", unit: "%", f: (b) => div(b.item("ebit"), b.item("revenue"), "revenue") },
     { category: "Profitability", name: "Net margin", formula: "net income ÷ revenue", unit: "%", f: (b) => div(b.item("netIncome"), b.item("revenue"), "revenue") },
     { category: "Profitability", name: "Return on assets", formula: `net income ÷ ${B("total assets")}`, unit: "%", f: (b) => div(b.item("netIncome"), b.bal("totalAssets"), "total assets") },
-    { category: "Profitability", name: "Return on equity", formula: `net income ÷ ${B("equity")}`, unit: "%", f: (b) => div(b.item("netIncome"), b.bal("equity"), "equity") },
+    { category: "Profitability", name: "Return on equity", formula: `net income ÷ ${B("equity")}`, unit: "%", f: (b) => divEquity(b.item("netIncome"), b.bal("equity")) },
   ];
   return defs.map(({ f, ...d }) => ({
     ...d,
@@ -694,16 +704,16 @@ export function duPont(st: Statement, opts: RatioOptions): DuPont {
     three: [
       { label: "Net margin", formula: "net income ÷ revenue", value: div(ni, rev, "revenue") },
       { label: "Asset turnover", formula: `revenue ÷ ${A}`, value: div(rev, ta, "total assets") },
-      { label: "Equity multiplier", formula: `${A} ÷ ${E}`, value: div(ta, eq, "equity") },
+      { label: "Equity multiplier", formula: `${A} ÷ ${E}`, value: divEquity(ta, eq) },
     ],
     five: [
       { label: "Tax burden", formula: "net income ÷ income before tax", value: div(ni, ebt, "income before tax") },
       { label: "Interest burden", formula: "income before tax ÷ EBIT", value: div(ebt, ebit, "EBIT") },
       { label: "EBIT margin", formula: "EBIT ÷ revenue", value: div(ebit, rev, "revenue") },
       { label: "Asset turnover", formula: `revenue ÷ ${A}`, value: div(rev, ta, "total assets") },
-      { label: "Equity multiplier", formula: `${A} ÷ ${E}`, value: div(ta, eq, "equity") },
+      { label: "Equity multiplier", formula: `${A} ÷ ${E}`, value: divEquity(ta, eq) },
     ],
-    roe: div(ni, eq, "equity"),
+    roe: divEquity(ni, eq),
   };
 }
 
@@ -768,7 +778,10 @@ export function altmanZ(st: Statement, variant: AltmanVariant): AltmanResult | {
   const z = x.reduce((a, v) => a + v.coef * v.value, 0);
   if (!x.every((v) => Number.isFinite(v.value)) || !Number.isFinite(z)) return { error: "Altman Z: the amounts are too large to divide." };
   const cutoffs: [number, number] = variant === "z" ? [1.81, 2.99] : variant === "zprime" ? [1.23, 2.9] : [1.1, 2.6];
-  const zone = z > cutoffs[1] ? "safe" : z < cutoffs[0] ? "distress" : "grey";
+  // fix-fin R3 M2: the zone of the Z the result PRINTS (4 decimals): "Z = 2.9900 … safe zone, above the 2.99 cut-off"
+  // read a float a hair above the cut-off as safe.
+  const zp = Number(z.toFixed(4));
+  const zone = zp > cutoffs[1] ? "safe" : zp < cutoffs[0] ? "distress" : "grey";
   return { variant, x, z, zone, cutoffs };
 }
 

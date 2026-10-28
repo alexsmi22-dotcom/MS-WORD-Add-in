@@ -24,7 +24,7 @@ describe("loan-schedule", () => {
   test("extra payments that do not shorten the loan say so", () => {
     // a balloon loan: the extras reduce the balloon, the loan still ends with the last payment
     const r = checkedReading(c("loan-schedule"), { balloon: "100000", lumps: "", extra: "50" });
-    expect(r).toMatch(/do not shorten the loan/);
+    expect(r).toMatch(/would save [\d,.]+ of interest and not shorten the loan/);
   });
 });
 
@@ -48,7 +48,7 @@ describe("macrs", () => {
     );
   });
   test("straight line: tied peak years are not called a single peak", () => {
-    expect(checkedReading(c("macrs"), { system: "sl" })).toMatch(/5,000\.00 a year at its peak, from year 2/);
+    expect(checkedReading(c("macrs"), { system: "sl" })).toMatch(/5,000\.00 a year at its peak, in years 2 to 10/);
   });
   test("the reading follows the basis and class", () => {
     expect(checkedReading(c("macrs"), { basis: "80000", class: "3" })).toMatch(/80,000\.00 basis over 4 tax years \(3-year property\)/);
@@ -104,7 +104,7 @@ describe("cvp-breakeven", () => {
       "Break-even is 2,000.00 units (100,000.00 of revenue); at 3,000 units the business earns 20,000.00 of operating income, and sales could fall 33.33% before it makes a loss.",
     );
     expect(checkedReading(c("cvp-breakeven"), { units: "1000" })).toMatch(/below break-even, with an operating result of −20,000\.00, and needs 1,000\.00 more units/);
-    expect(checkedReading(c("cvp-breakeven"), { units: "2000" })).toMatch(/exactly breaks even/);
+    expect(checkedReading(c("cvp-breakeven"), { units: "2000" })).toMatch(/the business breaks even, with an operating income of 0\.00/);
     expect(checkedReading(c("cvp-breakeven"), { units: "0" })).toMatch(/with no sales entered, the operating loss is the fixed costs of 40,000\.00/);
   });
 });

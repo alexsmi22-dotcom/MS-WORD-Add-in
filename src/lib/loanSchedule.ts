@@ -192,7 +192,8 @@ export function loanSchedule(inp: LoanInput): LoanResult | { error: string } {
   if (n > 1 && (pmtC <= 0 || pmtC < firstInterest || (pmtC === firstInterest && Bc < Pc)))
     return {
       error:
-        `Over ${n.toLocaleString("en-US")} payments the payment rounds to ${centsText(pmtC)} a period, ` +
+        // The payment's own term (fix-fin R3 MINOR 4: "Over 360 payments" when it was amortized over 12,000).
+        `Over ${(amortN > n ? amortN : n).toLocaleString("en-US")} payments the payment rounds to ${centsText(pmtC)} a period, ` +
         `no more than the first period's interest (${centsText(firstInterest)}), so rounded to the cent the loan would not amortize. Use fewer payments or a larger amount.`,
     };
   const payment0 = pmtC / 100;

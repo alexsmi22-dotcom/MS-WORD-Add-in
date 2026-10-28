@@ -83,11 +83,11 @@ describe("registry contract", () => {
     }
   });
 
-  test("every calculator but the money multiplier draws a figure", () => {
+  // "Fully inclusive" (2026-10-28): the money multiplier now draws its deposit-expansion rounds too.
+  test("every calculator draws a figure", () => {
     for (const c of MICROMACRO_STAT_CALCS) {
       const o = run(c);
-      if (c.id === "macro-money-multiplier") expect(o.svg).toBeUndefined();
-      else expect(o.svg).toMatch(/^<svg/);
+      expect(o.svg).toMatch(/^<svg/);
     }
   });
 });

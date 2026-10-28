@@ -15,6 +15,7 @@ import { parseSeriesTable, pickSeries, type SeriesDates } from "./tsData";
 import { decimalYear } from "./damagesInterest";
 import { fmtFixed, fmtP, intText, NBSP, P_BELOW } from "./regTable";
 import { buildPlotSvg, combineSvgs, type Series } from "./plot";
+import { fitReading } from "./statLibReading";
 import {
   acfBiased,
   acfBands,
@@ -347,7 +348,18 @@ export function tsAcfCalc(read: Read): StatOutput {
       note: `ACF band by Bartlett's formula; PACF band ±${fmtFixed(pBand, 3)} at every lag. Q and p from Ljung–Box.`,
     },
   ];
-  return { text: lines.join("\n"), svg, tables };
+  // The reading: does the series remember its past (Ljung–Box over all the lags), and its strongest autocorrelation.
+  let kTop = 1;
+  for (let k = 2; k <= K; k++) if (Math.abs(r[k]) > Math.abs(r[kTop])) kTop = k;
+  const top = `the strongest correlation is ${fmtFixed(r[kTop], 3)} at lag ${kTop}`;
+  const lbP = last.p === null ? "" : last.p < 0.001 ? `p ${P_BELOW}` : `p = ${fmtP(last.p)}`;
+  const reading =
+    last.p === null
+      ? `With lags up to ${K}, no Ljung–Box p-value can be formed here; ${top}, ${acfOut.includes(kTop) ? "outside" : "inside"} the 95% band.`
+      : last.p < 0.05
+        ? `Values of ${s.name} are clearly related to their own past: the Ljung–Box test rejects “no autocorrelation up to lag ${K}” (${lbP}), and ${top}.`
+        : `The data show no clear autocorrelation in ${s.name} up to lag ${K} (Ljung–Box ${lbP}); ${top}, which could be chance.`;
+  return { text: lines.join("\n"), reading: fitReading(reading, last.p === null ? `No Ljung–Box p-value can be formed here; ${top}.` : `Ljung–Box test up to lag ${K}: ${lbP}; ${top}.`), svg, tables };
 }
 
 // --- ts-unitroot ------------------------------------------------------------------------------------------------------
@@ -470,7 +482,18 @@ export function tsUnitRootCalc(read: Read): StatOutput {
     ylabel: s.name,
   });
   if (step > 1) lines.push(`The figure shows every ${step}th row.`);
-  return { text: lines.join("\n"), svg, tables };
+  // The reading: the pair's 5% verdict (the same decisions as the text: τ and η against the 5% critical values).
+  const pair = `ADF ${adfP}, KPSS ${kpP}`;
+  const verdict = (nm: string, Nm: string): string =>
+    !adfRejects && kpssRejects
+      ? `${Nm} appears to have a unit root (it wanders without returning to a fixed level): ADF does not reject a unit root and KPSS rejects stationarity (${pair}), so analyse its changes rather than its levels.`
+      : adfRejects && !kpssRejects
+        ? `${Nm} appears stationary (it keeps returning to a stable ${kreg === "ct" ? "trend" : "level"}): ADF rejects a unit root and KPSS does not reject stationarity (${pair}).`
+        : adfRejects && kpssRejects
+          ? `The two tests conflict for ${nm}: ADF rejects a unit root but KPSS also rejects stationarity (${pair}), often a sign of a structural break or a misspecified trend.`
+          : `Neither test rejects at 5% (${pair}), so these data cannot tell whether ${nm} has a unit root; a longer series may settle it.`;
+  const reading = fitReading(verdict(s.name, s.name), verdict("the series", "The series"));
+  return { text: lines.join("\n"), reading, svg, tables };
 }
 
 // --- ts-hp ------------------------------------------------------------------------------------------------------------
@@ -585,7 +608,12 @@ export function tsHpCalc(read: Read): StatOutput {
     { width: 380, height: 190, title: "Cycle (series − trend)", xlabel: ax.label, ylabel: "Cycle" },
   );
   if (step > 1) lines.push(`The figure shows every ${step}th row.`);
-  return { text: lines.join("\n"), svg: combineSvgs([top, bottom]).svg, tables };
+  // The reading: how far the series swings around its smooth trend, and when it was furthest below and above.
+  const swing = (nm: string): string =>
+    `With λ = ${lambdaText(lambda)}, ${nm} swings around its smooth trend by ${fmtFixed(sd, 3)} on average (root mean square): lowest ${fmtFixed(hp.cycle[cmin], 3)} (${when(cmin)}), highest ${fmtFixed(hp.cycle[cmax], 3)} (${when(cmax)}).`;
+  const endNote = " The last few trend values will shift as new data arrive.";
+  const reading = fitReading(swing(s.name) + endNote, swing(s.name), swing("the series"));
+  return { text: lines.join("\n"), reading, svg: combineSvgs([top, bottom]).svg, tables };
 }
 
 /** The three calculators as the pane declares them (id, title, fields, compute). */

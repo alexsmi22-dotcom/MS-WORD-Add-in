@@ -336,7 +336,8 @@ export function olsReading(fit: OlsFit, d: number): string | undefined {
   }
   if (bestV !== "clear") {
     return k === 1
-      ? firstThatFits(`${lead} ${best.name} is not clearly related to ${m.depName} (p ${pText(best.p)}).`, lead)
+      ? // The user's column name never starts a sentence (it is never re-capitalised).
+        firstThatFits(`${lead} The data show no clear relation between ${best.name} and ${m.depName} (p ${pText(best.p)}).`, lead)
       : firstThatFits(`${lead} None of them is clearly related to ${m.depName} on its own (smallest p ${pText(best.p)}, ${best.name}).`, lead);
   }
   const assoc = `a one-unit rise in ${best.name} goes with a change of about ${fmtFixed(best.coef, d)} in ${m.depName} (p ${pText(best.p)}), an association rather than a proven cause.`;
@@ -390,7 +391,7 @@ export function logitReading(model: FittedModel): string | undefined {
   const or = oddsRatioRows(model)?.find((r) => r.name === best.name);
   const orText = or ? fmtOddsRatio(or.or) : "";
   if (or && orText !== "1.000") {
-    const withOr = `${main}; each one-unit rise goes with odds about ${orText} times as high`;
+    const withOr = `${main}; each one-unit rise in ${best.name} goes with odds about ${orText} times as high`;
     return firstThatFits(`${withOr}${tail}.`, `${withOr}.`, `${main}${tail}.`, `${main}.`);
   }
   return firstThatFits(`${main}${tail}.`, `${main}.`);

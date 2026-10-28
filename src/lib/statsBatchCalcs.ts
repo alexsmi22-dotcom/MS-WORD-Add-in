@@ -24,6 +24,7 @@ import {
 } from "./cox";
 import { readNumberList } from "./numberList";
 import { BOUNDARY_CLAUSE, printedPVerdict } from "./pReading";
+import { countWord } from "./statPaneReadings";
 import { parseCellNumber } from "./dataimport";
 import { buildPlotSvg, combineSvgs, type Series } from "./plot";
 import { forestPlotSvg } from "./statchart";
@@ -287,6 +288,8 @@ export interface RmOutput {
  */
 export function rmAnovaReading(res: RmAnovaResult, f: RmField): string {
   const k = res.nConditions;
+  // Counts in words, as every Stats reading writes them (R4 #11 number style).
+  const kw = countWord(k);
   const corr = (w: RmWithinTest): string =>
     w.lead === "gg" ? " after the Greenhouse–Geisser correction" : w.lead === "hf" ? " after the Huynh–Feldt correction" : w.lead === "lowerBound" ? " on the lower-bound correction" : "";
   // The one p rule (lib/pReading.ts): every decision on the p as pText prints it; exactly 0.05 is borderline.
@@ -294,14 +297,14 @@ export function rmAnovaReading(res: RmAnovaResult, f: RmField): string {
   if (res.interaction && vd(res.interaction.leadP) === "borderline") {
     const w = res.interaction;
     return (
-      `Whether the change across the ${k} conditions differs between the groups (interaction ${pText(w.leadP)}${corr(w)}) is ${BOUNDARY_CLAUSE}; ` +
+      `Whether the change across the ${kw} conditions differs between the groups (interaction ${pText(w.leadP)}${corr(w)}) is ${BOUNDARY_CLAUSE}; ` +
       "check the conditions within each group before relying on the overall averages."
     );
   }
   if (res.interaction && vd(res.interaction.leadP) === "clear") {
     const w = res.interaction;
     return (
-      `How the mean changes across the ${k} conditions differs between the groups (interaction ${pText(w.leadP)}${corr(w)}), ` +
+      `How the mean changes across the ${kw} conditions differs between the groups (interaction ${pText(w.leadP)}${corr(w)}), ` +
       "so read the conditions within each group rather than the overall averages."
     );
   }
@@ -315,18 +318,18 @@ export function rmAnovaReading(res: RmAnovaResult, f: RmField): string {
   });
   const same = sig(d[hi].mean) === sig(d[lo].mean);
   if (vd(w.leadP) === "borderline") {
-    return `The change in the mean across the ${k} conditions (${pText(w.leadP)}${corr(w)}) is ${BOUNDARY_CLAUSE}.`;
+    return `The change in the mean across the ${kw} conditions (${pText(w.leadP)}${corr(w)}) is ${BOUNDARY_CLAUSE}.`;
   }
   if (vd(w.leadP) === "clear") {
     const where = same ? "" : `, from ${sig(d[lo].mean)} (${cName(f, d[lo].condition)}) to ${sig(d[hi].mean)} (${cName(f, d[hi].condition)})`;
     // With two conditions the test itself names the pair; with more it does not.
     return (
-      `The mean changes across the ${k} conditions (${pText(w.leadP)}${corr(w)}; partial η² = ${sig(w.partialEta2, 4)})${where}.` +
+      `The mean changes across the ${kw} conditions (${pText(w.leadP)}${corr(w)}; partial η² = ${sig(w.partialEta2, 4)})${where}.` +
       (k > 2 ? " The test does not say which conditions differ; the post-hoc comparisons do." : "")
     );
   }
   const spread = same ? "" : `; the means from ${sig(d[lo].mean)} (${cName(f, d[lo].condition)}) to ${sig(d[hi].mean)} (${cName(f, d[hi].condition)}) could differ by chance`;
-  return `The data show no clear change in the mean across the ${k} conditions (${pText(w.leadP)}${corr(w)})${spread}.`;
+  return `The data show no clear change in the mean across the ${kw} conditions (${pText(w.leadP)}${corr(w)})${spread}.`;
 }
 
 /** Field text → the calculator's whole output. */

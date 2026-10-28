@@ -260,6 +260,31 @@ describe("R4 #12: the Kaplan–Meier median at S = 0.5 exactly states its conven
   });
 });
 
+describe("R4 #9 adversarial: every classical reading at a p that prints .050 is borderline and keeps the rules", () => {
+  const P = 0.0499;
+  const anyRes = <T,>(o: object): T => o as unknown as T;
+  const cases: [string, string | undefined][] = [
+    ["two-sample", R.twoSampleReading(anyRes({ t: 2.3, df: 8, p: P, meanDifference: -1.2, d: 1, dKind: "cohen", ci95: [0, 2] }))],
+    ["paired", R.pairedReading(anyRes({ t: 2.3, df: 8, p: P, meanDifference: 1.2, d: 1, dKind: "dz", ci95: [0, 2] }))],
+    ["anova 2", R.anovaReading(anyRes({ f: 5, p: P, etaSquared: 0.3 }), 2, "F(1, 8) = 5.00, p = .050", "0.3")],
+    ["anova 3", R.anovaReading(anyRes({ f: 4, p: P, etaSquared: 0.3 }), 3, "F(2, 9) = 4.00, p = .050", "0.3")],
+    ["kruskal", R.kruskalReading(anyRes({ h: 6, p: P, df: 2, meanRanks: [1, 2, 3] }), null)],
+    ["friedman", R.friedmanReading(anyRes({ chi2: 6, p: P, df: 2, blocks: 4, treatments: 3, meanRanks: [1, 2, 3] }))],
+    ["chi ind", R.chiIndReading(anyRes({ chi2: 6, p: P, df: 2 }))],
+    ["regression", R.regressionReading(anyRes({ slope: 1.5, intercept: 0, rSquared: 0.5, slopeSE: 0.6, slopeP: P, n: 8 }))],
+    ["log-rank", R.logRankReading(anyRes({ chi2: 3.84, p: P, df: 1, observed: [3, 5], hazardRatio: 2 }))],
+    ["two-way interaction", R.twoWayReading(anyRes({ factorA: { F: 1, df: 1, p: 0.4 }, factorB: { F: 1, df: 1, p: 0.4 }, interaction: { F: 5, df: 1, p: P }, error: { df: 8 } }))],
+    ["two-way main", R.twoWayReading(anyRes({ factorA: { F: 5, df: 1, p: P }, factorB: { F: 1, df: 1, p: 0.4 }, interaction: { F: 1, df: 1, p: 0.6 }, error: { df: 8 } }))],
+    ["multiple", R.multipleRegressionReading(anyRes({ rSquared: 0.5, pOverall: P, coefficients: [{ name: "x1", estimate: 1, p: 0.02 }] }))],
+    ["poly", R.multipleRegressionReading(anyRes({ rSquared: 0.5, pOverall: 0.01, coefficients: [{ name: "x", estimate: 1, p: 0.01 }, { name: "x²", estimate: 1, p: P }] }), { degree: 2 })],
+  ];
+  test.each(cases)("%s", (_n, r) => {
+    const s = ok(r);
+    expect(s).toMatch(/right at the conventional 5% threshold, so the evidence is borderline/);
+    expect(s).not.toMatch(/unlikely to be chance|could be chance|clearly non-zero|only just/);
+  });
+});
+
 test("formatP is the printed p the Stats readings decide on", () => {
   expect(formatP(0.0499)).toBe("p = .050");
 });

@@ -123,12 +123,13 @@ describe("readings follow the result", () => {
 
   test("rmanova: not significant on Field's default; significant; interaction first", () => {
     const d = good(rmAnovaCalc(RM_DEFAULT, "holm"));
-    expect(d).toMatch(/^The data show no clear change in the mean across the 4 conditions \(p = 0\.0626 after the Greenhouse–Geisser correction\)/);
+    // Counts in words since the 2026-10-28 bug test (R4 #11 number style).
+    expect(d).toMatch(/^The data show no clear change in the mean across the four conditions \(p = 0\.0626 after the Greenhouse–Geisser correction\)/);
     const s = good(rmAnovaCalc("10 12 14\n9 11 15\n12 13 16\n8 10 13\n11 12 15", "holm"));
-    expect(s).toMatch(/^The mean changes across the 3 conditions \(p < 0\.0001 after the Huynh–Feldt correction; partial η² = /);
+    expect(s).toMatch(/^The mean changes across the three conditions \(p < 0\.0001 after the Huynh–Feldt correction; partial η² = /);
     expect(s).toMatch(/from [\d.]+ \(condition 1\) to [\d.]+ \(condition 3\)/);
     const mix = good(rmAnovaCalc("A 1 5 9\nA 2 6 10\nA 1 6 9\nB 9 5 1\nB 10 6 2\nB 9 5 2", "holm"));
-    expect(mix).toMatch(/^How the mean changes across the 3 conditions differs between the groups/);
+    expect(mix).toMatch(/^How the mean changes across the three conditions differs between the groups/);
   });
 
   test("cox: association wording, not significant, several covariates", () => {
@@ -172,7 +173,7 @@ describe("readings follow the result", () => {
     expect(a).toMatch(/^ARIMA\(1, 1, 1\) forecasts y at about −3,002\.03 1 period ahead, falling to about/);
     expect(a).toMatch(/treat the forecasts with care\.$/);
     const rm2 = good(rmAnovaCalc("1 3\n2 5\n3 6\n2 4", "holm"));
-    expect(rm2).toMatch(/^The mean changes across the 2 conditions .*\(condition 2\)\.$/);
+    expect(rm2).toMatch(/^The mean changes across the two conditions .*\(condition 2\)\.$/);
     const w2 = good(welchAnovaCalc([[1, 2, 3], [10, 11, 12.5]]));
     expect(w2).toMatch(/^The two group means differ \(F\(1, [\d.]+\) = [\d.]+, p [<=] \.\d+\): group 2 averages highest/);
   });

@@ -55,6 +55,7 @@ import { TS2_STAT_CALCS } from "../src/lib/ts2StatCalcs";
 import { CAUSAL_STAT_CALCS } from "../src/lib/causalStatCalcs";
 import { LIMDEP_STAT_CALCS } from "../src/lib/limdepStatCalcs";
 import { MICROMACRO_STAT_CALCS } from "../src/lib/micromacroStatCalcs";
+import { GMM_STAT_CALCS } from "../src/lib/gmmStatCalcs";
 import { CBA_CALCS } from "../src/lib/cbaCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
@@ -2417,6 +2418,23 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   const nb = cnt.compute((k) => (k === "model" ? "nb2" : (vals[k] ?? "")));
   if (nb.ok === false || !nb.svg) throw new Error(`corpus: limdep count NB2 did not draw: ${nb.text.slice(0, 120)}`);
   figures.push(["limdep econ-count nb2", nb.svg]);
+}
+
+// --- GMM and dynamic panels (F3: gmmStatCalcs.ts): 2SLS vs GMM coefficients, ρ by estimator (the Nickell bracket) --
+{
+  const gm = (id: string, over: Record<string, string>, name: string) => {
+    const c = GMM_STAT_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: gmm calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (out.ok === false || !out.svg) throw new Error(`corpus: gmm ${name} did not draw: ${out.text.slice(0, 120)}`);
+    figures.push([`gmm ${name}`, out.svg]);
+  };
+  for (const c of GMM_STAT_CALCS) gm(c.id, {}, `${c.id} default`);
+  gm("econ-gmm", { endog: "educ + exper", spec: "lwage ~", instruments: "dist + sibs" }, "two endogenous");
+  gm("panel-dyn-gmm", { estimator: "difference", steps: "one" }, "difference one-step");
+  gm("panel-dyn-gmm", { endog: "price", collapse: "yes", lagLast: "" }, "system endogenous collapsed");
 }
 
 // --- Micro II, macro II (micromacroStatCalcs.ts), CBA, Pigou, CIP/UIP/PPP (cbaCalcs.ts) — F2 ----------------------

@@ -20,7 +20,9 @@ describe("Stats tables reach Word as one package", () => {
     const b = bodyOf("updateStatsPreview");
     expect(b).toContain("const statTables = out.ok !== false ? (out.tables ?? []) : [];");
     expect(b).toContain("tableCellsInsertable(t.rows) && (!t.note || insertableResultText(t.note))");
-    expect(b).toContain("const insertable = out.ok !== false && insertableResultText(out.text) && tablesInsertable;");
+    // The plain-language reading (lib/calcReading.ts) goes in with the text, so the gate judges both together.
+    expect(b).toContain("const insertable = out.ok !== false && insertableResultText(statsInsertText) && tablesInsertable;");
+    expect(b).toContain("const statsReading = out.ok !== false ? (out.reading ?? \"\") : \"\";");
     expect(b).toContain("currentStatsTables = insertable ? statTables : [];");
   });
   test("insert: tables → insertTextTablesFigure before the old text/figure branches", () => {

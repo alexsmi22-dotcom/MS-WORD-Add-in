@@ -34,8 +34,8 @@ prints the conventions it used.
 ### Added — Stats
 - **Time series II:** GARCH(1,1), GJR-GARCH and EGARCH by maximum likelihood (normal or Student-t), with robust SEs,
   persistence, half-life and a volatility forecast; estimates print only when the first-order (KKT) conditions hold at
-  the optimum, including optima on a parameter bound; the fit is the same whatever units the returns are in; a cautionary
-  note names periods on the variance bound and an EGARCH whose best invertible point is not its highest likelihood; up
+  the optimum, including optima on a parameter bound; the fit is the same whatever units the returns are in; a fit with
+  more than 5% of its periods on the variance floor is refused as degenerate, and a caution names fewer, and an EGARCH whose best invertible point is not its highest likelihood; up
   to 2,500 returns; VAR(p) with lag-order criteria and Granger causality; orthogonalized
   impulse responses with bands and FEVD; Engle–Granger and Johansen cointegration.
 - **Limited dependent and count models:** Poisson and negative binomial with exposure and incidence-rate ratios;

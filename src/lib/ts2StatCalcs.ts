@@ -13,6 +13,7 @@
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { readFinanceField } from "./finance";
 import { composePanels } from "./panels";
+import { withCellCtx } from "./figContext";
 import { buildPlotSvg, type Series } from "./plot";
 import { fmtFixed, fmtP, fmtSci, intText } from "./regTable";
 import type { StatCalcDef } from "./statCalc";
@@ -296,7 +297,9 @@ export function varIrfGridSvg(o: { names: string[]; orth: number[][][]; se: numb
         { type: "line", points: pts((k) => o.orth[k][r][c] - o.z * o.se[k][r][c]), color: "#7dd3fc" },
         { type: "line", points: pts((k) => o.orth[k][r][c]), color: "#0369a1" },
       ];
-      panels.push(buildPlotSvg(series, { width: w, height: h, title: `${short[c]} → ${short[r]}`, xlabel: r === K - 1 ? "Horizon" : undefined }));
+      // Under a figure-style re-render each panel is drawn at its grid cell's width (withCellCtx), so its text keeps
+      // its size instead of being scaled down by 1/K with the panel.
+      panels.push(withCellCtx(K, 6, () => buildPlotSvg(series, { width: w, height: h, title: `${short[c]} → ${short[r]}`, xlabel: r === K - 1 ? "Horizon" : undefined })));
     }
   return composePanels(panels, { cols: K, gap: 6, idPrefix: "irf" }).svg;
 }

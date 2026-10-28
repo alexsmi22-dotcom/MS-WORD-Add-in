@@ -39,6 +39,7 @@ import {
   panelLetterSvg,
   panelLabel,
 } from "./figureStyle";
+import { currentFigCtx } from "./figContext";
 
 const ROOT_OPEN = /^<svg\b((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/i;
 const ATTR = /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
@@ -341,7 +342,15 @@ export function composePanels(panels: string[], opts: ComposeOptions = {}): Comp
 
   let W: number;
   let colW: number[];
-  if (widthMm !== null) {
+  // A FIGURE-STYLE RE-RENDER (lib/figContext.ts) of a builder that puts panels SIDE BY SIDE: every panel was drawn at
+  // the context's width, so the grid is fitted back to that width, each panel scaled into its cell. The style fit then
+  // sizes the canvas from the scaled text, as for any other figure. (A one-column stack is already that wide.)
+  const fctx = !preset && widthMm === null && cols > 1 ? currentFigCtx() : null;
+  if (fctx) {
+    W = fctx.width;
+    const cw = Math.max(1, (W - gap * (cols - 1)) / cols);
+    colW = new Array(cols).fill(cw);
+  } else if (widthMm !== null) {
     W = mmToPx(widthMm);
     const cw = (W - gap * (cols - 1)) / cols;
     if (!(cw > 0)) throw new RangeError("the gaps leave no room for the panels at this width");
@@ -362,10 +371,11 @@ export function composePanels(panels: string[], opts: ComposeOptions = {}): Comp
       const k = r * cols + c;
       if (k >= parsed.length) break;
       const p = parsed[k];
-      const scale = widthMm !== null ? colW[c] / p.w : 1;
+      const fitted = widthMm !== null || fctx !== null;
+      const scale = fitted ? colW[c] / p.w : 1;
       const w = p.w * scale;
       const h = p.h * scale;
-      const x = widthMm !== null ? colX[c] : colX[c] + (colW[c] - w) / 2;
+      const x = fitted ? colX[c] : colX[c] + (colW[c] - w) / 2;
       const pl: PlacedPanel = { index: k, x, y: y + band, w, h, scale, label: null };
       if (letters && preset) pl.label = panelLabel(preset, k, opts.figureNumber ?? 1);
       inRow.push(pl);

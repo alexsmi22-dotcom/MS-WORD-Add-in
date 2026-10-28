@@ -106,19 +106,31 @@ export function coefForestSvg(panels: ForestPanel[], note?: string): string | un
  * the multiplier times the injection. `cumulative[k]` is the total after round k + 1; `limit` is m times the injection,
  * labelled `limitLabel` (the text's own formatting).
  */
+/**
+ * A legend label with an exact fraction reduced to its decimal ("m·ΔB = 101000/1001 ≈ 100.8991" → "m·ΔB = 100.8991"),
+ * and every number of four or more integer digits grouped ("1000000" → "1,000,000"). The fraction made the label too
+ * long for the legend, which cut it to "m·ΔB = 101000/1001 ≈ …" and lost the value (R6 #12).
+ */
+export function legendDecimal(label: string): string {
+  const dec = label.replace(/[−-]?[\d,]+\/[\d,]+\s*≈\s*/g, "");
+  return dec.replace(/(?<![\d.,])([−-]?)(\d{4,})(\.\d+)?/g, (m, sign: string, int: string, frac: string | undefined) =>
+    `${sign}${int.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac ?? ""}`,
+  );
+}
+
 export function depositExpansionSvg(o: { cumulative: number[]; limit: number; limitLabel: string; title: string; injectionLabel: string }): string | undefined {
   const pts = o.cumulative.map((v, i) => ({ x: i + 1, y: v })).filter((p) => Number.isFinite(p.y));
   if (!pts.length || !Number.isFinite(o.limit)) return undefined;
   const n = pts.length;
   const series: Series[] = [
-    { type: "line", points: [{ x: 0.5, y: o.limit }, { x: n + 0.5, y: o.limit }], color: "#b45309", label: o.limitLabel },
+    { type: "line", points: [{ x: 0.5, y: o.limit }, { x: n + 0.5, y: o.limit }], color: "#b45309", label: legendDecimal(o.limitLabel) },
     { type: "line", points: pts, color: "#0369a1", label: "Money created so far" },
     { type: "scatter", points: pts, color: "#0369a1" },
   ];
   return buildPlotSvg(series, {
     width: 420,
     height: 260,
-    title: o.title,
+    title: legendDecimal(o.title),
     xlabel: "Round of lending",
     ylabel: "Money created",
     xLimits: { min: 0.5, max: n + 0.5 },

@@ -33,6 +33,7 @@ import {
 } from "../patentDamages";
 import { blockFieldListener, debouncedPreview, FIN_BLOCK_DEBOUNCE_MS } from "../previewDebounce";
 import { finPlotSvg } from "../financeFigures";
+import { buildPlotSvg } from "../plot";
 import { buildChartPreviewSvg } from "../tablechart";
 import { THIN_SPACE, commaGroupLabel } from "../axis";
 import { insertableResultText } from "../insertGate";
@@ -456,9 +457,14 @@ describe("10. damages figures group money ticks with commas; other figures are u
     expect(ticks(le.svg!).some((t) => /^\d{1,3}(,\d{3})+$/.test(t))).toBe(true);
     expect(le.svg).not.toContain(THIN_SPACE);
   });
-  test("a figure that does not ask for commas keeps thin-space grouping", () => {
-    const plain = finPlotSvg([{ points: [{ x: 0, y: 0 }, { x: 1, y: 600000 }], type: "line", color: "#000", label: "x" }], { width: 380, height: 250, title: "t", xlabel: "x", ylabel: "y" });
+  test("a figure that does not ask for commas keeps thin-space grouping (every Finance figure asks, 2026-10-28)", () => {
+    const pts = [{ x: 0, y: 0 }, { x: 1, y: 600000 }];
+    const plain = buildPlotSvg([{ points: pts, type: "line", color: "#000", label: "x" }], { width: 380, height: 250, title: "t", xlabel: "x", ylabel: "y" });
     expect(plain).toContain(`600${THIN_SPACE}000`);
+    // finPlotSvg groups Finance's money axes with commas by default (the display contract: "600,000", never "600 000").
+    const fin = finPlotSvg([{ points: pts, type: "line", color: "#000", label: "x" }], { width: 380, height: 250, title: "t", xlabel: "x", ylabel: "y" });
+    expect(fin).toContain("600,000");
+    expect(fin).not.toContain(THIN_SPACE);
     const chart = buildChartPreviewSvg(
       { categories: ["a", "b"], series: [{ name: "s", values: [300000, 600000] }], categoryLabel: "c", hasHeader: false, rows: [], warnings: [] },
       "stacked-column",

@@ -964,7 +964,8 @@ function prejudgmentFigure(res: PrejudgmentResult): string | undefined {
     width: 380,
     height: 260,
     title: "Cumulative damages and interest (from the inputs given)",
-    xlabel: "year",
+    xlabel: "date",
+    xDates: "year",
     ylabel: "amount ($)",
     yGrouping: "comma",
   });
@@ -1130,7 +1131,8 @@ function postjudgmentFigure(res: PostjudgmentResult): string | undefined {
     width: 380,
     height: 250,
     title: "Balance with post-judgment interest (from the inputs given)",
-    xlabel: "year",
+    xlabel: "date",
+    xDates: "year",
     ylabel: "amount ($)",
     yGrouping: "comma",
   });

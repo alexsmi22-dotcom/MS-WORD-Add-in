@@ -10,6 +10,7 @@
 import { minOf, maxOf } from "./minmax";
 import { linearAxis, logAxis, fmtValue, fmtSig, resolveLimits, outsideNote, commaGroupLabel, type AxisLimits } from "./axis";
 import { usptoMarkerSvg, USPTO_DASHES } from "./figureStyle";
+import { currentFigCtx, stickyLayout } from "./figContext";
 
 /** Factorial for non-negative integers (else NaN). */
 function factorial(n: number): number {
@@ -462,6 +463,13 @@ export interface PlotOptions {
    * whose text and tables print commas (the damages figures). Left unset, labelling is unchanged.
    */
   yGrouping?: "comma";
+  /** The same for the x axis (a money or count axis drawn along x). */
+  xGrouping?: "comma";
+  /**
+   * The x values are DECIMAL YEARS (2024.5 = mid-2024): ticks are labelled as years ("2024"), or as month and year
+   * ("Mar 2024") when the span is under three years, and never in offset notation ("−4.82 … (ticks + 2030)").
+   */
+  xDates?: "year";
   /**
    * Short notes drawn INTO the figure, beneath everything else.
    *
@@ -710,6 +718,64 @@ export function plotAxisTicks(
   };
 }
 
+/**
+ * A 13 px bold title in lines that fit `W` (the layout audit's 0.58 em advance): one line when it fits, else two
+ * broken at a space, the second cut with an ellipsis if it still does not fit.
+ */
+function wrapTitle(title: string, W: number): string[] {
+  const max = Math.max(8, Math.floor((W - 6) / (0.58 * 13)));
+  if (title.length <= max) return [title];
+  let at = title.lastIndexOf(" ", max);
+  if (at < max * 0.4) at = max;
+  const first = title.slice(0, at).trimEnd();
+  let rest = title.slice(at).trim();
+  if (rest.length > max) rest = rest.slice(0, max - 1).trimEnd() + "…";
+  return rest ? [first, rest] : [first];
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Tick labels for an axis of DECIMAL YEARS (2024.5 = mid-2024): a whole year prints as "2024", anything else as the
+ * month it falls in ("Jul 2024"), and a span under about five months as day and month ("3 Mar"). A custom labeller
+ * also turns plot.ts's offset notation off, which turned years into "−4.82 … (ticks + 2030)".
+ */
+export function dateTickLabel(lo: number, hi: number, _kind: "year"): (v: number) => string {
+  const span = Math.abs(hi - lo);
+  return (v: number): string => {
+    if (!Number.isFinite(v)) return "";
+    const y = Math.floor(v + 1e-9);
+    const frac = v - y;
+    if (Math.abs(frac) < 1e-6 || Math.abs(frac - 1) < 1e-6) return String(Math.round(v)).replace("-", "−");
+    const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const day0 = Math.floor(frac * (leap ? 366 : 365) + 1e-6);
+    const d = new Date(Date.UTC(y, 0, 1 + day0));
+    const mon = MONTHS[d.getUTCMonth()];
+    return span < 0.42 ? `${d.getUTCDate()} ${mon}` : `${mon} ${d.getUTCFullYear()}`;
+  };
+}
+
+/**
+ * An axis in GROUPED FIXED POINT for money and counts: "1,000", "25,000", "12,500,000" — never "1000", the thin-space
+ * "25 000" or a "×10⁷" multiplier on the axis title. Decimals follow the tick step.
+ */
+function commaAxis(ax: PlotAxisTicks): PlotAxisTicks {
+  const vals = ax.ticks.map((t) => t.v);
+  if (vals.length < 2 || !vals.every(Number.isFinite)) return { ...ax, ticks: ax.ticks.map((t) => ({ v: t.v, text: commaGroupLabel(t.text) })) };
+  // Only a POSITIVE power multiplier (a big axis) is folded into the labels; a ×10⁻⁴ axis keeps its multiplier.
+  // Past a trillion the grouped figure is longer than the axis can hold, and the multiplier stays.
+  const big = vals.some((v) => Math.abs(v) >= 1e12);
+  if (ax.multiplier && (big || !/^×10[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/.test(ax.multiplier))) return { ...ax, ticks: ax.ticks.map((t) => ({ v: t.v, text: commaGroupLabel(t.text) })) };
+  let step = Infinity;
+  for (let i = 1; i < vals.length; i++) step = Math.min(step, Math.abs(vals[i] - vals[i - 1]));
+  const dp = step > 0 && Number.isFinite(step) ? Math.max(0, Math.min(6, Math.ceil(-Math.log10(step) - 1e-9))) : 0;
+  const fmt = (v: number): string => {
+    const s = (Math.abs(v) < step * 1e-6 ? 0 : v).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+    return s.startsWith("-") ? "−" + s.slice(1) : s;
+  };
+  return { ticks: ax.ticks.map((t) => ({ v: t.v, text: fmt(t.v) })), minor: ax.minor, multiplier: "" };
+}
+
 /** "Price" + "×10⁶" → "Price (×10⁶)"; no title → the multiplier alone. */
 function withMultiplier(label: string | undefined, mult: string): string | undefined {
   if (!mult) return label;
@@ -744,6 +810,9 @@ export function escapeXml(s: string): string {
  * nested viewports, and each part's ids are namespaced so two panels from the
  * same builder no longer share a clipPath. Same signature, same dimensions.
  */
+/** The parts each re-render stack was composed from (see combineSvgs), so an outer stack can lay them out flat. */
+const stackParts = new Map<string, string[]>();
+
 export function combineSvgs(parts: string[], gap = 8): { svg: string; width: number; height: number } {
   const items = parts.map((s) => s.trim()).filter(Boolean);
   if (items.length === 0) return { svg: "", width: 0, height: 0 };
@@ -755,6 +824,24 @@ export function combineSvgs(parts: string[], gap = 8): { svg: string; width: num
       width: Number(/^<svg[^>]*\swidth="([\d.]+)"/.exec(s)?.[1] ?? 300),
       height: Number(/^<svg[^>]*\sheight="([\d.]+)"/.exec(s)?.[1] ?? 190),
     };
+  }
+  // A FIGURE-STYLE RE-RENDER whose stack would print taller than the style allows at its widest column (USPTO 244 mm
+  // on a 170 mm sight) lays the parts out two to a row instead (composePanels fits the row back to the context width).
+  // A stack of stacks is laid out as one stack of all their parts (stackParts), so a two-to-a-row layout never nests
+  // inside another and shrinks a panel to a quarter.
+  const fctx = currentFigCtx();
+  const maxMm = fctx?.style?.maxHeightMm ?? null;
+  if (fctx && fctx.style && maxMm !== null && items.length > 1) {
+    const flat = items.flatMap((s) => stackParts.get(s) ?? [s]);
+    const one = composePanels(flat, { cols: 1, gap });
+    const printed = fctx.widthMm ?? Math.max(fctx.style.widthsMm.single, fctx.style.widthsMm.double);
+    // Decided once per style fit (stickyLayout), with a 10% margin: the fit's final canvas is usually narrower, and the
+    // fixed-size text and margins then make the stack relatively taller.
+    const cols = stickyLayout("combineSvgs", () => ((one.height / one.width) * printed > maxMm * 0.98 ? 2 : 1));
+    const out = cols === 2 ? composePanels(flat, { cols: 2, gap }) : one;
+    if (stackParts.size > 64) stackParts.clear();
+    stackParts.set(out.svg, flat);
+    return { svg: out.svg, width: out.width, height: out.height };
   }
   const c = composePanels(items, { cols: 1, gap });
   return { svg: c.svg, width: c.width, height: c.height };
@@ -937,8 +1024,16 @@ export function layoutNotes(notes: string[] | undefined, width: number, size: nu
 }
 
 export function buildPlotSvg(series: Series[], options: PlotOptions = {}): string {
+  // A FIGURE-STYLE RE-RENDER (lib/figContext.ts): drawn at the context's width, height in proportion, in black and
+  // white when it asks. Outside a context nothing changes.
+  const fctx = currentFigCtx();
+  if (fctx) {
+    const w0 = options.width ?? 380;
+    const h0 = options.height ?? 270;
+    options = { ...options, width: fctx.width, height: Math.round((h0 * fctx.width) / w0), bw: fctx.bw || options.bw === true };
+  }
   const W = options.width ?? 380;
-  const H = options.height ?? 270;
+  let H = options.height ?? 270;
 
   // ONE NON-FINITE COORDINATE POISONS THE WHOLE PLOT. The domain below is
   // min/max over every point, and drawing filtered only non-finite y — so an
@@ -1042,15 +1137,15 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       if (note) extraNotes.push(note + ".");
     }
   }
-  const xAxis = all.length
-    ? plotAxisTicks(xmin, xmax, logX, 6, options.xTickLabel, xStep)
+  const xAxis0 = all.length
+    ? plotAxisTicks(xmin, xmax, logX, 6, options.xTickLabel ?? (options.xDates ? dateTickLabel(xmin, xmax, options.xDates) : undefined), xStep)
     : { ticks: [], minor: [], multiplier: "" };
   const yAxis0 = all.length
     ? plotAxisTicks(ymin, ymax, logY, 5, options.yTickLabel, yStep)
     : { ticks: [], minor: [], multiplier: "" };
   // Before the margins are sized, so the left margin fits the labels as drawn.
-  const yAxis =
-    options.yGrouping === "comma" ? { ...yAxis0, ticks: yAxis0.ticks.map((t) => ({ v: t.v, text: commaGroupLabel(t.text) })) } : yAxis0;
+  const yAxis = options.yGrouping === "comma" && !logY ? commaAxis(yAxis0) : yAxis0;
+  const xAxis = options.xGrouping === "comma" && !logX && !options.xDates ? commaAxis(xAxis0) : xAxis0;
   // A ×10ⁿ multiplier is stated ONCE, on the axis title — never as e-notation
   // on every tick.
   options = {
@@ -1066,7 +1161,10 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // therefore computed from the WIDEST tick label actually drawn.
   const ml = leftMarginFor(yAxis, options);
   const mr = rightMarginFor(xAxis);
-  const mt = options.title ? 26 : 12;
+  // A TITLE WIDER THAN THE CANVAS WRAPS (2026-10-28): drawn on one line it ran off both edges at 260–300 px. Two
+  // lines at most; a third would be cut with an ellipsis. A title that fits draws exactly as before.
+  const titleLines = options.title ? wrapTitle(options.title, W) : [];
+  const mt = options.title ? 26 + 15 * (titleLines.length - 1) : 12;
   // The error-bar declaration needs its own line, or it lands on the x label.
   //
   // The predicate is EXACTLY the one the drawing code uses further down, not
@@ -1079,25 +1177,58 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const hasErrNote = series.some((s) => s.type !== "line" && s.points.some((p) => !!p.err && Number.isFinite(p.err)));
   const mb = (options.xlabel ? 42 : 30) + (hasErrNote ? 13 : 0);
   const pw = W - ml - mr;
+  // Under a figure-style re-render the height follows the width; at a narrow width that left a data area a few
+  // pixels tall. The data area is kept at least half as tall as it is wide.
+  if (fctx) H = Math.max(H, Math.round(mt + mb + Math.max(60, 0.5 * pw)));
   const ph = H - mt - mb;
+  const bw = options.bw === true;
+  // THE LEGEND LIVES OUTSIDE THE PLOT FRAME, in a gutter to its right. It used
+  // to sit inside the top-right corner of the plot area, where the only
+  // defensible rendering is an opaque box — and an opaque box over the plot is
+  // data covered by its own key. The gutter is paid for by WIDENING THE
+  // CANVAS, not by shrinking the plot: Word inserts figures at the SVG's
+  // intrinsic size, so the data area every caller laid out for stays exactly
+  // as large as it was, and an unlabeled plot's canvas does not change at all.
+  //
+  // UNDER A FIGURE-STYLE RE-RENDER the legend goes BELOW the plot instead (one row per series, full labels as far as
+  // the width allows): at a narrow column the gutter left no room for the data and the figure could not reach the
+  // style's text size at any width.
+  const LEGEND_LH = bw ? 19 : 14;
+  const labeled = series.filter((s) => s.label && s.label.trim());
+  const legendTextPx0 = (t: string): number => bwPx(t, 10, bw);
+  const cut = (t: string, maxChars: number): string => (t.length > maxChars ? t.slice(0, maxChars - 1) + "…" : t);
+  const gutterLabel = (s: Series): string => cut((s.label as string).trim(), 22);
+  const gutterRows = labeled.slice(0, Math.max(1, Math.floor((ph - 10) / LEGEND_LH)));
+  const gutterW = gutterRows.length ? Math.ceil(14 + maxOf(gutterRows.map((s) => gutterLabel(s).length * 0.7 * legendTextPx0(gutterLabel(s)))) + 10) : 0;
+  // ALWAYS below under a re-render, not only when the gutter is wide: a placement that switched with the width made
+  // the canvas width jump, and the style fit (renderAtPreset) oscillated between the two layouts without converging.
+  const legendBelow = !!fctx && gutterRows.length > 0 && gutterW >= 0;
+  const belowChars = Math.max(12, Math.floor((W - 8 - 30) / (0.7 * (bw ? 14 : 10))));
+  const legendLabelOf = (s: Series): string => (legendBelow ? cut((s.label as string).trim(), belowChars) : gutterLabel(s));
+  const legendRows = legendBelow ? labeled.slice(0, 8) : gutterRows;
+  const legendTextPx = (s: Series): number => legendTextPx0(legendLabelOf(s));
+  const legendW = legendRows.length
+    ? Math.min(legendBelow ? W - 8 : Infinity, Math.ceil(14 + maxOf(legendRows.map((s) => legendLabelOf(s).length * 0.7 * legendTextPx(s))) + 10))
+    : 0;
+  const outW = legendRows.length && !legendBelow ? W + 4 + legendW + 4 : W;
+  const belowH = legendBelow ? legendRows.length * LEGEND_LH + 10 : 0;
   // The footnote block is paid for by GROWING THE CANVAS, not by shrinking the
   // plot — the legend gutter's rule, for the legend gutter's reason: every caller
   // laid out for the data area it asked for, and Word sizes the picture from the
   // SVG's own height, so the growth is what keeps the notes on the figure.
   // Wrapped to W rather than to the widened canvas, so the block stays in the
   // plot's own column whether or not there is a legend.
-  const bw = options.bw === true;
   const noteSize = bw ? BW_NOTE_SIZE : NOTE_SIZE;
   const noteLh = bw ? BW_NOTE_LH : NOTE_LH;
   const noteLines = layoutNotes(options.notes, W, noteSize);
   const notesH = noteLines.length ? noteLines.length * noteLh + 4 : 0;
-  const outH = H + notesH;
+  const outH = H + belowH + notesH;
   /** The footnote block, drawn below the plot canvas in both return paths. */
   const notesSvg = (): string =>
     noteLines
       .map(
         (line, i) =>
-          `<text x="8" y="${H + (bw ? 15 : 11) + i * noteLh}" font-family="sans-serif" font-size="${noteSize}" fill="${bw ? "#000" : "#555"}">${bw ? bwTextMarkup(line, noteSize) : escapeXml(line)}</text>`,
+          `<text x="8" y="${H + belowH + (bw ? 15 : 11) + i * noteLh}" font-family="sans-serif" font-size="${noteSize}" fill="${bw ? "#000" : "#555"}">${bw ? bwTextMarkup(line, noteSize) : escapeXml(line)}</text>`,
       )
       .join("");
 
@@ -1108,30 +1239,8 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${outH}" viewBox="0 0 ${W} ${outH}"><rect width="${W}" height="${outH}" fill="#fff"/><text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No data to plot</text>${notesSvg()}</svg>`;
   }
 
-  // THE LEGEND LIVES OUTSIDE THE PLOT FRAME, in a gutter to its right. It used
-  // to sit inside the top-right corner of the plot area, where the only
-  // defensible rendering is an opaque box — and an opaque box over the plot is
-  // data covered by its own key. The gutter is paid for by WIDENING THE
-  // CANVAS, not by shrinking the plot: Word inserts figures at the SVG's
-  // intrinsic size, so the data area every caller laid out for stays exactly
-  // as large as it was, and an unlabeled plot's canvas does not change at all.
-  const LEGEND_LH = bw ? 19 : 14;
-  const legendLabelOf = (s: Series): string => {
-    const maxChars = 22;
-    const t = (s.label as string).trim();
-    return t.length > maxChars ? t.slice(0, maxChars - 1) + "…" : t;
-  };
-  const labeled = series.filter((s) => s.label && s.label.trim());
-  const legendRows = labeled.slice(0, Math.max(1, Math.floor((ph - 10) / LEGEND_LH)));
-  // 7 px per character, not 6: a 10 px sans glyph averages ~5.5 px but runs to
-  // ~9.4 px for "M"/"W", and out here the canvas edge is 4 px past the box —
-  // there is no plot-frame slack left to absorb an underestimate, so a
-  // capital-heavy label would be cut off by the viewport.
-  const legendTextPx = (s: Series): number => bwPx(legendLabelOf(s), 10, bw);
-  const legendW = legendRows.length
-    ? Math.ceil(14 + maxOf(legendRows.map((s) => legendLabelOf(s).length * 0.7 * legendTextPx(s))) + 10)
-    : 0;
-  const outW = legendRows.length ? W + 4 + legendW + 4 : W;
+  // (The legend's size and place were decided above, with the margins. 7 px per character, not 6: a 10 px sans glyph
+  // averages ~5.5 px but runs to ~9.4 px for "M"/"W", and the canvas edge is 4 px past the box.)
 
   const sx = (x: number): number => ml + ((tx(x) - xmin) / (xmax - xmin)) * pw;
   const sy = (y: number): number => mt + ph - ((ty(y) - ymin) / (ymax - ymin)) * ph;
@@ -1251,8 +1360,8 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // whatever data lay beneath it.) ml + pw + mr === W, so x = W is the first
   // pixel past the tick-overhang reserve and the gutter begins there.
   if (legendRows.length) {
-    const lx = W + 4;
-    const ly = mt + 4;
+    const lx = legendBelow ? 4 : W + 4;
+    const ly = legendBelow ? H + 2 : mt + 4;
     parts.push(`<rect x="${lx}" y="${ly}" width="${legendW}" height="${legendRows.length * LEGEND_LH + 6}" fill="#ffffff" stroke="${bw ? "#000" : "#ccc"}"/>`);
     legendRows.forEach((s, i) => {
       const idx = series.indexOf(s);
@@ -1275,7 +1384,9 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
 
   // Labels.
   if (options.title) {
-    parts.push(`<text data-figure-title="1" x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${bw ? "#000" : "#222"}">${escapeXml(options.title)}</text>`);
+    titleLines.forEach((line, i) =>
+      parts.push(`<text data-figure-title="1" x="${W / 2}" y="${16 + 15 * i}" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${bw ? "#000" : "#222"}">${escapeXml(line)}</text>`),
+    );
   }
   if (hasErrNote) {
     const errText = options.errorBars ? ERROR_BAR_LABEL[options.errorBars] : ERROR_BAR_UNSTATED;

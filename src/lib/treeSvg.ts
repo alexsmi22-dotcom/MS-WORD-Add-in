@@ -24,6 +24,8 @@
  *    cut tree keeps its top); the rest are counted in the caption by name.
  */
 
+import { currentFigCtx } from "./figContext";
+
 export interface TreeNode {
   id: string;
   label: string;
@@ -53,7 +55,7 @@ export const MAX_DRAWN = 200;
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const CHAR = 7.2; // px per character at 12px sans — the layout audit's advance
-const NODE_H = 22;
+const NODE_H1 = 22;
 const LEVEL = 64;
 const PAD = 18;
 const SEP = 14;
@@ -90,10 +92,20 @@ interface Placed { node: TreeNode; x: number; y: number; w: number; rank: number
  *  leftmost and rightmost extent relative to the root's x. */
 interface Contour { left: number[]; right: number[] }
 
-const nodeWidth = (n: TreeNode): number => (n.kind === "bottom" || n.kind === "box" ? 22 : Math.max(22, n.label.length * CHAR + 12));
+/** A label may hold several lines (separated by a newline): the node is as wide as its longest line. */
+const labelLines = (n: TreeNode): string[] => n.label.split(String.fromCharCode(10));
+const nodeWidth = (n: TreeNode): number =>
+  n.kind === "bottom" || n.kind === "box" ? 22 : Math.max(22, Math.max(...labelLines(n).map((l) => l.length)) * CHAR + 12);
 
 export function treeSvg(spec: TreeSpec): string {
-  const width = spec.width ?? 460;
+  // A figure-style re-render (lib/figContext.ts): the canvas is at least the context's width (a layout wider than that
+  // keeps its natural width, the narrowest it can be drawn legibly), and black and white marks highlighted nodes with
+  // a heavy outline and highlighted edges with a heavy line instead of colour.
+  const fctx = currentFigCtx();
+  const width = fctx ? fctx.width : (spec.width ?? 460);
+  const bw = fctx?.bw === true;
+  const maxLines = Math.max(1, ...spec.nodes.map((n) => (n.kind === "bottom" || n.kind === "box" ? 1 : labelLines(n).length)));
+  const NODE_H = NODE_H1 + 14 * (maxLines - 1);
   const byId = new Map<string, TreeNode>();
   for (const n of spec.nodes) if (!byId.has(n.id)) byId.set(n.id, n);
   const ids = [...byId.keys()];
@@ -308,7 +320,11 @@ export function treeSvg(spec: TreeSpec): string {
 
   // Caption: below every node and edge, wrapped to the canvas, its font enlarged
   // by 1/scale so it DISPLAYS at 11px however far the drawing is scaled.
-  const capFont = Math.round((11 / scale) * 10) / 10;
+  // Under a figure-style re-render the caption is set at the node size (12), so it is not the run that misses a
+  // style's minimum.
+  // In black and white (USPTO) at 17, so its lowercase letters stand as tall as the 12 px numerals' capitals
+  // (37 CFR 1.84(p)(3) measures every letter).
+  const capFont = Math.round(((fctx ? (fctx.bw ? 17 : 12) : 11) / scale) * 10) / 10;
   const note = notDrawn > 0 ? `… ${notDrawn} more node${notDrawn === 1 ? "" : "s"} not drawn${tooWide ? " (too wide to draw legibly)" : ""}` : "";
   const cap = [spec.caption, note].filter(Boolean).join(" — ");
   const capLines = cap ? wrap(cap, Math.max(8, Math.floor((VW - PAD * 2) / (capFont * CAP_ADVANCE)))) : [];
@@ -327,7 +343,7 @@ export function treeSvg(spec: TreeSpec): string {
     const a = placed.get(e.from);
     const b = placed.get(e.to);
     if (!a || !b || a === b) continue;
-    const stroke = e.highlight ? "#d62728" : "#666";
+    const stroke = bw ? "#000" : e.highlight ? "#d62728" : "#666";
     parts.push(`<line x1="${r1(a.x)}" y1="${r1(a.y + NODE_H / 2)}" x2="${r1(b.x)}" y2="${r1(b.y - NODE_H / 2)}" stroke="${stroke}" stroke-width="${e.highlight ? 2 : 1}"/>`);
   }
   for (const e of spec.edges) {
@@ -338,20 +354,24 @@ export function treeSvg(spec: TreeSpec): string {
     const my = (a.y + b.y) / 2;
     const lw = edgeLabelWidth(e.label);
     parts.push(`<rect x="${r1(mx - lw / 2)}" y="${r1(my - 8)}" width="${r1(lw)}" height="14" fill="#fff"/>`);
-    parts.push(`<text x="${r1(mx)}" y="${r1(my + 3)}" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#333">${esc(e.label)}</text>`);
+    parts.push(`<text x="${r1(mx)}" y="${r1(my + 3)}" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="${bw ? "#000" : "#333"}">${esc(e.label)}</text>`);
   }
   for (const id of drawnIds) {
     const p = placed.get(id);
     if (!p) continue;
-    const fill = p.node.highlight ? "#ffe8a3" : p.node.kind === "bottom" ? "#fde2e2" : p.node.kind === "box" ? "#e2f5e2" : "#f4f6fa";
-    const stroke = p.node.highlight ? "#b8860b" : "#555";
-    parts.push(`<rect x="${r1(p.x - p.w / 2)}" y="${r1(p.y - NODE_H / 2)}" width="${r1(p.w)}" height="${NODE_H}" rx="4" fill="${fill}" stroke="${stroke}"/>`);
-    const text = p.node.kind === "bottom" ? "⊥" : p.node.kind === "box" ? "□" : p.node.label;
-    parts.push(`<text x="${r1(p.x)}" y="${r1(p.y + 4)}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#222">${esc(text)}</text>`);
+    const fill = bw ? "#fff" : p.node.highlight ? "#ffe8a3" : p.node.kind === "bottom" ? "#fde2e2" : p.node.kind === "box" ? "#e2f5e2" : "#f4f6fa";
+    const stroke = bw ? "#000" : p.node.highlight ? "#b8860b" : "#555";
+    const sw = bw && p.node.highlight ? ` stroke-width="2.5"` : "";
+    parts.push(`<rect x="${r1(p.x - p.w / 2)}" y="${r1(p.y - NODE_H / 2)}" width="${r1(p.w)}" height="${NODE_H}" rx="4" fill="${fill}" stroke="${stroke}"${sw}/>`);
+    const lines = p.node.kind === "bottom" ? ["⊥"] : p.node.kind === "box" ? ["□"] : labelLines(p.node);
+    const top = p.y + 4 - (7 * (lines.length - 1));
+    lines.forEach((line, li) =>
+      parts.push(`<text x="${r1(p.x)}" y="${r1(top + 14 * li)}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="${bw ? "#000" : "#222"}">${esc(line)}</text>`),
+    );
   }
   parts.push("</g>");
   capLines.forEach((line, i) => {
-    parts.push(`<text x="${PAD}" y="${r1(treeH + capFont + i * capLead)}" font-family="sans-serif" font-size="${capFont}" fill="#333">${esc(line)}</text>`);
+    parts.push(`<text x="${PAD}" y="${r1(treeH + capFont + i * capLead)}" font-family="sans-serif" font-size="${capFont}" fill="${bw ? "#000" : "#333"}">${esc(line)}</text>`);
   });
   parts.push("</svg>");
   return parts.join("");

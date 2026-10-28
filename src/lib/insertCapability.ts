@@ -223,7 +223,7 @@ export interface FigureRequest {
    * Re-render the SAME figure on a canvas `w` units wide. Without one, a preset
    * can only scale the figure as drawn and check it.
    */
-  render?: (w: number, style?: FigureStylePreset) => string;
+  render?: (w: number, style?: FigureStylePreset, widthMm?: number) => string;
   /** Table→Chart kind, for the preset's refusal list (USPTO refuses heatmap, candlestick). */
   chartKind?: string;
 }
@@ -293,7 +293,10 @@ export function prepareFigure(req: FigureRequest, fallbackW = 380, fallbackH = 2
   const hadTitle = noTitle && figureTitles(req.svg).length > 0;
   let svg = noTitle ? stripFigureTitles(req.svg) : req.svg;
   // The style is passed on (Release D): a builder that can draw in black and white (the plot kinds) does so for USPTO.
-  const render = req.render && noTitle ? (w: number, st?: FigureStylePreset): string => stripFigureTitles((req.render as (w: number, st?: FigureStylePreset) => string)(w, st)) : req.render;
+  const render =
+    req.render && noTitle
+      ? (w: number, st?: FigureStylePreset, mm?: number): string => stripFigureTitles((req.render as (w: number, st?: FigureStylePreset, mm?: number) => string)(w, st, mm))
+      : req.render;
   let problems: string[];
   let ok: boolean;
   if (render) {
@@ -381,7 +384,7 @@ export function refusalText(p: { reason: string; problems: string[] }): string {
 export interface PanelItem {
   svg: string;
   /** Re-render at a canvas width (lets each panel meet the preset at its cell width), in that style. */
-  render?: (w: number, style?: FigureStylePreset) => string;
+  render?: (w: number, style?: FigureStylePreset, widthMm?: number) => string;
   /** Caption text that travels with the panel (e.g. a bracket legend). */
   caption?: string;
   /** Where it came from, for messages ("Statistics", "Plot"). */
@@ -437,7 +440,7 @@ export function composePanelFigure(items: PanelItem[], choice: FigurePresetChoic
     if (!preset.allowTitle) {
       items = items.map((it) => {
         const r = it.render;
-        return { ...it, svg: stripFigureTitles(it.svg), render: r ? (w: number, st?: FigureStylePreset): string => stripFigureTitles(r(w, st)) : undefined };
+        return { ...it, svg: stripFigureTitles(it.svg), render: r ? (w: number, st?: FigureStylePreset, mm?: number): string => stripFigureTitles(r(w, st, mm)) : undefined };
       });
     }
     // A first layout gives the cell width; the panels are then drawn for it.

@@ -13,6 +13,7 @@ import { fmtFixed, intText, numText, groupThousands } from "./regTable";
 import { semicolonCommaRefusal } from "./numberList";
 import { groupedBarSvg } from "./statchart";
 import { linearAxis } from "./axis";
+import { ctxCanvas } from "./figContext";
 import { ratAdd, ratSub, ratMul, ratDiv, ratSign, ratToNumber, parseRatLiteral, RAT_ZERO, type Rat } from "./cas";
 import { inequality, lorenzAt, lorenzSvg, exactOf, shortFraction, type IneqResult } from "./inequality";
 import {
@@ -1393,12 +1394,14 @@ export function ioReading(names: string[], outMult: number[], keys: string[]): s
 }
 
 function linkageSvg(names: string[], bl: number[], fl: number[], flKind: string): string {
-  const W = 400;
-  const H = 320;
   const ML = 52;
   const MR = 14;
   const MT = 26;
   const MB = 62;
+  // At the figure context's width under a figure-style re-render (lib/figContext.ts); 400 × 320 otherwise.
+  const cv = ctxCanvas(400, 320);
+  const W = cv.w;
+  const H = Math.max(cv.h, Math.round(MT + MB + 0.6 * (W - ML - MR)));
   const pw = W - ML - MR;
   const ph = H - MT - MB;
   let lo = 1;

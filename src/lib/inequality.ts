@@ -25,6 +25,7 @@
  * measure but Gini (Theil T and the Atkinson family take logs or fractional powers of the income).
  */
 import { ratAdd, ratMul, ratSub, ratDiv, ratFromNumber, ratToNumber, RAT_ZERO, type Rat } from "./cas";
+import { ctxCanvas } from "./figContext";
 
 export interface IneqInput {
   /** Incomes (or group means). */
@@ -279,12 +280,15 @@ const pctTick = (v: number): string => (v < 0 ? "−" : "") + String(Math.round(
 export const LORENZ_DRAW_MAX = 1200;
 
 export function lorenzSvg(points: { p: number; L: number }[], giniText: string, grouped: boolean): string {
-  const W = 400;
-  const H = 330;
   const ML = 52;
   const MR = 14;
   const MT = 26;
   const MB = 78;
+  // At the figure context's width under a figure-style re-render (lib/figContext.ts), the plot kept at least 0.6 as
+  // tall as it is wide; outside one, 400 × 330 as always.
+  const cv = ctxCanvas(400, 330);
+  const W = cv.w;
+  const H = Math.max(cv.h, Math.round(MT + MB + 0.6 * (W - ML - MR)));
   const pw = W - ML - MR;
   const ph = H - MT - MB;
   let pts = points;

@@ -20,7 +20,8 @@ export function finCurrencyFigure(out: { ok?: boolean; tables?: { label: string;
   if (out.ok === false) return undefined;
   const conv = currencyConversions(out);
   if (!conv) return undefined;
-  const rows = conv.rows.map((r) => ({ name: r[0].split(String.fromCharCode(0xa0)).join(" "), value: cellAmount(r[2]) }));
+  // Each bar printed with the table's own Converted cell ("€1,258.60"), never "1259 EUR" or money in ×10ⁿ.
+  const rows = conv.rows.map((r) => ({ name: r[0].split(String.fromCharCode(0xa0)).join(" "), value: cellAmount(r[2]), text: r[2] }));
   if (!rows.every((r) => Number.isFinite(r.value))) return undefined;
   const fig = currentFinFig();
   return hBarSvg(rows, { title: `Amounts converted to ${conv.target}`, unit: conv.target, w: fig?.width ?? 360, bw: fig?.bw });

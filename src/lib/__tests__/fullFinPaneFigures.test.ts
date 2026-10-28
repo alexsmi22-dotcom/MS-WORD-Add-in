@@ -9,8 +9,14 @@ import { withFinFig } from "../financeFigures";
 
 const run = (o: Record<string, string> = {}) => finCurrencyCalc((k: string) => ({ ...FIN_CURRENCY_DEFAULTS, ...o })[k] ?? "");
 
-/** The value labels hBarSvg prints beside the bars ("1259 EUR"). */
-const valueLabels = (svg: string, code: string): string[] => [...svg.matchAll(new RegExp(`>([^<>]*) ${code}<`, "g"))].map((m) => m[1]).filter((s) => /^[−0-9]/.test(s));
+/**
+ * The value labels hBarSvg prints beside the bars: since 2026-10-28 (figure fix) each is the table's own Converted
+ * cell ("€ 1,250.00 (EUR)"), never "1250 EUR" or money in ×10ⁿ. Returned in drawing order.
+ */
+const unesc = (s: string): string => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+const valueLabels = (svg: string, cells: string[]): string[] =>
+  [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => unesc(m[1])).filter((t) => cells.includes(t));
+const cellsOf = (o: Parameters<typeof currencyConversions>[0]): string[] => currencyConversions(o)!.rows.map((r) => r[2]);
 
 describe("fin-currency figure", () => {
   test("defaults: a figure with one bar per conversion, in the target currency", () => {
@@ -18,7 +24,8 @@ describe("fin-currency figure", () => {
     expect(out.svg).toMatch(/^<svg[\s>]/);
     expect(out.svg).toContain("Amounts converted to EUR");
     const conv = currencyConversions(out)!;
-    expect(valueLabels(out.svg!, "EUR")).toHaveLength(conv.rows.length);
+    expect(valueLabels(out.svg!, cellsOf(out))).toEqual(conv.rows.map((r) => r[2]));
+    expect(out.svg).not.toMatch(/\d EUR<|×10/);
     // Text and tables untouched.
     const plain = run();
     expect(out.text).toBe(plain.text);
@@ -32,7 +39,7 @@ describe("fin-currency figure", () => {
     expect(cellAmount(conv.rows[0][2])).toBe(1250);
     expect(cellAmount(conv.rows[1][2])).toBeCloseTo((980.5 * 0.92) / 0.785, 2);
     const svg = finCurrencyFigure(out)!;
-    expect(valueLabels(svg, "EUR").slice(0, 2)).toEqual(["1250", "1149"]);
+    expect(valueLabels(svg, cellsOf(out)).slice(0, 2)).toEqual([conv.rows[0][2], conv.rows[1][2]]);
   });
 
   test("cellAmount reads symbols, codes, grouping and a true minus", () => {
@@ -47,14 +54,16 @@ describe("fin-currency figure", () => {
     const one = finCurrencyWithFigure(run({ amounts: "100 GBP" }));
     expect(one.svg).toMatch(/^<svg/);
     const equal = finCurrencyWithFigure(run({ amounts: "100 EUR\n100 EUR\n100 EUR" }));
-    expect(valueLabels(equal.svg!, "EUR")).toEqual(["100", "100", "100"]);
+    expect(valueLabels(equal.svg!, cellsOf(equal))).toHaveLength(3);
+    expect(cellsOf(equal).every((c) => c.includes("100.00"))).toBe(true);
     const huge = finCurrencyWithFigure(run({ amounts: "999999999999999 JPY\n1 EUR" }));
     expect(huge.svg).toMatch(/^<svg/);
     expect(huge.svg).not.toMatch(/NaN|Infinity|e\+/);
     const neg = finCurrencyWithFigure(run({ amounts: "-500 EUR\n250 GBP" }));
     if (neg.ok !== false) {
       expect(neg.svg).toMatch(/^<svg/);
-      expect(valueLabels(neg.svg!, "EUR")[0]).toBe("−500");
+      expect(valueLabels(neg.svg!, cellsOf(neg))[0]).toContain("500.00");
+      expect(valueLabels(neg.svg!, cellsOf(neg))[0]).toMatch(/^−/);
     }
     const none = finCurrencyWithFigure(run({ amounts: "" }));
     expect(none.svg).toBeUndefined();

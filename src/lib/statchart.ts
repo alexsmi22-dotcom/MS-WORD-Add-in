@@ -34,6 +34,7 @@
 
 import { linearAxis, logDecades, decadeLabel, fmtValue, fmtSig, trueMinus } from "./axis";
 import { planBrackets, bracketMarkup, type SigBracketSet, type BracketDisplay, type BracketPlan } from "./sigBrackets";
+import { currentFigCtx } from "./figContext";
 
 /**
  * Significance brackets for boxPlotSvg / groupedBarSvg. The set comes ONLY from
@@ -116,6 +117,46 @@ const PAPER = "#ffffff";
 const BLUE = "#2563eb";
 const RED = "#b91c1c";
 const GREY = "#6b7280";
+
+/**
+ * A figure-style re-render (lib/figContext.ts): the canvas at the context's width and the height in proportion to the
+ * builder's own aspect; outside a context the caller's size, unchanged.
+ */
+function canvasOf(w: number | undefined, h: number | undefined, def: { w: number; h: number }): { W: number; H: number } {
+  const W0 = w ?? def.w;
+  const H0 = h ?? def.h;
+  const fctx = currentFigCtx();
+  return fctx ? { W: fctx.width, H: Math.round((H0 * fctx.width) / W0) } : { W: W0, H: H0 };
+}
+
+/**
+ * Row labels cut to `maxChars` with an ellipsis, and kept DISTINCT: two names with the same prefix ("income quintile
+ * 1", "income quintile 2") cut at the end read the same, so a colliding label keeps its END ("inco…ntile 1"), and if
+ * that still collides it is numbered.
+ */
+export function distinctLabels(labels: string[], maxChars: number): string[] {
+  const m = Math.max(4, Math.floor(maxChars));
+  const endCut = (s: string): string => (s.length > m ? s.slice(0, m - 1).trimEnd() + "…" : s);
+  const midCut = (s: string): string => {
+    if (s.length <= m) return s;
+    const tail = Math.floor((m - 1) / 2);
+    const head = m - 1 - tail;
+    return s.slice(0, head).trimEnd() + "…" + s.slice(s.length - tail).trimStart();
+  };
+  const out = labels.map(endCut);
+  const count = (arr: string[], v: string): number => arr.filter((x) => x === v).length;
+  for (let i = 0; i < out.length; i++) if (count(out, out[i]) > 1 && labels[i].length > m) out[i] = midCut(labels[i]);
+  const seen = new Map<string, number>();
+  for (let i = 0; i < out.length; i++) {
+    if (count(out, out[i]) > 1) {
+      const k = (seen.get(out[i]) ?? 0) + 1;
+      seen.set(out[i], k);
+      const suffix = ` (${k})`;
+      out[i] = labels[i].length + suffix.length <= m ? labels[i] + suffix : endCut(labels[i]).slice(0, Math.max(1, m - suffix.length - 1)) + "…" + suffix;
+    }
+  }
+  return out;
+}
 
 export const BOX_CHART_SIZE = { w: 380, h: 280 };
 export const FOREST_CHART_SIZE = { w: 400, h: 240 };
@@ -339,8 +380,7 @@ export function boxPlotSvg(
   groups: BoxGroup[],
   opts: { title?: string; ylabel?: string; w?: number; h?: number; brackets?: ChartBrackets },
 ): string {
-  const W = opts.w ?? BOX_CHART_SIZE.w;
-  const H = opts.h ?? BOX_CHART_SIZE.h;
+  const { W, H } = canvasOf(opts.w, opts.h, BOX_CHART_SIZE);
   // Twelve boxes is already a crowded 380px; beyond that the labels collide and
   // the figure stops being readable. The cap is stated on the artwork rather
   // than silently applied - a truncation nobody is told about reads as "that is
@@ -545,7 +585,8 @@ export function forestPlotSvg(
   opts: { title?: string; xlabel?: string; zero?: number; w?: number; log?: boolean },
 ): string {
   if (opts.log) return forestPlotLogSvg(rows, opts);
-  const W = opts.w ?? FOREST_CHART_SIZE.w;
+  const W = canvasOf(opts.w, undefined, FOREST_CHART_SIZE).W;
+  const bw = currentFigCtx()?.bw === true;
   const CAP = 14;
   const shown = rows.slice(0, CAP);
   const clipped = rows.length - shown.length;
@@ -560,8 +601,14 @@ export function forestPlotSvg(
   );
   if (!finite.length) return emptyChart(W, H, "No finite intervals to chart");
 
-  const longest = Math.max(...finite.map((r) => r.label.length));
-  const ML = Math.min(150, Math.max(64, longest * 5.6 + 10));
+  // Row labels at 5.8 px per character (10 px face), cut with an ellipsis to the margin they get and kept distinct
+  // (distinctLabels): a long name ran off the left edge, and two names cut at 26 characters read the same.
+  const longest = Math.max(...shown.map((r) => r.label.length));
+  const ML = Math.min(150, W * 0.4, Math.max(64, longest * 5.8 + 12));
+  const rowLabels = distinctLabels(
+    shown.map((r) => r.label),
+    (ML - 10) / 5.8,
+  );
   const MR = 18;
   const pw = W - ML - MR;
 
@@ -599,7 +646,7 @@ export function forestPlotSvg(
     const cy = MT + ROW_H * i + ROW_H / 2;
     parts.push(
       `<text x="${ML - 8}" y="${(cy + 3.5).toFixed(1)}" text-anchor="end" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(r.label.slice(0, 26))}</text>`,
+        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(rowLabels[i])}</text>`,
     );
     if (!Number.isFinite(r.estimate) || !Number.isFinite(r.low) || !Number.isFinite(r.high)) {
       parts.push(
@@ -608,14 +655,18 @@ export function forestPlotSvg(
       );
       return;
     }
-    // Crossing the null line is the whole question, so it is what sets colour.
+    // Crossing the null line is the whole question, so it is what sets colour (in black and white: an open marker).
     const crosses = r.low <= zero && r.high >= zero;
     const c = crosses ? GREY : BLUE;
     parts.push(`<line x1="${x(r.low).toFixed(1)}" y1="${cy.toFixed(1)}" x2="${x(r.high).toFixed(1)}" y2="${cy.toFixed(1)}" stroke="${c}" stroke-width="1.5"/>`);
     for (const v of [r.low, r.high]) {
       parts.push(`<line x1="${x(v).toFixed(1)}" y1="${(cy - 4).toFixed(1)}" x2="${x(v).toFixed(1)}" y2="${(cy + 4).toFixed(1)}" stroke="${c}" stroke-width="1.5"/>`);
     }
-    parts.push(`<circle cx="${x(r.estimate).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${c}"/>`);
+    parts.push(
+      bw && crosses
+        ? `<circle cx="${x(r.estimate).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="#fff" stroke="#000" stroke-width="1.2"/>`
+        : `<circle cx="${x(r.estimate).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${c}"/>`,
+    );
   });
 
   const xTitle = titleWithMultiplier(opts.xlabel, ax.multiplier);
@@ -698,7 +749,8 @@ function forestPlotLogSvg(
   rows: ForestRow[],
   opts: { title?: string; xlabel?: string; zero?: number; w?: number },
 ): string {
-  const W = opts.w ?? FOREST_CHART_SIZE.w;
+  const W = canvasOf(opts.w, undefined, FOREST_CHART_SIZE).W;
+  const bw = currentFigCtx()?.bw === true;
   const CAP = 14;
   const shown = rows.slice(0, CAP);
   const clipped = rows.length - shown.length;
@@ -731,9 +783,13 @@ function forestPlotLogSvg(
   // ellipsis to the margin they get — a long covariate name ("financial aid
   // received at release") must never run off the left edge of the picture.
   const longest = Math.max(...shown.map((r) => r.label.length));
-  const ML = Math.min(170, Math.max(64, longest * 5.8 + 12));
+  const ML = Math.min(170, W * 0.4, Math.max(64, longest * 5.8 + 12));
   const maxChars = Math.max(4, Math.floor((ML - 10) / 5.8));
-  const rowLabel = (s: string): string => (s.length > maxChars ? s.slice(0, maxChars - 1) + "…" : s);
+  const distinct = distinctLabels(
+    shown.map((r) => r.label),
+    maxChars,
+  );
+  const rowLabel = (_s: string, i: number): string => distinct[i];
   const MR = 18;
   const pw = W - ML - MR;
   const span = ax.decHi - ax.decLo;
@@ -777,7 +833,7 @@ function forestPlotLogSvg(
     const cy = MT + ROW_H * i + ROW_H / 2;
     parts.push(
       `<text x="${ML - 8}" y="${(cy + 3.5).toFixed(1)}" text-anchor="end" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(rowLabel(r.label))}</text>`,
+        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(rowLabel(r.label, i))}</text>`,
     );
     if (!Number.isFinite(r.estimate) || !Number.isFinite(r.low) || !Number.isFinite(r.high)) {
       parts.push(
@@ -792,7 +848,11 @@ function forestPlotLogSvg(
     for (const v of [r.low, r.high]) {
       parts.push(`<line x1="${x(v).toFixed(1)}" y1="${(cy - 4).toFixed(1)}" x2="${x(v).toFixed(1)}" y2="${(cy + 4).toFixed(1)}" stroke="${c}" stroke-width="1.5"/>`);
     }
-    parts.push(`<circle cx="${x(r.estimate).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${c}"/>`);
+    parts.push(
+      bw && crosses
+        ? `<circle cx="${x(r.estimate).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="#fff" stroke="#000" stroke-width="1.2"/>`
+        : `<circle cx="${x(r.estimate).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${c}"/>`,
+    );
   });
 
   parts.push(
@@ -830,8 +890,7 @@ export function groupedBarSvg(
   series: BarSeries[],
   opts: { title?: string; ylabel?: string; w?: number; h?: number; brackets?: ChartBrackets },
 ): string {
-  const W = opts.w ?? GROUPED_BAR_SIZE.w;
-  const H = opts.h ?? GROUPED_BAR_SIZE.h;
+  const { W, H } = canvasOf(opts.w, opts.h, GROUPED_BAR_SIZE);
   const CAP = 16;
   const cats = categories.slice(0, CAP);
   const clipped = categories.length - cats.length;
@@ -905,6 +964,8 @@ export function groupedBarSvg(
   const palette = [BLUE, RED, "#059669", "#d97706", "#7c3aed", "#0891b2", "#be185d", "#4d7c0f"];
   const slot = pw / cats.length;
   const bw = Math.max(2, Math.min(18, (slot * 0.7) / series.length));
+  // Category names cut at 10 characters with an ellipsis (they were cut with none) and kept distinct.
+  const catLabels = distinctLabels(cats, 10);
   cats.forEach((cat, i) => {
     const cx = ML + slot * (i + 0.5);
     series.forEach((s, k) => {
@@ -920,7 +981,7 @@ export function groupedBarSvg(
     });
     parts.push(
       `<text x="${cx.toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle" ` +
-        `font-family="Segoe UI, Arial" font-size="9" fill="${INK}">${esc(cat.slice(0, 10))}</text>`,
+        `font-family="Segoe UI, Arial" font-size="9" fill="${INK}">${esc(catLabels[i] ?? cat)}</text>`,
     );
   });
 

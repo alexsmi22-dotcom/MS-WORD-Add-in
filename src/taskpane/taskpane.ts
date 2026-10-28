@@ -211,7 +211,8 @@ import {
   amortizationRowAt,
   sigmaZeroAtForward,
 } from "../lib/finance";
-import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, withFinFig, currentFinFig } from "../lib/financeFigures";
+import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, currentFinFig } from "../lib/financeFigures";
+import { figureRenderer, currentFigCtx } from "../lib/figContext";
 import { FIN_GROUP_ORDER, type FinCalcDef, type FinField, type FinResult, type FinTable } from "../lib/finCalc";
 import { readXirrDates } from "../lib/xirrDates";
 import { BOND_CALCS } from "../lib/bondCalcs";
@@ -1414,7 +1415,7 @@ let currentStatsText = "";
 // can be inserted as a picture, the same way Spectra does it.
 let currentStatsSvg = "";
 /** Re-renders the current Stats figure at a canvas width (figure styles), when it can. */
-let currentStatsRender: ((w: number) => string) | null = null;
+let currentStatsRender: ((w: number, style?: FigureStylePreset) => string) | null = null;
 /** The bracket legend shown under the Stats figure; inserted as its caption. */
 let currentStatsCaption = "";
 /** Release E2: the current Stats result's tables (regression coefficients, diagnostics, publication table). */
@@ -8667,6 +8668,8 @@ const FIN_CALCS: FinCalc[] = [
             .map((f) => ({
               name: { 1: "annual", 2: "semi", 4: "quarterly", 12: "monthly", 52: "weekly", 365: "daily" }[f] as string,
               value: effectiveAnnualRate(nom, f) * 100,
+              // The text's own formatting ("12.68%"), not three significant figures without the % (hBarSvg `text`).
+              text: finPct(effectiveAnnualRate(nom, f)),
               colour: f === Math.round(+r("m")) ? "#b91c1c" : "#2563eb",
             }))
             .filter((row) => Number.isFinite(row.value)),
@@ -9424,9 +9427,12 @@ const FIN_CALCS: FinCalc[] = [
             { name: "monthly", value: compoundInterest(p, rate, 12, years) },
             { name: "daily", value: compoundInterest(p, rate, 365, years) },
             { name: "continuous", value: cont, colour: "#b91c1c" },
-          ].filter((row) => Number.isFinite(row.value)),
-          // Unrounded, for the same reason as the compounding title above.
-          { title: "Amount after " + finFixed(years, 2) + " years, by compounding", unit: "", w: currentFinFig()?.width ?? 360, bw: currentFinFig()?.bw },
+          ]
+            .filter((row) => Number.isFinite(row.value))
+            // Each bar printed as the text prints money ("18,193.97"), never "1.82×10⁵" (hBarSvg `text`).
+            .map((row) => ({ ...row, text: finMoney(row.value) })),
+          // The years as typed ("after 10 years", not "after 10.00 years").
+          { title: "Amount after " + String(+years.toFixed(6)).replace("-", "−") + " years, by compounding", unit: "", w: currentFinFig()?.width ?? 360, bw: currentFinFig()?.bw },
         ),
       };
     },
@@ -10299,12 +10305,13 @@ function updateFinancePreview(): void {
   // The same calculator re-run with its figure drawn at another width (and in
   // black and white for USPTO), so a figure style re-renders it instead of
   // scaling — and refusing — the colour figure.
+  // Through the shared figure context (lib/figContext.ts figureRenderer), which also fits the style's black and white
+  // and text band.
   currentFinRender = currentFinSvg
-    ? (w: number, style?: FigureStylePreset): string =>
-        withFinFig({ width: w, bw: style?.color === "bw" }, () => {
-          const o = calc.compute(read);
-          return typeof o === "string" ? "" : (o.svg ?? "");
-        })
+    ? figureRenderer(() => {
+        const o = calc.compute(read);
+        return typeof o === "string" ? "" : (o.svg ?? "");
+      })
     : null;
   if (currentFinSvg) {
     const figure = document.createElement("div");
@@ -10713,7 +10720,7 @@ const STAT_CALCS: StatCalc[] = [
         );
       }
       // Curve to the last follow-up, y fixed 0 to 1, + ticks at censoring (survivalFigure.ts).
-      const svg = kaplanMeierSvg([{ km: res, label: "S(t)" }], { title: "Kaplan-Meier" });
+      const svg = kaplanMeierSvg([{ km: res, label: "S(t)" }], { title: "Kaplan–Meier" });
       lines.push("", KM_CI_NOTE);
       return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), reading: survivalReading(res), svg };
     },
@@ -11214,7 +11221,7 @@ const STAT_CALCS: StatCalc[] = [
           })),
           {
             title: "Dunnett - simultaneous 95% CI vs control",
-            xlabel: "treatment - control",
+            xlabel: "treatment − control",
             zero: 0,
           },
         ),
@@ -11278,7 +11285,7 @@ const STAT_CALCS: StatCalc[] = [
         // — exactly what a box plot shows and a mean with an SD hides.
         svg: boxPlotSvg(
           groups.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
-          { title: `Kruskal-Wallis (${groups.length} groups)`, ylabel: "value" },
+          { title: `Kruskal–Wallis (${groups.length} groups)`, ylabel: "value" },
         ),
         // Dunn brackets exist only when Dunn ran (the omnibus test was significant):
         // a bracket without a post-hoc behind it would be a claim no test made.
@@ -11287,7 +11294,7 @@ const STAT_CALCS: StatCalc[] = [
             ? (choice, w) =>
                 bracketedBoxPlot(
                   groups.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
-                  { title: `Kruskal-Wallis (${groups.length} groups)`, ylabel: "value" },
+                  { title: `Kruskal–Wallis (${groups.length} groups)`, ylabel: "value" },
                   { kind: "dunn", result: dunn as ReturnType<typeof dunnTest>, k: groups.length, correction: "holm" },
                   choice,
                   w,
@@ -11874,6 +11881,8 @@ const STAT_CALCS: StatCalc[] = [
             res.contributions.map((c) => ({
               name: c.name,
               value: Math.sqrt(Math.max(0, c.contribution)),
+              // The text's significant-figure formatting (assaySig, as the printed ±), grouped, no trailing space.
+              text: assaySig(Math.sqrt(Math.max(0, c.contribution)), 3),
             })),
             { title: "Contribution to combined uncertainty (same units as the result)", unit: "" },
           ),
@@ -12126,7 +12135,7 @@ const STAT_CALCS: StatCalc[] = [
                 return reps.length ? reps.reduce((s, v) => s + v, 0) / reps.length : NaN;
               }),
             })),
-            { title: "Cell means (A x B)", ylabel: "mean value" },
+            { title: "Cell means (A × B)", ylabel: "mean value" },
           ),
         };
       } catch (e) {
@@ -12507,15 +12516,31 @@ function updateStatsPreview(): void {
       // A re-render (figure style, panel) whose brackets fail must FAIL, never
       // fall back to the plain figure: the bracket caption would then go in under
       // a figure without brackets. The message names the remedy.
-      currentStatsRender = (w: number): string => {
-        const again = bf(choice, w);
+      // Drawn inside the shared figure context (lib/figContext.ts), so a style's black and white and text band apply
+      // to the bracket figure too.
+      const redraw = figureRenderer(() => {
+        const again = bf(choice, currentFigCtx()?.width);
         // The message names only the remedies that can work (statsBrackets.fitRemedy).
         if (!again.ok) throw new Error(again.error);
         return again.svg;
-      };
+      });
+      currentStatsRender = (w: number, style?: FigureStylePreset): string => redraw(w, style);
     } else if (!fig.ok) {
       bracketErr = `${fig.error} Or turn brackets off.`;
     }
+  }
+  // EVERY OTHER STATS FIGURE RE-RENDERS TOO (2026-10-28): the calculator re-runs inside the shared figure context, so
+  // a figure style redraws it at its width and in black and white, as Finance does, instead of checking the colour
+  // figure as drawn and refusing it. A re-run that fails or draws nothing gives an empty figure, which the style
+  // refuses by name.
+  if (!currentStatsRender && figSvg && out.ok !== false) {
+    currentStatsRender = figureRenderer(() => {
+      try {
+        return calc.compute(read).svg ?? "";
+      } catch {
+        return "";
+      }
+    });
   }
   statsResult.innerHTML =
     (statsReading ? `<p class="calc-reading">${esc(statsReading)}</p>` : "") +

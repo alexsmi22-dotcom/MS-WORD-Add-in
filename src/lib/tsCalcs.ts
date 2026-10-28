@@ -490,7 +490,7 @@ export function tsUnitRootCalc(read: Read): StatOutput {
       : adfRejects && !kpssRejects
         ? `${Nm} appears stationary (it keeps returning to a stable ${kreg === "ct" ? "trend" : "level"}): ADF rejects a unit root and KPSS does not reject stationarity (${pair}).`
         : adfRejects && kpssRejects
-          ? `The two tests conflict for ${nm}: each rejects its own null (${pair}), often a sign of a structural break or a misspecified trend.`
+          ? `The two tests conflict for ${nm}: ADF rejects a unit root but KPSS also rejects stationarity (${pair}), often a sign of a structural break or a misspecified trend.`
           : `Neither test rejects at 5% (${pair}), so these data cannot tell whether ${nm} has a unit root; a longer series may settle it.`;
   const reading = fitReading(verdict(s.name, s.name), verdict("the series", "The series"));
   return { text: lines.join("\n"), reading, svg, tables };
@@ -610,7 +610,7 @@ export function tsHpCalc(read: Read): StatOutput {
   if (step > 1) lines.push(`The figure shows every ${step}th row.`);
   // The reading: how far the series swings around its smooth trend, and when it was furthest below and above.
   const swing = (nm: string): string =>
-    `With λ = ${lambdaText(lambda)}, ${nm} swings around its smooth trend by ${fmtFixed(sd, 3)} on average (root mean square), from ${fmtFixed(hp.cycle[cmin], 3)} in ${when(cmin)} to ${fmtFixed(hp.cycle[cmax], 3)} in ${when(cmax)}.`;
+    `With λ = ${lambdaText(lambda)}, ${nm} swings around its smooth trend by ${fmtFixed(sd, 3)} on average (root mean square): lowest ${fmtFixed(hp.cycle[cmin], 3)} (${when(cmin)}), highest ${fmtFixed(hp.cycle[cmax], 3)} (${when(cmax)}).`;
   const endNote = " The last few trend values will shift as new data arrive.";
   const reading = fitReading(swing(s.name) + endNote, swing(s.name), swing("the series"));
   return { text: lines.join("\n"), reading, svg: combineSvgs([top, bottom]).svg, tables };

@@ -446,9 +446,11 @@ function econGmmReading(f: GmmFitted): string | undefined {
   const dep = f.depName;
   const j = names.findIndex((nm) => nm !== "Constant");
   let lead: string;
+  let bare: string;
   if (j < 0) {
     const row = coefRow(names[0], r.gmm.b[0], r.gmm.se[0]);
     lead = `With no regressors, the model estimates only the average level of ${dep}, about ${row[1]}.`;
+    bare = `With no regressors, the model estimates only the average level, about ${row[1]}.`;
   } else {
     const row = coefRow(names[j], r.gmm.b[j], r.gmm.se[j]);
     const p = coefP(r.gmm.b[j], r.gmm.se[j]);
@@ -458,6 +460,9 @@ function econGmmReading(f: GmmFitted): string | undefined {
     lead = iv
       ? `The estimated effect of a one-unit increase in ${names[j]} on ${dep} is ${row[1]} (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`
       : `A one-unit increase in ${names[j]} goes with a change of ${row[1]} in ${dep} (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`;
+    bare = iv
+      ? `The estimated effect of the first instrumented regressor is ${row[1]} per unit (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`
+      : `The first regressor goes with a change of ${row[1]} per unit (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`;
   }
   let tail = "";
   if (r.jdf > 0 && Number.isFinite(r.j)) {
@@ -471,7 +476,8 @@ function econGmmReading(f: GmmFitted): string | undefined {
   const fs = j >= 0 ? r.firstStage.find((x) => x.name === names[j]) : undefined;
   const weak = fs && Number.isFinite(fs.p) && fs.p >= 0.05 ? ` The instruments barely predict ${fs.name} (first stage ${pText(fs.p)}), so the estimate is unreliable.` : "";
   // Two sentences at most: a weak first stage outranks the overidentification test.
-  return fitReading(lead + (weak || tail), lead);
+  const weakBare = weak && fs ? ` The instruments barely predict that regressor (first stage ${pText(fs.p)}), so the estimate is unreliable.` : "";
+  return fitReading(lead + (weak || tail), lead, bare + (weakBare || tail), bare);
 }
 
 /**
@@ -1049,9 +1055,12 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   if (r.spec.lagFirst === 2 && ar2 && ar2.p < 0.05) tests = `; but the AR(2) test rejects (${pText(ar2.p)}), so the lag-2 instruments look invalid.`;
   else if (Number.isFinite(valP) && valP < 0.05) tests = `; but the ${valName} test rejects the instruments (${pText(valP)}), so the estimate is suspect.`;
   else if (fit.two && Number.isFinite(valP) && valP > 0.99) tests = `; the Hansen ${pText(valP)} is too good to be reassuring (often too many instruments).`;
-  else if (Number.isFinite(valP) && ar2) tests = `; the specification tests find no evidence against the instruments (AR(2) ${pText(ar2.p)}, ${valName} ${pText(valP)}).`;
+  // AR(2) is a test of the instruments only when they start at lag 2 (from lag 3 on, AR(2) is tolerated).
+  else if (Number.isFinite(valP) && ar2 && r.spec.lagFirst === 2) tests = `; the specification tests find no evidence against the instruments (AR(2) ${pText(ar2.p)}, ${valName} ${pText(valP)}).`;
+  else if (Number.isFinite(valP)) tests = `; the ${valName} test finds no evidence against the instruments (${pText(valP)}).`;
   else tests = ".";
-  const reading = fitReading(lead + tests, `${lead}.`);
+  const pBare = Number.isFinite(pY) && pY < 0.05 ? `The lagged response carries over as about ${rowY[1]} units (${pYS}).` : `No clear carry-over from the lagged response (${pYS || `coefficient ${rowY[1]}`}).`;
+  const reading = fitReading(lead + tests, `${lead}.`, pBare);
   return { text: lines.join("\n"), reading, tables, ...(svg ? { svg } : {}) };
 }
 

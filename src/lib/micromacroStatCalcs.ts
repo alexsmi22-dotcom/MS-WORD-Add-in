@@ -782,7 +782,9 @@ export function microPriceDiscCalc(read: Read): StatOutput {
     const profitText = ratEq(res.third.profit, res.uniform.profit)
       ? `leaves profit at ${cellDec(res.third.profit)}`
       : `raises profit from ${cellDec(res.uniform.profit)} to ${cellDec(res.third.profit)}`;
-    const reading = `Charging the two markets separate prices (${prices.join(" and ")}) instead of one uniform price ${profitText} and ${tsText}.`;
+    const both = res.third.p.every((p) => p !== null);
+    const charging = both ? `Charging the two markets separate prices (${prices.join(" and ")})` : `Pricing each market on its own (${prices.join("; ")})`;
+    const reading = `${charging} instead of one uniform price ${profitText} and ${tsText}.`;
     return { text: lines.join("\n"), reading, tables: [t], svg };
   });
 }

@@ -124,6 +124,7 @@ export function depositExpansionSvg(o: { cumulative: number[]; limit: number; li
     xLimits: { min: 0.5, max: n + 0.5 },
     yGrouping: "comma",
     notes: [
+      ...(Math.abs(o.limit - pts[n - 1].y) > 0.01 * Math.abs(o.limit) ? [`Only the first ${n} rounds are drawn; the money created is still short of the limit there.`] : []),
       o.limit < 0
         ? `Round 1 is the ${o.injectionLabel} itself (a fall); each later round removes the loans banks can no longer back with reserves.`
         : `Round 1 is the ${o.injectionLabel} itself; each later round re-lends what banks do not keep as reserves.`,

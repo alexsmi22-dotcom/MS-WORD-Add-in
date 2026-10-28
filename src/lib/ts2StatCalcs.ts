@@ -528,14 +528,18 @@ export function tsGarchCalc(read: Read): StatOutput {
   const svg = garchVolatilitySvg({ x: ax.x, absReturn: absR, sigma, forecast: fc, xlabel: ax.xlabel, title: `${VOL_NAME[spec.vol]} conditional volatility`, ylabel: pct ? `${name} (%)` : name });
   // The reading: how long a volatility shock lasts, then the leverage effect (GJR, EGARCH) or the next-period forecast.
   const persS = fmtFixed(fit.persistence, 4);
-  let lead: string;
-  if (noArch) lead = `In this fit the returns of ${name} do not move its volatility (the shock terms are at zero), so volatility follows a fixed path`;
-  else if (unitPers) lead = `Volatility in ${name} is fully persistent (persistence ${persS}): a shock to it does not fade`;
-  else if (fit.persistence > 0) {
-    const hl = Math.log(0.5) / Math.log(fit.persistence);
-    const desc = fit.persistence >= 0.9 ? "highly persistent" : fit.persistence >= 0.5 ? "persistent" : "short-lived";
-    lead = `Volatility shocks in ${name} are ${desc} (persistence ${persS}): ${hl < 1 ? "a shock halves within a period" : `a shock takes about ${fmtFixed(hl, hl < 10 ? 2 : 1)} periods to halve`}`;
-  } else lead = `Volatility shocks in ${name} die out within one period (persistence ${persS})`;
+  const leadFor = (nm: string, the: string): string => {
+    if (noArch) return `In this fit the returns of ${nm} do not move ${the === "the series" ? "their" : "its"} volatility (the shock terms are at zero), so volatility follows a fixed path`;
+    if (unitPers) return `Volatility in ${nm} is fully persistent (persistence ${persS}): a shock to it does not fade`;
+    if (fit.persistence > 0) {
+      const hl = Math.log(0.5) / Math.log(fit.persistence);
+      const desc = fit.persistence >= 0.9 ? "highly persistent" : fit.persistence >= 0.5 ? "persistent" : "short-lived";
+      return `Volatility shocks in ${nm} are ${desc} (persistence ${persS}): ${hl < 1 ? "a shock halves within a period" : `a shock takes about ${fmtFixed(hl, hl < 10 ? 2 : 1)} periods to halve`}`;
+    }
+    return `Volatility shocks in ${nm} die out within one period (persistence ${persS})`;
+  };
+  const lead = leadFor(name, name);
+  const leadBare = leadFor("the series", "the series");
   let second = "";
   const gi = fit.names.indexOf("gamma");
   const gSe = gi >= 0 ? fit.seRobust?.[gi] : undefined;
@@ -550,7 +554,7 @@ export function tsGarchCalc(read: Read): StatOutput {
         : ` Bad news may raise volatility more than good news, but that extra effect is not clearly different from zero (${pS}).`
       : " Bad news does not raise volatility more than good news in this fit.";
   } else if (Number.isFinite(fc[0])) second = ` The forecast variance for the next period is ${fmtFixed(fc[0], fd)}.`;
-  const reading = fitReading(`${lead}.${second}`, `${lead}.`);
+  const reading = fitReading(`${lead}.${second}`, `${leadBare}.${second}`, `${lead}.`, `${leadBare}.`);
   return { text: lines.join("\n"), reading, tables, svg };
 }
 
@@ -718,7 +722,7 @@ export function tsVarCalc(read: Read): StatOutput {
     const best = sig.reduce((a, b) => (b.p < a.p ? b : a));
     const others = sig.length - 1;
     const lead = `Past values of ${names[best.causing]} help predict ${names[best.caused]} beyond what ${names[best.caused]}'s own past predicts (${gp(best)})`;
-    const more = others ? `, and ${others} other link${others === 1 ? " is" : "s are"} also clear at the 5% level` : "";
+    const more = others ? `, and ${others === 1 ? "another link is" : "other links are"} also clear at the 5% level` : "";
     reading = fitReading(`${lead}${more}${stab}.`, `${lead}${more}.`, `One series helps predict another at 5% (${gp(best)}).`);
   } else {
     reading = fitReading(`No series helps predict another beyond its own past at the 5% level${stab}.`, "No series helps predict another beyond its own past at the 5% level.");

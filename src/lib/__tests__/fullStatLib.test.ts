@@ -253,15 +253,45 @@ describe("hostile inputs to the new figures", () => {
 
 // ---------------------------------------------------------------------------------------------------- long names
 
+/**
+ * Every column of the default table renamed with a long suffix (and every other text field that names a column
+ * rewritten to match): the reading must still keep the rules, the 320-character limit included, through
+ * fitReading's name-free fallbacks. Date and entity columns keep their names (the readers recognise them by name).
+ */
+function withLongNames(c: Calc): Record<string, string> | null {
+  const data = c.fields.find((f) => f.key === "data");
+  if (!data) return null;
+  const lines = data.default.split("\n");
+  const sep = lines[0].includes("\t") ? "\t" : /\s+/;
+  const head = lines[0].split(sep);
+  const LONG = "_with_a_very_long_descriptive_suffix_from_a_database_export";
+  const keep = /^(Year|Quarter|year|firm|Date|Period|Month)$/;
+  const names = head.filter((h) => h && !keep.test(h));
+  const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rename = (s: string): string => {
+    let out = s;
+    // Longest first, so "Region A" is not caught inside "Region AB".
+    for (const nm of [...names].sort((a, b) => b.length - a.length)) out = out.replace(new RegExp(`(?<![\\w.])${esc(nm)}(?![\\w])`, "g"), `${nm.replace(/\s/g, "_")}${LONG}`);
+    return out;
+  };
+  const over: Record<string, string> = { data: [head.map((h) => (keep.test(h) || !h ? h : `${h.replace(/\s/g, "_")}${LONG}`)).join(typeof sep === "string" ? sep : " "), ...lines.slice(1)].join("\n") };
+  for (const f of c.fields) if (f.key !== "data" && (f as { kind?: string }).kind !== "select" && f.default) over[f.key] = rename(f.default);
+  return over;
+}
+
 test("long user column names fall back to a shorter reading that still keeps the rules", () => {
-  const long = "a_very_long_series_name_that_a_user_might_paste_from_a_database_export";
-  const base = calc("ts-engle-granger").fields.find((f) => f.key === "data")!.default;
-  const head = base.split("\n")[0].split(/\s+/);
-  const renamed = [head.map((h, j) => (j === 0 ? h : `${long}_${j}`)).join(" "), ...base.split("\n").slice(1)].join("\n");
-  for (const id of ["ts-engle-granger", "ts-johansen"]) {
-    const o = run(id, { data: renamed });
-    expect(o.ok).not.toBe(false);
-    expect(readingProblems(o.reading)).toEqual([]);
+  const checked: string[] = [];
+  for (const id of OWNED) {
+    const over = withLongNames(calc(id));
+    if (!over) continue;
+    const o = run(id, over);
+    if (o.ok === false) continue;
+    checked.push(id);
+    expect([id, readingProblems(o.reading)]).toEqual([id, []]);
+  }
+  // The registries whose readings name columns must all have been exercised (none refused the renamed table).
+  for (const id of ["econ-count", "econ-tobit", "econ-heckman", "econ-ordered", "econ-mlogit", "econ-gmm", "causal-synth", "causal-pscore", "causal-rdd", "ts-garch", "ts-var", "ts-var-irf", "ts-engle-granger", "ts-johansen", "ts-acf", "ts-unitroot", "ts-hp"]) {
+    expect([id, checked.includes(id)]).toEqual([id, true]);
   }
 });
 

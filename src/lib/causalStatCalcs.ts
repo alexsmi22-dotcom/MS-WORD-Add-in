@@ -1173,10 +1173,14 @@ export function synthCalc(read: Read): StatOutput {
   const U = J + 1;
   if (!r.placebos) inference = "; no placebo comparison was run, so chance cannot be judged.";
   else if (exactPre) inference = "; the pre-period fit is exact to the data's precision, so the placebo ranking says nothing about chance.";
-  else if (r.p < 0.05) inference = `; only ${r.rank === 1 ? "this unit" : `${r.rank} of ${U} units`} show${r.rank === 1 ? "s" : ""} a gap this large relative to its fit (permutation p = ${fmtFixed(r.p, 3)}), unlikely to be chance at the 5% level.`;
+  else if (r.p < 0.05) inference = `; its gap relative to its pre-period fit ranks ${r.rank} of ${U} against placebo units (permutation p = ${fmtFixed(r.p, 3)}), unlikely to be chance at the 5% level.`;
   else if (r.rank === 1) inference = `; its gap is the largest of the ${U} units relative to fit, but with ${J} donors the permutation p cannot go below ${fmtFixed(r.p, 3)}, so chance is not ruled out at 5%.`;
-  else inference = `; ${r.rank - 1} of the ${J} donors show a gap as large relative to their fit (permutation p = ${fmtFixed(r.p, 3)}), so the gap could be chance.`;
-  const reading = fitReading(gapText + inference, `${gapText}.`);
+  else inference = `; its gap relative to its pre-period fit ranks only ${r.rank} of ${U} against placebo units (permutation p = ${fmtFixed(r.p, 3)}), so the gap could be chance.`;
+  const bareGap =
+    attS === fmtFixed(0, 3)
+      ? `After treatment the treated unit tracked its synthetic control with no average gap (${attS})`
+      : `After treatment the treated unit ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control (the estimated effect)`;
+  const reading = fitReading(gapText + inference, bareGap + inference, `${gapText}.`, `${bareGap}.`);
   return { text: lines.join("\n"), reading, tables, svg };
 }
 
@@ -1630,10 +1634,9 @@ export function pscoreCalc(read: Read): StatOutput {
   const tables: StatTable[] = [];
   let wBal: number[];
   let summary: string;
-  let readLead = "";
-  /** "The estimated effect of training on earnings among the treated is 2.500" (the reading's lead, from the table's own format). */
-  const psWho = (est: number, dd: number): string =>
-    `The estimated effect of ${tName} on ${cols.depName} ${estimand === "att" ? "among the treated" : "averaged over everyone"} is ${fmtFixed(est, dd)}`;
+  // The reading's estimate and what follows it, set by the method branch below.
+  let readEst = NaN;
+  let readTail = "";
   if (method === "match") {
     let sdEta = 0;
     const mEta = eta.reduce((a, v) => a + v, 0) / n;
@@ -1647,7 +1650,8 @@ export function pscoreCalc(read: Read): StatOutput {
       `${estimand.toUpperCase()} = ${fmtFixed(m.est, 3)} (matched: ${intText(m.nMatchedT)} treated, ${intText(m.nMatchedC)} controls${m.dropped ? `; ${intText(m.dropped)} unit${m.dropped === 1 ? "" : "s"} without a match within the caliper dropped` : ""}). ` +
       "No standard error is reported (see below).";
     lines = [header, summary];
-    readLead = `${psWho(m.est, 3)} (by matching, which gives no standard error, so its precision is unknown)`;
+    readEst = m.est;
+    readTail = " (by matching, which gives no standard error, so its precision is unknown)";
     lines.push(
       `Matching: ${k} nearest neighbor${k === 1 ? "" : "s"} ${replace ? "with" : "without"} replacement on η = logit p̂ (the linear predictor), ` +
         (Number.isFinite(calSd) ? `caliper ${fmtFixed(calSd, 3)} SD of η = ${fmtFixed(cal, 4)} (SD over the ${intText(n)} rows, divisor n − 1)` : "no caliper") +
@@ -1677,9 +1681,8 @@ export function pscoreCalc(read: Read): StatOutput {
     const z = r.est / r.se;
     summary = `${estimand.toUpperCase()} = ${fmtFixed(r.est, 3)} (SE ${fmtFixed(r.se, 3)}), z = ${fmtFixed(z, 3)}, p ${pText(zP(z))}, 95% CI ${ci(r.est, r.se, 3)}`;
     lines = [header, summary];
-    readLead =
-      `${psWho(r.est, 3)} (95% interval ${ci(r.est, r.se, 3)}, p ${pText(zP(z))}), ` +
-      (zP(z) < 0.05 ? "unlikely to be chance at the 5% level" : "not clearly different from zero");
+    readEst = r.est;
+    readTail = ` (95% interval ${ci(r.est, r.se, 3)}, p ${pText(zP(z))}), ` + (zP(z) < 0.05 ? "unlikely to be chance at the 5% level" : "not clearly different from zero");
     lines.push(
       `Weights: ${estimand === "ate" ? "1/p̂ for treated, 1/(1 − p̂) for controls" : "1 for treated, p̂/(1 − p̂) for controls"}; ` +
         (wKind === "hajek"
@@ -1794,7 +1797,12 @@ export function pscoreCalc(read: Read): StatOutput {
     worstAfter <= 0.1
       ? ` The groups are well balanced after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}), but it is causal only if the covariates capture how units were chosen.`
       : ` The groups still differ after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}, above 0.1), so the estimate may be biased.`;
-  const reading = fitReading(`${readLead}.${bal}`, `${readLead}.`);
+  // "The estimated effect of training on earnings among the treated is 2.500" (the table's own format), and the same
+  // without the column names for when long names overrun the length limit.
+  const who = estimand === "att" ? "among the treated" : "averaged over everyone";
+  const lead = `The estimated effect of ${tName} on ${cols.depName} ${who} is ${fmtFixed(readEst, 3)}${readTail}`;
+  const leadBare = `The estimated effect of the treatment ${who} is ${fmtFixed(readEst, 3)}${readTail}`;
+  const reading = fitReading(`${lead}.${bal}`, `${leadBare}.${bal}`, `${lead}.`, `${leadBare}.`);
   return { text: lines.join("\n"), reading, tables, svg };
 }
 

@@ -70,6 +70,64 @@ function ciPercent(alpha: number): string {
   return String(Number(((1 - alpha) * 100).toPrecision(6)));
 }
 
+/** The highest and lowest group means (0-based), or null when every mean prints the same. */
+function meanExtremes(st: WelchGroupStats[]): { hi: number; lo: number } | null {
+  let hi = 0;
+  let lo = 0;
+  st.forEach((g, i) => {
+    if (g.mean > st[hi].mean) hi = i;
+    if (g.mean < st[lo].mean) lo = i;
+  });
+  return welchNum(st[hi].mean) === welchNum(st[lo].mean) ? null : { hi, lo };
+}
+
+/**
+ * The plain-language reading of Welch's ANOVA (lib/calcReading.ts): whether the means differ somewhere, at the
+ * conventional p < 0.05, with the highest and lowest group means as printed. Never names which pairs differ (the
+ * omnibus test cannot); it points to Games–Howell for that.
+ */
+export function welchAnovaReading(res: WelchAnovaResult): string {
+  const stat = reportWelchF(res);
+  const ext = meanExtremes(res.groups);
+  if (res.p < 0.05) {
+    const where = ext
+      ? `: group ${ext.hi + 1} averages highest (${welchNum(res.groups[ext.hi].mean)}) and group ${ext.lo + 1} lowest (${welchNum(res.groups[ext.lo].mean)})`
+      : "";
+    if (res.k === 2) return `The two group means differ (${stat})${where}.`;
+    return `The group means differ somewhere (${stat})${where}. The test does not say which groups differ; Games–Howell compares the pairs.`;
+  }
+  const spread = ext
+    ? `; the spread from ${welchNum(res.groups[ext.lo].mean)} (group ${ext.lo + 1}) to ${welchNum(res.groups[ext.hi].mean)} (group ${ext.hi + 1}) could be chance`
+    : "";
+  return `The data show no clear difference among the ${res.k} group means (${stat})${spread}.`;
+}
+
+/**
+ * The plain-language reading of Games–Howell: the pairs the test itself flags (its `significant`, at the user's α),
+ * larger mean first, at most two named; or, when none is flagged, the largest gap and its p.
+ */
+export function gamesHowellReading(res: GamesHowellResult): string {
+  const m = res.pairs.length;
+  const say = (pr: GamesHowellResult["pairs"][number]): string => {
+    const [a, b] = pr.difference >= 0 ? [pr.i, pr.j] : [pr.j, pr.i];
+    return `group ${a + 1} averages ${welchNum(Math.abs(pr.difference))} higher than group ${b + 1} (${formatP(pr.p)})`;
+  };
+  const sig = res.pairs.filter((p) => p.significant).sort((x, y) => x.p - y.p);
+  if (sig.length) {
+    const named = sig.slice(0, 2).map(say).join("; ");
+    const more = sig.length > 2 ? `; and ${sig.length - 2} more` : "";
+    const lead =
+      m === 1 ? "The two groups differ" : sig.length === m ? `All ${m} pairs differ` : `${sig.length} of ${m} pairs ${sig.length === 1 ? "differs" : "differ"}`;
+    return `${lead} at α = ${res.alpha} after allowing for every comparison: ${named}${more}.`;
+  }
+  const top = res.pairs.reduce((a, b) => (Math.abs(b.difference) > Math.abs(a.difference) ? b : a), res.pairs[0]);
+  const [a, b] = top.difference >= 0 ? [top.i, top.j] : [top.j, top.i];
+  return (
+    `No pair of groups differs clearly at α = ${res.alpha} once all ${m} comparison${m === 1 ? " is" : "s are"} allowed for; ` +
+    `the largest gap, ${welchNum(Math.abs(top.difference))} between group ${a + 1} and group ${b + 1} (${formatP(top.p)}), could be chance.`
+  );
+}
+
 /** Welch's ANOVA calculator: parsed groups → output. */
 export function welchAnovaCalc(groups: number[][]): StatOutput {
   const res = welchAnova(groups);
@@ -89,6 +147,7 @@ export function welchAnovaCalc(groups: number[][]): StatOutput {
   if (advice.length) lines.push("", ...advice);
   return {
     text: plainDashes(lines.join("\n")),
+    reading: welchAnovaReading(res),
     ok: true,
     // As One-way ANOVA: the boxes show which group moved and, here, which one
     // is noisier, which is the reason this test was chosen.
@@ -144,6 +203,7 @@ export function gamesHowellCalc(groups: number[][], alphaText: string): StatOutp
   if (advice.length) lines.push("", ...advice);
   return {
     text: plainDashes(lines.join("\n")),
+    reading: gamesHowellReading(res),
     ok: true,
     // As Tukey: the intervals ARE the result, and the figure shows at once
     // which ones cross zero. Drawn from the test's own intervals, never

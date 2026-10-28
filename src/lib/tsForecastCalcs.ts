@@ -282,10 +282,12 @@ export function tsArimaCalc(read: Read): StatOutput {
     `AIC = ${fmtFixed(fit.aic, 3)} · AICc = ${fit.aicc === null ? "not defined (too few observations for the parameters)" : fmtFixed(fit.aicc, 3)} · BIC = ${fmtFixed(fit.bic, 3)}`,
   );
   const lags = ljungBoxDefaultLags(N);
+  let lbP: number | null = null;
   let lbLine: string;
   if (lags < 1) lbLine = "Ljung–Box not computed: fewer than 5 differenced observations.";
   else {
     const lb = ljungBox(fit.stdResid, lags, p + qq);
+    if (!("reason" in lb) && lb.p !== null) lbP = lb.p;
     lbLine =
       "reason" in lb
         ? `Ljung–Box not computed: ${lb.reason}`
@@ -374,7 +376,44 @@ export function tsArimaCalc(read: Read): StatOutput {
   });
   const fig = forecastFigure(name, ax, values, fc.mean, fc.lower, fc.upper, `${model} forecast`);
   if (fig.note) lines.push(fig.note);
-  return { text: lines.join("\n"), tables, svg: fig.svg };
+  const lbWords =
+    lbP === null
+      ? ""
+      : lbP < 0.05
+      ? ` Some pattern is left in the model's errors (Ljung–Box p ${lbP < 0.001 ? fmtP(lbP) : `= ${fmtP(lbP)}`}), so treat the forecasts with care.`
+      : ` The model leaves no clear pattern in its errors (Ljung–Box p ${lbP < 0.001 ? fmtP(lbP) : `= ${fmtP(lbP)}`}).`;
+  // Long numbers and labels: the widening clause goes first, so the residual check always fits.
+  let reading = forecastReading(model, name, ax.labels, fc.mean, fc.lower, fc.upper, fdec) + lbWords;
+  if (reading.length > 320) reading = forecastReading(model, name, ax.labels, fc.mean, fc.lower, fc.upper, fdec, false) + lbWords;
+  return { text: lines.join("\n"), reading, tables, svg: fig.svg };
+}
+
+/**
+ * The plain-language reading of a forecast (lib/calcReading.ts): the next period's forecast and the last one, as the
+ * forecast table prints them (fmtFixed at the table's decimals, the table's period labels), with the 95% interval at
+ * the horizon when there is one. Forecasts are estimates, so "about".
+ */
+export function forecastReading(
+  model: string,
+  name: string,
+  labels: string[] | null,
+  mean: ArrayLike<number>,
+  lower: ArrayLike<number> | null,
+  upper: ArrayLike<number> | null,
+  dec: number,
+  widenNote = true,
+): string {
+  const h = mean.length;
+  const when = (j: number): string => (labels ? `for ${labels[j]}` : `${j + 1} period${j === 0 ? "" : "s"} ahead`);
+  const at = (j: number): string => fmtFixed(mean[j], dec);
+  const range = (j: number): string => (lower && upper ? `, with a 95% range of ${fmtFixed(lower[j], dec)} to ${fmtFixed(upper[j], dec)}` : "");
+  if (h === 1) return `${model} forecasts ${name} at about ${at(0)} ${when(0)}${range(0)}.`;
+  const last = h - 1;
+  const move = at(last) === at(0) ? "holding at" : mean[last] > mean[0] ? "rising to" : "falling to";
+  return (
+    `${model} forecasts ${name} at about ${at(0)} ${when(0)}, ${move} about ${at(last)} ${labels ? `by ${labels[last]}` : `${h} periods ahead`}` +
+    `${range(last)}${widenNote && lower && upper ? "; the further ahead, the wider the range" : ""}.`
+  );
 }
 
 // ---------------------------------------------------------------- ts-ets
@@ -532,5 +571,6 @@ export function tsEtsCalc(read: Read): StatOutput {
   });
   const fig = forecastFigure(name, ax, values, mean, bands?.lower ?? null, bands?.upper ?? null, `${modelName(spec).split(",")[0]} forecast`, fit.fitted);
   if (fig.note) lines.push(fig.note);
-  return { text: lines.join("\n"), tables, svg: fig.svg };
+  const reading = forecastReading(modelName(spec).split(",")[0], name, ax.labels, mean, bands?.lower ?? null, bands?.upper ?? null, fdec);
+  return { text: lines.join("\n"), reading, tables, svg: fig.svg };
 }

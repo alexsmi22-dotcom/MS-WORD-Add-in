@@ -208,7 +208,23 @@ export function esEventCalc(read: Read): StatOutput {
     ],
     { width: 400, height: 260, title: "Average cumulative abnormal return", xlabel: "Event day τ", ylabel: "CAAR (%)" },
   );
-  return { text: lines.join("\n"), tables, svg };
+  const caarEnd = res.caar[res.caar.length - 1];
+  return { text: lines.join("\n"), reading: eventStudyReading(N, win, caarEnd, j1.stat!, j1.p!, pct), tables, svg };
+}
+
+/**
+ * The plain-language reading of an event study: the average cumulative abnormal return over the event window (the
+ * move beyond what the market model predicts), as the summary line prints it, and whether J₁ finds it unlikely to be
+ * chance at p < 0.05.
+ */
+export function eventStudyReading(n: number, win: string, caar: number, j1: number, p: number, pct: (v: number) => string): string {
+  const who = n === 1 ? "The stock" : `Across the ${n} events, the average stock`;
+  const dir = pct(caar) === pct(0) ? "moved" : caar > 0 ? "rose" : "fell";
+  const head = `${who} ${dir} by about ${pct(Math.abs(caar))}% beyond what the market explains over event days ${win}`;
+  const stat = `J₁ = ${fmtFixed(j1, 3)}, p ${pText(p)}`;
+  return p < 0.05
+    ? `${head}, an abnormal reaction unlikely to be chance alone (${stat}).`
+    : `${head}; the data show no clear abnormal reaction (${stat}), so a move this size could be chance.`;
 }
 
 function pText(p: number): string {
@@ -319,7 +335,38 @@ export function idxPriceCalc(read: Read): StatOutput {
       },
     },
   );
-  return { text: lines.join("\n"), tables: [{ label: "Price index", rows, align: ["left", ...formulas.map((): "right" => "right")] }], svg };
+  return {
+    text: lines.join("\n"),
+    reading: priceIndexReading(tbl.periods, r, formulas, series),
+    tables: [{ label: "Price index", rows, align: ["left", ...formulas.map((): "right" => "right")] }],
+    svg,
+  };
+}
+
+/**
+ * The plain-language reading of the price indexes: what the basket costs in the last period for every 100 it cost in
+ * the base (the first period when the base is the last), by Fisher when it was computed, else the one formula, and
+ * the spread across the formulas when there are several. Values as the table prints them (fmtFixed, 3 decimals).
+ */
+export function priceIndexReading(periods: string[], base: number, formulas: IndexFormula[], series: number[][]): string {
+  const last = periods.length - 1;
+  const c = last !== base ? last : 0;
+  const j = formulas.includes("fisher") ? formulas.indexOf("fisher") : 0;
+  const v = series[j][c];
+  const shown = fmtFixed(v, 3);
+  const dir = shown === fmtFixed(100, 3) ? "prices are unchanged" : v > 100 ? "prices are higher" : "prices are lower";
+  const head =
+    `By the ${INDEX_NAMES[formulas[j]]} index, the basket costs ${shown} in ${periods[c]} for every 100 it cost in ${periods[base]}, so ${dir}` +
+    (c < base ? ` in ${periods[c]} than in ${periods[base]}` : "");
+  if (formulas.length < 2) return `${head}.`;
+  let lo = 0;
+  let hi = 0;
+  series.forEach((s, k) => {
+    if (s[c] < series[lo][c]) lo = k;
+    if (s[c] > series[hi][c]) hi = k;
+  });
+  if (fmtFixed(series[lo][c], 3) === fmtFixed(series[hi][c], 3)) return `${head}; all ${formulas.length} formulas agree.`;
+  return `${head}; the ${formulas.length} formulas range from ${fmtFixed(series[lo][c], 3)} (${INDEX_NAMES[formulas[lo]]}) to ${fmtFixed(series[hi][c], 3)} (${INDEX_NAMES[formulas[hi]]}).`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -469,7 +516,34 @@ export function idxDeflateCalc(read: Read): StatOutput {
   );
   return {
     text: lines.join("\n"),
+    reading: deflateReading(nom.name, baseLabel, tokens[0].label, tokens[n - 1].label, real[0], real[n - 1], tokens[f].label, tokens[t].label, infl),
     tables: [{ label: `Constant dollars (${baseLabel} = 100)`, rows, align: ["left", "right", "right", "right", "right"] }],
     svg,
   };
+}
+
+/**
+ * The plain-language reading of a deflation: the amount in constant (base-period) dollars at the first and last rows,
+ * as the table prints them (fmtMoney), whether that is a real rise or fall, and the cumulative inflation as printed.
+ */
+export function deflateReading(
+  name: string,
+  baseLabel: string,
+  firstLabel: string,
+  lastLabel: string,
+  realFirst: number,
+  realLast: number,
+  fromLabel: string,
+  toLabel: string,
+  infl: number,
+): string {
+  const a = fmtMoney(realFirst);
+  const b = fmtMoney(realLast);
+  const real = a === b ? "no real change" : realLast > realFirst ? "a real increase" : "a real decrease";
+  const inflText = fmtFixed(infl, 2);
+  const prices =
+    inflText === fmtFixed(0, 2)
+      ? `prices were unchanged from ${fromLabel} to ${toLabel}`
+      : `prices ${infl > 0 ? "rose" : "fell"} ${fmtFixed(Math.abs(infl), 2)}% from ${fromLabel} to ${toLabel}`;
+  return `In ${baseLabel} dollars, ${name} went from ${a} in ${firstLabel} to ${b} in ${lastLabel}, ${real} after inflation; ${prices}.`;
 }

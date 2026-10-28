@@ -65,6 +65,11 @@ describe("R3 M2: Altman and CVP decide on the printed value", () => {
     expect(r).not.toContain("breaks even, with");
     expect(r).toContain("below break-even");
   });
+  test("cvp a hair above break-even: not 'sales could fall 0.00%' (adversarial pass)", () => {
+    const r = checkedReading(sc("cvp-breakeven"), { units: "2000.004" });
+    expect(r).not.toContain("could fall 0.00%");
+    expect(r).toContain("only just above break-even");
+  });
   test("cvp at a loss: the leverage line says the loss shrinks", () => {
     const o = asObj(runCalc(sc("cvp-breakeven"), { units: "1000" }));
     expect(o.text).toMatch(/at an operating loss: a 1% rise in sales shrinks the loss by [\d.]+%/);

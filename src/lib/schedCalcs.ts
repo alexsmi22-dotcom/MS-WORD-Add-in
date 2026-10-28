@@ -906,7 +906,9 @@ export function cvpCalc(r: Read): FinResult {
       : oiZero
         ? `${be}; at ${unitsTxt} units the business breaks even, with an operating income of ${oi}.`
         : c.operatingIncome > 0
-          ? `${be}; at ${unitsTxt} units the business earns ${oi} of operating income, and sales could fall ${pct(c.marginOfSafetyPct)} before it makes a loss.`
+          ? /[1-9]/.test(pct(c.marginOfSafetyPct))
+            ? `${be}; at ${unitsTxt} units the business earns ${oi} of operating income, and sales could fall ${pct(c.marginOfSafetyPct)} before it makes a loss.`
+            : `${be}; at ${unitsTxt} units the business earns ${oi} of operating income, only just above break-even: almost any fall in sales makes a loss.`
           : `${be}; at ${unitsTxt} units the business is below break-even, with an operating result of ${oi}, and needs ${/[1-9]/.test(shortTxt) ? `${shortTxt} more units` : "a fraction of a unit more"} to cover its costs.`;
   return { text: lines.join("\n"), reading, svg: cvpChartSvg(inp, c), tables: [table] };
 }

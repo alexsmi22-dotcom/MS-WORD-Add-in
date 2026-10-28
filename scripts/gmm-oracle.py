@@ -7,7 +7,8 @@ Writes src/lib/__tests__/fixtures/gmm-oracle.json.
 Sources:
   econ-gmm       linearmodels 7.1 IVGMM (weight_type "robust" / "clustered", cov_type to match, debiased=False;
                  iter_limit=2 for two-step, 1 for one-step) and, as a cross-check that must agree to 1e-8, the
-                 numpy implementation in scripts/gmm_np.py (linear_gmm).
+                 numpy implementation in scripts/gmm_np.py (linear_gmm); the first-stage partial R-squared and Wald
+                 statistic from IVGMM's first_stage.diagnostics.
   panel-dyn-gmm  scripts/gmm_np.py (independent numpy implementation of Roodman's xtabond2 definitions), which
                  reproduces Roodman (2009, Stata Journal 9(1), pp. 111-118) abdata tables: one-step difference GMM
                  (Arellano-Bond 1991 table 4 col. a1, also its col. a2 two-step coefficients), the gmm(L.(n w k))
@@ -328,7 +329,11 @@ def main():
         assert abs(j - npres["j"]) < 1e-7 * max(1, j), label
         tsls_b = npres["b2sls"].tolist()
         tsls_se = np.sqrt(np.diag(npres["cov2sls"])).tolist()
-        fixture["linear"].append(dict(label=label, data=text if text is not ivt else "@iv-default", fields=f, names=order, b=b, se=se, j=j, jdf=int(res2.j_stat.df), tslsB=tsls_b, tslsSe=tsls_se))
+        # First-stage strength (linearmodels' first_stage.diagnostics, with the fit's covariance): partial R-squared
+        # and the Wald statistic of the excluded instruments (chi2(q) for a robust or clustered covariance).
+        diag = res.first_stage.diagnostics
+        first = [dict(name=nm, partialR2=float(diag.loc[nm, "partial.rsquared"]), wald=float(diag.loc[nm, "f.stat"]), dist=str(diag.loc[nm, "f.dist"])) for nm in endog]
+        fixture["linear"].append(dict(label=label, data=text if text is not ivt else "@iv-default", fields=f, names=order, b=b, se=se, j=j, jdf=int(res2.j_stat.df), tslsB=tsls_b, tslsSe=tsls_se, firstStage=first))
         print(f"linear {label}: b {np.round(b, 5)} J {j:.4f}")
 
     # ---- dynamic panels

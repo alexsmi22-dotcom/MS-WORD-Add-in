@@ -13,7 +13,7 @@
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import type { StatCalcDef } from "./statCalc";
 import { findColumn, parseRegData, selectColumns, type RegDataset } from "./regData";
-import { readPanel, panelTextTooLong } from "./panelData";
+import { readPanel } from "./panelData";
 import { readDateToken, civilFromDay } from "./damagesInterest";
 import { fmtFixed, fmtP, intText, numText, P_BELOW } from "./regTable";
 import { buildPlotSvg, type Series } from "./plot";
@@ -21,6 +21,18 @@ import { chiSquareP } from "./stats2";
 import { ivDefaultTable } from "./ivCalcs";
 import {
   buildDynamic,
+  checkPlan,
+  planDynamic,
+  plural,
+  DPD_MAX_PAIR_WORK,
+  fewGroupsReason,
+  lgmmWork,
+  LGMM_MAX_CELLS,
+  LGMM_MAX_COLUMNS,
+  LGMM_MAX_WORK,
+  DPD_MAX_CELLS,
+  DPD_READ_COST,
+  type DynPlan,
   fitDynamic,
   fitLinearGmm,
   olsFeOnLevels,
@@ -70,6 +82,38 @@ function magnitude(col: ArrayLike<number>, rows: number[], name: string): string
     if (a !== 0 && (a < 1e-100 || a > 1e100)) {
       return `${q(name)}, row ${rows[i]}: ${numText(col[i])} is outside the magnitudes GMM here accepts (10⁻¹⁰⁰ to 10¹⁰⁰, or 0). Rescale the column and fit again.`;
     }
+  }
+  return null;
+}
+/**
+ * A refusal when the pasted table has more data rows than maxRows or (rows × header cells) more than maxCells, counted
+ * before parsing so the refusal costs one pass over the text; else null. The header's cells are counted by the
+ * delimiter parseRegData would pick (tab anywhere, else a comma or semicolon in the header, else spaces); a header
+ * that fools the estimate is still bounded by the row cap and by the checks after parsing.
+ */
+function tableTooBig(text: string, maxRows: number, maxCells: number, what: string): string | null {
+  let lines = 0;
+  let inLine = false;
+  let firstEnd = -1;
+  let firstStart = -1;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch === 10 || ch === 13) {
+      if (inLine && firstEnd < 0) firstEnd = i;
+      inLine = false;
+    } else if (!inLine && ch !== 32 && ch !== 9) {
+      inLine = true;
+      if (firstStart < 0) firstStart = i;
+      lines++;
+      if (lines > maxRows + 1) return `The table has more than ${intText(maxRows)} rows; ${what} here is limited to ${intText(maxRows)} rows.`;
+    }
+  }
+  if (firstStart < 0) return null;
+  const header = text.slice(firstStart, firstEnd < 0 ? text.length : firstEnd).trim();
+  const cells = text.includes("\t") ? header.split("\t").length : /[,;]/.test(header) ? header.split(/[,;]/).length : header.split(/\s+/).length;
+  const total = (lines - 1) * cells;
+  if (total > maxCells) {
+    return `The table has ${intText(lines - 1)} rows × ${intText(cells)} columns = ${intText(total)} cells; ${what} here reads at most ${intText(maxCells)} cells in the task pane. Paste only the columns the model uses.`;
   }
   return null;
 }
@@ -125,6 +169,8 @@ export function econGmmFitFromRead(read: Read): GmmFitted | { error: string } {
   const constRaw = get("constant").trim() || "yes";
   if (constRaw !== "yes" && constRaw !== "no") return err(`Constant: ${q(constRaw)} is not yes or no.`);
   const constant = constRaw === "yes";
+  const big0 = tableTooBig(get("data"), LGMM_MAX_ROWS, LGMM_MAX_CELLS, "GMM");
+  if (big0) return err(big0);
   const parsed = parseRegData(get("data"));
   if (!parsed.ok) return err(parsed.reason);
   const data = parsed.data;
@@ -175,6 +221,22 @@ export function econGmmFitFromRead(read: Read): GmmFitted | { error: string } {
     if (prev) return err(`${q(data.names[cj])} is ${prev}; it cannot also be the cluster column.`);
   }
   if (data.rows.length > LGMM_MAX_ROWS) return err(`The table has ${intText(data.rows.length)} rows; GMM here is limited to ${intText(LGMM_MAX_ROWS)} rows.`);
+  if (data.rows.length * data.names.length > LGMM_MAX_CELLS) {
+    return err(`The table has ${intText(data.rows.length * data.names.length)} cells; GMM here reads at most ${intText(LGMM_MAX_CELLS)} cells in the task pane. Paste only the columns the model uses.`);
+  }
+  // Distinct columns: each variable counts once (an exogenous regressor is in X and in Z, but it is one column).
+  const nCols = endog.length + exog.length + instr.length + (constant ? 1 : 0);
+  if (nCols > LGMM_MAX_COLUMNS) {
+    return err(`${endog.length} endogenous, ${exog.length} exogenous and ${instr.length} excluded ${plural(instr.length, "instrument")}${constant ? " with the constant" : ""} is ${nCols} columns; this calculator allows ${LGMM_MAX_COLUMNS}.`);
+  }
+  {
+    const L0 = instr.length + exog.length + (constant ? 1 : 0);
+    const k0 = endog.length + exog.length + (constant ? 1 : 0);
+    const n0 = data.rows.length;
+    if (lgmmWork(n0, k0, L0, endog.length) > LGMM_MAX_WORK) {
+      return err(`${intText(n0)} rows with ${L0} ${plural(L0, "instrument")} is beyond the work this calculator allows in the task pane (about ${intText(Math.floor((n0 * LGMM_MAX_WORK) / lgmmWork(n0, k0, L0, endog.length)))} rows for this model).`);
+    }
+  }
   const sel = selectColumns(data, { dep, preds: [...endog, ...exog, ...instr], text: specText }, { cluster });
   if (!sel.ok) return err(sel.reason);
   const c = sel.cols;
@@ -199,8 +261,8 @@ export function econGmmFitFromRead(read: Read): GmmFitted | { error: string } {
       return v;
     });
     G = m.size;
-    if (G < 2) return err(`The cluster column ${q(c.clusterName ?? cluster)} has one cluster; clustering needs at least 2.`);
-    if (G <= Z.length) return err(`${G} clusters for ${Z.length} instruments: the clustered moment covariance has rank at most ${G}, so the efficient weight matrix is not defined. Use more clusters, fewer instruments, or the robust weight.`);
+    const few = fewGroupsReason(G, X.length, "cluster");
+    if (few) return err(`The cluster column ${q(c.clusterName ?? cluster)}: ${few}`);
   }
   for (const [col, nm] of [[c.y, c.depName], ...c.X.map((x, j) => [x, c.names[j]] as const)] as [Float64Array, string][]) {
     const big = magnitude(col, c.rowNumbers, nm);
@@ -210,7 +272,7 @@ export function econGmmFitFromRead(read: Read): GmmFitted | { error: string } {
   if (c.y.every((v) => v === c.y[0])) return err(`The response ${q(c.depName)} is constant in every row used; there is nothing to explain.`);
   let r: LinearGmmResult;
   try {
-    r = fitLinearGmm({ y: c.y, X, names, Z, clusters, G, steps: steps === "two" ? 2 : 1 });
+    r = fitLinearGmm({ y: c.y, X, names, Z, clusters, G, steps: steps === "two" ? 2 : 1, nEndog: k1, nExcluded: instr.length });
   } catch (e) {
     const f = fail(e, "GMM estimate");
     return err(f.text);
@@ -232,16 +294,26 @@ export function econGmmCalc(read: Read): StatOutput {
     `${title}: ${c.depName} on ` +
       [...(k1 ? [`${endog.join(", ")} (instrumented)`] : []), ...(k2 ? [exog.join(", ")] : []), ...(k1 + k2 === 0 ? ["the constant only"] : [])].join(" and ") +
       (k1 ? "" : " (no endogenous regressor)") +
-      ` (n = ${intText(r.n)}, ${r.k} coefficient${r.k === 1 ? "" : "s"}, ${r.L} instruments)`,
+      ` (n = ${intText(r.n)}, ${r.k} ${plural(r.k, "coefficient")}, ${r.L} ${plural(r.L, "instrument")})`,
   );
   lines.push(`Excluded instruments: ${instr.length ? instr.join(", ") : "none"}; the exogenous regressors${constant ? " and the constant" : ""} instrument themselves.`);
   lines.push(`Weight matrix: ${cluster ? `clustered by ${c.clusterName ?? cluster} (${intText(G)} clusters)` : "heteroskedasticity-robust"}; standard errors from the same sandwich, z statistics.`);
-  if (r.jdf > 0) {
+  if (r.jdf > 0 && Number.isFinite(r.j)) {
     lines.push(`Hansen J test of the ${r.jdf} overidentifying restriction${r.jdf === 1 ? "" : "s"} (two-step): J = ${fmtFixed(r.j, 3)}, χ²(${r.jdf}), ${pText(r.jp)}. H₀: every instrument is valid.`);
+    if (r.jp > 0.99) lines.push(`Caution: a J p-value above 0.99 is more often a sign that the test has lost power (many instruments for the ${cluster ? "clusters" : "rows"}) than of valid instruments.`);
+  } else if (r.jdf > 0) {
+    lines.push(`Hansen J test not computed: ${r.jWhy}.`);
   } else {
     lines.push("Exactly identified (as many instruments as coefficients): GMM equals 2SLS whatever the weight, and the Hansen J test is not computed (no overidentifying restriction).");
   }
-  if (r.singularS) lines.push("The moment covariance S is singular, so its Moore–Penrose inverse was used for the weight matrix; the two-step estimate and J are then fragile.");
+  if (r.singularS) lines.push("The moment covariance S is singular, so the generalized inverse of its unit-diagonal scaling was used for the weight matrix; the two-step estimate and J are then fragile.");
+  for (const f of r.firstStage) {
+    lines.push(
+      `First stage of ${f.name} on the ${f.df} excluded instrument${f.df === 1 ? "" : "s"}: partial R² = ${fmtFixed(f.partialR2, 3)}, ${cluster ? "clustered" : "robust"} Wald χ²(${f.df}) = ${fmtFixed(f.wald, 2)}, ${pText(f.p)}` +
+        (f.df > 1 ? ` (its F form, Wald/${f.df}, is ${fmtFixed(f.wald / f.df, 2)})` : " (with one instrument it equals its F form)") +
+        ". Rules of thumb such as F above 10 were derived for homoskedastic errors; a small partial R² means weak instruments and a GMM estimate biased toward OLS.",
+    );
+  }
   lines.push(
     "Conventions (linearmodels 7.1 IVGMM): step 1 is 2SLS, W₀ = (ZᵀZ/n)⁻¹; step 2 uses W = Ŝ⁻¹ with Ŝ = (1/n) Σ zᵢzᵢᵀûᵢ² from the 2SLS residuals" +
       (cluster ? " (clustered: (1/n) times the sum over clusters of (Σ zᵢûᵢ)(Σ zᵢûᵢ)ᵀ, each sum within a cluster)" : "") +
@@ -257,7 +329,7 @@ export function econGmmCalc(read: Read): StatOutput {
       align: ALIGN6,
     },
     {
-      label: "Step 1 (2SLS, robust SEs) beside the reported GMM estimate",
+      label: `Step 1 (2SLS, ${cluster ? "clustered" : "robust"} SEs) beside the reported GMM estimate`,
       rows: [["Term", "2SLS", "SE", "GMM", "SE"], ...names.map((nm, j) => [nm, fmtFixed(r.tsls.b[j], D), fmtFixed(r.tsls.se[j], D), fmtFixed(r.gmm.b[j], D), fmtFixed(r.gmm.se[j], D)])],
       align: ["left", "right", "right", "right", "right"],
     },
@@ -347,10 +419,13 @@ interface DynRead {
   endog: string[];
   notes: string[];
   entityName: string;
+  /** Cells of the pasted table (rows × columns). */
+  nCells: number;
 }
 
-const LAG_TERM = /^L(\d*)\.(.+)$/;
-const LAG_RANGE = /^L\((\d+)\/(\d+)\)\.(.+)$/;
+// Stata's lag operators: L.x, L2.x, L(0/2).x, in either case and with spaces inside, as Stata reads them.
+const LAG_TERM = /^[Ll](\d*)\s*\.\s*(.+)$/;
+const LAG_RANGE = /^[Ll]\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)\s*\.\s*(.+)$/;
 const MAX_LAG = 3;
 
 /** Reads the fields, the panel (one variable at a time) and the model; a refusal names the field. */
@@ -376,7 +451,7 @@ function readDyn(read: Read): DynRead | { error: string } {
     lagLast = Number(lastRaw);
   }
   const text = get("data");
-  const tooLong = panelTextTooLong(text);
+  const tooLong = tableTooBig(text, DPD_MAX_ROWS, DPD_MAX_CELLS, "a dynamic panel");
   if (tooLong) return { error: tooLong };
   const parsed = parseRegData(text);
   if (!parsed.ok) return { error: parsed.reason };
@@ -394,11 +469,17 @@ function readDyn(read: Read): DynRead | { error: string } {
   const terms: DynTerm[] = [];
   const seen = new Set<string>();
   const vars: string[] = [depName];
+  const ejr = findColumn(ds.names, get("entity"));
+  const tjr = findColumn(ds.names, get("time"));
+  const ej = typeof ejr === "number" ? ejr : -1;
+  const tj = typeof tjr === "number" ? tjr : -1;
   const addTerm = (v: string, lag: number, raw: string): string | null => {
     if (lag > MAX_LAG) return `Term ${q(raw)}: lags up to ${MAX_LAG} are allowed.`;
     const j = findColumn(ds.names, v);
     if (typeof j !== "number") return `Term ${q(raw)}: ${j.error}`;
     const name = ds.names[j];
+    if (j === ej) return `${q(name)} is the entity column; it cannot be a regressor.`;
+    if (j === tj) return `${q(name)} is the time column; it cannot be a regressor (time dummies are an option; copy the column to a new one for a trend).`;
     if (j === dj && lag === 0) return `${q(name)} is the response; on the right of ~ it can only appear lagged (L.${name}).`;
     const key = `${name}|${lag}`;
     if (seen.has(key)) return `Term ${q(raw)} appears twice.`;
@@ -464,15 +545,30 @@ function readDyn(read: Read): DynRead | { error: string } {
   let entityName = "";
   let timeName = "";
   const labelOfPer = new Map<number, string>();
-  for (const v of vars) {
-    const pr = readPanel(ds, { spec: { dep: v, preds: [], text: v }, entity, time });
-    if (!pr.ok) return { error: pr.reason };
-    const p = pr.panel;
+  // One read for every variable when no row has a missing cell (the common case; the same values a read per variable
+  // gives), else one read per variable, so a missing cell only removes that variable's value.
+  type PanelOf = Extract<ReturnType<typeof readPanel>, { ok: true }>["panel"];
+  let reads: { v: string; p: PanelOf; y: Float64Array }[] | null = null;
+  if (vars.length > 1) {
+    const all = readPanel(ds, { spec: { dep: vars[0], preds: vars.slice(1), text: vars.join(" + ") }, entity, time });
+    if (all.ok && all.panel.n === ds.rows.length) reads = vars.map((v, j) => ({ v, p: all.panel, y: j === 0 ? all.panel.y : all.panel.X[j - 1] }));
+  }
+  if (!reads) {
+    reads = [];
+    for (const v of vars) {
+      const pr = readPanel(ds, { spec: { dep: v, preds: [], text: v }, entity, time });
+      if (!pr.ok) return { error: pr.reason };
+      reads.push({ v, p: pr.panel, y: pr.panel.y });
+    }
+  }
+  let perCache: { p: PanelOf; perOf: number[] } | null = null;
+  for (const { v, p, y: vals } of reads) {
     entityName = p.entityName;
     timeName = p.timeName;
     // Period numbers from the time labels: whole numbers as they are; quarters and months counted consecutively.
     const perOf: number[] = [];
-    for (const lab of p.timeLabels) {
+    if (perCache && perCache.p === p) perOf.push(...perCache.perOf);
+    else for (const lab of p.timeLabels) {
       let per: number;
       let k: string;
       if (/^[-−]?\d{1,9}$/.test(lab)) {
@@ -509,9 +605,10 @@ function readDyn(read: Read): DynRead | { error: string } {
         entIndex.set(nm, e);
         entNames.push(nm);
       }
-      obs.push({ ent: e, per: perOf[p.time[i]], v: p.y[i] });
+      obs.push({ ent: e, per: perOf[p.time[i]], v: vals[i] });
     }
-    const big = magnitude(p.y, p.rowNumbers, v);
+    perCache = { p, perOf };
+    const big = magnitude(vals, p.rowNumbers, v);
     if (big) return { error: big };
     perVar.set(v, obs);
     const missing = ds.rows.length - p.n;
@@ -565,6 +662,7 @@ function readDyn(read: Read): DynRead | { error: string } {
     endog,
     notes,
     entityName,
+    nCells: ds.rows.length * ds.names.length,
   };
 }
 
@@ -573,6 +671,9 @@ export interface DynResult {
   des: DynDesign;
   fit: DynFit;
   twoStep: boolean;
+  /** The other estimator's plan for the ρ comparison, or null with the reason it is not fitted. */
+  otherPlan: DynPlan | null;
+  otherWhy?: string;
 }
 
 /** The fit behind panel-dyn-gmm (tests read it). */
@@ -582,10 +683,27 @@ export function dynFitFromRead(read: Read): DynResult | { error: string } {
   const stepsRaw = getter(read)("steps").trim() || "two";
   if (stepsRaw !== "one" && stepsRaw !== "two") return { error: `Steps: ${q(stepsRaw)} is not one or two.` };
   try {
-    const des = buildDynamic(r.data, r.spec);
+    // Every cap is checked on the plans, before a row is built.
+    const plan = planDynamic(r.data, r.spec);
+    checkPlan(plan);
+    let otherPlan: DynPlan | null = null;
+    let otherWhy: string | undefined;
+    try {
+      otherPlan = planDynamic(r.data, { ...r.spec, system: !r.spec.system });
+      checkPlan(otherPlan);
+      if (plan.work + otherPlan.work + DPD_READ_COST * r.nCells > DPD_MAX_PAIR_WORK) {
+        otherPlan = null;
+        otherWhy = "not computed: fitting it too would exceed the task pane's work budget";
+      }
+    } catch (e) {
+      if (!(e instanceof GmmRefusal)) throw e;
+      otherPlan = null;
+      otherWhy = "not estimable with these options";
+    }
+    const des = buildDynamic(r.data, r.spec, plan);
     const fit = fitDynamic(des);
     if (stepsRaw === "two" && !fit.two) return { error: `Two-step GMM: ${fit.twoWhy}.` };
-    return { r, des, fit, twoStep: stepsRaw === "two" };
+    return { r, des, fit, twoStep: stepsRaw === "two", otherPlan, otherWhy };
   } catch (e) {
     if (e instanceof GmmRefusal) return { error: e.message };
     return { error: `The dynamic panel could not be estimated for these data (${(e as Error).message}).` };
@@ -606,7 +724,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
       `${r.spec.timeDummies ? " and time dummies" : ""}${sys ? " with a constant" : ""}.`,
   );
   lines.push(
-    `${intText(fit.nObs)} observations (${sys ? "level rows; " + intText(des.nDiff) + " differenced rows are stacked with them" : "differenced rows"}), ${intText(fit.N)} groups ` +
+    `${intText(fit.nObs)} ${plural(fit.nObs, "observation")} (${sys ? "level rows; " + intText(des.nDiff) + " differenced rows are stacked with them" : "differenced rows"}), ${intText(fit.N)} ${plural(fit.N, "group")} ` +
       `(${r.entityName}), observations per group: min ${pg.min}, mean ${fmtFixed(pg.avg, 2)}, max ${pg.max}. Instruments: ${intText(fit.L)}.`,
   );
   const lagText = r.spec.lagLast === null ? `lags ${r.spec.lagFirst} and earlier` : r.spec.lagFirst === r.spec.lagLast ? `lag ${r.spec.lagFirst}` : `lags ${r.spec.lagFirst} to ${r.spec.lagLast}`;
@@ -630,29 +748,56 @@ export function panelDynGmmCalc(read: Read): StatOutput {
         : `AR(1) is expected; with the instruments starting at lag ${r.spec.lagFirst}, AR(2) is tolerated (MA(1) errors in levels), but AR(${r.spec.lagFirst}) would invalidate them, and only AR(1) and AR(2) are computed here.`));
   if (fit.df > 0) {
     lines.push(
-      `Sargan χ²(${fit.df}) = ${fmtFixed(fit.sargan, 2)}, ${pText(fit.sarganP)} (not robust, not weakened by many instruments); ` +
+      `Sargan χ²(${fit.df}) = ${fmtFixed(fit.sargan, 2)}, ${pText(fit.sarganP)} (not robust, not weakened by many instruments` +
+        (sys ? "; in system GMM it is not χ² even under homoskedastic errors, because the one-step weight is not the efficient one there, so read its p-value loosely" : "") +
+        "); " +
         (fit.two
           ? `Hansen χ²(${fit.df}) = ${fmtFixed(fit.hansen, 2)}, ${pText(fit.hansenP)} (robust, from the two-step estimate, weakened by many instruments). H₀: the instruments are valid.`
           : `Hansen J not computed: ${fit.twoWhy}. H₀: the instruments are valid.`),
     );
+    if (fit.two && fit.hansenP > 0.99) {
+      lines.push(`Caution: a Hansen p-value above 0.99 is a classic sign of a test weakened by too many instruments (${intText(fit.L)} for ${intText(fit.N)} ${plural(fit.N, "group")}), not evidence of valid instruments (Roodman 2009); collapse the instruments or set a last lag and look again.`);
+    }
   } else lines.push("Exactly identified (as many instruments as coefficients): the Sargan and Hansen tests are not computed.");
   // The Nickell bracket on ρ.
   const ylag = des.names.indexOf(r.spec.terms.find((t) => t.kind === "ylag" && t.lag === 1)!.label);
-  const cmp = comparison(r, fit, twoStep, ylag);
+  const cmp = comparison(r, fit, twoStep, ylag, res.otherPlan, res.otherWhy);
   const rhoLabel = des.names[ylag];
   const ols = cmp.find((c) => c.key === "ols");
   const fe = cmp.find((c) => c.key === "fe");
   const mine = cmp.find((c) => c.key === (sys ? "sys" : "diff"))!;
+  const nYlags = r.spec.terms.filter((t) => t.kind === "ylag").length;
   if (ols?.b !== undefined && fe?.b !== undefined) {
     const inside = fe.b < mine.b! && mine.b! < ols.b;
-    lines.push(
-      `Bracket check on the coefficient of ${rhoLabel}: fixed effects ${fmtFixed(fe.b, 3)} (biased down, Nickell 1981) and pooled OLS ${fmtFixed(ols.b, 3)} (biased up by the fixed effect) ` +
-        (inside ? `bracket the GMM estimate ${fmtFixed(mine.b!, 3)}, as a consistent estimate should.` : `do not bracket the GMM estimate ${fmtFixed(mine.b!, 3)}: suspect weak or invalid instruments (or a misspecified model).`),
-    );
+    if (nYlags === 1) {
+      lines.push(
+        `Bracket check on the coefficient of ${rhoLabel}: fixed effects ${fmtFixed(fe.b, 3)} (biased down, Nickell 1981) and pooled OLS ${fmtFixed(ols.b, 3)} (biased up by the fixed effect) ` +
+          (inside ? `bracket the GMM estimate ${fmtFixed(mine.b!, 3)}, as a consistent estimate should.` : `do not bracket the GMM estimate ${fmtFixed(mine.b!, 3)}: suspect weak or invalid instruments (or a misspecified model).`),
+      );
+    } else {
+      lines.push(
+        `For information, the coefficient of ${rhoLabel}: fixed effects ${fmtFixed(fe.b, 3)}, pooled OLS ${fmtFixed(ols.b, 3)}, GMM ${fmtFixed(mine.b!, 3)} (${inside ? "inside" : "outside"} that range). ` +
+          `The bracket rule (fixed effects biased down, OLS biased up) is derived for a single lag of the response; with ${nYlags} lags the biases are shared between the lag coefficients, so a GMM estimate outside the range is not by itself a warning sign.`,
+      );
+    }
   }
   if (des.droppedDummies.length) lines.push(`Time dummies dropped (no rows, or collinear with the others${sys ? " and the constant" : ""}): ${des.droppedDummies.join(", ")}.`);
   if (des.emptyGroups) lines.push(`${intText(des.emptyGroups)} entit${des.emptyGroups === 1 ? "y has" : "ies have"} no usable row (too few consecutive periods for the lags) and ${des.emptyGroups === 1 ? "is" : "are"} left out.`);
-  if (fit.singularS) lines.push("The two-step moment covariance is singular (common when instruments approach the number of groups); its Moore–Penrose inverse was used, as xtabond2 does. The two-step estimates, their SEs and Hansen J then depend on how that inverse is taken (different software can disagree widely) and should not be relied on: collapse the instruments or set a last lag.");
+  if (fit.singularA1) {
+    lines.push(
+      `The one-step weight matrix Σ ZᵢᵀHᵢZᵢ is singular (rank ${intText(fit.rankA1)} for ${intText(fit.L)} instruments), so a generalized inverse was used for it: the one-step estimates and the Sargan statistic then depend on how that inverse is taken. ` +
+        "Usually an instrument is (nearly) a combination of the others within the differenced rows; collapse the instruments or set a last lag.",
+    );
+  }
+  if (fit.singularS) {
+    const cause =
+      fit.L > fit.N
+        ? `there are more instruments (${intText(fit.L)}) than groups (${intText(fit.N)}), and Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ, a sum of one outer product per group, has rank at most the number of groups`
+        : `its rank is ${intText(fit.rankS)} for ${intText(fit.L)} instruments although the groups (${intText(fit.N)}) outnumber the instruments: some combination of instruments is (nearly) uncorrelated with the one-step residuals in every group, for example a column that is zero in almost every row`;
+    lines.push(
+      `The two-step moment covariance is singular: ${cause}. A generalized inverse was used for the two-step weight; the two-step estimates, their SEs and Hansen J then depend on how that inverse is taken (different software can disagree widely) and should not be relied on: collapse the instruments or set a last lag.`,
+    );
+  }
   lines.push(
     "Conventions (Roodman's xtabond2): " +
       (sys
@@ -678,7 +823,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
       label: `${estName}, ${twoStep ? "two-step" : "one-step"}: ${r.depName}`,
       rows: [["Term", "Coef.", seLab, "z", "p", "95% CI"], ...des.names.map((nm, j) => coefRow(nm, st.b[j], st.se[j]))],
       align: ALIGN6,
-      note: `${intText(fit.nObs)} observations, ${intText(fit.N)} groups, ${intText(fit.L)} instruments.`,
+      note: `${intText(fit.nObs)} ${plural(fit.nObs, "observation")}, ${intText(fit.N)} ${plural(fit.N, "group")}, ${intText(fit.L)} ${plural(fit.L, "instrument")}.`,
     },
   ];
   const testRows: string[][] = [["Test", "Statistic", "df", "p", "Note"]];
@@ -688,7 +833,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
     testRows.push(
       fit.two
         ? ["Hansen J", `χ² = ${fmtFixed(fit.hansen, 2)}`, String(fit.df), fmtP(fit.hansenP), "two-step, robust"]
-        : ["Hansen J", "not computed", String(fit.df), "not computed", "two-step not identified"],
+        : ["Hansen J", "not computed", String(fit.df), "not computed", "two-step not computed"],
     );
   }
   tables.push({ label: "Specification tests", rows: testRows, align: ["left", "right", "right", "right", "left"] });
@@ -710,7 +855,7 @@ interface CmpRow {
   note: string;
 }
 
-function comparison(r: DynRead, fit: DynFit, twoStep: boolean, ylag: number): CmpRow[] {
+function comparison(r: DynRead, fit: DynFit, twoStep: boolean, ylag: number, otherPlan: DynPlan | null, otherWhy: string | undefined): CmpRow[] {
   const out: CmpRow[] = [];
   const ols = olsFeOnLevels(r.data, r.spec, false);
   out.push({ key: "ols", name: "Pooled OLS", b: ols?.b, se: ols?.se, note: ols ? "biased up" : "not estimable" });
@@ -722,15 +867,16 @@ function comparison(r: DynRead, fit: DynFit, twoStep: boolean, ylag: number): Cm
   const mine: CmpRow = { key: mineKey, name: r.spec.system ? "System GMM" : "Difference GMM", b: st.b[ylag], se: st.se[ylag], note: `${step}, reported` };
   let other: CmpRow;
   try {
+    if (!otherPlan) throw new GmmRefusal(otherWhy ?? "not estimable with these options");
     const spec2: DynSpec = { ...r.spec, system: !r.spec.system };
-    const des2 = buildDynamic(r.data, spec2);
+    const des2 = buildDynamic(r.data, spec2, otherPlan);
     const f2 = fitDynamic(des2);
     const j = des2.names.indexOf(r.spec.terms.find((t) => t.kind === "ylag" && t.lag === 1)!.label);
     const s2 = twoStep ? f2.two : f2.one;
     if (!s2) throw new GmmRefusal("two-step not identified");
     other = { key: spec2.system ? "sys" : "diff", name: spec2.system ? "System GMM" : "Difference GMM", b: s2.b[j], se: s2.se[j], note: `${step}, same options` };
   } catch (e) {
-    other = { key: r.spec.system ? "diff" : "sys", name: r.spec.system ? "Difference GMM" : "System GMM", note: e instanceof GmmRefusal ? "not estimable with these options" : "not computed" };
+    other = { key: r.spec.system ? "diff" : "sys", name: r.spec.system ? "Difference GMM" : "System GMM", note: !otherPlan ? otherWhy ?? "not estimable with these options" : e instanceof GmmRefusal ? "not estimable with these options" : "not computed" };
   }
   out.push(...(r.spec.system ? [other, mine] : [mine, other]));
   return out;

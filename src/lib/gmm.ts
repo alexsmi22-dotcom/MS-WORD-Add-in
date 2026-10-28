@@ -40,29 +40,89 @@ import { chiSquareP, normalCdf } from "./stats2";
 import { intText } from "./regTable";
 
 export class GmmRefusal extends Error {}
+/** XᵀZ A ZᵀX is singular for the weight A (the two-step path names its cause from this). */
+class SingularSolve extends GmmRefusal {}
 
 /** At most this many groups (entities) in a dynamic panel. */
 export const DPD_MAX_GROUPS = 2000;
 /** At most this many periods from the first to the last (gaps included). */
 export const DPD_MAX_PERIODS = 40;
-/** At most this many instrument columns after the dependent ones are dropped. */
+/** At most this many instrument columns (counted from the plan, before any row is built; see planDynamic). */
 export const DPD_MAX_INSTR = 400;
-/** At most this many raw instrument columns before reduction (the bound on the ZᵀZ pass). */
-export const DPD_MAX_RAW_INSTR = 1200;
 /** At most this many regressors (lags, exogenous terms and kept time dummies). */
 export const DPD_MAX_REGRESSORS = 50;
-/** Work bound N·L² (the moment-covariance and Windmeijer passes): 500 groups × 200 instruments, about 0.3 s under Node. */
-export const DPD_MAX_WORK = 2e7;
-/** At most this many data rows (entity-periods) in a dynamic panel: 20,000 rows ran in about 0.33 s under Node. */
+/**
+ * Fixed cost of one stacked row (allocation, residuals, scores, AR sums) in multiply-add units: a least-squares fit of
+ * 72 timed designs (N 40 to 2,000, T 10 to 40, every option) gave 0.8 ms per 10⁶ units and 2.6 µs per row under Node.
+ */
+export const DPD_ROW_COST = 3300;
+/** Work bound on one fit as planDynamic estimates it: 1.5×10⁸ units, about 0.12 s under Node once warm. */
+export const DPD_MAX_WORK = 1.5e8;
+/** Cost of reading one cell of the pasted table and of the pooled OLS and fixed-effects fits, per cell (0.7 µs). */
+export const DPD_READ_COST = 900;
+/**
+ * Bound on the whole calculation: reading, the reported fit and the other estimator that the ρ comparison fits
+ * (2.4×10⁸, about 0.19 s once warm). Beyond it the comparison row says it was not computed, rather than the whole
+ * calculation being refused.
+ */
+export const DPD_MAX_PAIR_WORK = 2.4e8;
+/** At most this many data rows (entity-periods) in a dynamic panel (counted before parsing). */
 export const DPD_MAX_ROWS = 20_000;
-/** Linear GMM: at most this many rows and this many columns in X and Z together. */
+/** At most this many cells (rows × columns of the pasted table) in a dynamic panel: reading costs about 0.2 µs a cell. */
+export const DPD_MAX_CELLS = 200_000;
+/** Linear GMM: at most this many rows (counted before parsing). */
 export const LGMM_MAX_ROWS = 50_000;
-/** Linear GMM work bound n·(k + L)²: 20,000 rows × 16 instruments ran in 0.16 s under Node. */
+/** Linear GMM: at most this many cells (rows × columns of the pasted table), about 0.1 s to read under Node. */
+export const LGMM_MAX_CELLS = 500_000;
+/** Linear GMM work bound, lgmmWork's estimate. */
 export const LGMM_MAX_WORK = 4e7;
+/** Linear GMM: at most this many distinct columns (endogenous, exogenous, excluded instruments, constant). */
 export const LGMM_MAX_COLUMNS = 60;
 
 const EPS = Number.EPSILON;
 const Z975 = 1.959963984540054;
+
+/**
+ * Fewest groups (clusters) admitted. Every standard error and test here is cluster-robust, a large-sample approximation
+ * in the number of groups; with very few groups it over-rejects badly (Cameron and Miller 2015, "A practitioner's guide
+ * to cluster-robust inference", J. Human Resources 50(2)), and the two-step weight and the Hansen test, whose rank is
+ * bounded by the groups, are not usable at all.
+ */
+export const GMM_MIN_GROUPS = 10;
+
+/**
+ * Why G groups (clusters) cannot support k coefficients, or null: fewer than GMM_MIN_GROUPS, or G ≤ k (the scores of
+ * the groups sum to zero at the estimate, so the cluster-robust covariance has rank at most G − 1 < k and some
+ * combination of the coefficients would get a zero standard error).
+ */
+export function fewGroupsReason(G: number, k: number, word: string): string | null {
+  if (G < GMM_MIN_GROUPS) {
+    return `${intText(G)} ${plural(G, word)}; this calculator needs at least ${GMM_MIN_GROUPS}. Its standard errors and tests are cluster-robust, which is an approximation in the number of ${word}s and over-rejects badly with very few (Cameron and Miller 2015).`;
+  }
+  if (G <= k) {
+    return `${intText(G)} ${plural(G, word)} for ${k} coefficients: the ${word} scores sum to zero at the estimate, so the cluster-robust covariance has rank at most ${intText(G - 1)} and some combination of the coefficients would get a zero standard error. The ${word}s must outnumber the coefficients (drop the time dummies, or regressors).`;
+  }
+  return null;
+}
+
+/** "1 group", "2 groups" (the count itself is printed by the caller). */
+export function plural(n: number, word: string, pluralWord = `${word}s`): string {
+  return n === 1 ? word : pluralWord;
+}
+/** The nonzero entries of x as (indices, values). */
+function sparse(x: Float64Array): { xi: Int32Array; xv: Float64Array } {
+  let m = 0;
+  for (let i = 0; i < x.length; i++) if (x[i] !== 0) m++;
+  const xi = new Int32Array(m);
+  const xv = new Float64Array(m);
+  m = 0;
+  for (let i = 0; i < x.length; i++)
+    if (x[i] !== 0) {
+      xi[m] = i;
+      xv[m++] = x[i];
+    }
+  return { xi, xv };
+}
 
 // ------------------------------------------------------------------------------------------------ dense helpers
 
@@ -342,6 +402,59 @@ export function symInverse(A0: Float64Array, n: number): { inv: Float64Array; ge
 }
 
 /**
+ * symInverse of S = Σ_g u_g u_gᵀ (n×n) when there are fewer vectors than n (S is then singular, rank ≤ m): the same
+ * equilibrated Moore–Penrose inverse, through the m×m Gram matrix of the scaled vectors (its nonzero eigenvalues are
+ * those of the scaled S, so the cutoff n·ε·λ_max is the same), in O(m²n + n²·rank) instead of an n×n eigensolve.
+ */
+export function pinvOuter(us: Float64Array[], n: number): { inv: Float64Array; generalized: boolean; rank: number } {
+  const m = us.length;
+  const sc = new Float64Array(n);
+  for (const u of us) for (let a = 0; a < n; a++) sc[a] += u[a] * u[a];
+  for (let a = 0; a < n; a++) sc[a] = sc[a] > 0 && Number.isFinite(sc[a]) ? 1 / Math.sqrt(sc[a]) : 0;
+  const V = us.map((u) => Float64Array.from(u, (v, a) => v * sc[a]));
+  const Gm = new Float64Array(m * m);
+  for (let g = 0; g < m; g++)
+    for (let h = g; h < m; h++) {
+      const s = dot(V[g], V[h]);
+      Gm[g * m + h] = s;
+      Gm[h * m + g] = s;
+    }
+  const { d, V: Q } = symEigen(Gm, m);
+  let lmax = 0;
+  for (let i = 0; i < m; i++) lmax = Math.max(lmax, Math.abs(d[i]));
+  const tol = n * EPS * lmax;
+  const inv = new Float64Array(n * n);
+  let rank = 0;
+  const w = new Float64Array(n);
+  for (let kq = 0; kq < m; kq++) {
+    if (!(d[kq] > tol) || lmax === 0) continue;
+    rank++;
+    // Eigenvector of the scaled S: Ṽq/√λ; its contribution to the inverse is (Ṽq)(Ṽq)ᵀ/λ².
+    w.fill(0);
+    for (let g = 0; g < m; g++) {
+      const qg = Q[g * m + kq];
+      if (qg === 0) continue;
+      const vg = V[g];
+      for (let a = 0; a < n; a++) w[a] += qg * vg[a];
+    }
+    const f = 1 / (d[kq] * d[kq]);
+    for (let a = 0; a < n; a++) {
+      const wa = w[a] * f;
+      if (wa === 0) continue;
+      const o = a * n;
+      for (let b = a; b < n; b++) inv[o + b] += wa * w[b];
+    }
+  }
+  for (let a = 0; a < n; a++)
+    for (let b = a; b < n; b++) {
+      const v = inv[a * n + b] * sc[a] * sc[b];
+      inv[a * n + b] = v;
+      inv[b * n + a] = v;
+    }
+  return { inv, generalized: true, rank };
+}
+
+/**
  * Greedy column selection on a Gram matrix G (n×n): column j is kept when its squared distance from the span of the
  * kept columns exceeds tol × its own squared norm (pivoted Cholesky in the given order, on G normalized to a unit
  * diagonal so the decision does not depend on the columns' units). Returns the kept indices.
@@ -396,6 +509,20 @@ export interface LinearGmmInput {
   clusters?: Int32Array;
   G?: number;
   steps: 1 | 2;
+  /** The first nEndog columns of X are endogenous and the first nExcluded columns of Z are the excluded instruments
+   * (for the first-stage diagnostics). */
+  nEndog?: number;
+  nExcluded?: number;
+}
+
+/** First-stage strength of the excluded instruments for one endogenous regressor. */
+export interface FirstStage {
+  name: string;
+  partialR2: number;
+  /** Wald statistic of the excluded instruments' coefficients, robust or clustered as the fit, χ²(df). */
+  wald: number;
+  df: number;
+  p: number;
 }
 
 export interface CoefSet {
@@ -409,23 +536,27 @@ export interface LinearGmmResult {
   L: number;
   tsls: CoefSet;
   gmm: CoefSet;
-  /** Hansen J of the two-step estimate (computed whichever step is reported). */
+  /** Hansen J of the two-step estimate (computed whichever step is reported); NaN when not defined (jWhy says why). */
   j: number;
   jdf: number;
   jp: number;
+  jWhy?: string;
   /** True when the two-step moment covariance had to be inverted by a generalized inverse. */
   singularS: boolean;
+  firstStage: FirstStage[];
 }
 
 export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
   const n = inp.y.length;
   const k = inp.X.length;
   const L = inp.Z.length;
+  const k1 = inp.nEndog ?? 0;
+  const q = inp.nExcluded ?? 0;
   if (n > LGMM_MAX_ROWS) throw new GmmRefusal(`The data have ${intText(n)} rows; GMM here is limited to ${intText(LGMM_MAX_ROWS)} rows.`);
-  if (k + L > LGMM_MAX_COLUMNS) throw new GmmRefusal(`${k} regressors and ${L} instruments is more than the ${LGMM_MAX_COLUMNS} columns this calculator allows.`);
-  if (n * (k + L) * (k + L) > LGMM_MAX_WORK) throw new GmmRefusal(`${intText(n)} rows with ${k} regressors and ${L} instruments is beyond the work this calculator allows in the task pane (about ${intText(Math.floor(LGMM_MAX_WORK / ((k + L) * (k + L))))} rows for this model).`);
-  if (L < k) throw new GmmRefusal(`Under-identified: ${L} instruments for ${k} coefficients. Each endogenous regressor needs at least one excluded instrument.`);
-  if (n <= L) throw new GmmRefusal(`${intText(n)} rows is too few for ${L} instruments (GMM needs more rows than instruments).`);
+  const work = lgmmWork(n, k, L, k1);
+  if (work > LGMM_MAX_WORK) throw new GmmRefusal(`${intText(n)} rows with ${k} ${plural(k, "regressor")} and ${L} ${plural(L, "instrument")} is beyond the work this calculator allows in the task pane (about ${intText(Math.floor((n * LGMM_MAX_WORK) / work))} rows for this model).`);
+  if (L < k) throw new GmmRefusal(`Under-identified: ${L} ${plural(L, "instrument")} for ${k} ${plural(k, "coefficient")}. Each endogenous regressor needs at least one excluded instrument.`);
+  if (n <= L) throw new GmmRefusal(`${intText(n)} rows is too few for ${L} ${plural(L, "instrument")} (GMM needs more rows than instruments).`);
   const y = Float64Array.from(inp.y);
   const X = new Float64Array(n * k);
   const Z = new Float64Array(n * L);
@@ -433,14 +564,27 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
     for (let j = 0; j < k; j++) X[i * k + j] = inp.X[j][i];
     for (let j = 0; j < L; j++) Z[i * L + j] = inp.Z[j][i];
   }
-  const Zt = tr(Z, n, L);
-  const ZZ = mul(Zt, Z, L, n, L);
+  // ZᵀZ (upper triangle, mirrored), ZᵀX and Zᵀy in one pass over the rows.
+  const ZZ = new Float64Array(L * L);
+  const ZX = new Float64Array(L * k);
+  const Zy = new Float64Array(L);
+  for (let i = 0; i < n; i++) {
+    const zo = i * L;
+    const xo = i * k;
+    for (let a = 0; a < L; a++) {
+      const za = Z[zo + a];
+      if (za === 0) continue;
+      const o = a * L;
+      for (let b = a; b < L; b++) ZZ[o + b] += za * Z[zo + b];
+      for (let j = 0; j < k; j++) ZX[a * k + j] += za * X[xo + j];
+      Zy[a] += za * y[i];
+    }
+  }
+  for (let a = 0; a < L; a++) for (let b = a + 1; b < L; b++) ZZ[b * L + a] = ZZ[a * L + b];
   {
     const kept = independentColumns(ZZ, L, 1e-11);
     if (kept.length < L) throw new GmmRefusal("The instruments are perfectly collinear (ZᵀZ is singular): one instrument is a combination of the others, or a column is constant alongside the constant.");
   }
-  const ZX = mul(Zt, X, L, n, k); // L×k
-  const Zy = mv(Zt, y, L, n);
   const XZ = tr(ZX, L, k);
   const W0 = symInverse(ZZ, L).inv;
   const est = (W: Float64Array): Float64Array => {
@@ -459,7 +603,7 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
     }
     return e;
   };
-  // S/n·n: the sum, divided by n below.
+  // (1/n) Σ zᵢzᵢᵀûᵢ² or the clustered form, for a residual vector (or any column, as the first stage uses it).
   const Smat = (e: Float64Array): Float64Array => {
     const S = new Float64Array(L * L);
     if (inp.clusters) {
@@ -489,12 +633,12 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
     return S;
   };
   // Sandwich with W in "per-row" scale: G = ZᵀX/n, W as given (for (ZᵀZ/n)⁻¹ = n·(ZᵀZ)⁻¹ etc.).
-  const cov = (Wn: Float64Array, e: Float64Array): Float64Array => {
+  const cov = (Wn: Float64Array, S: Float64Array): Float64Array => {
     const Gm = new Float64Array(L * k);
     for (let i = 0; i < L * k; i++) Gm[i] = ZX[i] / n;
     const GtW = mul(tr(Gm, L, k), Wn, k, L, L);
     const Ainv = symInverse(mul(GtW, Gm, k, L, k), k).inv;
-    const mid = mul(mul(GtW, Smat(e), k, L, L), tr(GtW, k, L), k, L, k);
+    const mid = mul(mul(GtW, S, k, L, L), tr(GtW, k, L), k, L, k);
     const C = mul(mul(Ainv, mid, k, k, k), Ainv, k, k, k);
     for (let i = 0; i < k * k; i++) C[i] /= n;
     symmetrize(C, k);
@@ -504,21 +648,101 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
   for (let i = 0; i < L * L; i++) W0n[i] = W0[i] * n;
   const b1 = est(W0);
   const e1 = resid(b1);
-  const C1 = cov(W0n, e1);
+  // An exact fit leaves no error variance: every standard error, z and J would be rounding noise.
+  {
+    let ym = 0;
+    for (let i = 0; i < n; i++) ym += y[i] / n;
+    let tss = 0;
+    let ssr = 0;
+    for (let i = 0; i < n; i++) {
+      tss += (y[i] - ym) * (y[i] - ym);
+      ssr += e1[i] * e1[i];
+    }
+    if (!(ssr > 1e-20 * tss)) {
+      throw new GmmRefusal("The model fits the response exactly (the 2SLS residuals are zero up to rounding), so there is no error variance: standard errors, z statistics and the J test would be meaningless. Check that the response is not a combination of the regressors.");
+    }
+  }
+  const S1 = Smat(e1);
+  const C1 = cov(W0n, S1);
   const seOf = (C: Float64Array): Float64Array => Float64Array.from({ length: k }, (_, j) => Math.sqrt(Math.max(C[j * k + j], 0)));
   const tsls = { b: b1, se: seOf(C1) };
-  const S1 = Smat(e1);
-  const Wi = symInverse(S1, L);
-  const W = Wi.inv;
-  const b2 = est(W);
-  const e2 = resid(b2);
-  const gbar = new Float64Array(L);
-  for (let i = 0; i < n; i++) for (let a = 0; a < L; a++) gbar[a] += (Z[i * L + a] * e2[i]) / n;
-  const j = n * quad(W, gbar, L);
   const jdf = L - k;
-  const gmm = inp.steps === 2 ? { b: b2, se: seOf(cov(W, e2)) } : tsls;
-  for (const set of [tsls, gmm]) for (let q = 0; q < k; q++) if (!Number.isFinite(set.b[q]) || !Number.isFinite(set.se[q])) throw new GmmRefusal("The estimates are not finite numbers for these data (check for extreme values).");
-  return { n, k, L, tsls, gmm, j, jdf, jp: jdf > 0 ? chiSquareP(Math.max(j, 0), jdf) : NaN, singularS: Wi.generalized };
+  let gmm: CoefSet = tsls;
+  let j = NaN;
+  let jWhy: string | undefined;
+  let singularS = false;
+  if (jdf === 0) {
+    // Exactly identified: GMM is 2SLS whatever the weight, with the same sandwich; S⁻¹ is never needed.
+    jWhy = "exactly identified";
+  } else if (inp.clusters && (inp.G ?? 0) <= L) {
+    // The clustered S has rank at most G: the efficient weight S⁻¹ is not defined.
+    if (inp.steps === 2) {
+      throw new GmmRefusal(`${intText(inp.G ?? 0)} clusters for ${L} instruments: the clustered moment covariance has rank at most ${intText(inp.G ?? 0)}, so the efficient (two-step) weight matrix is not defined. Use one-step, more clusters, fewer instruments, or the robust weight.`);
+    }
+    jWhy = `the clustered moment covariance has rank at most the ${intText(inp.G ?? 0)} clusters, fewer than the ${L} instruments, so the J test (which needs its inverse) is not defined`;
+  } else {
+    const Wi = symInverse(S1, L);
+    singularS = Wi.generalized;
+    const W = Wi.inv;
+    const b2 = est(W);
+    const e2 = resid(b2);
+    const gbar = new Float64Array(L);
+    for (let i = 0; i < n; i++) for (let a = 0; a < L; a++) gbar[a] += (Z[i * L + a] * e2[i]) / n;
+    j = n * quad(W, gbar, L);
+    if (inp.steps === 2) gmm = { b: b2, se: seOf(cov(W, Smat(e2))) };
+  }
+  for (const set of [tsls, gmm]) for (let c = 0; c < k; c++) if (!Number.isFinite(set.b[c]) || !Number.isFinite(set.se[c])) throw new GmmRefusal("The estimates are not finite numbers for these data (check for extreme values).");
+  // First stage of each endogenous regressor on every instrument (linearmodels' first_stage.diagnostics): partial R² of
+  // the q excluded instruments (FWL: 1 − SSR(all instruments)/SSR(exogenous only)) and the Wald statistic of their
+  // coefficients with the fit's robust or clustered covariance (HC0 / no small-sample factor), χ²(q).
+  const firstStage: FirstStage[] = [];
+  if (k1 > 0 && q > 0) {
+    const nx = L - q;
+    let Wx: Float64Array | null = null;
+    if (nx > 0) {
+      const Gx = new Float64Array(nx * nx);
+      for (let a = 0; a < nx; a++) for (let b = 0; b < nx; b++) Gx[a * nx + b] = ZZ[(q + a) * L + q + b];
+      Wx = symInverse(Gx, nx).inv;
+    }
+    for (let c = 0; c < k1; c++) {
+      const d = Float64Array.from({ length: n }, (_, i) => X[i * k + c]);
+      const Zd = Float64Array.from({ length: L }, (_, a) => ZX[a * k + c]);
+      const pi = mv(W0, Zd, L, L);
+      const u = new Float64Array(n);
+      let ssrFull = 0;
+      for (let i = 0; i < n; i++) {
+        let s = d[i];
+        for (let a = 0; a < L; a++) s -= Z[i * L + a] * pi[a];
+        u[i] = s;
+        ssrFull += s * s;
+      }
+      let ssrX = 0;
+      if (Wx) {
+        const Zxd = Zd.subarray(q);
+        const px = mv(Wx, Zxd, nx, nx);
+        for (let i = 0; i < n; i++) {
+          let s = d[i];
+          for (let a = 0; a < nx; a++) s -= Z[i * L + q + a] * px[a];
+          ssrX += s * s;
+        }
+      } else for (let i = 0; i < n; i++) ssrX += d[i] * d[i];
+      // V = (ZᵀZ)⁻¹ (n·S(u)) (ZᵀZ)⁻¹.
+      const Su = Smat(u);
+      const V = mul(mul(W0, Su, L, L, L), W0, L, L, L);
+      const Vq = new Float64Array(q * q);
+      for (let a = 0; a < q; a++) for (let b = 0; b < q; b++) Vq[a * q + b] = V[a * L + b] * n;
+      const Vi = symInverse(Vq, q);
+      const wald = quad(Vi.inv, pi.subarray(0, q), q);
+      const partialR2 = ssrX > 0 ? 1 - ssrFull / ssrX : NaN;
+      firstStage.push({ name: inp.names[c], partialR2, wald, df: q, p: Number.isFinite(wald) && !Vi.generalized ? chiSquareP(Math.max(wald, 0), q) : NaN });
+    }
+  }
+  return { n, k, L, tsls, gmm, j, jdf, jp: Number.isFinite(j) && jdf > 0 ? chiSquareP(Math.max(j, 0), jdf) : NaN, jWhy, singularS, firstStage };
+}
+
+/** Work of one linear GMM fit (multiply-adds): ZᵀZ and the moment covariances (n·L² each), one per first stage. */
+export function lgmmWork(n: number, k: number, L: number, k1: number): number {
+  return n * (L * L * (1.5 + 0.5 * k1) + L * (2 * k + 4));
 }
 
 // ------------------------------------------------------------------------------------------------ dynamic panels
@@ -558,7 +782,9 @@ interface Row {
   /** Sparse instrument row. */
   zi: Int32Array;
   zv: Float64Array;
-  x: Float64Array;
+  /** The regressors, sparse: column indices and values (a row fills its terms, at most two time dummies, the constant). */
+  xi: Int32Array;
+  xv: Float64Array;
   y: number;
   t: number;
 }
@@ -588,8 +814,36 @@ export interface DynDesign {
   system: boolean;
 }
 
-/** Builds the stacked design (see the file comment for every convention). */
-export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
+/**
+ * Everything about a design that is known before a row is built: the rows of each group, the instrument columns, the
+ * instrument count (columns some row can fill, before dependent ones are dropped: an upper bound on the final count,
+ * usually above it by the one or two collinear time dummies) and an estimate of the arithmetic of one fit. The caps
+ * are checked on this plan, so a refusal never builds anything.
+ */
+export interface DynPlan {
+  dRows: number[][];
+  lRows: number[][];
+  dPer: number[];
+  lPer: number[];
+  /** Raw column numbering (zero columns included) and its lookup tables (see buildDynamic). */
+  L0: number;
+  A: number;
+  bMax: number;
+  dCol: Int32Array;
+  lCol: Int32Array;
+  ivCol: Int32Array;
+  tdCol: Int32Array;
+  consCol: number;
+  /** Instrument columns some row fills. */
+  instr: number;
+  /** Groups with at least one row. */
+  groups: number;
+  rows: number;
+  /** Estimated work of one fit (multiply-adds): the row passes, N·L² for the moment covariance, L³ for the inverses. */
+  work: number;
+}
+
+export function planDynamic(data: DynData, spec: DynSpec): DynPlan {
   const { N, T } = data;
   if (N > DPD_MAX_GROUPS) throw new GmmRefusal(`${intText(N)} groups is more than the ${intText(DPD_MAX_GROUPS)} this calculator allows.`);
   if (T > DPD_MAX_PERIODS) throw new GmmRefusal(`The panel spans ${T} periods (gaps included); this calculator allows ${DPD_MAX_PERIODS}.`);
@@ -623,6 +877,17 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
   const dPer = [...dSet].sort((a, b) => a - b);
   const lPer = [...lSet].sort((a, b) => a - b);
   if (!dPer.length) throw new GmmRefusal("No entity has two consecutive periods with every value the model needs, so no first difference can be formed. Check the lags against the length of each entity's series.");
+  // A response that never changes within an entity is a pure entity effect: every first difference is zero, so there
+  // are no dynamics to estimate (difference GMM has nothing to fit; system GMM would fit ρ = 1 to the levels exactly).
+  {
+    const ys = data.series.get(spec.y)!;
+    let moves = false;
+    for (let g = 0; g < N && !moves; g++) for (const t of dRows[g]) if (ys[g][t] !== ys[g][t - 1]) {
+      moves = true;
+      break;
+    }
+    if (!moves) throw new GmmRefusal(`The response “${spec.y}” never changes within an entity in the estimation rows (every first difference is zero): it is a pure entity effect, so there are no dynamics to estimate.`);
+  }
   // Instrument columns, numbered in a fixed order through lookup tables (−1 = no such column):
   //   dCol[(gi·A + a)·T + t]  GMM-style, differenced equation (collapsed: t = 0 for every period)
   //   lCol[gi·T + t]          GMM-style, level equation (collapsed: t = 0)
@@ -651,19 +916,78 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
   const tdCol = new Int32Array(T).fill(-1);
   if (spec.timeDummies) for (let s = 0; s < T; s++) tdCol[s] = L0++;
   const consCol = spec.system ? L0++ : -1;
+  // The count of columns some row fills: GMM-style and IV-style columns as numbered (each has a row by construction),
+  // time dummies of periods that occur (level rows in system GMM; t and t − 1 of the differenced rows otherwise).
+  let tdUsed = 0;
+  if (spec.timeDummies) {
+    const used = new Set<number>(spec.system ? lPer : [...dPer, ...dPer.map((t) => t - 1)]);
+    tdUsed = used.size;
+  }
+  const instr = L0 - (spec.timeDummies ? T : 0) + tdUsed;
+  // Work of one fit: per row the instrument products (ZᵀZ, ZᵀHZ: about 5·nnz² over the H entries) and the regressor
+  // products (nnz times the regressors a row fills), a fixed cost per row, the Windmeijer pass (3·N·k·L), N·L² (moment
+  // covariance, plus N²·L + 5·N³ for the low-rank inverse and its N×N eigensolve when L > N) and 4·L³ (the column reduction and two inverses; the
+  // weight 4 is measured: an L³ step costs about four multiply-add units of the row passes).
+  const nExog = ivCol.reduce((s, c) => s + (c >= 0 ? 1 : 0), 0);
+  const nzx = kt + 3;
+  let rowWork = 0;
+  let rows = 0;
+  let groups = 0;
+  for (let g = 0; g < N; g++) {
+    if (dRows[g].length || lRows[g].length) groups++;
+    for (const t of dRows[g]) {
+      let nnz = nExog + (spec.timeDummies && !spec.system ? 2 : 0);
+      for (let gi = 0; gi < nG; gi++) nnz += Math.max(0, Math.min(bMax, t) - a1 + 1);
+      rowWork += 5 * nnz * nnz + 4 * nnz * nzx + nzx * nzx;
+      rows++;
+    }
+    for (let s = 0; s < lRows[g].length; s++) {
+      const nnz = nG + nExog + (spec.timeDummies ? 1 : 0) + 1;
+      rowWork += 5 * nnz * nnz + 4 * nnz * nzx + nzx * nzx;
+      rows++;
+    }
+  }
+  const kEst = kt + tdUsed + (spec.system ? 1 : 0);
+  const work = rowWork + DPD_ROW_COST * rows + 3 * groups * kEst * instr + groups * instr * instr + (instr > groups ? groups * groups * instr + 5 * groups * groups * groups : 0) + 4 * instr * instr * instr;
+  return { dRows, lRows, dPer, lPer, L0, A, bMax, dCol, lCol, ivCol, tdCol, consCol, instr, groups, rows, work };
+}
+
+/** Refuses a plan over the caps, by name (DPD_MAX_INSTR on the instrument count, DPD_MAX_WORK on one fit). */
+export function checkPlan(p: DynPlan): void {
+  if (p.instr > DPD_MAX_INSTR) {
+    throw new GmmRefusal(
+      `The instrument set would have about ${intText(p.instr)} columns; this calculator allows ${intText(DPD_MAX_INSTR)} (far more than is wise anyway). Choose “collapse”, or a last lag for the GMM-style instruments.`,
+    );
+  }
+  if (p.work > DPD_MAX_WORK) {
+    throw new GmmRefusal(
+      `${intText(p.groups)} ${plural(p.groups, "group")} and ${intText(p.rows)} stacked rows with about ${intText(p.instr)} instruments is beyond the work this calculator allows in the task pane. Choose “collapse”, a last lag for the GMM-style instruments, or fewer time dummies.`,
+    );
+  }
+}
+
+/** Builds the stacked design (see the file comment for every convention), from its plan. */
+export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynDesign {
+  const p = plan ?? planDynamic(data, spec);
+  if (!plan) checkPlan(p);
+  const { N, T } = data;
+  const terms = spec.terms;
+  const kt = terms.length;
+  const { dRows, lRows, L0, A, bMax, dCol, lCol, ivCol, tdCol, consCol } = p;
+  const a1 = spec.lagFirst;
+  const nG = spec.gmmVars.length;
   const ser = (v: string): Float64Array[] => data.series.get(v)!;
   const ySer = ser(spec.y);
   const tSer = terms.map((tm) => ser(tm.v));
   const gSer = spec.gmmVars.map(ser);
   const at = (s: Float64Array[], g: number, t: number): number => (t < 0 || t >= T ? NaN : s[g][t]);
-  if (L0 > DPD_MAX_RAW_INSTR) {
-    throw new GmmRefusal(
-      `The instrument set would have ${intText(L0)} columns before reduction (the limit is ${intText(DPD_MAX_RAW_INSTR)}). Choose “collapse”, or a last lag for the GMM-style instruments.`,
-    );
-  }
   // Regressor columns: terms, then a dummy per period, then the constant (system).
   const kFull = kt + (spec.timeDummies ? T : 0) + (spec.system ? 1 : 0);
   const blocks: Block[] = [];
+  const xScratch = new Float64Array(kFull);
+  // A row fills at most every GMM-style lag of every GMM variable, one IV-style column per term, two dummies, the constant.
+  const zScrI = new Int32Array(nG * (A + 1) + kt + 3);
+  const zScrV = new Float64Array(zScrI.length);
   let emptyGroups = 0;
   for (let g = 0; g < N; g++) {
     const d = dRows[g];
@@ -674,14 +998,13 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
     }
     const rows: Row[] = [];
     const mkRow = (diff: boolean, t: number): Row => {
-      const zi: number[] = [];
-      const zv: number[] = [];
+      let m = 0;
       const put = (c: number, v: number): void => {
         if (c < 0 || v === 0 || Number.isNaN(v)) return;
-        zi.push(c);
-        zv.push(v);
+        zScrI[m] = c;
+        zScrV[m++] = v;
       };
-      const x = new Float64Array(kFull);
+      const x = xScratch.fill(0);
       let y: number;
       if (diff) {
         y = at(ySer, g, t) - at(ySer, g, t - 1);
@@ -709,20 +1032,19 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
       }
       // Sparse indices in increasing order (a column appears once per row).
       // (Insertion sort: a row holds a few dozen entries at most, nearly in order already.)
-      const m = zi.length;
       const zI = new Int32Array(m);
       const zV = new Float64Array(m);
       for (let i = 0; i < m; i++) {
         let j = i;
-        while (j > 0 && zI[j - 1] > zi[i]) {
+        while (j > 0 && zI[j - 1] > zScrI[i]) {
           zI[j] = zI[j - 1];
           zV[j] = zV[j - 1];
           j--;
         }
-        zI[j] = zi[i];
-        zV[j] = zv[i];
+        zI[j] = zScrI[i];
+        zV[j] = zScrV[i];
       }
-      return { zi: zI, zv: zV, x, y, t };
+      return { zi: zI, zv: zV, ...sparse(x), y, t };
     };
     for (const t of d) rows.push(mkRow(true, t));
     for (const t of l) rows.push(mkRow(false, t));
@@ -744,10 +1066,10 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
   const XtX = new Float64Array(kFull * kFull);
   for (const b of blocks)
     for (const r of b.rows)
-      for (let a = 0; a < kFull; a++) {
-        const xa = r.x[a];
-        if (xa === 0) continue;
-        for (let c = 0; c < kFull; c++) XtX[a * kFull + c] += xa * r.x[c];
+      for (let p = 0; p < r.xi.length; p++) {
+        const o = r.xi[p] * kFull;
+        const xa = r.xv[p];
+        for (let q2 = 0; q2 < r.xi.length; q2++) XtX[o + r.xi[q2]] += xa * r.xv[q2];
       }
   const termOrder = Array.from({ length: kt }, (_, j) => j);
   const keptTerms = independentColumns(XtX, kFull, 1e-10, termOrder);
@@ -777,11 +1099,26 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
   }
   const k = kept.length;
   if (k > DPD_MAX_REGRESSORS) throw new GmmRefusal(`${k} regressors (time dummies included) is more than the ${DPD_MAX_REGRESSORS} this calculator allows.`);
+  const colMap = new Int32Array(kFull).fill(-1);
+  kept.forEach((c, a) => (colMap[c] = a));
   for (const b of blocks)
     for (const r of b.rows) {
-      const nx = new Float64Array(k);
-      for (let a = 0; a < k; a++) nx[a] = r.x[kept[a]];
-      r.x = nx;
+      let m = 0;
+      for (const c of r.xi) if (colMap[c] >= 0) m++;
+      if (m === r.xi.length) {
+        for (let p = 0; p < m; p++) r.xi[p] = colMap[r.xi[p]];
+        continue;
+      }
+      const xi = new Int32Array(m);
+      const xv = new Float64Array(m);
+      m = 0;
+      for (let p = 0; p < r.xi.length; p++)
+        if (colMap[r.xi[p]] >= 0) {
+          xi[m] = colMap[r.xi[p]];
+          xv[m++] = r.xv[p];
+        }
+      r.xi = xi;
+      r.xv = xv;
     }
   // Instruments: drop zero columns, then dependent ones (pivoted Cholesky on ZᵀZ, scaled).
   const nnz = new Int32Array(L0);
@@ -801,32 +1138,28 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
       }
   const keptZ = independentColumns(ZZ, L1, 1e-10).sort((a, b) => a - b);
   const L = keptZ.length;
-  if (L > DPD_MAX_INSTR) {
-    throw new GmmRefusal(
-      `${intText(L)} instruments is more than the ${DPD_MAX_INSTR} this calculator allows (and far more than is wise). Choose “collapse”, or a last lag for the GMM-style instruments.`,
-    );
-  }
-  const Nused = blocks.length;
-  if (Nused * L * L > DPD_MAX_WORK) {
-    throw new GmmRefusal(
-      `${intText(Nused)} groups × ${intText(L)}² instruments is beyond the work this calculator allows in the task pane. Choose “collapse”, or a last lag for the GMM-style instruments.`,
-    );
-  }
   const finalPos = new Int32Array(L0).fill(-1);
   keptZ.forEach((i, j) => (finalPos[nzCols[i]] = j));
   for (const b of blocks)
     for (const r of b.rows) {
-      const zi: number[] = [];
-      const zv: number[] = [];
+      let m = 0;
+      for (const c of r.zi) if (finalPos[c] >= 0) m++;
+      if (m === r.zi.length) {
+        for (let p = 0; p < m; p++) r.zi[p] = finalPos[r.zi[p]];
+        continue;
+      }
+      const zi = new Int32Array(m);
+      const zv = new Float64Array(m);
+      m = 0;
       for (let p = 0; p < r.zi.length; p++) {
         const c = finalPos[r.zi[p]];
         if (c >= 0) {
-          zi.push(c);
-          zv.push(r.zv[p]);
+          zi[m] = c;
+          zv[m++] = r.zv[p];
         }
       }
-      r.zi = Int32Array.from(zi);
-      r.zv = Float64Array.from(zv);
+      r.zi = zi;
+      r.zv = zv;
     }
   const nDiff = blocks.reduce((s, b) => s + b.nd, 0);
   const nLevel = blocks.reduce((s, b) => s + b.rows.length - b.nd, 0);
@@ -870,6 +1203,9 @@ export interface DynFit {
   /** A generalized inverse was needed for the one-step or two-step weight. */
   singularA1: boolean;
   singularS: boolean;
+  /** Ranks of the one-step weight's matrix Σ ZᵢᵀHᵢZᵢ and of the two-step moment covariance (L when nonsingular). */
+  rankA1: number;
+  rankS: number;
 }
 
 /** Fits the one-step and two-step estimators on a design (both are always computed: Hansen J needs the second). */
@@ -877,8 +1213,12 @@ export function fitDynamic(des: DynDesign): DynFit {
   const { blocks, L } = des;
   const k = des.names.length;
   const N = blocks.length;
+  {
+    const few = fewGroupsReason(N, k, "group");
+    if (few) throw new GmmRefusal(`The panel has ${few}`);
+  }
   if (L < k) {
-    throw new GmmRefusal(`Under-identified: ${L} instruments for ${k} coefficients. Use more lags for the GMM-style instruments (a later last lag), or fewer regressors.`);
+    throw new GmmRefusal(`Under-identified: ${L} ${plural(L, "instrument")} for ${k} ${plural(k, "coefficient")}. Use more lags for the GMM-style instruments (a later last lag), or fewer regressors.`);
   }
   // ZᵀX, Zᵀy, ZᵀHZ.
   const ZX = new Float64Array(L * k);
@@ -890,7 +1230,7 @@ export function fitDynamic(des: DynDesign): DynFit {
         const c = r.zi[p];
         const v = r.zv[p];
         Zy[c] += v * r.y;
-        for (let j = 0; j < k; j++) ZX[c * k + j] += v * r.x[j];
+        for (let q2 = 0; q2 < r.xi.length; q2++) ZX[c * k + r.xi[q2]] += v * r.xv[q2];
       }
     for (const [ra, sa, h] of b.H) {
       const R1 = b.rows[ra];
@@ -912,14 +1252,14 @@ export function fitDynamic(des: DynDesign): DynFit {
   const solve = (A: Float64Array): { b: Float64Array; M: Float64Array; B: Float64Array } => {
     const XZA = mul(XZ, A, k, L, L);
     const Mi = symInverse(mul(XZA, ZX, k, L, k), k);
-    if (Mi.generalized) throw new GmmRefusal("XᵀZ A ZᵀX is singular: the regressors are not identified by these instruments (a regressor may have no instrument that predicts it).");
+    if (Mi.generalized) throw new SingularSolve("XᵀZ A ZᵀX is singular: the regressors are not identified by these instruments (a regressor may have no instrument that predicts it).");
     const B = mul(Mi.inv, XZA, k, k, L);
     return { b: mv(B, Zy, k, L), M: Mi.inv, B };
   };
   const residuals = (b: Float64Array): Float64Array[] =>
     blocks.map((bl) => Float64Array.from(bl.rows, (r) => {
       let s = r.y;
-      for (let j = 0; j < k; j++) s -= r.x[j] * b[j];
+      for (let q2 = 0; q2 < r.xi.length; q2++) s -= r.xv[q2] * b[r.xi[q2]];
       return s;
     }));
   const zuOf = (res: Float64Array[]): Float64Array[] =>
@@ -952,10 +1292,24 @@ export function fitDynamic(des: DynDesign): DynFit {
   const A1 = A1i.inv;
   const s1 = solve(A1);
   const e1 = residuals(s1.b);
+  // An exact fit in differences leaves no error variance: every standard error, z and test would be rounding noise.
+  {
+    let ssr = 0;
+    let tss = 0;
+    blocks.forEach((bl, i) => {
+      for (let r = 0; r < bl.nd; r++) {
+        ssr += e1[i][r] * e1[i][r];
+        tss += bl.rows[r].y * bl.rows[r].y;
+      }
+    });
+    if (!(ssr > 1e-20 * tss)) {
+      throw new GmmRefusal("The model fits the differenced response exactly (the one-step residuals are zero up to rounding), so there is no error variance: standard errors, z statistics and the Sargan, Hansen and AR tests would be meaningless. Check that the response is not an exact function of its lags and the regressors.");
+    }
+  }
   const zu1 = zuOf(e1);
   const S1 = outerSum(zu1);
   const V1 = sandwich(s1.B, S1);
-  const W2i = symInverse(S1, L);
+  const W2i = N < L ? pinvOuter(zu1, L) : symInverse(S1, L);
   const W2 = W2i.inv;
   // The two-step estimator needs XᵀZ W₂ ZᵀX non-singular; W₂ has rank at most the number of groups, so with fewer
   // groups than coefficients it is not identified (the one-step estimate still is).
@@ -978,7 +1332,7 @@ export function fitDynamic(des: DynDesign): DynFit {
         for (let p = 0; p < r.zi.length; p++) {
           const col = r.zi[p];
           const v = r.zv[p];
-          for (let j = 0; j < k; j++) a[j * L + col] += v * r.x[j];
+          for (let q3 = 0; q3 < r.xi.length; q3++) a[r.xi[q3] * L + col] += v * r.xv[q3];
         }
       for (let j = 0; j < k; j++) {
         let ac = 0;
@@ -1006,9 +1360,19 @@ export function fitDynamic(des: DynDesign): DynFit {
     twoRes = computeTwo();
   } catch (e) {
     if (!(e instanceof GmmRefusal)) throw e;
-    twoWhy =
-      `the two-step weight matrix has rank ${W2i.rank} (at most the ${intText(N)} groups), fewer than the ${k} coefficients, so the two-step estimator is not identified; ` +
-      "use one-step, collapse the instruments, drop the time dummies, or add groups";
+    // Name the actual cause: a weight of too low a rank, a singular weighted cross-product despite enough rank, or
+    // whatever else refused (passed through).
+    if (e instanceof SingularSolve && W2i.rank < k) {
+      twoWhy =
+        `the two-step weight matrix has rank ${intText(W2i.rank)} (at most the ${intText(N)} ${plural(N, "group")}), fewer than the ${k} ${plural(k, "coefficient")}, so the two-step estimator is not identified; ` +
+        "use one-step, collapse the instruments, drop the time dummies, or add groups";
+    } else if (e instanceof SingularSolve) {
+      twoWhy =
+        `the two-step weight matrix has rank ${intText(W2i.rank)}, at least the ${k} ${plural(k, "coefficient")}, but XᵀZ W₂ ZᵀX is singular: weighted by the one-step residuals, the instruments do not identify every coefficient; ` +
+        "use one-step, collapse the instruments, or drop a regressor";
+    } else {
+      twoWhy = e.message.replace(/\.$/, "").replace(/^./, (ch) => ch.toLowerCase());
+    }
   }
   const se = (V: Float64Array): Float64Array => Float64Array.from({ length: k }, (_, j) => Math.sqrt(Math.max(V[j * k + j], 0)));
   // Tests.
@@ -1043,8 +1407,8 @@ export function fitDynamic(des: DynDesign): DynFit {
           const w = e[pr];
           pairs++;
           wu += w * e[r];
-          const x = bl.rows[r].x;
-          for (let j = 0; j < k; j++) wx[j] += w * x[j];
+          const R = bl.rows[r];
+          for (let q2 = 0; q2 < R.xi.length; q2++) wx[R.xi[q2]] += w * R.xv[q2];
         });
         d0 += wu;
         d1 += wu * wu;
@@ -1087,6 +1451,8 @@ export function fitDynamic(des: DynDesign): DynFit {
     sarganP: df > 0 && Number.isFinite(sargan) ? chiSquareP(Math.max(sargan, 0), df) : NaN,
     singularA1: A1i.generalized,
     singularS: W2i.generalized,
+    rankA1: A1i.rank,
+    rankS: W2i.rank,
   };
 }
 

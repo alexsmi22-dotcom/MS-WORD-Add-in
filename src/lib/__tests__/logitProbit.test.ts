@@ -406,10 +406,11 @@ describe("the econ-logit calculator (lib/econCalcs.ts, wired in the Stats pane)"
     const d: Record<string, string> = { data: LOGIT_DEFAULT, spec: LOGIT_SPEC_DEFAULT, model: "logit", se: "classical", constant: "yes", ...over };
     return (k: string) => d[k] ?? "";
   };
-  test("the default computes: a coefficient table and a marginal-effects table, matching the engine", () => {
+  test("the default computes: a coefficient table, a marginal-effects table and an odds-ratio table, matching the engine", () => {
     const out = econLogitCalc(read());
     expect(out.ok).not.toBe(false);
-    expect(out.tables?.length).toBe(2);
+    // The odds-ratio table (logit only) is the third; lib/__tests__/logitOddsRatios.test.ts checks it.
+    expect(out.tables?.length).toBe(3);
     expect(out.text).toMatch(/^Logit regression of grade on GPA, TUCE, PSI/);
     // The constant is last in the coefficient table, and the notes say so truthfully.
     expect(out.text).toContain("a constant is included (shown last");

@@ -938,6 +938,22 @@ export function fmtP(p: number): string {
   return tableP(p);
 }
 
+/** The largest odds ratio the table prints in fixed notation (beyond it the odds-ratio table is left out). */
+export const ODDS_RATIO_MAX = 1e9;
+
+/**
+ * Logit odds ratios for every term but the constant: exp(coef) with exp(ciLo), exp(ciHi) and the coefficient's p.
+ * Undefined for probit, for a model with only a constant, or when any ratio or bound is not finite or past
+ * ODDS_RATIO_MAX (or below its reciprocal), where fixed notation would print a misleading 0.0000 or a 40-digit number.
+ */
+export function oddsRatioRows(model: FittedModel): { name: string; or: number; lo: number; hi: number; p: number }[] | undefined {
+  if (model.kind !== "logit") return undefined;
+  const rows = model.terms.filter((t) => t.name !== "Constant").map((t) => ({ name: t.name, or: Math.exp(t.coef), lo: Math.exp(t.ciLo), hi: Math.exp(t.ciHi), p: t.p }));
+  if (!rows.length) return undefined;
+  const ok = (v: number): boolean => Number.isFinite(v) && v <= ODDS_RATIO_MAX && v >= 1 / ODDS_RATIO_MAX;
+  return rows.every((r) => ok(r.or) && ok(r.lo) && ok(r.hi) && Number.isFinite(r.p)) ? rows : undefined;
+}
+
 export function logitProbitReport(model: FittedModel): { text: string; tables: { label: string; rows: string[][]; align?: ("left" | "right")[] }[] } {
   const title = model.kind === "logit" ? "Logit" : model.kind === "probit" ? "Probit" : "Model";
   const head = ["Term", "Coefficient", "SE", "z", "p", "95% CI low", "95% CI high"];
@@ -952,6 +968,18 @@ export function logitProbitReport(model: FittedModel): { text: string; tables: {
       label: `Average marginal effects on P(${model.depName} = 1) (delta-method standard errors)`,
       rows: [["Term", "dP/dx", "SE", "z", "p", "95% CI low", "95% CI high"], ...model.marginalEffects.map(termRow)],
       align,
+    });
+  }
+  // Odds ratios (user decision 2026-10-28: lawyers and experts quote them): logit only, the constant left out (its
+  // exponential is the baseline odds, not a ratio). exp of the coefficient and of its 95% bounds, so the interval is
+  // the coefficient's own; the p-value is the coefficient's. A ratio too large to print leaves the table out rather
+  // than refusing the whole model.
+  const orRows = oddsRatioRows(model);
+  if (orRows) {
+    tables.push({
+      label: `Odds ratios exp(coefficient) for ${model.depName} = 1 (constant not shown)`,
+      rows: [["Term", "Odds ratio", "95% CI low", "95% CI high", "p"], ...orRows.map((r) => [r.name, fmtFixed(r.or, 4), fmtFixed(r.lo, 4), fmtFixed(r.hi, 4), fmtP(r.p)])],
+      align: ["left", "right", "right", "right", "right"],
     });
   }
   const parts: string[] = [];

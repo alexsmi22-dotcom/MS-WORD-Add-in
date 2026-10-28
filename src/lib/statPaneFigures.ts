@@ -19,6 +19,7 @@ import { estimatorLabel, isLinearKind } from "./regModel";
 import { forestPlotSvg } from "./statchart";
 import { combineSvgs } from "./plot";
 import { composePanels } from "./panels";
+import { oddsRatioRows } from "./logitProbit";
 
 /** At most this many term panels in the regression-table figure (the header says how many were left out). */
 export const REGTABLE_FIGURE_MAX_TERMS = 8;
@@ -85,6 +86,16 @@ export function logitCoefFigureSvg(model: FittedModel): string {
       },
     ),
   ];
+  // Logit: the odds ratios on a log axis with the no-effect line at 1 (user decision 2026-10-28), the table's own rows.
+  const ors = oddsRatioRows(model);
+  if (ors) {
+    parts.push(
+      forestPlotSvg(
+        ors.map((r) => ({ label: r.name, estimate: r.or, low: r.lo, high: r.hi })),
+        { title: "Odds ratios, 95% CI (log scale)", xlabel: `odds ratio for ${clip(model.depName, 18)} = 1`, zero: 1, log: true },
+      ),
+    );
+  }
   const me = model.marginalEffects ?? [];
   if (me.length) {
     parts.push(

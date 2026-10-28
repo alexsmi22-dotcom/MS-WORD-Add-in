@@ -524,7 +524,8 @@ describe("econ-logit figure", () => {
     expect(o.svg ?? "").toMatch(/^<svg[\s>]/);
     expect(svgText(o.svg!)).toMatch(/constant not drawn/i);
     expect(o.svg).toContain("Average marginal effects");
-    expect(dots(o.svg!)).toBe(6); // three predictors × two panels
+    expect(dots(o.svg!)).toBe(9); // three predictors × three panels (coefficients, odds ratios, marginal effects)
+    expect(o.svg).toContain("Odds ratios, 95% CI (log scale)");
     expect(o.svg).toContain("stroke-dasharray"); // the zero line
   });
   test("plotted values are the engine's: an interval that crosses zero is grey, one that does not is blue", () => {
@@ -703,7 +704,11 @@ describe("figure values equal the engine's (mapped through the drawn axis, withi
       ["GPA", "TUCE", "PSI"],
       { constant: true, se: "classical", depName: "grade" },
     );
-    const [coefPanel, mePanel] = panels(logitCoefFigureSvg(m));
+    // Panels found by title: the odds-ratio panel (log axis, user decision 2026-10-28) sits between the two.
+    const all = panels(logitCoefFigureSvg(m));
+    const coefPanel = all.find((p) => p.includes(">Logit coefficients"))!;
+    const mePanel = all.find((p) => p.includes(">Average marginal effects"))!;
+    expect(all.some((p) => p.includes(">Odds ratios, 95% CI (log scale)<"))).toBe(true);
     const s = panelScale(coefPanel);
     const preds = m.terms.filter((t) => t.name !== "Constant");
     preds.forEach((t, i) => expect(Math.abs(s.cx[i] - s.toX(t.coef))).toBeLessThan(1));

@@ -13,7 +13,7 @@ import { fitOls, olsDiagnostics, type OlsFit, type SeType, type OlsDiagnostics }
 import { parseRegData, parseSpec, selectColumns, type RegDataset, type RegSpec } from "./regData";
 import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, intText, NBSP, P_BELOW, type StarScheme } from "./regTable";
 import { buildPlotSvg } from "./plot";
-import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal } from "./logitProbit";
+import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal, oddsRatioRows } from "./logitProbit";
 import { estimatorLabel, isLinearKind, type FittedModel, type ModelTerm } from "./regModel";
 import { logitCoefFigureSvg, regTableFigureSvg } from "./statPaneFigures";
 import { firstThatFits } from "./statPaneReadings";
@@ -340,6 +340,12 @@ export function logitReading(model: FittedModel): string | undefined {
   const main =
     `A one-unit rise in ${best.name} goes with a ${best.coef > 0 ? "rise" : "fall"} of about ${fmtFixed(Math.abs(best.coef), 4)} ` +
     `in the probability that ${model.depName} = 1, on average (p ${pText(best.p)})`;
+  // Logit: the same term's odds ratio as the odds-ratio table prints it (user decision 2026-10-28), when it has one.
+  const or = oddsRatioRows(model)?.find((r) => r.name === best.name);
+  if (or) {
+    const withOr = `${main}; it multiplies the odds by about ${fmtFixed(or.or, 4)}`;
+    return firstThatFits(`${withOr}${tail}.`, `${withOr}.`, `${main}${tail}.`, `${main}.`);
+  }
   return firstThatFits(`${main}${tail}.`, `${main}.`);
 }
 

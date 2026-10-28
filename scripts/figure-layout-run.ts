@@ -319,6 +319,7 @@ import { kaplanMeierSvg } from "../src/lib/survivalFigure";
 import { finCurrencyFigure } from "../src/lib/finPaneFigures";
 import { cipParitySvg, uipPathSvg, pppPathSvg, putCallParitySvg, stepBarsSvg, namedBarsSvg, pppBasketSvg } from "../src/lib/finLibFigures";
 import { logitCoefFigureSvg, regTableFigureSvg } from "../src/lib/statPaneFigures";
+import { coefForestSvg, depositExpansionSvg } from "../src/lib/statLibFigures";
 import { finCurrencyCalc, FIN_CURRENCY_DEFAULTS } from "../src/lib/econE5aCalcs";
 import { econLogitCalc, econRegTableCalc, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT, LONGLEY_DEFAULT, ECON_SPECS_DEFAULT } from "../src/lib/econCalcs";
 const figures: [string, string][] = [];
@@ -2312,6 +2313,10 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   ], "Nash bargaining split"));
   void logitCoefFigureSvg;
   void regTableFigureSvg;
+  // The tobit, heckman and mlogit defaults and the money multiplier enter through the LIMDEP and MICROMACRO loops.
+  must("coef forest negative and positive", coefForestSvg([{ title: "Tobit: hours", terms: [{ name: "educ", coef: 1.1024, lo: 0.8447, hi: 1.3602 }, { name: "kids", coef: -2.7295, lo: -3.4795, hi: -1.9796 }] }]));
+  must("coef forest 25 terms", coefForestSvg([{ title: "Many terms", terms: Array.from({ length: 25 }, (_, i) => ({ name: `regressor_${i + 1}`, coef: (i - 12) / 5, lo: (i - 14) / 5, hi: (i - 10) / 5 })) }]));
+  must("deposit expansion", depositExpansionSvg({ cumulative: [100, 175, 231.25], limit: 400, limitLabel: "m·ΔB = 400", title: "Deposit expansion out of ΔB = 100", injectionLabel: "change in the base" }));
 }
 
 // --- IP valuation & licensing (src/lib/ipValuationCalcs.ts, F1): every default that draws ---------------------

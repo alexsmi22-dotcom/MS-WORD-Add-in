@@ -315,6 +315,12 @@ import { curvesSvg, hydrogenLevelSvg, levelFigureSvg, tunnelSvg } from "../src/l
 
 import { kaplanMeier } from "../src/lib/survival";
 import { kaplanMeierSvg } from "../src/lib/survivalFigure";
+// "Fully inclusive" (2026-10-28): the figures added to the calculators that drew none.
+import { finCurrencyFigure } from "../src/lib/finPaneFigures";
+import { cipParitySvg, uipPathSvg, pppPathSvg, putCallParitySvg, stepBarsSvg, namedBarsSvg, pppBasketSvg } from "../src/lib/finLibFigures";
+import { logitCoefFigureSvg, regTableFigureSvg } from "../src/lib/statPaneFigures";
+import { finCurrencyCalc, FIN_CURRENCY_DEFAULTS } from "../src/lib/econE5aCalcs";
+import { econLogitCalc, econRegTableCalc, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT, LONGLEY_DEFAULT, ECON_SPECS_DEFAULT } from "../src/lib/econCalcs";
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -2270,6 +2276,42 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   bond("curve-nelson-siegel", { model: "svensson" }, "svensson");
   bond("curve-bootstrap", { mode: "prices", rows: "0.5\t0\t97.9\n1\t0\t95.9\n2\t4\t99.8\n5\t4\t99.1\n10\t4.5\t101.2" }, "bootstrap from prices");
   bond("tbill-yields", { year: "treasury" }, "bill treasury year");
+}
+
+// --- "Fully inclusive" (2026-10-28): figures for the calculators that were tables only ---------------------------
+// The library registries' defaults (fx, deriv-parity, ipv-*, fin-ratios) enter through their own loops below; these
+// are the pane calculators' figures and the non-default branches.
+{
+  const must = (name: string, svg: string | undefined) => {
+    if (!svg) throw new Error(`corpus: ${name} did not draw`);
+    figures.push([name, svg]);
+  };
+  const cur = (over: Record<string, string>) => finCurrencyFigure(finCurrencyCalc((k) => over[k] ?? FIN_CURRENCY_DEFAULTS[k] ?? ""));
+  must("fin-currency default", cur({}));
+  must("fin-currency negative beside positive", cur({ amounts: "-500 EUR\n250 GBP" }));
+  must("fin-currency huge beside one", cur({ amounts: "999999999999999 JPY\n1 EUR" }));
+  const logit: Record<string, string> = { data: LOGIT_DEFAULT, spec: LOGIT_SPEC_DEFAULT, model: "logit", se: "classical", constant: "yes" };
+  must("econ-logit default", econLogitCalc((k) => logit[k] ?? "").svg);
+  must("econ-logit probit", econLogitCalc((k) => ({ ...logit, model: "probit" })[k] ?? "").svg);
+  must("econ-regtable default", econRegTableCalc((k) => ({ data: LONGLEY_DEFAULT, specs: ECON_SPECS_DEFAULT })[k as "data"] ?? "").svg);
+  must("econ-regtable ols beside logit", econRegTableCalc((k) => ({ data: LOGIT_DEFAULT, specs: "grade ~ GPA\nlogit: grade ~ GPA" })[k as "data"] ?? "").svg);
+  must("cip parity no quote", cipParitySvg((d) => 1.25 * (1 + 0.05 * d / 360) / (1 + 0.03 * d / 360), 182, null));
+  must("uip path realized", uipPathSvg(1.25, 1.0194, 1, 1.24));
+  must("ppp relative path", pppPathSvg(1.25, 0.02, 5));
+  must("ppp basket", pppBasketSvg(100, 88, 1.25, (x) => x.toFixed(2)));
+  must("put-call parity", putCallParitySvg(100, 0.98, 95.12, 5.55));
+  must("step bars long names", stepBarsSvg([
+    { name: "Entire market value of the multi-component product", value: 120e6, text: "$120,000,000.00" },
+    { name: "Smallest salable patent-practicing unit", value: 36e6, text: "$36,000,000.00" },
+    { name: "Royalty", value: 432000, text: "$432,000.00" },
+  ], "Apportionment from the base to the royalty"));
+  must("named bars", namedBarsSvg([
+    { name: "With the feature", value: 9e6, text: "$9,000,000.00" },
+    { name: "Next-best alternative", value: 6.5e6, text: "$6,500,000.00" },
+    { name: "Surplus", value: 2.5e6, text: "$2,500,000.00", emphasis: true },
+  ], "Nash bargaining split"));
+  void logitCoefFigureSvg;
+  void regTableFigureSvg;
 }
 
 // --- IP valuation & licensing (src/lib/ipValuationCalcs.ts, F1): every default that draws ---------------------

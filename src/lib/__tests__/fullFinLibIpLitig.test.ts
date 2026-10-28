@@ -39,7 +39,7 @@ describe("IP valuation readings follow the result", () => {
   });
 
   test("ipv-mc: none, some, and every outcome losing money", () => {
-    expect(checkedReading(ip("ipv-mc"))).toMatch(/runs from −[\d,.]+ at P10 to [\d,.]+ at P90\. On these input ranges [\d,]+ of the 50,000 simulated outcomes \([\d.]+%\) lose money\.$/);
+    expect(checkedReading(ip("ipv-mc"))).toMatch(/averages about 114,000, and the middle of the outcomes runs from about −157,000 at P10 to 422,000 at P90\. On these input ranges [\d,]+ of the 50,000 simulated outcomes \(about [\d.]+%\) lose money\.$/);
     const fixed = { ratedist: "fixed", rate: "4", lifedist: "fixed", life: "1", revdist: "fixed", rev: "1000000", discdist: "fixed", disc: "0", cost: "30000", samples: "1000" };
     expect(checkedReading(ip("ipv-mc"), fixed)).toMatch(/averages about 1,600\.00, and every simulated outcome is about 1,600\.00\./);
     expect(checkedReading(ip("ipv-mc"), { cost: "0", samples: "2000" })).toMatch(/none of the 2,000 simulated outcomes loses money\.$/);

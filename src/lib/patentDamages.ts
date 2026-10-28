@@ -85,6 +85,27 @@ export function dmgPct(pct: number): string {
   return signed(NF_PCT, pct, 5e-5) + "%";
 }
 
+/**
+ * A warning when every period label reads as one kind of period (years "2019", quarters "2019-Q3", months "2019-07")
+ * and the periods per year entered says another (fix-fin R2 #6: year labels discounted as quarters were accepted
+ * silently). The discounting follows periods per year, so the sentence says which was used. Null when they agree or
+ * the labels are not all of one recognised kind.
+ */
+export function periodLabelMismatch(labels: string[], periodsPerYear: number): string | null {
+  if (!labels.length) return null;
+  const kinds: [RegExp, number, string][] = [
+    [/^\d{4}$/, 1, "years"],
+    [/^\d{4}\s*-?\s*Q[1-4]$/i, 4, "quarters"],
+    [/^(?:\d{4}-(?:0[1-9]|1[0-2])|(?:0?[1-9]|1[0-2])\/\d{4})$/, 12, "months"],
+  ];
+  const kind = kinds.find(([re]) => labels.every((l) => re.test(l.trim())));
+  if (!kind || kind[1] === periodsPerYear) return null;
+  return (
+    `the period labels read as ${kind[2]} (${kind[1]} a year), but periods per year is ${periodsPerYear.toLocaleString("en-US", { maximumFractionDigits: 6 })}; ` +
+    `the discounting uses ${periodsPerYear.toLocaleString("en-US", { maximumFractionDigits: 6 })} a year. Check periods per year.`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The per-period table parser
 // ---------------------------------------------------------------------------
@@ -476,6 +497,8 @@ export function reasonableRoyalty(inp: RoyaltyInput): DamagesResult {
     lines.push(
       `Note: each period's royalty is discounted from the end of its period to the start of the first period at the annual effective rate entered, ${inp.periodsPerYear} period${inp.periodsPerYear === 1 ? "" : "s"} a year; each present value is rounded to the cent and the total is their sum.`,
     );
+    const mismatch = periodLabelMismatch(c.periods.map((p) => p.label), inp.periodsPerYear);
+    if (mismatch) lines.push(`Note: ${mismatch}`);
   }
   const head = ["Period", unit ? "Units" : "Revenue", "Royalty", "Cumulative"];
   if (c.pvTotal !== null) head.push("Present value");

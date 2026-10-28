@@ -85,6 +85,27 @@ export function dmgPct(pct: number): string {
   return signed(NF_PCT, pct, 5e-5) + "%";
 }
 
+/**
+ * A warning when every period label reads as one kind of period (years "2019", quarters "2019-Q3", months "2019-07")
+ * and the periods per year entered says another (fix-fin R2 #6: year labels discounted as quarters were accepted
+ * silently). The discounting follows periods per year, so the sentence says which was used. Null when they agree or
+ * the labels are not all of one recognised kind.
+ */
+export function periodLabelMismatch(labels: string[], periodsPerYear: number): string | null {
+  if (!labels.length) return null;
+  const kinds: [RegExp, number, string][] = [
+    [/^\d{4}$/, 1, "years"],
+    [/^\d{4}\s*-?\s*Q[1-4]$/i, 4, "quarters"],
+    [/^(?:\d{4}-(?:0[1-9]|1[0-2])|(?:0?[1-9]|1[0-2])\/\d{4})$/, 12, "months"],
+  ];
+  const kind = kinds.find(([re]) => labels.every((l) => re.test(l.trim())));
+  if (!kind || kind[1] === periodsPerYear) return null;
+  return (
+    `the period labels read as ${kind[2]} (${kind[1]} a year), but periods per year is ${periodsPerYear.toLocaleString("en-US", { maximumFractionDigits: 6 })}; ` +
+    `the discounting uses ${periodsPerYear.toLocaleString("en-US", { maximumFractionDigits: 6 })} a year. Check periods per year.`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The per-period table parser
 // ---------------------------------------------------------------------------
@@ -222,6 +243,11 @@ export function parsePeriodTable(text: string, names: string[], required: number
         badCell = `“${c}”`;
         break;
       }
+      // A decimal comma ("3,5" read as 3.5) is said, not silent (fix-fin R2 MINOR): the cell was read with a decimal
+      // comma exactly when dropping its commas reads a different number (thousands commas change nothing).
+      if (c.includes(",") && readCell(c.replace(/,/g, "")) !== v) {
+        notes.push(`Line ${li + 1}: “${clip(c)}” was read as ${dmgNum(v)} (a decimal comma); write a decimal point if that is not what you meant.`);
+      }
       values.push(v);
     }
     if (badCell || values.length < required) {
@@ -296,8 +322,10 @@ function resultTableSignature(rows: PeriodRow[]): string | undefined {
       // A single-column copy (k = 1, column 2 equals column 1) is a repeated column, the same tell.
       return `Column ${k + 1} equals the sum of the columns before it in every row.`;
     }
+    // A running total only on 3 or more rows, each adding a non-zero amount (fix-fin R2 #3: an all-zero column is the
+    // running total of another all-zero column, and two rows "10, 10" and "20, 30" fit by coincidence).
     let run = 0;
-    if (rows.length > 1 && rows.every((r) => near(r.values[k], (run += r.values[k - 1])))) {
+    if (rows.length >= 3 && rows.every((r) => r.values[k - 1] !== 0) && rows.every((r) => near(r.values[k], (run += r.values[k - 1])))) {
       return `Column ${k + 1} is the running total of column ${k}.`;
     }
   }
@@ -476,6 +504,8 @@ export function reasonableRoyalty(inp: RoyaltyInput): DamagesResult {
     lines.push(
       `Note: each period's royalty is discounted from the end of its period to the start of the first period at the annual effective rate entered, ${inp.periodsPerYear} period${inp.periodsPerYear === 1 ? "" : "s"} a year; each present value is rounded to the cent and the total is their sum.`,
     );
+    const mismatch = periodLabelMismatch(c.periods.map((p) => p.label), inp.periodsPerYear);
+    if (mismatch) lines.push(`Note: ${mismatch}`);
   }
   const head = ["Period", unit ? "Units" : "Revenue", "Royalty", "Cumulative"];
   if (c.pvTotal !== null) head.push("Present value");

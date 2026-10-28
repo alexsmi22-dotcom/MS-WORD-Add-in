@@ -251,7 +251,11 @@ describe("the per-period table parser", () => {
   test("spaces, tabs, semicolons; a year label; 'Q1 2024' labels", () => {
     expect(parsePeriodTable("2021 1,000 50", N, 1)).toEqual({ rows: rows(["2021", 1000, 50]), notes: [] });
     expect(parsePeriodTable("Q1 2024 1,000 50", N, 1)).toEqual({ rows: rows(["Q1 2024", 1000, 50]), notes: [] });
-    expect(parsePeriodTable("FY 2023\t2.500,5\t7", N, 1)).toEqual({ rows: rows(["FY 2023", 2500.5, 7]), notes: [] });
+    // fix-fin R2 MINOR: a decimal comma is read and said.
+    expect(parsePeriodTable("FY 2023\t2.500,5\t7", N, 1)).toEqual({
+      rows: rows(["FY 2023", 2500.5, 7]),
+      notes: ["Line 1: “2.500,5” was read as 2,500.5 (a decimal comma); write a decimal point if that is not what you meant."],
+    });
     expect(parsePeriodTable("Jan; $1,234.50; 3", N, 1)).toEqual({ rows: rows(["Jan", 1234.5, 3]), notes: [] });
     expect(parsePeriodTable("500", ["base"], 1)).toEqual({ rows: rows(["Period 1", 500]), notes: [] });
   });

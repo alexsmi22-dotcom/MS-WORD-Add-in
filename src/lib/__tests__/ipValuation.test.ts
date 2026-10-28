@@ -196,19 +196,20 @@ describe("the 25% rule of thumb is an explained refusal, quoting Uniloc verbatim
   test("the citation and quotation constants are exactly the verified text", () => {
     expect(`${UNILOC_CITATION}: “${UNILOC_QUOTE}”`).toBe(UNILOC_TEXT);
   });
-  test.each([
-    ["the rule-of-thumb option", { method: "rule25" }],
-    ["a patentee share of 25", { share: "25" }],
-    ["a patentee share typed 25%", { share: "25%" }],
-    ["a patentee share typed 25.0", { share: "25.0" }],
-  ])("%s", (_n, over) => {
-    const t = refusal("ipv-nash", over as Record<string, string>);
+  test("the rule-of-thumb option is refused", () => {
+    const t = refusal("ipv-nash", { method: "rule25" });
     expect(t).toContain(UNILOC_TEXT);
     expect(t).toContain("not offered as a calculator");
   });
-  test("24.99 and 25.01 are ordinary shares (the refusal is the rule, not a range)", () => {
-    expect(ok("ipv-nash", { share: "24.99" }).text).toContain("24.99%");
-    expect(ok("ipv-nash", { share: "25.01" }).text).toContain("25.01%");
+  // fix-fin R2 #10: a share of 25% (or near it) is computed with a caution quoting Uniloc, not refused; refusing exactly
+  // 25 while accepting 24.9999 treated the number, not the rule of thumb, as what Uniloc rejected.
+  test.each([["25"], ["25%"], ["25.0"], ["24.9999"], ["25.01"]])("a patentee share typed %s is computed with the Uniloc caution", (share) => {
+    const t = ok("ipv-nash", { share }).text;
+    expect(t).toContain(UNILOC_TEXT);
+    expect(t).toContain("only if the evidence of this case supports it");
+  });
+  test("a share well away from 25% carries no Uniloc caution", () => {
+    expect(ok("ipv-nash", { share: "40" }).text).not.toContain(UNILOC_TEXT);
   });
   test("no other case citation appears in either engine or the registry", () => {
     for (const f of ["ipValuation.ts", "apportionment.ts", "ipValuationCalcs.ts"]) {

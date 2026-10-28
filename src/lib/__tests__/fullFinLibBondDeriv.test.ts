@@ -29,7 +29,7 @@ describe("bond-dates", () => {
     const b = checkedReading(c, { solve: "yield", price: "92" });
     expect(a).toMatch(/clean price is 97\.250000 per 100/);
     expect(a).not.toBe(b);
-    expect(b).toMatch(/lower the price by roughly [\d.]+ percent\.$/);
+    expect(b).toMatch(/With a modified duration of [\d.]+, a one-point rise in the yield would cut the price by about that many percent\.$/);
   });
 });
 
@@ -88,7 +88,7 @@ describe("curve-nelson-siegel", () => {
 describe("deriv-black76", () => {
   const c = deriv("deriv-black76");
   test("call and put move in opposite directions with the futures price", () => {
-    expect(checkedReading(c)).toMatch(/^The call is worth [\d.]+; each 1 rise in the futures price raises it/);
+    expect(checkedReading(c)).toMatch(/^The call is worth [\d.]+; a rise of 1 in the futures price raises it/);
     expect(checkedReading(c, { type: "put" })).toMatch(/lowers it/);
   });
   test("solving for volatility leads with it", () => {
@@ -121,7 +121,7 @@ describe("deriv-parity", () => {
     expect(checkedReading(c, { c: "14", p: "4" })).toMatch(/^The call is [\d.]+ per share too expensive against the put/);
     expect(checkedReading(c, { c: "8", p: "6" })).toMatch(/^The put is [\d.]+ per share too expensive against the call/);
     expect(checkedReading(c, { c: "14", p: "4", cost: "0.5" })).toMatch(/after the cost band\)\.$/);
-    expect(checkedReading(c, { c: "10.45", p: "4.90", cost: "5" })).toMatch(/inside the 5 trading cost band/);
+    expect(checkedReading(c, { c: "10.45", p: "4.90", cost: "5" })).toMatch(/inside the trading cost band of 5 per share/);
   });
   test("parity holding exactly", () => {
     // C − P = S − K·exp(−rt) with r = 0: 100 − 100 = 0.

@@ -266,6 +266,13 @@ import {
   damagesSummaryReading,
   georgiaPacificReading,
   panduitReading,
+  periodCountRefusal,
+  returnsRefusal,
+  earRefusal,
+  irrFlowsRefusal,
+  dcfRefusal,
+  deprRefusal,
+  inNum,
 } from "../lib/finPaneReadings";
 import { finCurrencyWithFigure } from "../lib/finPaneFigures";
 import {
@@ -8397,7 +8404,7 @@ const FIN_CALCS: FinCalc[] = [
       { key: "rate", label: "Rate % per period", default: "5" },
       { key: "n", label: "Number of periods", default: "10" },
     ],
-    compute: (r) => ({
+    compute: (r) => periodCountRefusal(+r("n"), "Number of periods") ? finRefuse(periodCountRefusal(+r("n"), "Number of periods")!) : ({
       text: `FV = ${finMoney(futureValue(+r("pv"), +r("rate") / 100, +r("n")))}`,
       reading: fvReading(+r("pv"), +r("rate"), +r("n")),
       // The path to the answer. Compound growth is the thing everyone knows the
@@ -8421,7 +8428,7 @@ const FIN_CALCS: FinCalc[] = [
       { key: "rate", label: "Rate % per period", default: "5" },
       { key: "n", label: "Number of periods", default: "10" },
     ],
-    compute: (r) => ({
+    compute: (r) => periodCountRefusal(+r("n"), "Number of periods") ? finRefuse(periodCountRefusal(+r("n"), "Number of periods")!) : ({
       text: `PV = ${finMoney(presentValue(+r("fv"), +r("rate") / 100, +r("n")))}`,
       reading: pvReading(+r("fv"), +r("rate"), +r("n")),
       // What the same future sum is worth if received k periods from now. The
@@ -8447,7 +8454,7 @@ const FIN_CALCS: FinCalc[] = [
       { key: "m", label: "Compounds / year", default: "12" },
       { key: "t", label: "Years", default: "10" },
     ],
-    compute: (r) => (!(+r("m") > 0) ? finRefuse("Compounds / year must be positive (0 compounds a year divides by zero).") : {
+    compute: (r) => (!(+r("m") > 0) ? finRefuse("Compounds / year must be positive (0 compounds a year divides by zero).") : periodCountRefusal(+r("t"), "Years") ? finRefuse(periodCountRefusal(+r("t"), "Years")!) : {
       text: `Amount = ${finMoney(compoundInterest(+r("p"), +r("rate") / 100, +r("m"), +r("t")))}`,
       reading: compoundReading(+r("p"), +r("rate"), +r("m"), +r("t")),
       // Year by year rather than compounding period by period: the answer moves
@@ -8534,6 +8541,8 @@ const FIN_CALCS: FinCalc[] = [
     fields: [{ key: "cf", label: "Cash flows (t=0 first)", default: "-1000, 500, 500, 500", kind: "list" }],
     compute: (r) => {
       const flows = finList(r("cf"));
+      const tooMany = irrFlowsRefusal(flows);
+      if (tooMany) return finRefuse(tooMany);
       const v = irr(flows);
       // NAME THE RANGE. "no solution" alone reads as "this cash flow has no
       // IRR", which is a much stronger claim than "no rate in the interval I
@@ -8542,7 +8551,7 @@ const FIN_CALCS: FinCalc[] = [
       if (v === null) return finRefuse(`IRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})`);
       return {
         text: `IRR = ${finPct(v)}`,
-        reading: irrReading(flows),
+        reading: irrReading(flows, v),
         // DISCOUNTED AT THE IRR ITSELF, which is what an IRR MEANS: the rate at
         // which the ledger comes to zero. Drawing it that way turns the
         // definition into something a reader can check by eye - the bars
@@ -8661,7 +8670,7 @@ const FIN_CALCS: FinCalc[] = [
       { key: "nom", label: "Nominal annual rate %", default: "12" },
       { key: "m", label: "Compounds / year", default: "12" },
     ],
-    compute: (r) => ({
+    compute: (r) => earRefusal(+r("nom"), +r("m")) ? finRefuse(earRefusal(+r("nom"), +r("m"))!) : ({
       text: `Effective annual rate = ${finPct(effectiveAnnualRate(+r("nom") / 100, +r("m")))}`,
       reading: earReading(+r("nom"), +r("m")),
       // HOW THE EFFECTIVE RATE SATURATES as compounding gets more frequent.
@@ -8777,7 +8786,7 @@ const FIN_CALCS: FinCalc[] = [
       { key: "g", label: "Growth rate % / period", default: "5" },
       { key: "n", label: "Number of periods", default: "10" },
     ],
-    compute: (r) => ({
+    compute: (r) => periodCountRefusal(+r("n"), "Number of periods", true) ? finRefuse(periodCountRefusal(+r("n"), "Number of periods", true)!) : ({
       text: `PV = ${finMoney(growingAnnuityPV(+r("pmt"), +r("rate") / 100, +r("g") / 100, +r("n")))}`,
       reading: gannReading(+r("pmt"), +r("rate"), +r("g"), +r("n")),
       // The payment stream itself, growing period by period. A single present
@@ -8806,8 +8815,9 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const rate = +r("rate") / 100;
       const flows = finList(r("cf"));
+      const why = dcfRefusal(+r("rate"), flows, +r("g"));
+      if (why) return finRefuse(why);
       const v = dcf(rate, flows, +r("g") / 100);
-      if (!Number.isFinite(v)) return finRefuse("Value = — (need rate > terminal growth)");
       // F1 D5: the terminal value, its present value and its share of the total, printed — the caveat below says it
       // dominates the result, and a reader could not see by how much.
       const gT = +r("g") / 100;
@@ -8888,7 +8898,7 @@ const FIN_CALCS: FinCalc[] = [
           ...(dated.note ? [`Note: ${dated.note}`] : []),
           "Conventions: actual days between dates over a 365-day year, as Excel's XIRR.",
         ].join("\n"),
-        reading: xirrReading(cfs, days),
+        reading: xirrReading(cfs, days, v),
         svg:
           cfs.length === days.length
             ? cashFlowLadderSvg(
@@ -8931,7 +8941,7 @@ const FIN_CALCS: FinCalc[] = [
             ? `\n(Solved on ${wholePeriods} whole coupon periods, ${finFixed(wholePeriods / +r("freq"), 4).replace(/\.?0+$/, "")} years, ` +
               `not the ${finFixed(exactPeriods, 2)} periods that ${finFixed(+r("years"), 2)} years make: a settlement between coupon dates needs accrued interest, which this model omits.)`
             : ""),
-        reading: ytmReading(+r("price"), +r("face"), +r("coupon"), +r("years"), +r("freq")),
+        reading: ytmReading(+r("price"), +r("face"), +r("coupon"), +r("years"), +r("freq"), y),
         // The same curve as the pricing tool, read the other way round: the
         // solver found where the quoted price meets it, and the marked point IS
         // the answer rather than an illustration of it.
@@ -9131,7 +9141,7 @@ const FIN_CALCS: FinCalc[] = [
       if (v === null) return finRefuse("Implied vol = no solution");
       return {
         text: `Implied vol = ${finPct(v)}`,
-        reading: ivReading(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r"), +r("q")),
+        reading: ivReading(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r"), +r("q"), v),
         // The curve the solver walked: option value against volatility, with
         // the quoted price marked. Its SLOPE is vega, so a nearly flat curve
         // means the price barely constrains the volatility - a deep in- or
@@ -9173,9 +9183,8 @@ const FIN_CALCS: FinCalc[] = [
       { key: "factor", label: "Factor (2 = double)", default: "2" },
     ],
     compute: (r) => {
-      if (!(+r("life") > 0)) return finRefuse("Useful life must be a positive number of years.");
-      if (!(+r("factor") > 0)) return finRefuse("The factor must be positive (2 = double declining).");
-      if (+r("salvage") > +r("cost")) return finRefuse("Salvage value cannot exceed the cost.");
+      const bad = deprRefusal(+r("cost"), +r("salvage"), +r("life"), +r("factor"));
+      if (bad) return finRefuse(bad);
       const rows = decliningBalanceSchedule(+r("cost"), +r("salvage"), +r("life"), +r("factor"));
       if (!rows.length) return finRefuse("Useful life must be a positive number of years.");
       const fracLife = +r("life") - Math.floor(+r("life"));
@@ -9229,9 +9238,9 @@ const FIN_CALCS: FinCalc[] = [
       const cost = +r("cost");
       const salvage = +r("salvage");
       const life = +r("life");
+      const bad = deprRefusal(cost, salvage, life);
+      if (bad) return finRefuse(bad);
       const annual = straightLineDepreciation(cost, salvage, life);
-      if (!Number.isFinite(annual) || life <= 0) return finRefuse("Useful life must be a positive number of years.");
-      if (salvage > cost) return finRefuse("Salvage value cannot exceed the cost (the asset would appreciate, not depreciate).");
       const lines = [`Annual depreciation  ${finMoney(annual)}`, ""];
       // A fractional life used to be truncated by Math.floor while the closing
       // sentence still asserted the book value "reaches salvage in the final
@@ -9296,6 +9305,8 @@ const FIN_CALCS: FinCalc[] = [
       const pmt = +r("pmt");
       const rate = +r("rate") / 100;
       const n = +r("n");
+      const badN = periodCountRefusal(n, "Number of periods", true);
+      if (badN) return finRefuse(badN);
       const pv = annuityPV(pmt, rate, n);
       const fv = annuityFV(pmt, rate, n);
       if (!Number.isFinite(pv) || !Number.isFinite(fv)) return finRefuse("Check the rate and the number of periods.");
@@ -9407,6 +9418,8 @@ const FIN_CALCS: FinCalc[] = [
       const years = +r("years");
       const m = +r("m");
       if (!(m > 0)) return finRefuse("Compounds per year must be positive.");
+      const badYears = periodCountRefusal(years, "Years");
+      if (badYears) return finRefuse(badYears);
       const cont = continuousCompound(p, rate, years);
       const eff = effectiveAnnualRate(rate, m);
       const nominal = nominalAnnualRate(eff, m);
@@ -9436,7 +9449,7 @@ const FIN_CALCS: FinCalc[] = [
             { name: "continuous", value: cont, colour: "#b91c1c" },
           ].filter((row) => Number.isFinite(row.value)),
           // Unrounded, for the same reason as the compounding title above.
-          { title: "Amount after " + finFixed(years, 2) + " years, by compounding", unit: "", w: currentFinFig()?.width ?? 360, bw: currentFinFig()?.bw },
+          { title: `Amount after ${inNum(years)} ${years === 1 ? "year" : "years"}, by compounding`, unit: "", w: currentFinFig()?.width ?? 360, bw: currentFinFig()?.bw },
         ),
       };
     },
@@ -9495,6 +9508,8 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const rets = finList(r("rets")).map((x) => x / 100);
       const ppy = +r("ppy");
+      const bad = returnsRefusal(rets, ppy, +r("rf"));
+      if (bad) return finRefuse(bad);
       return {
         text: [
           `Annualized return  ${finPct(annualizedReturn(rets, ppy))}`,

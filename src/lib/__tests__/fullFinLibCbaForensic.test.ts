@@ -3,7 +3,7 @@
  * actuarial calculators (cbaCalcs.ts, forensicCalcs.ts via forensicReports.ts). Every reading keeps the rules
  * (readingProblems), its numbers come from the text or tables, it follows the input, and each wording branch is hit.
  */
-import { CBA_CALCS } from "../cbaCalcs";
+import { CBA_CALCS, cipReading } from "../cbaCalcs";
 import { FORENSIC_CALCS } from "../forensicCalcs";
 import { calcById, checkedReading, runCalc, asObj } from "./fullFinLibHelpers";
 
@@ -82,12 +82,16 @@ describe("fx-cip", () => {
     expect(checkedReading(cba("fx-cip"), { fwd: "1.26" })).toMatch(/is 19\.41 basis points below parity \(1\.262450\), so borrowing foreign/);
   });
   test("a deviation under 0.005 basis points is not printed as 0.00 beside a profit", () => {
-    const r = checkedReading(cba("fx-cip"), { fwd: "1.26245" });
-    expect(r).toMatch(/is a fraction of a basis point below parity/);
+    // fix-fin R2 #11: a quote that PRINTS as the parity forward (1.26245 against 1.262450) is parity, not arbitrage.
+    expect(checkedReading(cba("fx-cip"), { fwd: "1.26245" })).toMatch(/matches the parity forward 1\.262450 to the 6 decimals shown/);
+    // Printed apart in the 6th decimal, yet under 0.005 basis points: described, not printed as 0.00.
+    const res = { F: 1.2624504, growD: 1, growF: 1.25 / 1.2624504, tauD: 0.5, tauF: 0.5 };
+    const r = cipReading(1.25, res, 182, 1.2624506, 1_000_000, null);
+    expect(r).toMatch(/is a fraction of a basis point above parity/);
     expect(r).not.toMatch(/0\.00 basis/);
   });
   test("at parity", () => {
-    expect(checkedReading(cba("fx-cip"), { id: "3", fwd: "1.25" })).toMatch(/matches the parity forward 1\.250000: covered interest parity holds/);
+    expect(checkedReading(cba("fx-cip"), { id: "3", fwd: "1.25" })).toMatch(/matches the parity forward 1\.250000 to the 6 decimals shown: covered interest parity holds/);
   });
   test("no quote: the forward above, below or at spot", () => {
     expect(checkedReading(cba("fx-cip"), { fwd: "" })).toMatch(/182-day forward rate .* is 1\.262450, above the spot 1\.250000/);
@@ -149,9 +153,9 @@ describe("forensic and actuarial", () => {
     expect(checkedReading(fo("act-retire"), { age: "67", retire: "67", balance: "0" })).toMatch(/runs out at age 67, before age 95: savings reach 0\.00 at age 67 \(0\.00 in today's money\)\.$/);
   });
   test("safe withdrawal: with and without a life table, one year", () => {
-    expect(checkedReading(fo("act-swr-mc"))).toMatch(/23\.445% of 20,000 simulated return paths; .* outliving the money is 8\.4475%\./);
+    expect(checkedReading(fo("act-swr-mc"))).toMatch(/about 23\.4% of 20,000 simulated return paths; .* outliving the money is about 8\.4%\./);
     expect(checkedReading(fo("act-swr-mc"), { table: "none" })).toMatch(/rests on the return assumptions entered\.$/);
-    expect(checkedReading(fo("act-swr-mc"), { table: "none", years: "1" })).toMatch(/within 1 year in about 0% of/);
+    expect(checkedReading(fo("act-swr-mc"), { table: "none", years: "1" })).toMatch(/within 1 year in none of 20,000 simulated return paths, so the chance is below about 1 in 20,000/);
   });
   test("a refusal carries no reading", () => {
     const o = asObj(runCalc(fo("act-retire"), { retire: "30" }));

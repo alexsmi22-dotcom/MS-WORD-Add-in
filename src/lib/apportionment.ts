@@ -16,10 +16,11 @@
  */
 import { readFinanceField } from "./finance";
 import { foreignCurrencyRefusal, stripUsd, usd } from "./damagesUsd";
-import { MAX_DAMAGES_AMOUNT, dmgMoney, dmgPct, dmgQty, dmgUnitMoney, damagesFigure, parsePeriodTable, roundCents } from "./patentDamages";
+import { MAX_DAMAGES_AMOUNT, periodLabelMismatch, dmgMoney, dmgPct, dmgQty, dmgUnitMoney, damagesFigure, parsePeriodTable, roundCents } from "./patentDamages";
 import { ratMul, ratDiv, ratSub, ratSign, ratToNumber, ratInt, parseRatLiteral, type Rat } from "./cas";
 import { roundUnits, unitsText } from "./currency";
 import type { FinResult } from "./finCalc";
+import { aAn } from "./finPaneReadings";
 import { namedBarsSvg, stepBarsSvg } from "./finLibFigures";
 
 type Read = (k: string) => string;
@@ -334,7 +335,7 @@ export function computeComparable(inp: ComparableInput): ComparableComputed | Re
   if (inp.direction === "lump2rate") {
     lump = inp.lump;
     ratePct = (inp.lump / pvBase) * 100;
-    if (ratePct > 100) return { error: `The lump sum is worth more than the whole discounted royalty base (an effective rate of ${dmgPct(ratePct)}); check the lump sum, the forecast and the discount rate.` };
+    if (ratePct > 100) return { error: `The lump sum is worth more than the whole discounted royalty base (an effective rate of ${ratePct.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%); check the lump sum, the forecast and the discount rate.` };
   } else {
     ratePct = inp.ratePct;
     lump = (inp.ratePct / 100) * pvBase;
@@ -357,7 +358,7 @@ export function comparableReading(c: ComparableComputed, direction: "lump2rate" 
   const at = `discounted at ${dmgPct(discountPct)} a year`;
   return direction === "lump2rate"
     ? `The ${dmgMoney(c.lump)} lump sum is worth about the same as a running royalty of ${dmgPct(c.ratePct)} on the forecast base (${at}), the rate to set beside other licenses.`
-    : `A ${dmgPct(c.ratePct)} running royalty on the forecast base is worth about ${dmgMoney(c.lump)} paid up front (${at}), against ${dmgMoney(c.totalRoyalty)} paid over time undiscounted.`;
+    : `${aAn(dmgPct(c.ratePct), true)} ${dmgPct(c.ratePct)} running royalty on the forecast base is worth about ${dmgMoney(c.lump)} paid up front (${at}), against ${dmgMoney(c.totalRoyalty)} paid over time undiscounted.`;
 }
 
 export function comparableCalc(read: Read): FinResult {
@@ -393,6 +394,8 @@ export function comparableCalc(read: Read): FinResult {
       "the rate and lump sum come from the unrounded sums; table amounts are rounded to the cent per period and totals are the sums of the rounded periods, so the Present value total can differ from the lump sum by a few cents; US dollars.",
   ];
   for (const note of t.notes) lines.push(`Note: ${note}`);
+  const mismatch = periodLabelMismatch(t.rows.map((r) => r.label), ppy);
+  if (mismatch) lines.push(`Note: ${mismatch}`);
   const rows: string[][] = [["Period", "Royalty base", "Royalty", "Discount factor", "Present value"]];
   for (const p of c.periods) rows.push([p.label, dmgMoney(p.base), dmgMoney(p.royalty), p.df.toFixed(6), dmgMoney(p.pv)]);
   rows.push(["Total", dmgMoney(c.periods.reduce((s, p) => s + Math.round(p.base * 100), 0) / 100), dmgMoney(c.totalRoyalty), "", dmgMoney(c.totalPv)]);
@@ -431,7 +434,7 @@ export function computeNash(withPatent: Rat, alternative: Rat, sharePct: Rat): N
 export function nashReading(c: NashComputed, sharePct: Rat): string {
   return (
     `On these inputs the patentee's part of the ${centsText(c.surplus)} bargaining surplus is ${centsText(c.patentee)} and the licensee keeps ${centsText(c.licensee)}. ` +
-    `The result is only as sound as the evidence for a ${ratPctText(sharePct)} patentee share.`
+    `The result is only as sound as the evidence for ${aAn(ratPctText(sharePct))} ${ratPctText(sharePct)} patentee share.`
   );
 }
 
@@ -445,9 +448,10 @@ export function nashCalc(read: Read): FinResult {
   if (isRefusal(a)) return refuse(a);
   const sh = readVal(read("share"), "Patentee share of the surplus (%)", { min: 0, minExclusive: true, max: 100, maxExclusive: true, range: "more than 0% and less than 100%" });
   if (isRefusal(sh)) return refuse(sh);
-  if (sh.v === 25) {
-    return refuse({ error: rule25Refusal("A patentee share of exactly 25% reproduces the 25% rule of thumb, so it is refused here.") });
-  }
+  // fix-fin R2 #10: a typed share of 25% is computed with a caution, not refused. Refusing exactly 25 while accepting
+  // 24.9999 was legally inaccurate: Uniloc rejects the rule of thumb as a starting point, not the number 25 when the
+  // evidence of the case supports it.
+  const near25 = Math.abs(sh.v - 25) < 0.5;
   const c = computeNash(w.r, a.r, sh.r);
   if (ratSign(c.surplus) <= 0) return refuse({ error: "There is no bargaining surplus: the profit with the patented feature is not above the profit with the next-best alternative, so there is nothing to split." });
   const lines = [
@@ -483,6 +487,12 @@ export function nashCalc(read: Read): FinResult {
     "Caution: the split is a method, not a result. The patentee share must be tied to the facts of the case (each side's bargaining position and the evidence for it); " +
       "a share chosen without that support is not something this arithmetic can supply.",
   );
+  if (near25) {
+    lines.push(
+      `Caution: a patentee share at or near 25% matches the 25% rule of thumb, which the Federal Circuit rejected as a baseline (${UNILOC_CITATION}: “${UNILOC_QUOTE}”). ` +
+        "A share of this size is admissible only if the evidence of this case supports it, not because it is customary.",
+    );
+  }
   lines.push("Conventions: surplus = profit with − profit with the next-best alternative; royalty = surplus × patentee share; exact rational arithmetic, each amount rounded to the cent (half away from zero) from its exact value; US dollars.");
   return {
     text: lines.join("\n"),

@@ -50,6 +50,7 @@ import {
   normaliseItemName,
   RatioRow,
   ItemKey,
+  NEGATIVE_EQUITY_WHY,
 } from "./statements";
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -83,7 +84,9 @@ function num(r: Read, key: string, label: string, o: { min?: number; max?: numbe
   if (!Number.isFinite(v)) return `${Label}: “${raw}” is not a finite number.`;
   if (o.min !== undefined && (o.minOpen ? !(v > o.min) : v < o.min)) return `${Label} must be ${o.minOpen ? "above" : "at least"} ${fx(o.min, 0)}.`;
   if (o.max !== undefined && v > o.max) return `${Label} must be at most ${fx(o.max, 0)}.`;
-  if (o.int && !Number.isInteger(v)) return `${Label} must be a whole number (got ${raw}).`;
+  // No echo (fix-fin R3 MINOR 4): the pane hands the field over through readFinanceField, so 0.000000000001 arrives as
+  // "1e-12", which is not what was typed and breaks the display contract.
+  if (o.int && !Number.isInteger(v)) return `${Label} must be a whole number.`;
   return v;
 }
 /** An optional number field: blank → undefined. */
@@ -156,7 +159,11 @@ export function cvpChartSvg(inp: CvpInput, res: CvpResult): string | undefined {
     { points: line(() => inp.fixedCosts), type: "line", color: "#6b7280", label: "fixed cost" },
     { points: [{ x: res.breakEvenUnits, y: res.breakEvenRevenue }], type: "scatter", color: "#111827", label: "break-even" },
   ];
-  if (inp.units > 0) series.push({ points: [{ x: inp.units, y: 0 }, { x: inp.units, y: res.revenue }], type: "line", color: "#16a34a", label: "sales (margin of safety: from break-even to here)" });
+  // R3 M6 (legend text): "margin of safety" only when the sales are above break-even.
+  if (inp.units > 0) {
+    const label = res.marginOfSafetyUnits > 0 ? "sales (margin of safety: from break-even to here)" : res.marginOfSafetyUnits < 0 ? "sales (below break-even)" : "sales (at break-even)";
+    series.push({ points: [{ x: inp.units, y: 0 }, { x: inp.units, y: res.revenue }], type: "line", color: "#16a34a", label });
+  }
   return finPlotSvg(series, { width: 380, height: 270, title: "Cost-volume-profit: break-even and margin of safety", xlabel: "units sold", ylabel: "amount" });
 }
 
@@ -200,7 +207,7 @@ export function loanScheduleCalc(r: Read): FinResult {
   if (amortYears !== undefined) {
     const a = amortYears * m;
     amortN = Math.round(a);
-    if (Math.abs(a - amortN) > 1e-9) return finRefusal(`Amortize-over term × payments per year must be a whole number of payments (got ${fx(a, 4)}).`);
+    if (Math.abs(a - amortN) > 1e-9) return finRefusal(`Amortize-over term × payments per year must be a whole number of payments (here ${fx(a, 4)}).`);
     if (amortN < n) return finRefusal("The amortize-over term cannot be shorter than the loan term.");
     if (amortN === n) amortN = undefined;
   }
@@ -212,7 +219,9 @@ export function loanScheduleCalc(r: Read): FinResult {
   if (typeof lumpRows === "string") return finRefusal(lumpRows);
   const lumps = new Map<number, number>();
   for (const x of lumpRows) {
-    if (!Number.isInteger(x.a) || x.a < 1 || x.a > n) return finRefusal(`One-off extra payments, line ${x.line}: the payment number must be a whole number from 1 to ${count(n)} (got ${fx(x.a, 2)}).`);
+    // R3 MINOR 4 / 12: no "(got 60.00)" for a count; a payment past the end says so, with the term it falls outside.
+    if (!Number.isInteger(x.a) || x.a < 1) return finRefusal(`One-off extra payments, line ${x.line}: the payment number must be a whole number from 1 to ${count(n)}.`);
+    if (x.a > n) return finRefusal(`One-off extra payments, line ${x.line}: payment ${count(x.a)} is past the last of the ${count(n)} payments in this loan term; use a payment number from 1 to ${count(n)}.`);
     if (x.b < 0) return finRefusal(`One-off extra payments, line ${x.line}: an extra payment cannot be negative (borrowing more is not modelled).`);
     if (lumps.has(x.a)) return finRefusal(`One-off extra payments: payment ${count(x.a)} is listed twice; put the total on one line.`);
     lumps.set(x.a, x.b);
@@ -365,7 +374,8 @@ export function loanReading(res: LoanResult, plain: LoanResult | null, P: number
     const savedC = plain.totalsC.interest - res.totalsC.interest;
     const savedK = plain.payoffK - res.payoffK;
     const interest = savedC > 0 ? `save ${cents(savedC)} of interest` : savedC === 0 ? "save no interest" : `add ${cents(-savedC)} of interest`;
-    const time = savedK > 0 ? `end the loan ${monthsText(savedK, m)} sooner` : savedK === 0 ? "do not shorten the loan" : `make the loan run ${monthsText(-savedK, m)} longer`;
+    // R3 MINOR 2: after "would", "not shorten" (it read "would save … and do not shorten").
+    const time = savedK > 0 ? `end the loan ${monthsText(savedK, m)} sooner` : savedK === 0 ? "not shorten the loan" : `make the loan run ${monthsText(-savedK, m)} longer`;
     return `${first}${balloon}; the ${money(res.totalExtra)} of extra principal would ${interest} and ${time}, leaving ${cents(res.totalsC.interest)} of interest in all.`;
   }
   return `${first}${balloon}; over ${yearsTxt} year${years === 1 ? "" : "s"} that is ${cents(res.totalsC.interest)} of interest on top of the ${money(P)} borrowed.`;
@@ -503,10 +513,12 @@ export function macrsCalc(r: Read): FinResult {
   const rates = macrsRates(system, period, conv);
   if ("error" in rates) return finRefusal(rates.error);
   const rows = macrsSchedule(basis, rates.published);
+  // One precision for every rate, text and table alike (R3 MINOR 11: the column mixed decimals).
+  const dp = Math.max(...rates.published.map((s) => (s.split(".")[1] ?? "").length));
   const sysName = system === "gds" ? `GDS, ${rates.methodName} switching to straight line` : "straight line (ADS, or the GDS straight-line election)";
   const lines = [
     `MACRS ${sysName}, ${period}-year recovery period, ${CONV_NAME[conv]}: basis ${money(basis)}`,
-    `Recovered over ${rows.length} tax years: ${rows.map((x) => `${fx(x.rate, rates.published[0].split(".")[1]?.length ?? 2)}%`).join(", ")}`,
+    `Recovered over ${rows.length} tax years: ${rows.map((x) => `${fx(x.rate, dp)}%`).join(", ")}`,
     `Depreciation in year 1 = ${money(rows[0].depreciation)}; total = ${money(rows[rows.length - 1].accumulated)}`,
     rates.differ.length === 0
       ? `Method check: every rate in this column re-derives exactly from the method (${rates.methodName}${system === "gds" ? " switching to straight line" : ""}, ${conv === "hy" ? "half-year" : "mid-quarter"} first year, rounded as printed).`
@@ -517,24 +529,32 @@ export function macrsCalc(r: Read): FinResult {
       `is placed in service in the last three months of the tax year: check which applies (Pub 946, chapter 4).`,
     `Conventions: depreciation = unadjusted basis × the table rate for the recovery year (Pub 946’s table method); amounts are not rounded to whole dollars.`,
   ];
-  const dp = Math.max(...rates.published.map((s) => (s.split(".")[1] ?? "").length));
   const row = (x: MacrsRow): string[] => [count(x.year), `${fx(x.rate, dp)}%`, money(x.depreciation), money(x.accumulated), money(x.remaining)];
   const table: FinTable = {
     label: `MACRS schedule (Pub 946 Table ${rates.table}, ${period}-year)`,
-    rows: [["Recovery year", "Rate", "Depreciation", "Accumulated", "Remaining basis"], ...rows.map(row), ["Total", "100.00%", money(rows[rows.length - 1].accumulated), "", ""]],
+    rows: [["Recovery year", "Rate", "Depreciation", "Accumulated", "Remaining basis"], ...rows.map(row), ["Total", `${fx(rows.reduce((s, x) => s + x.rate, 0), dp)}%`, money(rows[rows.length - 1].accumulated), "", ""]],
     align: ["right", "right", "right", "right", "right"],
     note: `Rates from ${PUB946_SOURCE}, Table ${rates.table}. Not tax advice.`,
   };
   // The reading: the first-year deduction, the largest one, and the years the basis takes to recover (table strings).
-  const peak = rows.reduce((b, x) => (x.depreciation > b.depreciation ? x : b), rows[0]);
-  const peakYears = rows.filter((x) => money(x.depreciation) === money(peak.depreciation)).length;
+  // fix-fin R3 B1: the peak is the FIRST year whose PRINTED amount is the largest, and "a year" only for a run of
+  // consecutive years that print the same (a straight-line 6.5-year schedule alternates 15.39% and 15.38%).
+  const peakText = money(rows.reduce((b, x) => (x.depreciation > b.depreciation ? x : b), rows[0]).depreciation);
+  const peakRows = rows.filter((x) => money(x.depreciation) === peakText);
+  const first = peakRows[0];
+  const lastPeak = peakRows[peakRows.length - 1];
+  const contiguous = peakRows.length > 1 && lastPeak.year - first.year === peakRows.length - 1;
+  const peakClause =
+    first.year === rows[0].year && peakRows.length === 1
+      ? ""
+      : contiguous
+        ? ` and ${peakText} a year at its peak, in years ${first.year} to ${lastPeak.year}`
+        : peakRows.length > 1
+          ? ` and at most ${peakText} in a year, first in year ${first.year}`
+          : ` and the most, ${peakText}, in year ${first.year}`;
   const reading =
     `The table deducts ${money(rows[0].depreciation)} in the first tax year` +
-    (peak.year === rows[0].year
-      ? ""
-      : peakYears > 1
-        ? ` and ${money(peak.depreciation)} a year at its peak, from year ${peak.year}`
-        : ` and the most, ${money(peak.depreciation)}, in year ${peak.year}`) +
+    peakClause +
     `, recovering the whole ${money(basis)} basis over ${rows.length} tax years (${period}-year property).`;
   return {
     text: lines.join("\n"),
@@ -579,7 +599,7 @@ function recognitionLines(st: Statement): string[] {
 }
 
 function figText(f: Figure, unit: "times" | "%" | "days"): string {
-  if (!f.ok) return "not computed";
+  if (!f.ok) return f.why === NEGATIVE_EQUITY_WHY ? "not meaningful (negative equity)" : "not computed";
   return unit === "%" ? pct(f.value) : unit === "days" ? `${fx(f.value, 1)} days` : `${fx(f.value, 2)}×`;
 }
 
@@ -635,8 +655,8 @@ export function finRatiosCalc(r: Read): FinResult {
     label: "DuPont analysis of return on equity",
     rows: [
       ["Step", "Component", "Formula", "Value"],
-      ...dp.three.map((x) => ["3-step", x.label, x.formula, x.value.ok ? (x.label === "Net margin" ? pct(x.value.value) : fx(x.value.value, 4)) : "not computed"]),
-      ...dp.five.map((x) => ["5-step", x.label, x.formula, x.value.ok ? (x.label === "EBIT margin" ? pct(x.value.value) : fx(x.value.value, 4)) : "not computed"]),
+      ...dp.three.map((x) => ["3-step", x.label, x.formula, x.value.ok ? (x.label === "Net margin" ? pct(x.value.value) : fx(x.value.value, 4)) : figText(x.value, "times")]),
+      ...dp.five.map((x) => ["5-step", x.label, x.formula, x.value.ok ? (x.label === "EBIT margin" ? pct(x.value.value) : fx(x.value.value, 4)) : figText(x.value, "times")]),
       ["", "Return on equity", `net income ÷ ${opts.balances === "average" ? "average equity" : "equity"}`, figText(dp.roe, "%")],
     ],
     align: ["left", "left", "left", "right"],
@@ -659,7 +679,11 @@ export function ratiosReading(rows: RatioRow[], comparePrior = true): string {
   const cr = get("Current ratio");
   const de = get("Debt-to-equity");
   const parts: string[] = [];
-  if (roe) {
+  // R3 B3: negative equity is said first; the ratios over it are withheld.
+  const negEquity = rows.some((x) => x.name === "Return on equity" && !x.current.ok && x.current.why === NEGATIVE_EQUITY_WHY);
+  if (negEquity) {
+    parts.push(`Shareholders’ equity is negative, so return on equity and debt-to-equity are not meaningful${nm ? `; the net margin is ${figText(nm.current, "%")} of revenue` : ""}.`);
+  } else if (roe) {
     let s = `Return on equity is ${figText(roe.current, "%")}`;
     if (nm) s += ` on a net margin of ${figText(nm.current, "%")}`;
     // The prior year's ratios use year-end balances, so they compare like for like only with year-end balances.
@@ -689,6 +713,10 @@ export function commonSizeCalc(r: Read): FinResult {
   if (typeof st === "string") return finRefusal(st);
   const rev = st.items.get("revenue");
   const ta = st.items.get("totalAssets");
+  // R3 MINOR 10: negative total assets would flip the sign of every balance-sheet percentage.
+  if (ta && ((ta.current ?? 0) < 0 || (ta.prior ?? 0) < 0)) {
+    return finRefusal("Total assets is negative: a balance sheet's total assets cannot be below zero, so the balance-sheet percentages would have the wrong sign. Check the total assets line.");
+  }
   const lines = [`Common-size${st.hasPrior ? " and trend" : ""} statement from ${st.lines.length} lines`];
   const body: string[][] = [];
   const why: string[] = [];
@@ -809,7 +837,7 @@ export function altmanCalc(r: Read): FinResult {
         ? `between the ${fx(a.cutoffs[0], 2)} and ${fx(a.cutoffs[1], 2)} cut-offs, where the score does not clearly separate healthy from failing firms`
         : `below the ${fx(a.cutoffs[0], 2)} cut-off, the range where firms in Altman’s samples tended to fail`;
   const reading = `Z = ${fx(a.z, 4)} puts the company in the ${zoneName}, ${zoneMeaning}; it is a screening tool, not a forecast for this company.`;
-  return { text: lines.join("\n"), reading, tables: [table], svg: hBarSvg(a.x.map((x, i) => ({ name: `${x.name} ${short[i]}`, value: x.coef * x.value })), { title: `Contributions to Z = ${fx(a.z, 2)}`, unit: "" }) };
+  return { text: lines.join("\n"), reading, tables: [table], svg: hBarSvg(a.x.map((x, i) => ({ name: `${x.name} ${short[i]}`, value: x.coef * x.value })), { title: `Contributions to Z = ${fx(a.z, 4)}`, unit: "" }) };
 }
 
 export function cvpCalc(r: Read): FinResult {
@@ -833,7 +861,13 @@ export function cvpCalc(r: Read): FinResult {
     units > 0
       ? `Margin of safety = ${fx(c.marginOfSafetyUnits, 2)} units = ${money(c.marginOfSafetyRevenue)} = ${pct(c.marginOfSafetyPct)} of sales${c.marginOfSafetyUnits < 0 ? " (negative: sales are below break-even)" : ""}`
       : "Margin of safety: no sales entered.",
-    c.dol !== null ? `Degree of operating leverage = contribution ÷ operating income = ${fx(c.dol, 4)} (a 1% change in sales moves operating income ${fx(c.dol, 2)}%)` : "Degree of operating leverage: operating income is 0 (at break-even), so it has no value.",
+    c.dol !== null
+      ? `Degree of operating leverage = contribution ÷ operating income = ${fx(c.dol, 4)} ` +
+        // R3 MINOR 9: at a loss the leverage is negative; say what it means instead of "moves operating income −11.00%".
+        (c.dol < 0
+          ? `(at an operating loss: a 1% rise in sales shrinks the loss by ${fx(-c.dol, 2)}%)`
+          : `(a 1% change in sales moves operating income ${fx(c.dol, 2)}%)`)
+      : "Degree of operating leverage: operating income is 0 (at break-even), so it has no value.",
     ...(c.targetUnits !== null
       ? [
           c.targetUnits < 0
@@ -862,16 +896,20 @@ export function cvpCalc(r: Read): FinResult {
   const be = `Break-even is ${fx(c.breakEvenUnits, 2)} units (${money(c.breakEvenRevenue)} of revenue)`;
   const unitsTxt = fx(units, 2).replace(/\.00$/, "");
   const oi = money(c.operatingIncome);
-  // branch on the printed margin of safety, so a float residue at break-even reads as break-even
-  const mosTxt = fx(c.marginOfSafetyUnits, 2);
+  // fix-fin R3 M2: branch on the PRINTED operating income, which is what breaking even means ("exactly breaks even,
+  // operating income −0.02" branched on a margin of safety that printed 0.00 units at a high price).
+  const oiZero = !/[1-9]/.test(oi);
+  const shortTxt = fx(-c.marginOfSafetyUnits, 2);
   const reading =
     units <= 0
       ? `${be}; with no sales entered, the operating loss is the fixed costs of ${money(F)}.`
-      : mosTxt === "0.00"
-        ? `${be}; at ${unitsTxt} units the business exactly breaks even, with an operating income of ${oi}.`
-        : c.marginOfSafetyUnits > 0
-        ? `${be}; at ${unitsTxt} units the business earns ${oi} of operating income, and sales could fall ${pct(c.marginOfSafetyPct)} before it makes a loss.`
-        : `${be}; at ${unitsTxt} units the business is below break-even, with an operating result of ${oi}, and needs ${fx(-c.marginOfSafetyUnits, 2)} more units to cover its costs.`;
+      : oiZero
+        ? `${be}; at ${unitsTxt} units the business breaks even, with an operating income of ${oi}.`
+        : c.operatingIncome > 0
+          ? /[1-9]/.test(pct(c.marginOfSafetyPct))
+            ? `${be}; at ${unitsTxt} units the business earns ${oi} of operating income, and sales could fall ${pct(c.marginOfSafetyPct)} before it makes a loss.`
+            : `${be}; at ${unitsTxt} units the business earns ${oi} of operating income, only just above break-even: almost any fall in sales makes a loss.`
+          : `${be}; at ${unitsTxt} units the business is below break-even, with an operating result of ${oi}, and needs ${/[1-9]/.test(shortTxt) ? `${shortTxt} more units` : "a fraction of a unit more"} to cover its costs.`;
   return { text: lines.join("\n"), reading, svg: cvpChartSvg(inp, c), tables: [table] };
 }
 

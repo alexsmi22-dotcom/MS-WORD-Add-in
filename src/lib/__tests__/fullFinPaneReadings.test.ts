@@ -84,7 +84,7 @@ describe("time value & loans", () => {
   test("fv: defaults, the number check, and grows / shrinks / stays", () => {
     const r = ok(R.fvReading(1000, 5, 10));
     expect(r).toContain("grows to 1,628.89");
-    expect(numbersPrinted(r, [`FV = ${finMoney(futureValue(1000, 0.05, 10))}`], [finPct(0.05), finMoney(1000), "10"])).toEqual([]);
+    expect(numbersPrinted(r, [`FV = ${finMoney(futureValue(1000, 0.05, 10))}`], ["5%", finMoney(1000), "10"])).toEqual([]);
     expect(ok(R.fvReading(1000, -5, 10))).toContain("shrinks to");
     expect(ok(R.fvReading(1000, 0, 3))).toContain("stays at 1,000.00");
     expect(R.fvReading(1000, 5, 20)).not.toBe(r);
@@ -94,7 +94,7 @@ describe("time value & loans", () => {
   test("pv: positive, zero and negative rates", () => {
     const r = ok(R.pvReading(1000, 5, 10));
     expect(r).toContain("is worth 613.91 today");
-    expect(numbersPrinted(r, [`PV = ${finMoney(presentValue(1000, 0.05, 10))}`], [finMoney(1000), "10", finPct(0.05)])).toEqual([]);
+    expect(numbersPrinted(r, [`PV = ${finMoney(presentValue(1000, 0.05, 10))}`], [finMoney(1000), "10", "5%"])).toEqual([]);
     expect(ok(R.pvReading(1000, 0, 10))).toContain("worth the same");
     expect(ok(R.pvReading(1000, -3, 10))).toContain("negative rate");
     // A zero amount is not "no discounting".
@@ -105,7 +105,7 @@ describe("time value & loans", () => {
   test("compound: the frequency as typed", () => {
     const r = ok(R.compoundReading(1000, 5, 12, 10));
     expect(r).toContain("12×");
-    expect(numbersPrinted(r, [`Amount = ${finMoney(compoundInterest(1000, 0.05, 12, 10))}`], [finPct(0.05), "12", finMoney(1000), "10"])).toEqual([]);
+    expect(numbersPrinted(r, [`Amount = ${finMoney(compoundInterest(1000, 0.05, 12, 10))}`], ["5%", "12", finMoney(1000), "10"])).toEqual([]);
     expect(ok(R.compoundReading(1000, 5, 12.5, 1))).toContain("12.5×");
   });
 
@@ -113,7 +113,7 @@ describe("time value & loans", () => {
     const r = ok(R.loanReading(200000, 5, 30, 12));
     expect(r).toMatch(/^Each monthly payment of 1,073\.64/);
     const pay = loanPayment(200000, 0.05 / 12, 360);
-    expect(numbersPrinted(r, [`Payment = ${finMoney(pay)} per period`], [finMoney(200000), finPct(0.05), "30"])).toEqual([]);
+    expect(numbersPrinted(r, [`Payment = ${finMoney(pay)} per period`], [finMoney(200000), "5%", "30"])).toEqual([]);
     expect(ok(R.loanReading(200000, 0, 1, 1))).not.toContain("mostly interest");
     // Only when the first payment is more than half interest.
     expect(r).toContain("mostly interest");
@@ -133,33 +133,35 @@ describe("time value & loans", () => {
 
   test("ear: compounding gains, once a year, a negative rate (no 'interest earns interest')", () => {
     const r = ok(R.earReading(12, 12));
-    expect(numbersPrinted(r, [`Effective annual rate = ${finPct(effectiveAnnualRate(0.12, 12))}`], [finPct(0.12), "12"])).toEqual([]);
+    expect(numbersPrinted(r, [`Effective annual rate = ${finPct(effectiveAnnualRate(0.12, 12))}`], ["12%", "12"])).toEqual([]);
     expect(r).toContain("interest earns interest");
-    expect(ok(R.earReading(12, 1))).toContain("also 12.00% effective");
+    expect(ok(R.earReading(12, 1))).toContain("A 12% nominal rate compounded once a year is also 12.00% effective");
+    // fix-fin R1 #5: the nominal rate as typed, not rounded to 2 decimals.
+    expect(ok(R.earReading(6.875, 12))).toMatch(/^A 6\.875% nominal rate/);
     expect(ok(R.earReading(-12, 12))).not.toContain("interest earns interest");
-    expect(ok(R.earReading(8, 12))).toMatch(/^An 8\.00%/);
+    expect(ok(R.earReading(8, 12))).toMatch(/^An 8% /);
   });
 
   test("gann: the article follows the number", () => {
     const r = ok(R.gannReading(1000, 10, 5, 10));
-    expect(numbersPrinted(r, [`PV = ${finMoney(growingAnnuityPV(1000, 0.1, 0.05, 10))}`], [finMoney(1000), finPct(0.05), "10", finPct(0.1)])).toEqual([]);
-    expect(ok(R.gannReading(1000, 8, 5, 10))).toContain("at an 8.00% discount rate");
+    expect(numbersPrinted(r, [`PV = ${finMoney(growingAnnuityPV(1000, 0.1, 0.05, 10))}`], [finMoney(1000), "5%", "10", "10%"])).toEqual([]);
+    expect(ok(R.gannReading(1000, 8, 5, 10))).toContain("at an 8% discount rate");
   });
 
   test("annuity", () => {
     const r = ok(R.annuityReading(1000, 5, 20));
     const text = [`Present value   ${finMoney(annuityPV(1000, 0.05, 20))}`, `Future value    ${finMoney(annuityFV(1000, 0.05, 20))}`, `Total paid in   ${finMoney(20000)}`];
-    expect(numbersPrinted(r, text, ["20", finMoney(1000), finPct(0.05)])).toEqual([]);
+    expect(numbersPrinted(r, text, ["20", finMoney(1000), "5%"])).toEqual([]);
     expect(ok(R.annuityReading(1000, 5, 1))).toMatch(/^1 payment of 1,000\.00 .* is worth/);
   });
 
   test("perpetuity: growth, none, decline", () => {
     const r = ok(R.perpetuityReading(1000, 8, 3));
     const text = [`Level perpetuity     ${finMoney(perpetuity(1000, 0.08))}`, `Growing perpetuity   ${finMoney(growingPerpetuity(1000, 0.08, 0.03))}`, `r = g: at ${finPct(0.03)} growth against ${finPct(0.08)} discount`];
-    expect(numbersPrinted(r, text, [finMoney(1000)])).toEqual([]);
-    expect(r).toContain("an 8.00% discount rate");
+    expect(numbersPrinted(r, text, [finMoney(1000), "8%", "3%"])).toEqual([]);
+    expect(r).toContain("an 8% discount rate");
     expect(ok(R.perpetuityReading(1000, 8, 0))).toContain("with no growth");
-    expect(ok(R.perpetuityReading(1000, 8, -2))).toContain("−2.00%");
+    expect(ok(R.perpetuityReading(1000, 8, -2))).toContain("−2%");
   });
 
   test("rate-forms: continuous is the most any compounding gives, for a negative rate too", () => {
@@ -171,7 +173,7 @@ describe("time value & loans", () => {
       `Effective annual rate    ${finPct(eff)}  (from ${finPct(0.06)} nominal)`,
       `Nominal behind it        ${finPct(nominalAnnualRate(eff, 12))}  (round-trips back)`,
     ];
-    expect(numbersPrinted(r, text, [finMoney(10000), "10"])).toEqual([]);
+    expect(numbersPrinted(r, text, [finMoney(10000), "10", "6%"])).toEqual([]);
     expect(r).toContain("the most any compounding can give");
     // e^r ≥ (1 + r/m)^m for every r: continuous is the ceiling at −6% as well.
     expect(ok(R.rateFormsReading(10000, -6, 10, 12))).toContain("the most any compounding can give");
@@ -192,7 +194,7 @@ describe("capital budgeting & valuation", () => {
   const flows = [-1000, 500, 500, 500];
   test("npv: positive, negative, breaks even (on the printed 0.00)", () => {
     const r = ok(R.npvReading(10, flows));
-    expect(numbersPrinted(r, [`NPV = ${finMoney(npv(0.1, flows))}`], [finPct(0.1)])).toEqual([]);
+    expect(numbersPrinted(r, [`NPV = ${finMoney(npv(0.1, flows))}`], ["10%"])).toEqual([]);
     expect(r).toContain("adds value");
     expect(ok(R.npvReading(30, flows))).toContain("−91.94");
     expect(ok(R.npvReading(30, flows))).toContain("loses value");
@@ -236,7 +238,7 @@ describe("capital budgeting & valuation", () => {
 describe("derivatives", () => {
   test("bs: call, put, worthless, at expiry", () => {
     const r = ok(R.bsReading("call", 100, 100, 1, 5, 20, 0));
-    expect(numbersPrinted(r, [`Price = ${finMoney(blackScholes("call", 100, 100, 1, 0.05, 0.2, 0))}`], [finMoney(100), "1", finPct(0.2)])).toEqual([]);
+    expect(numbersPrinted(r, [`Price = ${finMoney(blackScholes("call", 100, 100, 1, 0.05, 0.2, 0))}`], [finMoney(100), "1", "20%"])).toEqual([]);
     expect(r).toContain("right to buy");
     expect(ok(R.bsReading("put", 100, 100, 1, 5, 20, 0))).toContain("right to sell");
     expect(ok(R.bsReading("call", 10, 100, 0.1, 5, 20, 0))).toContain("not expected to finish in the money");
@@ -261,16 +263,16 @@ describe("derivatives", () => {
 describe("fixed income", () => {
   test("bond: discount, par (on the printed price), premium", () => {
     const r = ok(R.bondReading(1000, 5, 6, 10, 2));
-    expect(numbersPrinted(r, [`Price = ${finMoney(bondPrice(1000, 0.05, 0.06, 10, 2))}`], [finMoney(1000), finPct(0.05), finPct(0.06)])).toEqual([]);
+    expect(numbersPrinted(r, [`Price = ${finMoney(bondPrice(1000, 0.05, 0.06, 10, 2))}`], [finMoney(1000), "5%", "6%"])).toEqual([]);
     expect(r).toContain("a discount");
     expect(ok(R.bondReading(1000, 5, 5, 10, 2))).toContain("(par)");
     expect(ok(R.bondReading(1000, 7, 5, 10, 2))).toContain("a premium");
-    expect(ok(R.bondReading(1000, 5, 8, 10, 2))).toContain("At an 8.00% yield");
+    expect(ok(R.bondReading(1000, 5, 8, 10, 2))).toContain("At an 8% yield");
   });
 
   test("ytm: below, at and above face", () => {
     const r = ok(R.ytmReading(950, 1000, 5, 10, 2));
-    expect(numbersPrinted(r, [`YTM = ${finPct(bondYTM(950, 1000, 0.05, 10, 2)!)}`], [finMoney(950), finMoney(1000), finPct(0.05)])).toEqual([]);
+    expect(numbersPrinted(r, [`YTM = ${finPct(bondYTM(950, 1000, 0.05, 10, 2)!)}`], [finMoney(950), finMoney(1000), "5%"])).toEqual([]);
     expect(r).toContain("yield is above");
     expect(ok(R.ytmReading(1000, 1000, 5, 10, 2))).toContain("matches");
     expect(ok(R.ytmReading(1100, 1000, 5, 10, 2))).toContain("yield is below");

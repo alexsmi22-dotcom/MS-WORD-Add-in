@@ -20,8 +20,12 @@ export interface XirrDates {
   note?: string;
 }
 
-/** Past this many dates the field is refused by name (XIRR is a root search over every flow). */
-export const XIRR_MAX_FLOWS = 10000;
+/**
+ * Past this many dates the field is refused by name (XIRR is a root search over every flow). Was 10,000, where a
+ * rate with no root took 4.1 s and froze Word (fix-fin R1 #2); at 500 a no-root search still took up to 390 ms under
+ * jest, so 250 (about half that).
+ */
+export const XIRR_MAX_FLOWS = 250;
 
 function wholeDate(s: string): number | { error: string } | null {
   const t = readDateToken(s, false);
@@ -41,7 +45,9 @@ export function readXirrDates(raw: string): XirrDates | { error: string } {
     if (parts.length > 1 && parts.every((p) => typeof wholeDate(p) === "number" || Number.isFinite(readFinanceField(p)))) pieces = parts;
   }
   if (!pieces.length) return { error: "Enter one date per cash flow (YYYY-MM-DD, M/D/YYYY or January 5, 2024)." };
-  if (pieces.length > XIRR_MAX_FLOWS) return { error: `More than ${XIRR_MAX_FLOWS.toLocaleString("en-US")} dates is outside this calculator.` };
+  if (pieces.length > XIRR_MAX_FLOWS) {
+    return { error: `The dates field holds more than ${XIRR_MAX_FLOWS.toLocaleString("en-US")} dates: XIRR searches over every flow, so this calculator takes at most ${XIRR_MAX_FLOWS.toLocaleString("en-US")}.` };
+  }
   let note: string | undefined;
   const first = pieces[0];
   if (wholeDate(first) === null && !Number.isFinite(readFinanceField(first))) {

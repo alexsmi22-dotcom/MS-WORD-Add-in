@@ -131,9 +131,21 @@ const IRR_FINE_UNTIL = 10;
 const IRR_FINE_STEP = 0.005;
 const IRR_COARSE_STEP = 0.05;
 
+/**
+ * NPV by Horner's rule (fix-fin R1 #2): one multiply-add per flow instead of a Math.pow, for the 4,000-step IRR scan.
+ * Measured on 1,000 all-positive flows: 589 ms with npv(), a few ms with this. Same value to rounding; npv() itself is
+ * unchanged because it prints.
+ */
+function npvHorner(rate: number, cashflows: number[]): number {
+  const d = 1 / (1 + rate);
+  let s = 0;
+  for (let t = cashflows.length - 1; t >= 0; t--) s = s * d + cashflows[t];
+  return s;
+}
+
 export function irr(cashflows: number[]): number | null {
   if (cashflows.length < 2) return null;
-  const f = (r: number): number => npv(r, cashflows);
+  const f = (r: number): number => npvHorner(r, cashflows);
   const start = IRR_SEARCH_MIN;
   const end = IRR_SEARCH_MAX;
   let prevR = start;
@@ -520,11 +532,20 @@ export function xirr(cashflows: number[], days: number[]): number | null {
  */
 export function bondYTM(price: number, face: number, couponRate: number, years: number, freq = 2): number | null {
   if (price <= 0) return null;
+  if (!(years > 0) || !(freq > 0)) return null;
   const exact = years * freq;
   if (!Number.isFinite(exact) || exact < 1 || exact > MAX_COUPON_PERIODS) return null;
   const periods = Math.round(exact);
-  const wholeYears = periods / freq;
-  return findRoot((y) => bondPrice(face, couponRate, y, wholeYears, freq) - price, -0.99, 2, 3000);
+  // CLOSED FORM inside the search (fix-fin R1 #2): bondPrice sums `periods` Math.pow terms, and the 3,000-step scan
+  // over it took 2.3 to 2.8 s at 12,000 periods. The annuity formula is the same price to rounding in O(1).
+  const coupon = (face * couponRate) / freq;
+  const priceAt = (ytm: number): number => {
+    const y = ytm / freq;
+    const disc = Math.pow(1 + y, -periods);
+    const annuity = y === 0 ? periods : (1 - disc) / y;
+    return coupon * annuity + face * disc;
+  };
+  return findRoot((y) => priceAt(y) - price, -0.99, 2, 3000);
 }
 
 export interface BondRisk {

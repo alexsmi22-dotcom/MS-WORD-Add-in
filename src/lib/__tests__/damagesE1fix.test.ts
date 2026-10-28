@@ -226,7 +226,8 @@ describe("5. large tables: debounce, 10,000-row cap, fast", () => {
 
   test("10,000 rows compute in well under a second, every calculator (after a warm-up)", () => {
     const N = 10000;
-    const tranches = Array.from({ length: N }, (_, i) => `${isoDay(civilDay(2004, 1, 1) + (i % 7300))}\t${1000 + (i % 997)}.25`).join("\n");
+    // Prejudgment takes at most 2,500 rows since fix-fin R2 #7.
+    const tranches = Array.from({ length: 2500 }, (_, i) => `${isoDay(civilDay(2004, 1, 1) + (i % 7300))}\t${1000 + (i % 997)}.25`).join("\n");
     const rates = "2000-01-01\t5\n2010-01-01\t3.5\n2020-06-30\t8.25";
     const periodText = (cols: (i: number) => string) => Array.from({ length: N }, (_, i) => `P${i}\t${cols(i)}`).join("\n");
     const runs: [string, () => boolean][] = [

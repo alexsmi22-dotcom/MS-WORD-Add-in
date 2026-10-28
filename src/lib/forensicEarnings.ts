@@ -88,6 +88,11 @@ export interface LpeRow {
   b: number;
   /** Age at the middle of the row. */
   ageMid: number;
+  /**
+   * The age the probabilities were read at: the middle of the part of the row with earnings (fix-fin R2 MINOR: a
+   * partial final row printed 66.72, the row's middle, while P(alive) and P(part.) were read at 66.61).
+   */
+  ageEarn: number;
   capacityCents: number;
   pAliveEarn: number;
   /** Share of the row with earnings (0 after the earnings end). */
@@ -191,6 +196,7 @@ export function lostEarningsLpe(o: LpeInput): LpeResult | Refusal {
         a,
         b,
         ageMid: ageInjury + mid,
+        ageEarn: eLen > 0 ? eAge : ageInjury + mid,
         capacityCents,
         pAliveEarn: pa,
         earnLen: eLen,

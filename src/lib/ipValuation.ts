@@ -969,11 +969,14 @@ export function mcNpvCalc(read: Read): FinResult {
   const pctF = (x: number): string => pctText(x);
   const amtF = (x: number): string => amount(x, cur);
   const yrF = (x: number): string => `${fixedText(x, 2)} years`;
+  const se = r.sd / Math.sqrt(samples);
+  // Every draw the same (fixed inputs): not an estimate, so the amounts keep the currency's minor units.
+  const ex = r.sd === 0;
   const lines = [
     "Monte Carlo patent NPV, computed from the inputs given",
-    `Mean NPV: ${amount(r.mean, cur)}; standard deviation ${amount(r.sd, cur)}`,
-    `P10 ${amount(r.p10, cur)}; P50 ${amount(r.p50, cur)}; P90 ${amount(r.p90, cur)}`,
-    `Probability NPV < 0: ${fixedText(r.probNeg * 100, 2)}% (${r.negCount.toLocaleString("en-US")} of ${samples.toLocaleString("en-US")} draws)`,
+    `Mean NPV: ${mcAmount(r.mean, cur, ex)} (simulation standard error ${mcAmount(se, cur, ex)}); standard deviation ${mcAmount(r.sd, cur, ex)}`,
+    `P10 ${mcAmount(r.p10, cur, ex)}; P50 ${mcAmount(r.p50, cur, ex)}; P90 ${mcAmount(r.p90, cur, ex)}`,
+    `Probability NPV < 0: ${mcProb(r.probNeg)} (${r.negCount.toLocaleString("en-US")} of ${samples.toLocaleString("en-US")} draws)`,
     `NPV at the central inputs (mode, median or fixed value): ${amount(r.central, cur)}`,
     `Inputs: first-year revenue ${distText(revenue, amtF)}, growing ${pctText(growthPct)} a year; royalty rate ${distText(royaltyPct, pctF)}; remaining life ${distText(life, yrF)}; discount rate ${distText(discountPct, pctF)}; tax rate ${pctText(taxPct)}; price paid today ${amount(cost, cur)}.`,
     `NPV = Σₖ R₁ × (1 + g)ᵏ⁻¹ × w × s × royalty rate × (1 − t) × discount factor − price paid; seed ${seed}, ${samples.toLocaleString("en-US")} samples.`,
@@ -988,12 +991,13 @@ export function mcNpvCalc(read: Read): FinResult {
   );
   const stats: string[][] = [
     ["Statistic", head("NPV", cur)],
-    ["Mean", cell(r.mean, cur)],
-    ["Standard deviation", cell(r.sd, cur)],
-    ["P10", cell(r.p10, cur)],
-    ["P50 (median)", cell(r.p50, cur)],
-    ["P90", cell(r.p90, cur)],
-    ["Probability NPV < 0", `${fixedText(r.probNeg * 100, 2)}%`],
+    ["Mean", mcCell(r.mean, cur, ex)],
+    ["Simulation standard error of the mean", mcCell(se, cur, ex)],
+    ["Standard deviation", mcCell(r.sd, cur, ex)],
+    ["P10", mcCell(r.p10, cur, ex)],
+    ["P50 (median)", mcCell(r.p50, cur, ex)],
+    ["P90", mcCell(r.p90, cur, ex)],
+    ["Probability NPV < 0", mcProb(r.probNeg)],
     ["NPV at central inputs", cell(r.central, cur)],
   ];
   return {
@@ -1004,6 +1008,30 @@ export function mcNpvCalc(read: Read): FinResult {
   };
 }
 
+/**
+ * A simulated amount to 3 significant figures (fix-fin R2 #9: the mean, P10 and P90 printed to the cent carried
+ * precision the simulation does not have), never more decimals than the currency's minor unit. A spread of exactly
+ * zero (every draw the same) is not a simulation estimate and keeps the minor units.
+ */
+function mcDigits(x: number, minor: number): { v: number; dp: number } {
+  if (!Number.isFinite(x) || x === 0) return { v: x, dp: minor };
+  const mag = Math.floor(Math.log10(Math.abs(x)));
+  const dp = Math.max(0, Math.min(minor, 2 - mag));
+  const step = Math.pow(10, mag - 2);
+  return { v: Math.round(x / step) * step, dp };
+}
+export function mcCell(x: number, cur: Currency, exact = false): string {
+  if (exact) return cell(x, cur);
+  const d = mcDigits(x, cur.minor);
+  return fixedText(d.v, d.dp);
+}
+export function mcAmount(x: number, cur: Currency, exact = false): string {
+  const s = mcCell(x, cur, exact);
+  return cur.code ? currencyAmount(s, cur.code) : s;
+}
+/** A simulated probability to 0.1 percentage point. */
+const mcProb = (p: number): string => `${fixedText(p * 100, 1)}%`;
+
 /** The plain-language reading of the Monte Carlo NPV (lib/calcReading.ts rules). */
 export function mcNpvReading(r: McNpvResult, cur: Currency, samples: number): string {
   const n = samples.toLocaleString("en-US");
@@ -1012,9 +1040,10 @@ export function mcNpvReading(r: McNpvResult, cur: Currency, samples: number): st
       ? `none of the ${n} simulated outcomes loses money`
       : r.negCount === samples
         ? `every one of the ${n} simulated outcomes loses money`
-        : `${r.negCount.toLocaleString("en-US")} of the ${n} simulated outcomes (${fixedText(r.probNeg * 100, 2)}%) lose${r.negCount === 1 ? "s" : ""} money`;
-  const p10 = amount(r.p10, cur);
-  const p90 = amount(r.p90, cur);
-  const spread = p10 === p90 ? `every simulated outcome is about ${p10}` : `the middle of the outcomes runs from ${p10} at P10 to ${p90} at P90`;
-  return `After the price paid, the patent's NPV averages about ${amount(r.mean, cur)}, and ${spread}. On these input ranges ${loss}.`;
+        : `${r.negCount.toLocaleString("en-US")} of the ${n} simulated outcomes (about ${mcProb(r.probNeg)}) lose${r.negCount === 1 ? "s" : ""} money`;
+  const ex = r.sd === 0;
+  const p10 = mcAmount(r.p10, cur, ex);
+  const p90 = mcAmount(r.p90, cur, ex);
+  const spread = p10 === p90 ? `every simulated outcome is about ${p10}` : `the middle of the outcomes runs from about ${p10} at P10 to ${p90} at P90`;
+  return `After the price paid, the patent's NPV averages about ${mcAmount(r.mean, cur, ex)}, and ${spread}. On these input ranges ${loss}.`;
 }

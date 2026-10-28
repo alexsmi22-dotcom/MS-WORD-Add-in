@@ -15,6 +15,7 @@
 import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
 import { finRefusal as finRefusalRaw } from "./finCalc";
 import { readFinanceField } from "./finance";
+import { aAn } from "./finPaneReadings";
 import { finPlotSvg } from "./financeFigures";
 import { cipParitySvg, uipPathSvg, pppPathSvg, pppBasketSvg } from "./finLibFigures";
 import type { Point, Series } from "./plot";
@@ -78,7 +79,15 @@ function readCode(r: Read, key: string, label: string): string | null | { error:
   return t;
 }
 /** An amount: grouped with `dp` decimals, with the currency when a code is given. */
-const amt = (x: number, code: string | null, dp = 2): string => (code ? currencyAmount(fx(x, dp), code) : fx(x, dp));
+/**
+ * An amount in a currency at that currency's ISO 4217 minor units (fix-fin R2 #12: "JP¥163,138.13" printed sen that
+ * the yen does not have). Without a code, or for a code with no minor unit listed, the `dp` given.
+ */
+const amt = (x: number, code: string | null, dp = 2): string => {
+  if (!code) return fx(x, dp);
+  const minor = ISO4217.get(code)?.minor;
+  return currencyAmount(fx(x, typeof minor === "number" ? minor : dp), code);
+};
 
 // ------------------------------------------------------------------------------------------------------------------
 // cba-scenarios
@@ -189,7 +198,7 @@ export function cbaScenariosCalc(r: Read): FinResult {
   const base = baseRaw ?? years[0];
   if (base > years[0]) return finRefusal(`The base year ${base} is after the first year in the table (${years[0]}): flows before the base year are not discounted forward here.`);
   const T = years[years.length - 1] - base;
-  if (T > CBA_MAX_YEARS) return finRefusal(`The table spans ${T} years from the base year; the most is ${CBA_MAX_YEARS}.`);
+  if (T > CBA_MAX_YEARS) return finRefusal(`The table spans ${T.toLocaleString("en-US")} years from the base year; the most is ${CBA_MAX_YEARS}.`);
   // conversion factors
   let factors: number[] = Array(2 * S).fill(1);
   let factorNote = "";
@@ -285,15 +294,24 @@ export function cbaScenariosReading(names: string[], ms: CbaMeasures[], rateText
     const npv = npvS === "0.00" ? 0 : m.npv;
     const bcr = m.bcr === null ? "" : ` (benefit–cost ratio ${fx(m.bcr, 3)})`;
     const test = npv > 0 ? "passes" : npv < 0 ? "fails" : "just breaks even on";
-    return `At a ${rateText} discount rate the net present value is ${npvS}: ${verdict(npv)}${bcr}, so on these numbers the project ${test} the cost–benefit test.`;
+    return `At ${aAn(rateText)} ${rateText} discount rate the net present value is ${npvS}: ${verdict(npv)}${bcr}, so on these numbers the project ${test} the cost–benefit test.`;
   }
   const order = ms.map((_, k) => k).sort((a, b) => ms[b].npv - ms[a].npv);
   const best = order[0];
   const worst = order[order.length - 1];
-  const pass = ms.filter((m) => m.npv > 0).length;
-  const count = pass === 0 ? `none of the ${ms.length} scenarios passes` : pass === ms.length ? `all ${ms.length} scenarios pass` : `${pass} of ${ms.length} scenarios ${pass === 1 ? "passes" : "pass"}`;
+  // fix-fin R3 M2: passing is decided on the printed NPV ("all 2 pass … NPV 0.00" read a 0.00 as a pass).
+  const printedPositive = (x: number): boolean => x > 0 && /[1-9]/.test(fx(x, 2));
+  const pass = ms.filter((m) => printedPositive(m.npv)).length;
+  const n = ms.length;
+  // R3 MINOR 1: "both", not "all 2 scenarios".
+  const count =
+    pass === 0
+      ? n === 2 ? "neither scenario passes" : `none of the ${n} scenarios passes`
+      : pass === n
+        ? n === 2 ? "both scenarios pass" : `all ${n} scenarios pass`
+        : `${pass} of ${n} scenarios ${pass === 1 ? "passes" : "pass"}`;
   return (
-    `At a ${rateText} discount rate ${count} the cost–benefit test (net present value above zero). ` +
+    `At ${aAn(rateText)} ${rateText} discount rate ${count} the cost–benefit test (net present value above zero). ` +
     (fx(ms[best].npv, 2) === fx(ms[worst].npv, 2)
       ? `Every scenario has the same NPV, ${fx(ms[best].npv, 2)}.`
       : `${names[best]} does best with an NPV of ${fx(ms[best].npv, 2)} and ${names[worst]} worst at ${fx(ms[worst].npv, 2)}.`)
@@ -346,6 +364,16 @@ export function pigou(a: number, b: number, c: number, d: number, e0: number, e1
   return { qm, pm: a - b * qm, qs, ps, tax, revenue: tax * qs, dwl, extM: ext(qm), extS: ext(qs), corner };
 }
 
+/**
+ * The market is already efficient AS PRINTED (fix-fin R3 M2): the two quantities print the same to 4 decimals.
+ * Decided once, so the text, table, reading and legend agree ("over-produces (60.0000 vs 60.0000) … tax 0.0000" read
+ * a float difference as over-production).
+ */
+export function pigouEfficient(res: PigouResult): boolean {
+  if (res.corner) return false;
+  return fx(res.qm, 4) === fx(res.qs, 4);
+}
+
 /** Demand, MPC and MSC with the market and optimal points and the deadweight-loss triangle outlined. */
 export function pigouSvg(a: number, b: number, c: number, d: number, e0: number, e1: number, res: PigouResult): string {
   const hi = Math.max(res.qm, res.qs) * 1.4 || 1;
@@ -355,12 +383,17 @@ export function pigouSvg(a: number, b: number, c: number, d: number, e0: number,
     { type: "line", points: line(a, -b), color: "#0369a1", label: "demand" },
     { type: "line", points: line(c, d), color: "#b45309", label: "marginal private cost" },
     { type: "line", points: line(c + e0, d + e1), color: "#b91c1c", label: "marginal social cost" },
-    {
-      type: "line",
-      points: [{ x: res.qs, y: a - b * res.qs }, { x: res.qs, y: mscAt(res.qs) }, { x: res.qm, y: mscAt(res.qm) }, { x: res.qm, y: res.pm }, { x: res.qs, y: a - b * res.qs }],
-      color: "#6b7280",
-      label: "deadweight loss",
-    },
+    // fix-fin R3 MINOR 8: no "deadweight loss" legend entry when the printed loss is none.
+    ...(pigouEfficient(res)
+      ? []
+      : [
+          {
+            type: "line" as const,
+            points: [{ x: res.qs, y: a - b * res.qs }, { x: res.qs, y: mscAt(res.qs) }, { x: res.qm, y: mscAt(res.qm) }, { x: res.qm, y: res.pm }, { x: res.qs, y: a - b * res.qs }],
+            color: "#6b7280",
+            label: "deadweight loss",
+          },
+        ]),
     { type: "scatter", points: [{ x: res.qm, y: res.pm }], color: "#111827", label: "market outcome" },
     { type: "scatter", points: [{ x: res.qs, y: res.ps }], color: "#15803d", label: "social optimum" },
   ];
@@ -384,7 +417,8 @@ export function pigouCalc(r: Read): FinResult {
   const [a, b, c, d, e0, e1] = v;
   const res = pigou(a, b, c, d, e0, e1);
   if ("error" in res) return finRefusal(res.error);
-  const neg = res.qm > res.qs;
+  const efficient = pigouEfficient(res);
+  const neg = !efficient && res.qm > res.qs;
   const lines: string[] = [];
   lines.push(`Demand (marginal benefit) P = ${fx(a, 2)} − ${fx(b, 4)}Q; marginal private cost MPC = ${fx(c, 2)} + ${fx(d, 4)}Q; marginal external cost MEC = ${fx(e0, 2)} ${e1 < 0 ? "−" : "+"} ${fx(Math.abs(e1), 4)}Q; marginal social cost MSC = MPC + MEC.`);
   lines.push(`Unregulated market (demand = MPC): Q = ${fx(res.qm, 4)}, price ${fx(res.pm, 4)}; external cost ${fx(res.extM, 2)}.`);
@@ -398,7 +432,7 @@ export function pigouCalc(r: Read): FinResult {
         : `The externality is a benefit: the Pigouvian instrument is a subsidy of ${fx(-res.tax, 4)} per unit (MEC at the optimum is negative), costing ${fx(-res.revenue, 2)}.`,
     );
   }
-  lines.push(`Deadweight loss of the unregulated market: ${fx(res.dwl, 2)} (${neg ? "over-production" : res.qm < res.qs ? "under-production" : "none: the market is already efficient"}).`);
+  lines.push(`Deadweight loss of the unregulated market: ${fx(res.dwl, 2)} (${neg ? "over-production" : !efficient && res.qm < res.qs ? "under-production" : "none: the market is already efficient"}).`);
   lines.push(
     "Conventions: straight-line demand, marginal private cost and marginal external cost; competitive market; a per-unit tax equal to the marginal external cost AT THE SOCIAL OPTIMUM (with a sloped MEC this differs from the marginal external cost at the market output). Deadweight loss is the area between MSC and demand from the optimal to the market output. Amounts are in the units typed.",
   );
@@ -410,8 +444,9 @@ export function pigouCalc(r: Read): FinResult {
       ["Buyers' price", fx(res.pm, 4), fx(res.ps, 4)],
       ["Marginal external cost", fx(e0 + e1 * res.qm, 4), fx(e0 + e1 * res.qs, 4)],
       ["Total external cost", fx(res.extM, 2), fx(res.extS, 2)],
-      ["Tax per unit", "0", fx(res.tax, 4)],
-      ["Deadweight loss", fx(res.dwl, 2), "0"],
+      // R3 MINOR 8: the zero cells at the column's own precision.
+      ["Tax per unit", fx(0, 4), fx(res.tax, 4)],
+      ["Deadweight loss", fx(res.dwl, 2), fx(0, 2)],
     ],
     align: ["left", "right", "right"],
   };
@@ -426,7 +461,10 @@ export function pigouReading(res: PigouResult): string {
   if (res.corner) {
     return `The efficient output is zero: every unit costs society more than it is worth, so a tax of at least ${fx(res.tax, 4)} per unit (or a ban) is efficient; left alone the market produces ${qm} units and wastes ${dwl}.`;
   }
-  // The same comparison the text's deadweight-loss line makes.
+  // The same comparison the text's deadweight-loss line makes, on the printed quantities (R3 M2).
+  if (pigouEfficient(res)) {
+    return `The unregulated market already produces the efficient ${qm} units: there is no deadweight loss and no corrective tax is needed.`;
+  }
   if (res.qm > res.qs) {
     return `Left unregulated, the market over-produces (${qm} units against the efficient ${qs}) and wastes ${dwl} in deadweight loss; a tax of ${fx(res.tax, 4)} per unit, the external cost at the efficient output, corrects it.`;
   }
@@ -487,7 +525,7 @@ export function cipCalc(r: Read): FinResult {
   if (!(res.growD > 0) || !(res.growF > 0)) return finRefusal("A rate this negative makes 1 + i·τ zero or negative over the tenor.");
   const pair = base && quote ? `${base}/${quote}: ${quote} per ${base}` : base ? `${base} against the domestic currency` : quote ? `foreign currency against ${quote}` : "domestic per unit of foreign currency";
   const lines: string[] = [];
-  lines.push(`Spot S = ${fx(S, 6)} (${pair}); domestic rate ${fx(id, 4)}%, foreign rate ${fx(iff, 4)}%; tenor ${days} day${days === 1 ? "" : "s"}.`);
+  lines.push(`Spot S = ${fx(S, 6)} (${pair}); domestic rate ${fx(id, 4)}%, foreign rate ${fx(iff, 4)}%; tenor ${days.toLocaleString("en-US")} day${days === 1 ? "" : "s"}.`);
   lines.push(`Forward by covered interest parity: F = ${fx(res.F, 6)}; forward points F − S = ${fx(res.F - S, 6)}; forward premium of the foreign currency F/S − 1 = ${pct(res.F / S - 1, 4)} over the tenor.`);
   const tag = comp === "simple" ? `F = S·(1 + i·d/${bd})/(1 + i*·d/${bf})` : `F = S·exp(i·d/${bd} − i*·d/${bf})`;
   if (fq !== null) {
@@ -496,7 +534,7 @@ export function cipCalc(r: Read): FinResult {
     const edge = (fq / S) * res.growF - res.growD;
     const profit = Math.abs(edge) * notional;
     lines.push(`Quoted forward ${fx(fq, 6)} against the parity forward ${fx(res.F, 6)}: deviation ${fx(fq - res.F, 6)} (${fx(((fq - res.F) / res.F) * 10000, 2)} basis points of the forward).`);
-    if (Math.abs(edge) < 1e-12) lines.push("Covered interest parity holds at the quoted forward: there is no covered arbitrage.");
+    if (cipHoldsAsPrinted(fq, res.F, edge)) lines.push("Covered interest parity holds at the quoted forward (to the 6 decimals shown): there is no covered arbitrage.");
     else if (edge > 0)
       lines.push(
         `Covered arbitrage: the foreign currency is dear forward. Borrow ${amt(notional, quote)} domestic at ${fx(id, 4)}%, buy ${amt(notional / S, base)} foreign at spot, deposit it at ${fx(iff, 4)}%, and sell the ${amt((notional / S) * res.growF, base)} proceeds forward at ${fx(fq, 6)}: at maturity this returns ${amt(notional * (fq / S) * res.growF, quote)} against a loan repayment of ${amt(notional * res.growD, quote)}, a riskless profit of ${amt(profit, quote)}.`,
@@ -529,6 +567,14 @@ export function cipCalc(r: Read): FinResult {
 }
 
 /**
+ * Covered interest parity holds AS PRINTED (fix-fin R2 #11): the quoted and parity forwards print the same to 6
+ * decimals (or the edge is float noise). A quote equal to parity as printed used to report an arbitrage.
+ */
+export function cipHoldsAsPrinted(fq: number, F: number, edge: number): boolean {
+  return Math.abs(edge) < 1e-12 || fx(fq, 6) === fx(F, 6);
+}
+
+/**
  * The plain-language reading of covered interest parity: the parity forward against spot, or the quoted forward
  * against parity and the covered arbitrage it opens (the same `edge` the text branches on).
  */
@@ -541,15 +587,17 @@ export function cipReading(S: number, res: CipResult, days: number, fq: number |
         : res.F < S
           ? `below the spot ${fx(S, 6)} because a foreign deposit earns more than a domestic one over the tenor`
           : `equal to the spot because the two deposits earn the same over the tenor`;
-    return `The ${days}-day forward rate that leaves no riskless arbitrage is ${F}, ${side}.`;
+    return `The ${days.toLocaleString("en-US")}-day forward rate that leaves no riskless arbitrage is ${F}, ${side}.`;
   }
   const edge = (fq / S) * res.growF - res.growD;
+  if (cipHoldsAsPrinted(fq, res.F, edge)) {
+    return `The quoted forward ${fx(fq, 6)} matches the parity forward ${F} to the 6 decimals shown: covered interest parity holds and there is no riskless arbitrage.`;
+  }
   const bpS = fx(Math.abs(((fq - res.F) / res.F) * 10000), 2);
   // A deviation that prints as 0.00 basis points is described, not printed as zero beside a nonzero profit.
   const bp = bpS === "0.00" ? "a fraction of a basis point" : `${bpS} basis points`;
   const profit = amt(Math.abs(edge) * notional, quote);
   const per = amt(notional, quote);
-  if (Math.abs(edge) < 1e-12) return `The quoted forward ${fx(fq, 6)} matches the parity forward ${F}: covered interest parity holds and there is no riskless arbitrage.`;
   return edge > 0
     ? `The quoted forward ${fx(fq, 6)} is ${bp} above parity (${F}), so borrowing domestic, converting and selling forward locks in about ${profit} per ${per} borrowed, before trading costs.`
     : `The quoted forward ${fx(fq, 6)} is ${bp} below parity (${F}), so borrowing foreign, converting and buying forward locks in about ${profit} per ${per} of domestic currency, before trading costs.`;
@@ -584,7 +632,17 @@ export function uipCalc(r: Read): FinResult {
   lines.push(`Expected spot at the horizon E[S(T)] = S·((1 + i)/(1 + i*)) to the power T = ${fx(eS, 6)}; under UIP this equals the forward rate for the same date (annual compounding).`);
   if (sT !== null) {
     const excess = (sT / S) * Math.pow(gf, T) / Math.pow(gd, T) - 1;
-    lines.push(`Realized spot ${fx(sT, 6)} against the UIP expectation ${fx(eS, 6)} (${pct(sT / eS - 1, 4)}): a foreign deposit funded in domestic currency earned an excess return of ${pct(excess, 4)} over the horizon${excess > 0 ? " (the carry trade paid: UIP failed in its favor)" : excess < 0 ? " (UIP failed against it)" : " (UIP held exactly)"}.`);
+    // fix-fin R2 #1: "the carry trade" is borrowing the low-rate currency to deposit the high-rate one, so it is named
+    // only when the foreign rate is the higher; the sign is read on the printed excess return.
+    const evenAsPrinted = pct(Math.abs(excess), 4) === "0.0000%";
+    const why = evenAsPrinted
+      ? " (UIP held to the precision shown)"
+      : excess > 0
+        ? gf > gd
+          ? " (the carry trade paid: UIP failed in its favor)"
+          : " (UIP failed in favor of the foreign deposit)"
+        : " (UIP failed against it)";
+    lines.push(`Realized spot ${fx(sT, 6)} against the UIP expectation ${fx(eS, 6)} (${pct(sT / eS - 1, 4)}): a foreign deposit funded in domestic currency earned an excess return of ${pct(excess, 4)} over the horizon${why}.`);
   }
   lines.push(
     "Conventions: i is the domestic and i* the foreign interest rate; annual compounding at the quoted yearly rates; S quoted as domestic per unit of foreign currency; risk neutrality and rational expectations (UIP), which the data often reject (the forward-premium puzzle). The expectation is a parity benchmark, not a forecast.",
@@ -621,7 +679,7 @@ export function uipReading(S: number, gd: number, gf: number, T: number, sT: num
     pct(Math.abs(excess), 4) === "0.0000%"
       ? `At the realized ${fx(sT, 6)}, a foreign deposit funded at home came out even with a domestic one.`
       : excess > 0
-        ? `At the realized ${fx(sT, 6)}, a foreign deposit funded at home came out ${pct(excess, 4)} ahead (the carry trade paid).`
+        ? `At the realized ${fx(sT, 6)}, a foreign deposit funded at home came out ${pct(excess, 4)} ahead${gf > gd ? " (the carry trade paid)" : ""}.`
         : `At the realized ${fx(sT, 6)}, a foreign deposit funded at home came out ${pct(-excess, 4)} behind.`;
   return `${first}. ${second}`;
 }

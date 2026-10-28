@@ -12,6 +12,7 @@ import { finRefusal as finRefusalRaw } from "./finCalc";
 /** A refusal starts with a capital (a lower-case first word raised; a symbol such as "q" or "σ" is left alone). */
 const finRefusal = (s: string): FinResult => finRefusalRaw(/^[a-z][a-z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s);
 import { readFinanceField } from "./finance";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import { currentFinFig, finPlotSvg } from "./financeFigures";
 import type { Point, Series } from "./plot";
 import { readDataBlock } from "./dataBlock";
@@ -72,7 +73,6 @@ const READING_LIMIT = 320;
 /** The first candidate that fits the reading limit (the last one is the short, always-fitting form). */
 const fitReading = (...cands: string[]): string => cands.find((c) => c.length <= READING_LIMIT) ?? cands[cands.length - 1];
 /** A p-value as the text prints it, judged significant at 5% on the printed value (p = 0.0500 is not below 5%). */
-const sig5 = (p: number): boolean => p < 0.0001 || Number(fx(p, 4)) < 0.05;
 /** Sign of a value as printed: a figure that prints as zero is zero. */
 const printedSign = (s: string): -1 | 0 | 1 => (/^0(?:\.0*)?%?$/.test(s) ? 0 : s.startsWith("−") ? -1 : 1);
 
@@ -436,9 +436,14 @@ export function capmReading(names: string[], beta: string, betaLo: number, betaH
             ? "so it swings more than the market"
             : "so it swings less than the market";
   const pT = pText(alphaP);
-  const tail = sig5(alphaP)
-    ? `Its annualized alpha of ${alphaAnn} is ${printedSign(alphaAnn) < 0 ? "a shortfall against" : "a return beyond"} what that market risk explains, unlikely to be chance (${pT}).`
-    : `Its annualized alpha of ${alphaAnn} could be chance (${pT}): no clear evidence of a nonzero alpha.`;
+  // fix-fin (R3, p ≈ .05): the shared rule on the printed p; exactly 0.0500 as printed is borderline.
+  const verdict = pVerdict(pT);
+  const tail =
+    verdict === "clear"
+      ? `Its annualized alpha of ${alphaAnn} is ${printedSign(alphaAnn) < 0 ? "a shortfall against" : "a return beyond"} what that market risk explains, unlikely to be chance (${pT}).`
+      : verdict === "borderline"
+        ? `Its annualized alpha of ${alphaAnn} has ${pT}, ${BOUNDARY_CLAUSE}.`
+        : `Its annualized alpha of ${alphaAnn} could be chance (${pT}): no clear evidence of a nonzero alpha.`;
   const head = (a: string, m: string): string => `${a} has a beta of about ${beta} against ${m} (R² = ${r2}), ${swing}.`;
   return fitReading(`${head(names[0], names[1])} ${tail}`, `${head("The asset", "the market")} ${tail}`);
 }
@@ -458,7 +463,12 @@ export function perfReading(geo: string, vol: string, sharpe: string | null, max
 }
 
 /** Value at risk in plain words, on the historical method (the one that assumes no distribution). */
-export function varReading(hTxt: string, var_: string, varAmt: string, cvar: string, cvarAmt: string, value: string, tail: string, overWhole: boolean): string {
+export function varReading(hTxt: string, var_: string, varAmt: string, cvar: string, cvarAmt: string, value: string, tail: string, overWhole: boolean, thin?: string): string {
+  // fix-fin R3 M4: too few returns for the tail (the text says "more data is needed"); the reading says so too and does
+  // not state the frequency flatly. `thin` is the count as the text prints it ("52 returns").
+  if (thin !== undefined && printedSign(var_) > 0 && !overWhole) {
+    return `Based on only ${thin}, a loss over ${hTxt} would exceed roughly ${var_} (${varAmt}) of the ${value} portfolio about ${tail} of the time, but there are too few returns to estimate a tail that far out reliably.`;
+  }
   if (printedSign(var_) <= 0)
     return `Based on past returns, even the cutoff for the worst ${tail} of outcomes over ${hTxt} is not a loss (historical VaR ${var_} of the ${value} portfolio), so these data show no loss at that confidence.`;
   if (overWhole)
@@ -551,7 +561,8 @@ export function varCalc(r: Read): FinResult {
   const v = valueAtRisk({ r: rets, conf, horizon: h, nu, sims, seed });
   if ("error" in v) return finRefusal(v.error);
   if (!(v.sd > 0)) return finRefusal("Returns (%): every return is the same, so the volatility is zero and the parametric and Monte Carlo VaR are not informative. Paste a varying series.");
-  const hTxt = h === 1 ? "one period" : `${h} periods`;
+  // R3 MINOR 3: grouped ("1,000 periods").
+  const hTxt = h === 1 ? "one period" : `${h.toLocaleString("en-US")} periods`;
   const lines = [
     `Value at risk at ${fx(conf, 2)}% confidence over ${hTxt}, from ${plural(rets.length, "return")} (mean ${pct(v.mu, 4)}, standard deviation ${pct(v.sd, 4)} per period), on a portfolio of ${fx(value, 2)}`,
     ...v.lines.map((l) => `${METHOD_NAME[l.method]}: VaR ${pct(l.var, 3)} (${fx(l.var * value, 2)}); CVaR (expected shortfall) ${pct(l.cvar, 3)} (${fx(l.cvar * value, 2)})`),
@@ -569,7 +580,7 @@ export function varCalc(r: Read): FinResult {
       `Monte Carlo: ${sims.toLocaleString("en-US")} normal draws from PCG32 (stream 54) seeded with ${seed}, Box–Muller √(−2 ln u₁) cos(2πu₂), uᵢ = (r + 0.5)/2³², then the historical rule; ` +
       (h === 1
         ? "one period, no time scaling; "
-        : `horizon ${h} periods: the normal, t and Monte Carlo methods use mean × ${h} and σ × √${h}; the historical VaR and CVaR are the one-period values × √${h} (square-root-of-time, i.i.d. returns assumed); `) +
+        : `horizon ${hTxt}: the normal, t and Monte Carlo methods use mean × ${h.toLocaleString("en-US")} and σ × √${h.toLocaleString("en-US")}; the historical VaR and CVaR are the one-period values × √${h.toLocaleString("en-US")} (square-root-of-time, i.i.d. returns assumed); `) +
       `μ and σ are the sample mean and sample standard deviation (n − 1)${kind === "prices" ? `; ${PRICE_CONVENTION}` : ""}.`,
   ];
   const table: FinTable = {
@@ -579,7 +590,7 @@ export function varCalc(r: Read): FinResult {
     note: `${fx(conf, 2)}% confidence, ${hTxt}; losses positive.`,
   };
   const hist = v.lines.find((l) => l.method === "historical")!;
-  const reading = varReading(hTxt, pct(hist.var, 3), fx(hist.var * value, 2), pct(hist.cvar, 3), fx(hist.cvar * value, 2), fx(value, 2), fx(v.alpha * 100, 2) + "%", hist.var > 1);
+  const reading = varReading(hTxt, pct(hist.var, 3), fx(hist.var * value, 2), pct(hist.cvar, 3), fx(hist.cvar * value, 2), fx(value, 2), fx(v.alpha * 100, 2) + "%", hist.var > 1, (rets.length - 1) * v.alpha < 1 ? plural(rets.length, "return") : undefined);
   return finish({ text: lines.join("\n"), reading, svg: varHistogramSvg(rets, v.lines), tables: [table] });
 }
 
@@ -902,7 +913,8 @@ export function capBudgetCalc(r: Read): FinResult {
     label: "Capital budgeting measures",
     rows: [
       ["Measure", "Project A", ...(B ? ["Project B"] : [])],
-      rowOf(`NPV at ${fx(rate, 2)}%`, (P) => fx(P.v, 2)),
+      // R3 MINOR 8: the rate at the text's precision ("10.000%" there, "10.00%" here before).
+      rowOf(`NPV at ${fx(rate, 3)}%`, (P) => fx(P.v, 2)),
       rowOf("IRR (every root)", (P) => irrCell(P)),
       rowOf("MIRR", (P) => (P.m !== null ? pct(P.m, 3) : "not defined")),
       rowOf("Payback (periods)", (P) => shortPb(P.pb)),
@@ -993,6 +1005,14 @@ export function dcfCalc(r: Read): FinResult {
   };
   const d = dcfValue(base);
   if ("error" in d) return finRefusal(d.error);
+  // R3 MINOR 7: a value per share that prints 0.0000 beside a non-zero equity value (10¹⁵ shares), or runs to 22
+  // digits (10⁻¹² shares), says nothing about a share; the count is likely in the wrong units.
+  if (d.perShare !== null && Math.abs(d.perShare) < 5e-5 && /[1-9]/.test(fx(d.equity, 2))) {
+    return finRefusal("Shares outstanding: so many shares that the value per share rounds to 0.0000; check the units of the share count (or leave it blank for the equity value).");
+  }
+  if (d.perShare !== null && Math.abs(d.perShare) > 1e15 && Math.abs(d.perShare) <= 1e21) {
+    return finRefusal("Shares outstanding: so few shares that the value per share is above 10¹⁵; check the units of the share count (or leave it blank for the equity value).");
+  }
   const N = s.values.length;
   const T = N + fade;
   const valueOf = (x: DcfResult): number => (x.perShare !== null ? x.perShare : x.equity);
@@ -1032,7 +1052,8 @@ export function dcfCalc(r: Read): FinResult {
       ...(fade ? [["PV of fade years", fx(d.pvFade, 2)]] : []),
       ["PV of terminal value", fx(d.pvTv, 2)],
       ["Enterprise value", fx(d.ev, 2)],
-      ["Less net debt", fx(-netDebt, 2)],
+      // R3 MINOR 7: a negative net debt is net cash, added, not "Less net debt 100.00".
+      netDebt < 0 ? ["Plus net cash (negative net debt)", fx(-netDebt, 2)] : ["Less net debt", fx(-netDebt, 2)],
       ["Equity value", fx(d.equity, 2)],
       ...(d.perShare !== null ? [["Value per share", fx(d.perShare, 4)]] : []),
     ],

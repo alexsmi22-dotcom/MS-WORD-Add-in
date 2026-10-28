@@ -250,17 +250,20 @@ export function payback(flows: number[]): Payback {
     cum.push(s);
   }
   if (!(flows[0] < 0)) return { at: "start", dipsAgain: null, cumulative: cum };
+  // fix-fin R3 B5: an exact break-even reached as float noise (−1,000 then 1,100 discounted at 10% sums to −1.1×10⁻¹³)
+  // is reached: the cumulative flow counts as zero within a relative 10⁻⁹ of the largest flow.
+  const tol = 1e-9 * Math.max(...flows.map(Math.abs));
   let at: number | null = null;
   let k = -1;
   for (let t = 1; t < cum.length; t++) {
-    if (cum[t] >= 0 && cum[t - 1] < 0) {
-      at = t - 1 + -cum[t - 1] / flows[t];
+    if (cum[t] >= -tol && cum[t - 1] < -tol) {
+      at = cum[t] < 0 ? t : t - 1 + -cum[t - 1] / flows[t];
       k = t;
       break;
     }
   }
   let dips: number | null = null;
-  if (k > 0) for (let t = k + 1; t < cum.length; t++) if (cum[t] < 0) {
+  if (k > 0) for (let t = k + 1; t < cum.length; t++) if (cum[t] < -tol) {
     dips = t;
     break;
   }

@@ -6,6 +6,7 @@
  */
 import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
 import { finRefusal } from "./finCalc";
+import { READING_MAX } from "./calcReading";
 import { readFinanceField } from "./finance";
 import { finPlotSvg } from "./financeFigures";
 import type { Point, Series } from "./plot";
@@ -291,6 +292,11 @@ export function bondDatesCalc(r: Read): FinResult {
   }
   const res = bondAtYield(spec, y);
   if ("error" in res) return finRefusal(res.error);
+  // fix-fin R1 #10: at a yield of 10,000% the clean price came out −0.591564 per 100 (the accrued interest exceeds the
+  // dirty price) and printed as a valid result. Decided on the printed six decimals.
+  if (!(res.clean > 0) || !/[1-9]/.test(fx(res.clean, 6))) {
+    return finRefusal("At this yield the clean price is zero or below, which no bond trades at: the yield to maturity (%) is too high for this bond. Check the yield.");
+  }
   const p = res.period;
   const k = face / 100;
   const text = [
@@ -322,7 +328,9 @@ export function bondDatesReading(spec: BondSpec, y: number, res: { clean: number
   const first = `At a ${pct(y)} yield the clean price is ${cleanStr} per 100, ${rel} the ${redStr} redemption; a face of ${fx(face, 2)} costs ${fx(res.dirty * k, 2)} including ${fx(res.accrued * k, 2)} of accrued interest.`;
   const mod = fx(res.modified, 6);
   if (!(res.modified > 0) || mod === "—") return first;
-  return `${first} A rise of one percentage point in the yield would lower the price by roughly ${mod} percent.`;
+  // fix-fin R1 #13: "roughly 7.858336 percent" claimed six decimals for an estimate; name it as the duration instead.
+  const second = ` With a modified duration of ${mod}, a one-point rise in the yield would cut the price by about that many percent.`;
+  return (first + second).length <= READING_MAX ? first + second : first;
 }
 
 /** Yield to maturity, yield to call and yield to worst from a clean price. */
@@ -383,6 +391,17 @@ export function billCalc(r: Read): FinResult {
   if (typeof v === "string") return finRefusal(v);
   const b = treasuryBill(given === "price" ? { settle, maturity, price: v, yearBasis: yb } : { settle, maturity, discount: v / 100, yearBasis: yb });
   if ("error" in b) return finRefusal(b.error);
+  // fix-fin R1 #6: switching "given" to price leaves the discount rate (4.2) in the field, which then priced the bill at
+  // 4.2 per 100 and printed a 9,148.874935% yield. A price whose discount rate lies outside the ±100% the discount mode
+  // accepts is refused, with the likely cause named.
+  // A price under 50 per 100 is refused at any tenor (a bill runs at most about a year: 4.2 a year out still implies
+  // a discount near 95% and a bond-equivalent yield over 2,000%).
+  if (given === "price" && (Math.abs(b.discount) > 1 || v < 50)) {
+    return finRefusal(
+      "The price (per 100) is far from 100: below 50, or a discount rate beyond 100% a year, is outside this calculator. " +
+        "A bill's price is quoted per 100 of face and is close to 100 (for example 98.75); if you typed a discount rate, choose “discount rate” instead.",
+    );
+  }
   const text = [
     `Treasury bill settling ${longDate(settle)}, maturing ${longDate(maturity)}: ${b.days} days`,
     `Price = ${fx(b.price, 6)} per 100${given === "discount" ? " (Excel TBILLPRICE)" : ""}`,
@@ -405,17 +424,21 @@ export function billCalc(r: Read): FinResult {
     ],
     align: ["left", "left", "right"],
   };
-  return { text, reading: billReading(b), svg: billYieldsSvg(b.discount, yb, settle, 364), tables: [table] };
+  return { text, reading: billReading(b, given), svg: billYieldsSvg(b.discount, yb, settle, 364), tables: [table] };
 }
 
-/** What a bill's price returns, on the basis that compares with a coupon bond, against the quoted discount rate. */
-export function billReading(b: { price: number; days: number; discount: number; moneyMarket: number; bey: number }): string {
+/**
+ * What a bill's price returns, on the basis that compares with a coupon bond, against the discount rate. The rate is
+ * "the quoted" one only when it was typed; in price mode it is "the equivalent" one (fix-fin R1 #6).
+ */
+export function billReading(b: { price: number; days: number; discount: number; moneyMarket: number; bey: number }, given: "price" | "discount" = "discount"): string {
   const bey = pct(b.bey);
   const disc = pct(b.discount);
-  const head = `Paying ${fx(b.price, 6)} per 100 for ${b.days} days returns ${bey} a year on a bond-equivalent basis (${pct(b.moneyMarket)} money-market)`;
+  const which = given === "price" ? "equivalent" : "quoted";
+  const head = `Paying ${fx(b.price, 6)} per 100 for ${b.days} ${b.days === 1 ? "day" : "days"} returns ${bey} a year on a bond-equivalent basis (${pct(b.moneyMarket)} money-market)`;
   if (bey === disc) return `${head}, the same as the ${disc} discount rate.`;
-  if (b.bey > b.discount) return `${head}. The quoted ${disc} discount rate understates the return, because it is figured on the face value rather than the price paid.`;
-  return `${head}. The quoted ${disc} discount rate overstates the return here, so compare bills and bonds on the bond-equivalent yield.`;
+  if (b.bey > b.discount) return `${head}. The ${which} ${disc} discount rate understates the return, because it is figured on the face value rather than the price paid.`;
+  return `${head}. The ${which} ${disc} discount rate overstates the return here, so compare bills and bonds on the bond-equivalent yield.`;
 }
 
 /** Reads the pasted (maturity, yield) or (maturity, coupon, price) rows. */

@@ -225,7 +225,7 @@ export interface IkSteps {
   rm: number;
   n2p: number;
   n2m: number;
-  /** ĥ without the regularisation terms. */
+  /** ĥ without the regularization terms. */
   hNoReg: number;
 }
 
@@ -590,8 +590,8 @@ export function rdCalc(read: Read): StatOutput {
         ["Third derivative m̂⁽³⁾(c)", fmtFixed(s.m3, 4) + (s.m3 * s.m3 < 0.01 ? " (m̂⁽³⁾² < 0.01: floor 0.01 used in h₂)" : "")],
         ["Pilot h₂,₊ / h₂,₋", `${fmtFixed(s.h2p, 4)} / ${fmtFixed(s.h2m, 4)}`],
         ["Curvature m̂⁽²⁾₊ / m̂⁽²⁾₋", `${fmtFixed(s.m2p, 4)} / ${fmtFixed(s.m2m, 4)}`],
-        ["Regularisation r̂₊ / r̂₋", `${fmtFixed(s.rp, 4)} / ${fmtFixed(s.rm, 4)}`],
-        ["ĥ without regularisation", fmtFixed(s.hNoReg, 4)],
+        ["Regularization r̂₊ / r̂₋", `${fmtFixed(s.rp, 4)} / ${fmtFixed(s.rm, 4)}`],
+        ["ĥ without regularization", fmtFixed(s.hNoReg, 4)],
         ["ĥ (used)", fmtFixed(s.h, 4)],
       ],
       align: ["left", "right"],

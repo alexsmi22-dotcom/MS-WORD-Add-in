@@ -273,7 +273,7 @@ export function seriesLinesSvg(o: { x: number[]; names: string[]; cols: ArrayLik
   return buildPlotSvg(series, { width: 460, height: 270, title: o.title, xlabel: o.xlabel, ylabel: o.ylabel ?? "Value" });
 }
 
-/** A K × K grid of orthogonalised impulse responses (row = response, column = impulse) with ±z·SE bands. */
+/** A K × K grid of orthogonalized impulse responses (row = response, column = impulse) with ±z·SE bands. */
 export function varIrfGridSvg(o: { names: string[]; orth: number[][][]; se: number[][][]; z: number }): string {
   const K = o.names.length;
   const H = o.orth.length - 1;
@@ -702,7 +702,7 @@ export function tsVarIrfCalc(read: Read): StatOutput {
   if (!all.every(Number.isFinite)) return refuse("An impulse response or its standard error is not a finite number (the VAR is explosive at this horizon); shorten the horizon or difference the series.");
   const z = 1.959963984540054;
   const lines: string[] = [];
-  lines.push(`Orthogonalised impulse responses and FEVD from a VAR(${fit.p}) for ${names.map(q).join(", ")} (T = ${intText(fit.nobs)}), horizon ${H}`);
+  lines.push(`Orthogonalized impulse responses and FEVD from a VAR(${fit.p}) for ${names.map(q).join(", ")} (T = ${intText(fit.nobs)}), horizon ${H}`);
   lines.push(`Cholesky ordering: ${names.join(" → ")} (a shock to an earlier series moves later ones on impact, not the reverse). Change the order in the Columns field.`);
   const root = varMaxRoot(fit);
   if (root !== null && root >= 1) lines.push(`Warning: the VAR is not stable (largest root modulus ${fmtFixed(root, 4)} ≥ 1), so the responses do not die out.`);
@@ -715,10 +715,10 @@ export function tsVarIrfCalc(read: Read): StatOutput {
   lines.push("");
   lines.push(...varConventions(s));
   lines.push(
-    "Impulse: one standard deviation of the orthogonalised shock, Θₕ = ΦₕP with P the lower Cholesky factor of Σᵤ (statsmodels irf()). Bands: asymptotic, ±1.96 SE, the delta-method standard errors of Lütkepohl (2005, Prop. 3.6) as statsmodels IRAnalysis.stderr(orth=True) computes them (no bootstrap, so nothing random).",
+    "Impulse: one standard deviation of the orthogonalized shock, Θₕ = ΦₕP with P the lower Cholesky factor of Σᵤ (statsmodels irf()). Bands: asymptotic, ±1.96 SE, the delta-method standard errors of Lütkepohl (2005, Prop. 3.6) as statsmodels IRAnalysis.stderr(orth=True) computes them (no bootstrap, so nothing random).",
   );
   lines.push(
-    "FEVD (statsmodels fevd): the share of the h-step forecast-error variance of each series due to each orthogonalised shock, (sum over s < h of Θ²ₛ) ÷ (sum over s < h of the diagonal of ΦₛΣᵤΦₛᵀ); h = 1 is the impact period.",
+    "FEVD (statsmodels fevd): the share of the h-step forecast-error variance of each series due to each orthogonalized shock, (sum over s < h of Θ²ₛ) ÷ (sum over s < h of the diagonal of ΦₛΣᵤΦₛᵀ); h = 1 is the impact period.",
   );
   lines.push(...s.data.notes);
 

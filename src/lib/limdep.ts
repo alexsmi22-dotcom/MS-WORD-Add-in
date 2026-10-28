@@ -1341,7 +1341,7 @@ export function fitTobit(y: number[], X: number[][], names: string[], opts: Tobi
       statLabel: "z",
       seLabel: "Classical (inverse information)",
       stats,
-      notes: [`Maximum likelihood by Newton–Raphson in Olsen's parameterisation γ = β/σ, θ = 1/σ (globally concave; at most ${plural(maxIter, "iteration")}): converged in ${plural(res.iterations, "iteration")}.`],
+      notes: [`Maximum likelihood by Newton–Raphson in Olsen's parameterization γ = β/σ, θ = 1/σ (globally concave; at most ${plural(maxIter, "iteration")}): converged in ${plural(res.iterations, "iteration")}.`],
     },
     sigma,
     ame,

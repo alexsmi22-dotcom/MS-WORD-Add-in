@@ -64,7 +64,7 @@ const outOf = (label: string, x: Case[1]): Out => {
 const cellsOf = (o: Out): string[] => [...(o.tables ?? []), ...(o.table ? [o.table] : [])].flatMap((t) => [...t.rows.flat(), t.label ?? "", t.note ?? ""]);
 
 const BRITISH =
-  /\b\w*(?:realis|maximis|minimis|utilis|standardis|normalis|recognis|criticis|organis|summaris|optimis|parametris|generalis|annualis|penalis|randomis|stabilis|capitalis|categoris|amortis|equalis|neutralis|subsidis|visualis|favour|labour|behaviour|colour|honour|neighbour|centre|centred|programme|licence|catalogue|labelled|labelling)\w*/i;
+  /\b\w*(?:realis|maximis|minimis|utilis|standardis|normalis|recognis|criticis|organis|summaris|optimis|parametris|parameteris|orthogonalis|regularis|generalis|annualis|penalis|randomis|stabilis|capitalis|categoris|amortis|equalis|neutralis|subsidis|visualis|favour|labour|behaviour|colour|honour|neighbour|centre|centred|programme|licence|catalogue|labelled|labelling)\w*/i;
 
 describe("F2 display sweep: no _ or ^, US spelling (defaults and every select option)", () => {
   test.each(cases)("%s", (label, x) => {

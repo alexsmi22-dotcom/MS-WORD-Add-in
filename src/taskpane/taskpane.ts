@@ -235,6 +235,43 @@ import { GMM_STAT_CALCS } from "../lib/gmmStatCalcs";
 import { CBA_CALCS } from "../lib/cbaCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
+// "Fully inclusive" (2026-10-28): the plain-language readings of the FIN_CALCS entries, and the currency figure.
+import {
+  withReading,
+  fvReading,
+  pvReading,
+  compoundReading,
+  loanReading,
+  npvReading,
+  irrReading,
+  bsReading,
+  bondReading,
+  earReading,
+  amortReading,
+  gannReading,
+  dcfReading,
+  xirrReading,
+  ytmReading,
+  bondriskReading,
+  greeksReading,
+  ivReading,
+  deprReading,
+  deprSlReading,
+  annuityReading,
+  perpetuityReading,
+  rateFormsReading,
+  cagrReading,
+  returnsReading,
+  prejudgmentReading,
+  postjudgmentReading,
+  lostEarningsReading,
+  royaltyReading,
+  lostProfitsReading,
+  damagesSummaryReading,
+  georgiaPacificReading,
+  panduitReading,
+} from "../lib/finPaneReadings";
+import { finCurrencyWithFigure } from "../lib/finPaneFigures";
 import {
   parsePeriodTable,
   reasonableRoyalty,
@@ -245,6 +282,8 @@ import {
   damagesTablesClean,
   damagesToFin,
   SUMMARY_RESULT_COLUMNS,
+  type RoyaltyInput,
+  type LostProfitsInput,
 } from "../lib/patentDamages";
 import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
 import { CONC_UNITS, RATE_UNITS, catalyticEfficiencyCalc, dilutionRefusal, proteinSequenceRefusal, readAssayScalars, serialRefusal } from "../lib/assayInputs";
@@ -8321,6 +8360,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => ({
       text: `FV = ${finMoney(futureValue(+r("pv"), +r("rate") / 100, +r("n")))}`,
+      reading: fvReading(+r("pv"), +r("rate"), +r("n")),
       // The path to the answer. Compound growth is the thing everyone knows the
       // name of and few people picture correctly - the curve is nearly flat for
       // the first third and then bends hard, which is the whole argument for
@@ -8344,6 +8384,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => ({
       text: `PV = ${finMoney(presentValue(+r("fv"), +r("rate") / 100, +r("n")))}`,
+      reading: pvReading(+r("fv"), +r("rate"), +r("n")),
       // What the same future sum is worth if received k periods from now. The
       // decay is what discounting MEANS, and reading it off the curve is how a
       // user sees that a cash flow twenty periods out is worth a fraction of
@@ -8369,6 +8410,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => (!(+r("m") > 0) ? finRefuse("Compounds / year must be positive (0 compounds a year divides by zero).") : {
       text: `Amount = ${finMoney(compoundInterest(+r("p"), +r("rate") / 100, +r("m"), +r("t")))}`,
+      reading: compoundReading(+r("p"), +r("rate"), +r("m"), +r("t")),
       // Year by year rather than compounding period by period: the answer moves
       // with the number of compounds per year, but the SHAPE a reader wants is
       // the balance over the years they will actually hold it.
@@ -8403,6 +8445,7 @@ const FIN_CALCS: FinCalc[] = [
       const payment = loanPayment(loan.p, loan.i, loan.n);
       return {
         text: `Payment = ${finMoney(payment)} per period`,
+        reading: loanReading(+r("p"), +r("rate"), +r("t"), +r("m")),
         // THE BALANCE CURVE. A level payment does not pay the loan down at a
         // level rate: the balance barely moves for years and then falls away,
         // because early payments are mostly interest. That is the single most
@@ -8432,6 +8475,7 @@ const FIN_CALCS: FinCalc[] = [
       const flows = finList(r("cf"));
       return {
         text: `NPV = ${finMoney(npv(rate, flows))}`,
+        reading: npvReading(+r("rate"), flows),
         // Each flow in today's money, with the total as the bottom line. The
         // shrinking of the later bars is the finding: two projects can share an
         // NPV while one is carried by cash arriving next year and the other by
@@ -8459,6 +8503,7 @@ const FIN_CALCS: FinCalc[] = [
       if (v === null) return finRefuse(`IRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})`);
       return {
         text: `IRR = ${finPct(v)}`,
+        reading: irrReading(flows),
         // DISCOUNTED AT THE IRR ITSELF, which is what an IRR MEANS: the rate at
         // which the ledger comes to zero. Drawing it that way turns the
         // definition into something a reader can check by eye - the bars
@@ -8523,6 +8568,7 @@ const FIN_CALCS: FinCalc[] = [
             ? "\n(σ = 0: the deterministic limit, max(S·exp(−qt) − K·exp(−rt), 0) for a call, max(K·exp(−rt) − S·exp(−qt), 0) for a put.)"
             : "") +
           `\nPut–call parity: C − P = ${finFixed(C - P, 4)} = S·exp(−qt) − K·exp(−rt) = ${finFixed(S * Math.exp(-q * t) - K * Math.exp(-rr * t), 4)}`,
+        reading: bsReading(type, S, K, t, +r("r"), +r("sig"), +r("q")),
         svg: optionCurveSvg({ type, s: S, k: K, t, r: rr, sig: sg, q, price }),
       };
     },
@@ -8552,6 +8598,7 @@ const FIN_CALCS: FinCalc[] = [
       const price = bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq"));
       return {
         text: `Price = ${finMoney(price)}`,
+        reading: bondReading(+r("face"), +r("coupon"), +r("ytm"), +r("years"), +r("freq")),
         svg: bondPriceCurveSvg({
           face: +r("face"),
           coupon: +r("coupon") / 100,
@@ -8577,6 +8624,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => ({
       text: `Effective annual rate = ${finPct(effectiveAnnualRate(+r("nom") / 100, +r("m")))}`,
+      reading: earReading(+r("nom"), +r("m")),
       // HOW THE EFFECTIVE RATE SATURATES as compounding gets more frequent.
       // The useful fact here is one a single percentage cannot carry: almost
       // all the gain from compounding more often is captured by the time you
@@ -8626,6 +8674,7 @@ const FIN_CALCS: FinCalc[] = [
           `Total paid     ${finMoney(sum.totalPaid)}`,
           ...(thinned ? [`(${loan.n.toLocaleString("en-US")} payments; the figure plots ${rows.length} of them, evenly spaced.)`] : []),
         ].join("\n"),
+        reading: amortReading(+r("p"), +r("rate"), +r("t"), +r("m")),
         // WHERE THE MONEY GOES, PERIOD BY PERIOD — the fact about a long loan
         // that the three totals above cannot convey and that surprises almost
         // everyone: on a 30-year mortgage the early payments are nearly all
@@ -8691,6 +8740,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => ({
       text: `PV = ${finMoney(growingAnnuityPV(+r("pmt"), +r("rate") / 100, +r("g") / 100, +r("n")))}`,
+      reading: gannReading(+r("pmt"), +r("rate"), +r("g"), +r("n")),
       // The payment stream itself, growing period by period. A single present
       // value hides the thing that decides whether the assumption is sane: by
       // period n a 3%-growing payment is a very different sum from the first
@@ -8735,6 +8785,7 @@ const FIN_CALCS: FinCalc[] = [
             (Number.isFinite(share) ? `, ${finFixed(share, 1)}% of the value` : ""),
           "Conventions: end-of-period discounting; the terminal value is taken at the last forecast period.",
         ].join("\n"),
+        reading: dcfReading(+r("rate"), flows, +r("g")),
         // The explicit forecast period only. The TERMINAL value is deliberately
         // not drawn as one more bar beside these: on a typical DCF it dwarfs
         // every forecast year, and a chart that made it look like just another
@@ -8798,6 +8849,7 @@ const FIN_CALCS: FinCalc[] = [
           ...(dated.note ? [`Note: ${dated.note}`] : []),
           "Conventions: actual days between dates over a 365-day year, as Excel's XIRR.",
         ].join("\n"),
+        reading: xirrReading(cfs, days),
         svg:
           cfs.length === days.length
             ? cashFlowLadderSvg(
@@ -8840,6 +8892,7 @@ const FIN_CALCS: FinCalc[] = [
             ? `\n(Solved on ${wholePeriods} whole coupon periods, ${finFixed(wholePeriods / +r("freq"), 4).replace(/\.?0+$/, "")} years, ` +
               `not the ${finFixed(exactPeriods, 2)} periods that ${finFixed(+r("years"), 2)} years make: a settlement between coupon dates needs accrued interest, which this model omits.)`
             : ""),
+        reading: ytmReading(+r("price"), +r("face"), +r("coupon"), +r("years"), +r("freq")),
         // The same curve as the pricing tool, read the other way round: the
         // solver found where the quoted price meets it, and the marked point IS
         // the answer rather than an illustration of it.
@@ -8888,6 +8941,7 @@ const FIN_CALCS: FinCalc[] = [
           `Modified   ${finFixed(a.modified, 3)} yrs`,
           `Convexity  ${finFixed(a.convexity, 2)}`,
         ].join("\n"),
+        reading: bondriskReading(+r("face"), +r("coupon"), +r("ytm"), years, freq),
         // Duration and convexity are the first two derivatives of THIS curve,
         // so drawing it is drawing what they summarise. The straight-line
         // duration estimate is the tangent at the quoted yield; the gap between
@@ -8963,6 +9017,7 @@ const FIN_CALCS: FinCalc[] = [
           `Rho    ${finMoney(g.rho / 100)} per 1% rate`,
           `Psi    ${finMoney(g.psi / 100)} per 1% dividend yield`,
         ].join("\n"),
+        reading: greeksReading(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r"), +r("sig"), +r("q")),
         // Delta across the underlying, which is the Greek people actually
         // reason with. Its S-shape IS the option's character: near zero far out
         // of the money, near one deep in, and steepest at the strike - where
@@ -9037,6 +9092,7 @@ const FIN_CALCS: FinCalc[] = [
       if (v === null) return finRefuse("Implied vol = no solution");
       return {
         text: `Implied vol = ${finPct(v)}`,
+        reading: ivReading(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r"), +r("q")),
         // The curve the solver walked: option value against volatility, with
         // the quoted price marked. Its SLOPE is vega, so a nearly flat curve
         // means the price barely constrains the volatility - a deep in- or
@@ -9092,6 +9148,7 @@ const FIN_CALCS: FinCalc[] = [
               (k === rows.length - 1 && fracLife > 1e-9 && x.year > Math.floor(+r("life")) ? `   (part year: ${finFixed(fracLife, 2)} of a full year)` : ""),
           )
           .join("\n"),
+        reading: deprReading(+r("cost"), +r("salvage"), +r("life"), +r("factor")),
         // Book value down the asset's life. Declining balance is front-loaded
         // by design, and the curve shows exactly how front-loaded - which is
         // the whole reason to choose it over straight line, and the thing a
@@ -9167,6 +9224,7 @@ const FIN_CALCS: FinCalc[] = [
       lines.push("the end of the useful life. Declining balance front-loads the same total instead.");
       return {
         text: lines.join("\n"),
+        reading: deprSlReading(cost, salvage, life),
         // The same picture as declining balance, deliberately, so the two can
         // be compared: straight line is the diagonal that method is measured
         // against, and seeing them as the same kind of chart is what makes the
@@ -9215,6 +9273,7 @@ const FIN_CALCS: FinCalc[] = [
           // the guard was written for, one registry over from where it looked.
           `(an annuity due), multiply both by (1 + rate): here ${finMoney(pv * (1 + rate))} and ${finMoney(fv * (1 + rate))}.`,
         ].join("\n"),
+        reading: annuityReading(pmt, +r("rate"), n),
         // WHAT THE STREAM IS WORTH IF YOU STOP AT PERIOD k, in today's money.
         // Present and future value are two numbers at the ends of this curve,
         // and the curve is what shows the flattening: each additional payment
@@ -9275,6 +9334,7 @@ const FIN_CALCS: FinCalc[] = [
               `${finMoney(growingPerpetuity(pmt, rate, bumped))}.`
             : `one point moves the value to ${finMoney(growingPerpetuity(pmt, rate, bumped))}.`,
         ].join("\n"),
+        reading: perpetuityReading(pmt, +r("rate"), +r("g")),
         // HOW MUCH OF A PERPETUITY'S VALUE COMES FROM THE FIRST n PERIODS.
         // A perpetuity is an infinite sum, which is exactly the thing people
         // distrust about it, and the honest reassurance is that the tail is
@@ -9322,6 +9382,7 @@ const FIN_CALCS: FinCalc[] = [
           "Continuous compounding is the ceiling: more frequent compounding approaches it and",
           "never exceeds it, which is why the two figures above bracket every discrete case.",
         ].join("\n"),
+        reading: rateFormsReading(p, +r("rate"), years, m),
         // The same nominal rate under each compounding convention, side by
         // side. The point of this tool is that the differences are SMALL and
         // people argue about them anyway; bars settle it, and show that the gap
@@ -9366,6 +9427,7 @@ const FIN_CALCS: FinCalc[] = [
           "path between them: a holding that halved and then quadrupled reports the same CAGR",
           "as one that grew smoothly, and only the second was ever a comfortable thing to own.",
         ].join("\n"),
+        reading: cagrReading(+r("begin"), +r("end"), +r("years")),
         // THE SMOOTH PATH THE CAGR DESCRIBES, drawn precisely because it is
         // the path that probably did not happen. The text says a holding that
         // halved then quadrupled reports the same CAGR as one that grew
@@ -9404,6 +9466,7 @@ const FIN_CALCS: FinCalc[] = [
           // actually prints it.
           `Sharpe ratio       ${finFixed(sharpeRatio(rets, +r("rf") / 100, ppy), 3)}`,
         ].join("\n"),
+        reading: returnsReading(rets, ppy, +r("rf")),
         // The return series the three summary numbers came from. An annualized
         // return and a volatility describe a distribution; only the series
         // shows whether the losses were scattered or arrived together, and a
@@ -9423,7 +9486,8 @@ const FIN_CALCS: FinCalc[] = [
     fields: FIN_CURRENCY_FIELDS.map((f) => ({ ...f, default: FIN_CURRENCY_DEFAULTS[f.key] ?? "", optional: f.key === "asof" })),
     compute: (r) => {
       // Your own rates against a base currency (no live rates: offline), cross rates, ISO 4217 minor units.
-      return finCurrencyCalc(r);
+      // The reading and the bars of the converted amounts are read from the result's own conversions table.
+      return finCurrencyWithFigure(finCurrencyCalc(r));
     },
     assumes: "the rates you typed; JurisLab has no live exchange rates (it works offline)",
   },
@@ -9487,7 +9551,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const out = prejudgmentReport({ tranches: r("tranches"), rates: r("rates"), end: r("end"), method: r("method"), dayCount: r("dayCount"), midPeriod: r("mid") });
-      return out.ok ? out : finRefuse(out.text);
+      return out.ok ? withReading(out, prejudgmentReading(out, r("end"), r("method"))) : finRefuse(out.text);
     },
   },
   {
@@ -9512,7 +9576,7 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const out = postjudgmentReport({ amount: +r("amount"), ratePct: +r("rate"), judgment: r("judgment"), payment: r("payment"), dayCount: r("dayCount") });
-      return out.ok ? out : finRefuse(out.text);
+      return out.ok ? withReading(out, postjudgmentReading(out, r("payment"), +r("rate"))) : finRefuse(out.text);
     },
   },
   {
@@ -9560,7 +9624,9 @@ const FIN_CALCS: FinCalc[] = [
         fringePct: +r("fringe"),
         midYear: r("mid"),
       });
-      return out.ok ? out : finRefuse(out.text);
+      return out.ok
+        ? withReading(out, lostEarningsReading(out, { horizonMode: r("horizonMode"), horizon: +r("horizon"), startAge: +r("age"), discountPct: +r("discount") }))
+        : finRefuse(out.text);
     },
   },
   // Litigation damages: royalty, lost profits, worksheets (E1b)
@@ -9605,18 +9671,16 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const t = parsePeriodTable(r("periods"), ["royalty base"], 1);
       if ("error" in t) return finRefuse(t.error);
-      return damagesToFin(
-        reasonableRoyalty({
-          rows: t.rows,
-          basis: r("basis") === "unit" ? "unit" : "revenue",
-          rate: +r("rate"),
-          apportionPct: +r("apportion"),
-          lumpSum: +r("lump"),
-          discountPct: +r("disc"),
-          periodsPerYear: +r("ppy"),
-        }),
-        t.notes,
-      );
+      const inp: RoyaltyInput = {
+        rows: t.rows,
+        basis: r("basis") === "unit" ? "unit" : "revenue",
+        rate: +r("rate"),
+        apportionPct: +r("apportion"),
+        lumpSum: +r("lump"),
+        discountPct: +r("disc"),
+        periodsPerYear: +r("ppy"),
+      };
+      return withReading(damagesToFin(reasonableRoyalty(inp), t.notes), royaltyReading(inp));
     },
     assumes: "the rate, apportionment, lump sum and discount rate are the user's inputs; no rate is supplied as law",
   },
@@ -9689,28 +9753,26 @@ const FIN_CALCS: FinCalc[] = [
       const t = parsePeriodTable(r("periods"), ["infringer's units", "patentee's actual units", "spare capacity"], 1);
       if ("error" in t) return finRefuse(t.error);
       const rem = r("remainder");
-      return damagesToFin(
-        lostProfits({
-          rows: t.rows,
-          method: r("method") === "market" ? "market" : "share",
-          captureSharePct: +r("capture"),
-          patenteeSharePct: +r("pshare"),
-          infringerSharePct: +r("ishare"),
-          capacity: +r("cap"),
-          marginMode: r("marginMode") === "margin" ? "margin" : "price-cost",
-          price: +r("price"),
-          cost: +r("cost"),
-          margin: +r("margin"),
-          erosion: r("erosion") === "yes",
-          butForPrice: +r("bfp"),
-          actualPrice: +r("ap"),
-          elasticity: +r("elast"),
-          remainder: rem === "revenue" ? "revenue" : rem === "none" ? "none" : "unit",
-          remainderRate: +r("remRate"),
-          infringerPrice: +r("iprice"),
-        }),
-        t.notes,
-      );
+      const inp: LostProfitsInput = {
+        rows: t.rows,
+        method: r("method") === "market" ? "market" : "share",
+        captureSharePct: +r("capture"),
+        patenteeSharePct: +r("pshare"),
+        infringerSharePct: +r("ishare"),
+        capacity: +r("cap"),
+        marginMode: r("marginMode") === "margin" ? "margin" : "price-cost",
+        price: +r("price"),
+        cost: +r("cost"),
+        margin: +r("margin"),
+        erosion: r("erosion") === "yes",
+        butForPrice: +r("bfp"),
+        actualPrice: +r("ap"),
+        elasticity: +r("elast"),
+        remainder: rem === "revenue" ? "revenue" : rem === "none" ? "none" : "unit",
+        remainderRate: +r("remRate"),
+        infringerPrice: +r("iprice"),
+      };
+      return withReading(damagesToFin(lostProfits(inp), t.notes), lostProfitsReading(inp));
     },
     assumes: "capture share, market shares, capacity, prices, costs, elasticity and royalty are the user's inputs; capacity is spare capacity per period",
   },
@@ -9731,7 +9793,8 @@ const FIN_CALCS: FinCalc[] = [
       // A negative price erosion (lost profits can compute one) is an offset; every other column must be ≥ 0.
       const t = parsePeriodTable(r("periods"), ["lost profits", "price erosion", "reasonable royalty", "interest"], 1, { allowNegative: [1], resultColumns: SUMMARY_RESULT_COLUMNS });
       if ("error" in t) return finRefuse(t.error);
-      return damagesToFin(damagesSummary({ rows: t.rows, multiplier: +r("mult") }), t.notes);
+      const out = damagesToFin(damagesSummary({ rows: t.rows, multiplier: +r("mult") }), t.notes);
+      return withReading(out, damagesSummaryReading(out, +r("mult")));
     },
     assumes: "the amounts and the multiplier are the user's inputs; no interest is computed here",
   },
@@ -9742,7 +9805,7 @@ const FIN_CALCS: FinCalc[] = [
     fields: [],
     compute: () => {
       // A worksheet, not a calculation: the fifteen verified short titles, the citation line, blank cells to fill.
-      return damagesToFin(georgiaPacificWorksheet());
+      return withReading(damagesToFin(georgiaPacificWorksheet()), georgiaPacificReading());
     },
   },
   {
@@ -9752,7 +9815,7 @@ const FIN_CALCS: FinCalc[] = [
     fields: [],
     compute: () => {
       // A worksheet, not a calculation: the four factors quoted verbatim, the citation line, blank cells to fill.
-      return damagesToFin(panduitWorksheet());
+      return withReading(damagesToFin(panduitWorksheet()), panduitReading());
     },
   },
   // F1 library registries (src/lib/*Calcs.ts, FinCalcDef arrays) are spread here, one line each: `...BONDS_CALCS,`.

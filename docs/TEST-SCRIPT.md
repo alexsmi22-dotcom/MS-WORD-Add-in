@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.203.0)
+# JurisLab — Manual Test Script (v2.204.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 14,000+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,13 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0er. New in v2.204.0 — F3 (Stats 75 → 77)
+
+- [ ] **Stats ▸ Causal inference & panels ▸ GMM: one- or two-step efficient IV (Hansen J)** (defaults) → educ 0.0713 (SE 0.0233), exper 0.02282, Constant 1.0536; Hansen J = 0.099, χ²(1), p = 0.753; first stage partial R² = 0.523; second table 2SLS educ 0.0718 beside GMM 0.0713; figure "2SLS vs GMM".
+- [ ] **Stats ▸ Causal inference & panels ▸ Dynamic panel GMM: Arellano–Bond / Blundell–Bond** (defaults) → System GMM, two-step: L.sales 0.6580 (Windmeijer SE 0.0711), price 0.2776; 506 observations, 60 groups, 39 instruments; AR(1) z = −5.22, AR(2) z = −0.45 (p = 0.652); Sargan χ²(28) = 33.55, Hansen χ²(28) = 22.29 (p = 0.767); fixed effects 0.460 and pooled OLS 0.914 bracket 0.658; figure "Coefficient of L.sales by estimator".
+- [ ] Same, switch the estimator to **Difference** → L.sales 0.6940 (SE 0.0800), 434 observations, 30 instruments, Hansen χ²(20) = 14.76.
+- [ ] Insert both results: text, the tables (at most 6 columns) and the figure land in the document; Ctrl+Z removes them.
 
 ## 0eq. New in v2.203.0 — F2 (Stats 52 → 75, Finance 65 → 79)
 

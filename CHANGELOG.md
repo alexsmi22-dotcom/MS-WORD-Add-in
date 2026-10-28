@@ -6,6 +6,24 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.204.0] — 2026-10-28 — F3: GMM and dynamic panels
+
+Stats grows from 75 to 77 calculators. Both are checked against linearmodels 7.1, pydynpd 0.2.2 and an independent
+numpy implementation, and the dynamic-panel calculator reproduces Roodman's (2009) published xtabond2 tables on the
+Arellano–Bond employment data.
+
+### Added — Stats (75 → 77)
+- **GMM** (econ-gmm, under Causal inference & panels): one- or two-step efficient linear GMM with a robust or
+  clustered weight, Hansen J, the 2SLS first step beside it, and first-stage strength (partial R² and robust Wald);
+  checked against linearmodels 7.1 IVGMM.
+- **Dynamic panel GMM** (panel-dyn-gmm): Arellano–Bond difference and Blundell–Bond system GMM; one-step robust or
+  two-step with Windmeijer standard errors; AR(1)/AR(2), Sargan and Hansen tests; the instrument count with a warning
+  above the number of groups; lag range, collapse, time dummies, endogenous regressors and lag syntax (L.x, L2.x,
+  L(0/2).x); the pooled-OLS / fixed-effects bracket on the lagged coefficient with a figure.
+- Results do not depend on the units or (where the estimator allows) the location of a column. Two-step GMM is
+  refused by name when its weight matrix is singular (more instruments than groups), since any generalized inverse
+  would make the estimate depend on how the instruments are written; the one-step results and Sargan still print.
+
 ## [2.203.0] — 2026-10-27 — F2: litigation economics, econometrics II, micro and macro II
 
 Stats grows from 52 to 75 calculators and its dropdown is grouped under ten headings; Finance grows from 65 to 79.

@@ -66,8 +66,8 @@ function finite(...vs: number[]): boolean {
 export function descriptiveReading(d: Descriptive): string | undefined {
   if (!finite(d.mean, d.sd, d.median, d.ci95[0], d.ci95[1])) return undefined;
   return (
-    `The ${d.n} values average ${assaySig(d.mean)} (SD ${assaySig(d.sd)}), and the true mean is likely between ` +
-    `${assaySig(d.ci95[0])} and ${assaySig(d.ci95[1])} (95% CI); half the values lie at or below the median of ${assaySig(d.median)}.`
+    `The ${d.n} values average ${assaySig(d.mean)} (SD ${assaySig(d.sd)}), with a 95% confidence interval for the mean of ` +
+    `${assaySig(d.ci95[0])} to ${assaySig(d.ci95[1])}; half the values lie at or below the median of ${assaySig(d.median)}.`
   );
 }
 
@@ -100,37 +100,49 @@ export function anovaReading(res: AnovaResult, k: number, f: string, etaText: st
   if (!finite(res.p)) return undefined;
   const share = Number.isFinite(res.etaSquared) ? `; group membership accounts for η² = ${etaText} of the variation` : "";
   if (res.p < ALPHA) {
+    // With two groups the omnibus test IS the pairwise comparison, so there is no "which" left to ask.
+    if (k === 2) return `The two group means differ (${f})${share}, a difference ${chanceClause(res.p)}.`;
     return `At least one of the ${countWord(k)} group means differs from the others (${f})${share}. The test does not say which groups differ; a post-hoc test such as Tukey HSD does.`;
   }
-  return `The data show no clear difference among the ${countWord(k)} group means (${f}); the differences could be chance.`;
+  return k === 2
+    ? `The data show no clear difference between the two group means (${f}); the gap could be chance.`
+    : `The data show no clear difference among the ${countWord(k)} group means (${f}); the differences could be chance.`;
 }
 
 export function tukeyReading(res: TukeyResult): string | undefined {
   const sig = res.pairs.filter((pr) => pr.significant && finite(pr.difference, pr.p));
   const total = res.pairs.length;
   if (!sig.length) {
-    return `No pair of the ${countWord(res.k)} groups differs clearly once all ${countWord(total)} comparisons are accounted for (family-wise alpha = ${res.alpha}).`;
+    return total === 1
+      ? `The two groups do not differ clearly (family-wise alpha = ${res.alpha}).`
+      : `No pair of the ${countWord(res.k)} groups differs clearly once all ${countWord(total)} comparisons are accounted for (family-wise alpha = ${res.alpha}).`;
   }
   const shown = sig.slice(0, 3).map((pr) => {
     const [hi, lo] = pr.difference > 0 ? [pr.i + 1, pr.j + 1] : [pr.j + 1, pr.i + 1];
     return `group ${hi} is ${mag(assaySig(pr.difference))} higher than group ${lo} (${formatP(pr.p)})`;
   });
+  if (total === 1) return `At family-wise alpha = ${res.alpha}, ${shown[0]}.`;
   const more = sig.length > 3 ? `, among others` : "";
-  return (
-    `${capital(countWord(sig.length))} of the ${countWord(total)} pairs differ at family-wise alpha = ${res.alpha}: ${andList(shown)}${more}.`
-  );
+  const lead = sig.length === total ? `All ${countWord(total)} pairs differ` : `${capital(countWord(sig.length))} of the ${countWord(total)} pairs differ${sig.length === 1 ? "s" : ""}`;
+  return `${lead} at family-wise alpha = ${res.alpha}: ${andList(shown)}${more}.`;
 }
 
 export function dunnettReading(res: DunnettResult): string | undefined {
   const sig = res.comparisons.filter((c) => c.significant && finite(c.meanDifference, c.p));
   const k = res.comparisons.length;
   if (!sig.length) {
-    return `No treatment differs clearly from the control once the ${countWord(k)} comparison${k === 1 ? " is" : "s are"} accounted for.`;
+    return k === 1
+      ? "The treatment does not differ clearly from the control; the gap could be chance."
+      : `No treatment differs clearly from the control once the ${countWord(k)} comparisons are accounted for.`;
   }
   const shown = sig.slice(0, 3).map(
     (c) => `treatment ${c.treatment + 1} is ${mag(assaySig(c.meanDifference))} ${c.meanDifference > 0 ? "above" : "below"} it (${formatP(c.p)})`,
   );
   const rest = k - sig.length;
+  if (k === 1) {
+    const c = sig[0];
+    return `The treatment differs from the control: it is ${mag(assaySig(c.meanDifference))} ${c.meanDifference > 0 ? "above" : "below"} it (${formatP(c.p)}).`;
+  }
   return (
     `${capital(countWord(sig.length))} of the ${countWord(k)} treatments differ${sig.length === 1 ? "s" : ""} from the control: ${andList(shown)}${sig.length > 3 ? ", among others" : ""}` +
     (rest > 0 ? `; the other${rest === 1 ? "" : "s"} could be chance.` : ".")

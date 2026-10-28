@@ -174,7 +174,43 @@ describe("ANOVA, Tukey, Dunnett", () => {
       ],
       0.05,
     )!;
-    expect(ok(R.tukeyReading(none))).toMatch(/^No pair/);
+    // Two groups: one comparison, said as one (never "one of the one pairs").
+    expect(ok(R.tukeyReading(none))).toBe("The two groups do not differ clearly (family-wise alpha = 0.05).");
+    const two = tukeyHSD(
+      [
+        [1, 2, 3],
+        [7, 8, 9],
+      ],
+      0.05,
+    )!;
+    expect(ok(R.tukeyReading(two))).toMatch(/^At family-wise alpha = 0\.05, group 2 is 6 higher than group 1 \(p/);
+    const none3 = tukeyHSD(
+      [
+        [1, 2, 3],
+        [1.2, 2.1, 3.3],
+        [0.9, 2.2, 3.1],
+      ],
+      0.05,
+    )!;
+    expect(ok(R.tukeyReading(none3))).toMatch(/^No pair of the three groups differs clearly once all three comparisons/);
+    const one3 = tukeyHSD(
+      [
+        [1, 2, 3],
+        [1.2, 2.1, 3.3],
+        [9, 10, 11],
+      ],
+      0.05,
+    )!;
+    expect(ok(R.tukeyReading(one3))).toMatch(/^Two of the three pairs differ at/);
+  });
+  test("ANOVA with two groups: no 'which groups' sentence", () => {
+    const res = oneWayAnova([
+      [1, 2, 3],
+      [7, 8, 9],
+    ]);
+    const r = ok(R.anovaReading(res, 2, reportF(res), assaySig(res.etaSquared, 3)));
+    expect(r).toMatch(/^The two group means differ/);
+    expect(r).not.toMatch(/which groups/);
   });
   test("Dunnett: treatments above the control", () => {
     const g = [
@@ -188,7 +224,14 @@ describe("ANOVA, Tukey, Dunnett", () => {
     expect(r).toMatch(/treatment 3 is 10 above it/);
     expectNumbersIn(r, res.comparisons.map((c) => `Treatment ${c.treatment + 1} − control = ${assaySig(c.meanDifference)} ${formatP(c.p)}`).join("\n"));
     const none = dunnettTest([1, 2, 3, 4], [[1.1, 2.2, 2.9, 4.1]]);
-    expect(ok(R.dunnettReading(none))).toMatch(/^No treatment differs clearly/);
+    expect(ok(R.dunnettReading(none))).toBe("The treatment does not differ clearly from the control; the gap could be chance.");
+    const one = dunnettTest([1, 2, 3, 4], [[11, 12, 13, 14]]);
+    expect(ok(R.dunnettReading(one))).toMatch(/^The treatment differs from the control: it is 10 above it \(p/);
+    const none3 = dunnettTest([1, 2, 3, 4], [
+      [1.1, 2.2, 2.9, 4.1],
+      [0.9, 2.1, 3.2, 3.9],
+    ]);
+    expect(ok(R.dunnettReading(none3))).toMatch(/^No treatment differs clearly from the control once the two comparisons/);
   });
 });
 
@@ -459,6 +502,12 @@ describe("econ-ols / econ-logit / econ-regtable readings", () => {
     expect(mixed.ok).not.toBe(false);
     expectNumbersIn(ok(mixed.reading), hay(mixed));
     expect(mixed.reading).not.toMatch(/R² goes/);
+    // An OLS slope and a log-odds coefficient are never set side by side as if one became the other.
+    expect(mixed.reading).not.toMatch(/goes from/);
+    expect(mixed.reading).toMatch(/on different scales across the models, clearly different from zero in both models/);
+    // No constant: the table's row is the uncentered R², so the reading leaves R² out.
+    const nc = econRegTableCalc(read({ ...OLS, constant: "no", specs: ECON_SPECS_DEFAULT }));
+    expect(ok(nc.reading)).not.toMatch(/R²/);
   });
 });
 
@@ -558,3 +607,151 @@ describe("econ-regtable figure", () => {
 function svgText(svg: string): string {
   return [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).join(" ");
 }
+
+// --- every lib-backed calculator's defaults, read through ONE strict checker ----------------------------------------
+
+import * as fs from "fs";
+import * as path from "path";
+import { tsArimaCalc, tsEtsCalc, TS_ARIMA_DEFAULTS, TS_ETS_DEFAULTS } from "../tsForecastCalcs";
+import { esEventCalc, idxPriceCalc, idxDeflateCalc, ES_EVENT_DEFAULTS, IDX_PRICE_DEFAULTS, IDX_DEFLATE_DEFAULTS } from "../econE3Calcs";
+import { panelFeCalc, panelReCalc, panelDidCalc, PANEL_FE_DEFAULTS, PANEL_RE_DEFAULTS, PANEL_DID_DEFAULTS } from "../panelCalcs";
+import { bootCiCalc, qregCalc, BOOT_CI_DEFAULTS, QREG_DEFAULTS } from "../robustCalcs";
+import { ineqGiniCalc, concHhiCalc, ioLeontiefCalc, INEQ_GINI_DEFAULTS, CONC_HHI_DEFAULTS, IO_LEONTIEF_DEFAULTS } from "../econE5aCalcs";
+import { microMarketCalc, microOligopolyCalc, MICRO_MARKET_DEFAULTS, MICRO_OLIGOPOLY_DEFAULTS } from "../microCalcs";
+import { GAME_NASH_DEFAULTS, MACRO_SOLOW_DEFAULTS, MACRO_ISLM_DEFAULTS, MACRO_TAYLOR_DEFAULTS } from "../gameMacroCalcs";
+import { IV_2SLS_DEFAULTS } from "../ivCalcs";
+import { iv2slsWithReading, gameNashWithReading, macroSolowWithReading, macroIslmWithReading, macroTaylorWithReading } from "../statPaneModelReadings";
+import { rmAnovaCalc, coxCalc } from "../statsBatchCalcs";
+import { welchAnovaCalc, gamesHowellCalc } from "../welchCalcs";
+
+const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8").replace(/\r\n/g, "\n");
+/** The first `default: "…"` of a STAT_CALCS entry, decoded. */
+function paneDefault(id: string): string {
+  const at = PANE.indexOf(`id: "${id}",`, PANE.indexOf("const STAT_CALCS: StatCalc[] = ["));
+  const m = /default: "((?:[^"\\]|\\.)*)"/.exec(PANE.slice(at));
+  if (!m) throw new Error(`no default for ${id}`);
+  return m[1].replace(/\\n/g, "\n");
+}
+const groupsOf = (s: string): number[][] => s.split(/\n\s*\n/).map((g) => g.trim().split(/\s+/).map(Number));
+
+const LIB_CASES: [string, () => StatOutput][] = [
+  ["econ-ols", () => econOlsCalc(read(OLS))],
+  ["econ-regtable", () => econRegTableCalc(read({ ...OLS, specs: ECON_SPECS_DEFAULT }))],
+  ["econ-logit", () => econLogitCalc(read({ data: LOGIT_DEFAULT, spec: LOGIT_SPEC_DEFAULT, model: "logit", se: "classical", constant: "yes" }))],
+  ["ts-arima", () => tsArimaCalc(read(TS_ARIMA_DEFAULTS))],
+  ["ts-ets", () => tsEtsCalc(read(TS_ETS_DEFAULTS))],
+  ["es-event", () => esEventCalc(read(ES_EVENT_DEFAULTS))],
+  ["idx-price", () => idxPriceCalc(read(IDX_PRICE_DEFAULTS))],
+  ["idx-deflate", () => idxDeflateCalc(read(IDX_DEFLATE_DEFAULTS))],
+  ["iv-2sls", () => iv2slsWithReading(read(IV_2SLS_DEFAULTS))],
+  ["panel-fe", () => panelFeCalc(read(PANEL_FE_DEFAULTS))],
+  ["panel-re", () => panelReCalc(read(PANEL_RE_DEFAULTS))],
+  ["panel-did", () => panelDidCalc(read(PANEL_DID_DEFAULTS))],
+  ["boot-ci", () => bootCiCalc(read(BOOT_CI_DEFAULTS))],
+  ["qreg", () => qregCalc(read(QREG_DEFAULTS))],
+  ["ineq-gini", () => ineqGiniCalc(read(INEQ_GINI_DEFAULTS))],
+  ["conc-hhi", () => concHhiCalc(read(CONC_HHI_DEFAULTS))],
+  ["io-leontief", () => ioLeontiefCalc(read(IO_LEONTIEF_DEFAULTS))],
+  ["micro-market", () => microMarketCalc(read(MICRO_MARKET_DEFAULTS))],
+  ["micro-oligopoly", () => microOligopolyCalc(read(MICRO_OLIGOPOLY_DEFAULTS))],
+  ["game-nash", () => gameNashWithReading(read(GAME_NASH_DEFAULTS))],
+  ["macro-solow", () => macroSolowWithReading(read(MACRO_SOLOW_DEFAULTS))],
+  ["macro-islm", () => macroIslmWithReading(read(MACRO_ISLM_DEFAULTS))],
+  ["macro-taylor", () => macroTaylorWithReading(read(MACRO_TAYLOR_DEFAULTS))],
+  ["rmanova", () => rmAnovaCalc(paneDefault("rmanova"), "holm")],
+  ["cox", () => coxCalc(paneDefault("cox"), "efron", null)],
+  ["welchanova", () => welchAnovaCalc(groupsOf(paneDefault("welchanova")))],
+  ["gameshowell", () => gamesHowellCalc(groupsOf(paneDefault("gameshowell")), "0.05")],
+];
+
+describe.each(LIB_CASES)("%s defaults (strict number check)", (id, run) => {
+  test("reading keeps the rules and every number in it is on screen", () => {
+    const o = run();
+    expect(o.ok).not.toBe(false);
+    const r = ok(o.reading);
+    if (process.env.PRINT_READINGS) console.log(`${id}: ${r}`);
+    expectNumbersIn(r, hay(o));
+  });
+});
+
+// --- figure values through the drawn axis ---------------------------------------------------------------------------
+
+/**
+ * One forest panel's x-scale, read back from its own tick labels (grey 10 px text on the axis row), and the circles'
+ * cx in drawing order. The panel is the part of the SVG from its title to the next title.
+ */
+function panelScale(panel: string): { toX: (v: number) => number; cx: number[] } {
+  const ticks = [...panel.matchAll(/<text x="([\d.]+)" y="[\d.]+" text-anchor="middle" font-family="Segoe UI, Arial" font-size="10" fill="#6b7280">([^<]+)<\/text>/g)]
+    .map((m) => ({ x: Number(m[1]), v: Number(m[2].replace("−", "-")) }))
+    .filter((t) => Number.isFinite(t.v));
+  expect(ticks.length).toBeGreaterThanOrEqual(2);
+  const [a, b] = [ticks[0], ticks[ticks.length - 1]];
+  const toX = (v: number): number => a.x + ((v - a.v) / (b.v - a.v)) * (b.x - a.x);
+  const cx = [...panel.matchAll(/<circle cx="([\d.]+)"/g)].map((m) => Number(m[1]));
+  return { toX, cx };
+}
+function panels(svg: string): string[] {
+  return svg.split('data-figure-title="1"').slice(1);
+}
+
+describe("figure values equal the engine's (mapped through the drawn axis, within 1 px)", () => {
+  test("econ-logit: GPA and TUCE coefficients in the first panel", () => {
+    const rows = LOGIT_DEFAULT.split("\n").slice(1).map((l) => l.split(" ").map(Number));
+    const m = fitLogit(
+      rows.map((r) => r[0]),
+      rows.map((r) => r.slice(1)),
+      ["GPA", "TUCE", "PSI"],
+      { constant: true, se: "classical", depName: "grade" },
+    );
+    const [coefPanel, mePanel] = panels(logitCoefFigureSvg(m));
+    const s = panelScale(coefPanel);
+    const preds = m.terms.filter((t) => t.name !== "Constant");
+    preds.forEach((t, i) => expect(Math.abs(s.cx[i] - s.toX(t.coef))).toBeLessThan(1));
+    const s2 = panelScale(mePanel);
+    m.marginalEffects!.forEach((t, i) => expect(Math.abs(s2.cx[i] - s2.toX(t.coef))).toBeLessThan(1));
+  });
+  test("econ-regtable: the GNP panel on the Longley defaults", () => {
+    const o = econRegTableCalc(read({ ...OLS, specs: ECON_SPECS_DEFAULT }));
+    const gnp = panels(o.svg!).find((p) => p.startsWith(' x="150" y="18" text-anchor="middle" font-family="Segoe UI, Arial" font-size="12" fill="#111111">GNP<'))!;
+    expect(gnp).toBeDefined();
+    const s = panelScale(gnp);
+    // The engine's own GNP coefficients, model by model (the same fits the table prints).
+    const coefs = ECON_SPECS_DEFAULT.split("\n").map((spec) => {
+      const one = econOlsCalc(read({ ...OLS, spec }));
+      const row = one.tables![0].rows.find((r) => r[0] === "GNP")!;
+      return Number(row[1].replace(/\*/g, "").replace("−", "-").replace(/,/g, ""));
+    });
+    expect(s.cx.length).toBe(3);
+    // Table cells are rounded to 3 decimals; 1 px on this axis is far wider than that rounding.
+    coefs.forEach((c, i) => expect(Math.abs(s.cx[i] - s.toX(c))).toBeLessThan(1.5));
+  });
+  test("hostile intervals: zero-width at zero, all negative, one tiny next to one huge", () => {
+    const mk = (terms: { coef: number; lo: number; hi: number }[]): FittedModel[] =>
+      terms.map((t) => ({
+        kind: "ols",
+        depName: "y",
+        n: 10,
+        terms: [{ name: "x", coef: t.coef, se: 0, stat: 0, p: 1, ciLo: t.lo, ciHi: t.hi }],
+        statLabel: "t",
+        seLabel: "classical",
+        stats: [],
+        notes: [],
+      }));
+    for (const set of [
+      [{ coef: 0, lo: 0, hi: 0 }],
+      [{ coef: 2, lo: 2, hi: 2 }],
+      [
+        { coef: -5, lo: -7, hi: -3 },
+        { coef: -1, lo: -2, hi: -0.5 },
+      ],
+      [
+        { coef: 1e-12, lo: -1e-12, hi: 3e-12 },
+        { coef: 1e12, lo: 9e11, hi: 1.1e12 },
+      ],
+    ]) {
+      const svg = regTableFigureSvg(mk(set));
+      expect(svg).toMatch(/^<svg/);
+      expect(svg).not.toMatch(/NaN|Infinity/);
+    }
+  });
+});

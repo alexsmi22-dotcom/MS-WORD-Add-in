@@ -368,16 +368,27 @@ export function regTableReading(models: FittedModel[], dec: number): string | un
         ? "clearly different from zero"
         : "not clearly different from zero"
       : nSig === hits.length
-        ? `clearly different from zero in all ${countWord(hits.length)} models that include it`
+        ? hits.length === 2
+          ? "clearly different from zero in both models that include it"
+          : `clearly different from zero in all ${countWord(hits.length)} models that include it`
         : nSig === 0
-          ? `not clearly different from zero in any of the ${countWord(hits.length)} models that include it`
+          ? hits.length === 2
+            ? "not clearly different from zero in either model that includes it"
+            : `not clearly different from zero in any of the ${countWord(hits.length)} models that include it`
         : `clearly different from zero in ${countWord(nSig)} of the ${countWord(hits.length)} models that include it`;
+  // "goes from … to …" only between coefficients on one scale: linear and quantile models are in the response's
+  // units, a logit or probit coefficient is not, so a mixed pair is never set side by side as if one became the other.
+  const scale = (m: FittedModel): string => (m.kind === "logit" || m.kind === "probit" ? m.kind : "linear");
+  const sameScale = hits.every((h) => scale(models[h.i]) === scale(models[first.i]));
   const coefText =
     hits.length === 1
       ? `is ${fmtFixed(first.t.coef, dec)} in model (${first.i + 1})`
-      : `goes from ${fmtFixed(first.t.coef, dec)} in model (${first.i + 1}) to ${fmtFixed(last.t.coef, dec)} in model (${last.i + 1})`;
+      : sameScale
+        ? `goes from ${fmtFixed(first.t.coef, dec)} in model (${first.i + 1}) to ${fmtFixed(last.t.coef, dec)} in model (${last.i + 1})`
+        : "is on different scales across the models";
   let s = `The ${term} coefficient ${coefText}, ${sigText}.`;
-  const allLinear = models.every((m) => isLinearKind(m.kind));
+  // The table's R² row says "uncentered" for a linear model without a constant; the reading then leaves R² out.
+  const allLinear = models.every((m) => isLinearKind(m.kind) && m.terms.some((t) => t.name === "Constant"));
   const r2 = (m: FittedModel): number | undefined => m.stats.find((x) => x.label === "R²")?.value;
   const r0 = r2(models[0]);
   const rk = r2(models[models.length - 1]);

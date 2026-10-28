@@ -47,8 +47,11 @@ class SingularSolve extends GmmRefusal {}
 export const DPD_MAX_GROUPS = 2000;
 /** At most this many periods from the first to the last (gaps included). */
 export const DPD_MAX_PERIODS = 40;
-/** At most this many instrument columns (counted from the plan, before any row is built; see planDynamic). */
-export const DPD_MAX_INSTR = 400;
+/**
+ * At most this many instrument columns (counted from the plan, before any row is built; see planDynamic). The work cap
+ * (4·L³ alone is 1.08×10⁸ at 300) can refuse a little earlier when the groups or rows are many.
+ */
+export const DPD_MAX_INSTR = 300;
 /** At most this many regressors (lags, exogenous terms and kept time dummies). */
 export const DPD_MAX_REGRESSORS = 50;
 /**
@@ -74,7 +77,10 @@ export const DPD_MAX_CELLS = 200_000;
 export const LGMM_MAX_ROWS = 50_000;
 /** Linear GMM: at most this many cells (rows × columns of the pasted table), about 0.1 s to read under Node. */
 export const LGMM_MAX_CELLS = 500_000;
-/** Linear GMM work bound, lgmmWork's estimate. */
+/**
+ * Linear GMM work bound on lgmmWork's estimate, about 0.1 s under Node: 20,000 rows ×
+ * 29 instruments, or 50,000 rows × 18 (one endogenous regressor and the constant).
+ */
 export const LGMM_MAX_WORK = 4e7;
 /** Linear GMM: at most this many distinct columns (endogenous, exogenous, excluded instruments, constant). */
 export const LGMM_MAX_COLUMNS = 60;
@@ -1325,9 +1331,10 @@ export function fitDynamic(des: DynDesign): DynFit {
   const D = new Float64Array(k * k);
   {
     const acc = new Float64Array(k * L);
+    const a = new Float64Array(k * L);
     blocks.forEach((bl, i) => {
       const zc = dot(zu1[i], c);
-      const a = new Float64Array(k * L);
+      a.fill(0);
       for (const r of bl.rows)
         for (let p = 0; p < r.zi.length; p++) {
           const col = r.zi[p];
@@ -1387,6 +1394,7 @@ export function fitDynamic(des: DynDesign): DynFit {
   });
   const sigma2 = ssd / (2 * nObs);
   const sargan = sigma2 > 0 ? quad(A1, g1, L) / sigma2 : NaN;
+  const lastPeriod = blocks.reduce((mx, b) => Math.max(mx, b.dPeriods.length ? b.dPeriods[b.dPeriods.length - 1] : 0), 0);
   const arTests = (res: Float64Array[], zu: Float64Array[], B: Float64Array, V: Float64Array): ArTest[] => {
     const out: ArTest[] = [];
     for (let m = 1; m <= 2; m++) {
@@ -1395,15 +1403,17 @@ export function fitDynamic(des: DynDesign): DynFit {
       let pairs = 0;
       const EX = new Float64Array(k);
       const t3 = new Float64Array(L);
+      // Row of each differenced period in the block (−1: none), reused across blocks.
+      const posOf = new Int32Array(lastPeriod + 1).fill(-1);
+      const wx = new Float64Array(k);
       blocks.forEach((bl, i) => {
         const e = res[i];
-        const posOf = new Map<number, number>();
-        bl.dPeriods.forEach((t, r) => posOf.set(t, r));
+        bl.dPeriods.forEach((t, r) => (posOf[t] = r));
         let wu = 0;
-        const wx = new Float64Array(k);
+        wx.fill(0);
         bl.dPeriods.forEach((t, r) => {
-          const pr = posOf.get(t - m);
-          if (pr === undefined) return;
+          const pr = t - m >= 0 ? posOf[t - m] : -1;
+          if (pr < 0) return;
           const w = e[pr];
           pairs++;
           wu += w * e[r];
@@ -1414,6 +1424,7 @@ export function fitDynamic(des: DynDesign): DynFit {
         d1 += wu * wu;
         for (let j = 0; j < k; j++) EX[j] += wx[j];
         if (wu !== 0) for (let a = 0; a < L; a++) t3[a] += zu[i][a] * wu;
+        bl.dPeriods.forEach((t) => (posOf[t] = -1));
       });
       if (!pairs) {
         out.push({ order: m, z: NaN, p: NaN, why: `no entity has differenced residuals ${m} period${m === 1 ? "" : "s"} apart` });

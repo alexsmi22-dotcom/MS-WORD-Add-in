@@ -272,7 +272,34 @@ def build(ids, times, data, spec):
     return blocks, names_out, dropped, t0
 
 
+def independent_columns(m, tol=1e-10):
+    """
+    Greedy column selection in order, as the engine's independentColumns: a column is kept when its squared distance
+    from the span of the kept columns exceeds tol times its own squared norm (columns scaled to unit norm first).
+    """
+    nrm = np.sqrt((m * m).sum(0))
+    kept = []
+    basis = np.zeros((m.shape[0], 0))
+    for j in range(m.shape[1]):
+        if not nrm[j] > 0:
+            continue
+        v = m[:, j] / nrm[j]
+        if basis.shape[1]:
+            v = v - basis @ (basis.T @ v)
+            v = v - basis @ (basis.T @ v)  # second pass for orthogonality
+        r2 = float(v @ v)
+        if r2 > tol:
+            kept.append(j)
+            basis = np.column_stack([basis, v / np.sqrt(r2)])
+    return kept
+
+
 def dpd(blocks, steps=2):
+    # Linearly dependent instrument columns are dropped first, in order, as the engine does. With a nonsingular
+    # two-step weight this changes nothing; with a singular one (more instruments than groups) the generalized inverse
+    # depends on which columns are present, so the oracle must drop the same ones.
+    keepz = independent_columns(np.vstack([b["Z"] for b in blocks]))
+    blocks = [dict(b, Z=b["Z"][:, keepz]) for b in blocks]
     N = len(blocks)
     L = blocks[0]["Z"].shape[1]
     ZHZ = sum(b["Z"].T @ b["H"] @ b["Z"] for b in blocks)

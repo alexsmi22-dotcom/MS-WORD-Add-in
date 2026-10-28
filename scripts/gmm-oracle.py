@@ -352,11 +352,21 @@ def main():
         ("synthetic endogenous x, system, time dummies", s1, dict(sb, timeDummies="yes")),
         ("synthetic rho 0.8, two lags of y, difference", s2, dict(sb, spec="y ~ L.y + L2.y + x + z", estimator="difference", lagLast="5")),
         ("synthetic rho 0.8, system, first lag 3", s2, dict(sb, spec="y ~ L.y + x + z", lagFirst="3", lagLast="5")),
+        # More instruments than groups: the two-step weight is singular, so the generalized-inverse convention matters
+        # (gmm_np and the calculator: Moore-Penrose of the unit-diagonal scaling). pydynpd inverts the unscaled matrix:
+        # its numbers are recorded for the report, not asserted.
+        ("default, endogenous price (singular two-step weight)", dt, dict(base, endog="price")),
+        ("default, endogenous price, all lags, no dummies (singular two-step weight)", dt, dict(base, endog="price", lagLast="", timeDummies="no")),
     ]
     for label, text, f in dyn_cases:
         r = run_np(text, f)
         case = dict(label=label, data=text if text is not dt else "@dyn-default", fields=f, np=r)
-        if f["lagFirst"] != "2" and f["estimator"] == "system":
+        if "singular" in label:
+            if f["timeDummies"] == "no":
+                # NaN (pydynpd's SEs can be the square root of a negative variance here) is written as null.
+                clean = lambda v: [clean(x) for x in v] if isinstance(v, list) else {k: clean(x) for k, x in v.items()} if isinstance(v, dict) else (None if isinstance(v, float) and v != v else v)
+                case["pydynpdUnscaledInverse"] = clean(run_pydynpd(text, f))
+        elif f["lagFirst"] != "2" and f["estimator"] == "system":
             # pydynpd starts the level equation at the first period its level instrument (dated a - 1) exists
             # (dynamic_panel_model.get_info: first_level_index = max(max_lag, a - 1)); xtabond2 keeps those rows
             # with the instrument "missing = 0". Different samples, so no pydynpd comparison here.

@@ -436,10 +436,10 @@ describe("degenerate inputs are refused by name; wording", () => {
     const t0 = Date.now();
     const o = run("panel-dyn-gmm", { ...DYN, data: wide, endog: "x", lagLast: "17" });
     expect(o.ok).toBe(false);
-    expect(o.text).toMatch(/^The instrument set would have about [\d,]+ columns; this calculator allows 400/);
-    const w = run("panel-dyn-gmm", { ...DYN, data: wide, lagLast: "10", timeDummies: "yes" });
+    expect(o.text).toMatch(/^The instrument set would have about [\d,]+ columns; this calculator allows 300/);
+    const w = run("panel-dyn-gmm", { ...DYN, data: dynPanel(250, 40), lagLast: "6", timeDummies: "yes" });
     expect(w.ok).toBe(false);
-    expect(w.text).toMatch(/^60 groups and [\d,]+ stacked rows with about \d+ instruments is beyond the work/);
+    expect(w.text).toMatch(/^250 groups and [\d,]+ stacked rows with about \d+ instruments is beyond the work/);
     expect(Date.now() - t0).toBeLessThan(1000);
   });
 });

@@ -15,7 +15,7 @@ import type { StatCalcDef } from "./statCalc";
 import { findColumn, parseRegData, selectColumns, type RegDataset } from "./regData";
 import { readPanel } from "./panelData";
 import { readDateToken, civilFromDay } from "./damagesInterest";
-import { fmtFixed, fmtP, intText, numText, P_BELOW } from "./regTable";
+import { fmtFixed, fmtP, fmtSci, intText, numText, P_BELOW } from "./regTable";
 import { buildPlotSvg, type Series } from "./plot";
 import { chiSquareP } from "./stats2";
 import { ivDefaultTable } from "./ivCalcs";
@@ -62,15 +62,42 @@ function pText(p: number): string {
   if (!Number.isFinite(p)) return "p not computed";
   return p < 0.001 ? `p ${P_BELOW}` : `p = ${p.toFixed(3)}`;
 }
-/** "a to b" (the word, never a dash that could read as a minus). */
+/** Fixed decimals with a true minus and no "−0" (toFixed never switches to exponents below 10²¹). */
+function fixedText(v: number, d: number): string {
+  let s = v.toFixed(d);
+  if (/^-0(?:\.0*)?$/.test(s)) s = s.slice(1);
+  return s.startsWith("-") ? "−" + s.slice(1) : s;
+}
+/**
+ * A coefficient or standard error: four decimals from 0.01 up (at least three significant figures), three significant
+ * figures below (0.000912, never "0.0009"), m×10ⁿ below 10⁻⁴.
+ */
+function coefText(v: number): string {
+  if (!Number.isFinite(v)) return "";
+  const a = Math.abs(v);
+  if (a === 0 || a >= 0.01) return fmtFixed(v, D);
+  if (a >= 1e-4) return fixedText(v, 2 - Math.floor(Math.log10(a)));
+  return fmtSci(v, 3);
+}
+/**
+ * "a to b" (the word, never a dash that could read as a minus), both bounds in one format: four decimals when the
+ * larger bound is at least 0.01, else as many decimals as give the larger bound three significant figures, or m×10ⁿ
+ * for both when it is below 10⁻⁴.
+ */
 function ci(lo: number, hi: number): string {
-  return `${fmtFixed(lo, D)} to ${fmtFixed(hi, D)}`;
+  const m = Math.max(Math.abs(lo), Math.abs(hi));
+  if (!(m < 0.01)) return `${fmtFixed(lo, D)} to ${fmtFixed(hi, D)}`;
+  if (m >= 1e-4) {
+    const d = 2 - Math.floor(Math.log10(m));
+    return `${fixedText(lo, d)} to ${fixedText(hi, d)}`;
+  }
+  return `${fmtSci(lo, 3)} to ${fmtSci(hi, 3)}`;
 }
 function coefRow(name: string, b: number, se: number): string[] {
   const z = b / se;
   // Two-sided normal p as P(χ²₁ > z²): the upper tail keeps its precision far out (1 − Φ would cancel).
   const p = chiSquareP(z * z, 1);
-  return [name, fmtFixed(b, D), fmtFixed(se, D), Number.isFinite(z) ? fmtFixed(z, 2) : "not computed", Number.isFinite(z) ? fmtP(p) : "not computed", ci(b - GMM_Z975 * se, b + GMM_Z975 * se)];
+  return [name, coefText(b), coefText(se), Number.isFinite(z) ? fmtFixed(z, 2) : "not computed", Number.isFinite(z) ? fmtP(p) : "not computed", ci(b - GMM_Z975 * se, b + GMM_Z975 * se)];
 }
 /**
  * A value outside 10⁻¹⁰⁰…10¹⁰⁰ (or 0) makes the cross-products overflow or vanish, which would surface as a false
@@ -272,7 +299,8 @@ export function econGmmFitFromRead(read: Read): GmmFitted | { error: string } {
   if (c.y.every((v) => v === c.y[0])) return err(`The response ${q(c.depName)} is constant in every row used; there is nothing to explain.`);
   let r: LinearGmmResult;
   try {
-    r = fitLinearGmm({ y: c.y, X, names, Z, clusters, G, steps: steps === "two" ? 2 : 1, nEndog: k1, nExcluded: instr.length });
+    const zNames = [...c.names.slice(k1 + k2), ...c.names.slice(k1, k1 + k2), ...(constant ? ["Constant"] : [])];
+    r = fitLinearGmm({ y: c.y, X, names, Z, clusters, G, steps: steps === "two" ? 2 : 1, nEndog: k1, nExcluded: instr.length, yName: q(c.depName), zNames });
   } catch (e) {
     const f = fail(e, "GMM estimate");
     return err(f.text);
@@ -318,7 +346,11 @@ export function econGmmCalc(read: Read): StatOutput {
     "Conventions (linearmodels 7.1 IVGMM): step 1 is 2SLS, W₀ = (ZᵀZ/n)⁻¹; step 2 uses W = Ŝ⁻¹ with Ŝ = (1/n) Σ zᵢzᵢᵀûᵢ² from the 2SLS residuals" +
       (cluster ? " (clustered: (1/n) times the sum over clusters of (Σ zᵢûᵢ)(Σ zᵢûᵢ)ᵀ, each sum within a cluster)" : "") +
       "; the covariance is the sandwich (GᵀWG)⁻¹GᵀWŜWG(GᵀWG)⁻¹/n, G = ZᵀX/n, with Ŝ re-estimated at the final residuals and no small-sample factor (debiased = False); " +
-      "J = n·ḡᵀWḡ, uncentered, with W from the 2SLS residuals, computed whichever step is reported. One-step GMM with the 2SLS weight is 2SLS with a robust covariance.",
+      "J = n·ḡᵀWḡ, uncentered, with W from the 2SLS residuals, computed whichever step is reported. One-step GMM with the 2SLS weight is 2SLS with a robust covariance. " +
+      (constant
+        ? "Before any cross-product, the response and every column but the constant lose their means (an exact reparametrization; the constant's estimate and SE are mapped back), and every rank decision and inversion is taken on matrices scaled to a unit diagonal: no result depends on the units of a column, and none but the constant's on a column's location. "
+        : "Every rank decision and inversion is taken on matrices scaled to a unit diagonal, so no result depends on the units of a column; without a constant, results do depend on each column's location (the most offset-dominated exogenous column, when there is one, anchors an exact recentering of the others for accuracy). ") +
+      "Values more than 10⁸ times their remaining variation are refused by name rather than answered from rounding.",
   );
   if (!data.named) lines.push("The table had no header row, so its columns are named y, x1, x2… in order.");
   lines.push("Rows with an empty or NA cell in any column the model uses are dropped (listwise deletion).", ...c.notes);
@@ -330,17 +362,22 @@ export function econGmmCalc(read: Read): StatOutput {
     },
     {
       label: `Step 1 (2SLS, ${cluster ? "clustered" : "robust"} SEs) beside the reported GMM estimate`,
-      rows: [["Term", "2SLS", "SE", "GMM", "SE"], ...names.map((nm, j) => [nm, fmtFixed(r.tsls.b[j], D), fmtFixed(r.tsls.se[j], D), fmtFixed(r.gmm.b[j], D), fmtFixed(r.gmm.se[j], D)])],
+      rows: [["Term", "2SLS", "SE", "GMM", "SE"], ...names.map((nm, j) => [nm, coefText(r.tsls.b[j]), coefText(r.tsls.se[j]), coefText(r.gmm.b[j]), coefText(r.gmm.se[j])])],
       align: ["left", "right", "right", "right", "right"],
     },
   ];
-  const svg = k1 ? gmmCoefFigure(names.slice(0, k1), r) : undefined;
+  const svg = k1 ? gmmCoefFigure(names.slice(0, k1), r, cluster ? `clustered by ${c.clusterName ?? cluster}` : "heteroskedasticity-robust") : undefined;
   return { text: lines.join("\n"), tables, ...(svg ? { svg } : {}) };
 }
 
 /** Each endogenous coefficient, 2SLS against GMM, with 95% intervals (plot.buildPlotSvg; no new SVG builder). */
-export function gmmCoefFigure(endog: string[], r: LinearGmmResult): string {
+export function gmmCoefFigure(endog: string[], r: LinearGmmResult, weight = "heteroskedasticity-robust"): string {
   const k = endog.length;
+  // Tick labels must fit their slot (about 6.5 px a character at the tick font over a 300 px plot): longer names are
+  // shortened with an ellipsis, and the note lists them in full.
+  const maxChars = Math.max(4, Math.floor(300 / (k + 0.2) / 6.5) - 1);
+  const tick = endog.map((nm) => (nm.length > maxChars ? `${nm.slice(0, maxChars - 1)}…` : nm));
+  const shortened = tick.some((t, j) => t !== endog[j]);
   const a: { x: number; y: number; err: number }[] = [];
   const b: { x: number; y: number; err: number }[] = [];
   endog.forEach((_, j) => {
@@ -361,9 +398,12 @@ export function gmmCoefFigure(endog: string[], r: LinearGmmResult): string {
     xLimits: { min: 0.4, max: k + 0.6 },
     xTickLabel: (v: number) => {
       const j = Math.round(v);
-      return Math.abs(v - j) < 1e-9 && j >= 1 && j <= k ? endog[j - 1] : "";
+      return Math.abs(v - j) < 1e-9 && j >= 1 && j <= k ? tick[j - 1] : "";
     },
-    notes: ["Both with robust (sandwich) standard errors and normal intervals, on the same rows."],
+    notes: [
+      `Both with ${weight} (sandwich) standard errors and normal intervals, on the same rows.`,
+      ...(shortened ? [`Ticks, in order: ${endog.join(", ")}.`] : []),
+    ],
   });
 }
 
@@ -540,7 +580,7 @@ function readDyn(read: Read): DynRead | { error: string } {
   const notes: string[] = [];
   const entIndex = new Map<string, number>();
   const entNames: string[] = [];
-  const perVar = new Map<string, { ent: number; per: number; v: number }[]>();
+  const perVar = new Map<string, { ent: Int32Array; per: Float64Array; v: Float64Array }>();
   let kind = "";
   let entityName = "";
   let timeName = "";
@@ -561,7 +601,7 @@ function readDyn(read: Read): DynRead | { error: string } {
       reads.push({ v, p: pr.panel, y: pr.panel.y });
     }
   }
-  let perCache: { p: PanelOf; perOf: number[] } | null = null;
+  let perCache: { p: PanelOf; perOf: number[]; entOf: Int32Array } | null = null;
   for (const { v, p, y: vals } of reads) {
     entityName = p.entityName;
     timeName = p.timeName;
@@ -596,18 +636,23 @@ function readDyn(read: Read): DynRead | { error: string } {
       perOf.push(per);
       if (!labelOfPer.has(per)) labelOfPer.set(per, lab.replace(/^-/, "−"));
     }
-    const obs: { ent: number; per: number; v: number }[] = [];
-    for (let i = 0; i < p.n; i++) {
-      const nm = p.entityNames[p.entity[i]];
+    // Entity numbers by the panel's own entity codes (one Map lookup per entity, not per row).
+    const entOf: Int32Array = perCache && perCache.p === p ? perCache.entOf : Int32Array.from(p.entityNames, (nm) => {
       let e = entIndex.get(nm);
       if (e === undefined) {
         e = entNames.length;
         entIndex.set(nm, e);
         entNames.push(nm);
       }
-      obs.push({ ent: e, per: perOf[p.time[i]], v: vals[i] });
+      return e;
+    });
+    const obs = { ent: new Int32Array(p.n), per: new Float64Array(p.n), v: new Float64Array(p.n) };
+    for (let i = 0; i < p.n; i++) {
+      obs.ent[i] = entOf[p.entity[i]];
+      obs.per[i] = perOf[p.time[i]];
+      obs.v[i] = vals[i];
     }
-    perCache = { p, perOf };
+    perCache = { p, perOf, entOf };
     const big = magnitude(vals, p.rowNumbers, v);
     if (big) return { error: big };
     perVar.set(v, obs);
@@ -617,9 +662,9 @@ function readDyn(read: Read): DynRead | { error: string } {
   let pmin = Infinity;
   let pmax = -Infinity;
   for (const obs of perVar.values())
-    for (const o of obs) {
-      if (o.per < pmin) pmin = o.per;
-      if (o.per > pmax) pmax = o.per;
+    for (let i = 0; i < obs.per.length; i++) {
+      if (obs.per[i] < pmin) pmin = obs.per[i];
+      if (obs.per[i] > pmax) pmax = obs.per[i];
     }
   const T = pmax - pmin + 1;
   if (!(T >= 1) || T > DPD_MAX_PERIODS) {
@@ -630,7 +675,7 @@ function readDyn(read: Read): DynRead | { error: string } {
   const series = new Map<string, Float64Array[]>();
   for (const [v, obs] of perVar) {
     const arr = Array.from({ length: N }, () => new Float64Array(T).fill(NaN));
-    for (const o of obs) arr[o.ent][o.per - pmin] = o.v;
+    for (let i = 0; i < obs.v.length; i++) arr[obs.ent[i]][obs.per[i] - pmin] = obs.v[i];
     series.set(v, arr);
   }
   // A constant response is refused here (its differences are all zero).
@@ -647,7 +692,7 @@ function readDyn(read: Read): DynRead | { error: string } {
   }
   const periodLabels = Array.from({ length: T }, (_, i) => labelOfPer.get(pmin + i) ?? (kind === "whole" ? String(pmin + i).replace(/^-/, "−") : `period ${i + 1}`));
   return {
-    data: { series, N, T, periodLabels, timeName },
+    data: { series, N, T, periodLabels, timeName, entityNames: entNames },
     spec: {
       y: depName,
       terms,
@@ -693,7 +738,7 @@ export function dynFitFromRead(read: Read): DynResult | { error: string } {
       checkPlan(otherPlan);
       if (plan.work + otherPlan.work + DPD_READ_COST * r.nCells > DPD_MAX_PAIR_WORK) {
         otherPlan = null;
-        otherWhy = "not computed: fitting it too would exceed the task pane's work budget";
+        otherWhy = "fitting it too would exceed the task pane's work budget";
       }
     } catch (e) {
       if (!(e instanceof GmmRefusal)) throw e;
@@ -786,7 +831,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   if (fit.singularA1) {
     lines.push(
       `The one-step weight matrix Σ ZᵢᵀHᵢZᵢ is singular (rank ${intText(fit.rankA1)} for ${intText(fit.L)} instruments), so a generalized inverse was used for it: the one-step estimates and the Sargan statistic then depend on how that inverse is taken. ` +
-        "Usually an instrument is (nearly) a combination of the others within the differenced rows; collapse the instruments or set a last lag.",
+        "Usually an instrument is (nearly) a combination of the others in the rows the weight is built from (in system GMM, the differenced and level rows together); collapse the instruments or set a last lag.",
     );
   }
   if (fit.singularS) {
@@ -810,7 +855,10 @@ export function panelDynGmmCalc(read: Read): StatOutput {
       `z statistics and normal intervals, no small-sample factor (Stata's “small” would multiply the SEs by √((n − 1)/(n − k)·G/(G − 1)) and use t, n the observations). ` +
       `Sargan = g₁ᵀA₁g₁/σ̂² from the one-step residuals with σ̂² = ΣΔû²/(2n); Hansen J is the two-step criterion, printed after one-step too; AR tests use the reported step's residuals and covariance. ` +
       `The observation count is ${sys ? "the level rows (xtabond2's convention for system GMM; pydynpd prints the differenced rows)" : "the differenced rows"}. ` +
-      "Instruments are counted after dropping linearly dependent columns; every matrix is scaled to a unit diagonal before it is inverted, so no result depends on the units of a column, and a singular weight is inverted by the Moore–Penrose inverse of that scaled matrix (xtabond2 and pydynpd invert the unscaled one, which changes with the units). " +
+      "Instruments are counted after dropping linearly dependent columns. Before any cross-product the columns are recentered by exact reparametrizations of the regressors and instruments (level rows against the constant; in difference GMM with time dummies, each GMM-style column period by period; otherwise later lags as differences from the first), and every matrix is scaled to a unit diagonal before it is inverted. " +
+      "So no result depends on the units of a column, and adding a constant to a column changes nothing where the estimator itself does not depend on it: an exogenous regressor always; the response and the endogenous regressors only with time dummies and no gaps in their histories (otherwise their levels instrument the differenced equation, with 0 where a lag is missing, and the offset genuinely matters). " +
+      "Values more than 10⁸ times their remaining variation (3×10⁴ for a level kept as an instrument in a system GMM panel with time dummies and gaps) are refused by name rather than answered from rounding. " +
+      "A singular weight is inverted by the Moore–Penrose inverse of that recentered, scaled matrix (xtabond2 and pydynpd invert the raw one, which changes with the units and offsets). The Sargan and Hansen df are L − k, instruments less coefficients, even when the two-step weight is rank-deficient (as xtabond2 reports them). " +
       "pydynpd 0.2.2 agrees on coefficients, two-step SEs, Hansen J and two-step AR tests, but parameterizes time dummies by dropping the first (other coefficients are the same), instruments system-GMM time dummies in both equations, and its one-step AR statistic uses the two-step moment vector (Roodman's formula, used here, reproduces the published one-step values)" +
       (sys && r.spec.lagFirst > 2
         ? `; with a first lag of ${r.spec.lagFirst}, pydynpd also starts the level equation at the first period whose level instrument (dated ${r.spec.lagFirst - 1} back) exists, while xtabond2 and this calculator keep those rows with the instrument set to 0, so the samples differ.`
@@ -840,7 +888,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   const cmpRows: string[][] = [["Estimator", `${rhoLabel}`, "SE", "95% CI", "Note"]];
   for (const c of cmp) {
     if (c.b === undefined || c.se === undefined) cmpRows.push([c.name, "not computed", "", "", c.note]);
-    else cmpRows.push([c.name, fmtFixed(c.b, D), fmtFixed(c.se, D), ci(c.b - GMM_Z975 * c.se, c.b + GMM_Z975 * c.se), c.note]);
+    else cmpRows.push([c.name, coefText(c.b), coefText(c.se), ci(c.b - GMM_Z975 * c.se, c.b + GMM_Z975 * c.se), c.note]);
   }
   tables.push({ label: `The coefficient of ${rhoLabel} by estimator (the Nickell bracket)`, rows: cmpRows, align: ["left", "right", "right", "right", "left"] });
   const svg = rhoFigure(cmp, rhoLabel);
@@ -883,7 +931,7 @@ function comparison(r: DynRead, fit: DynFit, twoStep: boolean, ylag: number, oth
 }
 
 /** ρ by estimator with 95% intervals (plot.buildPlotSvg; no new SVG builder), or null when fewer than two are estimable. */
-export function rhoFigure(cmp: { name: string; b?: number; se?: number }[], rhoLabel: string): string | null {
+export function rhoFigure(cmp: { name: string; b?: number; se?: number; note?: string }[], rhoLabel: string): string | null {
   const pts = cmp.map((c, i) => ({ c, x: i + 1 })).filter((o) => o.c.b !== undefined && o.c.se !== undefined);
   if (pts.length < 2) return null;
   const short: Record<string, string> = { "Pooled OLS": "OLS", "Fixed effects": "FE", "Difference GMM": "Diff. GMM", "System GMM": "Sys. GMM" };
@@ -901,9 +949,13 @@ export function rhoFigure(cmp: { name: string; b?: number; se?: number }[], rhoL
     xLimits: { min: 0.4, max: k + 0.6 },
     xTickLabel: (v: number) => {
       const j = Math.round(v);
-      return Math.abs(v - j) < 1e-9 && j >= 1 && j <= k ? short[cmp[j - 1].name] ?? cmp[j - 1].name : "";
+      // A tick only where a point is drawn; an estimator not computed is named in the note instead.
+      return Math.abs(v - j) < 1e-9 && j >= 1 && j <= k && cmp[j - 1].b !== undefined && cmp[j - 1].se !== undefined ? short[cmp[j - 1].name] ?? cmp[j - 1].name : "";
     },
-    notes: ["A consistent GMM estimate should lie between fixed effects (biased down) and pooled OLS (biased up). OLS and FE: cluster-robust by entity."],
+    notes: [
+      "A consistent GMM estimate should lie between fixed effects (biased down) and pooled OLS (biased up). OLS and FE: cluster-robust by entity.",
+      ...cmp.filter((c) => c.b === undefined || c.se === undefined).map((c) => `${c.name}: not computed${"note" in c && c.note ? ` (${c.note})` : ""}.`),
+    ],
   });
 }
 

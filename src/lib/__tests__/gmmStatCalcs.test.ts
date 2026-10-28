@@ -525,6 +525,266 @@ describe("units: rescaling one column rescales its coefficient and changes nothi
   });
 });
 
+// ---------------------------------------------------------------------------------------------------- location
+
+/** The table with c added to one column (shortest round-trip text of the sum, as a user's shifted column would be). */
+function shiftCol(text: string, col: string, c: number): string {
+  const lines = text.split("\n");
+  const j = lines[0].split("\t").indexOf(col);
+  if (j < 0) throw new Error(col);
+  return [lines[0], ...lines.slice(1).map((l) => {
+    const r = l.split("\t");
+    r[j] = String(Number(r[j]) + c);
+    return r.join("\t");
+  })].join("\n");
+}
+/** A 32-bit LCG and Box–Muller normals (deterministic test data). */
+function lcg(seed: number): { u: () => number; g: () => number } {
+  let s = seed >>> 0;
+  const u = (): number => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return (s + 0.5) / 4294967296;
+  };
+  return { u, g: () => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u()) };
+}
+/** Linear IV data: two endogenous regressors d1, d2, exogenous x, instruments z1…z3, 25 clusters. */
+function linData(n: number, seed: number, xScale = 1): string {
+  const r = lcg(seed);
+  const L = ["y\td1\td2\tx\tz1\tz2\tz3\tcl"];
+  for (let i = 0; i < n; i++) {
+    const c = i % 25;
+    const z1 = r.g();
+    const z2 = r.g();
+    const z3 = r.g() + 0.2 * r.u();
+    const x = r.g();
+    const u = r.g() * (1 + 0.5 * Math.abs(x)) + 0.5 * Math.sin(c);
+    const d1 = 0.8 * z1 + 0.3 * z2 + 0.5 * u + r.g();
+    const d2 = 0.2 * z1 + 0.7 * z3 - 0.4 * z2 + 0.3 * u + r.g();
+    const y = 1 + 0.5 * d1 - 0.3 * d2 + 0.2 * x + u;
+    L.push([y, d1, d2, x * xScale, z1, z2, z3].map((a) => a.toPrecision(15)).join("\t") + `\tc${c}`);
+  }
+  return L.join("\n");
+}
+/** A balanced dynamic panel with an endogenous w: y = 0.5·y₋₁ + 0.4x + 0.3w + η + ε. */
+function dynPanel3(N: number, T: number, seed: number, drop?: (i: number, t: number) => boolean): string {
+  const r = lcg(seed);
+  const lines = ["id\tyear\ty\tx\tw"];
+  for (let i = 0; i < N; i++) {
+    const eta = r.g();
+    let y = eta / 0.5 + r.g();
+    let wp = 0;
+    for (let t = 0; t < T + 5; t++) {
+      const x = r.g() + (0.3 * t) / T;
+      const e = r.g();
+      const w = 0.5 * wp + 0.5 * e + r.g() + 0.3 * eta;
+      wp = w;
+      y = 0.5 * y + 0.4 * x + 0.3 * w + eta + e;
+      if (t >= 5 && !(drop && drop(i, t - 5))) lines.push(`f${i}\t${2000 + t - 5}\t${y.toPrecision(15)}\t${x.toPrecision(15)}\t${w.toPrecision(15)}`);
+    }
+  }
+  return lines.join("\n");
+}
+const rel6 = (a: number, b: number, what: string, tol = 1e-6): void => {
+  if (!(Math.abs(a - b) <= tol * Math.max(Math.abs(a), Math.abs(b), 1e-300))) throw new Error(`${what}: ${a} vs ${b}`);
+};
+
+describe("location: adding a constant to a column changes nothing the model does not depend on, up to 10⁷ times its spread", () => {
+  const OFFSETS = [1e3, 1e5, 1e7, 3e7];
+  const dyn3 = dynPanel3(40, 8, 5);
+  const dynCfgs: Record<string, string>[] = [];
+  for (const estimator of ["system", "difference"]) for (const timeDummies of ["yes", "no"]) for (const collapse of ["yes", "no"]) for (const endog of ["", "w"])
+    dynCfgs.push({ estimator, timeDummies, collapse, endog, spec: "y ~ L.y + x + w", entity: "id", time: "year", lagLast: collapse === "yes" ? "" : "4", steps: "two" });
+  test.each(dynCfgs.map((c) => [JSON.stringify(c).replace(/"spec":"[^"]*",|"entity":"id","time":"year",/g, ""), c] as const))("panel-dyn-gmm %s", (_l, cfg) => {
+    const ref = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: dyn3 }));
+    if ("error" in ref) throw new Error(ref.error);
+    // An exogenous x always; y and the endogenous w only with time dummies (balanced panel): otherwise their levels
+    // instrument the differenced equation and the offset genuinely changes the estimator.
+    const cols = ["x", ...(cfg.timeDummies === "yes" ? ["y", "w"] : [])];
+    for (const col of cols)
+      for (const c of OFFSETS) {
+        const f = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: shiftCol(dyn3, col, c) }));
+        if ("error" in f) throw new Error(`${col} + ${c}: refused: ${f.error}`);
+        expect(f.fit.L).toBe(ref.fit.L);
+        expect(f.des.names).toEqual(ref.des.names);
+        for (const [s, r] of [[f.fit.one, ref.fit.one], [f.fit.two!, ref.fit.two!]] as const) {
+          ref.des.names.forEach((nm, j) => {
+            if (nm === "Constant") return;
+            rel6(s.b[j], r.b[j], `${col} + ${c} b ${nm}`);
+            rel6(s.se[j], r.se[j], `${col} + ${c} se ${nm}`);
+          });
+          s.ar.forEach((a, i) => rel6(a.z, r.ar[i].z, `${col} + ${c} AR(${i + 1})`));
+        }
+        if (ref.fit.df > 0) {
+          rel6(f.fit.hansen, ref.fit.hansen, `${col} + ${c} Hansen`);
+          rel6(f.fit.sargan, ref.fit.sargan, `${col} + ${c} Sargan`);
+        }
+      }
+    // Without time dummies a large offset on y is a different (well-defined) estimator, answered, not refused.
+    if (cfg.timeDummies === "no") {
+      const f = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: shiftCol(dyn3, "y", 3e7) }));
+      if ("error" in f) throw new Error(`y + 3e7 without dummies: refused: ${f.error}`);
+    }
+    // Beyond 10⁸ times the spread: refused by name, never a collinearity or under-identification message.
+    const big = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: shiftCol(dyn3, "x", 1e10) }));
+    expect("error" in big && big.error).toMatch(/^The values of “x” are too large relative to their variation to estimate in double precision .*subtract a constant from “x”/);
+  });
+  test("panel-dyn-gmm: system GMM with time dummies and gaps refuses a large offset on y by name; difference GMM answers it", () => {
+    const gaps = dynPanel3(40, 8, 7, (i, t) => i % 7 === 3 && t === 4);
+    const cfg = { spec: "y ~ L.y + x", entity: "id", time: "year", lagLast: "", collapse: "yes" };
+    const sys = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: shiftCol(gaps, "y", 1e6) }));
+    expect("error" in sys && sys.error).toMatch(/^The values of “y” are too large relative to their variation for this system GMM with time dummies and gaps in the panel/);
+    // Below that limit the answer is accurate (the dummies absorb the offset almost, not exactly: a small genuine change).
+    const s0 = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: gaps }));
+    const s1 = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: shiftCol(gaps, "y", 1e3) }));
+    if ("error" in s0 || "error" in s1) throw new Error("system with gaps refused");
+    expect(Math.abs(s1.fit.two!.b[0] - s0.fit.two!.b[0])).toBeLessThan(0.05);
+    // With gaps a missing lag is 0 ("missing = 0"), so the offset genuinely changes the instruments; difference GMM
+    // answers it (its recentering stays exact), converging as the offset grows.
+    const d = [1e5, 1e6, 1e7].map((c) => dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, estimator: "difference", data: shiftCol(gaps, "y", c) })));
+    for (const f of d) if ("error" in f) throw new Error(`difference with gaps refused: ${f.error}`);
+    const b = d.map((f) => ("error" in f ? NaN : f.fit.two!.b[0]));
+    expect(Math.abs(b[2] - b[1])).toBeLessThan(Math.abs(b[1] - b[0]) + 1e-9);
+  });
+  test("panel-dyn-gmm: the constant moves with the offset of y exactly (system GMM, time dummies)", () => {
+    const cfg = { spec: "y ~ L.y + x", entity: "id", time: "year", lagLast: "", collapse: "yes" };
+    const a = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: dyn3 }));
+    const b = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: shiftCol(dyn3, "y", 1e5) }));
+    if ("error" in a || "error" in b) throw new Error("refused");
+    const ci = a.des.names.indexOf("Constant");
+    const rho = a.fit.two!.b[0];
+    // y + c: the level equation y = ρ·y₋₁ + … + const gains c(1 − ρ) in its constant.
+    rel6(b.fit.two!.b[ci] - a.fit.two!.b[ci], 1e5 * (1 - rho), "constant shift", 1e-7);
+  });
+
+  const lin = linData(300, 3);
+  const econCfgs: Record<string, string>[] = [];
+  for (const steps of ["one", "two"]) for (const weight of ["robust", "cluster"]) econCfgs.push({ spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3", steps, weight, cluster: weight === "cluster" ? "cl" : "" });
+  test.each(econCfgs.map((c) => [`${c.steps} ${c.weight}`, c] as const))("econ-gmm %s", (_l, cfg) => {
+    const ref = econGmmFitFromRead(reader("econ-gmm", { ...cfg, data: lin }));
+    if ("error" in ref) throw new Error(ref.error);
+    for (const col of ["y", "x", "z1", "d1"])
+      for (const c of OFFSETS) {
+        const f = econGmmFitFromRead(reader("econ-gmm", { ...cfg, data: shiftCol(lin, col, c) }));
+        if ("error" in f) throw new Error(`${col} + ${c}: refused: ${f.error}`);
+        for (const [s, r] of [[f.r.gmm, ref.r.gmm], [f.r.tsls, ref.r.tsls]] as const)
+          ref.names.forEach((nm, j) => {
+            if (nm === "Constant") return;
+            rel6(s.b[j], r.b[j], `${col} + ${c} b ${nm}`);
+            rel6(s.se[j], r.se[j], `${col} + ${c} se ${nm}`);
+          });
+        if (Number.isFinite(ref.r.j)) rel6(f.r.j, ref.r.j, `${col} + ${c} J`);
+        f.r.firstStage.forEach((q, i) => {
+          rel6(q.partialR2, ref.r.firstStage[i].partialR2, `${col} + ${c} partial R²`);
+          rel6(q.wald, ref.r.firstStage[i].wald, `${col} + ${c} Wald`);
+        });
+        // The constant takes the offset of y, and −b_x·c for an offset on x.
+        const ci = ref.names.indexOf("Constant");
+        const xi = ref.names.indexOf(col);
+        const want = col === "y" ? ref.r.gmm.b[ci] + c : xi >= 0 ? ref.r.gmm.b[ci] - ref.r.gmm.b[xi] * c : ref.r.gmm.b[ci];
+        rel6(f.r.gmm.b[ci], want, `${col} + ${c} constant`, 1e-7);
+      }
+    const big = econGmmFitFromRead(reader("econ-gmm", { ...cfg, data: shiftCol(lin, "z1", 1e10) }));
+    expect("error" in big && big.error).toMatch(/^The values of “z1” are too large relative to their variation to estimate in double precision/);
+  });
+  test("econ-gmm without a constant: large offsets are answered exactly (pinned to exact rational arithmetic), never a false collinearity", () => {
+    const cfg = { spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3", steps: "one", constant: "no" };
+    const f = econGmmFitFromRead(reader("econ-gmm", { ...cfg, data: shiftCol(lin, "x", 1e8) }));
+    if ("error" in f) throw new Error(f.error);
+    // 2SLS by Python fractions on the same text (d1, d2, x).
+    close(f.r.tsls.b, [0.5229506005467155, -0.4319132328701246, 8.08811251537396e-9], 1e-10, 0);
+    const g = econGmmFitFromRead(reader("econ-gmm", { ...cfg, steps: "two", data: shiftCol(shiftCol(lin, "x", 1e6), "z1", 1e6) }));
+    if ("error" in g) throw new Error(g.error);
+  });
+});
+
+describe("exact fits are refused at any offset; near-exact data with real noise are not", () => {
+  const lin = linData(300, 3);
+  const withY = (f: (r: number[]) => number): string => {
+    const L = lin.split("\n");
+    return [L[0], ...L.slice(1).map((l) => {
+      const r = l.split("\t");
+      r[0] = String(f(r.map(Number)));
+      return r.join("\t");
+    })].join("\n");
+  };
+  test("econ-gmm: y = c + 2·d1 − x", () => {
+    for (const c of [0, 1e5, 1e7]) {
+      const o = econGmmFitFromRead(reader("econ-gmm", { data: withY((r) => c + 2 * r[1] - r[3]), spec: "y ~ x", endog: "d1", instruments: "z1 + z2" }));
+      expect("error" in o && o.error).toMatch(/^The model fits the response exactly/);
+    }
+    const nz = lcg(11);
+    const o = econGmmFitFromRead(reader("econ-gmm", { data: withY((r) => 1e7 + 2 * r[1] - r[3] + 1e-4 * nz.g()), spec: "y ~ x", endog: "d1", instruments: "z1 + z2" }));
+    if ("error" in o) throw new Error(o.error);
+  });
+  test("panel-dyn-gmm: y = aᵢ + 0.1·t² with time dummies, and exact dynamics", () => {
+    const at = (off: number): string => {
+      const L = ["id\tyear\ty\tx"];
+      const r = lcg(3);
+      for (let i = 0; i < 40; i++) for (let t = 0; t < 8; t++) L.push(`f${i}\t${2000 + t}\t${off + i + 0.1 * t * t}\t${r.u() - 0.5}`);
+      return L.join("\n");
+    };
+    for (const off of [0, 1e6])
+      for (const estimator of ["system", "difference"]) {
+        const o = dynFitFromRead(reader("panel-dyn-gmm", { data: at(off), spec: "y ~ L.y + x", entity: "id", time: "year", collapse: "yes", lagLast: "", estimator }));
+        expect("error" in o && o.error).toMatch(/^The model fits the differenced response exactly/);
+      }
+    const exact = (eps: number): string => {
+      const r = lcg(9);
+      const L = ["id\tyear\ty\tx"];
+      for (let i = 0; i < 50; i++) {
+        let y = i * 0.37 + 1;
+        for (let t = 0; t < 9; t++) {
+          const x = r.u() - 0.5;
+          y = 0.5 * y + 0.3 * x + Math.sin(i) + eps * (r.u() - 0.5);
+          L.push(`f${i}\t${2000 + t}\t${y.toPrecision(17)}\t${x.toPrecision(17)}`);
+        }
+      }
+      return L.join("\n");
+    };
+    const f0 = { spec: "y ~ L.y + x", entity: "id", time: "year", collapse: "yes", lagLast: "", estimator: "difference" };
+    expect(run("panel-dyn-gmm", { ...f0, data: exact(0) }).text).toMatch(/^The model fits the differenced response exactly/);
+    expect(run("panel-dyn-gmm", { ...f0, data: exact(1e-8) }).ok).not.toBe(false);
+  });
+  test("a response that changes in one entity-period only is refused by name", () => {
+    const L = ["id\tyear\ty\tx"];
+    const r = lcg(4);
+    for (let i = 0; i < 30; i++) for (let t = 0; t < 8; t++) L.push(`f${i}\t${2000 + t}\t${i === 3 && t >= 4 ? 2 : 1}\t${r.g()}`);
+    for (const estimator of ["system", "difference"]) {
+      const o = run("panel-dyn-gmm", { data: L.join("\n"), spec: "y ~ L.y + x", entity: "id", time: "year", collapse: "yes", lagLast: "", estimator });
+      expect(o.text).toMatch(/^The response “y” changes within only one entity-period \(entity “f3”, period 2004\)/);
+    }
+  });
+  test("nearly (not exactly) collinear columns are named as such, not as perfectly collinear", () => {
+    const d = dynPanel3(40, 8, 5);
+    const nz = lcg(21);
+    const near = d.split("\n").map((l, i) => (i === 0 ? `${l}\tx2` : `${l}\t${2 * Number(l.split("\t")[3]) + 1e-7 * nz.g()}`)).join("\n");
+    expect(run("panel-dyn-gmm", { data: near, spec: "y ~ L.y + x + x2", entity: "id", time: "year", collapse: "yes", lagLast: "" }).text).toMatch(/^The regressor x2 is nearly, but not exactly, a combination of the other regressors/);
+    const lin2 = lin.split("\n").map((l, i) => (i === 0 ? `${l}\tz4` : `${l}\t${Number(l.split("\t")[4]) + Number(l.split("\t")[5]) + 1e-8 * nz.g()}`)).join("\n");
+    expect(run("econ-gmm", { data: lin2, spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3 + z4" }).text).toMatch(/^The instrument “z4” is nearly, but not exactly, a combination of the others/);
+  });
+});
+
+describe("display of small coefficients, figure notes and ticks", () => {
+  test("values below 0.01 keep three significant figures; both interval bounds share one format", () => {
+    const o = run("econ-gmm", { data: linData(300, 3, 1000), spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3" });
+    const row = o.tables![0].rows.find((r) => r[0] === "x")!;
+    expect(row[1]).toMatch(/^0\.000\d{3}$/);
+    expect(row[2]).toMatch(/^0\.000\d{3}$/);
+    const [lo, hi] = row[5].split(" to ");
+    expect(lo.replace("−", "").split(".")[1].length).toBe(hi.replace("−", "").split(".")[1].length);
+    expect(row[5]).not.toMatch(/×10/);
+  });
+  test("the econ-gmm figure names the weight it used and shortens long tick names", () => {
+    const words = (svg: string | undefined): string => (svg ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(words(run("econ-gmm", { data: linData(300, 3), spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3", weight: "cluster", cluster: "cl" }).svg)).toContain("clustered by cl (sandwich) standard errors");
+    expect(words(run("econ-gmm").svg)).toContain("heteroskedasticity-robust (sandwich) standard errors");
+    const long = ivDefaultTable().replace(/^lwage(\s)educ(\s)exper/, "lwage$1years_of_schooling_completed$2labor_market_experience_total");
+    const svg = run("econ-gmm", { data: long, spec: "lwage ~", endog: "years_of_schooling_completed + labor_market_experience_total", instruments: "dist + sibs" }).svg!;
+    expect(svg).toContain("…");
+    expect(words(svg)).toContain("Ticks, in order: years_of_schooling_completed, labor_market_experience_total.");
+  });
+});
+
 describe("linear algebra", () => {
   test("symEigen reconstructs a symmetric matrix; symInverse falls back to Moore–Penrose on a singular one", () => {
     const n = 7;

@@ -55,7 +55,8 @@ import { TS2_STAT_CALCS } from "../src/lib/ts2StatCalcs";
 import { CAUSAL_STAT_CALCS } from "../src/lib/causalStatCalcs";
 import { LIMDEP_STAT_CALCS } from "../src/lib/limdepStatCalcs";
 import { MICROMACRO_STAT_CALCS } from "../src/lib/micromacroStatCalcs";
-import { GMM_STAT_CALCS } from "../src/lib/gmmStatCalcs";
+import { GMM_STAT_CALCS, rhoFigure } from "../src/lib/gmmStatCalcs";
+import { ivDefaultTable } from "../src/lib/ivCalcs";
 import { CBA_CALCS } from "../src/lib/cbaCalcs";
 import { polarisationEllipseSvg } from "../src/lib/filmCharts";
 import { RIGHT_CIRCULAR, linearState } from "../src/lib/jones";
@@ -2435,6 +2436,21 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   gm("econ-gmm", { endog: "educ + exper", spec: "lwage ~", instruments: "dist + sibs" }, "two endogenous");
   gm("panel-dyn-gmm", { estimator: "difference", steps: "one" }, "difference one-step");
   gm("panel-dyn-gmm", { endog: "price", collapse: "yes", lagLast: "" }, "system endogenous collapsed");
+  // Long endogenous names: the ticks are shortened to their slots (review 2 found them colliding).
+  const longIv = ivDefaultTable().replace(/^lwage(\s)educ(\s)exper/m, "lwage$1years_of_schooling_completed$2labor_market_experience_total");
+  gm("econ-gmm", { data: longIv, spec: "lwage ~", endog: "years_of_schooling_completed + labor_market_experience_total", instruments: "dist + sibs" }, "long endogenous names");
+  // An estimator not computed (the pair budget): no tick without a point, the reason in the note.
+  const skipped = rhoFigure(
+    [
+      { name: "Pooled OLS", b: 0.914, se: 0.0177 },
+      { name: "Fixed effects", b: 0.4604, se: 0.032 },
+      { name: "Difference GMM", b: 0.6629, se: 0.08 },
+      { name: "System GMM", note: "fitting it too would exceed the task pane's work budget" },
+    ],
+    "L.y",
+  );
+  if (!skipped) throw new Error("corpus: gmm skipped-estimator figure did not draw");
+  figures.push(["gmm rho with an estimator not computed", skipped]);
 }
 
 // --- Micro II, macro II (micromacroStatCalcs.ts), CBA, Pigou, CIP/UIP/PPP (cbaCalcs.ts) — F2 ----------------------

@@ -176,6 +176,45 @@ def build(ids, times, data, spec):
     if system:
         zkeys.append(("cons", None, None, None))
     colnames = names + ([f"yr{s}" for s in range(T)] if td else []) + (["_cons"] if system else [])
+    # Exact recentering of the instruments, as the engine's buildDynamic does it (it changes nothing when the weights
+    # are nonsingular; with a singular weight the generalized inverse depends on the basis, so the oracle must use the
+    # same one): difference GMM with time dummies subtracts, in the differenced rows of each period, the mean of each
+    # GMM-style column's present values there; otherwise lag a of a GMM-style column becomes its difference from lag
+    # a1 (missing = 0 on both), and in system GMM with time dummies, in a period where the groups with a differenced row
+    # are exactly those with level rows at t and t - 1, the lag-a1 column also loses its period mean (later lags the
+    # difference of the two means). IV-style columns lose their level-row mean in the level rows (system GMM).
+    mu = {}
+    for gi, (nm, a, b) in enumerate(gmm):
+        bb = b if b is not None else T
+        for a_ in range(a, bb + 1):
+            for t in sorted(diff_periods):
+                if not collapse and t - a_ < 0:
+                    continue
+                vals = [val(nm, u, t - a_) for u, drows, _ in groups if t in drows]
+                vals = [v for v in vals if not np.isnan(v)]
+                if vals:
+                    mu[(gi, a_, t)] = float(np.mean(vals))
+    dcount = {t: sum(1 for _, d, _ in groups if t in d) for t in range(T)}
+    lcount = {t: sum(1 for _, _, l in groups if t in l) for t in range(T)}
+    exact_t = {t: system and td and t >= 1 and dcount[t] > 0 and dcount[t] == lcount[t] == lcount[t - 1] for t in range(T)}
+    ivmean = {}
+    if system:
+        for k_, (nm, l) in enumerate(spec.get("xterms", [])):
+            ivmean[k_] = float(np.mean([val(nm, u, t - l) for u, _, lr in groups for t in lr]))
+
+    def gd_value(gi, a_, u, t):
+        nm, a1 = gmm[gi][0], gmm[gi][1]
+        v = val(nm, u, t - a_)
+        z = 0.0 if np.isnan(v) else v
+        m = mu.get((gi, a_, t), 0.0)
+        if td and not system:
+            return z - m
+        ex = exact_t[t]
+        if a_ == a1:
+            return z - (m if ex else 0.0)
+        v1 = val(nm, u, t - a1)
+        z1 = 0.0 if np.isnan(v1) else v1
+        return z - z1 - ((m - mu.get((gi, a1, t), 0.0)) if ex else 0.0)
     blocks = []
     for u, drows, lrows in groups:
         nd, nl = len(drows), len(lrows)
@@ -208,8 +247,7 @@ def build(ids, times, data, spec):
                 for r, t in enumerate(drows):
                     if tt is not None and t != tt:
                         continue
-                    v = val(nm, u, t - a_)
-                    Z[r, c] = 0 if np.isnan(v) else v
+                    Z[r, c] = gd_value(gi, a_, u, t)
             elif kind == "gl":
                 _, gi, a_, tt = key
                 nm = gmm[gi][0]
@@ -223,7 +261,7 @@ def build(ids, times, data, spec):
                 for r, t in enumerate(drows):
                     Z[r, c] = val(nm, u, t - l) - val(nm, u, t - l - 1)
                 for r, t in enumerate(lrows):
-                    Z[nd + r, c] = val(nm, u, t - l)
+                    Z[nd + r, c] = val(nm, u, t - l) - ivmean.get(key[1], 0.0)
             elif kind == "td":
                 s = key[1]
                 if not system or spec.get("td_eq") == "both":

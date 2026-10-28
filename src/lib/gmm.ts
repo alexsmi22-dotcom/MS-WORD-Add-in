@@ -37,7 +37,7 @@
  * Every loop is bounded by the caps below; work beyond them is refused by name before it starts.
  */
 import { chiSquareP, normalCdf } from "./stats2";
-import { intText } from "./regTable";
+import { fmtSci, intText } from "./regTable";
 
 export class GmmRefusal extends Error {}
 /** XᵀZ A ZᵀX is singular for the weight A (the two-step path names its cause from this). */
@@ -87,6 +87,81 @@ export const LGMM_MAX_COLUMNS = 60;
 
 const EPS = Number.EPSILON;
 const Z975 = 1.959963984540054;
+
+/**
+ * Location limit: after the exact recentering (see the file comment), a column's values may be up to this many times
+ * the size of its remaining variation. Beyond it a double keeps fewer than about 8 significant digits of that variation
+ * (ε × 10⁸ ≈ 2×10⁻⁸ of it per value, so about 8 significant digits remain), and the column is refused by name instead of being answered from rounding.
+ */
+export const GMM_LOCATION_LIMIT = 1e8;
+/**
+ * Exact-fit tolerance: residuals no larger than this many rounding units of the raw values they come from
+ * (ε × (|y| + Σ|xⱼbⱼ|), row by row, after one refinement step) are rounding, not error variance.
+ */
+const EXACT_K = 1000;
+const EXACT_FIT_DIFF =
+  "The model fits the differenced response exactly (its residuals are zero up to rounding), so there is no error variance: standard errors, z statistics and the Sargan, Hansen and AR tests would be meaningless. Check that the response is not an exact function of its lags, the regressors and the time dummies.";
+/** A column whose |mean| is at least this many times its spread anchors the recentering when there is no constant. */
+const PIVOT_MIN = 10;
+
+/** Mean by two passes (the second corrects the first's rounding). */
+function mean2(v: ArrayLike<number>): number {
+  const n = v.length;
+  if (!n) return 0;
+  let m = 0;
+  for (let i = 0; i < n; i++) m += v[i];
+  m /= n;
+  let c = 0;
+  for (let i = 0; i < n; i++) c += v[i] - m;
+  return m + c / n;
+}
+
+/** The refusal for a column whose variation is below double precision relative to its size. */
+/**
+ * The limit for a level that stays in a system-GMM instrument column in a period with gaps (see buildDynamic): the
+ * time dummies absorb its offset there only approximately, and the rounding grows with the square of the ratio, so
+ * ε × (3×10⁴)² ≈ 2×10⁻⁷.
+ */
+export const GMM_SQUARED_LIMIT = 3e4;
+
+export function gapsReason(name: string, largest: number, spread: number): string {
+  return (
+    `The values of ${name} are too large relative to their variation for this system GMM with time dummies and gaps in the panel (largest ${fmtSci(largest, 2)}, variation within a period about ${fmtSci(spread, 2)}; ` +
+    `this calculator allows a ratio up to 3×10⁴ here): its level instruments the differenced equation, and where a gap breaks a period the time dummies absorb its offset only approximately, so the estimates would rest on rounding. ` +
+    `Subtract a constant from ${name} (with gaps the estimates then change a little, as they would in any software), or choose difference GMM, which has no such limit.`
+  );
+}
+
+export function tooLargeReason(name: string, largest: number, spread: number, shiftFree: boolean): string {
+  return (
+    `The values of ${name} are too large relative to their variation to estimate in double precision (largest ${fmtSci(largest, 2)}, variation about ${fmtSci(spread, 2)}; ` +
+    `this calculator allows a ratio up to 10⁸): ` +
+    (shiftFree
+      ? `subtract a constant from ${name} (the estimates do not change, except a constant's).`
+      : `subtract a constant from ${name}, or rescale it (in this model its level matters, so the estimates will change somewhat).`)
+  );
+}
+
+/**
+ * Index (in from…to−1) of the column that anchors an exact recentering: a constant column if there is one, else the
+ * column whose |mean| is the largest multiple of its spread when that multiple is at least PIVOT_MIN; −1 for none.
+ */
+function pivotColumn(cols: ArrayLike<number>[], from: number, to: number): number {
+  let best = -1;
+  let bestR = PIVOT_MIN;
+  for (let j = from; j < to; j++) {
+    const c = cols[j];
+    const m = mean2(c);
+    let ss = 0;
+    for (let i = 0; i < c.length; i++) ss += (c[i] - m) * (c[i] - m);
+    const r = ss === 0 ? (m !== 0 ? Infinity : 0) : Math.abs(m) / Math.sqrt(ss / c.length);
+    if (r >= bestR && (best < 0 || r > bestR)) {
+      best = j;
+      bestR = r;
+    }
+  }
+  return best;
+}
 
 /**
  * Fewest groups (clusters) admitted. Every standard error and test here is cluster-robust, a large-sample approximation
@@ -498,6 +573,35 @@ export function independentColumns(G0: Float64Array, n: number, tol = 1e-10, ord
   return kept;
 }
 
+/**
+ * Relative distance |r|/|v| of v from the span of the columns (normal equations with one refinement step, so an
+ * exact dependence comes out near ε even when the columns are ill-conditioned, and a near one keeps its true size).
+ */
+export function dependenceResidual(cols: Float64Array[], v: Float64Array): number {
+  const m = cols.length;
+  const n = v.length;
+  let vv = 0;
+  for (let i = 0; i < n; i++) vv += v[i] * v[i];
+  if (!(vv > 0)) return 0;
+  if (!m) return 1;
+  const G = new Float64Array(m * m);
+  for (let a = 0; a < m; a++) for (let b = a; b < m; b++) G[a * m + b] = G[b * m + a] = dot(cols[a], cols[b]);
+  const inv = symInverse(G, m).inv;
+  const coef = new Float64Array(m);
+  const r = Float64Array.from(v);
+  for (let it = 0; it < 2; it++) {
+    const g = Float64Array.from(cols, (c) => dot(c, r));
+    const d = mv(inv, g, m, m);
+    for (let a = 0; a < m; a++) coef[a] += d[a];
+    for (let i = 0; i < n; i++) {
+      let s = v[i];
+      for (let a = 0; a < m; a++) s -= coef[a] * cols[a][i];
+      r[i] = s;
+    }
+  }
+  return Math.sqrt(dot(r, r) / vv);
+}
+
 function normalP2(z: number): number {
   return 2 * (1 - normalCdf(Math.abs(z)));
 }
@@ -519,6 +623,9 @@ export interface LinearGmmInput {
    * (for the first-stage diagnostics). */
   nEndog?: number;
   nExcluded?: number;
+  /** Names for refusals: the response and the instrument columns (in Z's order). */
+  yName?: string;
+  zNames?: string[];
 }
 
 /** First-stage strength of the excluded instruments for one endogenous regressor. */
@@ -563,12 +670,61 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
   if (work > LGMM_MAX_WORK) throw new GmmRefusal(`${intText(n)} rows with ${k} ${plural(k, "regressor")} and ${L} ${plural(L, "instrument")} is beyond the work this calculator allows in the task pane (about ${intText(Math.floor((n * LGMM_MAX_WORK) / work))} rows for this model).`);
   if (L < k) throw new GmmRefusal(`Under-identified: ${L} ${plural(L, "instrument")} for ${k} ${plural(k, "coefficient")}. Each endogenous regressor needs at least one excluded instrument.`);
   if (n <= L) throw new GmmRefusal(`${intText(n)} rows is too few for ${L} ${plural(L, "instrument")} (GMM needs more rows than instruments).`);
-  const y = Float64Array.from(inp.y);
+  // Exact recentering before any cross-product (GMM is invariant to X → XQ and Z → ZP for nonsingular Q, P): with a
+  // constant, every other column and y lose their means (Q, P subtract multiples of the constant); without one, the
+  // most offset-dominated exogenous column plays the constant's part when its |mean| is at least PIVOT_MIN times its
+  // spread. The regressor anchor is never an endogenous column (the first stage needs the anchor among the
+  // instruments). The coefficient of the anchor is mapped back exactly at the end (b_p = b̃_p + a_y − Σ aⱼb̃ⱼ).
+  const xPiv = pivotColumn(inp.X, k1, k);
+  const zPiv = pivotColumn(inp.Z, q < L ? q : 0, L);
+  const aX = new Float64Array(k);
+  let aY = 0;
+  const aZ = new Float64Array(L);
+  if (xPiv >= 0) {
+    const mp = mean2(inp.X[xPiv]);
+    for (let j = 0; j < k; j++) if (j !== xPiv) aX[j] = mean2(inp.X[j]) / mp;
+    aY = mean2(inp.y) / mp;
+  }
+  if (zPiv >= 0) {
+    const mp = mean2(inp.Z[zPiv]);
+    for (let j = 0; j < L; j++) if (j !== zPiv) aZ[j] = mean2(inp.Z[j]) / mp;
+  }
+  let xConst = xPiv >= 0;
+  if (xConst) for (let i = 1; i < n && xConst; i++) if (inp.X[xPiv][i] !== inp.X[xPiv][0]) xConst = false;
+  const yName = inp.yName ?? "the response";
+  const precision = (raw: ArrayLike<number>, piv: ArrayLike<number>, a: number, name: string, out: (i: number, v: number) => void): void => {
+    let mx = 0;
+    let ss = 0;
+    for (let i = 0; i < n; i++) {
+      const sh = a * piv[i];
+      const v = raw[i] - sh;
+      out(i, v);
+      const m = Math.abs(raw[i]) + Math.abs(sh);
+      if (m > mx) mx = m;
+      ss += v * v;
+    }
+    const rms = Math.sqrt(ss / n);
+    if (ss > 0 && mx > GMM_LOCATION_LIMIT * rms) throw new GmmRefusal(tooLargeReason(name, mx, rms, xConst));
+  };
+  const y = new Float64Array(n);
   const X = new Float64Array(n * k);
   const Z = new Float64Array(n * L);
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < k; j++) X[i * k + j] = inp.X[j][i];
-    for (let j = 0; j < L; j++) Z[i * L + j] = inp.Z[j][i];
+  if (xPiv >= 0) {
+    precision(inp.y, inp.X[xPiv], aY, yName, (i, v) => (y[i] = v));
+    for (let j = 0; j < k; j++) {
+      if (j === xPiv) for (let i = 0; i < n; i++) X[i * k + j] = inp.X[j][i];
+      else precision(inp.X[j], inp.X[xPiv], aX[j], `“${inp.names[j]}”`, (i, v) => (X[i * k + j] = v));
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      y[i] = inp.y[i];
+      for (let j = 0; j < k; j++) X[i * k + j] = inp.X[j][i];
+    }
+  }
+  const zName = (j: number): string => (inp.zNames?.[j] ? `“${inp.zNames[j]}”` : `instrument ${j + 1}`);
+  for (let j = 0; j < L; j++) {
+    if (zPiv >= 0 && j !== zPiv) precision(inp.Z[j], inp.Z[zPiv], aZ[j], zName(j), (i, v) => (Z[i * L + j] = v));
+    else for (let i = 0; i < n; i++) Z[i * L + j] = inp.Z[j][i];
   }
   // ZᵀZ (upper triangle, mirrored), ZᵀX and Zᵀy in one pass over the rows.
   const ZZ = new Float64Array(L * L);
@@ -589,16 +745,51 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
   for (let a = 0; a < L; a++) for (let b = a + 1; b < L; b++) ZZ[b * L + a] = ZZ[a * L + b];
   {
     const kept = independentColumns(ZZ, L, 1e-11);
-    if (kept.length < L) throw new GmmRefusal("The instruments are perfectly collinear (ZᵀZ is singular): one instrument is a combination of the others, or a column is constant alongside the constant.");
+    if (kept.length < L) {
+      const j = Array.from({ length: L }, (_, i) => i).find((i) => !kept.includes(i))!;
+      const colOf = (c: number): Float64Array => Float64Array.from({ length: n }, (_, i) => Z[i * L + c]);
+      const rel = dependenceResidual(kept.map(colOf), colOf(j));
+      if (rel > 1e-9) {
+        throw new GmmRefusal(
+          `The instrument ${zName(j)} is nearly, but not exactly, a combination of the others (the closest combination leaves ${fmtSci(rel, 2)} of it): too close to separate in double precision. Drop one of them, or check the column for a common offset or scale.`,
+        );
+      }
+      throw new GmmRefusal(`The instruments are perfectly collinear (ZᵀZ is singular): ${zName(j)} is a combination of the others${zPiv >= 0 && xConst ? " (or constant, alongside the constant)" : ""}.`);
+    }
   }
   const XZ = tr(ZX, L, k);
   const W0 = symInverse(ZZ, L).inv;
-  const est = (W: Float64Array): Float64Array => {
+  /** β for a weight W and the operator B = (XᵀZWZᵀX)⁻¹XᵀZW (β = B Zᵀy). */
+  const estB = (W: Float64Array): { b: Float64Array; B: Float64Array } => {
     const XZW = mul(XZ, W, k, L, L);
     const Mi = mul(XZW, ZX, k, L, k);
     const inv = symInverse(Mi, k);
-    if (inv.generalized) throw new GmmRefusal("XᵀZ W ZᵀX is singular: the regressors are perfectly collinear given the instruments (or an endogenous regressor is not predicted by the instruments at all).");
-    return mv(inv.inv, mv(XZW, Zy, k, L), k, k);
+    if (inv.generalized) throw new GmmRefusal("XᵀZ W ZᵀX is singular: the regressors are perfectly collinear given the instruments, or too nearly so to separate in double precision (or an endogenous regressor is not predicted by the instruments at all).");
+    const B = mul(inv.inv, XZW, k, k, L);
+    return { b: mv(B, Zy, k, L), B };
+  };
+  const est = (W: Float64Array): Float64Array => estB(W).b;
+  /** The anchor's coefficient mapped back to the raw columns, and its variance from the full covariance C. */
+  const backMap = (b: Float64Array, C: Float64Array): CoefSet => {
+    const se = Float64Array.from({ length: k }, (_, j) => Math.sqrt(Math.max(C[j * k + j], 0)));
+    if (xPiv < 0) return { b, se };
+    const p = xPiv;
+    const bb = Float64Array.from(b);
+    let s = aY;
+    for (let j = 0; j < k; j++) if (j !== p) s -= aX[j] * b[j];
+    bb[p] = b[p] + s;
+    // Var(qᵀb̃), q = e_p − Σ_{j≠p} aⱼeⱼ.
+    let v = 0;
+    for (let i = 0; i < k; i++) {
+      const qi = i === p ? 1 : -aX[i];
+      if (qi === 0) continue;
+      for (let j = 0; j < k; j++) {
+        const qj = j === p ? 1 : -aX[j];
+        if (qj !== 0) v += qi * qj * C[i * k + j];
+      }
+    }
+    se[p] = Math.sqrt(Math.max(v, 0));
+    return { b: bb, se };
   };
   const resid = (b: Float64Array): Float64Array => {
     const e = new Float64Array(n);
@@ -652,26 +843,34 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
   };
   const W0n = new Float64Array(L * L);
   for (let i = 0; i < L * L; i++) W0n[i] = W0[i] * n;
-  const b1 = est(W0);
+  const s1 = estB(W0);
+  const b1 = s1.b;
   const e1 = resid(b1);
-  // An exact fit leaves no error variance: every standard error, z and J would be rounding noise.
+  // An exact fit leaves no error variance: every standard error, z and J would be rounding noise. After one
+  // refinement step (β += B Zᵀe), residuals within EXACT_K rounding units of the raw values are rounding: the test
+  // scales with the raw magnitudes, so an exact fit is refused at any offset and real noise is not.
   {
-    let ym = 0;
-    for (let i = 0; i < n; i++) ym += y[i] / n;
-    let tss = 0;
+    const ze = new Float64Array(L);
+    for (let i = 0; i < n; i++) for (let a = 0; a < L; a++) ze[a] += Z[i * L + a] * e1[i];
+    const d = mv(s1.B, ze, k, L);
+    const bR = Float64Array.from(b1, (v, j) => v + d[j]);
+    const eR = resid(bR);
+    const raw = backMap(bR, new Float64Array(k * k)).b;
     let ssr = 0;
+    let floor = 0;
     for (let i = 0; i < n; i++) {
-      tss += (y[i] - ym) * (y[i] - ym);
-      ssr += e1[i] * e1[i];
+      ssr += eR[i] * eR[i];
+      let m = Math.abs(inp.y[i]);
+      for (let j = 0; j < k; j++) m += Math.abs(inp.X[j][i] * raw[j]);
+      floor += m * m;
     }
-    if (!(ssr > 1e-20 * tss)) {
+    if (!(ssr > EXACT_K * EXACT_K * EPS * EPS * floor)) {
       throw new GmmRefusal("The model fits the response exactly (the 2SLS residuals are zero up to rounding), so there is no error variance: standard errors, z statistics and the J test would be meaningless. Check that the response is not a combination of the regressors.");
     }
   }
   const S1 = Smat(e1);
   const C1 = cov(W0n, S1);
-  const seOf = (C: Float64Array): Float64Array => Float64Array.from({ length: k }, (_, j) => Math.sqrt(Math.max(C[j * k + j], 0)));
-  const tsls = { b: b1, se: seOf(C1) };
+  const tsls = backMap(b1, C1);
   const jdf = L - k;
   let gmm: CoefSet = tsls;
   let j = NaN;
@@ -695,7 +894,7 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
     const gbar = new Float64Array(L);
     for (let i = 0; i < n; i++) for (let a = 0; a < L; a++) gbar[a] += (Z[i * L + a] * e2[i]) / n;
     j = n * quad(W, gbar, L);
-    if (inp.steps === 2) gmm = { b: b2, se: seOf(cov(W, Smat(e2))) };
+    if (inp.steps === 2) gmm = backMap(b2, cov(W, Smat(e2)));
   }
   for (const set of [tsls, gmm]) for (let c = 0; c < k; c++) if (!Number.isFinite(set.b[c]) || !Number.isFinite(set.se[c])) throw new GmmRefusal("The estimates are not finite numbers for these data (check for extreme values).");
   // First stage of each endogenous regressor on every instrument (linearmodels' first_stage.diagnostics): partial R² of
@@ -782,6 +981,8 @@ export interface DynData {
   /** Label of each period (for the time-dummy names). */
   periodLabels: string[];
   timeName: string;
+  /** Entity labels (for refusals), when known. */
+  entityNames?: string[];
 }
 
 interface Row {
@@ -818,6 +1019,13 @@ export interface DynDesign {
   /** Groups with no usable row (dropped). */
   emptyGroups: number;
   system: boolean;
+  /** Level-row means taken out of the response and of each kept regressor (system GMM; 0 otherwise), and the constant's index (−1: none). */
+  mY: number;
+  mX: Float64Array;
+  constIdx: number;
+  /** √Σ over the differenced rows of the raw sizes |y_t| + |y_t−1| and, per kept regressor, of its raw entries (the exact-fit tolerance). */
+  magY: number;
+  magX: Float64Array;
 }
 
 /**
@@ -887,12 +1095,34 @@ export function planDynamic(data: DynData, spec: DynSpec): DynPlan {
   // are no dynamics to estimate (difference GMM has nothing to fit; system GMM would fit ρ = 1 to the levels exactly).
   {
     const ys = data.series.get(spec.y)!;
-    let moves = false;
-    for (let g = 0; g < N && !moves; g++) for (const t of dRows[g]) if (ys[g][t] !== ys[g][t - 1]) {
-      moves = true;
-      break;
+    let movers = 0;
+    let lastG = -1;
+    let cells = 0;
+    let lastT = -1;
+    for (let g = 0; g < N && movers < 2; g++) {
+      let mv0 = false;
+      for (const t of dRows[g])
+        if (ys[g][t] !== ys[g][t - 1]) {
+          mv0 = true;
+          cells++;
+          lastT = t;
+        }
+      if (mv0) {
+        movers++;
+        lastG = g;
+      }
     }
-    if (!moves) throw new GmmRefusal(`The response “${spec.y}” never changes within an entity in the estimation rows (every first difference is zero): it is a pure entity effect, so there are no dynamics to estimate.`);
+    if (!movers) throw new GmmRefusal(`The response “${spec.y}” never changes within an entity in the estimation rows (every first difference is zero): it is a pure entity effect, so there are no dynamics to estimate.`);
+    // All its changes in one entity: every estimate rests on that entity, and a cluster-robust standard error (one
+    // score per entity) cannot measure their uncertainty, however small it prints.
+    // (With fewer than GMM_MIN_GROUPS groups in all, the group-count refusal names the larger problem.)
+    let withRows = 0;
+    for (let g = 0; g < N; g++) if (dRows[g].length || lRows[g].length) withRows++;
+    if (movers === 1 && withRows >= GMM_MIN_GROUPS) {
+      const ent = data.entityNames?.[lastG] !== undefined ? `“${data.entityNames[lastG]}”` : `number ${intText(lastG + 1)}`;
+      const where = cells === 1 ? `one entity-period (entity ${ent}, period ${data.periodLabels[lastT]})` : `one entity (${ent})`;
+      throw new GmmRefusal(`The response “${spec.y}” changes within only ${where} in the estimation rows: every estimate would rest on that entity alone, and cluster-robust standard errors, one score per entity, cannot measure their uncertainty.`);
+    }
   }
   // Instrument columns, numbered in a fixed order through lookup tables (−1 = no such column):
   //   dCol[(gi·A + a)·T + t]  GMM-style, differenced equation (collapsed: t = 0 for every period)
@@ -972,88 +1202,311 @@ export function checkPlan(p: DynPlan): void {
   }
 }
 
-/** Builds the stacked design (see the file comment for every convention), from its plan. */
+/**
+ * Builds the stacked design (see the file comment for every convention), from its plan, in two phases: the response
+ * and regressor rows first (with the collinear-regressor refusal and an exact-fit precheck by least squares on the
+ * differenced rows, so those refusals never build an instrument), then the instrument rows.
+ *
+ * Location: every column is recentered by an exact reparametrization before any cross-product is formed (the
+ * estimator, its covariance and every test are invariant to X → XQ and Z → ZP for nonsingular Q, P):
+ *  - system GMM: the level rows of the response, of each regressor term and of each IV-style instrument lose their
+ *    level-row means (multiples of the constant, which is a regressor and an instrument there); the constant's
+ *    coefficient is mapped back exactly in fitDynamic;
+ *  - difference GMM with time dummies: each GMM-style column loses, in the differenced rows of each period t, the mean
+ *    of its present values there (the differenced dummy instruments span every period indicator of the differenced
+ *    rows, row by row, gaps included: Σ_{s ≥ t} of them is the indicator of period t);
+ *  - otherwise (system GMM, or no time dummies) no instrument is a period indicator of the differenced rows, so each
+ *    later lag a > a₁ of a GMM-style column becomes its difference from lag a₁ (a combination of instrument columns,
+ *    exact again) and the lag-a₁ column keeps its level. Its offset then mostly acts as an indicator of the rows where
+ *    the lag exists, which is well conditioned; in a balanced system-GMM panel with time dummies the estimates do not
+ *    depend on that offset at all (the level dummies of t and t − 1 carry the same moments), so there its precision is
+ *    judged on its per-period deviations.
+ * After the recentering, a variable whose values exceed GMM_LOCATION_LIMIT times the size of their remaining variation
+ * (differences, centered levels, recentered instruments) is refused by name.
+ */
 export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynDesign {
   const p = plan ?? planDynamic(data, spec);
   if (!plan) checkPlan(p);
+  // Too few groups is the first thing to say (before an exact fit that few rows can produce).
+  if (p.groups < GMM_MIN_GROUPS) throw new GmmRefusal(`The panel has ${fewGroupsReason(p.groups, 0, "group")}`);
   const { N, T } = data;
   const terms = spec.terms;
   const kt = terms.length;
   const { dRows, lRows, L0, A, bMax, dCol, lCol, ivCol, tdCol, consCol } = p;
   const a1 = spec.lagFirst;
   const nG = spec.gmmVars.length;
+  const sys = spec.system;
+  const td = spec.timeDummies;
   const ser = (v: string): Float64Array[] => data.series.get(v)!;
   const ySer = ser(spec.y);
   const tSer = terms.map((tm) => ser(tm.v));
   const gSer = spec.gmmVars.map(ser);
   const at = (s: Float64Array[], g: number, t: number): number => (t < 0 || t >= T ? NaN : s[g][t]);
   // Regressor columns: terms, then a dummy per period, then the constant (system).
-  const kFull = kt + (spec.timeDummies ? T : 0) + (spec.system ? 1 : 0);
-  const blocks: Block[] = [];
+  const kFull = kt + (td ? T : 0) + (sys ? 1 : 0);
+  // Level-row means (system GMM), by two passes.
+  let mY = 0;
+  const mTerm = new Float64Array(kt);
+  if (sys) {
+    let n = 0;
+    for (let g = 0; g < N; g++)
+      for (const t of lRows[g]) {
+        n++;
+        mY += ySer[g][t];
+        for (let j = 0; j < kt; j++) mTerm[j] += tSer[j][g][t - terms[j].lag];
+      }
+    if (n) {
+      mY /= n;
+      for (let j = 0; j < kt; j++) mTerm[j] /= n;
+      let cy = 0;
+      const cx = new Float64Array(kt);
+      for (let g = 0; g < N; g++)
+        for (const t of lRows[g]) {
+          cy += ySer[g][t] - mY;
+          for (let j = 0; j < kt; j++) cx[j] += tSer[j][g][t - terms[j].lag] - mTerm[j];
+        }
+      mY += cy / n;
+      for (let j = 0; j < kt; j++) mTerm[j] += cx[j] / n;
+    }
+  }
+  // Precision record per variable: largest |value| used, then (sum of squares, count) of its differences (D), of its
+  // centered levels (C), of its recentered instrument values (I) and of the per-period deviations of a level kept
+  // as a system-GMM instrument in a period whose gaps prevent the exact recentering (Q, judged on GMM_SQUARED_LIMIT:
+  // there the offset is almost, not exactly, absorbed by the dummies, and the cancellation runs through the squares).
+  const prec = new Map<string, Float64Array>();
+  const rec = (v: string, raw: number, fam: number, val: number): void => {
+    let r = prec.get(v);
+    if (!r) prec.set(v, (r = new Float64Array(9)));
+    const a = Math.abs(raw);
+    if (a > r[0]) r[0] = a;
+    r[1 + 2 * fam] += val * val;
+    r[2 + 2 * fam]++;
+  };
+  const checkPrec = (): void => {
+    for (const [v, r] of prec)
+      for (let f = 0; f < 4; f++) {
+        const n = r[2 + 2 * f];
+        const ss = r[1 + 2 * f];
+        if (!(n > 0 && ss > 0)) continue;
+        const rms = Math.sqrt(ss / n);
+        if (f === 3 && r[0] > GMM_SQUARED_LIMIT * rms) throw new GmmRefusal(gapsReason(`“${v}”`, r[0], rms));
+        if (f < 3 && r[0] > GMM_LOCATION_LIMIT * rms) throw new GmmRefusal(tooLargeReason(`“${v}”`, r[0], rms, td || !spec.gmmVars.includes(v)));
+      }
+  };
+  // Raw magnitudes of the differenced rows for the exact-fit tolerance: √Σ(|y_t| + |y_t−1|)² and, per regressor
+  // column, √Σ(raw size of its entries)².
+  let magY = 0;
+  const magX = new Float64Array(kFull);
+  // ---------------------------------------------------------------- phase 1: response and regressor rows
+  // First without allocating a row: the recentered regressor values of one row go to xScratch (its nonzero columns to
+  // nzI), so the Gram matrices, the precision record, the collinearity refusal and the exact-fit precheck cost one or
+  // two passes over the series and nothing else.
   const xScratch = new Float64Array(kFull);
-  // A row fills at most every GMM-style lag of every GMM variable, one IV-style column per term, two dummies, the constant.
-  const zScrI = new Int32Array(nG * (A + 1) + kt + 3);
-  const zScrV = new Float64Array(zScrI.length);
+  const nzI = new Int32Array(kFull);
+  let nz = 0;
+  const fillRow = (g: number, t: number, diff: boolean, track: boolean): number => {
+    for (let p2 = 0; p2 < nz; p2++) xScratch[nzI[p2]] = 0;
+    nz = 0;
+    const set = (c: number, v: number): void => {
+      if (v === 0) return;
+      if (xScratch[c] === 0) nzI[nz++] = c;
+      xScratch[c] += v;
+    };
+    let y: number;
+    if (diff) {
+      const y1 = ySer[g][t];
+      const y0 = ySer[g][t - 1];
+      y = y1 - y0;
+      if (track) {
+        rec(spec.y, Math.max(Math.abs(y1), Math.abs(y0)), 0, y);
+        const my = Math.abs(y1) + Math.abs(y0);
+        magY += my * my;
+      }
+      for (let j = 0; j < kt; j++) {
+        const v1 = tSer[j][g][t - terms[j].lag];
+        const v0 = tSer[j][g][t - 1 - terms[j].lag];
+        set(j, v1 - v0);
+        if (track) {
+          rec(terms[j].v, Math.max(Math.abs(v1), Math.abs(v0)), 0, v1 - v0);
+          const m = Math.abs(v1) + Math.abs(v0);
+          magX[j] += m * m;
+        }
+      }
+      if (td) {
+        set(kt + t, 1);
+        set(kt + t - 1, -1);
+        if (track) {
+          magX[kt + t]++;
+          magX[kt + t - 1]++;
+        }
+      }
+    } else {
+      const yr = ySer[g][t];
+      y = yr - mY;
+      if (track) rec(spec.y, yr, 1, y);
+      for (let j = 0; j < kt; j++) {
+        const v = tSer[j][g][t - terms[j].lag];
+        set(j, v - mTerm[j]);
+        if (track) rec(terms[j].v, v, 1, v - mTerm[j]);
+      }
+      if (td) set(kt + t, 1);
+      set(kFull - 1, 1);
+    }
+    // A sum can cancel to zero (never for these columns, but keep the list exact).
+    let w = 0;
+    for (let p2 = 0; p2 < nz; p2++) if (xScratch[nzI[p2]] !== 0) nzI[w++] = nzI[p2];
+    nz = w;
+    return y;
+  };
+  // Regressors: Gram matrices XᵀX (all rows) and of the differenced rows (with Xᵀy there), of the recentered rows.
+  const XtX = new Float64Array(kFull * kFull);
+  const XtXd = new Float64Array(kFull * kFull);
+  const Xyd = new Float64Array(kFull);
   let emptyGroups = 0;
   for (let g = 0; g < N; g++) {
-    const d = dRows[g];
-    const l = lRows[g];
-    if (!d.length && !l.length) {
+    if (!dRows[g].length && !lRows[g].length) {
       emptyGroups++;
       continue;
     }
-    const rows: Row[] = [];
-    const mkRow = (diff: boolean, t: number): Row => {
-      let m = 0;
-      const put = (c: number, v: number): void => {
-        if (c < 0 || v === 0 || Number.isNaN(v)) return;
-        zScrI[m] = c;
-        zScrV[m++] = v;
-      };
-      const x = xScratch.fill(0);
-      let y: number;
-      if (diff) {
-        y = at(ySer, g, t) - at(ySer, g, t - 1);
-        for (let j = 0; j < kt; j++) x[j] = at(tSer[j], g, t - terms[j].lag) - at(tSer[j], g, t - 1 - terms[j].lag);
-        if (spec.timeDummies) {
-          x[kt + t] += 1;
-          x[kt + t - 1] -= 1;
+    for (const t of dRows[g]) {
+      const y = fillRow(g, t, true, true);
+      for (let p2 = 0; p2 < nz; p2++) {
+        const a = nzI[p2];
+        const xa = xScratch[a];
+        Xyd[a] += xa * y;
+        for (let q2 = 0; q2 < nz; q2++) {
+          const v = xa * xScratch[nzI[q2]];
+          XtX[a * kFull + nzI[q2]] += v;
+          XtXd[a * kFull + nzI[q2]] += v;
         }
-        for (let gi = 0; gi < nG; gi++) for (let a = a1; a <= bMax; a++) put(dCol[(gi * A + a) * T + (spec.collapse ? 0 : t)], at(gSer[gi], g, t - a));
-        for (let j = 0; j < kt; j++) if (ivCol[j] >= 0) put(ivCol[j], at(tSer[j], g, t - terms[j].lag) - at(tSer[j], g, t - 1 - terms[j].lag));
-        if (spec.timeDummies && !spec.system) {
-          put(tdCol[t], 1);
-          put(tdCol[t - 1], -1);
-        }
-      } else {
-        y = at(ySer, g, t);
-        for (let j = 0; j < kt; j++) x[j] = at(tSer[j], g, t - terms[j].lag);
-        if (spec.timeDummies) x[kt + t] = 1;
-        x[kFull - 1] = 1;
-        const lag = a1 - 1;
-        for (let gi = 0; gi < nG; gi++) put(lCol[gi * T + (spec.collapse ? 0 : t)], at(gSer[gi], g, t - lag) - at(gSer[gi], g, t - lag - 1));
-        for (let j = 0; j < kt; j++) if (ivCol[j] >= 0) put(ivCol[j], at(tSer[j], g, t - terms[j].lag));
-        if (spec.timeDummies) put(tdCol[t], 1);
-        put(consCol, 1);
       }
-      // Sparse indices in increasing order (a column appears once per row).
-      // (Insertion sort: a row holds a few dozen entries at most, nearly in order already.)
-      const zI = new Int32Array(m);
-      const zV = new Float64Array(m);
-      for (let i = 0; i < m; i++) {
-        let j = i;
-        while (j > 0 && zI[j - 1] > zScrI[i]) {
-          zI[j] = zI[j - 1];
-          zV[j] = zV[j - 1];
-          j--;
-        }
-        zI[j] = zScrI[i];
-        zV[j] = zScrV[i];
+    }
+    for (const t of lRows[g]) {
+      fillRow(g, t, false, true);
+      for (let p2 = 0; p2 < nz; p2++) {
+        const a = nzI[p2];
+        const xa = xScratch[a];
+        for (let q2 = 0; q2 < nz; q2++) XtX[a * kFull + nzI[q2]] += xa * xScratch[nzI[q2]];
       }
-      return { zi: zI, zv: zV, ...sparse(x), y, t };
+    }
+  }
+  magY = Math.sqrt(magY);
+  for (let c = 0; c < kFull; c++) magX[c] = Math.sqrt(magX[c]);
+  checkPrec();
+  // Drop generated columns (zero first, then collinear, in order; the constant and the user's terms first), and refuse
+  // a collinear user term by name (checked in the data, so a near dependence is not called exact).
+  const termOrder = Array.from({ length: kt }, (_, j) => j);
+  const keptTerms = independentColumns(XtX, kFull, 1e-10, termOrder);
+  if (keptTerms.length < kt) {
+    const bad = termOrder.find((j) => !keptTerms.includes(j))!;
+    if (!(XtX[bad * kFull + bad] > 0)) throw new GmmRefusal(`The regressor ${terms[bad].label} does not vary (it is zero or constant in every row used, so its difference is zero) in the estimation rows; remove it.`);
+    const want = [...keptTerms.filter((j) => j < bad), bad];
+    const cols = want.map(() => [] as number[]);
+    for (let g = 0; g < N; g++)
+      for (const [list, diff] of [[dRows[g], true], [lRows[g], false]] as [number[], boolean][])
+        for (const t of list) {
+          fillRow(g, t, diff, false);
+          want.forEach((c, i) => cols[i].push(xScratch[c]));
+        }
+    const fc = cols.map((c) => Float64Array.from(c));
+    const rel = dependenceResidual(fc.slice(0, -1), fc[fc.length - 1]);
+    if (rel > 1e-9) {
+      throw new GmmRefusal(`The regressor ${terms[bad].label} is nearly, but not exactly, a combination of the other regressors in the estimation rows (the closest combination leaves ${fmtSci(rel, 2)} of it): too close to separate in double precision; remove it or one of the others.`);
+    }
+    throw new GmmRefusal(`The regressor ${terms[bad].label} is perfectly collinear with the other regressors in the estimation rows; remove it.`);
+  }
+  const genOrder = [...(sys ? [kFull - 1] : []), ...(td ? Array.from({ length: T }, (_, s) => kt + s) : [])];
+  const kept = independentColumns(XtX, kFull, 1e-10, [...termOrder, ...genOrder]).sort((a, b) => a - b);
+  const droppedDummies: string[] = [];
+  if (td) for (let s = 0; s < T; s++) if (!kept.includes(kt + s)) droppedDummies.push(data.periodLabels[s]);
+  if (sys && !kept.includes(kFull - 1)) throw new GmmRefusal("The constant is collinear with the regressors in the level equation; remove a regressor that is constant.");
+  const names: string[] = [];
+  const kinds: string[] = [];
+  for (const c of kept) {
+    if (c < kt) {
+      names.push(terms[c].label);
+      kinds.push(terms[c].kind);
+    } else if (sys && c === kFull - 1) {
+      names.push("Constant");
+      kinds.push("constant");
+    } else {
+      names.push(`${data.timeName} ${data.periodLabels[c - kt]}`);
+      kinds.push("dummy");
+    }
+  }
+  const k = kept.length;
+  if (k > DPD_MAX_REGRESSORS) throw new GmmRefusal(`${k} regressors (time dummies included) is more than the ${DPD_MAX_REGRESSORS} this calculator allows.`);
+  const colMap = new Int32Array(kFull).fill(-1);
+  kept.forEach((c, a) => (colMap[c] = a));
+  const magK = Float64Array.from(kept, (c) => magX[c]);
+  const mX = Float64Array.from(kept, (c) => (c < kt && sys ? mTerm[c] : 0));
+  const constIdx = sys ? colMap[kFull - 1] : -1;
+  // Exact-fit precheck: least squares of the differenced response on the differenced regressors (two refinement
+  // passes). Least squares minimizes the sum of squares, so if it leaves more than rounding, no GMM estimate fits
+  // exactly; if it leaves only rounding, the differenced equation has no error at all.
+  {
+    const kd = kept.length;
+    const G = new Float64Array(kd * kd);
+    for (let a = 0; a < kd; a++) for (let c = 0; c < kd; c++) G[a * kd + c] = XtXd[kept[a] * kFull + kept[c]];
+    const K = independentColumns(G, kd, 1e-10).map((a) => kept[a]);
+    const m = K.length;
+    const GK = new Float64Array(m * m);
+    for (let a = 0; a < m; a++) for (let c = 0; c < m; c++) GK[a * m + c] = XtXd[K[a] * kFull + K[c]];
+    const inv = symInverse(GK, m).inv;
+    const bK = mv(inv, Float64Array.from(K, (c) => Xyd[c]), m, m);
+    const bFull = new Float64Array(kFull);
+    const pass = (upd: boolean): number => {
+      bFull.fill(0);
+      K.forEach((c, a) => (bFull[c] = bK[a]));
+      const ge = new Float64Array(kFull);
+      let s2 = 0;
+      for (let g = 0; g < N; g++)
+        for (const t of dRows[g]) {
+          let e = fillRow(g, t, true, false);
+          for (let p2 = 0; p2 < nz; p2++) e -= xScratch[nzI[p2]] * bFull[nzI[p2]];
+          s2 += e * e;
+          if (upd) for (let p2 = 0; p2 < nz; p2++) ge[nzI[p2]] += xScratch[nzI[p2]] * e;
+        }
+      if (upd) {
+        const dlt = mv(inv, Float64Array.from(K, (c) => ge[c]), m, m);
+        for (let a = 0; a < m; a++) bK[a] += dlt[a];
+      }
+      return s2;
     };
-    for (const t of d) rows.push(mkRow(true, t));
-    for (const t of l) rows.push(mkRow(false, t));
+    if (m > 0) pass(true);
+    const s2 = pass(false);
+    let floor = magY;
+    K.forEach((c, a) => (floor += Math.abs(bK[a]) * magX[c]));
+    floor *= EXACT_K * EPS;
+    if (!(s2 > floor * floor)) throw new GmmRefusal(EXACT_FIT_DIFF);
+  }
+  // The rows themselves, regressors on the kept columns.
+  const blocks: Block[] = [];
+  const NOI = new Int32Array(0);
+  const NOV = new Float64Array(0);
+  const mkRow = (g: number, t: number, diff: boolean): Row => {
+    const y = fillRow(g, t, diff, false);
+    let m = 0;
+    for (let p2 = 0; p2 < nz; p2++) if (colMap[nzI[p2]] >= 0) m++;
+    const xi = new Int32Array(m);
+    const xv = new Float64Array(m);
+    m = 0;
+    // Increasing column order.
+    const order = Array.from(nzI.subarray(0, nz)).sort((a, b) => a - b);
+    for (const c of order)
+      if (colMap[c] >= 0) {
+        xi[m] = colMap[c];
+        xv[m++] = xScratch[c];
+      }
+    return { zi: NOI, zv: NOV, xi, xv, y, t };
+  };
+  for (let g = 0; g < N; g++) {
+    const d = dRows[g];
+    const l = lRows[g];
+    if (!d.length && !l.length) continue;
+    const rows: Row[] = [];
+    for (const t of d) rows.push(mkRow(g, t, true));
+    for (const t of l) rows.push(mkRow(g, t, false));
     const H: [number, number, number][] = [];
     const nd = d.length;
     for (let r = 0; r < nd; r++) {
@@ -1067,65 +1520,120 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
     for (let s = 0; s < l.length; s++) H.push([nd + s, nd + s, 1]);
     blocks.push({ g, nd, rows, H, dPeriods: d });
   }
-  // Regressors: Gram matrix XᵀX, then drop generated columns (zero first, then collinear, in order; the constant and
-  // the user's terms first), and refuse a collinear user term by name.
-  const XtX = new Float64Array(kFull * kFull);
-  for (const b of blocks)
-    for (const r of b.rows)
-      for (let p = 0; p < r.xi.length; p++) {
-        const o = r.xi[p] * kFull;
-        const xa = r.xv[p];
-        for (let q2 = 0; q2 < r.xi.length; q2++) XtX[o + r.xi[q2]] += xa * r.xv[q2];
-      }
-  const termOrder = Array.from({ length: kt }, (_, j) => j);
-  const keptTerms = independentColumns(XtX, kFull, 1e-10, termOrder);
-  if (keptTerms.length < kt) {
-    const bad = termOrder.find((j) => !keptTerms.includes(j))!;
-    const what = XtX[bad * kFull + bad] > 0 ? "is perfectly collinear with the other regressors" : "does not vary (it is zero or constant in every row used, so its difference is zero)";
-    throw new GmmRefusal(`The regressor ${terms[bad].label} ${what} in the estimation rows; remove it.`);
-  }
-  const genOrder = [...(spec.system ? [kFull - 1] : []), ...(spec.timeDummies ? Array.from({ length: T }, (_, s) => kt + s) : [])];
-  const kept = independentColumns(XtX, kFull, 1e-10, [...termOrder, ...genOrder]).sort((a, b) => a - b);
-  const droppedDummies: string[] = [];
-  if (spec.timeDummies) for (let s = 0; s < T; s++) if (!kept.includes(kt + s)) droppedDummies.push(data.periodLabels[s]);
-  if (spec.system && !kept.includes(kFull - 1)) throw new GmmRefusal("The constant is collinear with the regressors in the level equation; remove a regressor that is constant.");
-  const names: string[] = [];
-  const kinds: string[] = [];
-  for (const c of kept) {
-    if (c < kt) {
-      names.push(terms[c].label);
-      kinds.push(terms[c].kind);
-    } else if (spec.system && c === kFull - 1) {
-      names.push("Constant");
-      kinds.push("constant");
-    } else {
-      names.push(`${data.timeName} ${data.periodLabels[c - kt]}`);
-      kinds.push("dummy");
+  // ---------------------------------------------------------------- phase 2: instrument rows
+  // Per-period means of the GMM-style differenced-equation columns (time dummies on), by two passes.
+  const dMu = td ? new Float64Array(nG * A * T) : null;
+  if (dMu) {
+    const cnt = new Int32Array(nG * A * T);
+    const corr = new Float64Array(nG * A * T);
+    for (let pass = 0; pass < 2; pass++) {
+      for (let g = 0; g < N; g++)
+        for (const t of dRows[g])
+          for (let gi = 0; gi < nG; gi++)
+            for (let a = a1; a <= bMax; a++) {
+              if (dCol[(gi * A + a) * T + (spec.collapse ? 0 : t)] < 0) continue;
+              const v = at(gSer[gi], g, t - a);
+              if (Number.isNaN(v)) continue;
+              const ix = (gi * A + a) * T + t;
+              if (pass === 0) {
+                dMu[ix] += v;
+                cnt[ix]++;
+              } else corr[ix] += v - dMu[ix];
+            }
+      for (let ix = 0; ix < dMu.length; ix++) if (cnt[ix]) dMu[ix] = pass === 0 ? dMu[ix] / cnt[ix] : dMu[ix] + corr[ix] / cnt[ix];
     }
   }
-  const k = kept.length;
-  if (k > DPD_MAX_REGRESSORS) throw new GmmRefusal(`${k} regressors (time dummies included) is more than the ${DPD_MAX_REGRESSORS} this calculator allows.`);
-  const colMap = new Int32Array(kFull).fill(-1);
-  kept.forEach((c, a) => (colMap[c] = a));
-  for (const b of blocks)
-    for (const r of b.rows) {
+  // A row fills at most every GMM-style lag of every GMM variable, one IV-style column per term, two dummies, the constant.
+  const zScrI = new Int32Array(nG * (A + 1) + kt + 3);
+  const zScrV = new Float64Array(zScrI.length);
+  // System GMM with time dummies: a period t is "exact" when the groups with a differenced row at t are exactly those
+  // with level rows at t and at t − 1 (no gap touches it); there the differenced row of t carries the moments of the
+  // level dummies of t minus t − 1, so subtracting a per-period mean from the lag-a₁ level is an exact reparametrization.
+  const exactT = new Uint8Array(T);
+  if (sys && td) {
+    const dc = new Int32Array(T);
+    const lc = new Int32Array(T);
+    for (let g = 0; g < N; g++) {
+      for (const t of dRows[g]) dc[t]++;
+      for (const t of lRows[g]) lc[t]++;
+    }
+    for (let t = 1; t < T; t++) exactT[t] = dc[t] > 0 && dc[t] === lc[t] && dc[t] === lc[t - 1] ? 1 : 0;
+  }
+  for (const b of blocks) {
+    const g = b.g;
+    b.rows.forEach((row, ri) => {
+      const diff = ri < b.nd;
+      const t = row.t;
       let m = 0;
-      for (const c of r.xi) if (colMap[c] >= 0) m++;
-      if (m === r.xi.length) {
-        for (let p = 0; p < m; p++) r.xi[p] = colMap[r.xi[p]];
-        continue;
-      }
-      const xi = new Int32Array(m);
-      const xv = new Float64Array(m);
-      m = 0;
-      for (let p = 0; p < r.xi.length; p++)
-        if (colMap[r.xi[p]] >= 0) {
-          xi[m] = colMap[r.xi[p]];
-          xv[m++] = r.xv[p];
+      const put = (c: number, v: number): void => {
+        if (c < 0 || v === 0 || Number.isNaN(v)) return;
+        zScrI[m] = c;
+        zScrV[m++] = v;
+      };
+      if (diff) {
+        for (let gi = 0; gi < nG; gi++) {
+          const nm = spec.gmmVars[gi];
+          const v1 = at(gSer[gi], g, t - a1);
+          for (let a = a1; a <= bMax; a++) {
+            const c = dCol[(gi * A + a) * T + (spec.collapse ? 0 : t)];
+            if (c < 0) continue;
+            const v = at(gSer[gi], g, t - a);
+            const has = !Number.isNaN(v);
+            if (dMu && !sys) {
+              const mu = dMu[(gi * A + a) * T + t];
+              const val = (has ? v : 0) - mu;
+              if (has) rec(nm, v, 2, val);
+              put(c, val);
+            } else {
+              // Lag a₁ keeps its level, later lags become differences from it; in an exact period of system GMM with
+              // time dummies both also lose their per-period means (the later lags the difference of the two means).
+              const ex = dMu !== null && exactT[t] === 1;
+              const mu = ex ? dMu![(gi * A + a) * T + t] : 0;
+              if (a === a1) {
+                const val = (has ? v : 0) - mu;
+                // Without time dummies its offset is a genuine part of the instrument (no precision limit applies).
+                if (has && dMu) rec(nm, v, ex ? 2 : 3, v - dMu[(gi * A + a) * T + t]);
+                put(c, val);
+              } else {
+                const h1 = !Number.isNaN(v1);
+                const mu1 = ex ? dMu![(gi * A + a1) * T + t] : 0;
+                const val = (has ? v : 0) - (h1 ? v1 : 0) - (mu - mu1);
+                if (has && h1) rec(nm, Math.max(Math.abs(v), Math.abs(v1)), 2, val);
+                put(c, val);
+              }
+            }
+          }
         }
-      r.xi = xi;
-      r.xv = xv;
-    }
+        for (let j = 0; j < kt; j++) if (ivCol[j] >= 0) put(ivCol[j], at(tSer[j], g, t - terms[j].lag) - at(tSer[j], g, t - 1 - terms[j].lag));
+        if (td && !sys) {
+          put(tdCol[t], 1);
+          put(tdCol[t - 1], -1);
+        }
+      } else {
+        const lag = a1 - 1;
+        for (let gi = 0; gi < nG; gi++) put(lCol[gi * T + (spec.collapse ? 0 : t)], at(gSer[gi], g, t - lag) - at(gSer[gi], g, t - lag - 1));
+        for (let j = 0; j < kt; j++) if (ivCol[j] >= 0) put(ivCol[j], at(tSer[j], g, t - terms[j].lag) - mTerm[j]);
+        if (td) put(tdCol[t], 1);
+        put(consCol, 1);
+      }
+      // Sparse indices in increasing order (insertion sort: a row holds a few dozen entries at most, nearly in order).
+      const zI = new Int32Array(m);
+      const zV = new Float64Array(m);
+      for (let i = 0; i < m; i++) {
+        let j = i;
+        while (j > 0 && zI[j - 1] > zScrI[i]) {
+          zI[j] = zI[j - 1];
+          zV[j] = zV[j - 1];
+          j--;
+        }
+        zI[j] = zScrI[i];
+        zV[j] = zScrV[i];
+      }
+      row.zi = zI;
+      row.zv = zV;
+    });
+  }
+  checkPrec();
   // Instruments: drop zero columns, then dependent ones (pivoted Cholesky on ZᵀZ, scaled).
   const nnz = new Int32Array(L0);
   for (const b of blocks) for (const r of b.rows) for (const c of r.zi) nnz[c]++;
@@ -1173,7 +1681,7 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
   const perGroup = counts.length
     ? { min: Math.min(...counts), max: Math.max(...counts), avg: counts.reduce((s, c) => s + c, 0) / counts.length }
     : { min: 0, max: 0, avg: 0 };
-  return { blocks, names, kinds, L, rawL: L0, droppedDummies, nDiff, nLevel, perGroup, emptyGroups, system: spec.system };
+  return { blocks, names, kinds, L, rawL: L0, droppedDummies, nDiff, nLevel, perGroup, emptyGroups, system: spec.system, mY, mX, constIdx, magY, magX: magK };
 }
 
 export interface ArTest {
@@ -1299,18 +1807,21 @@ export function fitDynamic(des: DynDesign): DynFit {
   const s1 = solve(A1);
   const e1 = residuals(s1.b);
   // An exact fit in differences leaves no error variance: every standard error, z and test would be rounding noise.
+  // After one refinement step, differenced residuals within EXACT_K rounding units of the raw values are rounding.
   {
+    const g = new Float64Array(L);
+    for (const z of zuOf(e1)) for (let a = 0; a < L; a++) g[a] += z[a];
+    const dlt = mv(s1.B, g, k, L);
+    const bR = Float64Array.from(s1.b, (v, j) => v + dlt[j]);
+    const eR = residuals(bR);
     let ssr = 0;
-    let tss = 0;
     blocks.forEach((bl, i) => {
-      for (let r = 0; r < bl.nd; r++) {
-        ssr += e1[i][r] * e1[i][r];
-        tss += bl.rows[r].y * bl.rows[r].y;
-      }
+      for (let r = 0; r < bl.nd; r++) ssr += eR[i][r] * eR[i][r];
     });
-    if (!(ssr > 1e-20 * tss)) {
-      throw new GmmRefusal("The model fits the differenced response exactly (the one-step residuals are zero up to rounding), so there is no error variance: standard errors, z statistics and the Sargan, Hansen and AR tests would be meaningless. Check that the response is not an exact function of its lags and the regressors.");
-    }
+    let floor = des.magY;
+    for (let j = 0; j < k; j++) floor += Math.abs(bR[j]) * des.magX[j];
+    floor *= EXACT_K * EPS;
+    if (!(ssr > floor * floor)) throw new GmmRefusal(EXACT_FIT_DIFF);
   }
   const zu1 = zuOf(e1);
   const S1 = outerSum(zu1);
@@ -1442,9 +1953,34 @@ export function fitDynamic(des: DynDesign): DynFit {
     }
     return out;
   };
-  const one: DynStep = { b: s1.b, se: se(V1), ar: arTests(e1, zu1, s1.B, V1) };
+  // The constant (system GMM) back on the raw columns: b_c = b̃_c + m_y − Σ mⱼb̃ⱼ, Var = qᵀṼq with q = e_c − Σ mⱼeⱼ.
+  const cI = des.constIdx;
+  const mapB = (b: Float64Array): Float64Array => {
+    if (cI < 0) return b;
+    const out = Float64Array.from(b);
+    let s = des.mY;
+    for (let j = 0; j < k; j++) s -= des.mX[j] * b[j];
+    out[cI] += s;
+    return out;
+  };
+  const mapSe = (V: Float64Array): Float64Array => {
+    const s = se(V);
+    if (cI < 0) return s;
+    let v = 0;
+    for (let i = 0; i < k; i++) {
+      const qi = i === cI ? 1 : -des.mX[i];
+      if (qi === 0) continue;
+      for (let j = 0; j < k; j++) {
+        const qj = j === cI ? 1 : -des.mX[j];
+        if (qj !== 0) v += qi * qj * V[i * k + j];
+      }
+    }
+    s[cI] = Math.sqrt(Math.max(v, 0));
+    return s;
+  };
+  const one: DynStep = { b: mapB(s1.b), se: mapSe(V1), ar: arTests(e1, zu1, s1.B, V1) };
   const two: DynStep | null = twoRes
-    ? { b: twoRes.s2.b, se: se(twoRes.Vc), seUncorrected: se(twoRes.V2), ar: arTests(twoRes.e2, twoRes.zu2, twoRes.s2.B, twoRes.Vc) }
+    ? { b: mapB(twoRes.s2.b), se: mapSe(twoRes.Vc), seUncorrected: mapSe(twoRes.V2), ar: arTests(twoRes.e2, twoRes.zu2, twoRes.s2.B, twoRes.Vc) }
     : null;
   for (const st of two ? [one, two] : [one]) for (let j = 0; j < k; j++) if (!Number.isFinite(st.b[j]) || !Number.isFinite(st.se[j])) throw new GmmRefusal("The estimates are not finite numbers for these data (check for extreme values).");
   return {
@@ -1503,7 +2039,7 @@ export function olsFeOnLevels(
       const tt = t - spec.terms[j].lag;
       const v = tt < 0 ? NaN : tSer[j][g][tt];
       if (Number.isNaN(v)) return false;
-      x[j] = v;
+      x[j] = v - shX[g * kt + j];
       idx.push(j);
     }
     if (td) {
@@ -1516,10 +2052,47 @@ export function olsFeOnLevels(
     }
     return true;
   };
+  // Recentering first (exact: the constant, or each entity's effect, absorbs it): the response and the terms lose
+  // their global means (OLS) or their entity means (FE), so large levels do not cancel inside the cross-products.
+  const shY = new Float64Array(N);
+  const shX = new Float64Array(N * kt);
+  {
+    const cy = new Float64Array(N);
+    const cxs = new Float64Array(N * kt);
+    const cn = new Int32Array(N);
+    for (let g = 0; g < N; g++)
+      for (let t = 0; t < T; t++) {
+        if (!rowOf(g, t)) continue;
+        cn[g]++;
+        cy[g] += ySer[g][t];
+        for (let j = 0; j < kt; j++) cxs[g * kt + j] += x[j];
+      }
+    if (within) {
+      for (let g = 0; g < N; g++)
+        if (cn[g]) {
+          shY[g] = cy[g] / cn[g];
+          for (let j = 0; j < kt; j++) shX[g * kt + j] = cxs[g * kt + j] / cn[g];
+        }
+    } else {
+      let tn = 0;
+      let ty = 0;
+      const tx = new Float64Array(kt);
+      for (let g = 0; g < N; g++) {
+        tn += cn[g];
+        ty += cy[g];
+        for (let j = 0; j < kt; j++) tx[j] += cxs[g * kt + j];
+      }
+      if (tn)
+        for (let g = 0; g < N; g++) {
+          shY[g] = ty / tn;
+          for (let j = 0; j < kt; j++) shX[g * kt + j] = tx[j] / tn;
+        }
+    }
+  }
   for (let g = 0; g < N; g++)
     for (let t = 0; t < T; t++) {
       if (!rowOf(g, t)) continue;
-      const yv = ySer[g][t];
+      const yv = ySer[g][t] - shY[g];
       n++;
       rg.push(g);
       rt.push(t);
@@ -1564,7 +2137,7 @@ export function olsFeOnLevels(
     rowOf(g, rt[i]);
     let fit = 0;
     for (const a of idx) fit += x[a] * bFull[a];
-    let e = ySer[g][rt[i]] - fit;
+    let e = ySer[g][rt[i]] - shY[g] - fit;
     if (within) {
       let meanFit = 0;
       for (let a = 0; a < p0; a++) meanFit += (sx[g * p0 + a] / cnt[g]) * bFull[a];

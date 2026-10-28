@@ -69,37 +69,75 @@ function fixedText(v: number, d: number): string {
   s = groupThousands(s);
   return s.startsWith("-") ? "−" + s.slice(1) : s;
 }
+/** Below this magnitude (and at SCI_HIGH or above) a cell is m×10ⁿ; between them it is fixed decimals. */
+const SCI_LOW = 1e-4;
+const SCI_HIGH = 1e9;
+/** Decimals for a fixed cell of magnitude a: four from 0.01 up (three significant figures or more), else three significant figures. */
+const decimalsFor = (a: number): number => (a >= 0.01 ? D : 2 - Math.floor(Math.log10(a)));
+
+export interface RowFormat {
+  (v: number): string;
+  /** Both bounds of an interval in one format ("a to b"), with digits enough that distinct bounds never print alike. */
+  ci(lo: number, hi: number): string;
+}
+
 /**
- * One format for every number of a row (a coefficient, its SE and both interval bounds; the 2SLS and GMM pairs), so a
- * row never sets m×10ⁿ beside decimals, or four decimals beside five. It is chosen from the given values (estimates
- * and SEs: an interval bound near 0 has no precision of its own and follows them):
- *  - any of them 10⁹ or more: m×10ⁿ with four significant figures for every cell;
- *  - else the smallest nonzero below 10⁻⁴: m×10ⁿ with three significant figures for every cell;
- *  - else fixed decimals for every cell: four when the smallest nonzero is at least 0.01 (so at least three
- *    significant figures), else as many as give it three (0.000912, never "0.0009").
+ * The number format of one table row (a coefficient and its SE; the 2SLS and GMM pairs). Each cell is set on its own
+ * merits: m×10ⁿ only below 10⁻⁴ (three significant figures) or at 10⁹ and above (four), so never ×10⁰ or ×10⁻¹…×10⁻³;
+ * every other cell in fixed decimals, the same count for the row's fixed cells (so 0.02282 sits beside 0.00424, not
+ * 0.0228): four when the smallest of the given values in the fixed range is at least 0.01, else as many as give it
+ * three significant figures (0.000912, never "0.0009"). An interval's bounds share one format (fixed when the larger
+ * bound is in the fixed range, at the row's decimals; else m×10ⁿ), with digits added until distinct bounds print
+ * differently (a large |z| would otherwise print "0.8500 to 0.8500").
  */
-export function rowFormat(...vals: number[]): (v: number) => string {
+export function rowFormat(...vals: number[]): RowFormat {
   let mn = Infinity;
-  let mx = 0;
   for (const v of vals) {
-    if (!Number.isFinite(v)) continue;
     const a = Math.abs(v);
-    if (a > 0 && a < mn) mn = a;
-    if (a > mx) mx = a;
+    if (Number.isFinite(a) && a >= SCI_LOW && a < SCI_HIGH && a < mn) mn = a;
   }
-  const fin = (f: (v: number) => string) => (v: number): string => (Number.isFinite(v) ? f(v) : "");
-  if (mx >= 1e9) return fin((v) => fmtSci(v, 4));
-  if (mn < 1e-4) return fin((v) => fmtSci(v, 3));
-  const d = mn >= 0.01 ? D : 2 - Math.floor(Math.log10(mn));
-  return fin((v) => fixedText(v, d));
+  const d = mn < Infinity ? decimalsFor(mn) : null;
+  const cell = (v: number): string => {
+    if (!Number.isFinite(v)) return "";
+    const a = Math.abs(v);
+    if (a >= SCI_HIGH) return fmtSci(v, 4);
+    if (a > 0 && a < SCI_LOW) return fmtSci(v, 3);
+    return fixedText(v, d ?? D);
+  };
+  const f = cell as RowFormat;
+  f.ci = (lo: number, hi: number): string => {
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return `${cell(lo)} to ${cell(hi)}`;
+    const m = Math.max(Math.abs(lo), Math.abs(hi));
+    const both = (g: (v: number) => string): [string, string] => [g(lo), g(hi)];
+    let out: [string, string];
+    if (m > 0 && (m < SCI_LOW || m >= SCI_HIGH)) {
+      let s = m >= SCI_HIGH ? 4 : 3;
+      const g = (v: number): string => (v === 0 ? "0" : fmtSci(v, s));
+      out = both(g);
+      while (lo !== hi && out[0] === out[1] && s < 17) {
+        s++;
+        out = both(g);
+      }
+    } else {
+      let dd = d ?? (m > 0 ? decimalsFor(m) : D);
+      const g = (v: number): string => fixedText(v, dd);
+      out = both(g);
+      while (lo !== hi && out[0] === out[1] && dd < 20) {
+        dd++;
+        out = both(g);
+      }
+    }
+    return `${out[0]} to ${out[1]}`;
+  };
+  return f;
 }
 /** One coefficient or SE on its own, by the row rule (rowFormat). */
 export function coefText(v: number): string {
   return rowFormat(v)(v);
 }
 /** "a to b" in a row's format (the word, never a dash that could read as a minus). */
-function ciText(fmt: (v: number) => string, b: number, se: number): string {
-  return `${fmt(b - GMM_Z975 * se)} to ${fmt(b + GMM_Z975 * se)}`;
+function ciText(fmt: RowFormat, b: number, se: number): string {
+  return fmt.ci(b - GMM_Z975 * se, b + GMM_Z975 * se);
 }
 function coefRow(name: string, b: number, se: number): string[] {
   const z = b / se;
@@ -314,7 +352,8 @@ export function econGmmFitFromRead(read: Read): GmmFitted | { error: string } {
     const f = fail(e, "GMM estimate");
     return err(f.text);
   }
-  return { r, names, endog, exog, instr, constant, steps: steps as "one" | "two", cluster, clusterName: c.clusterName, G, depName: c.depName, named: data.named, notes: c.notes };
+  // The column names as the table has them (the fields may differ in case or spacing), for every line and table.
+  return { r, names, endog: c.names.slice(0, k1), exog: c.names.slice(k1, k1 + k2), instr: c.names.slice(k1 + k2), constant, steps: steps as "one" | "two", cluster, clusterName: c.clusterName, G, depName: c.depName, named: data.named, notes: c.notes };
 }
 
 export function econGmmCalc(read: Read): StatOutput {
@@ -333,21 +372,29 @@ export function econGmmCalc(read: Read): StatOutput {
       (k1 ? "" : " (no endogenous regressor)") +
       ` (n = ${intText(r.n)}, ${r.k} ${plural(r.k, "coefficient")}, ${r.L} ${plural(r.L, "instrument")})`,
   );
-  lines.push(`Excluded instruments: ${instr.length ? instr.join(", ") : "none"}; the exogenous regressors${constant ? " and the constant" : ""} instrument themselves.`);
-  lines.push(`Weight matrix: ${cluster ? `clustered by ${c.clusterName ?? cluster} (${intText(G)} clusters)` : "heteroskedasticity-robust"}; standard errors from the same sandwich, z statistics.`);
+  const selfInstr = k2 ? `; the exogenous regressors${constant ? " and the constant" : ""} instrument themselves` : constant ? "; the constant instruments itself" : "";
+  lines.push(`Excluded instruments: ${instr.length ? instr.join(", ") : "none"}${selfInstr}.`);
+  const seKind = cluster ? `clustered by ${c.clusterName ?? cluster} (${intText(G)} clusters)` : "heteroskedasticity-robust";
+  // One-step: the weight is the 2SLS one whatever the SE option; only the standard errors are robust or clustered.
+  lines.push(steps === "two" ? `Weight matrix: ${seKind}; standard errors from the same sandwich, z statistics.` : `Weight matrix: (ZᵀZ)⁻¹, the 2SLS weight; standard errors from the sandwich, ${seKind}, z statistics.`);
   if (r.jdf > 0 && Number.isFinite(r.j)) {
     lines.push(`Hansen J test of the ${r.jdf} overidentifying restriction${r.jdf === 1 ? "" : "s"} (two-step): J = ${fmtFixed(r.j, 3)}, χ²(${r.jdf}), ${pText(r.jp)}. H₀: every instrument is valid.`);
     if (r.jp > 0.99) lines.push(`Caution: a J p-value above 0.99 is more often a sign that the test has lost power (many instruments for the ${cluster ? "clusters" : "rows"}) than of valid instruments.`);
   } else if (r.jdf > 0) {
     lines.push(`Hansen J test not computed: ${r.jWhy}.`);
   } else {
-    lines.push("Exactly identified (as many instruments as coefficients): GMM equals 2SLS whatever the weight, and the Hansen J test is not computed (no overidentifying restriction).");
+    lines.push(`Exactly identified (as many instruments as coefficients): GMM equals ${k1 ? "2SLS" : "OLS"} whatever the weight, and the Hansen J test is not computed (no overidentifying restriction).`);
   }
+  // With two or more endogenous regressors each plain partial R² can be large while the instruments move them all the
+  // same way: Shea's partial R² (linearmodels' shea.rsquared) says how much is left to tell them apart.
+  const shea = k1 >= 2;
+  const sheaText = (v: number): string => (!Number.isFinite(v) ? "Shea partial R² not computed" : v > 0 && v < 0.001 ? `Shea partial R² ${P_BELOW}` : `Shea partial R² = ${fmtFixed(v, 3)}`);
   for (const f of r.firstStage) {
     lines.push(
-      `First stage of ${f.name} on the ${f.df} excluded instrument${f.df === 1 ? "" : "s"}: partial R² = ${fmtFixed(f.partialR2, 3)}, ${cluster ? "clustered" : "robust"} Wald χ²(${f.df}) = ${fmtFixed(f.wald, 2)}, ${pText(f.p)}` +
+      `First stage of ${f.name} on the ${f.df} excluded instrument${f.df === 1 ? "" : "s"}: partial R² = ${fmtFixed(f.partialR2, 3)}, ${shea ? `${sheaText(f.shea)}, ` : ""}${cluster ? "clustered" : "robust"} Wald χ²(${f.df}) = ${fmtFixed(f.wald, 2)}, ${pText(f.p)}` +
         (f.df > 1 ? ` (its F form, Wald/${f.df}, is ${fmtFixed(f.wald / f.df, 2)})` : " (with one instrument it equals its F form)") +
-        ". Rules of thumb such as F above 10 were derived for homoskedastic errors; a small partial R² means weak instruments and a GMM estimate biased toward OLS.",
+        ". Rules of thumb such as F above 10 were derived for homoskedastic errors; a small partial R² means weak instruments and a GMM estimate biased toward OLS" +
+        (shea ? `, and a small Shea partial R² means the instruments cannot separate ${f.name} from the other endogenous ${k1 === 2 ? "regressor" : "regressors"}, however strong its own first stage looks.` : "."),
     );
   }
   lines.push(
@@ -999,10 +1046,17 @@ export function rhoFigure(cmp: { name: string; b?: number; se?: number; note?: s
     { type: "scatter", points: pts.filter((o) => o.c.name.includes("GMM")).map((o) => ({ x: o.x, y: o.c.b!, err: GMM_Z975 * o.c.se! })), color: "#0369a1", label: "GMM" },
     { type: "scatter", points: pts.filter((o) => !o.c.name.includes("GMM")).map((o) => ({ x: o.x, y: o.c.b!, err: GMM_Z975 * o.c.se! })), color: "#64748b", label: "OLS and FE (bounds)" },
   ];
+  // The title must fit the 400 px figure (about 7.5 px a character in the bold 13 px title face, interpolate.fitTitle's
+  // estimate): a long response name drops "Coefficient of", then moves to the note.
+  const width = 400;
+  const titles = [`Coefficient of ${rhoLabel} by estimator`, `${rhoLabel} by estimator`];
+  let title = titles.find((t) => t.length * 13 * 0.58 <= width - 24);
+  const titleNote = title ? [] : [`The lagged response is ${rhoLabel}.`];
+  title ??= "Lagged response by estimator";
   return buildPlotSvg(series, {
-    width: 400,
+    width,
     height: 260,
-    title: `Coefficient of ${rhoLabel} by estimator`,
+    title,
     ylabel: "Coefficient",
     errorBars: "ci95",
     xLimits: { min: 0.4, max: k + 0.6 },
@@ -1012,6 +1066,7 @@ export function rhoFigure(cmp: { name: string; b?: number; se?: number; note?: s
       return Math.abs(v - j) < 1e-9 && j >= 1 && j <= k && cmp[j - 1].b !== undefined && cmp[j - 1].se !== undefined ? short[cmp[j - 1].name] ?? cmp[j - 1].name : "";
     },
     notes: [
+      ...titleNote,
       "A consistent GMM estimate should lie between fixed effects (biased down) and pooled OLS (biased up). OLS and FE: cluster-robust by entity.",
       ...cmp.filter((c) => c.b === undefined || c.se === undefined).map((c) => `${c.name}: not computed${"note" in c && c.note ? ` (${c.note})` : ""}.`),
     ],

@@ -87,6 +87,33 @@ describe("econ-gmm against linearmodels 7.1 IVGMM (numpy cross-checked in the sc
       expect(c.firstStage[i].dist).toBe(`chi2(${f.df})`);
     });
   });
+  test("Shea partial R² with two endogenous regressors (linearmodels 7.1 first_stage.diagnostics shea.rsquared)", () => {
+    // Pinned from linearmodels IV2SLS(...).first_stage.diagnostics on these data (robust and clustered agree: Shea's
+    // statistic is a ratio of projection diagonals, free of the covariance option). p7Data: two regressors moved by
+    // the same instrument, each plain partial R² 0.756, Shea 0.0065.
+    const cases: [string, Record<string, string>, number[], number[]][] = [
+      ["jointly weak, robust", { data: p7Data(), spec: "y ~", endog: "d1 + d2", instruments: "z1 + z2 + z3", steps: "one" }, [0.7558680636, 0.7564695372], [0.006532510908, 0.006537709081]],
+      ["jointly weak, clustered", { data: p7Data(), spec: "y ~", endog: "d1 + d2", instruments: "z1 + z2 + z3", steps: "one", weight: "cluster", cluster: "g" }, [0.7558680636, 0.7564695372], [0.006532510908, 0.006537709081]],
+      ["jointly weak, no constant", { data: p7Data(), spec: "y ~", endog: "d1 + d2", instruments: "z1 + z2 + z3", constant: "no" }, [0.7559304599, 0.7564002338], [0.006616772126, 0.006620884127]],
+      ["default data, educ and exper endogenous", { endog: "educ + exper", spec: "lwage ~", instruments: "dist + sibs" }, [0.5237648304, 0.007172523873], [0.02883456385, 0.0003948653777]],
+    ];
+    for (const [label, over, pr2, shea] of cases) {
+      const r = econGmmFitFromRead(reader("econ-gmm", over));
+      if ("error" in r) throw new Error(`${label}: ${r.error}`);
+      close(r.r.firstStage.map((f) => f.partialR2), pr2, 1e-8);
+      close(r.r.firstStage.map((f) => f.shea), shea, 1e-7);
+    }
+    const o = run("econ-gmm", cases[1][1]);
+    expect(o.text).toContain("First stage of d1 on the 3 excluded instruments: partial R² = 0.756, Shea partial R² = 0.007, clustered Wald χ²(3)");
+    expect(o.text).toContain("a small Shea partial R² means the instruments cannot separate d1 from the other endogenous regressor");
+    expect(run("econ-gmm", cases[3][1]).text).toMatch(/partial R² = 0\.007, Shea partial R² <\s0\.001, robust Wald/);
+    // One endogenous regressor: Shea is the plain partial R² (linearmodels: 0.5230185589 both), and the line is unchanged.
+    const one = econGmmFitFromRead(reader("econ-gmm", {}));
+    if ("error" in one) throw new Error(one.error);
+    expect(Math.abs(one.r.firstStage[0].shea - 0.5230185589)).toBeLessThan(1e-9);
+    expect(Math.abs(one.r.firstStage[0].shea - one.r.firstStage[0].partialR2)).toBeLessThan(1e-12);
+    expect(run("econ-gmm").text).not.toContain("Shea");
+  });
   test("printed default: the coefficient table and J line", () => {
     const c = FX.linear[0];
     const o = run("econ-gmm");
@@ -377,6 +404,31 @@ describe("econ-gmm hostile inputs and refusals", () => {
     const r = econGmmFitFromRead(reader("econ-gmm", { instruments: "dist" }));
     if ("error" in r) throw new Error(r.error);
     close(r.r.gmm.b, r.r.tsls.b, 1e-9);
+    expect(o.text).toContain("GMM equals 2SLS whatever the weight");
+    // No endogenous regressor: it is OLS.
+    const ols = run("econ-gmm", { spec: "lwage ~ educ + exper", endog: "", instruments: "" });
+    expect(ols.text).toContain("GMM equals OLS whatever the weight");
+    expect(ols.text).not.toContain("2SLS whatever");
+  });
+  test("wording: the one-step weight is (ZᵀZ)⁻¹ whatever the SE option; names as the table has them; self-instruments", () => {
+    expect(run("econ-gmm").text).toContain("Weight matrix: heteroskedasticity-robust; standard errors from the same sandwich, z statistics.");
+    const one = run("econ-gmm", { steps: "one" }).text;
+    expect(one).toContain("Weight matrix: (ZᵀZ)⁻¹, the 2SLS weight; standard errors from the sandwich, heteroskedasticity-robust, z statistics.");
+    expect(one).not.toContain("Weight matrix: heteroskedasticity-robust");
+    const cl = run("econ-gmm", { data: linData(300, 3), spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3", weight: "cluster", cluster: "cl", steps: "one" }).text;
+    expect(cl).toContain("Weight matrix: (ZᵀZ)⁻¹, the 2SLS weight; standard errors from the sandwich, clustered by cl (25 clusters), z statistics.");
+    // Fields typed in another case: every line uses the column names.
+    const cased = run("econ-gmm", { spec: "LWAGE ~ Exper", endog: "Educ", instruments: "Dist + Sibs" });
+    expect(cased.text.split("\n")[0]).toBe("Linear GMM, two-step efficient: lwage on educ (instrumented) and exper (n = 200, 3 coefficients, 4 instruments)");
+    expect(cased.text).toContain("Excluded instruments: dist, sibs;");
+    expect(cased.text).not.toMatch(/Educ|Exper|Dist|Sibs/);
+    // Self-instrumenting clause by case.
+    expect(run("econ-gmm").text).toContain("Excluded instruments: dist, sibs; the exogenous regressors and the constant instrument themselves.");
+    expect(run("econ-gmm", { spec: "lwage ~", endog: "educ" }).text).toContain("Excluded instruments: dist, sibs; the constant instruments itself.");
+    const bare = run("econ-gmm", { spec: "lwage ~", endog: "educ", constant: "no" }).text;
+    expect(bare).toContain("Excluded instruments: dist, sibs.\n");
+    expect(bare).not.toContain("themselves");
+    expect(run("econ-gmm", { constant: "no" }).text).toContain("Excluded instruments: dist, sibs; the exogenous regressors instrument themselves.");
   });
   test("roles, clusters and constants are checked by name", () => {
     expect(run("econ-gmm", { instruments: "exper" }).text).toContain("cannot be both an exogenous regressor and an excluded instrument");
@@ -595,6 +647,21 @@ function lcg(seed: number): { u: () => number; g: () => number } {
     return (s + 0.5) / 4294967296;
   };
   return { u, g: () => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u()) };
+}
+/** Two endogenous regressors driven by the same instrument z1 (z2 barely separates them), 30 clusters g. */
+function p7Data(): string {
+  const r = lcg(4);
+  const L = ["y\td1\td2\tz1\tz2\tz3\tg"];
+  for (let i = 0; i < 400; i++) {
+    const z1 = r.g();
+    const z2 = r.g();
+    const z3 = r.g();
+    const u = r.g();
+    const d1 = z1 + 0.5 * u + 0.3 * r.g();
+    const d2 = z1 + 0.5 * u + 0.3 * r.g() + 0.02 * z2;
+    L.push([1 + d1 - d2 + u, d1, d2, z1, z2, z3].map((v) => v.toPrecision(10)).join("\t") + `\tg${i % 30}`);
+  }
+  return L.join("\n");
 }
 /** Linear IV data: two endogenous regressors d1, d2, exogenous x, instruments z1…z3, 25 clusters. */
 function linData(n: number, seed: number, xScale = 1): string {
@@ -855,14 +922,27 @@ describe("display of small coefficients, figure notes and ticks", () => {
     expect(coefText(-0.00674)).toBe("−0.00674");
     expect(coefText(0.0711)).toBe("0.0711");
   });
-  test("one format per row: estimate, SE and both bounds never mix m×10ⁿ with decimals, or four decimals with five", () => {
+  test("each cell on its own merits: m×10ⁿ only below 10⁻⁴ or from 10⁹; fixed cells of a row share their decimals; bounds share one format", () => {
     const row = (b: number, se: number): string[] => {
       const f = rowFormat(b, se);
-      return [f(b), f(se), f(b - 1.96 * se), f(b + 1.96 * se)];
+      return [f(b), f(se), ...f.ci(b - 1.96 * se, b + 1.96 * se).split(" to ")];
     };
     const decimals = (s: string): number => (s.split(".")[1] ?? "").length;
-    // A tiny estimate with an interval spanning 0: every cell in m×10ⁿ (review 3: −3.57×10⁻⁵ beside "−0.000183 to 0.000112").
-    for (const c of row(-3.57e-5, 7.5e-5)) expect(c).toMatch(/×10/);
+    // A tiny estimate and SE with an interval reaching past 10⁻⁴: the cells in m×10ⁿ, the interval (one format) in
+    // fixed decimals with three significant figures of its larger bound.
+    expect(row(-3.57e-5, 7.5e-5)).toEqual(["−3.57×10⁻⁵", "7.50×10⁻⁵", "−0.000183", "0.000111"]);
+    // A near-zero time dummy no longer sends its row to m×10ⁿ (was "7.00×10⁻⁵ | 2.00×10⁻¹ | −3.92×10⁻¹ to 3.92×10⁻¹").
+    expect(row(0.00007, 0.2)).toEqual(["7.00×10⁻⁵", "0.2000", "−0.3919", "0.3921"]);
+    // A huge |z|: the SE below 10⁻⁴ in m×10ⁿ, the rest fixed, and the bounds keep enough digits to differ (was
+    // "8.50×10⁻¹ to 8.50×10⁻¹" and "5.00×10⁰").
+    expect(row(0.85, 4.77e-5)).toEqual(["0.8500", "4.77×10⁻⁵", "0.8499", "0.8501"]);
+    expect(row(5, 6.66e-5)[0]).toBe("5.0000");
+    expect(row(0.85, 1e-9).slice(2)).toEqual(["0.849999998", "0.850000002"]);
+    // Both bounds below 10⁻⁴: m×10ⁿ, one significant-figure count, more when needed to tell them apart.
+    expect(row(7.11e-5, 6.52e-7).slice(2)).toEqual(["6.98×10⁻⁵", "7.24×10⁻⁵"]);
+    expect(row(7.11e-5, 1e-12).slice(2)).toEqual(["7.1099998×10⁻⁵", "7.1100002×10⁻⁵"]);
+    // Defaults keep their strings (panel-dyn-gmm year 2018, econ-gmm exper).
+    expect(row(-0.006738, 0.18508).slice(0, 2)).toEqual(["−0.00674", "0.18508"]);
     // b ≥ 0.01 with SE < 0.01: one decimal count for the row (review 3: 0.0125 beside 0.00652).
     const r1 = row(0.0125, 0.00652);
     expect(r1[0]).toBe("0.01250");
@@ -883,11 +963,44 @@ describe("display of small coefficients, figure notes and ticks", () => {
     // −0 and zero.
     expect(rowFormat(-0, 0.5)(-0)).toBe("0.0000");
     expect(rowFormat(0, 0)(0)).toBe("0.0000");
-    // 10⁹ or more anywhere: every cell in m×10ⁿ with four significant figures.
+    // 10⁹ or more: that cell in m×10ⁿ with four significant figures; a cell below 10⁹ stays fixed.
     const r3 = row(2.5e9, 3e8);
-    for (const c of r3) expect(c).toMatch(/^[−\d.]+×10[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/);
-    expect(r3[0]).toBe("2.500×10⁹");
+    expect(r3).toEqual(["2.500×10⁹", "300,000,000.0000", "1.912×10⁹", "3.088×10⁹"]);
     expect(rowFormat(1.5e-6, 2.5e-5)(1.5e-6)).toBe("1.50×10⁻⁶");
+  });
+  test("the ρ figure title fits a long response name (drops “Coefficient of”, then names it in the note)", () => {
+    const title = (svg: string | undefined): string => ((svg ?? "").match(/data-figure-title="1"[^>]*>([^<]*)</) ?? [])[1] ?? "";
+    expect(title(run("panel-dyn-gmm").svg)).toBe("Coefficient of L.sales by estimator");
+    const nm = "log_real_sales_per_employee_defl";
+    expect(title(run("panel-dyn-gmm", { data: DYN_DEFAULT_TABLE.replace(/\bsales\b/, nm), spec: `${nm} ~ L.${nm} + price` }).svg)).toBe(`L.${nm} by estimator`);
+    const nm2 = "log_real_sales_per_employee_deflated_by_the_gdp_price_index_2015";
+    const svg = run("panel-dyn-gmm", { data: DYN_DEFAULT_TABLE.replace(/\bsales\b/, nm2), spec: `${nm2} ~ L.${nm2} + price` }).svg;
+    expect(title(svg)).toBe("Lagged response by estimator");
+    // (The note wraps a name longer than its line inside the name, so compare without the line breaks.)
+    expect((svg ?? "").replace(/<[^>]+>/g, "").replace(/\s+/g, "")).toContain(`ThelaggedresponseisL.${nm2}.`);
+  });
+  test("a panel recorded every other year is refused with a hint to renumber the periods (not converted silently)", () => {
+    const bi = DYN_DEFAULT_TABLE.split("\n").map((l, i) => (i === 0 ? l : l.replace(/\t(20\d\d)\t/, (_m, y) => `\t${2000 + 2 * (Number(y) - 2012)}\t`))).join("\n");
+    const o = run("panel-dyn-gmm", { data: bi });
+    expect(o.ok).toBe(false);
+    expect(o.text).toContain("No entity has two consecutive periods");
+    expect(o.text).toContain("renumber the periods 1, 2, 3, …");
+    // An ordinary refusal of the same kind (lags too long for annual data) carries no such hint.
+    const plain = run("panel-dyn-gmm", { spec: "sales ~ L.sales + L8.price" });
+    expect(plain.text).not.toContain("renumber");
+  });
+  test("property: distinct bounds never print alike; never ×10⁰, ×10⁻¹, ×10⁻² or ×10⁻³", () => {
+    const r = lcg(77);
+    for (let i = 0; i < 4000; i++) {
+      const b = (r.u() < 0.5 ? -1 : 1) * 10 ** (-12 + 24 * r.u());
+      const se = Math.abs(b) * 10 ** (-12 + 14 * r.u());
+      const f = rowFormat(b, se);
+      const lo = b - 1.96 * se;
+      const hi = b + 1.96 * se;
+      const [a, c] = f.ci(lo, hi).split(" to ");
+      if (lo !== hi) expect(`${b} ${se}: ${a}`).not.toBe(`${b} ${se}: ${c}`);
+      for (const s of [f(b), f(se), a, c]) expect(s).not.toMatch(/×10(⁰|⁻[¹²³](?![⁰¹²³⁴⁵⁶⁷⁸⁹]))/);
+    }
   });
   test("the econ-gmm figure names the weight it used and shortens long tick names", () => {
     const words = (svg: string | undefined): string => (svg ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");

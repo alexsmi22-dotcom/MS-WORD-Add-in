@@ -598,6 +598,12 @@ export interface LinearGmmInput {
 export interface FirstStage {
   name: string;
   partialR2: number;
+  /**
+   * Shea's (1997) partial R²: [(XᵀX)⁻¹]ⱼⱼ / [(X̂ᵀX̂)⁻¹]ⱼⱼ with X̂ the projection of X on the instruments (linearmodels'
+   * "shea.rsquared"). It measures what the instruments explain of this regressor beyond what they explain of the other
+   * endogenous regressors; with one endogenous regressor it equals partialR2.
+   */
+  shea: number;
   /** Wald statistic of the excluded instruments' coefficients, robust or clustered as the fit, χ²(df). */
   wald: number;
   df: number;
@@ -884,6 +890,22 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
       for (let a = 0; a < nx; a++) for (let b = 0; b < nx; b++) Gx[a * nx + b] = ZZ[(q + a) * L + q + b];
       Wx = symInverse(Gx, nx).inv;
     }
+    // Shea: diag (XᵀX)⁻¹ over diag (X̂ᵀX̂)⁻¹, X̂ᵀX̂ = XᵀZ(ZᵀZ)⁻¹ZᵀX. The recentering above only adds multiples of the anchor
+    // (a column of X that the instruments contain) to other columns, which leaves both diagonals of an endogenous
+    // regressor unchanged; symInverse's scaling cancels in the ratio.
+    const XX = new Float64Array(k * k);
+    for (let i = 0; i < n; i++) {
+      const xo = i * k;
+      for (let a = 0; a < k; a++) {
+        const xa = X[xo + a];
+        if (xa === 0) continue;
+        for (let b = a; b < k; b++) XX[a * k + b] += xa * X[xo + b];
+      }
+    }
+    for (let a = 0; a < k; a++) for (let b = a + 1; b < k; b++) XX[b * k + a] = XX[a * k + b];
+    const XXi = symInverse(XX, k);
+    const XhXi = symInverse(mul(mul(XZ, W0, k, L, L), ZX, k, L, k), k);
+    const sheaOf = (c: number): number => (XXi.generalized || XhXi.generalized || !(XhXi.inv[c * k + c] > 0) ? NaN : XXi.inv[c * k + c] / XhXi.inv[c * k + c]);
     for (let c = 0; c < k1; c++) {
       const d = Float64Array.from({ length: n }, (_, i) => X[i * k + c]);
       const Zd = Float64Array.from({ length: L }, (_, a) => ZX[a * k + c]);
@@ -914,7 +936,7 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
       const Vi = symInverse(Vq, q);
       const wald = quad(Vi.inv, pi.subarray(0, q), q);
       const partialR2 = ssrX > 0 ? 1 - ssrFull / ssrX : NaN;
-      firstStage.push({ name: inp.names[c], partialR2, wald, df: q, p: Number.isFinite(wald) && !Vi.generalized ? chiSquareP(Math.max(wald, 0), q) : NaN });
+      firstStage.push({ name: inp.names[c], partialR2, shea: sheaOf(c), wald, df: q, p: Number.isFinite(wald) && !Vi.generalized ? chiSquareP(Math.max(wald, 0), q) : NaN });
     }
   }
   return { n, k, L, tsls, gmm, j, jdf, jp: Number.isFinite(j) && jdf > 0 ? chiSquareP(Math.max(j, 0), jdf) : NaN, jWhy, singularS, firstStage };
@@ -1035,7 +1057,27 @@ export interface DynPlan {
 export function planDynamic(data: DynData, spec: DynSpec): DynPlan {
   const { N, T } = data;
   if (N > DPD_MAX_GROUPS) throw new GmmRefusal(`${intText(N)} groups is more than the ${intText(DPD_MAX_GROUPS)} this calculator allows.`);
-  if (T > DPD_MAX_PERIODS) throw new GmmRefusal(`The panel spans ${T} periods (gaps included); this calculator allows ${DPD_MAX_PERIODS}.`);
+  // Data recorded every other period (2000, 2002, …): the response is never seen in two adjacent periods, although some
+  // entity has it in two periods or more. Named in the refusals below (the periods are not renumbered silently: a lag
+  // is one period of the time column).
+  const spacedHint = (): string => {
+    const ys = data.series.get(spec.y);
+    if (!ys) return "";
+    let twice = false;
+    for (let g = 0; g < N; g++) {
+      let seen = 0;
+      for (let t = 0; t < T; t++) {
+        if (Number.isNaN(ys[g][t])) continue;
+        if (t > 0 && !Number.isNaN(ys[g][t - 1])) return "";
+        seen++;
+      }
+      if (seen >= 2) twice = true;
+    }
+    return twice
+      ? ` The response is never recorded in two adjacent periods of ${data.timeName ? `“${data.timeName}”` : "the time column"}: if the data come every other period (for example 2000, 2002, 2004, …), renumber the periods 1, 2, 3, … in a new column and use it as the time column, so that a lag is one recorded period.`
+      : "";
+  };
+  if (T > DPD_MAX_PERIODS) throw new GmmRefusal(`The panel spans ${T} periods (gaps included); this calculator allows ${DPD_MAX_PERIODS}.${spacedHint()}`);
   if (T < 3) throw new GmmRefusal(`The panel has ${T} period${T === 1 ? "" : "s"}; a dynamic panel needs at least 3 (one lag for the regressor, one more for the difference and an instrument).`);
   const val = (v: string, g: number, t: number): number => (t < 0 || t >= T ? NaN : data.series.get(v)![g][t]);
   const terms = spec.terms;
@@ -1065,7 +1107,7 @@ export function planDynamic(data: DynData, spec: DynSpec): DynPlan {
   }
   const dPer = [...dSet].sort((a, b) => a - b);
   const lPer = [...lSet].sort((a, b) => a - b);
-  if (!dPer.length) throw new GmmRefusal("No entity has two consecutive periods with every value the model needs, so no first difference can be formed. Check the lags against the length of each entity's series.");
+  if (!dPer.length) throw new GmmRefusal(`No entity has two consecutive periods with every value the model needs, so no first difference can be formed. Check the lags against the length of each entity's series.${spacedHint()}`);
   // A response that never changes within an entity is a pure entity effect: every first difference is zero, so there
   // are no dynamics to estimate (difference GMM has nothing to fit; system GMM would fit ρ = 1 to the levels exactly).
   {

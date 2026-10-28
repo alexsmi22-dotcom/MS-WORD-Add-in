@@ -51,6 +51,21 @@ export const HW_WORK_BUDGET = 5e8;
 const SQRT_EPS = Math.sqrt(2.220446049250313e-16);
 export const PHI_LO = 0.8;
 export const PHI_HI = 0.995;
+/**
+ * Starting grid for the smoothing coordinates u ∈ [0, 1] (both bounds included); how many of its best points get a
+ * short scouting run (besides the best point of each face class); the scouting iterations; how many of the best
+ * scouts are then fitted to convergence.
+ */
+const HW_GRID_LEVELS: Record<"a" | "b" | "g" | "p", number[]> = {
+  a: [0, 0.02, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95, 1],
+  b: [0, 0.02, 0.2, 0.5, 0.9, 1],
+  g: [0, 0.02, 0.2, 0.5, 0.9, 1],
+  p: [0, 0.3, 0.9, 1],
+};
+const HW_STARTS = 6;
+const HW_SCOUT_ITER = 4;
+const HW_POLISH = 2;
+const HW_SCOUT_ROWS = 2000;
 
 export interface HwFiltered {
   fitted: Float64Array;
@@ -391,12 +406,20 @@ export function fitHoltWinters(yIn: ArrayLike<number>, spec: HwSpec): HwFitResul
   const st = heuristicStates(y, spec, L);
   // Up-front refusal when even the grid and a short optimisation cannot fit in the work budget.
   const kx = L.nSmooth + 1 + (L.hasT ? 1 : 0) + Math.max(0, L.m - 1);
-  const gridSize = 8 * (L.hasT ? 4 : 1) * (L.m ? 4 : 1) * (L.hasT && spec.damped ? 2 : 1);
-  const perRow = gridSize + 3 * 25 * (kx + 2 + (kx * kx) / 4);
-  if (n * perRow > HW_WORK_BUDGET) {
+  // Grid points (× the initial-trend candidates), scouts (the best points plus one per face class, 3 per smoothing
+  // coordinate), and a short full fit from each polished scout.
+  const gridSize = L.smooth.reduce((a, s) => a * HW_GRID_LEVELS[s].length, 1) * (L.hasT ? 3 : 1);
+  const nScouts = HW_STARTS + 3 ** L.nSmooth;
+  const perIter = kx + 2 + (kx * kx) / 4;
+  // The grid and the scouts only choose where the full fit starts, so on a long series they read its first
+  // HW_SCOUT_ROWS rows; the full fit reads every row.
+  const nPre = Math.min(n, HW_SCOUT_ROWS);
+  const perRow = (HW_POLISH + 1) * 25 * perIter; // 25 iterations for each polished run, and one run of margin
+  const fixedWork = nPre * (gridSize + nScouts * HW_SCOUT_ITER * perIter);
+  if (fixedWork + n * perRow > HW_WORK_BUDGET) {
     return {
       ok: false,
-      reason: `This model on ${n.toLocaleString("en-US")} rows needs more computation than the pane allows; use at most ${Math.floor(HW_WORK_BUDGET / perRow).toLocaleString("en-US")} rows, or a simpler model.`,
+      reason: `This model on ${n.toLocaleString("en-US")} rows needs more computation than the pane allows; use at most ${Math.floor(Math.max(0, HW_WORK_BUDGET - fixedWork) / perRow).toLocaleString("en-US")} rows, or a simpler model.`,
     };
   }
   const resid =(x: Float64Array | number[], out: Float64Array): number => {
@@ -405,43 +428,74 @@ export function fitHoltWinters(yIn: ArrayLike<number>, spec: HwSpec): HwFitResul
     for (let t = 0; t < n; t++) out[t] = y[t] - f.fitted[t];
     return Number.isFinite(f.sse) ? f.sse : Infinity;
   };
+  const yPre = y.subarray(0, nPre);
+  const residPre = (x: Float64Array | number[], out: Float64Array): number => {
+    const f = hwFilter(yPre, spec, decode(x, L));
+    for (let t = 0; t < nPre; t++) out[t] = yPre[t] - f.fitted[t];
+    return Number.isFinite(f.sse) ? f.sse : Infinity;
+  };
   const sseOnly = (x: number[]): number => {
-    const f = hwFilter(y, spec, decode(x, L));
+    const f = hwFilter(yPre, spec, decode(x, L));
     return Number.isFinite(f.sse) ? f.sse : Infinity;
   };
 
-  // Grid over the smoothing coordinates (u ∈ [0, 1]) with the heuristic states.
-  const levels: Record<"a" | "b" | "g" | "p", number[]> = {
-    a: [0.02, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95],
-    b: [0.02, 0.2, 0.5, 0.9],
-    g: [0.02, 0.2, 0.5, 0.9],
-    p: [0.3, 0.9],
-  };
-  const stateVec = [st.l0, ...(L.hasT ? [st.b0] : []), ...st.s0.slice(0, Math.max(0, L.m - 1))];
-  const grid: { x: number[]; sse: number }[] = [];
+  // Grid over the smoothing coordinates (u ∈ [0, 1]) with the heuristic states. The bounds themselves are on it:
+  // the global least-squares fit is often a corner (α = 1 with β = 0 or β = α, γ = 0, φ at either end), and a local
+  // search started inside the box can settle on an interior local minimum instead (R6 review: SSE 4,287.7 against
+  // the corner's 4,271.4; a multiplicative fit at 13.27 against 4.26).
+  const levels = HW_GRID_LEVELS;
+  // The heuristic initial trend (y₂ − y₁, or one cycle's change) is noisy, and with β near 0 it steers the whole fit,
+  // so each grid point is also scored with no initial trend and with the series' average slope.
+  const b0s = L.hasT ? [st.b0, 0, (y[n - 1] - y[0]) / (n - 1)] : [0];
+  const grid: { x: number[]; sse: number; corner: string }[] = [];
   const rec = (i: number, acc: number[]): void => {
     if (i === L.nSmooth) {
-      const x = [...acc, ...stateVec];
-      grid.push({ x, sse: sseOnly(x) });
+      const corner = acc.map((u) => (u === 0 ? "0" : u === 1 ? "1" : "i")).join("");
+      for (const b0 of b0s) {
+        const x = [...acc, st.l0, ...(L.hasT ? [b0] : []), ...st.s0.slice(0, Math.max(0, L.m - 1))];
+        grid.push({ x, sse: sseOnly(x), corner });
+      }
       return;
     }
     for (const v of levels[L.smooth[i]]) rec(i + 1, [...acc, v]);
   };
   rec(0, []);
   grid.sort((p, q) => p.sse - q.sse);
-  const starts = grid.filter((g) => Number.isFinite(g.sse)).slice(0, 3);
+  const finite = grid.filter((g) => Number.isFinite(g.sse));
+  // The best grid points, and the best point of every face class of the smoothing box (each coordinate at 0, at 1 or
+  // inside) whatever its rank: scored at the heuristic states, a class can rank low and still hold the global fit
+  // (the R6 cases: α = β = 1; β = α with α inside; α = 1 with β = 0).
+  const starts = finite.slice(0, HW_STARTS);
+  const seenCorner = new Set<string>();
+  for (const g of finite) {
+    const key = g.corner;
+    if (seenCorner.has(key)) continue;
+    seenCorner.add(key);
+    if (!starts.includes(g)) starts.push(g);
+  }
   if (!starts.length) return { ok: false, reason: "The smoothing recursions overflow for every starting value (an extreme series)." };
 
   const runs: LmResult[] = [];
   let iterations = 0;
   let exhausted = false;
-  const budget = { left: HW_WORK_BUDGET - n * grid.length };
+  const budget = { left: HW_WORK_BUDGET - nPre * grid.length };
+  // Two stages: a short scouting run from each start, since the basin a start falls in only shows after a few
+  // steps; then the full fit from the best few scouts.
+  const scouts: LmResult[] = [];
   for (const s of starts) {
-    const r = lmBox(resid, Float64Array.from(s.x), n, L.nSmooth, HW_MAX_ITER, budget);
+    const r = lmBox(residPre, Float64Array.from(s.x), nPre, L.nSmooth, HW_SCOUT_ITER, budget);
+    iterations += r.iterations;
+    if (r.exhausted) exhausted = true;
+    if (Number.isFinite(r.sse)) scouts.push(r);
+    if (budget.left <= 0) break;
+  }
+  scouts.sort((a, b) => a.sse - b.sse);
+  for (const s of scouts.slice(0, HW_POLISH)) {
+    if (budget.left <= 0) break;
+    const r = lmBox(resid, s.x, n, L.nSmooth, HW_MAX_ITER, budget);
     iterations += r.iterations;
     if (r.exhausted) exhausted = true;
     if (Number.isFinite(r.sse)) runs.push(r);
-    if (budget.left <= 0) break;
   }
   if (!runs.length) return { ok: false, reason: "The least-squares fit failed from every start." };
   runs.sort((a, b) => a.sse - b.sse);

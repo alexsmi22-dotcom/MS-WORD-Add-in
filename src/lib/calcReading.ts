@@ -23,6 +23,30 @@ export const READING_MAX = 320;
 
 const METHOD_WORDS = /\b(Conventions?|statsmodels|linearmodels|QuantLib|scipy|SciPy|PyPortfolioOpt|arch package|R package)\b/;
 
+/**
+ * THE ONE p-VALUE RULE for every reading (bug test 2026-10-28: readings decided on the unrounded p, so two results
+ * that both print "p = 0.050" read "significant" and "could be chance", and a few said "only just" while most did
+ * not). A reading decides on the p-value AS THE RESULT PRINTS IT, so one printed number always gets one verdict:
+ *  - "clear":      printed below 0.05 ("0.049", "0.0499", ".003", "< 0.001");
+ *  - "borderline": printed as exactly 0.05 at whatever precision ("0.05", ".050", "0.0500") — say BOUNDARY_CLAUSE;
+ *  - "none":       printed above 0.05.
+ * `printed` is the p text the result shows (with or without "p", "=", "<", a leading "0", a no-break space).
+ */
+export type PVerdict = "clear" | "borderline" | "none";
+
+export function pVerdict(printed: string, alpha = 0.05): PVerdict {
+  const t = printed.replace(/[\s ]/g, "").replace(/^p/i, "").replace(/^=/, "");
+  const below = t.startsWith("<");
+  const num = Number(t.replace(/^[<≤]/, "").replace(/^\./, "0.").replace("−", "-"));
+  if (!Number.isFinite(num)) throw new Error(`pVerdict: cannot read the printed p "${printed}"`);
+  if (below) return num <= alpha ? "clear" : "none";
+  if (num < alpha) return "clear";
+  return num === alpha ? "borderline" : "none";
+}
+
+/** The words for a p that prints exactly at the 5% threshold: neither "significant" nor "could be chance". */
+export const BOUNDARY_CLAUSE = "right at the conventional 5% threshold, so the evidence is borderline";
+
 /** What is wrong with a reading, as sentences; empty when it keeps the rules above. */
 export function readingProblems(reading: string | undefined): string[] {
   const out: string[] = [];

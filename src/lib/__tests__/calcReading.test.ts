@@ -1,4 +1,23 @@
-import { readingProblems, READING_MAX } from "../calcReading";
+import { readingProblems, READING_MAX, pVerdict, BOUNDARY_CLAUSE } from "../calcReading";
+
+describe("pVerdict (one printed p, one verdict)", () => {
+  test("decides on the printed p at any precision and in any house format", () => {
+    for (const s of ["0.049", "0.0499", ".003", "p = .003", "< 0.001", "p < 0.001", "p < .001", "0.0000"]) expect(pVerdict(s)).toBe("clear");
+    for (const s of ["0.05", ".050", "0.050", "0.0500", "p = 0.050", "= .05"]) expect(pVerdict(s)).toBe("borderline");
+    for (const s of ["0.051", ".0501", "0.41", "1.000", "p = .570"]) expect(pVerdict(s)).toBe("none");
+  });
+  test("a different alpha (Tukey's family-wise 0.01, 0.10)", () => {
+    expect(pVerdict("0.010", 0.01)).toBe("borderline");
+    expect(pVerdict("0.009", 0.01)).toBe("clear");
+    expect(pVerdict("0.08", 0.1)).toBe("clear");
+  });
+  test("an unreadable printed p is a programming error, not a verdict", () => {
+    expect(() => pVerdict("n/a")).toThrow();
+  });
+  test("the boundary clause keeps the reading rules", () => {
+    expect(readingProblems(`The difference is ${BOUNDARY_CLAUSE} (p = 0.050).`)).toEqual([]);
+  });
+});
 
 describe("readingProblems (the rules every Finance and Statistics reading keeps)", () => {
   test("a plain two-sentence reading with Unicode typesetting passes", () => {

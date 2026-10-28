@@ -70,7 +70,9 @@ const BASELINES = {
   // v2.200.0: 50 of 52 — panel-fe (pooled OLS vs FE) and panel-re (FE vs RE) now draw coefficient comparisons.
   // v2.203.0 (F2): 69 of 75 — of the 23 new calculators, tobit, Heckman and multinomial logit are coefficient tables
   // and the money multiplier is a ledger; econ-regtable and econ-logit are tables as before.
-  stats: { label: "Statistics", figures: 71, total: 77 },
+  // v2.205.0 ("fully inclusive"): 77 of 77 — logit and the regression table draw coefficient plots, Tobit, Heckman and
+  // mlogit forest plots, the money multiplier its deposit-expansion rounds. Every Statistics calculator draws.
+  stats: { label: "Statistics", figures: 77, total: 77 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it
@@ -93,12 +95,14 @@ const BASELINES = {
   // v2.199.0 (E5): 30 of 33 — fin-currency is conversion tables (no figure).
   // v2.202.0 (F1): 57 of 65 — the 32 F1 calculators; parity, ratios, apportionment, EMVR/SSPPU and Nash are tables.
   // v2.203.0 (F2): 68 of 79 — CIP, UIP and PPP are parity tables; the other eleven F2 calculators draw.
-  finance: { label: "Finance", figures: 68, total: 79 },
+  // v2.205.0 ("fully inclusive"): 77 of 79 — parity, ratios, apportionment, EMVR/SSPPU, Nash, CIP/UIP/PPP and currency
+  // draw. The Georgia-Pacific and Panduit worksheets have no inputs (filled in Word), so nothing to plot.
+  finance: { label: "Finance", figures: 77, total: 79 },
 };
 
 // How many Finance and Statistics calculators open with a plain-language reading (lib/calcReading.ts) on their
 // defaults. A floor, raised as readings land; a reading lost is a finding.
-const READING_BASELINES = { stats: 0, finance: 0 };
+const READING_BASELINES = { stats: 77, finance: 79 };
 
 function findBrowser() {
   const candidates = [

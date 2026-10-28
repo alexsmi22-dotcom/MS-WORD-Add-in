@@ -294,7 +294,7 @@ export function black76Reading(type: OptionType, solve: "price" | "iv", sigma: n
       : `The ${type} is worth ${price}`;
   const delta = fx(b.delta, 6);
   const move =
-    delta === "0.000000" ? "it barely moves with the futures price" : `each 1 rise in the futures price ${b.delta > 0 ? "raises" : "lowers"} it by about ${fx(Math.abs(b.delta), 6)}`;
+    delta === "0.000000" ? "it barely moves with the futures price" : `a rise of 1 in the futures price ${b.delta > 0 ? "raises" : "lowers"} it by about ${fx(Math.abs(b.delta), 6)}`;
   const day = fx(b.theta / 365, 4);
   const decay = day === "0.0000" ? "" : b.theta < 0 ? ` and it loses about ${fx(Math.abs(b.theta / 365), 4)} of value a day as expiry nears` : ` and it gains about ${fx(b.theta / 365, 4)} a day as expiry nears`;
   return `${head}; ${move}${decay}.`;
@@ -368,8 +368,12 @@ export function crrReading(type: OptionType, american: boolean, n: number, res: 
   if (!american) return `The European ${type} is worth about ${fx(res.price, 4)} on a ${steps}, against ${fx(analytic, 4)} from the Black–Scholes–Merton formula; more steps bring the two closer.`;
   const head = `The American ${type} is worth about ${fx(res.price, 4)} on a ${steps}`;
   if (res.earlyNodes > 0 && res.firstEarlyStep === 0) return `${head}, its value if exercised today: exercising now beats holding it.`;
+  // fix-fin R1 #14: decided on the printed premium; "0.0000 more … because exercising early pays" contradicted itself.
+  const extra = fx(res.price - euro, 4);
+  if (res.earlyNodes > 0 && !/[1-9]/.test(extra))
+    return `${head}, the same as the option without early exercise to 4 decimals: early exercise pays at some prices on the tree, but adds too little to show.`;
   if (res.earlyNodes > 0)
-    return `${head}, ${fx(res.price - euro, 4)} more than the same option without early exercise, because exercising early pays at some prices (first at step ${res.firstEarlyStep}).`;
+    return `${head}, ${extra} more than the same option without early exercise, because exercising early pays at some prices (first at step ${res.firstEarlyStep}).`;
   return `${head}, the same as its European twin: early exercise is never worth it on this tree.`;
 }
 
@@ -401,6 +405,12 @@ export function parityCalc(r: Read): FinResult {
   const v = Math.abs(pc.violation) <= 1e-12 * scale ? 0 : pc.violation;
   const eqt = Math.exp((-qp / 100) * t);
   const pvK = K * Math.exp((-rp / 100) * t);
+  // fix-fin R1 #14: r = −100% over 100 years made K·exp(−rt) a 49-digit number and the reading 397 characters.
+  if ([pc.lhs, pc.rhs, S * eqt, pvK, pc.impliedForward].some((x) => Math.abs(x) > PARITY_MAX)) {
+    return finRefusal(
+      "With this rate, dividend yield and time to expiry the discounted spot or strike runs past 10¹², which is outside this calculator: check the risk-free rate, the dividend yield and the time to expiry.",
+    );
+  }
   const lines = [
     `Quoted: call ${fv(C)}, put ${fv(P)}; S = ${fv(S)}, K = ${fv(K)}, ${yrs(t)}, r = ${pctIn(rp / 100)}, q = ${pctIn(qp / 100)}`,
     `C − P = ${fx(pc.lhs, 4)}`,
@@ -408,7 +418,7 @@ export function parityCalc(r: Read): FinResult {
     `Violation (C − P) − (S·exp(−qt) − K·exp(−rt)) = ${fx(v, 4)} per share`,
   ];
   if (v === 0) lines.push("Parity holds exactly: no arbitrage.");
-  else if (Math.abs(v) < 5e-5) lines.push("Parity holds to the 4 decimals shown: no arbitrage worth naming.");
+  else if (parityHoldsAsPrinted(v, pc.lhs, pc.rhs)) lines.push("Parity holds to the 4 decimals shown: no arbitrage worth naming.");
   else if (Math.abs(v) <= band) lines.push(`|violation| ${fx(Math.abs(v), 4)} is within the trading cost band ${fv(band)}: no arbitrage after costs.`);
   else if (v > 0) {
     lines.push(
@@ -452,11 +462,22 @@ export function parityCalc(r: Read): FinResult {
  * trade locks in. The branches are the text's own (v exactly 0; under the 4 decimals shown; inside the cost band;
  * call rich; put rich).
  */
+/** Past this size a parity term is not a price (R1 #14). */
+const PARITY_MAX = 1e12;
+
+/**
+ * Parity holds as printed (fix-fin R1 #14): the violation prints as 0.0000, or the two sides print the same to 4
+ * decimals. A violation of 0.00005 printed "too expensive (4.8771 against 4.8771)".
+ */
+export function parityHoldsAsPrinted(v: number, lhs: number, rhs: number): boolean {
+  return v === 0 || !/[1-9]/.test(fx(Math.abs(v), 4)) || fx(lhs, 4) === fx(rhs, 4);
+}
+
 export function parityReading(v: number, band: number, lhs: number, rhs: number): string {
   const sides = `C − P = ${fx(lhs, 4)} against ${fx(rhs, 4)} from spot and strike`;
-  if (v === 0 || Math.abs(v) < 5e-5) return `The call and put prices agree with put–call parity (${sides}), so they leave no arbitrage.`;
+  if (parityHoldsAsPrinted(v, lhs, rhs)) return `The call and put prices agree with put–call parity (${sides}), so they leave no arbitrage.`;
   const gap = fx(Math.abs(v), 4);
-  if (Math.abs(v) <= band) return `The prices miss put–call parity by ${gap} per share (${sides}), inside the ${fv(band)} trading cost band, so there is no profit after costs.`;
+  if (Math.abs(v) <= band) return `The prices miss put–call parity by ${gap} per share (${sides}), inside the trading cost band of ${fv(band)} per share, so there is no profit after costs.`;
   const after = band > 0 ? ` (${fx(Math.abs(v) - band, 4)} after the cost band)` : "";
   if (v > 0) return `The call is ${gap} per share too expensive against the put (${sides}). Selling the call and buying the put and the shares locks in that ${gap} per share before trading costs${after}.`;
   return `The put is ${gap} per share too expensive against the call (${sides}). Buying the call, selling the put and shorting the shares locks in that ${gap} per share before trading costs${after}.`;
@@ -532,7 +553,7 @@ export function carryReading(S: number, F: number, carry: number, t: number, rat
     const gap = mkt - F;
     if (Math.abs(gap) <= 1e-12 * Math.max(1, F) || Math.abs(gap) < 5e-5) return `${head}. The market price ${fv(mkt)} agrees with it, so there is no carry arbitrage.`;
     if (gap > 0) return `${head}. The market price ${fv(mkt)} is ${fx(gap, 4)} higher, so buying the asset and selling the futures earns that ${fx(gap, 4)} at delivery before costs.`;
-    return `${head}. The market price ${fv(mkt)} is ${fx(-gap, 4)} lower, so selling the asset and buying the futures earns that at delivery, if the asset can be borrowed or is held for sale.`;
+    return `${head}. The market price ${fv(mkt)} is ${fx(-gap, 4)} lower, so selling the asset and buying the futures earns that ${fx(-gap, 4)} at delivery, if the asset can be borrowed or is held for sale.`;
   }
   if (K !== null) {
     const val = (F - K) * Math.exp(-rate * t);
@@ -604,8 +625,10 @@ export function strategyCalc(r: Read): FinResult {
   const { legs, notes } = read;
   const a = analyzeStrategy(legs, mult);
   const money = (x: number): string => fx(x, 2);
+  // fix-fin R1 #12: a stock leg's quantity is lots of the multiplier, so say how many shares that is.
+  const shares = (q: number): string => (mult === 1 ? "stock" : `lot${q === 1 ? "" : "s"} of stock (${fv(q * mult)} shares)`);
   const describe = (l: Leg): string =>
-    `${l.qty > 0 ? "long" : "short"} ${fv(Math.abs(l.qty))} ${l.kind === "stock" ? `stock at ${fv(l.strike)}` : `${fv(l.strike)} ${l.kind}${Math.abs(l.qty) === 1 ? "" : "s"} at ${fv(l.premium)}`}`;
+    `${l.qty > 0 ? "long" : "short"} ${fv(Math.abs(l.qty))} ${l.kind === "stock" ? `${shares(Math.abs(l.qty))} at ${fv(l.strike)}` : `${fv(l.strike)} ${l.kind}${Math.abs(l.qty) === 1 ? "" : "s"} at ${fv(l.premium)}`}`;
   const lines = [`Strategy: ${legs.map(describe).join("; ")}; multiplier ${fv(mult)}`];
   lines.push(
     Math.abs(a.netPremium) < 1e-9
@@ -644,7 +667,7 @@ export function strategyCalc(r: Read): FinResult {
   else lines.push(`Breakeven${a.breakevens.length + ranges.length === 1 ? "" : "s"}: ${[...a.breakevens.map((x) => fv(x, 4)), ...ranges].join("; ")}.`);
   for (const nt of notes) lines.push(nt);
   lines.push(
-    "Conventions: profit at expiry = Σ quantity × multiplier × (payoff − premium), with a stock leg's profit quantity × multiplier × (S − price paid); " +
+    "Conventions: profit at expiry = Σ quantity × multiplier × (payoff − premium), with a stock leg's profit quantity × multiplier × (S − price paid): every quantity, a stock leg's too, counts lots of the multiplier (at 100, a stock quantity of 1 is 100 shares, as in a covered call); " +
       "positive quantity long, negative short; premiums per unit, paid when long and received when short; no interest on premiums, no commissions, no early exercise; " +
       "profit is piecewise linear, so maxima, minima and breakevens are exact at the strikes and on the segments between them, for an underlying from 0 up.",
   );
@@ -670,7 +693,15 @@ export function strategyCalc(r: Read): FinResult {
 export function strategyReading(a: StrategyAnalysis): string {
   const money = (x: number): string => fx(x, 2);
   const upfront = Math.abs(a.netPremium) < 1e-9 ? "It costs nothing up front" : a.netPremium > 0 ? `It costs ${money(a.netPremium)} up front` : `It brings in ${money(-a.netPremium)} up front`;
-  const best = a.maxProfit.unbounded ? "its profit is unlimited if the underlying keeps rising" : `it makes at most ${money(a.maxProfit.value)}`;
+  // fix-fin R1 #11: a best case that is a loss reads "it loses at least 10.00", not "it makes at most −10.00".
+  const bestText = a.maxProfit.unbounded ? "" : money(a.maxProfit.value);
+  const best = a.maxProfit.unbounded
+    ? "its profit is unlimited if the underlying keeps rising"
+    : !/[1-9]/.test(bestText)
+      ? "at best it breaks even"
+      : a.maxProfit.value < 0
+        ? `it loses at least ${money(-a.maxProfit.value)}`
+        : `it makes at most ${bestText}`;
   let worst: string;
   if (a.maxLoss.unbounded) worst = "its loss is unlimited if the underlying keeps rising";
   else if (money(-a.maxLoss.value) === "0.00") worst = "at worst it breaks even";
@@ -945,7 +976,7 @@ export const DERIV_CALCS: FinCalcDef[] = [
         default: LEGS_DEFAULT,
         kind: "block",
       },
-      { key: "mult", label: "Contract multiplier", default: "1" },
+      { key: "mult", label: "Contract multiplier (every quantity, stock too, is in lots of this many units)", default: "1" },
     ],
     assumes:
       "Every leg held to the same expiry and settled at its intrinsic value; no early exercise or assignment, interest on premiums, margin or commissions. " +

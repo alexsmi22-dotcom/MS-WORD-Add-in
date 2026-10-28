@@ -95,6 +95,8 @@ describe("econ-gmm against linearmodels 7.1 IVGMM (numpy cross-checked in the sc
       ["jointly weak, robust", { data: p7Data(), spec: "y ~", endog: "d1 + d2", instruments: "z1 + z2 + z3", steps: "one" }, [0.7558680636, 0.7564695372], [0.006532510908, 0.006537709081]],
       ["jointly weak, clustered", { data: p7Data(), spec: "y ~", endog: "d1 + d2", instruments: "z1 + z2 + z3", steps: "one", weight: "cluster", cluster: "g" }, [0.7558680636, 0.7564695372], [0.006532510908, 0.006537709081]],
       ["jointly weak, no constant", { data: p7Data(), spec: "y ~", endog: "d1 + d2", instruments: "z1 + z2 + z3", constant: "no" }, [0.7559304599, 0.7564002338], [0.006616772126, 0.006620884127]],
+      ["with an exogenous regressor, robust", { data: linData(300, 3), spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3" }, [0.3397131104, 0.3091686571], [0.3448801012, 0.3138710709]],
+      ["with an exogenous regressor, clustered", { data: linData(300, 3), spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3", weight: "cluster", cluster: "cl", steps: "one" }, [0.3397131104, 0.3091686571], [0.3448801012, 0.3138710709]],
       ["default data, educ and exper endogenous", { endog: "educ + exper", spec: "lwage ~", instruments: "dist + sibs" }, [0.5237648304, 0.007172523873], [0.02883456385, 0.0003948653777]],
     ];
     for (const [label, over, pr2, shea] of cases) {
@@ -106,7 +108,7 @@ describe("econ-gmm against linearmodels 7.1 IVGMM (numpy cross-checked in the sc
     const o = run("econ-gmm", cases[1][1]);
     expect(o.text).toContain("First stage of d1 on the 3 excluded instruments: partial R² = 0.756, Shea partial R² = 0.007, clustered Wald χ²(3)");
     expect(o.text).toContain("a small Shea partial R² means the instruments cannot separate d1 from the other endogenous regressor");
-    expect(run("econ-gmm", cases[3][1]).text).toMatch(/partial R² = 0\.007, Shea partial R² <\s0\.001, robust Wald/);
+    expect(run("econ-gmm", cases[5][1]).text).toMatch(/partial R² = 0\.007, Shea partial R² <\s0\.001, robust Wald/);
     // One endogenous regressor: Shea is the plain partial R² (linearmodels: 0.5230185589 both), and the line is unchanged.
     const one = econGmmFitFromRead(reader("econ-gmm", {}));
     if ("error" in one) throw new Error(one.error);
@@ -985,8 +987,15 @@ describe("display of small coefficients, figure notes and ticks", () => {
     expect(o.ok).toBe(false);
     expect(o.text).toContain("No entity has two consecutive periods");
     expect(o.text).toContain("renumber the periods 1, 2, 3, …");
-    // An ordinary refusal of the same kind (lags too long for annual data) carries no such hint.
-    const plain = run("panel-dyn-gmm", { spec: "sales ~ L.sales + L8.price" });
+    // The same refusal on annual data (the regressor missing in every odd year, the response recorded every year)
+    // carries no such hint.
+    const odd = DYN_DEFAULT_TABLE.split("\n").map((l, i) => {
+      const c = l.split("\t");
+      if (i > 0 && Number(c[1]) % 2) c[3] = "NA";
+      return c.join("\t");
+    }).join("\n");
+    const plain = run("panel-dyn-gmm", { data: odd });
+    expect(plain.text).toContain("No entity has two consecutive periods");
     expect(plain.text).not.toContain("renumber");
   });
   test("property: distinct bounds never print alike; never ×10⁰, ×10⁻¹, ×10⁻² or ×10⁻³", () => {

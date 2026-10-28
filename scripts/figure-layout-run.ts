@@ -2444,7 +2444,7 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   gm("econ-gmm", { data: twinIv, spec: "lwage ~", endog: "years_of_schooling_completed_mother + years_of_schooling_completed_father", instruments: "dist + sibs" }, "numbered ticks");
   // Long response names in the ρ figure title (a 32-character name clipped "Coefficient of L.… by estimator"): the
   // title drops "Coefficient of", and a still longer name moves to the note.
-  for (const [nm, tag] of [["log_real_sales_per_employee_defl", "long response name"], ["log_real_sales_per_employee_deflated_by_the_gdp_price_index_2015", "very long response name"]]) {
+  for (const [nm, tag] of [["log_real_sales_per_employee_defl", "long response name"], ["WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", "wide response name at the title switch"], ["log_real_sales_per_employee_deflated_by_the_gdp_price_index_2015", "very long response name"]]) {
     gm("panel-dyn-gmm", { data: DYN_DEFAULT_TABLE.replace(/\bsales\b/, nm), spec: `${nm} ~ L.${nm} + price` }, tag);
   }
   // The other estimator's two-step weight is singular (system GMM, more instruments than groups): no point, no tick,

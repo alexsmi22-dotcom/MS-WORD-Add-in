@@ -10,18 +10,35 @@ and pydynpd. Plain numpy, no pandas.
 import math
 import numpy as np
 
-RCOND = 1e-15
+EPS = np.finfo(float).eps
 
 
 def pinv_sym(a):
-    """Moore-Penrose inverse of a symmetric PSD matrix (numpy's rule: drop eigenvalues <= rcond * max)."""
+    """
+    Generalized inverse of a symmetric PSD matrix, equilibrated as the engine's symInverse: with d = sqrt(diag a),
+    b = a / (d d^T) has a unit diagonal; its Moore-Penrose inverse (eigenvalues <= n * eps * max dropped) is
+    unscaled by the same d. A nonsingular matrix gets its exact inverse; the convention only matters when the matrix
+    is singular, and it makes the result invariant to rescaling any variable (raw Moore-Penrose is not).
+    """
     a = (a + a.T) / 2
-    w, v = np.linalg.eigh(a)
+    dg = np.diag(a).copy()
+    s = np.where(dg > 0, 1.0 / np.sqrt(np.where(dg > 0, dg, 1.0)), 0.0)
+    b = a * np.outer(s, s)
+    w, v = np.linalg.eigh(b)
     m = np.max(np.abs(w)) if w.size else 0.0
-    keep = np.abs(w) > RCOND * m * a.shape[0] if m > 0 else np.zeros_like(w, dtype=bool)
+    keep = np.abs(w) > EPS * m * b.shape[0] if m > 0 else np.zeros_like(w, dtype=bool)
     winv = np.zeros_like(w)
     winv[keep] = 1.0 / w[keep]
-    return (v * winv) @ v.T
+    return ((v * winv) @ v.T) * np.outer(s, s)
+
+
+def col_rank(m):
+    """Rank of a matrix after scaling each nonzero column to unit norm (a unit-free decision)."""
+    nrm = np.sqrt((m * m).sum(0))
+    keep = nrm > 0
+    if not keep.any():
+        return 0
+    return int(np.linalg.matrix_rank(m[:, keep] / nrm[keep]))
 
 
 # ------------------------------------------------------------------------------------------------ linear GMM
@@ -243,7 +260,7 @@ def build(ids, times, data, spec):
             dropped.append(colnames[c])
             continue
         trial = np.column_stack([base, Xall[:, c]])
-        if np.linalg.matrix_rank(trial) > np.linalg.matrix_rank(base):
+        if col_rank(trial) > col_rank(base):
             keep.append(c)
             base = trial
         else:
@@ -262,11 +279,11 @@ def dpd(blocks, steps=2):
     ZX = sum(b["Z"].T @ b["X"] for b in blocks)
     Zy = sum(b["Z"].T @ b["y"] for b in blocks)
     Zall = np.vstack([b["Z"] for b in blocks])
-    ninstr = int(np.linalg.matrix_rank(Zall))
+    ninstr = col_rank(Zall)
     k = ZX.shape[1]
 
     def gmm(A):
-        M = np.linalg.pinv(ZX.T @ A @ ZX)
+        M = pinv_sym(ZX.T @ A @ ZX)
         b = M @ ZX.T @ A @ Zy
         res = [bl["y"] - bl["X"] @ b for bl in blocks]
         return M, b, res

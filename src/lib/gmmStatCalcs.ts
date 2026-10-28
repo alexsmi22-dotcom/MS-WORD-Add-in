@@ -665,7 +665,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
       `z statistics and normal intervals, no small-sample factor (Stata's “small” would multiply the SEs by √((n − 1)/(n − k)·G/(G − 1)) and use t, n the observations). ` +
       `Sargan = g₁ᵀA₁g₁/σ̂² from the one-step residuals with σ̂² = ΣΔû²/(2n); Hansen J is the two-step criterion, printed after one-step too; AR tests use the reported step's residuals and covariance. ` +
       `The observation count is ${sys ? "the level rows (xtabond2's convention for system GMM; pydynpd prints the differenced rows)" : "the differenced rows"}. ` +
-      "Instruments are counted after dropping linearly dependent columns; a singular weight is inverted by Moore–Penrose. " +
+      "Instruments are counted after dropping linearly dependent columns; every matrix is scaled to a unit diagonal before it is inverted, so no result depends on the units of a column, and a singular weight is inverted by the Moore–Penrose inverse of that scaled matrix (xtabond2 and pydynpd invert the unscaled one, which changes with the units). " +
       "pydynpd 0.2.2 agrees on coefficients, two-step SEs, Hansen J and two-step AR tests, but parameterizes time dummies by dropping the first (other coefficients are the same), instruments system-GMM time dummies in both equations, and its one-step AR statistic uses the two-step moment vector (Roodman's formula, used here, reproduces the published one-step values)" +
       (sys && r.spec.lagFirst > 2
         ? `; with a first lag of ${r.spec.lagFirst}, pydynpd also starts the level equation at the first period whose level instrument (dated ${r.spec.lagFirst - 1} back) exists, while xtabond2 and this calculator keep those rows with the instrument set to 0, so the samples differ.`

@@ -344,6 +344,87 @@ describe("econ-gmm hostile inputs and refusals", () => {
   });
 });
 
+// ---------------------------------------------------------------------------------------------------- units
+
+/** The table with one column multiplied by m (shortest round-trip text, as a user's rescaled column would be). */
+function scaleCol(text: string, col: string, m: number): string {
+  const lines = text.split("\n");
+  const j = lines[0].split("\t").indexOf(col);
+  if (j < 0) throw new Error(col);
+  return [lines[0], ...lines.slice(1).map((l) => {
+    const r = l.split("\t");
+    if (r[j] !== "" && r[j] !== "NA") r[j] = String(Number(r[j]) * m);
+    return r.join("\t");
+  })].join("\n");
+}
+const MULTS = [1e-6, 1e-3, 1e3, 1e6, 1e8, 10 ** -5.75, 10 ** 4.25, 10 ** 6.25, 10 ** 7.25];
+/** |a − b| within rtol of the coefficient's own size plus its SE (a coefficient near 0 is judged against its SE). */
+function closeScaled(a: ArrayLike<number>, b: ArrayLike<number>, se: ArrayLike<number>, rtol: number, what: string): void {
+  expect(a.length).toBe(b.length);
+  for (let i = 0; i < a.length; i++) {
+    const tol = rtol * (Math.abs(b[i]) + Math.abs(se[i]));
+    if (!(Math.abs(a[i] - b[i]) <= tol)) throw new Error(`${what} element ${i}: ${a[i]} vs ${b[i]}`);
+  }
+}
+const relClose = (a: number, b: number, what: string): void => {
+  if (!(Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b)))) throw new Error(`${what}: ${a} vs ${b}`);
+};
+
+describe("units: rescaling one column rescales its coefficient and changes nothing else", () => {
+  const dynConfigs: Record<string, string>[] = [{}, { steps: "one" }, { estimator: "difference" }, { collapse: "yes", timeDummies: "no" }, { endog: "price" }];
+  test.each(dynConfigs.map((c) => [JSON.stringify(c), c] as const))("panel-dyn-gmm %s", (_l, cfg) => {
+    const ref = dynFitFromRead(reader("panel-dyn-gmm", cfg));
+    if ("error" in ref) throw new Error(ref.error);
+    for (const col of ["sales", "price"])
+      for (const m of MULTS) {
+        const f = dynFitFromRead(reader("panel-dyn-gmm", { ...cfg, data: scaleCol(DYN_DEFAULT_TABLE, col, m) }));
+        if ("error" in f) throw new Error(`${col}×${m}: refused: ${f.error}`);
+        expect(f.des.names).toEqual(ref.des.names);
+        // y×m: every coefficient but the lags of y scales by m; x×m: x's coefficients scale by 1/m.
+        const fac = ref.des.kinds.map((kd, j) => (col === "sales" ? (kd === "ylag" ? 1 : m) : ref.des.names[j].endsWith("price") ? 1 / m : 1));
+        for (const [s, r] of [[f.fit.one, ref.fit.one], ...(ref.fit.two ? [[f.fit.two!, ref.fit.two]] : [])] as const) {
+          const bu = Float64Array.from(s.b, (v, j) => v / fac[j]);
+          const su = Float64Array.from(s.se, (v, j) => v / fac[j]);
+          closeScaled(bu, r.b, r.se, 1e-6, `${col}×${m} b`);
+          closeScaled(su, r.se, r.se, 1e-6, `${col}×${m} se`);
+          s.ar.forEach((a, i) => relClose(a.z, r.ar[i].z, `${col}×${m} AR(${i + 1})`));
+        }
+        relClose(f.fit.hansen, ref.fit.hansen, `${col}×${m} Hansen`);
+        relClose(f.fit.sargan, ref.fit.sargan, `${col}×${m} Sargan`);
+        expect(f.fit.singularA1).toBe(ref.fit.singularA1);
+        expect(f.fit.singularS).toBe(ref.fit.singularS);
+      }
+  });
+  test("panel-dyn-gmm: the printed bracket on L.sales is the same at every scale", () => {
+    const rows = (o: StatOutput): string[] => o.tables![2].rows.map((r) => r.slice(0, 3).join("|"));
+    const base = rows(run("panel-dyn-gmm"));
+    for (const col of ["sales", "price"]) for (const m of [1e-6, 10 ** 6.25, 1e8]) expect(rows(run("panel-dyn-gmm", { data: scaleCol(DYN_DEFAULT_TABLE, col, m) }))).toEqual(base);
+  });
+  const econConfigs: [string, Record<string, string>, string[]][] = [
+    ["default two-step", {}, ["lwage", "educ", "exper", "dist", "sibs"]],
+    ["default one-step", { steps: "one" }, ["lwage", "educ", "exper", "dist"]],
+    ["synthetic clustered", { ...FX.linear[3].fields, data: FX.linear[3].data }, ["y", "d1", "w", "z1", "z4"]],
+  ];
+  test.each(econConfigs)("econ-gmm %s", (_l, cfg, cols) => {
+    const ref = econGmmFitFromRead(reader("econ-gmm", cfg));
+    if ("error" in ref) throw new Error(ref.error);
+    const data0 = dataOf(cfg.data ?? "@iv-default");
+    const dep = (cfg.spec ?? "lwage ~ exper").split("~")[0].trim();
+    for (const col of cols)
+      for (const m of MULTS) {
+        const f = econGmmFitFromRead(reader("econ-gmm", { ...cfg, data: scaleCol(data0, col, m) }));
+        if ("error" in f) throw new Error(`${col}×${m}: refused: ${f.error}`);
+        const fac = ref.names.map((nm) => (col === dep ? m : nm === col ? 1 / m : 1));
+        for (const [s, r] of [[f.r.gmm, ref.r.gmm], [f.r.tsls, ref.r.tsls]] as const) {
+          closeScaled(Float64Array.from(s.b, (v, j) => v / fac[j]), r.b, r.se, 1e-6, `${col}×${m} b`);
+          closeScaled(Float64Array.from(s.se, (v, j) => v / fac[j]), r.se, r.se, 1e-6, `${col}×${m} se`);
+        }
+        relClose(f.r.j, ref.r.j, `${col}×${m} J`);
+        expect(f.r.singularS).toBe(false);
+      }
+  });
+});
+
 describe("linear algebra", () => {
   test("symEigen reconstructs a symmetric matrix; symInverse falls back to Moore–Penrose on a singular one", () => {
     const n = 7;

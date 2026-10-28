@@ -28,8 +28,11 @@
  *  - Arellano–Bond AR(m) tests on the differenced residuals (Roodman's section 3.5 formula, with the reported
  *    covariance and residuals of the step shown).
  * Generalized inverses: linearly dependent instrument columns are dropped first (the estimator is invariant to that),
- * symmetric matrices are inverted by Cholesky and, when singular (e.g. more instruments than groups), by the
- * Moore–Penrose inverse with eigenvalues below L·ε·λ_max discarded.
+ * symmetric matrices are equilibrated to a unit diagonal (D^−½ A D^−½) and inverted by Cholesky or, when singular
+ * (e.g. more instruments than groups), by the Moore–Penrose inverse of the equilibrated matrix with eigenvalues below
+ * L·ε·λ_max discarded. Every rank decision is taken on unit-diagonal matrices, so no answer depends on the units of a
+ * column. When a matrix is singular, this generalized inverse differs from the raw Moore–Penrose inverse that
+ * xtabond2 and pydynpd take (that one changes with the units); nonsingular matrices get the same exact inverse.
  *
  * Every loop is bounded by the caps below; work beyond them is refused by name before it starts.
  */
@@ -259,20 +262,33 @@ export function symEigen(A: Float64Array, n: number): { d: Float64Array; V: Floa
 }
 
 /**
- * Inverse of a symmetric positive semi-definite matrix: Cholesky when it is clearly non-singular, else the
- * Moore–Penrose inverse (eigenvalues ≤ n·ε·λ_max discarded). `generalized` says which was used.
+ * Inverse of a symmetric positive semi-definite matrix, equilibrated first: with D = diag(A)^½, B = D⁻¹AD⁻¹ has a unit
+ * diagonal and A⁻¹ = D⁻¹B⁻¹D⁻¹. B is inverted by Cholesky when it is clearly non-singular (every pivot above 10⁻¹¹),
+ * else by its Moore–Penrose inverse (eigenvalues ≤ n·ε·λ_max(B) discarded). Every decision is taken on B, so the
+ * result is invariant to rescaling any variable (A → EAE gives E⁻¹A⁻¹E⁻¹ exactly, the generalized inverse included).
+ * A zero diagonal entry gives a zero row and column. `generalized` says which path was used.
  */
 export function symInverse(A0: Float64Array, n: number): { inv: Float64Array; generalized: boolean; rank: number } {
   const A = Float64Array.from(A0);
   symmetrize(A, n);
-  let maxDiag = 0;
-  for (let i = 0; i < n; i++) maxDiag = Math.max(maxDiag, Math.abs(A[i * n + i]));
+  const sc = new Float64Array(n);
+  let zeroDiag = false;
+  for (let i = 0; i < n; i++) {
+    const d = A[i * n + i];
+    if (d > 0 && Number.isFinite(d)) sc[i] = 1 / Math.sqrt(d);
+    else zeroDiag = true;
+  }
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) A[i * n + j] *= sc[i] * sc[j];
+  const unscale = (M: Float64Array): Float64Array => {
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) M[i * n + j] *= sc[i] * sc[j];
+    return M;
+  };
   const L = new Float64Array(n * n);
-  let ok = maxDiag > 0;
+  let ok = n > 0 && !zeroDiag;
   for (let j = 0; j < n && ok; j++) {
     let s = A[j * n + j];
     for (let k = 0; k < j; k++) s -= L[j * n + k] * L[j * n + k];
-    if (!(s > 1e-11 * Math.max(Math.abs(A[j * n + j]), 1e-300)) || !(s > n * EPS * maxDiag)) {
+    if (!(s > 1e-11) || !(s > n * EPS)) {
       ok = false;
       break;
     }
@@ -303,7 +319,7 @@ export function symInverse(A0: Float64Array, n: number): { inv: Float64Array; ge
         inv[i * n + j] = s;
         inv[j * n + i] = s;
       }
-    return { inv, generalized: false, rank: n };
+    return { inv: unscale(inv), generalized: false, rank: n };
   }
   const { d, V } = symEigen(A, n);
   let lmax = 0;
@@ -322,14 +338,24 @@ export function symInverse(A0: Float64Array, n: number): { inv: Float64Array; ge
     }
   }
   symmetrize(inv, n);
-  return { inv, generalized: true, rank };
+  return { inv: unscale(inv), generalized: true, rank };
 }
 
 /**
  * Greedy column selection on a Gram matrix G (n×n): column j is kept when its squared distance from the span of the
- * kept columns exceeds tol × its own squared norm (pivoted Cholesky in the given order). Returns the kept indices.
+ * kept columns exceeds tol × its own squared norm (pivoted Cholesky in the given order, on G normalized to a unit
+ * diagonal so the decision does not depend on the columns' units). Returns the kept indices.
  */
-export function independentColumns(G: Float64Array, n: number, tol = 1e-10, order?: number[]): number[] {
+export function independentColumns(G0: Float64Array, n: number, tol = 1e-10, order?: number[]): number[] {
+  const G = Float64Array.from(G0);
+  {
+    const sc = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const d = G[i * n + i];
+      sc[i] = d > 0 && Number.isFinite(d) ? 1 / Math.sqrt(d) : 0;
+    }
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) G[i * n + j] *= sc[i] * sc[j];
+  }
   const ord = order ?? Array.from({ length: n }, (_, i) => i);
   const kept: number[] = [];
   // Rows of the partial Cholesky factor for the kept columns: R[kept_k][*] over all n columns.

@@ -243,6 +243,11 @@ export function parsePeriodTable(text: string, names: string[], required: number
         badCell = `“${c}”`;
         break;
       }
+      // A decimal comma ("3,5" read as 3.5) is said, not silent (fix-fin R2 MINOR): a comma not followed by exactly
+      // three digits is not a thousands separator.
+      if (/,/.test(c) && !/^[^,]*\d(,\d{3})+(\.\d+)?$/.test(c.replace(/^[−–+$-]+/, ""))) {
+        notes.push(`Line ${li + 1}: “${clip(c)}” was read as ${dmgNum(v)} (a decimal comma); write a decimal point if that is not what you meant.`);
+      }
       values.push(v);
     }
     if (badCell || values.length < required) {
@@ -317,8 +322,10 @@ function resultTableSignature(rows: PeriodRow[]): string | undefined {
       // A single-column copy (k = 1, column 2 equals column 1) is a repeated column, the same tell.
       return `Column ${k + 1} equals the sum of the columns before it in every row.`;
     }
+    // A running total only on 3 or more rows, each adding a non-zero amount (fix-fin R2 #3: an all-zero column is the
+    // running total of another all-zero column, and two rows "10, 10" and "20, 30" fit by coincidence).
     let run = 0;
-    if (rows.length > 1 && rows.every((r) => near(r.values[k], (run += r.values[k - 1])))) {
+    if (rows.length >= 3 && rows.every((r) => r.values[k - 1] !== 0) && rows.every((r) => near(r.values[k], (run += r.values[k - 1])))) {
       return `Column ${k + 1} is the running total of column ${k}.`;
     }
   }

@@ -30,7 +30,20 @@ import { finPlotSvg } from "./financeFigures";
 import { readFinanceField } from "./finance";
 import { parseRegData, findColumn, selectColumns, type RegDataset } from "./regData";
 import { fitOls, type OlsFit, type SeType } from "./olsInference";
-import { fmtFixed, fmtP } from "./regTable";
+import { fmtP } from "./regTable";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
+
+/**
+ * Fixed point at `decimals`, grouped, true minus, and a value that rounds to zero printed as zero (fix-fin R2 #13:
+ * regTable's fmtFixed switches to ×10ⁿ below half a unit of the last decimal, so a damages table read
+ * "R² = −6.439×10⁻¹⁵" and "3.763×10⁻⁵ to 0.0670").
+ */
+function fmtFixed(v: number, decimals = 3): string {
+  if (!Number.isFinite(v)) return "";
+  const s = v.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  if (!s.startsWith("-")) return s;
+  return /[1-9]/.test(s) ? "−" + s.slice(1) : s.slice(1);
+}
 import type { ModelTerm } from "./regModel";
 import { finRefusal, type FinResult, type FinTable } from "./finCalc";
 
@@ -332,7 +345,7 @@ export function antitrustCalc(r: Read): FinResult {
   }
   const ctl = d.controls.length ? d.controls.map(q).join(", ") : "none";
   lines.push(
-    `Data: ${d.y.length} rows (${nB} before, ${nD} during, ${nA} after); price ${q(d.priceName)} in ${log ? "logs" : "levels"}; controls ${ctl}; ${se === "classical" ? "classical" : se === "hc1" ? "HC1" : "Newey–West HAC"} standard errors.`,
+    `Data: ${d.y.length} rows (${nB} before, ${nD} during, ${nA} after); price ${q(d.priceName)} in ${log ? "logs" : "levels"}; controls ${ctl}; ${se === "classical" ? "classical" : se === "hc1" ? "HC1" : "Newey–West HAC (with the n/(n − k) small-sample factor, as Stata's newey)"} standard errors.`,
     "Conventions: " +
       (method !== "forecast" ? `dummy-variable method: one OLS on every row with a during-period dummy, the before and after rows pooled as the benchmark; but-for price = ${log ? "P × exp(−δ)" : "P − δ"}. ` : "") +
       (method !== "dummy" ? `Forecast method: OLS on the before rows only, projected into the during rows; but-for price = ${log ? "exp(fitted ln price), with no retransformation correction" : "the fitted price"}; the after rows are not used. ` : "") +
@@ -377,18 +390,23 @@ export function antitrustCalc(r: Read): FinResult {
  */
 export function antitrustReading(ests: OverchargeEstimate[], totals: string[]): string {
   const name = (e: OverchargeEstimate): string => (e.method === "dummy" ? "dummy-variable" : "forecast");
-  if (ests.every((e) => !(e.pctOfButFor > 0)))
-    return `These data show no overcharge: during-period prices were not above the but-for prices (${ests.map((e) => `${pctText(e.pctOfButFor)} by the ${name(e)} method`).join(", ")}), so the estimate supports no positive damages.`;
+  // The sign as printed (a −0.00% or 0.00% estimate is not an overcharge).
+  const positive = (e: OverchargeEstimate): boolean => e.pctOfButFor > 0 && /[1-9]/.test(pctText(e.pctOfButFor));
+  if (ests.every((e) => !positive(e)))
+    // fix-fin R2 #14: "These data show no overcharge" overclaimed on a negative estimate whose interval crosses zero.
+    return `These data give no positive overcharge estimate: estimated during-period prices were at or below the but-for prices (${ests.map((e) => `${pctText(e.pctOfButFor)} by the ${name(e)} method`).join(", ")}), so the estimate supports no positive damages.`;
   // Every method positive: one overcharge sentence. The methods disagree in sign: each is worded by its own sign, so
   // a negative estimate is never called an overcharge.
   const parts = ests.map((e, m) => `${pctText(e.pctOfButFor)}${m === 0 ? " of the but-for price" : ""} (damages about ${totals[m]}) by the ${name(e)} method`);
-  const first = ests.every((e) => e.pctOfButFor > 0)
+  const first = ests.every(positive)
     ? `The regression estimates an overcharge of ${parts.join(" and ")}.`
-    : `The ${ests.map((e, m) => (e.pctOfButFor > 0 ? `${name(e)} method estimates an overcharge of ${pctText(e.pctOfButFor)} of the but-for price (damages about ${totals[m]})` : `${name(e)} method finds no overcharge (${pctText(e.pctOfButFor)})`)).join(", but the ")}.`;
+    : `The ${ests.map((e, m) => (positive(e) ? `${name(e)} method estimates an overcharge of ${pctText(e.pctOfButFor)} of the but-for price (damages about ${totals[m]})` : `${name(e)} method gives no positive overcharge estimate (${pctText(e.pctOfButFor)})`)).join(", but the ")}.`;
   const t = ests.find((e) => e.dummy)?.dummy;
   if (!t) return `${first} The forecast method gives no test of whether the overcharge differs from zero.`;
   const which = ests.length > 1 ? "The dummy-variable estimate" : "The overcharge";
-  return t.p < 0.05
-    ? `${first} ${which} is statistically significant at the 5% level (p ${pText(t.p)}).`
-    : `${first} The data do not clearly separate the ${ests.length > 1 ? "dummy-variable " : ""}overcharge from zero (p ${pText(t.p)}), so it could be chance.`;
+  // fix-fin R2 #4: decided on the p the text prints (the shared rule), so one printed p gets one verdict.
+  const v = pVerdict(pText(t.p));
+  if (v === "clear") return `${first} ${which} is statistically significant at the 5% level (p ${pText(t.p)}).`;
+  if (v === "borderline") return `${first} ${which} has p ${pText(t.p)}, ${BOUNDARY_CLAUSE}.`;
+  return `${first} The data do not clearly separate the ${ests.length > 1 ? "dummy-variable " : ""}overcharge from zero (p ${pText(t.p)}), so it could be chance.`;
 }

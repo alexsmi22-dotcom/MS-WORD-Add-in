@@ -147,6 +147,15 @@ export function thinIndices(n: number, keep: number[] = []): number[] {
 
 /** Per-share money: "$1.2345" (two to four decimals). */
 const ps = (x: number): string => dmgUnitMoney(Math.abs(x) < 5e-5 ? 0 : x);
+/**
+ * Per share at exactly four decimals, for the constant-percentage ribbon, whose inflation is a share of the price and
+ * rarely a round amount (fix-fin R2 MINOR: "$5.9917 to $6.241" in one cell, a trailing zero dropped).
+ */
+const ps4 = (x: number): string => {
+  const v = Math.abs(x) < 5e-5 ? 0 : x;
+  const s = Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  return usd(v < 0 ? `−${s}` : s);
+};
 /** A percentage from a decimal: −0.085 → "−8.50%". */
 function pctText(x: number, dp = 2): string {
   const s = (x * 100).toFixed(dp);
@@ -375,14 +384,14 @@ export function secRibbonCalc(r: Read): FinResult {
         const hi = xs.reduce((a, b) => (b > a ? b : a), -Infinity);
         return f(lo) === f(hi) ? f(lo) : `${f(lo)} to ${f(hi)}`;
       };
-      winRows.push([label, from, to, String(idx.length), range(fr, (x) => pctText(x)), range(dl, ps)]);
+      winRows.push([label, from, to, String(idx.length), range(fr, (x) => pctText(x)), range(dl, ps4)]);
     } else winRows.push([label, from, to, String(idx.length), ps(res.inflation[idx[0]])]);
   }
   const totalDrop = res.drops.reduce((s, x) => s + x, 0);
   const lines = [
     `Securities inflation ribbon (${mode === "ar-pct" ? "constant percentage" : "constant dollar"}), computed from the inputs given`,
     mode === "ar-pct"
-      ? `Inflation on ${longDate(start)} (the class-period start, the price table's first day): ${pctText(res.inflation[0] / close[0])} of the close, ${ps(res.inflation[0])} per share; ${k} corrective disclosure${k === 1 ? "" : "s"}.`
+      ? `Inflation on ${longDate(start)} (the class-period start, the price table's first day): ${pctText(res.inflation[0] / close[0])} of the close, ${ps4(res.inflation[0])} per share; ${k} corrective disclosure${k === 1 ? "" : "s"}.`
       : `Inflation per share on ${longDate(start)} (the class-period start, the price table's first day): ${ps(res.inflation[0])}; ${k} corrective disclosure${k === 1 ? "" : "s"} removing ${ps(totalDrop)} per share in all.`,
     `The class period runs ${longDate(start)} to ${longDate(res.disc[k - 1] - 1)}, the day before the final disclosure.`,
     RIBBON_CONVENTIONS[mode],
@@ -412,7 +421,7 @@ export function ribbonReading(res: Pick<RibbonResult, "inflation">, firstClose: 
   const disc = `${k} corrective disclosure${k === 1 ? "" : "s"}`;
   const start =
     mode === "ar-pct"
-      ? `about ${pctText(res.inflation[0] / firstClose)} of the share price (${ps(res.inflation[0])} per share)`
+      ? `about ${pctText(res.inflation[0] / firstClose)} of the share price (${ps4(res.inflation[0])} per share)`
       : `about ${ps(res.inflation[0])} of inflation per share`;
   return (
     `On these inputs the stock carried ${start} at the start of the class period, removed over ${disc}. ` +
@@ -769,7 +778,7 @@ export function pslraLookbackCalc(r: Read): FinResult {
       return finRefusal(`The price table stops on ${longDate(lastClose)}, before the sale date (${longDate(sale!)}); add the closes through the sale date.`);
     }
     capMean = used[used.length - 1].mean;
-    capRule = `(e)(2): sold ${longDate(sale!)}, within the 90-day period; mean of the ${used.length} close${used.length === 1 ? "" : "s"} from ${longDate(used[0].day)} through ${longDate(used[used.length - 1].day)}`;
+    capRule = `(e)(2): sold ${longDate(sale!)}, within the 90-day period; ${closesSpan(used)}`;
   } else {
     if (lb.mean90 === null) {
       return finRefusal(
@@ -777,7 +786,7 @@ export function pslraLookbackCalc(r: Read): FinResult {
       );
     }
     capMean = lb.mean90;
-    capRule = `(e)(1): ${sale === null ? "held through the 90-day period" : `sold ${longDate(sale)}, after the 90-day period`}; mean of the ${lb.rows.length} close${lb.rows.length === 1 ? "" : "s"} from ${longDate(lb.rows[0].day)} through ${longDate(lb.rows[lb.rows.length - 1].day)}`;
+    capRule = `(e)(1): ${sale === null ? "held through the 90-day period" : `sold ${longDate(sale)}, after the 90-day period`}; ${closesSpan(lb.rows)}`;
   }
   const head = ["Date", "Day of period", "Close", "Mean trading price to date"];
   if (purchase !== null) head.push("Cap per share if sold that day");
@@ -824,6 +833,12 @@ export function pslraLookbackCalc(r: Read): FinResult {
   };
 }
 
+/** "mean of the 12 closes from A through B", or "the single close on A" (fix-fin R2 MINOR: "the 1 close"). */
+function closesSpan(rows: { day: number }[]): string {
+  if (rows.length === 1) return `the single close on ${longDate(rows[0].day)}`;
+  return `mean of the ${rows.length.toLocaleString("en-US")} closes from ${longDate(rows[0].day)} through ${longDate(rows[rows.length - 1].day)}`;
+}
+
 /**
  * The plain-language reading of the PSLRA lookback (lib/calcReading.ts rules), from the same cap arithmetic as the
  * text: cap = purchase − mean, damages per share = max(0, min(loss, cap)).
@@ -836,6 +851,8 @@ export function lookbackReading(capMean: number, purchase: number | null, loss: 
   const cap = `${ps(capPs)} per share (the ${ps(purchase)} purchase price less the ${ps(capMean)} mean trading price)`;
   if (loss === null) return `Under the PSLRA 90-day lookback, damages cannot exceed ${cap}.`;
   const dps = Math.max(0, Math.min(loss, capPs));
+  // fix-fin R2 #15: decided on the printed 4 decimals ("cut to $6.6053" from $6.6053 contradicted itself).
+  if (ps(loss) === ps(capPs)) return `The ${ps(loss)} loss per share equals the PSLRA 90-day lookback cap of ${cap}, so the cap does not reduce it.`;
   return loss > capPs
     ? `The PSLRA 90-day lookback caps damages at ${cap}, so the ${ps(loss)} loss per share is cut to ${ps(dps)}.`
     : `The ${ps(loss)} loss per share is within the PSLRA 90-day lookback cap of ${cap}, so the cap does not reduce it.`;

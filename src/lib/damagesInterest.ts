@@ -820,10 +820,23 @@ export interface PrejudgmentResult {
   input: PrejudgmentInput;
 }
 
+/** Most compounding steps (rows × compounding periods) one prejudgment run computes (fix-fin R2 #7). */
+export const PREJUDGMENT_MAX_STEPS = 2_000_000;
+/**
+ * Most damages rows one prejudgment run takes (fix-fin R2 #7): the time is mostly per row (parsing, the row's interest,
+ * its curve in the figure), and 10,000 rows took about 500 ms whatever the method.
+ */
+export const PREJUDGMENT_MAX_ROWS = 2500;
+
 /** Prejudgment interest per tranche, or a named refusal. */
 export function prejudgmentInterest(input: PrejudgmentInput): PrejudgmentResult | { error: string } {
   const { tranches, rates, end, method, dayCount } = input;
   if (!tranches.length) return { error: "Enter at least one damages row." };
+  if (tranches.length > PREJUDGMENT_MAX_ROWS) {
+    return {
+      error: `The damages list holds ${tranches.length.toLocaleString("en-US")} rows: this calculator takes at most ${PREJUDGMENT_MAX_ROWS.toLocaleString("en-US")}, because each row's interest and its curve in the figure are computed separately. Combine rows (by month or quarter) to bring the count down.`,
+    };
+  }
   if (!rates.length) return { error: "Enter at least one rate row." };
   let base = end;
   for (const t of tranches) {
@@ -833,6 +846,26 @@ export function prejudgmentInterest(input: PrejudgmentInput): PrejudgmentResult 
       };
     }
     if (t.accrual < base) base = t.accrual;
+  }
+  // A WORK BUDGET ON COMPOUNDING STEPS (fix-fin R2 #7): 10,000 rows compounded monthly from 1926 to 2026 is 12 million
+  // anniversary steps (twice: the result and the figure) and took 516 ms. Each row's steps are its months to the end
+  // date over the compounding period; past the budget the refusal names the fields that bring it down.
+  const stepMonths = MONTHS_PER_PERIOD[method];
+  if (stepMonths > 0) {
+    const ym = (d: number): number => {
+      const c = civilFromDay(d);
+      return c.y * 12 + c.m;
+    };
+    const endM = ym(end);
+    let steps = 0;
+    for (const t of tranches) steps += Math.floor((endM - ym(t.accrual)) / stepMonths) + 1;
+    if (steps > PREJUDGMENT_MAX_STEPS) {
+      return {
+        error:
+          `These rows ${METHOD_WORDS[method]} to ${longDate(end)} make ${steps.toLocaleString("en-US")} compounding steps, above the ${PREJUDGMENT_MAX_STEPS.toLocaleString("en-US")} this calculator computes without stalling Word. ` +
+          "Choose a less frequent compounding method, a later start or an earlier end date, or combine damages rows.",
+      };
+    }
   }
   const tl = buildTimeline(rates, base, end, dayCount, method === "daily");
   if ("error" in tl) return tl;

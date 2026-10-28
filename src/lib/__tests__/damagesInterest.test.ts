@@ -266,10 +266,11 @@ describe("prejudgment refusals and hostile input", () => {
     expect(rep("2020-01-01 1000000000000.01").text).toContain("outside this calculator");
     expect(rep("2020-01-01 1000000000000000").text).toContain("outside this calculator");
   });
-  test("10,000 rows compute fast and the table adds up", () => {
+  // fix-fin R2 #7: prejudgment takes at most PREJUDGMENT_MAX_ROWS (2,500) rows; 10,000 took about 500 ms.
+  test("2,500 rows compute fast and the table adds up; 2,501 are refused by name", () => {
     const lines: string[] = [];
     let want = 0;
-    for (let i = 0; i < 10000; i++) {
+    for (let i = 0; i < 2500; i++) {
       const day = civilFromDay(D("2015-01-01") + (i % 3000));
       lines.push(`${day.y}-${String(day.m).padStart(2, "0")}-${String(day.d).padStart(2, "0")}\t${(1000 + i).toLocaleString("en-US")}.25`);
       want += 1000 + i + 0.25;
@@ -279,14 +280,17 @@ describe("prejudgment refusals and hostile input", () => {
       const r = rep(lines.join("\n"), "2014-01-01 5\n2018-07-01 6.5\n2021-03-15 8", "2024-12-31", { method });
       expect(r.ok).toBe(true);
       expect(Date.now() - t0).toBeLessThan(budget(3000));
-      expect(r.table!.rows.length).toBe(10002);
-      const total = r.table!.rows[10001];
+      expect(r.table!.rows.length).toBe(2502);
+      const total = r.table!.rows[2501];
       expect(total[3]).toBe("$" + want.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
       // the interest column of the totals row is the sum of the rounded rows
       let sum = 0;
-      for (let i = 1; i <= 10000; i++) sum += Math.round(Number(r.table!.rows[i][4].replace(/[$,]/g, "")) * 100);
+      for (let i = 1; i <= 2500; i++) sum += Math.round(Number(r.table!.rows[i][4].replace(/[$,]/g, "")) * 100);
       expect(Math.round(Number(total[4].replace(/[$,]/g, "")) * 100)).toBe(sum);
     }
+    const over = rep([...lines, lines[0]].join("\n"), "2014-01-01 5", "2024-12-31", { method: "simple" });
+    expect(over.ok).toBe(false);
+    expect(over.text).toContain("takes at most 2,500");
   });
 });
 

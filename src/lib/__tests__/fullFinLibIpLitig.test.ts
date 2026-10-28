@@ -115,7 +115,7 @@ describe("litigation readings follow the result", () => {
     const capOnly = checkedReading(lit("dmg-pslra"), { loss: "" });
     expect(capOnly).toMatch(/^Under the PSLRA 90-day lookback, damages cannot exceed \$6\.6053 per share/);
     // At the cap exactly: the cap does not reduce the loss.
-    expect(lookbackReading(30, 35, 5)).toMatch(/within the PSLRA 90-day lookback cap of \$5\.00/);
+    expect(lookbackReading(30, 35, 5)).toMatch(/equals the PSLRA 90-day lookback cap of \$5\.00 per share .*, so the cap does not reduce it\.$/);
   });
 
   test("dmg-sec-aggregate: both models, and each alone", () => {
@@ -139,7 +139,7 @@ describe("litigation readings follow the result", () => {
     const ns = checkedReading(lit("dmg-antitrust"), { data: rows([100.5, 99, 102, 101, 98, 101.5]), controls: "", method: "dummy" });
     expect(ns).toMatch(/The data do not clearly separate the overcharge from zero \(p = 0\.\d+\), so it could be chance\.$/);
     const neg = checkedReading(lit("dmg-antitrust"), { data: rows([95, 96, 94, 95, 97, 93]), controls: "", method: "dummy" });
-    expect(neg).toMatch(/^These data show no overcharge: .*−[\d.]+% by the dummy-variable method\), so the estimate supports no positive damages\.$/);
+    expect(neg).toMatch(/^These data give no positive overcharge estimate: .*−[\d.]+% by the dummy-variable method\), so the estimate supports no positive damages\.$/);
   });
 
   test("every reading is absent on a refusal", () => {
@@ -153,9 +153,9 @@ test("dmg-antitrust: methods that disagree in sign are each worded by their own 
   const est = (method: "dummy" | "forecast", pct: number, p?: number): OverchargeEstimate =>
     ({ method, pctOfButFor: pct, perUnit: 0, shareOfActual: 0, butFor: [], during: [], fit: {} as OverchargeEstimate["fit"], ...(p !== undefined ? { dummy: { p } as OverchargeEstimate["dummy"] } : {}) }) as OverchargeEstimate;
   const r = antitrustReading([est("dummy", 0.0412, 0.2), est("forecast", -0.0137)], ["$120,000.00", "−$40,000.00"]);
-  expect(r).toMatch(/^The dummy-variable method estimates an overcharge of 4\.12% of the but-for price \(damages about \$120,000\.00\), but the forecast method finds no overcharge \(−1\.37%\)\./);
+  expect(r).toMatch(/^The dummy-variable method estimates an overcharge of 4\.12% of the but-for price \(damages about \$120,000\.00\), but the forecast method gives no positive overcharge estimate \(−1\.37%\)\./);
   expect(r).not.toMatch(/overcharge of −/);
   expect(readingProblems(r)).toEqual([]);
   const r2 = antitrustReading([est("dummy", -0.02, 0.01), est("forecast", 0.03)], ["−$1.00", "$2.00"]);
-  expect(r2).toMatch(/^The dummy-variable method finds no overcharge \(−2\.00%\), but the forecast method estimates an overcharge of 3\.00%/);
+  expect(r2).toMatch(/^The dummy-variable method gives no positive overcharge estimate \(−2\.00%\), but the forecast method estimates an overcharge of 3\.00%/);
 });

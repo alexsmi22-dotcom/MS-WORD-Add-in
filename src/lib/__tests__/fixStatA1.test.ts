@@ -87,6 +87,9 @@ describe("R4 #3: a lone grouped number is one number", () => {
     expect(readNumberList("100,200").values).toEqual([100, 200]);
     expect(readNumberList("3,5").values).toEqual([3, 5]);
     expect(readNumberList("100,200,300").ambiguous).toMatch(/reads two ways/);
+    // A leading 0 group is never read as thousands ("0,050" would be fifty): the rule leaves it as it was.
+    expect(readNumberList("0,050").values).not.toEqual([50]);
+    expect(readNumberList("0,010").values).not.toEqual([10]);
   });
   test("through the group and table readers too (statFields decides before statList)", () => {
     expect(statFieldCommasAreSeparators("1,000")).toBe(false);

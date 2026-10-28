@@ -87,9 +87,14 @@ export function iv2slsWithReading(read: Read): StatOutput {
     })();
     const overV = overid ? printedPVerdict(fmtP(overid.p)) : null;
     const overName = overid ? overid.name.replace(/ \(overidentification\)$/, "").replace(/^Wooldridge score$/, "Wooldridge score test") : "";
-    const strength = (): string => {
+    const weakShort = weak.length ? `the first-stage F (${weak.map((w) => fmtFixed(w.fClassical.value, d)).join(", ")}) is also below 10` : "";
+    const strength = (withWeak = true): string => {
       if (overid && overV === "clear") {
-        return `The overidentification test rejects the instruments (${overName} ${pTxt(overid.p)}): at least one looks invalid, so the ${effects.length > 1 ? "estimates are" : "estimate is"} suspect.`;
+        // Both warnings when both apply (weak AND rejected); the shorter candidate below drops the weak clause.
+        return (
+          `The overidentification test rejects the instruments (${overName} ${pTxt(overid.p)}): at least one looks invalid, so the ${effects.length > 1 ? "estimates are" : "estimate is"} suspect` +
+          (withWeak && weakShort ? `, and ${weakShort}.` : ".")
+        );
       }
       if (weak.length) {
         const fsText = weak.map((w) => `${fmtFixed(w.fClassical.value, d)}${fit.firstStage.length > 1 ? ` for ${w.endog}` : ""}`).join(", ");
@@ -113,9 +118,11 @@ export function iv2slsWithReading(read: Read): StatOutput {
       const pPart = Number.isFinite(t.p) ? `${pTxt(t.p)}` : "";
       const paren = ci || pPart ? ` (${ci}${pPart})`.replace(/, \)$/, ")") : "";
       const head = `The estimated effect of a one-unit rise in ${t.name} on ${m.depName} is about ${fmtFixed(t.coef, d)}`;
+      const short = `${head}${Number.isFinite(t.p) ? ` (${pTxt(t.p)})` : ""}${sigWord(t.p)}.`;
       return firstFitting([
         `${head}${paren}${sigWord(t.p)}. ${strength()}`,
-        `${head}${Number.isFinite(t.p) ? ` (${pTxt(t.p)})` : ""}${sigWord(t.p)}. ${strength()}`,
+        `${short} ${strength()}`,
+        `${short} ${strength(false)}`,
         `${head}${sigWord(t.p)}.`,
       ]);
     }
@@ -127,6 +134,7 @@ export function iv2slsWithReading(read: Read): StatOutput {
     return firstFitting([
       `${head} ${list.join(", ")}, ${sigSummary}. ${strength()}`,
       `${head} ${list.slice(0, 3).join(", ")}, with the rest in the table. ${strength()}`,
+      `${head} ${list.slice(0, 3).join(", ")}, with the rest in the table. ${strength(false)}`,
       `The estimated effects on ${m.depName} are in the coefficient table; ${sigSummary}.`,
     ]);
   });

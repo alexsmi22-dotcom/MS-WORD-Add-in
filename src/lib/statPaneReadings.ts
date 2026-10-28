@@ -395,7 +395,8 @@ export function multipleRegressionReading(res: MultipleRegressionResult, poly?: 
 export function survivalReading(res: KaplanMeierResult): string | undefined {
   const events = `${res.events} of ${res.n} subjects had the event`;
   if (res.medianSurvival !== null && Number.isFinite(res.medianSurvival)) {
-    return `Half the subjects are estimated to have had the event by time ${assaySig(res.medianSurvival)} (the median survival); ${events}.`;
+    // survivalTime, as the table and the median line print it (one formatter, so 123456 is never "123500" beside it).
+    return `Half the subjects are estimated to have had the event by time ${survivalTime(res.medianSurvival)} (the median survival); ${events}.`;
   }
   return `Fewer than half the subjects had the event during follow-up, so the median survival is not reached; ${events}.`;
 }

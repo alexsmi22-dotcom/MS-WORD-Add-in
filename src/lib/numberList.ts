@@ -93,6 +93,8 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
     !opts.cells &&
     runs.length === 1 &&
     GROUPED_THOUSANDS.test(mantissaOf(runs[0])) &&
+    // The leading group starts 1–9: "0,050" is a decimal-comma 0.05 to a European reader, never fifty.
+    /^[-−–+]?[1-9]/.test(mantissaOf(runs[0])) &&
     mantissaOf(runs[0]).replace(/\.\d+%?$|%$/, "").split(",").slice(1).some((g) => g.startsWith("0"));
   const commaListing = !opts.cells && !loneThousands && (runs.length <= 1 || runs.some((t) => commas(t) >= 2 && !grouped(t)));
   // A lone run that reads both ways ("100,200,300": three values, or one number grouped in thousands) is asked.

@@ -369,7 +369,8 @@ describe("survival", () => {
   test("Kaplan–Meier: median reached and not reached", () => {
     const km = kaplanMeier([5, 6, 6, 8, 10, 12, 15, 18, 20, 24], [1, 1, 0, 1, 0, 1, 0, 1, 0, 0]);
     const r = ok(R.survivalReading(km));
-    expectNumbersIn(r, `n = ${km.n}, ${km.events} events Median survival = ${assaySig(km.medianSurvival!)}`);
+    // survivalTime: the table's and the median line's one formatter since the 2026-10-28 bug test (R4 #10).
+    expectNumbersIn(r, `n = ${km.n}, ${km.events} events Median survival = ${R.survivalTime(km.medianSurvival!)}`);
     const km2 = kaplanMeier([5, 6, 8, 10, 12], [1, 0, 0, 0, 0]);
     expect(ok(R.survivalReading(km2))).toMatch(/not reached/);
   });

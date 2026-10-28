@@ -10719,7 +10719,7 @@ const STAT_CALCS: StatCalc[] = [
       const lines = [
         `Kaplan-Meier: n = ${res.n}, ${res.events} event${res.events === 1 ? "" : "s"}, ${res.censored} censored`,
         res.medianSurvival !== null
-          ? `Median survival = ${assaySig(res.medianSurvival)}`
+          ? `Median survival = ${survivalTime(res.medianSurvival)}`
           : "Median survival: NOT REACHED (the curve never falls to 50%)",
         "",
         "Time  At risk  Events  S(t)   95% CI",

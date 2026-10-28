@@ -2378,7 +2378,7 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   ts2("ts-engle-granger", { trend: "ct" }, "engle-granger trend");
   // long series names stress the panel titles and legends
   const varData = TS2_STAT_CALCS.find((x) => x.id === "ts-var")!.fields.find((f) => f.key === "data")!.default;
-  const longVar = varData.replace(/^[^\n]*/, (h) => h.replace("Growth", "RealGrowthRateAnnualised").replace("Inflation", "CoreInflationExFoodEnergy").replace("Rate", "PolicyRateEffective"));
+  const longVar = varData.replace(/^[^\n]*/, (h) => h.replace("Growth", "RealGrowthRateAnnualised").replace("Inflation", "CoreInflationExFoodEnergy").replace(/\bRate\b/, "PolicyRateEffective"));
   ts2("ts-var", { data: longVar }, "var long names");
   ts2("ts-var-irf", { data: longVar, p: "1", h: "24" }, "irf long names h24");
 }

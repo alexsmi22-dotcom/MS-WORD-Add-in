@@ -68,7 +68,9 @@ const BASELINES = {
   // v2.199.0 (E5): 48 of 52 — all nine new calculators draw (Lorenz, share bars, linkages, supply–demand, best
   // responses, game best responses, Solow, IS–LM/AD–AS, Taylor).
   // v2.200.0: 50 of 52 — panel-fe (pooled OLS vs FE) and panel-re (FE vs RE) now draw coefficient comparisons.
-  stats: { label: "Statistics", figures: 50, total: 52 },
+  // v2.203.0 (F2): 69 of 75 — of the 23 new calculators, tobit, Heckman and multinomial logit are coefficient tables
+  // and the money multiplier is a ledger; econ-regtable and econ-logit are tables as before.
+  stats: { label: "Statistics", figures: 69, total: 75 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it
@@ -90,7 +92,8 @@ const BASELINES = {
   // Panduit worksheets are fill-in tables with nothing to plot.
   // v2.199.0 (E5): 30 of 33 — fin-currency is conversion tables (no figure).
   // v2.202.0 (F1): 57 of 65 — the 32 F1 calculators; parity, ratios, apportionment, EMVR/SSPPU and Nash are tables.
-  finance: { label: "Finance", figures: 57, total: 65 },
+  // v2.203.0 (F2): 68 of 79 — CIP, UIP and PPP are parity tables; the other eleven F2 calculators draw.
+  finance: { label: "Finance", figures: 68, total: 79 },
 };
 
 function findBrowser() {
@@ -174,11 +177,13 @@ function run() {
         "--disable-gpu",
         "--no-sandbox",
         profile.arg,
-        "--virtual-time-budget=60000",
+        // 150 s of virtual time (was 60 s): at v2.203.0 the 198 inserts, each settling for at least 160 virtual ms,
+        // overran 60 s and the page was dumped before the driver wrote its results. Real time is about 30 s.
+        "--virtual-time-budget=150000",
         "--dump-dom",
         "file:///" + path.join(DIST, "pane-harness.html").replace(/\\/g, "/"),
       ],
-      { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, timeout: 180000, killSignal: "SIGKILL" }
+      { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, timeout: 480000, killSignal: "SIGKILL" }
     );
   } finally {
     profile.cleanup();

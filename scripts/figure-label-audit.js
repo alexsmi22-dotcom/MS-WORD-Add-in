@@ -99,6 +99,12 @@ const LABEL_ALLOWANCES = {
   // repeated labels are the design, one per half.
   "overlay ms acetone head-to-tail": { DUPLICATE: { reason: "mirrored head-to-tail axis (100 … 0 … 100)", kind: "y-axis column", labels: ["100", "50"] } },
   "overlay ms isotope pattern C2Cl4": { DUPLICATE: { reason: "mirrored head-to-tail axis (100 … 0 … 100)", kind: "y-axis column", labels: ["100", "50"] } },
+  // The impulse-response grid is K × K small multiples, each panel with its own horizon axis: a row of three panels
+  // repeats the same horizon ticks once per panel (checked by eye at the default h = 10 and at h = 24).
+  "ts2 ts-var-irf default": { DUPLICATE: { reason: "K × K small multiples, one horizon axis per panel", kind: "x-axis row", labels: ["0", "2", "4", "6", "8", "10"] } },
+  // Here two stacked panels in the right-hand column each show 0.00 once on their own y axis; the audit reads the
+  // column as one axis, so the entry covers both kinds (no `kind`) with exactly these labels.
+  "ts2 irf long names h24": { DUPLICATE: { reason: "K × K small multiples, one horizon axis and one y axis per panel", labels: ["0", "5", "10", "15", "20", "0.00"] } },
 };
 
 /**

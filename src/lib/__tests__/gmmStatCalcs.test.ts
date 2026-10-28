@@ -248,6 +248,17 @@ describe("panel-dyn-gmm hostile inputs and refusals", () => {
     expect(run("panel-dyn-gmm", { ...DYN, entity: "", data: dynPanel(20, 6) }).text).toContain("entity column");
     expect(run("panel-dyn-gmm", { ...DYN, estimator: "fod", data: dynPanel(20, 6) }).text).toMatch(/^Estimator/);
   });
+  test("AR(2) wording follows the first instrument lag; the pydynpd sample note appears for system GMM from lag 3", () => {
+    const two = run("panel-dyn-gmm");
+    expect(two.text).toContain("AR(2) rejecting means the errors in levels are serially correlated, so lag 2 instruments are invalid (start the instruments at lag 3).");
+    const three = run("panel-dyn-gmm", { lagFirst: "3", lagLast: "5" });
+    expect(three.ok).not.toBe(false);
+    expect(three.text).toContain("with the instruments starting at lag 3, AR(2) is tolerated (MA(1) errors in levels), but AR(3) would invalidate them");
+    expect(three.text).not.toContain("lag 3 instruments are invalid");
+    expect(three.tables![1].rows.find((x) => x[0] === "Arellano–Bond AR(2)")![4]).toBe("tolerated: instruments start at lag 3");
+    expect(three.text).toContain("pydynpd also starts the level equation at the first period whose level instrument (dated 2 back) exists");
+    expect(two.text).not.toContain("pydynpd also starts the level equation");
+  });
   test("dates are not periods; quarters are", () => {
     const d = dynPanel(25, 6).replace(/\t(200\d)\t/g, (_m, y) => `\t${y}-03-31\t`);
     expect(run("panel-dyn-gmm", { ...DYN, data: d }).text).toContain("holds dates");

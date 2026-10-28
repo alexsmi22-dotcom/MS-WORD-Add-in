@@ -47,11 +47,15 @@ export const DPD_MAX_INSTR = 400;
 /** At most this many raw instrument columns before reduction (the bound on the ZᵀZ pass). */
 export const DPD_MAX_RAW_INSTR = 1200;
 /** At most this many regressors (lags, exogenous terms and kept time dummies). */
-export const DPD_MAX_REGRESSORS = 40;
-/** Work bound N·L² (the moment-covariance and Windmeijer passes): 500 groups × 222 instruments ran in 0.32 s under Node. */
-export const DPD_MAX_WORK = 2.5e7;
+export const DPD_MAX_REGRESSORS = 50;
+/** Work bound N·L² (the moment-covariance and Windmeijer passes): 500 groups × 200 instruments, about 0.3 s under Node. */
+export const DPD_MAX_WORK = 2e7;
+/** At most this many data rows (entity-periods) in a dynamic panel: 20,000 rows ran in about 0.33 s under Node. */
+export const DPD_MAX_ROWS = 20_000;
 /** Linear GMM: at most this many rows and this many columns in X and Z together. */
-export const LGMM_MAX_ROWS = 100_000;
+export const LGMM_MAX_ROWS = 50_000;
+/** Linear GMM work bound n·(k + L)²: 20,000 rows × 16 instruments ran in 0.16 s under Node. */
+export const LGMM_MAX_WORK = 4e7;
 export const LGMM_MAX_COLUMNS = 60;
 
 const EPS = Number.EPSILON;
@@ -393,6 +397,7 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
   const L = inp.Z.length;
   if (n > LGMM_MAX_ROWS) throw new GmmRefusal(`The data have ${intText(n)} rows; GMM here is limited to ${intText(LGMM_MAX_ROWS)} rows.`);
   if (k + L > LGMM_MAX_COLUMNS) throw new GmmRefusal(`${k} regressors and ${L} instruments is more than the ${LGMM_MAX_COLUMNS} columns this calculator allows.`);
+  if (n * (k + L) * (k + L) > LGMM_MAX_WORK) throw new GmmRefusal(`${intText(n)} rows with ${k} regressors and ${L} instruments is beyond the work this calculator allows in the task pane (about ${intText(Math.floor(LGMM_MAX_WORK / ((k + L) * (k + L))))} rows for this model).`);
   if (L < k) throw new GmmRefusal(`Under-identified: ${L} instruments for ${k} coefficients. Each endogenous regressor needs at least one excluded instrument.`);
   if (n <= L) throw new GmmRefusal(`${intText(n)} rows is too few for ${L} instruments (GMM needs more rows than instruments).`);
   const y = Float64Array.from(inp.y);
@@ -677,8 +682,21 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
         put(consCol, 1);
       }
       // Sparse indices in increasing order (a column appears once per row).
-      const ord = zi.map((_, i) => i).sort((p, q2) => zi[p] - zi[q2]);
-      return { zi: Int32Array.from(ord.map((i) => zi[i])), zv: Float64Array.from(ord.map((i) => zv[i])), x, y, t };
+      // (Insertion sort: a row holds a few dozen entries at most, nearly in order already.)
+      const m = zi.length;
+      const zI = new Int32Array(m);
+      const zV = new Float64Array(m);
+      for (let i = 0; i < m; i++) {
+        let j = i;
+        while (j > 0 && zI[j - 1] > zi[i]) {
+          zI[j] = zI[j - 1];
+          zV[j] = zV[j - 1];
+          j--;
+        }
+        zI[j] = zi[i];
+        zV[j] = zv[i];
+      }
+      return { zi: zI, zv: zV, x, y, t };
     };
     for (const t of d) rows.push(mkRow(true, t));
     for (const t of l) rows.push(mkRow(false, t));
@@ -733,7 +751,12 @@ export function buildDynamic(data: DynData, spec: DynSpec): DynDesign {
   }
   const k = kept.length;
   if (k > DPD_MAX_REGRESSORS) throw new GmmRefusal(`${k} regressors (time dummies included) is more than the ${DPD_MAX_REGRESSORS} this calculator allows.`);
-  for (const b of blocks) for (const r of b.rows) r.x = Float64Array.from(kept, (c) => r.x[c]);
+  for (const b of blocks)
+    for (const r of b.rows) {
+      const nx = new Float64Array(k);
+      for (let a = 0; a < k; a++) nx[a] = r.x[kept[a]];
+      r.x = nx;
+    }
   // Instruments: drop zero columns, then dependent ones (pivoted Cholesky on ZᵀZ, scaled).
   const nnz = new Int32Array(L0);
   for (const b of blocks) for (const r of b.rows) for (const c of r.zi) nnz[c]++;
@@ -1041,78 +1064,123 @@ export function fitDynamic(des: DynDesign): DynFit {
   };
 }
 
-/** Pooled OLS (with a constant) or within (fixed-effects) estimates on the level rows, cluster-robust by entity. */
+/**
+ * Pooled OLS (with a constant) or within (fixed-effects) estimates on the level rows, cluster-robust by entity.
+ * Accumulated row by row with the time dummy as an index (no dense dummy columns): FE uses XᵀX − Σ_g n_g x̄_g x̄_gᵀ, and
+ * its cluster scores Σ_i x_i e_i need no demeaning because the within residuals sum to zero in each entity.
+ */
 export function olsFeOnLevels(
   data: DynData,
   spec: DynSpec,
   within: boolean,
 ): { b: number; se: number; n: number } | null {
   const { N, T } = data;
-  const val = (v: string, g: number, t: number): number => (t < 0 || t >= T ? NaN : data.series.get(v)![g][t]);
   const kt = spec.terms.length;
-  const rowsX: number[][] = [];
-  const rowsY: number[] = [];
-  const grp: number[] = [];
-  const tim: number[] = [];
+  const ySer = data.series.get(spec.y)!;
+  const tSer = spec.terms.map((tm) => data.series.get(tm.v)!);
+  const td = spec.timeDummies;
+  // Columns: terms, then a dummy per period (if asked), then the constant (OLS only).
+  const p0 = kt + (td ? T : 0) + (within ? 0 : 1);
+  const G0 = new Float64Array(p0 * p0);
+  const Xy = new Float64Array(p0);
+  const sx = new Float64Array(N * p0);
+  const sy = new Float64Array(N);
+  const cnt = new Int32Array(N);
+  const x = new Float64Array(p0);
+  const idx: number[] = [];
+  let n = 0;
+  // Row list for the second (residual) pass.
+  const rg: number[] = [];
+  const rt: number[] = [];
+  const rowOf = (g: number, t: number): boolean => {
+    const yv = ySer[g][t];
+    if (Number.isNaN(yv)) return false;
+    idx.length = 0;
+    for (let j = 0; j < kt; j++) {
+      const tt = t - spec.terms[j].lag;
+      const v = tt < 0 ? NaN : tSer[j][g][tt];
+      if (Number.isNaN(v)) return false;
+      x[j] = v;
+      idx.push(j);
+    }
+    if (td) {
+      x[kt + t] = 1;
+      idx.push(kt + t);
+    }
+    if (!within) {
+      x[p0 - 1] = 1;
+      idx.push(p0 - 1);
+    }
+    return true;
+  };
   for (let g = 0; g < N; g++)
     for (let t = 0; t < T; t++) {
-      const yv = val(spec.y, g, t);
-      if (Number.isNaN(yv)) continue;
-      const x = spec.terms.map((tm) => val(tm.v, g, t - tm.lag));
-      if (x.some(Number.isNaN)) continue;
-      rowsX.push(x);
-      rowsY.push(yv);
-      grp.push(g);
-      tim.push(t);
-    }
-  const n = rowsY.length;
-  if (n < kt + 3) return null;
-  // Design: terms, dummies (if asked), constant (OLS).
-  const cols: Float64Array[] = [];
-  for (let j = 0; j < kt; j++) cols.push(Float64Array.from(rowsX, (r) => r[j]));
-  if (spec.timeDummies) for (let s = 0; s < T; s++) cols.push(Float64Array.from(tim, (t) => (t === s ? 1 : 0)));
-  if (!within) cols.push(new Float64Array(n).fill(1));
-  let y: Float64Array = Float64Array.from(rowsY);
-  if (within) {
-    const demean = (v: Float64Array): Float64Array => {
-      const s = new Float64Array(N);
-      const c = new Float64Array(N);
-      for (let i = 0; i < n; i++) {
-        s[grp[i]] += v[i];
-        c[grp[i]]++;
+      if (!rowOf(g, t)) continue;
+      const yv = ySer[g][t];
+      n++;
+      rg.push(g);
+      rt.push(t);
+      cnt[g]++;
+      sy[g] += yv;
+      for (const a of idx) {
+        Xy[a] += x[a] * yv;
+        sx[g * p0 + a] += x[a];
+        for (const c of idx) G0[a * p0 + c] += x[a] * x[c];
       }
-      return Float64Array.from(v, (x, i) => x - s[grp[i]] / c[grp[i]]);
-    };
-    for (let j = 0; j < cols.length; j++) cols[j] = demean(cols[j]);
-    y = demean(y);
+    }
+  if (n < kt + 3) return null;
+  if (within) {
+    for (let g = 0; g < N; g++) {
+      if (!cnt[g]) continue;
+      const o = g * p0;
+      for (let a = 0; a < p0; a++) {
+        const ma = sx[o + a] / cnt[g];
+        if (ma === 0) continue;
+        Xy[a] -= ma * sy[g];
+        for (let c = 0; c < p0; c++) G0[a * p0 + c] -= ma * sx[o + c];
+      }
+    }
   }
-  const p0 = cols.length;
-  const G0 = new Float64Array(p0 * p0);
-  for (let a = 0; a < p0; a++) for (let b = 0; b < p0; b++) G0[a * p0 + b] = dot(cols[a], cols[b]);
   const order = [...(within ? [] : [p0 - 1]), ...Array.from({ length: p0 - (within ? 0 : 1) }, (_, j) => j)];
   const kept = independentColumns(G0, p0, 1e-10, order).sort((a, b) => a - b);
   if (!kept.includes(0)) return null;
   const p = kept.length;
   const XtX = new Float64Array(p * p);
-  for (let a = 0; a < p; a++) for (let b = 0; b < p; b++) XtX[a * p + b] = G0[kept[a] * p0 + kept[b]];
+  for (let a = 0; a < p; a++) for (let c = 0; c < p; c++) XtX[a * p + c] = G0[kept[a] * p0 + kept[c]];
   const inv = symInverse(XtX, p);
   if (inv.generalized) return null;
-  const Xty = Float64Array.from(kept, (c) => dot(cols[c], y));
-  const b = mv(inv.inv, Xty, p, p);
-  const e = Float64Array.from(y, (yv, i) => {
-    let s = yv;
-    for (let a = 0; a < p; a++) s -= cols[kept[a]][i] * b[a];
-    return s;
-  });
+  const b = mv(inv.inv, Float64Array.from(kept, (c) => Xy[c]), p, p);
+  const bFull = new Float64Array(p0);
+  kept.forEach((c, a) => (bFull[c] = b[a]));
+  // Residuals and cluster scores (raw x; FE residuals are within-entity deviations).
   const sums = new Float64Array(N * p);
-  const used = new Uint8Array(N);
+  const posOf = new Int32Array(p0).fill(-1);
+  kept.forEach((c, a) => (posOf[c] = a));
   for (let i = 0; i < n; i++) {
-    used[grp[i]] = 1;
-    for (let a = 0; a < p; a++) sums[grp[i] * p + a] += cols[kept[a]][i] * e[i];
+    const g = rg[i];
+    rowOf(g, rt[i]);
+    let fit = 0;
+    for (const a of idx) fit += x[a] * bFull[a];
+    let e = ySer[g][rt[i]] - fit;
+    if (within) {
+      let meanFit = 0;
+      for (let a = 0; a < p0; a++) meanFit += (sx[g * p0 + a] / cnt[g]) * bFull[a];
+      e -= sy[g] / cnt[g] - meanFit;
+    }
+    for (const a of idx) if (posOf[a] >= 0) sums[g * p + posOf[a]] += x[a] * e;
   }
   const S = new Float64Array(p * p);
-  for (let g = 0; g < N; g++) for (let a = 0; a < p; a++) for (let c2 = 0; c2 < p; c2++) S[a * p + c2] += sums[g * p + a] * sums[g * p + c2];
-  const G = used.reduce((s, u) => s + u, 0);
+  let G = 0;
+  for (let g = 0; g < N; g++) {
+    if (!cnt[g]) continue;
+    G++;
+    const o = g * p;
+    for (let a = 0; a < p; a++) {
+      const va = sums[o + a];
+      if (va === 0) continue;
+      for (let c = 0; c < p; c++) S[a * p + c] += va * sums[o + c];
+    }
+  }
   // Stata's cluster factor G/(G − 1)·(n − 1)/(n − p), p the kept columns (the OLS constant included; FE's absorbed).
   const fac = G > 1 && n > p ? (G / (G - 1)) * ((n - 1) / (n - p)) : 1;
   const V = mul(mul(inv.inv, S, p, p, p), inv.inv, p, p, p);

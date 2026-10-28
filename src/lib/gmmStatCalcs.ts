@@ -28,6 +28,8 @@ import {
   GMM_Z975,
   DPD_MAX_GROUPS,
   DPD_MAX_PERIODS,
+  DPD_MAX_ROWS,
+  LGMM_MAX_ROWS,
   type DynData,
   type DynDesign,
   type DynFit,
@@ -172,6 +174,7 @@ export function econGmmFitFromRead(read: Read): GmmFitted | { error: string } {
     const prev = roles.get(cj);
     if (prev) return err(`${q(data.names[cj])} is ${prev}; it cannot also be the cluster column.`);
   }
+  if (data.rows.length > LGMM_MAX_ROWS) return err(`The table has ${intText(data.rows.length)} rows; GMM here is limited to ${intText(LGMM_MAX_ROWS)} rows.`);
   const sel = selectColumns(data, { dep, preds: [...endog, ...exog, ...instr], text: specText }, { cluster });
   if (!sel.ok) return err(sel.reason);
   const c = sel.cols;
@@ -378,6 +381,7 @@ function readDyn(read: Read): DynRead | { error: string } {
   const parsed = parseRegData(text);
   if (!parsed.ok) return { error: parsed.reason };
   const ds: RegDataset = parsed.data;
+  if (ds.rows.length > DPD_MAX_ROWS) return { error: `The table has ${intText(ds.rows.length)} rows; a dynamic panel here is limited to ${intText(DPD_MAX_ROWS)} rows (entity-periods).` };
   const specText = get("spec").trim();
   if (!specText) return { error: "Write the model as “y ~ L.y + x1 + x2” (L.y is the lagged response; L2.x, L(0/2).x for lags)." };
   const parts = specText.split("~");
@@ -620,7 +624,10 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   // Tests.
   const arText = (a: { order: number; z: number; p: number; why?: string }): string =>
     a.why ? `AR(${a.order}) not computed (${a.why})` : `AR(${a.order}) z = ${fmtFixed(a.z, 2)}, ${pText(a.p)}`;
-  lines.push(`Arellano–Bond tests on the differenced residuals: ${st.ar.map(arText).join("; ")}. AR(1) is expected; AR(2) rejecting means lag ${r.spec.lagFirst} instruments are invalid.`);
+  lines.push(`Arellano–Bond tests on the differenced residuals: ${st.ar.map(arText).join("; ")}. ` +
+      (r.spec.lagFirst === 2
+        ? "AR(1) is expected; AR(2) rejecting means the errors in levels are serially correlated, so lag 2 instruments are invalid (start the instruments at lag 3)."
+        : `AR(1) is expected; with the instruments starting at lag ${r.spec.lagFirst}, AR(2) is tolerated (MA(1) errors in levels), but AR(${r.spec.lagFirst}) would invalidate them, and only AR(1) and AR(2) are computed here.`));
   if (fit.df > 0) {
     lines.push(
       `Sargan χ²(${fit.df}) = ${fmtFixed(fit.sargan, 2)}, ${pText(fit.sarganP)} (not robust, not weakened by many instruments); ` +
@@ -659,7 +666,10 @@ export function panelDynGmmCalc(read: Read): StatOutput {
       `Sargan = g₁ᵀA₁g₁/σ̂² from the one-step residuals with σ̂² = ΣΔû²/(2n); Hansen J is the two-step criterion, printed after one-step too; AR tests use the reported step's residuals and covariance. ` +
       `The observation count is ${sys ? "the level rows (xtabond2's convention for system GMM; pydynpd prints the differenced rows)" : "the differenced rows"}. ` +
       "Instruments are counted after dropping linearly dependent columns; a singular weight is inverted by Moore–Penrose. " +
-      "pydynpd 0.2.2 agrees on coefficients, two-step SEs, Hansen J and two-step AR tests, but parameterizes time dummies by dropping the first (other coefficients are the same), instruments system-GMM time dummies in both equations, and its one-step AR statistic uses the two-step moment vector (Roodman's formula, used here, reproduces the published one-step values).",
+      "pydynpd 0.2.2 agrees on coefficients, two-step SEs, Hansen J and two-step AR tests, but parameterizes time dummies by dropping the first (other coefficients are the same), instruments system-GMM time dummies in both equations, and its one-step AR statistic uses the two-step moment vector (Roodman's formula, used here, reproduces the published one-step values)" +
+      (sys && r.spec.lagFirst > 2
+        ? `; with a first lag of ${r.spec.lagFirst}, pydynpd also starts the level equation at the first period whose level instrument (dated ${r.spec.lagFirst - 1} back) exists, while xtabond2 and this calculator keep those rows with the instrument set to 0, so the samples differ.`
+        : "."),
   );
   lines.push(...r.notes);
   const seLab = twoStep ? "Windmeijer SE" : "Robust SE";
@@ -672,7 +682,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
     },
   ];
   const testRows: string[][] = [["Test", "Statistic", "df", "p", "Note"]];
-  for (const a of st.ar) testRows.push([`Arellano–Bond AR(${a.order})`, a.why ? "not computed" : `z = ${fmtFixed(a.z, 2)}`, "", a.why ? "not computed" : fmtP(a.p), a.why ?? (a.order === 1 ? "expected to reject" : "should not reject")]);
+  for (const a of st.ar) testRows.push([`Arellano–Bond AR(${a.order})`, a.why ? "not computed" : `z = ${fmtFixed(a.z, 2)}`, "", a.why ? "not computed" : fmtP(a.p), a.why ?? (a.order === 1 ? "expected to reject" : r.spec.lagFirst === 2 ? "should not reject" : `tolerated: instruments start at lag ${r.spec.lagFirst}`)]);
   if (fit.df > 0) {
     testRows.push(["Sargan", `χ² = ${fmtFixed(fit.sargan, 2)}`, String(fit.df), fmtP(fit.sarganP), "one-step, not robust"]);
     testRows.push(

@@ -54,13 +54,27 @@ const plural = (n: number, w: string): string => `${n.toLocaleString("en-US")} $
 type Read = (k: string) => string;
 
 /** A non-finite value anywhere in an ok result is refused (the em dash is the pane's non-finite sentinel). */
-function finish(res: { text: string; svg?: string; tables?: FinTable[] }): FinResult {
+function finish(res: { text: string; reading?: string; svg?: string; tables?: FinTable[] }): FinResult {
   const cells = (res.tables ?? []).flatMap((t) => t.rows.flat());
   if (res.text.includes("—") || cells.some((c) => c.includes("—"))) {
     return finRefusal("A value came out non-finite or above 10²¹ (an overflow on these inputs), so there is nothing to insert. Check the inputs' magnitudes (a tiny share count, an explosive growth rate, returns that compound past the number range).");
   }
   return res;
 }
+
+// ------------------------------------------------------------------------------------------------------------------
+// Plain-language readings (lib/calcReading.ts states the rules): built from this run's values, each number formatted
+// by the same call the text uses, at most 320 characters (a long pasted name or weight list falls back to a shorter
+// sentence).
+// ------------------------------------------------------------------------------------------------------------------
+
+const READING_LIMIT = 320;
+/** The first candidate that fits the reading limit (the last one is the short, always-fitting form). */
+const fitReading = (...cands: string[]): string => cands.find((c) => c.length <= READING_LIMIT) ?? cands[cands.length - 1];
+/** A p-value as the text prints it, judged significant at 5% on the printed value (p = 0.0500 is not below 5%). */
+const sig5 = (p: number): boolean => p < 0.0001 || Number(fx(p, 4)) < 0.05;
+/** Sign of a value as printed: a figure that prints as zero is zero. */
+const printedSign = (s: string): -1 | 0 | 1 => (/^0(?:\.0*)?%?$/.test(s) ? 0 : s.startsWith("−") ? -1 : 1);
 
 /** A number field (already through readFinanceField in the pane; read again here so a direct call is held to it). */
 function num(r: Read, key: string, label: string, o: { min?: number; max?: number; minOpen?: boolean; maxOpen?: boolean; int?: boolean } = {}): number | string {
@@ -399,7 +413,57 @@ export function capmCalc(r: Read): FinResult {
     align: ["left", "right", "right", "right", "right", "right"],
     note: `n = ${c.n}; R² = ${fx(c.r2, 4)}; standard errors ${SE_LABEL[se]}.`,
   };
-  return finish({ text: lines.join("\n"), svg: capmScatterSvg(c.exMarket, c.exAsset, c.alpha.coef, c.beta.coef), tables: [table] });
+  const reading = capmReading(t.header ? names : ["The asset", "the market"], fx(c.beta.coef, 4), c.beta.lo, c.beta.hi, pct(c.alpha.coef * ppy, 3), c.alpha.p, fx(c.r2, 4));
+  return finish({ text: lines.join("\n"), reading, svg: capmScatterSvg(c.exMarket, c.exAsset, c.alpha.coef, c.beta.coef), tables: [table] });
+}
+
+/**
+ * CAPM in plain words: how much the asset moves with the market (beta, as printed) and whether its alpha (annualized,
+ * as printed) is distinguishable from zero at 5% on the printed p.
+ */
+export function capmReading(names: string[], beta: string, betaLo: number, betaHi: number, alphaAnn: string, alphaP: number, r2: string): string {
+  const bv = Number(beta.replace("−", "-"));
+  // The wording follows the 95% interval, not the point estimate alone: a beta of 1.05 whose interval spans 1 is "in
+  // line with the market", not "more volatile".
+  const swing =
+    betaLo <= 0 && betaHi >= 0
+      ? "with no clear link to the market's moves"
+      : betaLo <= 1 && betaHi >= 1
+        ? "so it moves roughly in line with the market"
+        : bv < 0
+          ? "so it tends to move against the market"
+          : bv > 1
+            ? "so it swings more than the market"
+            : "so it swings less than the market";
+  const pT = pText(alphaP);
+  const tail = sig5(alphaP)
+    ? `Its annualized alpha of ${alphaAnn} is ${printedSign(alphaAnn) < 0 ? "a shortfall against" : "a return beyond"} what that market risk explains, unlikely to be chance (${pT}).`
+    : `Its annualized alpha of ${alphaAnn} could be chance (${pT}): no clear evidence of a nonzero alpha.`;
+  const head = (a: string, m: string): string => `${a} has a beta of about ${beta} against ${m} (R² = ${r2}), ${swing}.`;
+  return fitReading(`${head(names[0], names[1])} ${tail}`, `${head("The asset", "the market")} ${tail}`);
+}
+
+/** Performance in plain words: the compound return and volatility, whether it beat the risk-free rate, and the worst fall. */
+export function perfReading(geo: string, vol: string, sharpe: string | null, maxDd: string | null, recovered: boolean): string {
+  const sh =
+    sharpe === null
+      ? "its Sharpe ratio is not defined because the return above the risk-free rate never varies"
+      : printedSign(sharpe) > 0
+        ? `its Sharpe ratio of ${sharpe} is positive: on average it beat the risk-free rate`
+        : printedSign(sharpe) < 0
+          ? `its Sharpe ratio of ${sharpe} is negative: on average it trailed the risk-free rate`
+          : `its Sharpe ratio of ${sharpe} means it did no better than the risk-free rate on average`;
+  const dd = maxDd === null ? "It never fell below an earlier peak." : `The worst fall from a peak was ${maxDd}, ${recovered ? "later recovered" : "not recovered by the last period"}.`;
+  return `The series compounded at ${geo} a year with ${vol} annualized volatility; ${sh}. ${dd}`;
+}
+
+/** Value at risk in plain words, on the historical method (the one that assumes no distribution). */
+export function varReading(hTxt: string, var_: string, varAmt: string, cvar: string, cvarAmt: string, value: string, tail: string, overWhole: boolean): string {
+  if (printedSign(var_) <= 0)
+    return `Based on past returns, even the cutoff for the worst ${tail} of outcomes over ${hTxt} is not a loss (historical VaR ${var_} of the ${value} portfolio), so these data show no loss at that confidence.`;
+  if (overWhole)
+    return `Based on past returns scaled to ${hTxt}, the historical VaR of ${var_} is more than the whole ${value} portfolio: an artifact of the time scaling, since a long position without leverage cannot lose more than its value.`;
+  return `Based on past returns, a loss over ${hTxt} should exceed ${var_} (${varAmt}) of the ${value} portfolio only about ${tail} of the time; when it does, the loss averages about ${cvar} (${cvarAmt}).`;
 }
 
 /** Annualized return, volatility, Sharpe, Sortino, Treynor, maximum drawdown and Calmar. */
@@ -453,7 +517,8 @@ export function perfCalc(r: Read): FinResult {
     ],
     align: ["left", "right", "right"],
   };
-  return finish({ text: lines.join("\n"), svg: drawdownSvg(d), tables: [table] });
+  const reading = perfReading(pct(p.geoAnnual, 3), pct(p.volAnnual, 3), p.sharpe !== null ? fx(p.sharpe, 4) : null, d.max < 0 ? pct(d.max, 2) : null, d.recovery !== null);
+  return finish({ text: lines.join("\n"), reading, svg: drawdownSvg(d), tables: [table] });
 }
 
 const METHOD_NAME: Record<VarLine["method"], string> = {
@@ -513,7 +578,9 @@ export function varCalc(r: Read): FinResult {
     align: ["left", "right", "right", "right", "right"],
     note: `${fx(conf, 2)}% confidence, ${hTxt}; losses positive.`,
   };
-  return finish({ text: lines.join("\n"), svg: varHistogramSvg(rets, v.lines), tables: [table] });
+  const hist = v.lines.find((l) => l.method === "historical")!;
+  const reading = varReading(hTxt, pct(hist.var, 3), fx(hist.var * value, 2), pct(hist.cvar, 3), fx(hist.cvar * value, 2), fx(value, 2), fx(v.alpha * 100, 2) + "%", hist.var > 1);
+  return finish({ text: lines.join("\n"), reading, svg: varHistogramSvg(rets, v.lines), tables: [table] });
 }
 
 /** Long-only Markowitz frontier with the minimum-variance and tangency portfolios and the capital market line. */
@@ -577,7 +644,13 @@ export function frontierCalc(r: Read): FinResult {
     rows: [["Expected return (a year)", "Volatility (a year)", "Sharpe ratio"], ...pts.map((p) => [pct(p.ret, 3), pct(p.vol, 3), fx((p.ret - rf / 100) / p.vol, 4)])],
     align: ["right", "right", "right"],
   };
-  return finish({ text: lines.join("\n"), svg: frontierSvg(f, rf / 100), tables: [assetTable, curveTable] });
+  const reading = fitReading(
+    `On these past returns, the mix with the best return for its risk (Sharpe ratio ${fx(tg.sharpe, 4)}) is ${w(tg.w)}, expecting about ${pct(tg.ret, 3)} a year at ${pct(tg.vol, 3)} volatility. ` +
+      `The lowest-risk mix is ${w(f.minVol.w)}, at ${pct(f.minVol.vol, 3)} volatility.`,
+    `On these past returns, the mix with the best return for its risk (Sharpe ratio ${fx(tg.sharpe, 4)}) is ${w(tg.w)}, expecting about ${pct(tg.ret, 3)} a year at ${pct(tg.vol, 3)} volatility.`,
+    `On these past returns, the mix with the best return for its risk (Sharpe ratio ${fx(tg.sharpe, 4)}; weights in the table) expects about ${pct(tg.ret, 3)} a year at ${pct(tg.vol, 3)} volatility; the lowest-risk mix has ${pct(f.minVol.vol, 3)} volatility.`,
+  );
+  return finish({ text: lines.join("\n"), reading, svg: frontierSvg(f, rf / 100), tables: [assetTable, curveTable] });
 }
 const FRONTIER_TEXT = "41 targets evenly spaced from the minimum-variance return to the highest asset mean";
 
@@ -654,7 +727,12 @@ export function waccCalc(r: Read): FinResult {
     ],
     align: ["right", "right", "right", "right", "right"],
   };
-  return finish({ text: lines.join("\n"), svg: waccLeverageSvg(input, w.betaU, w.wD), tables: [comp, lev] });
+  const waccS = pct(w.wacc, 4);
+  const reading =
+    D === 0
+      ? `With no debt, the cost of capital is the cost of equity, ${waccS}: an investment as risky as this company must earn more than that a year to add value for its owners.`
+      : `The weighted average cost of capital is ${waccS} (equity at ${pct(w.re, 4)}, debt at ${pct(w.rdAfter, 4)} after tax): an investment as risky as this company must earn more than that a year to add value for its investors.`;
+  return finish({ text: lines.join("\n"), reading, svg: waccLeverageSvg(input, w.betaU, w.wD), tables: [comp, lev] });
 }
 
 function rootsText(x: IrrRoots): string {
@@ -704,6 +782,45 @@ function paybackText(p: ReturnType<typeof payback>): string {
   if (p.at === "start") return "not applicable (the first flow is not an outflow)";
   if (p.at === null) return "not reached within the cash flows";
   return `${fx(p.at, 2)} periods` + (p.dipsAgain !== null ? ` (the cumulative flow is negative again in period ${p.dipsAgain})` : "");
+}
+
+/**
+ * Capital budgeting in plain words: does project A (and B) add value at the discount rate, judged on the NPV as
+ * printed (a figure that prints as 0.00 breaks even), and where the ranking of two projects flips.
+ */
+export function capBudgetReading(rate: string, npvA: string, rootsA: IrrRoots, npvB: string | null, cross: IrrRoots | null, identical: boolean): string {
+  const verdict = (s: string): string => (printedSign(s) > 0 ? "adds value" : printedSign(s) < 0 ? "loses value" : "breaks even");
+  if (npvB === null) {
+    const single = rootsA.roots.length === 1 && rootsA.touches.length === 0 ? rootsA.roots[0] : null;
+    const irr = single !== null ? `; its IRR of ${pct(single, 4)} is the discount rate at which it would break even` : "";
+    return `Project A's NPV at ${rate}% is ${npvA}, so on these cash flows it ${verdict(npvA)} at that rate${irr}.`;
+  }
+  const sA = printedSign(npvA);
+  const sB = printedSign(npvB);
+  const vA = Number(npvA.replace(/,/g, "").replace("−", "-"));
+  const vB = Number(npvB.replace(/,/g, "").replace("−", "-"));
+  const best =
+    npvA === npvB
+      ? `the two ${sA > 0 ? "add the same value" : sA < 0 ? "lose the same value" : "both break even"}`
+      : sA <= 0 && sB <= 0
+        ? `neither adds value, though ${vA > vB ? "A" : "B"} ${Math.max(vA, vB) === 0 ? "breaks even" : "loses less"}`
+        : sA > 0 && sB <= 0
+          ? "only A adds value"
+          : sB > 0 && sA <= 0
+            ? "only B adds value"
+            : `${vA > vB ? "A" : "B"} adds more value`;
+  const first = `At ${rate}%, project A's NPV is ${npvA} and project B's is ${npvB}, so ${best}.`;
+  const k = cross ? cross.roots.length + cross.touches.length : 0;
+  const second = identical
+    ? "Their cash flows are identical, so they tie at every rate."
+    : cross && cross.roots.length === 1 && cross.touches.length === 0
+      ? `The ranking flips at a discount rate of about ${pct(cross.roots[0], 4)}.`
+      : k > 1
+        ? `The ranking changes at ${k} different discount rates, listed below.`
+        : k === 1
+          ? `The two NPVs meet without crossing at about ${pct(cross!.touches[0], 4)}, so the ranking does not flip.`
+          : "The ranking holds at every discount rate searched.";
+  return `${first} ${second}`;
 }
 
 /** NPV, every IRR, MIRR, paybacks, PI, EAA, and the crossover rate between two projects. */
@@ -815,7 +932,8 @@ export function capBudgetCalc(r: Read): FinResult {
   const marked = [...A.roots.roots, ...A.roots.touches, ...(B ? [...B.roots.roots, ...B.roots.touches] : []), ...(cross ? [...cross.roots, ...cross.touches] : [])];
   const [plo, phi] = profileRange(marked, rd);
   if (marked.some((x) => x < plo || x > phi)) lines.splice(lines.length - 1, 0, `The NPV profile is drawn from ${pct(plo, 0)} to ${pct(phi, 0)} per period; the rates listed above outside that range are not marked on it.`);
-  return finish({ text: lines.join("\n"), svg, tables: [metrics, flows] });
+  const reading = capBudgetReading(fx(rate, 3), fx(A.v, 2), A.roots, B ? fx(B.v, 2) : null, cross, identical);
+  return finish({ text: lines.join("\n"), reading, svg, tables: [metrics, flows] });
 }
 
 /** Multi-stage DCF: explicit years, fade, terminal value, EV → equity → per share, and a sensitivity grid. */
@@ -948,7 +1066,18 @@ export function dcfCalc(r: Read): FinResult {
     note: blanks ? `n/a: ${plural(blanks, "cell")} where the WACC is not above g (Gordon), the WACC is −99% or below, or the multiple is negative.` : `The center cell is the base case.`,
   };
   const svg = dcfSensitivityHeatmapSvg(rowLabels, ts.map(colLabel), grid, `Sensitivity of the ${valueName}`, "discount rate");
-  return finish({ text: lines.join("\n"), svg, tables: [yearTable, bridge, sens] });
+  const eqS = fx(d.equity, 2);
+  const evS = fx(d.ev, 2);
+  const tvPart = !Number.isFinite(d.tvShare)
+    ? ""
+    : d.tvShare >= 0.5
+      ? ` ${pct(d.tvShare, 1)} of the enterprise value is the terminal value, so the answer rests mainly on ${terminal === "gordon" ? "the long-run growth and discount rates" : "the exit multiple"}.`
+      : ` ${pct(d.tvShare, 1)} of the enterprise value is the terminal value; the rest comes from the forecast years.`;
+  const reading =
+    d.equity < 0
+      ? `The DCF puts the enterprise value at about ${evS}, less than the net debt of ${fx(netDebt, 2)}, so the equity value on these inputs is negative (${eqS}).`
+      : `The DCF puts the equity at about ${eqS}${d.perShare !== null ? `, or ${fx(d.perShare, 4)} a share` : ""}, from an enterprise value of ${evS}.` + tvPart;
+  return finish({ text: lines.join("\n"), reading, svg, tables: [yearTable, bridge, sens] });
 }
 
 // ------------------------------------------------------------------------------------------------------------------

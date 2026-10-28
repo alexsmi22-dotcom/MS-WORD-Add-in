@@ -404,7 +404,20 @@ export function secRibbonCalc(r: Read): FinResult {
     { label: "Corrective disclosures", rows: discRows, align: ["left", "right", "right", "right", "right"] },
     { label: "Inflation by window", rows: winRows, align: ["left", "left", "left", "right", "right", "right"].slice(0, winHead.length) as FinTable["align"] },
   ];
-  return { text: lines.join("\n"), svg, tables };
+  return { text: lines.join("\n"), reading: ribbonReading(res, close[0], mode, k), svg, tables };
+}
+
+/** The plain-language reading of the inflation ribbon (lib/calcReading.ts rules). */
+export function ribbonReading(res: Pick<RibbonResult, "inflation">, firstClose: number, mode: RibbonMode, k: number): string {
+  const disc = `${k} corrective disclosure${k === 1 ? "" : "s"}`;
+  const start =
+    mode === "ar-pct"
+      ? `about ${pctText(res.inflation[0] / firstClose)} of the share price (${ps(res.inflation[0])} per share)`
+      : `about ${ps(res.inflation[0])} of inflation per share`;
+  return (
+    `On these inputs the stock carried ${start} at the start of the class period, removed over ${disc}. ` +
+    "A buyer's estimated loss per share is the inflation on the purchase day less the inflation on the sale day."
+  );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -622,6 +635,7 @@ export function secOutOfPocketCalc(r: Read): FinResult {
   );
   return {
     text: lines.join("\n"),
+    reading: outOfPocketReading(total, classShares),
     svg,
     tables: [
       { label: "Windows", rows: defRows, align: ["left", "left", "right"] },
@@ -629,6 +643,14 @@ export function secOutOfPocketCalc(r: Read): FinResult {
       { label: `Matched lots (${method === "fifo" ? "FIFO" : "LIFO"})`, rows, align: ["left", "left", "right", "left", "right", "right"] },
     ],
   };
+}
+
+/** The plain-language reading of the out-of-pocket loss (lib/calcReading.ts rules). */
+export function outOfPocketReading(total: number, classShares: number): string {
+  if (classShares === 0) return "None of these shares were bought in the class period, so on these inputs they carry no out-of-pocket loss.";
+  const sh = `${dmgQty(classShares)} share${classShares === 1 ? "" : "s"} bought in the class period`;
+  if (total <= 0) return `On these inputs the ${sh} show no net out-of-pocket loss (${dmgMoney(total)}).`;
+  return `On these trades the estimated out-of-pocket loss is about ${dmgMoney(total)} on ${sh}, before the PSLRA 90-day lookback cap is applied.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -796,9 +818,27 @@ export function pslraLookbackCalc(r: Read): FinResult {
   const svg = lb.rows.length >= 2 ? finPlotSvg(series, { width: 380, height: 250, title: "PSLRA 90-day lookback (from the inputs given)", xlabel: "day of the 90-day period", ylabel: "price per share ($)" }) : undefined;
   return {
     text: lines.join("\n"),
+    reading: lookbackReading(capMean, purchase, loss),
     svg,
     tables: [{ label: "90-day lookback table", rows, align: ["left", "right", "right", "right", "right"].slice(0, head.length) as FinTable["align"] }],
   };
+}
+
+/**
+ * The plain-language reading of the PSLRA lookback (lib/calcReading.ts rules), from the same cap arithmetic as the
+ * text: cap = purchase − mean, damages per share = max(0, min(loss, cap)).
+ */
+export function lookbackReading(capMean: number, purchase: number | null, loss: number | null): string {
+  if (purchase === null) return `The mean trading price that sets the PSLRA cap is ${ps(capMean)} per share; enter the purchase price to turn it into a cap on damages per share.`;
+  const capPs = purchase - capMean;
+  if (capPs < 0)
+    return `The purchase price ${ps(purchase)} is below the ${ps(capMean)} mean trading price, so under the PSLRA 90-day lookback damages per share are capped at zero.`;
+  const cap = `${ps(capPs)} per share (the ${ps(purchase)} purchase price less the ${ps(capMean)} mean trading price)`;
+  if (loss === null) return `Under the PSLRA 90-day lookback, damages cannot exceed ${cap}.`;
+  const dps = Math.max(0, Math.min(loss, capPs));
+  return loss > capPs
+    ? `The PSLRA 90-day lookback caps damages at ${cap}, so the ${ps(loss)} loss per share is cut to ${ps(dps)}.`
+    : `The ${ps(loss)} loss per share is within the PSLRA 90-day lookback cap of ${cap}, so the cap does not reduce it.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -966,9 +1006,19 @@ export function secAggregateCalc(r: Read): FinResult {
   );
   return {
     text: lines.join("\n"),
+    reading: aggregateReading(one ? dmgMoney(centsOf(one.byWindow) / 100) : null, two ? dmgMoney(centsOf(two.byWindow) / 100) : null),
     svg,
     tables: [{ label: "Aggregate damages by purchase window (trading model)", rows, align: ["left", "right", "right", "right", "right"].slice(0, head.length) as FinTable["align"] }],
   };
+}
+
+/** The plain-language reading of the trading-model estimate (lib/calcReading.ts rules), from the totals as printed. */
+export function aggregateReading(oneTotal: string | null, twoTotal: string | null): string {
+  const est =
+    oneTotal !== null && twoTotal !== null
+      ? `about ${oneTotal} under the one-trader model and ${twoTotal} under the two-trader model`
+      : `about ${oneTotal ?? twoTotal} under the ${oneTotal !== null ? "one" : "two"}-trader model`;
+  return `The trading model puts class-wide damages at ${est}. These are model estimates of how shares changed hands, not a count of actual claims, and courts have criticized such models.`;
 }
 
 // Kept for the oracle tests: the day arithmetic the windows use.

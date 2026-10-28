@@ -24,7 +24,8 @@ const noEmDash = (s: string): string => s.replace(/\s*—\s*/g, ": ");
 const capFirst = (s: string): string => (/^[a-z][a-z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s);
 const finRefusal = (s: string): FinResult => finRefusalRaw(capFirst(noEmDash(s)));
 import { readFinanceField } from "./finance";
-import { finPlotSvg } from "./financeFigures";
+import { currentFinFig, finPlotSvg } from "./financeFigures";
+import { ratioProfileSvg } from "./finLibFigures";
 import type { Point, Series } from "./plot";
 import { hBarSvg } from "./mechchart";
 import { readDataBlock } from "./dataBlock";
@@ -47,6 +48,8 @@ import {
   CvpInput,
   CvpResult,
   normaliseItemName,
+  RatioRow,
+  ItemKey,
 } from "./statements";
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -345,7 +348,27 @@ export function loanScheduleCalc(r: Read): FinResult {
         c.omitted,
     });
   }
-  return { text: lines.join("\n"), svg: loanBalanceSvg(res, plain as LoanResult | null, P, m), tables };
+  return { text: lines.join("\n"), reading: loanReading(res, plain, P, m, yearsTxt, years), svg: loanBalanceSvg(res, plain as LoanResult | null, P, m), tables };
+}
+
+const PER_WORD: Record<number, string> = { 1: "annual", 2: "semiannual", 4: "quarterly", 12: "monthly", 24: "twice-monthly", 26: "biweekly", 52: "weekly" };
+
+/**
+ * The loan's reading: the payment, then what the loan costs in interest (or, with extra payments, what they save).
+ * Every amount is the same string the text prints (money, cents, monthsText).
+ */
+export function loanReading(res: LoanResult, plain: LoanResult | null, P: number, m: number, yearsTxt: string, years: number): string {
+  const pay = money(res.payment0);
+  const first = res.recasts.length ? `The first ${PER_WORD[m]} payment is ${pay}` : `Each ${PER_WORD[m]} payment is ${pay}`;
+  const balloon = res.balloonPaid > 0 ? `, with a balloon of ${money(res.balloonPaid)} at the end` : "";
+  if (plain) {
+    const savedC = plain.totalsC.interest - res.totalsC.interest;
+    const savedK = plain.payoffK - res.payoffK;
+    const interest = savedC > 0 ? `save ${cents(savedC)} of interest` : savedC === 0 ? "save no interest" : `add ${cents(-savedC)} of interest`;
+    const time = savedK > 0 ? `end the loan ${monthsText(savedK, m)} sooner` : savedK === 0 ? "do not shorten the loan" : `make the loan run ${monthsText(-savedK, m)} longer`;
+    return `${first}${balloon}; the ${money(res.totalExtra)} of extra principal would ${interest} and ${time}, leaving ${cents(res.totalsC.interest)} of interest in all.`;
+  }
+  return `${first}${balloon}; over ${yearsTxt} year${years === 1 ? "" : "s"} that is ${cents(res.totalsC.interest)} of interest on top of the ${money(P)} borrowed.`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -438,8 +461,20 @@ export function deprScheduleCalc(r: Read): FinResult {
     align: head.map((_, i) => (i === 5 ? "left" : "right")),
     note: c.omitted.trim() || undefined,
   };
+  // The reading: the first-year charge, the total, and where the book value ends against salvage (the same strings as
+  // the text and table: money of the engine's rows and shortfall).
+  const closing = s.rows[s.rows.length - 1].closing;
+  const yrs = `${count(s.rows.length)} year${s.rows.length === 1 ? "" : "s"}`;
+  const ends =
+    s.shortfall > 1e-9 * cost && (method === "db" || (method === "uop" && !s.unitsCapped))
+      ? `, still ${money(s.shortfall)} above the salvage value`
+      : salvage > 0 && money(closing) === money(salvage)
+        ? ", the salvage value"
+        : "";
+  const reading = `Year 1 depreciation is ${money(s.rows[0].depreciation)} and ${money(total)} is written off over ${yrs}; the book value falls from ${money(cost)} to ${money(closing)}${ends}.`;
   return {
     text: lines.join("\n"),
+    reading,
     svg: bookValueSvg(cost, s.rows.map((x) => x.closing), salvage, `Book value by year (${SHORT_METHOD[method]})`),
     tables: [table],
   };
@@ -490,8 +525,20 @@ export function macrsCalc(r: Read): FinResult {
     align: ["right", "right", "right", "right", "right"],
     note: `Rates from ${PUB946_SOURCE}, Table ${rates.table}. Not tax advice.`,
   };
+  // The reading: the first-year deduction, the largest one, and the years the basis takes to recover (table strings).
+  const peak = rows.reduce((b, x) => (x.depreciation > b.depreciation ? x : b), rows[0]);
+  const peakYears = rows.filter((x) => money(x.depreciation) === money(peak.depreciation)).length;
+  const reading =
+    `The table deducts ${money(rows[0].depreciation)} in the first tax year` +
+    (peak.year === rows[0].year
+      ? ""
+      : peakYears > 1
+        ? ` and ${money(peak.depreciation)} a year at its peak, from year ${peak.year}`
+        : ` and the most, ${money(peak.depreciation)}, in year ${peak.year}`) +
+    `, recovering the whole ${money(basis)} basis over ${rows.length} tax years (${period}-year property).`;
   return {
     text: lines.join("\n"),
+    reading,
     svg: bookValueSvg(basis, rows.map((x) => x.remaining), 0, `Remaining basis by recovery year (MACRS ${period}-year)`),
     tables: [table],
   };
@@ -595,7 +642,46 @@ export function finRatiosCalc(r: Read): FinResult {
     align: ["left", "left", "left", "right"],
     note: "Each step’s components multiply to the return on equity (the same denominators throughout).",
   };
-  return { text: lines.join("\n"), tables: [ratioTable, dupTable] };
+  return { text: lines.join("\n"), reading: ratiosReading(rows, opts.balances === "end"), svg: ratioProfileSvg(rows, st.hasPrior, figText), tables: [ratioTable, dupTable] };
+}
+
+/**
+ * The ratios' reading: return on equity (against the prior year when there is one) and net margin, then whether
+ * current assets cover current liabilities and how leveraged the balance sheet is. Every figure is the table's own
+ * figText string; a ratio that was not computed is left out (and the first computed ratio stands in when none of the
+ * four headline ones is).
+ */
+export function ratiosReading(rows: RatioRow[], comparePrior = true): string {
+  const get = (name: string): RatioRow | undefined => rows.find((x) => x.name === name && x.current.ok);
+  const val = (x: RatioRow): number => (x.current as { value: number }).value;
+  const roe = get("Return on equity");
+  const nm = get("Net margin");
+  const cr = get("Current ratio");
+  const de = get("Debt-to-equity");
+  const parts: string[] = [];
+  if (roe) {
+    let s = `Return on equity is ${figText(roe.current, "%")}`;
+    if (nm) s += ` on a net margin of ${figText(nm.current, "%")}`;
+    // The prior year's ratios use year-end balances, so they compare like for like only with year-end balances.
+    if (comparePrior && roe.prior && roe.prior.ok) {
+      const now = figText(roe.current, "%");
+      const was = figText(roe.prior, "%");
+      s += now === was ? `, the same as the prior year` : roe.prior.value < val(roe) ? `, up from ${was} the prior year` : `, down from ${was} the prior year`;
+    }
+    parts.push(s + ".");
+  } else if (nm) parts.push(`The net margin is ${figText(nm.current, "%")} of revenue.`);
+  const second: string[] = [];
+  if (cr) second.push(`current assets are ${figText(cr.current, "times")} current liabilities (${figText(cr.current, "times") === "1.00×" ? "about equal to them" : val(cr) > 1 ? "enough to cover them" : "not enough to cover them"})`);
+  if (de) second.push(`total liabilities are ${figText(de.current, "times")} shareholders’ equity`);
+  if (second.length) {
+    const s = second.join(" and ");
+    parts.push(s[0].toUpperCase() + s.slice(1) + ".");
+  }
+  if (!parts.length) {
+    const x = rows.find((y) => y.current.ok);
+    if (x) parts.push(`The ${x.name[0].toLowerCase() + x.name.slice(1)} is ${figText(x.current, x.unit)}.`);
+  }
+  return parts.join(" ");
 }
 
 export function commonSizeCalc(r: Read): FinResult {
@@ -640,8 +726,38 @@ export function commonSizeCalc(r: Read): FinResult {
   lines.push(...recognitionLines(st));
   lines.push(`Conventions: ${US_STYLE}; lines appear in a fixed statement order (income statement, then balance sheet); amounts as entered; recognized lines only.`);
   const head = ["Line item", "This year", "% of base", ...(st.hasPrior ? ["Prior year", "% of base", "Change"] : [])];
+  // The reading: what is left of each sale (net income, cost of goods sold as shares of revenue) and how revenue moved
+  // on the prior year; without revenue, the balance sheet's liabilities as a share of total assets. The table's strings.
+  const share = (key: ItemKey, b: number | null | undefined): string | null => {
+    const v = st.items.get(key)?.current;
+    return v === null || v === undefined || !b ? null : pct(v / b);
+  };
+  const revNow = rev?.current;
+  const cs: string[] = [];
+  const niS = share("netIncome", revNow);
+  const cogsS = share("cogs", revNow);
+  if (niS) cs.push(`net income is ${niS} of revenue`);
+  if (cogsS) cs.push(`cost of goods sold takes ${cogsS}`);
+  if (!cs.length) {
+    const tlS = share("totalLiabilities", ta?.current);
+    const eqS = share("equity", ta?.current);
+    if (tlS) cs.push(`total liabilities are ${tlS} of total assets`);
+    if (eqS) cs.push(`shareholders’ equity is ${eqS}`);
+  }
+  if (!cs.length) {
+    const firstPct = body.find((row) => /%$/.test(row[2] ?? ""));
+    if (firstPct) cs.push(`${firstPct[0]} is ${firstPct[2]} of its base`);
+  }
+  let csReading = cs.length ? cs.join(" and ") : `${body.length} recognized line${body.length === 1 ? " is" : "s are"} listed as entered, with no revenue or total assets to scale them by`;
+  csReading = csReading[0].toUpperCase() + csReading.slice(1);
+  if (st.hasPrior && rev && rev.current !== null && rev.prior !== null && rev.prior !== 0) {
+    const ch = (rev.current - rev.prior) / Math.abs(rev.prior);
+    const chS = pct(Math.abs(ch));
+    csReading += pct(ch) === "0.00%" ? "; revenue is flat on the prior year" : `; revenue ${ch > 0 ? "grew" : "fell"} ${chS} on the prior year`;
+  }
   return {
     text: lines.join("\n"),
+    reading: csReading + ".",
     tables: [{ label: st.hasPrior ? "Common-size and trend statement" : "Common-size statement", rows: [head, ...body], align: head.map((_, i) => (i === 0 ? "left" : "right")) }],
     svg:
       rev && rev.current
@@ -686,7 +802,14 @@ export function altmanCalc(r: Read): FinResult {
     note: `${zoneName[0].toUpperCase() + zoneName.slice(1)}: cut-offs ${fx(a.cutoffs[0], 2)} and ${fx(a.cutoffs[1], 2)}.`,
   };
   const short = ["working capital", "retained earnings", "EBIT", `${variant === "z" ? "market" : "book"} equity`, "sales"];
-  return { text: lines.join("\n"), tables: [table], svg: hBarSvg(a.x.map((x, i) => ({ name: `${x.name} ${short[i]}`, value: x.coef * x.value })), { title: `Contributions to Z = ${fx(a.z, 2)}`, unit: "" }) };
+  const zoneMeaning =
+    a.zone === "safe"
+      ? `above the ${fx(a.cutoffs[1], 2)} cut-off, which points away from financial distress`
+      : a.zone === "grey"
+        ? `between the ${fx(a.cutoffs[0], 2)} and ${fx(a.cutoffs[1], 2)} cut-offs, where the score does not clearly separate healthy from failing firms`
+        : `below the ${fx(a.cutoffs[0], 2)} cut-off, the range where firms in Altman’s samples tended to fail`;
+  const reading = `Z = ${fx(a.z, 4)} puts the company in the ${zoneName}, ${zoneMeaning}; it is a screening tool, not a forecast for this company.`;
+  return { text: lines.join("\n"), reading, tables: [table], svg: hBarSvg(a.x.map((x, i) => ({ name: `${x.name} ${short[i]}`, value: x.coef * x.value })), { title: `Contributions to Z = ${fx(a.z, 2)}`, unit: "" }) };
 }
 
 export function cvpCalc(r: Read): FinResult {
@@ -735,7 +858,21 @@ export function cvpCalc(r: Read): FinResult {
     ],
     align: ["left", "left", "right"],
   };
-  return { text: lines.join("\n"), svg: cvpChartSvg(inp, c), tables: [table] };
+  // The reading: break-even, then where the sales entered stand against it (the text's own strings).
+  const be = `Break-even is ${fx(c.breakEvenUnits, 2)} units (${money(c.breakEvenRevenue)} of revenue)`;
+  const unitsTxt = fx(units, 2).replace(/\.00$/, "");
+  const oi = money(c.operatingIncome);
+  // branch on the printed margin of safety, so a float residue at break-even reads as break-even
+  const mosTxt = fx(c.marginOfSafetyUnits, 2);
+  const reading =
+    units <= 0
+      ? `${be}; with no sales entered, the operating loss is the fixed costs of ${money(F)}.`
+      : mosTxt === "0.00"
+        ? `${be}; at ${unitsTxt} units the business exactly breaks even, with an operating income of ${oi}.`
+        : c.marginOfSafetyUnits > 0
+        ? `${be}; at ${unitsTxt} units the business earns ${oi} of operating income, and sales could fall ${pct(c.marginOfSafetyPct)} before it makes a loss.`
+        : `${be}; at ${unitsTxt} units the business is below break-even, with an operating result of ${oi}, and needs ${fx(-c.marginOfSafetyUnits, 2)} more units to cover its costs.`;
+  return { text: lines.join("\n"), reading, svg: cvpChartSvg(inp, c), tables: [table] };
 }
 
 // ------------------------------------------------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
 import { finRefusal as finRefusalRaw } from "./finCalc";
 import { readFinanceField } from "./finance";
 import { finPlotSvg } from "./financeFigures";
+import { cipParitySvg, uipPathSvg, pppPathSvg, pppBasketSvg } from "./finLibFigures";
 import type { Point, Series } from "./plot";
 import { readDataBlock } from "./dataBlock";
 import { readCalcList, ListTokenError } from "./calcList";
@@ -41,7 +42,7 @@ export function fx(x: number, dp: number): string {
 }
 const pct = (x: number, dp = 2): string => fx(x * 100, dp) + "%";
 
-function finish(res: { text: string; svg?: string; tables?: FinTable[] }): FinResult {
+function finish(res: { text: string; reading?: string; svg?: string; tables?: FinTable[] }): FinResult {
   const cells = (res.tables ?? []).flatMap((t) => t.rows.flat());
   if (res.text.includes("—") || cells.some((c) => c.includes("—"))) {
     return finRefusal("A value came out non-finite or above 10²¹ (an overflow on these inputs), so there is nothing to insert. Check the inputs' magnitudes.");
@@ -271,7 +272,32 @@ export function cbaScenariosCalc(r: Read): FinResult {
   const hi = Math.max(rate + 0.05, Math.min(1, Math.max(0.15, rate * 2, ...[rate, ...allRoots].map((x) => x + 0.05))));
   const svg = cbaNpvRateSvg(scen.map((s, k) => ({ name: s.name, b: s.b, c: s.c, roots: [...ms[k].irr.roots, ...ms[k].irr.touches] })), rate, lo, hi);
   if (allRoots.some((x) => x < lo || x > hi)) lines.splice(lines.length - 1, 0, `The figure runs from ${pct(lo, 0)} to ${pct(hi, 0)}; EIRRs listed above outside that range are not marked on it.`);
-  return finish({ text: lines.join("\n"), svg, tables: [metrics, sens] });
+  return finish({ text: lines.join("\n"), reading: cbaScenariosReading(scen.map((s) => s.name), ms, rateText), svg, tables: [metrics, sens] });
+}
+
+/** The plain-language reading of a cost–benefit run: pass or fail at the rate entered, and for several scenarios which does best. */
+export function cbaScenariosReading(names: string[], ms: CbaMeasures[], rateText: string): string {
+  const verdict = (npv: number): string => (npv > 0 ? "benefits outweigh costs" : npv < 0 ? "costs outweigh benefits" : "benefits and costs balance exactly");
+  if (ms.length === 1) {
+    const m = ms[0];
+    const npvS = fx(m.npv, 2);
+    // A value that prints as 0.00 reads as break-even, so the words never contradict the number shown.
+    const npv = npvS === "0.00" ? 0 : m.npv;
+    const bcr = m.bcr === null ? "" : ` (benefit–cost ratio ${fx(m.bcr, 3)})`;
+    const test = npv > 0 ? "passes" : npv < 0 ? "fails" : "just breaks even on";
+    return `At a ${rateText} discount rate the net present value is ${npvS}: ${verdict(npv)}${bcr}, so on these numbers the project ${test} the cost–benefit test.`;
+  }
+  const order = ms.map((_, k) => k).sort((a, b) => ms[b].npv - ms[a].npv);
+  const best = order[0];
+  const worst = order[order.length - 1];
+  const pass = ms.filter((m) => m.npv > 0).length;
+  const count = pass === 0 ? `none of the ${ms.length} scenarios passes` : pass === ms.length ? `all ${ms.length} scenarios pass` : `${pass} of ${ms.length} scenarios ${pass === 1 ? "passes" : "pass"}`;
+  return (
+    `At a ${rateText} discount rate ${count} the cost–benefit test (net present value above zero). ` +
+    (fx(ms[best].npv, 2) === fx(ms[worst].npv, 2)
+      ? `Every scenario has the same NPV, ${fx(ms[best].npv, 2)}.`
+      : `${names[best]} does best with an NPV of ${fx(ms[best].npv, 2)} and ${names[worst]} worst at ${fx(ms[worst].npv, 2)}.`)
+  );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -389,7 +415,25 @@ export function pigouCalc(r: Read): FinResult {
     ],
     align: ["left", "right", "right"],
   };
-  return finish({ text: lines.join("\n"), svg: pigouSvg(a, b, c, d, e0, e1, res), tables: [t] });
+  return finish({ text: lines.join("\n"), reading: pigouReading(res), svg: pigouSvg(a, b, c, d, e0, e1, res), tables: [t] });
+}
+
+/** The plain-language reading of the Pigouvian result: over- or under-production, the waste, and the corrective tax or subsidy. */
+export function pigouReading(res: PigouResult): string {
+  const qm = fx(res.qm, 4);
+  const qs = fx(res.qs, 4);
+  const dwl = fx(res.dwl, 2);
+  if (res.corner) {
+    return `The efficient output is zero: every unit costs society more than it is worth, so a tax of at least ${fx(res.tax, 4)} per unit (or a ban) is efficient; left alone the market produces ${qm} units and wastes ${dwl}.`;
+  }
+  // The same comparison the text's deadweight-loss line makes.
+  if (res.qm > res.qs) {
+    return `Left unregulated, the market over-produces (${qm} units against the efficient ${qs}) and wastes ${dwl} in deadweight loss; a tax of ${fx(res.tax, 4)} per unit, the external cost at the efficient output, corrects it.`;
+  }
+  if (res.qm < res.qs) {
+    return `Left unregulated, the market under-produces (${qm} units against the efficient ${qs}) because the side effect is a benefit, losing ${dwl}; a subsidy of ${fx(-res.tax, 4)} per unit corrects it.`;
+  }
+  return `The unregulated market already produces the efficient ${qm} units: there is no deadweight loss and no corrective tax is needed.`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -479,7 +523,36 @@ export function cipCalc(r: Read): FinResult {
     ],
     align: ["left", "right"],
   };
-  return finish({ text: lines.join("\n"), tables: [t] });
+  // the parity forward at each tenor is the engine's own cipForward on the same rates and day counts
+  const svg = cipParitySvg((d) => cipForward(S, id / 100, iff / 100, d, bd, bf, comp).F, days, fq);
+  return finish({ text: lines.join("\n"), reading: cipReading(S, res, days, fq, N ?? 1_000_000, quote), svg, tables: [t] });
+}
+
+/**
+ * The plain-language reading of covered interest parity: the parity forward against spot, or the quoted forward
+ * against parity and the covered arbitrage it opens (the same `edge` the text branches on).
+ */
+export function cipReading(S: number, res: CipResult, days: number, fq: number | null, notional: number, quote: string | null): string {
+  const F = fx(res.F, 6);
+  if (fq === null) {
+    const side =
+      res.F > S
+        ? `above the spot ${fx(S, 6)} because a domestic deposit earns more than a foreign one over the tenor`
+        : res.F < S
+          ? `below the spot ${fx(S, 6)} because a foreign deposit earns more than a domestic one over the tenor`
+          : `equal to the spot because the two deposits earn the same over the tenor`;
+    return `The ${days}-day forward rate that leaves no riskless arbitrage is ${F}, ${side}.`;
+  }
+  const edge = (fq / S) * res.growF - res.growD;
+  const bpS = fx(Math.abs(((fq - res.F) / res.F) * 10000), 2);
+  // A deviation that prints as 0.00 basis points is described, not printed as zero beside a nonzero profit.
+  const bp = bpS === "0.00" ? "a fraction of a basis point" : `${bpS} basis points`;
+  const profit = amt(Math.abs(edge) * notional, quote);
+  const per = amt(notional, quote);
+  if (Math.abs(edge) < 1e-12) return `The quoted forward ${fx(fq, 6)} matches the parity forward ${F}: covered interest parity holds and there is no riskless arbitrage.`;
+  return edge > 0
+    ? `The quoted forward ${fx(fq, 6)} is ${bp} above parity (${F}), so borrowing domestic, converting and selling forward locks in about ${profit} per ${per} borrowed, before trading costs.`
+    : `The quoted forward ${fx(fq, 6)} is ${bp} below parity (${F}), so borrowing foreign, converting and buying forward locks in about ${profit} per ${per} of domestic currency, before trading costs.`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -528,7 +601,29 @@ export function uipCalc(r: Read): FinResult {
     ],
     align: ["left", "right"],
   };
-  return finish({ text: lines.join("\n"), tables: [t] });
+  return finish({ text: lines.join("\n"), reading: uipReading(S, gd, gf, T, sT), svg: uipPathSvg(S, gd / gf, T, sT), tables: [t] });
+}
+
+/** The plain-language reading of uncovered interest parity: the expected move, and against a realized spot the carry's excess return. */
+export function uipReading(S: number, gd: number, gf: number, T: number, sT: number | null): string {
+  const ratio = Math.pow(gd / gf, T);
+  const eS = fx(S * ratio, 6);
+  const span = `${fx(T, T % 1 ? 2 : 0)} year${T === 1 ? "" : "s"}`;
+  const moveS = pct(Math.abs(ratio - 1), 4);
+  const first =
+    moveS === "0.0000%"
+      ? `Uncovered interest parity implies no expected change in the exchange rate over ${span} (${eS} per unit of foreign currency)`
+      : `Under uncovered interest parity the domestic currency is expected to ${ratio > 1 ? "weaken" : "strengthen"} by ${moveS} over ${span}, to ${eS} per unit of foreign currency`;
+  if (sT === null) return `${first}; this is a parity benchmark, not a forecast.`;
+  // The same excess return, and the same sign test, as the text's realized-spot line.
+  const excess = (sT / S) * Math.pow(gf, T) / Math.pow(gd, T) - 1;
+  const second =
+    pct(Math.abs(excess), 4) === "0.0000%"
+      ? `At the realized ${fx(sT, 6)}, a foreign deposit funded at home came out even with a domestic one.`
+      : excess > 0
+        ? `At the realized ${fx(sT, 6)}, a foreign deposit funded at home came out ${pct(excess, 4)} ahead (the carry trade paid).`
+        : `At the realized ${fx(sT, 6)}, a foreign deposit funded at home came out ${pct(-excess, 4)} behind.`;
+  return `${first}. ${second}`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -544,6 +639,8 @@ export function pppCalc(r: Read): FinResult {
   if (base && quote && base === quote) return finRefusal(`The two currencies are the same (${base}).`);
   const lines: string[] = [];
   const rows: string[][] = [["Measure", "Value"]];
+  let reading = "";
+  let svg: string | undefined;
   if (mode === "absolute") {
     const pd = num(r, "pd", "domestic price level (cost of the basket in domestic currency)", { min: 0, minOpen: true });
     if (typeof pd === "string") return finRefusal(pd);
@@ -554,6 +651,8 @@ export function pppCalc(r: Read): FinResult {
     const sp = pd / pf;
     lines.push(`Absolute PPP: the basket costs ${amt(pd, quote)} at home and ${amt(pf, base)} abroad, so the PPP exchange rate is S(PPP) = P/P* = ${fx(sp, 6)} domestic per unit of foreign currency.`);
     rows.push(["PPP exchange rate P/P*", fx(sp, 6)]);
+    reading = pppAbsoluteReading(sp, S);
+    svg = pppBasketSvg(pd, pf, S, (x) => amt(x, quote));
     if (S !== null) {
       const q = (S * pf) / pd;
       const mis = S / sp - 1;
@@ -575,9 +674,36 @@ export function pppCalc(r: Read): FinResult {
     lines.push(`Relative PPP: domestic inflation ${fx(pd, 4)}% and foreign inflation ${fx(pf, 4)}% a year; the exchange rate moves by (1 + π)/(1 + π*) − 1 = ${pct(g - 1, 4)} a year (approximation π − π* = ${pct((pd - pf) / 100, 4)}).`);
     lines.push(`From S₀ = ${fx(S0, 6)}, after ${fx(T, T % 1 ? 2 : 0)} year${T === 1 ? "" : "s"}: S(T) = S₀·((1 + π)/(1 + π*)) to the power T = ${fx(ST, 6)} (${pct(Math.pow(g, T) - 1, 4)}).`);
     rows.push(["Change per year", pct(g - 1, 4)], ["Approximation π − π*", pct((pd - pf) / 100, 4)], ["Spot after the horizon", fx(ST, 6)], ["Change over the horizon", pct(Math.pow(g, T) - 1, 4)]);
+    reading = pppRelativeReading(S0, pd, pf, T);
+    svg = pppPathSvg(S0, g, T);
     lines.push("Conventions: S quoted as domestic currency per unit of foreign currency; inflation compounded annually; relative PPP holds the real exchange rate constant, so the currency with the higher inflation depreciates by the inflation differential.");
   }
-  return finish({ text: lines.join("\n"), tables: [{ label: mode === "absolute" ? "Absolute purchasing-power parity" : "Relative purchasing-power parity", rows, align: ["left", "right"] }] });
+  return finish({ text: lines.join("\n"), reading, svg, tables: [{ label: mode === "absolute" ? "Absolute purchasing-power parity" : "Relative purchasing-power parity", rows, align: ["left", "right"] }] });
+}
+
+/** The plain-language reading of absolute PPP: the parity rate, and against an actual spot which currency is dear. */
+export function pppAbsoluteReading(sp: number, S: number | null): string {
+  const spS = fx(sp, 6);
+  if (S === null) return `Purchasing-power parity puts the exchange rate at ${spS} domestic per unit of foreign currency, the rate at which the basket costs the same in both countries.`;
+  // The same misvaluation, and the same sign test, as the text.
+  const mis = S / sp - 1;
+  if (pct(Math.abs(mis), 2) === "0.00%") return `At the actual spot ${fx(S, 6)} the exchange rate is at the purchasing-power parity rate ${spS}: the basket costs the same in both countries.`;
+  return mis > 0
+    ? `At the actual spot ${fx(S, 6)} the foreign currency is overvalued by ${pct(Math.abs(mis), 2)} against the purchasing-power parity rate of ${spS}: the basket costs more abroad than at home.`
+    : `At the actual spot ${fx(S, 6)} the foreign currency is undervalued by ${pct(Math.abs(mis), 2)} against the purchasing-power parity rate of ${spS}: the basket costs less abroad than at home.`;
+}
+
+/** The plain-language reading of relative PPP: where the inflation gap moves the exchange rate over the horizon. */
+export function pppRelativeReading(S0: number, pd: number, pf: number, T: number): string {
+  const g = (1 + pd / 100) / (1 + pf / 100);
+  const ST = fx(S0 * Math.pow(g, T), 6);
+  const span = `${fx(T, T % 1 ? 2 : 0)} year${T === 1 ? "" : "s"}`;
+  const infl = `With inflation of ${fx(pd, 4)}% at home and ${fx(pf, 4)}% abroad`;
+  const move = pct(Math.abs(Math.pow(g, T) - 1), 4);
+  if (move === "0.0000%") return `${infl}, relative purchasing-power parity leaves the exchange rate at ${ST} over ${span}.`;
+  return g > 1
+    ? `${infl}, relative purchasing-power parity has the exchange rate rising ${move} over ${span}, from ${fx(S0, 6)} to ${ST} per unit of foreign currency: the domestic currency weakens.`
+    : `${infl}, relative purchasing-power parity has the exchange rate falling ${move} over ${span}, from ${fx(S0, 6)} to ${ST} per unit of foreign currency: the domestic currency strengthens.`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------

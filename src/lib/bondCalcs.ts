@@ -306,9 +306,23 @@ export function bondDatesCalc(r: Read): FinResult {
   ].join("\n");
   return {
     text,
+    reading: bondDatesReading(spec, y, res, face),
     svg: bondDatesPriceYieldSvg(spec, y),
     tables: [flowsTable(res, face, "Cash-flow schedule")],
   };
+}
+
+/** What the bond's price and yield mean for a buyer: the cost, premium or discount, and the rate sensitivity. */
+export function bondDatesReading(spec: BondSpec, y: number, res: { clean: number; dirty: number; accrued: number; modified: number }, face: number): string {
+  const k = face / 100;
+  const cleanStr = fx(res.clean, 6);
+  const redStr = fx(spec.redemption, 4);
+  // Premium or discount on the printed clean price against the printed redemption (both to 4 decimals at least).
+  const rel = fx(res.clean, 4) === redStr ? "equal to" : res.clean < spec.redemption ? "below" : "above";
+  const first = `At a ${pct(y)} yield the clean price is ${cleanStr} per 100, ${rel} the ${redStr} redemption; a face of ${fx(face, 2)} costs ${fx(res.dirty * k, 2)} including ${fx(res.accrued * k, 2)} of accrued interest.`;
+  const mod = fx(res.modified, 6);
+  if (!(res.modified > 0) || mod === "—") return first;
+  return `${first} A rise of one percentage point in the yield would lower the price by roughly ${mod} percent.`;
 }
 
 /** Yield to maturity, yield to call and yield to worst from a clean price. */
@@ -342,7 +356,18 @@ export function bondWorstCalc(r: Read): FinResult {
     align: ["left", "left", "right", "right", "right"],
     note: `Yield to worst ${pct(w.ytw)}: to ${w.worst === "call" ? "the call" : "maturity"}.`,
   };
-  return { text, svg: bondCallPriceYieldSvg(spec, callDate, callPrice, clean, w.ytm, w.ytc), tables: [table] };
+  return { text, reading: bondWorstReading(clean, callDate, callPrice, w), svg: bondCallPriceYieldSvg(spec, callDate, callPrice, clean, w.ytm, w.ytc), tables: [table] };
+}
+
+/** The yield a buyer at this price should plan on (the worse of maturity and call), and why. */
+export function bondWorstReading(clean: number, callDate: number, callPrice: number, w: { ytm: number; ytc: number; ytw: number; worst: "call" | "maturity" }): string {
+  const ytm = pct(w.ytm);
+  const ytc = pct(w.ytc);
+  const head = `At a clean price of ${fx(clean, 6)}, the yield to worst is ${pct(w.ytw)}`;
+  if (ytm === ytc) return `${head}: called on ${longDate(callDate)} at ${fx(callPrice, 4)} or held to maturity, the bond yields the same, so the call does not change what a buyer earns.`;
+  if (w.worst === "call")
+    return `${head}, earned if the issuer calls the bond on ${longDate(callDate)} at ${fx(callPrice, 4)}, below the ${ytm} yield to maturity. A buyer should plan on the lower figure, since the issuer decides whether to call.`;
+  return `${head}, earned if the bond runs to maturity, below the ${ytc} yield to call. A call on ${longDate(callDate)} would only raise the buyer's yield, so the yield to maturity is the one to plan on.`;
 }
 
 /** Treasury bill: price, discount yield, money-market yield and bond-equivalent yield. */
@@ -380,7 +405,17 @@ export function billCalc(r: Read): FinResult {
     ],
     align: ["left", "left", "right"],
   };
-  return { text, svg: billYieldsSvg(b.discount, yb, settle, 364), tables: [table] };
+  return { text, reading: billReading(b), svg: billYieldsSvg(b.discount, yb, settle, 364), tables: [table] };
+}
+
+/** What a bill's price returns, on the basis that compares with a coupon bond, against the quoted discount rate. */
+export function billReading(b: { price: number; days: number; discount: number; moneyMarket: number; bey: number }): string {
+  const bey = pct(b.bey);
+  const disc = pct(b.discount);
+  const head = `Paying ${fx(b.price, 6)} per 100 for ${b.days} days returns ${bey} a year on a bond-equivalent basis (${pct(b.moneyMarket)} money-market)`;
+  if (bey === disc) return `${head}, the same as the ${disc} discount rate.`;
+  if (b.bey > b.discount) return `${head}. The quoted ${disc} discount rate understates the return, because it is figured on the face value rather than the price paid.`;
+  return `${head}. The quoted ${disc} discount rate overstates the return here, so compare bills and bonds on the bond-equivalent yield.`;
 }
 
 /** Reads the pasted (maturity, yield) or (maturity, coupon, price) rows. */
@@ -426,7 +461,31 @@ export function curveBootstrapCalc(r: Read): FinResult {
     note: "Each forward runs from the previous maturity (from today for the first) to this one.",
   };
   const par = mode === "par" ? sorted.map((x) => ({ x: x.t, y: x.coupon * 100 })) : null;
-  return { text: lines.join("\n"), svg: zeroCurveSvg(c.knots, par, f), tables: [table] };
+  return { text: lines.join("\n"), reading: curveBootstrapReading(c.knots), svg: zeroCurveSvg(c.knots, par, f), tables: [table] };
+}
+
+/** The shape of the bootstrapped zero curve (ends, any dip or hump between) and what its far discount factor means. */
+export function curveBootstrapReading(knots: CurveKnot[]): string {
+  const at = (k: CurveKnot): string => `${pct(k.z, 4)} at ${fx(k.t, 2)} years`;
+  const first = knots[0];
+  const last = knots[knots.length - 1];
+  const df = `so 1 due in ${fx(last.t, 2)} years is worth ${fx(last.df, 8)} today`;
+  if (knots.length === 1) return `The zero rate is ${at(first)} (continuously compounded), ${df}.`;
+  // Compare on the printed values, so "level" means the two ends print the same.
+  const a = pct(first.z, 4);
+  const b = pct(last.z, 4);
+  const slope = a === b ? "level from end to end" : last.z > first.z ? "upward overall" : "downward overall";
+  let lo = 0;
+  let hi = 0;
+  knots.forEach((k, i) => {
+    if (k.z < knots[lo].z) lo = i;
+    if (k.z > knots[hi].z) hi = i;
+  });
+  const inner = (i: number): boolean => i > 0 && i < knots.length - 1;
+  const bends: string[] = [];
+  if (inner(lo) && knots[lo].z < Math.min(first.z, last.z) && pct(knots[lo].z, 4) !== a && pct(knots[lo].z, 4) !== b) bends.push(`dipping to ${at(knots[lo])}`);
+  if (inner(hi) && knots[hi].z > Math.max(first.z, last.z) && pct(knots[hi].z, 4) !== a && pct(knots[hi].z, 4) !== b) bends.push(`peaking at ${at(knots[hi])}`);
+  return `Zero rates (continuously compounded) run from ${at(first)} to ${at(last)}${bends.length ? ", " + bends.join(" and ") + " in between" : ""}, so the curve slopes ${slope}. Discounting on it, ${df.slice(3)}.`;
 }
 
 /** Nelson–Siegel or Svensson fit to pasted (maturity, yield) points. */
@@ -456,7 +515,27 @@ export function nelsonSiegelCalc(r: Read): FinResult {
     rows: [["Maturity (years)", "Observed (%)", "Fitted (%)", "Residual (bp)"], ...ts.map((t, i) => [fx(t, 2), fx(ys[i], 4), fx(fit.fitted[i], 4), fx((ys[i] - fit.fitted[i]) * 100, 2)])],
     align: ["right", "right", "right", "right"],
   };
-  return { text: lines.join("\n"), svg: nelsonSiegelSvg(fit, ts, ys), tables: [table] };
+  return { text: lines.join("\n"), reading: nelsonSiegelReading(fit, ts), svg: nelsonSiegelSvg(fit, ts, ys), tables: [table] };
+}
+
+/**
+ * The fitted curve at the shortest and longest maturities entered (the table's Fitted column; not β₀, which is the
+ * limit at infinite maturity and can sit far from the 30-year point), its slope, and how closely it fits.
+ */
+export function nelsonSiegelReading(fit: NsFit, ts: number[]): string {
+  let i0 = 0;
+  let i1 = 0;
+  ts.forEach((t, i) => {
+    if (t < ts[i0]) i0 = i;
+    if (t > ts[i1]) i1 = i;
+  });
+  const short = fx(fit.fitted[i0], 4);
+  const long = fx(fit.fitted[i1], 4);
+  const slope = short === long ? "is level from end to end" : fit.fitted[i1] > fit.fitted[i0] ? "slopes upward overall" : "slopes downward overall (inverted)";
+  const head = `The fitted curve runs from ${short} percent at ${fx(ts[i0], 2)} years to ${long} percent at ${fx(ts[i1], 2)} years, so it ${slope}`;
+  const miss = `it misses the points by ${fx(fit.rmse * 100, 3)} basis points typically (RMSE)`;
+  if (fit.atBound) return `${head}; ${miss}. The decay parameter ended on its search bound, so read the shape with care.`;
+  return `${head}; ${miss}, with R² = ${fx(fit.r2, 6)}.`;
 }
 
 const PAR_DEFAULT = ["0.5\t4.30", "1\t4.20", "2\t4.00", "3\t3.95", "5\t3.98", "7\t4.08", "10\t4.22", "20\t4.55", "30\t4.50"].join("\n");

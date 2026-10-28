@@ -394,9 +394,11 @@ export function billCalc(r: Read): FinResult {
   // fix-fin R1 #6: switching "given" to price leaves the discount rate (4.2) in the field, which then priced the bill at
   // 4.2 per 100 and printed a 9,148.874935% yield. A price whose discount rate lies outside the ±100% the discount mode
   // accepts is refused, with the likely cause named.
-  if (given === "price" && Math.abs(b.discount) > 1) {
+  // A price under 50 per 100 is refused at any tenor (a bill runs at most about a year: 4.2 a year out still implies
+  // a discount near 95% and a bond-equivalent yield over 2,000%).
+  if (given === "price" && (Math.abs(b.discount) > 1 || v < 50)) {
     return finRefusal(
-      "The price (per 100) is far from 100: it implies a discount rate beyond 100% a year, the most this calculator takes. " +
+      "The price (per 100) is far from 100: below 50, or a discount rate beyond 100% a year, is outside this calculator. " +
         "A bill's price is quoted per 100 of face and is close to 100 (for example 98.75); if you typed a discount rate, choose “discount rate” instead.",
     );
   }

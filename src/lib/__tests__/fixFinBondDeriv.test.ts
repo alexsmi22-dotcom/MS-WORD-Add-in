@@ -16,6 +16,10 @@ describe("R1 #6: tbill-yields in price mode", () => {
     expect(o.ok).toBe(false);
     expect(o.text).toContain("far from 100");
     expect(o.text).toContain("choose “discount rate” instead");
+    // A year out, 4.2 implies a discount near 95%: still refused (the price floor of 50).
+    expect(asObj(runCalc(bond("tbill-yields"), { given: "price", maturity: "2027-03-30" })).ok).toBe(false);
+    expect(asObj(runCalc(bond("tbill-yields"), { given: "price", value: "50", maturity: "2027-03-30" })).ok).not.toBe(false);
+    expect(asObj(runCalc(bond("tbill-yields"), { given: "price", value: "49.99", maturity: "2027-03-30" })).ok).toBe(false);
   });
   test("a real price reads 'the equivalent' discount rate, not 'the quoted' one", () => {
     const r = checkedReading(bond("tbill-yields"), { given: "price", value: "98.9" });

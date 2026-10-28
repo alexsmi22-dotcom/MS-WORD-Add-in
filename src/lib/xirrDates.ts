@@ -22,9 +22,10 @@ export interface XirrDates {
 
 /**
  * Past this many dates the field is refused by name (XIRR is a root search over every flow). Was 10,000, where a
- * rate with no root took 4.1 s and froze Word (fix-fin R1 #2); 500 flows search in about 130 ms on the bug-test PC.
+ * rate with no root took 4.1 s and froze Word (fix-fin R1 #2); at 500 a no-root search still took up to 390 ms under
+ * jest, so 250 (about half that).
  */
-export const XIRR_MAX_FLOWS = 500;
+export const XIRR_MAX_FLOWS = 250;
 
 function wholeDate(s: string): number | { error: string } | null {
   const t = readDateToken(s, false);

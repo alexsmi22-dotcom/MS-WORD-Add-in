@@ -243,9 +243,9 @@ export function parsePeriodTable(text: string, names: string[], required: number
         badCell = `“${c}”`;
         break;
       }
-      // A decimal comma ("3,5" read as 3.5) is said, not silent (fix-fin R2 MINOR): a comma not followed by exactly
-      // three digits is not a thousands separator.
-      if (/,/.test(c) && !/^[^,]*\d(,\d{3})+(\.\d+)?$/.test(c.replace(/^[−–+$-]+/, ""))) {
+      // A decimal comma ("3,5" read as 3.5) is said, not silent (fix-fin R2 MINOR): the cell was read with a decimal
+      // comma exactly when dropping its commas reads a different number (thousands commas change nothing).
+      if (c.includes(",") && readCell(c.replace(/,/g, "")) !== v) {
         notes.push(`Line ${li + 1}: “${clip(c)}” was read as ${dmgNum(v)} (a decimal comma); write a decimal point if that is not what you meant.`);
       }
       values.push(v);

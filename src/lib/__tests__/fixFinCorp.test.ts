@@ -41,6 +41,7 @@ describe("R3 B3: negative equity", () => {
     for (const name of ["Return on equity", "Debt-to-equity", "Equity multiplier"]) expect(rows.find((r) => r[1] === name)![3]).toBe("not meaningful (negative equity)");
     expect(o.reading).toMatch(/^Shareholders’ equity is negative, so return on equity and debt-to-equity are not meaningful/);
     expect(readingProblems(o.reading)).toEqual([]);
+    expect(o.svg ?? "").not.toMatch(/NaN|undefined|Infinity/);
   });
 });
 

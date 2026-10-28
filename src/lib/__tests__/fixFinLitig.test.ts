@@ -5,7 +5,7 @@
 import { LITIG_CALCS } from "../litigCalcs";
 import { antitrustReading, type OverchargeEstimate } from "../antitrustDamages";
 import { lookbackReading } from "../securitiesDamages";
-import { parsePeriodTable, SUMMARY_RESULT_COLUMNS } from "../patentDamages";
+import { parsePeriodTable, SUMMARY_RESULT_COLUMNS, damagesToFin, reasonableRoyalty } from "../patentDamages";
 import { readingProblems } from "../calcReading";
 import { prejudgmentReport } from "../damagesInterest";
 import { calcById, checkedReading, runCalc, asObj } from "./fullFinLibHelpers";
@@ -102,8 +102,22 @@ describe("R2 MINOR: a decimal comma in a damages table is said", () => {
     if ("error" in t) throw new Error(t.error);
     expect(t.rows[0].values[0]).toBe(3.5);
     expect(t.notes.join(" ")).toContain("“3,5” was read as 3.5 (a decimal comma)");
-    const g = parsePeriodTable("2022\t1,234,567.5", ["revenue"], 1);
-    if ("error" in g) throw new Error(g.error);
-    expect(g.notes).toEqual([]);
+    for (const ok of ["1,234,567.5", "$1,234.50", "1,000.00 USD", "−1,000"]) {
+      const g = parsePeriodTable(`2022\t${ok}`, ["revenue"], 1, { allowNegative: [0] });
+      if ("error" in g) throw new Error(`${ok}: ${g.error}`);
+      expect([ok, g.notes]).toEqual([ok, []]);
+    }
+    for (const dc of ["12,50", "2.500,5"]) {
+      const g = parsePeriodTable(`2022\t${dc}`, ["revenue"], 1);
+      if ("error" in g) throw new Error(g.error);
+      expect(g.notes.join(" ")).toContain("(a decimal comma)");
+    }
+  });
+  test("the note reaches the printed result (dmg-royalty's pane entry: damagesToFin with the parse notes)", () => {
+    const t = parsePeriodTable("2022\t3,5", ["royalty base"], 1);
+    if ("error" in t) throw new Error(t.error);
+    const o = damagesToFin(reasonableRoyalty({ rows: t.rows, basis: "revenue", rate: 3, apportionPct: 100, lumpSum: 0, discountPct: 8, periodsPerYear: 1 }), t.notes);
+    const text = typeof o === "string" ? o : o.text;
+    expect(text).toContain("(a decimal comma)");
   });
 });

@@ -9,9 +9,10 @@
  * are this run's and are printed with the formatter the text and tables use.
  *
  * WHAT A READING ECHOES. The headline numbers are the result's own, in the text's or table's formatting. The inputs
- * a sentence needs to mean anything ("receiving 1,000.00 in 10 periods is worth 613.91 today at 5.00%") are echoed
- * with the same formatter the calculator uses for that kind of number (finMoney for an amount, finPct for a rate); a
- * free-text input (a date typed, a period label) is never echoed: it is unbounded and may hold anything.
+ * a sentence needs to mean anything ("receiving 1,000.00 in 10 periods is worth 613.91 today at 5%") are echoed:
+ * an amount with finMoney, a typed rate or price AS TYPED (inPct / inNum, up to 6 decimals; fix-fin R1 #5: "6.875%"
+ * was printed "6.88%"), so a rate in a reading need not appear in the one-line text; a free-text input (a date typed,
+ * a period label) is never echoed unless it reads as a date and the result prints it as typed.
  *
  * BRANCHES FOLLOW THE PRINTED VALUE. A bond that prices at 999.9999 prints "1,000.00" and is read as at par, not as a
  * discount; an NPV that prints "0.00" breaks even. A builder returns undefined (no reading) when a number it needs

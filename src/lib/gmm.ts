@@ -1304,14 +1304,14 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
   const xScratch = new Float64Array(kFull);
   const nzI = new Int32Array(kFull);
   let nz = 0;
+  const set = (c: number, v: number): void => {
+    if (v === 0) return;
+    if (xScratch[c] === 0) nzI[nz++] = c;
+    xScratch[c] += v;
+  };
   const fillRow = (g: number, t: number, diff: boolean, track: boolean): number => {
     for (let p2 = 0; p2 < nz; p2++) xScratch[nzI[p2]] = 0;
     nz = 0;
-    const set = (c: number, v: number): void => {
-      if (v === 0) return;
-      if (xScratch[c] === 0) nzI[nz++] = c;
-      xScratch[c] += v;
-    };
     let y: number;
     if (diff) {
       const y1 = ySer[g][t];
@@ -1352,10 +1352,20 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
       if (td) set(kt + t, 1);
       set(kFull - 1, 1);
     }
-    // A sum can cancel to zero (never for these columns, but keep the list exact).
+    // A sum can cancel to zero (never for these columns, but keep the list exact); then increasing column order
+    // (insertion sort: the dummies arrive as t, t − 1).
     let w = 0;
     for (let p2 = 0; p2 < nz; p2++) if (xScratch[nzI[p2]] !== 0) nzI[w++] = nzI[p2];
     nz = w;
+    for (let i = 1; i < nz; i++) {
+      const c = nzI[i];
+      let j = i;
+      while (j > 0 && nzI[j - 1] > c) {
+        nzI[j] = nzI[j - 1];
+        j--;
+      }
+      nzI[j] = c;
+    }
     return y;
   };
   // Regressors: Gram matrices XᵀX (all rows) and of the differenced rows (with Xᵀy there), of the recentered rows.
@@ -1401,14 +1411,15 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
     const bad = termOrder.find((j) => !keptTerms.includes(j))!;
     if (!(XtX[bad * kFull + bad] > 0)) throw new GmmRefusal(`The regressor ${terms[bad].label} does not vary (it is zero or constant in every row used, so its difference is zero) in the estimation rows; remove it.`);
     const want = [...keptTerms.filter((j) => j < bad), bad];
-    const cols = want.map(() => [] as number[]);
+    const fc = want.map(() => new Float64Array(p.rows));
+    let ri = 0;
     for (let g = 0; g < N; g++)
       for (const [list, diff] of [[dRows[g], true], [lRows[g], false]] as [number[], boolean][])
         for (const t of list) {
           fillRow(g, t, diff, false);
-          want.forEach((c, i) => cols[i].push(xScratch[c]));
+          want.forEach((c, i) => (fc[i][ri] = xScratch[c]));
+          ri++;
         }
-    const fc = cols.map((c) => Float64Array.from(c));
     const rel = dependenceResidual(fc.slice(0, -1), fc[fc.length - 1]);
     if (rel > 1e-9) {
       throw new GmmRefusal(`The regressor ${terms[bad].label} is nearly, but not exactly, a combination of the other regressors in the estimation rows (the closest combination leaves ${fmtSci(rel, 2)} of it): too close to separate in double precision; remove it or one of the others.`);
@@ -1473,12 +1484,21 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
       }
       return s2;
     };
-    if (m > 0) pass(true);
-    const s2 = pass(false);
-    let floor = magY;
-    K.forEach((c, a) => (floor += Math.abs(bK[a]) * magX[c]));
-    floor *= EXACT_K * EPS;
-    if (!(s2 > floor * floor)) throw new GmmRefusal(EXACT_FIT_DIFF);
+    const floorOf = (): number => {
+      let f = magY;
+      K.forEach((c, a) => (f += Math.abs(bK[a]) * magX[c]));
+      return f * EXACT_K * EPS;
+    };
+    // The first pass's sum of squares bounds the minimum from above; far above the floor (10⁴ times: more than the
+    // normal equations' own rounding on these recentered columns can explain) it is no exact fit, and the
+    // refinement pass is skipped.
+    const s1 = m > 0 ? pass(true) : pass(false);
+    const f1 = floorOf();
+    if (!(s1 > 1e8 * f1 * f1)) {
+      const s2 = pass(false);
+      const f2 = floorOf();
+      if (!(s2 > f2 * f2)) throw new GmmRefusal(EXACT_FIT_DIFF);
+    }
   }
   // The rows themselves, regressors on the kept columns.
   const blocks: Block[] = [];
@@ -1491,13 +1511,13 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
     const xi = new Int32Array(m);
     const xv = new Float64Array(m);
     m = 0;
-    // Increasing column order.
-    const order = Array.from(nzI.subarray(0, nz)).sort((a, b) => a - b);
-    for (const c of order)
+    for (let p2 = 0; p2 < nz; p2++) {
+      const c = nzI[p2];
       if (colMap[c] >= 0) {
         xi[m] = colMap[c];
         xv[m++] = xScratch[c];
       }
+    }
     return { zi: NOI, zv: NOV, xi, xv, y, t };
   };
   for (let g = 0; g < N; g++) {
@@ -1808,7 +1828,15 @@ export function fitDynamic(des: DynDesign): DynFit {
   const e1 = residuals(s1.b);
   // An exact fit in differences leaves no error variance: every standard error, z and test would be rounding noise.
   // After one refinement step, differenced residuals within EXACT_K rounding units of the raw values are rounding.
-  {
+  let ssr1 = 0;
+  blocks.forEach((bl, i) => {
+    for (let r = 0; r < bl.nd; r++) ssr1 += e1[i][r] * e1[i][r];
+  });
+  let floor1 = des.magY;
+  for (let j = 0; j < k; j++) floor1 += Math.abs(s1.b[j]) * des.magX[j];
+  floor1 *= EXACT_K * EPS;
+  // Far above the floor (10⁴ times) the unrefined residuals already rule an exact fit out.
+  if (!(ssr1 > 1e8 * floor1 * floor1)) {
     const g = new Float64Array(L);
     for (const z of zuOf(e1)) for (let a = 0; a < L; a++) g[a] += z[a];
     const dlt = mv(s1.B, g, k, L);
@@ -2025,85 +2053,86 @@ export function olsFeOnLevels(
   const sx = new Float64Array(N * p0);
   const sy = new Float64Array(N);
   const cnt = new Int32Array(N);
-  const x = new Float64Array(p0);
-  const idx: number[] = [];
+  // The usable rows once (entity, period, raw response and terms), so the later passes only read typed arrays.
+  const cap = N * T;
+  const rg = new Int32Array(cap);
+  const rt = new Int32Array(cap);
+  const ry = new Float64Array(cap);
+  const rx = new Float64Array(cap * kt);
   let n = 0;
-  // Row list for the second (residual) pass.
-  const rg: number[] = [];
-  const rt: number[] = [];
-  const rowOf = (g: number, t: number): boolean => {
-    const yv = ySer[g][t];
-    if (Number.isNaN(yv)) return false;
-    idx.length = 0;
-    for (let j = 0; j < kt; j++) {
-      const tt = t - spec.terms[j].lag;
-      const v = tt < 0 ? NaN : tSer[j][g][tt];
-      if (Number.isNaN(v)) return false;
-      x[j] = v - shX[g * kt + j];
-      idx.push(j);
+  for (let g = 0; g < N; g++)
+    for (let t = 0; t < T; t++) {
+      const yv = ySer[g][t];
+      if (Number.isNaN(yv)) continue;
+      let ok = true;
+      for (let j = 0; j < kt && ok; j++) {
+        const tt = t - spec.terms[j].lag;
+        const v = tt < 0 ? NaN : tSer[j][g][tt];
+        if (Number.isNaN(v)) ok = false;
+        else rx[n * kt + j] = v;
+      }
+      if (!ok) continue;
+      rg[n] = g;
+      rt[n] = t;
+      ry[n] = yv;
+      n++;
     }
-    if (td) {
-      x[kt + t] = 1;
-      idx.push(kt + t);
-    }
-    if (!within) {
-      x[p0 - 1] = 1;
-      idx.push(p0 - 1);
-    }
-    return true;
-  };
   // Recentering first (exact: the constant, or each entity's effect, absorbs it): the response and the terms lose
   // their global means (OLS) or their entity means (FE), so large levels do not cancel inside the cross-products.
   const shY = new Float64Array(N);
   const shX = new Float64Array(N * kt);
   {
-    const cy = new Float64Array(N);
-    const cxs = new Float64Array(N * kt);
     const cn = new Int32Array(N);
-    for (let g = 0; g < N; g++)
-      for (let t = 0; t < T; t++) {
-        if (!rowOf(g, t)) continue;
-        cn[g]++;
-        cy[g] += ySer[g][t];
-        for (let j = 0; j < kt; j++) cxs[g * kt + j] += x[j];
+    for (let i = 0; i < n; i++) {
+      const g = within ? rg[i] : 0;
+      cn[g]++;
+      shY[g] += ry[i];
+      for (let j = 0; j < kt; j++) shX[g * kt + j] += rx[i * kt + j];
+    }
+    for (let g = 0; g < (within ? N : 1); g++)
+      if (cn[g]) {
+        shY[g] /= cn[g];
+        for (let j = 0; j < kt; j++) shX[g * kt + j] /= cn[g];
       }
-    if (within) {
-      for (let g = 0; g < N; g++)
-        if (cn[g]) {
-          shY[g] = cy[g] / cn[g];
-          for (let j = 0; j < kt; j++) shX[g * kt + j] = cxs[g * kt + j] / cn[g];
-        }
-    } else {
-      let tn = 0;
-      let ty = 0;
-      const tx = new Float64Array(kt);
-      for (let g = 0; g < N; g++) {
-        tn += cn[g];
-        ty += cy[g];
-        for (let j = 0; j < kt; j++) tx[j] += cxs[g * kt + j];
+    if (!within)
+      for (let g = 1; g < N; g++) {
+        shY[g] = shY[0];
+        for (let j = 0; j < kt; j++) shX[g * kt + j] = shX[j];
       }
-      if (tn)
-        for (let g = 0; g < N; g++) {
-          shY[g] = ty / tn;
-          for (let j = 0; j < kt; j++) shX[g * kt + j] = tx[j] / tn;
-        }
+  }
+  // Row i's columns: the kt terms (recentered), its dummy, the constant (OLS).
+  const x = new Float64Array(p0);
+  const idx = new Int32Array(kt + 2);
+  let ni = 0;
+  const rowOf = (i: number): number => {
+    const g = rg[i];
+    ni = 0;
+    for (let j = 0; j < kt; j++) {
+      x[j] = rx[i * kt + j] - shX[g * kt + j];
+      idx[ni++] = j;
+    }
+    if (td) {
+      x[kt + rt[i]] = 1;
+      idx[ni++] = kt + rt[i];
+    }
+    if (!within) {
+      x[p0 - 1] = 1;
+      idx[ni++] = p0 - 1;
+    }
+    return ry[i] - shY[g];
+  };
+  for (let i = 0; i < n; i++) {
+    const g = rg[i];
+    const yv = rowOf(i);
+    cnt[g]++;
+    sy[g] += yv;
+    for (let q = 0; q < ni; q++) {
+      const a = idx[q];
+      Xy[a] += x[a] * yv;
+      sx[g * p0 + a] += x[a];
+      for (let r = 0; r < ni; r++) G0[a * p0 + idx[r]] += x[a] * x[idx[r]];
     }
   }
-  for (let g = 0; g < N; g++)
-    for (let t = 0; t < T; t++) {
-      if (!rowOf(g, t)) continue;
-      const yv = ySer[g][t] - shY[g];
-      n++;
-      rg.push(g);
-      rt.push(t);
-      cnt[g]++;
-      sy[g] += yv;
-      for (const a of idx) {
-        Xy[a] += x[a] * yv;
-        sx[g * p0 + a] += x[a];
-        for (const c of idx) G0[a * p0 + c] += x[a] * x[c];
-      }
-    }
   if (n < kt + 3) return null;
   if (within) {
     for (let g = 0; g < N; g++) {
@@ -2128,22 +2157,29 @@ export function olsFeOnLevels(
   const b = mv(inv.inv, Float64Array.from(kept, (c) => Xy[c]), p, p);
   const bFull = new Float64Array(p0);
   kept.forEach((c, a) => (bFull[c] = b[a]));
-  // Residuals and cluster scores (raw x; FE residuals are within-entity deviations).
+  // Residuals and cluster scores (FE residuals are within-entity deviations).
   const sums = new Float64Array(N * p);
   const posOf = new Int32Array(p0).fill(-1);
   kept.forEach((c, a) => (posOf[c] = a));
+  const meanFit = new Float64Array(N);
+  if (within)
+    for (let g = 0; g < N; g++) {
+      if (!cnt[g]) continue;
+      let mf = 0;
+      for (let a = 0; a < p0; a++) mf += (sx[g * p0 + a] / cnt[g]) * bFull[a];
+      meanFit[g] = sy[g] / cnt[g] - mf;
+    }
   for (let i = 0; i < n; i++) {
     const g = rg[i];
-    rowOf(g, rt[i]);
+    const yv = rowOf(i);
     let fit = 0;
-    for (const a of idx) fit += x[a] * bFull[a];
-    let e = ySer[g][rt[i]] - shY[g] - fit;
-    if (within) {
-      let meanFit = 0;
-      for (let a = 0; a < p0; a++) meanFit += (sx[g * p0 + a] / cnt[g]) * bFull[a];
-      e -= sy[g] / cnt[g] - meanFit;
+    for (let q = 0; q < ni; q++) fit += x[idx[q]] * bFull[idx[q]];
+    const e = yv - fit - meanFit[g];
+    for (let q = 0; q < ni; q++) {
+      const a = idx[q];
+      if (posOf[a] >= 0) sums[g * p + posOf[a]] += x[a] * e;
     }
-    for (const a of idx) if (posOf[a] >= 0) sums[g * p + posOf[a]] += x[a] * e;
+    if (td) x[kt + rt[i]] = 0;
   }
   const S = new Float64Array(p * p);
   let G = 0;

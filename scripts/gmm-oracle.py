@@ -221,7 +221,11 @@ def run_np(text, fields):
     data = {h: np.array([float(v) for v in cols[h]]) for h in head if h not in (ent, tim)}
     spec = py_spec(fields)
     blocks, names, dropped, t0 = G.build(ids, times, data, spec)
+    shift = blocks[0].get("shift")
     r = G.dpd(blocks)
+    r["b1"], r["se1"] = G.unmap_constant(r["b1"], r["V1"], names, shift)
+    r["b2"], r["se2c"] = G.unmap_constant(r["b2"], r["Vc"], names, shift)
+    _, r["se2"] = G.unmap_constant(r["b2"] * 0, r["V2"], names, shift)
     nobs = r["nd"] if not spec["system"] else sum(len(b["lrows"]) for b in blocks)
     nd = r["nd"]
     sig2 = float(r["ed"] @ r["ed"]) / (2 * nobs)

@@ -197,6 +197,15 @@ def build(ids, times, data, spec):
     dcount = {t: sum(1 for _, d, _ in groups if t in d) for t in range(T)}
     lcount = {t: sum(1 for _, _, l in groups if t in l) for t in range(T)}
     exact_t = {t: system and td and t >= 1 and dcount[t] > 0 and dcount[t] == lcount[t] == lcount[t - 1] for t in range(T)}
+    # Level rows of the response and the terms lose their level-row means in system GMM (an exact reparametrization
+    # absorbed by the constant, mapped back by unmap_constant), as the engine does, so large offsets stay accurate.
+    lev_mean_y = 0.0
+    lev_mean_x = np.zeros(len(terms))
+    if system:
+        lr_all = [(u, t) for u, _, lr in groups for t in lr]
+        if lr_all:
+            lev_mean_y = float(np.mean([val(yname, u, t) for u, t in lr_all]))
+            lev_mean_x = np.array([np.mean([val(n, u, t - l) for u, t in lr_all]) for n, l in terms])
     ivmean = {}
     if system:
         for k_, (nm, l) in enumerate(spec.get("xterms", [])):
@@ -233,8 +242,8 @@ def build(ids, times, data, spec):
                 X[r, len(terms) + t - 1] -= 1
         for r, t in enumerate(lrows):
             y1, x1 = lev_row(u, t)
-            y[nd + r] = y1
-            X[nd + r, : len(terms)] = x1
+            y[nd + r] = y1 - lev_mean_y
+            X[nd + r, : len(terms)] = np.array(x1) - lev_mean_x
             if td:
                 X[nd + r, len(terms) + t] = 1
             X[nd + r, -1] = 1.0
@@ -307,7 +316,26 @@ def build(ids, times, data, spec):
     for b in blocks:
         b["X"] = b["X"][:, keep_sorted]
     names_out = [colnames[c] for c in keep_sorted]
+    shift = dict(my=lev_mean_y, mx={names[j]: float(lev_mean_x[j]) for j in range(len(terms))}) if system else None
+    blocks[0]["shift"] = shift
     return blocks, names_out, dropped, t0
+
+
+def unmap_constant(b, V, names, shift):
+    """The constant of the recentered fit back on the raw columns: b_c + m_y - sum m_j b_j, Var = q^T V q."""
+    if not shift or "_cons" not in names:
+        return b, np.sqrt(np.diag(V))
+    c = names.index("_cons")
+    q = np.zeros(len(names))
+    q[c] = 1.0
+    for j, nm in enumerate(names):
+        if nm in shift["mx"]:
+            q[j] = -shift["mx"][nm]
+    b2 = b.copy()
+    b2[c] = q @ b + shift["my"]
+    se = np.sqrt(np.diag(V)).copy()
+    se[c] = math.sqrt(max(float(q @ V @ q), 0.0))
+    return b2, se
 
 
 def independent_columns(m, tol=1e-10):
@@ -407,7 +435,7 @@ def dpd(blocks, steps=2):
         return out
 
     return dict(
-        b1=b1, se1=np.sqrt(np.diag(V1)), b2=b2, se2=np.sqrt(np.diag(V2)), se2c=np.sqrt(np.diag(Vc)),
+        b1=b1, se1=np.sqrt(np.diag(V1)), b2=b2, se2=np.sqrt(np.diag(V2)), se2c=np.sqrt(np.diag(Vc)), V1=V1, V2=V2, Vc=Vc,
         hansen=hansen, df=ninstr - k, ninstr=ninstr, sarg_raw=sarg_raw, e1=e1, nd=nd, ed=ed, el=el,
         ar1=ar(e1, A1, M1, V1, 2), ar2=ar(e2, W2, M2, Vc, 2), N=N,
     )

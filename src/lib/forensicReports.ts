@@ -180,7 +180,7 @@ export function lpeCalc(read: Read): FinResult {
   for (const r of res.rows) {
     const lab = rowLabel(r, r.k === splitK) + (r.b - r.a < 1 - 1e-9 ? ` (${fixedText(r.b - r.a, 2)} yr)` : "");
     const showP = method === "lpe" && r.earnLen > 0;
-    t1.push([lab, fixedText(r.ageMid, 2), money(r.capacityCents), showP ? f6(r.pAliveEarn) : "", showP ? f6(r.pPe) : "", money(r.earnCents)]);
+    t1.push([lab, fixedText(r.ageEarn, 2), money(r.capacityCents), showP ? f6(r.pAliveEarn) : "", showP ? f6(r.pPe) : "", money(r.earnCents)]);
     t2.push([lab, money(r.hhCents), money(r.totalCents), r.past ? money(r.interestCents) : "", r.past ? "" : f6(r.df), money(r.valueCents + r.interestCents)]);
     sCap += r.capacityCents;
     sEarn += r.earnCents;
@@ -355,6 +355,9 @@ export function annuityReading(x: number, iPct: number, ad: number, pay: number,
 // #17 Retirement accumulation and drawdown
 // ---------------------------------------------------------------------------------------------------------------
 
+/** "1 + 7%" or "1 − 3%" for a rate typed as a percent. */
+const onePlus = (p: number): string => (p < 0 ? `1 − ${pctText(-p)}` : `1 + ${pctText(p)}`);
+
 export function retireCalc(read: Read): FinResult {
   const age = readNum(read("age"), "Current age", { min: 0, max: 119, integer: true, range: "a whole age from 0 to 119" });
   if (isRefusal(age)) return refuse(age);
@@ -390,7 +393,8 @@ export function retireCalc(read: Read): FinResult {
     ...(r.sustainable !== null && endA > retireAge
       ? [`Sustainable withdrawal: ${amt(r.sustainable)} a year in today's money uses the balance at retirement exactly by age ${endA} at the real return.`]
       : []),
-    `Real return = (1 + ${pctText(ret)})/(1 + ${pctText(infl)}) − 1 = ${pctText(r.realReturn * 100)}.`,
+    // fix-fin R2 MINOR: "(1 − 3%)", not "(1 + −3%)".
+    `Real return = (${onePlus(ret)})/(${onePlus(infl)}) − 1 = ${pctText(r.realReturn * 100)}.`,
     `Inputs: age ${age}, retirement at ${retireAge}, plan to ${endA}; savings ${amt(balance)}; contributions ${amt(contribution)} a year and withdrawals ${amt(withdrawal)} a year in today's money; nominal return ${pctText(ret)}; inflation ${pctText(infl)}.`,
     "Conventions: contributions (before the retirement age) and withdrawals (from it) at the start of each year, indexed by inflation, (1 + π)ᵗ⁻¹ in year t; the balance after the flow earns the nominal return; today's money = nominal ÷ (1 + π)ᵗ at the end of year t; sustainable withdrawal = balance at retirement in today's money ÷ the annuity-due factor at the real return; amounts unrounded, rounded for display; currency-neutral.",
     "Note: a fixed return every year; for the risk of a bad sequence of returns use the safe-withdrawal Monte Carlo.",
@@ -478,7 +482,16 @@ export function swrCalc(read: Read): FinResult {
     for (let k = 0; k < years; k++) alive.push(lAt(t, a + k) / l0);
   }
   const r = swrMonteCarlo({ balance, withdrawal, years, mean: mean / 100, sd: sd / 100, paths, seed, alive });
-  const pc = (x: number): string => pctText(Math.round(x * 1e6) / 1e4);
+  // fix-fin R2 #9: a simulated probability to 0.1 percentage point, not "23.445%" (its simulation standard error is
+  // about 0.3 points at 20,000 paths); the standard error is printed beside the headline.
+  const pc = (x: number): string => pctText(Math.round(x * 1000) / 10);
+  const se = (x: number): string => fixedText(Math.sqrt((x * (1 - x)) / paths) * 100, 1);
+  const pcSe = (x: number): string =>
+    x <= 0
+      ? `${pc(0)}: no simulated path ran out, so the chance is below about 1 in ${paths.toLocaleString("en-US")}`
+      : x >= 1
+        ? `${pc(1)}: every simulated path ran out`
+        : `${pc(x)}, simulation standard error about ${se(x)} percentage points`;
   const head = ["Year", "Ruined by year end", "10th percentile balance", "Median balance", "90th percentile balance"];
   if (alive) head.push("P(alive) at start");
   const t: string[][] = [head];
@@ -490,7 +503,7 @@ export function swrCalc(read: Read): FinResult {
   const rate = (withdrawal / balance) * 100;
   const lines = [
     "Safe-withdrawal Monte Carlo (probability of ruin), computed from the inputs given",
-    `Probability of ruin within ${years} years: ${pc(r.ruinBy[years - 1])} (${paths.toLocaleString("en-US")} paths, seed ${seed})`,
+    `Probability of ruin within ${years} years: ${pcSe(r.ruinBy[years - 1])} (${paths.toLocaleString("en-US")} paths, seed ${seed})`,
     ...(alive && table
       ? [
           `Probability the money runs out while alive (age ${ageText(age)} at the start, ${table.label}): ${pc(r.ruinWhileAlive!)}; P(alive after ${years} years) = ${f6(lAt(table, age + years) / lAt(table, age))} (ruin after year ${years} is not counted).`,
@@ -508,16 +521,23 @@ export function swrCalc(read: Read): FinResult {
   const svg = years >= 2 ? finPlotSvg(series, { width: 380, height: 250, title: "Probability of ruin by year", xlabel: "year", ylabel: "percent" }) : undefined;
   return {
     text: lines.join("\n"),
-    reading: swrReading(pc(r.ruinBy[years - 1]), alive ? pc(r.ruinWhileAlive!) : null, amt(withdrawal), amt(balance), years, paths.toLocaleString("en-US")),
+    reading: swrReading(pc(r.ruinBy[years - 1]), alive ? pc(r.ruinWhileAlive!) : null, amt(withdrawal), amt(balance), years, paths.toLocaleString("en-US"), r.ruinBy[years - 1]),
     tables: [{ label: "Probability of ruin by year", rows: t, align: alive ? ["left", "right", "right", "right", "right", "right"] : ["left", "right", "right", "right", "right"] }],
     svg,
   };
 }
 
 /** The plain-language reading of the safe-withdrawal Monte Carlo (values already formatted as the text prints them). */
-export function swrReading(ruin: string, ruinAlive: string | null, withdrawal: string, balance: string, years: number, paths: string): string {
-  const head = `Withdrawing ${withdrawal} a year from ${balance} runs out of money within ${years} year${years === 1 ? "" : "s"} in about ${ruin} of ${paths} simulated return paths`;
-  return ruinAlive === null
-    ? `${head}, an estimate that rests on the return assumptions entered.`
-    : `${head}; allowing for the chance of dying first, the estimated risk of outliving the money is ${ruinAlive}.`;
+export function swrReading(ruin: string, ruinAlive: string | null, withdrawal: string, balance: string, years: number, paths: string, p?: number): string {
+  const span = `within ${years} year${years === 1 ? "" : "s"}`;
+  // fix-fin R2 #9: no "about 0%" or "about 100%": none or every path is said in words.
+  const head =
+    p !== undefined && p <= 0
+      ? `Withdrawing ${withdrawal} a year from ${balance} ran out of money ${span} in none of ${paths} simulated return paths, so the chance is below about 1 in ${paths}`
+      : p !== undefined && p >= 1
+        ? `Withdrawing ${withdrawal} a year from ${balance} ran out of money ${span} in every one of ${paths} simulated return paths`
+        : `Withdrawing ${withdrawal} a year from ${balance} runs out of money ${span} in about ${ruin} of ${paths} simulated return paths`;
+  if (ruinAlive === null) return `${head}, an estimate that rests on the return assumptions entered.`;
+  const alive = /[1-9]/.test(ruinAlive) ? `about ${ruinAlive}` : "close to none";
+  return `${head}; allowing for the chance of dying first, the estimated risk of outliving the money is ${alive}.`;
 }

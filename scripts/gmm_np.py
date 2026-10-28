@@ -32,6 +32,29 @@ def pinv_sym(a):
     return ((v * winv) @ v.T) * np.outer(s, s)
 
 
+def sym_rank(a):
+    """
+    Rank as the engine's symInverse decides it, on the unit-diagonal scaling b: full when every Cholesky pivot of b
+    exceeds max(1e-11, n * eps), else the count of eigenvalues above n * eps * max |eigenvalue| (a zero diagonal entry
+    sends it to the eigenvalue count too).
+    """
+    a = (a + a.T) / 2
+    n = a.shape[0]
+    dg = np.diag(a).copy()
+    s = np.where(dg > 0, 1.0 / np.sqrt(np.where(dg > 0, dg, 1.0)), 0.0)
+    b = a * np.outer(s, s)
+    if n and np.all(dg > 0):
+        try:
+            piv = np.diag(np.linalg.cholesky(b)) ** 2
+            if np.all(piv > max(1e-11, n * EPS)):
+                return n
+        except np.linalg.LinAlgError:
+            pass
+    w = np.linalg.eigvalsh(b)
+    m = np.max(np.abs(w)) if w.size else 0.0
+    return int(np.sum(w > EPS * m * n)) if m > 0 else 0
+
+
 def col_rank(m):
     """Rank of a matrix after scaling each nonzero column to unit norm (a unit-free decision)."""
     nrm = np.sqrt((m * m).sum(0))
@@ -179,10 +202,10 @@ def build(ids, times, data, spec):
     # Exact recentering of the instruments, as the engine's buildDynamic does it (it changes nothing when the weights
     # are nonsingular; with a singular weight the generalized inverse depends on the basis, so the oracle must use the
     # same one): difference GMM with time dummies subtracts, in the differenced rows of each period, the mean of each
-    # GMM-style column's present values there; otherwise lag a of a GMM-style column becomes its difference from lag
-    # a1 (missing = 0 on both), and in system GMM with time dummies, in a period where the groups with a differenced row
-    # are exactly those with level rows at t and t - 1, the lag-a1 column also loses its period mean (later lags the
-    # difference of the two means). IV-style columns lose their level-row mean in the level rows (system GMM).
+    # GMM-style column's present values there; otherwise lag a > a1 of a GMM-style column becomes its difference from
+    # lag a - 1 (missing = 0 on both), and in system GMM with time dummies, in a period where the groups with a
+    # differenced row are exactly those with level rows at t and t - 1, each column also loses its period mean (later
+    # lags the difference of the two means). IV-style columns lose their level-row mean in the level rows (system GMM).
     mu = {}
     for gi, (nm, a, b) in enumerate(gmm):
         bb = b if b is not None else T
@@ -221,9 +244,9 @@ def build(ids, times, data, spec):
         ex = exact_t[t]
         if a_ == a1:
             return z - (m if ex else 0.0)
-        v1 = val(nm, u, t - a1)
-        z1 = 0.0 if np.isnan(v1) else v1
-        return z - z1 - ((m - mu.get((gi, a1, t), 0.0)) if ex else 0.0)
+        vp = val(nm, u, t - a_ + 1)
+        zp = 0.0 if np.isnan(vp) else vp
+        return z - zp - ((m - mu.get((gi, a_ - 1, t), 0.0)) if ex else 0.0)
     blocks = []
     for u, drows, lrows in groups:
         nd, nl = len(drows), len(lrows)
@@ -362,8 +385,8 @@ def independent_columns(m, tol=1e-10):
 
 def dpd(blocks, steps=2):
     # Linearly dependent instrument columns are dropped first, in order, as the engine does. With a nonsingular
-    # two-step weight this changes nothing; with a singular one (more instruments than groups) the generalized inverse
-    # depends on which columns are present, so the oracle must drop the same ones.
+    # weight this changes nothing; with a singular one-step weight the generalized inverse depends on which columns are
+    # present, so the oracle must drop the same ones (a singular two-step weight is refused, below).
     keepz = independent_columns(np.vstack([b["Z"] for b in blocks]))
     blocks = [dict(b, Z=b["Z"][:, keepz]) for b in blocks]
     N = len(blocks)
@@ -374,40 +397,6 @@ def dpd(blocks, steps=2):
     Zall = np.vstack([b["Z"] for b in blocks])
     ninstr = col_rank(Zall)
     k = ZX.shape[1]
-
-    def gmm(A):
-        M = pinv_sym(ZX.T @ A @ ZX)
-        b = M @ ZX.T @ A @ Zy
-        res = [bl["y"] - bl["X"] @ b for bl in blocks]
-        return M, b, res
-
-    A1 = pinv_sym(ZHZ)
-    M1, b1, e1 = gmm(A1)
-    zu1 = [bl["Z"].T @ e for bl, e in zip(blocks, e1)]
-    S1 = sum(np.outer(z, z) for z in zu1)
-    V1 = M1 @ ZX.T @ A1 @ S1 @ A1 @ ZX @ M1
-    W2 = pinv_sym(S1)
-    M2, b2, e2 = gmm(W2)
-    zu2 = [bl["Z"].T @ e for bl, e in zip(blocks, e2)]
-    g2 = sum(zu2)
-    V2 = M2
-    # Windmeijer
-    D = np.zeros((k, k))
-    c = W2 @ g2
-    for j in range(k):
-        acc = np.zeros(L)
-        for bl, z1 in zip(blocks, zu1):
-            a = bl["Z"].T @ bl["X"][:, j]
-            acc += a * (z1 @ c) + z1 * (a @ c)
-        D[:, j] = M2 @ ZX.T @ W2 @ acc
-    Vc = V2 + D @ V2 + V2 @ D.T + D @ V1 @ D.T
-    hansen = float(g2 @ W2 @ g2)
-    g1 = sum(zu1)
-    # Sargan: minimized one-step criterion scaled by sigma^2 from the one-step residuals
-    nd = sum(bl["nd"] for bl in blocks)
-    ed = np.concatenate([e[: bl["nd"]] for bl, e in zip(blocks, e1)])
-    el = np.concatenate([e[bl["nd"]:] for bl, e in zip(blocks, e1)])
-    sarg_raw = float(g1 @ A1 @ g1)
 
     def ar(res, A, M, V, m):
         out = []
@@ -434,8 +423,55 @@ def dpd(blocks, steps=2):
             out.append(d0 / math.sqrt(d1 + d2 + d3))
         return out
 
+    def gmm(A):
+        M = pinv_sym(ZX.T @ A @ ZX)
+        b = M @ ZX.T @ A @ Zy
+        res = [bl["y"] - bl["X"] @ b for bl in blocks]
+        return M, b, res
+
+    A1 = pinv_sym(ZHZ)
+    M1, b1, e1 = gmm(A1)
+    zu1 = [bl["Z"].T @ e for bl, e in zip(blocks, e1)]
+    S1 = sum(np.outer(z, z) for z in zu1)
+    V1 = M1 @ ZX.T @ A1 @ S1 @ A1 @ ZX @ M1
+    # A singular two-step moment covariance (rank below L, always with fewer groups than instruments): the engine
+    # refuses two-step and Hansen J there (any generalized inverse makes them depend on the instruments' basis), so
+    # the oracle reports one-step only. The rank is decided as pinv_sym decides it, on the unit-diagonal scaling.
+    rankS = sym_rank(S1) if N >= L else -1
+    if rankS < L:
+        nd = sum(bl["nd"] for bl in blocks)
+        ed = np.concatenate([e[: bl["nd"]] for bl, e in zip(blocks, e1)])
+        g1 = sum(zu1)
+        return dict(
+            b1=b1, se1=np.sqrt(np.diag(V1)), b2=None, se2=None, se2c=None, V1=V1, V2=None, Vc=None, hansen=None,
+            df=ninstr - k, ninstr=ninstr, sarg_raw=float(g1 @ A1 @ g1), e1=e1, nd=nd, ed=ed, ar1=ar(e1, A1, M1, V1, 2),
+            ar2=None, N=N, twoStepRefused=True, rankS=int(rankS),
+        )
+    W2 = pinv_sym(S1)
+    M2, b2, e2 = gmm(W2)
+    zu2 = [bl["Z"].T @ e for bl, e in zip(blocks, e2)]
+    g2 = sum(zu2)
+    V2 = M2
+    # Windmeijer
+    D = np.zeros((k, k))
+    c = W2 @ g2
+    for j in range(k):
+        acc = np.zeros(L)
+        for bl, z1 in zip(blocks, zu1):
+            a = bl["Z"].T @ bl["X"][:, j]
+            acc += a * (z1 @ c) + z1 * (a @ c)
+        D[:, j] = M2 @ ZX.T @ W2 @ acc
+    Vc = V2 + D @ V2 + V2 @ D.T + D @ V1 @ D.T
+    hansen = float(g2 @ W2 @ g2)
+    g1 = sum(zu1)
+    # Sargan: minimized one-step criterion scaled by sigma^2 from the one-step residuals
+    nd = sum(bl["nd"] for bl in blocks)
+    ed = np.concatenate([e[: bl["nd"]] for bl, e in zip(blocks, e1)])
+    el = np.concatenate([e[bl["nd"]:] for bl, e in zip(blocks, e1)])
+    sarg_raw = float(g1 @ A1 @ g1)
+
     return dict(
         b1=b1, se1=np.sqrt(np.diag(V1)), b2=b2, se2=np.sqrt(np.diag(V2)), se2c=np.sqrt(np.diag(Vc)), V1=V1, V2=V2, Vc=Vc,
         hansen=hansen, df=ninstr - k, ninstr=ninstr, sarg_raw=sarg_raw, e1=e1, nd=nd, ed=ed, el=el,
-        ar1=ar(e1, A1, M1, V1, 2), ar2=ar(e2, W2, M2, Vc, 2), N=N,
+        ar1=ar(e1, A1, M1, V1, 2), ar2=ar(e2, W2, M2, Vc, 2), N=N, twoStepRefused=False, rankS=int(rankS),
     )

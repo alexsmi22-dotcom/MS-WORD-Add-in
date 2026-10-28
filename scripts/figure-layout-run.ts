@@ -2439,6 +2439,12 @@ figures.push(["solve integral", solveFunctionSvg({ exprs: [{ expr: "x*sin(x)", l
   // Long endogenous names: the ticks are shortened to their slots (review 2 found them colliding).
   const longIv = ivDefaultTable().replace(/^lwage(\s)educ(\s)exper/m, "lwage$1years_of_schooling_completed$2labor_market_experience_total");
   gm("econ-gmm", { data: longIv, spec: "lwage ~", endog: "years_of_schooling_completed + labor_market_experience_total", instruments: "dist + sibs" }, "long endogenous names");
+  // Long names sharing a prefix: numbered ticks, keyed in the note with each "n = name" pair kept on one line.
+  const twinIv = ivDefaultTable().replace(/^lwage(\s)educ(\s)exper/m, "lwage$1years_of_schooling_completed_mother$2years_of_schooling_completed_father");
+  gm("econ-gmm", { data: twinIv, spec: "lwage ~", endog: "years_of_schooling_completed_mother + years_of_schooling_completed_father", instruments: "dist + sibs" }, "numbered ticks");
+  // The other estimator's two-step weight is singular (system GMM, more instruments than groups): no point, no tick,
+  // the reason in the note.
+  gm("panel-dyn-gmm", { estimator: "difference", endog: "price" }, "difference with a singular system two-step");
   // An estimator not computed (the pair budget): no tick without a point, the reason in the note.
   const skipped = rhoFigure(
     [

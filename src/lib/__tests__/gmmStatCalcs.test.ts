@@ -9,7 +9,7 @@ import * as path from "path";
 import type { StatCalcDef } from "../statCalc";
 import type { StatOutput } from "../analyzeBlocks";
 import { insertableResultText } from "../insertGate";
-import { GMM_STAT_CALCS, DYN_DEFAULT_TABLE, ci, coefText, dynFitFromRead, econGmmFitFromRead } from "../gmmStatCalcs";
+import { GMM_STAT_CALCS, DYN_DEFAULT_TABLE, coefText, rowFormat, tickKeyNotes, dynFitFromRead, econGmmFitFromRead } from "../gmmStatCalcs";
 import { ivDefaultTable } from "../ivCalcs";
 import { fmtFixed } from "../regTable";
 import { symEigen, symInverse } from "../gmm";
@@ -111,12 +111,34 @@ describe("panel-dyn-gmm against gmm_np (Roodman's definitions) and pydynpd 0.2.2
     expect(r.des.droppedDummies).toEqual(np.dropped);
     close(f.one.b, np.b1, 1e-7);
     close(f.one.se, np.se1, 1e-6);
+    expect(Math.abs(f.sargan - np.sargan)).toBeLessThan(1e-6 * Math.max(1, np.sargan));
+    close(f.one.ar.map((a) => a.z), np.ar1, 1e-6);
+    if (np.twoStepRefused) {
+      // A singular two-step weight (more instruments than groups): two-step and Hansen J refused by name, one-step
+      // reported (pydynpd's one-step agrees where its parameterization is the same, no time dummies).
+      expect(f.two).toBeNull();
+      expect(f.singularS).toBe(true);
+      expect(Number.isNaN(f.hansen)).toBe(true);
+      expect(f.twoWhy).toMatch(/^the two-step weight matrix would be singular: Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ, one outer product per group, has rank at most the 60 groups, fewer than the \d+ instruments, so the two-step estimate and Hansen J would depend on an arbitrary choice of generalized inverse/);
+      if (c.pydynpdOneStep) {
+        close(f.one.b, c.pydynpdOneStep.b, 1e-7);
+        close(f.one.se, c.pydynpdOneStep.se, 1e-6);
+      }
+      const o = run("panel-dyn-gmm", { ...c.fields, data: dataOf(c.data) });
+      expect(o.ok).not.toBe(false);
+      expect(o.text).toContain("Two-step GMM not computed: the two-step weight matrix would be singular");
+      expect(o.text).toContain("Hansen J not computed (it is the two-step criterion; see above).");
+      expect(o.tables![0].label).toContain(", one-step: ");
+      expect(o.tables![0].rows[0][2]).toBe("Robust SE");
+      expect(o.tables![0].rows.find((x) => x[0] === "L.sales")![1]).toBe(fmtFixed(np.b1[0], 4));
+      expect(o.tables![1].rows.find((x) => x[0] === "Hansen J")![4]).toMatch(/^two-step weight singular: \d+ instruments, 60 groups$/);
+      return;
+    }
     close(f.two!.b, np.b2, 1e-7);
     close(f.two!.se, np.se2, 1e-6);
     close(f.two!.seUncorrected!, np.se2u, 1e-6);
+    expect(f.singularS).toBe(false);
     expect(Math.abs(f.hansen - np.hansen)).toBeLessThan(1e-6 * Math.max(1, np.hansen));
-    expect(Math.abs(f.sargan - np.sargan)).toBeLessThan(1e-6 * Math.max(1, np.sargan));
-    close(f.one.ar.map((a) => a.z), np.ar1, 1e-6);
     close(f.two!.ar.map((a) => a.z), np.ar2, 1e-6);
     if (c.pydynpd) {
       const p = c.pydynpd;
@@ -225,11 +247,13 @@ describe("panel-dyn-gmm hostile inputs and refusals", () => {
     expect(o.ok).toBe(false);
     expect(o.text).toContain("The response “y” is constant");
   });
-  test("instruments far beyond the groups: a warning, a generalized inverse, finite output", () => {
+  test("instruments far beyond the groups: a warning, two-step refused by name, the one-step results reported", () => {
     const o = run("panel-dyn-gmm", { ...DYN, data: dynPanel(12, 12), timeDummies: "no" });
     expect(o.ok).not.toBe(false);
     expect(o.text).toMatch(/Warning: \d+ instruments exceed the 12 groups/);
-    expect(o.text).toMatch(/The two-step moment covariance is singular: there are more instruments \(\d+\) than groups \(12\)/);
+    expect(o.text).toMatch(/Two-step GMM not computed: the two-step weight matrix would be singular: Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ, one outer product per group, has rank at most the 12 groups, fewer than the \d+ instruments/);
+    expect(o.text).toMatch(/^Difference GMM \(Arellano–Bond\), one-step: |^System GMM \(Blundell–Bond\), one-step: /);
+    expect(o.text).not.toMatch(/Hansen χ²/);
     // With time dummies there are more coefficients (13) than groups (12): the cluster-robust covariance has rank at
     // most 11, so both one-step and two-step are refused by name (before, one-step printed SEs from a singular matrix).
     for (const steps of ["two", "one"]) {
@@ -268,6 +292,16 @@ describe("panel-dyn-gmm hostile inputs and refusals", () => {
   test("dates are not periods; quarters are", () => {
     const d = dynPanel(25, 6).replace(/\t(200\d)\t/g, (_m, y) => `\t${y}-03-31\t`);
     expect(run("panel-dyn-gmm", { ...DYN, data: d }).text).toContain("holds dates");
+    // Dates written as yyyymmdd (Compustat's datadate) read as whole numbers: the span refusal says what they are.
+    const ymd = dynPanel(25, 6).replace(/\t(200\d)\t/g, (_m, y) => `\t${y}0331\t`);
+    const oy = run("panel-dyn-gmm", { ...DYN, data: ymd });
+    expect(oy.ok).toBe(false);
+    expect(oy.text).toBe(
+      "The time column spans 50,001 periods from first to last (gaps included); this calculator allows 40. Its values look like dates written as yyyymmdd (“20000331”), read here as whole numbers: convert the column to a year (or fiscal year) or a period number (1, 2, 3…), or to quarters (2015 Q1) or months (2015-03), and fit again.",
+    );
+    // Large period numbers that are not dates keep the plain refusal.
+    const big = dynPanel(25, 6).replace(/\t200(\d)\t/g, (_m, k) => `\t${100 * Number(k)}\t`);
+    expect(run("panel-dyn-gmm", { ...DYN, data: big }).text).toBe("The time column spans 501 periods from first to last (gaps included); this calculator allows 40.");
     const qd = dynPanel(25, 6).replace(/\t200(\d)\t/g, (_m, k) => `\t2020 Q${(Number(k) % 4) + 1}\t`.replace("2020", String(2020 + Math.floor(Number(k) / 4))));
     const o = run("panel-dyn-gmm", { ...DYN, data: qd });
     expect(o.ok).not.toBe(false);
@@ -425,9 +459,16 @@ describe("degenerate inputs are refused by name; wording", () => {
     expect(two.text).toMatch(/For information, the coefficient of L\.sales: fixed effects .*with 2 lags the biases are shared/);
     expect(two.text).not.toContain("suspect weak or invalid instruments");
   });
-  test("many instruments: the Hansen p near 1 is flagged; one-step Sargan in system GMM is not χ²", () => {
+  test("many instruments: no Hansen J from a singular weight (its p near 1 was an artifact of the pseudo-inverse); one-step Sargan in system GMM is not χ²", () => {
     const o = run("panel-dyn-gmm", { ...DYN, data: dynPanel(12, 12), timeDummies: "no" });
-    expect(o.text).toMatch(/Caution: a Hansen p-value above 0\.99 is a classic sign of a test weakened by too many instruments \(\d+ for 12 groups\)/);
+    expect(o.text).not.toMatch(/Hansen χ²|Caution: a Hansen p-value/);
+    // Just enough groups for a full-rank weight (56 instruments, 57 groups): Hansen J is computed and unremarkable.
+    const f = dynFitFromRead(reader("panel-dyn-gmm", { ...DYN, data: dynPanel(57, 12), timeDummies: "no", estimator: "difference" }));
+    if ("error" in f) throw new Error(f.error);
+    expect(f.fit.L).toBe(56);
+    expect(f.fit.two).not.toBeNull();
+    expect(f.fit.hansenP).toBeGreaterThan(0.05);
+    expect(f.fit.hansenP).toBeLessThan(0.99);
     expect(run("panel-dyn-gmm").text).toContain("in system GMM it is not χ² even under homoskedastic errors");
     expect(run("panel-dyn-gmm", { estimator: "difference" }).text).not.toContain("in system GMM it is not χ²");
   });
@@ -467,6 +508,8 @@ function closeScaled(a: ArrayLike<number>, b: ArrayLike<number>, se: ArrayLike<n
   }
 }
 const relClose = (a: number, b: number, what: string): void => {
+  // Both not computed (NaN: Hansen J when two-step is refused) is agreement.
+  if (Number.isNaN(a) && Number.isNaN(b)) return;
   if (!(Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b)))) throw new Error(`${what}: ${a} vs ${b}`);
 };
 
@@ -606,7 +649,9 @@ describe("location: adding a constant to a column changes nothing the model does
         if ("error" in f) throw new Error(`${col} + ${c}: refused: ${f.error}`);
         expect(f.fit.L).toBe(ref.fit.L);
         expect(f.des.names).toEqual(ref.des.names);
-        for (const [s, r] of [[f.fit.one, ref.fit.one], [f.fit.two!, ref.fit.two!]] as const) {
+        // More instruments than groups (no collapse, system GMM): two-step refused at every offset, one-step compared.
+        expect(f.fit.two === null).toBe(ref.fit.two === null);
+        for (const [s, r] of [[f.fit.one, ref.fit.one], ...(ref.fit.two ? [[f.fit.two!, ref.fit.two]] : [])] as const) {
           ref.des.names.forEach((nm, j) => {
             if (nm === "Constant") return;
             rel6(s.b[j], r.b[j], `${col} + ${c} b ${nm}`);
@@ -615,7 +660,8 @@ describe("location: adding a constant to a column changes nothing the model does
           s.ar.forEach((a, i) => rel6(a.z, r.ar[i].z, `${col} + ${c} AR(${i + 1})`));
         }
         if (ref.fit.df > 0) {
-          rel6(f.fit.hansen, ref.fit.hansen, `${col} + ${c} Hansen`);
+          if (ref.fit.two) rel6(f.fit.hansen, ref.fit.hansen, `${col} + ${c} Hansen`);
+          else expect(Number.isNaN(f.fit.hansen)).toBe(true);
           rel6(f.fit.sargan, ref.fit.sargan, `${col} + ${c} Sargan`);
         }
       }
@@ -758,9 +804,35 @@ describe("exact fits are refused at any offset; near-exact data with real noise 
     const d = dynPanel3(40, 8, 5);
     const nz = lcg(21);
     const near = d.split("\n").map((l, i) => (i === 0 ? `${l}\tx2` : `${l}\t${2 * Number(l.split("\t")[3]) + 1e-7 * nz.g()}`)).join("\n");
-    expect(run("panel-dyn-gmm", { data: near, spec: "y ~ L.y + x + x2", entity: "id", time: "year", collapse: "yes", lagLast: "" }).text).toMatch(/^The regressor x2 is nearly, but not exactly, a combination of the other regressors/);
+    expect(run("panel-dyn-gmm", { data: near, spec: "y ~ L.y + x + x2", entity: "id", time: "year", collapse: "yes", lagLast: "" }).text).toMatch(/^The regressor x2 is so close to a combination of the other regressors in the estimation rows \(the closest combination leaves only [\d.]+×10⁻[⁰¹²³⁴⁵⁶⁷⁸⁹]+ of it\) that its estimate would be unstable: a residual share r inflates the variance of the estimate by about 1\/r² \(here [\d.]+×10[⁰¹²³⁴⁵⁶⁷⁸⁹]+\) and leaves the cross-products (about \d+ of double precision's 16 significant digits|no reliable digit); shares below about 10⁻⁵ are refused/);
     const lin2 = lin.split("\n").map((l, i) => (i === 0 ? `${l}\tz4` : `${l}\t${Number(l.split("\t")[4]) + Number(l.split("\t")[5]) + 1e-8 * nz.g()}`)).join("\n");
-    expect(run("econ-gmm", { data: lin2, spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3 + z4" }).text).toMatch(/^The instrument “z4” is nearly, but not exactly, a combination of the others/);
+    expect(run("econ-gmm", { data: lin2, spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3 + z4" }).text).toMatch(/^The instrument “z4” is so close to a combination of the others \(the closest combination leaves only [\d.]+×10⁻[⁰¹²³⁴⁵⁶⁷⁸⁹]+ of it\) that the estimates would be unstable: .*shares below about 3×10⁻⁶ are refused \(a condition number above 10¹¹\)\./);
+  });
+});
+
+describe("singular two-step weight in the comparison; econ-gmm location refusal names the true largest value", () => {
+  test("the other estimator with a singular two-step weight is not computed, with the reason, and has no tick", () => {
+    // Difference GMM with an endogenous price and lags 2 to 4 is full rank; system GMM with the same options has more
+    // instruments than the 60 groups.
+    const o = run("panel-dyn-gmm", { estimator: "difference", endog: "price" });
+    expect(o.ok).not.toBe(false);
+    const row = o.tables![2].rows.find((x) => x[0] === "System GMM")!;
+    expect(row[1]).toBe("not computed");
+    expect(row[4]).toMatch(/^two-step weight singular: \d+ instruments, 60 groups$/);
+    const words = (o.svg ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(words).toMatch(/System GMM: not computed \(two-step weight singular: \d+ instruments, 60 groups\)\./);
+    expect(words).not.toContain(" Sys. GMM ");
+    // One-step: the other row is computed (the one-step weight is not the problem).
+    const one = run("panel-dyn-gmm", { estimator: "difference", endog: "price", steps: "one" });
+    expect(one.tables![2].rows.find((x) => x[0] === "System GMM")![1]).not.toBe("not computed");
+  });
+  test("econ-gmm: the refusal reports the column's largest value and its true ratio to the variation", () => {
+    const L = linData(300, 3);
+    const o = run("econ-gmm", { data: shiftCol(L, "x", 1e12), spec: "y ~ x", endog: "d1", instruments: "z1 + z2" });
+    expect(o.ok).toBe(false);
+    expect(o.text).toMatch(/^The values of “x” are too large relative to their variation to estimate in double precision \(largest 1\.0×10¹², variation about 9\.7×10⁻¹;/);
+    // 7×10⁷ times the variation is inside the 10⁸ limit (it was refused while the shift was added to the value).
+    expect(run("econ-gmm", { data: shiftCol(L, "x", 7e7), spec: "y ~ x", endog: "d1", instruments: "z1 + z2" }).ok).not.toBe(false);
   });
 });
 
@@ -773,22 +845,48 @@ describe("display of small coefficients, figure notes and ticks", () => {
     const [lo, hi] = row[5].split(" to ");
     expect(lo.replace("−", "").split(".")[1].length).toBe(hi.replace("−", "").split(".")[1].length);
     expect(row[5]).not.toMatch(/×10/);
-    // An interval ending near 0 keeps the other bound's format (fmtFixed alone would switch the small one to ×10ⁿ).
-    for (const [a, b] of [[-0.00002, 0.04], [0.00003, 0.0512], [-0.0512, 0.00001], [-0.000004, 0.0009]]) {
-      const t = ci(a, b);
-      expect(t).not.toMatch(/×10/);
-      const [l, h] = t.split(" to ");
-      expect(l.split(".")[1].length).toBe(h.split(".")[1].length);
-    }
-    expect(ci(1.5e-6, 2.5e-5)).toBe("1.50×10⁻⁶ to 2.50×10⁻⁵");
     expect(coefText(0.000912)).toBe("0.000912");
     expect(coefText(-0.00674)).toBe("−0.00674");
     expect(coefText(0.0711)).toBe("0.0711");
   });
+  test("one format per row: estimate, SE and both bounds never mix m×10ⁿ with decimals, or four decimals with five", () => {
+    const row = (b: number, se: number): string[] => {
+      const f = rowFormat(b, se);
+      return [f(b), f(se), f(b - 1.96 * se), f(b + 1.96 * se)];
+    };
+    const decimals = (s: string): number => (s.split(".")[1] ?? "").length;
+    // A tiny estimate with an interval spanning 0: every cell in m×10ⁿ (review 3: −3.57×10⁻⁵ beside "−0.000183 to 0.000112").
+    for (const c of row(-3.57e-5, 7.5e-5)) expect(c).toMatch(/×10/);
+    // b ≥ 0.01 with SE < 0.01: one decimal count for the row (review 3: 0.0125 beside 0.00652).
+    const r1 = row(0.0125, 0.00652);
+    expect(r1[0]).toBe("0.01250");
+    expect(r1[1]).toBe("0.00652");
+    expect(new Set(r1.map(decimals)).size).toBe(1);
+    for (const c of r1) expect(c).not.toMatch(/×10/);
+    // An interval ending near 0 keeps the row's decimals (no m×10ⁿ, no "−0").
+    for (const [b, se] of [[0.02, 0.0102], [0.0512, 0.026], [-0.0256, 0.013], [0.00045, 0.00023]]) {
+      const r = row(b, se);
+      for (const c of r) expect(c).not.toMatch(/×10|^−0(\.0+)?$/);
+      expect(new Set(r.map(decimals)).size).toBe(1);
+    }
+    // A huge |z| (SE far below the estimate): the decimals come from the smallest value, so the SE keeps three
+    // significant figures and never prints as 0.0000.
+    const r2 = row(0.85, 0.000123);
+    expect(r2[1]).toBe("0.000123");
+    expect(r2[0]).toBe("0.850000");
+    // −0 and zero.
+    expect(rowFormat(-0, 0.5)(-0)).toBe("0.0000");
+    expect(rowFormat(0, 0)(0)).toBe("0.0000");
+    // 10⁹ or more anywhere: every cell in m×10ⁿ with four significant figures.
+    const r3 = row(2.5e9, 3e8);
+    for (const c of r3) expect(c).toMatch(/^[−\d.]+×10[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/);
+    expect(r3[0]).toBe("2.500×10⁹");
+    expect(rowFormat(1.5e-6, 2.5e-5)(1.5e-6)).toBe("1.50×10⁻⁶");
+  });
   test("the econ-gmm figure names the weight it used and shortens long tick names", () => {
     const words = (svg: string | undefined): string => (svg ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(words(run("econ-gmm", { data: linData(300, 3), spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3", weight: "cluster", cluster: "cl" }).svg)).toContain("clustered by cl (sandwich) standard errors");
-    expect(words(run("econ-gmm").svg)).toContain("heteroskedasticity-robust (sandwich) standard errors");
+    expect(words(run("econ-gmm", { data: linData(300, 3), spec: "y ~ x", endog: "d1 + d2", instruments: "z1 + z2 + z3", weight: "cluster", cluster: "cl" }).svg)).toContain("Both with standard errors clustered by “cl” (sandwich) and normal intervals");
+    expect(words(run("econ-gmm").svg)).toContain("Both with heteroskedasticity-robust (sandwich) standard errors and normal intervals");
     const long = ivDefaultTable().replace(/^lwage(\s)educ(\s)exper/, "lwage$1years_of_schooling_completed$2labor_market_experience_total");
     const svg = run("econ-gmm", { data: long, spec: "lwage ~", endog: "years_of_schooling_completed + labor_market_experience_total", instruments: "dist + sibs" }).svg!;
     expect(svg).toContain("…");
@@ -796,7 +894,14 @@ describe("display of small coefficients, figure notes and ticks", () => {
     // Two long names with a common prefix would shorten to the same tick: numbers instead, keyed in the note.
     const twin = ivDefaultTable().replace(/^lwage(\s)educ(\s)exper/, "lwage$1years_of_schooling_completed_mother$2years_of_schooling_completed_father");
     const svg2 = run("econ-gmm", { data: twin, spec: "lwage ~", endog: "years_of_schooling_completed_mother + years_of_schooling_completed_father", instruments: "dist + sibs" }).svg!;
+    // Each "n = name" pair stays on one line of the note (review 3: "2 =" ended a line, the name began the next).
+    const lines = (svg2.match(/<text[^>]*>[^<]*<\/text>/g) ?? []).map((t) => t.replace(/<[^>]+>/g, ""));
+    for (const nm of ["years_of_schooling_completed_mother", "years_of_schooling_completed_father"]) {
+      const i = ["years_of_schooling_completed_mother", "years_of_schooling_completed_father"].indexOf(nm) + 1;
+      expect(lines.some((l) => l.includes(`${i} = ${nm}`))).toBe(true);
+    }
     expect(words(svg2)).toContain("Ticks: 1 = years_of_schooling_completed_mother, 2 = years_of_schooling_completed_father.");
+    expect(tickKeyNotes(["household_income_total", "household_income_net", "x"])).toEqual(["Ticks: 1 = household_income_total,", "2 = household_income_net, 3 = x."]);
   });
 });
 

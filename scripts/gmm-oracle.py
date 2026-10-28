@@ -224,17 +224,21 @@ def run_np(text, fields):
     shift = blocks[0].get("shift")
     r = G.dpd(blocks)
     r["b1"], r["se1"] = G.unmap_constant(r["b1"], r["V1"], names, shift)
-    r["b2"], r["se2c"] = G.unmap_constant(r["b2"], r["Vc"], names, shift)
-    _, r["se2"] = G.unmap_constant(r["b2"] * 0, r["V2"], names, shift)
+    refused = r["twoStepRefused"]
+    if not refused:
+        r["b2"], r["se2c"] = G.unmap_constant(r["b2"], r["Vc"], names, shift)
+        _, r["se2"] = G.unmap_constant(r["b2"] * 0, r["V2"], names, shift)
     nobs = r["nd"] if not spec["system"] else sum(len(b["lrows"]) for b in blocks)
     nd = r["nd"]
     sig2 = float(r["ed"] @ r["ed"]) / (2 * nobs)
-    return dict(
+    out = dict(
         names=names, dropped=[str(t0 + int(d[2:])) for d in dropped], L=r["ninstr"], df=r["df"], nObs=nobs, N=r["N"],
-        b1=r["b1"].tolist(), se1=r["se1"].tolist(), b2=r["b2"].tolist(), se2=r["se2c"].tolist(), se2u=r["se2"].tolist(),
-        hansen=r["hansen"], sargan=r["sarg_raw"] / sig2, ar1=[float(v) for v in r["ar1"]], ar2=[float(v) for v in r["ar2"]],
-        nDiff=nd,
+        b1=r["b1"].tolist(), se1=r["se1"].tolist(), sargan=r["sarg_raw"] / sig2, ar1=[float(v) for v in r["ar1"]],
+        nDiff=nd, twoStepRefused=refused, rankS=r["rankS"],
     )
+    if not refused:
+        out.update(b2=r["b2"].tolist(), se2=r["se2c"].tolist(), se2u=r["se2"].tolist(), hansen=r["hansen"], ar2=[float(v) for v in r["ar2"]])
+    return out
 
 
 def run_pydynpd(text, fields):
@@ -356,20 +360,26 @@ def main():
         ("synthetic endogenous x, system, time dummies", s1, dict(sb, timeDummies="yes")),
         ("synthetic rho 0.8, two lags of y, difference", s2, dict(sb, spec="y ~ L.y + L2.y + x + z", estimator="difference", lagLast="5")),
         ("synthetic rho 0.8, system, first lag 3", s2, dict(sb, spec="y ~ L.y + x + z", lagFirst="3", lagLast="5")),
-        # More instruments than groups: the two-step weight is singular, so the generalized-inverse convention matters
-        # (gmm_np and the calculator: Moore-Penrose of the unit-diagonal scaling). pydynpd inverts the unscaled matrix:
-        # its numbers are recorded for the report, not asserted.
+        # More instruments than groups: the two-step weight is singular, so two-step GMM and Hansen J are refused (any
+        # generalized inverse makes them depend on the instruments' basis); the one-step results are still asserted.
+        # pydynpd's two-step numbers (from its pseudo-inverse of the unscaled matrix) are recorded, not asserted; its
+        # one-step coefficients and SEs (no time dummies, so the parameterizations agree) must match gmm_np.
         ("default, endogenous price (singular two-step weight)", dt, dict(base, endog="price")),
         ("default, endogenous price, all lags, no dummies (singular two-step weight)", dt, dict(base, endog="price", lagLast="", timeDummies="no")),
     ]
     for label, text, f in dyn_cases:
         r = run_np(text, f)
         case = dict(label=label, data=text if text is not dt else "@dyn-default", fields=f, np=r)
+        assert r["twoStepRefused"] == ("singular" in label), (label, r["rankS"], r["L"], r["N"])
         if "singular" in label:
             if f["timeDummies"] == "no":
                 # NaN (pydynpd's SEs can be the square root of a negative variance here) is written as null.
                 clean = lambda v: [clean(x) for x in v] if isinstance(v, list) else {k: clean(x) for k, x in v.items()} if isinstance(v, dict) else (None if isinstance(v, float) and v != v else v)
-                case["pydynpdUnscaledInverse"] = clean(run_pydynpd(text, f))
+                p = run_pydynpd(text, f)
+                assert np.allclose(p["one"]["b"], r["b1"], rtol=1e-7, atol=1e-9), (label, p["one"]["b"], r["b1"])
+                assert np.allclose(p["one"]["se"], r["se1"], rtol=1e-6, atol=1e-9), (label, "one-step se")
+                case["pydynpdOneStep"] = dict(b=p["one"]["b"], se=p["one"]["se"])
+                case["pydynpdUnscaledInverse"] = clean(dict(two=p["two"]))
         elif f["lagFirst"] != "2" and f["estimator"] == "system":
             # pydynpd starts the level equation at the first period its level instrument (dated a - 1) exists
             # (dynamic_panel_model.get_info: first_level_index = max(max_lag, a - 1)); xtabond2 keeps those rows
@@ -385,7 +395,10 @@ def main():
             assert np.allclose(p["two"]["ar"], r["ar2"], rtol=1e-6), label
             case["pydynpd"] = p
         fixture["dynamic"].append(case)
-        print(f"dynamic {label}: L {r['L']} b2 {np.round(r['b2'][:3], 5)} hansen {r['hansen']:.3f}" + (" [pydynpd agrees]" if "pydynpd" in case else ""))
+        if r["twoStepRefused"]:
+            print(f"dynamic {label}: L {r['L']} N {r['N']} two-step refused (rank {r['rankS']}); b1 {np.round(r['b1'][:3], 5)} sargan {r['sargan']:.3f}" + (" [pydynpd one-step agrees]" if "pydynpdOneStep" in case else ""))
+        else:
+            print(f"dynamic {label}: L {r['L']} b2 {np.round(r['b2'][:3], 5)} hansen {r['hansen']:.3f}" + (" [pydynpd agrees]" if "pydynpd" in case else ""))
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as fh:

@@ -15,7 +15,7 @@ import type { StatCalcDef } from "./statCalc";
 import { findColumn, parseRegData, selectColumns, type RegDataset } from "./regData";
 import { readPanel } from "./panelData";
 import { readDateToken, civilFromDay } from "./damagesInterest";
-import { fmtFixed, fmtP, fmtSci, intText, numText, P_BELOW } from "./regTable";
+import { fmtFixed, fmtP, fmtSci, groupThousands, intText, numText, P_BELOW } from "./regTable";
 import { buildPlotSvg, type Series } from "./plot";
 import { chiSquareP } from "./stats2";
 import { ivDefaultTable } from "./ivCalcs";
@@ -62,44 +62,51 @@ function pText(p: number): string {
   if (!Number.isFinite(p)) return "p not computed";
   return p < 0.001 ? `p ${P_BELOW}` : `p = ${p.toFixed(3)}`;
 }
-/** Fixed decimals with a true minus and no "−0" (toFixed never switches to exponents below 10²¹). */
+/** Fixed decimals with a true minus, thousands grouped and no "−0" (toFixed never switches to exponents below 10²¹). */
 function fixedText(v: number, d: number): string {
   let s = v.toFixed(d);
   if (/^-0(?:\.0*)?$/.test(s)) s = s.slice(1);
+  s = groupThousands(s);
   return s.startsWith("-") ? "−" + s.slice(1) : s;
 }
 /**
- * A coefficient or standard error: four decimals from 0.01 up (at least three significant figures), three significant
- * figures below (0.000912, never "0.0009"), m×10ⁿ below 10⁻⁴.
+ * One format for every number of a row (a coefficient, its SE and both interval bounds; the 2SLS and GMM pairs), so a
+ * row never sets m×10ⁿ beside decimals, or four decimals beside five. It is chosen from the given values (estimates
+ * and SEs: an interval bound near 0 has no precision of its own and follows them):
+ *  - any of them 10⁹ or more: m×10ⁿ with four significant figures for every cell;
+ *  - else the smallest nonzero below 10⁻⁴: m×10ⁿ with three significant figures for every cell;
+ *  - else fixed decimals for every cell: four when the smallest nonzero is at least 0.01 (so at least three
+ *    significant figures), else as many as give it three (0.000912, never "0.0009").
  */
-export function coefText(v: number): string {
-  if (!Number.isFinite(v)) return "";
-  const a = Math.abs(v);
-  if (a === 0 || a >= 0.01) return fmtFixed(v, D);
-  if (a >= 1e-4) return fixedText(v, 2 - Math.floor(Math.log10(a)));
-  return fmtSci(v, 3);
-}
-/**
- * "a to b" (the word, never a dash that could read as a minus), both bounds in one format: four decimals when the
- * larger bound is at least 0.01, else as many decimals as give the larger bound three significant figures, or m×10ⁿ
- * for both when it is below 10⁻⁴.
- */
-export function ci(lo: number, hi: number): string {
-  const m = Math.max(Math.abs(lo), Math.abs(hi));
-  // One format for the pair: fmtFixed alone would print a bound below 5×10⁻⁵ (an interval ending near 0) as m×10ⁿ.
-  if (m >= 1e9) return `${fmtSci(lo, 4)} to ${fmtSci(hi, 4)}`;
-  if (!(m < 0.01)) return `${Math.abs(lo) < 5e-5 ? fixedText(lo, D) : fmtFixed(lo, D)} to ${Math.abs(hi) < 5e-5 ? fixedText(hi, D) : fmtFixed(hi, D)}`;
-  if (m >= 1e-4) {
-    const d = 2 - Math.floor(Math.log10(m));
-    return `${fixedText(lo, d)} to ${fixedText(hi, d)}`;
+export function rowFormat(...vals: number[]): (v: number) => string {
+  let mn = Infinity;
+  let mx = 0;
+  for (const v of vals) {
+    if (!Number.isFinite(v)) continue;
+    const a = Math.abs(v);
+    if (a > 0 && a < mn) mn = a;
+    if (a > mx) mx = a;
   }
-  return `${fmtSci(lo, 3)} to ${fmtSci(hi, 3)}`;
+  const fin = (f: (v: number) => string) => (v: number): string => (Number.isFinite(v) ? f(v) : "");
+  if (mx >= 1e9) return fin((v) => fmtSci(v, 4));
+  if (mn < 1e-4) return fin((v) => fmtSci(v, 3));
+  const d = mn >= 0.01 ? D : 2 - Math.floor(Math.log10(mn));
+  return fin((v) => fixedText(v, d));
+}
+/** One coefficient or SE on its own, by the row rule (rowFormat). */
+export function coefText(v: number): string {
+  return rowFormat(v)(v);
+}
+/** "a to b" in a row's format (the word, never a dash that could read as a minus). */
+function ciText(fmt: (v: number) => string, b: number, se: number): string {
+  return `${fmt(b - GMM_Z975 * se)} to ${fmt(b + GMM_Z975 * se)}`;
 }
 function coefRow(name: string, b: number, se: number): string[] {
   const z = b / se;
   // Two-sided normal p as P(χ²₁ > z²): the upper tail keeps its precision far out (1 − Φ would cancel).
   const p = chiSquareP(z * z, 1);
-  return [name, coefText(b), coefText(se), Number.isFinite(z) ? fmtFixed(z, 2) : "not computed", Number.isFinite(z) ? fmtP(p) : "not computed", ci(b - GMM_Z975 * se, b + GMM_Z975 * se)];
+  const f = rowFormat(b, se);
+  return [name, f(b), f(se), Number.isFinite(z) ? fmtFixed(z, 2) : "not computed", Number.isFinite(z) ? fmtP(p) : "not computed", ciText(f, b, se)];
 }
 /**
  * A value outside 10⁻¹⁰⁰…10¹⁰⁰ (or 0) makes the cross-products overflow or vanish, which would surface as a false
@@ -336,7 +343,6 @@ export function econGmmCalc(read: Read): StatOutput {
   } else {
     lines.push("Exactly identified (as many instruments as coefficients): GMM equals 2SLS whatever the weight, and the Hansen J test is not computed (no overidentifying restriction).");
   }
-  if (r.singularS) lines.push("The moment covariance S is singular, so the generalized inverse of its unit-diagonal scaling was used for the weight matrix; the two-step estimate and J are then fragile.");
   for (const f of r.firstStage) {
     lines.push(
       `First stage of ${f.name} on the ${f.df} excluded instrument${f.df === 1 ? "" : "s"}: partial R² = ${fmtFixed(f.partialR2, 3)}, ${cluster ? "clustered" : "robust"} Wald χ²(${f.df}) = ${fmtFixed(f.wald, 2)}, ${pText(f.p)}` +
@@ -364,16 +370,37 @@ export function econGmmCalc(read: Read): StatOutput {
     },
     {
       label: `Step 1 (2SLS, ${cluster ? "clustered" : "robust"} SEs) beside the reported GMM estimate`,
-      rows: [["Term", "2SLS", "SE", "GMM", "SE"], ...names.map((nm, j) => [nm, coefText(r.tsls.b[j]), coefText(r.tsls.se[j]), coefText(r.gmm.b[j]), coefText(r.gmm.se[j])])],
+      rows: [["Term", "2SLS", "SE", "GMM", "SE"], ...names.map((nm, j) => {
+        const f = rowFormat(r.tsls.b[j], r.tsls.se[j], r.gmm.b[j], r.gmm.se[j]);
+        return [nm, f(r.tsls.b[j]), f(r.tsls.se[j]), f(r.gmm.b[j]), f(r.gmm.se[j])];
+      })],
       align: ["left", "right", "right", "right", "right"],
     },
   ];
-  const svg = k1 ? gmmCoefFigure(names.slice(0, k1), r, cluster ? `clustered by ${c.clusterName ?? cluster}` : "heteroskedasticity-robust") : undefined;
+  const svg = k1 ? gmmCoefFigure(names.slice(0, k1), r, cluster ? `standard errors clustered by ${q(c.clusterName ?? cluster)} (sandwich)` : undefined) : undefined;
   return { text: lines.join("\n"), tables, ...(svg ? { svg } : {}) };
 }
 
+/**
+ * "1 = name" pairs packed into notes of at most maxChars characters, a pair never split across lines (the figure's note
+ * wrap breaks at any whitespace, a no-break space included, so each packed line is passed as its own note).
+ */
+export function tickKeyNotes(endog: string[], maxChars = 40): string[] {
+  const out: string[] = [];
+  let cur = "Ticks:";
+  endog.forEach((nm, j) => {
+    const pair = `${j + 1} = ${nm}${j === endog.length - 1 ? "." : ","}`;
+    if (cur !== "Ticks:" && cur.length + 1 + pair.length > maxChars) {
+      out.push(cur);
+      cur = pair;
+    } else cur = `${cur} ${pair}`;
+  });
+  out.push(cur);
+  return out;
+}
+
 /** Each endogenous coefficient, 2SLS against GMM, with 95% intervals (plot.buildPlotSvg; no new SVG builder). */
-export function gmmCoefFigure(endog: string[], r: LinearGmmResult, weight = "heteroskedasticity-robust"): string {
+export function gmmCoefFigure(endog: string[], r: LinearGmmResult, weight = "heteroskedasticity-robust (sandwich) standard errors"): string {
   const k = endog.length;
   // Tick labels must fit their slot (about 6.5 px a character at the tick font over a 300 px plot): longer names are
   // shortened with an ellipsis, and the note lists them in full.
@@ -406,8 +433,8 @@ export function gmmCoefFigure(endog: string[], r: LinearGmmResult, weight = "het
       return Math.abs(v - j) < 1e-9 && j >= 1 && j <= k ? tick[j - 1] : "";
     },
     notes: [
-      `Both with ${weight} (sandwich) standard errors and normal intervals, on the same rows.`,
-      ...(numbered ? [`Ticks: ${endog.map((nm, j) => `${j + 1} = ${nm}`).join(", ")}.`] : shortened ? [`Ticks, in order: ${endog.join(", ")}.`] : []),
+      `Both with ${weight} and normal intervals, on the same rows.`,
+      ...(numbered ? tickKeyNotes(endog) : shortened ? [`Ticks, in order: ${endog.join(", ")}.`] : []),
     ],
   });
 }
@@ -673,7 +700,20 @@ function readDyn(read: Read): DynRead | { error: string } {
     }
   const T = pmax - pmin + 1;
   if (!(T >= 1) || T > DPD_MAX_PERIODS) {
-    return { error: `The time column spans ${Number.isFinite(T) ? intText(T) : "too many"} periods from first to last (gaps included); this calculator allows ${DPD_MAX_PERIODS}.` };
+    // Dates written as yyyymmdd (Compustat's datadate, 20150331) read as whole numbers: say so. Not converted here: a
+    // fiscal year (Compustat's fyear puts a datadate in January to May in the year before) differs from the calendar one.
+    const ymd = kind === "whole" && labelOfPer.size > 0 && [...labelOfPer.keys()].every((v) => {
+      if (!(v >= 18000101 && v <= 29991231)) return false;
+      const m = Math.floor(v / 100) % 100;
+      const d = v % 100;
+      return m >= 1 && m <= 12 && d >= 1 && d <= 31;
+    });
+    const eg = ymd ? [...labelOfPer.values()][0] : "";
+    return {
+      error:
+        `The time column spans ${Number.isFinite(T) ? intText(T) : "too many"} periods from first to last (gaps included); this calculator allows ${DPD_MAX_PERIODS}.` +
+        (ymd ? ` Its values look like dates written as yyyymmdd (${q(eg)}), read here as whole numbers: convert the column to a year (or fiscal year) or a period number (1, 2, 3…), or to quarters (2015 Q1) or months (2015-03), and fit again.` : ""),
+    };
   }
   const N = entNames.length;
   if (N > DPD_MAX_GROUPS) return { error: `The panel has ${intText(N)} entities; this calculator allows ${intText(DPD_MAX_GROUPS)}.` };
@@ -720,7 +760,10 @@ export interface DynResult {
   r: DynRead;
   des: DynDesign;
   fit: DynFit;
+  /** The reported step is two-step (asked for, and computed). */
   twoStep: boolean;
+  /** Two-step was asked for but refused: why (the one-step results are reported instead). */
+  twoRefused?: string;
   /** The other estimator's plan for the ρ comparison, or null with the reason it is not fitted. */
   otherPlan: DynPlan | null;
   otherWhy?: string;
@@ -752,8 +795,9 @@ export function dynFitFromRead(read: Read): DynResult | { error: string } {
     }
     const des = buildDynamic(r.data, r.spec, plan);
     const fit = fitDynamic(des);
-    if (stepsRaw === "two" && !fit.two) return { error: `Two-step GMM: ${fit.twoWhy}.` };
-    return { r, des, fit, twoStep: stepsRaw === "two", otherPlan, otherWhy };
+    // Two-step asked for but refused (a singular two-step weight): the one-step results are reported, with the reason.
+    const twoStep = stepsRaw === "two" && fit.two !== null;
+    return { r, des, fit, twoStep, ...(stepsRaw === "two" && !fit.two ? { twoRefused: fit.twoWhy ?? "not computed" } : {}), otherPlan, otherWhy };
   } catch (e) {
     if (e instanceof GmmRefusal) return { error: e.message };
     return { error: `The dynamic panel could not be estimated for these data (${(e as Error).message}).` };
@@ -773,6 +817,9 @@ export function panelDynGmmCalc(read: Read): StatOutput {
     `${estName}, ${twoStep ? "two-step" : "one-step"}: ${r.depName} on ${des.names.filter((_, j) => des.kinds[j] !== "dummy" && des.kinds[j] !== "constant").join(", ")}` +
       `${r.spec.timeDummies ? " and time dummies" : ""}${sys ? " with a constant" : ""}.`,
   );
+  if (res.twoRefused) {
+    lines.push(`Two-step GMM not computed: ${res.twoRefused}. The one-step results (robust standard errors) and the Sargan test are reported instead; they do not depend on that choice.`);
+  }
   lines.push(
     `${intText(fit.nObs)} ${plural(fit.nObs, "observation")} (${sys ? "level rows; " + intText(des.nDiff) + " differenced rows are stacked with them" : "differenced rows"}), ${intText(fit.N)} ${plural(fit.N, "group")} ` +
       `(${r.entityName}), observations per group: min ${pg.min}, mean ${fmtFixed(pg.avg, 2)}, max ${pg.max}. Instruments: ${intText(fit.L)}.`,
@@ -785,8 +832,8 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   );
   if (fit.L > fit.N) {
     lines.push(
-      `Warning: ${intText(fit.L)} instruments exceed the ${intText(fit.N)} groups. Too many instruments overfit the endogenous variables (biasing GMM toward OLS or fixed effects) and weaken the Hansen test, ` +
-        "whose p-value can then be implausibly close to 1 (Roodman 2009). Choose “collapse” or a last lag.",
+      `Warning: ${intText(fit.L)} instruments exceed the ${intText(fit.N)} groups. Too many instruments overfit the endogenous variables (biasing GMM toward OLS or fixed effects, Roodman 2009), ` +
+        "and the two-step weight is then singular, so two-step GMM and the Hansen test are not computed. Choose “collapse” or a last lag.",
     );
   }
   // Tests.
@@ -803,7 +850,9 @@ export function panelDynGmmCalc(read: Read): StatOutput {
         "); " +
         (fit.two
           ? `Hansen χ²(${fit.df}) = ${fmtFixed(fit.hansen, 2)}, ${pText(fit.hansenP)} (robust, from the two-step estimate, weakened by many instruments). H₀: the instruments are valid.`
-          : `Hansen J not computed: ${fit.twoWhy}. H₀: the instruments are valid.`),
+          : res.twoRefused
+            ? "Hansen J not computed (it is the two-step criterion; see above). H₀: the instruments are valid."
+            : `Hansen J not computed: ${fit.twoWhy}. H₀: the instruments are valid.`),
     );
     if (fit.two && fit.hansenP > 0.99) {
       lines.push(`Caution: a Hansen p-value above 0.99 is a classic sign of a test weakened by too many instruments (${intText(fit.L)} for ${intText(fit.N)} ${plural(fit.N, "group")}), not evidence of valid instruments (Roodman 2009); collapse the instruments or set a last lag and look again.`);
@@ -839,15 +888,6 @@ export function panelDynGmmCalc(read: Read): StatOutput {
         "Usually an instrument is (nearly) a combination of the others in the rows the weight is built from (in system GMM, the differenced and level rows together); collapse the instruments or set a last lag.",
     );
   }
-  if (fit.singularS) {
-    const cause =
-      fit.L > fit.N
-        ? `there are more instruments (${intText(fit.L)}) than groups (${intText(fit.N)}), and Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ, a sum of one outer product per group, has rank at most the number of groups`
-        : `its rank is ${intText(fit.rankS)} for ${intText(fit.L)} instruments although the groups (${intText(fit.N)}) outnumber the instruments: some combination of instruments is (nearly) uncorrelated with the one-step residuals in every group, for example a column that is zero in almost every row`;
-    lines.push(
-      `The two-step moment covariance is singular: ${cause}. A generalized inverse was used for the two-step weight; the two-step estimates, their SEs and Hansen J then depend on how that inverse is taken (different software can disagree widely) and should not be relied on: collapse the instruments or set a last lag.`,
-    );
-  }
   lines.push(
     "Conventions (Roodman's xtabond2): " +
       (sys
@@ -855,15 +895,16 @@ export function panelDynGmmCalc(read: Read): StatOutput {
         : "one-step weight (Σ ZᵢᵀHᵢZᵢ)⁺ with H = 2 on the diagonal and −1 between consecutive periods; time dummies enter differenced, as regressors and instruments; ") +
       "GMM-style instruments are “missing = 0”; collinear time dummies are dropped from the last; " +
       (twoStep
-        ? "two-step weight (Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ)⁺ and Windmeijer (2005) corrected standard errors; "
+        ? "two-step weight (Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ)⁻¹ and Windmeijer (2005) corrected standard errors; "
         : "one-step standard errors are the Arellano–Bond cluster-robust sandwich (xtabond2's robust); ") +
       `z statistics and normal intervals, no small-sample factor (Stata's “small” would multiply the SEs by √((n − 1)/(n − k)·G/(G − 1)) and use t, n the observations). ` +
       `Sargan = g₁ᵀA₁g₁/σ̂² from the one-step residuals with σ̂² = ΣΔû²/(2n); Hansen J is the two-step criterion, printed after one-step too; AR tests use the reported step's residuals and covariance. ` +
+      "When Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ is singular (always with more instruments than groups), two-step GMM and Hansen J are not computed: any generalized inverse would make them depend on how the instruments are written (xtabond2 and pydynpd answer with a pseudo-inverse there, and disagree). " +
       `The observation count is ${sys ? "the level rows (xtabond2's convention for system GMM; pydynpd prints the differenced rows)" : "the differenced rows"}. ` +
-      "Instruments are counted after dropping linearly dependent columns. Before any cross-product the columns are recentered by exact reparametrizations of the regressors and instruments (level rows against the constant; in difference GMM with time dummies, each GMM-style column period by period; otherwise later lags as differences from the first), and every matrix is scaled to a unit diagonal before it is inverted. " +
+      "Instruments are counted after dropping linearly dependent columns. Before any cross-product the columns are recentered by exact reparametrizations of the regressors and instruments (level rows against the constant; in difference GMM with time dummies, each GMM-style column period by period; otherwise each later lag as its difference from the lag before), and every matrix is scaled to a unit diagonal before it is inverted. " +
       "So no result depends on the units of a column, and adding a constant to a column changes nothing where the estimator itself does not depend on it: an exogenous regressor always; the response and the endogenous regressors only with time dummies and no gaps in their histories (otherwise their levels instrument the differenced equation, with 0 where a lag is missing, and the offset genuinely matters). " +
       "Values more than 10⁸ times their remaining variation (3×10⁴ for a level kept as an instrument in a system GMM panel with time dummies and gaps) are refused by name rather than answered from rounding. " +
-      "A singular weight is inverted by the Moore–Penrose inverse of that recentered, scaled matrix (xtabond2 and pydynpd invert the raw one, which changes with the units and offsets). The Sargan and Hansen df are L − k, instruments less coefficients, even when the two-step weight is rank-deficient (as xtabond2 reports them). " +
+      "A singular one-step weight is inverted by the Moore–Penrose inverse of that recentered, scaled matrix (xtabond2 and pydynpd invert the raw one, which changes with the units and offsets). The Sargan and Hansen df are L − k, instruments less coefficients. " +
       "pydynpd 0.2.2 agrees on coefficients, two-step SEs, Hansen J and two-step AR tests, but parameterizes time dummies by dropping the first (other coefficients are the same), instruments system-GMM time dummies in both equations, and its one-step AR statistic uses the two-step moment vector (Roodman's formula, used here, reproduces the published one-step values)" +
       (sys && r.spec.lagFirst > 2
         ? `; with a first lag of ${r.spec.lagFirst}, pydynpd also starts the level equation at the first period whose level instrument (dated ${r.spec.lagFirst - 1} back) exists, while xtabond2 and this calculator keep those rows with the instrument set to 0, so the samples differ.`
@@ -886,14 +927,17 @@ export function panelDynGmmCalc(read: Read): StatOutput {
     testRows.push(
       fit.two
         ? ["Hansen J", `χ² = ${fmtFixed(fit.hansen, 2)}`, String(fit.df), fmtP(fit.hansenP), "two-step, robust"]
-        : ["Hansen J", "not computed", String(fit.df), "not computed", "two-step not computed"],
+        : ["Hansen J", "not computed", String(fit.df), "not computed", fit.twoShort ?? "two-step not computed"],
     );
   }
   tables.push({ label: "Specification tests", rows: testRows, align: ["left", "right", "right", "right", "left"] });
   const cmpRows: string[][] = [["Estimator", `${rhoLabel}`, "SE", "95% CI", "Note"]];
   for (const c of cmp) {
     if (c.b === undefined || c.se === undefined) cmpRows.push([c.name, "not computed", "", "", c.note]);
-    else cmpRows.push([c.name, coefText(c.b), coefText(c.se), ci(c.b - GMM_Z975 * c.se, c.b + GMM_Z975 * c.se), c.note]);
+    else {
+      const f = rowFormat(c.b, c.se);
+      cmpRows.push([c.name, f(c.b), f(c.se), ciText(f, c.b, c.se), c.note]);
+    }
   }
   tables.push({ label: `The coefficient of ${rhoLabel} by estimator (the Nickell bracket)`, rows: cmpRows, align: ["left", "right", "right", "right", "left"] });
   const svg = rhoFigure(cmp, rhoLabel);
@@ -907,6 +951,8 @@ interface CmpRow {
   se?: number;
   note: string;
 }
+
+class OtherNotComputed extends Error {}
 
 function comparison(r: DynRead, fit: DynFit, twoStep: boolean, ylag: number, otherPlan: DynPlan | null, otherWhy: string | undefined): CmpRow[] {
   const out: CmpRow[] = [];
@@ -926,10 +972,18 @@ function comparison(r: DynRead, fit: DynFit, twoStep: boolean, ylag: number, oth
     const f2 = fitDynamic(des2);
     const j = des2.names.indexOf(r.spec.terms.find((t) => t.kind === "ylag" && t.lag === 1)!.label);
     const s2 = twoStep ? f2.two : f2.one;
-    if (!s2) throw new GmmRefusal("two-step not identified");
+    // Its two-step refused (a singular two-step weight): not computed, with the reason in a few words.
+    if (!s2) throw new OtherNotComputed(f2.twoShort ?? "two-step not computed");
     other = { key: spec2.system ? "sys" : "diff", name: spec2.system ? "System GMM" : "Difference GMM", b: s2.b[j], se: s2.se[j], note: `${step}, same options` };
   } catch (e) {
-    other = { key: r.spec.system ? "diff" : "sys", name: r.spec.system ? "Difference GMM" : "System GMM", note: !otherPlan ? otherWhy ?? "not estimable with these options" : e instanceof GmmRefusal ? "not estimable with these options" : "not computed" };
+    const note = !otherPlan
+      ? otherWhy ?? "not estimable with these options"
+      : e instanceof OtherNotComputed
+        ? e.message
+        : e instanceof GmmRefusal
+          ? "not estimable with these options"
+          : "not computed";
+    other = { key: r.spec.system ? "diff" : "sys", name: r.spec.system ? "Difference GMM" : "System GMM", note };
   }
   out.push(...(r.spec.system ? [other, mine] : [mine, other]));
   return out;

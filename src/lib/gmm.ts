@@ -21,18 +21,20 @@
  *    the level equation only (Roodman's ivstyle(yr*, equation(level)) example);
  *  - one-step weight A₁ = (Σ ZᵢᵀHᵢZᵢ)⁺ with xtabond2's default H: 2 on the diagonal and −1 between consecutive
  *    periods for differences (Roodman's (22)); for system GMM H = M⁺M⁺ᵀ with M⁺ = [M; I] (Roodman's (26), h(3));
- *  - one-step robust covariance (Arellano–Bond cluster-robust sandwich); two-step weight W₂ = (Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ)⁺ and
- *    Windmeijer's (2005) corrected covariance V₂ + DV₂ + V₂Dᵀ + DV₁Dᵀ;
+ *  - one-step robust covariance (Arellano–Bond cluster-robust sandwich); two-step weight W₂ = (Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ)⁻¹ and
+ *    Windmeijer's (2005) corrected covariance V₂ + DV₂ + V₂Dᵀ + DV₁Dᵀ; when Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ is singular (always with
+ *    more instruments than groups) two-step and Hansen J are refused by name: any generalized inverse would make them
+ *    depend on the basis of the instruments (xtabond2 and pydynpd answer with a pseudo-inverse there);
  *  - Hansen J from the two-step estimate (also printed after one-step, as xtabond2 does); Sargan = g₁ᵀA₁g₁/σ̂² from the
  *    one-step residuals with σ̂² = Σ Δû₁²/(2·N_obs), N_obs the reported observation count;
  *  - Arellano–Bond AR(m) tests on the differenced residuals (Roodman's section 3.5 formula, with the reported
  *    covariance and residuals of the step shown).
  * Generalized inverses: linearly dependent instrument columns are dropped first (the estimator is invariant to that),
  * symmetric matrices are equilibrated to a unit diagonal (D^−½ A D^−½) and inverted by Cholesky or, when singular
- * (e.g. more instruments than groups), by the Moore–Penrose inverse of the equilibrated matrix with eigenvalues below
- * L·ε·λ_max discarded. Every rank decision is taken on unit-diagonal matrices, so no answer depends on the units of a
- * column. When a matrix is singular, this generalized inverse differs from the raw Moore–Penrose inverse that
- * xtabond2 and pydynpd take (that one changes with the units); nonsingular matrices get the same exact inverse.
+ * (the one-step weight), by the Moore–Penrose inverse of the equilibrated matrix with eigenvalues below L·ε·λ_max
+ * discarded. Every rank decision is taken on unit-diagonal matrices, so no answer depends on the units of a column.
+ * When a matrix is singular, this generalized inverse differs from the raw Moore–Penrose inverse that xtabond2 and
+ * pydynpd take (that one changes with the units); nonsingular matrices get the same exact inverse.
  *
  * Every loop is bounded by the caps below; work beyond them is refused by name before it starts.
  */
@@ -139,6 +141,23 @@ export function tooLargeReason(name: string, largest: number, spread: number, sh
     (shiftFree
       ? `subtract a constant from ${name} (the estimates do not change, except a constant's).`
       : `subtract a constant from ${name}, or rescale it (in this model its level matters, so the estimates will change somewhat).`)
+  );
+}
+
+/**
+ * Why a near-collinear column is refused, from its residual share r (the part of the unit-scaled column that the
+ * closest combination of the others leaves): r inflates its coefficient's variance by about 1/r² and the condition
+ * number of the scaled cross-products by as much, so 16 − log₁₀(1/r²) significant digits remain in them. The column
+ * drop takes r² below 10⁻¹⁰ (10⁻¹¹ for econ-gmm instruments) as dependent: a condition number beyond 10¹⁰, about six
+ * digits or fewer, too few for a coefficient and its standard error through the GMM normal equations.
+ */
+export function nearCollinearTail(r: number, instruments = false): string {
+  const infl = 1 / (r * r);
+  const digits = Math.floor(16 - Math.log10(infl));
+  return (
+    `a residual share r inflates the variance of the estimate by about 1/r² (here ${fmtSci(infl, 1)}) and leaves the cross-products ` +
+    (digits >= 1 ? `about ${digits} of double precision's 16 significant digits` : "no reliable digit") +
+    (instruments ? "; shares below about 3×10⁻⁶ are refused (a condition number above 10¹¹)." : "; shares below about 10⁻⁵ are refused (a condition number above 10¹⁰).")
   );
 }
 
@@ -483,59 +502,6 @@ export function symInverse(A0: Float64Array, n: number): { inv: Float64Array; ge
 }
 
 /**
- * symInverse of S = Σ_g u_g u_gᵀ (n×n) when there are fewer vectors than n (S is then singular, rank ≤ m): the same
- * equilibrated Moore–Penrose inverse, through the m×m Gram matrix of the scaled vectors (its nonzero eigenvalues are
- * those of the scaled S, so the cutoff n·ε·λ_max is the same), in O(m²n + n²·rank) instead of an n×n eigensolve.
- */
-export function pinvOuter(us: Float64Array[], n: number): { inv: Float64Array; generalized: boolean; rank: number } {
-  const m = us.length;
-  const sc = new Float64Array(n);
-  for (const u of us) for (let a = 0; a < n; a++) sc[a] += u[a] * u[a];
-  for (let a = 0; a < n; a++) sc[a] = sc[a] > 0 && Number.isFinite(sc[a]) ? 1 / Math.sqrt(sc[a]) : 0;
-  const V = us.map((u) => Float64Array.from(u, (v, a) => v * sc[a]));
-  const Gm = new Float64Array(m * m);
-  for (let g = 0; g < m; g++)
-    for (let h = g; h < m; h++) {
-      const s = dot(V[g], V[h]);
-      Gm[g * m + h] = s;
-      Gm[h * m + g] = s;
-    }
-  const { d, V: Q } = symEigen(Gm, m);
-  let lmax = 0;
-  for (let i = 0; i < m; i++) lmax = Math.max(lmax, Math.abs(d[i]));
-  const tol = n * EPS * lmax;
-  const inv = new Float64Array(n * n);
-  let rank = 0;
-  const w = new Float64Array(n);
-  for (let kq = 0; kq < m; kq++) {
-    if (!(d[kq] > tol) || lmax === 0) continue;
-    rank++;
-    // Eigenvector of the scaled S: Ṽq/√λ; its contribution to the inverse is (Ṽq)(Ṽq)ᵀ/λ².
-    w.fill(0);
-    for (let g = 0; g < m; g++) {
-      const qg = Q[g * m + kq];
-      if (qg === 0) continue;
-      const vg = V[g];
-      for (let a = 0; a < n; a++) w[a] += qg * vg[a];
-    }
-    const f = 1 / (d[kq] * d[kq]);
-    for (let a = 0; a < n; a++) {
-      const wa = w[a] * f;
-      if (wa === 0) continue;
-      const o = a * n;
-      for (let b = a; b < n; b++) inv[o + b] += wa * w[b];
-    }
-  }
-  for (let a = 0; a < n; a++)
-    for (let b = a; b < n; b++) {
-      const v = inv[a * n + b] * sc[a] * sc[b];
-      inv[a * n + b] = v;
-      inv[b * n + a] = v;
-    }
-  return { inv, generalized: true, rank };
-}
-
-/**
  * Greedy column selection on a Gram matrix G (n×n): column j is kept when its squared distance from the span of the
  * kept columns exceeds tol × its own squared norm (pivoted Cholesky in the given order, on G normalized to a unit
  * diagonal so the decision does not depend on the columns' units). Returns the kept indices.
@@ -654,7 +620,7 @@ export interface LinearGmmResult {
   jdf: number;
   jp: number;
   jWhy?: string;
-  /** True when the two-step moment covariance had to be inverted by a generalized inverse. */
+  /** True when the moment covariance S is singular (rank below L): two-step is then refused and J not computed. */
   singularS: boolean;
   firstStage: FirstStage[];
 }
@@ -699,7 +665,8 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
       const sh = a * piv[i];
       const v = raw[i] - sh;
       out(i, v);
-      const m = Math.abs(raw[i]) + Math.abs(sh);
+      // The largest value itself, as reported (the shift is about the column's mean, no larger).
+      const m = Math.abs(raw[i]);
       if (m > mx) mx = m;
       ss += v * v;
     }
@@ -751,7 +718,7 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
       const rel = dependenceResidual(kept.map(colOf), colOf(j));
       if (rel > 1e-9) {
         throw new GmmRefusal(
-          `The instrument ${zName(j)} is nearly, but not exactly, a combination of the others (the closest combination leaves ${fmtSci(rel, 2)} of it): too close to separate in double precision. Drop one of them, or check the column for a common offset or scale.`,
+          `The instrument ${zName(j)} is so close to a combination of the others (the closest combination leaves only ${fmtSci(rel, 2)} of it) that the estimates would be unstable: ${nearCollinearTail(rel, true)} Drop one of them, or check the column for a common offset or scale.`,
         );
       }
       throw new GmmRefusal(`The instruments are perfectly collinear (ZᵀZ is singular): ${zName(j)} is a combination of the others${zPiv >= 0 && xConst ? " (or constant, alongside the constant)" : ""}.`);
@@ -887,14 +854,22 @@ export function fitLinearGmm(inp: LinearGmmInput): LinearGmmResult {
     jWhy = `the clustered moment covariance has rank at most the ${intText(inp.G ?? 0)} clusters, fewer than the ${L} instruments, so the J test (which needs its inverse) is not defined`;
   } else {
     const Wi = symInverse(S1, L);
-    singularS = Wi.generalized;
-    const W = Wi.inv;
-    const b2 = est(W);
-    const e2 = resid(b2);
-    const gbar = new Float64Array(L);
-    for (let i = 0; i < n; i++) for (let a = 0; a < L; a++) gbar[a] += (Z[i * L + a] * e2[i]) / n;
-    j = n * quad(W, gbar, L);
-    if (inp.steps === 2) gmm = backMap(b2, cov(W, Smat(e2)));
+    // A singular S (rank below L) has no inverse; a generalized one would make the two-step estimate and J depend on
+    // the basis of the instruments, so they are refused by name (as with too few clusters above).
+    singularS = Wi.rank < L;
+    if (singularS) {
+      const why = `the moment covariance S is singular (rank ${intText(Wi.rank)} for ${L} instruments: some combination of the instruments is (nearly) uncorrelated with the 2SLS residuals in every ${inp.clusters ? "cluster" : "row"}), so the efficient weight S⁻¹ is not defined`;
+      if (inp.steps === 2) throw new GmmRefusal(`Two-step GMM: ${why}; a generalized inverse would make the estimate depend on how the instruments are written. Use one-step, or fewer instruments.`);
+      jWhy = `${why}, and the J test needs it`;
+    } else {
+      const W = Wi.inv;
+      const b2 = est(W);
+      const e2 = resid(b2);
+      const gbar = new Float64Array(L);
+      for (let i = 0; i < n; i++) for (let a = 0; a < L; a++) gbar[a] += (Z[i * L + a] * e2[i]) / n;
+      j = n * quad(W, gbar, L);
+      if (inp.steps === 2) gmm = backMap(b2, cov(W, Smat(e2)));
+    }
   }
   for (const set of [tsls, gmm]) for (let c = 0; c < k; c++) if (!Number.isFinite(set.b[c]) || !Number.isFinite(set.se[c])) throw new GmmRefusal("The estimates are not finite numbers for these data (check for extreme values).");
   // First stage of each endogenous regressor on every instrument (linearmodels' first_stage.diagnostics): partial R² of
@@ -1162,8 +1137,8 @@ export function planDynamic(data: DynData, spec: DynSpec): DynPlan {
   const instr = L0 - (spec.timeDummies ? T : 0) + tdUsed;
   // Work of one fit: per row the instrument products (ZᵀZ, ZᵀHZ: about 5·nnz² over the H entries) and the regressor
   // products (nnz times the regressors a row fills), a fixed cost per row, the Windmeijer pass (3·N·k·L), N·L² (moment
-  // covariance, plus N²·L + 5·N³ for the low-rank inverse and its N×N eigensolve when L > N) and 4·L³ (the column reduction and two inverses; the
-  // weight 4 is measured: an L³ step costs about four multiply-add units of the row passes).
+  // covariance) and 4·L³ (the column reduction and two inverses; the weight 4 is measured: an L³ step costs about four
+  // multiply-add units of the row passes).
   const nExog = ivCol.reduce((s, c) => s + (c >= 0 ? 1 : 0), 0);
   const nzx = kt + 3;
   let rowWork = 0;
@@ -1173,7 +1148,10 @@ export function planDynamic(data: DynData, spec: DynSpec): DynPlan {
     if (dRows[g].length || lRows[g].length) groups++;
     for (const t of dRows[g]) {
       let nnz = nExog + (spec.timeDummies && !spec.system ? 2 : 0);
-      for (let gi = 0; gi < nG; gi++) nnz += Math.max(0, Math.min(bMax, t) - a1 + 1);
+      // The lags present, plus (collapsed, successive differences: not difference GMM with time dummies) the one boundary
+      // entry of the first lag not yet present.
+      const edge = spec.collapse && (spec.system || !spec.timeDummies) && t >= a1 && t < bMax ? 1 : 0;
+      for (let gi = 0; gi < nG; gi++) nnz += Math.max(0, Math.min(bMax, t) - a1 + 1) + edge;
       rowWork += 5 * nnz * nnz + 4 * nnz * nzx + nzx * nzx;
       rows++;
     }
@@ -1184,7 +1162,7 @@ export function planDynamic(data: DynData, spec: DynSpec): DynPlan {
     }
   }
   const kEst = kt + tdUsed + (spec.system ? 1 : 0);
-  const work = rowWork + DPD_ROW_COST * rows + 3 * groups * kEst * instr + groups * instr * instr + (instr > groups ? groups * groups * instr + 5 * groups * groups * groups : 0) + 4 * instr * instr * instr;
+  const work = rowWork + DPD_ROW_COST * rows + 3 * groups * kEst * instr + groups * instr * instr + 4 * instr * instr * instr;
   return { dRows, lRows, dPer, lPer, L0, A, bMax, dCol, lCol, ivCol, tdCol, consCol, instr, groups, rows, work };
 }
 
@@ -1216,8 +1194,9 @@ export function checkPlan(p: DynPlan): void {
  *    of its present values there (the differenced dummy instruments span every period indicator of the differenced
  *    rows, row by row, gaps included: Σ_{s ≥ t} of them is the indicator of period t);
  *  - otherwise (system GMM, or no time dummies) no instrument is a period indicator of the differenced rows, so each
- *    later lag a > a₁ of a GMM-style column becomes its difference from lag a₁ (a combination of instrument columns,
- *    exact again) and the lag-a₁ column keeps its level. Its offset then mostly acts as an indicator of the rows where
+ *    later lag a > a₁ of a GMM-style column becomes its difference from lag a − 1 (a triangular combination of
+ *    instrument columns, exact again, and as sparse as the raw columns but for one boundary entry) and the lag-a₁
+ *    column keeps its level. Its offset then mostly acts as an indicator of the rows where
  *    the lag exists, which is well conditioned; in a balanced system-GMM panel with time dummies the estimates do not
  *    depend on that offset at all (the level dummies of t and t − 1 carry the same moments), so there its precision is
  *    judged on its per-period deviations.
@@ -1274,9 +1253,16 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
   // as a system-GMM instrument in a period whose gaps prevent the exact recentering (Q, judged on GMM_SQUARED_LIMIT:
   // there the offset is almost, not exactly, absorbed by the dummies, and the cancellation runs through the squares).
   const prec = new Map<string, Float64Array>();
-  const rec = (v: string, raw: number, fam: number, val: number): void => {
+  // One record per variable, looked up once (not per value).
+  const recOf = (v: string): Float64Array => {
     let r = prec.get(v);
     if (!r) prec.set(v, (r = new Float64Array(9)));
+    return r;
+  };
+  const yRec = recOf(spec.y);
+  const tRec = terms.map((tm) => recOf(tm.v));
+  const gRec = spec.gmmVars.map(recOf);
+  const rec = (r: Float64Array, raw: number, fam: number, val: number): void => {
     const a = Math.abs(raw);
     if (a > r[0]) r[0] = a;
     r[1 + 2 * fam] += val * val;
@@ -1318,7 +1304,7 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
       const y0 = ySer[g][t - 1];
       y = y1 - y0;
       if (track) {
-        rec(spec.y, Math.max(Math.abs(y1), Math.abs(y0)), 0, y);
+        rec(yRec, Math.max(Math.abs(y1), Math.abs(y0)), 0, y);
         const my = Math.abs(y1) + Math.abs(y0);
         magY += my * my;
       }
@@ -1327,7 +1313,7 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
         const v0 = tSer[j][g][t - 1 - terms[j].lag];
         set(j, v1 - v0);
         if (track) {
-          rec(terms[j].v, Math.max(Math.abs(v1), Math.abs(v0)), 0, v1 - v0);
+          rec(tRec[j], Math.max(Math.abs(v1), Math.abs(v0)), 0, v1 - v0);
           const m = Math.abs(v1) + Math.abs(v0);
           magX[j] += m * m;
         }
@@ -1343,11 +1329,11 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
     } else {
       const yr = ySer[g][t];
       y = yr - mY;
-      if (track) rec(spec.y, yr, 1, y);
+      if (track) rec(yRec, yr, 1, y);
       for (let j = 0; j < kt; j++) {
         const v = tSer[j][g][t - terms[j].lag];
         set(j, v - mTerm[j]);
-        if (track) rec(terms[j].v, v, 1, v - mTerm[j]);
+        if (track) rec(tRec[j], v, 1, v - mTerm[j]);
       }
       if (td) set(kt + t, 1);
       set(kFull - 1, 1);
@@ -1422,7 +1408,7 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
         }
     const rel = dependenceResidual(fc.slice(0, -1), fc[fc.length - 1]);
     if (rel > 1e-9) {
-      throw new GmmRefusal(`The regressor ${terms[bad].label} is nearly, but not exactly, a combination of the other regressors in the estimation rows (the closest combination leaves ${fmtSci(rel, 2)} of it): too close to separate in double precision; remove it or one of the others.`);
+      throw new GmmRefusal(`The regressor ${terms[bad].label} is so close to a combination of the other regressors in the estimation rows (the closest combination leaves only ${fmtSci(rel, 2)} of it) that its estimate would be unstable: ${nearCollinearTail(rel)} Remove it or one of the others.`);
     }
     throw new GmmRefusal(`The regressor ${terms[bad].label} is perfectly collinear with the other regressors in the estimation rows; remove it.`);
   }
@@ -1549,10 +1535,12 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
     for (let pass = 0; pass < 2; pass++) {
       for (let g = 0; g < N; g++)
         for (const t of dRows[g])
-          for (let gi = 0; gi < nG; gi++)
-            for (let a = a1; a <= bMax; a++) {
+          for (let gi = 0; gi < nG; gi++) {
+            const s = gSer[gi][g];
+            // Lags beyond t have no value (t − a < 0).
+            for (let a = a1, aEnd = Math.min(bMax, t); a <= aEnd; a++) {
               if (dCol[(gi * A + a) * T + (spec.collapse ? 0 : t)] < 0) continue;
-              const v = at(gSer[gi], g, t - a);
+              const v = s[t - a];
               if (Number.isNaN(v)) continue;
               const ix = (gi * A + a) * T + t;
               if (pass === 0) {
@@ -1560,6 +1548,7 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
                 cnt[ix]++;
               } else corr[ix] += v - dMu[ix];
             }
+          }
       for (let ix = 0; ix < dMu.length; ix++) if (cnt[ix]) dMu[ix] = pass === 0 ? dMu[ix] / cnt[ix] : dMu[ix] + corr[ix] / cnt[ix];
     }
   }
@@ -1579,46 +1568,54 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
     }
     for (let t = 1; t < T; t++) exactT[t] = dc[t] > 0 && dc[t] === lc[t] && dc[t] === lc[t - 1] ? 1 : 0;
   }
+  // The entries of the row being built go to zScrI/zScrV (m of them), skipping absent columns, zeros and NaN.
+  let m = 0;
+  const put = (c: number, v: number): void => {
+    if (c < 0 || v === 0 || Number.isNaN(v)) return;
+    zScrI[m] = c;
+    zScrV[m++] = v;
+  };
   for (const b of blocks) {
     const g = b.g;
-    b.rows.forEach((row, ri) => {
+    for (let ri = 0; ri < b.rows.length; ri++) {
+      const row = b.rows[ri];
       const diff = ri < b.nd;
       const t = row.t;
-      let m = 0;
-      const put = (c: number, v: number): void => {
-        if (c < 0 || v === 0 || Number.isNaN(v)) return;
-        zScrI[m] = c;
-        zScrV[m++] = v;
-      };
+      m = 0;
       if (diff) {
         for (let gi = 0; gi < nG; gi++) {
-          const nm = spec.gmmVars[gi];
-          const v1 = at(gSer[gi], g, t - a1);
+          const gr = gRec[gi];
+          // The series of this variable for this group; t − a < t < T, so only t − a < 0 is out of range.
+          const s = gSer[gi][g];
+          let vPrev = NaN;
           for (let a = a1; a <= bMax; a++) {
             const c = dCol[(gi * A + a) * T + (spec.collapse ? 0 : t)];
+            if (a > a1) vPrev = t - a + 1 >= 0 ? s[t - a + 1] : NaN;
             if (c < 0) continue;
-            const v = at(gSer[gi], g, t - a);
+            const v = t - a >= 0 ? s[t - a] : NaN;
             const has = !Number.isNaN(v);
             if (dMu && !sys) {
               const mu = dMu[(gi * A + a) * T + t];
               const val = (has ? v : 0) - mu;
-              if (has) rec(nm, v, 2, val);
+              if (has) rec(gr, v, 2, val);
               put(c, val);
             } else {
-              // Lag a₁ keeps its level, later lags become differences from it; in an exact period of system GMM with
-              // time dummies both also lose their per-period means (the later lags the difference of the two means).
+              // Lag a₁ keeps its level, each later lag becomes its difference from the lag before (successive
+              // differences keep a row sparse: a lag that does not exist yet adds one boundary entry, not one per
+              // missing lag); in an exact period of system GMM with time dummies they also lose their per-period
+              // means (a later lag the difference of the two means).
               const ex = dMu !== null && exactT[t] === 1;
               const mu = ex ? dMu![(gi * A + a) * T + t] : 0;
               if (a === a1) {
                 const val = (has ? v : 0) - mu;
                 // Without time dummies its offset is a genuine part of the instrument (no precision limit applies).
-                if (has && dMu) rec(nm, v, ex ? 2 : 3, v - dMu[(gi * A + a) * T + t]);
+                if (has && dMu) rec(gr, v, ex ? 2 : 3, v - dMu[(gi * A + a) * T + t]);
                 put(c, val);
               } else {
-                const h1 = !Number.isNaN(v1);
-                const mu1 = ex ? dMu![(gi * A + a1) * T + t] : 0;
-                const val = (has ? v : 0) - (h1 ? v1 : 0) - (mu - mu1);
-                if (has && h1) rec(nm, Math.max(Math.abs(v), Math.abs(v1)), 2, val);
+                const hp = !Number.isNaN(vPrev);
+                const muP = ex ? dMu![(gi * A + a - 1) * T + t] : 0;
+                const val = (has ? v : 0) - (hp ? vPrev : 0) - (mu - muP);
+                if (has && hp) rec(gr, Math.max(Math.abs(v), Math.abs(vPrev)), 2, val);
                 put(c, val);
               }
             }
@@ -1651,7 +1648,7 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
       }
       row.zi = zI;
       row.zv = zV;
-    });
+    }
   }
   checkPrec();
   // Instruments: drop zero columns, then dependent ones (pivoted Cholesky on ZᵀZ, scaled).
@@ -1662,14 +1659,19 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
   const pos = new Int32Array(L0).fill(-1);
   nzCols.forEach((c, i) => (pos[c] = i));
   const L1 = nzCols.length;
+  // Upper triangle only (a row's indices are increasing and pos keeps their order), mirrored after.
   const ZZ = new Float64Array(L1 * L1);
   for (const b of blocks)
-    for (const r of b.rows)
-      for (let p = 0; p < r.zi.length; p++) {
-        const a = pos[r.zi[p]];
-        const va = r.zv[p];
-        for (let q2 = 0; q2 < r.zi.length; q2++) ZZ[a * L1 + pos[r.zi[q2]]] += va * r.zv[q2];
+    for (const r of b.rows) {
+      const zi = r.zi;
+      const zv = r.zv;
+      for (let p = 0; p < zi.length; p++) {
+        const o = pos[zi[p]] * L1;
+        const va = zv[p];
+        for (let q2 = p; q2 < zi.length; q2++) ZZ[o + pos[zi[q2]]] += va * zv[q2];
       }
+    }
+  for (let a = 0; a < L1; a++) for (let c = a + 1; c < L1; c++) ZZ[c * L1 + a] = ZZ[a * L1 + c];
   const keptZ = independentColumns(ZZ, L1, 1e-10).sort((a, b) => a - b);
   const L = keptZ.length;
   const finalPos = new Int32Array(L0).fill(-1);
@@ -1727,22 +1729,29 @@ export interface DynFit {
   df: number;
   nObs: number;
   one: DynStep;
-  /** Null when the two-step estimator is not identified (twoWhy says why); Hansen J is then NaN. */
+  /**
+   * Null when the two-step estimator is refused (a singular two-step weight) or not identified: twoWhy says why, in
+   * a sentence, and twoShort in a few words (a table cell); Hansen J is then NaN.
+   */
   two: DynStep | null;
   twoWhy?: string;
+  twoShort?: string;
   hansen: number;
   hansenP: number;
   sargan: number;
   sarganP: number;
-  /** A generalized inverse was needed for the one-step or two-step weight. */
+  /** A generalized inverse was needed for the one-step weight; the two-step moment covariance is singular (two-step refused). */
   singularA1: boolean;
   singularS: boolean;
-  /** Ranks of the one-step weight's matrix Σ ZᵢᵀHᵢZᵢ and of the two-step moment covariance (L when nonsingular). */
+  /**
+   * Ranks of the one-step weight's matrix Σ ZᵢᵀHᵢZᵢ and of the two-step moment covariance (L when nonsingular; −1 when
+   * not computed because there are fewer groups than instruments, so it is singular).
+   */
   rankA1: number;
   rankS: number;
 }
 
-/** Fits the one-step and two-step estimators on a design (both are always computed: Hansen J needs the second). */
+/** Fits the one-step and, when its weight is nonsingular, the two-step estimator on a design (Hansen J needs the second). */
 export function fitDynamic(des: DynDesign): DynFit {
   const { blocks, L } = des;
   const k = des.names.length;
@@ -1854,10 +1863,27 @@ export function fitDynamic(des: DynDesign): DynFit {
   const zu1 = zuOf(e1);
   const S1 = outerSum(zu1);
   const V1 = sandwich(s1.B, S1);
-  const W2i = N < L ? pinvOuter(zu1, L) : symInverse(S1, L);
-  const W2 = W2i.inv;
-  // The two-step estimator needs XᵀZ W₂ ZᵀX non-singular; W₂ has rank at most the number of groups, so with fewer
-  // groups than coefficients it is not identified (the one-step estimate still is).
+  // The two-step weight is S⁻¹ for the moment covariance S = Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ. When S is singular (rank below the
+  // instrument count: always with fewer groups than instruments, as S is a sum of one outer product per group), any
+  // generalized inverse is an arbitrary choice and the two-step estimate and Hansen J change with the basis of the
+  // instruments (a reparametrization that leaves one-step GMM and Sargan unchanged), so two-step is refused by name.
+  const W2i = N < L ? null : symInverse(S1, L);
+  const rankS = W2i ? W2i.rank : -1;
+  const remedy = "use one-step, collapse the instruments, or set a lower last lag";
+  let twoWhy: string | undefined;
+  let twoShort: string | undefined;
+  if (!W2i) {
+    twoWhy =
+      `the two-step weight matrix would be singular: Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ, one outer product per group, has rank at most the ${intText(N)} ${plural(N, "group")}, fewer than the ${intText(L)} instruments, ` +
+      `so the two-step estimate and Hansen J would depend on an arbitrary choice of generalized inverse (the instruments' basis); ${remedy}`;
+    twoShort = `two-step weight singular: ${intText(L)} instruments, ${intText(N)} ${plural(N, "group")}`;
+  } else if (W2i.rank < L) {
+    twoWhy =
+      `the two-step weight matrix is singular (rank ${intText(W2i.rank)} for ${intText(L)} instruments, although the ${intText(N)} groups outnumber the instruments: some combination of the instruments is (nearly) uncorrelated with the one-step residuals in every group, for example a column that is zero in almost every row), ` +
+      `so the two-step estimate and Hansen J would depend on an arbitrary choice of generalized inverse (the instruments' basis); ${remedy}`;
+    twoShort = `two-step weight singular: rank ${intText(W2i.rank)} for ${intText(L)} instruments`;
+  }
+  const W2 = W2i && !twoWhy ? W2i.inv : new Float64Array(0);
   const computeTwo = (): { s2: { b: Float64Array; M: Float64Array; B: Float64Array }; e2: Float64Array[]; zu2: Float64Array[]; g2: Float64Array; Vc: Float64Array; V2: Float64Array } => {
   const s2 = solve(W2);
   const e2 = residuals(s2.b);
@@ -1901,23 +1927,22 @@ export function fitDynamic(des: DynDesign): DynFit {
   return { s2, e2, zu2, g2, Vc, V2 };
   };
   let twoRes: ReturnType<typeof computeTwo> | null = null;
-  let twoWhy: string | undefined;
-  try {
-    twoRes = computeTwo();
-  } catch (e) {
-    if (!(e instanceof GmmRefusal)) throw e;
-    // Name the actual cause: a weight of too low a rank, a singular weighted cross-product despite enough rank, or
-    // whatever else refused (passed through).
-    if (e instanceof SingularSolve && W2i.rank < k) {
-      twoWhy =
-        `the two-step weight matrix has rank ${intText(W2i.rank)} (at most the ${intText(N)} ${plural(N, "group")}), fewer than the ${k} ${plural(k, "coefficient")}, so the two-step estimator is not identified; ` +
-        "use one-step, collapse the instruments, drop the time dummies, or add groups";
-    } else if (e instanceof SingularSolve) {
-      twoWhy =
-        `the two-step weight matrix has rank ${intText(W2i.rank)}, at least the ${k} ${plural(k, "coefficient")}, but XᵀZ W₂ ZᵀX is singular: weighted by the one-step residuals, the instruments do not identify every coefficient; ` +
-        "use one-step, collapse the instruments, or drop a regressor";
-    } else {
-      twoWhy = e.message.replace(/\.$/, "").replace(/^./, (ch) => ch.toLowerCase());
+  if (!twoWhy) {
+    try {
+      twoRes = computeTwo();
+    } catch (e) {
+      if (!(e instanceof GmmRefusal)) throw e;
+      // Name the actual cause: a singular weighted cross-product despite a full-rank weight, or whatever else refused
+      // (passed through).
+      if (e instanceof SingularSolve) {
+        twoWhy =
+          "XᵀZ W₂ ZᵀX is singular: weighted by the one-step residuals, the instruments do not identify every coefficient; " +
+          "use one-step, collapse the instruments, or drop a regressor";
+        twoShort = "two-step not identified";
+      } else {
+        twoWhy = e.message.replace(/\.$/, "").replace(/^./, (ch) => ch.toLowerCase());
+        twoShort = "two-step not computed";
+      }
     }
   }
   const se = (V: Float64Array): Float64Array => Float64Array.from({ length: k }, (_, j) => Math.sqrt(Math.max(V[j * k + j], 0)));
@@ -2020,14 +2045,15 @@ export function fitDynamic(des: DynDesign): DynFit {
     one,
     two,
     twoWhy,
+    twoShort,
     hansen,
     hansenP: df > 0 && Number.isFinite(hansen) ? chiSquareP(Math.max(hansen, 0), df) : NaN,
     sargan,
     sarganP: df > 0 && Number.isFinite(sargan) ? chiSquareP(Math.max(sargan, 0), df) : NaN,
     singularA1: A1i.generalized,
-    singularS: W2i.generalized,
+    singularS: !W2i || W2i.rank < L,
     rankA1: A1i.rank,
-    rankS: W2i.rank,
+    rankS,
   };
 }
 

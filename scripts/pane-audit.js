@@ -70,7 +70,7 @@ const BASELINES = {
   // v2.200.0: 50 of 52 — panel-fe (pooled OLS vs FE) and panel-re (FE vs RE) now draw coefficient comparisons.
   // v2.203.0 (F2): 69 of 75 — of the 23 new calculators, tobit, Heckman and multinomial logit are coefficient tables
   // and the money multiplier is a ledger; econ-regtable and econ-logit are tables as before.
-  stats: { label: "Statistics", figures: 69, total: 75 },
+  stats: { label: "Statistics", figures: 71, total: 77 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it

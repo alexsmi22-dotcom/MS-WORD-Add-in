@@ -19,6 +19,7 @@ import { fmtFixed, fmtP, fmtSci, groupThousands, intText, numText, P_BELOW } fro
 import { buildPlotSvg, type Series } from "./plot";
 import { chiSquareP } from "./stats2";
 import { ivDefaultTable } from "./ivCalcs";
+import { fitReading } from "./statLibReading";
 import {
   buildDynamic,
   checkPlan,
@@ -425,7 +426,52 @@ export function econGmmCalc(read: Read): StatOutput {
     },
   ];
   const svg = k1 ? gmmCoefFigure(names.slice(0, k1), r, cluster ? `standard errors clustered by ${q(c.clusterName ?? cluster)} (sandwich)` : undefined) : undefined;
-  return { text: lines.join("\n"), tables, ...(svg ? { svg } : {}) };
+  const reading = econGmmReading(fitted);
+  return { text: lines.join("\n"), reading, tables, ...(svg ? { svg } : {}) };
+}
+
+/** A coefficient's two-sided normal p as coefRow computes it (P(χ²₁ > z²)). */
+function coefP(b: number, se: number): number {
+  const z = b / se;
+  return Number.isFinite(z) ? chiSquareP(z * z, 1) : NaN;
+}
+
+/**
+ * econ-gmm in plain words: the first instrumented regressor's estimated effect (or the first regressor's association
+ * when nothing is instrumented), then what the Hansen J test and the first stage say about the instruments. Every
+ * number is a cell of the coefficient table (coefRow) or a figure of the text (pText, fmtFixed).
+ */
+function econGmmReading(f: GmmFitted): string | undefined {
+  const { r, names, endog } = f;
+  const dep = f.depName;
+  const j = names.findIndex((nm) => nm !== "Constant");
+  let lead: string;
+  if (j < 0) {
+    const row = coefRow(names[0], r.gmm.b[0], r.gmm.se[0]);
+    lead = `With no regressors, the model estimates only the average level of ${dep}, about ${row[1]}.`;
+  } else {
+    const row = coefRow(names[j], r.gmm.b[j], r.gmm.se[j]);
+    const p = coefP(r.gmm.b[j], r.gmm.se[j]);
+    const iv = endog.includes(names[j]);
+    const pS = Number.isFinite(p) ? `, ${p < 0.001 ? `p ${P_BELOW}` : `p = ${row[4]}`}` : "";
+    const sig = Number.isFinite(p) && p < 0.05;
+    lead = iv
+      ? `The estimated effect of a one-unit increase in ${names[j]} on ${dep} is ${row[1]} (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`
+      : `A one-unit increase in ${names[j]} goes with a change of ${row[1]} in ${dep} (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`;
+  }
+  let tail = "";
+  if (r.jdf > 0 && Number.isFinite(r.j)) {
+    tail =
+      r.jp < 0.05
+        ? ` The Hansen test rejects the instruments (${pText(r.jp)}): at least one looks invalid, so the estimate is suspect.`
+        : r.jp > 0.99
+          ? ` The Hansen test's ${pText(r.jp)} is too good to be reassuring (often a sign of too many instruments).`
+          : ` The Hansen test finds no evidence against the instruments (${pText(r.jp)}).`;
+  } else if (r.jdf === 0 && endog.length) tail = " With exactly as many instruments as needed, their validity cannot be tested.";
+  const fs = j >= 0 ? r.firstStage.find((x) => x.name === names[j]) : undefined;
+  const weak = fs && Number.isFinite(fs.p) && fs.p >= 0.05 ? ` The instruments barely predict ${fs.name} (first stage ${pText(fs.p)}), so the estimate is unreliable.` : "";
+  // Two sentences at most: a weak first stage outranks the overidentification test.
+  return fitReading(lead + (weak || tail), lead);
 }
 
 /**
@@ -988,7 +1034,25 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   }
   tables.push({ label: `The coefficient of ${rhoLabel} by estimator (the Nickell bracket)`, rows: cmpRows, align: ["left", "right", "right", "right", "left"] });
   const svg = rhoFigure(cmp, rhoLabel);
-  return { text: lines.join("\n"), tables, ...(svg ? { svg } : {}) };
+  // The reading: how much of last period's response carries over, then what the specification tests say.
+  const rowY = coefRow(rhoLabel, st.b[ylag], st.se[ylag]);
+  const pY = coefP(st.b[ylag], st.se[ylag]);
+  const pYS = Number.isFinite(pY) ? (pY < 0.001 ? `p ${P_BELOW}` : `p = ${rowY[4]}`) : "";
+  const lead =
+    Number.isFinite(pY) && pY < 0.05
+      ? `Each unit of last period's ${r.depName} carries over as about ${rowY[1]} units this period (95% interval ${rowY[5]}, ${pYS}), holding the other regressors fixed`
+      : `The data show no clear carry-over from last period's ${r.depName} (coefficient ${rowY[1]}${pYS ? `, ${pYS}` : ""})`;
+  const ar2 = st.ar.find((a) => a.order === 2 && !a.why);
+  const valP = fit.df > 0 ? (fit.two ? fit.hansenP : fit.sarganP) : NaN;
+  const valName = fit.two ? "Hansen" : "Sargan";
+  let tests: string;
+  if (r.spec.lagFirst === 2 && ar2 && ar2.p < 0.05) tests = `; but the AR(2) test rejects (${pText(ar2.p)}), so the lag-2 instruments look invalid.`;
+  else if (Number.isFinite(valP) && valP < 0.05) tests = `; but the ${valName} test rejects the instruments (${pText(valP)}), so the estimate is suspect.`;
+  else if (fit.two && Number.isFinite(valP) && valP > 0.99) tests = `; the Hansen ${pText(valP)} is too good to be reassuring (often too many instruments).`;
+  else if (Number.isFinite(valP) && ar2) tests = `; the specification tests find no evidence against the instruments (AR(2) ${pText(ar2.p)}, ${valName} ${pText(valP)}).`;
+  else tests = ".";
+  const reading = fitReading(lead + tests, `${lead}.`);
+  return { text: lines.join("\n"), reading, tables, ...(svg ? { svg } : {}) };
 }
 
 interface CmpRow {

@@ -16,6 +16,7 @@ import { composePanels } from "./panels";
 import { buildPlotSvg, type Series } from "./plot";
 import { fmtFixed, fmtP, fmtSci, intText } from "./regTable";
 import type { StatCalcDef } from "./statCalc";
+import { fitReading } from "./statLibReading";
 import { parseSeriesTable, pickSeries, type SeriesData } from "./tsData";
 import {
   COINT_MAX_K,
@@ -525,7 +526,32 @@ export function tsGarchCalc(read: Read): StatOutput {
   const absR = Float64Array.from(fit.resid, Math.abs);
   const sigma = Float64Array.from(fit.sigma2, Math.sqrt);
   const svg = garchVolatilitySvg({ x: ax.x, absReturn: absR, sigma, forecast: fc, xlabel: ax.xlabel, title: `${VOL_NAME[spec.vol]} conditional volatility`, ylabel: pct ? `${name} (%)` : name });
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: how long a volatility shock lasts, then the leverage effect (GJR, EGARCH) or the next-period forecast.
+  const persS = fmtFixed(fit.persistence, 4);
+  let lead: string;
+  if (noArch) lead = `In this fit the returns of ${name} do not move its volatility (the shock terms are at zero), so volatility follows a fixed path`;
+  else if (unitPers) lead = `Volatility in ${name} is fully persistent (persistence ${persS}): a shock to it does not fade`;
+  else if (fit.persistence > 0) {
+    const hl = Math.log(0.5) / Math.log(fit.persistence);
+    const desc = fit.persistence >= 0.9 ? "highly persistent" : fit.persistence >= 0.5 ? "persistent" : "short-lived";
+    lead = `Volatility shocks in ${name} are ${desc} (persistence ${persS}): ${hl < 1 ? "a shock halves within a period" : `a shock takes about ${fmtFixed(hl, hl < 10 ? 2 : 1)} periods to halve`}`;
+  } else lead = `Volatility shocks in ${name} die out within one period (persistence ${persS})`;
+  let second = "";
+  const gi = fit.names.indexOf("gamma");
+  const gSe = gi >= 0 ? fit.seRobust?.[gi] : undefined;
+  if ((spec.vol === "gjr" || spec.vol === "egarch") && !noArch && gSe) {
+    const g = fit.params[gi];
+    const gp = normalP(g / gSe);
+    const leverage = spec.vol === "gjr" ? g > 0 : g < 0;
+    const pS = gp < 0.001 ? `p ${fmtP(gp)}` : `p = ${fmtP(gp)}`;
+    second = leverage
+      ? gp < 0.05
+        ? ` Bad news (a negative return) raises volatility more than good news of the same size (${pS}).`
+        : ` Bad news may raise volatility more than good news, but that extra effect is not clearly different from zero (${pS}).`
+      : " Bad news does not raise volatility more than good news in this fit.";
+  } else if (Number.isFinite(fc[0])) second = ` The forecast variance for the next period is ${fmtFixed(fc[0], fd)}.`;
+  const reading = fitReading(`${lead}.${second}`, `${lead}.`);
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // ---------------------------------------------------------------- VAR shared
@@ -684,7 +710,20 @@ export function tsVarCalc(read: Read): StatOutput {
   tables.push({ label: "Residual covariance Σᵤ (degrees-of-freedom corrected)", rows: sRows, align: ["left", ...names.map(() => "right" as const)] });
   const ax = axisOf(s.data, s.data.n);
   const svg = seriesLinesSvg({ x: ax.x, names, cols: s.cols, xlabel: ax.xlabel, title: `VAR(${p}) input series` });
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: the clearest predictive (Granger) link, how many others there are, and whether shocks die out.
+  const gp = (g: { p: number }): string => `p ${g.p < 0.001 ? fmtP(g.p) : `= ${fmtP(g.p)}`}`;
+  const stab = root === null ? "" : root < 1 ? "; the system is stable, so the effects of a shock die out" : "; the system is not stable, so the effects of a shock do not die out";
+  let reading: string | undefined;
+  if (sig.length) {
+    const best = sig.reduce((a, b) => (b.p < a.p ? b : a));
+    const others = sig.length - 1;
+    const lead = `Past values of ${names[best.causing]} help predict ${names[best.caused]} beyond what ${names[best.caused]}'s own past predicts (${gp(best)})`;
+    const more = others ? `, and ${others} other link${others === 1 ? " is" : "s are"} also clear at the 5% level` : "";
+    reading = fitReading(`${lead}${more}${stab}.`, `${lead}${more}.`, `One series helps predict another at 5% (${gp(best)}).`);
+  } else {
+    reading = fitReading(`No series helps predict another beyond its own past at the 5% level${stab}.`, "No series helps predict another beyond its own past at the 5% level.");
+  }
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // ---------------------------------------------------------------- ts-var-irf
@@ -740,7 +779,21 @@ export function tsVarIrfCalc(read: Read): StatOutput {
     tables.push({ label: `FEVD of ${names[r]}: share of forecast-error variance from each shock`, rows, align: ["right", ...names.map(() => "right" as const)], note: "Each row sums to 100%." });
   }
   const svg = varIrfGridSvg({ names, orth: ir.orth, se: ir.se, z });
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: the series most moved by the others at the horizon (its own share and its largest outside source).
+  let rMin = 0;
+  for (let r = 1; r < K; r++) if (ir.fevd[r][H - 1][r] < ir.fevd[rMin][H - 1][rMin]) rMin = r;
+  const lastRow = ir.fevd[rMin][H - 1];
+  let cTop = rMin === 0 ? 1 : 0;
+  for (let c = 0; c < K; c++) if (c !== rMin && lastRow[c] > lastRow[cTop]) cTop = c;
+  const pc = (v: number): string => `${fmtFixed(100 * v, 1)}%`;
+  const ownS = pc(lastRow[rMin]);
+  const orderNote = " These shares depend on the order the series are listed in.";
+  const lead =
+    lastRow[rMin] > 0.5
+      ? `Each series is driven mainly by its own shocks ${H === 1 ? "one period ahead" : `${H} periods ahead`}: even ${names[rMin]}, the least self-driven, owes ${ownS} of its forecast uncertainty to its own shocks (${names[cTop]} ${pc(lastRow[cTop])}).`
+      : `${H === 1 ? "One period ahead" : `${H} periods ahead`}, only ${ownS} of the forecast uncertainty in ${names[rMin]} comes from its own shocks; ${names[cTop]} accounts for ${pc(lastRow[cTop])}.`;
+  const reading = fitReading(lead + orderNote, lead, `Forecast uncertainty ${H} periods ahead: the least self-driven series owes ${ownS} of it to its own shocks.`);
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // ---------------------------------------------------------------- ts-engle-granger
@@ -799,7 +852,20 @@ export function tsEngleGrangerCalc(read: Read): StatOutput {
   ];
   const ax = axisOf(data, n);
   const svg = egResidualSvg({ x: ax.x, resid: r.resid, xlabel: ax.xlabel, title: `Cointegrating residual: ${names[0]}` });
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: the 5% decision the text makes (τ against the 5% critical value), in words.
+  const tauS = fmtFixed(r.stat, 4);
+  const cvS = fmtFixed(r.crit[1], 3);
+  const others = names.slice(1).join(", ");
+  const reading = reject
+    ? fitReading(
+        `The test finds evidence of cointegration at 5% (τ = ${tauS}, below the critical value ${cvS}): ${names[0]} and ${others} move together in the long run, so a regression in levels is meaningful.`,
+        `The test finds evidence of cointegration at 5% (τ = ${tauS}, below the critical value ${cvS}): the series move together in the long run.`,
+      )
+    : fitReading(
+        `The test finds no evidence of cointegration at 5% (τ = ${tauS}, not below the critical value ${cvS}): ${names[0]} and ${others} may drift apart, so a regression in levels could be spurious.`,
+        `The test finds no evidence of cointegration at 5% (τ = ${tauS}, not below the critical value ${cvS}): the series may drift apart.`,
+      );
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // ---------------------------------------------------------------- ts-johansen
@@ -863,7 +929,23 @@ export function tsJohansenCalc(read: Read): StatOutput {
   ];
   const ax = axisOf(data, n);
   const svg = seriesLinesSvg({ x: ax.x, names, cols, xlabel: ax.xlabel, title: "Series in levels" });
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: the 5% ranks the text reports (statistic against the 95% critical value), in words.
+  const rel = (k: number): string => `${k} long-run relation${k === 1 ? "" : "s"}`;
+  const list = names.join(", ");
+  let reading: string | undefined;
+  if (rankTrace !== rankMax) {
+    reading = `The two tests disagree at 5%: the trace test finds ${rel(rankTrace)} among the series, the maximum-eigenvalue test ${rankMax}, so how many stable long-run links there are is uncertain.`;
+  } else if (rankTrace === 0) {
+    reading = fitReading(`Both tests find no evidence of cointegration at 5%: no stable long-run relation ties ${list} together.`, "Both tests find no evidence of cointegration at 5%: no stable long-run relation ties the series together.");
+  } else if (rankTrace === K) {
+    reading = `Both tests find full rank (${K}) at 5%: the series look stationary on their own, so there is no shared trend for cointegration to describe.`;
+  } else {
+    reading = fitReading(
+      `Both tests find ${rel(rankTrace)} at 5%: ${list} share ${rankTrace === 1 ? "a stable long-run relation" : "stable long-run relations"} even if each wanders on its own.`,
+      `Both tests find ${rel(rankTrace)} among the series at 5%.`,
+    );
+  }
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // ---------------------------------------------------------------- registry

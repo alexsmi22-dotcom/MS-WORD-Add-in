@@ -32,6 +32,8 @@ import { readCalcList, ListTokenError } from "./calcList";
 import { ratOf } from "./currency";
 import { parseSeriesTable, pickSeries } from "./tsData";
 import { fitOls, type SeType } from "./olsInference";
+import { fitReading, unsigned } from "./statLibReading";
+import { depositExpansionSvg } from "./statLibFigures";
 import {
   rcmp,
   type Utility,
@@ -290,7 +292,13 @@ export function microDemandCalc(read: Read): StatOutput {
     tables.push({ label: "Demand at a grid of prices", rows: grid, align: ["right", "right", "right", "right"] });
     const pMin = form === "semilog" ? 0 : 0.25 * Math.min(...marks.filter((x) => x > 0));
     const svg = demandRevenueSvg({ qOf, pMax, pMin, p0, pR: pR ? ratToNumber(pR) : null, pStar: pStar ? ratToNumber(pStar) : null, title: form === "loglog" ? "Constant-elasticity demand" : "Log-linear demand" });
-    return { text: lines.join("\n"), tables, svg };
+    // The reading: the quantity and elasticity at the price entered, what a price rise does to revenue, the monopoly price.
+    const kindWord = e0 < -1 ? "elastic" : e0 > -1 ? "inelastic" : "unit elastic";
+    const revText = e0 < -1 || e0 > -1 ? `${e0 < -1 ? "lower" : "raise"} revenue (now ${nm(p0 * q0)})` : `leave revenue (now ${nm(p0 * q0)}) unchanged`;
+    const lead = `At a price of ${ex(P0)} buyers take about ${nm(q0)} units and demand is ${kindWord} there (ε = ${nm(e0)}), so a small price rise would ${revText}.`;
+    const star = pStar && mc ? ` A monopolist with marginal cost ${ex(mc)} would charge ${ex(pStar)}.` : "";
+    const reading = fitReading(lead + star, lead);
+    return { text: lines.join("\n"), reading, tables, svg };
   });
 }
 
@@ -500,7 +508,26 @@ export function microConsumerCalc(read: Read): StatOutput {
       },
     ];
     const svg = consumerChoiceSvg({ u, m, p1, p1New: p1n, p2, eHicks: res.eHicks, u0: res.u0, u1: res.u1, A: res.A, B: res.B, C: res.C });
-    return { text: lines.join("\n"), tables, svg };
+    // The reading: what the price change does to good 1, split into its two effects, and the money measure of the loss.
+    const dir = rcmp(v.p1new, v.p1);
+    const cvS = nm(snap(res.cv));
+    const money =
+      dir === 0
+        ? ""
+        : snap(res.cv) > 0
+          ? ` The consumer would need ${cvS} more income to be as well off as before.`
+          : snap(res.cv) < 0
+            ? ` The consumer could give up ${unsigned(cvS)} of income and still be as well off as before.`
+            : "";
+    let lead: string;
+    if (dir === 0) lead = fin(res.A) ? `The price of good 1 does not change (${ex(v.p1)}), so the choice stays at ${nm(res.A.x)} of good 1 and ${nm(res.A.y)} of good 2.` : `The price of good 1 does not change (${ex(v.p1)}), so nothing about the choice changes.`;
+    else if (fin(res.A) && fin(res.B) && fin(res.C)) {
+      lead =
+        `The ${dir > 0 ? "rise" : "fall"} in the price of good 1 from ${ex(v.p1)} to ${ex(v.p1new)} moves its purchases from ${nm(res.A.x)} to ${nm(res.C.x)}: ` +
+        `${nm(snap(res.B.x - res.A.x))} from substitution between the goods and ${nm(snap(res.C.x - res.B.x))} from the change in purchasing power.`;
+    } else lead = `With the price of good 1 going from ${ex(v.p1)} to ${ex(v.p1new)}, the best bundle is not unique at one of the steps (the goods are equally good value), so the change cannot be split into effects.`;
+    const reading = fitReading(lead + money, lead);
+    return { text: lines.join("\n"), reading, tables, svg };
   });
 }
 
@@ -627,7 +654,33 @@ export function microCostCalc(read: Read): StatOutput {
       },
     ];
     const svg = costCurvesSvg(an, price ? ratToNumber(price) : null, sup && !sup.shut ? sup.q : null);
-    return { text: lines.join("\n"), tables, svg };
+    // The reading: what the firm should do at the market price, then its shutdown and break-even prices.
+    const shutP = an.shutdown.valueExact ? ex(an.shutdown.valueExact) : nm(an.shutdown.value);
+    const beP = !ratIsZero(c[0]) && an.breakEven ? (an.breakEven.valueExact ? ex(an.breakEven.valueExact) : nm(an.breakEven.value)) : null;
+    const noBreakEven = !ratIsZero(c[0]) && !an.breakEven;
+    const thresholds = noBreakEven
+      ? `The firm should shut down at prices below ${shutP}; its average cost falls at every output, so there is no single break-even price.`
+      : an.shutdown.atZero
+        ? `The firm covers its variable cost at any price above ${ex(c[1])}${beP ? ` and all its costs above ${beP}` : ""}.`
+        : beP
+          ? `The firm should shut down at prices below ${shutP} and covers all its costs only above ${beP}.`
+          : `The firm should shut down at prices below ${shutP}; with no fixed cost, any price above that covers all its costs.`;
+    let lead = "";
+    if (price && sup) {
+      if (sup.shut) lead = `At a price of ${ex(price)}, below the shutdown price, the firm should produce nothing and loses its fixed cost of ${ex(c[0])}.`;
+      else {
+        const qS = sup.qExact ? ex(sup.qExact) : `about ${nm(sup.q)}`;
+        const profS = sup.profitExact ? ex(sup.profitExact) : nm(sup.profit);
+        lead =
+          sup.profit >= 0
+            ? `At a price of ${ex(price)} the firm should produce ${qS} units and makes a profit of ${sup.profitExact ? "" : "about "}${profS}.`
+            : `At a price of ${ex(price)} the firm should still produce ${qS} units: it loses ${sup.profitExact ? "" : "about "}${profS.replace(/−/g, "")}, less than its fixed cost of ${ex(c[0])}.`;
+      }
+    } else if (price && linearMc !== null && linearMc >= 0) {
+      lead = linearMc > 0 ? `At a price of ${ex(price)}, above the constant marginal cost, a linear cost gives no finite best output.` : `At a price of ${ex(price)}, equal to the constant marginal cost, every output earns the same profit.`;
+    }
+    const reading = fitReading(lead ? `${lead} ${thresholds}` : thresholds, lead || thresholds);
+    return { text: lines.join("\n"), reading, tables, svg };
   });
 }
 
@@ -722,7 +775,15 @@ export function microPriceDiscCalc(read: Read): StatOutput {
       res.third.q.map(ratToNumber),
       ratToNumber(res.uniformPrice),
     );
-    return { text: lines.join("\n"), tables: [t], svg };
+    // The reading: separate prices against one price, for the seller and for total surplus.
+    const prices = res.third.p.map((p, i) => (p === null ? `market ${i + 1} not served` : cellDec(p)));
+    const tsMove = ratSign(dTS) > 0 ? "raises" : ratSign(dTS) < 0 ? "lowers" : "leaves";
+    const tsText = ratSign(dTS) === 0 ? `leaves total surplus at ${cellDec(res.third.ts)}` : `${tsMove} total surplus from ${cellDec(res.uniform.ts)} to ${cellDec(res.third.ts)}`;
+    const profitText = ratEq(res.third.profit, res.uniform.profit)
+      ? `leaves profit at ${cellDec(res.third.profit)}`
+      : `raises profit from ${cellDec(res.uniform.profit)} to ${cellDec(res.third.profit)}`;
+    const reading = `Charging the two markets separate prices (${prices.join(" and ")}) instead of one uniform price ${profitText} and ${tsText}.`;
+    return { text: lines.join("\n"), reading, tables: [t], svg };
   });
 }
 
@@ -841,7 +902,17 @@ export function microAuctionCalc(read: Read): StatOutput {
       },
     ];
     const svg = auctionSvg(n, N(v.lo), N(v.hi), N(res.r), N(rStar));
-    return { text: lines.join("\n"), tables, svg };
+    // The reading: expected revenue in both formats, then what the optimal reserve does for the seller.
+    const revText = equalRev ? `both a first-price and a second-price auction are expected to raise ${cv(res.revFirst)}` : `a first-price auction is expected to raise ${cv(res.revFirst)} and a second-price auction ${cv(res.revSecond)}`;
+    const pay0 = N(payoff(res));
+    const pay1 = N(payoff(resStar));
+    const same = Math.abs(pay1 - pay0) <= 1e-9 * Math.max(1, Math.abs(pay0));
+    const resText = same
+      ? ` No other reserve price would do better for the seller (the best is ${cellDec(rStar)}).`
+      : ` A reserve price of ${cellDec(rStar)} would raise the seller's expected payoff from ${cv(payoff(res))} to ${cv(payoff(resStar))}.`;
+    const lead = `With ${n} bidders ${!sIsZero ? `and a reserve of ${cellDec(reserve!)}` : "and no reserve"}, ${revText}.`;
+    const reading = fitReading(lead + resText, lead);
+    return { text: lines.join("\n"), reading, tables, svg };
   });
 }
 
@@ -936,7 +1007,14 @@ export function macroGrowthCalc(read: Read): StatOutput {
     }
     const tables: StatTable[] = [{ label: "Growth accounting by period", rows: tbl, align: ["left", "right", "right", "right", "right"], note: `Growth rates per period, ${kind === "log" ? "log differences" : "simple rates"}, in percent.` }];
     const svg = growthAccountingSvg(labels, xs, cum);
-    return { text: lines.join("\n"), tables, svg };
+    // The reading: average output growth and where it came from.
+    const grew = mY > 0 ? `grew ${pctN(mY)}` : mY < 0 ? `shrank ${pctN(-mY)}` : `did not grow`;
+    const tfpShare = Math.abs(mY) > 1e-12 && mY > 0 ? ` (${pctN(mA / mY, 1)} of the total)` : "";
+    const reading = fitReading(
+      `Output ${grew} a period on average over ${labels[0]} to ${labels[d.n - 1]}: capital contributed ${pctN(mK)}, labor ${pctN(mL)} and productivity growth (TFP, the part capital and labor do not explain) ${pctN(mA)}${tfpShare}.`,
+      `Output ${grew} a period on average: capital contributed ${pctN(mK)}, labor ${pctN(mL)} and productivity growth (TFP) ${pctN(mA)}${tfpShare}.`,
+    );
+    return { text: lines.join("\n"), reading, tables, svg };
   });
 }
 
@@ -1103,7 +1181,8 @@ export function macroMundellFlemingCalc(read: Read): StatOutput {
     }
     if (note) lines.splice(lines.length - 2, 0, note);
     const svg = isLmBpSvg(p, figExp.s0, figExp.p1, figExp.s1, figExp.regime);
-    return { text: lines.join("\n"), tables, svg };
+    const reading = mundellFlemingReading(figExp, d);
+    return { text: lines.join("\n"), reading, tables, svg };
   });
 }
 
@@ -1168,7 +1247,74 @@ export function macroMoneyMultiplierCalc(read: Read): StatOutput {
       tr.push(["All rounds", cellDec(Dt), cellDec(ratMul(res, Dt)), cellDec(ratMul(lend, Dt)), cellDec(ratMul(cr, Dt))]);
       tables.push({ label: `Deposit expansion after ΔB = ${cellDec(v.dB)}`, rows: tr, align: ["left", "right", "right", "right", "right"], note: "Each round: the public deposits 1/(1 + c) of the new money and holds the rest as currency; banks keep (r + e) of each deposit and lend the rest." });
     }
-    return { text: lines.join("\n"), tables };
+    const reading = moneyMultiplierReading(mult, v.base, M, v.dB);
+    const svg = moneyExpansionFigure(v.dB, v.base, mult, res, cr);
+    return { text: lines.join("\n"), reading, tables, ...(svg ? { svg } : {}) };
+  });
+}
+
+/** A change as "raises output by 142.8571" / "lowers … by 50" / "leaves … unchanged" (cellDec, the table's format). */
+function ratMove(x: Rat, what: string, up = "raises", down = "lowers"): string {
+  const s = ratSign(x);
+  return s === 0 ? `leaves ${what} unchanged` : `${s > 0 ? up : down} ${what} by ${cellDec(s > 0 ? x : ratNeg(x))}`;
+}
+
+/** macro-mundell-fleming in plain words: the experiment the figure shows (the regime and policy chosen). */
+function mundellFlemingReading(
+  o: { name: string; regime: MfRegime; s0: MfSolution; dY: Rat; de: Rat; dNX: Rat },
+  d: Record<string, Rat>,
+): string {
+  const regime = o.regime === "floating" ? "Under a floating exchange rate" : "Under a fixed exchange rate";
+  if (o.name.startsWith("Monetary ΔM, fixed")) {
+    return ratIsZero(d.dM)
+      ? `${regime}, no money-supply change is entered; output stays at ${ex(o.s0.Y)}.`
+      : `${regime}, a money-supply change of ${ex(d.dM)} is undone as the central bank defends the peg, so output, the interest rate and the exchange rate do not change.`;
+  }
+  const size = o.name.startsWith("Fiscal") ? d.dG : o.name.startsWith("Monetary") ? d.dM : d.de;
+  const policy = o.name.startsWith("Fiscal") ? `a change in government spending of ${ex(size)}` : o.name.startsWith("Monetary") ? `a money-supply change of ${ex(size)}` : `a devaluation of ${ex(size)}`;
+  if (ratIsZero(size)) return `${regime}, no ${o.name.startsWith("Fiscal") ? "spending" : o.name.startsWith("Monetary") ? "money-supply" : "exchange-rate"} change is entered; output stays at ${ex(o.s0.Y)}.`;
+  const fx2 = o.regime === "floating" && ratSign(o.de) !== 0 ? `, as the currency ${ratSign(o.de) < 0 ? "appreciates" : "depreciates"}` : "";
+  return `${regime}, ${policy} ${ratMove(o.dY, "output")} and ${ratMove(o.dNX, "net exports")}${fx2}.`;
+}
+
+/** macro-money-multiplier in plain words. */
+function moneyMultiplierReading(mult: Rat, base: Rat, M: Rat, dB: Rat): string {
+  const change = ratIsZero(dB) ? "" : `; a change of ${ex(dB)} in the base changes it by ${ex(ratMul(mult, dB))}`;
+  return `In this fixed-ratio model every unit of monetary base supports ${ex(mult)} units of money, so a base of ${ex(base)} supports a money supply of ${ex(M)}${change}.`;
+}
+
+/** At most this many lending rounds in the deposit-expansion figure. */
+const EXPANSION_MAX_ROUNDS = 40;
+
+/**
+ * The deposit-expansion figure: money created after each round out of ΔB (or out of the whole base B when ΔB is 0),
+ * rising to m times it. Round k adds ΔB·qᵏ⁻¹ with q = (1 − r − e)/(1 + c) (the round's deposit plus the currency kept,
+ * the table's own recursion); drawn until within 1% of the limit, at least 6 rounds and at most EXPANSION_MAX_ROUNDS.
+ */
+function moneyExpansionFigure(dB: Rat, base: Rat, mult: Rat, res: Rat, cr: Rat): string | undefined {
+  const onBase = ratIsZero(dB);
+  const inj = onBase ? base : dB;
+  const q = ratToNumber(ratDiv(ratSub(RAT_ONE, res), ratAdd(RAT_ONE, cr)));
+  const injN = ratToNumber(inj);
+  const limitR = ratMul(mult, inj);
+  const limit = ratToNumber(limitR);
+  if (![q, injN, limit].every(Number.isFinite)) return undefined;
+  const cum: number[] = [];
+  let add = injN;
+  let tot = 0;
+  for (let k = 1; k <= EXPANSION_MAX_ROUNDS; k++) {
+    tot += add;
+    cum.push(tot);
+    add *= q;
+    if (k >= 6 && Math.abs(limit - tot) <= 0.01 * Math.abs(limit)) break;
+  }
+  const what = onBase ? "B" : "ΔB";
+  return depositExpansionSvg({
+    cumulative: cum,
+    limit,
+    limitLabel: `m·${what} = ${ex(limitR)}`,
+    title: `Deposit expansion out of ${what} = ${ex(inj)}`,
+    injectionLabel: onBase ? "monetary base" : "change in the base",
   });
 }
 
@@ -1237,7 +1383,12 @@ export function macroFiscalMultipliersCalc(read: Read): StatOutput {
     ];
     const slope = ratToNumber(ratSub(ratMul(v.c, ratSub(one, t)), v.m));
     const svg = keynesianCrossSvg(ratToNumber(v.A), ratToNumber(ratAdd(v.A, dA)), slope, ratToNumber(Y0), ratToNumber(ratAdd(Y0, dY)));
-    return { text: lines.join("\n"), tables, svg };
+    // The reading: the spending multiplier in words, then the policy entered (if any).
+    const taxCut = ratIsZero(kT) ? "a lump-sum tax cut leaves it unchanged" : `a one-unit lump-sum tax cut raises it by ${ex(ratNeg(kT))}`;
+    const lead = `Each extra unit of government spending raises output by ${ex(k)} units and ${taxCut}, with prices and interest rates held fixed.`;
+    const pol = ratIsZero(v.dG) && ratIsZero(v.dT) ? "" : ` The policy entered ${ratMove(dY, "output")} and changes the budget balance by ${ex(ratSub(dRev, v.dG))}.`;
+    const reading = fitReading(lead + pol, lead);
+    return { text: lines.join("\n"), reading, tables, svg };
   });
 }
 
@@ -1385,7 +1536,19 @@ export function macroPhillipsCalc(read: Read): StatOutput {
     ];
     const svg = phillipsSvg(u, y, alpha, beta, nairu, form === "accel" ? "Change in inflation Δπ (points)" : "Inflation surprise π − πᵉ (points)");
     lines.push(...d.notes.map((n) => n));
-    return { text: lines.join("\n"), tables, svg };
+    // The reading: the NAIRU when the curve slopes down, else what the slope says.
+    const pS = fmtP(tb.p).startsWith("<") ? "p " + fmtP(tb.p) : "p = " + fmtP(tb.p);
+    const what = form === "accel" ? "inflation" : "inflation relative to expectations";
+    let reading: string;
+    if (nairu === null) reading = `Inflation does not respond to unemployment in this sample (slope 0), so no NAIRU can be estimated.`;
+    else if (beta > 0) reading = `The estimated curve slopes up (β = ${fx(beta, 4)}, ${pS}), the wrong way for a Phillips curve, so these data give no meaningful NAIRU.`;
+    else if (tb.p < 0.05) {
+      reading = fitReading(
+        `Higher unemployment goes with falling ${what} (β = ${fx(beta, 4)}, ${pS}); ${what === "inflation" ? "inflation is stable" : "inflation meets expectations"} at about ${fx(nairu, 3)}% unemployment (the NAIRU; 95% interval ${fx(nairu - 1.959964 * nSe!, 3)}% to ${fx(nairu + 1.959964 * nSe!, 3)}%).`,
+        `Higher unemployment goes with falling ${what} (${pS}); the NAIRU is about ${fx(nairu, 3)}%.`,
+      )!;
+    } else reading = `The data show no clear link between unemployment and ${what} (β = ${fx(beta, 4)}, ${pS}), so the NAIRU estimate of ${fx(nairu, 3)}% is unreliable.`;
+    return { text: lines.join("\n"), reading, tables, svg };
   });
 }
 

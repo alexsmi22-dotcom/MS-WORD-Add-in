@@ -29,6 +29,7 @@ import { buildPlotSvg, combineSvgs, type Series } from "./plot";
 import { normalCdfPrecise } from "./probdist";
 import { solveDense } from "./qpActiveSet";
 import { fitLogit, LogitProbitRefusal } from "./logitProbit";
+import { fitReading, unsigned } from "./statLibReading";
 
 type Read = (k: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
@@ -653,7 +654,27 @@ export function rdCalc(read: Read): StatOutput {
     ylabel: yName,
     notes: [`${bins} equal-width bins per side; fitted lines within c ± h${t ? " (reduced form of the outcome)" : ""}; vertical line at the cutoff.`],
   });
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: the estimated effect at the cutoff and whether it stands out from chance.
+  const exactFit = fit.se <= 1e-9 * Math.max(yScale, 1e-300);
+  const at = `${xName} = ${numText(c)}`;
+  const tauS = fmtFixed(fit.tau, d);
+  let reading: string;
+  if (exactFit) reading = `The fitted ${yName} jumps by ${tauS} at ${at}, but the local fit is exact, so how precise that estimated effect is cannot be judged.`;
+  else if (design === "sharp") {
+    reading =
+      pz < 0.05
+        ? `Crossing the cutoff at ${at} has an estimated effect of ${tauS} on ${yName} (95% interval ${ci(fit.tau, fit.se, d)}, p ${pText(pz)}), a jump unlikely to be chance at the 5% level.`
+        : `The data show no clear jump in ${yName} at ${at} (estimated effect ${tauS}, p ${pText(pz)}); the gap could be chance.`;
+  } else {
+    const weak = fit.fs && fit.fs.se > 1e-9 * Math.abs(fit.fs.est) && (fit.fs.est / fit.fs.se) ** 2 < 10 ? " The treatment barely jumps at the cutoff, so this estimate is unreliable." : "";
+    const lead =
+      pz < 0.05
+        ? `For units whose treatment the cutoff at ${at} switches, the estimated effect on ${yName} is ${tauS} (95% interval ${ci(fit.tau, fit.se, d)}, p ${pText(pz)}), unlikely to be chance at the 5% level.`
+        : `The data show no clear effect on ${yName} at ${at} (estimated effect ${tauS}, p ${pText(pz)}); it could be chance.`;
+    reading = fitReading(lead + weak, lead)!;
+  }
+  reading = fitReading(reading, `The estimated effect at the cutoff is ${tauS} (p ${pText(pz)}).`)!;
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1142,7 +1163,21 @@ export function synthCalc(read: Read): StatOutput {
     notes: omitted ? [`${omitted} placebo${omitted === 1 ? "" : "s"} with pre-period MSPE above 5× the treated unit's not drawn (all are in the p-value).`] : undefined,
   });
   const svg = combineSvgs([top, bottom]).svg;
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: the average post-period gap as the estimated effect, then what the placebos say about chance.
+  const attS = fmtFixed(att, 3);
+  const gapText =
+    attS === fmtFixed(0, 3)
+      ? `After treatment, ${r.treatedName} tracked its synthetic control with no average gap (${attS})`
+      : `After treatment, ${r.treatedName} ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control (the estimated effect)`;
+  let inference: string;
+  const U = J + 1;
+  if (!r.placebos) inference = "; no placebo comparison was run, so chance cannot be judged.";
+  else if (exactPre) inference = "; the pre-period fit is exact to the data's precision, so the placebo ranking says nothing about chance.";
+  else if (r.p < 0.05) inference = `; only ${r.rank === 1 ? "this unit" : `${r.rank} of ${U} units`} show${r.rank === 1 ? "s" : ""} a gap this large relative to its fit (permutation p = ${fmtFixed(r.p, 3)}), unlikely to be chance at the 5% level.`;
+  else if (r.rank === 1) inference = `; its gap is the largest of the ${U} units relative to fit, but with ${J} donors the permutation p cannot go below ${fmtFixed(r.p, 3)}, so chance is not ruled out at 5%.`;
+  else inference = `; ${r.rank - 1} of the ${J} donors show a gap as large relative to their fit (permutation p = ${fmtFixed(r.p, 3)}), so the gap could be chance.`;
+  const reading = fitReading(gapText + inference, `${gapText}.`);
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1595,6 +1630,10 @@ export function pscoreCalc(read: Read): StatOutput {
   const tables: StatTable[] = [];
   let wBal: number[];
   let summary: string;
+  let readLead = "";
+  /** "The estimated effect of training on earnings among the treated is 2.500" (the reading's lead, from the table's own format). */
+  const psWho = (est: number, dd: number): string =>
+    `The estimated effect of ${tName} on ${cols.depName} ${estimand === "att" ? "among the treated" : "averaged over everyone"} is ${fmtFixed(est, dd)}`;
   if (method === "match") {
     let sdEta = 0;
     const mEta = eta.reduce((a, v) => a + v, 0) / n;
@@ -1608,6 +1647,7 @@ export function pscoreCalc(read: Read): StatOutput {
       `${estimand.toUpperCase()} = ${fmtFixed(m.est, 3)} (matched: ${intText(m.nMatchedT)} treated, ${intText(m.nMatchedC)} controls${m.dropped ? `; ${intText(m.dropped)} unit${m.dropped === 1 ? "" : "s"} without a match within the caliper dropped` : ""}). ` +
       "No standard error is reported (see below).";
     lines = [header, summary];
+    readLead = `${psWho(m.est, 3)} (by matching, which gives no standard error, so its precision is unknown)`;
     lines.push(
       `Matching: ${k} nearest neighbor${k === 1 ? "" : "s"} ${replace ? "with" : "without"} replacement on η = logit p̂ (the linear predictor), ` +
         (Number.isFinite(calSd) ? `caliper ${fmtFixed(calSd, 3)} SD of η = ${fmtFixed(cal, 4)} (SD over the ${intText(n)} rows, divisor n − 1)` : "no caliper") +
@@ -1637,6 +1677,9 @@ export function pscoreCalc(read: Read): StatOutput {
     const z = r.est / r.se;
     summary = `${estimand.toUpperCase()} = ${fmtFixed(r.est, 3)} (SE ${fmtFixed(r.se, 3)}), z = ${fmtFixed(z, 3)}, p ${pText(zP(z))}, 95% CI ${ci(r.est, r.se, 3)}`;
     lines = [header, summary];
+    readLead =
+      `${psWho(r.est, 3)} (95% interval ${ci(r.est, r.se, 3)}, p ${pText(zP(z))}), ` +
+      (zP(z) < 0.05 ? "unlikely to be chance at the 5% level" : "not clearly different from zero");
     lines.push(
       `Weights: ${estimand === "ate" ? "1/p̂ for treated, 1/(1 − p̂) for controls" : "1 for treated, p̂/(1 − p̂) for controls"}; ` +
         (wKind === "hajek"
@@ -1746,7 +1789,13 @@ export function pscoreCalc(read: Read): StatOutput {
     },
   );
   const svg = combineSvgs([top, love]).svg;
-  return { text: lines.join("\n"), tables, svg };
+  // The reading: the estimated effect, then whether the adjusted groups are comparable on the covariates.
+  const bal =
+    worstAfter <= 0.1
+      ? ` The groups are well balanced after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}), but it is causal only if the covariates capture how units were chosen.`
+      : ` The groups still differ after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}, above 0.1), so the estimate may be biased.`;
+  const reading = fitReading(`${readLead}.${bal}`, `${readLead}.`);
+  return { text: lines.join("\n"), reading, tables, svg };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

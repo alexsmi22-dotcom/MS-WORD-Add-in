@@ -115,6 +115,9 @@ describe("time value & loans", () => {
     const pay = loanPayment(200000, 0.05 / 12, 360);
     expect(numbersPrinted(r, [`Payment = ${finMoney(pay)} per period`], [finMoney(200000), finPct(0.05), "30"])).toEqual([]);
     expect(ok(R.loanReading(200000, 0, 1, 1))).not.toContain("mostly interest");
+    // Only when the first payment is more than half interest.
+    expect(r).toContain("mostly interest");
+    expect(ok(R.loanReading(200000, 3, 15, 12))).not.toContain("mostly interest");
     expect(ok(R.loanReading(200000, 5, 2, 3))).toContain("payment (3 a year)");
   });
 
@@ -213,6 +216,8 @@ describe("capital budgeting & valuation", () => {
     expect(numbersPrinted(r, [`XIRR = ${finPct(xirr(cf, days)!)} / year`])).toEqual([]);
     expect(r).toContain("a year");
     expect(R.xirrReading(cf, [0, 1])).toBeUndefined();
+    // The sign pattern is read in date order: typed out of order, an investment is still an investment.
+    expect(ok(R.xirrReading([-1000, 500, 600], [0, 400, 200]))).toContain("cost of capital is lower");
   });
 
   test("dcf: terminal value mostly, half, the forecast mostly, negative", () => {
@@ -398,8 +403,8 @@ describe("litigation damages", () => {
     const out = damagesToFin(reasonableRoyalty(inp));
     const r = ok(R.royaltyReading(inp));
     expect(numbersPrinted(r, [out.text, ...cells(out)])).toEqual([]);
-    expect(r).toContain("above its present value");
-    expect(ok(R.royaltyReading({ ...inp, lumpSum: 150000 }))).toContain("below its present value");
+    expect(r).toContain("above the running royalty's present value");
+    expect(ok(R.royaltyReading({ ...inp, lumpSum: 150000 }))).toContain("below the running royalty's present value");
     const unit = { ...inp, basis: "unit" as const, rate: 0.5, apportionPct: 100, lumpSum: 0 };
     const ru = ok(R.royaltyReading(unit));
     expect(ru).toContain("no apportionment");

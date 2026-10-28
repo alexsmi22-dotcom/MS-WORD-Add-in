@@ -172,7 +172,8 @@ export function loanReading(p: number, ratePct: number, years: number, m: number
   const first =
     `Each ${paymentNoun(m)} of ${finMoney(pay)} repays ${finMoney(p)} borrowed at ${finPct(ratePct / 100)} a year ` +
     `over ${inNum(years)} ${plural(years, "year")}.`;
-  return fit(first, i > 0 && n > 1 && p > 0 ? "Early payments are mostly interest, so the balance falls slowly at first." : undefined);
+  // Only when it is true: the first payment more than half interest (a 15-year loan at 3% is not).
+  return fit(first, i > 0 && n > 1 && p > 0 && p * i > pay / 2 ? "Early payments are mostly interest, so the balance falls slowly at first." : undefined);
 }
 
 /** amort: "Each monthly payment is 1,073.64; over 30 years that is 186,511.57 of interest on top of the 200,000.00 borrowed." */
@@ -231,7 +232,7 @@ export function perpetuityReading(pmt: number, ratePct: number, gPct: number): s
   if (!finite(pmt, r, g, level, growing)) return undefined;
   const first = `Paid every period forever from next period, ${finMoney(pmt)} is worth ${finMoney(level)} today at ${aAn(finPct(r))} ${finPct(r)} discount rate`;
   if (finPct(g) === finPct(0)) return `${first}; with no growth that is also the growing value.`;
-  return `${first}; changing by ${finPct(g)} a period it is worth ${finMoney(growing)}, a value that swings hard with the growth assumed.`;
+  return `${first}; changing by ${finPct(g)} a period it is worth ${finMoney(growing)}, a value sensitive to the growth assumed.`;
 }
 
 /** rate-forms: discrete against continuous compounding, and the effective rate. */
@@ -317,7 +318,9 @@ export function xirrReading(flows: number[], days: number[]): string | undefined
   if (flows.length !== days.length) return undefined;
   const v = xirr(flows, days);
   if (v === null || !finite(v)) return undefined;
-  return rateOfReturnReading(finPct(v), "a year", flows);
+  // The sign pattern in date order (readXirrDates refuses a date before the first, not later dates out of order).
+  const ordered = flows.map((c, k) => ({ c, d: days[k] })).sort((a, b) => a.d - b.d).map((x) => x.c);
+  return rateOfReturnReading(finPct(v), "a year", ordered);
 }
 
 /** dcf: the value, and how much of it is the terminal value (the text's share, to 0.1%). */
@@ -571,7 +574,7 @@ export function lostEarningsReading(
   // lib/lostEarnings.ts pct(), on the same decimal it prints.
   const pct = `${finFixed((f.discountPct / 100) * 100, 2).replace(/\.?0+$/, "")}%`;
   return (
-    `Over ${num(years)} ${years === 1 ? "year" : "years"} from age ${num(f.startAge)}, the lost earnings are worth ${pv} today, discounted at ${pct} a year, ` +
+    `Over ${num(years)} ${years === 1 ? "year" : "years"} from age ${num(f.startAge)}, the lost earnings have a present value of ${pv} at the start of year 1, discounted at ${pct} a year, ` +
     `against ${net} of net loss before discounting, computed from the inputs given.`
   );
 }
@@ -590,8 +593,8 @@ export function royaltyReading(inp: RoyaltyInput): string | undefined {
   const pv = dmgMoney(c.pvTotal);
   const second =
     diff === 0
-      ? `The ${dmgMoney(inp.lumpSum)} lump sum entered equals its present value of ${pv} at ${dmgPct(inp.discountPct)} a year.`
-      : `The ${dmgMoney(inp.lumpSum)} lump sum entered is ${dmgMoney(Math.abs(diff))} ${diff > 0 ? "above" : "below"} its present value of ${pv} at ${dmgPct(inp.discountPct)} a year.`;
+      ? `The ${dmgMoney(inp.lumpSum)} lump sum entered equals the running royalty's present value of ${pv} at ${dmgPct(inp.discountPct)} a year.`
+      : `The ${dmgMoney(inp.lumpSum)} lump sum entered is ${dmgMoney(Math.abs(diff))} ${diff > 0 ? "above" : "below"} the running royalty's present value of ${pv} at ${dmgPct(inp.discountPct)} a year.`;
   return fit(first, second);
 }
 

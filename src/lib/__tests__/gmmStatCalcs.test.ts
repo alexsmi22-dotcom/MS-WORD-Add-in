@@ -254,6 +254,12 @@ describe("panel-dyn-gmm hostile inputs and refusals", () => {
     expect(o.text).toMatch(/Two-step GMM not computed: the two-step weight matrix would be singular: Σ Zᵢᵀû₁ᵢû₁ᵢᵀZᵢ, one outer product per group, has rank at most the 12 groups, fewer than the \d+ instruments/);
     expect(o.text).toMatch(/^Difference GMM \(Arellano–Bond\), one-step: |^System GMM \(Blundell–Bond\), one-step: /);
     expect(o.text).not.toMatch(/Hansen χ²/);
+    expect(o.text).toContain("instruments' basis); for a two-step estimate, collapse the instruments or set a lower last lag.");
+    // One-step asked for: the Hansen line names the reason, and never advises one-step.
+    const one = run("panel-dyn-gmm", { ...DYN, data: dynPanel(12, 12), timeDummies: "no", steps: "one" });
+    expect(one.text).toMatch(/Hansen J not computed: the two-step weight matrix would be singular: .* for a two-step estimate, collapse the instruments or set a lower last lag\. H₀/);
+    expect(one.text).not.toMatch(/use one-step/);
+    expect(one.text).not.toContain("Two-step GMM not computed");
     // With time dummies there are more coefficients (13) than groups (12): the cluster-robust covariance has rank at
     // most 11, so both one-step and two-step are refused by name (before, one-step printed SEs from a singular matrix).
     for (const steps of ["two", "one"]) {

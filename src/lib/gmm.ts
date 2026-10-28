@@ -1594,11 +1594,19 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
             if (c < 0) continue;
             const v = t - a >= 0 ? s[t - a] : NaN;
             const has = !Number.isNaN(v);
+            // The value, and the precision record (rec, written out: this loop runs for every instrument value, and
+            // a call per value boxed its numbers) of family fam (−1: none) with its raw size and recentered value.
+            let val: number;
+            let fam = -1;
+            let raw = 0;
+            let rv = 0;
             if (dMu && !sys) {
-              const mu = dMu[(gi * A + a) * T + t];
-              const val = (has ? v : 0) - mu;
-              if (has) rec(gr, v, 2, val);
-              put(c, val);
+              val = (has ? v : 0) - dMu[(gi * A + a) * T + t];
+              if (has) {
+                fam = 2;
+                raw = v;
+                rv = val;
+              }
             } else {
               // Lag a₁ keeps its level, each later lag becomes its difference from the lag before (successive
               // differences keep a row sparse: a lag that does not exist yet adds one boundary entry, not one per
@@ -1607,17 +1615,33 @@ export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynD
               const ex = dMu !== null && exactT[t] === 1;
               const mu = ex ? dMu![(gi * A + a) * T + t] : 0;
               if (a === a1) {
-                const val = (has ? v : 0) - mu;
+                val = (has ? v : 0) - mu;
                 // Without time dummies its offset is a genuine part of the instrument (no precision limit applies).
-                if (has && dMu) rec(gr, v, ex ? 2 : 3, v - dMu[(gi * A + a) * T + t]);
-                put(c, val);
+                if (has && dMu) {
+                  fam = ex ? 2 : 3;
+                  raw = v;
+                  rv = v - dMu[(gi * A + a) * T + t];
+                }
               } else {
                 const hp = !Number.isNaN(vPrev);
                 const muP = ex ? dMu![(gi * A + a - 1) * T + t] : 0;
-                const val = (has ? v : 0) - (hp ? vPrev : 0) - (mu - muP);
-                if (has && hp) rec(gr, Math.max(Math.abs(v), Math.abs(vPrev)), 2, val);
-                put(c, val);
+                val = (has ? v : 0) - (hp ? vPrev : 0) - (mu - muP);
+                if (has && hp) {
+                  fam = 2;
+                  raw = Math.max(Math.abs(v), Math.abs(vPrev));
+                  rv = val;
+                }
               }
+            }
+            if (fam >= 0) {
+              const ar = Math.abs(raw);
+              if (ar > gr[0]) gr[0] = ar;
+              gr[1 + 2 * fam] += rv * rv;
+              gr[2 + 2 * fam]++;
+            }
+            if (val !== 0 && !Number.isNaN(val)) {
+              zScrI[m] = c;
+              zScrV[m++] = val;
             }
           }
         }
@@ -1869,7 +1893,8 @@ export function fitDynamic(des: DynDesign): DynFit {
   // instruments (a reparametrization that leaves one-step GMM and Sargan unchanged), so two-step is refused by name.
   const W2i = N < L ? null : symInverse(S1, L);
   const rankS = W2i ? W2i.rank : -1;
-  const remedy = "use one-step, collapse the instruments, or set a lower last lag";
+  // The one-step estimate stays valid (and is reported), so the remedy is for two-step only.
+  const remedy = "for a two-step estimate, collapse the instruments or set a lower last lag";
   let twoWhy: string | undefined;
   let twoShort: string | undefined;
   if (!W2i) {

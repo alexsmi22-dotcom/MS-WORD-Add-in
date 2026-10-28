@@ -502,6 +502,12 @@
           }
           var blanks = blankFiguresNow();
           if (blanks) flags.push("BLANK_FIGURE x" + blanks);
+          // The plain-language reading above the numbers (lib/calcReading.ts), for the readings ratchet.
+          var readingEl = resultEl.querySelector(".calc-reading");
+          push(
+            "READING " + reg.mode + " " + t + " " + (readingEl ? "yes" : "no") + " :: " +
+              (readingEl ? (readingEl.textContent || "").replace(/\s+/g, " ").trim() : "")
+          );
           push(
             "DEFAULT " + reg.mode + " " + t + " len=" + text.length + " fig=" + figuresNow() +
               " insert=" + (insertBtn.disabled ? "OFF" : "on") +

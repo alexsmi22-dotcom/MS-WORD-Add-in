@@ -41,7 +41,20 @@ export type FinTable = { label: string; rows: string[][]; align?: ("left" | "cen
  * What a Finance calculator returns: a plain string (text only), or text with a figure, Word tables, and `ok: false`
  * for a refusal (shown, never insertable).
  */
-export type FinResult = string | { text: string; svg?: string; ok?: boolean; table?: FinTable; tables?: FinTable[] };
+export type FinResult =
+  | string
+  | {
+      text: string;
+      /**
+       * What the result means, in one or two plain sentences, built from the computed numbers (lib/calcReading.ts
+       * states the rules). Shown first, in bold, and inserted as the first paragraph. Never on a refusal.
+       */
+      reading?: string;
+      svg?: string;
+      ok?: boolean;
+      table?: FinTable;
+      tables?: FinTable[];
+    };
 
 /** A Finance refusal: shown, never insertable. */
 export const finRefusal = (text: string): FinResult => ({ text, ok: false });

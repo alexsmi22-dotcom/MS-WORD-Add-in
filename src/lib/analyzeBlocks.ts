@@ -8,6 +8,11 @@ import { BracketChoice, BracketFigure } from "./statsBrackets";
 
 export interface StatOutput {
   text: string;
+  /**
+   * What the result means, in one or two plain sentences, built from the computed numbers (lib/calcReading.ts
+   * states the rules). Shown first, in bold, and inserted as the first paragraph. Never on a refusal.
+   */
+  reading?: string;
   /** False for a validation message (blocks insertion). */
   ok?: boolean;
   /**

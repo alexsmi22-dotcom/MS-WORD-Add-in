@@ -13,6 +13,7 @@ import * as path from "path";
 import { FIN_GROUP_ORDER, type FinCalcDef, type FinResult } from "../finCalc";
 import { readFinanceField } from "../finance";
 import { insertableResultText } from "../insertGate";
+import { readingProblems } from "../calcReading";
 
 const SRC = path.join(__dirname, "..", "..");
 const PANE = fs.readFileSync(path.join(SRC, "taskpane", "taskpane.ts"), "utf8").replace(/\r\n/g, "\n");
@@ -64,6 +65,19 @@ if (cases.length) {
       expect(FIN_GROUP_ORDER as readonly string[]).toContain(c.group);
       expect(c.name.toLowerCase().startsWith(c.group.toLowerCase())).toBe(false);
       for (const f of c.fields) expect(typeof f.default).toBe("string");
+    });
+
+    // "Fully inclusive" (2026-10-28): every result says what it means and draws a figure, not a table alone.
+    test("its defaults carry a plain-language reading that keeps the rules (lib/calcReading.ts)", () => {
+      const o = run(c);
+      expect(typeof o).not.toBe("string");
+      if (typeof o === "string") return;
+      expect(readingProblems(o.reading)).toEqual([]);
+    });
+
+    test("its defaults draw a figure", () => {
+      const o = run(c);
+      expect(typeof o === "string" ? "" : (o.svg ?? "")).toMatch(/^<svg[\s>]/);
     });
 
     test("its defaults compute to an insertable result with insertable table cells", () => {

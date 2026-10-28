@@ -12,6 +12,7 @@ import * as path from "path";
 import type { StatCalcDef } from "../statCalc";
 import type { StatOutput } from "../analyzeBlocks";
 import { insertableResultText } from "../insertGate";
+import { readingProblems } from "../calcReading";
 
 const SRC = path.join(__dirname, "..", "..");
 const PANE = fs.readFileSync(path.join(SRC, "taskpane", "taskpane.ts"), "utf8").replace(/\r\n/g, "\n");
@@ -57,6 +58,15 @@ if (cases.length) {
         expect(typeof f.default).toBe("string");
         if (f.kind === "select") expect((f.options ?? []).map((o) => o.value)).toContain(f.default);
       }
+    });
+
+    // "Fully inclusive" (2026-10-28): every result says what it means and draws a figure, not a table alone.
+    test("its defaults carry a plain-language reading that keeps the rules (lib/calcReading.ts)", () => {
+      expect(readingProblems(run(c).reading)).toEqual([]);
+    });
+
+    test("its defaults draw a figure", () => {
+      expect(run(c).svg ?? "").toMatch(/^<svg[\s>]/);
     });
 
     test("its defaults compute to an insertable result with insertable table cells", () => {

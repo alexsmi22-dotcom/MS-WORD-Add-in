@@ -96,6 +96,10 @@ const BASELINES = {
   finance: { label: "Finance", figures: 68, total: 79 },
 };
 
+// How many Finance and Statistics calculators open with a plain-language reading (lib/calcReading.ts) on their
+// defaults. A floor, raised as readings land; a reading lost is a finding.
+const READING_BASELINES = { stats: 0, finance: 0 };
+
 function findBrowser() {
   const candidates = [
     process.env.CHROME_PATH,
@@ -382,6 +386,39 @@ function run() {
       }
     }
   }
+  // THE READINGS RATCHET (2026-10-28, "fully inclusive"): Finance and Statistics results open with a plain-language
+  // reading (lib/calcReading.ts). The library registries are held to it in jest (fin/statSpreadContract); the
+  // calculators written inside taskpane.ts can only be reached here, so this is where they are counted and checked.
+  console.log("\n--- Plain-language readings, per registry (ratchet) ----------");
+  const readingLines = lines.filter((l) => l.startsWith("READING "));
+  for (const mode of Object.keys(READING_BASELINES)) {
+    const mine = readingLines.filter((l) => l.split(" ")[1] === mode);
+    const have = mine.filter((l) => l.split(" ")[3] === "yes");
+    const flag = have.length < READING_BASELINES[mode];
+    if (flag) findings.push(`READINGS ${mode}: ${have.length} carry one, below the baseline of ${READING_BASELINES[mode]}`);
+    if (have.length > READING_BASELINES[mode]) raise.push(`reading ${mode} -> ${have.length}`);
+    console.log(
+      `  ${flag ? "FLAG" : "ok  "}  ${mode.padEnd(12)} ${String(have.length).padStart(3)} of ${String(mine.length).padStart(3)} read` +
+        `   (baseline ${READING_BASELINES[mode]})`
+    );
+    const none = mine.filter((l) => l.split(" ")[3] !== "yes").map((l) => l.split(" ")[2]);
+    for (let i = 0; i < none.length; i += 6) console.log("          no reading: " + none.slice(i, i + 6).join("  "));
+    // The rules lib/calcReading.ts states, re-checked here for the readings jest cannot reach.
+    for (const l of have) {
+      const r = l.split(" :: ").slice(1).join(" :: ");
+      const bad = [];
+      if (r.length > 320) bad.push(`${r.length} characters`);
+      if (r.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(Boolean).length > 2) bad.push("more than two sentences");
+      if (!/[.!?]$/.test(r)) bad.push("no full stop");
+      if (r.includes("—")) bad.push("em dash");
+      if (/\b(NaN|Infinity|undefined|null)\b/.test(r) || /\^/.test(r) || /\d[eE][+-]?\d/.test(r)) bad.push("bad number");
+      if (bad.length) {
+        findings.push(`READING ${mode} ${l.split(" ")[2]}: ${bad.join(", ")}`);
+        console.log(`  FLAG  ${l.split(" ")[2]}: ${bad.join(", ")} :: ${r}`);
+      }
+    }
+  }
+
   const totalDrawn = inserts.filter((l) => /preview\[fig=[1-9]/.test(l)).length;
   const totalBase = Object.values(BASELINES).reduce((s, b) => s + b.figures, 0);
   console.log(`\n  Campaign total: ${totalDrawn} of ${inserts.length} draw (was ${totalBase} at v2.89.0).`);

@@ -23,7 +23,7 @@ import type { FittedModel, ModelStat, ModelTerm } from "./regModel";
 import { normalQuantile } from "./probdist";
 import { chiSquareP } from "./stats2";
 import { formatNum } from "./linalg";
-import { fmtFixed as tableFixed, fmtP as tableP, numText, P_BELOW } from "./regTable";
+import { fmtFixed as tableFixed, fmtP as tableP, fmtSci, numText, P_BELOW } from "./regTable";
 
 export type LogitProbitSE = "classical" | "hc0";
 
@@ -941,17 +941,47 @@ export function fmtP(p: number): string {
 /** The largest odds ratio the table prints in fixed notation (beyond it the odds-ratio table is left out). */
 export const ODDS_RATIO_MAX = 1e9;
 
+/** Every logit odds-ratio row, constant left out (no range check). */
+function allOddsRatioRows(model: FittedModel): { name: string; or: number; lo: number; hi: number; p: number }[] {
+  if (model.kind !== "logit") return [];
+  return model.terms.filter((t) => t.name !== "Constant").map((t) => ({ name: t.name, or: Math.exp(t.coef), lo: Math.exp(t.ciLo), hi: Math.exp(t.ciHi), p: t.p }));
+}
+
+const oddsRowPrintable = (r: { or: number; lo: number; hi: number; p: number }): boolean => {
+  const ok = (v: number): boolean => Number.isFinite(v) && v <= ODDS_RATIO_MAX && v >= 1 / ODDS_RATIO_MAX;
+  return ok(r.or) && ok(r.lo) && ok(r.hi) && Number.isFinite(r.p);
+};
+
 /**
  * Logit odds ratios for every term but the constant: exp(coef) with exp(ciLo), exp(ciHi) and the coefficient's p.
- * Undefined for probit, for a model with only a constant, or when any ratio or bound is not finite or past
- * ODDS_RATIO_MAX (or below its reciprocal), where fixed notation would print a misleading 0.0000 or a 40-digit number.
+ * Undefined for probit or a model with only a constant. A row whose ratio or bound is not finite or is past
+ * ODDS_RATIO_MAX (or below its reciprocal) is left out on its own, and the report says which (bug test 2026-10-28,
+ * R5 MAJOR 3: one such row used to drop the whole table, silently); undefined when every row is left out.
  */
 export function oddsRatioRows(model: FittedModel): { name: string; or: number; lo: number; hi: number; p: number }[] | undefined {
-  if (model.kind !== "logit") return undefined;
-  const rows = model.terms.filter((t) => t.name !== "Constant").map((t) => ({ name: t.name, or: Math.exp(t.coef), lo: Math.exp(t.ciLo), hi: Math.exp(t.ciHi), p: t.p }));
-  if (!rows.length) return undefined;
-  const ok = (v: number): boolean => Number.isFinite(v) && v <= ODDS_RATIO_MAX && v >= 1 / ODDS_RATIO_MAX;
-  return rows.every((r) => ok(r.or) && ok(r.lo) && ok(r.hi) && Number.isFinite(r.p)) ? rows : undefined;
+  const rows = allOddsRatioRows(model).filter(oddsRowPrintable);
+  return rows.length ? rows : undefined;
+}
+
+/** The terms whose odds ratio the table leaves out (past 10⁹ or below 10⁻⁹, or not finite), in order. */
+export function oddsRatiosLeftOut(model: FittedModel): string[] {
+  return allOddsRatioRows(model)
+    .filter((r) => !oddsRowPrintable(r))
+    .map((r) => r.name);
+}
+
+/**
+ * An odds ratio to 4 significant figures under the display contract (R5 MAJOR 3: four DECIMALS printed a ratio of
+ * 1.0000004 as "1.0000" and 3.7×10⁻⁶ as "0.0000" beside "3.706×10⁻⁶" in the next column). Fixed notation from 0.001
+ * to below 10⁹, with every integer digit kept and grouped from 10,000 up; m×10ⁿ (4 significant digits) outside.
+ */
+export function fmtOddsRatio(v: number): string {
+  if (!Number.isFinite(v)) throw new RangeError("non-finite odds ratio reached the logit report");
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a < 1e-3 || a >= 1e9) return fmtSci(v);
+  const digits = Math.floor(Math.log10(a)) + 1;
+  return tableFixed(v, Math.max(0, 4 - digits));
 }
 
 export function logitProbitReport(model: FittedModel): { text: string; tables: { label: string; rows: string[][]; align?: ("left" | "right")[] }[] } {
@@ -978,7 +1008,7 @@ export function logitProbitReport(model: FittedModel): { text: string; tables: {
   if (orRows) {
     tables.push({
       label: `Odds ratios exp(coefficient) for ${model.depName} = 1 (constant not shown)`,
-      rows: [["Term", "Odds ratio", "95% CI low", "95% CI high", "p"], ...orRows.map((r) => [r.name, fmtFixed(r.or, 4), fmtFixed(r.lo, 4), fmtFixed(r.hi, 4), fmtP(r.p)])],
+      rows: [["Term", "Odds ratio", "95% CI low", "95% CI high", "p"], ...orRows.map((r) => [r.name, fmtOddsRatio(r.or), fmtOddsRatio(r.lo), fmtOddsRatio(r.hi), fmtP(r.p)])],
       align: ["left", "right", "right", "right", "right"],
     });
   }
@@ -994,11 +1024,18 @@ export function logitProbitReport(model: FittedModel): { text: string; tables: {
     else parts.push(`${s.label} = ${fmtFixed(s.value, s.decimals ?? 3)}`);
   }
   const predictors = model.terms.filter((t) => t.name !== "Constant").map((t) => t.name);
+  const leftOut = oddsRatiosLeftOut(model);
   const lines = [
     `${title} regression of ${model.depName} on ${predictors.length ? predictors.join(", ") : "a constant"}`,
     `${parts.join("; ")}.`,
     `Standard errors: ${model.seLabel}.`,
     ...model.notes,
+    ...(leftOut.length
+      ? [
+          `The odds-ratio table leaves out ${leftOut.map((n) => `“${n}”`).join(", ")}: the ratio or a bound is beyond 10⁹ or below 10⁻⁹, ` +
+            "too extreme to state as an odds ratio; the coefficient table still has the estimate.",
+        ]
+      : []),
   ];
   return { text: lines.join("\n"), tables };
 }

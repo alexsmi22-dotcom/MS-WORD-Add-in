@@ -65,7 +65,8 @@ const BRANCHES: Record<string, [string, Record<string, string>, RegExp][]> = {
     ["no policy: multipliers", { dG: "0" }, /raise output by 2 once crowding out is counted \(4 without it\)/],
     ["monetary expansion: crowding in", { dG: "0", dM: "100" }, /brings the rate down to 5%, and investment rises by 25/],
     ["tax rise: output falls", { dG: "0", dT: "30" }, /changes output by −45 to 1,755/],
-    ["vertical AS", { as: "vertical", Yf: "1700" }, /In the long run output stays at full employment \(1,700\) and the price level moves from 1\.2 to 1\.5/],
+    // R6 #13: output RETURNS to full employment; 1.2 is the long-run price level before the policy.
+    ["vertical AS", { as: "vertical", Yf: "1700" }, /In the long run output returns to full employment \(1,700\); the price level rises from 1\.2 \(long run, before the policy\) to 1\.5\./],
     ["vertical AS with no long-run solution", { as: "vertical", Yf: "1000" }, /long-run part is not shown/],
   ],
   "macro-taylor": [

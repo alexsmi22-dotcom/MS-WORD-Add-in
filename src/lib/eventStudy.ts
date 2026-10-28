@@ -153,6 +153,11 @@ export function normalP(z: number): number {
 export function readIntField(raw: string, label: string, lo: number, hi: number): number | { error: string } {
   // A Word minus or an en dash typed as a minus; "5.0" is the whole number 5.
   const s = (raw ?? "").trim().replace(/[−–]/g, "-");
+  // A whole number with more digits than any window is out of RANGE, not "not a whole number" (bug test R5 minor:
+  // −99999999 was refused as not whole).
+  if (/^[-+]?\d{8,}(\.0+)?$/.test(s)) {
+    return { error: `${label}: ${q((raw ?? "").trim().replace(/^-/, "−"))} is outside ${String(lo).replace("-", "−")} to ${String(hi).replace("-", "−")}.` };
+  }
   if (!/^[-+]?\d{1,7}(\.0+)?$/.test(s)) return { error: `${label}: ${q((raw ?? "").trim())} is not a whole number.` };
   const v = Math.trunc(Number(s));
   if (v < lo || v > hi) return { error: `${label}: ${String(v).replace("-", "−")} is outside ${String(lo).replace("-", "−")} to ${String(hi).replace("-", "−")}.` };

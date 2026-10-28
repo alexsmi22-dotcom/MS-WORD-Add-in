@@ -28,6 +28,7 @@ import type { FittedModel, ModelTerm } from "./regModel";
 import { tCritical } from "./stats";
 import { buildPlotSvg, type Series } from "./plot";
 import { fitOls, type SeType } from "./olsInference";
+import { BOUNDARY_CLAUSE, printedPVerdict } from "./pReading";
 
 type Read = (k: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
@@ -198,6 +199,14 @@ function pText(p: number): string {
   return p < 0.001 ? P_BELOW : `= ${fmtP(p)}`;
 }
 
+/** Rows the panel calculators take in the pane (each fit then stays under about a second). */
+export const PANEL_PANE_MAX_ROWS = 50_000;
+
+/** The verdict on a p as pText prints it (the one p rule, lib/pReading.ts). */
+function pv(p: number): string | null {
+  return printedPVerdict(pText(p));
+}
+
 function coefTable(m: FittedModel, label: string): StatTable {
   const rows: string[][] = [["Term", "Coef.", "SE", "t", "p", "95% CI"]];
   for (const t of m.terms) rows.push(termRow(t.name, t));
@@ -273,7 +282,9 @@ function slopeClause(t: ModelTerm, dep: string, others: boolean): string {
   const size = fmtFixed(Math.abs(t.coef), 3);
   const dir = t.coef > 0 ? `about ${size} more` : t.coef < 0 ? `about ${size} less` : "no change in";
   const held = others ? ", the other regressors held fixed" : "";
-  const sig = t.p < 0.05 ? "an association unlikely to be chance" : "but the data cannot rule out no association at all";
+  // The one p rule (lib/pReading.ts): decided on the p as the table prints it; exactly 0.050 is borderline.
+  const v = pv(t.p);
+  const sig = v === "clear" ? "an association unlikely to be chance" : v === "borderline" ? `an association ${BOUNDARY_CLAUSE}` : "but the data cannot rule out no association at all";
   return `a one-unit rise in ${t.name} goes with ${dir} ${dep}${held} (p ${pText(t.p)}), ${sig}`;
 }
 
@@ -295,10 +306,13 @@ export function panelReReading(m: FittedModel, haus: { stat: number; p: number; 
   const first = t ? `Under random effects, ${slopeClause(t, m.depName, k > 1)}.` : "";
   let second = "";
   if (!("skipped" in haus)) {
+    const hv = pv(haus.p);
     second =
-      haus.p < 0.05
+      hv === "clear"
         ? `The Hausman test finds evidence (p ${pText(haus.p)}) that the random-effects assumption fails here, so the fixed-effects estimates are the safer ones to report.`
-        : `The Hausman test finds no clear evidence against random effects (p ${pText(haus.p)}), so their more precise estimates can be used.`;
+        : hv === "borderline"
+          ? `The Hausman test (p ${pText(haus.p)}) is ${BOUNDARY_CLAUSE}, so the fixed-effects estimates are the cautious ones to report.`
+          : `The Hausman test finds no clear evidence against random effects (p ${pText(haus.p)}), so their more precise estimates can be used.`;
   }
   return joinReading([first, second]) || "The random-effects model has no regressor to report, and the Hausman test was not computed.";
 }
@@ -307,10 +321,13 @@ export function panelReReading(m: FittedModel, haus: { stat: number; p: number; 
 export function panelDidReading(d: ModelTerm, dep: string, treat: string, staggered: boolean): string {
   const est = fmtFixed(d.coef, 3);
   const ci = `95% CI ${fmtFixed(d.ciLo, 3)} to ${fmtFixed(d.ciHi, 3)}`;
+  const dv = pv(d.p);
   const first =
-    d.p < 0.05
+    dv === "clear"
       ? `The estimated effect of ${treat} on ${dep} is about ${est} (${ci}, p ${pText(d.p)}), a change unlikely to be chance if treated and comparison units would otherwise have moved in parallel.`
-      : `The estimated effect of ${treat} on ${dep} is about ${est}, but the data cannot rule out no effect (${ci}, p ${pText(d.p)}).`;
+      : dv === "borderline"
+        ? `The estimated effect of ${treat} on ${dep} is about ${est} (${ci}, p ${pText(d.p)}), ${BOUNDARY_CLAUSE}.`
+        : `The estimated effect of ${treat} on ${dep} is about ${est}, but the data cannot rule out no effect (${ci}, p ${pText(d.p)}).`;
   const second = staggered ? "Treatment starts at different times, so this two-way fixed-effects estimate can mislead when effects differ across cohorts." : "";
   return joinReading([first, second]);
 }
@@ -329,6 +346,10 @@ function readCommon(get: (k: string) => string, needCluster: boolean, spec: { de
   if (long) return { ok: false, reason: long };
   const d = parseRegData(get("data"));
   if (!d.ok) return d;
+  // The pane's own row cap, below panelData's 100,000 (bug test 2026-10-28, R5 MAJOR 10: about 1.8 s at 100,000 rows).
+  if (d.data.rows.length > PANEL_PANE_MAX_ROWS) {
+    return { ok: false, reason: `The table has ${intText(d.data.rows.length)} rows; the panel calculators take at most ${intText(PANEL_PANE_MAX_ROWS)} here. Use a sample of the entities.` };
+  }
   const r = readPanel(d.data, { spec, entity: get("entity"), time: get("time"), cluster: needCluster ? get("cluster") : undefined });
   if (!r.ok) return r;
   return { ok: true, p: r.panel };
@@ -595,6 +616,9 @@ function runDid(read: Read): DidRun | { error: string } {
   if (long) return { error: long };
   const d = parseRegData(get("data"));
   if (!d.ok) return { error: d.reason };
+  if (d.data.rows.length > PANEL_PANE_MAX_ROWS) {
+    return { error: `The table has ${intText(d.data.rows.length)} rows; the panel calculators take at most ${intText(PANEL_PANE_MAX_ROWS)} here. Use a sample of the entities.` };
+  }
   const ti = findColumn(d.data.names, treat);
   if (typeof ti !== "number") return { error: `Treatment column: ${ti.error}` };
   const spec = { dep: outcome, preds: [treat, ...controls], text: `${outcome} ~ ${[treat, ...controls].join(" + ")}` };

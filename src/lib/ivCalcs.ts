@@ -258,6 +258,14 @@ const pText = (p: number): string => (p < 0.001 ? P_BELOW : `= ${fmtP(p)}`);
 export function iv2slsCalc(read: Read): StatOutput {
   const r = ivFitFromRead(read);
   if ("error" in r) return refuse(r.error);
+  return iv2slsCalcFrom(r);
+}
+
+/**
+ * The calculator's output from a fit already made, so the pane's reading (statPaneModelReadings.iv2slsWithReading)
+ * uses the SAME fit instead of fitting again (bug test 2026-10-28, R5 MAJOR 11: 2.2 s against 0.9 s at 40,000 rows).
+ */
+export function iv2slsCalcFrom(r: Fitted): StatOutput {
   const { fit, p } = r;
   const m = fit.model;
   const d = p.decimals;

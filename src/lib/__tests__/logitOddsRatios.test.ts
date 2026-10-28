@@ -3,7 +3,7 @@
  * coefficient's own 95% bounds exponentiated and its p-value, an odds-ratio panel on a log axis, and the reading's
  * "multiplies the odds by about". Probit has none.
  */
-import { fitLogit, fitProbit, logitProbitReport, oddsRatioRows, ODDS_RATIO_MAX } from "../logitProbit";
+import { fitLogit, fitProbit, fmtOddsRatio, logitProbitReport, oddsRatioRows, ODDS_RATIO_MAX } from "../logitProbit";
 import { econLogitCalc, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT } from "../econCalcs";
 import { readingProblems } from "../calcReading";
 import { fmtFixed } from "../regTable";
@@ -37,7 +37,9 @@ describe("logit odds ratios", () => {
     const t = rep.tables.find((x) => x.label.startsWith("Odds ratios"))!;
     expect(t.rows[0]).toEqual(["Term", "Odds ratio", "95% CI low", "95% CI high", "p"]);
     expect(t.rows).toHaveLength(1 + names.length);
-    expect(t.rows[1][1]).toBe(fmtFixed(Math.exp(m.terms[0].coef), 4));
+    // 4 significant figures since 2026-10-28 (bug test R5 MAJOR 3), not 4 decimals.
+    expect(t.rows[1][1]).toBe(fmtOddsRatio(Math.exp(m.terms[0].coef)));
+    expect(t.rows[1][1]).toBe("14.45");
     const p = fitProbit(y, X, names, { constant: true, se: "classical", depName: "grade" });
     expect(oddsRatioRows(p)).toBeUndefined();
     expect(logitProbitReport(p).tables.some((x) => x.label.startsWith("Odds ratios"))).toBe(false);
@@ -47,7 +49,8 @@ describe("logit odds ratios", () => {
     const o = econLogitCalc(read());
     const t = o.tables!.find((x) => x.label.startsWith("Odds ratios"))!;
     const gpa = t.rows.find((r) => r[0] === "GPA")!;
-    expect(o.reading).toContain(`multiplies the odds by about ${gpa[1]}`);
+    // Associational wording (bug test R5 BLOCKER 4), not "multiplies the odds".
+    expect(o.reading).toContain(`goes with odds about ${gpa[1]} times as high`);
     expect(readingProblems(o.reading)).toEqual([]);
     expect(o.svg).toContain("Odds ratios, 95% CI (log scale)");
     const probit = econLogitCalc(read({ model: "probit" }));
@@ -55,10 +58,15 @@ describe("logit odds ratios", () => {
     expect(probit.svg).not.toContain("Odds ratios");
   });
 
-  test("a ratio too large to print leaves the table and panel out instead of refusing the model", () => {
+  test("a ratio too large to print leaves its ROW out, says so, and never refuses the model (R5 MAJOR 3)", () => {
     const big = { ...m, terms: m.terms.map((t, i) => (i === 0 ? { ...t, coef: 40, ciLo: 39, ciHi: 41 } : t)) };
     expect(Math.exp(41)).toBeGreaterThan(ODDS_RATIO_MAX);
-    expect(oddsRatioRows(big)).toBeUndefined();
-    expect(logitProbitReport(big).tables.some((x) => x.label.startsWith("Odds ratios"))).toBe(false);
+    expect(oddsRatioRows(big)!.map((r) => r.name)).toEqual(["TUCE", "PSI"]);
+    const rep = logitProbitReport(big);
+    expect(rep.tables.find((x) => x.label.startsWith("Odds ratios"))!.rows.map((r) => r[0])).toEqual(["Term", "TUCE", "PSI"]);
+    expect(rep.text).toContain("The odds-ratio table leaves out “GPA”");
+    const all = { ...m, terms: m.terms.map((t) => (t.name === "Constant" ? t : { ...t, coef: 40, ciLo: 39, ciHi: 41 })) };
+    expect(oddsRatioRows(all)).toBeUndefined();
+    expect(logitProbitReport(all).tables.some((x) => x.label.startsWith("Odds ratios"))).toBe(false);
   });
 });

@@ -15,8 +15,9 @@
  */
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { READING_MAX } from "./calcReading";
-import { iv2slsCalc, ivFitFromRead } from "./ivCalcs";
-import { fmtFixed, fmtP, P_BELOW } from "./regTable";
+import { iv2slsCalcFrom, ivFitFromRead } from "./ivCalcs";
+import { BOUNDARY_CLAUSE, printedNumber, printedPVerdict } from "./pReading";
+import { fmtFixed, fmtP, intText, P_BELOW } from "./regTable";
 import { gameNashCalc, macroIslmCalc, macroSolowCalc, macroTaylorCalc, readRat } from "./gameMacroCalcs";
 import { ratAdd, ratMul, ratSign, ratSub, ratToNumber, type Rat } from "./cas";
 
@@ -43,8 +44,10 @@ function firstFitting(candidates: string[]): string {
 /** A table cell read as a sign: −1, 0 or 1 (a true or ASCII minus is negative; any nonzero digit is nonzero). */
 function cellSign(c: string): number {
   const s = c.trim();
-  if (/^[−-]/.test(s)) return -1;
-  return /[1-9]/.test(s) ? 1 : 0;
+  // The mantissa decides: "−0.0000" is zero, not negative (R6 #8); "3.5×10⁻¹⁵" is positive by its digits.
+  const mant = s.replace(/×10.*$/, "");
+  if (!/[1-9]/.test(mant)) return 0;
+  return /^[−-]/.test(s) ? -1 : 1;
 }
 
 function withReading(out: StatOutput, build: () => string | undefined): StatOutput {
@@ -58,10 +61,12 @@ function withReading(out: StatOutput, build: () => string | undefined): StatOutp
 
 /** iv-2sls with its reading: the instrumented effect(s), whether they differ from zero, and instrument strength. */
 export function iv2slsWithReading(read: Read): StatOutput {
-  const out = iv2slsCalc(read);
+  // ONE fit for the output and the reading (bug test 2026-10-28, R5 MAJOR 11: the reading refitted, 2.2 s against
+  // 0.9 s at 40,000 rows).
+  const r = ivFitFromRead(read);
+  if ("error" in r) return { text: r.error, ok: false };
+  const out = iv2slsCalcFrom(r);
   return withReading(out, () => {
-    const r = ivFitFromRead(read);
-    if ("error" in r) return undefined;
     const { fit } = r;
     const d = r.p.decimals;
     const m = fit.model;
@@ -70,16 +75,38 @@ export function iv2slsWithReading(read: Read): StatOutput {
       .map((fs) => ({ fs, t: m.terms.find((t) => t.name === fs.endog) }))
       .filter((e): e is { fs: (typeof fit.firstStage)[number]; t: NonNullable<typeof e.t> } => !!e.t && Number.isFinite(e.t.coef));
     if (!effects.length) return undefined;
+    // The same "below 10" test as the text's weak-instrument line (ivCalcs), so the two never disagree.
     const weak = fit.firstStage.filter((fs) => fs.fClassical.value < 10);
+    // The overidentification test the diagnostics table shows for these SEs: Wooldridge's robust score test with
+    // robust or clustered SEs (when computed), else Sargan. A rejection outranks "the instruments pass" (R5 BLOCKER 2:
+    // the reading said they pass while Sargan, Basmann and Wooldridge all rejected at p < 0.001).
+    const overid = (() => {
+      const done = fit.diagnostics.filter((t): t is Extract<typeof t, { stat: number }> => !("skipped" in t) && /overidentification/.test(t.name));
+      const pick = (r.p.se !== "classical" ? done.find((t) => t.name.startsWith("Wooldridge")) : undefined) ?? done.find((t) => t.name.startsWith("Sargan"));
+      return pick ?? null;
+    })();
+    const overV = overid ? printedPVerdict(fmtP(overid.p)) : null;
+    const overName = overid ? overid.name.replace(/ \(overidentification\)$/, "").replace(/^Wooldridge score$/, "Wooldridge score test") : "";
     const strength = (): string => {
+      if (overid && overV === "clear") {
+        return `The overidentification test rejects the instruments (${overName} ${pTxt(overid.p)}): at least one looks invalid, so the ${effects.length > 1 ? "estimates are" : "estimate is"} suspect.`;
+      }
       if (weak.length) {
         const fsText = weak.map((w) => `${fmtFixed(w.fClassical.value, d)}${fit.firstStage.length > 1 ? ` for ${w.endog}` : ""}`).join(", ");
         return `The first-stage F (${fsText}) is below the rule-of-thumb 10, so the instruments are weak and the ${effects.length > 1 ? "estimates" : "estimate"} may be biased toward OLS.`;
       }
       const fsText = fit.firstStage.map((w) => fmtFixed(w.fClassical.value, d)).join(", ");
-      return `The instruments pass the usual strength check (first-stage F ${fsText}, above 10).`;
+      if (overid && overV === "borderline") {
+        return `The instruments pass the strength check (first-stage F ${fsText}), but the overidentification test (${overName} ${pTxt(overid.p)}) is ${BOUNDARY_CLAUSE}.`;
+      }
+      return `The instruments pass the usual strength check (first-stage F ${fsText}, above 10)${overid ? ` and the overidentification test does not reject them (${overName} ${pTxt(overid.p)})` : ""}.`;
     };
-    const sigWord = (p: number): string => (!Number.isFinite(p) ? "" : p < 0.05 ? ", clearly different from zero" : ", not clearly different from zero");
+    // The one p rule (lib/pReading.ts): decided on the p as the coefficient table prints it.
+    const sigWord = (p: number): string => {
+      if (!Number.isFinite(p)) return "";
+      const v = printedPVerdict(fmtP(p));
+      return v === "clear" ? ", clearly different from zero" : v === "borderline" ? `, ${BOUNDARY_CLAUSE}` : ", not clearly different from zero";
+    };
     if (effects.length === 1) {
       const { t } = effects[0];
       const ci = Number.isFinite(t.ciLo) && Number.isFinite(t.ciHi) ? `95% CI [${fmtFixed(t.ciLo, d)}; ${fmtFixed(t.ciHi, d)}], ` : "";
@@ -93,7 +120,7 @@ export function iv2slsWithReading(read: Read): StatOutput {
       ]);
     }
     const list = effects.map(({ t }) => `${t.name} ${fmtFixed(t.coef, d)}${Number.isFinite(t.p) ? ` (${pTxt(t.p)})` : ""}`);
-    const nSig = effects.filter(({ t }) => t.p < 0.05).length;
+    const nSig = effects.filter(({ t }) => printedPVerdict(fmtP(t.p)) === "clear").length;
     const sigSummary =
       nSig === effects.length ? "each clearly different from zero" : nSig === 0 ? "none clearly different from zero" : "not all clearly different from zero";
     const head = `The estimated effects on ${m.depName} per one-unit rise are about`;
@@ -168,8 +195,11 @@ export function macroSolowWithReading(read: Read): StatOutput {
     // Direction of travel from the path table's period-0 gap (negative: k₀ below k*).
     const gap0 = path?.rows[1]?.[4];
     const k0 = path?.rows[1]?.[1];
-    const dir = gap0 === undefined || k0 === undefined ? 0 : cellSign(gap0);
-    const move = dir < 0 ? `rises from ${k0} toward` : dir > 0 ? `falls from ${k0} toward` : "starts at";
+    // Decided on the PRINTED values (R6 #8): k₀ that prints as k* is already at the steady state, whatever rounding
+    // noise the gap carries ("rises from 16.0000 toward 16.0000" came from a gap of −3.5×10⁻¹⁵).
+    const atSteady = k0 !== undefined && k0 === kStar.trim();
+    const dir = gap0 === undefined || k0 === undefined || atSteady ? 0 : cellSign(gap0);
+    const move = dir < 0 ? `rises from ${k0} toward` : dir > 0 ? `falls from ${k0} toward` : atSteady ? "is already at" : "starts at";
     const s = readRat(String(read("s") ?? ""), "s", { percent: true });
     const a = readRat(String(read("alpha") ?? ""), "alpha", { percent: true });
     if ("error" in s || "error" in a) return undefined;
@@ -238,20 +268,32 @@ export function macroIslmWithReading(read: Read): StatOutput {
     // Room for the long-run sentence: the short-run one without its investment clause.
     const shortFirst = first.replace(/, (crowding out investment \(it changes by [^)]*\)|and investment rises by [^.]*)\.$/, ".");
     let second: string;
+    let secondShort = "";
     if (adas) {
       const P0 = cell(adas, "Price level", 1);
       const P1 = cell(adas, "Price level", 2);
       const Yp = cell(adas, "Output Y", 1);
+      // R6 #13: output RETURNS to full employment after the short-run move, and P0 is the long-run price level before
+      // the policy (not the fixed short-run P), so the sentence says both.
+      const pDir = P0 && P1 ? Math.sign(printedNumber(P1) - printedNumber(P0)) : 0;
+      const pMove = pDir > 0 ? "rises" : pDir < 0 ? "falls" : "stays";
       second =
         policy && P0 && P1 && Yp
-          ? `In the long run output stays at full employment (${Yp}) and the price level moves from ${P0} to ${P1}.`
+          ? pDir === 0
+            ? `In the long run output returns to full employment (${Yp}) and the price level stays at ${P0}.`
+            : `In the long run output returns to full employment (${Yp}); the price level ${pMove} from ${P0} (long run, before the policy) to ${P1}.`
           : P0 && Yp
             ? `In the long run output is at full employment (${Yp}) with a price level of ${P0}.`
             : "";
+      if (policy && P0 && P1 && Yp && pDir !== 0) secondShort = `Long run: output returns to full employment (${Yp}); the price level ${pMove} from ${P0} (pre-policy) to ${P1}.`;
     } else {
       second = "No positive price level puts demand at full-employment output, so the long-run part is not shown.";
     }
-    return firstFitting(second ? [`${first} ${second}`, `${shortFirst} ${second}`, first] : [first]);
+    return firstFitting(
+      second
+        ? [`${first} ${second}`, `${shortFirst} ${second}`, ...(secondShort ? [`${shortFirst} ${secondShort}`] : []), first]
+        : [first],
+    );
   });
 }
 
@@ -274,14 +316,15 @@ export function macroTaylorWithReading(read: Read): StatOutput {
       const first = data[0];
       const last = data[data.length - 1];
       const nBound = hasFloor ? data.filter((r) => r[col] !== r[ruleCol]).length : 0;
+      // Counts grouped as the text prints them (intText; R6 #14: "over 10000 periods").
       const bound = hasFloor
         ? nBound
-          ? `; the lower bound binds in ${nBound} of them`
+          ? `; the lower bound binds in ${intText(nBound)} of them`
           : "; the lower bound never binds"
         : "";
       if (data.length === 1) return `As a benchmark, the rule prescribes a policy rate of ${last[col]}% in ${last[0]}${bound}.`;
       return firstFitting([
-        `As a benchmark over ${data.length} periods, the rule prescribes a policy rate of ${first[col]}% in ${first[0]} and ${last[col]}% in ${last[0]}${bound}.`,
+        `As a benchmark over ${intText(data.length)} periods, the rule prescribes a policy rate of ${first[col]}% in ${first[0]} and ${last[col]}% in ${last[0]}${bound}.`,
         `As a benchmark, the rule prescribes ${last[col]}% in the last period${bound}.`,
       ]);
     }

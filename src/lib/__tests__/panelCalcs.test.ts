@@ -460,7 +460,8 @@ describe("two-way transformation is exact", () => {
   });
 });
 
-describe("freeze bound: 100,000 rows", () => {
+// The pane's panel cap is 50,000 rows since 2026-10-28 (bug test R5 MAJOR 10: ~1.8 s at 100,000); the bounds follow it.
+describe("freeze bound: 50,000 rows", () => {
   const big = (() => {
     let s = 42;
     const u = (): number => {
@@ -468,7 +469,7 @@ describe("freeze bound: 100,000 rows", () => {
       return (s + 0.5) / 2147483648;
     };
     const rows: string[] = ["id\tyr\ty\tx1\tx2\tpolicy"];
-    for (let i = 0; i < 5000; i++) {
+    for (let i = 0; i < 2500; i++) {
       const a = u();
       for (let t = 0; t < 20; t++) {
         const x1 = a + u();
@@ -493,7 +494,7 @@ describe("freeze bound: 100,000 rows", () => {
     contract(out);
     expect(ms).toBeLessThan(bound);
   });
-  test("worst corner the caps allow: 100,000 rows, event study with 20 coefficients, clustered; over the rows cap", () => {
+  test("worst corner the caps allow: 50,000 rows, event study with 20 coefficients, clustered; over the rows caps", () => {
     // mulberry32: the float LCG above cycles early over 10⁶ draws (its product leaves the exact-integer range).
     let s = 7;
     const u = (): number => {
@@ -503,7 +504,7 @@ describe("freeze bound: 100,000 rows", () => {
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
     const rows: string[] = ["id\tyr\ty\tx1\tx2\tpolicy"];
-    for (let i = 0; i < 5000; i++) {
+    for (let i = 0; i < 2500; i++) {
       const a = u();
       const start = i % 4 === 0 ? 8 + (i % 3) : -1;
       for (let t = 0; t < 20; t++) {
@@ -512,24 +513,20 @@ describe("freeze bound: 100,000 rows", () => {
       }
     }
     const t0 = Date.now();
-    // 9 leads + 8 lags = 17 dummies, 2 controls and the constant: 20 coefficients × 100,000 rows = the 2,000,000 cap.
+    // 9 leads + 8 lags = 17 dummies, 2 controls and the constant: 20 coefficients × 50,000 rows.
     const out = did({ data: rows.join("\n"), outcome: "y", entity: "id", time: "yr", treat: "policy", controls: "x1 + x2", leads: "9", lags: "8" });
     const ms = Date.now() - t0;
     contract(out);
     // Either the event study, or (on a loaded machine) its named stop at the calculator's 6 s clock; the DiD estimate
     // stands either way (the E3 ARIMA 100k pattern).
     expect(out.text).toMatch(/DiD event study: relative period|event study not computed: .*took longer than 6 s/);
-    // Measured 2.1 to 2.6 s on the build machine (1 worker, two other builders running); bound 3× that. A slower
-    // machine stops by name at the 6 s clock instead of freezing.
-    expect(ms).toBeLessThan(budget(8000));
-    // One more lead is over the cells cap and is refused up front by name (the DiD estimate itself still stands).
-    const over = did({ data: rows.join("\n"), outcome: "y", entity: "id", time: "yr", treat: "policy", controls: "x1 + x2", leads: "10", lags: "8" });
-    contract(over);
-    expect(over.text).toMatch(/event study not computed: .*at most 2,000,000 row-coefficient cells/);
-    // More than 100,000 rows is refused before the table is parsed.
+    expect(ms).toBeLessThan(budget(5000));
+    // One row past the pane's 50,000 is refused by name, after parsing; past 100,000 before parsing.
     const extra = rows.join("\n") + "\ne99999\t2000\t1\t0.5\t0.5\t0";
-    refused(did({ data: extra, outcome: "y", entity: "id", time: "yr", treat: "policy" }), /more than 100,000 rows/);
-    refused(fe({ data: extra, ...P }), /more than 100,000 rows/);
+    refused(did({ data: extra, outcome: "y", entity: "id", time: "yr", treat: "policy" }), /50,001 rows; the panel calculators take at most 50,000 here/);
+    refused(fe({ data: extra, ...P }), /50,001 rows; the panel calculators take at most 50,000 here/);
+    const huge = rows.join("\n") + "\n" + rows.slice(1).join("\n") + "\ne99999\t2000\t1\t0.5\t0.5\t0";
+    refused(fe({ data: huge, ...P }), /more than 100,000 rows/);
   }, 60000);
   test("the wall clock stops a fit by name (clock mocked to jump 4 s per reading)", () => {
     let t = 1e12;

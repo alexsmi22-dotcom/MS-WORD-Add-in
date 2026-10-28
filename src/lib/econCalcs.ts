@@ -11,12 +11,13 @@
 import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { fitOls, olsDiagnostics, type OlsFit, type SeType, type OlsDiagnostics } from "./olsInference";
 import { parseRegData, parseSpec, selectColumns, type RegDataset, type RegSpec } from "./regData";
-import { buildRegTable, fmtFixed, fmtP, starsFor, starLegend, intText, NBSP, P_BELOW, type StarScheme } from "./regTable";
+import { buildRegTable, fmtFixed, fmtP, fmtSci, starsFor, starLegend, intText, NBSP, P_BELOW, type StarScheme } from "./regTable";
 import { buildPlotSvg } from "./plot";
-import { fitLogit, fitProbit, logitProbitReport, LogitProbitRefusal, oddsRatioRows } from "./logitProbit";
+import { fitLogit, fitProbit, fmtOddsRatio, logitProbitReport, LogitProbitRefusal, oddsRatioRows } from "./logitProbit";
+import { BOUNDARY_CLAUSE, printedPVerdict } from "./pReading";
 import { estimatorLabel, isLinearKind, type FittedModel, type ModelTerm } from "./regModel";
 import { logitCoefFigureSvg, regTableFigureSvg } from "./statPaneFigures";
-import { firstThatFits } from "./statPaneReadings";
+import { firstThatFits, ofTheCount, ofTheSingular } from "./statPaneReadings";
 import { parseModelLine, fitModelLine } from "./regTableModels";
 
 /** Longley (1967): total employment and six macro series, US 1947–1962 (statsmodels `longley`, public domain). */
@@ -119,6 +120,18 @@ export const RESID_FIGURE_MAX_POINTS = 2000;
 type Read = (k: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
 
+/**
+ * Rows econ-ols, econ-regtable and econ-logit take (bug test 2026-10-28, R5 MAJOR 10: none had a cap; OLS took 3.6 s
+ * at 100,000 rows). Measured in jest: OLS with six predictors and every diagnostic 0.6 s at 50,000 rows; logit 0.3 s.
+ */
+export const ECON_MAX_ROWS = 50_000;
+/** Rows × model lines one regression table takes (three models of 50,000 rows measured 0.7 s). */
+export const ECON_TABLE_MAX_ROW_MODELS = 200_000;
+
+function rowsRefusal(n: number, what: string): string | null {
+  return n > ECON_MAX_ROWS ? `The table has ${intText(n)} rows; ${what} takes at most ${intText(ECON_MAX_ROWS)} here. Fit a random sample of the rows.` : null;
+}
+
 interface Options {
   se: SeType;
   constant: boolean;
@@ -190,6 +203,8 @@ export function econOlsCalc(read: Read): StatOutput {
   if ("error" in o) return refuse(o.error);
   const parsed = parseRegData(read("data"));
   if (!parsed.ok) return refuse(parsed.reason);
+  const tooMany = rowsRefusal(parsed.data.rows.length, "OLS regression");
+  if (tooMany) return refuse(tooMany);
   const spec = parseSpec(read("spec"));
   if ("error" in spec) return refuse(spec.error);
   const r = fitSpec(parsed.data, spec, o, true);
@@ -303,17 +318,37 @@ export function olsReading(fit: OlsFit, d: number): string | undefined {
   if (!Number.isFinite(fit.r2)) return undefined;
   const preds = m.terms.filter((t) => t.name !== "Constant");
   const k = preds.length;
-  const lead = `The ${k === 1 ? "predictor explains" : `${k} predictors together explain`} ${r2Words(fit.r2)} of the variation in ${m.depName} (R² = ${fmtFixed(fit.r2, 3)}).`;
+  // Without a constant the printed R² is the UNCENTERED one, which measures fit around zero, not "the variation in"
+  // the response: the reading leaves it out, as regTableReading does (bug test 2026-10-28, R5 BLOCKER 3).
+  const hasConstant = m.terms.some((t) => t.name === "Constant");
+  const lead = hasConstant
+    ? `The ${k === 1 ? "predictor explains" : `${countWord(k)} predictors together explain`} ${r2Words(fit.r2)} of the variation in ${m.depName} (R² = ${fmtFixed(fit.r2, 3)}).`
+    : `The model of ${m.depName} on ${k === 1 ? preds[0].name : `${countWord(k)} predictors`} has no constant, so its R² is the uncentered one and does not measure the variation explained.`;
   const best = clearestTerm(m.terms);
   if (!best) return lead;
-  const nSig = preds.filter((t) => t.p < 0.05).length;
-  if (best.p >= 0.05) {
-    return firstThatFits(`${lead} None of them is clearly related to ${m.depName} on its own (smallest p ${pText(best.p)}, ${best.name}).`, lead);
+  // The one p rule (lib/pReading.ts): every decision on the p as the coefficient table prints it.
+  const verdict = (t: ModelTerm): string | null => printedPVerdict(fmtP(t.p));
+  const nSig = preds.filter((t) => verdict(t) === "clear").length;
+  const bestV = verdict(best);
+  if (bestV === "borderline") {
+    const one = `the coefficient on ${best.name}, about ${fmtFixed(best.coef, d)} (p ${pText(best.p)}), is ${BOUNDARY_CLAUSE}.`;
+    return firstThatFits(`${lead} ${k === 1 ? capital(one) : `The clearest single predictor is ${best.name}: ${one}`}`, lead);
   }
-  const others = k > 1 ? `${capitalCount(nSig)} of the ${countWord(k)} are statistically significant; ` : "";
+  if (bestV !== "clear") {
+    return k === 1
+      ? firstThatFits(`${lead} ${best.name} is not clearly related to ${m.depName} (p ${pText(best.p)}).`, lead)
+      : firstThatFits(`${lead} None of them is clearly related to ${m.depName} on its own (smallest p ${pText(best.p)}, ${best.name}).`, lead);
+  }
   const assoc = `a one-unit rise in ${best.name} goes with a change of about ${fmtFixed(best.coef, d)} in ${m.depName} (p ${pText(best.p)}), an association rather than a proven cause.`;
+  // One predictor: no "others" to hold fixed and no count (R5 MAJOR 6: "(R² = 0.409). holding the others fixed").
+  if (k === 1) return firstThatFits(`${lead} ${capital(assoc)}`, lead);
+  const others = `${ofTheCount(nSig, k)} ${ofTheSingular(nSig, k) ? "is" : "are"} statistically significant; `;
   // Long column names: the count clause goes first, then the second sentence, before the length rule breaks.
   return firstThatFits(`${lead} ${others}holding the others fixed, ${assoc}`, `${lead} Holding the others fixed, ${assoc}`, lead);
+}
+
+function capital(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function capitalCount(n: number): string {
@@ -331,22 +366,65 @@ export function logitReading(model: FittedModel): string | undefined {
   const me = model.marginalEffects ?? [];
   const best = clearestTerm(me.length ? me : model.terms);
   if (!best) return pct !== undefined && Number.isFinite(pct) ? `The model has no predictors${tail}.` : undefined;
-  if (best.p >= 0.05) {
+  // The one p rule (lib/pReading.ts): decided on the p as the table prints it.
+  const verdict = printedPVerdict(fmtP(best.p));
+  if (verdict === "borderline") {
+    return `The clearest predictor of whether ${model.depName} = 1 is ${best.name} (p ${pText(best.p)}), ${BOUNDARY_CLAUSE}${tail}.`;
+  }
+  if (verdict !== "clear") {
     return `No predictor is clearly related to whether ${model.depName} = 1 (smallest p ${pText(best.p)}, ${best.name})${tail}.`;
   }
   if (!me.length) {
     return `${best.name} is the clearest predictor: a higher ${best.name} goes with a ${best.coef > 0 ? "higher" : "lower"} chance that ${model.depName} = 1 (p ${pText(best.p)})${tail}.`;
   }
+  // A probability cannot change by more than 1: an average marginal effect of 0.1 or more per unit is stated per
+  // 0.1, 0.01, … of x instead, the scaled value printed in the text (logitAmeScaleNote) as in the reading
+  // (bug test 2026-10-28, R5 BLOCKER 1: "a fall of about 1.3310 in the probability").
+  const sc = ameScale(best.coef);
+  const step = sc.step === 1 ? "one-unit" : `${sc.stepText}-unit`;
   const main =
-    `A one-unit rise in ${best.name} goes with a ${best.coef > 0 ? "rise" : "fall"} of about ${fmtFixed(Math.abs(best.coef), 4)} ` +
+    `A ${step} rise in ${best.name} goes with a ${best.coef > 0 ? "rise" : "fall"} of about ${sc.scaledText} ` +
     `in the probability that ${model.depName} = 1, on average (p ${pText(best.p)})`;
-  // Logit: the same term's odds ratio as the odds-ratio table prints it (user decision 2026-10-28), when it has one.
+  // Logit: the same term's odds ratio as the odds-ratio table prints it (user decision 2026-10-28), when it has one
+  // and it prints as something other than 1 (R5 MAJOR 3). Worded as an association (R5 BLOCKER 4).
   const or = oddsRatioRows(model)?.find((r) => r.name === best.name);
-  if (or) {
-    const withOr = `${main}; it multiplies the odds by about ${fmtFixed(or.or, 4)}`;
+  const orText = or ? fmtOddsRatio(or.or) : "";
+  if (or && orText !== "1.000") {
+    const withOr = `${main}; each one-unit rise goes with odds about ${orText} times as high`;
     return firstThatFits(`${withOr}${tail}.`, `${withOr}.`, `${main}${tail}.`, `${main}.`);
   }
   return firstThatFits(`${main}${tail}.`, `${main}.`);
+}
+
+/**
+ * The step of x an average marginal effect is quoted per: 1 while |AME| < 0.1, else the largest power of ten below 1
+ * that brings |AME|·step under 0.1. `scaledText` is |AME|·step at 4 decimals (fmtFixed), the number the reading and
+ * the text line both print.
+ */
+export function ameScale(ame: number): { step: number; stepText: string; scaledText: string } {
+  let k = 0;
+  while (Math.abs(ame) * Math.pow(10, -k) >= 0.1 && k < 30) k++;
+  const step = Math.pow(10, -k);
+  const stepText = k === 0 ? "1" : k <= 4 ? step.toFixed(k) : fmtSci(step, 1);
+  return { step, stepText, scaledText: fmtFixed(Math.abs(ame) * step, 4) };
+}
+
+/**
+ * The text line behind a rescaled AME in the reading, so its number is on screen: "Per 0.1 of GPA: the average marginal
+ * effect 0.3639 × 0.1 = 0.0364 …". Empty when the reading quotes the AME per unit (or quotes none).
+ */
+export function logitAmeScaleNote(model: FittedModel): string {
+  const me = model.marginalEffects ?? [];
+  if (!me.length) return "";
+  const best = clearestTerm(me);
+  if (!best || printedPVerdict(fmtP(best.p)) !== "clear") return "";
+  const sc = ameScale(best.coef);
+  if (sc.step === 1) return "";
+  return (
+    `Per ${sc.stepText} of ${best.name}: the average marginal effect ${fmtFixed(best.coef, 4)} × ${sc.stepText} = ` +
+    `${best.coef < 0 ? "−" : ""}${sc.scaledText} in P(${model.depName} = 1). A marginal effect is a slope at the data, so it is ` +
+    "quoted per a step small enough that the probability change stays well inside 0 to 1."
+  );
 }
 
 /**
@@ -367,12 +445,19 @@ export function regTableReading(models: FittedModel[], dec: number): string | un
   if (!hits.length) return undefined;
   const first = hits[0];
   const last = hits[hits.length - 1];
-  const nSig = hits.filter((h) => h.t.p < 0.05).length;
+  // The one p rule (lib/pReading.ts): each column decided on its printed p; a ".050" column is borderline.
+  const vOf = (t: ModelTerm): string | null => printedPVerdict(fmtP(t.p));
+  const nSig = hits.filter((h) => vOf(h.t) === "clear").length;
+  const nEdge = hits.filter((h) => vOf(h.t) === "borderline").length;
   const sigText =
     hits.length === 1
-      ? first.t.p < 0.05
+      ? vOf(first.t) === "clear"
         ? "clearly different from zero"
-        : "not clearly different from zero"
+        : vOf(first.t) === "borderline"
+          ? `with a p ${BOUNDARY_CLAUSE}`
+          : "not clearly different from zero"
+      : nEdge > 0
+        ? `${nSig ? `clearly different from zero in ${countWord(nSig)} of the ${countWord(hits.length)} models that include it` : `not clearly different from zero in ${hits.length === 2 ? "either model that includes it" : `any of the ${countWord(hits.length)} models that include it`}`}; in ${countWord(nEdge)} ${nSig ? "more" : "of them"} its p is ${BOUNDARY_CLAUSE.replace("the evidence is", "the evidence there is")}`
       : nSig === hits.length
         ? hits.length === 2
           ? "clearly different from zero in both models that include it"
@@ -450,11 +535,21 @@ export function econRegTableCalc(read: Read): StatOutput {
   const rawLines = read("specs").replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter(Boolean);
   if (!rawLines.length) return refuse("Enter one model per line, such as “y ~ x1 + x2”.");
   if (rawLines.length > 12) return refuse("At most 12 models fit side by side in one table.");
+  const nRows = parsed.data.rows.length;
+  const tooMany = rowsRefusal(nRows, "the regression table");
+  if (tooMany) return refuse(tooMany);
+  if (nRows * rawLines.length > ECON_TABLE_MAX_ROW_MODELS) {
+    return refuse(
+      `${intText(nRows)} rows × ${rawLines.length} models is more than one table fits here (at most ${intText(ECON_TABLE_MAX_ROW_MODELS)} row-models). Use fewer models or a sample of the rows.`,
+    );
+  }
   const models: FittedModel[] = [];
   const dataNotes = new Set<string>();
   const started = Date.now();
   for (const [i, raw] of rawLines.entries()) {
     const where = (msg: string): string => (rawLines.length > 1 ? `Model ${i + 1} (${raw}): ${msg}` : msg);
+    // The time guard before EVERY line, OLS included (R5 MAJOR 10: it ran only before non-OLS lines).
+    if (i > 0 && Date.now() - started > 3000) return refuse(`The table stopped before model ${i + 1}: the models so far took more than 3 seconds. Fit the slow models in their own calculators.`);
     const line = parseModelLine(raw);
     if ("error" in line) return refuse(where(line.error));
     if (line.kind === "ols") {
@@ -466,8 +561,7 @@ export function econRegTableCalc(read: Read): StatOutput {
       r.notes.forEach((n) => dataNotes.add(rawLines.length > 1 ? `Model ${i + 1}: ${n}` : n));
       continue;
     }
-    // Each estimator keeps its own time limit; the table as a whole stops by name rather than chaining them.
-    if (Date.now() - started > 3000) return refuse(`The table stopped before model ${i + 1}: the models so far took more than 3 seconds. Fit the slow models in their own calculators.`);
+    // Each estimator keeps its own time limit; the table as a whole stops by name (above) rather than chaining them.
     const m = fitModelLine(line, read("data"), parsed.data, o.constant);
     if ("error" in m) return refuse(where(m.error));
     models.push(m);
@@ -511,6 +605,8 @@ export function econRegTableCalc(read: Read): StatOutput {
 export function econLogitCalc(read: Read): StatOutput {
   const parsed = parseRegData(read("data"));
   if (!parsed.ok) return refuse(parsed.reason);
+  const tooMany = rowsRefusal(parsed.data.rows.length, `the ${read("model") === "probit" ? "probit" : "logit"} model`);
+  if (tooMany) return refuse(tooMany);
   const spec = parseSpec(read("spec"));
   if ("error" in spec) return refuse(spec.error);
   const sel = selectColumns(parsed.data, spec, {});
@@ -528,7 +624,8 @@ export function econLogitCalc(read: Read): StatOutput {
     const rep = logitProbitReport(model);
     // The same conventions as OLS, the constant's position included: the coefficient table lists it last.
     const notes = [...conventionNotes({ se: "classical", constant, decimals: 3, stars: "econ" }, parsed.data.named), ...c.notes];
-    return { text: [rep.text, ...notes].join("\n"), reading: logitReading(model), svg: logitCoefFigureSvg(model), tables: rep.tables };
+    const scaleNote = logitAmeScaleNote(model);
+    return { text: [rep.text, ...(scaleNote ? [scaleNote] : []), ...notes].join("\n"), reading: logitReading(model), svg: logitCoefFigureSvg(model), tables: rep.tables };
   } catch (e) {
     if (e instanceof LogitProbitRefusal) return refuse(e.message);
     // Never an uncaught error in the pane: anything else (a RangeError from a value the report cannot print) refuses.

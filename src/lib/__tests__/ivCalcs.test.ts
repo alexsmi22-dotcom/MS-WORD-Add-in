@@ -527,9 +527,10 @@ describe("the up-front work bound", () => {
     return () =>
       fitIv({ y, depName: "y", exog: X1, exogNames: X1.map((_, j) => `x${j}`), endog: X2, endogNames: X2.map((_, j) => `d${j}`), instr: Z, instrNames: Z.map((_, j) => `z${j}`), constant: true, se: "cluster", small: true, clusters: g, clusterName: "g" });
   };
-  test("just under the bound (14,400 rows, 10 + 10 regressors, 20 instruments, clustered) finishes", () => {
-    expect(ivWorkUnits(14400, 21, 31, 10)).toBeLessThanOrEqual(IV_MAX_WORK);
-    const run = shape(14400);
+  // IV_MAX_WORK halved to 10⁸ on 2026-10-28 (bug test R5 MAJOR 10): the bounds below follow it.
+  test("just under the bound (7,200 rows, 10 + 10 regressors, 20 instruments, clustered) finishes", () => {
+    expect(ivWorkUnits(7200, 21, 31, 10)).toBeLessThanOrEqual(IV_MAX_WORK);
+    const run = shape(7200);
     const t0 = Date.now();
     const r = run();
     const ms = Date.now() - t0;
@@ -538,12 +539,12 @@ describe("the up-front work bound", () => {
     expect(ms).toBeLessThan(budget(3500));
   });
   test("just over the bound is refused up front, naming the limit", () => {
-    expect(ivWorkUnits(14500, 21, 31, 10)).toBeGreaterThan(IV_MAX_WORK);
+    expect(ivWorkUnits(7300, 21, 31, 10)).toBeGreaterThan(IV_MAX_WORK);
     const t0 = Date.now();
-    const r = shape(14500)();
+    const r = shape(7300)();
     expect(Date.now() - t0).toBeLessThan(budget(2000));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/14,500 rows with 21 coefficients and 31 instruments is beyond the work .* \(about 14,478 rows for this model\)/);
+    if (!r.ok) expect(r.reason).toMatch(/7,300 rows with 21 coefficients and 31 instruments is beyond the work .* \(about 7,239 rows for this model\)/);
   });
 
   // Adversarial review E4: 60,000 rows × 18 exogenous + 2 endogenous + 20 instruments, clustered, took 5.4–6.3 s
@@ -570,8 +571,8 @@ describe("the up-front work bound", () => {
     return { data: lines.join("\n"), spec: `y ~ ${xs.join(" + ")}`, endog: "w1 + w2", instruments: zs.join(" + "), constant: "yes", se: "cluster", cluster: "g", small: "t", decimals: "3" };
   };
   test("the widest shape at its bound: the whole calculator stays inside the pane's budget", () => {
-    expect(ivWorkUnits(24563, 21, 39, 2)).toBeLessThanOrEqual(IV_MAX_WORK);
-    const f = wide(24563);
+    expect(ivWorkUnits(12281, 21, 39, 2)).toBeLessThanOrEqual(IV_MAX_WORK);
+    const f = wide(12281);
     const t0 = Date.now();
     const out = iv2slsCalc(reader(f));
     const ms = Date.now() - t0;
@@ -584,13 +585,14 @@ describe("the up-front work bound", () => {
     const t0 = Date.now();
     const out = iv2slsCalc(reader(f));
     expect(out.ok).toBe(false);
-    expect(out.text).toMatch(/^60,000 rows with 21 coefficients and 39 instruments is beyond the work this calculator allows in the task pane \(about 24,563 rows for this model\)/);
+    expect(out.text).toMatch(/^60,000 rows with 21 coefficients and 39 instruments is beyond the work this calculator allows in the task pane \(about 12,281 rows for this model\)/);
     // Measured 1.0 s (all of it parsing the 2.5 million cells).
     expect(Date.now() - t0).toBeLessThan(budget(4000));
   });
 });
 
-describe("100,000 rows", () => {
+// 60,000 rows since IV_MAX_WORK was halved (2026-10-28): 100,000 rows of this shape are now refused up front.
+describe("60,000 rows", () => {
   test("the calculator finishes well inside the pane's budget", () => {
     let s = 99;
     const u = (): number => {
@@ -598,7 +600,7 @@ describe("100,000 rows", () => {
       return s / 4294967296 - 0.5;
     };
     const lines = ["y\td\tx1\tx2\tz1\tz2\tz3\tg"];
-    for (let i = 0; i < 100000; i++) {
+    for (let i = 0; i < 60000; i++) {
       const x1 = u(), x2 = u(), z1 = u(), z2 = u(), z3 = u(), v = u();
       const d = z1 + z2 - z3 + x1 + v;
       const y = 1 + 2 * d + x1 - x2 + v + u();

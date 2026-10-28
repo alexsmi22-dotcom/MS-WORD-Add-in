@@ -44,7 +44,9 @@ export const IV_MAX_COLUMNS = 40;
  * that shape (about 24,500 rows) runs in about 2.4 s, and the calculator refuses an oversized table right after
  * parsing, before reading its columns.
  */
-export const IV_MAX_WORK = 2e8;
+// Halved to 10⁸ on 2026-10-28 (bug test R5 MAJOR 10: 4.2 s at the old cap, half of it a refit for the reading, now
+// gone): the widest admitted shape runs in about 1 s.
+export const IV_MAX_WORK = 1e8;
 /** The work units of a fit (see IV_MAX_WORK). */
 export function ivWorkUnits(n: number, P: number, Pz: number, k2: number): number {
   return n * (1500 + (P + Pz) * (P + Pz) + k2 * Pz * Pz);
@@ -963,7 +965,12 @@ export function fitIv(input: IvInput): IvResult {
           ? "Robust (HC1)"
           : `Clustered by ${cname}, ${intText(G)} clusters`;
   notes.unshift(
-    small
+    small && input.se === "hc0"
+      ? // R5 MAJOR 2: linearmodels' debiased=True also scales a robust covariance by n/(n − k) (that is HC1 here), so
+        // HC0 with t statistics is NOT its debiased=True and the label must not say so.
+        `Small-sample t statistics with n − k = ${intText(df)} df on the unscaled HC0 covariance. This is not linearmodels' debiased=True, ` +
+        "which also multiplies a robust covariance by n/(n − k): choose HC1 for that."
+      : small
       ? `Small-sample mode (linearmodels debiased=True): t with n − k = ${intText(df)} df` +
           (input.se === "classical" ? ", σ² = eᵀe/(n − k), the formula of Stata's ivregress …, small" : input.se === "cluster" ? ", cluster factor G/(G − 1)·(n − 1)/(n − k)" : "") +
           (input.se === "cluster" ? " (linearmodels uses n − k df for clustered SEs; Stata's regress uses G − 1)." : ".")
@@ -971,7 +978,12 @@ export function fitIv(input: IvInput): IvResult {
           (input.se === "classical" ? ", σ² = eᵀe/n, the formula of Stata's ivregress default." : input.se === "cluster" ? ", and no finite-sample factor on the clustered covariance (as linearmodels)." : "."),
   );
   if (input.se !== "classical") notes.push("The robust and clustered forms are pinned to linearmodels 7.1; they have not been checked against Stata's ivregress.");
-  if (input.se === "hc0") notes.push("Robust SEs: HC0, White's sandwich with the 2SLS fitted regressors X̂ and the residuals e = y − Xβ, no n/(n − k) factor (linearmodels cov_type=\"robust\", debiased=False).");
+  if (input.se === "hc0") {
+    notes.push(
+      "Robust SEs: HC0, White's sandwich with the 2SLS fitted regressors X̂ and the residuals e = y − Xβ, no n/(n − k) factor" +
+        (small ? " (the covariance of linearmodels cov_type=\"robust\" with debiased=False)." : " (linearmodels cov_type=\"robust\", debiased=False)."),
+    );
+  }
   if (input.se === "hc1") notes.push("Robust SEs: HC1, White's sandwich with X̂ and e = y − Xβ times n/(n − k) (linearmodels cov_type=\"robust\", debiased=True).");
   if (input.se === "cluster") notes.push(`Clustered SEs by ${cname}: Σ_g ξ_g ξ_gᵀ with ξ_g = Σ eᵢx̂ᵢ (linearmodels cov_type="clustered").`);
   notes.push("Residuals are y − Xβ with the actual endogenous regressors, not the first-stage fitted values.");

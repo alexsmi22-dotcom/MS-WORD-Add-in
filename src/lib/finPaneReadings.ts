@@ -110,6 +110,95 @@ export function withReading<T extends { text: string; ok?: boolean }>(out: T, re
   return { ...out, reading };
 }
 
+/**
+ * A rate or percentage input as typed (fix-fin R1 #5): "6.875%", "5%", "−2.5%", never rounded to 2 decimals. The input
+ * is echoed, not a result, so it is shown the way the reader typed it.
+ */
+export function inPct(pct: number): string {
+  return `${inNum(pct)}%`;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Refusals the pane entries call (fix-fin): each names the field and says why, in plain words.
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * A number of periods or years (fv, pv, compound): a number, never negative (R1 #7). Zero is allowed and read in its
+ * own sentence. `minOne` is for a payment stream (annuity, growing annuity): it needs at least one payment.
+ */
+export function periodCountRefusal(n: number, field: string, payments = false): string | undefined {
+  if (!Number.isFinite(n)) return `${field} must be a number.`;
+  if (payments && !(n > 0)) return `${field} must be above zero: a stream of payments needs at least one payment.`;
+  if (n < 0) return `${field} cannot be negative: it counts time forward from today.`;
+  return undefined;
+}
+
+/** returns (R1 #1, #8): periods a year positive, the risk-free rate a number, two or more returns that vary. */
+export function returnsRefusal(rets: number[], ppy: number, rfPct: number): string | undefined {
+  if (!Number.isFinite(ppy) || ppy <= 0) {
+    return "Periods / year must be a positive number (12 for monthly returns, 52 for weekly): it scales the returns to a year.";
+  }
+  if (!Number.isFinite(rfPct)) return "Risk-free % / period must be a number.";
+  if (rets.length < 2) return "Enter at least two returns: the volatility and the Sharpe ratio need a spread of returns to measure.";
+  if (rets.every((x) => x === rets[0])) {
+    return "The returns do not vary (every one is the same), so the volatility is zero and the Sharpe ratio is undefined: enter the actual series.";
+  }
+  return undefined;
+}
+
+/** ear (R1 #8): the compounding frequency must be a positive number. */
+export function earRefusal(nomPct: number, m: number): string | undefined {
+  if (!Number.isFinite(nomPct)) return "Nominal annual rate % must be a number.";
+  if (!Number.isFinite(m) || m <= 0) return "Compounds / year must be a positive number: interest has to be added at least once for there to be an effective rate.";
+  if (!Number.isFinite(effectiveAnnualRate(nomPct / 100, m))) {
+    return "This nominal rate has no effective rate at that frequency: each compounding period would lose more than everything.";
+  }
+  return undefined;
+}
+
+/** irr (R1 #2): the cash-flow list is capped so the root search stays quick. */
+export const IRR_MAX_FLOWS = 1000;
+export function irrFlowsRefusal(flows: number[]): string | undefined {
+  if (flows.length > IRR_MAX_FLOWS) {
+    return `The cash flows field holds ${flows.length.toLocaleString("en-US")} flows: this calculator takes at most ${IRR_MAX_FLOWS.toLocaleString("en-US")}, because the rate search runs over every flow.`;
+  }
+  return undefined;
+}
+
+/** Past this size a DCF value is not a valuation but an overflow of the inputs (R3 M7). */
+const DCF_MAX = 1e15;
+
+/** dcf (R3 M7): no em dash in the refusal, a discount rate above growth, at least one flow, and a magnitude cap. */
+export function dcfRefusal(ratePct: number, flows: number[], gPct: number): string | undefined {
+  if (!Number.isFinite(ratePct)) return "Discount rate % / period must be a number.";
+  if (!Number.isFinite(gPct)) return "Terminal growth % / period must be a number.";
+  if (!flows.length) return "Enter at least one cash flow.";
+  if (ratePct <= -100) return "Discount rate % / period must be above −100%.";
+  if (ratePct <= gPct) {
+    return "The discount rate must be above the terminal growth rate: at or below it the terminal value grows without limit, so there is no value to report.";
+  }
+  if (flows.some((c) => Math.abs(c) > DCF_MAX)) return "A cash flow is larger than 10¹⁵ in size, which is outside this calculator.";
+  const v = dcf(ratePct / 100, flows, gPct / 100);
+  if (!Number.isFinite(v) || Math.abs(v) > DCF_MAX) {
+    return "The value comes to more than 10¹⁵ in size: the terminal growth rate is too close to the discount rate for the result to mean anything.";
+  }
+  return undefined;
+}
+
+/** Longest life the inline depreciation calculators schedule, as Depreciation schedule (R3 M1). */
+export const DEPR_MAX_LIFE = 100;
+
+/** depr and depr-sl (R3 M1, M5): cost above zero, salvage zero or more and not above cost, life above zero up to 100 years. */
+export function deprRefusal(cost: number, salvage: number, life: number, factor?: number): string | undefined {
+  if (!Number.isFinite(cost) || cost <= 0) return "Cost must be a number above zero.";
+  if (!Number.isFinite(salvage) || salvage < 0) return "Salvage value must be zero or more: an asset cannot be sold for less than nothing.";
+  if (salvage > cost) return "Salvage value cannot exceed the cost (the asset would appreciate, not depreciate).";
+  if (!Number.isFinite(life) || life <= 0) return "Useful life must be a positive number of years.";
+  if (life > DEPR_MAX_LIFE) return `Useful life must be at most ${DEPR_MAX_LIFE} years, as in Depreciation schedule.`;
+  if (factor !== undefined && !(Number.isFinite(factor) && factor > 0)) return "The factor must be positive (2 = double declining).";
+  return undefined;
+}
+
 /** How the value moved from `from` to `to` (both as printed). */
 function moved(fromText: string, toText: string, from: number, to: number): string {
   if (fromText === toText) return "stays at";
@@ -127,23 +216,31 @@ export function fvReading(pv: number, ratePct: number, n: number): string | unde
   if (!finite(pv, r, n, v)) return undefined;
   const vs = finMoney(v);
   const ps = finMoney(pv);
+  // Zero periods (fix-fin R1 #7): no time passes, so nothing compounds, whatever the rate.
+  if (n === 0) return `With 0 periods there is no time to compound, so ${ps} today stays ${vs}.`;
   const verb = moved(ps, vs, pv, v);
   return (
-    `Left to compound at ${finPct(r)} a period, ${ps} today ${verb} ${vs} after ${inNum(n)} ${plural(n, "period")}` +
+    `Left to compound at ${inPct(ratePct)} a period, ${ps} today ${verb} ${vs} after ${inNum(n)} ${plural(n, "period")}` +
     (verb === "grows to" && r > 0 && n > 1 ? ", because each period's interest also earns interest." : ".")
   );
 }
 
-/** pv: "Receiving 1,000.00 in 10 periods is worth 613.91 today at 5.00% a period." */
+/** pv: "Receiving 1,000.00 in 10 periods is worth 613.91 today at 5% a period." */
 export function pvReading(fv: number, ratePct: number, n: number): string | undefined {
   const r = ratePct / 100;
   const v = presentValue(fv, r, n);
   if (!finite(fv, r, n, v)) return undefined;
   const vs = finMoney(v);
   const fs = finMoney(fv);
-  const head = `Receiving ${fs} in ${inNum(n)} ${plural(n, "period")} is worth ${vs} today at ${finPct(r)} a period`;
+  // Zero periods (fix-fin R1 #7): the money arrives now, so it is not "no discounting at this rate".
+  if (n === 0) return `Receiving ${fs} now, in 0 periods, is worth ${vs} today: with no wait there is nothing to discount.`;
+  const head = `Receiving ${fs} in ${inNum(n)} ${plural(n, "period")} is worth ${vs} today at ${inPct(ratePct)} a period`;
   if (isZeroText(fs)) return `${head}.`;
-  if (vs === fs) return `${head}: with no discounting, money later is worth the same as money now.`;
+  if (vs === fs) {
+    return r === 0
+      ? `${head}: with no discounting, money later is worth the same as money now.`
+      : `${head}: at this rate the discount is too small to show to the cent.`;
+  }
   if (Math.abs(v) < Math.abs(fv)) return `${head}, the most it makes sense to pay for it now if you require that return.`;
   return `${head}: at a negative rate, money later is worth more than the same sum now.`;
 }
@@ -155,7 +252,8 @@ export function compoundReading(p: number, ratePct: number, m: number, years: nu
   if (!finite(p, r, m, years, v) || !(m > 0)) return undefined;
   const vs = finMoney(v);
   const ps = finMoney(p);
-  return `At ${finPct(r)} a year compounded ${timesText(m)} a year, ${ps} ${moved(ps, vs, p, v)} ${vs} after ${inNum(years)} ${plural(years, "year")}.`;
+  if (years === 0) return `With 0 years there is no time to compound, so ${ps} stays ${vs}.`;
+  return `At ${inPct(ratePct)} a year compounded ${timesText(m)} a year, ${ps} ${moved(ps, vs, p, v)} ${vs} after ${inNum(years)} ${plural(years, "year")}.`;
 }
 
 const FREQ_WORDS: Record<number, string> = { 1: "annual", 2: "half-yearly", 4: "quarterly", 12: "monthly", 26: "fortnightly", 52: "weekly", 365: "daily" };
@@ -170,7 +268,7 @@ export function loanReading(p: number, ratePct: number, years: number, m: number
   const pay = loanPayment(p, i, n);
   if (!finite(p, i, n, pay) || !(n >= 1)) return undefined;
   const first =
-    `Each ${paymentNoun(m)} of ${finMoney(pay)} repays ${finMoney(p)} borrowed at ${finPct(ratePct / 100)} a year ` +
+    `Each ${paymentNoun(m)} of ${finMoney(pay)} repays ${finMoney(p)} borrowed at ${inPct(ratePct)} a year ` +
     `over ${inNum(years)} ${plural(years, "year")}.`;
   // Only when it is true: the first payment more than half interest (a 15-year loan at 3% is not).
   return fit(first, i > 0 && n > 1 && p > 0 && p * i > pay / 2 ? "Early payments are mostly interest, so the balance falls slowly at first." : undefined);
@@ -194,8 +292,13 @@ export function earReading(nomPct: number, m: number): string | undefined {
   const eff = effectiveAnnualRate(nom, m);
   if (!finite(nom, m, eff)) return undefined;
   const es = finPct(eff);
-  const ns = finPct(nom);
-  if (es === ns) return `${aAn(ns, true)} ${ns} nominal rate compounded ${timesText(m)} a year is also ${es} effective: no interest is earned on interest within the year.`;
+  // The nominal rate as typed (R1 #5); the branch compares the two at the effective rate's printed precision.
+  const ns = inPct(nomPct);
+  if (es === finPct(nom)) {
+    return m === 1
+      ? `${aAn(ns, true)} ${ns} nominal rate compounded once a year is also ${es} effective: no interest is earned on interest within the year.`
+      : `${aAn(ns, true)} ${ns} nominal rate compounded ${timesText(m)} a year is ${es} effective to two decimals: compounding within the year adds too little to show.`;
+  }
   return `${aAn(ns, true)} ${ns} nominal rate compounded ${timesText(m)} a year is ${es} a year effective` + (eff > nom && nom > 0 ? ", because interest earns interest within the year." : ".");
 }
 
@@ -206,8 +309,8 @@ export function gannReading(pmt: number, ratePct: number, gPct: number, n: numbe
   const v = growingAnnuityPV(pmt, r, g, n);
   if (!finite(pmt, r, g, n, v)) return undefined;
   return (
-    `A first payment of ${finMoney(pmt)} at the end of the first period, changing by ${finPct(g)} each period for ${inNum(n)} ${plural(n, "period")}, ` +
-    `is worth ${finMoney(v)} today at ${aAn(finPct(r))} ${finPct(r)} discount rate.`
+    `A first payment of ${finMoney(pmt)} at the end of the first period, changing by ${inPct(gPct)} each period for ${inNum(n)} ${plural(n, "period")}, ` +
+    `is worth ${finMoney(v)} today at ${aAn(inPct(ratePct))} ${inPct(ratePct)} discount rate.`
   );
 }
 
@@ -218,7 +321,7 @@ export function annuityReading(pmt: number, ratePct: number, n: number): string 
   const fv = annuityFV(pmt, r, n);
   if (!finite(pmt, r, n, pv, fv)) return undefined;
   return (
-    `${inNum(n)} ${plural(n, "payment")} of ${finMoney(pmt)} at ${finPct(r)} a period ${n === 1 ? "is" : "are"} worth ${finMoney(pv)} today, ` +
+    `${inNum(n)} ${plural(n, "payment")} of ${finMoney(pmt)} at ${inPct(ratePct)} a period ${n === 1 ? "is" : "are"} worth ${finMoney(pv)} today, ` +
     `or ${finMoney(fv)} at the last payment, against ${finMoney(pmt * n)} paid in.`
   );
 }
@@ -230,9 +333,10 @@ export function perpetuityReading(pmt: number, ratePct: number, gPct: number): s
   const level = perpetuity(pmt, r);
   const growing = growingPerpetuity(pmt, r, g);
   if (!finite(pmt, r, g, level, growing)) return undefined;
-  const first = `Paid every period forever from next period, ${finMoney(pmt)} is worth ${finMoney(level)} today at ${aAn(finPct(r))} ${finPct(r)} discount rate`;
-  if (finPct(g) === finPct(0)) return `${first}; with no growth that is also the growing value.`;
-  return `${first}; changing by ${finPct(g)} a period it is worth ${finMoney(growing)}, a value sensitive to the growth assumed.`;
+  // R1 #13: plain order; the rates as typed (R1 #5).
+  const first = `A payment of ${finMoney(pmt)} every period forever, starting next period, is worth ${finMoney(level)} today at ${aAn(inPct(ratePct))} ${inPct(ratePct)} discount rate`;
+  if (g === 0) return `${first}; with no growth that is also the growing value.`;
+  return `${first}; changing by ${inPct(gPct)} a period it is worth ${finMoney(growing)}, a value sensitive to the growth assumed.`;
 }
 
 /** rate-forms: discrete against continuous compounding, and the effective rate. */
@@ -248,8 +352,8 @@ export function rateFormsReading(p: number, ratePct: number, years: number, m: n
   // The larger amount is the most any compounding gives (e^r ≥ (1 + r/m)^m, so continuous for a positive principal).
   const bound = cs === ds ? "the same" : cont > disc ? "the most any compounding can give" : "the least any compounding can give";
   return (
-    `At ${finPct(rate)} for ${inNum(years)} ${plural(years, "year")}, ${finMoney(p)} becomes ${ds} compounded ${m}× a year and ${cs} compounded ` +
-    `continuously (${bound}); ${finPct(rate)} nominal is ${finPct(eff)} effective.`
+    `At ${inPct(ratePct)} for ${inNum(years)} ${plural(years, "year")}, ${finMoney(p)} becomes ${ds} compounded ${timesText(m)} a year and ${cs} compounded ` +
+    `continuously (${bound}); ${inPct(ratePct)} nominal is ${finPct(eff)} effective.`
   );
 }
 
@@ -274,7 +378,7 @@ export function npvReading(ratePct: number, flows: number[]): string | undefined
   const v = npv(rate, flows);
   if (!flows.length || !finite(rate, v)) return undefined;
   const vs = finMoney(v);
-  const head = `Discounted at ${finPct(rate)} a period, the cash flows are worth ${vs} in today's money (the NPV)`;
+  const head = `Discounted at ${inPct(ratePct)} a period, the cash flows are worth ${vs} in today's money (the NPV)`;
   if (isZeroText(vs)) return `${head}: the project just breaks even at that rate.`;
   return isNegText(vs) ? `${head}: negative, so at that rate the project loses value.` : `${head}: positive, so at that rate the project adds value.`;
 }
@@ -306,17 +410,20 @@ function rateOfReturnReading(rateText: string, per: string, flows: number[]): st
   return `Money in first and out later costs ${rateText} ${per}, like a loan at that rate: worth taking only if other funding costs more.`;
 }
 
-/** irr. */
-export function irrReading(flows: number[]): string | undefined {
-  const v = irr(flows);
+/**
+ * irr. The pane passes the rate it already solved (fix-fin R1 #2: solving again doubled a search that could take
+ * seconds); without it the rate is solved here.
+ */
+export function irrReading(flows: number[], solved?: number | null): string | undefined {
+  const v = solved === undefined ? irr(flows) : solved;
   if (v === null || !finite(v)) return undefined;
   return rateOfReturnReading(finPct(v), "per period", flows);
 }
 
-/** xirr (the pane has checked one date per flow). */
-export function xirrReading(flows: number[], days: number[]): string | undefined {
+/** xirr (the pane has checked one date per flow, and passes the rate it solved). */
+export function xirrReading(flows: number[], days: number[], solved?: number | null): string | undefined {
   if (flows.length !== days.length) return undefined;
-  const v = xirr(flows, days);
+  const v = solved === undefined ? xirr(flows, days) : solved;
   if (v === null || !finite(v)) return undefined;
   // The sign pattern in date order (readXirrDates refuses a date before the first, not later dates out of order).
   const ordered = flows.map((c, k) => ({ c, d: days[k] })).sort((a, b) => a.d - b.d).map((x) => x.c);
@@ -334,12 +441,14 @@ export function dcfReading(ratePct: number, flows: number[], gPct: number): stri
   const pvTv = tv / Math.pow(1 + rate, n);
   const share = v !== 0 ? (pvTv / v) * 100 : NaN;
   const head = `The cash flows are valued at about ${finMoney(v)}`;
-  if (!Number.isFinite(share) || share < 0 || isNegText(finMoney(v))) return `${head}, a scenario resting on ${finPct(gT)} growth forever after period ${n}.`;
+  // The growth rate as typed (R3 MINOR 5: 9.999% printed as "10.00%", the same as the discount rate).
+  const gs = inPct(gPct);
+  if (!Number.isFinite(share) || share < 0 || isNegText(finMoney(v))) return `${head}, a scenario resting on ${gs} growth forever after period ${n}.`;
   const shareText = `${finFixed(share, 1)}%`;
   // Branch on the printed share: 50.0% is half, not "mostly".
   if (shareText === "50.0%") return `${head}; the terminal value is ${shareText} of it, so the forecast and the growth assumed after period ${n} weigh about equally.`;
   if (share > 50) {
-    return `${head}, and ${shareText} of that is the terminal value, so the result rests mostly on the ${finPct(gT)} growth assumed forever after period ${n}.`;
+    return `${head}, and ${shareText} of that is the terminal value, so the result rests mostly on the ${gs} growth assumed forever after period ${n}.`;
   }
   return `${head}; the terminal value is ${shareText} of it, so the ${n}-period forecast carries most of the value.`;
 }
@@ -360,7 +469,7 @@ export function bsReading(type: OptionType, S: number, K: number, t: number, rat
   }
   return (
     `Under the model this ${type} is worth ${ps}: the fair price today of the right to ${right} at ${finMoney(K)} on expiry, ` +
-    `${inNum(t)} ${plural(t, "year")} away, with ${finPct(sigPct / 100)} annual volatility.`
+    `${inNum(t)} ${plural(t, "year")} away, with ${inPct(sigPct)} annual volatility.`
   );
 }
 
@@ -379,10 +488,11 @@ export function greeksReading(type: OptionType, S: number, K: number, t: number,
 }
 
 /** iv: the volatility the price implies. */
-export function ivReading(type: OptionType, price: number, S: number, K: number, t: number, ratePct: number, qPct: number): string | undefined {
-  const v = impliedVolatility(type, price, S, K, t, ratePct / 100, qPct / 100);
+export function ivReading(type: OptionType, price: number, S: number, K: number, t: number, ratePct: number, qPct: number, solved?: number | null): string | undefined {
+  const v = solved === undefined ? impliedVolatility(type, price, S, K, t, ratePct / 100, qPct / 100) : solved;
   if (v === null || !finite(v)) return undefined;
-  return `A ${type} price of ${finMoney(price)} implies a volatility of ${finPct(v)} a year: the size of price swings the model needs to justify that price.`;
+  // The price as typed (R1 #5).
+  return `A ${type} price of ${inNum(price)} implies a volatility of ${finPct(v)} a year: the size of price swings the model needs to justify that price.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -402,21 +512,27 @@ export function bondReading(face: number, couponPct: number, ytmPct: number, yea
   if (!finite(price, face) || !(face > 0)) return undefined;
   const ps = finMoney(price);
   const fs = finMoney(face);
-  const cs = finPct(couponPct / 100);
-  const ys = finPct(ytmPct / 100);
+  // Coupon and yield as typed (R1 #5).
+  const cs = inPct(couponPct);
+  const ys = inPct(ytmPct);
   const kind = parity(ps, fs, price, face);
-  if (kind === "par") return `At ${aAn(ys)} ${ys} yield the bond is worth ${ps}, its face value (par), because its ${cs} coupon matches the yield.`;
+  if (kind === "par") {
+    return couponPct === ytmPct
+      ? `At ${aAn(ys)} ${ys} yield the bond is worth ${ps}, its face value (par), because its ${cs} coupon matches the yield.`
+      : `At ${aAn(ys)} ${ys} yield the bond is worth ${ps}, its face value (par) to the cent, because its ${cs} coupon is that close to the yield.`;
+  }
   const why = kind === "discount" ? `its ${cs} coupon pays less than the ${ys} market yield` : `its ${cs} coupon pays more than the ${ys} market yield`;
   return `At ${aAn(ys)} ${ys} yield the bond is worth ${ps} against ${fs} face: a ${kind}, because ${why}.`;
 }
 
 /** ytm. */
-export function ytmReading(price: number, face: number, couponPct: number, years: number, freq: number): string | undefined {
-  const y = bondYTM(price, face, couponPct / 100, years, freq);
+export function ytmReading(price: number, face: number, couponPct: number, years: number, freq: number, solved?: number | null): string | undefined {
+  // The pane passes the yield it solved (R1 #2).
+  const y = solved === undefined ? bondYTM(price, face, couponPct / 100, years, freq) : solved;
   if (y === null || !finite(y, price, face) || !(face > 0)) return undefined;
   const ps = finMoney(price);
   const fs = finMoney(face);
-  const cs = finPct(couponPct / 100);
+  const cs = inPct(couponPct);
   const first = `Bought at ${ps} and held to maturity, the bond earns ${finPct(y)} a year, provided every coupon is reinvested at that rate.`;
   const kind = parity(ps, fs, price, face);
   const second =
@@ -452,8 +568,10 @@ export function deprReading(cost: number, salvage: number, life: number, factor:
   const largest = rows.length > 1 && rows.every((x) => x.depreciation <= rows[0].depreciation);
   const head = `${name} writes off ${finMoney(rows[0].depreciation)} in year ${rows[0].year}${largest ? ", the largest charge," : ""}`;
   const book = finMoney(last.bookValue);
-  return book === finMoney(salvage)
-    ? `${head} and reaches the ${book} salvage value by year ${last.year}.`
+  // The FIRST year whose printed book value is the salvage (R3 MINOR 6: "by year 5" when it was reached in year 2).
+  const reached = rows.find((x) => finMoney(x.bookValue) === finMoney(salvage));
+  return reached
+    ? `${head} and reaches the ${book} salvage value in year ${reached.year}${reached.year < last.year ? ", with nothing more to write off after that" : ""}.`
     : `${head} and leaves a book value of ${book} after year ${last.year}, above the ${finMoney(salvage)} salvage value.`;
 }
 
@@ -462,7 +580,11 @@ export function deprSlReading(cost: number, salvage: number, life: number): stri
   const annual = straightLineDepreciation(cost, salvage, life);
   if (!finite(annual, cost, salvage) || !(life > 0)) return undefined;
   const as = finMoney(annual);
-  if (isZeroText(as)) return `The asset keeps its ${finMoney(cost)} book value: with salvage equal to cost there is nothing to depreciate.`;
+  // R3 B2: "salvage equal to cost" only when it is; a charge that rounds to 0.00 is a small charge, not none.
+  if (salvage === cost) return `The asset keeps its ${finMoney(cost)} book value: with salvage equal to cost there is nothing to depreciate.`;
+  if (isZeroText(as)) {
+    return `The asset loses less than a cent of book value each year (${as} to the cent), from ${finMoney(cost)} down to its ${finMoney(salvage)} salvage value.`;
+  }
   const lifeText = life > 60 ? `a useful life of ${finFixed(life, 2)} years` : `${inNum(life)} ${plural(life, "year")}`;
   return `The asset loses ${as} of book value each year, from ${finMoney(cost)} down to its ${finMoney(salvage)} salvage value over ${lifeText}.`;
 }
@@ -487,7 +609,7 @@ export function returnsReading(rets: number[], ppy: number, rfPct: number): stri
   if (isZeroText(ss)) return `${head}; the Sharpe ratio of ${ss} means they earned no more than the risk-free rate.`;
   return isNegText(ss)
     ? `${head}; the Sharpe ratio of ${ss} means they fell short of the risk-free rate.`
-    : `${head}; the Sharpe ratio of ${ss} is the return above the risk-free rate per unit of that volatility.`;
+    : `${head}; the Sharpe ratio of ${ss} is the average return above the risk-free rate per unit of that volatility.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -512,17 +634,30 @@ export function currencyConversions(out: { tables?: CellTable[] }): { target: st
   return { target: t.label.slice("Conversions to ".length), rows: t.rows.slice(1) };
 }
 
+/**
+ * The "as of" date the rates table prints (R2 MINOR: the reading left it out), only when it reads as a real date: the
+ * field is free text, and free text is never echoed. Printed exactly as the table label prints it.
+ */
+function currencyAsOf(out: { tables?: CellTable[] }): string | undefined {
+  const label = (out.tables ?? []).map((t) => t.label).find((l) => l.startsWith("Rates as read (as of "));
+  const m = label ? /^Rates as read \(as of (.{1,40})\)$/.exec(label) : null;
+  if (!m) return undefined;
+  return typeof parseDateField(m[1], "as-of date") === "number" ? m[1] : undefined;
+}
+
 export function finCurrencyReading(out: { text: string; ok?: boolean; tables?: CellTable[] }): string | undefined {
   if (out.ok === false) return undefined;
   const conv = currencyConversions(out);
+  const asOf = currencyAsOf(out);
+  const when = (s: string): string => (asOf ? `${s} (as of ${asOf})` : s);
   if (!conv) return "No amounts were typed, so the tables show only the cross rates implied by the rates you typed.";
   if (conv.rows.length === 1) {
     const [a, cr, c] = conv.rows[0];
-    return `At the rate you typed, ${a} is ${c} (${cr}); the result is only as current as that rate.`;
+    return `At the rate you typed, ${a} is ${c} (${cr}); the result is only as current as ${when("that rate")}.`;
   }
   let best = conv.rows[0];
   for (const r of conv.rows) if (Math.abs(cellAmount(r[2])) > Math.abs(cellAmount(best[2]))) best = r;
-  return `At the rates you typed, the largest conversion is ${best[0]} to ${best[2]}; each amount uses the exact cross rate and is rounded once, and is only as current as those rates.`;
+  return `At the rates you typed, the largest conversion is ${best[0]} to ${best[2]}; each amount uses the exact cross rate and is rounded once, and is only as current as ${when("those rates")}.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -554,6 +689,12 @@ export function postjudgmentReading(out: { ok: boolean; table?: CellTable }, pay
   const pay = parseDateField(paymentField, "payment date");
   if (!tot || typeof pay !== "number" || !Number.isFinite(ratePctIn)) return undefined;
   const [, , , amount, interest, total] = tot;
+  // R2 MINOR: no "$0.00 of interest at 0% a year"; say why nothing accrued.
+  if (isZeroText(interest)) {
+    return ratePctIn === 0
+      ? `Paid on ${longDate(pay)}, the ${amount} judgment comes to ${total}: at a 0% rate no interest accrues.`
+      : `Paid on ${longDate(pay)}, the ${amount} judgment comes to ${total}: no interest accrues to the cent by that date.`;
+  }
   return (
     `Paid on ${longDate(pay)}, the ${amount} judgment comes to ${total}, including ${interest} of interest at ` +
     `${ratePct(ratePctIn / 100)} a year compounded annually from the judgment date.`
@@ -647,5 +788,5 @@ export function georgiaPacificReading(): string {
 
 /** dmg-panduit-worksheet: a blank worksheet; hedged, Panduit is one way to prove but-for causation. */
 export function panduitReading(): string {
-  return `This is a blank worksheet of the ${PANDUIT_FACTORS.length} Panduit factors, one recognised way to show the patentee would have made the infringer's sales: record the evidence for each and whether it is shown.`;
+  return `This is a blank worksheet of the ${PANDUIT_FACTORS.length} Panduit factors, one recognized way to show the patentee would have made the infringer's sales: record the evidence for each and whether it is shown.`;
 }

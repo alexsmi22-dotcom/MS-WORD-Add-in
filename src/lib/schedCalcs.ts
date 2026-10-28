@@ -671,7 +671,7 @@ export function ratiosReading(rows: RatioRow[], comparePrior = true): string {
     parts.push(s + ".");
   } else if (nm) parts.push(`The net margin is ${figText(nm.current, "%")} of revenue.`);
   const second: string[] = [];
-  if (cr) second.push(`current assets are ${figText(cr.current, "times")} current liabilities (${val(cr) >= 1 ? "enough to cover them" : "not enough to cover them"})`);
+  if (cr) second.push(`current assets are ${figText(cr.current, "times")} current liabilities (${figText(cr.current, "times") === "1.00×" ? "about equal to them" : val(cr) > 1 ? "enough to cover them" : "not enough to cover them"})`);
   if (de) second.push(`total liabilities are ${figText(de.current, "times")} shareholders’ equity`);
   if (second.length) {
     const s = second.join(" and ");

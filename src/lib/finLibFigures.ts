@@ -164,13 +164,13 @@ export function groupedBarsSvg(title: string, groups: BarGroup[], fig: FinFig | 
   }
   const MR = Math.ceil(Math.max(...all.map((r) => textW(r.text, fs))) + 12);
   const labelW = Math.max(...all.map((r) => textW(r.name, fs)));
-  const side = labelW + 14 <= W * 0.45 && W - (labelW + 14) - MR >= 80;
+  const side = labelW + 14 <= W * 0.6 && W - (labelW + 14) - MR >= 80;
   const ML = side ? Math.ceil(labelW + 14) : 8;
   const plotR = W - MR;
   const pw = plotR - ML;
   if (pw < 40) return undefined;
   const barH = bw ? 12 : 9;
-  const rowH = side ? Math.max(barH, fs) + 8 : fs + barH + 10;
+  const rowH = side ? Math.max(barH, fs) + 8 : fs + barH + 9;
 
   let y = 10 + titleLines.length * (titleFs + 4) + 4;
   const p: string[] = [];
@@ -265,9 +265,23 @@ function ratioText(f: Figure, unit: RatioRow["unit"]): string {
 }
 
 /**
- * The ratio profile: every computed ratio as a bar, grouped by unit (multiples, percentages, days), each group on its
+ * Ratios the profile leaves to the table because another drawn ratio carries the same fact: each turnover is its
+ * days figure the other way up (days = 365 ÷ turnover), the cash ratio sits under the quick ratio, and the debt ratio
+ * and equity multiplier restate debt-to-equity on the same balances. Drawing all eighteen made the USPTO sheet
+ * (170 mm wide) print 390 mm tall, past its 244 mm limit.
+ */
+/** Shorter names for the three day counts, so the labels fit beside the bars at the USPTO sheet's refit width. */
+const PROFILE_NAME: Record<string, string> = {
+  "Days inventory outstanding": "Inventory days",
+  "Days sales outstanding": "Receivable days",
+  "Days payables outstanding": "Payable days",
+};
+const PROFILE_OMITS = new Set(["Inventory turnover", "Receivables turnover", "Payables turnover", "Cash ratio", "Debt ratio", "Equity multiplier"]);
+
+/**
+ * The ratio profile: the headline ratios as bars, grouped by unit (multiples, percentages, days), each group on its
  * own scale from zero; the prior year (when the statement has one) as a tick on the same scale; the value in the
- * table's own format (`fmt`).
+ * table's own format (`fmt`). The table keeps every ratio.
  */
 export function ratioProfileSvg(
   rows: RatioRow[],
@@ -279,10 +293,13 @@ export function ratioProfileSvg(
   const groups: BarGroup[] = (["times", "%", "days"] as const).map((u) => ({
     head: UNIT_HEAD[u],
     rows: rows
-      .filter((r) => r.unit === u && scaled(r.current, u) !== null)
-      .map((r) => ({ name: r.name, value: scaled(r.current, u) as number, text: fmt(r.current, u), tick: hasPrior ? scaled(r.prior, u) : null })),
+      .filter((r) => r.unit === u && !PROFILE_OMITS.has(r.name) && scaled(r.current, u) !== null)
+      .map((r) => ({ name: PROFILE_NAME[r.name] ?? r.name, value: scaled(r.current, u) as number, text: fmt(r.current, u), tick: hasPrior ? scaled(r.prior, u) : null })),
   }));
-  return groupedBarsSvg(hasPrior ? "Financial ratio profile (bar: this year; tick: prior year)" : "Financial ratio profile", groups, fig);
+  const g = groups.filter((x) => x.rows.length);
+  // only omitted ratios computed (a cash ratio alone, say): draw them rather than nothing
+  if (!g.length) return groupedBarsSvg("Financial ratio profile", [{ rows: rows.filter((r) => scaled(r.current, r.unit) !== null).map((r) => ({ name: r.name, value: scaled(r.current, r.unit) as number, text: fmt(r.current, r.unit) })) }], fig);
+  return groupedBarsSvg(hasPrior ? "Financial ratio profile (bar: this year; tick: prior year)" : "Financial ratio profile", g, fig);
 }
 
 /** Exposed for tests: the value text the profile prints for a ratio by default. */

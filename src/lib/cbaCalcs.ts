@@ -613,7 +613,7 @@ export function uipReading(S: number, gd: number, gf: number, T: number, sT: num
   const first =
     moveS === "0.0000%"
       ? `Uncovered interest parity implies no expected change in the exchange rate over ${span} (${eS} per unit of foreign currency)`
-      : `Uncovered interest parity implies the domestic currency ${ratio > 1 ? "weakens" : "strengthens"} by ${moveS} over ${span}, to an expected ${eS} per unit of foreign currency`;
+      : `Under uncovered interest parity the domestic currency is expected to ${ratio > 1 ? "weaken" : "strengthen"} by ${moveS} over ${span}, to ${eS} per unit of foreign currency`;
   if (sT === null) return `${first}; this is a parity benchmark, not a forecast.`;
   // The same excess return, and the same sign test, as the text's realized-spot line.
   const excess = (sT / S) * Math.pow(gf, T) / Math.pow(gd, T) - 1;

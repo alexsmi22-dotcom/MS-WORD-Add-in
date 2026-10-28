@@ -102,10 +102,10 @@ describe("fx-cip", () => {
 
 describe("fx-uip", () => {
   test("weakens, and a realized spot behind", () => {
-    expect(checkedReading(cba("fx-uip"))).toMatch(/weakens by 1\.9417% over 1 year, to an expected 1\.274272 .* 2\.6895% behind\.$/);
+    expect(checkedReading(cba("fx-uip"))).toMatch(/is expected to weaken by 1\.9417% over 1 year, to 1\.274272 .* 2\.6895% behind\.$/);
   });
   test("strengthens, carry paid", () => {
-    expect(checkedReading(cba("fx-uip"), { id: "1", st: "1.30", years: "2" })).toMatch(/strengthens by .* over 2 years.*ahead \(the carry trade paid\)/);
+    expect(checkedReading(cba("fx-uip"), { id: "1", st: "1.30", years: "2" })).toMatch(/expected to strengthen by .* over 2 years.*ahead \(the carry trade paid\)/);
   });
   test("no realized spot: a benchmark; equal rates: no expected change", () => {
     expect(checkedReading(cba("fx-uip"), { st: "" })).toMatch(/parity benchmark, not a forecast\.$/);

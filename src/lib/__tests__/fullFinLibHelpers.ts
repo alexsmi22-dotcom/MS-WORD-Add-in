@@ -38,9 +38,13 @@ export function haystack(o: FinObj): string {
   return [o.text, ...tables.flatMap((t) => t.rows.flat())].join("\n");
 }
 
-/** Every number in a reading (grouping commas, decimals and a trailing % kept; the sign dropped). */
+/**
+ * Every number in a reading (grouping commas, decimals and a trailing % kept). A true minus written before the number
+ * (also after a currency sign, −$1.00) is kept, so a reading that prints −X must find −X in the text or tables; a
+ * magnitude stated in words ("fell 10.00%", "below") carries no sign and matches either.
+ */
 export function readingNumbers(reading: string): string[] {
-  return [...reading.matchAll(/\d[\d,]*(?:\.\d+)?%?/g)].map((m) => m[0].replace(/,$/, ""));
+  return [...reading.matchAll(/(−\$?)?\d[\d,]*(?:\.\d+)?%?/g)].map((m) => m[0].replace(/,$/, ""));
 }
 
 /** The reading's numbers that do NOT appear verbatim in the text or the table cells. */

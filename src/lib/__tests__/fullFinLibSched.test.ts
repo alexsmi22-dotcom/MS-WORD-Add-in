@@ -121,3 +121,8 @@ test("every schedule calculator's reading changes with its input", () => {
   };
   for (const calc of SCHED_CALCS) expect(checkedReading(calc, changed[calc.id])).not.toBe(checkedReading(calc));
 });
+
+test("fin-ratios: a current ratio that prints 1.00× is about equal to current liabilities, not short of them", () => {
+  const r = checkedReading(c("fin-ratios"), { stmt: "Total current assets\t99,950\nTotal current liabilities\t100,000" });
+  expect(r).toBe("Current assets are 1.00× current liabilities (about equal to them).");
+});

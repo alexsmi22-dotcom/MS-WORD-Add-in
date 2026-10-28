@@ -10,6 +10,7 @@ import { IPVAL_CALCS } from "../ipValuationCalcs";
 import { SCHED_CALCS } from "../schedCalcs";
 import type { FinCalcDef } from "../finCalc";
 import { withFinFig } from "../financeFigures";
+import { prepareFigure } from "../insertCapability";
 import { asObj, calcById, runCalc } from "./fullFinLibHelpers";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -54,6 +55,16 @@ describe.each(FIG_IDS)("%s", (id) => {
       if (fig.bw) expect(svg).not.toMatch(/#(?:2563eb|b91c1c)/);
       expect(gateProblems(svg!)).toEqual([]);
     }
+  });
+});
+
+describe("the USPTO figure style re-renders every new figure and accepts it (prepareFigure, as the pane inserts it)", () => {
+  test.each(FIG_IDS)("%s", (id) => {
+    const render = (w: number): string => withFinFig({ width: w, bw: true }, () => svgOf(id) ?? "");
+    const r = prepareFigure({ svg: svgOf(id)!, preset: "uspto", width: "single", render });
+    if (!r.ok) throw new Error(`${id}: ${r.reason}: ${r.problems.join("; ")}`);
+    expect(r.ok).toBe(true);
+    expect(gateProblems(r.svg)).toEqual([]);
   });
 });
 

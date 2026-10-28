@@ -9,6 +9,7 @@ import { LITIG_CALCS } from "../litigCalcs";
 import { asObj, calcById, checkedReading, runCalc } from "./fullFinLibHelpers";
 import { lookbackReading, aggregateReading, outOfPocketReading } from "../securitiesDamages";
 import { readingProblems } from "../calcReading";
+import { antitrustReading, type OverchargeEstimate } from "../antitrustDamages";
 
 const ip = (id: string) => calcById(IPVAL_CALCS, id);
 const lit = (id: string) => calcById(LITIG_CALCS, id);
@@ -146,4 +147,15 @@ describe("litigation readings follow the result", () => {
     expect(o.ok).toBe(false);
     expect(o.reading).toBeUndefined();
   });
+});
+
+test("dmg-antitrust: methods that disagree in sign are each worded by their own sign (never a negative overcharge)", () => {
+  const est = (method: "dummy" | "forecast", pct: number, p?: number): OverchargeEstimate =>
+    ({ method, pctOfButFor: pct, perUnit: 0, shareOfActual: 0, butFor: [], during: [], fit: {} as OverchargeEstimate["fit"], ...(p !== undefined ? { dummy: { p } as OverchargeEstimate["dummy"] } : {}) }) as OverchargeEstimate;
+  const r = antitrustReading([est("dummy", 0.0412, 0.2), est("forecast", -0.0137)], ["$120,000.00", "−$40,000.00"]);
+  expect(r).toMatch(/^The dummy-variable method estimates an overcharge of 4\.12% of the but-for price \(damages about \$120,000\.00\), but the forecast method finds no overcharge \(−1\.37%\)\./);
+  expect(r).not.toMatch(/overcharge of −/);
+  expect(readingProblems(r)).toEqual([]);
+  const r2 = antitrustReading([est("dummy", -0.02, 0.01), est("forecast", 0.03)], ["−$1.00", "$2.00"]);
+  expect(r2).toMatch(/^The dummy-variable method finds no overcharge \(−2\.00%\), but the forecast method estimates an overcharge of 3\.00%/);
 });

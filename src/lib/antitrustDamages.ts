@@ -379,8 +379,12 @@ export function antitrustReading(ests: OverchargeEstimate[], totals: string[]): 
   const name = (e: OverchargeEstimate): string => (e.method === "dummy" ? "dummy-variable" : "forecast");
   if (ests.every((e) => !(e.pctOfButFor > 0)))
     return `These data show no overcharge: during-period prices were not above the but-for prices (${ests.map((e) => `${pctText(e.pctOfButFor)} by the ${name(e)} method`).join(", ")}), so the estimate supports no positive damages.`;
+  // Every method positive: one overcharge sentence. The methods disagree in sign: each is worded by its own sign, so
+  // a negative estimate is never called an overcharge.
   const parts = ests.map((e, m) => `${pctText(e.pctOfButFor)}${m === 0 ? " of the but-for price" : ""} (damages about ${totals[m]}) by the ${name(e)} method`);
-  const first = `The regression estimates an overcharge of ${parts.join(" and ")}.`;
+  const first = ests.every((e) => e.pctOfButFor > 0)
+    ? `The regression estimates an overcharge of ${parts.join(" and ")}.`
+    : `The ${ests.map((e, m) => (e.pctOfButFor > 0 ? `${name(e)} method estimates an overcharge of ${pctText(e.pctOfButFor)} of the but-for price (damages about ${totals[m]})` : `${name(e)} method finds no overcharge (${pctText(e.pctOfButFor)})`)).join(", but the ")}.`;
   const t = ests.find((e) => e.dummy)?.dummy;
   if (!t) return `${first} The forecast method gives no test of whether the overcharge differs from zero.`;
   const which = ests.length > 1 ? "The dummy-variable estimate" : "The overcharge";

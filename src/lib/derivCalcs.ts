@@ -11,6 +11,7 @@ import { finRefusal as finRefusalRaw } from "./finCalc";
 const finRefusal = (s: string): FinResult => finRefusalRaw(/^[a-z][a-z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s);
 import { blackScholes, readFinanceField, type OptionType } from "./finance";
 import { finPlotSvg } from "./financeFigures";
+import { putCallParitySvg } from "./finLibFigures";
 import type { Point, Series } from "./plot";
 import { readDataBlock } from "./dataBlock";
 import { treeSvg, type TreeEdge, type TreeNode } from "./treeSvg";
@@ -281,7 +282,22 @@ export function black76Calc(r: Read): FinResult {
       `price discounted at exp(−rt) with r continuously compounded; time in years; theta per year is −∂V/∂t with F fixed, per day is that ÷ 365; ` +
       `vega and rho per 1.00 divided by 100.`,
   ].join("\n");
-  return { text, svg: black76CurveSvg(type, F, K, t, rate, sigma, b.price) };
+  return { text, reading: black76Reading(type, solve, sigma, b), svg: black76CurveSvg(type, F, K, t, rate, sigma, b.price) };
+}
+
+/** The option's value (or the volatility its price implies), how it moves with the futures price, and its time decay. */
+export function black76Reading(type: OptionType, solve: "price" | "iv", sigma: number, b: { price: number; delta: number; theta: number }): string {
+  const price = fx(b.price, 4);
+  const head =
+    solve === "iv"
+      ? `The ${type} price of ${price} implies a volatility of ${pct(sigma)} a year`
+      : `The ${type} is worth ${price}`;
+  const delta = fx(b.delta, 6);
+  const move =
+    delta === "0.000000" ? "it barely moves with the futures price" : `each 1 rise in the futures price ${b.delta > 0 ? "raises" : "lowers"} it by about ${fx(Math.abs(b.delta), 6)}`;
+  const day = fx(b.theta / 365, 4);
+  const decay = day === "0.0000" ? "" : b.theta < 0 ? ` and it loses about ${fx(Math.abs(b.theta / 365), 4)} of value a day as expiry nears` : ` and it gains about ${fx(b.theta / 365, 4)} a day as expiry nears`;
+  return `${head}; ${move}${decay}.`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -343,7 +359,18 @@ export function crrCalc(r: Read): FinResult {
       `tree Greeks by Hull's formulas; the tree is drawn for n ≤ ${CRR_FIGURE_STEPS}, otherwise the price against n.`,
   );
   const svg = res.nodes ? crrTreeSvg(res, american) : crrConvergenceSvg(input, analytic, n, res.price);
-  return { text: lines.join("\n"), svg };
+  return { text: lines.join("\n"), reading: crrReading(type, american, n, res, euro.price, analytic), svg };
+}
+
+/** The tree value, and either what early exercise adds (American) or how close the tree is to the formula (European). */
+export function crrReading(type: OptionType, american: boolean, n: number, res: { price: number; earlyNodes: number; firstEarlyStep: number }, euro: number, analytic: number): string {
+  const steps = `${n.toLocaleString("en-US")}-step tree`;
+  if (!american) return `The European ${type} is worth about ${fx(res.price, 4)} on a ${steps}, against ${fx(analytic, 4)} from the Black–Scholes–Merton formula; more steps bring the two closer.`;
+  const head = `The American ${type} is worth about ${fx(res.price, 4)} on a ${steps}`;
+  if (res.earlyNodes > 0 && res.firstEarlyStep === 0) return `${head}, its value if exercised today: exercising now beats holding it.`;
+  if (res.earlyNodes > 0)
+    return `${head}, ${fx(res.price - euro, 4)} more than the same option without early exercise, because exercising early pays at some prices (first at step ${res.firstEarlyStep}).`;
+  return `${head}, the same as its European twin: early exercise is never worth it on this tree.`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -417,7 +444,22 @@ export function parityCalc(r: Read): FinResult {
     ],
     align: ["left", "right"],
   };
-  return { text: lines.join("\n"), tables: [table] };
+  return { text: lines.join("\n"), reading: parityReading(v, band, pc.lhs, pc.rhs), svg: putCallParitySvg(S, eqt, pvK, pc.lhs), tables: [table] };
+}
+
+/**
+ * Whether the quoted call and put agree with put–call parity, and if not which side is rich and what the riskless
+ * trade locks in. The branches are the text's own (v exactly 0; under the 4 decimals shown; inside the cost band;
+ * call rich; put rich).
+ */
+export function parityReading(v: number, band: number, lhs: number, rhs: number): string {
+  const sides = `C − P = ${fx(lhs, 4)} against ${fx(rhs, 4)} from spot and strike`;
+  if (v === 0 || Math.abs(v) < 5e-5) return `The call and put prices agree with put–call parity (${sides}), so they leave no arbitrage.`;
+  const gap = fx(Math.abs(v), 4);
+  if (Math.abs(v) <= band) return `The prices miss put–call parity by ${gap} per share (${sides}), inside the ${fv(band)} trading cost band, so there is no profit after costs.`;
+  const after = band > 0 ? ` (${fx(Math.abs(v) - band, 4)} after the cost band)` : "";
+  if (v > 0) return `The call is ${gap} per share too expensive against the put (${sides}). Selling the call and buying the put and the shares locks in that ${gap} per share before trading costs${after}.`;
+  return `The put is ${gap} per share too expensive against the call (${sides}). Buying the call, selling the put and shorting the shares locks in that ${gap} per share before trading costs${after}.`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -477,7 +519,27 @@ export function carryCalc(r: Read): FinResult {
     "Conventions: cost-of-carry model; r, q and u continuously compounded annual rates; I and U present values today of known cash income and storage costs over the life; " +
       "time in years; forward and futures prices treated as equal (deterministic interest rates, no daily-settlement convexity).",
   );
-  return { text: lines.join("\n"), svg: carryCurveSvg(base, carry, t, mkt) };
+  return { text: lines.join("\n"), reading: carryReading(S, F, carry, t, rate, mkt, K), svg: carryCurveSvg(base, carry, t, mkt) };
+}
+
+/** The fair forward against spot, then the market price against it (the arbitrage) or the existing forward's value. */
+export function carryReading(S: number, F: number, carry: number, t: number, rate: number, mkt: number | null, K: number | null): string {
+  const head =
+    F === S
+      ? `The fair futures price is ${fx(F, 4)}, equal to spot, with a net cost of carry of ${pct(carry)} a year`
+      : `The fair futures price is ${fx(F, 4)}, ${fx(Math.abs(F - S), 4)} ${F > S ? "above" : "below"} the spot price of ${fv(S)}, with a net cost of carry of ${pct(carry)} a year`;
+  if (mkt !== null) {
+    const gap = mkt - F;
+    if (Math.abs(gap) <= 1e-12 * Math.max(1, F) || Math.abs(gap) < 5e-5) return `${head}. The market price ${fv(mkt)} agrees with it, so there is no carry arbitrage.`;
+    if (gap > 0) return `${head}. The market price ${fv(mkt)} is ${fx(gap, 4)} higher, so buying the asset and selling the futures earns that ${fx(gap, 4)} at delivery before costs.`;
+    return `${head}. The market price ${fv(mkt)} is ${fx(-gap, 4)} lower, so selling the asset and buying the futures earns that at delivery, if the asset can be borrowed or is held for sale.`;
+  }
+  if (K !== null) {
+    const val = (F - K) * Math.exp(-rate * t);
+    const s = fx(val, 4);
+    return `${head}. An existing long forward at ${fv(K)} is ${s === "0.0000" ? "worth nothing either way" : val > 0 ? `worth ${s} to its holder today` : `a liability of ${fx(-val, 4)} to its holder today`}.`;
+  }
+  return `${head}.`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -601,7 +663,29 @@ export function strategyCalc(r: Read): FinResult {
     align: ["right", "right"],
     note: a.slopeHigh === 0 ? "Profit is flat above the highest strike." : `Above the highest strike profit changes by ${money(a.slopeHigh)} per 1 rise in the underlying.`,
   };
-  return { text: lines.join("\n"), svg: strategyPayoffSvg(a, legs), tables: [legTable, profitTable] };
+  return { text: lines.join("\n"), reading: strategyReading(a), svg: strategyPayoffSvg(a, legs), tables: [legTable, profitTable] };
+}
+
+/** The upfront cash, the best and worst outcome at expiry, and where the position breaks even. */
+export function strategyReading(a: StrategyAnalysis): string {
+  const money = (x: number): string => fx(x, 2);
+  const upfront = Math.abs(a.netPremium) < 1e-9 ? "It costs nothing up front" : a.netPremium > 0 ? `It costs ${money(a.netPremium)} up front` : `It brings in ${money(-a.netPremium)} up front`;
+  const best = a.maxProfit.unbounded ? "its profit is unlimited if the underlying keeps rising" : `it makes at most ${money(a.maxProfit.value)}`;
+  let worst: string;
+  if (a.maxLoss.unbounded) worst = "its loss is unlimited if the underlying keeps rising";
+  else if (money(-a.maxLoss.value) === "0.00") worst = "at worst it breaks even";
+  else if (a.maxLoss.value > 0) worst = `at worst it still makes ${money(a.maxLoss.value)}`;
+  else worst = `it loses at most ${money(-a.maxLoss.value)}`;
+  const be = a.breakevens.map((x) => fv(x, 4));
+  let even: string;
+  if (!be.length && !a.zeroRanges.length) even = "Its profit never crosses zero.";
+  else if (!be.length) even = "It breaks even over a range of prices (see the breakevens below).";
+  else {
+    const shown = be.length > 4 ? [...be.slice(0, 4), "more"] : be;
+    const list = shown.length === 1 ? shown[0] : shown.slice(0, -1).join(", ") + " and " + shown[shown.length - 1];
+    even = `It breaks even at ${be.length === 1 ? "an underlying price" : "underlying prices"} of ${list}${a.zeroRanges.length ? ", and over a range of prices" : ""}.`;
+  }
+  return `${upfront}; at expiry ${best} and ${worst}. ${even}`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -708,7 +792,24 @@ export function swapCalc(r: Read): FinResult {
     align: ["right", "right", "right", "right", "right", "right"],
     note: "Floating payments are the forward rates implied by the curve; a blank cell is a date with no payment on that leg." + (all.length > 80 ? ` ${all.length} payment dates: rows 61 to ${all.length - 20} are omitted (the total includes them).` : ""),
   };
-  return { text: lines.join("\n"), svg: swapCurveSvg(c.curve, res, fp / 100, T), tables: [table] };
+  return { text: lines.join("\n"), reading: swapReading(side, fp / 100, res), svg: swapCurveSvg(c.curve, res, fp / 100, T), tables: [table] };
+}
+
+/** The swap's value to this side, why (its fixed rate against the par rate), and its sensitivity to the fixed rate. */
+export function swapReading(side: "pay" | "receive", fixed: number, res: { value: number; parRate: number; pv01: number }): string {
+  const money = (x: number): string => fx(x, 2);
+  const who = side === "pay" ? "the fixed-rate payer" : "the fixed-rate receiver";
+  const v = money(res.value);
+  const rates = `the ${pctIn(fixed)} fixed rate against the ${pct(res.parRate, 6)} par swap rate`;
+  const head =
+    v === "0.00"
+      ? `The swap is worth 0.00 to ${who} today: ${rates} leaves the two legs equal`
+      : res.value > 0
+        ? `The swap is worth ${v} to ${who} today, an asset, given ${rates}`
+        : `The swap is a liability of ${money(-res.value)} to ${who} today, given ${rates}`;
+  const p = money(res.pv01);
+  const sens = p === "0.00" ? "" : ` Each 1 bp rise in the fixed rate ${res.pv01 > 0 ? "adds" : "takes"} ${money(Math.abs(res.pv01))} ${res.pv01 > 0 ? "to" : "from"} that value.`;
+  return `${head}.${sens}`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------

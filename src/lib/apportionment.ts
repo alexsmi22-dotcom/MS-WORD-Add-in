@@ -20,6 +20,7 @@ import { MAX_DAMAGES_AMOUNT, dmgMoney, dmgPct, dmgQty, dmgUnitMoney, damagesFigu
 import { ratMul, ratDiv, ratSub, ratSign, ratToNumber, ratInt, parseRatLiteral, type Rat } from "./cas";
 import { roundUnits, unitsText } from "./currency";
 import type { FinResult } from "./finCalc";
+import { namedBarsSvg, stepBarsSvg } from "./finLibFigures";
 
 type Read = (k: string) => string;
 
@@ -150,6 +151,14 @@ export function computeChain(base: Rat, ssuPct: Rat, featurePct: Rat, patentPct:
   };
 }
 
+/** The plain-language reading of the apportionment worksheet (lib/calcReading.ts rules). */
+export function apportionReading(c: ChainComputed, base: Rat): string {
+  return (
+    `On these inputs the apportioned royalty is ${centsText(c.royalty)}, an effective ${ratPctText(c.effectivePct)} of the ${centsText(base)} base. ` +
+    "Every share applied is an input, so the figure is only as strong as the evidence for each share."
+  );
+}
+
 export function apportionCalc(read: Read): FinResult {
   const b = readBase(read, "revenue", "Revenue", "price", "Price per unit");
   if (isRefusal(b)) return refuse(b);
@@ -173,7 +182,20 @@ export function apportionCalc(read: Read): FinResult {
   const rows: string[][] = [["Step", "Applied", "Share", "Running amount"]];
   c.steps.forEach((s, i) => rows.push([String(i + 1), s.label, s.share ? ratPctText(s.share) : "", centsText(s.amount)]));
   rows.push(["", "Royalty", ratPctText(c.effectivePct), centsText(c.royalty)]);
-  return { text: lines.join("\n"), tables: [{ label: "Apportionment chain", rows, align: ["left", "left", "right", "right"] }] };
+  return {
+    text: lines.join("\n"),
+    reading: apportionReading(c, b.base),
+    // the running amount after each step, from the base down to the royalty (the table's Running amount column)
+    svg: stepBarsSvg(
+      c.steps.map((s, i) => ({
+        name: i === 0 ? "Royalty base" : `${["SSPPU share", "Feature share", "Patent share", "Royalty rate"][i - 1]} ${s.share ? ratPctText(s.share) : ""}`.trim(),
+        value: centsOf(s.amount),
+        text: centsText(s.amount),
+      })),
+      "Apportionment: from the base to the royalty",
+    ),
+    tables: [{ label: "Apportionment chain", rows, align: ["left", "left", "right", "right"] }],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +218,17 @@ export function computeEmvr(emv: Rat, ssppu: Rat, ratePct: Rat): EmvrComputed {
   const ssppuRoyalty = ratMul(ssppu, r);
   const sharePct = ratMul(ratDiv(ssppu, emv), HUNDRED);
   return { emvRoyalty, ssppuRoyalty, sharePct, equivalentPct: ratMul(ratePct, ratDiv(ssppu, emv)), difference: ratSub(emvRoyalty, ssppuRoyalty) };
+}
+
+/** The plain-language reading of the EMV / SSPPU comparison (lib/calcReading.ts rules). */
+export function emvrReading(c: EmvrComputed, ratePct: Rat): string {
+  // Branch on the royalties as printed: bases a few cents apart give the same royalty to the cent.
+  if (centsText(c.ssppuRoyalty) === centsText(c.emvRoyalty))
+    return `At ${ratPctText(ratePct)} both bases give a royalty of ${centsText(c.ssppuRoyalty)} to the cent, so the choice of base does not change the figure here.`;
+  return (
+    `At ${ratPctText(ratePct)}, the smallest salable unit gives a royalty of ${centsText(c.ssppuRoyalty)} against ${centsText(c.emvRoyalty)} on the entire product, ${centsText(c.difference)} less. ` +
+    `Matching the smaller royalty on the entire product takes a rate of ${ratPctText(c.equivalentPct)}.`
+  );
 }
 
 export function emvrCalc(read: Read): FinResult {
@@ -241,7 +274,21 @@ export function emvrCalc(read: Read): FinResult {
     ["SSPPU", centsText(ssppu), ratPctText(rate.r), centsText(c.ssppuRoyalty)],
     ["Difference", centsText(ratSub(emv, ssppu)), "", centsText(c.difference)],
   ];
-  return { text: lines.join("\n"), tables: [{ label: "EMV and SSPPU royalty bases", rows, align: ["left", "right", "right", "right"] }] };
+  return {
+    text: lines.join("\n"),
+    reading: emvrReading(c, rate.r),
+    // the two bases and the royalty the same rate gives on each (the table's amounts)
+    svg: namedBarsSvg(
+      [
+        { name: "Entire-product base", value: centsOf(emv), text: centsText(emv) },
+        { name: "SSPPU base", value: centsOf(ssppu), text: centsText(ssppu) },
+        { name: "Royalty on the entire product", value: centsOf(c.emvRoyalty), text: centsText(c.emvRoyalty) },
+        { name: "Royalty on the SSPPU", value: centsOf(c.ssppuRoyalty), text: centsText(c.ssppuRoyalty), emphasis: true },
+      ],
+      `EMV and SSPPU bases at ${ratPctText(rate.r)}`,
+    ),
+    tables: [{ label: "EMV and SSPPU royalty bases", rows, align: ["left", "right", "right", "right"] }],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +352,14 @@ export function computeComparable(inp: ComparableInput): ComparableComputed | Re
   return { pvBase, ratePct, lump, periods, totalRoyalty: totalRoyalty / 100, totalPv: totalPv / 100 };
 }
 
+/** The plain-language reading of the comparable-license conversion (lib/calcReading.ts rules). */
+export function comparableReading(c: ComparableComputed, direction: "lump2rate" | "rate2lump", discountPct: number): string {
+  const at = `discounted at ${dmgPct(discountPct)} a year`;
+  return direction === "lump2rate"
+    ? `The ${dmgMoney(c.lump)} lump sum is worth about the same as a running royalty of ${dmgPct(c.ratePct)} on the forecast base (${at}), the rate to set beside other licenses.`
+    : `A ${dmgPct(c.ratePct)} running royalty on the forecast base is worth about ${dmgMoney(c.lump)} paid up front (${at}), against ${dmgMoney(c.totalRoyalty)} paid over time undiscounted.`;
+}
+
 export function comparableCalc(read: Read): FinResult {
   const t = parsePeriodTable(read("periods"), ["royalty base"], 1);
   if ("error" in t) return refuse(t);
@@ -349,7 +404,12 @@ export function comparableCalc(read: Read): FinResult {
     ],
     "Running royalty by period",
   );
-  return { text: lines.join("\n"), tables: [{ label: "Running royalty by period", rows, align: ["left", "right", "right", "right", "right"] }], svg };
+  return {
+    text: lines.join("\n"),
+    reading: comparableReading(c, direction, disc.v),
+    tables: [{ label: "Running royalty by period", rows, align: ["left", "right", "right", "right", "right"] }],
+    svg,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +425,14 @@ export function computeNash(withPatent: Rat, alternative: Rat, sharePct: Rat): N
   const surplus = ratSub(withPatent, alternative);
   const patentee = ratMul(surplus, pctOf(sharePct));
   return { surplus, patentee, licensee: ratSub(surplus, patentee) };
+}
+
+/** The plain-language reading of the Nash split (lib/calcReading.ts rules). */
+export function nashReading(c: NashComputed, sharePct: Rat): string {
+  return (
+    `On these inputs the patentee's part of the ${centsText(c.surplus)} bargaining surplus is ${centsText(c.patentee)} and the licensee keeps ${centsText(c.licensee)}. ` +
+    `The result is only as sound as the evidence for a ${ratPctText(sharePct)} patentee share.`
+  );
 }
 
 export function nashCalc(read: Read): FinResult {
@@ -416,5 +484,20 @@ export function nashCalc(read: Read): FinResult {
       "a share chosen without that support is not something this arithmetic can supply.",
   );
   lines.push("Conventions: surplus = profit with − profit with the next-best alternative; royalty = surplus × patentee share; exact rational arithmetic, each amount rounded to the cent (half away from zero) from its exact value; US dollars.");
-  return { text: lines.join("\n"), tables: [{ label: "Nash bargaining split", rows, align: ["left", "right"] }] };
+  return {
+    text: lines.join("\n"),
+    reading: nashReading(c, sh.r),
+    // the two profits, the surplus between them, and how it is split (the table's amounts)
+    svg: namedBarsSvg(
+      [
+        { name: "Profit with the feature", value: centsOf(w.r), text: centsText(w.r) },
+        { name: "Next-best alternative", value: centsOf(a.r), text: centsText(a.r) },
+        { name: "Bargaining surplus", value: centsOf(c.surplus), text: centsText(c.surplus) },
+        { name: `Patentee (${ratPctText(sh.r)})`, value: centsOf(c.patentee), text: centsText(c.patentee), emphasis: true },
+        { name: "Licensee keeps", value: centsOf(c.licensee), text: centsText(c.licensee) },
+      ],
+      "Nash bargaining: splitting the surplus",
+    ),
+    tables: [{ label: "Nash bargaining split", rows, align: ["left", "right"] }],
+  };
 }

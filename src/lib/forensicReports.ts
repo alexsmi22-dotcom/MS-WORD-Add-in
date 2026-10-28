@@ -229,7 +229,16 @@ export function lpeCalc(read: Read): FinResult {
     lines.push(`Note: participation and employment rows: ${pe.map((p) => `from ${ageText(p.fromAge)}: ${pctText(p.part * 100)} × ${pctText(p.emp * 100)}`).join("; ")}.`);
   }
   for (const n of table.notes) lines.push(`Note: ${n}`);
-  return { text: lines.join("\n"), tables, svg: lpeFigure(res) };
+  return { text: lines.join("\n"), reading: lpeReading(res, survivalFrom === "injury"), tables, svg: lpeFigure(res) };
+}
+
+/** The plain-language reading of the lost-earnings result: the total at trial and how it splits into past, interest and future. */
+export function lpeReading(res: { totalCents: number; pastCents: number; interestCents: number; futurePvCents: number }, death: boolean): string {
+  const what = death ? "Estimated economic losses from the death" : "Estimated lost earnings and household services";
+  if (res.pastCents === 0 && res.interestCents === 0) {
+    return `${what} come to ${money(res.totalCents)} at the trial date, all of it future losses in present value, on the inputs given.`;
+  }
+  return `${what} come to ${money(res.totalCents)} at the trial date: ${money(res.pastCents)} already lost, ${money(res.interestCents)} of prejudgment interest and ${money(res.futurePvCents)} for future losses in present value, on the inputs given.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -330,7 +339,16 @@ export function annuityCalc(read: Read): FinResult {
           { width: 380, height: 250, title: `Survival from age ${x} (${table.label.replace(/^CDC 2024 United States life table, /, "CDC 2024, ")})`, xlabel: "age", ylabel: "probability" },
         )
       : undefined;
-  return { text: lines.join("\n"), tables, svg };
+  return { text: lines.join("\n"), reading: annuityReading(x, iPct, ad, pay, eC), tables, svg };
+}
+
+/** The plain-language reading of the annuity factors: what a life annuity from age x is worth today, and the life expectancy behind it. */
+export function annuityReading(x: number, iPct: number, ad: number, pay: number, eC: number): string {
+  const life = `life expectancy at ${x} is ${fixedText(eC, 2)} years`;
+  if (pay > 0) {
+    return `A life annuity of ${amt(pay)} a year from age ${x}, paid at the start of each year, is worth ${amt(pay * ad)} today at ${pctText(iPct)} interest; ${life} on this table.`;
+  }
+  return `A payment of 1 a year for life from age ${x}, starting now, is worth ${f4(ad)} today at ${pctText(iPct)} interest (äₓ); ${life} on this table.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -384,7 +402,34 @@ export function retireCalc(read: Read): FinResult {
     ],
     { width: 380, height: 250, title: "Retirement balance by age (from the inputs given)", xlabel: "age (end of year)", ylabel: "balance", yGrouping: "comma" },
   );
-  return { text: lines.join("\n"), tables: [{ label: "Retirement schedule", rows: t, align: ["left", "right", "right", "right", "right", "right"] }], svg: r.rows.length >= 2 ? svg : undefined };
+  return {
+    text: lines.join("\n"),
+    reading: retireReading({ retireAge, endAge: endA, ret, withdrawal, atRetire: r.atRetire, atRetireReal: r.atRetireReal, runsOutAge: r.runsOutAge, left: lastRow.end, sustainable: r.sustainable }),
+    tables: [{ label: "Retirement schedule", rows: t, align: ["left", "right", "right", "right", "right", "right"] }],
+    svg: r.rows.length >= 2 ? svg : undefined,
+  };
+}
+
+/** The plain-language reading of the retirement schedule: whether the money lasts, and the withdrawal that would just last. */
+export function retireReading(o: {
+  retireAge: number;
+  endAge: number;
+  ret: number;
+  withdrawal: number;
+  atRetire: number;
+  atRetireReal: number;
+  runsOutAge: number | null;
+  left: number;
+  sustainable: number | null;
+}): string {
+  const reach = `savings reach ${amt(o.atRetire)} at age ${o.retireAge} (${amt(o.atRetireReal)} in today's money)`;
+  // The same sustainable-withdrawal condition as the text's line.
+  // A sustainable withdrawal that prints as 0.00 (nothing saved) says nothing useful, so it is left out.
+  const sus = o.sustainable !== null && o.endAge > o.retireAge && amt(o.sustainable) !== "0.00" ? amt(o.sustainable) : null;
+  if (o.runsOutAge === null) {
+    return `With a steady ${pctText(o.ret)} return, ${reach} and last to age ${o.endAge} with ${amt(o.left)} left.${sus ? ` About ${sus} a year in today's money would use them up exactly by then.` : ""}`;
+  }
+  return `With a steady ${pctText(o.ret)} return the money runs out at age ${o.runsOutAge}, before age ${o.endAge}: ${reach}.${sus ? ` About ${sus} a year in today's money, not ${amt(o.withdrawal)}, would last to age ${o.endAge}.` : ""}`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -461,5 +506,18 @@ export function swrCalc(read: Read): FinResult {
   const series = [{ points: r.ruinBy.map((p, k) => ({ x: k + 1, y: p * 100 })), type: "line" as const, color: "#b91c1c", label: "ruined by year end (%)" }];
   if (alive) series.push({ points: alive.map((p, k) => ({ x: k + 1, y: p * 100 })), type: "line" as const, color: "#2563eb", label: "alive at start (%)" });
   const svg = years >= 2 ? finPlotSvg(series, { width: 380, height: 250, title: "Probability of ruin by year", xlabel: "year", ylabel: "percent" }) : undefined;
-  return { text: lines.join("\n"), tables: [{ label: "Probability of ruin by year", rows: t, align: alive ? ["left", "right", "right", "right", "right", "right"] : ["left", "right", "right", "right", "right"] }], svg };
+  return {
+    text: lines.join("\n"),
+    reading: swrReading(pc(r.ruinBy[years - 1]), alive ? pc(r.ruinWhileAlive!) : null, amt(withdrawal), amt(balance), years, paths.toLocaleString("en-US")),
+    tables: [{ label: "Probability of ruin by year", rows: t, align: alive ? ["left", "right", "right", "right", "right", "right"] : ["left", "right", "right", "right", "right"] }],
+    svg,
+  };
+}
+
+/** The plain-language reading of the safe-withdrawal Monte Carlo (values already formatted as the text prints them). */
+export function swrReading(ruin: string, ruinAlive: string | null, withdrawal: string, balance: string, years: number, paths: string): string {
+  const head = `Withdrawing ${withdrawal} a year from ${balance} runs out of money within ${years} year${years === 1 ? "" : "s"} in about ${ruin} of ${paths} simulated return paths`;
+  return ruinAlive === null
+    ? `${head}, an estimate that rests on the return assumptions entered.`
+    : `${head}; allowing for the chance of dying first, the estimated risk of outliving the money is ${ruinAlive}.`;
 }

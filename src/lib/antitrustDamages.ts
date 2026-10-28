@@ -368,5 +368,23 @@ export function antitrustCalc(r: Read): FinResult {
     ],
     { width: 380, height: 250, title: "Actual and but-for prices (from the inputs given)", xlabel: "observation (row order)", ylabel: "price ($)" },
   );
-  return { text: lines.join("\n"), svg, tables };
+  return { text: lines.join("\n"), reading: antitrustReading(ests, totals.map((c) => dmgMoney(c / 100))), svg, tables };
+}
+
+/**
+ * The plain-language reading of the overcharge estimate (lib/calcReading.ts rules): each method's overcharge and
+ * damages as the text prints them, and the dummy-variable coefficient's p-value when that method ran.
+ */
+export function antitrustReading(ests: OverchargeEstimate[], totals: string[]): string {
+  const name = (e: OverchargeEstimate): string => (e.method === "dummy" ? "dummy-variable" : "forecast");
+  if (ests.every((e) => !(e.pctOfButFor > 0)))
+    return `These data show no overcharge: during-period prices were not above the but-for prices (${ests.map((e) => `${pctText(e.pctOfButFor)} by the ${name(e)} method`).join(", ")}), so the estimate supports no positive damages.`;
+  const parts = ests.map((e, m) => `${pctText(e.pctOfButFor)}${m === 0 ? " of the but-for price" : ""} (damages about ${totals[m]}) by the ${name(e)} method`);
+  const first = `The regression estimates an overcharge of ${parts.join(" and ")}.`;
+  const t = ests.find((e) => e.dummy)?.dummy;
+  if (!t) return `${first} The forecast method gives no test of whether the overcharge differs from zero.`;
+  const which = ests.length > 1 ? "The dummy-variable estimate" : "The overcharge";
+  return t.p < 0.05
+    ? `${first} ${which} is statistically significant at the 5% level (p ${pText(t.p)}).`
+    : `${first} The data do not clearly separate the ${ests.length > 1 ? "dummy-variable " : ""}overcharge from zero (p ${pText(t.p)}), so it could be chance.`;
 }

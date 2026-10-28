@@ -452,7 +452,16 @@ export function rfrCalc(read: Read): FinResult {
     ],
     `Royalty saved by year${cur.code ? ` (${cur.code})` : ""}`,
   );
-  return { text: lines.join("\n"), tables, svg };
+  return { text: lines.join("\n"), reading: rfrReading(c, cur, le.life, discountPct), tables, svg };
+}
+
+/** The plain-language reading of the relief-from-royalty value (lib/calcReading.ts rules). */
+export function rfrReading(c: RfrComputed, cur: Currency, life: number, discountPct: number): string {
+  const tab = c.tabFactor !== null ? `, including ${amount(c.tabAmount!, cur)} of tax amortization benefit` : "";
+  return (
+    `On these inputs the patent is worth about ${amount(c.value, cur)}${tab}. ` +
+    `That is today's value of the after-tax royalties its owner avoids paying over the remaining ${fixedText(life, 2)} years, discounted at ${pctText(discountPct)} a year.`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -579,7 +588,23 @@ export function incomeCalc(read: Read): FinResult {
           yGrouping: "comma",
         },
       );
-  return { text: lines.join("\n"), tables: [{ label: "Excess earnings by year", rows, align: ["left", "right", "right", "right", "right", "right"] }], svg };
+  return {
+    text: lines.join("\n"),
+    reading: incomeReading(c, cur, le.life, discountPct),
+    tables: [{ label: "Excess earnings by year", rows, align: ["left", "right", "right", "right", "right", "right"] }],
+    svg,
+  };
+}
+
+/** The plain-language reading of the excess-earnings value (lib/calcReading.ts rules). */
+export function incomeReading(c: IncomeComputed, cur: Currency, life: number, discountPct: number): string {
+  const v = amount(c.value, cur);
+  if (c.value < 0)
+    return `On these inputs the value comes out negative, ${v}: over the remaining ${fixedText(life, 2)} years the cash flows the patent adds do not cover the charges for the other assets they need.`;
+  return (
+    `On these inputs the patent is worth about ${v}. ` +
+    `That is today's value of the earnings it adds beyond what the other assets need, over the remaining ${fixedText(life, 2)} years, discounted at ${pctText(discountPct)} a year.`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -971,5 +996,25 @@ export function mcNpvCalc(read: Read): FinResult {
     ["Probability NPV < 0", `${fixedText(r.probNeg * 100, 2)}%`],
     ["NPV at central inputs", cell(r.central, cur)],
   ];
-  return { text: lines.join("\n"), tables: [{ label: "Monte Carlo patent NPV", rows: stats, align: ["left", "right"] }], svg: npvHistogram(r, cur) };
+  return {
+    text: lines.join("\n"),
+    reading: mcNpvReading(r, cur, samples),
+    tables: [{ label: "Monte Carlo patent NPV", rows: stats, align: ["left", "right"] }],
+    svg: npvHistogram(r, cur),
+  };
+}
+
+/** The plain-language reading of the Monte Carlo NPV (lib/calcReading.ts rules). */
+export function mcNpvReading(r: McNpvResult, cur: Currency, samples: number): string {
+  const n = samples.toLocaleString("en-US");
+  const loss =
+    r.negCount === 0
+      ? `none of the ${n} simulated outcomes loses money`
+      : r.negCount === samples
+        ? `every one of the ${n} simulated outcomes loses money`
+        : `${r.negCount.toLocaleString("en-US")} of the ${n} simulated outcomes (${fixedText(r.probNeg * 100, 2)}%) lose${r.negCount === 1 ? "s" : ""} money`;
+  const p10 = amount(r.p10, cur);
+  const p90 = amount(r.p90, cur);
+  const spread = p10 === p90 ? `every simulated outcome is about ${p10}` : `the middle of the outcomes runs from ${p10} at P10 to ${p90} at P90`;
+  return `After the price paid, the patent's NPV averages about ${amount(r.mean, cur)}, and ${spread}. On these input ranges ${loss}.`;
 }

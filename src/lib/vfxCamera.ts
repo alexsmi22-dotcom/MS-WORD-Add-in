@@ -12,6 +12,8 @@
 //   - Film fit (Maya's Film Fit): "horizontal" maps the filmback width to the image width, "vertical" the height,
 //     "fill" keeps the image inside the filmback and "overscan" keeps the filmback inside the image.
 
+import { fmtSig } from "./axis";
+
 export interface Err {
   ok: false;
   error: string;
@@ -69,12 +71,17 @@ export function eulerMatrix(order: Order, angles: Vec3): M3 {
 }
 
 /** Gimbal lock: the MIDDLE rotation of the order at ±90° lines the first and third axes up. */
-export function gimbalLocked(order: Order, angles: Vec3): { locked: boolean; middle: string; angle: number } {
+/** Within this many degrees of ±90° the middle rotation is NEAR gimbal lock: the first and third axes are almost
+ *  aligned, so small orientation changes need large Euler-angle changes and interpolated curves can flip. */
+export const GIMBAL_NEAR_DEG = 0.5;
+
+export function gimbalLocked(order: Order, angles: Vec3): { locked: boolean; near: boolean; off: number; middle: string; angle: number } {
   const byAxis: Record<string, number> = { X: angles[0], Y: angles[1], Z: angles[2] };
   const middle = order[1];
   const a = byAxis[middle];
   const r = ((a % 180) + 180) % 180;
-  return { locked: Math.abs(r - 90) < 1e-9, middle, angle: a };
+  const off = Math.abs(r - 90);
+  return { locked: off < 1e-9, near: off >= 1e-9 && off <= GIMBAL_NEAR_DEG, off, middle, angle: a };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -83,6 +90,8 @@ export function gimbalLocked(order: Order, angles: Vec3): { locked: boolean; mid
 
 export type FitMode = "fill" | "horizontal" | "vertical" | "overscan";
 export type FovAxis = "h" | "v" | "d";
+/** The widest field of view taken (degrees): beyond it the figures would round to 180°. */
+export const MAX_FOV = 179;
 
 /** Full-frame (36 × 24 mm) diagonal, the reference for crop factor. */
 export const FF_DIAG = Math.hypot(36, 24);
@@ -151,13 +160,14 @@ export function cameraMatch(inp: CameraInput): CameraResult | Err {
   } else {
     const a = inp.fov;
     if (a === null || !Number.isFinite(a)) return { ok: false, error: "Give a focal length or a field of view." };
-    if (!(a > 0 && a < 180)) return { ok: false, error: `Field of view: ${a}° is outside (0°, 180°); a pinhole camera's field of view is below 180°.` };
+    if (!(a > 0 && a <= MAX_FOV)) return { ok: false, error: `Field of view: ${fmtSig(a, 10).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "")}° is outside (0°, ${MAX_FOV}°]. A pinhole camera's field of view is below 180°, and past ${MAX_FOV}° the focal length tends to zero and the result would print as 180°; a fisheye lens needs its own projection model.` };
     const dim = inp.fovAxis === "h" ? We : inp.fovAxis === "v" ? H : diag;
     f = dim / (2 * Math.tan((a * DEG) / 2));
   }
   const hFov = fov(We, f);
   const vFov = fov(H, f);
   const dFov = fov(diag, f);
+  if (dFov > MAX_FOV) return { ok: false, error: `Focal length: ${fmtSig(f, 4)} mm on this filmback gives a ${fmtSig(dFov, 6)}° diagonal field of view, past the ${MAX_FOV}° a pinhole model can state (it would print as 180°); a lens this wide is a fisheye and needs its own projection model.` };
   const filmAspect = We / H;
   const imageAspect = (resW * s) / resH;
   let resolvedFit: "horizontal" | "vertical";
@@ -288,7 +298,7 @@ export interface ProjectionResult {
 function project(R: M3, cam: Vec3, p: Vec3, f: number, k: number, resW: number, resH: number): Projected | Err {
   const pc = matVec(transpose(R), sub(p, cam));
   const depth = -pc[2];
-  if (!(depth > 1e-12)) return { ok: false, error: `The point is ${depth === 0 ? "level with" : "behind"} the camera (depth ${depth.toPrecision(4)} along the view axis), so it has no image: the camera looks down its local −Z.` };
+  if (!(depth > 1e-12)) return { ok: false, error: `The point is ${depth === 0 ? "level with" : "behind"} the camera (depth ${fmtSig(depth, 4)} along the view axis), so it has no image: the camera looks down its local −Z.` };
   const xf = (f * pc[0]) / depth;
   const yf = (f * pc[1]) / depth;
   const u = resW / 2 + xf * k;

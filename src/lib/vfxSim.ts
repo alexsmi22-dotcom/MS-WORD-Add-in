@@ -6,6 +6,8 @@
 // Navier–Stokes itself is a solver, not a calculator: nothing here simulates a fluid. What a calculator can say
 // honestly is how a sim's timestep must be chosen (CFL) and which dimensionless numbers a scaled set-up keeps.
 
+import { fmtSig } from "./axis";
+
 export interface Err {
   ok: false;
   error: string;
@@ -103,7 +105,7 @@ export function cfl(dx: number, umax: number, fps: number, C: number): CflResult
   const dtMax = (C * dx) / umax;
   const frameTime = 1 / fps;
   const substeps = Math.max(1, Math.ceil(frameTime / dtMax - 1e-12));
-  if (substeps > 1e6) return { ok: false, error: `That needs ${substeps.toExponential(2)} substeps per frame: check the voxel size and velocity units.` };
+  if (substeps > 1e6) return { ok: false, error: `That needs ${fmtSig(substeps, 3)} substeps per frame: check the voxel size and velocity units.` };
   return { ok: true, dtMax, frameTime, substeps, dt: frameTime / substeps, cellsPerFrame: umax / (dx * fps) };
 }
 

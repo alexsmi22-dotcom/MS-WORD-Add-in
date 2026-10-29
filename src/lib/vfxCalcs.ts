@@ -16,10 +16,11 @@ import { formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
 import { refuseNonFinite } from "./finiteResult";
+import { typesetENotation } from "./subscriptText";
 import { audioCadence, frameRange, padFrame, readRate, retime, syncOffset, type Interp, type OffsetUnit, type RetimeMode } from "./vfxTime";
 import { retimeSpeedSvg, retimeWarpSvg, timelineSvg, BLUE, GREY, ORANGE, RED, GREEN } from "./vfxCharts";
 import { axesSvg, bounceSvg, cbcrSvg, compositeSvg, fovWedgesSvg, froudeSvg, logCurveSvg, parallaxTopSvg, shadingSvg } from "./vfxFigures";
-import { cameraMatch, ORDERS, projection, SENSOR_PRESETS, type FitMode, type FovAxis, type Order, type Vec3 } from "./vfxCamera";
+import { cameraMatch, GIMBAL_NEAR_DEG, ORDERS, projection, SENSOR_PRESETS, type FitMode, type FovAxis, type Order, type Vec3 } from "./vfxCamera";
 import { shading, transform, type GreenConvention, type NormalEncoding, type UpConvert } from "./vfxGeometry";
 import { chromaKey, composite, LOG_CURVES, logConvert, logCurve, type BlendMode, type KeyMetric, type LogInputKind, type PorterDuff, type RGBA, type SpillVariant, type YcbcrMatrix } from "./vfxColour";
 import { cfl, drop, froudeScale, G0, impact, SCENE_UNITS } from "./vfxSim";
@@ -30,7 +31,8 @@ const UNIT_NOTE =
   "Units: a bare number is read in the unit the field names; write another unit (35 mm, 1.4 in, 2 cm) and it is " +
   "converted for you, and a unit of the wrong quantity is refused rather than silently ignored.";
 
-export const refuse = (text: string): AnalyzeOutput => ({ text: trueMinus(text.replace(/—/g, "-")), ok: false });
+/** A refusal: em dashes out, U+2212 minus, and any number an engine wrote in e-notation (1e+21) as ×10ⁿ. */
+export const refuse = (text: string): AnalyzeOutput => ({ text: trueMinus(typesetENotation(text.replace(/—/g, "-"))), ok: false });
 
 /** Six significant figures, trailing zeros kept, ×10ⁿ outside 10⁻³…10⁵, U+2212. */
 export const n6 = (v: number): string => fmtSig(v, 6);
@@ -39,6 +41,8 @@ export const t = (v: number, s = 6): string => {
   if (Object.is(v, -0) || Math.abs(v) < 1e-12) return "0";
   return fmtSig(v, s).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "");
 };
+/** Significant figures, trailing zeros dropped, with NO snapping of tiny values to 0 (a linear 7×10⁻¹⁴ is not 0). */
+const tExact = (v: number, s = 6): string => (v === 0 ? "0" : fmtSig(v, s).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, ""));
 /** Fixed decimals with trailing zeros dropped, U+2212. */
 export const d = (v: number, places = 4): string => {
   const s = Number(v.toFixed(places));
@@ -134,6 +138,11 @@ export function finish(lines: EngLine[], conversions: string[], extra: AnalyzeBl
 }
 
 const plural = (n: number, one: string, many = one + "s"): string => `${n} ${n === 1 ? one : many}`;
+/** A computed count with its noun: "1 sample", "3203.2 samples", "−1 frame". */
+const qty = (v: number, one: string, s = 8): string => {
+  const txt = t(v, s);
+  return `${txt} ${txt === "1" || txt === "−1" ? one : one + "s"}`;
+};
 /** "a, b and c". */
 const andList = (xs: string[]): string => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
@@ -217,7 +226,7 @@ const retimeCalc: VfxCalc = {
     const issues: string[] = [];
     if (c.between) issues.push(`${c.between === res.nOut ? "every output frame falls" : `${c.between} fall`} between source frames, so frame blending or optical flow is needed`);
     if (c.repeat) issues.push(`${c.repeat} repeat${c.repeat === 1 ? "s" : ""} the frame before`);
-    if (res.dropped.length) issues.push(`${plural(res.dropped.length, "source frame")} ${res.dropped.length === 1 ? "is" : "are"} never shown`);
+    if (res.droppedCount) issues.push(`${plural(res.droppedCount, "source frame")} ${res.droppedCount === 1 ? "is" : "are"} never shown`);
     if (c.outside) issues.push(`${plural(c.outside, "frame")} ${c.outside === 1 ? "samples" : "sample"} past the ends of the source (hold the end frame, or add a handle)`);
     lines.push(issues.length ? `${becomes}; ${andList(issues)}.` : `${becomes}; every output frame lands on a whole source frame, so a plain frame retime is clean.`);
     if (rate.snap) lines.push(rate.snap);
@@ -236,16 +245,20 @@ const retimeCalc: VfxCalc = {
       lines.push(`Source frame between keys: ${INTERP_WORDS[interp]}.`);
     }
     lines.push(`Source ${res.first} to ${res.last} (${res.nSrc} frames, ${t(res.durationIn, 4)} s) → output ${res.outFirst} to ${res.outFirst + res.nOut - 1} (${res.nOut} frames, ${t(res.durationOut, 4)} s). ${res.speedMin === res.speedMax ? `Speed ${t(res.speedMin, 4)} %.` : `Speed ranges ${t(res.speedMin, 4)} % to ${t(res.speedMax, 4)} %.`}`);
-    lines.push(`Output frames: ${c.on} on a whole source frame, ${c.repeat} repeating the frame before, ${c.between} between frames, ${c.outside} past the source.${res.dropped.length ? ` Source frames never shown by a nearest-frame retime: ${res.dropped.length > 12 ? `${res.dropped.slice(0, 12).join(", ")} and ${res.dropped.length - 12} more` : res.dropped.join(", ")}.` : ""}`);
+    lines.push(`Output frames: ${c.on} on a whole source frame, ${c.repeat} repeating the frame before, ${c.between} between frames, ${c.outside} past the source.${res.droppedCount ? ` Source frames never shown by a nearest-frame retime (${res.droppedCount}): ${res.droppedCount > 12 ? `${res.dropped.slice(0, 12).join(", ")} and ${res.droppedCount - 12} more` : res.dropped.join(", ")}.` : ""}`);
     // Motion blur.
     lines.push({ math: "theta_eff = theta/abs(s)", fallback: "θ(eff) = θ/|s|" });
     if (res.effMin !== null && res.effMax !== null) {
       const range = Math.abs(res.effMax - res.effMin) < 1e-9 ? `${t(res.effMax, 4)}°` : `${t(res.effMin, 4)}° to ${t(res.effMax, 4)}°`;
-      const verdict = res.effMax > 360
-        ? "above 360°, the blur is longer than the motion between output frames, so slowed action looks smeared; it cannot be removed afterwards (shoot at a higher frame rate for slow motion)"
-        : res.effMin < 90
-          ? "the blur is short for the motion between output frames, so sped-up action strobes; add vector motion blur to match"
-          : "close enough to a normal shutter that the retimed motion blur reads naturally";
+      const smear = "above 360°, the blur is longer than the motion between output frames, so slowed action looks smeared; it cannot be removed afterwards (shoot at a higher frame rate for slow motion)";
+      const strobe = "the blur is short for the motion between output frames, so sped-up action strobes; add vector motion blur to match";
+      const verdict = res.effMax > 360 && res.effMin < 90
+        ? `both ways: where the shot slows (up to ${t(res.effMax, 4)}°) the blur is longer than the motion between output frames and looks smeared, which cannot be removed afterwards; where it speeds up (down to ${t(res.effMin, 4)}°) the blur is too short and the action strobes, so add vector motion blur there`
+        : res.effMax > 360
+          ? smear
+          : res.effMin < 90
+            ? strobe
+            : "close enough to a normal shutter that the retimed motion blur reads naturally";
       lines.push(`Shot at ${t(res.shutter, 4)}°, the retimed shot's motion blur looks like a ${range} shutter: ${verdict}.${res.freezes ? " At 0 % the frame freezes and keeps the blur it was shot with." : ""}`);
     } else lines.push("Every output frame is a freeze (0 %): the frame keeps the blur it was shot with.");
     lines.push("Assumes: frames are intervals (source frame n covers [n, n + 1)), positions are not wrapped, and 'between frames' means the position is more than 10⁻⁶ frame from a whole frame. Repeats and drops are counted for a nearest-frame retime (no blending); optical flow can synthesise the in-between frames but not new motion blur.");
@@ -262,7 +275,7 @@ const retimeCalc: VfxCalc = {
       { key: "nOut", label: "Output frames", value: res.nOut, unit: "" },
       { key: "durationOut", label: "Output duration", value: res.durationOut, unit: "s" },
       { key: "between", label: "Frames between source frames", value: c.between, unit: "" },
-      { key: "dropped", label: "Source frames never shown", value: res.dropped.length, unit: "" },
+      { key: "dropped", label: "Source frames never shown", value: res.droppedCount, unit: "" },
     ];
     if (res.effMax !== null) outputs.push({ key: "effShutter", label: "Effective shutter angle (max)", value: res.effMax, unit: "°" });
     return finish(lines, [], [
@@ -346,19 +359,21 @@ const frameRangeCalc: VfxCalc = {
     const perText = whole ? `exactly ${cad.sequence[0]} samples` : `${t(cad.perFrameValue, 6)} samples on average (${cad.sequence.length <= 10 ? `the ${cad.cycle}-frame sequence ${cad.sequence.join(", ")}` : `a ${cad.cycle}-frame cycle`}, ${cad.cycleSamples} samples in all)`;
     lines.push(
       `The ${res.cutLength}-frame cut with ${vals.head} + ${vals.tail} handle frames is a ${res.total}-frame plate, files ${name(res.plateFirst)} to ${name(res.plateLast)}, and a ${pad}-digit pad holds it. ` +
-        `At ${t(rate.value, 5)} fps and ${khz} kHz each frame carries ${perText}${off && !("error" in off) ? `; the ${t(off.frames, 6)}-frame offset is ${t(off.samples, 8)} samples (${t(off.ms, 6)} ms)` : ""}.`,
+        `At ${t(rate.value, 5)} fps and ${khz} kHz each frame carries ${perText}${off && !("error" in off) ? `; the ${t(off.frames, 6)}-frame offset is ${qty(off.samples, "sample")} (${t(off.ms, 6)} ms)` : ""}.`,
     );
     if (rate.snap) lines.push(rate.snap);
     lines.push({ math: "N = (t_out - t_in + 1) + h_head + h_tail", fallback: "N = (t(out) − t(in) + 1) + h(head) + h(tail)" });
     lines.push({ math: "f_plate = f_edit + (F_start + h_head - t_in)", fallback: "f(plate) = f(edit) + (F(start) + h(head) − t(in))" });
-    lines.push(`Cut ${vals.cutIn} to ${vals.cutOut} (${res.cutLength} frames) → plate frames ${res.cutFirst} to ${res.cutLast}; with handles, plate ${res.plateFirst} to ${res.plateLast} (${res.total} frames). Plate frame = editorial frame ${res.offset >= 0 ? "+" : "−"} ${Math.abs(res.offset)}.`);
+    lines.push(`Cut ${vals.cutIn} to ${vals.cutOut} (${plural(res.cutLength, "frame")}) → plate frames ${res.cutFirst} to ${res.cutLast}; with handles, plate ${res.plateFirst} to ${res.plateLast} (${plural(res.total, "frame")}). Plate frame = editorial frame ${res.offset >= 0 ? "+" : "−"} ${Math.abs(res.offset)}.`);
     lines.push(`File patterns: ${patterns[0]} (printf: Nuke, ffmpeg, OIIO); ${patterns[1]} (Nuke, RV, Resolve: one # per digit); ${patterns[2]} (Houdini). First file ${name(res.plateFirst)}, cut in ${name(res.cutFirst)}, cut out ${name(res.cutLast)}, last ${name(res.plateLast)}.`);
     lines.push(`The last frame needs ${res.digits} digit${res.digits === 1 ? "" : "s"}; the pad overflows at frame ${"1" + "0".repeat(pad)}, ${Math.pow(10, pad) - 1 - res.plateLast} frames of headroom past this plate.`);
     lines.push({ math: "n_a = f_s/f", fallback: "nₐ = fₛ/f" });
     if (whole) lines.push(`${khz} kHz at ${rate.label} fps: ${cad.sequence[0]} samples in every frame, so any whole-frame offset is a whole number of samples.`);
     else {
       lines.push(`${khz} kHz at ${rate.label} fps: ${cad.perFrame.num}/${cad.perFrame.den} = ${t(cad.perFrameValue, 7)} samples per frame, not whole, so the samples per frame follow a ${cad.cycle}-frame cycle carrying ${cad.cycleSamples} samples${cad.sequence.length <= 10 ? `: ${cad.sequence.join(", ")}` : ""}.`);
-      lines.push("The cycle is the cumulative sample count rounded to the nearest sample at each frame boundary, starting at the first frame of the cycle; at 48 kHz and 29.97 fps that is SMPTE ST 299-1's 1602, 1601, 1602, 1601, 1602. A device may start the cycle on a different frame (the same five numbers, rotated), so check its frame-sequence phase.");
+      lines.push(cad.source === "st299"
+        ? `The sequence is SMPTE ST 299-1:2009 Table 7: odd audio frames carry ${cad.sequence[0]} samples and even frames ${cad.sequence[1]}${sr === 96000 ? " (at 96 kHz samples travel in pairs, so no frame carries an odd count)" : ""}, audio frame 1 first. A device marks which frame is audio frame 1 with the audio frame number, so check its phase.`
+        : `SMPTE ST 299-1:2009 Table 7 does not cover ${khz} kHz at ${rate.label} fps (it lists the 30 and 30/1.001 frame/s rates). The sequence shown is the cumulative sample count rounded to the nearest sample at each frame boundary, a convention, not a standard: check the device’s own sequence and phase.`);
     }
     const outputs: EngOutput[] = [
       { key: "total", label: "Plate frames", value: res.total, unit: "" },
@@ -369,11 +384,11 @@ const frameRangeCalc: VfxCalc = {
     const rows: string[][] = [["Quantity", "Value"], ["Cut (editorial)", `${vals.cutIn} to ${vals.cutOut} (${res.cutLength})`], ["Plate (with handles)", `${res.plateFirst} to ${res.plateLast} (${res.total})`], ["Cut in the plate", `${res.cutFirst} to ${res.cutLast}`], ["Editorial → plate offset", `${res.offset >= 0 ? "+" : "−"}${Math.abs(res.offset)}`], ["printf pattern", patterns[0]], ["Hash pattern", patterns[1]], ["Houdini pattern", patterns[2]], ["Samples per frame", whole ? String(cad.sequence[0]) : `${t(cad.perFrameValue, 7)} (${cad.sequence.length <= 10 ? cad.sequence.join(", ") : `${cad.cycle}-frame cycle`})`]];
     if (off && !("error" in off)) {
       lines.push({ math: "t = N_f/f = N_s/f_s", fallback: "t = N(f)/f = N(s)/fₛ" });
-      lines.push(`Sync offset: ${t(off.frames, 8)} frames = ${t(off.samples, 8)} samples = ${t(off.ms, 8)} ms at ${rate.label} fps and ${khz} kHz.${off.wholeSamples ? "" : " The offset is not a whole number of samples: an editor can only slip by whole samples, so round it."}${Math.abs(off.frames - Math.round(off.frames)) > 1e-9 ? " It is not a whole number of frames: a picture-only slip cannot correct it; slip the audio." : ""}`);
-      rows.push(["Sync offset", `${t(off.frames, 8)} frames = ${t(off.samples, 8)} samples = ${t(off.ms, 8)} ms`]);
+      lines.push(`Sync offset: ${qty(off.frames, "frame")} = ${qty(off.samples, "sample")} = ${t(off.ms, 8)} ms at ${rate.label} fps and ${khz} kHz.${off.wholeSamples ? "" : " The offset is not a whole number of samples: an editor can only slip by whole samples, so round it."}${Math.abs(off.frames - Math.round(off.frames)) > 1e-9 ? " It is not a whole number of frames: a picture-only slip cannot correct it; slip the audio." : ""}`);
+      rows.push(["Sync offset", `${qty(off.frames, "frame")} = ${qty(off.samples, "sample")} = ${t(off.ms, 8)} ms`]);
       outputs.push({ key: "offsetSamples", label: "Sync offset", value: off.samples, unit: "samples" }, { key: "offsetMs", label: "Sync offset", value: off.ms, unit: "ms" });
     }
-    lines.push("Assumes: cut in and out are inclusive frame numbers, handles are whole frames on each end, and frames are numbered upward from the plate start. A negative frame (a minus sign in the file name) is refused. Audio cadence is the round-to-nearest rule above; real recorders and SDI embedders follow it at 48 kHz.");
+    lines.push("Assumes: cut in and out are inclusive frame numbers, handles are whole frames on each end, and frames are numbered upward from the plate start. A negative frame (a minus sign in the file name) is refused. The audio sequence is SMPTE ST 299-1 Table 7 where the table has the rate, and the stated rounding convention otherwise.");
     return finish(lines, [], [
       table("Shot frame range", rows),
       plot(timelineSvg(res, vals.head, vals.tail, `Files: ${patterns[0]}`, `Editorial ${vals.cutIn} to ${vals.cutOut} becomes plate ${res.cutFirst} to ${res.cutLast} (offset ${res.offset >= 0 ? "+" : "−"}${Math.abs(res.offset)}).`), "The plate: head handle, cut and tail handle, with frame numbers", "A bar of the plate's frames: a grey head handle, the blue cut and a grey tail handle, the first and last frame numbers at each end"),
@@ -511,9 +526,12 @@ const cameraCalc: VfxCalc = {
       { key: "dFov", label: "Diagonal field of view", value: c.dFov, unit: "°" },
       { key: "crop", label: "Crop factor", value: c.crop, unit: "" },
     ];
+    const ffFov = (2 * Math.atan(36 / (2 * c.f)) * 180) / Math.PI;
+    // When this filmback is as wide as full frame, one wedge says so: two identical wedges would hide the blue one.
+    const sameAsFf = Math.abs(ffFov - c.hFov) <= 0.05;
     const wedges = [
-      { label: `${preset ? preset.label.replace(/^ARRI /, "").replace(/ \([^)]*\)$/, "") : "This filmback"}${squeeze > 1 ? `, ${squeeze}× desqueezed` : ""}`, fov: c.hFov, colour: BLUE },
-      { label: `Full frame 36 mm at ${t(c.f, 4)} mm`, fov: (2 * Math.atan(36 / (2 * c.f)) * 180) / Math.PI, colour: GREY },
+      { label: `${preset ? preset.label.replace(/^ARRI /, "").replace(/ \([^)]*\)$/, "") : "This filmback"}${squeeze > 1 ? `, ${squeeze}× desqueezed` : ""}${sameAsFf ? " (as wide as full frame)" : ""}`, fov: c.hFov, colour: BLUE },
+      ...(sameAsFf ? [] : [{ label: `Full frame 36 mm at ${t(c.f, 4)} mm`, fov: ffFov, colour: GREY }]),
     ];
     if (Math.abs(c.renderH - c.hFov) > 0.05) wedges.push({ label: `The render (${fitWord})`, fov: c.renderH, colour: ORANGE });
     return finish(lines, u.conversions, [
@@ -580,7 +598,7 @@ const projectionCalc: VfxCalc = {
     const lines: EngLine[] = [];
     const where = p.p0.inFrame ? `lands at pixel (${d(p.p0.u, 1)}, ${d(p.p0.v, 1)}) of the ${res[0]} × ${res[1]} frame` : `projects to (${d(p.p0.u, 1)}, ${d(p.p0.v, 1)}), outside the ${res[0]} × ${res[1]} frame`;
     lines.push(
-      `The point ${v3(vals.point, 3)} ${where}, ${t(p.p0.depth, 4)} units in front of the camera; the move shifts it ${t(p.speed, 4)} px per frame, a blur streak of ${t(p.blur, 4)} px at ${t(sc.shutter, 4)}°. ` +
+      `The point ${v3(vals.point, 3)} ${where}, ${qty(p.p0.depth, "unit", 4)} in front of the camera; the move shifts it ${t(p.speed, 4)} px per frame, a blur streak of ${t(p.blur, 4)} px at ${t(sc.shutter, 4)}°. ` +
         (p.lateral !== 0 ? `The near (${t(sc.near)}) and far (${t(sc.far)}) depths slide ${t(p.parallax, 4)} px apart per frame, ${t(p.parallaxShot, 4)} px over ${sc.frames} frames.` : "The camera does not move sideways, so the two depths show no parallax."),
     );
     lines.push({ math: "p_c = R^T (p - C)", fallback: "p(c) = Rᵀ(p − C)" });
@@ -589,7 +607,7 @@ const projectionCalc: VfxCalc = {
     lines.push({ math: "u = W_px/2 + k x", fallback: "u = W(px)/2 + k·x" });
     lines.push({ math: "v = H_px/2 - k y", fallback: "v = H(px)/2 − k·y" });
     lines.push({ math: "Delta u = (f b k)/d", fallback: "Δu = f·b·k/d" });
-    lines.push(`Conventions: right-handed, Y up, the camera looks down its local −Z; rotation order ${order} (${order[0]} first) about the parent axes, R = R${order[2].toLowerCase()}·R${order[1].toLowerCase()}·R${order[0].toLowerCase()}; pixels from the top-left, v down (Nuke counts v from the bottom: ${d(p.p0.vNuke, 2)}). k = ${t(p.k, 6)} px per mm of film (horizontal fit).`);
+    lines.push(`Conventions: right-handed, Y up, the camera looks down its local −Z; rotation order ${order} (${order[0]} first) about the parent axes, R = R${order[2].toLowerCase()}·R${order[1].toLowerCase()}·R${order[0].toLowerCase()}; pixels from the top-left, v down (Nuke counts v from the bottom: ${d(p.p0.vNuke, 2)}); u and v are continuous, u = 0 the left edge of the frame, so pixel i spans [i, i + 1) and its centre is at i + 0.5 (column ${Math.floor(p.p0.u)}, row ${Math.floor(p.p0.v)} here). k = ${t(p.k, 6)} px per mm of film (horizontal fit).`);
     if (Math.abs(p.gateMismatch - 1) > 0.005) lines.push(`The resolution's aspect (${t(res[0] / res[1], 4)}) differs from the filmback's (${t(W / Hh, 4)}): with the width fitted, the image covers ${t((res[1] / p.k), 5)} mm of the ${t(Hh)} mm height. Set the CG camera's film fit to match (Camera match).`);
     lines.push(`Camera-space point ${v3(p.p0.pc, 4)}; on the film (${d(p.p0.xf, 4)}, ${d(p.p0.yf, 4)}) mm from centre.`);
     lines.push(`After one frame of the move ${v3(vals.move, 4)}: pixel (${d(p.p1.u, 2)}, ${d(p.p1.v, 2)}), a screen velocity of (${d(p.du, 3)}, ${d(p.dv, 3)}) px per frame, ${t(p.speed, 5)} px per frame in all. Motion blur at ${t(sc.shutter, 4)}°: ${t(p.speed, 5)} × ${t(sc.shutter, 4)}/360 = ${t(p.blur, 5)} px.`);
@@ -675,7 +693,8 @@ const transformCalc: VfxCalc = {
     lines.push(`Rotation order ${order}: ${order[0]} is applied first, about the fixed parent axes, so R = R${order[2].toLowerCase()}·R${order[1].toLowerCase()}·R${order[0].toLowerCase()} (Maya's rotate order; scipy Rotation with the lower-case axes "${order.toLowerCase()}"; intrinsic ${[...order].reverse().join("")} in Attitude). Column vectors, p′ = M·p; Maya's MMatrix and Houdini's VEX store the transpose (row vectors).`);
     lines.push(`Determinant ${t(res.det, 6)} (sx·sy·sz); rotation orthogonality |RᵀR − I| = ${res.orthoErr < 1e-15 ? "0" : t(res.orthoErr, 2)}; inverse check |M⁻¹M − I| = ${res.invErr < 1e-15 ? "0" : t(res.invErr, 2)}.`);
     lines.push(`Rotation as a quaternion (x, y, z, w) ${v3(res.quat, 6)}; as an axis and angle, ${t(res.angle, 6)}° about ${res.axis ? v3(res.axis, 6) : "no axis (identity)"}.`);
-    if (!res.gimbal.locked) lines.push(`Gimbal lock: none (the middle rotation, ${res.gimbal.middle} = ${t(res.gimbal.angle)}°, is not ±90°).`);
+    if (res.gimbal.near) lines.push(`Near gimbal lock: the middle rotation (${res.gimbal.middle} = ${t(res.gimbal.angle)}°) is ${t(res.gimbal.off, 3)}° from ±90°, so the first and third axes are almost aligned; small changes in orientation need large Euler-angle changes and animation curves through here can flip. Key quaternions, or change the rotation order.`);
+    else if (!res.gimbal.locked) lines.push(`Gimbal lock: none (the middle rotation, ${res.gimbal.middle} = ${t(res.gimbal.angle)}°, is more than ${GIMBAL_NEAR_DEG}° from ±90°).`);
     if (res.conv) lines.push(`${up === "y2z" ? "Y-up → Z-up" : "Z-up → Y-up"}: points as C·p with C = ${up === "y2z" ? "+90°" : "−90°"} about X ((x, y, z) → ${up === "y2z" ? "(x, −z, y)" : "(x, z, −y)"}); the matrix becomes C·M·C⁻¹.`);
     lines.push("Assumes: one pivot for rotate and scale (no shear, no separate rotate/scale pivots or pivot translation, no joint orient); angles in degrees; values within 10⁻¹² of a whole number are printed as that number (cos 90° is exactly 0).");
     const extra = [
@@ -835,20 +854,22 @@ const logCalc: VfxCalc = {
     if (!res.ok) return refuse(res.error);
     const lines: EngLine[] = [];
     const code10 = `10-bit ${d(res.code10, 1)}`;
-    if (res.belowBlack) {
-      lines.push(`Code ${d(res.code, 4)} (${code10}) is below ${curve.label}'s black (code ${d(res.blackCode, 4)}, 10-bit ${d(res.blackCode * 1023, 1)}): it decodes to ${t(res.linear, 4)} linear, a negative value (noise below black) with no stops from grey; most comps keep it through the math and clamp only at the end.`);
+    if (res.belowBlack && (kind === "linear" || kind === "stops")) {
+      lines.push(`${tExact(res.linear, 4)} linear is below black (a negative value, noise below black, with no stops from grey): ${curve.label} encodes it to code ${d(res.code, 4)} (${code10}), under the curve's black at ${d(res.blackCode, 4)}; most comps keep it through the math and clamp only at the end.`);
+    } else if (res.belowBlack) {
+      lines.push(`Code ${d(res.code, 4)} (${code10}) is below ${curve.label}'s black (code ${d(res.blackCode, 4)}, 10-bit ${d(res.blackCode * 1023, 1)}): it decodes to ${tExact(res.linear, 4)} linear, a negative value (noise below black) with no stops from grey; most comps keep it through the math and clamp only at the end.`);
     } else {
-      lines.push(`${t(res.linear, 5)} linear (${res.stops === null ? "at black" : Math.abs(res.stops) < 0.005 ? "18 % grey itself" : `${res.stops > 0 ? "+" : ""}${d(res.stops, 2)} stops from 18 % grey`}) is ${curve.label} code ${d(res.code, 4)} (${code10}); 18 % grey sits at ${d(res.greyCode, 4)} on this curve.`);
+      lines.push(`${tExact(res.linear, 5)} linear (${res.stops === null ? "at black" : Math.abs(res.stops) < 0.005 ? "18 % grey itself" : `${res.stops > 0 ? "+" : ""}${d(res.stops, 2)} stops from 18 % grey`}) is ${curve.label} code ${d(res.code, 4)} (${code10}); 18 % grey sits at ${d(res.greyCode, 4)} on this curve.`);
     }
     lines.push(`${curve.label}: ${curve.source}.`);
-    lines.push(`Linear ${t(res.linear, 7)}; stops from 18 % grey ${res.stops === null ? "none (at or below linear 0)" : d(res.stops, 4)}; code value ${d(res.code, 6)} (10-bit ${d(res.code10, 2)}).`);
+    lines.push(`Linear ${tExact(res.linear, 7)}; stops from 18 % grey ${res.stops === null ? "none (at or below linear 0)" : d(res.stops, 4)}; code value ${d(res.code, 6)} (10-bit ${d(res.code10, 2)}).`);
     lines.push({ math: "stops = log_2(x/0.18)", fallback: "stops = log₂(x/0.18)" });
     if (res.codeOutside) lines.push(`The code value is outside 0 to 1: ${res.code < 0 ? "below" : "above"} the range a file stores, so a camera would clip it.`);
     lines.push(`On this curve: linear 0 (black) is code ${d(res.blackCode, 4)} (10-bit ${d(res.blackCode * 1023, 1)}), 18 % grey ${d(res.greyCode, 4)} (10-bit ${d(res.greyCode * 1023, 1)}). ${curve.note}`);
     lines.push("Assumes: code values are full range (10-bit code = normalised × 1023), as these curves are defined; a file delivered in legal range must be scaled first. The curve converts brightness only: the camera's gamut (ARRI Wide Gamut, S-Gamut3, V-Gamut, REDWideGamutRGB, AP1) is a separate matrix.");
     const rows: string[][] = [
       ["Quantity", "Value"],
-      ["Scene linear", t(res.linear, 7)],
+      ["Scene linear", tExact(res.linear, 7)],
       ["Stops from 18 % grey", res.stops === null ? "none (at or below 0)" : d(res.stops, 4)],
       ["Code value (0 to 1)", d(res.code, 6)],
       ["10-bit code value", d(res.code10, 2)],
@@ -923,11 +944,21 @@ const compositeCalc: VfxCalc = {
     const mistakeWords = c.mistake.kind === "double" ? "multiplying the premultiplied colour by alpha again" : "using the straight colour as if it were premultiplied";
     const fringe = worst < -1e-9 ? "darker (a dark fringe)" : worst > 1e-9 ? "brighter (a bright halo)" : "unchanged here";
     const lumLin = (v: number[]): number => 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
-    const dl = lumLin(c.blendDisplay) / Math.max(1e-12, lumLin(c.blendLinear)) - 1;
+    // A percentage only against a positive linear result; equal results read "the same", and a zero or negative linear
+    // result (black, an exact difference of equals) is compared in absolute luminance instead.
+    const yLin = lumLin(c.blendLinear);
+    const yDisp = lumLin(c.blendDisplay);
+    const diffY = yDisp - yLin;
+    const sameBlend = Math.abs(diffY) <= 1e-9 * Math.max(1, Math.abs(yLin), Math.abs(yDisp));
+    const blendCompare = sameBlend
+      ? "the same as"
+      : yLin > 1e-9
+        ? `${t((Math.abs(diffY) / yLin) * 100, 3)} % ${diffY < 0 ? "darker" : "brighter"} than`
+        : `${diffY < 0 ? "darker" : "brighter"} (luminance ${d(yDisp, 5)} against ${d(yLin, 5)}) than`;
     const lines: EngLine[] = [];
     lines.push(
-      `${opName} gives ${rgb(c.result)} premultiplied at alpha ${d(c.result[3], 4)}; ${mistakeWords} would make it ${fringe}${Math.abs(worst) > 1e-9 ? ` by up to ${d(Math.abs(worst), 4)}` : ""}. ` +
-        `A ${modeName} blend computed on display (sRGB) values comes out ${Math.abs(dl) < 1e-6 ? "the same as" : `${t(Math.abs(dl) * 100, 3)} % ${dl < 0 ? "darker" : "brighter"} than`} the same blend in linear light.`,
+      `${opName} gives ${rgb(c.result)} premultiplied at alpha ${d(c.result[3], 4)}; ${Math.abs(worst) > 1e-9 ? `${mistakeWords} would make it ${fringe} by up to ${d(Math.abs(worst), 4)}` : `${mistakeWords} would change nothing for this pixel`}. ` +
+        `A ${modeName} blend computed on display (sRGB) values comes out ${blendCompare} the same blend in linear light.`,
     );
     lines.push({ math: "C_o = C_A F_A + C_B F_B", fallback: "Cₒ = C(A)·F(A) + C(B)·F(B)" });
     lines.push({ math: "alpha_o = alpha_A F_A + alpha_B F_B", fallback: "αₒ = α(A)·F(A) + α(B)·F(B)" });
@@ -1117,7 +1148,9 @@ const simScaleCalc: VfxCalc = {
     if (!c.ok) return refuse(c.error);
     const lines: EngLine[] = [];
     lines.push(
-      `A 1:${t(n, 4)} miniature must be shot at ${t(s.shootFps, 4)} fps to play back at ${t(fps, 4)} fps with real-looking gravity; its Reynolds number is ${t(Math.pow(n, 1.5), 4)} times lower, so the water or smoke will not break up like the real thing. ` +
+      (n === 1
+        ? `At 1:1 the set is full scale: shoot at the playback rate, ${t(fps, 4)} fps, and the Reynolds and Weber numbers are the real event's, so water and smoke behave as they really do. `
+        : `A 1:${t(n, 4)} miniature must be shot at ${t(s.shootFps, 4)} fps to play back at ${t(fps, 4)} fps with real-looking gravity; its Reynolds number is ${t(Math.pow(n, 1.5), 4)} times lower, so the water or smoke will not break up like the real thing. `) +
         `The sim needs ${plural(c.substeps, "substep")} per frame at CFL ${t(C)} (${t(umax, 4)} m/s through ${t(dx * 100, 4)} cm voxels).`,
     );
     lines.push({ math: "f_shoot = f sqrt(n)", fallback: "f(shoot) = f·√n" });
@@ -1207,7 +1240,7 @@ const collisionCalc: VfxCalc = {
     const frac = im.keBefore > 0 ? im.lost / im.keBefore : 0;
     lines.push(
       `Dropped ${t(vals.h)} ${us} in a ${U.noun} scene (g = ${t(dr.g, 6)} ${us}/s²), it lands after ${t(dr.t, 4)} s at ${t(dr.v, 4)} ${us}/s and bounces back to ${t(dr.bounce, 4)} ${us}${dr.tRest !== null ? `, settling after about ${t(dr.tRest, 3)} s` : ""}. ` +
-        `The impact loses ${t(frac * 100, 3)} % of the kinetic energy, and friction ${im.sticks ? "stops the sliding at contact" : `slows the sliding from ${t(vals.vt, 4)} to ${t(im.v1t, 4)} ${us}/s`}.`,
+        `The impact loses ${t(frac * 100, 3)} % of the kinetic energy, ${vals.vt === 0 ? "and there is no sliding for friction to act on" : vals.mu === 0 ? `and with no friction (μ = 0) the sliding speed stays at ${t(vals.vt, 4)} ${us}/s` : im.sticks ? "and friction stops the sliding at contact" : `and friction slows the sliding from ${t(vals.vt, 4)} to ${t(im.v1t, 4)} ${us}/s`}.`,
     );
     lines.push({ math: "t = sqrt((2 h)/g)", fallback: "t = √(2h/g)" });
     lines.push({ math: "v = sqrt(2 g h)", fallback: "v = √(2g·h)" });

@@ -13,7 +13,8 @@ import { fresnelExact, schlick, shading, transform } from "../vfxGeometry";
 import { chromaKey, composite, logConvert, logCurve, porterDuff, srgbDecode, srgbEncode, toYCbCr, type RGBA } from "../vfxColour";
 import { cfl, drop, froudeScale, impact } from "../vfxSim";
 import { guardEngResult } from "../finiteResult";
-import { tidyResultSubscripts } from "../subscriptText";
+import { tidyResultSubscripts, tidySubscripts } from "../subscriptText";
+import { cbcrSvg } from "../vfxFigures";
 import { parseMathAst, type Node } from "../mathParse";
 import { mathToOmml } from "../mathOmml";
 import type { AnalyzeOutput } from "../analyzeBlocks";
@@ -571,5 +572,167 @@ describe("adversarial input, refused by name", () => {
   });
   test("the pane's wrap keeps a file name's underscores", () => {
     expect(okText(run("vfx-frame-range", { prefix: "sh010_comp_v001" }))).toMatch(/sh010_comp_v001\.1001\.exr/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Independent review (vfx @ dc7800e): each finding's own repro, pinned.
+// ---------------------------------------------------------------------------------------------------------------
+
+const firstLine = (o: AnalyzeOutput): string => o.text.split("\n")[0];
+const ntsc = (): ReturnType<typeof readRate> => readRate("29.97");
+
+describe("review BLOCKERS", () => {
+  test("1. 96 kHz at 29.97 follows SMPTE ST 299-1:2009 Table 7: 3204 on odd frames, 3202 on even (pairs)", () => {
+    const r = ntsc();
+    if ("error" in r) throw new Error(r.error);
+    const c = audioCadence(96000, r.fps);
+    if ("error" in c) throw new Error(c.error);
+    expect(c.sequence).toEqual([3204, 3202, 3204, 3202, 3204]);
+    expect(c.source).toBe("st299");
+    expect(c.sequence.every((n) => n % 2 === 0)).toBe(true);
+    const c48 = audioCadence(48000, r.fps);
+    if ("error" in c48) throw new Error(c48.error);
+    expect(c48.sequence).toEqual([1602, 1601, 1602, 1601, 1602]);
+    expect(c48.source).toBe("st299");
+    expect(okText(run("vfx-frame-range", { fps: "29.97", rate: "96000" }))).toMatch(/Table 7: odd audio frames carry 3204 samples and even frames 3202/);
+  });
+  test("1. a rate Table 7 does not cover (59.94) says so", () => {
+    const r = readRate("59.94");
+    if ("error" in r) throw new Error(r.error);
+    const c = audioCadence(48000, r.fps);
+    if ("error" in c) throw new Error(c.error);
+    expect(c.source).toBe("rounding");
+    expect(c.cycleSamples).toBe(4004);
+    expect(okText(run("vfx-frame-range", { fps: "59.94" }))).toMatch(/Table 7 does not cover 48 kHz/);
+  });
+  test("2. speed 70, frames 0 to 9: frame 9 is shown (held past the end), not dropped", () => {
+    const r = retime({ mode: "constant", interp: "linear", first: 0, last: 9, outFirst: 0, speed: 70, keys: [], fps: 24, shutter: 180 });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.dropped).not.toContain(9);
+    expect(r.droppedCount).toBe(r.dropped.length);
+  });
+  test("3. speed 10⁹ over frames 0 to 10⁸: the dropped count is exact, the list is capped", () => {
+    const r = retime({ mode: "constant", interp: "linear", first: 0, last: 1e8, outFirst: 0, speed: 1e9, keys: [], fps: 24, shutter: 180 });
+    if (!r.ok) throw new Error(r.error);
+    const shown = new Set(r.frames.map((f) => Math.min(1e8, Math.max(0, Math.round(f.src))))).size;
+    expect(r.droppedCount).toBe(1e8 + 1 - shown);
+    expect(r.droppedCount).toBeGreaterThan(20001);
+    expect(r.dropped.length).toBeLessThanOrEqual(1000);
+  });
+  test("4. a 1000-key ramp computes fast; 2000 keys are refused by name", () => {
+    const keys: Array<[number, number]> = Array.from({ length: 1000 }, (_, i) => [i * 2, 50 + (i % 3) * 10]);
+    const t0 = Date.now();
+    const r = retime({ mode: "ramp", interp: "hermite", first: 0, last: 500, outFirst: 0, speed: 0, keys, fps: 24, shutter: 180 });
+    expect(r.ok).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(2000);
+    const many: Array<[number, number]> = Array.from({ length: 2000 }, (_, i) => [i, 100]);
+    const b = retime({ mode: "ramp", interp: "linear", first: 0, last: 500, outFirst: 0, speed: 0, keys: many, fps: 24, shutter: 180 });
+    expect(b.ok).toBe(false);
+    if (!b.ok) expect(b.error).toMatch(/2000 rows is above the 1000/);
+  });
+  test("5. compositing reading: black × black and grey − grey read 'the same'; HDR screen gives no runaway percentage", () => {
+    expect(firstLine(run("vfx-composite", { A: "0, 0, 0, 1", B: "0, 0, 0, 1", mode: "multiply" }))).toMatch(/comes out the same as the same blend/);
+    expect(firstLine(run("vfx-composite", { A: "0.5, 0.5, 0.5, 1", B: "0.5, 0.5, 0.5, 1", mode: "difference" }))).toMatch(/comes out the same as the same blend/);
+    const hdr = firstLine(run("vfx-composite", { A: "2, 2, 2, 1", B: "3, 3, 3, 1", mode: "screen" }));
+    expect(hdr).not.toMatch(/×10|%  ?brighter|% darker/);
+    expect(hdr).toMatch(/luminance/);
+  });
+  test("6. 33.3333333 % of 10 frames runs 30 frames, not 31", () => {
+    const r = retime({ mode: "constant", interp: "linear", first: 1, last: 10, outFirst: 1, speed: 33.3333333, keys: [], fps: 24, shutter: 180 });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.nOut).toBe(30);
+  });
+});
+
+describe("review MAJORS", () => {
+  test("7. a braced subscript with a space keeps its typesetting beside a file name", () => {
+    expect(tidySubscripts("x_{a b} written to out_v1.exr")).toBe("x(a b) written to out_v1.exr");
+    expect(tidySubscripts("x_{a b}")).toBe("x(a b)");
+  });
+  test("8. 89.9999° in the middle of the order is flagged as near gimbal lock", () => {
+    expect(gimbalLocked("XYZ", [0, 89.9999, 0]).near).toBe(true);
+    expect(okText(run("vfx-transform", { r: "0, 89.9999, 0" }))).toMatch(/Near gimbal lock/);
+    expect(okText(run("vfx-transform", { r: "0, 80, 0" }))).toMatch(/Gimbal lock: none/);
+  });
+  test("9. the 8-bit texel 128, 128, 128 (length 0.0068) is refused as a near-zero normal", () => {
+    refused(run("vfx-shading", { texel: "128, 128, 128" }), /near-zero normal \(length 0\.00679, below 0\.0502 for 8-bit\)/);
+  });
+  test("10. a frame rate of 1,000 is refused as ambiguous, not read as 1 fps", () => {
+    refused(run("vfx-retime", { fps: "1,000" }), /ambiguous/);
+    refused(run("vfx-frame-range", { fps: "1,000" }), /ambiguous/);
+    refused(run("vfx-retime", { fps: "23,976" }), /ambiguous/);
+    expect(okText(run("vfx-retime", { fps: "29,97" }))).toMatch(/30000\/1001/);
+  });
+  test("11. a 1:1 scale reads as full scale, not '1 times lower'", () => {
+    const f = firstLine(run("vfx-sim-scale", { n: "1:1" }));
+    expect(f).toMatch(/full scale/);
+    expect(f).not.toMatch(/1 times lower/);
+  });
+  test("12. a ramp that both slows and speeds up reports smearing AND strobing", () => {
+    const o = okText(run("vfx-retime", { mode: "ramp", ramp: "1001, 25\n1020, 25\n1030, 400\n1060, 400" }));
+    expect(o).toMatch(/both ways/);
+    expect(o).toMatch(/smeared/);
+    expect(o).toMatch(/strobes/);
+  });
+});
+
+describe("review MINORS", () => {
+  test("13. refusals carry no e-notation", () => {
+    for (const o of [run("vfx-retime", { speed: "1e-20" }), run("vfx-log", { value: "2000000" }), run("vfx-projection", { point: "0, 1.6, 10", rot: "0, 0, 0" })]) {
+      expect(o.ok).toBe(false);
+      expect(o.text).not.toMatch(/\d[eE][+-]?\d/);
+    }
+    expect(run("vfx-retime", { speed: "1e-20" }).text).toMatch(/the 48-frame shot/);
+  });
+  test("14. singular nouns: 1 unit, 1 frame, 1 sample", () => {
+    expect(firstLine(run("vfx-projection", { point: "0, 1.6, 9", rot: "0, 0, 0" }))).toMatch(/1 unit in front/);
+    expect(okText(run("vfx-frame-range", { cutIn: "5", cutOut: "5" }))).toMatch(/\(1 frame\)/);
+    expect(firstLine(run("vfx-frame-range", { offset: "1", offUnit: "samples" }))).toMatch(/is 1 sample \(/);
+  });
+  test("15. −40 stops is a tiny linear value, not 0", () => {
+    const f = firstLine(run("vfx-log", { kind: "stops", value: "-40" }));
+    expect(f).toMatch(/^1\.6371×10⁻¹³ linear/);
+  });
+  test("16. a 179.9999° field of view is refused with the value typed, never printed as 180°", () => {
+    const o = run("vfx-camera-match", { given: "fov", fov: "179.9999" });
+    refused(o, /179\.9999°/);
+    refused(run("vfx-camera-match", { preset: "custom", W: "36 mm", H: "24 mm", f: "0.00001 mm" }), /fisheye/);
+  });
+  test("17. collision wording with no friction and with no sliding", () => {
+    expect(firstLine(run("vfx-collision", { mu: "0" }))).toMatch(/no friction \(μ = 0\) the sliding speed stays at 150/);
+    expect(firstLine(run("vfx-collision", { vt: "0" }))).toMatch(/no sliding for friction to act on/);
+  });
+  test("18. a quoted file name keeps its underscores", () => {
+    expect(tidySubscripts('"sh_01.exr"')).toBe('"sh_01.exr"');
+    expect(tidySubscripts("‘sh_01.exr’ and S_a")).toBe("‘sh_01.exr’ and Sₐ");
+  });
+  test("19. figures: the CbCr plane is drawn to one scale, legends untruncated, one wedge for a full-frame preset", () => {
+    const svg = cbcrSvg([-0.16, -0.25], [-0.1, -0.09], 0.08, 0.15);
+    const ticks = [...svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*>([−-]?0\.\d+)</g)].map((m) => [Number(m[1]), Number(m[2]), m[3]] as [number, number, string]);
+    const xs = ticks.filter((t) => t[1] === ticks[0][1]);
+    const ys = ticks.filter((t) => t[0] !== xs[0][0] || t[1] !== xs[0][1]).filter((t) => t[0] === ticks[ticks.length - 1][0]);
+    const pxPerX = (xs[xs.length - 1][0] - xs[0][0]) / (Number(xs[xs.length - 1][2].replace("−", "-")) - Number(xs[0][2].replace("−", "-")));
+    const pxPerY = (ys[0][1] - ys[ys.length - 1][1]) / (Number(ys[ys.length - 1][2].replace("−", "-")) - Number(ys[0][2].replace("−", "-")));
+    expect(Math.abs(pxPerX / pxPerY - 1)).toBeLessThan(0.01);
+    expect(svg).not.toMatch(/…</);
+    const log = run("vfx-log", { curve: "cineon" });
+    for (const b of log.blocks ?? []) if (b.kind === "plot") expect(b.svg).not.toMatch(/…</);
+    const ff = run("vfx-camera-match", { preset: "ff" });
+    for (const b of ff.blocks ?? []) if (b.kind === "plot") {
+      // No grey full-frame wedge drawn over the (identical) blue one.
+      expect(b.svg).not.toMatch(/<path d="M [^"]*" fill="#888888"/);
+      expect(b.svg).toMatch(/<path d="M [^"]*" fill="#1f5fa8"/);
+      expect(b.svg).toMatch(/as wide as full frame/);
+    }
+  });
+  test("20. the pixel-centre convention is stated", () => {
+    expect(okText(run("vfx-projection"))).toMatch(/pixel i spans \[i, i \+ 1\) and its centre is at i \+ 0\.5/);
+  });
+  test("21. a typed linear value below black 'encodes', it does not 'decode'", () => {
+    const f = firstLine(run("vfx-log", { value: "-0.01" }));
+    expect(f).toMatch(/^−0\.01 linear is below black/);
+    expect(f).toMatch(/encodes it to code/);
+    expect(f).not.toMatch(/decodes/);
   });
 });

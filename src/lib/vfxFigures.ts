@@ -340,7 +340,7 @@ export function logCurveSvg(curve: LogCurve, stops: number | null, code: number)
   }
   const grey = curve.encode(0.18);
   const series: Series[] = [
-    { points: pts, type: "line", color: BLUE, label: curve.label },
+    { points: pts, type: "line", color: BLUE, label: curve.label.replace(/ \(black .*\)$/, "") },
     { points: [{ x: 0, y: grey }], type: "scatter", color: GREY, label: `18 % grey, ${sig(grey, 4)}` },
   ];
   const notes: string[] = [];
@@ -438,22 +438,30 @@ export function cbcrSvg(key: [number, number], pix: [number, number], tol: numbe
   const circle = (c: [number, number], r: number): Array<{ x: number; y: number }> =>
     Array.from({ length: 121 }, (_, i) => ({ x: c[0] + r * Math.cos((i * Math.PI) / 60), y: c[1] + r * Math.sin((i * Math.PI) / 60) }));
   const series: Series[] = [];
-  if (tol !== null && tol > 0) series.push({ points: circle(key, tol), type: "line", color: RED, label: `tolerance ${sig(tol, 3)}: alpha 0 inside` });
-  if (tol !== null && soft !== null && soft > 0) series.push({ points: circle(key, tol + soft), type: "line", color: ORANGE, label: `tolerance + softness ${sig(tol + soft, 3)}: alpha 1 outside` });
+  if (tol !== null && tol > 0) series.push({ points: circle(key, tol), type: "line", color: RED, label: "tolerance: α 0 inside" });
+  if (tol !== null && soft !== null && soft > 0) series.push({ points: circle(key, tol + soft), type: "line", color: ORANGE, label: "softness: α 1 outside" });
   series.push({ points: [{ x: key[0], y: key[1] }], type: "scatter", color: GREEN, label: "key colour" });
   series.push({ points: [{ x: pix[0], y: pix[1] }], type: "scatter", color: BLUE, label: "pixel" });
-  series.push({ points: [{ x: 0, y: 0 }], type: "scatter", color: GREY, label: "neutral (grey)" });
+  series.push({ points: [{ x: 0, y: 0 }], type: "scatter", color: GREY, label: "neutral grey" });
   // The plane is ±0.5; widened (symmetrically, to a tenth) when a circle reaches past it, so nothing is clipped.
   const reach = Math.max(0.5, ...series.flatMap((s) => s.points.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y)))));
   const lim = Math.ceil(reach * 10 - 1e-9) / 10;
-  return buildPlotSvg(series, {
-    xlabel: "Cb (blue difference)",
-    ylabel: "Cr (red difference)",
-    xLimits: { min: -lim, max: lim },
-    yLimits: { min: -lim, max: lim },
-    width: 400,
-    height: 400,
-  });
+  // Equal units per pixel on both axes, so a circle draws as a circle: the plot area is read back from the drawn
+  // frame (its clip rectangle) and the axis with more pixels per unit is widened to match, twice (ticks can move the
+  // margins a little).
+  let xl = lim;
+  let yl = lim;
+  let svg = "";
+  for (let pass = 0; pass < 3; pass++) {
+    svg = buildPlotSvg(series, { xlabel: "Cb (blue difference)", ylabel: "Cr (red difference)", xLimits: { min: -xl, max: xl }, yLimits: { min: -yl, max: yl }, width: 400, height: 400 });
+    const m = /<clipPath[^>]*><rect x="[\d.]+" y="[\d.]+" width="([\d.]+)" height="([\d.]+)"/.exec(svg);
+    if (!m) break;
+    const w = Number(m[1]);
+    const h = Number(m[2]);
+    if (Math.abs(w / h - xl / yl) < 0.005 * (xl / yl)) break;
+    if (w > h) { xl = lim * (w / h); yl = lim; } else { yl = lim * (h / w); xl = lim; }
+  }
+  return svg;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

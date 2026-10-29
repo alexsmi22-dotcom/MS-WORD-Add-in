@@ -15,6 +15,7 @@
 //     to the nearest sample at each frame boundary, which at 48 kHz and 30000/1001 fps gives SMPTE ST 299-1's
 //     five-frame sequence 1602, 1601, 1602, 1601, 1602 (8008 samples).
 
+import { fmtSig } from "./axis";
 import { rat, ratCmp, ratDiv, ratFromText, ratMul, ratToDecimal, ratToNumber, type Rational } from "./timecode";
 
 export type Interp = "linear" | "ease" | "hermite";
@@ -43,7 +44,10 @@ const NTSC_BASES = [24, 30, 48, 60, 120];
 export function readRate(text: string): Rate | Err {
   const raw = (text ?? "").trim();
   if (!raw) return { ok: false, error: "Frame rate: this field is required." };
-  const t = raw.replace(/\s*(fps|frames\/s|frames per second|hz|p)\s*$/i, "").replace(/[−–]/g, "-").replace(/^(\d+),(\d+)$/, "$1.$2").trim();
+  const t0 = raw.replace(/\s*(fps|frames\/s|frames per second|hz|p)\s*$/i, "").replace(/[−–]/g, "-").trim();
+  // "1,000" could be a thousand (a grouping comma) or one (a decimal comma); a rate is never worth guessing.
+  if (/^\d{1,3},\d{3}$/.test(t0)) return { ok: false, error: `Frame rate: "${raw}" is ambiguous: a comma before three digits may group thousands or mark decimals. Write ${t0.replace(",", "")} or ${t0.replace(",", ".")}.` };
+  const t = t0.replace(/^(\d+),(\d+)$/, "$1.$2");
   if (/^[-+]?(inf|infinity|nan)$/i.test(t)) return { ok: false, error: `Frame rate: "${raw}" is not a finite number.` };
   const r = ratFromText(t);
   if (!r) return { ok: false, error: `Frame rate: "${raw}" is not a number (write 24, 23.976 or 30000/1001).` };
@@ -232,8 +236,10 @@ export interface RetimeResult {
   durationIn: number;
   durationOut: number;
   counts: { on: number; repeat: number; between: number; outside: number };
-  /** Source frames in [first, last] that a nearest-frame retime never shows. */
+  /** Source frames in [first, last] that a nearest-frame retime never shows: the first MAX_DROPPED_LISTED of them. */
   dropped: number[];
+  /** How many source frames are never shown (exact, whatever the list holds). */
+  droppedCount: number;
   speedMin: number;
   speedMax: number;
   /** Constant mode only: the exact speed. */
@@ -250,7 +256,14 @@ export interface RetimeResult {
 }
 
 export const MAX_OUTPUT_FRAMES = 20000;
+/** Keys a ramp or frame map may have (each output frame looks up its segment; more keys than frames say nothing). */
+export const MAX_KEYS = 1000;
+/** Source frames listed by number when some are never shown (the count is always exact). */
+export const MAX_DROPPED_LISTED = 1000;
+/** One tolerance for "a whole frame": the frame count and the on-frame test agree (33.3333333 % of 10 frames is 30). */
 const ON_TOL = 1e-6;
+/** Up to 6 significant figures, trailing zeros dropped ("48", not "48.0000"), ×10ⁿ where large or small. */
+const num6 = (v: number): string => fmtSig(v, 6).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "");
 
 export interface RetimeInput {
   mode: RetimeMode;
@@ -288,9 +301,9 @@ export function retime(inp: RetimeInput): RetimeResult | Err {
     if (s === 0) return { ok: false, error: "Speed: 0 % is a freeze frame and never reaches the end of the shot. To hold a frame, use the source-frame map mode with two keys on the same source frame." };
     const f = s / 100;
     const exactCount = nSrc / Math.abs(f);
-    const n = Math.ceil(exactCount - 1e-9);
-    if (n > MAX_OUTPUT_FRAMES) return { ok: false, error: `At ${s} % the ${nSrc}-frame shot would run ${Math.ceil(exactCount)} output frames, above the ${MAX_OUTPUT_FRAMES} this tool lists.` };
-    if (Math.abs(exactCount - Math.round(exactCount)) > 1e-9) fractionalCount = exactCount;
+    const n = Math.ceil(exactCount - ON_TOL);
+    if (n > MAX_OUTPUT_FRAMES) return { ok: false, error: `At ${num6(s)} % the ${num6(nSrc)}-frame shot would run ${num6(Math.ceil(exactCount))} output frames, above the ${MAX_OUTPUT_FRAMES} this tool lists.` };
+    if (Math.abs(exactCount - Math.round(exactCount)) > ON_TOL) fractionalCount = exactCount;
     const start = f > 0 ? first : last;
     for (let k = 0; k < n; k++) {
       pos.push(start + f * k);
@@ -300,18 +313,22 @@ export function retime(inp: RetimeInput): RetimeResult | Err {
   } else {
     const keys = inp.keys;
     if (!keys.length) return { ok: false, error: inp.mode === "ramp" ? "Speed keys: give at least one row of output frame, speed %." : "Frame map: give at least two rows of output frame, source frame." };
+    if (keys.length > MAX_KEYS) return { ok: false, error: `Keys: ${keys.length} rows is above the ${MAX_KEYS} this tool takes.` };
+    if (!keys.every((k) => Number.isFinite(k[0]) && Number.isFinite(k[1]))) return { ok: false, error: "Keys: every value must be a finite number." };
     for (let i = 0; i < keys.length; i++) {
-      if (!keys.every((k) => Number.isFinite(k[0]) && Number.isFinite(k[1]))) return { ok: false, error: "Keys: every value must be a finite number." };
       if (i > 0 && keys[i][0] <= keys[i - 1][0]) return { ok: false, error: `Keys: output frames must increase down the list (row ${i + 1}, frame ${keys[i][0]}, is not after ${keys[i - 1][0]}).` };
     }
     curve = makeCurve(keys, inp.interp);
     if (inp.mode === "ramp") {
       // Source position = first + ∫ speed/100 from the first output frame; the output runs until the source is used up.
       const endSpeed = keys[keys.length - 1][1];
+      // The integral is accumulated frame by frame (one segment lookup each), not recomputed from the start.
       let k = 0;
+      let acc = 0;
       for (;;) {
         const o = outFirst + k;
-        const p = first + curveIntegral(curve, outFirst, o) / 100;
+        if (k > 0) acc += curveIntegral(curve, o - 1, o);
+        const p = first + acc / 100;
         if (p >= first + nSrc - 1e-9) break;
         if (p < first - 1e-9) return { ok: false, error: `The ramp runs backwards off the head of the shot (source position ${p.toFixed(2)} at output frame ${o}, before frame ${first}). Keep the speed positive early on, or start later in the source.` };
         if (k >= MAX_OUTPUT_FRAMES) {
@@ -353,11 +370,13 @@ export function retime(inp: RetimeInput): RetimeResult | Err {
     else status = "between";
     prevOn = Number.isInteger(p) ? p : null;
     counts[status]++;
-    if (status !== "outside") shown.add(Math.min(last, Math.max(first, Math.round(p))));
+    // The frame a nearest-frame retime shows: past an end it holds the end frame, so that frame is shown too.
+    shown.add(Math.min(last, Math.max(first, Math.round(p))));
     frames.push({ out: oStart + i, src: p, speed: spd[i], status });
   }
+  const droppedCount = nSrc - shown.size;
   const dropped: number[] = [];
-  for (let f = first; f <= last && dropped.length <= MAX_OUTPUT_FRAMES; f++) if (!shown.has(f)) dropped.push(f);
+  for (let f = first; f <= last && dropped.length < Math.min(droppedCount, MAX_DROPPED_LISTED); f++) if (!shown.has(f)) dropped.push(f);
   const abs = spd.map(Math.abs);
   const nonzero = abs.filter((v) => v > 1e-9);
   const sMin = Math.min(...spd);
@@ -378,6 +397,7 @@ export function retime(inp: RetimeInput): RetimeResult | Err {
     durationOut: frames.length / fps,
     counts,
     dropped,
+    droppedCount,
     speedMin: sMin,
     speedMax: sMax,
     constant,
@@ -462,10 +482,22 @@ export interface AudioCadence {
   perFrameValue: number;
   /** Frames in one repeating cycle (the denominator of samples per frame). */
   cycle: number;
-  /** Samples in each frame of one cycle (round-to-nearest of the cumulative count). */
+  /** Samples in each frame of one cycle, audio frame 1 first. */
   sequence: number[];
   cycleSamples: number;
+  /**
+   * Where the sequence comes from: "whole" (every frame the same), "st299" (SMPTE ST 299-1:2009 Table 7: odd audio
+   * frames carry the larger count, even frames the smaller, with 96 kHz at 30/1.001 carrying samples in pairs, 3204 and
+   * 3202), or "rounding" (a rate the table does not cover: the cumulative count rounded to the nearest sample).
+   */
+  source: "whole" | "st299" | "rounding";
 }
+
+/** SMPTE ST 299-1:2009 Table 7, the 30/1.001 frame/s rows this tool offers (48 and 96 kHz): odd, even sample counts. */
+const ST299_TABLE7: Array<{ rate: number; odd: number; even: number; frames: number }> = [
+  { rate: 48000, odd: 1602, even: 1601, frames: 5 },
+  { rate: 96000, odd: 3204, even: 3202, frames: 5 },
+];
 
 /** Samples per frame at a sample rate and frame rate, and the per-frame sequence over one cycle (cycle ≤ 1001). */
 export function audioCadence(sampleRate: number, fps: Rational): AudioCadence | Err {
@@ -473,6 +505,13 @@ export function audioCadence(sampleRate: number, fps: Rational): AudioCadence | 
   const per = ratDiv(rat(sampleRate), fps);
   const cycle = Number(per.den);
   if (cycle > 1001) return { ok: false, error: `At this frame rate the sample count repeats only every ${cycle} frames; give a standard rate.` };
+  if (cycle === 1) return { perFrame: per, perFrameValue: ratToNumber(per), cycle, sequence: [Number(per.num)], cycleSamples: Number(per.num), source: "whole" };
+  const isNtsc30 = ratCmp(fps, rat(30000, 1001)) === 0;
+  const row = isNtsc30 ? ST299_TABLE7.find((r) => r.rate === sampleRate) : undefined;
+  if (row && row.frames === cycle) {
+    const sequence = Array.from({ length: cycle }, (_, i) => (i % 2 === 0 ? row.odd : row.even));
+    return { perFrame: per, perFrameValue: ratToNumber(per), cycle, sequence, cycleSamples: sequence.reduce((a, b) => a + b, 0), source: "st299" };
+  }
   const seq: number[] = [];
   let prev = 0n;
   for (let k = 1; k <= cycle; k++) {
@@ -481,7 +520,7 @@ export function audioCadence(sampleRate: number, fps: Rational): AudioCadence | 
     seq.push(Number(cum - prev));
     prev = cum;
   }
-  return { perFrame: per, perFrameValue: ratToNumber(per), cycle, sequence: seq, cycleSamples: Number(prev) };
+  return { perFrame: per, perFrameValue: ratToNumber(per), cycle, sequence: seq, cycleSamples: Number(prev), source: "rounding" };
 }
 
 export type OffsetUnit = "frames" | "samples" | "ms";

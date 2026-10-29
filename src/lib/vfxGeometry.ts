@@ -10,6 +10,7 @@
 // store the transpose. Rotation orders as vfxCamera.ts: "XYZ" rotates X first, R = R_z·R_y·R_x.
 
 import { matrixToQuat, quatToAxisAngle, canonical, type Quat } from "./attitude";
+import { fmtSig } from "./axis";
 import { add, cross, dot, eulerMatrix, gimbalLocked, matMul, matVec, norm, scale, sub, transpose, type M3, type Order, type Vec3 } from "./vfxCamera";
 
 export interface Err {
@@ -41,7 +42,7 @@ export interface TransformResult {
   quat: Quat;
   axis: Vec3 | null;
   angle: number;
-  gimbal: { locked: boolean; middle: string; angle: number };
+  gimbal: ReturnType<typeof gimbalLocked>;
   out: Vec3[];
   /** After the up-axis conversion (when one is chosen). */
   conv: { C: M3; M: M4; points: Vec3[] } | null;
@@ -204,7 +205,9 @@ export function shading(inp: ShadingInput): ShadingResult | Err {
   const decoded = inp.texel.map((c) => (c / max) * 2 - 1) as Vec3;
   if (inp.green === "dx") decoded[1] = -decoded[1];
   const decodedLength = norm(decoded);
-  if (!(decodedLength > 1e-6)) return { ok: false, error: `Normal-map texel (${inp.texel.join(", ")}) decodes to a zero-length normal (length ${decodedLength === 0 ? "0" : decodedLength.toPrecision(3)}), which has no direction. A flat tangent-space normal is (128, 128, 255) in 8 bits.` };
+  // Below a few quantisation steps the direction is noise, not a normal: 6.4 steps of 2/(2ᵇ − 1), 0.05 in 8 bits.
+  const minLength = inp.encoding === "float" ? 1e-3 : (6.4 * 2) / max;
+  if (!(decodedLength >= minLength)) return { ok: false, error: `Normal-map texel (${inp.texel.join(", ")}) decodes to a ${decodedLength === 0 ? "zero-length" : "near-zero"} normal (length ${decodedLength === 0 ? "0" : fmtSig(decodedLength, 3)}, below ${fmtSig(minLength, 3)} for ${inp.encoding === "float" ? "a float texel" : `${inp.encoding}-bit`}), whose direction is quantisation noise, not a surface. A flat tangent-space normal is (128, 128, 255) in 8 bits.` };
   const nTangent = scale(decoded, 1 / decodedLength);
   const T = unit(inp.T, "Tangent T");
   if ("error" in T) return T;

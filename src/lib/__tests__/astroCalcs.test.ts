@@ -65,6 +65,31 @@ describe("every select option computes and draws", () => {
   test.each(rows)("%s %s = %s", (id, key, value) => {
     const o = ok(run(id, { [key]: value }));
     expect((o.blocks ?? []).some((b) => b.kind === "plot")).toBe(true);
+    for (const b of o.blocks ?? []) if (b.kind === "plot") expect((b as { svg: string }).svg).not.toMatch(/NaN|Infinity|undefined/);
+  });
+});
+
+describe("review regressions (2026-10-29)", () => {
+  test("a typed time with seconds reads as a clock shows it (21:59:45 is 21:59, never 21:00)", () => {
+    const o = ok(run("astro-moon", { time: "21:59:45" }));
+    expect((o.blocks ?? [])[0]).toMatchObject({ text: expect.stringMatching(/ at 21:59 /) });
+    expect(ok(run("astro-ephemeris", { time: "21:59:45" })).text).toMatch(/at 21:59 /);
+    expect(ok(run("astro-coords", { time: "21:59:45" })).text).toMatch(/At 21:59 /);
+  });
+  test("a five-character negative year keeps its minutes in the reading", () => {
+    const o = ok(run("astro-time", { date: "-43-03-15", time: "12:34:00" }));
+    expect((o.blocks ?? [])[0]).toMatchObject({ text: expect.stringMatching(/^−0043-03-15 12:34 UTC/) });
+  });
+  test("October 1582 draws without the ten missing days and without NaN", () => {
+    const o = ok(run("astro-moon-calendar", { year: "1582", month: "10" }));
+    const svg = ((o.blocks ?? []).find((b) => b.kind === "plot") as { svg: string }).svg;
+    expect(svg).not.toMatch(/NaN/);
+    expect(svg).toMatch(/>4</);
+    expect(svg).toMatch(/>15</);
+    expect(svg).not.toMatch(/>10</);
+  });
+  test("Neptune in the 1990s (its magnitude formula has a pre-2000 gap) never breaks the ephemeris", () => {
+    for (const date of ["1995-10-15", "1998-04-20", "1991-01-10"]) for (const time of ["20:00", "05:00"]) ok(run("astro-ephemeris", { date, time }));
   });
 });
 

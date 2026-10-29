@@ -12,14 +12,15 @@
 //   barycentre for the Sun in the phase angle); GMST 10⁻⁶″, GAST 0.014″, nutation 0.002″, precession 5×10⁻⁷″
 //   rise/set/transit (Sun and Moon, 6 sites incl. 78° N and 78° S, 1950–2050): 4.6 s; phases: 19 s;
 //   lunar eclipses 1900–2049: all 343 found, umbral magnitude 0.0033, greatest-eclipse time 0.3 min;
-//   solar γ 0.0009; galactic 0.03″; star alt/az 0.3″; ΔT (Espenak–Meeus) vs observed 1.1 s before 2005, 5.0 s after.
+//   solar γ 0.0009; galactic 0.03″; star alt/az 0.3″; ΔT (Espenak–Meeus) vs observed 1.1 s before 2005, 5.0 s after;
+//   illuminated fraction 3×10⁻⁵, bright-limb angle 0.008°; perigee/apogee 7 min and 7 km.
 
 import * as fs from "fs";
 import * as path from "path";
 import { calendarFromJd, deltaTEspenakMeeus, gast, gmst, jdFromCalendar, matVec, meanObliquity, nutation, precessionMatrix, taiMinusUtc } from "../astroTime";
 import { EQ_TO_GAL, separation, sph, vec } from "../astroCoords";
-import { apparentPlace, moonMeeus, planetMagnitude, PLANETS, riseTransitSet, starPlace, topocentric, type BodyId } from "../astroBodies";
-import { libration, lunarEclipseAt, phasesBetween, solarEclipseAt } from "../astroMoon";
+import { apparentPlace, brightLimbAngle, moonMeeus, planetMagnitude, PLANETS, riseTransitSet, starPlace, topocentric, type BodyId } from "../astroBodies";
+import { apsidesBetween, libration, lunarEclipseAt, phasesBetween, solarEclipseAt } from "../astroMoon";
 import { cosmology } from "../astroPhysics";
 
 const O = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "astro-oracle.json"), "utf8"));
@@ -205,6 +206,32 @@ describe("phases and eclipses against skyfield", () => {
     expect(at(2024, 4, 8).magnitude).toBeCloseTo(1.0566, 2);
     expect(at(2023, 10, 14).type).toBe("annular");
     expect(at(2023, 4, 20).type).toBe("hybrid");
+  });
+});
+
+describe("the Moon's lit fraction, bright limb and apsides against skyfield", () => {
+  test("illuminated fraction within 10⁻⁴ and bright-limb position angle within 0.05° at 100 dates", () => {
+    for (const r of O.illum) {
+      const m = apparentPlace("moon", r.jd_tt), s = apparentPlace("sun", r.jd_tt);
+      expect(Math.abs((1 + Math.cos(m.phaseAngle)) / 2 - r.k)).toBeLessThan(1e-4);
+      expect(Math.abs(wrap(brightLimbAngle(m, s) / D - r.chi))).toBeLessThan(0.05);
+    }
+  });
+  test("all 133 perigees and apogees (1960–61, 2026–28) found within 15 minutes and 10 km of DE421", () => {
+    expect(O.apsides.length).toBe(133);
+    for (const a of O.apsides) {
+      const near = apsidesBetween(a.tt - 3, a.tt + 3).filter((x) => x.kind === a.kind);
+      expect(near.length).toBeGreaterThan(0);
+      const f = near.reduce((p, q) => (Math.abs(q.jdTT - a.tt) < Math.abs(p.jdTT - a.tt) ? q : p));
+      expect(Math.abs(f.jdTT - a.tt) * 1440).toBeLessThan(15);
+      expect(Math.abs(f.distKm - a.km)).toBeLessThan(10);
+    }
+  });
+});
+
+describe("radiation is negligible where the method note says so", () => {
+  test("astropy with Tcmb0 = 2.7255 K changes the comoving distance at z = 1 by about 0.01 %", () => {
+    expect(Math.abs(O.cosmo_radiation_dc_ratio_z1 - 1)).toBeLessThan(2e-4);
   });
 });
 

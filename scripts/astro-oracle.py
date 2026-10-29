@@ -217,6 +217,38 @@ for tt, yy in zip(t, y):
         solar.append({'new_tt': jd, 'tt': jm, 'gamma': float(g) * (1 if z >= 0 else -1)})
 out['solar_gamma'] = solar
 
+# ---- Moon illuminated fraction and the position angle of the bright limb (the Sun's direction from the Moon) ----
+from skyfield.trigonometry import position_angle_of
+from skyfield.searchlib import find_minima, find_maxima
+illum = []
+for jd in jds[::4]:
+    eph = eph_for(jd)
+    t = ts.tt_jd(jd)
+    e = eph['earth'].at(t)
+    m = e.observe(eph['moon']).apparent()
+    s = e.observe(eph['sun']).apparent()
+    mra, mdec, _ = m.radec(epoch='date')
+    sra, sdec, _ = s.radec(epoch='date')
+    illum.append({'jd_tt': jd, 'k': float(almanac.fraction_illuminated(eph, 'moon', t)),
+                  'chi': float(position_angle_of((mdec, mra), (sdec, sra)).degrees)})
+out['illum'] = illum
+
+# ---- perigee and apogee: extrema of the geocentric Earth-Moon distance, 2026-2028 and 1960-1961 ----
+
+
+def moon_dist(t):
+    return (de421['moon'] - de421['earth']).at(t).distance().km
+
+
+moon_dist.step_days = 1.0
+aps = []
+for (a, b) in [(2461041.5, 2461041.5 + 1095), (2436934.5, 2436934.5 + 730)]:
+    tmin, dmin = find_minima(ts.tt_jd(a), ts.tt_jd(b), moon_dist)
+    tmax, dmax = find_maxima(ts.tt_jd(a), ts.tt_jd(b), moon_dist)
+    aps += [{'tt': float(x.tt), 'km': float(d), 'kind': 'perigee'} for x, d in zip(tmin, dmin)]
+    aps += [{'tt': float(x.tt), 'km': float(d), 'kind': 'apogee'} for x, d in zip(tmax, dmax)]
+out['apsides'] = aps
+
 # ---- cosmology ----
 cos = FlatLambdaCDM(H0=67.7, Om0=0.31, Tcmb0=0)
 zs = [0.001, 0.01, 0.05, 0.1, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0]
@@ -224,6 +256,8 @@ out['cosmo'] = [{'z': z, 'dc': cos.comoving_distance(z).to(u.Mpc).value, 'dl': c
                  'da': cos.angular_diameter_distance(z).to(u.Mpc).value, 'lookback': cos.lookback_time(z).to(u.Gyr).value,
                  'age': cos.age(z).to(u.Gyr).value} for z in zs]
 out['cosmo_age0'] = cos.age(0).to(u.Gyr).value
+cos_rad = FlatLambdaCDM(H0=67.7, Om0=0.31, Tcmb0=2.7255)
+out['cosmo_radiation_dc_ratio_z1'] = float(cos_rad.comoving_distance(1.0).value / cos.comoving_distance(1.0).value)
 
 with open(OUT, 'w') as f:
     json.dump(out, f, indent=None, separators=(',', ':'))

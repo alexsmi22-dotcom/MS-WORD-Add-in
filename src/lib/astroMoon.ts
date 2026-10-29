@@ -50,7 +50,12 @@ function bisect(a: number, b: number, g: (t: number) => number): number {
 }
 
 /** The principal phases in [jd0, jd1) (TT), in time order. */
+/** The longest window a search walks (about 11 years): bounded so a caller cannot hang the host with Infinity. */
+export const MAX_SEARCH_DAYS = 4000;
+
 export function phasesBetween(jd0: number, jd1: number): PhaseEvent[] {
+  if (!Number.isFinite(jd0) || !Number.isFinite(jd1) || jd1 <= jd0) return [];
+  if (jd1 - jd0 > MAX_SEARCH_DAYS) throw new RangeError(`A search window of ${Math.round(jd1 - jd0)} days is longer than the ${MAX_SEARCH_DAYS}-day limit.`);
   const out: PhaseEvent[] = [];
   const step = 0.5;
   let t0 = jd0;
@@ -174,6 +179,8 @@ function extremum(f: (t: number) => number, a: number, b: number, sign: 1 | -1):
 
 /** Perigees and apogees in [jd0, jd1) (TT): extrema of the ch. 47 geocentric distance. */
 export function apsidesBetween(jd0: number, jd1: number): Apsis[] {
+  if (!Number.isFinite(jd0) || !Number.isFinite(jd1) || jd1 <= jd0) return [];
+  if (jd1 - jd0 > MAX_SEARCH_DAYS) throw new RangeError(`A search window of ${Math.round(jd1 - jd0)} days is longer than the ${MAX_SEARCH_DAYS}-day limit.`);
   const out: Apsis[] = [];
   const step = 0.25;
   const d = (t: number): number => moonMeeus(t).distKm;

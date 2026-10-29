@@ -116,7 +116,11 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // 397 as of v2.187.0 (Release B): thin films, Fresnel and Jones (11), materials
 // testing and quality (13), control design (25), titration and CV (16) and the
 // new Plot kinds (20), each calculator at its defaults plus the layouts that crowd.
-const CORPUS_FLOOR = 965;
+// 1016 as of v2.206.0: the measured corpus before this release (965) plus 32 clinical-research figures
+// (Fagan, ROC, Buderer, ratio forests, kappa bars, Bland–Altman, ICC profile, meta forest and funnel, at defaults and
+// stress cases) and 19 dosing figures (BSA and weight bars, Cockcroft–Gault bars, the CKD-EPI curve, dose, infusion and
+// lab-conversion lines).
+const CORPUS_FLOOR = 1016;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

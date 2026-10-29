@@ -892,16 +892,18 @@ function metaCalc(read: Read): StatOutput {
     `Pooled across ${fit.k} studies, the random-effects ${mi.measureName} is ${f(fit.random.est)} (95% CI ${ci(fit.random.lo, fit.random.hi)}), ${sig}; heterogeneity is ${het} (I² = ${pct(fit.i2)})${fit.pi ? `, and a new study's true effect could lie anywhere from ${ci(fit.pi.lo, fit.pi.hi)}` : ""}.`,
     `Random-effects ${mi.measureName} ${f(fit.random.est)} (95% CI ${ci(fit.random.lo, fit.random.hi)}), ${sig}; I² = ${pct(fit.i2)}.`,
   );
+  // A risk difference is drawn in percentage points (axis labels like "−0.175" crowd a 460 px axis).
+  const FT = mi.measure === "rd" ? (x: number): number => 100 * x : T;
   const forestRows = mi.names.map((nm, i) => {
     const se = Math.sqrt(mi.v[i]);
-    return { label: nm, estimate: T(mi.y[i]), low: T(mi.y[i] - 1.959963984540054 * se), high: T(mi.y[i] + 1.959963984540054 * se) };
+    return { label: nm, estimate: FT(mi.y[i]), low: FT(mi.y[i] - 1.959963984540054 * se), high: FT(mi.y[i] + 1.959963984540054 * se) };
   });
   const pooledRows = [
-    { label: `Fixed (${fixedName === "Mantel–Haenszel" ? "MH" : "IV"})`, estimate: T(fit.fixed.est), low: T(fit.fixed.lo), high: T(fit.fixed.hi) },
-    { label: `Random (${tauMethod === "reml" ? "REML" : "DL"})`, estimate: T(fit.random.est), low: T(fit.random.lo), high: T(fit.random.hi) },
+    { label: `Fixed (${fixedName === "Mantel–Haenszel" ? "MH" : "IV"})`, estimate: FT(fit.fixed.est), low: FT(fit.fixed.lo), high: FT(fit.fixed.hi) },
+    { label: `Random (${tauMethod === "reml" ? "REML" : "DL"})`, estimate: FT(fit.random.est), low: FT(fit.random.lo), high: FT(fit.random.hi) },
   ];
-  if (fit.pi) pooledRows.push({ label: "Prediction", estimate: T(fit.random.est), low: T(fit.pi.lo), high: T(fit.pi.hi) });
-  const xl = mi.ratio ? `${mi.measureName === "ratio" ? "Ratio" : mi.measureName[0].toUpperCase() + mi.measureName.slice(1)} (log scale)` : mi.measureName === "risk difference" ? "Risk difference" : "Effect";
+  if (fit.pi) pooledRows.push({ label: "Prediction", estimate: FT(fit.random.est), low: FT(fit.pi.lo), high: FT(fit.pi.hi) });
+  const xl = mi.ratio ? `${mi.measureName === "ratio" ? "Ratio" : mi.measureName[0].toUpperCase() + mi.measureName.slice(1)} (log scale)` : mi.measureName === "risk difference" ? "Risk difference (percentage points)" : "Effect";
   const svg = metaForestSvg(forestRows, pooledRows, { xlabel: xl, log: mi.ratio });
   return { text: lines.join("\n"), reading, svg, tables };
 }

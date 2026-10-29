@@ -295,6 +295,32 @@ y0 = np.array([0.10, 0.12, 0.11]); v0 = np.array([0.04, 0.05, 0.03]) ** 2
 r0 = combine_effects(y0, v0, method_re="dl")
 OUT["metaTau0"] = {"y": y0.tolist(), "se": np.sqrt(v0).tolist(), "tau2": float(r0.tau2), "fixed": float(r0.mean_effect_fe), "random": float(r0.mean_effect_re)}
 
+# ---------------------------------------------------------------- dosing (Engineering: dosing.ts), independent re-implementation
+# Coefficients typed from the papers (Inker et al. 2021 NEJM 385:1737, Supplementary Table S10 equations; the R package
+# kidney.epi egfr.ckdepi.cr.2021 / egfr.ckdepi.cr_cys.2021 carries the same numbers).
+def ckd_cr(scr, age, female):
+    k, a = (0.7, -0.241) if female else (0.9, -0.302)
+    return 142 * min(scr / k, 1) ** a * max(scr / k, 1) ** -1.2 * 0.9938 ** age * (1.012 if female else 1)
+
+def ckd_crcys(scr, cys, age, female):
+    k, a = (0.7, -0.219) if female else (0.9, -0.144)
+    return 135 * min(scr / k, 1) ** a * max(scr / k, 1) ** -0.544 * min(cys / 0.8, 1) ** -0.323 * max(cys / 0.8, 1) ** -0.778 * 0.9961 ** age * (0.963 if female else 1)
+
+dose_cases = []
+for (age, female, scr, cys, w, h) in [(60, True, 1.0, 1.1, 70, 175), (45, False, 0.7, 0.6, 95, 182), (80, True, 2.4, 2.0, 52, 150), (30, False, 1.2, 0.9, 120, 190), (70, False, 4.5, 3.1, 64, 168)]:
+    hin = h / 2.54
+    ibw = (45.5 if female else 50) + 2.3 * (hin - 60)
+    bmi = w / (h / 100) ** 2
+    dose_cases.append({
+        "input": [age, "female" if female else "male", scr, cys, w, h],
+        "egfrCr": ckd_cr(scr, age, female), "egfrCrCys": ckd_crcys(scr, cys, age, female),
+        "cg": (140 - age) * w / (72 * scr) * (0.85 if female else 1),
+        "bsa": [math.sqrt(h * w / 3600), 0.007184 * w ** 0.425 * h ** 0.725, 0.024265 * w ** 0.5378 * h ** 0.3964, 0.0235 * w ** 0.51456 * h ** 0.42246],
+        "ibw": ibw, "adj": ibw + 0.4 * (w - ibw),
+        "lbw": 9270 * w / ((8780 + 244 * bmi) if female else (6680 + 216 * bmi)), "bmi": bmi,
+    })
+OUT["dosing"] = dose_cases
+
 path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "lib", "__tests__", "fixtures", "clinical-oracle.json")
 
 

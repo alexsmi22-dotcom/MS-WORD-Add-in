@@ -4,6 +4,7 @@
  * on 300 timed fits) with an up-front refusal from the typical need (15·k³ evaluations), and the filter's Math calls as
  * module constants (5× faster in the test runner).
  */
+import { budget } from "./timeBudget";
 import * as fs from "fs";
 import * as path from "path";
 import { fitArima, arimaTypicalEvals, type ArimaSpec } from "../arima";
@@ -55,7 +56,7 @@ describe("MAJOR 6: ARIMA never depends on the clock", () => {
         expect(b.reason).toBe(a.reason);
         expect(a.reason).toMatch(/computation limit for ARIMA\(3, 1, 3\) on 499 observations/);
       }
-      expect(ms).toBeLessThan(5000); // measured 0.4 s (seed 5) and 2.1 s (seed 2); generous for a loaded machine
+      expect(ms).toBeLessThan(budget(5000)); // measured 0.4 s (seed 5) and 2.1 s (seed 2); generous for a loaded machine
     }
   });
   test("ordinary fits on 2,000 rows converge", () => {
@@ -73,7 +74,7 @@ describe("MAJOR 6: ARIMA never depends on the clock", () => {
     const y = walk(10000, 11).map((v, i, a) => (i ? v - a[i - 1] : 0)).slice(1);
     const t0 = performance.now();
     const f = fitArima(y, { p: 5, d: 0, q: 1, trend: "mean" });
-    expect(performance.now() - t0).toBeLessThan(100);
+    expect(performance.now() - t0).toBeLessThan(budget(100));
     expect(f.ok).toBe(false);
     if (!f.ok) expect(f.reason).toMatch(/^ARIMA\(5, 0, 1\) on 9,999 observations needs more computation than the pane allows; use at most 9,576 rows for these orders, or smaller p and q\.$/);
   });

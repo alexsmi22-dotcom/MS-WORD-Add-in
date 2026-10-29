@@ -5,6 +5,7 @@
  * pass budget (never the clock) bounds the search: about 0.36 s for GJR-t and 1.05 s for EGARCH-t at worst over 600
  * seeded fits.
  */
+import { budget } from "./timeBudget";
 import { fitGarch, garchMaxN, garchPassBudget, GARCH_MAX_N, type GarchSpec } from "../ts2";
 import { tsGarchCalc } from "../ts2StatCalcs";
 
@@ -65,6 +66,6 @@ describe("MAJOR 5: GARCH takes ten years of daily returns on every model", () =>
       expect(b.params).toEqual(a.params);
     }
     // Measured 0.2–0.4 s; generous for a loaded test machine.
-    expect(ms).toBeLessThan(2000);
+    expect(ms).toBeLessThan(budget(2000));
   });
 });

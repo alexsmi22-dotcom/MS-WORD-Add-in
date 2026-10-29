@@ -3,8 +3,12 @@
  * statsmodels' best (its default and brute optimisers). Fixture fix2StatEts.json: every series where either engine
  * lost the optimum on the round-2 gate (S2\hw_data.json, the reviewer's 72 series × 7 specs, and 330 fresh seeded
  * series × 3 specs), with statsmodels' SSE, the old engine's, and the target min(both). The whole gate (1,815 fits)
- * ran clean at a relative tolerance of 10⁻⁵, long series included.
+ * ran clean at a relative tolerance of 10⁻⁵, long series included, and so did a fresh adversarial set of 600 fits. One
+ * known miss on a further 120 fits at m = 4–52: damped additive Holt–Winters at m = 24 (SSE 7,926.7), where only
+ * statsmodels' non-brute SLSQP (with a ConvergenceWarning) reaches 7,200.9; its default brute fit, and the old engine,
+ * stop at 7,926.7 as this one does.
  */
+import { budget } from "./timeBudget";
 import * as fs from "fs";
 import * as path from "path";
 import { fitHoltWinters, hwFilter, hwForecast, type HwSpec } from "../holtWinters";
@@ -68,6 +72,6 @@ describe("MAJOR 2: Holt–Winters never worse than the old engine and statsmodel
     const ms = performance.now() - t0;
     expect(f.ok).toBe(true);
     // The old engine took about 0.3–0.7 s on such series, round 1 about 2.2 s; generous for a slow test machine.
-    expect(ms).toBeLessThan(2500);
+    expect(ms).toBeLessThan(budget(2500));
   });
 });

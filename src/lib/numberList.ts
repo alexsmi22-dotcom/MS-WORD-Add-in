@@ -85,23 +85,33 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
   // "3,500,000; 5,000,000; 8,000,000" was read as nine values (3, 500, 0, 5, 0, 0, 8, 0, 0), silently.
   const commas = (t: string): number => (t.match(/,/g) ?? []).length;
   const grouped = (t: string): boolean => commas(t) >= 2 && GROUPED_THOUSANDS.test(mantissaOf(t));
-  // A LONE value grouped in thousands with a group that starts with 0 ("1,000", "−2,050", "10,000.5", "1,000,000"):
-  // read as the one number. As a comma list it was [1, 0] (bug test 2026-10-28, R4 #3) while "1,000 2,000" read as
-  // 1000 and 2000. The tell is calcList's: no list value is written "000" or "050". "100,200" and "100,200,300" (no
-  // such tell) keep their list reading, as a table row "10,20" / "100,200" must (statFields).
-  const loneThousands =
-    !opts.cells &&
-    runs.length === 1 &&
-    GROUPED_THOUSANDS.test(mantissaOf(runs[0])) &&
-    // The leading group starts 1–9: "0,050" is a decimal-comma 0.05 to a European reader, never fifty.
-    /^[-−–+]?[1-9]/.test(mantissaOf(runs[0])) &&
-    mantissaOf(runs[0]).replace(/\.\d+%?$|%$/, "").split(",").slice(1).some((g) => g.startsWith("0"));
+  // THE LONE GROUPED RUN (one run, no spaces or semicolons, shaped like a number grouped in thousands, leading digit
+  // 1–9). The rule, one for every list reader (Finance and Bio through calcList, Stats through statList/statFields):
+  //   - ONE comma, and the group after it starts with 0 ("1,000", "−2,050", "10,000.5"): the one number. No list value
+  //     is written "000" or "050" (calcList's tell), and as a list "1,000" was [1, 0] while "1,000 2,000" read as 1000
+  //     and 2000 (bug test 2026-10-28, R4 #3).
+  //   - SEVERAL commas, and EVERY group after the first is exactly "000" ("1,000,000", "12,000,000"): the one number,
+  //     for the same reason ("12, 0, 0" is nobody's list).
+  //   - Any other grouped shape reads two ways and is ASKED (`ambiguous`; calcList refuses with the question):
+  //     "−1,000,500,500,500", "5,000,100,200", "250,000,050" (several commas, a group that is not 000: the list
+  //     reading is as likely as the number; fix round 2 B1, where one silent 13-digit cash flow replaced five), and a
+  //     single comma with a group that does not start with 0 ("1,500", "100,200": two values, fifteen hundred, or
+  //     a decimal comma; fix round 2 MINOR 8, where "1,500" was silently [1, 500] beside "1,000" read as 1000).
+  //     `values` keep the list reading, so a Stats table row "100,200" reads as before (Stats callers do not ask).
+  // A leading 0 ("0,050", "0,500") is never thousands: it keeps the plain list reading, unasked, as before.
+  const lone = !opts.cells && runs.length === 1 ? mantissaOf(runs[0]) : "";
+  const loneGrouped = lone !== "" && GROUPED_THOUSANDS.test(lone) && /^[-−–+]?[1-9]/.test(lone);
+  const loneGroups = loneGrouped ? lone.replace(/\.\d+%?$|%$/, "").split(",").slice(1) : [];
+  const loneThousands = loneGrouped && (loneGroups.length === 1 ? loneGroups[0].startsWith("0") : loneGroups.every((g) => g === "000"));
   const commaListing = !opts.cells && !loneThousands && (runs.length <= 1 || runs.some((t) => commas(t) >= 2 && !grouped(t)));
-  // A lone run that reads both ways ("100,200,300": three values, or one number grouped in thousands) is asked.
   let ambiguous: string | undefined;
-  if (!opts.cells && !loneThousands && runs.length === 1 && grouped(runs[0])) {
+  if (loneGrouped && !loneThousands) {
     const t = runs[0];
-    ambiguous = `“${t}” reads two ways: the numbers ${t.split(",").join(", ")}, or one number grouped in thousands (${t.replace(/,/g, "")}). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.`;
+    const parts = t.split(",");
+    ambiguous =
+      parts.length === 2 && !lone.includes(".")
+        ? `“${t}” reads three ways: the numbers ${parts.join(" and ")}, one number grouped in thousands (${t.replace(",", "")}), or a decimal comma (${t.replace(",", ".")}). Separate two numbers with “, ” (comma and space) or a semicolon, or write one number without the comma.`
+        : `“${t}” reads two ways: the numbers ${parts.join(", ")}, or one number grouped in thousands (${t.replace(/,/g, "")}). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.`;
   }
   const tokens = commaListing ? runs.flatMap((t) => t.split(",")).filter((t) => t !== "") : runs;
   // WHOLE-FIELD decision (the independent review: "1,250 2,5 3,75" was read

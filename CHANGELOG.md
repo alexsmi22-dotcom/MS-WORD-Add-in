@@ -6,6 +6,43 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.205.0] — 2026-10-29 — Every Finance and Stats result explains itself
+
+All 156 Finance (79) and Stats (77) calculators now open with a plain-language reading built from the computed
+numbers, shown first in bold and inserted as the first paragraph in Word. The 17 that drew nothing now draw. Then an
+independent bug test of all 156 against oracles (QuantLib, numpy-financial, scipy, statsmodels 0.15, linearmodels,
+arch 8, PyPortfolioOpt) and three review-and-fix rounds.
+
+### Added
+- **Readings** (lib/calcReading.ts): one or two sentences, at most 320 characters, no method jargon. A verdict on a
+  p-value is decided on the PRINTED p, so a p that prints as 0.050 is called borderline rather than significant or not.
+  A pane-audit ratchet requires a reading on every Finance and Stats result.
+- **Figures** for the 17 text-only calculators. The Georgia-Pacific and Panduit worksheets stay text by design.
+- **Logit odds ratios:** a table of exp(coefficient) for y = 1 (constant not shown), an odds-ratio panel on a log
+  axis, and the odds in the reading.
+- **Journal figure styles on Stats** (Nature, Elsevier, ACS, Cell, Thesis, USPTO), re-rendered as Finance already was.
+  Every styled insert passes a layout audit. A fit that would make labels overlap, cut a title or drop a unit or
+  ×10ⁿ is refused in words naming the labels. Fits are made legible where possible: ticks thinned, titles and
+  legends wrapped, light gridlines dotted in black and white.
+- **Dropdown defaults per mode** in Finance: switching a mode swaps in that mode's own default inputs, unless you
+  have edited them.
+
+### Fixed
+- **Number lists:** a lone grouped run is one number when it can only be one ("2,500,000", "1,000,000", "−2,050").
+  A run that reads two ways ("1,500" in a list) is asked about instead of guessed. A single-number field reads any
+  valid grouping. A leading "+" is accepted.
+- **Axis ticks:** labels are always the tick values. They were mislabelled on some comma-grouped and narrow ranges.
+- **Probability changes** in logit, probit, multinomial logit and Tobit readings are never 1 or more. They are quoted
+  per one unit unless that would be impossible, and a 0/1 predictor is never rescaled.
+- **ETS:** the fit is never worse than the previous engine or statsmodels on 1,815 test fits.
+- **GARCH:** takes up to 2,600 returns, with a bounded amount of work.
+- **ARIMA:** decides from a work estimate and a hard work budget, never from the wall clock.
+- **Synthetic control:** judges the pre-period fit against the treated series' own variation.
+- **Polynomial regression:** refuses degree 5 or 6 instead of silently fitting degree 4.
+- **Other Finance fixes:** safe-withdrawal and IP Monte Carlo decide on the printed digits; CIP with no profit in
+  minor units is no arbitrage; XIRR with up to 400 dates; prejudgment interest with up to 5,000 rows.
+- **Stars and brackets** on Stats figures follow the printed p in every band.
+
 ## [2.204.0] — 2026-10-28 — F3: GMM and dynamic panels
 
 Stats grows from 75 to 77 calculators. Both are checked against linearmodels 7.1, pydynpd 0.2.2 and an independent

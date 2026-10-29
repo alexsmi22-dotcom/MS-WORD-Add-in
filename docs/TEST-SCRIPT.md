@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.204.0)
+# JurisLab — Manual Test Script (v2.205.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 14,000+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0es. New in v2.205.0 — Every Finance and Stats result opens with a plain reading
+
+- [ ] **Finance ▸ Loan payment** (defaults) → a bold first line: "Each monthly payment of 1,073.64 repays 200,000.00 borrowed at 5% a year over 30 years. Early payments are mostly interest, so the balance falls slowly at first." Then the usual result and the figure.
+- [ ] **Finance ▸ Bond price** (defaults) → reading "At a 6% yield the bond is worth 925.61 against 1,000.00 face: a discount, because its 5% coupon pays less than the 6% market yield."
+- [ ] **Finance ▸ Multi-stage DCF** (defaults) → reading names equity about 1,674.80 (33.4960 a share) and "57.0% of the enterprise value is the terminal value".
+- [ ] **Finance ▸ Georgia-Pacific worksheet** → a reading line and the worksheet, and no figure (by design).
+- [ ] **Stats ▸ One-way ANOVA** (defaults) → reading "At least one of the three group means differs from the others (F(2, 6) = 27.00, p = .001) …" and suggests a post-hoc test.
+- [ ] **Stats ▸ Logit** (defaults) → reading "A one-unit rise in GPA goes with a rise of about 0.3593 in the probability that grade = 1 … odds about 14.45 times as high; the model classifies 81.7% of cases correctly."; a third table **Odds ratios exp(coefficient)**; the figure has an odds-ratio panel on a log axis.
+- [ ] **Stats ▸ ARIMA** (defaults) → reading "ARIMA(1, 1, 1) forecasts Rate at about 3.39782 for 2026 Q1 … (Ljung–Box p = 0.952)."
+- [ ] Insert any Finance and any Stats result: the **reading is the first paragraph in Word**, in bold, above the result text; Ctrl+Z removes the whole insert.
+- [ ] **Figure styles on Stats** (new): with a Stats result showing, pick Figure style ▸ Nature, then insert. The figure is redrawn at the style's width, and no axis title is cut short with "…". A style that cannot fit a figure is refused in words naming the labels that would collide.
+- [ ] **Number lists:** in Finance ▸ NPV, type cash flows `-1,000 300 400 500` → read as four numbers. Type `1,500` alone in a Stats list → the pane asks whether it means 1500 or 1 and 500. Type `2,500,000` in a single-number field → read as 2,500,000.
 
 ## 0er. New in v2.204.0 — F3 (Stats 75 → 77)
 

@@ -136,6 +136,18 @@ function unitReader(r: (k: string) => string) {
   };
 }
 
+const SUPER: Record<string, string> = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-", "⁺": "+" };
+/**
+ * The product's own number format back to a plain one: "1.7415×10⁻⁴" (as every result prints it), "1.7415×10^-4",
+ * "1.7415 x 10^-4" and true minus signs all become "1.7415e-4", so a value copied from a result reads back.
+ */
+function sciToPlain(s: string): string {
+  return s
+    .trim()
+    .replace(/[−–]/g, "-")
+    .replace(/\s*[×x*]\s*10\s*(?:\^\s*)?([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+|[-+]?\d+)/, (_m, ex: string) => "e" + [...ex].map((c) => SUPER[c] ?? c).join(""));
+}
+
 /** A plain number field (no unit): NaN when blank or unreadable. */
 function plain(v: string | undefined): number {
   const t = (v ?? "").trim().replace(/[−–]/g, "-");
@@ -279,7 +291,7 @@ const elementsCalc: SpaceCalc = {
         ? `This trajectory is exactly parabolic: it escapes ${body.label} with nothing to spare, passing ${alt(el.rp)} altitude at closest approach.`
         : `This trajectory escapes ${body.label}: a hyperbola passing ${alt(el.rp)} altitude at closest approach and leaving at ${kms(vinf, 4)} (C3 = ${sf((vinf / 1000) ** 2, 4)} km²/s²).`;
     }
-    if (r1 && v1 && t !== null) reading += ` ${dur(t)} ${t >= 0 ? "after" : "before"} the epoch it is at ${alt(norm(r1))} altitude moving ${kms(norm(v1), 4)}.`;
+    if (r1 && v1 && t !== null) reading += ` ${dur(Math.abs(t))} ${t >= 0 ? "after" : "before"} the epoch it is at ${alt(norm(r1))} altitude moving ${kms(norm(v1), 4)}.`;
     if (el.rp < body.radius) reading += ` Its periapsis is inside ${body.label}, so it would hit the surface first.`;
     lines.push(reading);
     if (elIn) lines.push(elIn);
@@ -300,7 +312,9 @@ const elementsCalc: SpaceCalc = {
     both("Inclination i", (e) => deg(e.i));
     both("RAAN Ω", (e) => deg(e.raan));
     both("Argument of periapsis ω", (e) => deg(e.argp));
-    both(el.circular ? (el.equatorial ? "True longitude ℓ" : "Argument of latitude u") : "True anomaly ν", (e) => deg(e.circular ? (e.equatorial ? e.trueLon : e.u) : e.nu));
+    // An open conic's true anomaly is signed (−ν∞ < ν < ν∞): −60° is inbound, and 300° would read as a place it never is.
+    const nuShown = (e: ElementsFull): number => (e.e >= 1 && e.nu > Math.PI ? e.nu - 2 * Math.PI : e.nu);
+    both(el.circular ? (el.equatorial ? "True longitude ℓ" : "Argument of latitude u") : "True anomaly ν", (e) => deg(e.circular ? (e.equatorial ? e.trueLon : e.u) : nuShown(e)));
     both("Semi-latus rectum p", (e) => km(e.p));
     both("Periapsis altitude", (e) => alt(e.rp));
     if (el.ra !== null) both("Apoapsis altitude", (e) => (e.ra === null ? "none" : alt(e.ra)));
@@ -316,7 +330,7 @@ const elementsCalc: SpaceCalc = {
       const k = trueAnomalyAfter(mu, el.p, el.e, el.nu, t);
       if ("ok" in k) return refuse(k.error);
       const d = Math.abs(Math.atan2(Math.sin(k.nu - el1.nu), Math.cos(k.nu - el1.nu))) * R2D;
-      lines.push(`Kepler's equation solved directly at t (${k.anomaly}) gives ν = ${deg(Math.atan2(Math.sin(k.nu), Math.cos(k.nu)) < 0 ? k.nu + 2 * Math.PI : k.nu)}, agreeing with the universal-variable propagation to ${d < 1e-9 ? "better than 10⁻⁹°" : `${sf(d, 2)}°`}.`);
+      lines.push(`Kepler's equation solved directly at t (${k.anomaly}) gives ν = ${deg(el.e >= 1 ? Math.atan2(Math.sin(k.nu), Math.cos(k.nu)) : Math.atan2(Math.sin(k.nu), Math.cos(k.nu)) < 0 ? k.nu + 2 * Math.PI : k.nu)}, agreeing with the universal-variable propagation to ${d < 1e-9 ? "better than 10⁻⁹°" : `${sf(d, 2)}°`}.`);
     }
     lines.push(`Model: two-body, ${body.label} a point mass with GM = ${sf(mu / 1e9, 9)} km³/s² (IAU 2009, script-extracted). No J2 (an Earth orbit's node turns several degrees a day at low altitude), no drag, no third bodies or solar pressure: a real orbit drifts away from this, and the further the propagation the further it drifts. Kepler's equation is solved by bracketed Newton iteration and refused by name if it does not converge.`);
     const outputs: EngOutput[] = [
@@ -334,11 +348,21 @@ const elementsCalc: SpaceCalc = {
     const nuT = el1 ? (el1.circular ? (el1.equatorial ? el1.trueLon : el1.u) - (el.circular ? 0 : el.argp) : el1.nu) : null;
     const nu0p = el.circular ? (el.equatorial ? el.trueLon : el.u) : el.nu;
     const path: V3[] = [];
-    const span = el.period ?? Math.max(Math.abs(t ?? 0) * 1.6, 4 * Math.abs(el.tSincePeri), 3600);
-    const t0 = el.period ? 0 : -span / 2;
+    // An open conic is drawn over the times that matter, measured from the epoch: from the earliest of the epoch, the
+    // propagated time and periapsis to the latest of them, with a margin, so both markers sit on the drawn path.
+    let tA = 0;
+    let tB = el.period ?? 0;
+    if (el.period === null) {
+      tA = Math.min(0, t ?? 0, -el.tSincePeri);
+      tB = Math.max(0, t ?? 0, -el.tSincePeri);
+      const pad = 0.25 * (tB - tA) + 600;
+      tA -= pad;
+      tB += pad;
+    }
+    const rKeep = 1.5 * Math.max(R0, r1 ? norm(r1) : 0, 4 * el.rp, body.radius);
     for (let k = 0; k <= 240; k++) {
-      const pr = propagate(mu, r0, v0, el.period ? (span * k) / 240 : t0 + (span * k) / 240 - el.tSincePeri);
-      if (pr.ok && norm(pr.r) < 8 * Math.max(R0, el.rp, body.radius) + (el.ra ?? 0)) path.push(pr.r);
+      const pr = propagate(mu, r0, v0, tA + ((tB - tA) * k) / 240);
+      if (pr.ok && (el.period !== null || norm(pr.r) < rKeep)) path.push(pr.r);
     }
     const extra: AnalyzeBlock[] = [
       table("Orbital elements", rows),
@@ -408,9 +432,11 @@ const lambertCalc: SpaceCalc = {
     const ends = vb || va ? "from the velocities given" : "from circular orbits at both ends, in the transfer plane";
     let reading = `Getting from r₁ to r₂ in ${dur(tof)} the ${way} way takes ${tr.conic === "hyperbolic" ? "a hyperbolic" : tr.conic === "parabolic" ? "a parabolic" : "an elliptical"} transfer through ${fx(L.dtheta * R2D, 2)}°; the two burns total ${kms(dv1 + dv2, 4)} (${kms(dv1, 4)} + ${kms(dv2, 4)}) ${ends}.`;
     if (tr.rp < body.radius && L.dtheta > 0) {
-      // Does the arc itself pass periapsis? Only then is the intersection real.
-      const nu1 = tr.nu > Math.PI ? tr.nu - 2 * Math.PI : tr.nu;
-      if (nu1 < 0 && nu1 + L.dtheta > 0) reading += ` The arc dips to ${km(tr.rp - body.radius)} altitude, inside ${body.label}: it cannot be flown.`;
+      // Does the arc itself pass periapsis? Only then is the intersection real. ν runs from ν₁ (in [0, 2π)) forward
+      // through Δθ, so it passes periapsis exactly when it reaches 2π: an arc of 358.6° from 171.6° does, though a
+      // signed test centred on 0 misses it.
+      const crosses = tr.nu === 0 || tr.nu + L.dtheta >= 2 * Math.PI;
+      if (crosses) reading += ` The arc dips to ${km(tr.rp - body.radius)} altitude, inside ${body.label}: it cannot be flown.`;
     }
     lines.push(reading);
     lines.push({ math: "Delta t sqrt(mu) = (y(z)/C(z))^(3/2) S(z) + A sqrt(y(z))", fallback: "√μ·Δt = √((y/C)³)·S + A·√y (universal-variable Lambert equation)" });
@@ -489,6 +515,10 @@ const interplanetaryCalc: SpaceCalc = {
     const dep = (r("dep") ?? "").trim();
     const arr = (r("arr") ?? "").trim();
     const startRaw = (r("start") ?? "").trim();
+    if (!(tmin >= 1)) return refuse("Shortest flight time: at least 1 day.");
+    if (!(tmax <= 20000)) return refuse("Longest flight time: at most 20 000 days.");
+    if (!(span >= 1)) return refuse("Departure span: at least 1 day.");
+    if (!(park <= 1e6 && capp <= 1e7 && capa <= 1e8)) return refuse("Parking and capture altitudes: parking at most 10⁶ km, capture periapsis at most 10⁷ km and apoapsis at most 10⁸ km (beyond those the planet no longer holds the orbit).");
     const jd0 = julianDate(startRaw);
     if (jd0 === null) return refuse(`Window opens: "${startRaw}" is not a date written YYYY-MM-DD (for example 2026-09-01).`);
     if (!spaceBody(dep) || !spaceBody(arr)) return refuse("Both planets must be chosen from the list.");
@@ -647,6 +677,8 @@ const maneuverCalc: SpaceCalc = {
     if (u.errors.length) return refuse(u.errors.join("\n"));
     const revs = plain(r("revs"));
     if (!(h1 >= 0) || !(h2 >= 0)) return refuse("Altitudes must be zero or more: below zero is inside the body.");
+    if (h1 > 1e8 || h2 > 1e8) return refuse("Altitudes: above 100 million km (0.67 au) a two-body orbit about this body is not meaningful; enter 1×10⁸ km or less.");
+    if (hb > 1e10) return refuse("Bi-elliptic apoapsis: above 10¹⁰ km the transfer would take centuries and leave every body's sphere of influence; enter less.");
     if (!(Math.abs(di) <= 180)) return refuse("The inclination change must be between −180° and 180°.");
     const r1 = body.radius + h1 * 1000;
     const r2 = body.radius + h2 * 1000;
@@ -675,20 +707,33 @@ const maneuverCalc: SpaceCalc = {
     const a1b = (Math.min(r1, r2) + rb) / 2;
     const a2b = (rb + Math.max(r1, r2)) / 2;
     const tBi = Math.PI * (Math.sqrt(a1b ** 3 / mu) + Math.sqrt(a2b ** 3 / mu));
-    const ph = Number.isFinite(revs) ? phasing(mu, r2, lead * D2R, revs, body.radius) : { ok: false as const, error: `Phasing revolutions: "${(r("revs") ?? "").trim()}" is not a number.` };
-    if (!ph.ok) return refuse(ph.error);
-    const best = [
-      { k: "combined with the circularisation burn", v: combEnd },
-      { k: "separately after arriving", v: sepEnd },
-      { k: "separately before leaving", v: sepStart },
+    if (!(Number.isInteger(revs) && revs >= 1 && revs <= 1000)) return refuse(`Phasing revolutions: "${(r("revs") ?? "").trim()}" is not a whole number from 1 to 1000.`);
+    if (!(Math.abs(lead) > 0 && Math.abs(lead) < 360)) return refuse("Lead angle: must be nonzero and less than 360° in size (positive: the target is ahead).");
+    // Phasing is a side result: a lead the requested revolutions cannot reach without hitting the body does not refuse
+    // the transfer. The fewest revolutions (from the requested count, up to 1000) that keep it clear are used instead.
+    let phRevs = revs;
+    let ph = phasing(mu, r2, lead * D2R, phRevs, body.radius);
+    while (!ph.ok && phRevs < 1000) ph = phasing(mu, r2, lead * D2R, ++phRevs, body.radius);
+    const phNote = ph.ok && phRevs !== revs ? ` (${revs} revolution${revs === 1 ? "" : "s"} would dip inside ${body.label}, so ${phRevs} are used)` : "";
+    const higher = Math.max(h1, h2);
+    const options = [
+      { k: "combined with the burn at the higher orbit", v: r2 > r1 ? combEnd : combStart },
+      { k: "combined with the burn at the lower orbit", v: r2 > r1 ? combStart : combEnd },
+      { k: "done separately at the higher orbit", v: r2 > r1 ? sepEnd : sepStart },
+      { k: "done separately at the lower orbit", v: r2 > r1 ? sepStart : sepEnd },
     ].sort((a, b) => a.v - b.v);
+    const degenerateBi = rb - Math.max(r1, r2) < 1;
     const lines: EngLine[] = [];
     let reading = `Going from ${trimSig(h1)} km to ${trimSig(h2)} km costs ${kms(hoh, 4)} by Hohmann`;
-    reading += dI > 0 ? `; the ${trimSig(Math.abs(di))}° plane change is cheapest ${best[0].k} (${kms(best[0].v, 4)} in all), against ${kms(sepStart, 4)} if done before leaving, because the craft is slowest at the top of the transfer.` : ".";
-    reading += R > th.r2 ? ` At a radius ratio of ${sf(R, 4)} (above ${sf(th.r2, 4)}) every bi-elliptic transfer beats Hohmann on Δv; this one saves ${kms(hohN - bi, 3)} but takes ${dur(tBi)} instead of ${dur(tHoh)}.`
-      : R > th.r1 ? ` At a radius ratio of ${sf(R, 4)} (between ${sf(th.r1, 4)} and ${sf(th.r2, 4)}) a bi-elliptic transfer can win if its apoapsis is high enough; with this one it ${bi < hohN ? `saves ${kms(hohN - bi, 3)}` : `costs ${kms(bi - hohN, 3)} more`}.`
-        : ` At a radius ratio of ${sf(R, 4)} (below ${sf(th.r1, 4)}) Hohmann is the cheapest two-impulse transfer, and no bi-elliptic beats it.`;
-    reading += ` Catching a target ${trimSig(lead)}° ${lead > 0 ? "ahead" : "behind"} in the final orbit over ${revs} revolution${revs === 1 ? "" : "s"} takes ${kms(ph.dvTotal, 3)} (two burns) and ${dur(ph.timeS)}.`;
+    reading += dI > 0 ? `; the ${trimSig(Math.abs(di))}° plane change is cheapest ${options[0].k} (${kms(options[0].v, 4)} in all), against ${kms(options[options.length - 1].v, 4)} ${options[options.length - 1].k}, because a plane change costs least where the craft is slowest, at the ${trimSig(higher)} km end of the transfer.` : ".";
+    if (degenerateBi) reading += ` The bi-elliptic apoapsis given is the final orbit itself, so that "bi-elliptic" is the Hohmann transfer; raise it to compare.`;
+    else
+      reading += R > th.r2 ? ` At a radius ratio of ${sf(R, 4)} (above ${sf(th.r2, 4)}) every bi-elliptic transfer beats Hohmann on Δv; this one saves ${kms(hohN - bi, 3)} but takes ${dur(tBi)} instead of ${dur(tHoh)}.`
+        : R > th.r1 ? ` At a radius ratio of ${sf(R, 4)} (between ${sf(th.r1, 4)} and ${sf(th.r2, 4)}) a bi-elliptic transfer can win if its apoapsis is high enough; with this one it ${bi < hohN ? `saves ${kms(hohN - bi, 3)}` : `costs ${kms(bi - hohN, 3)} more`}.`
+          : ` At a radius ratio of ${sf(R, 4)} (below ${sf(th.r1, 4)}) Hohmann is the cheapest two-impulse transfer, and no bi-elliptic beats it.`;
+    reading += ph.ok
+      ? ` Catching a target ${trimSig(Math.abs(lead))}° ${lead > 0 ? "ahead" : "behind"} in the final orbit over ${phRevs} revolution${phRevs === 1 ? "" : "s"}${phNote} takes ${kms(ph.dvTotal, 3)} (two burns) and ${dur(ph.timeS)}.`
+      : ` Phasing for a ${trimSig(Math.abs(lead))}° lead in the final orbit is not possible without hitting ${body.label} within 1000 revolutions.`;
     lines.push(reading);
     lines.push({ math: "Delta v = 2 v sin(Delta i/2)", fallback: "Δv = 2v·sin(Δi/2) (pure plane change)" });
     lines.push({ math: "Delta v = sqrt(v_1^2 + v_2^2 - 2 v_1 v_2 cos(Delta i))", fallback: "Δv = √(v₁² + v₂² − 2v₁v₂·cos Δi) (speed and plane changed in one burn)" });
@@ -701,23 +746,26 @@ const maneuverCalc: SpaceCalc = {
       ["Plane change combined with the first burn", sf(combStart / 1000, 5), dur(tHoh)],
       ["Plane change combined with the second burn", sf(combEnd / 1000, 5), dur(tHoh)],
       [`Bi-elliptic via ${trimSig(hb)} km (no plane change)`, sf(bi / 1000, 5), dur(tBi)],
-      [`Phasing, ${trimSig(lead)}° in ${revs} rev`, sf(ph.dvTotal / 1000, 5), dur(ph.timeS)],
     ];
-    lines.push(`Bi-elliptic thresholds (computed as roots, not typed): R = ${sf(th.r1, 7)} (below it Hohmann always wins) and R = ${sf(th.r2, 7)} (above it every bi-elliptic wins). Phasing orbit: period ${dur(ph.periodPhasing)} against ${dur(ph.periodTarget)}, ${ph.lower ? "lower" : "higher"}, other apsis at ${km(ph.otherApsis - body.radius)} altitude.`);
+    if (ph.ok) rows.push([`Phasing, ${trimSig(Math.abs(lead))}° ${lead > 0 ? "ahead" : "behind"} in ${phRevs} rev`, sf(ph.dvTotal / 1000, 5), dur(ph.timeS)]);
+    lines.push(`Bi-elliptic thresholds (computed as roots, not typed): R = ${sf(th.r1, 7)} (below it Hohmann always wins) and R = ${sf(th.r2, 7)} (above it every bi-elliptic wins).` + (ph.ok ? ` Phasing orbit: period ${dur(ph.periodPhasing)} against ${dur(ph.periodTarget)}, ${ph.lower ? "lower" : "higher"}, other apsis at ${km(ph.otherApsis - body.radius)} altitude.` : ""));
     lines.push("Model: two-body, impulsive burns, coplanar circular end orbits; the combined burn puts all of the plane change at one apsis (splitting it a few degrees between the two burns saves a little more, not computed here). Two-impulse Hohmann is optimal only among two-burn transfers.");
     const outputs: EngOutput[] = [
       { key: "hohmann", label: "Hohmann Δv", value: hoh / 1000, unit: "km/s" },
       { key: "combined", label: "Hohmann with combined plane change", value: combEnd / 1000, unit: "km/s" },
+      { key: "combinedStart", label: "Plane change combined with the first burn", value: combStart / 1000, unit: "km/s" },
       { key: "separate", label: "Hohmann with plane change before leaving", value: sepStart / 1000, unit: "km/s" },
+      { key: "bestPlane", label: "Cheapest plane-change option", value: options[0].v / 1000, unit: "km/s" },
       { key: "bielliptic", label: "Bi-elliptic Δv", value: bi / 1000, unit: "km/s" },
-      { key: "phasing", label: "Phasing Δv", value: ph.dvTotal / 1000, unit: "km/s" },
       { key: "ratio", label: "Radius ratio", value: R, unit: "" },
     ];
-    return finish(lines, u.conversions, [
+    if (ph.ok) outputs.push({ key: "phasing", label: "Phasing Δv", value: ph.dvTotal / 1000, unit: "km/s" }, { key: "phRevs", label: "Phasing revolutions used", value: phRevs, unit: "" });
+    const extra: AnalyzeBlock[] = [
       table("Orbit-change options", rows),
       plot(biellipticSvg(Rb, R, th), "Total Δv against radius ratio: Hohmann and bi-elliptic", "Total delta-v divided by the inner circular speed against the radius ratio on a log axis, for Hohmann and bi-elliptic transfers, with the 11.94 and 15.58 thresholds and this transfer marked"),
-      plot(phasingSvg(r2, ph.aPhasing, lead * D2R, body.radius), "Phasing orbit and the target's lead at the burn", "The circular orbit, the phasing ellipse from the burn point, the chaser and the target"),
-    ], outputs);
+    ];
+    if (ph.ok) extra.push(plot(phasingSvg(r2, ph.aPhasing, lead * D2R, body.radius), "Phasing orbit and the target's lead at the burn", "The circular orbit, the phasing ellipse from the burn point, the chaser and the target"));
+    return finish(lines, u.conversions, extra, outputs);
   },
 };
 
@@ -756,6 +804,7 @@ const perturbCalc: SpaceCalc = {
     if (!(maxDays >= 1 && maxDays <= 60 && Number.isInteger(maxDays))) return refuse("Repeat cycles: a whole number of days from 1 to 60.");
     if (!(h > 0)) return refuse("Altitude: must be greater than zero (below zero is inside Earth).");
     if (h > 100000) return refuse("Altitude: above 100 000 km the Moon's and the Sun's pulls dominate J2 and these rates do not describe the orbit.");
+    if (!(Math.abs(da) <= 2000)) return refuse("GEO offset Δa: the linear drift formula holds for offsets up to about 2000 km; enter a value from −2000 to 2000 km.");
     const R = R_EQ_SI.earth;
     const a = R + h * 1000;
     if (a * (1 - e) < R) return refuse(`With e = ${trimSig(e)} the periapsis (${km(a * (1 - e) - R)} altitude) is inside Earth.`);
@@ -772,15 +821,19 @@ const perturbCalc: SpaceCalc = {
     }
     const rates = j2Rates(GM_SI.earth, R, J2.earth, a, e, i);
     const perDay = (x: number): number => x * R2D * DAY_S;
-    const { shift } = trackShift(a, i);
+    const { shift: shiftRaw } = trackShift(a, i);
+    // The shift per orbit, wrapped to (−180°, 180°]: positive west. A near-geostationary orbit drifts a fraction of a
+    // degree a revolution, not 359.97° west.
+    const shift = shiftRaw - 2 * Math.PI * Math.round(shiftRaw / (2 * Math.PI));
+    const dir = (x: number): string => (Math.abs(x) < 1e-12 ? "" : x > 0 ? " west" : " east");
     const reps = repeatTracks(h * 1000, i, maxDays).slice(0, 6);
     const aGeo = geoRadius();
     const drift = -1.5 * ((da * 1000) / aGeo) * OMEGA_EARTH; // rad/s, eastward positive
     const lines: EngLine[] = [];
     let reading = `At ${trimSig(h)} km and ${deg(i, 2)}${ssoNote}, Earth's oblateness turns the orbit's node ${fx(perDay(rates.raanDot), 4)}°/day and its periapsis ${fx(perDay(rates.argpDot), 4)}°/day.`;
     if (sso !== null) reading += Math.abs(i - sso) < 1e-6 ? " The node keeps pace with the Sun (0.9856°/day), so the orbit is sun-synchronous: it crosses each latitude at the same local time all year." : ` Sun-synchronous at this altitude would need ${deg(sso, 2)}.`;
-    reading += ` The ground track moves ${fx(shift * R2D, 3)}° (${sf((shift * R) / 1000, 5)} km at the equator) west each orbit`;
-    reading += reps.length ? `; the nearest exact repeat is ${reps[0].revs} orbits in ${reps[0].days} day${reps[0].days === 1 ? "" : "s"}, at ${km(reps[0].altitudeM, 5)}.` : ".";
+    reading += ` The ground track moves ${fx(Math.abs(shift) * R2D, 3)}° (${sf((Math.abs(shift) * R) / 1000, 5)} km at the equator)${dir(shift)} each orbit`;
+    reading += reps.length ? `; the nearest exact repeat is ${reps[0].revs} orbit${reps[0].revs === 1 ? "" : "s"} in ${reps[0].days} day${reps[0].days === 1 ? "" : "s"}, at ${km(reps[0].altitudeM, 5)}.` : ".";
     lines.push(reading);
     lines.push({ math: "dot(Omega) = -(3/2) n J_2 (R/p)^2 cos(i)", fallback: "Ω̇ = −(3/2)·n·J₂·(R/p)²·cos i" });
     lines.push({ math: "dot(omega) = (3/4) n J_2 (R/p)^2 (5 cos(i)^2 - 1)", fallback: "ω̇ = (3/4)·n·J₂·(R/p)²·(5cos²i − 1)" });
@@ -795,8 +848,8 @@ const perturbCalc: SpaceCalc = {
       ["Apsidal precession ω̇", `${fx(perDay(rates.argpDot), 5)} °/day`],
       ["Sun-synchronous inclination here", sso === null ? "none (too high)" : deg(sso, 3)],
       ["Critical inclinations (ω̇ = 0)", `${deg(CRITICAL_INC, 3)} and ${deg(Math.PI - CRITICAL_INC, 3)}`],
-      ["Ground-track shift per orbit", `${fx(shift * R2D, 4)}° west`],
-      ["Revolutions per day", sf((2 * Math.PI) / shift, 6)],
+      ["Ground-track shift per orbit", `${fx(Math.abs(shift) * R2D, 4)}°${dir(shift)}`],
+      ["Revolutions per day", sf((2 * Math.PI) / shiftRaw, 6)],
       ["Geostationary radius / altitude", `${km(aGeo, 7)} / ${km(aGeo - R, 7)}`],
       [`GEO drift for Δa = ${trimSig(da)} km`, `${fx(perDay(drift), 4)} °/day (${drift < 0 ? "west" : drift > 0 ? "east" : "none"})`],
     ];
@@ -861,6 +914,8 @@ const threeBodyCalc: SpaceCalc = {
     let names: [string, string];
     let pairNote = "";
     let R1: number | null = null;
+    // The two bodies' equatorial radii, to refuse a state inside either (a custom pair gives none).
+    let bodyR: [number | null, number | null] = [null, null];
     if (pairId === "custom") {
       const m1 = u.req("mu1", "km^3/s^2", "km³/s²", "Primary GM");
       const m2 = u.req("mu2", "km^3/s^2", "km³/s²", "Secondary GM");
@@ -883,8 +938,12 @@ const threeBodyCalc: SpaceCalc = {
       pairNote = `${p.label}: ${p.note}.`;
       const pid = p.primary.toLowerCase();
       R1 = R_MEAN_SI[pid] ?? R_EQ_SI[pid] ?? null;
+      const sid = p.secondary === "Earth + Moon" ? "earth" : p.secondary.toLowerCase();
+      bodyR = [R_EQ_SI[pid] ?? null, R_EQ_SI[sid] ?? null];
     }
-    if (!(dist > 0)) return refuse("Separation: must be greater than zero.");
+    if (!(dist >= 1000 && dist <= 1e15)) return refuse("Separation: must be from 1 km to 10¹² km.");
+    if (!(Math.abs(x) <= 100 * dist / 1000 && Math.abs(y) <= 100 * dist / 1000)) return refuse("State: x and y must be within 100 separations of the barycentre.");
+    if (!(Math.abs(vx) <= 1e5 && Math.abs(vy) <= 1e5)) return refuse("State: vx and vy must be at most 10⁵ km/s in size.");
     if (!(rhoS > 0)) return refuse("Satellite density: must be greater than zero.");
     const mu = mu2 / (mu1 + mu2);
     const L = lagrange(mu);
@@ -895,6 +954,8 @@ const threeBodyCalc: SpaceCalc = {
     const xs = (x * 1000) / dist, ys = (y * 1000) / dist, vxs = (vx * 1000) / vUnit, vys = (vy * 1000) / vUnit;
     const rp1 = Math.hypot(xs + mu, ys), rp2 = Math.hypot(xs - 1 + mu, ys);
     if (rp1 < 1e-9 || rp2 < 1e-9) return refuse("The state is at the centre of one of the bodies, where the potential is infinite.");
+    if (bodyR[0] !== null && rp1 * dist < bodyR[0]) return refuse(`The state is ${km(rp1 * dist)} from the centre of ${names[0]}, inside it (radius ${km(bodyR[0])}). Enter a position outside both bodies.`);
+    if (bodyR[1] !== null && rp2 * dist < bodyR[1]) return refuse(`The state is ${km(rp2 * dist)} from the centre of ${names[1]}, inside it (radius ${km(bodyR[1])}). Enter a position outside both bodies.`);
     const C = jacobi(mu, xs, ys, vxs, vys);
     const hill = hillRadius(dist, 0, mu1, mu2);
     const soi = soiRadius(dist, mu1, mu2);
@@ -990,13 +1051,20 @@ const reentryCalc: SpaceCalc = {
     const hd = u.opt("hd", "km", "km", "Decay altitude");
     if (u.errors.length) return refuse(u.errors.join("\n"));
     const cd = plain(r("cd"));
-    const kRaw = (r("k") ?? "").trim().replace(/×10\^?/, "e").replace(/[−–]/g, "-");
-    const k = plain(kRaw);
+    const k = plain(sciToPlain(r("k") ?? ""));
     if (!(cd > 0)) return refuse(`Drag coefficient: "${(r("cd") ?? "").trim()}" is not a number above zero.`);
-    if (!(k > 0)) return refuse(`Sutton–Graves constant: "${(r("k") ?? "").trim()}" is not a number above zero (Earth air: 1.7415e-4).`);
+    if (!(k > 0)) return refuse(`Sutton–Graves constant: "${(r("k") ?? "").trim()}" is not a number above zero (Earth air: 1.7415×10⁻⁴).`);
+    if (!(k >= 1e-6 && k <= 1e-2)) return refuse("Sutton–Graves constant: must be between 10⁻⁶ and 10⁻² kg^½/m (Earth air 1.7415×10⁻⁴; CO₂ atmospheres about 1.9×10⁻⁴).");
     if (!(m > 0) || !(A > 0)) return refuse("Mass and area must be greater than zero.");
+    if (!(rho0 > 0 && rho0 <= 1000)) return refuse("Surface density ρ₀: must be above 0 and at most 1000 kg/m³ (Earth 1.225, Venus about 65).");
+    if (!(H > 0 && H <= 100)) return refuse("Scale height H: must be above 0 and at most 100 km.");
+    if (!(m <= 1e9) || !(A <= 1e6)) return refuse("Mass and area: at most 10⁹ kg and 10⁶ m².");
     const beta = m / (cd * A);
-    const res = ballisticEntry({ beta, vEntry: v * 1000, gamma: g * D2R, rho0, H: H * 1000, noseR: rn, kSG: k, hEntry: he * 1000 });
+    // The numerical check integrates over EARTH (1976 + NRLMSIS air, Earth's gravity and radius). It is run only when the
+    // atmosphere entered is Earth's (ρ₀ within 5 % of 1.225 kg/m³, H from 6 to 9 km, k within 5 % of Earth air's);
+    // for Mars, Venus or Titan inputs an Earth integration would sit beside the closed form as if it checked it.
+    const earthAir = Math.abs(rho0 / 1.225 - 1) <= 0.05 && H >= 6 && H <= 9 && Math.abs(k / SUTTON_GRAVES_EARTH - 1) <= 0.05;
+    const res = ballisticEntry({ beta, vEntry: v * 1000, gamma: g * D2R, rho0, H: H * 1000, noseR: rn, kSG: k, hEntry: he * 1000, integrate: earthAir });
     if (!res.ok) return refuse(res.error);
     let decay: ReturnType<typeof orbitalDecay> | null = null;
     if (hd !== null) {
@@ -1006,15 +1074,29 @@ const reentryCalc: SpaceCalc = {
     const g0 = 9.80665;
     const lines: EngLine[] = [];
     const n = res.numeric;
-    let reading = `A ${sf(beta, 3)} kg/m² body entering at ${trimSig(v)} km/s and ${trimSig(g)}° peaks at ${sf(res.aMax / g0, 3)} g ${res.peakReached ? `near ${sf(res.hAmax / 1000, 3)} km` : "at the ground (it is still decelerating on impact)"} by the Allen–Eggers closed form`;
-    reading += n ? ` (${sf(n.aMax / g0, 3)} g near ${sf(n.hAmax / 1000, 3)} km when integrated with gravity on the 1976 atmosphere)` : "";
-    reading += `, with a peak stagnation heat flux of ${sf(res.qMax / 1e4, 3)} W/cm² for a ${trimSig(rn)} m nose.`;
+    // A skip (the integrated path climbs back out) or a path still aloft after two hours has no deceleration peak to quote.
+    const nPeak = n && (n.ended === "ground" || n.ended === "slow") ? n : null;
+    let reading: string;
+    if (n && !nPeak) {
+      reading = n.ended === "skip"
+        ? `A ${sf(beta, 3)} kg/m² body entering at ${trimSig(v)} km/s and ${trimSig(g)}° skips back out of the atmosphere when integrated with gravity: the path is too shallow to capture, so there is no deceleration peak to quote. The Allen–Eggers closed form (${sf(res.aMax / g0, 3)} g) assumes a straight descent and does not apply to it.`
+        : `A ${sf(beta, 3)} kg/m² body entering at ${trimSig(v)} km/s and ${trimSig(g)}° has not come down two hours after the interface when integrated with gravity, so there is no deceleration peak to quote; the Allen–Eggers closed form (${sf(res.aMax / g0, 3)} g) assumes a straight descent and does not apply to it.`;
+    } else {
+      reading = `A ${sf(beta, 3)} kg/m² body entering at ${trimSig(v)} km/s and ${trimSig(g)}° peaks at ${sf(res.aMax / g0, 3)} g ${res.peakReached ? `near ${sf(res.hAmax / 1000, 3)} km` : "at the ground (it is still decelerating on impact)"} by the Allen–Eggers closed form`;
+      reading += nPeak ? ` (${sf(nPeak.aMax / g0, 3)} g near ${sf(nPeak.hAmax / 1000, 3)} km when integrated with gravity on the 1976 atmosphere)` : "";
+      reading += `, with a peak stagnation heat flux of ${sf(res.qMax / 1e4, 3)} W/cm² for a ${trimSig(rn)} m nose.`;
+      if (g < 3) reading += ` Below about 3° the closed form does not apply (it leaves out gravity, which bends a shallow path down into denser air)${nPeak ? ", so the integrated figure is the one to use" : ""}.`;
+    }
     if (decay && decay.ok) {
       const lt = decay.lifetimeDays;
-      const fmt = (d: number | null): string => (d === null ? `over ${sf(decay!.ok ? decay.capDays / 365.25 : 0, 3)} years` : dur(d * DAY_S));
-      reading += ` From a ${trimSig(hd as number)} km circular orbit it would come down in about ${fmt(lt.high)} at high solar activity to ${fmt(lt.low)} at low activity (${fmt(lt.moderate)} at moderate).`;
+      const cap = `more than ${sf(decay.capDays / 365.25, 3)} years`;
+      const fmt = (d: number | null): string => (d === null ? cap : `about ${dur(d * DAY_S)}`);
+      reading += lt.high === null && lt.low === null && lt.moderate === null
+        ? ` From a ${trimSig(hd as number)} km circular Earth orbit it would stay up ${cap} at any solar activity.`
+        : ` From a ${trimSig(hd as number)} km circular Earth orbit it would come down in ${fmt(lt.high)} at high solar activity and ${fmt(lt.low)} at low activity (${fmt(lt.moderate)} at moderate).`;
     }
     lines.push(reading);
+    if (!earthAir) lines.push(`The numerical check is not run: the atmosphere entered (ρ₀ = ${trimSig(rho0)} kg/m³, H = ${trimSig(H)} km, k = ${sf(k, 5)}) is not Earth air, and the integration uses Earth's atmosphere and gravity. The closed form uses your values; the orbital decay below is for Earth orbit.`);
     lines.push({ math: "beta = m/(C_d A)", fallback: "β = m/(Cd·A)" });
     lines.push({ math: "v = v_E exp(-(rho H)/(2 beta sin(gamma)))", fallback: "v = vE·exp(−ρH/(2β·sin γ)) (Allen–Eggers)" });
     lines.push({ math: "a_max = (v_E^2 sin(gamma))/(2 e H)", fallback: "a(max) = vE²·sin γ/(2eH), at v = vE/√e" });
@@ -1022,12 +1104,12 @@ const reentryCalc: SpaceCalc = {
     lines.push({ math: "{d a}/{d t} = -rho sqrt(mu a)/beta", fallback: "da/dt = −ρ·√(μa)/β (circular-orbit decay)" });
     const rows = [
       ["Quantity", "Allen–Eggers (closed form)", "Integrated (gravity, 1976 + MSIS)"],
-      ["Peak deceleration", `${sf(res.aMax / g0, 4)} g`, n ? `${sf(n.aMax / g0, 4)} g` : "not run"],
-      ["Altitude of the peak", res.peakReached ? km(res.hAmax, 4) : "the ground", n ? km(n.hAmax, 4) : ""],
-      ["Speed at the peak", kms(res.vAmax, 4), n ? kms(n.vAmax, 4) : ""],
-      ["Peak heat flux (Sutton–Graves)", `${sf(res.qMax / 1e4, 4)} W/cm²`, n ? `${sf(n.qMax / 1e4, 4)} W/cm²` : ""],
-      ["Altitude of peak heating", km(res.hQmax, 4), n ? km(n.hQmax, 4) : ""],
-      ["Speed at the ground (closed form)", res.vGround < 1 ? "below 1 m/s (stopped in the air: the closed form has no gravity)" : kms(res.vGround, 4), n ? `ended: ${n.ended === "slow" ? "below 0.1 km/s" : n.ended}` : ""],
+      ["Peak deceleration", `${sf(res.aMax / g0, 4)} g`, nPeak ? `${sf(nPeak.aMax / g0, 4)} g` : n ? (n.ended === "skip" ? "skips out: no peak" : "still aloft at 2 h: no peak") : "not run (not Earth air)"],
+      ["Altitude of the peak", res.peakReached ? km(res.hAmax, 4) : "the ground", nPeak ? km(nPeak.hAmax, 4) : ""],
+      ["Speed at the peak", kms(res.vAmax, 4), nPeak ? kms(nPeak.vAmax, 4) : ""],
+      ["Peak heat flux (Sutton–Graves)", `${sf(res.qMax / 1e4, 4)} W/cm²`, nPeak ? `${sf(nPeak.qMax / 1e4, 4)} W/cm²` : ""],
+      ["Altitude of peak heating", km(res.hQmax, 4), nPeak ? km(nPeak.hQmax, 4) : ""],
+      ["Speed at the ground (closed form)", res.vGround < 1 ? "below 1 m/s (stopped in the air: the closed form has no gravity)" : kms(res.vGround, 4), nPeak ? `ended: ${nPeak.ended === "slow" ? "below 0.1 km/s" : "at the ground"}` : ""],
     ];
     if (decay && decay.ok) {
       const lt = decay.lifetimeDays;
@@ -1042,14 +1124,14 @@ const reentryCalc: SpaceCalc = {
       { key: "hAmax", label: "Altitude of peak deceleration", value: res.hAmax / 1000, unit: "km" },
       { key: "qMax", label: "Peak heat flux", value: res.qMax / 1e4, unit: "W/cm²" },
     ];
-    if (n) outputs.push({ key: "aMaxNum", label: "Peak deceleration (integrated)", value: n.aMax / g0, unit: "g" });
+    if (nPeak) outputs.push({ key: "aMaxNum", label: "Peak deceleration (integrated)", value: nPeak.aMax / g0, unit: "g" });
     if (decay && decay.ok && decay.lifetimeDays.moderate !== null) outputs.push({ key: "lifeMod", label: "Decay lifetime (moderate activity)", value: decay.lifetimeDays.moderate, unit: "days" });
     const extra: AnalyzeBlock[] = [
       table("Entry", rows),
       plot(entrySvg(res.profile, n ? n.profile : null, "speed", null), "Speed against altitude through the entry", "Speed falling from the entry speed as altitude drops, closed form and integrated"),
       plot(entrySvg(res.profile, n ? n.profile : null, "decel", res.hAmax), "Deceleration against altitude, peak marked", "Deceleration in g against altitude rising to a peak in the lower atmosphere, closed form and integrated"),
     ];
-    if (decay && decay.ok) extra.push(plot(decaySvg(decay.curves), "Orbital decay at three levels of solar activity", "Altitude against days for low, moderate and high solar activity, showing how far apart the lifetimes are"));
+    if (decay && decay.ok) extra.push(plot(decaySvg(decay.curves), "Orbital decay from a circular Earth orbit at three levels of solar activity", "Altitude against days for low, moderate and high solar activity, showing how far apart the lifetimes are"));
     return finish(lines, u.conversions, extra, outputs);
   },
 };
@@ -1093,6 +1175,7 @@ const groundCalc: SpaceCalc = {
     for (const [n, val] of [["Site longitude", slon], ["Sub-point longitude", plon]] as Array<[string, number]>) if (!(Math.abs(val) <= 360)) return refuse(`${n}: must be from −360° to 360°.`);
     if (!(sh > -500 && sh < 10000)) return refuse("Site height: must be between −500 m and 10 000 m.");
     if (!(h > 0)) return refuse("Satellite altitude: must be greater than zero (below zero is inside Earth).");
+    if (!(f <= 1000)) return refuse("Frequency: at most 1000 GHz (1 THz).");
     if (h > 400000) return refuse("Satellite altitude: above 400 000 km the satellite is beyond the Moon; this geometry is for Earth orbits.");
     const cov = coverage(h * 1000, el * D2R, f * 1e9);
     if (!cov.ok) return refuse(cov.error);
@@ -1100,14 +1183,14 @@ const groundCalc: SpaceCalc = {
     const la = lookAngles(slat * D2R, slon * D2R, sh, sat);
     const visible = la.elevation >= el * D2R;
     const lines: EngLine[] = [];
-    let reading = `From the site the satellite is at azimuth ${fx(la.azimuth * R2D, 1)}°, elevation ${fx(la.elevation * R2D, 1)}°, ${sf(la.range / 1000, 4)} km away: ${visible ? "in view" : la.elevation > 0 ? `above the horizon but below the ${trimSig(el)}° mask` : "below the horizon"}.`;
+    let reading = `From the site the satellite is ${la.zenith ? "straight overhead (azimuth not defined)" : `at azimuth ${fx(la.azimuth * R2D, 1)}°`}, elevation ${fx(la.elevation * R2D, 1)}°, ${sf(la.range / 1000, 4)} km away: ${visible ? "in view" : la.elevation > 0 ? `above the horizon but below the ${trimSig(el)}° mask` : "below the horizon"}.`;
     reading += ` At ${trimSig(h)} km it sees a footprint ${sf(cov.footprintRadius / 1000, 4)} km in radius above ${trimSig(el)}° elevation (swath ${sf(cov.swath / 1000, 4)} km); an overhead pass lasts at most ${dur(cov.maxPass)}, and the Doppler shift at ${trimSig(f)} GHz reaches ±${sf(cov.dopplerHz / 1000, 4)} kHz at the edges.`;
     lines.push(reading);
     lines.push({ math: "sin(eta) = R cos(epsilon)/(R + h)", fallback: "sin η = R·cos ε/(R + h), λ = 90° − ε − η (Earth central angle to the edge)" });
     lines.push({ math: "Delta f = f dot(rho)/c", fallback: "Δf = f·ρ̇/c (Doppler from the range rate)" });
     const rows = [
       ["Quantity", "Value"],
-      ["Azimuth (from north, clockwise)", `${fx(la.azimuth * R2D, 3)}°`],
+      ["Azimuth (from north, clockwise)", la.zenith ? "not defined (straight overhead)" : `${fx(la.azimuth * R2D, 3)}°`],
       ["Elevation", `${fx(la.elevation * R2D, 3)}°`],
       ["Slant range", km(la.range, 6)],
       ["Earth central angle to the footprint edge λ", deg(cov.lambda, 3)],
@@ -1123,7 +1206,7 @@ const groundCalc: SpaceCalc = {
     ];
     lines.push("Model: the look angles use the WGS 84 ellipsoid for the site and the sub-point (geodetic latitude and height). The coverage, pass and Doppler figures assume a circular orbit over a spherical Earth of equatorial radius and neglect Earth's rotation during the pass (it lengthens or shortens a pass by up to about 7 % in low orbit) and the atmosphere's refraction near the horizon. No TLE or SGP4 propagation is offered: a faithful SGP4 port validated against the published SGP4-VER test vectors has not been made, and a partial one would quietly misplace satellites. The received power over this range is the RF link budget calculator's job (Electronics).");
     const outputs: EngOutput[] = [
-      { key: "az", label: "Azimuth", value: la.azimuth * R2D, unit: "°" },
+      ...(la.zenith ? [] : [{ key: "az", label: "Azimuth", value: la.azimuth * R2D, unit: "°" }]),
       { key: "el", label: "Elevation", value: la.elevation * R2D, unit: "°" },
       { key: "range", label: "Slant range", value: la.range / 1000, unit: "km" },
       { key: "footprint", label: "Footprint radius", value: cov.footprintRadius / 1000, unit: "km" },
@@ -1180,6 +1263,10 @@ const thermalCalc: SpaceCalc = {
     for (const [n, v] of [["Absorptance α", alpha], ["Emittance ε", eps], ["Albedo", alb], ["View factor", F]] as Array<[string, number]>) {
       if (!Number.isFinite(v)) return refuse(`${n}: not a number (a fraction from 0 to 1).`);
     }
+    if (!(d <= 1e6 * AU_KM)) return refuse("Distance from the Sun: at most 10⁶ au.");
+    if (!(as <= 1e6) || !(ar <= 1e6) || !(ap <= 1e6)) return refuse("Areas: at most 10⁶ m².");
+    if (!(Math.abs(ir) <= 1e5)) return refuse("Planet infrared flux: at most 10⁵ W/m² (Earth about 237, Venus cloud tops about 160).");
+    if (!(Math.abs(q) <= 1e9)) return refuse("Internal power: at most 10⁹ W.");
     const res = thermalBalance({ alpha, eps, distM: d * 1000, aSun: as, aRad: ar, albedo: alb, planetIR: ir, viewF: F, aPlanet: ap, power: q });
     if (!res.ok) return refuse(res.error);
     const dAu = (d * 1000) / AU_M;

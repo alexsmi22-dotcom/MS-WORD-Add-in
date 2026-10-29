@@ -66,6 +66,8 @@ export interface EntryInput {
   kSG: number;
   /** Entry interface altitude, m. */
   hEntry: number;
+  /** Run the numerical check (Earth atmosphere and gravity); default true. */
+  integrate?: boolean;
 }
 
 export interface EntryResult {
@@ -105,6 +107,7 @@ export function ballisticEntry(inp: EntryInput): EntryResult | OrbitFail {
   if (!(noseR > 0)) return fail("The nose radius must be greater than zero.");
   if (!(kSG > 0)) return fail("The Sutton–Graves constant must be greater than zero.");
   if (!(hEntry > 0)) return fail("The entry interface altitude must be greater than zero.");
+  if (hEntry > 300e3) return fail("The entry interface altitude must be at most 300 km (Earth's is conventionally 120 to 125 km; above that there is no atmosphere to enter).");
   const sg = Math.sin(gamma);
   const K = H / (2 * beta * sg);
   const rhoH = (h: number): number => rho0 * Math.exp(-h / H);
@@ -122,7 +125,8 @@ export function ballisticEntry(inp: EntryInput): EntryResult | OrbitFail {
     const h = hEntry * (1 - k / 200);
     profile.push({ h, v: vAt(h), a: aAt(h), q: qAt(h) });
   }
-  const numeric = entryIntegrate(beta, vE, gamma, hEntry, noseR, kSG);
+  // The integration uses EARTH's atmosphere and gravity, so it is run only when asked (the glue asks for Earth air).
+  const numeric = inp.integrate === false ? null : entryIntegrate(beta, vE, gamma, hEntry, noseR, kSG);
   return {
     ok: true,
     aMax, hAmax: hAm, vAmax: vAt(hAm),
@@ -268,6 +272,8 @@ export interface LookAngles {
   range: number;
   /** East, north, up components of the line of sight, m. */
   enu: V3;
+  /** True when the satellite is straight overhead (or below): the azimuth is then not defined. */
+  zenith: boolean;
 }
 
 /** Azimuth (from north, clockwise), elevation and slant range from a site to an Earth-fixed position. */
@@ -281,7 +287,9 @@ export function lookAngles(siteLat: number, siteLon: number, siteH: number, sat:
   const range = Math.hypot(e, n, u);
   let az = Math.atan2(e, n);
   if (az < 0) az += 2 * Math.PI;
-  return { ok: true, azimuth: az, elevation: Math.asin(u / range), range, enu: [e, n, u] };
+  // Directly overhead (or underfoot) the horizontal component vanishes and the azimuth has no meaning: flagged, not invented.
+  const zenith = Math.hypot(e, n) <= 1e-7 * range;
+  return { ok: true, azimuth: az, elevation: Math.asin(u / range), range, enu: [e, n, u], zenith };
 }
 
 export interface CoverageResult {
@@ -388,6 +396,7 @@ export function thermalBalance(inp: ThermalInput): ThermalResult | OrbitFail {
   const { alpha, eps, distM, aSun, aRad, albedo, planetIR, viewF, aPlanet, power } = inp;
   if (!(alpha >= 0 && alpha <= 1)) return fail("The solar absorptance α must be from 0 to 1.");
   if (!(eps > 0 && eps <= 1)) return fail("The infrared emittance ε must be above 0 and at most 1 (a surface with ε = 0 cannot radiate, so it has no equilibrium).");
+  if (eps < 0.001) return fail("The infrared emittance ε must be at least 0.001: the lowest real coatings (polished gold) are about 0.02, and below 0.001 the equilibrium temperature runs off any scale.");
   if (!(distM > 0)) return fail("The distance from the Sun must be greater than zero.");
   if (distM < 0.01 * 149597870700) return fail("Closer than 0.01 au the Sun is not a point source and the inverse-square flux is meaningless; this calculator stops there.");
   if (!(aSun >= 0) || !(aRad > 0)) return fail("The sunlit area must be zero or more and the radiating area greater than zero.");

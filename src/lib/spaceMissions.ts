@@ -305,6 +305,8 @@ export function lunarMission(inp: LunarInput): LunarResult | OrbitFail {
   const RM = R_EQ_SI.moon;
   if (!(inp.parkAltM >= 0)) return fail("The parking-orbit altitude must be zero or more (below zero is inside Earth).");
   if (!(inp.lloAltM > 0)) return fail("The lunar orbit altitude must be above zero (zero or below is inside the Moon).");
+  if (inp.lloAltM > 20000e3) return fail("The lunar orbit altitude must be at most 20 000 km: the Moon's sphere of influence ends near 66 000 km from its centre, and orbits above about 20 000 km are torn away by Earth within months.");
+  if (!(inp.parkAltM <= 50000e3)) return fail("The parking-orbit altitude must be at most 50 000 km (a parking orbit is a low orbit; higher starts are a different transfer).");
   if (!(inp.moonDistM > 3e8 && inp.moonDistM < 4.2e8)) return fail("The Earth–Moon distance must be between 300 000 and 420 000 km (the real range is about 356 500 to 406 700 km).");
   for (const [n, v] of [["descent gravity-loss allowance", inp.descentLossMs], ["ascent gravity-loss allowance", inp.ascentLossMs], ["mid-course allowance", inp.mccMs]] as Array<[string, number]>) {
     if (!(v >= 0) || v > 3000) return fail(`The ${n} must be between 0 and 3 km/s.`);
@@ -449,7 +451,7 @@ export function phasing(mu: number, r: number, leadRad: number, revs: number, mi
   const Tph = T * (1 - leadRad / (TWO_PI * revs));
   const aph = Math.cbrt(mu * (Tph / TWO_PI) ** 2);
   const other = 2 * aph - r;
-  if (other < minRadius) return fail(`One phasing revolution would drop the orbit to ${((other - minRadius) / 1000).toFixed(0)} km altitude, inside the body. Spread the phasing over more revolutions (try ${Math.ceil(revs * 2)}).`);
+  if (other < minRadius) return fail(`${revs === 1 ? "One phasing revolution" : `${revs} phasing revolutions`} would drop the orbit to ${((other - minRadius) / 1000).toFixed(0)} km altitude, inside the body. Spread the phasing over more revolutions (try ${Math.ceil(revs * 2)}).`);
   const vc = Math.sqrt(mu / r);
   const vph = Math.sqrt(mu * (2 / r - 1 / aph));
   return { ok: true, periodTarget: T, periodPhasing: Tph, aPhasing: aph, otherApsis: other, dvTotal: 2 * Math.abs(vc - vph), timeS: revs * Tph, lower: Tph < T };

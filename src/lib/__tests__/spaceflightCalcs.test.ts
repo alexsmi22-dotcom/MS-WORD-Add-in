@@ -10,6 +10,9 @@ import * as path from "path";
 import { SPACEFLIGHT_CALCS, SPACE_GROUP } from "../spaceflightCalcs";
 import type { AnalyzeOutput } from "../analyzeBlocks";
 import { mathToOmml } from "../mathOmml";
+import { lambert, norm, propagate, type V3 } from "../spaceOrbit";
+import { GM_SI, R_EQ_SI } from "../spaceConstants";
+import { phasing } from "../spaceMissions";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const O: any = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "spaceflight-oracle.json"), "utf8"));
@@ -128,7 +131,7 @@ describe("every dropdown option computes and draws (one at a time, the rest at d
     "space-elements body": { a: "3000000 km", e: "0.3" },
     "space-lambert body": { r1: "800000, 0, 100 km", r2: "0, 900000, 0 km", tof: "20 day" },
     "space-maneuvers body": { h1: "1000000 km", h2: "8000000 km", hb: "90000000 km" },
-    "space-three-body pair": { x: "0.3 km" },
+    "space-three-body pair": { x: "300000 km" },
     "space-interplanetary dep": { tmin: "60 day", tmax: "1500 day", span: "400 day" },
     "space-interplanetary arr": { tmin: "60 day", tmax: "1500 day", span: "400 day" },
   };
@@ -147,7 +150,7 @@ describe("every dropdown option computes and draws (one at a time, the rest at d
     if (id === "space-three-body" && value === "custom") over = { ...over, d: "384400 km" };
     if (id === "space-three-body" && value !== "custom" && value !== "earth-moon") {
       // A state for the Sun pairs: 0.8 of the separation from the barycentre.
-      const o = run(id, { pair: value, x: "1e5 km" });
+      const o = run(id, { pair: value, x: "1e8 km" });
       ok(o);
       return;
     }
@@ -275,5 +278,160 @@ describe("adversarial", () => {
     refused(run("space-elements", { e: "abc" }), /Eccentricity/);
     refused(run("space-lambert", { r1: "1, 2" }), /three numbers/);
     refused(run("space-elements", { t: "5 kg" }), /Propagation time/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Independent review of v2.206.0 (scratchpad RSP/findings-space.md): each finding's exact repro, pinned.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Every "M x,y L x,y …" path in an SVG as point lists. */
+const svgPaths = (svg: string): Array<Array<[number, number]>> =>
+  [...svg.matchAll(/<path d="([^"]+)"/g)].map((m) => [...m[1].matchAll(/([\d.]+),([\d.]+)/g)].map((p) => [Number(p[1]), Number(p[2])] as [number, number]));
+/** Distance from a point to a polyline, px. */
+function distToPath(x: number, y: number, pts: Array<[number, number]>): number {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1];
+    const [bx, by] = pts[i];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+    best = Math.min(best, Math.hypot(ax + t * dx - x, ay + t * dy - y));
+  }
+  return best;
+}
+
+describe("review findings", () => {
+  test("B1: a descending transfer names the cheapest plane-change option (combined with the first burn, 4.2215 km/s)", () => {
+    const o = ok(run("space-maneuvers", { h1: "35786 km", h2: "400 km", revs: "3" }));
+    expect(out(o, "bestPlane")).toBeCloseTo(out(o, "combinedStart"), 12);
+    expect(out(o, "combinedStart")).toBeCloseTo(4.2215, 4);
+    expect(reading(o)).toMatch(/cheapest combined with the burn at the higher orbit \(4\.222 km\/s/);
+    expect(reading(o)).toMatch(/slowest, at the 35786 km end/);
+    expect(reading(o)).not.toMatch(/5\.368/);
+  });
+  test("B2: a long-way arc that wraps past 360° through periapsis inside Earth is flagged (repro and 300 random cases against sampling)", () => {
+    expect(reading(ok(run("space-lambert", { r1: "9318, 0, 0 km", r2: "8138, 164, 119 km", tof: "6576 s", way: "long" })))).toMatch(/dips to −6252\.\d+ km altitude, inside Earth: it cannot be flown/);
+    const mu = GM_SI.earth;
+    const R = R_EQ_SI.earth;
+    let seed = 12345;
+    const rnd = (): number => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    let checked = 0;
+    for (let k = 0; k < 300; k++) {
+      const r1: V3 = [7000 + 6000 * rnd(), 0, 0];
+      const ang = 2 * Math.PI * rnd();
+      const rad = 7000 + 6000 * rnd();
+      const r2: V3 = [Number((rad * Math.cos(ang)).toFixed(3)), Number((rad * Math.sin(ang)).toFixed(3)), Number((300 * (rnd() - 0.5)).toFixed(3))];
+      const tof = Math.round(600 + 9000 * rnd());
+      const way = rnd() < 0.5 ? "short" : "long";
+      const o = run("space-lambert", { r1: `${r1.join(", ")} km`, r2: `${r2.join(", ")} km`, tof: `${tof} s`, way });
+      if (o.ok === false) continue;
+      const r1m = r1.map((x) => x * 1000) as V3;
+      const L = lambert(mu, r1m, r2.map((x) => x * 1000) as V3, tof, way);
+      if (!L.ok) continue;
+      let minR = Infinity;
+      for (let j = 0; j <= 400; j++) {
+        const p = propagate(mu, r1m, L.v1, (tof * j) / 400);
+        if (p.ok) minR = Math.min(minR, norm(p.r));
+      }
+      // Sampling can only miss a dip, never invent one: a sampled dip of more than 1 km must be flagged.
+      if (minR < R - 1000) expect({ k, flagged: /cannot be flown/.test(reading(o)) }).toEqual({ k, flagged: true });
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(200);
+  });
+  test("M1: ordinary low transfers (400→500 km, 200→400 km) compute; phasing takes the fewest revolutions that clear Earth", () => {
+    for (const [h1, h2] of [["400 km", "500 km"], ["200 km", "400 km"]]) {
+      const o = ok(run("space-maneuvers", { h1, h2 }));
+      expect(reading(o)).toMatch(/1 revolution would dip inside Earth, so 2 are used/);
+      expect(out(o, "phRevs")).toBe(2);
+    }
+  });
+  test("M2: a skipping entry is not quoted as a peak (v = 11, γ = 1); an interface at 999 km is refused", () => {
+    const o = ok(run("space-reentry", { v: "11 km/s", g: "1" }));
+    expect(reading(o)).toMatch(/skips back out of the atmosphere/);
+    expect(reading(o)).not.toMatch(/when integrated with gravity on the 1976/);
+    expect(o.outputs?.some((x) => x.key === "aMaxNum")).toBe(false);
+    refused(run("space-reentry", { he: "999 km", v: "7.36 km/s", g: "0.001" }), /at most 300 km/);
+    expect(reading(ok(run("space-reentry", { he: "250 km", v: "7.36 km/s", g: "0.001" })))).toMatch(/closed form does not apply/);
+  });
+  test("M3: Mars-like inputs do not get an Earth integration beside them", () => {
+    const o = ok(run("space-reentry", { rho0: "0.02 kg/m^3", H: "11.1 km", k: "1.9027e-4", v: "5.5 km/s", g: "12" }));
+    expect(o.text).toMatch(/numerical check is not run/);
+    expect(o.text).not.toMatch(/when integrated with gravity/);
+    expect(o.outputs?.some((x) => x.key === "aMaxNum")).toBe(false);
+  });
+  test("M4: on a hyperbola (e 1.6, rp 7000 km, ν −60°, t 3 h) both markers sit on the drawn path in every view", () => {
+    const o = ok(run("space-elements", { e: "1.6", a: "7000 km", size: "rp", nu: "-60", t: "3 h" }));
+    const plots = (o.blocks ?? []).filter((b) => b.kind === "plot") as Array<{ svg: string }>;
+    expect(plots.length).toBe(3);
+    for (const p of plots) {
+      const orbit = svgPaths(p.svg).sort((a, b) => b.length - a.length)[0];
+      const marks = [...p.svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="[\d.]+" fill="#(2e7d32|c00000)"\/>/g)].slice(0, 2);
+      expect(marks.length).toBe(2);
+      for (const m of marks) expect(distToPath(Number(m[1]), Number(m[2]), orbit)).toBeLessThan(2);
+    }
+  });
+  test("M5: the thermal figure draws for α = 0 and for no sunlit area", () => {
+    for (const over of [{ alpha: "0" }, { as: "0 m^2" }] as Array<Record<string, string>>) {
+      const o = ok(run("space-thermal", over));
+      const svg = (o.blocks ?? []).find((b) => b.kind === "plot") as { svg: string };
+      expect(svg.svg.length).toBeGreaterThan(1000);
+    }
+  });
+  test("M6: an Earth→Jupiter porkchop (tmin 500, tmax 1200, span 400) blanks at most 15 % of the grid and contours the rest", () => {
+    const o = ok(run("space-interplanetary", { arr: "jupiter", tmin: "500 day", tmax: "1200 day", span: "400 day" }));
+    const svg = ((o.blocks ?? []).find((b) => b.kind === "plot") as { svg: string }).svg;
+    const blank = Number(/(\d+) cells above C3/.exec(svg)?.[1] ?? 0);
+    expect(blank).toBeLessThanOrEqual(0.15 * 41 * 41);
+    expect((svg.match(/<(path|polyline) /g) ?? []).length).toBeGreaterThanOrEqual(5);
+  });
+  test("M7: a geostationary track moves a fraction of a degree, with its direction, not 359.97° west (and minor 4: 1 orbit)", () => {
+    const o = ok(run("space-perturbations", { h: "35786 km", i: "0" }));
+    expect(reading(o)).toMatch(/moves 0\.027° \(3\.0\d+ km at the equator\) east each orbit/);
+    expect(reading(o)).not.toMatch(/359/);
+    expect(reading(o)).toMatch(/1 orbit in 1 day/);
+  });
+  test("minor 1, 2, 5, 6, 7: wording", () => {
+    expect(reading(ok(run("space-elements", { t: "-2 h" })))).toMatch(/ 2\.000 h before the epoch/);
+    expect(reading(ok(run("space-maneuvers", { lead: "-30" })))).toMatch(/a target 30° behind/);
+    expect(reading(ok(run("space-maneuvers", { hb: "35786 km" })))).toMatch(/is the Hohmann transfer/);
+    const d = reading(ok(run("space-reentry", { hd: "900 km", m: "50000 kg", A: "1 m^2" })));
+    expect(d).toMatch(/stay up more than 200 years at any solar activity/);
+    expect(d).not.toMatch(/about over|about more/);
+    const h = ok(run("space-elements", { e: "1.6", a: "7000 km", size: "rp", nu: "-60", t: "3 h" }));
+    expect(h.text).toMatch(/True anomaly ν\s+−60\.0000°/);
+  });
+  test("minor 3: the phasing refusal names the revolutions asked for", () => {
+    const p = phasing(GM_SI.earth, R_EQ_SI.earth + 400e3, Math.PI / 6, 1, R_EQ_SI.earth);
+    expect(!p.ok && /^One phasing revolution/.test(p.error)).toBe(true);
+    const q = phasing(GM_SI.earth, R_EQ_SI.earth + 200e3, (300 * Math.PI) / 180, 2, R_EQ_SI.earth);
+    expect(!q.ok && /^2 phasing revolutions/.test(q.error)).toBe(true);
+  });
+  test("minor 8: out-of-range inputs are refused by name, never printed in e-notation", () => {
+    refused(run("space-lunar", { llo: "70000 km" }), /lunar orbit altitude must be at most 20 000 km/);
+    refused(run("space-lunar", { llo: "1e300 km" }), /lunar orbit altitude/);
+    refused(run("space-perturbations", { da: "1e300 km" }), /GEO offset/);
+    refused(run("space-maneuvers", { revs: "1e300" }), /Phasing revolutions/);
+    refused(run("space-thermal", { ir: "1e300 W/m^2" }), /Planet infrared flux/);
+    refused(run("space-reentry", { k: "1e300" }), /Sutton–Graves constant/);
+    refused(run("space-ground", { f: "1e300 GHz" }), /Frequency/);
+    refused(run("space-thermal", { eps: "1e-300" }), /emittance/);
+  });
+  test("minor 9: the product's own ×10ⁿ format reads back (k = 1.7415×10⁻⁴)", () => {
+    expect(out(ok(run("space-reentry", { k: "1.7415×10⁻⁴" })), "qMax")).toBe(out(ok(run("space-reentry")), "qMax"));
+  });
+  test("minor 10: tiny flight times and huge separations are refused naming the field", () => {
+    refused(run("space-interplanetary", { tmin: "1e-7 day" }), /Shortest flight time/);
+    refused(run("space-three-body", { d: "1e300 km" }), /Separation/);
+  });
+  test("minor 11: a three-body state inside Earth (x = −4670.7 km) is refused", () => {
+    refused(run("space-three-body", { x: "-4670.7 km" }), /centre of Earth, inside it/);
+  });
+  test("minor 12: straight overhead the azimuth is reported as not defined", () => {
+    const o = ok(run("space-ground", { plat: "40.0", plon: "-105.0" }));
+    expect(reading(o)).toMatch(/straight overhead \(azimuth not defined\)/);
+    expect(o.outputs?.some((x) => x.key === "az")).toBe(false);
   });
 });

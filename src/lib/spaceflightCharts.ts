@@ -175,10 +175,14 @@ export function porkchopSvg(pc: PorkchopResult, startLabel: string): string {
   const raw = pc.c3.map((row) => row.map((v) => v / 1e6));
   const finite = raw.flat().filter((v) => Number.isFinite(v));
   const lo = Math.min(...finite);
-  const hi = Math.min(Math.max(...finite), Math.max(lo * 3, lo + 40));
-  // The 180° ridge climbs to C3 in the thousands: cells far above the contoured range are left blank, so the figure
-  // shows the valley a launch can reach instead of a bundle of lines converging on the ridge.
-  const cap = hi * 2;
+  // Contour levels span the valley: from the lowest C3 to three times it (or 40 km²/s² above it), widened to the lower
+  // median of the grid when the valley is a thin sliver of the window (an outer-planet window, where most cells sit
+  // in the hundreds). Cells above max(2 × that, the 90th percentile) are the 180° ridge and are blanked, so at most
+  // about 10 % of a solved grid is ever grey.
+  const sorted = [...finite].sort((a, b) => a - b);
+  const pct = (q: number): number => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+  const hi = Math.min(sorted[sorted.length - 1], Math.max(lo * 3, lo + 40, pct(0.5)));
+  const cap = Math.max(hi * 2, pct(0.9));
   const z = raw.map((row) => row.map((v) => (Number.isFinite(v) && v <= cap ? v : NaN)));
   const unsolved = raw.flat().filter((v) => !Number.isFinite(v)).length;
   const above = raw.flat().filter((v) => Number.isFinite(v) && v > cap).length;
@@ -438,16 +442,20 @@ export function footprintSvg(circlePts: Array<{ lon: number; lat: number }>, sub
 
 /** Equilibrium temperature against distance from the Sun for several α/ε (no planet, no internal power). */
 export function thermalSvg(alphaOverEps: number, areaRatio: number, distAu: number, tHere: number): string {
-  if (![alphaOverEps, areaRatio, distAu, tHere].every((x) => typeof x === "number" && Number.isFinite(x) && x > 0)) return "";
+  if (![alphaOverEps, areaRatio, distAu, tHere].every((x) => typeof x === "number" && Number.isFinite(x) && x >= 0) || !(distAu > 0)) return "";
   const AU = 149597870700;
   const ds = Array.from({ length: 121 }, (_, k) => 0.2 * Math.pow(40 / 0.2, k / 120));
   const ratios = [0.2, 1, 5];
   const cols = [BLUE, BLACK, ORANGE];
-  const series: Series[] = ratios.map((r, k) => ({ points: ds.map((d) => ({ x: d, y: tempAtDistance(r, areaRatio, d * AU) })), type: "line" as const, color: cols[k], label: `α/ε = ${sig(r)}` }));
-  if (!ratios.some((r) => Math.abs(r / alphaOverEps - 1) < 0.02)) {
+  // With no sunlit area (or α = 0) the craft takes no sunlight at all; the reference curves are then drawn for a
+  // sphere (sunlit/radiating area 1/4) and the craft's own curve, zero everywhere, is left out.
+  const sunlit = alphaOverEps > 0 && areaRatio > 0;
+  const refRatio = areaRatio > 0 ? areaRatio : 0.25;
+  const series: Series[] = ratios.map((r, k) => ({ points: ds.map((d) => ({ x: d, y: tempAtDistance(r, refRatio, d * AU) })), type: "line" as const, color: cols[k], label: `α/ε = ${sig(r)}${areaRatio > 0 ? "" : ", sphere"}` }));
+  if (sunlit && !ratios.some((r) => Math.abs(r / alphaOverEps - 1) < 0.02)) {
     series.push({ points: ds.map((d) => ({ x: d, y: tempAtDistance(alphaOverEps, areaRatio, d * AU) })), type: "line", color: RED, label: `This craft, α/ε = ${sig(alphaOverEps)}` });
   }
-  series.push({ points: [{ x: distAu, y: tHere }], type: "scatter", color: RED, label: "Here (hot case)" });
+  if (tHere > 0) series.push({ points: [{ x: distAu, y: tHere }], type: "scatter", color: RED, label: sunlit ? "Here (hot case)" : "Here (no sunlight absorbed)" });
   return buildPlotSvg(series, { xlabel: "Distance from the Sun (au)", ylabel: "Equilibrium temperature (K)", xScale: "log", yScale: "log", xLimits: { min: 0.2, max: 40 }, width: W, height: H });
 }
 

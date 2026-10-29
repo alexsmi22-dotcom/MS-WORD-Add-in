@@ -52,9 +52,9 @@ const SQRT_EPS = Math.sqrt(2.220446049250313e-16);
 export const PHI_LO = 0.8;
 export const PHI_HI = 0.995;
 /**
- * Starting grid for the smoothing coordinates u ∈ [0, 1] (both bounds included); how many of its best points get a
- * short scouting run (besides the best point of each face class); the scouting iterations; how many of the best
- * scouts are then fitted to convergence.
+ * Starting grid for the smoothing coordinates u ∈ [0, 1] (both bounds included). The interior levels are the
+ * pre-2026-10-28 engine's grid, whose three best points (at the heuristic initial trend) stay candidates, so the fit
+ * is never worse than that engine's (round 2 MAJOR 2).
  */
 const HW_GRID_LEVELS: Record<"a" | "b" | "g" | "p", number[]> = {
   a: [0, 0.02, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95, 1],
@@ -62,10 +62,35 @@ const HW_GRID_LEVELS: Record<"a" | "b" | "g" | "p", number[]> = {
   g: [0, 0.02, 0.2, 0.5, 0.9, 1],
   p: [0, 0.3, 0.9, 1],
 };
+const HW_OLD_LEVELS: Record<"a" | "b" | "g" | "p", number[]> = {
+  a: [0.02, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95],
+  b: [0.02, 0.2, 0.5, 0.9],
+  g: [0.02, 0.2, 0.5, 0.9],
+  p: [0.3, 0.9],
+};
+/** The best grid points scouted besides the best point of each face class. */
 const HW_STARTS = 6;
+/** Levenberg–Marquardt iterations of a scouting run. */
 const HW_SCOUT_ITER = 4;
-const HW_POLISH = 2;
-const HW_SCOUT_ROWS = 2000;
+/**
+ * The scouts fitted to convergence on the subsample (with the old engine's three grid starts): the best of up to
+ * HW_SUB_POLISH distinct face classes, then HW_SUB_TOP more of the best overall.
+ */
+const HW_SUB_POLISH = 8;
+const HW_SUB_TOP = 2;
+/** On a long series, the distinct subsample optima refitted on every row. */
+const HW_FULL_POLISH = 3;
+/** The grid, the scouts and the first fits read the first HW_SUB_ROWS rows; only the last refits read them all. */
+const HW_SUB_ROWS = 400;
+/**
+ * The race between the fits from several starts: [iterations so far, how far behind the best SSE (relative) a fit
+ * may be to carry on]. The last round runs the fits left to convergence.
+ */
+const HW_RACE_ROUNDS: [number, number][] = [
+  [30, 0.05],
+  [150, 0.005],
+  [HW_MAX_ITER, 0],
+];
 
 export interface HwFiltered {
   fitted: Float64Array;
@@ -118,6 +143,50 @@ export function hwFilter(y: ArrayLike<number>, spec: HwSpec, prm: HwParams): HwF
   const season: number[] = [];
   for (let i = 0; i < m; i++) season.push(s[n + i]);
   return { fitted, sse, level: l, trend: b, season };
+}
+
+/**
+ * hwFilter's SSE with the residuals y − ŷ written into `out` (when given), without allocating: the estimation calls it
+ * hundreds of times per fit. `sbuf` holds the seasonals (length ≥ n + m). Same recursions as hwFilter.
+ */
+function hwSseInto(y: Float64Array, n: number, L: Layout, prm: HwParams, out: Float64Array | null, sbuf: Float64Array): number {
+  const { alpha, beta, gamma } = prm;
+  const hasT = L.hasT;
+  const phi = hasT ? prm.phi : 1;
+  const m = L.m;
+  for (let i = 0; i < m; i++) sbuf[i] = prm.s0[i];
+  let l = prm.l0;
+  let b = hasT ? prm.b0 : 0;
+  let sse = 0;
+  const a1 = 1 - alpha;
+  const b1 = 1 - beta;
+  const g1 = 1 - gamma;
+  for (let t = 0; t < n; t++) {
+    const base = hasT ? l + phi * b : l;
+    const yt = y[t];
+    let f: number;
+    let ln: number;
+    if (m === 0) {
+      f = base;
+      ln = alpha * yt + a1 * base;
+    } else if (L.mul) {
+      const st = sbuf[t];
+      f = base * st;
+      ln = (alpha * yt) / st + a1 * base;
+      sbuf[t + m] = (gamma * yt) / base + g1 * st;
+    } else {
+      const st = sbuf[t];
+      f = base + st;
+      ln = alpha * (yt - st) + a1 * base;
+      sbuf[t + m] = gamma * (yt - base) + g1 * st;
+    }
+    if (hasT) b = beta * (ln - l) + b1 * phi * b;
+    l = ln;
+    const e = yt - f;
+    if (out) out[t] = e;
+    sse += e * e;
+  }
+  return sse;
 }
 
 /** h-step point forecasts (textbook form). */
@@ -263,35 +332,60 @@ interface LmResult {
   converged: boolean;
   iterations: number;
   exhausted?: boolean;
+  /** Not converged, but the SSE moved by less than 10⁻⁷ (relative) over the last LM_FLAT_SPAN iterations. */
+  flat?: boolean;
+  /** The resumable state (lmContinue). */
+  lambda: number;
+  small: number;
+  r: Float64Array;
+  markSse: number;
+  done: boolean;
+}
+
+/** Iterations over which an unconverged run whose SSE has stopped moving (10⁻⁷ relative) counts as settled. */
+const LM_FLAT_SPAN = 200;
+
+function lmStart(resid: (x: Float64Array, out: Float64Array) => number, x0: Float64Array, n: number): LmResult {
+  const x = Float64Array.from(x0);
+  const r = new Float64Array(n);
+  const sse = resid(x, r);
+  const ok = Number.isFinite(sse);
+  return { x, sse, converged: false, iterations: 0, lambda: 1e-3, small: 0, r, markSse: sse, done: !ok };
 }
 
 /**
  * Levenberg–Marquardt for min Σ r², with the first `nBox` coordinates kept in [0, 1] (projection, and a coordinate on a
- * bound whose gradient points outward is held there for the step).
+ * bound whose gradient points outward is held there for the step). Resumable: runs `run` on until it has done
+ * `untilIter` iterations in all, converges, or the budget runs out.
  */
-function lmBox(
+function lmContinue(
+  run: LmResult,
   resid: (x: Float64Array, out: Float64Array) => number,
-  x0: Float64Array,
   n: number,
   nBox: number,
-  maxIter: number,
+  untilIter: number,
   budget: { left: number },
+  fixed?: boolean[],
 ): LmResult {
-  const k = x0.length;
-  let x = Float64Array.from(x0);
-  const r = new Float64Array(n);
-  let sse = resid(x, r);
-  if (!Number.isFinite(sse)) return { x, sse, converged: false, iterations: 0 };
-  let lambda = 1e-3;
+  if (run.done) return run;
+  const k = run.x.length;
+  let x = run.x;
+  const r = run.r;
+  let sse = run.sse;
+  let lambda = run.lambda;
+  let small = run.small;
   const J: Float64Array[] = [];
   for (let j = 0; j < k; j++) J.push(new Float64Array(n));
   const rt = new Float64Array(n);
   const rn = new Float64Array(n);
-  let small = 0;
-  for (let it = 1; it <= maxIter; it++) {
+  const finish = (it: number, converged: boolean, extra: Partial<LmResult> = {}): LmResult => {
+    Object.assign(run, { x, sse, lambda, small, iterations: it, converged, done: converged || !!extra.exhausted }, extra);
+    return run;
+  };
+  for (let it = run.iterations + 1; it <= untilIter; it++) {
     // Each iteration costs k + 1 recursions and the k × k normal matrix (about k²/4 recursions' worth).
     budget.left -= n * (k + 2 + (k * k) / 4);
-    if (budget.left < 0) return { x, sse, converged: false, iterations: it - 1, exhausted: true };
+    if (budget.left < 0) return finish(it - 1, false, { exhausted: true });
     // Forward-difference Jacobian of r (step inward at an upper bound).
     for (let j = 0; j < k; j++) {
       let h = 1e-7 * Math.max(1, Math.abs(x[j]));
@@ -322,11 +416,12 @@ function lmBox(
     // Free set: drop box coordinates on a bound whose descent direction (−g) points out of the box.
     const free: number[] = [];
     for (let i = 0; i < k; i++) {
+      if (fixed?.[i]) continue;
       if (i < nBox && ((x[i] <= 0 && g[i] > 0) || (x[i] >= 1 && g[i] < 0))) continue;
       free.push(i);
     }
     const pg = Math.max(0, ...free.map((i) => Math.abs(g[i])));
-    if (pg <= 1e-13 * Math.max(sse, 1e-300) || free.length === 0) return { x, sse, converged: true, iterations: it };
+    if (pg <= 1e-13 * Math.max(sse, 1e-300) || free.length === 0) return finish(it, true);
     let improved = false;
     for (let tries = 0; tries < 40; tries++) {
       const M = free.map((i) => free.map((j) => A[i][j] + (i === j ? lambda * Math.max(A[i][i], 1e-12) : 0)));
@@ -354,9 +449,25 @@ function lmBox(
       lambda *= 4;
       if (lambda > 1e16) break;
     }
-    if (!improved || small >= 3) return { x, sse, converged: true, iterations: it };
+    if (!improved || small >= 3) return finish(it, true);
+    if (it % LM_FLAT_SPAN === 0) {
+      run.flat = run.markSse - sse <= 1e-7 * Math.max(sse, 1e-300);
+      run.markSse = sse;
+    }
   }
-  return { x, sse, converged: false, iterations: maxIter };
+  return finish(Math.max(run.iterations, untilIter), false);
+}
+
+function lmBox(
+  resid: (x: Float64Array, out: Float64Array) => number,
+  x0: Float64Array,
+  n: number,
+  nBox: number,
+  maxIter: number,
+  budget: { left: number },
+  fixed?: boolean[],
+): LmResult {
+  return lmContinue(lmStart(resid, x0, n), resid, n, nBox, maxIter, budget, fixed);
 }
 
 /** Symmetric solve by Gaussian elimination with partial pivoting; null if singular. */
@@ -407,37 +518,28 @@ export function fitHoltWinters(yIn: ArrayLike<number>, spec: HwSpec): HwFitResul
   // Up-front refusal when even the grid and a short optimisation cannot fit in the work budget.
   const kx = L.nSmooth + 1 + (L.hasT ? 1 : 0) + Math.max(0, L.m - 1);
   // Grid points (× the initial-trend candidates), scouts (the best points plus one per face class, 3 per smoothing
-  // coordinate), and a short full fit from each polished scout.
+  // coordinate), the subsample fits (about 25 iterations each), and the refits on every row.
   const gridSize = L.smooth.reduce((a, s) => a * HW_GRID_LEVELS[s].length, 1) * (L.hasT ? 3 : 1);
   const nScouts = HW_STARTS + 3 ** L.nSmooth;
   const perIter = kx + 2 + (kx * kx) / 4;
-  // The grid and the scouts only choose where the full fit starts, so on a long series they read its first
-  // HW_SCOUT_ROWS rows; the full fit reads every row.
-  const nPre = Math.min(n, HW_SCOUT_ROWS);
-  const perRow = (HW_POLISH + 1) * 25 * perIter; // 25 iterations for each polished run, and one run of margin
-  const fixedWork = nPre * (gridSize + nScouts * HW_SCOUT_ITER * perIter);
+  // The grid, the scouts and the first fits only choose where the last fit starts, so on a long series they read its
+  // first HW_SUB_ROWS rows; the refits read every row.
+  const nPre = Math.min(n, HW_SUB_ROWS);
+  // A long series also scores the old engine's grid on every row and refits its three starts and the subsample optima.
+  const oldGridSize = L.smooth.reduce((a, s) => a * HW_OLD_LEVELS[s].length, 1);
+  const perRow = n > nPre ? oldGridSize + (3 + HW_FULL_POLISH) * 25 * perIter : 0;
+  const fixedWork = nPre * (gridSize + nScouts * HW_SCOUT_ITER * perIter + (HW_SUB_POLISH + HW_SUB_TOP + 3) * 25 * perIter);
   if (fixedWork + n * perRow > HW_WORK_BUDGET) {
     return {
       ok: false,
       reason: `This model on ${n.toLocaleString("en-US")} rows needs more computation than the pane allows; use at most ${Math.floor(Math.max(0, HW_WORK_BUDGET - fixedWork) / perRow).toLocaleString("en-US")} rows, or a simpler model.`,
     };
   }
-  const resid =(x: Float64Array | number[], out: Float64Array): number => {
-    const prm = decode(x, L);
-    const f = hwFilter(y, spec, prm);
-    for (let t = 0; t < n; t++) out[t] = y[t] - f.fitted[t];
-    return Number.isFinite(f.sse) ? f.sse : Infinity;
-  };
-  const yPre = y.subarray(0, nPre);
-  const residPre = (x: Float64Array | number[], out: Float64Array): number => {
-    const f = hwFilter(yPre, spec, decode(x, L));
-    for (let t = 0; t < nPre; t++) out[t] = yPre[t] - f.fitted[t];
-    return Number.isFinite(f.sse) ? f.sse : Infinity;
-  };
-  const sseOnly = (x: number[]): number => {
-    const f = hwFilter(yPre, spec, decode(x, L));
-    return Number.isFinite(f.sse) ? f.sse : Infinity;
-  };
+  const sbuf = new Float64Array(n + L.m);
+  const fin = (v: number): number => (Number.isFinite(v) ? v : Infinity);
+  const resid = (x: Float64Array | number[], out: Float64Array): number => fin(hwSseInto(y, n, L, decode(x, L), out, sbuf));
+  const residPre = (x: Float64Array | number[], out: Float64Array): number => fin(hwSseInto(y, nPre, L, decode(x, L), out, sbuf));
+  const sseOnly = (x: number[]): number => fin(hwSseInto(y, nPre, L, decode(x, L), null, sbuf));
 
   // Grid over the smoothing coordinates (u ∈ [0, 1]) with the heuristic states. The bounds themselves are on it:
   // the global least-squares fit is often a corner (α = 1 with β = 0 or β = α, γ = 0, φ at either end), and a local
@@ -447,14 +549,15 @@ export function fitHoltWinters(yIn: ArrayLike<number>, spec: HwSpec): HwFitResul
   // The heuristic initial trend (y₂ − y₁, or one cycle's change) is noisy, and with β near 0 it steers the whole fit,
   // so each grid point is also scored with no initial trend and with the series' average slope.
   const b0s = L.hasT ? [st.b0, 0, (y[n - 1] - y[0]) / (n - 1)] : [0];
-  const grid: { x: number[]; sse: number; corner: string }[] = [];
+  const grid: { x: number[]; sse: number; corner: string; old: boolean }[] = [];
+  const isOld = (acc: number[]): boolean => acc.every((u, i) => HW_OLD_LEVELS[L.smooth[i]].includes(u));
   const rec = (i: number, acc: number[]): void => {
     if (i === L.nSmooth) {
       const corner = acc.map((u) => (u === 0 ? "0" : u === 1 ? "1" : "i")).join("");
-      for (const b0 of b0s) {
+      b0s.forEach((b0, bi) => {
         const x = [...acc, st.l0, ...(L.hasT ? [b0] : []), ...st.s0.slice(0, Math.max(0, L.m - 1))];
-        grid.push({ x, sse: sseOnly(x), corner });
-      }
+        grid.push({ x, sse: sseOnly(x), corner, old: bi === 0 && isOld(acc) });
+      });
       return;
     }
     for (const v of levels[L.smooth[i]]) rec(i + 1, [...acc, v]);
@@ -475,31 +578,105 @@ export function fitHoltWinters(yIn: ArrayLike<number>, spec: HwSpec): HwFitResul
   }
   if (!starts.length) return { ok: false, reason: "The smoothing recursions overflow for every starting value (an extreme series)." };
 
-  const runs: LmResult[] = [];
   let iterations = 0;
   let exhausted = false;
   const budget = { left: HW_WORK_BUDGET - nPre * grid.length };
-  // Two stages: a short scouting run from each start, since the basin a start falls in only shows after a few
-  // steps; then the full fit from the best few scouts.
+  // Runs several fits side by side to convergence, dropping after each round those clearly behind the best (or
+  // converging on the same point as a better one): most starts settle in a few dozen iterations, so the long fits
+  // left are the ones that can still win.
+  const race = (cands: LmResult[], rf: typeof resid, rows: number): LmResult[] => {
+    let alive = cands.filter((c) => !c.done);
+    HW_RACE_ROUNDS.forEach(([until, tol], ri) => {
+      for (const c of alive) {
+        const before = c.iterations;
+        lmContinue(c, rf, rows, L.nSmooth, until, budget);
+        iterations += c.iterations - before;
+        if (c.exhausted) exhausted = true;
+      }
+      if (ri === HW_RACE_ROUNDS.length - 1) return;
+      const bestSse = Math.min(...cands.map((c) => c.sse));
+      const keep: LmResult[] = [];
+      for (const c of alive.filter((a) => !a.done && a.sse <= bestSse * (1 + tol)).sort((a, b) => a.sse - b.sse)) {
+        const near = (d: LmResult): boolean => d.x.every((v, i) => Math.abs(v - c.x[i]) <= 1e-4 * Math.max(1, Math.abs(v)));
+        if (!keep.some(near) && !cands.some((d) => d.done && d.sse <= c.sse && near(d))) keep.push(c);
+      }
+      alive = keep;
+    });
+    return cands.filter((c) => Number.isFinite(c.sse));
+  };
+  // Three stages (round 2 MAJOR 2: two polished scouts lost optima on fresh series): a short scouting run from each
+  // start, since the basin a start falls in only shows after a few steps; fits to convergence from the best scouts
+  // (and, on a short series, the pre-2026-10-28 engine's three grid starts); on a long series, the old engine's
+  // starts and the best distinct subsample optima refitted on every row.
   const scouts: LmResult[] = [];
   for (const s of starts) {
-    const r = lmBox(residPre, Float64Array.from(s.x), nPre, L.nSmooth, HW_SCOUT_ITER, budget);
+    // A start on a face of the box (a smoothing coordinate at 0 or 1) is scouted ON that face, the coordinate held:
+    // a boundary optimum (α = 0 with a deterministic damped trend, round 2: SSE 28,388.5 against 28,552.4) only
+    // holds once the states fit it, and from the heuristic states the first steps would leave the face.
+    const fixed = s.x.map((u, i) => i < L.nSmooth && (u === 0 || u === 1));
+    const r = lmBox(residPre, Float64Array.from(s.x), nPre, L.nSmooth, HW_SCOUT_ITER, budget, fixed);
     iterations += r.iterations;
     if (r.exhausted) exhausted = true;
     if (Number.isFinite(r.sse)) scouts.push(r);
     if (budget.left <= 0) break;
   }
   scouts.sort((a, b) => a.sse - b.sse);
-  for (const s of scouts.slice(0, HW_POLISH)) {
-    if (budget.left <= 0) break;
-    const r = lmBox(resid, s.x, n, L.nSmooth, HW_MAX_ITER, budget);
-    iterations += r.iterations;
-    if (r.exhausted) exhausted = true;
-    if (Number.isFinite(r.sse)) runs.push(r);
+  // The pre-2026-10-28 engine's three starts: its interior grid at the heuristic initial trend, scored on every row.
+  const oldStarts = (rf: typeof resid, rows: number): LmResult[] => {
+    let pts: { x: number[]; sse: number }[];
+    if (rows === nPre) pts = finite.filter((g) => g.old);
+    else {
+      pts = [];
+      const sseAll = (x: number[]): number => fin(hwSseInto(y, n, L, decode(x, L), null, sbuf));
+      const recOld = (i: number, acc: number[]): void => {
+        if (i === L.nSmooth) {
+          const x = [...acc, st.l0, ...(L.hasT ? [st.b0] : []), ...st.s0.slice(0, Math.max(0, L.m - 1))];
+          pts.push({ x, sse: sseAll(x) });
+          return;
+        }
+        for (const v of HW_OLD_LEVELS[L.smooth[i]]) recOld(i + 1, [...acc, v]);
+      };
+      recOld(0, []);
+      budget.left -= rows * pts.length;
+      pts = pts.filter((g) => Number.isFinite(g.sse)).sort((p, q) => p.sse - q.sse);
+    }
+    return pts.slice(0, 3).map((g) => lmStart(rf, Float64Array.from(g.x), rows));
+  };
+  // The scouts to fit on: the best of each face class they have reached (diverse basins first: a boundary optimum such
+  // as α = 0 ranks low after a few steps), then the best overall, HW_SUB_POLISH in all.
+  const faceOf = (x: Float64Array): string =>
+    Array.from(x.subarray(0, L.nSmooth), (u) => (u <= 1e-9 ? "0" : u >= 1 - 1e-9 ? "1" : "i")).join("");
+  const picked: LmResult[] = [];
+  const faces = new Set<string>();
+  for (const sc of scouts) {
+    if (picked.length >= HW_SUB_POLISH) break;
+    const f = faceOf(sc.x);
+    if (!faces.has(f)) {
+      faces.add(f);
+      picked.push(sc);
+    }
+  }
+  for (const sc of scouts) if (picked.length < HW_SUB_POLISH + HW_SUB_TOP && !picked.includes(sc)) picked.push(sc);
+  const subRuns = race(
+    [...(n === nPre ? oldStarts(residPre, nPre) : []), ...picked.map((s) => lmStart(residPre, s.x, nPre))],
+    residPre,
+    nPre,
+  ).sort((a, b) => a.sse - b.sse);
+  let runs: LmResult[] = subRuns;
+  if (n > nPre) {
+    // Distinct optima only: two runs that met at the same point need one refit.
+    const distinct: LmResult[] = [];
+    for (const r of subRuns) {
+      if (distinct.length >= HW_FULL_POLISH) break;
+      if (!distinct.some((d) => d.x.every((v, i) => Math.abs(v - r.x[i]) <= 1e-6 * Math.max(1, Math.abs(v))))) distinct.push(r);
+    }
+    runs = race([...oldStarts(resid, n), ...distinct.map((d) => lmStart(resid, d.x, n))], resid, n);
   }
   if (!runs.length) return { ok: false, reason: "The least-squares fit failed from every start." };
   runs.sort((a, b) => a.sse - b.sse);
-  const best = runs.find((r) => r.converged);
+  // A run counts as settled when it converged, or when its SSE has not moved by 10⁻⁷ (relative) over its last 200
+  // iterations: a flat valley where the parameters can still drift but the fit cannot improve at printed precision.
+  const best = runs.find((r) => r.converged || r.flat);
   if (!best || best.sse > runs[0].sse * (1 + 1e-10)) {
     return {
       ok: false,

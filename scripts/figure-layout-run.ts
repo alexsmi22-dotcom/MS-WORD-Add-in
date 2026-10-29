@@ -263,6 +263,8 @@ import { grover as qGrover, parseCircuit as qParseCircuit } from "../src/lib/qua
 // --- Release E: laser ---
 // Fabry–Pérot, threshold, coherence and SHG: their charts, through the calculators and straight from the builders.
 import { LASER_CALCS } from "../src/lib/laserCalcs";
+import { COLOUR_CALCS } from "../src/lib/colourCalcs";
+import { abPlaneSvg, abZoomSvg, barsSvg, chromaticitySvg, contrastSwatchSvg, deltaLBarsSvg, lightnessBarsSvg, spectrumSvg, swatchSvg } from "../src/lib/colourCharts";
 import { fpAiryChartSvg, fpPeakChartSvg, thresholdChartSvg, coherenceChartSvg, shgGrowthChartSvg, shgSincChartSvg } from "../src/lib/laserCharts";
 import { fabryPerot } from "../src/lib/laserPhysics";
 // --- end Release E: laser ---
@@ -4037,5 +4039,46 @@ rotator 15` }, "jones elliptical");
     if (!r.ok) throw new Error(`corpus: ${name}: ${r.reason}`);
     figures.push([name, marketFigureSvg(spec, r.r, { qunit: "unit", cur: "$" })]);
   }
+}
+
+// --- Colour & appearance (v2.206.0: src/lib/colourCalcs.ts, colourCharts.ts) ---------------------------------
+//
+// Every calculator at its defaults, plus the layouts that crowd or change shape: L*C*h input with a CMC tolerance,
+// a neutral pair (no hue), a batch of 30 on CIE76, an out-of-gamut conversion and a hex input at 10°, a purple's
+// complementary wavelength, illuminant A metamerism with every test illuminant, whiteness from a spectrum, black on
+// white, and each chart builder directly at an extreme (a tolerance contour far from the origin, a 6-patch swatch).
+{
+  const batch30 = Array.from({ length: 30 }, (_, i) => `S${i + 1} ${(45 + Math.sin(i) * 1.5).toFixed(2)}, ${(52 + Math.cos(1.3 * i) * 2.4).toFixed(2)}, ${(28 + Math.sin(0.7 * i) * 2.2).toFixed(2)}`).join("\n");
+  const flatWhite = Array.from({ length: 36 }, (_, i) => `${380 + 10 * i} ${(0.85 + 0.002 * i).toFixed(3)}`).join("\n");
+  const purple = Array.from({ length: 36 }, (_, i) => `${380 + 10 * i} ${(380 + 10 * i < 470 || 380 + 10 * i > 620 ? 0.6 : 0.08).toFixed(3)}`).join("\n");
+  const variants: Record<string, Record<string, string>[]> = {
+    "colour-difference": [{}, { mode: "lch", std: "60, 40, 350", smp: "61, 42, 5", tolf: "cmc21", tol: "1.5" }, { std: "50, 0, 0", smp: "52, 0.5, -0.5", tol: "" }],
+    "colour-batch": [{}, { data: batch30, tolf: "de76", tol: "2.5" }],
+    "colour-convert": [{}, { val: "60, -90, 70" }, { from: "hex", val: "#1F5FA8", obs: "10", ill: "D50" }],
+    "colour-spectral": [{}, { data: purple, obs: "2", ill: "A" }],
+    "colour-metamerism": [{}, { ref: "A", tests: "D65, F2, F7, F11, D50, C", corr: "multiplicative" }],
+    "colour-adapt": [{}, { space: "xyz", val: "41.24, 21.26, 1.93", src: "A", dst: "D65", obs: "10", cat: "cat16" }],
+    "colour-whiteness": [{}, { input: "spectrum", data: flatWhite, obs: "2" }, { val: "70, 72, 60" }],
+    "colour-contrast": [{}, { fg: "#000", bg: "#fff" }],
+  };
+  for (const c of COLOUR_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: colour ${c.id} did not draw: ${out.text}`);
+      svgs.forEach((s, i) => figures.push([`colour ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+  figures.push(["colour abZoomSvg CIEDE2000 contour at high chroma", abZoomSvg({ L: 70, a: 80, b: 70 }, [{ label: "sample", lab: { L: 70, a: 78, b: 73 } }], "de00", 3)]);
+  figures.push(["colour abPlaneSvg two points with a CMC contour", abPlaneSvg([{ label: "standard", lab: { L: 50, a: -30, b: 20 } }, { label: "sample", lab: { L: 50, a: -28, b: 23 } }], { contour: { f: "cmc21", std: { L: 50, a: -30, b: 20 }, tol: 2 } })]);
+  figures.push(["colour swatchSvg six patches", swatchSvg(["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#00FFFF", "#FF00FF"].map((h) => ({ hex: h, caption: "sRGB" })))]);
+  figures.push(["colour chromaticitySvg 10° with a dominant line", chromaticitySvg("10", [{ label: "sample", x: 0.2, y: 0.6 }], { white: { label: "D65", x: 0.31382, y: 0.331 }, dominant: { to: [0.15, 0.75] } })]);
+  figures.push(["colour lightnessBarsSvg", lightnessBarsSvg(["Standard", "Sample"], [95, 3])]);
+  figures.push(["colour deltaLBarsSvg", deltaLBarsSvg(["A", "B", "C"], [-2.5, 0.1, 1.8])]);
+  figures.push(["colour barsSvg", barsSvg(["D65 (ref.)", "A", "F11"], [0.1, 1.9, 3.3], "ΔE₀₀", "ΔE₀₀")]);
+  figures.push(["colour spectrumSvg two spectra", spectrumSvg([{ label: "a", wl: [400, 500, 600, 700], v: [0.1, 0.5, 0.3, 0.9] }, { label: "b", wl: [400, 500, 600, 700], v: [0.2, 0.2, 0.6, 0.4] }])]);
+  figures.push(["colour contrastSwatchSvg low contrast", contrastSwatchSvg("#808080", "#909090", "1.25:1")]);
 }
 export { figures };

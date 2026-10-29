@@ -396,13 +396,13 @@ const egfrCalc: DoseCalc = {
         : `eGFR ${Math.round(eCr)} mL/min/1.73 m² by the CKD-EPI 2021 creatinine equation, in the KDIGO ${kdigoCategory(eCr)} range.`,
       `Age ${s3(age)} years, ${sex}, serum creatinine ${s3(scr)} mg/dL (${s4(scr * 88.42)} µmol/L)${cys !== null ? `, cystatin C ${s3(cys)} mg/L` : ""}.`,
       {
-        math: `eGFR_cr = 142 min(S_Cr/${sex === "female" ? "0.7" : "0.9"}, 1)^(${sex === "female" ? "-0.241" : "-0.302"}) max(S_Cr/${sex === "female" ? "0.7" : "0.9"}, 1)^(-1.200) 0.9938^age${sex === "female" ? " × 1.012" : ""}`,
+        math: `eGFR_cr = 142 min(S_Cr/${sex === "female" ? "0.7" : "0.9"}, 1)^{${sex === "female" ? "-0.241" : "-0.302"}} max(S_Cr/${sex === "female" ? "0.7" : "0.9"}, 1)^{-1.200} 0.9938^age${sex === "female" ? " × 1.012" : ""}`,
         fallback: `eGFRcr = 142·min(SCr/κ, 1)^α·max(SCr/κ, 1)^−1.200·0.9938^age${sex === "female" ? "·1.012" : ""}, κ = ${sex === "female" ? "0.7" : "0.9"}, α = ${sex === "female" ? "−0.241" : "−0.302"}`,
       },
     ];
     if (eCys !== null) {
       lines.push({
-        math: `eGFR_cr-cys = 135 min(S_Cr/κ, 1)^(${sex === "female" ? "-0.219" : "-0.144"}) max(S_Cr/κ, 1)^(-0.544) min(S_Cys/0.8, 1)^(-0.323) max(S_Cys/0.8, 1)^(-0.778) 0.9961^age${sex === "female" ? " × 0.963" : ""}`,
+        math: `eGFR_cr-cys = 135 min(S_Cr/κ, 1)^{${sex === "female" ? "-0.219" : "-0.144"}} max(S_Cr/κ, 1)^{-0.544} min(S_Cys/0.8, 1)^{-0.323} max(S_Cys/0.8, 1)^{-0.778} 0.9961^age${sex === "female" ? " × 0.963" : ""}`,
         fallback: `eGFRcr-cys = 135·min(SCr/κ, 1)^α·max(SCr/κ, 1)^−0.544·min(SCys/0.8, 1)^−0.323·max(SCys/0.8, 1)^−0.778·0.9961^age${sex === "female" ? "·0.963" : ""}, α = ${sex === "female" ? "−0.219" : "−0.144"}`,
       });
     }

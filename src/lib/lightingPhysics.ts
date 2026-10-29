@@ -37,6 +37,8 @@ const err = (error: string): Err => ({ ok: false, error });
 
 const DEG = Math.PI / 180;
 const fin = (...v: number[]): boolean => v.every((x) => typeof x === "number" && Number.isFinite(x));
+/** Every argument is a number (NaN allowed): an array or object handed in by mistake is refused before any arithmetic coerces it. */
+const nums = (...v: unknown[]): boolean => v.every((x) => typeof x === "number");
 const sind = (d: number): number => Math.sin(d * DEG);
 const cosd = (d: number): number => Math.cos(d * DEG);
 const mod360 = (d: number): number => ((d % 360) + 360) % 360;
@@ -369,11 +371,13 @@ export function distanceForStops(d: number, stops: number): number | Err {
 
 /** On-axis illuminance of a uniform Lambertian disc of radiance L, radius R at distance z: πL·R²/(R² + z²) = πL·sin²θ. */
 export function discIlluminance(L: number, R: number, z: number): number {
+  if (!nums(L, R, z)) return NaN;
   return (Math.PI * L * R * R) / (R * R + z * z);
 }
 
 /** The same disc treated as a point source of intensity I = L·πR²: E = LπR²/z². */
 export function discAsPoint(L: number, R: number, z: number): number {
+  if (!nums(L, R, z)) return NaN;
   return (Math.PI * L * R * R) / (z * z);
 }
 
@@ -454,6 +458,7 @@ export type SmithForm = "correlated" | "separable";
 
 /** GGX / Trowbridge–Reitz normal distribution D(h) = α²/(π((n·h)²(α² − 1) + 1)²). */
 export function ggxD(NoH: number, alpha: number): number {
+  if (typeof NoH !== "number" || typeof alpha !== "number") return NaN;
   const a2 = alpha * alpha;
   const t = NoH * NoH * (a2 - 1) + 1;
   return a2 / (Math.PI * t * t);
@@ -465,6 +470,7 @@ export function ggxD(NoH: number, alpha: number): number {
  * Separable: V = G₁(l)G₁(v)/(4(n·l)(n·v)) = 1/((n·l + √…)(n·v + √…)).
  */
 export function smithV(NoL: number, NoV: number, alpha: number, form: SmithForm): number {
+  if (typeof NoL !== "number" || typeof NoV !== "number" || typeof alpha !== "number") return NaN;
   const a2 = alpha * alpha;
   const lamL = Math.sqrt(NoL * NoL * (1 - a2) + a2);
   const lamV = Math.sqrt(NoV * NoV * (1 - a2) + a2);
@@ -474,6 +480,7 @@ export function smithV(NoL: number, NoV: number, alpha: number, form: SmithForm)
 
 /** Schlick's Fresnel approximation F = F0 + (1 − F0)(1 − v·h)⁵. */
 export function schlickF(F0: number, VoH: number): number {
+  if (typeof F0 !== "number" || typeof VoH !== "number") return NaN;
   return F0 + (1 - F0) * Math.pow(1 - Math.max(0, Math.min(1, VoH)), 5);
 }
 
@@ -634,6 +641,7 @@ export function brdf(inp: BrdfInput): BrdfResult | Err {
 
 /** f_s·cosθl in the plane of incidence for light at signed angle t (degrees, −90…90; positive on the mirror side). */
 export function lobeInPlane(alpha: number, thetaVDeg: number, F0: number, form: SmithForm, tDeg: number): number {
+  if (!nums(alpha, thetaVDeg, F0, tDeg)) return NaN;
   const v = [Math.sin(thetaVDeg * DEG), 0, Math.cos(thetaVDeg * DEG)];
   const l = [-Math.sin(tDeg * DEG), 0, Math.cos(tDeg * DEG)];
   if (l[2] <= 0) return 0;
@@ -743,17 +751,17 @@ export function mcRelativeError(strategy: "uniform" | "cosine", betaDeg: number,
 export const HABLE = { A: 0.15, B: 0.5, C: 0.1, D: 0.2, E: 0.02, F: 0.3, W: 11.2, bias: 2 } as const;
 
 /** Reinhard (2002) eq. 3: x/(1 + x). */
-export const reinhard = (x: number): number => x / (1 + x);
+export const reinhard = (x: number): number => (!nums(x) ? NaN : x / (1 + x));
 /** Reinhard (2002) eq. 4: x(1 + x/Lw²)/(1 + x); exactly 1 at x = Lw. */
-export const reinhardExt = (x: number, Lw: number): number => (x * (1 + x / (Lw * Lw))) / (1 + x);
+export const reinhardExt = (x: number, Lw: number): number => !nums(x, Lw) ? NaN : (x * (1 + x / (Lw * Lw))) / (1 + x);
 const hablePartial = (x: number): number => {
   const { A, B, C, D, E, F } = HABLE;
   return (x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F) - E / F;
 };
 /** Hable filmic: f(bias·x)/f(W), bias 2 as in Hable's published sample code; 1 at x = W/2 = 5.6. */
-export const hable = (x: number): number => hablePartial(HABLE.bias * x) / hablePartial(HABLE.W);
+export const hable = (x: number): number => !nums(x) ? NaN : hablePartial(HABLE.bias * x) / hablePartial(HABLE.W);
 /** Narkowicz (2015/16) fit to the ACES RRT + sRGB ODT: x(2.51x + 0.03)/(x(2.43x + 0.59) + 0.14), clamped to [0, 1]. */
-export const acesFitted = (x: number): number => Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+export const acesFitted = (x: number): number => !nums(x) ? NaN : Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
 /** Scene value where the ACES fit reaches 1 (0.08x² − 0.56x − 0.14 = 0). */
 export const ACES_CLIP = (0.56 + Math.sqrt(0.56 * 0.56 + 4 * 0.08 * 0.14)) / (2 * 0.08);
 
@@ -766,6 +774,7 @@ export const TONE_NAMES: Record<ToneCurve, string> = {
 };
 
 export function toneMap(curve: ToneCurve, x: number, Lw: number): number {
+  if (!nums(x, Lw)) return NaN;
   if (curve === "reinhard") return reinhard(x);
   if (curve === "reinhardExt") return Math.min(1, reinhardExt(x, Lw));
   if (curve === "hable") return Math.min(1, hable(x));
@@ -774,6 +783,7 @@ export function toneMap(curve: ToneCurve, x: number, Lw: number): number {
 
 /** The scene value (after exposure) a curve maps to display value y, by bisection on [0, 1e6] (curves are increasing). Null if never reached. */
 export function inverseTone(curve: ToneCurve, y: number, Lw: number): number | null {
+  if (!nums(y, Lw)) return null;
   if (!fin(y, Lw) || y <= 0 || y >= 1 || Lw <= 0) return null;
   let a = 0;
   let b = 1e6;
@@ -821,6 +831,7 @@ export function rayleighTau(lambdaUm: number): number | Err {
 
 /** Henyey–Greenstein phase function p(θ) = (1 − g²)/(4π(1 + g² − 2g cosθ)^{3/2}), sr⁻¹; normalised over the sphere, mean cosθ = g. */
 export function henyeyGreenstein(g: number, thetaDeg: number): number {
+  if (!nums(g, thetaDeg)) return NaN;
   return (1 - g * g) / (4 * Math.PI * Math.pow(1 + g * g - 2 * g * Math.cos(thetaDeg * DEG), 1.5));
 }
 

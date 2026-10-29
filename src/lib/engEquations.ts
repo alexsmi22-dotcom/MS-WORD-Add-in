@@ -609,7 +609,7 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
   ],
   "rend-falloff": [
     eq("Delta EV = 2 log_2(d_2/d_1)", "ΔEV = 2·log₂(d₂/d₁)"),
-    eq("d_new = d 2^(-n/2)", "dnew = d·2⁻ⁿᐟ²"),
+    eq("d_new = d 2^{-n/2}", "dnew = d·2⁻ⁿᐟ²"),
     eq("n = log_2(K/F)", "n = log₂(K/F)"),
     eq("E = pi L sin(theta)^2", "E = π·L·sin(θ)²"),
     eq("E_pt = pi L R^2/z^2", "Ept = π·L·R²/z²"),
@@ -653,7 +653,7 @@ export const ENG_EQUATIONS: Record<string, EngEquation[]> = {
     eq("tau_R = A exp(-(B + C lambda + D/lambda) ln(lambda))", "τR = A·exp(−(B + C·λ + D/λ)·ln λ)"),
     eq("T_b = exp(-{tau_R} (p/p_0) m)", "Tb = exp(−τR·(p/p₀)·m)"),
     eq("beta_1/beta_2 = (lambda_2/lambda_1)^4", "β₁/β₂ = (λ₂/λ₁)⁴"),
-    eq("p_HG = (1 - g^2)/(4 pi (1 + g^2 - 2 g cos(theta))^(3/2))", "pHG = (1 − g²)/(4π·(1 + g² − 2g·cos θ)³ᐟ²)"),
+    eq("p_HG = (1 - g^2)/(4 pi (1 + g^2 - 2 g cos(theta))^{3/2})", "pHG = (1 − g²)/(4π·(1 + g² − 2g·cos θ)³ᐟ²)"),
   ],
 };
 

@@ -37,6 +37,11 @@ const PURPLE = "#6a3d9a";
 const W = 460;
 const H = Math.round(W * 0.66);
 
+/** Refuses a non-finite or non-numeric argument by name before any loop runs (the pane only passes validated numbers). */
+function need(fn: string, ...v: unknown[]): void {
+  if (!v.every((x) => typeof x === "number" && Number.isFinite(x))) throw new Error(`${fn}: every numeric argument must be a finite number.`);
+}
+
 /** A label number: four significant figures, trailing zeros dropped, U+2212, ×10ⁿ outside 10⁻³…10⁵. */
 export const lsig = (v: number, n = 4): string => fmtSig(v, n).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "");
 
@@ -62,6 +67,7 @@ export interface SunPathPoint {
  * compass bearings), so the path is one unbroken arc.
  */
 export function sunPathChartSvg(path: SunPathPoint[], now: { minute: number; elevation: number; azimuth: number }, noon: { elevation: number; azimuth: number }): string {
+  if (!Array.isArray(path) || path.length > 3000) throw new Error("sunPathChartSvg: at most 3000 path points.");
   const north = noon.azimuth < 90 || noon.azimuth > 270;
   const ax = (a: number): number => (north ? (a > 180 ? a - 360 : a) : a);
   const lo = north ? -180 : 0;
@@ -110,6 +116,8 @@ export function sunPathChartSvg(path: SunPathPoint[], now: { minute: number; ele
  * infinity). Lengths in the height's unit.
  */
 export function shadowPlanSvg(h: number, unit: string, now: { length: number; bearing: number } | null, tips: Array<{ length: number; bearing: number; minute: number }>, cap: number): string {
+  need("shadowPlanSvg", h, cap);
+  if (!Array.isArray(tips) || tips.length > 2000) throw new Error("shadowPlanSvg: at most 2000 shadow tips.");
   const xy = (len: number, bearing: number): { x: number; y: number } => ({ x: len * Math.sin((bearing * Math.PI) / 180), y: len * Math.cos((bearing * Math.PI) / 180) });
   const kept = tips.filter((t) => t.length <= cap * h);
   const all = [...kept.map((t) => xy(t.length, t.bearing)), ...(now && now.length <= cap * h ? [xy(now.length, now.bearing)] : [])];
@@ -152,6 +160,7 @@ export function shadowPlanSvg(h: number, unit: string, now: { length: number; be
 
 /** Side view: the light (orange), the occluder (black), the receiver, and the four limiting rays; the umbra and penumbra marked on the receiver. */
 export function softShadowRaySvg(D: number, w: number, L: number, d: number, s: SoftShadow): string {
+  need("softShadowRaySvg", D, w, L, d);
   const xr = L + d;
   const ray = (y0: number, y1: number): Point[] => [{ x: 0, y: y0 }, { x: xr, y: y0 + ((y1 - y0) * xr) / L }];
   const rays: Point[] = [];
@@ -181,6 +190,7 @@ export function softShadowRaySvg(D: number, w: number, L: number, d: number, s: 
 
 /** Penumbra, umbra and the point-light shadow against receiver distance: contact hardening at d = 0. */
 export function softShadowWidthSvg(D: number, w: number, L: number, d: number): string {
+  need("softShadowWidthSvg", D, w, L, d);
   const ends = D > w ? (w * L) / (D - w) : null;
   const dMax = Math.max(2 * d, ends !== null ? 1.6 * ends : 0, 0.5 * L);
   const pen: Point[] = [];
@@ -215,6 +225,7 @@ export function softShadowWidthSvg(D: number, w: number, L: number, d: number): 
 
 /** Illuminance against distance on log axes: the exact disc and its point approximation, the subject and background marked, and z = 5D. */
 export function falloffChartSvg(Lum: number, R: number, d1: number, d2: number): string {
+  need("falloffChartSvg", Lum, R, d1, d2);
   const zMin = Math.min(R * 0.2, d1 / 4);
   const zMax = Math.max(d2 * 3, 20 * R);
   const exact: Point[] = [];
@@ -255,6 +266,7 @@ export function falloffChartSvg(Lum: number, R: number, d1: number, d2: number):
  * drawn as a polar curve over the surface (y = 0); the view direction as a line.
  */
 export function brdfLobeSvg(thetaV: number, F0: number, form: SmithForm, roughness: number): string {
+  need("brdfLobeSvg", thetaV, F0, roughness);
   const rs = [...new Set([0.25, 0.5, 0.75, Math.round(roughness * 1000) / 1000])].sort((a, b) => a - b);
   const colours = [GREEN, BLUE, ORANGE, PURPLE, RED];
   const series: Series[] = [];
@@ -289,6 +301,7 @@ export function brdfLobeSvg(thetaV: number, F0: number, form: SmithForm, roughne
 
 /** White-furnace directional albedo against roughness at θv (F = 1), and with the material's F0; the chosen roughness marked. */
 export function brdfAlbedoSvg(thetaV: number, F0: number, form: SmithForm, roughness: number, eWhite: number, eF: number): string {
+  need("brdfAlbedoSvg", thetaV, F0, roughness, eWhite, eF);
   const white: Point[] = [];
   const withF: Point[] = [];
   for (let i = 0; i <= 24; i++) {
@@ -322,6 +335,7 @@ export function brdfAlbedoSvg(thetaV: number, F0: number, form: SmithForm, rough
 
 /** Relative noise against samples per pixel on log axes: analytic σ/√N for both strategies and seeded Monte Carlo RMS points. */
 export function noiseChartSvg(betaDeg: number, N0: number, sigma0: number, Nt: number, sigmaT: number): string {
+  need("noiseChartSvg", betaDeg, N0, sigma0, Nt, sigmaT);
   const h = hemiVariance(betaDeg);
   const series: Series[] = [];
   const notes: string[] = [];
@@ -367,6 +381,8 @@ export function noiseChartSvg(betaDeg: number, N0: number, sigma0: number, Nt: n
 
 /** Display value against scene-linear value (log x) for the four curves, the inputs marked on each, middle grey drawn. */
 export function toneChartSvg(Lw: number, exposed: number[]): string {
+  need("toneChartSvg", Lw);
+  if (!Array.isArray(exposed) || exposed.length > 64 || !exposed.every((x) => typeof x === "number")) throw new Error("toneChartSvg: at most 64 exposed values, each a number.");
   const curves: ToneCurve[] = ["reinhard", "reinhardExt", "hable", "aces"];
   const colours = [GREY, BLUE, GREEN, RED];
   const xMin = 1 / 256;
@@ -402,6 +418,7 @@ export function toneChartSvg(Lw: number, exposed: number[]): string {
 
 /** Direct-beam Rayleigh transmittance against wavelength at the sun's air mass and overhead; the listed wavelengths marked. */
 export function beamTransmittanceSvg(airMass: number, pressureRatio: number, marks: Array<{ lambdaNm: number; T: number }>): string {
+  need("beamTransmittanceSvg", airMass, pressureRatio);
   const at = (am: number): Point[] => {
     const pts: Point[] = [];
     for (let l = 380; l <= 720; l += 5) {
@@ -428,6 +445,7 @@ export function beamTransmittanceSvg(airMass: number, pressureRatio: number, mar
 
 /** Henyey–Greenstein p(θ) as a polar curve (forward to the right), normalised to its forward peak, beside the isotropic 1/4π on the same scale. */
 export function hgPolarSvg(g: number, thetaDeg: number): string {
+  need("hgPolarSvg", g, thetaDeg);
   const peak = Math.max(henyeyGreenstein(g, 0), henyeyGreenstein(g, 180));
   const curve: Point[] = [];
   const iso: Point[] = [];

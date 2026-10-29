@@ -556,7 +556,7 @@ describe("macro-islm against the oracle", () => {
     const o = islm();
     expectDisplayContract(o);
     expect(o.text).toMatch(/^IS–LM equilibrium: Y\* = 1,800, r\* = 6% \(consumption 1,400, investment 150, real balances M\/P = 600\)/);
-    expect(o.text).toContain("Y* 1,800 → 1,900 (ΔY = 100), r* 6% → 7% (Δr = 1 percentage points), investment changes by −25.");
+    expect(o.text).toContain("Y* 1,800 → 1,900 (ΔY = 100), r* 6% → 7% (Δr = 1 percentage point), investment changes by −25.");
     expect(o.text).toContain("(ΔG − cΔT)/(1 − c) = 200");
     expect(o.svg).toContain("IS–LM");
     expect(o.svg).toContain("AD–AS");

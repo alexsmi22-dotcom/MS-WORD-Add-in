@@ -133,6 +133,26 @@ export function quantileType7(sorted: ArrayLike<number>, p: number): number {
   return (1 - g) * sorted[j] + g * sorted[k];
 }
 
+/** The most replicates (a whole hundred) that fit BOOT_MAX_WORK for n rows; below BOOT_MIN_B when none do. */
+export function bootMaxB(stat: BootStat, n: number): number {
+  const per = bootWork(stat, n, 1) - bootWork(stat, n, 0);
+  const B = Math.floor((BOOT_MAX_WORK - bootWork(stat, n, 0)) / per);
+  return Math.min(BOOT_MAX_B, Math.floor(B / 100) * 100);
+}
+
+/** The most rows that fit BOOT_MAX_WORK at B replicates (bisection; the work grows with n). */
+export function bootMaxN(stat: BootStat, B: number): number {
+  let lo = BOOT_MIN_N;
+  let hi = 1e7;
+  if (bootWork(stat, lo, B) > BOOT_MAX_WORK) return 0;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (bootWork(stat, mid, B) <= BOOT_MAX_WORK) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
 /** Work units of one bootstrap, the figure the up-front refusal tests. */
 export function bootWork(stat: BootStat, n: number, B: number): number {
   const perElement = BOOT_ELEMENT_COST[stat] * (stat === "median" || stat === "trim10" ? 1 + Math.log2(Math.max(2, n)) : 1);
@@ -361,12 +381,18 @@ export function runBootstrap(inp: BootInput): BootOutcome {
   }
   const work = bootWork(stat, n, B);
   if (work > BOOT_MAX_WORK) {
+    // Round 2 (MINOR): name the replicates that would run for these rows (or, when even the minimum does not, the rows).
+    const maxB = bootMaxB(stat, n);
+    const remedy =
+      maxB >= BOOT_MIN_B
+        ? `Use at most ${maxB.toLocaleString("en-US")} replicates for these ${n.toLocaleString("en-US")} rows, or a sample of the rows.`
+        : `Even ${BOOT_MIN_B} replicates are too many for ${n.toLocaleString("en-US")} rows; use a sample of at most ${bootMaxN(stat, B).toLocaleString("en-US")} rows for ${B.toLocaleString("en-US")} replicates.`;
     return {
       ok: false,
       reason:
         `${n.toLocaleString("en-US")} rows × ${B.toLocaleString("en-US")} replicates is more work than the bootstrap ` +
         `allows in one run (about ${Math.round(work / 1e6).toLocaleString("en-US")} million steps; the limit is ` +
-        `${Math.round(BOOT_MAX_WORK / 1e6).toLocaleString("en-US")} million). Use fewer replicates or a sample of the rows.`,
+        `${Math.round(BOOT_MAX_WORK / 1e6).toLocaleString("en-US")} million). ${remedy}`,
     };
   }
   const yy = y;

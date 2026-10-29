@@ -535,7 +535,12 @@ export function panelReCalc(read: Read): StatOutput {
     else {
       lines.push(
         `Hausman χ²(${haus.df}) = ${fmtFixed(haus.stat, 3)}, p ${pText(haus.p)} (${formName(haus.form)}): ` +
-          (haus.p < 0.05 ? "the FE and RE estimates differ systematically at the 5% level, so the random-effects assumption is rejected (prefer fixed effects)." : "no systematic difference at the 5% level (random effects not rejected)."),
+          // Round 2 (MINOR): decided on the printed p, as the reading is (a printed 0.050 is borderline).
+          (pv(haus.p) === "clear"
+            ? "the FE and RE estimates differ systematically at the 5% level, so the random-effects assumption is rejected (prefer fixed effects)."
+            : pv(haus.p) === "borderline"
+              ? `${BOUNDARY_CLAUSE} (the fixed-effects estimates are the cautious ones to report).`
+              : "no systematic difference at the 5% level (random effects not rejected)."),
       );
       if (haus.form === "pinv") lines.push(`WARNING: Hausman test by a generalised inverse. ${haus.why}. The test then has ${haus.df} df instead of ${haus.names.length}.`);
     }

@@ -15,6 +15,7 @@ import { buildRegTable, fmtFixed, fmtP, fmtSci, starsFor, starLegend, intText, N
 import { buildPlotSvg } from "./plot";
 import { fitLogit, fitProbit, fmtOddsRatio, logitProbitReport, LogitProbitRefusal, oddsRatioRows } from "./logitProbit";
 import { BOUNDARY_CLAUSE, printedPVerdict } from "./pReading";
+import { isBinaryColumn, probChangeStep, probStepNote } from "./probChange";
 import { estimatorLabel, isLinearKind, type FittedModel, type ModelTerm } from "./regModel";
 import { logitCoefFigureSvg, regTableFigureSvg } from "./statPaneFigures";
 import { firstThatFits, ofTheCount, ofTheSingular } from "./statPaneReadings";
@@ -361,7 +362,7 @@ function capitalCount(n: number): string {
  * econ-logit: the clearest predictor's average marginal effect on P(y = 1), as printed (4 decimals), and how often the
  * model classifies correctly. Logit and probit fitted to observational data describe associations, so "goes with".
  */
-export function logitReading(model: FittedModel): string | undefined {
+export function logitReading(model: FittedModel, binary?: ReadonlySet<string>): string | undefined {
   const pct = model.stats.find((s) => s.label === "Correctly predicted (%)")?.value;
   const tail = pct !== undefined && Number.isFinite(pct) ? `; the model classifies ${fmtFixed(pct, 1)}% of cases correctly` : "";
   const me = model.marginalEffects ?? [];
@@ -378,17 +379,19 @@ export function logitReading(model: FittedModel): string | undefined {
   if (!me.length) {
     return `${best.name} is the clearest predictor: a higher ${best.name} goes with a ${best.coef > 0 ? "higher" : "lower"} chance that ${model.depName} = 1 (p ${pText(best.p)})${tail}.`;
   }
-  // A probability cannot change by more than 1: an average marginal effect of 0.1 or more per unit is stated per
-  // 0.1, 0.01, … of x instead, the scaled value printed in the text (logitAmeScaleNote) as in the reading
-  // (bug test 2026-10-28, R5 BLOCKER 1: "a fall of about 1.3310 in the probability").
-  const sc = ameScale(best.coef);
-  const step = sc.step === 1 ? "one-unit" : `${sc.stepText}-unit`;
-  const main =
-    `A ${step} rise in ${best.name} goes with a ${best.coef > 0 ? "rise" : "fall"} of about ${sc.scaledText} ` +
-    `in the probability that ${model.depName} = 1, on average (p ${pText(best.p)})`;
+  // A probability cannot change by 1 or more: the shared rule (lib/probChange.ts) quotes per one unit unless the
+  // per-unit change prints at 1 or more, then per 0.1, 0.01, … of x (the scaled value printed in the text by
+  // logitAmeScaleNote); a 0/1 predictor is never rescaled (round 2 BLOCKER 1 / MAJOR 4: "A 0.1-unit rise in PSI").
+  const sc = probChangeStep(best.coef, { binary: binary?.has(best.name) });
+  const dir = best.coef > 0 ? "rise" : "fall";
+  const main = sc.quotable
+    ? `A ${sc.stepWords} rise in ${best.name} goes with a ${dir} of about ${sc.scaledText} ` +
+      `in the probability that ${model.depName} = 1, on average (p ${pText(best.p)})`
+    : `${best.name} = 1 goes with a ${best.coef > 0 ? "higher" : "lower"} probability that ${model.depName} = 1 than ${best.name} = 0 (p ${pText(best.p)})`;
   // Logit: the same term's odds ratio as the odds-ratio table prints it (user decision 2026-10-28), when it has one
-  // and it prints as something other than 1 (R5 MAJOR 3). Worded as an association (R5 BLOCKER 4).
-  const or = oddsRatioRows(model)?.find((r) => r.name === best.name);
+  // and it prints as something other than 1 (R5 MAJOR 3). Worded as an association (R5 BLOCKER 4). One step per
+  // sentence: a change quoted per 0.1, 0.01, … of x is never followed by a one-unit odds ratio.
+  const or = sc.step === 1 ? oddsRatioRows(model)?.find((r) => r.name === best.name) : undefined;
   const orText = or ? fmtOddsRatio(or.or) : "";
   if (or && orText !== "1.000") {
     const withOr = `${main}; each one-unit rise in ${best.name} goes with odds about ${orText} times as high`;
@@ -398,34 +401,31 @@ export function logitReading(model: FittedModel): string | undefined {
 }
 
 /**
- * The step of x an average marginal effect is quoted per: 1 while |AME| < 0.1, else the largest power of ten below 1
- * that brings |AME|·step under 0.1. `scaledText` is |AME|·step at 4 decimals (fmtFixed), the number the reading and
- * the text line both print.
+ * The step of x an average marginal effect is quoted per (lib/probChange.ts, the one rule): 1 while |AME| prints
+ * below 1, else the largest power of ten below 1 that brings |AME|·step under 0.1. `scaledText` is |AME|·step at
+ * 4 decimals (fmtFixed), the number the reading and the text line both print.
  */
-export function ameScale(ame: number): { step: number; stepText: string; scaledText: string } {
-  let k = 0;
-  while (Math.abs(ame) * Math.pow(10, -k) >= 0.1 && k < 30) k++;
-  const step = Math.pow(10, -k);
-  const stepText = k === 0 ? "1" : k <= 4 ? step.toFixed(k) : fmtSci(step, 1);
-  return { step, stepText, scaledText: fmtFixed(Math.abs(ame) * step, 4) };
+export function ameScale(ame: number, binary = false): { step: number; stepText: string; scaledText: string } {
+  const sc = probChangeStep(ame, { binary });
+  return { step: sc.step, stepText: sc.stepText, scaledText: sc.scaledText };
 }
 
 /**
- * The text line behind a rescaled AME in the reading, so its number is on screen: "Per 0.1 of GPA: the average marginal
- * effect 0.3639 × 0.1 = 0.0364 …". Empty when the reading quotes the AME per unit (or quotes none).
+ * The text line behind a rescaled AME in the reading, so its number is on screen: "Per 0.01 of x: the average marginal
+ * effect −1.3310 × 0.01 = −0.0133 …". Empty when the reading quotes the AME per unit (or quotes none).
  */
-export function logitAmeScaleNote(model: FittedModel): string {
+export function logitAmeScaleNote(model: FittedModel, binary?: ReadonlySet<string>): string {
   const me = model.marginalEffects ?? [];
   if (!me.length) return "";
   const best = clearestTerm(me);
   if (!best || printedPVerdict(fmtP(best.p)) !== "clear") return "";
-  const sc = ameScale(best.coef);
-  if (sc.step === 1) return "";
-  return (
-    `Per ${sc.stepText} of ${best.name}: the average marginal effect ${fmtFixed(best.coef, 4)} × ${sc.stepText} = ` +
-    `${best.coef < 0 ? "−" : ""}${sc.scaledText} in P(${model.depName} = 1). A marginal effect is a slope at the data, so it is ` +
-    "quoted per a step small enough that the probability change stays well inside 0 to 1."
-  );
+  const sc = probChangeStep(best.coef, { binary: binary?.has(best.name) });
+  return probStepNote(best.name, best.coef, sc, `P(${model.depName} = 1)`);
+}
+
+/** The names of the 0/1 columns among the predictors (never rescaled in a probability reading). */
+export function binaryNames(names: string[], cols: ArrayLike<number>[]): Set<string> {
+  return new Set(names.filter((_, j) => isBinaryColumn(cols[j])));
 }
 
 /**
@@ -625,8 +625,9 @@ export function econLogitCalc(read: Read): StatOutput {
     const rep = logitProbitReport(model);
     // The same conventions as OLS, the constant's position included: the coefficient table lists it last.
     const notes = [...conventionNotes({ se: "classical", constant, decimals: 3, stars: "econ" }, parsed.data.named), ...c.notes];
-    const scaleNote = logitAmeScaleNote(model);
-    return { text: [rep.text, ...(scaleNote ? [scaleNote] : []), ...notes].join("\n"), reading: logitReading(model), svg: logitCoefFigureSvg(model), tables: rep.tables };
+    const bin = binaryNames(c.names, c.X);
+    const scaleNote = logitAmeScaleNote(model, bin);
+    return { text: [rep.text, ...(scaleNote ? [scaleNote] : []), ...notes].join("\n"), reading: logitReading(model, bin), svg: logitCoefFigureSvg(model), tables: rep.tables };
   } catch (e) {
     if (e instanceof LogitProbitRefusal) return refuse(e.message);
     // Never an uncaught error in the pane: anything else (a RangeError from a value the report cannot print) refuses.

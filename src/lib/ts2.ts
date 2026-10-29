@@ -197,15 +197,13 @@ export interface GarchSpec {
 }
 
 /**
- * The most observations a GARCH fit takes. The search's work is capped at GARCH_WORK / (n + 150) likelihood passes
- * (7,547 at n = 2,500), so its worst case takes about the same time at any n (measured 2026-10-27 in Node, review
- * round 3: at most 0.88 s alone over the hostile n = 2,500 series and 0.80 s over the 1,200-case holdout, up to 1.8 s
- * with six other fits running; the one hostile series found that hits the cap, an EGARCH-normal with one 10⁶ return as
- * its last, stops there in 0.62 s). Past 2,500
- * the cap leaves fewer passes (3,883 at n = 5,000), while the slowest converging fits measured needed about 5,600, so
- * they would be refused rather than printed.
+ * The most observations a GARCH fit takes, every model (round 2, MAJOR 5: ten years of daily returns, about 2,520,
+ * on the default GJR-t). The search's work is capped by passes, never by the clock (garchPassBudget: 7,272 passes
+ * at n = 2,600, 5,387 for EGARCH), so a result never depends on the machine; measured 2026-10-28 in the test runner
+ * over 600 seeded fits (four kinds of series × six models × n = 300 to 2,600): at most 0.36 s for GJR-t and 1.05 s
+ * for EGARCH-t, every outcome and log likelihood as with twice EGARCH's budget.
  */
-export const GARCH_MAX_N = 2500;
+export const GARCH_MAX_N = 2600;
 export const GARCH_MIN_N = 100;
 export const GARCH_MAX_H = 250;
 /**
@@ -330,6 +328,17 @@ function unpack(s: GarchSetup, x: ArrayLike<number>): Unpacked {
   return { mu, omega, alpha, gamma, beta, nu };
 }
 
+/**
+ * Math's functions as module constants for the likelihood loops: a global lookup of Math on every period is slow where
+ * the module runs in a sandboxed global (12× in the test runner, which is how the pane's timings are measured).
+ */
+const M_log = Math.log;
+const M_log1p = Math.log1p;
+const M_exp = Math.exp;
+const M_sqrt = Math.sqrt;
+const M_abs = Math.abs;
+const M_min = Math.min;
+
 /** σ²ₜ by arch's recursions (garch_recursion with bounds_check; egarch_recursion with its clamp). */
 function garchVariance(s: GarchSetup, p: Unpacked, resid: Float64Array, sigma2: Float64Array): void {
   const n = s.n;
@@ -339,20 +348,20 @@ function garchVariance(s: GarchSetup, p: Unpacked, resid: Float64Array, sigma2: 
     let zPrev = 0;
     for (let t = 0; t < n; t++) {
       let ln = p.omega;
-      if (t > 0) ln += p.alpha * (Math.abs(zPrev) - SQRT2_OV_PI) + p.gamma * zPrev + p.beta * lnPrev;
+      if (t > 0) ln += p.alpha * (M_abs(zPrev) - SQRT2_OV_PI) + p.gamma * zPrev + p.beta * lnPrev;
       else ln += p.beta * bc;
-      ln = Math.min(ln, LNSIGMA_MAX);
-      let v = Math.exp(ln);
+      ln = M_min(ln, LNSIGMA_MAX);
+      let v = M_exp(ln);
       if (v < s.lower[t]) {
         v = s.lower[t];
-        ln = Math.log(v);
+        ln = M_log(v);
       } else if (v > s.upper[t]) {
-        v = s.upper[t] + s.capUnit * (Math.log(v) - Math.log(s.upper[t]));
-        ln = Math.log(v);
+        v = s.upper[t] + s.capUnit * (M_log(v) - M_log(s.upper[t]));
+        ln = M_log(v);
       }
       sigma2[t] = v;
       lnPrev = ln;
-      zPrev = resid[t] / Math.sqrt(v);
+      zPrev = resid[t] / M_sqrt(v);
     }
     return;
   }
@@ -364,7 +373,7 @@ function garchVariance(s: GarchSetup, p: Unpacked, resid: Float64Array, sigma2: 
       v += p.alpha * e * e + (e < 0 ? p.gamma * e * e : 0) + p.beta * sigma2[t - 1];
     }
     if (v < s.lower[t]) v = s.lower[t];
-    else if (v > s.upper[t]) v = Number.isFinite(v) ? s.upper[t] + s.capUnit * Math.log(v / s.upper[t]) : s.upper[t] + 1000 * s.capUnit;
+    else if (v > s.upper[t]) v = Number.isFinite(v) ? s.upper[t] + s.capUnit * M_log(v / s.upper[t]) : s.upper[t] + 1000 * s.capUnit;
     sigma2[t] = v;
   }
 }
@@ -379,17 +388,17 @@ function garchLls(s: GarchSetup, x: ArrayLike<number>, out?: Float64Array, keep?
   garchVariance(s, p, resid, sigma2);
   let sum = 0;
   if (s.spec.dist === "normal") {
-    const c = Math.log(2 * Math.PI);
+    const c = M_log(2 * Math.PI);
     for (let t = 0; t < n; t++) {
-      const l = -0.5 * (c + Math.log(sigma2[t]) + (resid[t] * resid[t]) / sigma2[t]);
+      const l = -0.5 * (c + M_log(sigma2[t]) + (resid[t] * resid[t]) / sigma2[t]);
       if (out) out[t] = l;
       sum += l;
     }
   } else {
     const nu = p.nu;
-    const c = lgamma((nu + 1) / 2) - lgamma(nu / 2) - Math.log(Math.PI * (nu - 2)) / 2;
+    const c = lgamma((nu + 1) / 2) - lgamma(nu / 2) - M_log(Math.PI * (nu - 2)) / 2;
     for (let t = 0; t < n; t++) {
-      const l = c - 0.5 * Math.log(sigma2[t]) - ((nu + 1) / 2) * Math.log(1 + (resid[t] * resid[t]) / (sigma2[t] * (nu - 2)));
+      const l = c - 0.5 * M_log(sigma2[t]) - ((nu + 1) / 2) * M_log(1 + (resid[t] * resid[t]) / (sigma2[t] * (nu - 2)));
       if (out) out[t] = l;
       sum += l;
     }
@@ -483,10 +492,10 @@ function garchNllGrad(s: GarchSetup, x: ArrayLike<number>): { f: number; g: numb
   let cT = 0;
   let dcT = 0;
   if (tdist) {
-    cT = lgamma((nu + 1) / 2) - lgamma(nu / 2) - Math.log(Math.PI * (nu - 2)) / 2;
+    cT = lgamma((nu + 1) / 2) - lgamma(nu / 2) - M_log(Math.PI * (nu - 2)) / 2;
     dcT = 0.5 * digamma((nu + 1) / 2) - 0.5 * digamma(nu / 2) - 0.5 / (nu - 2);
   }
-  const lc = Math.log(2 * Math.PI);
+  const lc = M_log(2 * Math.PI);
   const np1h = (nu + 1) / 2;
   const nm2 = nu - 2;
   let ll = 0;
@@ -533,7 +542,7 @@ function garchNllGrad(s: GarchSetup, x: ArrayLike<number>): { f: number; g: numb
         lG = 0;
         lB = bc;
       } else {
-        const az = Math.abs(zPrev);
+        const az = M_abs(zPrev);
         const w = alpha * (zPrev > 0 ? 1 : zPrev < 0 ? -1 : 0) + gamma;
         ln = omega + alpha * (az - SQRT2_OV_PI) + gamma * zPrev + beta * prev;
         lM = w * zM + beta * pM;
@@ -546,14 +555,14 @@ function garchNllGrad(s: GarchSetup, x: ArrayLike<number>): { f: number; g: numb
         ln = LNSIGMA_MAX;
         lM = lO = lA = lG = lB = 0;
       }
-      v = Math.exp(ln);
+      v = M_exp(ln);
       if (v < lower[t]) {
         v = lower[t];
-        ln = Math.log(v);
+        ln = M_log(v);
         lM = lO = lA = lG = lB = 0;
       } else if (v > upper[t]) {
-        v = upper[t] + cap * (ln - Math.log(upper[t]));
-        ln = Math.log(v);
+        v = upper[t] + cap * (ln - M_log(upper[t]));
+        ln = M_log(v);
         const f = cap / v;
         lM *= f;
         lO *= f;
@@ -561,7 +570,7 @@ function garchNllGrad(s: GarchSetup, x: ArrayLike<number>): { f: number; g: numb
         lG *= f;
         lB *= f;
       }
-      const sd = Math.sqrt(v);
+      const sd = M_sqrt(v);
       const z = e / sd;
       zM = -0.5 * z * lM - 1 / sd;
       zO = -0.5 * z * lO;
@@ -606,7 +615,7 @@ function garchNllGrad(s: GarchSetup, x: ArrayLike<number>): { f: number; g: numb
       } else if (v > upper[t]) {
         if (Number.isFinite(v)) {
           const f = cap / v;
-          v = upper[t] + cap * Math.log(v / upper[t]);
+          v = upper[t] + cap * M_log(v / upper[t]);
           vM *= f;
           vO *= f;
           vA *= f;
@@ -630,12 +639,12 @@ function garchNllGrad(s: GarchSetup, x: ArrayLike<number>): { f: number; g: numb
     if (tdist) {
       const q = (e * e) / (v * nm2);
       const r = q / (1 + q);
-      ll += cT - 0.5 * Math.log(v) - np1h * Math.log1p(q);
+      ll += cT - 0.5 * M_log(v) - np1h * M_log1p(q);
       dv = (-0.5 + np1h * r) / v;
       dmu = (2 * np1h * e) / ((1 + q) * v * nm2);
-      gN += dcT - 0.5 * Math.log1p(q) + (np1h * r) / nm2;
+      gN += dcT - 0.5 * M_log1p(q) + (np1h * r) / nm2;
     } else {
-      ll += -0.5 * (lc + Math.log(v) + (e * e) / v);
+      ll += -0.5 * (lc + M_log(v) + (e * e) / v);
       dv = (-0.5 * (v - e * e)) / (v * v);
       dmu = e / v;
     }
@@ -899,14 +908,25 @@ const GARCH_PASS_OVERHEAD = 150;
  * optimum found by the rescue starts) needs between 8,000 and 12,000; 16,000 leaves a third in hand.
  */
 const GARCH_MAX_PASSES = 16000;
+/**
+ * EGARCH's pass costs about 1.35 of a GARCH or GJR pass (an exp and a square root per period; measured round 2,
+ * 2026-10-28: 112–119 against 84–89 ns per observation-pass), so it gets that many fewer passes and the longest
+ * search takes about the same time for every model.
+ */
+const GARCH_EGARCH_PASS_COST = 1.35;
+
+/** The likelihood passes a fit may spend: GARCH_WORK / (cost × (n + GARCH_PASS_OVERHEAD)), within [400, 16,000]. */
+export function garchPassBudget(spec: Pick<GarchSpec, "vol">, n: number): number {
+  const cost = spec.vol === "egarch" ? GARCH_EGARCH_PASS_COST : 1;
+  return Math.max(400, Math.min(GARCH_MAX_PASSES, Math.floor(GARCH_WORK / (cost * (n + GARCH_PASS_OVERHEAD)))));
+}
 
 /**
- * The most returns a fit takes for each model (fix round, R6 #3: EGARCH-t took 4.6 s and GJR-t 1.6 s at n = 2,500).
- * Student-t errors run about twice as many starts as normal ones and EGARCH adds its large-α and rescue starts, so
- * they stop at 1,200 (the largest series the engine's pinned tests fit with them); GARCH and GJR-GARCH with normal
- * errors keep GARCH_MAX_N. Refused up front, by name, so the pane never spends seconds on a fit it then reports late.
+ * The most returns a fit takes for each model: since round 2 (MAJOR 5) the same GARCH_MAX_N for all. Round 1 stopped
+ * Student-t and EGARCH at 1,200 because they took seconds; the time was the likelihood loops' global lookups of Math
+ * (now module constants, 12× faster where the module runs sandboxed), and the pass budget bounds the rest.
  */
-export const GARCH_MAX_N_SLOW = 1200;
+export const GARCH_MAX_N_SLOW = GARCH_MAX_N;
 export function garchMaxN(spec: Pick<GarchSpec, "vol" | "dist">): number {
   return spec.vol === "egarch" || spec.dist === "t" ? GARCH_MAX_N_SLOW : GARCH_MAX_N;
 }
@@ -1279,7 +1299,8 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   let ybarK = 0;
   for (let i = 0; i < n; i++) ybarK += sc.y[i];
   ybarK /= n;
-  const budget = { left: Math.max(400, Math.min(GARCH_MAX_PASSES, Math.floor(GARCH_WORK / (n + GARCH_PASS_OVERHEAD)))) };
+  const passes0 = garchPassBudget(spec, n);
+  const budget = { left: passes0 };
   let exhausted = false;
   const fg: FG = (v) => {
     if (!garchFeasible(cons, v)) return { f: Infinity, g: [] };

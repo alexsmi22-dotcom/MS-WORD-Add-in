@@ -49,18 +49,19 @@ export const ARIMA_MAX_H = 200;
 /** BFGS iterations per start before the fit is refused as not converged. */
 export const ARIMA_MAX_ITER = 400;
 /**
- * Likelihood work allowed per fit, in estimated nanoseconds on the build machine (about 8 s, bounded in real time by ARIMA_WALL_MS), charged per evaluation
- * for the work it actually did (evalCostNs): the steps before the filter's covariance settles cost O(r²) each, the rest
- * O(r), plus the dense Lyapunov solve for the stationary start. Charging a flat N·r² was wrong both ways: near an MA unit
- * root the covariance never settles (ARIMA(1, 1, 1) on 100,000 rows of noise ran for 140 s), and at high orders on short
- * series the r² × r² solve dominates (ARIMA(5, 0, 5) on 60 rows ran for 16 s). Optimisation and the Hessian share it;
- * a fit that would exceed it is refused by name. The charge is deterministic, so a refusal does not depend on the machine.
+ * Likelihood work allowed per fit, in estimated nanoseconds (about 2 s in the test runner), charged per evaluation for
+ * the work it actually did (evalCostNs): the steps before the filter's covariance settles cost O(r²) each, the rest
+ * O(r), plus the dense Lyapunov solve for the stationary start and a fixed cost per evaluation. Charging a flat N·r²
+ * was wrong both ways: near an MA unit root the covariance never settles (ARIMA(1, 1, 1) on 100,000 rows of noise ran
+ * for 140 s), and at high orders on short series the r² × r² solve dominates (ARIMA(5, 0, 5) on 60 rows ran for 16 s).
+ * Optimisation and the Hessian share it. Round 2 (MAJOR 6): no clock any more. A fit whose typical need
+ * (arimaTypicalEvals) exceeds it is refused up front, by name; one that runs past it anyway is refused the same way on
+ * every machine.
  */
-export const ARIMA_WORK_BUDGET = 8e9;
+export const ARIMA_WORK_BUDGET = 2e9;
 /**
- * A hard stop on real time, ms: the estimate above is within a factor of about two either way (it overestimates a settled
- * high-order filter, underestimates an unsettled one), so the pane's guarantee against a frozen Word is this clock. Only
- * a fit that would have run past it is affected, and its refusal says so.
+ * Kept for the modules that cite it (bootstrap, iv, panel, oligopoly still stop on a clock); ARIMA itself no longer
+ * reads a clock.
  */
 export const ARIMA_WALL_MS = 3000;
 /**
@@ -69,14 +70,38 @@ export const ARIMA_WALL_MS = 3000;
  */
 export const ARIMA_MAX_PQ = 6;
 /** Extra work for the standard errors' Hessian beyond what the optimiser left (estimated ns). */
-const HESS_ALLOWANCE = 1e9;
-
-/** Estimated cost of one likelihood evaluation, ns (calibrated 2026-10-25: 300 ns per unsettled step per r², 20 ns per settled step per r, 3r⁶ for the start; a review measured 200 as 1.2–1.8× low at r = 6). */
-function evalCostNs(N: number, r: number, unsteady: number): number {
-  return 300 * unsteady * r * r + 20 * (N - unsteady) * r + 3 * r ** 6 + 2000;
+const HESS_ALLOWANCE = 3e8;
+/**
+ * Likelihood evaluations a fit with k parameters typically needs, for the up-front refusal: 15·k³, between the 75th
+ * and 90th percentiles measured over 1,200 seeded fits (round 2: every p + q ≤ 6, d = 0 and 1, n = 100 to 10,000;
+ * k = 4: 848 and 1,260; k = 6: 2,135 and 3,710; k = 8: 7,480 and 10,127).
+ */
+export function arimaTypicalEvals(k: number): number {
+  return 15 * k ** 3;
 }
 
-const LOG2PI = Math.log(2 * Math.PI);
+/**
+ * Estimated cost of one likelihood evaluation, ns. Recalibrated round 2 (2026-10-28) by least squares on 300 timed
+ * fits in the test runner: 2.8 ns per settled step per (r + 2), 13 per unsettled step per r², 0.76 r⁶ for the start,
+ * 29 µs per evaluation (the search's own work); rounded up to 3, 15, 1 and 30 µs. Within 0.67–1.25× of the measured
+ * time for 90% of the fits.
+ */
+function evalCostNs(N: number, r: number, unsteady: number): number {
+  return 15 * unsteady * r * r + 3 * (N - unsteady) * (r + 2) + r ** 6 + 30000;
+}
+
+/**
+ * Math's functions as module constants: the filter's loops call them every period, and a global lookup of Math is slow
+ * where the module runs in a sandboxed global (about 12× in the test runner, which is how the pane's timings are
+ * measured; round 2 MAJOR 6).
+ */
+const M_abs = Math.abs;
+const M_log = Math.log;
+const M_sqrt = Math.sqrt;
+const M_max = Math.max;
+const M_min = Math.min;
+
+const LOG2PI = M_log(2 * Math.PI);
 
 // ---------------------------------------------------------------- transforms (statsmodels tools.py, ported)
 
@@ -84,7 +109,7 @@ const LOG2PI = Math.log(2 * Math.PI);
 export function constrainStationary(u: number[]): number[] {
   const n = u.length;
   if (!n) return [];
-  const r = u.map((x) => x / Math.sqrt(1 + x * x));
+  const r = u.map((x) => x / M_sqrt(1 + x * x));
   let prev: number[] = [];
   for (let k = 0; k < n; k++) {
     const cur = new Array<number>(k + 1);
@@ -111,8 +136,8 @@ export function unconstrainStationary(c: number[]): number[] | null {
   const out: number[] = [];
   for (let k = 0; k < n; k++) {
     const r = y[k][k];
-    if (!(Math.abs(r) < 1) || !Number.isFinite(r)) return null;
-    out.push(r / Math.sqrt(1 - r * r));
+    if (!(M_abs(r) < 1) || !Number.isFinite(r)) return null;
+    out.push(r / M_sqrt(1 - r * r));
   }
   return out;
 }
@@ -135,8 +160,8 @@ export function solveLinear(A: number[][], b: number[]): number[] | null {
   const M = A.map((row, i) => [...row, b[i]]);
   for (let c = 0; c < n; c++) {
     let piv = c;
-    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
-    if (!(Math.abs(M[piv][c]) > 1e-300)) return null;
+    for (let r = c + 1; r < n; r++) if (M_abs(M[r][c]) > M_abs(M[piv][c])) piv = r;
+    if (!(M_abs(M[piv][c]) > 1e-300)) return null;
     if (piv !== c) [M[c], M[piv]] = [M[piv], M[c]];
     for (let r = c + 1; r < n; r++) {
       const f = M[r][c] / M[c][c];
@@ -163,7 +188,7 @@ export function invertSpd(A: number[][]): number[][] | null {
       for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
       if (i === j) {
         if (!(s > 0)) return null;
-        L[i][i] = Math.sqrt(s);
+        L[i][i] = M_sqrt(s);
       } else L[i][j] = s / L[j][j];
     }
   }
@@ -195,7 +220,7 @@ interface StateSpace {
 }
 
 function stateSpace(phi: number[], theta: number[]): StateSpace {
-  const r = Math.max(phi.length, theta.length + 1);
+  const r = M_max(phi.length, theta.length + 1);
   const t0 = new Float64Array(r);
   for (let i = 0; i < phi.length; i++) t0[i] = phi[i];
   const R = new Float64Array(r);
@@ -312,8 +337,8 @@ export function kalmanArma(z: ArrayLike<number>, phi: number[], theta: number[],
   for (let t = 0; t < N; t++) {
     if (!steady) {
       F = P[0][0];
-      logF = Math.log(F);
-      sqrtF = Math.sqrt(F);
+      logF = M_log(F);
+      sqrtF = M_sqrt(F);
       for (let i = 0; i < r; i++) K[i] = P[i][0] / F;
     }
     const v = z[t] - a[0];
@@ -347,7 +372,7 @@ export function kalmanArma(z: ArrayLike<number>, phi: number[], theta: number[],
         for (let j = 0; j < r; j++) {
           const val = Ai[0] * t0[j] + (j + 1 < r ? Ai[j + 1] : 0) + R[i] * R[j];
           Pni[j] = val;
-          const dlt = Math.abs(val - P[i][j]);
+          const dlt = M_abs(val - P[i][j]);
           if (dlt > change) change = dlt;
         }
       }
@@ -357,8 +382,8 @@ export function kalmanArma(z: ArrayLike<number>, phi: number[], theta: number[],
       if (change < 1e-14 * P[0][0]) {
         steady = true;
         F = P[0][0];
-        logF = Math.log(F);
-        sqrtF = Math.sqrt(F);
+        logF = M_log(F);
+        sqrtF = M_sqrt(F);
         for (let i = 0; i < r; i++) K[i] = P[i][0] / F;
       }
     }
@@ -368,13 +393,13 @@ export function kalmanArma(z: ArrayLike<number>, phi: number[], theta: number[],
 
 /** Full log likelihood for given σ² (in the units of z). */
 function llfFromFilter(f: FilterResult, sigma2: number): number {
-  return -0.5 * f.N * LOG2PI - 0.5 * f.sumLogF - 0.5 * f.N * Math.log(sigma2) - f.sumV2F / (2 * sigma2);
+  return -0.5 * f.N * LOG2PI - 0.5 * f.sumLogF - 0.5 * f.N * M_log(sigma2) - f.sumV2F / (2 * sigma2);
 }
 
 /** Concentrated log likelihood (σ² at its MLE). */
 function llfConcentrated(f: FilterResult): number {
   const s2 = f.sumV2F / f.N;
-  return -0.5 * f.N * (LOG2PI + 1) - 0.5 * f.sumLogF - 0.5 * f.N * Math.log(s2);
+  return -0.5 * f.N * (LOG2PI + 1) - 0.5 * f.sumLogF - 0.5 * f.N * M_log(s2);
 }
 
 // ---------------------------------------------------------------- data preparation
@@ -383,7 +408,7 @@ function llfConcentrated(f: FilterResult): number {
 export function difference(y: ArrayLike<number>, d: number): Float64Array {
   let w = Float64Array.from(y as ArrayLike<number>);
   for (let k = 0; k < d; k++) {
-    const nw = new Float64Array(Math.max(0, w.length - 1));
+    const nw = new Float64Array(M_max(0, w.length - 1));
     for (let i = 1; i < w.length; i++) nw[i - 1] = w[i] - w[i - 1];
     w = nw;
   }
@@ -400,7 +425,7 @@ function standardize(w: Float64Array, withMean: boolean): Scaled | null {
   const N = w.length;
   // Moments of w / M (M = max |w|), so squares cannot overflow even near 10³⁰⁸.
   let M = 0;
-  for (let i = 0; i < N; i++) M = Math.max(M, Math.abs(w[i]));
+  for (let i = 0; i < N; i++) M = M_max(M, M_abs(w[i]));
   if (!(M > 0) || !Number.isFinite(M)) return null;
   let cm = 0;
   for (let i = 0; i < N; i++) cm += w[i] / M / N;
@@ -410,13 +435,13 @@ function standardize(w: Float64Array, withMean: boolean): Scaled | null {
     ss += e * e;
   }
   const c = cm * M;
-  const s = Math.sqrt(ss / N) * M;
+  const s = M_sqrt(ss / N) * M;
   if (!(s > 0) || !Number.isFinite(s) || !Number.isFinite(c)) return null;
   // Below ~1e-13 of the level the differences are rounding noise, not a series.
-  if (s < 1e-13 * Math.abs(c)) return null;
+  if (s < 1e-13 * M_abs(c)) return null;
   // Without a mean term the model has no centre: scale only (by the root mean square).
   const center = withMean ? c : 0;
-  const scale = withMean ? s : M * Math.sqrt((s / M) * (s / M) + (c / M) * (c / M));
+  const scale = withMean ? s : M * M_sqrt((s / M) * (s / M) + (c / M) * (c / M));
   const z = new Float64Array(N);
   for (let i = 0; i < N; i++) z[i] = (w[i] - center) / scale;
   return { z, center, scale };
@@ -436,12 +461,12 @@ export function arimaLoglike(y: ArrayLike<number>, spec: ArimaSpec, prm: ArimaPa
   for (let i = 0; i < N; i++) z[i] = w[i] - mu;
   // Filter in scaled units for range safety: f and v scale together, so only σ² and the Jacobian term change.
   let s = 0;
-  for (let i = 0; i < N; i++) s = Math.max(s, Math.abs(z[i]));
+  for (let i = 0; i < N; i++) s = M_max(s, M_abs(z[i]));
   if (!(s > 0) || !Number.isFinite(s)) return null;
   for (let i = 0; i < N; i++) z[i] /= s;
   const f = kalmanArma(z, prm.phi, prm.theta);
   if (!f) return null;
-  return llfFromFilter(f, prm.sigma2 / (s * s)) - N * Math.log(s);
+  return llfFromFilter(f, prm.sigma2 / (s * s)) - N * M_log(s);
 }
 
 // ---------------------------------------------------------------- estimation
@@ -490,7 +515,7 @@ function negMeanLlf(z: Float64Array, x: number[], pk: Packed, cost?: { ns: numbe
   const { phi, theta, muZ } = unpack(x, pk);
   const zz = muZ === 0 ? z : z.map((v) => v - muZ);
   const f = kalmanArma(zz, phi, theta);
-  const r = Math.max(pk.p, pk.q + 1);
+  const r = M_max(pk.p, pk.q + 1);
   if (cost) cost.ns = evalCostNs(z.length, r, f ? f.unsteadySteps : 0);
   if (!f) return Infinity;
   const v = -llfConcentrated(f) / f.N;
@@ -522,7 +547,7 @@ export function hannanRissanen(z: Float64Array, p: number, q: number): { phi: nu
   let resid: Float64Array | null = null;
   let m = 0;
   if (q > 0) {
-    m = Math.min(Math.max(p + q + 1, Math.round(12 * Math.pow(N / 100, 0.25))), 20, Math.floor(N / 4));
+    m = M_min(M_max(p + q + 1, Math.round(12 * Math.pow(N / 100, 0.25))), 20, Math.floor(N / 4));
     if (m < 1) return null;
     const X: number[][] = [];
     const yy: number[] = [];
@@ -545,7 +570,7 @@ export function hannanRissanen(z: Float64Array, p: number, q: number): { phi: nu
   if (N - start < p + q + 2) return null;
   const X: number[][] = [];
   const yy: number[] = [];
-  for (let t = Math.max(start, p); t < N; t++) {
+  for (let t = M_max(start, p); t < N; t++) {
     const row: number[] = [];
     for (let i = 1; i <= p; i++) row.push(z[t - i]);
     for (let j = 1; j <= q; j++) row.push(resid ? resid[t - j] : 0);
@@ -579,7 +604,7 @@ export function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number,
   const grad = (xx: number[], fx: number): number[] => {
     const g = new Array<number>(k);
     for (let i = 0; i < k; i++) {
-      const h = 1e-6 * Math.max(1, Math.abs(xx[i]));
+      const h = 1e-6 * M_max(1, M_abs(xx[i]));
       const xp = xx.slice();
       const xm = xx.slice();
       xp[i] += h;
@@ -604,7 +629,7 @@ export function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number,
   const hist: number[] = [f];
   for (let it = 1; it <= maxIter; it++) {
     if (budget.left <= 0) return { x, f, converged: false, iterations: it - 1, exhausted: true };
-    const gnorm = Math.max(...g.map(Math.abs));
+    const gnorm = M_max(...g.map(Math.abs));
     if (gnorm < 1e-9) return { x, f, converged: true, iterations: it - 1 };
     let dir = Hinv.map((row) => -row.reduce((s, v, j) => s + v * g[j], 0));
     let slope = dir.reduce((s, v, i) => s + v * g[i], 0);
@@ -615,7 +640,7 @@ export function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number,
       slope = -g.reduce((s, v) => s + v * v, 0);
     }
     // Cap the step in the unconstrained space.
-    const dmax = Math.max(...dir.map(Math.abs));
+    const dmax = M_max(...dir.map(Math.abs));
     let step = dmax > 5 ? 5 / dmax : 1;
     let xn = x;
     let fn1 = f;
@@ -653,13 +678,13 @@ export function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number,
     x = xn;
     f = fn1;
     g = gn;
-    if (df <= 1e-15 * Math.max(1, Math.abs(f))) small++;
+    if (df <= 1e-15 * M_max(1, M_abs(f))) small++;
     else small = 0;
-    if (small >= 4) return { x, f, converged: Math.max(...g.map(Math.abs)) < 1e-5, iterations: it };
+    if (small >= 4) return { x, f, converged: M_max(...g.map(Math.abs)) < 1e-5, iterations: it };
     // A ridge (an over-parametrised ARMA with near-cancelling roots): 30 iterations that gain almost nothing.
     hist.push(f);
-    if (hist.length > 30 && hist[hist.length - 31] - f < 1e-12 * Math.max(1, Math.abs(f))) {
-      return { x, f, converged: Math.max(...g.map(Math.abs)) < 1e-4, iterations: it };
+    if (hist.length > 30 && hist[hist.length - 31] - f < 1e-12 * M_max(1, M_abs(f))) {
+      return { x, f, converged: M_max(...g.map(Math.abs)) < 1e-4, iterations: it };
     }
   }
   return { x, f, converged: false, iterations: maxIter };
@@ -685,7 +710,7 @@ function packShrunk(phi: number[], theta: number[], pk: Packed): number[] | null
       0,
       pk,
     );
-    if (x && x.every((v) => Math.abs(v) < 50)) return x;
+    if (x && x.every((v) => M_abs(v) < 50)) return x;
     f *= 0.8;
   }
   return null;
@@ -725,18 +750,18 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   const { z, center, scale } = sc;
   const pk: Packed = { p, q, hasMu };
   // Work budget, in estimated ns charged per evaluation (deterministic, so a refusal does not depend on the machine).
-  // A fit that cannot afford the Hessian plus max(100, 20k) evaluations (a BFGS run needs far more than one gradient per
-  // parameter) even with a settled covariance is refused up front,
-  // naming the most rows these orders allow. The Hessian then draws on what the optimiser left plus HESS_ALLOWANCE;
-  // if that runs out, the estimates stand and the standard errors are reported as not computed.
-  const r = Math.max(p, q + 1);
+  // A fit whose typical need (arimaTypicalEvals, plus the Hessian) does not fit in it even with the covariance
+  // settling at once is refused up front, naming the most rows these orders allow (round 2 MAJOR 6: ARIMA(3, 1, 3) on
+  // 500 rows ran 2.3 s and then refused on the clock). The Hessian then draws on what the optimiser left plus
+  // HESS_ALLOWANCE; if that runs out, the estimates stand and the standard errors are reported as not computed.
+  const r = M_max(p, q + 1);
   const hessEvals = 2 * k * k + 1;
-  const minEvals = hessEvals + Math.max(100, 20 * k);
-  const upfront = minEvals * evalCostNs(N, r, Math.min(N, r * r));
+  const typicalEvals = arimaTypicalEvals(k) + hessEvals;
+  const upfront = typicalEvals * evalCostNs(N, r, M_min(N, r * r));
   if (upfront > ARIMA_WORK_BUDGET) {
-    const perRow = minEvals * 20 * r;
-    const fixed = minEvals * (300 * r ** 4 + 3 * r ** 6 + 2000);
-    const maxN = Math.max(0, Math.floor((ARIMA_WORK_BUDGET - fixed) / perRow));
+    const perRow = typicalEvals * 3 * (r + 2);
+    const fixed = typicalEvals * (15 * r ** 4 + r ** 6 + 30000);
+    const maxN = M_max(0, Math.floor((ARIMA_WORK_BUDGET - fixed) / perRow));
     return {
       ok: false,
       reason: `ARIMA(${p}, ${d}, ${q}) on ${N.toLocaleString("en-US")} observations needs more computation than the pane allows; use at most ${maxN.toLocaleString("en-US")} rows for these orders, or smaller p and q.`,
@@ -744,13 +769,9 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   }
   const budget = { left: ARIMA_WORK_BUDGET };
   const cost = { ns: 0 };
-  const started = Date.now();
-  // The Hessian keeps a share of the clock: the optimiser stops at 75% of it.
-  const optDeadline = started + 0.75 * ARIMA_WALL_MS;
   const fn = (x: number[]): number => {
     const v = negMeanLlf(z, x, pk, cost);
     budget.left -= cost.ns;
-    if (Date.now() > optDeadline) budget.left = Math.min(budget.left, 0);
     return v;
   };
 
@@ -797,7 +818,7 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   // For the refusal's advice: is the highest likelihood found sitting at the MA invertibility edge?
   const maNearEdge = q > 0 && (() => {
     const u = unconstrainStationary(unpack(runs[0].x, pk).theta.map((t) => -t));
-    return !u || u.some((v) => Math.abs(v) > 6);
+    return !u || u.some((v) => M_abs(v) > 6);
   })();
   if (!best || best.f > runs[0].f + 1e-10) {
     return {
@@ -813,10 +834,10 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   const filt = kalmanArma(zc, phi, theta, true);
   if (!filt) return { ok: false, reason: "The fitted AR polynomial is not stationary (the optimiser left the region), so no estimate is reported." };
   const s2z = filt.sumV2F / N;
-  const llf = llfConcentrated(filt) - N * Math.log(scale);
+  const llf = llfConcentrated(filt) - N * M_log(scale);
   const params: ArimaParams = { mu: hasMu ? center + scale * muZ : 0, phi, theta, sigma2: s2z * scale * scale };
   const std = filt.std as Float64Array;
-  const sq = Math.sqrt(s2z);
+  const sq = M_sqrt(s2z);
   for (let i = 0; i < N; i++) std[i] /= sq;
 
   // SEs: the numerical Hessian of the full llf (σ² included) in the constrained parameters, central differences.
@@ -830,7 +851,7 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
     o += q;
     const s2 = v[o];
     if (!(s2 > 0) || !isStationary(ph) || !isInvertible(th)) return NaN;
-    if (hessBudget.left <= 0 || Date.now() > started + ARIMA_WALL_MS) {
+    if (hessBudget.left <= 0) {
       hessBudget.out = true;
       return NaN;
     }
@@ -839,7 +860,7 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
     hessBudget.left -= evalCostNs(N, r, f ? f.unsteadySteps : 0);
     return f ? llfFromFilter(f, s2) : NaN;
   };
-  const hessBudget = { left: Math.max(0, budget.left) + HESS_ALLOWANCE, out: false };
+  const hessBudget = { left: M_max(0, budget.left) + HESS_ALLOWANCE, out: false };
   const hess = numericalHessian(llfAt, theta0);
   let se: number[] | null = null;
   let seWhy: string | undefined;
@@ -853,7 +874,7 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
     if (!cov) seWhy = "the Hessian of the log likelihood is not negative definite at the maximum (a flat or boundary likelihood)";
     else {
       const jac = [...(hasMu ? [scale] : []), ...new Array<number>(p + q).fill(1), scale * scale];
-      se = cov.map((row, i) => Math.sqrt(row[i]) * jac[i]);
+      se = cov.map((row, i) => M_sqrt(row[i]) * jac[i]);
       if (!se.every((v) => Number.isFinite(v) && v > 0)) {
         se = null;
         seWhy = "a variance from the inverse Hessian is not positive";
@@ -863,11 +884,11 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
 
   const aic = -2 * llf + 2 * k;
   const aicc = N - k - 1 > 0 ? -2 * llf + (2 * k * N) / (N - k - 1) : null;
-  const bic = -2 * llf + k * Math.log(N);
+  const bic = -2 * llf + k * M_log(N);
   const notes: string[] = [];
   const nearUnit = (c: number[]): boolean => {
     const u = unconstrainStationary(c);
-    return !u || u.some((v) => Math.abs(v) > 20);
+    return !u || u.some((v) => M_abs(v) > 20);
   };
   if (p && nearUnit(phi)) notes.push("The AR part is at the edge of stationarity (a partial autocorrelation within 0.2% of ±1): the series may need one more difference.");
   if (q && nearUnit(theta.map((t) => -t))) notes.push("The MA part is at the edge of invertibility (a partial autocorrelation within 0.2% of ±1): the series may be over-differenced.");
@@ -877,7 +898,7 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
 /** Central-difference Hessian; null when any evaluation is not finite. */
 function numericalHessian(f: (x: number[]) => number, x: number[]): number[][] | null {
   const k = x.length;
-  const h = x.map((v) => 1e-4 * Math.max(Math.abs(v), 0.1));
+  const h = x.map((v) => 1e-4 * M_max(M_abs(v), 0.1));
   const f0 = f(x);
   if (!Number.isFinite(f0)) return null;
   const H: number[][] = [];
@@ -923,13 +944,13 @@ export interface ArimaForecast {
  * what an exact-diffuse filter on the undifferenced series gives).
  */
 export function arimaForecast(y: ArrayLike<number>, spec: ArimaSpec, prm: ArimaParams, h: number, level = 0.95): ArimaForecast | null {
-  const H = Math.max(1, Math.min(ARIMA_MAX_H, Math.floor(h)));
+  const H = M_max(1, M_min(ARIMA_MAX_H, Math.floor(h)));
   const yy = Float64Array.from(y as ArrayLike<number>);
   const w = difference(yy, spec.d);
   const N = w.length;
   const mu = spec.trend === "none" ? 0 : prm.mu;
   let s = 0;
-  for (let i = 0; i < N; i++) s = Math.max(s, Math.abs(w[i] - mu));
+  for (let i = 0; i < N; i++) s = M_max(s, M_abs(w[i] - mu));
   if (!(s > 0) || !Number.isFinite(s)) return null;
   const z = new Float64Array(N);
   for (let i = 0; i < N; i++) z[i] = (w[i] - mu) / s;
@@ -972,7 +993,7 @@ export function arimaForecast(y: ArrayLike<number>, spec: ArimaSpec, prm: ArimaP
   if (spec.d === 0) {
     for (let j = 0; j < H; j++) {
       mean.push(wHat[j]);
-      se.push(Math.sqrt(C[j][j]));
+      se.push(M_sqrt(C[j][j]));
     }
   } else {
     // Means by repeated cumulative sums from the last observed levels.
@@ -993,7 +1014,7 @@ export function arimaForecast(y: ArrayLike<number>, spec: ArimaSpec, prm: ArimaP
       for (let j = 1; j <= hh; j++) c.push(spec.d === 1 ? 1 : hh - j + 1);
       let v = 0;
       for (let i = 0; i < hh; i++) for (let j = 0; j < hh; j++) v += c[i] * c[j] * C[i][j];
-      se.push(Math.sqrt(Math.max(0, v)));
+      se.push(M_sqrt(M_max(0, v)));
     }
   }
   const zq = normalQuantile(0.5 + level / 2);

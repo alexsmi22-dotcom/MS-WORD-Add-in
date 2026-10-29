@@ -284,10 +284,13 @@ describe("7. rounding noise and display", () => {
     expect(r.exactFit).toBeUndefined();
     expect(regressionReport(r)).toMatch(/Overall F\(1, 3\)/);
   });
-  test("polynomial note and cap agree with the dropdown (4)", () => {
+  test("polynomial note and cap agree with the dropdown (4); a higher degree is refused, not clamped (round 2)", () => {
     const pr = polynomialRegression([1, 2, 3, 4, 5, 6, 7, 8], [1, 3, 2, 5, 4, 6, 8, 7], 6);
-    expect(pr.degree).toBe(4);
-    expect(pr.caveats.join(" ")).toMatch(/Degree 4 is the maximum offered/);
+    expect(pr.ok).toBe(false);
+    expect(pr.reason).toMatch(/^The degree must be a whole number from 1 to 4; 6 is not offered/);
+    const p4 = polynomialRegression([1, 2, 3, 4, 5, 6, 7, 8], [1, 3, 2, 5, 4, 6, 8, 7], 4);
+    expect(p4.degree).toBe(4);
+    expect(p4.caveats.join(" ")).toMatch(/Degree 4 is the maximum offered/);
   });
   test("line equation: sign in the operator, ×10ⁿ", () => {
     expect(lineEquation(1.98, -1.98e9)).toBe("y = 1.98x − 1.98×10⁹");

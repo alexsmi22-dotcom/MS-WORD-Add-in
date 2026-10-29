@@ -1115,10 +1115,25 @@ export function synthCalc(read: Read): StatOutput {
     if (r.treated[t] > Math.max(...col) || r.treated[t] < Math.min(...col)) outside++;
   }
   if (outside > 0) lines.push(`In ${outside} of ${T0} pre-periods the treated unit lies outside the donors' range, where no convex combination can match it; read the fit with care.`);
-  // R5 MAJOR 8: a synthetic control that does not track the treated unit before treatment (outside the donors' range
-  // in most pre-periods, or a pre-period RMSPE as large as the average post-period gap) gives no reliable effect estimate.
-  const poorFit = !exactPre && fmtFixed(att, 3) !== fmtFixed(0, 3) && (2 * outside > T0 || r.pre >= Math.abs(att));
-  if (poorFit) lines.push(`The synthetic control does not track ${r.treatedName} closely before treatment (pre-period RMSPE ${fmtFixed(r.pre, 3)} against an average post-period gap of ${fmtFixed(att, 3)}${outside ? `; outside the donors' range in ${outside} of ${T0} pre-periods` : ""}), so the post-period gap is not a reliable estimate of the effect.`);
+  // R5 MAJOR 8: a synthetic control that does not track the treated unit before treatment gives no reliable effect
+  // estimate. Round 2 (MAJOR 3): the fit is judged against the treated series' own pre-period variation (synthPoorFit),
+  // not against the effect, so an excellent fit with a small effect is read as "no clear effect", placebo p kept.
+  let m0 = 0;
+  for (let t = 0; t < T0; t++) m0 += r.treated[t] / T0;
+  let v0 = 0;
+  for (let t = 0; t < T0; t++) v0 += (r.treated[t] - m0) ** 2 / T0;
+  const sdPre = Math.sqrt(v0);
+  const fit = synthPoorFit({ exactPre, pre: r.pre, att, sdPre, outside, T0 });
+  const poorFit = fit.byFit || fit.byRange;
+  if (poorFit) {
+    const why = [
+      fit.byFit ? `pre-period RMSPE ${fmtFixed(r.pre, 3)}, more than half the treated series' own pre-period standard deviation of ${fmtFixed(sdPre, 3)} and at least the average post-period gap of ${fmtFixed(att, 3)}` : "",
+      fit.byRange ? `outside the donors' range in ${outside} of ${T0} pre-periods` : "",
+    ].filter(Boolean).join("; ");
+    lines.push(`The synthetic control does not track ${r.treatedName} closely before treatment (${why}), so the post-period gap is not a reliable estimate of the effect.`);
+  }
+  // A tight fit whose post-period gap is no larger than its typical pre-period gap: no clear effect.
+  const smallGap = !poorFit && !exactPre && fmtFixed(att, 3) !== fmtFixed(0, 3) && Math.abs(att) <= r.pre;
   lines.push(...cols.notes);
   // Tables.
   const order = r.w.map((v, j) => [v, j] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
@@ -1200,14 +1215,37 @@ export function synthCalc(read: Read): StatOutput {
     attS === fmtFixed(0, 3)
       ? `After treatment the treated unit tracked its synthetic control with no average gap (${attS})`
       : `After treatment the treated unit ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control (the estimated effect)`;
+  // Round 2 (MAJOR 3): a tight pre-period fit whose post-period gap is no larger than its typical pre-period gap reads
+  // as no clear effect, and keeps the placebo comparison.
+  // (Not when the placebo ranking is itself clear: a post-period gap that swings both ways can average little and still
+  // stand out; the general wording then states both.)
+  const placeboClear = !!r.placebos && !exactPre && pVerdict(`p = ${fmtFixed(r.p, 3)}`) === "clear";
+  const smallReading = smallGap && !placeboClear
+    ? fitReading(
+        `After treatment, ${r.treatedName} ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control, no more than its typical pre-period gap (RMSPE ${fmtFixed(r.pre, 3)}), so there is no clear effect${inference}`,
+        `After treatment the treated unit ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control, no more than its typical pre-period gap (RMSPE ${fmtFixed(r.pre, 3)}), so there is no clear effect${inference}`,
+        `After treatment the treated unit ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control, no more than its typical pre-period gap (RMSPE ${fmtFixed(r.pre, 3)}), so there is no clear effect.`,
+      )
+    : undefined;
   const poorReading = poorFit
     ? fitReading(
         `After treatment, ${r.treatedName} ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control, but the synthetic control did not track it before treatment (pre-period RMSPE ${fmtFixed(r.pre, 3)}), so that gap is not a reliable estimate of the effect.`,
         `After treatment the treated unit ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control, but the synthetic control did not track it before treatment (pre-period RMSPE ${fmtFixed(r.pre, 3)}), so that gap is not a reliable estimate of the effect.`,
       )
     : undefined;
-  const reading = poorReading ?? fitReading(gapText + inference, bareGap + inference, `${gapText}.`, `${bareGap}.`);
+  const reading = poorReading ?? smallReading ?? fitReading(gapText + inference, bareGap + inference, `${gapText}.`, `${bareGap}.`);
   return { text: lines.join("\n"), reading, tables, svg };
+}
+
+/**
+ * causal-synth: whether the synthetic control fails to track the treated unit before treatment (round 2 MAJOR 3).
+ * byFit: the pre-period RMSPE is more than half the treated series' own pre-period standard deviation (a pre-period R²
+ * below 0.75) AND at least the average post-period gap (so the gap is within the fitting error); byRange: the treated
+ * unit lies outside the donors' range in most pre-periods. Neither applies to an exact fit or a gap that prints as 0.
+ */
+export function synthPoorFit(o: { exactPre: boolean; pre: number; att: number; sdPre: number; outside: number; T0: number }): { byFit: boolean; byRange: boolean } {
+  if (o.exactPre || fmtFixed(o.att, 3) === fmtFixed(0, 3)) return { byFit: false, byRange: false };
+  return { byFit: o.pre > 0.5 * o.sdPre && o.pre >= Math.abs(o.att), byRange: 2 * o.outside > o.T0 };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

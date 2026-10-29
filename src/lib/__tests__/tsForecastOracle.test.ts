@@ -183,7 +183,7 @@ describe("Holt–Winters vs statsmodels", () => {
         if (!fit.ok) throw new Error(fit.reason);
         expect(fit.sse).toBeLessThanOrEqual(c.sse * (1 + 1e-6));
         // Parameters loosely, where both optimisers reached the same minimum (on "holt" statsmodels stops at
-        // β = α with an SSE 0.28% above ours, so there the parameters legitimately differ).
+        // β = α with an SSE 0.28% above ours, so there the parameters legitimately differ; likewise "holt_damped").
         if (fit.sse > c.sse * (1 - 1e-7)) {
           const p = fit.params;
           expect(Math.abs(p.alpha - c.alpha)).toBeLessThan(1e-3);
@@ -191,7 +191,9 @@ describe("Holt–Winters vs statsmodels", () => {
           expect(Math.abs(p.gamma - c.gamma)).toBeLessThan(1e-3);
           expect(Math.abs(p.phi - c.phi)).toBeLessThan(1e-3);
         } else {
-          expect(c.name).toBe("holt");
+          // Round 2 (MAJOR 2): on "holt_damped" the wider search reaches the corner α = 0 (a deterministic damped
+          // trend) at SSE 83.235, 0.86% below statsmodels' 83.954.
+          expect(["holt", "holt_damped"]).toContain(c.name);
         }
         const n = c.y.length;
         const d = n * Math.log(fit.sse / n) - n * Math.log(c.sse / n);

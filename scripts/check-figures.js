@@ -123,6 +123,8 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // 1033 as of v2.206.0 (VFX & compositing): sixty-eight figures, each VFX calculator at its defaults and the layouts
 // that crowd (retime warp and speed, plate timelines, FOV wedges, the parallax plan, transform axes, shading vectors,
 // eight log curves, compositing swatches and bars, CbCr planes, Froude and bounce charts) plus six builder edges.
+// 1035 on branch lighting: Lighting & rendering adds 69 (the seven calculators at 35 inputs that change a layout,
+// two figures for five of them, and eleven builders at their edges).
 const CORPUS_FLOOR = 1016;
 
 // --- The allowance ratchet ----------------------------------------------------

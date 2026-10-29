@@ -323,6 +323,7 @@ function run() {
   // bounding volumes, texture, farm, storage, pipeline), each drawing from its shipped defaults.
   // 252 as of v2.206.0: eleven VFX & compositing tools (vfx-retime … vfx-collision, the new "VFX & compositing" group),
   // every one drawing from its shipped defaults.
+  // 248 on branch lighting: the seven Lighting & rendering calculators, each drawing from its defaults.
   const FIGURE_BASELINE = 249;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");

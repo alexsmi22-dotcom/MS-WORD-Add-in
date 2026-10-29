@@ -98,10 +98,39 @@ describe("the equation table is plain data", () => {
 });
 
 describe("every engEq key the pane uses exists", () => {
-  const pane = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
-  const keys = [...pane.matchAll(/\bengEq\("([^"]+)"\)/g)].map((m) => m[1]);
+  /**
+   * Source with its comments removed, so an engEq("x") written in a comment is not counted as a use: block comments,
+   * whole-line // comments, and a trailing // comment when the code before it has no open string (an even count of
+   * each quote character), so "https://…" inside a string survives.
+   */
+  const code = (src: string): string =>
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .map((line) => {
+        if (/^\s*\/\//.test(line)) return "";
+        const i = line.search(/\s\/\/\s/);
+        if (i < 0) return line;
+        const before = line.slice(0, i);
+        const even = (q: string): boolean => (before.split(q).length - 1) % 2 === 0;
+        return even('"') && even("'") && even("`") ? before : line;
+      })
+      .join("\n");
+  const pane = code(fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8"));
+  // Library registries spread into ENG_CALCS (src/lib/*Calcs.ts) call engEq too: their keys count as used, under the
+  // same rules as the pane's (literal keys only, comments not counted).
+  const libDir = path.join(__dirname, "..");
+  const libCalls = code(fs.readdirSync(libDir).filter((f) => /Calcs\.ts$/.test(f)).map((f) => fs.readFileSync(path.join(libDir, f), "utf8")).join("\n"));
+  const keys = [...pane.matchAll(/\bengEq\("([^"]+)"\)/g), ...libCalls.matchAll(/\bengEq\("([^"]+)"\)/g)].map((m) => m[1]);
   test("the pane calls engEq only with literal keys", () => {
     expect(pane).not.toMatch(/\bengEq\((?!")/);
+  });
+  test("library registries call engEq only with literal keys", () => {
+    expect(libCalls).not.toMatch(/\bengEq\((?!")/);
+  });
+  test("a key named only in a comment is not counted as used", () => {
+    expect(code('// engEq("ghost")\nconst x = 1; // engEq("ghost2")\n/* engEq("ghost3") */')).not.toMatch(/ghost/);
+    expect(code('const u = "https://x.org"; engEq("real")')).toMatch(/engEq\("real"\)/);
   });
   test.each([...new Set(keys)].map((k) => [k]))("%s", (k) => {
     expect(ENG_EQUATIONS[k]?.length ?? 0).toBeGreaterThan(0);

@@ -1,0 +1,268 @@
+{
+ "generator": "scripts/lighting-polar-oracle.py",
+ "pvlib": "0.16.1",
+ "cases": [
+  {
+   "name": "Tromso rises only",
+   "lat": 69.6492,
+   "lon": 18.9553,
+   "date": "2026-05-18",
+   "offset": 2,
+   "minElevation": -0.8589332264002115,
+   "maxElevation": 39.953249194558275,
+   "lit": [
+    {
+     "start": 0.0,
+     "end": 28.176171043297465,
+     "openStart": true,
+     "openEnd": false
+    },
+    {
+     "start": 52.126797366065865,
+     "end": 1440.0,
+     "openStart": false,
+     "openEnd": true
+    }
+   ],
+   "litMinutes": 1416.0493736772316,
+   "golden": [
+    {
+     "start": 0.0,
+     "end": 242.31116081991703,
+     "openStart": true,
+     "openEnd": false
+    },
+    {
+     "start": 1281.296288093502,
+     "end": 1440.0,
+     "openStart": false,
+     "openEnd": true
+    }
+   ],
+   "blue": [],
+   "spaSunrise": -25.468495716666666,
+   "spaSunset": 1545.0642763166666
+  },
+  {
+   "name": "Tromso sets only",
+   "lat": 69.6492,
+   "lon": 18.9553,
+   "date": "2026-07-25",
+   "offset": 2,
+   "minElevation": -0.6520389986814042,
+   "maxElevation": 39.94242930898174,
+   "lit": [
+    {
+     "start": 0.0,
+     "end": 1440.0,
+     "openStart": true,
+     "openEnd": true
+    }
+   ],
+   "litMinutes": 1440.0,
+   "golden": [
+    {
+     "start": 0.0,
+     "end": 250.23617612202486,
+     "openStart": true,
+     "openEnd": false
+    },
+    {
+     "start": 1288.8657282288984,
+     "end": 1440.0,
+     "openStart": false,
+     "openEnd": true
+    }
+   ],
+   "blue": [],
+   "spaSunrise": null,
+   "spaSunset": null
+  },
+  {
+   "name": "Tromso midwinter",
+   "lat": 69.6492,
+   "lon": 18.9553,
+   "date": "2026-12-21",
+   "offset": 1,
+   "minElevation": -43.79001150488992,
+   "maxElevation": -3.0884392749903244,
+   "lit": [],
+   "litMinutes": 0.0,
+   "golden": [
+    {
+     "start": 629.5764597960687,
+     "end": 774.8432792651861,
+     "openStart": false,
+     "openEnd": false
+    }
+   ],
+   "blue": [
+    {
+     "start": 571.2556644784606,
+     "end": 629.5764597960687,
+     "openStart": false,
+     "openEnd": false
+    },
+    {
+     "start": 774.8432792651861,
+     "end": 833.1637714806899,
+     "openStart": false,
+     "openEnd": false
+    }
+   ],
+   "spaSunrise": null,
+   "spaSunset": null
+  },
+  {
+   "name": "Tromso midsummer",
+   "lat": 69.6492,
+   "lon": 18.9553,
+   "date": "2026-06-21",
+   "offset": 2,
+   "minElevation": 3.0842291032176843,
+   "maxElevation": 43.78699887791035,
+   "lit": [
+    {
+     "start": 0.0,
+     "end": 1440.0,
+     "openStart": true,
+     "openEnd": true
+    }
+   ],
+   "litMinutes": 1440.0,
+   "golden": [
+    {
+     "start": 0.0,
+     "end": 176.8955312927034,
+     "openStart": true,
+     "openEnd": false
+    },
+    {
+     "start": 1355.0608428091357,
+     "end": 1440.0,
+     "openStart": false,
+     "openEnd": true
+    }
+   ],
+   "blue": [],
+   "spaSunrise": null,
+   "spaSunset": null
+  },
+  {
+   "name": "89S equinox",
+   "lat": -89.0,
+   "lon": 0.0,
+   "date": "2026-03-20",
+   "offset": 0,
+   "minElevation": -1.154187424982866,
+   "maxElevation": 1.042927264409142,
+   "lit": [
+    {
+     "start": 0.0,
+     "end": 1273.0226729113626,
+     "openStart": true,
+     "openEnd": false
+    }
+   ],
+   "litMinutes": 1273.0226729113626,
+   "golden": [
+    {
+     "start": 0.0,
+     "end": 1440.0,
+     "openStart": true,
+     "openEnd": true
+    }
+   ],
+   "blue": [],
+   "spaSunrise": null,
+   "spaSunset": null
+  },
+  {
+   "name": "89S September",
+   "lat": -89.0,
+   "lon": 0.0,
+   "date": "2026-09-23",
+   "offset": 0,
+   "minElevation": -1.0033078282193557,
+   "maxElevation": 1.1905617270368491,
+   "lit": [
+    {
+     "start": 115.00843017010597,
+     "end": 1440.0,
+     "openStart": false,
+     "openEnd": true
+    }
+   ],
+   "litMinutes": 1324.991569829894,
+   "golden": [
+    {
+     "start": 0.0,
+     "end": 1440.0,
+     "openStart": true,
+     "openEnd": true
+    }
+   ],
+   "blue": [],
+   "spaSunrise": 113.12753145,
+   "spaSunset": 1442.4039848
+  },
+  {
+   "name": "89N equinox",
+   "lat": 89.0,
+   "lon": 0.0,
+   "date": "2026-03-20",
+   "offset": 0,
+   "minElevation": -1.2450680668262544,
+   "maxElevation": 0.9561439485458277,
+   "lit": [
+    {
+     "start": 207.00551857758433,
+     "end": 1390.5906350649373,
+     "openStart": false,
+     "openEnd": false
+    }
+   ],
+   "litMinutes": 1183.585116487353,
+   "golden": [
+    {
+     "start": 0.0,
+     "end": 1440.0,
+     "openStart": true,
+     "openEnd": true
+    }
+   ],
+   "blue": [],
+   "spaSunrise": 205.48192323333333,
+   "spaSunset": 1328.1131678833333
+  },
+  {
+   "name": "89N September",
+   "lat": 89.0,
+   "lon": 0.0,
+   "date": "2026-09-23",
+   "offset": 0,
+   "minElevation": -1.3895555509241602,
+   "maxElevation": 0.8084206004364426,
+   "lit": [
+    {
+     "start": 142.32652167429282,
+     "end": 1194.7768176886868,
+     "openStart": false,
+     "openEnd": false
+    }
+   ],
+   "litMinutes": 1052.450296014394,
+   "golden": [
+    {
+     "start": 0.0,
+     "end": 1440.0,
+     "openStart": true,
+     "openEnd": true
+    }
+   ],
+   "blue": [],
+   "spaSunrise": 140.35362769999998,
+   "spaSunset": 1152.0587146666667
+  }
+ ]
+}

@@ -52,9 +52,10 @@ describe("registry", () => {
     ]);
     expect(new Set(VFX_CALCS.map((c) => c.group))).toEqual(new Set(["VFX & compositing"]));
   });
-  test("the pane registers the group right after Light & camera and spreads the registry", () => {
+  // v2.206.0: the four new visual panels follow Light & camera as Colour, Lighting, VFX, then Scene modelling.
+  test("the pane registers the group after Light & camera, Colour and Lighting, and spreads the registry", () => {
     const pane = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
-    expect(pane).toMatch(/"Light & camera",\r?\n {2}"VFX & compositing",/);
+    expect(pane).toMatch(/"Light & camera",\r?\n {2}"Colour & appearance",\r?\n {2}"Lighting & rendering",\r?\n {2}"VFX & compositing",\r?\n {2}"Scene modelling & pipeline",/);
     expect(pane).toMatch(/\.\.\.VFX_CALCS,/);
   });
 });

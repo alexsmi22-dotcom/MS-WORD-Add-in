@@ -82,11 +82,13 @@ describe("registry", () => {
     for (const c of SCENE_CALCS) expect(c.group).toBe(SCENE_GROUP);
     expect(SCENE_GROUP).toBe("Scene modelling & pipeline");
   });
-  test("the pane's group order has the heading right after Light & camera", () => {
+  // v2.206.0: the four new visual panels follow Light & camera as Colour, Lighting, VFX, then Scene modelling.
+  test("the pane's group order has the heading right after VFX & compositing (after Light & camera)", () => {
     const pane = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
     const i = pane.indexOf("const ENG_GROUP_ORDER");
     const order = [...pane.slice(i, pane.indexOf("] as const", i)).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-    expect(order[order.indexOf("Light & camera") + 1]).toBe(SCENE_GROUP);
+    const lc = order.indexOf("Light & camera");
+    expect(order.slice(lc, lc + 5)).toEqual(["Light & camera", "Colour & appearance", "Lighting & rendering", "VFX & compositing", SCENE_GROUP]);
     expect(pane).toMatch(/^\s*\.\.\.SCENE_CALCS,$/m);
   });
 });

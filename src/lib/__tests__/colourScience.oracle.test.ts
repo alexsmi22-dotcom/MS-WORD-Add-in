@@ -122,7 +122,8 @@ describe("conversions against colour-science", () => {
     closeV("L*a*b*", [L.L, L.a, L.b], r.Lab, 1e-9);
     const C = labToLch(L);
     close("L*C*h (C)", C.C, r.LCh[1], 1e-9);
-    close("L*C*h (h)", C.h, r.LCh[2], 1e-8);
+    // The hue of a colour AT the white (C*ab of order 10⁻⁵, the white sample: hue error ~10⁻¹³/C) is rounding noise in both programs: skipped.
+    if (C.C > 1e-3) close("L*C*h (h)", C.h, r.LCh[2], 1e-8);
     const U = XYZToLuv(X, W);
     closeV("L*u*v*", [U.L, U.u, U.v], r.Luv, 1e-9);
     closeV("u′v′", XYZToUpVp(X) as number[], r.upvp, 1e-12);

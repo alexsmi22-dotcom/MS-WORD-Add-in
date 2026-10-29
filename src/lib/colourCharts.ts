@@ -8,7 +8,7 @@ import { buildPlotSvg, type Series } from "./plot";
 import { parametricPlotSvg } from "./plotKinds";
 import { groupedBarSvg } from "./statchart";
 import { gamutById } from "./colourspace";
-import { DE_SYMBOL, spectralLocus, toleranceContour, type DeFormula, type Lab, type Observer, type ParametricK } from "./colourScience";
+import { CONTOUR_MAX_DE, DE_SYMBOL, spectralLocus, toleranceContour, type DeFormula, type Lab, type Observer, type ParametricK } from "./colourScience";
 
 const BLUE = "#1f5fa8";
 const RED = "#c00000";
@@ -23,6 +23,28 @@ const f2 = (v: number): string => {
   const t = Math.abs(v).toFixed(2);
   return v < 0 && Number(t) !== 0 ? `−${t}` : t;
 };
+
+/**
+ * A plot over the SQUARE window [cx ± half] × [cy ± half] with one unit the same length on both axes. The plotter
+ * has no aspect option, but explicit limits replace the domain exactly and its margins do not depend on the height,
+ * so one measuring render gives the frame width and the height that makes the frame square (plotKinds'
+ * parametricPlotSvg does the same; its automatic range is not symmetric, which let a 6:1 plane through).
+ */
+function squareSvg(series: Series[], opts: { xlabel: string; ylabel: string; title?: string; notes?: string[] }, cx: number, cy: number, half: number): string {
+  const base = { ...opts, xLimits: { min: cx - half, max: cx + half }, yLimits: { min: cy - half, max: cy + half }, width: W, height: Math.round(W * 0.8) };
+  const first = buildPlotSvg(series, base);
+  const frame = /<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" fill="none" stroke="#888"/.exec(first);
+  if (!frame) return first;
+  const H = base.height + (Number(frame[3]) - Number(frame[4]));
+  return buildPlotSvg(series, { ...base, height: Math.round(Math.max(0.5 * W, Math.min(1.6 * W, H)) * 100) / 100 });
+}
+
+/** Half-width of a square window around (cx, cy) that holds every point, with a margin. */
+function halfFor(pts: Array<{ x: number; y: number }>, cx: number, cy: number, min: number): number {
+  let h = min;
+  for (const p of pts) if (Number.isFinite(p.x) && Number.isFinite(p.y)) h = Math.max(h, Math.abs(p.x - cx), Math.abs(p.y - cy));
+  return h * 1.12;
+}
 
 export interface AbPoint {
   label: string;
@@ -47,7 +69,9 @@ export function abPlaneSvg(points: AbPoint[], opts: { contour?: { f: DeFormula; 
     const ring = toleranceContour(opts.contour.f, opts.contour.std, opts.contour.tol, opts.contour.k);
     if (ring.length > 2) series.push({ points: ring, type: "line", color: GREEN, label: `${DE_SYMBOL[opts.contour.f]} = ${f2(opts.contour.tol)}` });
   }
-  return parametricPlotSvg(series, { xlabel: "a* (green − / red +)", ylabel: "b* (blue − / yellow +)", title: opts.title, equal: true }, W);
+  // A square window centred on the neutral axis, so the chroma rays keep their true angles and lengths.
+  const half = halfFor(series.flatMap((s) => s.points), 0, 0, 5);
+  return squareSvg(series, { xlabel: "a* (green − / red +)", ylabel: "b* (blue − / yellow +)", title: opts.title }, 0, 0, half);
 }
 
 /**
@@ -57,9 +81,13 @@ export function abPlaneSvg(points: AbPoint[], opts: { contour?: { f: DeFormula; 
  */
 export function abZoomSvg(std: Lab, samples: Array<{ label: string; lab: Lab; pass?: boolean }>, f: DeFormula, level: number, k?: ParametricK): string {
   const series: Series[] = [];
+  const notes: string[] = [];
   const ring = toleranceContour(f, std, level, k);
   if (ring.length > 2) series.push({ points: ring, type: "line", color: GREEN, label: `${DE_SYMBOL[f]} = ${f2(level)}` });
-  if (f !== "de76") {
+  else if (level > CONTOUR_MAX_DE) notes.push(`No region drawn: ${DE_SYMBOL[f]} ${f2(level)} is above ${CONTOUR_MAX_DE}, where the formulas are not tolerances.`);
+  else notes.push(`No region drawn: the ${DE_SYMBOL[f]} = ${f2(level)} region does not close around this standard.`);
+  if (samples.length) notes.push("Drawn at the standard's L*: a sample can fail on ΔL* alone and still sit inside (see the L* bars).");
+  if (ring.length > 2 && f !== "de76") {
     const circle = toleranceContour("de76", std, level);
     if (circle.length > 2) series.push({ points: circle, type: "line", color: GREY, label: `ΔE*ab = ${f2(level)}` });
   }
@@ -71,7 +99,8 @@ export function abZoomSvg(std: Lab, samples: Array<{ label: string; lab: Lab; pa
     if (pass.length) series.push({ points: pass.map((s) => ({ x: s.lab.a, y: s.lab.b })), type: "scatter", color: BLUE, label: `pass (${pass.length})` });
     if (fail.length) series.push({ points: fail.map((s) => ({ x: s.lab.a, y: s.lab.b })), type: "scatter", color: RED, label: `fail (${fail.length})` });
   }
-  return parametricPlotSvg(series, { xlabel: "a*", ylabel: "b*", equal: true }, W);
+  const half = halfFor(series.flatMap((s) => s.points), std.a, std.b, Math.max(0.5, Math.min(level, CONTOUR_MAX_DE)));
+  return squareSvg(series, { xlabel: "a*", ylabel: "b*", notes }, std.a, std.b, half);
 }
 
 /** L* of the standard and the sample(s) as bars on 0–100 (the lightness axis the a*b* plane leaves out). */
@@ -108,24 +137,33 @@ export function spectrumSvg(spectra: Array<{ label: string; wl: number[]; v: num
 }
 
 /**
- * The CIE 1931 xy chromaticity diagram for the observer: the spectral locus (360–780 nm) closed by the purple line,
- * the sRGB triangle for orientation, the white point and the colours given. With `dominant`, the line from the white
- * through the colour to the locus (or the purple line) is drawn.
+ * The chromaticity diagram of the observer — CIE 1931 xy for 2°, CIE 1964 x₁₀y₁₀ for 10° — with the spectral locus
+ * (360–780 nm) closed by the purple line and marked every 20 nm from 460 to 620 nm, the white point and the colours
+ * given. The sRGB triangle is drawn for orientation on the 2° diagram only (sRGB is defined for the 2° observer).
+ * With `dominant`, the line from the white through the colour to the locus, or to the purple line, is drawn.
  */
+export function chromaticityName(obs: Observer): string {
+  return obs === "2" ? "CIE 1931 xy chromaticity diagram (2°)" : "CIE 1964 x₁₀y₁₀ chromaticity diagram (10°)";
+}
+
 export function chromaticitySvg(
   obs: Observer,
   marks: Array<{ label: string; x: number; y: number; colour?: string }>,
-  opts: { white?: { label: string; x: number; y: number }; dominant?: { to: [number, number] }; zoom?: boolean } = {},
+  opts: { white?: { label: string; x: number; y: number }; dominant?: { to: [number, number]; purple?: boolean }; zoom?: boolean } = {},
 ): string {
   const locus = spectralLocus(obs);
   const series: Series[] = [];
+  const ax = obs === "2" ? { xlabel: "x", ylabel: "y" } : { xlabel: "x₁₀", ylabel: "y₁₀" };
   if (!opts.zoom) {
     series.push({ points: [...locus.map((p) => ({ x: p.x, y: p.y })), { x: locus[0].x, y: locus[0].y }], type: "line", color: BLACK, label: `locus (${obs}°)` });
-    const s = gamutById("srgb")!.primaries;
-    series.push({ points: [...s, s[0]].map((p) => ({ x: p.x, y: p.y })), type: "line", color: GREY, label: "sRGB gamut" });
+    series.push({ points: locus.filter((p) => p.wl >= 460 && p.wl <= 620 && p.wl % 20 === 0).map((p) => ({ x: p.x, y: p.y })), type: "scatter", color: GREY, marker: "plus", label: "every 20 nm, 460–620" });
+    if (obs === "2") {
+      const s = gamutById("srgb")!.primaries;
+      series.push({ points: [...s, s[0]].map((p) => ({ x: p.x, y: p.y })), type: "line", color: GREY, label: "sRGB gamut" });
+    }
   }
   if (opts.white) series.push({ points: [{ x: opts.white.x, y: opts.white.y }], type: "scatter", color: BLACK, label: opts.white.label });
-  if (opts.white && opts.dominant) series.push({ points: [{ x: opts.white.x, y: opts.white.y }, { x: opts.dominant.to[0], y: opts.dominant.to[1] }], type: "line", color: ORANGE, label: "white → colour → locus" });
+  if (opts.white && opts.dominant) series.push({ points: [{ x: opts.white.x, y: opts.white.y }, { x: opts.dominant.to[0], y: opts.dominant.to[1] }], type: "line", color: ORANGE, label: opts.dominant.purple ? "white → purple line" : "white → locus" });
   const palette = [RED, BLUE, GREEN, ORANGE];
   marks.forEach((m, i) => series.push({ points: [{ x: m.x, y: m.y }], type: "scatter", color: m.colour ?? palette[i % palette.length], label: m.label }));
   if (opts.zoom) {
@@ -136,9 +174,9 @@ export function chromaticitySvg(
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
     const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
     const half = Math.max(0.01, 0.75 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)));
-    return buildPlotSvg(series, { xlabel: "x", ylabel: "y", xLimits: { min: cx - half, max: cx + half }, yLimits: { min: cy - half, max: cy + half }, width: W, height: Math.round(W * 0.8) });
+    return squareSvg(series, ax, cx, cy, half);
   }
-  return parametricPlotSvg(series, { xlabel: "x", ylabel: "y", equal: true }, W);
+  return parametricPlotSvg(series, { ...ax, equal: true }, W);
 }
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

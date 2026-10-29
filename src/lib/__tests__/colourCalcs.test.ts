@@ -86,10 +86,10 @@ describe("defaults print colour-science's values", () => {
     expect(o.text).toMatch(/OPPOSITE verdict on ΔE\*94 \(CIE94, textiles\) \(1\.81\)/);
     expect(firstLine(o)).toBe("The sample is slightly lighter, a little duller and shifted toward yellow; the difference is clearly visible side by side (ΔE₀₀ 2.15).");
   });
-  test("conversion: L*a*b* (52, 42.5, 20.1) D65/2° is XYZ 28.7410, 20.1443, 12.4788 and sRGB 197, 91, 92 = #C55B5C", () => {
+  test("conversion: L*a*b* (52, 42.5, 20.1) D65/2° is XYZ 28.7413, 20.1443, 12.4762 (white 95.047, 100, 108.883) and sRGB 197, 91, 92 = #C55B5C", () => {
     const o = run("colour-convert");
-    expect(out(o, "X")).toBeCloseTo(28.74095626, 7);
-    expect(o.text).toContain("28.7410, 20.1443, 12.4788");
+    expect(out(o, "X")).toBeCloseTo(28.74133867, 7);
+    expect(o.text).toContain("28.7413, 20.1443, 12.4762");
     expect(o.text).toContain("#C55B5C");
     expect(o.text).toMatch(/inside the sRGB gamut/);
   });
@@ -101,16 +101,16 @@ describe("defaults print colour-science's values", () => {
     expect(out(o, "domwl")).toBe(587);
     expect(out(o, "purity")).toBeCloseTo(0.7536025826, 8);
   });
-  test("adaptation: Lab (50, 20, −30) D50 → D65 by Bradford is (50.25, 22.92, −29.82)", () => {
+  test("adaptation: Lab (50, 20, −30) D50 → D65 by Bradford is (50.25, 22.91, −29.82)", () => {
     const o = run("colour-adapt");
-    expect(out(o, "L")).toBeCloseTo(50.25169873, 7);
-    expect(out(o, "a")).toBeCloseTo(22.91594548, 7);
-    expect(out(o, "b")).toBeCloseTo(-29.81581253, 7);
+    expect(out(o, "L")).toBeCloseTo(50.2515638, 7);
+    expect(out(o, "a")).toBeCloseTo(22.91187675, 7);
+    expect(out(o, "b")).toBeCloseTo(-29.81591785, 7);
   });
-  test("whiteness: XYZ (93, 98, 115) D65/10° gives W 124.17, T +1.93, YI −11.43", () => {
+  test("whiteness: XYZ (93, 98, 115) D65/10° gives W 124.18, T +1.93, YI −11.43", () => {
     const o = run("colour-whiteness");
-    expect(out(o, "W")).toBeCloseTo(124.17430065, 7);
-    expect(out(o, "T")).toBeCloseTo(1.92852288, 7);
+    expect(out(o, "W")).toBeCloseTo(124.17526427, 7);
+    expect(out(o, "T")).toBeCloseTo(1.93204188, 7);
     expect(out(o, "yiD65")).toBeCloseTo(-11.4347959184, 8);
   });
   test("contrast: #777777 on white is 4.48:1 and fails AA normal text, passes large", () => {

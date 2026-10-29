@@ -96,11 +96,35 @@ export function XYZToxy(XYZ: Vec3): [number, number] | null {
   return [XYZ[0] / s, XYZ[1] / s];
 }
 
-/** The tabulated white point of an illuminant (colour.CCS_ILLUMINANTS) as XYZ with Y = 100. */
+const WHITE_CACHE = new Map<string, Vec3>();
+
+/**
+ * The white point of an illuminant as XYZ with Y = 100: the perfect diffuser computed from the illuminant's SPD and
+ * the observer's colour-matching functions at 1 nm over 360–780 nm (CIE 15 / ASTM E308 practice: D65 2° is
+ * 95.047, 100, 108.883; D65 10° 94.811, 100, 107.304). NOT the XYZ rebuilt from the tabulated chromaticity
+ * (colour.CCS_ILLUMINANTS, 4–5 decimals), which gives 95.046, 100, 108.906 for D65 2° and moves b* by up to 0.011.
+ * The tabulated xy is kept in colourData.ts and the crosscheck test holds the two within 10⁻³.
+ */
 export function whitePoint(ill: IlluminantId, obs: Observer): Vec3 {
-  const [x, y] = WHITE_XY[obs][ill];
-  return xyToXYZ(x, y, 100);
+  const key = ill + "/" + obs;
+  let w = WHITE_CACHE.get(key);
+  if (!w) {
+    const S = illuminant1nm(ill);
+    const c = cmfTable(obs);
+    let X = 0, Y = 0, Z = 0;
+    for (let i = 0; i < S.length; i++) {
+      X += S[i] * c.x[i];
+      Y += S[i] * c.y[i];
+      Z += S[i] * c.z[i];
+    }
+    w = [(100 * X) / Y, 100, (100 * Z) / Y];
+    WHITE_CACHE.set(key, w);
+  }
+  return w.slice() as Vec3;
 }
+
+/** The tabulated white-point chromaticity (colour.CCS_ILLUMINANTS), for the record beside the computed white. */
+export const tabulatedWhiteXy = (ill: IlluminantId, obs: Observer): readonly [number, number] => WHITE_XY[obs][ill];
 
 const fLab = (t: number): number => (t > CIE_E ? Math.cbrt(t) : (CIE_K * t + 16) / 116);
 const fLabInv = (f: number): number => (f ** 3 > CIE_E ? f ** 3 : (116 * f - 16) / CIE_K);
@@ -245,7 +269,7 @@ export interface SrgbResult {
   /** 8-bit values after clipping each encoded channel to 0–1. */
   rgb255: Vec3;
   hex: string;
-  /** True when the white was not D65 2° and Bradford adaptation was applied. */
+  /** True when the white is not D65 2° (to 10⁻³), i.e. a real change of illuminant or observer was adapted away. */
   adapted: boolean;
 }
 
@@ -253,8 +277,10 @@ const sameWhite = (a: Vec3, b: Vec3): boolean => Math.abs(a[0] - b[0]) < 1e-9 &&
 
 /** XYZ (relative to the white Wn) to sRGB, adapting Wn → the sRGB D65 white by Bradford when they differ. */
 export function XYZToSrgb(XYZ: Vec3, Wn: Vec3): SrgbResult {
-  const adapted = !sameWhite(Wn, SRGB_WHITE);
-  const x = adapted ? adaptXYZ(XYZ, Wn, SRGB_WHITE, SRGB_CAT) : XYZ;
+  // Any difference of white is adapted (the computed D65 2° white, 95.047/108.883, and IEC's rounded sRGB white,
+  // 95.046/108.906, differ in the fourth figure); `adapted` reports only a real change of illuminant or observer.
+  const x = sameWhite(Wn, SRGB_WHITE) ? XYZ : adaptXYZ(XYZ, Wn, SRGB_WHITE, SRGB_CAT);
+  const adapted = [0, 1, 2].some((i) => Math.abs(Wn[i] / SRGB_WHITE[i] - 1) > 1e-3);
   const linear = mulMV(SRGB_XYZ_TO_RGB, [x[0] / 100, x[1] / 100, x[2] / 100]);
   const encoded = linear.map(srgbEncode) as Vec3;
   const half = 0.5 / 255;
@@ -276,7 +302,7 @@ export function rgbHex(rgb: Vec3): string {
 
 /** "#7F3A00", "7f3a00" or "#fa0" to 0–255 integers; null when it is not a hex colour. */
 export function parseHex(s: string): Vec3 | null {
-  const t = s.trim().replace(/^#/, "");
+  const t = s.trim().replace(/^(?:#|0x)/i, "");
   if (/^[0-9a-fA-F]{3}$/.test(t)) return [0, 1, 2].map((i) => parseInt(t[i] + t[i], 16)) as Vec3;
   if (/^[0-9a-fA-F]{6}$/.test(t)) return [0, 2, 4].map((i) => parseInt(t.slice(i, i + 2), 16)) as Vec3;
   return null;
@@ -285,6 +311,12 @@ export function parseHex(s: string): Vec3 | null {
 // ---------------------------------------------------------------------------------------------------------------
 // Colour differences
 // ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * The largest ΔE whose tolerance region is drawn. CIE94, CMC and CIEDE2000 were fitted to small differences; at large
+ * levels the CIEDE2000 "region" stops closing (from a neutral standard no ray reaches ΔE₀₀ = 50) and is no tolerance.
+ */
+export const CONTOUR_MAX_DE = 10;
 
 export interface DiffComponents {
   dL: number;
@@ -488,30 +520,32 @@ export function deltaE(f: DeFormula, std: Lab, smp: Lab, k: ParametricK = { kL: 
 /**
  * The tolerance contour of a formula around the standard in the a*b* plane at the standard's L*: along each of
  * `rays` directions, the FIRST distance at which ΔE reaches `tol` (stepped outward, then bisected). One code path for
- * every formula, because CIEDE2000's region is not an ellipse.
+ * every formula, because CIEDE2000's region is not an ellipse. Returns NO points when the level is above
+ * CONTOUR_MAX_DE or any ray fails to reach it (an unclosed region is not drawn as a closed one).
  */
 export function toleranceContour(f: DeFormula, std: Lab, tol: number, k: ParametricK = { kL: 1, kC: 1, kH: 1 }, rays = 144): Array<{ x: number; y: number }> {
   const pts: Array<{ x: number; y: number }> = [];
-  if (!(tol > 0) || !Number.isFinite(tol)) return pts;
+  if (!(tol > 0) || !Number.isFinite(tol) || tol > CONTOUR_MAX_DE) return pts;
   if (![std.L, std.a, std.b].every(Number.isFinite)) return pts;
   // A finite, bounded ray count whatever the caller passes (an unbounded loop freezes Word).
   rays = Number.isFinite(rays) ? Math.min(720, Math.max(8, Math.round(rays))) : 144;
   for (let i = 0; i <= rays; i++) {
     const th = (2 * Math.PI * (i % rays)) / rays;
     const at = (r: number): number => deltaE(f, std, { L: std.L, a: std.a + r * Math.cos(th), b: std.b + r * Math.sin(th) }, k);
-    const step = tol / 16;
+    // Fine steps out to 4·tol (the first crossing is found, not a later one), then doubling to |Δab| = 400.
     let lo = 0;
-    let hi = step;
+    let hi = tol / 16;
     let found = false;
-    for (let s = 0; s < 4000; s++) {
+    for (let s = 0; s < 120 && hi <= 400; s++) {
       if (at(hi) >= tol) {
         found = true;
         break;
       }
       lo = hi;
-      hi += step;
+      hi = s < 63 ? hi + tol / 16 : hi * 2;
     }
-    if (!found) continue;
+    // A ray that never reaches the level means the region is not closed: draw no contour rather than join the rest.
+    if (!found) return [];
     for (let it = 0; it < 60; it++) {
       const mid = (lo + hi) / 2;
       if (at(mid) >= tol) hi = mid;
@@ -551,8 +585,16 @@ const SPD_CACHE = new Map<IlluminantId, number[]>();
 export function illuminant1nm(ill: IlluminantId): number[] {
   let v = SPD_CACHE.get(ill);
   if (!v) {
-    const s = ILLUMINANT_SPD[ill];
-    v = linearTo1nm(s.start, s.step, s.values);
+    if (ill === "A") {
+      // CIE standard illuminant A is DEFINED by Planck's law (CIE 15; colour.sd_CIE_standard_illuminant_A), so it
+      // is computed at every nanometre rather than interpolated from the 5 nm table (which the crosscheck test
+      // holds to the formula).
+      v = [];
+      for (let w = CMF_START; w <= CMF_END; w++) v.push((100 * (560 / w) ** 5 * Math.expm1(1.435e7 / (2848 * 560))) / Math.expm1(1.435e7 / (2848 * w)));
+    } else {
+      const s = ILLUMINANT_SPD[ill];
+      v = linearTo1nm(s.start, s.step, s.values);
+    }
     SPD_CACHE.set(ill, v);
   }
   return v;
@@ -846,6 +888,27 @@ export function spectralLocus(obs: Observer): Array<{ wl: number; x: number; y: 
     const s = x + c.y[i] + c.z[i];
     return { wl: CMF_START + i, x: x / s, y: c.y[i] / s };
   });
+}
+
+/**
+ * Whether a chromaticity lies inside the horseshoe (spectral locus closed by the purple line) of the observer, to
+ * 10⁻⁶ in xy. Outside it, a colour has no real spectrum: it is a typing slip or an imaginary colour.
+ */
+export function insideLocus(xy: [number, number], obs: Observer): boolean {
+  const p = spectralLocus(obs);
+  let inside = false;
+  let near = Infinity;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+    const a = p[i];
+    const b = p[j];
+    if (a.y > xy[1] !== b.y > xy[1] && xy[0] < ((b.x - a.x) * (xy[1] - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const L2 = dx * dx + dy * dy;
+    const t = L2 > 0 ? Math.max(0, Math.min(1, ((xy[0] - a.x) * dx + (xy[1] - a.y) * dy) / L2)) : 0;
+    near = Math.min(near, Math.hypot(xy[0] - (a.x + t * dx), xy[1] - (a.y + t * dy)));
+  }
+  return inside || near < 1e-6;
 }
 
 export interface DominantResult {

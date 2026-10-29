@@ -50,6 +50,22 @@ which colour-science's own test leaves out.
   against independent facts (ȳ(555) = 1, illuminant A = Planck at 2848 K to 5×10⁻⁶, the tabulated whites against
   SPD × CMF to 10⁻³, the sRGB columns against colourspace.ts's primaries).
 
+### Review fixes (independent bug test before release)
+- The hue word follows the sample's direction of travel (86° → 93° reads "toward green", as Δa* says), and none is
+  given for a turn of more than 90°.
+- The a\*b\* planes are drawn over square windows (the overview centred on the neutral axis), so they really are at
+  equal scales; a 6:1 plane had passed as "equal".
+- No tolerance region is drawn above ΔE 10 or when it does not close (a ΔE₀₀ = 100 "region" was an open arc), and
+  the figure says why; the worst case fell from about 1.3 s to milliseconds.
+- The adaptation spread is the largest disagreement between any two transforms (1.16, von Kries against CAT02).
+- White points are the CIE 15 / ASTM E308 perfect-diffuser whites from the SPD and CMF tables (D65 2° 95.047, 100,
+  108.883), not XYZ rebuilt from the rounded tabulated xy (95.046, 108.906; up to 0.011 in b\*); illuminant A is
+  computed from its defining Planck formula at 1 nm.
+- Batch QC skips a header row and reads numeric sample IDs; kL:kC:kH is bounded to 0.1–10; refusals print ×10ⁿ;
+  no dominant wavelength below 0.5 % purity; colours outside the spectral locus are refused; "L\*=50, a\*=10, b\*=5",
+  "rgb(…)", "0x" hex and %-signed spectra are read; lightness-only failures are explained; chromaticity figures
+  name their observer (CIE 1964 x₁₀y₁₀ for 10°), mark the locus every 20 nm and draw sRGB only on the 2° diagram.
+
 ### Tests
 - colourScience.oracle.test.ts (Sharma table, 162 ΔE pairs on six formulas, 126 conversions, 80 adaptations, 845
   spectral cases over 1/2/5/10/20 nm grids and partial ranges, E2022 weights, dominant wavelength, whiteness/YI,

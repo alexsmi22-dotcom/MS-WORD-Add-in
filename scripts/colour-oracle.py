@@ -15,7 +15,7 @@ Sources, by quantity:
                                               kL = 1 or 2).
   conversions                                 colour.XYZ_to_Lab, Lab_to_XYZ, Lab_to_LCHab, XYZ_to_Luv, Luv_to_XYZ,
                                               Luv_to_uv, XYZ_to_xy, XYZ_to_sRGB / sRGB_to_XYZ with Bradford
-                                              adaptation, whites from colour.CCS_ILLUMINANTS.
+                                              adaptation, whites by 1 nm SPD x CMF integration (WXYZ), A by its formula.
   chromatic adaptation                        colour.adaptation.chromatic_adaptation_VonKries (Bradford, Von Kries,
                                               CAT02, CAT16).
   spectral -> XYZ                             colour.sd_to_XYZ(method="ASTM E308" and "Integration") with the CMFs
@@ -52,6 +52,25 @@ ILL = {"D65": "D65", "D50": "D50", "A": "A", "C": "C", "F2": "FL2", "F7": "FL7",
 SHAPE = colour.SpectralShape(360, 780, 1)
 CMFS = {k: colour.MSDS_CMFS[v].copy().trim(SHAPE) for k, v in OBS.items()}
 fx = {}
+
+
+def ILLSD(k):
+    """The illuminant SPD: CIE standard illuminant A by its defining formula at 1 nm
+    (colour.sd_CIE_standard_illuminant_A), every other one from colour.SDS_ILLUMINANTS."""
+    if k == "A":
+        return colour.sd_CIE_standard_illuminant_A(SHAPE)
+    return colour.SDS_ILLUMINANTS[ILL[k]]
+
+
+def WXYZ(obs, k):
+    """The white the engine uses: the perfect diffuser by 1 nm integration over 360-780 nm (CIE 15 / ASTM E308),
+    on the 0-100 scale."""
+    ones = colour.SpectralDistribution(dict(zip(SHAPE.wavelengths, np.ones(len(SHAPE.wavelengths)))))
+    return colour.sd_to_XYZ(ones, CMFS[obs], ILLSD(k), method="Integration")
+
+
+def WXY(obs, k):
+    return colour.XYZ_to_xy(WXYZ(obs, k) / 100)
 
 
 def L(a):
@@ -147,7 +166,7 @@ xyz_samples = [[41.24, 21.26, 1.93], [20.0, 25.0, 30.0], [95.047, 100.0, 108.883
 conv = []
 for obs in ("2", "10"):
     for k, ck in ILL.items():
-        xy_w = colour.CCS_ILLUMINANTS[OBS[obs]][ck]
+        xy_w = WXY(obs, k)
         for XYZ in xyz_samples:
             X = np.array(XYZ) / 100
             Lab = colour.XYZ_to_Lab(X, xy_w)
@@ -170,7 +189,7 @@ for obs in ("2", "10"):
 fx["conversions"] = conv
 srgb_in = [[1, 0, 0], [0.2, 0.4, 0.6], [0.5, 0.5, 0.5], [0, 0, 0], [1, 1, 1], [0.03, 0.9, 0.01]]
 fx["srgb_to_xyz"] = [
-    {"rgb": r, "obs": obs, "ill": k, "XYZ": L(colour.sRGB_to_XYZ(np.array(r, float), colour.CCS_ILLUMINANTS[OBS[obs]][ILL[k]], chromatic_adaptation_transform="Bradford") * 100)}
+    {"rgb": r, "obs": obs, "ill": k, "XYZ": L(colour.sRGB_to_XYZ(np.array(r, float), WXY(obs, k), chromatic_adaptation_transform="Bradford") * 100)}
     for r in srgb_in
     for obs, k in (("2", "D65"), ("2", "D50"), ("10", "D65"), ("2", "A"))
 ]
@@ -181,8 +200,8 @@ fx["srgb_matrices"] = {"RGB_to_XYZ": L(cs.matrix_RGB_to_XYZ), "XYZ_to_RGB": L(cs
 cats = []
 for tr, key in (("Bradford", "bradford"), ("Von Kries", "vonkries"), ("CAT02", "cat02"), ("CAT16", "cat16")):
     for src_i, dst_i, obs in (("D65", "D50", "2"), ("A", "D65", "10"), ("F11", "C", "2"), ("D50", "D75", "10")):
-        Ws = colour.xy_to_XYZ(colour.CCS_ILLUMINANTS[OBS[obs]][ILL[src_i]]) * 100
-        Wd = colour.xy_to_XYZ(colour.CCS_ILLUMINANTS[OBS[obs]][ILL[dst_i]]) * 100
+        Ws = WXYZ(obs, src_i)
+        Wd = WXYZ(obs, dst_i)
         for XYZ in xyz_samples[:5]:
             out = colour.adaptation.chromatic_adaptation_VonKries(np.array(XYZ) / 100, Ws / 100, Wd / 100, transform=tr) * 100
             cats.append({"method": key, "from": src_i, "to": dst_i, "obs": obs, "XYZ": XYZ, "out": L(out)})
@@ -199,7 +218,7 @@ def mk(wl, v):
 
 
 def xyz_of(sd, ill, obs, method):
-    illum = colour.SDS_ILLUMINANTS[ILL[ill]]
+    illum = ILLSD(ill)
     cm = CMFS[obs]
     XYZ = colour.sd_to_XYZ(sd, cm, illum, method=method)
     ones = mk(sd.wavelengths, np.ones(len(sd.wavelengths)))
@@ -251,7 +270,7 @@ W10 = colour.colorimetry.tristimulus_weighting_factors_ASTME2022(
 )
 fx["weights_D65_10"] = [L(r) for r in W10]
 W2A = colour.colorimetry.tristimulus_weighting_factors_ASTME2022(
-    CMFS["2"], colour.SDS_ILLUMINANTS["A"].copy().align(SHAPE), colour.SpectralShape(360, 780, 10)
+    CMFS["2"], ILLSD("A"), colour.SpectralShape(360, 780, 10)
 )
 fx["weights_A_2"] = [L(r) for r in W2A]
 
@@ -272,7 +291,7 @@ for XYZ in ([90.0, 95.0, 110.0], [85.0, 88.0, 90.0], [93.0, 98.0, 115.0], [70.0,
     X = np.array(XYZ)
     row = {"XYZ": XYZ}
     for obs in ("2", "10"):
-        xy_n = colour.CCS_ILLUMINANTS[OBS[obs]]["D65"]
+        xy_n = WXY(obs, "D65")
         WT = colour.colorimetry.whiteness_CIE2004(colour.XYZ_to_xy(X / 100), X[1], xy_n, observer=OBS[obs])
         row["WT_" + obs] = L(WT)
         for ill in ("C", "D65"):

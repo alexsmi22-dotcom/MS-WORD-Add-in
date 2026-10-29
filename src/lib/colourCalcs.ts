@@ -16,10 +16,14 @@ import type { EngCalcDef } from "./engCalc";
 import { engReport, type EngReportLine } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput, EngOutput } from "./analyzeBlocks";
 import { trueMinus } from "./numberList";
+import { fmtSig } from "./axis";
 import { refuseNonFinite } from "./finiteResult";
 import {
   adaptXYZ,
   CAT_LABELS,
+  CONTOUR_MAX_DE,
+  insideLocus,
+  tabulatedWhiteXy,
   ciede2000,
   deltaE,
   DE_FORMULA_LABELS,
@@ -63,11 +67,14 @@ import {
   type Spectrum,
   type Vec3,
 } from "./colourScience";
-import { abPlaneSvg, abZoomSvg, barsSvg, chromaticitySvg, contrastSwatchSvg, deltaLBarsSvg, lightnessBarsSvg, spectrumSvg, swatchSvg } from "./colourCharts";
+import { abPlaneSvg, abZoomSvg, barsSvg, chromaticityName, chromaticitySvg, contrastSwatchSvg, deltaLBarsSvg, lightnessBarsSvg, spectrumSvg, swatchSvg } from "./colourCharts";
 
 type ColourCalc = EngCalcDef<"Colour & appearance">;
 
 const GROUP = "Colour & appearance" as const;
+
+/** Below this excitation purity a colour is on the white point, and no dominant wavelength is quoted. */
+const MIN_PURITY = 0.005;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared helpers
@@ -75,8 +82,9 @@ const GROUP = "Colour & appearance" as const;
 
 const refuse = (text: string): AnalyzeOutput => ({ text: trueMinus(text.replace(/—/g, "-")), ok: false });
 
-/** Fixed decimals, true minus, never "−0.00". */
+/** Fixed decimals, true minus, never "−0.00"; a magnitude of 10⁶ or more (only ever an echoed slip) as ×10ⁿ. */
 export function fx(v: number, d = 2): string {
+  if (Math.abs(v) >= 1e6) return fmtSig(v, 4);
   const t = Math.abs(v).toFixed(d);
   return v < 0 && Number(t) !== 0 ? `−${t}` : t;
 }
@@ -97,11 +105,21 @@ function finish(lines: EngReportLine[], extra: AnalyzeBlock[], outputs: EngOutpu
   return refuseNonFinite({ ...engReport(lines, extra), outputs });
 }
 
-/** Numbers in a field: commas, spaces, semicolons or tabs between them; U+2212 and en dashes read as minus. */
+/** A coordinate label typed beside a value ("L*", "a*", "C*ab", "h", "X", "R"), dropped when reading the numbers. */
+const COORD_LABEL = /^(?:L|C|h|a|b|u|v|X|Y|Z|x|y|R|G|B)(?:\*|′|')?(?:ab|uv)?$/;
+
+/**
+ * Numbers in a field: commas, spaces, semicolons or tabs between them; U+2212 and en dashes read as minus. The forms
+ * people paste are read too: "L*=50, a*=10, b*=5", "L* 50 a* 10 b* 5", "rgb(119, 119, 119)", "lab(50 10 5)", "30°".
+ */
 function numbersIn(raw: string): number[] | null {
-  const t = (raw ?? "").replace(/[−–]/g, "-").trim();
+  const t = (raw ?? "")
+    .replace(/[−–]/g, "-")
+    .replace(/\b(?:rgba?|lab|lch|luv|xyz|xyy)\s*\(/gi, " ")
+    .replace(/[()=:°]/g, " ")
+    .trim();
   if (!t) return [];
-  const parts = t.split(/[\s,;]+/).filter(Boolean);
+  const parts = t.split(/[\s,;]+/).filter((p) => p && !COORD_LABEL.test(p));
   const out: number[] = [];
   for (const p of parts) {
     if (!/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(p)) return null;
@@ -118,6 +136,19 @@ function three(raw: string, label: string, names: string): Vec3 | string {
   if (!n.every(Number.isFinite)) return `${label}: every value must be a finite number.`;
   return [n[0], n[1], n[2]];
 }
+
+/**
+ * A colour that exists: non-negative XYZ and a chromaticity inside the observer's spectral locus. "10, 150, −150" is
+ * inside ±200 but has no spectrum at all; it is refused rather than described as a blue.
+ */
+function realColour(XYZ: Vec3, obs: Observer, label: string, shown: string): string | null {
+  const xy = XYZToxy(XYZ);
+  if (XYZ.some((v) => v < -1e-9) || (xy && !insideLocus(xy, obs))) {
+    return `${label}: ${shown} is not a real colour: its chromaticity lies outside the ${obs}° spectral locus (no reflectance or light produces it). Check the values, their order and the illuminant.`;
+  }
+  return null;
+}
+const labShown = (lab: Lab): string => `L*a*b* (${fx(lab.L)}, ${fx(lab.a)}, ${fx(lab.b)})`;
 
 /** L*a*b* bounds a surface colour can have; outside them a value is a typing slip, not a colour. */
 function checkLab(lab: Lab, label: string): string | null {
@@ -189,6 +220,8 @@ function readK(raw: string): ParametricK | string {
   const parts = t.split(/[:\s,]+/).filter(Boolean);
   const n = parts.map(Number);
   if (parts.length !== 3 || !n.every((x) => Number.isFinite(x) && x > 0)) return `Parametric factors kL:kC:kH: "${t}" is not three positive numbers. Write 1:1:1 (the default) or 2:1:1 (textiles).`;
+  // Bounded: the published uses are 1 and 2; a factor of 1000 shrinks any difference to "invisible" and 10⁻³⁰ overflows.
+  if (!n.every((x) => x >= 0.1 && x <= 10)) return `Parametric factors kL:kC:kH: "${t}" is outside 0.1 to 10 for each factor. The reference condition is 1:1:1; textiles use 2:1:1.`;
   return { kL: n[0], kC: n[1], kH: n[2] };
 }
 const kText = (k: ParametricK): string => `${trimNum(k.kL)}:${trimNum(k.kC)}:${trimNum(k.kH)}`;
@@ -212,9 +245,11 @@ function directionWords(d: ReturnType<typeof diffComponents>): { lightness: stri
   const lightness = Math.abs(d.dL) < 0.5 ? "" : d.dL > 0 ? deg(d.dL, "slightly lighter", "lighter", "much lighter") : deg(d.dL, "slightly darker", "darker", "much darker");
   const chroma = Math.abs(d.dC) < 0.5 ? "" : d.dC > 0 ? deg(d.dC, "a little more saturated", "more saturated", "much more saturated") : deg(d.dC, "a little duller", "duller", "much duller");
   let hue = "";
-  if (d.hueDefined && Math.abs(d.dH) >= 0.5) {
+  if (d.hueDefined && Math.abs(d.dH) >= 0.5 && Math.abs(d.dh) <= 90) {
     const names = ["red", "yellow", "green", "blue"];
-    const q = d.h1 / 90;
+    // Toward the next hue axis BEYOND the sample, in the direction of travel (86° to 93° heads for green at 180°, not yellow
+    // at 90°, which it has passed). A turn of more than 90° has no single direction worth a word.
+    const q = d.h2 / 90;
     const toward = d.dh > 0 ? names[(Math.floor(q + 1e-9) + 1) % 4] : names[((Math.ceil(q - 1e-9) - 1) % 4 + 4) % 4];
     hue = `shifted toward ${toward}`;
   }
@@ -270,8 +305,14 @@ function verdict(v: number, tol: number, op: string, d = 2): { pass: boolean; te
 
 /** A wavelength/value block: rows "380 0.054" (or comma/tab separated); one header line of text is skipped. */
 function readSpectrum(raw: string, units: string, label: string): { spec: Spectrum; notes: string[] } | string {
-  const lines = (raw ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  let lines = (raw ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const notes: string[] = [];
+  // Values written with a % sign ARE percentages, whatever the select says.
+  if (lines.some((l) => /\d\s*%/.test(l))) {
+    if (units !== "percent") notes.push(`${label}: the values carry a % sign, so they were read as percentages.`);
+    units = "percent";
+    lines = lines.map((l) => l.replace(/%/g, ""));
+  }
   if (!lines.length) return `${label}: the block is empty. Give one row per wavelength: wavelength in nm, then the value (380 0.054).`;
   if (/[A-Za-z]/.test(lines[0]) && numbersIn(lines[0]) === null) {
     lines.shift();
@@ -372,6 +413,9 @@ const differenceCalc: ColourCalc = {
     const geom = GEOM_SHORT[r("geom")] ? r("geom") : "none";
     const f = readFormula(r("tolf"));
     const op = r("op") === "≤" ? "≤" : "<";
+    const W = whitePoint(ill, obs);
+    const unreal = realColour(labToXYZ(std, W), obs, "Standard", labShown(std)) ?? realColour(labToXYZ(smp, W), obs, "Sample", labShown(smp));
+    if (unreal) return refuse(unreal);
 
     const d = diffComponents(std, smp);
     const e00 = ciede2000(std, smp, k.kL, k.kC, k.kH);
@@ -383,7 +427,6 @@ const differenceCalc: ColourCalc = {
       cmc21: deltaE("cmc21", std, smp),
       cmc11: deltaE("cmc11", std, smp),
     };
-    const W = whitePoint(ill, obs);
     const uvStd = XYZToLuv(labToXYZ(std, W), W);
     const uvSmp = XYZToLuv(labToXYZ(smp, W), W);
     const deUv = Math.hypot(uvSmp.L - uvStd.L, uvSmp.u - uvStd.u, uvSmp.v - uvStd.v);
@@ -457,10 +500,10 @@ const differenceCalc: ColourCalc = {
     );
     const contourLevel = tol ?? all[f];
     const extra: AnalyzeBlock[] = [
-      plot(abPlaneSvg([{ label: "standard", lab: std }, { label: "sample", lab: smp }]), "Standard and sample in the a*b* plane (equal scales)", "The a* b* plane with the standard and the sample as points, each joined to the neutral axis at the origin by its chroma ray; the ray length is C*ab and its angle the hue angle"),
+      plot(abPlaneSvg([{ label: "standard", lab: std }, { label: "sample", lab: smp }]), "Standard and sample in the a*b* plane (equal scales, centred on the neutral axis)", "The a* b* plane with the standard and the sample as points, each joined to the neutral axis at the origin by its chroma ray; the ray length is C*ab and its angle the hue angle"),
       plot(
         abZoomSvg(std, [{ label: "sample", lab: smp, pass: pass ?? undefined }], f, contourLevel, k),
-        tol !== null ? `${sym} = ${trimNum(tol)} tolerance region around the standard, with ΔE*ab for comparison` : `${sym} contour through the sample's difference, with ΔE*ab for comparison`,
+        contourLevel > CONTOUR_MAX_DE ? `The sample near the standard in the a*b* plane (no region drawn: ${sym} above ${CONTOUR_MAX_DE} is not a tolerance)` : tol !== null ? `${sym} = ${trimNum(tol)} tolerance region around the standard at its L*, with ΔE*ab for comparison` : `${sym} contour through the sample's difference at the standard's L*, with ΔE*ab for comparison`,
         "A close-up of the a* b* plane around the standard: the contour on which the chosen formula reaches the tolerance at the standard's lightness, the CIE76 circle of the same value in grey, and the sample",
       ),
       plot(lightnessBarsSvg(["Standard", "Sample"], [std.L, smp.L]), "Lightness L* of the standard and the sample", "Two bars giving the L* lightness of the standard and of the sample on the 0 to 100 scale"),
@@ -552,6 +595,10 @@ const convertCalc: ColourCalc = {
         if (v.some((x) => x < 0 || x > 255)) return refuse(`sRGB: each channel must be 0–255 (got ${v.map((x) => trimNum(x)).join(", ")}).`);
         XYZ = srgbToXYZ(v.map((c) => c / 255) as Vec3, W);
       }
+      if (from !== "srgb") {
+        const unreal = realColour(XYZ, obs, "Values", `${names[from]} = ${v.map((x) => fx(x, 4)).join(", ")}`);
+        if (unreal) return refuse(unreal);
+      }
     }
     const lab = XYZToLab(XYZ, W);
     const lch = labToLch(lab);
@@ -561,9 +608,13 @@ const convertCalc: ColourCalc = {
     const rgb = XYZToSrgb(XYZ, W);
     const lines: EngReportLine[] = [];
     const gam = rgb.inGamut ? "inside the sRGB gamut" : "OUTSIDE the sRGB gamut, so a screen shows only its clipped approximation";
-    lines.push(`This is a ${lightName(lab.L)}, ${hueName(lch.C, lch.h)} (L* ${fx(lab.L)}, C*ab ${fx(lch.C)}, hab ${fx(lch.h, 1)}°); in sRGB it is ${rgb.hex}, ${gam}.`);
+    lines.push(`This is a ${lightName(lab.L)}, ${hueName(lch.C, lch.h)} (L* ${fx(lab.L)}, C*ab ${fx(lch.C)}, ${lch.C < 0.05 ? "no hue (neutral)" : `hab ${fx(lch.h, 1)}°`}); in sRGB it is ${rgb.hex}, ${gam}.`);
     const wxy = XYZToxy(W) as [number, number];
-    lines.push(`Reference white: ${ILLUMINANT_LABELS[ill]}, ${OBSERVER_LABELS[obs]} observer: xy (${fx(wxy[0], 5)}, ${fx(wxy[1], 5)}), XYZ (${fx(W[0], 3)}, 100, ${fx(W[2], 3)}).`);
+    const txy = tabulatedWhiteXy(ill, obs);
+    lines.push(
+      `Reference white: ${ILLUMINANT_LABELS[ill]}, ${OBSERVER_LABELS[obs]} observer: XYZ (${fx(W[0], 3)}, 100, ${fx(W[2], 3)}), xy (${fx(wxy[0], 5)}, ${fx(wxy[1], 5)}), ` +
+        `the perfect diffuser from the illuminant's spectrum and the colour-matching functions at 1 nm (CIE 15 / ASTM E308 practice), not the XYZ rebuilt from the rounded tabulated xy (${txy[0]}, ${txy[1]}).`,
+    );
     const rows: string[][] = [["Space", "Values"]];
     rows.push(["XYZ", `${fx(XYZ[0], 4)}, ${fx(XYZ[1], 4)}, ${fx(XYZ[2], 4)}`]);
     if (xy) rows.push(["xyY", `${fx(xy[0], 5)}, ${fx(xy[1], 5)}, ${fx(XYZ[1], 4)}`]);
@@ -581,17 +632,18 @@ const convertCalc: ColourCalc = {
     if (rgb.adapted) lines.push(`sRGB is defined for D65 and the 2° observer, so the colour was adapted from ${condition(ill, obs)} to it by the Bradford transform before encoding (ICC practice); the adaptation is a prediction, not a measurement.`);
     if (xy) {
       const dom = dominantWavelength(xy, wxy, obs);
-      if (dom.ok) lines.push(`${dom.purple ? `Complementary wavelength ${Math.abs(dom.wavelength)} nm (a purple: written −${Math.abs(dom.wavelength)} nm)` : `Dominant wavelength ${dom.wavelength} nm`}, excitation purity ${fx(dom.purity * 100, 1)} % (relative to the ${ill} white, ${obs}° locus).`);
+      if (dom.ok && dom.purity < MIN_PURITY) lines.push(`Achromatic: excitation purity ${fx(dom.purity * 100, 2)} % (below ${MIN_PURITY * 100} %), so no dominant wavelength is quoted; the colour sits on the ${ill} white.`);
+      else if (dom.ok) lines.push(`${dom.purple ? `Complementary wavelength ${Math.abs(dom.wavelength)} nm (a purple: written −${Math.abs(dom.wavelength)} nm)` : `Dominant wavelength ${dom.wavelength} nm`}, excitation purity ${fx(dom.purity * 100, 1)} % (relative to the ${ill} white, ${obs}° locus).`);
     }
     lines.push({ math: 'L^"*" = 116 f(Y/Y_n) - 16', fallback: "L* = 116·f(Y/Yn) − 16, a* = 500·(f(X/Xn) − f(Y/Yn)), b* = 200·(f(Y/Yn) − f(Z/Zn))" });
     lines.push("f(t) = ∛t above ε = 216/24389, and (κt + 16)/116 below it with κ = 24389/27 (the exact CIE constants).");
     lines.push(...notes);
     lines.push(
-      `Assumes: the values are relative to the ${ill} white for the ${obs}° observer (white XYZ from the tabulated chromaticity, Y = 100). sRGB uses IEC 61966-2-1's 4-decimal matrices and transfer curve. ` +
+      `Assumes: the values are relative to the ${ill} white for the ${obs}° observer (the perfect diffuser computed from the CIE tables, Y = 100). sRGB uses IEC 61966-2-1's 4-decimal matrices and transfer curve. ` +
         "A conversion changes the coordinates, never the colour; converting between illuminants is chromatic adaptation, a separate calculator.",
     );
     const extra: AnalyzeBlock[] = [];
-    if (xy) extra.push(plot(chromaticitySvg(obs, [{ label: "this colour", x: xy[0], y: xy[1] }], { white: { label: `${ill} white`, x: wxy[0], y: wxy[1] } }), `CIE 1931 xy chromaticity diagram (${obs}° locus) with the colour and the ${ill} white`, "The horseshoe-shaped spectral locus with the purple line, the sRGB triangle, the white point and this colour's chromaticity marked"));
+    if (xy) extra.push(plot(chromaticitySvg(obs, [{ label: "this colour", x: xy[0], y: xy[1] }], { white: { label: `${ill} white`, x: wxy[0], y: wxy[1] } }), `${chromaticityName(obs)} with the colour and the ${ill} white`, `The horseshoe-shaped spectral locus with the purple line${obs === "2" ? ", the sRGB triangle" : ""}, the white point and this colour's chromaticity marked`));
     extra.push(plot(abPlaneSvg([{ label: "this colour", lab }]), "The colour in the a*b* plane", "The a* b* plane with the colour's point and its chroma ray from the neutral axis"));
     extra.push(plot(swatchSvg([{ hex: rgb.hex, caption: rgb.inGamut ? "sRGB" : "sRGB (clipped)" }]), `sRGB swatch ${rgb.hex}${rgb.inGamut ? "" : " (clipped: out of gamut)"}`, "A colour patch filled with the sRGB value of the colour, its hex code beneath"));
     const outputs: EngOutput[] = [
@@ -651,6 +703,8 @@ const adaptCalc: ColourCalc = {
       if (v[1] > 200) return refuse(`XYZ: Y = ${fx(v[1])} is above 200. Give XYZ on the 0–100 scale (the perfect white has Y = 100).`);
       XYZ = v;
     }
+    const unreal = realColour(XYZ, obs, "Values", `${space === "lab" ? "L*a*b*" : "XYZ"} (${(r("val") ?? "").trim()})`);
+    if (unreal) return refuse(unreal);
     const labIn = XYZToLab(XYZ, Ws);
     const methods = Object.keys(CAT_LABELS) as CatMethod[];
     const res = methods.map((m) => {
@@ -658,7 +712,8 @@ const adaptCalc: ColourCalc = {
       return { m, X, lab: XYZToLab(X, Wd) };
     });
     const chosen = res.find((x) => x.m === cat)!;
-    const spread = Math.max(...res.map((x) => deltaE("de00", chosen.lab, x.lab)));
+    // The largest disagreement between ANY two transforms (von Kries against CAT02 can exceed every distance from the chosen one).
+    const spread = Math.max(...res.flatMap((x) => res.map((y) => deltaE("de00", x.lab, y.lab))));
     const lines: EngReportLine[] = [];
     if (src === dst) {
       lines.push(`The two illuminants are the same (${src}), so the colour is unchanged: L* ${fx(labIn.L)}, a* ${fx(labIn.a)}, b* ${fx(labIn.b)}.`);
@@ -693,7 +748,7 @@ const adaptCalc: ColourCalc = {
             { label: `under ${dst}`, x: dxy[0], y: dxy[1], colour: "#c00000" },
           ]),
           `The two whites and the colour before and after adaptation (${CAT_LABELS[cat]})`,
-          "The CIE 1931 chromaticity diagram with both white points, the colour under the source illuminant and its corresponding colour under the destination illuminant",
+          "The chromaticity diagram with both white points, the colour under the source illuminant and its corresponding colour under the destination illuminant",
         ),
       );
     }
@@ -748,10 +803,12 @@ const spectralCalc: ColourCalc = {
     const wxy = XYZToxy(res.white)!;
     const uv = XYZToUpVp(res.XYZ)!;
     const rgb = XYZToSrgb(res.XYZ, res.white);
-    const dom = dominantWavelength(xy, wxy, obs);
+    const domRaw = dominantWavelength(xy, wxy, obs);
+    // Below MIN_PURITY the colour is on the white: a dominant wavelength there is the direction of rounding noise.
+    const dom = domRaw.ok && domRaw.purity < MIN_PURITY ? { ok: false as const, error: "achromatic" } : domRaw;
     const lines: EngReportLine[] = [];
     const domText = dom.ok ? (dom.purple ? `, a purple (complementary wavelength ${Math.abs(dom.wavelength)} nm) at ${fx(dom.purity * 100, 0)} % purity` : `, dominant wavelength ${dom.wavelength} nm at ${fx(dom.purity * 100, 0)} % purity`) : ", achromatic";
-    lines.push(`Under ${condition(ill, obs)} this ${kind === "reflectance" ? "sample" : "filter"} is a ${lightName(lab.L)}, ${hueName(lch.C, lch.h)}: L* ${fx(lab.L)}, C*ab ${fx(lch.C)}, hab ${fx(lch.h, 1)}°${domText}.`);
+    lines.push(`Under ${condition(ill, obs)} this ${kind === "reflectance" ? "sample" : "filter"} is a ${lightName(lab.L)}, ${hueName(lch.C, lch.h)}: L* ${fx(lab.L)}, C*ab ${fx(lch.C)}, ${lch.C < 0.05 ? "no hue (neutral)" : `hab ${fx(lch.h, 1)}°`}${domText}.`);
     lines.push(`Method: ${res.path}`);
     lines.push({
       table: [
@@ -775,7 +832,7 @@ const spectralCalc: ColourCalc = {
     lines.push(`Assumes: ${SPECTRAL_ASSUMES}`);
     const extra: AnalyzeBlock[] = [
       plot(spectrumSvg([{ label: kind === "reflectance" ? "R(λ)" : "T(λ)", wl: sp.spec.wl, v: sp.spec.v }], kind === "reflectance" ? "Reflectance factor" : "Transmittance factor"), `The measured ${kind} spectrum`, `The ${kind} factor against wavelength in nanometres`),
-      plot(chromaticitySvg(obs, [{ label: "sample", x: xy[0], y: xy[1] }], { white: { label: `${ill} white`, x: wxy[0], y: wxy[1] }, dominant: dom.ok ? { to: dom.xyBoundary } : undefined }), `Chromaticity on the CIE 1931 diagram (${obs}° locus), with the dominant-wavelength line`, "The spectral locus with the white point, the sample's chromaticity and the line from the white through the sample to the locus"),
+      plot(chromaticitySvg(obs, [{ label: "sample", x: xy[0], y: xy[1] }], { white: { label: `${ill} white`, x: wxy[0], y: wxy[1] }, dominant: dom.ok ? { to: dom.xyBoundary, purple: dom.purple } : undefined }), `Chromaticity on the ${chromaticityName(obs)}, with the dominant-wavelength line`, "The spectral locus with the white point, the sample's chromaticity and the line from the white through the sample to the locus"),
       plot(swatchSvg([{ hex: rgb.hex, caption: rgb.inGamut ? `sRGB, ${condition(ill, obs)}` : "sRGB (clipped)" }]), `sRGB swatch ${rgb.hex}`, "A patch filled with the sample's sRGB colour, its hex code beneath"),
     ];
     const outputs: EngOutput[] = [
@@ -931,16 +988,33 @@ const batchCalc: ColourCalc = {
     if (!rowsIn.length) return refuse("Samples: the block is empty. Give one sample per row: an optional name, then L*, a*, b*.");
     if (rowsIn.length > 500) return refuse(`Samples: ${rowsIn.length} rows; at most 500 are checked at once.`);
     const samples: Array<{ name: string; lab: Lab }> = [];
+    const batchNotes: string[] = [];
+    const W = whitePoint(ill, obs);
+    const stdUnreal = realColour(labToXYZ(std, W), obs, "Standard", labShown(std));
+    if (stdUnreal) return refuse(stdUnreal);
+    const isNum = (t: string): boolean => /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/.test(t.replace(/[−–]/g, "-"));
     for (let i = 0; i < rowsIn.length; i++) {
-      const m = /^(?:(.*?\S)[\s,;:]+)?([-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?[\s,;]+[-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?[\s,;]+[-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*$/.exec(rowsIn[i]);
-      if (!m) return refuse(`Samples, row ${i + 1} ("${rowsIn[i]}"): end the row with three numbers, L*, a*, b* (a name may come first).`);
-      const nameRaw = m[1] ?? "";
-      const name = nameRaw.replace(/[,;:]+$/, "").trim() || `#${i + 1}`;
-      if (numbersIn(nameRaw) !== null && nameRaw.trim() !== "") return refuse(`Samples, row ${i + 1} ("${rowsIn[i]}"): more than three numbers. Give an optional name, then L*, a*, b*.`);
-      const lab = readLab(m[2], "lab", `Samples, row ${i + 1} (${name})`);
+      // The last three tokens are L*, a*, b*; whatever precedes them is the name ("B1", "Lot 7", or a numeric ID "101").
+      const tokens = rowsIn[i].split(/[\s,;\t]+/).filter(Boolean);
+      const tail = tokens.slice(-3);
+      if (tokens.length < 3 || !tail.every(isNum)) {
+        // A header row ("Name  L*  a*  b*") as the first line is skipped, and said so.
+        if (i === 0 && /[A-Za-z]/.test(rowsIn[i]) && !tokens.some(isNum)) {
+          batchNotes.push(`The first row ("${rowsIn[i]}") was read as a header and skipped.`);
+          continue;
+        }
+        return refuse(`Samples, row ${i + 1} ("${rowsIn[i]}"): end the row with three numbers, L*, a*, b* (a name may come first).`);
+      }
+      const head = tokens.slice(0, -3);
+      if (head.length > 1 && head.every(isNum)) return refuse(`Samples, row ${i + 1} ("${rowsIn[i]}"): more than four numbers. Give an optional name (a numeric ID is fine), then L*, a*, b*.`);
+      const name = head.join(" ").replace(/[,;:]+$/, "").trim() || `#${i + 1}`;
+      const lab = readLab(tail.join(", "), "lab", `Samples, row ${i + 1} (${name})`);
       if (typeof lab === "string") return refuse(lab);
+      const unreal = realColour(labToXYZ(lab, W), obs, `Samples, row ${i + 1} (${name})`, labShown(lab));
+      if (unreal) return refuse(unreal);
       samples.push({ name, lab });
     }
+    if (!samples.length) return refuse("Samples: no sample rows after the header. Give one sample per row: an optional name, then L*, a*, b*.");
     const sym = DE_SYMBOL[f];
     const res = samples.map((s) => {
       const de = deltaE(f, std, s.lab, k);
@@ -969,9 +1043,12 @@ const batchCalc: ColourCalc = {
     const bl = res.filter((x) => x.borderline);
     if (bl.length) lines.push(`Borderline (the two-decimal value ties the tolerance; shown to four decimals): ${bl.map((x) => x.name).join(", ")}. The verdict is on the unrounded value.`);
     lines.push(`Mean ${sym} ${fx(mean)}, maximum ${fx(worst.de)}, minimum ${fx(Math.min(...res.map((x) => x.de)))}; mean ΔL* ${sg(res.reduce((s, x) => s + x.d.dL, 0) / res.length)} (a consistent sign means a systematic lightness offset in the process).`);
+    lines.push(...batchNotes);
+    const lFails = res.filter((x) => !x.pass && Math.abs(x.d.dL) > Math.hypot(x.d.da, x.d.db));
+    if (lFails.length) lines.push(`Failing mainly on lightness (|ΔL*| larger than the a*b* distance): ${lFails.map((x) => x.name).join(", ")}. The a*b* figure is drawn at the standard's L*, so these can sit inside the region there; the ΔL* bars show them.`);
     lines.push("Assumes every sample and the standard were measured on one instrument, geometry and illuminant/observer. The formulas weigh chroma and hue differently, so a batch can pass on one and fail on another; the specification must name its formula.");
     const extra: AnalyzeBlock[] = [
-      plot(abZoomSvg(std, res.map((x) => ({ label: x.name, lab: x.lab, pass: x.pass })), f, T, k), `Samples in the a*b* plane inside the ${sym} = ${trimNum(T)} region (at the standard's L*), ΔE*ab circle for comparison`, "A close-up of the a* b* plane: the standard, the tolerance contour of the chosen formula, the CIE76 circle in grey, passing samples in blue and failing samples in red"),
+      plot(abZoomSvg(std, res.map((x) => ({ label: x.name, lab: x.lab, pass: x.pass })), f, T, k), T > CONTOUR_MAX_DE ? `Samples in the a*b* plane around the standard (no region drawn above ΔE ${CONTOUR_MAX_DE})` : `Samples in the a*b* plane inside the ${sym} = ${trimNum(T)} region (at the standard's L*; ΔL* is not shown), ΔE*ab circle for comparison`, "A close-up of the a* b* plane: the standard, the tolerance contour of the chosen formula, the CIE76 circle in grey, passing samples in blue and failing samples in red"),
       plot(deltaLBarsSvg(res.map((x) => x.name), res.map((x) => x.d.dL)), "ΔL* of each sample (lightness offset from the standard)", "Bars giving each sample's lightness difference from the standard, above zero lighter and below darker"),
     ];
     const outputs: EngOutput[] = [
@@ -1083,7 +1160,7 @@ const whitenessCalc: ColourCalc = {
       extra.push(plot(
         chromaticitySvg(obs, [{ label: "sample", x: sxy[0], y: sxy[1] }], { white: { label: `${d65 ? "D65" : "C"} white`, x: wxy[0], y: wxy[1] }, zoom: true }),
         "The sample's chromaticity beside the white point (close-up of the xy diagram)",
-        "A close-up of the CIE 1931 xy diagram around the white point, with the sample's chromaticity: a point toward the blue (lower left) is a bluer, whiter-looking white, toward the upper right a yellower one",
+        "A close-up of the chromaticity diagram around the white point, with the sample's chromaticity: a point toward the blue (lower left) is a bluer, whiter-looking white, toward the upper right a yellower one",
       ));
     }
     if (spec) extra.push(plot(spectrumSvg([{ label: "R(λ)", wl: spec.wl, v: spec.v }]), "The reflectance spectrum", "Reflectance factor against wavelength"));
@@ -1175,7 +1252,8 @@ const contrastCalc: ColourCalc = {
       label: `Contrast ${rs}:1`,
     });
     lines.push(`Relative luminance: text ${fx(Lf, 4)}, background ${fx(Lb, 4)}. Contrast ratio (lighter + 0.05)/(darker + 0.05) = ${ratio.toFixed(4)}:1, the same whichever colour is the text.`);
-    if ([3, 4.5, 7].some(near)) lines.push(`The ratio lies within 0.01 of a threshold, so it is shown to three decimals (truncated, never rounded up); WCAG compares the unrounded ratio, so ${ratio.toFixed(4)} ${res[0].ok ? "passes" : "fails"} 4.5:1 regardless of how it would round.`);
+    const nearT = [3, 4.5, 7].find(near);
+    if (nearT !== undefined) lines.push(`The ratio lies within 0.01 of the ${nearT}:1 threshold, so it is shown to three decimals (truncated, never rounded up); WCAG compares the unrounded ratio, so ${ratio.toFixed(4)} ${ratio >= nearT ? "passes" : "fails"} ${nearT}:1 regardless of how it would round.`);
     lines.push({ math: "L = 0.2126 R + 0.7152 G + 0.0722 B", fallback: "L = 0.2126R + 0.7152G + 0.0722B on linearised sRGB channels" });
     lines.push({ math: "CR = (L_1 + 0.05)/(L_2 + 0.05)", fallback: "CR = (L₁ + 0.05)/(L₂ + 0.05), L₁ the lighter" });
     lines.push(`Colour difference between them: ΔE₀₀ ${fx(de00)} (D65/2°, background as the standard). Colour difference is not contrast: two colours can differ strongly in hue at equal luminance (contrast near 1:1), which is unreadable for many people with colour-vision deficiency.`);

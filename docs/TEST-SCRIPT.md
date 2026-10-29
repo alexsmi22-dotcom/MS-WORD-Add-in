@@ -18,11 +18,11 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] Same, set **geometry to Not stated** → a line saying the ΔE cannot support a claim limitation without it.
 - [ ] Same, **swap standard and sample** → ΔE₀₀ and ΔE\*ab unchanged, ΔE\*94 and CMC change.
 - [ ] **Batch colour QC** (defaults) → "7 of 8 samples pass ΔE₀₀ < 2; the worst is B5 (ΔE₀₀ 2.87, …), and the mean is 1.12."; B5 marked FAIL; the samples figure shows one red point outside the green region.
-- [ ] **Colour conversion** (defaults: L\*a\*b\* 52.0, 42.5, 20.1, D65/2°) → XYZ 28.7410, 20.1443, 12.4788; sRGB 197, 91, 92 = #C55B5C, inside the gamut; dominant wavelength 612 nm. Type **60, −90, 70** → "OUTSIDE the sRGB gamut", clipped #00AF00 with the unclipped values shown (one negative).
+- [ ] **Colour conversion** (defaults: L\*a\*b\* 52.0, 42.5, 20.1, D65/2°) → XYZ 28.7413, 20.1443, 12.4762 (white 95.047, 100, 108.883); sRGB 197, 91, 92 = #C55B5C, inside the gamut; dominant wavelength 612 nm. Type **60, −90, 70** → "OUTSIDE the sRGB gamut", clipped #00AF00 with the unclipped values shown (one negative).
 - [ ] **Spectral reflectance to colour** (defaults: ColorChecker orange, 10 nm, D65/10°, ASTM E308) → L\*a\*b\* 59.92, 34.30, 53.89; dominant wavelength 587 nm, excitation purity 75.4 %; sRGB #DA762F; the method line names the E2022 10 nm weighting factors and the folded end weights. Paste the block in **descending** order → same result, with a note that it was reversed. Change one value to **55** → refused as a percentage.
 - [ ] **Metamerism index** (defaults) → ΔE₀₀ 0.00 under D65; index A 2.20, F11 4.97, F2 5.12; "… so the pair is metameric".
-- [ ] **Chromatic adaptation** (defaults: Lab 50, 20, −30 from D50 to D65, Bradford) → 50.25, 22.92, −29.82; table of all four transforms (von Kries 1.10 ΔE₀₀ away).
-- [ ] **Whiteness, tint and yellowness** (defaults: XYZ 93, 98, 115, D65/10°) → W 124.17, T +1.93, YI (E313, D65/10°) −11.43. Type **70, 72, 60** → flagged OUTSIDE the formula's valid range.
+- [ ] **Chromatic adaptation** (defaults: Lab 50, 20, −30 from D50 to D65, Bradford) → 50.25, 22.91, −29.82; "the four transforms agree to within ΔE₀₀ 1.16" (the largest pair, von Kries against CAT02).
+- [ ] **Whiteness, tint and yellowness** (defaults: XYZ 93, 98, 115, D65/10°) → W 124.18, T +1.93, YI (E313, D65/10°) −11.43. Type **70, 72, 60** → flagged OUTSIDE the formula's valid range.
 - [ ] **Contrast ratio (WCAG)** (defaults #777777 on #FFFFFF) → 4.48:1, fails AA normal text, passes large text and SC 1.4.11; **#767676** → 4.54:1 passes AA. The swatch figure shows both colour orders.
 - [ ] Insert each result: text, tables, the equations (ΔE\*ab with its asterisks, CIEDE2000) and the figures land in Word as one package; Ctrl+Z removes it.
 

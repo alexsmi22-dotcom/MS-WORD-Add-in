@@ -19,14 +19,31 @@ const SUB: Record<string, string> = {
 // A subscript right after a letter, a closing bracket or a ket: _{…} or a run of letters and digits.
 const SCRIPT = /([A-Za-zα-ωΑ-Ω)\]⟩|])_(\{([^{}]+)\}|[A-Za-z0-9α-ω]+)/g;
 
+const FILE_EXT = "(?:exr|dpx|cin|tif|tiff|png|jpg|jpeg|tga|hdr|tx|wav|aif|aiff|mov|mxf|mp4|abc|vdb|bgeo|sc|usd|usda|usdc|usdz|obj|fbx|nk|hip|ma|mb)";
+// A media file name: a run of non-space, non-quote characters holding an underscore and ending in a media extension,
+// followed only by closing punctuation or a closing quote and then a space or the end. Quotes delimit it, never belong
+// to it ("sh_01.exr" in quotes is a file name too).
+const FILE_TOKENS = new RegExp(`[^\\s"'“”‘’]*_[^\\s"'“”‘’]*\\.${FILE_EXT}(?=[)\\].,;:"'”’]*(?:\\s|$))`, "gi");
+// Placeholder delimiters from the Private Use Area, which no result text contains.
+const PH_OPEN = String.fromCharCode(0xe000);
+const PH_CLOSE = String.fromCharCode(0xe001);
+const PH_BACK = new RegExp(`${PH_OPEN}(\\d+)${PH_CLOSE}`, "g");
+
 /** One text with its underscore subscripts typeset. */
 export function tidySubscripts(text: string): string {
   if (!text.includes("_")) return text;
-  return text.replace(SCRIPT, (_m, base: string, raw: string, braced: string | undefined) => {
+  // A file name is written as typed (VFX & compositing, 2026-10-28: "sh010_comp_v001.1001.exr" became
+  // "sh010_compᵥ₀₀₁.1001.exr"). File names are set aside as placeholders, the subscript rule runs ONCE over the whole
+  // text exactly as before (so a braced subscript with a space, x_{a b}, still reads x(a b) beside a file name), and the
+  // names are put back. Prose subscripts never end in one of these extensions.
+  const files: string[] = [];
+  const held = text.replace(FILE_TOKENS, (m) => `${PH_OPEN}${files.push(m) - 1}${PH_CLOSE}`);
+  const out = held.replace(SCRIPT, (_m, base: string, raw: string, braced: string | undefined) => {
     const body = braced ?? raw;
     const chars = [...body];
     return chars.every((c) => c in SUB) ? base + chars.map((c) => SUB[c]).join("") : `${base}(${body})`;
   });
+  return files.length ? out.replace(PH_BACK, (_m, i: string) => files[Number(i)]) : out;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

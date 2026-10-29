@@ -328,6 +328,11 @@ import { logitCoefFigureSvg, regTableFigureSvg } from "../src/lib/statPaneFigure
 import { coefForestSvg, depositExpansionSvg } from "../src/lib/statLibFigures";
 import { finCurrencyCalc, FIN_CURRENCY_DEFAULTS } from "../src/lib/econE5aCalcs";
 import { econLogitCalc, econRegTableCalc, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT, LONGLEY_DEFAULT, ECON_SPECS_DEFAULT } from "../src/lib/econCalcs";
+// --- VFX & compositing ---
+import { VFX_CALCS } from "../src/lib/vfxCalcs";
+import { timelineSvg } from "../src/lib/vfxCharts";
+import { fovWedgesSvg, compositeSvg, cbcrSvg, bounceSvg, froudeSvg } from "../src/lib/vfxFigures";
+// --- end VFX & compositing ---
 const figures: [string, string][] = [];
 
 // Composite plane figures (Solve → geometry). The three layout regimes: a
@@ -4162,4 +4167,76 @@ rotator 15` }, "jones elliptical");
   figures.push(["colour spectrumSvg two spectra", spectrumSvg([{ label: "a", wl: [400, 500, 600, 700], v: [0.1, 0.5, 0.3, 0.9] }, { label: "b", wl: [400, 500, 600, 700], v: [0.2, 0.2, 0.6, 0.4] }])]);
   figures.push(["colour contrastSwatchSvg low contrast", contrastSwatchSvg("#808080", "#909090", "1.25:1")]);
 }
+
+// --- VFX & compositing ---
+// Every VFX calculator through its own compute() at its defaults and at the layouts that crowd: retimes slowed, sped
+// up, reversed, ramped with each interpolation, mapped, and 2000 frames long; plates with no handles, lopsided handles
+// and a long file name; sensors spherical, anamorphic, from a field of view, super-wide, and with a mismatched image;
+// projections without a sideways move and with a far depth beyond the point; transforms at gimbal lock, mirrored and
+// converted to Z-up with many points; shading in DirectX and lit from behind; every log curve, and a code below black;
+// every Porter–Duff operator and blend mode; keys in RGB, on blue, in BT.601; scales and drops in each unit. Then the
+// builders directly at their edges.
+{
+  const vfx = (id: string, over: Record<string, string>, name: string): void => {
+    const c = VFX_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: vfx ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`vfx ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  vfx("vfx-retime", {}, "retime 40 percent");
+  vfx("vfx-retime", { speed: "200" }, "retime 200 percent");
+  vfx("vfx-retime", { speed: "-100" }, "retime reversed");
+  vfx("vfx-retime", { mode: "ramp" }, "retime ramp linear");
+  vfx("vfx-retime", { mode: "ramp", interp: "ease" }, "retime ramp ease");
+  vfx("vfx-retime", { mode: "map", interp: "hermite" }, "retime map pchip");
+  vfx("vfx-retime", { speed: "10", last: "1200" }, "retime 2000 frames");
+  vfx("vfx-frame-range", {}, "frame range default");
+  vfx("vfx-frame-range", { head: "0", tail: "0" }, "frame range no handles");
+  vfx("vfx-frame-range", { cutIn: "1", cutOut: "6", head: "50", tail: "2" }, "frame range lopsided handles");
+  vfx("vfx-frame-range", { prefix: "a_very_long_show_name_seq0420_shot0130_comp_main_v0123_with_extra_tags", fps: "29.97" }, "frame range long name");
+  vfx("vfx-camera-match", {}, "camera LF open gate");
+  vfx("vfx-camera-match", { preset: "a35-65", squeeze: "2", res: "3328 × 2790" }, "camera anamorphic 2x");
+  vfx("vfx-camera-match", { given: "fov", fov: "40", axis: "v" }, "camera from a vertical fov");
+  vfx("vfx-camera-match", { preset: "custom", W: "6.17 mm", H: "4.55 mm", f: "1.2 mm" }, "camera super wide small sensor");
+  vfx("vfx-camera-match", { res: "1920 × 1080", fit: "overscan" }, "camera overscan mismatched");
+  vfx("vfx-projection", {}, "projection default");
+  vfx("vfx-projection", { move: "0, 0, -0.1" }, "projection dolly only");
+  vfx("vfx-projection", { far: "500", near: "0.5" }, "projection far beyond the point");
+  vfx("vfx-transform", {}, "transform default");
+  vfx("vfx-transform", { r: "10, 90, 20" }, "transform gimbal lock");
+  vfx("vfx-transform", { s: "-1, 2, 0.5", up: "y2z", pivot: "1, 1, 1" }, "transform mirrored z-up");
+  vfx("vfx-transform", { t: "100, -50, 20", points: Array.from({ length: 30 }, (_, i) => `${i}, ${i % 5}, ${-i}`).join("\n") }, "transform 30 points far away");
+  vfx("vfx-shading", {}, "shading default");
+  vfx("vfx-shading", { green: "dx", texel: "60, 200, 210" }, "shading directx");
+  vfx("vfx-shading", { L: "0, -1, 0.2" }, "shading lit from behind");
+  for (const curve of ["logc3", "logc4", "slog3", "vlog", "log3g10", "acescct", "acescc", "cineon"]) vfx("vfx-log", { curve }, `log ${curve}`);
+  vfx("vfx-log", { kind: "code", value: "0.05" }, "log below black");
+  vfx("vfx-log", { kind: "stops", value: "10", curve: "logc3" }, "log plus 10 stops");
+  for (const op of ["over", "in", "out", "atop", "xor", "plus"]) vfx("vfx-composite", { op }, `composite ${op}`);
+  for (const mode of ["multiply", "add", "difference"]) vfx("vfx-composite", { mode, assoc: "premult", A: "0.4, 0.2, 0.05, 0.5" }, `composite premult ${mode}`);
+  vfx("vfx-composite", { A: "4, 2, 0.5, 0.5", B: "2, 3, 6, 1", op: "plus" }, "composite hdr plus");
+  vfx("vfx-chroma-key", {}, "chroma default");
+  vfx("vfx-chroma-key", { metric: "rgb" }, "chroma rgb metric");
+  vfx("vfx-chroma-key", { key: "20, 40, 200", pix: "60, 70, 150", scale: "255", matrix: "601" }, "chroma blue 601");
+  vfx("vfx-sim-scale", {}, "sim scale 1 to 16");
+  vfx("vfx-sim-scale", { n: "1:4", fall: "", sigma: "" }, "sim scale 1 to 4 no fall");
+  vfx("vfx-collision", {}, "collision centimetres");
+  vfx("vfx-collision", { unit: "m", h: "2", m2: "3", u2: "1", u1: "6", vt: "0" }, "collision two bodies");
+  vfx("vfx-collision", { e: "0" }, "collision plastic");
+  vfx("vfx-collision", { e: "0.95", unit: "ft", h: "30" }, "collision lively feet");
+  // Builders at their edges.
+  figures.push(["vfx timelineSvg one frame", timelineSvg({ ok: true, cutLength: 1, total: 1, plateFirst: 1001, plateLast: 1001, cutFirst: 1001, cutLast: 1001, offset: 0, digits: 4 }, 0, 0, "Files: x.%04d.exr", "Editorial 1 to 1")]);
+  figures.push(["vfx fovWedgesSvg near 180 degrees", fovWedgesSvg([{ label: "fisheye-like", fov: 178, colour: "#1f5fa8" }, { label: "tele", fov: 1, colour: "#888888" }], "Extremes")]);
+  figures.push(["vfx compositeSvg zeros", compositeSvg([{ label: "A", rgb: [0, 0, 0], alpha: 0 }], [{ label: "nothing", colour: "#1f5fa8", values: [0, 0, 0, 0] }], "All zero")]);
+  figures.push(["vfx cbcrSvg key at the corner", cbcrSvg([-0.5, -0.5], [0.5, 0.5], 0.3, 0.2)]);
+  figures.push(["vfx froudeSvg scale 1", froudeSvg(24, 1)]);
+  figures.push(["vfx bounceSvg elastic", bounceSvg(1, 1, 1, "m")]);
+}
+// --- end VFX & compositing ---
 export { figures };

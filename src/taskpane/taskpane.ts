@@ -346,6 +346,7 @@ import { SCENE_CALCS } from "../lib/sceneCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
 import { COLOUR_CALCS } from "../lib/colourCalcs";
+import { VFX_CALCS } from "../lib/vfxCalcs";
 import { tidyResultSubscripts, tidySubscripts, snapNoise, snapGroup, typesetENotation } from "../lib/subscriptText";
 import { guardEngResult } from "../lib/finiteResult";
 import { buildResultOoxml, packageBodyXml, type ResultPackageItem } from "../lib/resultOoxml";
@@ -14346,6 +14347,7 @@ const ENG_GROUP_ORDER = [
   "Light & camera",
   "Colour & appearance",
   "Scene modelling & pipeline",
+  "VFX & compositing",
   "Electronics",
   "Chips & semiconductors",
   "Aviation & avionics",
@@ -31478,6 +31480,7 @@ const ENG_CALCS: EngCalc[] = [
   ...QUANTUM_LINKS_CALCS,
   ...QUANTUM_MECHANICS_CALCS,
   ...COLOUR_CALCS,
+  ...VFX_CALCS,
 ];
 
 // Underscore subscripts in every tool's prose, tables, captions and output names typeset (subscriptText.ts); the math

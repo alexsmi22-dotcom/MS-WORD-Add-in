@@ -120,6 +120,9 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // layouts that crowd, and each colourCharts builder at an extreme).
 // 1016 with Scene modelling & pipeline (v2.206.0): 51 figures, the eleven calculators at their defaults and layout
 // variants (3-D, degenerate and high-degree curves, defective meshes, each ray case) and the builders at their edges.
+// 1033 as of v2.206.0 (VFX & compositing): sixty-eight figures, each VFX calculator at its defaults and the layouts
+// that crowd (retime warp and speed, plate timelines, FOV wedges, the parallax plan, transform axes, shading vectors,
+// eight log curves, compositing swatches and bars, CbCr planes, Froude and bounce charts) plus six builder edges.
 const CORPUS_FLOOR = 1016;
 
 // --- The allowance ratchet ----------------------------------------------------

@@ -10,6 +10,46 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0es. New in v2.206.0 (draft) — VFX & compositing (Engineering 241 → 252)
+
+- [ ] **Engineering dropdown** shows a **VFX & compositing** heading right after Light & camera, with eleven calculators.
+- [ ] **Retime & speed ramp** (defaults) → first line "At 40 % speed the 48-frame shot becomes 120 frames (5 s at 24 fps);
+  94 fall between source frames, so frame blending or optical flow is needed and 2 frames sample past the ends of the
+  source"; output frame 1002 shows source 1001.4; "looks like a 450° shutter"; two figures (time warp, speed).
+- [ ] Same, speed **200** → 24 frames, 24 source frames never shown (the even ones, 1048 included), a 90° shutter; speed **0** → refused as a freeze.
+- [ ] Same, **Speed ramp** → 94 output frames, speed 25 % to 100 %, 79 between frames, 1 past the source.
+- [ ] **Shot frame range** (defaults) → plate 1001 to 1064 (64 frames), cut 1009 to 1056, offset +908; files
+  sh010_comp_v001.1001.exr to sh010_comp_v001.1064.exr **with the underscores intact in Word**; 2000 samples per frame;
+  2 frames = 4000 samples = 83.333333 ms.
+- [ ] Same, frame rate **29.97** → "the 5-frame sequence 1602, 1601, 1602, 1601, 1602, 8008 samples in all"; the 2-frame
+  offset is 3203.2 samples (66.7333 ms). Audio **96 kHz** → "odd audio frames carry 3204 samples and even frames 3202" (SMPTE ST 299-1 Table 7); frame rate **59.94** → says Table 7 does not cover it. Plate start **9990** → refused: "Padding overflow: the plate runs to frame
+  10053, which needs 5 digits".
+- [ ] **Camera match** (defaults, ALEXA Mini LF Open Gate, 35 mm) → 55.33° across, 40.09° high, 65.136° diagonal; Maya
+  Camera Aperture 1.4449 × 1.0055 in; crop factor 0.9677. Switch to **Full frame 36 × 24**, 50 mm, 6000 × 4000 → 39.6°
+  × 26.99°, aperture 1.4173 × 0.94488 in. **ALEXA 35 3.3K 6:5**, squeeze **2×**, 3328 × 2790 → 60.031° horizontal,
+  horizontal aperture 40.44 mm (desqueezed), Maya Lens Squeeze Ratio 2.
+- [ ] **Camera projection** (defaults) → pixel (3825, 1448.2), depth 9.417; 23.92 px per frame, a blur streak of 11.96 px
+  at 180°; parallax 36.88 px per frame, 885 px over 24 frames; figure from above with near and far lines.
+- [ ] **3D transforms** (defaults) → (1, 0, 0) maps to (1.3536, 2.6124, 2.2929); 69.356° about (0.0391, 0.7728, 0.6335);
+  quaternion (0.02226, 0.43968, 0.360423, 0.822363); the 4×4 matrix and its inverse insert as Word tables. Rotate
+  **10, 90, 20** → names gimbal lock.
+- [ ] **Normal maps & shading** (defaults) → tilted 27.8°, n·V = 0.367, n·L = 0.947, Schlick 0.040016 beside exact
+  0.04099. Texel encoding Float with **0.5, 0.5, 0.5** → refused: zero-length normal.
+- [ ] **Camera log** (defaults, S-Log3, 0.18) → code 0.4106 (10-bit 420). LogC3 → 0.391 (400); LogC4 → 0.2784 (284.8);
+  V-Log → 0.4233 (433); Log3G10 → 0.3333; ACEScct → 0.4136; Cineon → 0.4573 (467.8). No Canon Log 3 in the list.
+  S-Log3, code **0.05** → "below Sony S-Log3's black (code 0.0929, 10-bit 95): it decodes to −0.006473 linear".
+- [ ] **Compositing** (defaults, straight) → A over B (0.45, 0.3, 0.35) at alpha 1; the mistake makes it brighter (a
+  bright halo) by up to 0.4; screen on sRGB values 1.07 % brighter than linear. Premultiplied with A **0.4, 0.2, 0.05,
+  0.5** → darker (a dark fringe) by up to 0.2. Alpha **1.2** → refused.
+- [ ] **Chroma key** (defaults) → 0.1763 from the key in CbCr (0.2872 in RGB), alpha 0.642; green 0.55 → 0.325; the CbCr
+  figure shows two circles round the key.
+- [ ] **Miniatures & sim scale** (defaults) → 1:16 shot at 96 fps; Reynolds 64 times lower; 7 substeps per frame;
+  fall 10 m in 1.428 s, model 0.625 m in 0.357 s.
+- [ ] **Rigid-body drop & collision** (defaults, centimetres) → g = 980.665 cm/s², lands after 0.6387 s at 626.3 cm/s,
+  bounces to 72 cm, settles after about 2.55 s; 66 % of the energy lost; friction stops the sliding.
+- [ ] Insert any two: text, the tables and the figure land in the document; Ctrl+Z removes them.
+
+
 ## 0es. New in v2.206.0 — Scene modelling & pipeline (Engineering 241 → 252)
 
 - [ ] **Engineering panels:** a **Scene modelling & pipeline** panel sits right after *Light & camera*, with eleven
@@ -281,7 +321,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 ## 0ed. New in v2.191.0 — Engineering gap release and quantum mathematics
 
 - [ ] **Engineering panels:** the panel list shows **Quantum computing** and **Quantum mechanics** after Quantum optics;
-  the Engineering heading counts 241 calculators.
+  the Engineering heading counts 252 calculators.
 - [ ] **Units:** Thermal ▸ composite wall, enter a film coefficient `10 Btu/(h·ft²·°F)` → converted (about 56.78 W/(m²·K)),
   and the "Units read" note shows ×10ⁿ, never e-notation. Fracture toughness `50 MPa·√m` is accepted; plain `50 MPa` is
   refused as the wrong quantity.

@@ -321,6 +321,8 @@ function run() {
   // 249 as of v2.206.0: the eight Colour & appearance calculators, each drawing from its shipped defaults.
   // 252 with Scene modelling & pipeline (v2.206.0): eleven calculators (Bezier, NURBS, mesh, subdivision, LOD, ray,
   // bounding volumes, texture, farm, storage, pipeline), each drawing from its shipped defaults.
+  // 252 as of v2.206.0: eleven VFX & compositing tools (vfx-retime … vfx-collision, the new "VFX & compositing" group),
+  // every one drawing from its shipped defaults.
   const FIGURE_BASELINE = 249;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");

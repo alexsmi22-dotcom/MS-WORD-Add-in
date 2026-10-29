@@ -19,9 +19,17 @@ const SUB: Record<string, string> = {
 // A subscript right after a letter, a closing bracket or a ket: _{…} or a run of letters and digits.
 const SCRIPT = /([A-Za-zα-ωΑ-Ω)\]⟩|])_(\{([^{}]+)\}|[A-Za-z0-9α-ω]+)/g;
 
+const FILE_EXT = "(?:exr|dpx|cin|tif|tiff|png|jpg|jpeg|tga|hdr|tx|wav|aif|aiff|mov|mxf|mp4|abc|vdb|bgeo|sc|usd|usda|usdc|usdz|obj|fbx|nk|hip|ma|mb)";
+const FILE_TOKEN = new RegExp(`_\\S*\\.${FILE_EXT}(?=[)\\].,;:]*(?:\\s|$))`, "i");
+const FILE_TOKEN_ONE = new RegExp(`^\\S*_\\S*\\.${FILE_EXT}[)\\].,;:]*$`, "i");
+
 /** One text with its underscore subscripts typeset. */
 export function tidySubscripts(text: string): string {
   if (!text.includes("_")) return text;
+  // A file name is written as typed (VFX & compositing, 2026-10-28: "sh010_comp_v001.1001.exr" became
+  // "sh010_compᵥ₀₀₁.1001.exr"): a whitespace-delimited token ending in a media/image file extension keeps its
+  // underscores. Prose subscripts never end in one of these extensions.
+  if (FILE_TOKEN.test(text)) return text.split(/(\s+)/).map((tok) => (FILE_TOKEN_ONE.test(tok) ? tok : tidySubscripts(tok))).join("");
   return text.replace(SCRIPT, (_m, base: string, raw: string, braced: string | undefined) => {
     const body = braced ?? raw;
     const chars = [...body];

@@ -126,7 +126,10 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // spaceflightCharts builders at their edges); clinical research 32 (Fagan, ROC, Buderer, ratio forests, kappa bars,
 // Bland–Altman, ICC profile, meta forest and funnel) and dosing 19 (BSA and weight bars, Cockcroft–Gault bars, the
 // CKD-EPI curve, dose, infusion and lab-conversion lines).
-const CORPUS_FLOOR = 1315;
+// 1360 as of v2.207.0 (measured on the merged tree; 1315 before): Astronomy & lunar 45 (the ten calculators at their
+// defaults and layout variants: polar sites, whole-year calendar, no camera, no transit; plus the hand-drawn builders
+// at their edges).
+const CORPUS_FLOOR = 1360;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

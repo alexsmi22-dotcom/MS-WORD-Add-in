@@ -37,8 +37,16 @@ const okv = <T extends object>(x: T | { ok: false; error: string }): T => {
 describe("constants", () => {
   test("agree with orbital.ts BODIES digit for digit (same extracted source)", () => {
     for (const b of BODIES) {
-      expect(GM_SI[b.id]).toBe(b.mu);
       expect(R_EQ_SI[b.id]).toBe(b.radius);
+      // Neptune is the one deliberate exception (v2.207.0): orbital.ts BODIES, extended by Astronomy & lunar, carries
+      // the planet-only GM (JPL SSD NEP097) for orbits about the planet, while GM_SI keeps poliastro's system value
+      // (Triton included) for the heliocentric patched conics. They differ by Triton's mass ratio, about 2.09e-4.
+      if (b.id === "neptune") {
+        expect(b.mu).toBe(6.83509997e15);
+        expect((GM_SI.neptune - b.mu) / b.mu).toBeCloseTo(2.088e-4, 6);
+        continue;
+      }
+      expect(GM_SI[b.id]).toBe(b.mu);
     }
   });
   test("Julian dates: J2000, the Standish window ends, and the round trip", () => {

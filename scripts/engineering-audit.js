@@ -322,7 +322,10 @@ function run() {
   // LOD, ray, bounding volumes, texture, farm, storage, pipeline), VFX & compositing (11), Lighting & rendering (7),
   // Spaceflight & missions (10) and seven dosing tools (BMI/BSA, dosing weights, Cockcroft–Gault, CKD-EPI eGFR, dose,
   // infusion, lab units), every one drawing from its shipped defaults.
-  const FIGURE_BASELINE = 295;
+  // 305 as of v2.207.0 (measured on the merged tree): Astronomy & lunar (10), every one drawing from its shipped
+  // defaults (sky dome, Moon disc, month grid, ecliptic strip, …). Under heavy machine load the headless run can
+  // exceed the 600 s spawn timeout; that is load, not a finding.
+  const FIGURE_BASELINE = 305;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");
   console.log(

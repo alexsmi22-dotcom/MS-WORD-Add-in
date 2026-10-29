@@ -10,6 +10,23 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0eu. New in v2.207.0 — Astronomy & lunar (Engineering 295 → 305)
+
+The **Engineering** Home tile reads "305 calculators across 31 disciplines". Engineering shows a new **Astronomy & lunar** heading right after Spaceflight & missions (which follows Trajectory & orbits), with 10 tools. Each opens with a
+plain-language sentence, ends with its method and accuracy, and inserts a figure.
+
+- [ ] **Time scales** (defaults) → "2026-11-05 06:00 UTC is Julian Date 2461349.75000, a Thursday (day 309 of 2026); TT runs 69.184 s ahead of UTC, and Greenwich mean sidereal time is 8ʰ 57ᵐ 57ˢ"; TAI − UTC 37 s, GPS − UTC 18 s; figure "Time scales against UTC". Date **1582-10-10** → refused ("does not exist"); **2016-12-31 23:59:60** → accepted as the leap second; **2026-11-05 23:59:60** → refused ("had no leap second"); **2031-01-01** → says the leap-second table expired 2027-06-28; date **2000-01-01**, time 12:00:00 → JD 2451545.0, Saturday.
+- [ ] **Celestial coordinates** (defaults: Betelgeuse from Washington, 22:00 UTC−5) → "15.7° above the east horizon (azimuth 93°), airmass 3.65; it transited at 03:06 at 58.5°" (past tense: earlier that date), 27.10° from Sirius; latitude **33°52′S** reads 33.87° S; galactic l 199.78732°, b −8.95868°; sky dome with a dashed path. RA **24h 00m 00s** → refused.
+- [ ] **Moon: phase and position** (defaults) → "waning crescent, 10 % lit and 26.4 days old, below the horizon; it rises at 02:56 and sets at 15:01"; next New Moon 2026-11-09 02:02 (UTC−5). Two figures: the disc (lit sliver toward the orange Sun marker) and Moon/Sun altitude from noon to noon. Latitude **78.22**, longitude 15.65, offset 1: some dates say the Moon stays up or does not rise all day.
+- [ ] **Moon calendar** (defaults: November 2026, UTC−5) → full 2026-11-24 09:54, new 2026-11-09 02:02; perigee 2026-11-25 16:04 at 359346 km; eclipses: annular solar 2027-02-06 (γ −0.2946, magnitude 0.928; NASA 0.9281), total solar 2027-08-02 (γ 0.1415, 1.079), partial lunar 2028-01-12 (umbral 0.066). Figure: a month grid of Moon icons with the four phases marked. "The whole year" → a lit-fraction line.
+- [ ] **Sun, Moon and planets** (defaults) → "it is fully dark; above the horizon: Saturn (magnitude 0.5, 51° up in the south-southeast)…"; table of nine bodies with rise/set; ecliptic-strip figure. At 78.22° N on 2026-06-21 the Sun is "up all day".
+- [ ] **Telescope and camera** (defaults) → 48×, 1.08° true field (the Moon fits), limiting magnitude 13.0, Dawes 0.58″, 0.65″/px, 3.1 px across 2″ seeing (well sampled). Aperture **8 in** → "8 in = 203.2 mm". Figure: eyepiece circle, camera rectangle, Moon disc.
+- [ ] **Stars** (defaults: Sirius) → 2.637 pc (8.60 ly), M = 1.43, 25.7 L☉, Wien peak 292 nm; HR figure. Parallax **0** → refused by name.
+- [ ] **Redshift** (defaults z = 0.5, with radiation: Tcmb 2.7255 K, Neff 3.04) → lookback 5.19 Gyr, age then 8.60 Gyr, comoving 1946 Mpc, luminosity 2919 Mpc (astropy FlatLambdaCDM agrees). z = **1100** → age about 366 thousand years.
+- [ ] **Kepler and exoplanets** (defaults: hot Jupiter) → 0.04513 au, depth 1.06 %, 3.05 h, K = 134 m/s; light-curve figure. b = **1.05** (grazing) → depth 0.20 %, not 1.06 %.
+- [ ] **Surface gravity** (defaults: Mars, 70 kg) → 259.9 N (26.5 kg on an Earth scale, 0.379 g), escape 5.03 km/s, day 24.66 h; bars for 20 bodies. Earth → Moon/Sun tide ratio 2.18.
+- [ ] **Trajectory & orbits ▸ Circular orbit**: the body list now also offers Mercury, Venus, Saturn, Uranus and Neptune.
+
 ## 0et. New in v2.206.0 — Colour, VFX, lighting, scene modelling, spaceflight and clinical research (Engineering 241 → 295, Stats 77 → 87)
 
 - [ ] **Engineering** Home tile reads "295 calculators across 30 disciplines". After *Light & camera (3)* come

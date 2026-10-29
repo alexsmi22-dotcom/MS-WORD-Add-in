@@ -39,6 +39,16 @@ export const BODIES: Body[] = [
   { id: "mars", label: "Mars", mu: 4.28283744e13, radius: 3.39619e6, source: "IAU 2009" },
   { id: "sun", label: "Sun", mu: 1.32712442099e20, radius: 6.957e8, source: "IAU 2009" },
   { id: "jupiter", label: "Jupiter", mu: 1.2671276253e17, radius: 7.1492e7, source: "IAU 2009" },
+  // Astronomy & lunar (2026-10-28): the remaining planets, script-extracted from the same poliastro general.py (μ IAU
+  // 2009; equatorial radii from the IAU WGCCRE 2015 report it cites). Cross-checked in astroBodies.test.ts against
+  // the JPL SSD equatorial gravity and escape velocity, which are independent of that file.
+  { id: "mercury", label: "Mercury", mu: 2.203209e13, radius: 2.44053e6, source: "IAU 2009 (μ); IAU WGCCRE: 2015 (radius)" },
+  { id: "venus", label: "Venus", mu: 3.24858592e14, radius: 6.0518e6, source: "IAU 2009 (μ); IAU WGCCRE: 2015 (radius)" },
+  { id: "saturn", label: "Saturn", mu: 3.79312077e16, radius: 6.0268e7, source: "IAU 2009 (μ); IAU WGCCRE: 2015 (radius)" },
+  { id: "uranus", label: "Uranus", mu: 5.7939393e15, radius: 2.5559e7, source: "IAU 2009 (μ); IAU WGCCRE: 2015 (radius)" },
+  // Neptune: poliastro's GM_neptune is the SYSTEM value (Triton included); the planet alone, as for Saturn and Uranus
+  // here, is JPL SSD's 6835099.97 km³/s² (ssd.jpl.nasa.gov/sats/phys_par/, planet GM table, NEP097).
+  { id: "neptune", label: "Neptune", mu: 6.83509997e15, radius: 2.4764e7, source: "JPL SSD NEP097 (μ, planet only); IAU WGCCRE: 2015 (radius)" },
 ];
 
 export function bodyById(id: string): Body | undefined {

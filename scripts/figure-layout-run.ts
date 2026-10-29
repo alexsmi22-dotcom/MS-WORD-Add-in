@@ -273,6 +273,11 @@ import { SCENE_CALCS } from "../src/lib/sceneCalcs";
 import { meshWireframeSvg, polycountChartSvg, lodChartSvg, farmChartSvg, rayChartSvg, boundingChartSvg, bezierChartSvg, nurbsChartSvg, sceneBarsSvg } from "../src/lib/sceneCharts";
 // --- end Scene modelling & pipeline (imports) ---
 
+// --- Astronomy & lunar ---
+import { ASTRO_CALCS } from "../src/lib/astroCalcs";
+import { moonDiscSvg, skyDomeSvg, fovSvg, timeScalesChartSvg } from "../src/lib/astroCharts";
+// --- end Astronomy & lunar ---
+
 // --- Release E: link budget ---
 import { LINK_BUDGET_CALCS } from "../src/lib/linkBudgetCalcs";
 import { berWaterfallSvg, cascadeNfSvg, linkRangeSvg } from "../src/lib/linkBudgetCharts";
@@ -4434,4 +4439,42 @@ rotator 15` }, "jones elliptical");
     });
   }
 }
+// --- Astronomy & lunar ---
+// Every calculator at its defaults and at the variants that change a figure's layout: a polar site (the Sun and Moon
+// never set or never rise), a date before the leap-second era (two scale bars), a whole-year calendar (the lit-fraction
+// line instead of the month grid), February of a leap year, a star below the horizon, a telescope with no camera and
+// one with no eyepiece, a star given only its temperature (the Planck curve) or only magnitudes (the modulus line), an
+// orbit with no transit (the Kepler line), the smallest and largest bodies; then the hand-drawn builders at their edges.
+{
+  const variants: Record<string, Record<string, string>[]> = {
+    "astro-time": [{}, { date: "1950-06-01" }, { mode: "jd", jd: "0" }],
+    "astro-coords": [{}, { time: "10:00" }, { ra: "2h 31m 49s", dec: "+89° 15′ 51″", lat: "78", lon: "15", ra2: "" }],
+    "astro-moon": [{}, { date: "2026-11-24", time: "23:00" }, { date: "2026-11-17", lat: "78.22", lon: "15.65", tz: "1" }, { lat: "-33.87", lon: "151.21", tz: "10" }],
+    "astro-moon-calendar": [{}, { month: "all" }, { year: "2028", month: "2", span: "12" }],
+    "astro-ephemeris": [{}, { date: "2026-06-21", lat: "78.22", lon: "15.65", tz: "1" }, { date: "2040-09-08" }],
+    "astro-telescope": [{}, { pix: "" }, { fe: "", target: "" }, { D: "80 mm", F: "400 mm", fe: "40 mm", target: "120" }],
+    "astro-stars": [{}, { L: "", R: "", T: "3500 K", m: "", plx: "" }, { m: "12.3", M: "4.8", plx: "", R: "", T: "" }, { T: "30000 K", R: "6.5" }],
+    "astro-cosmology": [{}, { z: "0.01" }, { z: "6" }],
+    "astro-kepler": [{}, { Rs: "", P: "", a: "5.2 au", Mp: "1 MJ" }, { Ms: "1 Msun", Mp: "1 Mearth", P: "365.25 d", Rp: "1 Rearth", b: "0.5" }],
+    "astro-gravity": [{}, { body: "jupiter" }, { body: "phobos", mass: "150 lb" }, { body: "earth" }],
+  };
+  for (const c of ASTRO_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: astro ${c.id} did not draw: ${out.text}`);
+      svgs.forEach((s, i) => figures.push([`astro ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+  figures.push(["astro moonDiscSvg new Moon", moonDiscSvg(0, 90, null, "New Moon, 0 % lit", "north up")]);
+  figures.push(["astro moonDiscSvg full Moon tilted", moonDiscSvg(1, 300, 40, "Full Moon, 100 % lit", "as seen")]);
+  figures.push(["astro moonDiscSvg first quarter", moonDiscSvg(0.5, 270, 0, "First quarter", "as seen")]);
+  figures.push(["astro skyDomeSvg crowded", skyDomeSvg([0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ altDeg: 10 + 9 * i, azDeg: 45 * i, label: `body ${i + 1} at azimuth ${45 * i}°` })), "Eight bodies")]);
+  figures.push(["astro skyDomeSvg below horizon", skyDomeSvg([{ altDeg: -30, azDeg: 200, label: "below" }], "One body below the horizon")]);
+  figures.push(["astro fovSvg tiny target", fovSvg(10, [5, 3], 0.05, "planet")]);
+  figures.push(["astro timeScalesChartSvg UT only", timeScalesChartSvg([{ name: "UT", offset: 0, note: "Earth rotation" }, { name: "TT", offset: 29.1, note: "ΔT 29.1 s" }])]);
+}
+// --- end Astronomy & lunar ---
 export { figures };

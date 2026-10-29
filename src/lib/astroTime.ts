@@ -32,8 +32,6 @@ export type Mat3 = [[number, number, number], [number, number, number], [number,
 
 /** Normalises an angle to [0, 2π). */
 export const norm2pi = (x: number): number => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-/** Normalises degrees to [0, 360). */
-export const norm360 = (x: number): number => ((x % 360) + 360) % 360;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Calendars

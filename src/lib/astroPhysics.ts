@@ -243,8 +243,6 @@ export function star(i: StarIn): StarOut | Err {
   };
 }
 
-/** σ is used through the solar normalisation; exported so the test can confirm 4πR☉²σT☉⁴ = L☉. */
-export const sunLuminosityFromSB = (): number => 4 * Math.PI * R_SUN * R_SUN * SIGMA_SB * T_SUN ** 4;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Cosmology (flat ΛCDM, no radiation)

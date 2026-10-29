@@ -314,12 +314,14 @@ const timeCalc: AstroCalc = {
     const gm = gmst(sc.jdUT1, sc.jdTT), ga = gast(sc.jdUT1, sc.jdTT);
     const lmst = gm + lonP.deg * DEG, last = ga + lonP.deg * DEG;
     const H = (rad: number): number => rad / (15 * DEG);
-    const auto = calendarFromJd(jd, "auto");
-    const greg = calendarFromJd(jd, "gregorian");
-    const jul = calendarFromJd(jd, "julian");
+    // Rounded to the tenth of a second BEFORE the calendar split, so 23:59:59.97 carries into the next day.
+    const jdShown = Math.round((jd + 0.5) * 864000) / 864000 - 0.5;
+    const auto = calendarFromJd(jdShown, "auto");
+    const greg = calendarFromJd(jdShown, "gregorian");
+    const jul = calendarFromJd(jdShown, "julian");
     const fmtCal = (c: { year: number; month: number; day: number }): string => {
-      const d = Math.floor(c.day);
-      const secs = Math.round((c.day - d) * 86400 * 10) / 10;
+      const d = Math.floor(c.day + 1e-9);
+      const secs = Math.min(86399.9, Math.max(0, Math.round((c.day - d) * 86400 * 10) / 10));
       const hh = Math.floor(secs / 3600), mm = Math.floor((secs - hh * 3600) / 60), ss = secs - hh * 3600 - mm * 60;
       return `${yearText(c.year)}-${pad2(c.month)}-${pad2(d)} ${pad2(hh)}:${pad2(mm)}:${ss.toFixed(1).padStart(4, "0")}`;
     };
@@ -617,6 +619,7 @@ const calendarCalc: AstroCalc = {
     const label = whole ? String(y) : `${MONTHS[mo - 1]} ${y}`;
     const lines: EngReportLine[] = [];
     if (y < VERIFIED_YEARS.min || y > VERIFIED_YEARS.max) lines.push(`The year ${y} is outside 1900 to 2100, the range compared against JPL's ephemerides: phase times may be off by a minute or more (ΔT is uncertain).`);
+    lines.push({ math: "lambda_Moon - lambda_Sun = 90 k", fallback: "λ(Moon) − λ(Sun) = 90°·k, k = 0, 1, 2, 3 (New, First quarter, Full, Last quarter; apparent geocentric longitudes)" });
     const phRows: string[][] = [["Phase", `Local (${offsetText(offset)})`, "UTC", "Distance (km)", "Note"]];
     const supers: string[] = [];
     for (const e of phases) {
@@ -864,7 +867,7 @@ const telescopeCalc: AstroCalc = {
     const lines: EngReportLine[] = [];
     lines.push({ math: "N = F/D", fallback: "N = F/D (focal ratio); M = F/fₑ; true field = apparent field/M; exit pupil = D/M" });
     lines.push({ math: "theta_R = 1.21967 lambda/D", fallback: "θ(Rayleigh) = 1.21967·λ/D; θ(Dawes) = 116″/D(mm)" });
-    lines.push({ math: "m_lim = m_eye + 5 log(D/d_p) + 2.5 log(T)", fallback: "m(lim) = m(eye) + 5·log₁₀(D/d(pupil)) + 2.5·log₁₀ T" });
+    lines.push({ math: "m_L = m_eye + 5 log(D/d_p) + 2.5 log(T)", fallback: "m(lim) = m(eye) + 5·log₁₀(D/d(pupil)) + 2.5·log₁₀ T" });
     lines.push({ math: "s = 206.265 p/F", fallback: "s = 206.265·p(µm)/F(mm) arcsec per pixel" });
     const rows: string[][] = [["Quantity", "Value"]];
     rows.push(["Focal ratio", `f/${fx(res.focalRatio, 2)}`]);
@@ -1186,5 +1189,3 @@ const gravityCalc: AstroCalc = {
 /** The Astronomy & lunar calculators, in dropdown order. */
 export const ASTRO_CALCS: AstroCalc[] = [timeCalc, coordsCalc, moonCalc, calendarCalc, ephemCalc, telescopeCalc, starsCalc, cosmoCalc, keplerCalc, gravityCalc];
 
-// Re-exported for tests that check the helpers directly.
-export { readDate, readClock, readOffset, localStamp };

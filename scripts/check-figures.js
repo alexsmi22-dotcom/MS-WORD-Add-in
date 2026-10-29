@@ -116,7 +116,9 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // 397 as of v2.187.0 (Release B): thin films, Fresnel and Jones (11), materials
 // testing and quality (13), control design (25), titration and CV (16) and the
 // new Plot kinds (20), each calculator at its defaults plus the layouts that crowd.
-const CORPUS_FLOOR = 965;
+// 1010 as of the Astronomy & lunar branch (2026-10-29): 45 figures, the ten calculators at their defaults and
+// layout variants (polar sites, whole-year calendar, no camera, no transit) plus the hand-drawn builders at their edges.
+const CORPUS_FLOOR = 1010;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

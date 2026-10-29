@@ -213,18 +213,10 @@ export function apparentPlace(body: BodyId, jdTT: number): Place {
 /** Elongation from the Sun (rad), from two apparent places. */
 export const elongation = (a: Place, sun: Place): number => angleBetween(a.dir, sun.dir);
 
-/** The illuminated fraction of the disc, (1 + cos i)/2. */
-export const illuminatedFraction = (phaseAngle: number): number => (1 + Math.cos(phaseAngle)) / 2;
 
 /** Angular semidiameter (rad) of a body of radius rKm at distance dKm. */
 export const semidiameter = (rKm: number, dKm: number): number => Math.asin(Math.min(1, rKm / dKm));
 
-/** Equatorial radii (km) for apparent diameters: IAU WGCCRE 2015 via orbital.ts BODIES where present. */
-export function bodyRadiusKm(body: BodyId): number {
-  if (body === "sun") return SUN_RADIUS_KM;
-  if (body === "moon") return MOON_RADIUS_KM;
-  return bodyById(body)!.radius / 1000;
-}
 
 /** Planet pole directions (IAU WGCCRE, J2000 equatorial) used by the Saturn and Uranus magnitude terms. */
 const SATURN_POLE = vec(40.589 * DEG, 83.537 * DEG);
@@ -404,5 +396,3 @@ export function parallacticAngle(ha: number, dec: number, lat: number): number {
   return Math.atan2(Math.sin(ha), Math.tan(lat) * Math.cos(dec) - Math.sin(dec) * Math.cos(ha));
 }
 
-/** The shadow axis geometry for solar eclipses and the Earth's shadow for lunar ones: re-exported vector helpers. */
-export { cross, dot };

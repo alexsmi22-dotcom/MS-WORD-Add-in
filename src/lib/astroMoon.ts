@@ -72,11 +72,6 @@ export function phasesBetween(jd0: number, jd1: number): PhaseEvent[] {
   return out.sort((a, b) => a.jdTT - b.jdTT);
 }
 
-/** The next instant of a given principal phase after jd (TT). */
-export function nextPhase(jdTT: number, phase: 0 | 1 | 2 | 3): number {
-  const ev = phasesBetween(jdTT, jdTT + 31).find((e) => e.phase === phase);
-  return (ev as PhaseEvent).jdTT;
-}
 
 /** The previous New Moon at or before jd (TT). */
 export function previousNewMoon(jdTT: number): number {

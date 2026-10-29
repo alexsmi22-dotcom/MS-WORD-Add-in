@@ -46,10 +46,14 @@ export function timeScalesChartSvg(rows: Array<{ name: string; offset: number; n
     out.push(`<rect x="${f1(a)}" y="${y}" width="${f1(Math.max(1.5, b - a))}" height="18" fill="${[BLUE, GREEN, ORANGE, PURPLE, RED][i % 5]}" opacity="0.85"/>`);
     out.push(text(Math.max(a, b) + 6, y + 13, r.note, "start", 10));
   });
-  const ticks = [0, 10, 20, 30, 40, 50, 60, 70].filter((t) => t <= max + 1e-9);
+  const raw = (max - min) / 6;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 5, 10].map((k) => k * mag).find((k) => k >= raw) as number;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + 1e-9; t += step) ticks.push(Math.round(t / step) * step);
   for (const t of ticks) {
     out.push(`<line x1="${f1(sx(t))}" y1="${H - 26}" x2="${f1(sx(t))}" y2="${H - 22}" stroke="${INK}"/>`);
-    out.push(text(sx(t), H - 10, String(t), "middle", 10));
+    out.push(text(sx(t), H - 10, sig(t, 6), "middle", 10));
   }
   out.push("</svg>");
   return out.join("");
@@ -70,7 +74,8 @@ export interface DomePoint {
 
 /** An alt-az sky dome LOOKING UP: zenith at the centre, horizon the circle, north at the top and east on the LEFT. */
 export function skyDomeSvg(points: DomePoint[], title: string, paths: Array<Array<{ altDeg: number; azDeg: number }>> = []): string {
-  const H = 380;
+  const legendRows = Math.ceil(points.length / 2);
+  const H = 390 + legendRows * 14;
   const cx = W / 2, cy = 200, R = 150;
   const pt = (alt: number, az: number): [number, number] => {
     const rr = (R * (90 - Math.max(alt, -12))) / 90;
@@ -95,7 +100,7 @@ export function skyDomeSvg(points: DomePoint[], title: string, paths: Array<Arra
   // Labels in a legend box below the dome so a crowded sky never collides.
   points.forEach((p, i) => {
     const col = i % 2, row = Math.floor(i / 2);
-    const lx = 20 + col * 220, ly = H - 22 + row * 14 - Math.floor((points.length - 1) / 2) * 14;
+    const lx = 20 + col * 220, ly = 386 + row * 14;
     out.push(`<circle cx="${lx}" cy="${ly - 4}" r="4" fill="${p.colour ?? RED}"/>`);
     out.push(text(lx + 8, ly, p.label + (p.altDeg < 0 ? " (below the horizon)" : ""), "start", 10));
   });

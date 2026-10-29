@@ -129,18 +129,6 @@ export function altAzOf(ra: number, dec: number, site: Site, last: number): AltA
   return { alt: Math.asin(Math.max(-1, Math.min(1, up))), az: norm2pi(Math.atan2(east, north)), ha };
 }
 
-/** The inverse: RA/Dec (true of date) of an altitude/azimuth at local apparent sidereal time `last`. */
-export function raDecOfAltAz(alt: number, az: number, site: Site, last: number): { ra: number; dec: number } {
-  const sl = Math.sin(site.lat), cl = Math.cos(site.lat);
-  const east = Math.cos(alt) * Math.sin(az);
-  const north = Math.cos(alt) * Math.cos(az);
-  const up = Math.sin(alt);
-  const sd = up * sl + north * cl;
-  const dec = Math.asin(Math.max(-1, Math.min(1, sd)));
-  // cos δ sin H = −east; cos δ cos H = up·cosφ − north·sinφ
-  const ha = Math.atan2(-east, up * cl - north * sl);
-  return { ra: norm2pi(last - ha), dec };
-}
 
 // ---- refraction and airmass ----
 
@@ -152,13 +140,6 @@ export function refractionFromTrue(altTrue: number, pressureHPa = 1010, tempC = 
   return Math.max(0, r) * (pressureHPa / 1010) * (283 / (273 + tempC)) * (DEG / 60);
 }
 
-/** Refraction (rad) for an APPARENT (observed) altitude, Bennett, same scaling. */
-export function refractionFromApparent(altApp: number, pressureHPa = 1010, tempC = 10): number {
-  const h = altApp / DEG;
-  if (h < -1.9) return 0;
-  const r = 1 / Math.tan((h + 7.31 / (h + 4.4)) * DEG); // arcmin
-  return Math.max(0, r) * (pressureHPa / 1010) * (283 / (273 + tempC)) * (DEG / 60);
-}
 
 /** Airmass at a true altitude (degrees): Kasten & Young (1989); null below the horizon. */
 export function airmassKastenYoung(altDeg: number): number | null {

@@ -369,7 +369,9 @@ export function dcfSensitivityHeatmapSvg(
   const fig = currentFinFig();
   const W = fig ? fig.width : 520;
   const H = Math.round((320 * W) / 520);
-  return buildHeatmapSvg(chart, title, { scale: "sequential", grey: fig?.bw === true, valueText }, W, H).svg;
+  // Marked as a heat map on its root (insertCapability.prepareFigure reads it), so a figure style that refuses heat
+  // maps (USPTO) says so in words rather than listing the shaded cells' paints.
+  return buildHeatmapSvg(chart, title, { scale: "sequential", grey: fig?.bw === true, valueText }, W, H).svg.replace(/^<svg\b/, '<svg data-chart-kind="heatmap"');
 }
 
 // ------------------------------------------------------------------------------------------------------------------

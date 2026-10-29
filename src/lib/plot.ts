@@ -10,7 +10,8 @@
 import { minOf, maxOf } from "./minmax";
 import { linearAxis, logAxis, fmtValue, fmtSig, resolveLimits, outsideNote, commaGroupLabel, type AxisLimits } from "./axis";
 import { usptoMarkerSvg, USPTO_DASHES } from "./figureStyle";
-import { currentFigCtx, stickyLayout } from "./figContext";
+import { currentFigCtx, stickyLayout, wrapLabel } from "./figContext";
+export { wrapLabel };
 
 /** Factorial for non-negative integers (else NaN). */
 function factorial(n: number): number {
@@ -733,6 +734,33 @@ function wrapTitle(title: string, W: number): string[] {
   return rest ? [first, rest] : [first];
 }
 
+
+/**
+ * An axis of NUMBERS (or dates), which may be thinned: every label empty, letter-free ("1,000", "−0.5", "12%") or a
+ * date ("Mar 2024", "3 Mar"). An axis whose labels are words is categorical (conditions, covariates, models): no
+ * category is ever dropped to make room (thinning left a profile plot naming two of its four conditions).
+ */
+function numericTicks(ax: PlotAxisTicks): boolean {
+  const date = /^(\d{1,2} )?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)( \d{4})?$/;
+  return ax.ticks.every((t) => t.text === "" || !/\p{L}/u.test(t.text) || date.test(t.text));
+}
+
+/**
+ * A sparser labelling of a crowded axis: the axis at a lower tick-count target when that gives fewer ticks, else
+ * every other tick of this one (keeping zero when it is labelled). null when two ticks are all that is left.
+ */
+function fewerTicks(ax: PlotAxisTicks, target: number, make: (target: number) => PlotAxisTicks): [PlotAxisTicks, number] | null {
+  for (let t = target - 1; t >= 2; t--) {
+    const a = make(t);
+    if (a.ticks.length < ax.ticks.length && a.ticks.length >= 2) return [a, t];
+  }
+  if (ax.ticks.length <= 2) return null;
+  const z = ax.ticks.findIndex((t) => t.v === 0);
+  const parity = z >= 0 ? z % 2 : 0;
+  const kept = ax.ticks.filter((_, i) => i % 2 === parity);
+  return kept.length >= 2 ? [{ ...ax, ticks: kept }, 1] : null;
+}
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
@@ -755,11 +783,64 @@ export function dateTickLabel(lo: number, hi: number, _kind: "year"): (v: number
   };
 }
 
+/** A date as a decimal year (2024-03-01 → 2024 + 60/366), the inverse of dateTickLabel's reading. */
+function decimalYear(y: number, month: number, day: number): number {
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const doy = Math.round((Date.UTC(y, month, day) - Date.UTC(y, 0, 1)) / 86400000);
+  return y + doy / (leap ? 366 : 365);
+}
+
+/**
+ * Ticks for a DATE axis (decimal years) under three years long (round 2): ON MONTH STARTS (every 1, 2, 3 or 6 months,
+ * "Mar 2024"), or under two months on days ("3 Mar 2024" on the first tick and wherever the year changes, "10 Mar"
+ * elsewhere), so the year is never lost. Linear decimal-year ticks skipped months and fell mid-month; spans of three
+ * years or more keep them (whole years). null when the span is not one this covers.
+ */
+export function dateAxisTicks(lo: number, hi: number, target: number): { v: number; text: string }[] | null {
+  const span = hi - lo;
+  if (!(span > 0) || !Number.isFinite(span) || span >= 3 || Math.abs(lo) > 1e5) return null;
+  const y0 = Math.floor(lo);
+  const out: { v: number; text: string }[] = [];
+  if (span * 12 >= 2) {
+    for (const k of [1, 2, 3, 6, 12]) {
+      out.length = 0;
+      for (let m = 0; m < 12 * 5 && out.length < 60; m += k) {
+        const y = y0 + Math.floor(m / 12);
+        const v = decimalYear(y, m % 12, 1);
+        if (v < lo - 1e-9) continue;
+        if (v > hi + 1e-9) break;
+        out.push({ v, text: m % 12 === 0 ? String(y).replace("-", "−") : `${MONTHS[m % 12]} ${y}`.replace("-", "−") });
+      }
+      if (out.length <= Math.max(2, target)) break;
+    }
+    return out.length >= 2 ? out : null;
+  }
+  // Under two months: day ticks every 1, 2, 7 or 14 days from the first whole day.
+  const days = span * 365.25;
+  const startMs = Date.UTC(y0, 0, 1) + Math.ceil((lo - y0) * (((y0 % 4 === 0 && y0 % 100 !== 0) || y0 % 400 === 0) ? 366 : 365) - 1e-6) * 86400000;
+  for (const k of [1, 2, 7, 14]) {
+    if (days / k > Math.max(2, target) && k !== 14) continue;
+    out.length = 0;
+    let prevYear = NaN;
+    for (let t = startMs; out.length < 60; t += k * 86400000) {
+      const d = new Date(t);
+      const v = decimalYear(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+      if (v > hi + 1e-9) break;
+      if (v < lo - 1e-9) continue;
+      const yr = d.getUTCFullYear();
+      out.push({ v, text: `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${yr !== prevYear ? ` ${yr}` : ""}`.replace("-", "−") });
+      prevYear = yr;
+    }
+    break;
+  }
+  return out.length >= 2 ? out : null;
+}
+
 /**
  * An axis in GROUPED FIXED POINT for money and counts: "1,000", "25,000", "12,500,000" — never "1000", the thin-space
  * "25 000" or a "×10⁷" multiplier on the axis title. Decimals follow the tick step.
  */
-function commaAxis(ax: PlotAxisTicks): PlotAxisTicks {
+export function commaAxis(ax: PlotAxisTicks): PlotAxisTicks {
   const vals = ax.ticks.map((t) => t.v);
   if (vals.length < 2 || !vals.every(Number.isFinite)) return { ...ax, ticks: ax.ticks.map((t) => ({ v: t.v, text: commaGroupLabel(t.text) })) };
   // Only a POSITIVE power multiplier (a big axis) is folded into the labels; a ×10⁻⁴ axis keeps its multiplier.
@@ -768,7 +849,16 @@ function commaAxis(ax: PlotAxisTicks): PlotAxisTicks {
   if (ax.multiplier && (big || !/^×10[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/.test(ax.multiplier))) return { ...ax, ticks: ax.ticks.map((t) => ({ v: t.v, text: commaGroupLabel(t.text) })) };
   let step = Infinity;
   for (let i = 1; i < vals.length; i++) step = Math.min(step, Math.abs(vals[i] - vals[i - 1]));
-  const dp = step > 0 && Number.isFinite(step) ? Math.max(0, Math.min(6, Math.ceil(-Math.log10(step) - 1e-9))) : 0;
+  // Decimals from the TICK VALUES' own exact decimals (2026-10-28, round 2), held constant along the axis: a step of
+  // 0.25 needs two ("0.00 0.25 0.50"), 2.5 needs one ("32.5 35.0 37.5"). ceil(−log10(step)) gave one and none, and
+  // printed "0.0 0.3 0.5 0.8" and "33 35 38 40" — tick labels that were not the tick values.
+  const decimalsOf = (v: number): number => {
+    const s = String(Math.abs(+v.toPrecision(12)));
+    if (/e/i.test(s)) return 6;
+    const i = s.indexOf(".");
+    return i < 0 ? 0 : s.length - i - 1;
+  };
+  const dp = Math.max(0, Math.min(6, Math.max(...vals.map((v) => (Math.abs(v) < step * 1e-6 ? 0 : decimalsOf(v))))));
   const fmt = (v: number): string => {
     const s = (Math.abs(v) < step * 1e-6 ? 0 : v).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
     return s.startsWith("-") ? "−" + s.slice(1) : s;
@@ -1137,30 +1227,45 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       if (note) extraNotes.push(note + ".");
     }
   }
-  const xAxis0 = all.length
-    ? plotAxisTicks(xmin, xmax, logX, 6, options.xTickLabel ?? (options.xDates ? dateTickLabel(xmin, xmax, options.xDates) : undefined), xStep)
-    : { ticks: [], minor: [], multiplier: "" };
-  const yAxis0 = all.length
-    ? plotAxisTicks(ymin, ymax, logY, 5, options.yTickLabel, yStep)
-    : { ticks: [], minor: [], multiplier: "" };
+  const xLabelFn = options.xTickLabel ?? (options.xDates ? dateTickLabel(xmin, xmax, options.xDates) : undefined);
+  /** The x axis's ticks at a tick-count target (dates on month starts when the span is under three years). */
+  const makeX = (target: number): PlotAxisTicks => {
+    if (!all.length) return { ticks: [], minor: [], multiplier: "" };
+    if (options.xDates && !options.xTickLabel && !logX && xStep === undefined) {
+      const dt = dateAxisTicks(xmin, xmax, target);
+      if (dt) return { ticks: dt, minor: [], multiplier: "" };
+    }
+    const a = plotAxisTicks(xmin, xmax, logX, target, xLabelFn, xStep);
+    return options.xGrouping === "comma" && !logX && !options.xDates ? commaAxis(a) : a;
+  };
   // Before the margins are sized, so the left margin fits the labels as drawn.
-  const yAxis = options.yGrouping === "comma" && !logY ? commaAxis(yAxis0) : yAxis0;
-  const xAxis = options.xGrouping === "comma" && !logX && !options.xDates ? commaAxis(xAxis0) : xAxis0;
+  const makeY = (target: number): PlotAxisTicks => {
+    if (!all.length) return { ticks: [], minor: [], multiplier: "" };
+    const a = plotAxisTicks(ymin, ymax, logY, target, options.yTickLabel, yStep);
+    return options.yGrouping === "comma" && !logY ? commaAxis(a) : a;
+  };
+  let xTarget = 6;
+  let yTarget = 5;
+  let xAxis = makeX(xTarget);
+  let yAxis = makeY(yTarget);
+  const xlabel0 = options.xlabel;
+  const ylabel0 = options.ylabel;
   // A ×10ⁿ multiplier is stated ONCE, on the axis title — never as e-notation
   // on every tick.
   options = {
     ...options,
-    xlabel: withMultiplier(options.xlabel, xAxis.multiplier),
-    ylabel: withMultiplier(options.ylabel, yAxis.multiplier),
+    xlabel: withMultiplier(xlabel0, xAxis.multiplier),
+    ylabel: withMultiplier(ylabel0, yAxis.multiplier),
     notes: extraNotes.length ? [...(options.notes ?? []), ...extraNotes] : options.notes,
   };
+  const bw = options.bw === true;
 
   // THE LEFT MARGIN HAS TO FIT THE LABELS THAT GO IN IT. A fixed 48 px is
   // ample for "0" and "100" and far too little for a wide label, which then ran
   // back over the rotated y-axis title sitting at x = 12. The margin is
   // therefore computed from the WIDEST tick label actually drawn.
-  const ml = leftMarginFor(yAxis, options);
-  const mr = rightMarginFor(xAxis);
+  let ml = leftMarginFor(yAxis, options);
+  let mr = rightMarginFor(xAxis);
   // A TITLE WIDER THAN THE CANVAS WRAPS (2026-10-28): drawn on one line it ran off both edges at 260–300 px. Two
   // lines at most; a third would be cut with an ellipsis. A title that fits draws exactly as before.
   const titleLines = options.title ? wrapTitle(options.title, W) : [];
@@ -1175,13 +1280,106 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // by default: the pane's Plot mode reads a third column into `err` whatever
   // series type the user picked.)
   const hasErrNote = series.some((s) => s.type !== "line" && s.points.some((p) => !!p.err && Number.isFinite(p.err)));
-  const mb = (options.xlabel ? 42 : 30) + (hasErrNote ? 13 : 0);
-  const pw = W - ml - mr;
-  // Under a figure-style re-render the height follows the width; at a narrow width that left a data area a few
-  // pixels tall. The data area is kept at least half as tall as it is wide.
-  if (fctx) H = Math.max(H, Math.round(mt + mb + Math.max(60, 0.5 * pw)));
-  const ph = H - mt - mb;
-  const bw = options.bw === true;
+  // UNDER A FIGURE-STYLE RE-RENDER (round 2) the axes are fitted to the canvas the style chose: an axis title wider
+  // than its room wraps to two lines (the second cut with an ellipsis only if it still does not fit), and an axis
+  // whose tick labels would run into each other takes fewer ticks — measured with the layout audit's own 0.58 em
+  // advance, at the size each label is drawn. As drawn nothing here runs: one title line, the ticks as before.
+  const xfs = options.xlabel ? bwPx(options.xlabel, 11, bw) : 11;
+  const yfs = options.ylabel ? bwPx(options.ylabel, Y_TITLE_SIZE, bw) : Y_TITLE_SIZE;
+  const xlh = Math.round(xfs * 1.15);
+  const ylh = Math.round(yfs * 1.15);
+  let xTitle: string[] = options.xlabel ? [options.xlabel] : [];
+  let yTitle: string[] = options.ylabel ? [options.ylabel] : [];
+  // The error-bar declaration wraps like the axis titles (it ran off a narrow panel: "Error bars: 95% CI").
+  const errText = options.errorBars ? ERROR_BAR_LABEL[options.errorBars] : ERROR_BAR_UNSTATED;
+  const errFs = bw ? bwPx(errText, 10, true) : 9;
+  const errLh = Math.round(errFs * 1.25);
+  let errLines: string[] = hasErrNote ? [errText] : [];
+  const H0 = H;
+  let mb = 0;
+  let pw = 0;
+  let ph = 0;
+  const tickW = (t: string): number => t.length * bwPx(t, 10, bw) * 0.58;
+  for (let pass = 0; pass < 24; pass++) {
+    mb = (options.xlabel ? 42 + (xTitle.length - 1) * xlh : 30) + (hasErrNote ? 13 + (errLines.length - 1) * errLh : 0);
+    pw = W - ml - mr;
+    // Under a figure-style re-render the height follows the width; at a narrow width that left a data area a few
+    // pixels tall. The data area is kept at least half as tall as it is wide.
+    if (fctx) H = Math.max(H0, Math.round(mt + mb + Math.max(60, 0.5 * pw)));
+    ph = H - mt - mb;
+    if (!all.length) break;
+    // OUTSIDE a figure style (a caller re-rendering at its own width: Plot mode, round 2) the same fitting runs, but
+    // only where the layout audit itself would report a defect (a label off the canvas, labels overlapping by its
+    // threshold): a figure that reads cleanly as drawn is drawn exactly as before.
+    const fit = (text: string, room: number, fs: number, cur: number): string[] =>
+      fctx || cur > 1 || text.length * fs * 0.58 * 0.91 > room + 4 ? wrapLabel(text, room, fs, cur) : [text];
+    // Axis titles: the room is the canvas on both sides of the title's centre.
+    const cx = ml + pw / 2;
+    // Never back to fewer lines within one render (the room changes with the margins; a count that went back and
+    // forth would not settle).
+    const xNext = options.xlabel ? fit(options.xlabel, 2 * Math.min(cx, W - cx) - 4, xfs, xTitle.length) : [];
+    const cy = mt + ph / 2;
+    // The rotated y title stays below the figure title (it ran up into it at a 75 mm column).
+    // (Outside a figure style the room is the whole canvas height, the audit's own clip test.)
+    // A two-line title reaches the plot's top, so then the y title stays below it in either case.
+    const yNext = options.ylabel ? fit(options.ylabel, 2 * Math.min(cy - (options.title && (fctx || titleLines.length > 1) ? mt : 0), H - cy) - 4, yfs, yTitle.length) : [];
+    const eNext = hasErrNote ? fit(errText, 2 * Math.min(cx, W - cx) - 4, errFs, errLines.length) : [];
+    // Only MORE lines re-lay the frame (bounded: three lines at most each; wrapLabel never returns fewer than it is
+    // given, so the count cannot go back and forth, as a 3 → 2 → 3 wrap could).
+    if (xNext.length > xTitle.length || yNext.length > yTitle.length || eNext.length > errLines.length) {
+      xTitle = xNext;
+      yTitle = yNext;
+      errLines = eNext;
+      ml = leftMarginFor(yAxis, options) + Math.max(0, yTitle.length - 1) * ylh;
+      continue;
+    }
+    xTitle = xNext;
+    yTitle = yNext;
+    errLines = eNext;
+    // Ticks: under a figure style neighbours must clear each other by 3 px; outside one, only an overlap the audit
+    // would report (more than max(4 px², 6% of the smaller box)) thins them.
+    const TH = 10 * 0.78;
+    const xs = xAxis.ticks.map((t) => ({ p: ml + ((tx(t.v) - xmin) / (xmax - xmin)) * pw, w: tickW(t.text) })).sort((a, b) => a.p - b.p);
+    const xClash = (a: { p: number; w: number }, b: { p: number; w: number }): boolean => {
+      const over = (a.w + b.w) / 2 - (b.p - a.p);
+      return fctx ? over > -3 : over * TH > Math.max(4, 0.06 * Math.min(a.w, b.w) * TH);
+    };
+    // Labels that are words are CATEGORIES (numericTicks): one is never dropped to make room; a crowded categorical
+    // axis is refused by the style instead.
+    const xCrowded = !logX && numericTicks(xAxis) && xs.some((t, i) => i > 0 && xClash(xs[i - 1], t));
+    if (xCrowded) {
+      const next = fewerTicks(xAxis, xTarget, makeX);
+      if (next) {
+        [xAxis, xTarget] = next;
+        options = { ...options, xlabel: withMultiplier(xlabel0, xAxis.multiplier) };
+        mr = rightMarginFor(xAxis);
+        continue;
+      }
+    }
+    const ys = yAxis.ticks.map((t) => ({ p: mt + ph - ((ty(t.v) - ymin) / (ymax - ymin)) * ph, w: tickW(t.text) })).sort((a, b) => a.p - b.p);
+    const yClash = (a: { p: number; w: number }, b: { p: number; w: number }): boolean => {
+      const over = TH - (b.p - a.p);
+      const wMin = Math.min(a.w, b.w);
+      return fctx ? over > -3 : wMin > 0 && over * wMin > Math.max(4, 0.06 * wMin * TH);
+    };
+    const yCrowded = !logY && numericTicks(yAxis) && ys.some((t, i) => i > 0 && yClash(ys[i - 1], t));
+    if (yCrowded) {
+      const next = fewerTicks(yAxis, yTarget, makeY);
+      if (next) {
+        [yAxis, yTarget] = next;
+        options = { ...options, ylabel: withMultiplier(ylabel0, yAxis.multiplier) };
+        ml = leftMarginFor(yAxis, options) + Math.max(0, yTitle.length - 1) * ylh;
+        continue;
+      }
+    }
+    break;
+  }
+  // Should the passes run out on a re-lay, the frame is laid out once more for the lines it will draw (as drawn and in
+  // every settled fit this recomputes the same numbers).
+  mb = (options.xlabel ? 42 + Math.max(0, xTitle.length - 1) * xlh : 30) + (hasErrNote ? 13 + (errLines.length - 1) * errLh : 0);
+  pw = W - ml - mr;
+  if (fctx) H = Math.max(H0, Math.round(mt + mb + Math.max(60, 0.5 * pw)));
+  ph = H - mt - mb;
   // THE LEGEND LIVES OUTSIDE THE PLOT FRAME, in a gutter to its right. It used
   // to sit inside the top-right corner of the plot area, where the only
   // defensible rendering is an opaque box — and an opaque box over the plot is
@@ -1204,14 +1402,30 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // the canvas width jump, and the style fit (renderAtPreset) oscillated between the two layouts without converging.
   const legendBelow = !!fctx && gutterRows.length > 0 && gutterW >= 0;
   const belowChars = Math.max(12, Math.floor((W - 8 - 30) / (0.7 * (bw ? 14 : 10))));
-  const legendLabelOf = (s: Series): string => (legendBelow ? cut((s.label as string).trim(), belowChars) : gutterLabel(s));
+  // Below the plot a label too long for one line takes two (round 2), cut with an ellipsis only past that: a key cut
+  // at one line ("sales (below break-ev…") no longer said which series it named.
+  const legendLinesOf = (s: Series): string[] => {
+    const t = (s.label as string).trim();
+    if (!legendBelow) return [gutterLabel(s)];
+    if (t.length <= belowChars) return [t];
+    const two = wrapLabel(t, belowChars * 0.58 * 10, 10);
+    return two.length >= 2 ? two : [cut(t, belowChars)];
+  };
+  const legendLabelOf = (s: Series): string => legendLinesOf(s).join(" ");
   const legendRows = legendBelow ? labeled.slice(0, 8) : gutterRows;
   const legendTextPx = (s: Series): number => legendTextPx0(legendLabelOf(s));
   const legendW = legendRows.length
-    ? Math.min(legendBelow ? W - 8 : Infinity, Math.ceil(14 + maxOf(legendRows.map((s) => legendLabelOf(s).length * 0.7 * legendTextPx(s))) + 10))
+    ? Math.min(legendBelow ? W - 8 : Infinity, Math.ceil(14 + maxOf(legendRows.flatMap((s) => legendLinesOf(s).map((l) => l.length * 0.7 * legendTextPx(s)))) + 10))
     : 0;
+  /** Each legend row's first-line offset from the legend top (rows of two lines take two line heights). */
+  const legendRowAt: number[] = [];
+  let legendLinesTotal = 0;
+  for (const s of legendRows) {
+    legendRowAt.push(legendLinesTotal * LEGEND_LH);
+    legendLinesTotal += legendLinesOf(s).length;
+  }
   const outW = legendRows.length && !legendBelow ? W + 4 + legendW + 4 : W;
-  const belowH = legendBelow ? legendRows.length * LEGEND_LH + 10 : 0;
+  const belowH = legendBelow ? legendLinesTotal * LEGEND_LH + 10 : 0;
   // The footnote block is paid for by GROWING THE CANVAS, not by shrinking the
   // plot — the legend gutter's rule, for the legend gutter's reason: every caller
   // laid out for the data area it asked for, and Word sizes the picture from the
@@ -1362,11 +1576,11 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   if (legendRows.length) {
     const lx = legendBelow ? 4 : W + 4;
     const ly = legendBelow ? H + 2 : mt + 4;
-    parts.push(`<rect x="${lx}" y="${ly}" width="${legendW}" height="${legendRows.length * LEGEND_LH + 6}" fill="#ffffff" stroke="${bw ? "#000" : "#ccc"}"/>`);
+    parts.push(`<rect x="${lx}" y="${ly}" width="${legendW}" height="${legendLinesTotal * LEGEND_LH + 6}" fill="#ffffff" stroke="${bw ? "#000" : "#ccc"}"/>`);
     legendRows.forEach((s, i) => {
       const idx = series.indexOf(s);
       const color = colorOf(s, idx);
-      const cyl = ly + 9 + i * LEGEND_LH + (bw ? 2 : 0);
+      const cyl = ly + 9 + legendRowAt[i] + (bw ? 2 : 0);
       // THE SWATCH IS DRAWN LIKE THE DATA (fix2-paf): a scatter series showed a
       // line in its legend, and in black and white the line swatches carried
       // no dash, so neither could be matched to its curve.
@@ -1378,7 +1592,9 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       } else {
         parts.push(markerAt(idx, lx + 13, cyl, color));
       }
-      parts.push(`<text x="${lx + 24}" y="${cyl + (bw ? 5 : 3.5)}" font-family="sans-serif" font-size="${legendTextPx(s)}" fill="${INK}">${bw ? bwTextMarkup(legendLabelOf(s), legendTextPx(s)) : escapeXml(legendLabelOf(s))}</text>`);
+      legendLinesOf(s).forEach((line, k) =>
+        parts.push(`<text x="${lx + 24}" y="${cyl + (bw ? 5 : 3.5) + k * LEGEND_LH}" font-family="sans-serif" font-size="${legendTextPx(s)}" fill="${INK}">${bw ? bwTextMarkup(line, legendTextPx(s)) : escapeXml(line)}</text>`),
+      );
     });
   }
 
@@ -1388,21 +1604,30 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       parts.push(`<text data-figure-title="1" x="${W / 2}" y="${16 + 15 * i}" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${bw ? "#000" : "#222"}">${escapeXml(line)}</text>`),
     );
   }
-  if (hasErrNote) {
-    const errText = options.errorBars ? ERROR_BAR_LABEL[options.errorBars] : ERROR_BAR_UNSTATED;
+  // The error-bar declaration: one line as drawn; under a figure style, its wrapped lines (the last at H − 8).
+  const errExtra = hasErrNote ? (errLines.length - 1) * errLh : 0;
+  errLines.forEach((line, i) =>
     parts.push(
-      `<text x="${ml + pw / 2}" y="${H - 8}" text-anchor="middle" font-family="sans-serif" font-size="${bw ? bwPx(errText, 10, true) : 9}" fill="${bw ? "#000" : "#555"}">${escapeXml(errText)}</text>`,
-    );
-  }
+      `<text x="${ml + pw / 2}" y="${H - 8 - (errLines.length - 1 - i) * errLh}" text-anchor="middle" font-family="sans-serif" font-size="${errFs}" fill="${bw ? "#000" : "#555"}">${escapeXml(line)}</text>`,
+    ),
+  );
   if (options.xlabel) {
-    parts.push(`<text x="${ml + pw / 2}" y="${H - (hasErrNote ? 21 : 8)}" text-anchor="middle" font-family="sans-serif" font-size="${bwPx(options.xlabel, 11, bw)}" fill="${INK}">${bw ? bwTextMarkup(options.xlabel, bwPx(options.xlabel, 11, bw)) : escapeXml(options.xlabel)}</text>`);
+    // One line as drawn; under a figure style, the wrapped lines (the last where the single line always was).
+    const lines = xTitle.length ? xTitle : [options.xlabel];
+    lines.forEach((line, i) => {
+      const y = H - (hasErrNote ? 21 + errExtra : 8) - (lines.length - 1 - i) * xlh;
+      parts.push(`<text x="${ml + pw / 2}" y="${y}" text-anchor="middle" font-family="sans-serif" font-size="${bwPx(options.xlabel as string, 11, bw)}" fill="${INK}">${bw ? bwTextMarkup(line, bwPx(options.xlabel as string, 11, bw)) : escapeXml(line)}</text>`);
+    });
   }
   if (options.ylabel) {
     // The same constants the margin reserves room from, so the two cannot
     // drift apart — which is how the title came to be wider than its space.
-    const cx = Y_TITLE_X;
-    const cy = mt + ph / 2;
-    parts.push(`<text x="${cx}" y="${cy}" text-anchor="middle" font-family="sans-serif" font-size="${bwPx(options.ylabel, Y_TITLE_SIZE, bw)}" fill="${INK}" transform="rotate(-90 ${cx} ${cy})">${bw ? bwTextMarkup(options.ylabel, bwPx(options.ylabel, Y_TITLE_SIZE, bw)) : escapeXml(options.ylabel)}</text>`);
+    const lines = yTitle.length ? yTitle : [options.ylabel];
+    lines.forEach((line, i) => {
+      const cx = Y_TITLE_X + i * ylh;
+      const cy = mt + ph / 2;
+      parts.push(`<text x="${cx}" y="${cy}" text-anchor="middle" font-family="sans-serif" font-size="${bwPx(options.ylabel as string, Y_TITLE_SIZE, bw)}" fill="${INK}" transform="rotate(-90 ${cx} ${cy})">${bw ? bwTextMarkup(line, bwPx(options.ylabel as string, Y_TITLE_SIZE, bw)) : escapeXml(line)}</text>`);
+    });
   }
 
   parts.push(notesSvg());

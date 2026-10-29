@@ -194,7 +194,7 @@ export function buildHeatmapSvg(
   parts.push(`<rect width="${W}" height="${H}" fill="${INK.surface}"/>`);
   if (title) {
     parts.push(
-      `<text x="${PAD}" y="${PAD + 15}" font-family="Segoe UI, Arial, sans-serif" font-size="13" ` +
+      `<text data-figure-title="1" x="${PAD}" y="${PAD + 15}" font-family="Segoe UI, Arial, sans-serif" font-size="13" ` +
         `font-weight="600" fill="${INK.primary}">${esc(title)}</text>`,
     );
   }

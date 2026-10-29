@@ -215,7 +215,17 @@ export function dualAxisPlotSvg(fig: DualFigure): string {
   parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="${RULE}" stroke-width="1"/>`);
   // Patent drawings carry no light grid (the tablechart / solid-form convention).
   if (!bw) for (const v of xAxis.minor) parts.push(`<line x1="${f1(sx(v))}" y1="${mt}" x2="${f1(sx(v))}" y2="${mt + ph}" stroke="#f5f5f5"/>`);
-  for (const t of xAxis.ticks) {
+  // Tick labels that would overlap by the layout audit's own rule (a half-column re-render, round 2: "1.0" over
+  // "1.5") keep every other tick until they clear. A figure whose ticks read cleanly is drawn as before.
+  let xTicks = xAxis.ticks;
+  const clash = (a: { v: number; text: string }, b: { v: number; text: string }): boolean => {
+    const wa = a.text.length * 10 * 0.58;
+    const wb = b.text.length * 10 * 0.58;
+    const over = (wa + wb) / 2 - Math.abs(sx(b.v) - sx(a.v));
+    return over * 7.8 > Math.max(4, 0.06 * Math.min(wa, wb) * 7.8);
+  };
+  for (let g = 0; g < 6 && !logX && xTicks.length > 2 && xTicks.some((t, i) => i > 0 && clash(xTicks[i - 1], t)); g++) xTicks = xTicks.filter((_, i) => i % 2 === 0);
+  for (const t of xTicks) {
     const px = sx(t.v);
     if (!bw) parts.push(`<line x1="${f1(px)}" y1="${mt}" x2="${f1(px)}" y2="${mt + ph}" stroke="#eeeeee"/>`);
     parts.push(`<line x1="${f1(px)}" y1="${mt + ph}" x2="${f1(px)}" y2="${mt + ph + 4}" stroke="${RULE}"/>`);
@@ -223,13 +233,23 @@ export function dualAxisPlotSvg(fig: DualFigure): string {
   }
   // Gridlines follow the LEFT axis only: two sets of horizontal rules would
   // make neither readable.
-  for (const t of lAxis.ticks) {
+  // The same for the two y axes, stacked labels overlapping vertically.
+  const thinY = (ticks: { v: number; text: string }[], sy: (v: number) => number, log: boolean): { v: number; text: string }[] => {
+    const clashY = (a: { v: number; text: string }, b: { v: number; text: string }): boolean => {
+      const w = Math.min(a.text.length, b.text.length) * 10 * 0.58;
+      return w > 0 && (7.8 - Math.abs(sy(b.v) - sy(a.v))) * w > Math.max(4, 0.06 * w * 7.8);
+    };
+    let ts = ticks;
+    for (let g = 0; g < 6 && !log && ts.length > 2 && ts.some((t, i) => i > 0 && clashY(ts[i - 1], t)); g++) ts = ts.filter((_, i) => i % 2 === 0);
+    return ts;
+  };
+  for (const t of thinY(lAxis.ticks, syL, logL)) {
     const py = syL(t.v);
     if (!bw) parts.push(`<line x1="${ml}" y1="${f1(py)}" x2="${ml + pw}" y2="${f1(py)}" stroke="#eeeeee"/>`);
     parts.push(`<line x1="${ml - 4}" y1="${f1(py)}" x2="${ml}" y2="${f1(py)}" stroke="${sL.color}"/>`);
     parts.push(`<text x="${ml - 7}" y="${f1(py + 3)}" text-anchor="end" font-family="${FONT}" font-size="10" fill="${sL.color}">${escapeXml(t.text)}</text>`);
   }
-  for (const t of rAxis.ticks) {
+  for (const t of thinY(rAxis.ticks, syR, logR)) {
     const py = syR(t.v);
     parts.push(`<line x1="${ml + pw}" y1="${f1(py)}" x2="${ml + pw + 4}" y2="${f1(py)}" stroke="${sR.color}"/>`);
     parts.push(`<text x="${ml + pw + 7}" y="${f1(py + 3)}" font-family="${FONT}" font-size="10" fill="${sR.color}">${escapeXml(t.text)}</text>`);

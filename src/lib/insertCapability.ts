@@ -36,6 +36,8 @@ import {
 import { composePanels } from "./panels";
 import { figurePoints } from "./figures";
 import { CATEGORICAL_PALETTE, worstPair } from "./categoricalPalette";
+import { introducedLayoutFindings, findingSentence } from "./figureLayoutAudit";
+import { beginFigureFit } from "./figContext";
 
 /** What the pane could find out about the host. null = the check threw or was unavailable. */
 export interface HostCapability {
@@ -273,8 +275,11 @@ export function prepareFigure(req: FigureRequest, fallbackW = 380, fallbackH = 2
   }
   const preset = getPreset(req.preset);
   if (!preset) return { ok: false, reason: `unknown figure style "${req.preset}"`, problems: [] };
-  if (req.chartKind && preset.refusedChartKinds.includes(req.chartKind)) {
-    const what = CHART_KIND_NAMES[req.chartKind] ?? `a ${req.chartKind} chart`;
+  // The chart kind from the caller (Table→Chart), else from the figure's own root (a builder that marks itself with
+  // data-chart-kind, such as the DCF sensitivity heat map): one channel for the pane and the gate test alike.
+  const chartKind = req.chartKind ?? /^\s*<svg\b[^>]*\sdata-chart-kind="([\w-]+)"/.exec(req.svg)?.[1];
+  if (chartKind && preset.refusedChartKinds.includes(chartKind)) {
+    const what = CHART_KIND_NAMES[chartKind] ?? `a ${chartKind} chart`;
     return {
       ok: false,
       reason:
@@ -303,6 +308,8 @@ export function prepareFigure(req: FigureRequest, fallbackW = 380, fallbackH = 2
     // A re-render can refuse (significance brackets that no longer fit throw):
     // a named refusal, like every other rule this function enforces.
     let r: ReturnType<typeof renderAtPreset>;
+    // One fit, one render budget (figContext.figureRenderer): reset on the caller's renderer, not the title wrapper.
+    beginFigureFit(req.render);
     try {
       r = renderAtPreset(render, preset, widthMm);
     } catch (e) {
@@ -320,6 +327,11 @@ export function prepareFigure(req: FigureRequest, fallbackW = 380, fallbackH = 2
   if (!ok) {
     return { ok: false, reason: `This figure does not meet ${preset.name} at ${widthMm} mm`, problems: problems.length ? problems : ["the check failed"] };
   }
+  // LEGIBLE, NOT ONLY COMPLIANT (round 2): the redrawn figure is measured with the check:figures layout audit, and a
+  // fit that ran labels into each other, off the canvas or under a line refuses by name. Only defects the style fit
+  // INTRODUCED count: one the figure already has as drawn is the builder's own (recorded by the QC gate).
+  const layout = layoutRefusal(req.svg, svg, { preset, width: req.width, widthMm });
+  if (layout) return { ok: false, reason: `This figure does not meet ${preset.name} at ${widthMm} mm`, problems: layout };
   const size = physicalSize(svg, widthMm, preset);
   if (!size) return { ok: false, reason: "the figure's own size could not be read", problems: [] };
   if (size.exceedsMaxHeight) {
@@ -346,6 +358,36 @@ export function prepareFigure(req: FigureRequest, fallbackW = 380, fallbackH = 2
     pxH: d.h,
     presetNote: `${preset.name}, ${widthMm} mm${textNote}${hadTitle ? ", title left out (no title in the artwork)" : ""}`,
   };
+}
+
+/**
+ * The layout defects a style fit introduced into `fitted` (relative to the figure as drawn), as the sentences a
+ * refusal lists, or null when there are none. At most four are named; the rest are counted.
+ */
+export function layoutRefusal(asDrawn: string, fitted: string, at?: { preset: FigureStylePreset; width: PresetWidth; widthMm: number } | { panels: true }): string[] | null {
+  const found = introducedLayoutFindings(asDrawn, fitted);
+  if (!found.length) return null;
+  // One sentence per distinct defect (a row of tick labels running together is one finding per neighbouring pair).
+  const seen = new Set<string>();
+  const sentences: string[] = [];
+  for (const f of found) {
+    const s = findingSentence(f);
+    if (!seen.has(s)) {
+      seen.add(s);
+      sentences.push(s);
+    }
+  }
+  const named = sentences.slice(0, 4);
+  const more = sentences.length - named.length;
+  // The remedy names only what can work: a wider column only when this style HAS a wider one than the one asked for
+  // (USPTO single and double are both the 170 mm sight); in the panel tray, fewer panels to a row.
+  let remedy = "choose another figure style, or As drawn";
+  if (at && "panels" in at) remedy = "use fewer columns in the panel tray, another figure style, or As drawn";
+  else if (at && at.width !== "double") {
+    const dbl = presetWidthMm(at.preset, "double");
+    if (dbl !== null && dbl > at.widthMm + 0.5) remedy = "choose the double-column width, another figure style, or As drawn";
+  }
+  return [`redrawn at this width it would not be legible: ${named.join("; ")}${more > 0 ? `; and ${more} more` : ""}`, remedy];
 }
 
 /**
@@ -435,6 +477,9 @@ export function composePanelFigure(items: PanelItem[], choice: FigurePresetChoic
     if (widthMm === null) {
       return { ok: false, reason: `${preset.name} has no ${width === "oneAndHalf" ? "1.5-column" : width} width; choose single or double column`, problems: [] };
     }
+    // Each panel's re-render is one fit with its own budget (figContext.figureRenderer), reset on the panel's own
+    // renderer before any title wrapper hides it.
+    for (const it of items) beginFigureFit(it.render);
     // No title in the artwork (USPTO): a panel captured under As drawn carries its
     // title in both its SVG and its re-render; both lose it here, as in prepareFigure.
     if (!preset.allowTitle) {
@@ -463,6 +508,10 @@ export function composePanelFigure(items: PanelItem[], choice: FigurePresetChoic
           return it.svg;
         }
         if (!r.ok) problems.push(`${name}: ${[r.reason, ...r.check.problems].filter(Boolean).join("; ")}`);
+        else {
+          const layout = layoutRefusal(it.svg, r.svg, { panels: true });
+          if (layout) problems.push(`${name}: ${layout.join("; ")}`);
+        }
         return r.svg;
       }
       const chk = checkSvgAgainstPreset(it.svg, preset, cellMm);

@@ -14,7 +14,7 @@
 // work for THIS figure (fitRemedy); the pane shows it as is.
 
 import { boxPlotSvg, BOX_CHART_SIZE, BracketFitError, type BoxGroup } from "./statchart";
-import { bracketsFromTukey, bracketsFromPairwise, bracketsFromDunn, bracketLegend, type SigBracketSet, type BracketDisplay } from "./sigBrackets";
+import { bracketsFromTukey, bracketsFromPairwise, bracketsFromDunn, bracketLegend, shownSignificant, type SigBracketSet, type BracketDisplay } from "./sigBrackets";
 import type { DunnComparison } from "./nonparametric";
 import type { CorrectionMethod } from "./stats2";
 import type { TTestResult } from "./stats";
@@ -84,7 +84,7 @@ function fitRemedy(groups: BoxGroup[], opts: { title?: string; ylabel?: string }
       throw e;
     }
   };
-  const canHide = !choice.hideNs && set.brackets.some((b) => !b.significant);
+  const canHide = !choice.hideNs && set.brackets.some((b) => !shownSignificant(b, set.alpha));
   const tallFits = !choice.tall && fits({ ...choice, tall: true });
   const hideFits = canHide && fits({ ...choice, hideNs: true });
   if (tallFits && hideFits) return 'tick "Taller figure" or "Hide ns"';

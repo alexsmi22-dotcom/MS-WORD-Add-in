@@ -161,7 +161,8 @@ export function cvpChartSvg(inp: CvpInput, res: CvpResult): string | undefined {
   ];
   // R3 M6 (legend text): "margin of safety" only when the sales are above break-even.
   if (inp.units > 0) {
-    const label = res.marginOfSafetyUnits > 0 ? "sales (margin of safety: from break-even to here)" : res.marginOfSafetyUnits < 0 ? "sales (below break-even)" : "sales (at break-even)";
+    // Round 2: at most 22 characters, the legend's width as drawn ("sales (below break-ev…" was cut).
+    const label = res.marginOfSafetyUnits > 0 ? "sales above break-even" : res.marginOfSafetyUnits < 0 ? "sales below break-even" : "sales at break-even";
     series.push({ points: [{ x: inp.units, y: 0 }, { x: inp.units, y: res.revenue }], type: "line", color: "#16a34a", label });
   }
   return finPlotSvg(series, { width: 380, height: 270, title: "Cost-volume-profit: break-even and margin of safety", xlabel: "units sold", ylabel: "amount" });

@@ -346,7 +346,8 @@ describe("physicalSize and fitCanvasWidth", () => {
     const fixed = (): string => `<svg viewBox="0 0 380 260"><text font-size="4">tiny</text></svg>`;
     const r = renderAtPreset(fixed, FIGURE_PRESETS.thesis, 75);
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/ignored the requested canvas width/);
+    expect(r.reason).toMatch(/layout has a fixed width and cannot be redrawn narrower/);
+    expect(r.reason).not.toMatch(/builder|units|canvas/);
   });
 });
 

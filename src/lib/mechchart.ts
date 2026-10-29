@@ -18,6 +18,7 @@ import { linearAxis, fmtSig, trueMinus } from "./axis";
 import { textWidthPt } from "./arialMetrics";
 import { usptoPatternDefs } from "./figureStyle";
 import { currentFigCtx } from "./figContext";
+import { distinctLabels } from "./statchart";
 
 const INK = "#111111";
 const RULE = "#888888";
@@ -886,22 +887,38 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
     return sign + a.toPrecision(3);
   };
   const longest = Math.max(...shown.map((r) => r.name.length));
+  const textW = (t: string, size: number): number => (bw ? textWidthPt(t, size) * 1.1 + 4 : t.length * size * 0.6 + 4);
+  // Black and white: the margin is sized with the SAME width rule fitName tests against (round 2): it was the bare
+  // Arial width + 12 while fitName required width × 1.1 + 12, so the longest name was always cut.
   const ML = bw
-    ? Math.min(W * 0.45, Math.max(60, ...shown.map((r) => textWidthPt(r.name, S(8, r.name)) + 12)))
+    ? Math.min(W * 0.45, Math.max(60, ...shown.map((r) => textW(r.name, S(8, r.name)) + 8)))
     : Math.min(150, W * 0.4, Math.max(60, longest * 5.6 + 10));
   // The value labels' own width sets the right margin (a caller's "€1,258.60" is longer than three significant
   // figures), within 45% of the canvas.
   const labelOf = (rw: HBarRow): string => (rw.text !== undefined ? rw.text : `${fmtVal(rw.value)} ${opts.unit}`.trim());
-  const textW = (t: string, size: number): number => (bw ? textWidthPt(t, size) * 1.1 + 4 : t.length * size * 0.6 + 4);
   const MR = Math.min(W * 0.45, Math.max(bw ? 90 : 58, ...shown.map((rw) => textW(labelOf(rw), S(8, labelOf(rw))) + 8)));
   // A name longer than the left margin is cut with an ellipsis (it ran off the canvas at x < 0 at narrow widths).
+  const fits = (t: string): boolean => textW(t, S(8, t)) <= ML - 8;
   const fitName = (name: string): string => {
-    const size = S(8, name);
-    if (textW(name, size) <= ML - 8) return name;
+    if (fits(name)) return name;
     let t = name;
-    while (t.length > 1 && textW(t + "…", S(8, t + "…")) > ML - 8) t = t.slice(0, -1);
+    while (t.length > 1 && !fits(t + "…")) t = t.slice(0, -1);
     return t.trimEnd() + "…";
   };
+  // Two names cut to the same text ("Interest coverage ratio (EB…" twice) are kept DISTINCT (statchart
+  // distinctLabels: the end kept, else numbered), at the longest length at which every one of them still fits.
+  const names = shown.map((r) => fitName(r.name));
+  const clash = names.map((n, i) => n !== shown[i].name && names.filter((o) => o === n).length > 1);
+  if (clash.some(Boolean)) {
+    const idx = clash.flatMap((c, i) => (c ? [i] : []));
+    for (let m = Math.max(...idx.map((i) => names[i].length)); m >= 4; m--) {
+      const d = distinctLabels(idx.map((i) => shown[i].name), m);
+      if (d.every(fits)) {
+        idx.forEach((i, k) => (names[i] = d[k]));
+        break;
+      }
+    }
+  }
   const MT = 26;
   const pw = W - ML - MR;
   const lo = Math.min(0, ...shown.map((r) => r.value));
@@ -932,7 +949,7 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
     } else
       p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h}" fill="${fill}" fill-opacity="0.85"/>`);
     const dyT = bw ? 5 : 3;
-    const name = fitName(rw.name);
+    const name = names[i];
     p.push(labelText(ML - 5, y + h / 2 + dyT, name, { anchor: "end", size: S(8, name) }));
     const txt = labelOf(rw);
     const vSize = S(8, txt);
@@ -1618,7 +1635,23 @@ export function ladderSvg(
   // style width "−1,000.00" and "−750.00" ran into each other).
   const labelW = Math.max(...[lo, hi].map((v) => { const s = trueMinus(opts.fmt(v)); return textWidthPt(s, S(9, s)); })) + 10;
   const nTicks = Math.max(2, Math.min(5, Math.floor(pw / labelW)));
-  for (const tk of axisRow(lo, hi, nTicks)) {
+  let ladderTicks = axisRow(lo, hi, nTicks);
+  // Under a figure-style re-render the row can still come back denser than asked (round 2: "−1,000.00" over
+  // "−500.00" at a 75 mm thesis column): every other tick (zero kept) until the labels clear each other, measured with
+  // the layout audit's 0.58 em advance.
+  if (fctx) {
+    const wOf = (v: number): number => {
+      const s = trueMinus(opts.fmt(v));
+      return s.length * (bw ? S(9, s) : 9) * 0.58;
+    };
+    const crowded = (ts: { v: number }[]): boolean => ts.some((t, i) => i > 0 && X(t.v) - X(ts[i - 1].v) < (wOf(t.v) + wOf(ts[i - 1].v)) / 2 + 3);
+    for (let guard = 0; guard < 6 && ladderTicks.length > 2 && crowded(ladderTicks); guard++) {
+      const z = ladderTicks.findIndex((t) => t.v === 0);
+      const parity = z >= 0 ? z % 2 : 0;
+      ladderTicks = ladderTicks.filter((_, i) => i % 2 === parity);
+    }
+  }
+  for (const tk of ladderTicks) {
     const t = tk.v;
     const s = trueMinus(opts.fmt(t));
     p.push(`<line x1="${X(t).toFixed(1)}" y1="${MT}" x2="${X(t).toFixed(1)}" y2="${MT + ph}" stroke="#f0f0f0"/>`);

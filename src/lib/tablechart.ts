@@ -16,6 +16,7 @@ import { parseCellNumber, SCI_TAIL } from "./dataimport";
 import { buildHeatmapSvg } from "./heatmap";
 import { buildCandlestickSvg } from "./candlestick";
 import { CATEGORICAL_PALETTE, seriesStyle, seriesMarkerSvg } from "./categoricalPalette";
+import { currentFigCtx } from "./figContext";
 
 export type ChartKind =
   | "column"
@@ -738,8 +739,11 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   // name (up to 30 categories; beyond that, thinned as before).
   const catText = (c: string): string => truncate(c, horizontal ? 7 : 9);
   let catMode: "flat" | "stagger" | "vertical" = "flat";
-  if (patent && !horizontal && n <= 30) {
-    const widest = Math.max(...chart.categories.map((c) => estW(catText(c), runPx(true, catText(c), 10))));
+  // Also under a Finance/Statistics figure-style re-render (lib/figContext.ts, round 2): at a 75 mm column the colour
+  // chart's year labels ran into each other), and on any canvas narrower than the 380 px preview (a figure style's
+  // re-render of a Table→Chart chart: "Latin Am…" ran into "Africa" at a single column). The preview never changes.
+  if ((patent || currentFigCtx() !== null || W < 380) && !horizontal && n <= 30) {
+    const widest = Math.max(...chart.categories.map((c) => estW(catText(c), runPx(patent, catText(c), 10))));
     const slotEst = pw / n;
     if (widest + 6 > slotEst) {
       catMode = widest + 6 <= 2 * slotEst ? "stagger" : "vertical";
@@ -798,7 +802,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   let labelEvery = Math.ceil(n / (horizontal ? Math.floor(ph / 14) || 1 : 7));
   if (rotateCats) {
     // Vertical, the pitch a label needs along the axis is its glyph height.
-    const fmax = Math.max(...chart.categories.map((c) => runPx(true, catText(c), 10)));
+    const fmax = Math.max(...chart.categories.map((c) => runPx(patent, catText(c), 10)));
     labelEvery = Math.max(1, Math.ceil((fmax * 1.05) / Math.max(1e-9, slot)));
   } else if (catMode === "stagger") {
     labelEvery = 1;

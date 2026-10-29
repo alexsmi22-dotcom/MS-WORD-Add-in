@@ -27,6 +27,7 @@ import { BOUNDARY_CLAUSE, printedPVerdict } from "./pReading";
 import { countWord } from "./statPaneReadings";
 import { parseCellNumber } from "./dataimport";
 import { buildPlotSvg, combineSvgs, type Series } from "./plot";
+import { currentFigCtx } from "./figContext";
 import { forestPlotSvg } from "./statchart";
 import { formatNum } from "./linalg";
 
@@ -254,7 +255,14 @@ export function rmProfileSvg(res: RmAnovaResult, f: RmField): string {
       label,
     });
   });
-  const notes = [`Error bars: ${pr.ciMethod}.`, "Grey lines: individual subjects."];
+  // In black and white (USPTO) the subject lines are black like the means: told apart by having no markers, and the
+  // means are drawn first so the first of them takes the solid line (round 2).
+  const bwFig = currentFigCtx()?.bw === true;
+  if (bwFig) {
+    const nSub = pr.subjectLines.length;
+    series.push(...series.splice(0, nSub));
+  }
+  const notes = [`Error bars: ${pr.ciMethod}.`, bwFig ? "Lines without markers: individual subjects." : "Grey lines: individual subjects."];
   if (pr.subjectLinesCapped) notes.push(`Showing the first ${pr.subjectLines.length} of ${pr.subjectLinesTotal} subject lines.`);
   return buildPlotSvg(series, {
     width: 360,

@@ -467,7 +467,7 @@ const cameraCalc: VfxCalc = {
     const fit = (["fill", "horizontal", "vertical", "overscan"].includes(r("fit")) ? r("fit") : "fill") as FitMode;
     const c = cameraMatch({ W, H: Hh, squeeze, f, fov: fovIn, fovAxis: axis, resW: res[0], resH: res[1], fit });
     if (!c.ok) return refuse(c.error);
-    const name = preset ? preset.label.replace(/ \([^)]*\)$/, "") : `a ${t(W)} × ${t(Hh)} mm filmback`;
+    const name = preset?.id === "ff" ? "a full-frame 36 × 24 mm sensor" : preset ? preset.label.replace(/ \([^)]*\)$/, "") : `a ${t(W)} × ${t(Hh)} mm filmback`;
     const fitWord = FIT_OPTIONS.find((o) => o.value === fit)?.label.split(" (")[0] ?? fit;
     const lines: EngLine[] = [];
     lines.push(

@@ -6,6 +6,66 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.206.0] (unreleased)
+
+### VFX & compositing
+
+Engineering grows from 241 to 252 calculators and gains a twenty-sixth panel, **VFX & compositing**, after Light &
+camera. Every result opens with a plain-language reading built from its own numbers, names its assumptions, refuses bad
+input by name and draws a figure. The log curves and Y′CbCr matrices are checked against colour-science 0.4.7, the
+rotation orders against scipy's Rotation, TRS and projection against numpy, the retime curves against scipy's
+PchipInterpolator and CubicHermiteSpline (scripts/vfx-oracle.py → fixtures/vfx-oracle.json), and the rest against
+values derived by hand.
+
+#### Added
+- **Retime & speed ramp:** constant speed (negative plays backwards), a keyed speed ramp or a frame map, with linear,
+  ease or monotone cubic Hermite (PCHIP) keys; the source frame behind every output frame, which land between frames,
+  repeat or drop, and the effective shutter after the retime. A 48-frame shot at 40 % runs 120 frames, 94 of them
+  between source frames, and its 180° blur reads as a 450° shutter. Speed 0 % is refused as a freeze. Figures: the time
+  warp and the speed.
+- **Shot frame range, handles, padding & audio sync:** plate range from the cut, handles and the 1001 convention, the
+  editorial-to-plate offset, %04d / #### / $F4 patterns (a pad too narrow for the last frame is refused), samples per
+  frame with the per-frame sequence (1602, 1601, 1602, 1601, 1602 at 29.97 and 48 kHz) and a sync offset in frames,
+  samples and milliseconds. Figure: the plate as a timeline.
+- **Camera match:** horizontal, vertical and diagonal field of view ↔ focal length; ARRI ALEXA Mini LF and ALEXA 35
+  sensor modes from ARRI's published data; anamorphic squeeze 1.3× to 2×; crop factor and full-frame equivalents; the
+  Maya aperture in inches and the Houdini, Nuke and Blender settings; what Fill, Horizontal, Vertical and Overscan film
+  fit do when the image and filmback aspects differ. Figure: field-of-view wedges.
+- **Camera projection, parallax & screen-space motion blur:** pinhole projection of a world point to pixels (top-left
+  and Nuke's bottom-left origins), screen velocity and blur length for a camera move, and the parallax between two
+  depths. Figure: the camera, two depths and the rays from above.
+- **3D transforms:** TRS about a pivot in any of the six rotation orders, applied to points, inverted and checked
+  (determinant, orthogonality), with the quaternion, axis–angle, gimbal lock named and Y-up ↔ Z-up conversion.
+  Figure: axes before and after.
+- **Normal maps & shading:** 8-bit, 16-bit or float texels, OpenGL or DirectX green, the TBN matrix, n·V, Lambert,
+  Blinn–Phong and Phong, and Schlick's Fresnel beside the exact dielectric value. A zero-length normal is refused.
+  Figure: the shading vectors.
+- **Camera log ↔ scene linear:** ARRI LogC3 (EI 800) and LogC4, Sony S-Log3, Panasonic V-Log, RED Log3G10, ACEScct,
+  ACEScc and Cineon (your black and white points), each the manufacturer's formula and each checked twice: against
+  colour-science and against a published code value (S-Log3 18 % grey 420, V-Log 433, LogC3 0.391, Log3G10 1/3).
+  A code below the curve's black decodes to a negative linear value and says so. Figure: the curve with the point.
+- **Compositing:** Porter–Duff over, in, out, atop, xor and plus on premultiplied RGBA, the error of the wrong alpha
+  association (premultiplying twice darkens edges; straight colour used as premultiplied brightens them), and
+  multiply, screen, add and difference in linear light against the same blend on sRGB values. Alpha outside 0 to 1 is
+  refused. Figure: swatches and channel bars.
+- **Chroma key:** BT.601 or BT.709 Y′CbCr, the distance in RGB and in CbCr, alpha from a tolerance and softness ramp,
+  and spill suppression limited by the average or the larger of the other two channels. Figure: the CbCr plane.
+- **Miniatures, high-speed & sim scale:** Froude scaling (1:16 is shot at 96 fps for 24 fps), the Reynolds and Weber
+  numbers a miniature cannot match, and a fluid sim's CFL timestep and substeps. Navier–Stokes is solved by the
+  simulator; this is the part a calculator can answer. Figure: shooting frame rate against scale.
+- **Rigid-body drop & collision:** gravity in the scene's units (980.665 cm/s² in a centimetre scene), drop time,
+  impact speed, bounce height and settling time, and an impulse with restitution and Coulomb friction against the
+  ground or a second body. Figure: height against time through the bounces.
+
+#### Changed
+- A media file name in a result (sh010_comp_v001.1001.exr) keeps its underscores; the subscript pass used to set
+  "_v001" as a subscript.
+
+#### Left out
+- **Canon Log 3**: only one source could be checked (colour-science, whose two methods differ); Canon's published
+  18 % grey value could not be read, so the curve is not offered.
+- Sensor presets other than ARRI's: a size that could not be checked against the manufacturer is typed in instead.
+
 ## [2.204.0] — 2026-10-28 — F3: GMM and dynamic panels
 
 Stats grows from 75 to 77 calculators. Both are checked against linearmodels 7.1, pydynpd 0.2.2 and an independent

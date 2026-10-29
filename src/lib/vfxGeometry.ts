@@ -204,7 +204,7 @@ export function shading(inp: ShadingInput): ShadingResult | Err {
   const decoded = inp.texel.map((c) => (c / max) * 2 - 1) as Vec3;
   if (inp.green === "dx") decoded[1] = -decoded[1];
   const decodedLength = norm(decoded);
-  if (!(decodedLength > 1e-6)) return { ok: false, error: `Normal-map texel (${inp.texel.join(", ")}) decodes to a zero-length normal (length ${decodedLength.toPrecision(3)}), which has no direction. A flat tangent-space normal is (128, 128, 255) in 8 bits.` };
+  if (!(decodedLength > 1e-6)) return { ok: false, error: `Normal-map texel (${inp.texel.join(", ")}) decodes to a zero-length normal (length ${decodedLength === 0 ? "0" : decodedLength.toPrecision(3)}), which has no direction. A flat tangent-space normal is (128, 128, 255) in 8 bits.` };
   const nTangent = scale(decoded, 1 / decodedLength);
   const T = unit(inp.T, "Tangent T");
   if ("error" in T) return T;

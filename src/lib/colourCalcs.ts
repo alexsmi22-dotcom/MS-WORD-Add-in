@@ -164,6 +164,19 @@ const MODE_OPTIONS = [
   { value: "lch", label: "L*, C*ab, hab (degrees)" },
 ];
 
+/** The governing equation of each tolerance formula, as a typeset line. */
+const FORMULA_EQ: Record<DeFormula, { math: string; fallback: string }> = {
+  de76: { math: 'Delta E_ab^"*" = sqrt((Delta L^"*")^2 + (Delta a^"*")^2 + (Delta b^"*")^2)', fallback: "ΔE*ab = √(ΔL*² + Δa*² + Δb*²)" },
+  de94g: { math: "Delta E_94 = sqrt((Delta L/k_L)^2 + (Delta C/(1 + K_1 C_1))^2 + (Delta H/(1 + K_2 C_1))^2)", fallback: "ΔE*94 = √((ΔL*/kL)² + (ΔC*ab/(1 + K₁C*₁))² + (ΔH*ab/(1 + K₂C*₁))²), C*₁ the standard's chroma" },
+  de94t: { math: "Delta E_94 = sqrt((Delta L/k_L)^2 + (Delta C/(1 + K_1 C_1))^2 + (Delta H/(1 + K_2 C_1))^2)", fallback: "ΔE*94 = √((ΔL*/kL)² + (ΔC*ab/(1 + K₁C*₁))² + (ΔH*ab/(1 + K₂C*₁))²), kL = 2, K₁ = 0.048, K₂ = 0.014" },
+  cmc21: { math: "Delta E_CMC = sqrt((Delta L/(l S_L))^2 + (Delta C/(c S_C))^2 + (Delta H/S_H)^2)", fallback: "ΔE CMC = √((ΔL*/(l·SL))² + (ΔC*ab/(c·SC))² + (ΔH*ab/SH)²), l:c = 2:1, S from the standard" },
+  cmc11: { math: "Delta E_CMC = sqrt((Delta L/(l S_L))^2 + (Delta C/(c S_C))^2 + (Delta H/S_H)^2)", fallback: "ΔE CMC = √((ΔL*/(l·SL))² + (ΔC*ab/(c·SC))² + (ΔH*ab/SH)²), l:c = 1:1, S from the standard" },
+  de00: {
+    math: "Delta E_00 = sqrt((Delta L'/(k_L S_L))^2 + (Delta C'/(k_C S_C))^2 + (Delta H'/(k_H S_H))^2 + R_T (Delta C'/(k_C S_C)) (Delta H'/(k_H S_H)))",
+    fallback: "ΔE₀₀ = √((ΔL′/kL·SL)² + (ΔC′/kC·SC)² + (ΔH′/kH·SH)² + RT·(ΔC′/kC·SC)·(ΔH′/kH·SH))",
+  },
+};
+
 const readIll = (v: string): IlluminantId => (isIlluminant(v) ? v : "D65");
 const readObs = (v: string): Observer => (v === "2" ? "2" : "10");
 const readFormula = (v: string): DeFormula => (v in DE_FORMULA_LABELS ? (v as DeFormula) : "de00");
@@ -419,13 +432,13 @@ const differenceCalc: ColourCalc = {
         ["a*", fx(std.a), fx(smp.a), sg(d.da)],
         ["b*", fx(std.b), fx(smp.b), sg(d.db)],
         ["C*ab", fx(lc1.C), fx(lc2.C), sg(d.dC)],
-        ["hab (°)", d.C1 > 0 ? fx(lc1.h, 1) : "undefined", d.C2 > 0 ? fx(lc2.h, 1) : "undefined", d.hueDefined ? sg(d.dh, 1) : "undefined"],
+        ["hab (°)", d.C1 > 0 ? fx(lc1.h, 1) : "none (neutral)", d.C2 > 0 ? fx(lc2.h, 1) : "none (neutral)", d.hueDefined ? sg(d.dh, 1) : "none (neutral)"],
         ["ΔH*ab (metric hue difference)", "", "", d.hueDefined ? sg(d.dH) : "0.00"],
       ],
       label: "Components",
     });
-    lines.push({ math: "Delta E_ab = sqrt(Delta L^2 + Delta a^2 + Delta b^2)", fallback: "ΔE*ab = √(ΔL*² + Δa*² + Δb*²)" });
-    lines.push({ math: "Delta H_ab = 2 sqrt(C_1 C_2) sin(Delta h/2)", fallback: "ΔH*ab = 2√(C*₁C*₂)·sin(Δhab/2), signed: + when the sample's hue angle is larger" });
+    lines.push({ math: 'Delta E_ab^"*" = sqrt((Delta L^"*")^2 + (Delta a^"*")^2 + (Delta b^"*")^2)', fallback: "ΔE*ab = √(ΔL*² + Δa*² + Δb*²)" });
+    lines.push({ math: 'Delta H_ab^"*" = 2 sqrt(C_1^"*" C_2^"*") sin(Delta h_ab/2)', fallback: "ΔH*ab = 2√(C*₁C*₂)·sin(Δhab/2), signed: + when the sample's hue angle is larger" });
     lines.push({
       math: "Delta E_00 = sqrt((Delta L'/(k_L S_L))^2 + (Delta C'/(k_C S_C))^2 + (Delta H'/(k_H S_H))^2 + R_T (Delta C'/(k_C S_C)) (Delta H'/(k_H S_H)))",
       fallback: "ΔE₀₀ = √((ΔL′/kL·SL)² + (ΔC′/kC·SC)² + (ΔH′/kH·SH)² + RT·(ΔC′/kC·SC)·(ΔH′/kH·SH))",
@@ -567,7 +580,7 @@ const convertCalc: ColourCalc = {
       const dom = dominantWavelength(xy, wxy, obs);
       if (dom.ok) lines.push(`${dom.purple ? `Complementary wavelength ${Math.abs(dom.wavelength)} nm (a purple: written −${Math.abs(dom.wavelength)} nm)` : `Dominant wavelength ${dom.wavelength} nm`}, excitation purity ${fx(dom.purity * 100, 1)} % (relative to the ${ill} white, ${obs}° locus).`);
     }
-    lines.push({ math: "L = 116 f(Y/Y_n) - 16", fallback: "L* = 116·f(Y/Yn) − 16, a* = 500·(f(X/Xn) − f(Y/Yn)), b* = 200·(f(Y/Yn) − f(Z/Zn))" });
+    lines.push({ math: 'L^"*" = 116 f(Y/Y_n) - 16', fallback: "L* = 116·f(Y/Yn) − 16, a* = 500·(f(X/Xn) − f(Y/Yn)), b* = 200·(f(Y/Yn) − f(Z/Zn))" });
     lines.push("f(t) = ∛t above ε = 216/24389, and (κt + 16)/116 below it with κ = 24389/27 (the exact CIE constants).");
     lines.push(...notes);
     lines.push(
@@ -752,7 +765,7 @@ const spectralCalc: ColourCalc = {
       ],
       label: `Colour of the spectrum under ${condition(ill, obs)}`,
     });
-    lines.push({ math: "X = k sum(S(λ) R(λ) xbar(λ) Delta λ)", fallback: "X = k·Σ S(λ)·R(λ)·x̄(λ)·Δλ (and Y, Z with ȳ, z̄), k = 100/Σ S(λ)·ȳ(λ)·Δλ" });
+    lines.push({ math: "X = k sum(S(λ) R(λ) x̄(λ) Delta λ)", fallback: "X = k·Σ S(λ)·R(λ)·x̄(λ)·Δλ (and Y, Z with ȳ, z̄), k = 100/Σ S(λ)·ȳ(λ)·Δλ" });
     if (Math.abs(lab.L - 100) < 0.005 && Math.abs(lab.a) < 0.005 && Math.abs(lab.b) < 0.005) lines.push("This is the perfect white for the method: Y = 100 and L*a*b* = (100, 0, 0) by construction.");
     if (dom.ok) lines.push(`Dominant wavelength: the line from the white (${fx(wxy[0], 4)}, ${fx(wxy[1], 4)}) through the colour meets ${dom.purple ? "the purple line, so the colour has no dominant wavelength; the complementary wavelength (the opposite side of the locus) is given, written negative by CIE convention" : "the spectral locus"}; reported as the nearest whole nanometre of the 360–780 nm locus.`);
     lines.push(...res.notes, ...sp.notes);
@@ -855,6 +868,8 @@ const metamerismCalc: ColourCalc = {
           ? "Index: ΔE under the test illuminant after scaling the sample's XYZ by XYZ(standard, ref)/XYZ(sample, ref) (ISO 18314-4's multiplicative correction)."
           : "Index: the raw ΔE under each test illuminant, with no correction for the residual mismatch under the reference.",
     );
+    if (corr === "additive") lines.push({ math: "M = Delta E(S_t, P_t - (P_r - S_r))", fallback: "M = ΔE(St, Pt − (Pr − Sr)): S the standard's and P the sample's L*a*b*, t under the test and r under the reference illuminant" });
+    lines.push(FORMULA_EQ[f]);
     lines.push(`Computed by ASTM E308 (as the Spectral reflectance calculator does) under each illuminant, ${OBSERVER_LABELS[obs]} observer, ${DE_FORMULA_LABELS[f]}. ${a.spec.wl.length !== b.spec.wl.length || a.spec.wl[0] !== b.spec.wl[0] ? "The two spectra are on different wavelength grids; each was computed on its own." : ""}`.trim());
     lines.push(...a.notes, ...b.notes);
     lines.push(
@@ -914,10 +929,11 @@ const batchCalc: ColourCalc = {
     if (rowsIn.length > 500) return refuse(`Samples: ${rowsIn.length} rows; at most 500 are checked at once.`);
     const samples: Array<{ name: string; lab: Lab }> = [];
     for (let i = 0; i < rowsIn.length; i++) {
-      const m = /^(.*?)[\s,;]*([-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?[\s,;]+[-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?[\s,;]+[-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*$/.exec(rowsIn[i]);
+      const m = /^(?:(.*?\S)[\s,;:]+)?([-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?[\s,;]+[-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?[\s,;]+[-+−–]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*$/.exec(rowsIn[i]);
       if (!m) return refuse(`Samples, row ${i + 1} ("${rowsIn[i]}"): end the row with three numbers, L*, a*, b* (a name may come first).`);
-      const name = m[1].replace(/[,;:]+$/, "").trim() || `#${i + 1}`;
-      if (numbersIn(m[1]) !== null && m[1].trim() !== "") return refuse(`Samples, row ${i + 1} ("${rowsIn[i]}"): more than three numbers. Give an optional name, then L*, a*, b*.`);
+      const nameRaw = m[1] ?? "";
+      const name = nameRaw.replace(/[,;:]+$/, "").trim() || `#${i + 1}`;
+      if (numbersIn(nameRaw) !== null && nameRaw.trim() !== "") return refuse(`Samples, row ${i + 1} ("${rowsIn[i]}"): more than three numbers. Give an optional name, then L*, a*, b*.`);
       const lab = readLab(m[2], "lab", `Samples, row ${i + 1} (${name})`);
       if (typeof lab === "string") return refuse(lab);
       samples.push({ name, lab });
@@ -936,6 +952,7 @@ const batchCalc: ColourCalc = {
     const worstDir = joinWords([ww.lightness, ww.chroma, ww.hue]);
     lines.push(`${nPass} of ${res.length} samples pass ${sym} ${op} ${trimNum(T)}; the worst is ${worst.name} (${sym} ${fx(worst.de)}${worstDir ? `, ${worstDir}` : ""}), and the mean is ${fx(mean)}.`);
     lines.push(`Tolerance: ${sym} ${op} ${trimNum(T)} (${f === "de00" ? `CIEDE2000, kL:kC:kH = ${kText(k)}` : DE_FORMULA_LABELS[f]}; ${condition(ill, obs)}; ${GEOM_SHORT[geom]}).`);
+    lines.push(FORMULA_EQ[f]);
     if (geom === "none") lines.push("The measuring geometry is not stated; a tolerance without it cannot be checked by anyone else. Record it.");
     lines.push({
       table: [
@@ -1044,7 +1061,7 @@ const whitenessCalc: ColourCalc = {
     if (yi1925 !== null) rows.push(["Yellowness YI (ASTM D1925, withdrawn)", fx(yi1925, 2), "C/2°"]);
     lines.push({ table: rows, label: "Whiteness and yellowness" });
     lines.push({ math: "W = Y + 800 (x_n - x) + 1700 (y_n - y)", fallback: "W = Y + 800(xn − x) + 1700(yn − y)" });
-    lines.push({ math: "T = 1000 (x_n - x) - 650 (y_n - y)", fallback: `T = ${obs === "2" ? "1000" : "900"}(xn − x) − 650(yn − y) (1000 for 2°, 900 for 10°)` });
+    lines.push({ math: `T = ${obs === "2" ? "1000" : "900"} (x_n - x) - 650 (y_n - y)`, fallback: `T = ${obs === "2" ? "1000" : "900"}(xn − x) − 650(yn − y) (1000 for 2°, 900 for 10°)` });
     lines.push({ math: "YI = 100 (C_X X - C_Z Z)/Y", fallback: "YI = 100(CX·X − CZ·Z)/Y (ASTM E313; D1925: CX = 1.28, CZ = 1.06)" });
     if (wt && !wt.inRange) lines.push(`Outside CIE 15's limits for the whiteness formula (40 < W < 5Y − 280, −4 < T < +2): ${wt.outOfRange.join("; ")}. The formula is defined for samples that look white; for this one, quote L*a*b* or YI instead.`);
     if (!d65) lines.push("CIE whiteness and tint are defined for D65 only; give D65 data (or a spectrum) to get them.");

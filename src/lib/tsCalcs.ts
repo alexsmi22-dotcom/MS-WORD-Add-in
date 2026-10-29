@@ -16,6 +16,7 @@ import { decimalYear } from "./damagesInterest";
 import { fmtFixed, fmtP, intText, NBSP, P_BELOW } from "./regTable";
 import { buildPlotSvg, combineSvgs, type Series } from "./plot";
 import { fitReading } from "./statLibReading";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import {
   acfBiased,
   acfBands,
@@ -150,6 +151,12 @@ export const TS_HP_DEFAULTS = defaultsOf(TS_HP_FIELDS);
 
 /** At most this many lags in the correlogram table and figure. */
 export const ACF_MAX_LAGS = 200;
+/**
+ * Row caps (fix round, R6 #3: ts-unitroot took 1.0 s at 100,000 rows, ts-acf 0.33 s at 100,000 × 200 lags), refused up
+ * front by name: the ADF lag search grows like n·L² with Schwert's L ∝ n^¼, the correlogram like n·L.
+ */
+export const UNITROOT_MAX_ROWS = 20000;
+export const ACF_MAX_ROWS = 50000;
 /** The HP table lists every row up to this many; beyond it the figure carries the series. */
 export const HP_TABLE_MAX_ROWS = 500;
 /** At most this many points per line in a figure (every m-th row beyond it, said in the text). */
@@ -191,6 +198,11 @@ interface ReadSeries {
   values: Float64Array;
   dates?: SeriesDates;
   notes: string[];
+}
+
+/** The refusal for a series past a tool's row cap. */
+function tooMany(n: number, cap: number, what: string): string {
+  return `The series has ${intText(n)} rows; ${what} at most ${intText(cap)} rows in the pane, so use the most recent ${intText(cap)}.`;
 }
 
 /** The series column, with a gap or a mix of periods refused by name (lags assume equally spaced rows). */
@@ -248,6 +260,7 @@ export function tsAcfCalc(read: Read): StatOutput {
   const s = readSeries(read, 10);
   if ("error" in s) return refuse(s.error);
   const n = s.values.length;
+  if (n > ACF_MAX_ROWS) return refuse(tooMany(n, ACF_MAX_ROWS, "the correlogram takes"));
   const half = Math.floor(n / 2);
   const lagsIn = readWhole(read("lags"), "Lags", 1, Math.min(ACF_MAX_LAGS, half));
   if (typeof lagsIn === "object") {
@@ -275,7 +288,7 @@ export function tsAcfCalc(read: Read): StatOutput {
   const rows: string[][] = [["Lag", "ACF", "95% band (±)", "PACF", "Ljung–Box Q", "df", "p"]];
   for (let k = 1; k <= K; k++) {
     const row = lb.rows[k - 1];
-    rows.push([String(k), fmtFixed(r[k], 3), fmtFixed(band[k], 3), fmtFixed(pr.pacf[k], 3), fmtFixed(row.q, 3), intText(row.df), row.p === null ? "n/a" : fmtP(row.p)]);
+    rows.push([String(k), fmtFixed(r[k], 3), fmtFixed(band[k], 3), fmtFixed(pr.pacf[k], 3), fmtFixed(row.q, 3), row.df > 0 ? intText(row.df) : "n/a", row.p === null ? "n/a" : fmtP(row.p)]);
   }
   const outside = (vals: ArrayLike<number>, b: (k: number) => number): number[] => {
     const out: number[] = [];
@@ -353,12 +366,15 @@ export function tsAcfCalc(read: Read): StatOutput {
   for (let k = 2; k <= K; k++) if (Math.abs(r[k]) > Math.abs(r[kTop])) kTop = k;
   const top = `the strongest correlation is ${fmtFixed(r[kTop], 3)} at lag ${kTop}`;
   const lbP = last.p === null ? "" : last.p < 0.001 ? `p ${P_BELOW}` : `p = ${fmtP(last.p)}`;
+  const lbV = last.p === null ? null : pVerdict(lbP);
   const reading =
     last.p === null
       ? `With lags up to ${K}, no Ljung–Box p-value can be formed here; ${top}, ${acfOut.includes(kTop) ? "outside" : "inside"} the 95% band.`
-      : last.p < 0.05
+      : lbV === "clear"
         ? `Values of ${s.name} are clearly related to their own past: the Ljung–Box test rejects “no autocorrelation up to lag ${K}” (${lbP}), and ${top}.`
-        : `The data show no clear autocorrelation in ${s.name} up to lag ${K} (Ljung–Box ${lbP}); ${top}, which could be chance.`;
+        : lbV === "borderline"
+          ? `The Ljung–Box test of autocorrelation in ${s.name} up to lag ${K} gives ${lbP}, ${BOUNDARY_CLAUSE}; ${top}.`
+          : `The data show no clear autocorrelation in ${s.name} up to lag ${K} (Ljung–Box ${lbP}); ${top}, which could be chance.`;
   return { text: lines.join("\n"), reading: fitReading(reading, last.p === null ? `No Ljung–Box p-value can be formed here; ${top}.` : `Ljung–Box test up to lag ${K}: ${lbP}; ${top}.`), svg, tables };
 }
 
@@ -377,6 +393,7 @@ export function tsUnitRootCalc(read: Read): StatOutput {
   const s = readSeries(read, 12);
   if ("error" in s) return refuse(s.error);
   const n = s.values.length;
+  if (n > UNITROOT_MAX_ROWS) return refuse(tooMany(n, UNITROOT_MAX_ROWS, "the unit-root tests take"));
   const regRaw = (read("regression") || "c").trim();
   if (!["c", "ct", "n"].includes(regRaw)) return refuse(`Unknown deterministic terms ${q(regRaw)}; choose constant, constant + trend, or none.`);
   const reg = regRaw as AdfRegression;
@@ -435,6 +452,14 @@ export function tsUnitRootCalc(read: Read): StatOutput {
   lines.push(`ADF (${REG_WORD[reg]}): τ = ${fmtFixed(adf.stat, 3)}, ${adfP} (MacKinnon), ${lagHow}, ${intText(adf.nobs)} observations in the regression.`);
   lines.push(`KPSS (${REG_WORD[kreg]}): η = ${fmtFixed(kp.stat, 3)}, ${kpP}, ${kp.lags} lag${kp.lags === 1 ? "" : "s"} (${kp.auto ? "automatic bandwidth" : "fixed"}).`);
   lines.push(`At 5%: ADF ${adfRejects ? "rejects" : "does not reject"} a unit root; KPSS ${kpssRejects ? "rejects" : "does not reject"} stationarity. ${mine.text}`);
+  // The decision is τ against MacKinnon's (2010) critical value; the p is MacKinnon's (1994) approximation, a different
+  // table, and near the threshold the two can disagree. Say so rather than print a p that contradicts the words.
+  const adfPClear = pVerdict(adfP) === "clear";
+  if (adfPClear !== adfRejects) {
+    lines.push(
+      `Note: the ADF p (${adfP.replace(/^p\s*=?\s*/, "")}) is on the other side of 0.05 from the critical-value decision (τ = ${fmtFixed(adf.stat, 3)} against the 5% critical value ${fmtFixed(adf.crit[1], 3)}); the p and the critical values come from different MacKinnon tables, and the decision follows the critical value, so treat the result as borderline.`,
+    );
+  }
   lines.push("");
   lines.push(
     'Conventions (statsmodels 0.15): ADF is adfuller(x, maxlag, regression, autolag="AIC"): ' +
@@ -483,7 +508,8 @@ export function tsUnitRootCalc(read: Read): StatOutput {
   });
   if (step > 1) lines.push(`The figure shows every ${step}th row.`);
   // The reading: the pair's 5% verdict (the same decisions as the text: τ and η against the 5% critical values).
-  const pair = `ADF ${adfP}, KPSS ${kpP}`;
+  // ADF is quoted as τ against its 5% critical value (the decision), not as its p (another table; see the text).
+  const pair = `ADF τ = ${fmtFixed(adf.stat, 3)} against the 5% critical value ${fmtFixed(adf.crit[1], 3)}, KPSS ${kpP}`;
   const verdict = (nm: string, Nm: string): string =>
     !adfRejects && kpssRejects
       ? `${Nm} appears to have a unit root (it wanders without returning to a fixed level): ADF does not reject a unit root and KPSS rejects stationarity (${pair}), so analyse its changes rather than its levels.`
@@ -558,6 +584,18 @@ export function tsHpCalc(read: Read): StatOutput {
   const when = (i: number): string => (s.dates ? s.dates.tokens[i].label : `row ${i + 1}`);
   const bad = firstNonFinite([["The cycle's spread", sd]]);
   if (bad) return refuse(`${bad} is not a finite number for this series.`);
+  // A constant (or exactly straight-line) series is its own HP trend: the "cycle" left is rounding noise near 10⁻¹³,
+  // which must not be reported as swings (R6 #9).
+  let yMin = s.values[0];
+  let yMax = s.values[0];
+  for (let i = 1; i < n; i++) {
+    yMin = Math.min(yMin, s.values[i]);
+    yMax = Math.max(yMax, s.values[i]);
+  }
+  if (yMax === yMin) return refuse(`${q(s.name)} is constant, so it has no cycle around a trend.`);
+  if (sd <= 1e-9 * Math.max(Math.abs(yMax), Math.abs(yMin))) {
+    return refuse(`${q(s.name)} lies on a straight line, so the Hodrick–Prescott trend is the series itself and there is no cycle.`);
+  }
 
   const lines: string[] = [];
   lines.push(`Hodrick–Prescott filter of ${s.name}: λ = ${lambdaText(lambda)} (${src})`);

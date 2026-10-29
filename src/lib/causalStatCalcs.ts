@@ -30,6 +30,7 @@ import { normalCdfPrecise } from "./probdist";
 import { solveDense } from "./qpActiveSet";
 import { fitLogit, LogitProbitRefusal } from "./logitProbit";
 import { fitReading, unsigned } from "./statLibReading";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 
 type Read = (k: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
@@ -66,6 +67,10 @@ function readNumber(raw: string, label: string): number | { error: string } {
 
 function pText(p: number): string {
   return p < 0.001 ? P_BELOW : `= ${fmtP(p)}`;
+}
+/** The 5% verdict on the p as printed (calcReading's pVerdict: exactly 0.050 as printed is borderline). */
+function pv(p: number): "clear" | "borderline" | "none" {
+  return pVerdict(`p ${pText(p)}`);
 }
 
 /** Two-sided normal p-value. */
@@ -482,6 +487,13 @@ export function rdCalc(read: Read): StatOutput {
   const x = cols.X[0];
   const y = cols.y;
   const t = design === "fuzzy" ? cols.X[1] : null;
+  // A value beyond 10¹⁵ makes the local regressions' cross-products lose every digit, which then surfaces as a
+  // bandwidth or running-variable failure: name the column instead (R5 minor: an outcome of 10³⁰⁰ blamed the running
+  // variable).
+  for (const [name, v] of [[cols.depName, y], [cols.names[0], x], ...(t ? [[cols.names[1], t] as const] : [])] as const) {
+    const i = v.findIndex((z) => Math.abs(z) > 1e15);
+    if (i >= 0) return refuse(`Column ${q(name)}: a value beyond 10¹⁵ in magnitude (data row ${intText(i + 1)} of the usable rows) is too large for the local regressions; rescale the column.`);
+  }
   let nLeft = 0;
   let xmin = Infinity;
   let xmax = -Infinity;
@@ -662,15 +674,19 @@ export function rdCalc(read: Read): StatOutput {
   if (exactFit) reading = `The fitted ${yName} jumps by ${tauS} at ${at}, but the local fit is exact, so how precise that estimated effect is cannot be judged.`;
   else if (design === "sharp") {
     reading =
-      pz < 0.05
+      pv(pz) === "clear"
         ? `Crossing the cutoff at ${at} has an estimated effect of ${tauS} on ${yName} (95% interval ${ci(fit.tau, fit.se, d)}, p ${pText(pz)}), a jump unlikely to be chance at the 5% level.`
-        : `The data show no clear jump in ${yName} at ${at} (estimated effect ${tauS}, p ${pText(pz)}); the gap could be chance.`;
+        : pv(pz) === "borderline"
+          ? `The estimated jump in ${yName} at ${at} is ${tauS} (p ${pText(pz)}), ${BOUNDARY_CLAUSE}.`
+          : `The data show no clear jump in ${yName} at ${at} (estimated effect ${tauS}, p ${pText(pz)}); the gap could be chance.`;
   } else {
     const weak = fit.fs && fit.fs.se > 1e-9 * Math.abs(fit.fs.est) && (fit.fs.est / fit.fs.se) ** 2 < 10 ? " The treatment barely jumps at the cutoff, so this estimate is unreliable." : "";
     const lead =
-      pz < 0.05
+      pv(pz) === "clear"
         ? `For units whose treatment the cutoff at ${at} switches, the estimated effect on ${yName} is ${tauS} (95% interval ${ci(fit.tau, fit.se, d)}, p ${pText(pz)}), unlikely to be chance at the 5% level.`
-        : `The data show no clear effect on ${yName} at ${at} (estimated effect ${tauS}, p ${pText(pz)}); it could be chance.`;
+        : pv(pz) === "borderline"
+          ? `The estimated effect on ${yName} at ${at} is ${tauS} (p ${pText(pz)}), ${BOUNDARY_CLAUSE}.`
+          : `The data show no clear effect on ${yName} at ${at} (estimated effect ${tauS}, p ${pText(pz)}); it could be chance.`;
     reading = fitReading(lead + weak, lead)!;
   }
   reading = fitReading(reading, `The estimated effect at the cutoff is ${tauS} (p ${pText(pz)}).`)!;
@@ -1093,14 +1109,16 @@ export function synthCalc(read: Read): StatOutput {
   if (T0 < 5) lines.push(`Only ${T0} pre-treatment periods: almost any donor mix can match so short a history, so a close pre-period fit is weak evidence that the synthetic control tracks the counterfactual.`);
   if (r.placebos && r.placebos.some((pl) => !Number.isFinite(pl.ratio))) lines.push("A placebo whose synthetic control fits its pre-period exactly (RMSPE 0) has an unbounded ratio and ranks above the treated unit.");
   if (J >= T0) lines.push(`There are ${J} donors and only ${T0} pre-periods, so many weight vectors fit nearly equally well; the weights are one solution (the ridge picks it), and the synthetic path is better determined than the individual weights.`);
-  {
-    let outside = 0;
-    for (let t = 0; t < T0; t++) {
-      const col = Y[t].slice(1);
-      if (r.treated[t] > Math.max(...col) || r.treated[t] < Math.min(...col)) outside++;
-    }
-    if (outside > 0) lines.push(`In ${outside} of ${T0} pre-periods the treated unit lies outside the donors' range, where no convex combination can match it; read the fit with care.`);
+  let outside = 0;
+  for (let t = 0; t < T0; t++) {
+    const col = Y[t].slice(1);
+    if (r.treated[t] > Math.max(...col) || r.treated[t] < Math.min(...col)) outside++;
   }
+  if (outside > 0) lines.push(`In ${outside} of ${T0} pre-periods the treated unit lies outside the donors' range, where no convex combination can match it; read the fit with care.`);
+  // R5 MAJOR 8: a synthetic control that does not track the treated unit before treatment (outside the donors' range
+  // in most pre-periods, or a pre-period RMSPE as large as the average post-period gap) gives no reliable effect estimate.
+  const poorFit = !exactPre && fmtFixed(att, 3) !== fmtFixed(0, 3) && (2 * outside > T0 || r.pre >= Math.abs(att));
+  if (poorFit) lines.push(`The synthetic control does not track ${r.treatedName} closely before treatment (pre-period RMSPE ${fmtFixed(r.pre, 3)} against an average post-period gap of ${fmtFixed(att, 3)}${outside ? `; outside the donors' range in ${outside} of ${T0} pre-periods` : ""}), so the post-period gap is not a reliable estimate of the effect.`);
   lines.push(...cols.notes);
   // Tables.
   const order = r.w.map((v, j) => [v, j] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
@@ -1173,14 +1191,22 @@ export function synthCalc(read: Read): StatOutput {
   const U = J + 1;
   if (!r.placebos) inference = "; no placebo comparison was run, so chance cannot be judged.";
   else if (exactPre) inference = "; the pre-period fit is exact to the data's precision, so the placebo ranking says nothing about chance.";
-  else if (r.p < 0.05) inference = `; its gap relative to its pre-period fit ranks ${r.rank} of ${U} against placebo units (permutation p = ${fmtFixed(r.p, 3)}), unlikely to be chance at the 5% level.`;
+  else if (pVerdict(`p = ${fmtFixed(r.p, 3)}`) === "borderline")
+    inference = `; its gap relative to its pre-period fit ranks ${r.rank} of ${U} against placebo units (permutation p = ${fmtFixed(r.p, 3)}), ${BOUNDARY_CLAUSE}.`;
+  else if (pVerdict(`p = ${fmtFixed(r.p, 3)}`) === "clear") inference = `; its gap relative to its pre-period fit ranks ${r.rank} of ${U} against placebo units (permutation p = ${fmtFixed(r.p, 3)}), unlikely to be chance at the 5% level.`;
   else if (r.rank === 1) inference = `; its gap is the largest of the ${U} units relative to fit, but with ${J} donors the permutation p cannot go below ${fmtFixed(r.p, 3)}, so chance is not ruled out at 5%.`;
   else inference = `; its gap relative to its pre-period fit ranks only ${r.rank} of ${U} against placebo units (permutation p = ${fmtFixed(r.p, 3)}), so the gap could be chance.`;
   const bareGap =
     attS === fmtFixed(0, 3)
       ? `After treatment the treated unit tracked its synthetic control with no average gap (${attS})`
       : `After treatment the treated unit ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control (the estimated effect)`;
-  const reading = fitReading(gapText + inference, bareGap + inference, `${gapText}.`, `${bareGap}.`);
+  const poorReading = poorFit
+    ? fitReading(
+        `After treatment, ${r.treatedName} ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control, but the synthetic control did not track it before treatment (pre-period RMSPE ${fmtFixed(r.pre, 3)}), so that gap is not a reliable estimate of the effect.`,
+        `After treatment the treated unit ran on average ${unsigned(attS)} ${att > 0 ? "above" : "below"} its synthetic control, but the synthetic control did not track it before treatment (pre-period RMSPE ${fmtFixed(r.pre, 3)}), so that gap is not a reliable estimate of the effect.`,
+      )
+    : undefined;
+  const reading = poorReading ?? fitReading(gapText + inference, bareGap + inference, `${gapText}.`, `${bareGap}.`);
   return { text: lines.join("\n"), reading, tables, svg };
 }
 
@@ -1637,6 +1663,7 @@ export function pscoreCalc(read: Read): StatOutput {
   // The reading's estimate and what follows it, set by the method branch below.
   let readEst = NaN;
   let readTail = "";
+  let whoMatched = "";
   if (method === "match") {
     let sdEta = 0;
     const mEta = eta.reduce((a, v) => a + v, 0) / n;
@@ -1647,11 +1674,15 @@ export function pscoreCalc(read: Read): StatOutput {
     if ("error" in m) return refuse(m.error);
     wBal = m.w;
     summary =
-      `${estimand.toUpperCase()} = ${fmtFixed(m.est, 3)} (matched: ${intText(m.nMatchedT)} treated, ${intText(m.nMatchedC)} controls${m.dropped ? `; ${intText(m.dropped)} unit${m.dropped === 1 ? "" : "s"} without a match within the caliper dropped` : ""}). ` +
+      `${estimand.toUpperCase()} = ${fmtFixed(m.est, 3)} (matched: ${intText(m.nMatchedT)} treated, ${intText(m.nMatchedC)} controls${m.dropped ? `; ${intText(m.dropped)} unit${m.dropped === 1 ? "" : "s"} without a match ${Number.isFinite(calSd) ? (replace ? "within the caliper" : "within the caliper or left without an unused control") : "(no unused control left)"} dropped` : ""}). ` +
       "No standard error is reported (see below).";
     lines = [header, summary];
     readEst = m.est;
     readTail = " (by matching, which gives no standard error, so its precision is unknown)";
+    // R5 MAJOR 7: when units go unmatched, the estimate covers only the matched ones.
+    const nTreated = T.reduce((a, v) => a + (v === 1 ? 1 : 0), 0);
+    if (estimand === "att" && m.nMatchedT < nTreated) whoMatched = `among the ${intText(m.nMatchedT)} matched treated units (not all the treated)`;
+    else if (m.dropped) whoMatched = `among the ${intText(m.nMatchedT + m.nMatchedC)} matched units`;
     lines.push(
       `Matching: ${k} nearest neighbor${k === 1 ? "" : "s"} ${replace ? "with" : "without"} replacement on η = logit p̂ (the linear predictor), ` +
         (Number.isFinite(calSd) ? `caliper ${fmtFixed(calSd, 3)} SD of η = ${fmtFixed(cal, 4)} (SD over the ${intText(n)} rows, divisor n − 1)` : "no caliper") +
@@ -1682,7 +1713,7 @@ export function pscoreCalc(read: Read): StatOutput {
     summary = `${estimand.toUpperCase()} = ${fmtFixed(r.est, 3)} (SE ${fmtFixed(r.se, 3)}), z = ${fmtFixed(z, 3)}, p ${pText(zP(z))}, 95% CI ${ci(r.est, r.se, 3)}`;
     lines = [header, summary];
     readEst = r.est;
-    readTail = ` (95% interval ${ci(r.est, r.se, 3)}, p ${pText(zP(z))}), ` + (zP(z) < 0.05 ? "unlikely to be chance at the 5% level" : "not clearly different from zero");
+    readTail = ` (95% interval ${ci(r.est, r.se, 3)}, p ${pText(zP(z))}), ` + (pv(zP(z)) === "clear" ? "unlikely to be chance at the 5% level" : pv(zP(z)) === "borderline" ? BOUNDARY_CLAUSE : "not clearly different from zero");
     lines.push(
       `Weights: ${estimand === "ate" ? "1/p̂ for treated, 1/(1 − p̂) for controls" : "1 for treated, p̂/(1 − p̂) for controls"}; ` +
         (wKind === "hajek"
@@ -1796,13 +1827,15 @@ export function pscoreCalc(read: Read): StatOutput {
   const bal =
     worstAfter <= 0.1
       ? ` The groups are well balanced after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}), but it is causal only if the covariates capture how units were chosen.`
-      : ` The groups still differ after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}, above 0.1), so the estimate may be biased.`;
+      : ` The groups still differ after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}, above 0.1), so the estimate may be biased; it is causal only if the covariates capture how units were chosen.`;
+  // When the caveat makes the reading too long, the imbalance warning alone (it already says the estimate may be biased).
+  const balShort = worstAfter <= 0.1 ? bal : ` The groups still differ after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}, above 0.1), so the estimate may be biased.`;
   // "The estimated effect of training on earnings among the treated is 2.500" (the table's own format), and the same
   // without the column names for when long names overrun the length limit.
-  const who = estimand === "att" ? "among the treated" : "averaged over everyone";
+  const who = whoMatched || (estimand === "att" ? "among the treated" : "averaged over everyone");
   const lead = `The estimated effect of ${tName} on ${cols.depName} ${who} is ${fmtFixed(readEst, 3)}${readTail}`;
   const leadBare = `The estimated effect of the treatment ${who} is ${fmtFixed(readEst, 3)}${readTail}`;
-  const reading = fitReading(`${lead}.${bal}`, `${leadBare}.${bal}`, `${lead}.`, `${leadBare}.`);
+  const reading = fitReading(`${lead}.${bal}`, `${lead}.${balShort}`, `${leadBare}.${bal}`, `${leadBare}.${balShort}`, `${lead}.`, `${leadBare}.`);
   return { text: lines.join("\n"), reading, tables, svg };
 }
 

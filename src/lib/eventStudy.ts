@@ -153,7 +153,7 @@ export function normalP(z: number): number {
 export function readIntField(raw: string, label: string, lo: number, hi: number): number | { error: string } {
   // A Word minus or an en dash typed as a minus; "5.0" is the whole number 5.
   const s = (raw ?? "").trim().replace(/[−–]/g, "-");
-  if (!/^[-+]?\d{1,7}(\.0+)?$/.test(s)) return { error: `${label}: ${q((raw ?? "").trim())} is not a whole number.` };
+  if (!/^[-+]?\d{1,15}(\.0+)?$/.test(s)) return { error: `${label}: ${q((raw ?? "").trim())} is not a whole number.` };
   const v = Math.trunc(Number(s));
   if (v < lo || v > hi) return { error: `${label}: ${String(v).replace("-", "−")} is outside ${String(lo).replace("-", "−")} to ${String(hi).replace("-", "−")}.` };
   return v === 0 ? 0 : v;

@@ -62,7 +62,12 @@ export const ARIMA_WORK_BUDGET = 8e9;
  * high-order filter, underestimates an unsettled one), so the pane's guarantee against a frozen Word is this clock. Only
  * a fit that would have run past it is affected, and its refusal says so.
  */
-export const ARIMA_WALL_MS = 6000;
+export const ARIMA_WALL_MS = 3000;
+/**
+ * The most ARMA coefficients (p + q) a fit takes (fix round, R6 #3): ARIMA(5, 1, 5) ran 4.5 s and then refused, and
+ * orders beyond 6 coefficients are refused up front, by name, before any work.
+ */
+export const ARIMA_MAX_PQ = 6;
 /** Extra work for the standard errors' Hessian beyond what the optimiser left (estimated ns). */
 const HESS_ALLOWANCE = 1e9;
 
@@ -689,6 +694,12 @@ function packShrunk(phi: number[], theta: number[], pk: Packed): number[] | null
 /** Fits ARIMA(p, d, q) by exact maximum likelihood. */
 export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult {
   const { p, d, q, trend } = spec;
+  if (p + q > ARIMA_MAX_PQ) {
+    return {
+      ok: false,
+      reason: `ARIMA(${p}, ${d}, ${q}) has p + q = ${p + q} ARMA coefficients and needs more computation than the pane allows; the pane fits at most ${ARIMA_MAX_PQ} (p + q ≤ ${ARIMA_MAX_PQ}), so choose smaller p and q.`,
+    };
+  }
   const yy = Float64Array.from(y as ArrayLike<number>);
   const w = difference(yy, d);
   const N = w.length;

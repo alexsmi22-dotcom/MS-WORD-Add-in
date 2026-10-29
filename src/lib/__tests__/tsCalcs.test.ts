@@ -103,7 +103,9 @@ describe("ts-acf on the default (Spread)", () => {
     const o = tsAcfCalc(reader(TS_ACF_DEFAULTS, { lags: "6", modelDf: "2" }));
     expectOk(o);
     const rows = (o.tables ?? [])[0].rows;
-    expect(rows[1][5]).toBe("-1".replace("-", "−"));
+    // R6 minor: the df column no longer prints "−1" and "0" where the lag does not exceed the model df.
+    expect(rows[1][5]).toBe("n/a");
+    expect(rows[2][5]).toBe("n/a");
     expect(rows[1][6]).toBe("n/a");
     expect(rows[2][6]).toBe("n/a");
     expect(rows[3][5]).toBe("1");
@@ -209,13 +211,9 @@ describe("hostile inputs", () => {
     test(`${id}: too few rows, constant, gap, empty, missing column`, () => {
       expect(calc(reader(defs, { data: series([1, 2, 3]), series: "" })).ok).toBe(false);
       const c = calc(reader(defs, { data: quarterly(Array(40).fill(7)), series: "", lambdaRule: "standard" }));
-      if (id === "ts-hp") {
-        // A constant series has a constant trend and a zero cycle: a correct answer, not a refusal.
-        expectOk(c);
-      } else {
-        expect(c.ok).toBe(false);
-        expect(c.text).toMatch(/constant/);
-      }
+      // ts-hp too since the R6 fix round: its "cycle" for a constant series was 10⁻¹³ rounding noise, printed as swings.
+      expect(c.ok).toBe(false);
+      expect(c.text).toMatch(/constant/);
       const gap = ["Quarter y", ...Array.from({ length: 30 }, (_, i) => `${2000 + Math.floor((i + (i > 10 ? 1 : 0)) / 4)}-Q${((i + (i > 10 ? 1 : 0)) % 4) + 1} ${Math.sin(i) + i * 0.1}`)].join("\n");
       const g = calc(reader(defs, { data: gap, series: "" }));
       expect(g.ok).toBe(false);
@@ -301,22 +299,31 @@ describe("100,000 rows", () => {
   };
   // Measured on the build machine (single jest worker, parsing included): ts-acf 0.23–0.57 s, ts-unitroot 1.0–1.6 s
   // (one Householder QR of the 99,931 × 70 common-sample design, then the refit), ts-hp 0.20–0.28 s.
-  // Bounds are ≥ 3× that, since QC runs jest with 4 workers.
-  test("ts-acf", () => {
-    const r = timed(() => tsAcfCalc(reader(TS_ACF_DEFAULTS, { data, series: "" })));
+  // Bounds are ≥ 3× that, since QC runs jest with 4 workers. Since the R6 fix round ts-acf takes at most 50,000 rows
+  // and ts-unitroot 20,000 (refused up front by name); the timed fits run on those.
+  const head = (m: number): string => lines.slice(0, m + 1).join("\n");
+  test("ts-acf: 100,000 rows refused up front by name; 50,000 computed", () => {
+    const r0 = timed(() => tsAcfCalc(reader(TS_ACF_DEFAULTS, { data, series: "" })));
+    expect(r0.out.ok).toBe(false);
+    expect(r0.out.text).toBe("The series has 100,000 rows; the correlogram takes at most 50,000 rows in the pane, so use the most recent 50,000.");
+    expect(r0.ms).toBeLessThan(budget(1000));
+    const r = timed(() => tsAcfCalc(reader(TS_ACF_DEFAULTS, { data: head(50000), series: "" })));
     expectOk(r.out);
-    expect(r.out.text).toContain("lags 1 to 50");
-    expect(r.ms).toBeLessThan(budget(3000));
+    expect(r.out.text).toContain("lags 1 to 46");
+    expect(r.ms).toBeLessThan(budget(1500));
   });
-  test("ts-unitroot", () => {
-    const r = timed(() => tsUnitRootCalc(reader(TS_UNITROOT_DEFAULTS, { data, series: "" })));
+  test("ts-unitroot: 100,000 rows refused up front by name; 20,000 computed", () => {
+    const r0 = timed(() => tsUnitRootCalc(reader(TS_UNITROOT_DEFAULTS, { data, series: "" })));
+    expect(r0.out.ok).toBe(false);
+    expect(r0.out.text).toBe("The series has 100,000 rows; the unit-root tests take at most 20,000 rows in the pane, so use the most recent 20,000.");
+    const r = timed(() => tsUnitRootCalc(reader(TS_UNITROOT_DEFAULTS, { data: head(20000), series: "" })));
     expectOk(r.out);
-    expect(r.out.text).toContain("from 0 to 68");
-    expect(r.ms).toBeLessThan(budget(6000));
+    expect(r.out.text).toContain("from 0 to 46");
+    expect(r.ms).toBeLessThan(budget(1500));
   }, 20000);
   test("ts-unitroot: a hand-entered lag of 1,000 is refused by its work, before any design is built", () => {
     for (const adfMode of ["aic", "fixed"]) {
-      const r = timed(() => tsUnitRootCalc(reader(TS_UNITROOT_DEFAULTS, { data, series: "", adfMode, adfLag: "1000" })));
+      const r = timed(() => tsUnitRootCalc(reader(TS_UNITROOT_DEFAULTS, { data: head(20000), series: "", adfMode, adfLag: "1000" })));
       expect(r.out.ok).toBe(false);
       expect(r.out.text).toMatch(/more work than the pane allows; use a lag of at most \d+/);
       expect(r.ms).toBeLessThan(budget(3000));

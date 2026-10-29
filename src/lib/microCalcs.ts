@@ -48,6 +48,11 @@ function readLabel(raw: string, dflt: string, label: string): { ok: true; v: str
   if (!s) return { ok: true, v: dflt };
   if (s.length > UNIT_MAX_CHARS) return { ok: false, error: `${label}: at most ${UNIT_MAX_CHARS} characters (it is printed on the figure's axis).` };
   for (const ch of s) if (ch.charCodeAt(0) < 32) return { ok: false, error: `${label}: contains a control character.` };
+  // A unit is a name: one that reads as a number ("−5", "1e15") or a non-number word ("NaN", "Infinity") would print
+  // in the reading as if it were a value (R6 #15).
+  if (/^[-+−]?(\d+\.?\d*|\.\d+)(e[-+−]?\d+)?$/i.test(s) || /^[-+−]?(nan|infinity|inf|undefined|null)$/i.test(s)) {
+    return { ok: false, error: `${label}: “${s}” is not a unit name; enter one such as $, €, USD or tonnes.` };
+  }
   return { ok: true, v: s };
 }
 
@@ -573,8 +578,12 @@ export function oligopolyReading(structures: Structure[], n: number, cur: string
       : pc === fmtCell(comp.price)
         ? `the same as under perfect competition, against the monopoly ${fmtCell(mono.price)}`
         : `between the competitive ${fmtCell(comp.price)} and the monopoly ${fmtCell(mono.price)}`;
+  // A firm whose cost is above the Cournot price produces nothing: say how many are active (R6 #15).
+  const active = cour.q.filter((x) => ratSign(x) > 0).length;
+  const among =
+    active === n ? `among the ${n} firms` : active === 1 ? `with only 1 of the ${n} firms producing` : `with ${active} of the ${n} firms producing`;
   return joinTwo(
-    `Under the model's assumptions, Cournot competition among the ${n} firms sets the price at ${pc}, ${where}.`,
+    `Under the model's assumptions, Cournot competition ${among} sets the price at ${pc}, ${where}.`,
     `It loses ${fmtCell(cour.dwl)} of surplus, against ${fmtCell(mono.dwl)} under monopoly (${cur}).`,
   );
 }

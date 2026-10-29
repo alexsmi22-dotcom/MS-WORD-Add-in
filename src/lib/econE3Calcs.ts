@@ -14,6 +14,7 @@ import { parseSeriesTable, pickSeries } from "./tsData";
 import { readDateToken, civilDay, civilFromDay, decimalYear, toCents } from "./damagesInterest";
 import { fmtFixed, fmtP, groupThousands, intText } from "./regTable";
 import { buildPlotSvg } from "./plot";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 
 type Read = (k: string) => string;
 const refuse = (text: string): StatOutput => ({ text, ok: false });
@@ -222,7 +223,10 @@ export function eventStudyReading(n: number, win: string, caar: number, j1: numb
   const dir = pct(caar) === pct(0) ? "moved" : caar > 0 ? "rose" : "fell";
   const head = `${who} ${dir} by about ${pct(Math.abs(caar))}% beyond what the market explains over event days ${win}`;
   const stat = `J₁ = ${fmtFixed(j1, 3)}, p ${pText(p)}`;
-  return p < 0.05
+  // Decided on the p as printed (calcReading's pVerdict): exactly 0.050 as printed is borderline.
+  const v = pVerdict(`p ${pText(p)}`);
+  if (v === "borderline") return `${head} (${stat}), ${BOUNDARY_CLAUSE}.`;
+  return v === "clear"
     ? `${head}, an abnormal reaction unlikely to be chance alone (${stat}).`
     : `${head}; the data show no clear abnormal reaction (${stat}), so a move this size could be chance.`;
 }

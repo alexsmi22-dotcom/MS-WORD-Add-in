@@ -1209,15 +1209,17 @@ export function planDynamic(data: DynData, spec: DynSpec): DynPlan {
 }
 
 /** Refuses a plan over the caps, by name (DPD_MAX_INSTR on the instrument count, DPD_MAX_WORK on one fit). */
-export function checkPlan(p: DynPlan): void {
+export function checkPlan(p: DynPlan, collapsed = false): void {
+  // The advice names only what is left to change: "collapse" when the instruments are not collapsed yet (R5 minor).
+  const fix = collapsed ? "Set a last lag for the GMM-style instruments" : "Choose “collapse”, or a last lag for the GMM-style instruments";
   if (p.instr > DPD_MAX_INSTR) {
     throw new GmmRefusal(
-      `The instrument set would have about ${intText(p.instr)} columns; this calculator allows ${intText(DPD_MAX_INSTR)} (far more than is wise anyway). Choose “collapse”, or a last lag for the GMM-style instruments.`,
+      `The instrument set would have about ${intText(p.instr)} columns; this calculator allows ${intText(DPD_MAX_INSTR)} (far more than is wise anyway). ${fix}.`,
     );
   }
   if (p.work > DPD_MAX_WORK) {
     throw new GmmRefusal(
-      `${intText(p.groups)} ${plural(p.groups, "group")} and ${intText(p.rows)} stacked rows with about ${intText(p.instr)} instruments is beyond the work this calculator allows in the task pane. Choose “collapse”, a last lag for the GMM-style instruments, or fewer time dummies.`,
+      `${intText(p.groups)} ${plural(p.groups, "group")} and ${intText(p.rows)} stacked rows with about ${intText(p.instr)} instruments is beyond the work this calculator allows in the task pane. ${collapsed ? "Set a last lag for the GMM-style instruments, or use fewer time dummies" : "Choose “collapse”, a last lag for the GMM-style instruments, or fewer time dummies"}.`,
     );
   }
 }
@@ -1247,7 +1249,7 @@ export function checkPlan(p: DynPlan): void {
  */
 export function buildDynamic(data: DynData, spec: DynSpec, plan?: DynPlan): DynDesign {
   const p = plan ?? planDynamic(data, spec);
-  if (!plan) checkPlan(p);
+  if (!plan) checkPlan(p, spec.collapse);
   // Too few groups is the first thing to say (before an exact fit that few rows can produce).
   if (p.groups < GMM_MIN_GROUPS) throw new GmmRefusal(`The panel has ${fewGroupsReason(p.groups, 0, "group")}`);
   const { N, T } = data;

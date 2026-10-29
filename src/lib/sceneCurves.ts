@@ -163,6 +163,9 @@ export function bernsteinRoots(c: number[]): number[] {
     }
     const [L, R] = bernsteinHalves(cc);
     const mid = (lo + hi) / 2;
+    // A root exactly on the split point is the halves' shared end coefficient: both halves then filter it out as
+    // zero and neither sees the sign change, so it is recorded here (review B1: y′ = 0 at t = 0.5 was missed).
+    if (Math.abs(L[L.length - 1]) <= eps) out.push(mid);
     walk(L, lo, mid, depth + 1);
     walk(R, mid, hi, depth + 1);
   };
@@ -308,7 +311,7 @@ export function bezierAnalyse(P: Vec[], t: number): BezierResult | Fail {
         else {
           curvature = 0;
           normal = null;
-          curvatureNote = "The curve is straight at this t (curvature 0): there is no centre of curvature, so no principal normal (the left normal is (−Tᵧ, Tₓ)).";
+          curvatureNote = "The curvature is 0 at this t (an inflection, or a straight stretch): there is no centre of curvature, so no principal normal (the left normal is (−Tᵧ, Tₓ)).";
         }
       } else {
         curvature = norm(c) / (n1 * n1 * n1);
@@ -318,7 +321,7 @@ export function bezierAnalyse(P: Vec[], t: number): BezierResult | Fail {
         else {
           curvature = 0;
           normal = null;
-          curvatureNote = "The curve is straight at this t (curvature 0): the principal normal is not defined.";
+          curvatureNote = "The curvature is 0 at this t (an inflection, or a straight stretch): the principal normal is not defined.";
         }
       }
     }

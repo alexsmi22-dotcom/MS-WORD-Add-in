@@ -269,8 +269,10 @@ export function farm(input: FarmInput, prep: FarmPrep = prepareFarm(input)): Far
   };
 }
 
-/** LPT counts tried above the lower bound before falling back to Graham's guarantee. */
+/** LPT counts tried above the lower bound before falling back to Graham's guarantee: at most 200, and fewer for a
+ *  long frame list, so the scan stays near 4×10⁵ frame placements (review M7: 742 ms at 10,000 frames). */
 export const DEADLINE_SCAN = 200;
+export const scanCount = (frames: number): number => Math.max(20, Math.min(DEADLINE_SCAN, Math.floor(400000 / Math.max(1, frames))));
 
 export interface DeadlineNodes {
   /** The node count, or null when no count can meet the deadline (one frame alone is longer). */
@@ -298,7 +300,7 @@ export function nodesForDeadline(input: FarmInput, deadline: number, prep: FarmP
     return { nodes: Math.ceil(input.frames / Math.max(1, perNode)), how: "rounds", from };
   }
   const F = prep.sorted.length;
-  for (let n = from; n <= Math.min(F, from + DEADLINE_SCAN - 1); n++) if (lptSorted(prep.sorted, n) <= D) return { nodes: n, how: "scan", from };
+  for (let n = from; n <= Math.min(F, from + scanCount(F) - 1); n++) if (lptSorted(prep.sorted, n) <= D) return { nodes: n, how: "scan", from };
   const gap = D - prep.longest;
   const graham = gap > 0 ? Math.ceil((prep.busy - prep.longest) / gap - 1e-9) : F;
   return { nodes: Math.min(F, Math.max(from, graham)), how: "bound", from };

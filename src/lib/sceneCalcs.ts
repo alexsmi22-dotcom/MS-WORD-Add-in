@@ -10,7 +10,7 @@
 // computed numbers, states what the model assumes, and draws.
 
 import type { EngCalcDef } from "./engCalc";
-import { engReport, type EngLine } from "./engReport";
+import { engCell, engReport, type EngLine } from "./engReport";
 import type { AnalyzeBlock, AnalyzeOutput, EngOutput } from "./analyzeBlocks";
 import { formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
@@ -19,7 +19,7 @@ import { refuseNonFinite } from "./finiteResult";
 import { BEZIER_MAX_DEGREE, ARC_REL_TOL, bezierAnalyse, bezierPolyline, nurbsAnalyse, nurbsPolyline, type Vec } from "./sceneCurves";
 import { MESH_MAX_VERTICES, SUBDIV_REAL_MAX_FACES, catmullClarkCounts, catmullClarkStep, countVEF, edgeMap, eulerFromCounts, loopCounts, loopStep, meshStats, parseObj } from "./sceneMesh";
 import { bestSahSplit, boundingVolumes, rayBox, raySphere, rayTriangle, sahCost, unitDir, type RayHit } from "./sceneRay";
-import { DEADLINE_SCAN, TEX_FORMATS, farm, frameBytes, prepareFarm, lodBands, nodesForDeadline, pipeline, rawFormat, screenSize, texelDensity, textureMemory, textureSideFor, type Depth, type FarmInput, type LodLevel, type Stage, type TexFormat } from "./scenePipeline";
+import { scanCount, TEX_FORMATS, farm, frameBytes, prepareFarm, lodBands, nodesForDeadline, pipeline, rawFormat, screenSize, texelDensity, textureMemory, textureSideFor, type Depth, type FarmInput, type LodLevel, type Stage, type TexFormat } from "./scenePipeline";
 import { bezierChartSvg, boundingChartSvg, farmChartSvg, lodChartSvg, meshWireframeSvg, nurbsChartSvg, polycountChartSvg, rayChartSvg, sceneBarsSvg } from "./sceneCharts";
 
 /** The Engineering heading these calculators sit under (added to ENG_GROUP_ORDER after "Light & camera"). */
@@ -33,7 +33,8 @@ const SAME_UNITS_NOTE =
   "Coordinates are plain numbers in any one length unit (metres, centimetres, scene units); every length in the result " +
   "is in that unit, areas in its square and volumes in its cube.";
 
-const refuse = (text: string): AnalyzeOutput => ({ text: trueMinus(text.replace(/—/g, "-")), ok: false });
+/** A refusal under the display contract too: e-notation echoed from an engine message becomes ×10ⁿ (review minor 1). */
+const refuse = (text: string): AnalyzeOutput => ({ text: text.split(/\n/).map((l) => engCell(l)).join("\n"), ok: false });
 
 /** Six significant figures, trailing zeros dropped, ×10ⁿ outside 10⁻³…10⁵, U+2212. */
 const num = (v: number): string => fmtSig(v, 6).replace(/(\.\d*?)0+(?=$|×)/, "$1").replace(/\.(?=$|×)/, "");
@@ -49,7 +50,7 @@ function unitReader(r: (k: string) => string) {
   const errors: string[] = [];
   const conversions: string[] = [];
   const read = (key: string, si: string, shown: string, label: string, required: boolean): number | null => {
-    const raw = (r(key) ?? "").trim().replace(/[−–]/g, "-");
+    const raw = timeWords((r(key) ?? "").trim().replace(/[−–]/g, "-"), si);
     if (!raw) {
       if (required) errors.push(`${label}: this field is required.`);
       return required ? NaN : null;
@@ -76,6 +77,19 @@ function unitReader(r: (k: string) => string) {
 }
 
 const NUM = String.raw`[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?`;
+
+/** In the pipeline, where every hour is a working hour, a day typed as "2 d" or "2 days" is 2 × 8 working hours. */
+function workDays(raw: string, label: string, conv: string[]): string {
+  const m = new RegExp(`^(${NUM})\\s*(?:d|days?)$`).exec(raw);
+  if (!m) return raw;
+  conv.push(`${label}: ${num(Number(m[1]))} d = ${num(Number(m[1]) * 8)} working hours (8-hour days)`);
+  return `${Number(m[1]) * 8} h`;
+}
+
+/** In a time field, "2 d" is two days (review M6): the unit layer knows "day" but not the bare "d". */
+function timeWords(raw: string, si: string): string {
+  return ["h", "s", "min"].includes(si) ? raw.replace(/^(.*\d)\s*d$/, "$1 day") : raw;
+}
 
 /** A plain number (no unit): NaN when blank or unreadable. */
 function plain(v: string | undefined): number {
@@ -131,6 +145,35 @@ function pointBlock(text: string, label: string): Vec[] | string {
   return out;
 }
 
+/** The largest texture side Direct3D 11/12, Metal and most Vulkan implementations accept. */
+const GPU_MAX_TEXTURE = 16384;
+
+/** Whether every control point lies on one line (a Bézier curve that is a straight segment). */
+function collinear(P: Vec[]): boolean {
+  const a = P[0];
+  const dist = (q: Vec): number => Math.hypot(...q.map((v, i) => v - a[i]));
+  const far = P.reduce((best, q) => (dist(q) > dist(best) ? q : best), a);
+  const d = far.map((v, i) => v - a[i]);
+  const dl = Math.hypot(...d);
+  if (!(dl > 0)) return true;
+  return P.every((q) => {
+    const w = q.map((v, i) => v - a[i]);
+    const t = w.reduce((s2, v, i) => s2 + v * d[i], 0) / (dl * dl);
+    return Math.hypot(...w.map((v, i) => v - t * d[i])) <= 1e-12 * dl;
+  });
+}
+
+/**
+ * Three counts as people write them (review M6): "8, 12, 6", "8 12 6", "8,12,6", or with thousands separators
+ * "1,000; 3,000; 2,000" (semicolons) or "1,000, 3,000, 2,000" (comma and space). Separators inside a number go.
+ */
+function countsList(text: string): string[] {
+  const t = text.trim();
+  let parts = t.includes(";") ? t.split(/\s*;\s*/) : t.split(/,\s+|\s+/);
+  if (parts.length === 1 && /,/.test(t) && !/,\d{3}(?!\d)/.test(t)) parts = t.split(",");
+  return parts.map((x) => x.trim()).filter(Boolean);
+}
+
 const plot = (svg: string, caption: string, alt: string): AnalyzeBlock => {
   const w = Number(/^<svg[^>]*\swidth="([\d.]+)"/.exec(svg)?.[1] ?? 460);
   const h = Number(/^<svg[^>]*\sheight="([\d.]+)"/.exec(svg)?.[1] ?? 304);
@@ -167,8 +210,8 @@ const bezierCalc: SceneCalc = {
   compute: (r) => {
     const P = pointBlock(r("pts"), "Control points");
     if (typeof P === "string") return refuse(P);
-    const t = plain(r("t"));
-    if (!Number.isFinite(t)) return refuse(`Parameter t: "${(r("t") ?? "").trim()}" is not a number (give a value from 0 to 1).`);
+    const t = scalar(r("t") ?? "");
+    if (!Number.isFinite(t)) return refuse(`Parameter t: "${(r("t") ?? "").trim()}" is not a number (give a value from 0 to 1, such as 0.5 or 1/2).`);
     const res = bezierAnalyse(P, t);
     if (!res.ok) return refuse(res.error);
     const n = res.degree;
@@ -180,7 +223,9 @@ const bezierCalc: SceneCalc = {
     if (res.degenerate) {
       lines.push(`All ${P.length} control points coincide, so this curve is the single point ${pt(P[0], tiny)}: its length is 0 and it has no tangent, normal or curvature.`);
     } else {
-      const turn = res.curvature === null ? "" : res.dim === 2 ? (res.curvature > 0 ? `, turning left with radius of curvature ${num(1 / res.curvature)}` : res.curvature < 0 ? `, turning right with radius of curvature ${num(-1 / res.curvature)}` : ", running straight") : res.curvature > 0 ? `, bending with radius of curvature ${num(1 / res.curvature)}` : ", running straight";
+      // Curvature 0 on a curve that is not a straight line is an inflection, not "running straight" (review minor 2).
+      const straightWord = collinear(P) ? ", running straight" : ", passing an inflection (curvature 0 here)";
+      const turn = res.curvature === null ? "" : res.dim === 2 ? (res.curvature > 0 ? `, turning left with radius of curvature ${num(1 / res.curvature)}` : res.curvature < 0 ? `, turning right with radius of curvature ${num(-1 / res.curvature)}` : straightWord) : res.curvature > 0 ? `, bending with radius of curvature ${num(1 / res.curvature)}` : straightWord;
       const heading = res.tangent ? `, heading along ${pt(res.tangent, 1e-13)}` : "";
       lines.push(`At t = ${num(t)} the ${degreeWord(n)} Bézier curve is at ${pt(res.point, tiny)}${heading}${turn}. The whole curve is ${num(res.arcLength)} long (its control polygon ${num(res.polygonLength)}) and fits a ${box} box.`);
     }
@@ -333,8 +378,11 @@ const sup = (n: number): string => String(n).replace(/\d/g, (d) => SUPS[Number(d
  * stripped ("4 GB" in a count field is a mistake, not a count).
  */
 function countField(v: string | undefined, label: string, min: number, max: number): number | string {
-  const t = (v ?? "").trim().replace(/,(?=\d{3}\b)/g, "");
+  // "4096 px" is a pixel count written with its unit (review M6); thousands separators go.
+  const t = (v ?? "").trim().replace(/,(?=\d{3}\b)/g, "").replace(/\s*(?:px|pixels?)$/i, "");
   if (!t) return `${label}: this field is required.`;
+  if (/^\d+(?:\.\d+)?\s*[kK]$/.test(t))
+    return `${label}: "${t}" is a marketing size, not a pixel count ("4K" is 3840 for UHD and 4096 for DCI): write the number of pixels.`;
   const x = plain(t);
   if (!Number.isFinite(x)) return `${label}: "${t}" is not a plain number (this field takes a count, with no unit).`;
   if (!Number.isInteger(x)) return `${label}: ${num(x)} is not a whole number.`;
@@ -435,7 +483,7 @@ const meshCalc: SceneCalc = {
   ],
   compute: (r) => {
     if (r("mode") === "counts") {
-      const parts = (r("vef") ?? "").split(/[\s,;]+/).filter(Boolean);
+      const parts = countsList(r("vef") ?? "");
       if (parts.length !== 3) return refuse(`Counts: give three whole numbers V, E, F (e.g. 8, 12, 6); "${(r("vef") ?? "").trim()}" has ${parts.length}.`);
       const vals: number[] = [];
       for (const [i, s] of parts.entries()) {
@@ -473,23 +521,29 @@ const meshCalc: SceneCalc = {
     if (s.nonManifoldEdges.length)
       lines.push(`This mesh is not a manifold surface: ${s.nonManifoldEdges.length} edge${s.nonManifoldEdges.length === 1 ? " is" : "s are"} shared by three or more faces, so it has no well-defined inside, volume or genus. It has ${counts}.`);
     else if (!s.closed)
-      lines.push(`This mesh is open: ${s.boundaryEdges.length} boundary edge${s.boundaryEdges.length === 1 ? "" : "s"} form${s.boundaryEdges.length === 1 ? "s" : ""} ${s.boundaryLoops} hole${s.boundaryLoops === 1 ? "" : "s"}, so it encloses no volume${s.orientable === false ? " and it is non-orientable (a Möbius-like twist)" : ""}. It has ${counts} and a surface area of ${num(s.area)}.`);
+      lines.push(`This mesh is open: ${int(s.boundaryEdges.length)} boundary edge${s.boundaryEdges.length === 1 ? "" : "s"} form${s.boundaryEdges.length === 1 ? "s" : ""} ${int(s.boundaryLoops)} hole${s.boundaryLoops === 1 ? "" : "s"}${s.pinchVertices.length ? ` (${int(s.pinchVertices.length)} pinched ${s.pinchVertices.length === 1 ? "vertex" : "vertices"} where holes touch)` : ""}, so it encloses no volume${s.orientable === false ? " and it is non-orientable (a Möbius-like twist)" : ""}. It has ${counts} and a surface area of ${num(s.area)}.`);
     else if (s.orientable === false)
       lines.push(`This closed mesh is non-orientable (no choice of face directions is consistent, like a Klein bottle), so it has no inside and no volume. It has ${counts} and a surface area of ${num(s.area)}.`);
     else if (s.inconsistentEdges.length)
       lines.push(`This closed mesh is wound inconsistently (${s.inconsistentEdges.length} edges run the same way in both faces); flipping ${s.flipsNeeded} face${s.flipsNeeded === 1 ? "" : "s"} fixes it, and until then its volume is wrong. It has ${counts}, genus ${s.genus ?? "undetermined"}.`);
+    else if (s.invertedPieces > 0 && s.components > 1)
+      lines.push(`This closed mesh is ${s.components} separate pieces and ${s.invertedPieces === 1 ? "one is" : `${s.invertedPieces} are`} inside-out (wound clockwise seen from outside), so the total volume ${num(s.volume)} is wrong: an inverted piece subtracts its volume instead of adding it. Flip that piece's faces. It has ${counts}.`);
+    else if (s.components > 1)
+      lines.push(`This is ${s.components} separate closed, consistently wound pieces with genus ${s.genus} in total${s.genus === 0 ? " (each sphere-like, with no handles)" : ` (${s.genus} handle${s.genus === 1 ? "" : "s"} among them)`}: ${counts}, surface area ${num(s.area)} and volume ${num(s.volume)}.`);
     else
       lines.push(`This is a closed, consistently wound surface of genus ${s.genus}${s.genus === 0 ? " (sphere-like, a solid with no handles)" : ` (${s.genus} handle${s.genus === 1 ? ", like a torus" : "s"})`}: ${counts}, surface area ${num(s.area)} and ${s.volume < 0 ? `volume ${num(-s.volume)} once it is turned the right way out` : `volume ${num(s.volume)}`}.`);
     lines.push(`Read ${int(s.vertices)} vertices${s.isolated ? ` (${int(s.isolated)} isolated: used by no face, left out of χ; counting them, V − E + F = ${s.chi + s.isolated})` : ""} and ${int(s.faces)} faces: ${int(s.tris)} triangle${s.tris === 1 ? "" : "s"}, ${int(s.quads)} quad${s.quads === 1 ? "" : "s"}, ${int(s.ngons)} n-gon${s.ngons === 1 ? "" : "s"} (5 or more sides); ${int(s.triangulated)} triangles after triangulation (Σ(k − 2) over faces of k sides).${mesh.ignored.length ? ` Skipped: ${mesh.ignored.join(", ")}.` : ""}`);
     lines.push({ math: "chi = V - E + F", fallback: "χ = V − E + F" });
     lines.push({ math: "g = (2 c - chi)/2", fallback: "g = (2c − χ)/2 for a closed orientable surface in c pieces" });
     lines.push({ math: "V = (1/6) sum(k=1, T, a_k dot (b_k times c_k))", fallback: "V = (1/6) Σₖ₌₁ᵀ aₖ · (bₖ × cₖ) over the T triangles (aₖ, bₖ, cₖ), the divergence theorem" });
-    lines.push(`Topology: ${s.components} connected piece${s.components === 1 ? "" : "s"}; ${s.boundaryEdges.length} boundary edge${s.boundaryEdges.length === 1 ? "" : "s"}${s.boundaryEdges.length ? ` in ${s.boundaryLoops} loop${s.boundaryLoops === 1 ? "" : "s"}` : ""}; ${s.nonManifoldEdges.length} non-manifold edge${s.nonManifoldEdges.length === 1 ? "" : "s"}; ${s.inconsistentEdges.length} inconsistently wound edge${s.inconsistentEdges.length === 1 ? "" : "s"}. Orientable: ${s.orientable === null ? "not tested (non-manifold edges)" : s.orientable ? `yes${s.flipsNeeded ? ` (after flipping ${s.flipsNeeded} face${s.flipsNeeded === 1 ? "" : "s"})` : ""}` : "no"}. ${s.genus !== null ? `Genus ${s.genus}.` : "Genus is defined for a closed orientable surface only."}`);
+    lines.push(`Topology: ${int(s.components)} connected piece${s.components === 1 ? "" : "s"}; ${int(s.boundaryEdges.length)} boundary edge${s.boundaryEdges.length === 1 ? "" : "s"}${s.boundaryEdges.length ? ` in ${s.boundaryLoops} loop${s.boundaryLoops === 1 ? "" : "s"}` : ""}; ${s.nonManifoldEdges.length} non-manifold edge${s.nonManifoldEdges.length === 1 ? "" : "s"}; ${s.inconsistentEdges.length} inconsistently wound edge${s.inconsistentEdges.length === 1 ? "" : "s"}. Orientable: ${s.orientable === null ? "not tested (non-manifold edges)" : s.orientable ? `yes${s.flipsNeeded ? ` (after flipping ${s.flipsNeeded} face${s.flipsNeeded === 1 ? "" : "s"})` : ""}` : "no"}. ${s.genus !== null ? `Genus ${s.genus}.` : "Genus is defined for a closed orientable surface only."}`);
     const ix = (e: [number, number]): string => `${base === "obj" ? e[0] + 1 : e[0]}–${base === "obj" ? e[1] + 1 : e[1]}`;
     if (s.nonManifoldEdges.length) lines.push(`Non-manifold edges (vertex indices as typed): ${s.nonManifoldEdges.slice(0, 12).map(ix).join(", ")}${s.nonManifoldEdges.length > 12 ? " …" : ""}.`);
     if (s.boundaryEdges.length) lines.push(`Boundary edges: ${s.boundaryEdges.slice(0, 12).map(ix).join(", ")}${s.boundaryEdges.length > 12 ? " …" : ""}.`);
+    if (s.pinchVertices.length) lines.push(`Pinched vertices (two holes meet there, so the boundary is not a simple loop through them): ${s.pinchVertices.slice(0, 12).map((v) => String(base === "obj" ? v + 1 : v)).join(", ")}${s.pinchVertices.length > 12 ? " …" : ""}.`);
     if (s.inconsistentEdges.length) lines.push(`Inconsistently wound edges: ${s.inconsistentEdges.slice(0, 12).map(ix).join(", ")}${s.inconsistentEdges.length > 12 ? " …" : ""}.`);
     lines.push(`Surface area ${num(s.area)}${s.zeroAreaFaces ? ` (${s.zeroAreaFaces} face${s.zeroAreaFaces === 1 ? " has" : "s have"} zero area)` : ""}; area-weighted surface centroid ${pt(s.surfaceCentroid, tiny)}.`);
+    if (valid && s.orientable && s.components > 1) lines.push(`Volume of each piece: ${s.pieceVolumes.slice(0, 12).map((v) => num(v)).join(", ")}${s.pieceVolumes.length > 12 ? " …" : ""}${s.invertedPieces ? " (a negative piece not inside another is inside-out; a negative piece inside a positive one is a cavity, correctly wound)" : ""}.`);
     if (valid && s.orientable) {
       lines.push(`Signed volume ${num(s.volume)}${s.volume < 0 ? ": negative, so the faces are wound clockwise seen from outside (inside-out); flip every face and it is " + num(-s.volume) : ""}.${s.volumeCentroid ? ` Volume centroid (centre of mass at uniform density) ${pt(s.volumeCentroid, tiny)}.` : ""}`);
     } else {
@@ -585,7 +639,7 @@ const subdivCalc: SceneCalc = {
     const last = counts[levels];
     const lines: EngLine[] = [];
     const name = scheme === "cc" ? "Catmull–Clark" : "Loop";
-    lines.push(`${name} subdivision takes this ${int(s.faces)}-face mesh to ${int(last.F)} ${scheme === "cc" ? "quads" : "triangles"} (${int(last.T)} triangles to draw, about ${bytes(mem[levels])}) after ${levels} level${levels === 1 ? "" : "s"}.${budget !== null ? (over ? ` A ${int(budget)}-triangle budget is exceeded at level ${over.level}, so level ${over.level - 1} is the deepest that fits.` : ` Every level fits a ${int(budget)}-triangle budget.`) : ""}`);
+    lines.push(`${name} subdivision takes this ${int(s.faces)}-face mesh to ${int(last.F)} ${scheme === "cc" ? "quads" : "triangles"} (${int(last.T)} triangles to draw, about ${bytes(mem[levels])}) after ${levels} level${levels === 1 ? "" : "s"}.${budget !== null ? (over ? (over.level === 0 ? ` Even the base mesh (${int(counts[0].T)} triangles) is over the ${int(budget)}-triangle budget, so no level fits.` : ` A ${int(budget)}-triangle budget is exceeded at level ${over.level}, so level ${over.level - 1} is the deepest that fits.`) : ` Every level fits a ${int(budget)}-triangle budget.`) : ""}`);
     if (scheme === "cc") {
       lines.push({ math: "V' = V + E + F", fallback: "V′ = V + E + F (a new point per edge and per face)" });
       lines.push({ math: "E' = 2 E + sum(f, , k_f)", fallback: "E′ = 2E + Σ k_f (each edge splits; each face of k sides adds k edges)" });
@@ -598,7 +652,7 @@ const subdivCalc: SceneCalc = {
     lines.push({ math: "M = V b_v + 3 T b_i", fallback: "Memory = V·bᵥ + 3T·bᵢ (vertex buffer plus a triangle index buffer)" });
     lines.push(`Base mesh: V = ${int(s.referenced)}, E = ${int(s.edges)}, F = ${int(s.faces)} (${int(s.tris)} triangles, ${int(s.quads)} quads, ${int(s.ngons)} n-gons; Σ face valences ${int(s.corners)}); χ = ${s.chi}, which subdivision preserves at every level.`);
     lines.push(verified
-      ? `Verified: the mesh was subdivided for real through level ${verified}${verified < levels ? ` (deeper levels pass ${int(SUBDIV_REAL_MAX_FACES)} faces and are counted by the formulas alone)` : ""}, and its V, E, F match the formulas at every level.${firstMove && firstMove.to.length ? ` Its first vertex moves from ${pt(firstMove.from, 1e-12)} to ${pt(firstMove.to, 1e-12)} at level 1.` : ""}`
+      ? `Verified: the mesh was subdivided for real through level ${verified}${verified < levels ? ` (deeper levels pass ${int(SUBDIV_REAL_MAX_FACES)} faces and are counted by the formulas alone)` : ""}, and its V, E, F match the formulas at every level.${firstMove && firstMove.to.length ? ` Vertex ${mesh.F[0][0] + 1} (the first face's first corner) moves from ${pt(firstMove.from, 1e-12)} to ${pt(firstMove.to, 1e-12)} at level 1.` : ""}`
       : `The first level already passes ${int(SUBDIV_REAL_MAX_FACES)} faces, so the counts come from the formulas alone.`);
     const rows: string[][] = [["Level", "Vertices", "Edges", "Faces", "Triangles", "Memory"]];
     counts.forEach((c, i) => rows.push([String(c.level), int(c.V), int(c.E), int(c.F), int(c.T), bytes(mem[i])]));
@@ -678,8 +732,10 @@ const lodCalc: SceneCalc = {
     const front = current.triangles / 2;
     const pxPerTri = sz.areaPx / front;
     const lines: EngLine[] = [];
-    const next = bands.find((b) => b.switchDistance > d);
-    lines.push(`At ${num(d)} m the object is ${num(2 * sz.radiusPx)} px across (${pct(sz.heightFraction)} of the ${int(H)}-pixel height), so ${current.name} is the coarsest level that keeps the error within ${num(tol)} px${next ? `; ${next.name} takes over beyond ${num(next.switchDistance)} m` : ""}. ${pxPerTri < 1 ? `Its triangles are smaller than a pixel on screen (${num(pxPerTri)} px each), which wastes rasterisation and aliases.` : `Its visible triangles cover about ${num(pxPerTri)} px each.`}`);
+    // Closer than LOD0's own switch distance even the finest level shows more than the tolerance (review B7).
+    const tooClose = d < bands[0].switchDistance;
+    const next = bands.find((b) => b.switchDistance > d && b !== current);
+    lines.push(`At ${num(d)} m the object is ${num(2 * sz.radiusPx)} px across (${pct(sz.heightFraction)} of the ${int(H)}-pixel height), so ${tooClose ? `even the finest level, ${current.name}, shows ${num((sz.focal * current.error) / d)} px of error, above the ${num(tol)} px tolerance (it is within tolerance only beyond ${num(current.switchDistance)} m)` : `${current.name} is the coarsest level that keeps the error within ${num(tol)} px`}${next ? `; ${next.name} takes over beyond ${num(next.switchDistance)} m` : ""}. ${pxPerTri < 1 ? `Its triangles are smaller than a pixel on screen (${num(pxPerTri)} px each), which wastes rasterisation and aliases.` : `Its visible triangles cover about ${num(pxPerTri)} px each.`}`);
     lines.push({ math: "f = (H/2)/tan(theta/2)", fallback: "f = (H/2)/tan(θ/2), the focal length in pixels" });
     lines.push({ math: "r_px = f r/d", fallback: "r(px) = f·r/d" });
     lines.push({ math: "d_i = f epsilon_i/tau", fallback: "dᵢ = f·εᵢ/τ, where level i's error projects to the tolerance" });
@@ -706,10 +762,12 @@ const lodCalc: SceneCalc = {
 // 6. Ray intersection
 // ---------------------------------------------------------------------------------------------------------------
 
-function vec3(text: string | undefined, label: string, n = 3): Vec | string {
+function vec3(text: string | undefined, label: string, n = 3, capped = true): Vec | string {
   const parts = (text ?? "").replace(/^\(|\)$/g, "").split(/[\s,;]+/).filter(Boolean);
   const v = parts.map(scalar);
   if (v.length !== n || v.some((x) => !Number.isFinite(x))) return `${label}: give ${n} numbers separated by commas (x, y, z${n === 4 ? ", radius" : n === 6 ? " of the min corner, then of the max corner" : ""}).`;
+  // Beyond 10¹⁵⁰ the squares in the intersection tests overflow (review minor 1): refused by name, not generically.
+  if (capped && v.some((x) => Math.abs(x) > 1e150)) return `${label}: a coordinate is beyond 10¹⁵⁰, where the squared distances these tests use overflow. Rescale the scene.`;
   return v;
 }
 
@@ -735,7 +793,8 @@ const rayCalc: SceneCalc = {
     const prim = r("prim") === "box" ? "box" : r("prim") === "triangle" ? "triangle" : "sphere";
     const o = vec3(r("o"), "Ray origin");
     if (typeof o === "string") return refuse(o);
-    const d0 = vec3(r("d"), "Ray direction");
+    // A direction is only a direction: unitDir rescales it, so any finite size is accepted (review M4).
+    const d0 = vec3(r("d"), "Ray direction", 3, false);
     if (typeof d0 === "string") return refuse(d0);
     const d = unitDir(d0);
     if (!d) return refuse("Ray direction: (0, 0, 0) has no direction. Give a non-zero vector (it need not be unit length).");
@@ -771,7 +830,9 @@ const rayCalc: SceneCalc = {
         return `misses: the ray passes outside the ${kind}.`;
       }
       const where = `at distance ${num(h.tNear ?? (h.tFar as number))}, point ${pt(h.point as Vec, tiny)}, normal ${pt(h.normal as Vec, 1e-13)}`;
-      if (h.note === "inside") return `starts INSIDE the ${kind}: it hits the ${kind} from within, leaving ${where.replace("at distance", "at distance")}.`;
+      if (h.note === "inside") return `starts INSIDE the ${kind}: it hits the ${kind} from within, leaving ${where}.`;
+      if (h.note === "surface-out") return `starts ON the ${kind}'s surface and points outward, so it touches the ${kind} only at its own origin (distance 0, normal ${pt(h.normal as Vec, 1e-13)}).`;
+      if (h.note === "surface-in") return `starts ON the ${kind}'s surface and points inward: it enters at distance 0 and leaves at distance ${num(h.tFar as number)}.`;
       if (h.note === "tangent") return `grazes the sphere (tangent: the two roots coincide) ${where}.`;
       if (h.note === "grazing") return `grazes the box (it touches only the surface: an edge or a corner, or it slides along a face) ${where}.`;
       if (kind === "triangle") return `hits ${where}${h.note === "edge" ? ", on an edge (a barycentric is 0)" : ""}; barycentrics (w₀, w₁, w₂) = ${pt(h.bary as Vec, 1e-13)}${h.backFace ? "; the ray strikes the BACK face (d · n > 0), which back-face culling would discard" : "; front face"}.`;
@@ -809,7 +870,7 @@ const rayCalc: SceneCalc = {
     const tEnd = Math.max(chosen.tFar ?? 0, toCentre + (prim === "triangle" ? Math.max(...T.map((v) => Math.hypot(...v.map((x, i) => x - centre[i])))) : reach)) * 1.15 || 1;
     return finish(lines, null, [
       table("Ray against each primitive", rows),
-      plot(rayChartSvg({ o, d, kind: prim, centre, shapes3d, sphereR: prim === "sphere" ? sph[3] : null, hit: chosen.point, hitLabel: chosen.outcome === "hit" ? `filled dot: the ${chosen.note === "inside" ? "exit" : "hit"} point at distance ${num(chosen.tNear ?? (chosen.tFar as number))}.` : "no hit.", tEnd }), `The ray and the ${name}, in the plane of the ray and the ${prim === "triangle" ? "centroid" : "centre"}`, `The ray drawn from its origin along the horizontal axis, the ${name} in blue, and the intersection point marked if there is one`),
+      plot(rayChartSvg({ o, d, kind: prim, centre, shapes3d, sphereR: prim === "sphere" ? sph[3] : null, hit: chosen.point, hitLabel: chosen.outcome === "hit" ? `filled dot: the ${chosen.note === "inside" ? "exit" : "hit"} point at distance ${num(chosen.tNear ?? (chosen.tFar as number))}.` : "no hit.", tEnd }), `The ray and the ${name}${prim === "triangle" ? " (the triangle face-on when the ray meets it steeply)" : ", in the plane of the ray and the centre"}`, `The ray drawn from its origin along the horizontal axis, the ${name} in blue, and the intersection point marked if there is one`),
     ], outputs);
   },
 };
@@ -920,7 +981,7 @@ const textureCalc: SceneCalc = {
     { key: "area", label: "Surface area the island covers (m²)", default: "4 m^2", kind: "text" },
     { key: "target", label: "Target texel density (texels per metre; blank: none)", default: "1024", kind: "text" },
     { key: "list", label: "Budget list: name, width, height, format id (blank: none)", default: "Albedo, 4096, 4096, bc7\nNormal, 4096, 4096, bc5\nRoughness, 2048, 2048, bc4\nEmissive, 1024, 1024, bc1", kind: "block", rows: 5 },
-    { key: "budget", label: "Memory budget (bytes; MiB converts)", default: "64 MiB", kind: "text" },
+    { key: "budget", label: "Memory budget (MiB; GiB and MB convert)", default: "64 MiB", kind: "text" },
   ],
   compute: (r) => {
     const w = countField(r("w"), "Width", 1, 65536);
@@ -941,8 +1002,10 @@ const textureCalc: SceneCalc = {
     if (uv === 0) return refuse("UV-island fraction: 0 means the island has zero area in UV space, so no texel maps to the surface and the texel density has no value (each texel would cover an unbounded area). Give the fraction of the 0–1 square the island covers, from the UV editor.");
     const u = unitReader(r);
     const area = u.req("area", "m^2", "m²", "Surface area");
-    const budget = u.opt("budget", "B", "B", "Memory budget");
+    const budgetMiB = u.opt("budget", "MiB", "MiB", "Memory budget");
+    const budget = budgetMiB === null ? null : budgetMiB * 2 ** 20;
     if (u.errors.length) return refuse(u.errors.join("\n"));
+    if (budget !== null && !(budget > 0)) return refuse("Memory budget: give a budget greater than 0 bytes, or leave it blank for none.");
     if (!(area > 0)) return refuse("Surface area: give an area greater than 0 (a zero-area surface has no texel density).");
     const targetRaw = (r("target") ?? "").trim();
     const target = targetRaw ? plainField(targetRaw, "Target texel density", { positive: true }) : null;
@@ -955,14 +1018,14 @@ const textureCalc: SceneCalc = {
     lines.push({ math: "M_0 = ceil(w/b_w) ceil(h/b_h) B", fallback: "M₀ = ⌈w/b_w⌉·⌈h/b_h⌉·B, with b_w × b_h the block and B its bytes (1 × 1 and the pixel size uncompressed)" });
     lines.push({ math: "M_chain ≈ (4/3) M_0", fallback: "M(chain) ≈ (4/3)·M₀ (each level a quarter of the one above)" });
     lines.push({ math: "rho = sqrt(w h a_uv/A)", fallback: "ρ = √(w·h·a_uv/A) texels per metre" });
-    lines.push(`Format ${fmt.label}: ${num(fmt.bpp)} bits per pixel${fmt.bw > 1 ? ` (${fmt.blockBytes}-byte blocks of ${fmt.bw} × ${fmt.bh} pixels, so 128/${fmt.bw * fmt.bh} = ${num(fmt.bpp)} bpp${fmt.id.startsWith("astc") ? "" : ""})` : ""}.`);
-    lines.push(`Top level ${bytes(m.base)} (${int(m.base)} bytes). ${mips ? `Full chain, ${m.levels} levels to 1 × 1, each rounded up to whole ${fmt.bw > 1 ? "blocks" : "pixels"}: ${bytes(m.chain)} (${int(m.chain)} bytes), against ${bytes(m.approx)} by the ×4/3 rule${m.chain > m.approx * (1 + 1e-9) ? `: whole blocks at the small levels add ${int(m.chain - m.approx)} bytes` : ""}. Smallest levels: ${m.perLevel.slice(-3).map(([a, b, c]) => `${a} × ${b} = ${c} B`).join(", ")}.` : "No mip chain: minified sampling will alias (shimmer) without one."}`);
+    lines.push(`Format ${fmt.label}: ${num(fmt.bpp)} bits per pixel${fmt.bw > 1 ? ` (${fmt.blockBytes}-byte blocks of ${fmt.bw} × ${fmt.bh} pixels, so ${fmt.blockBytes * 8}/${fmt.bw * fmt.bh} = ${num(fmt.bpp)} bpp)` : ""}.`);
+    lines.push(`Top level ${bytes(m.base)} (${int(m.base)} bytes). ${mips ? `Full chain, ${m.levels} level${m.levels === 1 ? "" : "s"} to 1 × 1, each rounded up to whole ${fmt.bw > 1 ? "blocks" : "pixels"}: ${bytes(m.chain)} (${int(m.chain)} bytes), against ${bytes(m.approx)} by the ×4/3 rule${m.chain > m.approx * (1 + 1e-9) ? `: whole blocks at the small levels add ${int(m.chain - m.approx)} bytes` : ""}. Smallest levels: ${m.perLevel.slice(-3).map(([a, b, c]) => `${a} × ${b} = ${c} B`).join(", ")}.` : "No mip chain: minified sampling will alias (shimmer) without one."}`);
     if ((w & (w - 1)) !== 0 || (h & (h - 1)) !== 0) lines.push(`${w} × ${h} is not a power of two: modern GPUs accept it, but its mip levels round down unevenly (each is ⌊size/2⌋) and some older and mobile pipelines require power-of-two sizes for mipmapping or wrapping.`);
     if (fmt.bw > 1 && (w % fmt.bw || h % fmt.bh)) lines.push(`${w} × ${h} is not a whole number of ${fmt.bw} × ${fmt.bh} blocks: the top level is padded to ${Math.ceil(w / fmt.bw) * fmt.bw} × ${Math.ceil(h / fmt.bh) * fmt.bh}.`);
     lines.push(`Texel density: the island covers ${pct(uv)} of the texture, ${int(Math.round(w * h * uv))} texels, spread over ${num(area)} m²: ${num(density)} texels per metre (${num(density / 100)} per centimetre).`);
     if (target !== null) {
       const need = textureSideFor(target, uv, area);
-      lines.push(`For ${num(target)} texels per metre on the same island: a square texture of ${num(need.side)} px a side, so ${need.pow2} × ${need.pow2} as a power of two (${bytes(textureMemory(need.pow2, need.pow2, fmt, mips).chain)} in this format${mips ? " with mips" : ""}).`);
+      lines.push(`For ${num(target)} texels per metre on the same island: a square texture of ${num(need.side)} px a side, so ${int(need.pow2)} × ${int(need.pow2)}${need.pow2 > GPU_MAX_TEXTURE ? ` (beyond the ${int(GPU_MAX_TEXTURE)}-pixel limit of Direct3D 11/12, Metal and most Vulkan GPUs: split the island over several textures or accept a lower density)` : ""} as a power of two (${bytes(textureMemory(need.pow2, need.pow2, fmt, mips).chain)} in this format${mips ? " with mips" : ""}).`);
     }
     const extra: AnalyzeBlock[] = [];
     const cmpRows = COMPARE.map((id) => TEX_FORMATS.find((f) => f.id === id) as TexFormat).map((f) => {
@@ -986,7 +1049,7 @@ const textureCalc: SceneCalc = {
         if (typeof lw === "string") return refuse(lw);
         const lh = countField(parts[2], `Budget list, line ${i + 1}, height`, 1, 65536);
         if (typeof lh === "string") return refuse(lh);
-        const lf = TEX_FORMATS.find((f) => f.id === parts[3].toLowerCase().replace(/[\s_-]/g, ""));
+        const lf = TEX_FORMATS.find((f) => f.id === parts[3].toLowerCase().replace(/[×*]/g, "x").replace(/[\s_/-]/g, ""));
         if (!lf) return refuse(`Budget list, line ${i + 1}: "${parts[3]}" is not a format id. Use one of ${TEX_FORMATS.map((f) => f.id).join(", ")}.`);
         const lm = textureMemory(lw, lh, lf, mips);
         const b = mips ? lm.chain : lm.base;
@@ -1034,20 +1097,22 @@ const farmCalc: SceneCalc = {
   fields: [
     { key: "frames", label: "Frames", default: "240", kind: "text" },
     { key: "t", label: "Render time per frame on one core (h; min converts)", default: "8 h", kind: "text" },
-    { key: "times", label: "Or measured per-frame core times (one per line; blank: use the above)", default: "", kind: "block", rows: 3 },
+    { key: "times", label: "Or measured per-frame core times (h each, one per line; min converts; blank: use the above)", default: "", kind: "block", rows: 3 },
     { key: "nodes", label: "Render nodes", default: "20", kind: "text" },
     { key: "cores", label: "Cores per node", default: "32", kind: "text" },
     { key: "serial", label: "Serial fraction of a frame (0 to 1, or %)", default: "0.05", kind: "text" },
-    { key: "over", label: "Overhead per frame on a node (scene load, start-up)", default: "2 min", kind: "text" },
+    { key: "over", label: "Overhead per frame on a node: scene load, start-up (min)", default: "2 min", kind: "text" },
     { key: "deadline", label: "Deadline (h; blank: none)", default: "24 h", kind: "text" },
     { key: "bill", label: "Billing", default: "core", kind: "select", options: [{ value: "core", label: "Per core-hour" }, { value: "node", label: "Per node-hour" }] },
     { key: "rate", label: "Rate per core-hour or node-hour (any currency)", default: "0.02", kind: "text" },
   ],
   compute: (r) => {
     const u = unitReader(r);
-    const t = u.req("t", "s", "s", "Render time per frame");
-    const overhead = u.req("over", "s", "s", "Overhead per frame");
-    const deadline = u.opt("deadline", "s", "s", "Deadline");
+    // Each field is read in the unit its label names (review B4: a bare 8 was 8 s in an hours field), then held in s.
+    const t = u.req("t", "h", "h", "Render time per frame") * 3600;
+    const overhead = u.req("over", "min", "min", "Overhead per frame") * 60;
+    const deadlineH = u.opt("deadline", "h", "h", "Deadline");
+    const deadline = deadlineH === null ? null : deadlineH * 3600;
     if (u.errors.length) return refuse(u.errors.join("\n"));
     const nodes = countField(r("nodes"), "Render nodes", 1, FARM_MAX_NODES);
     if (typeof nodes === "string") return refuse(nodes.replace("(at least one is needed)", "(0 nodes render nothing: at least one is needed)"));
@@ -1067,7 +1132,7 @@ const farmCalc: SceneCalc = {
       if (toks.length > FARM_MAX_TIMES) return refuse(`${toks.length.toLocaleString("en-US")} frame times: the cap for a measured list is ${FARM_MAX_TIMES.toLocaleString("en-US")} (give the mean time per frame and the frame count instead).`);
       frameTimes = [];
       for (const [i, tok] of toks.entries()) {
-        const m = parseMeasured(tok.replace(/[−–]/g, "-"), "h");
+        const m = parseMeasured(timeWords(tok.replace(/[−–]/g, "-"), "h"), "h");
         if ("error" in m) return refuse(`Frame time ${i + 1}: ${m.error}`);
         if (!(m.inTarget > 0)) return refuse(`Frame time ${i + 1}: give a time greater than 0.`);
         frameTimes.push(m.inTarget * 3600);
@@ -1086,8 +1151,10 @@ const farmCalc: SceneCalc = {
     const busyHours = (res.busyNodeSeconds / 3600) * (perHour === "core" ? cores : 1);
     const cost = allocHours * rate;
     const lines: EngLine[] = [];
-    const meets = deadline === null ? "" : res.wall <= deadline ? `, inside the ${dur(deadline)} deadline` : `, missing the ${dur(deadline)} deadline`;
-    lines.push(`${int(frames)} frames on ${nodes} node${nodes === 1 ? "" : "s"} of ${cores} cores finish in ${dur(res.wall)}${meets}${need !== null && deadline !== null && res.wall > deadline ? `; ${dl && dl.how === "bound" ? "at most " : ""}${need} nodes would make it` : deadline !== null && need === null ? "; no node count makes it, because one frame alone takes longer than the deadline" : ""}. Each frame takes ${dur(res.nodeFrameTime)} on a node (a ${num(res.speedup)}× speed-up from ${cores} cores), and the job costs ${num(cost)} at ${num(rate)} per ${perHour}-hour.`);
+    // One tolerance for "in time" everywhere (review B5): nodesForDeadline uses the same.
+    const inTime = deadline !== null && res.wall <= deadline * (1 + 1e-12);
+    const meets = deadline === null ? "" : inTime ? `, inside the ${dur(deadline)} deadline` : `, missing the ${dur(deadline)} deadline`;
+    lines.push(`${int(frames)} frames on ${int(nodes)} node${nodes === 1 ? "" : "s"} of ${int(cores)} cores finish in ${dur(res.wall)}${meets}${need !== null && deadline !== null && !inTime ? `; ${dl && dl.how === "bound" ? "at most " : ""}${need} nodes would make it` : deadline !== null && need === null ? "; no node count makes it, because one frame alone takes longer than the deadline" : ""}. Each frame takes ${dur(res.nodeFrameTime)} on a node (a ${num(res.speedup)}× speed-up from ${cores} cores), and the job costs ${num(cost)} at ${num(rate)} per ${perHour}-hour.`);
     lines.push({ math: "S = 1/(s + (1 - s)/c)", fallback: "S = 1/(s + (1 − s)/c), Amdahl's law with serial fraction s on c cores" });
     lines.push({ math: "t_node = t_1/S + t_o", fallback: "t(node) = t₁/S + t₀, the one-core time over the speed-up plus the per-frame overhead" });
     lines.push({ math: "T = ceil(N/n) t_node", fallback: "T = ⌈N/n⌉·t(node) for N equal frames on n nodes (whole frames: a node renders one frame at a time)" });
@@ -1097,13 +1164,13 @@ const farmCalc: SceneCalc = {
       ? `Completion: ⌈${int(frames)}/${nodes}⌉ = ${Math.ceil(frames / nodes)} round${Math.ceil(frames / nodes) === 1 ? "" : "s"} of ${dur(res.nodeFrameTime)} = ${dur(res.wall)}${frames % nodes ? `; the last round uses ${frames % nodes} of the ${nodes} nodes` : ""}.`
       : `Completion by LPT scheduling (longest frame first onto the least-loaded node, a heuristic within 4/3 of the optimum): ${dur(res.wall)}; no schedule can beat ${dur(res.lowerBound)} (the longest frame, or the work spread perfectly).`);
     lines.push(`Utilisation: busy ${num(res.busyNodeSeconds / 3600)} node-hours of ${num(res.allocatedNodeSeconds / 3600)} allocated (${pct(res.utilisation)}).`);
-    if (deadline !== null) lines.push(need === null ? `No number of nodes meets ${dur(deadline)}: even one frame per node takes ${dur(prep.longest)}. Shorten the frame (fewer samples, more cores per node) or move the deadline.` : dl && dl.how === "rounds" ? `Nodes for the ${dur(deadline)} deadline: ${need} (each node fits ⌊${dur(deadline)}/${dur(res.nodeFrameTime)}⌋ = ${Math.floor((deadline * (1 + 1e-12)) / res.nodeFrameTime + 1e-12)} whole frame${Math.floor((deadline * (1 + 1e-12)) / res.nodeFrameTime + 1e-12) === 1 ? "" : "s"}, and ⌈${int(frames)}/that⌉ nodes are needed).` : dl && dl.how === "scan" ? `Nodes for the ${dur(deadline)} deadline: ${need}, the fewest that LPT schedules within it (every count from ${dl.from}, the work over the deadline, was tried: LPT's completion need not fall smoothly as nodes are added).` : `Nodes for the ${dur(deadline)} deadline: at most ${need}. Graham's bound for list scheduling, (work − longest frame)/n + longest frame ≤ deadline, guarantees that many; the ${DEADLINE_SCAN} counts from ${dl ? dl.from : 1} that were tried by LPT did not meet it, and the exact minimum was not searched further.`);
+    if (deadline !== null) lines.push(need === null ? `No number of nodes meets ${dur(deadline)}: even one frame per node takes ${dur(prep.longest)}. Shorten the frame (fewer samples, more cores per node) or move the deadline.` : dl && dl.how === "rounds" ? `Nodes for the ${dur(deadline)} deadline: ${need} (each node fits ⌊${dur(deadline)}/${dur(res.nodeFrameTime)}⌋ = ${int(Math.floor((deadline * (1 + 1e-12)) / res.nodeFrameTime + 1e-12))} whole frame${Math.floor((deadline * (1 + 1e-12)) / res.nodeFrameTime + 1e-12) === 1 ? "" : "s"}, and ⌈${int(frames)}/that⌉ nodes are needed).` : dl && dl.how === "scan" ? `Nodes for the ${dur(deadline)} deadline: ${need}, the fewest that LPT schedules within it (every count from ${dl.from}, the work over the deadline, was tried: LPT's completion need not fall smoothly as nodes are added).` : `Nodes for the ${dur(deadline)} deadline: at most ${need}. Graham's bound for list scheduling, (work − longest frame)/n + longest frame ≤ deadline, guarantees that many; the ${scanCount(frames)} counts from ${dl ? dl.from : 1} that were tried by LPT did not meet it, and the exact minimum was not searched further.`);
     lines.push(`Cost: billed on ALLOCATED time (nodes held for the whole ${dur(res.wall)}), ${num(allocHours)} ${perHour}-hours × ${num(rate)} = ${num(cost)}; the busy time alone is ${num(busyHours)} ${perHour}-hours (${num(busyHours * rate)}), the floor if idle nodes are released.`);
     lines.push("Assumes: identical nodes, each rendering one frame at a time on all its cores; Amdahl's law for the in-frame speed-up (memory bandwidth, I/O and licence limits are not modelled); a fixed overhead per frame; no failures, retries or queue wait; the per-frame time is an input (from a test render), not predicted from the scene.");
     const curve: Array<{ n: number; hours: number }> = [];
     const nMax = Math.min(frames, Math.max(2 * nodes, need ?? 0, 8), FARM_MAX_NODES);
     // Equal frames cost nothing per point; measured frames are an LPT schedule per point, so fewer points.
-    const step = Math.max(1, Math.ceil(nMax / (prep.sorted ? 120 : 400)));
+    const step = Math.max(1, Math.ceil(nMax / (prep.sorted ? Math.max(24, Math.min(120, Math.floor(400000 / prep.sorted.length))) : 400)));
     for (let n = 1; n <= nMax; n += step) curve.push({ n, hours: farm({ ...input, nodes: n }, prep).wall / 3600 });
     if (curve[curve.length - 1].n !== nMax) curve.push({ n: nMax, hours: farm({ ...input, nodes: nMax }, prep).wall / 3600 });
     const rows: string[][] = [["Quantity", "Value"], ["Speed-up per node", num(res.speedup)], ["Time per frame on a node", dur(res.nodeFrameTime)], ["Completion", dur(res.wall)], ["Utilisation", pct(res.utilisation)], ["Nodes for the deadline", deadline === null ? "no deadline" : need === null ? "none suffices" : dl && dl.how === "bound" ? `at most ${need}` : String(need)], ["Cost (allocated)", num(cost)]];
@@ -1164,7 +1231,10 @@ const storageCalc: SceneCalc = {
     const ch = countField(r("ch"), "Channels", 1, 64);
     if (typeof ch === "string") return refuse(ch);
     const depth = (DEPTHS.find((d) => d.value === r("depth")) ?? DEPTHS[0]).value;
-    const comp = plainField(r("comp"), "Compression ratio", { min: 1 });
+    // "2:1" is how a compression ratio is written (review M6).
+    const compRaw = (r("comp") ?? "").trim();
+    const ratio = new RegExp(`^(${NUM})\\s*:\\s*(${NUM})$`).exec(compRaw);
+    const comp = plainField(ratio ? (Number(ratio[2]) === 0 ? "x" : String(Number(ratio[1]) / Number(ratio[2]))) : compRaw, "Compression ratio", { min: 1 });
     if (typeof comp === "string") return refuse(comp.replace(/is below 1\.$/, "is below 1: a ratio under 1 would mean the file grows (write 1 for uncompressed)."));
     const frames = countField(r("frames"), "Frames per shot", 1, 1e7);
     if (typeof frames === "string") return refuse(frames);
@@ -1174,7 +1244,7 @@ const storageCalc: SceneCalc = {
     if (typeof eff === "string") return refuse(eff);
     if (eff === 0) return refuse("Link efficiency: 0 means nothing gets through, so the transfer never finishes. Give the fraction of the line rate a copy achieves (0.6 to 0.9 is typical).");
     const u = unitReader(r);
-    const link = u.req("link", "bit/s", "bit/s", "Link speed");
+    const link = u.req("link", "Gbps", "Gbps", "Link speed") * 1e9;
     if (u.errors.length) return refuse(u.errors.join("\n"));
     if (!(link > 0)) return refuse("Link speed: give a speed greater than 0.");
     if (depth === "int10dpx" && ch !== 3 && ch !== 4 && ch !== 1) return refuse(`10-bit DPX holds 1 (luma), 3 (RGB) or 4 (RGBA) components; ${ch} channels is not a DPX layout. Use EXR half for arbitrary channel counts.`);
@@ -1241,7 +1311,7 @@ const pipelineCalc: SceneCalc = {
     for (const [i, ln] of sl.entries()) {
       const parts = ln.split(",").map((x) => x.trim());
       if (parts.length !== 3) return refuse(`Stages, line ${i + 1}: "${ln}" needs three parts: name, hours per item, workers (e.g. Lighting, 2 h, 1).`);
-      const m = parseMeasured(parts[1].replace(/[−–]/g, "-"), "h");
+      const m = parseMeasured(workDays(parts[1].replace(/[−–]/g, "-"), `${parts[0]} time`, conv), "h");
       if ("error" in m) return refuse(`Stages, line ${i + 1}, time: ${m.error}`);
       if (!(m.inTarget > 0)) return refuse(`Stages, line ${i + 1}: a work time must be greater than 0.`);
       if (!m.assumed && m.unit !== "h") conv.push(`${parts[0]}: ${num(m.value)} ${formatUnit(m.unit)} = ${num(m.inTarget)} h`);
@@ -1249,16 +1319,19 @@ const pipelineCalc: SceneCalc = {
       if (typeof wk === "string") return refuse(wk.replace("(at least one is needed)", "(a stage with nobody on it never finishes anything)"));
       stages.push({ name: parts[0] || `Stage ${i + 1}`, hoursPerItem: m.inTarget, workers: wk });
     }
-    const u = unitReader(r);
-    u.conversions.push(...conv);
+    // Days in a pipeline are working days of 8 h, as every hour here is a working hour (review M6: "2 d").
+    const pr = (k: string): string => workDays((r(k) ?? "").trim().replace(/[−–]/g, "-"), k === "every" ? "Arrival interval" : "Target lead time", conv);
+    const u = unitReader(pr);
     const every = u.opt("every", "h", "h", "Arrival interval");
     const lead = u.opt("lead", "h", "h", "Target lead time");
+    u.conversions.unshift(...conv);
     if (u.errors.length) return refuse(u.errors.join("\n"));
     if (every !== null && !(every > 0)) return refuse("Arrival interval: give a time greater than 0, or leave it blank.");
     if (lead !== null && !(lead > 0)) return refuse("Target lead time: give a time greater than 0, or leave it blank.");
     const wipRaw = (r("wip") ?? "").trim();
     const wip = wipRaw ? plainField(wipRaw, "Items in progress", { min: 0 }) : null;
     if (typeof wip === "string") return refuse(wip);
+    if (wip === 0) return refuse("Items in progress: 0 means nothing is in the pipeline, and Little's law then gives a lead time of 0, which says nothing. Count the items started and not yet finished, or leave the field blank.");
     const demand = every === null ? null : 1 / every;
     const res = pipeline(stages, demand);
     const b = stages[res.bottleneck];
@@ -1271,7 +1344,7 @@ const pipelineCalc: SceneCalc = {
     const W = wip !== null && !overloaded && res.throughput > 0 ? wip / res.throughput : null;
     lines.push(overloaded
       ? `${b.name} is the bottleneck at ${perDay(cap)}, but items arrive at ${perDay(demand as number)}, so the backlog grows by ${perDay((demand as number) - cap)} and lead times rise without limit until ${b.name} gains capacity.`
-      : `${b.name} is the bottleneck at ${perDay(cap)} (${pct(res.utilisation[res.bottleneck])} busy), so the pipeline delivers ${perDay(res.throughput)}${W !== null ? `; with ${num(wip as number)} items in progress, each takes about ${wh(W)} from start to finish (Little's law), of which ${wh(res.touchTime)} is actual work` : ""}.`);
+      : `${b.name} is the bottleneck at ${perDay(cap)} (${pct(res.utilisation[res.bottleneck])} busy), so the pipeline delivers ${perDay(res.throughput)}${W === null ? "" : W < res.touchTime ? `; but ${num(wip as number)} items in progress cannot be steady flow, since Little's law would give ${wh(W)} from start to finish, less than the ${wh(res.touchTime)} of work in one item (steady flow at this rate holds at least ${num(res.throughput * res.touchTime)})` : `; with ${num(wip as number)} items in progress, each takes about ${wh(W)} from start to finish (Little's law), of which ${wh(res.touchTime)} is actual work`}.`);
     lines.push({ math: "mu_i = n_i/t_i", fallback: "μᵢ = nᵢ/tᵢ, a stage's capacity from its workers and hours per item" });
     lines.push({ math: "X = min(lambda, min(mu_i))", fallback: "X = min(λ, minᵢ μᵢ), the throughput" });
     lines.push({ math: "L = lambda W", fallback: "L = λW (Little's law: work in progress = throughput × lead time)" });

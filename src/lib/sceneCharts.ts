@@ -417,6 +417,43 @@ export function rayChartSvg(input: {
     const q = [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
     return { x: q[0] * d[0] + q[1] * d[1] + q[2] * d[2], y: q[0] * e2[0] + q[1] * e2[1] + q[2] * e2[2] };
   };
+  // A triangle facing the ray is edge-on in any plane that contains the ray (review minor 4: it drew as a line). Then
+  // the view is the triangle's own plane, face-on, with the ray projected onto it.
+  if (input.kind === "triangle" && input.shapes3d.length && input.shapes3d[0].length >= 3) {
+    const [v0, v1, v2] = input.shapes3d[0];
+    const a = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+    const b = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+    const n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const nl = Math.hypot(n[0], n[1], n[2]);
+    const al = Math.hypot(a[0], a[1], a[2]);
+    if (nl > 0 && al > 0 && Math.abs((n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) / nl) > 0.5) {
+      const u1 = a.map((v) => v / al);
+      const nn = n.map((v) => v / nl);
+      const u2 = [nn[1] * u1[2] - nn[2] * u1[1], nn[2] * u1[0] - nn[0] * u1[2], nn[0] * u1[1] - nn[1] * u1[0]];
+      const tp = (p: Vec): P2 => {
+        const q = [p[0] - v0[0], p[1] - v0[1], p[2] - v0[2]];
+        return { x: q[0] * u1[0] + q[1] * u1[1] + q[2] * u1[2], y: q[0] * u2[0] + q[1] * u2[1] + q[2] * u2[2] };
+      };
+      const tri = input.shapes3d[0].map(tp);
+      const o2 = tp(o);
+      const e3 = [o[0] + d[0] * input.tEnd, o[1] + d[1] * input.tEnd, o[2] + d[2] * input.tEnd];
+      const e2p = tp(e3);
+      const F2 = equalFrame([...tri, o2, e2p], 2, 0.15);
+      const q2 = frameParts(F2, "In the triangle's plane, along v₀v₁", "In the plane, across v₀v₁");
+      q2.push(polyline(F2, tri, `stroke="${BLUE}" stroke-width="1.6"`));
+      q2.push(polyline(F2, [o2, e2p], `stroke="${RED}" stroke-width="1.4"`));
+      q2.push(ringAt(F2, o2, RED));
+      if (input.hit) q2.push(dotAt(F2, tp(input.hit), RED, 3.8));
+      q2.push(
+        ...keyBlock(F2, [
+          { t: "Blue: the triangle, seen face-on (looking along its normal).", fill: BLUE },
+          { t: `Red: the ray projected onto that plane, origin open; ${input.hitLabel}`, fill: RED },
+        ]),
+      );
+      q2.push("</svg>");
+      return q2.join("");
+    }
+  }
   const shapes: P2[][] = [];
   if (input.sphereR !== null) {
     const c2 = to2(centre);

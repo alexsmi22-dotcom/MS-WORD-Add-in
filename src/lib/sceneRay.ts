@@ -33,37 +33,42 @@ const miss = (note: string, missBy: number | null = null): RayHit => ({ outcome:
 
 /** Normalise a direction; null for the zero vector. */
 export function unitDir(d: Vec): Vec | null {
-  const l = len(d);
-  return l > 0 && Number.isFinite(l) ? mul(d, 1 / l) : null;
+  // Scaled by the largest component first (review M4): 1e-200 or 1e200 components square to 0 or ∞ otherwise.
+  const m = Math.max(...d.map(Math.abs));
+  if (!(m > 0) || !Number.isFinite(m)) return null;
+  const e = mul(d, 1 / m);
+  return mul(e, 1 / len(e));
 }
 
 /** Ray–sphere. `d` must be a unit vector. Tangent when the discriminant is within rounding of zero. */
 export function raySphere(o: Vec, d: Vec, c: Vec, r: number): RayHit {
+  // Geometry about the closest approach (review B2): q is the centre's perpendicular offset from the ray's line, so
+  // the half-chord² = r² − |q|² is formed from quantities of the sphere's own size, never as a small difference of
+  // two squares of the (possibly huge) origin distance. Tangency is decided relative to r².
   const oc = sub(o, c);
   const b = dot(d, oc);
-  const cc = dot(oc, oc) - r * r;
-  const scale = Math.max(dot(oc, oc), r * r);
-  const disc = b * b - cc;
-  const tol = 1e-12 * scale;
-  if (disc < -tol) {
-    const closest = Math.sqrt(Math.max(0, dot(oc, oc) - b * b));
-    return miss("outside", closest - r);
-  }
-  const s = disc <= tol ? 0 : Math.sqrt(disc);
+  const q = sub(oc, mul(d, b));
+  const h2 = r * r - dot(q, q);
+  const tolR = 1e-12 * r * r;
+  if (h2 < -tolR) return miss("outside", len(q) - r);
+  const s = h2 <= tolR ? 0 : Math.sqrt(h2);
   const t1 = -b - s;
   const t2 = -b + s;
-  if (cc < -tol) {
-    const p = add(o, mul(d, t2));
-    return { outcome: "hit", note: "inside", tNear: null, tFar: t2, point: p, normal: mul(sub(p, c), 1 / r), bary: null, missBy: null };
+  const ocl = len(oc);
+  const onSurface = Math.abs(ocl - r) <= 1e-12 * Math.max(r, ocl);
+  const hitAt = (t: number, note: string, tNear: number | null, tFar: number | null): RayHit => {
+    const p = add(o, mul(d, t));
+    return { outcome: "hit", note, tNear, tFar, point: p, normal: mul(sub(p, c), 1 / r), bary: null, missBy: null };
+  };
+  if (onSurface) {
+    // Starting on the sphere (review B3): never a hit "at a negative distance".
+    if (s === 0) return hitAt(0, "tangent", 0, 0);
+    return b >= 0 ? hitAt(0, "surface-out", 0, 0) : hitAt(t2, "surface-in", 0, t2);
   }
+  if (ocl < r) return hitAt(t2, "inside", null, t2);
   if (t2 < 0) return miss("behind");
-  if (s === 0) {
-    const p = add(o, mul(d, t1));
-    return { outcome: "hit", note: "tangent", tNear: t1, tFar: t1, point: p, normal: mul(sub(p, c), 1 / r), bary: null, missBy: null };
-  }
-  const tn = t1 >= 0 ? t1 : t2;
-  const p = add(o, mul(d, tn));
-  return { outcome: "hit", note: Math.abs(cc) <= tol ? "on the surface" : "through", tNear: t1, tFar: t2, point: p, normal: mul(sub(p, c), 1 / r), bary: null, missBy: null };
+  if (s === 0) return hitAt(t1, "tangent", t1, t1);
+  return hitAt(t1, "through", t1, t2);
 }
 
 /** Ray–box by slabs. `d` must be a unit vector. */
@@ -93,6 +98,15 @@ export function rayBox(o: Vec, d: Vec, lo: Vec, hi: Vec): RayHit & { entryAxis: 
   }
   if (tmin > tmax) return { ...miss("outside"), entryAxis: null, parallelAxes };
   if (tmax < 0) return { ...miss("behind"), entryAxis: null, parallelAxes };
+  const span0 = Math.max(...hi.map((h, i) => h - lo[i]), 1e-300);
+  // Starting ON a face (review minor 3): pointing out, it touches the box only at its origin; pointing in, it enters
+  // at distance 0. Neither is "inside".
+  if (tmin < 0 && tmax <= 1e-12 * span0) {
+    const n0: Vec = [0, 0, 0];
+    if (exitAxis !== null) n0[exitAxis] = Math.sign(d[exitAxis]);
+    return { outcome: "hit", note: "surface-out", tNear: 0, tFar: 0, point: o.slice(), normal: n0, bary: null, missBy: null, entryAxis: null, parallelAxes };
+  }
+  if (tmin < 0 && tmin >= -1e-12 * span0) tmin = 0;
   const inside = tmin < 0;
   const t = inside ? tmax : tmin;
   const p = add(o, mul(d, t));

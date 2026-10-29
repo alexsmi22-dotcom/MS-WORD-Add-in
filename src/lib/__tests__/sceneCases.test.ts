@@ -304,7 +304,7 @@ describe("subdivision: the count formulas against a real subdivision and trimesh
   });
   test("deep levels use the formulas alone and stay exact (BigInt)", () => {
     const o = ok(run("scene-subdiv", { levels: "10", budget: "" }));
-    expect(o.text).toMatch(/deeper levels pass 60,000 faces and are counted by the formulas alone/);
+    expect(o.text).toMatch(/deeper levels pass 30,000 faces and are counted by the formulas alone/);
     expect(out(o, "faces")).toBe(6 * 4 ** 10);
   });
 });
@@ -426,7 +426,8 @@ describe("curves: degenerate and malformed input", () => {
   });
   test("a straight Bézier has zero curvature and no principal normal, said so", () => {
     const o = ok(run("scene-bezier", { pts: "0, 0\n1, 1\n2, 2" }));
-    expect(o.text).toMatch(/straight at this t \(curvature 0\)/);
+    expect(o.text).toMatch(/curvature is 0 at this t \(an inflection, or a straight stretch\)/);
+    expect(reading(o)).toMatch(/running straight/);
   });
   test("caps and ranges refused by name", () => {
     refused(run("scene-bezier", { pts: Array.from({ length: 22 }, (_, i) => `${i}, 0`).join("\n") }), /degree 21; the cap is degree 20/);
@@ -582,7 +583,7 @@ describe("pipeline tools: refusals and edge cases by name", () => {
   });
   test("farm units: a time in a mass unit is refused; minutes convert", () => {
     refused(run("scene-farm", { t: "8 kg" }), /Render time per frame/);
-    expect(ok(run("scene-farm", { t: "480 min" })).text).toMatch(/Render time per frame: 480 min = 28800 s|Render time per frame: 480 min = 28,800 s/);
+    expect(ok(run("scene-farm", { t: "480 min" })).text).toMatch(/Render time per frame: 480 min = 8 h/);
   });
   test("storage refusals: ratio below 1, zero efficiency, a DPX layout that does not exist", () => {
     refused(run("scene-storage", { comp: "0.5" }), /a ratio under 1 would mean the file grows/);
@@ -662,5 +663,198 @@ describe("work is bounded at the input caps", () => {
     const o = ok(run("scene-mesh", { obj: soup(600) }));
     const svg = (o.blocks ?? []).find((b) => b.kind === "plot");
     expect(svg && svg.kind === "plot" && svg.svg).toMatch(/problem edges: first 1,500 of each kind/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Review round 1 (scene @ 15bde89): every finding pinned with the reviewer's own repro.
+// ---------------------------------------------------------------------------------------------------------------
+
+describe("review round 1", () => {
+  const cube = (off: number[], flip = false): { v: string[]; f: number[][] } => {
+    const v = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]].map((p) => "v " + p.map((x, i) => x + off[i]).join(" "));
+    let f = [[1, 4, 3, 2], [5, 6, 7, 8], [1, 2, 6, 5], [2, 3, 7, 6], [3, 4, 8, 7], [4, 1, 5, 8]];
+    if (flip) f = f.map((x) => x.slice().reverse());
+    return { v, f };
+  };
+  const join = (...cs: Array<{ v: string[]; f: number[][] }>): string => {
+    const L: string[] = [];
+    let base = 0;
+    for (const c of cs) {
+      L.push(...c.v);
+      L.push(...c.f.map((x) => "f " + x.map((i) => i + base).join(" ")));
+      base += c.v.length;
+    }
+    return L.join("\n");
+  };
+  const time = (f: () => AnalyzeOutput): { o: AnalyzeOutput; ms: number } => {
+    const t0 = Date.now();
+    const o = f();
+    return { o, ms: Date.now() - t0 };
+  };
+
+  test("B1: an extremum exactly on a subdivision midpoint is found", () => {
+    const o = ok(run("scene-bezier", { pts: "0,0\n1,9\n2,4\n3,5" }));
+    expect(out(o, "boxH")).toBeCloseTo(5.5, 12);
+    expect(o.text).toMatch(/interior extremes at y: t = 0\.5, 0\.9/);
+    const q = bezierAnalyse([[0, 0], [1, -14], [2, 24], [3, -14], [4, 0]], 0.5);
+    if (!q.ok) throw new Error(q.error);
+    expect(q.bounds.max[1]).toBeCloseTo(2, 12);
+  });
+  test("B2: ray–sphere tangency is relative to the sphere, not the origin distance", () => {
+    expect(reading(ok(run("scene-ray", { o: "0, 1.2, -1000000", d: "0,0,1" })))).toMatch(/misses the sphere: the ray's line passes 1\.2 from the centre/);
+    const thru = reading(ok(run("scene-ray", { o: "0, 0.6, -1000000", d: "0,0,1" })));
+    expect(thru).toMatch(/hits the sphere at distance/);
+    expect(thru).not.toMatch(/grazes/);
+    expect(reading(ok(run("scene-ray", { o: "0, 1.00003, -1e4", d: "0,0,1" })))).toMatch(/misses the sphere/);
+  });
+  test("B3: a ray starting on the sphere never hits at a negative distance", () => {
+    const o = ok(run("scene-ray", { o: "0,0,1", d: "0,0,1" }));
+    expect(reading(o)).toMatch(/starts ON the sphere's surface and points outward/);
+    expect(out(o, "tsphere")).toBe(0);
+    expect(o.text).not.toMatch(/distance −/);
+    expect(reading(ok(run("scene-ray", { o: "0,0,-1", d: "0,0,1" })))).toMatch(/enters at distance 0 and leaves at distance 2/);
+  });
+  test("B4: a bare number is read in the unit the field's label names", () => {
+    const base = ok(run("scene-farm"));
+    expect(out(ok(run("scene-farm", { t: "8" })), "wall")).toBe(out(base, "wall"));
+    expect(ok(run("scene-farm", { deadline: "24" })).text).toMatch(/inside the 24 h deadline/);
+    expect(out(ok(run("scene-farm", { over: "2" })), "wall")).toBe(out(base, "wall"));
+    expect(out(ok(run("scene-farm", { times: "4\n6\n8" })), "wall")).toBe(out(ok(run("scene-farm", { times: "4 h\n6 h\n8 h" })), "wall"));
+    expect(out(ok(run("scene-storage", { link: "10" })), "transfer")).toBe(out(ok(run("scene-storage")), "transfer"));
+    expect(ok(run("scene-texture", { budget: "64" })).text).toMatch(/against a budget of 64 MiB/);
+  });
+  test("B5: a deadline the farm just meets is met in the reading too", () => {
+    const r5 = reading(ok(run("scene-farm", { deadline: "483 min" })));
+    expect(r5).toMatch(/inside the 8\.05 h deadline/);
+    expect(r5).not.toMatch(/would make it/);
+  });
+  test("B6: a disjoint inside-out piece is named; it does not silently cancel the volume", () => {
+    const o = ok(run("scene-mesh", { obj: join(cube([0, 0, 0]), cube([10, 0, 0], true)) }));
+    expect(reading(o)).toMatch(/2 separate pieces and one is inside-out/);
+    expect(o.text).toMatch(/Volume of each piece: 8, −8/);
+    // A cavity (inner cube reversed, nested) is not called inside-out.
+    const shell = ok(run("scene-mesh", { obj: join(cube([0, 0, 0]), { v: cube([0, 0, 0], true).v.map((l) => l.replace(/-?1/g, (m) => String(Number(m) * 0.5))), f: cube([0, 0, 0], true).f }) }));
+    expect(reading(shell)).not.toMatch(/inside-out/);
+    expect(out(shell, "volume")).toBeCloseTo(7, 12);
+  });
+  test("B7: closer than LOD0's switch distance, even LOD0 is over the tolerance", () => {
+    const r7 = reading(ok(run("scene-lod", { r: "0.1 m", d: "0.3 m" })));
+    expect(r7).toMatch(/even the finest level, LOD0, shows 1\.55885 px of error, above the 1 px tolerance/);
+    expect(r7).not.toMatch(/LOD0 takes over/);
+  });
+  test("B8: holes touching at one vertex stay separate holes, and the pinch is named", () => {
+    const octa = "v 1 0 0\nv -1 0 0\nv 0 1 0\nv 0 -1 0\nv 0 0 1\nv 0 0 -1\n";
+    const o = ok(run("scene-mesh", { obj: octa + "f 3 2 5\nf 4 1 5\nf 1 4 6\nf 3 1 6\nf 2 3 6\nf 4 2 6" }));
+    expect(reading(o)).toMatch(/6 boundary edges form 2 holes \(1 pinched vertex where holes touch\)/);
+    // An icosahedron subdivided once (icosphere(1) topology) minus three faces that touch only at vertices: 3 holes.
+    const t = (1 + Math.sqrt(5)) / 2;
+    const iv = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]];
+    const ifc = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+    const ico = loopStep({ V: iv, F: ifc });
+    const shareEdge = (a: number[], b: number[]) => a.filter((x) => b.includes(x)).length >= 2;
+    const shareVert = (a: number[], b: number[]) => a.some((x) => b.includes(x));
+    let trip: number[] = [];
+    for (let i = 0; i < ico.F.length && !trip.length; i++)
+      for (let j = i + 1; j < ico.F.length && !trip.length; j++)
+        for (let k = j + 1; k < ico.F.length && !trip.length; k++) {
+          const [a, b, c] = [ico.F[i], ico.F[j], ico.F[k]];
+          if (!shareEdge(a, b) && !shareEdge(a, c) && !shareEdge(b, c) && shareVert(a, b) && shareVert(b, c) && shareVert(a, c)) trip = [i, j, k];
+        }
+    const kept = ico.F.filter((_, i) => !trip.includes(i));
+    const obj = [...ico.V.map((v) => `v ${v.join(" ")}`), ...kept.map((f) => `f ${f.map((x) => x + 1).join(" ")}`)].join("\n");
+    expect(reading(ok(run("scene-mesh", { obj })))).toMatch(/9 boundary edges form 3 holes/);
+  });
+  test("B9: a 20,000-face fan (book) mesh is linear, not quadratic", () => {
+    const L: string[] = [];
+    for (let k = 0; k < 20000; k++) L.push(`v ${Math.cos(k / 3000)} ${Math.sin(k / 3000)} ${k / 20000}`);
+    for (let k = 3; k <= 20000; k++) L.push(`f 1 2 ${k}`);
+    const { o, ms } = time(() => run("scene-mesh", { obj: L.join("\n") }));
+    ok(o);
+    expect(ms).toBeLessThan(2000);
+  });
+  test("M1: BC1 and BC4 print their own block arithmetic", () => {
+    expect(ok(run("scene-texture", { fmt: "bc1" })).text).toMatch(/8-byte blocks of 4 × 4 pixels, so 64\/16 = 4 bpp/);
+    expect(ok(run("scene-texture", { fmt: "bc4" })).text).toMatch(/so 64\/16 = 4 bpp/);
+  });
+  test("M2: several pieces are named as several pieces", () => {
+    const two = reading(ok(run("scene-mesh", { obj: join(cube([0, 0, 0]), cube([10, 0, 0])) })));
+    expect(two).toMatch(/This is 2 separate closed, consistently wound pieces with genus 0 in total/);
+    expect(two).not.toMatch(/sphere-like, a solid/);
+  });
+  test("M3: a budget below the base mesh says no level fits", () => {
+    const r3 = reading(ok(run("scene-subdiv", { budget: "1" })));
+    expect(r3).toMatch(/Even the base mesh \(12 triangles\) is over the 1-triangle budget, so no level fits/);
+    expect(r3).not.toMatch(/level −1/);
+  });
+  test("M4: tiny and huge direction components are valid directions", () => {
+    for (const dd of ["0,0,1e-200", "0,0,1e200"]) expect(out(ok(run("scene-ray", { d: dd })), "tsphere")).toBeCloseTo(4.04606079858, 9);
+  });
+  test("M5: Little's law is not quoted below the touch time; zero WIP is refused", () => {
+    refused(run("scene-pipeline", { wip: "0" }), /Items in progress: 0 means nothing is in the pipeline/);
+    const r5 = reading(ok(run("scene-pipeline", { wip: "2.5" })));
+    expect(r5).toMatch(/2\.5 items in progress cannot be steady flow/);
+    expect(r5).not.toMatch(/each takes about/);
+  });
+  test("M6: ordinary input is read", () => {
+    expect(ok(run("scene-texture", { w: "4096 px" })).text).toMatch(/A 4096 × 2048/);
+    refused(run("scene-texture", { w: "4K" }), /"4K" is a marketing size, not a pixel count/);
+    expect(out(ok(run("scene-mesh", { mode: "counts", vef: "1,000; 3,000; 2,000" })), "chi")).toBe(0);
+    expect(out(ok(run("scene-storage", { comp: "2:1" })), "frame")).toBe(out(ok(run("scene-storage")), "frame") / 2);
+    expect(ok(run("scene-pipeline", { every: "2 d" })).text).toMatch(/one every 16 h[\s\S]*Arrival interval: 2 d = 16 working hours \(8-hour days\)/);
+    expect(ok(run("scene-texture", { list: "A, 1024, 1024, astc6×6" })).text).toMatch(/ASTC 6×6/);
+    expect(out(ok(run("scene-bezier", { t: "1/2" })), "x")).toBe(2);
+    const cont = ok(run("scene-mesh", { obj: "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 \\\n 3" }));
+    expect(cont.text).toMatch(/1 face \(χ = 1\)|1 faces|and 1 face/);
+    expect(ok(run("scene-mesh", { obj: "mg 1 0.5\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3" })).text).toMatch(/Skipped: 1 mg line/);
+  });
+  test("M7: display contract and speed at the caps", () => {
+    refused(run("scene-texture", { budget: "0" }), /give a budget greater than 0/);
+    const big = ok(run("scene-texture", { target: "1e9" }));
+    expect(big.text).toMatch(/beyond the 16,384-pixel limit/);
+    expect(big.text).toMatch(/\d,\d{3},\d{3} × \d,\d{3},\d{3}/);
+    let rnd = 1;
+    const R = () => (rnd = (rnd * 16807) % 2147483647) / 2147483647;
+    const times = Array.from({ length: 10000 }, () => (0.5 + 10 * R()).toFixed(3) + " h").join("\n");
+    const f = time(() => run("scene-farm", { times, nodes: "10000", deadline: "1 h" }));
+    ok(f.o);
+    expect(f.ms).toBeLessThan(1500);
+    const L2: string[] = [];
+    const N2 = 101;
+    for (let j = 0; j < N2; j++) for (let i = 0; i < N2; i++) L2.push(`v ${i} ${j} 0`);
+    for (let j = 0; j < N2 - 1; j++) for (let i = 0; i < N2 - 1; i++) {
+      const a = j * N2 + i + 1;
+      L2.push(`f ${a} ${a + 1} ${a + N2 + 1}`, `f ${a} ${a + N2 + 1} ${a + N2}`);
+    }
+    const s = time(() => run("scene-subdiv", { obj: L2.join("\n"), levels: "10" }));
+    ok(s.o);
+    expect(s.ms).toBeLessThan(1500);
+  });
+  test("minor 1: no e-notation in refusals; huge coordinates refused by name", () => {
+    const r1 = run("scene-bezier", { t: "-1e-300" });
+    refused(r1, /t = −1×10⁻³⁰⁰ is outside \[0, 1\]/);
+    expect(r1.text).not.toMatch(/\de-/);
+    refused(run("scene-nurbs", { deg: "-1e-300" }), /Degree −1×10⁻³⁰⁰/);
+    refused(run("scene-ray", { o: "0, 0, 1e300" }), /beyond 10¹⁵⁰/);
+  });
+  test("minor 2: wording", () => {
+    const L: string[] = [];
+    for (let k = 0; k < 6666; k++) L.push(`v ${k} 0 0`, `v ${k} 1 0`, `v ${k} 0 1`);
+    for (let k = 0; k < 6666; k++) L.push(`f ${3 * k + 1} ${3 * k + 2} ${3 * k + 3}`);
+    expect(reading(ok(run("scene-mesh", { obj: L.join("\n") })))).toMatch(/19,998 boundary edges form 6,666 holes/);
+    expect(ok(run("scene-texture", { w: "1", h: "1", fmt: "bc1", list: "" })).text).toMatch(/Full chain, 1 level to 1 × 1/);
+    expect(reading(ok(run("scene-bezier", { pts: "0, 0\n1, 1\n2, -1\n3, 0" })))).toMatch(/passing an inflection \(curvature 0 here\)/);
+    expect(ok(run("scene-subdiv")).text).toMatch(/Vertex 1 \(the first face's first corner\) moves/);
+    expect(reading(ok(run("scene-farm", { nodes: "10000" })))).toMatch(/10,000 nodes/);
+  });
+  test("minor 3: a box ray starting on a face and pointing out is not 'inside'", () => {
+    const r = reading(ok(run("scene-ray", { prim: "box", o: "1,0,0", d: "1,0,0" })));
+    expect(r).toMatch(/starts ON the box's surface and points outward/);
+    expect(r).not.toMatch(/INSIDE/);
+  });
+  test("minor 4: the default triangle is drawn face-on, not edge-on", () => {
+    const o = ok(run("scene-ray", { prim: "triangle" }));
+    const p = (o.blocks ?? []).find((b) => b.kind === "plot");
+    expect(p && p.kind === "plot" && p.svg).toMatch(/seen face-on/);
   });
 });

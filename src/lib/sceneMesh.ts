@@ -19,7 +19,14 @@ export interface Fail {
 export const MESH_MAX_VERTICES = 20000;
 export const MESH_MAX_FACES = 20000;
 /** The real subdivision runs while the next level stays at or below this many faces; beyond, counts only. */
-export const SUBDIV_REAL_MAX_FACES = 60000;
+export const SUBDIV_REAL_MAX_FACES = 30000;
+
+/** OBJ statements that do not change the polygon mesh: read past, counted, and named in the result. */
+const OBJ_SKIPPED = new Set([
+  "vt", "vn", "vp", "o", "g", "s", "mg", "usemtl", "mtllib", "usemap", "maplib", "l", "p",
+  "cstype", "deg", "bmat", "step", "curv", "curv2", "surf", "parm", "trim", "hole", "scrv", "sp", "end", "con",
+  "bevel", "c_interp", "d_interp", "lod", "shadow_obj", "trace_obj", "ctech", "stech", "call", "csh",
+]);
 
 export interface Mesh {
   V: Vec[];
@@ -38,6 +45,14 @@ export function parseObj(text: string, base: "obj" | "zero"): Mesh | Fail {
   const faceLine: number[] = [];
   const ignoredKinds = new Map<string, number>();
   const lines = text.split(/\r?\n/);
+  // A trailing backslash continues the statement on the next line (the OBJ spec; review M6). The joined statement is
+  // read on the last of its lines, so line numbers in messages still point into the text as typed.
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (/\\\s*$/.test(lines[i])) {
+      lines[i + 1] = lines[i].replace(/\\\s*$/, " ") + lines[i + 1];
+      lines[i] = "";
+    }
+  }
   for (let li = 0; li < lines.length; li++) {
     const raw = lines[li].replace(/#.*$/, "").trim();
     if (!raw) continue;
@@ -70,10 +85,12 @@ export function parseObj(text: string, base: "obj" | "zero"): Mesh | Fail {
       if (idx.length < 3) return { ok: false, error: `Line ${li + 1}: a face needs at least 3 vertices; this one has ${idx.length}.` };
       F.push(idx);
       faceLine.push(li + 1);
-    } else if (["vt", "vn", "vp", "o", "g", "s", "usemtl", "mtllib", "l", "p"].includes(kw)) {
+    } else if (OBJ_SKIPPED.has(kw)) {
+      // Texture and normal data, grouping, materials, display attributes and free-form (curve and surface) statements:
+      // none changes the polygon mesh, so each is counted and named in the result rather than refused (review M6: mg).
       ignoredKinds.set(kw, (ignoredKinds.get(kw) ?? 0) + 1);
     } else {
-      return { ok: false, error: `Line ${li + 1}: "${kw}" is not an OBJ keyword this reads (v, f; vt, vn, o, g, s, usemtl, mtllib, l are skipped).` };
+      return { ok: false, error: `Line ${li + 1}: "${kw}" is not an OBJ keyword (v and f are read; vt, vn, o, g, s, mg, usemtl, mtllib, l, p and the free-form statements are skipped).` };
     }
   }
   // Range checks after all vertices are known (OBJ allows a face before a later vertex only by negative index).
@@ -167,6 +184,12 @@ export interface MeshStats {
   /** Faces whose corners are not coplanar (an n-gon whose fan triangulation is a choice). */
   nonPlanar: number;
   zeroAreaFaces: number;
+  /** Boundary vertices where two holes touch (boundary degree above 2). */
+  pinchVertices: number[];
+  /** Signed volume of each connected piece. */
+  pieceVolumes: number[];
+  /** Pieces with a negative volume that are not nested in a positive piece: inside-out. */
+  invertedPieces: number;
 }
 
 /** Statistics and validity of a polygon mesh. */
@@ -239,26 +262,91 @@ export function meshStats(mesh: Mesh): MeshStats {
     }
     if (!orientable) flipsNeeded = 0;
   }
-  // Boundary loops: each boundary vertex has boundary degree 2 in a manifold boundary.
+  // Boundary loops (review B8, B9). A boundary vertex of boundary degree 2 joins its two boundary edges into one loop.
+  // A vertex of boundary degree above 2 is a PINCH (holes touching at one point): there the edges are joined across
+  // each angular gap with no face in it, found by sorting the vertex's neighbours by angle about its normal, so holes
+  // that only touch stay separate. Loops are the classes of a union–find over boundary edges. Adjacency lists are
+  // pushed onto, never re-spread (re-spreading was quadratic: 8.8 s on a 20,000-face fan).
   let boundaryLoops = 0;
+  const pinchVertices: number[] = [];
   if (boundaryEdges.length) {
+    const bIndex = new Map<string, number>();
+    boundaryEdges.forEach(([a, b], i) => bIndex.set(ekey(a, b), i));
+    const up = boundaryEdges.map((_, i) => i);
+    const root = (x: number): number => {
+      while (up[x] !== x) x = up[x] = up[up[x]];
+      return x;
+    };
+    const join = (x: number, y: number): void => {
+      const rx = root(x);
+      const ry = root(y);
+      if (rx !== ry) up[rx] = ry;
+    };
     const nb = new Map<number, number[]>();
     for (const [a, b] of boundaryEdges) {
-      nb.set(a, [...(nb.get(a) ?? []), b]);
-      nb.set(b, [...(nb.get(b) ?? []), a]);
+      let la = nb.get(a);
+      if (!la) nb.set(a, (la = []));
+      la.push(b);
+      let lb = nb.get(b);
+      if (!lb) nb.set(b, (lb = []));
+      lb.push(a);
     }
-    const seen = new Set<number>();
-    for (const v of nb.keys()) {
-      if (seen.has(v)) continue;
-      boundaryLoops++;
-      const stack = [v];
-      while (stack.length) {
-        const x = stack.pop() as number;
-        if (seen.has(x)) continue;
-        seen.add(x);
-        for (const y of nb.get(x) ?? []) if (!seen.has(y)) stack.push(y);
+    for (const [v, l] of nb) {
+      if (l.length === 2) join(bIndex.get(ekey(v, l[0])) as number, bIndex.get(ekey(v, l[1])) as number);
+      else if (l.length > 2) pinchVertices.push(v);
+    }
+    if (pinchVertices.length) {
+      const pinch = new Set(pinchVertices);
+      const fans = new Map<number, number[]>(); // faces at each pinch vertex
+      F.forEach((f, fi) => {
+        for (const v of f) if (pinch.has(v)) {
+          let l = fans.get(v);
+          if (!l) fans.set(v, (l = []));
+          l.push(fi);
+        }
+      });
+      for (const v of pinchVertices) {
+        const P0 = V[v];
+        const facePairs = new Set<string>();
+        const nbrs = new Set<number>();
+        const n = [0, 0, 0];
+        for (const fi of fans.get(v) ?? []) {
+          const f = F[fi];
+          const i = f.indexOf(v);
+          const prev = f[(i + f.length - 1) % f.length];
+          const next = f[(i + 1) % f.length];
+          facePairs.add(ekey(prev, next));
+          nbrs.add(prev);
+          nbrs.add(next);
+          const c = crossV(sub(V[next], P0), sub(V[prev], P0));
+          const cl = lenV(c) || 1;
+          for (let j = 0; j < 3; j++) n[j] += c[j] / cl;
+        }
+        // A basis perpendicular to the mean normal (any, if the normals cancel).
+        const nl = lenV(n);
+        const nn = nl > 0 ? n.map((x) => x / nl) : [0, 0, 1];
+        const helper = Math.abs(nn[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+        const t1 = crossV(nn, helper);
+        const t1l = lenV(t1);
+        const e1 = t1.map((x) => x / t1l);
+        const e2 = crossV(nn, e1);
+        const ring = [...nbrs].map((w) => {
+          const d = sub(V[w], P0);
+          return { w, ang: Math.atan2(dotV(d, e2), dotV(d, e1)) };
+        }).sort((x, y) => x.ang - y.ang);
+        for (let k = 0; k < ring.length; k++) {
+          const wa = ring[k].w;
+          const wb = ring[(k + 1) % ring.length].w;
+          if (facePairs.has(ekey(wa, wb))) continue; // a face fills this gap
+          const ia = bIndex.get(ekey(v, wa));
+          const ib = bIndex.get(ekey(v, wb));
+          if (ia !== undefined && ib !== undefined) join(ia, ib);
+        }
       }
     }
+    const roots = new Set<number>();
+    for (let i = 0; i < boundaryEdges.length; i++) roots.add(root(i));
+    boundaryLoops = roots.size;
   }
   const closed = boundaryEdges.length === 0 && nonManifoldEdges.length === 0;
   const chi = used.size - E.size + F.length;
@@ -266,6 +354,7 @@ export function meshStats(mesh: Mesh): MeshStats {
   // Geometry by fan triangulation.
   let area = 0;
   let volume = 0;
+  const pieceVolume = new Map<number, number>();
   const vc = [0, 0, 0];
   const sc = [0, 0, 0];
   let nonPlanar = 0;
@@ -277,6 +366,7 @@ export function meshStats(mesh: Mesh): MeshStats {
   let corners = 0;
   for (const f of F) {
     const k = f.length;
+    const piece = find(f[0]);
     corners += k;
     if (k === 3) tris++;
     else if (k === 4) quads++;
@@ -298,6 +388,7 @@ export function meshStats(mesh: Mesh): MeshStats {
       for (let j = 0; j < 3; j++) sc[j] += a * cen[j];
       const v6 = dotV(p0, crossV(p1, p2));
       volume += v6 / 6;
+      pieceVolume.set(piece, (pieceVolume.get(piece) ?? 0) + v6 / 6);
       for (let j = 0; j < 3; j++) vc[j] += (v6 / 6) * ((p0[j] + p1[j] + p2[j]) / 4);
     }
     area += fa;
@@ -314,6 +405,23 @@ export function meshStats(mesh: Mesh): MeshStats {
   const diag = lenV(sub(bmax, bmin));
   const volumeCentroid = Math.abs(volume) > 1e-12 * Math.pow(Math.max(diag, 1e-300), 3) ? vc.map((x) => x / volume) : null;
   const surfaceCentroid = area > 0 ? sc.map((x) => x / area) : usedV[0].slice();
+  // Pieces with a negative signed volume are inside-out, unless nested inside a positive piece (a cavity, correctly
+  // wound inward). A disjoint inverted piece otherwise cancels part of the total silently.
+  const pieceBox = new Map<number, [Vec, Vec]>();
+  for (const i of used) {
+    const r = find(i);
+    const v = V[i];
+    const bx = pieceBox.get(r);
+    if (!bx) pieceBox.set(r, [v.slice(), v.slice()]);
+    else for (let j = 0; j < 3; j++) {
+      if (v[j] < bx[0][j]) bx[0][j] = v[j];
+      if (v[j] > bx[1][j]) bx[1][j] = v[j];
+    }
+  }
+  const volTol = 1e-12 * Math.pow(Math.max(diag, 1e-300), 3);
+  const pieces = [...pieceVolume].map(([r, vol]) => ({ volume: vol, box: pieceBox.get(r) as [Vec, Vec] }));
+  const inside = (a: [Vec, Vec], b: [Vec, Vec]): boolean => [0, 1, 2].every((j) => a[0][j] >= b[0][j] && a[1][j] <= b[1][j]);
+  const invertedPieces = pieces.filter((pc) => pc.volume < -volTol && !pieces.some((q) => q !== pc && q.volume > volTol && inside(pc.box, q.box))).length;
   return {
     ok: true,
     vertices: V.length,
@@ -344,6 +452,9 @@ export function meshStats(mesh: Mesh): MeshStats {
     bmax,
     nonPlanar,
     zeroAreaFaces,
+    pinchVertices,
+    pieceVolumes: pieces.map((pc) => pc.volume),
+    invertedPieces,
   };
 }
 

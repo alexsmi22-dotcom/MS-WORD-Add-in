@@ -49,7 +49,7 @@ re-implementations where no library exists (`scripts/scene-oracle.py`, fixtures 
     a non-manifold fan, an 8 × 6 torus, a Möbius strip, a pentagonal prism and a cube with an isolated vertex.
 - **Subdivision & polycount budget:**
   - Catmull–Clark and Loop V, E, F and triangle counts for up to 10 levels, in exact integers.
-  - The counts are checked against a real subdivision of the mesh while it stays under 60,000 faces. A cube goes
+  - The counts are checked against a real subdivision of the mesh while it stays under 30,000 faces. A cube goes
     6 → 24 → 96 quads, and its corner moves to 5/9.
   - Loop agrees with trimesh's `subdivide_loop` on counts, area and volume.
   - Memory per level from the bytes per vertex and per index.

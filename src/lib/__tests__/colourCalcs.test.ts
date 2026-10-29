@@ -330,3 +330,30 @@ describe("governing equations", () => {
     }
   });
 });
+
+describe("printed numbers never contradict their verdict", () => {
+  test("ΔE*ab 1.99996 < 2 passes and prints 1.9999, never 2.0000", () => {
+    const o = run("colour-difference", { std: "50, 0, 0", smp: "51.99996, 0, 0", tolf: "de76", tol: "2", op: "<" });
+    expect(o.text).toMatch(/: PASS \(ΔE\*ab = 1\.9999\)/);
+  });
+  test("ΔE*ab 2.00004 ≤ 2 fails and prints 2.0001", () => {
+    const o = run("colour-difference", { std: "50, 0, 0", smp: "52.00004, 0, 0", tolf: "de76", tol: "2", op: "≤" });
+    expect(o.text).toMatch(/: FAIL \(ΔE\*ab = 2\.0001\)/);
+  });
+  test("a WCAG ratio just under 4.5 prints below 4.500 and fails AA", () => {
+    // Search the 8-bit cube for a pair just under the threshold (the engine's ratio, not a hand-typed one).
+    let found: [number[], number[]] | null = null;
+    for (let g = 0; g < 256 && !found; g++) {
+      for (let r = 0; r < 256 && !found; r += 1) {
+        const fg = [r, g, 0x76];
+        const L = (c: number[]): number => { const l = c.map((v) => { const x = v / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; };
+        const ratio = 1.05 / (L(fg) + 0.05);
+        if (ratio > 4.4995 && ratio < 4.5) found = [fg, [255, 255, 255]];
+      }
+    }
+    expect(found).not.toBeNull();
+    const [fg] = found!;
+    const o = run("colour-contrast", { fg: fg.join(", "), bg: "#FFFFFF" });
+    expect(firstLine(o)).toMatch(/4\.499:1: it fails WCAG AA for normal text/);
+  });
+});

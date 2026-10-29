@@ -20,7 +20,6 @@ import {
   adaptXYZ,
   ciede2000,
   deltaE,
-  deltaE00,
   deltaE76,
   deltaE94,
   deltaECMC,
@@ -58,6 +57,7 @@ const FX: any = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "col
 /** test.each over [name, fixture row] pairs (the fixture is untyped JSON). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const each = test.each as unknown as (rows: Array<[unknown, any]>) => (name: string, fn: (k: any, r: any) => void) => void;
+const deltaE00 = (s: Lab, m: Lab, kL = 1, kC = 1, kH = 1): number => ciede2000(s, m, kL, kC, kH).dE;
 const lab = (v: number[]): Lab => ({ L: v[0], a: v[1], b: v[2] });
 const v3 = (v: number[]): Vec3 => [v[0], v[1], v[2]];
 const worst: Record<string, number> = {};

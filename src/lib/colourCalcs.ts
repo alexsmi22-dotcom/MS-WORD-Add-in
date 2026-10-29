@@ -254,11 +254,14 @@ function hueName(C: number, h: number): string {
 const lightName = (L: number): string => (L < 30 ? "dark" : L < 45 ? "medium-dark" : L < 60 ? "medium" : L < 75 ? "light" : "very light");
 
 /** A verdict against a tolerance, decided on the unrounded value; flagged when the printed value ties the limit. */
-function verdict(v: number, tol: number, op: string, d = 2): { pass: boolean; text: string; borderline: boolean } {
+function verdict(v: number, tol: number, op: string, d = 2): { pass: boolean; text: string; borderline: boolean; shown: string } {
   const pass = op === "≤" ? v <= tol : v < tol;
   const printed = Number(v.toFixed(d));
   const borderline = Math.abs(printed - tol) < 1e-12 || (printed < tol) !== (v < tol);
-  return { pass, borderline, text: pass ? "PASS" : "FAIL" };
+  // A borderline value prints to four decimals, rounded TOWARD its verdict (down for a pass, up for a fail), so the
+  // printed number never contradicts the PASS or FAIL beside it (1.99996 < 2 prints 1.9999, not 2.0000).
+  const shown = borderline ? (pass ? Math.floor(v * 1e4) : Math.ceil(v * 1e4)) / 1e4 : v;
+  return { pass, borderline, text: pass ? "PASS" : "FAIL", shown: fx(shown, borderline ? 4 : d) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -400,7 +403,7 @@ const differenceCalc: ColourCalc = {
     if (tol !== null) {
       const v = verdict(all[f], tol, op);
       pass = v.pass;
-      const shown = v.borderline ? fx(all[f], 4) : fx(all[f]);
+      const shown = v.shown;
       lines.push(`Tolerance ${sym} ${op} ${trimNum(tol)}: ${v.text} (${sym} = ${shown}).${v.borderline ? ` Borderline: at two decimals this prints as ${fx(all[f])}, so a reader who rounds before comparing could decide it the other way; state the rounding in the specification.` : ""}`);
       const verdicts = (Object.keys(all) as DeFormula[]).map((g) => ({ g, ok: op === "≤" ? all[g] <= tol : all[g] < tol }));
       const differ = verdicts.filter((x) => x.ok !== pass);
@@ -942,7 +945,7 @@ const batchCalc: ColourCalc = {
     const res = samples.map((s) => {
       const de = deltaE(f, std, s.lab, k);
       const v = verdict(de, T, op);
-      return { ...s, d: diffComponents(std, s.lab), de, pass: v.pass, borderline: v.borderline };
+      return { ...s, d: diffComponents(std, s.lab), de, pass: v.pass, borderline: v.borderline, shown: v.shown };
     });
     const nPass = res.filter((x) => x.pass).length;
     const worst = res.reduce((m, x) => (x.de > m.de ? x : m));
@@ -957,7 +960,7 @@ const batchCalc: ColourCalc = {
     lines.push({
       table: [
         ["Sample", "ΔL*", "Δa*", "Δb*", "ΔC*ab", "ΔH*ab", sym, "Result"],
-        ...res.map((x) => [x.name, sg(x.d.dL), sg(x.d.da), sg(x.d.db), sg(x.d.dC), x.d.hueDefined ? sg(x.d.dH) : "0.00", x.borderline ? fx(x.de, 4) : fx(x.de), x.pass ? "pass" : "FAIL"]),
+        ...res.map((x) => [x.name, sg(x.d.dL), sg(x.d.da), sg(x.d.db), sg(x.d.dC), x.d.hueDefined ? sg(x.d.dH) : "0.00", x.shown, x.pass ? "pass" : "FAIL"]),
       ],
       label: `Samples against the standard (${fx(std.L)}, ${fx(std.a)}, ${fx(std.b)})`,
     });
@@ -1144,8 +1147,9 @@ const contrastCalc: ColourCalc = {
     const labF = XYZToLab(srgbToXYZ(fg.map((c) => c / 255) as Vec3, W), W);
     const labB = XYZToLab(srgbToXYZ(bg.map((c) => c / 255) as Vec3, W), W);
     const de00 = deltaE("de00", labB, labF);
-    const near = (t: number): boolean => Math.abs(ratio - t) < 0.005;
-    const rs = [3, 4.5, 7].some(near) ? ratio.toFixed(3) : ratio.toFixed(2);
+    const near = (t: number): boolean => Math.abs(ratio - t) < 0.01;
+    // Near a threshold the ratio is TRUNCATED to three decimals, so a printed 4.500 always passes and 4.4999 reads 4.499.
+    const rs = [3, 4.5, 7].some(near) ? (Math.floor(ratio * 1000) / 1000).toFixed(3) : ratio.toFixed(2);
     const checks: Array<[string, number]> = [
       ["AA, normal text (SC 1.4.3)", 4.5],
       ["AA, large text (18 pt, or 14 pt bold)", 3],
@@ -1171,7 +1175,7 @@ const contrastCalc: ColourCalc = {
       label: `Contrast ${rs}:1`,
     });
     lines.push(`Relative luminance: text ${fx(Lf, 4)}, background ${fx(Lb, 4)}. Contrast ratio (lighter + 0.05)/(darker + 0.05) = ${ratio.toFixed(4)}:1, the same whichever colour is the text.`);
-    if ([3, 4.5, 7].some(near)) lines.push(`The ratio lies within 0.005 of a threshold, so it is shown to three decimals; WCAG compares the unrounded ratio, so ${ratio.toFixed(4)} ${res[0].ok ? "passes" : "fails"} 4.5:1 regardless of how it would round.`);
+    if ([3, 4.5, 7].some(near)) lines.push(`The ratio lies within 0.01 of a threshold, so it is shown to three decimals (truncated, never rounded up); WCAG compares the unrounded ratio, so ${ratio.toFixed(4)} ${res[0].ok ? "passes" : "fails"} 4.5:1 regardless of how it would round.`);
     lines.push({ math: "L = 0.2126 R + 0.7152 G + 0.0722 B", fallback: "L = 0.2126R + 0.7152G + 0.0722B on linearised sRGB channels" });
     lines.push({ math: "CR = (L_1 + 0.05)/(L_2 + 0.05)", fallback: "CR = (L₁ + 0.05)/(L₂ + 0.05), L₁ the lighter" });
     lines.push(`Colour difference between them: ΔE₀₀ ${fx(de00)} (D65/2°, background as the standard). Colour difference is not contrast: two colours can differ strongly in hue at equal luminance (contrast near 1:1), which is unreadable for many people with colour-vision deficiency.`);

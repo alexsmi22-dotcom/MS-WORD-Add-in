@@ -439,8 +439,6 @@ export function ciede2000(std: Lab, smp: Lab, kL = 1, kC = 1, kH = 1): Ciede2000
   return { dE: Math.sqrt(l * l + c * c + h * h + RT * c * h), dLp, dCp, dHp, SL, SC, SH, RT, hBar, G };
 }
 
-export const deltaE00 = (std: Lab, smp: Lab, kL = 1, kC = 1, kH = 1): number => ciede2000(std, smp, kL, kC, kH).dE;
-
 /** The formulas a tolerance can be stated on. */
 export type DeFormula = "de00" | "de76" | "de94g" | "de94t" | "cmc21" | "cmc11";
 export const DE_FORMULA_LABELS: Record<DeFormula, string> = {
@@ -482,6 +480,8 @@ export function deltaE(f: DeFormula, std: Lab, smp: Lab, k: ParametricK = { kL: 
       return deltaECMC(std, smp, 2, 1);
     case "cmc11":
       return deltaECMC(std, smp, 1, 1);
+    default:
+      return NaN;
   }
 }
 
@@ -493,6 +493,9 @@ export function deltaE(f: DeFormula, std: Lab, smp: Lab, k: ParametricK = { kL: 
 export function toleranceContour(f: DeFormula, std: Lab, tol: number, k: ParametricK = { kL: 1, kC: 1, kH: 1 }, rays = 144): Array<{ x: number; y: number }> {
   const pts: Array<{ x: number; y: number }> = [];
   if (!(tol > 0) || !Number.isFinite(tol)) return pts;
+  if (![std.L, std.a, std.b].every(Number.isFinite)) return pts;
+  // A finite, bounded ray count whatever the caller passes (an unbounded loop freezes Word).
+  rays = Number.isFinite(rays) ? Math.min(720, Math.max(8, Math.round(rays))) : 144;
   for (let i = 0; i <= rays; i++) {
     const th = (2 * Math.PI * (i % rays)) / rays;
     const at = (r: number): number => deltaE(f, std, { L: std.L, a: std.a + r * Math.cos(th), b: std.b + r * Math.sin(th) }, k);

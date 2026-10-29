@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { fitLogit, fitProbit, fmtFixed, fmtP, logitProbitReport, LogitProbitRefusal, type LogitProbitOptions } from "../logitProbit";
 import { MINUS } from "../axis";
+import { budget } from "./timeBudget";
 import type { FittedModel, ModelTerm } from "../regModel";
 import { econLogitCalc, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT } from "../econCalcs";
 
@@ -324,7 +325,7 @@ describe("scale and size", () => {
       const m = f(y, X, names, { se: "hc0" });
       const ms = Date.now() - t0;
       expect(m.terms).toHaveLength(k + 1);
-      expect(ms).toBeLessThan(1500);
+      expect(ms).toBeLessThan(budget(1500));
     }
   });
 

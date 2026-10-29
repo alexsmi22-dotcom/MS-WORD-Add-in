@@ -319,6 +319,8 @@ function run() {
   // 170 as of v2.187.0: Fresnel, thin-film stack, Jones; tensile, Weibull strength, Scherrer, capability,
   // tolerance stack; root locus, Nyquist, lead/lag, c2d; titration, speciation, solution pH, CV peak, Randles–Ševčík.
   // 249 as of v2.206.0: the eight Colour & appearance calculators, each drawing from its shipped defaults.
+  // 252 with Scene modelling & pipeline (v2.206.0): eleven calculators (Bezier, NURBS, mesh, subdivision, LOD, ray,
+  // bounding volumes, texture, farm, storage, pipeline), each drawing from its shipped defaults.
   const FIGURE_BASELINE = 249;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");

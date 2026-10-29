@@ -118,6 +118,8 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // new Plot kinds (20), each calculator at its defaults plus the layouts that crowd.
 // 1016 as of v2.206.0: the Colour & appearance group, 51 figures (every calculator at its defaults and the
 // layouts that crowd, and each colourCharts builder at an extreme).
+// 1016 with Scene modelling & pipeline (v2.206.0): 51 figures, the eleven calculators at their defaults and layout
+// variants (3-D, degenerate and high-degree curves, defective meshes, each ray case) and the builders at their edges.
 const CORPUS_FLOOR = 1016;
 
 // --- The allowance ratchet ----------------------------------------------------

@@ -268,6 +268,10 @@ import { abPlaneSvg, abZoomSvg, barsSvg, chromaticitySvg, contrastSwatchSvg, del
 import { fpAiryChartSvg, fpPeakChartSvg, thresholdChartSvg, coherenceChartSvg, shgGrowthChartSvg, shgSincChartSvg } from "../src/lib/laserCharts";
 import { fabryPerot } from "../src/lib/laserPhysics";
 // --- end Release E: laser ---
+// --- Scene modelling & pipeline (imports) ---
+import { SCENE_CALCS } from "../src/lib/sceneCalcs";
+import { meshWireframeSvg, polycountChartSvg, lodChartSvg, farmChartSvg, rayChartSvg, boundingChartSvg, bezierChartSvg, nurbsChartSvg, sceneBarsSvg } from "../src/lib/sceneCharts";
+// --- end Scene modelling & pipeline (imports) ---
 
 // --- Release E: link budget ---
 import { LINK_BUDGET_CALCS } from "../src/lib/linkBudgetCalcs";
@@ -4006,6 +4010,83 @@ rotator 15` }, "jones elliptical");
   figures.push(["quantum mechanics tunnelSvg one point each", tunnelSvg({ below: [{ x: 0.5, lt: -2, wkb: -3 }, { x: 0.9, lt: -1, wkb: -1.5 }], above: [{ x: 1, t: 0.1 }, { x: 3, t: 0.9 }], xMax: 3, mark: { x: 0.95, lt: -1, t: 0.1 } })]);
 }
 // --- end Release E: quantum mechanics ---
+
+// --- Scene modelling & pipeline ---
+// Every calculator at its defaults and at the variants that change a figure's layout: a 3-D, a degenerate and a
+// degree-7 Bézier curve; B-splines with default, interior and C⁰ knots, a NURBS with knot insertion, a conic that is
+// not a circle; open, mis-wound, non-manifold and torus meshes and the counts form; Loop on a tetrahedron and
+// Catmull–Clark on a pentagonal prism; one LOD and a far camera; each ray primitive with the inside, parallel and
+// grazing cases; a split on y; non-power-of-two ASTC and a custom format; measured frame times and an impossible
+// deadline; 10-bit DPX; an overloaded pipeline. Then the builders at their edges (a wireframe past the edge cap).
+{
+  const torusObj = (nu: number, nv: number): string => {
+    const L: string[] = [];
+    for (let i = 0; i < nu; i++)
+      for (let j = 0; j < nv; j++) {
+        const u = (2 * Math.PI * i) / nu;
+        const v = (2 * Math.PI * j) / nv;
+        L.push(`v ${(2 + 0.5 * Math.cos(v)) * Math.cos(u)} ${(2 + 0.5 * Math.cos(v)) * Math.sin(u)} ${0.5 * Math.sin(v)}`);
+      }
+    for (let i = 0; i < nu; i++)
+      for (let j = 0; j < nv; j++) {
+        const a = i * nv + j + 1;
+        const b = ((i + 1) % nu) * nv + j + 1;
+        const c = ((i + 1) % nu) * nv + ((j + 1) % nv) + 1;
+        const d = i * nv + ((j + 1) % nv) + 1;
+        L.push(`f ${a} ${b} ${c} ${d}`);
+      }
+    return L.join("\n");
+  };
+  const cube = ["v -1 -1 -1", "v 1 -1 -1", "v 1 1 -1", "v -1 1 -1", "v -1 -1 1", "v 1 -1 1", "v 1 1 1", "v -1 1 1"];
+  const variants: Record<string, Record<string, string>[]> = {
+    "scene-bezier": [{}, { pts: "0, 0, 0\n1, 2, 0\n2, -1, 1\n3, 3, 2\n4, 0, 0", t: "0.3" }, { pts: "1, 1\n1, 1\n1, 1" }, { pts: "0, 0\n1, 3\n2, -2\n3, 4\n4, -1\n5, 2\n6, -3\n7, 0", t: "0.61" }, { t: "0" }],
+    "scene-nurbs": [{}, { deg: "3", pts: "0, 0\n1, 2\n2, 3\n4, 3\n5, 1\n6, 0", w: "", U: "", u: "0.37", ins: "0.6" }, { deg: "3", pts: "0, 0, 0\n1, 2, 1\n2, 3, 0\n4, 3, -1\n5, 1, 2\n6, 0, 0", w: "1, 2, 0.5, 1, 3, 1", U: "0 0 0 0 0.2 0.5 1 1 1 1", u: "0.42", ins: "0.5", times: "2" }, { pts: "0, 0\n1, 1\n2, 0\n3, 1\n4, 0", w: "", U: "0 0 0 0.5 0.5 1 1 1", ins: "" }, { w: "1, 0.5, 1", ins: "" }],
+    "scene-mesh": [
+      {},
+      { obj: [...cube, "f 1 4 3 2", "f 1 2 6 5", "f 2 3 7 6", "f 3 4 8 7", "f 4 1 5 8"].join("\n") },
+      { obj: [...cube, "f 1 4 3 2", "f 5 6 7 8", "f 1 2 6 5", "f 2 6 7 3", "f 3 4 8 7", "f 4 1 5 8"].join("\n") },
+      { obj: "v 0 0 0\nv 1 0 0\nv 0.5 1 0\nv 0.5 -1 0\nv 0.5 0 1\nf 1 2 3\nf 2 1 4\nf 1 2 5" },
+      { obj: torusObj(8, 6) },
+      { mode: "counts", vef: "48, 96, 48", comp: "1" },
+    ],
+    "scene-subdiv": [{}, { scheme: "loop", obj: "v 1 1 1\nv 1 -1 -1\nv -1 1 -1\nv -1 -1 1\nf 1 2 3\nf 1 4 2\nf 1 3 4\nf 2 4 3", levels: "5", budget: "2000" }, { obj: "v 1 0 0\nv 0.309 0.951 0\nv -0.809 0.588 0\nv -0.809 -0.588 0\nv 0.309 -0.951 0\nv 1 0 1\nv 0.309 0.951 1\nv -0.809 0.588 1\nv -0.809 -0.588 1\nv 0.309 -0.951 1\nf 5 4 3 2 1\nf 6 7 8 9 10\nf 1 2 7 6\nf 2 3 8 7\nf 3 4 9 8\nf 4 5 10 9\nf 5 1 6 10", levels: "3", budget: "" }],
+    "scene-lod": [{}, { lods: "Only, 1 cm, 3000" }, { d: "500 m" }],
+    "scene-ray": [{}, { prim: "box" }, { prim: "triangle" }, { o: "0, 0, 0" }, { prim: "triangle", d: "1, 0, 0" }, { prim: "box", o: "-5, 1, 1", d: "1, 0, 0" }],
+    "scene-bvol": [{}, { axis: "y", pos: "0.7" }],
+    "scene-texture": [{}, { w: "1000", h: "600", fmt: "astc12x12", list: "" }, { fmt: "custom", ch: "2", bpc: "2", mips: "no" }],
+    "scene-farm": [{}, { times: "3 h\n9 h\n6 h\n12 h\n2 h\n8 h\n7 h\n4 h", nodes: "3" }, { deadline: "30 min" }],
+    "scene-storage": [{}, { depth: "int10dpx", ch: "3", comp: "1", link: "1 Gbps" }],
+    "scene-pipeline": [{}, { every: "2 h" }],
+  };
+  for (const c of SCENE_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: scene ${c.id} v${vi} did not draw: ${out.text}`);
+      svgs.forEach((s, i) => figures.push([`scene ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+  // The builders at their edges.
+  const big = torusObj(80, 40).split("\n");
+  const V = big.filter((l) => l.startsWith("v ")).map((l) => l.slice(2).split(" ").map(Number));
+  const edges: Array<[number, number]> = [];
+  for (const l of big.filter((x) => x.startsWith("f "))) {
+    const f = l.slice(2).split(" ").map((s) => Number(s) - 1);
+    for (let i = 0; i < 4; i++) if (f[i] < f[(i + 1) % 4]) edges.push([f[i], f[(i + 1) % 4]]);
+  }
+  figures.push(["scene meshWireframeSvg past the edge cap", meshWireframeSvg({ V, edges, boundary: [], nonManifold: [], inconsistent: [] })]);
+  figures.push(["scene polycountChartSvg twelve levels huge budget", polycountChartSvg(Array.from({ length: 11 }, (_, l) => ({ level: l, T: 12 * 4 ** l })), 1e9, "Triangles")]);
+  figures.push(["scene lodChartSvg close switch distances", lodChartSvg({ focal: 1000, r: 0.05, bands: [{ name: "A", switchDistance: 0.1 }, { name: "B", switchDistance: 0.12 }, { name: "C", switchDistance: 0.15 }], d: 0.11 })]);
+  figures.push(["scene farmChartSvg one node", farmChartSvg([{ n: 1, hours: 3 }, { n: 2, hours: 1.5 }], 2, 1, 3)]);
+  figures.push(["scene rayChartSvg ray through the triangle centroid", rayChartSvg({ o: [0, 0, -2], d: [0, 0, 1], kind: "triangle", centre: [0, 0, 0], shapes3d: [[[-1, -1, 0], [1, -1, 0], [0, 2, 0], [-1, -1, 0]]], sphereR: null, hit: [0, 0, 0], hitLabel: "filled dot: the hit point.", tEnd: 3 })]);
+  figures.push(["scene boundingChartSvg split on z", boundingChartSvg({ P: [[0, 0, 0], [1, 0, 3], [0.5, 0.2, 6]], bmin: [0, 0, 0], bmax: [1, 0.2, 6], centred: { c: [0.5, 0.1, 3], r: 3.05 }, ritter: { c: [0.5, 0.1, 3], r: 3.04 }, split: { axis: 2, position: 2 } })]);
+  figures.push(["scene bezierChartSvg straight line", bezierChartSvg({ P: [[0, 0], [10, 0]], curve: [[0, 0], [5, 0], [10, 0]], levels: [[[0, 0], [10, 0]], [[5, 0]]], t: 0.5, point: [5, 0], tangent: [1, 0], bmin: [0, 0], bmax: [10, 0] })]);
+  figures.push(["scene nurbsChartSvg no knots inserted", nurbsChartSvg({ P: [[0, 0], [1, 1], [2, 0]], curve: [[0, 0], [1, 0.5], [2, 0]], knotPoints: [{ u: 0, point: [0, 0] }, { u: 1, point: [2, 0] }], u: 0.5, point: [1, 0.5], degree: 2, rational: false, inserted: null, circle: null })]);
+  figures.push(["scene sceneBarsSvg one bar", sceneBarsSvg([{ name: "Only", value: 1, text: "1 MiB" }], "One texture", "MiB")]);
+}
+// --- end Scene modelling & pipeline ---
 
 {
   // Kaplan–Meier (v2.194.0): curve to last follow-up, y fixed 0–1, censoring + ticks (incl. one at S = 1).

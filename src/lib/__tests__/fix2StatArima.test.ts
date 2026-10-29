@@ -32,9 +32,9 @@ describe("MAJOR 6: ARIMA never depends on the clock", () => {
     const src = fs.readFileSync(path.join(__dirname, "..", "arima.ts"), "utf8");
     expect(src).not.toMatch(/Date\.now|performance\.now/);
   });
-  test("the typical need grows as k³", () => {
-    expect(arimaTypicalEvals(4)).toBe(960);
-    expect(arimaTypicalEvals(8)).toBe(7680);
+  test("the up-front need grows as k³ (fix round 3: 4·k³, the least a fit needs; round 2's 15·k³ refused fits the engine completes)", () => {
+    expect(arimaTypicalEvals(4)).toBe(256);
+    expect(arimaTypicalEvals(8)).toBe(2048);
   });
   test("ARIMA(3, 1, 3) on 500-row random walks: the same outcome twice, bounded by work, not a clock", () => {
     // Over-parametrised on a random walk: of ten seeds 7 estimate, 2 do not converge in 400 iterations and 1 runs out
@@ -70,12 +70,13 @@ describe("MAJOR 6: ARIMA never depends on the clock", () => {
       expect(f.ok).toBe(true);
     }
   });
-  test("a fit whose typical need exceeds the budget is refused up front, by name, before any work", () => {
-    const y = walk(10000, 11).map((v, i, a) => (i ? v - a[i - 1] : 0)).slice(1);
+  test("a fit whose least need exceeds the budget is refused up front, by name, before any work", () => {
+    // Fix round 3: ARIMA(5, 0, 1) on 9,999 rows now fits (it was refused up front); 99,999 rows cannot.
+    const y = walk(100000, 11).map((v, i, a) => (i ? v - a[i - 1] : 0)).slice(1);
     const t0 = performance.now();
     const f = fitArima(y, { p: 5, d: 0, q: 1, trend: "mean" });
     expect(performance.now() - t0).toBeLessThan(budget(100));
     expect(f.ok).toBe(false);
-    if (!f.ok) expect(f.reason).toMatch(/^ARIMA\(5, 0, 1\) on 9,999 observations needs more computation than the pane allows; use at most 9,576 rows for these orders, or smaller p and q\.$/);
+    if (!f.ok) expect(f.reason).toMatch(/^ARIMA\(5, 0, 1\) on 99,999 observations needs more computation than the pane allows; use at most 16,433 rows for these orders, or smaller p and q\.$/);
   });
 });

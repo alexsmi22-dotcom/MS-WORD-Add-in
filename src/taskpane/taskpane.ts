@@ -105,7 +105,7 @@ import { STAR_SCHEMES } from "../lib/regTable";
 import { EngLine, EngReportLine, engReport, kvTable, plainDashes } from "../lib/engReport";
 import { engEq } from "../lib/engEquations";
 import { carryOver, displayValue, fieldNames, fieldText, fieldUnitOf, handoffGroupLabel, handoffGroups, parseUncertainty, runSweep, runUncertainty, sweepReport, uncertaintyReport, variableField, type UncertainInput } from "../lib/engWorkbench";
-import { statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
+import { statFieldAmbiguity, statFieldCommasAreSeparators, statFieldProvesDecimalCommas } from "../lib/statFields";
 import {
   HostCapability,
   FigurePresetChoice,
@@ -10395,9 +10395,12 @@ const statCommaLog = new Map<string, string>();
  * data nobody had (§A WRONG 8). The comma's role is decided for the text this
  * call receives: a whole list field, one group, or one row.
  */
-function statList(s: string, cells = false): number[] {
+function statList(s: string, cells = false, row = false): number[] {
   // A forced cell keeps the field's ruling: a three-digit "1,250" in a decimal-comma field is 1.25.
   const r = readNumberList(nbspSeparators(s), { cells, decimalField: cells });
+  // A free list that reads two ways ("100,200,300", "1,500") is asked, never read as a list in silence (fix round 3
+  // N1). A ROW that needs several values (`row`: regression, Friedman, survival, table rows) keeps the list reading.
+  if (r.ambiguous && !row) throw new ListTokenError(r.ambiguous);
   // The note is numberList's own sentence for THIS reading (decimalCommaNote),
   // so whatever the shared reader says it did is exactly what the user reads.
   const note = decimalCommaNote(r);
@@ -10411,7 +10414,7 @@ function statList(s: string, cells = false): number[] {
  * survival calculators carry the same typed-comma note as every other one.
  */
 function logRowCommas(text: string): void {
-  for (const l of text.split(/[;\n]+/)) if (l.trim()) statList(l);
+  for (const l of text.split(/[;\n]+/)) if (l.trim()) statList(l, false, true);
 }
 
 /** The typed-comma note for the compute just run, or "" when no comma was read as a decimal. */
@@ -10435,7 +10438,7 @@ function statTable(s: string): number[][] {
   const sep = statFieldCommasAreSeparators(s);
   const rows = s.split(/\n|;/);
   const cells = !sep && statFieldProvesDecimalCommas(rows);
-  return rows.map((line) => statList(sep ? line.replace(/,/g, " ") : line, cells)).filter((row) => row.length > 0);
+  return rows.map((line) => statList(sep ? line.replace(/,/g, " ") : line, cells, true)).filter((row) => row.length > 0);
 }
 
 /**
@@ -10863,7 +10866,7 @@ const STAT_CALCS: StatCalc[] = [
     compute: (r) => {
       const rows = r("cols")
         .split(/[\n;]+/)
-        .map((l) => statList(l))
+        .map((l) => statList(l, false, true))
         .filter((v) => v.length >= 2);
       if (rows.length < 3) return { text: "Enter at least three rows: response then predictors.", ok: false };
       const capped = regressionRowsProblem(rows.length, "Multiple regression");
@@ -11389,7 +11392,7 @@ const STAT_CALCS: StatCalc[] = [
         .split(/[\n;]+/)
         .map((line) => line.trim())
         .filter(Boolean)
-        .map((line) => statList(line));
+        .map((line) => statList(line, false, true));
       const res = friedman(rows);
       if (!res.ok) return { text: res.reason ?? "Could not run the test.", ok: false };
       return {
@@ -12561,7 +12564,8 @@ function updateStatsPreview(): void {
   const ambiguous = calc.fields
     .map((f) => {
       const as = asksComma(f);
-      return as ? semicolonCommaRefusal(read(f.key), as) : "";
+      // …and a lone grouped run that reads two ways ("100,200,300", "1,500") is asked too (fix round 3 N1).
+      return as ? semicolonCommaRefusal(read(f.key), as) || statFieldAmbiguity(read(f.key), as) : "";
     })
     .map((msg, i) => (msg ? `${calc.fields[i].label}: ${msg}` : ""))
     .find(Boolean);
@@ -12570,8 +12574,9 @@ function updateStatsPreview(): void {
   } else {
     try {
       out = calc.compute(read);
-    } catch {
-      out = { text: "Could not compute — check the inputs.", ok: false };
+    } catch (e) {
+      // A list that reads two ways says so (statList's question), not a generic failure.
+      out = { text: e instanceof ListTokenError ? e.message : "Could not compute — check the inputs.", ok: false };
     }
   }
   // A typed decimal comma is never read silently (§E4): "1,5 2,3" is 1.5 and
@@ -14666,6 +14671,8 @@ function avPlot(svg: string, caption: string, alt: string): AnalyzeBlock {
  */
 function avNumbers(text: string, what: string): { values: number[]; note: string } | { error: string } {
   const r = readNumberList(text);
+  // A lone "100,200" or "1,000,500" reads two ways: asked, never read as a list in silence (fix round 3 N1).
+  if (r.ambiguous) return { error: `${r.ambiguous} (${what})` };
   if (r.dropped.length) return { error: `"${r.dropped[0].trim()}" is not a number (${what}).` };
   return { values: r.values, note: decimalCommaNote(r) };
 }

@@ -42,25 +42,33 @@ export interface FinField {
 }
 
 /**
- * The fields to change when select `sel` goes from option `prev` to option `next` (R3 MINOR 12): every field named
- * in any of the select's modeDefaults that STILL HOLDS the previous option's default (so nothing the user typed is
- * overwritten) takes the next option's default. `current` reads a field's present value. Pure, so it is tested; the
- * pane makes one call and writes the result into its inputs.
+ * The fields to change when select `sel` goes from option `prev` to option `next` (R3 MINOR 12). A field named in any
+ * of the select's modeDefaults takes the default of the CURRENT combination of selects, when it still holds a default
+ * (its own, or any option's of any select: so nothing the user typed is overwritten). The combination's default is
+ * that of the first select, in field order, whose current option names the field; else the field's own. Fix round 3
+ * F3: it used to compare only against the previous option of the select being changed, so dmg-sec-ribbon with units
+ * = decimal and then mode = dollar kept the decimal abnormal returns and refused its own defaults; the order of the
+ * two changes decided the result. `current` reads a field's present value (a select's too). Pure, so it is tested;
+ * the pane makes one call and writes the result into its inputs.
  */
 export function modeDefaultSwaps(fields: FinField[], sel: FinField, prev: string, next: string, current: (key: string) => string): Record<string, string> {
   const md = sel.modeDefaults;
   if (!md || prev === next) return {};
+  const selects = fields.filter((f) => f.kind === "select" && f.modeDefaults);
+  const optionOf = (s: FinField): string => (s.key === sel.key ? next : current(s.key) || s.default);
+  // Line endings and outer spaces aside (a textarea may hand back \n for \r\n).
+  const norm = (s: string): string => s.replace(/\r\n?/g, "\n").trim();
   const keys = new Set<string>();
   for (const opt of Object.keys(md)) for (const k of Object.keys(md[opt])) keys.add(k);
   const out: Record<string, string> = {};
   for (const k of keys) {
     const f = fields.find((x) => x.key === k);
     if (!f) continue;
-    const was = md[prev]?.[k] ?? f.default;
-    const will = md[next]?.[k] ?? f.default;
-    // Line endings and outer spaces aside (a textarea may hand back \n for \r\n): the user has not edited it.
-    const norm = (s: string): string => s.replace(/\r\n?/g, "\n").trim();
-    if (will !== was && norm(current(k)) === norm(was)) out[k] = will;
+    const owner = selects.find((s) => s.modeDefaults![optionOf(s)]?.[k] !== undefined);
+    const will = owner ? owner.modeDefaults![optionOf(owner)][k] : f.default;
+    const defaults = new Set([f.default, ...selects.flatMap((s) => Object.values(s.modeDefaults!).map((o) => o[k]).filter((v): v is string => v !== undefined))].map(norm));
+    const now = norm(current(k));
+    if (now !== norm(will) && defaults.has(now)) out[k] = will;
   }
   return out;
 }

@@ -412,6 +412,8 @@ export function readLevels(text: string, lo: number, hi: number): { levels: numb
     return lv.length ? { levels: lv, notes: [] } : "z varies too little over the rectangle for automatic levels; type the levels to draw in Levels (for example 0.1 0.2 0.3).";
   }
   const r = readNumberList(t);
+  // A lone "1,000,500" (two levels, or one) is asked, never read as a list in silence (fix round 3 N1).
+  if (r.ambiguous) return `Levels: ${r.ambiguous}`;
   if (r.dropped.length) return `Could not read the level${r.dropped.length === 1 ? "" : "s"} ${r.dropped.map((d) => `“${d}”`).join(", ")}; write numbers separated by spaces or commas.`;
   const levels = [...new Set(r.values)].sort((a, b) => a - b);
   if (!levels.length) return "Enter at least one level, or leave the field blank for automatic levels.";

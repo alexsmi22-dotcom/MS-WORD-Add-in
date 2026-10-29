@@ -54,11 +54,14 @@ export const ARIMA_MAX_ITER = 400;
  * O(r), plus the dense Lyapunov solve for the stationary start and a fixed cost per evaluation. Charging a flat N·r²
  * was wrong both ways: near an MA unit root the covariance never settles (ARIMA(1, 1, 1) on 100,000 rows of noise ran
  * for 140 s), and at high orders on short series the r² × r² solve dominates (ARIMA(5, 0, 5) on 60 rows ran for 16 s).
- * Optimisation and the Hessian share it. Round 2 (MAJOR 6): no clock any more. A fit whose typical need
- * (arimaTypicalEvals) exceeds it is refused up front, by name; one that runs past it anyway is refused the same way on
- * every machine.
+ * Round 2 (MAJOR 6): no clock any more. A fit whose least need (arimaTypicalEvals) exceeds it is refused up front, by
+ * name; one that runs past it is stopped inside the optimiser, at the evaluation that crosses it (the objective
+ * itself returns no value once the budget is spent), and refused the same way on every machine. Fix round 3 (S-M1):
+ * the round-2 charge was 2.4–2.8× low where the covariance never settles (an MA near its unit root: ARIMA(1, 1, 1) on
+ * 100,000 rows of noise charged 2 s and ran 5.2 s before refusing), so every term is recalibrated (evalCostNs) and the
+ * budget, with the Hessian's allowance, is at most 2.2 s of estimated work.
  */
-export const ARIMA_WORK_BUDGET = 2e9;
+export const ARIMA_WORK_BUDGET = 1.9e9;
 /**
  * Kept for the modules that cite it (bootstrap, iv, panel, oligopoly still stop on a clock); ARIMA itself no longer
  * reads a clock.
@@ -72,22 +75,27 @@ export const ARIMA_MAX_PQ = 6;
 /** Extra work for the standard errors' Hessian beyond what the optimiser left (estimated ns). */
 const HESS_ALLOWANCE = 3e8;
 /**
- * Likelihood evaluations a fit with k parameters typically needs, for the up-front refusal: 15·k³, between the 75th
- * and 90th percentiles measured over 1,200 seeded fits (round 2: every p + q ≤ 6, d = 0 and 1, n = 100 to 10,000;
- * k = 4: 848 and 1,260; k = 6: 2,135 and 3,710; k = 8: 7,480 and 10,127).
+ * Likelihood evaluations a fit with k parameters needs at the least, for the up-front refusal: 4·k³. Round 2 sized it
+ * at 15·k³, between the 75th and 90th percentiles of 1,200 seeded fits (k = 4: 848 and 1,260; k = 6: 2,135 and 3,710;
+ * k = 8: 7,480 and 10,127), which refused fits the engine completes: ARIMA(1, 0, 5) with a mean on 10,000 rows of
+ * noise fits in about 2,900 evaluations (k = 8) and was refused up front (fix round 3 S-m1). Only a fit that cannot
+ * finish even in that many is refused before any work; the run-time budget catches the tail.
  */
 export function arimaTypicalEvals(k: number): number {
-  return 15 * k ** 3;
+  return 4 * k ** 3;
 }
 
 /**
- * Estimated cost of one likelihood evaluation, ns. Recalibrated round 2 (2026-10-28) by least squares on 300 timed
- * fits in the test runner: 2.8 ns per settled step per (r + 2), 13 per unsettled step per r², 0.76 r⁶ for the start,
- * 29 µs per evaluation (the search's own work); rounded up to 3, 15, 1 and 30 µs. Within 0.67–1.25× of the measured
- * time for 90% of the fits.
+ * Estimated cost of one likelihood evaluation, ns. Recalibrated fix round 3 (2026-10-28) by non-negative least squares
+ * on 12 whole timed fits that include the cases round 2's calibration lacked: MA roots at −1 (white noise differenced:
+ * ARIMA(1, 1, 1) on 20,000 and 100,000 rows, (0, 1, 3), (3, 1, 2)) and AR roots near 1 (a random walk fitted as
+ * ARMA(3, 0, 3); φ = 0.995). An unsettled step costs 14·r² + 84 ns, not 13·r²: its constant part (the bookkeeping of
+ * three r × r passes) is most of the cost at r = 2, the shape that never settles. Then 6 per settled step per (r + 2),
+ * 0.5·r⁶ for the start and 30 µs per evaluation. Scaled to the review's lighter-load timings (the same fits ran 2.4×
+ * slower under this calibration's load) and rounded up to 15·r² + 100, 7, 1 and 40 µs; every fit within 0.74–1.31×.
  */
 function evalCostNs(N: number, r: number, unsteady: number): number {
-  return 15 * unsteady * r * r + 3 * (N - unsteady) * (r + 2) + r ** 6 + 30000;
+  return (15 * r * r + 100) * unsteady + 7 * (N - unsteady) * (r + 2) + r ** 6 + 40000;
 }
 
 /**
@@ -619,6 +627,9 @@ export function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number,
     return g;
   };
   let g = grad(x, f);
+  // The budget ran out inside the gradient (the objective's hard stop returns no value): the gradient is partial, so
+  // nothing may be concluded from it (fix round 3).
+  if (budget.left <= 0) return { x, f, converged: false, iterations: 0, exhausted: true };
   let Hinv: number[][] = [];
   for (let i = 0; i < k; i++) {
     const row = new Array<number>(k).fill(0);
@@ -661,6 +672,9 @@ export function bfgs(fn: (x: number[]) => number, x0: number[], maxIter: number,
       return { x, f, converged: gnorm < 1e-6, iterations: it };
     }
     const gn = grad(xn, fn1);
+    // A gradient cut short by the budget must not feed a convergence test (a partial gradient of zeros would read as
+    // converged): stop at the accepted point, marked exhausted.
+    if (budget.left <= 0) return { x: xn, f: fn1, converged: false, iterations: it, exhausted: true };
     const s = xn.map((v, i) => v - x[i]);
     const yv = gn.map((v, i) => v - g[i]);
     const sy = s.reduce((acc, v, i) => acc + v * yv[i], 0);
@@ -759,8 +773,8 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   const typicalEvals = arimaTypicalEvals(k) + hessEvals;
   const upfront = typicalEvals * evalCostNs(N, r, M_min(N, r * r));
   if (upfront > ARIMA_WORK_BUDGET) {
-    const perRow = typicalEvals * 3 * (r + 2);
-    const fixed = typicalEvals * (15 * r ** 4 + r ** 6 + 30000);
+    const perRow = typicalEvals * 7 * (r + 2);
+    const fixed = typicalEvals * ((15 * r * r + 100) * r * r + r ** 6 + 40000);
     const maxN = M_max(0, Math.floor((ARIMA_WORK_BUDGET - fixed) / perRow));
     return {
       ok: false,
@@ -770,6 +784,9 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec): ArimaFitResult 
   const budget = { left: ARIMA_WORK_BUDGET };
   const cost = { ns: 0 };
   const fn = (x: number[]): number => {
+    // A hard stop (fix round 3 S-M1): once the budget is spent no evaluation runs, so the work never exceeds it by more
+    // than the one evaluation that crossed it; bfgs then returns at its next check, marked exhausted.
+    if (budget.left <= 0) return Infinity;
     const v = negMeanLlf(z, x, pk, cost);
     budget.left -= cost.ns;
     return v;

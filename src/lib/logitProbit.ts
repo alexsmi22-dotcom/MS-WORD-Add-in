@@ -977,12 +977,13 @@ export function oddsRatiosLeftOut(model: FittedModel): string[] {
  */
 export function fmtOddsRatio(v: number): string {
   if (!Number.isFinite(v)) throw new RangeError("non-finite odds ratio reached the logit report");
-  const a = Math.abs(v);
-  if (a === 0) return "0";
+  if (v === 0) return "0";
+  // The format and the decimals are chosen from the value AFTER rounding to 4 significant figures: 0.99996 rounds to
+  // 1.000, so it takes three decimals like 1.00001, not four ("1.0000") (round 2); 0.00099995 rounds to 0.001000 and
+  // prints as 0.001 does, and 999,999,999.9 rounds to 1.000×10⁹ as 1e9 does (fix round 3 S-m2: both switched format).
+  const a = Math.abs(Number(v.toPrecision(4)));
   if (a < 1e-3 || a >= 1e9) return fmtSci(v);
-  // The magnitude AFTER rounding to 4 significant figures (round 2 MINOR): 0.99996 rounds to 1.000, so it takes three
-  // decimals like 1.00001, not four ("1.0000").
-  const digits = Math.floor(Math.log10(Number(a.toPrecision(4)))) + 1;
+  const digits = Math.floor(Math.log10(a)) + 1;
   return tableFixed(v, Math.max(0, 4 - digits));
 }
 

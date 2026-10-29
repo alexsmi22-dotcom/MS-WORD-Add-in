@@ -80,7 +80,8 @@ export function inNum(x: number): string {
   let s = x.toLocaleString("en-US", { maximumFractionDigits: 6 });
   // A nonzero value below 5×10⁻⁷ printed "0" (a typed rate of 0.0000001% echoed as "0%"): significant digits then
   // (fix round 2 MINOR 3). Intl writes them out in plain digits, never e-notation.
-  if (x !== 0 && Number.isFinite(x) && !/[1-9]/.test(s)) s = x.toLocaleString("en-US", { maximumSignificantDigits: 6 });
+  // Below 10⁻³ always (fix round 3 F2: 5×10⁻⁷ printed "0.000001" and 1.5×10⁻⁶ "0.000002", double the typed rate).
+  if (x !== 0 && Number.isFinite(x) && Math.abs(x) < 1e-3) s = x.toLocaleString("en-US", { maximumSignificantDigits: 6 });
   return s.startsWith("-") ? (/[1-9]/.test(s) ? "−" + s.slice(1) : s.slice(1)) : s;
 }
 
@@ -88,6 +89,8 @@ const plural = (n: number, one: string, many = one + "s"): string => (n === 1 ? 
 
 /** A compounding or payment frequency as the pane's titles print it ("12×"): unrounded, never "12.00". */
 const timesText = (m: number): string => `${m.toLocaleString("en-US", { maximumFractionDigits: 12 })}×`;
+/** "compounded once a year", never "1× a year" (fix round 3 F4); other frequencies as the titles print them. */
+const freqText = (m: number): string => (m === 1 ? "once" : timesText(m));
 
 /** True when the printed money text is negative (a true minus) or zero to the cent. */
 const isNegText = (s: string): boolean => s.startsWith("−");
@@ -263,7 +266,7 @@ export function compoundReading(p: number, ratePct: number, m: number, years: nu
   const vs = finMoney(v);
   const ps = finMoney(p);
   if (years === 0) return `With 0 years there is no time to compound, so ${ps} stays ${vs}.`;
-  return `At ${inPct(ratePct)} a year compounded ${timesText(m)} a year, ${ps} ${moved(ps, vs, p, v)} ${vs} after ${inNum(years)} ${plural(years, "year")}.`;
+  return `At ${inPct(ratePct)} a year compounded ${freqText(m)} a year, ${ps} ${moved(ps, vs, p, v)} ${vs} after ${inNum(years)} ${plural(years, "year")}.`;
 }
 
 const FREQ_WORDS: Record<number, string> = { 1: "annual", 2: "half-yearly", 4: "quarterly", 12: "monthly", 26: "fortnightly", 52: "weekly", 365: "daily" };
@@ -307,13 +310,13 @@ export function earReading(nomPct: number, m: number): string | undefined {
   // A nominal rate of zero earns nothing to compound (fix round 2 MINOR 1: it read "adds too little to show").
   if (nom === 0) return `${aAn(ns, true)} ${ns} nominal rate is also ${es} effective: with no interest there is nothing to compound.`;
   // A rate too small to show at two decimals (−0.001%): the rate itself, not the compounding, is what prints as zero.
-  if (isZeroText(finPct(nom))) return `${aAn(ns, true)} ${ns} nominal rate compounded ${timesText(m)} a year is ${es} effective to two decimals: the rate itself is too small to show there.`;
+  if (isZeroText(finPct(nom))) return `${aAn(ns, true)} ${ns} nominal rate compounded ${freqText(m)} a year is ${es} effective to two decimals: the rate itself is too small to show there.`;
   if (es === finPct(nom)) {
     return m === 1
       ? `${aAn(ns, true)} ${ns} nominal rate compounded once a year is also ${es} effective: no interest is earned on interest within the year.`
-      : `${aAn(ns, true)} ${ns} nominal rate compounded ${timesText(m)} a year is ${es} effective to two decimals: compounding within the year adds too little to show.`;
+      : `${aAn(ns, true)} ${ns} nominal rate compounded ${freqText(m)} a year is ${es} effective to two decimals: compounding within the year adds too little to show.`;
   }
-  return `${aAn(ns, true)} ${ns} nominal rate compounded ${timesText(m)} a year is ${es} a year effective` + (eff > nom && nom > 0 ? ", because interest earns interest within the year." : ".");
+  return `${aAn(ns, true)} ${ns} nominal rate compounded ${freqText(m)} a year is ${es} a year effective` + (eff > nom && nom > 0 ? ", because interest earns interest within the year." : ".");
 }
 
 /** gann: "A first payment of 1,000.00, growing 5.00% a period for 10 periods, is worth 8,108.07 today at a 10.00% discount rate." */
@@ -368,7 +371,7 @@ export function rateFormsReading(p: number, ratePct: number, years: number, m: n
   // The larger amount is the most any compounding gives (e^r ≥ (1 + r/m)^m, so continuous for a positive principal).
   const bound = cs === ds ? "the same" : cont > disc ? "the most any compounding can give" : "the least any compounding can give";
   return (
-    `At ${inPct(ratePct)} for ${inNum(years)} ${plural(years, "year")}, ${finMoney(p)} becomes ${ds} compounded ${timesText(m)} a year and ${cs} compounded ` +
+    `At ${inPct(ratePct)} for ${inNum(years)} ${plural(years, "year")}, ${finMoney(p)} becomes ${ds} compounded ${freqText(m)} a year and ${cs} compounded ` +
     `continuously (${bound}); ${inPct(ratePct)} nominal is ${finPct(eff)} effective.`
   );
 }

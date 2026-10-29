@@ -18,7 +18,8 @@ const asks = (s: string): string => {
 };
 
 describe("B1: several commas with a group that is not 000 are asked, never one silent number", () => {
-  test.each(["-1,000,500,500,500", "5,000,100,200", "250,000,050", "1,000,500"])("%s", (s) => {
+  // Fix round 3: "250,000,050" left this list. Its last group is 0-led, so it can only be the one number (N1).
+  test.each(["-1,000,500,500,500", "5,000,100,200", "1,000,500"])("%s", (s) => {
     expect(readNumberList(s).ambiguous).toMatch(/reads two ways/);
     expect(asks(s)).toMatch(/reads two ways: the numbers/);
     // the list reading is kept for the readers that do not ask (Stats), as before fix-statA
@@ -26,7 +27,8 @@ describe("B1: several commas with a group that is not 000 are asked, never one s
   });
   test("the B1 repro names both readings", () => {
     expect(asks("-1,000,500,500,500")).toBe(
-      "“−1,000,500,500,500” reads two ways: the numbers −1, 000, 500, 500, 500, or one number grouped in thousands (−1000500500500). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.",
+      // Fix round 3 (N3): the list reading offered joins the 0-led group to the value before it; "000" is no value.
+      "“−1,000,500,500,500” reads two ways: the numbers −1000, 500, 500, 500, or one number grouped in thousands (−1000500500500). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.",
     );
   });
 });
@@ -40,6 +42,9 @@ describe("the one-number shapes stay one number", () => {
     ["12,000,000", 12000000],
     ["4,000,000", 4000000],
     ["-1,000,000,000", -1000000000],
+    // fix round 3 N1: the last group 0-led
+    ["250,000,050", 250000050],
+    ["2,500,000", 2500000],
   ])("%s", (s, v) => {
     const r = readNumberList(s);
     expect(r.ambiguous).toBeUndefined();

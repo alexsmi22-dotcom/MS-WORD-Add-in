@@ -90,29 +90,37 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
   //   - ONE comma, and the group after it starts with 0 ("1,000", "−2,050", "10,000.5"): the one number. No list value
   //     is written "000" or "050" (calcList's tell), and as a list "1,000" was [1, 0] while "1,000 2,000" read as 1000
   //     and 2000 (bug test 2026-10-28, R4 #3).
-  //   - SEVERAL commas, and EVERY group after the first is exactly "000" ("1,000,000", "12,000,000"): the one number,
-  //     for the same reason ("12, 0, 0" is nobody's list).
-  //   - Any other grouped shape reads two ways and is ASKED (`ambiguous`; calcList refuses with the question):
-  //     "−1,000,500,500,500", "5,000,100,200", "250,000,050" (several commas, a group that is not 000: the list
-  //     reading is as likely as the number; fix round 2 B1, where one silent 13-digit cash flow replaced five), and a
-  //     single comma with a group that does not start with 0 ("1,500", "100,200": two values, fifteen hundred, or
-  //     a decimal comma; fix round 2 MINOR 8, where "1,500" was silently [1, 500] beside "1,000" read as 1000).
-  //     `values` keep the list reading, so a Stats table row "100,200" reads as before (Stats callers do not ask).
+  //   - SEVERAL commas, and the LAST group starts with 0 ("1,000,000", "2,500,000", "4,250,000", "1,050,000",
+  //     "1,250,000.50", "250,000,050"): the one number. That last group can never begin a list value, so every other
+  //     reading ends in a grouped number too, and the only one left ("2" and "500,000") is nobody's list. Fix round 3
+  //     N1: round 2 had narrowed this to all-"000" groups, and "2,500,000" became [2, 500, 0] for every reader that
+  //     does not ask (contour levels, Stats lists, audio), silently.
+  //   - Any other grouped shape reads two ways and is ASKED (`ambiguous`): "−1,000,500,500,500", "5,000,100,200",
+  //     "1,000,500" (several commas ending in a group that is not 0-led: the list reading is as likely as the number;
+  //     fix round 2 B1, where one silent 13-digit cash flow replaced four), and a single comma with a group that does
+  //     not start with 0 ("1,500", "100,200": two values, fifteen hundred, or a decimal comma; fix round 2 MINOR 8).
+  //     Every reader that takes a free list refuses with the question (calcList, readLevels, audio, the pane's Stats
+  //     and Analyze lists: statFieldAmbiguity); readers of ROWS that need several values keep the list reading in
+  //     `values` (unchanged), the only one a row can mean. The question's list reading joins a 0-led group to the
+  //     value before it ("−1,000,500,500,500" offers −1000, 500, 500, 500: no value is written "000").
   // A leading 0 ("0,050", "0,500") is never thousands: it keeps the plain list reading, unasked, as before.
   const lone = !opts.cells && runs.length === 1 ? mantissaOf(runs[0]) : "";
   const loneGrouped = lone !== "" && GROUPED_THOUSANDS.test(lone) && /^[-−–+]?[1-9]/.test(lone);
   const loneGroups = loneGrouped ? lone.replace(/\.\d+%?$|%$/, "").split(",").slice(1) : [];
-  const loneThousands = loneGrouped && (loneGroups.length === 1 ? loneGroups[0].startsWith("0") : loneGroups.every((g) => g === "000"));
+  const loneThousands = loneGrouped && loneGroups[loneGroups.length - 1].startsWith("0");
   const commaListing = !opts.cells && !loneThousands && (runs.length <= 1 || runs.some((t) => commas(t) >= 2 && !grouped(t)));
   let ambiguous: string | undefined;
   if (loneGrouped && !loneThousands) {
     const t = runs[0];
     const parts = t.split(",");
+    // The list reading the question offers: split only at commas before a group not led by 0.
+    const asList = parts.slice(1).reduce((acc, g) => (g.startsWith("0") ? [...acc.slice(0, -1), `${acc[acc.length - 1]},${g}`] : [...acc, g]), [parts[0]]);
+    const shownList = asList.map((x) => x.replace(/,/g, "")).join(", ");
     // A typed hyphen sign is shown as a true minus (the display contract; the message reaches the pane as is).
     ambiguous = trueMinus(
       parts.length === 2 && !lone.includes(".")
         ? `“${t}” reads three ways: the numbers ${parts.join(" and ")}, one number grouped in thousands (${t.replace(",", "")}), or a decimal comma (${t.replace(",", ".")}). Separate two numbers with “, ” (comma and space) or a semicolon, or write one number without the comma.`
-        : `“${t}” reads two ways: the numbers ${parts.join(", ")}, or one number grouped in thousands (${t.replace(/,/g, "")}). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.`,
+        : `“${t}” reads two ways: the numbers ${shownList}, or one number grouped in thousands (${t.replace(/,/g, "")}). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.`,
     );
   }
   const tokens = commaListing ? runs.flatMap((t) => t.split(",")).filter((t) => t !== "") : runs;
@@ -136,14 +144,17 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
   const reread: string[] = [];
   let decimalCommas = 0;
   let example: string | undefined;
-  for (const t of tokens) {
+  for (const typed of tokens) {
+    // A leading plus is a sign, not part of the number's shape: "+1,000" is 1000 as "+1500" is 1500 (fix round 3 N4:
+    // "+1,000" was refused in Finance lists and dropped from Stats lists).
+    const t = typed.replace(/^(\s*)\+(?=[\d.])/, "$1");
     // The shape is tested on the MANTISSA, so "1,250×10³" in a decimal-comma
     // field is 1.25×10³, not 1250×10³ (a silent 1000× error).
     const m = mantissa(t);
     const asDecimal = decimalField && THOUSANDS_SHAPE.test(m);
     const v = asDecimal ? parseCellNumber(m.replace(THOUSANDS_SHAPE, "$1.$2$3") + t.trim().slice(m.length)) : parseCellNumber(t);
     if (!Number.isFinite(v)) {
-      dropped.push(t);
+      dropped.push(typed);
       continue;
     }
     values.push(v);
@@ -154,6 +165,22 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
     }
   }
   return { values, dropped, commaMode: commaListing ? "separator" : "cell", decimalCommas, example, reread, ...(ambiguous ? { ambiguous } : {}) };
+}
+
+/**
+ * A field that takes exactly ONE number reads a run grouped in thousands as that number whenever the grouping is
+ * valid (groups of three after the first, leading digit 1–9): "4,250,000", "1,234,567", "1,250,000.50", "+1,000".
+ * A list reading cannot be meant where only one value is taken (fix round 3 N2: ipv-mc fixed mode refused
+ * "4,250,000" as "reads two ways"). Only the single comma without the 0 tell stays a question ("1,500": fifteen
+ * hundred or 1.5), which `readNumberList(text).ambiguous` asks. Returns null for every other shape.
+ */
+export function oneGroupedNumber(text: string): number | null {
+  const t = (text ?? "").trim();
+  if (!GROUPED_THOUSANDS.test(t) || !/^[-−–+]?[1-9]/.test(t)) return null;
+  const groups = t.replace(/\.\d+%?$|%$/, "").split(",").slice(1);
+  if (groups.length === 1 && !groups[0].startsWith("0")) return null;
+  const v = Number(t.replace(/,/g, "").replace(/%$/, "").replace(/^[−–]/, "-").replace(/^\+/, ""));
+  return Number.isFinite(v) ? v : null;
 }
 
 /** "2 decimal commas read as decimals (1,5 → 1.5)." — or "" when none were. */

@@ -741,6 +741,8 @@ export function parseLevelList(text: string): ParsedList<number> | AudioError {
     })
     .replace(/(^|[\s,;])\+(?=[\d.])/g, "$1");
   const r = readNumberList(marked.split(MARK).join(";"));
+  // A lone "100,105" reads two ways: asked, never read as a list in silence (fix round 3 N1).
+  if (r.ambiguous) return fail(r.ambiguous);
   if (r.dropped.length) {
     return fail(`"${r.dropped[0].trim()}" is not a level in dB. Levels are numbers, e.g. 80, 80, 74.`);
   }
@@ -847,6 +849,8 @@ export function parseBandList(text: string): ParsedList<number> | AudioError {
   }
   const expanded = p.replace(/(?<![\d.])(\d+(?:\.\d+)?)k\b/gi, (_m, n: string) => String(Number(n) * 1000));
   const r = readNumberList(expanded);
+  // A lone "125,250" (two bands, or one) is asked, never read as a list in silence (fix round 3 N1).
+  if (r.ambiguous) return fail(r.ambiguous);
   if (r.dropped.length) {
     return fail(`"${r.dropped[0].trim()}" is not a band frequency. Write e.g. 63, 125, 1k, 2k (k = ×1000 Hz).`);
   }

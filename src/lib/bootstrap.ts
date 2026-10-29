@@ -120,6 +120,19 @@ export type BootOutcome = BootResult | { ok: false; reason: string; denominatorC
 
 const isTwo = (s: BootStat): boolean => s === "corr" || s === "ratio" || s === "slope";
 
+/**
+ * The work in millions with just enough decimals to show it over the limit (fix round 3 S-m3: 2,449 rows × 2,000
+ * replicates of the median printed "about 25 million steps; the limit is 25 million").
+ */
+function overLimitMillions(work: number, limit: number): string {
+  const lim = Math.round(limit / 1e6);
+  for (let dp = 0; dp < 6; dp++) {
+    const s = (work / 1e6).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+    if (Number(s.replace(/,/g, "")) > lim) return s;
+  }
+  return (work / 1e6).toLocaleString("en-US", { maximumFractionDigits: 6 });
+}
+
 /** Hyndman–Fan type 7 on a SORTED array, in scipy's operation order. */
 export function quantileType7(sorted: ArrayLike<number>, p: number): number {
   const n = sorted.length;
@@ -391,7 +404,7 @@ export function runBootstrap(inp: BootInput): BootOutcome {
       ok: false,
       reason:
         `${n.toLocaleString("en-US")} rows × ${B.toLocaleString("en-US")} replicates is more work than the bootstrap ` +
-        `allows in one run (about ${Math.round(work / 1e6).toLocaleString("en-US")} million steps; the limit is ` +
+        `allows in one run (about ${overLimitMillions(work, BOOT_MAX_WORK)} million steps; the limit is ` +
         `${Math.round(BOOT_MAX_WORK / 1e6).toLocaleString("en-US")} million). ${remedy}`,
     };
   }

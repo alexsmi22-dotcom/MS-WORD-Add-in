@@ -27,7 +27,7 @@
  */
 import { readFinanceField } from "./finance";
 import { readDataBlock } from "./dataBlock";
-import { readNumberList } from "./numberList";
+import { oneGroupedNumber, readNumberList } from "./numberList";
 import { currentFinFig, finPlotSvg } from "./financeFigures";
 import { buildChartPreviewSvg, type TableChart } from "./tablechart";
 import { ISO4217, ISO4217_DATE, ISO4217_SOURCE, NOT_A_CURRENCY, currencyAmount } from "./currency";
@@ -854,13 +854,19 @@ export function readDist(kindRaw: string, raw: string, label: string, o: { min: 
   if (t.includes("\n")) return { error: `${label}: give ${shape} on one line.` };
   // A fixed input is one value, so a lone "4,5" is asked about (decimal comma or two values), not read as two.
   // A lone number grouped in thousands ("4,000,000", "1,000") is that one number, under the shared list reader's rule
-  // (numberList.ts); one that reads several ways ("1,500", "1,000,500") is asked with its question (fix round 2
-  // MINOR 8: "4,000,000" was refused as three values in fixed mode).
+  // (numberList.ts oneGroupedNumber); a single comma without the 0 tell ("1,500") is asked with its question (fix
+  // round 2 MINOR 8: "4,000,000" was refused as three values in fixed mode).
   let lone: number[] | null = null;
+  // Fix round 3 N2: any valid grouping with two or more commas ("4,250,000", "1,234,567", "1,250,000.50") is the one
+  // number here, since a fixed input takes one value; only "1,500" (1500 or 1.5) is still asked.
   if (kind === "fixed" && /^[-−–+]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) {
-    const nl = readNumberList(t);
-    if (nl.ambiguous) return { error: `${label}: ${nl.ambiguous}` };
-    if (nl.values.length === 1 && !nl.dropped.length) lone = nl.values;
+    const one = oneGroupedNumber(t);
+    if (one !== null) lone = [one];
+    else {
+      const nl = readNumberList(t);
+      if (nl.ambiguous) return { error: `${label}: ${nl.ambiguous}` };
+      if (nl.values.length === 1 && !nl.dropped.length) lone = nl.values;
+    }
   }
   const b = lone ? null : readDataBlock(t, label, { maxRows: 1, loneCommaPairAmbiguous: kind === "fixed" });
   if (b && !b.ok) return { error: b.error };
@@ -984,11 +990,12 @@ export function mcNpvCalc(read: Read): FinResult {
   // Every draw the same as printed (fixed inputs): not an estimate, so the amounts keep the currency's minor units.
   const ex = mcIsExact(r, cur);
   const st = mcStepOf(se, cur.minor);
+  const shownNeg = mcShownNeg(r, cur);
   const lines = [
     "Monte Carlo patent NPV, computed from the inputs given",
     `Mean NPV: ${mcAmount(r.mean, cur, ex, st)} (simulation standard error ${mcAmount(se, cur, ex, st)}); standard deviation ${mcAmount(r.sd, cur, ex)}`,
     `P10 ${mcAmount(r.p10, cur, ex, st)}; P50 ${mcAmount(r.p50, cur, ex, st)}; P90 ${mcAmount(r.p90, cur, ex, st)}`,
-    `Probability NPV < 0: ${mcProb(r.probNeg)} (${r.negCount.toLocaleString("en-US")} of ${samples.toLocaleString("en-US")} draws)`,
+    `Probability NPV < 0: ${mcProb(shownNeg.probNeg)} (${shownNeg.negCount.toLocaleString("en-US")} of ${samples.toLocaleString("en-US")} draws)${shownNeg.breakEven ? `; every draw is ${mcAmount(0, cur, true)} to the smallest unit shown, so none is a loss` : ""}`,
     `NPV at the central inputs (mode, median or fixed value): ${amount(r.central, cur)}`,
     `Inputs: first-year revenue ${distText(revenue, amtF)}, growing ${pctText(growthPct)} a year; royalty rate ${distText(royaltyPct, pctF)}; remaining life ${distText(life, yrF)}; discount rate ${distText(discountPct, pctF)}; tax rate ${pctText(taxPct)}; price paid today ${amount(cost, cur)}.`,
     `NPV = Σₖ R₁ × (1 + g)ᵏ⁻¹ × w × s × royalty rate × (1 − t) × discount factor − price paid; seed ${seed}, ${samples.toLocaleString("en-US")} samples.`,
@@ -1009,7 +1016,7 @@ export function mcNpvCalc(read: Read): FinResult {
     ["P10", mcCell(r.p10, cur, ex, st)],
     ["P50 (median)", mcCell(r.p50, cur, ex, st)],
     ["P90", mcCell(r.p90, cur, ex, st)],
-    ["Probability NPV < 0", mcProb(r.probNeg)],
+    ["Probability NPV < 0", mcProb(shownNeg.probNeg)],
     ["NPV at central inputs", cell(r.central, cur)],
   ];
   return {
@@ -1068,18 +1075,29 @@ export function mcAmount(x: number, cur: Currency, exact = false, st?: McStep): 
  * as zero in the currency's minor units is the test.
  */
 export const mcIsExact = (r: McNpvResult, cur: Currency): boolean => !/[1-9]/.test(cell(r.sd, cur));
+/**
+ * The losses as PRINTED (fix round 3 F1): with every input fixed and a break-even price ("682057.35"), the draws were
+ * −1e−10 float noise, so the text said "Mean NPV: 0.00" beside "Probability NPV < 0: 100.0%" and the reading "every one
+ * … loses money". An exact result (every draw the same as printed) whose amount prints as zero breaks even.
+ */
+function mcShownNeg(r: McNpvResult, cur: Currency): { negCount: number; probNeg: number; breakEven: boolean } {
+  const breakEven = mcIsExact(r, cur) && !/[1-9]/.test(cell(r.mean, cur));
+  return breakEven ? { negCount: 0, probNeg: 0, breakEven } : { negCount: r.negCount, probNeg: r.probNeg, breakEven };
+}
 /** A simulated probability to 0.1 percentage point. */
 const mcProb = (p: number): string => `${fixedText(p * 100, 1)}%`;
 
 /** The plain-language reading of the Monte Carlo NPV (lib/calcReading.ts rules). */
 export function mcNpvReading(r: McNpvResult, cur: Currency, samples: number): string {
   const n = samples.toLocaleString("en-US");
-  const loss =
-    r.negCount === 0
+  const neg = mcShownNeg(r, cur);
+  const loss = neg.breakEven
+    ? `every one of the ${n} simulated outcomes breaks even, neither making nor losing money`
+    : neg.negCount === 0
       ? `none of the ${n} simulated outcomes loses money`
-      : r.negCount === samples
+      : neg.negCount === samples
         ? `every one of the ${n} simulated outcomes loses money`
-        : `${r.negCount.toLocaleString("en-US")} of the ${n} simulated outcomes (about ${mcProb(r.probNeg)}) lose${r.negCount === 1 ? "s" : ""} money`;
+        : `${neg.negCount.toLocaleString("en-US")} of the ${n} simulated outcomes (about ${mcProb(neg.probNeg)}) lose${neg.negCount === 1 ? "s" : ""} money`;
   // The same exactness test and rounding as the text (fix round 2 M2, MINOR 4).
   const ex = mcIsExact(r, cur);
   const st = mcStepOf(r.sd / Math.sqrt(samples), cur.minor);

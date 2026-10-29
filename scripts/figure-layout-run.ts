@@ -325,6 +325,14 @@ import { beamTransmittanceSvg, brdfLobeSvg, falloffChartSvg, hgPolarSvg, noiseCh
 import { softShadow as lightSoftShadow } from "../src/lib/lightingPhysics";
 // --- end Lighting & rendering ---
 
+// --- v2.206.0: spaceflight ---
+// The ten Spaceflight & missions calculators and their chart builders (spaceflightCharts.ts).
+import { SPACEFLIGHT_CALCS } from "../src/lib/spaceflightCalcs";
+import { biellipticSvg, decaySvg, dvWaterfallSvg, entrySvg, footprintSvg, groundTrackSvg, orbitPlaneSvg, phasingSvg, rotatingFrameSvg, ssoCurveSvg, thermalSvg } from "../src/lib/spaceflightCharts";
+import { biellipticThresholds, groundTrack, lagrange } from "../src/lib/spaceMissions";
+import { footprintCircle } from "../src/lib/spaceEnvironment";
+// --- end v2.206.0: spaceflight ---
+
 import { kaplanMeier } from "../src/lib/survival";
 import { kaplanMeierSvg } from "../src/lib/survivalFigure";
 // "Fully inclusive" (2026-10-28): the figures added to the calculators that drew none.
@@ -4152,6 +4160,68 @@ rotator 15` }, "jones elliptical");
   figures.push(["lighting hgPolarSvg strongly backward", hgPolarSvg(-0.95, 180)]);
 }
 // --- end Lighting & rendering ---
+
+// --- v2.206.0: spaceflight ---
+// Each spaceflight calculator at its defaults and at the variants that change a figure's layout: a hyperbola, a
+// parabola, a circular equatorial orbit and a lunar orbit; the long-way and hyperbolic Lambert arcs; Earth to Venus and
+// to Jupiter porkchops; an orbit-only lunar budget; a bi-elliptic-favoured ratio; an inclined non-SSO track; Sun–Jupiter
+// and an equal-mass pair; a shallow entry with no decay; a polar ground station; a dark hot craft at Mercury. Then the
+// builders directly at their edges.
+{
+  const sp = (id: string, over: Record<string, string>, name: string): void => {
+    const c = SPACEFLIGHT_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    const plots = (out.blocks ?? []).filter((b) => b.kind === "plot");
+    if (out.ok === false || !plots.length) throw new Error(`corpus: spaceflight ${name} did not draw: ${out.text}`);
+    plots.forEach((b, i) => {
+      if (b.kind === "plot") figures.push([`spaceflight ${name}${plots.length > 1 ? ` ${i + 1}` : ""}`, b.svg]);
+    });
+  };
+  sp("space-elements", {}, "elements Molniya");
+  sp("space-elements", { e: "1.8", a: "12000 km", nu: "-60", t: "3 h" }, "elements hyperbola");
+  sp("space-elements", { e: "1", size: "rp", a: "7000 km", nu: "0", t: "1 h" }, "elements parabola");
+  sp("space-elements", { e: "0", a: "42164 km", i: "0", t: "6 h" }, "elements GEO circular equatorial");
+  sp("space-elements", { body: "moon", a: "1837 km", e: "0.01", i: "90" }, "elements lunar polar");
+  sp("space-elements", { mode: "state", t: "" }, "elements state Curtis 4.3");
+  sp("space-lambert", {}, "lambert Curtis 5.2");
+  sp("space-lambert", { way: "long", tof: "5 h" }, "lambert long way");
+  sp("space-lambert", { tof: "25 min" }, "lambert hyperbolic");
+  sp("space-interplanetary", {}, "interplanetary Earth Mars 2026");
+  sp("space-interplanetary", { arr: "venus", start: "2026-06-01", span: "300 day", tmin: "80 day", tmax: "250 day" }, "interplanetary Earth Venus");
+  sp("space-interplanetary", { arr: "jupiter", start: "2026-01-01", span: "500 day", tmin: "500 day", tmax: "1500 day" }, "interplanetary Earth Jupiter");
+  sp("space-lunar", {}, "lunar 3 day landing");
+  sp("space-lunar", { tof: "", land: "no", mcc: "0 km/s" }, "lunar minimum energy orbit only");
+  sp("space-maneuvers", {}, "maneuvers GTO GEO");
+  sp("space-maneuvers", { h2: "200000 km", hb: "2000000 km", di: "0", lead: "-40", revs: "3" }, "maneuvers bi-elliptic wins");
+  sp("space-perturbations", {}, "perturbations SSO 800 km");
+  sp("space-perturbations", { h: "1336 km", i: "66" }, "perturbations Jason-like");
+  sp("space-three-body", {}, "three body Earth Moon");
+  sp("space-three-body", { pair: "sun-jupiter", x: "7.0e8 km", vy: "0 km/s" }, "three body Sun Jupiter");
+  sp("space-three-body", { pair: "custom", mu1: "1000", mu2: "1000", d: "10000 km", x: "3000 km", vy: "0.01 km/s" }, "three body equal masses");
+  sp("space-reentry", {}, "reentry capsule 6 deg");
+  sp("space-reentry", { g: "1.5", v: "11 km/s", hd: "" }, "reentry lunar return shallow");
+  sp("space-ground", {}, "ground Boulder LEO");
+  sp("space-ground", { slat: "78.2", slon: "15.4", plat: "85", plon: "170", h: "800 km", el: "5" }, "ground Svalbard polar wrap");
+  sp("space-thermal", {}, "thermal LEO cube");
+  sp("space-thermal", { alpha: "0.9", eps: "0.2", d: "0.39 au", alb: "0", F: "0" }, "thermal Mercury dark");
+  // Builders directly.
+  const lag = lagrange(3.0404e-6);
+  if (lag.ok) figures.push(["spaceflight rotatingFrameSvg Sun-Earth zoom", rotatingFrameSvg(lag, 3.0008, { x: 0.99, y: 0 }, ["Sun", "Earth"], 0.03)]);
+  figures.push(["spaceflight orbitPlaneSvg near-parabolic ellipse", orbitPlaneSvg(7.0e6 * 1.99, 0.99, 6.378e6, "Earth", 0.5, 2.5)]);
+  figures.push(["spaceflight dvWaterfallSvg one leg", dvWaterfallSvg([{ name: "Only burn", dv: 1234, note: "" }], "One burn")]);
+  figures.push(["spaceflight biellipticSvg ratio 80", biellipticSvg(200, 80, biellipticThresholds())]);
+  figures.push(["spaceflight phasingSvg higher orbit", phasingSvg(7.0e6, 7.6e6, -0.6, 6.378e6)]);
+  figures.push(["spaceflight ssoCurveSvg no point", ssoCurveSvg(7000, null)]);
+  figures.push(["spaceflight groundTrackSvg equatorial", groundTrackSvg(groundTrack(42164e3, 0.001, 2), 2)]);
+  figures.push(["spaceflight entrySvg no numeric", entrySvg([{ h: 1e5, v: 7000, a: 1 }, { h: 5e4, v: 5000, a: 80 }, { h: 0, v: 100, a: 5 }], null, "decel", 5e4)]);
+  figures.push(["spaceflight decaySvg short", decaySvg({ low: [{ t: 0, h: 2e5 }, { t: 3, h: 1.2e5 }], moderate: [{ t: 0, h: 2e5 }, { t: 2, h: 1.2e5 }], high: [{ t: 0, h: 2e5 }, { t: 1, h: 1.2e5 }] })]);
+  figures.push(["spaceflight footprintSvg date line", footprintSvg(footprintCircle(0.2, 3.1, 0.4), { lat: 0.2, lon: 3.1 }, { lat: 0.1, lon: -3.0 }, 0)]);
+  figures.push(["spaceflight thermalSvg alpha over eps 1", thermalSvg(1, 0.25, 1, 278)]);
+}
+// --- end v2.206.0: spaceflight ---
 
 {
   // Kaplan–Meier (v2.194.0): curve to last follow-up, y fixed 0–1, censoring + ticks (incl. one at S = 1).

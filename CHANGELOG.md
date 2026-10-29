@@ -8,6 +8,45 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 
 ## [2.206.0] (unreleased)
 
+### Spaceflight
+A new Engineering group, **Spaceflight & missions**, right after Trajectory & orbits: ten calculators, so Engineering
+grows from 241 to 251 calculators in 26 disciplines. Every number is checked against an independent Python oracle
+(scripts/spaceflight-oracle.py: scipy DOP853 integration, brentq, numpy polynomial roots, skyfield DE421, astropy WGS 84),
+and against published values: Curtis Examples 4.3, 4.7 and 5.2, Vallado Example 2-1, Earth–Moon L1 ≈ 326 400 km,
+Sun–Earth L1 ≈ 1.5 million km, the sun-synchronous inclination at 800 km ≈ 98.6°, Apollo TLI ≈ 3.1 km/s. Each result
+opens with a plain-language reading, states its model and limits, and draws.
+- **Orbit from elements or a state vector**: both directions for every conic (the parabola exactly, sized by periapsis
+  radius or p), Kepler propagation by the universal variable with Kepler's equation in each conic's own form as a
+  check, period, apsides, energy and h; circular and equatorial orbits use the argument of latitude, longitude of
+  periapsis and true longitude. Figures: the orbit in its plane to scale, and inertial X–Y and X–Z views.
+- **Lambert's problem**: universal variable, short or long way, single revolution; a 180° (or 0°) transfer is refused
+  because its plane is undefined; a time so short the transfer would need 1 % of light speed is refused. Figure: the arc.
+- **Interplanetary transfers**: Hohmann between planets (flight time, C3, v∞, the Oberth departure burn from a parking
+  orbit, capture into an ellipse), the synodic period and the next window, and a **porkchop** of C3 from Lambert solves
+  between positions from JPL's approximate (Standish) elements, Table 1, extracted mechanically
+  (scripts/spaceflight-extract.py) and checked against DE421; dates outside 1800–2050 are refused.
+- **Lunar mission Δv budget**: patched-conic TLI for a flight time, the Moon's sphere of influence, LOI, descent and
+  ascent with gravity-loss allowances, TEI, mid-course allowances and propellant by the rocket equation; a waterfall.
+- **Orbit changes**: plane change pure and combined with circularisation, bi-elliptic against Hohmann with the 11.94 and
+  15.58 thresholds solved as roots, phasing for a lead angle (refused when the phasing orbit would hit the body).
+- **J2 and special orbits**: nodal regression and apsidal precession, the sun-synchronous inclination, the critical
+  inclination, GEO radius and longitude drift, ground-track shift and the nearest repeat ground tracks; ground-track map.
+- **Three-body points**: L1–L5 by root-finding on the exact collinear balance for any pair (Earth–Moon, Sun–planet or
+  custom, mass ratio up to 1), Hill sphere, Laplace sphere of influence, rigid and fluid Roche limits, the Jacobi
+  constant of a state and the zero-velocity curves in the rotating frame.
+- **Re-entry and decay**: ballistic coefficient, Allen–Eggers peak deceleration with its altitude and speed, Sutton–Graves
+  stagnation heating, checked against an RK4 integration with gravity on the 1976 standard atmosphere; orbital
+  lifetime at low, moderate and high solar activity from an NRLMSIS 2.1 density table generated mechanically; γ = 0 is
+  refused by name.
+- **Ground station**: azimuth, elevation and slant range on WGS 84; footprint, swath, longest pass, range rate and
+  Doppler. No TLE/SGP4 (not offered rather than offered unvalidated).
+- **Spacecraft thermal balance**: hot and cold equilibrium temperatures from α, ε, the 1/r² solar flux, albedo, planet
+  infrared and internal power, with temperature against distance from the Sun.
+- Astronomical units are read in every length field (1 au = 149 597 870.7 km exactly).
+
+
+## [2.206.0] (unreleased)
+
 ### Lighting & rendering
 New Engineering panel after Light & camera, seven calculators (Engineering +7, +1 group). Each opens with a reading
 built from its own numbers, states what it assumes, refuses bad input by name and draws. Oracles:

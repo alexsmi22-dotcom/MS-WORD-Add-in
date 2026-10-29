@@ -125,6 +125,8 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // eight log curves, compositing swatches and bars, CbCr planes, Froude and bounce charts) plus six builder edges.
 // 1035 on branch lighting: Lighting & rendering adds 69 (the seven calculators at 35 inputs that change a layout,
 // two figures for five of them, and eleven builders at their edges).
+// 1024 as of v2.206.0: fifty-nine Spaceflight & missions figures (each calculator at its defaults and its layout
+// variants, then the spaceflightCharts.ts builders at their edges).
 const CORPUS_FLOOR = 1016;
 
 // --- The allowance ratchet ----------------------------------------------------

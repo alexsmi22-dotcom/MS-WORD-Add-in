@@ -10,6 +10,36 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0et. New in v2.206.0 — Spaceflight & missions (Engineering 241 → 251)
+
+- [ ] **Engineering dropdown** shows **Spaceflight & missions** (10) right after Trajectory & orbits (13).
+- [ ] **Orbit from elements or state vector** (defaults, a Molniya orbit) → first line "an ellipse from 537.863 km to
+  39905.9 km altitude with a period of 11.99 h"; after 2 h, 25071.6 km altitude at 3.219 km/s; the Kepler check line
+  agrees with the propagation; three figures (orbit plane, X–Y, X–Z) drawn to equal scale.
+- [ ] Same, **Start from: State vector** (Curtis 4.3) → e 0.171212, i 153.2492°, Ω 255.2793°, ω 20.0683°.
+- [ ] Same, e = **1**, size **Periapsis radius** 7000 km → "exactly parabolic"; size **a** with e = 1 → refused by name.
+- [ ] **Lambert** (defaults, Curtis 5.2) → transfer velocity (−5.99250, 1.92537, 3.24564) km/s; r₂ = `-10000, 0, 0 km`
+  with r₁ = `7000, 0, 0 km` → refused: a 180° transfer.
+- [ ] **Interplanetary** (Earth → Mars, window 2026-09-01) → Hohmann 258.9 days, C3 8.672 km²/s², 3.590 km/s from
+  300 km, capture 2.080 km/s, synodic 779.9 days; porkchop minimum C3 9.146 km²/s² leaving 2026-10-31, 295 days; the
+  porkchop shows two lobes with the ridge blanked. Start 2049-06-01 → refused (1800 to 2050).
+- [ ] **Lunar Δv budget** (defaults) → TLI 3.158 km/s, LOI 0.9235 km/s (73 % propellant to lunar orbit at 320 s), total 8.977 km/s (94.3 % as one stage);
+  waterfall figure. Flight time 8 day → refused (longer than minimum energy).
+- [ ] **Orbit changes** (400 km → GEO, 28.5°) → Hohmann 3.854 km/s, combined with the second burn 4.222 km/s, before
+  leaving 7.629 km/s; thresholds R = 11.93877 and 15.58172; phasing 30° in GEO 0.186 km/s over 21.94 h.
+- [ ] **J2 / special orbits** (800 km, sso) → inclination 98.60°, node +0.9856°/day, track shift 25.248° west per orbit,
+  nearest repeat 214 orbits in 15 days at 797.32 km; GEO drift −0.6421°/day for Δa = 50 km. Altitude 8000 km → refused.
+- [ ] **Three-body** (Earth–Moon) → L1 326380.9 km from Earth (58019.14 km from the Moon), L2 64514.91 km beyond the
+  Moon, Hill sphere 61524 km, Jacobi C = 3.2094387, "trapped"; rotating-frame figure and a close-up of the Moon.
+  Custom pair with equal GM → μ = 0.5, L4/L5 UNSTABLE.
+- [ ] **Re-entry & decay** (defaults) → β 320.51 kg/m², 16.6 g near 40.1 km (closed form), 18.1 g near 37.3 km
+  (integrated), 114 W/cm²; decay from 250 km 20.0 / 33.7 / 68.2 days (high / moderate / low). Angle 0 → refused.
+- [ ] **Ground station** (defaults) → azimuth 34.8°, elevation 34.1°, 904.7 km; footprint 1665 km radius, longest pass
+  7.948 min, Doppler ±51.61 kHz at 2.25 GHz; the result says no TLE/SGP4.
+- [ ] **Thermal balance** (defaults) → hot 216.9 K (−56.3 °C), cold 154.9 K (−118.2 °C); distance `1 au` is read.
+- [ ] Insert any two: text, tables and figures land in the document; Ctrl+Z removes them.
+
+
 ## 0es. New in v2.206.0 — Lighting & rendering (Engineering +7, new panel) — DRAFT
 
 - [ ] **Engineering panels:** **Lighting & rendering** appears after Light & camera, with 7 tools; the Engineering

@@ -430,7 +430,7 @@ const coordsCalc: AstroCalc = {
     const rs = riseTransitSet((tt) => starPlace(a0, d0, tt), "star", site, w.jdLocal0, sc.deltaT);
     const lines: EngReportLine[] = [...w.warnings];
     lines.push({ math: "sin(h) = sin(phi) sin(delta) + cos(phi) cos(delta) cos(H)", fallback: "sin h = sin φ·sin δ + cos φ·cos δ·cos H (H = local sidereal time − α)" });
-    lines.push({ math: "X = 1/(cos(z) + 0.50572 (96.07995 - z)^(-1.6364))", fallback: "X = 1/(cos z + 0.50572·(96.07995° − z)^−1.6364) (Kasten & Young 1989, z in degrees)" });
+    lines.push({ math: "X = 1/(cos(z) + 0.50572 (96.07995 - z)^{-1.6364})", fallback: "X = 1/(cos z + 0.50572·(96.07995° − z)^−1.6364) (Kasten & Young 1989, z in degrees)" });
     const rows: string[][] = [["Quantity", "Value"]];
     rows.push(["RA, Dec (J2000, as entered)", `${fmtHMS(ra.hours, 2)}, ${fmtDMS(de.deg, 1, true)}`]);
     rows.push(["Apparent RA, Dec of date", `${fmtHMS(place.ra / DEG / 15, 2)}, ${fmtDMS(place.dec / DEG, 1, true)}`]);
@@ -1018,7 +1018,7 @@ const cosmoCalc: AstroCalc = {
     const lines: EngReportLine[] = [];
     lines.push({ math: "D_C = c/H_0 int(0, z, 1/E(z) dz)", fallback: "D(C) = (c/H₀)∫₀ᶻ dz′/E(z′), E(z) = √(Ωm(1 + z)³ + ΩΛ)" });
     lines.push({ math: "D_L = (1 + z) D_C", fallback: "D(L) = (1 + z)·D(C); D(A) = D(C)/(1 + z)" });
-    lines.push({ math: "t(z) = 2/(3 H_0 sqrt(Omega_Lambda)) arcsinh(sqrt(Omega_Lambda/Omega_m) (1 + z)^(-3/2))", fallback: "t(z) = (2/(3H₀√ΩΛ))·arsinh(√(ΩΛ/Ωm)·(1 + z)^(−3/2))" });
+    lines.push({ math: "t(z) = 2/(3 H_0 sqrt(Omega_Lambda)) arcsinh(sqrt(Omega_Lambda/Omega_m) (1 + z)^{-3/2})", fallback: "t(z) = (2/(3H₀√ΩΛ))·arsinh(√(ΩΛ/Ωm)·(1 + z)^(−3/2))" });
     const rows: string[][] = [["Quantity", "Value"]];
     rows.push(["Recession velocity cz", `${n(c.czKms, 6)} km/s`]);
     rows.push(["Hubble-law distance cz/H₀", `${n(c.hubbleMpc, 6)} Mpc`]);
@@ -1093,7 +1093,7 @@ const keplerCalc: AstroCalc = {
     lines.push({ math: "P^2 = (4 pi^2 a^3)/(G (M_1 + M_2))", fallback: "P² = 4π²a³/(G(M₁ + M₂))" });
     lines.push({ math: "delta = (R_p/R_s)^2", fallback: "δ = (Rₚ/R★)² (no limb darkening)" });
     lines.push({ math: "T_14 = P/pi arcsin(R_s/a sqrt((1 + k)^2 - b^2)/sin(i))", fallback: "T₁₄ = (P/π)·arcsin((R★/a)·√((1 + k)² − b²)/sin i), b = a·cos i/R★, k = Rₚ/R★" });
-    lines.push({ math: "K = ((2 pi G)/P)^(1/3) (M_p sin(i))/((M_s + M_p)^(2/3) sqrt(1 - e^2))", fallback: "K = (2πG/P)^(1/3)·Mₚ sin i/((M★ + Mₚ)^(2/3)·√(1 − e²))" });
+    lines.push({ math: "K = ((2 pi G)/P)^{1/3} (M_p sin(i))/((M_s + M_p)^{2/3} sqrt(1 - e^2))", fallback: "K = (2πG/P)^(1/3)·Mₚ sin i/((M★ + Mₚ)^(2/3)·√(1 − e²))" });
     const rows: string[][] = [["Quantity", "Value"]];
     rows.push(["Period", `${n(res.periodS / 86400, 6)} d (${n(res.periodS / (365.25 * 86400), 6)} yr)`]);
     rows.push(["Semi-major axis", `${n(res.aM / AU_M, 6)} au (${n(res.aM / 1000, 6)} km)`]);

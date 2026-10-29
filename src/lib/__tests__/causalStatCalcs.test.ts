@@ -33,6 +33,7 @@ import { parseRegData, selectColumns } from "../regData";
 import type { StatCalcDef } from "../statCalc";
 import type { StatOutput } from "../analyzeBlocks";
 import { insertableResultText } from "../insertGate";
+import { budget } from "./timeBudget";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const FIX: any = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "causal-oracle.json"), "utf8"));
@@ -350,7 +351,7 @@ describe("the pane's contract and the time budget", () => {
     const t0 = Date.now();
     const o = run(c, { data, outcome: "y", running: "x", treatment: "t", cutoff: "0", design: "fuzzy" });
     expect(o.ok).not.toBe(false);
-    expect(Date.now() - t0).toBeLessThan(300);
+    expect(Date.now() - t0).toBeLessThan(budget(300));
     const over = lines.concat(["1\t1\t1"]).join("\n");
     expect(run(c, { data: over, outcome: "y", running: "x", treatment: "t", cutoff: "0" }).text).toMatch(/at most 20,000/);
   });

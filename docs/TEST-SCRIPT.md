@@ -12,7 +12,8 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ## 0es. New in v2.206.0 — Lighting & rendering (Engineering +7, new panel) — DRAFT
 
-- [ ] **Engineering panels:** **Lighting & rendering** appears after Light & camera, with 7 tools.
+- [ ] **Engineering panels:** **Lighting & rendering** appears after Light & camera, with 7 tools; the Engineering
+  heading counts 248 calculators.
 - [ ] **Sun position, golden hour & shadows** (defaults: London, 2026-06-21, 15:00, +1, 1.8 m) → the first line reads
   "the sun is 54° above the horizon in the south-west (azimuth 230°); a 1.8 m object casts a 1.31 m shadow pointing
   north-east". The table gives elevation 53.9883° (geometric 53.9761°), azimuth 230.003° (SW), solar noon 13:02,

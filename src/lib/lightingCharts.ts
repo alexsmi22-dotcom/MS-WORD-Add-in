@@ -304,8 +304,8 @@ export function brdfAlbedoSvg(thetaV: number, F0: number, form: SmithForm, rough
   need("brdfAlbedoSvg", thetaV, F0, roughness, eWhite, eF);
   const white: Point[] = [];
   const withF: Point[] = [];
-  for (let i = 0; i <= 24; i++) {
-    const r = 0.045 + ((1 - 0.045) * i) / 24;
+  for (let i = 0; i <= 12; i++) {
+    const r = 0.045 + ((1 - 0.045) * i) / 12;
     const a = r * r;
     const ew = directionalAlbedo(a, thetaV, 1, form, 64, 32);
     const ef = directionalAlbedo(a, thetaV, F0, form, 64, 32);

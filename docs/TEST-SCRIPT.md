@@ -28,7 +28,8 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Forensic lost earnings** → total at the trial date $885,891.18 (past $162,056.00 + interest $13,338.74 + PV
   future $710,496.44); source line names CDC United States Life Tables, 2024 (NVSR Vol. 75, No. 5).
 - [ ] **Life annuity factors** → äₓ = 13.4542, Aₓ = 0.482532; subscripts ₘ ₙ show correctly in Word on the Mac.
-- [ ] **Safe-withdrawal Monte Carlo** → probability of ruin within 30 years 23.445 % (20,000 paths, seed printed).
+- [ ] **Safe-withdrawal Monte Carlo** → probability of ruin within 30 years 23.4 % with a simulation
+  standard error of about 0.30 percentage points (20,000 paths, seed printed; since v2.205.0 — it read 23.445 % before).
 - [ ] **Cost–benefit** → Base NPV 54.42, BCR 1.039, EIRR 5.08 %; the result says no discount rate is bundled.
 - [ ] **CIP** → F = 1.262450; **PPP** → foreign currency overvalued 9.09 %.
 - [ ] **Stats ▸ Time series ▸ GARCH** (defaults) → GJR-GARCH(1,1,1), Student-t; persistence 0.8453, half-life 4.12

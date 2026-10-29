@@ -400,8 +400,8 @@ export function lambert(mu: number, r1: V3, r2: V3, dt: number, way: LambertWay 
   const nearDeg = (Math.atan2(sinRaw, Math.abs(cosT)) * 180) / Math.PI; // angle from the r1 line, 0..90
   if (nearDeg < LAMBERT_SINGULAR_DEG) {
     return cosT < 0
-      ? { ok: false, error: `The two positions are ${(180 - nearDeg).toFixed(3)}° apart: a 180° transfer. Its plane is undefined (r₁ × r₂ = 0), so every plane through the two points is a solution and no single Δv exists. Move one point slightly out of line, or split the transfer.` }
-      : { ok: false, error: "The two positions lie on the same line from the centre (a 0° or 360° transfer): the transfer plane is undefined. A rectilinear or whole-revolution transfer is outside this solver." };
+      ? { ok: false, error: `The two positions are ${(180 - nearDeg).toFixed(3)}° apart: a 180° transfer. Its plane is not defined (r₁ × r₂ = 0), so every plane through the two points is a solution and no single Δv exists. Move one point slightly out of line, or split the transfer.` }
+      : { ok: false, error: "The two positions lie on the same line from the centre (a 0° or 360° transfer): the transfer plane is not defined. A rectilinear or whole-revolution transfer is outside this solver." };
   }
   if (way === "long") dth = TWO_PI - dth;
   else if (way === "prograde" && c12[2] < 0) dth = TWO_PI - dth;

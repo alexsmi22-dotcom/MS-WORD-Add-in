@@ -344,6 +344,7 @@ import { TLINE_CALCS } from "../lib/tlineCalcs";
 import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
+import { SPACEFLIGHT_CALCS } from "../lib/spaceflightCalcs";
 import { tidyResultSubscripts, tidySubscripts, snapNoise, snapGroup, typesetENotation } from "../lib/subscriptText";
 import { guardEngResult } from "../lib/finiteResult";
 import { buildResultOoxml, packageBodyXml, type ResultPackageItem } from "../lib/resultOoxml";
@@ -14341,6 +14342,7 @@ const ENG_GROUP_ORDER = [
   "Chips & semiconductors",
   "Aviation & avionics",
   "Trajectory & orbits",
+  "Spaceflight & missions",
   "Robotics & kinematics",
   "Computation & information",
   "Control systems",
@@ -31465,6 +31467,7 @@ const ENG_CALCS: EngCalc[] = [
   ...AI_COMPUTE_CALCS,
   ...QUANTUM_LINKS_CALCS,
   ...QUANTUM_MECHANICS_CALCS,
+  ...SPACEFLIGHT_CALCS,
 ];
 
 // Underscore subscripts in every tool's prose, tables, captions and output names typeset (subscriptText.ts); the math

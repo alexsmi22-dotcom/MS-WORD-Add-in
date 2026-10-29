@@ -287,10 +287,10 @@ const elementsCalc: SpaceCalc = {
     lines.push({ math: "M = E - e sin(E)", fallback: "M = E − e·sin E (ellipse); M = e·sinh F − F (hyperbola); Barker's equation for e = 1" });
     lines.push({ math: "r = p/(1 + e cos(nu))", fallback: "r = p/(1 + e·cos ν)" });
     const conv: string[] = [];
-    if (el.circular && !el.equatorial) conv.push("circular: ω is undefined and reported as 0, so ν is the argument of latitude u (from the ascending node)");
-    if (el.equatorial && !el.circular) conv.push("equatorial: Ω is undefined and reported as 0, so ω is the longitude of periapsis ϖ (from the x axis)");
-    if (el.circular && el.equatorial) conv.push("circular and equatorial: Ω and ω are undefined and reported as 0, so ν is the true longitude ℓ (from the x axis)");
-    if (conv.length) lines.push(`Conventions for the undefined angles: ${conv.join("; ")}.`);
+    if (el.circular && !el.equatorial) conv.push("circular: ω has no meaning and reported as 0, so ν is the argument of latitude u (from the ascending node)");
+    if (el.equatorial && !el.circular) conv.push("equatorial: Ω has no meaning and reported as 0, so ω is the longitude of periapsis ϖ (from the x axis)");
+    if (el.circular && el.equatorial) conv.push("circular and equatorial: Ω and ω have no meaning and reported as 0, so ν is the true longitude ℓ (from the x axis)");
+    if (conv.length) lines.push(`Conventions for the angles a circle or the equator leaves without meaning: ${conv.join("; ")}.`);
     const rows: string[][] = [["Element", "At epoch", ...(el1 ? ["At time t"] : [])]];
     const both = (label: string, f: (e: ElementsFull) => string): void => {
       rows.push([label, f(el), ...(el1 ? [f(el1)] : [])]);
@@ -307,7 +307,7 @@ const elementsCalc: SpaceCalc = {
     both("Specific energy", (e) => `${sf(e.energy / 1e6, 6)} km²/s²`);
     both("Angular momentum h", (e) => `${sf(e.h / 1e6, 6)} km²/s`);
     if (el.period !== null) both("Period", (e) => (e.period === null ? "none" : dur(e.period)));
-    both("Time since periapsis", (e) => (e.circular ? "undefined (circular)" : dur(e.tSincePeri)));
+    both("Time since periapsis", (e) => (e.circular ? "none (a circle has no periapsis)" : dur(e.tSincePeri)));
     rows.push(["Position r", vec(r0, 1000, "km"), ...(r1 ? [vec(r1, 1000, "km")] : [])]);
     rows.push(["Velocity v", vec(v0, 1000, "km/s"), ...(v1 ? [vec(v1, 1000, "km/s")] : [])]);
     lines.push(`Orbit type: ${el.conic}. Speed at epoch ${kms(norm(v0), 6)} at ${km(R0)} from the centre.`);
@@ -358,7 +358,7 @@ const lambertCalc: SpaceCalc = {
     "Two position vectors and a time of flight give the one conic that joins them (Lambert's problem, solved by the " +
     "universal variable): the departure and arrival velocities, the transfer orbit, and the two burns from circular " +
     "orbits at each end (or from the velocities you give). Short or long way round; single revolution. A 180° transfer " +
-    "is refused: its plane is undefined.",
+    "is refused: its plane is not defined.",
   fields: [
     { key: "body", label: "Central body", default: "earth", kind: "select", options: BODY_OPTIONS },
     { key: "r1", label: "Departure position r₁ = x, y, z (km)", default: "5000, 10000, 2100 km", kind: "text" },
@@ -406,11 +406,11 @@ const lambertCalc: SpaceCalc = {
       if (nu1 < 0 && nu1 + L.dtheta > 0) reading += ` The arc dips to ${km(tr.rp - body.radius)} altitude, inside ${body.label}: it cannot be flown.`;
     }
     lines.push(reading);
-    lines.push({ math: "Delta t sqrt(mu) = (y(z)/C(z))^(3/2) S(z) + A sqrt(y(z))", fallback: "√μ·Δt = (y/C)^(3/2)·S + A·√y (universal-variable Lambert equation)" });
+    lines.push({ math: "Delta t sqrt(mu) = (y(z)/C(z))^(3/2) S(z) + A sqrt(y(z))", fallback: "√μ·Δt = √((y/C)³)·S + A·√y (universal-variable Lambert equation)" });
     lines.push({ math: "A = sin(Delta theta) sqrt((r_1 r_2)/(1 - cos(Delta theta)))", fallback: "A = sin Δθ·√(r₁r₂/(1 − cos Δθ))" });
     lines.push(`Transfer angle Δθ = ${deg(L.dtheta, 3)}; z = ${sf(L.z, 6)} (z > 0 ellipse, z < 0 hyperbola); solved in ${L.iterations} bracketed steps.`);
     lines.push(`Minimum-energy transfer for this geometry: ${dur(L.tofMinEnergy)}; the parabolic time is ${dur(L.tofParabolic)} (a shorter flight is hyperbolic).`);
-    if (Math.abs(L.dtheta * R2D - 180) < 1) lines.push("Caution: the transfer angle is within 1° of 180°, where the plane is nearly undefined; the out-of-plane velocity is very sensitive to tiny position errors.");
+    if (Math.abs(L.dtheta * R2D - 180) < 1) lines.push("Caution: the transfer angle is within 1° of 180°, where the plane is nearly not defined; the out-of-plane velocity is very sensitive to tiny position errors.");
     const rows = [
       ["Quantity", "Departure", "Arrival"],
       ["Transfer velocity", vec(L.v1, 1000, "km/s"), vec(L.v2, 1000, "km/s")],
@@ -585,7 +585,7 @@ const lunarCalc: SpaceCalc = {
     lines.push({ math: "Delta v_LOI = sqrt(v_inf^2 + 2 mu_M/r_L) - sqrt(mu_M/r_L)", fallback: "Δv(LOI) = √(v∞² + 2μM/rL) − √(μM/rL)" });
     lines.push({ math: "m_f/m_0 = exp(-Delta v/(I_sp g_0))", fallback: "mf/m₀ = exp(−Δv/(Isp·g₀))" });
     lines.push(`Translunar conic: perigee speed ${kms(res.vTli, 6)}, eccentricity ${sf(res.e, 5)}${res.apogeeM !== null ? `, apogee ${km(res.apogeeM - R_EQ_SI.earth)} altitude` : " (hyperbolic)"}; flight time ${sf(res.tofS / DAY_S, 4)} days. Arrival excess speed relative to the Moon v∞ = ${kms(res.vinfMoon, 4)}.`);
-    lines.push(`The Moon's sphere of influence (Laplace, a(m/M)^(2/5)) is ${km(res.soiM)} in radius; this calculation patches at the Moon's centre distance, not at that boundary, which shifts the TLI by a few tens of m/s.`);
+    lines.push(`The Moon's sphere of influence (Laplace: a times (m/M) to the power 2/5) is ${km(res.soiM)} in radius; this calculation patches at the Moon's centre distance, not at that boundary, which shifts the TLI by a few tens of m/s.`);
     const rows: string[][] = [["Leg", "Δv (km/s)", "Mass left (fraction)", "Note"]];
     res.legs.forEach((l, i) => rows.push([l.name, sf(l.dv / 1000, 4), sf(res.massAfter[i], 4), l.note]));
     rows.push(["Total", sf(res.totalDv / 1000, 4), sf(1 - res.propFraction, 4), `propellant ${fx(res.propFraction * 100, 1)} % at ${trimSig(isp)} s`]);
@@ -775,10 +775,10 @@ const perturbCalc: SpaceCalc = {
     reading += ` The ground track moves ${fx(shift * R2D, 3)}° (${sf((shift * R) / 1000, 5)} km at the equator) west each orbit`;
     reading += reps.length ? `; the nearest exact repeat is ${reps[0].revs} orbits in ${reps[0].days} day${reps[0].days === 1 ? "" : "s"}, at ${km(reps[0].altitudeM, 5)}.` : ".";
     lines.push(reading);
-    lines.push({ math: "dot(Omega) = -3/2 n J_2 (R/p)^2 cos(i)", fallback: "Ω̇ = −(3/2)·n·J₂·(R/p)²·cos i" });
-    lines.push({ math: "dot(omega) = 3/4 n J_2 (R/p)^2 (5 cos(i)^2 - 1)", fallback: "ω̇ = (3/4)·n·J₂·(R/p)²·(5cos²i − 1)" });
+    lines.push({ math: "dot(Omega) = -(3/2) n J_2 (R/p)^2 cos(i)", fallback: "Ω̇ = −(3/2)·n·J₂·(R/p)²·cos i" });
+    lines.push({ math: "dot(omega) = (3/4) n J_2 (R/p)^2 (5 cos(i)^2 - 1)", fallback: "ω̇ = (3/4)·n·J₂·(R/p)²·(5cos²i − 1)" });
     lines.push({ math: "Delta lambda = (omega_E - dot(Omega)) T_N", fallback: "Δλ = (ωE − Ω̇)·T(nodal), the westward shift per orbit" });
-    lines.push({ math: "dot(lambda) = -3/2 (Delta a/a) omega_E", fallback: "λ̇ = −(3/2)·(Δa/a)·ωE (drift of a near-geostationary satellite)" });
+    lines.push({ math: "dot(lambda) = -(3/2)(Delta a/a) omega_E", fallback: "λ̇ = −(3/2)·(Δa/a)·ωE (drift of a near-geostationary satellite)" });
     const rows = [
       ["Quantity", "Value"],
       ["Mean motion n", `${sf(perDay(rates.n), 6)} °/day`],
@@ -903,7 +903,7 @@ const threeBodyCalc: SpaceCalc = {
     if (pairNote) lines.push(pairNote);
     lines.push({ math: "x - (1 - mu)(x + mu)/abs(x + mu)^3 - mu (x - 1 + mu)/abs(x - 1 + mu)^3 = 0", fallback: "x − (1 − μ)(x + μ)/|x + μ|³ − μ(x − 1 + μ)/|x − 1 + μ|³ = 0 (collinear points)" });
     lines.push({ math: "C = x^2 + y^2 + 2(1 - mu)/r_1 + 2 mu/r_2 - v^2", fallback: "C = x² + y² + 2(1 − μ)/r₁ + 2μ/r₂ − v² (Jacobi constant, rotating frame, separation and rate 1)" });
-    lines.push({ math: "r_H = a root(3, m/(3 M))", fallback: "rH = a·∛(m/(3M)); rSOI = a·(m/M)^(2/5)" });
+    lines.push({ math: "r_H = a root(3, m/(3 M))", fallback: "rH = a·∛(m/(3M)); rSOI = a·(m/M) to the power 2/5" });
     const rows = [["Point", `From ${names[0]} (km)`, `From ${names[1]} (km)`, "Jacobi constant"]];
     const lp = [
       ["L1", L.xL[0], 0], ["L2", L.xL[1], 0], ["L3", L.xL[2], 0], ["L4", 0.5 - mu, Math.sqrt(3) / 2], ["L5", 0.5 - mu, -Math.sqrt(3) / 2],
@@ -921,7 +921,7 @@ const threeBodyCalc: SpaceCalc = {
     sph.push(["L4/L5 linearly stable (Routh, μ < 0.03852)", L.triangularStable ? "yes" : "no"]);
     sph.push(["This state's Jacobi constant C", sf(C, 8)]);
     lines.push(`L4 and L5 are ${L.triangularStable ? "linearly stable" : "UNSTABLE"} at this mass ratio (Routh's criterion μ < ${sf(ROUTH_MU, 6)}).`);
-    lines.push(`Model: circular restricted three-body problem: the two bodies on circular orbits about their barycentre, the third mass negligible, all motion in the orbit plane for the curves. The real Moon's orbit is eccentric (e ≈ 0.055), which moves L1 by thousands of km over a month. Hill sphere for e = 0; the Roche limits are the classical rigid ∛2·R(ρM/ρs)^(1/3) and fluid 2.44·R(ρM/ρs)^(1/3) (Chandrasekhar 2.455 for a synchronously spinning fluid body: ${roche ? km(roche.fluidChandra, 5) : "needs the primary radius"}).`);
+    lines.push(`Model: circular restricted three-body problem: the two bodies on circular orbits about their barycentre, the third mass negligible, all motion in the orbit plane for the curves. The real Moon's orbit is eccentric (e ≈ 0.055), which moves L1 by thousands of km over a month. Hill sphere for e = 0; the Roche limits are the classical rigid ∛2·R·∛(ρM/ρs) and fluid 2.44·R·∛(ρM/ρs) (Chandrasekhar 2.455 for a synchronously spinning fluid body: ${roche ? km(roche.fluidChandra, 5) : "needs the primary radius"}).`);
     const outputs: EngOutput[] = [
       { key: "mu", label: "Mass ratio", value: mu, unit: "" },
       { key: "L1", label: "L1 distance from the secondary", value: L1fromSec / 1000, unit: "km" },

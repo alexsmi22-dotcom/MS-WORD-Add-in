@@ -7,7 +7,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { fitHoltWinters, type HwSpec } from "../holtWinters";
+import { fitHoltWinters, hwFilter, hwForecast, type HwSpec } from "../holtWinters";
 import { tsEtsCalc, TS_ETS_DEFAULTS } from "../tsForecastCalcs";
 
 interface Fx {
@@ -40,12 +40,15 @@ describe("MAJOR 2: Holt–Winters never worse than the old engine and statsmodel
     expect(o.ok).not.toBe(false);
     expect(o.text).toContain("SSE = 3,008.0");
     expect(o.text).not.toContain("3,067");
-    const fc = c.y.length;
+    // The reviewer's visible symptom: the pane's forecast fell where statsmodels' and the old engine's rose.
+    expect(o.reading).toMatch(/^Holt–Winters forecasts V at about 227\.286 for January 2015, rising to about 230\.323 by December 2015/);
     const spec = specOf(c);
     const f = fitHoltWinters(c.y, spec);
     if (!f.ok) throw new Error(f.reason);
-    expect(f.params.beta).toBeGreaterThan(0);
-    expect(fc).toBe(180);
+    expect(hwFilter(c.y, spec, f.params).trend).toBeGreaterThan(0);
+    const fc = hwForecast(c.y, spec, f.params, 24);
+    expect(fc[23]).toBeGreaterThan(fc[11]);
+    expect(fc[11]).toBeGreaterThan(fc[0]);
   });
 
   test("a long series (6,000 monthly rows, damped multiplicative) fits within the pane's time", () => {

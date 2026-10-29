@@ -526,12 +526,15 @@ export interface CtxFrameLayout {
  */
 export function ctxFrameLayout(W: number, xTitle: string, yTitle: string, legendItems: string[], base: { ML: number; MB: number }): CtxFrameLayout {
   if (!ctx) return { ML: base.ML, MB: base.MB, xLines: [xTitle], yLines: [yTitle], legend: null, legendTop: 48 };
-  const ML = base.ML + 13;
-  const pw = W - ML - 14;
-  const xLines = wrapLabel(xTitle, 2 * Math.min(ML + pw / 2, W - ML - pw / 2) - 4, 10);
+  const pw0 = W - (base.ML + 13) - 14;
   // The plot is at least 0.6 as tall as it is wide (the callers' rule); the y title stays inside that height, clear of
   // the figure title above.
-  const yLines = wrapLabel(yTitle, 0.6 * pw, 10);
+  const yLines = wrapLabel(yTitle, 0.6 * pw0, 10);
+  // The x title is wrapped for the frame AS DRAWN, after the y title's lines have set the margin (round 3: it was
+  // wrapped for a margin one line wide, and under a y title of three or more lines its first line ran off the right).
+  const ML = base.ML + 13 * (yLines.length - 1);
+  const pw = W - ML - 14;
+  const xLines = wrapLabel(xTitle, 2 * Math.min(ML + pw / 2, W - ML - pw / 2) - 4, 10);
   const legendTop = 48 + 13 * (xLines.length - 1);
   let at = 0;
   const legend = legendItems.map((t) => {
@@ -546,9 +549,17 @@ export function ctxFrameLayout(W: number, xTitle: string, yTitle: string, legend
 
 /**
  * An axis title in lines that fit `room` px at `fs` px (the layout audit's 0.58 em advance): one line when it fits,
- * else two broken at the space that best balances them, the second cut with an ellipsis if it still does not fit.
+ * else two broken at the space that best balances them, else up to WRAP_MAX_LINES filled greedily.
  * `minLines` 2 keeps a title that was wrapped on two lines even when one would now fit.
+ *
+ * NEVER CUT (2026-10-28, round 3). A title carries values: its unit "(ng/mL)" and its scale "(×10⁶)" sit at its end,
+ * and an ellipsis there turned an axis of 0 to 9,000,000 into one reading 0 to 9 ("the parent drug…"), which the
+ * layout audit then passed. No word is ever cut: a word wider than the room stays whole on its own line, and a title
+ * that needs more than WRAP_MAX_LINES keeps every word (the last line takes the rest). Such a line runs past its room,
+ * where the layout audit refuses the fit BY NAME, instead of the figure inserting a different number.
  */
+export const WRAP_MAX_LINES = 6;
+
 export function wrapLabel(text: string, room: number, fs: number, minLines = 1): string[] {
   const got = wrapLabelOnce(text, room, fs, minLines);
   if (got.length >= minLines || minLines < 2) return got;
@@ -575,7 +586,8 @@ function wrapLabelOnce(text: string, room: number, fs: number, minLines: number)
   if (text.length <= max && minLines < 2) return [text];
   const spaces: number[] = [];
   for (let i = 1; i < text.length - 1; i++) if (text[i] === " ") spaces.push(i);
-  if (!spaces.length) return text.length <= max ? [text] : [text.slice(0, max - 1) + "…"];
+  // One word: never cut (it runs past its room, and the layout audit judges that).
+  if (!spaces.length) return [text];
   // The break whose longer line is shortest, among breaks whose first line fits.
   let best = -1;
   let bestLen = Infinity;
@@ -588,25 +600,22 @@ function wrapLabelOnce(text: string, room: number, fs: number, minLines: number)
       best = i;
     }
   }
-  if (best < 0) return [text.slice(0, max - 1) + "…"];
-  const first = text.slice(0, best).trimEnd();
-  let rest = text.slice(best + 1).trim();
-  if (rest.length <= max) return [first, rest];
-  // Two lines are not enough: up to three, filled greedily (so a unit at the end, "(%)", is not cut), the third cut
-  // with an ellipsis only if even that does not fit.
+  if (best >= 0) {
+    const first = text.slice(0, best).trimEnd();
+    const rest = text.slice(best + 1).trim();
+    if (rest.length <= max) return [first, rest];
+  }
+  // Two lines are not enough: filled greedily (so a unit at the end, "(%)", stays whole), up to WRAP_MAX_LINES; a
+  // title that needs more keeps its remaining words on the last line, uncut.
   const lines: string[] = [];
   let cur = "";
-  for (const w of text.split(" ")) {
+  for (const w of text.split(" ").filter(Boolean)) {
     const next = cur ? `${cur} ${w}` : w;
-    if (next.length > max && cur) {
+    if (next.length > max && cur && lines.length < WRAP_MAX_LINES - 1) {
       lines.push(cur);
       cur = w;
     } else cur = next;
   }
   if (cur) lines.push(cur);
-  if (lines.length <= 3 && lines.every((l) => l.length <= max)) return lines;
-  const three = lines.slice(0, 3).map((l) => (l.length > max ? l.slice(0, max - 1) + "…" : l));
-  if (lines.length > 3) three[2] = (three[2].length >= max ? three[2].slice(0, max - 1) : three[2]).trimEnd() + "…";
-  rest = rest.slice(0, max - 1).trimEnd() + "…";
-  return three.length ? three : [first, rest];
+  return lines;
 }

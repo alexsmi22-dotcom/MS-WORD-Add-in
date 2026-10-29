@@ -395,8 +395,25 @@ function printedAtOrAboveAlpha(p: number, alpha: number): boolean {
 export function markFor(b: SigBracket, alpha: number): string {
   if (!shownSignificant(b, alpha)) return "ns";
   const bands = markBands(alpha);
-  for (const t of bands) if (b.p < t.below) return t.stars;
+  // EVERY band on the printed p (round 3), as shownSignificant does for α: p = 0.00999 prints "0.010" in the text,
+  // so it is "*", not "**" ("** p < 0.01" beside a printed 0.010). Below 0.001 the text prints "< 0.001", and the
+  // value decides between "***" and "****".
+  const shown = printedP(b.p);
+  for (const t of bands) if (shown < t.below) return t.stars;
   return bands[bands.length - 1].stars;
+}
+
+/** The p label as the text prints p, in the display contract's form: "p = 0.010", "p < 0.001", "p > 0.999". */
+function printedPLabel(p: number): string {
+  if (!validP(p)) throw new RangeError(`p = ${p} is not a probability`);
+  if (p < 0.001) return "p < 0.001";
+  if (p > 0.999) return "p > 0.999";
+  return `p = ${p.toFixed(3)}`;
+}
+
+/** p as the text prints it: three decimals from 0.001 up (stats.ts formatP); the value itself below 0.001. */
+function printedP(p: number): number {
+  return p >= 0.001 ? Number(p.toFixed(3)) : p;
 }
 
 /**
@@ -570,9 +587,10 @@ export function planBrackets(set: SigBracketSet, chartGroups: number, xOf: (inde
       offChart++;
       continue;
     }
-    // A p that prints at α in the text is labelled as the text prints it ("p = 0.050"), not with the extra digits
-    // formatPValue adds to keep it below the threshold ("p = 0.049998").
-    const label = mode === "p" ? (b.significant && !shownSignificant(b, set.alpha) ? `p = ${b.p.toFixed(3)}` : formatPValue(b.p, set.alpha)) : markFor(b, set.alpha);
+    // The p label is the p the text prints (three decimals; "p < 0.001"), as every mark is decided on it (round 3):
+    // not the extra digits formatPValue adds to keep a p below a threshold ("p = 0.049998", "p = 0.00999"), which
+    // labelled a pair the text prints as 0.010 with a p below 0.01.
+    const label = mode === "p" ? printedPLabel(b.p) : markFor(b, set.alpha);
     const fontPx = mode === "p" || label === "ns" ? BRACKET_FONT_PX.p : BRACKET_FONT_PX.stars;
     items.push({ bracket: b, x1: Math.min(x1, x2), x2: Math.max(x1, x2), label, fontPx, level: 0 });
   }

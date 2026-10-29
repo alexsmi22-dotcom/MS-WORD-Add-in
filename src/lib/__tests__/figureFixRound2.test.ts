@@ -94,9 +94,11 @@ describe("B2: the layout audit on the fitted figure", () => {
     expect(auditLayout(svg).filter((f) => f.kind === "CLIPPED")).toEqual([]);
     const t = texts(svg);
     const i = t.findIndex((s) => s.startsWith("Cumulative"));
-    // Two or three lines, the unit at the end kept.
-    const joined = [t[i], t[i + 1], t[i + 2]].join(" ");
-    expect(joined.startsWith("Cumulative share of population, poorest group first (%)") || `${t[i]} ${t[i + 1]}` === "Cumulative share of population, poorest group first (%)").toBe(true);
+    // Two to four lines (round 3: never cut), every word and the unit at the end kept.
+    const full = "Cumulative share of population, poorest group first (%)";
+    const n = [2, 3, 4].find((k) => t.slice(i, i + k).join(" ") === full);
+    expect(n).toBeDefined();
+    expect(t.some((s) => s.includes("…"))).toBe(false);
     expect(t[i + 1]).not.toBe("Cumulative share of population, poorest group first (%)");
   });
   test("a category axis is never thinned (every condition keeps its name; a crowded one is refused instead)", () => {

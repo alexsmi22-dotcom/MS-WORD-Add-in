@@ -289,8 +289,8 @@ function segmentHitsBox(s: Seg, b: { x0: number; x1: number; y0: number; y1: num
 
 /** One layout defect, with the text(s) it concerns (for a plain-language refusal). */
 export interface LayoutFinding {
-  kind: "COLLISION" | "STRIKETHROUGH" | "CLIPPED";
-  /** The finding exactly as scripts/figure-layout-audit.js prints it. */
+  kind: "COLLISION" | "STRIKETHROUGH" | "CLIPPED" | "TRUNCATED" | "DROPPED";
+  /** The finding exactly as scripts/figure-layout-audit.js prints it (TRUNCATED is this file's own: see truncatedByFit). */
   line: string;
   a: string;
   b?: string;
@@ -363,6 +363,8 @@ const q = (s: string): string => `“${s.length > 40 ? s.slice(0, 39) + "…" : 
 export function findingSentence(f: LayoutFinding): string {
   if (f.kind === "COLLISION") return `the labels ${q(f.a)} and ${q(f.b ?? "")} overlap`;
   if (f.kind === "STRIKETHROUGH") return `a line is drawn through the label ${q(f.a)}`;
+  if (f.kind === "TRUNCATED") return `the label ${q(f.a)} would be cut short`;
+  if (f.kind === "DROPPED") return `${f.a.startsWith("×") ? "the scale" : "the unit"} ${q(f.a)} would be left out`;
   return `the label ${q(f.a)} runs off the edge of the figure`;
 }
 
@@ -373,5 +375,82 @@ export function findingSentence(f: LayoutFinding): string {
  */
 export function introducedLayoutFindings(asDrawn: string, fitted: string): LayoutFinding[] {
   const before = new Set(auditLayout(asDrawn).map(findingKey));
-  return auditLayout(fitted).filter((f) => !before.has(findingKey(f)));
+  // Round 3: a label cut short of a value, and a ×10ⁿ scale the figure prints as drawn that the fit left out. (Only
+  // the scale refuses here: a bracketed word can change legitimately under a style, as the USPTO contour's "(grey)"
+  // hole key becomes a hatch key. The figure-style gate checks the units as well, over every Finance and Stats figure.)
+  const dropped = valueMarksLost(asDrawn, fitted)
+    .filter((m) => m.startsWith("×10"))
+    .map((m): LayoutFinding => ({ kind: "DROPPED", line: `DROPPED  "${m}" is not in the fitted figure`, a: m }));
+  return [...auditLayout(fitted).filter((f) => !before.has(findingKey(f))), ...truncatedByFit(asDrawn, fitted), ...dropped];
+}
+
+/** The text of every <text> in an SVG (tags stripped, entities decoded), in document order. */
+export function svgTexts(svg: string): string[] {
+  return [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map((m) => decodeEntities(m[1].replace(/<[^>]*>/g, "")));
+}
+
+/**
+ * LABELS THE FIT CUT SHORT (2026-10-28, round 3). A label the style fit ended with an ellipsis can drop exactly what
+ * makes the figure true: an axis title's unit and its "(×10⁶)" (an axis of 0 to 9,000,000 inserted reading 0 to 9,
+ * and the three checks above passed it, because a cut label is short enough to fit). A fitted text with an ellipsis
+ * that the figure as drawn does not have is a finding when what the cut removed carries a VALUE: a digit, a bracket
+ * (a unit, "(EBIT)", "(EUR)"), a "×" scale, a "%", or a currency sign; or when no as-drawn text it was cut from can be
+ * found. A long category name the fit shortened to a distinct prefix ("Dogwood Partners" → "Dogwo…": round 2's
+ * distinctLabels) names the same bar and is not a finding; an ellipsis the builder draws as drawn ("Kangaroo te…") is
+ * its own (the QC gate records those), and a wrapped line of it is part of it.
+ * This check needs the as-drawn figure, so it is not part of auditLayout (which stays the QC script's, byte for byte).
+ */
+export function truncatedByFit(asDrawn: string, fitted: string): LayoutFinding[] {
+  // Super- and subscripts as plain digits: USPTO letters "X₂" full size, as "X2".
+  const drawn = svgTexts(asDrawn).map(plainDigits);
+  const out: LayoutFinding[] = [];
+  const seen = new Set<string>();
+  const VALUE = /[\d()[\]×%$€£¥]/;
+  for (const raw of svgTexts(fitted)) {
+    const t = plainDigits(raw.trim());
+    if (!t.includes("…") || seen.has(t)) continue;
+    seen.add(t);
+    if (drawn.some((d) => d.includes(t))) continue;
+    const at = t.indexOf("…");
+    const head = t.slice(0, at);
+    const tail = t.slice(at + 1).replace(/…/g, "");
+    // What the cut removed, from each as-drawn text the label could have been cut from.
+    const removed: string[] = [];
+    for (const d of drawn) {
+      const i = d.indexOf(head);
+      if (i < 0) continue;
+      const rest = d.slice(i + head.length);
+      const j = tail ? rest.lastIndexOf(tail) : rest.length;
+      if (j < 0) continue;
+      removed.push(rest.slice(0, j));
+    }
+    if (removed.length && removed.some((r) => !VALUE.test(r))) continue;
+    out.push({ kind: "TRUNCATED", line: `TRUNCATED  "${t.slice(0, 26)}" was cut short by the fit`, a: t });
+  }
+  return out;
+}
+
+const SUP_DIGITS: Record<string, string> = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-", "−": "-", "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9", "₋": "-" };
+
+function plainDigits(s: string): string {
+  return s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻−₀₁₂₃₄₅₆₇₈₉₋]/g, (c) => SUP_DIGITS[c]);
+}
+
+/**
+ * The scale factors ("×10⁶") and parenthesised units ("(ng/mL)", "($)") the as-drawn figure prints (its figure title
+ * aside: USPTO leaves titles out) that the fitted figure no longer prints anywhere (round 3: a fit must never drop the
+ * scale or the unit). Compared with whitespace removed and super- and subscripts as plain digits, so a title wrapped
+ * across lines, a USPTO exponent raised on a tspan ("×10" + "6") or a subscript lettered full size ("x₁" → "x1") counts
+ * as kept.
+ */
+export function valueMarksLost(asDrawn: string, fitted: string): string[] {
+  const body = (svg: string): string[] => [...svg.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)].filter((m) => !/data-figure-title=/.test(m[1])).map((m) => decodeEntities(m[2].replace(/<[^>]*>/g, "")));
+  const norm = (s: string): string => plainDigits(s.replace(/\s+/g, ""));
+  const have = norm(body(fitted).join(""));
+  const marks = new Set<string>();
+  for (const t of body(asDrawn)) {
+    for (const m of t.matchAll(/×10[⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+/g)) marks.add(m[0]);
+    for (const m of t.matchAll(/\([^()]{1,24}\)/g)) marks.add(m[0]);
+  }
+  return [...marks].filter((m) => !have.includes(norm(m)));
 }

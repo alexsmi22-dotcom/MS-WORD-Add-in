@@ -219,8 +219,10 @@ export function polarPlotSvg(fig: PolarFigure): string {
   // Ring labels on the disc.
   for (const t of onRing) {
     const lb = labelBox(t.v, best, t.text);
-    // Black and white: a white backing, so the dotted spokes do not strike the number through (the curve is clear of it by construction).
-    if (bw) parts.push(`<rect x="${f1(lb.box.x0)}" y="${f1(lb.box.y0)}" width="${f1(lb.box.x1 - lb.box.x0)}" height="${f1(lb.box.y1 - lb.box.y0)}" fill="#ffffff"/>`);
+    // A white backing, so a spoke does not strike the number through (the curve is clear of it by construction). In
+    // black and white the spokes are dotted black; in colour (round 3) they are light grey, but at a narrow column the
+    // π/3 spoke still ran under a ring label and a figure style refused a legible plot for it.
+    parts.push(`<rect x="${f1(lb.box.x0)}" y="${f1(lb.box.y0)}" width="${f1(lb.box.x1 - lb.box.x0)}" height="${f1(lb.box.y1 - lb.box.y0)}" fill="#ffffff"/>`);
     parts.push(`<text x="${f1(lb.x)}" y="${f1(lb.y)}" font-family="${FONT}" font-size="10" fill="${INK2}">${escapeXml(t.text)}</text>`);
   }
   // Any the curve would cross: a radial scale under the disc, centre to rim.

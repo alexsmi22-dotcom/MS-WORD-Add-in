@@ -330,7 +330,7 @@ export function prepareFigure(req: FigureRequest, fallbackW = 380, fallbackH = 2
   // LEGIBLE, NOT ONLY COMPLIANT (round 2): the redrawn figure is measured with the check:figures layout audit, and a
   // fit that ran labels into each other, off the canvas or under a line refuses by name. Only defects the style fit
   // INTRODUCED count: one the figure already has as drawn is the builder's own (recorded by the QC gate).
-  const layout = layoutRefusal(req.svg, svg);
+  const layout = layoutRefusal(req.svg, svg, { preset, width: req.width, widthMm });
   if (layout) return { ok: false, reason: `This figure does not meet ${preset.name} at ${widthMm} mm`, problems: layout };
   const size = physicalSize(svg, widthMm, preset);
   if (!size) return { ok: false, reason: "the figure's own size could not be read", problems: [] };
@@ -364,7 +364,7 @@ export function prepareFigure(req: FigureRequest, fallbackW = 380, fallbackH = 2
  * The layout defects a style fit introduced into `fitted` (relative to the figure as drawn), as the sentences a
  * refusal lists, or null when there are none. At most four are named; the rest are counted.
  */
-export function layoutRefusal(asDrawn: string, fitted: string): string[] | null {
+export function layoutRefusal(asDrawn: string, fitted: string, at?: { preset: FigureStylePreset; width: PresetWidth; widthMm: number } | { panels: true }): string[] | null {
   const found = introducedLayoutFindings(asDrawn, fitted);
   if (!found.length) return null;
   // One sentence per distinct defect (a row of tick labels running together is one finding per neighbouring pair).
@@ -379,10 +379,15 @@ export function layoutRefusal(asDrawn: string, fitted: string): string[] | null 
   }
   const named = sentences.slice(0, 4);
   const more = sentences.length - named.length;
-  return [
-    `redrawn at this width it would not be legible: ${named.join("; ")}${more > 0 ? `; and ${more} more` : ""}`,
-    "choose a wider column (double), another figure style, or As drawn",
-  ];
+  // The remedy names only what can work: a wider column only when this style HAS a wider one than the one asked for
+  // (USPTO single and double are both the 170 mm sight); in the panel tray, fewer panels to a row.
+  let remedy = "choose another figure style, or As drawn";
+  if (at && "panels" in at) remedy = "use fewer columns in the panel tray, another figure style, or As drawn";
+  else if (at && at.width !== "double") {
+    const dbl = presetWidthMm(at.preset, "double");
+    if (dbl !== null && dbl > at.widthMm + 0.5) remedy = "choose the double-column width, another figure style, or As drawn";
+  }
+  return [`redrawn at this width it would not be legible: ${named.join("; ")}${more > 0 ? `; and ${more} more` : ""}`, remedy];
 }
 
 /**
@@ -504,7 +509,7 @@ export function composePanelFigure(items: PanelItem[], choice: FigurePresetChoic
         }
         if (!r.ok) problems.push(`${name}: ${[r.reason, ...r.check.problems].filter(Boolean).join("; ")}`);
         else {
-          const layout = layoutRefusal(it.svg, r.svg);
+          const layout = layoutRefusal(it.svg, r.svg, { panels: true });
           if (layout) problems.push(`${name}: ${layout.join("; ")}`);
         }
         return r.svg;

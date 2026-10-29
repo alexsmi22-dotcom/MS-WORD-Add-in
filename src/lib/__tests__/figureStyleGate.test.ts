@@ -68,6 +68,20 @@ const EXCEPTIONS: Record<string, string> = {
   // same intervals; every journal style takes the figure.
   "econ-mlogit uspto/single": "two category names per half-width panel do not fit at USPTO lettering",
   "econ-mlogit uspto/double": "two category names per half-width panel do not fit at USPTO lettering",
+  // CATEGORY AXES ARE NEVER THINNED (a category dropped to make room is a figure that no longer says what it shows).
+  // econ-heckman: the selection and outcome panels side by side, five covariate names per panel at USPTO lettering.
+  "econ-heckman uspto/single": "five covariate names per half-width panel do not fit side by side at USPTO lettering",
+  "econ-heckman uspto/double": "five covariate names per half-width panel do not fit side by side at USPTO lettering",
+  // panel-dyn-gmm: the estimator names ("Diff. GMM", "Sys. GMM" …) under each coefficient at 8 pt in 75 mm, or at
+  // USPTO lettering; the 112.5/150 mm thesis widths and every journal style take it.
+  "panel-dyn-gmm thesis/single": "the estimator names do not fit side by side in a 75 mm column at 8 pt",
+  "panel-dyn-gmm uspto/single": "the estimator names do not fit side by side at USPTO lettering",
+  "panel-dyn-gmm uspto/double": "the estimator names do not fit side by side at USPTO lettering",
+  // rmanova: four condition names under the profile plot ("Stick insect", "Kangaroo te…") at 8 pt in 75 mm or at USPTO
+  // lettering (round 1 accepted it with the names run together; thinning would name only two of the four).
+  "rmanova thesis/single": "four condition names do not fit under the profile plot in a 75 mm column at 8 pt",
+  "rmanova uspto/single": "four condition names do not fit under the profile plot at USPTO lettering",
+  "rmanova uspto/double": "four condition names do not fit under the profile plot at USPTO lettering",
   // Tukey on four groups with every pair bracketed and labelled with its p: six brackets need 110 px above the data,
   // more than 60% of the plot at a single column (and on the USPTO sight, where the lettering fills the plot). The
   // bracket builder refuses BY NAME with the remedy ("tick Taller figure or Hide ns"), and with that remedy the same

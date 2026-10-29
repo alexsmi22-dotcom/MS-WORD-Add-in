@@ -5,8 +5,10 @@
  */
 import { commaAxis, plotAxisTicks, buildPlotSvg, dateAxisTicks, dateTickLabel } from "../plot";
 import { finPlotSvg } from "../financeFigures";
-import { figureRenderer, withFigCtx, RENDER_BUDGET_MESSAGE, wrapFigureTitle, blackAndWhite } from "../figContext";
+import { figureRenderer, withFigCtx, RENDER_BUDGET_MESSAGE, wrapFigureTitle, blackAndWhite, wrapLabel } from "../figContext";
 import { prepareFigure, layoutRefusal } from "../insertCapability";
+import { getPreset, type FigureStylePreset } from "../figureStyle";
+import { bracketedBoxPlot } from "../statsBrackets";
 import { hBarSvg } from "../mechchart";
 import { distinctLabels } from "../statchart";
 import { bracketsFromPairwise, bracketLegend, planBrackets, markFor } from "../sigBrackets";
@@ -65,6 +67,18 @@ describe("B2: the layout audit on the fitted figure", () => {
     expect((r as string[])[0]).toMatch(/the labels “2027” and “2028” overlap/);
     expect((r as string[]).join(" ")).not.toMatch(/COLLISION|px²/);
     expect(layoutRefusal(crowded, crowded)).toBeNull();
+    // The remedy names a wider column only where the style has one: USPTO single and double are the same 170 mm sight.
+    const uspto = getPreset("uspto") as FigureStylePreset;
+    const nature = getPreset("nature") as FigureStylePreset;
+    expect((layoutRefusal(clean, crowded, { preset: uspto, width: "double", widthMm: 170 }) as string[])[1]).not.toMatch(/double/);
+    expect((layoutRefusal(clean, crowded, { preset: uspto, width: "single", widthMm: 170 }) as string[])[1]).not.toMatch(/double/);
+    expect((layoutRefusal(clean, crowded, { preset: nature, width: "single", widthMm: 89 }) as string[])[1]).toMatch(/double-column/);
+    expect((layoutRefusal(clean, crowded, { panels: true }) as string[])[1]).toMatch(/fewer columns/);
+  });
+  test("wrapLabel never returns fewer lines than it is given (the fit loop cannot oscillate)", () => {
+    expect(wrapLabel("Cumulative share of population, poorest group first (%)", 400, 10, 3).length).toBe(3);
+    expect(wrapLabel("Cumulative share of population, poorest group first (%)", 400, 10, 2).length).toBe(2);
+    expect(wrapLabel("short", 400, 10, 1)).toEqual(["short"]);
   });
   test("a narrow redraw of a crowded year axis takes fewer ticks and inserts clean", () => {
     const pts = Array.from({ length: 12 }, (_, i) => ({ x: 2021 + i, y: 1000 * i }));
@@ -84,6 +98,13 @@ describe("B2: the layout audit on the fitted figure", () => {
     const joined = [t[i], t[i + 1], t[i + 2]].join(" ");
     expect(joined.startsWith("Cumulative share of population, poorest group first (%)") || `${t[i]} ${t[i + 1]}` === "Cumulative share of population, poorest group first (%)").toBe(true);
     expect(t[i + 1]).not.toBe("Cumulative share of population, poorest group first (%)");
+  });
+  test("a category axis is never thinned (every condition keeps its name; a crowded one is refused instead)", () => {
+    const names = ["Stick insect", "Kangaroo testicle", "Fish eye", "Witchetty grub"];
+    const svg = withFigCtx({ width: 160, bw: true }, () =>
+      buildPlotSvg([{ type: "line", points: [1, 2, 3, 4].map((x) => ({ x, y: x })) }], { xTickLabel: (v) => (Number.isInteger(v) && v >= 1 && v <= 4 ? names[v - 1] : "") }),
+    );
+    for (const n of names) expect(texts(svg)).toContain(n);
   });
   test("outside a figure style a title wraps only where it would run off the canvas", () => {
     const fits = buildPlotSvg([{ type: "line", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }], { width: 380, xlabel: "Cumulative share of population (%)" });
@@ -196,6 +217,19 @@ describe("Minor 1: one significance predicate for brackets (the printed p)", () 
     expect(bracketLegend(set, { label: "stars", showNs: false })).toMatch(/1 non-significant comparison not shown/);
     expect(bracketLegend(set, { label: "stars" })).toMatch(/p as printed to three decimals/);
     expect(planBrackets(set, 2, xOf, { label: "p" }).items[0].label).toBe("p = 0.050");
+  });
+  test("the fit remedy offers Hide ns for a pair shown as ns at the printed boundary", () => {
+    const res = boundary();
+    // Narrow enough that one bracket does not fit the plot: the remedy must offer what works, Hide ns among it.
+    let msg = "";
+    for (const w of [70, 90, 110, 130]) {
+      const f = bracketedBoxPlot([{ label: "a", values: A }, { label: "b", values: A }], { title: "t" }, { kind: "t", result: res }, { label: "stars", hideNs: false, tall: false }, w);
+      if (!f.ok) {
+        msg = f.error;
+        break;
+      }
+    }
+    expect(msg).toMatch(/Hide ns/);
   });
 });
 

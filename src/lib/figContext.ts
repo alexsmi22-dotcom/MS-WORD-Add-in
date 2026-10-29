@@ -550,6 +550,27 @@ export function ctxFrameLayout(W: number, xTitle: string, yTitle: string, legend
  * `minLines` 2 keeps a title that was wrapped on two lines even when one would now fit.
  */
 export function wrapLabel(text: string, room: number, fs: number, minLines = 1): string[] {
+  const got = wrapLabelOnce(text, room, fs, minLines);
+  if (got.length >= minLines || minLines < 2) return got;
+  // At least `minLines` lines when the words allow it (round 2: a caller re-laying its frame for three lines must not
+  // get two back, or the count goes back and forth): the words dealt greedily to lines of about equal length.
+  const words = text.split(" ");
+  if (words.length < minLines) return got;
+  const target = Math.ceil(text.length / minLines);
+  const out: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (cur && next.length > target && out.length < minLines - 1) {
+      out.push(cur);
+      cur = w;
+    } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out.length >= got.length ? out : got;
+}
+
+function wrapLabelOnce(text: string, room: number, fs: number, minLines: number): string[] {
   const max = Math.max(4, Math.floor(room / (0.58 * fs)));
   if (text.length <= max && minLines < 2) return [text];
   const spaces: number[] = [];

@@ -736,6 +736,16 @@ function wrapTitle(title: string, W: number): string[] {
 
 
 /**
+ * An axis of NUMBERS (or dates), which may be thinned: every label empty, letter-free ("1,000", "−0.5", "12%") or a
+ * date ("Mar 2024", "3 Mar"). An axis whose labels are words is categorical (conditions, covariates, models): no
+ * category is ever dropped to make room (thinning left a profile plot naming two of its four conditions).
+ */
+function numericTicks(ax: PlotAxisTicks): boolean {
+  const date = /^(\d{1,2} )?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)( \d{4})?$/;
+  return ax.ticks.every((t) => t.text === "" || !/\p{L}/u.test(t.text) || date.test(t.text));
+}
+
+/**
  * A sparser labelling of a crowded axis: the axis at a lower tick-count target when that gives fewer ticks, else
  * every other tick of this one (keeping zero when it is labelled). null when two ticks are all that is left.
  */
@@ -1290,7 +1300,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   let pw = 0;
   let ph = 0;
   const tickW = (t: string): number => t.length * bwPx(t, 10, bw) * 0.58;
-  for (let pass = 0; pass < 12; pass++) {
+  for (let pass = 0; pass < 24; pass++) {
     mb = (options.xlabel ? 42 + (xTitle.length - 1) * xlh : 30) + (hasErrNote ? 13 + (errLines.length - 1) * errLh : 0);
     pw = W - ml - mr;
     // Under a figure-style re-render the height follows the width; at a narrow width that left a data area a few
@@ -1314,7 +1324,9 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     // A two-line title reaches the plot's top, so then the y title stays below it in either case.
     const yNext = options.ylabel ? fit(options.ylabel, 2 * Math.min(cy - (options.title && (fctx || titleLines.length > 1) ? mt : 0), H - cy) - 4, yfs, yTitle.length) : [];
     const eNext = hasErrNote ? fit(errText, 2 * Math.min(cx, W - cx) - 4, errFs, errLines.length) : [];
-    if (xNext.length !== xTitle.length || yNext.length !== yTitle.length || eNext.length !== errLines.length) {
+    // Only MORE lines re-lay the frame (bounded: three lines at most each; wrapLabel never returns fewer than it is
+    // given, so the count cannot go back and forth, as a 3 → 2 → 3 wrap could).
+    if (xNext.length > xTitle.length || yNext.length > yTitle.length || eNext.length > errLines.length) {
       xTitle = xNext;
       yTitle = yNext;
       errLines = eNext;
@@ -1332,7 +1344,9 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       const over = (a.w + b.w) / 2 - (b.p - a.p);
       return fctx ? over > -3 : over * TH > Math.max(4, 0.06 * Math.min(a.w, b.w) * TH);
     };
-    const xCrowded = !logX && xs.some((t, i) => i > 0 && xClash(xs[i - 1], t));
+    // Labels that are words are CATEGORIES (numericTicks): one is never dropped to make room; a crowded categorical
+    // axis is refused by the style instead.
+    const xCrowded = !logX && numericTicks(xAxis) && xs.some((t, i) => i > 0 && xClash(xs[i - 1], t));
     if (xCrowded) {
       const next = fewerTicks(xAxis, xTarget, makeX);
       if (next) {
@@ -1348,7 +1362,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       const wMin = Math.min(a.w, b.w);
       return fctx ? over > -3 : wMin > 0 && over * wMin > Math.max(4, 0.06 * wMin * TH);
     };
-    const yCrowded = !logY && ys.some((t, i) => i > 0 && yClash(ys[i - 1], t));
+    const yCrowded = !logY && numericTicks(yAxis) && ys.some((t, i) => i > 0 && yClash(ys[i - 1], t));
     if (yCrowded) {
       const next = fewerTicks(yAxis, yTarget, makeY);
       if (next) {
@@ -1360,6 +1374,12 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     }
     break;
   }
+  // Should the passes run out on a re-lay, the frame is laid out once more for the lines it will draw (as drawn and in
+  // every settled fit this recomputes the same numbers).
+  mb = (options.xlabel ? 42 + Math.max(0, xTitle.length - 1) * xlh : 30) + (hasErrNote ? 13 + (errLines.length - 1) * errLh : 0);
+  pw = W - ml - mr;
+  if (fctx) H = Math.max(H0, Math.round(mt + mb + Math.max(60, 0.5 * pw)));
+  ph = H - mt - mb;
   // THE LEGEND LIVES OUTSIDE THE PLOT FRAME, in a gutter to its right. It used
   // to sit inside the top-right corner of the plot area, where the only
   // defensible rendering is an opaque box — and an opaque box over the plot is

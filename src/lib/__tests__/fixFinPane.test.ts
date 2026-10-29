@@ -41,11 +41,11 @@ describe("R1 #2: the solvers stay quick and the readings do not solve again", ()
       "The cash flows field holds 1,001 flows: this calculator takes at most 1,000, because the rate search runs over every flow.",
     );
   });
-  test("XIRR caps the dates at 250", () => {
-    const many = Array.from({ length: 251 }, (_, i) => String(i)).join("\n");
+  test("XIRR caps the dates at 400 (fix round 2 M4; was 250)", () => {
+    const many = Array.from({ length: 401 }, (_, i) => String(i)).join("\n");
     const r = readXirrDates(many);
-    expect("error" in r && r.error).toContain("at most 250");
-    expect("error" in readXirrDates(Array.from({ length: 250 }, (_, i) => String(i)).join("\n"))).toBe(false);
+    expect("error" in r && r.error).toContain("at most 400");
+    expect("error" in readXirrDates(Array.from({ length: 400 }, (_, i) => String(i)).join("\n"))).toBe(false);
   });
   test("the readings use the rate passed in (no second solve)", () => {
     const flows = [-1000, 500, 500, 500];

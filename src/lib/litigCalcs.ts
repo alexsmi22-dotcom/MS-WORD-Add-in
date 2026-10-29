@@ -113,6 +113,8 @@ export const LITIG_CALCS: FinCalcDef[] = [
           { value: "ar-pct", label: "Constant percentage: from the abnormal returns" },
           { value: "dollar", label: "Constant dollar: inflation removed per share, as entered" },
         ],
+        // R3 MINOR 12: the dollar mode takes the inflation removed per share, a positive dollar amount.
+        modeDefaults: { dollar: { disclosures: ["Disclosure date\tInflation removed ($ per share)", "2025-03-17\t2.80", "2025-03-31\t3.90"].join("\n") } },
       },
       {
         key: "units",
@@ -123,6 +125,8 @@ export const LITIG_CALCS: FinCalcDef[] = [
           { value: "percent", label: "Percent (−6.2 = −6.2%)" },
           { value: "decimal", label: "Decimals (−0.062 = −6.2%)" },
         ],
+        // R3 MINOR 12: the same abnormal returns written as decimals.
+        modeDefaults: { decimal: { disclosures: ["Disclosure date\tAbnormal return (decimal)", "2025-03-17\t−0.0620", "2025-03-31\t−0.0930"].join("\n") } },
       },
     ],
     assumes: "the abnormal returns (or dollar drops) at each corrective disclosure are the user's inputs, for example from the event study; the ribbon does not estimate them",

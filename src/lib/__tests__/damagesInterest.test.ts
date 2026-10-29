@@ -266,8 +266,8 @@ describe("prejudgment refusals and hostile input", () => {
     expect(rep("2020-01-01 1000000000000.01").text).toContain("outside this calculator");
     expect(rep("2020-01-01 1000000000000000").text).toContain("outside this calculator");
   });
-  // fix-fin R2 #7: prejudgment takes at most PREJUDGMENT_MAX_ROWS (2,500) rows; 10,000 took about 500 ms.
-  test("2,500 rows compute fast and the table adds up; 2,501 are refused by name", () => {
+  // fix-fin R2 #7: prejudgment takes at most PREJUDGMENT_MAX_ROWS rows (5,000 since fix round 2); 10,000 took about 500 ms.
+  test("2,500 rows compute fast and the table adds up; 5,001 are refused by name", () => {
     const lines: string[] = [];
     let want = 0;
     for (let i = 0; i < 2500; i++) {
@@ -288,9 +288,10 @@ describe("prejudgment refusals and hostile input", () => {
       for (let i = 1; i <= 2500; i++) sum += Math.round(Number(r.table!.rows[i][4].replace(/[$,]/g, "")) * 100);
       expect(Math.round(Number(total[4].replace(/[$,]/g, "")) * 100)).toBe(sum);
     }
-    const over = rep([...lines, lines[0]].join("\n"), "2014-01-01 5", "2024-12-31", { method: "simple" });
+    // Fix round 2 MINOR 6: the cap is 5,000 rows (a 10-year daily table fits); 5,001 are refused by name.
+    const over = rep([...lines, ...lines, lines[0]].join("\n"), "2014-01-01 5", "2024-12-31", { method: "simple" });
     expect(over.ok).toBe(false);
-    expect(over.text).toContain("takes at most 2,500");
+    expect(over.text).toContain("takes at most 5,000");
   });
 });
 

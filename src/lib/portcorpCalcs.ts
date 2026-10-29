@@ -7,7 +7,7 @@
  * Pasted series: a one-line list goes through readCalcList, a pasted column or table through readDataBlock (the
  * field is a "block", so it gets the "Use table at cursor" / "Open CSV…" bar).
  */
-import type { FinCalcDef, FinResult, FinTable } from "./finCalc";
+import type { FinCalcDef, FinField, FinResult, FinTable } from "./finCalc";
 import { finRefusal as finRefusalRaw } from "./finCalc";
 /** A refusal starts with a capital (a lower-case first word raised; a symbol such as "q" or "σ" is left alone). */
 const finRefusal = (s: string): FinResult => finRefusalRaw(/^[a-z][a-z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s);
@@ -72,7 +72,6 @@ function finish(res: { text: string; reading?: string; svg?: string; tables?: Fi
 const READING_LIMIT = 320;
 /** The first candidate that fits the reading limit (the last one is the short, always-fitting form). */
 const fitReading = (...cands: string[]): string => cands.find((c) => c.length <= READING_LIMIT) ?? cands[cands.length - 1];
-/** A p-value as the text prints it, judged significant at 5% on the printed value (p = 0.0500 is not below 5%). */
 /** Sign of a value as printed: a figure that prints as zero is zero. */
 const printedSign = (s: string): -1 | 0 | 1 => (/^0(?:\.0*)?%?$/.test(s) ? 0 : s.startsWith("−") ? -1 : 1);
 
@@ -173,6 +172,23 @@ const INPUT_FIELD = {
     { value: "prices", label: "Prices or index levels, oldest first" },
   ],
 };
+/**
+ * The input select of one calculator with its "prices" defaults (R3 MINOR 12: the returns defaults, read as prices,
+ * were refused for a negative price). `key` is the calculator's data field; the prices are the default returns
+ * compounded from 100, two decimals, with a starting row.
+ */
+const inputField = (key: string, returnsDefault: string): FinField => ({ ...INPUT_FIELD, options: [...INPUT_FIELD.options], modeDefaults: { prices: { [key]: pricesOf(returnsDefault) } } });
+function pricesOf(def: string): string {
+  const compound = (rets: number[]): string[] => {
+    let p = 100;
+    return ["100.00", ...rets.map((x) => (p *= 1 + x / 100).toFixed(2))];
+  };
+  const lines = def.split("\n");
+  if (lines.length === 1) return compound(def.split(",").map((s) => Number(s.trim()))).join(", ");
+  const [head, ...rows] = lines;
+  const cols = head.split("\t").map((_, j) => compound(rows.map((l) => Number(l.split("\t")[j]))));
+  return [head, ...cols[0].map((_, i) => cols.map((c) => c[i]).join("\t"))].join("\n");
+}
 const kindOf = (r: Read): SeriesKind => (r("input") === "prices" ? "prices" : "returns");
 
 /** A pasted series as decimal returns: returns in % checked, or prices turned into simple returns pₜ/pₜ₋₁ − 1. */
@@ -1152,7 +1168,7 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     name: "CAPM beta and alpha (regression)",
     fields: [
       { key: "data", label: "Asset, market [, risk-free rate %]: returns (%) or prices, one period per line (illustrative numbers by default)", default: CAPM_DEFAULT, kind: "block" },
-      INPUT_FIELD,
+      inputField("data", CAPM_DEFAULT),
       { key: "rf", label: "Risk-free rate (% per period; used without a third column)", default: "0.25", optional: true },
       PPY_FIELD,
       SE_FIELD,
@@ -1171,7 +1187,7 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     name: "Sharpe, Sortino, Treynor and maximum drawdown",
     fields: [
       { key: "rets", label: "Returns (% per period) or prices, a list or one per line (illustrative numbers by default)", default: RETURNS_DEFAULT, kind: "block" },
-      INPUT_FIELD,
+      inputField("rets", RETURNS_DEFAULT),
       PPY_FIELD,
       { key: "rf", label: "Risk-free rate (% per period)", default: "0.25" },
       { key: "mar", label: "Minimum acceptable return for Sortino (% per period)", default: "0" },
@@ -1189,7 +1205,7 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     name: "Value at risk and expected shortfall (CVaR)",
     fields: [
       { key: "rets", label: "Returns (% per period) or prices, a list or one per line (illustrative numbers by default)", default: RETURNS_DEFAULT, kind: "block" },
-      INPUT_FIELD,
+      inputField("rets", RETURNS_DEFAULT),
       { key: "conf", label: "Confidence level (%)", default: "95" },
       { key: "horizon", label: "Horizon (periods)", default: "1" },
       { key: "value", label: "Portfolio value", default: "1,000,000" },
@@ -1211,7 +1227,7 @@ export const PORTCORP_CALCS: FinCalcDef[] = [
     name: "Efficient frontier and tangency portfolio (Markowitz)",
     fields: [
       { key: "data", label: "Asset returns (% per period) or prices: one column per asset, one period per line, names in a header row (illustrative numbers by default)", default: FRONTIER_DEFAULT, kind: "block" },
-      INPUT_FIELD,
+      inputField("data", FRONTIER_DEFAULT),
       PPY_FIELD,
       { key: "rf", label: "Risk-free rate (% a year)", default: "3" },
     ],

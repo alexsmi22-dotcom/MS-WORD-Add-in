@@ -824,9 +824,10 @@ export interface PrejudgmentResult {
 export const PREJUDGMENT_MAX_STEPS = 2_000_000;
 /**
  * Most damages rows one prejudgment run takes (fix-fin R2 #7): the time is mostly per row (parsing, the row's interest,
- * its curve in the figure), and 10,000 rows took about 500 ms whatever the method.
+ * its curve in the figure), and 10,000 rows took about 500 ms whatever the method. Fix round 2 MINOR 6: 2,500 refused a
+ * 10-year daily table (3,653 rows); 5,000 rows measured 143–297 ms, so 5,000.
  */
-export const PREJUDGMENT_MAX_ROWS = 2500;
+export const PREJUDGMENT_MAX_ROWS = 5000;
 
 /** Prejudgment interest per tranche, or a named refusal. */
 export function prejudgmentInterest(input: PrejudgmentInput): PrejudgmentResult | { error: string } {

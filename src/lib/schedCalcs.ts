@@ -982,6 +982,8 @@ export const SCHED_CALCS: FinCalcDef[] = [
           { value: "2", label: "2 (semiannual)" },
           { value: "1", label: "1 (annual)" },
         ],
+        // R3 MINOR 12: annual payments make 30 payments, so the one-off extra moves from payment 60 to payment 5.
+        modeDefaults: { "1": { lumps: "5\t10000" } },
       },
       { key: "extra", label: "Extra principal each payment (blank = none)", default: "200", optional: true },
       { key: "extrafrom", label: "Extra principal starts at payment number", default: "1", optional: true },
@@ -1057,7 +1059,8 @@ export const SCHED_CALCS: FinCalcDef[] = [
       },
       {
         key: "class",
-        label: "GDS property class",
+        // R3 MINOR 11: each period select says which method it applies to (the other one is not read).
+        label: "GDS property class (used with GDS declining balance only)",
         default: "7",
         kind: "select",
         options: [
@@ -1069,7 +1072,7 @@ export const SCHED_CALCS: FinCalcDef[] = [
           { value: "20", label: "20-year (150% DB)" },
         ],
       },
-      { key: "slperiod", label: "Straight-line recovery period (years)", default: "10", kind: "select", options: MACRS_SL_PERIODS.map((p) => ({ value: p, label: `${p} years` })) },
+      { key: "slperiod", label: "Straight-line recovery period (years; used with straight line only, not with GDS)", default: "10", kind: "select", options: MACRS_SL_PERIODS.map((p) => ({ value: p, label: `${p} years` })) },
       {
         key: "conv",
         label: "Convention",

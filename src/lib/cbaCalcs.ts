@@ -535,6 +535,10 @@ export function cipCalc(r: Read): FinResult {
     const profit = Math.abs(edge) * notional;
     lines.push(`Quoted forward ${fx(fq, 6)} against the parity forward ${fx(res.F, 6)}: deviation ${fx(fq - res.F, 6)} (${fx(((fq - res.F) / res.F) * 10000, 2)} basis points of the forward).`);
     if (cipHoldsAsPrinted(fq, res.F, edge)) lines.push("Covered interest parity holds at the quoted forward (to the 6 decimals shown): there is no covered arbitrage.");
+    else if (cipProfitPrintsZero(profit, quote))
+      lines.push(
+        `The deviation is too small to trade on this notional: the covered-arbitrage profit on ${amt(notional, quote)} rounds to ${amt(0, quote)}${quote ? ` in ${quote}'s minor units` : ""}, so parity holds in effect and there is no arbitrage worth taking.`,
+      );
     else if (edge > 0)
       lines.push(
         `Covered arbitrage: the foreign currency is dear forward. Borrow ${amt(notional, quote)} domestic at ${fx(id, 4)}%, buy ${amt(notional / S, base)} foreign at spot, deposit it at ${fx(iff, 4)}%, and sell the ${amt((notional / S) * res.growF, base)} proceeds forward at ${fx(fq, 6)}: at maturity this returns ${amt(notional * (fq / S) * res.growF, quote)} against a loan repayment of ${amt(notional * res.growD, quote)}, a riskless profit of ${amt(profit, quote)}.`,
@@ -575,6 +579,14 @@ export function cipHoldsAsPrinted(fq: number, F: number, edge: number): boolean 
 }
 
 /**
+ * The covered-arbitrage profit prints as zero in the quote currency's minor units (fix round 2 M3): with JPY (0
+ * decimals) a deviation at the 6th decimal reported "a riskless profit of JP¥0". Then there is no arbitrage to report.
+ */
+export function cipProfitPrintsZero(profit: number, quote: string | null): boolean {
+  return !/[1-9]/.test(amt(profit, quote));
+}
+
+/**
  * The plain-language reading of covered interest parity: the parity forward against spot, or the quoted forward
  * against parity and the covered arbitrage it opens (the same `edge` the text branches on).
  */
@@ -598,6 +610,10 @@ export function cipReading(S: number, res: CipResult, days: number, fq: number |
   const bp = bpS === "0.00" ? "a fraction of a basis point" : `${bpS} basis points`;
   const profit = amt(Math.abs(edge) * notional, quote);
   const per = amt(notional, quote);
+  // The same test as the text's line (fix round 2 M3): a profit that prints as zero is no arbitrage.
+  if (cipProfitPrintsZero(Math.abs(edge) * notional, quote)) {
+    return `The quoted forward ${fx(fq, 6)} differs from the parity forward ${F} by ${bp}, too little to trade: the arbitrage profit on ${per} rounds to ${amt(0, quote)}, so there is no riskless arbitrage worth taking.`;
+  }
   return edge > 0
     ? `The quoted forward ${fx(fq, 6)} is ${bp} above parity (${F}), so borrowing domestic, converting and selling forward locks in about ${profit} per ${per} borrowed, before trading costs.`
     : `The quoted forward ${fx(fq, 6)} is ${bp} below parity (${F}), so borrowing foreign, converting and buying forward locks in about ${profit} per ${per} of domestic currency, before trading costs.`;

@@ -76,7 +76,8 @@ describe("R3 M2 / MINOR 1 / MINOR 8: cba-scenarios and cba-pigou decide on the p
 describe("R2 #9 / MINOR: forensic", () => {
   test("act-swr-mc: the ruin probability to 0.1 point with its standard error", () => {
     const o = asObj(runCalc(fo("act-swr-mc")));
-    expect(o.text).toContain("23.4%, simulation standard error about 0.3 percentage points");
+    // fix round 2 M1: the standard error to 2 significant figures
+    expect(o.text).toContain("23.4%, simulation standard error about 0.30 percentage points");
     expect(o.text).not.toContain("23.445%");
     expect(o.reading).not.toMatch(/about (0|100)%/);
   });

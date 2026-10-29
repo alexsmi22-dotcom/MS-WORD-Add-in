@@ -482,16 +482,16 @@ export function swrCalc(read: Read): FinResult {
     for (let k = 0; k < years; k++) alive.push(lAt(t, a + k) / l0);
   }
   const r = swrMonteCarlo({ balance, withdrawal, years, mean: mean / 100, sd: sd / 100, paths, seed, alive });
-  // fix-fin R2 #9: a simulated probability to 0.1 percentage point, not "23.445%" (its simulation standard error is
-  // about 0.3 points at 20,000 paths); the standard error is printed beside the headline.
-  const pc = (x: number): string => pctText(Math.round(x * 1000) / 10);
-  const se = (x: number): string => fixedText(Math.sqrt((x * (1 - x)) / paths) * 100, 1);
+  const pc = swrPct;
+  const nPaths = paths.toLocaleString("en-US");
+  // fix round 2 M1: a probability that rounds to 0.0% (or 100.0%) while some paths ran out (or survived) gives the count.
+  const count = (x: number): string => Math.round(x * paths).toLocaleString("en-US");
   const pcSe = (x: number): string =>
     x <= 0
-      ? `${pc(0)}: no simulated path ran out, so the chance is below about 1 in ${paths.toLocaleString("en-US")}`
+      ? `${pc(0)}: no simulated path ran out, so the chance is below about 1 in ${nPaths}`
       : x >= 1
         ? `${pc(1)}: every simulated path ran out`
-        : `${pc(x)}, simulation standard error about ${se(x)} percentage points`;
+        : `${pc(x)}${swrPctEdge(x) ? ` (${count(x)} of ${nPaths} paths ran out)` : ""}, simulation standard error about ${swrSe(x, paths)} percentage points`;
   const head = ["Year", "Ruined by year end", "10th percentile balance", "Median balance", "90th percentile balance"];
   if (alive) head.push("P(alive) at start");
   const t: string[][] = [head];
@@ -521,14 +521,36 @@ export function swrCalc(read: Read): FinResult {
   const svg = years >= 2 ? finPlotSvg(series, { width: 380, height: 250, title: "Probability of ruin by year", xlabel: "year", ylabel: "percent" }) : undefined;
   return {
     text: lines.join("\n"),
-    reading: swrReading(pc(r.ruinBy[years - 1]), alive ? pc(r.ruinWhileAlive!) : null, amt(withdrawal), amt(balance), years, paths.toLocaleString("en-US"), r.ruinBy[years - 1]),
+    reading: swrReading(pc(r.ruinBy[years - 1]), alive ? pc(r.ruinWhileAlive!) : null, amt(withdrawal), amt(balance), years, nPaths, r.ruinBy[years - 1], count(r.ruinBy[years - 1])),
     tables: [{ label: "Probability of ruin by year", rows: t, align: alive ? ["left", "right", "right", "right", "right", "right"] : ["left", "right", "right", "right", "right"] }],
     svg,
   };
 }
 
+/**
+ * A simulated probability as the safe-withdrawal result prints it, in the text, the table and the reading: one decimal
+ * throughout (fix round 2 MINOR 7: "2%" sat beside "0.4%"). A probability strictly between 0 and 1 that would round to
+ * 0.0% or 100.0% prints "< 0.1%" or "> 99.9%" (fix round 2 M1: 6 ruined paths of 20,000 printed "0%").
+ */
+export function swrPct(x: number): string {
+  if (x > 0 && x < 0.0005) return "< 0.1%";
+  if (x < 1 && x >= 0.9995) return "> 99.9%";
+  return `${fixedText(x * 100, 1)}%`;
+}
+/** Whether swrPct printed the "< 0.1%" or "> 99.9%" form (then the text and the reading give the count of paths). */
+export const swrPctEdge = (x: number): boolean => swrPct(x).startsWith("<") || swrPct(x).startsWith(">");
+/** The simulation standard error √(p(1 − p)/n) in percentage points, to 2 significant figures (fix round 2 M1). */
+export function swrSe(p: number, paths: number): string {
+  const se = Math.sqrt((p * (1 - p)) / paths) * 100;
+  if (!(se > 0)) return fixedText(0, 1);
+  const mag = Math.floor(Math.log10(se));
+  const dp = Math.max(0, 1 - mag);
+  // A value like 0.0996 rounds up to 0.100 at three decimals: two significant figures are then 0.10.
+  return dp > 0 && Number(fixedText(se, dp).replace(/,/g, "")) >= Math.pow(10, mag + 1) ? fixedText(se, dp - 1) : fixedText(se, dp);
+}
+
 /** The plain-language reading of the safe-withdrawal Monte Carlo (values already formatted as the text prints them). */
-export function swrReading(ruin: string, ruinAlive: string | null, withdrawal: string, balance: string, years: number, paths: string, p?: number): string {
+export function swrReading(ruin: string, ruinAlive: string | null, withdrawal: string, balance: string, years: number, paths: string, p?: number, count?: string): string {
   const span = `within ${years} year${years === 1 ? "" : "s"}`;
   // fix-fin R2 #9: no "about 0%" or "about 100%": none or every path is said in words.
   const head =
@@ -536,8 +558,17 @@ export function swrReading(ruin: string, ruinAlive: string | null, withdrawal: s
       ? `Withdrawing ${withdrawal} a year from ${balance} ran out of money ${span} in none of ${paths} simulated return paths, so the chance is below about 1 in ${paths}`
       : p !== undefined && p >= 1
         ? `Withdrawing ${withdrawal} a year from ${balance} ran out of money ${span} in every one of ${paths} simulated return paths`
-        : `Withdrawing ${withdrawal} a year from ${balance} runs out of money ${span} in about ${ruin} of ${paths} simulated return paths`;
+        : // fix round 2 M1: a share that prints "< 0.1%" or "> 99.9%" is said as the count of paths
+          count !== undefined && (ruin.startsWith("<") || ruin.startsWith(">"))
+          ? `Withdrawing ${withdrawal} a year from ${balance} ran out of money ${span} in ${count} of ${paths} simulated return paths (${ruin.startsWith("<") ? "under 0.1%" : "over 99.9%"})`
+          : `Withdrawing ${withdrawal} a year from ${balance} runs out of money ${span} in about ${ruin} of ${paths} simulated return paths`;
   if (ruinAlive === null) return `${head}, an estimate that rests on the return assumptions entered.`;
-  const alive = /[1-9]/.test(ruinAlive) ? `about ${ruinAlive}` : "close to none";
+  const alive = ruinAlive.startsWith("<")
+    ? "under 0.1%"
+    : ruinAlive.startsWith(">")
+      ? "over 99.9%"
+      : /[1-9]/.test(ruinAlive)
+        ? `about ${ruinAlive}`
+        : "close to none";
   return `${head}; allowing for the chance of dying first, the estimated risk of outliving the money is ${alive}.`;
 }

@@ -77,7 +77,10 @@ const finite = (...xs: number[]): boolean => xs.every(Number.isFinite);
 
 /** A count or an input number as typed: grouped, at most six decimals, true minus ("10", "7.5", "1,000"). */
 export function inNum(x: number): string {
-  const s = x.toLocaleString("en-US", { maximumFractionDigits: 6 });
+  let s = x.toLocaleString("en-US", { maximumFractionDigits: 6 });
+  // A nonzero value below 5×10⁻⁷ printed "0" (a typed rate of 0.0000001% echoed as "0%"): significant digits then
+  // (fix round 2 MINOR 3). Intl writes them out in plain digits, never e-notation.
+  if (x !== 0 && Number.isFinite(x) && !/[1-9]/.test(s)) s = x.toLocaleString("en-US", { maximumSignificantDigits: 6 });
   return s.startsWith("-") ? (/[1-9]/.test(s) ? "−" + s.slice(1) : s.slice(1)) : s;
 }
 
@@ -181,7 +184,13 @@ export function dcfRefusal(ratePct: number, flows: number[], gPct: number): stri
   if (flows.some((c) => Math.abs(c) > DCF_MAX)) return "A cash flow is larger than 10¹⁵ in size, which is outside this calculator.";
   const v = dcf(ratePct / 100, flows, gPct / 100);
   if (!Number.isFinite(v) || Math.abs(v) > DCF_MAX) {
-    return "The value comes to more than 10¹⁵ in size: the terminal growth rate is too close to the discount rate for the result to mean anything.";
+    // Name the right cause (fix round 2 MINOR 5: 5×10¹⁴ flows at a 10% rate and 2% growth blamed the growth rate).
+    // The terminal value is (1 + g)/(r − g) times the last flow: at 100 times or more the growth is the cause.
+    const mult = (1 + gPct / 100) / ((ratePct - gPct) / 100);
+    if (!(mult < 100)) {
+      return "The value comes to more than 10¹⁵ in size: the terminal growth rate is too close to the discount rate for the result to mean anything.";
+    }
+    return "The value comes to more than 10¹⁵ in size, which is outside this calculator: the cash flows are too large. Enter them in thousands or millions and read the value in the same unit.";
   }
   return undefined;
 }
@@ -295,6 +304,8 @@ export function earReading(nomPct: number, m: number): string | undefined {
   const es = finPct(eff);
   // The nominal rate as typed (R1 #5); the branch compares the two at the effective rate's printed precision.
   const ns = inPct(nomPct);
+  // A nominal rate of zero earns nothing to compound (fix round 2 MINOR 1: it read "adds too little to show").
+  if (nom === 0) return `${aAn(ns, true)} ${ns} nominal rate is also ${es} effective: with no interest there is nothing to compound.`;
   if (es === finPct(nom)) {
     return m === 1
       ? `${aAn(ns, true)} ${ns} nominal rate compounded once a year is also ${es} effective: no interest is earned on interest within the year.`
@@ -337,6 +348,8 @@ export function perpetuityReading(pmt: number, ratePct: number, gPct: number): s
   // R1 #13: plain order; the rates as typed (R1 #5).
   const first = `A payment of ${finMoney(pmt)} every period forever, starting next period, is worth ${finMoney(level)} today at ${aAn(inPct(ratePct))} ${inPct(ratePct)} discount rate`;
   if (g === 0) return `${first}; with no growth that is also the growing value.`;
+  // Branch on the printed values (fix round 2 MINOR 2: g = 1e-7 read "changing by 0% … sensitive to the growth").
+  if (finMoney(growing) === finMoney(level)) return `${first}; changing by ${inPct(gPct)} a period it is still worth ${finMoney(growing)} to the cent.`;
   return `${first}; changing by ${inPct(gPct)} a period it is worth ${finMoney(growing)}, a value sensitive to the growth assumed.`;
 }
 

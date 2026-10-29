@@ -31,10 +31,12 @@ describe("R2 #6: period labels that disagree with periods per year get a note", 
   });
 });
 
+// Fix round 2 M2: the mean, its SE and the percentiles round to the SE's second significant figure (mcStepOf);
+// mcCell without a step (the standard deviation) keeps 3 significant figures.
 describe("R2 #9: ipv-mc amounts to 3 significant figures", () => {
   test("mean, P10 and P90 are not printed to the cent; the standard error is shown", () => {
     const o = asObj(runCalc(ip("ipv-mc")));
-    expect(o.text).toMatch(/Mean NPV: 114,000 \(simulation standard error [\d,]+\)/);
+    expect(o.text).toMatch(/Mean NPV: 114,100 \(simulation standard error [\d,]+\)/);
     expect(o.text).not.toMatch(/P10 −?[\d,]+\.\d\d;/);
     expect(mcCell(1234567.891, { code: "", minor: 2 } as never)).toBe("1,230,000");
     expect(mcCell(12.3456, { code: "", minor: 2 } as never)).toBe("12.3");

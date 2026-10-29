@@ -877,6 +877,8 @@ export const DERIV_CALCS: FinCalcDef[] = [
           { value: "price", label: "Price and Greeks from volatility" },
           { value: "iv", label: "Implied volatility from price" },
         ],
+        // R3 MINOR 12: implied volatility needs a price to start from.
+        modeDefaults: { iv: { price: "60" } },
       },
       { key: "f", label: "Futures price F", default: "620" },
       { key: "k", label: "Strike K", default: "600" },

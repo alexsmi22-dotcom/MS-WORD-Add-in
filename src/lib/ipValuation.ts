@@ -27,6 +27,7 @@
  */
 import { readFinanceField } from "./finance";
 import { readDataBlock } from "./dataBlock";
+import { readNumberList } from "./numberList";
 import { currentFinFig, finPlotSvg } from "./financeFigures";
 import { buildChartPreviewSvg, type TableChart } from "./tablechart";
 import { ISO4217, ISO4217_DATE, ISO4217_SOURCE, NOT_A_CURRENCY, currencyAmount } from "./currency";
@@ -852,11 +853,21 @@ export function readDist(kindRaw: string, raw: string, label: string, o: { min: 
   if (!t) return { error: `${label}: enter ${shape}.` };
   if (t.includes("\n")) return { error: `${label}: give ${shape} on one line.` };
   // A fixed input is one value, so a lone "4,5" is asked about (decimal comma or two values), not read as two.
-  const b = readDataBlock(t, label, { maxRows: 1, loneCommaPairAmbiguous: kind === "fixed" });
-  if (!b.ok) return { error: b.error };
-  const row = b.rows[0] ?? [];
-  if (b.header || row.some((v) => v === null) || row.length !== want) {
-    return { error: `${label}: a ${kind === "tri" ? "triangular" : kind === "logn" ? "lognormal" : "fixed"} input takes ${want} number${want === 1 ? "" : "s"} (${shape}); ${q(t)} has ${b.header ? "none" : row.length}.` };
+  // A lone number grouped in thousands ("4,000,000", "1,000") is that one number, under the shared list reader's rule
+  // (numberList.ts); one that reads several ways ("1,500", "1,000,500") is asked with its question (fix round 2
+  // MINOR 8: "4,000,000" was refused as three values in fixed mode).
+  let lone: number[] | null = null;
+  if (kind === "fixed" && /^[-−–+]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) {
+    const nl = readNumberList(t);
+    if (nl.ambiguous) return { error: `${label}: ${nl.ambiguous}` };
+    if (nl.values.length === 1 && !nl.dropped.length) lone = nl.values;
+  }
+  const b = lone ? null : readDataBlock(t, label, { maxRows: 1, loneCommaPairAmbiguous: kind === "fixed" });
+  if (b && !b.ok) return { error: b.error };
+  const row = lone ?? (b && b.ok ? b.rows[0] : undefined) ?? [];
+  const header = !!(b && b.ok && b.header);
+  if (header || row.some((v) => v === null) || row.length !== want) {
+    return { error: `${label}: a ${kind === "tri" ? "triangular" : kind === "logn" ? "lognormal" : "fixed"} input takes ${want} number${want === 1 ? "" : "s"} (${shape}); ${q(t)} has ${header ? "none" : row.length}.` };
   }
   const p = row as number[];
   const lowOk = (v: number): boolean => (o.minExclusive ? v > o.min : v >= o.min);
@@ -970,12 +981,13 @@ export function mcNpvCalc(read: Read): FinResult {
   const amtF = (x: number): string => amount(x, cur);
   const yrF = (x: number): string => `${fixedText(x, 2)} years`;
   const se = r.sd / Math.sqrt(samples);
-  // Every draw the same (fixed inputs): not an estimate, so the amounts keep the currency's minor units.
-  const ex = r.sd === 0;
+  // Every draw the same as printed (fixed inputs): not an estimate, so the amounts keep the currency's minor units.
+  const ex = mcIsExact(r, cur);
+  const st = mcStepOf(se, cur.minor);
   const lines = [
     "Monte Carlo patent NPV, computed from the inputs given",
-    `Mean NPV: ${mcAmount(r.mean, cur, ex)} (simulation standard error ${mcAmount(se, cur, ex)}); standard deviation ${mcAmount(r.sd, cur, ex)}`,
-    `P10 ${mcAmount(r.p10, cur, ex)}; P50 ${mcAmount(r.p50, cur, ex)}; P90 ${mcAmount(r.p90, cur, ex)}`,
+    `Mean NPV: ${mcAmount(r.mean, cur, ex, st)} (simulation standard error ${mcAmount(se, cur, ex, st)}); standard deviation ${mcAmount(r.sd, cur, ex)}`,
+    `P10 ${mcAmount(r.p10, cur, ex, st)}; P50 ${mcAmount(r.p50, cur, ex, st)}; P90 ${mcAmount(r.p90, cur, ex, st)}`,
     `Probability NPV < 0: ${mcProb(r.probNeg)} (${r.negCount.toLocaleString("en-US")} of ${samples.toLocaleString("en-US")} draws)`,
     `NPV at the central inputs (mode, median or fixed value): ${amount(r.central, cur)}`,
     `Inputs: first-year revenue ${distText(revenue, amtF)}, growing ${pctText(growthPct)} a year; royalty rate ${distText(royaltyPct, pctF)}; remaining life ${distText(life, yrF)}; discount rate ${distText(discountPct, pctF)}; tax rate ${pctText(taxPct)}; price paid today ${amount(cost, cur)}.`,
@@ -991,12 +1003,12 @@ export function mcNpvCalc(read: Read): FinResult {
   );
   const stats: string[][] = [
     ["Statistic", head("NPV", cur)],
-    ["Mean", mcCell(r.mean, cur, ex)],
-    ["Simulation standard error of the mean", mcCell(se, cur, ex)],
+    ["Mean", mcCell(r.mean, cur, ex, st)],
+    ["Simulation standard error of the mean", mcCell(se, cur, ex, st)],
     ["Standard deviation", mcCell(r.sd, cur, ex)],
-    ["P10", mcCell(r.p10, cur, ex)],
-    ["P50 (median)", mcCell(r.p50, cur, ex)],
-    ["P90", mcCell(r.p90, cur, ex)],
+    ["P10", mcCell(r.p10, cur, ex, st)],
+    ["P50 (median)", mcCell(r.p50, cur, ex, st)],
+    ["P90", mcCell(r.p90, cur, ex, st)],
     ["Probability NPV < 0", mcProb(r.probNeg)],
     ["NPV at central inputs", cell(r.central, cur)],
   ];
@@ -1020,15 +1032,42 @@ function mcDigits(x: number, minor: number): { v: number; dp: number } {
   const step = Math.pow(10, mag - 2);
   return { v: Math.round(x / step) * step, dp };
 }
-export function mcCell(x: number, cur: Currency, exact = false): string {
+/**
+ * The rounding a simulated estimate earns from its simulation standard error (fix round 2 M2): the place of the SE's
+ * second significant figure, never finer than the currency's minor unit. Cost "714,106" printed "Mean NPV 0.16 (SE
+ * 1,020)": three significant figures of the VALUE claimed a precision of 0.01 the SE of 1,020 does not support.
+ */
+export interface McStep {
+  step: number;
+  dp: number;
+}
+export function mcStepOf(se: number, minor: number): McStep | undefined {
+  if (!(se > 0) || !Number.isFinite(se)) return undefined;
+  const mag = Math.floor(Math.log10(se));
+  const dp = Math.max(0, Math.min(minor, 1 - mag));
+  return { step: Math.max(Math.pow(10, mag - 1), Math.pow(10, -minor)), dp };
+}
+/**
+ * A simulated amount as a table cell. `exact`: every draw the same, so the currency's minor units. With `st` (from
+ * mcStepOf), rounded to the SE's second significant figure (the mean, its SE and the percentiles); without it, to 3
+ * significant figures (the standard deviation).
+ */
+export function mcCell(x: number, cur: Currency, exact = false, st?: McStep): string {
   if (exact) return cell(x, cur);
+  if (st) return fixedText(Math.round(x / st.step) * st.step, st.dp);
   const d = mcDigits(x, cur.minor);
   return fixedText(d.v, d.dp);
 }
-export function mcAmount(x: number, cur: Currency, exact = false): string {
-  const s = mcCell(x, cur, exact);
+export function mcAmount(x: number, cur: Currency, exact = false, st?: McStep): string {
+  const s = mcCell(x, cur, exact, st);
   return cur.code ? currencyAmount(s, cur.code) : s;
 }
+/**
+ * Every draw the same, as PRINTED (fix round 2 MINOR 4): with every input fixed the draws differ only by float noise,
+ * so `sd === 0` failed and "126,000" with "SE 0.00" sat beside the central 125,880.37. The standard deviation printing
+ * as zero in the currency's minor units is the test.
+ */
+export const mcIsExact = (r: McNpvResult, cur: Currency): boolean => !/[1-9]/.test(cell(r.sd, cur));
 /** A simulated probability to 0.1 percentage point. */
 const mcProb = (p: number): string => `${fixedText(p * 100, 1)}%`;
 
@@ -1041,9 +1080,14 @@ export function mcNpvReading(r: McNpvResult, cur: Currency, samples: number): st
       : r.negCount === samples
         ? `every one of the ${n} simulated outcomes loses money`
         : `${r.negCount.toLocaleString("en-US")} of the ${n} simulated outcomes (about ${mcProb(r.probNeg)}) lose${r.negCount === 1 ? "s" : ""} money`;
-  const ex = r.sd === 0;
-  const p10 = mcAmount(r.p10, cur, ex);
-  const p90 = mcAmount(r.p90, cur, ex);
+  // The same exactness test and rounding as the text (fix round 2 M2, MINOR 4).
+  const ex = mcIsExact(r, cur);
+  const st = mcStepOf(r.sd / Math.sqrt(samples), cur.minor);
+  if (ex) {
+    return `After the price paid, the patent's NPV is ${mcAmount(r.mean, cur, ex)} in every simulated outcome: with these inputs nothing varies. On these inputs ${loss}.`;
+  }
+  const p10 = mcAmount(r.p10, cur, ex, st);
+  const p90 = mcAmount(r.p90, cur, ex, st);
   const spread = p10 === p90 ? `every simulated outcome is about ${p10}` : `the middle of the outcomes runs from about ${p10} at P10 to ${p90} at P90`;
-  return `After the price paid, the patent's NPV averages about ${mcAmount(r.mean, cur, ex)}, and ${spread}. On these input ranges ${loss}.`;
+  return `After the price paid, the patent's NPV averages about ${mcAmount(r.mean, cur, ex, st)}, and ${spread}. On these input ranges ${loss}.`;
 }

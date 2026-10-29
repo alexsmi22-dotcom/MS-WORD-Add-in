@@ -50,6 +50,6 @@ describe("readXirrDates", () => {
     expect(bad("2008-01-01\nsoon")).toContain("“soon” is not a date");
     expect(bad("2009-02-29\n2009-03-01")).toContain("2009 is not a leap year");
     expect(bad("2008-03-01\n2008-01-01")).toContain("before the first date");
-    expect(bad(Array.from({ length: XIRR_MAX_FLOWS + 1 }, (_, i) => String(i)).join("\n"))).toContain("takes at most 250");
+    expect(bad(Array.from({ length: XIRR_MAX_FLOWS + 1 }, (_, i) => String(i)).join("\n"))).toContain("takes at most 400");
   });
 });

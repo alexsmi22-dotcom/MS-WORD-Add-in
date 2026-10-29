@@ -384,7 +384,7 @@ describe("registry", () => {
     expect(ret).toContain("Balance at retirement (age 67): 1,926,824.69 (1,119,224.38 in today's money)");
     const mc = out(run(calc("act-swr-mc"))).text;
     // fix-fin R2 #9: to 0.1 point with the simulation standard error (was "23.445%"; TEST-SCRIPT needs the same update).
-    expect(mc).toContain("Probability of ruin within 30 years: 23.4%, simulation standard error about 0.3 percentage points (20,000 paths, seed 20261027)");
+    expect(mc).toContain("Probability of ruin within 30 years: 23.4%, simulation standard error about 0.30 percentage points (20,000 paths, seed 20261027)");
   });
 });
 

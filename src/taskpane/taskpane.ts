@@ -213,7 +213,7 @@ import {
 } from "../lib/finance";
 import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg, finPlotSvg, currentFinFig } from "../lib/financeFigures";
 import { figureRenderer, currentFigCtx } from "../lib/figContext";
-import { FIN_GROUP_ORDER, type FinCalcDef, type FinField, type FinResult, type FinTable } from "../lib/finCalc";
+import { FIN_GROUP_ORDER, modeDefaultSwaps, type FinCalcDef, type FinField, type FinResult, type FinTable } from "../lib/finCalc";
 import { readXirrDates } from "../lib/xirrDates";
 import { BOND_CALCS } from "../lib/bondCalcs";
 import { IPVAL_CALCS } from "../lib/ipValuationCalcs";
@@ -10161,6 +10161,30 @@ const MULTILINE_FIELD_KINDS = new Set(["groups", "vars", "matrix", "block", "lin
 function renderFinanceInputs(): void {
   const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
   renderCalcFields(calc.fields, finInputs, "fin", blockFieldListener(finPreview, updateFinancePreview));
+  // R3 MINOR 12: a select with per-option defaults swaps them into the fields that still hold the previous option's
+  // default (lib/finCalc.ts modeDefaultSwaps), then recomputes (a value set from code fires no event).
+  for (const f of calc.fields) {
+    if (f.kind !== "select" || !f.modeDefaults) continue;
+    const sel = finInputs.querySelector<HTMLSelectElement>(`select[data-key="${f.key}"]`);
+    if (!sel) continue;
+    let prev = sel.value;
+    const swap = (): void => {
+      if (sel.value === prev) return; // "input" and "change" both fire on a select: the second is a no-op
+      const read = (k: string): string => finInputs.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-key="${k}"]`)?.value ?? "";
+      const swaps = modeDefaultSwaps(calc.fields, f, prev, sel.value, read);
+      prev = sel.value;
+      for (const [k, v] of Object.entries(swaps)) {
+        const el = finInputs.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-key="${k}"]`);
+        if (el) el.value = v;
+      }
+      if (Object.keys(swaps).length) {
+        finPreview.cancel();
+        updateFinancePreview();
+      }
+    };
+    sel.addEventListener("input", swap);
+    sel.addEventListener("change", swap);
+  }
 }
 
 /**

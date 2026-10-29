@@ -562,6 +562,8 @@ export function nelsonSiegelReading(fit: NsFit, ts: number[]): string {
 }
 
 const PAR_DEFAULT = ["0.5\t4.30", "1\t4.20", "2\t4.00", "3\t3.95", "5\t3.98", "7\t4.08", "10\t4.22", "20\t4.55", "30\t4.50"].join("\n");
+/** Illustrative coupon bonds (maturity, coupon %, clean price per 100) for the "prices" mode (R3 MINOR 12). */
+const BOND_PRICES_DEFAULT = ["0.5\t0\t98.00", "1\t5\t101.20", "1.5\t5.5\t101.90", "3\t4\t99.10", "4\t6\t104.80"].join("\n");
 const NS_DEFAULT = ["0.25\t4.35", "0.5\t4.30", "1\t4.18", "2\t3.98", "3\t3.93", "5\t3.97", "7\t4.07", "10\t4.21", "20\t4.53", "30\t4.47"].join("\n");
 
 export const BOND_CALCS: FinCalcDef[] = [
@@ -637,6 +639,8 @@ export const BOND_CALCS: FinCalcDef[] = [
           { value: "discount", label: "Bank discount rate (%)" },
           { value: "price", label: "Price per 100" },
         ],
+        // R3 MINOR 12: a price per 100 (4.2 is no bill price); 98.938 is the default 4.2% discount over 91 days.
+        modeDefaults: { price: { value: "98.938" } },
       },
       { key: "value", label: "Discount rate (%) or price per 100", default: "4.2" },
       {
@@ -670,6 +674,8 @@ export const BOND_CALCS: FinCalcDef[] = [
           { value: "par", label: "Par yields: maturity (years), par yield (%)" },
           { value: "prices", label: "Coupon bonds: maturity (years), coupon (%), clean price" },
         ],
+        // R3 MINOR 12: the coupon-bond mode takes three numbers a line, so it gets rows of its own.
+        modeDefaults: { prices: { rows: BOND_PRICES_DEFAULT } },
       },
       {
         key: "freq",

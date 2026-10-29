@@ -200,6 +200,8 @@ export function porkchop(dep: string, arr: string, startJd: number, spanDays: nu
   if (spanDays > 3650) return fail("A departure span above 3650 days is refused: the grid would be too coarse to read.");
   if (startJd < STANDISH_JD_MIN || startJd + spanDays + tofMaxDays > STANDISH_JD_MAX) return fail(`The window (departure plus flight) must lie within 1800 to 2050, where Standish's Table 1 is valid; this one runs to ${isoFromJd(startJd + spanDays + tofMaxDays)}.`);
   const mu = GM_SI.sun;
+  // Grid size clamped (2 to 101 per side): every count a caller supplies is bounded, so no input can stall Word.
+  n = Number.isFinite(n) ? Math.max(2, Math.min(101, Math.round(n))) : 41;
   const depJd = Array.from({ length: n }, (_, i) => startJd + (spanDays * i) / (n - 1));
   const tofDays = Array.from({ length: n }, (_, j) => tofMinDays + ((tofMaxDays - tofMinDays) * j) / (n - 1));
   const c3: number[][] = [];
@@ -522,7 +524,8 @@ export function repeatTracks(altM: number, i: number, maxDays: number): RepeatTr
   const perDay = (a: number): number => (TWO_PI / trackShift(a, i).shift) ; // revolutions per (nodal) day
   const here = perDay(R + altM);
   const out: RepeatTrack[] = [];
-  for (let d = 1; d <= maxDays; d++) {
+  const dMax = Number.isFinite(maxDays) ? Math.max(1, Math.min(60, Math.floor(maxDays))) : 16;
+  for (let d = 1; d <= dMax; d++) {
     const rv = Math.round(here * d);
     if (rv < 1) continue;
     // Skip non-reduced ratios (they repeat earlier with the smaller pair).
@@ -540,13 +543,16 @@ export function repeatTracks(altM: number, i: number, maxDays: number): RepeatTr
  * the ascending node at longitude 0: node regression and Earth rotation included, spherical Earth, geocentric latitude.
  */
 export function groundTrack(a: number, i: number, orbits: number, perOrbit = 180): Array<{ lon: number; lat: number }> {
+  if (![a, i, orbits, perOrbit].every((x) => typeof x === "number" && Number.isFinite(x)) || !(a > 0)) return [];
   const { rates } = trackShift(a, i);
   const pts: Array<{ lon: number; lat: number }> = [];
-  const N = Math.max(2, Math.round(orbits * perOrbit));
+  // Bounded whatever the caller passes: at most 50 orbits and 20 000 points.
+  const orb = Number.isFinite(orbits) ? Math.max(0.01, Math.min(50, orbits)) : 3;
+  const N = Math.max(2, Math.min(20000, Math.round(orb * (Number.isFinite(perOrbit) ? perOrbit : 180))));
   const Tn = rates.nodalPeriod;
   const uRate = TWO_PI / Tn;
   for (let k = 0; k <= N; k++) {
-    const t = (orbits * Tn * k) / N;
+    const t = (orb * Tn * k) / N;
     const u = uRate * t;
     const lat = Math.asin(Math.sin(i) * Math.sin(u));
     const dl = Math.atan2(Math.cos(i) * Math.sin(u), Math.cos(u));

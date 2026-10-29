@@ -136,7 +136,8 @@ export function ballisticEntry(inp: EntryInput): EntryResult | OrbitFail {
  * square gravity and no lift, US 1976 density below 86 km and the NRLMSIS moderate-activity table above. Stops at the
  * ground, below 100 m/s, on climbing back above the interface (a skip), or after two hours.
  */
-export function entryIntegrate(beta: number, vE: number, gamma: number, hEntry: number, noseR: number, kSG: number): EntryResult["numeric"] {
+function entryIntegrate(beta: number, vE: number, gamma: number, hEntry: number, noseR: number, kSG: number): EntryResult["numeric"] {
+  if (![beta, vE, gamma, hEntry, noseR, kSG].every((x) => typeof x === "number" && Number.isFinite(x) && x > 0) || vE > 20000 || hEntry > 1e6) return null;
   const mu = GM_SI.earth;
   const Re = R_EQ_SI.earth;
   let r = Re + hEntry;
@@ -331,9 +332,11 @@ export function coverage(altM: number, minElev: number, freqHz: number): Coverag
 
 /** Points (lon, lat in rad) on the small circle of angular radius λ about (lat0, lon0), longitude wrapped to (−π, π]. */
 export function footprintCircle(lat0: number, lon0: number, lambda: number, n = 180): Array<{ lon: number; lat: number }> {
+  if (![lat0, lon0, lambda, n].every((x) => typeof x === "number" && Number.isFinite(x))) return [];
   const out: Array<{ lon: number; lat: number }> = [];
-  for (let k = 0; k <= n; k++) {
-    const az = (2 * Math.PI * k) / n;
+  const m = Number.isFinite(n) ? Math.max(8, Math.min(2000, Math.round(n))) : 180;
+  for (let k = 0; k <= m; k++) {
+    const az = (2 * Math.PI * k) / m;
     const lat = Math.asin(Math.sin(lat0) * Math.cos(lambda) + Math.cos(lat0) * Math.sin(lambda) * Math.cos(az));
     const lon = lon0 + Math.atan2(Math.sin(az) * Math.sin(lambda) * Math.cos(lat0), Math.cos(lambda) - Math.sin(lat0) * Math.sin(lat));
     out.push({ lon: Math.atan2(Math.sin(lon), Math.cos(lon)), lat });

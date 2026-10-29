@@ -96,6 +96,7 @@ function conicPoints(p: number, e: number, rMax: number, n = 361): Array<{ x: nu
 
 /** The orbit in its own plane (periapsis to the right), the body to scale, the epoch and propagated positions. */
 export function orbitPlaneSvg(p: number, e: number, bodyR: number, bodyLabel: string, nu0: number, nu1: number | null): string {
+  if (![p, e, bodyR, nu0].every((x) => typeof x === "number" && Number.isFinite(x)) || !(p > 0) || e < 0 || (nu1 !== null && !(typeof nu1 === "number" && Number.isFinite(nu1)))) return "";
   const rAt = (nu: number): number => p / (1 + e * Math.cos(nu));
   const r0 = rAt(nu0);
   const r1 = nu1 === null ? r0 : rAt(nu1);
@@ -437,6 +438,7 @@ export function footprintSvg(circlePts: Array<{ lon: number; lat: number }>, sub
 
 /** Equilibrium temperature against distance from the Sun for several α/ε (no planet, no internal power). */
 export function thermalSvg(alphaOverEps: number, areaRatio: number, distAu: number, tHere: number): string {
+  if (![alphaOverEps, areaRatio, distAu, tHere].every((x) => typeof x === "number" && Number.isFinite(x) && x > 0)) return "";
   const AU = 149597870700;
   const ds = Array.from({ length: 121 }, (_, k) => 0.2 * Math.pow(40 / 0.2, k / 120));
   const ratios = [0.2, 1, 5];

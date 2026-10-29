@@ -23,7 +23,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Interplanetary** (Earth → Mars, window 2026-09-01) → Hohmann 258.9 days, C3 8.672 km²/s², 3.590 km/s from
   300 km, capture 2.080 km/s, synodic 779.9 days; porkchop minimum C3 9.146 km²/s² leaving 2026-10-31, 295 days; the
   porkchop shows two lobes with the ridge blanked. Start 2049-06-01 → refused (1800 to 2050).
-- [ ] **Lunar Δv budget** (defaults) → TLI 3.158 km/s, LOI 0.9235 km/s, total 8.977 km/s, propellant 94.3 % at 320 s;
+- [ ] **Lunar Δv budget** (defaults) → TLI 3.158 km/s, LOI 0.9235 km/s (73 % propellant to lunar orbit at 320 s), total 8.977 km/s (94.3 % as one stage);
   waterfall figure. Flight time 8 day → refused (longer than minimum energy).
 - [ ] **Orbit changes** (400 km → GEO, 28.5°) → Hohmann 3.854 km/s, combined with the second burn 4.222 km/s, before
   leaving 7.629 km/s; thresholds R = 11.93877 and 15.58172; phasing 30° in GEO 0.186 km/s over 21.94 h.

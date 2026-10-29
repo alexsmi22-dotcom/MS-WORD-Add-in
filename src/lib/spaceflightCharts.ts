@@ -171,15 +171,22 @@ export function lambertArcSvg(mu: number, r1: V3, v1: V3, r2: V3, tof: number, b
 export function porkchopSvg(pc: PorkchopResult, startLabel: string): string {
   const xs = pc.depJd.map((jd) => jd - pc.depJd[0]);
   const ys = pc.tofDays;
-  const z = pc.c3.map((row) => row.map((v) => v / 1e6));
-  const finite = z.flat().filter((v) => Number.isFinite(v));
+  const raw = pc.c3.map((row) => row.map((v) => v / 1e6));
+  const finite = raw.flat().filter((v) => Number.isFinite(v));
   const lo = Math.min(...finite);
   const hi = Math.min(Math.max(...finite), Math.max(lo * 3, lo + 40));
-  const grid: Grid = { xs, ys, z, holes: z.flat().filter((v) => !Number.isFinite(v)).length };
+  // The 180° ridge climbs to C3 in the thousands: cells far above the contoured range are left blank, so the figure
+  // shows the valley a launch can reach instead of a bundle of lines converging on the ridge.
+  const cap = hi * 2;
+  const z = raw.map((row) => row.map((v) => (Number.isFinite(v) && v <= cap ? v : NaN)));
+  const unsolved = raw.flat().filter((v) => !Number.isFinite(v)).length;
+  const above = raw.flat().filter((v) => Number.isFinite(v) && v > cap).length;
+  const grid: Grid = { xs, ys, z, holes: unsolved + above };
   let levels = niceLevels(lo, hi, 9);
   if (!levels.length) levels = [lo + (hi - lo) / 2];
   const notes = [`Lowest C3 ${sig(lo)} km²/s²; the ridge of high C3 is the 180° transfer, where the plane flips.`];
-  if (grid.holes) notes.push(`${grid.holes} cells have no single-revolution solution and are left blank.`);
+  if (above) notes.push(`${above} cells above C3 = ${sig(cap, 3)} km²/s² (the ridge) are left blank.`);
+  if (unsolved) notes.push(`${unsolved} cells have no single-revolution solution and are left blank.`);
   return contourPlotSvg({ grid, levels, filled: false, xlabel: `Days after ${startLabel}`, ylabel: "Time of flight (days)", zlabel: "C3 (km²/s²)", notes, width: W });
 }
 
@@ -228,9 +235,12 @@ export function dvWaterfallSvg(legs: LunarLeg[], title: string, width = W): stri
   for (let i = 0; i * step <= axisMax + 1e-9; i++) {
     const v = i * step;
     const x = ML + (v / axisMax) * pw;
-    out.push(`<line x1="${f2(x)}" y1="${MT}" x2="${f2(x)}" y2="${MT + plotH}" stroke="${i === 0 ? "#000000" : "#e2e2e2"}" stroke-width="1"/>`);
+    // Tick marks below the bars and the zero line only: a full gridline would run through the value labels.
+    if (i === 0) out.push(`<line x1="${f2(x)}" y1="${MT}" x2="${f2(x)}" y2="${MT + plotH}" stroke="#000000" stroke-width="1"/>`);
+    out.push(`<line x1="${f2(x)}" y1="${MT + plotH}" x2="${f2(x)}" y2="${MT + plotH + 4}" stroke="#333333" stroke-width="1"/>`);
     out.push(text(x, MT + plotH + 14, v.toFixed(dec), "middle", 10, "#333333"));
   }
+  out.push(`<line x1="${f2(ML)}" y1="${MT + plotH}" x2="${f2(ML + pw)}" y2="${MT + plotH}" stroke="#333333" stroke-width="1"/>`);
   out.push(text(ML + pw / 2, MT + plotH + 30, "Cumulative Δv (km/s)", "middle", 11));
   rows.forEach((r, i) => {
     const y = MT + i * ROW + 5;
@@ -256,8 +266,9 @@ export function biellipticSvg(Rb: number, Ruser: number, th: { r1: number; r2: n
   const Rmax = Math.max(60, Ruser * 1.5);
   const xs = Array.from({ length: 241 }, (_, k) => Math.exp((Math.log(Rmax) * k) / 240));
   const hoh = xs.map((x) => ({ x, y: hohmannDvNorm(x) }));
-  const inf = xs.map((x) => ({ x, y: biellipticInfNorm(x) }));
-  const bi = xs.filter((x) => x <= Rb).map((x) => ({ x, y: biellipticDvNorm(x, Rb) }));
+  // The rb → ∞ curve starts at 0.83 at R = 1: drawn only where it is inside the frame (no "points outside" note).
+  const inf = xs.map((x) => ({ x, y: biellipticInfNorm(x) })).filter((p) => p.y <= 0.6);
+  const bi = xs.filter((x) => x <= Rb).map((x) => ({ x, y: biellipticDvNorm(x, Rb) })).filter((p) => p.y <= 0.6);
   const series: Series[] = [
     { points: hoh, type: "line", color: BLUE, label: "Hohmann" },
     { points: inf, type: "line", color: GREY, label: "Bi-elliptic, rb → ∞" },

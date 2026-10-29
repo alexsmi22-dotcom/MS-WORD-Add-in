@@ -919,6 +919,20 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
       }
     }
   }
+  // UNDER A FIGURE-STYLE RE-RENDER (round 3) a name that does not fit the margin takes TWO LINES in its row when
+  // it can, instead of an ellipsis: the cut dropped exactly what tells two rows apart or carries a unit
+  // ("Operating income (EB…", "€1,250.00 (E…"). A name no two-line split fits is cut as before.
+  const twoLines = shown.map((r, i): string[] | null => {
+    if (!fctx || names[i] === r.name) return null;
+    const words = r.name.split(" ");
+    let best: string[] | null = null;
+    for (let k = 1; k < words.length; k++) {
+      const a = words.slice(0, k).join(" ");
+      const b = words.slice(k).join(" ");
+      if (fits(a) && fits(b) && (!best || Math.max(a.length, b.length) < Math.max(best[0].length, best[1].length))) best = [a, b];
+    }
+    return best;
+  });
   const MT = 26;
   const pw = W - ML - MR;
   const lo = Math.min(0, ...shown.map((r) => r.value));
@@ -950,7 +964,11 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
       p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h}" fill="${fill}" fill-opacity="0.85"/>`);
     const dyT = bw ? 5 : 3;
     const name = names[i];
-    p.push(labelText(ML - 5, y + h / 2 + dyT, name, { anchor: "end", size: S(8, name) }));
+    const two = twoLines[i];
+    if (two) {
+      const lh = Math.max(S(8, two[0]), S(8, two[1])) * 1.1;
+      two.forEach((l, j) => p.push(labelText(ML - 5, y + h / 2 + dyT + (j - 0.5) * lh, l, { anchor: "end", size: S(8, l) })));
+    } else p.push(labelText(ML - 5, y + h / 2 + dyT, name, { anchor: "end", size: S(8, name) }));
     const txt = labelOf(rw);
     const vSize = S(8, txt);
     const wantX = Math.max(X(0), X(rw.value)) + 4;

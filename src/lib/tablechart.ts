@@ -16,7 +16,7 @@ import { parseCellNumber, SCI_TAIL } from "./dataimport";
 import { buildHeatmapSvg } from "./heatmap";
 import { buildCandlestickSvg } from "./candlestick";
 import { CATEGORICAL_PALETTE, seriesStyle, seriesMarkerSvg } from "./categoricalPalette";
-import { currentFigCtx } from "./figContext";
+import { currentFigCtx, wrapLabel } from "./figContext";
 
 export type ChartKind =
   | "column"
@@ -552,11 +552,39 @@ function multiplierText(mult: string, patent: boolean, x: number, y: number, anc
   );
 }
 
-function titleText(title: string, W: number, ink: string, patent = false): string {
-  if (!title) return "";
-  const t = truncate(title, 48);
-  // data-figure-title: figureStyle finds the title by this mark (USPTO: none in the artwork).
-  return `<text data-figure-title="1" x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="${runPx(patent, t, 13)}" font-weight="bold" fill="${ink}">${esc(t)}</text>`;
+/**
+ * A chart's title in lines. As drawn (the 380-unit preview, no figure style) one line, cut at 48 characters as it always
+ * was (48 characters fit 380 units). REDRAWN NARROWER or under a figure style (round 3: a 44-character title ran off
+ * both edges of a 75 mm column and Table→Chart refused every chart with an ordinary title), the whole title wraps
+ * onto as many lines as it needs (figContext.wrapLabel: never cut), and the plot moves down by the extra lines.
+ */
+interface TitleLayout {
+  lines: string[];
+  fs: number;
+  lh: number;
+  /** Extra height the lines past the first take. */
+  extra: number;
+}
+
+function fittingNarrow(W: number): boolean {
+  return currentFigCtx() !== null || W < 380;
+}
+
+function titleLayout(title: string, W: number, patent = false): TitleLayout {
+  if (!title) return { lines: [], fs: 13, lh: 0, extra: 0 };
+  const fit = fittingNarrow(W);
+  const t = fit ? title : truncate(title, 48);
+  const fs = runPx(patent, t, 13);
+  const lines = fit ? wrapLabel(t, W - 6, fs) : [t];
+  const lh = Math.round(fs * 1.2);
+  return { lines, fs, lh, extra: (lines.length - 1) * lh };
+}
+
+function titleText(tl: TitleLayout, W: number, ink: string): string {
+  // data-figure-title: figureStyle finds the title by this mark (USPTO: none in the artwork). Every line carries it.
+  return tl.lines
+    .map((t, i) => `<text data-figure-title="1" x="${W / 2}" y="${16 + i * tl.lh}" text-anchor="middle" font-family="sans-serif" font-size="${tl.fs}" font-weight="bold" fill="${ink}">${esc(t)}</text>`)
+    .join("");
 }
 
 /** Centered "FIG. N" label beneath the chart (patent-drawing convention). */
@@ -636,7 +664,8 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   // Patent text is larger (see PATENT_CAPS_PX), so its margins are too.
   let ml = patent ? 62 : 48;
   const mr = showLegend ? (patent ? 132 : 100) : 14;
-  let mt = title ? (patent ? 30 : 26) : 12;
+  const tl = titleLayout(title, W, patent);
+  let mt = (title ? (patent ? 30 : 26) : 12) + tl.extra;
   let mb = (patent ? 40 : 34) + (figLabel ? 26 : 0);
   const okabe = !patent && style.palette === "okabe-ito";
   const pal: readonly string[] = okabe ? CATEGORICAL_PALETTE : CHART_PALETTE;
@@ -695,25 +724,44 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   // (every Table→Chart kind used to print `5.0e+5`). Bounded there: at most
   // AXIS_TICK_CAP ticks on any input, femtosecond tables included.
   // Patent tick labels are 12 px, so a horizontal value axis asks for fewer.
-  const valueAxis0 = linearAxis(vmin, vmax, { target: horizontal ? (patent ? 4 : 6) : 5 });
   // Comma grouping is for money and counts: a big axis prints in grouped fixed point ("12,500,000"), never with a
   // ×10⁷ multiplier on a money axis (2026-10-28). A small axis (×10⁻⁴) keeps its multiplier.
   // (Past a trillion the grouped figure is longer than the axis can hold, and the multiplier stays.)
-  const bigMult = /^×10[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/.test(valueAxis0.multiplier) && valueAxis0.values.every((v) => Math.abs(v) < 1e12);
-  const fixedLabels = (): string[] => {
-    const st = valueAxis0.step > 0 && Number.isFinite(valueAxis0.step) ? valueAxis0.step : 1;
-    const dp = Math.max(0, Math.min(6, Math.ceil(-Math.log10(st) - 1e-9)));
-    return valueAxis0.values.map((v) => {
-      const s = (Math.abs(v) < st * 1e-6 ? 0 : v).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
-      return s.startsWith("-") ? "−" + s.slice(1) : s;
-    });
+  const axisAt = (target: number): { valueAxis0: ReturnType<typeof linearAxis>; valueAxis: ReturnType<typeof linearAxis>; bigMult: boolean } => {
+    const valueAxis0 = linearAxis(vmin, vmax, { target });
+    const bigMult = /^×10[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/.test(valueAxis0.multiplier) && valueAxis0.values.every((v) => Math.abs(v) < 1e12);
+    const fixedLabels = (): string[] => {
+      const st = valueAxis0.step > 0 && Number.isFinite(valueAxis0.step) ? valueAxis0.step : 1;
+      const dp = Math.max(0, Math.min(6, Math.ceil(-Math.log10(st) - 1e-9)));
+      return valueAxis0.values.map((v) => {
+        const s = (Math.abs(v) < st * 1e-6 ? 0 : v).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+        return s.startsWith("-") ? "−" + s.slice(1) : s;
+      });
+    };
+    const valueAxis =
+      style.grouping === "comma"
+        ? bigMult
+          ? { ...valueAxis0, labels: fixedLabels(), multiplier: "" }
+          : { ...valueAxis0, labels: valueAxis0.labels.map(commaGroupLabel) }
+        : valueAxis0;
+    return { valueAxis0, valueAxis, bigMult };
   };
-  const valueAxis =
-    style.grouping === "comma"
-      ? bigMult
-        ? { ...valueAxis0, labels: fixedLabels(), multiplier: "" }
-        : { ...valueAxis0, labels: valueAxis0.labels.map(commaGroupLabel) }
-      : valueAxis0;
+  let target = horizontal ? (patent ? 4 : 6) : 5;
+  let { valueAxis, bigMult } = axisAt(target);
+  // REDRAWN NARROWER (round 3, as plot.ts got in round 2): a horizontal value axis whose labels would run into each
+  // other takes fewer ticks ("0.0 0.5 1.0 1.5 2.0" ran together on a bar chart of revenue at a 75 mm column). As
+  // drawn, nothing changes.
+  if (horizontal && fittingNarrow(W)) {
+    const crowded = (ax: ReturnType<typeof linearAxis>): boolean => {
+      if (ax.values.length < 2) return false;
+      const gap = (pw * Math.abs(ax.values[1] - ax.values[0])) / Math.max(1e-12, vmax - vmin);
+      return Math.max(...ax.labels.map((l) => estW(l, runPx(patent, l, 10)))) + 4 > gap;
+    };
+    while (target > 2 && crowded(valueAxis)) {
+      target--;
+      ({ valueAxis, bigMult } = axisAt(target));
+    }
+  }
   // Grouped fixed-point money labels ("25,000,000") are wider than the 48 px margin was sized for: on a vertical value
   // axis the margin grows to fit them (inside the fixed canvas, taken from the plot width).
   if (!horizontal && style.grouping === "comma" && bigMult) {
@@ -737,7 +785,10 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   // labels are set vertically (reading upward, each centred just below the
   // axis). Both in room taken from the plot height, so every category keeps its
   // name (up to 30 categories; beyond that, thinned as before).
-  const catText = (c: string): string => truncate(c, horizontal ? 7 : 9);
+  // Redrawn narrower (round 3), where every category is labelled (staggered or turned, below), a name of up to 16
+  // characters is printed whole: cut at 9, "2034 (0.50 yr)" (a final partial year) printed as "2034 (0.…", its weight
+  // gone. A longer name is cut as drawn.
+  const catText = (c: string): string => (!horizontal && fittingNarrow(W) && c.length <= 16 ? c : truncate(c, horizontal ? 7 : 9));
   let catMode: "flat" | "stagger" | "vertical" = "flat";
   // Also under a Finance/Statistics figure-style re-render (lib/figContext.ts, round 2): at a 75 mm column the colour
   // chart's year labels ran into each other), and on any canvas narrower than the 380 px preview (a figure style's
@@ -747,8 +798,20 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
     const slotEst = pw / n;
     if (widest + 6 > slotEst) {
       catMode = widest + 6 <= 2 * slotEst ? "stagger" : "vertical";
-      mb += catMode === "stagger" ? 20 : Math.min(110, Math.ceil(widest)) - 10;
+      // Redrawn narrower (round 3) a turned label takes the room it needs (its name is no longer cut at 9).
+      mb += catMode === "stagger" ? 20 : Math.min(fittingNarrow(W) ? 220 : 110, Math.ceil(widest)) - 10;
       ph = H - mt - mb;
+    }
+  }
+  // REDRAWN NARROWER (round 3, as plot.ts does under a figure style): the canvas grows so the data area stays at least
+  // 0.45 as tall as it is wide, instead of the axis labels taking it all (a 75 mm column left 24 px of plot under
+  // turned category names, and the value labels ran together). As drawn the height is the 380 × 260 aspect, as before.
+  if (fittingNarrow(W)) {
+    // ... and tall enough for the legend beside it (every series named, not "+1 more").
+    const need = Math.max(Math.round(0.45 * pw), showLegend ? chart.series.length * legendPitch(patent) + 12 : 0) - ph;
+    if (need > 0) {
+      H += need;
+      ph += need;
     }
   }
   const rotateCats = catMode === "vertical";
@@ -759,7 +822,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   const vPos = (v: number): number => ((v - vmin) / (vmax - vmin)) * vLen;
   const slot = cLen / n;
 
-  const parts: string[] = [titleText(title, W, patent ? "#000" : "#222", patent)];
+  const parts: string[] = [titleText(tl, W, patent ? "#000" : "#222")];
   parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="${frame}" stroke-width="1"/>`);
 
   // Value-axis ticks. The patent style keeps tick marks but drops the interior
@@ -968,7 +1031,8 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   return svgShell(W, H, style, parts.join(""));
 }
 
-function buildPieSvg(chart: TableChart, kind: ChartKind, title: string, style: ChartStyle, W: number, H: number): string {
+function buildPieSvg(chart: TableChart, kind: ChartKind, title: string, style: ChartStyle, W: number, H0: number): string {
+  let H = H0;
   const patent = !!style.patent;
   const ink = patent ? "#000" : "#333";
   const figLabel = (style.figLabel ?? "").trim();
@@ -989,17 +1053,41 @@ function buildPieSvg(chart: TableChart, kind: ChartKind, title: string, style: C
   // Patent mode draws the pie smaller and the legend further left, because its
   // 17 px lowercase legend needs ~160 units for "Housing (40%)".
   const k = W / 380;
-  const mt = title ? (patent ? 30 : 26) : 12;
+  const tl = titleLayout(title, W, patent);
+  const mt = (title ? (patent ? 30 : 26) : 12) + tl.extra;
   const mb = 12 + (figLabel ? 26 : 0);
-  const cx = (patent ? 98 : 118) * k;
-  const cy = mt + (H - mt - mb) / 2;
-  const R = Math.min((patent ? 84 : 100) * k, (H - mt - mb - 12) / 2);
+  const names = entries.map((e) => `${e.label} (${Math.round((e.value / total) * 1000) / 10}%)`);
+  // REDRAWN NARROWER (round 3): the legend's position scales with the canvas but its text does not, so at a 75 mm
+  // column "Immediate-rele…" ran off the right edge (and the cut dropped its share). When the legend beside the pie
+  // would not fit, it goes UNDER the pie, one row per slice across the width, each name whole (wrapped, never cut),
+  // and the canvas grows to hold it. As drawn, and wherever the legend fits beside the pie, nothing changes.
+  const legX = (patent ? 196 : 236) * k;
+  const besideRows = Math.floor((H - mt - mb - 8) / legendPitch(patent));
+  const besideFits = names.every((n) => {
+    const t = truncate(n, 15);
+    return legX + 18 + t.length * runPx(patent, t, 10) * 0.58 <= W - 2;
+  });
+  const under = fittingNarrow(W) && (!besideFits || names.length > besideRows);
+  const underRows = under
+    ? names.map((n) => {
+        const fs = runPx(patent, n, 10);
+        return { lines: wrapLabel(n, W - 8 - 18 - 4, fs), fs, lh: Math.round(fs * 1.2) };
+      })
+    : [];
+  const R = under ? Math.min((patent ? 84 : 100) * k, (W - 16) / 2, (H - mt - mb - 12) / 2) : Math.min((patent ? 84 : 100) * k, (H - mt - mb - 12) / 2);
+  const cx = under ? W / 2 : (patent ? 98 : 118) * k;
+  const cy = under ? mt + 6 + R : mt + (H - mt - mb) / 2;
+  const legTop = cy + R + 18;
+  if (under) {
+    const pitch = legendPitch(patent);
+    H = Math.ceil(legTop + underRows.reduce((a, row) => a + pitch + (row.lines.length - 1) * row.lh, 0) + mb + (chart.series.length > 1 ? 12 : 0));
+  }
   const r0 = kind === "doughnut" ? R * 0.55 : 0;
   const stroke = patent ? "#000" : "#fff";
   const okabe = !patent && style.palette === "okabe-ito";
   const pal: readonly string[] = okabe ? CATEGORICAL_PALETTE : CHART_PALETTE;
 
-  const parts: string[] = [titleText(title, W, patent ? "#000" : "#222", patent)];
+  const parts: string[] = [titleText(tl, W, patent ? "#000" : "#222")];
   let angle = -Math.PI / 2;
   entries.forEach((e, i) => {
     const sweep = (e.value / total) * Math.PI * 2;
@@ -1030,9 +1118,15 @@ function buildPieSvg(chart: TableChart, kind: ChartKind, title: string, style: C
   if (r0 > 0 && entries.length === 1) {
     parts.push(`<circle cx="${cx}" cy="${cy}" r="${r0}" fill="#fff" stroke="${patent ? "#000" : "none"}"/>`);
   }
-  const names = entries.map((e) => `${e.label} (${Math.round((e.value / total) * 1000) / 10}%)`);
   const swatch = patent ? patentFillSwatch() : colorSwatch(pal);
-  parts.push(legend(names, swatch, (patent ? 196 : 236) * k, mt + 14, Math.floor((H - mt - mb - 8) / legendPitch(patent)), ink, patent, 15));
+  if (under) {
+    let y = legTop;
+    underRows.forEach((row, i) => {
+      parts.push(swatch(i, 8, y));
+      row.lines.forEach((l, j) => parts.push(`<text x="${8 + 18}" y="${(y + 2 + j * row.lh).toFixed(1)}" font-family="sans-serif" font-size="${row.fs}" fill="${ink}">${esc(l)}</text>`));
+      y += legendPitch(patent) + (row.lines.length - 1) * row.lh;
+    });
+  } else parts.push(legend(names, swatch, legX, mt + 14, besideRows, ink, patent, 15));
   if (chart.series.length > 1) {
     // Patent mode: black and full size — a grey 9 px note was the one mark on the
     // sheet that broke both 1.84(a)(1) and 1.84(p)(3).

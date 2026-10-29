@@ -139,9 +139,14 @@ describe("display fixes in the shared builders", () => {
     const small = finPlotSvg([{ type: "line", points: [{ x: 0, y: 0 }, { x: 1, y: 2500 }] }], {});
     expect(texts(small).some((t) => /^\d,\d{3}$/.test(t))).toBe(true);
   });
-  test("a title wider than the canvas wraps to two lines", () => {
-    const svg = buildPlotSvg([{ type: "line", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }], { width: 260, title: "Break-even chart: revenue, total cost and the margin of safety at the planned volume" });
-    expect((svg.match(/data-figure-title/g) ?? []).length).toBe(2);
+  test("a title wider than the canvas wraps (round 3: onto as many lines as it needs, never cut with an ellipsis)", () => {
+    const title = "Break-even chart: revenue, total cost and the margin of safety at the planned volume";
+    const svg = buildPlotSvg([{ type: "line", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }], { width: 260, title });
+    const lines = [...svg.matchAll(/<text data-figure-title="1"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+    expect(lines.length).toBe(3);
+    expect(lines.join(" ")).toBe(title);
+    // As drawn at 380 the same title takes two lines, as before.
+    expect((buildPlotSvg([{ type: "line", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }], { title }).match(/data-figure-title/g) ?? []).length).toBe(2);
   });
   test("money-multiplier legend: the decimal only, grouped (R6 #12)", () => {
     expect(legendDecimal("m·ΔB = 101000/1001 ≈ 100.8991")).toBe("m·ΔB = 100.8991");

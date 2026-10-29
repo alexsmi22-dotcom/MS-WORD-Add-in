@@ -721,7 +721,8 @@ export function plotAxisTicks(
 
 /**
  * A 13 px bold title in lines that fit `W` (the layout audit's 0.58 em advance): one line when it fits, else two
- * broken at a space, the second cut with an ellipsis if it still does not fit.
+ * broken at a space, else (round 3) more lines, never cut with an ellipsis (figContext.wrapLabel: a title states what
+ * is plotted, and a cut one can drop its unit).
  */
 function wrapTitle(title: string, W: number): string[] {
   const max = Math.max(8, Math.floor((W - 6) / (0.58 * 13)));
@@ -729,9 +730,9 @@ function wrapTitle(title: string, W: number): string[] {
   let at = title.lastIndexOf(" ", max);
   if (at < max * 0.4) at = max;
   const first = title.slice(0, at).trimEnd();
-  let rest = title.slice(at).trim();
-  if (rest.length > max) rest = rest.slice(0, max - 1).trimEnd() + "…";
-  return rest ? [first, rest] : [first];
+  const rest = title.slice(at).trim();
+  if (!rest) return [first];
+  return rest.length > max ? [first, ...wrapTitle(rest, W)] : [first, rest];
 }
 
 
@@ -852,13 +853,15 @@ export function commaAxis(ax: PlotAxisTicks): PlotAxisTicks {
   // Decimals from the TICK VALUES' own exact decimals (2026-10-28, round 2), held constant along the axis: a step of
   // 0.25 needs two ("0.00 0.25 0.50"), 2.5 needs one ("32.5 35.0 37.5"). ceil(−log10(step)) gave one and none, and
   // printed "0.0 0.3 0.5 0.8" and "33 35 38 40" — tick labels that were not the tick values.
+  // NO CAP AT 6 (round 3): a step of 2.5e−6 near 0.0017 needs seven, and the cap printed the tick 0.0016925 as
+  // "0.001693", a label that is not its tick. The fewest decimals that print each value back to itself (to 12
+  // significant figures), up to toLocaleString's 20.
   const decimalsOf = (v: number): number => {
-    const s = String(Math.abs(+v.toPrecision(12)));
-    if (/e/i.test(s)) return 6;
-    const i = s.indexOf(".");
-    return i < 0 ? 0 : s.length - i - 1;
+    const a = Math.abs(+v.toPrecision(12));
+    for (let d = 0; d < 20; d++) if (Math.abs(Number(a.toFixed(d)) - a) <= a * 1e-11) return d;
+    return 20;
   };
-  const dp = Math.max(0, Math.min(6, Math.max(...vals.map((v) => (Math.abs(v) < step * 1e-6 ? 0 : decimalsOf(v))))));
+  const dp = Math.max(0, Math.min(20, Math.max(...vals.map((v) => (Math.abs(v) < step * 1e-6 ? 0 : decimalsOf(v))))));
   const fmt = (v: number): string => {
     const s = (Math.abs(v) < step * 1e-6 ? 0 : v).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
     return s.startsWith("-") ? "−" + s.slice(1) : s;
@@ -1304,8 +1307,10 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     mb = (options.xlabel ? 42 + (xTitle.length - 1) * xlh : 30) + (hasErrNote ? 13 + (errLines.length - 1) * errLh : 0);
     pw = W - ml - mr;
     // Under a figure-style re-render the height follows the width; at a narrow width that left a data area a few
-    // pixels tall. The data area is kept at least half as tall as it is wide.
-    if (fctx) H = Math.max(H0, Math.round(mt + mb + Math.max(60, 0.5 * pw)));
+    // pixels tall. The data area is kept at least half as tall as it is wide. Outside a figure style (a caller's own
+    // re-render at a narrow width: Plot mode, round 3) at least 60 px tall, once a title wrapped whole onto three lines
+    // instead of being cut: a figure whose data area is that tall as drawn is drawn exactly as before.
+    H = fctx ? Math.max(H0, Math.round(mt + mb + Math.max(60, 0.5 * pw))) : Math.max(H0, Math.round(mt + mb + 60));
     ph = H - mt - mb;
     if (!all.length) break;
     // OUTSIDE a figure style (a caller re-rendering at its own width: Plot mode, round 2) the same fitting runs, but
@@ -1378,7 +1383,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // every settled fit this recomputes the same numbers).
   mb = (options.xlabel ? 42 + Math.max(0, xTitle.length - 1) * xlh : 30) + (hasErrNote ? 13 + (errLines.length - 1) * errLh : 0);
   pw = W - ml - mr;
-  if (fctx) H = Math.max(H0, Math.round(mt + mb + Math.max(60, 0.5 * pw)));
+  H = fctx ? Math.max(H0, Math.round(mt + mb + Math.max(60, 0.5 * pw))) : Math.max(H0, Math.round(mt + mb + 60));
   ph = H - mt - mb;
   // THE LEGEND LIVES OUTSIDE THE PLOT FRAME, in a gutter to its right. It used
   // to sit inside the top-right corner of the plot area, where the only

@@ -31,7 +31,7 @@ import * as path from "path";
 import { figureRenderer } from "../figContext";
 import { prepareFigure, type FigurePresetChoice } from "../insertCapability";
 import type { PresetWidth } from "../figureStyle";
-import { introducedLayoutFindings } from "../figureLayoutAudit";
+import { introducedLayoutFindings, valueMarksLost } from "../figureLayoutAudit";
 import { CASES, STAT_INLINE_LIB, STAT_INLINE_BUILDERS, FIN_INLINE_BUILDERS } from "./figureGateCases";
 
 const PRESETS: Exclude<FigurePresetChoice, "asdrawn">[] = ["nature", "elsevier", "acs", "cell", "thesis", "uspto"];
@@ -82,6 +82,17 @@ const EXCEPTIONS: Record<string, string> = {
   "rmanova thesis/single": "four condition names do not fit under the profile plot in a 75 mm column at 8 pt",
   "rmanova uspto/single": "four condition names do not fit under the profile plot at USPTO lettering",
   "rmanova uspto/double": "four condition names do not fit under the profile plot at USPTO lettering",
+  // NO CUT TITLES (round 3). Before round 3 these six were accepted only because the fit cut an axis title with "…"
+  // and dropped its unit (checked on the old tree: "|Stan…", "Inter…" and "P…" for "Price level P (index)", "per…" for
+  // "k (capital per effective worker)"). Two panels side by side at USPTO lettering leave each axis title less room
+  // than one of its words: whole, it runs off the panel or narrows the plot until two ticks overlap. Every journal
+  // style takes each figure.
+  "causal-pscore uspto/single": "the Love-plot axis title “|Standardised mean difference|” does not fit a half-width panel at USPTO lettering",
+  "causal-pscore uspto/double": "the Love-plot axis title “|Standardised mean difference|” does not fit a half-width panel at USPTO lettering",
+  "macro-solow uspto/single": "“k (capital per effective worker)” does not fit a half-width panel at USPTO lettering",
+  "macro-solow uspto/double": "“k (capital per effective worker)” does not fit a half-width panel at USPTO lettering",
+  "macro-islm uspto/single": "with “Price level P (index)” whole, the AD–AS panel is too narrow for its output ticks at USPTO lettering",
+  "macro-islm uspto/double": "with “Price level P (index)” whole, the AD–AS panel is too narrow for its output ticks at USPTO lettering",
   // Tukey on four groups with every pair bracketed and labelled with its p: six brackets need 110 px above the data,
   // more than 60% of the plot at a single column (and on the USPTO sight, where the lettering fills the plot). The
   // bracket builder refuses BY NAME with the remedy ("tick Taller figure or Hide ns"), and with that remedy the same
@@ -98,6 +109,8 @@ describe("every Finance and Statistics figure meets every figure style at every 
   const failures = new Map<string, string>();
   /** Accepted inserts whose fit introduced a layout defect (labels overlapping, run off, struck through). */
   const dirty = new Map<string, string>();
+  /** Accepted inserts whose fit dropped a scale factor or a unit the figure prints as drawn (round 3). */
+  const lost = new Map<string, string>();
   let accepted = 0;
   let total = 0;
   const drewNothing: string[] = [];
@@ -130,6 +143,8 @@ describe("every Finance and Statistics figure meets every figure style at every 
             accepted++;
             const bad = introducedLayoutFindings(svg, r.svg);
             if (bad.length) dirty.set(`${c.id} ${p}/${w}`, bad.map((f) => f.line).join(" | "));
+            const gone = valueMarksLost(svg, r.svg);
+            if (gone.length) lost.set(`${c.id} ${p}/${w}`, gone.join(" "));
           } else failures.set(`${c.id} ${p}/${w}`, `${r.reason}: ${r.problems.join("; ")}`);
         }
     }
@@ -149,7 +164,8 @@ describe("every Finance and Statistics figure meets every figure style at every 
       const head = `accepted ${accepted}/${total}; refused ${failures.size} (named ${[...failures.keys()].filter((k) => k in EXCEPTIONS).length}); layout-dirty accepted ${dirty.size}; slowest ${slowest.id} ${slowest.ms} ms; drew nothing: ${drewNothing.join(", ")}`;
       const named = [...failures.entries()].filter(([k]) => k in EXCEPTIONS).map(([k, v]) => `NAMED ${k}: ${v.slice(0, 300)}`);
       const dirt = [...dirty.entries()].map(([k, v]) => `DIRTY ${k}: ${v.slice(0, 400)}`);
-      fs.writeFileSync(process.env.FIG_GATE_OUT, [head, ...unexpected, ...named, ...dirt].join("\n"));
+      const gone = [...lost.entries()].map(([k, v]) => `LOST ${k}: ${v}`);
+      fs.writeFileSync(process.env.FIG_GATE_OUT, [head, ...unexpected, ...named, ...dirt, ...gone].join("\n"));
     }
     expect(unexpected).toEqual([]);
   });
@@ -162,11 +178,19 @@ describe("every Finance and Statistics figure meets every figure style at every 
     expect([...dirty.entries()].map(([k, v]) => `${k}: ${v.slice(0, 200)}`)).toEqual([]);
   });
 
+  test("every accepted fit keeps every ×10ⁿ and every unit the figure prints as drawn (round 3: no cut titles)", () => {
+    expect([...lost.entries()].map(([k, v]) => `${k}: ${v}`)).toEqual([]);
+    expect(dirtyKinds()).not.toContain("TRUNCATED");
+  });
+
+  /** The finding kinds among layout-dirty accepted fits (expected none). */
+  const dirtyKinds = (): string[] => [...dirty.values()].map((v) => v.split(/s/)[0]);
+
   test("refusals are in the user's words: the heat map says so, a fixed-width layout says what to do", () => {
     expect(failures.get("corp-dcf uspto/single")).toMatch(/cannot draw a heat map/);
     const crr = failures.get("deriv-crr thesis/single") ?? "";
     expect(crr).toMatch(/fixed width/);
     expect(crr).not.toMatch(/builder|ignored the requested/);
-    for (const v of failures.values()) expect(v).not.toMatch(/COLLISION|CLIPPED|STRIKETHROUGH|px²/);
+    for (const v of failures.values()) expect(v).not.toMatch(/COLLISION|CLIPPED|STRIKETHROUGH|TRUNCATED|DROPPED|px²/);
   });
 });

@@ -69,14 +69,14 @@ describe("R6 #3: up-front caps", () => {
     if (!r.ok) expect(r.reason).toMatch(/p \+ q = 10 ARMA coefficients and needs more computation than the pane allows/);
     expect(Date.now() - t0).toBeLessThan(200);
   });
-  test("GARCH: Student-t and EGARCH stop at 1,200 returns, normal GARCH/GJR at 2,500", () => {
-    expect(garchMaxN({ vol: "garch", dist: "normal" })).toBe(2500);
-    expect(garchMaxN({ vol: "gjr", dist: "t" })).toBe(1200);
-    expect(garchMaxN({ vol: "egarch", dist: "normal" })).toBe(1200);
-    const y = Array.from({ length: 1300 }, (_, i) => Math.sin(i * 1.7) * (1 + (i % 7) / 10));
+  test("GARCH: every model takes up to 2,600 returns (round 2 MAJOR 5; was 1,200 for Student-t and EGARCH)", () => {
+    expect(garchMaxN({ vol: "garch", dist: "normal" })).toBe(2600);
+    expect(garchMaxN({ vol: "gjr", dist: "t" })).toBe(2600);
+    expect(garchMaxN({ vol: "egarch", dist: "normal" })).toBe(2600);
+    const y = Array.from({ length: 2601 }, (_, i) => Math.sin(i * 1.7) * (1 + (i % 7) / 10));
     const r = fitGarch(y, { vol: "egarch", dist: "t", mean: "constant" });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("The series has 1,300 returns; EGARCH with Student-t errors takes at most 1,200 in the pane (its search is slower), so use the most recent 1,200, or choose GARCH or GJR-GARCH with normal errors.");
+    if (!r.ok) expect(r.reason).toBe("The series has 2,601 returns; a GARCH fit here takes at most 2,600 (the most recent 2,600 would do).");
   });
   test("ineq-gini takes at most 50,000 rows", () => {
     expect(INEQ_MAX_ROWS).toBe(50000);

@@ -1084,7 +1084,8 @@ export function mcNpvReading(r: McNpvResult, cur: Currency, samples: number): st
   const ex = mcIsExact(r, cur);
   const st = mcStepOf(r.sd / Math.sqrt(samples), cur.minor);
   if (ex) {
-    return `After the price paid, the patent's NPV is ${mcAmount(r.mean, cur, ex)} in every simulated outcome: with these inputs nothing varies. On these inputs ${loss}.`;
+    // "to the cent" (the minor unit), not "nothing varies": a tight lognormal can print a zero spread and still vary.
+    return `After the price paid, the patent's NPV is ${mcAmount(r.mean, cur, ex)} in every simulated outcome, to the ${cur.minor === 0 ? "unit" : "smallest unit shown"}. On these inputs ${loss}.`;
   }
   const p10 = mcAmount(r.p10, cur, ex, st);
   const p90 = mcAmount(r.p90, cur, ex, st);

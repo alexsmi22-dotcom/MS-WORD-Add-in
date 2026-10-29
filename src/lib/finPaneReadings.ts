@@ -306,6 +306,8 @@ export function earReading(nomPct: number, m: number): string | undefined {
   const ns = inPct(nomPct);
   // A nominal rate of zero earns nothing to compound (fix round 2 MINOR 1: it read "adds too little to show").
   if (nom === 0) return `${aAn(ns, true)} ${ns} nominal rate is also ${es} effective: with no interest there is nothing to compound.`;
+  // A rate too small to show at two decimals (−0.001%): the rate itself, not the compounding, is what prints as zero.
+  if (isZeroText(finPct(nom))) return `${aAn(ns, true)} ${ns} nominal rate compounded ${timesText(m)} a year is ${es} effective to two decimals: the rate itself is too small to show there.`;
   if (es === finPct(nom)) {
     return m === 1
       ? `${aAn(ns, true)} ${ns} nominal rate compounded once a year is also ${es} effective: no interest is earned on interest within the year.`

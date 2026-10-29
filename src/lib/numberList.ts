@@ -108,10 +108,12 @@ export function readNumberList(text: string, opts: { cells?: boolean; decimalFie
   if (loneGrouped && !loneThousands) {
     const t = runs[0];
     const parts = t.split(",");
-    ambiguous =
+    // A typed hyphen sign is shown as a true minus (the display contract; the message reaches the pane as is).
+    ambiguous = trueMinus(
       parts.length === 2 && !lone.includes(".")
         ? `“${t}” reads three ways: the numbers ${parts.join(" and ")}, one number grouped in thousands (${t.replace(",", "")}), or a decimal comma (${t.replace(",", ".")}). Separate two numbers with “, ” (comma and space) or a semicolon, or write one number without the comma.`
-        : `“${t}” reads two ways: the numbers ${parts.join(", ")}, or one number grouped in thousands (${t.replace(/,/g, "")}). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.`;
+        : `“${t}” reads two ways: the numbers ${parts.join(", ")}, or one number grouped in thousands (${t.replace(/,/g, "")}). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.`,
+    );
   }
   const tokens = commaListing ? runs.flatMap((t) => t.split(",")).filter((t) => t !== "") : runs;
   // WHOLE-FIELD decision (the independent review: "1,250 2,5 3,75" was read

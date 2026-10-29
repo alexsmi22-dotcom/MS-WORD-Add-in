@@ -6,7 +6,9 @@ import { swrCalc, swrPct, swrSe } from "../forensicReports";
 import { cipCalc } from "../cbaCalcs";
 import { earReading, perpetuityReading, dcfRefusal, inNum, inPct } from "../finPaneReadings";
 import { readXirrDates, XIRR_MAX_FLOWS } from "../xirrDates";
-import { PREJUDGMENT_MAX_ROWS } from "../damagesInterest";
+import { PREJUDGMENT_MAX_ROWS, prejudgmentReport, civilDay, civilFromDay } from "../damagesInterest";
+import { xirr } from "../finance";
+import { budget } from "./timeBudget";
 import { readingProblems } from "../calcReading";
 import type { FinResult } from "../finCalc";
 
@@ -74,7 +76,7 @@ describe("M2 + MINOR 4 + MINOR 8: ipv-mc", () => {
     expect(o.text).toContain("Mean NPV: 625,880.37 (simulation standard error 0.00); standard deviation 0.00");
     expect(o.text).toContain("P10 625,880.37; P50 625,880.37; P90 625,880.37");
     expect(o.text).toContain("NPV at the central inputs (mode, median or fixed value): 625,880.37");
-    expect(o.reading).toBe("After the price paid, the patent's NPV is 625,880.37 in every simulated outcome: with these inputs nothing varies. On these inputs none of the 50,000 simulated outcomes loses money.");
+    expect(o.reading).toBe("After the price paid, the patent's NPV is 625,880.37 in every simulated outcome, to the smallest unit shown. On these inputs none of the 50,000 simulated outcomes loses money.");
     expect(readingProblems(o.reading!)).toEqual([]);
   });
   test("a fixed '4,000,000' is one number; a fixed '1,500' is asked", () => {
@@ -116,14 +118,43 @@ describe("M4 + MINOR 6: the caps fit a 30-year monthly XIRR and a 10-year daily 
     const d = readXirrDates(dates);
     expect("error" in d).toBe(false);
   });
-  test("prejudgment takes 5,000 rows", () => {
+  test("400 dates with no root stay within the budget", () => {
+    const n = XIRR_MAX_FLOWS;
+    const cf = Array.from({ length: n }, (_, i) => (i === 0 ? 1000 : 10));
+    const days = Array.from({ length: n }, (_, i) => i * 30);
+    const t0 = Date.now();
+    expect(xirr(cf, days)).toBeNull();
+    // measured about 300 ms on the cold first call under jest; the bound catches a freeze
+    expect(Date.now() - t0).toBeLessThan(budget(1500));
+  });
+  test("prejudgment takes 5,000 rows: a 10-year daily table and the cap compute within budget", () => {
     expect(PREJUDGMENT_MAX_ROWS).toBe(5000);
+    const iso = (n: number): string => {
+      const d = civilFromDay(n);
+      return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+    };
+    const svgSizes: number[] = [];
+    for (const rows of [3653, 5000]) {
+      const tranches = Array.from({ length: rows }, (_, i) => `${iso(civilDay(2010, 1, 1) + (i % 3653))}\t${1000 + (i % 997)}.25`).join("\n");
+      for (const method of ["simple", "daily"]) {
+        const t0 = Date.now();
+        const r = prejudgmentReport({ tranches, rates: "2000-01-01\t5\n2015-01-01\t3.5", end: "2024-12-31", method, dayCount: "act365", midPeriod: "off" });
+        expect(r.ok).not.toBe(false);
+        expect(Date.now() - t0).toBeLessThan(budget(3000));
+        svgSizes.push((r.svg ?? "").length);
+      }
+    }
+    // the figure stays an insertable size (per-row curves are not drawn one path per row at this count)
+    expect(Math.max(...svgSizes)).toBeLessThan(2_000_000);
   });
 });
 
 describe("MINOR 1–3, 5: the inline readings", () => {
   test("MINOR 1: a 0% nominal rate", () => {
     expect(earReading(0, 12)).toBe("A 0% nominal rate is also 0.00% effective: with no interest there is nothing to compound.");
+    // a rate too small to show: the rate, not the compounding, is why
+    expect(earReading(-0.001, 12)).toBe("A −0.001% nominal rate compounded 12× a year is 0.00% effective to two decimals: the rate itself is too small to show there.");
+    expect(earReading(1, 12)).toMatch(/is 1\.00% a year effective|is 1\.00% effective to two decimals/);
   });
   test("MINOR 3: a tiny rate is echoed in significant digits, never '0%'", () => {
     expect(inNum(1e-7)).toBe("0.0000001");

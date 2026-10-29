@@ -26,7 +26,7 @@ describe("B1: several commas with a group that is not 000 are asked, never one s
   });
   test("the B1 repro names both readings", () => {
     expect(asks("-1,000,500,500,500")).toBe(
-      "“-1,000,500,500,500” reads two ways: the numbers -1, 000, 500, 500, 500, or one number grouped in thousands (-1000500500500). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.",
+      "“−1,000,500,500,500” reads two ways: the numbers −1, 000, 500, 500, 500, or one number grouped in thousands (−1000500500500). Separate several numbers with “, ” (comma and space) or semicolons, or write one number without its commas.",
     );
   });
 });

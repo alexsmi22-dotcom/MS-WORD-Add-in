@@ -6,6 +6,72 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.206.0] (unreleased) — Colour & appearance
+
+Engineering grows from 241 to 249 calculators and gains a twenty-sixth panel, **Colour & appearance**, after Light &
+camera. Built for checking and drafting claim limitations such as "ΔE < 2", which mean nothing until they name the
+formula, the illuminant and observer, and the measuring geometry. Every number is checked against colour-science
+0.4.7 (scripts/colour-oracle.py, largest disagreement 3.4×10⁻¹³ outside hue angles, 4.6×10⁻¹⁰° there), and CIEDE2000
+passes all 34 published pairs of Sharma, Wu & Dalal (2005) to four decimals, including pair 14 (exactly 180° apart),
+which colour-science's own test leaves out.
+
+### Added — Engineering ▸ Colour & appearance (new panel, eight tools)
+- **Colour difference ΔE**: standard and sample as L\*a\*b\* or L\*C\*h; ΔL\*, Δa\*, Δb\*, ΔC\*ab, the signed ΔH\*ab and Δhab;
+  ΔE\*ab (CIE76), ΔE\*94 (graphic arts and textiles), ΔE CMC (2:1 and 1:1), ΔE₀₀ (CIEDE2000 with kL:kC:kH) and ΔE\*uv side
+  by side; the direction in words (lighter, greener, duller, shifted toward yellow); a **claim-ready line** naming the
+  formula, illuminant/observer, geometry and reference; a tolerance with < or ≤, decided on the unrounded value and
+  called borderline when the printed value ties it; and a warning when the same tolerance passes on one formula and
+  fails on another. Figures: the a\*b\* plane with chroma rays, the tolerance region of the chosen formula (traced by
+  bisection, so CIEDE2000's real shape) beside the CIE76 circle, and the L\* bars.
+- **Batch colour QC**: a standard and up to 500 named samples against a tolerance; pass/fail table, worst sample,
+  mean and maximum ΔE, the failing directions; samples drawn inside the tolerance region, ΔL\* per sample.
+- **Colour conversion** between XYZ, xyY, L\*a\*b\*, L\*C\*h, L\*u\*v\*, u′v′, sRGB (0–255) and hex for D65, D50, A, C, F2, F7,
+  F11, D55 and D75, 2° or 10°; out-of-gamut sRGB flagged with the clipped and unclipped values (Bradford adaptation to
+  the sRGB D65 white, as ICC profiles do); dominant wavelength and purity.
+- **Chromatic adaptation** of XYZ or L\*a\*b\* between illuminants by Bradford, von Kries, CAT02 and CAT16 (complete
+  adaptation), all four shown with their spread, and the note that adaptation is not re-measurement.
+- **Spectral reflectance or transmittance to colour** by **ASTM E308** (10 nm data with ASTM E2022 weighting factors
+  built from the 1 nm CIE tables, the out-of-range weights folded into the end wavelengths; 20 nm data via E308's
+  four-point Lagrange step; 1 and 5 nm data by summation) or **CIE 15 integration** at 1 nm after Sprague
+  interpolation; XYZ, L\*a\*b\*, L\*C\*h, xy, u′v′, an sRGB swatch, the dominant (or complementary) wavelength and excitation
+  purity. Fraction or percent; descending blocks reversed, header lines skipped.
+- **Metamerism index** (CIE 15, ISO 18314-4): ΔE under the reference and the special index under each test illuminant,
+  additive (L\*a\*b\*), multiplicative (XYZ) or uncorrected, on any ΔE formula.
+- **Whiteness, tint and yellowness**: CIE W and T (D65, either observer, with CIE 15's validity limits checked), ASTM
+  E313 YI for C and D65 at 2° and 10°, and the withdrawn ASTM D1925 YI; from XYZ, L\*a\*b\* or a spectrum.
+- **Contrast ratio (WCAG 2.x)**: relative luminances, the ratio, AA/AAA for normal and large text and SC 1.4.11,
+  decided on the unrounded ratio (#777777 on white is 4.48:1 and fails AA), plus ΔE₀₀ between the two.
+
+### Data and provenance
+- The CIE 1931 2° and 1964 10° colour-matching functions (1 nm, 360–780 nm, the ASTM E308 practice range; 1 nm because
+  the E2022 weights are built from 1 nm tables), nine illuminant SPDs at their native 5 nm, the white points, the
+  IEC 61966-2-1 sRGB matrices, four CAT matrices and the E313 coefficients are extracted by
+  scripts/colour-data-extract.py from colour-science 0.4.7 into src/lib/colourData.ts (36 KB), and cross-checked
+  against independent facts (ȳ(555) = 1, illuminant A = Planck at 2848 K to 5×10⁻⁶, the tabulated whites against
+  SPD × CMF to 10⁻³, the sRGB columns against colourspace.ts's primaries).
+
+### Review fixes (independent bug test before release)
+- The hue word follows the sample's direction of travel (86° → 93° reads "toward green", as Δa* says), and none is
+  given for a turn of more than 90°.
+- The a\*b\* planes are drawn over square windows (the overview centred on the neutral axis), so they really are at
+  equal scales; a 6:1 plane had passed as "equal".
+- No tolerance region is drawn above ΔE 10 or when it does not close (a ΔE₀₀ = 100 "region" was an open arc), and
+  the figure says why; the worst case fell from about 1.3 s to milliseconds.
+- The adaptation spread is the largest disagreement between any two transforms (1.16, von Kries against CAT02).
+- White points are the CIE 15 / ASTM E308 perfect-diffuser whites from the SPD and CMF tables (D65 2° 95.047, 100,
+  108.883), not XYZ rebuilt from the rounded tabulated xy (95.046, 108.906; up to 0.011 in b\*); illuminant A is
+  computed from its defining Planck formula at 1 nm.
+- Batch QC skips a header row and reads numeric sample IDs; kL:kC:kH is bounded to 0.1–10; refusals print ×10ⁿ;
+  no dominant wavelength below 0.5 % purity; colours outside the spectral locus are refused; "L\*=50, a\*=10, b\*=5",
+  "rgb(…)", "0x" hex and %-signed spectra are read; lightness-only failures are explained; chromaticity figures
+  name their observer (CIE 1964 x₁₀y₁₀ for 10°), mark the locus every 20 nm and draw sRGB only on the 2° diagram.
+
+### Tests
+- colourScience.oracle.test.ts (Sharma table, 162 ΔE pairs on six formulas, 126 conversions, 80 adaptations, 845
+  spectral cases over 1/2/5/10/20 nm grids and partial ranges, E2022 weights, dominant wavelength, whiteness/YI,
+  metamerism, WCAG), colourData.crosscheck.test.ts, colourCalcs.test.ts (defaults, readings, display contract,
+  adversarial refusals, equations). Figure corpus +51 (floor 1016); Engineering figure ratchet 249.
+
 ## [2.205.0] — 2026-10-29 — Every Finance and Stats result explains itself
 
 All 156 Finance (79) and Stats (77) calculators now open with a plain-language reading built from the computed

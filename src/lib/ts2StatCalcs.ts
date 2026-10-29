@@ -18,6 +18,7 @@ import { buildPlotSvg, type Series } from "./plot";
 import { fmtFixed, fmtP, fmtSci, intText } from "./regTable";
 import type { StatCalcDef } from "./statCalc";
 import { fitReading } from "./statLibReading";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import { parseSeriesTable, pickSeries, type SeriesData } from "./tsData";
 import {
   COINT_MAX_K,
@@ -421,13 +422,17 @@ export function tsGarchCalc(read: Read): StatOutput {
     const d = colDecimals([uv], 5);
     lines.push(`Unconditional variance ω/(1 − persistence) = ${fmtFixed(uv, d)} (volatility ${fmtFixed(Math.sqrt(uv), colDecimals([Math.sqrt(uv)], 5))} per period)`);
   }
+  // The asymmetric term reads the shock εₜ₋₁ = rₜ₋₁ − μ: with a constant mean, "bad news" is a return below its mean,
+  // not a negative return (R6 #10).
+  const badNews = mean === "constant" ? "a return below its mean" : "a negative return";
+  const goodNews = mean === "constant" ? "one above it" : "a positive one";
   if (spec.vol === "gjr") {
     lines.push(
       noArch
-        ? "Leverage: none to report, since α₁ and α₁ + γ₁ are on 0 and neither a negative nor a positive return moves the variance."
+        ? `Leverage: none to report, since α₁ and α₁ + γ₁ are on 0 and neither ${badNews} nor ${goodNews} moves the variance.`
         : P.gamma > 0
-        ? `Leverage: a negative return raises next period's variance by (α₁ + γ₁)ε² = ${fmtFixed(disp(P.alpha + P.gamma), 4)}ε², a positive one by α₁ε² = ${fmtFixed(disp(P.alpha), 4)}ε².`
-        : `γ₁ = ${fmtFixed(P.gamma, 4)}: no leverage effect (negative returns do not raise variance more than positive ones).`,
+        ? `Leverage: ${badNews} raises next period's variance by (α₁ + γ₁)ε² = ${fmtFixed(disp(P.alpha + P.gamma), 4)}ε², ${goodNews} by α₁ε² = ${fmtFixed(disp(P.alpha), 4)}ε².`
+        : `γ₁ = ${fmtFixed(P.gamma, 4)}: no leverage effect (${mean === "constant" ? "returns below the mean do not raise variance more than returns above it" : "negative returns do not raise variance more than positive ones"}).`,
     );
   }
   if (spec.vol === "egarch") {
@@ -551,10 +556,18 @@ export function tsGarchCalc(read: Read): StatOutput {
     const gp = normalP(g / gSe);
     const leverage = spec.vol === "gjr" ? g > 0 : g < 0;
     const pS = gp < 0.001 ? `p ${fmtP(gp)}` : `p = ${fmtP(gp)}`;
+    const v = pVerdict(pS);
+    // A parameter on a bound makes the standard errors, and so this p, unreliable (the text says so): hedge (R6 #10).
+    const shaky = fit.atBounds.length > 0;
+    const bad = badNews;
     second = leverage
-      ? gp < 0.05
-        ? ` Bad news (a negative return) raises volatility more than good news of the same size (${pS}).`
-        : ` Bad news may raise volatility more than good news, but that extra effect is not clearly different from zero (${pS}).`
+      ? shaky
+        ? ` Bad news (${bad}) appears to raise volatility more than good news (${pS}), but an estimate sits on the edge of its allowed range, so that p is not reliable.`
+        : v === "clear"
+          ? ` Bad news (${bad}) raises volatility more than good news of the same size (${pS}).`
+          : v === "borderline"
+            ? ` Bad news (${bad}) may raise volatility more than good news (${pS}), ${BOUNDARY_CLAUSE}.`
+            : ` Bad news may raise volatility more than good news, but that extra effect is not clearly different from zero (${pS}).`
       : " Bad news does not raise volatility more than good news in this fit.";
   } else if (Number.isFinite(fc[0])) second = ` The forecast variance for the next period is ${fmtFixed(fc[0], fd)}.`;
   const reading = fitReading(`${lead}.${second}`, `${leadBare}.${second}`, `${lead}.`, `${leadBare}.`);
@@ -680,7 +693,10 @@ export function tsVarCalc(read: Read): StatOutput {
   }
   const gr = [];
   for (let i = 0; i < K; i++) for (let j = 0; j < K; j++) if (i !== j) gr.push(varGranger(fit, i, j));
-  const sig = gr.filter((g) => g.p < 0.05);
+  // Decided on the p as printed (calcReading's pVerdict): exactly 0.05 as printed is borderline, not a link.
+  const gp = (g: { p: number }): string => `p ${g.p < 0.001 ? fmtP(g.p) : `= ${fmtP(g.p)}`}`;
+  const sig = gr.filter((g) => pVerdict(gp(g)) === "clear");
+  const edge = gr.filter((g) => pVerdict(gp(g)) === "borderline");
   lines.push(
     sig.length
       ? `Granger causality at 5%: ${sig.map((g) => `${names[g.causing]} → ${names[g.caused]} (p ${g.p < 0.001 ? fmtP(g.p) : `= ${fmtP(g.p)}`})`).join("; ")}.`
@@ -718,15 +734,22 @@ export function tsVarCalc(read: Read): StatOutput {
   const ax = axisOf(s.data, s.data.n);
   const svg = seriesLinesSvg({ x: ax.x, names, cols: s.cols, xlabel: ax.xlabel, title: `VAR(${p}) input series` });
   // The reading: the clearest predictive (Granger) link, how many others there are, and whether shocks die out.
-  const gp = (g: { p: number }): string => `p ${g.p < 0.001 ? fmtP(g.p) : `= ${fmtP(g.p)}`}`;
   const stab = root === null ? "" : root < 1 ? "; the system is stable, so the effects of a shock die out" : "; the system is not stable, so the effects of a shock do not die out";
   let reading: string | undefined;
   if (sig.length) {
     const best = sig.reduce((a, b) => (b.p < a.p ? b : a));
     const others = sig.length - 1;
-    const lead = `Past values of ${names[best.causing]} help predict ${names[best.caused]} beyond what ${names[best.caused]}'s own past predicts (${gp(best)})`;
+    // With three or more series the Granger test conditions on every series' past, not just the caused one's (R6 #11).
+    const beyond = K === 2 ? `${names[best.caused]}'s own past` : `its own past and the other series' pasts`;
+    const lead = `Past values of ${names[best.causing]} help predict ${names[best.caused]} beyond what ${beyond} already predict${K === 2 ? "s" : ""} (${gp(best)})`;
     const more = others ? `, and ${others === 1 ? "another link is" : "other links are"} also clear at the 5% level` : "";
     reading = fitReading(`${lead}${more}${stab}.`, `${lead}${more}.`, `One series helps predict another at 5% (${gp(best)}).`);
+  } else if (edge.length) {
+    const e = edge[0];
+    reading = fitReading(
+      `No series clearly helps predict another: the strongest link, ${names[e.causing]} to ${names[e.caused]}, has ${gp(e)}, ${BOUNDARY_CLAUSE}${stab}.`,
+      `No series clearly helps predict another: the strongest link has ${gp(e)}, ${BOUNDARY_CLAUSE}.`,
+    );
   } else {
     reading = fitReading(`No series helps predict another beyond its own past at the 5% level${stab}.`, "No series helps predict another beyond its own past at the 5% level.");
   }
@@ -782,7 +805,7 @@ export function tsVarIrfCalc(read: Read): StatOutput {
   }
   for (let r = 0; r < K; r++) {
     const rows: string[][] = [["h", ...names.map((nm) => `${nm} (%)`)]];
-    for (let k = 0; k < H; k++) rows.push([String(k + 1), ...ir.fevd[r][k].map((v) => fmtFixed(100 * v, 2))]);
+    for (let k = 0; k < H; k++) rows.push([String(k + 1), ...ir.fevd[r][k].map((v) => (v > 0 && 100 * v < 0.005 ? "< 0.01" : fmtFixed(100 * v, 2)))]);
     tables.push({ label: `FEVD of ${names[r]}: share of forecast-error variance from each shock`, rows, align: ["right", ...names.map(() => "right" as const)], note: "Each row sums to 100%." });
   }
   const svg = varIrfGridSvg({ names, orth: ir.orth, se: ir.se, z });
@@ -828,6 +851,14 @@ export function tsEngleGrangerCalc(read: Read): StatOutput {
       ? "At 5% the null of no cointegration is rejected: the series share a common stochastic trend (the residual is stationary)."
       : "At 5% the null of no cointegration is not rejected.",
   );
+  // The decision is τ against MacKinnon's (2010) critical value; the p is his (1994) surface, a different table. When
+  // they fall on opposite sides of 5%, say so instead of printing a p that contradicts the decision (R6 #6).
+  const egPS = r.p < 0.001 ? `p ${fmtP(r.p)}` : `p = ${fmtP(r.p)}`;
+  if ((pVerdict(egPS) === "clear") !== reject) {
+    lines.push(
+      `Note: the MacKinnon ${egPS} is on the other side of 0.05 from the critical-value decision; the p and the critical values come from different MacKinnon tables, the decision follows the critical value, and the result is borderline.`,
+    );
+  }
   lines.push(`ADF lag ${r.usedLag} chosen by AIC from 0…${r.maxLag} (Schwert's rule), on ${intText(r.adfNobs)} residual differences.`);
   lines.push("");
   lines.push(
@@ -940,15 +971,18 @@ export function tsJohansenCalc(read: Read): StatOutput {
   const rel = (k: number): string => `${k} long-run relation${k === 1 ? "" : "s"}`;
   const list = names.join(", ");
   let reading: string | undefined;
+  // A rank of K is full rank (stationary series), not K long-run relations (R6 #4).
+  const rankWords = (k: number): string => (k === K ? `full rank (${K}, the series look stationary on their own)` : rel(k));
   if (rankTrace !== rankMax) {
-    reading = `The two tests disagree at 5%: the trace test finds ${rel(rankTrace)} among the series, the maximum-eigenvalue test ${rankMax}, so how many stable long-run links there are is uncertain.`;
+    reading = `The two tests disagree at 5%: the trace test finds ${rankWords(rankTrace)}, the maximum-eigenvalue test ${rankMax === K ? `full rank (${K})` : rankMax}, so how many stable long-run links there are is uncertain.`;
   } else if (rankTrace === 0) {
     reading = fitReading(`Both tests find no evidence of cointegration at 5%: no stable long-run relation ties ${list} together.`, "Both tests find no evidence of cointegration at 5%: no stable long-run relation ties the series together.");
   } else if (rankTrace === K) {
     reading = `Both tests find full rank (${K}) at 5%: the series look stationary on their own, so there is no shared trend for cointegration to describe.`;
   } else {
     reading = fitReading(
-      `Both tests find ${rel(rankTrace)} at 5%: ${list} share ${rankTrace === 1 ? "a stable long-run relation" : "stable long-run relations"} even if each wanders on its own.`,
+      // The relation need not involve every series (a zero weight leaves one out), so say "some combination" (R6 #5).
+      `Both tests find ${rel(rankTrace)} at 5%: ${rankTrace === 1 ? "a stable long-run relation links" : "stable long-run relations link"} some combination of ${list}, even if each wanders on its own.`,
       `Both tests find ${rel(rankTrace)} among the series at 5%.`,
     );
   }

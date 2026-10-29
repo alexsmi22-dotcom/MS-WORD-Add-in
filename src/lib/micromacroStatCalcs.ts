@@ -33,6 +33,7 @@ import { ratOf } from "./currency";
 import { parseSeriesTable, pickSeries } from "./tsData";
 import { fitOls, type SeType } from "./olsInference";
 import { fitReading, unsigned } from "./statLibReading";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import { depositExpansionSvg } from "./statLibFigures";
 import {
   rcmp,
@@ -572,7 +573,7 @@ export function microCostCalc(read: Read): StatOutput {
     try {
       vals = readCalcList(raw).values;
     } catch (e) {
-      if (e instanceof ListTokenError) return refuse(`Total cost coefficients: ${e.message}`);
+      if (e instanceof ListTokenError) return refuse(`Total cost coefficients: ${e.message.replace(" — ", "; ")}`);
       throw e;
     }
     if (vals.length < 2) return refuse("Total cost coefficients: enter at least c₀ and c₁ (TC = c₀ + c₁q + …).");
@@ -783,8 +784,12 @@ export function microPriceDiscCalc(read: Read): StatOutput {
       ? `leaves profit at ${cellDec(res.third.profit)}`
       : `raises profit from ${cellDec(res.uniform.profit)} to ${cellDec(res.third.profit)}`;
     const both = res.third.p.every((p) => p !== null);
-    const charging = both ? `Charging the two markets separate prices (${prices.join(" and ")})` : `Pricing each market on its own (${prices.join("; ")})`;
-    const reading = `${charging} instead of one uniform price ${profitText} and ${tsText}.`;
+    const same = both && prices[0] === prices[1];
+    const charging = same
+      ? `Pricing each market on its own gives the same price in both (${prices[0]}), so compared with one uniform price it`
+      : both
+        ? `Charging the two markets separate prices (${prices.join(" and ")})` : `Pricing each market on its own (${prices.join("; ")})`;
+    const reading = same ? `${charging} ${profitText} and ${tsText}.` : `${charging} instead of one uniform price ${profitText} and ${tsText}.`;
     return { text: lines.join("\n"), reading, tables: [t], svg };
   });
 }
@@ -1282,7 +1287,7 @@ function mundellFlemingReading(
 /** macro-money-multiplier in plain words. */
 function moneyMultiplierReading(mult: Rat, base: Rat, M: Rat, dB: Rat): string {
   const change = ratIsZero(dB) ? "" : `; a change of ${ex(dB)} in the base changes it by ${ex(ratMul(mult, dB))}`;
-  return `In this fixed-ratio model every unit of monetary base supports ${ex(mult)} units of money, so a base of ${ex(base)} supports a money supply of ${ex(M)}${change}.`;
+  return `In this fixed-ratio model every unit of monetary base supports ${ex(mult)} ${ex(mult) === "1" ? "unit" : "units"} of money, so a base of ${ex(base)} supports a money supply of ${ex(M)}${change}.`;
 }
 
 /** At most this many lending rounds in the deposit-expansion figure. */
@@ -1387,7 +1392,7 @@ export function macroFiscalMultipliersCalc(read: Read): StatOutput {
     const svg = keynesianCrossSvg(ratToNumber(v.A), ratToNumber(ratAdd(v.A, dA)), slope, ratToNumber(Y0), ratToNumber(ratAdd(Y0, dY)));
     // The reading: the spending multiplier in words, then the policy entered (if any).
     const taxCut = ratIsZero(kT) ? "a lump-sum tax cut leaves it unchanged" : `a one-unit lump-sum tax cut raises it by ${ex(ratNeg(kT))}`;
-    const lead = `Each extra unit of government spending raises output by ${ex(k)} units and ${taxCut}, with prices and interest rates held fixed.`;
+    const lead = `Each extra unit of government spending raises output by ${ex(k)} ${ex(k) === "1" ? "unit" : "units"} and ${taxCut}, with prices and interest rates held fixed.`;
     const pol = ratIsZero(v.dG) && ratIsZero(v.dT) ? "" : ` The policy entered ${ratMove(dY, "output")} and changes the budget balance by ${ex(ratSub(dRev, v.dG))}.`;
     const reading = fitReading(lead + pol, lead);
     return { text: lines.join("\n"), reading, tables, svg };
@@ -1521,7 +1526,13 @@ export function macroPhillipsCalc(read: Read): StatOutput {
     }
     lines.push("");
     lines.push(
-      `Conventions: OLS by olsInference.fitOls (the econ-ols engine), constant included, ${seText} standard errors; NAIRU = −α/β with its delta-method SE computed by reparametrizing the regression around the estimate (same covariance estimator); 95% interval ±1.96 SE (normal). Inflation and unemployment in percent.`,
+      `Conventions: OLS by olsInference.fitOls (the econ-ols engine), constant included, ${seText} standard errors; NAIRU = −α/β with its delta-method SE computed by reparametrizing the regression around the estimate (same covariance estimator); 95% interval ±1.96 SE (normal). Inflation and unemployment in percent.${
+        se === "hac"
+          ? " The HAC covariance includes the small-sample factor n/(n − k) (statsmodels' HAC with its small-sample correction, as Stata's newey), and its t and p use the t distribution with n − k degrees of freedom."
+          : se === "classical"
+            ? ""
+            : " The coefficient t and p use the t distribution with n − k degrees of freedom."
+      }`,
     );
     const pText = (p: number): string => fmtP(p);
     const tables: StatTable[] = [
@@ -1544,7 +1555,9 @@ export function macroPhillipsCalc(read: Read): StatOutput {
     let reading: string;
     if (nairu === null) reading = `Inflation does not respond to unemployment in this sample (slope 0), so no NAIRU can be estimated.`;
     else if (beta > 0) reading = `The estimated curve slopes up (β = ${fx(beta, 4)}, ${pS}), the wrong way for a Phillips curve, so these data give no meaningful NAIRU.`;
-    else if (tb.p < 0.05) {
+    else if (pVerdict(pS) === "borderline") {
+      reading = `Higher unemployment goes with falling ${what} (β = ${fx(beta, 4)}, ${pS}), ${BOUNDARY_CLAUSE}, so the NAIRU estimate of ${fx(nairu, 3)}% is uncertain.`;
+    } else if (pVerdict(pS) === "clear") {
       reading = fitReading(
         `Higher unemployment goes with falling ${what} (β = ${fx(beta, 4)}, ${pS}); ${what === "inflation" ? "inflation is stable" : "inflation meets expectations"} at about ${fx(nairu, 3)}% unemployment (the NAIRU; 95% interval ${fx(nairu - 1.959964 * nSe!, 3)}% to ${fx(nairu + 1.959964 * nSe!, 3)}%).`,
         `Higher unemployment goes with falling ${what} (${pS}); the NAIRU is about ${fx(nairu, 3)}%.`,

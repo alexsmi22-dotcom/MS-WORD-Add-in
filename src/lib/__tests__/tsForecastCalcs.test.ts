@@ -257,8 +257,8 @@ describe("100,000 rows do not freeze the pane", () => {
     expect(ms).toBeLessThan(ARIMA_100K_BOUND_MS);
   });
   it("ts-arima, ARIMA(5, 1, 5): an answer or a named refusal within the pane's clock, never a frozen pane", () => {
-    // Since the review round the work estimate leaves room for high orders and the real-time stop (ARIMA_WALL_MS, 6 s)
-    // is the guarantee: measured 4.6 s alone before the computation-limit refusal. Bound allows for QC's four workers.
+    // Since the R6 fix round p + q > 6 is refused up front (ARIMA_MAX_PQ); before, it ran 4.6 s alone into the
+    // computation-limit refusal. Bound allows for QC's four workers.
     const t0 = Date.now();
     const r = arima({ data: seriesText(big), p: "5", q: "5" });
     if (r.ok === false) expect(r.text).toMatch(/needs more computation than the pane allows|within the pane's computation limit/);

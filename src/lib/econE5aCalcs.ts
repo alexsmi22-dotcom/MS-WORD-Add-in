@@ -280,8 +280,8 @@ export const INEQ_GINI_DEFAULTS: Record<string, string> = {
   eps: "",
 };
 
-/** Most rows accepted (measured: 200,000 rows run in well under a second; see the jest bound). */
-export const INEQ_MAX_ROWS = 200000;
+/** Most rows accepted (fix round, R6 #3: 200,000 rows took 0.95 s, mostly the exact Gini fraction; 50,000 stay near 0.2 s). */
+export const INEQ_MAX_ROWS = 50000;
 /** Largest |income| and weight accepted, so Σ wᵢxᵢ·W stays far inside the double range. */
 export const INEQ_MAX_ABS = 1e15;
 
@@ -1007,13 +1007,24 @@ export function concHhiCalc(read: Read): StatOutput {
   if (merger) {
     const who = mIdx.map((k) => firms[k].name);
     const pair = who.length === 2 ? `${who[0]} and ${who[1]}` : `${who.slice(0, -1).join(", ")} and ${who[who.length - 1]}`;
-    const head = `The merger of ${pair} raises the HHI by ${ptsText(delta)} to ${range(post, postHi)}, with a combined share of ${ptsText(mShare)}%`;
-    reading =
-      presHhi === "yes" || presShare
-        ? joinTwo(`${head}, so it meets the 2023 Merger Guidelines' structural presumption against the merger.`, "That presumption is a screen the parties can rebut, not a legal conclusion.")
+    // A change that rounds to 0.00 is said as such, not as "raises the HHI by 0.00" (R6 #15).
+    const roundsToZero = (s: string): boolean => /^0(\.0+)?$/.test(s);
+    const tiny = roundsToZero(ptsText(delta)) && ratSign(delta) > 0;
+    const shareText = roundsToZero(ptsText(mShare)) && ratSign(mShare) > 0 ? "a combined share below a hundredth of a percent" : `a combined share of ${ptsText(mShare)}%`;
+    const build = (names: string): string => {
+      const head = tiny
+        ? `The merger of ${names} raises the HHI only negligibly (by less than a hundredth of a point), leaving it at ${range(post, postHi)}, with ${shareText}`
+        : `The merger of ${names} raises the HHI by ${ptsText(delta)} to ${range(post, postHi)}, with ${shareText}`;
+      return presHhi === "yes" || presShare
+        ? `${head}, so it meets the 2023 Merger Guidelines' structural presumption against the merger. That presumption is a screen the parties can rebut, not a legal conclusion.`
         : presHhi === "depends"
           ? `${head}; whether it meets the 2023 Merger Guidelines' structural presumption depends on how the unnamed fringe splits.`
-          : joinTwo(`${head}, which does not meet either structural presumption of the 2023 Merger Guidelines' screen.`, "Other parts of the guidelines can still apply.");
+          : `${head}, which does not meet either structural presumption of the 2023 Merger Guidelines' screen. Other parts of the guidelines can still apply.`;
+    };
+    // Long firm names: name the firms generically before ever dropping the legal caveat (R6 #7).
+    const numWord = ["", "", "two", "three", "four", "five", "six", "seven", "eight", "nine"][who.length];
+    const generic = numWord ? `the ${numWord} firms` : `the ${who.length} firms`;
+    reading = [build(pair), build(generic)].find((s) => s.length <= 320) ?? build(generic);
   } else {
     const level =
       highly === "yes"
@@ -1383,7 +1394,7 @@ export function ioReading(names: string[], outMult: number[], keys: string[]): s
   const first =
     names.length === 1
       ? `Under the model's fixed input shares, each extra unit of final demand for ${names[0]} calls for ${f4io(best)} units of its output in all.`
-      : `Under the model's fixed input shares, each extra unit of final demand for ${who} raises output across all ${names.length} sectors by ${f4io(best)} units, the largest output multiplier.`;
+      : `Under the model's fixed input shares, each extra unit of final demand for ${who} raises output across ${names.length === 2 ? "both" : `all ${names.length}`} sectors by ${f4io(best)} units, the largest output multiplier.`;
   const second =
     names.length === 1
       ? ""

@@ -237,7 +237,7 @@ describe("ineq-gini against the oracle", () => {
     }
   });
 
-  test("largest input: 200,000 rows (bounded at more than 3× the measured time), one more is refused", () => {
+  test("largest input: 50,000 rows (the R6 cap; bounded at more than 3× the measured time), one more is refused", () => {
     const xs: string[] = ["Income"];
     let s = 7;
     for (let i = 0; i < INEQ_MAX_ROWS; i++) {

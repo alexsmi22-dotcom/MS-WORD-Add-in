@@ -20,6 +20,7 @@ import { buildPlotSvg, type Series } from "./plot";
 import { chiSquareP } from "./stats2";
 import { ivDefaultTable } from "./ivCalcs";
 import { fitReading } from "./statLibReading";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import {
   buildDynamic,
   checkPlan,
@@ -456,27 +457,33 @@ function econGmmReading(f: GmmFitted): string | undefined {
     const p = coefP(r.gmm.b[j], r.gmm.se[j]);
     const iv = endog.includes(names[j]);
     const pS = Number.isFinite(p) ? `, ${p < 0.001 ? `p ${P_BELOW}` : `p = ${row[4]}`}` : "";
-    const sig = Number.isFinite(p) && p < 0.05;
+    // Decided on the printed p (pVerdict): exactly 0.050 as printed is borderline.
+    const pv = pS ? pVerdict(pS.slice(2)) : "none";
+    const sig = pv === "clear";
+    const ns = pv === "borderline" ? `, ${BOUNDARY_CLAUSE}` : ", not clearly different from zero";
     lead = iv
-      ? `The estimated effect of a one-unit increase in ${names[j]} on ${dep} is ${row[1]} (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`
-      : `A one-unit increase in ${names[j]} goes with a change of ${row[1]} in ${dep} (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`;
+      ? `The estimated effect of a one-unit increase in ${names[j]} on ${dep} is ${row[1]} (95% interval ${row[5]}${pS})${sig ? "" : ns}.`
+      : `A one-unit increase in ${names[j]} goes with a change of ${row[1]} in ${dep} (95% interval ${row[5]}${pS})${sig ? "" : ns}.`;
     bare = iv
-      ? `The estimated effect of the first instrumented regressor is ${row[1]} per unit (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`
-      : `The first regressor goes with a change of ${row[1]} per unit (95% interval ${row[5]}${pS})${sig ? "" : ", not clearly different from zero"}.`;
+      ? `The estimated effect of the first instrumented regressor is ${row[1]} per unit (95% interval ${row[5]}${pS})${sig ? "" : ns}.`
+      : `The first regressor goes with a change of ${row[1]} per unit (95% interval ${row[5]}${pS})${sig ? "" : ns}.`;
   }
   let tail = "";
   if (r.jdf > 0 && Number.isFinite(r.j)) {
     tail =
-      r.jp < 0.05
+      pVerdict(pText(r.jp)) === "clear"
         ? ` The Hansen test rejects the instruments (${pText(r.jp)}): at least one looks invalid, so the estimate is suspect.`
         : r.jp > 0.99
           ? ` The Hansen test's ${pText(r.jp)} is too good to be reassuring (often a sign of too many instruments).`
-          : ` The Hansen test finds no evidence against the instruments (${pText(r.jp)}).`;
+          : ` The Hansen test finds no clear evidence against the instruments (${pText(r.jp)}${pVerdict(pText(r.jp)) === "borderline" ? `, ${BOUNDARY_CLAUSE}` : ""}).`;
   } else if (r.jdf === 0 && endog.length) tail = " With exactly as many instruments as needed, their validity cannot be tested.";
   const fs = j >= 0 ? r.firstStage.find((x) => x.name === names[j]) : undefined;
-  const weak = fs && Number.isFinite(fs.p) && fs.p >= 0.05 ? ` The instruments barely predict ${fs.name} (first stage ${pText(fs.p)}), so the estimate is unreliable.` : "";
+  // Weak instruments by the same rule as iv-2sls (R5 MAJOR 1): a first-stage F below 10 (here the robust Wald/df).
+  const fsF = fs && Number.isFinite(fs.wald) && fs.df > 0 ? fs.wald / fs.df : NaN;
+  const fsFS = Number.isFinite(fsF) ? fmtFixed(fsF, 2) : "";
+  const weak = fs && Number.isFinite(fsF) && Number(fsFS.replace(/,/g, "")) < 10 ? ` The instruments are weak for ${fs.name} (first-stage F = ${fsFS}, below the rule-of-thumb 10), so the estimate is unreliable.` : "";
   // Two sentences at most: a weak first stage outranks the overidentification test.
-  const weakBare = weak && fs ? ` The instruments barely predict that regressor (first stage ${pText(fs.p)}), so the estimate is unreliable.` : "";
+  const weakBare = weak && fs ? ` The instruments are weak (first-stage F = ${fsFS}, below 10), so the estimate is unreliable.` : "";
   return fitReading(lead + (weak || tail), lead, bare + (weakBare || tail), bare);
 }
 
@@ -877,12 +884,12 @@ export function dynFitFromRead(read: Read): DynResult | { error: string } {
   try {
     // Every cap is checked on the plans, before a row is built.
     const plan = planDynamic(r.data, r.spec);
-    checkPlan(plan);
+    checkPlan(plan, r.spec.collapse);
     let otherPlan: DynPlan | null = null;
     let otherWhy: string | undefined;
     try {
       otherPlan = planDynamic(r.data, { ...r.spec, system: !r.spec.system });
-      checkPlan(otherPlan);
+      checkPlan(otherPlan, r.spec.collapse);
       if (plan.work + otherPlan.work + DPD_READ_COST * r.nCells > DPD_MAX_PAIR_WORK) {
         otherPlan = null;
         otherWhy = "fitting it too would exceed the task pane's work budget";
@@ -932,7 +939,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   if (fit.L > fit.N) {
     lines.push(
       `Warning: ${intText(fit.L)} instruments exceed the ${intText(fit.N)} groups. Too many instruments overfit the endogenous variables (biasing GMM toward OLS or fixed effects, Roodman 2009), ` +
-        "and the two-step weight is then singular, so two-step GMM and the Hansen test are not computed. Choose “collapse” or a last lag.",
+        "and the two-step weight is then singular, so two-step GMM and the Hansen test are not computed. " + (r.spec.collapse ? "The instruments are already collapsed: set a last lag, or use fewer GMM-style variables." : "Choose “collapse” or a last lag."),
     );
   }
   // Tests.
@@ -954,7 +961,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
             : `Hansen J not computed: ${fit.twoWhy}. H₀: the instruments are valid.`),
     );
     if (fit.two && fit.hansenP > 0.99) {
-      lines.push(`Caution: a Hansen p-value above 0.99 is a classic sign of a test weakened by too many instruments (${intText(fit.L)} for ${intText(fit.N)} ${plural(fit.N, "group")}), not evidence of valid instruments (Roodman 2009); collapse the instruments or set a last lag and look again.`);
+      lines.push(`Caution: a Hansen p-value above 0.99 is a classic sign of a test weakened by too many instruments (${intText(fit.L)} for ${intText(fit.N)} ${plural(fit.N, "group")}), not evidence of valid instruments (Roodman 2009); ${r.spec.collapse ? "set a last lag" : "collapse the instruments or set a last lag"} and look again.`);
     }
   } else lines.push("Exactly identified (as many instruments as coefficients): the Sargan and Hansen tests are not computed.");
   // The Nickell bracket on ρ.
@@ -984,7 +991,7 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   if (fit.singularA1) {
     lines.push(
       `The one-step weight matrix Σ ZᵢᵀHᵢZᵢ is singular (rank ${intText(fit.rankA1)} for ${intText(fit.L)} instruments), so a generalized inverse was used for it: the one-step estimates and the Sargan statistic then depend on how that inverse is taken. ` +
-        "Usually an instrument is (nearly) a combination of the others in the rows the weight is built from (in system GMM, the differenced and level rows together); collapse the instruments or set a last lag.",
+        "Usually an instrument is (nearly) a combination of the others in the rows the weight is built from (in system GMM, the differenced and level rows together); " + (r.spec.collapse ? "the instruments are already collapsed, so set a last lag or use fewer GMM-style variables." : "collapse the instruments or set a last lag."),
     );
   }
   lines.push(
@@ -1044,22 +1051,24 @@ export function panelDynGmmCalc(read: Read): StatOutput {
   const rowY = coefRow(rhoLabel, st.b[ylag], st.se[ylag]);
   const pY = coefP(st.b[ylag], st.se[ylag]);
   const pYS = Number.isFinite(pY) ? (pY < 0.001 ? `p ${P_BELOW}` : `p = ${rowY[4]}`) : "";
+  const yClear = pYS !== "" && pVerdict(pYS) === "clear";
+  const yEdge = pYS !== "" && pVerdict(pYS) === "borderline" ? `, ${BOUNDARY_CLAUSE}` : "";
   const lead =
-    Number.isFinite(pY) && pY < 0.05
+    yClear
       ? `Each unit of last period's ${r.depName} carries over as about ${rowY[1]} units this period (95% interval ${rowY[5]}, ${pYS}), holding the other regressors fixed`
-      : `The data show no clear carry-over from last period's ${r.depName} (coefficient ${rowY[1]}${pYS ? `, ${pYS}` : ""})`;
+      : `The data show no clear carry-over from last period's ${r.depName} (coefficient ${rowY[1]}${pYS ? `, ${pYS}` : ""}${yEdge})`;
   const ar2 = st.ar.find((a) => a.order === 2 && !a.why);
   const valP = fit.df > 0 ? (fit.two ? fit.hansenP : fit.sarganP) : NaN;
   const valName = fit.two ? "Hansen" : "Sargan";
   let tests: string;
-  if (r.spec.lagFirst === 2 && ar2 && ar2.p < 0.05) tests = `; but the AR(2) test rejects (${pText(ar2.p)}), so the lag-2 instruments look invalid.`;
-  else if (Number.isFinite(valP) && valP < 0.05) tests = `; but the ${valName} test rejects the instruments (${pText(valP)}), so the estimate is suspect.`;
+  if (r.spec.lagFirst === 2 && ar2 && pVerdict(pText(ar2.p)) === "clear") tests = `; but the AR(2) test rejects (${pText(ar2.p)}), so the lag-2 instruments look invalid.`;
+  else if (Number.isFinite(valP) && pVerdict(pText(valP)) === "clear") tests = `; but the ${valName} test rejects the instruments (${pText(valP)}), so the estimate is suspect.`;
   else if (fit.two && Number.isFinite(valP) && valP > 0.99) tests = `; the Hansen ${pText(valP)} is too good to be reassuring (often too many instruments).`;
   // AR(2) is a test of the instruments only when they start at lag 2 (from lag 3 on, AR(2) is tolerated).
   else if (Number.isFinite(valP) && ar2 && r.spec.lagFirst === 2) tests = `; the specification tests find no evidence against the instruments (AR(2) ${pText(ar2.p)}, ${valName} ${pText(valP)}).`;
   else if (Number.isFinite(valP)) tests = `; the ${valName} test finds no evidence against the instruments (${pText(valP)}).`;
   else tests = ".";
-  const pBare = Number.isFinite(pY) && pY < 0.05 ? `The lagged response carries over as about ${rowY[1]} units (${pYS}).` : `No clear carry-over from the lagged response (${pYS || `coefficient ${rowY[1]}`}).`;
+  const pBare = yClear ? `The lagged response carries over as about ${rowY[1]} units (${pYS}).` : `No clear carry-over from the lagged response (${pYS || `coefficient ${rowY[1]}`}).`;
   const reading = fitReading(lead + tests, `${lead}.`, pBare);
   return { text: lines.join("\n"), reading, tables, ...(svg ? { svg } : {}) };
 }

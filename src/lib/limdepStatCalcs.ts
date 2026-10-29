@@ -18,7 +18,8 @@ import { readFinanceField } from "./finance";
 import { findColumn, parseRegData, parseSpec, selectColumns, type RegDataset, type RegSpec } from "./regData";
 import { fmtFixed, fmtP, intText, numText, P_BELOW } from "./regTable";
 import { buildPlotSvg } from "./plot";
-import { fitReading, moveWord, unsigned } from "./statLibReading";
+import { fitReading, unsigned } from "./statLibReading";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import { coefForestSvg, type ForestTerm } from "./statLibFigures";
 import {
   fitCount,
@@ -140,11 +141,19 @@ function strongest(terms: ModelTerm[], skip: (t: ModelTerm) => boolean = isConst
 }
 /** "No predictor is clearly linked to y at the 5% level; the strongest, x, has p = 0.21." */
 function noLink(t: ModelTerm, what: string): string {
-  return `No predictor is clearly linked to ${what} at the 5% level; the strongest, ${t.name}, has ${pText(t.p)}.`;
+  return `No predictor is clearly linked to ${what} at the 5% level; the strongest, ${t.name}, has ${pText(t.p)}${edge(t.p)}.`;
 }
 /** noLink without column names (the last fallback when long names overrun the reading's length). */
 function noLinkBare(t: ModelTerm): string {
-  return `No predictor is clearly linked to the outcome at the 5% level; the strongest has ${pText(t.p)}.`;
+  return `No predictor is clearly linked to the outcome at the 5% level; the strongest has ${pText(t.p)}${edge(t.p)}.`;
+}
+/** Below 5% as printed (calcReading's pVerdict: exactly 0.05 as printed is borderline, not significant). */
+function sig(p: number): boolean {
+  return Number.isFinite(p) && pVerdict(pText(p)) === "clear";
+}
+/** ", right at the conventional 5% threshold, …" when the printed p is exactly 0.050; else nothing. */
+function edge(p: number): string {
+  return Number.isFinite(p) && pVerdict(pText(p)) === "borderline" ? `, ${BOUNDARY_CLAUSE}` : "";
 }
 /** The coefficient figure's panel from a coefficient table's terms (the constant left out: it sits on another scale). */
 function forestTerms(terms: ModelTerm[]): ForestTerm[] {
@@ -248,7 +257,7 @@ export function econCountCalc(read: Read): StatOutput {
   }
   if (!nb && ct) {
     lines.push(
-      ct.p < 0.05 && ct.alpha > 0
+      sig(ct.p) && ct.alpha > 0
         ? "The data are overdispersed at the 5% level: the Poisson coefficients stay consistent, but use robust (HC0) standard errors or the NB2 model."
         : "No evidence of overdispersion at the 5% level.",
     );
@@ -298,14 +307,14 @@ function countReading(r: CountResult, dep: string, exposure: string, nb: boolean
     const c = r.irr.find(isConstant);
     lead = c ? `With no predictors, the model estimates only the average: ${rate} is about ${fmtFixed(c.coef, D)}.` : `With no predictors, the model estimates only the average ${dep}.`;
     bare = c ? `With no predictors, the model estimates only the average, about ${fmtFixed(c.coef, D)}.` : "With no predictors, the model estimates only the average.";
-  } else if (t.p < 0.05) {
+  } else if (sig(t.p)) {
     const irr = r.irr.find((x) => x.name === t.name);
     lead = irr
-      ? `Each one-unit increase in ${t.name} multiplies ${rate} by about ${fmtFixed(irr.coef, D)} (95% interval ${ci(irr.ciLo, irr.ciHi)}, ${pText(t.p)}), other predictors held fixed.`
-      : `Each one-unit increase in ${t.name} changes the log of ${rate} by about ${fmtFixed(t.coef, D)} (${pText(t.p)}), other predictors held fixed.`;
+      ? `Each one-unit increase in ${t.name} goes with ${rate} about ${fmtFixed(irr.coef, D)} times as high (95% interval ${ci(irr.ciLo, irr.ciHi)}, ${pText(t.p)}), other predictors held fixed.`
+      : `Each one-unit increase in ${t.name} goes with a change of about ${fmtFixed(t.coef, D)} in the log of ${rate} (${pText(t.p)}), other predictors held fixed.`;
     bare = irr
-      ? `The clearest predictor multiplies the expected ${exposure ? "rate" : "count"} by about ${fmtFixed(irr.coef, D)} per unit (${pText(t.p)}).`
-      : `The clearest predictor changes the log of the expected ${exposure ? "rate" : "count"} by about ${fmtFixed(t.coef, D)} per unit (${pText(t.p)}).`;
+      ? `The clearest predictor goes with an expected ${exposure ? "rate" : "count"} about ${fmtFixed(irr.coef, D)} times as high per unit (${pText(t.p)}).`
+      : `The clearest predictor goes with a change of about ${fmtFixed(t.coef, D)} per unit in the log of the expected ${exposure ? "rate" : "count"} (${pText(t.p)}).`;
   } else {
     lead = noLink(t, dep);
     bare = noLinkBare(t);
@@ -313,16 +322,16 @@ function countReading(r: CountResult, dep: string, exposure: string, nb: boolean
   let tail = "";
   if (!nb && r.ct) {
     tail =
-      r.ct.p < 0.05 && r.ct.alpha > 0
+      sig(r.ct.p) && r.ct.alpha > 0
         ? se === "hc0"
           ? " The counts vary more than a Poisson model allows; the robust standard errors used here allow for that."
           : " The counts vary more than a Poisson model allows, so the robust standard errors or the negative binomial model are safer."
-        : " The counts show no evidence of overdispersion at the 5% level.";
+        : ` The counts show no clear evidence of overdispersion at the 5% level${edge(r.ct.p) ? ` (${pText(r.ct.p)}${edge(r.ct.p)})` : ""}.`;
   } else if (nb && r.lrAlpha) {
     tail =
-      r.lrAlpha.p < 0.05
+      sig(r.lrAlpha.p)
         ? ` The negative binomial fits clearly better than the Poisson model (LR test ${pText(r.lrAlpha.p)}).`
-        : ` The negative binomial does not fit clearly better than the Poisson model (LR test ${pText(r.lrAlpha.p)}).`;
+        : ` The negative binomial does not fit clearly better than the Poisson model (LR test ${pText(r.lrAlpha.p)}${edge(r.lrAlpha.p)}).`;
   }
   return fitReading(lead + tail, lead, bare);
 }
@@ -385,24 +394,26 @@ export function econTobitCalc(read: Read): StatOutput {
   const where = lo !== null && hi !== null ? `between ${L} and ${U}` : lo !== null ? `above ${L}` : `below ${U}`;
   const held =
     lo !== null && hi !== null
-      ? `${intText(r.nLeft)} observations held at ${L} and ${intText(r.nRight)} held at ${U}`
+      ? `${intText(r.nLeft)} observations held at the lower limit ${L} and ${intText(r.nRight)} at the upper limit ${U}`
       : lo !== null
-        ? `${intText(r.nLeft)} observations held at ${L}`
-        : `${intText(r.nRight)} observations held at ${U}`;
+        ? `${intText(r.nLeft)} observations held at the lower limit ${L}`
+        : `${intText(r.nRight)} observations held at the upper limit ${U}`;
+  // Observational data: "goes with … higher", not "raises" (R5 BLOCKER 4).
+  const hl = (v: number): string => (v > 0 ? "higher" : v < 0 ? "lower" : "different");
   const tk = strongest(m.terms);
   const ame = tk ? r.ame.find((a) => a.name === tk.name) : undefined;
   let reading: string | undefined;
-  if (tk && ame && tk.p < 0.05) {
+  if (tk && ame && sig(tk.p)) {
     const u = ame.unconditional.coef;
     const pr = ame.probability.coef;
-    const lead = `Each one-unit increase in ${tk.name}, a clear predictor (${pText(tk.p)}), ${moveWord(u)} the expected ${m.depName} by about ${unsigned(fmtFixed(u, D))} on average, counting the ${held}`;
-    const second = ` It ${moveWord(pr)} the chance that ${m.depName} is ${where} by about ${unsigned(fmtFixed(pr, D))}.`;
-    reading = fitReading(`${lead}.${second}`, `${lead}.`, `The clearest predictor (${pText(tk.p)}) ${moveWord(u)} the expected outcome by about ${unsigned(fmtFixed(u, D))} per unit on average.`);
-  } else if (tk && tk.p < 0.05) {
+    const lead = `Each one-unit increase in ${tk.name}, a clear predictor (${pText(tk.p)}), goes with an expected ${m.depName} about ${unsigned(fmtFixed(u, D))} ${hl(u)} on average, counting the ${held}`;
+    const second = ` It goes with a chance that ${m.depName} is ${where} about ${unsigned(fmtFixed(pr, D))} ${hl(pr)}.`;
+    reading = fitReading(`${lead}.${second}`, `${lead}.`, `The clearest predictor (${pText(tk.p)}) goes with an expected outcome about ${unsigned(fmtFixed(u, D))} ${hl(u)} per unit on average.`);
+  } else if (tk && sig(tk.p)) {
     // No average marginal effect for it (not expected: every non-constant term has one); the latent coefficient instead.
     reading = fitReading(
-      `Each one-unit increase in ${tk.name} ${moveWord(tk.coef)} the underlying (uncensored) ${m.depName} by about ${unsigned(fmtFixed(tk.coef, D))} (${pText(tk.p)}).`,
-      `The clearest predictor ${moveWord(tk.coef)} the underlying (uncensored) outcome by about ${unsigned(fmtFixed(tk.coef, D))} per unit (${pText(tk.p)}).`,
+      `Each one-unit increase in ${tk.name} goes with an underlying (uncensored) ${m.depName} about ${unsigned(fmtFixed(tk.coef, D))} ${hl(tk.coef)} (${pText(tk.p)}).`,
+      `The clearest predictor goes with an underlying (uncensored) outcome about ${unsigned(fmtFixed(tk.coef, D))} ${hl(tk.coef)} per unit (${pText(tk.p)}).`,
     );
   } else if (tk) {
     reading = fitReading(`${noLink(tk, m.depName)} The data have ${held}.`, noLink(tk, m.depName), noLinkBare(tk));
@@ -495,16 +506,16 @@ export function econHeckmanCalc(read: Read): StatOutput {
     { label: `Selection equation: probit of ${sel.depName} (classical standard errors)`, rows: [COEF_HEAD, ...r.selection.map((x) => termRow(x))], align: ALIGN6 },
   ];
   // The reading: is there selection bias, then the clearest outcome predictor after the correction.
-  const biased = lam.p < 0.05;
+  const biased = sig(lam.p);
   const lead = biased
     ? `The rows where ${m.depName} is observed differ systematically from the rest (selection term ${pText(lam.p)}), so a plain regression on them would be biased`
-    : `The data show no clear evidence of selection bias (selection term ${pText(lam.p)})`;
+    : `The data show no clear evidence of selection bias (selection term ${pText(lam.p)}${edge(lam.p)})`;
   const to = strongest(m.terms, (t) => isConstant(t) || t === lam || t.name === MILLS_NAME);
   const effect = !to
     ? ""
-    : to.p < 0.05
-      ? `; corrected for selection, each one-unit increase in ${to.name} ${moveWord(to.coef)} ${m.depName} by about ${unsigned(fmtFixed(to.coef, D))} (${pText(to.p)})`
-      : `; corrected for selection, no outcome predictor is clearly linked to ${m.depName} at 5% (the strongest, ${to.name}, has ${pText(to.p)})`;
+    : sig(to.p)
+      ? `; corrected for selection, each one-unit increase in ${to.name} goes with ${m.depName} about ${unsigned(fmtFixed(to.coef, D))} ${to.coef > 0 ? "higher" : to.coef < 0 ? "lower" : "different"} (${pText(to.p)})`
+      : `; corrected for selection, no outcome predictor is clearly linked to ${m.depName} at 5% (the strongest, ${to.name}, has ${pText(to.p)}${edge(to.p)})`;
   const weak = r.excluded.length ? "" : " The correction rests on functional form alone (no variable is excluded from the outcome equation), so treat it with caution.";
   const bare = biased
     ? `The selected rows differ systematically from the rest (selection term ${pText(lam.p)}), so a plain regression on them would be biased.`
@@ -565,12 +576,12 @@ export function econOrderedCalc(read: Read): StatOutput {
   const to = strongest(m.terms);
   let reading: string | undefined;
   if (!to) reading = fitReading(`With no predictors, the model reproduces only the shares of the ${intText(r.categories.length)} categories of ${m.depName}.`, "With no predictors, the model reproduces only the category shares.");
-  else if (to.p < 0.05) {
+  else if (sig(to.p)) {
     const dir = to.coef > 0 ? "higher" : "lower";
-    const lead = `Higher ${to.name} shifts ${m.depName} toward the ${dir} categories (coefficient ${fmtFixed(to.coef, D)}, ${pText(to.p)}), other predictors held fixed`;
+    const lead = `Higher ${to.name} goes with ${m.depName} in the ${dir} categories (coefficient ${fmtFixed(to.coef, D)}, ${pText(to.p)}), other predictors held fixed`;
     reading = fitReading(
       `${lead}.`,
-      `The clearest predictor shifts the outcome toward the ${dir} categories (coefficient ${fmtFixed(to.coef, D)}, ${pText(to.p)}).`,
+      `The clearest predictor goes with outcomes in the ${dir} categories (coefficient ${fmtFixed(to.coef, D)}, ${pText(to.p)}).`,
     );
   } else reading = fitReading(noLink(to, m.depName), noLinkBare(to));
   return { text: lines.join("\n"), reading, svg, tables };
@@ -619,18 +630,18 @@ export function econMlogitCalc(read: Read): StatOutput {
   // The reading: the clearest average marginal effect on any category's probability, then the joint LR test.
   let best: { cat: number; t: ModelTerm } | undefined;
   for (const e of r.ame) for (const x of e.terms) if (!isConstant(x) && Number.isFinite(x.p) && (!best || x.p < best.t.p)) best = { cat: e.category, t: x };
-  const joint = lr && pLR ? ` Together the predictors ${pLR.value < 0.05 ? "clearly" : "do not clearly"} help explain which category is chosen (LR test ${pText(pLR.value)}).` : "";
+  const joint = lr && pLR ? ` Together the predictors ${sig(pLR.value) ? "clearly" : "do not clearly"} help explain which category is chosen (LR test ${pText(pLR.value)}${edge(pLR.value)}).` : "";
   let lead: string;
   let bare: string;
   if (!best) {
     lead = `With no predictors, the model reproduces only the shares of the ${intText(r.categories.length)} categories of ${dep}.`;
     bare = "With no predictors, the model reproduces only the category shares.";
-  } else if (best.t.p < 0.05) {
-    lead = `Each one-unit increase in ${best.t.name} ${moveWord(best.t.coef)} the probability that ${dep} = ${numText(best.cat)} by about ${unsigned(fmtFixed(best.t.coef, D))} on average (${pText(best.t.p)}), other predictors held fixed.`;
-    bare = `The clearest predictor ${moveWord(best.t.coef)} the probability of category ${numText(best.cat)} by about ${unsigned(fmtFixed(best.t.coef, D))} per unit on average (${pText(best.t.p)}).`;
+  } else if (sig(best.t.p)) {
+    lead = `Each one-unit increase in ${best.t.name} goes with a probability that ${dep} = ${numText(best.cat)} about ${unsigned(fmtFixed(best.t.coef, D))} ${best.t.coef > 0 ? "higher" : best.t.coef < 0 ? "lower" : "different"} on average (${pText(best.t.p)}), other predictors held fixed.`;
+    bare = `The clearest predictor goes with a probability of category ${numText(best.cat)} about ${unsigned(fmtFixed(best.t.coef, D))} ${best.t.coef > 0 ? "higher" : best.t.coef < 0 ? "lower" : "different"} per unit on average (${pText(best.t.p)}).`;
   } else {
-    lead = `No predictor clearly changes the probability of any ${dep} category at the 5% level; the strongest, ${best.t.name}, has ${pText(best.t.p)}.`;
-    bare = `No predictor clearly changes the probability of any category at the 5% level; the strongest has ${pText(best.t.p)}.`;
+    lead = `No predictor is clearly linked to the probability of any ${dep} category at the 5% level; the strongest, ${best.t.name}, has ${pText(best.t.p)}${edge(best.t.p)}.`;
+    bare = `No predictor is clearly linked to the probability of any category at the 5% level; the strongest has ${pText(best.t.p)}${edge(best.t.p)}.`;
   }
   const reading = fitReading(lead + joint, lead, bare);
   const svg = coefForestSvg(

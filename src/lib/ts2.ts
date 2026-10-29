@@ -891,6 +891,25 @@ const GARCH_WORK = 2e7;
  * fixed cost makes slow (at n = 100 the cap is 80,000 passes).
  */
 const GARCH_PASS_OVERHEAD = 150;
+/**
+ * The most likelihood passes any one fit may spend, whatever n (fix round, R6 #3). GARCH_WORK / (n + 150) gives
+ * 7,547 at n = 2,500 and 15,385 at n = 1,150, so this changes nothing from about n = 1,100 up; on shorter series it
+ * stops a search that never settles from spending the whole GARCH_WORK (an EGARCH at n = 250 took 3.9 s before).
+ * The hardest converging fit pinned in the tests (the round 3 stale-run EGARCH-normal at n = 300, an invertible β = 1
+ * optimum found by the rescue starts) needs between 8,000 and 12,000; 16,000 leaves a third in hand.
+ */
+const GARCH_MAX_PASSES = 16000;
+
+/**
+ * The most returns a fit takes for each model (fix round, R6 #3: EGARCH-t took 4.6 s and GJR-t 1.6 s at n = 2,500).
+ * Student-t errors run about twice as many starts as normal ones and EGARCH adds its large-α and rescue starts, so
+ * they stop at 1,200 (the largest series the engine's pinned tests fit with them); GARCH and GJR-GARCH with normal
+ * errors keep GARCH_MAX_N. Refused up front, by name, so the pane never spends seconds on a fit it then reports late.
+ */
+export const GARCH_MAX_N_SLOW = 1200;
+export function garchMaxN(spec: Pick<GarchSpec, "vol" | "dist">): number {
+  return spec.vol === "egarch" || spec.dist === "t" ? GARCH_MAX_N_SLOW : GARCH_MAX_N;
+}
 
 type FG = (x: number[]) => { f: number; g: number[] };
 
@@ -1230,6 +1249,14 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   const n = yIn.length;
   if (n < GARCH_MIN_N) return { ok: false, reason: `A GARCH fit needs at least ${GARCH_MIN_N} returns; the series has ${n}.` };
   if (n > GARCH_MAX_N) return { ok: false, reason: `The series has ${n.toLocaleString("en-US")} returns; a GARCH fit here takes at most ${GARCH_MAX_N.toLocaleString("en-US")} (the most recent ${GARCH_MAX_N.toLocaleString("en-US")} would do).` };
+  const capN = garchMaxN(spec);
+  if (n > capN) {
+    const what = `${spec.vol === "egarch" ? "EGARCH" : spec.vol === "gjr" ? "GJR-GARCH" : "GARCH"} with ${spec.dist === "t" ? "Student-t" : "normal"} errors`;
+    return {
+      ok: false,
+      reason: `The series has ${n.toLocaleString("en-US")} returns; ${what} takes at most ${capN.toLocaleString("en-US")} in the pane (its search is slower), so use the most recent ${capN.toLocaleString("en-US")}${spec.dist === "t" || spec.vol === "egarch" ? `, or choose ${spec.vol === "egarch" ? "GARCH or GJR-GARCH with normal errors" : "normal errors"}` : ""}.`,
+    };
+  }
   let nonzero = false;
   let varies = false;
   for (let i = 0; i < n; i++) {
@@ -1252,7 +1279,7 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
   let ybarK = 0;
   for (let i = 0; i < n; i++) ybarK += sc.y[i];
   ybarK /= n;
-  const budget = { left: Math.max(400, Math.floor(GARCH_WORK / (n + GARCH_PASS_OVERHEAD))) };
+  const budget = { left: Math.max(400, Math.min(GARCH_MAX_PASSES, Math.floor(GARCH_WORK / (n + GARCH_PASS_OVERHEAD)))) };
   let exhausted = false;
   const fg: FG = (v) => {
     if (!garchFeasible(cons, v)) return { f: Infinity, g: [] };

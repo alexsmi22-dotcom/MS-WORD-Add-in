@@ -13,6 +13,7 @@ import type { StatOutput, StatTable } from "./analyzeBlocks";
 import { arimaForecast, fitArima, ARIMA_MAX_D, ARIMA_MAX_H, ARIMA_MAX_P, ARIMA_MAX_Q, type ArimaSpec, type ArimaTrend } from "./arima";
 import { fitHoltWinters, hwForecast, hwForecastVariance, hwIntervals, HW_MAX_H, HW_MAX_M, type HwSpec } from "./holtWinters";
 import { buildPlotSvg } from "./plot";
+import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import { normalCdfPrecise } from "./probdist";
 import { fmtFixed, fmtP, intText, numText } from "./regTable";
 import { parseSeriesTable, pickSeries, type SeriesData } from "./tsData";
@@ -293,7 +294,7 @@ export function tsArimaCalc(read: Read): StatOutput {
         ? `Ljung–Box not computed: ${lb.reason}`
         : lb.p === null
         ? `Ljung–Box not computed: ${lags} lags leave no degrees of freedom after p + q = ${p + qq}.`
-        : `Ljung–Box on the standardized residuals: Q(${lags}) = ${fmtFixed(lb.q, 3)}, df = ${lb.df}, p ${lb.p < 0.001 ? fmtP(lb.p) : `= ${fmtP(lb.p)}`}${lb.p < 0.05 ? " (residual autocorrelation remains at 5%)" : ""}`;
+        : `Ljung–Box on the standardized residuals: Q(${lags}) = ${fmtFixed(lb.q, 3)}, df = ${lb.df}, p ${lb.p < 0.001 ? fmtP(lb.p) : `= ${fmtP(lb.p)}`}${pVerdict(`p = ${fmtP(lb.p)}`) === "clear" ? " (residual autocorrelation remains at 5%)" : ""}`;
   }
   lines.push(lbLine);
   lines.push("");
@@ -376,12 +377,16 @@ export function tsArimaCalc(read: Read): StatOutput {
   });
   const fig = forecastFigure(name, ax, values, fc.mean, fc.lower, fc.upper, `${model} forecast`);
   if (fig.note) lines.push(fig.note);
+  const lbS = lbP === null ? "" : `p ${lbP < 0.001 ? fmtP(lbP) : `= ${fmtP(lbP)}`}`;
+  const lbV = lbP === null ? null : pVerdict(lbS);
   const lbWords =
     lbP === null
       ? ""
-      : lbP < 0.05
-      ? ` Some pattern is left in the model's errors (Ljung–Box p ${lbP < 0.001 ? fmtP(lbP) : `= ${fmtP(lbP)}`}), so treat the forecasts with care.`
-      : ` The model leaves no clear pattern in its errors (Ljung–Box p ${lbP < 0.001 ? fmtP(lbP) : `= ${fmtP(lbP)}`}).`;
+      : lbV === "clear"
+      ? ` Some pattern is left in the model's errors (Ljung–Box ${lbS}), so treat the forecasts with care.`
+      : lbV === "borderline"
+      ? ` A pattern may be left in the model's errors (Ljung–Box ${lbS}), ${BOUNDARY_CLAUSE}.`
+      : ` The model leaves no clear pattern in its errors (Ljung–Box ${lbS}).`;
   // Long numbers and labels: the widening clause goes first, so the residual check always fits.
   let reading = forecastReading(model, name, ax.labels, fc.mean, fc.lower, fc.upper, fdec) + lbWords;
   if (reading.length > 320) reading = forecastReading(model, name, ax.labels, fc.mean, fc.lower, fc.upper, fdec, false) + lbWords;

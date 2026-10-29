@@ -959,7 +959,8 @@ describe("adversarial findings (fixed)", () => {
     const y = ["Return", ...Array.from({ length: 1000 }, () => nrm().toFixed(3))].join("\n");
     const o = run(calc("ts-garch"), { data: y, model: "gjr", dist: "t" });
     expect(o.ok).not.toBe(false);
-    expect(o.text).toContain("a positive one by α₁ε² = 0.0000ε²");
+    // R6 #10: with a constant mean the asymmetric term reads rₜ₋₁ − μ, so "a return above its mean", not "a positive one".
+    expect(o.text).toContain("one above it by α₁ε² = 0.0000ε²");
     expect(o.text).toMatch(/On the boundary of the parameter space: α = 0/);
   });
 });

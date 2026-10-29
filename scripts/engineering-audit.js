@@ -318,7 +318,9 @@ function run() {
   // 153 as of v2.175.0: plane frame, plate FEA, shelf life, Nernst, Butler–Volmer and Tafel, each drawing.
   // 170 as of v2.187.0: Fresnel, thin-film stack, Jones; tensile, Weibull strength, Scherrer, capability,
   // tolerance stack; root locus, Nyquist, lead/lag, c2d; titration, speciation, solution pH, CV peak, Randles–Ševčík.
-  const FIGURE_BASELINE = 241;
+  // 252 as of v2.206.0: eleven VFX & compositing tools (vfx-retime … vfx-collision, the new "VFX & compositing" group),
+  // every one drawing from its shipped defaults.
+  const FIGURE_BASELINE = 252;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");
   console.log(

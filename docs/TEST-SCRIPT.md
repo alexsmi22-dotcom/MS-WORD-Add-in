@@ -215,7 +215,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 ## 0ed. New in v2.191.0 — Engineering gap release and quantum mathematics
 
 - [ ] **Engineering panels:** the panel list shows **Quantum computing** and **Quantum mechanics** after Quantum optics;
-  the Engineering heading counts 241 calculators.
+  the Engineering heading counts 252 calculators.
 - [ ] **Units:** Thermal ▸ composite wall, enter a film coefficient `10 Btu/(h·ft²·°F)` → converted (about 56.78 W/(m²·K)),
   and the "Units read" note shows ×10ⁿ, never e-notation. Fracture toughness `50 MPa·√m` is accepted; plain `50 MPa` is
   refused as the wrong quantity.

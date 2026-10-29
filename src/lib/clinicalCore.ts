@@ -82,6 +82,12 @@ export function binomTwoSided(x: number, n: number, p0: number): number {
 
 /** A percentage with `d` decimals ("90.0%"), U+2212 for a negative, "" for a non-finite value. */
 export function pct(v: number, d = 1): string {
+  const a = Math.abs(100 * v);
+  // A small non-zero percentage keeps two significant figures ("0.0059%"), never "0.0%" or ×10ⁿ.
+  if (a > 0 && a < 0.5 * Math.pow(10, -d) && a >= 1e-6) {
+    const t = a.toPrecision(2);
+    return `${v < 0 ? "−" : ""}${Number(t).toFixed(Math.max(d, 1 - Math.floor(Math.log10(a)) ))}%`;
+  }
   const s = fmtFixed(100 * v, d);
   return s ? `${s}%` : "";
 }

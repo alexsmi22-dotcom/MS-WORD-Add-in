@@ -249,8 +249,8 @@ function diagCalc(read: Read): StatOutput {
   lines.push(`Pre-test probability ${pct(pre)} (${preName}): after a positive result ${pct(postPos)}, after a negative ${pct(postNeg)} (odds form of Bayes' rule; the Fagan nomogram).`);
   const table: StatTable = { label: "Diagnostic accuracy", rows };
   const fagan = faganSvg(pre, [
-    { label: `Positive: LR+ ${lrPos === null ? "unbounded" : fx(lrPos)}, post-test ${pct(postPos)}`, lr: lrPos === null ? 1e6 : lrPos, post: postPos },
-    { label: `Negative: LR− ${lrNeg === null ? "unbounded" : fx(lrNeg)}, post-test ${pct(postNeg)}`, lr: lrNeg === null ? 1e6 : Math.max(lrNeg, 1e-9), post: postNeg },
+    { label: lrPos === null ? `Positive: ${pct(postPos)}` : `Positive (LR+ ${fx(lrPos)}): ${pct(postPos)}`, lr: lrPos === null ? 1e6 : lrPos, post: postPos },
+    { label: lrNeg === null ? `Negative: ${pct(postNeg)}` : `Negative (LR− ${fx(lrNeg)}): ${pct(postNeg)}`, lr: lrNeg === null ? 1e6 : Math.max(lrNeg, 1e-9), post: postNeg },
   ]);
   const sensText = mode === "table" ? `${pct(se)} (95% CI ${rows[1][2]})` : pct(se);
   const reading = fitReading(
@@ -583,10 +583,10 @@ function kappaCalc(read: Read): StatOutput {
   const svg = groupedBarSvg(
     names,
     [
-      { label: "Agreed (observed)", values: fit.diagObs },
-      { label: "Agreed by chance (expected)", values: fit.diagExp },
+      { label: "Observed", values: fit.diagObs },
+      { label: "By chance", values: fit.diagExp },
     ],
-    { title: "Agreement by category", ylabel: "Subjects" },
+    { title: "Agreement by category (subjects both raters placed there)", ylabel: "Subjects" },
   );
   const reading = fitReading(
     `The raters agree on ${pct(fit.po)} of subjects against ${pct(fit.pe)} expected by chance: κ = ${fx(fit.kappa, 3)} (95% CI ${fxCi(fit.lo, fit.hi, 3)}), ${landisKoch(fit.kappa)} agreement on the Landis–Koch scale.`,

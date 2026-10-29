@@ -3,7 +3,7 @@
  * figure is laid out by a shared builder (plot.buildPlotSvg, statchart.forestPlotSvg / groupedBarSvg, plot.combineSvgs)
  * so it follows the figure styles like the rest of Stats. Every plotted value is one the calculator computed and prints.
  */
-import { buildPlotSvg, combineSvgs, type Series } from "./plot";
+import { buildPlotSvg, type Series } from "./plot";
 import { forestPlotSvg, type ForestRow } from "./statchart";
 import { ctxCanvas } from "./figContext";
 import { fmtFixed } from "./regTable";
@@ -27,9 +27,25 @@ function lrLabel(v: number): string {
   return v >= 1 ? String(v) : String(v);
 }
 
-const PRE_TICKS = [0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 0.95, 0.99];
-const LR_TICKS = [1000, 100, 20, 5, 1, 0.2, 0.05, 0.01, 0.001];
-const POST_TICKS = [0.999, 0.99, 0.95, 0.9, 0.8, 0.7, 0.5, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.001];
+// Ticks in PRIORITY order: each is kept only when it clears every tick already kept by a label height (thinTicks), so a
+// narrow redraw (a figure style) keeps 50, 10, 90, 1, 99 … and drops the crowded middle values first.
+const PRE_TICKS = [0.5, 0.1, 0.9, 0.01, 0.99, 0.001, 0.2, 0.8, 0.05, 0.95, 0.3, 0.7, 0.02, 0.005];
+const LR_TICKS = [1, 1000, 0.001, 100, 0.01, 10, 0.1, 20, 0.05, 5, 0.2];
+const POST_TICKS = [0.5, 0.9, 0.1, 0.99, 0.01, 0.999, 0.001, 0.8, 0.2, 0.95, 0.05, 0.7, 0.3, 0.02, 0.005];
+
+/** The ticks (in priority order) whose labels clear every label already kept by at least gap px. */
+function thinTicks<T>(ticks: T[], yOf: (t: T) => number, gap: number): T[] {
+  const kept: number[] = [];
+  const out: T[] = [];
+  for (const t of ticks) {
+    const y = yOf(t);
+    if (kept.every((k) => Math.abs(k - y) >= gap)) {
+      kept.push(y);
+      out.push(t);
+    }
+  }
+  return out;
+}
 
 export interface FaganLine {
   label: string;
@@ -45,7 +61,7 @@ export interface FaganLine {
  * scales (LR 0.001–1000, probability 0.1–99.9%) are clamped to the scale end, and the figure says so.
  */
 export function faganSvg(pre: number, lines: FaganLine[], title = "Fagan nomogram"): string {
-  const { w: W, h: H, bw } = ctxCanvas(420, 440);
+  const { w: W, h: H, bw } = ctxCanvas(420, 440, 300);
   const MT = 46;
   const MB = 22 + 15 * lines.length + 14;
   const top = MT;
@@ -89,9 +105,10 @@ export function faganSvg(pre: number, lines: FaganLine[], title = "Fagan nomogra
       `<text x="${(x + 7 * side).toFixed(1)}" y="${(y + 3.5).toFixed(1)}" text-anchor="${side < 0 ? "end" : "start"}" font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(text)}</text>`,
     );
   };
-  for (const p of PRE_TICKS) tick(xL, yOf(-logit(p)), -1, pctLabel(p));
-  for (const p of POST_TICKS) tick(xR, yOf(logit(p)), 1, pctLabel(p));
-  for (const v of LR_TICKS) {
+  const GAP = 13;
+  for (const p of thinTicks(PRE_TICKS, (q) => yOf(-logit(q)), GAP)) tick(xL, yOf(-logit(p)), -1, pctLabel(p));
+  for (const p of thinTicks(POST_TICKS, (q) => yOf(logit(q)), GAP)) tick(xR, yOf(logit(p)), 1, pctLabel(p));
+  for (const v of thinTicks(LR_TICKS, (q) => yOf(Math.log(q) / 2), GAP)) {
     const y = yOf(Math.log(v) / 2);
     const x0 = xM + 7;
     const x1 = xM + 7 + 6.5 * lrLabel(v).length;
@@ -112,12 +129,12 @@ export function faganSvg(pre: number, lines: FaganLine[], title = "Fagan nomogra
     const y = bot + 26 + 15 * i;
     const col = bw ? "#000000" : i === 0 ? BLUE : RED;
     const dash = bw && i > 0 ? ` stroke-dasharray="6 4"` : "";
-    parts.push(`<line x1="${(W * 0.08).toFixed(1)}" y1="${(y - 3.5).toFixed(1)}" x2="${(W * 0.08 + 22).toFixed(1)}" y2="${(y - 3.5).toFixed(1)}" stroke="${col}" stroke-width="1.6"${dash}/>`);
-    parts.push(`<text x="${(W * 0.08 + 28).toFixed(1)}" y="${y.toFixed(1)}" font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(l.label)}</text>`);
+    parts.push(`<line x1="${(W * 0.04).toFixed(1)}" y1="${(y - 3.5).toFixed(1)}" x2="${(W * 0.04 + 18).toFixed(1)}" y2="${(y - 3.5).toFixed(1)}" stroke="${col}" stroke-width="1.6"${dash}/>`);
+    parts.push(`<text x="${(W * 0.04 + 23).toFixed(1)}" y="${y.toFixed(1)}" font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(l.label)}</text>`);
   });
   if (clamped) {
     parts.push(
-      `<text x="${(W / 2).toFixed(1)}" y="${(H - 4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI, Arial" font-size="9" fill="${GREY}">Values beyond the scales are drawn at the scale end.</text>`,
+      `<text x="${(W / 2).toFixed(1)}" y="${(H - 4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI, Arial" font-size="9" fill="${GREY}">Off-scale values sit at the ends.</text>`,
     );
   }
   parts.push("</svg>");
@@ -146,11 +163,19 @@ export function ratioForestSvg(rows: ForestRow[], opts: { title: string; xlabel:
   return forestPlotSvg(rows, { title: opts.title, xlabel: opts.xlabel, log: opts.log, zero: opts.log ? 1 : 0 });
 }
 
-/** Two stacked forest panels: the studies, then the pooled estimates (and the prediction interval). */
+/** At most this many studies in the meta-analysis forest plot (the rest stay in the table, and the title says so). */
+export const META_FOREST_MAX_STUDIES = 30;
+
+/**
+ * The meta-analysis forest plot: every study (up to META_FOREST_MAX_STUDIES), then the pooled rows (fixed, random and
+ * the prediction interval) in one panel. One panel, not two stacked: a stacked pair could not meet the USPTO lettering.
+ */
 export function metaForestSvg(studies: ForestRow[], pooled: ForestRow[], opts: { xlabel: string; log: boolean }): string {
-  const a = forestPlotSvg(studies, { title: "Studies (95% CI)", xlabel: opts.xlabel, log: opts.log, zero: opts.log ? 1 : 0 });
-  const b = forestPlotSvg(pooled, { title: "Pooled estimates", xlabel: opts.xlabel, log: opts.log, zero: opts.log ? 1 : 0 });
-  return combineSvgs([a, b]).svg;
+  const shown = studies.slice(0, META_FOREST_MAX_STUDIES);
+  const more = studies.length - shown.length;
+  const title = more > 0 ? `Forest plot (first ${shown.length} of ${studies.length} studies; all in the table)` : "Forest plot (95% CI)";
+  const rows = [...shown, ...pooled];
+  return forestPlotSvg(rows, { title, xlabel: opts.xlabel, log: opts.log, zero: opts.log ? 1 : 0, maxRows: rows.length });
 }
 
 /** The Bland–Altman plot: differences against means, the bias and the limits of agreement. */

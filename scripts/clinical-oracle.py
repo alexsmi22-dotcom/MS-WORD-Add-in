@@ -67,7 +67,7 @@ def diag(tp, fp, fn, tn):
     s2 = math.sqrt(1 / c - 1 / (a + c) + 1 / d - 1 / (b + d))
     r["lrPos"] = [lrp, lrp * math.exp(-Z * s), lrp * math.exp(Z * s)]
     r["lrNeg"] = [lrn, lrn * math.exp(-Z * s2), lrn * math.exp(Z * s2)]
-    t = Table2x2(np.array([[tp, fp], [fn, tn]], dtype=float), shift_zeros=zero)
+    t = Table2x2(np.array([[tp, fp], [fn, tn]], dtype=float) + (0.5 if zero else 0.0))  # Haldane-Anscombe: 0.5 to EVERY cell (statsmodels shift_zeros replaces only the zeros)
     lo, hi = t.oddsratio_confint()
     r["dor"] = [float(t.oddsratio), float(lo), float(hi)]
     r["haldane"] = zero
@@ -134,7 +134,7 @@ OUT["roc"] = {"hanleyMcNeil": roc_case(hm_y, hm_s), "paired": roc_case(yy, s1, s
 # ---------------------------------------------------------------- 2x2 epidemiology
 def epi(a, b, c, d):
     zero = min(a, b, c, d) == 0
-    t = Table2x2(np.array([[a, b], [c, d]], dtype=float), shift_zeros=zero)
+    t = Table2x2(np.array([[a, b], [c, d]], dtype=float) + (0.5 if zero else 0.0))  # Haldane-Anscombe on every cell
     rr = [float(t.riskratio), *map(float, t.riskratio_confint())]
     orr = [float(t.oddsratio), *map(float, t.oddsratio_confint())]
     rd = {}

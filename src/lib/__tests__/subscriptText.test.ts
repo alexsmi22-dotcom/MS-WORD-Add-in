@@ -5,7 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { AnalyzeOutput } from "../analyzeBlocks";
 import { mathToOmml } from "../mathOmml";
-import { tidyResultSubscripts, tidySubscripts } from "../subscriptText";
+import { isFileNameToken, tidyResultSubscripts, tidySubscripts } from "../subscriptText";
 
 describe("tidySubscripts", () => {
   test.each([
@@ -19,6 +19,10 @@ describe("tidySubscripts", () => {
     ["[H⁺] + C_b = [OH⁻] + C_a", "[H⁺] + C(b) = [OH⁻] + Cₐ"],
     ["no subscript here", "no subscript here"],
     ["a file_name? 3_4", "a fileₙₐₘₑ? 3_4"],
+    // VFX & compositing (v2.206.0): a media file name keeps its underscores; prose beside it is still typeset.
+    ["files sh010_comp_v001.1001.exr to sh010_comp_v001.1064.exr.", "files sh010_comp_v001.1001.exr to sh010_comp_v001.1064.exr."],
+    ["(sh010_comp_v001.%04d.exr) and S_max", "(sh010_comp_v001.%04d.exr) and Sₘₐₓ"],
+    ["η_geo.exr_ratio stays prose", "η(geo).exrᵣₐₜᵢₒ stays prose"],
   ])("%s → %s", (a, b) => expect(tidySubscripts(a)).toBe(b));
 
   test("math sources keep their underscores; fallbacks, tables, captions and outputs are tidied", () => {
@@ -69,7 +73,8 @@ describe("every library registry tool, on its defaults", () => {
       if (b.kind === "plot") texts.push(b.caption, b.alt);
     }
     for (const o of out.outputs ?? []) texts.push(o.label);
-    const left = texts.filter((t) => /[A-Za-zα-ωΑ-Ω)\]⟩|]_[A-Za-z0-9{]/.test(t));
+    // A media file name (sh010_comp_v001.1001.exr) is printed as typed, underscores and all.
+    const left = texts.filter((t) => /[A-Za-zα-ωΑ-Ω)\]⟩|]_[A-Za-z0-9{]/.test(t.split(/\s+/).filter((tok) => !isFileNameToken(tok)).join(" ")));
     expect({ id, left }).toEqual({ id, left: [] });
   });
 

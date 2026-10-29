@@ -317,6 +317,7 @@ const frameRangeCalc: VfxCalc = {
     }
     const prefix = (r("prefix") ?? "").trim();
     const ext = (r("ext") ?? "").trim().replace(/^\./, "");
+    if (/(?<![A-Za-z])(NaN|Infinity|undefined)(?![A-Za-z])/.test(`${prefix}.${ext}`)) return refuse("File name: that name part is a word the report reserves for a missing or infinite number, so it cannot be printed in a result. Choose another name.");
     if (/[\s/\\]/.test(prefix)) return refuse(`File name: "${prefix}" contains a space or a path separator; give the name only.`);
     if (!/^[A-Za-z0-9]{1,8}$/.test(ext)) return refuse(`Extension: "${ext}" is not a file extension (letters and digits, such as exr or dpx).`);
     const res = frameRange({ cutIn: vals.cutIn, cutOut: vals.cutOut, head: vals.head, tail: vals.tail, start: vals.start, pad: vals.pad });
@@ -476,13 +477,13 @@ const cameraCalc: VfxCalc = {
     lines.push({ math: "theta_h = 2 arctan((s W)/(2 f))", fallback: "θₕ = 2·arctan(s·W/(2f))" });
     lines.push({ math: "theta_v = 2 arctan(H/(2 f))", fallback: "θᵥ = 2·arctan(H/(2f))" });
     lines.push({ math: "f = d/(2 tan(theta/2))", fallback: "f = d/(2·tan(θ/2))" });
-    lines.push({ math: "k = d_FF/sqrt(W^2 + H^2)", fallback: "k = d(FF)/√(W² + H²)" });
+    lines.push({ math: "k = d_0/sqrt(W^2 + H^2)", fallback: "k = d₀/√(W² + H²)" });
     lines.push(`Filmback ${t(W)} × ${t(Hh)} mm (${preset ? preset.source : "typed"})${squeeze > 1 ? `; desqueezed ${t(c.We, 5)} × ${t(Hh)} mm` : ""}: aspect ${t(c.filmAspect, 4)}:1, diagonal ${t(c.diag, 5)} mm.`);
     if (given === "fov") lines.push(`A ${t(fovIn as number)}° ${axis === "h" ? "horizontal" : axis === "v" ? "vertical" : "diagonal"} field of view on this filmback needs f = ${t(c.f, 6)} mm.`);
     lines.push(`Field of view at ${t(c.f, 5)} mm: ${t(c.hFov, 5)}° horizontal, ${t(c.vFov, 5)}° vertical, ${t(c.dFov, 5)}° diagonal.`);
     lines.push(squeeze > 1
-      ? `Crop factor ${t(c.crop, 4)} on the recorded area against full frame (36 × 24 mm, diagonal ${t(Math.hypot(36, 24), 5)} mm). Desqueezed, the frame is ${t(c.We, 5)} × ${t(Hh)} mm (diagonal ${t(c.diag, 5)} mm): the same diagonal view needs ${t(c.fEqDiag, 4)} mm on full frame, the same horizontal view ${t(c.fEqH, 4)} mm.`
-      : `Crop factor ${t(c.crop, 4)} against full frame (36 × 24 mm, diagonal ${t(Math.hypot(36, 24), 5)} mm): the same diagonal view needs ${t(c.fEqDiag, 4)} mm on full frame.`);
+      ? `Crop factor k = ${t(c.crop, 4)} on the recorded area against full frame (36 × 24 mm, diagonal d₀ = ${t(Math.hypot(36, 24), 5)} mm). Desqueezed, the frame is ${t(c.We, 5)} × ${t(Hh)} mm (diagonal ${t(c.diag, 5)} mm): the same diagonal view needs ${t(c.fEqDiag, 4)} mm on full frame, the same horizontal view ${t(c.fEqH, 4)} mm.`
+      : `Crop factor k = ${t(c.crop, 4)} against full frame (36 × 24 mm, diagonal d₀ = ${t(Math.hypot(36, 24), 5)} mm): the same diagonal view needs ${t(c.fEqDiag, 4)} mm on full frame.`);
     const covW = c.coverH < 1 ? `the plate fills ${t(c.coverH * 100, 4)} % of the image width` : "";
     const covH = c.coverV < 1 ? `the plate fills ${t(c.coverV * 100, 4)} % of the image height` : "";
     lines.push(
@@ -583,8 +584,10 @@ const projectionCalc: VfxCalc = {
         (p.lateral !== 0 ? `The near (${t(sc.near)}) and far (${t(sc.far)}) depths slide ${t(p.parallax, 4)} px apart per frame, ${t(p.parallaxShot, 4)} px over ${sc.frames} frames.` : "The camera does not move sideways, so the two depths show no parallax."),
     );
     lines.push({ math: "p_c = R^T (p - C)", fallback: "p(c) = Rᵀ(p − C)" });
-    lines.push({ math: "x = f X_c/(-Z_c), y = f Y_c/(-Z_c)", fallback: "x = f·X(c)/(−Z(c)), y = f·Y(c)/(−Z(c))" });
-    lines.push({ math: "u = W_px/2 + k x, v = H_px/2 - k y", fallback: "u = W(px)/2 + k·x, v = H(px)/2 − k·y" });
+    lines.push({ math: "x = f X_c/(-Z_c)", fallback: "x = f·X(c)/(−Z(c))" });
+    lines.push({ math: "y = f Y_c/(-Z_c)", fallback: "y = f·Y(c)/(−Z(c))" });
+    lines.push({ math: "u = W_px/2 + k x", fallback: "u = W(px)/2 + k·x" });
+    lines.push({ math: "v = H_px/2 - k y", fallback: "v = H(px)/2 − k·y" });
     lines.push({ math: "Delta u = (f b k)/d", fallback: "Δu = f·b·k/d" });
     lines.push(`Conventions: right-handed, Y up, the camera looks down its local −Z; rotation order ${order} (${order[0]} first) about the parent axes, R = R${order[2].toLowerCase()}·R${order[1].toLowerCase()}·R${order[0].toLowerCase()}; pixels from the top-left, v down (Nuke counts v from the bottom: ${d(p.p0.vNuke, 2)}). k = ${t(p.k, 6)} px per mm of film (horizontal fit).`);
     if (Math.abs(p.gateMismatch - 1) > 0.005) lines.push(`The resolution's aspect (${t(res[0] / res[1], 4)}) differs from the filmback's (${t(W / Hh, 4)}): with the width fitted, the image covers ${t((res[1] / p.k), 5)} mm of the ${t(Hh)} mm height. Set the CG camera's film fit to match (Camera match).`);
@@ -668,7 +671,7 @@ const transformCalc: VfxCalc = {
         (res.gimbal.locked ? ` The middle rotation (${res.gimbal.middle} = ${t(res.gimbal.angle)}°) is at gimbal lock: the first and third rotations turn about the same axis, so one degree of freedom is lost and curves through here flip; key quaternions instead.` : ""),
     );
     lines.push({ math: "M = T(t) T(p) R S T(-p)", fallback: "M = T(t)·T(p)·R·S·T(−p)" });
-    lines.push({ math: "M^(-1) = T(p) S^(-1) R^T T(-p) T(-t)", fallback: "M⁻¹ = T(p)·S⁻¹·Rᵀ·T(−p)·T(−t)" });
+    lines.push({ math: "M^{-1} = T(p) S^{-1} R^T T(-p) T(-t)", fallback: "M⁻¹ = T(p)·S⁻¹·Rᵀ·T(−p)·T(−t)" });
     lines.push(`Rotation order ${order}: ${order[0]} is applied first, about the fixed parent axes, so R = R${order[2].toLowerCase()}·R${order[1].toLowerCase()}·R${order[0].toLowerCase()} (Maya's rotate order; scipy Rotation with the lower-case axes "${order.toLowerCase()}"; intrinsic ${[...order].reverse().join("")} in Attitude). Column vectors, p′ = M·p; Maya's MMatrix and Houdini's VEX store the transpose (row vectors).`);
     lines.push(`Determinant ${t(res.det, 6)} (sx·sy·sz); rotation orthogonality |RᵀR − I| = ${res.orthoErr < 1e-15 ? "0" : t(res.orthoErr, 2)}; inverse check |M⁻¹M − I| = ${res.invErr < 1e-15 ? "0" : t(res.invErr, 2)}.`);
     lines.push(`Rotation as a quaternion (x, y, z, w) ${v3(res.quat, 6)}; as an axis and angle, ${t(res.angle, 6)}° about ${res.axis ? v3(res.axis, 6) : "no axis (identity)"}.`);
@@ -1020,7 +1023,8 @@ const chromaCalc: VfxCalc = {
       `The pixel is ${d(k.dCbCr, 4)} from the key in CbCr (${d(k.dRgb, 4)} in RGB), ${where}; spill suppression (${variant === "average" ? "average" : "max"} of ${others}) ${k.spill > 0 ? `lowers its ${ch} from ${d(cols.pix[k.channel], 4)} to ${d(k.suppressed[k.channel], 4)}` : `leaves its ${ch} at ${d(cols.pix[k.channel], 4)} (no spill)`}.`,
     );
     lines.push({ math: "Y' = K_R R' + (1 - K_R - K_B) G' + K_B B'", fallback: "Y′ = K(R)·R′ + (1 − K(R) − K(B))·G′ + K(B)·B′" });
-    lines.push({ math: "C_b = (B' - Y')/(2 (1 - K_B)), C_r = (R' - Y')/(2 (1 - K_R))", fallback: "C(b) = (B′ − Y′)/(2(1 − K(B))), C(r) = (R′ − Y′)/(2(1 − K(R)))" });
+    lines.push({ math: "C_b = (B' - Y')/(2 (1 - K_B))", fallback: "C(b) = (B′ − Y′)/(2(1 − K(B)))" });
+    lines.push({ math: "C_r = (R' - Y')/(2 (1 - K_R))", fallback: "C(r) = (R′ − Y′)/(2(1 − K(R)))" });
     lines.push({ math: "alpha = min(1, max(0, (d - t)/s))", fallback: "α = min(1, max(0, (d − t)/s))" });
     lines.push(`BT.${m}: K(R) = ${KR(m)[0]}, K(B) = ${KR(m)[1]}. Key Y′CbCr ${v3(k.keyYcc, 5)}; pixel ${v3(k.pixYcc, 5)} (Y′ 0 to 1, Cb and Cr −0.5 to 0.5; 8-bit narrow range: Y′ ${d(16 + 219 * k.pixYcc[0], 1)}, Cb ${d(128 + 224 * k.pixYcc[1], 1)}, Cr ${d(128 + 224 * k.pixYcc[2], 1)}).`);
     lines.push(`Distance: CbCr ${d(k.dCbCr, 5)}, RGB ${d(k.dRgb, 5)} (RGB distances run to √3 = 1.732; CbCr to √2/2 = 0.7071 for colours inside the RGB cube). The alpha uses the ${metric === "cbcr" ? "CbCr" : "RGB"} distance: tolerance ${t(tol)}, softness ${t(soft)}${soft === 0 ? " (a hard key)" : ""}, alpha ${d(k.alpha, 5)}.`);
@@ -1117,12 +1121,16 @@ const simScaleCalc: VfxCalc = {
         `The sim needs ${plural(c.substeps, "substep")} per frame at CFL ${t(C)} (${t(umax, 4)} m/s through ${t(dx * 100, 4)} cm voxels).`,
     );
     lines.push({ math: "f_shoot = f sqrt(n)", fallback: "f(shoot) = f·√n" });
-    lines.push({ math: "t_m = t/sqrt(n), v_m = v/sqrt(n), L_m = L/n", fallback: "t(m) = t/√n, v(m) = v/√n, L(m) = L/n" });
-    lines.push({ math: "Fr = U/sqrt(g L), Re = (U L)/nu, We = (rho U^2 L)/sigma", fallback: "Fr = U/√(g·L), Re = U·L/ν, We = ρ·U²·L/σ" });
+    lines.push({ math: "t_m = t/sqrt(n)", fallback: "t(m) = t/√n" });
+    lines.push({ math: "v_m = v/sqrt(n)", fallback: "v(m) = v/√n" });
+    lines.push({ math: "L_m = L/n", fallback: "L(m) = L/n" });
+    lines.push({ math: "Fr = U/sqrt(g L)", fallback: "Fr = U/√(g·L)" });
+    lines.push({ math: "Re = (U L)/nu", fallback: "Re = U·L/ν" });
+    lines.push({ math: "We = (rho U^2 L)/sigma", fallback: "We = ρ·U²·L/σ" });
     lines.push({ math: "Delta t <= (C Delta x)/u_max", fallback: "Δt ≤ C·Δx/u(max)" });
     lines.push(`Froude scaling keeps Fr = U/√(gL) = ${t(s.Fr, 4)} the same at both scales: velocities scale by 1/√n = ${t(1 / s.sqrtN, 4)} (${t(U, 4)} → ${t(s.Um, 4)} m/s), lengths by 1/n (${t(L, 4)} → ${t(s.Lm, 4)} m), times by 1/√n, so the camera runs √n = ${t(s.sqrtN, 4)} times faster: ${t(s.shootFps, 5)} fps for ${t(fps, 4)} fps playback.`);
     if (s.fall) lines.push(`Fall: ${t(s.fall.h, 4)} m takes ${t(s.fall.t, 4)} s and lands at ${t(s.fall.vReal, 4)} m/s; the model's ${t(s.fall.hm, 4)} m takes ${t(s.fall.tm, 4)} s and lands at ${t(s.fall.vModel, 4)} m/s, which at ${t(s.shootFps, 4)} fps plays back over ${t(s.fall.t, 4)} s.`);
-    lines.push(`Reynolds number: real ${t(s.Re, 4)}, model ${t(s.ReM, 4)} (÷ n^1.5 = ${t(Math.pow(n, 1.5), 4)}). Matching both Fr and Re would need a model fluid with ν = ${t(s.nuNeeded, 3)} m²/s; no practical liquid is that thin, which is why miniature water reads as small.${s.We !== null && s.WeM !== null ? ` Weber number: real ${t(s.We, 4)}, model ${t(s.WeM, 4)} (÷ n²): surface tension dominates the model, so drops are too big and too round.` : ""}`);
+    lines.push(`Reynolds number: real ${t(s.Re, 4)}, model ${t(s.ReM, 4)} (÷ n√n = ${t(Math.pow(n, 1.5), 4)}). Matching both Fr and Re would need a model fluid with ν = ${t(s.nuNeeded, 3)} m²/s; no practical liquid is that thin, which is why miniature water reads as small.${s.We !== null && s.WeM !== null ? ` Weber number: real ${t(s.We, 4)}, model ${t(s.WeM, 4)} (÷ n²): surface tension dominates the model, so drops are too big and too round.` : ""}`);
     lines.push(`CFL: Δt(max) = ${t(C)} × ${t(dx, 4)} m / ${t(umax, 4)} m/s = ${t(c.dtMax, 4)} s against a ${t(c.frameTime, 4)} s frame: ${plural(c.substeps, "substep")} per frame (Δt = ${t(c.dt, 4)} s). The fastest fluid crosses ${t(c.cellsPerFrame, 4)} voxels per frame.`);
     lines.push(`Gravity in the sim's units: ${t(G0)} m/s² is ${t(G0 * 100)} cm/s² in a centimetre scene; a sim built in centimetres with g left at 9.81 falls 100 times too weakly, and everything moves √100 = 10 times too slowly. Voxel size and velocity must be in the same unit as the scene.`);
     lines.push("Assumes: gravity-driven motion at both scales (Froude similarity), the same fluid in the model, and incompressible flow for the CFL limit; viscosity and surface tension are real-world values at about 20 °C unless typed. The CFL number a solver allows is its own (FLIP and PIC tolerate about 1 to 5; explicit smoke advection about 1).");
@@ -1201,7 +1209,9 @@ const collisionCalc: VfxCalc = {
       `Dropped ${t(vals.h)} ${us} in a ${U.noun} scene (g = ${t(dr.g, 6)} ${us}/s²), it lands after ${t(dr.t, 4)} s at ${t(dr.v, 4)} ${us}/s and bounces back to ${t(dr.bounce, 4)} ${us}${dr.tRest !== null ? `, settling after about ${t(dr.tRest, 3)} s` : ""}. ` +
         `The impact loses ${t(frac * 100, 3)} % of the kinetic energy, and friction ${im.sticks ? "stops the sliding at contact" : `slows the sliding from ${t(vals.vt, 4)} to ${t(im.v1t, 4)} ${us}/s`}.`,
     );
-    lines.push({ math: "t = sqrt((2 h)/g), v = sqrt(2 g h), h_1 = e^2 h", fallback: "t = √(2h/g), v = √(2g·h), h₁ = e²·h" });
+    lines.push({ math: "t = sqrt((2 h)/g)", fallback: "t = √(2h/g)" });
+    lines.push({ math: "v = sqrt(2 g h)", fallback: "v = √(2g·h)" });
+    lines.push({ math: "h_1 = e^2 h", fallback: "h₁ = e²·h" });
     lines.push({ math: "J_n = (1 + e) m_eff v_rel", fallback: "J(n) = (1 + e)·m(eff)·v(rel)" });
     lines.push({ math: "J_t = min(mu J_n, m_eff abs(v_t))", fallback: "J(t) = min(μ·J(n), m(eff)·|v(t)|)" });
     lines.push(`Drop: g = 9.80665 m/s² = ${t(dr.g, 6)} ${us}/s²; ${t(vals.h)} ${us} takes ${t(dr.t, 5)} s and lands at ${t(dr.v, 5)} ${us}/s. With e = ${t(vals.e)} it rebounds to e²h = ${t(dr.bounce, 5)} ${us}${dr.tRest !== null ? `; the bounces sum to t(1 + e)/(1 − e) = ${t(dr.tRest, 5)} s` : "; e = 1 bounces for ever"}. ${unit === "m" ? "" : `A sim built in ${U.label} with g left at 9.81 would take ${t(Math.sqrt(dr.g / 9.81), 4)} times as long to fall.`}`);

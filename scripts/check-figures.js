@@ -116,7 +116,10 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // 397 as of v2.187.0 (Release B): thin films, Fresnel and Jones (11), materials
 // testing and quality (13), control design (25), titration and CV (16) and the
 // new Plot kinds (20), each calculator at its defaults plus the layouts that crowd.
-const CORPUS_FLOOR = 965;
+// 1033 as of v2.206.0 (VFX & compositing): sixty-eight figures, each VFX calculator at its defaults and the layouts
+// that crowd (retime warp and speed, plate timelines, FOV wedges, the parallax plan, transform axes, shading vectors,
+// eight log curves, compositing swatches and bars, CbCr planes, Froude and bounce charts) plus six builder edges.
+const CORPUS_FLOOR = 1033;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

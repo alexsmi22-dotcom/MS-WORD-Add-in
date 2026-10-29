@@ -31,6 +31,13 @@ const esc = (s: string): string => trueMinus(s).replace(/&/g, "&amp;").replace(/
 /** The layout audit's own width estimate (0.58 em per glyph), so a label placed by it is never judged too wide. */
 const textW = (s: string, size: number): number => [...s].length * 0.58 * size;
 const f1 = (v: number): string => v.toFixed(1);
+/** A label shortened (with an ellipsis) to fit a width, by the audit's own width estimate. */
+export const fitText = (s: string, size: number, maxW: number): string => {
+  if (textW(s, size) <= maxW) return s;
+  const chars = [...s];
+  const keep = Math.max(1, Math.floor(maxW / (0.58 * size)) - 1);
+  return chars.slice(0, keep).join("") + "…";
+};
 
 function svgOpen(w: number, h: number, size = 10): string[] {
   return [
@@ -127,7 +134,7 @@ export function timelineSvg(r: FrameRangeResult, head: number, tail: number, pat
   const yBar = 44;
   const hBar = 26;
   const out = svgOpen(w, 160);
-  out.push(text(w / 2, 16, `Plate ${r.plateFirst} to ${r.plateLast} (${r.total} frames)`, "middle", ' font-size="11"'));
+  out.push(text(w / 2, 16, fitText(`Plate ${r.plateFirst} to ${r.plateLast} (${r.total} frames)`, 11, span), "middle", ' font-size="11"'));
   if (hw > 0) out.push(`<rect x="${f1(left)}" y="${yBar}" width="${f1(hw)}" height="${hBar}" fill="${LIGHT}" stroke="${GREY}"/>`);
   out.push(`<rect x="${f1(left + hw)}" y="${yBar}" width="${f1(cw)}" height="${hBar}" fill="${BLUE}" stroke="${BLUE}"/>`);
   if (tw > 0) out.push(`<rect x="${f1(left + hw + cw)}" y="${yBar}" width="${f1(tw)}" height="${hBar}" fill="${LIGHT}" stroke="${GREY}"/>`);
@@ -147,9 +154,9 @@ export function timelineSvg(r: FrameRangeResult, head: number, tail: number, pat
   }
   out.push(text(left, yBar + hBar + 14, `${r.plateFirst}`, "start", ' font-size="9"'));
   out.push(text(right, yBar + hBar + 14, `${r.plateLast}`, "end", ' font-size="9"'));
-  out.push(text(left, 112, `Cut ${r.cutFirst} to ${r.cutLast} in the plate; handles ${head} head, ${tail} tail.`, "start", ' font-size="9"'));
-  out.push(text(left, 128, editorial, "start", ' font-size="9"'));
-  out.push(text(left, 144, pattern, "start", ' font-size="9"'));
+  out.push(text(left, 112, fitText(`Cut ${r.cutFirst} to ${r.cutLast} in the plate; handles ${head} head, ${tail} tail.`, 9, span), "start", ' font-size="9"'));
+  out.push(text(left, 128, fitText(editorial, 9, span), "start", ' font-size="9"'));
+  out.push(text(left, 144, fitText(pattern, 9, span), "start", ' font-size="9"'));
   out.push("</g></svg>");
   return out.join("");
 }

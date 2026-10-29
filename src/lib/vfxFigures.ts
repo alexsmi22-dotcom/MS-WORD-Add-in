@@ -5,7 +5,7 @@
 // cannot be placed is left to the key beneath the figure, which names everything drawn.
 
 import { buildPlotSvg, type Series } from "./plot";
-import { BLUE, RED, GREEN, GREY, LIGHT, INK, ORANGE, PURPLE, PAPER, W, H, esc, textW, f1, svgOpen, text, sig } from "./vfxCharts";
+import { BLUE, RED, GREEN, GREY, LIGHT, INK, ORANGE, PURPLE, PAPER, W, H, esc, textW, f1, svgOpen, text, sig, fitText } from "./vfxCharts";
 import type { ProjectionInput, ProjectionResult, Vec3 } from "./vfxCamera";
 import type { ShadingResult, TransformResult } from "./vfxGeometry";
 import { srgbEncode, type LogCurve } from "./vfxColour";
@@ -77,7 +77,7 @@ function key(L: Layout, x: number, y: number, rows: Array<{ colour: string; text
   rows.forEach((r, i) => {
     const yy = y + i * (size + 5);
     L.out.push(`<rect x="${f1(x)}" y="${f1(yy - size + 1)}" width="10" height="${size - 1}" fill="${r.colour}"/>`);
-    L.fixed(x + 15, yy, r.text, size, "start");
+    L.fixed(x + 15, yy, fitText(r.text, size, W - x - 32), size, "start");
   });
   return y + rows.length * (size + 5);
 }
@@ -102,7 +102,7 @@ export function fovWedgesSvg(wedges: Wedge[], title: string): string {
   const h = keyTop + wedges.length * 14 + 4;
   const out = svgOpen(w, h);
   const L = new Layout(out, w, h);
-  L.fixed(w / 2, 16, title, 11, "middle");
+  L.fixed(w / 2, 16, fitText(title, 11, w - 24), 11, "middle");
   const cx = w / 2;
   const sorted = [...wedges].sort((a, b) => b.fov - a.fov);
   for (const wd of sorted) {
@@ -223,7 +223,7 @@ function isoScene(title: string, arrows: Arrow[], dots: Array<{ p: Vec3; colour:
   const h = keyTop + keyRows.length * 14 + 4;
   const out = svgOpen(w, h);
   const L = new Layout(out, w, h);
-  L.fixed(w / 2, 16, title, 11, "middle");
+  L.fixed(w / 2, 16, fitText(title, 11, w - 24), 11, "middle");
   if (plane) out.push(`<polygon points="${plane.map((p) => P(p).map(f1).join(",")).join(" ")}" fill="${LIGHT}" fill-opacity="0.6" stroke="${GREY}" stroke-width="0.8"/>`);
   for (const a of arrows) {
     const [x1, y1] = P(a.from);
@@ -387,7 +387,7 @@ export function compositeSvg(swatches: Swatch[], bars: BarSet[], title: string):
   const sw = cell - 12;
   const out = svgOpen(w, 10);
   const L = new Layout(out, w, 1000);
-  L.fixed(w / 2, 16, title, 11, "middle");
+  L.fixed(w / 2, 16, fitText(title, 11, w - 24), 11, "middle");
   out.push(`<defs><pattern id="vfxck" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#ffffff"/><rect width="5" height="5" fill="#cccccc"/><rect x="5" y="5" width="5" height="5" fill="#cccccc"/></pattern></defs>`);
   swatches.forEach((s, i) => {
     const x = 16 + i * cell + 6;
@@ -443,11 +443,14 @@ export function cbcrSvg(key: [number, number], pix: [number, number], tol: numbe
   series.push({ points: [{ x: key[0], y: key[1] }], type: "scatter", color: GREEN, label: "key colour" });
   series.push({ points: [{ x: pix[0], y: pix[1] }], type: "scatter", color: BLUE, label: "pixel" });
   series.push({ points: [{ x: 0, y: 0 }], type: "scatter", color: GREY, label: "neutral (grey)" });
+  // The plane is ±0.5; widened (symmetrically, to a tenth) when a circle reaches past it, so nothing is clipped.
+  const reach = Math.max(0.5, ...series.flatMap((s) => s.points.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y)))));
+  const lim = Math.ceil(reach * 10 - 1e-9) / 10;
   return buildPlotSvg(series, {
     xlabel: "Cb (blue difference)",
     ylabel: "Cr (red difference)",
-    xLimits: { min: -0.5, max: 0.5 },
-    yLimits: { min: -0.5, max: 0.5 },
+    xLimits: { min: -lim, max: lim },
+    yLimits: { min: -lim, max: lim },
     width: 400,
     height: 400,
   });

@@ -116,22 +116,17 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // 397 as of v2.187.0 (Release B): thin films, Fresnel and Jones (11), materials
 // testing and quality (13), control design (25), titration and CV (16) and the
 // new Plot kinds (20), each calculator at its defaults plus the layouts that crowd.
-// 1016 as of v2.206.0: the Colour & appearance group, 51 figures (every calculator at its defaults and the
-// layouts that crowd, and each colourCharts builder at an extreme).
-// 1016 with Scene modelling & pipeline (v2.206.0): 51 figures, the eleven calculators at their defaults and layout
-// variants (3-D, degenerate and high-degree curves, defective meshes, each ray case) and the builders at their edges.
-// 1033 as of v2.206.0 (VFX & compositing): sixty-eight figures, each VFX calculator at its defaults and the layouts
-// that crowd (retime warp and speed, plate timelines, FOV wedges, the parallax plan, transform axes, shading vectors,
-// eight log curves, compositing swatches and bars, CbCr planes, Froude and bounce charts) plus six builder edges.
-// 1035 on branch lighting: Lighting & rendering adds 69 (the seven calculators at 35 inputs that change a layout,
-// two figures for five of them, and eleven builders at their edges).
-// 1024 as of v2.206.0: fifty-nine Spaceflight & missions figures (each calculator at its defaults and its layout
-// variants, then the spaceflightCharts.ts builders at their edges).
-// 1016 as of v2.206.0: the measured corpus before this release (965) plus 32 clinical-research figures
-// (Fagan, ROC, Buderer, ratio forests, kappa bars, Bland–Altman, ICC profile, meta forest and funnel, at defaults and
-// stress cases) and 19 dosing figures (BSA and weight bars, Cockcroft–Gault bars, the CKD-EPI curve, dose, infusion and
-// lab-conversion lines).
-const CORPUS_FLOOR = 1016;
+// 1315 as of v2.206.0 (measured after the six sections merged; 965 before): Colour & appearance 51 (every
+// calculator at its defaults and the layouts that crowd, each colourCharts builder at an extreme); Scene modelling &
+// pipeline 51 (3-D, degenerate and high-degree curves, defective meshes, each ray case, the builders at their edges);
+// VFX & compositing 68 (retime warp and speed, plate timelines, FOV wedges, the parallax plan, transform axes, shading
+// vectors, eight log curves, compositing swatches and bars, CbCr planes, Froude and bounce charts, six builder
+// edges); Lighting & rendering 70 (the seven calculators at the inputs that change a layout, and eleven builders at
+// their edges); Spaceflight & missions 59 (each calculator at its defaults and layout variants, then the
+// spaceflightCharts builders at their edges); clinical research 32 (Fagan, ROC, Buderer, ratio forests, kappa bars,
+// Bland–Altman, ICC profile, meta forest and funnel) and dosing 19 (BSA and weight bars, Cockcroft–Gault bars, the
+// CKD-EPI curve, dose, infusion and lab-conversion lines).
+const CORPUS_FLOOR = 1315;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

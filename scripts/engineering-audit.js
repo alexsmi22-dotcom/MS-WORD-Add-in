@@ -318,15 +318,11 @@ function run() {
   // 153 as of v2.175.0: plane frame, plate FEA, shelf life, Nernst, Butler–Volmer and Tafel, each drawing.
   // 170 as of v2.187.0: Fresnel, thin-film stack, Jones; tensile, Weibull strength, Scherrer, capability,
   // tolerance stack; root locus, Nyquist, lead/lag, c2d; titration, speciation, solution pH, CV peak, Randles–Ševčík.
-  // 249 as of v2.206.0: the eight Colour & appearance calculators, each drawing from its shipped defaults.
-  // 252 with Scene modelling & pipeline (v2.206.0): eleven calculators (Bezier, NURBS, mesh, subdivision, LOD, ray,
-  // bounding volumes, texture, farm, storage, pipeline), each drawing from its shipped defaults.
-  // 252 as of v2.206.0: eleven VFX & compositing tools (vfx-retime … vfx-collision, the new "VFX & compositing" group),
-  // every one drawing from its shipped defaults.
-  // 248 on branch lighting: the seven Lighting & rendering calculators, each drawing from its defaults.
-  // 248 as of v2.206.0: seven dosing tools (BMI/BSA, dosing weights, Cockcroft–Gault, CKD-EPI eGFR, dose, infusion,
-  // lab units), each drawing from its shipped defaults.
-  const FIGURE_BASELINE = 249;
+  // 295 as of v2.206.0: Colour & appearance (8), Scene modelling & pipeline (11: Bezier, NURBS, mesh, subdivision,
+  // LOD, ray, bounding volumes, texture, farm, storage, pipeline), VFX & compositing (11), Lighting & rendering (7),
+  // Spaceflight & missions (10) and seven dosing tools (BMI/BSA, dosing weights, Cockcroft–Gault, CKD-EPI eGFR, dose,
+  // infusion, lab units), every one drawing from its shipped defaults.
+  const FIGURE_BASELINE = 295;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");
   console.log(

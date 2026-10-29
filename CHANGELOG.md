@@ -6,232 +6,82 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [2.206.0] (unreleased)
+## [2.206.0] — 2026-10-29 — Colour, VFX, lighting, scene modelling, spaceflight and clinical research
 
-### Clinical research & dosing
+Engineering grows from 241 to 295 calculators in 30 disciplines: five new panels (Colour & appearance, Lighting &
+rendering, VFX & compositing, Scene modelling & pipeline, Spaceflight & missions) and seven dosing tools in
+Biomedical and Pharmacokinetics. Stats grows from 77 to 87 calculators in eleven groups, with the new **Clinical
+research & epidemiology** group. Every new calculator opens with a plain-language reading and draws; the figure
+corpus grows from 965 to 1315.
 
-Stats grows from 77 to 87 calculators under a new eleventh heading, **Clinical research & epidemiology**; Engineering
-grows from 241 to 248. These are research and teaching tools for patent attorneys, inventors and students (a
-diagnostic patent claims "a sensitivity of at least 90%"). There are no bedside decision scores. Every number is
-checked against statsmodels 0.15, scipy, scikit-learn 1.9.1 or pingouin 0.7.0, or against an independent Python
-re-implementation where no library computes it (scripts/clinical-oracle.py). The published worked examples are
-reproduced: Hanley & McNeil's CT ratings (AUC 0.893), Bland & Altman's 1986 PEFR data, Altman's 1998 NNT intervals,
-Shrout & Fleiss's 1979 ICC table, and the metafor BCG meta-analysis.
+### Colour & appearance
 
-#### Added: Stats (77 → 87)
-- **Diagnostic test accuracy:** from a 2×2 table, or from sensitivity, specificity and prevalence.
-  - Sensitivity, specificity, PPV, NPV and accuracy, with Wilson or Clopper–Pearson intervals (Wilson is the default).
-  - LR+ and LR− by the log method; the diagnostic odds ratio; Youden's J.
-  - PPV and NPV at another prevalence, with the Mercaldo logit interval.
-  - Pre-test to post-test probability, drawn as a **Fagan nomogram**.
-  - A zero cell adds 0.5 (Haldane–Anscombe) to the ratio measures only, and the result says so. A prevalence of 0% or
-    100% is refused in words.
-- **ROC curve and AUC:** the DeLong interval; the Youden-optimal cutoff with its sensitivity and specificity; DeLong's
-  paired test for two scores on the same cases.
-  - Ties count one half.
-  - All-identical scores are refused.
-  - An AUC below 0.5 says to switch the direction.
-- **Diagnostic study sample size** (Buderer 1996).
-- **Risk ratio, odds ratio and NNT** for a cohort, trial or case-control 2×2.
-  - Interval methods: Katz log, Woolf, and Newcombe hybrid score or Wald for the risk difference. ARR and RRR are
-    reported too.
-  - NNTB or NNTH in Altman's notation. An interval that crosses no effect reads "NNTH 20 to ∞ to NNTB 4", explained in
-    words.
-  - Pearson χ² and Fisher's exact p come from the Stats chi-square tool's own engine.
-  - A forest figure on a log axis.
-- **Incidence-rate ratio** for person-time: an exact interval (conditional binomial) and a Wald interval, with the
-  exact test and the rate difference.
-- **Cohen's kappa**, unweighted or with linear or quadratic weights, using the Fleiss–Cohen–Everitt standard errors.
-  When both raters use only one category, the result is refused.
-- **Bland–Altman:** the bias and the 95% limits of agreement, each with its interval (± 1.96 SD, or ± 2 SD as in the
-  1986 paper), a proportional-bias regression, and the Bland–Altman plot.
-- **ICC:** all six Shrout–Fleiss / McGraw–Wong forms with F-method intervals and F tests, plus a profile figure.
-- **Meta-analysis:** input as 2×2 counts (OR, RR or RD), as effect and SE, or as effect and 95% CI.
-  - Inverse-variance or Mantel–Haenszel fixed effect.
-  - DerSimonian–Laird or REML random effects.
-  - Q, I² with the Higgins–Thompson interval, τ², and the prediction interval.
-  - A forest plot.
-  - Single-zero studies are corrected, double-zero studies are left out by name, and one study is refused.
-- **Small-study effects:** Egger's test with a funnel plot. Fewer than 10 studies are refused by name (Sterne et al.
-  2011).
-- The shared forest plot builder (statchart.forestPlotSvg) takes an optional `maxRows`, so the meta-analysis forest
-  can show every study (up to 30) and the pooled rows in one panel. Other callers are unchanged.
+A new Engineering panel, **Colour & appearance**, with eight calculators, after Light & camera. Built for checking and drafting claim limitations such as "ΔE < 2", which mean nothing until they name the
+formula, the illuminant and observer, and the measuring geometry. Every number is checked against colour-science
+0.4.7 (scripts/colour-oracle.py, largest disagreement 3.4×10⁻¹³ outside hue angles, 4.6×10⁻¹⁰° there), and CIEDE2000
+passes all 34 published pairs of Sharma, Wu & Dalal (2005) to four decimals, including pair 14 (exactly 180° apart),
+which colour-science's own test leaves out.
 
-#### Added: Engineering (241 → 248)
-- **Biomedical:**
-  - BMI, and body surface area by Mosteller, Du Bois, Haycock and Gehan–George side by side.
-  - Lab unit conversions (creatinine, glucose, cholesterol, triglycerides, urea nitrogen) with molar-mass factors
-    cited.
-- **Pharmacokinetics:**
-  - Ideal (Devine), adjusted (0.4) and lean (Janmahasatian) body weight.
-  - Cockcroft–Gault on the chosen weight, with all three weights shown.
-  - CKD-EPI 2021 race-free eGFR, from creatinine and from creatinine with cystatin C, plus the optional non-indexed
-    mL/min.
-  - Weight- or BSA-based dose, with a cap and a draw volume.
-  - Infusion rate, in both directions between µg/kg/min (and three other dose-rate units) and mL/h.
-- Each dosing tool:
-  - cites its source paper;
-  - ends with "Assumes: for research and education; not a substitute for clinical judgement or institutional dosing
-    protocols."
-- Each dosing tool refuses unit mistakes by name:
-  - creatinine in µmol/L typed into mg/dL, or the reverse;
-  - height in metres typed into cm;
-  - a unit typed after the number;
-  - cystatin C in nmol/L;
-  - an SI value typed as conventional;
-  - patients under 18 for the adult equations.
+#### Added — Engineering ▸ Colour & appearance (new panel, eight tools)
+- **Colour difference ΔE**: standard and sample as L\*a\*b\* or L\*C\*h; ΔL\*, Δa\*, Δb\*, ΔC\*ab, the signed ΔH\*ab and Δhab;
+  ΔE\*ab (CIE76), ΔE\*94 (graphic arts and textiles), ΔE CMC (2:1 and 1:1), ΔE₀₀ (CIEDE2000 with kL:kC:kH) and ΔE\*uv side
+  by side; the direction in words (lighter, greener, duller, shifted toward yellow); a **claim-ready line** naming the
+  formula, illuminant/observer, geometry and reference; a tolerance with < or ≤, decided on the unrounded value and
+  called borderline when the printed value ties it; and a warning when the same tolerance passes on one formula and
+  fails on another. Figures: the a\*b\* plane with chroma rays, the tolerance region of the chosen formula (traced by
+  bisection, so CIEDE2000's real shape) beside the CIE76 circle, and the L\* bars.
+- **Batch colour QC**: a standard and up to 500 named samples against a tolerance; pass/fail table, worst sample,
+  mean and maximum ΔE, the failing directions; samples drawn inside the tolerance region, ΔL\* per sample.
+- **Colour conversion** between XYZ, xyY, L\*a\*b\*, L\*C\*h, L\*u\*v\*, u′v′, sRGB (0–255) and hex for D65, D50, A, C, F2, F7,
+  F11, D55 and D75, 2° or 10°; out-of-gamut sRGB flagged with the clipped and unclipped values (Bradford adaptation to
+  the sRGB D65 white, as ICC profiles do); dominant wavelength and purity.
+- **Chromatic adaptation** of XYZ or L\*a\*b\* between illuminants by Bradford, von Kries, CAT02 and CAT16 (complete
+  adaptation), all four shown with their spread, and the note that adaptation is not re-measurement.
+- **Spectral reflectance or transmittance to colour** by **ASTM E308** (10 nm data with ASTM E2022 weighting factors
+  built from the 1 nm CIE tables, the out-of-range weights folded into the end wavelengths; 20 nm data via E308's
+  four-point Lagrange step; 1 and 5 nm data by summation) or **CIE 15 integration** at 1 nm after Sprague
+  interpolation; XYZ, L\*a\*b\*, L\*C\*h, xy, u′v′, an sRGB swatch, the dominant (or complementary) wavelength and excitation
+  purity. Fraction or percent; descending blocks reversed, header lines skipped.
+- **Metamerism index** (CIE 15, ISO 18314-4): ΔE under the reference and the special index under each test illuminant,
+  additive (L\*a\*b\*), multiplicative (XYZ) or uncorrected, on any ΔE formula.
+- **Whiteness, tint and yellowness**: CIE W and T (D65, either observer, with CIE 15's validity limits checked), ASTM
+  E313 YI for C and D65 at 2° and 10°, and the withdrawn ASTM D1925 YI; from XYZ, L\*a\*b\* or a spectrum.
+- **Contrast ratio (WCAG 2.x)**: relative luminances, the ratio, AA/AAA for normal and large text and SC 1.4.11,
+  decided on the unrounded ratio (#777777 on white is 4.48:1 and fails AA), plus ΔE₀₀ between the two.
 
+#### Data and provenance
+- The CIE 1931 2° and 1964 10° colour-matching functions (1 nm, 360–780 nm, the ASTM E308 practice range; 1 nm because
+  the E2022 weights are built from 1 nm tables), nine illuminant SPDs at their native 5 nm, the white points, the
+  IEC 61966-2-1 sRGB matrices, four CAT matrices and the E313 coefficients are extracted by
+  scripts/colour-data-extract.py from colour-science 0.4.7 into src/lib/colourData.ts (36 KB), and cross-checked
+  against independent facts (ȳ(555) = 1, illuminant A = Planck at 2848 K to 5×10⁻⁶, the tabulated whites against
+  SPD × CMF to 10⁻³, the sRGB columns against colourspace.ts's primaries).
 
-## [2.206.0] (unreleased)
+#### Review fixes (independent bug test before release)
+- The hue word follows the sample's direction of travel (86° → 93° reads "toward green", as Δa* says), and none is
+  given for a turn of more than 90°.
+- The a\*b\* planes are drawn over square windows (the overview centred on the neutral axis), so they really are at
+  equal scales; a 6:1 plane had passed as "equal".
+- No tolerance region is drawn above ΔE 10 or when it does not close (a ΔE₀₀ = 100 "region" was an open arc), and
+  the figure says why; the worst case fell from about 1.3 s to milliseconds.
+- The adaptation spread is the largest disagreement between any two transforms (1.16, von Kries against CAT02).
+- White points are the CIE 15 / ASTM E308 perfect-diffuser whites from the SPD and CMF tables (D65 2° 95.047, 100,
+  108.883), not XYZ rebuilt from the rounded tabulated xy (95.046, 108.906; up to 0.011 in b\*); illuminant A is
+  computed from its defining Planck formula at 1 nm.
+- Batch QC skips a header row and reads numeric sample IDs; kL:kC:kH is bounded to 0.1–10; refusals print ×10ⁿ;
+  no dominant wavelength below 0.5 % purity; colours outside the spectral locus are refused; "L\*=50, a\*=10, b\*=5",
+  "rgb(…)", "0x" hex and %-signed spectra are read; lightness-only failures are explained; chromaticity figures
+  name their observer (CIE 1964 x₁₀y₁₀ for 10°), mark the locus every 20 nm and draw sRGB only on the 2° diagram.
 
-### Spaceflight
-A new Engineering group, **Spaceflight & missions**, right after Trajectory & orbits: ten calculators, so Engineering
-grows from 241 to 251 calculators in 26 disciplines. Every number is checked against an independent Python oracle
-(scripts/spaceflight-oracle.py: scipy DOP853 integration, brentq, numpy polynomial roots, skyfield DE421, astropy WGS 84),
-and against published values: Curtis Examples 4.3, 4.7 and 5.2, Vallado Example 2-1, Earth–Moon L1 ≈ 326 400 km,
-Sun–Earth L1 ≈ 1.5 million km, the sun-synchronous inclination at 800 km ≈ 98.6°, Apollo TLI ≈ 3.1 km/s. Each result
-opens with a plain-language reading, states its model and limits, and draws.
-- **Orbit from elements or a state vector**: both directions for every conic (the parabola exactly, sized by periapsis
-  radius or p), Kepler propagation by the universal variable with Kepler's equation in each conic's own form as a
-  check, period, apsides, energy and h; circular and equatorial orbits use the argument of latitude, longitude of
-  periapsis and true longitude. Figures: the orbit in its plane to scale, and inertial X–Y and X–Z views.
-- **Lambert's problem**: universal variable, short or long way, single revolution; a 180° (or 0°) transfer is refused
-  because its plane is undefined; a time so short the transfer would need 1 % of light speed is refused. Figure: the arc.
-- **Interplanetary transfers**: Hohmann between planets (flight time, C3, v∞, the Oberth departure burn from a parking
-  orbit, capture into an ellipse), the synodic period and the next window, and a **porkchop** of C3 from Lambert solves
-  between positions from JPL's approximate (Standish) elements, Table 1, extracted mechanically
-  (scripts/spaceflight-extract.py) and checked against DE421; dates outside 1800–2050 are refused.
-- **Lunar mission Δv budget**: patched-conic TLI for a flight time, the Moon's sphere of influence, LOI, descent and
-  ascent with gravity-loss allowances, TEI, mid-course allowances and propellant by the rocket equation; a waterfall.
-- **Orbit changes**: plane change pure and combined with circularisation, bi-elliptic against Hohmann with the 11.94 and
-  15.58 thresholds solved as roots, phasing for a lead angle (refused when the phasing orbit would hit the body).
-- **J2 and special orbits**: nodal regression and apsidal precession, the sun-synchronous inclination, the critical
-  inclination, GEO radius and longitude drift, ground-track shift and the nearest repeat ground tracks; ground-track map.
-- **Three-body points**: L1–L5 by root-finding on the exact collinear balance for any pair (Earth–Moon, Sun–planet or
-  custom, mass ratio up to 1), Hill sphere, Laplace sphere of influence, rigid and fluid Roche limits, the Jacobi
-  constant of a state and the zero-velocity curves in the rotating frame.
-- **Re-entry and decay**: ballistic coefficient, Allen–Eggers peak deceleration with its altitude and speed, Sutton–Graves
-  stagnation heating, checked against an RK4 integration with gravity on the 1976 standard atmosphere; orbital
-  lifetime at low, moderate and high solar activity from an NRLMSIS 2.1 density table generated mechanically; γ = 0 is
-  refused by name.
-- **Ground station**: azimuth, elevation and slant range on WGS 84; footprint, swath, longest pass, range rate and
-  Doppler. No TLE/SGP4 (not offered rather than offered unvalidated).
-- **Spacecraft thermal balance**: hot and cold equilibrium temperatures from α, ε, the 1/r² solar flux, albedo, planet
-  infrared and internal power, with temperature against distance from the Sun.
-- Astronomical units are read in every length field (1 au = 149 597 870.7 km exactly).
-
-
-## [2.206.0] (unreleased)
-
-### Lighting & rendering
-New Engineering panel after Light & camera, seven calculators (Engineering +7, +1 group). Each opens with a reading
-built from its own numbers, states what it assumes, refuses bad input by name and draws. Oracles:
-`scripts/lighting-oracle.py` → `src/lib/__tests__/fixtures/lighting-oracle.json`.
-- **Sun position, golden hour & shadows** (`rend-sun-shadow`): Meeus low-accuracy solar coordinates (the NOAA Solar
-  Calculator's basis) with ΔT, apparent sidereal time, parallax and SPA refraction. Against NREL SPA (pvlib 0.16.1
-  `nrel_numpy`, 336 cases, 8 sites, 1990–2075): elevation within 0.0066°, azimuth arc within 0.0066°, equation of
-  time within 1.5 s; transit within 1.5 s; sunrise/sunset within 4.4 s of brentq on SPA's elevation at −0.8333°.
-  Golden hour (6° to −4°) and blue hour (−4° to −6°) are within 17 s of the same crossings. Polar day and night are
-  answers, not errors. The shadow length and bearing come with the soft edge the sun's 0.533° disc gives the tip.
-  Figures: the sun path (centred on north when the sun culminates there) and a plan of the shadow across the day.
-- **Soft shadows: umbra & penumbra** (`rend-soft-shadow`): penumbra D·d/L, umbra w − (D − w)d/L, where the umbra
-  ends and the antumbra begins, contact hardening, and the point-light shadow. Figures: a ray diagram, and the widths
-  against receiver distance.
-- **Light falloff, lighting ratios & light units** (`rend-falloff`): inverse-square stops, the light move for a
-  change in stops, and key:fill in stops (with the (key + fill):fill convention named). The exact on-axis disc
-  πL·sin²θ is set against the point form; the error is (R/z)², exactly 1 % at five diameters (checked against scipy
-  quad). Renderer units: lm → cd (Φ/4π), spot Φ/Ω using light-photometry's cone, area lm → nits (Φ/πA), and W → lm
-  at an efficacy that is refused above 683 lm/W.
-- **Microfacet BRDF** (`rend-brdf`): Cook–Torrance with GGX D, Smith G (height-correlated or separable) and Schlick F;
-  α = r²; F0 from IOR through the thin-film Fresnel module, or a metallic mix. Roughness below 0.045 is floored there
-  (Filament's clamp), and the floor is said. Directional albedo is integrated over the half-vector on a graded grid,
-  within 3.4×10⁻⁵ of an independent numpy Gauss–Legendre integral over the light direction. The white-furnace loss
-  is shown, and Schlick is set against exact Fresnel. Figures: the lobe for four roughness values, and albedo against
-  roughness.
-- **Render noise & samples per pixel** (`rend-noise`): N = N₀(σ₀/σₜ)² and render time with fixed overhead. The
-  closed-form per-sample variance of uniform against cosine-weighted hemisphere sampling for a light cone matches
-  scipy quad; cosine sampling is exact at β = 90°. Figure: noise against samples (log–log) with seeded Monte Carlo.
-- **Tone mapping & dynamic range** (`rend-tonemap`): Reinhard simple and extended, Hable Uncharted 2 (constants
-  cited, exposure bias 2), and Narkowicz's ACES fit (labelled an approximation, clipping at 7.2417), with 8-bit sRGB
-  codes. Also the exposure that puts middle grey at 0.18 under each curve, and dynamic range in stops. Figure: the
-  curves on a log axis.
-- **Atmosphere, fog & scattering** (`rend-atmosphere`): Beer–Lambert, Koschmieder 3.912/σ (and the WMO 5 % range),
-  Rayleigh λ⁻⁴, Kasten–Young air mass (matches pvlib), and Bucholtz (1995) Rayleigh optical depth (0.0972 at 550 nm;
-  within 1.5 % of Hansen–Travis and Bird–Riordan over 400–700 nm). Direct-beam transmittance by wavelength, and
-  Henyey–Greenstein (normalisation and ⟨cos θ⟩ = g checked by quad). σ = 0 reads "unlimited", never Infinity.
-- Gates: `FIGURE_BASELINE` 241 → 248 (engineering-audit), `CORPUS_FLOOR` 965 → 1035 (check-figures).
-  engEquations.test.ts now also counts `engEq` keys used by library registries (`src/lib/*Calcs.ts`).
-- Not built: a reflections/caustics calculator. The critical angle and total internal reflection already exist
-  (Optics ▸ Snell, thin-film Fresnel), and Snell's window is twice the critical angle.
-
-
-## [2.206.0] (unreleased)
-
-### VFX & compositing
-
-Engineering grows from 241 to 252 calculators and gains a twenty-sixth panel, **VFX & compositing**, after Light &
-camera. Every result opens with a plain-language reading built from its own numbers, names its assumptions, refuses bad
-input by name and draws a figure. The log curves and Y′CbCr matrices are checked against colour-science 0.4.7, the
-rotation orders against scipy's Rotation, TRS and projection against numpy, the retime curves against scipy's
-PchipInterpolator and CubicHermiteSpline (scripts/vfx-oracle.py → fixtures/vfx-oracle.json), and the rest against
-values derived by hand.
-
-#### Added
-- **Retime & speed ramp:** constant speed (negative plays backwards), a keyed speed ramp or a frame map, with linear,
-  ease or monotone cubic Hermite (PCHIP) keys; the source frame behind every output frame, which land between frames,
-  repeat or drop, and the effective shutter after the retime. A 48-frame shot at 40 % runs 120 frames, 94 of them
-  between source frames, and its 180° blur reads as a 450° shutter. Speed 0 % is refused as a freeze. Figures: the time
-  warp and the speed.
-- **Shot frame range, handles, padding & audio sync:** plate range from the cut, handles and the 1001 convention, the
-  editorial-to-plate offset, %04d / #### / $F4 patterns (a pad too narrow for the last frame is refused), samples per
-  frame with the per-frame sequence (1602, 1601, 1602, 1601, 1602 at 29.97 and 48 kHz) and a sync offset in frames,
-  samples and milliseconds. Figure: the plate as a timeline.
-- **Camera match:** horizontal, vertical and diagonal field of view ↔ focal length; ARRI ALEXA Mini LF and ALEXA 35
-  sensor modes from ARRI's published data; anamorphic squeeze 1.3× to 2×; crop factor and full-frame equivalents; the
-  Maya aperture in inches and the horizontal aperture in mm (Houdini); what Fill, Horizontal, Vertical and Overscan film
-  fit do when the image and filmback aspects differ. Figure: field-of-view wedges.
-- **Camera projection, parallax & screen-space motion blur:** pinhole projection of a world point to pixels (top-left
-  and Nuke's bottom-left origins), screen velocity and blur length for a camera move, and the parallax between two
-  depths. Figure: the camera, two depths and the rays from above.
-- **3D transforms:** TRS about a pivot in any of the six rotation orders, applied to points, inverted and checked
-  (determinant, orthogonality), with the quaternion, axis–angle, gimbal lock named and Y-up ↔ Z-up conversion.
-  Figure: axes before and after.
-- **Normal maps & shading:** 8-bit, 16-bit or float texels, OpenGL or DirectX green, the TBN matrix, n·V, Lambert,
-  Blinn–Phong and Phong, and Schlick's Fresnel beside the exact dielectric value. A zero-length normal is refused.
-  Figure: the shading vectors.
-- **Camera log ↔ scene linear:** ARRI LogC3 (EI 800) and LogC4, Sony S-Log3, Panasonic V-Log, RED Log3G10, ACEScct,
-  ACEScc and Cineon (your black and white points), each the published formula and each checked twice: against
-  colour-science and against the document itself (Sony 95/420/598, Panasonic 128/433/602, ARRI 0.391 and the LogC4 test vectors, RED's mapping table, the ACES specifications' constants; Cineon's parameters from Autodesk and the SMPTE Journal, Kodak's own note not found).
-  A code below the curve's black decodes to a negative linear value and says so. Figure: the curve with the point.
-- **Compositing:** Porter–Duff over, in, out, atop, xor and plus on premultiplied RGBA, the error of the wrong alpha
-  association (premultiplying twice darkens edges; straight colour used as premultiplied brightens them), and
-  multiply, screen, add and difference in linear light against the same blend on sRGB values. Alpha outside 0 to 1 is
-  refused. Figure: swatches and channel bars.
-- **Chroma key:** BT.601 or BT.709 Y′CbCr, the distance in RGB and in CbCr, alpha from a tolerance and softness ramp,
-  and spill suppression limited by the average or the larger of the other two channels. Figure: the CbCr plane.
-- **Miniatures, high-speed & sim scale:** Froude scaling (1:16 is shot at 96 fps for 24 fps), the Reynolds and Weber
-  numbers a miniature cannot match, and a fluid sim's CFL timestep and substeps. Navier–Stokes is solved by the
-  simulator; this is the part a calculator can answer. Figure: shooting frame rate against scale.
-- **Rigid-body drop & collision:** gravity in the scene's units (980.665 cm/s² in a centimetre scene), drop time,
-  impact speed, bounce height and settling time, and an impulse with restitution and Coulomb friction against the
-  ground or a second body. Figure: height against time through the bounces.
-
-#### Changed
-- A media file name in a result (sh010_comp_v001.1001.exr) keeps its underscores; the subscript pass used to set
-  "_v001" as a subscript.
-
-#### Left out
-- **Canon Log 3**: only one source could be checked (colour-science, whose two methods differ); Canon's published
-  18 % grey value could not be read, so the curve is not offered.
-- Sensor presets other than ARRI's: a size that could not be checked against the manufacturer is typed in instead.
-
-
-## [2.206.0] (unreleased)
+#### Tests
+- colourScience.oracle.test.ts (Sharma table, 162 ΔE pairs on six formulas, 126 conversions, 80 adaptations, 845
+  spectral cases over 1/2/5/10/20 nm grids and partial ranges, E2022 weights, dominant wavelength, whiteness/YI,
+  metamerism, WCAG), colourData.crosscheck.test.ts, colourCalcs.test.ts (defaults, readings, display contract,
+  adversarial refusals, equations). Figure corpus +51.
 
 ### Scene modelling & pipeline
 
-Engineering grows from 241 to 252 calculators with a new panel, **Scene modelling & pipeline**, after *Light & camera*
-(26 panels). It covers the geometry behind 3-D scene modelling and the arithmetic of a digital production pipeline.
+A new Engineering panel, **Scene modelling & pipeline**, with eleven calculators. It covers the geometry behind 3-D scene modelling and the arithmetic of a digital production pipeline.
 Every result opens with a plain-language reading built from its numbers, states what it assumes, and draws a figure.
 The numbers are checked against geomdl 5.4 (NURBS-Python), scipy 1.18, trimesh 5.2 and numpy, or against independent
 re-implementations where no library exists (`scripts/scene-oracle.py`, fixtures `scene-oracle.json`).
@@ -308,71 +158,210 @@ re-implementations where no library exists (`scripts/scene-oracle.py`, fixtures 
   - lead time by Little's law, and the WIP limit for a target lead time;
   - an overloaded pipeline is named, with no steady-state lead time.
 
-## [2.206.0] (unreleased) — Colour & appearance
+### VFX & compositing
 
-Engineering grows from 241 to 249 calculators and gains a twenty-sixth panel, **Colour & appearance**, after Light &
-camera. Built for checking and drafting claim limitations such as "ΔE < 2", which mean nothing until they name the
-formula, the illuminant and observer, and the measuring geometry. Every number is checked against colour-science
-0.4.7 (scripts/colour-oracle.py, largest disagreement 3.4×10⁻¹³ outside hue angles, 4.6×10⁻¹⁰° there), and CIEDE2000
-passes all 34 published pairs of Sharma, Wu & Dalal (2005) to four decimals, including pair 14 (exactly 180° apart),
-which colour-science's own test leaves out.
+A new Engineering panel, **VFX & compositing**, with eleven calculators. Every result opens with a plain-language reading built from its own numbers, names its assumptions, refuses bad
+input by name and draws a figure. The log curves and Y′CbCr matrices are checked against colour-science 0.4.7, the
+rotation orders against scipy's Rotation, TRS and projection against numpy, the retime curves against scipy's
+PchipInterpolator and CubicHermiteSpline (scripts/vfx-oracle.py → fixtures/vfx-oracle.json), and the rest against
+values derived by hand.
 
-### Added — Engineering ▸ Colour & appearance (new panel, eight tools)
-- **Colour difference ΔE**: standard and sample as L\*a\*b\* or L\*C\*h; ΔL\*, Δa\*, Δb\*, ΔC\*ab, the signed ΔH\*ab and Δhab;
-  ΔE\*ab (CIE76), ΔE\*94 (graphic arts and textiles), ΔE CMC (2:1 and 1:1), ΔE₀₀ (CIEDE2000 with kL:kC:kH) and ΔE\*uv side
-  by side; the direction in words (lighter, greener, duller, shifted toward yellow); a **claim-ready line** naming the
-  formula, illuminant/observer, geometry and reference; a tolerance with < or ≤, decided on the unrounded value and
-  called borderline when the printed value ties it; and a warning when the same tolerance passes on one formula and
-  fails on another. Figures: the a\*b\* plane with chroma rays, the tolerance region of the chosen formula (traced by
-  bisection, so CIEDE2000's real shape) beside the CIE76 circle, and the L\* bars.
-- **Batch colour QC**: a standard and up to 500 named samples against a tolerance; pass/fail table, worst sample,
-  mean and maximum ΔE, the failing directions; samples drawn inside the tolerance region, ΔL\* per sample.
-- **Colour conversion** between XYZ, xyY, L\*a\*b\*, L\*C\*h, L\*u\*v\*, u′v′, sRGB (0–255) and hex for D65, D50, A, C, F2, F7,
-  F11, D55 and D75, 2° or 10°; out-of-gamut sRGB flagged with the clipped and unclipped values (Bradford adaptation to
-  the sRGB D65 white, as ICC profiles do); dominant wavelength and purity.
-- **Chromatic adaptation** of XYZ or L\*a\*b\* between illuminants by Bradford, von Kries, CAT02 and CAT16 (complete
-  adaptation), all four shown with their spread, and the note that adaptation is not re-measurement.
-- **Spectral reflectance or transmittance to colour** by **ASTM E308** (10 nm data with ASTM E2022 weighting factors
-  built from the 1 nm CIE tables, the out-of-range weights folded into the end wavelengths; 20 nm data via E308's
-  four-point Lagrange step; 1 and 5 nm data by summation) or **CIE 15 integration** at 1 nm after Sprague
-  interpolation; XYZ, L\*a\*b\*, L\*C\*h, xy, u′v′, an sRGB swatch, the dominant (or complementary) wavelength and excitation
-  purity. Fraction or percent; descending blocks reversed, header lines skipped.
-- **Metamerism index** (CIE 15, ISO 18314-4): ΔE under the reference and the special index under each test illuminant,
-  additive (L\*a\*b\*), multiplicative (XYZ) or uncorrected, on any ΔE formula.
-- **Whiteness, tint and yellowness**: CIE W and T (D65, either observer, with CIE 15's validity limits checked), ASTM
-  E313 YI for C and D65 at 2° and 10°, and the withdrawn ASTM D1925 YI; from XYZ, L\*a\*b\* or a spectrum.
-- **Contrast ratio (WCAG 2.x)**: relative luminances, the ratio, AA/AAA for normal and large text and SC 1.4.11,
-  decided on the unrounded ratio (#777777 on white is 4.48:1 and fails AA), plus ΔE₀₀ between the two.
+#### Added
+- **Retime & speed ramp:** constant speed (negative plays backwards), a keyed speed ramp or a frame map, with linear,
+  ease or monotone cubic Hermite (PCHIP) keys; the source frame behind every output frame, which land between frames,
+  repeat or drop, and the effective shutter after the retime. A 48-frame shot at 40 % runs 120 frames, 94 of them
+  between source frames, and its 180° blur reads as a 450° shutter. Speed 0 % is refused as a freeze. Figures: the time
+  warp and the speed.
+- **Shot frame range, handles, padding & audio sync:** plate range from the cut, handles and the 1001 convention, the
+  editorial-to-plate offset, %04d / #### / $F4 patterns (a pad too narrow for the last frame is refused), samples per
+  frame with the per-frame sequence (1602, 1601, 1602, 1601, 1602 at 29.97 and 48 kHz) and a sync offset in frames,
+  samples and milliseconds. Figure: the plate as a timeline.
+- **Camera match:** horizontal, vertical and diagonal field of view ↔ focal length; ARRI ALEXA Mini LF and ALEXA 35
+  sensor modes from ARRI's published data; anamorphic squeeze 1.3× to 2×; crop factor and full-frame equivalents; the
+  Maya aperture in inches and the horizontal aperture in mm (Houdini); what Fill, Horizontal, Vertical and Overscan film
+  fit do when the image and filmback aspects differ. Figure: field-of-view wedges.
+- **Camera projection, parallax & screen-space motion blur:** pinhole projection of a world point to pixels (top-left
+  and Nuke's bottom-left origins), screen velocity and blur length for a camera move, and the parallax between two
+  depths. Figure: the camera, two depths and the rays from above.
+- **3D transforms:** TRS about a pivot in any of the six rotation orders, applied to points, inverted and checked
+  (determinant, orthogonality), with the quaternion, axis–angle, gimbal lock named and Y-up ↔ Z-up conversion.
+  Figure: axes before and after.
+- **Normal maps & shading:** 8-bit, 16-bit or float texels, OpenGL or DirectX green, the TBN matrix, n·V, Lambert,
+  Blinn–Phong and Phong, and Schlick's Fresnel beside the exact dielectric value. A zero-length normal is refused.
+  Figure: the shading vectors.
+- **Camera log ↔ scene linear:** ARRI LogC3 (EI 800) and LogC4, Sony S-Log3, Panasonic V-Log, RED Log3G10, ACEScct,
+  ACEScc and Cineon (your black and white points), each the published formula and each checked twice: against
+  colour-science and against the document itself (Sony 95/420/598, Panasonic 128/433/602, ARRI 0.391 and the LogC4 test vectors, RED's mapping table, the ACES specifications' constants; Cineon's parameters from Autodesk and the SMPTE Journal, Kodak's own note not found).
+  A code below the curve's black decodes to a negative linear value and says so. Figure: the curve with the point.
+- **Compositing:** Porter–Duff over, in, out, atop, xor and plus on premultiplied RGBA, the error of the wrong alpha
+  association (premultiplying twice darkens edges; straight colour used as premultiplied brightens them), and
+  multiply, screen, add and difference in linear light against the same blend on sRGB values. Alpha outside 0 to 1 is
+  refused. Figure: swatches and channel bars.
+- **Chroma key:** BT.601 or BT.709 Y′CbCr, the distance in RGB and in CbCr, alpha from a tolerance and softness ramp,
+  and spill suppression limited by the average or the larger of the other two channels. Figure: the CbCr plane.
+- **Miniatures, high-speed & sim scale:** Froude scaling (1:16 is shot at 96 fps for 24 fps), the Reynolds and Weber
+  numbers a miniature cannot match, and a fluid sim's CFL timestep and substeps. Navier–Stokes is solved by the
+  simulator; this is the part a calculator can answer. Figure: shooting frame rate against scale.
+- **Rigid-body drop & collision:** gravity in the scene's units (980.665 cm/s² in a centimetre scene), drop time,
+  impact speed, bounce height and settling time, and an impulse with restitution and Coulomb friction against the
+  ground or a second body. Figure: height against time through the bounces.
 
-### Data and provenance
-- The CIE 1931 2° and 1964 10° colour-matching functions (1 nm, 360–780 nm, the ASTM E308 practice range; 1 nm because
-  the E2022 weights are built from 1 nm tables), nine illuminant SPDs at their native 5 nm, the white points, the
-  IEC 61966-2-1 sRGB matrices, four CAT matrices and the E313 coefficients are extracted by
-  scripts/colour-data-extract.py from colour-science 0.4.7 into src/lib/colourData.ts (36 KB), and cross-checked
-  against independent facts (ȳ(555) = 1, illuminant A = Planck at 2848 K to 5×10⁻⁶, the tabulated whites against
-  SPD × CMF to 10⁻³, the sRGB columns against colourspace.ts's primaries).
+#### Changed
+- A media file name in a result (sh010_comp_v001.1001.exr) keeps its underscores; the subscript pass used to set
+  "_v001" as a subscript.
 
-### Review fixes (independent bug test before release)
-- The hue word follows the sample's direction of travel (86° → 93° reads "toward green", as Δa* says), and none is
-  given for a turn of more than 90°.
-- The a\*b\* planes are drawn over square windows (the overview centred on the neutral axis), so they really are at
-  equal scales; a 6:1 plane had passed as "equal".
-- No tolerance region is drawn above ΔE 10 or when it does not close (a ΔE₀₀ = 100 "region" was an open arc), and
-  the figure says why; the worst case fell from about 1.3 s to milliseconds.
-- The adaptation spread is the largest disagreement between any two transforms (1.16, von Kries against CAT02).
-- White points are the CIE 15 / ASTM E308 perfect-diffuser whites from the SPD and CMF tables (D65 2° 95.047, 100,
-  108.883), not XYZ rebuilt from the rounded tabulated xy (95.046, 108.906; up to 0.011 in b\*); illuminant A is
-  computed from its defining Planck formula at 1 nm.
-- Batch QC skips a header row and reads numeric sample IDs; kL:kC:kH is bounded to 0.1–10; refusals print ×10ⁿ;
-  no dominant wavelength below 0.5 % purity; colours outside the spectral locus are refused; "L\*=50, a\*=10, b\*=5",
-  "rgb(…)", "0x" hex and %-signed spectra are read; lightness-only failures are explained; chromaticity figures
-  name their observer (CIE 1964 x₁₀y₁₀ for 10°), mark the locus every 20 nm and draw sRGB only on the 2° diagram.
+#### Left out
+- **Canon Log 3**: only one source could be checked (colour-science, whose two methods differ); Canon's published
+  18 % grey value could not be read, so the curve is not offered.
+- Sensor presets other than ARRI's: a size that could not be checked against the manufacturer is typed in instead.
 
-### Tests
-- colourScience.oracle.test.ts (Sharma table, 162 ΔE pairs on six formulas, 126 conversions, 80 adaptations, 845
-  spectral cases over 1/2/5/10/20 nm grids and partial ranges, E2022 weights, dominant wavelength, whiteness/YI,
-  metamerism, WCAG), colourData.crosscheck.test.ts, colourCalcs.test.ts (defaults, readings, display contract,
-  adversarial refusals, equations). Figure corpus +51 (floor 1016); Engineering figure ratchet 249.
+### Lighting & rendering
+New Engineering panel after Light & camera, seven calculators (Engineering +7, +1 group). Each opens with a reading
+built from its own numbers, states what it assumes, refuses bad input by name and draws. Oracles:
+`scripts/lighting-oracle.py` → `src/lib/__tests__/fixtures/lighting-oracle.json`.
+- **Sun position, golden hour & shadows** (`rend-sun-shadow`): Meeus low-accuracy solar coordinates (the NOAA Solar
+  Calculator's basis) with ΔT, apparent sidereal time, parallax and SPA refraction. Against NREL SPA (pvlib 0.16.1
+  `nrel_numpy`, 336 cases, 8 sites, 1990–2075): elevation within 0.0066°, azimuth arc within 0.0066°, equation of
+  time within 1.5 s; transit within 1.5 s; sunrise/sunset within 4.4 s of brentq on SPA's elevation at −0.8333°.
+  Golden hour (6° to −4°) and blue hour (−4° to −6°) are within 17 s of the same crossings. Polar day and night are
+  answers, not errors. The shadow length and bearing come with the soft edge the sun's 0.533° disc gives the tip.
+  Figures: the sun path (centred on north when the sun culminates there) and a plan of the shadow across the day.
+- **Soft shadows: umbra & penumbra** (`rend-soft-shadow`): penumbra D·d/L, umbra w − (D − w)d/L, where the umbra
+  ends and the antumbra begins, contact hardening, and the point-light shadow. Figures: a ray diagram, and the widths
+  against receiver distance.
+- **Light falloff, lighting ratios & light units** (`rend-falloff`): inverse-square stops, the light move for a
+  change in stops, and key:fill in stops (with the (key + fill):fill convention named). The exact on-axis disc
+  πL·sin²θ is set against the point form; the error is (R/z)², exactly 1 % at five diameters (checked against scipy
+  quad). Renderer units: lm → cd (Φ/4π), spot Φ/Ω using light-photometry's cone, area lm → nits (Φ/πA), and W → lm
+  at an efficacy that is refused above 683 lm/W.
+- **Microfacet BRDF** (`rend-brdf`): Cook–Torrance with GGX D, Smith G (height-correlated or separable) and Schlick F;
+  α = r²; F0 from IOR through the thin-film Fresnel module, or a metallic mix. Roughness below 0.045 is floored there
+  (Filament's clamp), and the floor is said. Directional albedo is integrated over the half-vector on a graded grid,
+  within 3.4×10⁻⁵ of an independent numpy Gauss–Legendre integral over the light direction. The white-furnace loss
+  is shown, and Schlick is set against exact Fresnel. Figures: the lobe for four roughness values, and albedo against
+  roughness.
+- **Render noise & samples per pixel** (`rend-noise`): N = N₀(σ₀/σₜ)² and render time with fixed overhead. The
+  closed-form per-sample variance of uniform against cosine-weighted hemisphere sampling for a light cone matches
+  scipy quad; cosine sampling is exact at β = 90°. Figure: noise against samples (log–log) with seeded Monte Carlo.
+- **Tone mapping & dynamic range** (`rend-tonemap`): Reinhard simple and extended, Hable Uncharted 2 (constants
+  cited, exposure bias 2), and Narkowicz's ACES fit (labelled an approximation, clipping at 7.2417), with 8-bit sRGB
+  codes. Also the exposure that puts middle grey at 0.18 under each curve, and dynamic range in stops. Figure: the
+  curves on a log axis.
+- **Atmosphere, fog & scattering** (`rend-atmosphere`): Beer–Lambert, Koschmieder 3.912/σ (and the WMO 5 % range),
+  Rayleigh λ⁻⁴, Kasten–Young air mass (matches pvlib), and Bucholtz (1995) Rayleigh optical depth (0.0972 at 550 nm;
+  within 1.5 % of Hansen–Travis and Bird–Riordan over 400–700 nm). Direct-beam transmittance by wavelength, and
+  Henyey–Greenstein (normalisation and ⟨cos θ⟩ = g checked by quad). σ = 0 reads "unlimited", never Infinity.
+- Figure corpus +70. engEquations.test.ts now also counts `engEq` keys used by library registries (`src/lib/*Calcs.ts`).
+- Not built: a reflections/caustics calculator. The critical angle and total internal reflection already exist
+  (Optics ▸ Snell, thin-film Fresnel), and Snell's window is twice the critical angle.
+
+### Spaceflight & missions
+A new Engineering group, **Spaceflight & missions**, right after Trajectory & orbits, with ten calculators. Every number is checked against an independent Python oracle
+(scripts/spaceflight-oracle.py: scipy DOP853 integration, brentq, numpy polynomial roots, skyfield DE421, astropy WGS 84),
+and against published values: Curtis Examples 4.3, 4.7 and 5.2, Vallado Example 2-1, Earth–Moon L1 ≈ 326 400 km,
+Sun–Earth L1 ≈ 1.5 million km, the sun-synchronous inclination at 800 km ≈ 98.6°, Apollo TLI ≈ 3.1 km/s. Each result
+opens with a plain-language reading, states its model and limits, and draws.
+- **Orbit from elements or a state vector**: both directions for every conic (the parabola exactly, sized by periapsis
+  radius or p), Kepler propagation by the universal variable with Kepler's equation in each conic's own form as a
+  check, period, apsides, energy and h; circular and equatorial orbits use the argument of latitude, longitude of
+  periapsis and true longitude. Figures: the orbit in its plane to scale, and inertial X–Y and X–Z views.
+- **Lambert's problem**: universal variable, short or long way, single revolution; a 180° (or 0°) transfer is refused
+  because its plane is undefined; a time so short the transfer would need 1 % of light speed is refused. Figure: the arc.
+- **Interplanetary transfers**: Hohmann between planets (flight time, C3, v∞, the Oberth departure burn from a parking
+  orbit, capture into an ellipse), the synodic period and the next window, and a **porkchop** of C3 from Lambert solves
+  between positions from JPL's approximate (Standish) elements, Table 1, extracted mechanically
+  (scripts/spaceflight-extract.py) and checked against DE421; dates outside 1800–2050 are refused.
+- **Lunar mission Δv budget**: patched-conic TLI for a flight time, the Moon's sphere of influence, LOI, descent and
+  ascent with gravity-loss allowances, TEI, mid-course allowances and propellant by the rocket equation; a waterfall.
+- **Orbit changes**: plane change pure and combined with circularisation, bi-elliptic against Hohmann with the 11.94 and
+  15.58 thresholds solved as roots, phasing for a lead angle (refused when the phasing orbit would hit the body).
+- **J2 and special orbits**: nodal regression and apsidal precession, the sun-synchronous inclination, the critical
+  inclination, GEO radius and longitude drift, ground-track shift and the nearest repeat ground tracks; ground-track map.
+- **Three-body points**: L1–L5 by root-finding on the exact collinear balance for any pair (Earth–Moon, Sun–planet or
+  custom, mass ratio up to 1), Hill sphere, Laplace sphere of influence, rigid and fluid Roche limits, the Jacobi
+  constant of a state and the zero-velocity curves in the rotating frame.
+- **Re-entry and decay**: ballistic coefficient, Allen–Eggers peak deceleration with its altitude and speed, Sutton–Graves
+  stagnation heating, checked against an RK4 integration with gravity on the 1976 standard atmosphere; orbital
+  lifetime at low, moderate and high solar activity from an NRLMSIS 2.1 density table generated mechanically; γ = 0 is
+  refused by name.
+- **Ground station**: azimuth, elevation and slant range on WGS 84; footprint, swath, longest pass, range rate and
+  Doppler. No TLE/SGP4 (not offered rather than offered unvalidated).
+- **Spacecraft thermal balance**: hot and cold equilibrium temperatures from α, ε, the 1/r² solar flux, albedo, planet
+  infrared and internal power, with temperature against distance from the Sun.
+- Astronomical units are read in every length field (1 au = 149 597 870.7 km exactly).
+
+### Clinical research & dosing
+
+Stats grows from 77 to 87 calculators under a new eleventh heading, **Clinical research & epidemiology**; Engineering
+gains seven dosing tools. These are research and teaching tools for patent attorneys, inventors and students (a
+diagnostic patent claims "a sensitivity of at least 90%"). There are no bedside decision scores. Every number is
+checked against statsmodels 0.15, scipy, scikit-learn 1.9.1 or pingouin 0.7.0, or against an independent Python
+re-implementation where no library computes it (scripts/clinical-oracle.py). The published worked examples are
+reproduced: Hanley & McNeil's CT ratings (AUC 0.893), Bland & Altman's 1986 PEFR data, Altman's 1998 NNT intervals,
+Shrout & Fleiss's 1979 ICC table, and the metafor BCG meta-analysis.
+
+#### Added: Stats (77 → 87)
+- **Diagnostic test accuracy:** from a 2×2 table, or from sensitivity, specificity and prevalence.
+  - Sensitivity, specificity, PPV, NPV and accuracy, with Wilson or Clopper–Pearson intervals (Wilson is the default).
+  - LR+ and LR− by the log method; the diagnostic odds ratio; Youden's J.
+  - PPV and NPV at another prevalence, with the Mercaldo logit interval.
+  - Pre-test to post-test probability, drawn as a **Fagan nomogram**.
+  - A zero cell adds 0.5 (Haldane–Anscombe) to the ratio measures only, and the result says so. A prevalence of 0% or
+    100% is refused in words.
+- **ROC curve and AUC:** the DeLong interval; the Youden-optimal cutoff with its sensitivity and specificity; DeLong's
+  paired test for two scores on the same cases.
+  - Ties count one half.
+  - All-identical scores are refused.
+  - An AUC below 0.5 says to switch the direction.
+- **Diagnostic study sample size** (Buderer 1996).
+- **Risk ratio, odds ratio and NNT** for a cohort, trial or case-control 2×2.
+  - Interval methods: Katz log, Woolf, and Newcombe hybrid score or Wald for the risk difference. ARR and RRR are
+    reported too.
+  - NNTB or NNTH in Altman's notation. An interval that crosses no effect reads "NNTH 20 to ∞ to NNTB 4", explained in
+    words.
+  - Pearson χ² and Fisher's exact p come from the Stats chi-square tool's own engine.
+  - A forest figure on a log axis.
+- **Incidence-rate ratio** for person-time: an exact interval (conditional binomial) and a Wald interval, with the
+  exact test and the rate difference.
+- **Cohen's kappa**, unweighted or with linear or quadratic weights, using the Fleiss–Cohen–Everitt standard errors.
+  When both raters use only one category, the result is refused.
+- **Bland–Altman:** the bias and the 95% limits of agreement, each with its interval (± 1.96 SD, or ± 2 SD as in the
+  1986 paper), a proportional-bias regression, and the Bland–Altman plot.
+- **ICC:** all six Shrout–Fleiss / McGraw–Wong forms with F-method intervals and F tests, plus a profile figure.
+- **Meta-analysis:** input as 2×2 counts (OR, RR or RD), as effect and SE, or as effect and 95% CI.
+  - Inverse-variance or Mantel–Haenszel fixed effect.
+  - DerSimonian–Laird or REML random effects.
+  - Q, I² with the Higgins–Thompson interval, τ², and the prediction interval.
+  - A forest plot.
+  - Single-zero studies are corrected, double-zero studies are left out by name, and one study is refused.
+- **Small-study effects:** Egger's test with a funnel plot. Fewer than 10 studies are refused by name (Sterne et al.
+  2011).
+- The shared forest plot builder (statchart.forestPlotSvg) takes an optional `maxRows`, so the meta-analysis forest
+  can show every study (up to 30) and the pooled rows in one panel. Other callers are unchanged.
+
+#### Added: Engineering (seven dosing tools)
+- **Biomedical:**
+  - BMI, and body surface area by Mosteller, Du Bois, Haycock and Gehan–George side by side.
+  - Lab unit conversions (creatinine, glucose, cholesterol, triglycerides, urea nitrogen) with molar-mass factors
+    cited.
+- **Pharmacokinetics:**
+  - Ideal (Devine), adjusted (0.4) and lean (Janmahasatian) body weight.
+  - Cockcroft–Gault on the chosen weight, with all three weights shown.
+  - CKD-EPI 2021 race-free eGFR, from creatinine and from creatinine with cystatin C, plus the optional non-indexed
+    mL/min.
+  - Weight- or BSA-based dose, with a cap and a draw volume.
+  - Infusion rate, in both directions between µg/kg/min (and three other dose-rate units) and mL/h.
+- Each dosing tool:
+  - cites its source paper;
+  - ends with "Assumes: for research and education; not a substitute for clinical judgement or institutional dosing
+    protocols."
+- Each dosing tool refuses unit mistakes by name:
+  - creatinine in µmol/L typed into mg/dL, or the reverse;
+  - height in metres typed into cm;
+  - a unit typed after the number;
+  - cystatin C in nmol/L;
+  - an SI value typed as conventional;
+  - patients under 18 for the adult equations.
 
 ## [2.205.0] — 2026-10-29 — Every Finance and Stats result explains itself
 

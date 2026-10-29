@@ -10,9 +10,169 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0es. New in v2.206.0 — Clinical research & dosing (Stats 77 → 87, Engineering 241 → 248)
+## 0et. New in v2.206.0 — Colour, VFX, lighting, scene modelling, spaceflight and clinical research (Engineering 241 → 295, Stats 77 → 87)
 
-- [ ] **Stats dropdown** shows eleven group headings; **Clinical research & epidemiology** follows Survival.
+- [ ] **Engineering** Home tile reads "295 calculators across 30 disciplines". After *Light & camera (3)* come
+  **Colour & appearance (8)**, **Lighting & rendering (7)**, **VFX & compositing (11)** and **Scene modelling &
+  pipeline (11)**, in that order; **Spaceflight & missions (10)** comes right after *Trajectory & orbits (13)*;
+  Biomedical shows 5 and Pharmacokinetics 9.
+- [ ] **Stats dropdown** shows eleven group headings (87 calculators); **Clinical research & epidemiology** follows
+  Survival.
+
+### Colour & appearance
+
+- [ ] **Colour difference ΔE** (defaults: standard 45.00, 52.00, 28.00, sample 46.20, 49.50, 30.10, D65/10°, d/8° SCI) → first line "The sample is slightly lighter, a little duller and shifted toward yellow; the difference is clearly visible side by side (ΔE₀₀ 2.15)."; claim line "ΔE₀₀ = 2.15 (CIEDE2000, kL:kC:kH = 1:1:1; D65/10°; d/8° SCI; standard → sample)"; "Tolerance ΔE₀₀ < 2: FAIL"; the formula table ΔE\*ab 3.48, ΔE\*94 2.04 (graphic arts) and 1.81 (textiles), CMC 2.18 (2:1) and 2.40 (1:1); the warning that ΔE\*94 textiles gives the OPPOSITE verdict. Three figures: the a\*b\* plane, the tolerance region (green, an ellipse-like CIEDE2000 contour much larger than the grey CIE76 circle), L\* bars.
+- [ ] Same, set the **tolerance formula to ΔE\*94 (textiles)** → "PASS (ΔE\*94 = 1.81)" and the opposite verdict listed for the five other formulas.
+- [ ] Same, set **geometry to Not stated** → a line saying the ΔE cannot support a claim limitation without it.
+- [ ] Same, **swap standard and sample** → ΔE₀₀ and ΔE\*ab unchanged, ΔE\*94 and CMC change.
+- [ ] **Batch colour QC** (defaults) → "7 of 8 samples pass ΔE₀₀ < 2; the worst is B5 (ΔE₀₀ 2.87, …), and the mean is 1.12."; B5 marked FAIL; the samples figure shows one red point outside the green region.
+- [ ] **Colour conversion** (defaults: L\*a\*b\* 52.0, 42.5, 20.1, D65/2°) → XYZ 28.7413, 20.1443, 12.4762 (white 95.047, 100, 108.883); sRGB 197, 91, 92 = #C55B5C, inside the gamut; dominant wavelength 612 nm. Type **60, −90, 70** → "OUTSIDE the sRGB gamut", clipped #00AF00 with the unclipped values shown (one negative).
+- [ ] **Spectral reflectance to colour** (defaults: ColorChecker orange, 10 nm, D65/10°, ASTM E308) → L\*a\*b\* 59.92, 34.30, 53.89; dominant wavelength 587 nm, excitation purity 75.4 %; sRGB #DA762F; the method line names the E2022 10 nm weighting factors and the folded end weights. Paste the block in **descending** order → same result, with a note that it was reversed. Change one value to **55** → refused as a percentage.
+- [ ] **Metamerism index** (defaults) → ΔE₀₀ 0.00 under D65; index A 2.20, F11 4.97, F2 5.12; "… so the pair is metameric".
+- [ ] **Chromatic adaptation** (defaults: Lab 50, 20, −30 from D50 to D65, Bradford) → 50.25, 22.91, −29.82; "the four transforms agree to within ΔE₀₀ 1.16" (the largest pair, von Kries against CAT02).
+- [ ] **Whiteness, tint and yellowness** (defaults: XYZ 93, 98, 115, D65/10°) → W 124.18, T +1.93, YI (E313, D65/10°) −11.43. Type **70, 72, 60** → flagged OUTSIDE the formula's valid range.
+- [ ] **Contrast ratio (WCAG)** (defaults #777777 on #FFFFFF) → 4.48:1, fails AA normal text, passes large text and SC 1.4.11; **#767676** → 4.54:1 passes AA. The swatch figure shows both colour orders.
+- [ ] Insert each result: text, tables, the equations (ΔE\*ab with its asterisks, CIEDE2000) and the figures land in Word as one package; Ctrl+Z removes it.
+
+### Lighting & rendering
+
+- [ ] **Sun position, golden hour & shadows** (defaults: London, 2026-06-21, 15:00, +1, 1.8 m) → the first line reads
+  "the sun is 54° above the horizon in the south-west (azimuth 230°); a 1.8 m object casts a 1.31 m shadow pointing
+  north-east". The table gives elevation 53.9883° (geometric 53.9761°), azimuth 230.003° (SW), solar noon 13:02,
+  sunrise 04:43, sunset 21:22, sun up for 16 h 38 min on the date, golden hour 04:15 to 05:37; 20:27 to 21:50, blue hour
+  03:55 to 04:15; 21:50 to 22:09, and a shadow of 1.30834 m at bearing 50°. Two figures: the sun path and the shadow plan.
+- [ ] Same, latitude 78.2232, longitude 15.6267, date 2026-12-21, time 12:00 → "polar night", "no shadow", and
+  sunrise "none: polar night"; it still draws.
+- [ ] Same, latitude `69.65`, longitude `18.96`, date 2026-05-18, offset 2 → "The sun rises at 00:52 and does not set
+  again before the next day"; the Sunset row says "the sun stays up through the night". With date 2026-12-21 and
+  offset 1, the Golden hour row is one stretch, 10:30 to 12:55. With latitude `-89`, longitude 0, date 2026-03-20 and
+  offset 0, it "sets at 21:12" and the Golden hour row reads "all day".
+- [ ] Same, latitude `33°52' S` and longitude `151°12′ E` → accepted (Sydney). Latitude `33.87 E` → refused: the
+  hemisphere letter belongs to a longitude.
+- [ ] Same, date `06/07/2026` → refused: "not a date in the form YYYY-MM-DD".
+- [ ] **Soft shadows** (defaults 1 m light, 0.3 m occluder, 2 m, 1 m) → the reading says there is no umbra and a
+  0.05 m antumbra. Penumbra 0.5 m each side, outer width 0.95 m, the umbra ends at 0.857143 m, point-light shadow
+  0.45 m. With d = 0 → "perfectly hard". With L = 0 → refused: "the occluder sits at the light".
+- [ ] **Light falloff, ratios & units** (defaults) → 2 stops to the background, move to 1.414 m for +1 stop, 4:1 is
+  2 stops, the point form 6.25 % high at 2 m and 1 % at 5 m. Point light 795.775 cd, spot (60°) 11879.5 cd
+  (Ω = 0.841787 sr), area 4052.85 nit, 100 W at 100 lm/W = 10000 lm. With an efficacy of 700 → refused (683).
+- [ ] **Microfacet BRDF** (defaults r 0.5, IOR 1.5, 45°/45°/180°) → D 5.09296, G 0.970143, F 0.0420693, specular
+  0.10393 sr⁻¹, diffuse 0.254648, white-furnace albedo 0.886239 (it loses 11.4 %), albedo with F0 0.0395325, Schlick
+  −16.3 % from exact Fresnel 0.0502399. With r = 0 → computed, with "raised to it … delta function". With θv = 90 →
+  refused.
+- [ ] **Render noise** (defaults 64 spp, 8 % → 2 %, 10 min, 30 s overhead, β 30°) → 16 × the samples, 1024 spp,
+  2 h 33 min; variances 3.99529 (uniform) and 1.85055 (cosine), ratio 2.15898. With β = 90 → "no noise at all", and
+  the figure notes the missing cosine line.
+- [ ] **Tone mapping** (defaults) → middle grey at Reinhard 0.1525 (sRGB 109), extended 0.1543 (109), Hable 0.1283
+  (100), ACES fit 0.2669 (141); dynamic range 19.9 stops; the ACES fit clips above 7.2417.
+- [ ] **Atmosphere, fog & scattering** (defaults: visibility 2 km, 500 m, sun at 5°) → σ 1.95601 km⁻¹,
+  transmittance 0.37606, MOR 1531.55 m, air mass 10.3058. Direct beam: 450 nm 0.101845, 550 nm 0.3674, 650 nm
+  0.601897. HG p(30°) 0.251739 sr⁻¹, forward/back 394.4. With σ = 0 → "unlimited" visibility, transmittance 1.
+- [ ] Insert any one of them: the text, equations, tables and figures land in the document; Ctrl+Z removes them.
+
+### VFX & compositing
+
+- [ ] **Retime & speed ramp** (defaults) → first line "At 40 % speed the 48-frame shot becomes 120 frames (5 s at 24 fps);
+  94 fall between source frames, so frame blending or optical flow is needed and 2 frames sample past the ends of the
+  source"; output frame 1002 shows source 1001.4; "looks like a 450° shutter"; two figures (time warp, speed).
+- [ ] Same, speed **200** → 24 frames, 24 source frames never shown (the even ones, 1048 included), a 90° shutter; speed **0** → refused as a freeze.
+- [ ] Same, **Speed ramp** → 94 output frames, speed 25 % to 100 %, 79 between frames, 1 past the source.
+- [ ] **Shot frame range** (defaults) → plate 1001 to 1064 (64 frames), cut 1009 to 1056, offset +908; files
+  sh010_comp_v001.1001.exr to sh010_comp_v001.1064.exr **with the underscores intact in Word**; 2000 samples per frame;
+  2 frames = 4000 samples = 83.333333 ms.
+- [ ] Same, frame rate **29.97** → "the 5-frame sequence 1602, 1601, 1602, 1601, 1602, 8008 samples in all"; the 2-frame
+  offset is 3203.2 samples (66.7333 ms). Audio **96 kHz** → "odd audio frames carry 3204 samples and even frames 3202" (SMPTE ST 299-1 Table 7); frame rate **59.94** → says Table 7 does not cover it. Plate start **9990** → refused: "Padding overflow: the plate runs to frame
+  10053, which needs 5 digits".
+- [ ] **Camera match** (defaults, ALEXA Mini LF Open Gate, 35 mm) → 55.33° across, 40.09° high, 65.136° diagonal; Maya
+  Camera Aperture 1.4449 × 1.0055 in; crop factor 0.9677. Switch to **Full frame 36 × 24**, 50 mm, 6000 × 4000 → 39.6°
+  × 26.99°, aperture 1.4173 × 0.94488 in. **ALEXA 35 3.3K 6:5**, squeeze **2×**, 3328 × 2790 → 60.031° horizontal,
+  horizontal aperture 40.44 mm (desqueezed), Maya Lens Squeeze Ratio 2.
+- [ ] **Camera projection** (defaults) → pixel (3825, 1448.2), depth 9.417; 23.92 px per frame, a blur streak of 11.96 px
+  at 180°; parallax 36.88 px per frame, 885 px over 24 frames; figure from above with near and far lines.
+- [ ] **3D transforms** (defaults) → (1, 0, 0) maps to (1.3536, 2.6124, 2.2929); 69.356° about (0.0391, 0.7728, 0.6335);
+  quaternion (0.02226, 0.43968, 0.360423, 0.822363); the 4×4 matrix and its inverse insert as Word tables. Rotate
+  **10, 90, 20** → names gimbal lock.
+- [ ] **Normal maps & shading** (defaults) → tilted 27.8°, n·V = 0.367, n·L = 0.947, Schlick 0.040016 beside exact
+  0.04099. Texel encoding Float with **0.5, 0.5, 0.5** → refused: zero-length normal.
+- [ ] **Camera log** (defaults, S-Log3, 0.18) → code 0.4106 (10-bit 420). LogC3 → 0.391 (400); LogC4 → 0.2784 (284.8);
+  V-Log → 0.4233 (433); Log3G10 → 0.3333; ACEScct → 0.4136; Cineon → 0.4573 (467.8). No Canon Log 3 in the list.
+  S-Log3, code **0.05** → "below Sony S-Log3's black (code 0.0929, 10-bit 95): it decodes to −0.006473 linear".
+- [ ] **Compositing** (defaults, straight) → A over B (0.45, 0.3, 0.35) at alpha 1; the mistake makes it brighter (a
+  bright halo) by up to 0.4; screen on sRGB values 1.07 % brighter than linear. Premultiplied with A **0.4, 0.2, 0.05,
+  0.5** → darker (a dark fringe) by up to 0.2. Alpha **1.2** → refused.
+- [ ] **Chroma key** (defaults) → 0.1763 from the key in CbCr (0.2872 in RGB), alpha 0.642; green 0.55 → 0.325; the CbCr
+  figure shows two circles round the key.
+- [ ] **Miniatures & sim scale** (defaults) → 1:16 shot at 96 fps; Reynolds 64 times lower; 7 substeps per frame;
+  fall 10 m in 1.428 s, model 0.625 m in 0.357 s.
+- [ ] **Rigid-body drop & collision** (defaults, centimetres) → g = 980.665 cm/s², lands after 0.6387 s at 626.3 cm/s,
+  bounces to 72 cm, settles after about 2.55 s; 66 % of the energy lost; friction stops the sliding.
+- [ ] Insert any two: text, the tables and the figure land in the document; Ctrl+Z removes them.
+
+### Scene modelling & pipeline
+
+- [ ] **Bézier curve** (defaults) → opens "At t = 0.5 the cubic Bézier curve is at (2, 1.5) … 5.26837 long … fits a
+  4 × 1.5 box"; curvature −0.592593 (radius 1.6875, centre (2, −0.1875)). The figure shows the green de Casteljau
+  construction converging on the red point, and the orange bounding box. Enter four lines of `1, 1` → "the single
+  point (1, 1) … no tangent, normal or curvature".
+- [ ] **B-spline / NURBS** (defaults: weights `1, √2/2, 1`) → "an exact circular arc: 90° of a circle of radius 1
+  about (0, 0)"; C(0.5) = (0.707107, 0.707107); the largest radial error is "under 10⁻¹⁵". Knot insertion at 0.5 gives
+  the control points (1, 0), (1, 0.414214), (0.414214, 1), (0, 1). Weight `0` → refused ("A zero weight puts that
+  control point at infinity …"); knots `0 0 1 0 1 1` → "decreases at position 4".
+- [ ] **Mesh statistics** (default cube) → genus 0, χ = 2, area 24, volume 8; the wireframe is all grey. Delete the
+  `f 5 6 7 8` line → "This mesh is open: 4 boundary edges form 1 hole"; the four rim edges are orange. Change a face
+  to `f 0 1 2` → refused: "OBJ indices are 1-based … looks 0-based".
+- [ ] **Subdivision** (defaults: Catmull–Clark, 6 levels, budget 10,000) → 24,576 quads, 49,152 triangles, about
+  1.31256 MiB; "exceeded at level 5, so level 4 is the deepest that fits"; "Verified … through level 6". The figure
+  is a straight line on the log axis, crossing the red budget line. Switch to Loop → refused ("triangles only … 6
+  faces with 4 or more sides").
+- [ ] **Screen-space size & LOD** (defaults) → 93.5307 px across at 20 m; LOD2 in use; LOD3 beyond 28.0592 m; about
+  2.74827 px per visible triangle, with the quad-shading note.
+- [ ] **Ray intersection** (defaults) → "The ray hits the sphere at distance 4.04606". Set the origin to `0, 0, 0` →
+  "starts INSIDE the sphere … leaving at distance 1". Choose Triangle, with origin `0, 0, 1` and direction
+  `1, 0, 0` → "parallel to the triangle's plane".
+- [ ] **Bounding volumes & BVH split** (defaults) → split cost 2.81386 against 8 for a leaf; the best plane is x = 4.
+- [ ] **Texture memory** (defaults: 2048 × 2048 BC7, mips) → 5.33336 MiB (5,592,432 bytes), 27 bytes over the ×4/3
+  rule; 856.74 texels per metre; 4096 × 4096 for 1024 per metre. The budget list is 46.0001 MiB of 64 MiB. UV
+  fraction `0` → refused (zero area in UV space).
+- [ ] **Render farm** (defaults) → 8.05 h on 20 nodes, inside 24 h; a 12.549× speed-up; 7 nodes for the deadline;
+  cost 103.04. Serial fraction `1` → a 1× speed-up, "does not parallelise at all". Nodes `0` → refused.
+- [ ] **Frame storage** (defaults: 4096 × 2160, 4 channels, half) → 67.5 MiB per frame; the sequence is 189.844 GiB;
+  3.88273 min over 10 Gbps at 70 %. Choose 10-bit DPX with 3 channels → 33.75 MiB per frame.
+- [ ] **Production pipeline** (defaults) → Texturing is the bottleneck at 2 per 8-hour day; lead time 60 working hours
+  by Little's law; WIP limit 8 for 40 h. Arrival interval `2 h` → "the backlog grows", and no lead time is given.
+- [ ] **Insert** Bézier, Mesh and Render farm: the text, the table, the equations (real Word equations) and the figure
+  arrive as one package; Ctrl+Z removes them.
+
+### Spaceflight & missions
+
+- [ ] **Orbit from elements or state vector** (defaults, a Molniya orbit) → first line "an ellipse from 537.863 km to
+  39905.9 km altitude with a period of 11.99 h"; after 2 h, 25071.6 km altitude at 3.219 km/s; the Kepler check line
+  agrees with the propagation; three figures (orbit plane, X–Y, X–Z) drawn to equal scale.
+- [ ] Same, **Start from: State vector** (Curtis 4.3) → e 0.171212, i 153.2492°, Ω 255.2793°, ω 20.0683°.
+- [ ] Same, e = **1**, size **Periapsis radius** 7000 km → "exactly parabolic"; size **a** with e = 1 → refused by name.
+- [ ] **Lambert** (defaults, Curtis 5.2) → transfer velocity (−5.99250, 1.92537, 3.24564) km/s; r₂ = `-10000, 0, 0 km`
+  with r₁ = `7000, 0, 0 km` → refused: a 180° transfer.
+- [ ] **Interplanetary** (Earth → Mars, window 2026-09-01) → Hohmann 258.9 days, C3 8.672 km²/s², 3.590 km/s from
+  300 km, capture 2.080 km/s, synodic 779.9 days; porkchop minimum C3 9.146 km²/s² leaving 2026-10-31, 295 days; the
+  porkchop shows two lobes with the ridge blanked. Start 2049-06-01 → refused (1800 to 2050).
+- [ ] **Lunar Δv budget** (defaults) → TLI 3.158 km/s, LOI 0.9235 km/s (73 % propellant to lunar orbit at 320 s), total 8.977 km/s (94.3 % as one stage);
+  waterfall figure. Flight time 8 day → refused (longer than minimum energy).
+- [ ] **Orbit changes** (400 km → GEO, 28.5°) → Hohmann 3.854 km/s, combined with the second burn 4.222 km/s, before
+  leaving 7.629 km/s; thresholds R = 11.93877 and 15.58172; phasing 30° in GEO 0.186 km/s over 21.94 h.
+- [ ] **J2 / special orbits** (800 km, sso) → inclination 98.60°, node +0.9856°/day, track shift 25.248° west per orbit,
+  nearest repeat 214 orbits in 15 days at 797.32 km; GEO drift −0.6421°/day for Δa = 50 km. Altitude 8000 km → refused.
+- [ ] **Three-body** (Earth–Moon) → L1 326380.9 km from Earth (58019.14 km from the Moon), L2 64514.91 km beyond the
+  Moon, Hill sphere 61524 km, Jacobi C = 3.2094387, "trapped"; rotating-frame figure and a close-up of the Moon.
+  Custom pair with equal GM → μ = 0.5, L4/L5 UNSTABLE.
+- [ ] **Re-entry & decay** (defaults) → β 320.51 kg/m², 16.6 g near 40.1 km (closed form), 18.1 g near 37.3 km
+  (integrated), 114 W/cm²; decay from 250 km 20.0 / 33.7 / 68.2 days (high / moderate / low). Angle 0 → refused.
+- [ ] **Ground station** (defaults) → azimuth 34.8°, elevation 34.1°, 904.7 km; footprint 1665 km radius, longest pass
+  7.948 min, Doppler ±51.61 kHz at 2.25 GHz; the result says no TLE/SGP4.
+- [ ] **Thermal balance** (defaults) → hot 216.9 K (−56.3 °C), cold 154.9 K (−118.2 °C); distance `1 au` is read.
+- [ ] Insert any two: text, tables and figures land in the document; Ctrl+Z removes them.
+
+### Clinical research & dosing
+
 - [ ] **Diagnostic test accuracy** (defaults, TP 90 / FP 30 / FN 10 / TN 170) → sensitivity 90.0% (82.6% to 94.5%),
   specificity 85.0% (79.4% to 89.3%), LR+ 6.00 (4.29 to 8.40), LR− 0.12 (0.07 to 0.21), DOR 51.00; PPV at 10.0%
   prevalence 40.0% (32.3% to 48.3%); post-test 75.0% after a positive, 5.6% after a negative; the Fagan nomogram.
@@ -53,169 +213,6 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Lab unit conversions** → creatinine 1.2 mg/dL = 106.1 µmol/L; glucose `5.5` as mg/dL → refused ("looks like a
   value already in mmol/L"). Every dosing result ends with the research-and-education Assumes line and a Source line.
 - [ ] Insert one Stats and one Engineering result: text, tables and figure land in Word; Ctrl+Z removes them.
-
-
-## 0et. New in v2.206.0 — Spaceflight & missions (Engineering 241 → 251)
-
-- [ ] **Engineering dropdown** shows **Spaceflight & missions** (10) right after Trajectory & orbits (13).
-- [ ] **Orbit from elements or state vector** (defaults, a Molniya orbit) → first line "an ellipse from 537.863 km to
-  39905.9 km altitude with a period of 11.99 h"; after 2 h, 25071.6 km altitude at 3.219 km/s; the Kepler check line
-  agrees with the propagation; three figures (orbit plane, X–Y, X–Z) drawn to equal scale.
-- [ ] Same, **Start from: State vector** (Curtis 4.3) → e 0.171212, i 153.2492°, Ω 255.2793°, ω 20.0683°.
-- [ ] Same, e = **1**, size **Periapsis radius** 7000 km → "exactly parabolic"; size **a** with e = 1 → refused by name.
-- [ ] **Lambert** (defaults, Curtis 5.2) → transfer velocity (−5.99250, 1.92537, 3.24564) km/s; r₂ = `-10000, 0, 0 km`
-  with r₁ = `7000, 0, 0 km` → refused: a 180° transfer.
-- [ ] **Interplanetary** (Earth → Mars, window 2026-09-01) → Hohmann 258.9 days, C3 8.672 km²/s², 3.590 km/s from
-  300 km, capture 2.080 km/s, synodic 779.9 days; porkchop minimum C3 9.146 km²/s² leaving 2026-10-31, 295 days; the
-  porkchop shows two lobes with the ridge blanked. Start 2049-06-01 → refused (1800 to 2050).
-- [ ] **Lunar Δv budget** (defaults) → TLI 3.158 km/s, LOI 0.9235 km/s (73 % propellant to lunar orbit at 320 s), total 8.977 km/s (94.3 % as one stage);
-  waterfall figure. Flight time 8 day → refused (longer than minimum energy).
-- [ ] **Orbit changes** (400 km → GEO, 28.5°) → Hohmann 3.854 km/s, combined with the second burn 4.222 km/s, before
-  leaving 7.629 km/s; thresholds R = 11.93877 and 15.58172; phasing 30° in GEO 0.186 km/s over 21.94 h.
-- [ ] **J2 / special orbits** (800 km, sso) → inclination 98.60°, node +0.9856°/day, track shift 25.248° west per orbit,
-  nearest repeat 214 orbits in 15 days at 797.32 km; GEO drift −0.6421°/day for Δa = 50 km. Altitude 8000 km → refused.
-- [ ] **Three-body** (Earth–Moon) → L1 326380.9 km from Earth (58019.14 km from the Moon), L2 64514.91 km beyond the
-  Moon, Hill sphere 61524 km, Jacobi C = 3.2094387, "trapped"; rotating-frame figure and a close-up of the Moon.
-  Custom pair with equal GM → μ = 0.5, L4/L5 UNSTABLE.
-- [ ] **Re-entry & decay** (defaults) → β 320.51 kg/m², 16.6 g near 40.1 km (closed form), 18.1 g near 37.3 km
-  (integrated), 114 W/cm²; decay from 250 km 20.0 / 33.7 / 68.2 days (high / moderate / low). Angle 0 → refused.
-- [ ] **Ground station** (defaults) → azimuth 34.8°, elevation 34.1°, 904.7 km; footprint 1665 km radius, longest pass
-  7.948 min, Doppler ±51.61 kHz at 2.25 GHz; the result says no TLE/SGP4.
-- [ ] **Thermal balance** (defaults) → hot 216.9 K (−56.3 °C), cold 154.9 K (−118.2 °C); distance `1 au` is read.
-- [ ] Insert any two: text, tables and figures land in the document; Ctrl+Z removes them.
-
-
-## 0es. New in v2.206.0 — Lighting & rendering (Engineering +7, new panel) — DRAFT
-
-- [ ] **Engineering panels:** **Lighting & rendering** appears after Light & camera, with 7 tools; the Engineering
-  heading counts 248 calculators.
-- [ ] **Sun position, golden hour & shadows** (defaults: London, 2026-06-21, 15:00, +1, 1.8 m) → the first line reads
-  "the sun is 54° above the horizon in the south-west (azimuth 230°); a 1.8 m object casts a 1.31 m shadow pointing
-  north-east". The table gives elevation 53.9883° (geometric 53.9761°), azimuth 230.003° (SW), solar noon 13:02,
-  sunrise 04:43, sunset 21:22, sun up for 16 h 38 min on the date, golden hour 04:15 to 05:37; 20:27 to 21:50, blue hour
-  03:55 to 04:15; 21:50 to 22:09, and a shadow of 1.30834 m at bearing 50°. Two figures: the sun path and the shadow plan.
-- [ ] Same, latitude 78.2232, longitude 15.6267, date 2026-12-21, time 12:00 → "polar night", "no shadow", and
-  sunrise "none: polar night"; it still draws.
-- [ ] Same, latitude `69.65`, longitude `18.96`, date 2026-05-18, offset 2 → "The sun rises at 00:52 and does not set
-  again before the next day"; the Sunset row says "the sun stays up through the night". With date 2026-12-21 and
-  offset 1, the Golden hour row is one stretch, 10:30 to 12:55. With latitude `-89`, longitude 0, date 2026-03-20 and
-  offset 0, it "sets at 21:12" and the Golden hour row reads "all day".
-- [ ] Same, latitude `33°52' S` and longitude `151°12′ E` → accepted (Sydney). Latitude `33.87 E` → refused: the
-  hemisphere letter belongs to a longitude.
-- [ ] Same, date `06/07/2026` → refused: "not a date in the form YYYY-MM-DD".
-- [ ] **Soft shadows** (defaults 1 m light, 0.3 m occluder, 2 m, 1 m) → the reading says there is no umbra and a
-  0.05 m antumbra. Penumbra 0.5 m each side, outer width 0.95 m, the umbra ends at 0.857143 m, point-light shadow
-  0.45 m. With d = 0 → "perfectly hard". With L = 0 → refused: "the occluder sits at the light".
-- [ ] **Light falloff, ratios & units** (defaults) → 2 stops to the background, move to 1.414 m for +1 stop, 4:1 is
-  2 stops, the point form 6.25 % high at 2 m and 1 % at 5 m. Point light 795.775 cd, spot (60°) 11879.5 cd
-  (Ω = 0.841787 sr), area 4052.85 nit, 100 W at 100 lm/W = 10000 lm. With an efficacy of 700 → refused (683).
-- [ ] **Microfacet BRDF** (defaults r 0.5, IOR 1.5, 45°/45°/180°) → D 5.09296, G 0.970143, F 0.0420693, specular
-  0.10393 sr⁻¹, diffuse 0.254648, white-furnace albedo 0.886239 (it loses 11.4 %), albedo with F0 0.0395325, Schlick
-  −16.3 % from exact Fresnel 0.0502399. With r = 0 → computed, with "raised to it … delta function". With θv = 90 →
-  refused.
-- [ ] **Render noise** (defaults 64 spp, 8 % → 2 %, 10 min, 30 s overhead, β 30°) → 16 × the samples, 1024 spp,
-  2 h 33 min; variances 3.99529 (uniform) and 1.85055 (cosine), ratio 2.15898. With β = 90 → "no noise at all", and
-  the figure notes the missing cosine line.
-- [ ] **Tone mapping** (defaults) → middle grey at Reinhard 0.1525 (sRGB 109), extended 0.1543 (109), Hable 0.1283
-  (100), ACES fit 0.2669 (141); dynamic range 19.9 stops; the ACES fit clips above 7.2417.
-- [ ] **Atmosphere, fog & scattering** (defaults: visibility 2 km, 500 m, sun at 5°) → σ 1.95601 km⁻¹,
-  transmittance 0.37606, MOR 1531.55 m, air mass 10.3058. Direct beam: 450 nm 0.101845, 550 nm 0.3674, 650 nm
-  0.601897. HG p(30°) 0.251739 sr⁻¹, forward/back 394.4. With σ = 0 → "unlimited" visibility, transmittance 1.
-- [ ] Insert any one of them: the text, equations, tables and figures land in the document; Ctrl+Z removes them.
-
-
-## 0es. New in v2.206.0 (draft) — VFX & compositing (Engineering 241 → 252)
-
-- [ ] **Engineering dropdown** shows a **VFX & compositing** heading right after Light & camera, with eleven calculators.
-- [ ] **Retime & speed ramp** (defaults) → first line "At 40 % speed the 48-frame shot becomes 120 frames (5 s at 24 fps);
-  94 fall between source frames, so frame blending or optical flow is needed and 2 frames sample past the ends of the
-  source"; output frame 1002 shows source 1001.4; "looks like a 450° shutter"; two figures (time warp, speed).
-- [ ] Same, speed **200** → 24 frames, 24 source frames never shown (the even ones, 1048 included), a 90° shutter; speed **0** → refused as a freeze.
-- [ ] Same, **Speed ramp** → 94 output frames, speed 25 % to 100 %, 79 between frames, 1 past the source.
-- [ ] **Shot frame range** (defaults) → plate 1001 to 1064 (64 frames), cut 1009 to 1056, offset +908; files
-  sh010_comp_v001.1001.exr to sh010_comp_v001.1064.exr **with the underscores intact in Word**; 2000 samples per frame;
-  2 frames = 4000 samples = 83.333333 ms.
-- [ ] Same, frame rate **29.97** → "the 5-frame sequence 1602, 1601, 1602, 1601, 1602, 8008 samples in all"; the 2-frame
-  offset is 3203.2 samples (66.7333 ms). Audio **96 kHz** → "odd audio frames carry 3204 samples and even frames 3202" (SMPTE ST 299-1 Table 7); frame rate **59.94** → says Table 7 does not cover it. Plate start **9990** → refused: "Padding overflow: the plate runs to frame
-  10053, which needs 5 digits".
-- [ ] **Camera match** (defaults, ALEXA Mini LF Open Gate, 35 mm) → 55.33° across, 40.09° high, 65.136° diagonal; Maya
-  Camera Aperture 1.4449 × 1.0055 in; crop factor 0.9677. Switch to **Full frame 36 × 24**, 50 mm, 6000 × 4000 → 39.6°
-  × 26.99°, aperture 1.4173 × 0.94488 in. **ALEXA 35 3.3K 6:5**, squeeze **2×**, 3328 × 2790 → 60.031° horizontal,
-  horizontal aperture 40.44 mm (desqueezed), Maya Lens Squeeze Ratio 2.
-- [ ] **Camera projection** (defaults) → pixel (3825, 1448.2), depth 9.417; 23.92 px per frame, a blur streak of 11.96 px
-  at 180°; parallax 36.88 px per frame, 885 px over 24 frames; figure from above with near and far lines.
-- [ ] **3D transforms** (defaults) → (1, 0, 0) maps to (1.3536, 2.6124, 2.2929); 69.356° about (0.0391, 0.7728, 0.6335);
-  quaternion (0.02226, 0.43968, 0.360423, 0.822363); the 4×4 matrix and its inverse insert as Word tables. Rotate
-  **10, 90, 20** → names gimbal lock.
-- [ ] **Normal maps & shading** (defaults) → tilted 27.8°, n·V = 0.367, n·L = 0.947, Schlick 0.040016 beside exact
-  0.04099. Texel encoding Float with **0.5, 0.5, 0.5** → refused: zero-length normal.
-- [ ] **Camera log** (defaults, S-Log3, 0.18) → code 0.4106 (10-bit 420). LogC3 → 0.391 (400); LogC4 → 0.2784 (284.8);
-  V-Log → 0.4233 (433); Log3G10 → 0.3333; ACEScct → 0.4136; Cineon → 0.4573 (467.8). No Canon Log 3 in the list.
-  S-Log3, code **0.05** → "below Sony S-Log3's black (code 0.0929, 10-bit 95): it decodes to −0.006473 linear".
-- [ ] **Compositing** (defaults, straight) → A over B (0.45, 0.3, 0.35) at alpha 1; the mistake makes it brighter (a
-  bright halo) by up to 0.4; screen on sRGB values 1.07 % brighter than linear. Premultiplied with A **0.4, 0.2, 0.05,
-  0.5** → darker (a dark fringe) by up to 0.2. Alpha **1.2** → refused.
-- [ ] **Chroma key** (defaults) → 0.1763 from the key in CbCr (0.2872 in RGB), alpha 0.642; green 0.55 → 0.325; the CbCr
-  figure shows two circles round the key.
-- [ ] **Miniatures & sim scale** (defaults) → 1:16 shot at 96 fps; Reynolds 64 times lower; 7 substeps per frame;
-  fall 10 m in 1.428 s, model 0.625 m in 0.357 s.
-- [ ] **Rigid-body drop & collision** (defaults, centimetres) → g = 980.665 cm/s², lands after 0.6387 s at 626.3 cm/s,
-  bounces to 72 cm, settles after about 2.55 s; 66 % of the energy lost; friction stops the sliding.
-- [ ] Insert any two: text, the tables and the figure land in the document; Ctrl+Z removes them.
-
-
-## 0es. New in v2.206.0 — Scene modelling & pipeline (Engineering 241 → 252)
-
-- [ ] **Engineering panels:** a **Scene modelling & pipeline** panel sits right after *Light & camera*, with eleven
-  calculators; the Engineering heading counts 252 calculators.
-- [ ] **Bézier curve** (defaults) → opens "At t = 0.5 the cubic Bézier curve is at (2, 1.5) … 5.26837 long … fits a
-  4 × 1.5 box"; curvature −0.592593 (radius 1.6875, centre (2, −0.1875)). The figure shows the green de Casteljau
-  construction converging on the red point, and the orange bounding box. Enter four lines of `1, 1` → "the single
-  point (1, 1) … no tangent, normal or curvature".
-- [ ] **B-spline / NURBS** (defaults: weights `1, √2/2, 1`) → "an exact circular arc: 90° of a circle of radius 1
-  about (0, 0)"; C(0.5) = (0.707107, 0.707107); the largest radial error is "under 10⁻¹⁵". Knot insertion at 0.5 gives
-  the control points (1, 0), (1, 0.414214), (0.414214, 1), (0, 1). Weight `0` → refused ("A zero weight puts that
-  control point at infinity …"); knots `0 0 1 0 1 1` → "decreases at position 4".
-- [ ] **Mesh statistics** (default cube) → genus 0, χ = 2, area 24, volume 8; the wireframe is all grey. Delete the
-  `f 5 6 7 8` line → "This mesh is open: 4 boundary edges form 1 hole"; the four rim edges are orange. Change a face
-  to `f 0 1 2` → refused: "OBJ indices are 1-based … looks 0-based".
-- [ ] **Subdivision** (defaults: Catmull–Clark, 6 levels, budget 10,000) → 24,576 quads, 49,152 triangles, about
-  1.31256 MiB; "exceeded at level 5, so level 4 is the deepest that fits"; "Verified … through level 6". The figure
-  is a straight line on the log axis, crossing the red budget line. Switch to Loop → refused ("triangles only … 6
-  faces with 4 or more sides").
-- [ ] **Screen-space size & LOD** (defaults) → 93.5307 px across at 20 m; LOD2 in use; LOD3 beyond 28.0592 m; about
-  2.74827 px per visible triangle, with the quad-shading note.
-- [ ] **Ray intersection** (defaults) → "The ray hits the sphere at distance 4.04606". Set the origin to `0, 0, 0` →
-  "starts INSIDE the sphere … leaving at distance 1". Choose Triangle, with origin `0, 0, 1` and direction
-  `1, 0, 0` → "parallel to the triangle's plane".
-- [ ] **Bounding volumes & BVH split** (defaults) → split cost 2.81386 against 8 for a leaf; the best plane is x = 4.
-- [ ] **Texture memory** (defaults: 2048 × 2048 BC7, mips) → 5.33336 MiB (5,592,432 bytes), 27 bytes over the ×4/3
-  rule; 856.74 texels per metre; 4096 × 4096 for 1024 per metre. The budget list is 46.0001 MiB of 64 MiB. UV
-  fraction `0` → refused (zero area in UV space).
-- [ ] **Render farm** (defaults) → 8.05 h on 20 nodes, inside 24 h; a 12.549× speed-up; 7 nodes for the deadline;
-  cost 103.04. Serial fraction `1` → a 1× speed-up, "does not parallelise at all". Nodes `0` → refused.
-- [ ] **Frame storage** (defaults: 4096 × 2160, 4 channels, half) → 67.5 MiB per frame; the sequence is 189.844 GiB;
-  3.88273 min over 10 Gbps at 70 %. Choose 10-bit DPX with 3 channels → 33.75 MiB per frame.
-- [ ] **Production pipeline** (defaults) → Texturing is the bottleneck at 2 per 8-hour day; lead time 60 working hours
-  by Little's law; WIP limit 8 for 40 h. Arrival interval `2 h` → "the backlog grows", and no lead time is given.
-- [ ] **Insert** Bézier, Mesh and Render farm: the text, the table, the equations (real Word equations) and the figure
-  arrive as one package; Ctrl+Z removes them.
-
-## 0es. New in v2.206.0 — Colour & appearance (Engineering 241 → 249)
-
-- [ ] **Engineering** shows a new panel **Colour & appearance (8)** right after *Light & camera*; the Home tile reads "249 calculators across 26 disciplines".
-- [ ] **Colour difference ΔE** (defaults: standard 45.00, 52.00, 28.00, sample 46.20, 49.50, 30.10, D65/10°, d/8° SCI) → first line "The sample is slightly lighter, a little duller and shifted toward yellow; the difference is clearly visible side by side (ΔE₀₀ 2.15)."; claim line "ΔE₀₀ = 2.15 (CIEDE2000, kL:kC:kH = 1:1:1; D65/10°; d/8° SCI; standard → sample)"; "Tolerance ΔE₀₀ < 2: FAIL"; the formula table ΔE\*ab 3.48, ΔE\*94 2.04 (graphic arts) and 1.81 (textiles), CMC 2.18 (2:1) and 2.40 (1:1); the warning that ΔE\*94 textiles gives the OPPOSITE verdict. Three figures: the a\*b\* plane, the tolerance region (green, an ellipse-like CIEDE2000 contour much larger than the grey CIE76 circle), L\* bars.
-- [ ] Same, set the **tolerance formula to ΔE\*94 (textiles)** → "PASS (ΔE\*94 = 1.81)" and the opposite verdict listed for the five other formulas.
-- [ ] Same, set **geometry to Not stated** → a line saying the ΔE cannot support a claim limitation without it.
-- [ ] Same, **swap standard and sample** → ΔE₀₀ and ΔE\*ab unchanged, ΔE\*94 and CMC change.
-- [ ] **Batch colour QC** (defaults) → "7 of 8 samples pass ΔE₀₀ < 2; the worst is B5 (ΔE₀₀ 2.87, …), and the mean is 1.12."; B5 marked FAIL; the samples figure shows one red point outside the green region.
-- [ ] **Colour conversion** (defaults: L\*a\*b\* 52.0, 42.5, 20.1, D65/2°) → XYZ 28.7413, 20.1443, 12.4762 (white 95.047, 100, 108.883); sRGB 197, 91, 92 = #C55B5C, inside the gamut; dominant wavelength 612 nm. Type **60, −90, 70** → "OUTSIDE the sRGB gamut", clipped #00AF00 with the unclipped values shown (one negative).
-- [ ] **Spectral reflectance to colour** (defaults: ColorChecker orange, 10 nm, D65/10°, ASTM E308) → L\*a\*b\* 59.92, 34.30, 53.89; dominant wavelength 587 nm, excitation purity 75.4 %; sRGB #DA762F; the method line names the E2022 10 nm weighting factors and the folded end weights. Paste the block in **descending** order → same result, with a note that it was reversed. Change one value to **55** → refused as a percentage.
-- [ ] **Metamerism index** (defaults) → ΔE₀₀ 0.00 under D65; index A 2.20, F11 4.97, F2 5.12; "… so the pair is metameric".
-- [ ] **Chromatic adaptation** (defaults: Lab 50, 20, −30 from D50 to D65, Bradford) → 50.25, 22.91, −29.82; "the four transforms agree to within ΔE₀₀ 1.16" (the largest pair, von Kries against CAT02).
-- [ ] **Whiteness, tint and yellowness** (defaults: XYZ 93, 98, 115, D65/10°) → W 124.18, T +1.93, YI (E313, D65/10°) −11.43. Type **70, 72, 60** → flagged OUTSIDE the formula's valid range.
-- [ ] **Contrast ratio (WCAG)** (defaults #777777 on #FFFFFF) → 4.48:1, fails AA normal text, passes large text and SC 1.4.11; **#767676** → 4.54:1 passes AA. The swatch figure shows both colour orders.
-- [ ] Insert each result: text, tables, the equations (ΔE\*ab with its asterisks, CIEDE2000) and the figures land in Word as one package; Ctrl+Z removes it.
 
 ## 0es. New in v2.205.0 — Every Finance and Stats result opens with a plain reading
 
@@ -435,7 +432,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 ## 0ed. New in v2.191.0 — Engineering gap release and quantum mathematics
 
 - [ ] **Engineering panels:** the panel list shows **Quantum computing** and **Quantum mechanics** after Quantum optics;
-  the Engineering heading counts 252 calculators.
+  the Engineering heading counts 241 calculators.
 - [ ] **Units:** Thermal ▸ composite wall, enter a film coefficient `10 Btu/(h·ft²·°F)` → converted (about 56.78 W/(m²·K)),
   and the "Units read" note shows ×10ⁿ, never e-notation. Fracture toughness `50 MPa·√m` is accepted; plain `50 MPa` is
   refused as the wrong quantity.

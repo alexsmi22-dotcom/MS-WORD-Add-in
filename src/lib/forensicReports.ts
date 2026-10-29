@@ -533,9 +533,11 @@ export function swrCalc(read: Read): FinResult {
  * 0.0% or 100.0% prints "< 0.1%" or "> 99.9%" (fix round 2 M1: 6 ruined paths of 20,000 printed "0%").
  */
 export function swrPct(x: number): string {
-  if (x > 0 && x < 0.0005) return "< 0.1%";
-  if (x < 1 && x >= 0.9995) return "> 99.9%";
-  return `${fixedText(x * 100, 1)}%`;
+  // Decided on the printed digits, so a float like 10/20,000 × 100 = 0.04999… cannot slip through as "0.0%".
+  const s = fixedText(x * 100, 1);
+  if (x > 0 && s === "0.0") return "< 0.1%";
+  if (x < 1 && s === "100.0") return "> 99.9%";
+  return `${s}%`;
 }
 /** Whether swrPct printed the "< 0.1%" or "> 99.9%" form (then the text and the reading give the count of paths). */
 export const swrPctEdge = (x: number): boolean => swrPct(x).startsWith("<") || swrPct(x).startsWith(">");

@@ -39,6 +39,9 @@ describe("M1 + MINOR 7: safe-withdrawal Monte Carlo", () => {
     expect(swrPct(0.0003)).toBe("< 0.1%");
     expect(swrPct(0.9997)).toBe("> 99.9%");
     expect(swrPct(1)).toBe("100.0%");
+    // at the rounding edge the printed digits decide (10 of 20,000 × 100 is 0.04999… in floating point)
+    expect(swrPct(10 / 20000)).not.toBe("0.0%");
+    expect(swrPct(1 - 10 / 20000)).not.toBe("100.0%");
     const o = run({ withdraw: "40000" });
     expect(o.text).toMatch(/Probability of ruin within 30 years: \d+\.\d%, simulation standard error about 0\.\d\d percentage points/);
   });

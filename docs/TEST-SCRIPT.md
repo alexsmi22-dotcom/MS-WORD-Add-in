@@ -17,10 +17,16 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Sun position, golden hour & shadows** (defaults: London, 2026-06-21, 15:00, +1, 1.8 m) → the first line reads
   "the sun is 54° above the horizon in the south-west (azimuth 230°); a 1.8 m object casts a 1.31 m shadow pointing
   north-east". The table gives elevation 53.9883° (geometric 53.9761°), azimuth 230.003° (SW), solar noon 13:02,
-  sunrise 04:43, sunset 21:22, day length 16 h 38 min, golden hour 04:15 to 05:37 and 20:27 to 21:50, blue hour
-  03:55 to 04:15 and 21:50 to 22:09, and a shadow of 1.30834 m at bearing 50°. Two figures: the sun path and the shadow plan.
+  sunrise 04:43, sunset 21:22, sun up for 16 h 38 min on the date, golden hour 04:15 to 05:37; 20:27 to 21:50, blue hour
+  03:55 to 04:15; 21:50 to 22:09, and a shadow of 1.30834 m at bearing 50°. Two figures: the sun path and the shadow plan.
 - [ ] Same, latitude 78.2232, longitude 15.6267, date 2026-12-21, time 12:00 → "polar night", "no shadow", and
   sunrise "none: polar night"; it still draws.
+- [ ] Same, latitude `69.65`, longitude `18.96`, date 2026-05-18, offset 2 → "The sun rises at 00:52 and does not set
+  again before the next day"; the Sunset row says "the sun stays up through the night". With date 2026-12-21 and
+  offset 1, the Golden hour row is one stretch, 10:30 to 12:55. With latitude `-89`, longitude 0, date 2026-03-20 and
+  offset 0, it "sets at 21:12" and the Golden hour row reads "all day".
+- [ ] Same, latitude `33°52' S` and longitude `151°12′ E` → accepted (Sydney). Latitude `33.87 E` → refused: the
+  hemisphere letter belongs to a longitude.
 - [ ] Same, date `06/07/2026` → refused: "not a date in the form YYYY-MM-DD".
 - [ ] **Soft shadows** (defaults 1 m light, 0.3 m occluder, 2 m, 1 m) → the reading says there is no umbra and a
   0.05 m antumbra. Penumbra 0.5 m each side, outer width 0.95 m, the umbra ends at 0.857143 m, point-light shadow

@@ -177,6 +177,58 @@ export function distinctLabels(labels: string[], maxChars: number): string[] {
   return out;
 }
 
+/**
+ * Forest-plot row labels under a figure-style re-render (v2.206.0 integration: the meta-analysis forest's study names,
+ * "Comstock & Webster 1969", were cut short at single-column widths). A label too long for its margin is word-wrapped
+ * onto at most three lines when its words allow; any other label keeps the cut `distinctLabels` gives it. Returns
+ * null when no label wraps, so the caller draws exactly as before. As drawn (no figure context) it is never used.
+ * The caller sizes every row for the deepest label: forestRowHeight.
+ */
+function forestWrappedLabels(labels: string[], maxChars: number): string[][] | null {
+  const m = Math.max(4, Math.floor(maxChars));
+  if (!currentFigCtx() || labels.every((s) => s.length <= m)) return null;
+  const cut = distinctLabels(labels, m);
+  let wrapped = false;
+  const out = labels.map((s, i) => {
+    if (s.length <= m) return [cut[i]];
+    const lines: string[] = [];
+    for (const w of s.split(/\s+/).filter(Boolean)) {
+      const last = lines.length ? lines[lines.length - 1] : null;
+      if (last !== null && last.length + 1 + w.length <= m) lines[lines.length - 1] = `${last} ${w}`;
+      else lines.push(w);
+    }
+    if (lines.length < 2 || lines.length > 3 || lines.some((l) => l.length > m)) return [cut[i]];
+    wrapped = true;
+    return lines;
+  });
+  if (!wrapped) return null;
+  // Two labels that wrap to the same pair of lines are told apart by the cut instead.
+  const keys = out.map((l) => l.join("\n"));
+  return out.map((l, i) => (l.length > 1 && keys.indexOf(keys[i]) !== keys.lastIndexOf(keys[i]) ? [cut[i]] : l));
+}
+
+/** Each forest row's height with wrapped labels: 20 px as drawn, 7 px more for each extra line of ITS label. */
+function forestRowHeights(wrapped: string[][]): number[] {
+  return wrapped.map((l) => 20 + 7 * (l.length - 1));
+}
+
+/** The height wrapped labels add to the plot area (0 when none wrap). */
+function forestExtraHeight(wrapped: string[][] | null): number {
+  return wrapped ? forestRowHeights(wrapped).reduce((s, h) => s + h - 20, 0) : 0;
+}
+
+/** Centre of row i: MT + 20·i + 10 as drawn; with wrapped labels, the rows above at their own heights. */
+function forestRowCentre(MT: number, wrapped: string[][] | null, i: number): number {
+  if (!wrapped) return MT + 20 * i + 10;
+  const h = forestRowHeights(wrapped);
+  return MT + h.slice(0, i).reduce((s, v) => s + v, 0) + h[i] / 2;
+}
+
+/** Baseline of line j of an n-line forest label centred on the row's centre cy (one line: cy + 3.5, as before). */
+function forestLabelY(cy: number, n: number, j: number): number {
+  return cy + 3.5 - 5 * (n - 1) + 10 * j;
+}
+
 export const BOX_CHART_SIZE = { w: 380, h: 280 };
 export const FOREST_CHART_SIZE = { w: 400, h: 240 };
 export const GROUPED_BAR_SIZE = { w: 380, h: 260 };
@@ -669,6 +721,10 @@ export function forestPlotSvg(
     shown.map((r) => r.label),
     (ML - 10) / 5.8,
   );
+  const wrapLines = forestWrappedLabels(shown.map((r) => r.label), (ML - 10) / 5.8);
+  if (wrapLines) {
+    H += forestExtraHeight(wrapLines);
+  }
   const MR = 18;
   const pw = W - ML - MR;
 
@@ -692,7 +748,7 @@ export function forestPlotSvg(
     ),
   );
 
-  const yBase = MT + shown.length * ROW_H;
+  const yBase = MT + shown.length * ROW_H + forestExtraHeight(wrapLines);
   for (const [ti, t] of ax.tickAt.entries()) {
     parts.push(
       `<text x="${x(t).toFixed(1)}" y="${yBase + 15}" text-anchor="middle" ` +
@@ -707,10 +763,13 @@ export function forestPlotSvg(
   );
 
   shown.forEach((r, i) => {
-    const cy = MT + ROW_H * i + ROW_H / 2;
-    parts.push(
-      `<text x="${ML - 8}" y="${(cy + 3.5).toFixed(1)}" text-anchor="end" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(rowLabels[i])}</text>`,
+    const cy = forestRowCentre(MT, wrapLines, i);
+    const lines = wrapLines ? wrapLines[i] : [rowLabels[i]];
+    lines.forEach((ln, j) =>
+      parts.push(
+        `<text x="${ML - 8}" y="${forestLabelY(cy, lines.length, j).toFixed(1)}" text-anchor="end" ` +
+          `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(ln)}</text>`,
+      ),
     );
     if (!Number.isFinite(r.estimate) || !Number.isFinite(r.low) || !Number.isFinite(r.high)) {
       parts.push(
@@ -853,6 +912,10 @@ function forestPlotLogSvg(
     maxChars,
   );
   const rowLabel = (_s: string, i: number): string => distinct[i];
+  const wrapLines = forestWrappedLabels(shown.map((r) => r.label), maxChars);
+  if (wrapLines) {
+    H += forestExtraHeight(wrapLines);
+  }
   const MR = 18;
   const pw = W - ML - MR;
   const span = ax.decHi - ax.decLo;
@@ -885,7 +948,7 @@ function forestPlotLogSvg(
         `font-size="12" fill="${INK}">${esc(line)}</text>`,
     ),
   );
-  const yBase = MT + shown.length * ROW_H;
+  const yBase = MT + shown.length * ROW_H + forestExtraHeight(wrapLines);
   // Decade gridlines (faint) and minor ticks on the baseline.
   for (const v of ax.major) {
     parts.push(
@@ -910,10 +973,13 @@ function forestPlotLogSvg(
   );
 
   shown.forEach((r, i) => {
-    const cy = MT + ROW_H * i + ROW_H / 2;
-    parts.push(
-      `<text x="${ML - 8}" y="${(cy + 3.5).toFixed(1)}" text-anchor="end" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(rowLabel(r.label, i))}</text>`,
+    const cy = forestRowCentre(MT, wrapLines, i);
+    const lines = wrapLines ? wrapLines[i] : [rowLabel(r.label, i)];
+    lines.forEach((ln, j) =>
+      parts.push(
+        `<text x="${ML - 8}" y="${forestLabelY(cy, lines.length, j).toFixed(1)}" text-anchor="end" ` +
+          `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(ln)}</text>`,
+      ),
     );
     if (!Number.isFinite(r.estimate) || !Number.isFinite(r.low) || !Number.isFinite(r.high)) {
       parts.push(

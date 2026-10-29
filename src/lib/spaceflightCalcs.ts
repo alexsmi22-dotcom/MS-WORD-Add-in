@@ -439,7 +439,7 @@ const lambertCalc: SpaceCalc = {
       if (crosses) reading += ` The arc dips to ${km(tr.rp - body.radius)} altitude, inside ${body.label}: it cannot be flown.`;
     }
     lines.push(reading);
-    lines.push({ math: "Delta t sqrt(mu) = (y(z)/C(z))^(3/2) S(z) + A sqrt(y(z))", fallback: "√μ·Δt = √((y/C)³)·S + A·√y (universal-variable Lambert equation)" });
+    lines.push({ math: "Delta t sqrt(mu) = (y(z)/C(z))^{3/2} S(z) + A sqrt(y(z))", fallback: "√μ·Δt = √((y/C)³)·S + A·√y (universal-variable Lambert equation)" });
     lines.push({ math: "A = sin(Delta theta) sqrt((r_1 r_2)/(1 - cos(Delta theta)))", fallback: "A = sin Δθ·√(r₁r₂/(1 − cos Δθ))" });
     lines.push(`Transfer angle Δθ = ${deg(L.dtheta, 3)}; z = ${sf(L.z, 6)} (z > 0 ellipse, z < 0 hyperbola); solved in ${L.iterations} bracketed steps.`);
     lines.push(`Minimum-energy transfer for this geometry: ${dur(L.tofMinEnergy)}; the parabolic time is ${dur(L.tofParabolic)} (a shorter flight is hyperbolic).`);
